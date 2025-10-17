@@ -1,6 +1,7 @@
-﻿// cart1.cpp — Visual Studio + libtorch (CPU/GPU) / A2C & PPO / 並列CartPole / 簡易TensorBoardロガー
+﻿// cart1.cpp — MSVC + libtorch (CPU/GPU) / A2C & PPO / 並列CartPole / 安定化済み
 
 #include <torch/torch.h>
+#include <torch/script.h>
 #include <iostream>
 #include <vector>
 #include <random>
@@ -10,6 +11,7 @@
 #include <numeric>
 #include <string>
 #include <filesystem>
+#include <algorithm>
 
 //==================== Logger (TSV for TensorBoard-like) ====================
 struct EventWriter {
@@ -49,7 +51,7 @@ struct CartPoleEnv {
 
     std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>
         step(const torch::Tensor& action) {
-        // ★ 環境更新は勾配不要
+        // 環境更新は勾配不要
         torch::NoGradGuard _ng;
 
         auto f = torch::TensorOptions().dtype(torch::kFloat32).device(device);
@@ -66,7 +68,7 @@ struct CartPoleEnv {
         theta_dot = theta_dot + 0.02f * thetaacc;
 
         auto done = (x.abs() > 2.4f) | (theta.abs() > 0.2095f);
-        // 報酬：案③（角度＋位置）— 正規化寄りの安定形
+        // 報酬：案③（角度＋位置）— 安定形
         auto reward = torch::where(done, torch::zeros_like(x),
             0.5f * torch::cos(theta) +
             0.5f * (1.0f - (x.abs() / 2.4f)).clamp(0.0f, 1.0f));
@@ -134,11 +136,10 @@ struct RolloutBuffer {
     torch::Tensor flat(const torch::Tensor& t) { return t.view({ -1, t.size(-1) }); }
 
     void compute_gae(torch::Tensor last_value, double gamma, double lam) {
-        // last_value: [N,1]（no_grad想定）
         torch::NoGradGuard _ng;
         auto gae = torch::zeros({ N }, last_value.options());
         for (int t = T - 1; t >= 0; --t) {
-            auto mask = 1.0f - done[t]; // [N]
+            auto mask = 1.0f - done[t];
             auto delta = rew[t] + static_cast<float>(gamma) * last_value.squeeze(-1) * mask - val[t];
             gae = delta + static_cast<float>(gamma * lam) * mask * gae;
             adv[t] = gae;
@@ -151,7 +152,7 @@ struct RolloutBuffer {
 //==================== helpers ====================
 static inline std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>
 policy_act_logp_value(PolicyNet& net, const torch::Tensor& obs) {
-    // ここは推論用途。呼び出し側で NoGradGuard する前提。
+    // 呼び出し側で NoGradGuard する前提（ロールアウト時）
     auto [logits, value] = net->forward(obs);          // logits:[N,2], value:[N,1]
     auto logp_all = torch::log_softmax(logits, -1);    // [N,2]
     auto p_all = torch::softmax(logits, -1);        // [N,2]
@@ -165,28 +166,47 @@ struct A2CUpdater {
     double gamma = 0.99, lam = 0.95;
     double value_coef = 0.5, entropy_coef = 0.01;
     double grad_clip_maxnorm = 0.5;
+    bool   obs_norm = true;             // 観測正規化ON/OFF
+    bool   reward_norm = false;         // 報酬正規化（任意：必要時にtrue）
 
     void update(PolicyNet& net, RolloutBuffer& buf, torch::optim::Optimizer& opt,
         EventWriter& logger, long long global_step)
     {
-        // --- Bootstrap value for GAE (no grad) ---
-        torch::NoGradGuard ng_boot;
-        auto last_obs = buf.obs.index({ buf.T - 1 });
-        auto last_val = std::get<1>(net->forward(last_obs)); // [N,1]
-        buf.compute_gae(last_val, gamma, lam);
-        // -----------------------------------------
+        // 報酬正規化（任意）
+        if (reward_norm) {
+            torch::NoGradGuard _ng;
+            auto mean = buf.rew.mean();
+            auto std = buf.rew.var(false).sqrt();
+            buf.rew = (buf.rew - mean) / (std + 1e-6f);
+        }
+
+        // Bootstrap for GAE (no grad)
+        {
+            torch::NoGradGuard ng_boot;
+            auto last_obs = buf.obs.index({ buf.T - 1 });
+            auto last_val = std::get<1>(net->forward(last_obs)); // [N,1]
+            buf.compute_gae(last_val, gamma, lam);
+        }
+
+        // 観測正規化（学習時のみ適用）
+        torch::Tensor obs_f = buf.flat(buf.obs).contiguous();  // [B,4]
+        if (obs_norm) {
+            torch::NoGradGuard _ng;
+            auto mean = buf.obs.mean(torch::IntArrayRef({ 0, 1 }));
+            auto std = buf.obs.var(torch::IntArrayRef({ 0, 1 }), false).sqrt();
+            obs_f = (obs_f - mean.unsqueeze(0)) / (std.unsqueeze(0) + 1e-6f);
+        }
 
         auto adv = buf.adv;
-        adv = (adv - adv.mean()) / (adv.std() + 1e-8f);
+        adv = (adv - adv.mean()) / (adv.var(false).sqrt() + 1e-8f);
 
-        auto obs_f = buf.flat(buf.obs).contiguous();                  // [B,4]
-        auto act_f = buf.act.reshape({ buf.T * buf.N });                // [B]
-        auto adv_f = adv.reshape({ buf.T * buf.N });                    // [B]
-        auto ret_f = buf.ret.reshape({ buf.T * buf.N });                // [B]
+        auto act_f = buf.act.reshape({ buf.T * buf.N });         // [B]
+        auto adv_f = adv.reshape({ buf.T * buf.N });             // [B]
+        auto ret_f = buf.ret.reshape({ buf.T * buf.N });         // [B]
 
         opt.zero_grad();
-        auto [logits, value] = net->forward(obs_f);                   // logits:[B,2] value:[B,1]
-        auto logp_all = torch::log_softmax(logits, -1);               // [B,2]
+        auto [logits, value] = net->forward(obs_f);            // logits:[B,2], value:[B,1]
+        auto logp_all = torch::log_softmax(logits, -1);        // [B,2]
         auto picked = logp_all.gather(1, act_f.unsqueeze(1)).squeeze(1); // [B]
         auto entropy = -(logp_all * logp_all.exp()).sum(-1).mean();
 
@@ -211,30 +231,50 @@ struct A2CUpdater {
 //==================== PPO Updater ====================
 struct PPOUpdater {
     double gamma = 0.99, lam = 0.95;
-    double value_coef = 0.5, entropy_coef = 0.02;
-    double clip_range = 0.1, grad_clip_maxnorm = 0.5;
-    int update_epochs = 2, num_minibatches = 8;
+    double value_coef = 0.5, entropy_coef = 0.02;   // ↑探索増
+    double clip_range = 0.1;                        // ↓クリップ狭め
+    double grad_clip_maxnorm = 0.5;
+    int update_epochs = 2;                           // ↓エポック減
+    int num_minibatches = 8;                         // ↑MB数増
+    bool   obs_norm = true;
+    bool   reward_norm = false;                      // 必要ならtrue
+    float  value_clip_range = 0.2f;                  // 価値関数クリップ幅
+    float  approx_kl_threshold = 0.02f;              // 早期停止閾値
 
     void update(PolicyNet& net, RolloutBuffer& buf, torch::optim::Optimizer& opt,
         EventWriter& logger, long long global_step)
     {
-        // --- Bootstrap value for GAE (no grad) ---
+        // 報酬正規化（任意）
+        if (reward_norm) {
+            torch::NoGradGuard _ng;
+            auto mean = buf.rew.mean();
+            auto std = buf.rew.var(false).sqrt();
+            buf.rew = (buf.rew - mean) / (std + 1e-6f);
+        }
+
+        // Bootstrap for GAE (no grad)
         {
             torch::NoGradGuard ng_boot;
             auto last_obs = buf.obs.index({ buf.T - 1 });
             auto last_val = std::get<1>(net->forward(last_obs));
             buf.compute_gae(last_val, gamma, lam);
         }
-        // -----------------------------------------
 
+        // 観測正規化（学習時のみ適用）
+        torch::Tensor obs_f = buf.flat(buf.obs).contiguous();  // [B,4]
+        if (obs_norm) {
+            torch::NoGradGuard _ng;
+            auto mean = buf.obs.mean(torch::IntArrayRef({ 0, 1 }));
+            auto std = buf.obs.var(torch::IntArrayRef({ 0, 1 }), false).sqrt();
+            obs_f = (obs_f - mean.unsqueeze(0)) / (std.unsqueeze(0) + 1e-6f);
+        }
+
+        auto act_f = buf.act.reshape({ buf.T * buf.N });       // [B]
+        auto oldlp_f = buf.logp.reshape({ buf.T * buf.N });      // [B]
         auto adv = buf.adv;
-        adv = (adv - adv.mean()) / (adv.std() + 1e-8f);
-
-        auto obs_f = buf.flat(buf.obs).contiguous();                // [B,4]
-        auto act_f = buf.act.reshape({ buf.T * buf.N });              // [B]
-        auto oldlp_f = buf.logp.reshape({ buf.T * buf.N });             // [B]
-        auto adv_f = adv.reshape({ buf.T * buf.N });                  // [B]
-        auto ret_f = buf.ret.reshape({ buf.T * buf.N });              // [B]
+        adv = (adv - adv.mean()) / (adv.var(false).sqrt() + 1e-8f);
+        auto adv_f = adv.reshape({ buf.T * buf.N });           // [B]
+        auto ret_f = buf.ret.reshape({ buf.T * buf.N });       // [B]
 
         const int64_t B = buf.T * buf.N;
         const int64_t MB = std::max<int64_t>(1, B / num_minibatches);
@@ -258,28 +298,47 @@ struct PPOUpdater {
                 auto mb_ret = ret_f.index_select(0, idx).to(torch::kFloat32).detach();
 
                 opt.zero_grad();
+
                 auto [logits, value] = net->forward(mb_obs);
                 auto logp_all = torch::log_softmax(logits, -1);
                 auto newlp = logp_all.gather(1, mb_act.unsqueeze(1)).squeeze(1);
 
+                // ratio
                 auto ratio = (newlp - mb_oldlp).exp();
                 auto clipped = torch::clamp(ratio, 1 - clip_range, 1 + clip_range);
                 auto policy_loss = -torch::min(ratio * mb_adv, clipped * mb_adv).mean();
-                auto value_loss = torch::mse_loss(value.squeeze(-1), mb_ret);
-                auto entropy = -(logp_all * logp_all.exp()).sum(-1).mean();
 
+                // value clipping
+                auto vpred = value.squeeze(-1);
+                auto vpred_clipped = mb_ret + (vpred - mb_ret).clamp(-value_clip_range, value_clip_range);
+                auto vf_loss1 = (vpred - mb_ret).pow(2);
+                auto vf_loss2 = (vpred_clipped - mb_ret).pow(2);
+                auto value_loss = 0.5f * torch::max(vf_loss1, vf_loss2).mean();
+
+                auto entropy = -(logp_all * logp_all.exp()).sum(-1).mean();
                 auto loss = policy_loss + value_coef * value_loss - entropy_coef * entropy;
 
-                loss.backward(); // ミニバッチ毎に1回。retain_graph不要（都度新しいforward）
+                // 近似KLで早期停止
+                auto approx_kl = (mb_oldlp - newlp).mean().abs(); // E[logp_old - logp_new]
+                logger.add_scalar("ppo/approx_kl", approx_kl.item<double>(), global_step);
+
+                loss.backward();
 
                 double gn_val = torch::nn::utils::clip_grad_norm_(net->parameters(), grad_clip_maxnorm);
                 logger.add_scalar("grad/norm", static_cast<float>(gn_val), global_step);
 
                 opt.step();
 
+                // 監視ログ
                 logger.add_scalar("loss/policy", policy_loss.item<double>(), global_step);
                 logger.add_scalar("loss/value", value_loss.item<double>(), global_step);
                 logger.add_scalar("loss/entropy", entropy.item<double>(), global_step);
+                logger.add_scalar("ppo/ratio_mean", ratio.mean().item<double>(), global_step);
+
+                // KLが閾値を超えたら今エポックは打ち切り
+                if (approx_kl.item<float>() > approx_kl_threshold) {
+                    break;
+                }
             }
         }
     }
@@ -299,7 +358,7 @@ int main() {
 
     PolicyNet net(state_dim, hidden, action_dim);
     net->to(device);
-    torch::optim::Adam opt(net->parameters(), 1e-4);
+    torch::optim::Adam opt(net->parameters(), torch::optim::AdamOptions(1e-4));
     EventWriter logger("runs/cart1");
 
     CartPoleEnv env(N, device);
@@ -314,7 +373,7 @@ int main() {
     // ---- アルゴリズム切替 ----
     const bool USE_PPO = true;
 
-    for (int update = 0; update < 50; ++update) {
+    for (int update = 0; update < 200; ++update) {
         // ===== 1) Rollout を T ステップ収集 =====
         for (int t = 0; t < T; ++t) {
             torch::NoGradGuard _ng;  // 推論＋保存は勾配不要
