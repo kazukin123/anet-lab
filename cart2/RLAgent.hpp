@@ -16,8 +16,12 @@ public:
 
     float epsilon;
     float latest_loss;
+    float avg_loss;
 
 private:
+    void hard_update();
+    void soft_update(float tau);
+
     QNet policy_net;
     QNet target_net;
     torch::optim::Adam optimizer;

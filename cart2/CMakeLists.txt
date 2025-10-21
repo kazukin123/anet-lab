@@ -17,11 +17,12 @@ endif()
 
 include(${wxWidgets_USE_FILE})
 add_executable(CartPoleRLGUI
-    main.cpp
+    app.cpp
     CartPoleEnv.cpp
     RLAgent.cpp
     CartPoleFrame.cpp
-    CartPoleCanvas.cpp "PlotPanel.cpp")
+    CartPoleCanvas.cpp
+    PlotPanel.cpp)
 
 target_link_libraries(CartPoleRLGUI PRIVATE ${wxWidgets_LIBRARIES} ${TORCH_LIBRARIES})
 # GUIアプリとしてリンク（Windows専用）

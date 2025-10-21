@@ -1,13 +1,18 @@
 ﻿#include "CartPoleFrame.hpp"
 #include "CartPoleCanvas.hpp"
+#include "tb_logger.hpp"
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <torch/torch.h>
 #include <iomanip>
 #include <sstream>
 
+#include <filesystem>
+
+
 wxBEGIN_EVENT_TABLE(CartPoleFrame, wxFrame)
 EVT_TIMER(wxID_ANY, CartPoleFrame::OnTimer)
+EVT_LEFT_DOWN(CartPoleFrame::OnMouseClick)
 wxEND_EVENT_TABLE()
 
 CartPoleFrame::CartPoleFrame(const wxString& title)
@@ -36,6 +41,12 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     SetSizer(vbox);
     Layout();
 
+    // ログレベル
+    wxLog::SetLogLevel(wxLOG_Debug);
+
+	// --- ログ出力先をこのクラスに設定 ---
+    wxLog::SetActiveTarget(this);
+
     // --- RL初期化 ---
     env = std::make_unique<CartPoleEnv>();
     agent = std::make_unique<RLAgent>(4, 2, device);
@@ -43,49 +54,95 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
 
     // --- タイマー開始 ---
     Bind(wxEVT_TIMER, &CartPoleFrame::OnTimer, this);
-    timer.Start(20);  // 20msごとに描画更新
+    timer.Start(10);  // 学習＆描画更新
 
-    logBox->AppendText("CartPoleRLGUI started.\n");
+    wxLogInfo("CartPoleRLGUI started.\n");
+}
+
+CartPoleFrame::~CartPoleFrame() {
+    wxLog::SetActiveTarget(NULL);
+
+}
+
+void CartPoleFrame::ToggleTraining() {
+    training_paused = !training_paused;
+    wxLogMessage(training_paused ? "Training paused" : "Training resumed");
+}
+void CartPoleFrame::DoLogText(const wxString& msg) {
+    this->logBox->AppendText(msg);
+    this->logBox->AppendText("\n");
+}
+
+void CartPoleFrame::OnMouseClick(wxMouseEvent& event) {
+    ToggleTraining();
 }
 
 void CartPoleFrame::OnTimer(wxTimerEvent& event) {
+    if (training_paused)
+        return;  // ←停止中は一切処理しない
+
     // --- 学習ステップを高速で複数回回す ---
+    auto action = agent->select_action(state);
+    float reward_ = 0.0f;
     for (int i = 0; i < 10; ++i) {  // 10 step per draw frame
-        auto action = agent->select_action(state);
+        action = agent->select_action(state);
         auto [next_state, reward, done] = env->step(action.item<int>());
         agent->update(state, next_state, reward, done);
         state = next_state.clone();
+        reward_ = reward;
 
+        if (step_count % 100 == 0) {
+            std::ostringstream ss;
+            ss << "Step " << step_count
+                << ", state=[" << env->get_x() << " " << env->get_theta() << " " << env->get_x_dot() << " " << env->get_theta_dot() <<  "]"
+                << ", actions=" << action.item<int>()
+                << ", reward=" << reward;
+            wxLogInfo(ss.str());
+        }
+
+        // ステップ数インプリメント（グローバルなステップ数）
         step_count++;
-//        plotPanel->AddReward(reward);
+
         if (done) {
             episode_count++;
             float total_reward = env->get_total_reward();
 
+            // ログ
             std::ostringstream ss;
             ss << "Episode " << episode_count
-                << " finished, total_reward = "
-                << std::fixed << std::setprecision(3)
-                << total_reward << "\n";
-            logBox->AppendText(ss.str());
+                << " finished, step_count=" << step_count
+                << " total_reward=" << std::fixed << std::setprecision(3) << total_reward
+                << " episode_step=" << (step_count - last_episode_step);
+            wxLogInfo(ss.str());
 
+            // 統計ログ
+            wxGetApp().logScalar("episode/total_reward", total_reward, episode_count);
+            //wxGetApp().logScalar("episode/avg_loss", agent->avg_loss, episode_count);
+            //wxGetApp().logScalar("episode/latest_loss", agent->latest_loss, episode_count);
+            wxGetApp().flushLog();
             plotPanel->AddReward(total_reward);
+
+            // 環境リセット
             state = env->reset();
+
+            // 次のエピソード開始準備
+            last_episode_step = step_count;
             break;
         }
     }
 
     // --- カート位置・角度の描画更新 ---
-    canvas->SetState(env->get_x(), env->get_theta());
+    canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
+    canvas->SetAction(action);
+    canvas->SetReward(reward_);
     canvas->Refresh();
 
     // --- 100 step ごとにログを出力 ---
-    if (step_count % 100 == 0) {
+    if (step_count % 10 == 0) {
         std::ostringstream ss;
         ss << "Step " << step_count
             << ", eps=" << std::fixed << std::setprecision(2) << agent->epsilon
-            << ", latest_loss=" << agent->latest_loss
-            << "\n";
-        logBox->AppendText(ss.str());
+            << ", latest_loss=" << agent->latest_loss;
+        wxLogInfo(ss.str());
     }
 }

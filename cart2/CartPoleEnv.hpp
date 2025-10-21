@@ -10,6 +10,9 @@ public:
 
     float get_x() const { return x; }
     float get_theta() const { return theta; }
+    float get_x_dot() const { return x_dot; }
+    float get_theta_dot() const { return theta_dot; }
+
     float get_total_reward() const { return total_reward; }
     torch::Tensor get_state() const;
 

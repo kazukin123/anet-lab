@@ -8,14 +8,20 @@
 #include "RLAgent.hpp"
 #include "CartPoleCanvas.hpp"
 #include "PlotPanel.hpp"
+#include "tb_logger.hpp"
+#include "app.hpp"
 
 //
 // --- メインウィンドウ（Frame） ---
 //
-class CartPoleFrame : public wxFrame {
+class CartPoleFrame : public wxFrame, wxLog {
 public:
     CartPoleFrame(const wxString& title);
+    ~CartPoleFrame();
 
+    void ToggleTraining();
+
+    virtual void DoLogText(const wxString& msg);
 private:
     // GUI部品
     CartPoleCanvas* canvas = nullptr;
@@ -24,6 +30,7 @@ private:
 
     // タイマー
     wxTimer timer;
+    bool training_paused = false;
 
     // 強化学習関連
     std::unique_ptr<CartPoleEnv> env;
@@ -32,6 +39,7 @@ private:
 
     // メトリクス
     int step_count = 0;
+    int last_episode_step = 0;
     int episode_count = 0;
 
     // デバイス（CPU固定）
@@ -39,6 +47,7 @@ private:
 
     // イベントハンドラ
     void OnTimer(wxTimerEvent& event);
+    void OnMouseClick(wxMouseEvent& event);
 
     wxDECLARE_EVENT_TABLE();
 };
