@@ -40,5 +40,8 @@
 # debug information files
 *.dwo
 .vs
+
 /cart1/out
 /out
+/cart2/tb_logs
+*.bak
