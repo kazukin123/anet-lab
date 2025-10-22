@@ -16,7 +16,6 @@ public:
 
     float epsilon;
     float latest_loss;
-    float avg_loss;
 
 private:
     void hard_update();
@@ -28,4 +27,5 @@ private:
     torch::Device device;
     int n_actions_;
     int step_count;
+    float grad_norm_clipped_ema;
 };

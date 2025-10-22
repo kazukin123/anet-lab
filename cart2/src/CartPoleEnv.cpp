@@ -122,8 +122,8 @@ std::tuple<torch::Tensor, float, bool> CartPoleEnv::step(int action) {
     //float stable = 1.0f / (1.0f + std::abs(theta_dot));   // 揺れが少ないほど高い
     //float reward = 10.0f * (0.5f + 0.5f * upright * stable);
 
-    //float reward = done ? -1.0f : 1.0f;
-    float reward = done ? 0.0f : 1.0f;
+    float reward = done ? -1.0f : 1.0f;
+    //float reward = done ? 0.0f : 1.0f;
 
     // 総報酬更新
     total_reward += reward;

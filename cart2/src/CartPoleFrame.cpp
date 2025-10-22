@@ -81,10 +81,13 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     if (training_paused)
         return;  // ←停止中は一切処理しない
 
-    // --- 学習ステップを高速で複数回回す ---
+    // 再入防止
+	this->timer.Stop();
+
+    // --- 学習ステップを複数回回す ---
     auto action = agent->select_action(state);
     float reward_ = 0.0f;
-    for (int i = 0; i < 10; ++i) {  // 10 step per draw frame
+    for (int i = 0; i < 10; ++i) {
         action = agent->select_action(state);
         auto [next_state, reward, done] = env->step(action.item<int>());
         agent->update(state, next_state, reward, done);
@@ -116,10 +119,10 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
             wxLogInfo(ss.str());
 
             // 統計ログ
-            wxGetApp().logScalar("episode/total_reward", total_reward, episode_count);
-            //wxGetApp().logScalar("episode/avg_loss", agent->avg_loss, episode_count);
-            //wxGetApp().logScalar("episode/latest_loss", agent->latest_loss, episode_count);
-            wxGetApp().flushLog();
+			wxGetApp().logScalar("1_episode/total_reward", episode_count, total_reward);
+            //wxGetApp().flushMetricsLog();
+
+			// プロット更新
             plotPanel->AddReward(total_reward);
 
             // 環境リセット
@@ -145,4 +148,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
             << ", latest_loss=" << agent->latest_loss;
         wxLogInfo(ss.str());
     }
+
+    // タイマー再開
+	this->timer.Start();
 }

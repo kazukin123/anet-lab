@@ -16,13 +16,15 @@ if (MSVC)
 endif()
 
 include(${wxWidgets_USE_FILE})
+
+
 add_executable(CartPoleRLGUI
-    app.cpp
-    CartPoleEnv.cpp
-    RLAgent.cpp
-    CartPoleFrame.cpp
-    CartPoleCanvas.cpp
-    PlotPanel.cpp)
+    "src/app.cpp"
+    "src/CartPoleEnv.cpp"
+    "src/RLAgent.cpp"
+    "src/CartPoleFrame.cpp"
+    "src/CartPoleCanvas.cpp"
+    "src/PlotPanel.cpp")
 
 target_link_libraries(CartPoleRLGUI PRIVATE ${wxWidgets_LIBRARIES} ${TORCH_LIBRARIES})
 # GUIアプリとしてリンク（Windows専用）

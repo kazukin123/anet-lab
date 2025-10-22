@@ -21,8 +21,8 @@ void PlotPanel::OnMouseClick(wxMouseEvent& event) {
 
 void PlotPanel::AddReward(float reward) {
     rewards.push_back(reward);
-    //if (rewards.size() > 200)  // 最新200点だけ保持
-    //    rewards.erase(rewards.begin());
+    if (rewards.size() > 1000)  // 最新1000点だけ保持
+        rewards.erase(rewards.begin());
     Refresh(false);            // 再描画要求（即時ではない）
 }
 

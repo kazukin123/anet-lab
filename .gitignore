@@ -45,3 +45,7 @@
 /out
 /cart2/tb_logs
 *.bak
+/cart2/logs
+/artefacts
+/enc_temp_folder
+/logs

@@ -1,4 +1,4 @@
-#python tools\tb_bridge.py --input ..\out\build\x64-Debug\cart2\train.jsonl --logdir tb_logs --reset
-start tensorboard --logdir tb_logs
+#python tools\tb_bridge.py --logdir logs --reset
+start tensorboard --logdir logs
+sleep 8
 start "" "http://localhost:6006/"
-pause
