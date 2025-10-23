@@ -73,9 +73,17 @@ def process_json_line(writer, j):
         writer.add_scalar(f"{tag}/mean", mean, step)
         writer.add_scalar(f"{tag}/std", std, step)
 
+    elif t == "json":
+        tag = j.get("tag")
+        ts = j.get("timestamp", "")
+        data = json.dumps(j.get("data", {}), indent=2)
+        writer.add_text(f"meta/{tag}", data)
+        print(f"[JSON] {ts} {tag} {data}")
+
     else:
         # 未知タイプもtext出力
         writer.add_text("raw_event", json.dumps(j, ensure_ascii=False))
+        print(f"Unknown type: {t} {j}")
 
 
 def main(log_root="logs", poll_interval=1.0, log_interval=100, clean_events=True):

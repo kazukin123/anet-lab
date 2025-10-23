@@ -1,59 +1,74 @@
 ﻿#!/usr/bin/env python3
 """
-metrics_viewer.py
+metrics_viewer_dash_full_v9.py
 ---------------------------------------
-TensorBoard風メトリクスビューア（Plotly Dash）
-- 手動更新ボタン
-- 自動更新 ON/OFF
-- タグフィルタ
-- ズーム保持（zoom-store）
-- サンプリング + Scattergl（高速描画）
-- 初期白抜け対策（複数回 Plotly.resize）
+- JSONL差分読込＋Parquetキャッシュ
+- 自動/手動更新・タグフィルタ
+- 1点グラフ対応
+- ズーム保持
+- type=json の全Meta情報をページ末尾に表示
+- Meta情報にタイムスタンプ併記＋明るい配色
 ---------------------------------------
 """
 
-import os, json, glob, re
-import pandas as pd
+import os, json, re, pandas as pd, pyarrow.parquet as pq, pyarrow as pa
 import plotly.graph_objects as go
-from dash import Dash, dcc, html, Input, Output, State, ctx
+from dash import Dash, dcc, html, Input, Output, State
 from dash.dependencies import ALL
 
+RUN_CACHE = {}
 
-# -------------------------
-# JSONL 読み込み
-# -------------------------
-def read_jsonl(path):
-    rec = []
-    if not os.path.exists(path):
+
+def read_incremental_jsonl(jsonl_path: str):
+    if not os.path.exists(jsonl_path):
         return pd.DataFrame()
-    with open(path, "r", encoding="utf-8") as f:
+    run_dir = os.path.dirname(jsonl_path)
+    run_name = os.path.basename(run_dir)
+    parquet_path = os.path.join(run_dir, "metrics_cache.parquet")
+    mtime = os.path.getmtime(jsonl_path)
+    cached = RUN_CACHE.get(run_name)
+    last_pos = cached["pos"] if cached else 0
+    df_existing = cached["df"] if cached else pd.DataFrame()
+    if cached and cached["mtime"] == mtime:
+        return df_existing
+
+    new_records = []
+    with open(jsonl_path, "r", encoding="utf-8") as f:
+        f.seek(last_pos)
         for line in f:
             try:
                 j = json.loads(line)
                 if j.get("type") == "scalar":
-                    rec.append(j)
+                    new_records.append(j)
             except json.JSONDecodeError:
                 continue
-    df = pd.DataFrame(rec)
-    if df.empty:
-        return df
-    mask = df["tag"].str.startswith("episode/")
-    if mask.any():
-        df.loc[mask, "episode"] = df.loc[mask, "step"]
-    return df
+        new_pos = f.tell()
+
+    if not new_records and cached:
+        return df_existing
+
+    df_new = pd.DataFrame(new_records)
+    if not df_new.empty:
+        mask = df_new["tag"].str.startswith("episode/")
+        if mask.any():
+            df_new.loc[mask, "episode"] = df_new.loc[mask, "step"]
+
+    df_all = pd.concat([df_existing, df_new], ignore_index=True)
+    df_all.drop_duplicates(subset=["step", "tag"], inplace=True)
+
+    table = pa.Table.from_pandas(df_all)
+    pq.write_table(table, parquet_path)
+    RUN_CACHE[run_name] = {"mtime": mtime, "pos": new_pos, "df": df_all}
+    return df_all
 
 
-def load_all_runs(root):
+def load_selected_runs(root, selected_runs):
     runs = {}
-    for d in sorted(glob.glob(os.path.join(root, "*"))):
-        if not os.path.isdir(d):
-            continue
-        path = os.path.join(d, "metrics.jsonl")
-        if not os.path.exists(path):
-            continue
-        df = read_jsonl(path)
+    for run_name in selected_runs:
+        jsonl_path = os.path.join(root, run_name, "metrics.jsonl")
+        df = read_incremental_jsonl(jsonl_path)
         if not df.empty:
-            runs[os.path.basename(d)] = df
+            runs[run_name] = df
     return runs
 
 
@@ -69,13 +84,12 @@ def detect_axis_column(df, tag):
 
 
 def safe_tag(tag: str) -> str:
-    """Dash IDで安全な形式に変換"""
     return re.sub(r"[^a-zA-Z0-9_]+", "_", tag)
 
 
 def make_tag_fig(run_data, selected_runs, tag, zoom_state):
     fig = go.Figure()
-    MAX_POINTS = 2000  # 負荷対策
+    MAX_POINTS = 2000
     for run, df in run_data.items():
         if run not in selected_runs:
             continue
@@ -85,13 +99,29 @@ def make_tag_fig(run_data, selected_runs, tag, zoom_state):
             sub = sub.iloc[::max(1, len(sub)//MAX_POINTS)]
         if sub.empty:
             continue
-        #fig.add_trace(go.Scattergl(
-        fig.add_trace(go.Scatter(
-            x=sub[axis_col],
-            y=sub["value"],
-            mode="lines",
-            name=f"{run}"
-        ))
+
+        if len(sub) == 1:
+            xval = sub[axis_col].iloc[0]
+            yval = sub["value"].iloc[0]
+            sub = pd.DataFrame([
+                {axis_col: xval - 0.5, "value": yval, "tag": tag},
+                {axis_col: xval + 0.5, "value": yval, "tag": tag}
+            ])
+            fig.add_trace(go.Scatter(
+                x=sub[axis_col],
+                y=sub["value"],
+                mode="lines+markers",
+                name=f"{run}",
+                line=dict(width=2, dash="dot", color="cyan"),
+                marker=dict(size=7, color="cyan", symbol="circle")
+            ))
+        else:
+            fig.add_trace(go.Scatter(
+                x=sub[axis_col],
+                y=sub["value"],
+                mode="lines",
+                name=f"{run}"
+            ))
 
     fig.update_layout(
         template="plotly_dark",
@@ -112,12 +142,30 @@ def make_tag_fig(run_data, selected_runs, tag, zoom_state):
     return fig
 
 
-# -------------------------
-# Dash アプリ
-# -------------------------
+def load_json_meta_for_run(run_dir):
+    """type=json の全エントリを抽出"""
+    metas = []
+    jsonl_path = os.path.join(run_dir, "metrics.jsonl")
+    if not os.path.exists(jsonl_path):
+        return []
+    with open(jsonl_path, "r", encoding="utf-8") as f:
+        for line in f:
+            if '"type":"json"' not in line:
+                continue
+            try:
+                j = json.loads(line)
+                metas.append({
+                    "tag": j.get("tag", ""),
+                    "timestamp": j.get("timestamp", ""),
+                    "data": j.get("data", {})
+                })
+            except json.JSONDecodeError:
+                continue
+    return metas
+
+
 def create_app(log_root):
     app = Dash(__name__)
-
     app.layout = html.Div([
         html.H2("📊 Metrics Viewer"),
 
@@ -133,8 +181,7 @@ def create_app(log_root):
         ]),
 
         html.Div([
-            html.Button("手動更新", id="refresh-btn", n_clicks=0,
-                        style={"marginRight": "10px"}),
+            html.Button("手動更新", id="refresh-btn", n_clicks=0, style={"marginRight": "10px"}),
             html.Button("自動更新: OFF", id="toggle-auto", n_clicks=0),
         ], style={"marginBottom": "10px"}),
 
@@ -152,11 +199,10 @@ def create_app(log_root):
         dcc.Store(id="zoom-store", data={}),
         dcc.Store(id="auto-flag", data=False),
         html.Div(id="graphs-container"),
-        html.Div(id="dummy-output", style={"display": "none"}),  # JS連携用
+        html.Div(id="dummy-output", style={"display": "none"}),
         dcc.Interval(id="tick", interval=5000, n_intervals=0, disabled=True)
     ])
 
-    # 自動更新トグル
     @app.callback(
         Output("tick", "disabled"),
         Output("toggle-auto", "children"),
@@ -170,7 +216,6 @@ def create_app(log_root):
         label = "自動更新: ON" if new_flag else "自動更新: OFF"
         return (not new_flag, label, new_flag)
 
-    # メイン更新（手動 or 自動）
     @app.callback(
         Output("graphs-container", "children"),
         Output("run-select", "options"),
@@ -184,14 +229,19 @@ def create_app(log_root):
         prevent_initial_call=False
     )
     def update_graphs(n_auto, n_refresh, selected_runs, selected_tags, zoom_state):
-        run_data = load_all_runs(log_root)
-        if not run_data:
-            return [html.Div("No runs found.", style={"color": "gray"})], [], selected_runs, []
+        run_names = sorted([d for d in os.listdir(log_root)
+                            if os.path.isdir(os.path.join(log_root, d))])
+        if not run_names:
+            return [html.Div("No runs found.", style={"color": "gray"})], [], [], []
 
-        run_names = sorted(run_data.keys())
         latest_run = run_names[-1]
         if not selected_runs:
             selected_runs = [latest_run]
+
+        run_data = load_selected_runs(log_root, selected_runs)
+        if not run_data:
+            return [html.Div("No data found.", style={"color": "gray"})], \
+                   [{"label": r, "value": r} for r in run_names], selected_runs, []
 
         all_tags = extract_tags(run_data)
         if not all_tags:
@@ -215,12 +265,87 @@ def create_app(log_root):
                 )
             )
 
+        # ---- Meta情報：ページ末尾に表示 ----
+        meta_blocks = []
+        for run in selected_runs:
+            metas = load_json_meta_for_run(os.path.join(log_root, run))
+            if not metas:
+                continue
+
+            # Run名を帯として明示表示
+            run_header = html.Div(
+                f"Run: {run}",
+                style={
+                    "backgroundColor": "#005577",
+                    "color": "#fff",
+                    "fontWeight": "bold",
+                    "padding": "6px 10px",
+                    "borderTopLeftRadius": "6px",
+                    "borderTopRightRadius": "6px",
+                    "fontSize": "16px",
+                }
+            )
+
+            run_container = []
+            for meta in metas:
+                tag = meta["tag"]
+                ts = meta.get("timestamp", "")
+                data = meta["data"]
+
+                header_line = html.Div([
+                    html.Span(f"Tag: {tag}", style={
+                        "color": "#7cf",
+                        "fontWeight": "bold",
+                        "marginRight": "10px"
+                    }),
+                    html.Span(f"({ts})", style={
+                        "color": "#aaa",
+                        "fontSize": "12px"
+                    })
+                ], style={"marginBottom": "4px", "marginTop": "6px"})
+
+                rows = [
+                    html.Tr([
+                        html.Th(k, style={"textAlign": "left", "paddingRight": "10px", "color": "#fff"}),
+                        html.Td(str(v), style={"textAlign": "left", "color": "#fff"})
+                    ]) for k, v in data.items()
+                ]
+
+                table = html.Table(
+                    rows,
+                    style={
+                        "borderCollapse": "collapse",
+                        "border": "1px solid #555",
+                        "marginBottom": "8px",
+                        "width": "auto",
+                        "backgroundColor": "#111",
+                        "fontSize": "14px",
+                        "wordBreak": "break-all",
+                        "padding": "4px 8px"
+                    }
+                )
+
+                run_container.append(html.Div([header_line, table],
+                                              style={"marginLeft": "16px", "marginBottom": "10px"}))
+
+            # Run単位カード全体
+            meta_blocks.append(html.Div(
+                [run_header] + run_container,
+                style={
+                    "border": "1px solid #444",
+                    "borderRadius": "6px",
+                    "padding": "10px",
+                    "marginBottom": "24px",
+                    "backgroundColor": "#1a1a1a",
+                    "overflow": "hidden"
+                }
+            ))
+
+
         run_options = [{"label": r, "value": r} for r in run_names]
         tag_options = [{"label": t, "value": t} for t in all_tags]
+        return graphs + meta_blocks, run_options, selected_runs, tag_options
 
-        return graphs, run_options, selected_runs, tag_options
-
-    # ズーム状態の保持
     @app.callback(
         Output("zoom-store", "data"),
         Input({"type": "metric-graph", "tag": ALL}, "relayoutData"),
@@ -238,26 +363,6 @@ def create_app(log_root):
             store[tag_key] = {"xrange": xr, "yrange": yr}
         return store
 
-    # 初期白抜け対策（複数回 Plotly.resize）
-    app.clientside_callback(
-        """
-        function(children) {
-            function forceRedraw(){
-                const graphs = document.querySelectorAll('.js-plotly-plot');
-                graphs.forEach(p=>{
-                    if(p.clientHeight < 50){
-                        try{window.Plotly.Plots.resize(p);}catch(e){}
-                    }
-                });
-            }
-            [100,300,800,1500,3000].forEach(t=>setTimeout(forceRedraw,t));
-            return null;
-        }
-        """,
-        Output("dummy-output", "children"),
-        Input("graphs-container", "children")
-    )
-
     return app
 
 
@@ -266,7 +371,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--logdir", default="logs")
     args = parser.parse_args()
-
     print(f"[INFO] Starting viewer — {args.logdir}")
     app = create_app(args.logdir)
     app.run(debug=False)

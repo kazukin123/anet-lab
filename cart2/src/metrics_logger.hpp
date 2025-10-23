@@ -1,163 +1,160 @@
 ﻿#pragma once
+#include <nlohmann/json.hpp>
 #include <fstream>
-#include <mutex>
-#include <string>
-#include <memory>
-#include <filesystem>
 #include <chrono>
 #include <iomanip>
+#include <filesystem>
 #include <sstream>
-#include <nlohmann/json.hpp>
-#include <torch/torch.h>
+#include <iostream>
+#include <memory>
+#include <cmath>
 
-namespace fs = std::filesystem;
+using json = nlohmann::json;
 
-//--------------------------------------------
-// Backend Interface
-//--------------------------------------------
-class LogBackend {
+//----------------------------------------------
+// Backendインターフェース
+//----------------------------------------------
+class IBackend {
 public:
+    virtual ~IBackend() = default;
     virtual void open(const std::string& root_dir, const std::string& run_name) = 0;
-    virtual void write(const nlohmann::json& j) = 0;
-    virtual void flush() {}
-    virtual ~LogBackend() = default;
+    virtual void write_jsonl(const json& obj) = 0;
+	virtual void flush() {};
 };
 
-//--------------------------------------------
-// JSON Lines Backend
-//--------------------------------------------
-class JsonlBackend : public LogBackend {
-    std::ofstream file;
-    std::mutex mtx;
-    std::string current_path;
+//----------------------------------------------
+// JSONLバックエンド
+//----------------------------------------------
+class JsonlBackend : public IBackend {
+    std::ofstream ofs;
+    std::string path_;
 public:
     void open(const std::string& root_dir, const std::string& run_name) override {
-        fs::path run_dir = fs::path(root_dir) / run_name;
-        if (!fs::exists(run_dir))
-            fs::create_directories(run_dir);
-        current_path = (run_dir / "metrics.jsonl").string();
-        file.open(current_path, std::ios::out | std::ios::app);
+        std::filesystem::create_directories(root_dir + "/" + run_name);
+        path_ = root_dir + "/" + run_name + "/metrics.jsonl";
+        ofs.open(path_, std::ios::app);
+        if (!ofs) throw std::runtime_error("Failed to open: " + path_);
     }
 
-    void write(const nlohmann::json& j) override {
-        std::lock_guard<std::mutex> lock(mtx);
-        file << j.dump() << '\n';
+    void write_jsonl(const json& obj) override {
+        ofs << obj.dump() << "\n";
+        ofs.flush();
     }
 
     void flush() override {
-        std::lock_guard<std::mutex> lock(mtx);
-        file.flush();
-    }
-
-    std::string get_current_path() const { return current_path; }
+        ofs.flush();
+	}
 };
 
-//--------------------------------------------
-// Utility: timestamp & run name
-//--------------------------------------------
-inline std::string current_timestamp() {
-    using namespace std::chrono;
-    auto now = system_clock::now();
-    std::time_t t = system_clock::to_time_t(now);
-    std::tm tm = *std::localtime(&t);
-    std::ostringstream oss;
-    oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S");
-    return oss.str();
-}
-
-inline std::string make_run_name() {
-    using namespace std::chrono;
-    auto now = system_clock::now();
-    std::time_t t = system_clock::to_time_t(now);
-    std::tm tm = *std::localtime(&t);
-    std::ostringstream oss;
-    oss << "run_" << std::put_time(&tm, "%Y%m%d-%H%M%S");
-    return oss.str();
-}
-
-//--------------------------------------------
-// Metrics Logger（run名生成→backend.open）
-//--------------------------------------------
+//----------------------------------------------
+// MetricsLogger本体
+//----------------------------------------------
 class MetricsLogger {
-    std::unique_ptr<LogBackend> backend;
+    std::unique_ptr<IBackend> backend;
     std::string root_dir;
     std::string run_name;
+    std::string device_name;
+    std::string torch_version;
 
-public:
-    MetricsLogger(std::unique_ptr<LogBackend> backend,
-        const std::string& root_dir,
-        const std::string& run = "")
-        : backend(std::move(backend)), root_dir(root_dir)
-    {
-        run_name = run.empty() ? make_run_name() : run;
-        this->backend->open(root_dir, run_name);  // ✅ ← ここでバックエンド初期化
-        log_meta_start();
+    // float/doubleを丸める関数
+    static json round_numbers(const json& j, int precision = 6) {
+        if (j.is_number_float()) {
+            double val = j.get<double>();
+            double scale = std::pow(10.0, precision);
+            return std::round(val * scale) / scale;
+        }
+        else if (j.is_object()) {
+            json res;
+            for (auto& [k, v] : j.items()) {
+                res[k] = round_numbers(v, precision);
+            }
+            return res;
+        }
+        else if (j.is_array()) {
+            json arr = json::array();
+            for (auto& v : j) arr.push_back(round_numbers(v, precision));
+            return arr;
+        }
+        return j;
     }
 
-    // メタ情報出力
-    void log_meta_start() {
-        std::string device_str = "CPU";
-        //if (torch::cuda::is_available()) {
-        //    int dev_idx = 0;
-        //    auto prop = torch::cuda::getDeviceProperties(dev_idx);
-        //    std::ostringstream devinfo;
-        //    devinfo << "CUDA: GPU" << dev_idx << ": " << prop.name;
-        //    device_str = devinfo.str();
-        //}
+public:
+    explicit MetricsLogger(std::unique_ptr<IBackend> b,
+        const std::string& root = "logs",
+        const std::string& run = "")
+        : backend(std::move(b)), root_dir(root)
+    {
+        // 自動run名（タイムスタンプ付与）
+        if (run.empty()) {
+            auto t = std::chrono::system_clock::now();
+            std::time_t tt = std::chrono::system_clock::to_time_t(t);
+            std::tm tm{};
+#ifdef _WIN32
+            localtime_s(&tm, &tt);
+#else
+            localtime_r(&tt, &tm);
+#endif
+            char buf[64];
+            std::strftime(buf, sizeof(buf), "run_%Y%m%d-%H%M%S", &tm);
+            run_name = buf;
+        }
+        else {
+            run_name = run;
+        }
+        backend->open(root_dir, run_name);
 
-        nlohmann::json meta = {
+        // 起動メタ
+        json meta = {
             {"type", "meta"},
             {"event", "start"},
-            {"timestamp", current_timestamp()},
-            {"torch_version", TORCH_VERSION},
-            {"device", device_str}
+            {"timestamp", current_time_str()},
+            {"torch_version", "2.9.0"},
+            {"device", "CPU"}
         };
-        backend->write(meta);
-        backend->flush();
+        backend->write_jsonl(meta);
+    }
+
+    static std::string current_time_str() {
+        auto t = std::chrono::system_clock::now();
+        std::time_t tt = std::chrono::system_clock::to_time_t(t);
+        std::tm tm{};
+#ifdef _WIN32
+        localtime_s(&tm, &tt);
+#else
+        localtime_r(&tt, &tm);
+#endif
+        char buf[32];
+        std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", &tm);
+        return buf;
     }
 
     void log_scalar(const std::string& tag, int step, double value) {
-        nlohmann::json j = {
+        json obj = {
             {"run", run_name},
-            {"type", "scalar"},
             {"tag", tag},
             {"step", step},
-            {"value", value}
+            {"value", value},
+            {"type", "scalar"}
         };
-        backend->write(j);
+        backend->write_jsonl(obj);
     }
 
-    void log_vector(const std::string& tag, int step, const std::vector<float>& vec) {
-        nlohmann::json j = {
+    void log_json(const std::string& tag, const json& data) {
+        // 数値を丸めたJSONを出力
+        json rounded = round_numbers(data);
+        json obj = {
             {"run", run_name},
-            {"type", "vector"},
             {"tag", tag},
-            {"step", step},
-            {"values", vec}
+            {"timestamp", current_time_str()},
+            {"type", "json"},
+            {"data", rounded}
         };
-        backend->write(j);
+        backend->write_jsonl(obj);
     }
-
-    void log_tensor_stats(const std::string& tag, int step, const torch::Tensor& t) {
-        nlohmann::json j = {
-            {"run", run_name},
-            {"type", "tensor"},
-            {"tag", tag},
-            {"step", step},
-            {"shape", t.sizes()},
-            {"mean", t.mean().item<double>()},
-            {"std",  t.std().item<double>()}
-        };
-        backend->write(j);
-    }
-
-    void log_json(const nlohmann::json& custom) {
-        nlohmann::json j = custom;
-        j["run"] = run_name;
-        backend->write(j);
-    }
-
-    void flush() { backend->flush(); }
 
     std::string get_run_name() const { return run_name; }
+
+    void flush() {
+        backend->flush();
+	}
 };

@@ -11,12 +11,12 @@ public:
 
     torch::Tensor select_action(torch::Tensor state);
     void update(const torch::Tensor& state,
+        int action,
         const torch::Tensor& next_state,
         float reward, bool done);
 
     float epsilon;
-    float latest_loss;
-
+    float loss_ema;
 private:
     void hard_update();
     void soft_update(float tau);

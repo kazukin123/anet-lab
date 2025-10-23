@@ -12,3 +12,4 @@ bool MyApp::OnInit() {
 }
 
 wxIMPLEMENT_APP(MyApp);
+

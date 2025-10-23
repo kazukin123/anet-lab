@@ -1,4 +1,5 @@
 ﻿#include "CartPoleEnv.hpp"
+#include "app.hpp"
 #include <cmath>
 #include <algorithm>
 #include <random>
@@ -7,15 +8,25 @@
 // 定数
 const float x_limit = 2.4f;
 const float gravity = 9.8f;
-const float masscart = 0.5f;
+const float masscart = 1.0f;
 const float mass_pole = 0.10f;
 const float total_mass = masscart + mass_pole;
-const float length = 0.1f;
+const float length = 0.5f;
 const float polemass_length = mass_pole * length;
 const float force_mag = 10.0f;
 const float tau = 0.02f;    //0.02f 0.01f
+const float reward_scale = 2.0f;  // 2 10  20
+
+const int max_steps = 500;  // 終了条件
 
 CartPoleEnv::CartPoleEnv() {
+    // パラメータ記録
+    nlohmann::json params = {
+        {"max_steps", max_steps},
+    };
+    wxGetApp().logJson("env", params);
+    wxGetApp().flushMetricsLog();
+
     reset();
 }
 
@@ -24,15 +35,15 @@ torch::Tensor CartPoleEnv::reset() {
     std::random_device rd;
     std::mt19937 gen(rd());
 
-    x = dist(gen);
-    x_dot = 0;// dist(gen);
-    theta = dist(gen);
-    theta_dot = 0;// dist(gen);
+    x = dist(gen) * 0.05f;
+    x_dot = dist(gen) * 0.05f;
+    theta = dist(gen) * 0.05f;
+    theta_dot = dist(gen) * 0.05f;
     
-    //x = 1.0f;
-    //x_dot = 1.0f;
-    //theta = -1.0f;
-    //theta_dot = 0;// -1.0f * 0.5;// *0.5;
+    //x = 0.2f;
+    //x_dot = 0.2f;
+    //theta = -0.05f;
+    //theta_dot = 0.05;// -1.0f * 0.5;// *0.5;
 
     step_count = 0;
     total_reward = 0;
@@ -48,7 +59,7 @@ std::tuple<torch::Tensor, float, bool> CartPoleEnv::step(int action) {
 
     // 力の符号（右:+、左-）
     float force = (action == 1) ? force_mag : -force_mag;
-    //force = force_mag;  // 動作確認用
+    //float force = force_mag;  // 動作確認用
 
     // 運動方程式
     float costheta = std::cos(theta);
@@ -122,10 +133,25 @@ std::tuple<torch::Tensor, float, bool> CartPoleEnv::step(int action) {
     //float stable = 1.0f / (1.0f + std::abs(theta_dot));   // 揺れが少ないほど高い
     //float reward = 10.0f * (0.5f + 0.5f * upright * stable);
 
-    float reward = done ? -1.0f : 1.0f;
+    //float reward = done ? -1.0f : 1.0f;
     //float reward = done ? 0.0f : 1.0f;
 
-    // 総報酬更新
+
+    float reward = reward_scale * (1.0f
+        - 0.01f * (std::abs(theta_deg) / 90.0f)   // 姿勢
+        - 0.002f * (std::abs(x) / x_limit));      // 位置
+
+    // 終了条件ごとに分岐
+    if (theta_deg < -90.0f || theta_deg > 90.0f ||
+        x < -x_limit || x > x_limit) {
+        // 倒立失敗
+        reward = -reward_scale;   // ← ペナルティ
+    }
+    else if (step_count >= 500) {
+        // 時間切れ成功
+        reward = +reward_scale;   // ← ボーナス
+    }
+
     total_reward += reward;
 
     return { get_state(), reward, done };

@@ -1,4 +1,5 @@
 ﻿#pragma once
+
 #include <wx/wx.h>
 #include <wx/timer.h>
 #include <memory>
@@ -8,8 +9,6 @@
 #include "RLAgent.hpp"
 #include "CartPoleCanvas.hpp"
 #include "PlotPanel.hpp"
-#include "tb_logger.hpp"
-#include "app.hpp"
 
 //
 // --- メインウィンドウ（Frame） ---

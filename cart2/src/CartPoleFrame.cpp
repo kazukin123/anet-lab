@@ -1,6 +1,7 @@
 ﻿#include "CartPoleFrame.hpp"
 #include "CartPoleCanvas.hpp"
-#include "tb_logger.hpp"
+#include "app.hpp"
+#include "EvaluateEnvironment.hpp"
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <torch/torch.h>
@@ -9,6 +10,9 @@
 
 #include <filesystem>
 
+
+const int timer_ms = 20;
+const int step_per_frame = 10;
 
 wxBEGIN_EVENT_TABLE(CartPoleFrame, wxFrame)
 EVT_TIMER(wxID_ANY, CartPoleFrame::OnTimer)
@@ -47,21 +51,24 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
 	// --- ログ出力先をこのクラスに設定 ---
     wxLog::SetActiveTarget(this);
 
+
     // --- RL初期化 ---
     env = std::make_unique<CartPoleEnv>();
     agent = std::make_unique<RLAgent>(4, 2, device);
-    state = env->reset();  // ← reset() は at::Tensor を返す
+    state = env->reset();  // ← reset() は 初期状態 を返す
+
+    // --- ランダムポリシー環境評価 ---
+    evaluateEnvironment(*env, /*num_actions=*/2, /*num_trials=*/100);
 
     // --- タイマー開始 ---
     Bind(wxEVT_TIMER, &CartPoleFrame::OnTimer, this);
-    timer.Start(10);  // 学習＆描画更新
+    timer.Start(timer_ms);  // 学習＆描画更新
 
     wxLogInfo("CartPoleRLGUI started.\n");
 }
 
 CartPoleFrame::~CartPoleFrame() {
     wxLog::SetActiveTarget(NULL);
-
 }
 
 void CartPoleFrame::ToggleTraining() {
@@ -82,15 +89,16 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         return;  // ←停止中は一切処理しない
 
     // 再入防止
-	this->timer.Stop();
+	//this->timer.Stop();
 
     // --- 学習ステップを複数回回す ---
-    auto action = agent->select_action(state);
+    //auto action = agent->select_action(state);
     float reward_ = 0.0f;
-    for (int i = 0; i < 10; ++i) {
+    torch::Tensor action;
+    for (int i = 0; i < step_per_frame; ++i) {
         action = agent->select_action(state);
         auto [next_state, reward, done] = env->step(action.item<int>());
-        agent->update(state, next_state, reward, done);
+        agent->update(state, action.item<int>(), next_state, reward, done);
         state = next_state.clone();
         reward_ = reward;
 
@@ -119,7 +127,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
             wxLogInfo(ss.str());
 
             // 統計ログ
-			wxGetApp().logScalar("1_episode/total_reward", episode_count, total_reward);
+			wxGetApp().logScalar("11_episode/total_reward", episode_count, total_reward);
             //wxGetApp().flushMetricsLog();
 
 			// プロット更新
@@ -145,10 +153,10 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         std::ostringstream ss;
         ss << "Step " << step_count
             << ", eps=" << std::fixed << std::setprecision(2) << agent->epsilon
-            << ", latest_loss=" << agent->latest_loss;
+            << ", loss_ema=" << agent->loss_ema;
         wxLogInfo(ss.str());
     }
 
     // タイマー再開
-	this->timer.Start();
+	//this->timer.Start();
 }
