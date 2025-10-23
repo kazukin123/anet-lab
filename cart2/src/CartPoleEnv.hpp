@@ -1,22 +1,28 @@
 #pragma once
 #include <torch/torch.h>
 
-
-class Env {
-public:
-    virtual torch::Tensor reset() = 0;
-    virtual std::tuple<torch::Tensor, float, bool> step(int action) = 0;   //  state, reward, done
-    virtual torch::Tensor get_state() const = 0;
-    virtual ~Env() = default;
+struct StepResult {
+    torch::Tensor next_state;
+    float reward;
+    bool done;
+    bool truncated = false;  // ŠÔ§ŒÀ‚â‹­§I—¹‚È‚Ç‚Ì‘Å‚¿Ø‚èƒtƒ‰ƒO
 };
 
-class CartPoleEnv : public Env {
+class Environment {
+public:
+    virtual torch::Tensor Reset() = 0;
+    virtual StepResult DoStep(const torch::Tensor& action) = 0;   //  state, reward, done
+    virtual torch::Tensor GetState() const = 0;
+    virtual ~Environment() = default;
+};
+
+class CartPoleEnv : public Environment {
 public:
     CartPoleEnv();
 
-    torch::Tensor reset();
-    std::tuple<torch::Tensor, float, bool> step(int action);   //  state, reward, done
-    torch::Tensor get_state() const;
+    torch::Tensor Reset();
+    StepResult DoStep(const torch::Tensor& action);   //  state, reward, done
+    torch::Tensor GetState() const;
 
     float get_x() const { return x; }
     float get_theta() const { return theta; }

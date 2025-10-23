@@ -51,14 +51,13 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
 	// --- ログ出力先をこのクラスに設定 ---
     wxLog::SetActiveTarget(this);
 
-
-    // --- RL初期化 ---
+    // --- RL生成 ---
     env = std::make_unique<CartPoleEnv>();
+	evaluateEnvironment(*env, /*num_actions=*/2, /*num_trials=*/100);   // ← ランダム方策で環境評価
     agent = std::make_unique<RLAgent>(4, 2, device);
-    state = env->reset();  // ← reset() は 初期状態 を返す
-
-    // --- ランダムポリシー環境評価 ---
-    evaluateEnvironment(*env, /*num_actions=*/2, /*num_trials=*/100);
+    
+    // --- 環境初期化 ---
+    state = env->Reset();  // ← reset() は 初期状態 を返す
 
     // --- タイマー開始 ---
     Bind(wxEVT_TIMER, &CartPoleFrame::OnTimer, this);
@@ -93,23 +92,23 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
 
     // --- 学習ステップを複数回回す ---
     //auto action = agent->select_action(state);
-    float reward_ = 0.0f;
+    float last_reward = 0.0f;
     torch::Tensor action;
     for (int i = 0; i < step_per_frame; ++i) {
         action = agent->select_action(state);
-        auto [next_state, reward, done] = env->step(action.item<int>());
+        auto [next_state, reward, done, _] = env->DoStep(action);
         agent->update(state, action.item<int>(), next_state, reward, done);
         state = next_state.clone();
-        reward_ = reward;
+        last_reward = reward;
 
-        if (step_count % 100 == 0) {
-            std::ostringstream ss;
-            ss << "Step " << step_count
-                << ", state=[" << env->get_x() << " " << env->get_theta() << " " << env->get_x_dot() << " " << env->get_theta_dot() <<  "]"
-                << ", actions=" << action.item<int>()
-                << ", reward=" << reward;
-            wxLogInfo(ss.str());
-        }
+        //if (step_count % 100 == 0) {
+        //    std::ostringstream ss;
+        //    ss << "Step " << step_count
+        //        << ", state=[" << env->get_x() << " " << env->get_theta() << " " << env->get_x_dot() << " " << env->get_theta_dot() <<  "]"
+        //        << ", actions=" << action.item<int>()
+        //        << ", reward=" << reward;
+        //    wxLogInfo(ss.str());
+        //}
 
         // ステップ数インプリメント（グローバルなステップ数）
         step_count++;
@@ -134,7 +133,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
             plotPanel->AddReward(total_reward);
 
             // 環境リセット
-            state = env->reset();
+            state = env->Reset();
 
             // 次のエピソード開始準備
             last_episode_step = step_count;
@@ -145,7 +144,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     // --- カート位置・角度の描画更新 ---
     canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
     canvas->SetAction(action);
-    canvas->SetReward(reward_);
+    canvas->SetReward(last_reward);
     canvas->Refresh();
 
     // --- 100 step ごとにログを出力 ---

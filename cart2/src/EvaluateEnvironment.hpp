@@ -3,7 +3,7 @@
 #include <random>
 #include <wx/log.h>
 
-void evaluateEnvironment(Env& env, int num_actions, int num_trials = 100) {
+void evaluateEnvironment(Environment& env, int num_actions, int num_trials = 100) {
     std::uniform_int_distribution<int> action_dist(0, num_actions - 1);
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -15,13 +15,14 @@ void evaluateEnvironment(Env& env, int num_actions, int num_trials = 100) {
     int short_fail_count = 0;
 
     for (int i = 0; i < num_trials; ++i) {
-        torch::Tensor state = env.reset();
+        torch::Tensor state = env.Reset();
         float total_reward = 0.0f;
         int steps = 0;
 
 		while (true) {  // ランダム方策でエピソード完了まで実行して評価
-            int action = action_dist(gen);
-            auto [next_state, reward, done] = env.step(action);
+            int action_int = action_dist(gen);
+            auto action = torch::tensor({ action_int }, torch::kLong);
+            auto [next_state, reward, done, _] = env.DoStep(action);
             total_reward += reward;
             steps++;
             if (done) break;
@@ -64,7 +65,7 @@ void evaluateEnvironment(Env& env, int num_actions, int num_trials = 100) {
         {"random_reward_mean",   mean},
         {"random_reward_stddev", stddev},
         {"random_reward_min",    min_reward},
-        {"eps_min",              max_reward},
+        {"random_reward_max",    max_reward},
         {"random_fail_rate",     (float)short_fail_count / num_trials},
         {"difficulty_index",     difficulty_index},
     };

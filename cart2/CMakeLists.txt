@@ -3,6 +3,7 @@ project(CartPoleRLGUI)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_COLOR_MAKEFILE ON)
 
 find_package(wxWidgets COMPONENTS core base REQUIRED)
 find_package(Torch REQUIRED)
@@ -13,6 +14,7 @@ if (MSVC)
   add_compile_definitions(_HAS_CONDITIONAL_EXPLICIT=0)
   add_compile_options(/wd4267)  # warning C4267を無効化
   add_compile_options(/Zi) 
+  add_compile_options(/diagnostics:color)
 endif()
 
 include(${wxWidgets_USE_FILE})

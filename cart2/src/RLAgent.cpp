@@ -2,6 +2,7 @@
 #include <iostream>
 #include <tuple>
 #include "app.hpp"
+#include "CartPoleEnv.hpp"
 
 
 const float alpha = 3e-4f;   // 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4

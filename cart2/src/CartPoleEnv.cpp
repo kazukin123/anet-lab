@@ -27,10 +27,10 @@ CartPoleEnv::CartPoleEnv() {
     wxGetApp().logJson("env", params);
     wxGetApp().flushMetricsLog();
 
-    reset();
+    Reset();
 }
 
-torch::Tensor CartPoleEnv::reset() {
+torch::Tensor CartPoleEnv::Reset() {
     std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -48,14 +48,15 @@ torch::Tensor CartPoleEnv::reset() {
     step_count = 0;
     total_reward = 0;
 
-    return get_state();
+    return GetState();
 }
 
-torch::Tensor CartPoleEnv::get_state() const {
+torch::Tensor CartPoleEnv::GetState() const {
     return torch::tensor({ x, x_dot, theta, theta_dot }).unsqueeze(0);
 }
 
-std::tuple<torch::Tensor, float, bool> CartPoleEnv::step(int action) {
+StepResult CartPoleEnv::DoStep(const torch::Tensor& action_tensor) {
+    int action = action_tensor.item<int>();
 
     // 力の符号（右:+、左-）
     float force = (action == 1) ? force_mag : -force_mag;
@@ -142,6 +143,7 @@ std::tuple<torch::Tensor, float, bool> CartPoleEnv::step(int action) {
         - 0.002f * (std::abs(x) / x_limit));      // 位置
 
     // 終了条件ごとに分岐
+	bool truncated = false;
     if (theta_deg < -90.0f || theta_deg > 90.0f ||
         x < -x_limit || x > x_limit) {
         // 倒立失敗
@@ -150,9 +152,10 @@ std::tuple<torch::Tensor, float, bool> CartPoleEnv::step(int action) {
     else if (step_count >= 500) {
         // 時間切れ成功
         reward = +reward_scale;   // ← ボーナス
+        truncated = true;
     }
 
     total_reward += reward;
 
-    return { get_state(), reward, done };
+    return { GetState(), reward, done, truncated };
 }
