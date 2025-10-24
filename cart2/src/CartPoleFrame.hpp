@@ -30,6 +30,7 @@ private:
     // タイマー
     wxTimer timer;
     bool training_paused = false;
+    bool auto_pause_done_ = false;
 
     // 強化学習関連
     std::unique_ptr<CartPoleEnv> env;

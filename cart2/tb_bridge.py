@@ -141,7 +141,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert MetricsLogger JSONL logs to TensorBoard events.")
     parser.add_argument("--logdir", default="logs", help="Root directory where JSONL logs are stored")
     parser.add_argument("--interval", type=float, default=1.0, help="Polling interval in seconds")
-    parser.add_argument("--log-interval", type=int, default=100, help="Print progress every N lines")
+    parser.add_argument("--log-interval", type=int, default=1000, help="Print progress every N lines")
     parser.add_argument("--no-clean", action="store_true", help="Do not delete old TensorBoard event files")
     args = parser.parse_args()
 

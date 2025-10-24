@@ -1,25 +1,37 @@
 ﻿#!/usr/bin/env python3
 """
-metrics_viewer_dash_full_v9.py
+metrics_viewer_dash_full_v13.py
 ---------------------------------------
 - JSONL差分読込＋Parquetキャッシュ
 - 自動/手動更新・タグフィルタ
-- 1点グラフ対応
-- ズーム保持
+- 1点グラフ対応・ズーム保持
 - type=json の全Meta情報をページ末尾に表示
-- Meta情報にタイムスタンプ併記＋明るい配色
+- Meta情報にtimestamp併記＋Runごとの色同期
+- グラフとMetaのRun色統一（Plotlyパレット）
 ---------------------------------------
 """
 
 import os, json, re, pandas as pd, pyarrow.parquet as pq, pyarrow as pa
 import plotly.graph_objects as go
+import plotly.colors as pc
 from dash import Dash, dcc, html, Input, Output, State
 from dash.dependencies import ALL
 
 RUN_CACHE = {}
+RUN_COLORS = {}
+
+
+def get_run_color(run_name):
+    """Run名に基づき一貫した色を返す"""
+    if run_name not in RUN_COLORS:
+        palette = pc.qualitative.Plotly
+        idx = len(RUN_COLORS) % len(palette)
+        RUN_COLORS[run_name] = palette[idx]
+    return RUN_COLORS[run_name]
 
 
 def read_incremental_jsonl(jsonl_path: str):
+    """metrics.jsonl の差分を読み込み、Parquetにキャッシュ"""
     if not os.path.exists(jsonl_path):
         return pd.DataFrame()
     run_dir = os.path.dirname(jsonl_path)
@@ -93,6 +105,7 @@ def make_tag_fig(run_data, selected_runs, tag, zoom_state):
     for run, df in run_data.items():
         if run not in selected_runs:
             continue
+        run_color = get_run_color(run)
         axis_col = detect_axis_column(df, tag)
         sub = df[df["tag"] == tag]
         if len(sub) > MAX_POINTS:
@@ -111,25 +124,27 @@ def make_tag_fig(run_data, selected_runs, tag, zoom_state):
                 x=sub[axis_col],
                 y=sub["value"],
                 mode="lines+markers",
-                name=f"{run}",
-                line=dict(width=2, dash="dot", color="cyan"),
-                marker=dict(size=7, color="cyan", symbol="circle")
+                name=run,
+                line=dict(width=2, dash="dot", color=run_color),
+                marker=dict(size=7, color=run_color, symbol="circle")
             ))
         else:
             fig.add_trace(go.Scatter(
                 x=sub[axis_col],
                 y=sub["value"],
                 mode="lines",
-                name=f"{run}"
+                name=run,
+                line=dict(color=run_color, width=2)
             ))
 
     fig.update_layout(
         template="plotly_dark",
         title=tag,
-        xaxis_title=detect_axis_column(df, tag),
+        xaxis_title=axis_col,
         yaxis_title=tag,
         height=300,
-        margin=dict(l=40, r=20, t=40, b=40)
+        margin=dict(l=40, r=20, t=40, b=40),
+        showlegend=len(selected_runs) > 1
     )
 
     if zoom_state and tag in zoom_state:
@@ -167,7 +182,7 @@ def load_json_meta_for_run(run_dir):
 def create_app(log_root):
     app = Dash(__name__)
     app.layout = html.Div([
-        html.H2("📊 Metrics Viewer"),
+        html.H2("📊 Metrics Viewer — Multi-run with Color Sync"),
 
         html.Div([
             html.Label("Select runs:"),
@@ -265,24 +280,38 @@ def create_app(log_root):
                 )
             )
 
-        # ---- Meta情報：ページ末尾に表示 ----
+        # ---- Meta情報（末尾） ----
         meta_blocks = []
         for run in selected_runs:
             metas = load_json_meta_for_run(os.path.join(log_root, run))
             if not metas:
                 continue
-
-            # Run名を帯として明示表示
+            run_color = get_run_color(run)
             run_header = html.Div(
-                f"Run: {run}",
+                [
+                    html.Div(style={
+                        "backgroundColor": run_color,
+                        "width": "12px",
+                        "height": "100%",
+                        "float": "left",
+                        "marginRight": "8px",
+                        "borderTopLeftRadius": "6px",
+                        "borderBottomLeftRadius": "6px"
+                    }),
+                    html.Span(f"Run: {run}", style={
+                        "color": "#fff",
+                        "fontWeight": "bold",
+                        "fontSize": "16px",
+                    }),
+                ],
                 style={
-                    "backgroundColor": "#005577",
-                    "color": "#fff",
-                    "fontWeight": "bold",
+                    "backgroundColor": "#222",
                     "padding": "6px 10px",
                     "borderTopLeftRadius": "6px",
                     "borderTopRightRadius": "6px",
-                    "fontSize": "16px",
+                    "display": "flex",
+                    "alignItems": "center",
+                    "gap": "8px",
                 }
             )
 
@@ -294,7 +323,7 @@ def create_app(log_root):
 
                 header_line = html.Div([
                     html.Span(f"Tag: {tag}", style={
-                        "color": "#7cf",
+                        "color": run_color,
                         "fontWeight": "bold",
                         "marginRight": "10px"
                     }),
@@ -311,36 +340,32 @@ def create_app(log_root):
                     ]) for k, v in data.items()
                 ]
 
-                table = html.Table(
-                    rows,
-                    style={
-                        "borderCollapse": "collapse",
-                        "border": "1px solid #555",
-                        "marginBottom": "8px",
-                        "width": "auto",
-                        "backgroundColor": "#111",
-                        "fontSize": "14px",
-                        "wordBreak": "break-all",
-                        "padding": "4px 8px"
-                    }
-                )
+                table = html.Table(rows, style={
+                    "borderCollapse": "collapse",
+                    "border": f"1px solid {run_color}",
+                    "marginBottom": "8px",
+                    "width": "auto",
+                    "backgroundColor": "#111",
+                    "fontSize": "14px",
+                    "wordBreak": "break-all",
+                    "padding": "4px 8px"
+                })
 
                 run_container.append(html.Div([header_line, table],
                                               style={"marginLeft": "16px", "marginBottom": "10px"}))
 
-            # Run単位カード全体
             meta_blocks.append(html.Div(
                 [run_header] + run_container,
                 style={
-                    "border": "1px solid #444",
+                    "border": f"1px solid {run_color}",
                     "borderRadius": "6px",
                     "padding": "10px",
                     "marginBottom": "24px",
                     "backgroundColor": "#1a1a1a",
-                    "overflow": "hidden"
+                    "overflow": "hidden",
+                    "boxShadow": f"0 0 6px {run_color}66"
                 }
             ))
-
 
         run_options = [{"label": r, "value": r} for r in run_names]
         tag_options = [{"label": t, "value": t} for t in all_tags]

@@ -11,8 +11,7 @@
 
 * 学習改善
 	* Replay Buffer
-	* Double DQN
-	* TD-Deltaクリッピング
+	* Adaptive Grad Control
 	* 学習率減衰
 * メトリクス
 	* メトリクスタグの適正階層化 

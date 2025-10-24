@@ -5,17 +5,18 @@
 #include "CartPoleEnv.hpp"
 
 
-const float alpha = 3e-4f;   // 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+const float alpha = 1e-3f;   // 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
 const float gamma = 0.99f;// 0.99f; 0.995f      γが高いほど「長期安定」を目指す
 const float eps_max = 1.00f;
 const float eps_min = 0.05f;    //0.1f 0.05f
 const float eps_decay_step = 100000;
-const float tnetup_softupdate_tau = 0.004f;// 1.0f 0.004f  0.01f 0.005f;   // 大きいとターゲットネットワークからの反映が早くなる。小さいと遅く滑らかになる。0.005→半減期138step
-const int tnetup_hardupdate_step = -1;// 5000; //200 500 1000
-const float grad_clip_tau = 30.0f;   // 1f 5f 10f
-const bool use_td_clip = false;
-const float td_clip_value = 3.0f;
+const float softupdate_tau = 0.015f;// 1.0f 0.004f  0.01f 0.005f;   // 大きいとターゲットネットワークからの反映が早くなる。小さいと遅く滑らかになる。0.005→半減期138step
+const int hardupdate_step = 2000;// -1 5000; //200 500 1000
+const float grad_clip_tau = 30.0f;   // 10~40 1f 5f 10f
+const bool use_td_clip = true;
+const float td_clip_value = 4.0f;
 const int eps_zero_step = -1;// 120000;
+const bool use_double_dqn = true;   // Double DQN 有効化フラグ（trueで有効）
 
 // ======================================================
 // QNet 定義（Impl を CPP に置く）
@@ -47,8 +48,8 @@ RLAgent::RLAgent(int state_dim, int n_actions, torch::Device device)
     optimizer(policy_net->parameters(), torch::optim::AdamOptions(alpha)),
     epsilon(1.0f),
     loss_ema(0.0f),
-    train_step(0),
-    grad_norm_clipped_ema(0.0f) {
+    train_step(0)
+{
     policy_net->to(device);
     target_net->to(device);
     target_net->eval();
@@ -71,10 +72,12 @@ RLAgent::RLAgent(int state_dim, int n_actions, torch::Device device)
         {"eps_min", eps_min},
         {"eps_decay_step", eps_decay_step},
         {"eps_zero_step", eps_zero_step},
-        {"tnetup_softupdate_tau", tnetup_softupdate_tau},
-        {"tnetup_hardupdate_step", tnetup_hardupdate_step},
+        {"softupdate_tau", softupdate_tau},
+        {"hardupdate_step", hardupdate_step},
         {"grad_clip_tau", grad_clip_tau},
+        {"use_td_clip", use_td_clip},
         {"td_clip_value", td_clip_value},
+        {"use_double_dqn", use_double_dqn},
     };
     wxGetApp().logJson("agent/params", params);
     wxGetApp().flushMetricsLog();
@@ -97,8 +100,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> RLAgent::SelectAction(co
 
     if (eps_zero_step > 0 && (train_step > eps_zero_step)) {
         epsilon = 0.0f;
-    }
-    else {
+    } else {
         epsilon = std::max(eps_min, eps_max - (float)train_step / eps_decay_step);
         //epsilon = std::max(0.05f, epsilon * 0.9998f);
         //epsilon = 1.0f;
@@ -183,10 +185,21 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {    // A=2
     // 教師信号（ターゲットQ）
 
     // --- 期待Qの算出 ---
-
-    // ターゲットネットで max_a' Q(s', a') を取る
-    auto next_q_targ = target_net->forward(exprence.response.next_state.to(device));  // (B, A) or (1, A)
-    auto max_next_q = std::get<0>(next_q_targ.max(1)).detach();                       // (B,)
+    auto next_state = exprence.response.next_state.to(device);
+    torch::Tensor max_next_q;
+    if (use_double_dqn) {
+        // ===== Double DQN: 次状態は policy で行動選択し、target で評価 =====
+        auto next_q_policy = policy_net->forward(next_state);               // (B, A)
+        auto next_action = std::get<1>(next_q_policy.max(1));               // (B,)
+        auto next_q_target = target_net->forward(next_state);               // (B, A)
+        max_next_q = next_q_target.gather(1, next_action.unsqueeze(1)).squeeze(1);// (B,)
+        max_next_q = max_next_q.detach();
+    }
+    else {
+        // ===== 通常DQN: ターゲットネット単体で max_a' Q_target(s', a') =====
+        auto next_q_targ = target_net->forward(next_state);                 // (B, A)
+        max_next_q = std::get<0>(next_q_targ.max(1)).detach();              // (B,)
+    }
 
     // デバイス＆dtypeオプション
     auto optsF = torch::TensorOptions().dtype(torch::kFloat).device(device);
@@ -238,6 +251,12 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {    // A=2
     loss_ema = ema_decay * loss_ema + (1 - ema_decay) * loss.item<float>();
     auto q_targ = target_net->forward(state_t.to(device));
     auto q_diff = torch::mean(torch::abs(q_sa - q_targ.gather(1, action_t.unsqueeze(1)).squeeze(1)));
+    float td_cliped = 0.0f;
+    if (use_td_clip) {
+        float abs_raw = std::abs(td_raw.item<float>());
+        td_cliped = (abs_raw > td_clip_value) ? 1.0f : 0.0f;
+        td_clip_ema = ema_decay * td_clip_ema + (1 - ema_decay) * td_cliped;
+    }
 
 	// メトリクス記録
     wxGetApp().logScalar("21_agent/01_epsilon", train_step, epsilon);               //εグリーディーのε
@@ -245,25 +264,29 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {    // A=2
     wxGetApp().logScalar("22_agent/02_q_sa", train_step, q_sa.item<double>());      // 
     wxGetApp().logScalar("22_agent/03_q_diff", train_step, q_diff.item<float>());   // policy と target の Q値乖離
 
-    wxGetApp().logScalar("23_agent/04_reward", train_step, exprence.response.reward);   // 報酬
-    wxGetApp().logScalar("23_agent/05_td_error", train_step, td.item<float>());         // TD誤差（TD誤差クリップ有りの場合はクリップ後）
-    if (use_td_clip)
+    if (use_td_clip) {
+        wxGetApp().logScalar("23_agent/04_td_cliped_ema", train_step, td_clip_ema); // TD誤差 クリップ前
+        wxGetApp().logScalar("23_agent/05_td_cliped", train_step, td_cliped); // TD誤差 クリップ前
         wxGetApp().logScalar("23_agent/06_td_error_raw", train_step, td_raw.item<float>()); // TD誤差 クリップ前
-    wxGetApp().logScalar("23_agent/07_loss", train_step, loss.item<float>());           // loss値
-    wxGetApp().logScalar("23_agent/08_loss_ema", train_step, loss_ema);                 // loss値のEMA移動平均
+    }
+    wxGetApp().logScalar("23_agent/07_reward", train_step, exprence.response.reward);   // 報酬
+    wxGetApp().logScalar("23_agent/08_td_error", train_step, td.item<float>());         // TD誤差（TD誤差クリップ有りの場合はクリップ後）
+    wxGetApp().logScalar("23_agent/09_loss", train_step, loss.item<float>());           // loss値
+    wxGetApp().logScalar("23_agent/10_loss_ema", train_step, loss_ema);                 // loss値のEMA移動平均
 
-    wxGetApp().logScalar("24_agent/09_grad_norm", train_step, total_norm);              // 勾配ノルム
-    wxGetApp().logScalar("24_agent/10_grad_clip", train_step, grad_norm_clipped);       // 勾配ノルムがクリッピングされたか
-    wxGetApp().logScalar("24_agent/11_grad_clip_ema", train_step, grad_norm_clipped_ema);   // 勾配ノルムのクリッピング率（EMA移動平均）
+    wxGetApp().logScalar("24_agent/11_grad_norm", train_step, total_norm);              // 勾配ノルム
+    wxGetApp().logScalar("24_agent/12_grad_cliped", train_step, grad_norm_clipped);       // 勾配ノルムがクリッピングされたか
+    wxGetApp().logScalar("24_agent/13_grad_cliped_ema", train_step, grad_norm_clipped_ema);   // 勾配ノルムのクリッピング率（EMA移動平均）
     //    wxGetApp().logScalar("2_agent/done",     train_step, done);
     //    wxGetApp().logScalar("2_agent/hard_update_done",     train_step, hard_update_done);
 
+
         // --- soft update（毎回少し近づける） ---
-    if (tnetup_softupdate_tau > 0) {
-        soft_update(tnetup_softupdate_tau);
+    if (softupdate_tau > 0) {
+        soft_update(softupdate_tau);
     }
     bool hard_update_done = false;
-    if (tnetup_hardupdate_step > 0 && (train_step % tnetup_hardupdate_step) == 0) {
+    if (hardupdate_step > 0 && (train_step % hardupdate_step) == 0) {
         hard_update();      // --- hard update（定期stepごとに完全同期） ---
         wxLogInfo("Hard update done. step=%d", train_step);
         hard_update_done = true;

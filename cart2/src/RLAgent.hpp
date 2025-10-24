@@ -30,5 +30,6 @@ private:
     torch::Device device;
     int n_actions_;
     int train_step;
-    float grad_norm_clipped_ema;
+    float grad_norm_clipped_ema = 0.0f;
+    float td_clip_ema = 0.0f;
 };

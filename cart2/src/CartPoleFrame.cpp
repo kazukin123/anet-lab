@@ -14,6 +14,7 @@
 const int timer_ms = 20;
 const int step_per_frame = 10;
 const int eval_interval = 1;
+const int max_train_step = 110000;
 
 wxBEGIN_EVENT_TABLE(CartPoleFrame, wxFrame)
 EVT_TIMER(wxID_ANY, CartPoleFrame::OnTimer)
@@ -56,6 +57,7 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     // パラメータ記録
     nlohmann::json params = {
         {"eval_interval", eval_interval},
+        {"max_train_step", max_train_step},
     };
     wxGetApp().logJson("train/params", params);
     wxGetApp().flushMetricsLog();
@@ -190,6 +192,11 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     canvas->SetAction(action);
     canvas->SetReward(last_reward);
     canvas->Refresh();
+
+    if (step_count >= max_train_step && !auto_pause_done_) {
+        auto_pause_done_ = true;
+        training_paused = true;
+    }
 
     // タイマー再開
 	this->timer.Start();

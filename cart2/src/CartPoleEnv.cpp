@@ -15,7 +15,7 @@ const float length = 0.5f;
 const float polemass_length = mass_pole * length;
 const float force_mag = 10.0f;
 const float tau = 0.02f;    //0.02f 0.01f
-const float reward_scale = 2.0f;  // 2 10  20
+const float reward_scale = 1.0f;  // 2 10  20
 
 const int max_steps = 500;  // 終了条件
 

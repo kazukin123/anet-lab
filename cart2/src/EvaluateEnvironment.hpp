@@ -5,7 +5,7 @@
 
 #include "anet/rl.hpp"
 
-void evaluateEnvironment(anet::rl::Environment& env, int num_actions, int num_trials = 100) {
+void evaluateEnvironment(anet::rl::Environment& env, int num_actions, int num_trials = 1000) {
     std::uniform_int_distribution<int> action_dist(0, num_actions - 1);
     std::random_device rd;
     std::mt19937 gen(rd());
