@@ -169,12 +169,12 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {
     // --- Q(s, a) の抽出
     auto state_t = exprence.state;
     if (state_t.dim() == 1) state_t = state_t.unsqueeze(0);
-    auto q_values = policy_net->forward(ToDevice(state_t, ctx.device));      // (1, A)
+    auto q_values = policy_net->forward(state_t.to(device));                          // (1,A)
     auto action_t = torch::tensor({ exprence.action.item<int>() }, ctx.LongOpt());
     auto q_sa = q_values.gather(1, action_t.unsqueeze(1)).squeeze(1).squeeze(0); // (B,)
 
     // --- 期待Qの算出（Double DQN対応／現状維持）
-    auto next_state = ToDevice(exprence.response.next_state, ctx.device);
+    auto next_state = exprence.response.next_state.to(device);
     torch::Tensor max_next_q;
     if (use_double_dqn) {
         auto next_q_policy = policy_net->forward(next_state);                 // (B, A)
