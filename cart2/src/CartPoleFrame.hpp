@@ -40,6 +40,7 @@ private:
     int step_count = 0;
     int last_episode_step = 0;
     int episode_count = 0;
+    int eval_count_ = 0;
 
     // デバイス（CPU固定）
     torch::Device device;

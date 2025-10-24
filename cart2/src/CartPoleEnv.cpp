@@ -24,21 +24,30 @@ CartPoleEnv::CartPoleEnv() {
     nlohmann::json params = {
         {"max_steps", max_steps},
     };
-    wxGetApp().logJson("env", params);
+    wxGetApp().logJson("env/params", params);
     wxGetApp().flushMetricsLog();
 
     Reset();
 }
 
-torch::Tensor CartPoleEnv::Reset() {
-    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
-    std::random_device rd;
-    std::mt19937 gen(rd());
+torch::Tensor CartPoleEnv::Reset(anet::rl::RunMode mode) {
 
-    x = dist(gen) * 0.05f;
-    x_dot = dist(gen) * 0.05f;
-    theta = dist(gen) * 0.05f;
-    theta_dot = dist(gen) * 0.05f;
+    if (anet::rl::IsTrain(mode)) {
+        std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+        std::random_device rd;
+        std::mt19937 gen(rd());
+
+        x = dist(gen) * 0.05f;
+        x_dot = dist(gen) * 0.05f;
+        theta = dist(gen) * 0.05f;
+        theta_dot = dist(gen) * 0.05f;
+    }else {
+        // 評価モードでは初期状態固定
+        x = 0;
+        x_dot = 0;
+        theta = 0;
+        theta_dot = 0;
+    }
     
     //x = 0.2f;
     //x_dot = 0.2f;
@@ -55,7 +64,7 @@ torch::Tensor CartPoleEnv::GetState() const {
     return torch::tensor({ x, x_dot, theta, theta_dot }).unsqueeze(0);
 }
 
-StepResult CartPoleEnv::DoStep(const torch::Tensor& action_tensor) {
+anet::rl::EnvResponse CartPoleEnv::DoStep(const torch::Tensor& action_tensor, anet::rl::RunMode mode) {
     int action = action_tensor.item<int>();
 
     // 力の符号（右:+、左-）

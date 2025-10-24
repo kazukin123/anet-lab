@@ -1,27 +1,14 @@
 #pragma once
 #include <torch/torch.h>
 
-struct StepResult {
-    torch::Tensor next_state;
-    float reward;
-    bool done;
-    bool truncated = false;  // ŠÔ§ŒÀ‚â‹­§I—¹‚È‚Ç‚Ì‘Å‚¿Ø‚èƒtƒ‰ƒO
-};
+#include "anet/rl.hpp"
 
-class Environment {
-public:
-    virtual torch::Tensor Reset() = 0;
-    virtual StepResult DoStep(const torch::Tensor& action) = 0;   //  state, reward, done
-    virtual torch::Tensor GetState() const = 0;
-    virtual ~Environment() = default;
-};
-
-class CartPoleEnv : public Environment {
+class CartPoleEnv : public anet::rl::Environment {
 public:
     CartPoleEnv();
 
-    torch::Tensor Reset();
-    StepResult DoStep(const torch::Tensor& action);   //  state, reward, done
+    torch::Tensor Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train);
+    anet::rl::EnvResponse DoStep(const torch::Tensor& action, anet::rl::RunMode mode = anet::rl::RunMode::Train);   //  state, reward, done
     torch::Tensor GetState() const;
 
     float get_x() const { return x; }

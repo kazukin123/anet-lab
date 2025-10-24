@@ -14,7 +14,9 @@ if (MSVC)
   add_compile_definitions(_HAS_CONDITIONAL_EXPLICIT=0)
   add_compile_options(/wd4267)  # warning C4267を無効化
   add_compile_options(/Zi) 
-  add_compile_options(/diagnostics:color)
+#  add_compile_options(/diagnostics:color)
+#  add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
+
 endif()
 
 include(${wxWidgets_USE_FILE})
@@ -26,10 +28,13 @@ add_executable(CartPoleRLGUI
     "src/RLAgent.cpp"
     "src/CartPoleFrame.cpp"
     "src/CartPoleCanvas.cpp"
-    "src/PlotPanel.cpp")
+    "src/PlotPanel.cpp"
+    "src/anet_rl_samples.cpp"
+)
 
+target_include_directories(CartPoleRLGUI PRIVATE "include")
 target_link_libraries(CartPoleRLGUI PRIVATE ${wxWidgets_LIBRARIES} ${TORCH_LIBRARIES})
-# GUIアプリとしてリンク（Windows専用）
+
 if (WIN32)
   set_target_properties(CartPoleRLGUI PROPERTIES
       WIN32_EXECUTABLE TRUE
