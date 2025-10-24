@@ -10,16 +10,15 @@ class RLAgent : public anet::rl::Agent {
 public:
     RLAgent(int state_dim, int n_actions, torch::Device device);
 
+    std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>
+        SelectAction(const torch::Tensor& state, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
 
-    std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> SelectAction(const torch::Tensor& state, anet::rl::RunMode mode = anet::rl::RunMode::Train);
-    void Update(const anet::rl::Experience& exprience);
-    void UpdateBatch(const anet::rl::BatchData&) { } // 未対応
-
-    //torch::Tensor select_action(torch::Tensor state);
-    //void update(const torch::Tensor& state, int action, const torch::Tensor& next_state, float reward, bool done);
+    void Update(const anet::rl::Experience& exprience) override;
+    void UpdateBatch(const anet::rl::BatchData&) override {} // 未対応
 
     float epsilon;
     float loss_ema;
+
 private:
     void hard_update();
     void soft_update(float tau);

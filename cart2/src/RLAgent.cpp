@@ -3,8 +3,11 @@
 #include <tuple>
 #include "app.hpp"
 #include "CartPoleEnv.hpp"
+#include "tensor_utils.hpp"
 
+using namespace anet::util;
 
+// ==== ハイパーパラメータ ====
 const float alpha = 1e-3f;   // 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
 const float gamma = 0.99f;// 0.99f; 0.995f      γが高いほど「長期安定」を目指す
 const float eps_max = 1.00f;
@@ -29,7 +32,6 @@ struct QNetImpl : torch::nn::Module {
         fc2 = register_module("fc2", torch::nn::Linear(128, 64));
         fc3 = register_module("fc3", torch::nn::Linear(64, n_actions));
     }
-
     torch::Tensor forward(torch::Tensor x) {
         x = torch::relu(fc1->forward(x));
         x = torch::relu(fc2->forward(x));
@@ -54,7 +56,7 @@ RLAgent::RLAgent(int state_dim, int n_actions, torch::Device device)
     target_net->to(device);
     target_net->eval();
 
-    // Module 間コピーは torch::serialize を使う
+    // 初期同期：policy → target
     torch::serialize::OutputArchive archive;
     policy_net->save(archive);
     torch::serialize::InputArchive in;
@@ -62,9 +64,9 @@ RLAgent::RLAgent(int state_dim, int n_actions, torch::Device device)
     archive.save_to(ss);
     in.load_from(ss);
     target_net->load(in);
-    target_net->eval(); // ターゲットネットは期待Q値の評価だけで更新はしないはず
+    target_net->eval();
 
-    // パラメータ記録
+    // ログ：パラメータ記録
     nlohmann::json params = {
         {"alpha", alpha},
         {"gamma", gamma},
@@ -87,29 +89,27 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> RLAgent::SelectAction(co
     torch::NoGradGuard ng;
     policy_net->eval();
 
-    if (anet::rl::IsEval(mode)) { // 評価モードではε-greedyを無効化し、常に最大Q値のActionを選択
+    // 評価モード：常にgreedy
+    if (anet::rl::IsEval(mode)) {
         auto q_values = (mode == anet::rl::RunMode::Eval1)
             ? target_net->forward(state.to(device)):    // Eval1:ターゲットネットワークで評価
               policy_net->forward(state.to(device));    // Eval2:メインネットワークで評価
         auto result = q_values.max(1);
-        auto max_index = std::get<1>(result);
-        auto action = max_index.to(torch::kLong);
+        auto action = std::get<1>(result).to(torch::kLong);
         return { action, torch::Tensor(), torch::Tensor() };
-        //学習済みステップ数やepsilonの更新もしない
-	}
-
-    if (eps_zero_step > 0 && (train_step > eps_zero_step)) {
-        epsilon = 0.0f;
-    } else {
-        epsilon = std::max(eps_min, eps_max - (float)train_step / eps_decay_step);
-        //epsilon = std::max(0.05f, epsilon * 0.9998f);
-        //epsilon = 1.0f;
     }
 
-    if (((float)rand() / RAND_MAX) < epsilon) {
-        // 確率εがヒットした場合はランダムでActionを決定
-        int action_int = rand() % n_actions_;
-        //int action = 0;
+    // Train：ε-greedy
+    if (eps_zero_step > 0 && (train_step > eps_zero_step)) {
+        epsilon = 0.0f;
+    }
+    else {
+        epsilon = std::max(eps_min, eps_max - static_cast<float>(train_step) / eps_decay_step);
+    }
+
+    if (static_cast<float>(rand()) / RAND_MAX < epsilon) {
+		// 確率εがヒットした場合はランダムでActionを決定
+		int action_int = rand() % n_actions_;
         auto action = torch::tensor({ action_int }, torch::kLong).to(device);
         return { action, torch::Tensor(), torch::Tensor() };
     }
@@ -117,19 +117,15 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> RLAgent::SelectAction(co
         // メインネットワークを元にActionを決定
         auto q_values = policy_net->forward(state.to(device));
         auto result = q_values.max(1);
-        auto max_index = std::get<1>(result);
-        auto action = max_index.to(torch::kLong);
+        auto action = std::get<1>(result).to(torch::kLong);
         return { action, torch::Tensor(), torch::Tensor() };
     }
 }
 
-
 void RLAgent::hard_update() {
     torch::NoGradGuard no_grad;
-
     auto src = policy_net->named_parameters();
     auto dst = target_net->named_parameters();
-
     for (auto& kv : src) {
         if (dst.contains(kv.key())) {
             dst[kv.key()].copy_(kv.value());
@@ -138,89 +134,65 @@ void RLAgent::hard_update() {
 }
 
 void RLAgent::soft_update(float tau) {
-    if (tau >= 1.0f) {
-        hard_update();   // policyを完全コピー
-        return;
-    }
-
+    if (tau >= 1.0f) { hard_update(); return; }	// policyを完全コピー
     torch::NoGradGuard no_grad;
-
     auto src = policy_net->named_parameters();
     auto dst = target_net->named_parameters();
-
     for (auto& kv : src) {
         if (dst.contains(kv.key())) {
-            dst[kv.key()].copy_(dst[kv.key()] * (1 - tau) + kv.value() * tau);
+            dst[kv.key()].copy_(dst[kv.key()] * (1.0f - tau) + kv.value() * tau);
         }
     }
 }
 
-//  B:バッチサイズ        A：アクション数
-//state_t	    状態入力(x, x_dot, θ, θ_dot)   (1, 4)
-//q_values    	各アクションのQ値                (1, 2)
-//max_next_q	各サンプルの「最大Q値」          (B, )（通常(1, )）
-//reward_t    	報酬（各サンプル）               (B, )
-//nonterminal	「未終端なら1、終端なら0」マスク (B, )
-//expected_q	教師信号Q値                      (B, )
-//q_sa      	実際に選んだActionのQ値          (B, )
+//  B:バッチサイズ, A:アクション数
+// state_t     入力状態 (1,4)
+// q_values    Q値      (1,2)
+// max_next_q  次状態の最大Q (B,)（通常(1,)）
+// reward_t    報酬     (B,)
+// nonterminal 未終端=1/終端=0 (B,)
+// expected_q  教師Q    (B,)
+// q_sa        選択行動のQ (B,)
 
-void RLAgent::Update(const anet::rl::Experience& exprence) {    // A=2
+void RLAgent::Update(const anet::rl::Experience& exprence) {
     policy_net->train();
 
-    // 簡易 LR スケジュール（終盤で半減）
-    if (train_step == 120000 || train_step == 180000) { // 120k 180k で学習率半減
+    // 簡易LRスケジュール
+    if (train_step == 120000 || train_step == 180000) {
         for (auto& p : optimizer.param_groups()) {
             p.options().set_lr(p.options().get_lr() * 0.5);
         }
     }
 
+    TensorContext ctx(device);
+
+    // --- Q(s, a) の抽出
     auto state_t = exprence.state;
-    if (state_t.dim() == 1)
-        state_t = state_t.unsqueeze(0);
+    if (state_t.dim() == 1) state_t = state_t.unsqueeze(0);
+    auto q_values = policy_net->forward(ToDevice(state_t, ctx.device));      // (1, A)
+    auto action_t = torch::tensor({ exprence.action.item<int>() }, ctx.LongOpt());
+    auto q_sa = q_values.gather(1, action_t.unsqueeze(1)).squeeze(1).squeeze(0); // (B,)
 
-    auto q_values = policy_net->forward(state_t.to(device));                          // (1,A)
-    auto action_t = torch::tensor({ exprence.action.item<int>() }, torch::kLong).to(device);
-    auto q_sa = q_values.gather(1, action_t.unsqueeze(1)).squeeze(1).squeeze(0);
-
-    // 教師信号（ターゲットQ）
-
-    // --- 期待Qの算出 ---
-    auto next_state = exprence.response.next_state.to(device);
+    // --- 期待Qの算出（Double DQN対応／現状維持）
+    auto next_state = ToDevice(exprence.response.next_state, ctx.device);
     torch::Tensor max_next_q;
     if (use_double_dqn) {
-        // ===== Double DQN: 次状態は policy で行動選択し、target で評価 =====
-        auto next_q_policy = policy_net->forward(next_state);               // (B, A)
-        auto next_action = std::get<1>(next_q_policy.max(1));               // (B,)
-        auto next_q_target = target_net->forward(next_state);               // (B, A)
-        max_next_q = next_q_target.gather(1, next_action.unsqueeze(1)).squeeze(1);// (B,)
-        max_next_q = max_next_q.detach();
-    }
-    else {
-        // ===== 通常DQN: ターゲットネット単体で max_a' Q_target(s', a') =====
-        auto next_q_targ = target_net->forward(next_state);                 // (B, A)
-        max_next_q = std::get<0>(next_q_targ.max(1)).detach();              // (B,)
+        auto next_q_policy = policy_net->forward(next_state);                 // (B, A)
+        auto next_action = std::get<1>(next_q_policy.max(1));              // (B,)
+        auto next_q_target = target_net->forward(next_state);                // (B, A)
+        max_next_q = next_q_target.gather(1, next_action.unsqueeze(1)).squeeze(1).detach(); // (B,)
+    } else {
+        auto next_q_targ = target_net->forward(next_state);                   // (B, A)
+        max_next_q = std::get<0>(next_q_targ.max(1)).detach();                // (B,)
     }
 
-    // デバイス＆dtypeオプション
-    auto optsF = torch::TensorOptions().dtype(torch::kFloat).device(device);
-    auto optsB = torch::TensorOptions().dtype(torch::kBool).device(device);
-
-    // 報酬テンソル（(B,)に合うサイズで作成）
-    auto reward_t = torch::full(max_next_q.sizes(), exprence.response.reward, optsF);   // (B,)
-
-    // done / truncated を bool テンソル化（(B,)にブロードキャスト）
-    auto done_b = torch::full(max_next_q.sizes(), exprence.response.done, optsB);       // (B,)
-    auto trunc_b = torch::full(max_next_q.sizes(), exprence.response.truncated, optsB); // (B,)
-
-    // 「吸収終端」= 失敗終了：done && !truncated
-    auto absorbing_b = done_b & (~trunc_b);                                              // (B,)
-
-    // 非終端マスク：吸収終端なら0、そうでなければ1（truncatedは1）
-    auto nonterminal = torch::where(
-        absorbing_b,
-        torch::zeros_like(max_next_q, optsF),
-        torch::ones_like(max_next_q, optsF)
-    );                                                                                   // (B,)
+    // 報酬・終端マスク（テンソルでGPU対応）
+    auto reward_t = FullLike(max_next_q, exprence.response.reward, ctx);      // (B,)
+    auto done_b = BoolFullLike(max_next_q, exprence.response.done, ctx);    // (B,)
+    auto trunc_b = BoolFullLike(max_next_q, exprence.response.truncated, ctx); // (B,)
+    auto absorbing_b = done_b & (~trunc_b);                                    // (B,)
+    // 非終端マスク：吸収終端(=失敗)なら0、truncatedは1
+    auto nonterminal = 1.0f - absorbing_b.to(torch::kFloat);                   // (B,)
 
     // 期待Q
     auto expected_q = reward_t + gamma * max_next_q * nonterminal;                       // (B,)
@@ -230,11 +202,12 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {    // A=2
     auto td = use_td_clip ? td_raw.clamp(-td_clip_value, td_clip_value) : td_raw;
 
     // --- 損失計算（正） ---
-    //auto loss = torch::nn::functional::smooth_l1_loss(q_sa, expected_q.detach());
-    auto loss = torch::nn::functional::smooth_l1_loss(q_sa, expected_q.detach(),
-        torch::nn::functional::SmoothL1LossFuncOptions().reduction(torch::kMean));
+    auto loss = torch::nn::functional::smooth_l1_loss(
+        q_sa, expected_q.detach(),
+        torch::nn::functional::SmoothL1LossFuncOptions().reduction(torch::kMean)
+    );
 
-    // メインネットワークの勾配計算
+    // --- 逆伝播
     optimizer.zero_grad();
     loss.backward();
 
@@ -251,6 +224,7 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {    // A=2
     loss_ema = ema_decay * loss_ema + (1 - ema_decay) * loss.item<float>();
     auto q_targ = target_net->forward(state_t.to(device));
     auto q_diff = torch::mean(torch::abs(q_sa - q_targ.gather(1, action_t.unsqueeze(1)).squeeze(1)));
+
     float td_cliped = 0.0f;
     if (use_td_clip) {
         float abs_raw = std::abs(td_raw.item<float>());
@@ -281,19 +255,14 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {    // A=2
     //    wxGetApp().logScalar("2_agent/hard_update_done",     train_step, hard_update_done);
 
 
-        // --- soft update（毎回少し近づける） ---
+    // --- soft update（毎回少し近づける） ---
     if (softupdate_tau > 0) {
         soft_update(softupdate_tau);
     }
-    bool hard_update_done = false;
     if (hardupdate_step > 0 && (train_step % hardupdate_step) == 0) {
         hard_update();      // --- hard update（定期stepごとに完全同期） ---
-        wxLogInfo("Hard update done. step=%d", train_step);
-        hard_update_done = true;
     }
 
+    // 「学習ステップ」は Update 実行時にカウント
     train_step++;
-
 }
-
-
