@@ -16,8 +16,8 @@ if (MSVC)
   add_compile_options(/Zi) 
 #  add_compile_options(/diagnostics:color)
 #  add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
-
 endif()
+
 
 include(${wxWidgets_USE_FILE})
 
