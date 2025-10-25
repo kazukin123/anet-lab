@@ -11,10 +11,30 @@
 #include <filesystem>
 
 
-const int timer_ms = 20;
-const int step_per_frame = 10;
-const int eval_interval = 1;
-const int max_train_step = 110000;
+struct CartPoleFrame::Param {
+
+    int timer_ms = 20;
+    int step_per_frame = 10;
+    int eval_interval = 1;
+    int train_pause_step = 110000;
+    int train_exit_step = -1; //110000;
+
+    CartPoleFrame::Param(Properties* props) {
+        if (props == NULL) return;
+        std::string preset = props->Get("train.preset", "train");
+        wxString preset_override;
+        if (wxGetApp().GetCommandLine()->Found("t", &preset_override)) {
+            preset = preset_override;
+            props->Set("agent.preset", preset);
+        }
+        ANET_READ_PROPS(props, preset, timer_ms);
+        ANET_READ_PROPS(props, preset, step_per_frame);
+        ANET_READ_PROPS(props, preset, eval_interval);
+        ANET_READ_PROPS(props, preset, train_pause_step);
+        ANET_READ_PROPS(props, preset, train_exit_step);
+    }
+
+};
 
 wxBEGIN_EVENT_TABLE(CartPoleFrame, wxFrame)
 EVT_TIMER(wxID_ANY, CartPoleFrame::OnTimer)
@@ -23,6 +43,7 @@ wxEND_EVENT_TABLE()
 
 CartPoleFrame::CartPoleFrame(const wxString& title)
     : wxFrame(nullptr, wxID_ANY, title, wxDefaultPosition, wxSize(800, 800)),
+    param_(std::make_unique<Param>(wxGetApp().GetConfig())),
     device(torch::kCPU),
     timer(this, wxID_ANY)
 {
@@ -56,8 +77,8 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
 
     // パラメータ記録
     nlohmann::json params = {
-        {"eval_interval", eval_interval},
-        {"max_train_step", max_train_step},
+        {"eval_interval", param_->eval_interval},
+        {"train_pause_step", param_->train_pause_step},
     };
     wxGetApp().logJson("train/params", params);
     wxGetApp().flushMetricsLog();
@@ -84,7 +105,7 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
 
     // --- タイマー開始 ---
     Bind(wxEVT_TIMER, &CartPoleFrame::OnTimer, this);
-    timer.Start(timer_ms);  // 学習＆描画更新
+    timer.Start(param_->timer_ms);  // 学習＆描画更新
 
     wxLogInfo("CartPoleRLGUI started.\n");
 }
@@ -117,7 +138,12 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     //auto action = agent->select_action(state);
     float last_reward = 0.0f;
     torch::Tensor action;
-    for (int i = 0; i < step_per_frame; ++i) {
+    for (int i = 0; i < param_->step_per_frame; ++i) {
+        if ((param_->train_exit_step > 0) && (step_count >= param_->train_exit_step)) {
+            wxGetApp().flushMetricsLog();
+            wxGetApp().Exit();
+        }
+
         auto [action, _, __] = agent->SelectAction(state);
         //auto [next_state, reward, done, _ ] = env->DoStep(action);
         auto env_result = env->DoStep(action);
@@ -144,8 +170,17 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
 			wxGetApp().logScalar("11_train/01_total_reward", episode_count, total_reward);
             //wxGetApp().flushMetricsLog();
 
+            // プロット更新
+            plotPanel->AddReward(total_reward);
+
+            // Canvas更新（エピソード終了）
+            canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
+            canvas->SetAction(action);
+            canvas->SetReward(last_reward);
+            canvas->Refresh();
+
             // 学習状況評価
-            if (episode_count % eval_interval == 0) {
+            if (episode_count % param_->eval_interval == 0) {
                 eval_count_++;
                 {   // ターゲットネットワークによる評価
                     state = env->Reset(anet::rl::RunMode::Eval1);
@@ -175,9 +210,6 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
                 }
             }
 
-            // プロット更新
-            plotPanel->AddReward(total_reward);
-
             // 環境リセット
             state = env->Reset();
 
@@ -188,12 +220,16 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     }
 
     // --- カート位置・角度の描画更新 ---
-    canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
-    canvas->SetAction(action);
-    canvas->SetReward(last_reward);
-    canvas->Refresh();
+    //canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
+    //canvas->SetAction(action);
+    //canvas->SetReward(last_reward);
+    //canvas->Refresh();
 
-    if (step_count >= max_train_step && !auto_pause_done_) {
+    if ((param_->train_exit_step > 0) && (step_count >= param_->train_exit_step)) {
+        wxGetApp().flushMetricsLog();
+        wxGetApp().Exit();
+    }
+    if ((param_->train_pause_step > 0) && (step_count >= param_->train_pause_step) && !auto_pause_done_) {
         auto_pause_done_ = true;
         training_paused = true;
     }

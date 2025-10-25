@@ -23,13 +23,17 @@ public:
         Load(filename);
     }
 
+    void Set(const std::string& key, const std::string& value) {
+        kv_[key] = value;
+    }
+
     bool Has(const std::string& key) const {
         return kv_.find(key) != kv_.end();
     }
 
 public:
     // --- std::string 用オーバーロード ---
-    std::string Read(const std::string& key, const std::string& defaultValue = "") const
+    std::string Get(const std::string& key, const std::string& defaultValue = "") const
     {
         auto it = kv_.find(key);
         return (it != kv_.end()) ? it->second : defaultValue;
@@ -37,7 +41,7 @@ public:
 
     // --- 汎用テンプレート ---
     template<typename T>
-    T Read(const std::string& key, const T& defaultValue = T()) const
+    T Get(const std::string& key, const T& defaultValue = T()) const
     {
         auto it = kv_.find(key);
         if (it == kv_.end()) return defaultValue;

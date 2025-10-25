@@ -1,0 +1,90 @@
+# agent
+
+agent.preset=agent_rb		# ReplayBuffer有り
+#agent.preset=agent_nrb		# ReplayBuffer無し
+
+
+## リプレイバッファ有り
+agent_rb.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_rb.gamma=1.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent_rb.eps_max=1.00
+agent_rb.eps_min=0.05          #0.1f 0.05f
+agent_rb.eps_decay_step=100000
+agent_rb.softupdate_tau=0.015  # 1.0f 0.004f  0.01f 0.005f;   // 大きいとターゲットネットワークからの反映が早くなる。小さいと遅く滑らかになる。0.005→半減期138step
+agent_rb.hardupdate_step=2000  # -1 5000; //200 500 1000
+agent_rb.grad_clip_tau=30.0    # 10~40 1f 5f 10f
+agent_rb.use_td_clip=true
+agent_rb.td_clip_value=4.0
+agent_rb.eps_zero_step=-1      #120000;
+agent_rb.use_double_dqn=true   # Double DQN 有効化フラグ（trueで有効）
+agent_rb.use_replay_buffer=true  #★
+agent_rb.replay_capacity=50000
+agent_rb.replay_batch_size=64
+agent_rb.replay_warmup_steps=1000
+agent_rb.replay_update_interval=4
+
+
+## リプレイバッファ無し
+agent_nrb.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_nrb.gamma=1.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent_nrb.eps_max=1.00
+agent_nrb.eps_min=0.05          #0.1f 0.05f
+agent_nrb.eps_decay_step=100000
+agent_nrb.softupdate_tau=0.015  # 1.0f 0.004f  0.01f 0.005f;   // 大きいとターゲットネットワークからの反映が早くなる。小さいと遅く滑らかになる。0.005→半減期138step
+agent_nrb.hardupdate_step=2000  # -1 5000; //200 500 1000
+agent_nrb.grad_clip_tau=30.0    # 10~40 1f 5f 10f
+agent_nrb.use_td_clip=true
+agent_nrb.td_clip_value=4.0
+agent_nrb.eps_zero_step=-1      #120000;
+agent_nrb.use_double_dqn=true   # Double DQN 有効化フラグ（trueで有効）
+agent_nrb.use_replay_buffer=false   #★
+
+
+## デフォルト設定
+agent.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent.gamma=1.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent.eps_max=1.00
+agent.eps_min=0.05          #0.1f 0.05f
+agent.eps_decay_step=100000
+agent.softupdate_tau=0.015  # 1.0f 0.004f  0.01f 0.005f;   // 大きいとターゲットネットワークからの反映が早くなる。小さいと遅く滑らかになる。0.005→半減期138step
+agent.hardupdate_step=2000  # -1 5000; //200 500 1000
+agent.grad_clip_tau=30.0    # 10~40 1f 5f 10f
+agent.use_td_clip=true
+agent.td_clip_value=4.0
+agent.eps_zero_step=-1      #120000;
+agent.use_double_dqn=true   # Double DQN 有効化フラグ（trueで有効）
+agent.use_replay_buffer=true
+agent.replay_capacity=50000
+agent.replay_batch_size=64
+agent.replay_warmup_steps=1000
+agent.replay_update_interval=4
+
+
+
+# train
+train.preset=train.eptime
+#train.preset=train.batchrun
+
+
+## train default
+train.timer_ms = 50
+train.step_per_frame = 10
+train.eval_interval = 1
+train.train_pause_step = 110000 # -1
+#train.train_exit_step = -1 # -1 110000
+
+## ほぼほぼエピソード単位で描画更新
+train.eptime.timer_ms = 1
+train.eptime.step_per_frame = 10000
+train.eptime.eval_interval = 1
+train.eptime.train_pause_step = 110000 # -1
+
+## バッチ実行用①
+train.batchrun1.timer_ms = 50
+train.batchrun1.step_per_frame = 10
+train.batchrun1.train_exit_step = 1000  # -1 110000
+
+## バッチ実行用②
+train.batchrun2.timer_ms = 1
+train.batchrun2.step_per_frame = 20000
+train.batchrun2.train_exit_step = 1000  # -1 110000

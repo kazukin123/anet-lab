@@ -5,7 +5,9 @@
 
 #include "anet/rl.hpp"
 
-void evaluateEnvironment(anet::rl::Environment& env, int num_actions, int num_trials = 1000) {
+void evaluateEnvironment(anet::rl::Environment& env, int num_actions, int num_trials = 1000,
+    float max_possible_reward = 1.0f, int max_steps_per_episode = 500)
+{
     std::uniform_int_distribution<int> action_dist(0, num_actions - 1);
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -24,10 +26,10 @@ void evaluateEnvironment(anet::rl::Environment& env, int num_actions, int num_tr
 		while (true) {  // ランダム方策でエピソード完了まで実行して評価
             int action_int = action_dist(gen);
             auto action = torch::tensor({ action_int }, torch::kLong);
-            auto [next_state, reward, done, _] = env.DoStep(action);
+            auto [next_state, reward, done, truncated] = env.DoStep(action);
             total_reward += reward;
             steps++;
-            if (done) break;
+            if (done || truncated) break;
         }
 
         reward_sum += total_reward;
@@ -42,42 +44,58 @@ void evaluateEnvironment(anet::rl::Environment& env, int num_actions, int num_tr
     float stddev = std::sqrt(std::max(var, 0.0f));
     float fail_rate = static_cast<float>(short_fail_count) / num_trials;
 
-    // --- 難易度スコア算出 ---
-    // 1. reward_meanが高いほど良い（50〜150を理想）
-    float mean_score = std::clamp((mean - 10.0f) / (150.0f - 10.0f), 0.0f, 1.0f);
-    // 2. CV（変動係数）が1.0に近いと混沌、0.3〜0.6が理想
-    float cv = (mean > 1e-6f) ? (stddev / mean) : 10.0f;
+    // --- ▼ 非依存スケールに正規化 ----------------------------
+    // 1. 環境固有スケールを除去：最大理論報酬で割る
+    float normalized_mean = mean / (max_possible_reward * max_steps_per_episode);
+    float normalized_std = stddev / (max_possible_reward * max_steps_per_episode);
+    float normalized_min = min_reward / (max_possible_reward * max_steps_per_episode);
+    float normalized_max = max_reward / (max_possible_reward * max_steps_per_episode);
+
+    // --- ▼ 難易度スコア算出 ----------------------------
+    // 1. 平均スコア: 0.1〜0.3が「ちょうどよい難易度」
+    float mean_score = std::clamp((normalized_mean - 0.05f) / (0.35f - 0.05f), 0.0f, 1.0f);
+
+    // 2. 変動係数 (CV) スコア: 0.3〜0.6が理想
+    float cv = (normalized_mean > 1e-6f) ? (normalized_std / normalized_mean) : 10.0f;
     float cv_score = std::exp(-std::pow((cv - 0.5f) / 0.3f, 2));  // ガウス型評価
-    // 3. 早期失敗率が低いほど良い
+
+    // 3. 早期失敗率スコア：0.5〜0.8：まずまず健全
     float fail_score = 1.0f - std::clamp(fail_rate * 2.0f, 0.0f, 1.0f);
-    // 総合難易度（加重平均）
+
+    // 4. 総合難易度（加重平均）:0.4～0.7が理想
     float difficulty_index = 0.5f * mean_score + 0.3f * cv_score + 0.2f * fail_score;
+    // --------------------------------------------------------
 
     wxLogInfo("=== Random Policy Evaluation ===");
     wxLogInfo("Trials: %d", num_trials);
-    wxLogInfo("Mean reward: %.2f", mean);
-    wxLogInfo("Stddev: %.2f (CV=%.2f)", stddev, cv);
-    wxLogInfo("Min: %.1f, Max: %.1f", min_reward, max_reward);
+    wxLogInfo("Mean reward: %.2f (normalized: %.3f)", mean, normalized_mean);
+    wxLogInfo("Stddev: %.2f (normalized: %.3f, CV=%.2f)", stddev, normalized_std, cv);
+    wxLogInfo("Min: %.1f (%.3f), Max: %.1f (%.3f)", min_reward, normalized_min, max_reward, normalized_max);
     wxLogInfo("Early fail (<5 steps): %d%%", (int)(fail_rate * 100));
+    wxLogInfo("Mean score: %.2f", mean_score);
+    wxLogInfo("CV score: %.2f", cv_score);
+    wxLogInfo("Fail score: %.2f", fail_score);
     wxLogInfo("Difficulty index: %.2f", difficulty_index);
 
 #ifdef WX_APP_COMPATIBLE
-    // パラメータ記録
     nlohmann::json params = {
-        {"random_reward_mean",   mean},
+        {"mean_reward_raw", mean},
         {"random_reward_stddev", stddev},
-        {"random_reward_min",    min_reward},
-        {"random_reward_max",    max_reward},
-        {"random_fail_rate",     (float)short_fail_count / num_trials},
-        {"difficulty_index",     difficulty_index},
+        {"random_reward_min", min_reward},
+        {"random_reward_max", max_reward},
+        {"random_fail_rate", fail_rate},
+        {"normalized_mean", normalized_mean},
+        {"normalized_stddev", normalized_std},
+        {"mean_score", mean_score},
+        //{"mean_score_comment", "0.0～0.2：極めて難しい / 0.4～0.7：適正 / 0.7以上: 容易"},
+        {"cv_score", cv_score},
+        //{"cv_score_comment", "0.4～0.6：理想的 / 0.7以上：運ゲー"},
+        {"fail_score", fail_score},
+        //{"fail_score_comment", "0.0〜0.4：初期条件が厳しすぎる / 0.5〜0.8：まずまず健全 / 0.8〜1.0：安定して挑戦できる"},
+        {"difficulty_index", difficulty_index},
+        //{"difficulty_comment", "0.2以下：学習不能級 / 0.2〜0.4：過酷 / 0.4〜0.7：適正 / 0.7以上：容易"}
     };
     wxGetApp().logJson("env/difficulty", params);
-    //wxGetApp().logScalar("env/random_reward_mean", 0, mean);            // ランダム方策の平均報酬（≒環境の基本難易度） <10：学習不能級、10〜50：難しい、50〜150：通常、>150：容易（ランダムでも安定生存）
-    //wxGetApp().logScalar("env/random_reward_stddev", 0, stddev);        // 報酬分散（低すぎると探索が不十分）大きいなら運ゲー
-    //wxGetApp().logScalar("env/random_reward_min", 0, min_reward);       // 最悪ケースの報酬
-    //wxGetApp().logScalar("env/random_reward_max", 0, max_reward);       // ベストケース報酬
-    //wxGetApp().logScalar("env/random_fail_rate", 0, (float)short_fail_count / num_trials);      // 5step未満で終了した割合（高いと難易度高すぎ）
-    //wxGetApp().logScalar("env/difficulty_index", 0, difficulty_index);  // 0.0〜0.2：学習不可能級、0.2〜0.4：過酷、0.4〜0.7：丁度よい、0.7〜1.0：安易
-    //wxGetApp().flushMetricsLog();
 #endif
 }
+

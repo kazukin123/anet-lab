@@ -32,29 +32,31 @@ struct RLAgent::Param {
 
     RLAgent::Param(Properties* props) {
         if (props == NULL) return;
-        std::string group = props->Read("agent.preset", "agent");
-        ANET_READ_PROPS(props, group, alpha);
-        ANET_READ_PROPS(props, group, gamma);
-        ANET_READ_PROPS(props, group, eps_max);
-        ANET_READ_PROPS(props, group, eps_min);
-        ANET_READ_PROPS(props, group, eps_decay_step);
-        ANET_READ_PROPS(props, group, softupdate_tau);
-        ANET_READ_PROPS(props, group, hardupdate_step);
-        ANET_READ_PROPS(props, group, grad_clip_tau);
-        ANET_READ_PROPS(props, group, use_td_clip);
-        ANET_READ_PROPS(props, group, td_clip_value);
-        ANET_READ_PROPS(props, group, eps_zero_step);
-        ANET_READ_PROPS(props, group, use_double_dqn);
-        ANET_READ_PROPS(props, group, use_replay_buffer);
-        ANET_READ_PROPS(props, group, replay_capacity);
-        ANET_READ_PROPS(props, group, replay_batch_size);
-        ANET_READ_PROPS(props, group, replay_warmup_steps);
-        ANET_READ_PROPS(props, group, replay_update_interval);
+        std::string preset = props->Get("agent.preset", "agent");
+        wxString preset_override;
+        if (wxGetApp().GetCommandLine()->Found("a", &preset_override)) {
+            preset = preset_override;
+            props->Set("agent.preset", preset);
+        }
+        ANET_READ_PROPS(props, preset, alpha);
+        ANET_READ_PROPS(props, preset, gamma);
+        ANET_READ_PROPS(props, preset, eps_max);
+        ANET_READ_PROPS(props, preset, eps_min);
+        ANET_READ_PROPS(props, preset, eps_decay_step);
+        ANET_READ_PROPS(props, preset, softupdate_tau);
+        ANET_READ_PROPS(props, preset, hardupdate_step);
+        ANET_READ_PROPS(props, preset, grad_clip_tau);
+        ANET_READ_PROPS(props, preset, use_td_clip);
+        ANET_READ_PROPS(props, preset, td_clip_value);
+        ANET_READ_PROPS(props, preset, eps_zero_step);
+        ANET_READ_PROPS(props, preset, use_double_dqn);
+        ANET_READ_PROPS(props, preset, use_replay_buffer);
+        ANET_READ_PROPS(props, preset, replay_capacity);
+        ANET_READ_PROPS(props, preset, replay_batch_size);
+        ANET_READ_PROPS(props, preset, replay_warmup_steps);
+        ANET_READ_PROPS(props, preset, replay_update_interval);
     }
 
-    std::string toString() {
-
-    }
 };
 
 // ======================================================

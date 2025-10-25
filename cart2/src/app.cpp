@@ -4,15 +4,24 @@
 #include <wx/fileconf.h>
 #include <wx/cmdline.h>
 
+static wxCmdLineEntryDesc desc[] = {
+    // kind,              short-name, long-name, usage,      type,                  flags
+    //{ wxCMD_LINE_SWITCH, "v",         "verbose", "エラー表示を饒舌に" }, // wxCMD_LINE_SWITCH:A boolean argument of the program;    e.g. -v to enable verbose mode.
+    //{ wxCMD_LINE_OPTION, "f",         "file",    "設定ファイルのパス" }, // wxCMD_LINE_OPTION:An argument with an associated value; e.g. -o filename
+
+    { wxCMD_LINE_OPTION, "a",         "agent",   "agent.presetの上書き値", wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL }, // wxCMD_LINE_OPTION:An argument with an associated value; e.g. -o filename
+    { wxCMD_LINE_OPTION, "t",         "train",   "train.presetの上書き値", wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL }, // wxCMD_LINE_OPTION:An argument with an associated value; e.g. -o filename
+
+    //{ wxCMD_LINE_PARAM,  NULL,        NULL,      "引数",     wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },  // A parameter: a required program argument.
+    { wxCMD_LINE_USAGE_TEXT, NULL,    NULL,      "CartPoleRLGUI.exe --agent=agent_rb" },     //  Additional usage text.
+    { wxCMD_LINE_NONE } // 終了マーク
+};
 
 bool MyApp::OnInit() {
-
-    //wxCmdLineParser parser(argc, (wchar_t**)argv);
-    ////parser.Parse(false);
-    //int size = parser.GetParamCount();
-    //for (int i = 0; i < parser.GetParamCount(); i++) {
-    //    wxString param = parser.GetParam(i);
-    //}
+    cmdline_ = std::make_unique<wxCmdLineParser>(desc, argc, (wchar_t**)argv);
+    if (cmdline_->Parse(true)) {
+        return false;
+    }
 
     properties_ = std::make_unique<Properties>("CartPoleRLGUI.txt");
 
