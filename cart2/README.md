@@ -1,29 +1,42 @@
 # CartPoleRLGUI
 
 ## 概要
-### 背景
-### 環境
-### 機能
 
 ## ビルド方法
+
+## DONE
+
+* 学習改善
+	* Double DQN対応
+* メトリクス
+	* TensorBoard対応
+	* Plotyによる独自グラフ出力
+* AP改善
+	* 設定情報をいい感じにメトリクスとして記録
+
+## DOING
+
+* 学習改善
+	* Replay Buffer
+* メトリクス
+* AP改善
+	* 設定ファイル導入
 
 ## TODO
 
 * 学習改善
-	* Replay Buffer
 	* Adaptive Grad Control
 	* 学習率減衰
 * メトリクス
 	* メトリクスタグの適正階層化 
 	* ヒストグラム出力対応
 	* add_hparams対応
-	* ~~設定情報をいい感じにメトリクスとして記録~~
 * AP改善
 	* 起動時にRun名をプロンプト
-	* 設定ファイル導入
 	* 学習と推論の表示分離
 	* loggerの引数順番をSummaryWriter同様に戻す
 	* 報酬バーをRewardのスケールに合わせる
 	* GPU対応向け可読性向上
+	* コマンドラインオプションで設定上書き
 
 ## 参考文献

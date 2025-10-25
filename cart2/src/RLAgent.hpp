@@ -16,31 +16,32 @@ public:
 
     void Update(const anet::rl::Experience& exprience) override;
     void UpdateBatch(const anet::rl::BatchData&) override; // ReplayBuffer対応
-
-    float epsilon;
-    float loss_ema;
-
 private:
     void hard_update();
     void soft_update(float tau);
     void OptimizeSingle(const anet::rl::Experience& exprence);
-
-    // --- ReplayBuffer対応（内部バッチ最適化処理） ---
     void OptimizeBatch(const std::vector<anet::rl::Experience>& batch);
-
+private:
+    // NN
+    int n_actions_;
     QNet policy_net;
     QNet target_net;
-    torch::optim::Adam optimizer;
     torch::Device device;
-    int n_actions_;
+
+    // パラメータ
+    struct Param;
+    std::unique_ptr<Param> param_;
+
+    // パラメータ依存オブジェクト
+    torch::optim::Adam optimizer;
+    anet::rl::ReplayBuffer replay_buffer;
+
+    // 実行状態
+    float epsilon;
     int train_step;
+
+    // 統計情報
+    float loss_ema = 0.0f;
     float grad_norm_clipped_ema = 0.0f;
     float td_clip_ema = 0.0f;
-
-    // --- ReplayBuffer関連 ---
-    anet::rl::ReplayBuffer replay_buffer;
-    int batch_size;
-    int warmup_steps;
-    int update_interval;
-    bool use_replay_buffer;
 };

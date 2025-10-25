@@ -1,6 +1,7 @@
 #pragma once
 
 #include <wx/wx.h>
+#include "properties.hpp"
 #include "metrics_logger.hpp"
 
 #define WX_APP_COMPATIBLE
@@ -8,6 +9,8 @@
 class MyApp : public wxApp {
 public:
     virtual bool OnInit();
+
+    Properties* GetConfig() const { return properties_.get(); }
 
     void logScalar(const std::string& tag, int step, double value) {
         mt_logger->log_scalar(tag, step, value);
@@ -22,6 +25,7 @@ public:
     }
 private:
     std::unique_ptr<MetricsLogger> mt_logger;
+    std::unique_ptr<Properties> properties_;
 
 };
 
