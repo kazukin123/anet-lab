@@ -1,8 +1,11 @@
 ﻿#!/usr/bin/env python3
-# metrics_viewer_v15.6.py
+# metrics_viewer.py
 # ---------------------------------
-# - watchデフォルト有効（自己再起動対応）
-# - --serve フラグでループ抑止
+# Metrics Viewer
+#   ・metrics_logger.hpp で出力された JSONL ログを読み込み
+#   ・各 run ごとに scalar 値を Plotly グラフとして可視化
+#   ・複数 run / tag の選択、手動・自動更新に対応
+#   ・ヘッダ固定レイアウト、スクロール領域分離
 # ---------------------------------
 
 import os, sys, json, time, subprocess, argparse
@@ -13,10 +16,9 @@ from dash import Dash, dcc, html, Input, Output, State
 
 RUN_CACHE = {}
 RUN_COLORS = {}
-VERSION = "v15.6"
+VERSION = "v17.2"
 
 
-# ===== Utility =====
 def get_run_color(run_name):
     if run_name not in RUN_COLORS:
         palette = pc.qualitative.Plotly
@@ -90,7 +92,6 @@ def make_tag_fig(run_data, selected_runs, tag):
             x=sub[axis], y=sub["value"], mode="lines",
             name=run, line=dict(color=color, width=2)
         ))
-
     fig.update_layout(
         template="plotly_dark",
         height=300,
@@ -113,10 +114,8 @@ def render_meta_info(run_data):
         run_color = get_run_color(run)
         run_section = [
             html.H4(f"Run: {run}", style={
-                "marginTop": "0px",
-                "marginBottom": "6px",
-                "color": "#fff",
-                "fontWeight": "bold"
+                "marginTop": "0px", "marginBottom": "6px",
+                "color": "#fff", "fontWeight": "bold"
             })
         ]
         for _, row in meta_df.iterrows():
@@ -134,8 +133,7 @@ def render_meta_info(run_data):
         blocks.append(html.Div(run_section, style={
             "border": f"5px solid {run_color}",
             "padding": "8px", "marginTop": "10px",
-            "backgroundColor": "#181818",
-            "borderRadius": "6px"
+            "backgroundColor": "#181818", "borderRadius": "6px"
         }))
     return blocks
 
@@ -146,10 +144,16 @@ def create_app(log_root):
 
     app.layout = html.Div([
         html.Div([
-            html.H2("📊 Metrics Viewer", style={"margin": "0", "display": "inline-block"}),
-            html.Span(VERSION, style={"color": "#aaa", "fontSize": "13px", "marginLeft": "8px"}),
-        ], style={"display": "flex", "justifyContent": "space-between",
-                  "alignItems": "center", "marginBottom": "4px"}),
+            html.Div([
+                html.H2("📊 Metrics Viewer", style={"margin": "0", "display": "inline-block"}),
+                html.Span(VERSION, style={"color": "#aaa", "fontSize": "13px", "marginLeft": "8px"})
+            ], style={"display": "inline-flex", "alignItems": "center"})
+        ], style={
+            "position": "fixed", "top": "0", "left": "0", "right": "0",
+            "zIndex": "1000", "backgroundColor": "inherit",
+            "padding": "8px 12px",
+            "display": "flex", "justifyContent": "space-between", "alignItems": "center"
+        }),
 
         html.Div([
             html.Label("Runs", style={"marginRight": "6px"}),
@@ -166,13 +170,21 @@ def create_app(log_root):
                         style={"marginLeft": "12px", "height": "28px"}),
             html.Button("Auto Refresh: OFF", id="toggle-auto", n_clicks=0,
                         style={"marginLeft": "6px", "height": "28px"})
-        ], style={"display": "flex", "alignItems": "center", "gap": "6px",
-                  "marginBottom": "4px"}),
+        ], style={
+            "position": "fixed", "top": "48px", "left": "0", "right": "0",
+            "zIndex": "999", "backgroundColor": "inherit",
+            "padding": "6px 12px 11px 12px",
+            "display": "flex", "alignItems": "center", "gap": "6px"
+        }),
 
-        html.Hr(style={"border": "0", "borderTop": "1px solid #444", "margin": "4px 0"}),
+        html.Div(id="scroll-container", children=[
+            html.Div(id="graphs-container", style={"padding": "8px"})
+        ], style={
+            "position": "absolute", "top": "101px", "bottom": "0",
+            "left": "0", "right": "0", "overflowY": "auto"
+        }),
 
         dcc.Store(id="auto-flag", data=False),
-        html.Div(id="graphs-container"),
         dcc.Interval(id="tick", interval=5000, n_intervals=0, disabled=True)
     ])
 
@@ -208,29 +220,27 @@ def create_app(log_root):
 
         run_data = load_selected_runs(log_root, selected_runs)
         if not run_data:
-            return [html.Div("No data.", style={"color": "gray"})], [{"label": r, "value": r} for r in runs], selected_runs, []
+            return [html.Div("No data.", style={"color": "gray"})], [{"label": r, "value": r} for r in runs], \
+                   selected_runs, []
 
         all_tags = extract_tags(run_data)
         if not all_tags:
-            return [html.Div("No tags.", style={"color": "gray"})], [{"label": r, "value": r} for r in runs], selected_runs, []
+            return [html.Div("No tags.", style={"color": "gray"})], [{"label": r, "value": r} for r in runs], \
+                   selected_runs, []
 
         display_tags = selected_tags or all_tags
         graphs = []
-        for tag in all_tags:
-            if tag not in display_tags:
-                continue
+        for tag in display_tags:
             any_json = any((df[(df["tag"] == tag)]["type"] == "json").any() for df in run_data.values())
             if any_json:
                 continue
-
             fig = make_tag_fig(run_data, selected_runs, tag)
             graphs.append(html.Div([
                 html.Div(tag, style={
                     "position": "absolute", "top": "1px", "left": "8px",
                     "backgroundColor": "rgba(0,0,0,0.7)", "color": "white",
                     "fontFamily": "monospace", "fontSize": "13px",
-                    "padding": "2px 6px", "borderRadius": "3px",
-                    "zIndex": "10"
+                    "padding": "2px 6px", "borderRadius": "3px", "zIndex": "10"
                 }),
                 dcc.Graph(figure=fig, config={"displayModeBar": True},
                           style={"height": "300px", "position": "relative"})
@@ -240,16 +250,17 @@ def create_app(log_root):
         if meta_blocks:
             graphs.append(html.Hr(style={"borderTop": "1px solid #555"}))
             graphs.extend(meta_blocks)
-        return graphs, [{"label": r, "value": r} for r in runs], selected_runs, [{"label": t, "value": t} for t in all_tags]
+
+        return graphs, [{"label": r, "value": r} for r in runs], selected_runs, \
+               [{"label": t, "value": t} for t in all_tags]
 
     return app
 
 
-# ===== Main =====
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--logdir", default="logs")
-    parser.add_argument("--serve", action="store_true")  # 子プロセス用
+    parser.add_argument("--serve", action="store_true")
     args = parser.parse_args()
 
     if args.serve:
@@ -257,7 +268,6 @@ if __name__ == "__main__":
         app = create_app(args.logdir)
         app.run(debug=False)
     else:
-        # watcherモード
         target = os.path.abspath(__file__)
         last = os.path.getmtime(target)
         print(f"[INFO] Watching {target}")
