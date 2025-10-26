@@ -84,31 +84,57 @@ def detect_axis(df, tag):
 
 
 def make_tag_fig(run_data, selected_runs, tag):
+    import numpy as np
     fig = go.Figure()
     multi = len(selected_runs) > 1
 
     if multi:
-        run_order = []
-        all_values = []
+        run_values = {}
         for run in selected_runs:
-            if run in run_data:
-                df = run_data[run]
-                sub = df[(df["tag"] == tag) & (df["type"] == "scalar")]
-                if not sub.empty:
-                    median_val = sub["value"].median()
-                    run_order.append((run, median_val))
-                    all_values.extend(sub["value"].tolist())
+            if run not in run_data:
+                continue
+            df = run_data[run]
+            sub = df[(df["tag"] == tag) & (df["type"] == "scalar")]
+            if sub.empty:
+                continue
+            axis = "episode" if tag.startswith("episode/") and "episode" in df.columns else "step"
+            run_values[run] = (sub[axis].to_numpy(), sub["value"].to_numpy())
 
-        sign_mean = sum(all_values) / len(all_values) if all_values else 0.0
-        if sign_mean >= 0:
-            run_order.sort(key=lambda x: x[1], reverse=True)
+        if len(run_values) < 2:
+            sorted_runs = list(run_values.keys())
         else:
-            run_order.sort(key=lambda x: x[1], reverse=False)
-        sorted_runs = [r for r, _ in run_order]
+            # 共通X（最大2000点）
+            all_x = np.unique(np.concatenate([v[0] for v in run_values.values()]))
+            if len(all_x) > 2000:
+                all_x = np.linspace(np.min(all_x), np.max(all_x), 2000)
+
+            alpha = 0.1
+            run_scores = {}
+            for run, (x, y) in run_values.items():
+                vals = np.interp(all_x, x, y, left=np.nan, right=np.nan)
+                vals = vals[~np.isnan(vals)]
+                if len(vals) == 0:
+                    continue
+                mean_val = np.mean(vals)
+                std_val = np.std(vals)
+                score = mean_val + alpha * std_val
+                run_scores[run] = score
+
+            # 全体の平均符号で上下方向を決定
+            overall_mean = np.mean(list(run_scores.values()))
+            if overall_mean >= 0:
+                # 正値中心 → 小さいRunを前面（昇順）
+                sorted_runs = [r for r, _ in sorted(run_scores.items(), key=lambda x: x[1])]
+            else:
+                # 負値中心 → 小さいRunを背面（降順）
+                sorted_runs = [r for r, _ in sorted(run_scores.items(), key=lambda x: x[1], reverse=True)]
     else:
         sorted_runs = selected_runs
 
-    for run in sorted_runs:
+    # -------------------------------------------------
+    # Plotlyは後に追加したtraceが前面
+    # -------------------------------------------------
+    for run in reversed(sorted_runs):
         if run not in run_data:
             continue
         df = run_data[run]
@@ -116,27 +142,21 @@ def make_tag_fig(run_data, selected_runs, tag):
 
         if sub.empty:
             fig.add_trace(go.Scatter(
-                x=[0], y=[None],
-                name=f"{run} (no data)",
-                mode="lines",
-                line=dict(color=get_run_color(run), width=1, dash="dot"),
-                showlegend=True,
-                hoverinfo="skip"
+                x=[0], y=[None], name=f"{run} (no data)",
+                mode="lines", line=dict(color=get_run_color(run), width=1, dash="dot"),
+                showlegend=True, hoverinfo="skip"
             ))
             continue
 
-        axis = detect_axis(df, tag)
+        axis = "episode" if tag.startswith("episode/") and "episode" in df.columns else "step"
         color = get_run_color(run)
         opacity = 0.8 if multi else 1.0
-        width = 2.5 if not multi or run == sorted_runs[-1] else 1.5
+        width = 2.5 if not multi or run == sorted_runs[0] else 1.5
 
         fig.add_trace(go.Scatter(
-            x=sub[axis], y=sub["value"],
-            mode="lines",
-            name=run,
-            line=dict(color=color, width=width),
-            opacity=opacity,
-            showlegend=True
+            x=sub[axis], y=sub["value"], mode="lines",
+            name=run, line=dict(color=color, width=width),
+            opacity=opacity, showlegend=True
         ))
 
     fig.update_layout(
@@ -144,12 +164,12 @@ def make_tag_fig(run_data, selected_runs, tag):
         height=300,
         margin=dict(l=40, r=20, t=20, b=40),
         showlegend=len(selected_runs) > 1,
-        plot_bgcolor="rgb(25,25,25)",
-        paper_bgcolor="rgb(15,15,15)",
+        plot_bgcolor="rgb(25,25,25)", paper_bgcolor="rgb(15,15,15)",
         xaxis=dict(showgrid=True, gridcolor="rgba(100,100,100,0.3)"),
         yaxis=dict(showgrid=True, gridcolor="rgba(100,100,100,0.3)")
     )
     return fig
+
 
 
 def render_meta_info(run_data):
