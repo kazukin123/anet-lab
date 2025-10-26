@@ -2,9 +2,11 @@
 # metrics_viewer.py
 # ---------------------------------
 # Metrics Viewer
-#   ・metrics_logger.hpp で出力された JSONL ログを読み込み
-#   ・各 run ごとに scalar 値を Plotly グラフとして可視化
+#   ・metrics_logger.hpp が出力する JSONL ログを読み込み
+#   ・各 run ごとに scalar 値を Plotly グラフで可視化
 #   ・複数 run / tag の選択、手動・自動更新に対応
+#   ・type=="json" のメタ情報は下部に別表示
+#   ・Runs ドロップダウンに色付きインジケータを左側に表示（全Run共通）
 #   ・ヘッダ固定レイアウト、スクロール領域分離
 # ---------------------------------
 
@@ -16,7 +18,7 @@ from dash import Dash, dcc, html, Input, Output, State
 
 RUN_CACHE = {}
 RUN_COLORS = {}
-VERSION = "v17.3"
+VERSION = "v17.6"
 
 
 def get_run_color(run_name):
@@ -70,7 +72,7 @@ def load_selected_runs(root, selected_runs):
 def extract_tags(run_data):
     tags = set()
     for df in run_data.values():
-        # TEXT系を除外
+        # type=="json" を除外
         if "type" in df.columns and "tag" in df.columns:
             valid = df[df["type"] != "json"]
             tags |= set(valid["tag"].unique())
@@ -85,9 +87,6 @@ def make_tag_fig(run_data, selected_runs, tag):
     fig = go.Figure()
     multi = len(selected_runs) > 1
 
-    # -------------------------------------------------
-    # 描画順序の決定（複数Runの場合のみ）
-    # -------------------------------------------------
     if multi:
         run_order = []
         all_values = []
@@ -100,22 +99,15 @@ def make_tag_fig(run_data, selected_runs, tag):
                     run_order.append((run, median_val))
                     all_values.extend(sub["value"].tolist())
 
-        # 正負傾向で描画順を決定
         sign_mean = sum(all_values) / len(all_values) if all_values else 0.0
         if sign_mean >= 0:
-            # 正値中心：小さい値を前面（後描き）
             run_order.sort(key=lambda x: x[1], reverse=True)
         else:
-            # 負値中心：大きい値を前面（後描き）
             run_order.sort(key=lambda x: x[1], reverse=False)
         sorted_runs = [r for r, _ in run_order]
     else:
-        # シングルRun時はそのまま
         sorted_runs = selected_runs
 
-    # -------------------------------------------------
-    # 描画処理
-    # -------------------------------------------------
     for run in sorted_runs:
         if run not in run_data:
             continue
@@ -123,10 +115,8 @@ def make_tag_fig(run_data, selected_runs, tag):
         sub = df[(df["tag"] == tag) & (df["type"] == "scalar")]
 
         if sub.empty:
-            # --- ダミーtraceを追加して凡例・軸スケール維持 ---
             fig.add_trace(go.Scatter(
-                x=[0],
-                y=[None],
+                x=[0], y=[None],
                 name=f"{run} (no data)",
                 mode="lines",
                 line=dict(color=get_run_color(run), width=1, dash="dot"),
@@ -141,8 +131,7 @@ def make_tag_fig(run_data, selected_runs, tag):
         width = 2.5 if not multi or run == sorted_runs[-1] else 1.5
 
         fig.add_trace(go.Scatter(
-            x=sub[axis],
-            y=sub["value"],
+            x=sub[axis], y=sub["value"],
             mode="lines",
             name=run,
             line=dict(color=color, width=width),
@@ -150,9 +139,6 @@ def make_tag_fig(run_data, selected_runs, tag):
             showlegend=True
         ))
 
-    # -------------------------------------------------
-    # Layout
-    # -------------------------------------------------
     fig.update_layout(
         template="plotly_dark",
         height=300,
@@ -225,7 +211,7 @@ def create_app(log_root):
             html.Label("Tags", style={"marginRight": "6px"}),
             dcc.Dropdown(id="tag-filter", options=[], value=[], multi=True,
                          placeholder="All tags",
-                         style={"width": "220px", "display": "inline-block"}),
+                         style={"width": "260px", "display": "inline-block"}),
 
             html.Button("Manual Refresh", id="refresh-btn", n_clicks=0,
                         style={"marginLeft": "12px", "height": "28px"}),
@@ -281,13 +267,11 @@ def create_app(log_root):
 
         run_data = load_selected_runs(log_root, selected_runs)
         if not run_data:
-            return [html.Div("No data.", style={"color": "gray"})], [{"label": r, "value": r} for r in runs], \
-                   selected_runs, []
+            return [html.Div("No data.", style={"color": "gray"})], [], selected_runs, []
 
         all_tags = extract_tags(run_data)
         if not all_tags:
-            return [html.Div("No tags.", style={"color": "gray"})], [{"label": r, "value": r} for r in runs], \
-                   selected_runs, []
+            return [html.Div("No tags.", style={"color": "gray"})], [], selected_runs, []
 
         display_tags = selected_tags or all_tags
         graphs = []
@@ -312,8 +296,27 @@ def create_app(log_root):
             graphs.append(html.Hr(style={"borderTop": "1px solid #555"}))
             graphs.extend(meta_blocks)
 
-        return graphs, [{"label": r, "value": r} for r in runs], selected_runs, \
-               [{"label": t, "value": t} for t in all_tags]
+        # --- Runs ドロップダウンに色付きマークを追加（左側、全Run） ---
+        run_options = []
+        for r in runs:
+            color = get_run_color(r)
+            run_options.append({
+                "label": html.Span([
+                    html.Span("■", style={
+                        "color": color,
+                        "fontWeight": "bold",
+                        "marginRight": "6px",
+                        "display": "inline-block",
+                        "width": "10px"
+                    }),
+                    html.Span(r)
+                ], style={"display": "inline-flex", "alignItems": "center"}),
+                "value": r
+            })
+
+        tag_options = [{"label": t, "value": t} for t in all_tags]
+
+        return graphs, run_options, selected_runs, tag_options
 
     return app
 
