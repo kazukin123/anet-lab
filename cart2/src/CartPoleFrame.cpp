@@ -25,8 +25,9 @@ struct CartPoleFrame::Param {
         wxString preset_override;
         if (wxGetApp().GetCommandLine()->Found("t", &preset_override)) {
             preset = preset_override;
-            props->Set("agent.preset", preset);
+            props->Set("train.preset", preset);
         }
+        wxLogInfo("train.preset=%s", preset);
         ANET_READ_PROPS(props, preset, timer_ms);
         ANET_READ_PROPS(props, preset, step_per_frame);
         ANET_READ_PROPS(props, preset, eval_interval);
@@ -44,7 +45,8 @@ wxEND_EVENT_TABLE()
 CartPoleFrame::CartPoleFrame(const wxString& title)
     : wxFrame(nullptr, wxID_ANY, title, wxDefaultPosition, wxSize(800, 800)),
     param_(std::make_unique<Param>(wxGetApp().GetConfig())),
-    device(torch::kCPU),
+    //device(torch::kCPU),
+    device(torch::kCUDA),
     timer(this, wxID_ANY)
 {
     // --- GUIレイアウト ---
@@ -150,34 +152,28 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         agent->Update({ state, action, env_result.next_state, env_result.reward, env_result.done });
         state = env_result.next_state.clone();
         last_reward = env_result.reward;
+        train_total_reward += env_result.reward;
 
         // ステップ数インプリメント（グローバルなステップ数）
         step_count++;
 
         if (env_result.done) {
             episode_count++;
-            float total_reward = env->get_total_reward();
 
             // ログ
-            std::ostringstream ss;
-            ss << "Episode " << episode_count
-                << " finished, step_count=" << step_count
-                << " total_reward=" << std::fixed << std::setprecision(3) << total_reward
-                << " episode_step=" << (step_count - last_episode_step);
-            wxLogInfo(ss.str());
+            auto eps_step = step_count - last_episode_step;
+            wxLogInfo("Episode finished. eps=%d step=%d total_reward=%f eps_step=%d", episode_count, step_count,train_total_reward, eps_step);
 
             // 統計ログ
-			wxGetApp().logScalar("11_train/01_total_reward", episode_count, total_reward);
-            //wxGetApp().flushMetricsLog();
+			wxGetApp().logScalar("10_epsode/01_total_reward", episode_count, train_total_reward);
 
             // プロット更新
-            plotPanel->AddReward(total_reward);
+            plotPanel->AddReward(train_total_reward);
 
             // Canvas更新（エピソード終了）
-            canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
-            canvas->SetAction(action);
-            canvas->SetReward(last_reward);
-            canvas->Refresh();
+            //canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
+            //canvas->SetAction(action);
+            //canvas->SetReward(last_reward);
 
             // 学習状況評価
             if (episode_count % param_->eval_interval == 0) {
@@ -185,37 +181,45 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
                 {   // ターゲットネットワークによる評価
                     state = env->Reset(anet::rl::RunMode::Eval1);
                     bool done = false;
+                    auto total_reward = 0.0f;
                     while (!done) {
                         auto [action, _, __] = agent->SelectAction(state, anet::rl::RunMode::Eval1);
                         auto env_result = env->DoStep(action);
+                        total_reward += env_result.reward;
                         state = env_result.next_state.clone();
                         done = env_result.done;
                     }
-                    wxLogInfo("Evaluation after %d episodes:  eval_count_=%d total_reward=%.3f",
-                        episode_count, eval_count_, env->get_total_reward());
-                    wxGetApp().logScalar("10_eval/01_target_reward", eval_count_, env->get_total_reward());
+                    wxGetApp().logScalar("10_epsode/02_eval_reward", episode_count, total_reward);
+                    wxGetApp().logScalar("11_eval/01_target_reward", step_count, total_reward);
+
+                    // ターゲットネットワークによる評価の終了状態を描画
+                    canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
+                    canvas->SetAction(action);
+                    canvas->SetReward(env_result.reward);
+                    //canvas->Refresh();
                 }
                 {   // メインネットワークによる評価
                     state = env->Reset(anet::rl::RunMode::Eval1);
                     bool done = false;
+                    auto total_reward = 0.0f;
                     while (!done) {
                         auto [action, _, __] = agent->SelectAction(state, anet::rl::RunMode::Eval2);
                         auto env_result = env->DoStep(action);
+                        total_reward += env_result.reward;
                         state = env_result.next_state.clone();
                         done = env_result.done;
                     }
-                    wxLogInfo("Evaluation after %d episodes:  eval_count_=%d total_reward=%.3f",
-                        episode_count, eval_count_, env->get_total_reward());
-                    wxGetApp().logScalar("10_eval/02_policy_reward", eval_count_, env->get_total_reward());
+                    wxGetApp().logScalar("11_eval/02_policy_reward", step_count, total_reward);
                 }
             }
 
             // 環境リセット
             state = env->Reset();
 
-            // 次のエピソード開始準備
+            // エピソードが終わったので次エピソード準備
             last_episode_step = step_count;
-            break;
+            train_total_reward = 0.0f;
+            //break;
         }
     }
 
@@ -223,7 +227,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     //canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
     //canvas->SetAction(action);
     //canvas->SetReward(last_reward);
-    //canvas->Refresh();
+    canvas->Refresh();
 
     if ((param_->train_exit_step > 0) && (step_count >= param_->train_exit_step)) {
         wxGetApp().flushMetricsLog();

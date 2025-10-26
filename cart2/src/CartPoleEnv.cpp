@@ -7,13 +7,14 @@
 
 // 定数
 const float x_limit = 2.4f;
+const float theta_limit = 90.0f; // 12.0f;
 const float gravity = 9.8f;
 const float masscart = 1.0f;
 const float mass_pole = 0.10f;
 const float total_mass = masscart + mass_pole;
 const float length = 0.5f;
 const float polemass_length = mass_pole * length;
-const float force_mag = 10.0f;
+const float force_mag = 30.0f;  // 10.0f 30.0f
 const float tau = 0.02f;    //0.02f 0.01f
 const float reward_scale = 1.0f;  // 2 10  20
 
@@ -55,7 +56,6 @@ torch::Tensor CartPoleEnv::Reset(anet::rl::RunMode mode) {
     //theta_dot = 0.05;// -1.0f * 0.5;// *0.5;
 
     step_count = 0;
-    total_reward = 0;
 
     return GetState();
 }
@@ -117,13 +117,12 @@ anet::rl::EnvResponse CartPoleEnv::DoStep(const torch::Tensor& action_tensor, an
     // ステップ完了
     step_count++;
 
-
     // 終了条件はステップ数のみ
     //bool done = (step_count >= 500);
 
     // 終了条件は下半分まで倒れたor500ステップを超えた
     float theta_deg = theta * 180.0f / M_PI;
-    bool done = (x < -x_limit || x > x_limit || theta_deg < -90.0f || theta_deg > 90.0f);
+    bool done = (x < -x_limit || x > x_limit || theta_deg < -theta_limit || theta_deg > theta_limit);
     if (step_count >= 500) { done = true; }
 
     // 報酬: 角度安定性 + 速度安定補正
@@ -163,8 +162,6 @@ anet::rl::EnvResponse CartPoleEnv::DoStep(const torch::Tensor& action_tensor, an
         reward = +reward_scale;   // ← ボーナス
         truncated = true;
     }
-
-    total_reward += reward;
 
     return { GetState(), reward, done, truncated };
 }

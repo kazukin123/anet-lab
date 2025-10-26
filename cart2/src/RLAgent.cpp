@@ -17,6 +17,7 @@ struct RLAgent::Param {
     float eps_decay_step = 100000;
     float softupdate_tau = 0.015f;// 1.0f 0.004f  0.01f 0.005f;   // 大きいとターゲットネットワークからの反映が早くなる。小さいと遅く滑らかになる。0.005→半減期138step
     int hardupdate_step = 2000;// -1 5000; //200 500 1000
+    bool use_grad_clip = true;
     float grad_clip_tau = 30.0f;   // 10~40 1f 5f 10f
     bool use_td_clip = true;
     float td_clip_value = 4.0f;
@@ -38,6 +39,8 @@ struct RLAgent::Param {
             preset = preset_override;
             props->Set("agent.preset", preset);
         }
+        wxLogInfo("agent.preset=%s", preset);
+
         ANET_READ_PROPS(props, preset, alpha);
         ANET_READ_PROPS(props, preset, gamma);
         ANET_READ_PROPS(props, preset, eps_max);
@@ -45,6 +48,7 @@ struct RLAgent::Param {
         ANET_READ_PROPS(props, preset, eps_decay_step);
         ANET_READ_PROPS(props, preset, softupdate_tau);
         ANET_READ_PROPS(props, preset, hardupdate_step);
+        ANET_READ_PROPS(props, preset, use_grad_clip);
         ANET_READ_PROPS(props, preset, grad_clip_tau);
         ANET_READ_PROPS(props, preset, use_td_clip);
         ANET_READ_PROPS(props, preset, td_clip_value);
@@ -66,9 +70,9 @@ struct QNetImpl : torch::nn::Module {
     torch::nn::Linear fc1{ nullptr }, fc2{ nullptr }, fc3{ nullptr };
 
     QNetImpl(int state_dim, int n_actions) {
-        fc1 = register_module("fc1", torch::nn::Linear(state_dim, 128));
-        fc2 = register_module("fc2", torch::nn::Linear(128, 64));
-        fc3 = register_module("fc3", torch::nn::Linear(64, n_actions));
+        fc1 = register_module("fc1", torch::nn::Linear(state_dim, 120));
+        fc2 = register_module("fc2", torch::nn::Linear(120, 84));
+        fc3 = register_module("fc3", torch::nn::Linear(84, n_actions));
     }
     torch::Tensor forward(torch::Tensor x) {
         x = torch::relu(fc1->forward(x));
@@ -119,6 +123,7 @@ RLAgent::RLAgent(int state_dim, int n_actions, torch::Device device) :
         {"eps_zero_step", param_->eps_zero_step},
         {"softupdate_tau", param_->softupdate_tau},
         {"hardupdate_step", param_->hardupdate_step},
+        {"use_grad_clip", param_->use_grad_clip},
         {"grad_clip_tau", param_->grad_clip_tau},
         {"use_td_clip", param_->use_td_clip},
         {"td_clip_value", param_->td_clip_value},
@@ -214,15 +219,15 @@ void RLAgent::soft_update(float tau) {
 // Update：逐次更新 or ReplayBufferモード切替
 // ======================================================
 void RLAgent::Update(const anet::rl::Experience& exprence) {
+    train_step++;
+
     if (!param_->use_replay_buffer) {
         OptimizeSingle(exprence);
-        train_step++;
         return;
     }
 
     replay_buffer.Push(exprence);
     if (replay_buffer.Size() < static_cast<size_t>(param_->replay_warmup_steps)) {
-        train_step++;
         return;
     }
 
@@ -230,8 +235,6 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {
         auto batch = replay_buffer.Sample(param_->replay_batch_size);
         OptimizeBatch(batch);
     }
-
-    train_step++;
 }
 
 void RLAgent::UpdateBatch(const anet::rl::BatchData& batch) {
@@ -281,7 +284,7 @@ void RLAgent::OptimizeSingle(const anet::rl::Experience& exprence) {
     auto absorbing_b = done_b & (~trunc_b);                                            // (B,)
     auto nonterminal = 1.0f - absorbing_b.to(torch::kFloat);                           // (B,)
 
-    auto expected_q = reward_t + param_->gamma * max_next_q * nonterminal;                     // (B,)
+    auto expected_q = reward_t + param_->gamma * max_next_q * nonterminal;             // (B,)
     auto td_raw = expected_q - q_sa;                                                   // (B,)
     auto td = param_->use_td_clip ? td_raw.clamp(-param_->td_clip_value, param_->td_clip_value) : td_raw;      // (B,)
 
@@ -296,14 +299,28 @@ void RLAgent::OptimizeSingle(const anet::rl::Experience& exprence) {
     loss.backward();
 
     // --- 勾配ノルム測定 & 勾配クリッピング（Gradient Clipping）---
-    float total_norm = static_cast<float>(torch::nn::utils::clip_grad_norm_(policy_net->parameters(), param_->grad_clip_tau));
+    float total_norm;
+    if (param_->use_grad_clip) {
+        total_norm = static_cast<float>(
+            torch::nn::utils::clip_grad_norm_(policy_net->parameters(), param_->grad_clip_tau)
+            );
+    }
+    else {
+        // クリップしない場合は「そのままノルム計測のみ」
+        total_norm = 0.0f;
+        for (auto& p : policy_net->parameters()) {
+            if (p.grad().defined()) {
+                total_norm += p.grad().data().norm().item<float>();
+            }
+        }
+    }
 
     // メインネットワークに勾配反映
     optimizer.step();
 
     // --- メトリクス生成・更新 ---
     const float ema_decay = 0.995f;  // 平滑化係数
-    float grad_norm_clipped = (total_norm > param_->grad_clip_tau) ? 1.0f : 0.0f;    // クリップ発動
+    float grad_norm_clipped = (param_->use_grad_clip && total_norm > param_->grad_clip_tau) ? 1.0f : 0.0f;    // クリップ発動
     grad_norm_clipped_ema = 0.9f * grad_norm_clipped_ema + 0.1f * grad_norm_clipped;
     loss_ema = ema_decay * loss_ema + (1 - ema_decay) * loss.item<float>();
     auto q_targ = target_net->forward(state_t.to(device));                                       // (1,A)
@@ -333,8 +350,10 @@ void RLAgent::OptimizeSingle(const anet::rl::Experience& exprence) {
     wxGetApp().logScalar("23_agent/10_loss_ema", train_step, loss_ema);                 // loss値のEMA移動平均
 
     wxGetApp().logScalar("24_agent/11_grad_norm", train_step, total_norm);              // 勾配ノルム
-    wxGetApp().logScalar("24_agent/12_grad_cliped", train_step, grad_norm_clipped);       // 勾配ノルムがクリッピングされたか
-    wxGetApp().logScalar("24_agent/13_grad_cliped_ema", train_step, grad_norm_clipped_ema);   // 勾配ノルムのクリッピング率（EMA移動平均）
+    if (param_->use_grad_clip) {
+        wxGetApp().logScalar("24_agent/12_grad_cliped", train_step, grad_norm_clipped);       // 勾配ノルムがクリッピングされたか
+        wxGetApp().logScalar("24_agent/13_grad_cliped_ema", train_step, grad_norm_clipped_ema);   // 勾配ノルムのクリッピング率（EMA移動平均）
+    }
     //    wxGetApp().logScalar("2_agent/done",     train_step, done);
     //    wxGetApp().logScalar("2_agent/hard_update_done",     train_step, hard_update_done);
 
@@ -383,7 +402,6 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
     auto q_values = policy_net->forward(state_b);               // (B,A)
     auto q_sa = q_values.gather(1, action_b.unsqueeze(-1)).squeeze(-1); // (B,)
 
-
     // --- 期待Q（Double DQN対応） ---
     torch::Tensor max_next_q;
     if (param_->use_double_dqn) {
@@ -391,7 +409,8 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
         auto next_action = std::get<1>(next_q_policy.max(1));    // (B,)
         auto next_q_target = target_net->forward(next_state_b);  // (B,A)
         max_next_q = next_q_target.gather(1, next_action.unsqueeze(1)).squeeze(1).detach(); // (B,)
-    } else {
+    }
+    else {
         auto next_q_targ = target_net->forward(next_state_b);    // (B,A)
         max_next_q = std::get<0>(next_q_targ.max(1)).detach();   // (B,)
     }
@@ -409,15 +428,31 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
     // --- 逆伝播 ---
     optimizer.zero_grad();
     loss.backward();
-    float total_norm =
-        static_cast<float>(torch::nn::utils::clip_grad_norm_(policy_net->parameters(), param_->grad_clip_tau));
+
+    // --- 勾配ノルム測定 & 勾配クリッピング（Gradient Clipping）---
+    float total_norm;
+    if (param_->use_grad_clip) {
+        total_norm = static_cast<float>(
+            torch::nn::utils::clip_grad_norm_(policy_net->parameters(), param_->grad_clip_tau)
+            );
+    }
+    else {
+        total_norm = 0.0f;
+        for (auto& p : policy_net->parameters()) {
+            if (p.grad().defined()) {
+                total_norm += p.grad().data().norm().item<float>();
+            }
+        }
+    }
+
+    // メインネットワークに勾配反映
     optimizer.step();
 
     // --- 統計情報算出（バッチ平均ベース） ---
     const float ema_decay = 0.995f;
     auto q_targ = target_net->forward(state_b); // (B,A)
     auto q_diff = torch::mean(torch::abs(q_sa - q_targ.gather(1, action_b.unsqueeze(1)).squeeze(1)));
-    float grad_norm_clipped = (total_norm > param_->grad_clip_tau) ? 1.0f : 0.0f;
+    float grad_norm_clipped = (param_->use_grad_clip && total_norm > param_->grad_clip_tau) ? 1.0f : 0.0f;
     grad_norm_clipped_ema = 0.9f * grad_norm_clipped_ema + 0.1f * grad_norm_clipped;
     loss_ema = ema_decay * loss_ema + (1 - ema_decay) * loss.item<float>();
     float td_cliped = 0.0f;
@@ -441,8 +476,10 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
     wxGetApp().logScalar("23_agent/09_loss", train_step, loss.item<float>());
     wxGetApp().logScalar("23_agent/10_loss_ema", train_step, loss_ema);
     wxGetApp().logScalar("24_agent/11_grad_norm", train_step, total_norm);
-    wxGetApp().logScalar("24_agent/12_grad_cliped", train_step, grad_norm_clipped);
-    wxGetApp().logScalar("24_agent/13_grad_cliped_ema", train_step, grad_norm_clipped_ema);
+    if (param_->use_grad_clip) {
+        wxGetApp().logScalar("24_agent/12_grad_cliped", train_step, grad_norm_clipped);
+        wxGetApp().logScalar("24_agent/13_grad_cliped_ema", train_step, grad_norm_clipped_ema);
+    }
     wxGetApp().logScalar("25_replay/01_buffer_size", train_step, replay_buffer.Size());
 
     // --- soft/hard update ---

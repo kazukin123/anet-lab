@@ -5,7 +5,7 @@
 
 #include "anet/rl.hpp"
 
-void evaluateEnvironment(anet::rl::Environment& env, int num_actions, int num_trials = 1000,
+void evaluateEnvironment(anet::rl::Environment& env, int num_actions, int num_trial_eps = 1000,
     float max_possible_reward = 1.0f, int max_steps_per_episode = 500)
 {
     std::uniform_int_distribution<int> action_dist(0, num_actions - 1);
@@ -18,7 +18,7 @@ void evaluateEnvironment(anet::rl::Environment& env, int num_actions, int num_tr
     float max_reward = -std::numeric_limits<float>::max();
     int short_fail_count = 0;
 
-    for (int i = 0; i < num_trials; ++i) {
+    for (int i = 0; i < num_trial_eps; ++i) {
         torch::Tensor state = env.Reset();
         float total_reward = 0.0f;
         int steps = 0;
@@ -39,10 +39,10 @@ void evaluateEnvironment(anet::rl::Environment& env, int num_actions, int num_tr
         if (steps < 5) short_fail_count++;
     }
 
-    float mean = reward_sum / num_trials;
-    float var = reward_sq_sum / num_trials - mean * mean;
+    float mean = reward_sum / num_trial_eps;
+    float var = reward_sq_sum / num_trial_eps - mean * mean;
     float stddev = std::sqrt(std::max(var, 0.0f));
-    float fail_rate = static_cast<float>(short_fail_count) / num_trials;
+    float fail_rate = static_cast<float>(short_fail_count) / num_trial_eps;
 
     // --- ▼ 非依存スケールに正規化 ----------------------------
     // 1. 環境固有スケールを除去：最大理論報酬で割る
@@ -67,7 +67,7 @@ void evaluateEnvironment(anet::rl::Environment& env, int num_actions, int num_tr
     // --------------------------------------------------------
 
     wxLogInfo("=== Random Policy Evaluation ===");
-    wxLogInfo("Trials: %d", num_trials);
+    wxLogInfo("Trials: %d", num_trial_eps);
     wxLogInfo("Mean reward: %.2f (normalized: %.3f)", mean, normalized_mean);
     wxLogInfo("Stddev: %.2f (normalized: %.3f, CV=%.2f)", stddev, normalized_std, cv);
     wxLogInfo("Min: %.1f (%.3f), Max: %.1f (%.3f)", min_reward, normalized_min, max_reward, normalized_max);

@@ -46,6 +46,7 @@ private:
     int last_episode_step = 0;
     int episode_count = 0;
     int eval_count_ = 0;
+    float train_total_reward = 0.0f;
 
     // デバイス（CPU固定）
     torch::Device device;

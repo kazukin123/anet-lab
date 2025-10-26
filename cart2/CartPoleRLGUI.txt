@@ -1,37 +1,179 @@
 # agent
 
-agent.preset=agent_rb		# ReplayBuffer有り
+agent.preset=agent_nrb
 #agent.preset=agent_nrb		# ReplayBuffer無し
 
 
-## リプレイバッファ有り
-agent_rb.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-agent_rb.gamma=1.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
-agent_rb.eps_max=1.00
-agent_rb.eps_min=0.05          #0.1f 0.05f
-agent_rb.eps_decay_step=100000
-agent_rb.softupdate_tau=0.015  # 1.0f 0.004f  0.01f 0.005f;   // 大きいとターゲットネットワークからの反映が早くなる。小さいと遅く滑らかになる。0.005→半減期138step
-agent_rb.hardupdate_step=2000  # -1 5000; //200 500 1000
-agent_rb.grad_clip_tau=30.0    # 10~40 1f 5f 10f
-agent_rb.use_td_clip=true
-agent_rb.td_clip_value=4.0
-agent_rb.eps_zero_step=-1      #120000;
-agent_rb.use_double_dqn=true   # Double DQN 有効化フラグ（trueで有効）
-agent_rb.use_replay_buffer=true  #★
-agent_rb.replay_capacity=50000
-agent_rb.replay_batch_size=64
-agent_rb.replay_warmup_steps=1000
-agent_rb.replay_update_interval=4
+## リプレイバッファ有 比較検証
 
+### 修正後 CleanRL 120x84
+agent_cleanrl2.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_cleanrl2.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent_cleanrl2.eps_max=1.00  # 指数減衰  
+agent_cleanrl2.eps_min=0.05          # 0.1f 0.05f
+agent_cleanrl2.eps_decay_step=100000 #
+agent_cleanrl2.softupdate_tau=-1  # 1.0f 0.004f  0.01f 0.005f;
+agent_cleanrl2.hardupdate_step=500  #  -1 5000; //200 500 1000
+agent_cleanrl2.use_grad_clip=false
+agent_cleanrl2.grad_clip_tau=-1    # -1 10~40 1f 5f 10f
+agent_cleanrl2.use_td_clip=false
+agent_cleanrl2.td_clip_value=4.0
+agent_cleanrl2.eps_zero_step=-1      #120000;
+agent_cleanrl2.use_double_dqn=true   # Double DQN 有効化フラグ（trueで有効）
+agent_cleanrl2.use_replay_buffer=true #
+agent_cleanrl2.replay_capacity=10000
+agent_cleanrl2.replay_batch_size=1280
+agent_cleanrl2.replay_warmup_steps=10000 #
+agent_cleanrl2.replay_update_interval=10 #
+
+### 修正後 CleanRL 120x84
+agent_cleanrl.alpha=2.5e-4            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_cleanrl.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent_cleanrl.eps_max=1.00  # 指数減衰  
+agent_cleanrl.eps_min=0.05          # 0.1f 0.05f
+agent_cleanrl.eps_decay_step=250000 #
+agent_cleanrl.softupdate_tau=-1  # 1.0f 0.004f  0.01f 0.005f;
+agent_cleanrl.hardupdate_step=500  #  -1 5000; //200 500 1000
+agent_cleanrl.use_grad_clip=false
+agent_cleanrl.grad_clip_tau=-1    # -1 10~40 1f 5f 10f
+agent_cleanrl.use_td_clip=false
+agent_cleanrl.td_clip_value=4.0
+agent_cleanrl.eps_zero_step=-1      #120000;
+agent_cleanrl.use_double_dqn=true   # Double DQN 有効化フラグ（trueで有効）
+agent_cleanrl.use_replay_buffer=true #
+agent_cleanrl.replay_capacity=10000
+agent_cleanrl.replay_batch_size=128
+agent_cleanrl.replay_warmup_steps=10000 #
+agent_cleanrl.replay_update_interval=10 #
+
+### 修正後 ①メイン1回目
+agent_rb1.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_rb1.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent_rb1.eps_max=1.00
+agent_rb1.eps_min=0.02          # ★0.1f 0.05f
+agent_rb1.eps_decay_step=20000  # ★ 
+agent_rb1.softupdate_tau=0.015  # 1.0f 0.004f  0.01f 0.005f;
+agent_rb1.hardupdate_step=-1    # ★ -1 5000; //200 500 1000
+agent_rb1.use_grad_clip=true
+agent_rb1.grad_clip_tau=30.0    # 10~40 1f 5f 10f
+agent_rb1.use_td_clip=true
+agent_rb1.td_clip_value=4.0
+agent_rb1.eps_zero_step=-1      #120000;
+agent_rb1.use_double_dqn=true   # Double DQN 有効化フラグ（trueで有効）
+agent_rb1.use_replay_buffer=true  #
+agent_rb1.replay_capacity=50000
+agent_rb1.replay_batch_size=64
+agent_rb1.replay_warmup_steps=500  #★
+agent_rb1.replay_update_interval=1 #★
+
+### 修正後 ② ①からアルファ下げ
+agent_rb2.alpha=3e-4            #★ 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_rb2.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent_rb2.eps_max=1.00
+agent_rb2.eps_min=0.02          #0.1f 0.05f
+agent_rb2.eps_decay_step=20000
+agent_rb2.softupdate_tau=0.015  # 1.0f 0.004f  0.01f 0.005f;
+agent_rb2.hardupdate_step=-1  # -1 5000; //200 500 1000
+agent_rb2.use_grad_clip=true
+agent_rb2.grad_clip_tau=30.0    # 10~40 1f 5f 10f
+agent_rb2.use_td_clip=true
+agent_rb2.td_clip_value=4.0
+agent_rb2.eps_zero_step=-1      #120000;
+agent_rb2.use_double_dqn=true   # Double DQN 有効化フラグ（trueで有効）
+agent_rb2.use_replay_buffer=true  #
+agent_rb2.replay_capacity=50000
+agent_rb2.replay_batch_size=64
+agent_rb2.replay_warmup_steps=500
+agent_rb2.replay_update_interval=1
+
+### 修正前③
+agent_rb3.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_rb3.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent_rb3.eps_max=1.00
+agent_rb3.eps_min=0.05          #0.1f 0.05f
+agent_rb3.eps_decay_step=100000
+agent_rb3.softupdate_tau=0.015  # 1.0f 0.004f  0.01f 0.005f;
+agent_rb3.hardupdate_step=2000  # -1 5000; //200 500 1000
+agent_rb3.use_grad_clip=true
+agent_rb3.grad_clip_tau=30.0    # ★ 10~40 1f 5f 10f
+agent_rb3.use_td_clip=true
+agent_rb3.td_clip_value=4.0
+agent_rb3.eps_zero_step=-1      #120000;
+agent_rb3.use_double_dqn=true   # Double DQN 有効化フラグ（trueで有効）
+agent_rb3.use_replay_buffer=true #
+agent_rb3.replay_capacity=50000
+agent_rb3.replay_batch_size=64
+agent_rb3.replay_warmup_steps=1000
+agent_rb3.replay_update_interval=4
+
+### 修正後 ⑤hardupdate_stepだけ適用
+agent_rb5.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_rb5.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent_rb5.eps_max=1.00
+agent_rb5.eps_min=0.05          #0.1f 0.05f
+agent_rb5.eps_decay_step=100000
+agent_rb5.softupdate_tau=0.015  # 1.0f 0.004f  0.01f 0.005f;
+agent_rb5.hardupdate_step=-1    # ★ -1 5000; //200 500 1000
+agent_rb5.use_grad_clip=true
+agent_rb5.grad_clip_tau=30.0    # 10~40 1f 5f 10f
+agent_rb5.use_td_clip=true
+agent_rb5.td_clip_value=4.0
+agent_rb5.eps_zero_step=-1      #120000;
+agent_rb5.use_double_dqn=true   # Double DQN 有効化フラグ（trueで有効）
+agent_rb5.use_replay_buffer=true #
+agent_rb5.replay_capacity=50000
+agent_rb5.replay_batch_size=64
+agent_rb5.replay_warmup_steps=1000
+agent_rb5.replay_update_interval=4
+
+### 修正後 ⑥epsだけ適用
+agent_rb6.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_rb6.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent_rb6.eps_max=1.00         
+agent_rb6.eps_min=0.02          #★ 0.1f 0.05f
+agent_rb6.eps_decay_step=20000  #★
+agent_rb6.softupdate_tau=0.015  # 1.0f 0.004f  0.01f 0.005f;
+agent_rb6.hardupdate_step=2000  #  -1 5000; //200 500 1000
+agent_rb6.use_grad_clip=true
+agent_rb6.grad_clip_tau=30.0    # 10~40 1f 5f 10f
+agent_rb6.use_td_clip=true
+agent_rb6.td_clip_value=4.0
+agent_rb6.eps_zero_step=-1      #120000;
+agent_rb6.use_double_dqn=true   # Double DQN 有効化フラグ（trueで有効）
+agent_rb6.use_replay_buffer=true #
+agent_rb6.replay_capacity=50000
+agent_rb6.replay_batch_size=64
+agent_rb6.replay_warmup_steps=1000
+agent_rb6.replay_update_interval=4
+
+### 修正後 ⑦hardupdate_stepだけもとに戻す
+agent_rb7.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_rb7.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent_rb7.eps_max=1.00
+agent_rb7.eps_min=0.02          #0.1f 0.05f
+agent_rb7.eps_decay_step=20000
+agent_rb7.softupdate_tau=0.015  # 1.0f 0.004f  0.01f 0.005f;
+agent_rb7.hardupdate_step=500  #★ -1 5000; //200 500 1000
+agent_rb7.grad_clip_tau=30.0    # 10~40 1f 5f 10f
+agent_rb7.use_td_clip=true
+agent_rb7.td_clip_value=4.0
+agent_rb7.eps_zero_step=-1      #120000;
+agent_rb7.use_double_dqn=true   # Double DQN 有効化フラグ（trueで有効）
+agent_rb7.use_replay_buffer=true  #
+agent_rb7.replay_capacity=50000
+agent_rb7.replay_batch_size=64
+agent_rb7.replay_warmup_steps=500
+agent_rb7.replay_update_interval=1
 
 ## リプレイバッファ無し
 agent_nrb.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-agent_nrb.gamma=1.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent_nrb.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
 agent_nrb.eps_max=1.00
 agent_nrb.eps_min=0.05          #0.1f 0.05f
 agent_nrb.eps_decay_step=100000
-agent_nrb.softupdate_tau=0.015  # 1.0f 0.004f  0.01f 0.005f;   // 大きいとターゲットネットワークからの反映が早くなる。小さいと遅く滑らかになる。0.005→半減期138step
+agent_nrb.softupdate_tau=0.015  # 1.0f 0.004f  0.01f 0.005f;
 agent_nrb.hardupdate_step=2000  # -1 5000; //200 500 1000
+agent_nrb.use_grad_clip=true
 agent_nrb.grad_clip_tau=30.0    # 10~40 1f 5f 10f
 agent_nrb.use_td_clip=true
 agent_nrb.td_clip_value=4.0
@@ -42,7 +184,7 @@ agent_nrb.use_replay_buffer=false   #★
 
 ## デフォルト設定
 agent.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-agent.gamma=1.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
 agent.eps_max=1.00
 agent.eps_min=0.05          #0.1f 0.05f
 agent.eps_decay_step=100000
@@ -62,8 +204,9 @@ agent.replay_update_interval=4
 
 
 # train
-train.preset=train.eptime
+#train.preset=train.eptime
 #train.preset=train.batchrun
+#train.preset=train.batchrun2
 
 
 ## train default
@@ -74,17 +217,19 @@ train.train_pause_step = 110000 # -1
 #train.train_exit_step = -1 # -1 110000
 
 ## ほぼほぼエピソード単位で描画更新
-train.eptime.timer_ms = 1
-train.eptime.step_per_frame = 10000
+train.eptime.timer_ms = 10
+train.eptime.step_per_frame = 1000
 train.eptime.eval_interval = 1
 train.eptime.train_pause_step = 110000 # -1
 
 ## バッチ実行用①
-train.batchrun1.timer_ms = 50
-train.batchrun1.step_per_frame = 10
-train.batchrun1.train_exit_step = 1000  # -1 110000
+train.batchrun.timer_ms = 1
+train.batchrun.step_per_frame = 10000
+train.batchrun.train_pause_step = -1
+train.batchrun.train_exit_step = 110000
 
 ## バッチ実行用②
-train.batchrun2.timer_ms = 1
-train.batchrun2.step_per_frame = 20000
-train.batchrun2.train_exit_step = 1000  # -1 110000
+train.batchrun2.timer_ms = 10
+train.batchrun2.step_per_frame = 1000
+train.batchrun2.train_pause_step = -1
+train.batchrun2.train_exit_step = 500000  # -1 110000
