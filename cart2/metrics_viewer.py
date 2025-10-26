@@ -16,7 +16,7 @@ from dash import Dash, dcc, html, Input, Output, State
 
 RUN_CACHE = {}
 RUN_COLORS = {}
-VERSION = "v17.2"
+VERSION = "v17.3"
 
 
 def get_run_color(run_name):
@@ -70,7 +70,10 @@ def load_selected_runs(root, selected_runs):
 def extract_tags(run_data):
     tags = set()
     for df in run_data.values():
-        tags |= set(df["tag"].unique())
+        # TEXT系を除外
+        if "type" in df.columns and "tag" in df.columns:
+            valid = df[df["type"] != "json"]
+            tags |= set(valid["tag"].unique())
     return sorted(tags)
 
 
@@ -80,18 +83,76 @@ def detect_axis(df, tag):
 
 def make_tag_fig(run_data, selected_runs, tag):
     fig = go.Figure()
-    for run, df in run_data.items():
-        if run not in selected_runs:
+    multi = len(selected_runs) > 1
+
+    # -------------------------------------------------
+    # 描画順序の決定（複数Runの場合のみ）
+    # -------------------------------------------------
+    if multi:
+        run_order = []
+        all_values = []
+        for run in selected_runs:
+            if run in run_data:
+                df = run_data[run]
+                sub = df[(df["tag"] == tag) & (df["type"] == "scalar")]
+                if not sub.empty:
+                    median_val = sub["value"].median()
+                    run_order.append((run, median_val))
+                    all_values.extend(sub["value"].tolist())
+
+        # 正負傾向で描画順を決定
+        sign_mean = sum(all_values) / len(all_values) if all_values else 0.0
+        if sign_mean >= 0:
+            # 正値中心：小さい値を前面（後描き）
+            run_order.sort(key=lambda x: x[1], reverse=True)
+        else:
+            # 負値中心：大きい値を前面（後描き）
+            run_order.sort(key=lambda x: x[1], reverse=False)
+        sorted_runs = [r for r, _ in run_order]
+    else:
+        # シングルRun時はそのまま
+        sorted_runs = selected_runs
+
+    # -------------------------------------------------
+    # 描画処理
+    # -------------------------------------------------
+    for run in sorted_runs:
+        if run not in run_data:
             continue
+        df = run_data[run]
         sub = df[(df["tag"] == tag) & (df["type"] == "scalar")]
+
         if sub.empty:
+            # --- ダミーtraceを追加して凡例・軸スケール維持 ---
+            fig.add_trace(go.Scatter(
+                x=[0],
+                y=[None],
+                name=f"{run} (no data)",
+                mode="lines",
+                line=dict(color=get_run_color(run), width=1, dash="dot"),
+                showlegend=True,
+                hoverinfo="skip"
+            ))
             continue
+
         axis = detect_axis(df, tag)
         color = get_run_color(run)
+        opacity = 0.8 if multi else 1.0
+        width = 2.5 if not multi or run == sorted_runs[-1] else 1.5
+
         fig.add_trace(go.Scatter(
-            x=sub[axis], y=sub["value"], mode="lines",
-            name=run, line=dict(color=color, width=2)
+            x=sub[axis],
+            y=sub["value"],
+            mode="lines",
+            name=run,
+            line=dict(color=color, width=width),
+            opacity=opacity,
+            showlegend=True
         ))
+
+    # -------------------------------------------------
+    # Layout
+    # -------------------------------------------------
     fig.update_layout(
         template="plotly_dark",
         height=300,
