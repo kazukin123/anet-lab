@@ -6,8 +6,10 @@
 #include <wx/log.h>
 
 // 定数
-const float x_limit = 2.4f;
-const float theta_limit = 90.0f; // 12.0f;
+const int limit_step = 500;  // 終了条件
+const float limit_x = 2.4f;
+const float limit_theta = 90.0f; // 12.0f 90.0f
+
 const float gravity = 9.8f;
 const float masscart = 1.0f;
 const float mass_pole = 0.10f;
@@ -18,17 +20,26 @@ const float force_mag = 30.0f;  // 10.0f 30.0f
 const float tau = 0.02f;    //0.02f 0.01f
 const float reward_scale = 1.0f;  // 2 10  20
 
-const int max_steps = 500;  // 終了条件
 
 CartPoleEnv::CartPoleEnv() {
     // パラメータ記録
     nlohmann::json params = {
-        {"max_steps", max_steps},
+        {"limit_step", limit_step},
     };
     wxGetApp().logJson("env/params", params);
     wxGetApp().flushMetricsLog();
 
     Reset();
+}
+
+anet::rl::StateSpaceInfo CartPoleEnv::GetStateSpaceInfo() const {
+    float deg = M_PI / 180.0f;
+    return {
+        /*shape=*/torch::tensor({4}),
+        /*low=*/torch::tensor({ -limit_x, -2.0f, -limit_theta * deg, -3.0f }),
+        /*high=*/torch::tensor({ limit_x,  2.0f,  limit_theta * deg,  3.0f })
+        //                        4次元: x, x_dot, theta, theta_dot
+    };
 }
 
 torch::Tensor CartPoleEnv::Reset(anet::rl::RunMode mode) {
@@ -42,7 +53,7 @@ torch::Tensor CartPoleEnv::Reset(anet::rl::RunMode mode) {
         x_dot = dist(gen) * 0.05f;
         theta = dist(gen) * 0.05f;
         theta_dot = dist(gen) * 0.05f;
-    }else {
+    } else {
         // 評価モードでは初期状態固定
         x = 0;
         x_dot = 0;
@@ -77,16 +88,15 @@ anet::rl::EnvResponse CartPoleEnv::DoStep(const torch::Tensor& action_tensor, an
 
     // --- 拘束反力モデル（完全拘束） ---
     bool hit_wall = false;
-    if (x <= -x_limit && force < 0) {  // 左壁＋左向き力
+    if (x <= -limit_x && force < 0) {  // 左壁＋左向き力
         hit_wall = true;
         force = 0.0f;
-        x = -x_limit;
+        x = -limit_x;
         x_dot = 0.0f;
-    }
-    else if (x >= x_limit && force > 0) {  // 右壁＋右向き力
+    } else if (x >= limit_x && force > 0) {  // 右壁＋右向き力
         hit_wall = true;
         force = 0.0f;
-        x = x_limit;
+        x = limit_x;
         x_dot = 0.0f;
     }
 
@@ -122,8 +132,8 @@ anet::rl::EnvResponse CartPoleEnv::DoStep(const torch::Tensor& action_tensor, an
 
     // 終了条件は下半分まで倒れたor500ステップを超えた
     float theta_deg = theta * 180.0f / M_PI;
-    bool done = (x < -x_limit || x > x_limit || theta_deg < -theta_limit || theta_deg > theta_limit);
-    if (step_count >= 500) { done = true; }
+    bool done = (x < -limit_x || x > limit_x || theta_deg < -limit_theta || theta_deg > limit_theta);
+    if (step_count >= limit_step) { done = true; }
 
     // 報酬: 角度安定性 + 速度安定補正
     //float reward = std::cos(theta) - 0.05f * std::abs(x_dot) - 0.01f * std::abs(theta_dot);
@@ -148,16 +158,14 @@ anet::rl::EnvResponse CartPoleEnv::DoStep(const torch::Tensor& action_tensor, an
 
     float reward = reward_scale * (1.0f
         - 0.01f * (std::abs(theta_deg) / 90.0f)   // 姿勢
-        - 0.002f * (std::abs(x) / x_limit));      // 位置
+        - 0.002f * (std::abs(x) / limit_x));      // 位置
 
     // 終了条件ごとに分岐
 	bool truncated = false;
-    if (theta_deg < -90.0f || theta_deg > 90.0f ||
-        x < -x_limit || x > x_limit) {
+    if (theta_deg < -limit_theta || theta_deg > limit_theta || x < -limit_x || x > limit_x) {
         // 倒立失敗
         reward = -reward_scale;   // ← ペナルティ
-    }
-    else if (step_count >= 500) {
+    } else if (step_count >= limit_step) {
         // 時間切れ成功
         reward = +reward_scale;   // ← ボーナス
         truncated = true;

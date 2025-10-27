@@ -84,7 +84,7 @@ struct QNetImpl : torch::nn::Module {
 // ======================================================
 // RLAgent 実装
 // ======================================================
-RLAgent::RLAgent(int state_dim, int n_actions, torch::Device device) :
+RLAgent::RLAgent(anet::rl::Environment& env, int state_dim, int n_actions, torch::Device device) :
     n_actions_(n_actions),
     policy_net(std::make_shared<QNetImpl>(state_dim, n_actions)),
     target_net(std::make_shared<QNetImpl>(state_dim, n_actions)),
@@ -92,12 +92,20 @@ RLAgent::RLAgent(int state_dim, int n_actions, torch::Device device) :
 
     param_(std::make_unique<RLAgent::Param>(wxGetApp().GetConfig())),   // 設定からパラメータを読み込み
 
+
     optimizer(policy_net->parameters(), torch::optim::AdamOptions(param_->alpha)),
     replay_buffer(param_->replay_capacity),
 
     epsilon(1.0f),
     train_step(0)
 {
+    // --- ヒートマップ生成 ---
+    auto info = env.GetStateSpaceInfo();
+    heatmap_visit1_ = anet::MakeStateHeatMapPtr(info, 256, 256, 0, 2, true, 10000); // x vs theta
+    heatmap_visit2_ = anet::MakeStateHeatMapPtr(info, 256, 256, 0, 2, true, 10000); // x vs theta
+    heatmap_td_ = anet::MakeStateHeatMapPtr(info, 256, 256, 0, 2, true, 10000); // x vs theta
+    heatmap_q_ = anet::MakeStateHeatMapPtr(info, 256, 256, 0, 2, false); // x vs theta
+
     // NN初期化
     policy_net->to(device);
     target_net->to(device);
@@ -114,6 +122,7 @@ RLAgent::RLAgent(int state_dim, int n_actions, torch::Device device) :
     target_net->eval();
 
     // ログ：パラメータ記録
+    wxLogInfo("agent.preset=%s", wxGetApp().GetConfig()->Get("agent.preset", "agent"));
     nlohmann::json params = {
         {"alpha", param_->alpha},
         {"gamma", param_->gamma},
@@ -223,18 +232,62 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {
 
     if (!param_->use_replay_buffer) {
         OptimizeSingle(exprence);
-        return;
+    } else {
+        replay_buffer.Push(exprence);
+        if (replay_buffer.Size() < static_cast<size_t>(param_->replay_warmup_steps)) {
+            //return;
+        } else if (train_step % param_->replay_update_interval == 0) {
+            auto batch = replay_buffer.Sample(param_->replay_batch_size);
+            OptimizeBatch(batch);
+        }
     }
 
-    replay_buffer.Push(exprence);
-    if (replay_buffer.Size() < static_cast<size_t>(param_->replay_warmup_steps)) {
-        return;
+    // visitヒートマップ更新
+    auto x = exprence.state[0][0].item<float>();
+    auto theta = exprence.state[0][2].item<float>();
+    auto theta_dot = exprence.state[0][3].item<float>();
+    heatmap_visit1_->AddData(x, theta, exprence.response.reward);
+    heatmap_visit2_->AddData(theta, theta_dot, exprence.response.reward);
+
+    // ヒートマップ画像保存
+    if (train_step != 0 && train_step % 100 == 0) {
+        auto out_dir = wxGetApp().GetMetricsLogger()->get_out_dir();
+        std::ostringstream oss1;
+        oss1 << out_dir << "/heatmap_01reward/"
+            << "heatmap_01reward_" << std::setw(8) << std::setfill('0') << train_step << ".png";
+        heatmap_visit1_->SavePng(oss1.str());
+
+        std::ostringstream oss2;
+        oss2 << out_dir << "/heatmap_02reward/"
+            << "heatmap_02reward_" << std::setw(8) << std::setfill('0') << train_step << ".png";
+        heatmap_visit2_->SavePng(oss2.str());
+
+        //{
+        //    for (int iy = 0; iy < 256; ++iy) {
+        //        for (int ix = 0; ix < 256; ++ix) {
+        //            float x = -2.4f + 4.8f * ix / 255.0f;
+        //            float theta = -1.57f + 3.14f * iy / 255.0f;
+
+        //            torch::Tensor state = torch::tensor({ x, 0.0f, theta, 0.0f })
+        //                .unsqueeze(0)
+        //                .to(device);
+
+        //            auto q = policy_net->forward(state).to(torch::kCPU);
+        //            float q_left = q[0][0].item<float>();
+        //            float q_right = q[0][1].item<float>();
+
+        //            heatmap_q_->AddData(x, theta, q_right - q_left);
+        //        }
+        //    }
+
+        //    std::ostringstream oss3;
+        //    oss3 << out_dir << "/heatmap_04q/"
+        //        << "heatmap_04q_" << std::setw(8) << std::setfill('0') << train_step << ".png";
+        //    heatmap_q_->SavePng(oss3.str());
+        //}
+
     }
 
-    if (train_step % param_->replay_update_interval == 0) {
-        auto batch = replay_buffer.Sample(param_->replay_batch_size);
-        OptimizeBatch(batch);
-    }
 }
 
 void RLAgent::UpdateBatch(const anet::rl::BatchData& batch) {
@@ -357,6 +410,19 @@ void RLAgent::OptimizeSingle(const anet::rl::Experience& exprence) {
     //    wxGetApp().logScalar("2_agent/done",     train_step, done);
     //    wxGetApp().logScalar("2_agent/hard_update_done",     train_step, hard_update_done);
 
+    // visitヒートマップ更新
+    auto x = exprence.state[0][0].item<float>();
+    auto theta = exprence.state[0][2].item<float>();
+    heatmap_td_->AddData(x, theta, td.item<float>());
+
+    // ヒートマップ画像保存
+    if (train_step != 0 && train_step % 100 == 0) {
+        auto out_dir = wxGetApp().GetMetricsLogger()->get_out_dir();
+        std::ostringstream oss;
+        oss << out_dir << "/heatmap_03td/"
+            << "heatmap_03td_" << std::setw(8) << std::setfill('0') << train_step << ".png";
+        heatmap_td_->SavePng(oss.str());
+    }
 
     // --- soft update（毎回少し近づける） ---
     if (param_->softupdate_tau > 0) {

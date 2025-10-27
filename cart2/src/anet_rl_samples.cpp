@@ -10,6 +10,14 @@ class DummyEnv : public Environment {
 public:
     torch::Tensor state = torch::zeros({ 4 });
 
+    anet::rl::StateSpaceInfo GetStateSpaceInfo() const override {
+        return {
+            /*shape=*/torch::tensor({4}),
+            /*low=*/torch::tensor( { 0.0f, 0.0f, 0.0f, -std::numeric_limits<float>::infinity(); }),
+            /*high=*/torch::tensor({ 2.0f, 0.0f, 0.0f,  std::numeric_limits<float>::infinity(); })
+        };
+    }
+
     torch::Tensor Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) override {
         state = torch::randn({ 4 });
         return state;

@@ -30,7 +30,7 @@ add_executable(CartPoleRLGUI
     "src/CartPoleCanvas.cpp"
     "src/PlotPanel.cpp"
     "src/anet_rl_samples.cpp"
-)
+    "src/HeatMap.cpp")
 
 target_include_directories(CartPoleRLGUI PRIVATE "include")
 target_link_libraries(CartPoleRLGUI PRIVATE ${wxWidgets_LIBRARIES} ${TORCH_LIBRARIES})

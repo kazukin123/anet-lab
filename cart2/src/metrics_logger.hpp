@@ -19,21 +19,21 @@ public:
     virtual ~IBackend() = default;
     virtual void open(const std::string& root_dir, const std::string& run_name) = 0;
     virtual void write_jsonl(const json& obj) = 0;
-	virtual void flush() {};
+	virtual void flush() = 0;
 };
 
 //----------------------------------------------
 // JSONLバックエンド
 //----------------------------------------------
 class JsonlBackend : public IBackend {
+private:
     std::ofstream ofs;
-    std::string path_;
 public:
     void open(const std::string& root_dir, const std::string& run_name) override {
         std::filesystem::create_directories(root_dir + "/" + run_name);
-        path_ = root_dir + "/" + run_name + "/metrics.jsonl";
-        ofs.open(path_, std::ios::app);
-        if (!ofs) throw std::runtime_error("Failed to open: " + path_);
+        auto path = root_dir + "/" + run_name + "/metrics.jsonl";
+        ofs.open(path, std::ios::app);
+        if (!ofs) throw std::runtime_error("Failed to open: " + path);
     }
 
     void write_jsonl(const json& obj) override {
@@ -50,6 +50,7 @@ public:
 // MetricsLogger本体
 //----------------------------------------------
 class MetricsLogger {
+private:
     std::unique_ptr<IBackend> backend;
     std::string root_dir;
     std::string run_name;
@@ -153,6 +154,10 @@ public:
     }
 
     std::string get_run_name() const { return run_name; }
+
+    std::string get_out_dir() const {
+		return std::filesystem::relative(root_dir + "/" + run_name).string();
+    }
 
     void flush() {
         backend->flush();

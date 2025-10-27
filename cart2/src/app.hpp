@@ -14,6 +14,7 @@ public:
 
     Properties* GetConfig() const { return properties_.get(); }
     wxCmdLineParser* GetCommandLine() const { return cmdline_.get(); }
+    MetricsLogger* GetMetricsLogger() const { return mt_logger.get(); }
 
     void logScalar(const std::string& tag, int step, double value) {
         mt_logger->log_scalar(tag, step, value);

@@ -27,7 +27,6 @@ struct CartPoleFrame::Param {
             preset = preset_override;
             props->Set("train.preset", preset);
         }
-        wxLogInfo("train.preset=%s", preset);
         ANET_READ_PROPS(props, preset, timer_ms);
         ANET_READ_PROPS(props, preset, step_per_frame);
         ANET_READ_PROPS(props, preset, eval_interval);
@@ -76,8 +75,8 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
 	// --- ログ出力先をこのクラスに設定 ---
     wxLog::SetActiveTarget(this);
 
-
     // パラメータ記録
+    wxLogInfo("train.preset=%s", wxGetApp().GetConfig()->Get("train.preset", "train"));
     nlohmann::json params = {
         {"eval_interval", param_->eval_interval},
         {"train_pause_step", param_->train_pause_step},
@@ -87,8 +86,8 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
 
     // --- RL生成 ---
     env = std::make_unique<CartPoleEnv>();
-    agent = std::make_unique<RLAgent>(4, 2, device);
-    
+    agent = std::make_unique<RLAgent>(*env, 4, 2, device);
+
     // ランダム方策で環境難易度評価
     evaluateEnvironment(*env, /*num_actions=*/2, /*num_trials=*/100);
     
@@ -146,6 +145,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
             wxGetApp().Exit();
         }
 
+        // 行動選択と環境ステップ実行、更新
         auto [action, _, __] = agent->SelectAction(state);
         //auto [next_state, reward, done, _ ] = env->DoStep(action);
         auto env_result = env->DoStep(action);
@@ -157,6 +157,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         // ステップ数インプリメント（グローバルなステップ数）
         step_count++;
 
+        //エピソード終了判定
         if (env_result.done) {
             episode_count++;
 

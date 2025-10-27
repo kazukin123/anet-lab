@@ -3,13 +3,14 @@
 #include <torch/torch.h>
 #include <memory>
 #include "anet/rl.hpp"
+#include "anet/HeatMap.hpp"
 
 struct QNetImpl;
 using QNet = std::shared_ptr<QNetImpl>;  // ← 明示的に定義（マクロ代替）
 
 class RLAgent : public anet::rl::Agent {
 public:
-    RLAgent(int state_dim, int n_actions, torch::Device device);
+    RLAgent(anet::rl::Environment& env, int state_dim, int n_actions, torch::Device device);
 
     std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>
         SelectAction(const torch::Tensor& state, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
@@ -44,4 +45,9 @@ private:
     float loss_ema = 0.0f;
     float grad_norm_clipped_ema = 0.0f;
     float td_clip_ema = 0.0f;
+    std::unique_ptr<anet::HeatMap> heatmap_visit1_;
+    std::unique_ptr<anet::HeatMap> heatmap_visit2_;
+    std::unique_ptr<anet::HeatMap> heatmap_td_;
+    std::unique_ptr<anet::HeatMap> heatmap_q_;
+
 };

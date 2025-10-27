@@ -64,11 +64,20 @@ namespace anet::rl {
     // Environment 抽象クラス（Gym風API）
     // =============================================================
 
+    struct StateSpaceInfo {
+        torch::Tensor shape;
+        torch::Tensor low;
+        torch::Tensor high;
+	};
+
     class Environment {
     public:
+        virtual StateSpaceInfo GetStateSpaceInfo() const = 0;
+
         virtual torch::Tensor Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) = 0;
         virtual EnvResponse DoStep(const torch::Tensor& action, anet::rl::RunMode mode = anet::rl::RunMode::Train) = 0;
         virtual torch::Tensor GetState() const = 0;
+
         virtual ~Environment() = default;
     };
 
