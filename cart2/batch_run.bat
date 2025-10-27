@@ -1,14 +1,13 @@
 @echo off
 SET EXE="..\\out\build\x64-Debug\cart2\CartPoleRLGUI.exe"
 
-call:run_exe train.batchrun2 agent_rb4
+call:run_exe train.batchrun2 agent_cleanrl
+call:run_exe train.batchrun2 agent_cleanrl2
+call:run_exe train.batchrun2 agent_cleanrl3
+call:run_exe train.batchrun2 agent_cleanrl4
+call:run_exe train.batchrun2 agent_cleanrl5
+call:run_exe train.batchrun2 agent_cleanrl6
 
-call:run_exe train.batchrun agent_rb1
-call:run_exe train.batchrun agent_rb2
-call:run_exe train.batchrun agent_rb3
-call:run_exe train.batchrun agent_rb5
-call:run_exe train.batchrun agent_rb6
-call:run_exe train.batchrun agent_rb7
 
 pause
 exit /b

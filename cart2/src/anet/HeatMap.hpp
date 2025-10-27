@@ -22,25 +22,28 @@ namespace anet {
         HM_Default = HM_AutoNorm | HM_SumMode
     };
 
-    class HeatBase {
+    class ImageSource {
     public:
         virtual void Reset() = 0;
         virtual wxImage Render() const = 0;
+        virtual std::string GetImageSubType() const = 0; // 例: "heat_map", "time_heat_map", ...
         void SavePng(const std::string& filename) const;
 
-        virtual ~HeatBase() = default;
+        virtual ~ImageSource() = default;
     };
 
     // ============================================================
     // HeatMap : 任意座標データの2D可視化（加算/平均対応）
     // ============================================================
-    class HeatMap : public HeatBase {
+    class HeatMap : public ImageSource {
     public:
         HeatMap(int width, int height,
             float x_min = 0.0f, float x_max = 1.0f,
             float y_min = 0.0f, float y_max = 1.0f,
             size_t max_points = 0,
             uint32_t flags = HM_Default);
+
+        std::string GetImageSubType() const override { return "heat_map"; }
 
         void AddData(float x, float y, float value);
         void Reset() override;
@@ -77,6 +80,8 @@ namespace anet {
             size_t max_points = 0,
             TimeFrameMode mode = TimeFrameMode::Unlimited);
 
+        std::string GetImageSubType() const override { return "timed_heat_map"; }
+
         void AddData(float x, float value);
         void NextFrame();          // フレームを進める
         void Reset() override;
@@ -98,9 +103,11 @@ namespace anet {
     // ============================================================
     // Histgram : 1次元分布可視化
     // ============================================================
-    class Histgram : public HeatBase {
+    class Histgram : public ImageSource {
     public:
         Histgram(int bins, float min_val, float max_val, int width = 256, int height = 128);
+
+        std::string GetImageSubType() const override { return "histgram"; }
 
         void AddData(float value);
         void Reset() override;
@@ -116,13 +123,15 @@ namespace anet {
     // ============================================================
     // TimeHistogram : 分布の時間変化（フレーム単位管理）
     // ============================================================
-    class TimeHistogram : public HeatBase {
+    class TimeHistogram : public ImageSource {
     public:
         TimeHistogram(int bins,
             int max_frames,
             float min_val,
             float max_val,
             size_t max_points_per_frame = 0);
+
+        std::string GetImageSubType() const override { return "time_histgram"; }
 
         void AddData(float value);  // 現フレームにデータ追加
         void NextFrame();           // 次フレームへ移行
@@ -145,11 +154,13 @@ namespace anet {
     // ============================================================
     // SweepedHeatMap : xyスイープによるヒートマップ生成
     // ============================================================
-    class SweepedHeatMap : public HeatBase {
+    class SweepedHeatMap : public ImageSource {
     public:
         SweepedHeatMap(int width, int height,
             float x_min, float x_max,
             float y_min, float y_max);
+
+        std::string GetImageSubType() const override { return "sweeped_map"; }
 
         void Evaluate(const std::function<float(float, float)>& func);
         wxImage Render() const override;

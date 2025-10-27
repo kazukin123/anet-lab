@@ -66,9 +66,9 @@ static void ValueToRGB_Jet(float norm, unsigned char& r, unsigned char& g, unsig
 }
 
 // ============================================================
-// HeatBase
+// ImageSource
 // ============================================================
-void HeatBase::SavePng(const std::string& filename) const {
+void ImageSource::SavePng(const std::string& filename) const {
     std::filesystem::path path(filename);
     if (!path.parent_path().empty())
         std::filesystem::create_directories(path.parent_path());
