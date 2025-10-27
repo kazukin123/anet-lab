@@ -6,6 +6,7 @@
 #include <string>
 #include <tuple>
 #include <random>
+#include "anet/HeatMap.hpp"
 
 namespace anet::rl {
 
@@ -180,5 +181,23 @@ namespace anet::rl {
         BatchData batch_;
         bool finalized_ = false;
     };
+
+    std::unique_ptr<HeatMap> MakeStateHeatMapPtr(
+        const anet::rl::StateSpaceInfo& info,
+        int idx_x,
+        int idx_y,
+        int width = 256,
+        int height = 256,
+        size_t max_points = 10000,
+        uint32_t flags = HM_Default);
+
+    std::unique_ptr<TimeHeatMap> MakeStateTimeHeatMapPtr(
+        const anet::rl::StateSpaceInfo& info,
+        int idx_x,
+        int width = 256,
+        int height = 2560,
+        size_t max_points = 0,
+        uint32_t flags = HM_Default,
+        TimeFrameMode mode = TimeFrameMode::Unlimited);
 
 } // namespace anet::rl

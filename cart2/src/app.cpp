@@ -18,6 +18,8 @@ static wxCmdLineEntryDesc desc[] = {
 };
 
 bool MyApp::OnInit() {
+    wxInitAllImageHandlers();
+
     cmdline_ = std::make_unique<wxCmdLineParser>(desc, argc, (wchar_t**)argv);
     if (cmdline_->Parse(true)) {
         return false;

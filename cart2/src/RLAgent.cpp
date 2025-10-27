@@ -101,10 +101,11 @@ RLAgent::RLAgent(anet::rl::Environment& env, int state_dim, int n_actions, torch
 {
     // --- ヒートマップ生成 ---
     auto info = env.GetStateSpaceInfo();
-    heatmap_visit1_ = anet::MakeStateHeatMapPtr(info, 256, 256, 0, 2, true, 10000); // x vs theta
-    heatmap_visit2_ = anet::MakeStateHeatMapPtr(info, 256, 256, 0, 2, true, 10000); // x vs theta
-    heatmap_td_ = anet::MakeStateHeatMapPtr(info, 256, 256, 0, 2, true, 10000); // x vs theta
-    heatmap_q_ = anet::MakeStateHeatMapPtr(info, 256, 256, 0, 2, false); // x vs theta
+    auto flags =  anet::HeatMapFlags::HM_LogScale | anet::HeatMapFlags::HM_AutoNorm;
+    heatmap_visit1_ = anet::rl::MakeStateHeatMapPtr(info, 0, 2, 256, 256,30000, flags | anet::HeatMapFlags::HM_SumMode);  // x vs theta → reward
+    heatmap_visit2_ = anet::rl::MakeStateHeatMapPtr(info, 0, 2, 256, 256,30000, flags | anet::HeatMapFlags::HM_SumMode);  // x vs theta → reward
+    heatmap_td_     = anet::rl::MakeStateHeatMapPtr(info, 0, 2, 256, 256,30000, flags | anet::HeatMapFlags::HM_MeanMode); // x vs theta → td
+    thmap_reward_   = anet::rl::MakeStateTimeHeatMapPtr(info, 2, 256, 256, 0,  flags | anet::HeatMapFlags::HM_MeanMode, anet::TimeFrameMode::Scroll); // x vs time → Q
 
     // NN初期化
     policy_net->to(device);
@@ -262,30 +263,34 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {
             << "heatmap_02reward_" << std::setw(8) << std::setfill('0') << train_step << ".png";
         heatmap_visit2_->SavePng(oss2.str());
 
-        //{
-        //    for (int iy = 0; iy < 256; ++iy) {
-        //        for (int ix = 0; ix < 256; ++ix) {
-        //            float x = -2.4f + 4.8f * ix / 255.0f;
-        //            float theta = -1.57f + 3.14f * iy / 255.0f;
 
-        //            torch::Tensor state = torch::tensor({ x, 0.0f, theta, 0.0f })
-        //                .unsqueeze(0)
-        //                .to(device);
+        {
+            anet::SweepedHeatMap q_map = anet::SweepedHeatMap::EvaluateTensorFunction(
+                128, 128,
+                -2.4f, 2.4f,   // x range
+                -0.21f, 0.21f, // theta range
+                device,
+                // forward関数: xy = [x, theta] → [x, x_dot, theta, theta_dot] = [x, 0, theta, 0]
+                [&](const torch::Tensor& xy) {
+                    auto x = xy.index({ torch::indexing::Slice(), 0 }).unsqueeze(1);
+                    auto theta = xy.index({ torch::indexing::Slice(), 1 }).unsqueeze(1);
+                    auto x_dot = torch::zeros_like(x);
+                    auto theta_dot = torch::zeros_like(theta);
+                    auto s = torch::cat({ x, x_dot, theta, theta_dot }, 1).to(device);
+                    return policy_net->forward(s);
+                },
+                // value抽出関数: [Q_right, Q_left] → [ Q_right - Q_left ]
+                [&](const torch::Tensor& out) {
+                    return out.index({ torch::indexing::Slice(), 1 }) -
+                        out.index({ torch::indexing::Slice(), 0 });
+                });
+            wxImage heatmap = q_map.Render();
 
-        //            auto q = policy_net->forward(state).to(torch::kCPU);
-        //            float q_left = q[0][0].item<float>();
-        //            float q_right = q[0][1].item<float>();
-
-        //            heatmap_q_->AddData(x, theta, q_right - q_left);
-        //        }
-        //    }
-
-        //    std::ostringstream oss3;
-        //    oss3 << out_dir << "/heatmap_04q/"
-        //        << "heatmap_04q_" << std::setw(8) << std::setfill('0') << train_step << ".png";
-        //    heatmap_q_->SavePng(oss3.str());
-        //}
-
+            std::ostringstream oss3;
+            oss3 << out_dir << "/heatmap_04q/"
+                << "heatmap_04q_" << std::setw(8) << std::setfill('0') << train_step << ".png";
+            q_map.SavePng(oss3.str());
+        }
     }
 
 }
@@ -422,6 +427,26 @@ void RLAgent::OptimizeSingle(const anet::rl::Experience& exprence) {
         oss << out_dir << "/heatmap_03td/"
             << "heatmap_03td_" << std::setw(8) << std::setfill('0') << train_step << ".png";
         heatmap_td_->SavePng(oss.str());
+    }
+
+	// 時間変化ヒートマップ更新
+    thmap_reward_->AddData(theta, q_sa.item<float>());
+
+    //std::uniform_real_distribution<float> dist(-2.4f, 2.4f);
+    //std::random_device rd;
+    //std::mt19937 gen(rd());
+    //auto x_rand = dist(gen);
+    //for (int i = 0; i < 1000; i++)
+    //    thmap_reward_->AddData(x_rand, 10.0f);
+
+    if (train_step % 100 == 0) {
+        thmap_reward_->NextFrame();
+        thmap_reward_count_++;
+
+        std::ostringstream oss;
+        oss << wxGetApp().GetMetricsLogger()->get_out_dir() << "/heatmap_05qtime/"
+            << "heatmap_05qtime_" << std::setw(8) << std::setfill('0') << thmap_reward_count_ << ".png";
+        thmap_reward_->SavePng(oss.str());
     }
 
     // --- soft update（毎回少し近づける） ---

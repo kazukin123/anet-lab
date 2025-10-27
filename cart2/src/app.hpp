@@ -4,7 +4,7 @@
 #include <wx/cmdline.h>
 
 #include "properties.hpp"
-#include "metrics_logger.hpp"
+#include "anet/MetricsLogger.hpp"
 
 #define WX_APP_COMPATIBLE
 
