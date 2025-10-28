@@ -1,12 +1,64 @@
+# train
+train.preset=train.online
+#train.preset=train.batchrun
+#train.preset=train.batchrun2
+
+
 # agent
 
-agent.preset=agent_nrb
+
+#agent.preset=agent_cleanrl2  #立ち上がり早いが安定しない
+#agent.preset=agent_cleanrl4  #結果だけみるといい感じ
+#agent.preset=agent_nrb
 #agent.preset=agent_nrb		# ReplayBuffer無し
 
+agent.preset=agent_asdqn1
+
+#-------Adaptive Stabilized DQN (AS-DQN)
+
+agent_asdqn1.alpha=1e-3            # ★ 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_asdqn1.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent_asdqn1.eps_max=1.00          # 指数減衰  
+agent_asdqn1.eps_min=0.05          # 0.1f 0.05f
+agent_asdqn1.eps_decay_step=100000 # 100K
+agent_asdqn1.softupdate_tau=0.01   # 1.0f 0.004f  0.01f 0.005f;
+agent_asdqn1.hardupdate_step=-1    #  -1 5000; //200 500 1000
+agent_asdqn1.use_grad_clip=false
+agent_asdqn1.grad_clip_tau=-1    # -1 10~40 1f 5f 10f
+agent_asdqn1.use_td_clip=false
+agent_asdqn1.td_clip_value=4.0
+agent_asdqn1.eps_zero_step=-1      #120000;
+agent_asdqn1.use_double_dqn=true   # Double DQN 有効化フラグ（trueで有効）
+agent_asdqn1.use_replay_buffer=true #
+agent_asdqn1.replay_capacity=10000
+agent_asdqn1.replay_batch_size=128
+agent_asdqn1.replay_warmup_steps=10000 #
+agent_asdqn1.replay_update_interval=10 #
+
+#-------
 
 ## リプレイバッファ有 比較検証
 
-### ①CleanRL オリジナル
+agent_cleanrl2.alpha=1e-3            # ★ 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_cleanrl2.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent_cleanrl2.eps_max=1.00  # 指数減衰  
+agent_cleanrl2.eps_min=0.05          # 0.1f 0.05f
+agent_cleanrl2.eps_decay_step=250000 #
+agent_cleanrl2.softupdate_tau=-1  # 1.0f 0.004f  0.01f 0.005f;
+agent_cleanrl2.hardupdate_step=500  #  -1 5000; //200 500 1000
+agent_cleanrl2.use_grad_clip=false
+agent_cleanrl2.grad_clip_tau=-1    # -1 10~40 1f 5f 10f
+agent_cleanrl2.use_td_clip=false
+agent_cleanrl2.td_clip_value=4.0
+agent_cleanrl2.eps_zero_step=-1      #120000;
+agent_cleanrl2.use_double_dqn=true   # Double DQN 有効化フラグ（trueで有効）
+agent_cleanrl2.use_replay_buffer=true #
+agent_cleanrl2.replay_capacity=10000
+agent_cleanrl2.replay_batch_size=128
+agent_cleanrl2.replay_warmup_steps=10000 #
+agent_cleanrl2.replay_update_interval=10 #
+
+### ①CleanRL オリジナル 結果の立ち上がりが遅い
 agent_cleanrl.alpha=2.5e-4            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
 agent_cleanrl.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
 agent_cleanrl.eps_max=1.00  # 指数減衰  
@@ -26,7 +78,7 @@ agent_cleanrl.replay_batch_size=128
 agent_cleanrl.replay_warmup_steps=10000 #
 agent_cleanrl.replay_update_interval=10 #
 
-### ②
+### ② 立ち上がり早いが安定しない
 agent_cleanrl2.alpha=1e-3            # ★ 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
 agent_cleanrl2.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
 agent_cleanrl2.eps_max=1.00  # 指数減衰  
@@ -66,7 +118,7 @@ agent_cleanrl3.replay_batch_size=128
 agent_cleanrl3.replay_warmup_steps=10000 #
 agent_cleanrl3.replay_update_interval=10 #
 
-### ④
+### ④ 結果はいい感じ
 agent_cleanrl4.alpha=2.5e-4          # 学習率 1e-3 3e-3 5e-4 3e-4 1e-4
 agent_cleanrl4.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
 agent_cleanrl4.eps_max=1.00  # 指数減衰  
@@ -299,13 +351,9 @@ agent.replay_warmup_steps=1000
 agent.replay_update_interval=4
 agent.heatmap_log_image_interval = 100
 agent.heatmap_log_sweep_interval = 100
+agent.heatmap_log_hist_interval = 10
 
 
-
-# train
-#train.preset=train.eptime
-#train.preset=train.batchrun
-#train.preset=train.batchrun2
 
 
 ## train default
@@ -316,16 +364,16 @@ train.train_pause_step = 110000 # -1
 #train.train_exit_step = -1 # -1 110000
 
 ## ほぼほぼエピソード単位で描画更新
-train.eptime.timer_ms = 10
-train.eptime.step_per_frame = 1000
-train.eptime.eval_interval = 1
-train.eptime.train_pause_step = 110000 # -1
+train.online.timer_ms = 10
+train.online.step_per_frame = 100
+train.online.eval_interval = 1
+train.online.train_pause_step = 500000 #500K
 
 ## バッチ実行用①
-train.batchrun.timer_ms = 1
-train.batchrun.step_per_frame = 10000
+train.batchrun.timer_ms = 10
+train.batchrun.step_per_frame = 1000
 train.batchrun.train_pause_step = -1
-train.batchrun.train_exit_step = 110000
+train.batchrun.train_exit_step = 500000
 
 ## バッチ実行用②
 train.batchrun2.timer_ms = 10

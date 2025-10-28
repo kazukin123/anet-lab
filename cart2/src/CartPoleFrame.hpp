@@ -38,7 +38,7 @@ private:
 
     // 強化学習関連
     std::unique_ptr<CartPoleEnv> env;
-    std::unique_ptr<RLAgent> agent;
+    std::unique_ptr<anet::rl::Agent> agent;
     at::Tensor state;
 
     // メトリクス

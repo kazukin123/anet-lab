@@ -95,8 +95,8 @@ public:
     }
 
     // 可視化オブジェクト（subtype は anet::ImageSource 側が返す）
-    inline void log_image(const std::string& tag, int step, const anet::ImageSource& src) {
-        auto img = src.Render();
+    inline void log_image(const std::string& tag, int step, const anet::ImageSource& src, int width = -1, int height = -1) {
+        auto img = src.Render(width, height);
         auto subtype = src.GetImageSubType();
         log_image_subtyped(tag, step, img, subtype);
     }

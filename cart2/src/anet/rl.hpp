@@ -106,6 +106,14 @@ namespace anet::rl {
         std::vector<Experience> experiences_;
     };
 
+    struct ExperienceBatch {
+        torch::Tensor states;       // (B, state_dim)
+        torch::Tensor actions;      // (B,)
+        torch::Tensor next_states;  // (B, state_dim)
+        torch::Tensor rewards;      // (B,)
+        torch::Tensor dones;        // (B,)
+    };
+
     class ReplayBuffer {
     public:
         explicit ReplayBuffer(size_t capacity = 10000) : capacity_(capacity) {}
@@ -123,6 +131,8 @@ namespace anet::rl {
                 batch.push_back(buffer_[rand() % buffer_.size()]);
             return batch;
         }
+
+        ExperienceBatch SampleBatch(size_t n, torch::Device device) const;
 
         size_t Size() const { return buffer_.size(); }
 

@@ -68,12 +68,12 @@ static void ValueToRGB_Jet(float norm, unsigned char& r, unsigned char& g, unsig
 // ============================================================
 // ImageSource
 // ============================================================
-void ImageSource::SavePng(const std::string& filename) const {
+void ImageSource::SavePng(const std::string& filename, int width, int height) const {
     std::filesystem::path path(filename);
     if (!path.parent_path().empty())
         std::filesystem::create_directories(path.parent_path());
 
-    auto img = Render();
+    auto img = Render(width, height);
     if (!img.IsOk()) {
         wxLogError("HeatMap::Render() returned invalid wxImage");
         return;
@@ -117,7 +117,7 @@ void HeatMap::UpdateMinMax(float v) {
     value_max_ = std::max(value_max_, v);
 }
 
-wxImage HeatMap::Render() const {
+wxImage HeatMap::RenderRaw() const {
     std::vector<Sample> snapshot;
     { std::lock_guard<std::mutex> lock(mtx_); snapshot.assign(samples_.begin(), samples_.end()); }
 
@@ -128,7 +128,8 @@ wxImage HeatMap::Render() const {
     for (const auto& p : snapshot) {
         int ix = static_cast<int>((p.x - x_min_) / (x_max_ - x_min_) * width_);
         int iy = static_cast<int>((p.y - y_min_) / (y_max_ - y_min_) * height_);
-        if (ix < 0 || ix >= width_ || iy < 0 || iy >= height_) continue;
+        if (ix < 0 || ix >= width_ || iy < 0 || iy >= height_) 
+            continue;
         int idx = iy * width_ + ix;
         buffer[idx] += p.value;
         count[idx]++;
@@ -183,11 +184,11 @@ wxImage HeatMap::GenerateImage(const std::vector<float>& buf, const std::vector<
 }
 
 TimeHeatMap::TimeHeatMap(int width_bins, int height,
-    float x_min, float x_max,
+    float min_val, float max_val,
     uint32_t flags,
     size_t max_points,
     TimeFrameMode mode)
-    : HeatMap(width_bins, height, x_min, x_max, 0.0f, float(height - 1),
+    : HeatMap(width_bins, height, min_val, max_val, 0.0f, float(height - 1),
         max_points, flags),
     mode_(mode),
     cur_frame_(0),
@@ -196,7 +197,8 @@ TimeHeatMap::TimeHeatMap(int width_bins, int height,
 }
 
 void TimeHeatMap::AddData(float x, float value) {
-    HeatMap::AddData(x, float(cur_frame_), value);
+    std::lock_guard<std::mutex> lock(mtx_);
+    HeatMap::AddData(x, (float)cur_frame_, value);
 }
 
 void TimeHeatMap::Reset() {
@@ -205,27 +207,29 @@ void TimeHeatMap::Reset() {
     total_frames_ = 0;     // 累計フレーム数（Unlimited時に増え続ける）
 }
 
-void TimeHeatMap::NextFrame() {
-    std::lock_guard<std::mutex> lk(mtx_);
-    total_frames_++;
+void TimeHeatMap::ScrollDown_()
+{
+    // y を 1 つ上へずらす（y=0 が最古 / y=height-1 が最新）
+    for (auto& d : this->samples_) { // data_ は HeatMap 側の保持領域を想定
+        d.y -= 1.0f;
+    }
+    // 画面上端を超えた要素を削除
+    EraseRow_(0);
+}
 
-    if (mode_ == TimeFrameMode::Unlimited) {
-        // y座標を単調増加させ続ける
+void TimeHeatMap::NextFrame() {
+    std::lock_guard<std::mutex> lock(mtx_);
+
+    if (mode_ == TimeFrameMode::Scroll) {
+        ScrollDown_();
+        cur_frame_ = height_ - 1; // 最新は常に下
+    } else { // Unlimited
         cur_frame_++;
-        // height_ は固定のまま。描画時にスライス。
-        return;
-    }
-    else if (mode_ == TimeFrameMode::Overwrite) {
-        cur_frame_ = (cur_frame_ + 1) % height_;
-        PurgeRowUnchecked_(cur_frame_);
-    }
-    else if (mode_ == TimeFrameMode::Scroll) {
-        if (cur_frame_ < height_ - 1) cur_frame_++;
-        else { ScrollUp_(); cur_frame_ = height_ - 1; }
+        total_frames_++;
     }
 }
 
-void TimeHeatMap::PurgeRowUnchecked_(int y_row) {
+void TimeHeatMap::EraseRow_(int y_row) {
     auto it = samples_.begin();
     while (it != samples_.end()) {
         if (std::lround(it->y) == y_row) it = samples_.erase(it);
@@ -233,41 +237,39 @@ void TimeHeatMap::PurgeRowUnchecked_(int y_row) {
     }
 }
 
-void TimeHeatMap::ScrollUp_() {
-    // y値を1行上げ、最上段(y==0)を削除
-    for (auto it = samples_.begin(); it != samples_.end();) {
-        if (std::lround(it->y) == 0) it = samples_.erase(it);
-        else { it->y -= 1.0f; ++it; }
-    }
+wxImage TimeHeatMap::RenderRaw() const
+{
+    std::lock_guard<std::mutex> lock(mtx_);
+    return HeatMap::RenderRaw();
 }
 
-wxImage TimeHeatMap::Render() const {
-    if (mode_ == TimeFrameMode::Unlimited) {
-        // 高さを超えるy座標も含む全サンプルのうち、
-        // 最後のheight_範囲だけを描画
-        float y_min = std::max(0.0f, float(cur_frame_ - height_ + 1));
-        float y_max = float(cur_frame_);
-
-        // 一時HeatMapを構築
-        HeatMap temp(width_, height_,
-            x_min_, x_max_,
-            y_min, y_max,
-            0, flags_);
-
-        {
-            std::lock_guard<std::mutex> lk(mtx_);
-            for (const auto& s : samples_) {
-                if (s.y >= y_min && s.y <= y_max)
-                    temp.AddData(s.x, s.y, s.value);
-            }
-        }
-
-        return temp.Render();
-    }
-
-    // Overwrite / Scroll は通常描画
-    return HeatMap::Render();
-}
+//wxImage TimeHeatMap::RenderRaw() const {
+//    if (mode_ == TimeFrameMode::Unlimited && cur_frame_> height_) {
+//        // 高さを超えるy座標も含む全サンプルのうち、
+//        // 最後のheight_範囲だけを描画
+//        float y_min = std::max(0.0f, float(cur_frame_ - height_ + 1));
+//        float y_max = float(cur_frame_);
+//
+//        // 一時HeatMapを構築
+//        HeatMap temp(width_, height_,
+//            x_min_, x_max_,
+//            y_min, y_max,
+//            0, flags_);
+//
+//        {
+//            std::lock_guard<std::mutex> lk(mtx_);
+//            for (const auto& s : samples_) {
+//                if (s.y >= y_min && s.y <= y_max)
+//                    temp.AddData(s.x, s.y, s.value);
+//            }
+//        }
+//
+//        return temp.RenderRaw().Mirror(false);
+//    }
+//
+//    // Overwrite / Scroll は通常描画
+//    return HeatMap::RenderRaw();
+//}
 
 // ============================================================
 // Histgram
@@ -287,7 +289,7 @@ void Histgram::Reset() {
     std::fill(counts_.begin(), counts_.end(), 0);
 }
 
-wxImage Histgram::Render() const {
+wxImage Histgram::RenderRaw() const {
     std::lock_guard<std::mutex> lock(mtx_);  // ← 同期（任意）
 
     wxImage img(width_, height_);
@@ -326,61 +328,59 @@ wxImage Histgram::Render() const {
     return img;
 }
 
-
 // ============================================================
 // TimeHistogram
 // ============================================================
-TimeHistogram::TimeHistogram(int bins, int max_frames, float min_val, float max_val, size_t max_points)
-    : bins_(bins), max_frames_(max_frames),
-    min_val_(min_val), max_val_(max_val),
-    max_points_per_frame_(max_points) {
-    frames_.emplace_back();
-}
+    TimeHistogram::TimeHistogram(int bins, int max_frames, TimeFrameMode mode, bool auto_norm, bool auto_range, float min_val, float max_val) :
+            thm_(bins, max_frames, 0, bins, HM_Default, 0, mode),bins_(bins),min_val_(min_val),max_val_(max_val),
+            auto_norm_(auto_norm),buffer_(bins, 0.0f) {
+    }
 
-void TimeHistogram::AddData(float value) {
-    std::lock_guard<std::mutex> lock(mtx_);
-    if (frames_.empty()) frames_.emplace_back();
-    auto& cur = frames_.back();
-    cur.values.push_back(value);
-    if (max_points_per_frame_ > 0 && cur.values.size() > max_points_per_frame_)
-        cur.values.pop_front();
+    void TimeHistogram::AddBatch(const std::vector<float>& values) {
+    if (values.empty()) return;
+
+    float cur_min = *std::min_element(values.begin(), values.end());
+    float cur_max = *std::max_element(values.begin(), values.end());
+
+    if (auto_range_) {
+        if (cur_min < min_val_) min_val_ = cur_min;
+        if (cur_max > max_val_) max_val_ = cur_max;
+
+        // 緩やかなスムージング（指数平均）
+        smooth_min_ = (1 - smooth_rate_) * smooth_min_ + smooth_rate_ * cur_min;
+        smooth_max_ = (1 - smooth_rate_) * smooth_max_ + smooth_rate_ * cur_max;
+    }
+
+    float range = smooth_max_ - smooth_min_;
+    if (range <= 1e-6f) range = 1.0f;
+
+    for (float v : values) {
+        int ix = static_cast<int>((v - smooth_min_) / range * bins_);
+        ix = std::clamp(ix, 0, bins_ - 1);
+        buffer_[ix] += 1.0f;
+    }
 }
 
 void TimeHistogram::NextFrame() {
-    std::lock_guard<std::mutex> lock(mtx_);
-    frames_.emplace_back();
-    if (frames_.size() > static_cast<size_t>(max_frames_))
-        frames_.pop_front();
+    // 正規化処理
+    if (auto_norm_) {
+        float maxv = *std::max_element(buffer_.begin(), buffer_.end());
+        if (maxv > 0.0f) {
+            for (auto& v : buffer_) v /= maxv;
+        }
+    }
+
+    // TimeHeatMap に1ライン転送
+    for (int x = 0; x < bins_; ++x)
+        thm_.AddData(x, buffer_[x]);
+
+    // 次フレーム用にリセット
+    std::fill(buffer_.begin(), buffer_.end(), 0.0f);
+    thm_.NextFrame();
 }
 
 void TimeHistogram::Reset() {
-    std::lock_guard<std::mutex> lock(mtx_);
-    frames_.clear();
-    frames_.emplace_back();
-}
-
-wxImage TimeHistogram::Render() const {
-    std::lock_guard<std::mutex> lock(mtx_);
-    wxImage img(bins_, static_cast<int>(frames_.size()));
-    unsigned char* data = img.GetData();
-    std::vector<float> hist(bins_, 0.0f);
-
-    for (size_t t = 0; t < frames_.size(); ++t) {
-        std::fill(hist.begin(), hist.end(), 0.0f);
-        for (float v : frames_[t].values) {
-            int ix = static_cast<int>((v - min_val_) / (max_val_ - min_val_) * bins_);
-            if (ix >= 0 && ix < bins_) hist[ix] += 1.0f;
-        }
-        float maxv = *std::max_element(hist.begin(), hist.end());
-        for (int x = 0; x < bins_; ++x) {
-            float norm = hist[x] / std::max(1e-6f, maxv);
-            unsigned char r, g, b;
-            ValueToRGB_Jet(norm, r, g, b);
-            int idx = ((frames_.size() - 1 - t) * bins_ + x) * 3;
-            data[idx] = r; data[idx + 1] = g; data[idx + 2] = b;
-        }
-    }
-    return img;
+    thm_.Reset();
 }
 
 // ============================================================
@@ -416,7 +416,7 @@ void SweepedHeatMap::Normalize() {
     for (float& v : values_) v = (v - value_min_) / range;
 }
 
-wxImage SweepedHeatMap::Render() const {
+wxImage SweepedHeatMap::RenderRaw() const {
     wxImage img(width_, height_);
     unsigned char* data = img.GetData();
     float range = std::max(value_max_ - value_min_, 1e-6f);
@@ -503,28 +503,44 @@ void test_heatmap_and_histgram() {
     }
 
     // ============================================================
-    // ③ 時系列ヒストグラム — TD誤差分布の変化（TimeHistogram）
+    // ③ 時系列ヒストグラム
     // ============================================================
     {
-        anet::TimeHistogram hist_series(100, 100, -3.0f, 3.0f, 256); // bins, frames
-        for (int t = 0; t < steps; ++t) {
-            hist_series.AddData(td_errors[t]);  // 現在の値をヒストグラムへ
-            if (t % 5 == 0) hist_series.NextFrame(); // 5 stepごとに1フレーム
+        //TimeHistogram(int bins, int max_frames,
+        //    TimeFrameMode mode = TimeFrameMode::Scroll,
+        //    bool auto_norm = true, bool auto_range = true,
+        //    float min_val = -1, float max_val = -1);
+
+        TimeHistogram q_hist(64, 50, 
+            anet::TimeFrameMode::Scroll,
+            true, true,
+            - 1.0f, 2.0f);
+
+        std::normal_distribution<float> dist_center(0.0f, 0.4f);
+        std::normal_distribution<float> dist_shift(0.0f, 0.02f);
+
+        float center = 0.0f;
+
+        for (int frame = 0; frame < 100; ++frame) {
+            std::vector<float> batch;
+
+            // フレームごとに少し中心を移動させる
+            center += dist_shift(rng);
+            std::normal_distribution<float> dist(center, 0.3f);
+
+            // 乱数バッチ生成（128サンプル）
+            for (int i = 0; i < 1280; ++i)
+                batch.push_back(dist(rng));
+
+            q_hist.AddBatch(batch);
+
+            // 10フレームごとに1ライン追加
+            if ((frame + 1) % 2 == 0)
+                q_hist.NextFrame();
         }
-        hist_series.SavePng("3_out_timehist_td.png");
+
+        // 画像を生成
+        q_hist.SavePng("4_out_timeheat.png");
     }
 
-    // ============================================================
-    // ④ 時系列ヒートマップ — x=value, y=time, 色=平均TD誤差値
-    // ============================================================
-    {
-        const int width = 100;
-        const int frames = 100;
-        anet::TimeHistogram value_series(width, frames, -3.0f, 3.0f, 128);
-        for (int t = 0; t < steps; ++t) {
-            value_series.AddData(td_errors[t]);
-            if (t % 5 == 0) value_series.NextFrame();
-        }
-        value_series.SavePng("4_out_timeheat_td.png");
-    }
 }

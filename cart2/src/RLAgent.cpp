@@ -7,6 +7,8 @@
 
 using namespace anet::util;
 
+const float met_ema_decay = 0.995f;  // 平滑化係数(メトリクス用)
+
 // ==== ハイパーパラメータ ====
 struct RLAgent::Param {
 
@@ -32,6 +34,7 @@ struct RLAgent::Param {
 
 	int heatmap_log_image_interval = 100;
 	int heatmap_log_sweep_interval = 100;
+    int heatmap_log_hist_interval = 10;
 
 
     RLAgent::Param(Properties* props) {
@@ -64,6 +67,7 @@ struct RLAgent::Param {
         ANET_READ_PROPS(props, preset, replay_update_interval);
         ANET_READ_PROPS(props, preset, heatmap_log_image_interval);
         ANET_READ_PROPS(props, preset, heatmap_log_sweep_interval);
+        ANET_READ_PROPS(props, preset, heatmap_log_hist_interval);
     }
 
 };
@@ -110,7 +114,9 @@ RLAgent::RLAgent(anet::rl::Environment& env, int state_dim, int n_actions, torch
     heatmap_visit1_ = anet::rl::MakeStateHeatMapPtr(info, 0, 2, 256, 256,30000, flags | anet::HeatMapFlags::HM_SumMode);  // x vs theta → reward
     heatmap_visit2_ = anet::rl::MakeStateHeatMapPtr(info, 2, 3, 256, 256,30000, flags | anet::HeatMapFlags::HM_SumMode);  // x vs theta → reward
     heatmap_td_     = anet::rl::MakeStateHeatMapPtr(info, 0, 2, 256, 256,30000, flags | anet::HeatMapFlags::HM_MeanMode); // x vs theta → td
-    thmap_reward_   = anet::rl::MakeStateTimeHeatMapPtr(info, 2, 256, 256, 0,  flags | anet::HeatMapFlags::HM_MeanMode, anet::TimeFrameMode::Scroll); // x vs time → Q
+    //thmap_reward_   = anet::rl::MakeStateTimeHeatMapPtr(info, 2, 256, 256, 0,  flags | anet::HeatMapFlags::HM_MeanMode, anet::TimeFrameMode::Scroll); // x vs time → Q
+    hist_action_ = std::make_unique<anet::TimeHistogram>(2, 200, anet::TimeFrameMode::Scroll, true, false, 0, 2);
+    hist_q_ = std::make_unique<anet::TimeHistogram>(64, 200, anet::TimeFrameMode::Scroll);
 
     // NN初期化
     policy_net->to(device);
@@ -148,6 +154,7 @@ RLAgent::RLAgent(anet::rl::Environment& env, int state_dim, int n_actions, torch
         {"replay_batch_size", param_->replay_batch_size},
         {"replay_warmup_steps", param_->replay_warmup_steps},
         {"replay_update_interval", param_->replay_update_interval},
+        {"heatmap_log_hist_interval", param_->heatmap_log_hist_interval},
     };
     wxGetApp().logJson("agent/params", params);
     wxGetApp().flushMetricsLog();
@@ -179,19 +186,27 @@ RLAgent::SelectAction(const torch::Tensor& state, anet::rl::RunMode mode) {
         epsilon = std::max(param_->eps_min, param_->eps_max - static_cast<float>(train_step) / param_->eps_decay_step);
     }
 
+    torch::Tensor action;
     if (static_cast<float>(rand()) / RAND_MAX < epsilon) {
         // 確率εがヒットした場合はランダムでActionを決定
         int action_int = rand() % n_actions_;
-        auto action = torch::tensor({ action_int }, torch::kLong).to(device);
-        return { action, torch::Tensor(), torch::Tensor() };
+        action = torch::tensor({ action_int }, torch::kLong).to(device);
     }
     else {
         // メインネットワークを元にActionを決定
-        auto q_values = policy_net->forward(state.to(device));
-        auto result = q_values.max(1);
-        auto action = std::get<1>(result).to(torch::kLong);
-        return { action, torch::Tensor(), torch::Tensor() };
+        auto q_values = policy_net->forward(state.to(device));    // (1, A)
+		auto result = q_values.max(1);      // tuple (values, indices)  // (B,) (B,)
+		action = std::get<1>(result).to(torch::kLong); //indices を取得してlong型に変換  // (B,)
     }
+
+    // 選択されたactionをメトリクスに記録（EMA）
+    float action_float = (action.numel() == 1) ?
+        static_cast<float>(action.item<int>()) :    // 単一
+        action.to(torch::kFloat32).mean().item<float>();    // バッチ（将来用）
+        action_ema = met_ema_decay * action_ema + (1 - met_ema_decay) * action_float;
+    wxGetApp().GetMetricsLogger()->log_scalar("26_agent/01_action", train_step, action_ema);
+
+    return { action, torch::Tensor(), torch::Tensor() };
 }
 
 // ======================================================
@@ -259,8 +274,66 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {
     if (param_->heatmap_log_image_interval > 0 && train_step != 0 && (train_step % param_->heatmap_log_image_interval) == 0) {
         wxGetApp().GetMetricsLogger()->log_image("28_agent/01_heatmap_visit1", train_step, *heatmap_visit1_);
         wxGetApp().GetMetricsLogger()->log_image("28_agent/02_heatmap_visit2", train_step, *heatmap_visit2_);
-        wxGetApp().GetMetricsLogger()->log_image("28_agent/03_heatmap_td", train_step, *heatmap_td_);
+        if (!param_->use_replay_buffer)
+            wxGetApp().GetMetricsLogger()->log_image("28_agent/03_heatmap_td", train_step, *heatmap_td_);
     }
+
+    // ReplayBufferモード時はReplayBufferの状態分布に基づくヒートマップを生成
+    if (param_->use_replay_buffer && param_->heatmap_log_hist_interval > 0 && (train_step % param_->heatmap_log_hist_interval) == 0) {
+        if (replay_buffer.Size() >= param_->replay_batch_size) {    // バッチ数分以上のサンプルが溜まってる場合のみ計測
+            auto samples = replay_buffer.SampleBatch(param_->replay_batch_size, device);    // (B, state_dim)
+            { // actionヒストグラム
+                auto actions_cpu = samples.actions.detach().cpu(); // (B,)
+                int count_left = 0;
+                int count_right = 0;
+                const int B = actions_cpu.size(0);
+
+                for (int i = 0; i < B; ++i) {
+                    int a = actions_cpu[i].item<int>();
+                    if (a == 0) count_left++;
+                    else if (a == 1) count_right++;
+                    // ※ それ以外の値は無視（離散2値前提）
+                }
+
+                float sum = (float)(count_left + count_right);
+                // sum==0 のときは 0.5/0.5（視覚上ニュートラル）
+                float left_ratio = (sum > 0.0f) ? (count_left / sum) : 0.5f;
+                float right_ratio = 1.0f - left_ratio;
+
+                // 2-bin TimeHistogram へ追加
+                // x = 0 → LEFT, x = 1 → RIGHT
+                hist_action_->AddBatch({ left_ratio, right_ratio });
+                hist_action_->NextFrame();
+            }
+
+            { // Q値ヒストグラム
+                auto q = policy_net->forward(samples.states);       // (B, A)
+                auto max_q = std::get<0>(q.max(1)).detach().cpu();  // (B,)
+
+                if (max_q.numel() == 0) {
+                    wxLogError("Invalid max_q for histgram.");
+                    return; // 念のため安全装置
+                }
+                auto max_q_cpu = max_q.to(torch::kFloat32).contiguous();    //item()だと落ちるので避ける
+                float* p = max_q_cpu.data_ptr<float>();
+
+                std::vector<float> vals(p, p + max_q_cpu.size(0));
+                hist_q_->AddBatch(vals);
+                hist_q_->NextFrame();   // TODO データ量が不十分なら追加でサンプリング評価
+
+                // Q値分散
+                float q_mean = max_q.mean().item<float>();
+                float q_var = (max_q - q_mean).pow(2).mean().item<float>();
+                wxGetApp().GetMetricsLogger()->log_scalar("22_agent/04_q_mean", train_step, q_mean);
+                wxGetApp().GetMetricsLogger()->log_scalar("22_agent/04_q_var", train_step, q_var);
+            }
+        }
+        // ヒストグラム保存 (軸合わせのためサンプル数が足りない場合も出力)
+        wxGetApp().GetMetricsLogger()->log_image("22_agent/02_hist_action", train_step, *hist_action_, 50);
+        wxGetApp().GetMetricsLogger()->log_image("28_agent/05_hist_q", train_step, *hist_q_);
+    }
+
+	// Q値ヒートマップ生成・保存（CUDA無いと遅い）
     if (param_->heatmap_log_sweep_interval > 0 && train_step != 0 && (train_step % param_->heatmap_log_sweep_interval) == 0) {
         anet::SweepedHeatMap q_map = anet::SweepedHeatMap::EvaluateTensorFunction(
             128, 128,
@@ -367,10 +440,9 @@ void RLAgent::OptimizeSingle(const anet::rl::Experience& exprence) {
     optimizer.step();
 
     // --- メトリクス生成・更新 ---
-    const float ema_decay = 0.995f;  // 平滑化係数
     float grad_norm_clipped = (param_->use_grad_clip && total_norm > param_->grad_clip_tau) ? 1.0f : 0.0f;    // クリップ発動
     grad_norm_clipped_ema = 0.9f * grad_norm_clipped_ema + 0.1f * grad_norm_clipped;
-    loss_ema = ema_decay * loss_ema + (1 - ema_decay) * loss.item<float>();
+    loss_ema = met_ema_decay * loss_ema + (1 - met_ema_decay) * loss.item<float>();
     auto q_targ = target_net->forward(state_t.to(device));                                       // (1,A)
     auto q_diff = torch::mean(torch::abs(q_sa - q_targ.gather(1, action_t.unsqueeze(1)).squeeze(1)));
 
@@ -378,29 +450,29 @@ void RLAgent::OptimizeSingle(const anet::rl::Experience& exprence) {
     if (param_->use_td_clip) {
         float abs_raw = std::abs(td_raw.item<float>());
         td_cliped = (abs_raw > param_->td_clip_value) ? 1.0f : 0.0f;
-        td_clip_ema = ema_decay * td_clip_ema + (1 - ema_decay) * td_cliped;
+        td_clip_ema = met_ema_decay * td_clip_ema + (1 - met_ema_decay) * td_cliped;
     }
 
 	// メトリクス記録
     wxGetApp().logScalar("21_agent/01_epsilon", train_step, epsilon);               //εグリーディーのε
 
-    wxGetApp().logScalar("22_agent/02_q_sa", train_step, q_sa.item<double>());      // 
-    wxGetApp().logScalar("22_agent/03_q_diff", train_step, q_diff.item<float>());   // policy と target の Q値乖離
+    wxGetApp().logScalar("22_agent/03_q_sa", train_step, q_sa.item<double>());      // 
+    wxGetApp().logScalar("22_agent/04_q_diff", train_step, q_diff.item<float>());   // policy と target の Q値乖離
 
     if (param_->use_td_clip) {
-        wxGetApp().logScalar("23_agent/04_td_cliped_ema", train_step, td_clip_ema); // TD誤差 クリップ前
-        wxGetApp().logScalar("23_agent/05_td_cliped", train_step, td_cliped); // TD誤差 クリップ前
-        wxGetApp().logScalar("23_agent/06_td_error_raw", train_step, td_raw.item<float>()); // TD誤差 クリップ前
+        wxGetApp().logScalar("23_agent/05_td_cliped_ema", train_step, td_clip_ema); // TD誤差 クリップ前
+        wxGetApp().logScalar("23_agent/06_td_cliped", train_step, td_cliped); // TD誤差 クリップ前
+        wxGetApp().logScalar("23_agent/07_td_error_raw", train_step, td_raw.item<float>()); // TD誤差 クリップ前
     }
-    wxGetApp().logScalar("23_agent/07_reward", train_step, exprence.response.reward);   // 報酬
-    wxGetApp().logScalar("23_agent/08_td_error", train_step, td.item<float>());         // TD誤差（TD誤差クリップ有りの場合はクリップ後）
-    wxGetApp().logScalar("23_agent/09_loss", train_step, loss.item<float>());           // loss値
-    wxGetApp().logScalar("23_agent/10_loss_ema", train_step, loss_ema);                 // loss値のEMA移動平均
+    wxGetApp().logScalar("23_agent/08_reward", train_step, exprence.response.reward);   // 報酬
+    wxGetApp().logScalar("23_agent/09_td_error", train_step, td.item<float>());         // TD誤差（TD誤差クリップ有りの場合はクリップ後）
+    wxGetApp().logScalar("23_agent/10_loss", train_step, loss.item<float>());           // loss値
+    wxGetApp().logScalar("23_agent/11_loss_ema", train_step, loss_ema);                 // loss値のEMA移動平均
 
-    wxGetApp().logScalar("24_agent/11_grad_norm", train_step, total_norm);              // 勾配ノルム
+    wxGetApp().logScalar("24_agent/12_grad_norm", train_step, total_norm);              // 勾配ノルム
     if (param_->use_grad_clip) {
-        wxGetApp().logScalar("24_agent/12_grad_cliped", train_step, grad_norm_clipped);       // 勾配ノルムがクリッピングされたか
-        wxGetApp().logScalar("24_agent/13_grad_cliped_ema", train_step, grad_norm_clipped_ema);   // 勾配ノルムのクリッピング率（EMA移動平均）
+        wxGetApp().logScalar("24_agent/13_grad_cliped", train_step, grad_norm_clipped);       // 勾配ノルムがクリッピングされたか
+        wxGetApp().logScalar("24_agent/14_grad_cliped_ema", train_step, grad_norm_clipped_ema);   // 勾配ノルムのクリッピング率（EMA移動平均）
     }
     //    wxGetApp().logScalar("2_agent/done",     train_step, done);
     //    wxGetApp().logScalar("2_agent/hard_update_done",     train_step, hard_update_done);
@@ -521,36 +593,35 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
     optimizer.step();
 
     // --- 統計情報算出（バッチ平均ベース） ---
-    const float ema_decay = 0.995f;
     auto q_targ = target_net->forward(state_b); // (B,A)
     auto q_diff = torch::mean(torch::abs(q_sa - q_targ.gather(1, action_b.unsqueeze(1)).squeeze(1)));
     float grad_norm_clipped = (param_->use_grad_clip && total_norm > param_->grad_clip_tau) ? 1.0f : 0.0f;
     grad_norm_clipped_ema = 0.9f * grad_norm_clipped_ema + 0.1f * grad_norm_clipped;
-    loss_ema = ema_decay * loss_ema + (1 - ema_decay) * loss.item<float>();
+    loss_ema = met_ema_decay * loss_ema + (1 - met_ema_decay) * loss.item<float>();
     float td_cliped = 0.0f;
     if (param_->use_td_clip) {
         auto abs_raw = torch::abs(td_raw);
         td_cliped = torch::mean((abs_raw > param_->td_clip_value).to(torch::kFloat)).item<float>();
-        td_clip_ema = ema_decay * td_clip_ema + (1 - ema_decay) * td_cliped;
+        td_clip_ema = met_ema_decay * td_clip_ema + (1 - met_ema_decay) * td_cliped;
     }
 
     // --- メトリクス出力（バッチ平均） ---
     wxGetApp().logScalar("21_agent/01_epsilon", train_step, epsilon);
-    wxGetApp().logScalar("22_agent/02_q_sa", train_step, q_sa.mean().item<double>());
-    wxGetApp().logScalar("22_agent/03_q_diff", train_step, q_diff.item<float>());
+    wxGetApp().logScalar("22_agent/03_q_sa", train_step, q_sa.mean().item<double>());
+    wxGetApp().logScalar("22_agent/04_q_diff", train_step, q_diff.item<float>());
     if (param_->use_td_clip) {
-        wxGetApp().logScalar("23_agent/04_td_cliped_ema", train_step, td_clip_ema);
-        wxGetApp().logScalar("23_agent/05_td_cliped", train_step, td_cliped);
-        wxGetApp().logScalar("23_agent/06_td_error_raw", train_step, td_raw.mean().item<float>());
+        wxGetApp().logScalar("23_agent/05_td_cliped_ema", train_step, td_clip_ema);
+        wxGetApp().logScalar("23_agent/06_td_cliped", train_step, td_cliped);
+        wxGetApp().logScalar("23_agent/07_td_error_raw", train_step, td_raw.mean().item<float>());
     }
-    wxGetApp().logScalar("23_agent/07_reward", train_step, reward_b.mean().item<float>());
-    wxGetApp().logScalar("23_agent/08_td_error", train_step, td.mean().item<float>());
-    wxGetApp().logScalar("23_agent/09_loss", train_step, loss.item<float>());
-    wxGetApp().logScalar("23_agent/10_loss_ema", train_step, loss_ema);
-    wxGetApp().logScalar("24_agent/11_grad_norm", train_step, total_norm);
+    wxGetApp().logScalar("23_agent/08_reward", train_step, reward_b.mean().item<float>());
+    wxGetApp().logScalar("23_agent/09_td_error", train_step, td.mean().item<float>());
+    wxGetApp().logScalar("23_agent/10_loss", train_step, loss.item<float>());
+    wxGetApp().logScalar("23_agent/11_loss_ema", train_step, loss_ema);
+    wxGetApp().logScalar("24_agent/12_grad_norm", train_step, total_norm);
     if (param_->use_grad_clip) {
-        wxGetApp().logScalar("24_agent/12_grad_cliped", train_step, grad_norm_clipped);
-        wxGetApp().logScalar("24_agent/13_grad_cliped_ema", train_step, grad_norm_clipped_ema);
+        wxGetApp().logScalar("24_agent/13_grad_cliped", train_step, grad_norm_clipped);
+        wxGetApp().logScalar("24_agent/14_grad_cliped_ema", train_step, grad_norm_clipped_ema);
     }
     wxGetApp().logScalar("25_replay/01_buffer_size", train_step, replay_buffer.Size());
 

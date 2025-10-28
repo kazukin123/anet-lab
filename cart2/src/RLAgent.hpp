@@ -48,8 +48,10 @@ private:
     std::unique_ptr<anet::HeatMap> heatmap_visit1_;
     std::unique_ptr<anet::HeatMap> heatmap_visit2_;
     std::unique_ptr<anet::HeatMap> heatmap_td_;
-    std::unique_ptr<anet::TimeHeatMap> thmap_reward_;
+    //std::unique_ptr<anet::TimeHeatMap> thmap_reward_;
+    std::unique_ptr<anet::TimeHistogram> hist_action_;
+    std::unique_ptr<anet::TimeHistogram> hist_q_;
 
-    int thmap_reward_count_ = 0;
+    float action_ema = 0.5f;
 };
 

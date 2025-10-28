@@ -25,9 +25,18 @@ namespace anet {
     class ImageSource {
     public:
         virtual void Reset() = 0;
-        virtual wxImage Render() const = 0;
+        virtual wxImage RenderRaw() const = 0;
         virtual std::string GetImageSubType() const = 0; // 例: "heat_map", "time_heat_map", ...
-        void SavePng(const std::string& filename) const;
+
+        wxImage Render(int width = -1, int height = -1) const {
+            wxImage src = RenderRaw(); // 元解像度で生成 (bins x frames)
+            if (width < 0 && height < 0) return src;
+            if (width < 0) width = src.GetWidth();
+            if (height < 0) height = src.GetHeight();
+            return src.Scale(width, height, wxIMAGE_QUALITY_NEAREST);
+        }
+
+        void SavePng(const std::string& filename, int width = -1, int height = -1) const;
 
         virtual ~ImageSource() = default;
     };
@@ -47,7 +56,7 @@ namespace anet {
 
         void AddData(float x, float y, float value);
         void Reset() override;
-        wxImage Render() const override;
+        wxImage RenderRaw() const override;
     protected:
         struct Sample {
             float x, y, value;
@@ -85,18 +94,19 @@ namespace anet {
         void AddData(float x, float value);
         void NextFrame();          // フレームを進める
         void Reset() override;
-        wxImage Render() const override;    // 上から下へ時間描画（既存HeatMap::Renderを拡張）
+        wxImage RenderRaw() const override;    // 上から下へ時間描画（既存HeatMap::Renderを拡張）
 
         int GetCurrentFrame() const { return cur_frame_; }
         int GetTotalFrames() const { return total_frames_; }
     private:
         const TimeFrameMode mode_;
-        int cur_frame_;        // 現在のy行
+        int cur_frame_;        // 現在フレームカウント
         int total_frames_;     // 累計フレーム数（Unlimited時に増え続ける）
         mutable std::mutex mtx_;
-
-        void PurgeRowUnchecked_(int y_row);   // 行削除（Overwrite用）
-        void ScrollUp_();                     // スクロール（Scroll用）
+    protected:
+        void EraseRow_(int y_row);   // 行削除（Overwrite用）
+        //void ScrollUp_();                     // スクロール（Scroll用）
+        void ScrollDown_();      // 古い行を上へ押し上げ、最新を下に積む
     };
 
 
@@ -111,7 +121,7 @@ namespace anet {
 
         void AddData(float value);
         void Reset() override;
-        wxImage Render() const override;
+        wxImage RenderRaw() const override;
     private:
         int bins_;
         int width_, height_;
@@ -124,32 +134,31 @@ namespace anet {
     // TimeHistogram : 分布の時間変化（フレーム単位管理）
     // ============================================================
     class TimeHistogram : public ImageSource {
-    public:
-        TimeHistogram(int bins,
-            int max_frames,
-            float min_val,
-            float max_val,
-            size_t max_points_per_frame = 0);
+        public:
+            TimeHistogram(int bins, int max_frames,
+                TimeFrameMode mode = TimeFrameMode::Scroll,
+                bool auto_norm = true, bool auto_range = true,
+                float min_val = -1, float max_val = -1);
 
-        std::string GetImageSubType() const override { return "time_histgram"; }
+            void AddBatch(const std::vector<float>& values);
+            void NextFrame();
 
-        void AddData(float value);  // 現フレームにデータ追加
-        void NextFrame();           // 次フレームへ移行
-        void Reset() override;
-        wxImage Render() const override;     // 全フレームのヒートマップ描画
+            void Reset()override;
+            wxImage RenderRaw() const override { return thm_.RenderRaw(); }
+
+            std::string GetImageSubType() const override { return "time_histgram"; }
     private:
-        struct Frame {
-            std::deque<float> values;
+            TimeHeatMap thm_;
+            int bins_;
+            float min_val_;
+            float max_val_;
+            bool auto_norm_;
+            bool auto_range_;
+            std::vector<float> buffer_;
+            float smooth_min_ = 0.0f;
+            float smooth_max_ = 1.0f;
+            float smooth_rate_ = 0.05f; // 5% ずつ追従
         };
-
-        int bins_;
-        int max_frames_;
-        float min_val_, max_val_;
-        size_t max_points_per_frame_;
-
-        std::deque<Frame> frames_;
-        mutable std::mutex mtx_;
-    };
 
     // ============================================================
     // SweepedHeatMap : xyスイープによるヒートマップ生成
@@ -163,7 +172,7 @@ namespace anet {
         std::string GetImageSubType() const override { return "sweeped_map"; }
 
         void Evaluate(const std::function<float(float, float)>& func);
-        wxImage Render() const override;
+        wxImage RenderRaw() const override;
 		void Reset() override;
 
 		// Q値などのNN可視化（GPUバッチ対応）

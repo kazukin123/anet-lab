@@ -60,4 +60,43 @@ namespace anet::rl {
             mode);
     }
 
+    ExperienceBatch ReplayBuffer::SampleBatch(size_t n, torch::Device device) const
+    {
+        auto exps = Sample(n); // Šù‘¶‚Ìƒ‰ƒ“ƒ_ƒ€ƒTƒ“ƒvƒ‹æ“¾
+
+        std::vector<torch::Tensor> states;
+        std::vector<torch::Tensor> next_states;
+        std::vector<torch::Tensor> actions;
+        std::vector<float> rewards;
+        std::vector<bool> dones;
+
+        states.reserve(n);
+        next_states.reserve(n);
+        actions.reserve(n);
+        rewards.reserve(n);
+        dones.reserve(n);
+
+        for (auto& e : exps) {
+            states.push_back(e.state);                         // (state_dim)
+            next_states.push_back(e.response.next_state);      // (state_dim)
+            actions.push_back(e.action);                       // (1)
+            rewards.push_back(e.response.reward);              // float
+            dones.push_back(e.response.done || e.response.truncated);
+        }
+
+        ExperienceBatch batch;
+
+        batch.states = torch::stack(states).to(device);                      // (B, state_dim)
+        batch.next_states = torch::stack(next_states).to(device);                // (B, state_dim)
+        batch.actions = torch::stack(actions).to(device).to(torch::kLong).squeeze(-1); // (B,)
+        batch.rewards = torch::tensor(rewards, torch::dtype(torch::kFloat32)).to(device); // (B,)
+
+        // vector<bool> ¨ vector<uint8_t> ‚É•ÏŠ·‚µ‚Ä‚©‚ç tensor ‰»
+        std::vector<uint8_t> dones_u8;
+        dones_u8.reserve(n);
+        for (bool d : dones) dones_u8.push_back(d ? 1 : 0);
+        batch.dones = torch::tensor(dones_u8, torch::kUInt8).to(device);
+
+        return batch;
+    }
 } // namespace anet::rl

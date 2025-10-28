@@ -1,52 +1,84 @@
-# CartPoleRLGUI
+﻿# CartPoleRLGUI
 
-## �T�v
+## 概要
 
-## �r���h���@
+## ビルド方法
 
 ## DONE
 
-* �w�K���P
-	* Double DQN�Ή�
-* ���g���N�X
-	* TensorBoard�Ή�
-	* Ploty�ɂ��Ǝ��O���t�o��
-* AP���P
-	* �ݒ�������������Ƀ��g���N�X�Ƃ��ċL�^
+* 学習アルゴリズム
+	* Double DQN対応
+	* Replay Buffer
+* メトリクス
+	* TensorBoard対応
+	* Plotyによる独自グラフ出力
+* AP改善
+	* 設定情報をいい感じにメトリクスとして記録
 
 ## DOING
 
-* �w�K���P
-	* Replay Buffer
-* ���g���N�X
-	* �q�[�g�}�b�v�F��{�Ή�
-	* �q�[�g�}�b�v�F�X�E�B�[�v�Ή�
-	* �q�[�g�}�b�v�F�q�X�g�O�����Ή��i1D�A1D�{���n��j
-* AP���P
-	* �ݒ�t�@�C������
+* 学習アルゴリズム
+Adaptive Stabilized DQN (AS-DQN)
+* メトリクス
+	* ヒートマップ：基本対応
+	* ヒートマップ：スウィープ対応
+	* ヒートマップ：ヒストグラム対応（1D、1D＋時系列）
+* AP改善
+	* 設定ファイル導入
 
 ## TODO
 
-* �w�K���P
+* 学習アルゴリズム
 	* Adaptive Grad Control
-	* �w�K������
-* ���g���N�X
-	* ���g���N�X�^�O�̓K���K�w�� 
-	* �q�X�g�O�����o�͑Ή�
-	* add_hparams�Ή�
-	* �q�[�g�}�b�v�F���扻�Ή�
-	* �q�[�g�}�b�v�F�}��o�͑Ή�
-	* �q�[�g�}�b�v�FMetricsViewer�Ή�
-	* �q�[�g�}�b�v�FTensorBoard�Ή�
-* AP���P
-	* �N������Run�����v�����v�g
-	* �w�K�Ɛ��_�̕\������
-	* logger�̈������Ԃ�SummaryWriter���l�ɖ߂�
-	* ��V�o�[��Reward�̃X�P�[���ɍ��킹��
-	* GPU�Ή������ǐ�����
-	* �R�}���h���C���I�v�V�����Őݒ�㏑��
+	* 学習率減衰
+* メトリクス
+	* メトリクスタグの適正階層化 
+	* ヒストグラム出力対応
+	* add_hparams対応
+	* ヒートマップ：動画化対応
+	* ヒートマップ：凡例出力対応
+	* ヒートマップ：MetricsViewer対応
+	* ヒートマップ：TensorBoard対応
+* AP改善
+	* 起動時にRun名をプロンプト
+	* 学習と推論の表示分離
+	* loggerの引数順番をSummaryWriter同様に戻す?
+	* 報酬バーをRewardのスケールに合わせる
+	* GPU対応向け可読性向上
+	* コマンドラインオプションで設定上書き
 	* logs -> runs?
-	* ���t�@�N�^�����O
-	* �����K�񑵂�
+	* リファクタリング
+	* 命名規約揃え
+	* EnvironmentとAgentのバッチ対応精査
+	* ReplayBuffer を最適化（最初からTensorを保持しておく）
+	* ReplayBuffer貯め中にログが出ないので軸がずれている問題
+	* HeatMapのサンプリング量で書き出しタイミング制御
+	* shape アサーション
+	* BUG:TimeHeatMapのUnlimitedがスクロールしてしまう
+	* マルチスレッド対応
+	* Runフォルダに設定内容ダンプを残す
 
-## �Q�l����
+## メトリクスメモ
+
+### q_var
+
+| 観測パターン	|状態	|解釈
+|---------------|-------|-----|
+| q_var が徐々に減少 or 安定	|正常学習中	| 続行 |
+| q_var が周期的に波打ち始める	|崩壊前兆	|対策チャンス
+| q_var が急上昇して戻らない	|破綻（学習壊れた）	|ε↑ or τ↓ or LR↓、最悪再初期化|
+
+### 自動安定制御
+
+ | パラメータ | 役割	| 何を抑える？ | 効果の即効性 |見た目の変化 |
+ |------------|---------|--------------|--------------|-------------|
+ | τ (soft update)	| Q_targetの更新速度	 | Q値の不安定化（振動/爆発）	   | 中〜遅い | Q値 TimeHistogram が安定 |
+ | ε (exploration)	| 探索 / 経験の多様性	 | ReplayBuffer の偏り（行動固着） | 即効	  | Action TimeHistogram が変わる |
+
+| 状態	|ε の動き|	τ の動き	|結果|
+|-------|---------|-------------|----|
+|行動が固着	|ε↑	|τは維持	|ReplayBufferに多様性回復 → 行動揺れ復活 → 崩壊回避|
+|Q値が振動	|εは維持	|τ↓	|Q値の波動が止まる → TimeHistogram の縞模様が消える|
+|学習安定	|ε徐減	|τ維持 	|スムーズに収束|
+
+## 参考文献
