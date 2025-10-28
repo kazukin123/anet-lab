@@ -48,6 +48,8 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     device(torch::kCUDA),
     timer(this, wxID_ANY)
 {
+    //test_heatmap_and_histgram();
+
     // --- GUIレイアウト ---
     wxBoxSizer* vbox = new wxBoxSizer(wxVERTICAL);
 
@@ -91,16 +93,6 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     // ランダム方策で環境難易度評価
     evaluateEnvironment(*env, /*num_actions=*/2, /*num_trials=*/100);
     
-    //for (int i = 0; i < 10; i++) {
-    //    state = env->Reset(anet::rl::RunMode::Eval1);
-    //    for (int j = 0; j < 10; j++) {
-    //        wxLogInfo("%d %d -> %f %f %f %f", i, j, env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
-    //        auto [action, _, __] = agent->SelectAction(state, anet::rl::RunMode::Eval1);
-    //        env->DoStep(action);
-    //        state = env->GetState();
-    //    }
-    //}
-
     // --- 環境初期化 ---
     state = env->Reset();  // ← reset() は 初期状態 を返す
 
