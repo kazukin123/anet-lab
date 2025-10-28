@@ -16,7 +16,7 @@ exit /b
 
 :to_mp4
 echo %DATE% %TIME% START %1
-ffmpeg -y -r 10 -i images\%1\%1_%%06d.png -vcodec libx264 -pix_fmt yuv420p -r 10 %1.mp4 
+ffmpeg -y -r 30 -i images\%1\%1_%%06d.png -vcodec libx264 -pix_fmt yuv420p -r 30 %1.mp4 
 start %1.mp4 
 exit /b
 
