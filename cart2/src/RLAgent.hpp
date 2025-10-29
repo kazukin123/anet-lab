@@ -19,7 +19,7 @@ public:
     void UpdateBatch(const anet::rl::BatchData&) override; // ReplayBuffer対応
 private:
     void hard_update();
-    void soft_update(float tau);
+    void soft_update();
     void OptimizeSingle(const anet::rl::Experience& exprence);
     void OptimizeBatch(const std::vector<anet::rl::Experience>& batch);
 private:
@@ -37,21 +37,32 @@ private:
     torch::optim::Adam optimizer;
     anet::rl::ReplayBuffer replay_buffer;
 
-    // 実行状態
+    // 学習変数
     float epsilon;
-    int train_step;
+    float tau_;
+
+    int train_step = 0;
+    int last_unstable_step_ = 0;
+    float eps_boost_ = 1.0f;
+
+    bool  qstd_init_ = false;   // Q値の標準偏差EMA初期化済みフラグ
+    float qstd_ema_ = 0.0f;     // Q値の標準偏差のEMA
+	float qstd_ema2_ = 0.0f;    // Q値の標準偏差の2乗EMA 
+
+    float q_cv = 0.0f;
+    float q_niqr = 0.0f;
 
     // 統計情報
     float loss_ema = 0.0f;
+    bool  loss_ema_init_ = false;
     float grad_norm_clipped_ema = 0.0f;
     float td_clip_ema = 0.0f;
+    float action_ema = 0.5f;
     std::unique_ptr<anet::HeatMap> heatmap_visit1_;
     std::unique_ptr<anet::HeatMap> heatmap_visit2_;
     std::unique_ptr<anet::HeatMap> heatmap_td_;
-    //std::unique_ptr<anet::TimeHeatMap> thmap_reward_;
     std::unique_ptr<anet::TimeHistogram> hist_action_;
     std::unique_ptr<anet::TimeHistogram> hist_q_;
 
-    float action_ema = 0.5f;
 };
 

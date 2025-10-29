@@ -86,8 +86,8 @@ namespace anet::rl {
 
         ExperienceBatch batch;
 
-        batch.states = torch::stack(states).to(device);                      // (B, state_dim)
-        batch.next_states = torch::stack(next_states).to(device);                // (B, state_dim)
+        batch.states = torch::stack(states).squeeze(1).to(device);           // (B, state_dim)
+        batch.next_states = torch::stack(next_states).squeeze(1).to(device);     // (B, state_dim)
         batch.actions = torch::stack(actions).to(device).to(torch::kLong).squeeze(-1); // (B,)
         batch.rewards = torch::tensor(rewards, torch::dtype(torch::kFloat32)).to(device); // (B,)
 

@@ -34,6 +34,18 @@ agent_asdqn1.replay_capacity=10000
 agent_asdqn1.replay_batch_size=128
 agent_asdqn1.replay_warmup_steps=10000 #
 agent_asdqn1.replay_update_interval=10 #
+agent_asdqn1.use_as_dqn = true  //        # ★Adaptive Stabilized DQN (AS-DQN)
+agent_asdqn1.qstd_alpha = 0.01           #Q値 std の EWMA 平滑率
+agent_asdqn1.q_z_threshold = 3.0         #z-score 崩壊判定閾値
+agent_asdqn1.q_cv_threshold = 0.5        //CV 崩壊判定閾値
+agent_asdqn1.q_niqr_threshold = 0.6      //NIQR 崩壊判定閾値
+agent_asdqn1.eps_boost_max = 2.0         #ε ブースト上限倍率
+agent_asdqn1.eps_boost_half_life = 10000  # ε ブーストの自然減衰半減期
+agent_asdqn1.tau_min = 0.0005            #τ の下限
+agent_asdqn1.tau_max = 0.01            #τ の上限
+agent_asdqn1.tau_decay_on_hit = 0.98    # 1stepごとに+2%減衰
+agent_asdqn1.tau_recover_rate = 0.002   # 1stepごとに+0.2%回復
+agent_asdqn1.tau_recover_delay = 1000     # 1000step安定していたら回復開始
 
 #-------
 
@@ -352,7 +364,18 @@ agent.replay_update_interval=4
 agent.heatmap_log_image_interval = 100
 agent.heatmap_log_sweep_interval = 100
 agent.heatmap_log_hist_interval = 10
-
+agent.use_as_dqn = false             //Adaptive Stabilized DQN (AS-DQN)
+agent.qstd_alpha = 0.01           //Q値 std の EWMA 平滑率
+agent.q_z_threshold = 3.0         //z-score 崩壊判定閾値
+agent.q_cv_threshold = 0.5        //CV 崩壊判定閾値
+agent.q_niqr_threshold = 0.6      //NIQR 崩壊判定閾値
+agent.eps_boost_max = 2.0         //ε ブースト上限倍率
+agent.eps_boost_half_life = 10000  //ε ブーストの自然減衰半減期
+agent.tau_min = 0.0005            //τ の下限
+agent_asdqn1.tau_max = 0.01            #τ の上限
+agent.tau_decay_on_hit = 0.98   # 1stepごとに+0.2%回復
+agent.tau_recover_rate = 0.002   // 1stepごとに+0.2%回復
+agent.tau_recover_delay = 1000     // 1000step安定していたら回復開始
 
 
 

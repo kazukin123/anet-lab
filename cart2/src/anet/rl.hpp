@@ -119,6 +119,12 @@ namespace anet::rl {
         explicit ReplayBuffer(size_t capacity = 10000) : capacity_(capacity) {}
 
         void Push(const Experience& e) {
+            Experience exp = e;
+            if (exp.state.dim() == 2 && exp.state.size(0) == 1)
+                exp.state = exp.state.squeeze(0);
+            if (exp.response.next_state.dim() == 2 && exp.response.next_state.size(0) == 1)
+                exp.response.next_state = exp.response.next_state.squeeze(0);
+
             if (buffer_.size() >= capacity_) buffer_.erase(buffer_.begin());
             buffer_.push_back(e);
         }

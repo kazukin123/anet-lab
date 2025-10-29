@@ -17,7 +17,7 @@ struct RLAgent::Param {
     float eps_max = 1.00f;
     float eps_min = 0.05f;    //0.1f 0.05f
     float eps_decay_step = 100000;
-    float softupdate_tau = 0.015f;// 1.0f 0.004f  0.01f 0.005f;   // 大きいとターゲットネットワークからの反映が早くなる。小さいと遅く滑らかになる。0.005→半減期138step
+    float softupdate_tau = 0.01f;// 1.0f 0.004f  0.01f 0.005f;   // 大きいとターゲットネットワークからの反映が早くなる。小さいと遅く滑らかになる。0.005→半減期138step
     int hardupdate_step = 2000;// -1 5000; //200 500 1000
     bool use_grad_clip = true;
     float grad_clip_tau = 30.0f;   // 10~40 1f 5f 10f
@@ -36,6 +36,21 @@ struct RLAgent::Param {
 	int heatmap_log_sweep_interval = 100;
     int heatmap_log_hist_interval = 10;
 
+    bool use_as_dqn = false;             //Adaptive Stabilized DQN (AS-DQN)
+
+    float qstd_alpha = 0.01f;           //Q値 std の EWMA 平滑率
+    float q_z_threshold = 3.0f;         //z-score 崩壊判定閾値
+    float q_cv_threshold = 0.5f;        //CV 崩壊判定閾値
+    float q_niqr_threshold = 0.6f;      //NIQR 崩壊判定閾値
+
+    float eps_boost_max = 2.0f;         //ε ブースト上限倍率
+    int   eps_boost_half_life = 10000;  //ε ブーストの自然減衰半減期
+
+    float tau_min = 0.0005f;            //τ の下限
+    float tau_max = 0.001f;            //τ の上限
+    float tau_decay_on_hit = 0.98f;     // 不安定時のτ減衰率
+    float tau_recover_rate = 0.002f;   // 1stepごとに+0.2%回復
+    int tau_recover_delay = 1000;     // 1000step安定していたら回復開始
 
     RLAgent::Param(Properties* props) {
         if (props == NULL) return;
@@ -68,6 +83,18 @@ struct RLAgent::Param {
         ANET_READ_PROPS(props, preset, heatmap_log_image_interval);
         ANET_READ_PROPS(props, preset, heatmap_log_sweep_interval);
         ANET_READ_PROPS(props, preset, heatmap_log_hist_interval);
+        ANET_READ_PROPS(props, preset, use_as_dqn);
+        ANET_READ_PROPS(props, preset, qstd_alpha);
+        ANET_READ_PROPS(props, preset, q_z_threshold);
+        ANET_READ_PROPS(props, preset, q_cv_threshold);
+        ANET_READ_PROPS(props, preset, q_niqr_threshold);
+        ANET_READ_PROPS(props, preset, eps_boost_max);
+        ANET_READ_PROPS(props, preset, eps_boost_half_life);
+        ANET_READ_PROPS(props, preset, tau_min);
+        ANET_READ_PROPS(props, preset, tau_max);
+        ANET_READ_PROPS(props, preset, tau_decay_on_hit);
+        ANET_READ_PROPS(props, preset, tau_recover_rate);
+        ANET_READ_PROPS(props, preset, tau_recover_delay);
     }
 
 };
@@ -101,13 +128,13 @@ RLAgent::RLAgent(anet::rl::Environment& env, int state_dim, int n_actions, torch
 
     param_(std::make_unique<RLAgent::Param>(wxGetApp().GetConfig())),   // 設定からパラメータを読み込み
 
-
     optimizer(policy_net->parameters(), torch::optim::AdamOptions(param_->alpha)),
-    replay_buffer(param_->replay_capacity),
-
-    epsilon(1.0f),
-    train_step(0)
+    replay_buffer(param_->replay_capacity)
 {
+    // 学習変数初期化
+    epsilon = param_->eps_max;
+    tau_ = param_->softupdate_tau;
+
     // --- ヒートマップ生成 ---
     auto info = env.GetStateSpaceInfo();
     auto flags =  anet::HeatMapFlags::HM_LogScale | anet::HeatMapFlags::HM_AutoNorm;
@@ -115,7 +142,7 @@ RLAgent::RLAgent(anet::rl::Environment& env, int state_dim, int n_actions, torch
     heatmap_visit2_ = anet::rl::MakeStateHeatMapPtr(info, 2, 3, 256, 256,30000, flags | anet::HeatMapFlags::HM_SumMode);  // x vs theta → reward
     heatmap_td_     = anet::rl::MakeStateHeatMapPtr(info, 0, 2, 256, 256,30000, flags | anet::HeatMapFlags::HM_MeanMode); // x vs theta → td
     //thmap_reward_   = anet::rl::MakeStateTimeHeatMapPtr(info, 2, 256, 256, 0,  flags | anet::HeatMapFlags::HM_MeanMode, anet::TimeFrameMode::Scroll); // x vs time → Q
-    hist_action_ = std::make_unique<anet::TimeHistogram>(2, 200, anet::TimeFrameMode::Scroll, true, false, 0, 2);
+    hist_action_ = std::make_unique<anet::TimeHistogram>(2, 200, anet::TimeFrameMode::Scroll, false, false, -1.0f, 1.0f);
     hist_q_ = std::make_unique<anet::TimeHistogram>(64, 200, anet::TimeFrameMode::Scroll);
 
     // NN初期化
@@ -155,6 +182,18 @@ RLAgent::RLAgent(anet::rl::Environment& env, int state_dim, int n_actions, torch
         {"replay_warmup_steps", param_->replay_warmup_steps},
         {"replay_update_interval", param_->replay_update_interval},
         {"heatmap_log_hist_interval", param_->heatmap_log_hist_interval},
+        {"use_as_dqn", param_->use_as_dqn},
+        {"qstd_alpha", param_->qstd_alpha},
+        {"q_z_threshold", param_->q_z_threshold},
+        {"q_cv_threshold", param_->q_cv_threshold},
+        {"q_niqr_threshold", param_->q_niqr_threshold},
+        {"eps_boost_max", param_->eps_boost_max},
+        {"eps_boost_half_life", param_->eps_boost_half_life},
+        {"tau_min", param_->tau_min},
+        {"tau_max", param_->tau_max},
+        {"tau_decay_on_hit", param_->tau_decay_on_hit},
+        {"tau_recover_rate", param_->tau_recover_rate},
+        {"tau_recover_delay", param_->tau_recover_delay},
     };
     wxGetApp().logJson("agent/params", params);
     wxGetApp().flushMetricsLog();
@@ -179,20 +218,20 @@ RLAgent::SelectAction(const torch::Tensor& state, anet::rl::RunMode mode) {
     }
 
     // Train：ε-greedy
+    float eps_base;
     if (param_->eps_zero_step > 0 && (train_step > param_->eps_zero_step)) {
-        epsilon = 0.0f;
+        eps_base = 0.0f;
+    } else {
+        eps_base = std::max(param_->eps_min, param_->eps_max - static_cast<float>(train_step) / param_->eps_decay_step);
     }
-    else {
-        epsilon = std::max(param_->eps_min, param_->eps_max - static_cast<float>(train_step) / param_->eps_decay_step);
-    }
+    epsilon = std::clamp(eps_base * eps_boost_, param_->eps_min, param_->eps_max);
 
     torch::Tensor action;
     if (static_cast<float>(rand()) / RAND_MAX < epsilon) {
         // 確率εがヒットした場合はランダムでActionを決定
         int action_int = rand() % n_actions_;
         action = torch::tensor({ action_int }, torch::kLong).to(device);
-    }
-    else {
+    } else {
         // メインネットワークを元にActionを決定
         auto q_values = policy_net->forward(state.to(device));    // (1, A)
 		auto result = q_values.max(1);      // tuple (values, indices)  // (B,) (B,)
@@ -203,7 +242,7 @@ RLAgent::SelectAction(const torch::Tensor& state, anet::rl::RunMode mode) {
     float action_float = (action.numel() == 1) ?
         static_cast<float>(action.item<int>()) :    // 単一
         action.to(torch::kFloat32).mean().item<float>();    // バッチ（将来用）
-        action_ema = met_ema_decay * action_ema + (1 - met_ema_decay) * action_float;
+    action_ema = met_ema_decay * action_ema + (1 - met_ema_decay) * action_float;
     wxGetApp().GetMetricsLogger()->log_scalar("26_agent/01_action", train_step, action_ema);
 
     return { action, torch::Tensor(), torch::Tensor() };
@@ -223,14 +262,14 @@ void RLAgent::hard_update() {
     }
 }
 
-void RLAgent::soft_update(float tau) {
-    if (tau >= 1.0f) { hard_update(); return; }  // policyを完全コピー
+void RLAgent::soft_update() {
+    if (tau_ >= 1.0f) { hard_update(); return; }  // policyを完全コピー
     torch::NoGradGuard no_grad;
     auto src = policy_net->named_parameters();
     auto dst = target_net->named_parameters();
     for (auto& kv : src) {
         if (dst.contains(kv.key())) {
-            dst[kv.key()].copy_(dst[kv.key()] * (1.0f - tau) + kv.value() * tau);
+            dst[kv.key()].copy_(dst[kv.key()] * (1.0f - tau_) + kv.value() * tau_);
         }
     }
 }
@@ -278,61 +317,6 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {
             wxGetApp().GetMetricsLogger()->log_image("28_agent/03_heatmap_td", train_step, *heatmap_td_);
     }
 
-    // ReplayBufferモード時はReplayBufferの状態分布に基づくヒートマップを生成
-    if (param_->use_replay_buffer && param_->heatmap_log_hist_interval > 0 && (train_step % param_->heatmap_log_hist_interval) == 0) {
-        if (replay_buffer.Size() >= param_->replay_batch_size) {    // バッチ数分以上のサンプルが溜まってる場合のみ計測
-            auto samples = replay_buffer.SampleBatch(param_->replay_batch_size, device);    // (B, state_dim)
-            { // actionヒストグラム
-                auto actions_cpu = samples.actions.detach().cpu(); // (B,)
-                int count_left = 0;
-                int count_right = 0;
-                const int B = actions_cpu.size(0);
-
-                for (int i = 0; i < B; ++i) {
-                    int a = actions_cpu[i].item<int>();
-                    if (a == 0) count_left++;
-                    else if (a == 1) count_right++;
-                    // ※ それ以外の値は無視（離散2値前提）
-                }
-
-                float sum = (float)(count_left + count_right);
-                // sum==0 のときは 0.5/0.5（視覚上ニュートラル）
-                float left_ratio = (sum > 0.0f) ? (count_left / sum) : 0.5f;
-                float right_ratio = 1.0f - left_ratio;
-
-                // 2-bin TimeHistogram へ追加
-                // x = 0 → LEFT, x = 1 → RIGHT
-                hist_action_->AddBatch({ left_ratio, right_ratio });
-                hist_action_->NextFrame();
-            }
-
-            { // Q値ヒストグラム
-                auto q = policy_net->forward(samples.states);       // (B, A)
-                auto max_q = std::get<0>(q.max(1)).detach().cpu();  // (B,)
-
-                if (max_q.numel() == 0) {
-                    wxLogError("Invalid max_q for histgram.");
-                    return; // 念のため安全装置
-                }
-                auto max_q_cpu = max_q.to(torch::kFloat32).contiguous();    //item()だと落ちるので避ける
-                float* p = max_q_cpu.data_ptr<float>();
-
-                std::vector<float> vals(p, p + max_q_cpu.size(0));
-                hist_q_->AddBatch(vals);
-                hist_q_->NextFrame();   // TODO データ量が不十分なら追加でサンプリング評価
-
-                // Q値分散
-                float q_mean = max_q.mean().item<float>();
-                float q_var = (max_q - q_mean).pow(2).mean().item<float>();
-                wxGetApp().GetMetricsLogger()->log_scalar("22_agent/04_q_mean", train_step, q_mean);
-                wxGetApp().GetMetricsLogger()->log_scalar("22_agent/04_q_var", train_step, q_var);
-            }
-        }
-        // ヒストグラム保存 (軸合わせのためサンプル数が足りない場合も出力)
-        wxGetApp().GetMetricsLogger()->log_image("22_agent/02_hist_action", train_step, *hist_action_, 50);
-        wxGetApp().GetMetricsLogger()->log_image("28_agent/05_hist_q", train_step, *hist_q_);
-    }
-
 	// Q値ヒートマップ生成・保存（CUDA無いと遅い）
     if (param_->heatmap_log_sweep_interval > 0 && train_step != 0 && (train_step % param_->heatmap_log_sweep_interval) == 0) {
         anet::SweepedHeatMap q_map = anet::SweepedHeatMap::EvaluateTensorFunction(
@@ -356,6 +340,10 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {
             });
         wxGetApp().GetMetricsLogger()->log_image("28_agent/04_heatmap_q", train_step, q_map);
     }
+
+    // メトリクス出力
+    wxGetApp().logScalar("20_agent/01_epsilon", train_step, epsilon);               //εグリーディーのε
+
 }
 
 void RLAgent::UpdateBatch(const anet::rl::BatchData& batch) {
@@ -369,11 +357,11 @@ void RLAgent::OptimizeSingle(const anet::rl::Experience& exprence) {
     policy_net->train();
 
     // 簡易LRスケジュール
-    if (train_step == 120000 || train_step == 180000) {
-        for (auto& p : optimizer.param_groups()) {
-            p.options().set_lr(p.options().get_lr() * 0.5);
-        }
-    }
+    //if (train_step == 120000 || train_step == 180000) {
+    //    for (auto& p : optimizer.param_groups()) {
+    //        p.options().set_lr(p.options().get_lr() * 0.5);
+    //    }
+    //}
 
     TensorContext ctx(device);
 
@@ -442,9 +430,10 @@ void RLAgent::OptimizeSingle(const anet::rl::Experience& exprence) {
     // --- メトリクス生成・更新 ---
     float grad_norm_clipped = (param_->use_grad_clip && total_norm > param_->grad_clip_tau) ? 1.0f : 0.0f;    // クリップ発動
     grad_norm_clipped_ema = 0.9f * grad_norm_clipped_ema + 0.1f * grad_norm_clipped;
-    loss_ema = met_ema_decay * loss_ema + (1 - met_ema_decay) * loss.item<float>();
+    loss_ema = loss_ema_init_ ? met_ema_decay * loss_ema + (1 - met_ema_decay) * loss.item<float>() : loss.item<float>(); 
     auto q_targ = target_net->forward(state_t.to(device));                                       // (1,A)
     auto q_diff = torch::mean(torch::abs(q_sa - q_targ.gather(1, action_t.unsqueeze(1)).squeeze(1)));
+    if (!loss_ema_init_) loss_ema_init_ = true;
 
     float td_cliped = 0.0f;
     if (param_->use_td_clip) {
@@ -454,8 +443,6 @@ void RLAgent::OptimizeSingle(const anet::rl::Experience& exprence) {
     }
 
 	// メトリクス記録
-    wxGetApp().logScalar("21_agent/01_epsilon", train_step, epsilon);               //εグリーディーのε
-
     wxGetApp().logScalar("22_agent/03_q_sa", train_step, q_sa.item<double>());      // 
     wxGetApp().logScalar("22_agent/04_q_diff", train_step, q_diff.item<float>());   // policy と target の Q値乖離
 
@@ -482,29 +469,9 @@ void RLAgent::OptimizeSingle(const anet::rl::Experience& exprence) {
     auto theta = exprence.state[0][2].item<float>();
     heatmap_td_->AddData(x, theta, td.item<float>());
 
-	// 時間変化ヒートマップ更新
-    //thmap_reward_->AddData(theta, q_sa.item<float>());
-
-    //std::uniform_real_distribution<float> dist(-2.4f, 2.4f);
-    //std::random_device rd;
-    //std::mt19937 gen(rd());
-    //auto x_rand = dist(gen);
-    //for (int i = 0; i < 1000; i++)
-    //    thmap_reward_->AddData(x_rand, 10.0f);
-
-    //if (train_step % 100 == 0) {
-    //    thmap_reward_->NextFrame();
-    //    thmap_reward_count_++;
-
-    //    std::ostringstream oss;
-    //    oss << wxGetApp().GetMetricsLogger()->get_out_dir() << "/heatmap_05qtime/"
-    //        << "heatmap_05qtime_" << std::setw(8) << std::setfill('0') << thmap_reward_count_ << ".png";
-    //    thmap_reward_->SavePng(oss.str());
-    //}
-
     // --- soft update（毎回少し近づける） ---
     if (param_->softupdate_tau > 0) {
-        soft_update(param_->softupdate_tau);
+        soft_update();
     }
     if (param_->hardupdate_step > 0 && (train_step % param_->hardupdate_step) == 0) {
         hard_update();      // --- hard update（定期stepごとに完全同期） ---
@@ -519,6 +486,137 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
 
     policy_net->train();
     TensorContext ctx(device);
+
+    if (replay_buffer.Size() >= param_->replay_batch_size) {    // バッチ数分以上のサンプルが溜まってる場合のみ計測
+        // バッチサイズ分をまとめてサンプリング
+        auto samples = replay_buffer.SampleBatch(param_->replay_batch_size, device);    // (B, state_dim)
+
+        // ---- action統計 ----
+        {
+            auto actions_cpu = samples.actions.detach().cpu(); // (B,)
+            int count_left = 0;
+            int count_right = 0;
+            const int B = actions_cpu.size(0);
+
+            for (int i = 0; i < B; ++i) {
+                int a = actions_cpu[i].item<int>();
+                if (a == 0) count_left++;
+                else if (a == 1) count_right++;                 // ※ それ以外の値は無視（離散2値前提）
+            }
+
+            float sum = (float)(count_left + count_right);
+            // sum==0 のときは 0.5/0.5（視覚上ニュートラル）
+            float left_ratio = (sum > 0.0f) ? (count_left / sum) : 0.5f;
+            float right_ratio = 1.0f - left_ratio;
+            float diff = left_ratio - right_ratio; // -1 〜 +1
+            float amp = 3.0f;  // ← 強調倍率（実測に基づき可変推奨）
+            float diff_amp = std::clamp(diff * amp, -1.0f, 1.0f);
+            hist_action_->AddBatch({ diff_amp });
+            hist_action_->NextFrame();
+        }
+
+        // ---- Q値統計 ----
+        {
+			// サンプリング状態群に対するQ値算出
+            auto q = policy_net->forward(samples.states);       // (B, A)
+            auto max_q = std::get<0>(q.max(1)).detach().cpu();  // (B,)
+            
+            if (max_q.numel() == 0) {
+                wxLogError("Invalid max_q for histgram.");
+                return; // 念のため安全装置
+            }
+            auto max_q_cpu = max_q.to(torch::kFloat32).contiguous();
+            TORCH_CHECK(max_q_cpu.dim() == 1, "max_q must be 1-D, got dim=", max_q_cpu.dim());
+
+            // サンプリングしたQ値群の平均・標準偏差・最大
+            float q_mean = max_q_cpu.mean().item<float>();
+            float q_std = max_q_cpu.std(false).item<float>();
+            float q_max = max_q_cpu.max().item<float>();
+
+			// Q値ヒストグラム更新
+            float* p = max_q_cpu.data_ptr<float>();
+            std::vector<float> vals(p, p + max_q_cpu.size(0));
+            hist_q_->AddBatch(vals);
+            hist_q_->NextFrame();   // TODO データ量が不十分なら追加でサンプリング評価
+
+            // ---- Q値統計量に基づく崩壊検知と適応制御 ----
+
+            // EMA更新
+            if (!qstd_init_) {
+                qstd_init_ = true;
+                qstd_ema_ = q_std;
+                qstd_ema2_ = q_std * q_std;
+            } else {
+                qstd_ema_ = (1 - param_->qstd_alpha) * qstd_ema_ + param_->qstd_alpha * q_std;
+                qstd_ema2_ = (1 - param_->qstd_alpha) * qstd_ema2_ + param_->qstd_alpha * (q_std * q_std);
+            }
+
+            // Z score
+            float var = std::max(0.0f, qstd_ema2_ - qstd_ema_ * qstd_ema_);
+            float sigma = std::sqrt(var);
+            float q_z = (sigma > 1e-8f) ? (q_std - qstd_ema_) / sigma : 0.0f;   // q_stdスパイク時にだけ跳ねる
+
+            // ---- 長期安定補助指標----
+            float q_cv = q_std / (std::abs(q_mean) + 1e-6f);
+
+            auto sorted = std::get<0>(max_q_cpu.sort());
+            int n = sorted.size(0);
+            float q25 = sorted[(int)(0.25f * (n - 1))].item<float>();
+            float q50 = sorted[(int)(0.50f * (n - 1))].item<float>();
+            float q75 = sorted[(int)(0.75f * (n - 1))].item<float>();
+            float q_niqr = (q75 - q25) / (std::abs(q50) + 1e-6f);
+
+            // 崩壊判定
+            bool unstable = (q_z > param_->q_z_threshold) || (q_cv > param_->q_cv_threshold || q_niqr > param_->q_niqr_threshold);
+
+            // ---- 崩壊検知時の適応制御 ----
+            if (param_->use_as_dqn) {
+                if (unstable) {
+                    // τ を減らす（ターゲット更新を滑らかに → 発散を防止）
+                    tau_ = std::max(param_->tau_min, tau_ * param_->tau_decay_on_hit);
+                    last_unstable_step_ = train_step; // 崩壊判定の最後のステップ数を覚えておく
+                } else {
+                    // ε を強調（探索復帰、ReplayBuffer 多様性回復）
+                    eps_boost_ = std::min(param_->eps_boost_max, eps_boost_ * 1.03f);
+
+                    // 安定状態が続いている場合はゆっくり回復
+                    int stable_steps = train_step - last_unstable_step_;
+                    if (stable_steps > param_->tau_recover_delay) {
+                        tau_ = std::min(param_->tau_max, tau_ * (1.0f + param_->tau_recover_rate));
+                    }
+                }
+            }
+            // εブーストの自然減衰
+            eps_boost_ = 1.0f + (eps_boost_ - 1.0f) * std::exp(-1.0 / param_->eps_boost_half_life);
+
+            // ---- メトリクス出力 ----
+            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/01_q_mean", train_step, q_mean);
+            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/02_q_max", train_step, q_max);
+            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/03_q_std", train_step, q_std);
+            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/03_q_std_ema", train_step, qstd_ema_); // 優先度低い
+            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/04_q_z", train_step, q_z);
+            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/07_eps_boost", train_step, eps_boost_);
+            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/08_tau", train_step, tau_);
+            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/09_q_cv", train_step, q_cv);
+            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/10_q_niqr", train_step, q_niqr);
+        }
+    } else {    // else: replay_buffer.Size() >= param_->replay_batch_size
+        // ---- メトリクス出力(サンプル不足で評価未実施なので固定値) ----
+        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/01_q_mean", train_step, 0);
+        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/02_q_max", train_step, 0);
+        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/03_q_std", train_step, 0);
+        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/03_q_std_ema", train_step, qstd_ema_); // 優先度低い
+        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/04_q_z", train_step, 0);
+        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/05_eps_boost", train_step, eps_boost_);
+        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/06_tau", train_step, tau_);
+    }
+
+    // ReplayBufferモード時はReplayBufferの状態分布に基づくヒートマップを生成
+    if (param_->heatmap_log_hist_interval > 0 && (train_step % param_->heatmap_log_hist_interval) == 0) {
+        // ヒストグラム保存 (軸合わせのためサンプル数が足りない場合も出力)
+        wxGetApp().GetMetricsLogger()->log_image("22_agent/02_hist_action", train_step, *hist_action_, 50);
+        wxGetApp().GetMetricsLogger()->log_image("28_agent/05_hist_q", train_step, *hist_q_);
+    }
 
     // --- バッチ展開 ---
     std::vector<torch::Tensor> states, next_states, actions, rewards, dones, truncs;
@@ -606,7 +704,6 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
     }
 
     // --- メトリクス出力（バッチ平均） ---
-    wxGetApp().logScalar("21_agent/01_epsilon", train_step, epsilon);
     wxGetApp().logScalar("22_agent/03_q_sa", train_step, q_sa.mean().item<double>());
     wxGetApp().logScalar("22_agent/04_q_diff", train_step, q_diff.item<float>());
     if (param_->use_td_clip) {
@@ -623,9 +720,9 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
         wxGetApp().logScalar("24_agent/13_grad_cliped", train_step, grad_norm_clipped);
         wxGetApp().logScalar("24_agent/14_grad_cliped_ema", train_step, grad_norm_clipped_ema);
     }
-    wxGetApp().logScalar("25_replay/01_buffer_size", train_step, replay_buffer.Size());
+    //wxGetApp().logScalar("25_replay/01_buffer_size", train_step, replay_buffer.Size());
 
     // --- soft/hard update ---
-    if (param_->softupdate_tau > 0) soft_update(param_->softupdate_tau);
+    if (param_->softupdate_tau > 0) soft_update();
     if (param_->hardupdate_step > 0 && (train_step % param_->hardupdate_step) == 0) hard_update();
 }
