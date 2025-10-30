@@ -153,13 +153,6 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         if (env_result.done) {
             episode_count++;
 
-            // ログ
-            auto eps_step = step_count - last_episode_step;
-            wxLogInfo("Episode finished. eps=%d step=%d total_reward=%f eps_step=%d", episode_count, step_count,train_total_reward, eps_step);
-
-            // 統計ログ
-			wxGetApp().logScalar("10_epsode/01_total_reward", episode_count, train_total_reward);
-
             // プロット更新
             plotPanel->AddReward(train_total_reward);
 
@@ -169,6 +162,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
             //canvas->SetReward(last_reward);
 
             // 学習状況評価
+            float eval_total_reward = -1.0f;
             if (episode_count % param_->eval_interval == 0) {
                 eval_count_++;
                 {   // ターゲットネットワークによる評価
@@ -182,6 +176,9 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
                         state = env_result.next_state.clone();
                         done = env_result.done;
                     }
+
+                    // ログ
+                    eval_total_reward = total_reward;
                     wxGetApp().logScalar("10_epsode/02_eval_reward", episode_count, total_reward);
                     wxGetApp().logScalar("11_eval/01_target_reward", step_count, total_reward);
 
@@ -202,9 +199,16 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
                         state = env_result.next_state.clone();
                         done = env_result.done;
                     }
+                    // ログ
                     wxGetApp().logScalar("11_eval/02_policy_reward", step_count, total_reward);
                 }
             }
+
+            // ログ
+            auto eps_step = step_count - last_episode_step;
+            wxLogInfo("Episode finished. eps=%d step=%d total_reward=%f eps_step=%d eval_reward=%f",
+                episode_count, step_count, train_total_reward, eps_step, eval_total_reward);
+            wxGetApp().logScalar("10_epsode/01_total_reward", episode_count, train_total_reward);
 
             // 環境リセット
             state = env->Reset();

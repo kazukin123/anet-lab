@@ -39,6 +39,7 @@ private:
 
     // 学習変数
     float epsilon;
+    float eps_reheat_floor_;
     float tau_;
 
     int train_step = 0;
@@ -48,9 +49,6 @@ private:
     bool  qstd_init_ = false;   // Q値の標準偏差EMA初期化済みフラグ
     float qstd_ema_ = 0.0f;     // Q値の標準偏差のEMA
 	float qstd_ema2_ = 0.0f;    // Q値の標準偏差の2乗EMA 
-
-    float q_cv = 0.0f;
-    float q_niqr = 0.0f;
 
     // 統計情報
     float loss_ema = 0.0f;
