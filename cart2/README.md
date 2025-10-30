@@ -9,6 +9,7 @@
 * 学習アルゴリズム
 	* Double DQN対応
 	* Replay Buffer
+	* Adaptive Stabilized DQN (AS-DQN)：基本ロジック
 * メトリクス
 	* TensorBoard対応
 	* Plotyによる独自グラフ出力
@@ -22,7 +23,7 @@
 ## DOING
 
 * 学習アルゴリズム
-	* Adaptive Stabilized DQN (AS-DQN)
+	* Adaptive Stabilized DQN (AS-DQN)：unstable_ema
 * メトリクス
 * AP改善
 	* N環境想定のTensor仕様整理
@@ -30,8 +31,12 @@
 ## TODO
 
 * 学習アルゴリズム
+	* AS-DQN：過安定制御(stagnant) 
+	* AS-DQN：勾配／損失ベース
+	* AS-DQN：アクション偏り統計対応（CartPole以外の応用には適用性が低い）
+	* Adaptive ε-schedule
 	* Adaptive Grad Control
-	* 学習率減衰
+	* Adaptive α-schedule
 * メトリクス
 	* メトリクスタグの適正階層化 
 	* ヒストグラム出力対応

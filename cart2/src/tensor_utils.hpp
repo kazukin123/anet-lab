@@ -70,4 +70,10 @@ namespace anet::util {
         return oss.str();
     }
 
+    inline float itemf(const at::Tensor& t) {
+        auto s = t.detach().to(torch::kCPU);
+        TORCH_CHECK(s.numel() == 1, "itemf expects scalar, got numel=", s.numel(), " shape=", s.sizes());
+        return s.item<float>();
+    }
+    
 } // namespace anet::util
