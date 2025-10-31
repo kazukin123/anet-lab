@@ -50,6 +50,10 @@ private:
     float qstd_ema_ = 0.0f;     // Q値の標準偏差のEMA
 	float qstd_ema2_ = 0.0f;    // Q値の標準偏差の2乗EMA 
 
+    float unstable_ema_ = 0.0f;    // 連続不安定度
+    float uema_alpha_ = 0.0f;      // ln(2)/half_life を前計算
+    int post_warmup_steps_ = 0;
+
     // 統計情報
     float loss_ema = 0.0f;
     bool  loss_ema_init_ = false;

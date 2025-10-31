@@ -260,6 +260,7 @@ public:
 
         std::istringstream iss((*it).second);
         T value;
+        iss >> value;
         if (!(iss >> value)) return defaultValue;
         return value;
     }

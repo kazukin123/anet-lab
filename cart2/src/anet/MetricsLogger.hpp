@@ -47,6 +47,7 @@ private:
     std::unique_ptr<IBackend> backend;
     std::string root_dir;
     std::string run_name;
+    bool enable_image_log_ = true;
 
     // 画像連番（tag ごと）
     std::unordered_map<std::string, uint64_t> image_seq_;
@@ -64,6 +65,10 @@ public:
     explicit MetricsLogger(std::unique_ptr<IBackend> b,
         const std::string& root = "logs",
         const std::string& run = "");
+
+    void SetEnableImageLog(bool enable_image_log) {
+        this->enable_image_log_ = enable_image_log;
+    }
 
     // 軽量メソッドはヘッダ内に実装
     inline void log_scalar(const std::string& tag, int step, double value) {
@@ -91,11 +96,13 @@ public:
 
     // 汎用画像（subtype なし）
     inline void log_image(const std::string& tag, int step, const wxImage& image) {
+        if (!enable_image_log_) return;
         log_image_subtyped(tag, step, image, "");
     }
 
     // 可視化オブジェクト（subtype は anet::ImageSource 側が返す）
     inline void log_image(const std::string& tag, int step, const anet::ImageSource& src, int width = -1, int height = -1) {
+        if (!enable_image_log_) return;
         auto img = src.Render(width, height);
         auto subtype = src.GetImageSubType();
         log_image_subtyped(tag, step, img, subtype);
