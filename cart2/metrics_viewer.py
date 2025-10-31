@@ -16,10 +16,12 @@ import pyarrow.parquet as pq
 import plotly.colors as pc
 import plotly.graph_objects as go
 from dash import Dash, dcc, html, Input, Output, State
+import dash
 
 RUN_CACHE = {}
 RUN_COLORS = {}
-VERSION = "v17.13"
+VERSION = "v17.14"
+is_updating = False
 
 
 def get_run_color(run_name: str) -> str:
@@ -254,7 +256,7 @@ def create_app(log_root: str) -> Dash:
         }),
 
         dcc.Store(id="auto-flag", data=False),
-        dcc.Interval(id="tick", interval=5000, n_intervals=0, disabled=True)
+        dcc.Interval(id="tick", interval=10000, n_intervals=0, disabled=True)
     ])
 
     # ---- Auto Refresh トグル ----
@@ -268,6 +270,7 @@ def create_app(log_root: str) -> Dash:
     )
     def toggle_auto(n_clicks, current_flag):
         new_flag = not current_flag
+        print(f"[INFO] Auto Refresh toggled → {'ON' if new_flag else 'OFF'}")
         return (not new_flag, f"Auto Refresh: {'ON' if new_flag else 'OFF'}", new_flag)
 
     # ---- ヘッダ固定切替 ----
@@ -300,62 +303,78 @@ def create_app(log_root: str) -> Dash:
         prevent_initial_call=False
     )
     def update_graphs(_n_auto, _n_manual, selected_runs, selected_tags):
-        runs = sorted([d for d in os.listdir(log_root)
-                       if os.path.isdir(os.path.join(log_root, d))],
-                      reverse=True)
-        if not runs:
-            return [html.Div("No runs.", style={"color": "gray"})], [], [], []
-        if not selected_runs:
-            selected_runs = [runs[0]]
+        global is_updating
+        if is_updating:
+            print("[WARN] Skip update: previous update still running.")
+            raise dash.exceptions.PreventUpdate
+        is_updating = True
+        start_t = time.time()
+        print("[INFO] Updating start...")
 
-        run_data = load_selected_runs(log_root, selected_runs)
-        if not run_data:
-            return [html.Div("No data.", style={"color": "gray"})], [], selected_runs, []
+        try:
+            runs = sorted([d for d in os.listdir(log_root)
+                           if os.path.isdir(os.path.join(log_root, d))],
+                          reverse=True)
+            if not runs:
+                print("[WARN] No runs found.")
+                return [html.Div("No runs.", style={"color": "gray"})], [], [], []
+            if not selected_runs:
+                selected_runs = [runs[0]]
 
-        all_tags = extract_tags(run_data)
-        if not all_tags:
-            return [html.Div("No tags.", style={"color": "gray"})], [], selected_runs, []
+            run_data = load_selected_runs(log_root, selected_runs)
+            if not run_data:
+                print("[WARN] No data loaded.")
+                return [html.Div("No data.", style={"color": "gray"})], [], selected_runs, []
 
-        display_tags = selected_tags or all_tags
-        graphs = []
-        for tag in display_tags:
-            any_json = any((df[(df["tag"] == tag)]["type"] == "json").any() for df in run_data.values())
-            if any_json:
-                continue
-            fig = make_tag_fig(run_data, selected_runs, tag)
-            graphs.append(html.Div([
-                html.Div(tag, style={
-                    "position": "absolute", "top": "1px", "left": "8px",
-                    "backgroundColor": "rgba(0,0,0,0.7)", "color": "white",
-                    "fontFamily": "monospace", "fontSize": "13px",
-                    "padding": "2px 6px", "borderRadius": "3px", "zIndex": "10"
-                }),
-                dcc.Graph(figure=fig, config={"displayModeBar": True},
-                          style={"height": "300px", "position": "relative"})
-            ], style={"marginBottom": "8px", "position": "relative"}))
+            all_tags = extract_tags(run_data)
+            if not all_tags:
+                print("[WARN] No tags found.")
+                return [html.Div("No tags.", style={"color": "gray"})], [], selected_runs, []
 
-        # JSON メタ情報
-        meta_blocks = render_meta_info(run_data)
-        if meta_blocks:
-            graphs.append(html.Hr(style={"borderTop": "1px solid #555"}))
-            graphs.extend(meta_blocks)
-
-        run_options = []
-        for r in runs:
-            color = get_run_color(r)
-            run_options.append({
-                "label": html.Span([
-                    html.Span("■", style={
-                        "color": color, "fontWeight": "bold", "marginRight": "6px",
-                        "display": "inline-block", "width": "10px"
+            display_tags = selected_tags or all_tags
+            graphs = []
+            for tag in display_tags:
+                any_json = any((df[(df["tag"] == tag)]["type"] == "json").any() for df in run_data.values())
+                if any_json:
+                    continue
+                fig = make_tag_fig(run_data, selected_runs, tag)
+                graphs.append(html.Div([
+                    html.Div(tag, style={
+                        "position": "absolute", "top": "1px", "left": "8px",
+                        "backgroundColor": "rgba(0,0,0,0.7)", "color": "white",
+                        "fontFamily": "monospace", "fontSize": "13px",
+                        "padding": "2px 6px", "borderRadius": "3px", "zIndex": "10"
                     }),
-                    html.Span(r)
-                ], style={"display": "inline-flex", "alignItems": "center"}),
-                "value": r
-            })
+                    dcc.Graph(figure=fig, config={"displayModeBar": True},
+                              style={"height": "300px", "position": "relative"})
+                ], style={"marginBottom": "8px", "position": "relative"}))
 
-        tag_options = [{"label": t, "value": t} for t in all_tags]
-        return graphs, run_options, selected_runs, tag_options
+            # JSON メタ情報
+            meta_blocks = render_meta_info(run_data)
+            if meta_blocks:
+                graphs.append(html.Hr(style={"borderTop": "1px solid #555"}))
+                graphs.extend(meta_blocks)
+
+            run_options = []
+            for r in runs:
+                color = get_run_color(r)
+                run_options.append({
+                    "label": html.Span([
+                        html.Span("■", style={
+                            "color": color, "fontWeight": "bold", "marginRight": "6px",
+                            "display": "inline-block", "width": "10px"
+                        }),
+                        html.Span(r)
+                    ], style={"display": "inline-flex", "alignItems": "center"}),
+                    "value": r
+                })
+
+            tag_options = [{"label": t, "value": t} for t in all_tags]
+            elapsed = time.time() - start_t
+            print(f"[INFO] Updating done. elapsed={elapsed:.2f}s")
+            return graphs, run_options, selected_runs, tag_options
+        finally:
+            is_updating = False
 
     return app
 
