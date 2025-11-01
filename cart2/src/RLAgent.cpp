@@ -52,6 +52,7 @@ struct RLAgent::Param {
     float tau_decay_on_hit = 0.98f;     // 不安定時のτ減衰率
     float tau_recover_rate = 0.002f;    // 1stepごとに+0.2%回復
     int tau_recover_delay = 1000;       // 1000step安定していたら回復開始
+    float act_bias_threshold = 0.85f;  // 行動偏り閾値 (|left_ratio - right_ratio| > 0.85 → 崩壊)
 
     bool  use_unstable_ema = false;    // 連続崩壊制御を使うか（切替用）
     float uema_half_life = 2000.0f;   // 半減期 [step]。ln2/半減期 が EMA係数
@@ -112,6 +113,7 @@ struct RLAgent::Param {
         ANET_READ_PROPS(props, preset, tau_decay_on_hit);
         ANET_READ_PROPS(props, preset, tau_recover_rate);
         ANET_READ_PROPS(props, preset, tau_recover_delay);
+        ANET_READ_PROPS(props, preset, act_bias_threshold);
         ANET_READ_PROPS(props, preset, use_unstable_ema);
         ANET_READ_PROPS(props, preset, uema_half_life);
         ANET_READ_PROPS(props, preset, uema_u0);
@@ -230,6 +232,7 @@ RLAgent::RLAgent(anet::rl::Environment& env, int state_dim, int n_actions, torch
         {"tau_decay_on_hit", param_->tau_decay_on_hit},
         {"tau_recover_rate", param_->tau_recover_rate},
         {"tau_recover_delay", param_->tau_recover_delay},
+        {"act_bias_threshold", param_->act_bias_threshold},
 
         {"use_unstable_ema", param_->use_unstable_ema},
         {"uema_half_life", param_->uema_half_life},
@@ -291,7 +294,7 @@ RLAgent::SelectAction(const torch::Tensor& state, anet::rl::RunMode mode) {
         static_cast<float>(action.item<int>()) :    // 単一
         action.to(torch::kFloat32).mean().item<float>();    // バッチ（将来用）
     action_ema = met_ema_decay_act * action_ema + (1 - met_ema_decay_act) * action_float;
-    wxGetApp().GetMetricsLogger()->log_scalar("26_agent/01_action_ema", train_step, action_ema);
+    wxGetApp().GetMetricsLogger()->log_scalar("21_agent/16_action_ema", train_step, action_ema);
 
     return { action, torch::Tensor(), torch::Tensor() };
 }
@@ -442,7 +445,7 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {
         wxGetApp().GetMetricsLogger()->log_scalar("21_agent/04_q_z", train_step, 0.0f);
         wxGetApp().GetMetricsLogger()->log_scalar("21_agent/09_q_cv", train_step, 0.0f);
         wxGetApp().GetMetricsLogger()->log_scalar("21_agent/10_q_niqr", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/14_q_unstable", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/13_q_unstable", train_step, 0.0f);
         wxGetApp().GetMetricsLogger()->log_scalar("21_agent/15_unstable_ema", train_step, unstable_ema_);
         wxGetApp().GetMetricsLogger()->log_scalar("21_agent/16_tau", train_step, tau_);
         wxGetApp().GetMetricsLogger()->log_scalar("21_agent/17_eps_boost", train_step, eps_boost_);
@@ -488,8 +491,7 @@ void RLAgent::OptimizeSingle(const anet::rl::Experience& exprence) {
         auto next_action = std::get<1>(next_q_policy.max(1));                          // (B,)
         auto next_q_target = target_net->forward(next_state);                          // (B, A)
         max_next_q = next_q_target.gather(1, next_action.unsqueeze(1)).squeeze(1).detach(); // (B,)
-    }
-    else {
+    } else {
         auto next_q_targ = target_net->forward(next_state);                            // (B, A)
         max_next_q = std::get<0>(next_q_targ.max(1)).detach();                         // (B,)
     }
@@ -616,8 +618,10 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
         wxGetApp().GetMetricsLogger()->log_scalar("21_agent/04_q_z", train_step, 0.0f);
         wxGetApp().GetMetricsLogger()->log_scalar("21_agent/09_q_cv", train_step, 0.0f);
         wxGetApp().GetMetricsLogger()->log_scalar("21_agent/10_q_niqr", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/14_q_unstable", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/13_q_unstable", train_step, 0.0f);
         wxGetApp().GetMetricsLogger()->log_scalar("21_agent/15_unstable_ema", train_step, unstable_ema_);
+        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/16_act_unstable", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/16_diff_action", train_step, 0.0f);
         wxGetApp().GetMetricsLogger()->log_scalar("21_agent/16_tau", train_step, tau_);
         wxGetApp().GetMetricsLogger()->log_scalar("21_agent/17_eps_boost", train_step, eps_boost_);
         wxGetApp().GetMetricsLogger()->log_scalar("21_agent/18_eps_reheat_floor", train_step, eps_reheat_floor_);
@@ -651,9 +655,8 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
         // sum==0 のときは 0.5/0.5（視覚上ニュートラル）
         float left_ratio = (sum > 0.0f) ? (count_left / sum) : 0.5f;
         float right_ratio = 1.0f - left_ratio;
-        float diff = left_ratio - right_ratio; // -1 〜 +1
-        float amp = 3.0f;  // ← 強調倍率（実測に基づき可変推奨）
-        float diff_amp = std::clamp(diff * amp, -1.0f, 1.0f);
+        float act_diff = right_ratio - left_ratio; // -1 〜 +1
+        float diff_amp = std::clamp(act_diff, -1.0f, 1.0f);
         hist_action_->AddBatch({ diff_amp });
         hist_action_->NextFrame();
 
@@ -731,27 +734,32 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
             float s = (s_raw - s0) / (1.0f - s0);
             s = std::clamp(s, 0.0f, 1.0f);
 
-            // 崩壊判定結果
-            bool unstable = q_unstable;
+            // ---- 行動偏りによる崩壊検知 ----
+            bool act_unstable = (std::abs(act_diff) > param_->act_bias_threshold);
+
+            // --- unstable判定の統合 ---
+            bool unstable = q_unstable || act_unstable;
 
             // ---- 崩壊検知時の適応制御 ----
             if (param_->use_as_dqn && param_->use_unstable_ema) {
                 //float ramp = std::clamp(post_warmup_steps_ / 3000.0f, 0.0f, 1.0f); // 3kステップで完全有効化
                 //float s_eff = s * ramp;
 
-                if (s > param_->unstable_ema_s_threshold) // 明確に上昇したとき
-                    last_unstable_step_ = train_step;     // 崩壊判定の最後のステップ数を覚えておく
+                if (s > param_->unstable_ema_s_threshold || act_unstable)
+                        last_unstable_step_ = train_step;     // 崩壊判定の最後のステップ数を覚えておく
 
                 // εブーストを強化（探索復帰、ReplayBuffer 多様性回復）
                 float mult = 1.0f + param_->uema_g1 * s;
                 eps_boost_ = std::min(param_->eps_boost_max, eps_boost_ * mult);
 
-                // ε再加熱: εの「下限」を動的に引き上げる（epsilon自体は触らない）
+                // ε再加熱
                 float floor_target = param_->eps_reheat_base + param_->uema_g2 * s;
+                if (act_unstable) floor_target = std::max(floor_target, param_->eps_reheat_floor);
                 eps_reheat_floor_ = std::max(eps_reheat_floor_, floor_target);
 
-                // unstable_ema の値 s (0..1) に応じて τ を減少させる
-                float decay = 1.0f - param_->uema_g3 * s;  // uema_g3 = 0.05〜0.2 推奨
+                // τ減衰（行動崩壊時は強制的に下限寄せ）
+                float decay = 1.0f - param_->uema_g3 * s;
+                if (act_unstable) decay *= 0.5f;
                 tau_ = std::max(param_->tau_min, tau_ * decay);
             } else if (param_->use_as_dqn && unstable) {
                 // 崩壊判定の最後のステップ数を覚えておく
@@ -779,6 +787,8 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
             wxGetApp().GetMetricsLogger()->log_scalar("21_agent/10_q_niqr", train_step, q_niqr);
             wxGetApp().GetMetricsLogger()->log_scalar("21_agent/13_q_unstable", train_step, q_unstable ? 1.0f : 0.0f);
             wxGetApp().GetMetricsLogger()->log_scalar("21_agent/15_unstable_ema", train_step, unstable_ema_);
+            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/16_act_unstable", train_step, act_unstable ? 1.0f : 0.0f);
+            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/16_diff_action", train_step, act_diff);
             wxGetApp().GetMetricsLogger()->log_scalar("21_agent/16_tau", train_step, tau_);
             wxGetApp().GetMetricsLogger()->log_scalar("21_agent/17_eps_boost", train_step, eps_boost_);
             wxGetApp().GetMetricsLogger()->log_scalar("21_agent/19_uema_s", train_step, s);

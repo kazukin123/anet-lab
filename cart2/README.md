@@ -23,7 +23,7 @@
 ## DOING
 
 * 学習アルゴリズム
-	* Adaptive Stabilized DQN (AS-DQN)：unstable_ema
+	* AS-DQN：アクション偏り統計対応（CartPole以外の応用には適用性が低い）
 * メトリクス
 * AP改善
 	* N環境想定のTensor仕様整理
@@ -31,9 +31,9 @@
 ## TODO
 
 * 学習アルゴリズム
+	* Adaptive Stabilized DQN (AS-DQN)：unstable_ema
 	* AS-DQN：過安定制御(stagnant) 
 	* AS-DQN：勾配／損失ベース
-	* AS-DQN：アクション偏り統計対応（CartPole以外の応用には適用性が低い）
 	* Adaptive ε-schedule
 	* Adaptive Grad Control
 	* Adaptive α-schedule
@@ -65,6 +65,8 @@
 	* マルチスレッド対応
 	* Runフォルダに設定内容ダンプを残す
 	* Tensorチェック用マクロ
+	* MetricsViewer.java
+	* 設定の継承読み込み
 
 ## メトリクスメモ
 
