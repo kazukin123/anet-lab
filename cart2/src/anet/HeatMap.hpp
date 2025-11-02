@@ -6,50 +6,56 @@
 #include <mutex>
 #include <functional>
 #include <cstdint>
+#include <cmath>
+#include <limits>
 #include <torch/torch.h>
 
 namespace anet {
 
     // ============================================================
-    // HeatMapFlags : 設定フラグ
+    // フラグ（既存との互換維持）
+    //  0..5 は既存を維持。HM_LogScale を HM_LogScaleValue 名に変更。
+    //  6..  を拡張として追加。
     // ============================================================
     enum HeatMapFlags : uint32_t {
         HM_None = 0,
-        HM_LogScale = 1 << 0,   // 対数スケール
-        HM_AutoNorm = 1 << 1,   // 自動正規化
-        HM_MeanMode = 1 << 2,   // 平均値で集約
-        HM_SumMode = 1 << 3,   // 合計値で集約
-        HM_Default = HM_AutoNorm | HM_SumMode
+        HM_LogScaleValue = 1 << 0,  // 値(色強度)の対数圧縮（既存: HM_LogScale）
+        HM_AutoNormValue = 1 << 1,  // 値(色強度)の正規化
+        HM_AutoNormX = 1 << 2,  // X軸の自動スケーリング
+        HM_AutoNormY = 1 << 3,  // Y軸の自動スケーリング
+        HM_MeanMode = 1 << 4,  // 平均モード
+        HM_SumMode = 1 << 5,  // 合計モード
+
+        // 拡張
+        HM_AutoScaleAxis = 1 << 6,  // 値軸(データ軸)のレンジ自動追従（NaN指定側のみEMA更新）
+        HM_LogScaleAxis = 1 << 7,  // 値軸を対数スケール表示（log1p(|v|)の符号付）
+        HM_ShowZeroLine = 1 << 8,  // 値0の位置に水平ラインを描画
+        HM_FlipY = 1 << 9,  // Y軸方向を反転して描画（上が大値）
+
+        HM_Default = HM_AutoNormValue | HM_SumMode
     };
 
+    // ============================================================
+    // 画像化の共通インタフェース
+    // ============================================================
     class ImageSource {
     public:
         virtual void Reset() = 0;
         virtual wxImage RenderRaw() const = 0;
-        virtual std::string GetImageSubType() const = 0; // 例: "heat_map", "time_heat_map", ...
+        virtual std::string GetImageSubType() const = 0;
 
-        wxImage Render(int width = -1, int height = -1) const {
-            wxImage src = RenderRaw(); // 元解像度で生成 (bins x frames)
-            if (width < 0 && height < 0) return src;
-            if (width < 0) width = src.GetWidth();
-            if (height < 0) height = src.GetHeight();
-            return src.Scale(width, height, wxIMAGE_QUALITY_NEAREST);
-        }
-
+        wxImage Render(int width = -1, int height = -1) const;
         void SavePng(const std::string& filename, int width = -1, int height = -1) const;
-
         virtual ~ImageSource() = default;
     };
 
     // ============================================================
-    // HeatMap : 任意座標データの2D可視化（加算/平均対応）
+    // HeatMap : 任意 (x,y,value) の散布を2Dヒートマップ化
     // ============================================================
     class HeatMap : public ImageSource {
     public:
-        HeatMap(int width, int height,
-            float x_min = 0.0f, float x_max = 1.0f,
-            float y_min = 0.0f, float y_max = 1.0f,
-            size_t max_points = 0,
+        HeatMap(int width, int height, float x_min = 0.0f, float x_max = 1.0f,
+            float y_min = 0.0f, float y_max = 1.0f, size_t max_points = 0,
             uint32_t flags = HM_Default);
 
         std::string GetImageSubType() const override { return "heat_map"; }
@@ -57,71 +63,67 @@ namespace anet {
         void AddData(float x, float y, float value);
         void Reset() override;
         wxImage RenderRaw() const override;
+
     protected:
-        struct Sample {
-            float x, y, value;
-        };
+        struct Sample { float x, y, value; };
 
         int width_, height_;
         float x_min_, x_max_, y_min_, y_max_;
         float value_min_, value_max_;
         size_t max_points_;
         uint32_t flags_;
-
         std::deque<Sample> samples_;
         mutable std::mutex mtx_;
 
-        void UpdateMinMax(float value);
-        wxImage GenerateImage(const std::vector<float>& buf, const std::vector<int>& count) const;
+        void UpdateMinMax_(float value) {
+            value_min_ = std::min(value_min_, value);
+            value_max_ = std::max(value_max_, value);
+        }
     };
 
-    enum class TimeFrameMode {
-        Unlimited = 0,  // 全履歴保持
-        Overwrite,      // ラップ上書き
-        Scroll          // 上詰めスクロール
-    };
+    // ============================================================
+    // 時系列ヒートマップ：横(右方向)に時間進行、縦は値軸
+    //   AddData(in, out): in=縦方向値(=値軸), out=強度
+    // ============================================================
+    enum class TimeFrameMode { Unlimited = 0, Overwrite, Scroll };
 
     class TimeHeatMap : public HeatMap {
     public:
-        TimeHeatMap(int width_bins, int height,
-            float x_min, float x_max,
-            uint32_t flags = HM_Default,
-            size_t max_points = 0,
+        TimeHeatMap(int width_frames, int height_bins, float in_min, float in_max,
+            uint32_t flags = HM_Default, size_t max_points = 0,
             TimeFrameMode mode = TimeFrameMode::Unlimited);
 
         std::string GetImageSubType() const override { return "timed_heat_map"; }
 
-        void AddData(float x, float value);
-        void NextFrame();          // フレームを進める
+        void AddData(float in, float out);
+        void NextFrame();
         void Reset() override;
-        wxImage RenderRaw() const override;    // 上から下へ時間描画（既存HeatMap::Renderを拡張）
+        wxImage RenderRaw() const override;
 
         int GetCurrentFrame() const { return cur_frame_; }
         int GetTotalFrames() const { return total_frames_; }
+
     private:
         const TimeFrameMode mode_;
-        int cur_frame_;        // 現在フレームカウント
-        int total_frames_;     // 累計フレーム数（Unlimited時に増え続ける）
-        mutable std::mutex mtx_;
-    protected:
-        void EraseRow_(int y_row);   // 行削除（Overwrite用）
-        //void ScrollUp_();                     // スクロール（Scroll用）
-        void ScrollDown_();      // 古い行を上へ押し上げ、最新を下に積む
+        int cur_frame_;
+        int total_frames_;
+
+        void Scroll_();
+        void EraseCol_(int x_col);
     };
 
-
     // ============================================================
-    // Histgram : 1次元分布可視化
+    // Histgram : 静的1Dヒストグラム
     // ============================================================
     class Histgram : public ImageSource {
     public:
         Histgram(int bins, float min_val, float max_val, int width = 256, int height = 128);
-
         std::string GetImageSubType() const override { return "histgram"; }
 
         void AddData(float value);
         void Reset() override;
         wxImage RenderRaw() const override;
+
     private:
         int bins_;
         int width_, height_;
@@ -131,91 +133,78 @@ namespace anet {
     };
 
     // ============================================================
-    // TimeHistogram : 分布の時間変化（フレーム単位管理）
+    // TimeHistogram : 値分布の時間推移（X=時間、Y=値軸、色=頻度）
+    //   - 固定/自動(EMA)の二択
+    //   - 対数“軸”描画、ゼロライン描画
+    //   - 値範囲が指定(NaN以外)されていればそれをベースとして尊重
     // ============================================================
     class TimeHistogram : public ImageSource {
-        public:
-            TimeHistogram(int bins, int max_frames,
-                TimeFrameMode mode = TimeFrameMode::Scroll,
-                bool auto_norm = true, bool auto_range = true,
-                float min_val = -1, float max_val = -1);
+    public:
+        TimeHistogram(int bins, int max_frames,
+            TimeFrameMode mode = TimeFrameMode::Scroll,
+            uint32_t flags = HM_AutoScaleAxis | HM_AutoNormValue,
+            float base_min = std::numeric_limits<float>::quiet_NaN(),
+            float base_max = std::numeric_limits<float>::quiet_NaN(),
+            float alpha = 0.05f
+            );
 
-            void AddBatch(const std::vector<float>& values);
-            void NextFrame();
+        void AddBatch(const std::vector<float>& values);
+        void NextFrame();
+        void Reset() override;
+        wxImage RenderRaw() const override;
 
-            void Reset()override;
-            wxImage RenderRaw() const override { return thm_.RenderRaw(); }
+        std::string GetImageSubType() const override { return "time_histgram"; }
 
-            std::string GetImageSubType() const override { return "time_histgram"; }
+        // 参照用（描画時のレンジ）
+        float MinVal() const { return min_val_; }
+        float MaxVal() const { return max_val_; }
+
     private:
-            TimeHeatMap thm_;
-            int bins_;
-            float min_val_;
-            float max_val_;
-            bool auto_norm_;
-            bool auto_range_;
-            std::vector<float> buffer_;
-            float smooth_min_ = 0.0f;
-            float smooth_max_ = 1.0f;
-            float smooth_rate_ = 0.05f; // 5% ずつ追従
-        };
+        TimeHeatMap thm_;          // 横:フレーム, 縦:bin(0..bins-1)
+        int bins_;
+        float alpha_;              // EMA係数
+        uint32_t flags_;
+
+        // 固定ベース（NaNで未指定）
+        float base_min_, base_max_;
+
+        // 実効レンジ（描画に用いる）
+        float min_val_, max_val_;
+
+        // フレーム内カウントバッファ
+        std::vector<float> buffer_;
+
+        // 値→bin の写像
+        int MapToBin_(float v) const;
+        int MapToBinLinear_(float v) const;
+        int MapToBinLogAxis_(float v) const;
+    };
 
     // ============================================================
-    // SweepedHeatMap : xyスイープによるヒートマップ生成
+    // SweepedHeatMap : (x,y) 全域をスイープして値評価
     // ============================================================
     class SweepedHeatMap : public ImageSource {
     public:
-        SweepedHeatMap(int width, int height,
-            float x_min, float x_max,
+        SweepedHeatMap(int width, int height, float x_min, float x_max,
             float y_min, float y_max);
 
         std::string GetImageSubType() const override { return "sweeped_map"; }
 
         void Evaluate(const std::function<float(float, float)>& func);
         wxImage RenderRaw() const override;
-		void Reset() override;
+        void Reset() override;
 
-		// Q値などのNN可視化（GPUバッチ対応）
         static SweepedHeatMap EvaluateTensorFunction(
-            int width, int height,
-            float x_min, float x_max,
-            float y_min, float y_max,
+            int width, int height, float x_min, float x_max, float y_min, float y_max,
             const torch::Device& device,
-            const std::function<torch::Tensor(const torch::Tensor&)>& forward,              //  torch::Tensor input -> torch::Tensor output
-			const std::function<torch::Tensor(const torch::Tensor&)>& value_extractor);     //  torch::Tensor output -> torch::Tensor value
+            const std::function<torch::Tensor(const torch::Tensor&)>& forward,
+            const std::function<torch::Tensor(const torch::Tensor&)>& value_extractor);
 
-        //auto q_map = anet::SweepedHeatMap::FromSweepFunctionNN(
-        //    128, 128,
-        //    -2.4f, 2.4f,   // x range
-        //    -0.21f, 0.21f,  // theta range
-        //    // forward関数: [x, theta] -> [x, x_dot, theta, theta_dot] のテンソルを作る
-        //    [&](const torch::Tensor& xy) {
-        //        // xy: (N, 2)
-        //        auto x     = xy.index({ torch::indexing::Slice(), 0 }).unsqueeze(1); // (N,1)
-        //        auto theta = xy.index({ torch::indexing::Slice(), 1 }).unsqueeze(1); // (N,1)
-        //        // 固定値を作成（すべて0）
-		//        auto x_dot = torch::zeros_like(x);          // (N,1)
-		//        auto theta_dot = torch::zeros_like(theta);  // (N,1)
-        //        // 4次元状態 [x, x_dot, theta, theta_dot]
-        //        auto s = torch::cat({ x, x_dot, theta, theta_dot }, 1).to(device); // (N,4)
-        //        return model->forward(s);
-        //    },
-        //    // value抽出関数: Q値のうちaction=0の値を抽出
-        //    [&](const torch::Tensor& out) {
-        //        return out.index({ torch::indexing::Slice(), 0 });
-        //    }
-        //);
     private:
         int width_, height_;
         float x_min_, x_max_, y_min_, y_max_;
         std::vector<float> values_;
         float value_min_, value_max_;
-
-        void Normalize();
     };
 
-} // namespace anet
-
-
-void test_heatmap_and_histgram();
-
+}  // namespace anet

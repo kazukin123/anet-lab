@@ -171,13 +171,25 @@ RLAgent::RLAgent(anet::rl::Environment& env, int state_dim, int n_actions, torch
         : 1.0f; // 念のため（0割回避）
 
     // ヒートマップオブジェクトを生成
+	auto nan = std::numeric_limits<float>::quiet_NaN();
     auto info = env.GetStateSpaceInfo();
-    auto flags = anet::HeatMapFlags::HM_LogScale | anet::HeatMapFlags::HM_AutoNorm;
+    auto flags = anet::HeatMapFlags::HM_LogScaleValue | anet::HeatMapFlags::HM_AutoNormValue
+		| anet::HeatMapFlags::HM_AutoScaleAxis | anet::HeatMapFlags::HM_LogScaleAxis | anet::HeatMapFlags::HM_ShowZeroLine;
     heatmap_visit1_ = anet::rl::MakeStateHeatMapPtr(info, 0, 2, 256, 256, 30000, flags | anet::HeatMapFlags::HM_SumMode);  // x vs theta → reward
     heatmap_visit2_ = anet::rl::MakeStateHeatMapPtr(info, 2, 3, 256, 256, 30000, flags | anet::HeatMapFlags::HM_SumMode);  // x vs theta → reward
     heatmap_td_     = anet::rl::MakeStateHeatMapPtr(info, 0, 2, 256, 256, 30000, flags | anet::HeatMapFlags::HM_MeanMode); // x vs theta → td
-    hist_action_ = std::make_unique<anet::TimeHistogram>(2, 200, anet::TimeFrameMode::Scroll, false, false, -1.0f, 1.0f);
-    hist_q_ = std::make_unique<anet::TimeHistogram>(64, 200, anet::TimeFrameMode::Scroll);
+    hist_action_ = std::make_unique<anet::TimeHistogram>(
+        2, 200, anet::TimeFrameMode::Scroll, flags, -1.0f, 1.0f, 0.05f);
+    hist_q_ = std::make_unique<anet::TimeHistogram>(
+        256, 400, anet::TimeFrameMode::Scroll, flags | anet::HeatMapFlags::HM_FlipY, 0.0f, nan, 0.05f);
+
+    //TimeHistogram(int bins, int max_frames,
+    //    TimeFrameMode mode = TimeFrameMode::Scroll,
+    //    uint32_t flags = HM_AutoScaleAxis | HM_AutoNormValue,
+    //    float alpha = 0.05f,
+    //    float base_min = std::numeric_limits<float>::quiet_NaN(),
+    //    float base_max = std::numeric_limits<float>::quiet_NaN()
+    //);
 
     // NN初期化
     policy_net->to(device);
@@ -627,7 +639,7 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
         wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/08_q_niqr", train_step, 0.0f);
         wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/01_q_unstable", train_step, 0.0f);
         wxGetApp().GetMetricsLogger()->log_scalar("34_agent_as_a/03_action_unstable", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("34_agent_as_a/01_action_diff", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("34_agent_as_a/01_action_diff", train_step, 0.5f);
         wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/01_uema_unstable", train_step, unstable_ema_);
         wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/02_uema_s", train_step, 0.0f);
         wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/03_uema_e_t", train_step, 0.0f);
