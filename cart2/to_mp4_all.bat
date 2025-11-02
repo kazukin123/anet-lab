@@ -2,7 +2,7 @@
 
 set "run="
 for /f "delims=" %%A in ('dir logs /b /o:n') do (
-    echo RUN: %run%
+    echo RUN: %%A
     call:each_run %%A
 )
 
