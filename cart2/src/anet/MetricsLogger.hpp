@@ -1,17 +1,11 @@
 ﻿#pragma once
 #include <nlohmann/json.hpp>
 #include <fstream>
-#include <chrono>
-#include <iomanip>
 #include <filesystem>
-#include <sstream>
-#include <iostream>
 #include <memory>
-#include <cmath>
 #include <unordered_map>
-#include <cstdio>
 #include <wx/image.h>
-
+#include <wx/process.h>
 #include "anet/HeatMap.hpp"  // anet::ImageSource を含む
 
 using json = nlohmann::json;
@@ -40,6 +34,26 @@ public:
 };
 
 //----------------------------------------------
+// VideoLogger (ffmpegパイプで動画出力)
+//----------------------------------------------
+class VideoLogger {
+private:
+    wxProcess* process_ = nullptr;
+    wxOutputStream* stream_ = nullptr;
+    int width_ = 0, height_ = 0;
+    std::string path_;
+    int fps_;
+    std::string codec_;
+
+public:
+    VideoLogger(const std::string& path, int width, int height, int fps = 30, const std::string& codec = "mjpeg");
+    ~VideoLogger() { Close(); }
+
+    void WriteFrame(const wxImage& img);
+    void Close();
+};
+
+//----------------------------------------------
 // MetricsLogger 本体
 //----------------------------------------------
 class MetricsLogger {
@@ -49,13 +63,15 @@ private:
     std::string run_name;
     bool enable_image_log_ = true;
 
-    // 画像連番（tag ごと）
+    // 画像・動画用連番管理
     std::unordered_map<std::string, uint64_t> image_seq_;
+    std::unordered_map<std::string, std::unique_ptr<VideoLogger>> video_loggers_;
 
     static json round_numbers(const json& j, int precision = 6);
     static std::string current_time_str();
+    static std::string sanitize_filename(const std::string& s);
 
-    // subtype 付き内部実装（重い処理は cpp 側）
+    // 内部実装
     void log_image_subtyped(const std::string& tag,
         int step,
         const wxImage& image,
@@ -66,11 +82,8 @@ public:
         const std::string& root = "logs",
         const std::string& run = "");
 
-    void SetEnableImageLog(bool enable_image_log) {
-        this->enable_image_log_ = enable_image_log;
-    }
+    void SetEnableImageLog(bool enable_image_log) { enable_image_log_ = enable_image_log; }
 
-    // 軽量メソッドはヘッダ内に実装
     inline void log_scalar(const std::string& tag, int step, double value) {
         json obj = {
             {"run", run_name},
@@ -94,13 +107,11 @@ public:
         backend->write_jsonl(obj);
     }
 
-    // 汎用画像（subtype なし）
     inline void log_image(const std::string& tag, int step, const wxImage& image) {
         if (!enable_image_log_) return;
         log_image_subtyped(tag, step, image, "");
     }
 
-    // 可視化オブジェクト（subtype は anet::ImageSource 側が返す）
     inline void log_image(const std::string& tag, int step, const anet::ImageSource& src, int width = -1, int height = -1) {
         if (!enable_image_log_) return;
         auto img = src.Render(width, height);
@@ -109,10 +120,6 @@ public:
     }
 
     inline std::string get_run_name() const { return run_name; }
-
-    inline std::string get_out_dir() const {
-        return std::filesystem::relative(root_dir + "/" + run_name).string();
-    }
-
+    inline std::string get_out_dir() const { return std::filesystem::relative(root_dir + "/" + run_name).string(); }
     inline void flush() { backend->flush(); }
 };

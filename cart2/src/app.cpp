@@ -30,7 +30,8 @@ bool MyApp::OnInit() {
     auto backend = std::make_unique<JsonlBackend>();
 	mt_logger = std::make_unique<MetricsLogger>(std::move(backend), "logs");
 
-    bool enable_image_log = properties_->Get("log.enable_image_log", true);
+    bool enable_image_log;
+    properties_->Read("log.enable_image_log", enable_image_log, true);
     mt_logger->SetEnableImageLog(enable_image_log);
 
     auto* frame = new CartPoleFrame("CartPole RL");

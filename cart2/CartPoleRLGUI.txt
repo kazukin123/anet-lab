@@ -2,7 +2,7 @@
 train.preset=train.online
 #train.preset=train.batchrun
 #train.preset=train.batchrun2
-log.enable_image_log = false
+log.enable_image_log = true
 
 # agent
 
