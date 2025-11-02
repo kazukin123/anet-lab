@@ -9,6 +9,7 @@ using namespace anet::util;
 
 const float met_ema_decay = 0.995f;  // 平滑化係数(メトリクス用)
 const float met_ema_decay_act = 0.9995f;  // 平滑化係数(メトリクス用)action_ema用
+const float met_ema_decay_reward = 0.9995f;  // 平滑化係数(メトリクス用)action_ema用
 
 // ==== ハイパーパラメータ ====
 struct RLAgent::Param {
@@ -49,8 +50,8 @@ struct RLAgent::Param {
     float eps_reheat_floor = 0.20f;
     float tau_min = 0.0005f;            //τ の下限
     float tau_max = 0.001f;             //τ の上限
-    float tau_decay_on_hit = 0.98f;     // 不安定時のτ減衰率
-    float tau_recover_rate = 0.002f;    // 1stepごとに+0.2%回復
+    float tau_half_life_hit = 200;       // 崩壊中、τが半減するまでのstep数
+    float tau_half_life_recover = 4000;  // 安定後、τが2倍に戻るまでのstep数
     int tau_recover_delay = 1000;       // 1000step安定していたら回復開始
     float act_bias_threshold = 0.85f;  // 行動偏り閾値 (|left_ratio - right_ratio| > 0.85 → 崩壊)
 
@@ -110,8 +111,8 @@ struct RLAgent::Param {
         ANET_READ_PROPS(props, preset, eps_reheat_half_life);
         ANET_READ_PROPS(props, preset, tau_min);
         ANET_READ_PROPS(props, preset, tau_max);
-        ANET_READ_PROPS(props, preset, tau_decay_on_hit);
-        ANET_READ_PROPS(props, preset, tau_recover_rate);
+        ANET_READ_PROPS(props, preset, tau_half_life_hit);
+        ANET_READ_PROPS(props, preset, tau_half_life_recover);
         ANET_READ_PROPS(props, preset, tau_recover_delay);
         ANET_READ_PROPS(props, preset, act_bias_threshold);
         ANET_READ_PROPS(props, preset, use_unstable_ema);
@@ -229,8 +230,8 @@ RLAgent::RLAgent(anet::rl::Environment& env, int state_dim, int n_actions, torch
         {"eps_reheat_floor", param_->eps_reheat_floor},
         {"tau_min", param_->tau_min},
         {"tau_max", param_->tau_max},
-        {"tau_decay_on_hit", param_->tau_decay_on_hit},
-        {"tau_recover_rate", param_->tau_recover_rate},
+        {"tau_half_life_hit ", param_->tau_half_life_hit },
+        {"tau_half_life_recover ", param_->tau_half_life_recover },
         {"tau_recover_delay", param_->tau_recover_delay},
         {"act_bias_threshold", param_->act_bias_threshold},
 
@@ -294,7 +295,7 @@ RLAgent::SelectAction(const torch::Tensor& state, anet::rl::RunMode mode) {
         static_cast<float>(action.item<int>()) :    // 単一
         action.to(torch::kFloat32).mean().item<float>();    // バッチ（将来用）
     action_ema = met_ema_decay_act * action_ema + (1 - met_ema_decay_act) * action_float;
-    wxGetApp().GetMetricsLogger()->log_scalar("21_agent/16_action_ema", train_step, action_ema);
+    wxGetApp().GetMetricsLogger()->log_scalar("34_agent_as_a/02_action_ema", train_step, action_ema);
 
     return { action, torch::Tensor(), torch::Tensor() };
 }
@@ -381,14 +382,15 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {
         epsilon = std::clamp(eps_raw, eps_reheat_floor_, param_->eps_max);
 
         // 安定状態が続いている場合はτをゆっくり回復
+        float recover_factor = std::exp(std::log(2.0f) / param_->tau_half_life_recover);
         if (param_->use_unstable_ema) {
             if (unstable_ema_ < 0.3f) { // 閾値は経験的に 0.2〜0.4
-                tau_ = std::min(param_->tau_max, tau_ * (1.0f + param_->tau_recover_rate));
+                tau_ = std::min(param_->tau_max, tau_ * recover_factor);
             }
         } else {
             int stable_steps = train_step - last_unstable_step_;
             if (stable_steps > param_->tau_recover_delay) {
-                tau_ = std::min(param_->tau_max, tau_ * (1.0f + param_->tau_recover_rate));
+                tau_ = std::min(param_->tau_max, tau_ * recover_factor);
             }
         }
         tau_ = std::clamp(tau_, param_->tau_min, param_->tau_max);
@@ -404,10 +406,10 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {
     // ヒートマップ画像保存
     if (param_->heatmap_log_image_interval > 0 && train_step != 0 &&
         (train_step % param_->heatmap_log_image_interval) == 0) {
-        wxGetApp().GetMetricsLogger()->log_image("28_agent/01_heatmap_visit1", train_step, *heatmap_visit1_);
-        wxGetApp().GetMetricsLogger()->log_image("28_agent/02_heatmap_visit2", train_step, *heatmap_visit2_);
+        wxGetApp().GetMetricsLogger()->log_image("43_agent_img/02_hm_visit1", train_step, *heatmap_visit1_);
+        wxGetApp().GetMetricsLogger()->log_image("43_agent_img/03_hm_visit2", train_step, *heatmap_visit2_);
         if (!param_->use_replay_buffer)
-            wxGetApp().GetMetricsLogger()->log_image("28_agent/03_heatmap_td", train_step, *heatmap_td_);
+            wxGetApp().GetMetricsLogger()->log_image("43_agent_img/04_hm_td", train_step, *heatmap_td_);
     }
 
     // Q値ヒートマップ生成・保存（CUDA無いと遅い）
@@ -432,29 +434,37 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {
                 return out.index({ torch::indexing::Slice(), 1 }) -
                     out.index({ torch::indexing::Slice(), 0 });
             });
-        wxGetApp().GetMetricsLogger()->log_image("28_agent/04_heatmap_q", train_step, q_map);
+        wxGetApp().GetMetricsLogger()->log_image("43_agent_img/05_hm_q", train_step, q_map);
     }
 
     // メトリクス出力
 // --- Warmup期間中にAS-DQN統計と同期して軸を揃える ---
     if (param_->use_as_dqn && replay_buffer.Size() < param_->replay_warmup_steps) {
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/01_q_mean", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/02_q_max", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/03_q_std", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/03_q_std_ema", train_step, qstd_ema_);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/04_q_z", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/09_q_cv", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/10_q_niqr", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/13_q_unstable", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/15_unstable_ema", train_step, unstable_ema_);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/16_tau", train_step, tau_);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/17_eps_boost", train_step, eps_boost_);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/19_uema_s", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/20_e_t", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/21_diff_s_e_t", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("33_agent_as/01_eps_boost", train_step, eps_boost_);
+        wxGetApp().GetMetricsLogger()->log_scalar("34_agent_as_a/01_action_diff", train_step, 0.5);
+        wxGetApp().GetMetricsLogger()->log_scalar("34_agent_as_a/03_action_unstable", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/01_q_unstable", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/02_q_mean", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/03_q_max", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/04_q_std", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/05_q_std_ema", train_step, qstd_ema_);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/06_q_z", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/07_q_cv", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/08_q_niqr", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/01_q_unstable", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/01_uema_unstable", train_step, unstable_ema_);
+        wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/02_uema_s", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/03_uema_e_t", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/04_uema_diff_s_e_t", train_step, 0.0f);
     }
-    wxGetApp().logScalar("21_agent/18_epsilon", train_step, epsilon);               //εグリーディーのε
-    wxGetApp().logScalar("21_agent/17_eps_reheat_floor", train_step, eps_reheat_floor_);               //εグリーディーのε
+    if (param_->use_as_dqn) {
+        wxGetApp().GetMetricsLogger()->log_scalar("32_agent_dqn_base/01_tau", train_step, tau_);
+        wxGetApp().GetMetricsLogger()->log_scalar("32_agent_dqn_base/02_tau_half_life", train_step, std::log(2.0f) / tau_);
+        wxGetApp().GetMetricsLogger()->log_scalar("33_agent_as/01_eps_reheat_floor", train_step, eps_reheat_floor_);               //εグリーディーのε
+    }
+    {
+        wxGetApp().GetMetricsLogger()->log_scalar("32_agent_dqn_base/03_epsilon", train_step, epsilon);               //εグリーディーのε
+    }
 }
 
 void RLAgent::UpdateBatch(const anet::rl::BatchData& batch) {
@@ -554,26 +564,23 @@ void RLAgent::OptimizeSingle(const anet::rl::Experience& exprence) {
     }
 
     // メトリクス記録
-    wxGetApp().logScalar("22_agent/03_q_sa", train_step, q_sa.item<double>());      //
-    wxGetApp().logScalar("22_agent/04_q_diff", train_step, q_diff.item<float>());   // policy と target の Q値乖離
+    wxGetApp().GetMetricsLogger()->log_scalar("37_agent_dqn_qtd/01_q_sa", train_step, q_sa.item<double>());      //
+    wxGetApp().GetMetricsLogger()->log_scalar("37_agent_dqn_qtd/02_q_diff", train_step, q_diff.item<float>());   // policy と target の Q値乖離
 
     if (param_->use_td_clip) {
-        wxGetApp().logScalar("23_agent/05_td_cliped_ema", train_step, td_clip_ema); // TD誤差 クリップ前
-        wxGetApp().logScalar("23_agent/06_td_cliped", train_step, td_cliped);       // TD誤差 クリップ前
-        wxGetApp().logScalar("23_agent/07_td_error_raw", train_step, td_raw.item<float>()); // TD誤差 クリップ前
+        wxGetApp().GetMetricsLogger()->log_scalar("37_agent_dqn_qtd/05_td_cliped_ema", train_step, td_clip_ema); // TD誤差 クリップ前
+        wxGetApp().GetMetricsLogger()->log_scalar("37_agent_dqn_qtd/06_td_cliped", train_step, td_cliped);       // TD誤差 クリップ前
+        wxGetApp().GetMetricsLogger()->log_scalar("37_agent_dqn_qtd/04_td_error_raw", train_step, td_raw.item<float>()); // TD誤差 クリップ前
     }
-    wxGetApp().logScalar("23_agent/08_reward", train_step, exprence.response.reward);   // 報酬
-    wxGetApp().logScalar("23_agent/09_td_error", train_step, td.item<float>());         // TD誤差（TD誤差クリップ有りの場合はクリップ後）
-    wxGetApp().logScalar("23_agent/10_loss", train_step, loss.item<float>());           // loss値
-    wxGetApp().logScalar("23_agent/11_loss_ema", train_step, loss_ema);                 // loss値のEMA移動平均
+    wxGetApp().GetMetricsLogger()->log_scalar("37_agent_dqn_qtd/03_td_error", train_step, td.item<float>());         // TD誤差（TD誤差クリップ有りの場合はクリップ後）
+    wxGetApp().GetMetricsLogger()->log_scalar("38_agent_dqn_loss/01_loss", train_step, loss.item<float>());           // loss値
+    wxGetApp().GetMetricsLogger()->log_scalar("38_agent_dqn_loss/02_loss_ema", train_step, loss_ema);                 // loss値のEMA移動平均
 
-    wxGetApp().logScalar("24_agent/12_grad_norm", train_step, total_norm);              // 勾配ノルム
+    wxGetApp().GetMetricsLogger()->log_scalar("39_agent_dqn_grad/01_grad_norm", train_step, total_norm);              // 勾配ノルム
     if (param_->use_grad_clip) {
-        wxGetApp().logScalar("24_agent/13_grad_cliped", train_step, grad_norm_clipped);       // 勾配ノルムがクリッピングされたか
-        wxGetApp().logScalar("24_agent/14_grad_cliped_ema", train_step, grad_norm_clipped_ema);   // 勾配ノルムのクリッピング率（EMA移動平均）
+        wxGetApp().GetMetricsLogger()->log_scalar("39_agent_dqn_grad/02_grad_cliped", train_step, grad_norm_clipped);       // 勾配ノルムがクリッピングされたか
+        wxGetApp().GetMetricsLogger()->log_scalar("39_agent_dqn_grad/03_grad_cliped_ema", train_step, grad_norm_clipped_ema);   // 勾配ノルムのクリッピング率（EMA移動平均）
     }
-    //    wxGetApp().logScalar("2_agent/done",     train_step, done);
-    //    wxGetApp().logScalar("2_agent/hard_update_done",     train_step, hard_update_done);
 
     // ヒートマップ更新
     auto x = exprence.state[0][0].item<float>();
@@ -611,23 +618,20 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
         tau_ = param_->softupdate_tau;
 
         // --- Warmup期間中も0値を出力して可視化軸を統一 ---
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/01_q_mean", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/02_q_max", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/03_q_std", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/03_q_std_ema", train_step, qstd_ema_);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/04_q_z", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/09_q_cv", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/10_q_niqr", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/13_q_unstable", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/15_unstable_ema", train_step, unstable_ema_);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/16_act_unstable", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/16_diff_action", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/16_tau", train_step, tau_);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/17_eps_boost", train_step, eps_boost_);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/18_eps_reheat_floor", train_step, eps_reheat_floor_);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/19_uema_s", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/20_e_t", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/21_diff_s_e_t", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/02_q_mean", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/03_q_max", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/04_q_std", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/04_q_std_ema", train_step, qstd_ema_);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/06_q_z", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/07_q_cv", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/08_q_niqr", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/01_q_unstable", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("34_agent_as_a/03_action_unstable", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("34_agent_as_a/01_action_diff", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/01_uema_unstable", train_step, unstable_ema_);
+        wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/02_uema_s", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/03_uema_e_t", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/04_uema_diff_s_e_t", train_step, 0.0f);
 
         return;  // ← AS-DQN部分の更新スキップ
     }
@@ -772,28 +776,29 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
                 eps_reheat_floor_ = std::max(eps_reheat_floor_, param_->eps_reheat_floor);
 
                 // τ を減らす（ターゲット更新を滑らかに → 発散を防止）
-                tau_ = std::max(param_->tau_min, tau_ * param_->tau_decay_on_hit);
+                float decay_factor = std::exp(-std::log(2.0f) / 
+                    (param_->tau_half_life_hit / param_->replay_update_interval));
+                tau_ = std::max(param_->tau_min, tau_ * decay_factor);
             }
 
             // 安定時のτ回復とεブーストの自然減衰はUpdate()側でマイステップ実行
 
             // ---- メトリクス出力 ----
-            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/01_q_mean", train_step, q_mean);
-            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/02_q_max", train_step, q_max);
-            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/03_q_std", train_step, q_std);
-            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/03_q_std_ema", train_step, qstd_ema_); // 優先度低い
-            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/04_q_z", train_step, q_z);
-            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/09_q_cv", train_step, q_cv);
-            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/10_q_niqr", train_step, q_niqr);
-            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/13_q_unstable", train_step, q_unstable ? 1.0f : 0.0f);
-            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/15_unstable_ema", train_step, unstable_ema_);
-            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/16_act_unstable", train_step, act_unstable ? 1.0f : 0.0f);
-            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/16_diff_action", train_step, act_diff);
-            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/16_tau", train_step, tau_);
-            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/17_eps_boost", train_step, eps_boost_);
-            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/19_uema_s", train_step, s);
-            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/20_e_t", train_step, e_t);
-            wxGetApp().GetMetricsLogger()->log_scalar("21_agent/21_diff_s_e_t", train_step, s - e_t);
+            wxGetApp().GetMetricsLogger()->log_scalar("33_agent_as/01_eps_boost", train_step, eps_boost_);
+            wxGetApp().GetMetricsLogger()->log_scalar("34_agent_as_a/01_action_diff", train_step, act_diff);
+            wxGetApp().GetMetricsLogger()->log_scalar("34_agent_as_a/03_action_unstable", train_step, act_unstable ? 1.0f : 0.0f);
+            wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/01_q_unstable", train_step, q_unstable ? 1.0f : 0.0f);
+            wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/02_q_mean", train_step, q_mean);
+            wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/03_q_max", train_step, q_max);
+            wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/04_q_std", train_step, q_std);
+            wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/05_q_std_ema", train_step, qstd_ema_); // 優先度低い
+            wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/06_q_z", train_step, q_z);
+            wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/07_q_cv", train_step, q_cv);
+            wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/08_q_niqr", train_step, q_niqr);
+            wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/01_uema_unstable", train_step, unstable_ema_);
+            wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/02_uema_s", train_step, s);
+            wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/03_uema_e_t", train_step, e_t);
+            wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/04_uema_diff_s_e_t", train_step, s - e_t);
 
             // Q値ヒストグラム更新
             float* p = max_q_cpu.data_ptr<float>();
@@ -803,27 +808,28 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
         }   // stats_ready
     } else {    // else: replay_buffer.Size() >= param_->replay_batch_size
         // ---- メトリクス出力(サンプル不足で評価未実施なので固定値) ----
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/01_q_mean", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/02_q_max", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/03_q_std", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/03_q_std_ema", train_step, qstd_ema_); // 優先度低い
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/04_q_z", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/09_q_cv", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/10_q_niqr", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/13_q_unstable", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/15_unstable_ema", train_step, unstable_ema_);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/16_tau", train_step, tau_);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/17_eps_boost", train_step, eps_boost_);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/19_uema_s", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/20_e_t", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("21_agent/21_diff_s_e_t", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("33_agent_as/01_eps_boost", train_step, eps_boost_);
+        wxGetApp().GetMetricsLogger()->log_scalar("34_agent_as_a/01_action_diff", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("34_agent_as_a/03_action_unstable", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/01_q_unstable", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/02_q_mean", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/03_q_max", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/04_q_std", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/04_q_std_ema", train_step, qstd_ema_); // 優先度低い
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/06_q_z", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/07_q_cv", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/08_q_niqr", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/01_uema_unstable", train_step, unstable_ema_);
+        wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/02_uema_s", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/03_uema_e_t", train_step, 0.0f);
+        wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/04_uema_diff_s_e_t", train_step, 0.0f);
     }
 
     // ReplayBufferモード時はReplayBufferの状態分布に基づくヒートマップを生成
     if (param_->heatmap_log_hist_interval > 0 && (train_step % param_->heatmap_log_hist_interval) == 0) {
         // ヒストグラム保存 (軸合わせのためサンプル数が足りない場合も出力)
-        wxGetApp().GetMetricsLogger()->log_image("22_agent/02_hist_action", train_step, *hist_action_, 50);
-        wxGetApp().GetMetricsLogger()->log_image("28_agent/05_hist_q", train_step, *hist_q_);
+        wxGetApp().GetMetricsLogger()->log_image("43_agent_img/01_th_action", train_step, *hist_action_, 50);
+        wxGetApp().GetMetricsLogger()->log_image("43_agent_img/06_th_q", train_step, *hist_q_);
     }
 
     // --- バッチ展開 ---
@@ -910,23 +916,21 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
     }
 
     // --- メトリクス出力（バッチ平均） ---
-    wxGetApp().logScalar("22_agent/03_q_sa", train_step, q_sa.mean().item<double>());
-    wxGetApp().logScalar("22_agent/04_q_diff", train_step, q_diff.item<float>());
+    wxGetApp().logScalar("37_agent_dqn_qtd/01_q_sa", train_step, q_sa.mean().item<double>());
+    wxGetApp().logScalar("37_agent_dqn_qtd/02_q_diff", train_step, q_diff.item<float>());
     if (param_->use_td_clip) {
-        wxGetApp().logScalar("23_agent/05_td_cliped_ema", train_step, td_clip_ema);
-        wxGetApp().logScalar("23_agent/06_td_cliped", train_step, td_cliped);
-        wxGetApp().logScalar("23_agent/07_td_error_raw", train_step, td_raw.mean().item<float>());
+        wxGetApp().logScalar("37_agent_dqn_qtd/05_td_cliped_ema", train_step, td_clip_ema);
+        wxGetApp().logScalar("37_agent_dqn_qtd/06_td_cliped", train_step, td_cliped);
+        wxGetApp().logScalar("37_agent_dqn_qtd/04_td_error_raw", train_step, td_raw.mean().item<float>());
     }
-    wxGetApp().logScalar("23_agent/08_reward", train_step, reward_b.mean().item<float>());
-    wxGetApp().logScalar("23_agent/09_td_error", train_step, td.mean().item<float>());
-    wxGetApp().logScalar("23_agent/10_loss", train_step, loss.item<float>());
-    wxGetApp().logScalar("23_agent/11_loss_ema", train_step, loss_ema);
-    wxGetApp().logScalar("24_agent/12_grad_norm", train_step, total_norm);
+    wxGetApp().logScalar("37_agent_dqn_qtd/03_td_error", train_step, td.mean().item<float>());
+    wxGetApp().logScalar("38_agent_dqn_loss/01_loss", train_step, loss.item<float>());
+    wxGetApp().logScalar("38_agent_dqn_loss/02_loss_ema", train_step, loss_ema);
+    wxGetApp().logScalar("39_agent_dqn_grad/01_grad_norm", train_step, total_norm);
     if (param_->use_grad_clip) {
-        wxGetApp().logScalar("24_agent/13_grad_cliped", train_step, grad_norm_clipped);
-        wxGetApp().logScalar("24_agent/14_grad_cliped_ema", train_step, grad_norm_clipped_ema);
+        wxGetApp().logScalar("39_agent_dqn_grad/02_grad_cliped", train_step, grad_norm_clipped);
+        wxGetApp().logScalar("39_agent_dqn_grad/03_grad_cliped_ema", train_step, grad_norm_clipped_ema);
     }
-    //wxGetApp().logScalar("25_replay/01_buffer_size", train_step, replay_buffer.Size());
 
     // --- soft/hard update ---
     if (param_->softupdate_tau > 0) soft_update();
