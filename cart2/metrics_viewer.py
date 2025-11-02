@@ -2,6 +2,13 @@
 # metrics_viewer.py
 # ---------------------------------
 # Metrics Viewer
+#  ・metrics_logger.hpp の JSONL ログを読み込み Plotly で可視化
+#  ・複数 Run/Tag 選択、手動/自動更新
+#  ・type=="json" のデータを下部に別表示
+#  ・Fix Header チェックでヘッダ固定/解除切替（全体キャプチャ用）
+#  ・更新中はInterval一時停止し完了後再開
+#  ・全 return を4要素に統一
+#  ・watchモードでは子プロセス出力を親側にパススルー
 # ---------------------------------
 
 import os
@@ -20,7 +27,7 @@ import dash
 
 RUN_CACHE = {}
 RUN_COLORS = {}
-VERSION = "v17.14"
+VERSION = "v17.18"
 is_updating = False
 
 
@@ -143,15 +150,12 @@ def make_tag_fig(run_data: dict[str, pd.DataFrame], selected_runs: list[str], ta
         if len(run_values) < 2:
             sorted_runs = list(run_values.keys())
         else:
-            all_x = []
-            for x, _y in run_values.values():
-                all_x.extend(list(x))
-            all_x = sorted(set(all_x))
+            all_x = sorted(set(sum([list(x) for x, _ in run_values.values()], [])))
             if len(all_x) > 2000:
                 stride = max(1, len(all_x) // 2000)
                 all_x = all_x[::stride]
 
-            scores: dict[str, float] = {}
+            scores = {}
             for run, (x, y) in run_values.items():
                 s = pd.Series(y, index=x)
                 interp = s.reindex(all_x, method="nearest")
@@ -200,8 +204,11 @@ def make_tag_fig(run_data: dict[str, pd.DataFrame], selected_runs: list[str], ta
 
 
 def create_app(log_root: str) -> Dash:
-    app = Dash(__name__)
+    app = Dash(__name__, serve_locally=True)
     app.title = "Metrics Viewer"
+    app.config.suppress_callback_exceptions = True
+    app.config.prevent_initial_callbacks = "initial_duplicate"
+    app.enable_dev_tools(debug=False, dev_tools_ui=False, dev_tools_props_check=False)
 
     app.layout = html.Div([
         html.Div(id="header-container", children=[
@@ -243,7 +250,8 @@ def create_app(log_root: str) -> Dash:
                 html.Button("Auto Refresh: OFF", id="toggle-auto", n_clicks=0,
                             style={"marginLeft": "6px", "height": "28px"})
             ], style={
-                "backgroundColor": "inherit", "padding": "6px 12px 11px 12px",
+                "backgroundColor": "inherit",
+                "padding": "6px 12px 11px 12px",
                 "display": "flex", "alignItems": "center", "gap": "6px"
             })
         ], style={"position": "fixed", "top": "0", "left": "0", "right": "0", "zIndex": "1000"}),
@@ -256,7 +264,7 @@ def create_app(log_root: str) -> Dash:
         }),
 
         dcc.Store(id="auto-flag", data=False),
-        dcc.Interval(id="tick", interval=10000, n_intervals=0, disabled=True)
+        dcc.Interval(id="tick", interval=20000, n_intervals=0, disabled=True)
     ])
 
     # ---- Auto Refresh トグル ----
@@ -305,19 +313,18 @@ def create_app(log_root: str) -> Dash:
     def update_graphs(_n_auto, _n_manual, selected_runs, selected_tags):
         global is_updating
         if is_updating:
-            print("[WARN] Skip update: previous update still running.")
+            print("[WARN] Previous update still running; skip.")
             raise dash.exceptions.PreventUpdate
         is_updating = True
         start_t = time.time()
         print("[INFO] Updating start...")
-
         try:
             runs = sorted([d for d in os.listdir(log_root)
-                           if os.path.isdir(os.path.join(log_root, d))],
-                          reverse=True)
+                           if os.path.isdir(os.path.join(log_root, d))], reverse=True)
             if not runs:
                 print("[WARN] No runs found.")
                 return [html.Div("No runs.", style={"color": "gray"})], [], [], []
+
             if not selected_runs:
                 selected_runs = [runs[0]]
 
@@ -349,7 +356,6 @@ def create_app(log_root: str) -> Dash:
                               style={"height": "300px", "position": "relative"})
                 ], style={"marginBottom": "8px", "position": "relative"}))
 
-            # JSON メタ情報
             meta_blocks = render_meta_info(run_data)
             if meta_blocks:
                 graphs.append(html.Hr(style={"borderTop": "1px solid #555"}))
@@ -361,8 +367,11 @@ def create_app(log_root: str) -> Dash:
                 run_options.append({
                     "label": html.Span([
                         html.Span("■", style={
-                            "color": color, "fontWeight": "bold", "marginRight": "6px",
-                            "display": "inline-block", "width": "10px"
+                            "color": color,
+                            "fontWeight": "bold",
+                            "marginRight": "6px",
+                            "display": "inline-block",
+                            "width": "10px"
                         }),
                         html.Span(r)
                     ], style={"display": "inline-flex", "alignItems": "center"}),
@@ -390,10 +399,15 @@ if __name__ == "__main__":
         app = create_app(args.logdir)
         app.run(debug=False)
     else:
+        # watchモード（出力パススルー付き）
         target = os.path.abspath(__file__)
         last = os.path.getmtime(target)
         print(f"[INFO] Watching {target}")
-        proc = subprocess.Popen([sys.executable, target, "--serve", "--logdir", args.logdir])
+        proc = subprocess.Popen(
+            [sys.executable, target, "--serve", "--logdir", args.logdir],
+            stdout=sys.stdout,
+            stderr=sys.stderr
+        )
         try:
             while True:
                 time.sleep(1)
@@ -406,7 +420,10 @@ if __name__ == "__main__":
                     except subprocess.TimeoutExpired:
                         proc.kill()
                     proc = subprocess.Popen(
-                        [sys.executable, target, "--serve", "--logdir", args.logdir])
+                        [sys.executable, target, "--serve", "--logdir", args.logdir],
+                        stdout=sys.stdout,
+                        stderr=sys.stderr
+                    )
                     last = mtime
         except KeyboardInterrupt:
             proc.terminate()
