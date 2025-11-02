@@ -18,6 +18,7 @@ struct CartPoleFrame::Param {
     int eval_interval = 1;
     int train_pause_step = 110000;
     int train_exit_step = -1; //110000;
+	int canvas_mode = 0;    //  0:評価エピソードの終了状況を描画 1:学習エピソードの終了状態を描画 2:学習状況を描画 
 
     CartPoleFrame::Param(Properties* props) {
         if (props == NULL) return;
@@ -157,9 +158,10 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
             plotPanel->AddReward(train_total_reward);
 
             // Canvas更新（エピソード終了）
-            //canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
-            //canvas->SetAction(action);
-            //canvas->SetReward(last_reward);
+            canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
+            canvas->SetAction(action);
+            canvas->SetReward(last_reward);
+            canvas->Refresh();
 
             // 学習状況評価
             float eval_total_reward = -1.0f;
@@ -183,9 +185,9 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
                     wxGetApp().logScalar("11_eval/01_target_reward", step_count, total_reward);
 
                     // ターゲットネットワークによる評価の終了状態を描画
-                    canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
-                    canvas->SetAction(action);
-                    canvas->SetReward(env_result.reward);
+                    //canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
+                    //canvas->SetAction(action);
+                    //canvas->SetReward(env_result.reward);
                     //canvas->Refresh();
                 }
                 {   // メインネットワークによる評価
