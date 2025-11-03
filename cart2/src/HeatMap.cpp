@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <wx/log.h>
+#include <cmath>
 
 using namespace anet;
 
@@ -70,25 +71,18 @@ HeatMap::HeatMap(int width, int height, float x_min, float x_max, float y_min, f
 }
 
 void HeatMap::AddData(float x, float y, float value) {
-    //std::lock_guard<std::mutex> lock(mtx_);
     samples_.push_back({ x, y, value });
-    if (max_points_ > 0 && samples_.size() > max_points_) samples_.pop_front();
     UpdateMinMax_(value);
 }
 
 void HeatMap::Reset() {
-    //std::lock_guard<std::mutex> lock(mtx_);
     samples_.clear();
     value_min_ = std::numeric_limits<float>::max();
     value_max_ = -std::numeric_limits<float>::max();
 }
 
 wxImage HeatMap::RenderRaw() const {
-    std::vector<Sample> snapshot;
-    {
-        std::lock_guard<std::mutex> lock(mtx_);
-        snapshot.assign(samples_.begin(), samples_.end());
-    }
+    std::vector<Sample> snapshot(samples_.begin(), samples_.end());
     if (snapshot.empty()) {
         wxImage empty(1, 1); empty.SetData(new unsigned char[3] {0, 0, 0}); return empty;
     }
@@ -118,11 +112,22 @@ wxImage HeatMap::RenderRaw() const {
     std::vector<int> cnt(width_ * height_, 0);
 
     for (const auto& p : snapshot) {
-        int ix = static_cast<int>((p.x - lx_min) / (lx_max - lx_min) * width_);
+        float fx = (p.x - lx_min) / (lx_max - lx_min) * width_;
+        int ix = static_cast<int>(std::floor(fx));
+        float frac = fx - ix;
         int iy = static_cast<int>((p.y - ly_min) / (ly_max - ly_min) * height_);
-        if (ix < 0 || ix >= width_ || iy < 0 || iy >= height_) continue;
-        int idx = iy * width_ + ix;
-        buf[idx] += p.value; cnt[idx]++;
+
+        if (iy < 0 || iy >= height_) continue;
+        if (ix >= 0 && ix < width_) {
+            int idx = iy * width_ + ix;
+            buf[idx] += (1.0f - frac) * p.value;
+            cnt[idx]++;
+        }
+        if (ix + 1 >= 0 && ix + 1 < width_) {
+            int idx2 = iy * width_ + (ix + 1);
+            buf[idx2] += frac * p.value;
+            cnt[idx2]++;
+        }
     }
 
     if (flags_ & HM_MeanMode) {
@@ -138,10 +143,8 @@ wxImage HeatMap::RenderRaw() const {
             int idx = y * width_ + x;
             unsigned char r = 0, g = 0, b = 0;
             float v = buf[idx];
-            float eps = 1e-6f;
-
-            if (cnt[idx] == 0 || std::fabs(v) < eps) {
-                r = g = b = 0; // 黒背景
+            if (cnt[idx] == 0 || std::fabs(v) < 1e-6f) {
+                r = g = b = 0;
             }
             else {
                 if (flags_ & HM_LogScaleValue) v = std::copysign(safe_log1p_abs(v), v);
@@ -158,23 +161,25 @@ wxImage HeatMap::RenderRaw() const {
             data[di] = r; data[di + 1] = g; data[di + 2] = b;
         }
     }
+
     return img;
 }
 
 // ============================================================
-// TimeHeatMap
+// TimeHeatMap（Unlimitedモードもサブピクセル補間を適用）
 // ============================================================
 TimeHeatMap::TimeHeatMap(int width_frames, int height_bins, float in_min, float in_max,
     uint32_t flags, size_t max_points, TimeFrameMode mode)
     : HeatMap(width_frames, height_bins, 0.0f, float(width_frames - 1),
-        in_min, in_max, max_points, flags),
+        in_min, in_max, max_points == 0 ? width_frames * height_bins * 2 : max_points, flags),
     mode_(mode),
     cur_frame_(0),
-    total_frames_(0) {
+    total_frames_(0),
+    max_frames_(width_frames * 4)
+{
 }
 
 void TimeHeatMap::AddData(float in, float out) {
-    std::lock_guard<std::mutex> lock(mtx_);
     HeatMap::AddData(static_cast<float>(cur_frame_), in, out);
 }
 
@@ -191,14 +196,15 @@ void TimeHeatMap::EraseCol_(int x_col) {
 }
 
 void TimeHeatMap::NextFrame() {
-    std::lock_guard<std::mutex> lock(mtx_);
     if (mode_ == TimeFrameMode::Scroll) {
         Scroll_(); cur_frame_ = width_ - 1;
     }
     else if (mode_ == TimeFrameMode::Overwrite) {
         cur_frame_ = (cur_frame_ + 1) % width_;
     }
-    else { cur_frame_++; total_frames_++; }
+    else { // Unlimited
+        cur_frame_++; total_frames_++;
+    }
 }
 
 void TimeHeatMap::Reset() {
@@ -206,23 +212,77 @@ void TimeHeatMap::Reset() {
 }
 
 wxImage TimeHeatMap::RenderRaw() const {
-    wxImage img = HeatMap::RenderRaw();
-    if ((flags_ & HM_ShowZeroLine) && y_min_ < 0.0f && y_max_ > 0.0f && img.IsOk()) {
-        int h = img.GetHeight(), w = img.GetWidth();
-        int y = h - 1 - int((0.0f - y_min_) / (y_max_ - y_min_) * h);
-        y = std::clamp(y, 0, h - 1);
-        unsigned char* d = img.GetData();
-        for (int x = 0; x < w; ++x) {
-            int di;
-            if (flags_ & HM_FlipY)
-                di = ((h - 1 - y) * w + x) * 3;
-            else
-                di = (y * w + x) * 3;
-            d[di] = d[di + 1] = d[di + 2] = 255;
+    if (mode_ != TimeFrameMode::Unlimited)
+        return HeatMap::RenderRaw();
+
+    std::vector<Sample> snapshot(samples_.begin(), samples_.end());
+    if (snapshot.empty()) {
+        wxImage empty(1, 1); empty.SetData(new unsigned char[3] {0, 0, 0}); return empty;
+    }
+
+    int N = static_cast<int>(total_frames_ > 0 ? total_frames_ : snapshot.back().x + 1);
+    float scale_x = static_cast<float>(width_) / std::max(1, N - 1);
+
+    std::vector<float> buf(width_ * height_, 0.0f);
+    std::vector<int> cnt(width_ * height_, 0);
+
+    for (const auto& s : snapshot) {
+        float fx = s.x * scale_x;
+        int ix = static_cast<int>(std::floor(fx));
+        float frac = fx - ix;
+        int iy = static_cast<int>((s.y - y_min_) / (y_max_ - y_min_) * height_);
+
+        if (iy < 0 || iy >= height_) continue;
+        if (ix >= 0 && ix < width_) {
+            int idx = iy * width_ + ix;
+            buf[idx] += (1.0f - frac) * s.value;
+            cnt[idx]++;
+        }
+        if (ix + 1 >= 0 && ix + 1 < width_) {
+            int idx2 = iy * width_ + (ix + 1);
+            buf[idx2] += frac * s.value;
+            cnt[idx2]++;
         }
     }
+
+    wxImage img(width_, height_);
+    img.SetData(new unsigned char[width_ * height_ * 3]);
+    unsigned char* data = img.GetData();
+
+    float vmin = value_min_, vmax = value_max_;
+    if (flags_ & HM_AutoNormValue) {
+        vmin = vmax = snapshot.front().value;
+        for (const auto& s : snapshot) { vmin = std::min(vmin, s.value); vmax = std::max(vmax, s.value); }
+        if (std::fabs(vmax - vmin) < 1e-6f) vmax += 1e-6f;
+    }
+
+    for (int y = 0; y < height_; ++y) {
+        for (int x = 0; x < width_; ++x) {
+            int idx = y * width_ + x;
+            unsigned char r = 0, g = 0, b = 0;
+            float v = buf[idx];
+            if (cnt[idx] == 0 || std::fabs(v) < 1e-6f) {
+                r = g = b = 0;
+            }
+            else {
+                if (flags_ & HM_LogScaleValue) v = std::copysign(safe_log1p_abs(v), v);
+                float n = (v - vmin) / std::max(vmax - vmin, 1e-6f);
+                ValueToRGB_Jet(n, r, g, b);
+            }
+
+            int di;
+            if (flags_ & HM_FlipY)
+                di = (y * width_ + x) * 3;
+            else
+                di = ((height_ - 1 - y) * width_ + x) * 3;
+
+            data[di] = r; data[di + 1] = g; data[di + 2] = b;
+        }
+    }
+
     return img;
 }
+
 
 // ============================================================
 // Histgram
@@ -442,7 +502,7 @@ void SweepedHeatMap::Evaluate(const std::function<float(float, float)>& func) {
     }
 }
 
-wxImage SweepedHeatMap::RenderRaw() const {
+wxImage SweepedHeatMap::RenderRaw()const {
     wxImage img(width_, height_);
     img.SetData(new unsigned char[width_ * height_ * 3]);
     unsigned char* d = img.GetData();

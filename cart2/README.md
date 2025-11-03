@@ -10,63 +10,73 @@
 	* Double DQN対応
 	* Replay Buffer
 	* Adaptive Stabilized DQN (AS-DQN)：基本ロジック
+	* AS-DQN：アクション偏り統計対応（CartPole以外の応用には適用性が低い）
+	* AS-DQN：Adaptive ε-schedule
 * メトリクス
 	* TensorBoard対応
 	* Plotyによる独自グラフ出力
+	* メトリクスタグの適正階層化 
+	* ヒストグラム出力対応
 * AP改善
 	* 設定情報をいい感じにメトリクスとして記録
 	* ヒートマップ：基本対応
 	* ヒートマップ：スウィープ対応
 	* ヒートマップ：ヒストグラム対応（1D、1D＋時系列）
 	* 設定ファイル導入
+	* ReplayBuffer貯め中にログが出ないので軸がずれている問題
+	* BUG:TimeHeatMapのUnlimitedがスクロールしてしまう
+	* ヒートマップ：動画化対応
 
 ## DOING
 
 * 学習アルゴリズム
-	* AS-DQN：アクション偏り統計対応（CartPole以外の応用には適用性が低い）
+	* AS-DQN：ハイパラ調整
 * メトリクス
 * AP改善
-	* N環境想定のTensor仕様整理
 
 ## TODO
 
 * 学習アルゴリズム
-	* Adaptive Stabilized DQN (AS-DQN)：unstable_ema
 	* AS-DQN：過安定制御(stagnant) 
 	* AS-DQN：勾配／損失ベース
-	* Adaptive ε-schedule
 	* Adaptive Grad Control
 	* Adaptive α-schedule
 * メトリクス
-	* メトリクスタグの適正階層化 
-	* ヒストグラム出力対応
-	* add_hparams対応
-	* ヒートマップ：動画化対応
+	* 閾値値等の基準横線出力対応
 	* ヒートマップ：凡例出力対応
 	* ヒートマップ：MetricsViewer対応
-	* ヒートマップ：TensorBoard対応
+	* ヒートマップ：ヒストグラムTB対応
+	* TB:add_hparams対応
 * AP改善
+	* Runフォルダに設定内容ダンプを残す
+	* 設定の継承読み込み
+	* MetricsViewer.java
+	* コマンドライン引数でRun名を指定
+	* リファクタリング：命名規約揃え
+	* リファクタリング：メソッド分割の適正化
+
+	* Tensorチェック用マクロ
+	* EnvironmentとAgentのバッチ対応精査
+	* N環境想定のTensor仕様整理
+	* TensorShape アサーション
+
+	* コマンドラインオプションで設定上書き
+ 	* loggerの引数順番をSummaryWriter同様に戻す?
+	* 報酬バーをRewardのスケールに合わせる
+	* GPU対応向けソース可読性向上
+	* リファクタリング：EMAを簡単に使えるようにするクラス
+	* ReplayBufferの実装最適化（最初からTensorを保持しておく）
+	* HeatMapのサンプリング量で書き出しタイミング制御
+
+## 劣後
+* 学習アルゴリズム
+	* Adaptive Stabilized DQN (AS-DQN)：unstable_ema
+* メトリクス
+* AP改善
+	* マルチスレッド対応（危険）
+	* logs -> runs?
 	* 起動時にRun名をプロンプト
 	* 学習と推論の表示分離
-	* loggerの引数順番をSummaryWriter同様に戻す?
-	* 報酬バーをRewardのスケールに合わせる
-	* GPU対応向け可読性向上
-	* コマンドラインオプションで設定上書き
-	* logs -> runs?
-	* リファクタリング：命名規約揃え
-	* リファクタリング：EMAを簡単に使えるようにするクラス
-	* リファクタリング：メソッド分割の適正化
-	* EnvironmentとAgentのバッチ対応精査
-	* ReplayBuffer を最適化（最初からTensorを保持しておく）
-	* ReplayBuffer貯め中にログが出ないので軸がずれている問題
-	* HeatMapのサンプリング量で書き出しタイミング制御
-	* shape アサーション
-	* BUG:TimeHeatMapのUnlimitedがスクロールしてしまう
-	* マルチスレッド対応
-	* Runフォルダに設定内容ダンプを残す
-	* Tensorチェック用マクロ
-	* MetricsViewer.java
-	* 設定の継承読み込み
 
 ## メトリクスメモ
 

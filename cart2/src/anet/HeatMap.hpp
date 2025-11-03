@@ -107,6 +107,8 @@ namespace anet {
         const TimeFrameMode mode_;
         int cur_frame_;
         int total_frames_;
+        int max_frames_;
+        float smoothed_scale_x_;
 
         void Scroll_();
         void EraseCol_(int x_col);
@@ -140,7 +142,7 @@ namespace anet {
     // ============================================================
     class TimeHistogram : public ImageSource {
     public:
-        TimeHistogram(int bins, int max_frames,
+        TimeHistogram(int bins, int width_frames,
             TimeFrameMode mode = TimeFrameMode::Scroll,
             uint32_t flags = HM_AutoScaleAxis | HM_AutoNormValue,
             float base_min = std::numeric_limits<float>::quiet_NaN(),

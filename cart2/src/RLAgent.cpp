@@ -43,15 +43,15 @@ struct RLAgent::Param {
     float q_z_threshold = 3.0f;         //z-score 崩壊判定閾値
     float q_cv_threshold = 0.5f;        //CV 崩壊判定閾値
     float q_niqr_threshold = 0.6f;      //NIQR 崩壊判定閾値
-    float eps_boost_max = 2.0f;         //ε ブースト上限倍率
-    int   eps_boost_half_life = 8000;  //ε ブーストの自然減衰半減期
-    float eps_boost_up = 1.03f;
+    float eps_boost_max = 2.0f;               //ε ブースト上限倍率
+    int   eps_boost_half_life_hit = 300;      // 崩壊中、ε ブーストが2倍になるまでのstep数
+    int   eps_boost_half_life_recover = 8000; // 安定後、ε ブーストの自然減衰半減期
     float eps_gain = 0.15f;
     float eps_reheat_floor = 0.20f;
     float tau_min = 0.0005f;            //τ の下限
     float tau_max = 0.001f;             //τ の上限
-    float tau_half_life_hit = 200;       // 崩壊中、τが半減するまでのstep数
-    float tau_half_life_recover = 4000;  // 安定後、τが2倍に戻るまでのstep数
+    float tau_half_life_hit = 200;      // 崩壊中、τが半減するまでのstep数
+    float tau_half_life_recover = 4000; // 安定後、τが2倍に戻るまでのstep数
     int tau_recover_delay = 1000;       // 1000step安定していたら回復開始
     float act_bias_threshold = 0.85f;  // 行動偏り閾値 (|left_ratio - right_ratio| > 0.85 → 崩壊)
 
@@ -104,8 +104,8 @@ struct RLAgent::Param {
         ANET_READ_PROPS(props, preset, q_cv_threshold);
         ANET_READ_PROPS(props, preset, q_niqr_threshold);
         ANET_READ_PROPS(props, preset, eps_boost_max);
-        ANET_READ_PROPS(props, preset, eps_boost_half_life);
-        ANET_READ_PROPS(props, preset, eps_boost_up);
+        ANET_READ_PROPS(props, preset, eps_boost_half_life_hit);
+        ANET_READ_PROPS(props, preset, eps_boost_half_life_recover);
         ANET_READ_PROPS(props, preset, eps_gain);
         ANET_READ_PROPS(props, preset, eps_reheat_floor);
         ANET_READ_PROPS(props, preset, eps_reheat_half_life);
@@ -181,7 +181,7 @@ RLAgent::RLAgent(anet::rl::Environment& env, int state_dim, int n_actions, torch
     hist_action_ = std::make_unique<anet::TimeHistogram>(
         2, 200, anet::TimeFrameMode::Scroll, flags, -1.0f, 1.0f, 0.05f);
     hist_q_ = std::make_unique<anet::TimeHistogram>(
-        256, 400, anet::TimeFrameMode::Scroll, flags | anet::HeatMapFlags::HM_FlipY, 0.0f, nan, 0.05f);
+        128, 1000, anet::TimeFrameMode::Unlimited, flags | anet::HeatMapFlags::HM_FlipY, 0.0f, nan, 0.05f);
 
     //TimeHistogram(int bins, int max_frames,
     //    TimeFrameMode mode = TimeFrameMode::Scroll,
@@ -236,8 +236,8 @@ RLAgent::RLAgent(anet::rl::Environment& env, int state_dim, int n_actions, torch
         {"q_cv_threshold", param_->q_cv_threshold},
         {"q_niqr_threshold", param_->q_niqr_threshold},
         {"eps_boost_max", param_->eps_boost_max},
-        {"eps_boost_half_life", param_->eps_boost_half_life},
-        {"eps_boost_up", param_->eps_boost_up},
+        {"eps_boost_half_life_hit", param_->eps_boost_half_life_hit},
+        {"eps_boost_half_life_recover", param_->eps_boost_half_life_recover},
         {"eps_gain", param_->eps_gain},
         {"eps_reheat_floor", param_->eps_reheat_floor},
         {"tau_min", param_->tau_min},
@@ -369,13 +369,13 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {
     // --- εブースト自然減衰（毎step適用） ---
     if (param_->use_as_dqn) {
         // εブーストの自然減衰
-        // replay_update_interval に基づき実効step補正
-        float decay = std::exp(-std::log(2.0f) * param_->replay_update_interval / param_->eps_boost_half_life);
+        // eps_boost_half_life_recover に基づき実効step補正
+        float decay = std::exp(-std::log(2.0f) * param_->replay_update_interval / param_->eps_boost_half_life_recover);
         eps_boost_ = 1.0f + (eps_boost_ - 1.0f) * decay;
 
         // --- ε下限の自然回復 ---
         if (eps_reheat_floor_ > param_->eps_min) {
-            const float k = std::exp(-std::log(2.0f) / param_->eps_reheat_half_life); // 半減期5000step
+            const float k = std::exp(-std::log(2.0f) / param_->eps_reheat_half_life);
             eps_reheat_floor_ = param_->eps_min + (eps_reheat_floor_ - param_->eps_min) * k;
         }
 
@@ -453,7 +453,7 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {
 // --- Warmup期間中にAS-DQN統計と同期して軸を揃える ---
     if (param_->use_as_dqn && replay_buffer.Size() < param_->replay_warmup_steps) {
         wxGetApp().GetMetricsLogger()->log_scalar("33_agent_as/01_eps_boost", train_step, eps_boost_);
-        wxGetApp().GetMetricsLogger()->log_scalar("34_agent_as_a/01_action_diff", train_step, 0.5);
+        wxGetApp().GetMetricsLogger()->log_scalar("34_agent_as_a/01_action_diff", train_step, 0.0f);
         wxGetApp().GetMetricsLogger()->log_scalar("34_agent_as_a/03_action_unstable", train_step, 0.0f);
         wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/01_q_unstable", train_step, 0.0f);
         wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/02_q_mean", train_step, 0.0f);
@@ -639,7 +639,7 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
         wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/08_q_niqr", train_step, 0.0f);
         wxGetApp().GetMetricsLogger()->log_scalar("35_agent_as_q/01_q_unstable", train_step, 0.0f);
         wxGetApp().GetMetricsLogger()->log_scalar("34_agent_as_a/03_action_unstable", train_step, 0.0f);
-        wxGetApp().GetMetricsLogger()->log_scalar("34_agent_as_a/01_action_diff", train_step, 0.5f);
+        wxGetApp().GetMetricsLogger()->log_scalar("34_agent_as_a/01_action_diff", train_step, 0.0f);
         wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/01_uema_unstable", train_step, unstable_ema_);
         wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/02_uema_s", train_step, 0.0f);
         wxGetApp().GetMetricsLogger()->log_scalar("36_agent_as_uema/03_uema_e_t", train_step, 0.0f);
@@ -782,7 +782,9 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
                 last_unstable_step_ = train_step;
 
                 // εブーストを強化（探索復帰、ReplayBuffer 多様性回復）
-                eps_boost_ = std::min(param_->eps_boost_max, eps_boost_ * param_->eps_boost_up);
+                float boost_factor = std::exp(std::log(2.0f) /
+                    (param_->eps_boost_half_life_hit / param_->replay_update_interval));
+                eps_boost_ = std::min(param_->eps_boost_max, eps_boost_ * boost_factor);
 
                 // ε再加熱: εの「下限」を動的に引き上げる（epsilon自体は触らない）
                 eps_reheat_floor_ = std::max(eps_reheat_floor_, param_->eps_reheat_floor);
