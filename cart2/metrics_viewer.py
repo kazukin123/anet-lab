@@ -158,9 +158,11 @@ def make_tag_fig(run_data: dict[str, pd.DataFrame], selected_runs: list[str], ta
             scores = {}
             for run, (x, y) in run_values.items():
                 s = pd.Series(y, index=x)
+                if s.index.has_duplicates:
+                    # 重複stepを平均化して安全化
+                    s = s.groupby(level=0).mean()
                 interp = s.reindex(all_x, method="nearest")
                 scores[run] = float(interp.mean(skipna=True))
-
             total = sum(v for v in scores.values() if pd.notna(v))
             reverse = total < 0
             sorted_runs = [r for r, _ in sorted(scores.items(), key=lambda kv: kv[1], reverse=reverse)]
@@ -264,7 +266,7 @@ def create_app(log_root: str) -> Dash:
         }),
 
         dcc.Store(id="auto-flag", data=False),
-        dcc.Interval(id="tick", interval=20000, n_intervals=0, disabled=True)
+        dcc.Interval(id="tick", interval=100000, n_intervals=0, disabled=True)
     ])
 
     # ---- Auto Refresh トグル ----
