@@ -33,7 +33,7 @@ CartPoleEnv::CartPoleEnv() {
 }
 
 anet::rl::StateSpaceInfo CartPoleEnv::GetStateSpaceInfo() const {
-    float deg = M_PI / 180.0f;
+    float deg = (float)M_PI / 180.0f;
     return {
         /*shape=*/torch::tensor({4}),
         /*low=*/torch::tensor({ -limit_x, -2.0f, -limit_theta * deg, -3.0f }),
