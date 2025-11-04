@@ -43,10 +43,11 @@ private:
     int width_ = 0, height_ = 0;
     std::string path_;
     int fps_;
+    int in_rate_;
     std::string codec_;
 
 public:
-    VideoLogger(const std::string& path, int width, int height, int fps = 30, const std::string& codec = "mjpeg");
+    VideoLogger(const std::string& path, int width, int height, int fps = 30, int in_rate = 120, const std::string& codec = "mjpeg");
     ~VideoLogger() { Close(); }
 
     void WriteFrame(const wxImage& img);
@@ -86,7 +87,6 @@ public:
 
     inline void log_scalar(const std::string& tag, int step, double value) {
         json obj = {
-            {"run", run_name},
             {"type", "scalar"},
             {"tag", tag},
             {"step", step},
@@ -98,7 +98,6 @@ public:
     inline void log_json(const std::string& tag, const json& data) {
         json rounded = round_numbers(data);
         json obj = {
-            {"run", run_name},
             {"type", "json"},
             {"tag", tag},
             {"timestamp", current_time_str()},
