@@ -282,13 +282,15 @@ RLAgent::SelectAction(const torch::Tensor& state, anet::rl::RunMode mode) {
     }
 
     // Train：ε-greedy
-    //float eps_base;
-    //if (param_->eps_zero_step > 0 && (train_step > param_->eps_zero_step)) {
-    //    eps_base = 0.0f;
-    //} else {
-    //    eps_base = std::max(param_->eps_min, param_->eps_max - static_cast<float>(train_step) / param_->eps_decay_step);
-    //}
-    //epsilon = std::clamp(eps_base * eps_boost_, param_->eps_min, param_->eps_max);
+    if (!param_->use_as_dqn) {
+        float eps_base;
+        if (param_->eps_zero_step > 0 && (train_step > param_->eps_zero_step)) {
+            eps_base = 0.0f;
+        } else {
+            eps_base = std::max(param_->eps_min, param_->eps_max - static_cast<float>(train_step) / param_->eps_decay_step);
+        }
+        epsilon = std::clamp(eps_base * eps_boost_, param_->eps_min, param_->eps_max);
+    }
 
     torch::Tensor action;
     if (static_cast<float>(rand()) / RAND_MAX < epsilon) {
@@ -477,6 +479,19 @@ void RLAgent::Update(const anet::rl::Experience& exprence) {
     {
         wxGetApp().GetMetricsLogger()->log_scalar("32_agent_dqn_base/03_epsilon", train_step, epsilon);               //εグリーディーのε
     }
+
+	// 軸合わせ用にQ値ヒストグラムをダミー更新
+    if (replay_buffer.Size() < static_cast<size_t>(param_->replay_warmup_steps)) {
+		// ウォームアップ中なのでQ値ヒストグラムをダミー更新
+        if (train_step % param_->replay_update_interval == 0) {
+            // ミニバッチ間隔でフレーム更新
+            hist_q_->NextFrame();
+            if (param_->heatmap_log_hist_interval > 0 && (train_step % param_->heatmap_log_hist_interval) == 0) {
+				// heatmap_log_hist_interval間隔でQ値ヒストグラム画像保存
+                wxGetApp().GetMetricsLogger()->log_image("43_agent_img/06_th_q", train_step, *hist_q_);
+            }
+        }
+    }
 }
 
 void RLAgent::UpdateBatch(const anet::rl::BatchData& batch) {
@@ -528,6 +543,8 @@ void RLAgent::OptimizeSingle(const anet::rl::Experience& exprence) {
     auto expected_q = reward_t + param_->gamma * max_next_q * nonterminal;             // (B,)
     auto td_raw = expected_q - q_sa;                                                   // (B,)
     auto td = param_->use_td_clip ? td_raw.clamp(-param_->td_clip_value, param_->td_clip_value) : td_raw;      // (B,)
+
+    // TODO: OptimizeSingle()の場合、use_td_clipが動作していない
 
     // --- 損失計算（正） ---
     auto loss = torch::nn::functional::smooth_l1_loss(
@@ -842,7 +859,8 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
     // ReplayBufferモード時はReplayBufferの状態分布に基づくヒートマップを生成
     if (param_->heatmap_log_hist_interval > 0 && (train_step % param_->heatmap_log_hist_interval) == 0) {
         // ヒストグラム保存 (軸合わせのためサンプル数が足りない場合も出力)
-        wxGetApp().GetMetricsLogger()->log_image("43_agent_img/01_th_action", train_step, *hist_action_, 50);
+		// TODO: hist_action_ が正しく出力されない
+        //wxGetApp().GetMetricsLogger()->log_image("43_agent_img/01_th_action", train_step, *hist_action_, 50);
         wxGetApp().GetMetricsLogger()->log_image("43_agent_img/06_th_q", train_step, *hist_q_);
     }
 
@@ -884,13 +902,26 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
         max_next_q = std::get<0>(next_q_targ.max(1)).detach();   // (B,)
     }
 
-    auto expected_q = reward_b + param_->gamma * max_next_q * nonterminal; // (B,)
-    auto td_raw = expected_q - q_sa;                               // (B,)
-    auto td = param_->use_td_clip ? td_raw.clamp(-param_->td_clip_value, param_->td_clip_value) : td_raw; // (B,)
+    // --- TD誤差と教師値の計算 ---
+    auto expected_q_raw = reward_b + param_->gamma * max_next_q * nonterminal; // 教師値
+    auto td_raw = expected_q_raw - q_sa;                                       // TD誤差
+
+    torch::Tensor td;  // ← これが必要（スコープ内に定義）
+    torch::Tensor expected_q_clamped;
+
+    if (param_->use_td_clip) {
+        auto td_clamped = td_raw.clamp(-param_->td_clip_value, param_->td_clip_value);
+        td = td_clamped;                              // ← td をここでセット
+        expected_q_clamped = q_sa + td_clamped;       // 教師値再構築
+    } else {
+        td = td_raw;                                  // ← clipしない場合も td に代入
+        expected_q_clamped = expected_q_raw;
+    }
 
     // --- 損失計算 ---
     auto loss = torch::nn::functional::smooth_l1_loss(
-        q_sa, expected_q.detach(),
+        q_sa,
+        expected_q_clamped.detach(),
         torch::nn::functional::SmoothL1LossFuncOptions().reduction(torch::kMean)
     );
 
@@ -928,6 +959,7 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
         td_cliped = torch::mean((abs_raw > param_->td_clip_value).to(torch::kFloat)).item<float>();
         td_clip_ema = met_ema_decay * td_clip_ema + (1 - met_ema_decay) * td_cliped;
     }
+    auto td_mean = td.mean().detach().cpu().item<float>();
 
     // --- メトリクス出力（バッチ平均） ---
     wxGetApp().logScalar("37_agent_dqn_qtd/01_q_sa", train_step, q_sa.mean().item<double>());
@@ -937,7 +969,7 @@ void RLAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
         wxGetApp().logScalar("37_agent_dqn_qtd/06_td_cliped", train_step, td_cliped);
         wxGetApp().logScalar("37_agent_dqn_qtd/04_td_error_raw", train_step, td_raw.mean().item<float>());
     }
-    wxGetApp().logScalar("37_agent_dqn_qtd/03_td_error", train_step, td.mean().item<float>());
+    wxGetApp().logScalar("37_agent_dqn_qtd/03_td_error", train_step, td_mean);
     wxGetApp().logScalar("38_agent_dqn_loss/01_loss", train_step, loss.item<float>());
     wxGetApp().logScalar("38_agent_dqn_loss/02_loss_ema", train_step, loss_ema);
     wxGetApp().logScalar("39_agent_dqn_grad/01_grad_norm", train_step, total_norm);
