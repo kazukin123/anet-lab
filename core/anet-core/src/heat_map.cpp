@@ -1,8 +1,8 @@
-﻿#include "anet/HeatMap.hpp"
+﻿#include "anet/heat_map.hpp"
 #include <algorithm>
 #include <filesystem>
-#include <wx/log.h>
 #include <cmath>
+#include <wx/log.h>
 
 using namespace anet;
 

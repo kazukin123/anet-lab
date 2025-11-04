@@ -1,5 +1,5 @@
 @echo off
-SET EXE="..\\out\build\x64-Debug\cart2\CartPoleRLGUI.exe"
+SET EXE="bin\Debug\CartPoleRLGUI.exe"
 
 call:run_exe train.batchrun agent_asdqn_bool10
 call:run_exe train.batchrun agent_asdqn_bool11

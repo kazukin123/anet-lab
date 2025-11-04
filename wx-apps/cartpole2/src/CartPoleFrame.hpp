@@ -6,7 +6,7 @@
 #include <torch/torch.h>
 
 #include "CartPoleEnv.hpp"
-#include "RLAgent.hpp"
+#include "anet/dqn_agent.hpp"
 #include "CartPoleCanvas.hpp"
 #include "PlotPanel.hpp"
 

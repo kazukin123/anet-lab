@@ -1,0 +1,52 @@
+# ---------------------------------------------------------------------
+# anet-lab Doxygen configuration
+# ---------------------------------------------------------------------
+PROJECT_NAME           = "anet-lab"
+PROJECT_BRIEF          = "Reinforcement Learning framework with wxWidgets-based UI and CLI apps"
+OUTPUT_DIRECTORY       = html
+GENERATE_LATEX         = NO
+RECURSIVE              = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+FULL_PATH_NAMES        = NO
+STRIP_FROM_PATH        = .
+QUIET                  = YES
+WARNINGS               = YES
+
+# ---------------------------------------------------------------------
+# ソース入力範囲
+# ---------------------------------------------------------------------
+INPUT = \
+    core/anet-core/include \
+    core/anet-core/src \
+    wx-apps \
+    apps \
+    viewers/metrics-viewer/src/main/java
+
+FILE_PATTERNS          = *.hpp *.h *.cpp *.cc *.cxx *.java
+EXCLUDE                = \
+    build \
+    docs/out \
+    viewers/metrics-tools
+
+# ---------------------------------------------------------------------
+# 出力形式
+# ---------------------------------------------------------------------
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+GENERATE_TREEVIEW      = YES
+USE_MDFILE_AS_MAINPAGE = README.md
+HTML_TIMESTAMP         = NO
+HTML_DYNAMIC_SECTIONS  = YES
+
+# ---------------------------------------------------------------------
+# 図・グラフ関連
+# ---------------------------------------------------------------------
+HAVE_DOT               = YES
+DOT_NUM_THREADS        = 2
+CALL_GRAPH             = YES
+CALLER_GRAPH           = YES
+CLASS_DIAGRAMS         = YES
+DOT_TRANSPARENT        = YES
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES

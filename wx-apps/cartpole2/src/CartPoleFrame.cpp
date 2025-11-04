@@ -1,7 +1,7 @@
 ﻿#include "CartPoleFrame.hpp"
 #include "CartPoleCanvas.hpp"
 #include "app.hpp"
-#include "EvaluateEnvironment.hpp"
+#include "anet/eval_env.hpp"
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <torch/torch.h>
@@ -20,11 +20,11 @@ struct CartPoleFrame::Param {
     int train_exit_step = -1; //110000;
 	int canvas_mode = 0;    //  0:評価エピソードの終了状況を描画 1:学習エピソードの終了状態を描画 2:学習状況を描画 
 
-    CartPoleFrame::Param(Properties* props) {
+    CartPoleFrame::Param(anet::Properties* props) {
         if (props == NULL) return;
         std::string preset = props->Get("train.preset", "train");
         wxString preset_override;
-        if (wxGetApp().GetCommandLine()->Found("t", &preset_override)) {
+        if (wxGetApp().GetCmdLineParser()->Found("t", &preset_override)) {
             preset = preset_override;
             props->Set("train.preset", preset);
         }
@@ -84,12 +84,12 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
         {"eval_interval", param_->eval_interval},
         {"train_pause_step", param_->train_pause_step},
     };
-    wxGetApp().logJson("train/params", params);
-    wxGetApp().flushMetricsLog();
+    anet::MetricsLogger::Instance()->log_json("train/params", params);
+    anet::MetricsLogger::Instance()->flush();
 
     // --- RL生成 ---
     env = std::make_unique<CartPoleEnv>();
-    agent = std::make_unique<RLAgent>(*env, 4, 2, device);
+    agent = std::make_unique<anet::rl::DQNAgent>(*wxGetApp().GetCmdLineParser(), wxGetApp().GetConfig(), *env, 4, 2, device);
 
     // ランダム方策で環境難易度評価
     evaluateEnvironment(*env, /*num_actions=*/2, /*num_trials=*/100);
@@ -134,7 +134,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     torch::Tensor action;
     for (int i = 0; i < param_->step_per_frame; ++i) {
         if ((param_->train_exit_step > 0) && (step_count >= param_->train_exit_step)) {
-            wxGetApp().flushMetricsLog();
+            anet::MetricsLogger::Instance()->flush();
             wxGetApp().Exit();
         }
 
@@ -150,6 +150,11 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         // ステップ数インプリメント（グローバルなステップ数）
         step_count++;
 
+        canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
+        canvas->SetAction(action);
+        canvas->SetReward(last_reward);
+        canvas->Refresh();
+
         //エピソード終了判定
         if (env_result.done) {
             episode_count++;
@@ -158,10 +163,10 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
             plotPanel->AddReward(train_total_reward);
 
             // Canvas更新（エピソード終了）
-            canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
-            canvas->SetAction(action);
-            canvas->SetReward(last_reward);
-            canvas->Refresh();
+            //canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
+            //canvas->SetAction(action);
+            //canvas->SetReward(last_reward);
+            //canvas->Refresh();
 
             // 学習状況評価
             float eval_total_reward = -1.0f;
@@ -181,8 +186,8 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
 
                     // ログ
                     eval_total_reward = total_reward;
-                    wxGetApp().logScalar("10_epsode/02_eval_reward", episode_count, total_reward);
-                    wxGetApp().logScalar("11_eval/01_target_reward", step_count, total_reward);
+                    anet::MetricsLogger::Instance()->log_scalar("10_epsode/02_eval_reward", episode_count, total_reward);
+                    anet::MetricsLogger::Instance()->log_scalar("11_eval/01_target_reward", step_count, total_reward);
 
                     // ターゲットネットワークによる評価の終了状態を描画
                     //canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
@@ -202,15 +207,15 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
                         done = env_result.done;
                     }
                     // ログ
-                    wxGetApp().logScalar("11_eval/02_policy_reward", step_count, total_reward);
+                    anet::MetricsLogger::Instance()->log_scalar("11_eval/02_policy_reward", step_count, total_reward);
                 }
             }
 
             // ログ
             auto eps_step = step_count - last_episode_step;
-            wxLogInfo("Episode finished. eps=%d step=%d total_reward=%f eps_step=%d eval_reward=%f",
-                episode_count, step_count, train_total_reward, eps_step, eval_total_reward);
-            wxGetApp().logScalar("10_epsode/01_total_reward", episode_count, train_total_reward);
+            wxLogInfo("Episode finished. eps=%d total_step=%d  eps_step=%d train_reward=%f eval_reward=%f",
+                episode_count, step_count, eps_step, train_total_reward, eval_total_reward);
+            anet::MetricsLogger::Instance()->log_scalar("10_epsode/01_total_reward", episode_count, train_total_reward);
 
             // 環境リセット
             state = env->Reset();
@@ -226,10 +231,10 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     //canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
     //canvas->SetAction(action);
     //canvas->SetReward(last_reward);
-    canvas->Refresh();
+    //canvas->Refresh();
 
     if ((param_->train_exit_step > 0) && (step_count >= param_->train_exit_step)) {
-        wxGetApp().flushMetricsLog();
+        anet::MetricsLogger::Instance()->flush();
         wxGetApp().Exit();
     }
     if ((param_->train_pause_step > 0) && (step_count >= param_->train_pause_step) && !auto_pause_done_) {

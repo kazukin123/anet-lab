@@ -1,0 +1,158 @@
+# train
+train.preset=train.online
+#train.preset=train.batchrun
+#train.preset=train.batchrun2
+
+# log 
+#log.enable_image_log = false 	# sec/10K = 1:18(78sec)       / 0:43
+log.enable_image_log = true   	# sec/10K = 1:50(90sec) +15%  / 0:57 
+
+# agent
+agent.preset=agent_asdqn_bool10
+
+#-------Adaptive Stabilized DQN (AS-DQN)
+
+agent_asdqn_bool11.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_asdqn_bool11.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent_asdqn_bool11.eps_max=1.00          # 指数減衰  
+agent_asdqn_bool11.eps_min=0.05          # 0.1f 0.05f
+agent_asdqn_bool11.eps_decay_step=100000 # 100K
+agent_asdqn_bool11.softupdate_tau=0.001  # ★1.0f 0.004f  0.01f 0.005f;
+agent_asdqn_bool11.hardupdate_step=-1    #  -1 5000; //200 500 1000
+agent_asdqn_bool11.use_grad_clip=true    #
+agent_asdqn_bool11.grad_clip_tau=25      # 10 25 40 1f 5f 10f
+agent_asdqn_bool11.use_td_clip=true      #
+agent_asdqn_bool11.td_clip_value=3.0     #4.0
+agent_asdqn_bool11.eps_zero_step=-1      #120000;
+agent_asdqn_bool11.use_double_dqn=true   # Double DQN 有効化フラグ（trueで有効）
+agent_asdqn_bool11.use_replay_buffer=true #
+agent_asdqn_bool11.replay_capacity=10000
+agent_asdqn_bool11.replay_batch_size=128
+agent_asdqn_bool11.replay_warmup_steps=10000 #
+agent_asdqn_bool11.replay_update_interval=10 #
+agent_asdqn_bool11.use_as_dqn = false           # ★Adaptive Stabilized DQN (AS-DQN)
+agent_asdqn_bool11.qstd_alpha = 0.01            # Q値 std の EWMA 平滑率
+agent_asdqn_bool11.q_z_threshold = 2.6          # 2.0 1.5-2.0 3.0 z-score 崩壊判定閾値
+agent_asdqn_bool11.q_cv_threshold = 0.35        # 0.45 0.3 0.25-0.35 0.5 CV 崩壊判定閾値
+agent_asdqn_bool11.q_niqr_threshold = 0.80      # 0.65 0.5 0.4-0.5 0.6 NIQR 崩壊判定閾値
+agent_asdqn_bool11.eps_boost_max = 2.0          #ε ブースト上限倍率
+agent_asdqn_bool11.eps_boost_half_life_hit = 300      # 崩壊中、ε ブーストが2倍になるまでのstep数
+agent_asdqn_bool11.eps_boost_half_life_recover = 3000 # 安定後、ε ブーストが半減するまでのstep数
+agent_asdqn_bool11.eps_reheat_floor = 0.25      #  0.2 ε再加熱の最大値（崩壊時もこの値以上にはならない）
+agent_asdqn_bool11.eps_reheat_half_life = 2000  # ε再加熱の回復半減step数
+agent_asdqn_bool11.tau_max = 0.01               # τの上限
+agent_asdqn_bool11.tau_min = 0.001              # 0.0003τの下限
+agent_asdqn_bool11.tau_half_life_hit = 1200     # 300 崩壊中、τが半減するまでのstep数
+agent_asdqn_bool11.tau_half_life_recover = 2000 # 1000 安定後、τが2倍になるまでのstep数
+agent_asdqn_bool11.tau_recover_delay = 1000     # このステップ期間安定していたら回復開始
+agent_asdqn_bool11.act_bias_threshold = 0.35    # 行動偏り閾値 (|left_ratio - right_ratio| > act_bias_threshold → 崩壊)
+
+#agent_asdqn_bool10.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+#agent_asdqn_bool10.alpha=2.5e-4            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_asdqn_bool10.alpha=1.0e-4            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_asdqn_bool10.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent_asdqn_bool10.eps_max=1.00          # 指数減衰  
+agent_asdqn_bool10.eps_min=0.05          # 0.1f 0.05f
+agent_asdqn_bool10.eps_decay_step=100000 # 100K
+agent_asdqn_bool10.softupdate_tau=0.01   # 1.0f 0.004f  0.01f 0.005f;
+agent_asdqn_bool10.hardupdate_step=-1    #  -1 5000; //200 500 1000
+agent_asdqn_bool10.use_grad_clip=true    #
+agent_asdqn_bool10.grad_clip_tau=25      # 10 25 40 1f 5f 10f
+agent_asdqn_bool10.use_td_clip=true      #
+agent_asdqn_bool10.td_clip_value=3.0     #4.0
+agent_asdqn_bool10.eps_zero_step=-1      #120000;
+agent_asdqn_bool10.use_double_dqn=true   # Double DQN 有効化フラグ（trueで有効）
+agent_asdqn_bool10.use_replay_buffer=true #
+agent_asdqn_bool10.replay_capacity=10000
+agent_asdqn_bool10.replay_batch_size=128
+agent_asdqn_bool10.replay_warmup_steps=10000 #
+agent_asdqn_bool10.replay_update_interval=10 #
+agent_asdqn_bool10.use_as_dqn = true            # Adaptive Stabilized DQN (AS-DQN)
+agent_asdqn_bool10.qstd_alpha = 0.01            # Q値 std の EWMA 平滑率
+agent_asdqn_bool10.q_z_threshold = 2.6          # 2.0 1.5-2.0 3.0 z-score 崩壊判定閾値
+agent_asdqn_bool10.q_cv_threshold = 0.35        # 0.45 0.3 0.25-0.35 0.5 CV 崩壊判定閾値
+agent_asdqn_bool10.q_niqr_threshold = 0.80      # 0.65 0.5 0.4-0.5 0.6 NIQR 崩壊判定閾値
+agent_asdqn_bool10.eps_boost_max = 2.0          #ε ブースト上限倍率
+agent_asdqn_bool10.eps_boost_half_life_hit = 300      # 崩壊中、ε ブーストが2倍になるまでのstep数
+agent_asdqn_bool10.eps_boost_half_life_recover = 3000 # 安定後、ε ブーストが半減するまでのstep数
+agent_asdqn_bool10.eps_reheat_floor = 0.80      #  0.25 0.2 ε再加熱の最大値（崩壊時もこの値以上にはならない）
+agent_asdqn_bool10.eps_reheat_half_life = 2000  # ε再加熱の回復半減step数
+agent_asdqn_bool10.tau_max = 0.01               # τの上限
+agent_asdqn_bool10.tau_min = 0.001              # ★0.0003τの下限
+agent_asdqn_bool10.tau_half_life_hit = 1200     # ★300 崩壊中、τが半減するまでのstep数
+agent_asdqn_bool10.tau_half_life_recover = 2000 # ★1000 安定後、τが2倍になるまでのstep数
+agent_asdqn_bool10.tau_recover_delay = 1000     # このステップ期間安定していたら回復開始
+agent_asdqn_bool10.act_bias_threshold = 0.35    # 行動偏り閾値 (|left_ratio - right_ratio| > act_bias_threshold → 崩壊)
+
+
+## デフォルト設定
+agent.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent.eps_max=1.00
+agent.eps_min=0.05          #0.1f 0.05f
+agent.eps_decay_step=100000
+agent.softupdate_tau=0.015  # 1.0f 0.004f  0.01f 0.005f;   // 大きいとターゲットネットワークからの反映が早くなる。小さいと遅く滑らかになる。0.005→半減期138step
+agent.hardupdate_step=2000  # -1 5000; //200 500 1000
+agent.grad_clip_tau=30.0    # 10~40 1f 5f 10f
+agent.use_td_clip=true
+agent.td_clip_value=4.0
+agent.eps_zero_step=-1      #120000;
+agent.use_double_dqn=true   # Double DQN 有効化フラグ（trueで有効）
+agent.use_replay_buffer=true
+agent.replay_capacity=50000
+agent.replay_batch_size=64
+agent.replay_warmup_steps=1000
+agent.replay_update_interval=4
+agent.heatmap_log_image_interval = 100
+agent.heatmap_log_sweep_interval = 100
+agent.heatmap_log_hist_interval = 10
+agent.use_as_dqn = false             //Adaptive Stabilized DQN (AS-DQN)
+agent.qstd_alpha = 0.01           //Q値 std の EWMA 平滑率
+agent.q_z_threshold = 3.0         //z-score 崩壊判定閾値
+agent.q_cv_threshold = 0.5        //CV 崩壊判定閾値
+agent.q_niqr_threshold = 0.6      //NIQR 崩壊判定閾値
+agent.eps_boost_max = 2.0         //ε ブースト上限倍率
+agent.eps_boost_half_life = 8000  //ε ブーストの自然減衰半減期
+agent.eps_boost_up = 1.03
+agent.eps_reheat_floor = 0.20
+agent_asdqn1.tau_max = 0.01            #τ の上限
+agent.tau_min = 0.0005            //τ の下限
+agent.tau_decay_on_hit = 0.98   # 1stepごとに+0.2%回復
+agent.tau_recover_rate = 0.002   // 1stepごとに+0.2%回復
+agent.tau_recover_delay = 1000     // 1000step安定していたら回復開始
+agent.act_bias_threshold = 0.85  // 行動偏り閾値 (|left_ratio - right_ratio| > act_bias_threshold → 崩壊)
+agent.use_unstable_ema = false    // 連続崩壊制御を使うか（切替用）
+agent.uema_half_life = 2000   // 半減期 [step]。ln2/半減期 が EMA係数
+agent.uema_u0 = 0.12            // 作動し始めの基準（無次元）
+agent.uema_k = 12.0            // シグモイドの傾き
+agent.uema_g1 = 0.02            // εブースト倍率のゲイン（相対）
+agent.uema_g2 = 0.05            // ε再加熱floorのゲイン（絶対上乗せ）
+agent.uema_g3 = 0.10            // τ減衰のゲイン（exp(-g3*s)）
+agent.eps_reheat_base = 0.10    // 停滞時の軽い再加熱ベース
+agent.unstable_ema_s_threshold = 0.0  // 連続崩壊度の閾値
+
+
+## train default
+train.timer_ms = 50
+train.step_per_frame = 10
+train.eval_interval = 1
+train.train_pause_step = 110000 # -1
+#train.train_exit_step = -1 # -1 110000
+
+## 描画更新
+train.online.timer_ms = 10
+train.online.step_per_frame = 10
+train.online.eval_interval = 1
+train.online.train_pause_step = 500000 #500K
+
+## バッチ実行用①
+train.batchrun.timer_ms = 5
+train.batchrun.step_per_frame = 1000
+train.batchrun.train_pause_step = -1
+train.batchrun.train_exit_step = 500000
+
+## バッチ実行用②
+train.batchrun2.timer_ms = 10
+train.batchrun2.step_per_frame = 1000
+train.batchrun2.train_pause_step = -1
+train.batchrun2.train_exit_step = 500000  # -1 110000

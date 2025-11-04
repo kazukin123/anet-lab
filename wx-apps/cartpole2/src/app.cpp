@@ -1,8 +1,31 @@
 ﻿
 #include "app.hpp"
 #include "CartPoleFrame.hpp"
-#include <wx/fileconf.h>
 #include <wx/cmdline.h>
+#include <wx/stdpaths.h>
+#include <wx/filename.h>
+#include <filesystem>
+
+wxString GetExeDir() {
+    wxStandardPaths& sp = wxStandardPaths::Get();
+    wxString exe_path = sp.GetExecutablePath();      // フルパス (C:\proj\bin\myapp.exe 等)
+    wxFileName fn(exe_path);
+    return fn.GetPath();                            // ディレクトリ部分を返す
+}
+
+std::filesystem::path GetProjectRootDir()
+{
+    std::filesystem::path exePath = GetExeDir().ToStdString();  // 既存の GetExeDir を利用
+    return exePath.parent_path().parent_path();    // exe の親ディレクトリを返す
+}
+
+std::string GetConfigFilePath() {
+    return (GetProjectRootDir() / "config" / "CartPoleRLGUI.txt").string();  // パスを結合
+}
+
+std::string GetLogsPath() {
+    return (GetProjectRootDir() / "logs").string();
+}
 
 static wxCmdLineEntryDesc desc[] = {
     // kind,              short-name, long-name, usage,      type,                  flags
@@ -24,19 +47,22 @@ bool MyApp::OnInit() {
     if (cmdline_->Parse(true)) {
         return false;
     }
-
-    properties_ = std::make_unique<Properties>("CartPoleRLGUI.txt");
-
-    auto backend = std::make_unique<JsonlBackend>();
-	mt_logger = std::make_unique<MetricsLogger>(std::move(backend), "logs");
+    properties_ = std::make_unique<anet::Properties>(GetConfigFilePath());
+    anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetLogsPath());
 
     bool enable_image_log;
     properties_->Read("log.enable_image_log", enable_image_log, true);
-    mt_logger->SetEnableImageLog(enable_image_log);
+    anet::MetricsLogger::Instance()->SetEnableImageLog(enable_image_log);
 
     auto* frame = new CartPoleFrame("CartPole RL");
     frame->Show(true);
     return true;
+}
+
+int MyApp::OnExit()
+{
+    anet::MetricsLogger::Reset();
+    return 0;
 }
 
 wxIMPLEMENT_APP(MyApp);

@@ -6,7 +6,7 @@
 #include <string>
 #include <tuple>
 #include <random>
-#include "anet/HeatMap.hpp"
+#include "anet/heat_map.hpp"
 
 namespace anet::rl {
 

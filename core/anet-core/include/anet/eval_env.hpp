@@ -95,7 +95,7 @@ void evaluateEnvironment(anet::rl::Environment& env, int num_actions, int num_tr
         {"difficulty_index", difficulty_index},
         //{"difficulty_comment", "0.2以下：学習不能級 / 0.2〜0.4：過酷 / 0.4〜0.7：適正 / 0.7以上：容易"}
     };
-    wxGetApp().logJson("env/difficulty", params);
+    anet::MetricsLogger::Instance()->log_json("env/difficulty", params);
 #endif
 }
 

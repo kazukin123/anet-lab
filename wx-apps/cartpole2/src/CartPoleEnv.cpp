@@ -26,8 +26,8 @@ CartPoleEnv::CartPoleEnv() {
     nlohmann::json params = {
         {"limit_step", limit_step},
     };
-    wxGetApp().logJson("env/params", params);
-    wxGetApp().flushMetricsLog();
+    anet::MetricsLogger::Instance()->log_json("env/params", params);
+    anet::MetricsLogger::Instance()->flush();
 
     Reset();
 }
