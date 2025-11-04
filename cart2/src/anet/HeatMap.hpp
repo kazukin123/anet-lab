@@ -35,6 +35,12 @@ namespace anet {
         HM_Default = HM_AutoNormValue | HM_SumMode
     };
 
+    enum class TimeFrameMode { 
+        Unlimited = 0,
+        Overwrite,
+        Scroll
+    };
+
     // ============================================================
     // 画像化の共通インタフェース
     // ============================================================
@@ -85,7 +91,6 @@ namespace anet {
     // 時系列ヒートマップ：横(右方向)に時間進行、縦は値軸
     //   AddData(in, out): in=縦方向値(=値軸), out=強度
     // ============================================================
-    enum class TimeFrameMode { Unlimited = 0, Overwrite, Scroll };
 
     class TimeHeatMap : public HeatMap {
     public:

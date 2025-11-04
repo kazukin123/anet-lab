@@ -72,6 +72,7 @@ HeatMap::HeatMap(int width, int height, float x_min, float x_max, float y_min, f
 
 void HeatMap::AddData(float x, float y, float value) {
     samples_.push_back({ x, y, value });
+    if (max_points_ > 0 && samples_.size() > max_points_) samples_.pop_front();
     UpdateMinMax_(value);
 }
 
@@ -208,7 +209,9 @@ void TimeHeatMap::NextFrame() {
 }
 
 void TimeHeatMap::Reset() {
-    HeatMap::Reset(); cur_frame_ = 0; total_frames_ = 0;
+    HeatMap::Reset();
+    cur_frame_ = 0;
+    total_frames_ = 0;
 }
 
 wxImage TimeHeatMap::RenderRaw() const {
@@ -217,7 +220,7 @@ wxImage TimeHeatMap::RenderRaw() const {
 
     std::vector<Sample> snapshot(samples_.begin(), samples_.end());
     if (snapshot.empty()) {
-        wxImage empty(1, 1); empty.SetData(new unsigned char[3] {0, 0, 0}); return empty;
+        wxImage empty(1, 1); empty.SetData(new unsigned char[3] { 0, 0, 0 }); return empty;
     }
 
     int N = static_cast<int>(total_frames_ > 0 ? total_frames_ : snapshot.back().x + 1);
@@ -251,9 +254,24 @@ wxImage TimeHeatMap::RenderRaw() const {
 
     float vmin = value_min_, vmax = value_max_;
     if (flags_ & HM_AutoNormValue) {
-        vmin = vmax = snapshot.front().value;
-        for (const auto& s : snapshot) { vmin = std::min(vmin, s.value); vmax = std::max(vmax, s.value); }
-        if (std::fabs(vmax - vmin) < 1e-6f) vmax += 1e-6f;
+        bool has_nonzero = false;
+        vmin = std::numeric_limits<float>::max();
+        vmax = -vmin;
+
+        for (const auto& s : snapshot) {
+            if (std::fabs(s.value) < 1e-8f) continue;  // ゼロ値は除外
+            has_nonzero = true;
+            vmin = std::min(vmin, s.value);
+            vmax = std::max(vmax, s.value);
+        }
+
+        if (!has_nonzero) {
+            // 全サンプルがゼロ（＝空フレーム群）なら固定範囲で描画
+            vmin = -1.0f;
+            vmax = 1.0f;
+        }
+
+        if (std::fabs(vmax - vmin) < 1e-6f) vmax = vmin + 1e-6f;
     }
 
     for (int y = 0; y < height_; ++y) {
@@ -282,7 +300,6 @@ wxImage TimeHeatMap::RenderRaw() const {
 
     return img;
 }
-
 
 // ============================================================
 // Histgram
