@@ -82,7 +82,7 @@ public class MetricsFileReader {
 
         // 最終進行ログ
         if (count > lastProgressCount) {
-            log.info("Parsing run {}... {} lines processed (final checkpoint)", run.getRunId(), count);
+            log.info("parseFull() Parsing run {}... {} lines processed (final checkpoint)", run.getRunId(), count);
         }
 
         snap.setLastReadPosition(offset);
@@ -95,29 +95,46 @@ public class MetricsFileReader {
     }
 
     /**
-     * Read new appended entries since last offset in RunInfo.
+     * Reads newly appended metric entries based on the last position in the snapshot.
+     * Synchronizes the final offset back to the snapshot after reading.
      */
-    public List<MetricEntry> readNewEntries(RunInfo run, Path jsonl) throws IOException {
-        List<MetricEntry> list = new ArrayList<>();
+    public int readNewEntries(RunInfo run, MetricsSnapshot snapshot) throws IOException {
+        Path jsonl = Path.of(run.getRunPath(), "metrics.jsonl");
+log.error("jsonl path: {}", jsonl.toString());
         if (!Files.exists(jsonl)) {
-            log.warn("JSONL file missing for run {}", run.getRunId());
-            return list;
+            log.warn("metrics.jsonl not found for {}", run.getRunId());
+            return 0;
         }
 
         long fileSize = Files.size(jsonl);
-        long last = run.getLastReadPosition();
-        if (fileSize < last) {
-            // ローテーション／切り詰め対応
-            log.info("Detected truncation/rotation for {}. Resetting offset.", run.getRunId());
-            run.setLastReadPosition(0L);
-            return parseFromOffset(run, jsonl, 0L);
+        long offset = snapshot.getLastReadPosition(); // ★ snapshot起点に変更
+
+        log.info("Starting diff read for run {} (offset {} / fileSize {})",
+                run.getRunId(), offset, fileSize);
+
+        if (fileSize <= offset) {
+            log.debug("No new data for run {} (fileSize={} <= offset={})",
+                    run.getRunId(), fileSize, offset);
+            return 0;
         }
 
-        // 差分読み込み開始ログ
-        log.info("Starting diff read for run {} (offset {} / fileSize {})",
-                run.getRunId(), last, fileSize);
+        // privateメソッドで差分読み込み
+        List<MetricEntry> entries = parseFromOffset(run, jsonl, offset);
+        if (entries.isEmpty()) {
+            log.debug("No new entries found for {}", run.getRunId());
+            return 0;
+        }
 
-        return parseFromOffset(run, jsonl, last);
+        // merge entries into snapshot
+        snapshot.merge(entries);
+
+        // ★ RunInfoは一時カーソルとして使用、終了位置をSnapshotに反映
+        snapshot.setLastReadPosition(run.getLastReadPosition());
+
+        log.info("readNewEntries() completed for {} (new offset={})",
+                run.getRunId(), snapshot.getLastReadPosition());
+
+        return entries.size();
     }
 
     /**
@@ -149,7 +166,7 @@ public class MetricsFileReader {
                 long now = System.currentTimeMillis();
                 if ((count - lastProgressCount >= PROGRESS_INTERVAL) ||
                     (now - lastLogTime >= PROGRESS_INTERVAL_MS)) {
-                    log.info("Reading diff for {}... {} lines processed", run.getRunId(), count);
+                    log.info("parseFromOffset() Reading diff for {}. {} lines processed (offset {}→{})", run.getRunId(), count, offset, raf.getFilePointer());
                     lastProgressCount = count;
                     lastLogTime = now;
                 }

@@ -93,10 +93,10 @@ public class MetricsService {
                 .orElseThrow(() -> new IllegalArgumentException("Unknown runId: " + runId));
         MetricsSnapshot snapshot = snapshots.computeIfAbsent(runId, id -> new MetricsSnapshot());
 
+        asyncLoader.submitDiffLoad(run, snapshot, fileReader, cacheManager);
+
         // --- 同期ブロックで整合性を確保 ---
         synchronized (snapshot) {
-            asyncLoader.submitDiffLoad(run, snapshot, fileReader, cacheManager);
-
             if (tagOpt.isPresent()) {
                 String tag = tagOpt.get();
                 MetricSeries s = snapshot.getSeries().get(tag);

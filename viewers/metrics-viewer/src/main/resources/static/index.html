@@ -60,17 +60,15 @@
 <body>
   <h2>Metrics Viewer</h2>
 
-  <div>
+  <div id="header">
     <label for="runSelect">Run:</label>
     <select id="runSelect" style="width: 300px;"></select>
-  </div>
-
-  <div style="margin-top: 10px;">
     <label for="tagSelect">Tags:</label>
-    <!-- multiple 属性を追加 -->
     <select id="tagSelect" multiple="multiple" style="width: 400px;"></select>
-  </div>
 
+    <button id="reload-btn" style="margin-left:8px;">Reload</button>
+  </div>
+  
   <div id="chart"></div>
 
   <script>
@@ -120,6 +118,7 @@
         console.log(`Fetching full metrics for ${runId}...`);
         $('#chart').text('Loading metrics data...');
         $.getJSON(`/api/metrics/${runId}`, function(data) {
+			console.log(`Fetched ${data.length} metrics for ${runId}`);
           runCache[runId] = data;
           renderAllCharts(runId);
           loadTagSelect(runId);
@@ -202,6 +201,30 @@
 	  Plotly.newPlot('chart', traces, layout, { responsive: true });
 	}
 
+	// --- Reloadボタンの動作 ---
+	$('#reload-btn').on('click', function() {
+	  const runId = $('#runSelect').val();
+	  if (!runId) return;
+
+	  console.log("Reloading metrics for " + runId);
+
+	  $.getJSON('/api/metrics/' + runId, function(data) {
+	    // キャッシュを更新
+	    anetRunCache[runId] = data;
+
+	    // 選択中タグに応じて再描画
+	    const selectedTags = $('#tagSelect').val();
+	    if (selectedTags && selectedTags.length > 0) {
+	      renderMultiChart(runId, selectedTags);
+	    } else {
+	      renderAllCharts(runId);
+	    }
+	  }).fail(function() {
+	    alert('Failed to reload metrics.');
+	  });
+	});
+
+	// --- 自動リロード ---
 	setInterval(() => {
 	  const runId = $('#runSelect').val();
 	  if (runId) {
@@ -216,7 +239,7 @@
 	      }
 	    });
 	  }
-	}, 10000); // 10秒ごと
+	}, 50000); // 10秒ごと
   });
   </script>
 </body>

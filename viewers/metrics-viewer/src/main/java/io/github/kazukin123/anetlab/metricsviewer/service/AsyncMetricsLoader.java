@@ -1,6 +1,5 @@
 package io.github.kazukin123.anetlab.metricsviewer.service;
 
-import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -11,7 +10,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsFileReader;
-import io.github.kazukin123.anetlab.metricsviewer.model.MetricEntry;
 import io.github.kazukin123.anetlab.metricsviewer.model.MetricsSnapshot;
 import io.github.kazukin123.anetlab.metricsviewer.model.RunInfo;
 
@@ -29,18 +27,13 @@ public class AsyncMetricsLoader implements AutoCloseable {
 
         executor.submit(() -> {
             try {
-                List<MetricEntry> newEntries = reader.readNewEntries(run, run.getJsonlPath());
-                if (!newEntries.isEmpty()) {
-                    synchronized (snapshot) {
-                        snapshot.merge(newEntries);
-                        snapshot.setLastReadPosition(run.getLastReadPosition());
-                    }
-                    cacheManager.save(run, snapshot);
-                    log.info("Async diff load: {} new entries for run {}", newEntries.size(), run.getRunId());
+                int newCount = reader.readNewEntries(run, snapshot);
+                if (newCount > 0) {
+                    log.info("submitDiffLoad() updated {} entries for {}", newCount, run.getRunId());
+                    cacheManager.save(run, snapshot); // 読み取り結果を即キャッシュ更新
                 } else {
-                    log.debug("Async diff load: no new entries for {}", run.getRunId());
-                }
-            } catch (Exception e) {
+                    log.debug("submitDiffLoad() found no new entries for {}", run.getRunId());
+                }            } catch (Exception e) {
                 log.warn("Async diff load failed for {}: {}", run.getRunId(), e.getMessage());
             }
         });
