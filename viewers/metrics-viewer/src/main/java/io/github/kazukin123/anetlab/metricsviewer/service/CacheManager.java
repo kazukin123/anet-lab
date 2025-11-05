@@ -40,7 +40,9 @@ public class CacheManager {
             ois = new ObjectInputStream(new BufferedInputStream(Files.newInputStream(path)));
             Object obj = ois.readObject();
             if (obj instanceof MetricsSnapshot) {
-                log.info("Loaded cache for run {}", run.getRunId());
+            	MetricsSnapshot snapshot = (MetricsSnapshot) obj;
+                log.info("Loaded cache for run {}. {} tags. Position {}",
+                		run.getRunId(), snapshot.getSeries().size(), snapshot.getLastReadPosition());
                 return (MetricsSnapshot) obj;
             }
         } catch (Exception e) {

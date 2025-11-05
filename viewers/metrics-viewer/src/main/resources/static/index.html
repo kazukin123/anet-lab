@@ -1,105 +1,223 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8">
+  <meta charset="UTF-8">
   <title>Metrics Viewer</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+
+  <!-- jQuery + select2 + Plotly -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-3.2.0.min.js"></script>
+
   <style>
-    body { font-family: system-ui, sans-serif; margin: 16px; }
-    #controls { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
-    select, button { padding: 6px 8px; }
-    #chart { width: 100%; height: 72vh; }
+    body {
+      background: #1e1e1e;
+      color: #ccc;
+      font-family: sans-serif;
+	  margin: 0;
+      padding: 5px;
+    }
+	h2 {
+	  margin-top: 0px;
+	  margin-bottom: 15px;
+	}
+    .select2-container--default .select2-selection--multiple {
+      background-color: #222;
+      border: 1px solid #555;
+      color: #ddd;
+    }
+    .select2-results__option {
+      background-color: #333;
+      color: #fff;
+    }
+    .select2-results__option--highlighted {
+      background-color: #555 !important;
+    }
+    #chart {
+      margin-top: 30px;
+      width: 90%;
+      height: 600px;
+    }
+	/* --- select2 複数選択のバッジ(選択済みタグ)見やすく --- */
+	.select2-container--default .select2-selection--multiple .select2-selection__choice {
+	  background-color: #444;      /* バッジ背景 */
+	  border: 1px solid #666;      /* 枠線 */
+	  color: #eee;                 /* 文字色（明るく） */
+	}
+
+	.select2-container--default .select2-selection--multiple .select2-selection__choice__remove {
+	  color: #bbb;                 /* × ボタンの色 */
+	  margin-right: 4px;
+	}
+
+	.select2-container--default .select2-selection--multiple .select2-selection__choice__remove:hover {
+	  color: #fff;                 /* hoverで明るく */
+	}
   </style>
 </head>
+
 <body>
-  <h1>Metrics Viewer</h1>
-  <div id="controls">
-    <label for="run">Run:</label>
-    <select id="run"></select>
-    <label for="tag">Tag:</label>
-    <input id="tag" type="text" placeholder="e.g. eval_reward" size="24">
-    <button id="reload">Reload</button>
+  <h2>Metrics Viewer</h2>
+
+  <div>
+    <label for="runSelect">Run:</label>
+    <select id="runSelect" style="width: 300px;"></select>
   </div>
+
+  <div style="margin-top: 10px;">
+    <label for="tagSelect">Tags:</label>
+    <!-- multiple 属性を追加 -->
+    <select id="tagSelect" multiple="multiple" style="width: 400px;"></select>
+  </div>
+
   <div id="chart"></div>
 
   <script>
-    const runSel = document.getElementById('run');
-    const tagInput = document.getElementById('tag');
-    const reloadBtn = document.getElementById('reload');
-    const chartDiv = document.getElementById('chart');
+  $(document).ready(function() {
+	// 開発用グローバルキャッシュ（本番では削除可）
+	window.anetRunCache = {};
+	const runCache = window.anetRunCache;
 
-    async function fetchRuns() {
-      const res = await fetch('/api/runs');
-      return res.json();
-    }
-
-    async function fetchSeries(runId, tag) {
-      const u = tag ? `/api/metrics/${encodeURIComponent(runId)}?tag=${encodeURIComponent(tag)}` :
-        `/api/metrics/${encodeURIComponent(runId)}`;
-      const res = await fetch(u);
-      return res.json();
-    }
-
-    function fillRuns(runs) {
-      runSel.innerHTML = '';
-      runs.forEach(r => {
-        const opt = document.createElement('option');
-        opt.value = r.runId;
-        opt.textContent = r.name || r.runId;
-        runSel.appendChild(opt);
-      });
-    }
-
-    function chooseDefaultTag(series) {
-      if (!series || series.length === 0) return '';
-      return series[0].tag || '';
-    }
-
-    function draw(series) {
-      if (!series || series.length === 0) {
-        Plotly.react(chartDiv, [], {title: 'No data'});
-        return;
-      }
-      const s = series[0];
-      const xs = s.points.map(p => p.step);
-      const ys = s.points.map(p => p.value);
-      const trace = { x: xs, y: ys, mode: 'lines', name: s.tag };
-      Plotly.react(chartDiv, [trace], { title: s.tag, margin: { t: 40 } });
-    }
-
-    async function init() {
-      const runs = await fetchRuns();
-      if (!runs || runs.length === 0) {
-        draw([]);
-        return;
-      }
-      fillRuns(runs);
-      const runId = runSel.value;
-      let data = await fetchSeries(runId, tagInput.value.trim());
-      if (!tagInput.value) {
-        tagInput.value = chooseDefaultTag(data.series);
-      }
-      draw(data.series);
-    }
-
-    reloadBtn.addEventListener('click', async () => {
-      const runId = runSel.value;
-      const tag = tagInput.value.trim();
-      const data = await fetchSeries(runId, tag);
-      draw(data.series);
+    // --- Run一覧 select2 ---
+    $('#runSelect').select2({
+      placeholder: 'Select a run',
+      ajax: {
+        url: '/api/runs',
+        dataType: 'json',
+        delay: 250,
+        processResults: function(data) {
+          data.sort((a, b) => (a.runId || a.name || '').localeCompare(b.runId || b.name || ''));
+          return {
+            results: data.map(r => ({
+              id: r.runId || r.name || r.path,
+              text: r.runId || r.name || r.path
+            }))
+          };
+        }
+      },
+      allowClear: true,
+      width: 'resolve'
     });
 
-    // Simple polling for updates.
-    setInterval(async () => {
-      const runId = runSel.value;
-      if (!runId) return;
-      const tag = tagInput.value.trim();
-      const data = await fetchSeries(runId, tag);
-      draw(data.series);
-    }, 5000);
+    // --- Tag一覧 select2（複数選択可） ---
+    $('#tagSelect').select2({
+      placeholder: 'Select one or more tags',
+      allowClear: true,
+      width: 'resolve'
+    });
 
-    init();
+    // --- Run選択時 ---
+    $('#runSelect').on('change', function() {
+      const runId = $(this).val();
+      if (!runId) return;
+
+      if (runCache[runId]) {
+        console.log(`Cache hit for ${runId}`);
+        renderAllCharts(runId);
+        loadTagSelect(runId);
+      } else {
+        console.log(`Fetching full metrics for ${runId}...`);
+        $('#chart').text('Loading metrics data...');
+        $.getJSON(`/api/metrics/${runId}`, function(data) {
+          runCache[runId] = data;
+          renderAllCharts(runId);
+          loadTagSelect(runId);
+        });
+      }
+    });
+
+    // --- 複数タグ選択時に複数グラフ描画 ---
+    $('#tagSelect').on('change', function() {
+      const runId = $('#runSelect').val();
+      const tags = $(this).val();
+      if (!runId || !tags || tags.length === 0) {
+        // 全タグ選択解除時：全体グラフに戻す
+        if (runId) renderAllCharts(runId);
+        return;
+      }
+      renderMultiChart(runId, tags);
+    });
+
+    // --- タグリスト読込 ---
+    function loadTagSelect(runId) {
+      const all = runCache[runId];
+      const tags = all.map(s => s.tag);
+	  tags.sort((a, b) => a.localeCompare(b));
+      const $tagSelect = $('#tagSelect');
+      $tagSelect.empty();
+      tags.forEach(tag => $tagSelect.append(new Option(tag, tag)));
+      $tagSelect.trigger('change.select2');
+      console.log(`Loaded ${tags.length} tags`);
+    }
+
+	function toTrace(s) {
+	  if (!s.points || s.points.length < 2) return null;
+
+	  // step 昇順にソート
+	  const sorted = [...s.points].sort((a, b) => a.step - b.step);
+
+	  return {
+	    x: sorted.map(p => p.step),
+	    y: sorted.map(p => Number.isFinite(p.value) ? p.value : NaN),
+	    type: 'scatter',
+	    mode: 'lines',
+	    name: s.tag,
+	    connectgaps: false
+	  };
+	}
+	
+    // --- 全タグ一括描画 ---
+	function renderAllCharts(runId) {
+	  $('#chart').empty();
+	  const all = anetRunCache[runId];
+	  const traces = all
+	    .map(toTrace)
+	    .filter(t => t !== null);
+
+	  const layout = {
+	    paper_bgcolor: '#1e1e1e',
+	    plot_bgcolor: '#1e1e1e',
+	    font: { color: '#ddd' },
+	    title: `${runId} — all tags (${traces.length})`
+	  };
+	  Plotly.newPlot('chart', traces, layout, { responsive: true });
+	}
+
+    // --- 選択された複数タグのグラフ描画 ---
+	function renderMultiChart(runId, tags) {
+	  $('#chart').empty();
+	  const all = anetRunCache[runId];
+	  const traces = all
+	    .filter(s => tags.includes(s.tag))
+	    .map(toTrace)
+	    .filter(t => t !== null);
+
+	  const layout = {
+	    paper_bgcolor: '#1e1e1e',
+	    plot_bgcolor: '#1e1e1e',
+	    font: { color: '#ddd' },
+	    title: `${runId} — selected tags (${tags.length})`
+	  };
+	  Plotly.newPlot('chart', traces, layout, { responsive: true });
+	}
+
+	setInterval(() => {
+	  const runId = $('#runSelect').val();
+	  if (runId) {
+	    console.log('Auto-refresh metrics...');
+	    $.getJSON(`/api/metrics/${runId}`, data => {
+	      anetRunCache[runId] = data;
+	      const selectedTags = $('#tagSelect').val();
+	      if (selectedTags && selectedTags.length > 0) {
+	        renderMultiChart(runId, selectedTags);
+	      } else {
+	        renderAllCharts(runId);
+	      }
+	    });
+	  }
+	}, 10000); // 10秒ごと
+  });
   </script>
 </body>
 </html>

@@ -1,23 +1,19 @@
 package io.github.kazukin123.anetlab.metricsviewer.controller;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import io.github.kazukin123.anetlab.metricsviewer.model.MetricSeries;
 import io.github.kazukin123.anetlab.metricsviewer.model.RunInfo;
 import io.github.kazukin123.anetlab.metricsviewer.service.MetricsService;
 
-/**
- * REST controller for runs and metrics APIs.
- */
 @RestController
 @RequestMapping("/api")
 public class MetricsViewerController {
@@ -28,17 +24,26 @@ public class MetricsViewerController {
         this.metricsService = metricsService;
     }
 
-    @GetMapping(value = "/runs", produces = MediaType.APPLICATION_JSON_VALUE)
+    /** Run一覧 */
+    @GetMapping("/runs")
     public List<RunInfo> listRuns() {
         return metricsService.listRuns();
     }
 
-    @GetMapping(value = "/metrics/{runId}", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Map<String, Object> getMetrics(
-            @PathVariable("runId") String runId,
-            @RequestParam(name = "tag", required = false) String tag) {
+    /** 全データ取得 */
+    @GetMapping("/metrics/{runId}")
+    public List<MetricSeries> getMetrics(@PathVariable("runId") String runId) {
+        return metricsService.fetchSeries(runId, Optional.empty());
+    }
 
-        List<MetricSeries> series = metricsService.fetchSeries(runId, Optional.ofNullable(tag));
-        return Map.of("runId", runId, "series", series);
+    /** タグ一覧 */
+    @GetMapping("/metrics/{runId}/tags")
+    public List<Map<String, String>> getTags(@PathVariable("runId") String runId) {
+        List<MetricSeries> all = metricsService.fetchSeries(runId, Optional.empty());
+        List<Map<String, String>> tags = new ArrayList<>();
+        for (MetricSeries s : all) {
+            tags.add(Map.of("tag", s.getTag()));
+        }
+        return tags;
     }
 }
