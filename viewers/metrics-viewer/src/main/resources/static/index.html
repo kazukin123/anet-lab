@@ -285,22 +285,26 @@
       console.log(`Loaded ${tags.length} tags`);
     }
 
-	function toTrace(s) {
-	  if (!s.points || s.points.length < 2) return null;
+	// --- MetricSeries → Plotly Trace 変換 ---
+	function toTrace(series) {
+	  if (!series || !series.points || series.points.length === 0) return null;
+	  console.log("X軸 step値", series.points.map(p => p.step));
 
-	  // step 昇順にソート
-	  const sorted = [...s.points].sort((a, b) => a.step - b.step);
+	  // MetricPoint: { step, value, timestamp } を想定
+	  const xs = series.points.map(p => Number(p.step));   // ← 横軸に step 数値
+	  const ys = series.points.map(p => p.value);  // ← 縦軸に値
 
-	  return {
-	    x: sorted.map(p => p.step),
-	    y: sorted.map(p => Number.isFinite(p.value) ? p.value : NaN),
-	    type: 'scatter',
-	    mode: 'lines',
-	    name: s.tag,
-	    connectgaps: false
+	  var trace = {
+		mode: 'lines',
+	    x: xs,
+	    y: ys,
+	    name: series.tag,
+	    line: { width: 1.5 }
 	  };
+	  console.log("trace=", trace);
+	  return trace;
 	}
-	
+
 	// --- 全タグ一括描画（タグ未選択時も個別グラフ） ---
 	function renderCharts(runId, selectedTags = null) {
 	  $('#chart').empty();  // 既存のグラフを削除
@@ -326,12 +330,25 @@
 	    $('#chart').append(chartDiv);  // chartを追加
 
 	    const layout = {
-	      paper_bgcolor: '#1e1e1e',
-	      plot_bgcolor: '#1e1e1e',
-	      font: { color: '#ddd' },
-	      title: `${runId} — ${tag}`,
-	      height: 250,  // グラフ本体の高さを直接指定
-		  margin: { l:50, r:50, b:0, t:0, pad:4 }
+			template:"plotly_dark",
+			paper_bgcolor: '#0f0f0f',
+			plot_bgcolor: '#191919',
+			font: { color: '#ddd' },
+			title: `${runId} — ${tag}`,
+			height: 250,  // グラフ本体の高さを直接指定
+			margin: { l:50, r:50, b:30, t:20, pad:4 },
+			xaxis: {
+				type: 'linear',
+				tickmode: 'auto',
+				showgrid: true,
+				zeroline: false,
+				gridcolor: "rgb(100 100 100 / 0.3)"
+			},
+			yaxis: {
+			  showgrid: true,
+			  zeroline: false,
+			  gridcolor: "rgb(100 100 100 / 0.3)"
+			}
 	    };
 
 	    // 個別タググラフを描画
