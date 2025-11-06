@@ -53,12 +53,28 @@ if (WIN32)
 endif()
 
 if (MSVC)
-   file(GLOB TORCH_DLLS "${TORCH_INSTALL_PREFIX}/lib/*.dll")
-   add_custom_command(TARGET CartPoleRLGUI
-                      POST_BUILD
-                      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                      ${TORCH_DLLS}
-                      $<TARGET_FILE_DIR:CartPoleRLGUI>)
-endif (MSVC)
+  # --- Torchルート決定（上位Torch_DIRを利用） ---
+  get_filename_component(TORCH_ROOT "${Torch_DIR}/../../" ABSOLUTE)
+  set(TORCH_DLL_DIR "${TORCH_ROOT}/lib")
+
+  message(STATUS "Torch root: ${TORCH_ROOT}")
+  message(STATUS "Torch DLL dir: ${TORCH_DLL_DIR}")
+
+  # --- DLL一覧を取得（構成切替関係なく同一libフォルダ使用） ---
+  file(GLOB TORCH_DLLS "${TORCH_DLL_DIR}/*.dll")
+
+  if(TORCH_DLLS)
+    add_custom_command(TARGET CartPoleRLGUI POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E echo "Copying libtorch DLLs from ${TORCH_DLL_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${TORCH_DLLS}
+                $<TARGET_FILE_DIR:CartPoleRLGUI>
+        COMMENT "Copying libtorch DLLs"
+    )
+  else()
+    message(WARNING "No DLLs found in ${TORCH_DLL_DIR}")
+  endif()
+endif()
+
 
 

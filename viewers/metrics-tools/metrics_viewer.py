@@ -392,7 +392,7 @@ def create_app(log_root: str) -> Dash:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--logdir", default="logs")
+    parser.add_argument("--logdir", default="runs")
     parser.add_argument("--serve", action="store_true")
     args = parser.parse_args()
 

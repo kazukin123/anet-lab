@@ -24,7 +24,7 @@ std::string GetConfigFilePath() {
 }
 
 std::string GetLogsPath() {
-    return (GetProjectRootDir() / "logs").string();
+    return (GetProjectRootDir() / "runs").string();
 }
 
 static wxCmdLineEntryDesc desc[] = {

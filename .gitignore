@@ -50,3 +50,5 @@
 /enc_temp_folder
 /logs
 /wx-apps/cartpole2/logs
+/docs/html
+/wx-apps/cartpole2/runs

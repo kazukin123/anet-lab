@@ -87,6 +87,6 @@ find_package(Doxygen REQUIRED)
 set(DOXYGEN_IN  ${CMAKE_CURRENT_SOURCE_DIR}/docs/Doxyfile)
 add_custom_target(doc
     COMMAND ${DOXYGEN_EXECUTABLE} ${DOXYGEN_IN}
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/docs
     COMMENT "Generating full documentation with Doxygen"
 )
