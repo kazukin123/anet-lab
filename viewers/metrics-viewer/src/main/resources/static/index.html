@@ -54,6 +54,35 @@
 	.select2-container--default .select2-selection--multiple .select2-selection__choice__remove:hover {
 	  color: #fff;                 /* hoverで明るく */
 	}
+
+	.tag-chart {
+		height: 300px;
+		border-top: 1px solid #ffffff;
+    }
+	
+	/* 各グラフのタイトル（タグ名） */
+	.tag-name {
+	  font-size: 14px;
+	  color: #ddd;
+	  text-align: left;
+	  margin-bottom: 5px;
+	  position: relative;
+	  top: 0px;
+	  z-index: 10;
+	}
+
+	/* 各グラフの高さを300pxに設定 */
+	.tag-plot {
+/*	  margin-top: 20px; */
+/*	  height: 300px;	*/	
+/*	  position: relative;	*/
+	}
+
+	#chart {
+		width: 100%;
+	  height: 100%;
+	  overflow-y: auto;  /* スクロール可能に */
+	}
   </style>
 </head>
 
@@ -76,6 +105,112 @@
 	// 開発用グローバルキャッシュ（本番では削除可）
 	window.anetRunCache = {};
 	const runCache = window.anetRunCache;
+
+	// --- Run一覧を更新する（既存選択は維持） ---
+	function updateRunList(preserveSelection = true) {
+	  $.getJSON('/api/runs', function(data) {
+	    if (!data || data.length === 0) return;
+
+	    // 辞書順ソート
+	    data.sort((a, b) => (a.runId || a.name || '').localeCompare(b.runId || b.name || ''));
+
+	    const select = $('#runSelect');
+	    const prevSelected = preserveSelection ? select.val() : null;
+	    const prevOptions = new Set(select.find('option').map((_, opt) => $(opt).val()).get());
+
+	    let modified = false;
+
+	    // 既存にないRunが追加されていれば再描画フラグ
+	    data.forEach(r => {
+	      const id = r.runId || r.name || r.path;
+	      if (!prevOptions.has(id)) modified = true;
+	    });
+	    // 不要になったRunがあれば再描画フラグ
+	    prevOptions.forEach(optId => {
+	      if (!data.some(r => (r.runId || r.name || r.path) === optId)) modified = true;
+	    });
+
+	    // 更新必要なしならスキップ
+	    if (!modified) return;
+
+	    // selectをクリアして再構築
+	    select.empty();
+	    data.forEach(r => {
+	      const id = r.runId || r.name || r.path;
+	      const opt = $('<option></option>').val(id).text(id);
+	      select.append(opt);
+	    });
+
+	    // 再初期化（再select2化）
+	    if (select.data('select2')) select.select2('destroy');
+	    select.select2({
+	      placeholder: 'Select a run',
+	      allowClear: true,
+	      width: 'resolve'
+	    });
+
+	    // 選択維持
+	    if (prevSelected && select.find(`option[value="${prevSelected}"]`).length > 0) {
+	      select.val(prevSelected).trigger('change.select2'); // イベントは発火せずUIのみ更新
+	    }
+	  });
+	}
+
+	// --- 初回ロード：Runリスト構築＆最新Run自動選択 ---
+	function loadRunsAndSelectLatest() {
+	  $.getJSON('/api/runs', function(data) {
+	    if (!data || data.length === 0) return;
+
+	    // 辞書順ソート
+	    data.sort((a, b) => (a.runId || a.name || '').localeCompare(b.runId || b.name || ''));
+
+	    const select = $('#runSelect');
+	    select.empty();
+	    data.forEach(r => {
+	      const id = r.runId || r.name || r.path;
+	      const opt = $('<option></option>').val(id).text(id);
+	      select.append(opt);
+	    });
+
+	    const latest = data[data.length - 1];
+	    const latestId = latest.runId || latest.name || latest.path;
+	    select.val(latestId);
+
+	    if (select.data('select2')) select.select2('destroy');
+	    select.select2({
+	      placeholder: 'Select a run',
+	      allowClear: true,
+	      width: 'resolve'
+	    });
+
+	    select.trigger('change'); // 初回描画
+	  });
+	}
+
+	// --- 初期化 ---
+	$(document).ready(function() {
+	  // タグセレクタ
+	  $('#tagSelect').select2({
+	    placeholder: 'Select tags',
+	    allowClear: true,
+	    width: 'resolve'
+	  });
+
+	  // Run初期ロード
+	  loadRunsAndSelectLatest();
+
+	  // --- Reloadボタンの挙動 ---
+	  $('#reload-btn').on('click', function() {
+	    console.log("Reload triggered");
+	    updateRunList(true); // Run一覧更新（選択維持）
+	    const runId = $('#runSelect').val();
+	    const selectedTags = $('#tagSelect').val();
+	    renderCharts(runId, selectedTags);
+	  });
+
+	  // --- 定期更新（例: 60秒ごと） ---
+	  setInterval(() => updateRunList(true), 60000);
+	});
 
     // --- Run一覧 select2 ---
     $('#runSelect').select2({
@@ -112,7 +247,7 @@
 
       if (runCache[runId]) {
         console.log(`Cache hit for ${runId}`);
-        renderAllCharts(runId);
+        renderCharts(runId);
         loadTagSelect(runId);
       } else {
         console.log(`Fetching full metrics for ${runId}...`);
@@ -120,7 +255,7 @@
         $.getJSON(`/api/metrics/${runId}`, function(data) {
 			console.log(`Fetched ${data.length} metrics for ${runId}`);
           runCache[runId] = data;
-          renderAllCharts(runId);
+          renderCharts(runId);
           loadTagSelect(runId);
         });
       }
@@ -132,10 +267,10 @@
       const tags = $(this).val();
       if (!runId || !tags || tags.length === 0) {
         // 全タグ選択解除時：全体グラフに戻す
-        if (runId) renderAllCharts(runId);
+        if (runId) renderCharts(runId);
         return;
       }
-      renderMultiChart(runId, tags);
+      renderCharts(runId, tags);
     });
 
     // --- タグリスト読込 ---
@@ -166,58 +301,60 @@
 	  };
 	}
 	
-    // --- 全タグ一括描画 ---
-	function renderAllCharts(runId) {
-	  $('#chart').empty();
+	// --- 全タグ一括描画（タグ未選択時も個別グラフ） ---
+	function renderCharts(runId, selectedTags = null) {
+	  $('#chart').empty();  // 既存のグラフを削除
 	  const all = anetRunCache[runId];
-	  const traces = all
-	    .map(toTrace)
-	    .filter(t => t !== null);
+	  const tags = [...new Set(all.map(s => s.tag))];  // タグのリストを取得（重複なし）
 
-	  const layout = {
-	    paper_bgcolor: '#1e1e1e',
-	    plot_bgcolor: '#1e1e1e',
-	    font: { color: '#ddd' },
-	    title: `${runId} — all tags (${traces.length})`
-	  };
-	  Plotly.newPlot('chart', traces, layout, { responsive: true });
-	}
+	  // タグ選択がある場合 → 選択されたタグごとに描画
+	  const tagsToRender = selectedTags && selectedTags.length > 0 ? selectedTags : tags;
 
-    // --- 選択された複数タグのグラフ描画 ---
-	function renderMultiChart(runId, tags) {
-	  $('#chart').empty();
-	  const all = anetRunCache[runId];
-	  const traces = all
-	    .filter(s => tags.includes(s.tag))
-	    .map(toTrace)
-	    .filter(t => t !== null);
+	  // 各タグごとに別々のグラフを描画
+	  tagsToRender.forEach(tag => {
+	    const tagData = all.filter(s => s.tag === tag);
+	    const traces = tagData
+	      .map(toTrace)
+	      .filter(t => t !== null);
 
-	  const layout = {
-	    paper_bgcolor: '#1e1e1e',
-	    plot_bgcolor: '#1e1e1e',
-	    font: { color: '#ddd' },
-	    title: `${runId} — selected tags (${tags.length})`
-	  };
-	  Plotly.newPlot('chart', traces, layout, { responsive: true });
+	    // 各タグ用のグラフを新しいdivに追加
+		const chartDiv = $('<div></div>').addClass('tag-chart');
+		const tagNameDiv = $('<div></div>').addClass('tag-name').text(tag);  // タグ名を表示
+		const plotDiv = $('<div></div>').addClass('tag-plot');
+		chartDiv.append(tagNameDiv);  // タグ名を追加
+		chartDiv.append(plotDiv);     // グラフ用divを追加
+	    $('#chart').append(chartDiv);  // chartを追加
+
+	    const layout = {
+	      paper_bgcolor: '#1e1e1e',
+	      plot_bgcolor: '#1e1e1e',
+	      font: { color: '#ddd' },
+	      title: `${runId} — ${tag}`,
+	      height: 250,  // グラフ本体の高さを直接指定
+		  margin: { l:50, r:50, b:0, t:0, pad:4 }
+	    };
+
+	    // 個別タググラフを描画
+	    Plotly.newPlot(plotDiv[0], traces, layout);
+	  });
 	}
 
 	// --- Reloadボタンの動作 ---
 	$('#reload-btn').on('click', function() {
 	  const runId = $('#runSelect').val();
-	  if (!runId) return;
-
-	  console.log("Reloading metrics for " + runId);
+	  if (!runId) return alert('Please select a run first.');
+	  $('#loading').show();
 
 	  $.getJSON('/api/metrics/' + runId, function(data) {
 	    // キャッシュを更新
 	    anetRunCache[runId] = data;
 
-	    // 選択中タグに応じて再描画
+	    // 現在選択中のタグ
 	    const selectedTags = $('#tagSelect').val();
+
+	    // タグ選択あり → 選択されたタグごとに個別グラフを描画
 	    if (selectedTags && selectedTags.length > 0) {
-	      renderMultiChart(runId, selectedTags);
-	    } else {
-	      renderAllCharts(runId);
+	      renderChart(runId, selectedTags);
 	    }
 	  }).fail(function() {
 	    alert('Failed to reload metrics.');
@@ -233,9 +370,9 @@
 	      anetRunCache[runId] = data;
 	      const selectedTags = $('#tagSelect').val();
 	      if (selectedTags && selectedTags.length > 0) {
-	        renderMultiChart(runId, selectedTags);
+	        renderCharts(runId, selectedTags);
 	      } else {
-	        renderAllCharts(runId);
+	        renderCharts(runId);
 	      }
 	    });
 	  }

@@ -100,7 +100,6 @@ public class MetricsFileReader {
      */
     public int readNewEntries(RunInfo run, MetricsSnapshot snapshot) throws IOException {
         Path jsonl = Path.of(run.getRunPath(), "metrics.jsonl");
-log.error("jsonl path: {}", jsonl.toString());
         if (!Files.exists(jsonl)) {
             log.warn("metrics.jsonl not found for {}", run.getRunId());
             return 0;

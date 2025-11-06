@@ -52,7 +52,7 @@ public class RunRepository {
                         .jsonlPath(jsonl.toAbsolutePath())
                         .lastUpdated(lastUpdated)
                         .stepCount(0)
-                        .lastReadPosition(0L)
+                        .lastReadPosition(0)
                         .build();
                 runs.put(runId, info);
                 count++;
