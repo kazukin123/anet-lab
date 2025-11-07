@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Metrics Viewer</title>
+
+<!-- jQuery + jQuery UI + Touch Punch -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jquery-ui-touch-punch@0.2.3/jquery.ui.touch-punch.min.js"></script>
+
+<!-- Plotly -->
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+
+<style>
+	html, body {
+		margin: 0;
+		height: 100%;
+		background: #0f0f0f;
+		color: #ddd;
+		font-family: "Segoe UI", sans-serif;
+		overflow: hidden;
+	}
+
+	#layout {
+		display: flex;
+		height: 100vh;
+	}
+
+	/* --- Side Panel --- */
+	#side-panel {
+		width: 300px;
+		min-width: 280px;
+		background: #181818;
+		border-right: 1px solid #333;
+		display: flex;
+		flex-direction: column;
+		padding: 10px;
+		box-sizing: border-box;
+		overflow-y: auto;
+	}
+	#side-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 10px;
+	}
+	#side-header h2 {
+		font-size: 16px;
+		color: #ccc;
+		margin: 0;
+	}
+	.title-buttons {
+		display: flex;
+		gap: 6px;
+	}
+	.title-buttons button {
+		font-size: 12px;
+		padding: 3px 6px;
+	}
+
+	/* --- Buttons --- */
+	.section {
+		margin-bottom: 12px;
+	}
+	button {
+		background: #333;
+		color: #ddd;
+		border: 1px solid #444;
+		padding: 4px 8px;
+		margin: 2px 0;
+		cursor: pointer;
+		border-radius: 3px;
+		font-size: 13px;
+	}
+	button:hover {
+		background: #555;
+	}
+
+	/* --- Run Buttons --- */
+	.run-buttons {
+		display: flex;
+		gap: 4px;
+		margin-top: 4px;
+	}
+	.run-buttons button {
+		flex: 1;
+		font-size: 12px;
+		padding: 3px;
+	}
+
+	/* --- Tag List --- */
+	#tag-list {
+		list-style: none;
+		margin: 4px 0 0 0;
+		padding: 0;
+		touch-action: none;
+		-webkit-user-select: none;
+		user-select: none;
+	}
+	#tag-list li {
+		padding: 6px 8px;
+		margin-bottom: 3px;
+		background: #222;
+		border: 1px solid #333;
+		cursor: move;
+		font-size: 14px;
+		color: #ccc;
+		user-select: none;
+	}
+	#tag-list li.active {
+		background: #004488;
+		color: #fff;
+	}
+	#tag-list li:hover {
+		background: #333;
+	}
+
+	/* --- Main Area --- */
+	#main-area {
+		flex: 1;
+		padding: 8px 16px;
+		box-sizing: border-box;
+		overflow-y: auto;
+	}
+	.graph-block {
+		margin-bottom: 32px;
+	}
+	.graph-title {
+		font-size: 14px;
+		color: #ccc;
+		margin: 0 0 6px 4px;
+	}
+
+	/* --- Screenshot Mode --- */
+	body.screenshot-mode {
+		background: #000;
+		overflow-y: auto !important;
+		height: auto !important;
+	}
+
+	body.screenshot-mode html {
+		overflow-y: auto !important;
+		height: auto !important;
+	}
+
+	body.screenshot-mode #layout {
+		display: block !important;
+		height: auto !important;
+		min-height: 100vh;
+	}
+
+	body.screenshot-mode #main-area {
+		display: block !important;
+		width: 100% !important;
+		padding: 0 20px !important;
+		overflow: visible !important;
+		height: auto !important;
+	}
+
+	body.screenshot-mode #side-panel {
+		display: none !important;
+	}
+
+	body.screenshot-mode * {
+		box-shadow: none !important;
+		border: none !important;
+	}
+
+	/* --- Exit Screenshot Button --- */
+	#btn-exit-screenshot {
+		position: fixed;
+		right: 16px;
+		bottom: 16px;
+		padding: 6px 10px;
+		font-size: 12px;
+		background: #333;
+		color: #eee;
+		border: 1px solid #555;
+		border-radius: 4px;
+		cursor: pointer;
+		display: none;
+		z-index: 500;
+		opacity: 0.8;
+	}
+	#btn-exit-screenshot:hover {
+		background: #555;
+		opacity: 1;
+	}
+	body.screenshot-mode #btn-exit-screenshot {
+		display: block;
+	}
+
+</style>
+</head>
+
+<body>
+<div id="layout">
+	<!-- Side Panel -->
+	<div id="side-panel">
+		<div id="side-header">
+			<h2>Metrics Viewer</h2>
+			<div class="title-buttons">
+				<button id="btn-reload">Reload</button>
+				<button id="btn-auto-reload">Auto Reload: OFF</button>
+			</div>
+		</div>
+
+		<div class="section" id="run-section">
+			<label>Runs</label>
+			<div id="run-list">
+				<label><input type="checkbox" checked> run_C</label><br>
+				<label><input type="checkbox" checked> run_B</label><br>
+				<label><input type="checkbox"> run_A</label>
+			</div>
+			<div class="run-buttons">
+				<button id="btn-select-all-runs">Select All</button>
+				<button id="btn-latest-only">Latest Only</button>
+			</div>
+		</div>
+
+		<div class="section" id="tag-section">
+			<label>Tags</label>
+			<button id="btn-select-all">Select All</button>
+			<button id="btn-clear-all">Clear All</button>
+			<ul id="tag-list">
+				<li id="tag-reward" class="active">reward/mean</li>
+				<li id="tag-loss" class="active">loss/q_value</li>
+				<li id="tag-epsilon" class="active">epsilon</li>
+				<li id="tag-grad">grad_norm</li>
+			</ul>
+		</div>
+
+		<div class="section">
+			<button id="btn-screenshot">Screenshot Mode</button>
+		</div>
+	</div>
+
+	<!-- Main Area -->
+	<div id="main-area"></div>
+</div>
+
+<!-- Screenshot Exit -->
+<button id="btn-exit-screenshot">× Exit Screenshot Mode</button>
+
+<script>
+$(function(){
+	let autoReload=false;
+	let autoReloadTimer=null;
+
+	/* --- Sortable --- */
+	$("#tag-list").sortable({
+		update:function(){
+			const newOrder=$("#tag-list").sortable("toArray").map(id=>id.replace("tag-",""));
+			refreshCharts(newOrder);
+		}
+	});
+
+	/* --- タップ／クリック両対応 --- */
+	$("#tag-list li").on("touchstart",function(e){this._touchStart=e.timeStamp;})
+	.on("touchend",function(e){
+		const time=e.timeStamp-(this._touchStart||0);
+		if(time<200)$(this).trigger("click");
+	});
+	$("#tag-list").on("click","li",function(){
+		$(this).toggleClass("active");
+		refreshCharts();
+	});
+
+	/* --- Run選択 --- */
+	$("#btn-select-all-runs").on("click",()=>{$("#run-list input").prop("checked",true);refreshCharts();});
+	$("#btn-latest-only").on("click",()=>{
+		const $runs=$("#run-list input");
+		$runs.prop("checked",false);
+		$runs.first().prop("checked",true);
+		refreshCharts();
+	});
+	$("#run-list input").on("change",refreshCharts);
+
+	/* --- Tagボタン --- */
+	$("#btn-select-all").on("click",()=>{$("#tag-list li").addClass("active");refreshCharts();});
+	$("#btn-clear-all").on("click",()=>{$("#tag-list li").removeClass("active");refreshCharts();});
+
+	/* --- Reload系 --- */
+	$("#btn-reload").on("click",refreshCharts);
+	$("#btn-auto-reload").on("click",function(){
+		autoReload=!autoReload;
+		$(this).text(`Auto Reload: ${autoReload?"ON":"OFF"}`);
+		if(autoReload){
+			autoReloadTimer=setInterval(refreshCharts,5000);
+		}else{
+			clearInterval(autoReloadTimer);
+			autoReloadTimer=null;
+		}
+	});
+
+	/* --- Screenshot --- */
+	$("#btn-screenshot").on("click", () => {
+		$("body").addClass("screenshot-mode");
+
+		// flexレイアウトは維持。高さ調整は main-area と body のみに適用。
+		$("html, body, #main-area").css({
+			height: "auto",
+			overflow: "visible"
+		});
+
+		// Plotly再描画（リサイズ）
+		setTimeout(() => {
+			$(".graph-block div[id^='graph-']").each(function() {
+				Plotly.Plots.resize(this);
+			});
+		}, 300);
+	});
+
+	$("#btn-exit-screenshot").on("click", () => {
+		$("body").removeClass("screenshot-mode");
+
+		// 元に戻す
+		$("html, body, #main-area").removeAttr("style");
+
+		setTimeout(() => {
+			$(".graph-block div[id^='graph-']").each(function() {
+				Plotly.Plots.resize(this);
+			});
+		}, 300);
+	});
+	
+	/* --- グラフ描画関数 --- */
+	function refreshCharts(tagOrder){
+		let order=[];
+		if(Array.isArray(tagOrder)) order=tagOrder;
+		else order=$("#tag-list li").map((i,e)=>$(e).text()).get();
+
+		const activeTags=$("#tag-list li.active").map((i,e)=>$(e).text()).get();
+		const drawList=order.filter(t=>activeTags.includes(t));
+		const runs=$("#run-list input:checked").map((i,e)=>$(e).parent().text().trim()).get();
+
+		const $area=$("#main-area");
+		$area.empty();
+
+		drawList.forEach(tag=>{
+			const divId="graph-"+tag.replace(/[^\w-]/g,"_");
+			$area.append(`
+				<div class="graph-block">
+					<div class="graph-title">${tag}</div>
+					<div id="${divId}"></div>
+				</div>
+			`);
+			renderPlot(divId,tag,runs);
+		});
+		console.log("Refreshed at",new Date().toLocaleTimeString());
+	}
+
+	/* --- ダミー線（Run比較） --- */
+	function renderPlot(divId,tag,runs){
+		const colors=[
+			"#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd",
+			"#8c564b","#e377c2","#7f7f7f","#bcbd22","#17becf"
+		];
+		let yGen;
+		switch(tag){
+			case "reward/mean":
+				yGen=step=>100*(1-Math.exp(-step/50))+Math.random()*5;break;
+			case "loss/q_value":
+				yGen=step=>100*Math.exp(-step/50)+Math.random()*5;break;
+			case "epsilon":
+				yGen=step=>Math.exp(-step/50)+Math.random()*0.05;break;
+			default:
+				yGen=step=>Math.random()*10;
+		}
+		const data=runs.map((r,i)=>({
+			x:Array.from({length:100},(_,j)=>j),
+			y:Array.from({length:100},(_,j)=>yGen(j)*(1+i*0.1)),
+			name:r,
+			line:{color:colors[i%colors.length],width:2}
+		}));
+		Plotly.newPlot(divId,data,{
+			margin:{t:10},
+			height:300,
+			plot_bgcolor:"#111",
+			paper_bgcolor:"#111",
+			font:{color:"#ccc"},
+			autosize:true
+		},{
+			displayModeBar:false,
+			responsive:true,
+			useResizeHandler:true
+		});
+	}
+
+	/* --- リサイズで全グラフ更新 --- */
+	$(window).on("resize",function(){
+		$(".graph-block div[id^='graph-']").each(function(){
+			Plotly.Plots.resize(this);
+		});
+	});
+
+	refreshCharts();
+});
+</script>
+</body>
+</html>

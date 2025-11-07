@@ -1,400 +1,246 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <title>Metrics Viewer</title>
-
-  <!-- jQuery + select2 + Plotly -->
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
-  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-  <script src="https://cdn.plot.ly/plotly-3.2.0.min.js"></script>
-
-  <style>
-    body {
-      background: #1e1e1e;
-      color: #ccc;
-      font-family: sans-serif;
-	  margin: 0;
-      padding: 5px;
-    }
-	h2 {
-	  margin-top: 0px;
-	  margin-bottom: 15px;
-	}
-    .select2-container--default .select2-selection--multiple {
-      background-color: #222;
-      border: 1px solid #555;
-      color: #ddd;
-    }
-    .select2-results__option {
-      background-color: #333;
-      color: #fff;
-    }
-    .select2-results__option--highlighted {
-      background-color: #555 !important;
-    }
-    #chart {
-      margin-top: 30px;
-      width: 90%;
-      height: 600px;
-    }
-	/* --- select2 複数選択のバッジ(選択済みタグ)見やすく --- */
-	.select2-container--default .select2-selection--multiple .select2-selection__choice {
-	  background-color: #444;      /* バッジ背景 */
-	  border: 1px solid #666;      /* 枠線 */
-	  color: #eee;                 /* 文字色（明るく） */
-	}
-
-	.select2-container--default .select2-selection--multiple .select2-selection__choice__remove {
-	  color: #bbb;                 /* × ボタンの色 */
-	  margin-right: 4px;
-	}
-
-	.select2-container--default .select2-selection--multiple .select2-selection__choice__remove:hover {
-	  color: #fff;                 /* hoverで明るく */
-	}
-
-	.tag-chart {
-		height: 300px;
-		border-top: 1px solid #ffffff;
-    }
-	
-	/* 各グラフのタイトル（タグ名） */
-	.tag-name {
-	  font-size: 14px;
-	  color: #ddd;
-	  text-align: left;
-	  margin-bottom: 5px;
-	  position: relative;
-	  top: 0px;
-	  z-index: 10;
-	}
-
-	/* 各グラフの高さを300pxに設定 */
-	.tag-plot {
-/*	  margin-top: 20px; */
-/*	  height: 300px;	*/	
-/*	  position: relative;	*/
-	}
-
-	#chart {
-		width: 100%;
-	  height: 100%;
-	  overflow-y: auto;  /* スクロール可能に */
-	}
-  </style>
+	<meta charset="UTF-8">
+	<title>Metrics Viewer</title>
+	<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+	<script src="https://cdn.plot.ly/plotly-3.2.0.min.js"></script>
+	<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+	<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+	<style>
+		body {
+			font-family: sans-serif;
+			background-color: #0f0f0f;
+			color: #ddd;
+			margin: 0;
+			padding: 10px;
+		}
+		#controls {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			margin-bottom: 10px;
+		}
+		#chart {
+			width: 100%;
+/*			height: calc(100vh - 100px);*/
+			overflow-y: auto;
+		}
+		.tag-chart {
+			height: 300px;
+			border-bottom: 1px solid #333;
+		}
+		.tag-name {
+			font-size: 14px;
+			color: #ddd;
+			text-align: left;
+			margin-bottom: 0px;
+			position: relative;
+		}
+		.select2-container {
+			min-width: 220px;
+		}
+	</style>
 </head>
-
 <body>
-  <h2>Metrics Viewer</h2>
+	<h2>Metrics Viewer</h2>
+	<div id="controls">
+		<select id="runSelect"></select>
+		<select id="tagSelect" multiple></select>
+		<button id="reload-btn">Reload</button>
+	</div>
+	<div id="chart"></div>
 
-  <div id="header">
-    <label for="runSelect">Run:</label>
-    <select id="runSelect" style="width: 300px;"></select>
-    <label for="tagSelect">Tags:</label>
-    <select id="tagSelect" multiple="multiple" style="width: 400px;"></select>
+	<script>
+		// --- グローバルキャッシュ ---
+		const anetRunCache = {};
+		window.anetRunCache = anetRunCache;
 
-    <button id="reload-btn" style="margin-left:8px;">Reload</button>
-  </div>
-  
-  <div id="chart"></div>
+		// --- 初期化 ---
+		$(document).ready(function() {
+			initSelects();
+			loadRunsAndSelectLatest();
+			setInterval(() => updateRunList(true), 60000); // 60秒ごとにRun一覧更新
 
-  <script>
-  $(document).ready(function() {
-	// 開発用グローバルキャッシュ（本番では削除可）
-	window.anetRunCache = {};
-	const runCache = window.anetRunCache;
+			$('#reload-btn').on('click', function() {
+				updateRunList(true);
+				const runId = $('#runSelect').val();
+				const selectedTags = $('#tagSelect').val();
+				if (runId) renderCharts(runId, selectedTags);
+			});
 
-	// --- Run一覧を更新する（既存選択は維持） ---
-	function updateRunList(preserveSelection = true) {
-	  $.getJSON('/api/runs', function(data) {
-	    if (!data || data.length === 0) return;
+			$('#runSelect').on('change', function() {
+				const runId = $(this).val();
+				if (!runId) return;
 
-	    // 辞書順ソート
-	    data.sort((a, b) => (a.runId || a.name || '').localeCompare(b.runId || b.name || ''));
+				// タグ一覧を読み込み完了してからグラフ描画
+				loadTagSelect(runId, function() {
+					const selectedTags = $('#tagSelect').val();
+					renderCharts(runId, selectedTags);
+				});
+			});
 
-	    const select = $('#runSelect');
-	    const prevSelected = preserveSelection ? select.val() : null;
-	    const prevOptions = new Set(select.find('option').map((_, opt) => $(opt).val()).get());
+			$('#tagSelect').on('change', function() {
+				const runId = $('#runSelect').val();
+				if (runId) renderCharts(runId, $(this).val());
+			});
+		});
 
-	    let modified = false;
+		// --- Select2 初期化 ---
+		function initSelects() {
+			$('#runSelect').select2({
+				placeholder: 'Select a run',
+				allowClear: true,
+				width: 'resolve'
+			});
+			$('#tagSelect').select2({
+				placeholder: 'Select tags',
+				allowClear: true,
+				width: 'resolve'
+			});
+		}
 
-	    // 既存にないRunが追加されていれば再描画フラグ
-	    data.forEach(r => {
-	      const id = r.runId || r.name || r.path;
-	      if (!prevOptions.has(id)) modified = true;
-	    });
-	    // 不要になったRunがあれば再描画フラグ
-	    prevOptions.forEach(optId => {
-	      if (!data.some(r => (r.runId || r.name || r.path) === optId)) modified = true;
-	    });
+		// --- Run一覧の初回ロード ---
+		function loadRunsAndSelectLatest() {
+			$.getJSON('/api/runs', function(data) {
+				if (!data || data.length === 0) return;
+				data.sort((a, b) => (a.runId || a.name || '').localeCompare(b.runId || b.name || ''));
 
-	    // 更新必要なしならスキップ
-	    if (!modified) return;
+				const select = $('#runSelect');
+				select.empty();
 
-	    // selectをクリアして再構築
-	    select.empty();
-	    data.forEach(r => {
-	      const id = r.runId || r.name || r.path;
-	      const opt = $('<option></option>').val(id).text(id);
-	      select.append(opt);
-	    });
+				data.forEach(r => {
+					const id = r.runId || r.name || r.path;
+					select.append($('<option>').val(id).text(id));
+				});
 
-	    // 再初期化（再select2化）
-	    if (select.data('select2')) select.select2('destroy');
-	    select.select2({
-	      placeholder: 'Select a run',
-	      allowClear: true,
-	      width: 'resolve'
-	    });
+				const latest = data[data.length - 1];
+				const latestId = latest.runId || latest.name || latest.path;
+				select.val(latestId).trigger('change');
 
-	    // 選択維持
-	    if (prevSelected && select.find(`option[value="${prevSelected}"]`).length > 0) {
-	      select.val(prevSelected).trigger('change.select2'); // イベントは発火せずUIのみ更新
-	    }
-	  });
-	}
+				if (select.data('select2')) select.select2('destroy');
+				initSelects();
+			});
+		}
 
-	// --- 初回ロード：Runリスト構築＆最新Run自動選択 ---
-	function loadRunsAndSelectLatest() {
-	  $.getJSON('/api/runs', function(data) {
-	    if (!data || data.length === 0) return;
+		// --- Run一覧更新（選択維持） ---
+		function updateRunList(preserveSelection = true) {
+			$.getJSON('/api/runs', function(data) {
+				if (!data || data.length === 0) return;
 
-	    // 辞書順ソート
-	    data.sort((a, b) => (a.runId || a.name || '').localeCompare(b.runId || b.name || ''));
+				data.sort((a, b) => (a.runId || a.name || '').localeCompare(b.runId || b.name || ''));
+				const select = $('#runSelect');
+				const prevSelected = preserveSelection ? select.val() : null;
+				const prevOptions = new Set(select.find('option').map((_, opt) => $(opt).val()).get());
+				let modified = false;
 
-	    const select = $('#runSelect');
-	    select.empty();
-	    data.forEach(r => {
-	      const id = r.runId || r.name || r.path;
-	      const opt = $('<option></option>').val(id).text(id);
-	      select.append(opt);
-	    });
+				data.forEach(r => {
+					const id = r.runId || r.name || r.path;
+					if (!prevOptions.has(id)) modified = true;
+				});
+				prevOptions.forEach(optId => {
+					if (!data.some(r => (r.runId || r.name || r.path) === optId)) modified = true;
+				});
 
-	    const latest = data[data.length - 1];
-	    const latestId = latest.runId || latest.name || latest.path;
-	    select.val(latestId);
+				if (!modified) return;
 
-	    if (select.data('select2')) select.select2('destroy');
-	    select.select2({
-	      placeholder: 'Select a run',
-	      allowClear: true,
-	      width: 'resolve'
-	    });
+				select.empty();
+				data.forEach(r => {
+					const id = r.runId || r.name || r.path;
+					select.append($('<option>').val(id).text(id));
+				});
 
-	    select.trigger('change'); // 初回描画
-	  });
-	}
+				if (select.data('select2')) select.select2('destroy');
+				initSelects();
 
-	// --- 初期化 ---
-	$(document).ready(function() {
-	  // タグセレクタ
-	  $('#tagSelect').select2({
-	    placeholder: 'Select tags',
-	    allowClear: true,
-	    width: 'resolve'
-	  });
+				if (prevSelected && select.find(`option[value="${prevSelected}"]`).length > 0) {
+					select.val(prevSelected).trigger('change.select2');
+				}
+			});
+		}
 
-	  // Run初期ロード
-	  loadRunsAndSelectLatest();
+		// --- タグ一覧ロード（完了後にcallback実行） ---
+		function loadTagSelect(runId, callback) {
+			$.getJSON(`/api/metrics/${runId}`, function(data) {
+				if (!data || data.length === 0) return;
+				anetRunCache[runId] = data;
 
-	  // --- Reloadボタンの挙動 ---
-	  $('#reload-btn').on('click', function() {
-	    console.log("Reload triggered");
-	    updateRunList(true); // Run一覧更新（選択維持）
-	    const runId = $('#runSelect').val();
-	    const selectedTags = $('#tagSelect').val();
-	    renderCharts(runId, selectedTags);
-	  });
+				const select = $('#tagSelect');
+				select.empty();
+				data.forEach(s => select.append($('<option>').val(s.tag).text(s.tag)));
 
-	  // --- 定期更新（例: 60秒ごと） ---
-	  setInterval(() => updateRunList(true), 60000);
-	});
+				if (select.data('select2')) select.select2('destroy');
+				initSelects();
 
-    // --- Run一覧 select2 ---
-    $('#runSelect').select2({
-      placeholder: 'Select a run',
-      ajax: {
-        url: '/api/runs',
-        dataType: 'json',
-        delay: 250,
-        processResults: function(data) {
-          data.sort((a, b) => (a.runId || a.name || '').localeCompare(b.runId || b.name || ''));
-          return {
-            results: data.map(r => ({
-              id: r.runId || r.name || r.path,
-              text: r.runId || r.name || r.path
-            }))
-          };
-        }
-      },
-      allowClear: true,
-      width: 'resolve'
-    });
+				if (callback) callback();
+			});
+		}
 
-    // --- Tag一覧 select2（複数選択可） ---
-    $('#tagSelect').select2({
-      placeholder: 'Select one or more tags',
-      allowClear: true,
-      width: 'resolve'
-    });
+		// --- グラフ描画（全タグまたは選択タグ） ---
+		function renderCharts(runId, selectedTags = null) {
+			$('#chart').empty();
+			const all = anetRunCache[runId];
+			if (!all || all.length === 0) return;
 
-    // --- Run選択時 ---
-    $('#runSelect').on('change', function() {
-      const runId = $(this).val();
-      if (!runId) return;
+			const tags = selectedTags && selectedTags.length > 0
+				? selectedTags
+				: [...new Set(all.map(s => s.tag))];
 
-      if (runCache[runId]) {
-        console.log(`Cache hit for ${runId}`);
-        renderCharts(runId);
-        loadTagSelect(runId);
-      } else {
-        console.log(`Fetching full metrics for ${runId}...`);
-        $('#chart').text('Loading metrics data...');
-        $.getJSON(`/api/metrics/${runId}`, function(data) {
-			console.log(`Fetched ${data.length} metrics for ${runId}`);
-          runCache[runId] = data;
-          renderCharts(runId);
-          loadTagSelect(runId);
-        });
-      }
-    });
+			tags.forEach(tag => {
+				const series = all.find(s => s.tag === tag);
+				if (!series || !series.points) return;
 
-    // --- 複数タグ選択時に複数グラフ描画 ---
-    $('#tagSelect').on('change', function() {
-      const runId = $('#runSelect').val();
-      const tags = $(this).val();
-      if (!runId || !tags || tags.length === 0) {
-        // 全タグ選択解除時：全体グラフに戻す
-        if (runId) renderCharts(runId);
-        return;
-      }
-      renderCharts(runId, tags);
-    });
+				const trace = toTrace(series);
+				const tagChartDiv = $('<div>').addClass('tag-chart');
+				const tagNameDiv = $('<div>').addClass('tag-name').text(tag);
+				const graphDiv = $('<div>').addClass('tag-graph');
+				tagChartDiv.append(tagNameDiv);
+				tagChartDiv.append(graphDiv);
+				$('#chart').append(tagChartDiv);
 
-    // --- タグリスト読込 ---
-    function loadTagSelect(runId) {
-      const all = runCache[runId];
-      const tags = all.map(s => s.tag);
-	  tags.sort((a, b) => a.localeCompare(b));
-      const $tagSelect = $('#tagSelect');
-      $tagSelect.empty();
-      tags.forEach(tag => $tagSelect.append(new Option(tag, tag)));
-      $tagSelect.trigger('change.select2');
-      console.log(`Loaded ${tags.length} tags`);
-    }
+				const layout = {
+					template: "plotly_dark",
+					paper_bgcolor: '#0f0f0f',
+					plot_bgcolor: '#191919',
+					font: { color: '#ddd' },
+					title: `${runId} — ${tag}`,
+					height: 280,
+					margin: { l: 30, r: 10, b: 30, t: 20, pad: 0 },
+					xaxis: {
+						type: 'linear',
+						tickmode: 'auto',
+						tickfont: { color: '#ccc', size: 10 },
+						showgrid: true,
+						zeroline: false,
+						gridcolor: "rgb(100 100 100 / 0.3)"
+					},
+					yaxis: {
+						tickfont: { color: '#ccc', size: 10 },
+						showgrid: true,
+						zeroline: false,
+						gridcolor: "rgb(100 100 100 / 0.3)"
+					}
+				};
 
-	// --- MetricSeries → Plotly Trace 変換 ---
-	function toTrace(series) {
-	  if (!series || !series.points || series.points.length === 0) return null;
-	  console.log("X軸 step値", series.points.map(p => p.step));
+				Plotly.newPlot(graphDiv[0], [trace], layout, { responsive: false });
+			});
+		}
 
-	  // MetricPoint: { step, value, timestamp } を想定
-	  const xs = series.points.map(p => Number(p.step));   // ← 横軸に step 数値
-	  const ys = series.points.map(p => p.value);  // ← 縦軸に値
+		// --- MetricSeries → Plotly Trace 変換 ---
+		function toTrace(series) {
+			if (!series || !series.points || series.points.length === 0) return null;
 
-	  var trace = {
-		mode: 'lines',
-	    x: xs,
-	    y: ys,
-	    name: series.tag,
-	    line: { width: 1.5 }
-	  };
-	  console.log("trace=", trace);
-	  return trace;
-	}
+			const xs = series.points.map(p => Number(p.step));
+			const ys = series.points.map(p => p.value);
 
-	// --- 全タグ一括描画（タグ未選択時も個別グラフ） ---
-	function renderCharts(runId, selectedTags = null) {
-	  $('#chart').empty();  // 既存のグラフを削除
-	  const all = anetRunCache[runId];
-	  const tags = [...new Set(all.map(s => s.tag))];  // タグのリストを取得（重複なし）
-
-	  // タグ選択がある場合 → 選択されたタグごとに描画
-	  const tagsToRender = selectedTags && selectedTags.length > 0 ? selectedTags : tags;
-
-	  // 各タグごとに別々のグラフを描画
-	  tagsToRender.forEach(tag => {
-	    const tagData = all.filter(s => s.tag === tag);
-	    const traces = tagData
-	      .map(toTrace)
-	      .filter(t => t !== null);
-
-	    // 各タグ用のグラフを新しいdivに追加
-		const chartDiv = $('<div></div>').addClass('tag-chart');
-		const tagNameDiv = $('<div></div>').addClass('tag-name').text(tag);  // タグ名を表示
-		const plotDiv = $('<div></div>').addClass('tag-plot');
-		chartDiv.append(tagNameDiv);  // タグ名を追加
-		chartDiv.append(plotDiv);     // グラフ用divを追加
-	    $('#chart').append(chartDiv);  // chartを追加
-
-	    const layout = {
-			template:"plotly_dark",
-			paper_bgcolor: '#0f0f0f',
-			plot_bgcolor: '#191919',
-			font: { color: '#ddd' },
-			title: `${runId} — ${tag}`,
-			height: 250,  // グラフ本体の高さを直接指定
-			margin: { l:50, r:50, b:30, t:20, pad:4 },
-			xaxis: {
-				type: 'linear',
-				tickmode: 'auto',
-				showgrid: true,
-				zeroline: false,
-				gridcolor: "rgb(100 100 100 / 0.3)"
-			},
-			yaxis: {
-			  showgrid: true,
-			  zeroline: false,
-			  gridcolor: "rgb(100 100 100 / 0.3)"
-			}
-	    };
-
-	    // 個別タググラフを描画
-	    Plotly.newPlot(plotDiv[0], traces, layout);
-	  });
-	}
-
-	// --- Reloadボタンの動作 ---
-	$('#reload-btn').on('click', function() {
-	  const runId = $('#runSelect').val();
-	  if (!runId) return alert('Please select a run first.');
-	  $('#loading').show();
-
-	  $.getJSON('/api/metrics/' + runId, function(data) {
-	    // キャッシュを更新
-	    anetRunCache[runId] = data;
-
-	    // 現在選択中のタグ
-	    const selectedTags = $('#tagSelect').val();
-
-	    // タグ選択あり → 選択されたタグごとに個別グラフを描画
-	    if (selectedTags && selectedTags.length > 0) {
-	      renderChart(runId, selectedTags);
-	    }
-	  }).fail(function() {
-	    alert('Failed to reload metrics.');
-	  });
-	});
-
-	// --- 自動リロード ---
-	setInterval(() => {
-	  const runId = $('#runSelect').val();
-	  if (runId) {
-	    console.log('Auto-refresh metrics...');
-	    $.getJSON(`/api/metrics/${runId}`, data => {
-	      anetRunCache[runId] = data;
-	      const selectedTags = $('#tagSelect').val();
-	      if (selectedTags && selectedTags.length > 0) {
-	        renderCharts(runId, selectedTags);
-	      } else {
-	        renderCharts(runId);
-	      }
-	    });
-	  }
-	}, 50000); // 10秒ごと
-  });
-  </script>
+			return {
+				x: xs,
+				y: ys,
+				mode: 'lines',
+				name: series.tag,
+				line: { width: 1.5 }
+			};
+		}
+	</script>
 </body>
 </html>
