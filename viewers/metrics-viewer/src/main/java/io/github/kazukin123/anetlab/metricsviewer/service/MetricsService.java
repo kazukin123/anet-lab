@@ -1,23 +1,16 @@
 package io.github.kazukin123.anetlab.metricsviewer.service;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsFileReader;
-import io.github.kazukin123.anetlab.metricsviewer.model.MetricSeries;
-import io.github.kazukin123.anetlab.metricsviewer.model.MetricsSnapshot;
-import io.github.kazukin123.anetlab.metricsviewer.model.RunInfo;
+import io.github.kazukin123.anetlab.metricsviewer.dto.GetMetricsRequest;
+import io.github.kazukin123.anetlab.metricsviewer.dto.GetMetricsResponse;
+import io.github.kazukin123.anetlab.metricsviewer.dto.GetRunsResponse;
 
 /**
  * Core service coordinating async metric loading and API access.
@@ -29,81 +22,38 @@ public class MetricsService {
     private static final Logger log = LoggerFactory.getLogger(MetricsService.class);
 
     private final RunRepository runRepository;
-    private final CacheManager cacheManager;
-    private final MetricsFileReader fileReader;
-    private final AsyncMetricsLoader asyncLoader;
+    private final MetricsRepository metricsRepository;
+    private final LoadingThread loadingThread;
 
-    private final Map<String, MetricsSnapshot> snapshots = new ConcurrentHashMap<>();
-
+    @Autowired
     public MetricsService(
             RunRepository runRepository,
-            CacheManager cacheManager,
-            MetricsFileReader fileReader,
-            AsyncMetricsLoader asyncLoader) {
-
+            MetricsRepository metricsRepository,
+            LoadingThread loadingThread) {
         this.runRepository = runRepository;
-        this.cacheManager = cacheManager;
-        this.fileReader = fileReader;
-        this.asyncLoader = asyncLoader;
-        initialize();
+        this.metricsRepository = metricsRepository;
+        this.loadingThread = loadingThread;
     }
 
+    @PostConstruct
     private void initialize() {
-        log.info("Initializing MetricsService (thread-safe async mode)...");
-        runRepository.scanRuns();
-        for (RunInfo run : runRepository.getAll()) {
-            Path jsonl = run.getJsonlPath();
-            MetricsSnapshot cached = cacheManager.load(run);
-            boolean needFull = (cached == null);
-            boolean outdated = false;
-            try {
-                Path serPath = cacheManager.getCachePath(run);
-                long jsonlTime = Files.getLastModifiedTime(jsonl).toMillis();
-                long serTime = Files.exists(serPath)
-                        ? Files.getLastModifiedTime(serPath).toMillis()
-                        : 0L;
-                outdated = jsonlTime > serTime;
-            } catch (IOException ignore) {}
-
-            if (needFull) {
-                log.info("No cache for {}. Submitting async full load.", run.getRunId());
-                asyncLoader.submitFullLoad(run, fileReader, cacheManager, s -> snapshots.put(run.getRunId(), s));
-            } else {
-                snapshots.put(run.getRunId(), cached);
-                if (outdated) {
-                    log.info("Submitting async diff load for outdated run {}", run.getRunId());
-                    asyncLoader.submitDiffLoad(run, cached, fileReader, cacheManager);
-                } else {
-                    log.info("Cache up-to-date for run {}", run.getRunId());
-                }
-            }
-        }
-        log.info("MetricsService async initialization complete ({} runs)", runRepository.getAll().size());
+        log.info("MetricsService initialized. Starting LoadingThread.");
+        loadingThread.start();
     }
 
-    public List<RunInfo> listRuns() {
-        return runRepository.getAll();
+    @PreDestroy
+    private void shutdown() {
+        log.info("Stopping LoadingThread.");
+        loadingThread.interrupt(); // または loadingThread.terminate();
     }
 
-    /**
-     * Fetches current series safely. Async loader may update in parallel.
-     */
-    public List<MetricSeries> fetchSeries(String runId, Optional<String> tagOpt) {
-        RunInfo run = runRepository.find(runId)
-                .orElseThrow(() -> new IllegalArgumentException("Unknown runId: " + runId));
-        MetricsSnapshot snapshot = snapshots.computeIfAbsent(runId, id -> new MetricsSnapshot());
+    public GetRunsResponse getRuns() {
+		// TODO 自動生成されたメソッド・スタブ
+		return null;
+	}
 
-        asyncLoader.submitDiffLoad(run, snapshot, fileReader, cacheManager);
-
-        // --- 同期ブロックで整合性を確保 ---
-        synchronized (snapshot) {
-            if (tagOpt.isPresent()) {
-                String tag = tagOpt.get();
-                MetricSeries s = snapshot.getSeries().get(tag);
-                if (s == null) return Collections.emptyList();
-                return Collections.singletonList(s);
-            }
-            return new ArrayList<>(snapshot.getSeries().values());
-        }
-    }
+	public GetMetricsResponse getMetrics(GetMetricsRequest req) {
+		// TODO 自動生成されたメソッド・スタブ
+		return null;
+	}
 }

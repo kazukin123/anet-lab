@@ -1,26 +1,28 @@
 package io.github.kazukin123.anetlab.metricsviewer.model;
 
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Snapshot of all metrics within a run.
- * Thread-safe for concurrent read/write access from async loader and API threads.
- */
 public class MetricsSnapshot implements Serializable {
-    private static final long serialVersionUID = 1L;
+	
+    private static final long serialVersionUID = 2L;
 
-    /** tag → series */
-    private final Map<String, MetricSeries> series = new ConcurrentHashMap<>();
+    /** tag → [step, value] */
+    private final Map<Tag, List<MetricPoint>> tagValues = new ConcurrentHashMap<>();
 
-    /** last read position in metrics.jsonl */
     private volatile long lastReadPosition = 0L;
 
-    public Map<String, MetricSeries> getSeries() {
-        return series;
+    
+    public void merge(MetricFileBlock block) {
     }
+
+    public List<MetricTrace> getMetricsTrace(List<String> tagKeys) {
+        return null;
+    }
+
 
     public long getLastReadPosition() {
         return lastReadPosition;
@@ -30,14 +32,7 @@ public class MetricsSnapshot implements Serializable {
         this.lastReadPosition = pos;
     }
 
-    /**
-     * Merge new entries into the existing snapshot.
-     * This method is synchronized to ensure visibility between threads.
-     */
-    public synchronized void merge(List<MetricEntry> entries) {
-        for (MetricEntry e : entries) {
-            MetricSeries s = series.computeIfAbsent(e.getTag(), MetricSeries::new);
-            s.addPoint(new MetricPoint(e.getStep(), e.getValue(), e.getTimestamp()));
-        }
-    }
+	public List<Tag> getTags() {
+		return new ArrayList<>(tagValues.keySet());
+	}
 }

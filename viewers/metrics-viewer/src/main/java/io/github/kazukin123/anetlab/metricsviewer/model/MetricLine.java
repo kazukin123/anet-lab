@@ -5,7 +5,9 @@ import lombok.Data;
 
 @Data
 @Builder
-public class MetricPoint {
+public class MetricLine {
+	private final String type;
+	private final String tagKey;
 	private final long step;
-	private final double value;
+	private final double values;
 }
