@@ -13,267 +13,17 @@
 <!-- Plotly -->
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 
+<link rel="stylesheet" href="metrics-viewer.css" />
 <style>
-	html, body {
-		margin: 0;
-		height: 100%;
-		background: #0f0f0f;
-		color: #ddd;
-		font-family: "Segoe UI", sans-serif;
-		overflow: hidden;
-	}
-
-	/* --- Main Layout --- */
-	#layout {
-		display: flex;
-		height: 100vh;
-	}
-
-	/* --- Side Panel --- */
-	#side-panel {
-		width: 300px;
-		min-width: 280px;
-		background: #181818;
-		border-right: 1px solid #333;
-		display: flex;
-		flex-direction: column;
-		padding: 10px;
-		box-sizing: border-box;
-		overflow-y: auto;
-	}
-
-	/* --- Header (Metrics Viewer Title + Screenshot Button) --- */
-	#side-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-bottom: 6px;
-	}
-	#side-header h2 {
-		font-size: 16px;
-		color: #fff; /* ← 白に */
-		margin: 0;
-	}
-	.header-buttons {
-		display: flex;
-		gap: 4px;
-	}
-
-	/* --- ScreenshotMode (×ボタン) --- */
-	#btn-screenshot {
-		width: 26px;
-		height: 26px;
-		font-size: 16px;
-		font-weight: bold;
-		line-height: 1;
-		text-align: center;
-		background: transparent;
-		color: #aaa;
-		border: 1px solid #555;
-		border-radius: 4px;
-		cursor: pointer;
-	}
-	#btn-screenshot:hover {
-		color: #fff;
-		border-color: #888;
-		background: #222;
-	}
-
-	/* --- Global Controls (Reload/AutoReload) --- */
-	.global-controls {
-		display: flex;
-		gap: 6px;
-		margin: 0;         /* ← 余白無し */
-		padding: 0;
-	}
-	.global-controls button {
-		background: #252525;
-		color: #ccc;
-		border: 1px solid #333;
-		padding: 4px 8px;
-		cursor: pointer;
-		border-radius: 2px;
-		font-size: 12.5px;
-	}
-	.global-controls button:hover {
-		background: #333;
-		color: #eee;
-	}
-
-	/* --- Section Base --- */
-	.section {
-		background: #1a1a1a;
-		border: 1px solid #888;   /* ← 枠線濃く */
-		border-radius: 4px;
-		padding: 0 6px 8px 6px;
-		margin-top: 6px;
-		box-shadow: 0 1px 2px rgba(0,0,0,0.3);
-	}
-	.section:first-of-type {
-		margin-top: 4px;
-	}
-
-	/* --- Section Titles --- */
-	.section-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		color: #fff;             /* ← 白に */
-		font-weight: 600;
-		margin-bottom: 4px;
-		letter-spacing: 0.2px;
-	}
-
-	/* --- Section Controls --- */
-	.section-controls {
-		display: flex;
-		gap: 4px;
-		margin: 4px 0 8px 0;
-		padding: 0;
-	}
-	.section-controls button {
-		background: #252525;
-		color: #ccc;
-		border: 1px solid #333;
-		padding: 4px 8px;
-		cursor: pointer;
-		border-radius: 2px;
-		font-size: 12.5px;
-	}
-	.section-controls button:hover {
-		background: #333;
-		color: #eee;
-	}
-
-	/* --- Tag List --- */
-	#tag-list {
-		list-style: none;
-		margin: 4px 0 0 0;
-		padding: 0;
-		touch-action: none;
-		-webkit-user-select: none;
-		user-select: none;
-	}
-	#tag-list li {
-		padding: 6px 8px;
-		margin-bottom: 3px;
-		background: #222;
-		border: 1px solid #333;
-		cursor: move;
-		font-size: 14px;
-		color: #ccc;
-		user-select: none;
-	}
-	#tag-list li.active {
-		background: #1e4d70;
-		color: #ccc;
-		border-color: #2a6b95;
-	}
-	#tag-list li.active:hover {
-		background: #256690;
-	}
-	#tag-list li:hover {
-		background: #333;
-	}
-
-	/* --- Unified Checkbox Design --- */
-	#run-list input[type="checkbox"] {
-		appearance: none;
-		-webkit-appearance: none;
-		-moz-appearance: none;
-		width: 16px;
-		height: 16px;
-		margin-right: 6px;
-		border: 1px solid #555;
-		border-radius: 3px;
-		background: #222;
-		cursor: pointer;
-		position: relative;
-		vertical-align: middle;
-	}
-	#run-list input[type="checkbox"]:hover {
-		border-color: #777;
-	}
-	#run-list input[type="checkbox"]:checked {
-		background-color: #1e4d70;  /* ← タグと統一カラー */
-		border-color: #2a6b95;
-	}
-	#run-list input[type="checkbox"]:checked::after {
-		content: "";
-		position: absolute;
-		left: 3px;
-		top: 0px;
-		width: 6px;
-		height: 10px;
-		border: solid #ccc;
-		border-width: 0 2px 2px 0;
-		transform: rotate(45deg);
-	}
-
-	/* --- Main Area --- */
-	#main-area {
-		flex: 1;
-		padding: 8px 16px;
-		box-sizing: border-box;
-		overflow-y: auto;
-	}
-	.graph-block {
-		margin-bottom: 32px;
-	}
-	.graph-title {
-		font-size: 14px;
-		color: #ccc;
-		margin: 0 0 6px 4px;
-	}
-
-	/* --- Screenshot Mode --- */
-	body.screenshot-mode {
-		background: #000;
-		overflow-y: auto !important;
-		height: auto !important;
-	}
-	body.screenshot-mode #layout {
-		display: block !important;
-		height: auto !important;
-	}
-	body.screenshot-mode #main-area {
-		display: block !important;
-		width: 100% !important;
-		padding: 0 20px !important;
-		overflow: visible !important;
-		height: auto !important;
-	}
-	body.screenshot-mode #side-panel {
-		display: none !important;
-	}
-	body.screenshot-mode * {
-		box-shadow: none !important;
-		border: none !important;
-	}
-
-	/* --- Exit Screenshot Button --- */
-	#btn-exit-screenshot {
-		position: fixed;
-		right: 16px;
-		bottom: 16px;
-		padding: 6px 10px;
-		font-size: 12px;
-		background: #333;
-		color: #eee;
-		border: 1px solid #555;
-		border-radius: 4px;
-		cursor: pointer;
-		display: none;
-		z-index: 500;
-		opacity: 0.8;
-	}
-	#btn-exit-screenshot:hover {
-		background: #555;
-		opacity: 1;
-	}
-	body.screenshot-mode #btn-exit-screenshot {
-		display: block;
-	}
+/* --- Run color chip --- */
+.run-color {
+	display: inline-block;
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	margin-right: 6px;
+	vertical-align: middle;
+}
 </style>
 </head>
 
@@ -288,15 +38,11 @@
 			</div>
 		</div>
 
-		<!-- 全体操作 -->
 		<div class="global-controls">
-			<div class="section-controls">
-				<button id="btn-reload">Reload</button>
-				<button id="btn-auto-reload">Auto Reload: OFF</button>
-			</div>
+			<button id="btn-reload">Reload</button>
+			<button id="btn-auto-reload">Auto Reload: OFF</button>
 		</div>
 
-		<!-- Runs -->
 		<div class="section" id="run-section">
 			<div class="section-header"><label>Runs</label></div>
 			<div class="section-controls">
@@ -304,13 +50,12 @@
 				<button id="btn-latest-only">Latest Only</button>
 			</div>
 			<div id="run-list">
-				<label><input type="checkbox" checked> run_C</label><br>
-				<label><input type="checkbox" checked> run_B</label><br>
-				<label><input type="checkbox"> run_A</label>
+				<label><span class="run-color"></span><input type="checkbox" checked> run_C</label><br>
+				<label><span class="run-color"></span><input type="checkbox" checked> run_B</label><br>
+				<label><span class="run-color"></span><input type="checkbox"> run_A</label>
 			</div>
 		</div>
 
-		<!-- Tags -->
 		<div class="section" id="tag-section">
 			<div class="section-header"><label>Tags</label></div>
 			<div class="section-controls">
@@ -327,16 +72,29 @@
 	</div>
 
 	<!-- Main Area -->
-	<div id="main-area"></div>
+	<div id="main-area">
+		<div id="screenshot-header"></div>
+	</div>
 </div>
 
-<!-- Exit Button -->
-<button id="btn-exit-screenshot">× Exit Screenshot Mode</button>
+<button id="btn-exit-screenshot">× Exit</button>
 
 <script>
 $(function(){
 	let autoReload=false;
 	let autoReloadTimer=null;
+
+	/* --- Color palette */
+	function getPlotlyColors() {
+		if (Plotly?.colors?.qualitative?.D3)
+			return Plotly.colors.qualitative.D3;
+		if (Plotly?.colors?.qualitative?.Plotly)
+			return Plotly.colors.qualitative.Plotly;
+		// 万一なければフォールバック
+		return ["#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd",
+				"#8c564b","#e377c2","#7f7f7f","#bcbd22","#17becf"];
+	}
+	const colors = getPlotlyColors();
 
 	/* --- Sortable --- */
 	$("#tag-list").sortable({
@@ -388,22 +146,35 @@ $(function(){
 	$("#btn-screenshot").on("click",()=>{
 		$("body").addClass("screenshot-mode");
 		$("html, body, #layout, #main-area").css({height:"auto",overflow:"visible"});
+		const runs=$("#run-list input:checked").map((i,e)=>$(e).parent().text().trim()).get();
+		let titleText="Metrics Viewer";
+		if(runs.length===1)titleText+=" — "+runs[0];
+		else if(runs.length>1)titleText+=" — Multiple Runs";
+		$("#screenshot-header").text(titleText).show();
+		$("#btn-exit-screenshot").fadeIn(200);
 		setTimeout(()=>{$(".graph-block div[id^='graph-']").each(function(){Plotly.Plots.resize(this);});},300);
 	});
 	$("#btn-exit-screenshot").on("click",()=>{
 		$("body").removeClass("screenshot-mode");
 		$("html, body, #layout, #main-area").removeAttr("style");
+		$("#screenshot-header, #btn-exit-screenshot").hide();
 		setTimeout(()=>{$(".graph-block div[id^='graph-']").each(function(){Plotly.Plots.resize(this);});},300);
 	});
 
-	/* --- グラフ描画 --- */
+	/* --- Graph rendering --- */
 	function refreshCharts(tagOrder){
+		// assign color chips to run list
+		$("#run-list label").each(function(i){
+			$(this).find(".run-color").css("background-color", colors[i % colors.length]);
+		});
+
 		let order=Array.isArray(tagOrder)?tagOrder:$("#tag-list li").map((i,e)=>$(e).text()).get();
 		const activeTags=$("#tag-list li.active").map((i,e)=>$(e).text()).get();
 		const drawList=order.filter(t=>activeTags.includes(t));
 		const runs=$("#run-list input:checked").map((i,e)=>$(e).parent().text().trim()).get();
 
 		const $area=$("#main-area").empty();
+		$area.append('<div id="screenshot-header" style="display:none;"></div>');
 		drawList.forEach(tag=>{
 			const divId="graph-"+tag.replace(/[^\w-]/g,"_");
 			$area.append(`<div class="graph-block"><div class="graph-title">${tag}</div><div id="${divId}"></div></div>`);
@@ -412,7 +183,6 @@ $(function(){
 	}
 
 	function renderPlot(divId,tag,runs){
-		const colors=["#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2","#7f7f7f","#bcbd22","#17becf"];
 		let yGen;
 		switch(tag){
 			case "reward/mean": yGen=step=>100*(1-Math.exp(-step/50))+Math.random()*5; break;
@@ -427,7 +197,7 @@ $(function(){
 			line:{color:colors[i%colors.length],width:2}
 		}));
 		Plotly.newPlot(divId,data,{
-			margin:{t:10},height:300,
+			margin:{t:10,b:20},height:300,
 			plot_bgcolor:"#111",paper_bgcolor:"#111",font:{color:"#ccc"},autosize:true
 		},{displayModeBar:false,responsive:true,useResizeHandler:true});
 	}
