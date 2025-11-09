@@ -16,6 +16,41 @@ html, body {
 	overflow: hidden;
 }
 
+/* スピナーアイコン */
+.loading-spinner {
+  position: relative;
+  top: -3px; /* 1px持ち上げて中央揃え */
+  display: inline-block;         /* 常にレイアウト上に存在させる */
+  visibility: hidden;            /* 非表示時でも幅は維持 */
+  margin-right: 8px;
+  width: 14px;
+  height: 14px;
+  border: 2px solid transparent; /* 非表示時も透明枠 */
+  border-radius: 50%;
+  vertical-align: middle;
+  transition: visibility 0.2s;
+}
+
+.loading-spinner.active {
+  visibility: visible;           /* 表示開始 */
+  border-color: #999;
+  border-top-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+
+/* 回転アニメーション */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* 読み込み中は明るく見せたい場合 */
+.loading-spinner.active {
+  display: inline-block;
+  border-color: #ccc;
+  border-top-color: transparent;
+}
+
 /* --- Flex Layout Root --- */
 #layout {
 	display: flex;
@@ -264,12 +299,25 @@ html, body {
 	position: relative;
 }
 .graph-title {
-	font-size: 16px;
-	color: #ccc;
-	margin: 0px;
-	padding: 2px 0px 2px 10px;
-	z-index: 10;
-	position: absolute;
+  z-index: 10;
+  position: absolute;
+  font-family: 'Segoe UI', 'Noto Sans JP', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ccc;
+  text-align: left;
+  padding: 4px 8px 2px 8px;
+  margin: 0;
+/*  background: linear-gradient(to bottom, rgba(255,255,255,0.04), rgba(0,0,0,0.15));*/
+/*  border-bottom: 1px solid rgba(255, 255, 255, 0.08);*/
+  letter-spacing: 0.2px;
+  line-height: 1.5;
+}
+
+/* Hover時：軽い明度アップでインタラクティブ感 */
+.graph-title:hover {
+  color: #fff;
+  background: linear-gradient(to bottom, rgba(255,255,255,0.07), rgba(0,0,0,0.25));
 }
 
 /* ============================================================

@@ -181,6 +181,13 @@ class PlotlyController {
 /* ---------------- UIController ---------------- */
 class UIController {
 	constructor(app) { this.app = app; }
+	
+	setLoadingSpinner(active) {
+	    const el = document.getElementById("loading-spinner");
+	    if (!el) return;
+	    if (active) el.classList.add("active");
+	    else el.classList.remove("active");
+	}
 
 	applyMode(mode) {
 		const b = document.body;
@@ -354,6 +361,11 @@ class MetricsViewerClientApp {
 		console.log(`[MODE] ${prev} → ${mode}`);
 		this.mode = mode;
 		this.ui.applyMode(mode);
+		if (mode == Mode.UNINITIALIZED || mode == Mode.META_LOADING || mode == Mode.DATA_LOADING) {
+			this.ui.setLoadingSpinner(true);
+		} else {
+			this.ui.setLoadingSpinner(false);
+		}
 		console.log(`[MODE] applied: current=${this.mode}`);
 	}
 
