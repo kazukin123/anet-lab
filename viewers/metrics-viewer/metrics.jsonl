@@ -1,6 +1,0 @@
-{"type":"scalar","tag":"32_agent_dqn_base/03_epsilon","step":1,"value":10.0,"timestamp":1730788800000}
-{"type":"scalar","tag":"32_agent_dqn_base/03_epsilon","step":2,"value":4.0,"timestamp":1730789800000}
-{"type":"scalar","tag":"32_agent_dqn_base/03_epsilon","step":3,"value":64.0,"timestamp":1730789800000}
-{"type":"scalar","tag":"32_agent_dqn_base/03_epsilon","step":4,"value":64.0,"timestamp":1730789800000}
-{"type":"scalar","tag":"32_agent_dqn_base/03_epsilon","step":5,"value":64.0,"timestamp":1730789800000}
-{"type":"scalar","tag":"32_agent_dqn_base/03_epsilon","step":6,"value":64.0,"timestamp":1730789800000}
