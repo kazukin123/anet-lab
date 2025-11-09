@@ -1,24 +1,30 @@
-﻿# CartPoleRLGUI
+﻿# anet-lab
 
 ## 概要
-libtorchを基盤とした強化学習ライブラリ、およびwxWidgetsを利用したそれらのGUIフロントエンドです。
+
+- libtorchを基盤としたC++による強化学習実装
+- wxWidgetsによるGUIフロントエンド
+- Java/SpringによるWebベースのMetricsViewer
 
 ## ビルド手順
 TODO：ビルド手順や依存ライブラリを書く
 
-## 対応状況
+## 実行手順
+TODO：実行手順を書く
+
+## 対応状況/予定
 
 ### DONE
 
 * 学習アルゴリズム
-	* Double DQN対応
-	* Replay Buffer対応
-	* Adaptive Stabilized DQN (AS-DQN)：基本ロジック
+	* 強化学習基本インタフェース 
+	* Double DQN Agent実装
 	* CartPole環境APP実装
 * メトリクス
-	* TensorBoard対応
+	* MetricsViewer.java：フェーズ1.0(基本機能)
+	* TensorBoard対応（ブリッジpyスクリプト経由）
 	* Ploty＋pythonによる独自グラフ出力
-	* ヒストグラムやヒートマップの動画出力対応（ffmpeg利用）
+	* ヒストグラムやヒートマップの時系列動画出力（ffmpeg利用）
 * AP改善
 	* 設定情報をいい感じにメトリクスとして記録
 	* 設定ファイル
@@ -27,8 +33,10 @@ TODO：ビルド手順や依存ライブラリを書く
 
 * 学習アルゴリズム
 * メトリクス
-	* MetricsViewer.java：基本機能対応
 * AP改善
+	* リファクタリング：クラス/メソッド構成の適正化
+	* リファクタリング：DDQNAgent実装整理
+	* リファクタリング：命名規約揃え
 
 ### TODO
 
@@ -37,36 +45,25 @@ TODO：ビルド手順や依存ライブラリを書く
 	* TD3対応
 	* SAC対応
 * メトリクス
-	* MetricsViewer.java：複数Run表示対応
-	* MetricsViewer.java：UIレイアウト改善対応
+	* MetricsViewer.java：フェーズ1.5
 	* 閾値値等の基準横線出力対応
 	* ヒートマップ：凡例出力対応
-	* ヒートマップ：MetricsViewer対応
+	* ヒートマップ：MetricsViewer統合
 	* ヒートマップ：ヒストグラムTB対応
 	* TB:add_hparams対応
 * AP改善
+	* ReplayBufferの実装最適化（最初からTensorを保持しておく）
+	* N環境とバッチ実行を前提としたAPI見直し
+	* Tensorチェック用アサーション
+
+	* コマンドライン引数でRun名を指定
 	* Runフォルダに設定内容ダンプを残す
 	* 設定の継承読み込み
-	* コマンドライン引数でRun名を指定
-	* リファクタリング：命名規約揃え
-	* リファクタリング：メソッド分割の適正化
-	* リファクタリング：DQNAgent周りの整理
 	* TODOコメントいれまくり
-
-	* Tensorチェック用マクロ
-	* EnvironmentとAgentのバッチ対応精査
-	* N環境想定のTensor仕様整理
-	* TensorShape アサーション
-
-	* コマンドラインオプションで設定上書き
- 	* loggerの引数順番をSummaryWriter同様に戻す?
-	* 報酬バーをRewardのスケールに合わせる
 	* GPU対応向けソース可読性向上
-	* リファクタリング：EMAを簡単に使えるようにするクラス
-	* ReplayBufferの実装最適化（最初からTensorを保持しておく）
-	* HeatMapのサンプリング量で書き出しタイミング制御
+	* ヒートマップ：サンプリング量で書き出しタイミング制御
 
-## SUSPENDED
+### SUSPENDED
 * 学習アルゴリズム
 	* AS-DQN：ハイパラ調整
 	* Adaptive Stabilized DQN (AS-DQN)：unstable_ema
@@ -80,6 +77,9 @@ TODO：ビルド手順や依存ライブラリを書く
 	* 起動時にRun名をプロンプト
 	* 学習と推論の表示分離
 
-## メトリクスメモ
+## 備考
+
+このプロジェクトは、OpenAI ChatGPT (GPT-5) の技術的支援を受けながら開発を進めています。<br>
+Developed with technical assistance from OpenAI ChatGPT (GPT-5).
 
 ## 参考文献

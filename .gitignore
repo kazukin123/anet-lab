@@ -41,14 +41,12 @@
 *.dwo
 .vs
 
+*.bak
 /cart1/out
 /out
-/cart2/tb_logs
-*.bak
-/cart2/logs
 /artefacts
-/enc_temp_folder
 /logs
-/wx-apps/cartpole2/logs
+/enc_temp_folder
+/apps-wx/cartpole2/logs
+/apps-wx/cartpole2/runs
 /docs/html
-/wx-apps/cartpole2/runs
