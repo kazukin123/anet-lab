@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 
 import io.github.kazukin123.anetlab.metricsviewer.io.MetricsFileReader;
 import io.github.kazukin123.anetlab.metricsviewer.model.MetricFileBlock;
+import io.github.kazukin123.anetlab.metricsviewer.model.MetricsSnapshot;
 import io.github.kazukin123.anetlab.metricsviewer.model.Run;
 
 /**
@@ -24,9 +25,9 @@ import io.github.kazukin123.anetlab.metricsviewer.model.Run;
 @Component
 public class LoadingThread extends Thread {
 
-    private static final int SLEEP_MS = 10;
+    private static final int SLEEP_MS = 100;
     private static final int MAX_LINES = 5000;
-    private static final int SAVE_INTERVAL_BLOCKS = 10;
+    private static final int SAVE_INTERVAL_BLOCKS = 20;
 
     private static final Logger log = LoggerFactory.getLogger(LoadingThread.class);
 
@@ -121,17 +122,14 @@ public class LoadingThread extends Thread {
                 if (!Files.exists(metricsFile)) continue;
 
                 // 最後の位置からブロック読み込み
-                long lastPos = metricsRepository
-                        .getTagsForRun(runId)
-                        .isEmpty() ? 0L :
-                        Optional.ofNullable(metricsRepository.getSnapshots().get(runId))
-                                .map(s -> s.getLastReadPosition())
-                                .orElse(0L);
+                long lastPos = Optional.ofNullable(metricsRepository.getSnapshots().get(runId))
+                        .map(MetricsSnapshot::getLastReadPosition)
+                        .orElse(0L);
                 MetricFileBlock block = fileReader.parseDiff(metricsFile, lastPos, MAX_LINES);
                 if (block.getLines().isEmpty()) continue;
 
                 // メモリ上でマージ
-                metricsRepository.mergeMetrics(block);
+                metricsRepository.mergeMetrics(runId, block);
                 
                 // 未セーブが一定量溜まったらファイル書き出し
                 int dirtyCount = saveCounter.merge(runId, 1, Integer::sum);

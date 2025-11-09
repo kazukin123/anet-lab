@@ -10,7 +10,6 @@ import lombok.Data;
 @Builder
 @AllArgsConstructor
 public class MetricFileBlock {
-	private final String runId;
 	private final int startOffset;
 	private final int endOffset;
 	private final List<MetricLine> lines;

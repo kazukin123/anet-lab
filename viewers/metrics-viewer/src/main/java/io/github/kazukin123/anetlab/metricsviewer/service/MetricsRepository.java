@@ -59,14 +59,14 @@ public class MetricsRepository {
     /**
      * Merges a MetricFileBlock into the snapshot for its run.
      */
-    public void mergeMetrics(MetricFileBlock block) {
-        if (block == null || block.getRunId() == null) return;
-
-        String runId = block.getRunId();
+    public void mergeMetrics(String runId, MetricFileBlock block) {
+    	if (block == null || runId == null) return;
         MetricsSnapshot snapshot = snapshots.computeIfAbsent(runId, id -> new MetricsSnapshot());
         snapshot.merge(block);
 
-        log.info("mergeMetrics run={} lines={} newPos={} tags={} totalPoints={}",
+        snapshot.setLastReadPosition(block.getEndOffset());
+
+        log.debug("mergeMetrics run={} lines={} newPos={} tags={} totalPoints={}",
         	    runId,
         	    block.getLines() != null ? block.getLines().size() : 0,
         	    snapshot.getLastReadPosition(),
@@ -166,7 +166,8 @@ public class MetricsRepository {
         	Files.move(tmp, file,
                     StandardCopyOption.REPLACE_EXISTING,
                     StandardCopyOption.ATOMIC_MOVE);
-            log.debug("Saved snapshot via KYRO: header={} run={}", SNAPSHOT_FILEHEADER, runId);
+            log.info("Snapshot saved. run={} pos={} points={}",
+            		runId, snapshot.getLastReadPosition() , snapshot.getTotalPoints());
         } catch (AtomicMoveNotSupportedException e) {
             try {
                 Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
