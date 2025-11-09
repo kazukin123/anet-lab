@@ -72,10 +72,10 @@ find_package(wxWidgets COMPONENTS core base OPTIONAL_COMPONENTS gl)
 add_subdirectory(core/anet-core)
 
 if(wxWidgets_FOUND)
-    message(STATUS "wxWidgets found: building wx-apps/")
-    add_subdirectory(wx-apps/cartpole2)
+    message(STATUS "wxWidgets found: building apps-wx/")
+    add_subdirectory(apps-wx/cartpole2)
 else()
-    message(WARNING "wxWidgets not found: skipping wx-apps/")
+    message(WARNING "wxWidgets not found: skipping apps-wx/")
 endif()
 
 add_subdirectory(apps/cartpole1)

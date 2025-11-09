@@ -24,6 +24,6 @@ start "" "http://localhost:%VIEWER_PORT%"
 
 echo.
 echo All processes launched. Press any key to close this window.
-pause >nul
+rem pause >nul
 endlocal
 exit /b
