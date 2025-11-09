@@ -1,4 +1,4 @@
-package io.github.kazukin123.anetlab.metricsviewer.controller;
+package io.github.kazukin123.anetlab.metricsviewer.view;
 
 import java.util.List;
 
@@ -9,10 +9,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import io.github.kazukin123.anetlab.metricsviewer.dto.GetMetricsRequest;
-import io.github.kazukin123.anetlab.metricsviewer.dto.GetMetricsResponse;
-import io.github.kazukin123.anetlab.metricsviewer.dto.GetRunsResponse;
 import io.github.kazukin123.anetlab.metricsviewer.service.MetricsService;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.GetMetricsRequest;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.GetMetricsResponse;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.GetRunsResponse;
 
 @RestController
 @RequestMapping("/api")

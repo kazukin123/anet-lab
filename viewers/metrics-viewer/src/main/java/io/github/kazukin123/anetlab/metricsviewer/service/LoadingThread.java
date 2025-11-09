@@ -13,10 +13,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import io.github.kazukin123.anetlab.metricsviewer.io.MetricsFileReader;
-import io.github.kazukin123.anetlab.metricsviewer.model.MetricFileBlock;
-import io.github.kazukin123.anetlab.metricsviewer.model.MetricsSnapshot;
-import io.github.kazukin123.anetlab.metricsviewer.model.Run;
+import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsFileReader;
+import io.github.kazukin123.anetlab.metricsviewer.infra.RunLoader;
+import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricFileBlock;
+import io.github.kazukin123.anetlab.metricsviewer.service.model.MetricsSnapshot;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.Run;
 
 /**
  * Background thread that periodically scans runs directory
@@ -31,7 +32,7 @@ public class LoadingThread extends Thread {
 
     private static final Logger log = LoggerFactory.getLogger(LoadingThread.class);
 
-    private final RunRepository runRepository;
+    private final RunLoader runRepository;
     private final MetricsRepository metricsRepository;
     private final MetricsFileReader fileReader;
 
@@ -39,7 +40,7 @@ public class LoadingThread extends Thread {
     private final AtomicReference<Request> requestRef = new AtomicReference<>();
     private final Map<String, Integer> saveCounter = new ConcurrentHashMap<>();
 
-    public LoadingThread(RunRepository runRepository,
+    public LoadingThread(RunLoader runRepository,
                          MetricsRepository metricsRepository,
                          MetricsFileReader fileReader) {
         this.runRepository = runRepository;

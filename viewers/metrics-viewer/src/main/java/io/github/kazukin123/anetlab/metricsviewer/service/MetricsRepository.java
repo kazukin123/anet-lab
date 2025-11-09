@@ -20,10 +20,10 @@ import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
 
-import io.github.kazukin123.anetlab.metricsviewer.model.MetricFileBlock;
-import io.github.kazukin123.anetlab.metricsviewer.model.MetricTrace;
-import io.github.kazukin123.anetlab.metricsviewer.model.MetricsSnapshot;
-import io.github.kazukin123.anetlab.metricsviewer.model.Tag;
+import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricFileBlock;
+import io.github.kazukin123.anetlab.metricsviewer.service.model.MetricsSnapshot;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.MetricTrace;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.Tag;
 
 /**
  * Holds and manages all MetricsSnapshot objects for each run.

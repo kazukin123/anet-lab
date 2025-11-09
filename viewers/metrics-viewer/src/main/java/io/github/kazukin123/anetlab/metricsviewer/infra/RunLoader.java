@@ -1,4 +1,4 @@
-package io.github.kazukin123.anetlab.metricsviewer.service;
+package io.github.kazukin123.anetlab.metricsviewer.infra;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -14,15 +14,15 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import io.github.kazukin123.anetlab.metricsviewer.model.Run;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.Run;
 
 @Component
-public class RunRepository {
+public class RunLoader {
 
-    private static final Logger log = LoggerFactory.getLogger(RunRepository.class);
+    private static final Logger log = LoggerFactory.getLogger(RunLoader.class);
     private final Path runsDir;
 
-    public RunRepository(@Value("${metricsviewer.runs-dir:runs}") String runsDirPath) {
+    public RunLoader(@Value("${metricsviewer.runs-dir:runs}") String runsDirPath) {
         this.runsDir = Paths.get(runsDirPath);
     }
 

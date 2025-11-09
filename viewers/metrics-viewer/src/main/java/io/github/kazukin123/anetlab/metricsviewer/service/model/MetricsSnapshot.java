@@ -1,4 +1,4 @@
-package io.github.kazukin123.anetlab.metricsviewer.model;
+package io.github.kazukin123.anetlab.metricsviewer.service.model;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -7,6 +7,11 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+
+import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricFileBlock;
+import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricLine;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.MetricTrace;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.Tag;
 
 /**
  * Snapshot of metrics data for a single run.

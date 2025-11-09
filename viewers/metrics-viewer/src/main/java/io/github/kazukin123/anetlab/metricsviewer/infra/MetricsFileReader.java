@@ -1,4 +1,4 @@
-package io.github.kazukin123.anetlab.metricsviewer.io;
+package io.github.kazukin123.anetlab.metricsviewer.infra;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -18,8 +18,8 @@ import org.springframework.stereotype.Component;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import io.github.kazukin123.anetlab.metricsviewer.model.MetricFileBlock;
-import io.github.kazukin123.anetlab.metricsviewer.model.MetricLine;
+import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricFileBlock;
+import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricLine;
 
 @Component
 public class MetricsFileReader {

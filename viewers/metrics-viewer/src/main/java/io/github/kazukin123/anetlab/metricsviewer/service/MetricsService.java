@@ -13,12 +13,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import io.github.kazukin123.anetlab.metricsviewer.dto.GetMetricsRequest;
-import io.github.kazukin123.anetlab.metricsviewer.dto.GetMetricsResponse;
-import io.github.kazukin123.anetlab.metricsviewer.dto.GetRunsResponse;
-import io.github.kazukin123.anetlab.metricsviewer.model.MetricTrace;
-import io.github.kazukin123.anetlab.metricsviewer.model.Run;
-import io.github.kazukin123.anetlab.metricsviewer.model.Tag;
+import io.github.kazukin123.anetlab.metricsviewer.infra.RunLoader;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.GetMetricsRequest;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.GetMetricsResponse;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.GetRunsResponse;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.MetricTrace;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.Run;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.Tag;
 
 /**
  * Main service layer that connects Controller with Repository & LoadingThread.
@@ -28,12 +29,12 @@ public class MetricsService {
 
     private static final Logger log = LoggerFactory.getLogger(MetricsService.class);
 
-    private final RunRepository runRepository;
+    private final RunLoader runRepository;
     private final MetricsRepository metricsRepository;
     private final LoadingThread loadingThread;
 
     @Autowired
-    public MetricsService(RunRepository runRepository,
+    public MetricsService(RunLoader runRepository,
                           MetricsRepository metricsRepository,
                           LoadingThread loadingThread) {
         this.runRepository = runRepository;

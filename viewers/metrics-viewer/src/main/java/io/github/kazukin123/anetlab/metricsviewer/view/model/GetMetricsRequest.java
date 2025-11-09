@@ -1,4 +1,4 @@
-package io.github.kazukin123.anetlab.metricsviewer.dto;
+package io.github.kazukin123.anetlab.metricsviewer.view.model;
 
 import java.util.ArrayList;
 import java.util.List;

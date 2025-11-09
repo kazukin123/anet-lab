@@ -1,4 +1,4 @@
-package io.github.kazukin123.anetlab.metricsviewer.io;
+package io.github.kazukin123.anetlab.metricsviewer.infra;
 
 import java.io.IOException;
 

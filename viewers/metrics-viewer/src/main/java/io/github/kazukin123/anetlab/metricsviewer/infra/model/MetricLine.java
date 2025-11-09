@@ -1,4 +1,4 @@
-package io.github.kazukin123.anetlab.metricsviewer.model;
+package io.github.kazukin123.anetlab.metricsviewer.infra.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
