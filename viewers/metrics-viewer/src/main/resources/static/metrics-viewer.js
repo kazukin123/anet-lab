@@ -208,22 +208,48 @@ class UIController {
 
 	bindRunListEvents(runIds, selected) {
 		const $list = $("#run-list");
-		$list.find(".run-check").off("change").on("change", (e) => {
-			const id = e.currentTarget.value, ok = e.currentTarget.checked;
-			if (ok) { if (!selected.includes(id)) selected.push(id); }
-			else {
-				if (selected.length <= 1) { e.currentTarget.checked = true; return; }
-				const i = selected.indexOf(id); if (i >= 0) selected.splice(i, 1);
-			}
-			this.app.onRunSelectionChanged();
+
+	    $list.find(".run-check").off("click").on("click", (e) => {
+	        e.stopPropagation(); // 行クリックへのバブリングを防ぐ
+	        const id = e.currentTarget.value;
+	        const ok = e.currentTarget.checked;
+	
+	        if (ok) {
+	            if (!selected.includes(id)) selected.push(id);
+	        } else {
+	            if (selected.length <= 1) { e.currentTarget.checked = true; return; }
+	            const i = selected.indexOf(id);
+	            if (i >= 0) selected.splice(i, 1);
+	        }
+	        this.app.onRunSelectionChanged();
+	    });
+
+	    // --- 行全体クリック：単独選択モード ---
+		$list.find(".run-row").off("click").on("click", (e) => {
+		    const checkbox = $(e.currentTarget).find(".run-check")[0];
+		    const id = checkbox.value;
+		
+		    // まず他のチェックをOFF
+		    $list.find(".run-check").prop("checked", false);
+		
+		    // 自分をONにする
+		    checkbox.checked = true;
+		
+		    // 選択状態を更新
+		    this.app.selectedRuns = [id];
+		    this.app.onRunSelectionChanged();
+		
+		    e.preventDefault(); // ← labelの既定トグルを防ぐ
 		});
 
+		// 全選択ボタン
 		$("#btn-select-all-runs").off("click").on("click", () => {
 			this.app.selectedRuns = [...runIds];
 			$list.find(".run-check").prop("checked", true);
 			this.app.onRunSelectionChanged();
 		});
 
+		// Latest Onlyボタン
 		$("#btn-latest-only").off("click").on("click", () => {
 			const latest = runIds[0];
 			this.app.selectedRuns = latest ? [latest] : [];

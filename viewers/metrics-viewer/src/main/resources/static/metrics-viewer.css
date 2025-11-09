@@ -135,6 +135,22 @@ html, body {
 }
 
 /* --- Tag List --- */
+/* タグセクション全体を縦分割にして、リストのみスクロール可能に */
+#tag-section {
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  overflow: hidden; /* 親側でスクロールを止める */
+}
+
+/* タグリスト部分だけスクロールを有効化 */
+#tag-list {
+  flex: 1;
+  overflow-y: auto;
+  max-height: none;
+  margin: 0;
+  padding-right: 6px; /* スクロールバー分の余白 */
+}
 #tag-list {
 	list-style: none;
 	margin: 4px 0 0 0;
@@ -142,6 +158,11 @@ html, body {
 	touch-action: none;
 	-webkit-user-select: none;
 	user-select: none;
+	flex: 1;
+	overflow-x: hidden;      /* 横スクロール禁止 */
+	overflow-y: auto;
+	box-sizing: border-box;  /* paddingを幅に含める */
+	padding-right: 8px;      /* スクロールバー分の余白 */
 }
 #tag-list li {
 	padding: 2px 8px;
@@ -195,15 +216,38 @@ html, body {
 	transform: rotate(45deg);
 }
 
+/* 行全体がクリック可能（ラジオ的領域） */
+.run-row {
+  background-color: transparent;
+  transition: background-color 0.15s ease;
+}
+
+/* ホバー時のハイライト（クリック領域を視覚化） */
+.run-row:hover {
+  background-color: rgba(255, 255, 255, 0.35);
+}
+
+/* アクティブ選択中の行 */
+.run-row input.run-check:checked + span,
+.run-row.active {
+  background-color: rgba(80, 160, 255, 0.15);
+}
+
 /* --- Run Color Chip --- */
 .run-color {
 	display: inline-block;
 	width: 10px;
 	height: 10px;
 	border-radius: 50%;
-	margin-right: 6px;
+	margin-right: 0px;
 	vertical-align: middle;
 }
+
+/* チェックボックスの位置調整 */
+.run-check {
+  cursor: pointer;       /* マウスカーソル：チェックボックスも独立操作 */
+}
+
 
 /* --- Main Area --- */
 #main-area {
