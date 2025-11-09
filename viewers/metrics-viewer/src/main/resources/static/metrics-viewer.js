@@ -5,6 +5,7 @@
 
 const API_BASE_URL = "/api";
 const AUTO_RELOAD_INTERVAL_MS = 10000;
+const MAX_POINTS = 20000;
 	
 const Mode = Object.freeze({
 	UNINITIALIZED: "uninitialized",
@@ -15,11 +16,11 @@ const Mode = Object.freeze({
 	ERROR: "error"
 });
 
+// パレット
 const RUN_COLORS_FALLBACK = [
 	"#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
 	"#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
 ];
-
 function getPlotlyColors() {
 	try {
 		if (window.Plotly?.colors?.qualitative?.D3) return Plotly.colors.qualitative.D3;
@@ -28,6 +29,35 @@ function getPlotlyColors() {
 	return RUN_COLORS_FALLBACK;
 }
 
+// グラフデータ間引き
+function decimateTrace(trace, maxPoints = 8000, range = null) {
+	if (!trace.x || trace.x.length <= maxPoints) return trace;
+
+	let x = trace.x;
+	let y = trace.y;
+
+	// 範囲指定があればその範囲だけ抽出
+	if (range) {
+		const [xmin, xmax] = range;
+		const idx = x.reduce((a, v, i) => {
+			if (v >= xmin && v <= xmax) a.push(i);
+			return a;
+		}, []);
+		x = idx.map(i => x[i]);
+		y = idx.map(i => y[i]);
+	}
+
+	// 必要に応じて間引き
+	if (x.length > maxPoints) {
+		const step = Math.ceil(x.length / maxPoints);
+		x = x.filter((_, i) => i % step === 0);
+		y = y.filter((_, i) => i % step === 0);
+	}
+
+	return { ...trace, x, y };
+}
+
+// Toast
 class Toast {
 	static show(msg, ms = 2500) {
 		const el = document.createElement("div");
@@ -163,12 +193,22 @@ class PlotlyController {
 				});
 			}
 			if (!traces.length) continue;
-			Plotly.newPlot(id, traces, {
-				margin: { t: 30, b: 15, l: 50, r: 10 }, height: 300,
+			// --- データ間引き処理（最大点数を超える場合に実行） ---
+			const reducedTraces = traces.map(t => decimateTrace(t, MAX_POINTS));
++			Plotly.newPlot(id, reducedTraces, {
+				margin: { t: 30, b: 20, l: 50, r: 10 }, height: 300,
 				plot_bgcolor: "#111", paper_bgcolor: "#111", font: { color: "#ccc" },
 				xaxis: { gridcolor: "#444" }, yaxis: { gridcolor: "#444" },
 				showlegend: (runIds.length > 1),
 			}, { displayModeBar: true, responsive: true, useResizeHandler: true });
+			// --- ズーム追従処理 ---
+			const plotDiv = document.getElementById(id);
+			plotDiv.on('plotly_relayout', (e) => {
+				if (!e['xaxis.range[0]'] || !e['xaxis.range[1]']) return;
+				const xmin = e['xaxis.range[0]'], xmax = e['xaxis.range[1]'];
+				const zoomedTraces = traces.map(t => decimateTrace(t, MAX_POINTS, [xmin, xmax]));
+				Plotly.react(plotDiv, zoomedTraces, plotDiv.layout);
+			});
 			drawn = true;
 		}
 		if (!drawn) area.append("<div style='color:#888;padding:12px;'>No metrics data.</div>");
