@@ -1,5 +1,7 @@
 package io.github.kazukin123.anetlab.metricsviewer.model;
 
+import java.io.Serializable;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -7,10 +9,15 @@ import lombok.Data;
 @Data
 @Builder
 @AllArgsConstructor
-public class Tag implements Comparable<Tag> {
-    private String key;
-    private String type;
+public class Tag implements Comparable<Tag> , Serializable {
+    private final String key;
+    private final String type;
 
+    public Tag() {
+    	key = null;
+    	type = null;
+    }
+    
     @Override
     public int compareTo(Tag o) {
         int cmp = this.key.compareTo(o.key);

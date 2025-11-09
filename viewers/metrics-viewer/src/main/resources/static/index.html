@@ -1,246 +1,86 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-	<meta charset="UTF-8">
-	<title>Metrics Viewer</title>
-	<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-	<script src="https://cdn.plot.ly/plotly-3.2.0.min.js"></script>
-	<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
-	<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-	<style>
-		body {
-			font-family: sans-serif;
-			background-color: #0f0f0f;
-			color: #ddd;
-			margin: 0;
-			padding: 10px;
-		}
-		#controls {
-			display: flex;
-			align-items: center;
-			gap: 10px;
-			margin-bottom: 10px;
-		}
-		#chart {
-			width: 100%;
-/*			height: calc(100vh - 100px);*/
-			overflow-y: auto;
-		}
-		.tag-chart {
-			height: 300px;
-			border-bottom: 1px solid #333;
-		}
-		.tag-name {
-			font-size: 14px;
-			color: #ddd;
-			text-align: left;
-			margin-bottom: 0px;
-			position: relative;
-		}
-		.select2-container {
-			min-width: 220px;
-		}
-	</style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Metrics Viewer</title>
+
+<!-- jQuery + jQuery UI + Touch Punch -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jquery-ui-touch-punch@0.2.3/jquery.ui.touch-punch.min.js"></script>
+
+<!-- Plotly -->
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+
+<!-- CSS -->
+<link rel="stylesheet" href="metrics-viewer.css" />
+
+<style>
+/* --- Run color chip --- */
+.run-color {
+	display: inline-block;
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	margin-right: 6px;
+	vertical-align: middle;
+}
+</style>
 </head>
-<body>
-	<h2>Metrics Viewer</h2>
-	<div id="controls">
-		<select id="runSelect"></select>
-		<select id="tagSelect" multiple></select>
-		<button id="reload-btn">Reload</button>
+
+<body class="uninitialized">
+<div id="layout">
+	<!-- Side Panel -->
+	<div id="side-panel">
+		<div id="side-header">
+			<h2>Metrics Viewer</h2>
+			<div class="header-buttons">
+				<button id="btn-screenshot" title="Screenshot Mode">×</button>
+			</div>
+		</div>
+
+		<div class="global-controls">
+			<button id="btn-reload">Reload</button>
+			<button id="btn-auto-reload">Auto Reload: OFF</button>
+		</div>
+
+		<div class="section" id="run-section">
+			<div class="section-header"><label>Runs</label></div>
+			<div class="section-controls">
+				<button id="btn-select-all-runs">Select All</button>
+				<button id="btn-latest-only">Latest Only</button>
+			</div>
+			<!-- Runリスト（JSで生成される） -->
+			<div id="run-list"></div>
+		</div>
+
+		<div class="section" id="tag-section">
+			<div class="section-header"><label>Tags</label></div>
+			<div class="section-controls">
+				<button id="btn-select-all">Select All</button>
+				<button id="btn-clear-all">Clear All</button>
+			</div>
+			<!-- Tagリスト（初期構成あり、JSで上書きまたは活用） -->
+			<ul id="tag-list">
+				<li id="tag-reward" class="active">reward/mean</li>
+				<li id="tag-loss" class="active">loss/q_value</li>
+				<li id="tag-epsilon" class="active">epsilon</li>
+				<li id="tag-grad">grad_norm</li>
+			</ul>
+		</div>
 	</div>
-	<div id="chart"></div>
 
-	<script>
-		// --- グローバルキャッシュ ---
-		const anetRunCache = {};
-		window.anetRunCache = anetRunCache;
+	<!-- Main Area -->
+	<div id="screenshot-header"></div>
+	<div id="main-area">
+	</div>
+</div>
 
-		// --- 初期化 ---
-		$(document).ready(function() {
-			initSelects();
-			loadRunsAndSelectLatest();
-			setInterval(() => updateRunList(true), 60000); // 60秒ごとにRun一覧更新
+<!-- 常時右上に表示される Screenshot トグルボタン -->
+<button id="btn-screenshot-toggle">⬅</button>
 
-			$('#reload-btn').on('click', function() {
-				updateRunList(true);
-				const runId = $('#runSelect').val();
-				const selectedTags = $('#tagSelect').val();
-				if (runId) renderCharts(runId, selectedTags);
-			});
-
-			$('#runSelect').on('change', function() {
-				const runId = $(this).val();
-				if (!runId) return;
-
-				// タグ一覧を読み込み完了してからグラフ描画
-				loadTagSelect(runId, function() {
-					const selectedTags = $('#tagSelect').val();
-					renderCharts(runId, selectedTags);
-				});
-			});
-
-			$('#tagSelect').on('change', function() {
-				const runId = $('#runSelect').val();
-				if (runId) renderCharts(runId, $(this).val());
-			});
-		});
-
-		// --- Select2 初期化 ---
-		function initSelects() {
-			$('#runSelect').select2({
-				placeholder: 'Select a run',
-				allowClear: true,
-				width: 'resolve'
-			});
-			$('#tagSelect').select2({
-				placeholder: 'Select tags',
-				allowClear: true,
-				width: 'resolve'
-			});
-		}
-
-		// --- Run一覧の初回ロード ---
-		function loadRunsAndSelectLatest() {
-			$.getJSON('/api/runs', function(data) {
-				if (!data || data.length === 0) return;
-				data.sort((a, b) => (a.runId || a.name || '').localeCompare(b.runId || b.name || ''));
-
-				const select = $('#runSelect');
-				select.empty();
-
-				data.forEach(r => {
-					const id = r.runId || r.name || r.path;
-					select.append($('<option>').val(id).text(id));
-				});
-
-				const latest = data[data.length - 1];
-				const latestId = latest.runId || latest.name || latest.path;
-				select.val(latestId).trigger('change');
-
-				if (select.data('select2')) select.select2('destroy');
-				initSelects();
-			});
-		}
-
-		// --- Run一覧更新（選択維持） ---
-		function updateRunList(preserveSelection = true) {
-			$.getJSON('/api/runs', function(data) {
-				if (!data || data.length === 0) return;
-
-				data.sort((a, b) => (a.runId || a.name || '').localeCompare(b.runId || b.name || ''));
-				const select = $('#runSelect');
-				const prevSelected = preserveSelection ? select.val() : null;
-				const prevOptions = new Set(select.find('option').map((_, opt) => $(opt).val()).get());
-				let modified = false;
-
-				data.forEach(r => {
-					const id = r.runId || r.name || r.path;
-					if (!prevOptions.has(id)) modified = true;
-				});
-				prevOptions.forEach(optId => {
-					if (!data.some(r => (r.runId || r.name || r.path) === optId)) modified = true;
-				});
-
-				if (!modified) return;
-
-				select.empty();
-				data.forEach(r => {
-					const id = r.runId || r.name || r.path;
-					select.append($('<option>').val(id).text(id));
-				});
-
-				if (select.data('select2')) select.select2('destroy');
-				initSelects();
-
-				if (prevSelected && select.find(`option[value="${prevSelected}"]`).length > 0) {
-					select.val(prevSelected).trigger('change.select2');
-				}
-			});
-		}
-
-		// --- タグ一覧ロード（完了後にcallback実行） ---
-		function loadTagSelect(runId, callback) {
-			$.getJSON(`/api/metrics/${runId}`, function(data) {
-				if (!data || data.length === 0) return;
-				anetRunCache[runId] = data;
-
-				const select = $('#tagSelect');
-				select.empty();
-				data.forEach(s => select.append($('<option>').val(s.tag).text(s.tag)));
-
-				if (select.data('select2')) select.select2('destroy');
-				initSelects();
-
-				if (callback) callback();
-			});
-		}
-
-		// --- グラフ描画（全タグまたは選択タグ） ---
-		function renderCharts(runId, selectedTags = null) {
-			$('#chart').empty();
-			const all = anetRunCache[runId];
-			if (!all || all.length === 0) return;
-
-			const tags = selectedTags && selectedTags.length > 0
-				? selectedTags
-				: [...new Set(all.map(s => s.tag))];
-
-			tags.forEach(tag => {
-				const series = all.find(s => s.tag === tag);
-				if (!series || !series.points) return;
-
-				const trace = toTrace(series);
-				const tagChartDiv = $('<div>').addClass('tag-chart');
-				const tagNameDiv = $('<div>').addClass('tag-name').text(tag);
-				const graphDiv = $('<div>').addClass('tag-graph');
-				tagChartDiv.append(tagNameDiv);
-				tagChartDiv.append(graphDiv);
-				$('#chart').append(tagChartDiv);
-
-				const layout = {
-					template: "plotly_dark",
-					paper_bgcolor: '#0f0f0f',
-					plot_bgcolor: '#191919',
-					font: { color: '#ddd' },
-					title: `${runId} — ${tag}`,
-					height: 280,
-					margin: { l: 30, r: 10, b: 30, t: 20, pad: 0 },
-					xaxis: {
-						type: 'linear',
-						tickmode: 'auto',
-						tickfont: { color: '#ccc', size: 10 },
-						showgrid: true,
-						zeroline: false,
-						gridcolor: "rgb(100 100 100 / 0.3)"
-					},
-					yaxis: {
-						tickfont: { color: '#ccc', size: 10 },
-						showgrid: true,
-						zeroline: false,
-						gridcolor: "rgb(100 100 100 / 0.3)"
-					}
-				};
-
-				Plotly.newPlot(graphDiv[0], [trace], layout, { responsive: false });
-			});
-		}
-
-		// --- MetricSeries → Plotly Trace 変換 ---
-		function toTrace(series) {
-			if (!series || !series.points || series.points.length === 0) return null;
-
-			const xs = series.points.map(p => Number(p.step));
-			const ys = series.points.map(p => p.value);
-
-			return {
-				x: xs,
-				y: ys,
-				mode: 'lines',
-				name: series.tag,
-				line: { width: 1.5 }
-			};
-		}
-	</script>
+<!-- アプリスクリプト -->
+<script src="metrics-viewer.js"></script>
 </body>
 </html>

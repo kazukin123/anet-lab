@@ -215,13 +215,17 @@ html, body {
 }
 .graph-block {
 	background:#111;
-	margin-bottom: 10px;
+	margin-bottom: 20px;
+	height: 300px;
+	position: relative;
 }
 .graph-title {
 	font-size: 16px;
 	color: #ccc;
 	margin: 0px;
 	padding: 2px 0px 2px 10px;
+	z-index: 10;
+	position: absolute;
 }
 
 /* ============================================================
@@ -253,8 +257,6 @@ body.screenshot-mode #side-panel {
 	display: none !important;
 }
 body.screenshot-mode * {
-	box-shadow: none !important;
-	border: none !important;
 }
 html.screenshot-mode,
 body.screenshot-mode {
@@ -271,6 +273,7 @@ body.screenshot-mode {
 	background: rgba(0,0,0,0.5);
 	border-radius: 4px;
 	display: none;
+	border-bottom:#888 2px solid;
 }
 body.screenshot-mode #screenshot-header { display: block !important; }
 

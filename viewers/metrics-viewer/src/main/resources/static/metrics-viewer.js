@@ -3,9 +3,9 @@
    ※ 挙動は変更せず、責務のみ整理
    ============================================================ */
 
-const API_BASE_URL = "/dummy_api";
+const API_BASE_URL = "/api";
 const AUTO_RELOAD_INTERVAL_MS = 10000;
-
+	
 const Mode = Object.freeze({
 	UNINITIALIZED: "uninitialized",
 	META_LOADING: "metaLoading",
@@ -54,14 +54,27 @@ class DataFetcher {
 		return res.json();
 	}
 
-	async fetchMetricsAll() {
-		const c = this._ctrl();
-		const res = await fetch(`${API_BASE_URL}/metrics.json`, { signal: c.signal });
-		if (!res.ok) throw new Error(`Failed metrics.json: ${res.status}`);
-		return res.json();
+	async fetchMetricsAll(runIds = [], tagKeys = []) {
+	    const c = this._ctrl();
+	    const body = new URLSearchParams();
+
+	    for (const r of runIds) body.append("runIds", r);
+	    for (const t of tagKeys) body.append("tagKeys", t);
+	    const res = await fetch(`${API_BASE_URL}/metrics.json`, {
+	        method: "POST",
+	        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+	        body,
+	        signal: c.signal
+	    });
+
+	    if (!res.ok) throw new Error(`Failed metrics.json: ${res.status}`);
+	    return res.json();
 	}
 
-	async fetchMetricsDiff(_since) { return this.fetchMetricsAll(); }
+	async fetchMetricsDiff(runIds = [], tagKeys = [], since = null) {
+	    // 差分APIをまだ実装していないにで今はfetchMetricsAllを呼ぶ
+	    return this.fetchMetricsAll(runIds, tagKeys);
+	}
 
 	abortAll() {
 		for (const c of this.controllers) { try { c.abort(); } catch (_) {} }
@@ -122,7 +135,10 @@ class DataCache {
 
 /* ---------------- 描画 ---------------- */
 class PlotlyController {
-	constructor() { this.colors = getPlotlyColors(); }
+	constructor(app) {
+		this.app = app;
+		this.colors = getPlotlyColors();
+	}
 
 	renderBySelection(containerSel, runIds, tagKeys, cache) {
 		const area = $(containerSel).empty();
@@ -143,15 +159,16 @@ class PlotlyController {
 				if (!d) continue;
 				traces.push({
 					x: d.steps, y: d.values, name: r, mode: "lines",
-					line: { width: 2, color: this.colors[i % this.colors.length] }
+					line: { width: 2, color: this.app.runColorMap.get(r) }
 				});
 			}
 			if (!traces.length) continue;
 			Plotly.newPlot(id, traces, {
-				margin: { t: 10, b: 20, l: 50, r: 10 }, height: 300,
+				margin: { t: 30, b: 15, l: 50, r: 10 }, height: 300,
 				plot_bgcolor: "#111", paper_bgcolor: "#111", font: { color: "#ccc" },
-				xaxis: { gridcolor: "#444" }, yaxis: { gridcolor: "#444" }
-			}, { displayModeBar: false, responsive: true, useResizeHandler: true });
+				xaxis: { gridcolor: "#444" }, yaxis: { gridcolor: "#444" },
+				showlegend: (runIds.length > 1),
+			}, { displayModeBar: true, responsive: true, useResizeHandler: true });
 			drawn = true;
 		}
 		if (!drawn) area.append("<div style='color:#888;padding:12px;'>No metrics data.</div>");
@@ -179,6 +196,8 @@ class UIController {
 	renderRunList(runIds, selected, runColorMap) {
 		const $list = $("#run-list").empty(), palette = getPlotlyColors();
 		runColorMap.clear();
+		runIds.sort();
+		runIds.reverse();
 		runIds.forEach((id, i) => {
 			const c = palette[i % palette.length], chk = selected.includes(id) ? "checked" : "";
 			runColorMap.set(id, c);
@@ -224,6 +243,7 @@ class UIController {
 	renderTagList(tagKeys, active) {
 		const $ul = $("#tag-list").empty();
 		active.clear();
+		tagKeys.sort();
 		tagKeys.forEach(k => {
 			const id = `tag-${k.replace(/[^\w-]/g, "_")}`;
 			$ul.append(`<li id="${id}">${k}</li>`);
@@ -291,24 +311,18 @@ class MetricsViewerClientApp {
 	constructor() {
 		this.fetcher = new DataFetcher();
 		this.cache = new DataCache();
-		this.plotly = new PlotlyController();
+		this.plotly = new PlotlyController(this);
+		this.ui = new UIController(this);
 		this.mode = Mode.UNINITIALIZED;
 		this.selectedRuns = [];
 		this.activeTags = new Set();
 		this.runColorMap = new Map();
 		this.autoReloadEnabled = false;
 		this.autoReloadTimer = null;
-		this.ui = new UIController(this);
+		this.colors = getPlotlyColors();
 		console.log("[INIT] MetricsViewerClientApp constructed");
 	}
 
-	setMode(mode) {
-		const prev = this.mode;
-		console.log(`[MODE] ${prev} → ${mode}`);
-		this.mode = mode;
-		this.ui.applyMode(mode);
-		console.log(`[MODE] applied: current=${this.mode}`);
-	}
 	setMode(mode) {
 		const prev = this.mode;
 		console.log(`[MODE] ${prev} → ${mode}`);
@@ -363,11 +377,17 @@ class MetricsViewerClientApp {
 
 	_populateRuns(runIds) {
 		if (!Array.isArray(this.selectedRuns)) this.selectedRuns = [];
-		this.selectedRuns = this.selectedRuns.filter(id => runIds.includes(id));
-		if (!this.selectedRuns.length && runIds.length) this.selectedRuns = [runIds[0]];
-		this.ui.renderRunList(runIds, this.selectedRuns, this.runColorMap);
-		this.ui.bindRunListEvents(runIds, this.selectedRuns);
-		console.log(`[RUN] populateRuns → ${runIds.length} runs, selected=${this.selectedRuns.length}`);
+
+		 // 最新が runIds[runIds.length - 1]
+		 const latest = runIds[runIds.length - 1];
+
+		 // selected が空 or 消失した場合 → 最新だけ選択
+		 if (!this.selectedRuns.length || !runIds.includes(this.selectedRuns[0])) {
+		     this.selectedRuns = [latest];
+		 }
+		 this.ui.renderRunList(runIds, this.selectedRuns, this.runColorMap);
+		 this.ui.bindRunListEvents(runIds, this.selectedRuns);
+		 		console.log(`[RUN] populateRuns → ${runIds.length} runs, selected=${this.selectedRuns.length}`);
 	}
 
 	_populateTags(tagKeys, allActive) {
@@ -419,16 +439,17 @@ class MetricsViewerClientApp {
 		this.autoReloadEnabled = !this.autoReloadEnabled;
 		if (this.autoReloadEnabled) {
 			this.autoReloadTimer = setInterval(() => {
-				this.onReloadDiff();
+//				this.onReloadDiff();
+				this.onReloadFull();
 			}, AUTO_RELOAD_INTERVAL_MS);
 			$("#btn-auto-reload").text("Auto Reload: ON");
-			Toast.show("AutoReload開始");
+			Toast.show("Auto-reload enabled.");
 			console.log("[AUTO] toggled → ON");
 		} else {
 			clearInterval(this.autoReloadTimer);
 			this.autoReloadTimer = null;
 			$("#btn-auto-reload").text("Auto Reload: OFF");
-			Toast.show("AutoReload停止");
+			Toast.show("Auto-reload disabled.");
 			console.log("[AUTO] toggled → OFF");
 		}
 	}
@@ -462,68 +483,64 @@ class MetricsViewerClientApp {
 	}
 
 	async onReloadFull() {
-		if (this.mode === Mode.SCREENSHOT) return;
+	    if (this.mode === Mode.SCREENSHOT) return;
 		console.log("[RELOAD] full start");
-		try {
-			this.fetcher.abortAll();
-			this.setMode(Mode.META_LOADING);
+		console.log(""+this.selectedRuns +" ", this.activeTags);
+	    try {
+	        this.fetcher.abortAll();
+	        this.setMode(Mode.META_LOADING);
 
-			const runsPayload = await this.fetcher.fetchRuns();
-			console.log("[RELOAD] fetchRuns OK");
+	        const runsPayload = await this.fetcher.fetchRuns();
+	        console.log("[RELOAD] fetchRuns OK");
 
-			const raw = Array.isArray(runsPayload?.runs) ? runsPayload.runs : [];
-			const runIds = raw.map(r => typeof r === "string" ? r : (r.id ?? r.name ?? String(r)));
-			if (!runIds.length) {
-				this.cache.clear();
-				$("#main-area").empty().append("<div style='color:#888;padding:12px;'>No runs.</div>");
-				this.setMode(Mode.NORMAL);
-				Toast.show("No runs available。");
-				console.log("[RELOAD] no runs found");
-				return;
-			}
+	        const raw = Array.isArray(runsPayload?.runs) ? runsPayload.runs : [];
+	        const runIds = raw.map(r => typeof r === "string" ? r : (r.id ?? r.name ?? String(r)));
+	        if (!runIds.length) {
+	            this.cache.clear();
+	            $("#main-area").empty().append("<div style='color:#888;padding:12px;'>No runs.</div>");
+	            this.setMode(Mode.NORMAL);
+	            Toast.show("No runs available。");
+	            console.log("[RELOAD] no runs found");
+	            return;
+	        }
 
-			this.selectedRuns = this.selectedRuns.filter(r => runIds.includes(r));
-			if (!this.selectedRuns.length) this.selectedRuns = [runIds[runIds.length - 1]];
-			this._populateRuns(runIds);
+	        this.selectedRuns = this.selectedRuns.filter(r => runIds.includes(r));
+	        if (!this.selectedRuns.length) this.selectedRuns = [runIds[runIds.length - 1]];
+	        this._populateRuns(runIds);
 
-			this.setMode(Mode.DATA_LOADING);
-			const metricsPayload = await this.fetcher.fetchMetricsAll();
-			this.cache.mergeAll(metricsPayload);
-			console.log(`[RELOAD] fetchMetricsAll OK (${runIds.length} runs)`);
+	        this.setMode(Mode.DATA_LOADING);
 
-			const latest = this.selectedRuns[this.selectedRuns.length - 1];
-			const tags = latest ? this.cache.getTagKeys(latest) : [];
-			if (tags.length) {
-				const keep = [...this.activeTags].filter(t => tags.includes(t));
-				this._populateTags(tags, false);
-				this.activeTags = new Set(keep);
-				$("#tag-list li").each((_, li) => {
-					if (this.activeTags.has($(li).text())) $(li).addClass("active");
-				});
-				this._renderCurrent();
-			}
+	        const tagKeys = Array.from(this.activeTags);
+	        const metricsPayload = await this.fetcher.fetchMetricsAll(this.selectedRuns, tagKeys);
 
+	        console.log("[RELOAD] fetchMetricsAll OK");
+
+	        // --- スクロール位置を保存・復元 ---
+			const $scrollTarget = $("#main-area");
+			const scrollTop = $scrollTarget.scrollTop();
 			this._renderCurrent();
-			this.setMode(Mode.NORMAL);
-			console.log("[RELOAD] full done");
-		} catch (e) {
-			console.error(e);
-			this.setMode(Mode.ERROR);
-			Toast.show("軽度エラー：リロード失敗。");
-		}
+			$scrollTarget.scrollTop(scrollTop);
+	        // -----------------------------------
+
+	        this.setMode(Mode.NORMAL);
+	    } catch (err) {
+	        console.error("[RELOAD] failed:", err);
+//	        this.setMode(Mode.ERROR);
+			Toast.show("Reload failed.");
+	    }
 	}
 
 	async onReloadDiff() {
 		if (this.mode === Mode.SCREENSHOT) return;
 		try {
 			const since = this.cache.buildSinceStepMap(this.selectedRuns, [...this.activeTags]);
-			console.log("[RELOAD] diff update");
-			const payload = await this.fetcher.fetchMetricsDiff(since);
+			console.log("[RELOAD] diff update ${this.selectedRuns} ${this.activeTags}");
+			const payload = await this.fetcher.fetchMetricsDiff(this.selectedRuns, this.activeTags, since);
 			this.cache.mergeDiff(payload);
 			this._renderCurrent();
 		} catch (e) {
 			console.error(e);
-			Toast.show("軽度エラー：差分取得失敗。");
+			Toast.show("Reload failed.");
 		}
 	}
 }

@@ -51,14 +51,20 @@
             <version>${spring.boot.version}</version>
             <scope>test</scope>
         </dependency>
-
-        <!-- Spring Boot DevTools (開発時のみ有効) -->
+<!--
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-devtools</artifactId>
             <version>${spring.boot.version}</version>
             <optional>true</optional>
         </dependency>
+-->
+		<dependency>
+		  <groupId>com.esotericsoftware</groupId>
+		  <artifactId>kryo</artifactId>
+		  <version>5.6.0</version>
+		</dependency>
+
     </dependencies>
 
     <build>

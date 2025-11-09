@@ -10,9 +10,9 @@ import lombok.Data;
 @Builder
 @AllArgsConstructor
 public class MetricTrace {
-    private String runId;
-    private String tagKey;
-    private String type;
-    private List<Integer> steps;
-    private List<Double> values;
+    private final String runId;
+    private final String tagKey;
+    private final String type;
+    private final List<Integer> steps;
+    private final List<Double> values;
 }
