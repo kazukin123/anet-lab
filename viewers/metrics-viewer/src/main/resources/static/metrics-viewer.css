@@ -169,6 +169,74 @@ html, body {
 	color: #eee;
 }
 
+/* --- Run --- */
+#run-list input[type="checkbox"] {
+	appearance: none;
+	width: 16px;
+	height: 16px;
+	margin: 0px 4px 0px 0px;
+	border: 1px solid #555;
+/*	border-radius: 3px;*/
+	background: #111;
+	cursor: pointer;
+	position: relative;
+	vertical-align: middle;
+}
+#run-list input[type="checkbox"]:hover { border-color: #777; }
+#run-list input[type="checkbox"]:checked {
+	background-color: #1e4d70;
+	border-color: #2a6b95;
+}
+#run-list input[type="checkbox"]:checked::after {
+	content: "";
+	position: absolute;
+	left: 3px;
+	top: 0px;
+	width: 6px;
+	height: 10px;
+	border: solid #ccc;
+	border-width: 0 2px 2px 0;
+	transform: rotate(45deg);
+}
+.run-row {
+	font-size: 14px;
+	background-color: transparent;
+	transition: background-color 0.15s ease;
+	align-items: center;      /* 縦中央揃え */
+	padding: 2px 6px;
+	border-radius: 3px;
+	cursor: normal;
+}
+
+/* ホバー時のハイライト（クリック領域を視覚化） */
+.run-row:hover {
+  background-color: rgba(255, 255, 255, 0.35);
+}
+
+/* アクティブ選択中の行 */
+.run-row input.run-check:checked + span,
+.run-row.active {
+  background-color: rgba(80, 160, 255, 0.15);
+}
+
+/* --- Run Color Chip --- */
+.run-color {
+	display: inline-block;
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	margin-right: 0px;
+	vertical-align: middle;
+}
+
+/* チェックボックスの位置調整 */
+.run-check {
+  cursor: pointer;       /* マウスカーソル：チェックボックスも独立操作 */
+  align-self: center;       /* チェックボックス自体も中央寄せ */
+  transform: translateY(-0.85px);
+}
+
+
 /* --- Tag List --- */
 /* タグセクション全体を縦分割にして、リストのみスクロール可能に */
 #tag-section {
@@ -217,72 +285,6 @@ html, body {
 }
 #tag-list li.active:hover { background: #256690; }
 #tag-list li:hover { background: #333; }
-
-/* --- Run Checkbox --- */
-.run-row {
-	font-size: 14px;
-}
-#run-list input[type="checkbox"] {
-	appearance: none;
-	width: 16px;
-	height: 16px;
-	margin-right: 6px;
-	border: 1px solid #555;
-	border-radius: 3px;
-	background: #222;
-	cursor: pointer;
-	position: relative;
-	vertical-align: middle;
-}
-#run-list input[type="checkbox"]:hover { border-color: #777; }
-#run-list input[type="checkbox"]:checked {
-	background-color: #1e4d70;
-	border-color: #2a6b95;
-}
-#run-list input[type="checkbox"]:checked::after {
-	content: "";
-	position: absolute;
-	left: 3px;
-	top: 0px;
-	width: 6px;
-	height: 10px;
-	border: solid #ccc;
-	border-width: 0 2px 2px 0;
-	transform: rotate(45deg);
-}
-
-/* 行全体がクリック可能（ラジオ的領域） */
-.run-row {
-  background-color: transparent;
-  transition: background-color 0.15s ease;
-}
-
-/* ホバー時のハイライト（クリック領域を視覚化） */
-.run-row:hover {
-  background-color: rgba(255, 255, 255, 0.35);
-}
-
-/* アクティブ選択中の行 */
-.run-row input.run-check:checked + span,
-.run-row.active {
-  background-color: rgba(80, 160, 255, 0.15);
-}
-
-/* --- Run Color Chip --- */
-.run-color {
-	display: inline-block;
-	width: 10px;
-	height: 10px;
-	border-radius: 50%;
-	margin-right: 0px;
-	vertical-align: middle;
-}
-
-/* チェックボックスの位置調整 */
-.run-check {
-  cursor: pointer;       /* マウスカーソル：チェックボックスも独立操作 */
-}
-
 
 /* --- Main Area --- */
 #main-area {

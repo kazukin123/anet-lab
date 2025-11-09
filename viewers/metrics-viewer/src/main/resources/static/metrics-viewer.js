@@ -5,7 +5,7 @@
 
 const API_BASE_URL = "/api";
 const AUTO_RELOAD_INTERVAL_MS = 10000;
-const MAX_POINTS = 20000;
+const MAX_POINTS = 16000;
 	
 const Mode = Object.freeze({
 	UNINITIALIZED: "uninitialized",
@@ -248,61 +248,61 @@ class UIController {
 		runIds.forEach((id, i) => {
 			const c = palette[i % palette.length], chk = selected.includes(id) ? "checked" : "";
 			runColorMap.set(id, c);
-			$list.append(`<label class="run-row"><span class="run-color" style="background:${c};"></span>
-				<input type="checkbox" class="run-check" value="${id}" ${chk}> ${id}</label><br>`);
+			$list.append(`<label class="run-row"><input type="checkbox" class="run-check" value="${id}" ${chk}>
+				<span class="run-color" style="background:${c};"></span> ${id}</label><br>`);
 		});
 	}
 
-	bindRunListEvents(runIds, selected) {
-		const $list = $("#run-list");
+	bindRunListEvents(runIds) {
+	  const $list = $("#run-list");
+	  const selected = this.app.selectedRuns; // ← 常にアプリ本体の参照を使う
 
-	    $list.find(".run-check").off("click").on("click", (e) => {
-	        e.stopPropagation(); // 行クリックへのバブリングを防ぐ
-	        const id = e.currentTarget.value;
-	        const ok = e.currentTarget.checked;
-	
-	        if (ok) {
-	            if (!selected.includes(id)) selected.push(id);
-	        } else {
-	            if (selected.length <= 1) { e.currentTarget.checked = true; return; }
-	            const i = selected.indexOf(id);
-	            if (i >= 0) selected.splice(i, 1);
-	        }
-	        this.app.onRunSelectionChanged();
-	    });
+	  // チェックボックス（複数選択）
+	  $list.find(".run-check").off("change").on("change", (e) => {
+	    const id = e.currentTarget.value;
+	    const ok = e.currentTarget.checked;
 
-	    // --- 行全体クリック：単独選択モード ---
-		$list.find(".run-row").off("click").on("click", (e) => {
-		    const checkbox = $(e.currentTarget).find(".run-check")[0];
-		    const id = checkbox.value;
-		
-		    // まず他のチェックをOFF
-		    $list.find(".run-check").prop("checked", false);
-		
-		    // 自分をONにする
-		    checkbox.checked = true;
-		
-		    // 選択状態を更新
-		    this.app.selectedRuns = [id];
-		    this.app.onRunSelectionChanged();
-		
-		    e.preventDefault(); // ← labelの既定トグルを防ぐ
-		});
+	    if (ok) {
+	      if (!selected.includes(id)) selected.push(id); // 破壊的更新
+	    } else {
+	      if (selected.length <= 1) { e.currentTarget.checked = true; return; }
+	      const i = selected.indexOf(id);
+	      if (i >= 0) selected.splice(i, 1);            // 破壊的更新
+	    }
+	    this.app.onRunSelectionChanged();                // 即時でOK（デバウンス不要）
+	  });
 
-		// 全選択ボタン
-		$("#btn-select-all-runs").off("click").on("click", () => {
-			this.app.selectedRuns = [...runIds];
-			$list.find(".run-check").prop("checked", true);
-			this.app.onRunSelectionChanged();
-		});
+	  // 行クリック（単独選択＝ラジオ動作）
+	  $list.find(".run-row").off("click").on("click", (e) => {
+	    if ($(e.target).hasClass("run-check")) return; // 二重反応防止
 
-		// Latest Onlyボタン
-		$("#btn-latest-only").off("click").on("click", () => {
-			const latest = runIds[0];
-			this.app.selectedRuns = latest ? [latest] : [];
-			$list.find(".run-check").each((_, el) => { el.checked = (el.value === latest); });
-			this.app.onRunSelectionChanged();
-		});
+	    const $checkbox = $(e.currentTarget).find(".run-check");
+	    const id = $checkbox.val();
+
+	    // 破壊的に単独選択へ置換
+	    selected.splice(0, selected.length, id);
+
+	    $list.find(".run-check").prop("checked", false);
+	    $checkbox.prop("checked", true);
+
+	    this.app.onRunSelectionChanged();
+	  });
+
+	  // 全選択
+	  $("#btn-select-all-runs").off("click").on("click", () => {
+	    // 破壊的更新に統一（参照を保つ）
+	    selected.splice(0, selected.length, ...runIds);
+	    $list.find(".run-check").prop("checked", true);
+	    this.app.onRunSelectionChanged();
+	  });
+
+	  // 最新のみ
+	  $("#btn-latest-only").off("click").on("click", () => {
+	    const latest = runIds[0];
+	    selected.splice(0, selected.length, ...(latest ? [latest] : []));
+	    $list.find(".run-check").each((_, el) => { el.checked = (el.value === latest); });
+	    this.app.onRunSelectionChanged();
+	  });
 	}
 
 	updateRunColorChips(runColorMap) {
