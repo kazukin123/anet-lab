@@ -13,6 +13,7 @@ public class MetricTrace {
     private final String runId;
     private final String tagKey;
     private final String type;
+    private final TagStats stats;
     private final List<Integer> steps;
     private final List<Double> values;
 }

@@ -7,11 +7,11 @@ import lombok.Data;
 @Data
 @AllArgsConstructor
 @Builder
-public class MetricPoint {
+public class Point {
 	private final long step;
 	private final double value;
 	
-	public MetricPoint() {
+	public Point() {
 		step = 0;
 		value = 0.0;
 	}

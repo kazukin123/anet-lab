@@ -10,7 +10,9 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricFileBlock;
 import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricLine;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.MetricTrace;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.RunStats;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.Tag;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.TagStats;
 
 /**
  * Snapshot of metrics data for a single run.
@@ -20,12 +22,12 @@ public class MetricsSnapshot {
 	
 	private static final String TAG_TYPE_SCALER = "scalar";
 
-    /** tag → [step, value] */
-    private final Map<Tag, List<MetricPoint>> tagValues = new ConcurrentHashMap<>();
+    private final Map<Tag, List<Point>> tagValues = new ConcurrentHashMap<>();    // tag → [step, value]
+    private final Map<Tag, TagStats> tagStats = new ConcurrentHashMap<>();
 
     /** Last read byte offset from metrics.jsonl */
     private volatile long lastReadPosition = 0L;
-    private long maxStep = 0L;
+    private RunStats runStats = new RunStats();
 
     /** Merges a parsed MetricFileBlock into this snapshot. */
     public void merge(MetricFileBlock block) {
@@ -35,24 +37,25 @@ public class MetricsSnapshot {
             if (line == null || line.getTag() == null) continue;
 
             // scaler以外は現状非サポート
-            if (!TAG_TYPE_SCALER.equals(line.getType())) {
-            	continue;
-            }
+            if (!TAG_TYPE_SCALER.equals(line.getType())) continue;
 
-            // 統計計算
-            if (line.getStep() > maxStep) {
-            	maxStep = line.getStep();
-            }
+
+            long step = line.getStep();
+            double value = line.getValue();
+
+            // Run単位の統計計算
+            if (step > runStats.getMaxStep()) runStats.setMaxStep(step);
             
             // Scalerタグ内容を登録
             Tag tag = new Tag(line.getTag(), line.getType());
-            MetricPoint point = MetricPoint.builder()
+            Point point = Point.builder()
                     .step(line.getStep())
                     .value(line.getValue()) // MetricLine.values は double 型
                     .build();
 
             // スレッド安全なリスト操作
             tagValues.computeIfAbsent(tag, k -> new ArrayList<>()).add(point);
+            tagStats.computeIfAbsent(tag, k -> new TagStats()).record(step, value);
         }
 
         this.lastReadPosition = block.getEndOffset();
@@ -67,15 +70,18 @@ public class MetricsSnapshot {
                 // step, value の順序を保持
                 List<Integer> steps = new ArrayList<>(points.size());
                 List<Double> values = new ArrayList<>(points.size());
-                for (MetricPoint p : points) {
+                for (Point p : points) {
                     steps.add((int) p.getStep());
                     values.add(p.getValue());
                 }
+
+                TagStats stats = tagStats != null ? tagStats.get(tag) : null;
 
                 MetricTrace trace = MetricTrace.builder()
                         .runId(null) // Repository 側でRunIdを付与する想定
                         .tagKey(tag.getKey())
                         .type(tag.getType())
+                        .stats(stats)
                         .steps(steps)
                         .values(values)
                         .build();
@@ -92,8 +98,8 @@ public class MetricsSnapshot {
         return new ArrayList<>(tagValues.keySet());
     }
     
-    public long getMaxStep() {
-    	return maxStep;
+    public RunStats getStats() {
+    	return runStats;
     }
 
     public long getLastReadPosition() {

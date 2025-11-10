@@ -36,7 +36,7 @@ public class MetricsRepository {
     private static final Logger log = LoggerFactory.getLogger(MetricsRepository.class);
 
     private static final String SNAPSHOT_FILENAME = "metrics_cache.kryo";
-    private static final String SNAPSHOT_FILEHEADER = "metrics_snapshot.kryo_v0.0.3";
+    private static final String SNAPSHOT_FILEHEADER = "metrics_snapshot.kryo_v0.0.4";
 
     private final Map<String, MetricsSnapshot> snapshots = new ConcurrentHashMap<>();	///runId → MetricsSnapshot
     private final Kryo kryo = new Kryo();
@@ -73,7 +73,7 @@ public class MetricsRepository {
         	    block.getLines() != null ? block.getLines().size() : 0,
         	    snapshot.getLastReadPosition(),
         	    snapshot.getTags().size(), snapshot.getTotalPoints(),
-        	    snapshot.getMaxStep());
+        	    snapshot.getStats().getMaxStep());
     }
 
     /**
@@ -96,6 +96,7 @@ public class MetricsRepository {
                         .runId(runId)
                         .tagKey(t.getTagKey())
                         .type(t.getType())
+                        .stats(t.getStats())
                         .steps(t.getSteps())
                         .values(t.getValues())
                         .build();
@@ -119,8 +120,7 @@ public class MetricsRepository {
     public RunStats getStats(String runId) {
         MetricsSnapshot snapshot = snapshots.get(runId);
         if (snapshot == null) return new RunStats();
-    	long maxStep = snapshot.getMaxStep();
-    	RunStats stats = RunStats.builder().maxStep(maxStep).build();
+    	RunStats stats = snapshot.getStats();
     	return stats;
     }
 
