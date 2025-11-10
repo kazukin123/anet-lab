@@ -101,7 +101,7 @@ class DataFetcher {
 	    return res.json();
 	}
 
-	async fetchMetricsDiff(runIds = [], tagKeys = [], since = null) {
+	async fetchMetricsDiff(runIds = [], tagKeys = [], since = []) {
 	    // 差分APIをまだ実装していないにで今はfetchMetricsAllを呼ぶ
 	    return this.fetchMetricsAll(runIds, tagKeys);
 	}
@@ -114,15 +114,32 @@ class DataFetcher {
 
 /* ---------------- キャッシュ ---------------- */
 class DataCache {
-	constructor() { this.data = {}; }
-	clear() { this.data = {}; }
+	constructor() {
+		this.runs = {};
+		this.data = {};
+	}
+	clear() {
+		this.runs = {};
+		this.data = {};
+	}
+
+	updateRuns(runArray) {
+		if (runArray == null) {
+			this.runs = {};
+			return;
+		}
+		this.runs = {};
+		for (const run of runArray) {
+			this.runs[run.id] = run;
+		}
+	}
 
 	mergeAll(payload) {
 		this.data = {};
 		if (!payload || !Array.isArray(payload.data)) return;
 		for (const m of payload.data) {
-			if (!this.data[m.runId]) this.data[m.runId] = {};
-			this.data[m.runId][m.tagKey] = { steps: m.steps, values: m.values };
+			if (!this.data[m.runId]) this.data[m.runId] = {};	// Metrics未登録なら新規
+			this.data[m.runId][m.tagKey] = { steps: m.steps, values: m.values };	// data[runId][tagsKey] = [step, value]
 		}
 	}
 
@@ -145,9 +162,25 @@ class DataCache {
 		}
 	}
 
-	get(runId, tagKey) { return this.data[runId]?.[tagKey] || null; }
-	getRunIds() { return Object.keys(this.data); }
-	getTagKeys(runId) { return this.data[runId] ? Object.keys(this.data[runId]) : []; }
+	get(runId, tagKey) {
+		return this.data[runId]?.[tagKey] || null;
+	}
+
+	getRuns() {
+		return this.runs;
+	}
+
+	getRunIds() {
+		return Object.keys(this.runs);
+	}
+
+	getTagKeys(runId) {
+		const run = this.runs[runId];
+		if (!run) return [];
+		const tags = run.tags.map(tag => tag.key);
+		return tags;
+	}
+
 
 	buildSinceStepMap(selectedRuns, selectedTags) {
 		const map = {};
@@ -240,16 +273,25 @@ class UIController {
 		document.querySelectorAll("button, input, select").forEach(el => el.disabled = disabled);
 	}
 
-	renderRunList(runIds, selected, runColorMap) {
+	renderRunList(runs, selectedRunIds, runColorMap) {
+		const runIds = Object.keys(runs);
 		const $list = $("#run-list").empty(), palette = getPlotlyColors();
 		runColorMap.clear();
 		runIds.sort();
 		runIds.reverse();
-		runIds.forEach((id, i) => {
-			const c = palette[i % palette.length], chk = selected.includes(id) ? "checked" : "";
-			runColorMap.set(id, c);
-			$list.append(`<label class="run-row"><input type="checkbox" class="run-check" value="${id}" ${chk}>
-				<span class="run-color" style="background:${c};"></span> ${id}</label><br>`);
+		runIds.forEach((runId, i) => {
+			// 対象のRun情報取り出し
+			const run = runs[runId];
+
+			// 描画用属性生成
+			const title = Object.entries(run.stats).map(([k, v]) => `${k}: ${v}`).join('\n');
+			const c = palette[i % palette.length]
+			const chk = selectedRunIds.includes(runId) ? "checked" : "";
+			runColorMap.set(runId, c);
+
+			// タグ生成
+			$list.append(`<label class="run-row" title="${title}"><input type="checkbox" class="run-check" value="${runId}" ${chk}>
+				<span class="run-color" style="background:${c};"></span> ${runId}</label><br>`);
 		});
 	}
 
@@ -406,7 +448,6 @@ class MetricsViewerClientApp {
 		} else {
 			this.ui.setLoadingSpinner(false);
 		}
-		console.log(`[MODE] applied: current=${this.mode}`);
 	}
 
 	async init() {
@@ -414,11 +455,13 @@ class MetricsViewerClientApp {
 			console.log("[INIT] start");
 			this.setMode(Mode.META_LOADING);
 
+			// Run情報(+タグ情報)を取得
 			const runsPayload = await this.fetcher.fetchRuns();
 			console.log("[INIT] fetchRuns OK");
+			const runs = Array.isArray(runsPayload?.runs) ? runsPayload.runs : [];
 
-			const raw = Array.isArray(runsPayload?.runs) ? runsPayload.runs : [];
-			const runIds = raw.map(r => typeof r === "string" ? r : (r.id ?? r.name ?? String(r)));
+			// Run無しの場合はキャッシュ全クリして終わり
+			const runIds = runs.map(r => typeof r === "string" ? r : (r.id ?? r.name ?? String(r)));
 			if (!runIds.length) {
 				this.cache.clear();
 				$("#main-area").empty().append("<div style='color:#888;padding:12px;'>No runs.</div>");
@@ -429,21 +472,32 @@ class MetricsViewerClientApp {
 				return;
 			}
 
-			this._populateRuns(runIds);
+			// Run情報をキャッシュ保存
+			this.cache.updateRuns(runs);
 
+			// Runsを描画
+			this._populateRuns();
+
+			// Tagsを描画
+			const latest = this.selectedRuns[this.selectedRuns.length - 1];
+			const tags = latest ? this.cache.getTagKeys(latest) : [];
+			if (tags.length) this._populateTags(tags, true);	// Tagがあったら表示
+			else this.ui.captureInitialTagList(this.activeTags);	// なかったら現在
+
+			// メトリクス情報を取得
 			this.setMode(Mode.DATA_LOADING);
 			const metricsPayload = await this.fetcher.fetchMetricsAll();
 			this.cache.mergeAll(metricsPayload);
 			console.log("[INIT] fetchMetricsAll OK");
 
-			const latest = this.selectedRuns[this.selectedRuns.length - 1];
-			const tags = latest ? this.cache.getTagKeys(latest) : [];
-			if (tags.length) this._populateTags(tags, true);
-			else this.ui.captureInitialTagList(this.activeTags);
-
+			// グラフ描画
 			this._renderCurrent();
-			this.setMode(Mode.NORMAL);
+
+			// UIイベントBind
 			this.ui.bindStaticControls();
+
+			// 初期化終わり
+			this.setMode(Mode.NORMAL);
 			console.log("[INIT] completed normally");
 		} catch (e) {
 			console.error(e);
@@ -453,19 +507,22 @@ class MetricsViewerClientApp {
 		}
 	}
 
-	_populateRuns(runIds) {
+	_populateRuns() {
 		if (!Array.isArray(this.selectedRuns)) this.selectedRuns = [];
 
-		 // 最新が runIds[runIds.length - 1]
-		 const latest = runIds[runIds.length - 1];
+		const runs = this.cache.getRuns();
+		const runIds = this.cache.getRunIds();
 
-		 // selected が空 or 消失した場合 → 最新だけ選択
-		 if (!this.selectedRuns.length || !runIds.includes(this.selectedRuns[0])) {
-		     this.selectedRuns = [latest];
+		// selected が空 or 消失した場合 → 最新だけ選択
+		if (!this.selectedRuns.length || !runIds.includes(this.selectedRuns[0])) {
+			const latestRunId = runIds[runIds.length - 1];
+			this.selectedRuns = [latestRunId];
 		 }
-		 this.ui.renderRunList(runIds, this.selectedRuns, this.runColorMap);
-		 this.ui.bindRunListEvents(runIds, this.selectedRuns);
-		 		console.log(`[RUN] populateRuns → ${runIds.length} runs, selected=${this.selectedRuns.length}`);
+
+		 // Runsを描画
+		this.ui.renderRunList(runs, this.selectedRuns, this.runColorMap);
+		this.ui.bindRunListEvents(runIds, this.selectedRuns);
+		console.log(`[RUN] populateRuns → ${runIds.length} runs, selected=${this.selectedRuns.length}`);
 	}
 
 	_populateTags(tagKeys, allActive) {
@@ -565,14 +622,18 @@ class MetricsViewerClientApp {
 		console.log("[RELOAD] full start");
 		console.log(""+this.selectedRuns +" ", this.activeTags);
 	    try {
+			// 既存の通信を全てキャンセル
 	        this.fetcher.abortAll();
 	        this.setMode(Mode.META_LOADING);
 
+			// Run情報(+Tags)を取得してキャシュ保存
 	        const runsPayload = await this.fetcher.fetchRuns();
+			const runs = Array.isArray(runsPayload?.runs) ? runsPayload.runs : [];
+			this.cache.updateRuns(runs);
 	        console.log("[RELOAD] fetchRuns OK");
 
-	        const raw = Array.isArray(runsPayload?.runs) ? runsPayload.runs : [];
-	        const runIds = raw.map(r => typeof r === "string" ? r : (r.id ?? r.name ?? String(r)));
+			// Run情報がなかったらクリアして終わる
+	        const runIds = runs.map(r => typeof r === "string" ? r : (r.id ?? r.name ?? String(r)));
 	        if (!runIds.length) {
 	            this.cache.clear();
 	            $("#main-area").empty().append("<div style='color:#888;padding:12px;'>No runs.</div>");
@@ -582,14 +643,20 @@ class MetricsViewerClientApp {
 	            return;
 	        }
 
-	        this.selectedRuns = this.selectedRuns.filter(r => runIds.includes(r));
+			// 選択されていたRunのRun情報がなくなっていたら最新Runを再選択
+			this.selectedRuns = this.selectedRuns.filter(r => runIds.includes(r));
 	        if (!this.selectedRuns.length) this.selectedRuns = [runIds[runIds.length - 1]];
-	        this._populateRuns(runIds);
 
+			// Runsを描画		
+	        this._populateRuns();
+
+			// Tagsを描画
+			this._updateTagListByRuns();
+
+			// Metricsを取得、キャッシュ登録
 	        this.setMode(Mode.DATA_LOADING);
-
-	        const tagKeys = Array.from(this.activeTags);
-	        const metricsPayload = await this.fetcher.fetchMetricsAll(this.selectedRuns, tagKeys);
+	        const metricsPayload = await this.fetcher.fetchMetricsAll();	// Reload時は選択状態関係無く全件再取得
+			this.cache.mergeAll(metricsPayload);
 
 	        console.log("[RELOAD] fetchMetricsAll OK");
 

@@ -5,7 +5,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -14,15 +13,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import io.github.kazukin123.anetlab.metricsviewer.view.model.Run;
-
 @Component
-public class RunLoader {
+public class RunScanner {
 
-    private static final Logger log = LoggerFactory.getLogger(RunLoader.class);
+    private static final Logger log = LoggerFactory.getLogger(RunScanner.class);
     private final Path runsDir;
 
-    public RunLoader(@Value("${metricsviewer.runs-dir:runs}") String runsDirPath) {
+    public RunScanner(@Value("${metricsviewer.runs-dir:runs}") String runsDirPath) {
         this.runsDir = Paths.get(runsDirPath);
     }
 
@@ -34,8 +31,8 @@ public class RunLoader {
         return runsDir.resolve(runId);
     }
 
-    private List<Run> scanRuns() {
-        List<Run> runs = new ArrayList<>();
+    private List<String> scanRuns() {
+        List<String> runs = new ArrayList<>();
         if (!Files.exists(runsDir)) {
             log.warn("Runs directory not found: {}", runsDir.toAbsolutePath());
             return runs; // 空リスト返却
@@ -46,7 +43,7 @@ public class RunLoader {
                 .sorted()
                 .forEach(dir -> {
                     String runId = dir.getFileName().toString();
-                    runs.add(Run.builder().id(runId).tags(Collections.emptyList()).build());
+                    runs.add(runId);
                 });
         } catch (IOException e) {
             log.warn("Failed to scan runs directory: {}", e.getMessage());
@@ -54,7 +51,7 @@ public class RunLoader {
         return runs;
     }
 
-    public List<Run> getRuns() {
+    public List<String> getRunIds() {
         // 空でもnullは返さない
         return scanRuns();
     }

@@ -13,12 +13,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import io.github.kazukin123.anetlab.metricsviewer.infra.RunLoader;
+import io.github.kazukin123.anetlab.metricsviewer.infra.RunScanner;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetMetricsRequest;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetMetricsResponse;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetRunsResponse;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.MetricTrace;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.Run;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.RunStats;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.Tag;
 
 /**
@@ -29,15 +30,15 @@ public class MetricsService {
 
     private static final Logger log = LoggerFactory.getLogger(MetricsService.class);
 
-    private final RunLoader runRepository;
+    private final RunScanner runScanner;
     private final MetricsRepository metricsRepository;
     private final LoadingThread loadingThread;
 
     @Autowired
-    public MetricsService(RunLoader runRepository,
+    public MetricsService(RunScanner runScanner,
                           MetricsRepository metricsRepository,
                           LoadingThread loadingThread) {
-        this.runRepository = runRepository;
+        this.runScanner = runScanner;
         this.metricsRepository = metricsRepository;
         this.loadingThread = loadingThread;
     }
@@ -58,12 +59,15 @@ public class MetricsService {
      * Returns run list with tags (used by /api/runs).
      */
     public GetRunsResponse getRuns() {
-        List<Run> runs = runRepository.getRuns();
+        List<String> runIds = runScanner.getRunIds();
 
-        // 各Runにタグを補完
-        for (Run run : runs) {
-            List<Tag> tags = metricsRepository.getTagsForRun(run.getId());
-            run.setTags(tags);
+        // Run情報を生成
+        List<Run> runs = new ArrayList<>();
+        for (String runId : runIds) {
+            RunStats stats = metricsRepository.getStats(runId);
+            List<Tag> tags = metricsRepository.getTagsForRun(runId);
+            Run run = Run.builder().id(runId).stats(stats).tags(tags).build();
+            runs.add(run);
         }
 
         GetRunsResponse res = new GetRunsResponse();
@@ -84,10 +88,7 @@ public class MetricsService {
 
         // --- ① 空指定時は全件扱いに補完 ---
         if (runIds == null || runIds.isEmpty()) {
-            runIds = new ArrayList<>();
-            for (Run r : runRepository.getRuns()) {
-                runIds.add(r.getId());
-            }
+            runIds = runScanner.getRunIds();
         }
 
         if (tagKeys == null || tagKeys.isEmpty()) {
@@ -109,7 +110,8 @@ public class MetricsService {
         List<MetricTrace> traces = metricsRepository.getTraces(runIds, tagKeys);
 
         GetMetricsResponse res = new GetMetricsResponse();
-        res.setData(traces); // ← フロント仕様に合わせた命名
+        res.setData(traces);
+
         log.debug("getMetrics: runs={} tags={} traces={}", runIds, tagKeys, traces.size());
         return res;
     }

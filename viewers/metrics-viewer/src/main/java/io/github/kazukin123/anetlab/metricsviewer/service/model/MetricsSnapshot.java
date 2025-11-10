@@ -1,6 +1,5 @@
 package io.github.kazukin123.anetlab.metricsviewer.service.model;
 
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -17,15 +16,16 @@ import io.github.kazukin123.anetlab.metricsviewer.view.model.Tag;
  * Snapshot of metrics data for a single run.
  * Thread-safe structure used by MetricsRepository.
  */
-public class MetricsSnapshot implements Serializable {
-
-    private static final long serialVersionUID = 2L;
+public class MetricsSnapshot {
+	
+	private static final String TAG_TYPE_SCALER = "scalar";
 
     /** tag → [step, value] */
     private final Map<Tag, List<MetricPoint>> tagValues = new ConcurrentHashMap<>();
 
     /** Last read byte offset from metrics.jsonl */
     private volatile long lastReadPosition = 0L;
+    private long maxStep = 0L;
 
     /** Merges a parsed MetricFileBlock into this snapshot. */
     public void merge(MetricFileBlock block) {
@@ -34,6 +34,17 @@ public class MetricsSnapshot implements Serializable {
         for (MetricLine line : block.getLines()) {
             if (line == null || line.getTag() == null) continue;
 
+            // scaler以外は現状非サポート
+            if (!TAG_TYPE_SCALER.equals(line.getType())) {
+            	continue;
+            }
+
+            // 統計計算
+            if (line.getStep() > maxStep) {
+            	maxStep = line.getStep();
+            }
+            
+            // Scalerタグ内容を登録
             Tag tag = new Tag(line.getTag(), line.getType());
             MetricPoint point = MetricPoint.builder()
                     .step(line.getStep())
@@ -42,9 +53,6 @@ public class MetricsSnapshot implements Serializable {
 
             // スレッド安全なリスト操作
             tagValues.computeIfAbsent(tag, k -> new ArrayList<>()).add(point);
-//            tagValues.computeIfAbsent(tag, k ->
-//                    Collections.synchronizedList(new ArrayList<>())
-//            ).add(point);
         }
 
         this.lastReadPosition = block.getEndOffset();
@@ -82,6 +90,10 @@ public class MetricsSnapshot implements Serializable {
     /** Returns current tag list for this snapshot. */
     public List<Tag> getTags() {
         return new ArrayList<>(tagValues.keySet());
+    }
+    
+    public long getMaxStep() {
+    	return maxStep;
     }
 
     public long getLastReadPosition() {

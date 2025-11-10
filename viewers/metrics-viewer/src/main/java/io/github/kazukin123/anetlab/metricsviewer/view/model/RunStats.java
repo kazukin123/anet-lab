@@ -1,7 +1,5 @@
 package io.github.kazukin123.anetlab.metricsviewer.view.model;
 
-import java.util.List;
-
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -9,8 +7,10 @@ import lombok.Data;
 @Data
 @Builder
 @AllArgsConstructor
-public class Run {
-    private String id;
-    private RunStats stats;
-    private List<Tag> tags;
+public class RunStats {
+	private final long maxStep;
+	
+	public RunStats() {
+		this.maxStep = 0;
+	}
 }

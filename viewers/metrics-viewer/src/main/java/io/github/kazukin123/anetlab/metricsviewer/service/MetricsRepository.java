@@ -23,6 +23,7 @@ import com.esotericsoftware.kryo.io.Output;
 import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricFileBlock;
 import io.github.kazukin123.anetlab.metricsviewer.service.model.MetricsSnapshot;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.MetricTrace;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.RunStats;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.Tag;
 
 /**
@@ -33,8 +34,9 @@ import io.github.kazukin123.anetlab.metricsviewer.view.model.Tag;
 public class MetricsRepository {
 
     private static final Logger log = LoggerFactory.getLogger(MetricsRepository.class);
+
     private static final String SNAPSHOT_FILENAME = "metrics_cache.kryo";
-    private static final String SNAPSHOT_FILEHEADER = "metrics_snapshot.kryo_v0.0.2";
+    private static final String SNAPSHOT_FILEHEADER = "metrics_snapshot.kryo_v0.0.3";
 
     private final Map<String, MetricsSnapshot> snapshots = new ConcurrentHashMap<>();	///runId → MetricsSnapshot
     private final Kryo kryo = new Kryo();
@@ -61,16 +63,17 @@ public class MetricsRepository {
      */
     public void mergeMetrics(String runId, MetricFileBlock block) {
     	if (block == null || runId == null) return;
-        MetricsSnapshot snapshot = snapshots.computeIfAbsent(runId, id -> new MetricsSnapshot());
-        snapshot.merge(block);
 
+    	MetricsSnapshot snapshot = snapshots.computeIfAbsent(runId, id -> new MetricsSnapshot());
+        snapshot.merge(block);
         snapshot.setLastReadPosition(block.getEndOffset());
 
-        log.debug("mergeMetrics run={} lines={} newPos={} tags={} totalPoints={}",
+        log.info("mergeMetrics run={} lines={} newPos={} tags={} points={} maxStep={}",
         	    runId,
         	    block.getLines() != null ? block.getLines().size() : 0,
         	    snapshot.getLastReadPosition(),
-        	    snapshot.getTags().size(), snapshot.getTotalPoints());
+        	    snapshot.getTags().size(), snapshot.getTotalPoints(),
+        	    snapshot.getMaxStep());
     }
 
     /**
@@ -111,6 +114,14 @@ public class MetricsRepository {
         MetricsSnapshot snap = snapshots.get(runId);
         if (snap == null) return Collections.emptyList();
         return snap.getTags();
+    }
+    
+    public RunStats getStats(String runId) {
+        MetricsSnapshot snapshot = snapshots.get(runId);
+        if (snapshot == null) return new RunStats();
+    	long maxStep = snapshot.getMaxStep();
+    	RunStats stats = RunStats.builder().maxStep(maxStep).build();
+    	return stats;
     }
 
     /** 全キャッシュロード */
@@ -172,10 +183,10 @@ public class MetricsRepository {
             try {
                 Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
             } catch (IOException ex) {
-                log.warn("Failed to finalize snapshot move for {}: {}", runId, ex.getMessage());
+                log.error("Failed to finalize snapshot move for {}: {}", runId, ex.getMessage());
             }
         } catch (Exception e) {
-            log.warn("Failed to save snapshot for {}: {}", runId, e.getMessage());
+            log.error("Failed to save snapshot for {}: {}", runId, e.getMessage());
             try { Files.deleteIfExists(tmp); } catch (IOException ignored) {}
         }
     }

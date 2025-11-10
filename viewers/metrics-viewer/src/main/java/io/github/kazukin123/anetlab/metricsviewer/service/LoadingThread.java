@@ -2,7 +2,6 @@ package io.github.kazukin123.anetlab.metricsviewer.service;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -14,10 +13,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsFileReader;
-import io.github.kazukin123.anetlab.metricsviewer.infra.RunLoader;
+import io.github.kazukin123.anetlab.metricsviewer.infra.RunScanner;
 import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricFileBlock;
 import io.github.kazukin123.anetlab.metricsviewer.service.model.MetricsSnapshot;
-import io.github.kazukin123.anetlab.metricsviewer.view.model.Run;
 
 /**
  * Background thread that periodically scans runs directory
@@ -26,13 +24,13 @@ import io.github.kazukin123.anetlab.metricsviewer.view.model.Run;
 @Component
 public class LoadingThread extends Thread {
 
-    private static final int SLEEP_MS = 100;
+    private static final int SLEEP_MS = 1000;
     private static final int MAX_LINES = 5000;
     private static final int SAVE_INTERVAL_BLOCKS = 20;
 
     private static final Logger log = LoggerFactory.getLogger(LoadingThread.class);
 
-    private final RunLoader runRepository;
+    private final RunScanner runScanner;
     private final MetricsRepository metricsRepository;
     private final MetricsFileReader fileReader;
 
@@ -40,10 +38,10 @@ public class LoadingThread extends Thread {
     private final AtomicReference<Request> requestRef = new AtomicReference<>();
     private final Map<String, Integer> saveCounter = new ConcurrentHashMap<>();
 
-    public LoadingThread(RunLoader runRepository,
+    public LoadingThread(RunScanner runScanner,
                          MetricsRepository metricsRepository,
                          MetricsFileReader fileReader) {
-        this.runRepository = runRepository;
+        this.runScanner = runScanner;
         this.metricsRepository = metricsRepository;
         this.fileReader = fileReader;
         setName("Metrics-LoadingThread");
@@ -78,14 +76,14 @@ public class LoadingThread extends Thread {
     public void run() {
     	// 最初に読めるだけ全部のキャッシュを読む
         log.info("LoadingThread started. Loading cache.");
-        metricsRepository.loadCacheAll(runRepository.getRunsDir());
+        metricsRepository.loadCacheAll(runScanner.getRunsDir());
         log.info("Cache loading completed.");
 
         // スレッドメインループ
         while (running && !isInterrupted()) {
         	try {
         		// 新しいRunが見つかってるかもなのでキャッシュ読込みを試みる
-        		Path runsDir = this.runRepository.getRunsDir();
+        		Path runsDir = this.runScanner.getRunsDir();
                 metricsRepository.loadCacheForRun(runsDir);
 
                 // 優先リクエストがあれば先に処理
@@ -95,9 +93,7 @@ public class LoadingThread extends Thread {
                     processRuns(req.runIds);
                 } else {
                     // 定期スキャン
-                    List<Run> runs = runRepository.getRuns();
-                    List<String> runIds = new ArrayList<>();
-                    for (Run r : runs) runIds.add(r.getId());
+                    List<String> runIds = runScanner.getRunIds();
                     processRuns(runIds);
                 }
                 // リラックス
@@ -118,7 +114,7 @@ public class LoadingThread extends Thread {
         for (String runId : runIds) {
             try {
             	// 対象Runのディレクトリ・ファイルを決定
-                Path runDir = runRepository.resolveRunDir(runId);
+                Path runDir = runScanner.resolveRunDir(runId);
                 Path metricsFile = Path.of("runs", runId, "metrics.jsonl");
                 if (!Files.exists(metricsFile)) continue;
 
