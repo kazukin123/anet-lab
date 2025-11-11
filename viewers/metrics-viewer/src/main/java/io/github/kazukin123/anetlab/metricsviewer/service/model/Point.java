@@ -8,11 +8,11 @@ import lombok.Data;
 @AllArgsConstructor
 @Builder
 public class Point {
-	private final long step;
-	private final double value;
+	private final int step;
+	private final float value;
 	
 	public Point() {
 		step = 0;
-		value = 0.0;
+		value = 0.0f;
 	}
 }

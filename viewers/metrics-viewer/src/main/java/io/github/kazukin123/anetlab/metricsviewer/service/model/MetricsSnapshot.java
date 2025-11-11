@@ -39,9 +39,8 @@ public class MetricsSnapshot {
             // scaler以外は現状非サポート
             if (!TAG_TYPE_SCALER.equals(line.getType())) continue;
 
-
-            long step = line.getStep();
-            double value = line.getValue();
+            int step = line.getStep();
+            float value = line.getValue();
 
             // Run単位の統計計算
             if (step > runStats.getMaxStep()) runStats.setMaxStep(step);
@@ -67,16 +66,20 @@ public class MetricsSnapshot {
 
         tagValues.forEach((tag, points) -> {
             if (tagKeys == null || tagKeys.isEmpty() || tagKeys.contains(tag.getKey())) {
-                // step, value の順序を保持
-                List<Integer> steps = new ArrayList<>(points.size());
-                List<Double> values = new ArrayList<>(points.size());
-                for (Point p : points) {
-                    steps.add((int) p.getStep());
-                    values.add(p.getValue());
+                // step, value の順序を保持して詰め直し
+                int steps[] = new int[points.size()];
+                float values[] = new float[points.size()];
+                int size = points.size();
+                for (int i = 0; i < size; i++) {
+                	Point p = points.get(i);
+                	steps[i] = p.getStep();
+                	values[i] = p.getValue();
                 }
 
+                // stats取得
                 TagStats stats = tagStats != null ? tagStats.get(tag) : null;
 
+                // Tag単位の結果「trace」としてまとめ
                 MetricTrace trace = MetricTrace.builder()
                         .runId(null) // Repository 側でRunIdを付与する想定
                         .tagKey(tag.getKey())

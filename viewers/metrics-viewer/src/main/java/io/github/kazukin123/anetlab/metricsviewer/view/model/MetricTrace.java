@@ -1,7 +1,9 @@
 package io.github.kazukin123.anetlab.metricsviewer.view.model;
 
-import java.util.List;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
+import io.github.kazukin123.anetlab.metricsviewer.util.MetricTraceEncoder;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,6 +16,19 @@ public class MetricTrace {
     private final String tagKey;
     private final String type;
     private final TagStats stats;
-    private final List<Integer> steps;
-    private final List<Double> values;
+
+    @JsonIgnore
+    private final int[] steps;
+    @JsonIgnore
+    private final float[] values;
+    
+    @JsonProperty("encodedSteps")
+    public String getEncodedSteps() {
+        return MetricTraceEncoder.encodeIntArray(steps);
+    }
+
+    @JsonProperty("encodedValues")
+    public String getEncodedValues() {
+        return MetricTraceEncoder.encodeFloatArray(values);
+    }
 }

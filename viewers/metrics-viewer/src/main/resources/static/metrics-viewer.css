@@ -279,9 +279,9 @@ html, body {
 	transition: background 0.15s ease, border-color 0.15s ease;
 }
 #tag-list li.active {
-	background: #1e4d70;
-	color: #ccc;
-	border-color: #2a6b95;
+	background-color: #223344;  /* 深めの青灰 */
+	border-left: 3px solid #00bcd4;
+	color: #ddd;
 }
 #tag-list li.active:hover { background: #256690; }
 #tag-list li:hover { background: #333; }

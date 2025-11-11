@@ -36,7 +36,7 @@ public class MetricsRepository {
     private static final Logger log = LoggerFactory.getLogger(MetricsRepository.class);
 
     private static final String SNAPSHOT_FILENAME = "metrics_cache.kryo";
-    private static final String SNAPSHOT_FILEHEADER = "metrics_snapshot.kryo_v0.0.4";
+    private static final String SNAPSHOT_FILEHEADER = "metrics_snapshot.kryo_v0.0.5";
 
     private final Map<String, MetricsSnapshot> snapshots = new ConcurrentHashMap<>();	///runId → MetricsSnapshot
     private final Kryo kryo = new Kryo();

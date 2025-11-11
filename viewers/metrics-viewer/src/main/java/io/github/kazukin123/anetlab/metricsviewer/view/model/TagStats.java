@@ -1,15 +1,15 @@
 package io.github.kazukin123.anetlab.metricsviewer.view.model;
 
 public class TagStats {
-    private long minStep = Long.MAX_VALUE;
-    private long maxStep = 0L;
-    private long count = 0L;
+    private int minStep = Integer.MAX_VALUE;
+    private int maxStep = 0;
+    private int count = 0;
     private double lastValue = Double.NaN;
     private double sum = 0.0;
     private double sumSq = 0.0;
     private long updatedAt = 0L;
 
-    public synchronized void record(long step, double value) {
+    public synchronized void record(int step, float value) {
         if (step < minStep) minStep = step;
         if (step > maxStep) maxStep = step;
         count++;

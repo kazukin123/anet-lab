@@ -3,10 +3,11 @@
    ※ 挙動は変更せず、責務のみ整理
    ============================================================ */
 
-const API_BASE_URL = "/api";
-const AUTO_RELOAD_INTERVAL_MS = 10000;
-const MAX_POINTS = 16000;
-	
+const API_BASE_URL = (false) ? "/dummy_api" : "/api";
+const AUTO_RELOAD_INTERVAL_MS = 10000;	// AutoReload間隔
+const MAX_POINTS = 6000;	// 4Kモニタ想定
+const MAX_SCATTER_GL = 8;	// あまり大きくすると白飛びする
+
 const Mode = Object.freeze({
 	UNINITIALIZED: "uninitialized",
 	META_LOADING: "metaLoading",
@@ -29,33 +30,62 @@ function getPlotlyColors() {
 	return RUN_COLORS_FALLBACK;
 }
 
-// グラフデータ間引き
+/**
+ * TypedArray対応の高速デシメーション
+ * O(N/log N)程度のキャッシュ効率で動作
+ * @param {{x: Int32Array|Float32Array, y: Float32Array}} trace 
+ * @param {number} maxPoints 最大プロット点数
+ * @param {[number, number]|null} range 表示範囲 [xmin, xmax]
+ * @returns {{x: Int32Array|Float32Array, y: Float32Array}}
+ */
 function decimateTrace(trace, maxPoints = 8000, range = null) {
-	if (!trace.x || trace.x.length <= maxPoints) return trace;
+  if (!trace.x || trace.x.length <= maxPoints) return trace;
 
-	let x = trace.x;
-	let y = trace.y;
+  const x = trace.x;
+  const y = trace.y;
+  const n = x.length;
 
-	// 範囲指定があればその範囲だけ抽出
-	if (range) {
-		const [xmin, xmax] = range;
-		const idx = x.reduce((a, v, i) => {
-			if (v >= xmin && v <= xmax) a.push(i);
-			return a;
-		}, []);
-		x = idx.map(i => x[i]);
-		y = idx.map(i => y[i]);
-	}
+  // 範囲抽出（二分探索）
+  let startIdx = 0, endIdx = n;
+  if (range) {
+    const [xmin, xmax] = range;
+    let lo = 0, hi = n - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (x[mid] < xmin) lo = mid + 1; else hi = mid;
+    }
+    startIdx = lo;
+    lo = 0; hi = n - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >>> 1;
+      if (x[mid] > xmax) hi = mid - 1; else lo = mid;
+    }
+    endIdx = hi + 1;
+  }
 
-	// 必要に応じて間引き
-	if (x.length > maxPoints) {
-		const step = Math.ceil(x.length / maxPoints);
-		x = x.filter((_, i) => i % step === 0);
-		y = y.filter((_, i) => i % step === 0);
-	}
+  const visibleCount = endIdx - startIdx;
+  if (visibleCount <= maxPoints) {
+    return { ...trace, x: x.subarray(startIdx, endIdx), y: y.subarray(startIdx, endIdx) };
+  }
 
-	return { ...trace, x, y };
+  const step = Math.ceil(visibleCount / maxPoints);
+  const outLen = Math.ceil(visibleCount / step);
+
+  const outX = new (x.constructor)(outLen);
+  const outY = new (y.constructor)(outLen);
+  for (let i = 0, j = startIdx; j < endIdx && i < outLen; j += step, i++) {
+    outX[i] = x[j];
+    outY[i] = y[j];
+  }
+
+  // traceをクローンしてメタ情報維持
+  return {
+    ...trace,
+    x: outX,
+    y: outY
+  };
 }
+
 
 // Toast
 class Toast {
@@ -70,6 +100,20 @@ class Toast {
 		document.body.appendChild(el);
 		setTimeout(() => el.remove(), ms);
 	}
+}
+
+function base64ToFloat32Array(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Float32Array(bytes.buffer);
+}
+
+function base64ToInt32Array(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Int32Array(bytes.buffer);
 }
 
 /* ---------------- データ取得 ---------------- */
@@ -98,7 +142,21 @@ class DataFetcher {
 	    });
 
 	    if (!res.ok) throw new Error(`Failed metrics.json: ${res.status}`);
-	    return res.json();
+		const json = await res.json();
+
+		// --- Base64 → TypedArray の復元 ---
+		for (const item of json.data ?? []) {
+		    if (item.encodedSteps) {
+		      item.steps = base64ToInt32Array(item.encodedSteps);
+		      delete item.encodedSteps;
+		    }
+		    if (item.encodedValues) {
+		      item.values = base64ToFloat32Array(item.encodedValues);
+		      delete item.encodedValues;
+		    }
+		}
+
+		return json;
 	}
 
 	async fetchMetricsDiff(runIds = [], tagKeys = [], since = []) {
@@ -118,6 +176,7 @@ class DataCache {
 		this.runs = {};
 		this.data = {};
 	}
+
 	clear() {
 		this.runs = {};
 		this.data = {};
@@ -134,36 +193,61 @@ class DataCache {
 		}
 	}
 
+	/** フルデータをマージ */
 	mergeAll(payload) {
 		this.data = {};
 		if (!payload || !Array.isArray(payload.data)) return;
+
 		for (const m of payload.data) {
-			if (!this.data[m.runId]) this.data[m.runId] = {};	// Metrics未登録なら新規
-			this.data[m.runId][m.tagKey] = { steps: m.steps, values: m.values };	// data[runId][tagsKey] = [step, value]
+			if (!this.data[m.runId]) this.data[m.runId] = {}; // run未登録なら作成
+
+			const stepsBuf = new Int32Buffer(m.steps.length || 1024);
+			const valuesBuf = new Float32Buffer(m.values.length || 1024);
+			stepsBuf.append(m.steps);
+			valuesBuf.append(m.values);
+
+			this.data[m.runId][m.tagKey] = { steps: stepsBuf, values: valuesBuf };
 		}
 	}
 
+	/** 差分データをマージ */
 	mergeDiff(payload) {
 		if (!payload || !Array.isArray(payload.data)) return;
+
 		for (const m of payload.data) {
 			if (!this.data[m.runId]) this.data[m.runId] = {};
-			const cur = this.data[m.runId][m.tagKey];
+
+			let cur = this.data[m.runId][m.tagKey];
 			if (!cur) {
-				this.data[m.runId][m.tagKey] = { steps: m.steps, values: m.values };
+				// 新規タグ → 新しいバッファとして作成
+				const stepsBuf = new Int32Buffer(m.steps.length || 1024);
+				const valuesBuf = new Float32Buffer(m.values.length || 1024);
+				stepsBuf.append(m.steps);
+				valuesBuf.append(m.values);
+				this.data[m.runId][m.tagKey] = { steps: stepsBuf, values: valuesBuf };
 				continue;
 			}
-			const last = cur.steps.length ? cur.steps[cur.steps.length - 1] : -Infinity;
-			for (let i = 0; i < m.steps.length; i++) {
-				if (m.steps[i] > last) {
-					cur.steps.push(m.steps[i]);
-					cur.values.push(m.values[i]);
-				}
+
+			// 既存データへの追記
+			const last = cur.steps.length > 0 ? cur.steps.buffer[cur.steps.length - 1] : -Infinity;
+			const newSteps = m.steps.filter(s => s > last);
+			if (newSteps.length > 0) {
+				const startIndex = m.steps.length - newSteps.length;
+				const newVals = m.values.slice(startIndex);
+				cur.steps.append(newSteps);
+				cur.values.append(newVals);
 			}
 		}
 	}
 
+	/** 指定run/tagのデータ取得（TypedArray subarray） */
 	get(runId, tagKey) {
-		return this.data[runId]?.[tagKey] || null;
+		const d = this.data[runId]?.[tagKey];
+		if (!d) return null;
+		return {
+			steps: d.steps.toArray(),
+			values: d.values.toArray()
+		};
 	}
 
 	getRuns() {
@@ -177,18 +261,17 @@ class DataCache {
 	getTagKeys(runId) {
 		const run = this.runs[runId];
 		if (!run) return [];
-		const tags = run.tags.map(tag => tag.key);
-		return tags;
+		return run.tags.map(tag => tag.key);
 	}
 
-
+	/** Run×Tagごとの最新stepをマップ化 */
 	buildSinceStepMap(selectedRuns, selectedTags) {
 		const map = {};
 		for (const r of selectedRuns) {
 			const tagMap = {};
 			for (const t of selectedTags) {
-				const d = this.get(r, t);
-				tagMap[t] = d && d.steps.length ? d.steps[d.steps.length - 1] : -1;
+				const d = this.data[r]?.[t];
+				tagMap[t] = d && d.steps.length ? d.steps.buffer[d.steps.length - 1] : -1;
 			}
 			map[r] = tagMap;
 		}
@@ -203,13 +286,29 @@ class PlotlyController {
 		this.colors = getPlotlyColors();
 	}
 
+	_makeTrace(runId, tagKey, steps, values, index) {
+	  const traceType = (index < MAX_SCATTER_GL) ? 'scattergl' : 'scatter';
+	  return {
+		type: traceType,
+	    x: steps,
+	    y: values,
+		name: `${runId}`,
+	    mode: 'lines',
+		line: { width: 1.5, color: this.app.runColorMap.get(runId) },
+	    uid: `${runId}_${tagKey}`,
+	  };
+	}
+	
 	renderBySelection(containerSel, runIds, tagKeys, cache) {
 		const area = $(containerSel).empty();
+		Plotly.purge(area);
 		if (!runIds.length || !tagKeys.length) {
 			area.append("<div style='color:#888;padding:12px;'>No selection.</div>");
 			return false;
 		}
+		
 		let drawn = false;
+		let numTraces = 0;
 		for (const tagKey of tagKeys) {
 			const safe = tagKey.replace(/[^\w-]/g, "_");
 			const id = `graph-${safe}`;
@@ -220,20 +319,23 @@ class PlotlyController {
 				const r = runIds[i];
 				const d = cache.get(r, tagKey);
 				if (!d) continue;
-				traces.push({
-					x: d.steps, y: d.values, name: r, mode: "lines",
-					line: { width: 2, color: this.app.runColorMap.get(r) }
-				});
+				const trace = this._makeTrace(r, tagKey, d.steps, d.values, numTraces);
+				traces.push(trace);
+				numTraces++;
 			}
 			if (!traces.length) continue;
-			// --- データ間引き処理（最大点数を超える場合に実行） ---
+			// 画面幅ピクセル数前提でデータ間引き処理（最大点数を超える場合に実行）
 			const reducedTraces = traces.map(t => decimateTrace(t, MAX_POINTS));
-+			Plotly.newPlot(id, reducedTraces, {
-				margin: { t: 30, b: 20, l: 50, r: 10 }, height: 300,
-				plot_bgcolor: "#111", paper_bgcolor: "#111", font: { color: "#ccc" },
-				xaxis: { gridcolor: "#444" }, yaxis: { gridcolor: "#444" },
-				showlegend: (runIds.length > 1),
-			}, { displayModeBar: true, responsive: true, useResizeHandler: true });
+			//グラフ作成
+			const layout = 	{
+					margin: { t: 30, b: 20, l: 50, r: 10 }, height: 300, width: area.width(), autosize:false,
+					plot_bgcolor: "#111", paper_bgcolor: "#111", font: { color: "#ccc" },
+					xaxis: { gridcolor: "#444" }, yaxis: { gridcolor: "#444" },
+					showlegend: (runIds.length > 1)
+				};
+			Plotly.newPlot(id, reducedTraces, layout,
+				{ displayModeBar:'hover', responsive: false, useResizeHandler: false });
+
 			// --- ズーム追従処理 ---
 			const plotDiv = document.getElementById(id);
 			plotDiv.on('plotly_relayout', (e) => {
@@ -248,7 +350,15 @@ class PlotlyController {
 		return drawn;
 	}
 
-	resizeAll() { $(".graph-block div[id^='graph-']").each(function () { Plotly.Plots.resize(this); }); }
+	resizeAll() {
+		$(".graph-block div[id^='graph-']").each(function () {
+			const rect = this.getBoundingClientRect();
+			const newWidth = Math.floor(rect.width);
+			const newHeight = Math.floor(rect.height);
+			Plotly.relayout(this, { width: newWidth, height: newHeight });
+			Plotly.Plots.resize(this);
+		});
+	}
 }
 
 /* ---------------- UIController ---------------- */
@@ -284,7 +394,7 @@ class UIController {
 			const run = runs[runId];
 
 			// 描画用属性生成
-			const title = Object.entries(run.stats).map(([k, v]) => `${k}: ${v}`).join('\n');
+			const title = (run.stats) ? Object.entries(run.stats).map(([k, v]) => `${k}: ${v}`).join('\n') : "";
 			const c = palette[i % palette.length]
 			const chk = selectedRunIds.includes(runId) ? "checked" : "";
 			runColorMap.set(runId, c);
@@ -298,6 +408,7 @@ class UIController {
 	bindRunListEvents(runIds) {
 	  const $list = $("#run-list");
 	  const selected = this.app.selectedRuns; // ← 常にアプリ本体の参照を使う
+	  const sortedRunIds = runIds.slice().sort((a, b) => b.localeCompare(a));
 
 	  // チェックボックス（複数選択）
 	  $list.find(".run-check").off("change").on("change", (e) => {
@@ -340,7 +451,7 @@ class UIController {
 
 	  // 最新のみ
 	  $("#btn-latest-only").off("click").on("click", () => {
-	    const latest = runIds[0];
+	    const latest = sortedRunIds[0];
 	    selected.splice(0, selected.length, ...(latest ? [latest] : []));
 	    $list.find(".run-check").each((_, el) => { el.checked = (el.value === latest); });
 	    this.app.onRunSelectionChanged();
@@ -513,9 +624,9 @@ class MetricsViewerClientApp {
 		const runs = this.cache.getRuns();
 		const runIds = this.cache.getRunIds();
 
-		// selected が空 or 消失した場合 → 最新だけ選択
+		// selected が空 or 消失した場合 → 最新だけ自動選択
 		if (!this.selectedRuns.length || !runIds.includes(this.selectedRuns[0])) {
-			const latestRunId = runIds[runIds.length - 1];
+			const latestRunId = runIds[0];
 			this.selectedRuns = [latestRunId];
 		 }
 
@@ -551,10 +662,15 @@ class MetricsViewerClientApp {
 	}
 
 	_renderCurrent() {
+		const t0 = performance.now();
+		const t1 = performance.now();
 		this.ui.updateRunColorChips(this.runColorMap);
+		const t2 = performance.now();
 		this.plotly.renderBySelection("#main-area", this.selectedRuns.slice(), [...this.activeTags], this.cache);
+		const t3 = performance.now();
 		this.plotly.resizeAll();
-		console.log(`[DRAW] renderCurrent: runs=${this.selectedRuns.length}, tags=${this.activeTags.size}`);
+		const t4 = performance.now();
+		console.log(`[DRAW] total=${(t4-t0).toFixed(1)}ms | ui=${(t2-t1).toFixed(1)}ms | plotly=${(t3-t2).toFixed(1)}ms | resize=${(t4-t3).toFixed(1)}ms`);
 	}
 
 	/* ---------- イベントハンドラ群（onXXX統一） ---------- */

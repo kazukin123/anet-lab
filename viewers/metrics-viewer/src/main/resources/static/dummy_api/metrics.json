@@ -1,74 +1,52 @@
 {
-  "data": [
-    {
-      "runId": "run_20251108_013045_asdqn",
-      "tagKey": "00_train/reward_mean",
-      "type": "scalar",
-      "steps": [1, 2, 3, 4, 5, 6, 7, 8],
-      "values": [10.0, 10.5, 11.0, 11.5, 12.0, 12.2, 12.5, 12.8]
-    },
-    {
-      "runId": "run_20251108_013045_asdqn",
-      "tagKey": "01_train/loss_q_value",
-      "type": "scalar",
-      "steps": [1, 2, 3, 4, 5, 6, 7, 8],
-      "values": [0.12, 0.11, 0.10, 0.09, 0.08, 0.075, 0.07, 0.068]
-    },
-    {
-      "runId": "run_20251108_013045_asdqn",
-      "tagKey": "02_eval/reward_mean",
-      "type": "scalar",
-      "steps": [1, 2, 3, 4, 5, 6, 7, 8],
-      "values": [8.5, 9.0, 9.4, 9.9, 10.3, 10.6, 10.8, 11.0]
-    },
-    {
-      "runId": "run_20251107_221030_asdqn",
-      "tagKey": "00_train/reward_mean",
-      "type": "scalar",
-      "steps": [1, 2, 3, 4, 5, 6, 7, 8],
-      "values": [9.0, 9.3, 9.7, 10.0, 10.4, 10.6, 10.8, 11.0]
-    },
-    {
-      "runId": "run_20251107_221030_asdqn",
-      "tagKey": "01_train/loss_q_value",
-      "type": "scalar",
-      "steps": [1, 2, 3, 4, 5, 6, 7, 8],
-      "values": [0.20, 0.18, 0.16, 0.14, 0.12, 0.10, 0.09, 0.085]
-    },
-    {
-      "runId": "run_20251107_221030_asdqn",
-      "tagKey": "02_eval/reward_mean",
-      "type": "scalar",
-      "steps": [1, 2, 3, 4, 5, 6, 7, 8],
-      "values": [7.5, 8.0, 8.6, 9.0, 9.3, 9.7, 10.0, 10.2]
-    },
-    {
-      "runId": "run_20251106_204500_ddqn",
-      "tagKey": "00_train/reward_mean",
-      "type": "scalar",
-      "steps": [1, 2, 3, 4, 5, 6, 7, 8],
-      "values": [11.0, 11.2, 11.5, 11.7, 11.8, 12.0, 12.1, 12.2]
-    },
-    {
-      "runId": "run_20251106_204500_ddqn",
-      "tagKey": "01_train/loss_q_value",
-      "type": "scalar",
-      "steps": [1, 2, 3, 4, 5, 6, 7, 8],
-      "values": [0.09, 0.08, 0.075, 0.07, 0.068, 0.065, 0.063, 0.060]
-    },
-    {
-      "runId": "run_20251106_204500_ddqn",
-      "tagKey": "02_eval/reward_mean",
-      "type": "scalar",
-      "steps": [1, 2, 3, 4, 5, 6, 7, 8],
-      "values": [9.0, 9.3, 9.8, 10.2, 10.5, 10.7, 10.9, 11.1]
-    },
-    {
-      "runId": "run_20251106_204500_ddqn",
-      "tagKey": "03_eval/epsilon",
-      "type": "scalar",
-      "steps": [1, 2, 3, 4, 5, 6, 7, 8],
-      "values": [1.00, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65]
-    }
-  ]
+	"data": [
+		{
+	      	"runId": "runs_1_x",
+			"tagKey": "00_train/reward_mean",
+			"type": "scalar",
+			"stats": {
+	                "minStep": 1,
+	                "maxStep": 6,
+	                "count": 6,
+	                "lastValue": 64.0,
+	                "updatedAt": 1762833398250,
+	                "mean": 45.0,
+	                "variance": 725.0
+	            },
+			"encodedSteps": "AQAAAAIAAAADAAAABAAAAAUAAAAGAAAA",
+			"encodedValues": "AAAgQQAAgEAAAIBCAACAQgAAgEIAAIBC"
+		},
+		{
+	      	"runId": "runs_1_x",
+			"tagKey": "01_train/loss_q_value",
+			"type": "scalar",
+			"stats": {
+	                "minStep": 1,
+	                "maxStep": 6,
+	                "count": 6,
+	                "lastValue": 64.0,
+	                "updatedAt": 1762833398250,
+	                "mean": 45.0,
+	                "variance": 725.0
+	            },
+			"encodedSteps": "AQAAAAIAAAADAAAABAAAAAUAAAAGAAAA",
+			"encodedValues": "AAAgQQAAgEAAAIBCAACAQgAAgEIAAIBC"
+		},
+		{
+	      	"runId": "runs_2_s",
+			"tagKey": "32_agent_dqn_base/03_epsilon",
+			"type": "scalar",
+			"stats": {
+	                "minStep": 1,
+	                "maxStep": 6,
+	                "count": 6,
+	                "lastValue": 64.0,
+	                "updatedAt": 1762833398250,
+	                "mean": 45.0,
+	                "variance": 725.0
+	            },
+			"encodedSteps": "AQAAAAIAAAADAAAABAAAAAUAAAAGAAAA",
+			"encodedValues": "AAAgQQAAgEAAAIBCAACAQgAAgEIAAIBC"
+		}
+	]
 }

@@ -13,13 +13,13 @@ import lombok.Data;
 public class MetricLine {
 	private final String type;
 	private final String tag;
-	private final long step;
-	private final double value;
+	private final int step;
+	private final float value;
 
 	public MetricLine() {
 		type = null;
 		tag = null;
-		step = 0L;
-		value = 0.0;
+		step = 0;
+		value = 0.0f;
 	}
 }

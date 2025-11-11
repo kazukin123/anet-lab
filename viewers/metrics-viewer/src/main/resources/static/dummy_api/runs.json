@@ -1,28 +1,22 @@
 {
   "runs": [
     {
-      "id": "run_20251108_013045_asdqn",
+      "id": "runs_2_s",
+      "stats": {
+      		"maxStep": 6
+      },
       "tags": [
-        { "key": "00_train/reward_mean", "type": "scalar" },
-        { "key": "01_train/loss_q_value", "type": "scalar" },
-        { "key": "02_eval/reward_mean", "type": "scalar" }
+        { "key": "32_agent_dqn_base/03_epsilon", "type": "scalar" }
       ]
     },
     {
-      "id": "run_20251107_221030_asdqn",
+      "id": "runs_1_x",
+      "stats": {
+      		"maxStep": 8
+      },
       "tags": [
         { "key": "00_train/reward_mean", "type": "scalar" },
-        { "key": "01_train/loss_q_value", "type": "scalar" },
-        { "key": "02_eval/reward_mean", "type": "scalar" }
-      ]
-    },
-    {
-      "id": "run_20251106_204500_ddqn",
-      "tags": [
-        { "key": "00_train/reward_mean", "type": "scalar" },
-        { "key": "01_train/loss_q_value", "type": "scalar" },
-        { "key": "02_eval/reward_mean", "type": "scalar" },
-        { "key": "03_eval/epsilon", "type": "scalar" }
+        { "key": "01_train/loss_q_value", "type": "scalar" }
       ]
     }
   ]
