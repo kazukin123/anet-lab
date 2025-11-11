@@ -31,7 +31,7 @@ public class RunScanner {
         return runsDir.resolve(runId);
     }
 
-    private List<String> scanRuns() {
+    private List<String> scanRunsDir() {
         List<String> runs = new ArrayList<>();
         if (!Files.exists(runsDir)) {
             log.warn("Runs directory not found: {}", runsDir.toAbsolutePath());
@@ -51,8 +51,7 @@ public class RunScanner {
         return runs;
     }
 
-    public List<String> getRunIds() {
-        // 空でもnullは返さない
-        return scanRuns();
+    public List<String> listRunId() {
+        return scanRunsDir();
     }
 }

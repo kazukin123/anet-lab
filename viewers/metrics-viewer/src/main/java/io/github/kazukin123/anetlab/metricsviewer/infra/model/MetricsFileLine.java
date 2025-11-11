@@ -10,13 +10,13 @@ import lombok.Data;
 @Builder
 @AllArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class MetricLine {
+public class MetricsFileLine {
 	private final String type;
 	private final String tag;
 	private final int step;
 	private final float value;
 
-	public MetricLine() {
+	public MetricsFileLine() {
 		type = null;
 		tag = null;
 		step = 0;

@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
@@ -20,11 +21,11 @@ import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
 
-import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricFileBlock;
+import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricsFileBlock;
 import io.github.kazukin123.anetlab.metricsviewer.service.model.MetricsSnapshot;
-import io.github.kazukin123.anetlab.metricsviewer.view.model.MetricTrace;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.RunStats;
-import io.github.kazukin123.anetlab.metricsviewer.view.model.Tag;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.TagTrace;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.TagInfo;
 
 /**
  * Holds and manages all MetricsSnapshot objects for each run.
@@ -33,12 +34,12 @@ import io.github.kazukin123.anetlab.metricsviewer.view.model.Tag;
 @Component
 public class MetricsRepository {
 
+    private static final String SNAPSHOT_FILENAME = "metrics_cache.kryo";
+    private static final String SNAPSHOT_FILEHEADER = "metrics_snapshot.kryo_v0.0.6";
+
     private static final Logger log = LoggerFactory.getLogger(MetricsRepository.class);
 
-    private static final String SNAPSHOT_FILENAME = "metrics_cache.kryo";
-    private static final String SNAPSHOT_FILEHEADER = "metrics_snapshot.kryo_v0.0.5";
-
-    private final Map<String, MetricsSnapshot> snapshots = new ConcurrentHashMap<>();	///runId → MetricsSnapshot
+    private final Map<String, MetricsSnapshot> runSnapshotMap = new ConcurrentHashMap<>();	// runId → MetricsSnapshot
     private final Kryo kryo = new Kryo();
 
     /** コンストラクタ */
@@ -50,21 +51,17 @@ public class MetricsRepository {
 //      kryo.register(MetricFileBlock.class);
     }
 
-    /**
-     * Returns snapshot map (read-only reference).
-     * Used by LoadingThread for offset lookup.
-     */
-    public Map<String, MetricsSnapshot> getSnapshots() {
-		return snapshots;
+	public long getLastReadPosition(String runId) {
+        long lastPos = Optional.ofNullable(runSnapshotMap.get(runId))
+                .map(MetricsSnapshot::getLastReadPosition)
+                .orElse(0L);
+        return lastPos;
 	}
 
-    /**
-     * Merges a MetricFileBlock into the snapshot for its run.
-     */
-    public void mergeMetrics(String runId, MetricFileBlock block) {
+    public void mergeMetrics(String runId, MetricsFileBlock block) {
     	if (block == null || runId == null) return;
 
-    	MetricsSnapshot snapshot = snapshots.computeIfAbsent(runId, id -> new MetricsSnapshot());
+    	MetricsSnapshot snapshot = runSnapshotMap.computeIfAbsent(runId, id -> new MetricsSnapshot());
         snapshot.merge(block);
         snapshot.setLastReadPosition(block.getEndOffset());
 
@@ -73,26 +70,22 @@ public class MetricsRepository {
         	    block.getLines() != null ? block.getLines().size() : 0,
         	    snapshot.getLastReadPosition(),
         	    snapshot.getTags().size(), snapshot.getTotalPoints(),
-        	    snapshot.getStats().getMaxStep());
+        	    snapshot.getRunStats().getMaxStep());
     }
 
-    /**
-     * Returns traces for the specified runs and tag keys.
-     * Each MetricTrace will have its runId set.
-     */
-    public List<MetricTrace> getTraces(List<String> runIds, List<String> tagKeys) {
-        List<MetricTrace> all = new ArrayList<>();
+    public List<TagTrace> findTagTrace(List<String> runIds, List<String> tagKeys) {
+        List<TagTrace> all = new ArrayList<>();
 
         if (runIds == null || runIds.isEmpty()) return all;
 
         for (String runId : runIds) {
-            MetricsSnapshot snapshot = snapshots.get(runId);
+            MetricsSnapshot snapshot = runSnapshotMap.get(runId);
             if (snapshot == null) continue;
 
-            List<MetricTrace> traces = snapshot.getMetricsTrace(tagKeys);
-            for (MetricTrace t : traces) {
+            List<TagTrace> traces = snapshot.findTagTrace(tagKeys);
+            for (TagTrace t : traces) {
                 // runIdをここで埋める
-                MetricTrace traceWithRun = MetricTrace.builder()
+                TagTrace traceWithRun = TagTrace.builder()
                         .runId(runId)
                         .tagKey(t.getTagKey())
                         .type(t.getType())
@@ -111,21 +104,21 @@ public class MetricsRepository {
     /**
      * Returns all tags known for the given run.
      */
-    public List<Tag> getTagsForRun(String runId) {
-        MetricsSnapshot snap = snapshots.get(runId);
+    public List<TagInfo> findTagInfo(String runId) {
+        MetricsSnapshot snap = runSnapshotMap.get(runId);
         if (snap == null) return Collections.emptyList();
         return snap.getTags();
     }
     
-    public RunStats getStats(String runId) {
-        MetricsSnapshot snapshot = snapshots.get(runId);
+    public RunStats getRunStats(String runId) {
+        MetricsSnapshot snapshot = runSnapshotMap.get(runId);
         if (snapshot == null) return new RunStats();
-    	RunStats stats = snapshot.getStats();
+    	RunStats stats = snapshot.getRunStats();
     	return stats;
     }
 
     /** 全キャッシュロード */
-    public void loadCacheAll(Path runsDir) {
+    public void loadCache(Path runsDir) {
         if (!Files.exists(runsDir)) return;
 
         try (Stream<Path> dirs = Files.list(runsDir)) {
@@ -138,7 +131,7 @@ public class MetricsRepository {
     /** 新しいRunを検出した際に個別ロード */
     public void loadCacheForRun(Path runDir) {
         String runId = runDir.getFileName().toString();
-        if (snapshots.containsKey(runId)) return; // すでにロード済み
+        if (runSnapshotMap.containsKey(runId)) return; // すでにロード済み
 
         Path file = runDir.resolve(SNAPSHOT_FILENAME);
         if (!Files.exists(file)) return;
@@ -151,7 +144,7 @@ public class MetricsRepository {
 
             // Snapshotオブジェクト読込
         	MetricsSnapshot snapshot = kryo.readObject(input, MetricsSnapshot.class);
-            snapshots.put(runId, snapshot);
+            runSnapshotMap.put(runId, snapshot);
             log.info("Loaded cache for run={} (offset={})", runId, snapshot.getLastReadPosition());
         } catch (Exception e) {
             log.warn("Failed to load cache for run {}: {}", runId, e.getMessage());
@@ -159,7 +152,7 @@ public class MetricsRepository {
     }
     
     public void saveCache(Path runDir, String runId) {
-        MetricsSnapshot snapshot = snapshots.get(runId);
+        MetricsSnapshot snapshot = runSnapshotMap.get(runId);
         if (snapshot == null) return;
 
         Path file = runDir.resolve(SNAPSHOT_FILENAME);
@@ -177,6 +170,8 @@ public class MetricsRepository {
         	Files.move(tmp, file,
                     StandardCopyOption.REPLACE_EXISTING,
                     StandardCopyOption.ATOMIC_MOVE);
+
+        	// ログ
             log.info("Snapshot saved. run={} pos={} points={}",
             		runId, snapshot.getLastReadPosition() , snapshot.getTotalPoints());
         } catch (AtomicMoveNotSupportedException e) {
@@ -187,7 +182,7 @@ public class MetricsRepository {
             }
         } catch (Exception e) {
             log.error("Failed to save snapshot for {}: {}", runId, e.getMessage());
-            try { Files.deleteIfExists(tmp); } catch (IOException ignored) {}
+            try { Files.deleteIfExists(tmp); } catch (IOException ignored) { }
         }
     }
 

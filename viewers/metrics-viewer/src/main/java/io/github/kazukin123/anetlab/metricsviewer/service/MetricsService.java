@@ -17,10 +17,10 @@ import io.github.kazukin123.anetlab.metricsviewer.infra.RunScanner;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetMetricsRequest;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetMetricsResponse;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetRunsResponse;
-import io.github.kazukin123.anetlab.metricsviewer.view.model.MetricTrace;
-import io.github.kazukin123.anetlab.metricsviewer.view.model.Run;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.RunInfo;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.RunStats;
-import io.github.kazukin123.anetlab.metricsviewer.view.model.Tag;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.TagInfo;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.TagTrace;
 
 /**
  * Main service layer that connects Controller with Repository & LoadingThread.
@@ -59,22 +59,22 @@ public class MetricsService {
      * Returns run list with tags (used by /api/runs).
      */
     public GetRunsResponse getRuns() {
-        List<String> runIds = runScanner.getRunIds();
+        List<String> runIds = runScanner.listRunId();
 
         // Run情報を生成
-        List<Run> runs = new ArrayList<>();
+        List<RunInfo> runs = new ArrayList<>();
         for (String runId : runIds) {
-            RunStats stats = metricsRepository.getStats(runId);
-            List<Tag> tags = metricsRepository.getTagsForRun(runId);
-            Run run = Run.builder().id(runId).stats(stats).tags(tags).build();
-            runs.add(run);
+            RunStats stats = metricsRepository.getRunStats(runId);
+            List<TagInfo> tags = metricsRepository.findTagInfo(runId);
+            RunInfo runInfo = RunInfo.builder().id(runId).stats(stats).tags(tags).build();
+            runs.add(runInfo);
         }
 
-        GetRunsResponse res = new GetRunsResponse();
-        res.setRuns(runs);
+        GetRunsResponse resp = new GetRunsResponse();
+        resp.setRuns(runs);
 
-        log.debug("getRuns: {} runs", runs.size());
-        return res;
+        log.debug("getRuns: runs.size={}", runs.size());
+        return resp;
     }
 
     /**
@@ -88,15 +88,15 @@ public class MetricsService {
 
         // --- ① 空指定時は全件扱いに補完 ---
         if (runIds == null || runIds.isEmpty()) {
-            runIds = runScanner.getRunIds();
+            runIds = runScanner.listRunId();
         }
 
         if (tagKeys == null || tagKeys.isEmpty()) {
             // 全RunのTagを走査して一意にまとめる
             Set<String> allTags = new LinkedHashSet<>();
             for (String runId : runIds) {
-                List<Tag> tags = metricsRepository.getTagsForRun(runId);
-                for (Tag tag : tags) {
+                List<TagInfo> tags = metricsRepository.findTagInfo(runId);
+                for (TagInfo tag : tags) {
                     allTags.add(tag.getKey());
                 }
             }
@@ -107,12 +107,12 @@ public class MetricsService {
         loadingThread.request(runIds, tagKeys, 1000);
 
         // --- ③ 現在のキャッシュを返す ---
-        List<MetricTrace> traces = metricsRepository.getTraces(runIds, tagKeys);
+        List<TagTrace> tagTraceList = metricsRepository.findTagTrace(runIds, tagKeys);
 
         GetMetricsResponse res = new GetMetricsResponse();
-        res.setData(traces);
+        res.setData(tagTraceList);
 
-        log.debug("getMetrics: runs={} tags={} traces={}", runIds, tagKeys, traces.size());
+        log.debug("getMetrics: runs={} tags={} traces={}", runIds, tagKeys, tagTraceList.size());
         return res;
     }
 }

@@ -9,8 +9,8 @@ import lombok.Data;
 @Data
 @Builder
 @AllArgsConstructor
-public class Run {
+public class RunInfo {
     private String id;
     private RunStats stats;
-    private List<Tag> tags;
+    private List<TagInfo> tags;
 }

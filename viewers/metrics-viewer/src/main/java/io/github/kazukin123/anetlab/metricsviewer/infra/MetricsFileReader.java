@@ -18,8 +18,8 @@ import org.springframework.stereotype.Component;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricFileBlock;
-import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricLine;
+import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricsFileBlock;
+import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricsFileLine;
 
 @Component
 public class MetricsFileReader {
@@ -33,24 +33,24 @@ public class MetricsFileReader {
     /**
      * ファイル全体をパースする。
      */
-    public MetricFileBlock parseFull(Path jsonlFile, int maxLines) throws IOException {
+    public MetricsFileBlock parseFull(Path jsonlFile, int maxLines) throws IOException {
         return readInternal(jsonlFile, 0, maxLines);
     }
 
     /**
      * 指定オフセットからパースする（増分読み込み）。
      */
-    public MetricFileBlock parseDiff(Path jsonlFile, long startOffset, int maxLines) throws IOException {
+    public MetricsFileBlock parseDiff(Path jsonlFile, long startOffset, int maxLines) throws IOException {
         return readInternal(jsonlFile, startOffset, maxLines);
     }
 
     /**
      * 実際の読み込み処理。
      */
-    private MetricFileBlock readInternal(Path jsonlFile, long startOffset, int maxLines) throws IOException {
+    private MetricsFileBlock readInternal(Path jsonlFile, long startOffset, int maxLines) throws IOException {
         if (!Files.exists(jsonlFile)) {
             log.warn("Metrics file not found: {}", jsonlFile);
-            return new MetricFileBlock(0, 0, List.of(), 0L, true);
+            return new MetricsFileBlock(0, 0, List.of(), 0L, true);
         }
 
         // --- 行単位にオフセットを補正する ---
@@ -76,7 +76,7 @@ public class MetricsFileReader {
         }
 
         long fileLastModified = Files.getLastModifiedTime(jsonlFile).toMillis();
-        List<MetricLine> lines = new ArrayList<>(maxLines > 0 ? maxLines : 4096);
+        List<MetricsFileLine> lines = new ArrayList<>(maxLines > 0 ? maxLines : 4096);
 
         long bytesRead = startOffset;
         long lastLogTime = System.currentTimeMillis();
@@ -101,7 +101,7 @@ public class MetricsFileReader {
                 lineCount++;
 
                 try {
-                    MetricLine obj = METRIC_LINE_READER.readValue(line, MetricLine.class);
+                    MetricsFileLine obj = METRIC_LINE_READER.readValue(line, MetricsFileLine.class);
                     lines.add(obj);
                 } catch (JsonProcessingException e) {
                     boolean looksTruncated =
@@ -143,7 +143,7 @@ public class MetricsFileReader {
                     lineCount, bytesRead / 1_000_000,
                     (tEnd - tStart), eof);
 
-            return new MetricFileBlock((int) startOffset, (int) bytesRead, lines, fileLastModified, eof);
+            return new MetricsFileBlock((int) startOffset, (int) bytesRead, lines, fileLastModified, eof);
 
         } catch (IOException e) {
             log.error("Error reading metrics file {}: {}", jsonlFile, e.getMessage());

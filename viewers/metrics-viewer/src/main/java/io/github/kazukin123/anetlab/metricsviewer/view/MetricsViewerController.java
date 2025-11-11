@@ -38,7 +38,7 @@ public class MetricsViewerController {
     }
 
     /** 全データ取得 */
-    @PostMapping(value="/metrics.json", consumes="application/x-www-form-urlencoded")
+    @PostMapping(value = "/metrics.json", consumes = "application/x-www-form-urlencoded")
     @ResponseBody
     public GetMetricsResponse getMetrics(
             @RequestParam(required=false) List<String> runIds,

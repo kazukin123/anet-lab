@@ -7,6 +7,6 @@ import lombok.Data;
 
 @Data
 public class GetMetricsRequest {
-    private List<String> runIds = new ArrayList<String>();
-    private List<String> tagKeys = new ArrayList<String>();
+	private List<String> runIds = new ArrayList<String>();
+	private List<String> tagKeys = new ArrayList<String>();
 }

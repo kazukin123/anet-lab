@@ -7,11 +7,11 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
-import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricFileBlock;
-import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricLine;
-import io.github.kazukin123.anetlab.metricsviewer.view.model.MetricTrace;
+import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricsFileBlock;
+import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricsFileLine;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.RunStats;
-import io.github.kazukin123.anetlab.metricsviewer.view.model.Tag;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.TagTrace;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.TagInfo;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.TagStats;
 
 /**
@@ -22,18 +22,15 @@ public class MetricsSnapshot {
 	
 	private static final String TAG_TYPE_SCALER = "scalar";
 
-    private final Map<Tag, List<Point>> tagValues = new ConcurrentHashMap<>();    // tag → [step, value]
-    private final Map<Tag, TagStats> tagStats = new ConcurrentHashMap<>();
-
-    /** Last read byte offset from metrics.jsonl */
+    private final Map<TagInfo, List<Point>> tagValueMap = new ConcurrentHashMap<>();    // tagId → [step, value]
+    private final Map<TagInfo, TagStats> tagStatsMap = new ConcurrentHashMap<>();		// tagId → TagStats
     private volatile long lastReadPosition = 0L;
     private RunStats runStats = new RunStats();
 
-    /** Merges a parsed MetricFileBlock into this snapshot. */
-    public void merge(MetricFileBlock block) {
+    public void merge(MetricsFileBlock block) {
         if (block == null || block.getLines() == null) return;
 
-        for (MetricLine line : block.getLines()) {
+        for (MetricsFileLine line : block.getLines()) {
             if (line == null || line.getTag() == null) continue;
 
             // scaler以外は現状非サポート
@@ -46,26 +43,25 @@ public class MetricsSnapshot {
             if (step > runStats.getMaxStep()) runStats.setMaxStep(step);
             
             // Scalerタグ内容を登録
-            Tag tag = new Tag(line.getTag(), line.getType());
+            TagInfo tagInfo = TagInfo.builder().key(line.getTag()).type(line.getType()).build();
             Point point = Point.builder()
                     .step(line.getStep())
                     .value(line.getValue()) // MetricLine.values は double 型
                     .build();
 
             // スレッド安全なリスト操作
-            tagValues.computeIfAbsent(tag, k -> new ArrayList<>()).add(point);
-            tagStats.computeIfAbsent(tag, k -> new TagStats()).record(step, value);
+            tagValueMap.computeIfAbsent(tagInfo, k -> new ArrayList<>()).add(point);
+            tagStatsMap.computeIfAbsent(tagInfo, k -> new TagStats()).record(step, value);
         }
 
         this.lastReadPosition = block.getEndOffset();
     }
 
-    /** Converts stored points into traces for the specified tag keys. */
-    public List<MetricTrace> getMetricsTrace(List<String> tagKeys) {
-        List<MetricTrace> traces = new ArrayList<>();
+    public List<TagTrace> findTagTrace(List<String> tagKeys) {
+        List<TagTrace> tagTraceList = new ArrayList<>();
 
-        tagValues.forEach((tag, points) -> {
-            if (tagKeys == null || tagKeys.isEmpty() || tagKeys.contains(tag.getKey())) {
+        tagValueMap.forEach((tagInfo, points) -> {
+            if (tagKeys == null || tagKeys.isEmpty() || tagKeys.contains(tagInfo.getKey())) {
                 // step, value の順序を保持して詰め直し
                 int steps[] = new int[points.size()];
                 float values[] = new float[points.size()];
@@ -77,44 +73,47 @@ public class MetricsSnapshot {
                 }
 
                 // stats取得
-                TagStats stats = tagStats != null ? tagStats.get(tag) : null;
+                TagStats tagStats = tagStatsMap.get(tagInfo);
 
                 // Tag単位の結果「trace」としてまとめ
-                MetricTrace trace = MetricTrace.builder()
+                TagTrace tagData = TagTrace.builder()
                         .runId(null) // Repository 側でRunIdを付与する想定
-                        .tagKey(tag.getKey())
-                        .type(tag.getType())
-                        .stats(stats)
+                        .tagKey(tagInfo.getKey())
+                        .type(tagInfo.getType())
+                        .stats(tagStats)
                         .steps(steps)
                         .values(values)
                         .build();
 
-                traces.add(trace);
+                tagTraceList.add(tagData);
             }
         });
 
-        return traces;
+        return tagTraceList;
     }
 
-    /** Returns current tag list for this snapshot. */
-    public List<Tag> getTags() {
-        return new ArrayList<>(tagValues.keySet());
+    @JsonIgnore
+    public List<TagInfo> getTags() {
+        return new ArrayList<>(tagValueMap.keySet());
     }
     
-    public RunStats getStats() {
+    @JsonIgnore
+    public RunStats getRunStats() {
     	return runStats;
     }
 
+    @JsonIgnore
     public long getLastReadPosition() {
         return lastReadPosition;
     }
 
+    @JsonIgnore
     public void setLastReadPosition(long pos) {
         this.lastReadPosition = pos;
     }
 
     @JsonIgnore
     public long getTotalPoints() {
-	    return tagValues.values().stream().mapToLong(List::size).sum();    
+	    return tagValueMap.values().stream().mapToLong(List::size).sum();    
 	}
 }

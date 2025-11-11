@@ -11,7 +11,7 @@ import lombok.Data;
 @Data
 @Builder
 @AllArgsConstructor
-public class MetricTrace {
+public class TagTrace {
     private final String runId;
     private final String tagKey;
     private final String type;

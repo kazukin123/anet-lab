@@ -4,7 +4,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -14,8 +13,7 @@ import org.springframework.stereotype.Component;
 
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsFileReader;
 import io.github.kazukin123.anetlab.metricsviewer.infra.RunScanner;
-import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricFileBlock;
-import io.github.kazukin123.anetlab.metricsviewer.service.model.MetricsSnapshot;
+import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricsFileBlock;
 
 /**
  * Background thread that periodically scans runs directory
@@ -76,7 +74,7 @@ public class LoadingThread extends Thread {
     public void run() {
     	// 最初に読めるだけ全部のキャッシュを読む
         log.info("LoadingThread started. Loading cache.");
-        metricsRepository.loadCacheAll(runScanner.getRunsDir());
+        metricsRepository.loadCache(runScanner.getRunsDir());
         log.info("Cache loading completed.");
 
         // スレッドメインループ
@@ -93,7 +91,7 @@ public class LoadingThread extends Thread {
                     processRuns(req.runIds);
                 } else {
                     // 定期スキャン
-                    List<String> runIds = runScanner.getRunIds();
+                    List<String> runIds = runScanner.listRunId();
                     processRuns(runIds);
                 }
                 // リラックス
@@ -119,10 +117,8 @@ public class LoadingThread extends Thread {
                 if (!Files.exists(metricsFile)) continue;
 
                 // 最後の位置からブロック読み込み
-                long lastPos = Optional.ofNullable(metricsRepository.getSnapshots().get(runId))
-                        .map(MetricsSnapshot::getLastReadPosition)
-                        .orElse(0L);
-                MetricFileBlock block = fileReader.parseDiff(metricsFile, lastPos, MAX_LINES);
+                long lastPos = metricsRepository.getLastReadPosition(runId);
+                MetricsFileBlock block = fileReader.parseDiff(metricsFile, lastPos, MAX_LINES);
                 if (block.getLines().isEmpty()) continue;
 
                 // メモリ上でマージ

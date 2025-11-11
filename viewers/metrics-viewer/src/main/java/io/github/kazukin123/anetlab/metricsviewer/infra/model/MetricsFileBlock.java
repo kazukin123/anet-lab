@@ -9,10 +9,11 @@ import lombok.Data;
 @Data
 @Builder
 @AllArgsConstructor
-public class MetricFileBlock {
+public class MetricsFileBlock {
+	
 	private final int startOffset;
 	private final int endOffset;
-	private final List<MetricLine> lines;
+	private final List<MetricsFileLine> lines;
 	private final long lastModified;
 	private final boolean isEOF;
 }
