@@ -12,23 +12,23 @@ import lombok.Data;
 @Builder
 @AllArgsConstructor
 public class TagTrace {
-    private final String runId;
-    private final String tagKey;
-    private final String type;
-    private final TagStats stats;
+	private final String runId;
+	private final String tagKey;
+	private final String type;
+	private final TagStats stats;
 
-    @JsonIgnore
-    private final int[] steps;
-    @JsonIgnore
-    private final float[] values;
-    
-    @JsonProperty("encodedSteps")
-    public String getEncodedSteps() {
-        return MetricTraceEncoder.encodeIntArray(steps);
-    }
+	@JsonIgnore
+	private final int[] steps;
+	@JsonIgnore
+	private final float[] values;
 
-    @JsonProperty("encodedValues")
-    public String getEncodedValues() {
-        return MetricTraceEncoder.encodeFloatArray(values);
-    }
+	@JsonProperty("encodedSteps")
+	public String getEncodedSteps() {
+		return MetricTraceEncoder.encodeIntArray(steps);
+	}
+
+	@JsonProperty("encodedValues")
+	public String getEncodedValues() {
+		return MetricTraceEncoder.encodeFloatArray(values);
+	}
 }

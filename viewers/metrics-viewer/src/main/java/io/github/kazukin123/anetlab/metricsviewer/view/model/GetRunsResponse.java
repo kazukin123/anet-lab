@@ -6,5 +6,5 @@ import lombok.Data;
 
 @Data
 public class GetRunsResponse {
-    private List<RunInfo> runs;
+	private List<RunInfo> runs;
 }

@@ -11,11 +11,11 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 @SpringBootApplication
 public class MetricsViewerApplication {
 
-    private static final Logger log = LoggerFactory.getLogger(MetricsViewerApplication.class);
+	private static final Logger log = LoggerFactory.getLogger(MetricsViewerApplication.class);
 
-    public static void main(String[] args) {
-        log.info("Starting Metrics Viewer...");
-        SpringApplication.run(MetricsViewerApplication.class, args);
-        log.info("Metrics Viewer started successfully (port: 8080 by default)");
-    }
+	public static void main(String[] args) {
+		log.info("Starting Metrics Viewer...");
+		SpringApplication.run(MetricsViewerApplication.class, args);
+		log.info("Metrics Viewer started successfully (port: 8080 by default)");
+	}
 }

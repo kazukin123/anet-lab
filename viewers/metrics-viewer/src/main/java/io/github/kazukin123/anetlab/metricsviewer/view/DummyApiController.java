@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class DummyApiController {
 
 	@PostMapping(value = "/metrics.json", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Resource postIndex() {
-        return new ClassPathResource("static/dummy_api/metrics.json");
-    }
+	public Resource postIndex() {
+		return new ClassPathResource("static/dummy_api/metrics.json");
+	}
 }

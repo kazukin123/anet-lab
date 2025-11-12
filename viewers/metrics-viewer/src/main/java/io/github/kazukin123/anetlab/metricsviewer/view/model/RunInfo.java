@@ -10,7 +10,7 @@ import lombok.Data;
 @Builder
 @AllArgsConstructor
 public class RunInfo {
-    private String id;
-    private RunStats stats;
-    private List<TagInfo> tags;
+	private String id;
+	private RunStats stats;
+	private List<TagInfo> tags;
 }

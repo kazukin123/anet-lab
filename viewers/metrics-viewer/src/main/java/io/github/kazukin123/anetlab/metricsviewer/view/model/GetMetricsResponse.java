@@ -6,5 +6,5 @@ import lombok.Data;
 
 @Data
 public class GetMetricsResponse {
-    private List<TagTrace> data;
+	private List<TagTrace> data;
 }
