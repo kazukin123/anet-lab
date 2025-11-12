@@ -208,6 +208,7 @@ class DataCache {
 
 			this.data[m.runId][m.tagKey] = { steps: stepsBuf, values: valuesBuf };
 		}
+//console.log("data=", this.data);
 	}
 
 	/** 差分データをマージ */
@@ -626,6 +627,7 @@ class MetricsViewerClientApp {
 
 		// selected が空 or 消失した場合 → 最新だけ自動選択
 		if (!this.selectedRuns.length || !runIds.includes(this.selectedRuns[0])) {
+			runIds.sort().reverse();
 			const latestRunId = runIds[0];
 			this.selectedRuns = [latestRunId];
 		 }
