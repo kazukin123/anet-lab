@@ -23,8 +23,10 @@ import com.esotericsoftware.kryo.io.Output;
 
 import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricsFileBlock;
 import io.github.kazukin123.anetlab.metricsviewer.service.model.MetricsSnapshot;
+import io.github.kazukin123.anetlab.metricsviewer.service.model.Point;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.RunStats;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.TagInfo;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.TagStats;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.TagTrace;
 
 /**
@@ -35,7 +37,7 @@ import io.github.kazukin123.anetlab.metricsviewer.view.model.TagTrace;
 public class MetricsRepository {
 
 	private static final String SNAPSHOT_FILENAME = "metrics_cache.kryo";
-	private static final String SNAPSHOT_FILEHEADER = "metrics_snapshot.kryo_v0.0.6";
+	private static final String SNAPSHOT_FILEHEADER = "metrics_snapshot.kryo_v0.1.0";
 
 	private static final Logger log = LoggerFactory.getLogger(MetricsRepository.class);
 
@@ -73,33 +75,62 @@ public class MetricsRepository {
 				snapshot.getRunStats().getMaxStep());
 	}
 
-	public List<TagTrace> findTagTrace(List<String> runIds, List<String> tagKeys) {
-		final List<TagTrace> all = new ArrayList<>();
+	/**
+	 * 差分ロード用：Run×Tagごとに指定step以降のTagTraceを返す。
+	 * 
+	 * @param runTagMap runId → (tagKey → fromStep)
+	 * @return 差分データ（TagTraceリスト）
+	 */
+	public List<TagTrace> findTagTraceDiff(Map<String, Map<String, Integer>> runTagMap) {
+	    final List<TagTrace> traces = new ArrayList<>();
 
-		if (runIds == null || runIds.isEmpty()) return all;
+	    // requestのRunIdを回す
+	    for (Map.Entry<String, Map<String, Integer>> runEntry : runTagMap.entrySet()) {
+	        final String runId = runEntry.getKey();
+	        final MetricsSnapshot snapshot = runSnapshotMap.get(runId);
+	        if (snapshot == null) continue;
 
-		for (String runId : runIds) {
-			final MetricsSnapshot snapshot = runSnapshotMap.get(runId);
-			if (snapshot == null) continue;
+	        // requestのTagKeyを回す（空の場合は全Tag対象）
+	        final Map<String, Integer> tagMap = runEntry.getValue();
+	        final boolean allTags = (tagMap == null || tagMap.isEmpty());
+	        final List<String> tagKeys = allTags ? snapshot.listTagKeys() : new ArrayList<>(tagMap.keySet());
 
-			final List<TagTrace> traces = snapshot.findTagTrace(tagKeys);
-			for (TagTrace t : traces) {
-				// runIdをここで埋める
-				final TagTrace traceWithRun = TagTrace.builder()
-						.runId(runId)
-						.tagKey(t.getTagKey())
-						.type(t.getType())
-						.stats(t.getStats())
-						.steps(t.getSteps())
-						.values(t.getValues())
-						.build();
-				all.add(traceWithRun);
-			}
-		}
+	        for (String tagKey : tagKeys) {
+	            final int fromStep = allTags ? 0 : tagMap.getOrDefault(tagKey, 0);
 
-		log.debug("getTraces: runIds={} tagKeys={} traces={}", runIds, tagKeys, all.size());
-		return all;
+	            // 差分抽出
+	            final List<Point> points = snapshot.getPointsSince(tagKey, fromStep);
+	            if (points == null || points.isEmpty()) continue; // データなしはスキップ
+
+	            // Trace元ネタを詰め直し
+	            final int size = points.size();
+	            final int[] steps = new int[size];
+	            final float[] values = new float[size];
+	            for (int i = 0; i < size; i++) {
+	                final Point p = points.get(i);
+	                steps[i] = p.getStep();
+	                values[i] = p.getValue();
+	            }
+
+	            final TagStats stats = snapshot.getTagStats(tagKey);
+
+	            final TagTrace trace = TagTrace.builder()
+	                    .runId(runId)
+	                    .tagKey(tagKey)
+	                    .type("scalar")
+	                    .stats(stats)
+	                    .beginStep(fromStep)
+	                    .endStep(steps[size - 1])
+	                    .steps(steps)
+	                    .values(values)
+	                    .build();
+	            traces.add(trace);
+	        }
+	    }
+
+	    return traces;
 	}
+
 
 	/**
 	 * Returns all tags known for the given run.
@@ -121,6 +152,30 @@ public class MetricsRepository {
 		return stats;
 	}
 
+	/**
+	 * 現在ロードされている全RunIDを返す。
+	 */
+	public List<String> listAllRunIds() {
+		if (runSnapshotMap.isEmpty()) return Collections.emptyList();
+		return new ArrayList<>(runSnapshotMap.keySet());
+	}
+
+	/**
+	 * 指定したRunに存在する全タグキーを返す。
+	 */
+	public List<String> listTagKeys(String runId) {
+		if (runId == null) return Collections.emptyList();
+
+		final MetricsSnapshot snapshot = runSnapshotMap.get(runId);
+		if (snapshot == null) return Collections.emptyList();
+
+		// Snapshot内部のタグ情報を取得
+		final List<String> tagKeys = new ArrayList<>();
+		snapshot.getTags().forEach(tagInfo -> tagKeys.add(tagInfo.getKey()));
+
+		return tagKeys;
+	}
+	
 	/** 全キャッシュロード */
 	public void loadCache(Path runsDir) {
 		if (!Files.exists(runsDir)) {

@@ -1,9 +1,9 @@
 package io.github.kazukin123.anetlab.metricsviewer.service;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -75,42 +75,51 @@ public class MetricsService {
 		return resp;
 	}
 
-	/**
-	 * Returns metric traces (used by /api/metrics).
-	 */
-	public GetMetricsResponse getMetrics(GetMetricsRequest req) {
-		if (req == null) return new GetMetricsResponse();
+    public GetMetricsResponse getMetrics(GetMetricsRequest request) {
+        final GetMetricsResponse response = new GetMetricsResponse();
 
-		List<String> runIds = req.getRunIds();
-		List<String> tagKeys = req.getTagKeys();
+        try {
+            // --- 差分ロード（runTagMapあり） ---
+            if (request != null && request.getRunTagMap() != null && !request.getRunTagMap().isEmpty()) {
+                log.debug("getMetrics: diff mode start. runs={}", request.getRunTagMap().keySet());
 
-		// --- ① 空指定時は全件扱いに補完 ---
-		if (runIds == null || runIds.isEmpty()) {
-			runIds = runScanner.listRunId();
-		}
+                final List<TagTrace> traces = metricsRepository.findTagTraceDiff(request.getRunTagMap());
+                response.setData(traces);
 
-		if (tagKeys == null || tagKeys.isEmpty()) {
-			// 全RunのTagを走査して一意にまとめる
-			final Set<String> allTags = new LinkedHashSet<>();
-			for (String runId : runIds) {
-				final List<TagInfo> tags = metricsRepository.findTagInfo(runId);
-				for (TagInfo tag : tags) {
-					allTags.add(tag.getKey());
-				}
-			}
-			tagKeys = new ArrayList<>(allTags);
-		}
+                log.debug("getMetrics: diff mode complete. traces={}", traces.size());
+                return response;
+            }
 
-		// --- ② ロードリクエスト発行（非同期） ---
-		loadingThread.request(runIds, tagKeys, 1000);
+            // --- フルロード（全Run・全Tag・全Step） ---
+            log.debug("getMetrics: full mode start (no runTagMap)");
 
-		// --- ③ 現在のキャッシュを返す ---
-		final List<TagTrace> tagTraceList = metricsRepository.findTagTrace(runIds, tagKeys);
+            // すべてのRunIDを取得
+            final List<String> allRunIds = metricsRepository.listAllRunIds();
+            final List<TagTrace> allTraces = new ArrayList<>();
 
-		final GetMetricsResponse res = new GetMetricsResponse();
-		res.setData(tagTraceList);
+            // 各Runについて全タグを取得して全件ロード
+            for (String runId : allRunIds) {
+                final List<String> tagKeys = metricsRepository.listTagKeys(runId);
+                if (tagKeys == null || tagKeys.isEmpty()) continue;
 
-		log.debug("getMetrics: runs={} tags={} traces={}", runIds, tagKeys, tagTraceList.size());
-		return res;
-	}
+                final Map<String, Integer> tagMap = new LinkedHashMap<>();
+                for (String tag : tagKeys) tagMap.put(tag, 0); // fromStep=0で全件
+
+                final Map<String, Map<String, Integer>> runTagMap = Map.of(runId, tagMap);
+                final List<TagTrace> traces = metricsRepository.findTagTraceDiff(runTagMap);
+
+                allTraces.addAll(traces);
+            }
+
+            response.setData(allTraces);
+            log.debug("getMetrics: full mode complete. runs={} traces={}",
+                      allRunIds.size(), allTraces.size());
+
+        } catch (Exception ex) {
+            log.error("getMetrics: failed to process request", ex);
+        }
+
+        return response;
+    }
+
 }

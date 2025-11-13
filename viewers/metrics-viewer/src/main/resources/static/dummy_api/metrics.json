@@ -4,6 +4,8 @@
 	      	"runId": "runs_1_x",
 			"tagKey": "00_train/reward_mean",
 			"type": "scalar",
+			"beginStep": 0,
+			"endSttep": 6,
 			"stats": {
 	                "minStep": 1,
 	                "maxStep": 6,
@@ -20,6 +22,8 @@
 	      	"runId": "runs_1_x",
 			"tagKey": "01_train/loss_q_value",
 			"type": "scalar",
+			"beginStep": 0,
+			"endSttep": 6,
 			"stats": {
 	                "minStep": 1,
 	                "maxStep": 6,
@@ -36,6 +40,8 @@
 	      	"runId": "runs_2_s",
 			"tagKey": "32_agent_dqn_base/03_epsilon",
 			"type": "scalar",
+			"beginStep": 0,
+			"endSttep": 6,
 			"stats": {
 	                "minStep": 1,
 	                "maxStep": 6,

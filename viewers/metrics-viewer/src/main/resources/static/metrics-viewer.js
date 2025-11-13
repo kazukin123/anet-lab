@@ -6,7 +6,7 @@
 const API_BASE_URL = (false) ? "/dummy_api" : "/api";
 const AUTO_RELOAD_INTERVAL_MS = 10000;	// AutoReload間隔
 const MAX_POINTS = 6000;	// 4Kモニタ想定
-const MAX_SCATTER_GL = 8;	// あまり大きくすると白飛びする
+const MAX_SCATTER_GL = 0;	// あまり大きくするとグラフがでなくなる
 
 const Mode = Object.freeze({
 	UNINITIALIZED: "uninitialized",
@@ -119,6 +119,7 @@ function base64ToInt32Array(base64) {
 /* ---------------- データ取得 ---------------- */
 class DataFetcher {
 	constructor() { this.controllers = []; }
+	
 	_ctrl() { const c = new AbortController(); this.controllers.push(c); return c; }
 
 	async fetchRuns() {
@@ -128,21 +129,19 @@ class DataFetcher {
 		return res.json();
 	}
 
-	async fetchMetricsAll(runIds = [], tagKeys = []) {
+	async fetchMetrics(cacheState) {
+console.log("cacheState=", cacheState);
 	    const c = this._ctrl();
-	    const body = new URLSearchParams();
-
-	    for (const r of runIds) body.append("runIds", r);
-	    for (const t of tagKeys) body.append("tagKeys", t);
 	    const res = await fetch(`${API_BASE_URL}/metrics.json`, {
 	        method: "POST",
-	        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-	        body,
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ runTagMap: cacheState }),
 	        signal: c.signal
 	    });
 
 	    if (!res.ok) throw new Error(`Failed metrics.json: ${res.status}`);
 		const json = await res.json();
+console.log("json=", json);
 
 		// --- Base64 → TypedArray の復元 ---
 		for (const item of json.data ?? []) {
@@ -157,11 +156,6 @@ class DataFetcher {
 		}
 
 		return json;
-	}
-
-	async fetchMetricsDiff(runIds = [], tagKeys = [], since = []) {
-	    // 差分APIをまだ実装していないにで今はfetchMetricsAllを呼ぶ
-	    return this.fetchMetricsAll(runIds, tagKeys);
 	}
 
 	abortAll() {
@@ -193,29 +187,13 @@ class DataCache {
 		}
 	}
 
-	/** フルデータをマージ */
-	mergeAll(payload) {
-		this.data = {};
-		if (!payload || !Array.isArray(payload.data)) return;
-
-		for (const m of payload.data) {
-			if (!this.data[m.runId]) this.data[m.runId] = {}; // run未登録なら作成
-
-			const stepsBuf = new Int32Buffer(m.steps.length || 1024);
-			const valuesBuf = new Float32Buffer(m.values.length || 1024);
-			stepsBuf.append(m.steps);
-			valuesBuf.append(m.values);
-
-			this.data[m.runId][m.tagKey] = { steps: stepsBuf, values: valuesBuf };
-		}
-//console.log("data=", this.data);
-	}
-
 	/** 差分データをマージ */
-	mergeDiff(payload) {
+	merge(payload) {
+console.log("payload=", payload);
 		if (!payload || !Array.isArray(payload.data)) return;
 
 		for (const m of payload.data) {
+//console.log("run=", m);
 			if (!this.data[m.runId]) this.data[m.runId] = {};
 
 			let cur = this.data[m.runId][m.tagKey];
@@ -225,7 +203,12 @@ class DataCache {
 				const valuesBuf = new Float32Buffer(m.values.length || 1024);
 				stepsBuf.append(m.steps);
 				valuesBuf.append(m.values);
-				this.data[m.runId][m.tagKey] = { steps: stepsBuf, values: valuesBuf };
+				this.data[m.runId][m.tagKey] = {
+					steps: stepsBuf,
+					values: valuesBuf,
+					beginStep: m.beginStep ?? 0,
+					endStep: m.endStep ?? (m.steps.at(-1) || 0)
+				};
 				continue;
 			}
 
@@ -238,17 +221,23 @@ class DataCache {
 				cur.steps.append(newSteps);
 				cur.values.append(newVals);
 			}
+			// 取得済みステップ数範囲を更新（データ無しでもstep数だけ進む可能性を考慮）
+			cur.beginStep = Math.min(cur.beginStep ?? Infinity, m.beginStep ?? Infinity);
+			cur.endStep = Math.max(cur.endStep ?? -Infinity, m.endStep ?? -Infinity);
 		}
+console.log("data=", this.data);
 	}
 
 	/** 指定run/tagのデータ取得（TypedArray subarray） */
 	get(runId, tagKey) {
-		const d = this.data[runId]?.[tagKey];
-		if (!d) return null;
-		return {
-			steps: d.steps.toArray(),
-			values: d.values.toArray()
-		};
+	  const d = this.data[runId]?.[tagKey];
+	  if (!d) return null;
+	  return {
+	    beginStep: d.beginStep,
+	    endStep: d.endStep,
+	    steps: d.steps.buffer.subarray(0, d.steps.length),
+	    values: d.values.buffer.subarray(0, d.values.length)
+	  };
 	}
 
 	getRuns() {
@@ -265,14 +254,23 @@ class DataCache {
 		return run.tags.map(tag => tag.key);
 	}
 
-	/** Run×Tagごとの最新stepをマップ化 */
-	buildSinceStepMap(selectedRuns, selectedTags) {
+	buildCacheStateMap(targetRuns = null, targetTags = null) {	// デフォルトで全Run、全Tag
+		const runIds = targetRuns ?? this.getRunIds();
 		const map = {};
-		for (const r of selectedRuns) {
+		for (const r of runIds) {
 			const tagMap = {};
-			for (const t of selectedTags) {
+			const tags = targetTags ?? Object.keys(this.data[r] ?? {});
+			for (const t of tags) {
 				const d = this.data[r]?.[t];
-				tagMap[t] = d && d.steps.length ? d.steps.buffer[d.steps.length - 1] : -1;
+				if (!d) {
+					tagMap[t] = -1;
+					continue;
+				}
+				// buffer再割り当て中でも安全な範囲コピー
+				const safeEnd = (d.endStep != null)
+				  ? d.endStep
+				  : (d.steps.length ? d.steps.buffer[d.steps.length - 1] : -1);
+				tagMap[t] = safeEnd;
 			}
 			map[r] = tagMap;
 		}
@@ -386,23 +384,36 @@ class UIController {
 
 	renderRunList(runs, selectedRunIds, runColorMap) {
 		const runIds = Object.keys(runs);
-		const $list = $("#run-list").empty(), palette = getPlotlyColors();
-		runColorMap.clear();
-		runIds.sort();
-		runIds.reverse();
-		runIds.forEach((runId, i) => {
-			// 対象のRun情報取り出し
+		const $list = $("#run-list").empty();
+		const palette = getPlotlyColors();
+
+		// --- まず古いRun→新しいRunの順で色割当（昇順） ---
+		runIds.sort(); // 昇順：古いRunから順に
+		for (const runId of runIds) {
+			if (!runColorMap.has(runId)) {
+				const c = palette[runColorMap.size % palette.length];
+				runColorMap.set(runId, c);
+			}
+		}
+
+		// --- 新しいRun→古いRunの順で表示（降順） ---
+		const sortedDesc = [...runIds].reverse();
+		sortedDesc.forEach((runId) => {
 			const run = runs[runId];
-
-			// 描画用属性生成
-			const title = (run.stats) ? Object.entries(run.stats).map(([k, v]) => `${k}: ${v}`).join('\n') : "";
-			const c = palette[i % palette.length]
+			const c = runColorMap.get(runId);
 			const chk = selectedRunIds.includes(runId) ? "checked" : "";
-			runColorMap.set(runId, c);
+			const title = run.stats
+				? Object.entries(run.stats)
+					.map(([k, v]) => `${k}: ${v}`)
+					.join("\n")
+				: "";
 
-			// タグ生成
-			$list.append(`<label class="run-row" title="${title}"><input type="checkbox" class="run-check" value="${runId}" ${chk}>
-				<span class="run-color" style="background:${c};"></span> ${runId}</label><br>`);
+			$list.append(`
+				<label class="run-row" title="${title}">
+					<input type="checkbox" class="run-check" value="${runId}" ${chk}>
+					<span class="run-color" style="background:${c};"></span> ${runId}
+				</label><br>
+			`);
 		});
 	}
 
@@ -460,10 +471,10 @@ class UIController {
 	}
 
 	updateRunColorChips(runColorMap) {
-		const palette = getPlotlyColors();
 		$("#run-list label .run-color").each((i, el) => {
-			const id = $(el).next("input").val();
-			el.style.background = runColorMap.get(id) || palette[i % palette.length];
+			const runId = $(el).next("input").val();
+			const c = runColorMap.get(runId);
+			if (c) el.style.background = c;
 		});
 	}
 
@@ -525,7 +536,7 @@ class UIController {
 	}
 
 	bindStaticControls() {
-		$("#btn-reload").off("click").on("click", () => this.app.onReloadFull());
+		$("#btn-reload").off("click").on("click", () => this.app.onReload());
 		$("#btn-auto-reload").off("click").on("click", () => this.app.onToggleAutoReload());
 		$("#btn-screenshot").off("click").on("click", () => this.app.onToggleScreenshot());
 		$("#btn-screenshot-toggle").off("click").on("click", () => this.app.onToggleScreenshot());
@@ -598,9 +609,11 @@ class MetricsViewerClientApp {
 
 			// メトリクス情報を取得
 			this.setMode(Mode.DATA_LOADING);
-			const metricsPayload = await this.fetcher.fetchMetricsAll();
-			this.cache.mergeAll(metricsPayload);
-			console.log("[INIT] fetchMetricsAll OK");
+			const cacheState = this.cache.buildCacheStateMap();
+			const metricsPayload = await this.fetcher.fetchMetrics(cacheState);
+			console.log("metricsPayload=", metricsPayload);
+			this.cache.merge(metricsPayload);
+			console.log("[INIT] fetchMetrics OK");
 
 			// グラフ描画
 			this._renderCurrent();
@@ -692,8 +705,7 @@ class MetricsViewerClientApp {
 		this.autoReloadEnabled = !this.autoReloadEnabled;
 		if (this.autoReloadEnabled) {
 			this.autoReloadTimer = setInterval(() => {
-//				this.onReloadDiff();
-				this.onReloadFull();
+				this.onReload();
 			}, AUTO_RELOAD_INTERVAL_MS);
 			$("#btn-auto-reload").text("Auto Reload: ON");
 			Toast.show("Auto-reload enabled.");
@@ -735,7 +747,7 @@ class MetricsViewerClientApp {
 		}
 	}
 
-	async onReloadFull() {
+	async onReload() {
 	    if (this.mode === Mode.SCREENSHOT) return;
 		console.log("[RELOAD] full start");
 		console.log(""+this.selectedRuns +" ", this.activeTags);
@@ -773,10 +785,11 @@ class MetricsViewerClientApp {
 
 			// Metricsを取得、キャッシュ登録
 	        this.setMode(Mode.DATA_LOADING);
-	        const metricsPayload = await this.fetcher.fetchMetricsAll();	// Reload時は選択状態関係無く全件再取得
-			this.cache.mergeAll(metricsPayload);
+			const cacheState = this.cache.buildCacheStateMap();
+	        const metricsPayload = await this.fetcher.fetchMetrics(cacheState);	// Reload時は選択状態関係無く全件再取得
+			this.cache.merge(metricsPayload);
 
-	        console.log("[RELOAD] fetchMetricsAll OK");
+	        console.log("[RELOAD] fetchMetrics OK");
 
 	        // --- スクロール位置を保存・復元 ---
 			const $scrollTarget = $("#main-area");
@@ -791,20 +804,6 @@ class MetricsViewerClientApp {
 //	        this.setMode(Mode.ERROR);
 			Toast.show("Reload failed.");
 	    }
-	}
-
-	async onReloadDiff() {
-		if (this.mode === Mode.SCREENSHOT) return;
-		try {
-			const since = this.cache.buildSinceStepMap(this.selectedRuns, [...this.activeTags]);
-			console.log("[RELOAD] diff update ${this.selectedRuns} ${this.activeTags}");
-			const payload = await this.fetcher.fetchMetricsDiff(this.selectedRuns, this.activeTags, since);
-			this.cache.mergeDiff(payload);
-			this._renderCurrent();
-		} catch (e) {
-			console.error(e);
-			Toast.show("Reload failed.");
-		}
 	}
 }
 

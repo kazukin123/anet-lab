@@ -1,13 +1,11 @@
 package io.github.kazukin123.anetlab.metricsviewer.view;
 
-import java.util.List;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -37,27 +35,20 @@ public class MetricsViewerController {
 		return resp;
 	}
 
-	/** 全データ取得 */
-	@PostMapping(value = "/metrics.json", consumes = "application/x-www-form-urlencoded")
+	/** Metricsデータ取得 */
+	@PostMapping(value = "/metrics.json", consumes = "application/json")
 	@ResponseBody
-	public GetMetricsResponse getMetrics(
-			@RequestParam(required = false) List<String> runIds,
-			@RequestParam(required = false) List<String> tagKeys) {
-		final GetMetricsRequest req = new GetMetricsRequest();
-		if (runIds != null) {
-			req.getRunIds().addAll(runIds);
-		}
-		if (tagKeys != null) {
-			req.getTagKeys().addAll(tagKeys);
-		}
+	public GetMetricsResponse getMetrics(@RequestBody GetMetricsRequest request) {
+	    log.info("getMetrics() runTagMap.size={}", 
+	            request.getRunTagMap() != null ? request.getRunTagMap().size() : 0);
 
-		final GetMetricsResponse resp = metricsService.getMetrics(req);
-
+	    final GetMetricsResponse response = metricsService.getMetrics(request);
 		if (log.isTraceEnabled()) {
-			log.trace("getMetrics() req={} resp={}", req, resp);
+			log.trace("getMetrics() req={} resp={}", request, response);
 		} else {
-			log.info("getMetrics() req={}", req);
+			log.debug("getMetrics() req={}", request);
 		}
-		return resp;
+
+		return response;
 	}
 }

@@ -15,6 +15,8 @@ public class TagTrace {
 	private final String runId;
 	private final String tagKey;
 	private final String type;
+	private final int beginStep;
+	private final int endStep;
 	private final TagStats stats;
 
 	@JsonIgnore

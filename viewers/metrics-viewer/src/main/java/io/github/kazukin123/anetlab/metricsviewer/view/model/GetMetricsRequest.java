@@ -1,12 +1,10 @@
 package io.github.kazukin123.anetlab.metricsviewer.view.model;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Map;
 
 import lombok.Data;
 
 @Data
 public class GetMetricsRequest {
-	private List<String> runIds = new ArrayList<String>();
-	private List<String> tagKeys = new ArrayList<String>();
+	private Map<String, Map<String, Integer>> runTagMap;
 }
