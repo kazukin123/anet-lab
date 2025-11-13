@@ -19,7 +19,7 @@ import pathlib
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Bridge JSONL logs to MLflow")
-    parser.add_argument("--logdir", default="logs", help="MetricsLogger 出力フォルダ（省略時: logs）")
+    parser.add_argument("--logdir", default="runs", help="MetricsLogger 出力フォルダ（省略時: runs）")
     parser.add_argument("--run-name", default=None, help="MLflow上のRun名")
     parser.add_argument("--poll-interval", type=float, default=2.0, help="監視間隔[秒]")
     parser.add_argument("--once", action="store_true", help="一度だけ変換して終了")

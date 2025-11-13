@@ -5,7 +5,7 @@ C++ MetricsLogger が出力する JSONL ログを監視し、
 TensorBoard 用の tfevents ファイルへリアルタイム変換するブリッジ。
 
 特徴:
-  - 複数 run ディレクトリ自動検出 (logs/run_YYYYMMDD_HHMMSS/)
+  - 複数 run ディレクトリ自動検出 (runs/run_YYYYMMDD_HHMMSS/)
   - JSONL 形式: 1行1イベント (meta/scalar/vector/tensor)
   - 書き込み途中行は静かにスキップ（漏れなし）
   - 100行ごとに進捗ログを出力
@@ -13,8 +13,8 @@ TensorBoard 用の tfevents ファイルへリアルタイム変換するブリ�
   - filename_suffix=".bridge" により常に1ファイル固定
 ---------------------------------------
 実行方法:
-    python tb_bridge.py --logdir logs
-    tensorboard --logdir logs
+    python tb_bridge.py --runsdir runs
+    tensorboard --runsdir runs
 ---------------------------------------
 """
 
@@ -86,8 +86,8 @@ def process_json_line(writer, j):
         print(f"Unknown type: {t} {j}")
 
 
-def main(log_root="logs", poll_interval=1.0, log_interval=100, clean_events=True):
-    print(f"📡 Watching '{log_root}' for JSONL logs...")
+def main(log_root="runs", poll_interval=1.0, log_interval=100, clean_events=True):
+    print(f"📡 Watching '{log_root}' for JSONL runs...")
 
     run_states = {}  # { run_dir: (SummaryWriter, last_pos, line_count) }
 
@@ -138,11 +138,11 @@ def main(log_root="logs", poll_interval=1.0, log_interval=100, clean_events=True
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Convert MetricsLogger JSONL logs to TensorBoard events.")
-    parser.add_argument("--logdir", default="logs", help="Root directory where JSONL logs are stored")
+    parser = argparse.ArgumentParser(description="Convert MetricsLogger JSONL runs to TensorBoard events.")
+    parser.add_argument("--runsdir", default="runs", help="Root directory where JSONL runs are stored")
     parser.add_argument("--interval", type=float, default=1.0, help="Polling interval in seconds")
     parser.add_argument("--log-interval", type=int, default=1000, help="Print progress every N lines")
     parser.add_argument("--no-clean", action="store_true", help="Do not delete old TensorBoard event files")
     args = parser.parse_args()
 
-    main(args.logdir, args.interval, args.log_interval, clean_events=not args.no_clean)
+    main(args.runsdir, args.interval, args.log_interval, clean_events=not args.no_clean)

@@ -7,7 +7,7 @@ rem cd /d "%ROOT%"
 
 set CARTPOLE_EXE=cart2\bin\release\CartPole2.exe
 set VIEWER_JAR=..\..\viewers\metrics-viewer\target\metrics-viewer.jar
-set VIEWER_PORT=8080
+set VIEWER_PORT=8082
 pwd
 
 echo.
