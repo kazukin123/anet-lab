@@ -993,9 +993,9 @@ WARN_LOGFILE           =
 
 INPUT                  = ../core/anet-core/include \
                          ../core/anet-core/src \
-                         ../wx-apps \
                          ../apps \
-                         ../viewers/metrics-viewer/src/main/java
+                         ../viewers/metrics-viewer/src/main/java \
+                         ../apps-wx
 
 # This tag can be used to specify the character encoding of the source files
 # that Doxygen parses. Internally Doxygen uses the UTF-8 encoding. Doxygen uses
