@@ -59,10 +59,10 @@ namespace anet {
 
     void VideoLogger::Close() {
         if (stream_) {
-            stream_->Close();
             stream_ = nullptr;
         }
         if (process_) {
+            process_->SetNextHandler(nullptr);
             process_->CloseOutput();
             delete process_;
             process_ = nullptr;
