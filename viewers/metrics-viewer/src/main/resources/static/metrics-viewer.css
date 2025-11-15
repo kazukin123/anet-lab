@@ -170,6 +170,11 @@ html, body {
 }
 
 /* --- Run --- */
+#run-list {
+	max-height: 200px;
+	overflow-y: scroll;
+}
+
 #run-list input[type="checkbox"] {
 	appearance: none;
 	width: 16px;

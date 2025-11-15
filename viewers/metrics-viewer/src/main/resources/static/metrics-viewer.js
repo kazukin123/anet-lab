@@ -683,7 +683,7 @@ class MetricsViewerClientApp {
 		const t2 = performance.now();
 		this.plotly.renderBySelection("#main-area", this.selectedRuns.slice(), [...this.activeTags], this.cache);
 		const t3 = performance.now();
-		this.plotly.resizeAll();
+//		this.plotly.resizeAll();
 		const t4 = performance.now();
 		console.log(`[DRAW] total=${(t4-t0).toFixed(1)}ms | ui=${(t2-t1).toFixed(1)}ms | plotly=${(t3-t2).toFixed(1)}ms | resize=${(t4-t3).toFixed(1)}ms`);
 	}
