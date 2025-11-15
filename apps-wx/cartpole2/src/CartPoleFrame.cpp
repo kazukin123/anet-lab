@@ -11,8 +11,7 @@
 #include <filesystem>
 
 
-struct CartPoleFrame::Param {
-
+struct CartPoleFrame::Config : public anet::Config {
     int timer_ms = 20;
     int step_per_frame = 10;
     int eval_interval = 1;
@@ -20,21 +19,13 @@ struct CartPoleFrame::Param {
     int train_exit_step = -1; //110000;
 	int canvas_mode = 0;    //  0:評価エピソードの終了状況を描画 1:学習エピソードの終了状態を描画 2:学習状況を描画 
 
-    CartPoleFrame::Param(const anet::ConfigData& configData) {
-        //if (configData == NULL) return;
-        std::string preset = configData.Get("train.preset", "train");
-        wxString preset_override;
-        if (wxGetApp().GetCmdLineParser()->Found("t", &preset_override)) {
-            preset = preset_override;
-            //configData->Set("train.preset", preset);
-        }
-        ANET_READ_PROPS(configData, preset, timer_ms);
-        ANET_READ_PROPS(configData, preset, step_per_frame);
-        ANET_READ_PROPS(configData, preset, eval_interval);
-        ANET_READ_PROPS(configData, preset, train_pause_step);
-        ANET_READ_PROPS(configData, preset, train_exit_step);
+    CartPoleFrame::Config(const anet::ConfigData& configData) : anet::Config(configData, "train", "CartPoleFrame") {
+        ANET_APPLY_CONFIG(configData, timer_ms);
+        ANET_APPLY_CONFIG(configData, step_per_frame);
+        ANET_APPLY_CONFIG(configData, eval_interval);
+        ANET_APPLY_CONFIG(configData, train_pause_step);
+        ANET_APPLY_CONFIG(configData, train_exit_step);
     }
-
 };
 
 wxBEGIN_EVENT_TABLE(CartPoleFrame, wxFrame)
@@ -44,7 +35,7 @@ wxEND_EVENT_TABLE()
 
 CartPoleFrame::CartPoleFrame(const wxString& title)
     : wxFrame(nullptr, wxID_ANY, title, wxDefaultPosition, wxSize(800, 800)),
-    param_(std::make_unique<Param>(wxGetApp().GetConfig())),
+    config_(std::make_unique<CartPoleFrame::Config>(wxGetApp().GetConfig("train"))),
     //device(torch::kCPU),
     device(torch::kCUDA),
     timer(this, wxID_ANY)
@@ -79,17 +70,14 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     wxLog::SetActiveTarget(this);
 
     // パラメータ記録
-    wxLogInfo("train.preset=%s", wxGetApp().GetConfig().Get("train.preset", "train"));
-    nlohmann::json params = {
-        {"eval_interval", param_->eval_interval},
-        {"train_pause_step", param_->train_pause_step},
-    };
-    anet::MetricsLogger::Instance()->log_json("train/params", params);
+    wxLogInfo("train.preset=%s confg=%s", wxGetApp().GetConfig("train").Get("preset"), config_->ToStdString());
+    anet::MetricsLogger::Instance()->log_json("train/params", config_->ToJson());
     anet::MetricsLogger::Instance()->flush();
 
     // --- RL生成 ---
     env = std::make_unique<CartPoleEnv>();
-    agent = std::make_unique<anet::rl::DQNAgent>(*wxGetApp().GetCmdLineParser(), wxGetApp().GetConfig(), *env, 4, 2, device);
+    anet::ConfigData agentConfig = wxGetApp().GetConfig("agent");
+    agent = std::make_unique<anet::rl::DQNAgent>(agentConfig, *env, 4, 2, device);
 
     // ランダム方策で環境難易度評価
     evaluateEnvironment(*env, /*num_actions=*/2, /*num_trials=*/100);
@@ -99,7 +87,7 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
 
     // --- タイマー開始 ---
     Bind(wxEVT_TIMER, &CartPoleFrame::OnTimer, this);
-    timer.Start(param_->timer_ms);  // 学習＆描画更新
+    timer.Start(config_->timer_ms);  // 学習＆描画更新
 
     wxLogInfo("CartPoleRLGUI started.\n");
 }
@@ -132,8 +120,8 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     //auto action = agent->select_action(state);
     float last_reward = 0.0f;
     torch::Tensor action;
-    for (int i = 0; i < param_->step_per_frame; ++i) {
-        if ((param_->train_exit_step > 0) && (step_count >= param_->train_exit_step)) {
+    for (int i = 0; i < config_->step_per_frame; ++i) {
+        if ((config_->train_exit_step > 0) && (step_count >= config_->train_exit_step)) {
             anet::MetricsLogger::Instance()->flush();
             wxGetApp().Exit();
         }
@@ -170,7 +158,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
 
             // 学習状況評価
             float eval_total_reward = -1.0f;
-            if (episode_count % param_->eval_interval == 0) {
+            if (episode_count % config_->eval_interval == 0) {
                 eval_count_++;
                 {   // ターゲットネットワークによる評価
                     state = env->Reset(anet::rl::RunMode::Eval1);
@@ -233,11 +221,11 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     //canvas->SetReward(last_reward);
     //canvas->Refresh();
 
-    if ((param_->train_exit_step > 0) && (step_count >= param_->train_exit_step)) {
+    if ((config_->train_exit_step > 0) && (step_count >= config_->train_exit_step)) {
         anet::MetricsLogger::Instance()->flush();
         wxGetApp().Exit();
     }
-    if ((param_->train_pause_step > 0) && (step_count >= param_->train_pause_step) && !auto_pause_done_) {
+    if ((config_->train_pause_step > 0) && (step_count >= config_->train_pause_step) && !auto_pause_done_) {
         auto_pause_done_ = true;
         training_paused = true;
     }

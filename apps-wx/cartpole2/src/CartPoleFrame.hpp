@@ -23,8 +23,8 @@ public:
     virtual void DoLogText(const wxString& msg);
 private:
     // パラメータ
-    struct Param;
-    std::unique_ptr<Param> param_;
+    struct Config;
+    std::unique_ptr<Config> config_;
 
     // GUI部品
     CartPoleCanvas* canvas = nullptr;

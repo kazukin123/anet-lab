@@ -3,22 +3,18 @@
 #include <unordered_map>
 #include <fstream>
 #include <stdexcept>
+#include <wx/cmdline.h>
+#include <nlohmann/json.hpp>
 #include "anet/util.hpp"
 
-// ---- 読み込みマクロ（group と field を指定する）----
-#ifndef ANET_READ_PROPS
-#define ANET_READ_PROPS(configData, group, field) \
-        (configData).Read(anet::config_key(std::string(group), #field), (field), (field))
+
+// ---- 読み込みマクロ ----
+#ifndef ANET_APPLY_CONFIG
+#define ANET_APPLY_CONFIG(configData,field) \
+        (configData).Read((#field), (field), (field))
 #endif
 
 namespace anet {
-
-    // ---- key 結合 ("group" + "." + field) ----
-    static inline std::string config_key(const std::string& group, const char* field) {
-        if (!group.empty() && group.back() == '.')
-            return group + field;
-        return group + "." + field;
-    }
 
     class ConfigData {
     public:
@@ -28,14 +24,18 @@ namespace anet {
         }
 
         void Set(const std::string& key, const std::string& value) {
-            kv_[key] = value;
+            kv_.Set(key, value);
         }
 
         bool Has(const std::string& key) const {
             return kv_.find(key) != kv_.end();
         }
+
+        const anet::OrderedMap<std::string, std::string> Map() const {
+            return kv_;
+        }
     public:
-        std::string Get(const std::string& key, const char* defaultValue) const {
+        std::string Get(const std::string& key, const char* defaultValue = "") const {
             std::string v(defaultValue);
             Read(key, v, v);
             return v;
@@ -90,7 +90,7 @@ namespace anet {
         }
 
     private:
-        anet::LinkedHashMap<std::string, std::string> kv_;
+        anet::OrderedMap<std::string, std::string> kv_;
     };
 
     class Properties {
@@ -104,65 +104,39 @@ namespace anet {
     private:
         ConfigData configData;
 
-        static std::string Trim(const std::string& s) {
-            const char* ws = " \t\r\n";
-            size_t b = s.find_first_not_of(ws);
-            if (b == std::string::npos) return "";
-            size_t e = s.find_last_not_of(ws);
-            return s.substr(b, e - b + 1);
-        }
-
-        void Load(const std::string& filename) {
-            std::ifstream ifs(filename);
-            if (!ifs) throw std::runtime_error("Properties: Cannot open: " + filename);
-
-            std::string line;
-            while (std::getline(ifs, line)) {
-			    if (line.empty() || line[0] == '#') continue; // コメント行スキップ
-
-			    size_t posHash = line.find('#');   // '#' 以降はコメント扱い
-                if (posHash != std::string::npos)
-                    line = line.substr(0, posHash);
-
-			    size_t posSlash = line.find("//");  // '//' 以降はコメント扱い
-                if (posSlash != std::string::npos)
-                    line = line.substr(0, posSlash);
-
-			    line = Trim(line);  // 前後の空白除去
-                if (line.empty()) continue;
-
-			    size_t pos = line.find('=');    // '=' または ':' で区切る
-                if (pos == std::string::npos)
-                    pos = line.find(':');
-                if (pos == std::string::npos)
-                    continue;
-
-                std::string key = Trim(line.substr(0, pos));
-                std::string value = Trim(line.substr(pos + 1));
-
-                // 末尾 ';' を除去
-                while (!value.empty() && value.back() == ';')
-                    value.pop_back();
-                value = Trim(value);
-
-                if (!key.empty()) {
-                    configData.Set(key, value);
-                }
-            }
-        }
+        static std::string Trim(const std::string& s);
+        void Load(const std::string& filename);
     };
 
-    // サンプル
-    //struct RLAgent::Param {
-    //    static constexpr const char* GROUP = "agent";
-    //
-    //    float alpha = 1e-3f;
-    //    float gamma = 0.99f;
-    //
-    //    void Load(const Properties& props) {
-    //        ANET_READ_PROPS(props, GROUP, alpha);
-    //        ANET_READ_PROPS(props, GROUP, gamma);
-    //    }
-    //};
+    class ConfigManager {
+    public:
+        ConfigManager(const std::string& filePath,const wxCmdLineParser* cmdLine = nullptr);
 
-}
+        ConfigData Make(const std::string& module, const std::string& defaultPreset = "") const;
+        const ConfigData& GetConfigData() const { return data_; }
+    private:
+        void LoadFromFile(const std::string& filePath);
+        void ApplyCmdLineOverrides(const wxCmdLineParser& cmdLine);
+
+        // (module, defaultPreset) → resolvedModule を返す
+        std::string ResolveModule(const std::string& module,
+            const std::string& defaultPreset) const;
+
+    private:
+        ConfigData data_;
+    };
+
+    class Config {
+    public:
+        Config();
+        Config(const ConfigData& configData, const std::string& className = "", const std::string& moduleName = "");
+
+        std::string ToStdString() const;
+        nlohmann::json ToJson() const;
+    protected:
+        ConfigData configData_;
+        std::string className_;
+        std::string moduleName_;
+    };
+
+} // namespace anet

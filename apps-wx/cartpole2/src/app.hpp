@@ -13,11 +13,9 @@ public:
     virtual bool OnInit() override;
     virtual int OnExit() override;
 
-    const anet::ConfigData& GetConfig() const { return *config_data_; }
-    wxCmdLineParser* GetCmdLineParser() const { return cmdline_.get(); }
+    anet::ConfigData GetConfig(const std::string module) const { return config_mgr_->Make(module); }
 private:
-    std::unique_ptr<wxCmdLineParser> cmdline_;
-    std::unique_ptr<anet::ConfigData> config_data_;
+    std::unique_ptr<anet::ConfigManager> config_mgr_;
 };
 
 wxDECLARE_APP(MyApp);

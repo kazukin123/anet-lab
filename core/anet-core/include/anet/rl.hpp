@@ -40,28 +40,6 @@ namespace anet::rl {
     };
 
     // =============================================================
-    // Logger Interface（最小構成）
-    // =============================================================
-
-    class LoggerInterface {
-    public:
-        virtual void LogScalar(const std::string& tag, float value, int step) = 0;
-        virtual void LogText(const std::string& tag, const std::string& msg) = 0;
-        virtual void Flush() {}
-        virtual ~LoggerInterface() = default;
-    };
-
-    class ConsoleLogger : public LoggerInterface {
-    public:
-        void LogScalar(const std::string& tag, float value, int step) override {
-            std::cout << "[" << step << "] " << tag << " = " << value << "\n";
-        }
-        void LogText(const std::string& tag, const std::string& msg) override {
-            std::cout << "[LOG] " << tag << ": " << msg << "\n";
-        }
-    };
-
-    // =============================================================
     // Environment 抽象クラス（Gym風API）
     // =============================================================
 
@@ -171,31 +149,6 @@ namespace anet::rl {
         virtual void UpdateBatch(const BatchData&) = 0;
 
         virtual ~Agent() = default;
-    };
-
-    // =============================================================
-    // OnPolicySession（PPO/A2Cなど用）
-    // =============================================================
-
-    class OnPolicySession {
-    public:
-        explicit OnPolicySession(Agent& agent) : agent_(agent) {}
-
-        void AddExperience(const Experience& e) { batch_.Add(e); }
-
-        void Finalize() {
-            if (finalized_) return;
-            agent_.UpdateBatch(batch_);
-            finalized_ = true;
-            batch_.Clear();
-        }
-
-        const BatchData& GetBatch() const { return batch_; }
-
-    private:
-        Agent& agent_;
-        BatchData batch_;
-        bool finalized_ = false;
     };
 
     std::unique_ptr<HeatMap> MakeStateHeatMapPtr(

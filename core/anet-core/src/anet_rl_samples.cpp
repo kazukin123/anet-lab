@@ -123,23 +123,6 @@ void Sample_ReplayBufferTraining(Environment& env, DQNStyleAgent& agent) {
 }
 
 // =============================================================
-// サンプル②：On-policy集約（PPO）
-// =============================================================
-void Sample_OnPolicySession(Environment& env, PPOStyleAgent& agent) {
-    std::cout << "\n=== On-Policy Session ===\n";
-    OnPolicySession session(agent);
-    auto state = env.Reset();
-    for (int t = 0; t < 100; ++t) {
-        auto [action, logp, value] = agent.SelectAction(state);
-        auto resp = env.DoStep(action);
-        session.AddExperience({ state, action, resp });
-        state = resp.next_state;
-        if (resp.done) env.Reset();
-    }
-    session.Finalize();
-}
-
-// =============================================================
 // サンプル③：ミックスモード（1000stepごとに評価）
 // =============================================================
 void Sample_MixedTrainingAndEval(Environment& env, DQNStyleAgent& agent) {
@@ -178,8 +161,6 @@ void RunAllSamples() {
     PPOStyleAgent ppo(4, 2);
 
     Sample_ReplayBufferTraining(env, dqn);
-    Sample_OnPolicySession(env, ppo);
     Sample_MixedTrainingAndEval(env, dqn);
 }
 
-int main() { RunAllSamples(); }

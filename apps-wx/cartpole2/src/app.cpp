@@ -43,16 +43,15 @@ static wxCmdLineEntryDesc desc[] = {
 bool MyApp::OnInit() {
     wxInitAllImageHandlers();
 
-    cmdline_ = std::make_unique<wxCmdLineParser>(desc, argc, (wchar_t**)argv);
-    if (cmdline_->Parse(true)) {
+    wxCmdLineParser cmdline_(desc, argc, (wchar_t**)argv);
+    if (cmdline_.Parse(true)) {
         return false;
     }
-    anet::Properties properties(GetConfigFilePath());
-    config_data_ = std::make_unique<anet::ConfigData>(properties.ToConfigData());
+    config_mgr_ = std::make_unique<anet::ConfigManager>(GetConfigFilePath(), &cmdline_);
+
     anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetLogsPath());
 
-    bool enable_image_log;
-    config_data_->Read("log.enable_image_log", enable_image_log, true);
+    bool enable_image_log = config_mgr_->GetConfigData().Get("log.enable_image_log", true);
     anet::MetricsLogger::Instance()->SetEnableImageLog(enable_image_log);
 
     auto* frame = new CartPoleFrame("CartPole RL");

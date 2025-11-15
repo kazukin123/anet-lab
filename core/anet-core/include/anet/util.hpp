@@ -1,5 +1,10 @@
 ﻿#pragma once
 
+#pragma once
+#include <unordered_map>
+#include <vector>
+#include <utility>
+#include <cstddef>
 #include <type_traits>
 
 /**
@@ -124,127 +129,174 @@ namespace anet {
         T value_{};      ///< 現在値。init_ == false の間は意味を持たない
     };
 
-    template <class K, class V>
-    class LinkedHashMap {
+    // ================================
+    // OrderedMap Iterator
+    // ================================
+    template<typename K, typename V>
+    class OrderedMap;
+
+    template<typename K, typename V>
+    class OrderedMapIterator
+    {
     public:
-        explicit LinkedHashMap(bool access_order = false) : access_order_(access_order) {}
+        using value_type = std::pair<const K&, const V&>;
 
-        std::size_t size() const { return map_.size(); }
-        bool empty() const { return map_.empty(); }
-        void clear() {
-            map_.clear();
-            order_.clear();
+        OrderedMapIterator(const OrderedMap<K, V>* owner, size_t pos)
+            : owner_(owner), pos_(pos)
+        {
         }
 
-        // ==== iterator ====
-        struct iterator {
-            using list_iterator = typename std::list<K>::iterator;
-            iterator(list_iterator it, LinkedHashMap* owner) : it_(it), owner_(owner) {}
-
-            iterator& operator++() { ++it_; return *this; }
-            bool operator==(const iterator& rhs) const { return it_ == rhs.it_; }
-            bool operator!=(const iterator& rhs) const { return it_ != rhs.it_; }
-
-            std::pair<const K&, V&> operator*() const {
-                auto mit = owner_->map_.find(*it_);
-                return { mit->first, mit->second.first };
-            }
-
-            list_iterator it_;
-            LinkedHashMap* owner_;
-        };
-
-        struct const_iterator {
-            using list_iterator = typename std::list<K>::const_iterator;
-            const_iterator(list_iterator it, const LinkedHashMap* owner) : it_(it), owner_(owner) {}
-
-            const_iterator& operator++() { ++it_; return *this; }
-            bool operator==(const const_iterator& rhs) const { return it_ == rhs.it_; }
-            bool operator!=(const const_iterator& rhs) const { return it_ != rhs.it_; }
-
-            std::pair<const K&, const V&> operator*() const {
-                auto mit = owner_->map_.find(*it_);
-                return { mit->first, mit->second.first };
-            }
-
-            list_iterator it_;
-            const LinkedHashMap* owner_;
-        };
-
-        iterator begin() { return iterator(order_.begin(), this); }
-        iterator end() { return iterator(order_.end(), this); }
-
-        const_iterator begin() const { return const_iterator(order_.cbegin(), this); }
-        const_iterator end()   const { return const_iterator(order_.cend(), this); }
-
-        const_iterator cbegin() const { return const_iterator(order_.cbegin(), this); }
-        const_iterator cend()   const { return const_iterator(order_.cend(), this); }
-
-        iterator find(const K& key) {
-            auto it = map_.find(key);
-            if (it == map_.end()) return end();
-            return iterator(it->second.second, this);
+        bool operator==(const OrderedMapIterator& rhs) const {
+            return owner_ == rhs.owner_ && pos_ == rhs.pos_;
         }
 
-        const_iterator find(const K& key) const {
-            auto it = map_.find(key);
-            if (it == map_.end()) return end();
-            return const_iterator(it->second.second, this);
+        bool operator!=(const OrderedMapIterator& rhs) const {
+            return !(*this == rhs);
         }
 
-        bool contains(const K& key) const {
-            return map_.find(key) != map_.end();
+        // ++it
+        OrderedMapIterator& operator++() {
+            ++pos_;
+            return *this;
         }
 
-        V& operator[](const K& key) {
-            auto it = map_.find(key);
-            if (it == map_.end()) {
-                order_.push_back(key);
-                auto list_it = std::prev(order_.end());
-                auto inserted = map_.emplace(key, MapValue(V{}, list_it));
-                return inserted.first->second.first;
-            }
-            if (access_order_) Touch(it);
-            return it->second.first;
+        // it++
+        OrderedMapIterator operator++(int) {
+            OrderedMapIterator tmp = *this;
+            ++(*this);
+            return tmp;
         }
 
-        void put(const K& key, const V& value) {
-            auto it = map_.find(key);
-            if (it != map_.end()) {
-                it->second.first = value;
-                if (access_order_) Touch(it);
-                return;
-            }
-            order_.push_back(key);
-            map_.emplace(key, MapValue(value, std::prev(order_.end())));
-        }
-
-        V* get(const K& key) {
-            auto it = map_.find(key);
-            if (it == map_.end()) return nullptr;
-            if (access_order_) Touch(it);
-            return &it->second.first;
-        }
-
-        bool erase(const K& key) {
-            auto it = map_.find(key);
-            if (it == map_.end()) return false;
-            order_.erase(it->second.second);
-            map_.erase(it);
-            return true;
+        value_type operator*() const {
+            const K& key = owner_->Order()[pos_];
+            const V& val = owner_->Raw().at(key);
+            return { key, val };
         }
 
     private:
-        using ListIter = typename std::list<K>::iterator;
-        using MapValue = std::pair<V, ListIter>;
-        using Map = std::unordered_map<K, MapValue>;
+        const OrderedMap<K, V>* owner_;
+        size_t pos_;
+    };
 
-        void Touch(typename Map::iterator it) {
-            order_.splice(order_.end(), order_, it->second.second);
+
+    // ================================
+    // OrderedMap 本体
+    // ================================
+    template<typename K, typename V>
+    class OrderedMap
+    {
+    public:
+        using iterator = OrderedMapIterator<K, V>;
+        using const_iterator = OrderedMapIterator<K, V>;
+
+        // ------------------------------------------
+        // 値セット
+        // ------------------------------------------
+        void Set(const K& key, const V& value)
+        {
+            auto it = kv_.find(key);
+            if (it == kv_.end()) {
+                order_.push_back(key);
+            }
+            kv_[key] = value;
         }
 
-        bool access_order_;
-        std::list<K> order_;
-        Map map_;
+        // ------------------------------------------
+        // 存在チェック
+        // ------------------------------------------
+        bool Has(const K& key) const {
+            return kv_.find(key) != kv_.end();
+        }
+
+        // ------------------------------------------
+        // 値取得
+        // ------------------------------------------
+        const V& Get(const K& key) const {
+            return kv_.at(key);
+        }
+
+        const V& GetOr(const K& key, const V& defaultValue) const
+        {
+            auto it = kv_.find(key);
+            return (it == kv_.end()) ? defaultValue : it->second;
+        }
+
+        // ------------------------------------------
+        // STL互換 find()
+        // ------------------------------------------
+        iterator find(const K& key)
+        {
+            if (!Has(key)) return end();
+
+            // order_ 内の index を探す（定義順としての位置）
+            for (size_t i = 0; i < order_.size(); ++i) {
+                if (order_[i] == key) {
+                    return iterator(this, i);
+                }
+            }
+            return end(); // 理論的にはありえない
+        }
+
+        const_iterator find(const K& key) const
+        {
+            if (!Has(key)) return end();
+
+            for (size_t i = 0; i < order_.size(); ++i) {
+                if (order_[i] == key) {
+                    return const_iterator(this, i);
+                }
+            }
+            return end();
+        }
+
+        // ------------------------------------------
+        // 削除
+        // ------------------------------------------
+        void Erase(const K& key)
+        {
+            if (!Has(key)) return;
+
+            kv_.erase(key);
+
+            for (auto it = order_.begin(); it != order_.end(); ++it) {
+                if (*it == key) {
+                    order_.erase(it);
+                    break;
+                }
+            }
+        }
+
+        // ------------------------------------------
+        // 基本操作
+        // ------------------------------------------
+        void Clear()
+        {
+            kv_.clear();
+            order_.clear();
+        }
+
+        size_t Size() const { return kv_.size(); }
+        bool Empty() const { return kv_.empty(); }
+
+        // ------------------------------------------
+        // iterator API
+        // ------------------------------------------
+        iterator begin() { return iterator(this, 0); }
+        iterator end() { return iterator(this, order_.size()); }
+
+        const_iterator begin() const { return const_iterator(this, 0); }
+        const_iterator end()   const { return const_iterator(this, order_.size()); }
+
+        // ------------------------------------------
+        // 補助
+        // ------------------------------------------
+        const std::vector<K>& Order() const { return order_; }
+        const std::unordered_map<K, V>& Raw() const { return kv_; }
+
+    private:
+        std::unordered_map<K, V> kv_;  // 高速検索
+        std::vector<K> order_;        // 定義順保持
     };
+
+
 } // namespace anet
