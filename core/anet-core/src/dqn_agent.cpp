@@ -197,7 +197,7 @@ std::shared_ptr<anet::rl::UpdateResult> DQNAgent::UpdateStep(const anet::rl::Exp
         if (replay_buffer.Size() < static_cast<size_t>(config_.replay_warmup_steps)) {
             //return;
         } else if (train_step % config_.replay_update_interval == 0) {
-            auto batch = replay_buffer.Sample(config_.replay_batch_size);
+            auto batch = replay_buffer.Sample(config_.replay_batch_size);   // TODO: UpdateBatch へ完全移行したら Sample() は廃止する
             OptimizeBatch(batch);
         }
     }

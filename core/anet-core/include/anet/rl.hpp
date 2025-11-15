@@ -6,13 +6,16 @@
 #include <string>
 #include <tuple>
 #include <random>
+#include <unordered_map>
+#include <cstdint>
 #include "anet/heat_map.hpp"
 #include "anet/metrics_logger.hpp"
+#include "anet/common.hpp"
 
 namespace anet::rl {
 
     // =============================================================
-    // 列挙・構造体（RunModeは学習/推論の切替）
+    // RunMode
     // =============================================================
 
     enum class RunMode { Train, Eval1, Eval2 };
@@ -21,7 +24,6 @@ namespace anet::rl {
 
     /**
      * @brief 環境が返すステップ応答。
-     * next_state, reward, done, truncated の基本情報を保持。
      */
     struct EnvResponse {
         torch::Tensor next_state;
@@ -32,7 +34,6 @@ namespace anet::rl {
 
     /**
      * @brief エージェントの学習に使う「1回の経験」。
-     * 状態・行動と、その結果としてのEnvResponseを内包。
      */
     struct Experience {
         torch::Tensor state;
@@ -40,29 +41,36 @@ namespace anet::rl {
         EnvResponse response;
     };
 
-    // =============================================================
-    // Environment 抽象クラス（Gym風API）
-    // =============================================================
+    inline void CheckDevice(const Experience& e, const torch::Device& expected)
+    {
+        CheckDevice(e.state, expected, "Experience.state");
+        CheckDevice(e.action, expected, "Experience.action");
+        CheckDevice(e.response.next_state, expected, "Experience.next_state");
+    }
 
     struct StateSpaceInfo {
         torch::Tensor shape;
         torch::Tensor low;
         torch::Tensor high;
-	};
+    };
+
+    // =============================================================
+    // Environment 抽象クラス
+    // =============================================================
 
     class Environment {
     public:
         virtual StateSpaceInfo GetStateSpaceInfo() const = 0;
 
-        virtual torch::Tensor Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) = 0;
-        virtual EnvResponse DoStep(const torch::Tensor& action, anet::rl::RunMode mode = anet::rl::RunMode::Train) = 0;
+        virtual torch::Tensor Reset(RunMode mode = RunMode::Train) = 0;
+        virtual EnvResponse DoStep(const torch::Tensor& action, RunMode mode = RunMode::Train) = 0;
         virtual torch::Tensor GetState() const = 0;
 
         virtual ~Environment() = default;
     };
 
     // =============================================================
-    // BatchData / ReplayBuffer（学習データ格納）
+    // BatchData（Learner 抽象用の汎用バッチ）
     // =============================================================
 
     class BatchData {
@@ -86,46 +94,45 @@ namespace anet::rl {
     };
 
     struct ExperienceBatch {
-        torch::Tensor states;       // (B, state_dim)
-        torch::Tensor actions;      // (B,)
-        torch::Tensor next_states;  // (B, state_dim)
+        torch::Tensor states;       // (B, state_dim...)
+        torch::Tensor actions;      // (B, action_dim...) or (B,)
+        torch::Tensor next_states;  // (B, state_dim...)
         torch::Tensor rewards;      // (B,)
-        torch::Tensor dones;        // (B,)
+        torch::Tensor dones;       // (B,)
+        torch::Tensor truncateds;  // (B,)
     };
 
     class ReplayBuffer {
     public:
         explicit ReplayBuffer(size_t capacity = 10000) : capacity_(capacity) {}
 
-        void Push(const Experience& e) {
-            Experience exp = e;
-            if (exp.state.dim() == 2 && exp.state.size(0) == 1)
-                exp.state = exp.state.squeeze(0);
-            if (exp.response.next_state.dim() == 2 && exp.response.next_state.size(0) == 1)
-                exp.response.next_state = exp.response.next_state.squeeze(0);
+        void Push(const Experience& e);
 
-            if (buffer_.size() >= capacity_) buffer_.erase(buffer_.begin());
-            buffer_.push_back(e);
-        }
-
-        std::vector<Experience> Sample(size_t n) const {
-            n = std::min(n, buffer_.size());
-            std::vector<Experience> batch;
-            batch.reserve(n);
-            for (size_t i = 0; i < n; ++i)
-                batch.push_back(buffer_[rand() % buffer_.size()]);
-            return batch;
-        }
-
+        std::vector<Experience> Sample(size_t n) const;
         ExperienceBatch SampleBatch(size_t n, torch::Device device) const;
 
-        size_t Size() const { return buffer_.size(); }
+        size_t Size() const { return size_; }
 
     private:
         size_t capacity_;
-        std::vector<Experience> buffer_;
+        size_t size_ = 0;
+        size_t write_index_ = 0;
+
+        bool initialized_ = false;
+        torch::Device device_ = torch::kCPU;
+
+        torch::Tensor states_;
+        torch::Tensor actions_;
+        torch::Tensor next_states_;
+        torch::Tensor rewards_;
+        torch::Tensor dones_;
+        torch::Tensor truncateds_;
+
+        mutable std::mt19937 engine_{ std::random_device{}() };
     };
 
+    // =============================================================
+    // Runner / Sampler
     // =============================================================
 
     struct ActionResult {
@@ -165,7 +172,7 @@ namespace anet::rl {
         virtual std::shared_ptr<UpdateResult> UpdateBatch(const BatchData&) = 0;
         virtual ~Learner() = default;
     };
-    
+
     class PostUpdateObserver {
     public:
         virtual void OnPostUpdate(const std::shared_ptr<UpdateResult>& result) = 0;
@@ -177,7 +184,11 @@ namespace anet::rl {
         virtual ~Agent() = default;
     };
 
-    // 環境のステップに同期して更新するAgent基底クラス（DQN, DDGP, SAC, A2C など）
+    // =============================================================
+    // StepBasedLearner / TrajectoryBasedLearner
+    // =============================================================
+
+    // 環境のステップに同期して更新する Agent 基底クラス（DQN, DDPG, SAC, A2C など）
     class StepBasedLearner : public Learner {
     public:
         StepBasedLearner() = default;
@@ -186,7 +197,7 @@ namespace anet::rl {
         // ① pure virtual — 各 Agent が実装
         virtual std::shared_ptr<UpdateResult> UpdateStep(const Experience& expr) override = 0;
 
-        // ② 共通ラッパ
+        // ② 共通ラッパ（BatchData を Experience 単位で回す）
         virtual std::shared_ptr<UpdateResult> UpdateBatch(const BatchData& batch) override {
             std::shared_ptr<UpdateResult> last;
             for (auto& e : batch.Data()) {
@@ -195,7 +206,9 @@ namespace anet::rl {
             return last;
         }
 
-        virtual void OnPostUpdate(const std::shared_ptr<UpdateResult>& result) ;
+        virtual void OnPostUpdate(const std::shared_ptr<UpdateResult>& /*result*/) {
+            // 必要に応じて派生クラスで利用
+        }
 
         size_t GetStepCount() const { return step_count_; }
     protected:
@@ -205,16 +218,19 @@ namespace anet::rl {
         size_t step_count_ = 0;
     };
 
-    // 複数ステップ（軌跡）収集後に更新するAgent基底クラス（PPO, TRPO など）
+    // 複数ステップ（軌跡）収集後に更新する Agent 基底クラス（PPO, TRPO など）
     class TrajectoryBasedLearner : public Learner {
     public:
         // TODO: define
         virtual ~TrajectoryBasedLearner() = default;
     };
 
+    // =============================================================
+    // MetricsObserver / Notifier
+    // =============================================================
     class MetricsObserver : public PostUpdateObserver {
     public:
-        MetricsObserver(const StepBasedLearner* learner)
+        explicit MetricsObserver(const StepBasedLearner* learner)
             : learner_(learner) {
         }
 
@@ -222,7 +238,7 @@ namespace anet::rl {
             if (!learner_) return;
 
             size_t step = learner_->GetStepCount();
-            r->SyncMetrics();   // ★
+            r->SyncMetrics();
             auto map = r->GetMetricsMap();
 
             for (const auto& [tag, value] : map) {
@@ -233,9 +249,7 @@ namespace anet::rl {
         const StepBasedLearner* learner_;
     };
 
-    // =============================================================
-
-    class Notifer {
+    class Notifier {
     public:
         void AddObserver(PostUpdateObserver* obs) {
             observers_.push_back(obs);
@@ -251,9 +265,11 @@ namespace anet::rl {
     };
 
     // =============================================================
+    // HeatMap 関連
+    // =============================================================
 
     std::unique_ptr<HeatMap> MakeStateHeatMapPtr(
-        const anet::rl::StateSpaceInfo& info,
+        const StateSpaceInfo& info,
         int idx_x,
         int idx_y,
         int width = 256,
@@ -262,7 +278,7 @@ namespace anet::rl {
         uint32_t flags = HM_Default);
 
     std::unique_ptr<TimeHeatMap> MakeStateTimeHeatMapPtr(
-        const anet::rl::StateSpaceInfo& info,
+        const StateSpaceInfo& info,
         int idx_x,
         int width = 256,
         int height = 2560,

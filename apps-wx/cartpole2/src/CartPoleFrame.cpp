@@ -78,13 +78,14 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     env = std::make_unique<CartPoleEnv>();
     anet::ConfigData agentConfig = wxGetApp().GetConfig("agent");
     agent = std::make_unique<anet::rl::DQNAgent>(agentConfig, *env, 4, 2, device);
-    notifer_.AddObserver(agent.get());
+    notifier_.AddObserver(agent.get());
 
     // ランダム方策で環境難易度評価
     evaluateEnvironment(*env, /*num_actions=*/2, /*num_trials=*/100);
     
     // --- 環境初期化 ---
     state = env->Reset();  // ← reset() は 初期状態 を返す
+    anet::CheckDeviceCPU(state, "state");
 
     // --- タイマー開始 ---
     Bind(wxEVT_TIMER, &CartPoleFrame::OnTimer, this);
@@ -131,8 +132,8 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         auto [action, _, __] = agent->SelectAction(state);
         //auto [next_state, reward, done, _ ] = env->DoStep(action);
         auto env_result = env->DoStep(action);
-        auto update_result = agent->UpdateStep({ state, action, env_result.next_state, env_result.reward, env_result.done });
-        notifer_.Notify(update_result);
+        auto update_result = agent->UpdateStep({ state.to(device), action.to(device), env_result.next_state.to(device), env_result.reward, env_result.done});
+        notifier_.Notify(update_result);
         state = env_result.next_state.clone();
         last_reward = env_result.reward;
         train_total_reward += env_result.reward;

@@ -35,6 +35,11 @@ public:
     torch::Tensor GetState() const override { return state; }
 };
 
+class DummyUpdateResult : public UpdateResult {
+public:
+    void SyncMetrics() { }
+};
+
 // =============================================================
 // DQN風エージェント（ReplayBuffer利用）
 // =============================================================
@@ -56,18 +61,23 @@ public:
         return { torch::tensor(action_index, torch::kInt64), torch::Tensor(), torch::Tensor() };
     }
 
-    void Update(const Experience& e) override { buffer_.Push(e); }
-
-    void UpdateBatch(const BatchData&) override {
-        if (buffer_.Size() < batch_size_) return;
-        auto samples = buffer_.Sample(batch_size_);
-        torch::Tensor loss = torch::zeros({ 1 });
-        for (const auto& e : samples)
-            loss += torch::pow(e.state.mean() - e.response.next_state.mean(), 2);
-        std::cout << "[DQN] loss=" << loss.item<float>() << " (" << samples.size() << " samples)\n";
-        epsilon = std::max(0.05f, epsilon * 0.99f);
+    std::shared_ptr<UpdateResult> UpdateStep(const Experience& e) override {
+        buffer_.Push(e);
+        return std::make_shared<DummyUpdateResult>();
     }
 
+    std::shared_ptr<UpdateResult> UpdateBatch(const BatchData&) override {
+        //if (buffer_.Size() < batch_size_) return std::make_shared<DummyUpdateResult>();
+        //auto samples = buffer_.Sample(batch_size_);
+        //torch::Tensor loss = torch::zeros({ 1 });
+        //for (const auto& e : samples)
+        //    loss += torch::pow(e.state.mean() - e.response.next_state.mean(), 2);
+        //std::cout << "[DQN] loss=" << loss.item<float>() << " (" << samples.size() << " samples)\n";
+        //epsilon = std::max(0.05f, epsilon * 0.99f);
+        return std::make_shared<DummyUpdateResult>();
+    }
+
+    void OnPostUpdate(const std::shared_ptr<UpdateResult>& result) {}
 private:
     torch::nn::Linear policy;
     ReplayBuffer buffer_{ 5000 };
@@ -95,11 +105,15 @@ public:
         return { torch::tensor(action_index, torch::kInt64), log_prob, value };
     }
 
-    void Update(const Experience& e) override { }
-    void UpdateBatch(const BatchData& batch) override {
+    std::shared_ptr<UpdateResult> UpdateStep(const Experience& e) override {
+        return std::make_shared<DummyUpdateResult>();
+    }
+    std::shared_ptr<UpdateResult> UpdateBatch(const BatchData& batch) override {
         std::cout << "[PPO] collected " << batch.Size() << " experiences\n";
+        return std::make_shared<DummyUpdateResult>();
     }
 
+    void OnPostUpdate(const std::shared_ptr<UpdateResult>& result) {}
 private:
     torch::nn::Linear policy;
     torch::nn::Linear value_net;
@@ -114,7 +128,7 @@ void Sample_ReplayBufferTraining(Environment& env, DQNStyleAgent& agent) {
     for (int t = 0; t < 200; ++t) {
         auto [action, _, __] = agent.SelectAction(state);
         auto resp = env.DoStep(action);
-        agent.Update({ state, action, resp });
+        agent.UpdateStep({ state, action, resp });
         state = resp.next_state;
         if (resp.done) env.Reset();
         if (t % 10 == 0) agent.UpdateBatch(BatchData());
@@ -130,7 +144,7 @@ void Sample_MixedTrainingAndEval(Environment& env, DQNStyleAgent& agent) {
     for (int t = 1; t <= 3000; ++t) {
         auto [action, _, __] = agent.SelectAction(state);
         auto resp = env.DoStep(action);
-        agent.Update({ state, action, resp });
+        agent.UpdateStep({ state, action, resp });
         state = resp.next_state;
         if (resp.done) env.Reset();
         if (t % 20 == 0) agent.UpdateBatch(BatchData());

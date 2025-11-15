@@ -2,8 +2,11 @@
 #include <torch/torch.h>
 #include <string>
 #include <sstream>
+#include "anet/common.hpp"
 
-namespace anet::util {
+#define ANET_ENABLE_TENSOR_CHECK
+
+namespace anet {
 
     // Device と dtype を一元管理する軽量コンテキスト
     struct TensorContext {
@@ -75,5 +78,33 @@ namespace anet::util {
         TORCH_CHECK(s.numel() == 1, "itemf expects scalar, got numel=", s.numel(), " shape=", s.sizes());
         return s.item<float>();
     }
-    
+
+    inline void CheckDevice(const torch::Tensor& t, const torch::Device& expected, const char* name = "tensor")
+    {
+        if (t.device() != expected) {
+            std::stringstream ss;
+            ss << "Device mismatch in " << name << ": tensor=" << t.device()
+                << " expected=" << expected;
+            wxASSERT_MSG(false, ss.str());
+        }
+    }
+    inline void CheckDeviceCPU(const torch::Tensor& t, const char* name = "tensor")
+    {
+        CheckDevice(t, torch::kCPU, name);
+    }
+    inline void CheckDeviceCUDA(const torch::Tensor& t, const char* name = "tensor")
+    {
+        CheckDevice(t, torch::kCUDA, name);
+    }
+
+#ifdef ANET_ENABLE_TENSOR_CHECK
+#define ANET_CHECK_TENSOR_DEVICE(t, e, msg) anet::CheckDevice(t, e, msg)
+#define ANET_CHECK_TENSOR_DEVICE_CPU(t, msg) anet::CheckDeviceCPU(t, msg)
+#define ANET_CHECK_TENSOR_DEVICE_CUDA(t, msg) anet::CheckDeviceCUDA(t, msg)
+#else   // ifdef ANET_ENABLE_TENSOR_CHECK
+#define ANET_CHECK_TENSOR_DEVICE(t, e, msg) ((void)0)
+#define ANET_CHECK_TENSOR_DEVICE_CPU(t, msg) ((void)0)
+#define ANET_CHECK_TENSOR_DEVICE_CPU(t, msg) ((void)0)
+#endif
+
 } // namespace anet::util

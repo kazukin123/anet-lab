@@ -1,4 +1,4 @@
-#include "anet/rl.hpp"
+Ôªø#include "anet/rl.hpp"
 #include <stdexcept>
 
 namespace anet::rl {
@@ -60,43 +60,99 @@ namespace anet::rl {
             mode);
     }
 
-    ExperienceBatch ReplayBuffer::SampleBatch(size_t n, torch::Device device) const
+    void ReplayBuffer::Push(const Experience& e)
     {
-        auto exps = Sample(n); // ä˘ë∂ÇÃÉâÉìÉ_ÉÄÉTÉìÉvÉãéÊìæ
+        if (!initialized_) {
+            device_ = e.state.device();
 
-        std::vector<torch::Tensor> states;
-        std::vector<torch::Tensor> next_states;
-        std::vector<torch::Tensor> actions;
-        std::vector<float> rewards;
-        std::vector<bool> dones;
+            auto state_sizes = e.state.sizes();
+            auto action_sizes = e.action.sizes();
 
-        states.reserve(n);
-        next_states.reserve(n);
-        actions.reserve(n);
-        rewards.reserve(n);
-        dones.reserve(n);
+            std::vector<int64_t> state_shape(1 + state_sizes.size());
+            state_shape[0] = static_cast<int64_t>(capacity_);
+            for (size_t i = 0; i < state_sizes.size(); ++i)
+                state_shape[i + 1] = state_sizes[i];
 
-        for (auto& e : exps) {
-            states.push_back(e.state);                         // (state_dim)
-            next_states.push_back(e.response.next_state);      // (state_dim)
-            actions.push_back(e.action);                       // (1)
-            rewards.push_back(e.response.reward);              // float
-            dones.push_back(e.response.done || e.response.truncated);
+            std::vector<int64_t> action_shape(1 + action_sizes.size());
+            action_shape[0] = static_cast<int64_t>(capacity_);
+            for (size_t i = 0; i < action_sizes.size(); ++i)
+                action_shape[i + 1] = action_sizes[i];
+
+            states_ = torch::empty(state_shape, e.state.options());
+            actions_ = torch::empty(action_shape, e.action.options());
+            next_states_ = torch::empty(state_shape, e.response.next_state.options());
+
+            rewards_ = torch::empty({ static_cast<int64_t>(capacity_) },
+                torch::TensorOptions().dtype(torch::kFloat32).device(device_));
+            dones_ = torch::empty({ static_cast<int64_t>(capacity_) },
+                torch::TensorOptions().dtype(torch::kFloat32).device(device_));
+            truncateds_ = torch::empty({ static_cast<int64_t>(capacity_) },
+                torch::TensorOptions().dtype(torch::kFloat32).device(device_));
+
+            initialized_ = true;
         }
 
-        ExperienceBatch batch;
+        states_[write_index_] = e.state;
+        actions_[write_index_] = e.action;
+        next_states_[write_index_] = e.response.next_state;
 
-        batch.states = torch::stack(states).squeeze(1).to(device);           // (B, state_dim)
-        batch.next_states = torch::stack(next_states).squeeze(1).to(device);     // (B, state_dim)
-        batch.actions = torch::stack(actions).to(device).to(torch::kLong).squeeze(-1); // (B,)
-        batch.rewards = torch::tensor(rewards, torch::dtype(torch::kFloat32)).to(device); // (B,)
+        rewards_[write_index_] = e.response.reward;
+        dones_[write_index_] = e.response.done ? 1.0f : 0.0f;
+        truncateds_[write_index_] = e.response.truncated ? 1.0f : 0.0f;
 
-        // vector<bool> Å® vector<uint8_t> Ç…ïœä∑ÇµÇƒÇ©ÇÁ tensor âª
-        std::vector<uint8_t> dones_u8;
-        dones_u8.reserve(n);
-        for (bool d : dones) dones_u8.push_back(d ? 1 : 0);
-        batch.dones = torch::tensor(dones_u8, torch::kUInt8).to(device);
+        write_index_ = (write_index_ + 1) % capacity_;
+        size_ = std::min(size_ + 1, capacity_);
+    }
+
+    std::vector<Experience> ReplayBuffer::Sample(size_t n) const
+    {
+        n = std::min(n, size_);
+        std::vector<Experience> out;
+        out.reserve(n);
+
+        std::uniform_int_distribution<size_t> dist(0, size_ - 1);
+
+        for (size_t i = 0; i < n; ++i) {
+            size_t idx = dist(engine_);
+
+            Experience e;
+            e.state = states_[idx];
+            e.action = actions_[idx];
+            e.response.next_state = next_states_[idx];
+            e.response.reward = rewards_[idx].item<float>();
+            e.response.done = dones_[idx].item<float>() > 0.5f;
+            e.response.truncated = truncateds_[idx].item<float>() > 0.5f;
+
+            out.push_back(e);
+        }
+        return out;
+    }
+
+    ExperienceBatch ReplayBuffer::SampleBatch(size_t n, torch::Device device) const
+    {
+        ExperienceBatch batch{};
+        if (size_ == 0) return batch;
+
+        n = std::min(n, size_);
+
+        std::vector<int64_t> idx;
+        idx.reserve(n);
+        std::uniform_int_distribution<size_t> dist(0, size_ - 1);
+
+        for (size_t i = 0; i < n; ++i)
+            idx.push_back(static_cast<int64_t>(dist(engine_)));
+
+        auto index_tensor = torch::tensor(idx,
+            torch::TensorOptions().dtype(torch::kInt64).device(device_));
+
+        batch.states = states_.index_select(0, index_tensor).to(device);
+        batch.actions = actions_.index_select(0, index_tensor).to(device);
+        batch.next_states = next_states_.index_select(0, index_tensor).to(device);
+        batch.rewards = rewards_.index_select(0, index_tensor).to(device);
+        batch.dones = dones_.index_select(0, index_tensor).to(device);
+        batch.truncateds = truncateds_.index_select(0, index_tensor).to(device);
 
         return batch;
     }
+
 } // namespace anet::rl
