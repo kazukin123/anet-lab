@@ -7,6 +7,7 @@
 #include <tuple>
 #include <random>
 #include "anet/heat_map.hpp"
+#include "anet/metrics_logger.hpp"
 
 namespace anet::rl {
 
@@ -126,30 +127,130 @@ namespace anet::rl {
     };
 
     // =============================================================
-    // Agent 抽象クラス
-    // =============================================================
 
-    class Agent {
+    struct ActionResult {
+        torch::Tensor action;
+        torch::Tensor log_prob;
+        torch::Tensor value;
+    };
+
+    class UpdateResult {
     public:
-        /**
-         * @brief 状態から行動を選択する（学習・推論共通）。
-         * @return (action, log_prob, value)
-         */
-        virtual std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>
-            SelectAction(const torch::Tensor& state, RunMode mode = RunMode::Train) = 0;
+        virtual ~UpdateResult() = default;
 
-        /**
-         * @brief 1経験を更新・保存（DQN系はReplayBufferにPushなど）。
-         */
-        virtual void Update(const Experience&) {}
+        virtual void SyncMetrics() = 0;        // 派生クラスが metrics_ を埋めるためのフック
+        const std::unordered_map<std::string, float>& GetMetricsMap() const { return metrics_; }
+    protected:
+        void SetMetric(const std::string& key, float v) { metrics_[key] = v; }
+    private:
+        std::unordered_map<std::string, float> metrics_;
+    };
 
-        /**
-         * @brief バッチ単位の学習更新（フル／ミニ両対応）。
-         */
-        virtual void UpdateBatch(const BatchData&) = 0;
+    class Runner {
+    public:
+        virtual ActionResult SelectAction(const torch::Tensor& state, RunMode mode = RunMode::Train) = 0;
+        virtual ~Runner() = default;
+    };
 
+    class Sampler {
+    public:
+        virtual void ObserveFirst(const EnvResponse& envResponse) = 0;
+        virtual void Observe(const Experience& exprience) = 0;
+        virtual ~Sampler() = default;
+    };
+
+    class Learner {
+    public:
+        virtual std::shared_ptr<UpdateResult> UpdateStep(const Experience& exprience) = 0;
+        virtual std::shared_ptr<UpdateResult> UpdateBatch(const BatchData&) = 0;
+        virtual ~Learner() = default;
+    };
+    
+    class PostUpdateObserver {
+    public:
+        virtual void OnPostUpdate(const std::shared_ptr<UpdateResult>& result) = 0;
+        virtual ~PostUpdateObserver() = default;
+    };
+
+    class Agent : public Runner, public Learner, public PostUpdateObserver {
+    public:
         virtual ~Agent() = default;
     };
+
+    // 環境のステップに同期して更新するAgent基底クラス（DQN, DDGP, SAC, A2C など）
+    class StepBasedLearner : public Learner {
+    public:
+        StepBasedLearner() = default;
+        virtual ~StepBasedLearner() = default;
+
+        // ① pure virtual — 各 Agent が実装
+        virtual std::shared_ptr<UpdateResult> UpdateStep(const Experience& expr) override = 0;
+
+        // ② 共通ラッパ
+        virtual std::shared_ptr<UpdateResult> UpdateBatch(const BatchData& batch) override {
+            std::shared_ptr<UpdateResult> last;
+            for (auto& e : batch.Data()) {
+                last = UpdateStep(e);
+            }
+            return last;
+        }
+
+        virtual void OnPostUpdate(const std::shared_ptr<UpdateResult>& result) ;
+
+        size_t GetStepCount() const { return step_count_; }
+    protected:
+        void IncrementStep() { step_count_++; }
+
+    private:
+        size_t step_count_ = 0;
+    };
+
+    // 複数ステップ（軌跡）収集後に更新するAgent基底クラス（PPO, TRPO など）
+    class TrajectoryBasedLearner : public Learner {
+    public:
+        // TODO: define
+        virtual ~TrajectoryBasedLearner() = default;
+    };
+
+    class MetricsObserver : public PostUpdateObserver {
+    public:
+        MetricsObserver(const StepBasedLearner* learner)
+            : learner_(learner) {
+        }
+
+        void OnPostUpdate(const std::shared_ptr<UpdateResult>& r) override {
+            if (!learner_) return;
+
+            size_t step = learner_->GetStepCount();
+            r->SyncMetrics();   // ★
+            auto map = r->GetMetricsMap();
+
+            for (const auto& [tag, value] : map) {
+                MetricsLogger::Instance()->log_scalar(tag, step, value);
+            }
+        }
+    private:
+        const StepBasedLearner* learner_;
+    };
+
+    // =============================================================
+
+    class Notifer {
+    public:
+        void AddObserver(PostUpdateObserver* obs) {
+            observers_.push_back(obs);
+        }
+
+        void Notify(const std::shared_ptr<UpdateResult>& r) {
+            for (PostUpdateObserver* o : observers_) {
+                o->OnPostUpdate(r);
+            }
+        }
+    private:
+        std::vector<PostUpdateObserver*> observers_;
+    };
+
+    // =============================================================
 
     std::unique_ptr<HeatMap> MakeStateHeatMapPtr(
         const anet::rl::StateSpaceInfo& info,

@@ -116,15 +116,30 @@ namespace anet::rl {
             ANET_APPLY_CONFIG(configData, unstable_ema_s_threshold);
         }
     };
-    class DQNAgent : public anet::rl::Agent {
+
+    struct DQNUpdateResult : public UpdateResult {
+        float loss = 0.0f;
+        float td_error_mean = 0.0f;
+        float q_mean = 0.0f;
+        float grad_norm = 0.0f;
+        virtual void SyncMetrics() {
+            // TODO: ラインナップ精査
+            SetMetric("loss", loss);
+            SetMetric("q_mean", q_mean);
+            SetMetric("td_error", td_error_mean);
+            SetMetric("grad_norm", grad_norm);
+        }
+    };
+
+    class DQNAgent : public anet::rl::Agent, anet::rl::StepBasedLearner {
     public:
         DQNAgent(const DQNAgentConfig& config, anet::rl::Environment& env, int state_dim, int n_actions, torch::Device device);
 
-        std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>
-            SelectAction(const torch::Tensor& state, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
-
-        void Update(const anet::rl::Experience& exprience) override;
-        void UpdateBatch(const anet::rl::BatchData&) override; // ReplayBuffer対応
+        anet::rl::ActionResult SelectAction(const torch::Tensor& state, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
+        std::shared_ptr<anet::rl::UpdateResult> UpdateStep(const anet::rl::Experience& exprience) override;
+        std::shared_ptr<anet::rl::UpdateResult> UpdateBatch(const anet::rl::BatchData&) override; // ReplayBuffer対応
+    public:
+        void OnPostUpdate(const std::shared_ptr<UpdateResult>& result) override;
     private:
         void hard_update();
         void soft_update();

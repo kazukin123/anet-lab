@@ -40,6 +40,7 @@ private:
     std::unique_ptr<CartPoleEnv> env;
     std::unique_ptr<anet::rl::Agent> agent;
     at::Tensor state;
+    anet::rl::Notifer notifer_;
 
     // メトリクス
     int step_count = 0;

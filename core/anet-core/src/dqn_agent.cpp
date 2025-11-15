@@ -101,8 +101,7 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::Environment& env, int
 // ======================================================
 // SelectAction：行動選択（ε-greedy）
 // ======================================================
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>
-DQNAgent::SelectAction(const torch::Tensor& state, anet::rl::RunMode mode) {
+anet::rl::ActionResult DQNAgent::SelectAction(const torch::Tensor& state, anet::rl::RunMode mode) {
     torch::NoGradGuard ng;
     policy_net->eval();
 
@@ -188,7 +187,7 @@ void DQNAgent::soft_update() {
 // ======================================================
 // Update：逐次更新 or ReplayBufferモード切替
 // ======================================================
-void DQNAgent::Update(const anet::rl::Experience& exprence) {
+std::shared_ptr<anet::rl::UpdateResult> DQNAgent::UpdateStep(const anet::rl::Experience& exprence) {
     train_step++;
 
     if (!config_.use_replay_buffer) {
@@ -327,10 +326,16 @@ void DQNAgent::Update(const anet::rl::Experience& exprence) {
             }
         }
     }
+    return {};
 }
 
-void DQNAgent::UpdateBatch(const anet::rl::BatchData& batch) {
+void DQNAgent::OnPostUpdate(const std::shared_ptr<UpdateResult>& result) {
+    ;
+}
+
+std::shared_ptr<anet::rl::UpdateResult> DQNAgent::UpdateBatch(const anet::rl::BatchData& batch) {
     OptimizeBatch(batch.Data());
+    return {};
 }
 
 // ======================================================
@@ -338,13 +343,6 @@ void DQNAgent::UpdateBatch(const anet::rl::BatchData& batch) {
 // ======================================================
 void DQNAgent::OptimizeSingle(const anet::rl::Experience& exprence) {
     policy_net->train();
-
-    // 簡易LRスケジュール
-    //if (train_step == 120000 || train_step == 180000) {
-    //    for (auto& p : optimizer.param_groups()) {
-    //        p.options().set_lr(p.options().get_lr() * 0.5);
-    //    }
-    //}
 
     TensorContext ctx(device);
 

@@ -45,8 +45,7 @@ public:
         torch::nn::init::xavier_uniform_(policy->weight);
     }
 
-    std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>
-        SelectAction(const torch::Tensor& state, RunMode mode = RunMode::Train) override {
+    ActionResult SelectAction(const torch::Tensor& state, RunMode mode = RunMode::Train) override {
         torch::NoGradGuard no_grad;
         auto q_values = policy->forward(state);
         int action_index;
@@ -87,8 +86,7 @@ public:
         torch::nn::init::xavier_uniform_(value_net->weight);
     }
 
-    std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>
-        SelectAction(const torch::Tensor& state, RunMode mode = RunMode::Train) override {
+    ActionResult SelectAction(const torch::Tensor& state, RunMode mode = RunMode::Train) override {
         auto logits = policy->forward(state);
         auto probs = torch::softmax(logits, -1);
         int action_index = probs.argmax().item<int>();
@@ -97,6 +95,7 @@ public:
         return { torch::tensor(action_index, torch::kInt64), log_prob, value };
     }
 
+    void Update(const Experience& e) override { }
     void UpdateBatch(const BatchData& batch) override {
         std::cout << "[PPO] collected " << batch.Size() << " experiences\n";
     }
