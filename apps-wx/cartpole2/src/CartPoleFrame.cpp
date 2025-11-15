@@ -20,19 +20,19 @@ struct CartPoleFrame::Param {
     int train_exit_step = -1; //110000;
 	int canvas_mode = 0;    //  0:評価エピソードの終了状況を描画 1:学習エピソードの終了状態を描画 2:学習状況を描画 
 
-    CartPoleFrame::Param(anet::Properties* props) {
-        if (props == NULL) return;
-        std::string preset = props->Get("train.preset", "train");
+    CartPoleFrame::Param(const anet::ConfigData& configData) {
+        //if (configData == NULL) return;
+        std::string preset = configData.Get("train.preset", "train");
         wxString preset_override;
         if (wxGetApp().GetCmdLineParser()->Found("t", &preset_override)) {
             preset = preset_override;
-            props->Set("train.preset", preset);
+            //configData->Set("train.preset", preset);
         }
-        ANET_READ_PROPS(props, preset, timer_ms);
-        ANET_READ_PROPS(props, preset, step_per_frame);
-        ANET_READ_PROPS(props, preset, eval_interval);
-        ANET_READ_PROPS(props, preset, train_pause_step);
-        ANET_READ_PROPS(props, preset, train_exit_step);
+        ANET_READ_PROPS(configData, preset, timer_ms);
+        ANET_READ_PROPS(configData, preset, step_per_frame);
+        ANET_READ_PROPS(configData, preset, eval_interval);
+        ANET_READ_PROPS(configData, preset, train_pause_step);
+        ANET_READ_PROPS(configData, preset, train_exit_step);
     }
 
 };
@@ -79,7 +79,7 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     wxLog::SetActiveTarget(this);
 
     // パラメータ記録
-    wxLogInfo("train.preset=%s", wxGetApp().GetConfig()->Get("train.preset", "train"));
+    wxLogInfo("train.preset=%s", wxGetApp().GetConfig().Get("train.preset", "train"));
     nlohmann::json params = {
         {"eval_interval", param_->eval_interval},
         {"train_pause_step", param_->train_pause_step},

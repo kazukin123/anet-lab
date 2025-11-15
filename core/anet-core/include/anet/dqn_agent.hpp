@@ -6,13 +6,13 @@
 
 #include "anet/rl.hpp"
 #include "anet/heat_map.hpp"
-#include "anet/properties.hpp"
+#include "anet/config.hpp"
 
 namespace anet::rl {
 
     class DQNAgent : public anet::rl::Agent {
     public:
-        DQNAgent(const wxCmdLineParser& cmd_line, anet::Properties* props, anet::rl::Environment& env, int state_dim, int n_actions, torch::Device device);
+        DQNAgent(const wxCmdLineParser& cmd_line, const anet::ConfigData& configData, anet::rl::Environment& env, int state_dim, int n_actions, torch::Device device);
 
         std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>
             SelectAction(const torch::Tensor& state, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;

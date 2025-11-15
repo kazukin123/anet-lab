@@ -4,7 +4,7 @@
 #include <wx/log.h>
 #include "nlohmann/json.hpp"
 #include "anet/tensor_utils.hpp"
-#include "anet/properties.hpp"
+#include "anet/config.hpp"
 #include "anet/metrics_logger.hpp"
 
 using namespace anet::util;
@@ -73,64 +73,63 @@ struct DQNAgent::Param {
     float eps_reheat_half_life = 1000;
     float unstable_ema_s_threshold = 0.0f; // 連続崩壊度の閾値
 
-    DQNAgent::Param(const wxCmdLineParser& cmd_line, anet::Properties* props) {
-        if (props == NULL) return;
-        std::string preset = props->Get("agent.preset", "agent");
+    DQNAgent::Param(const wxCmdLineParser& cmd_line, const anet::ConfigData& configData) {
+        std::string preset = configData.Get("agent.preset", "agent");
         wxString preset_override;
         if (cmd_line.Found("a", &preset_override)) {
             preset = preset_override;
-            props->Set("agent.preset", preset);
+            //configData->Set("agent.preset", preset);
         }
         wxLogInfo("agent.preset=%s", preset);
 
-        ANET_READ_PROPS(props, preset, alpha);
-        ANET_READ_PROPS(props, preset, gamma);
-        ANET_READ_PROPS(props, preset, eps_max);
-        ANET_READ_PROPS(props, preset, eps_min);
-        ANET_READ_PROPS(props, preset, eps_decay_step);
-        ANET_READ_PROPS(props, preset, softupdate_tau);
-        ANET_READ_PROPS(props, preset, hardupdate_step);
-        ANET_READ_PROPS(props, preset, use_grad_clip);
-        ANET_READ_PROPS(props, preset, grad_clip_tau);
-        ANET_READ_PROPS(props, preset, use_td_clip);
-        ANET_READ_PROPS(props, preset, td_clip_value);
-        ANET_READ_PROPS(props, preset, eps_zero_step);
-        ANET_READ_PROPS(props, preset, use_double_dqn);
-        ANET_READ_PROPS(props, preset, use_replay_buffer);
-        ANET_READ_PROPS(props, preset, replay_capacity);
-        ANET_READ_PROPS(props, preset, replay_batch_size);
-        ANET_READ_PROPS(props, preset, replay_warmup_steps);
-        ANET_READ_PROPS(props, preset, replay_update_interval);
-        ANET_READ_PROPS(props, preset, heatmap_log_image_interval);
-        ANET_READ_PROPS(props, preset, heatmap_log_sweep_interval);
-        ANET_READ_PROPS(props, preset, heatmap_log_hist_interval);
-        ANET_READ_PROPS(props, preset, use_as_dqn);
-        ANET_READ_PROPS(props, preset, qstd_alpha);
-        ANET_READ_PROPS(props, preset, q_z_threshold);
-        ANET_READ_PROPS(props, preset, q_cv_threshold);
-        ANET_READ_PROPS(props, preset, q_niqr_threshold);
-        ANET_READ_PROPS(props, preset, eps_boost_max);
-        ANET_READ_PROPS(props, preset, eps_boost_half_life_hit);
-        ANET_READ_PROPS(props, preset, eps_boost_half_life_recover);
-        ANET_READ_PROPS(props, preset, eps_gain);
-        ANET_READ_PROPS(props, preset, eps_reheat_floor);
-        ANET_READ_PROPS(props, preset, eps_reheat_half_life);
-        ANET_READ_PROPS(props, preset, tau_min);
-        ANET_READ_PROPS(props, preset, tau_max);
-        ANET_READ_PROPS(props, preset, tau_half_life_hit);
-        ANET_READ_PROPS(props, preset, tau_half_life_recover);
-        ANET_READ_PROPS(props, preset, tau_recover_delay);
-        ANET_READ_PROPS(props, preset, act_bias_threshold);
-        ANET_READ_PROPS(props, preset, use_unstable_ema);
-        ANET_READ_PROPS(props, preset, uema_half_life);
-        ANET_READ_PROPS(props, preset, uema_u0);
-        ANET_READ_PROPS(props, preset, uema_k);
-        ANET_READ_PROPS(props, preset, uema_g1);
-        ANET_READ_PROPS(props, preset, uema_g2);
-        ANET_READ_PROPS(props, preset, uema_g3);
-        ANET_READ_PROPS(props, preset, uema_s_clip);
-        ANET_READ_PROPS(props, preset, eps_reheat_base);
-        ANET_READ_PROPS(props, preset, unstable_ema_s_threshold);
+        ANET_READ_PROPS(configData, preset, alpha);
+        ANET_READ_PROPS(configData, preset, gamma);
+        ANET_READ_PROPS(configData, preset, eps_max);
+        ANET_READ_PROPS(configData, preset, eps_min);
+        ANET_READ_PROPS(configData, preset, eps_decay_step);
+        ANET_READ_PROPS(configData, preset, softupdate_tau);
+        ANET_READ_PROPS(configData, preset, hardupdate_step);
+        ANET_READ_PROPS(configData, preset, use_grad_clip);
+        ANET_READ_PROPS(configData, preset, grad_clip_tau);
+        ANET_READ_PROPS(configData, preset, use_td_clip);
+        ANET_READ_PROPS(configData, preset, td_clip_value);
+        ANET_READ_PROPS(configData, preset, eps_zero_step);
+        ANET_READ_PROPS(configData, preset, use_double_dqn);
+        ANET_READ_PROPS(configData, preset, use_replay_buffer);
+        ANET_READ_PROPS(configData, preset, replay_capacity);
+        ANET_READ_PROPS(configData, preset, replay_batch_size);
+        ANET_READ_PROPS(configData, preset, replay_warmup_steps);
+        ANET_READ_PROPS(configData, preset, replay_update_interval);
+        ANET_READ_PROPS(configData, preset, heatmap_log_image_interval);
+        ANET_READ_PROPS(configData, preset, heatmap_log_sweep_interval);
+        ANET_READ_PROPS(configData, preset, heatmap_log_hist_interval);
+        ANET_READ_PROPS(configData, preset, use_as_dqn);
+        ANET_READ_PROPS(configData, preset, qstd_alpha);
+        ANET_READ_PROPS(configData, preset, q_z_threshold);
+        ANET_READ_PROPS(configData, preset, q_cv_threshold);
+        ANET_READ_PROPS(configData, preset, q_niqr_threshold);
+        ANET_READ_PROPS(configData, preset, eps_boost_max);
+        ANET_READ_PROPS(configData, preset, eps_boost_half_life_hit);
+        ANET_READ_PROPS(configData, preset, eps_boost_half_life_recover);
+        ANET_READ_PROPS(configData, preset, eps_gain);
+        ANET_READ_PROPS(configData, preset, eps_reheat_floor);
+        ANET_READ_PROPS(configData, preset, eps_reheat_half_life);
+        ANET_READ_PROPS(configData, preset, tau_min);
+        ANET_READ_PROPS(configData, preset, tau_max);
+        ANET_READ_PROPS(configData, preset, tau_half_life_hit);
+        ANET_READ_PROPS(configData, preset, tau_half_life_recover);
+        ANET_READ_PROPS(configData, preset, tau_recover_delay);
+        ANET_READ_PROPS(configData, preset, act_bias_threshold);
+        ANET_READ_PROPS(configData, preset, use_unstable_ema);
+        ANET_READ_PROPS(configData, preset, uema_half_life);
+        ANET_READ_PROPS(configData, preset, uema_u0);
+        ANET_READ_PROPS(configData, preset, uema_k);
+        ANET_READ_PROPS(configData, preset, uema_g1);
+        ANET_READ_PROPS(configData, preset, uema_g2);
+        ANET_READ_PROPS(configData, preset, uema_g3);
+        ANET_READ_PROPS(configData, preset, uema_s_clip);
+        ANET_READ_PROPS(configData, preset, eps_reheat_base);
+        ANET_READ_PROPS(configData, preset, unstable_ema_s_threshold);
     }
 
 };
@@ -156,13 +155,13 @@ struct anet::rl::DQNAgent::QNetImpl : torch::nn::Module {
 // ======================================================
 // DQNAgent 実装
 // ======================================================
-DQNAgent::DQNAgent(const wxCmdLineParser& cmd, anet::Properties* props, anet::rl::Environment& env, int state_dim, int n_actions, torch::Device device) :
+DQNAgent::DQNAgent(const wxCmdLineParser& cmd, const anet::ConfigData& configData, anet::rl::Environment& env, int state_dim, int n_actions, torch::Device device) :
     n_actions_(n_actions),
     policy_net(std::make_shared<QNetImpl>(state_dim, n_actions)),
     target_net(std::make_shared<QNetImpl>(state_dim, n_actions)),
     device(device),
 
-    param_(std::make_unique<DQNAgent::Param>(cmd, props)),   // 設定からパラメータを読み込み
+    param_(std::make_unique<DQNAgent::Param>(cmd, configData)),   // 設定からパラメータを読み込み
 
     optimizer(policy_net->parameters(), torch::optim::AdamOptions(param_->alpha)),
     replay_buffer(param_->replay_capacity)
@@ -213,7 +212,7 @@ DQNAgent::DQNAgent(const wxCmdLineParser& cmd, anet::Properties* props, anet::rl
     target_net->eval();
 
     // ログ：パラメータ記録
-    wxLogInfo("agent.preset=%s", props->Get("agent.preset", "agent"));
+    wxLogInfo("agent.preset=%s", configData.Get("agent.preset", "agent"));
     nlohmann::json params = {
         {"alpha", param_->alpha},
         {"gamma", param_->gamma},

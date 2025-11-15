@@ -47,11 +47,12 @@ bool MyApp::OnInit() {
     if (cmdline_->Parse(true)) {
         return false;
     }
-    properties_ = std::make_unique<anet::Properties>(GetConfigFilePath());
+    anet::Properties properties(GetConfigFilePath());
+    config_data_ = std::make_unique<anet::ConfigData>(properties.ToConfigData());
     anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetLogsPath());
 
     bool enable_image_log;
-    properties_->Read("log.enable_image_log", enable_image_log, true);
+    config_data_->Read("log.enable_image_log", enable_image_log, true);
     anet::MetricsLogger::Instance()->SetEnableImageLog(enable_image_log);
 
     auto* frame = new CartPoleFrame("CartPole RL");

@@ -21,6 +21,7 @@ TODO：実行手順を書く
 	* Double DQN Agent実装
 	* CartPole環境APP実装
 * メトリクス
+	* MetricsViewer.java：フェーズ1.5：差分ロード
 	* MetricsViewer.java：フェーズ1.0(基本機能)
 	* TensorBoard対応（ブリッジpyスクリプト経由）
 	* Ploty＋pythonによる独自グラフ出力
@@ -45,7 +46,8 @@ TODO：実行手順を書く
 	* TD3対応
 	* SAC対応
 * メトリクス
-	* MetricsViewer.java：フェーズ1.5
+	* MetricsViewer.java：フェーズ1.5：ハイパラ表示対応
+	* MetricsViewer.java：フェーズ1.5：Loadingスケジュール最適化
 	* 閾値値等の基準横線出力対応
 	* ヒートマップ：凡例出力対応
 	* ヒートマップ：MetricsViewer統合
@@ -60,6 +62,7 @@ TODO：実行手順を書く
 	* Runフォルダに設定内容ダンプを残す
 	* 設定の継承読み込み
 	* TODOコメントいれまくり
+	* 学習と推論の表示分離
 	* GPU対応向けソース可読性向上
 	* ヒートマップ：サンプリング量で書き出しタイミング制御
 
@@ -75,7 +78,6 @@ TODO：実行手順を書く
 * AP改善
 	* マルチスレッド対応（危険）
 	* 起動時にRun名をプロンプト
-	* 学習と推論の表示分離
 
 ## 備考
 
