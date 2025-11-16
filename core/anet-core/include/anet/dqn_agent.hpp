@@ -151,6 +151,7 @@ namespace anet::rl {
 
         // NN
         struct QNetImpl;
+        int state_dim_;
         int n_actions_;
         std::shared_ptr<QNetImpl> policy_net;
         std::shared_ptr<QNetImpl> target_net;

@@ -6,6 +6,8 @@
 - wxWidgetsによるGUIフロントエンド
 - Java/SpringによるWebベースのMetricsViewer
 
+勉強と趣味で作っているので不安定です。
+  
 ## ビルド手順
 TODO：ビルド手順や依存ライブラリを書く
 

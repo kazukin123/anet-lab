@@ -4,18 +4,19 @@
 #include <wx/log.h>
 #include "nlohmann/json.hpp"
 #include "anet/tensor_utils.hpp"
+#include "anet/tensor_check.hpp"
 #include "anet/config.hpp"
 #include "anet/metrics_logger.hpp"
 
-using namespace anet::util;
 using namespace anet::rl;
-
 
 const float met_ema_decay = 0.995f;  // 平滑化係数(メトリクス用)
 const float met_ema_decay_act = 0.9995f;  // 平滑化係数(メトリクス用)action_ema用
 const float met_ema_decay_reward = 0.9995f;  // 平滑化係数(メトリクス用)action_ema用
 
-
+namespace {
+    static constexpr int64_t ANY = ANET_SHAPE_ANY;
+}
 
 // ======================================================
 // QNet 定義（Impl を CPP に置く）
@@ -39,6 +40,7 @@ struct anet::rl::DQNAgent::QNetImpl : torch::nn::Module {
 // DQNAgent 実装
 // ======================================================
 DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::Environment& env, int state_dim, int n_actions, torch::Device device) :
+    state_dim_(state_dim),
     n_actions_(n_actions),
     policy_net(std::make_shared<QNetImpl>(state_dim, n_actions)),
     target_net(std::make_shared<QNetImpl>(state_dim, n_actions)),
@@ -102,6 +104,9 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::Environment& env, int
 // SelectAction：行動選択（ε-greedy）
 // ======================================================
 anet::rl::ActionResult DQNAgent::SelectAction(const torch::Tensor& state, anet::rl::RunMode mode) {
+    ANET_CHECK_DEVICE_CPU(state);
+    ANET_CHECK_SHAPE(state, { ANY, 4 });
+
     torch::NoGradGuard ng;
     policy_net->eval();
 
@@ -144,6 +149,8 @@ anet::rl::ActionResult DQNAgent::SelectAction(const torch::Tensor& state, anet::
         action.to(torch::kFloat32).mean().item<float>();    // バッチ（将来用）
     action_ema = met_ema_decay_act * action_ema + (1 - met_ema_decay_act) * action_float;
     anet::MetricsLogger::Instance()->log_scalar("34_agent_as_a/02_action_ema", train_step, action_ema);
+
+    wxLogDebug("SelectAction() action=%s", anet::ToString(action));
 
     return { action, torch::Tensor(), torch::Tensor() };
 }
@@ -500,18 +507,33 @@ void DQNAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
 
     policy_net->train();
     TensorContext ctx(device);
+    const int B = config_.replay_batch_size;
 
     if (replay_buffer.Size() >= config_.replay_batch_size) {    // バッチ数分以上のサンプルが溜まってる場合のみ計測
+
         // バッチサイズ分をまとめてサンプリング
-        auto samples = replay_buffer.SampleBatch(config_.replay_batch_size, device);    // (B, state_dim)
+        auto samples = replay_buffer.SampleBatch(config_.replay_batch_size, device);
+        ANET_CHECK_DEVICE(samples.states, device);
+        ANET_CHECK_DEVICE(samples.actions, device);
+        ANET_CHECK_DEVICE(samples.rewards, device);
+        ANET_CHECK_DEVICE(samples.next_states, device);
+        ANET_CHECK_DEVICE(samples.dones, device);
+        ANET_CHECK_DEVICE(samples.truncateds, device);
+        ANET_ASSERT((samples.actions.dtype() == torch::kInt64));   //DQNでは離散アクション
+        ANET_CHECK_SHAPE(samples.states,     { B, state_dim_ });    // (B, state_dim)
+        ANET_CHECK_SHAPE(samples.actions,    { B, 1 });             // (B, 1)   DQNでは離散アクション
+        ANET_CHECK_SHAPE(samples.rewards,    { B });             // (B,)
+        ANET_CHECK_SHAPE(samples.next_states,{ B, state_dim_ });    // (B, state_dim)
+        ANET_CHECK_SHAPE(samples.dones,      { B });              // (B,)
+        ANET_CHECK_SHAPE(samples.truncateds, { B });              // (B,)
 
         // ---- action統計 ----
         auto actions_cpu = samples.actions.detach().cpu(); // (B,)
         int count_left = 0;
         int count_right = 0;
-        const int B = actions_cpu.size(0);
+        const int a_num = actions_cpu.size(0);
 
-        for (int i = 0; i < B; ++i) {
+        for (int i = 0; i < a_num; ++i) {
             int a = actions_cpu[i].item<int>();
             if (a == 0) count_left++;
             else if (a == 1) count_right++;                 // ※ それ以外の値は無視（離散2値前提）
@@ -700,6 +722,12 @@ void DQNAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
     // --- バッチ展開 ---
     std::vector<torch::Tensor> states, next_states, actions, rewards, dones, truncs;
     for (const auto& e : batch) {
+        wxLogDebug("OptimizeBatch() e.state=%s", anet::ToString(e.state));
+        wxLogDebug("OptimizeBatch() e.action=%s", anet::ToString(e.action));
+        wxLogDebug("OptimizeBatch() e.next_state=%s", anet::ToString(e.response.next_state));
+        wxLogDebug("OptimizeBatch() e.reward=%f", e.response.reward);
+        wxLogDebug("OptimizeBatch() e.done=%d", e.response.done);
+        wxLogDebug("OptimizeBatch() e.trunc=%d", e.response.truncated);
         states.push_back(e.state);
         actions.push_back(e.action.view({ 1 }));  // (1,)
         next_states.push_back(e.response.next_state);
@@ -709,18 +737,30 @@ void DQNAgent::OptimizeBatch(const std::vector<anet::rl::Experience>& batch) {
         truncs.push_back(torch::full({ 1 }, e.response.truncated ? 1.0f : 0.0f, ctx.FloatOpt()));
     }
 
-    auto state_b = torch::cat(states).to(device);               // (B,state_dim)
-    auto action_b = torch::cat(actions).view({ (int64_t)actions.size() }).to(device); // (B,)
-    auto next_state_b = torch::cat(next_states).to(device);     // (B,state_dim)
+    auto state_b = torch::stack(states).to(device);               // (B,state_dim)
+    auto action_b = torch::cat(actions).view({ (int64_t)actions.size() }).to(device); // (B,1)
+    auto next_state_b = torch::stack(next_states).to(device);     // (B,state_dim)
+    wxLogDebug("OptimizeBatch() state_b=%s", anet::ToDefString(state_b));
+    wxLogDebug("OptimizeBatch() action_b=%s", anet::ToDefString(action_b));
+    wxLogDebug("OptimizeBatch() next_state_b=%s", anet::ToDefString(next_state_b));
+    ANET_CHECK_SHAPE(state_b, { B, state_dim_ });
+    ANET_CHECK_SHAPE(action_b, { B });
+    ANET_CHECK_SHAPE(next_state_b, { B, state_dim_ });
 
     // squeeze() を安全に（次元指定なし）
     auto reward_b = torch::cat(rewards).squeeze().to(device);   // (B,)
     auto done_b = torch::cat(dones).squeeze().to(device);       // (B,)
     auto trunc_b = torch::cat(truncs).squeeze().to(device);     // (B,)
     auto nonterminal = 1.0f - (done_b * (1.0f - trunc_b));      // (B,)
+    ANET_CHECK_SHAPE(reward_b, { B });
+    ANET_CHECK_SHAPE(done_b, { B });
+    ANET_CHECK_SHAPE(trunc_b, { B });
+    ANET_CHECK_SHAPE(nonterminal, { B });
 
     // --- Q(s,a) ---
     auto q_values = policy_net->forward(state_b);               // (B,A)
+    wxLogDebug("OptimizeBatch() q_values=%s", anet::ToDefString(q_values));
+    ANET_CHECK_SHAPE(q_values, {B, this->n_actions_});
     auto q_sa = q_values.gather(1, action_b.unsqueeze(-1)).squeeze(-1); // (B,)
 
     // --- 期待Q（Double DQN対応） ---

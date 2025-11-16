@@ -9,6 +9,7 @@
 #include <sstream>
 
 #include <filesystem>
+#include "anet/tensor_check.hpp"
 
 
 struct CartPoleFrame::Config : public anet::Config {
@@ -85,7 +86,7 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     
     // --- 環境初期化 ---
     state = env->Reset();  // ← reset() は 初期状態 を返す
-    anet::CheckDeviceCPU(state, "state");
+    ANET_CHECK_DEVICE_CPU_MSG(state, "Initial state");
 
     // --- タイマー開始 ---
     Bind(wxEVT_TIMER, &CartPoleFrame::OnTimer, this);
@@ -114,7 +115,6 @@ void CartPoleFrame::OnMouseClick(wxMouseEvent& event) {
 void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     if (training_paused)
         return;  // ←停止中は一切処理しない
-
     // 再入防止
 	this->timer.Stop();
 
@@ -129,14 +129,19 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         }
 
         // 行動選択と環境ステップ実行、更新
+        wxLogDebug("CartPoleFrame::OnTimer() step=%d state=%s", step_count, anet::ToString(state));
         auto [action, _, __] = agent->SelectAction(state);
-        //auto [next_state, reward, done, _ ] = env->DoStep(action);
-        auto env_result = env->DoStep(action);
-        auto update_result = agent->UpdateStep({ state.to(device), action.to(device), env_result.next_state.to(device), env_result.reward, env_result.done});
+        wxLogDebug("CartPoleFrame::OnTimer() step=%d action=%s", step_count, anet::ToString(action));
+        ANET_CHECK_DEVICE(action, device);
+        anet::rl::EnvResponse env_resp = env->DoStep(action);    // next_state, reward, done, truncated
+        wxLogDebug("CartPoleFrame::OnTimer() step=%d next_state=%s", step_count, anet::ToString(env_resp.next_state));
+        ANET_CHECK_DEVICE(env_resp.next_state, torch::kCPU);
+        anet::rl::Experience exp = { state, action, env_resp.next_state, env_resp.reward, env_resp.done };
+        auto update_result = agent->UpdateStep(exp);
         notifier_.Notify(update_result);
-        state = env_result.next_state.clone();
-        last_reward = env_result.reward;
-        train_total_reward += env_result.reward;
+        state = env_resp.next_state.clone();
+        last_reward = env_resp.reward;
+        train_total_reward += env_resp.reward;
 
         // ステップ数インプリメント（グローバルなステップ数）
         step_count++;
@@ -147,7 +152,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         canvas->Refresh();
 
         //エピソード終了判定
-        if (env_result.done) {
+        if (env_resp.done) {
             episode_count++;
 
             // プロット更新

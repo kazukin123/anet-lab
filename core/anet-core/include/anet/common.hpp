@@ -1,45 +1,36 @@
 
-#include <torch/torch.h>
 
-//#ifndef ANET_ASSERT
-//#define ANET_ASSERT(cond, ...)                \
-//  if (!(cond)) {       \
-//    throw std::runtime_error(( \
-//        cond,                                 \
-//        "",                                   \
-//        __func__,                             \
-//        ", ",                                 \
-//        __FILE__,                             \
-//        ":",                                  \
-//        __LINE__,                             \
-//        ", ",                                 \
-//        ##__VA_ARGS__));                     \
-//  }
-//#endif
+#include <sstream>
+#include <stdexcept>
 
-#ifndef ANET_ASSERT
-#define ANET_ASSERT(cond, ...)  assert(##__VA_ARGS__)
+#ifndef ANET_ENABLE_ASSERT
+#define ANET_ENABLE_ASSERT 1
 #endif
 
-namespace anet {
 
-    inline void CheckDevice(const torch::Tensor& t, const torch::Device& expected, const char* name = "tensor")
-    {
-        if (t.device() != expected) {
-            std::stringstream ss;
-            ss << "Device mismatch in " << name << ": tensor=" << t.device()
-                << " expected=" << expected;
+#if ANET_ENABLE_ASSERT
+#define ANET_ASSERT(cond)                                                      \
+    do {                                                                       \
+        if (!(cond)) {                                                         \
+            std::stringstream ss;                                              \
+            ss << "ANET_ASSERT failed: "                                       \
+               << " | Condition: " << #cond                                    \
+               << " | File: " << __FILE__ << ":" << __LINE__;                  \
+            throw std::runtime_error(ss.str());                                \
+        }                                                                      \
+    } while (0)
+#define ANET_ASSERT_MSG(cond, msg)                                             \
+    do {                                                                       \
+        if (!(cond)) {                                                         \
+            std::stringstream ss;                                              \
+            ss << "ANET_ASSERT failed: " << (msg)                              \
+               << " | Condition: " << #cond                                    \
+               << " | File: " << __FILE__ << ":" << __LINE__;                  \
+            throw std::runtime_error(ss.str());                                \
+        }                                                                      \
+    } while (0)
+#else
+#define ANET_ASSERT(cond, msg) do {} while (0)
+#define ANET_ASSERT_MSG(cond, msg) do {} while (0)
+#endif
 
-            wxASSERT_MSG(false, ss.str());
-        }
-    }
-    inline void CheckDeviceCPU(const torch::Tensor& t, const char* name = "tensor")
-    {
-        CheckDevice(t, torch::kCPU, name);
-    }
-    inline void CheckDeviceCUDA(const torch::Tensor& t, const char* name = "tensor")
-    {
-        CheckDevice(t, torch::kCUDA, name);
-    }
-
-}

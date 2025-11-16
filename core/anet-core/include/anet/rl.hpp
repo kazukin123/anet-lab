@@ -10,9 +10,23 @@
 #include <cstdint>
 #include "anet/heat_map.hpp"
 #include "anet/metrics_logger.hpp"
-#include "anet/common.hpp"
+#include "anet/tensor_utils.hpp"
 
 namespace anet::rl {
+
+    /*
+        Environment
+          ↓   (state)
+        Runer(Agent)
+          ↓  （action）
+        Environment
+          ↓   (reward, next_state) → EnvResponse  → Experience
+        Trainer
+          ↓   Experience ⇒ ReplayBuffer
+        Sampler(Agent)
+          ↓   ReplayBuffer ⇒ Update
+        Learner(Agent)
+    */
 
     // =============================================================
     // RunMode
@@ -26,7 +40,7 @@ namespace anet::rl {
      * @brief 環境が返すステップ応答。
      */
     struct EnvResponse {
-        torch::Tensor next_state;
+        torch::Tensor next_state;      // (N, state_dim)
         float reward;
         bool done;
         bool truncated;
@@ -36,17 +50,10 @@ namespace anet::rl {
      * @brief エージェントの学習に使う「1回の経験」。
      */
     struct Experience {
-        torch::Tensor state;
-        torch::Tensor action;
+        torch::Tensor state;        // (N, state_dim)
+        torch::Tensor action;       // (N, action_dim)
         EnvResponse response;
     };
-
-    inline void CheckDevice(const Experience& e, const torch::Device& expected)
-    {
-        CheckDevice(e.state, expected, "Experience.state");
-        CheckDevice(e.action, expected, "Experience.action");
-        CheckDevice(e.response.next_state, expected, "Experience.next_state");
-    }
 
     struct StateSpaceInfo {
         torch::Tensor shape;
@@ -98,28 +105,28 @@ namespace anet::rl {
         torch::Tensor actions;      // (B, action_dim...) or (B,)
         torch::Tensor next_states;  // (B, state_dim...)
         torch::Tensor rewards;      // (B,)
-        torch::Tensor dones;       // (B,)
-        torch::Tensor truncateds;  // (B,)
+        torch::Tensor dones;        // (B,)
+        torch::Tensor truncateds;   // (B,)
     };
 
     class ReplayBuffer {
     public:
-        explicit ReplayBuffer(size_t capacity = 10000) : capacity_(capacity) {}
+        explicit ReplayBuffer(size_t capacity = 10000, bool is_discrete = true)
+            : capacity_(capacity), is_discrete_(is_discrete) {}
 
         void Push(const Experience& e);
-
         std::vector<Experience> Sample(size_t n) const;
         ExperienceBatch SampleBatch(size_t n, torch::Device device) const;
 
         size_t Size() const { return size_; }
-
+    private:
+        void PushSingle_(const Experience& e);
     private:
         size_t capacity_;
         size_t size_ = 0;
         size_t write_index_ = 0;
-
+        bool is_discrete_;
         bool initialized_ = false;
-        torch::Device device_ = torch::kCPU;
 
         torch::Tensor states_;
         torch::Tensor actions_;

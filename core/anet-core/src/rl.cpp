@@ -1,5 +1,9 @@
-﻿#include "anet/rl.hpp"
-#include <stdexcept>
+﻿#include <stdexcept>
+#include <wx/log.h>
+#include "anet/rl.hpp"
+#include "anet/common.hpp"
+#include "anet/tensor_utils.hpp"
+#include "anet/tensor_check.hpp"
 
 namespace anet::rl {
 
@@ -62,47 +66,139 @@ namespace anet::rl {
 
     void ReplayBuffer::Push(const Experience& e)
     {
+        //auto& s = e.state;
+
+        //// TODO: unbatch対応
+        //if (s.dim() == 2) {
+        //    int64_t N = s.size(0);
+
+        //    for (int64_t i = 0; i < N; ++i) {
+        //        EnvResponse resp({
+        //                e.response.next_state[i],
+        //                e.response.reward,
+        //                e.response.done,
+        //                e.response.truncated
+        //            }
+        //        );
+        //        Experience ei{ s[i], e.action[i], resp };
+        //        PushSingle_(ei);
+        //    }
+        //    return;
+        //}
+
+        // --- N=1 case ---
+        PushSingle_(e);
+    }
+
+    void ReplayBuffer::PushSingle_(const Experience& e)
+    {
+        // --- Copy for preprocessing ---
+        Experience exp = e;
+
+        // ======================================
+        // N = 1 前提の暫定処理：先頭次元が 1 の場合だけ除去
+        // （Multi-Env は将来 unbatch に置き換え）
+        // ======================================
+        if (exp.state.dim() == 2 && exp.state.size(0) == 1)
+            exp.state = exp.state.squeeze(0);
+
+        if (exp.response.next_state.dim() == 2 && exp.response.next_state.size(0) == 1)
+            exp.response.next_state = exp.response.next_state.squeeze(0);
+
+        if (is_discrete_) {
+            // 離散 Action = int64 scalar または size-1 tensor
+            if (exp.action.dim() == 2 && exp.action.size(0) == 1)
+                exp.action = exp.action.squeeze(0);
+
+            ANET_ASSERT_MSG(
+                exp.action.dtype() == torch::kInt64,
+                "Discrete action must be int64."
+            );
+
+            ANET_ASSERT_MSG(
+                exp.action.dim() == 0 || (exp.action.dim() == 1 && exp.action.size(0) == 1),
+                "Discrete action must be scalar or size-1 tensor."
+            );
+        }
+
+        // toCPU
+        exp.state = exp.state.to(torch::kCPU);
+        exp.action = exp.action.to(torch::kCPU);
+        exp.response.next_state = exp.response.next_state.to(torch::kCPU);
+
+        // ======================================
+        // Device は CPU 固定（Trainer が to(device) を消したので必要）
+        // ======================================
+        ANET_CHECK_DEVICE_CPU(exp.state);
+        ANET_CHECK_DEVICE_CPU(exp.action);
+        ANET_CHECK_DEVICE_CPU(exp.response.next_state);
+
+        // ======================================
+        // 初回 push 時に内部テンソルを初期化
+        // ======================================
         if (!initialized_) {
-            device_ = e.state.device();
+            //device_ = torch::kCPU;
 
-            auto state_sizes = e.state.sizes();
-            auto action_sizes = e.action.sizes();
+            auto state_sizes = exp.state.sizes();   // e.g., [4]
+            auto action_sizes = exp.action.sizes();  // e.g., [] or [1]
 
-            std::vector<int64_t> state_shape(1 + state_sizes.size());
-            state_shape[0] = static_cast<int64_t>(capacity_);
-            for (size_t i = 0; i < state_sizes.size(); ++i)
-                state_shape[i + 1] = state_sizes[i];
+            // states_
+            {
+                std::vector<int64_t> shape(1 + state_sizes.size());
+                shape[0] = static_cast<int64_t>(capacity_);
+                for (size_t i = 0; i < state_sizes.size(); ++i)
+                    shape[i + 1] = state_sizes[i];
 
-            std::vector<int64_t> action_shape(1 + action_sizes.size());
-            action_shape[0] = static_cast<int64_t>(capacity_);
-            for (size_t i = 0; i < action_sizes.size(); ++i)
-                action_shape[i + 1] = action_sizes[i];
+                states_ = torch::empty(shape,
+                    exp.state.options().device(torch::kCPU));
+                next_states_ = torch::empty(shape,
+                    exp.response.next_state.options().device(torch::kCPU));
+            }
 
-            states_ = torch::empty(state_shape, e.state.options());
-            actions_ = torch::empty(action_shape, e.action.options());
-            next_states_ = torch::empty(state_shape, e.response.next_state.options());
+            // actions_
+            {
+                std::vector<int64_t> shape(1 + action_sizes.size());
+                shape[0] = static_cast<int64_t>(capacity_);
+                for (size_t i = 0; i < action_sizes.size(); ++i)
+                    shape[i + 1] = action_sizes[i];
 
-            rewards_ = torch::empty({ static_cast<int64_t>(capacity_) },
-                torch::TensorOptions().dtype(torch::kFloat32).device(device_));
-            dones_ = torch::empty({ static_cast<int64_t>(capacity_) },
-                torch::TensorOptions().dtype(torch::kFloat32).device(device_));
-            truncateds_ = torch::empty({ static_cast<int64_t>(capacity_) },
-                torch::TensorOptions().dtype(torch::kFloat32).device(device_));
+                actions_ = torch::empty(shape,
+                    exp.action.options().device(torch::kCPU));
+            }
+
+            rewards_ = torch::empty(
+                { static_cast<int64_t>(capacity_) },
+                torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU)
+            );
+
+            dones_ = torch::empty(
+                { static_cast<int64_t>(capacity_) },
+                torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU)
+            );
+
+            truncateds_ = torch::empty(
+                { static_cast<int64_t>(capacity_) },
+                torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU)
+            );
 
             initialized_ = true;
         }
 
-        states_[write_index_] = e.state;
-        actions_[write_index_] = e.action;
-        next_states_[write_index_] = e.response.next_state;
+        // ======================================
+        // Ring-buffer 書き込み
+        // ======================================
+        states_[write_index_] = exp.state;
+        actions_[write_index_] = exp.action;
+        next_states_[write_index_] = exp.response.next_state;
 
-        rewards_[write_index_] = e.response.reward;
-        dones_[write_index_] = e.response.done ? 1.0f : 0.0f;
-        truncateds_[write_index_] = e.response.truncated ? 1.0f : 0.0f;
+        rewards_[write_index_] = exp.response.reward;
+        dones_[write_index_] = exp.response.done ? 1.0f : 0.0f;
+        truncateds_[write_index_] = exp.response.truncated ? 1.0f : 0.0f;
 
         write_index_ = (write_index_ + 1) % capacity_;
         size_ = std::min(size_ + 1, capacity_);
     }
+
 
     std::vector<Experience> ReplayBuffer::Sample(size_t n) const
     {
@@ -123,6 +219,7 @@ namespace anet::rl {
             e.response.done = dones_[idx].item<float>() > 0.5f;
             e.response.truncated = truncateds_[idx].item<float>() > 0.5f;
 
+            wxLogDebug("ReplayBuffer::Sample() e.state=%s", anet::ToString(e.state));
             out.push_back(e);
         }
         return out;
@@ -130,6 +227,8 @@ namespace anet::rl {
 
     ExperienceBatch ReplayBuffer::SampleBatch(size_t n, torch::Device device) const
     {
+        ANET_ASSERT_MSG(n > 0, "SampleBatch: n must be > 0");
+
         ExperienceBatch batch{};
         if (size_ == 0) return batch;
 
@@ -142,8 +241,7 @@ namespace anet::rl {
         for (size_t i = 0; i < n; ++i)
             idx.push_back(static_cast<int64_t>(dist(engine_)));
 
-        auto index_tensor = torch::tensor(idx,
-            torch::TensorOptions().dtype(torch::kInt64).device(device_));
+        auto index_tensor = torch::tensor(idx, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
 
         batch.states = states_.index_select(0, index_tensor).to(device);
         batch.actions = actions_.index_select(0, index_tensor).to(device);
