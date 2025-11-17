@@ -1,5 +1,6 @@
-﻿#include "anet/rl.hpp"
-#include <random>
+﻿#include <random>
+#include "anet/rl.hpp"
+#include "anet/replay_buffer.hpp"
 
 using namespace anet::rl;
 
@@ -23,13 +24,18 @@ public:
         return state;
     }
 
-    EnvResponse DoStep(const torch::Tensor& action, anet::rl::RunMode mode = anet::rl::RunMode::Train) override {
+    ActionResult DoStep(const torch::Tensor& action, anet::rl::RunMode mode = anet::rl::RunMode::Train) override {
         float act = action.item<float>();
         state = state + torch::tensor({ act * 0.1f, 0.0, 0.0, 0.0 });
         float reward = 1.0f - std::abs(state[0].item<float>());
         bool done = std::abs(state[0].item<float>()) > 2.0f;
         bool truncated = false;
-        return { state.clone(), reward, done, truncated };
+        return {
+            state.clone(),
+              torch::tensor({ reward }).unsqueeze(0),
+              torch::tensor({ done ? 1.0f : 0.0f }).unsqueeze(0),
+              torch::tensor({ truncated ? 1.0f : 0.0f }).unsqueeze(0)
+        };
     }
 
     torch::Tensor GetState() const override { return state; }
@@ -50,7 +56,7 @@ public:
         torch::nn::init::xavier_uniform_(policy->weight);
     }
 
-    ActionResult SelectAction(const torch::Tensor& state, RunMode mode = RunMode::Train) override {
+    ActionInfo SelectAction(const torch::Tensor& state, RunMode mode = RunMode::Train) override {
         torch::NoGradGuard no_grad;
         auto q_values = policy->forward(state);
         int action_index;
@@ -85,39 +91,6 @@ private:
     const size_t batch_size_ = 32;
 };
 
-// =============================================================
-// PPO風エージェント（OnPolicySession使用）
-// =============================================================
-class PPOStyleAgent : public Agent {
-public:
-    PPOStyleAgent(int state_dim, int action_dim)
-        : policy(torch::nn::Linear(state_dim, action_dim)), value_net(torch::nn::Linear(state_dim, 1)) {
-        torch::nn::init::xavier_uniform_(policy->weight);
-        torch::nn::init::xavier_uniform_(value_net->weight);
-    }
-
-    ActionResult SelectAction(const torch::Tensor& state, RunMode mode = RunMode::Train) override {
-        auto logits = policy->forward(state);
-        auto probs = torch::softmax(logits, -1);
-        int action_index = probs.argmax().item<int>();
-        auto log_prob = torch::log(probs[action_index]);
-        auto value = value_net->forward(state).squeeze(-1);
-        return { torch::tensor(action_index, torch::kInt64), log_prob, value };
-    }
-
-    std::shared_ptr<UpdateResult> UpdateStep(const Experience& e) override {
-        return std::make_shared<DummyUpdateResult>();
-    }
-    std::shared_ptr<UpdateResult> UpdateBatch(const BatchData& batch) override {
-        std::cout << "[PPO] collected " << batch.Size() << " experiences\n";
-        return std::make_shared<DummyUpdateResult>();
-    }
-
-    void OnPostUpdate(const std::shared_ptr<UpdateResult>& result) {}
-private:
-    torch::nn::Linear policy;
-    torch::nn::Linear value_net;
-};
 
 // =============================================================
 // サンプル①：ReplayBuffer学習（DQN）
@@ -130,8 +103,9 @@ void Sample_ReplayBufferTraining(Environment& env, DQNStyleAgent& agent) {
         auto resp = env.DoStep(action);
         agent.UpdateStep({ state, action, resp });
         state = resp.next_state;
-        if (resp.done) env.Reset();
-        if (t % 10 == 0) agent.UpdateBatch(BatchData());
+        if (resp.IsDone()) env.Reset();
+        const Experience e;
+        if (t % 10 == 0) agent.UpdateStep(e);
     }
 }
 
@@ -140,29 +114,29 @@ void Sample_ReplayBufferTraining(Environment& env, DQNStyleAgent& agent) {
 // =============================================================
 void Sample_MixedTrainingAndEval(Environment& env, DQNStyleAgent& agent) {
     std::cout << "\n=== Mixed Train+Eval ===\n";
-    auto state = env.Reset();
-    for (int t = 1; t <= 3000; ++t) {
-        auto [action, _, __] = agent.SelectAction(state);
-        auto resp = env.DoStep(action);
-        agent.UpdateStep({ state, action, resp });
-        state = resp.next_state;
-        if (resp.done) env.Reset();
-        if (t % 20 == 0) agent.UpdateBatch(BatchData());
+    //auto state = env.Reset();
+    //for (int t = 1; t <= 3000; ++t) {
+    //    auto [action, _, __] = agent.SelectAction(state);
+    //    auto resp = env.DoStep(action);
+    //    agent.UpdateStep({ state, action, resp });
+    //    state = resp.next_state;
+    //    if (resp.done) env.Reset();
+    //    const Experience e;
 
-        if (t % 1000 == 0) {
-            DummyEnv eval_env;
-            auto s = eval_env.Reset();
-            float total_reward = 0.0f;
-            for (int i = 0; i < 500; ++i) {
-                auto [a, _, __2] = agent.SelectAction(s, RunMode::Eval1);
-                auto r = eval_env.DoStep(a);
-                total_reward += r.reward;
-                s = r.next_state;
-                if (r.done) break;
-            }
-            std::cout << "Eval after " << t << " steps: total_reward=" << total_reward << "\n";
-        }
-    }
+    //    if (t % 1000 == 0) {
+    //        DummyEnv eval_env;
+    //        auto s = eval_env.Reset();
+    //        float total_reward = 0.0f;
+    //        for (int i = 0; i < 500; ++i) {
+    //            auto [a, _, __2] = agent.SelectAction(s, RunMode::Eval1);
+    //            auto r = eval_env.DoStep(a);
+    //            total_reward += r.reward;
+    //            s = r.next_state;
+    //            if (r.done) break;
+    //        }
+    //        std::cout << "Eval after " << t << " steps: total_reward=" << total_reward << "\n";
+    //    }
+    //}
 }
 
 // =============================================================
@@ -171,7 +145,6 @@ void Sample_MixedTrainingAndEval(Environment& env, DQNStyleAgent& agent) {
 void RunAllSamples() {
     DummyEnv env;
     DQNStyleAgent dqn(4, 2);
-    PPOStyleAgent ppo(4, 2);
 
     Sample_ReplayBufferTraining(env, dqn);
     Sample_MixedTrainingAndEval(env, dqn);

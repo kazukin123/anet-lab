@@ -87,6 +87,7 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     // --- 環境初期化 ---
     state = env->Reset();  // ← reset() は 初期状態 を返す
     ANET_CHECK_DEVICE_CPU_MSG(state, "Initial state");
+    ANET_CHECK_SHAPE(state, { ANET_SHAPE_ANY, 4 });
 
     // --- タイマー開始 ---
     Bind(wxEVT_TIMER, &CartPoleFrame::OnTimer, this);
@@ -128,20 +129,36 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
             wxGetApp().Exit();
         }
 
-        // 行動選択と環境ステップ実行、更新
+        // 行動選択
         wxLogDebug("CartPoleFrame::OnTimer() step=%d state=%s", step_count, anet::ToString(state));
         auto [action, _, __] = agent->SelectAction(state);
         wxLogDebug("CartPoleFrame::OnTimer() step=%d action=%s", step_count, anet::ToString(action));
         ANET_CHECK_DEVICE(action, device);
-        anet::rl::EnvResponse env_resp = env->DoStep(action);    // next_state, reward, done, truncated
-        wxLogDebug("CartPoleFrame::OnTimer() step=%d next_state=%s", step_count, anet::ToString(env_resp.next_state));
-        ANET_CHECK_DEVICE(env_resp.next_state, torch::kCPU);
-        anet::rl::Experience exp = { state, action, env_resp.next_state, env_resp.reward, env_resp.done };
+
+        // 環境ステップ実行
+        anet::rl::ActionResult result = env->DoStep(action);    // next_state, reward, done, truncated
+        wxLogDebug("CartPoleFrame::OnTimer() step=%d reward=%s", step_count, anet::ToString(result.reward));
+        wxLogDebug("CartPoleFrame::OnTimer() step=%d next_state=%s", step_count, anet::ToString(result.next_state));
+        wxLogDebug("CartPoleFrame::OnTimer() step=%d done=%s", step_count, anet::ToString(result.done));
+        wxLogDebug("CartPoleFrame::OnTimer() step=%d truncated=%s", step_count, anet::ToString(result.truncated));
+        ANET_CHECK_DEVICE(result.next_state, torch::kCPU);
+        ANET_CHECK_DEVICE(result.reward, torch::kCPU);
+        ANET_CHECK_DEVICE(result.done, torch::kCPU);
+        ANET_CHECK_DEVICE(result.truncated, torch::kCPU);
+        ANET_CHECK_SHAPE(result.next_state, { ANET_SHAPE_ANY, 4 });
+        ANET_CHECK_SHAPE(result.reward, { 1 });
+        ANET_CHECK_SHAPE(result.done, { 1 });
+        ANET_CHECK_SHAPE(result.truncated, { 1 });
+        anet::rl::Experience exp = { state, action, result.next_state, result.reward, result.done, result.truncated };
+
+        // 更新
         auto update_result = agent->UpdateStep(exp);
+
+        // 更新後処理
         notifier_.Notify(update_result);
-        state = env_resp.next_state.clone();
-        last_reward = env_resp.reward;
-        train_total_reward += env_resp.reward;
+        state = result.next_state.clone();
+        last_reward = result.reward.squeeze(0).item<float>();
+        train_total_reward += last_reward;
 
         // ステップ数インプリメント（グローバルなステップ数）
         step_count++;
@@ -152,7 +169,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         canvas->Refresh();
 
         //エピソード終了判定
-        if (env_resp.done) {
+        if (result.IsDone()) {
             episode_count++;
 
             // プロット更新
@@ -175,9 +192,9 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
                     while (!done) {
                         auto [action, _, __] = agent->SelectAction(state, anet::rl::RunMode::Eval1);
                         auto env_result = env->DoStep(action);
-                        total_reward += env_result.reward;
+                        total_reward += env_result.reward.squeeze(0).item<float>();
                         state = env_result.next_state.clone();
-                        done = env_result.done;
+                        done = env_result.done.squeeze(0).item<float>();
                     }
 
                     // ログ
@@ -198,9 +215,9 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
                     while (!done) {
                         auto [action, _, __] = agent->SelectAction(state, anet::rl::RunMode::Eval2);
                         auto env_result = env->DoStep(action);
-                        total_reward += env_result.reward;
+                        total_reward += env_result.reward.squeeze(0).item<float>();
                         state = env_result.next_state.clone();
-                        done = env_result.done;
+                        done = env_result.done.squeeze(0).item<float>();
                     }
                     // ログ
                     anet::MetricsLogger::Instance()->log_scalar("11_eval/02_policy_reward", step_count, total_reward);

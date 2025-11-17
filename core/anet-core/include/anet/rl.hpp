@@ -11,6 +11,7 @@
 #include "anet/heat_map.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/tensor_utils.hpp"
+#include "anet/random.hpp"
 
 namespace anet::rl {
 
@@ -39,11 +40,15 @@ namespace anet::rl {
     /**
      * @brief 環境が返すステップ応答。
      */
-    struct EnvResponse {
-        torch::Tensor next_state;      // (N, state_dim)
-        float reward;
-        bool done;
-        bool truncated;
+    struct ActionResult {
+        torch::Tensor next_state; // (N, state_dim)
+        torch::Tensor reward;     // (N,) 
+        torch::Tensor done;       // (N,)
+        torch::Tensor truncated;  // (N,)
+
+        bool IsDone() const {
+            return done.item<float>() > 0.5f;
+        }
     };
 
     /**
@@ -52,7 +57,7 @@ namespace anet::rl {
     struct Experience {
         torch::Tensor state;        // (N, state_dim)
         torch::Tensor action;       // (N, action_dim)
-        EnvResponse response;
+        ActionResult result;
     };
 
     struct StateSpaceInfo {
@@ -65,12 +70,18 @@ namespace anet::rl {
     // Environment 抽象クラス
     // =============================================================
 
+    class RandomGenereator {
+    public:
+        virtual void SetRandomSeed(uint64_t seed) = 0;
+        virtual uint64_t GetRandomSeed() = 0;
+    };
+
     class Environment {
     public:
         virtual StateSpaceInfo GetStateSpaceInfo() const = 0;
 
         virtual torch::Tensor Reset(RunMode mode = RunMode::Train) = 0;
-        virtual EnvResponse DoStep(const torch::Tensor& action, RunMode mode = RunMode::Train) = 0;
+        virtual ActionResult DoStep(const torch::Tensor& action, RunMode mode = RunMode::Train) = 0;
         virtual torch::Tensor GetState() const = 0;
 
         virtual ~Environment() = default;
@@ -88,7 +99,7 @@ namespace anet::rl {
             for (auto& e : experiences_) {
                 e.state = e.state.to(device);
                 e.action = e.action.to(device);
-                e.response.next_state = e.response.next_state.to(device);
+                e.result.next_state = e.result.next_state.to(device);
             }
         }
 
@@ -100,49 +111,11 @@ namespace anet::rl {
         std::vector<Experience> experiences_;
     };
 
-    struct ExperienceBatch {
-        torch::Tensor states;       // (B, state_dim...)
-        torch::Tensor actions;      // (B, action_dim...) or (B,)
-        torch::Tensor next_states;  // (B, state_dim...)
-        torch::Tensor rewards;      // (B,)
-        torch::Tensor dones;        // (B,)
-        torch::Tensor truncateds;   // (B,)
-    };
-
-    class ReplayBuffer {
-    public:
-        explicit ReplayBuffer(size_t capacity = 10000, bool is_discrete = true)
-            : capacity_(capacity), is_discrete_(is_discrete) {}
-
-        void Push(const Experience& e);
-        std::vector<Experience> Sample(size_t n) const;
-        ExperienceBatch SampleBatch(size_t n, torch::Device device) const;
-
-        size_t Size() const { return size_; }
-    private:
-        void PushSingle_(const Experience& e);
-    private:
-        size_t capacity_;
-        size_t size_ = 0;
-        size_t write_index_ = 0;
-        bool is_discrete_;
-        bool initialized_ = false;
-
-        torch::Tensor states_;
-        torch::Tensor actions_;
-        torch::Tensor next_states_;
-        torch::Tensor rewards_;
-        torch::Tensor dones_;
-        torch::Tensor truncateds_;
-
-        mutable std::mt19937 engine_{ std::random_device{}() };
-    };
-
     // =============================================================
     // Runner / Sampler
     // =============================================================
 
-    struct ActionResult {
+    struct ActionInfo {
         torch::Tensor action;
         torch::Tensor log_prob;
         torch::Tensor value;
@@ -162,13 +135,13 @@ namespace anet::rl {
 
     class Runner {
     public:
-        virtual ActionResult SelectAction(const torch::Tensor& state, RunMode mode = RunMode::Train) = 0;
+        virtual ActionInfo SelectAction(const torch::Tensor& state, RunMode mode = RunMode::Train) = 0;
         virtual ~Runner() = default;
     };
 
     class Sampler {
     public:
-        virtual void ObserveFirst(const EnvResponse& envResponse) = 0;
+        virtual void ObserveFirst(const ActionResult& result) = 0;
         virtual void Observe(const Experience& exprience) = 0;
         virtual ~Sampler() = default;
     };
@@ -176,7 +149,7 @@ namespace anet::rl {
     class Learner {
     public:
         virtual std::shared_ptr<UpdateResult> UpdateStep(const Experience& exprience) = 0;
-        virtual std::shared_ptr<UpdateResult> UpdateBatch(const BatchData&) = 0;
+        virtual std::shared_ptr<UpdateResult> UpdateBatch(const BatchData& batch) = 0;
         virtual ~Learner() = default;
     };
 
@@ -196,10 +169,10 @@ namespace anet::rl {
     // =============================================================
 
     // 環境のステップに同期して更新する Agent 基底クラス（DQN, DDPG, SAC, A2C など）
-    class StepBasedLearner : public Learner {
+    class StepBasedAgent : public Agent {
     public:
-        StepBasedLearner() = default;
-        virtual ~StepBasedLearner() = default;
+        StepBasedAgent() = default;
+        virtual ~StepBasedAgent() = default;
 
         // ① pure virtual — 各 Agent が実装
         virtual std::shared_ptr<UpdateResult> UpdateStep(const Experience& expr) override = 0;
@@ -213,14 +186,13 @@ namespace anet::rl {
             return last;
         }
 
-        virtual void OnPostUpdate(const std::shared_ptr<UpdateResult>& /*result*/) {
+        virtual void OnPostUpdate(const std::shared_ptr<UpdateResult>& result) {
             // 必要に応じて派生クラスで利用
         }
 
         size_t GetStepCount() const { return step_count_; }
     protected:
         void IncrementStep() { step_count_++; }
-
     private:
         size_t step_count_ = 0;
     };
@@ -237,7 +209,7 @@ namespace anet::rl {
     // =============================================================
     class MetricsObserver : public PostUpdateObserver {
     public:
-        explicit MetricsObserver(const StepBasedLearner* learner)
+        explicit MetricsObserver(const StepBasedAgent* learner)
             : learner_(learner) {
         }
 
@@ -253,7 +225,7 @@ namespace anet::rl {
             }
         }
     private:
-        const StepBasedLearner* learner_;
+        const StepBasedAgent* learner_;
     };
 
     class Notifier {

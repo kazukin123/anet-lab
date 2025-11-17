@@ -10,7 +10,7 @@ public:
     anet::rl::StateSpaceInfo GetStateSpaceInfo() const override;
 
     torch::Tensor Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
-    anet::rl::EnvResponse DoStep(const torch::Tensor& action, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;   //  state, reward, done
+    anet::rl::ActionResult DoStep(const torch::Tensor& action, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;   //  state, reward, done
     torch::Tensor GetState() const override;
 
     float get_x() const { return x; }

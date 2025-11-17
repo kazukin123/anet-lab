@@ -1,14 +1,11 @@
-
-#include "anet/tensor_check.hpp"
+ï»¿#include "anet/tensor_check.hpp"
 
 //----------------------------------------------
-// Device ƒ`ƒFƒbƒNÀ‘Ì
+// Device ãƒã‚§ãƒƒã‚¯å®Ÿä½“
 //----------------------------------------------
-void _anet_check_device_impl(const torch::Tensor& t,
-    const torch::Device& expect,
-    const char* msg,
-    const char* file,
-    int line)
+void _anet_check_device_impl(
+    const torch::Tensor& t, const torch::Device& expect,
+    const char* msg, const char* file, int line)
 {
     const bool expect_cpu = expect.is_cpu();
     const bool actual_cpu = t.device().is_cpu();
@@ -23,7 +20,7 @@ void _anet_check_device_impl(const torch::Tensor& t,
 }
 
 //----------------------------------------------
-// Shapei’Pˆêjƒ`ƒFƒbƒNÀ‘Ì
+// Shapeï¼ˆå˜ä¸€ï¼‰ãƒã‚§ãƒƒã‚¯å®Ÿä½“
 //----------------------------------------------
 void _anet_check_shape_impl(const torch::Tensor& t,
     const std::vector<int64_t>& expect,
@@ -45,7 +42,7 @@ void _anet_check_shape_impl(const torch::Tensor& t,
 }
 
 //----------------------------------------------
-// Shape-ORi•¡” shape ‹–‰Âjƒ`ƒFƒbƒNÀ‘Ì
+// Shape-ORï¼ˆè¤‡æ•° shape è¨±å¯ï¼‰ãƒã‚§ãƒƒã‚¯å®Ÿä½“
 //----------------------------------------------
 void _anet_check_shape_or_impl(const torch::Tensor& t,
     const std::vector<std::vector<int64_t>>& expects,
@@ -61,14 +58,14 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
         bool ok = true;
 
         for (size_t i = 0; i < e.size(); ++i) {
-            if (e[i] == ANET_SHAPE_ANY) continue;  // ”CˆÓŸŒ³
+            if (e[i] == ANET_SHAPE_ANY) continue;  // ä»»æ„æ¬¡å…ƒ
             if (actual[i] != e[i]) {
                 ok = false;
                 break;
             }
         }
 
-        if (ok) return;  // ‚¢‚¸‚ê‚©‚Éƒ}ƒbƒ`
+        if (ok) return;  // ã„ãšã‚Œã‹ã«ãƒãƒƒãƒ
     }
 
     std::stringstream ss;

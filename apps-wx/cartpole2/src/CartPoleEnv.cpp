@@ -75,7 +75,7 @@ torch::Tensor CartPoleEnv::GetState() const {
     return torch::tensor({ x, x_dot, theta, theta_dot }).unsqueeze(0);
 }
 
-anet::rl::EnvResponse CartPoleEnv::DoStep(const torch::Tensor& action_tensor, anet::rl::RunMode mode) {
+anet::rl::ActionResult CartPoleEnv::DoStep(const torch::Tensor& action_tensor, anet::rl::RunMode mode) {
     int action = action_tensor.item<int>();
 
     // 力の符号（右:+、左-）
@@ -161,7 +161,7 @@ anet::rl::EnvResponse CartPoleEnv::DoStep(const torch::Tensor& action_tensor, an
         - 0.002f * (std::abs(x) / limit_x));      // 位置
 
     // 終了条件ごとに分岐
-	bool truncated = false;
+    bool truncated = false;
     if (theta_deg < -limit_theta || theta_deg > limit_theta || x < -limit_x || x > limit_x) {
         // 倒立失敗
         reward = -reward_scale;   // ← ペナルティ
@@ -171,5 +171,10 @@ anet::rl::EnvResponse CartPoleEnv::DoStep(const torch::Tensor& action_tensor, an
         truncated = true;
     }
 
-    return { GetState(), reward, done, truncated };
+    return {
+        torch::tensor({ x, x_dot, theta, theta_dot }).unsqueeze(0),
+        torch::tensor({ reward }),
+        torch::tensor({ done ? 1.0f : 0.0f }),
+        torch::tensor({ truncated ? 1.0f : 0.0f })
+    };
 }

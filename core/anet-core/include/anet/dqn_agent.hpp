@@ -7,6 +7,7 @@
 #include "anet/rl.hpp"
 #include "anet/heat_map.hpp"
 #include "anet/config.hpp"
+#include "anet/replay_buffer.hpp"
 
 namespace anet::rl {
 
@@ -131,23 +132,19 @@ namespace anet::rl {
         }
     };
 
-    class DQNAgent : public anet::rl::Agent, anet::rl::StepBasedLearner {
+    class DQNAgent : public anet::rl::StepBasedAgent {
     public:
         DQNAgent(const DQNAgentConfig& config, anet::rl::Environment& env, int state_dim, int n_actions, torch::Device device);
 
-        anet::rl::ActionResult SelectAction(const torch::Tensor& state, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
+        anet::rl::ActionInfo SelectAction(const torch::Tensor& state, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
         std::shared_ptr<anet::rl::UpdateResult> UpdateStep(const anet::rl::Experience& exprience) override;
-        std::shared_ptr<anet::rl::UpdateResult> UpdateBatch(const anet::rl::BatchData&) override; // ReplayBuffer対応
     public:
         void OnPostUpdate(const std::shared_ptr<UpdateResult>& result) override;
     private:
-        void hard_update();
-        void soft_update();
-        void OptimizeSingle(const anet::rl::Experience& exprence);
-        void OptimizeBatch(const std::vector<anet::rl::Experience>& batch);
     private:
         // 設定
         DQNAgentConfig config_;
+        anet::RandomGenerator* rnd = &anet::RandomGenerator::Default();
 
         // NN
         struct QNetImpl;
@@ -155,11 +152,11 @@ namespace anet::rl {
         int n_actions_;
         std::shared_ptr<QNetImpl> policy_net;
         std::shared_ptr<QNetImpl> target_net;
-        torch::Device device;
+        torch::Device device_;
 
         // パラメータ依存オブジェクト
         torch::optim::Adam optimizer;
-        anet::rl::ReplayBuffer replay_buffer;
+        anet::rl::ReplayBuffer replay_buffer_;
 
         // 学習変数
         float epsilon;

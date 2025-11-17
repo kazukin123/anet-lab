@@ -26,10 +26,11 @@ void evaluateEnvironment(anet::rl::Environment& env, int num_actions, int num_tr
 		while (true) {  // ランダム方策でエピソード完了まで実行して評価
             int action_int = action_dist(gen);
             auto action = torch::tensor({ action_int }, torch::kLong);
-            auto [next_state, reward, done, truncated] = env.DoStep(action);
-            total_reward += reward;
+            auto result = env.DoStep(action);
+            total_reward += result.reward.item<float>();
             steps++;
-            if (done || truncated) break;
+            //if (done || truncated) break;
+            if (result.IsDone()) break;
         }
 
         reward_sum += total_reward;
