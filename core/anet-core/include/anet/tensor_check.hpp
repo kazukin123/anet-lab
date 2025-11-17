@@ -1,10 +1,10 @@
-#pragma once
+ï»¿#pragma once
 #include <torch/torch.h>
 #include <vector>
 #include "anet/common.hpp"
 
 //------------------------------------------------------
-// Enable switchesiƒfƒtƒHƒ‹ƒgONj
+// Enable switchesï¼ˆãƒ‡ãƒ•ã‚©ãƒ«ãƒˆONï¼‰
 //------------------------------------------------------
 
 #ifndef ANET_ENABLE_TENSOR_ASSERT
@@ -12,7 +12,7 @@
 #endif
 
 //------------------------------------------------------
-// “à•”À‘•ŠÖ”i.cpp ‚ÉÀ‘Ì‚ ‚èj
+// å†…éƒ¨å®Ÿè£…é–¢æ•°ï¼ˆ.cpp ã«å®Ÿä½“ã‚ã‚Šï¼‰
 //------------------------------------------------------
 #if ANET_ENABLE_TENSOR_ASSERT
 
@@ -36,19 +36,19 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
 #endif
 
 //------------------------------------------------------
-// Device ƒ`ƒFƒbƒNŒnƒ}ƒNƒ
+// Device ãƒã‚§ãƒƒã‚¯ç³»ãƒã‚¯ãƒ­
 //------------------------------------------------------
 
 #if ANET_ENABLE_TENSOR_ASSERT
 
-// msg ‚ğ©“®¶¬i#tensorj
+// msg ã‚’è‡ªå‹•ç”Ÿæˆï¼ˆ#tensorï¼‰
 #define ANET_CHECK_DEVICE(tensor, expected_dev)                                \
     do {                                                                       \
         _anet_check_device_impl((tensor), (expected_dev), #tensor,             \
                                 __FILE__, __LINE__);                           \
     } while (0)
 
-// msg –¾¦”Åi]—ˆ“®ìj
+// msg æ˜ç¤ºç‰ˆï¼ˆå¾“æ¥å‹•ä½œï¼‰
 #define ANET_CHECK_DEVICE_MSG(tensor, expected_dev, msg)                       \
     do {                                                                       \
         _anet_check_device_impl((tensor), (expected_dev), (msg),               \
@@ -92,10 +92,10 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
 
 
 //------------------------------------------------------
-// Shape ƒ`ƒFƒbƒNi•¡” shape ‹–‰Âj
+// Shape ãƒã‚§ãƒƒã‚¯ï¼ˆè¤‡æ•° shape è¨±å¯ï¼‰
 //------------------------------------------------------
 
-// ANY: ”CˆÓŸŒ³ishape ‚ÌƒƒCƒ‹ƒhƒJ[ƒhj
+// ANY: ä»»æ„æ¬¡å…ƒï¼ˆshape ã®ãƒ¯ã‚¤ãƒ«ãƒ‰ã‚«ãƒ¼ãƒ‰ï¼‰
 static constexpr int64_t ANET_SHAPE_ANY = -1;
 
 #if ANET_ENABLE_TENSOR_ASSERT
@@ -108,7 +108,7 @@ static constexpr int64_t ANET_SHAPE_ANY = -1;
                                   __FILE__, __LINE__);                          \
     } while (0)
 
-// –¾¦ msg ”Å
+// æ˜ç¤º msg ç‰ˆ
 #define ANET_CHECK_SHAPE_MSG(tensor, msg, ...)                                  \
     do {                                                                        \
         std::vector<std::vector<int64_t>> _anet_shapes = { __VA_ARGS__ };       \

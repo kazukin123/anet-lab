@@ -1,4 +1,4 @@
-
+ï»¿
 
 #include <functional>
 #include <iostream>
@@ -30,7 +30,7 @@ namespace anet {
 
         std::function<void(int)> rec = [&](int d) {
             if (d == dim) {
-                // TensorIndex ‚É•ÏŠ·
+                // TensorIndex ã«å¤‰æ›
                 std::vector<at::indexing::TensorIndex> tidx;
                 tidx.reserve(dim);
                 for (auto v : idx) tidx.push_back(v);
@@ -60,7 +60,7 @@ namespace anet {
         std::vector<at::indexing::TensorIndex> tidx;
         tidx.reserve(idx.size());
         for (auto v : idx) {
-            tidx.push_back(v);  // int64_t ¨ TensorIndex ‚É•ÏŠ·
+            tidx.push_back(v);  // int64_t â†’ TensorIndex ã«å¤‰æ›
         }
         return t.index(tidx).item<float>();
     }
@@ -71,7 +71,7 @@ namespace anet {
         int dim = sizes.size();
 
         if (dim == 0) {
-            // ƒXƒJƒ‰[
+            // ã‚¹ã‚«ãƒ©ãƒ¼
             os << "[] = " << t.item<float>();
             return;
         }
@@ -79,12 +79,12 @@ namespace anet {
         std::vector<int64_t> idx(dim, 0);
 
         std::function<void(int)> rec = [&](int d) {
-            // ÅŒã‚ÌŸŒ³is‚Æ‚µ‚Ä“WŠJ‚·‚éŸŒ³j
+            // æœ€å¾Œã®æ¬¡å…ƒï¼ˆè¡Œã¨ã—ã¦å±•é–‹ã™ã‚‹æ¬¡å…ƒï¼‰
             if (d == dim - 1) {
-                // sƒ‰ƒxƒ‹
+                // è¡Œãƒ©ãƒ™ãƒ«
                 os << "[";
                 if (dim == 1) {
-                    os << ":";   // 1D ‚Ì‚Æ‚«‚Í [:] ‚İ‚½‚¢‚É‚µ‚Ä‚¨‚­
+                    os << ":";   // 1D ã®ã¨ãã¯ [:] ã¿ãŸã„ã«ã—ã¦ãŠã
                 }
                 else {
                     for (int i = 0; i < dim - 1; i++) {
@@ -94,7 +94,7 @@ namespace anet {
                 }
                 os << "] ";
 
-                // ÅŒã‚ÌŸŒ³‚ğ‰¡‚É•À‚×‚é
+                // æœ€å¾Œã®æ¬¡å…ƒã‚’æ¨ªã«ä¸¦ã¹ã‚‹
                 for (int64_t j = 0; j < sizes[dim - 1]; j++) {
                     idx[dim - 1] = j;
                     float v = tensorValueAt(t, idx);
@@ -105,11 +105,11 @@ namespace anet {
                 return;
             }
 
-            // Ä‹A“I‚É‘O‚ÌŸŒ³‚ğ‰ñ‚·
+            // å†å¸°çš„ã«å‰ã®æ¬¡å…ƒã‚’å›ã™
             for (int64_t i = 0; i < sizes[d]; i++) {
                 idx[d] = i;
                 rec(d + 1);
-                // ƒuƒƒbƒN‚²‚Æ‚É‹ós‚ğ“ü‚ê‚½‚¢‚È‚ç‚±‚±‚Å“ü‚ê‚é
+                // ãƒ–ãƒ­ãƒƒã‚¯ã”ã¨ã«ç©ºè¡Œã‚’å…¥ã‚ŒãŸã„ãªã‚‰ã“ã“ã§å…¥ã‚Œã‚‹
                 // if (dim >= 3 && d == dim - 2 && i + 1 < sizes[d]) os << "\n";
             }
             };

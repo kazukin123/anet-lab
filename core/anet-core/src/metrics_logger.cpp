@@ -1,4 +1,4 @@
-#include "anet/metrics_logger.hpp"
+ï»¿#include "anet/metrics_logger.hpp"
 #include <stdexcept>
 #include <wx/process.h>
 #include <wx/wfstream.h>
@@ -7,7 +7,7 @@
 
 namespace anet {
     //----------------------------------------------
-    // JsonlBackend À‘•
+    // JsonlBackend å®Ÿè£…
     //----------------------------------------------
     void JsonlBackend::open(const std::string& root_dir, const std::string& run_name) {
         std::filesystem::create_directories(root_dir + "/" + run_name);
@@ -24,7 +24,7 @@ namespace anet {
     void JsonlBackend::flush() { ofs.flush(); }
 
     //----------------------------------------------
-    // VideoLogger À‘•
+    // VideoLogger å®Ÿè£…
     //----------------------------------------------
     VideoLogger::VideoLogger(const std::string& path, int width, int height, int fps, int in_rate, const std::string& codec)
         : width_(width), height_(height), path_(path), fps_(fps), in_rate_(in_rate), codec_(codec)
@@ -39,12 +39,12 @@ namespace anet {
         );
 
         process_ = new wxProcess();
-        process_->Redirect();  // •W€“üo—Í‚ğƒŠƒ_ƒCƒŒƒNƒg
+        process_->Redirect();  // æ¨™æº–å…¥å‡ºåŠ›ã‚’ãƒªãƒ€ã‚¤ãƒ¬ã‚¯ãƒˆ
         long pid = wxExecute(cmd, wxEXEC_ASYNC | wxEXEC_HIDE_CONSOLE, process_);
         if (pid == 0)
             throw std::runtime_error("Failed to launch ffmpeg process");
 
-        // ‘‚«‚İƒXƒgƒŠ[ƒ€æ“¾
+        // æ›¸ãè¾¼ã¿ã‚¹ãƒˆãƒªãƒ¼ãƒ å–å¾—
         stream_ = process_->GetOutputStream();
         if (!stream_)
             throw std::runtime_error("Failed to get ffmpeg stdin stream");
@@ -70,7 +70,7 @@ namespace anet {
     }
 
     //----------------------------------------------
-    // MetricsLogger “à•”ƒwƒ‹ƒp
+    // MetricsLogger å†…éƒ¨ãƒ˜ãƒ«ãƒ‘
     //----------------------------------------------
     json MetricsLogger::round_numbers(const json& j, int precision) {
         if (j.is_number_float()) {
@@ -121,7 +121,7 @@ namespace anet {
     }
 
     //----------------------------------------------
-    // MetricsLogger ƒRƒ“ƒXƒgƒ‰ƒNƒ^
+    // MetricsLogger ã‚³ãƒ³ã‚¹ãƒˆãƒ©ã‚¯ã‚¿
     //----------------------------------------------
     MetricsLogger::MetricsLogger(std::unique_ptr<IBackend> b,
         const std::string& root,
@@ -151,17 +151,17 @@ namespace anet {
     }
 
     //----------------------------------------------
-    // ‰æ‘œE“®‰æo—Í
+    // ç”»åƒãƒ»å‹•ç”»å‡ºåŠ›
     //----------------------------------------------
     void MetricsLogger::log_image_subtyped(const std::string& tag,
         int step,
         const wxImage& image,
         const std::string& subtype_or_empty)
     {
-        // ƒ^ƒO‚ğˆÀ‘S‚Èƒtƒ@ƒCƒ‹–¼‚É•ÏŠ·
+        // ã‚¿ã‚°ã‚’å®‰å…¨ãªãƒ•ã‚¡ã‚¤ãƒ«åã«å¤‰æ›
         std::string safe_tag = sanitize_filename(tag);
 
-        // ---- ‰æ‘œ‘‚«‚İ (ŒÂ•ÊPNG•Û‘¶‚Í–³Œø‰») ----
+        // ---- ç”»åƒæ›¸ãè¾¼ã¿ (å€‹åˆ¥PNGä¿å­˜ã¯ç„¡åŠ¹åŒ–) ----
         if (false) {
             uint64_t seq = image_seq_[tag]++;
             char buf[32];
@@ -176,7 +176,7 @@ namespace anet {
             image.SaveFile(full_path, wxBITMAP_TYPE_PNG);
         }
 
-        // ---- “®‰æ‘‚«‚İ ----
+        // ---- å‹•ç”»æ›¸ãè¾¼ã¿ ----
         auto vid_path = root_dir + "/" + run_name + "/videos/" + safe_tag + ".mkv";
         auto it = video_loggers_.find(tag);
         if (it == video_loggers_.end()) {
@@ -194,7 +194,7 @@ namespace anet {
         }
         it->second->WriteFrame(image);
 
-        // ---- JSONL (‰æ‘œ’P‘Ìî•ñ) ----
+        // ---- JSONL (ç”»åƒå˜ä½“æƒ…å ±) ----
         //json obj = {
         //    {"run", run_name},
         //    {"type", "image"},
@@ -208,7 +208,7 @@ namespace anet {
     }
 
 
-    // ---- ƒVƒ“ƒOƒ‹ƒgƒ“ŠÇ— ----
+    // ---- ã‚·ãƒ³ã‚°ãƒ«ãƒˆãƒ³ç®¡ç† ----
 
     std::shared_ptr<MetricsLogger> MetricsLogger::instance_ = nullptr;
     std::mutex MetricsLogger::instance_mutex_;

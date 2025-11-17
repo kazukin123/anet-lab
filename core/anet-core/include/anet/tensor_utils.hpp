@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include <torch/torch.h>
 #include <string>
 #include <sstream>
@@ -10,7 +10,7 @@
 
 namespace anet {
 
-    // Device ‚Æ dtype ‚ğˆêŒ³ŠÇ—‚·‚éŒy—ÊƒRƒ“ƒeƒLƒXƒg
+    // Device ã¨ dtype ã‚’ä¸€å…ƒç®¡ç†ã™ã‚‹è»½é‡ã‚³ãƒ³ãƒ†ã‚­ã‚¹ãƒˆ
     struct TensorContext {
         torch::Device device;
         torch::Dtype float_dtype = torch::kFloat;
@@ -31,10 +31,10 @@ namespace anet {
     };
 
     // =========================
-    // “]‘—^Šî–{ƒ†[ƒeƒBƒŠƒeƒB
+    // è»¢é€ï¼åŸºæœ¬ãƒ¦ãƒ¼ãƒ†ã‚£ãƒªãƒ†ã‚£
     // =========================
 
-    // •K—v‚È‚Æ‚«‚¾‚¯ .to(device) ‚·‚éˆÀ‘S”Å
+    // å¿…è¦ãªã¨ãã ã‘ .to(device) ã™ã‚‹å®‰å…¨ç‰ˆ
     //inline torch::Tensor ToDevice(const torch::Tensor& t, const torch::Device& dev) {
     //    return (t.device() == dev) ? t : t.to(dev);
     //}
@@ -44,14 +44,14 @@ namespace anet {
         return t.detach().to(dev);
     }
 
-    // ƒXƒJƒ‰æ“¾iGPU¨CPU“¯Šú‚ğŠÜ‚Şj¦¡‰ñ‚ÍŒ»óˆÛ‚·‚é•ûj
+    // ã‚¹ã‚«ãƒ©å–å¾—ï¼ˆGPUâ†’CPUåŒæœŸã‚’å«ã‚€ï¼‰â€»ä»Šå›ã¯ç¾çŠ¶ç¶­æŒã™ã‚‹æ–¹é‡
     template<typename T = float>
     inline T ToScalar(const torch::Tensor& t) {
         return t.cpu().item<T>();
     }
 
     // =========================
-    // ƒeƒ“ƒ\ƒ‹¶¬ƒwƒ‹ƒp
+    // ãƒ†ãƒ³ã‚½ãƒ«ç”Ÿæˆãƒ˜ãƒ«ãƒ‘
     // =========================
 
     inline torch::Tensor FullLike(const torch::Tensor& ref, float val, const TensorContext& ctx) {
@@ -67,7 +67,7 @@ namespace anet {
         return torch::full(ref.sizes(), val, ctx.BoolOpt());
     }
 
-    // ƒfƒoƒbƒO—pFƒeƒ“ƒ\ƒ‹‚ğ•¶š—ñ‰»
+    // ãƒ‡ãƒãƒƒã‚°ç”¨ï¼šãƒ†ãƒ³ã‚½ãƒ«ã‚’æ–‡å­—åˆ—åŒ–
     void printTensorAsNestedBrackets(const torch::Tensor& t, std::ostream& os);
     void printTensorAsRows(const torch::Tensor& t, std::ostream& os);
     std::string ToDefString(const torch::Tensor& t);

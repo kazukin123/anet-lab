@@ -1,4 +1,4 @@
-#include "anet/config.hpp"
+ï»¿#include "anet/config.hpp"
 #include <wx/string.h>
 #include <sstream>
 
@@ -18,20 +18,20 @@ namespace anet {
 
         std::string line;
         while (std::getline(ifs, line)) {
-            if (line.empty() || line[0] == '#') continue; // ƒRƒƒ“ƒgsƒXƒLƒbƒv
+            if (line.empty() || line[0] == '#') continue; // ã‚³ãƒ¡ãƒ³ãƒˆè¡Œã‚¹ã‚­ãƒƒãƒ—
 
-            size_t posHash = line.find('#');   // '#' ˆÈ~‚ÍƒRƒƒ“ƒgˆµ‚¢
+            size_t posHash = line.find('#');   // '#' ä»¥é™ã¯ã‚³ãƒ¡ãƒ³ãƒˆæ‰±ã„
             if (posHash != std::string::npos)
                 line = line.substr(0, posHash);
 
-            size_t posSlash = line.find("//");  // '//' ˆÈ~‚ÍƒRƒƒ“ƒgˆµ‚¢
+            size_t posSlash = line.find("//");  // '//' ä»¥é™ã¯ã‚³ãƒ¡ãƒ³ãƒˆæ‰±ã„
             if (posSlash != std::string::npos)
                 line = line.substr(0, posSlash);
 
-            line = Trim(line);  // ‘OŒã‚Ì‹ó”’œ‹
+            line = Trim(line);  // å‰å¾Œã®ç©ºç™½é™¤å»
             if (line.empty()) continue;
 
-            size_t pos = line.find('=');    // '=' ‚Ü‚½‚Í ':' ‚Å‹æØ‚é
+            size_t pos = line.find('=');    // '=' ã¾ãŸã¯ ':' ã§åŒºåˆ‡ã‚‹
             if (pos == std::string::npos)
                 pos = line.find(':');
             if (pos == std::string::npos)
@@ -40,7 +40,7 @@ namespace anet {
             std::string key = Trim(line.substr(0, pos));
             std::string value = Trim(line.substr(pos + 1));
 
-            // ––”ö ';' ‚ğœ‹
+            // æœ«å°¾ ';' ã‚’é™¤å»
             while (!value.empty() && value.back() == ';')
                 value.pop_back();
             value = Trim(value);
@@ -64,7 +64,7 @@ namespace anet {
     }
 
     void ConfigManager::ApplyCmdLineOverrides(const wxCmdLineParser& cmdLine) {
-        // —á: agent.lr=0.001 ‚ğƒpƒ‰ƒ[ƒ^‚Æ‚µ‚Ä“n‚·
+        // ä¾‹: agent.lr=0.001 ã‚’ãƒ‘ãƒ©ãƒ¡ãƒ¼ã‚¿ã¨ã—ã¦æ¸¡ã™
         // executable agent.lr=0.001 train.max_steps=20000
         const int count = cmdLine.GetParamCount();
         for (int i = 0; i < count; ++i) {
@@ -96,18 +96,18 @@ namespace anet {
     ConfigData ConfigManager::Make(const std::string& module, const std::string& defaultPreset) const {
         ConfigData out;
 
-        // (1) resolvedModule ‚ÌŒˆ’è
+        // (1) resolvedModule ã®æ±ºå®š
         const std::string resolved = ResolveModule(module, defaultPreset);
         const std::string prefix = resolved + ".";
 
-        // (2) Œ³‚Ì data_ ‚©‚ç resolved.* ‚Ì‚İ’Šo
-        for (const auto& kv : data_.Map()) {   // Raw() ‚Í map<string,string> æ“¾
+        // (2) å…ƒã® data_ ã‹ã‚‰ resolved.* ã®ã¿æŠ½å‡º
+        for (const auto& kv : data_.Map()) {   // Raw() ã¯ map<string,string> å–å¾—
             const std::string& key = kv.first;
             const std::string& val = kv.second;
 
-            // prefix ‚Éˆê’v‚·‚éê‡‚¾‚¯’Šo
+            // prefix ã«ä¸€è‡´ã™ã‚‹å ´åˆã ã‘æŠ½å‡º
             if (key.compare(0, prefix.size(), prefix) == 0) {
-                // æ“ª‚Ì "resolved." ‚ğœ‹‚µ‚Äƒ[ƒJƒ‹ƒL[‚Ö
+                // å…ˆé ­ã® "resolved." ã‚’é™¤å»ã—ã¦ãƒ­ãƒ¼ã‚«ãƒ«ã‚­ãƒ¼ã¸
                 const std::string localKey = key.substr(prefix.size());
                 out.Set(localKey, val);
             }
@@ -146,7 +146,7 @@ namespace anet {
             const auto& key = kv.first;
             const auto& val = kv.second;
 
-            // ”’l‚©‚Ç‚¤‚©ŠÈˆÕ”»’èi¬”“_‚Æ•„†‚Í‹–—ej
+            // æ•°å€¤ã‹ã©ã†ã‹ç°¡æ˜“åˆ¤å®šï¼ˆå°æ•°ç‚¹ã¨ç¬¦å·ã¯è¨±å®¹ï¼‰
             bool numeric = true;
             for (char c : val) {
                 if (!(std::isdigit(c) || c == '.' || c == '-')) {
