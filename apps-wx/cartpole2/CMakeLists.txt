@@ -54,7 +54,7 @@ endif()
 
 if (MSVC)
   # --- Torchルート決定（上位Torch_DIRを利用） ---
-  get_filename_component(TORCH_ROOT "${Torch_DIR}/../../" ABSOLUTE)
+  get_filename_component(TORCH_ROOT "${Torch_DIR}/../../../" ABSOLUTE)
   set(TORCH_DLL_DIR "${TORCH_ROOT}/lib")
 
   message(STATUS "Torch root: ${TORCH_ROOT}")
