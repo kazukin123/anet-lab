@@ -79,7 +79,8 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     env = std::make_unique<CartPoleEnv>();
     anet::ConfigData agentConfig = wxGetApp().GetConfig("agent");
     agent = std::make_unique<anet::rl::DQNAgent>(agentConfig, *env, 4, 2, device);
-    notifier_.AddObserver(agent.get());
+    notifier_.AddObserver(&metrics_obs_);
+    notifier_.AddObserver(&heatmap_obs_);
 
     // ランダム方策で環境難易度評価
     evaluateEnvironment(*env, /*num_actions=*/2, /*num_trials=*/100);
@@ -122,7 +123,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     // --- 学習ステップを複数回回す ---
     //auto action = agent->select_action(state);
     float last_reward = 0.0f;
-    torch::Tensor action;
+    anet::rl::ActionInfo action_info;
     for (int i = 0; i < config_->step_per_frame; ++i) {
         if ((config_->train_exit_step > 0) && (step_count >= config_->train_exit_step)) {
             anet::MetricsLogger::Instance()->flush();
@@ -131,12 +132,12 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
 
         // 行動選択
         wxLogDebug("CartPoleFrame::OnTimer() step=%d state=%s", step_count, anet::ToString(state));
-        auto [action, _, __] = agent->SelectAction(state);
-        wxLogDebug("CartPoleFrame::OnTimer() step=%d action=%s", step_count, anet::ToString(action));
-        ANET_CHECK_DEVICE(action, device);
+        action_info = agent->MakeAction(state);
+        wxLogDebug("CartPoleFrame::OnTimer() step=%d action=%s", step_count, anet::ToString(action_info.action));
+        ANET_CHECK_DEVICE(action_info.action, device);
 
         // 環境ステップ実行
-        anet::rl::ActionResult result = env->DoStep(action);    // next_state, reward, done, truncated
+        anet::rl::ActionResult result = env->DoStep(action_info.action);    // next_state, reward, done, truncated
         wxLogDebug("CartPoleFrame::OnTimer() step=%d reward=%s", step_count, anet::ToString(result.reward));
         wxLogDebug("CartPoleFrame::OnTimer() step=%d next_state=%s", step_count, anet::ToString(result.next_state));
         wxLogDebug("CartPoleFrame::OnTimer() step=%d done=%s", step_count, anet::ToString(result.done));
@@ -149,13 +150,13 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         ANET_CHECK_SHAPE(result.reward, { 1 });
         ANET_CHECK_SHAPE(result.done, { 1 });
         ANET_CHECK_SHAPE(result.truncated, { 1 });
-        anet::rl::Experience exp = { state, action, result.next_state, result.reward, result.done, result.truncated };
+        anet::rl::Experience exp = { state, action_info.action, result.next_state, result.reward, result.done, result.truncated };
 
         // 更新
         auto update_result = agent->UpdateStep(exp);
 
         // 更新後処理
-        notifier_.Notify(update_result);
+        notifier_.Notify(update_result, exp, action_info, step_count);
         state = result.next_state.clone();
         last_reward = result.reward.squeeze(0).item<float>();
         train_total_reward += last_reward;
@@ -164,7 +165,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         step_count++;
 
         canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
-        canvas->SetAction(action);
+        canvas->SetAction(action_info.action);
         canvas->SetReward(last_reward);
         canvas->Refresh();
 
@@ -190,7 +191,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
                     bool done = false;
                     auto total_reward = 0.0f;
                     while (!done) {
-                        auto [action, _, __] = agent->SelectAction(state, anet::rl::RunMode::Eval1);
+                        auto [action, _] = agent->MakeAction(state, anet::rl::RunMode::Eval1);
                         auto env_result = env->DoStep(action);
                         total_reward += env_result.reward.squeeze(0).item<float>();
                         state = env_result.next_state.clone();
@@ -213,7 +214,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
                     bool done = false;
                     auto total_reward = 0.0f;
                     while (!done) {
-                        auto [action, _, __] = agent->SelectAction(state, anet::rl::RunMode::Eval2);
+                        auto [action, _] = agent->MakeAction(state, anet::rl::RunMode::Eval2);
                         auto env_result = env->DoStep(action);
                         total_reward += env_result.reward.squeeze(0).item<float>();
                         state = env_result.next_state.clone();

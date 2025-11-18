@@ -8,7 +8,7 @@ train.preset=train.online
 log.enable_image_log = true   	# sec/10K = 1:50(90sec) +15%  / 0:57 
 
 # agent
-agent.preset=agent_asdqn_bool10
+agent.preset=agent_asdqn_bool11
 
 #-------Adaptive Stabilized DQN (AS-DQN)
 
@@ -18,7 +18,7 @@ agent_asdqn_bool11.eps_max=1.00          # 指数減衰
 agent_asdqn_bool11.eps_min=0.05          # 0.1f 0.05f
 agent_asdqn_bool11.eps_decay_step=100000 # 100K
 agent_asdqn_bool11.softupdate_tau=0.001  # ★1.0f 0.004f  0.01f 0.005f;
-agent_asdqn_bool11.hardupdate_step=-1    #  -1 5000; //200 500 1000
+agent_asdqn_bool11.hardupdate_interval=-1    #  -1 5000; //200 500 1000
 agent_asdqn_bool11.use_grad_clip=true    #
 agent_asdqn_bool11.grad_clip_tau=25      # 10 25 40 1f 5f 10f
 agent_asdqn_bool11.use_td_clip=true      #
@@ -55,7 +55,7 @@ agent_asdqn_bool10.eps_max=1.00          # 指数減衰
 agent_asdqn_bool10.eps_min=0.05          # 0.1f 0.05f
 agent_asdqn_bool10.eps_decay_step=100000 # 100K
 agent_asdqn_bool10.softupdate_tau=0.01   # 1.0f 0.004f  0.01f 0.005f;
-agent_asdqn_bool10.hardupdate_step=-1    #  -1 5000; //200 500 1000
+agent_asdqn_bool10.hardupdate_interval=-1    #  -1 5000; //200 500 1000
 agent_asdqn_bool10.use_grad_clip=true    #
 agent_asdqn_bool10.grad_clip_tau=25      # 10 25 40 1f 5f 10f
 agent_asdqn_bool10.use_td_clip=true      #
@@ -65,7 +65,7 @@ agent_asdqn_bool10.use_double_dqn=true   # Double DQN 有効化フラグ（true�
 agent_asdqn_bool10.use_replay_buffer=true #
 agent_asdqn_bool10.replay_capacity=10000
 agent_asdqn_bool10.replay_batch_size=128
-agent_asdqn_bool10.replay_warmup_steps=10000 #
+agent_asdqn_bool10.replay_warmup_steps=10000 # ★
 agent_asdqn_bool10.replay_update_interval=10 #
 agent_asdqn_bool10.use_as_dqn = true            # Adaptive Stabilized DQN (AS-DQN)
 agent_asdqn_bool10.qstd_alpha = 0.01            # Q値 std の EWMA 平滑率

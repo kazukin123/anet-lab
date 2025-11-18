@@ -6,6 +6,7 @@
 #include <string>
 #include <tuple>
 #include <random>
+#include <map>
 #include <unordered_map>
 #include <cstdint>
 #include "anet/heat_map.hpp"
@@ -47,7 +48,7 @@ namespace anet::rl {
         torch::Tensor truncated;  // (N,)
 
         bool IsDone() const {
-            return done.item<float>() > 0.5f;
+            return done.item<bool>();
         }
     };
 
@@ -70,16 +71,9 @@ namespace anet::rl {
     // Environment 抽象クラス
     // =============================================================
 
-    class RandomGenereator {
-    public:
-        virtual void SetRandomSeed(uint64_t seed) = 0;
-        virtual uint64_t GetRandomSeed() = 0;
-    };
-
     class Environment {
     public:
         virtual StateSpaceInfo GetStateSpaceInfo() const = 0;
-
         virtual torch::Tensor Reset(RunMode mode = RunMode::Train) = 0;
         virtual ActionResult DoStep(const torch::Tensor& action, RunMode mode = RunMode::Train) = 0;
         virtual torch::Tensor GetState() const = 0;
@@ -111,31 +105,24 @@ namespace anet::rl {
         std::vector<Experience> experiences_;
     };
 
-    // =============================================================
-    // Runner / Sampler
-    // =============================================================
-
     struct ActionInfo {
-        torch::Tensor action;
-        torch::Tensor log_prob;
-        torch::Tensor value;
+        torch::Tensor action;        // (N, action_dim)  or (N,) for discrete
+        torch::Tensor is_randomized; // (N,)  bool tensor  (or uint8 for C++)
+        //torch::Tensor raw_action;
+        //torch::Tensor noise;
     };
+
+    using MetricsMap = std::unordered_map<std::string, float>;
 
     class UpdateResult {
     public:
         virtual ~UpdateResult() = default;
-
-        virtual void SyncMetrics() = 0;        // 派生クラスが metrics_ を埋めるためのフック
-        const std::unordered_map<std::string, float>& GetMetricsMap() const { return metrics_; }
-    protected:
-        void SetMetric(const std::string& key, float v) { metrics_[key] = v; }
-    private:
-        std::unordered_map<std::string, float> metrics_;
+        virtual MetricsMap GetMetricsMap() const = 0;
     };
 
     class Runner {
     public:
-        virtual ActionInfo SelectAction(const torch::Tensor& state, RunMode mode = RunMode::Train) = 0;
+        virtual ActionInfo MakeAction(const torch::Tensor& state, RunMode mode = RunMode::Train) = 0;
         virtual ~Runner() = default;
     };
 
@@ -148,18 +135,24 @@ namespace anet::rl {
 
     class Learner {
     public:
-        virtual std::shared_ptr<UpdateResult> UpdateStep(const Experience& exprience) = 0;
-        virtual std::shared_ptr<UpdateResult> UpdateBatch(const BatchData& batch) = 0;
+        virtual std::shared_ptr<const UpdateResult> UpdateStep(const Experience& exprience) = 0;
+        virtual std::shared_ptr<const UpdateResult> UpdateBatch(const BatchData& batch) = 0;
         virtual ~Learner() = default;
     };
 
     class PostUpdateObserver {
     public:
-        virtual void OnPostUpdate(const std::shared_ptr<UpdateResult>& result) = 0;
+        //virtual void OnPostUpdate(const std::shared_ptr<UpdateResult>& result) = 0;
+        virtual void OnPostUpdate(
+            std::shared_ptr<const UpdateResult> result,
+            const Experience& exprience,
+            const ActionInfo& action_info,
+            size_t step
+        ) = 0;
         virtual ~PostUpdateObserver() = default;
     };
 
-    class Agent : public Runner, public Learner, public PostUpdateObserver {
+    class Agent : public Runner, public Learner {
     public:
         virtual ~Agent() = default;
     };
@@ -169,31 +162,32 @@ namespace anet::rl {
     // =============================================================
 
     // 環境のステップに同期して更新する Agent 基底クラス（DQN, DDPG, SAC, A2C など）
+    template<typename ConfigT>
     class StepBasedAgent : public Agent {
     public:
-        StepBasedAgent() = default;
+        StepBasedAgent(ConfigT config, torch::Device device) : config_(config), device_(device) { }
         virtual ~StepBasedAgent() = default;
 
         // ① pure virtual — 各 Agent が実装
-        virtual std::shared_ptr<UpdateResult> UpdateStep(const Experience& expr) override = 0;
+        virtual std::shared_ptr<const UpdateResult> UpdateStep(const Experience& expr) override = 0;
 
         // ② 共通ラッパ（BatchData を Experience 単位で回す）
-        virtual std::shared_ptr<UpdateResult> UpdateBatch(const BatchData& batch) override {
-            std::shared_ptr<UpdateResult> last;
+        virtual std::shared_ptr<const UpdateResult> UpdateBatch(const BatchData& batch) override {
+            std::shared_ptr<const UpdateResult> last;
             for (auto& e : batch.Data()) {
                 last = UpdateStep(e);
             }
             return last;
         }
 
-        virtual void OnPostUpdate(const std::shared_ptr<UpdateResult>& result) {
-            // 必要に応じて派生クラスで利用
-        }
-
         size_t GetStepCount() const { return step_count_; }
     protected:
-        void IncrementStep() { step_count_++; }
-    private:
+        // Resource（Agentが管理すべき領域）
+        ConfigT config_;
+        anet::RandomGenerator* rnd = &anet::RandomGenerator::Default();
+        torch::Device device_;
+    protected:
+        // InternalState
         size_t step_count_ = 0;
     };
 
@@ -204,28 +198,10 @@ namespace anet::rl {
         virtual ~TrajectoryBasedLearner() = default;
     };
 
-    // =============================================================
-    // MetricsObserver / Notifier
-    // =============================================================
-    class MetricsObserver : public PostUpdateObserver {
+    class RunnerFactory {
     public:
-        explicit MetricsObserver(const StepBasedAgent* learner)
-            : learner_(learner) {
-        }
-
-        void OnPostUpdate(const std::shared_ptr<UpdateResult>& r) override {
-            if (!learner_) return;
-
-            size_t step = learner_->GetStepCount();
-            r->SyncMetrics();
-            auto map = r->GetMetricsMap();
-
-            for (const auto& [tag, value] : map) {
-                MetricsLogger::Instance()->log_scalar(tag, step, value);
-            }
-        }
-    private:
-        const StepBasedAgent* learner_;
+        virtual std::shared_ptr<Runner> CreateRunner() = 0;
+        virtual ~RunnerFactory() = default;
     };
 
     class Notifier {
@@ -234,9 +210,12 @@ namespace anet::rl {
             observers_.push_back(obs);
         }
 
-        void Notify(const std::shared_ptr<UpdateResult>& r) {
+        void Notify(
+            const std::shared_ptr<const UpdateResult>& result,
+            const Experience& exprience, const ActionInfo& action_info,size_t step)
+        {
             for (PostUpdateObserver* o : observers_) {
-                o->OnPostUpdate(r);
+                o->OnPostUpdate(result, exprience, action_info, step);
             }
         }
     private:

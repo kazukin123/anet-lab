@@ -174,7 +174,7 @@ anet::rl::ActionResult CartPoleEnv::DoStep(const torch::Tensor& action_tensor, a
     return {
         torch::tensor({ x, x_dot, theta, theta_dot }).unsqueeze(0),
         torch::tensor({ reward }),
-        torch::tensor({ done ? 1.0f : 0.0f }),
-        torch::tensor({ truncated ? 1.0f : 0.0f })
+        torch::tensor({ done  }),
+        torch::tensor({ truncated })
     };
 }

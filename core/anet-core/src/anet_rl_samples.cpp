@@ -43,7 +43,7 @@ public:
 
 class DummyUpdateResult : public UpdateResult {
 public:
-    void SyncMetrics() { }
+    virtual MetricsMap GetMetricsMap() const override { return MetricsMap(); }
 };
 
 // =============================================================
@@ -56,23 +56,24 @@ public:
         torch::nn::init::xavier_uniform_(policy->weight);
     }
 
-    ActionInfo SelectAction(const torch::Tensor& state, RunMode mode = RunMode::Train) override {
+    ActionInfo MakeAction(const torch::Tensor& state, RunMode mode = RunMode::Train) override {
         torch::NoGradGuard no_grad;
         auto q_values = policy->forward(state);
         int action_index;
+        bool is_randomized;
         if (mode == RunMode::Train && ((float)rand() / RAND_MAX) < epsilon)
             action_index = rand() % q_values.size(0);
         else
             action_index = q_values.argmax().item<int>();
-        return { torch::tensor(action_index, torch::kInt64), torch::Tensor(), torch::Tensor() };
+        return { torch::tensor(action_index, torch::kInt64), torch::Tensor()};
     }
 
-    std::shared_ptr<UpdateResult> UpdateStep(const Experience& e) override {
+    std::shared_ptr<const UpdateResult> UpdateStep(const Experience& e) override {
         buffer_.Push(e);
-        return std::make_shared<DummyUpdateResult>();
+        return std::make_shared<const DummyUpdateResult>();
     }
 
-    std::shared_ptr<UpdateResult> UpdateBatch(const BatchData&) override {
+    std::shared_ptr<const UpdateResult> UpdateBatch(const BatchData&) override {
         //if (buffer_.Size() < batch_size_) return std::make_shared<DummyUpdateResult>();
         //auto samples = buffer_.Sample(batch_size_);
         //torch::Tensor loss = torch::zeros({ 1 });
@@ -99,7 +100,7 @@ void Sample_ReplayBufferTraining(Environment& env, DQNStyleAgent& agent) {
     std::cout << "\n=== ReplayBuffer Training ===\n";
     auto state = env.Reset();
     for (int t = 0; t < 200; ++t) {
-        auto [action, _, __] = agent.SelectAction(state);
+        auto [action, _] = agent.MakeAction(state);
         auto resp = env.DoStep(action);
         agent.UpdateStep({ state, action, resp });
         state = resp.next_state;
@@ -116,7 +117,7 @@ void Sample_MixedTrainingAndEval(Environment& env, DQNStyleAgent& agent) {
     std::cout << "\n=== Mixed Train+Eval ===\n";
     //auto state = env.Reset();
     //for (int t = 1; t <= 3000; ++t) {
-    //    auto [action, _, __] = agent.SelectAction(state);
+    //    auto [action, _, __] = agent.MakeAction(state);
     //    auto resp = env.DoStep(action);
     //    agent.UpdateStep({ state, action, resp });
     //    state = resp.next_state;
@@ -128,7 +129,7 @@ void Sample_MixedTrainingAndEval(Environment& env, DQNStyleAgent& agent) {
     //        auto s = eval_env.Reset();
     //        float total_reward = 0.0f;
     //        for (int i = 0; i < 500; ++i) {
-    //            auto [a, _, __2] = agent.SelectAction(s, RunMode::Eval1);
+    //            auto [a, _, __2] = agent.MakeAction(s, RunMode::Eval1);
     //            auto r = eval_env.DoStep(a);
     //            total_reward += r.reward;
     //            s = r.next_state;

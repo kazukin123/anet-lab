@@ -7,6 +7,7 @@
 
 #include "CartPoleEnv.hpp"
 #include "anet/dqn_agent.hpp"
+#include "anet/observers.hpp"
 #include "CartPoleCanvas.hpp"
 #include "PlotPanel.hpp"
 
@@ -40,6 +41,8 @@ private:
     std::unique_ptr<CartPoleEnv> env;
     std::unique_ptr<anet::rl::Agent> agent;
     at::Tensor state;
+    anet::rl::MetricsLogObserver metrics_obs_;
+    anet::rl::HeatMapObserver heatmap_obs_;
     anet::rl::Notifier notifier_;
 
     // メトリクス

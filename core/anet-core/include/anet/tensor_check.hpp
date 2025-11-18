@@ -83,11 +83,43 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
 
 #define ANET_CHECK_DEVICE(t, d)                     do {} while(0)
 #define ANET_CHECK_DEVICE_MSG(t, d, msg)            do {} while(0)
-#define ANET_CHECK_DEVICE_CPU(t)                           do {} while(0)
-#define ANET_CHECK_DEVICE_CPU_MSG(t, msg)                  do {} while(0)
-#define ANET_CHECK_DEVICE_CUDA(t)                          do {} while(0)
-#define ANET_CHECK_DEVICE_CUDA_MSG(t, msg)                 do {} while(0)
+#define ANET_CHECK_DEVICE_CPU(t)                    do {} while(0)
+#define ANET_CHECK_DEVICE_CPU_MSG(t, msg)           do {} while(0)
+#define ANET_CHECK_DEVICE_CUDA(t)                   do {} while(0)
+#define ANET_CHECK_DEVICE_CUDA_MSG(t, msg)          do {} while(0)
 
+#endif
+
+//------------------------------------------------------
+// dtype チェック
+//------------------------------------------------------
+#if ANET_ENABLE_TENSOR_ASSERT
+#define ANET_CHECK_DTYPE(tensor, expected)                                        \
+    do {                                                                          \
+        if ((tensor).dtype() != (expected)) {                                     \
+            std::stringstream ss;                                                 \
+            ss << "ANET_CHECK_DTYPE failed: tensor=" << #tensor                   \
+               << ", expected_dtype=" << (expected)                               \
+               << ", actual_dtype=" << (tensor).dtype()                           \
+               << ", shape=" << (tensor).sizes();                                 \
+            throw std::runtime_error(ss.str());                                   \
+        }                                                                         \
+    } while (0)
+#define ANET_CHECK_DTYPE_MSG(tensor, expected, msg)                              \
+    do {                                                                          \
+        if ((tensor).dtype() != (expected)) {                                     \
+            std::stringstream ss;                                                 \
+            ss << "ANET_CHECK_DTYPE failed: tensor=" << #tensor                   \
+               << ", expected_dtype=" << (expected)                               \
+               << ", actual_dtype=" << (tensor).dtype()                            \
+               << ", shape=" << (tensor).sizes()                                  \
+               << ", msg=" << msg;                                                \
+            throw std::runtime_error(ss.str());                                   \
+        }                                                                          \
+    } while (0)
+#else
+#define ANET_CHECK_DTYPE(tensor, expected)           do {} while(0)
+#define ANET_CHECK_DTYPE_MSG(tensor, expected, msg)  do {} while(0)
 #endif
 
 
