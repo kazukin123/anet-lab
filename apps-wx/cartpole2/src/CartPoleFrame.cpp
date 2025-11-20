@@ -72,23 +72,26 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
 
     // パラメータ記録
     wxLogInfo("train.preset=%s confg=%s", wxGetApp().GetConfig("train").Get("preset"), config_->ToStdString());
+    wxLogInfo("seed=%lld", rnd_.GetSeed());
     anet::MetricsLogger::Instance()->log_json("train/params", config_->ToJson());
     anet::MetricsLogger::Instance()->flush();
 
     // --- RL生成 ---
-    env = std::make_unique<CartPoleEnv>();
+    env = std::make_unique<CartPoleEnv>(&rnd_);
+    auto env_spec = env->GetSpec();
+    wxLogInfo("env_spec=" + env_spec.ToString());
     anet::ConfigData agentConfig = wxGetApp().GetConfig("agent");
-    agent = std::make_unique<anet::rl::DQNAgent>(agentConfig, *env, 4, 2, device);
+    agent = std::make_unique<anet::rl::DQNAgent>(agentConfig, env_spec, device, &rnd_);
     notifier_.AddObserver(&metrics_obs_);
     notifier_.AddObserver(&heatmap_obs_);
 
     // ランダム方策で環境難易度評価
-    evaluateEnvironment(*env, /*num_actions=*/2, /*num_trials=*/100);
+    //evaluateEnvironment(*env, /*num_actions=*/2, /*num_trials=*/100);
     
     // --- 環境初期化 ---
-    state = env->Reset();  // ← reset() は 初期状態 を返す
-    ANET_CHECK_DEVICE_CPU_MSG(state, "Initial state");
-    ANET_CHECK_SHAPE(state, { ANET_SHAPE_ANY, 4 });
+    state_ = env->Reset();  // ← reset() は 初期状態 を返す
+    ANET_CHECK_DEVICE_CPU_MSG(state_.obs, "Initial state");
+    ANET_CHECK_SHAPE(state_.obs, { ANET_SHAPE_ANY, 4 });
 
     // --- タイマー開始 ---
     Bind(wxEVT_TIMER, &CartPoleFrame::OnTimer, this);
@@ -117,13 +120,14 @@ void CartPoleFrame::OnMouseClick(wxMouseEvent& event) {
 void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     if (training_paused)
         return;  // ←停止中は一切処理しない
+
     // 再入防止
 	this->timer.Stop();
 
     // --- 学習ステップを複数回回す ---
     //auto action = agent->select_action(state);
     float last_reward = 0.0f;
-    anet::rl::ActionInfo action_info;
+    //anet::rl::BatchStepResult step_result;
     for (int i = 0; i < config_->step_per_frame; ++i) {
         if ((config_->train_exit_step > 0) && (step_count >= config_->train_exit_step)) {
             anet::MetricsLogger::Instance()->flush();
@@ -131,35 +135,33 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         }
 
         // 行動選択
-        wxLogDebug("CartPoleFrame::OnTimer() step=%d state=%s", step_count, anet::ToString(state));
-        action_info = agent->MakeAction(state);
-        wxLogDebug("CartPoleFrame::OnTimer() step=%d action=%s", step_count, anet::ToString(action_info.action));
+        wxLogDebug("CartPoleFrame::OnTimer() step=%d state=%s", step_count, state_.ToString());
+        auto action_info = agent->MakeAction(state_.obs);
+        wxLogDebug("CartPoleFrame::OnTimer() step=%d action=%s", step_count, action_info.ToString());
         ANET_CHECK_DEVICE(action_info.action, device);
 
         // 環境ステップ実行
-        anet::rl::ActionResult result = env->DoStep(action_info.action);    // next_state, reward, done, truncated
+        anet::rl::BatchStepResult result = env->DoStep(action_info.action);    // next_state, reward, done, truncated
         wxLogDebug("CartPoleFrame::OnTimer() step=%d reward=%s", step_count, anet::ToString(result.reward));
-        wxLogDebug("CartPoleFrame::OnTimer() step=%d next_state=%s", step_count, anet::ToString(result.next_state));
-        wxLogDebug("CartPoleFrame::OnTimer() step=%d done=%s", step_count, anet::ToString(result.done));
-        wxLogDebug("CartPoleFrame::OnTimer() step=%d truncated=%s", step_count, anet::ToString(result.truncated));
-        ANET_CHECK_DEVICE(result.next_state, torch::kCPU);
+        wxLogDebug("CartPoleFrame::OnTimer() step=%d next_state=%s", step_count, result.next_state.ToString());
+        ANET_CHECK_DEVICE(result.next_state.obs, torch::kCPU);
+        ANET_CHECK_DEVICE(result.next_state.done, torch::kCPU);
+        ANET_CHECK_DEVICE(result.next_state.truncated, torch::kCPU);
         ANET_CHECK_DEVICE(result.reward, torch::kCPU);
-        ANET_CHECK_DEVICE(result.done, torch::kCPU);
-        ANET_CHECK_DEVICE(result.truncated, torch::kCPU);
-        ANET_CHECK_SHAPE(result.next_state, { ANET_SHAPE_ANY, 4 });
+        ANET_CHECK_SHAPE(result.next_state.obs, { 1, ANET_SHAPE_ENDANY });
+        ANET_CHECK_SHAPE(result.next_state.done, { 1 });
+        ANET_CHECK_SHAPE(result.next_state.truncated, { 1 });
         ANET_CHECK_SHAPE(result.reward, { 1 });
-        ANET_CHECK_SHAPE(result.done, { 1 });
-        ANET_CHECK_SHAPE(result.truncated, { 1 });
-        anet::rl::Experience exp = { state, action_info.action, result.next_state, result.reward, result.done, result.truncated };
-
-        // 更新
-        auto update_result = agent->UpdateStep(exp);
+       
+        // Agent更新
+        anet::rl::BatchExperience exp({ state_, action_info, result.reward, result.next_state });
+        auto update_result = agent->UpdateFromBatch(exp);
 
         // 更新後処理
-        notifier_.Notify(update_result, exp, action_info, step_count);
-        state = result.next_state.clone();
+        notifier_.Notify(update_result, exp, step_count);
+        state_ = result.next_state.Clone();
         last_reward = result.reward.squeeze(0).item<float>();
-        train_total_reward += last_reward;
+        train_total_reward_ += last_reward;
 
         // ステップ数インプリメント（グローバルなステップ数）
         step_count++;
@@ -170,11 +172,11 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         canvas->Refresh();
 
         //エピソード終了判定
-        if (result.IsDone()) {
+        if (result.next_state.IsDone() || result.next_state.IsTruncated()) {
             episode_count++;
 
             // プロット更新
-            plotPanel->AddReward(train_total_reward);
+            plotPanel->AddReward(train_total_reward_);
 
             // Canvas更新（エピソード終了）
             //canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
@@ -183,23 +185,25 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
             //canvas->Refresh();
 
             // 学習状況評価
-            float eval_total_reward = -1.0f;
+            float eval_total_reward = 0.0f;
             if (episode_count % config_->eval_interval == 0) {
                 eval_count_++;
                 {   // ターゲットネットワークによる評価
-                    state = env->Reset(anet::rl::RunMode::Eval1);
-                    bool done = false;
+                    auto state = env->Reset(anet::rl::RunMode::Eval1);
                     auto total_reward = 0.0f;
-                    while (!done) {
-                        auto [action, _] = agent->MakeAction(state, anet::rl::RunMode::Eval1);
-                        auto env_result = env->DoStep(action);
+                    bool done = false;
+                    bool truncated = false;
+                    do {
+                        auto action = agent->MakeAction(state.obs, anet::rl::RunMode::Eval1);
+                        auto env_result = env->DoStep(action.action);
                         total_reward += env_result.reward.squeeze(0).item<float>();
-                        state = env_result.next_state.clone();
-                        done = env_result.done.squeeze(0).item<float>();
-                    }
+                        state = env_result.next_state.Clone();
+                        done = env_result.next_state.IsDone();
+                        truncated = env_result.next_state.IsTruncated();
+                    } while (!done && !truncated);
+                    eval_total_reward = total_reward;
 
                     // ログ
-                    eval_total_reward = total_reward;
                     anet::MetricsLogger::Instance()->log_scalar("10_epsode/02_eval_reward", episode_count, total_reward);
                     anet::MetricsLogger::Instance()->log_scalar("11_eval/01_target_reward", step_count, total_reward);
 
@@ -210,17 +214,18 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
                     //canvas->Refresh();
                 }
                 {   // メインネットワークによる評価
-                    state = env->Reset(anet::rl::RunMode::Eval1);
-                    bool done = false;
+                    auto state = env->Reset(anet::rl::RunMode::Eval2);
                     auto total_reward = 0.0f;
-                    while (!done) {
-                        auto [action, _] = agent->MakeAction(state, anet::rl::RunMode::Eval2);
-                        auto env_result = env->DoStep(action);
+                    bool done = false;
+                    bool truncated = false;
+                    do {
+                        auto action = agent->MakeAction(state.obs, anet::rl::RunMode::Eval2);
+                        auto env_result = env->DoStep(action.action);
                         total_reward += env_result.reward.squeeze(0).item<float>();
-                        state = env_result.next_state.clone();
-                        done = env_result.done.squeeze(0).item<float>();
-                    }
-                    // ログ
+                        state = env_result.next_state.Clone();
+                        done = env_result.next_state.IsDone();
+                        truncated = env_result.next_state.IsTruncated();
+                    } while (!done && !truncated);
                     anet::MetricsLogger::Instance()->log_scalar("11_eval/02_policy_reward", step_count, total_reward);
                 }
             }
@@ -228,15 +233,15 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
             // ログ
             auto eps_step = step_count - last_episode_step;
             wxLogInfo("Episode finished. eps=%d total_step=%d  eps_step=%d train_reward=%f eval_reward=%f",
-                episode_count, step_count, eps_step, train_total_reward, eval_total_reward);
-            anet::MetricsLogger::Instance()->log_scalar("10_epsode/01_total_reward", episode_count, train_total_reward);
+                episode_count, step_count, eps_step, train_total_reward_, eval_total_reward);
+            anet::MetricsLogger::Instance()->log_scalar("10_epsode/01_total_reward", episode_count, train_total_reward_);
 
             // 環境リセット
-            state = env->Reset();
+            state_ = env->Reset();
 
             // エピソードが終わったので次エピソード準備
             last_episode_step = step_count;
-            train_total_reward = 0.0f;
+            train_total_reward_ = 0.0f;
             //break;
         }
     }

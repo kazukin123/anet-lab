@@ -33,16 +33,29 @@ namespace anet {
         // -----------------------------------------
         int RandInt(int low, int high);
 
+
+        /// デフォルトインスタンスを取得
         static RandomGenerator& Default();
 
         RandomGenerator(const RandomGenerator&) = delete;
         RandomGenerator& operator=(const RandomGenerator&) = delete;
     private:
         uint64_t MakeRandomSeed();
-
     private:
         uint64_t seed_ = 0;
         std::mt19937_64 engine_;
+    };
+
+    class RandomHolder {
+    public:
+        RandomHolder() {}
+        RandomHolder(RandomGenerator* rnd) : rnd_(rnd) {}
+
+        void SetRandomGenerator(RandomGenerator* rng) {
+            rnd_ = (rng ? rng : &RandomGenerator::Default());
+        }
+    protected:
+        RandomGenerator* rnd_ = &RandomGenerator::Default();
     };
 
 }   // namespace anet

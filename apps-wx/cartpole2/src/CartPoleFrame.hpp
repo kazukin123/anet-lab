@@ -40,7 +40,7 @@ private:
     // 強化学習関連
     std::unique_ptr<CartPoleEnv> env;
     std::unique_ptr<anet::rl::Agent> agent;
-    at::Tensor state;
+    anet::rl::BatchState state_;
     anet::rl::MetricsLogObserver metrics_obs_;
     anet::rl::HeatMapObserver heatmap_obs_;
     anet::rl::Notifier notifier_;
@@ -50,10 +50,13 @@ private:
     int last_episode_step = 0;
     int episode_count = 0;
     int eval_count_ = 0;
-    float train_total_reward = 0.0f;
+    float train_total_reward_ = 0.0f;
 
-    // デバイス（CPU固定）
+    // デバイス
     torch::Device device;
+
+    // 乱数
+    anet::RandomGenerator rnd_;
 
     // イベントハンドラ
     void OnTimer(wxTimerEvent& event);

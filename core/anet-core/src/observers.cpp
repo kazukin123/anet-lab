@@ -1,12 +1,12 @@
 ﻿
 #include "anet/observers.hpp"
+#include "anet/metrics_logger.hpp"
 
 namespace anet::rl {
 
     void MetricsLogObserver::OnPostUpdate(
         std::shared_ptr<const anet::rl::UpdateResult> result,
-        const anet::rl::Experience& experience,
-        const anet::rl::ActionInfo& action_info,
+        const anet::rl::BatchExperience& experiences,
         size_t step
     )
     {
@@ -22,8 +22,7 @@ namespace anet::rl {
 
     void HeatMapObserver::OnPostUpdate(
         std::shared_ptr<const anet::rl::UpdateResult> result,
-        const anet::rl::Experience& experience,
-        const anet::rl::ActionInfo& action_info,
+        const anet::rl::BatchExperience& experiences,
         size_t step
     )
     {

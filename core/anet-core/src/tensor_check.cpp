@@ -58,6 +58,7 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
         bool ok = true;
 
         for (size_t i = 0; i < e.size(); ++i) {
+            if (e[i] == ANET_SHAPE_ENDANY) break;  // ここから先は全て許容
             if (e[i] == ANET_SHAPE_ANY) continue;  // 任意次元
             if (actual[i] != e[i]) {
                 ok = false;

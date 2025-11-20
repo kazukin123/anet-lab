@@ -121,16 +121,19 @@ namespace anet::rl {
     /// @todo ラインナップ精査
     class DQNAgent : public anet::rl::StepBasedAgent<DQNAgentConfig> {
     public:
-        DQNAgent(const DQNAgentConfig& config, anet::rl::Environment& env, int state_dim, int n_actions, torch::Device device);
+        DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, torch::Device device, anet::RandomGenerator *rnd = nullptr);
 
-        anet::rl::ActionInfo MakeAction(const torch::Tensor& state, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
-        std::shared_ptr<const anet::rl::UpdateResult> UpdateStep(const anet::rl::Experience& exprience) override;
+        anet::rl::BatchActionInfo MakeAction(const torch::Tensor& state, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
+        std::shared_ptr<const anet::rl::UpdateResult> UpdateFromBatch(const anet::rl::BatchExperience& exprience) override;
+    private:
+        int state_dim_;
+        int n_actions_;
     private:
         struct QNetImpl;        // NN
         class ActionDecider;    // 行動選択（Policy相当）
         class ReplayScheduler;  // 学習更新タイミング管理
-        class StabilityMonitor; // 安定化指標・EMA 管理
         class TargetUpdater;    // target_net の同期実行
+        class StabilityMonitor; // 安定化指標・EMA 管理
     private:
         // Resource（Agentが管理すべき領域）
         ReplayBuffer replay_buffer_;
@@ -144,8 +147,6 @@ namespace anet::rl {
         std::unique_ptr<TargetUpdater> target_updater_;
     private:
         //暫定くん達
-        int state_dim_; ///< @todo Environment定義に移す
-        int n_actions_;
         std::unique_ptr<anet::HeatMap> heatmap_visit1_;
         std::unique_ptr<anet::HeatMap> heatmap_visit2_;
         std::unique_ptr<anet::HeatMap> heatmap_td_;

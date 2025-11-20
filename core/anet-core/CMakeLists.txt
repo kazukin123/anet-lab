@@ -1,8 +1,14 @@
 ﻿
+set(CMAKE_VERBOSE_MAKEFILE ON)
+
 find_package(wxWidgets COMPONENTS core base OPTIONAL_COMPONENTS gl)
 
 if (MSVC)
     add_compile_options(/wd4267)  # warning C4267を無効化
+    add_compile_options(
+        $<$<C_COMPILER_ID:MSVC>:/utf-8>
+        $<$<CXX_COMPILER_ID:MSVC>:/utf-8>
+    )
 endif()
 
 include(${wxWidgets_USE_FILE})

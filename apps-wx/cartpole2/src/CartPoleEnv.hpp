@@ -3,21 +3,22 @@
 
 #include "anet/rl.hpp"
 
-class CartPoleEnv : public anet::rl::Environment {
+/// CartPoleŠÂ‹«À‘•i1ŠÂ‹«ŒÅ’èj
+class CartPoleEnv : public anet::rl::BatchEnvironment, public anet::RandomHolder {
 public:
-    CartPoleEnv();
+    CartPoleEnv(anet::RandomGenerator* rnd = nullptr);
 
-    anet::rl::StateSpaceInfo GetStateSpaceInfo() const override;
+    anet::rl::EnvSpec GetSpec() const override;
+    anet::rl::BatchState Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
+    anet::rl::BatchStepResult DoStep(const torch::Tensor& action, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;   //  state, reward, done
+    anet::rl::BatchState GetState() const override;
 
-    torch::Tensor Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
-    anet::rl::ActionResult DoStep(const torch::Tensor& action, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;   //  state, reward, done
-    torch::Tensor GetState() const override;
-
-    float get_x() const { return x; }
-    float get_theta() const { return theta; }
-    float get_x_dot() const { return x_dot; }
-    float get_theta_dot() const { return theta_dot; }
+    float get_x() const { return x_; }
+    float get_theta() const { return theta_; }
+    float get_x_dot() const { return x_dot_; }
+    float get_theta_dot() const { return theta_dot_; }
 private:
-    float x, x_dot, theta, theta_dot;
+    float x_, x_dot_, theta_, theta_dot_;
+    bool done_ = false, truncated_ = false, episode_start_ = true;
     int step_count = 0;
 };

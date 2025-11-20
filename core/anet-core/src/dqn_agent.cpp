@@ -11,9 +11,9 @@
 
 using namespace anet::rl;
 
-const float met_ema_decay = 0.995f;  // 平滑化係数(メトリクス用)
-const float met_ema_decay_act = 0.9995f;  // 平滑化係数(メトリクス用)action_ema用
-const float met_ema_decay_reward = 0.9995f;  // 平滑化係数(メトリクス用)action_ema用
+//const float met_ema_decay = 0.995f;  // 平滑化係数(メトリクス用)
+//const float met_ema_decay_act = 0.9995f;  // 平滑化係数(メトリクス用)action_ema用
+//const float met_ema_decay_reward = 0.9995f;  // 平滑化係数(メトリクス用)action_ema用
 
 namespace {
     static constexpr int64_t ANY = ANET_SHAPE_ANY;
@@ -50,7 +50,7 @@ public:
     ActionDecider(DQNAgent& agent)
         : agent_(agent),
         config_(agent.config_),
-        rnd_(agent.rnd)
+        rnd_(agent.rnd_)
     {
     }
 
@@ -73,7 +73,6 @@ public:
         }
     }
 
-private:
     // ----------------------------------------------------
     // εスケジューリング（標準DQN）
     // ----------------------------------------------------
@@ -95,6 +94,7 @@ private:
         return eps;
     }
 
+private:
     // ----------------------------------------------------
     // greedy
     // ----------------------------------------------------
@@ -152,30 +152,6 @@ public:
 private:
     const DQNAgentConfig& config_;
 };
-
-
-// ===============================
-// DQNAgent::StabilityMonitor
-// ===============================
-class DQNAgent::StabilityMonitor {
-public:
-    StabilityMonitor(const DQNAgentConfig& config) : config_(config) {}
-
-    void Update(const torch::Tensor& td_error)
-    {
-        ANET_CHECK_SHAPE(td_error, { ANY }); // (B; )
-        /// @todo Implement EMA update for TD-error stability
-    }
-
-    float GetTdErrorEma() const
-    {
-        return td_error_ema_;
-    }
-private:
-    const DQNAgentConfig& config_;
-    float td_error_ema_ = 0.0f;  // @todo Decide initial EMA value
-};
-
 
 // ===============================
 // DQNAgent::TargetUpdater
@@ -248,15 +224,40 @@ private:
     const DQNAgentConfig& config_;
 };
 
+
+// ===============================
+// DQNAgent::StabilityMonitor
+// ===============================
+class DQNAgent::StabilityMonitor {
+public:
+    StabilityMonitor(const DQNAgentConfig& config) : config_(config) {}
+
+    void Update(const torch::Tensor& td_error)
+    {
+        ANET_CHECK_SHAPE(td_error, { ANY }); // (B; )
+        /// @todo Implement EMA update for TD-error stability
+    }
+
+    float GetTdErrorEma() const
+    {
+        return td_error_ema_;
+    }
+private:
+    const DQNAgentConfig& config_;
+    float td_error_ema_ = 0.0f;  // @todo Decide initial EMA value
+}; 
+
 struct DQNUpdateResult : public UpdateResult {
     float td_error_ema = 0.0f;
     float loss = 0.0f;     ///<! @todo real loss value
+    float epsilon = 1.0f;
     /// @todo ラインナップ精査
 
     virtual MetricsMap GetMetricsMap() const override{
         MetricsMap map;
         map["37_agent_dqn_qtd/03_td_error"] = td_error_ema;
         map["38_agent_dqn_loss/01_loss"] = loss;
+        map["32_agent_dqn_base/03_epsilon"] = epsilon;
         return map;
     }
 };
@@ -264,27 +265,27 @@ struct DQNUpdateResult : public UpdateResult {
 // ======================================================
 // DQNAgent 本体
 // ======================================================
-DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::Environment& env, int state_dim, int n_actions, torch::Device device) :
-    StepBasedAgent(config, device),
-    state_dim_(state_dim),
-    n_actions_(n_actions),
-    policy_net_(std::make_shared<QNetImpl>(state_dim, n_actions)),
-    target_net_(std::make_shared<QNetImpl>(state_dim, n_actions)),
+DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, torch::Device device, anet::RandomGenerator* rnd) :
+    StepBasedAgent(config, device, rnd),
+    state_dim_(env_spec.state.CalcStateDim()),
+    n_actions_(env_spec.action.ActionCount()),
+    policy_net_(std::make_shared<QNetImpl>(state_dim_, n_actions_)),
+    target_net_(std::make_shared<QNetImpl>(state_dim_, n_actions_)),
     optimizer(policy_net_->parameters(), torch::optim::AdamOptions(config_.alpha)),
-    replay_buffer_(config_.replay_capacity)
+    replay_buffer_(env_spec, config_.replay_capacity, rnd)
 {
     /// @todo  ヒートマップオブジェクト類をHeatMapObservberに移動
-    auto nan = std::numeric_limits<float>::quiet_NaN();
-    auto info = env.GetStateSpaceInfo();
-    auto flags = anet::HeatMapFlags::HM_LogScaleValue | anet::HeatMapFlags::HM_AutoNormValue
-        | anet::HeatMapFlags::HM_AutoScaleAxis | anet::HeatMapFlags::HM_LogScaleAxis | anet::HeatMapFlags::HM_ShowZeroLine;
-    heatmap_visit1_ = anet::rl::MakeStateHeatMapPtr(info, 0, 2, 256, 256, 30000, flags | anet::HeatMapFlags::HM_SumMode);  // x vs theta → reward
-    heatmap_visit2_ = anet::rl::MakeStateHeatMapPtr(info, 2, 3, 256, 256, 30000, flags | anet::HeatMapFlags::HM_SumMode);  // x vs theta → reward
-    heatmap_td_ = anet::rl::MakeStateHeatMapPtr(info, 0, 2, 256, 256, 30000, flags | anet::HeatMapFlags::HM_MeanMode); // x vs theta → td
-    hist_action_ = std::make_unique<anet::TimeHistogram>(
-        2, 200, anet::TimeFrameMode::Scroll, flags, -1.0f, 1.0f, 0.05f);
-    hist_q_ = std::make_unique<anet::TimeHistogram>(
-        128, 1000, anet::TimeFrameMode::Unlimited, flags | anet::HeatMapFlags::HM_FlipY, 0.0f, nan, 0.05f);
+    //auto nan = std::numeric_limits<float>::quiet_NaN();
+    //auto info = env.GetStateSpaceInfo();
+    //auto flags = anet::HeatMapFlags::HM_LogScaleValue | anet::HeatMapFlags::HM_AutoNormValue
+    //    | anet::HeatMapFlags::HM_AutoScaleAxis | anet::HeatMapFlags::HM_LogScaleAxis | anet::HeatMapFlags::HM_ShowZeroLine;
+    //heatmap_visit1_ = anet::rl::MakeStateHeatMapPtr(info, 0, 2, 256, 256, 30000, flags | anet::HeatMapFlags::HM_SumMode);  // x vs theta → reward
+    //heatmap_visit2_ = anet::rl::MakeStateHeatMapPtr(info, 2, 3, 256, 256, 30000, flags | anet::HeatMapFlags::HM_SumMode);  // x vs theta → reward
+    //heatmap_td_ = anet::rl::MakeStateHeatMapPtr(info, 0, 2, 256, 256, 30000, flags | anet::HeatMapFlags::HM_MeanMode); // x vs theta → td
+    //hist_action_ = std::make_unique<anet::TimeHistogram>(
+    //    2, 200, anet::TimeFrameMode::Scroll, flags, -1.0f, 1.0f, 0.05f);
+    //hist_q_ = std::make_unique<anet::TimeHistogram>(
+    //    128, 1000, anet::TimeFrameMode::Unlimited, flags | anet::HeatMapFlags::HM_FlipY, 0.0f, nan, 0.05f);
 
     // NN初期化
     policy_net_->to(device);
@@ -314,7 +315,7 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::Environment& env, int
 }
 
 
-anet::rl::ActionInfo DQNAgent::MakeAction(const torch::Tensor& state, anet::rl::RunMode mode)
+anet::rl::BatchActionInfo DQNAgent::MakeAction(const torch::Tensor& state, anet::rl::RunMode mode)
 {
     ANET_CHECK_SHAPE(state, { ANY, state_dim_ });
 
@@ -340,19 +341,21 @@ anet::rl::ActionInfo DQNAgent::MakeAction(const torch::Tensor& state, anet::rl::
     return { action, is_rand };
 }
 
-
 std::shared_ptr<const anet::rl::UpdateResult>
-DQNAgent::UpdateStep(const anet::rl::Experience& experience)
+DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
 {
-    // 1. ReplayBuffer に push
-    replay_buffer_.Push(experience);
+    // BatchExperienceを展開
+    std::vector<anet::rl::Experience> exps = batch_exp.ToExperienceList();
 
-    // 2. step カウンタ更新
+    // ReplayBuffer に push
+    replay_buffer_.Push(exps);
+
+    // step カウンタ更新
     step_count_++;
 
     float loss_value = 0.0f;
 
-    // 3. 学習タイミング判定
+    // 学習タイミング判定
     const bool can_update = replay_scheduler_->CanUpdate(step_count_, replay_buffer_);
 
     if (can_update) {
@@ -369,9 +372,15 @@ DQNAgent::UpdateStep(const anet::rl::Experience& experience)
         ANET_CHECK_SHAPE(samples.states, { B, state_dim_ });
         ANET_CHECK_SHAPE(samples.next_states, { B, state_dim_ });
         ANET_CHECK_SHAPE(samples.rewards, { B });
-        ANET_CHECK_SHAPE(samples.actions, { B }, { B, 1 });
+        ANET_CHECK_SHAPE(samples.actions, { B, 1 });
         ANET_CHECK_SHAPE(samples.dones, { B });
         ANET_CHECK_SHAPE(samples.truncateds, { B });
+        ANET_CHECK_DTYPE(samples.states, torch::kFloat32);
+        ANET_CHECK_DTYPE(samples.actions, torch::kInt64);
+        ANET_CHECK_DTYPE(samples.rewards, torch::kFloat32);
+        ANET_CHECK_DTYPE(samples.next_states, torch::kFloat32);
+        ANET_CHECK_DTYPE(samples.dones, torch::kBool);
+        ANET_CHECK_DTYPE(samples.truncateds, torch::kBool);
 
         wxLogDebug("ReplayBuffer batch OK: B=%lld", samples.states.size(0));
 
@@ -380,8 +389,16 @@ DQNAgent::UpdateStep(const anet::rl::Experience& experience)
         // -------------------------------------------------
         torch::Tensor q_all = policy_net_->forward(samples.states); // (B, n_actions_)
         ANET_CHECK_SHAPE(q_all, { B, n_actions_ });
+        //wxLogDebug("q_all=%s", anet::ToString(q_all));
+
         torch::Tensor actions_b = samples.actions.view({ B, 1 });   // (B,1)
+        ANET_CHECK_SHAPE(actions_b, { B, 1 });
+        ANET_CHECK_DTYPE(actions_b, torch::kInt64);
+        //wxLogDebug("actions_b=%s", anet::ToString(actions_b));
+
         torch::Tensor q_sa = q_all.gather(1, actions_b).squeeze(1); // (B,)
+        ANET_CHECK_SHAPE(q_sa, { B });
+        //wxLogDebug("q_sa=%s", anet::ToString(q_sa));
 
         // -------------------------------------------------
         // 5. max_a' Q_target(s', a')（DQN / DoubleDQN 切替）
@@ -481,6 +498,7 @@ DQNAgent::UpdateStep(const anet::rl::Experience& experience)
     auto result = std::make_shared<DQNUpdateResult>();
     result->td_error_ema = stability_monitor_->GetTdErrorEma();
     result->loss = loss_value;
+    result->epsilon = action_decider_->ComputeEpsilon(step_count_);
 
     return result;
 }

@@ -127,8 +127,8 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
 // Shape チェック（複数 shape 許可）
 //------------------------------------------------------
 
-// ANY: 任意次元（shape のワイルドカード）
-static constexpr int64_t ANET_SHAPE_ANY = -1;
+#define ANET_SHAPE_ANY    (-1)
+#define ANET_SHAPE_ENDANY (-2)
 
 #if ANET_ENABLE_TENSOR_ASSERT
 

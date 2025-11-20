@@ -10,7 +10,7 @@ namespace anet::rl {
 
         void OnPostUpdate(
             std::shared_ptr<const anet::rl::UpdateResult> result,
-            const anet::rl::Experience& experience, const anet::rl::ActionInfo& action_info,
+            const anet::rl::BatchExperience& experiences,
             size_t step
         ) override;
     };
@@ -22,7 +22,7 @@ namespace anet::rl {
 
         void OnPostUpdate(
             std::shared_ptr<const anet::rl::UpdateResult> result,
-            const anet::rl::Experience& experience, const anet::rl::ActionInfo& action_info,
+            const anet::rl::BatchExperience& experiences,
             size_t step) override;
     };
 }

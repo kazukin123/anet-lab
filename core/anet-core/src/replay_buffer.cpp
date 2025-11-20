@@ -1,4 +1,5 @@
 ﻿#include <stdexcept>
+#include <algorithm>
 #include <wx/log.h>
 #include "anet/rl.hpp"
 #include "anet/common.hpp"
@@ -8,164 +9,115 @@
 
 namespace anet::rl {
 
-    // batched Experience を検出したら N サンプルに自動分割して Push する
-    static inline bool IsBatched(const torch::Tensor& t) {
-        return (t.dim() >= 2 && t.size(0) >= 1);
-    }
-
-    void ReplayBuffer::Push(const Experience& e) {
-        wxLogDebug("ReplayBuffer::Push() e.state=%s", anet::ToString(e.state));
-        wxLogDebug("ReplayBuffer::Push() e.action=%s", anet::ToString(e.action));
-        wxLogDebug("ReplayBuffer::Push() e.next_state=%s", anet::ToString(e.result.next_state));
-        wxLogDebug("ReplayBuffer::Push() e.reward=%s", anet::ToString(e.result.reward));
-        wxLogDebug("ReplayBuffer::Push() e.done=%s", anet::ToString(e.result.done));
-        wxLogDebug("ReplayBuffer::Push() e.truncated=%s", anet::ToString(e.result.truncated));
-
-        // -----------------------------------------------------
-        // 1) batched Experience の自動展開 (N ≥ 1)
-        // -----------------------------------------------------
-        if (IsBatched(e.state)) {
-
-            int64_t N = e.state.size(0);
-
-            // action は shape が [N] または [N, A] の場合あり
-            bool action_batched = IsBatched(e.action) ||
-                (e.action.dim() == 1 && e.action.size(0) == N);
-
-            for (int64_t i = 0; i < N; ++i) {
-                Experience ei;
-                ei.state = e.state[i];                         // [S]
-                ei.result.next_state = e.result.next_state[i]; // [S]
-                ei.result.reward = e.result.reward[i];         // []
-                ei.result.done = e.result.done[i];             // []
-                ei.result.truncated = e.result.truncated[i];   // []
-
-                if (action_batched) {
-                    // 離散なら action[i] は scalar / continuous なら [A]
-                    ei.action = (e.action.dim() == 1) ? e.action[i] : e.action[i];
-                } else {
-                    ei.action = e.action;   // もともと scalar
-                }
-
-                // 再帰的に N=1 path に落とす
-                Push(ei);
-            }
-
-            return;
-        }
-
-        // -----------------------------------------------------
-        // 2) ここからは N=1 の単一 Experience 処理
-        // -----------------------------------------------------
+    ReplayBuffer::ReplayBuffer(const EnvSpec& spec, size_t capacity, anet::RandomGenerator* rnd)
+        : RandomHolder(rnd),
+        capacity_(capacity),
+        state_dim_(spec.state.CalcStateDim()),
+        action_dim_(spec.action.ActionCount()),
+        device_(torch::kCPU)
+    {
+        is_discrete_ = spec.action.is_discrete;
         if (is_discrete_) {
-            ANET_ASSERT_MSG(
-                e.action.dtype() == torch::kInt64,
-                "Discrete action must be int64."
+            action_dim_ = 1;
+        }
+
+        ANET_ASSERT_MSG(state_dim_ > 0,
+            "ReplayBuffer::ReplayBuffer(): invalid state_dim.");
+
+        ANET_ASSERT_MSG(action_dim_ > 0,
+            "ReplayBuffer::ReplayBuffer(): invalid action_dim.");
+
+        states_ = torch::zeros({ static_cast<long>(capacity_), state_dim_ });
+        next_states_ = torch::zeros({ static_cast<long>(capacity_), state_dim_ });
+        rewards_ = torch::zeros({ static_cast<long>(capacity_) });
+        dones_ = torch::zeros({ static_cast<long>(capacity_) }, torch::TensorOptions().dtype(torch::kBool));
+        truncateds_ = torch::zeros({ static_cast<long>(capacity_) }, torch::TensorOptions().dtype(torch::kBool));
+
+        if (is_discrete_) {
+            actions_ = torch::zeros(
+                { static_cast<long>(capacity_), 1 },
+                torch::TensorOptions().dtype(torch::kInt64) // 離散アクションでは1次元かつint64固定
             );
-            //ANET_ASSERT_MSG(
-            //    exp.action.dim() == 0 || (exp.action.dim() == 1 && exp.action.size(0) == 1),
-            //    "Discrete action must be scalar or size-1 tensor."
-            //);
+        } else {
+            actions_ = torch::zeros(
+                { static_cast<long>(capacity_), action_dim_ },
+                torch::TensorOptions().dtype(torch::kFloat32)
+            );
         }
-
-        // CPU に統一
-        torch::Tensor s = e.state.to(torch::kCPU);
-        torch::Tensor ns = e.result.next_state.to(torch::kCPU);
-        torch::Tensor a = e.action.to(torch::kCPU);
-        torch::Tensor r = e.result.reward.to(torch::kCPU);
-        torch::Tensor dn = e.result.done.to(torch::kCPU);
-        torch::Tensor tr = e.result.truncated.to(torch::kCPU);
-
-        wxLogDebug("ReplayBuffer::Push() state=%s", anet::ToString(s));
-        wxLogDebug("ReplayBuffer::Push() next_state=%s", anet::ToString(a));
-        wxLogDebug("ReplayBuffer::Push() reward=%s", anet::ToString(r));
-        wxLogDebug("ReplayBuffer::Push() action=%s", anet::ToString(ns));
-        wxLogDebug("ReplayBuffer::Push() done=%s", anet::ToString(dn));
-        wxLogDebug("ReplayBuffer::Push() truncated=%s", anet::ToString(tr));
-
-        // -----------------------------------------------------
-        // 3) 初回のみテンソル確保
-        // -----------------------------------------------------
-        if (!initialized_) {
-
-            auto S = s.sizes();   // [S]
-            auto A = a.sizes();   // [] or [A]
-
-            // states_: [capacity, S]
-            {
-                std::vector<int64_t> shp(1 + S.size());
-                shp[0] = (int64_t)capacity_;
-                for (size_t i = 0; i < S.size(); ++i)
-                    shp[i + 1] = S[i];
-
-                states_ = torch::empty(shp, s.options());
-                next_states_ = torch::empty(shp, s.options());
-            }
-
-            // actions_: [capacity, A] または [capacity]
-            {
-                std::vector<int64_t> shp(1 + A.size());
-                shp[0] = (int64_t)capacity_;
-                for (size_t i = 0; i < A.size(); ++i)
-                    shp[i + 1] = A[i];
-
-                actions_ = torch::empty(shp, a.options());
-            }
-
-            // reward / done / truncated: [capacity]
-            rewards_ = torch::empty({ (long)capacity_ }, r.options());
-            dones_ = torch::empty({ (long)capacity_ }, dn.options());
-            truncateds_ = torch::empty({ (long)capacity_ }, tr.options());
-
-            wxLogDebug("ReplayBuffer::Push() initialized_ states_=%s", anet::ToDefString(states_));
-            wxLogDebug("ReplayBuffer::Push() initialized_ actions_=%s", anet::ToDefString(actions_));
-            wxLogDebug("ReplayBuffer::Push() initialized_ rewards_=%s", anet::ToDefString(rewards_));
-            wxLogDebug("ReplayBuffer::Push() initialized_ dones_=%s", anet::ToDefString(dones_));
-            wxLogDebug("ReplayBuffer::Push() initialized_ truncateds_=%s", anet::ToDefString(truncateds_));
-
-            initialized_ = true;
-        }
-
-        // -----------------------------------------------------
-        // 4) 単一サンプルの書き込み
-        // -----------------------------------------------------
-        states_[write_index_] = s;
-        actions_[write_index_] = a;
-        next_states_[write_index_] = ns;
-
-        rewards_[write_index_] = r;
-        dones_[write_index_] = dn;
-        truncateds_[write_index_] = tr;
-
-        write_index_ = (write_index_ + 1) % capacity_;
-        size_ = std::min(size_ + 1, capacity_);
     }
 
-    anet::rl::ExperienceSample ReplayBuffer::Sample(size_t n, torch::Device device) const {
-        ANET_ASSERT_MSG(n > 0, "SampleBatch: n must be > 0");
+    void ReplayBuffer::Push(const std::vector<Experience>& exps)
+    {
+        size_t n = exps.size();
+        if (n == 0) return;
 
-        ExperienceSample batch{};
-        if (size_ == 0) return batch;
+        for (size_t i = 0; i < n; ++i) {
+            const auto& e = exps[i];
 
-        n = std::min(n, size_);
+            const int64_t idx = write_index_;
 
-        std::vector<int64_t> idx;
-        idx.reserve(n);
-        std::uniform_int_distribution<size_t> dist(0, size_ - 1);
+            auto flat_s = e.state.Flattened();
+            auto flat_ns = e.next_state.Flattened();
 
-        for (size_t i = 0; i < n; ++i)
-            idx.push_back(static_cast<int64_t>(rng_->RandIndex(size_ - 1)));
+            ANET_CHECK_SHAPE(flat_s, { state_dim_ });
+            ANET_CHECK_SHAPE(flat_ns, { state_dim_ });
+            ANET_CHECK_SHAPE(e.action, { action_dim_ });
 
-        auto index_tensor = torch::tensor(idx, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
+            states_[idx].copy_(flat_s);
+            next_states_[idx].copy_(flat_ns);
+            actions_[idx].copy_(e.action);
+            rewards_[idx] = e.reward;
+            dones_[idx] = e.next_state.done ? 1.0f : 0.0f;
+            truncateds_[idx] = e.next_state.truncated ? 1.0f : 0.0f;
 
-        batch.states = states_.index_select(0, index_tensor).to(device);
-        batch.actions = actions_.index_select(0, index_tensor).to(device);
-        batch.next_states = next_states_.index_select(0, index_tensor).to(device);
-        batch.rewards = rewards_.index_select(0, index_tensor).to(device);
-        batch.dones = dones_.index_select(0, index_tensor).to(device);
-        batch.truncateds = truncateds_.index_select(0, index_tensor).to(device);
+            write_index_ = (write_index_ + 1) % static_cast<int64_t>(capacity_);
+            if (size_ < capacity_) size_++;
+        }
+    }
 
-        return batch;
+    ExperienceSample ReplayBuffer::Sample(size_t n, torch::Device device) const
+    {
+        ANET_ASSERT_MSG(size_ > 0, "ReplayBuffer::Sample: buffer empty.");
+        ANET_ASSERT_MSG(n > 0, "ReplayBuffer::Sample: n must be > 0.");
+        ANET_ASSERT_MSG(n <= size_, "ReplayBuffer::Sample: n exceeds current size.");
+        ANET_ASSERT_MSG(rng_ != nullptr,
+            "ReplayBuffer::Sample: rng_ must not be null.");
+
+        // ---- RNG を使って n 個のインデックスを取得 ----
+        std::vector<int64_t> vec;
+        vec.reserve(n);
+
+        const int64_t max_i = static_cast<int64_t>(size_);
+
+        for (size_t i = 0; i < n; ++i) {
+            int64_t v = static_cast<int64_t>(rng_->RandIndex(size_ - 1));
+            ANET_ASSERT_MSG(0 <= v && v < max_i,
+                "ReplayBuffer::Sample: rng returned out-of-range index.");
+            vec.push_back(v);
+        }
+
+        torch::Tensor idx = torch::tensor(
+            vec, torch::TensorOptions().dtype(torch::kLong));
+
+        ExperienceSample out;
+
+        out.states = states_.index_select(0, idx).to(device);
+        out.actions = actions_.index_select(0, idx).to(device);
+        out.rewards = rewards_.index_select(0, idx).to(device);
+        out.next_states = next_states_.index_select(0, idx).to(device);
+        out.dones = dones_.index_select(0, idx).to(device);
+        out.truncateds = truncateds_.index_select(0, idx).to(device);
+
+        ANET_CHECK_SHAPE(out.states, { static_cast<int64_t>(n), state_dim_ });
+        ANET_CHECK_SHAPE(out.actions,
+            { static_cast<int64_t>(n), action_dim_ });
+        ANET_CHECK_SHAPE(out.rewards, { static_cast<int64_t>(n) });
+        ANET_CHECK_SHAPE(out.next_states,
+            { static_cast<int64_t>(n), state_dim_ });
+        ANET_CHECK_SHAPE(out.dones, { static_cast<int64_t>(n) });
+        ANET_CHECK_SHAPE(out.truncateds, { static_cast<int64_t>(n) });
+
+        return out;
     }
 
 } // namespace anet::rl
