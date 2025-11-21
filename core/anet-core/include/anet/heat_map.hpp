@@ -69,7 +69,6 @@ namespace anet {
         void AddData(float x, float y, float value);
         void Reset() override;
         wxImage RenderRaw() const override;
-
     protected:
         struct Sample { float x, y, value; };
 

@@ -44,6 +44,7 @@ namespace anet {
     private:
         uint64_t seed_ = 0;
         std::mt19937_64 engine_;
+        mutable std::mutex mutex_;
     };
 
     class RandomHolder {

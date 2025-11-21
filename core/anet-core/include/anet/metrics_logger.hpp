@@ -17,9 +17,9 @@ namespace anet {
     class IBackend {
     public:
         virtual ~IBackend() = default;
-        virtual void open(const std::string& root_dir, const std::string& run_name) = 0;
-        virtual void write_jsonl(const json& obj) = 0;
-        virtual void flush() = 0;
+        virtual void Open(const std::string& root_dir, const std::string& run_name) = 0;
+        virtual void WriteJsonl(const json& obj) = 0;
+        virtual void Flush() = 0;
     };
 
     //----------------------------------------------
@@ -29,9 +29,9 @@ namespace anet {
     private:
         std::ofstream ofs;
     public:
-        void open(const std::string& root_dir, const std::string& run_name) override;
-        void write_jsonl(const json& obj) override;
-        void flush() override;
+        void Open(const std::string& root_dir, const std::string& run_name) override;
+        void WriteJsonl(const json& obj) override;
+        void Flush() override;
     };
 
     //----------------------------------------------
@@ -59,29 +59,6 @@ namespace anet {
     // MetricsLogger 本体
     //----------------------------------------------
     class MetricsLogger {
-    private:
-        std::unique_ptr<IBackend> backend;
-        std::string root_dir;
-        std::string run_name;
-        bool enable_image_log_ = true;
-
-        // 画像・動画用連番管理
-        std::unordered_map<std::string, uint64_t> image_seq_;
-        std::unordered_map<std::string, std::unique_ptr<VideoLogger>> video_loggers_;
-
-        static json round_numbers(const json& j, int precision = 6);
-        static std::string current_time_str();
-        static std::string sanitize_filename(const std::string& s);
-
-        // 内部実装
-        void log_image_subtyped(const std::string& tag,
-            int step,
-            const wxImage& image,
-            const std::string& subtype_or_empty);
-
-        // --- Singleton管理 ---
-        static std::shared_ptr<MetricsLogger> instance_;
-        static std::mutex instance_mutex_;
     public:
         explicit MetricsLogger(std::unique_ptr<IBackend> b,
             const std::string& root = "logs",
@@ -97,17 +74,17 @@ namespace anet {
 
         void SetEnableImageLog(bool enable_image_log) { enable_image_log_ = enable_image_log; }
 
-        inline void log_scalar(const std::string& tag, int step, double value) {
+        inline void LogScalar(const std::string& tag, int step, double value) {
             json obj = {
                 {"type", "scalar"},
                 {"tag", tag},
                 {"step", step},
                 {"value", value}
             };
-            backend->write_jsonl(obj);
+            backend_->WriteJsonl(obj);
         }
 
-        inline void log_json(const std::string& tag, const json& data) {
+        inline void LogJson(const std::string& tag, const json& data) {
             json rounded = round_numbers(data);
             json obj = {
                 {"type", "json"},
@@ -115,23 +92,46 @@ namespace anet {
                 {"timestamp", current_time_str()},
                 {"data", rounded}
             };
-            backend->write_jsonl(obj);
+            backend_->WriteJsonl(obj);
         }
 
-        inline void log_image(const std::string& tag, int step, const wxImage& image) {
+        inline void LogImage(const std::string& tag, int step, const wxImage& image) {
             if (!enable_image_log_) return;
-            log_image_subtyped(tag, step, image, "");
+            LogImage_subtyped(tag, step, image, "");
         }
 
-        inline void log_image(const std::string& tag, int step, const anet::ImageSource& src, int width = -1, int height = -1) {
+        inline void LogImage(const std::string& tag, int step, const anet::ImageSource& src, int width = -1, int height = -1) {
             if (!enable_image_log_) return;
             auto img = src.Render(width, height);
             auto subtype = src.GetImageSubType();
-            log_image_subtyped(tag, step, img, subtype);
+            LogImage_subtyped(tag, step, img, subtype);
         }
 
-        inline std::string get_run_name() const { return run_name; }
-        inline std::string get_out_dir() const { return std::filesystem::relative(root_dir + "/" + run_name).string(); }
-        inline void flush() { backend->flush(); }
+        inline std::string GetRunName() const { return run_name_; }
+        inline std::string GetOutDir() const { return std::filesystem::relative(root_dir_ + "/" + run_name_).string(); }
+        inline void Flush() { backend_->Flush(); }
+    private:
+        std::unique_ptr<IBackend> backend_;
+        std::string root_dir_;
+        std::string run_name_;
+        bool enable_image_log_ = true;
+
+        // 画像・動画用連番管理
+        std::unordered_map<std::string, uint64_t> image_seq_;
+        std::unordered_map<std::string, std::unique_ptr<VideoLogger>> video_loggers_;
+
+        static json round_numbers(const json& j, int precision = 6);
+        static std::string current_time_str();
+        static std::string sanitize_filename(const std::string& s);
+
+        // 内部実装
+        void LogImage_subtyped(const std::string& tag,
+            int step,
+            const wxImage& image,
+            const std::string& subtype_or_empty);
+
+        // --- Singleton管理 ---
+        static std::shared_ptr<MetricsLogger> instance_;
+        static std::mutex instance_mutex_;
     };
 }   // namespace anet

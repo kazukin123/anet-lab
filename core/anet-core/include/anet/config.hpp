@@ -16,6 +16,7 @@
 
 namespace anet {
 
+    ///  Key-Valueベースの設定データ
     class ConfigData {
     public:
         ConfigData() {}
@@ -93,6 +94,7 @@ namespace anet {
         anet::OrderedMap<std::string, std::string> kv_;
     };
 
+    /// Properties類似形式の設定ファイル操作クラス
     class Properties {
     public:
         explicit Properties(const std::string& filename) {
@@ -108,6 +110,7 @@ namespace anet {
         void Load(const std::string& filename);
     };
 
+    /// 設定マネージャー。コマンドラインオプションとPropertiesファイルを元にConfigDataを生成。
     class ConfigManager {
     public:
         ConfigManager(const std::string& filePath,const wxCmdLineParser* cmdLine = nullptr);
@@ -121,11 +124,11 @@ namespace anet {
         // (module, defaultPreset) → resolvedModule を返す
         std::string ResolveModule(const std::string& module,
             const std::string& defaultPreset) const;
-
     private:
         ConfigData data_;
     };
 
+    /// モジュール別Configクラス実装用の基底クラス
     class Config {
     public:
         Config();

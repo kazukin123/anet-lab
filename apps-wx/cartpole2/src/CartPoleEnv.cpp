@@ -26,8 +26,8 @@ CartPoleEnv::CartPoleEnv(anet::RandomGenerator* rnd) : RandomHolder(rnd)
     nlohmann::json params = {
         {"limit_step", limit_step},
     };
-    anet::MetricsLogger::Instance()->log_json("env/params", params);
-    anet::MetricsLogger::Instance()->flush();
+    anet::MetricsLogger::Instance()->LogJson("env/params", params);
+    anet::MetricsLogger::Instance()->Flush();
 
     Reset();
 }
@@ -84,8 +84,7 @@ anet::rl::BatchState CartPoleEnv::Reset(anet::rl::RunMode mode) {
     done_ = false;
     truncated_ = false;
     episode_start_ = true;
-
-    step_count = 0;
+    step_count_ = 0;
 
     return GetState();
 }
@@ -102,7 +101,6 @@ anet::rl::BatchState CartPoleEnv::GetState() const {
 anet::rl::BatchStepResult CartPoleEnv::DoStep(const torch::Tensor& action_tensor, anet::rl::RunMode mode) {
     int action = action_tensor.item<int>();
     episode_start_ = false;
-
 
     // 力の符号（1:右=+、0:左=-）
     float force = (action == 1) ? force_mag : -force_mag;
@@ -151,7 +149,7 @@ anet::rl::BatchStepResult CartPoleEnv::DoStep(const torch::Tensor& action_tensor
         //step_count, x, theta, hit_wall, force, x_dot, theta_dot,xacc, thetaacc);
 
     // ステップ完了
-    step_count++;
+    step_count_++;
 
     // 終了条件はステップ数のみ
     //bool done = (step_count >= 500);
@@ -190,7 +188,7 @@ anet::rl::BatchStepResult CartPoleEnv::DoStep(const torch::Tensor& action_tensor
     if (theta_deg < -limit_theta || theta_deg > limit_theta || x_ < -limit_x || x_ > limit_x) {
         // 倒立失敗
         reward = -reward_scale;   // ← ペナルティ
-    } else if (step_count >= limit_step) {
+    } else if (step_count_ >= limit_step) {
         // 時間切れ成功
         reward = +reward_scale;   // ← ボーナス
         truncated_ = true;

@@ -38,22 +38,22 @@ private:
     bool auto_pause_done_ = false;
 
     // 強化学習関連
-    std::unique_ptr<CartPoleEnv> env;
-    std::unique_ptr<anet::rl::Agent> agent;
+    std::unique_ptr<CartPoleEnv> env_;
+    std::unique_ptr<anet::rl::Agent> agent_;
     anet::rl::BatchState state_;
     anet::rl::MetricsLogObserver metrics_obs_;
     anet::rl::HeatMapObserver heatmap_obs_;
     anet::rl::Notifier notifier_;
 
     // メトリクス
-    int step_count = 0;
-    int last_episode_step = 0;
-    int episode_count = 0;
+    int step_count_ = 0;
+    int last_episode_step_ = 0;
+    int episode_count_ = 0;
     int eval_count_ = 0;
     float train_total_reward_ = 0.0f;
 
     // デバイス
-    torch::Device device;
+    torch::Device device_;
 
     // 乱数
     anet::RandomGenerator rnd_;

@@ -318,8 +318,8 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
 
     // ログ：パラメータ記録
     wxLogInfo("DQNAgent config=%s", config_.ToStdString());
-    anet::MetricsLogger::Instance()->log_json("agent/params", config_.ToJson());
-    anet::MetricsLogger::Instance()->flush();
+    anet::MetricsLogger::Instance()->LogJson("agent/params", config_.ToJson());
+    anet::MetricsLogger::Instance()->Flush();
 }
 
 

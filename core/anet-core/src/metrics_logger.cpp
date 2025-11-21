@@ -9,19 +9,19 @@ namespace anet {
     //----------------------------------------------
     // JsonlBackend 実装
     //----------------------------------------------
-    void JsonlBackend::open(const std::string& root_dir, const std::string& run_name) {
+    void JsonlBackend::Open(const std::string& root_dir, const std::string& run_name) {
         std::filesystem::create_directories(root_dir + "/" + run_name);
         auto path = root_dir + "/" + run_name + "/metrics.jsonl";
         ofs.open(path, std::ios::app);
         if (!ofs) throw std::runtime_error("Failed to open: " + path);
     }
 
-    void JsonlBackend::write_jsonl(const json& obj) {
+    void JsonlBackend::WriteJsonl(const json& obj) {
         ofs << obj.dump() << "\n";
         ofs.flush();
     }
 
-    void JsonlBackend::flush() { ofs.flush(); }
+    void JsonlBackend::Flush() { ofs.flush(); }
 
     //----------------------------------------------
     // VideoLogger 実装
@@ -126,7 +126,7 @@ namespace anet {
     MetricsLogger::MetricsLogger(std::unique_ptr<IBackend> b,
         const std::string& root,
         const std::string& run)
-        : backend(std::move(b)), root_dir(root)
+        : backend_(std::move(b)), root_dir_(root)
     {
         if (run.empty()) {
             auto t = std::chrono::system_clock::now();
@@ -139,21 +139,21 @@ namespace anet {
 #endif
             char buf_ts[64];
             std::strftime(buf_ts, sizeof(buf_ts), "run_%Y%m%d-%H%M%S", &tm);
-            run_name = buf_ts;
+            run_name_ = buf_ts;
         }
         else {
-            run_name = run;
+            run_name_ = run;
         }
 
-        backend->open(root_dir, run_name);
+        backend_->Open(root_dir_, run_name_);
         json meta = { {"type","meta"}, {"event","start"}, {"timestamp", current_time_str()} };
-        backend->write_jsonl(meta);
+        backend_->WriteJsonl(meta);
     }
 
     //----------------------------------------------
     // 画像・動画出力
     //----------------------------------------------
-    void MetricsLogger::log_image_subtyped(const std::string& tag,
+    void MetricsLogger::LogImage_subtyped(const std::string& tag,
         int step,
         const wxImage& image,
         const std::string& subtype_or_empty)
@@ -169,15 +169,15 @@ namespace anet {
 
             std::string rel_dir = "images/" + safe_tag;
             std::string rel_path = rel_dir + "/" + safe_tag + "_" + buf + ".png";
-            std::string full_dir = root_dir + "/" + run_name + "/" + rel_dir;
-            std::string full_path = root_dir + "/" + run_name + "/" + rel_path;
+            std::string full_dir = root_dir_ + "/" + run_name_ + "/" + rel_dir;
+            std::string full_path = root_dir_ + "/" + run_name_ + "/" + rel_path;
 
             std::filesystem::create_directories(full_dir);
             image.SaveFile(full_path, wxBITMAP_TYPE_PNG);
         }
 
         // ---- 動画書き込み ----
-        auto vid_path = root_dir + "/" + run_name + "/videos/" + safe_tag + ".mkv";
+        auto vid_path = root_dir_ + "/" + run_name_ + "/videos/" + safe_tag + ".mkv";
         auto it = video_loggers_.find(tag);
         if (it == video_loggers_.end()) {
             auto vlog = std::make_unique<VideoLogger>(vid_path, image.GetWidth(), image.GetHeight());
@@ -189,7 +189,7 @@ namespace anet {
                 {"fps", 30},
                 {"timestamp", current_time_str()}
             };
-            backend->write_jsonl(vmeta);
+            backend_->WriteJsonl(vmeta);
             it = video_loggers_.emplace(tag, std::move(vlog)).first;
         }
         it->second->WriteFrame(image);

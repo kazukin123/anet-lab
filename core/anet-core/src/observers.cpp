@@ -16,7 +16,7 @@ namespace anet::rl {
 
         auto map = result->GetMetricsMap();
         for (const auto& [tag, value] : map) {
-            MetricsLogger::Instance()->log_scalar(tag, step, value);
+            MetricsLogger::Instance()->LogScalar(tag, step, value);
         }
     }
 

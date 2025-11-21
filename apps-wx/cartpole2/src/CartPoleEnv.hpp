@@ -20,5 +20,5 @@ public:
 private:
     float x_, x_dot_, theta_, theta_dot_;
     bool done_ = false, truncated_ = false, episode_start_ = true;
-    int step_count = 0;
+    int step_count_ = 0;
 };

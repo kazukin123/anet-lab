@@ -213,7 +213,6 @@ namespace anet::rl {
             ANET_CHECK_DTYPE(obs, torch::kFloat32);
             return obs.reshape({ obs.numel() });
         }
-        
         SingleState to(torch::Device device) const {
             ANET_CHECK_SHAPE(obs, { ANET_SHAPE_ANY });
             ANET_CHECK_DTYPE(obs, torch::kFloat32);
@@ -248,9 +247,7 @@ namespace anet::rl {
         BatchExperience to(torch::Device d) const {
             return { state.to(d), action.to(d), reward.to(d), next_state.to(d) };
         }
-
         std::vector<Experience> ToExperienceList() const;
-
         std::string ToString() const;
     };
 
@@ -277,8 +274,8 @@ namespace anet::rl {
 
     class UpdateResult {
     public:
-        virtual ~UpdateResult() = default;
         virtual MetricsMap GetMetricsMap() const = 0;
+        virtual ~UpdateResult() = default;
     };
 
     class Runner {
