@@ -6,7 +6,6 @@ namespace anet::rl {
     // =============================================================
     // ローカル関数：ActionSpecから汎用ランダム行動を生成
     // =============================================================
-    /// @todo continuous-action の分布改善（今は一様分布）
     static torch::Tensor RandomActionFromSpec(
         const ActionSpec& spec,
         RandomGenerator& rng)
