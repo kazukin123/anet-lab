@@ -249,7 +249,7 @@ private:
 
 struct DQNUpdateResult : public UpdateResult {
     float td_error_ema = 0.0f;
-    float loss = 0.0f;     ///<! @todo real loss value
+    float loss = 0.0f;
     float epsilon = 1.0f;
     /// @todo ラインナップ精査
 
@@ -271,8 +271,7 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
     n_actions_(env_spec.action.ActionCount()),
     policy_net_(std::make_shared<QNetImpl>(state_dim_, n_actions_)),
     target_net_(std::make_shared<QNetImpl>(state_dim_, n_actions_)),
-    optimizer(policy_net_->parameters(), torch::optim::AdamOptions(config_.alpha)),
-    replay_buffer_(env_spec, config_.replay_capacity, rnd)
+    optimizer(policy_net_->parameters(), torch::optim::AdamOptions(config_.alpha))
 {
     /// @todo  ヒートマップオブジェクト類をHeatMapObservberに移動
     //auto nan = std::numeric_limits<float>::quiet_NaN();
@@ -286,6 +285,14 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
     //    2, 200, anet::TimeFrameMode::Scroll, flags, -1.0f, 1.0f, 0.05f);
     //hist_q_ = std::make_unique<anet::TimeHistogram>(
     //    128, 1000, anet::TimeFrameMode::Unlimited, flags | anet::HeatMapFlags::HM_FlipY, 0.0f, nan, 0.05f);
+
+    // use_replay_buffer=false の場合の強制
+    if (!config_.use_replay_buffer) {
+        config_.replay_capacity = 1;
+        config_.replay_batch_size = 1;
+        config_.replay_warmup_steps = 0;
+        config_.replay_update_interval = 1;
+    }
 
     // NN初期化
     policy_net_->to(device);
@@ -303,6 +310,7 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
     target_net_->eval();
 
     // 内部モジュール生成
+    this->replay_buffer_ = std::make_unique<anet::rl::ReplayBuffer>(env_spec, config_.replay_capacity, rnd);
     this->action_decider_ = std::make_unique<ActionDecider>(*this);
     this->replay_scheduler_ = std::make_unique<ReplayScheduler>(this->config_);
     this->stability_monitor_ = std::make_unique<StabilityMonitor>(this->config_);
@@ -344,11 +352,8 @@ anet::rl::BatchActionInfo DQNAgent::MakeAction(const torch::Tensor& state, anet:
 std::shared_ptr<const anet::rl::UpdateResult>
 DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
 {
-    // BatchExperienceを展開
-    std::vector<anet::rl::Experience> exps = batch_exp.ToExperienceList();
-
     // ReplayBuffer に push
-    replay_buffer_.Push(exps);
+    replay_buffer_->Push(batch_exp);
 
     // step カウンタ更新
     step_count_++;
@@ -356,11 +361,11 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
     float loss_value = 0.0f;
 
     // 学習タイミング判定
-    const bool can_update = replay_scheduler_->CanUpdate(step_count_, replay_buffer_);
+    const bool can_update = replay_scheduler_->CanUpdate(step_count_, *replay_buffer_);
 
     if (can_update) {
         const int B = config_.replay_batch_size;
-        auto samples = replay_buffer_.Sample(B, device_);
+        auto samples = replay_buffer_->Sample(B, device_);
 
         // device / shape チェック（dtype は Push 時点で保証済み）
         ANET_CHECK_DEVICE(samples.states, device_);

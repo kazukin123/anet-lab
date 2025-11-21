@@ -4,23 +4,32 @@
 
 namespace anet {
 
-    RandomGenerator::RandomGenerator()
-    {
-        seed_ = MakeRandomSeed();
-        engine_.seed(seed_);
+    RandomGenerator::RandomGenerator()    {
+        AutoSeed();
     }
 
-    uint64_t RandomGenerator::AutoSeed()
-    {
-        seed_ = MakeRandomSeed();
-        engine_.seed(seed_);
+    RandomGenerator::RandomGenerator(uint64_t seed, bool withTorch, bool withCuda) {
+        SetSeed(seed, withTorch, withCuda);
+    }
+
+    uint64_t RandomGenerator::AutoSeed() {
+        SetSeed(MakeRandomSeed());
         return seed_;
     }
 
-    void RandomGenerator::SetSeed(uint64_t seed)
-    {
+    void RandomGenerator::SetSeed(uint64_t seed, bool withTorch, bool withCuda) {
         seed_ = seed;
         engine_.seed(seed_);
+
+        // Torch CPU RNG
+        if (withTorch)
+            torch::manual_seed(seed_);
+
+        // Torch CUDA RNG
+        if (withCuda && torch::cuda::is_available()) {
+            torch::cuda::manual_seed(seed_);
+            torch::cuda::manual_seed_all(seed_);
+        }
     }
 
     uint64_t RandomGenerator::MakeRandomSeed()

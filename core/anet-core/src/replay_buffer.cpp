@@ -46,6 +46,52 @@ namespace anet::rl {
         }
     }
 
+    // replay_buffer.cpp
+    void ReplayBuffer::Push(const BatchExperience& batch)
+    {
+        // shape チェック
+        const int64_t B = batch.state.obs.size(0);
+
+        ANET_CHECK_SHAPE(batch.state.obs, { B, state_dim_ });
+        ANET_CHECK_SHAPE(batch.state.done, { B });
+        ANET_CHECK_SHAPE(batch.state.truncated, { B });
+        ANET_CHECK_SHAPE(batch.state.episode_start, { B });
+        ANET_CHECK_SHAPE(batch.action.action, { B, action_dim_ });
+        ANET_CHECK_SHAPE(batch.action.is_random, { B, action_dim_ });
+        ANET_CHECK_SHAPE(batch.reward, { B });
+        ANET_CHECK_SHAPE(batch.next_state.obs, { B, state_dim_ });
+        ANET_CHECK_SHAPE(batch.next_state.done, { B });
+        ANET_CHECK_SHAPE(batch.next_state.truncated, { B });
+        ANET_CHECK_SHAPE(batch.next_state.episode_start, { B });
+
+        ANET_CHECK_DTYPE(batch.state.obs, torch::kFloat32);
+        ANET_CHECK_DTYPE(batch.state.done, torch::kBool);
+        ANET_CHECK_DTYPE(batch.state.truncated, torch::kBool);
+        ANET_CHECK_DTYPE(batch.state.episode_start, torch::kBool);
+        ANET_CHECK_DTYPE(batch.action.action, is_discrete_ ? torch::kInt64 : torch::kFloat32);
+        ANET_CHECK_DTYPE(batch.action.is_random, torch::kBool);
+        ANET_CHECK_DTYPE(batch.reward, torch::kFloat32);
+        ANET_CHECK_DTYPE(batch.next_state.obs, torch::kFloat32);
+        ANET_CHECK_DTYPE(batch.next_state.done, torch::kBool);
+        ANET_CHECK_DTYPE(batch.next_state.truncated, torch::kBool);
+        ANET_CHECK_DTYPE(batch.next_state.episode_start, torch::kBool);
+
+        // 1件ずつ circular buffer に書き込む
+        for (int64_t i = 0; i < B; ++i) {
+            const int64_t idx = write_index_;
+
+            states_[idx].copy_(batch.state.obs[i]);
+            next_states_[idx].copy_(batch.next_state.obs[i]);
+            actions_[idx].copy_(batch.action.action[i]);
+            rewards_[idx] = batch.reward[i].item<float>();
+            dones_[idx] = batch.next_state.done[i].item<bool>();
+            truncateds_[idx] = batch.next_state.truncated[i].item<bool>();
+
+            write_index_ = (write_index_ + 1) % static_cast<int64_t>(capacity_);
+            if (size_ < capacity_) size_++;
+        }
+    }
+
     void ReplayBuffer::Push(const std::vector<Experience>& exps)
     {
         size_t n = exps.size();

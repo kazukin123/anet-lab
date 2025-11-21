@@ -8,11 +8,11 @@ namespace anet {
     class RandomGenerator {
     public:
         RandomGenerator();
+        RandomGenerator(uint64_t seed, bool withTorch = true, bool withCuda = true);
+
         uint64_t AutoSeed();
-
-        void SetSeed(uint64_t seed);
+        void SetSeed(uint64_t seed, bool withTorch = true, bool withCuda = true);
         uint64_t GetSeed() const { return seed_; }
-
         uint64_t RandUint64() { return engine_(); }
 
         // [0, max] の離散乱数

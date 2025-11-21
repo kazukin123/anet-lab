@@ -136,11 +136,11 @@ namespace anet::rl {
         class StabilityMonitor; // 安定化指標・EMA 管理
     private:
         // Resource（Agentが管理すべき領域）
-        ReplayBuffer replay_buffer_;
         std::shared_ptr<QNetImpl> policy_net_;
         std::shared_ptr<QNetImpl> target_net_;
         torch::optim::Adam optimizer;
     private:
+        std::unique_ptr<anet::rl::ReplayBuffer> replay_buffer_;
         std::unique_ptr<ActionDecider> action_decider_;
         std::unique_ptr<ReplayScheduler> replay_scheduler_;
         std::unique_ptr<StabilityMonitor> stability_monitor_;

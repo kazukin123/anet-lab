@@ -86,7 +86,8 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     notifier_.AddObserver(&heatmap_obs_);
 
     // ランダム方策で環境難易度評価
-    //evaluateEnvironment(*env, /*num_actions=*/2, /*num_trials=*/100);
+    auto eval_result = anet::rl::EvaluateEnvironmentDifficulty(*env, 100);
+    anet::MetricsLogger::Instance()->log_json("eval_env", eval_result.ToJson());
     
     // --- 環境初期化 ---
     state_ = env->Reset();  // ← reset() は 初期状態 を返す

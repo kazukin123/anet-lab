@@ -19,6 +19,7 @@ namespace anet::rl {
     public:
         explicit ReplayBuffer(const EnvSpec& env_spec, size_t capacity = 10000, anet::RandomGenerator* rnd = nullptr);
 
+        void Push(const BatchExperience& batch);
         void Push(const std::vector<Experience>& exps);
         ExperienceSample Sample(size_t n, torch::Device device) const;
         size_t Size() const { return size_; }
