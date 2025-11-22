@@ -48,9 +48,7 @@ struct anet::rl::DQNAgent::QNetImpl : torch::nn::Module {
 class DQNAgent::ActionDecider {
 public:
     ActionDecider(DQNAgent& agent)
-        : agent_(agent),
-        config_(agent.config_),
-        rnd_(agent.rnd_)
+        : agent_(agent), config_(agent.config_), rnd_(agent.rnd_)
     {
     }
 
@@ -323,20 +321,22 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
 }
 
 
-anet::rl::BatchActionInfo DQNAgent::MakeAction(const torch::Tensor& state, anet::rl::RunMode mode)
+anet::rl::BatchActionInfo DQNAgent::MakeAction(const anet::rl::BatchState& state, anet::rl::RunMode mode)
 {
-    ANET_CHECK_SHAPE(state, { ANY, state_dim_ });
+    ANET_CHECK_SHAPE(state.obs, { ANY, state_dim_ });
 
-    torch::Tensor s = state.to(device_);
+    auto flat_state = state.Flatten();
+    auto flat_obs = flat_state.obs.to(device_);
 
     torch::NoGradGuard ng;
     torch::Tensor q;
     if (mode == anet::rl::RunMode::Eval1) {
-        q = target_net_->forward(s);
+        q = target_net_->forward(flat_obs);
     }
     else {
-        q = policy_net_->forward(s);
+        q = policy_net_->forward(flat_obs);
     }
+    ANET_CHECK_SHAPE(q, { ANET_SHAPE_ANY, n_actions_ });  // (N, n_actions_)
 
     // Eval → greedy-only
     bool greedy_only = (mode == anet::rl::RunMode::Eval1 || mode == anet::rl::RunMode::Eval2);
@@ -365,34 +365,39 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
 
     if (can_update) {
         const int B = config_.replay_batch_size;
-        auto samples = replay_buffer_->Sample(B, device_);
+        auto raw_samples = replay_buffer_->Sample(B, device_);
 
         // device / shape チェック（dtype は Push 時点で保証済み）
-        ANET_CHECK_DEVICE(samples.states, device_);
-        ANET_CHECK_DEVICE(samples.next_states, device_);
-        ANET_CHECK_DEVICE(samples.rewards, device_);
-        ANET_CHECK_DEVICE(samples.actions, device_);
-        ANET_CHECK_DEVICE(samples.dones, device_);
-        ANET_CHECK_DEVICE(samples.truncateds, device_);
-        ANET_CHECK_SHAPE(samples.states, { B, state_dim_ });
-        ANET_CHECK_SHAPE(samples.next_states, { B, state_dim_ });
-        ANET_CHECK_SHAPE(samples.rewards, { B });
-        ANET_CHECK_SHAPE(samples.actions, { B, 1 });
-        ANET_CHECK_SHAPE(samples.dones, { B });
-        ANET_CHECK_SHAPE(samples.truncateds, { B });
-        ANET_CHECK_DTYPE(samples.states, torch::kFloat32);
-        ANET_CHECK_DTYPE(samples.actions, torch::kInt64);
-        ANET_CHECK_DTYPE(samples.rewards, torch::kFloat32);
-        ANET_CHECK_DTYPE(samples.next_states, torch::kFloat32);
-        ANET_CHECK_DTYPE(samples.dones, torch::kBool);
-        ANET_CHECK_DTYPE(samples.truncateds, torch::kBool);
+        ANET_CHECK_DEVICE(raw_samples.obs, device_);
+        ANET_CHECK_DEVICE(raw_samples.actions, device_);
+        ANET_CHECK_DEVICE(raw_samples.rewards, device_);
+        ANET_CHECK_DEVICE(raw_samples.next_states.obs, device_);
+        ANET_CHECK_DEVICE(raw_samples.next_states.dones, device_);
+        ANET_CHECK_DEVICE(raw_samples.next_states.truncateds, device_);
+        ANET_CHECK_DEVICE(raw_samples.next_states.episode_start, device_);
+        ANET_CHECK_SHAPE(raw_samples.obs, { B, state_dim_ });
+        ANET_CHECK_SHAPE(raw_samples.actions, { B, 1 });    // 離散アクション
+        ANET_CHECK_SHAPE(raw_samples.rewards, { B });
+        ANET_CHECK_SHAPE(raw_samples.next_states.obs, { B, state_dim_ });
+        ANET_CHECK_SHAPE(raw_samples.next_states.dones, { B });
+        ANET_CHECK_SHAPE(raw_samples.next_states.truncateds, { B });
+        ANET_CHECK_SHAPE(raw_samples.next_states.episode_start, { B });
+        ANET_CHECK_DTYPE(raw_samples.obs, torch::kFloat32);
+        ANET_CHECK_DTYPE(raw_samples.actions, torch::kInt64);    // 離散アクション
+        ANET_CHECK_DTYPE(raw_samples.rewards, torch::kFloat32);
+        ANET_CHECK_DTYPE(raw_samples.next_states.dones, torch::kBool);
+        ANET_CHECK_DTYPE(raw_samples.next_states.truncateds, torch::kBool);
+        ANET_CHECK_DTYPE(raw_samples.next_states.episode_start, torch::kBool);
 
-        wxLogDebug("ReplayBuffer batch OK: B=%lld", samples.states.size(0));
+        wxLogDebug("ReplayBuffer batch OK: B=%lld", raw_samples.obs.size(0));
+
+        // ReplayBufferから取り出した時点では生の多次元StateなのでFlattenする
+        auto samples = raw_samples.Flatten();
 
         // -------------------------------------------------
-        // 4. Q(s, a) 抽出
+        // Q(s, a) 抽出
         // -------------------------------------------------
-        torch::Tensor q_all = policy_net_->forward(samples.states); // (B, n_actions_)
+        torch::Tensor q_all = policy_net_->forward(samples.obs); // (B, n_actions_)
         ANET_CHECK_SHAPE(q_all, { B, n_actions_ });
         //wxLogDebug("q_all=%s", anet::ToString(q_all));
 
@@ -406,21 +411,21 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
         //wxLogDebug("q_sa=%s", anet::ToString(q_sa));
 
         // -------------------------------------------------
-        // 5. max_a' Q_target(s', a')（DQN / DoubleDQN 切替）
+        // max_a' Q_target(s', a')（DQN / DoubleDQN 切替）
         // -------------------------------------------------
         torch::Tensor max_next_q;
 
         if (config_.use_double_dqn) {
             torch::NoGradGuard no_grad;
 
-            // 5-1) policy_net で argmax_a Q(s', a)
-            torch::Tensor q_next_policy = policy_net_->forward(samples.next_states); // (B, n_actions_)
+            // policy_net で argmax_a Q(s', a)
+            torch::Tensor q_next_policy = policy_net_->forward(samples.next_states.obs); // (B, n_actions_)
             ANET_CHECK_SHAPE(q_next_policy, { B, n_actions_ });
             auto next_policy_pair = q_next_policy.max(1);
             torch::Tensor next_actions = std::get<1>(next_policy_pair); // (B,)
 
-            // 5-2) target_net で Q_target(s', argmax_a Q_online)
-            torch::Tensor q_next_target = target_net_->forward(samples.next_states); // (B, n_actions_)
+            // target_net で Q_target(s', argmax_a Q_online)
+            torch::Tensor q_next_target = target_net_->forward(samples.next_states.obs); // (B, n_actions_)
             ANET_CHECK_SHAPE(q_next_target, { B, n_actions_ });
             torch::Tensor next_actions_b = next_actions.view({ B, 1 });             // (B,1)
             torch::Tensor q_next_selected =
@@ -431,23 +436,23 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
             torch::NoGradGuard no_grad;
 
             // 通常 DQN: max_a' Q_target(s', a')
-            torch::Tensor q_next_all = target_net_->forward(samples.next_states); // (B, n_actions_)
+            torch::Tensor q_next_all = target_net_->forward(samples.next_states.obs); // (B, n_actions_)
             ANET_CHECK_SHAPE(q_next_all, { B, n_actions_ });
             max_next_q = std::get<0>(q_next_all.max(1));                         // (B,)
         }
 
         // -------------------------------------------------
-        // 6. TD target 計算
+        // TD target 計算
         //    td_target = r + (1 - terminal) * gamma * max_next_q
         // -------------------------------------------------
-        torch::Tensor terminal = (samples.dones | samples.truncateds); // (B,) bool
+        torch::Tensor terminal = (samples.next_states.dones | samples.next_states.truncateds); // (B,) bool
         torch::Tensor not_terminal = 1.0f - terminal.to(torch::kFloat32); // (B,)
         torch::Tensor rewards = samples.rewards; // (B,)
         const float gamma = config_.gamma;
         torch::Tensor td_target = rewards + not_terminal * (gamma * max_next_q); // (B,)
 
         // -------------------------------------------------
-        // 7. TD 誤差と loss（td_clip, Huber）
+        // TD 誤差と loss（td_clip, Huber）
         // -------------------------------------------------
         // 生の TD 誤差（監視用）
         torch::Tensor td_error_raw = q_sa - td_target.detach(); // (B,)
@@ -470,7 +475,7 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
         torch::Tensor loss_tensor = per_sample_loss.mean();           // scalar
 
         // -------------------------------------------------
-        // 8. optimizer step（grad clip 含む）
+        // optimizer step（grad clip 含む）
         // -------------------------------------------------
         optimizer.zero_grad();
         loss_tensor.backward();
@@ -484,22 +489,22 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
         optimizer.step();
 
         // -------------------------------------------------
-        // 9. StabilityMonitor 更新（生 TD 誤差で監視）
+        // StabilityMonitor 更新（生 TD 誤差で監視）
         // -------------------------------------------------
         stability_monitor_->Update(td_error_raw);
 
         // -------------------------------------------------
-        // 10. TargetUpdater による同期
+        // TargetUpdater による同期
         // -------------------------------------------------
         target_updater_->Sync(step_count_, policy_net_, target_net_);
 
         // -------------------------------------------------
-        // 11. loss スカラー取得
+        // loss スカラー取得
         // -------------------------------------------------
         loss_value = loss_tensor.item<float>();
     }
 
-    // 12. UpdateResult
+    // UpdateResult
     auto result = std::make_shared<DQNUpdateResult>();
     result->td_error_ema = stability_monitor_->GetTdErrorEma();
     result->loss = loss_value;

@@ -137,7 +137,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
 
         // 行動選択
         wxLogDebug("CartPoleFrame::OnTimer() step=%d state=%s", step_count_, state_.ToString());
-        auto action_info = agent_->MakeAction(state_.obs);
+        auto action_info = agent_->MakeAction(state_);
         wxLogDebug("CartPoleFrame::OnTimer() step=%d action=%s", step_count_, action_info.ToString());
         ANET_CHECK_DEVICE(action_info.action, device_);
 
@@ -195,7 +195,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
                     bool done = false;
                     bool truncated = false;
                     do {
-                        auto action = agent_->MakeAction(state.obs, anet::rl::RunMode::Eval1);
+                        auto action = agent_->MakeAction(state, anet::rl::RunMode::Eval1);
                         auto env_result = env_->DoStep(action.action);
                         total_reward += env_result.reward.squeeze(0).item<float>();
                         state = env_result.next_state.Clone();
@@ -220,7 +220,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
                     bool done = false;
                     bool truncated = false;
                     do {
-                        auto action = agent_->MakeAction(state.obs, anet::rl::RunMode::Eval2);
+                        auto action = agent_->MakeAction(state, anet::rl::RunMode::Eval2);
                         auto env_result = env_->DoStep(action.action);
                         total_reward += env_result.reward.squeeze(0).item<float>();
                         state = env_result.next_state.Clone();

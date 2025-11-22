@@ -130,7 +130,7 @@ namespace anet::rl {
         }
 
         /// obs を (N, state_dim) にフラット化
-        BatchState Flattened() const {
+        BatchState Flatten() const {
             ANET_CHECK_DTYPE(obs, torch::kFloat32);
             int64_t N = obs.size(0);
             int64_t flat_dim = obs.numel() / N;
@@ -251,7 +251,6 @@ namespace anet::rl {
         std::string ToString() const;
     };
 
-
     // =============================================================
     // Environment
     // =============================================================
@@ -280,7 +279,7 @@ namespace anet::rl {
 
     class Runner {
     public:
-        virtual BatchActionInfo MakeAction(const torch::Tensor& state, RunMode mode = RunMode::Train) = 0;
+        virtual BatchActionInfo MakeAction(const anet::rl::BatchState& state, RunMode mode = RunMode::Train) = 0;
         virtual ~Runner() = default;
     };
 

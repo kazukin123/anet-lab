@@ -38,13 +38,12 @@ TODO：実行手順を書く
 * メトリクス
 * AP改善
 	* リファクタリング：DDQNAgent実装整理
+	* リファクタリング：可視化関連
 
 ### TODO
 
 * 学習アルゴリズム
-	* DDPG対応
-	* TD3対応
-	* SAC対応
+	* Rainbow-Lite対応
 * メトリクス
 	* MetricsViewer.java：フェーズ1.5：ハイパラ表示対応
 	* MetricsViewer.java：フェーズ1.5：Loadingスケジュール最適化
@@ -54,9 +53,7 @@ TODO：実行手順を書く
 	* ヒートマップ：ヒストグラムTB対応
 	* TB:add_hparams対応
 * AP改善
-	* ReplayBufferの実装最適化（最初からTensorを保持しておく）
-	* N環境とバッチ実行を前提としたAPI見直し
-	* Tensorチェック用アサーション
+	* N環境スレッド対応
 
 	* コマンドライン引数でRun名を指定
 	* Runフォルダに設定内容ダンプを残す
@@ -68,6 +65,9 @@ TODO：実行手順を書く
 
 ### SUSPENDED
 * 学習アルゴリズム
+	* DDPG対応
+	* TD3対応
+	* SAC対応
 	* AS-DQN：ハイパラ調整
 	* Adaptive Stabilized DQN (AS-DQN)：unstable_ema
 	* AS-DQN：過安定制御(stagnant) 

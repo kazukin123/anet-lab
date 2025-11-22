@@ -6,13 +6,21 @@
 #include "anet/random.hpp"
 
 namespace anet::rl {
+
+    /// ReplayBatchから取り出したB個のサンプルデータ（「N環境」ではなく「Bサンプル」である事に注意）
     struct ExperienceSample {
-        torch::Tensor states;       // (B, state_dim...)
+        torch::Tensor obs;          // (B, state_dim...)
         torch::Tensor actions;      // (B, action_dim...)
-        torch::Tensor next_states;  // (B, state_dim...)
         torch::Tensor rewards;      // (B,)
-        torch::Tensor dones;        // (B,)
-        torch::Tensor truncateds;   // (B,)
+        struct {
+            torch::Tensor obs;            // (B, state_dim...)
+            torch::Tensor dones;          // (B,)
+            torch::Tensor truncateds;     // (B,)
+            torch::Tensor episode_start;  // (B,)
+        } next_states;
+
+        ExperienceSample Flatten() const;
+        std::string ToString() const;
     };
 
     class ReplayBuffer : public RandomHolder {
@@ -21,7 +29,7 @@ namespace anet::rl {
 
         void Push(const BatchExperience& batch);
         void Push(const std::vector<Experience>& exps);
-        ExperienceSample Sample(size_t n, torch::Device device) const;
+        ExperienceSample Sample(int64_t b, torch::Device device) const;
         size_t Size() const { return size_; }
     private:
         void InitFromSpec(const EnvSpec& spec);
@@ -42,6 +50,7 @@ namespace anet::rl {
         torch::Tensor rewards_;
         torch::Tensor dones_;
         torch::Tensor truncateds_;
+        torch::Tensor episode_start_;
 
         mutable RandomGenerator* rng_ = &RandomGenerator::Default();
     };

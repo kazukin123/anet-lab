@@ -123,7 +123,7 @@ namespace anet::rl {
     public:
         DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, torch::Device device, anet::RandomGenerator *rnd = nullptr);
 
-        anet::rl::BatchActionInfo MakeAction(const torch::Tensor& state, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
+        anet::rl::BatchActionInfo MakeAction(const anet::rl::BatchState& state, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
         std::shared_ptr<const anet::rl::UpdateResult> UpdateFromBatch(const anet::rl::BatchExperience& exprience) override;
     private:
         int state_dim_;
@@ -143,8 +143,8 @@ namespace anet::rl {
         std::unique_ptr<anet::rl::ReplayBuffer> replay_buffer_;
         std::unique_ptr<ActionDecider> action_decider_;
         std::unique_ptr<ReplayScheduler> replay_scheduler_;
-        std::unique_ptr<StabilityMonitor> stability_monitor_;
         std::unique_ptr<TargetUpdater> target_updater_;
+        std::unique_ptr<StabilityMonitor> stability_monitor_;
     private:
         //暫定くん達
         std::unique_ptr<anet::HeatMap> heatmap_visit1_;

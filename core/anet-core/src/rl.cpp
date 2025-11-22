@@ -344,24 +344,20 @@ namespace anet::rl {
         ANET_ASSERT_MSG(next_state.obs.numel() % N == 0,
             "MakeFromBatch: next_state.obs total elements not divisible by batch size.");
 
-        // ---- flatten ----
-        auto s_flat = state.Flattened();
-        auto ns_flat = next_state.Flattened();
-
         // ---- main loop ----
         std::vector<Experience> out;
         out.reserve(N);
 
         for (int64_t i = 0; i < N; ++i) {
             SingleState s = {
-                s_flat.obs[i],
+                state.obs[i],
                 state.done[i].item<bool>(),
                 state.truncated[i].item<bool>(),
                 state.episode_start[i].item<bool>()
             };
 
             SingleState ns = {
-                ns_flat.obs[i],
+                next_state.obs[i],
                 next_state.done[i].item<bool>(),
                 next_state.truncated[i].item<bool>(),
                 next_state.episode_start[i].item<bool>()
