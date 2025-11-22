@@ -39,7 +39,8 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     config_(std::make_unique<CartPoleFrame::Config>(wxGetApp().GetConfig("train"))),
     //device(torch::kCPU),
     device_(torch::kCUDA),
-    timer(this, wxID_ANY)
+    timer(this, wxID_ANY),
+    msec_per_step_ema_(0.001)
 {
     //test_heatmap_and_histgram();
 
@@ -97,8 +98,13 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     // --- タイマー開始 ---
     Bind(wxEVT_TIMER, &CartPoleFrame::OnTimer, this);
     timer.Start(config_->timer_ms);  // 学習＆描画更新
+    //auto now = std::chrono::high_resolution_clock::now();
+    //auto cnt = now.time_since_epoch().count();
 
     wxLogInfo("CartPoleRLGUI started.\n");
+
+    // 時間計測開始
+    last_time_ = std::chrono::high_resolution_clock::now();
 }
 
 CartPoleFrame::~CartPoleFrame() {
@@ -163,6 +169,16 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         state_ = result.next_state.Clone();
         last_reward = result.reward.squeeze(0).item<float>();
         train_total_reward_ += last_reward;
+
+        // msec per step
+        std::chrono::high_resolution_clock::time_point now = std::chrono::high_resolution_clock::now();
+        auto msec_diff = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time_).count();
+        if (step_count_ != 0) { // 0ステップ目は誤差が大きいので
+            msec_per_step_ema_.Update(msec_diff);
+            anet::MetricsLogger::Instance()->LogScalar("90_train/01_msec_per_step", step_count_, msec_diff);
+            anet::MetricsLogger::Instance()->LogScalar("90_train/01_msec_per_step_ema", step_count_, msec_per_step_ema_.Value());
+        }
+        last_time_ = now;
 
         // ステップ数インプリメント（グローバルなステップ数）
         step_count_++;

@@ -51,6 +51,8 @@ private:
     int episode_count_ = 0;
     int eval_count_ = 0;
     float train_total_reward_ = 0.0f;
+    std::chrono::high_resolution_clock::time_point last_time_;
+    anet::EmaFilter<float> msec_per_step_ema_;
 
     // デバイス
     torch::Device device_;
