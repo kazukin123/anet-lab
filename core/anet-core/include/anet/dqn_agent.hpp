@@ -129,28 +129,32 @@ namespace anet::rl {
         int state_dim_;
         int n_actions_;
     private:
-        struct QNetImpl;        // NN
-        class ActionDecider;    // 行動選択（Policy相当）
-        class ReplayScheduler;  // 学習更新タイミング管理
-        class TargetUpdater;    // target_net の同期実行
-        class StabilityMonitor; // 安定化指標・EMA 管理
+        struct RuntimeVars;         ///< Agent内部変数
+        struct QNetImpl;            ///< NN
+        class RuntimeVarsUpdater;   ///< 内部変数制御
+        class ActionDecider;        ///< 行動選択（Policy相当）
+        class ReplayScheduler;      ///< 学習更新タイミング管理
+        class TargetUpdater;        ///< target_net の同期実行
+        class StabilityMonitor;     ///< メトリクス情報管理
     private:
-        // Resource（Agentが管理すべき領域）
+        // Resource（Agentが管理すべき内部データ）
+        std::unique_ptr<RuntimeVars> vars_;
         std::shared_ptr<QNetImpl> policy_net_;
         std::shared_ptr<QNetImpl> target_net_;
-        torch::optim::Adam optimizer;
+        std::unique_ptr<torch::optim::Adam> optimizer_;
     private:
         std::unique_ptr<anet::rl::ReplayBuffer> replay_buffer_;
+        std::unique_ptr<RuntimeVarsUpdater> vars_updater_;
         std::unique_ptr<ActionDecider> action_decider_;
         std::unique_ptr<ReplayScheduler> replay_scheduler_;
         std::unique_ptr<TargetUpdater> target_updater_;
         std::unique_ptr<StabilityMonitor> stability_monitor_;
-    private:
-        //暫定くん達
-        std::unique_ptr<anet::HeatMap> heatmap_visit1_;
-        std::unique_ptr<anet::HeatMap> heatmap_visit2_;
-        std::unique_ptr<anet::HeatMap> heatmap_td_;
-        std::unique_ptr<anet::TimeHistogram> hist_action_;
-        std::unique_ptr<anet::TimeHistogram> hist_q_;
+    //private:
+    //    //暫定くん達
+    //    std::unique_ptr<anet::HeatMap> heatmap_visit1_;
+    //    std::unique_ptr<anet::HeatMap> heatmap_visit2_;
+    //    std::unique_ptr<anet::HeatMap> heatmap_td_;
+    //    std::unique_ptr<anet::TimeHistogram> hist_action_;
+    //    std::unique_ptr<anet::TimeHistogram> hist_q_;
     };
 }// namespace anet::rl

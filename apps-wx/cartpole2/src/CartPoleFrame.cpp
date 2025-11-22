@@ -229,6 +229,8 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
                     } while (!done && !truncated);
                     anet::MetricsLogger::Instance()->LogScalar("11_eval/02_policy_reward", step_count_, total_reward);
                 }
+
+                anet::MetricsLogger::Instance()->Flush();
             }
 
             // ログ

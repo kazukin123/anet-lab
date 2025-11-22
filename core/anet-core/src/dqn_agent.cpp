@@ -11,17 +11,21 @@
 
 using namespace anet::rl;
 
-//const float met_ema_decay = 0.995f;  // 平滑化係数(メトリクス用)
-//const float met_ema_decay_act = 0.9995f;  // 平滑化係数(メトリクス用)action_ema用
-//const float met_ema_decay_reward = 0.9995f;  // 平滑化係数(メトリクス用)action_ema用
+const float MET_EMA_DECAY = 0.005f;  // 平滑化係数(メトリクス用)
+const float MET_EMA_DECAY_ACT = 0.0005f;  // 平滑化係数(メトリクス用)action_ema用
+const float MET_EMA_DECAY_REWARD = 0.0005f;  // 平滑化係数(メトリクス用)action_ema用
 
 namespace {
     static constexpr int64_t ANY = ANET_SHAPE_ANY;
 }
 
-
 // ---- 内部モジュール達 ----
 
+/// Agent内部変数
+struct DQNAgent::RuntimeVars {
+    float epsilon;
+    float tau;
+};
 
 // ======================================================
 // QNet 定義（Impl を CPP に置く）
@@ -55,43 +59,18 @@ public:
     /// q_values: (1, n_actions)
     std::tuple<int, bool> Decide(const torch::Tensor& q_values, size_t step, bool greedy_only)
     {
-        // 1) 常に greedy モード
+        // 常に greedy モード
         if (greedy_only) {
             return { GreedyAction(q_values), false };
         }
-
-        // 2) εを計算
-        float eps = ComputeEpsilon(step);
-
-        // 3) ε-greedy
-        if (rnd_->Uniform01() < eps) {
+ 
+        // ε-greedy
+        if (rnd_->Uniform01() < agent_.vars_->epsilon) {
             return { RandomAction(), true };
         } else {
             return { GreedyAction(q_values), false };
         }
     }
-
-    // ----------------------------------------------------
-    // εスケジューリング（標準DQN）
-    // ----------------------------------------------------
-    float ComputeEpsilon(size_t step) const
-    {
-        // 強制ゼロ領域
-        if (config_.eps_zero_step >= 0 &&
-            static_cast<int>(step) >= config_.eps_zero_step)
-        {
-            return 0.0f;
-        }
-
-        // 自然減衰
-        float decay = std::exp(-static_cast<float>(step) / config_.eps_decay_step);
-        float eps = config_.eps_min + (config_.eps_max - config_.eps_min) * decay;
-
-        // clamp
-        eps = std::max(config_.eps_min, std::min(config_.eps_max, eps));
-        return eps;
-    }
-
 private:
     // ----------------------------------------------------
     // greedy
@@ -116,7 +95,6 @@ private:
     const DQNAgentConfig& config_;
     anet::RandomGenerator* rnd_;
 };
-
 
 // ===============================
 // DQNAgent::ReplayScheduler
@@ -223,32 +201,88 @@ private:
 };
 
 
-// ===============================
-// DQNAgent::StabilityMonitor
-// ===============================
+/// Metrics出力および安定性評価のためのメトリクス情報を提供。内部状態の変更は行わない。
 class DQNAgent::StabilityMonitor {
 public:
-    StabilityMonitor(const DQNAgentConfig& config) : config_(config) {}
+    StabilityMonitor(const DQNAgentConfig& config)
+        : config_(config),
+        td_error_ema_(MET_EMA_DECAY, 0.0f)
+    {}
 
-    void Update(const torch::Tensor& td_error)
+    void Update(const torch::Tensor& td_error, float loss, const torch::Tensor& q_values)
     {
         ANET_CHECK_SHAPE(td_error, { ANY }); // (B; )
-        /// @todo Implement EMA update for TD-error stability
-    }
 
-    float GetTdErrorEma() const
-    {
-        return td_error_ema_;
+        // 今回バッチの TD-error の平均値
+        float batch_td_mean = td_error.mean().item<float>();
+        td_error_ema_.Update(batch_td_mean);
     }
 private:
     const DQNAgentConfig& config_;
-    float td_error_ema_ = 0.0f;  // @todo Decide initial EMA value
+private:
+    anet::EmaFilter<float> td_error_ema_;
 }; 
+
+class DQNAgent::RuntimeVarsUpdater {
+public:
+    RuntimeVarsUpdater(const DQNAgentConfig& config) : config_(config) { }
+
+    void Initilize(RuntimeVars& vars) const
+    {
+        vars.epsilon = 1.0f;
+        vars.tau = config_.softupdate_tau;
+    }
+
+    void UpdatePreBatch(RuntimeVars& vars, size_t step) const
+    {
+    }
+
+    void UpdatePostBatch(RuntimeVars& vars, size_t step) const
+    {
+        UpdateEpsilon(vars, step);
+        UpdateTau(vars, step);
+    }
+private:
+    void UpdateEpsilon(RuntimeVars& vars, size_t step) const 
+    {
+        //if (!config_.use_as_dqn) {
+            vars.epsilon = ComputeEpsilon(step);
+        //} else {
+            /// @todo AS-DQNでepsilonを更新
+        //}
+    }
+
+    float ComputeEpsilon(size_t step) const
+    {
+        // 強制ゼロ領域
+        if (config_.eps_zero_step >= 0 &&
+            static_cast<int>(step) >= config_.eps_zero_step)
+        {
+            return 0.0f;
+        }
+
+        // 自然減衰
+        float decay = std::exp(-static_cast<float>(step) / config_.eps_decay_step);
+        float eps = config_.eps_min + (config_.eps_max - config_.eps_min) * decay;
+
+        // clamp
+        eps = std::max(config_.eps_min, std::min(config_.eps_max, eps));
+        return eps;
+    }
+
+    void UpdateTau(RuntimeVars& vars, size_t step) const
+    {
+        ;
+    }
+
+    const DQNAgentConfig& config_;
+};
 
 struct DQNUpdateResult : public UpdateResult {
     float td_error_ema = 0.0f;
     float loss = 0.0f;
     float epsilon = 1.0f;
+    float tau;
     /// @todo ラインナップ精査
 
     virtual MetricsMap GetMetricsMap() const override{
@@ -268,8 +302,7 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
     state_dim_(env_spec.state.CalcStateDim()),
     n_actions_(env_spec.action.ActionCount()),
     policy_net_(std::make_shared<QNetImpl>(state_dim_, n_actions_)),
-    target_net_(std::make_shared<QNetImpl>(state_dim_, n_actions_)),
-    optimizer(policy_net_->parameters(), torch::optim::AdamOptions(config_.alpha))
+    target_net_(std::make_shared<QNetImpl>(state_dim_, n_actions_))
 {
     /// @todo  ヒートマップオブジェクト類をHeatMapObservberに移動
     //auto nan = std::numeric_limits<float>::quiet_NaN();
@@ -307,12 +340,22 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
     target_net_->load(in);
     target_net_->eval();
 
+    // 内部変数を生成＆初期化
+    this->vars_ = std::make_unique<RuntimeVars>();
+    vars_->epsilon = 1.0f;
+    vars_->tau = config_.softupdate_tau;
+
     // 内部モジュール生成
+    this->optimizer_ = std::make_unique<torch::optim::Adam>(policy_net_->parameters(), torch::optim::AdamOptions(config_.alpha));
+    this->vars_updater_ = std::make_unique<RuntimeVarsUpdater>(config_);
     this->replay_buffer_ = std::make_unique<anet::rl::ReplayBuffer>(env_spec, config_.replay_capacity, rnd);
     this->action_decider_ = std::make_unique<ActionDecider>(*this);
     this->replay_scheduler_ = std::make_unique<ReplayScheduler>(this->config_);
     this->stability_monitor_ = std::make_unique<StabilityMonitor>(this->config_);
     this->target_updater_ = std::make_unique<TargetUpdater>(this->config_);
+
+    // 内部状態変数を初期化
+    vars_updater_->Initilize(*vars_);
 
     // ログ：パラメータ記録
     wxLogInfo("DQNAgent config=%s", config_.ToStdString());
@@ -352,12 +395,13 @@ anet::rl::BatchActionInfo DQNAgent::MakeAction(const anet::rl::BatchState& state
 std::shared_ptr<const anet::rl::UpdateResult>
 DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
 {
+    // 内部状態変数を更新
+    vars_updater_->UpdatePostBatch(*vars_, step_count_);
+
     // ReplayBuffer に push
     replay_buffer_->Push(batch_exp);
 
-    // step カウンタ更新
-    step_count_++;
-
+    // 戻り用変数
     float loss_value = 0.0f;
 
     // 学習タイミング判定
@@ -477,7 +521,7 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
         // -------------------------------------------------
         // optimizer step（grad clip 含む）
         // -------------------------------------------------
-        optimizer.zero_grad();
+        optimizer_->zero_grad();
         loss_tensor.backward();
         if (config_.use_grad_clip) {
             // 勾配の L2 ノルムを制限
@@ -486,12 +530,12 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
                 config_.grad_clip_tau
             );
         }
-        optimizer.step();
+        optimizer_->step();
 
         // -------------------------------------------------
         // StabilityMonitor 更新（生 TD 誤差で監視）
         // -------------------------------------------------
-        stability_monitor_->Update(td_error_raw);
+        stability_monitor_->UpdateTdError(td_error_raw);
 
         // -------------------------------------------------
         // TargetUpdater による同期
@@ -503,12 +547,18 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
         // -------------------------------------------------
         loss_value = loss_tensor.item<float>();
     }
+    
+    // 内部状態変数を更新(epsilon、tauなど)
+    vars_updater_->UpdatePostBatch(*vars_, step_count_);
+
+    // step カウンタ更新
+    step_count_++;
 
     // UpdateResult
     auto result = std::make_shared<DQNUpdateResult>();
     result->td_error_ema = stability_monitor_->GetTdErrorEma();
     result->loss = loss_value;
-    result->epsilon = action_decider_->ComputeEpsilon(step_count_);
+    result->epsilon = vars_->epsilon;
 
     return result;
 }

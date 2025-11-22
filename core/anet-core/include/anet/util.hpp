@@ -6,6 +6,7 @@
 #include <utility>
 #include <cstddef>
 #include <type_traits>
+#include "anet/common.hpp"
 
 /**
  * @file ema_filter.h
@@ -64,10 +65,12 @@ namespace anet {
          */
         explicit EmaFilter(T decay) : decay_(decay) {}
 
+        explicit EmaFilter(T decay, T value) : decay_(decay), value_(value) {}
+
         /**
          * @brief decay (α) の変更
          */
-        void SetDecay(T decay) { decay_ = decay; }
+        void SetDecay(T decay) { ANET_ASSERT(decay <= 1); decay_ = decay; }
 
         /**
          * @brief 初期値をセットし、履歴を破棄してこの値から再開始する。
