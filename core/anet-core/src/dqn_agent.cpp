@@ -11,9 +11,8 @@
 
 using namespace anet::rl;
 
-const float MET_EMA_DECAY = 0.005f;  // 平滑化係数(メトリクス用)
+const float MET_EMA_DECAY = 0.001f;  // 平滑化係数(メトリクス用)
 const float MET_EMA_DECAY_ACT = 0.0005f;  // 平滑化係数(メトリクス用)action_ema用
-const float MET_EMA_DECAY_REWARD = 0.0005f;  // 平滑化係数(メトリクス用)action_ema用
 
 namespace {
     static constexpr int64_t ANY = ANET_SHAPE_ANY;
@@ -54,6 +53,8 @@ struct DQNUpdateResult : public UpdateResult {
     float e_t = 0.0f;
     float s = 0.0f;
     float unstable_ema = 0.0f;
+    float collapse_s_ = 0.0f;
+    float collapse_l_ = 0.0f;
 
     virtual MetricsMap GetMetricsMap() const override {
         MetricsMap map;
@@ -71,6 +72,8 @@ struct DQNUpdateResult : public UpdateResult {
         map["38_agent_dqn_loss/02_loss_ema"] = loss_ema;
 
         // B 群：AS-DQN関連
+        map["32_agent_dqn_base/10_collapse_s"] = collapse_s_;
+        map["32_agent_dqn_base/11_collapse_l"] = collapse_l_;
         map["33_agent_dqn_action/01_act_diff_ema"] = act_diff_ema;
         map["33_agent_dqn_action/02_act_unstable"] = act_unstable;
         map["33_agent_dqn_action/03_act_unstable_ema"] = act_unstable_ema;
@@ -82,6 +85,8 @@ struct DQNUpdateResult : public UpdateResult {
         map["37_agent_dqn_qtd/41_e_t"] = e_t;
         map["37_agent_dqn_qtd/42_s"] = s;
         map["37_agent_dqn_qtd/43_unstable_ema"] = unstable_ema;
+
+        /// @todo s_emaを追加。
 
         return map;
     }
@@ -350,12 +355,7 @@ public:
         q_std_ = q_std;
 
         // Q std の EMA は「基準値」になる
-        if (!q_std_ema_.IsInitialized()) {
-            q_std_ema_.Set(q_std);
-        }
-        else {
-            q_std_ema_.Update(q_std);
-        }
+        q_std_ema_.Update(q_std);
 
         // grad
         grad_norm_ = grad_norm;
@@ -451,7 +451,17 @@ private:
     anet::EmaFilter<float> act_diff_ema_;
     float act_unstable_ = 0.0f;
     anet::EmaFilter<float> act_unstable_ema_;
+    float collapse_s_ = 0.0f;
+    float collapse_l_ = 0.0f;
 public:
+    float GetActUnstableEma() const { return act_unstable_ema_; }
+    float GetQUnstableEma() const { return q_unstable_ema_; }
+    float GetQUnstable() const { return q_unstable_; }
+    float GetActUnstable() const { return act_unstable_; }
+    float GetUnstableEma() const { return unstable_ema_; }
+    void SetCollapseStep(float collapse_s) { collapse_s_ = collapse_s; }
+    void SetCollapseLearn(float collapse_l) { collapse_l_ = collapse_l; }
+
     // ------------------------------------------------------
     // UpdateResult へ書き込み
     // ------------------------------------------------------
@@ -481,9 +491,175 @@ public:
         out.act_diff_ema = act_diff_ema_;
         out.act_unstable = act_unstable_;
         out.act_unstable_ema = act_unstable_ema_.Value();
+        out.collapse_s_ = collapse_s_;
+        out.collapse_l_ = collapse_l_;
     }
 };
 
+// ================================================
+// DQNAgent::StabilityController  (AS-DQN 完全実装)
+// ================================================
+class DQNAgent::StabilityController {
+public:
+    explicit StabilityController(const DQNAgentConfig& cfg)
+        : cfg_(cfg)
+    {
+    }
+
+    // ------------------------------------------------------------
+    // UpdateOnStep : 毎ステップ（環境 step）
+    // ・行動偏りに基づく collapse を取得
+    // ・epsilon ブースト（hit側）だけを担当
+    // ------------------------------------------------------------
+    void UpdateOnStep(RuntimeVars& vars, StabilityMonitor& mon, size_t step) const
+    {
+        float collapse_s = ComputeCollapseOnStep(mon);
+        float eps_new = ComputeBoostEpsilon(vars.epsilon, collapse_s, step);
+        mon.SetCollapseStep(collapse_s);
+
+        if (cfg_.use_as_dqn) {
+            vars.epsilon = eps_new;
+        }
+    }
+
+    // ------------------------------------------------------------
+    // UpdateOnLearn : replay_update_intervalごとの学習ステップ
+    // ・Q統計などを含む collapse を取得
+    // ・epsilon 減衰（recover側）
+    // ・tau の更新（hit/recover 両方）
+    // ------------------------------------------------------------
+    void UpdateOnLearn(RuntimeVars& vars, StabilityMonitor& mon, size_t update_step_count) const
+    {
+        float collapse_l = ComputeCollapseOnLearn(mon);
+        auto [eps_new, tau_new] = ComputeEpsilonTauLearn(vars.epsilon, vars.tau, collapse_l, update_step_count);
+        mon.SetCollapseLearn(collapse_l);
+
+        if (cfg_.use_as_dqn) {
+            vars.epsilon = eps_new;
+            vars.tau = tau_new;
+        }
+    }
+
+private:
+    const DQNAgentConfig& cfg_;
+
+    // ============================================================
+    // collapse（崩壊度）の設計
+    // ============================================================
+
+    // --- 行動偏りなどの Step 用 ---
+    float ComputeCollapseOnStep(const StabilityMonitor& mon) const
+    {
+        // act_unstable_ema ∈ [0,1] のイメージ
+        float a = mon.GetActUnstableEma();
+
+        // UEMAも利用可能（GetUnstableEma）
+        float u = 0;// mon.GetUnstableEma(); /// @todo unstable_emaを考慮
+
+        // Q統計要素まで使うと過剰なので Step側は軽めに
+        float c = std::max(a, u);
+        return c;
+    }
+
+    // --- Q統計などを含めた Learn 用 ---
+    float ComputeCollapseOnLearn(const StabilityMonitor& mon) const
+    {
+        float zu = mon.GetQUnstableEma();       // q_unstable（Z / CV / NIQR）
+        float au = mon.GetActUnstableEma();     // act_unstable
+        float uu = 0;// mon.GetUnstableEma();   // unstable_ema   /// @todo unstable_emaを考慮
+
+        float c = std::max({ zu, au, uu });
+        return c;
+    }
+
+    /// @todo config_.eps_gainは本来は別用途のConfig項目
+
+    // ============================================================
+    // ε 更新：Step 側（hit = ブースト）
+    // ============================================================
+    float ComputeBoostEpsilon(float eps, float collapse, size_t step) const
+    {
+        if (collapse < cfg_.eps_gain) {
+            return eps; // ブーストしない
+        }
+
+        // ブースト用 half-life（崩壊時）
+        float h = static_cast<float>(cfg_.eps_boost_half_life_hit);
+        float alpha = std::log(2.0f) / h;
+
+        float target = cfg_.eps_max * cfg_.eps_boost_max;
+        float new_eps = eps + alpha * (target - eps);
+
+        // 再加熱も加える
+        new_eps = std::max(new_eps, cfg_.eps_reheat_floor);
+
+        // clamp
+        new_eps = std::clamp(new_eps, cfg_.eps_min, cfg_.eps_max);
+        return new_eps;
+    }
+
+    // ============================================================
+    // ε / τ 更新：Learn 側（recover + hit）
+    // ============================================================
+    std::tuple<float, float> ComputeEpsilonTauLearn(float eps, float tau,
+            float collapse, size_t update_step_count) const
+    {
+        // ================================
+        // epsilon 側（recover or hit）
+        // ================================
+        float eps_new = eps;
+
+        if (collapse > cfg_.eps_gain) {
+            //// ---- hit（崩壊中）：回復でなく減衰方向 ----
+            //float h = static_cast<float>(cfg_.eps_boost_half_life_hit);
+            //float alpha = std::log(2.0f) / h;
+
+            //float target = cfg_.eps_max * cfg_.eps_boost_max;
+            //eps_new += alpha * (target - eps_new);
+
+            //// 再加熱成分
+            //eps_new = std::max(eps_new, cfg_.eps_reheat_floor);
+        } else {
+            // ---- recover（安定側）----
+            float h = static_cast<float>(cfg_.eps_boost_half_life_recover);
+            float alpha = std::log(2.0f) / h;
+
+            float target = cfg_.eps_min;
+            eps_new += alpha * (target - eps_new);
+
+            // 軽い再加熱
+            eps_new = std::max(eps_new, cfg_.eps_reheat_base);
+        }
+
+        // clamp
+        eps_new = std::clamp(eps_new, cfg_.eps_min, cfg_.eps_max);
+
+        // ================================
+        // tau 側
+        // ================================
+        float tau_new = tau;
+
+        if (collapse > cfg_.eps_gain) {
+            // ---- hit（崩壊方向）：tau を減衰させる ----
+            float h = static_cast<float>(cfg_.tau_half_life_hit);
+            float alpha = std::log(2.0f) / h;
+            float target = cfg_.tau_min;
+            tau_new += alpha * (target - tau_new);
+        } else {
+            // ---- recover：一定期間安定後、tau を回復 ----
+            float h = static_cast<float>(cfg_.tau_half_life_recover);
+            float alpha = std::log(2.0f) / h;
+            float target = cfg_.tau_max;
+
+            tau_new += alpha * (target - tau_new);
+        }
+
+        // clamp
+        tau_new = std::clamp(tau_new, cfg_.tau_min, cfg_.tau_max);
+
+        return { eps_new, tau_new };
+    }
+};
 
 
 class DQNAgent::RuntimeVarsUpdater {
@@ -494,25 +670,6 @@ public:
     {
         vars.epsilon = 1.0f;
         vars.tau = config_.softupdate_tau;
-    }
-
-    void UpdatePreBatch(RuntimeVars& vars, size_t step) const
-    {
-    }
-
-    void UpdatePostBatch(RuntimeVars& vars, size_t step) const
-    {
-        UpdateEpsilon(vars, step);
-        UpdateTau(vars, step);
-    }
-private:
-    void UpdateEpsilon(RuntimeVars& vars, size_t step) const 
-    {
-        //if (!config_.use_as_dqn) {
-            vars.epsilon = ComputeEpsilon(step);
-        //} else {
-            /// @todo AS-DQNでepsilonを更新
-        //}
     }
 
     float ComputeEpsilon(size_t step) const
@@ -532,12 +689,7 @@ private:
         eps = std::max(config_.eps_min, std::min(config_.eps_max, eps));
         return eps;
     }
-
-    void UpdateTau(RuntimeVars& vars, size_t step) const
-    {
-        ;
-    }
-
+private:
     const DQNAgentConfig& config_;
 };
 
@@ -589,8 +741,6 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
 
     // 内部変数を生成＆初期化
     this->vars_ = std::make_unique<RuntimeVars>();
-    vars_->epsilon = 1.0f;
-    vars_->tau = config_.softupdate_tau;
 
     // 内部モジュール生成
     this->optimizer_ = std::make_unique<torch::optim::Adam>(policy_net_->parameters(), torch::optim::AdamOptions(config_.alpha));
@@ -598,11 +748,12 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
     this->replay_buffer_ = std::make_unique<anet::rl::ReplayBuffer>(env_spec, config_.replay_capacity, rnd);
     this->action_decider_ = std::make_unique<ActionDecider>(*this);
     this->replay_scheduler_ = std::make_unique<ReplayScheduler>(this->config_);
-    this->stability_monitor_ = std::make_unique<StabilityMonitor>(this->config_);
     this->target_updater_ = std::make_unique<TargetUpdater>(this->config_);
+    this->stability_monitor_ = std::make_unique<StabilityMonitor>(this->config_);
+    this->stability_controller_ = std::make_unique<StabilityController>(this->config_);
 
     // 内部状態変数を初期化
-    vars_updater_->Initilize(*vars_);
+    vars_updater_->Initilize(*this->vars_);
 
     // ログ：パラメータ記録
     wxLogInfo("DQNAgent config=%s", config_.ToStdString());
@@ -635,20 +786,20 @@ anet::rl::BatchActionInfo DQNAgent::MakeAction(const anet::rl::BatchState& state
     // (N=1) batched ActionInfo
     torch::Tensor action = torch::tensor({ { a } }, torch::kInt64).to(device_);
     torch::Tensor is_rand = torch::tensor({ { rand } }, torch::kBool).to(device_);
-    anet::rl::BatchActionInfo info{ action, is_rand };
+    anet::rl::BatchActionInfo act_info{ action, is_rand };
 
     // 行動統計の更新（学習安定性モニタ側）
-    stability_monitor_->UpdateActionStats(info);
+    stability_monitor_->UpdateActionStats(act_info);
 
-    return info;
+    // 崩壊情報更新
+    stability_controller_->UpdateOnStep(*vars_, *stability_monitor_, step_count_);
+
+    return act_info;
 }
 
 std::shared_ptr<const anet::rl::UpdateResult>
 DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
 {
-    // 内部状態変数を更新
-    vars_updater_->UpdatePostBatch(*vars_, step_count_);
-
     // ReplayBuffer に push
     replay_buffer_->Push(batch_exp);
 
@@ -812,20 +963,22 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
             grad_norm,
             grad_clip_ratio);
 
+        // 崩壊情報を更新
+        stability_controller_->UpdateOnLearn(*vars_, *stability_monitor_, step_count_);
+    }
+
+    // 内部状態変数を更新
+    if (!config_.use_as_dqn) {
+        vars_->epsilon = vars_updater_->ComputeEpsilon(step_count_);
     }
 
     // BatchUpdateResultに統計情報を転写
     stability_monitor_->FillUpdateResult(*result);
-
-    // eps, tau は RuntimeVars から
-    result->epsilon = vars_->epsilon;
+    result->epsilon = vars_->epsilon;    // eps, tau は RuntimeVars から
     result->tau = vars_->tau;
-
 
     // step カウンタ更新
     step_count_++;
 
     return result;
 }
-
-

@@ -136,6 +136,7 @@ namespace anet::rl {
         class ReplayScheduler;      ///< 学習更新タイミング管理
         class TargetUpdater;        ///< target_net の同期実行
         class StabilityMonitor;     ///< メトリクス情報管理
+        class StabilityController;  ///< 安定制御
     private:
         // Resource（Agentが管理すべき内部データ）
         std::unique_ptr<RuntimeVars> vars_;
@@ -149,7 +150,8 @@ namespace anet::rl {
         std::unique_ptr<ReplayScheduler> replay_scheduler_;
         std::unique_ptr<TargetUpdater> target_updater_;
         std::unique_ptr<StabilityMonitor> stability_monitor_;
-    //private:
+        std::unique_ptr<StabilityController> stability_controller_;
+        //private:
     //    //暫定くん達
     //    std::unique_ptr<anet::HeatMap> heatmap_visit1_;
     //    std::unique_ptr<anet::HeatMap> heatmap_visit2_;
