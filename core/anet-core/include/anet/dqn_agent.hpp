@@ -37,7 +37,6 @@ namespace anet::rl {
         int heatmap_log_hist_interval = 10;
 
         bool use_as_dqn = false;            ///< Adaptive Stabilized DQN (AS-DQN)
-        float qstd_alpha = 0.01f;           ///< Q値 std の EWMA 平滑率
         float q_z_threshold = 3.0f;         ///< z-score 崩壊判定閾値
         float q_cv_threshold = 0.5f;        ///< CV 崩壊判定閾値
         float q_niqr_threshold = 0.6f;      ///< NIQR 崩壊判定閾値
@@ -89,7 +88,6 @@ namespace anet::rl {
             ANET_APPLY_CONFIG(configData, heatmap_log_sweep_interval);
             ANET_APPLY_CONFIG(configData, heatmap_log_hist_interval);
             ANET_APPLY_CONFIG(configData, use_as_dqn);
-            ANET_APPLY_CONFIG(configData, qstd_alpha);
             ANET_APPLY_CONFIG(configData, q_z_threshold);
             ANET_APPLY_CONFIG(configData, q_cv_threshold);
             ANET_APPLY_CONFIG(configData, q_niqr_threshold);
@@ -121,15 +119,16 @@ namespace anet::rl {
     /// @todo ラインナップ精査
     class DQNAgent : public anet::rl::StepBasedAgent<DQNAgentConfig> {
     public:
-        DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, torch::Device device, anet::RandomGenerator *rnd = nullptr);
+        DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, torch::Device device, std::shared_ptr<anet::RandomGenerator> rnd = nullptr);
 
         anet::rl::BatchActionInfo MakeAction(const anet::rl::BatchState& state, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
-        std::shared_ptr<const anet::rl::UpdateResult> UpdateFromBatch(const anet::rl::BatchExperience& exprience) override;
+        std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromBatch(const anet::rl::BatchExperience& exprience) override;
     private:
         int state_dim_;
         int n_actions_;
-    private:
+    public:
         struct RuntimeVars;         ///< Agent内部変数
+    private:
         struct QNetImpl;            ///< NN
         class RuntimeVarsUpdater;   ///< 内部変数制御
         class ActionDecider;        ///< 行動選択（Policy相当）

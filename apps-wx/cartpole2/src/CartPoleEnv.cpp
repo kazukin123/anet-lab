@@ -20,7 +20,7 @@ const float force_mag = 30.0f;  // 10.0f 30.0f
 const float tau = 0.02f;    //0.02f 0.01f
 const float reward_scale = 1.0f;  // 2 10  20
 
-CartPoleEnv::CartPoleEnv(anet::RandomGenerator* rnd) : RandomHolder(rnd)
+CartPoleEnv::CartPoleEnv(std::shared_ptr<anet::RandomGenerator> rnd) : RandomHolder(rnd)
 {
     // パラメータ記録
     nlohmann::json params = {

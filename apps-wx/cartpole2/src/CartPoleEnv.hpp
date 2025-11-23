@@ -6,7 +6,7 @@
 /// CartPoleŠÂ‹«À‘•i1ŠÂ‹«ŒÅ’èj
 class CartPoleEnv : public anet::rl::BatchEnvironment, public anet::RandomHolder {
 public:
-    CartPoleEnv(anet::RandomGenerator* rnd = nullptr);
+    CartPoleEnv(std::shared_ptr<anet::RandomGenerator> rnd = nullptr);
 
     anet::rl::EnvSpec GetSpec() const override;
     anet::rl::BatchState Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) override;

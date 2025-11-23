@@ -5,7 +5,7 @@
 namespace anet::rl {
 
     void MetricsLogObserver::OnPostUpdate(
-        std::shared_ptr<const anet::rl::UpdateResult> result,
+        std::shared_ptr<const anet::rl::BatchUpdateResult> result,
         const anet::rl::BatchExperience& experiences,
         size_t step
     )
@@ -21,7 +21,7 @@ namespace anet::rl {
     }
 
     void HeatMapObserver::OnPostUpdate(
-        std::shared_ptr<const anet::rl::UpdateResult> result,
+        std::shared_ptr<const anet::rl::BatchUpdateResult> result,
         const anet::rl::BatchExperience& experiences,
         size_t step
     )

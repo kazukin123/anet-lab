@@ -19,6 +19,7 @@ struct CartPoleFrame::Config : public anet::Config {
     int train_pause_step = 110000;
     int train_exit_step = -1; //110000;
 	int canvas_mode = 0;    //  0:評価エピソードの終了状況を描画 1:学習エピソードの終了状態を描画 2:学習状況を描画 
+    uint64_t seed = 0;
 
     CartPoleFrame::Config(const anet::ConfigData& configData) : anet::Config(configData, "train", "CartPoleFrame") {
         ANET_APPLY_CONFIG(configData, timer_ms);
@@ -26,6 +27,7 @@ struct CartPoleFrame::Config : public anet::Config {
         ANET_APPLY_CONFIG(configData, eval_interval);
         ANET_APPLY_CONFIG(configData, train_pause_step);
         ANET_APPLY_CONFIG(configData, train_exit_step);
+        ANET_APPLY_CONFIG(configData, seed);
     }
 };
 
@@ -68,21 +70,28 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     // ログレベル
     wxLog::SetLogLevel(wxLOG_Debug);
 
-	// --- ログ出力先をこのクラスに設定 ---
+    // --- ログ出力先をこのクラスに設定 ---
     wxLog::SetActiveTarget(this);
 
+    if (config_->seed == 0) {
+        rnd_ = std::make_shared<anet::RandomGenerator>();
+    } else {
+        rnd_ = std::make_shared<anet::RandomGenerator>(config_->seed);
+    }
+    wxLogInfo("CartPoleRLGUI started.");
+
     // パラメータ記録
+    wxLogInfo("seed=%lld", rnd_->GetSeed());
     wxLogInfo("train.preset=%s confg=%s", wxGetApp().GetConfig("train").Get("preset"), config_->ToStdString());
-    wxLogInfo("seed=%lld", rnd_.GetSeed());
     anet::MetricsLogger::Instance()->LogJson("train/params", config_->ToJson());
     anet::MetricsLogger::Instance()->Flush();
 
     // --- RL生成 ---
-    env_ = std::make_unique<CartPoleEnv>(&rnd_);
+    env_ = std::make_unique<CartPoleEnv>(rnd_);
     auto env_spec = env_->GetSpec();
     wxLogInfo("env_spec=" + env_spec.ToString());
     anet::ConfigData agentConfig = wxGetApp().GetConfig("agent");
-    agent_ = std::make_unique<anet::rl::DQNAgent>(agentConfig, env_spec, device_, &rnd_);
+    agent_ = std::make_unique<anet::rl::DQNAgent>(agentConfig, env_spec, device_, rnd_);
     notifier_.AddObserver(&metrics_obs_);
     notifier_.AddObserver(&heatmap_obs_);
 
@@ -101,7 +110,6 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     //auto now = std::chrono::high_resolution_clock::now();
     //auto cnt = now.time_since_epoch().count();
 
-    wxLogInfo("CartPoleRLGUI started.\n");
 
     // 時間計測開始
     last_time_ = std::chrono::high_resolution_clock::now();

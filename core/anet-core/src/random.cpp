@@ -80,9 +80,9 @@ namespace anet {
     // デフォルト RNG（シングルトン的動作）
     // =========================================================
 
-    RandomGenerator& RandomGenerator::Default()
+    std::shared_ptr<RandomGenerator> RandomGenerator::Default()
     {
-        static RandomGenerator inst;
+        static std::shared_ptr<RandomGenerator> inst;
         return inst;
     }
 

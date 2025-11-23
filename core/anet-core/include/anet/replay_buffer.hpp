@@ -25,7 +25,7 @@ namespace anet::rl {
 
     class ReplayBuffer : public RandomHolder {
     public:
-        explicit ReplayBuffer(const EnvSpec& env_spec, size_t capacity = 10000, anet::RandomGenerator* rnd = nullptr);
+        explicit ReplayBuffer(const EnvSpec& env_spec, size_t capacity = 10000, std::shared_ptr<anet::RandomGenerator> rnd = nullptr);
 
         void Push(const BatchExperience& batch);
         void Push(const std::vector<Experience>& exps);
@@ -51,8 +51,6 @@ namespace anet::rl {
         torch::Tensor dones_;
         torch::Tensor truncateds_;
         torch::Tensor episode_start_;
-
-        mutable RandomGenerator* rng_ = &RandomGenerator::Default();
     };
 
 } // namespace anet

@@ -9,7 +9,7 @@
 
 namespace anet::rl {
 
-    ReplayBuffer::ReplayBuffer(const EnvSpec& spec, size_t capacity, anet::RandomGenerator* rnd)
+    ReplayBuffer::ReplayBuffer(const EnvSpec& spec, size_t capacity, std::shared_ptr<anet::RandomGenerator> rnd)
         : RandomHolder(rnd),
         capacity_(capacity),
         state_dim_(spec.state.CalcStateDim()),
@@ -125,8 +125,6 @@ namespace anet::rl {
         ANET_ASSERT_MSG(size_ > 0, "ReplayBuffer::Sample: buffer empty.");
         ANET_ASSERT_MSG(b > 0, "ReplayBuffer::Sample: n must be > 0.");
         ANET_ASSERT_MSG(b <= size_, "ReplayBuffer::Sample: n exceeds current size.");
-        ANET_ASSERT_MSG(rng_ != nullptr,
-            "ReplayBuffer::Sample: rng_ must not be null.");
 
         // ---- RNG を使って n 個のインデックスを取得 ----
         std::vector<int64_t> idx_vec;
@@ -135,7 +133,7 @@ namespace anet::rl {
         const int64_t max_i = static_cast<int64_t>(size_);
 
         for (size_t i = 0; i < b; ++i) {
-            int64_t v = static_cast<int64_t>(rng_->RandIndex(size_));
+            int64_t v = static_cast<int64_t>(rnd_->RandIndex(size_));
             ANET_ASSERT_MSG(0 <= v && v < max_i,
                 "ReplayBuffer::Sample: rng returned out-of-range index.");
             idx_vec.push_back(v);

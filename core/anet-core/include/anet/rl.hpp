@@ -271,10 +271,10 @@ namespace anet::rl {
 
     using MetricsMap = std::unordered_map<std::string, float>;
 
-    class UpdateResult {
+    class BatchUpdateResult {
     public:
         virtual MetricsMap GetMetricsMap() const = 0;
-        virtual ~UpdateResult() = default;
+        virtual ~BatchUpdateResult() = default;
     };
 
     class Runner {
@@ -292,14 +292,14 @@ namespace anet::rl {
 
     class Learner {
     public:
-        virtual std::shared_ptr<const UpdateResult> UpdateFromBatch(const BatchExperience& expriences) = 0;
+        virtual std::shared_ptr<const BatchUpdateResult> UpdateFromBatch(const BatchExperience& expriences) = 0;
         virtual ~Learner() = default;
     };
 
     class PostUpdateObserver {
     public:
         virtual void OnPostUpdate(
-            std::shared_ptr<const UpdateResult> result,
+            std::shared_ptr<const BatchUpdateResult> result,
             const BatchExperience& expriences,
             size_t step
         ) = 0;
@@ -315,11 +315,13 @@ namespace anet::rl {
     template<typename ConfigT>
     class StepBasedAgent : public Agent, public anet::RandomHolder {
     public:
-        StepBasedAgent(ConfigT config, torch::Device device, anet::RandomGenerator* rnd = nullptr)
+        StepBasedAgent(ConfigT config, torch::Device device, std::shared_ptr<anet::RandomGenerator> rnd = nullptr)
             : config_(config), device_(device), RandomHolder(rnd) { }
         virtual ~StepBasedAgent() = default;
 
         size_t GetStepCount() const { return step_count_; }
+    protected:
+        std::shared_mutex mutex_;
     protected:
         // Resource（Agentが管理すべき領域）
         ConfigT config_;
@@ -349,7 +351,7 @@ namespace anet::rl {
         }
 
         void Notify(
-            const std::shared_ptr<const UpdateResult>& result,
+            const std::shared_ptr<const BatchUpdateResult>& result,
             const BatchExperience& expriences, size_t step)
         {
             for (PostUpdateObserver* o : observers_) {

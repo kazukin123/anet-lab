@@ -2,6 +2,7 @@
 train.preset=train.online
 #train.preset=train.batchrun
 #train.preset=train.batchrun2
+train.seed=0	# 0 -> AutoSeed
 
 # log 
 #log.enable_image_log = false 	# sec/10K = 1:18(78sec)       / 0:43
@@ -31,7 +32,6 @@ agent_asdqn_bool11.replay_batch_size=128
 agent_asdqn_bool11.replay_warmup_steps=10000 #
 agent_asdqn_bool11.replay_update_interval=10 #
 agent_asdqn_bool11.use_as_dqn = false           # ★Adaptive Stabilized DQN (AS-DQN)
-agent_asdqn_bool11.qstd_alpha = 0.01            # Q値 std の EWMA 平滑率
 agent_asdqn_bool11.q_z_threshold = 2.6          # 2.0 1.5-2.0 3.0 z-score 崩壊判定閾値
 agent_asdqn_bool11.q_cv_threshold = 0.35        # 0.45 0.3 0.25-0.35 0.5 CV 崩壊判定閾値
 agent_asdqn_bool11.q_niqr_threshold = 0.80      # 0.65 0.5 0.4-0.5 0.6 NIQR 崩壊判定閾値
@@ -72,7 +72,6 @@ agent_asdqn_bool10.eps_gain = 0.5 # ★
 agent_asdqn_bool10.q_z_threshold = 2.6          # 2.0 1.5-2.0 3.0 z-score 崩壊判定閾値
 agent_asdqn_bool10.q_cv_threshold = 0.35        # 0.45 0.3 0.25-0.35 0.5 CV 崩壊判定閾値
 agent_asdqn_bool10.q_niqr_threshold = 0.80      # 0.65 0.5 0.4-0.5 0.6 NIQR 崩壊判定閾値
-agent_asdqn_bool10.qstd_alpha = 0.01            # Q値 std の EWMA 平滑率
 agent_asdqn_bool10.eps_boost_max = 2.0          #ε ブースト上限倍率
 agent_asdqn_bool10.eps_boost_half_life_hit = 300      # 崩壊中、ε ブーストが2倍になるまでのstep数
 agent_asdqn_bool10.eps_boost_half_life_recover = 3000 # 安定後、ε ブーストが半減するまでのstep数
@@ -145,6 +144,7 @@ train.online.timer_ms = 10
 train.online.step_per_frame = 10
 train.online.eval_interval = 1
 train.online.train_pause_step = 500000 #500K
+#train.online.seed=592915441705900 #0	# 0 -> AutoSeed
 
 ## バッチ実行用①
 train.batchrun.timer_ms = 5

@@ -35,7 +35,7 @@ namespace anet {
 
 
         /// デフォルトインスタンスを取得
-        static RandomGenerator& Default();
+        static std::shared_ptr<RandomGenerator> Default();
 
         RandomGenerator(const RandomGenerator&) = delete;
         RandomGenerator& operator=(const RandomGenerator&) = delete;
@@ -49,14 +49,18 @@ namespace anet {
 
     class RandomHolder {
     public:
-        RandomHolder() {}
-        RandomHolder(RandomGenerator* rnd) : rnd_(rnd) {}
+        //RandomHolder(std::shared_ptr<RandomGenerator> rnd) : rnd_(rnd) {}
+        RandomHolder(std::shared_ptr<RandomGenerator> rnd = nullptr) : rnd_(rnd == nullptr ? RandomGenerator::Default() : rnd) {}
 
-        void SetRandomGenerator(RandomGenerator* rng) {
-            rnd_ = (rng ? rng : &RandomGenerator::Default());
+        std::shared_ptr<RandomGenerator> GetRandomGenerator() {
+            return rnd_;
+        }
+
+        void SetRandomGenerator(std::shared_ptr<RandomGenerator> rnd) {
+            rnd_ = rnd;
         }
     protected:
-        RandomGenerator* rnd_ = &RandomGenerator::Default();
+        std::shared_ptr<RandomGenerator> rnd_;
     };
 
 }   // namespace anet

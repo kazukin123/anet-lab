@@ -32,11 +32,19 @@ static wxCmdLineEntryDesc desc[] = {
     //{ wxCMD_LINE_SWITCH, "v",         "verbose", "エラー表示を饒舌に" }, // wxCMD_LINE_SWITCH:A boolean argument of the program;    e.g. -v to enable verbose mode.
     //{ wxCMD_LINE_OPTION, "f",         "file",    "設定ファイルのパス" }, // wxCMD_LINE_OPTION:An argument with an associated value; e.g. -o filename
 
-    { wxCMD_LINE_OPTION, "a",         "agent",   "agent.presetの上書き値", wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL }, // wxCMD_LINE_OPTION:An argument with an associated value; e.g. -o filename
-    { wxCMD_LINE_OPTION, "t",         "train",   "train.presetの上書き値", wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL }, // wxCMD_LINE_OPTION:An argument with an associated value; e.g. -o filename
-
-    //{ wxCMD_LINE_PARAM,  NULL,        NULL,      "引数",     wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },  // A parameter: a required program argument.
-    { wxCMD_LINE_USAGE_TEXT, NULL,    NULL,      "CartPoleRLGUI.exe --agent=agent_rb" },     //  Additional usage text.
+    { wxCMD_LINE_OPTION, "a",         "agent", "agent.presetの上書き値", wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL }, // wxCMD_LINE_OPTION:An argument with an associated value; e.g. -o filename
+    { wxCMD_LINE_OPTION, "t",         "train", "train.presetの上書き値", wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL }, // wxCMD_LINE_OPTION:An argument with an associated value; e.g. -o filename
+    //{ wxCMD_LINE_OPTION, "s",         "seed",  "seed値", wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL }, // wxCMD_LINE_OPTION:An argument with an associated value; e.g. -o filename
+  {
+        wxCMD_LINE_PARAM,              // 種別：位置パラメータ
+        nullptr,                       // 短いオプション名なし
+        nullptr,                       // 長いオプション名なし
+        "key=value pairs",             // 説明文
+        wxCMD_LINE_VAL_STRING,         // 文字列として受け取る
+        wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE      // 複数 OK
+    },
+    //{ wxCMD_LINE_PARAM,  NULL,        NULL,  "引数",     wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },  // A parameter: a required program argument.
+    { wxCMD_LINE_USAGE_TEXT, NULL,    NULL,    "CartPoleRLGUI.exe --agent=agent_rb" },     //  Additional usage text.
     { wxCMD_LINE_NONE } // 終了マーク
 };
 

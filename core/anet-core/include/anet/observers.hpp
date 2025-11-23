@@ -9,7 +9,7 @@ namespace anet::rl {
         virtual ~MetricsLogObserver() = default;
 
         void OnPostUpdate(
-            std::shared_ptr<const anet::rl::UpdateResult> result,
+            std::shared_ptr<const anet::rl::BatchUpdateResult> result,
             const anet::rl::BatchExperience& experiences,
             size_t step
         ) override;
@@ -21,7 +21,7 @@ namespace anet::rl {
         virtual ~HeatMapObserver() = default;
 
         void OnPostUpdate(
-            std::shared_ptr<const anet::rl::UpdateResult> result,
+            std::shared_ptr<const anet::rl::BatchUpdateResult> result,
             const anet::rl::BatchExperience& experiences,
             size_t step) override;
     };
