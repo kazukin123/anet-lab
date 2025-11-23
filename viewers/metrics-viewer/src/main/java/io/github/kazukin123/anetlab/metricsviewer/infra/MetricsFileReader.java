@@ -15,8 +15,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonToken;
 
 import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricsFileBlock;
 import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricsFileLine;
@@ -28,7 +30,7 @@ public class MetricsFileReader {
 	private static final int BUFFER_SIZE = 1 << 16; // 64KB
 	private static final int PROGRESS_INTERVAL = 100_000;
 	private static final long PROGRESS_INTERVAL_MS = 2000;
-	private static final ObjectMapper METRIC_LINE_READER = new ObjectMapper();
+	private static final JsonFactory JSON_FACTORY = new JsonFactory();
 
 	/**
 	 * ファイル全体をパースする。
@@ -42,6 +44,49 @@ public class MetricsFileReader {
 	 */
 	public MetricsFileBlock parseDiff(Path jsonlFile, long startOffset, int maxLines) throws IOException {
 		return readInternal(jsonlFile, startOffset, maxLines);
+	}
+
+	/**
+	 * 1行分のJSONLパース 
+	 * @param line 位置行文字列
+	 * @return パース結果
+	 * @throws IOException
+	 */
+	private MetricsFileLine parseLine(String line) throws IOException {
+		final JsonParser p = JSON_FACTORY.createParser(line);
+
+		if (p.nextToken() != JsonToken.START_OBJECT) return null;
+
+		String type = "";
+		String tag = "";
+		int step = 0;
+		float value = 0.0f;
+
+		while (p.nextToken() != JsonToken.END_OBJECT) {
+			final String field = p.currentName();
+			p.nextToken();
+
+			switch (field) {
+			case "type":
+				type = p.getValueAsString();
+				break;
+			case "tag":
+				tag = p.getValueAsString();
+				break;
+			case "step":
+				step = p.getIntValue();
+				break;
+			case "value":
+				value = p.getFloatValue();
+				break;
+			case "timestamp":
+				break;
+			default:
+				p.skipChildren();
+				break;
+			}
+		}
+		return new MetricsFileLine(type, tag, step, value);
 	}
 
 	/**
@@ -102,7 +147,7 @@ public class MetricsFileReader {
 				lineCount++;
 
 				try {
-					final MetricsFileLine obj = METRIC_LINE_READER.readValue(line, MetricsFileLine.class);
+					final MetricsFileLine obj = parseLine(line);
 					lines.add(obj);
 				} catch (JsonProcessingException e) {
 					final boolean looksTruncated = line.length() < 10 ||
