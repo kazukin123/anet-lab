@@ -74,9 +74,10 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     wxLog::SetActiveTarget(this);
 
     if (config_->seed == 0) {
-        rnd_ = std::make_shared<anet::RandomGenerator>();
-    } else {
-        rnd_ = std::make_shared<anet::RandomGenerator>(config_->seed);
+        rnd_ = std::make_shared<anet::RandomGenerator>(true, true);
+    }
+    else {
+        rnd_ = std::make_shared<anet::RandomGenerator>(config_->seed, true, true);
     }
     wxLogInfo("CartPoleRLGUI started.");
 
@@ -86,19 +87,76 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     anet::MetricsLogger::Instance()->LogJson("train/params", config_->ToJson());
     anet::MetricsLogger::Instance()->Flush();
 
-    // --- RL生成 ---
+    // ENV生成 ---
     env_ = std::make_unique<CartPoleEnv>(rnd_);
     auto env_spec = env_->GetSpec();
     wxLogInfo("env_spec=" + env_spec.ToString());
-    anet::ConfigData agentConfig = wxGetApp().GetConfig("agent");
-    agent_ = std::make_unique<anet::rl::DQNAgent>(agentConfig, env_spec, device_, rnd_);
-    notifier_.AddObserver(&metrics_obs_);
-    notifier_.AddObserver(&heatmap_obs_);
 
     // ランダム方策で環境難易度評価
     auto eval_result = anet::rl::EvaluateEnvironmentDifficulty(*env_, 100);
     anet::MetricsLogger::Instance()->LogJson("eval_env", eval_result.ToJson());
-    
+
+    // MetricsLogObserver
+    metrics_obs_ = std::make_shared<anet::rl::MetricsLogObserver>();
+
+    // HeatMapObserver
+    auto flags = anet::HeatMapFlags::HM_LogScaleValue | anet::HeatMapFlags::HM_AutoNormValue
+        | anet::HeatMapFlags::HM_AutoScaleAxis | anet::HeatMapFlags::HM_LogScaleAxis
+        | anet::HeatMapFlags::HM_SumMode; // | anet::HeatMapFlags::HM_ShowZeroLine;
+    anet::rl::HeatMapObserverConfig visit_heat_obs_config {
+        256,    // width
+        256,    // height
+        100,    // log_interval 
+        30000,  // max_points
+        flags   // flags
+        -1,     // image_width
+        -1,     // image_height
+        //bool override_xmin = false;
+        //bool override_xmax = false;
+        //bool override_ymin = false;
+        //bool override_ymax = false;
+        //float xmin = 0.0f;
+        //float xmax = 1.0f;
+        //float ymin = 0.0f;
+        //float ymax = 1.0f;
+
+    };
+    auto x_probe = new anet::StateAxisProbe(0, &env_spec.state_spec, true);
+    auto theta_probe = new anet::StateAxisProbe(2, &env_spec.state_spec, true);
+    auto theta_dot_probe = new anet::StateAxisProbe(3, &env_spec.state_spec, true);
+    auto reward_probe = new anet::RewardProbe(nullptr);
+    visit1_heat_obs_ = std::make_shared<anet::rl::HeatMapObserver>(
+        "43_agent_img/02_hm_visit1", visit_heat_obs_config, x_probe, theta_probe, reward_probe);
+    visit2_heat_obs_ = std::make_shared<anet::rl::HeatMapObserver>(
+        "43_agent_img/03_hm_visit2", visit_heat_obs_config, theta_probe, theta_dot_probe, reward_probe);
+
+    // TimeHistogramObserver
+    anet::rl::TimeHistogramObserverConfig q_hist_obs_config {
+        256,    // x bins
+        1920,   // y max_frames
+        512,    // image_height
+        1920,   // image_width
+        anet::TimeFrameMode::Scale,             // mode
+        flags | anet::HeatMapFlags::HM_FlipY,   // flags
+        100,    // log_interval
+        20,     // frame_interval
+        0,//std::numeric_limits<float>::quiet_NaN(),
+        2,//std::numeric_limits<float>::quiet_NaN(),
+        1.0f// alpha = 0.05f
+    };
+    q_hist_obs_ = std::make_shared<anet::rl::TimeHistogramObserver>(
+        "43_agent_img/05_hm_q", q_hist_obs_config, "max_q");
+
+    // --- Agent生成 ---
+    anet::ConfigData agentConfig = wxGetApp().GetConfig("agent");
+    agent_ = std::make_unique<anet::rl::DQNAgent>(agentConfig, env_spec, device_, rnd_);
+
+    // --- Obserber登録 ---
+    notifier_.AddObserver(metrics_obs_);
+    notifier_.AddObserver(visit1_heat_obs_);
+    notifier_.AddObserver(visit2_heat_obs_);
+    notifier_.AddObserver(q_hist_obs_);
+   
     // --- 環境初期化 ---
     state_ = env_->Reset();  // ← reset() は 初期状態 を返す
     ANET_CHECK_DEVICE_CPU_MSG(state_.obs, "Initial state");
@@ -173,7 +231,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         auto update_result = agent_->UpdateFromBatch(exp);
 
         // 更新後処理
-        notifier_.Notify(update_result, exp, step_count_);
+        notifier_.Notify(step_count_, exp, update_result);
         state_ = result.next_state.Clone();
         last_reward = result.reward.squeeze(0).item<float>();
         train_total_reward_ += last_reward;

@@ -3,8 +3,11 @@
 #include <filesystem>
 #include <cmath>
 #include <wx/log.h>
+#include "anet/common.hpp"
 
 using namespace anet;
+
+const unsigned char BACKGROUND_LEVEL = 10;
 
 // ============================================================
 // Util: 値 → Jet RGB
@@ -152,8 +155,8 @@ wxImage HeatMap::RenderRaw() const {
 			float v = buf[idx];
 
 			if (cnt[idx] == 0 || std::fabs(v) < 1e-8f) {
-				// 未観測またはゼロ値 → 黒
-				r = g = b = 0;
+				// 未観測またはゼロ値 → ほぼ黒
+				r = g = b = BACKGROUND_LEVEL;
 			}
 			else {
 				if (flags_ & HM_LogScaleValue)
@@ -216,7 +219,7 @@ void TimeHeatMap::NextFrame() {
 	else if (mode_ == TimeFrameMode::Overwrite) {
 		cur_frame_ = (cur_frame_ + 1) % width_;
 	}
-	else { // Unlimited
+	else { // Scale
 		cur_frame_++; total_frames_++;
 	}
 }
@@ -228,7 +231,7 @@ void TimeHeatMap::Reset() {
 }
 
 wxImage TimeHeatMap::RenderRaw() const {
-	if (mode_ != TimeFrameMode::Unlimited)
+	if (mode_ != TimeFrameMode::Scale)
 		return HeatMap::RenderRaw();
 
 	std::vector<Sample> snapshot(samples_.begin(), samples_.end());
@@ -301,7 +304,7 @@ wxImage TimeHeatMap::RenderRaw() const {
 			float v = buf[idx];
 
 			if (cnt[idx] == 0) {
-				r = g = b = 0;  // 未観測セルは黒
+				r = g = b = BACKGROUND_LEVEL;  // 未観測セルは黒
 			}
 			else {
 				if (flags_ & HM_LogScaleValue) v = std::copysign(std::log1p(std::fabs(v)), v);
@@ -384,7 +387,12 @@ TimeHistogram::TimeHistogram(int bins, int max_frames, TimeFrameMode mode,
 	base_max_(base_max),
 	min_val_(std::numeric_limits<float>::quiet_NaN()),
 	max_val_(std::numeric_limits<float>::quiet_NaN()),
-	buffer_(bins, 0.0f) {
+	buffer_(bins, 0.0f)
+{
+	if (!is_nan(base_min_))
+		min_val_ = base_min_;
+	if (!is_nan(base_max_))
+		max_val_ = base_max_;
 }
 
 int TimeHistogram::MapToBinLinear_(float v) const {
@@ -439,19 +447,38 @@ void TimeHistogram::AddBatch(const std::vector<float>& values) {
 			if (is_nan(min_val_)) min_val_ = vmin;
 			if (is_nan(max_val_)) max_val_ = vmax;
 		}
-	}
-	else {
+	} else {
 		// 自動：ベース指定を優先し、NaN側のみEMA追従
 		const float a = std::clamp(alpha_, 0.001f, 1.0f);
-		if (!is_nan(base_min_)) min_val_ = base_min_;
-		else if (is_nan(min_val_)) min_val_ = vmin;
-		else min_val_ = (1.0f - a) * min_val_ + a * vmin;
 
-		if (!is_nan(base_max_)) max_val_ = base_max_;
-		else if (is_nan(max_val_)) max_val_ = vmax;
-		else max_val_ = (1.0f - a) * max_val_ + a * vmax;
+		// --- min 側 ---
+		if (is_nan(min_val_)) {
+			// 初回のみ base_min_ を優先
+			if (!is_nan(base_min_)) min_val_ = base_min_;
+			else min_val_ = vmin;
+		} else {
+			// より小さな値には追従（拡大）、大きくなる方向には追従しない
+			if (vmin < min_val_) {
+				min_val_ = (1.0f - a) * min_val_ + a * vmin;
+			}
+		}
 
-		if (max_val_ - min_val_ < 1e-9f) { max_val_ = min_val_ + 1e-3f; }
+		// --- max 側 ---
+		if (is_nan(max_val_)) {
+			// 初回のみ base_max_ を優先
+			if (!is_nan(base_max_)) max_val_ = base_max_;
+			else max_val_ = vmax;
+		} else {
+			// より大きな値には追従（拡大）、小さくなる方向には追従しない
+			if (vmax > max_val_) {
+				max_val_ = (1.0f - a) * max_val_ + a * vmax;
+			}
+		}
+
+		// 安全処理
+		if (max_val_ - min_val_ < 1e-9f) {
+			max_val_ = min_val_ + 1e-3f;
+		}
 	}
 
 	// --- カウント蓄積 ---
@@ -462,19 +489,25 @@ void TimeHistogram::AddBatch(const std::vector<float>& values) {
 }
 
 void TimeHistogram::NextFrame() {
-	// 強度正規化（色方向）
-	if (flags_ & HM_AutoNormValue) {
-		float maxv = *std::max_element(buffer_.begin(), buffer_.end());
-		if (maxv > 0.0f) for (auto& v : buffer_) v /= maxv;
-	}
-	// bin i は下から上に行くほど大きい値にしたいので反転して送る
-	for (int i = 0; i < bins_; ++i) {
-		int inv_i = bins_ - 1 - i;
-		thm_.AddData(static_cast<float>(inv_i), buffer_[i]);
-	}
-	std::fill(buffer_.begin(), buffer_.end(), 0.0f);
-	thm_.NextFrame();
+    // 強度正規化（色方向）
+    // ここが TimeHistogram における HM_AutoNormValue の本体。
+    if (flags_ & HM_AutoNormValue) {
+        float maxv = *std::max_element(buffer_.begin(), buffer_.end());
+        if (maxv > 0.0f) {
+            for (auto& v : buffer_) v /= maxv;
+        }
+    }
+
+    // bin i は下から上に行くほど大きい値にしたいので反転して送る
+    for (int i = 0; i < bins_; ++i) {
+        int inv_i = bins_ - 1 - i;
+        thm_.AddData(static_cast<float>(inv_i), buffer_[i]);
+    }
+
+    std::fill(buffer_.begin(), buffer_.end(), 0.0f);
+    thm_.NextFrame();
 }
+
 
 void TimeHistogram::Reset() {
 	thm_.Reset();
@@ -590,4 +623,21 @@ SweepedHeatMap SweepedHeatMap::EvaluateTensorFunction(
 		}
 	}
 	return map;
+}
+
+void SweepedHeatMap::SetValues(const torch::Tensor& values) {
+	// grid shape = (H, W)
+	ANET_ASSERT(values.dim() == 2);
+	ANET_ASSERT(values.size(0) == height_);
+	ANET_ASSERT(values.size(1) == width_);
+
+	values_.resize(width_ * height_);
+	for (int j = 0; j < height_; ++j) {
+		for (int i = 0; i < width_; ++i) {
+			float v = values[j][i].item<float>();
+			values_[j * width_ + i] = v;
+			value_min_ = std::min(value_min_, v);
+			value_max_ = std::max(value_max_, v);
+		}
+	}
 }

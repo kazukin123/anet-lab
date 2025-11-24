@@ -8,6 +8,7 @@
 #include <random>
 #include <map>
 #include <unordered_map>
+#include <optional>
 #include <cstdint>
 #include <nlohmann/json.hpp>
 #include "anet/heat_map.hpp"
@@ -61,8 +62,9 @@ namespace anet::rl {
         std::vector<StateDimInfo> dims;    // 必要な位置だけ登録（配列）
         std::map<std::string, std::string> options;
 
-        int64_t CalcStateDim() const;
+        int64_t CalcFlattenSize() const;
         const StateDimInfo* FindDim(const std::vector<int64_t>& coords) const;
+        const StateDimInfo* FindDim(int64_t flatten_index) const;
         bool MatchesShape(const torch::Tensor& obs) const;
         bool MatchesRange(const torch::Tensor& obs) const;
         bool MatchesRangeFlat(const torch::Tensor& flat_obs) const;
@@ -105,8 +107,8 @@ namespace anet::rl {
 
     // 環境仕様
     struct EnvSpec {
-        StateSpec state;
-        ActionSpec action;
+        StateSpec state_spec;
+        ActionSpec action_spec;
         std::pair<float, float> reward_range;
         std::map<std::string, std::string> options;
 
@@ -198,6 +200,16 @@ namespace anet::rl {
         std::string ToString() const;
     };
 
+    using MetricsMap = std::unordered_map<std::string, float>;
+
+    class BatchUpdateResult {
+    public:
+        virtual MetricsMap GetMetricsMap() const = 0;
+        virtual std::optional<float> GetScalar(const std::string& key) const = 0;
+        virtual std::optional<torch::Tensor> GetTensor(const std::string& key) const = 0;
+        virtual ~BatchUpdateResult() = default;
+    };
+
     // ------------------------------------------------------------
     // 経験情報関連
     // ------------------------------------------------------------
@@ -209,7 +221,7 @@ namespace anet::rl {
         bool episode_start;
 
         /// 状態テンソルを 1D に変換する
-        torch::Tensor Flattened() const {
+        torch::Tensor Flatten() const {
             ANET_CHECK_DTYPE(obs, torch::kFloat32);
             return obs.reshape({ obs.numel() });
         }
@@ -269,14 +281,6 @@ namespace anet::rl {
     // Agent
     // =============================================================
 
-    using MetricsMap = std::unordered_map<std::string, float>;
-
-    class BatchUpdateResult {
-    public:
-        virtual MetricsMap GetMetricsMap() const = 0;
-        virtual ~BatchUpdateResult() = default;
-    };
-
     class Runner {
     public:
         virtual BatchActionInfo MakeAction(const anet::rl::BatchState& state, RunMode mode = RunMode::Train) = 0;
@@ -299,10 +303,10 @@ namespace anet::rl {
     class PostUpdateObserver {
     public:
         virtual void OnPostUpdate(
-            std::shared_ptr<const BatchUpdateResult> result,
+            int step,
             const BatchExperience& expriences,
-            size_t step
-        ) = 0;
+            std::shared_ptr<const BatchUpdateResult> result
+            ) = 0;
         virtual ~PostUpdateObserver() = default;
     };
 
@@ -319,7 +323,7 @@ namespace anet::rl {
             : config_(config), device_(device), RandomHolder(rnd) { }
         virtual ~StepBasedAgent() = default;
 
-        size_t GetStepCount() const { return step_count_; }
+        int GetStepCount() const { return step_count_; }
     protected:
         std::shared_mutex mutex_;
     protected:
@@ -328,7 +332,7 @@ namespace anet::rl {
         torch::Device device_;
     protected:
         // InternalState
-        size_t step_count_ = 0;
+        int step_count_ = 0;
     };
 
     // 複数ステップ（軌跡）収集後に更新する Agent 基底クラス（PPO, TRPO など）
@@ -346,20 +350,22 @@ namespace anet::rl {
 
     class Notifier {
     public:
-        void AddObserver(PostUpdateObserver* obs) {
+        void AddObserver(std::shared_ptr<PostUpdateObserver> obs) {
             observers_.push_back(obs);
         }
 
         void Notify(
-            const std::shared_ptr<const BatchUpdateResult>& result,
-            const BatchExperience& expriences, size_t step)
+            size_t step,
+            const BatchExperience& expriences,
+            const std::shared_ptr<const BatchUpdateResult>& result
+        )
         {
-            for (PostUpdateObserver* o : observers_) {
-                o->OnPostUpdate(result, expriences, step);
+            for (std::shared_ptr<PostUpdateObserver> o : observers_) {
+                o->OnPostUpdate(step, expriences, result);
             }
         }
     private:
-        std::vector<PostUpdateObserver*> observers_;
+        std::vector<std::shared_ptr<PostUpdateObserver>> observers_;
     };
 
     // =============================================================

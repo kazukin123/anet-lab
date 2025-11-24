@@ -4,16 +4,16 @@
 
 namespace anet {
 
-    RandomGenerator::RandomGenerator()    {
-        AutoSeed();
+    RandomGenerator::RandomGenerator(bool withTorch, bool withCuda)    {
+        AutoSeed(withTorch, withCuda);
     }
 
     RandomGenerator::RandomGenerator(uint64_t seed, bool withTorch, bool withCuda) {
         SetSeed(seed, withTorch, withCuda);
     }
 
-    uint64_t RandomGenerator::AutoSeed() {
-        SetSeed(MakeRandomSeed());
+    uint64_t RandomGenerator::AutoSeed(bool withTorch, bool withCuda) {
+        SetSeed(MakeRandomSeed(), withTorch, withCuda);
         return seed_;
     }
 
@@ -82,7 +82,7 @@ namespace anet {
 
     std::shared_ptr<RandomGenerator> RandomGenerator::Default()
     {
-        static std::shared_ptr<RandomGenerator> inst;
+        static std::shared_ptr<RandomGenerator> inst = std::make_shared<RandomGenerator>(true, true);
         return inst;
     }
 

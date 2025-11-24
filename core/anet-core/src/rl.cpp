@@ -21,7 +21,7 @@ namespace anet::rl {
         return ToJson().dump(2); // 2-space indent for pretty print
     }
 
-    int64_t StateSpec::CalcStateDim() const
+    int64_t StateSpec::CalcFlattenSize() const
     {
         ANET_ASSERT_MSG(!shape.empty(),
             "StateSpec::CalcStateDim: shape must not be empty.");
@@ -40,6 +40,30 @@ namespace anet::rl {
             if (d.coords == coords)
                 return &d;
         return nullptr;
+    }
+
+    const StateDimInfo* StateSpec::FindDim(int64_t flatten_index) const
+    {
+        // shape が空なら対応不可
+        if (shape.empty()) return nullptr;
+
+        // flatten size 超えは無効
+        const int64_t flat_size = CalcFlattenSize();
+        if (flatten_index < 0 || flatten_index >= flat_size)
+            return nullptr;
+
+        // flatten_index → coords（多次元インデクス）へ逆変換
+        std::vector<int64_t> coords(shape.size(), 0);
+
+        int64_t idx = flatten_index;
+        for (int i = (int)shape.size() - 1; i >= 0; i--) {
+            int64_t dim = shape[i];
+            coords[i] = idx % dim;
+            idx /= dim;
+        }
+
+        // coords に一致する StateDimInfo を検索
+        return FindDim(coords);
     }
 
     bool StateSpec::MatchesShape(const torch::Tensor& obs) const
@@ -217,8 +241,8 @@ namespace anet::rl {
     nlohmann::json EnvSpec::ToJson() const {
         nlohmann::json j;
 
-        j["state_spec"] = state.ToJson();
-        j["action_spec"] = action.ToJson();
+        j["state_spec"] = state_spec.ToJson();
+        j["action_spec"] = action_spec.ToJson();
 
         j["reward_range"] = {
             reward_range.first,

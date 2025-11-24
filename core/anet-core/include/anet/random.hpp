@@ -7,11 +7,11 @@ namespace anet {
 
     class RandomGenerator {
     public:
-        RandomGenerator();
+        RandomGenerator(bool withTorch = false, bool withCuda = false);
         RandomGenerator(uint64_t seed, bool withTorch = true, bool withCuda = true);
 
-        uint64_t AutoSeed();
-        void SetSeed(uint64_t seed, bool withTorch = true, bool withCuda = true);
+        uint64_t AutoSeed(bool withTorch = false, bool withCuda = false);
+        void SetSeed(uint64_t seed, bool withTorch = false, bool withCuda = false);
         uint64_t GetSeed() const { return seed_; }
         uint64_t RandUint64() { return engine_(); }
 

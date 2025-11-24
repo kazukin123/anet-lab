@@ -126,9 +126,10 @@ namespace anet::rl {
     private:
         int state_dim_;
         int n_actions_;
-    public:
-        struct RuntimeVars;         ///< Agent内部変数
     private:
+        class BatchUpdateResult;
+    private:
+        struct RuntimeVars;         ///< Agent内部変数
         struct QNetImpl;            ///< NN
         class RuntimeVarsUpdater;   ///< 内部変数制御
         class ActionDecider;        ///< 行動選択（Policy相当）

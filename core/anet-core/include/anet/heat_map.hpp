@@ -36,7 +36,7 @@ namespace anet {
     };
 
     enum class TimeFrameMode { 
-        Unlimited = 0,
+        Scale = 0,
         Overwrite,
         Scroll
     };
@@ -95,7 +95,7 @@ namespace anet {
     public:
         TimeHeatMap(int width_frames, int height_bins, float in_min, float in_max,
             uint32_t flags = HM_Default, size_t max_points = 0,
-            TimeFrameMode mode = TimeFrameMode::Unlimited);
+            TimeFrameMode mode = TimeFrameMode::Scale);
 
         std::string GetImageSubType() const override { return "timed_heat_map"; }
 
@@ -199,6 +199,7 @@ namespace anet {
         void Evaluate(const std::function<float(float, float)>& func);
         wxImage RenderRaw() const override;
         void Reset() override;
+        void SetValues(const torch::Tensor& grid);
 
         static SweepedHeatMap EvaluateTensorFunction(
             int width, int height, float x_min, float x_max, float y_min, float y_max,

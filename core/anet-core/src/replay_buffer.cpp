@@ -12,11 +12,11 @@ namespace anet::rl {
     ReplayBuffer::ReplayBuffer(const EnvSpec& spec, size_t capacity, std::shared_ptr<anet::RandomGenerator> rnd)
         : RandomHolder(rnd),
         capacity_(capacity),
-        state_dim_(spec.state.CalcStateDim()),
-        action_dim_(spec.action.ActionCount()),
+        state_dim_(spec.state_spec.CalcFlattenSize()),
+        action_dim_(spec.action_spec.ActionCount()),
         device_(torch::kCPU)
     {
-        is_discrete_ = spec.action.is_discrete;
+        is_discrete_ = spec.action_spec.is_discrete;
         if (is_discrete_) {
             action_dim_ = 1;
         }

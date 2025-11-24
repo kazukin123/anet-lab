@@ -33,6 +33,7 @@ struct DQNAgent::RuntimeVars {
     float td_mean = 0.0f;
     float loss = 0.0f;
     float q_mean = 0.0f;
+    float q_max = 0.0f;
     float q_std = 0.0f;
 
     float grad_norm = 0.0f;
@@ -80,42 +81,61 @@ struct DQNAgent::RuntimeVars {
     }
 };
 
-struct DQNUpdateResult : public BatchUpdateResult {
+class DQNAgent::BatchUpdateResult : public anet::rl::BatchUpdateResult {
 private:
-    MetricsMap map;
+    MetricsMap map_;
+    const std::optional<torch::Tensor> max_q_;
+
+    //auto finite_mask = torch::isfinite(max_q_dev);
+    //auto max_q_finite = max_q_dev.index({ finite_mask });
+    //auto max_q_ = max_q_finite.detach().to(torch::kFloat32).contiguous().cpu(); // (N,)
+
 public:
-    DQNUpdateResult(const DQNAgent::RuntimeVars& vars) {
+    DQNAgent::BatchUpdateResult(const DQNAgent::RuntimeVars& vars, const std::optional<torch::Tensor>& max_q)
+        : max_q_(max_q){
         // A 群：DQN基本事項
-        map["32_agent_dqn_base/03_epsilon"] = vars.epsilon;
-        map["32_agent_dqn_base/04_tau"] = vars.tau;
-        map["37_agent_dqn_qtd/01_td_mean"] = vars.td_mean;
-        map["37_agent_dqn_qtd/03_td_error_ema"] = vars.td_ema;
-        map["37_agent_dqn_qtd/11_q_mean"] = vars.q_mean;
-        map["37_agent_dqn_qtd/12_q_std"] = vars.q_std;
-        map["37_agent_dqn_qtd/21_grad_norm"] = vars.grad_norm;
-        map["37_agent_dqn_qtd/22_grad_clip_ratio"] = vars.grad_clip_ratio;
-        map["38_agent_dqn_loss/01_loss"] = vars.loss;
-        map["38_agent_dqn_loss/02_loss_ema"] = vars.loss_ema;
+        map_["32_agent_dqn_base/03_epsilon"] = vars.epsilon;
+        map_["32_agent_dqn_base/04_tau"] = vars.tau;
+        map_["37_agent_dqn_qtd/01_td_mean"] = vars.td_mean;
+        map_["37_agent_dqn_qtd/03_td_error_ema"] = vars.td_ema;
+        map_["37_agent_dqn_qtd/11_q_mean"] = vars.q_mean;
+        map_["37_agent_dqn_qtd/12_q_max"] = vars.q_max;
+        map_["37_agent_dqn_qtd/13_q_std"] = vars.q_std;
+        map_["37_agent_dqn_qtd/21_grad_norm"] = vars.grad_norm;
+        map_["37_agent_dqn_qtd/22_grad_clip_ratio"] = vars.grad_clip_ratio;
+        map_["38_agent_dqn_loss/01_loss"] = vars.loss;
+        map_["38_agent_dqn_loss/02_loss_ema"] = vars.loss_ema;
 
         // B 群：AS-DQN関連
-        map["32_agent_dqn_base/10_collapse_s"] = vars.collapse_s;
-        map["32_agent_dqn_base/11_collapse_l"] = vars.collapse_l;
-        map["33_agent_dqn_action/01_act_diff_ema"] = vars.act_diff_ema;
-        map["33_agent_dqn_action/02_act_unstable"] = vars.act_unstable;
-        map["33_agent_dqn_action/03_act_unstable_ema"] = vars.act_unstable_ema;
-        map["37_agent_dqn_qtd/31_q_z"] = vars.q_z;
-        map["37_agent_dqn_qtd/32_q_cv"] = vars.q_cv;
-        map["37_agent_dqn_qtd/33_q_niqr"] = vars.q_niqr;
-        map["37_agent_dqn_qtd/34_q_unstable"] = vars.q_unstable;
-        map["37_agent_dqn_qtd/35_q_unstable_ema"] = vars.q_unstable_ema;
-        map["37_agent_dqn_qtd/41_e_t"] = vars.e_t;
-        map["37_agent_dqn_qtd/42_s"] = vars.s;
-        map["37_agent_dqn_qtd/43_s_ema"] = vars.s_ema;
-        map["37_agent_dqn_qtd/46_unstable_ema"] = vars.unstable_ema;
+        map_["32_agent_dqn_base/10_collapse_s"] = vars.collapse_s;
+        map_["32_agent_dqn_base/11_collapse_l"] = vars.collapse_l;
+        map_["33_agent_dqn_action/01_act_diff_ema"] = vars.act_diff_ema;
+        map_["33_agent_dqn_action/02_act_unstable"] = vars.act_unstable;
+        map_["33_agent_dqn_action/03_act_unstable_ema"] = vars.act_unstable_ema;
+        map_["37_agent_dqn_qtd/31_q_z"] = vars.q_z;
+        map_["37_agent_dqn_qtd/32_q_cv"] = vars.q_cv;
+        map_["37_agent_dqn_qtd/33_q_niqr"] = vars.q_niqr;
+        map_["37_agent_dqn_qtd/34_q_unstable"] = vars.q_unstable;
+        map_["37_agent_dqn_qtd/35_q_unstable_ema"] = vars.q_unstable_ema;
+        map_["37_agent_dqn_qtd/41_e_t"] = vars.e_t;
+        map_["37_agent_dqn_qtd/42_s"] = vars.s;
+        map_["37_agent_dqn_qtd/43_s_ema"] = vars.s_ema;
+        map_["37_agent_dqn_qtd/46_unstable_ema"] = vars.unstable_ema;
     }
 
     virtual MetricsMap GetMetricsMap() const override {
-        return map;
+        return map_;
+    }
+    virtual std::optional<float> GetScalar(const std::string& key) const override {
+        auto itr = map_.find(key);
+        if (itr == map_.end()) {
+            return std::nullopt;
+        }
+        return itr->second;
+    }
+    virtual std::optional<torch::Tensor> GetTensor(const std::string& key) const override {
+        if (key == "max_q") return max_q_;
+        return std::nullopt;
     }
 };
 
@@ -144,48 +164,82 @@ struct anet::rl::DQNAgent::QNetImpl : torch::nn::Module {
 class DQNAgent::ActionDecider : public anet::RandomHolder {
 public:
     ActionDecider(DQNAgent& agent)
-        : agent_(agent), config_(agent.config_), RandomHolder(agent.GetRandomGenerator())
+        : agent_(agent), RandomHolder(agent.GetRandomGenerator())
     {
     }
 
-    /// q_values: (1, n_actions)
-    std::tuple<int, bool> Decide(const torch::Tensor& q_values, bool greedy_only)
+    /**
+     * @brief バッチ版 ε-greedy 行動選択
+     * @param q_values (N, n_actions)
+     * @param greedy_only ε-greedy を使わず常にgreedy
+     */
+    BatchActionInfo DecideBatch(const torch::Tensor& q_values, bool greedy_only)
     {
-        // 常に greedy モード
+        BatchActionInfo info;
+
+        const auto device = q_values.device();
+        const int64_t N = q_values.size(0);
+        const int64_t A = q_values.size(1);
+
+        // 一旦 CPU に寄せる
+        auto q_cpu = q_values.to(torch::kCPU);
+
+        // greedy: (N)
+        auto greedy = q_cpu.argmax(1);
+
         if (greedy_only) {
-            return { GreedyAction(q_values), false };
+            info.action = greedy.unsqueeze(1).to(device);       // (N, n_actions)
+            info.is_random = torch::zeros({ N }, torch::kBool).unsqueeze(1).to(device);
+            return info;
         }
- 
-        // ε-greedy
-        if (rnd_->Uniform01() < agent_.vars_->epsilon) {
-            return { RandomAction(), true };
-        } else {
-            return { GreedyAction(q_values), false };
-        }
+
+        const float eps = agent_.vars_->epsilon;
+        auto mask = torch::rand({ N }).lt(eps);     // (N) bool
+        auto random_actions = torch::randint(/*low=*/0, /*high=*/A, { N }, torch::kInt64); // (N)random actions
+
+        // greedy をコピー
+        auto actions = greedy.clone();              // (N)
+
+        // pure-tensor で ε-greedy をセット
+        actions = torch::where(mask, random_actions, actions);
+
+        info.action = actions.unsqueeze(1).to(device);      // (N, n_actions)
+        info.is_random = mask.unsqueeze(1).to(device);      // (N, n_actions)
+
+        return info;
     }
 private:
-    // ----------------------------------------------------
-    // greedy
-    // ----------------------------------------------------
-    int GreedyAction(const torch::Tensor& q_values) const
+    /**
+     * @brief N個のランダム整数 [0, A-1] を返す
+     */
+    torch::Tensor RandomActions(int64_t N, int64_t A) const
     {
-        auto max_idx = std::get<1>(q_values.max(1));
-        return max_idx.item<int>();
+        torch::Tensor out = torch::empty({ N }, torch::kInt64);
+
+        auto acc = out.accessor<int64_t, 1>();
+        for (int64_t i = 0; i < N; i++) {
+            acc[i] = rnd_->RandInt(0, A - 1);
+        }
+        return out;
     }
 
-    // ----------------------------------------------------
-    // random
-    // ----------------------------------------------------
-    int RandomAction() const
+    /**
+     * @brief N環境ぶんの「random or not」フラグ (bool tensor) を返す
+     */
+    torch::Tensor RandomMask(int64_t N, float epsilon) const
     {
-        int n_actions = agent_.n_actions_;
-        return rnd_->RandInt(0, n_actions - 1);
-    }
+        torch::Tensor mask = torch::empty({ N }, torch::kBool);
 
+        auto acc = mask.accessor<bool, 1>();
+        for (int64_t i = 0; i < N; i++) {
+            acc[i] = (rnd_->Uniform01() < epsilon);
+        }
+        return mask;
+    }
 private:
     DQNAgent& agent_;
-    const DQNAgentConfig& config_;
 };
+
 
 // ===============================
 // DQNAgent::ReplayScheduler
@@ -367,9 +421,11 @@ public:
 
         // Q 統計
         const float q_mean = max_q.mean().item<float>();
+        const float q_max = max_q.max().item<float>();
         const float q_std = max_q.std(/*unbiased=*/false).item<float>();
 
         vars.q_mean = q_mean;
+        vars.q_max = q_max;
         vars.q_std = q_std;
 
         // Q std の EMA は「基準値」になる
@@ -435,15 +491,6 @@ private:
         float alpha = std::log(2.0f) / config_.uema_half_life;
         vars.unstable_ema += alpha * (vars.s - vars.unstable_ema);
     }
-
-public:
-    //float GetActUnstableEma() const { return act_unstable_ema_; }
-    //float GetQUnstableEma() const { return q_unstable_ema_; }
-    //float GetQUnstable() const { return q_unstable_; }
-    //float GetActUnstable() const { return act_unstable_; }
-    //float GetUnstableEma() const { return unstable_ema_; }
-    //void SetCollapseStep(float collapse_s) { collapse_s_ = collapse_s; }
-    //void SetCollapseLearn(float collapse_l) { collapse_l_ = collapse_l; }
 };
 
 // ================================================
@@ -647,8 +694,8 @@ private:
 // ======================================================
 DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, torch::Device device, std::shared_ptr<anet::RandomGenerator> rnd) :
     StepBasedAgent(config, device, rnd),
-    state_dim_(env_spec.state.CalcStateDim()),
-    n_actions_(env_spec.action.ActionCount()),
+    state_dim_(env_spec.state_spec.CalcFlattenSize()),
+    n_actions_(env_spec.action_spec.ActionCount()),
     policy_net_(std::make_shared<QNetImpl>(state_dim_, n_actions_)),
     target_net_(std::make_shared<QNetImpl>(state_dim_, n_actions_))
 {
@@ -731,12 +778,7 @@ anet::rl::BatchActionInfo DQNAgent::MakeAction(const anet::rl::BatchState& state
 
     // Eval → greedy-only
     bool greedy_only = (mode == anet::rl::RunMode::Eval1 || mode == anet::rl::RunMode::Eval2);
-    auto [a, rand] = action_decider_->Decide(q, greedy_only);
-
-    // (N=1) batched ActionInfo
-    torch::Tensor action = torch::tensor({ { a } }, torch::kInt64).to(device_);
-    torch::Tensor is_rand = torch::tensor({ { rand } }, torch::kBool).to(device_);
-    anet::rl::BatchActionInfo act_info{ action, is_rand };
+    auto act_info = action_decider_->DecideBatch(q, greedy_only);
 
     if (mode == anet::rl::RunMode::Train) {
         // 行動統計の更新
@@ -760,6 +802,7 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
     // 学習タイミング判定
     const bool can_update = replay_scheduler_->CanUpdate(step_count_, *replay_buffer_);
 
+    std::optional<torch::Tensor> result_max_q;
     if (can_update) {
         const int B = config_.replay_batch_size;
         auto raw_samples = replay_buffer_->Sample(B, device_);
@@ -798,6 +841,7 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
 
         // max_a Q(s,a)  (AS-DQN 用統計)
         torch::Tensor max_q = std::get<0>(q_all.max(1)); // (B,)
+        result_max_q = max_q;
 
         // Q(s,a) for taken action
         torch::Tensor actions_b = samples.actions.view({ B, 1 });   // (B,1)
@@ -925,7 +969,7 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
     }
 
     // 戻り用変数
-    auto result = std::make_shared<DQNUpdateResult>(*vars_);
+    auto result = std::make_shared<DQNAgent::BatchUpdateResult>(*vars_, result_max_q);
 
     // step カウンタ更新
     step_count_++;

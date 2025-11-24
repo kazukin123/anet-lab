@@ -34,7 +34,6 @@ static wxCmdLineEntryDesc desc[] = {
 
     { wxCMD_LINE_OPTION, "a",         "agent", "agent.presetの上書き値", wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL }, // wxCMD_LINE_OPTION:An argument with an associated value; e.g. -o filename
     { wxCMD_LINE_OPTION, "t",         "train", "train.presetの上書き値", wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL }, // wxCMD_LINE_OPTION:An argument with an associated value; e.g. -o filename
-    //{ wxCMD_LINE_OPTION, "s",         "seed",  "seed値", wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL }, // wxCMD_LINE_OPTION:An argument with an associated value; e.g. -o filename
   {
         wxCMD_LINE_PARAM,              // 種別：位置パラメータ
         nullptr,                       // 短いオプション名なし
