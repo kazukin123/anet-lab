@@ -100,8 +100,11 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     metrics_obs_ = std::make_shared<anet::rl::MetricsLogObserver>();
 
     // HeatMapObserver
-    auto flags = anet::HeatMapFlags::HM_LogScaleValue | anet::HeatMapFlags::HM_AutoNormValue
-        | anet::HeatMapFlags::HM_AutoScaleAxis | anet::HeatMapFlags::HM_LogScaleAxis
+    auto flags = 
+        //anet::HeatMapFlags::HM_LogScaleValue | 
+        anet::HeatMapFlags::HM_AutoNormValue
+        | anet::HeatMapFlags::HM_AutoScaleAxis
+        //| anet::HeatMapFlags::HM_LogScaleAxis
         | anet::HeatMapFlags::HM_SumMode; // | anet::HeatMapFlags::HM_ShowZeroLine;
     anet::rl::HeatMapObserverConfig visit_heat_obs_config {
         256,    // width

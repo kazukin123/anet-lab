@@ -107,6 +107,10 @@ namespace anet {
         int GetCurrentFrame() const { return cur_frame_; }
         int GetTotalFrames() const { return total_frames_; }
 
+        void SetValueMinMax(float min, float max) {
+            value_min_ = min;
+            value_max_ = max;
+        }
     private:
         const TimeFrameMode mode_;
         int cur_frame_;
