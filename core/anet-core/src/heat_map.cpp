@@ -379,7 +379,7 @@ static inline bool is_nan(float v) { return std::isnan(v); }
 
 TimeHistogram::TimeHistogram(int bins, int max_frames, TimeFrameMode mode,
 	uint32_t flags, float base_min, float base_max, float alpha)
-	: thm_(max_frames, bins, 0.0f, float(bins - 1), flags, 0, mode),
+	: thm_(max_frames, bins, 0.0f, float(bins - 1), flags & ~HM_AutoNormValue, 0, mode),
 	bins_(bins),
 	alpha_(alpha),
 	flags_(flags),
@@ -435,85 +435,108 @@ int TimeHistogram::MapToBin_(float v) const {
 void TimeHistogram::AddBatch(const std::vector<float>& values) {
 	if (values.empty()) return;
 
-	// --- レンジ更新（軽量）：min/max のみ、NaN側だけEMA更新 ---
+	float old_min = min_val_;
+	float old_max = max_val_;
+
+	// --- min/max 更新：広がる方向のみ追従 ---
 	float vmin = *std::min_element(values.begin(), values.end());
 	float vmax = *std::max_element(values.begin(), values.end());
+	const float a = std::clamp(alpha_, 0.001f, 1.0f);
 
-	if (!(flags_ & HM_AutoScaleAxis)) {
-		// 固定モード：base_min_/base_max_ が有効ならそれを使用
-		if (!is_nan(base_min_) && !is_nan(base_max_)) { min_val_ = base_min_; max_val_ = base_max_; }
-		else {
-			// 安全のため、初回は観測から決定（以降固定）
-			if (is_nan(min_val_)) min_val_ = vmin;
-			if (is_nan(max_val_)) max_val_ = vmax;
-		}
-	} else {
-		// 自動：ベース指定を優先し、NaN側のみEMA追従
-		const float a = std::clamp(alpha_, 0.001f, 1.0f);
+	// 初期値
+	if (is_nan(min_val_)) min_val_ = !is_nan(base_min_) ? base_min_ : vmin;
+	if (is_nan(max_val_)) max_val_ = !is_nan(base_max_) ? base_max_ : vmax;
 
-		// --- min 側 ---
-		if (is_nan(min_val_)) {
-			// 初回のみ base_min_ を優先
-			if (!is_nan(base_min_)) min_val_ = base_min_;
-			else min_val_ = vmin;
-		} else {
-			// より小さな値には追従（拡大）、大きくなる方向には追従しない
-			if (vmin < min_val_) {
-				min_val_ = (1.0f - a) * min_val_ + a * vmin;
-			}
-		}
+	// 拡大方向のみ追従
+	if (vmin < min_val_) min_val_ = (1.0f - a) * min_val_ + a * vmin;
+	if (vmax > max_val_) max_val_ = (1.0f - a) * max_val_ + a * vmax;
 
-		// --- max 側 ---
-		if (is_nan(max_val_)) {
-			// 初回のみ base_max_ を優先
-			if (!is_nan(base_max_)) max_val_ = base_max_;
-			else max_val_ = vmax;
-		} else {
-			// より大きな値には追従（拡大）、小さくなる方向には追従しない
-			if (vmax > max_val_) {
-				max_val_ = (1.0f - a) * max_val_ + a * vmax;
-			}
-		}
+	if (max_val_ - min_val_ < 1e-9f)
+		max_val_ = min_val_ + 1e-3f;
 
-		// 安全処理
-		if (max_val_ - min_val_ < 1e-9f) {
-			max_val_ = min_val_ + 1e-3f;
-		}
+	if (min_val_ < old_min || max_val_ > old_max) {
+		need_rebuild_ = true;
 	}
 
-	// --- カウント蓄積 ---
-	for (float v : values) {
-		int ix = MapToBin_(v);
-		buffer_[ix] += 1.0f;
-	}
+	// --- 生データ蓄積（後で再binningに使う） ---
+	for (float v : values) cur_raw_.push_back(v);
 }
 
 void TimeHistogram::NextFrame() {
-    // 強度正規化（色方向）
-    // ここが TimeHistogram における HM_AutoNormValue の本体。
-    if (flags_ & HM_AutoNormValue) {
-        float maxv = *std::max_element(buffer_.begin(), buffer_.end());
-        if (maxv > 0.0f) {
-            for (auto& v : buffer_) v /= maxv;
-        }
-    }
+	frames_raw_.push_back(cur_raw_);
+	cur_raw_.clear();
 
-    // bin i は下から上に行くほど大きい値にしたいので反転して送る
-    for (int i = 0; i < bins_; ++i) {
-        int inv_i = bins_ - 1 - i;
-        thm_.AddData(static_cast<float>(inv_i), buffer_[i]);
-    }
-
-    std::fill(buffer_.begin(), buffer_.end(), 0.0f);
-    thm_.NextFrame();
+	if (need_rebuild_) {
+		RebuildFromRaw();
+		need_rebuild_ = false;
+	}
+	else {
+		// bin 再計算なし → 今フレームの bin だけ計算して追加
+		AppendCurrentFrameOnly();
+	}
 }
 
+void TimeHistogram::AppendCurrentFrameOnly() {
+	const auto& vals = frames_raw_.back();
+	std::vector<float> bins(bins_, 0.0f);
+
+	for (float v : vals) {
+		int ix = MapToBin_(v);
+		bins[ix] += 1.0f;
+	}
+
+	if (flags_ & HM_AutoNormValue) {
+		float mv = *std::max_element(bins.begin(), bins.end());
+		if (mv > 0.0f) for (auto& x : bins) x /= mv;
+	}
+
+	for (int i = 0; i < bins_; ++i) {
+		int inv = bins_ - 1 - i;
+		thm_.AddData(float(inv), bins[i]);
+	}
+	thm_.NextFrame();
+}
+
+void TimeHistogram::RebuildFromRaw() {
+	thm_.Reset();   // TimeHeatMap 内部データを完全クリア
+
+	for (size_t frame = 0; frame < frames_raw_.size(); ++frame) {
+
+		// --- bin カウント配列を構築 ---
+		std::vector<float> bins(bins_, 0.0f);
+
+		const auto& vals = frames_raw_[frame];
+		for (float v : vals) {
+			int ix = MapToBin_(v);
+			bins[ix] += 1.0f;
+		}
+
+		// --- AutoNormValue（強度正規化） ---
+		if (flags_ & HM_AutoNormValue) {
+			float maxv = *std::max_element(bins.begin(), bins.end());
+			if (maxv > 0.0f) {
+				for (auto& x : bins) x /= maxv;
+			}
+		}
+
+		// --- TimeHeatMap へ再投入（bin → HeatMap の Y 軸） ---
+		for (int i = 0; i < bins_; ++i) {
+			int inv = bins_ - 1 - i;            // 下を0とするため反転
+			thm_.AddData(float(inv), bins[i]);  // x=frame, y=bin ⇒ value=bins[i]
+		}
+
+		// フレーム次へ
+		thm_.NextFrame();
+	}
+}
 
 void TimeHistogram::Reset() {
 	thm_.Reset();
-	std::fill(buffer_.begin(), buffer_.end(), 0.0f);
 	min_val_ = std::numeric_limits<float>::quiet_NaN();
 	max_val_ = std::numeric_limits<float>::quiet_NaN();
+
+	frames_raw_.clear();
+	cur_raw_.clear();
 }
 
 wxImage TimeHistogram::RenderRaw() const {

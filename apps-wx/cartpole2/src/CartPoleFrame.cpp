@@ -140,8 +140,8 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
         flags | anet::HeatMapFlags::HM_FlipY,   // flags
         100,    // log_interval
         20,     // frame_interval
-        0,//std::numeric_limits<float>::quiet_NaN(),
-        2,//std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN(),
         1.0f// alpha = 0.05f
     };
     q_hist_obs_ = std::make_shared<anet::rl::TimeHistogramObserver>(

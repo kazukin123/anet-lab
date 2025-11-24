@@ -164,12 +164,18 @@ namespace anet {
         // 参照用（描画時のレンジ）
         float MinVal() const { return min_val_; }
         float MaxVal() const { return max_val_; }
-
     private:
+        void RebuildFromRaw();
+        void AppendCurrentFrameOnly();
+    private:
+        std::vector<std::vector<float>> frames_raw_;   ///< 全フレームの生データ
+        std::vector<float> cur_raw_;                  ///< 今フレームの生データ
+
         TimeHeatMap thm_;          // 横:フレーム, 縦:bin(0..bins-1)
         int bins_;
-        float alpha_;              // EMA係数
+        float alpha_;              ///< EMA係数
         uint32_t flags_;
+        bool need_rebuild_ = false;
 
         // 固定ベース（NaNで未指定）
         float base_min_, base_max_;
