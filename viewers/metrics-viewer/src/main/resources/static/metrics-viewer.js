@@ -4,7 +4,7 @@
    ============================================================ */
 
 const API_BASE_URL = (false) ? "/dummy_api" : "/api";
-const AUTO_RELOAD_INTERVAL_MS = 10000;	// AutoReload間隔
+const AUTO_RELOAD_INTERVAL_MS = 15000;	// AutoReload間隔
 const MAX_POINTS = 6000;	// 4Kモニタ想定
 const MAX_SCATTER_GL = 0;	// あまり大きくするとグラフがでなくなる
 
@@ -285,7 +285,7 @@ class PlotlyController {
 		this.colors = getPlotlyColors();
 	}
 
-	_makeTrace(runId, tagKey, steps, values, index) {
+	_makeTrace(runId, tagKey, steps, values, index, multi) {
 	  const traceType = (index < MAX_SCATTER_GL) ? 'scattergl' : 'scatter';
 	  return {
 		type: traceType,
@@ -295,6 +295,7 @@ class PlotlyController {
 	    mode: 'lines',
 		line: { width: 1.5, color: this.app.runColorMap.get(runId) },
 	    uid: `${runId}_${tagKey}`,
+		opacity: multi ? 0.8 : 1.0
 	  };
 	}
 	
@@ -307,20 +308,21 @@ class PlotlyController {
 		}
 		
 		let drawn = false;
-		let numTraces = 0;
+		let traceIndex = 0;
 		for (const tagKey of tagKeys) {
 			const safe = tagKey.replace(/[^\w-]/g, "_");
 			const id = `graph-${safe}`;
 			const $b = $(`<div class="graph-block"><div class="graph-title">${tagKey}</div><div id="${id}"></div></div>`);
 			area.append($b);
 			const traces = [];
+			const multi = (runIds.length > 1);
 			for (let i = 0; i < runIds.length; i++) {
 				const r = runIds[i];
 				const d = cache.get(r, tagKey);
 				if (!d) continue;
-				const trace = this._makeTrace(r, tagKey, d.steps, d.values, numTraces);
+				const trace = this._makeTrace(r, tagKey, d.steps, d.values, traceIndex, multi);
 				traces.push(trace);
-				numTraces++;
+				traceIndex++;
 			}
 			if (!traces.length) continue;
 			// 画面幅ピクセル数前提でデータ間引き処理（最大点数を超える場合に実行）
