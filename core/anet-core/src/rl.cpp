@@ -68,11 +68,12 @@ namespace anet::rl {
 
     bool StateSpec::MatchesShape(const torch::Tensor& obs) const
     {
+        wxLogDebug("dim=%d size=%d", static_cast<int>(obs.dim()), static_cast<int>(shape.size()));
         ANET_ASSERT_MSG(
-            obs.dim() == static_cast<int64_t>(shape.size()),
+            obs.dim() == static_cast<int64_t>(shape.size() + 1),
             "StateSpec::MatchesShape: dimension mismatch.");
 
-        for (size_t i = 0; i < shape.size(); i++) {
+        for (size_t i = 1; i < shape.size(); i++) {
             int64_t e = shape[i];
             int64_t a = obs.size(i);
             if (e == ANET_SHAPE_ANY) continue;
@@ -89,53 +90,53 @@ namespace anet::rl {
 
         if (dims.empty()) return true;
 
+        const int64_t N = obs.size(0);  // 0次元目 = 環境数
+
         for (const auto& d : dims) {
             float mn = d.min_value;
             float mx = d.max_value;
 
-            if (d.coords.empty()) {
-                // @todo 最適化の余地あり（全要素スキャン）
-                auto flat = obs.flatten();
-                const int64_t n = flat.size(0);
-                for (int64_t i = 0; i < n; i++) {
-                    float v = flat[i].item<float>();
-                    ANET_ASSERT_MSG(
-                        v >= mn && v <= mx,
-                        "StateSpec::MatchesRange: value out of range.");
+            for (int64_t n = 0; n < N; n++) {
+                torch::Tensor env = obs[n];  // [D1, D2, ...]
+
+                if (d.coords.empty()) {
+                    auto flat = env.flatten();
+                    const int64_t M = flat.size(0);
+                    for (int64_t i = 0; i < M; i++) {
+                        float v = flat[i].item<float>();
+                        ANET_ASSERT_MSG(
+                            v >= mn && v <= mx,
+                            "StateSpec::MatchesRange: value out of range.");
+                    }
+                    continue;
                 }
-                continue;
-            }
 
-            // coords が多次元 index の場合
-            // 例: coords = {c, h, w}, obs[c][h][w]
-            ANET_ASSERT_MSG(
-                static_cast<int64_t>(d.coords.size()) <= obs.dim(),
-                "StateSpec::MatchesRange: coords dim mismatch.");
+                // coords を env に適用
+                torch::Tensor cur = env;
 
-            const torch::Tensor* cur = &obs;
-            torch::Tensor tmp;  // スコープ内で生存する一時保持用
+                for (size_t k = 0; k < d.coords.size(); k++) {
+                    int64_t idx = d.coords[k];
 
-            for (size_t k = 0; k < d.coords.size(); k++) {
-                int64_t idx = d.coords[k];
+                    ANET_ASSERT_MSG(
+                        idx >= 0 && idx < cur.size(0),
+                        "StateSpec::MatchesRange: coords index OOB.");
+
+                    cur = cur.select(0, idx);
+                }
 
                 ANET_ASSERT_MSG(
-                    idx >= 0 && idx < cur->size(0),
-                    "StateSpec::MatchesRange: coords index OOB.");
+                    cur.dim() == 0,
+                    "StateSpec::MatchesRange: coords did not resolve to scalar.");
 
-                // select の結果を tmp に保持
-                tmp = cur->select(0, idx);
-
-                // cur を tmp へ向ける
-                cur = &tmp;
+                float v = cur.item<float>();
+                ANET_ASSERT_MSG(
+                    v >= mn && v <= mx,
+                    "StateSpec::MatchesRange: coord value out of range.");
             }
-
-            float v = cur->item<float>();
-            ANET_ASSERT_MSG(
-                v >= mn && v <= mx,
-                "StateSpec::MatchesRange: coord value out of range.");
         }
         return true;
     }
+
 
     bool StateSpec::MatchesRangeFlat(const torch::Tensor& flat_obs) const
     {

@@ -45,6 +45,7 @@ private:
     std::shared_ptr<anet::rl::HeatMapObserver> visit1_heat_obs_;
     std::shared_ptr<anet::rl::HeatMapObserver> visit2_heat_obs_;
     std::shared_ptr<anet::rl::TimeHistogramObserver> q_hist_obs_;
+    std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_;
     anet::rl::Notifier notifier_;
 
     // メトリクス

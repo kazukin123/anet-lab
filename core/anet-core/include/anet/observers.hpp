@@ -52,9 +52,9 @@ namespace anet::rl {
         HeatMapObserver(
             const std::string& tag,
             const HeatMapObserverConfig& config,
-            IFloatProbe* x_probe,
-            IFloatProbe* y_probe,
-            IFloatProbe* value_probe);
+            std::shared_ptr<IFloatProbe> x_probe,
+            std::shared_ptr<IFloatProbe> y_probe,
+            std::shared_ptr<IFloatProbe> value_probe);
 
         void OnPostUpdate(
             int step,
@@ -65,9 +65,9 @@ namespace anet::rl {
         HeatMapObserverConfig config_;
         std::string tag_;
 
-        std::unique_ptr<IFloatProbe> x_probe_;
-        std::unique_ptr<IFloatProbe> y_probe_;
-        std::unique_ptr<IFloatProbe> value_probe_;
+        std::shared_ptr<IFloatProbe> x_probe_;
+        std::shared_ptr<IFloatProbe> y_probe_;
+        std::shared_ptr<IFloatProbe> value_probe_;
 
         std::unique_ptr<anet::HeatMap> heatmap_;  ///< @todo ptr外し
     };
@@ -84,7 +84,7 @@ namespace anet::rl {
         int frame_interval = 10;
         float base_min = std::numeric_limits<float>::quiet_NaN();
         float base_max = std::numeric_limits<float>::quiet_NaN();
-        float alpha = 0.05f;
+        float alpha = 1.0f;
     };
 
     /**
@@ -95,25 +95,13 @@ namespace anet::rl {
     */
     class TimeHistogramObserver : public anet::rl::PostUpdateObserver {
     public:
-        using ExtractTensorFn = std::function<std::optional<torch::Tensor>(std::shared_ptr<const anet::rl::BatchUpdateResult>, const std::string& key)>;
-
-        static ExtractTensorFn DefaultExtractFn() {
-                return [](auto r, const std::string& key) {
-                    if (!r) return std::optional<torch::Tensor>{};
-                    return r->GetTensor(key);
-                    };
-            }
-
         TimeHistogramObserver(
-            const std::string& tag,
-            const TimeHistogramObserverConfig& config,
-            const std::string& key = "",
-            ExtractTensorFn tensor_fn = DefaultExtractFn()
-            ) : tag_(tag), config_(config), key_(key), extract_tensor_fn_(tensor_fn)
+            const std::string& tag, const TimeHistogramObserverConfig& config,
+            std::shared_ptr<IVectorProbe> probe)
+            : tag_(tag), config_(config), probe_(probe)
         {
             histogram_ = std::make_unique<anet::TimeHistogram>(
                 config_.bins, config_.max_frames, config_.mode, config_.flags, config_.base_min, config_.base_max, config_.alpha);
-            vec_probe_ = std::make_unique<TensorVectorProbe>();
         }
 
         void OnPostUpdate(
@@ -121,14 +109,12 @@ namespace anet::rl {
             const anet::rl::BatchExperience& batch_experience,
             std::shared_ptr<const anet::rl::BatchUpdateResult> result) override
         {
-            // 抽出関数で Tensor を取得
-            auto t = extract_tensor_fn_(result, key_);
-            if (t.has_value()) {
-                // Probe にセット → vector に変換
-                vec_probe_->UpdateTensor(*t);
-                std::vector<float> values;
-                if (vec_probe_->TryGetVector(values)) {
-                    histogram_->AddBatch(values);
+            // Probeで vectorを取得
+            auto exp_list = batch_experience.ToExperienceList();
+            for (auto exp : exp_list) {
+                auto values = probe_->GetVector(step, exp, result);
+                if (values.has_value()) {
+                    histogram_->AddBatch(*values);
                 }
             }
 
@@ -144,12 +130,56 @@ namespace anet::rl {
         }
     private:
         TimeHistogramObserverConfig config_;
-        ExtractTensorFn extract_tensor_fn_;
-        std::string key_;
         std::string tag_;
-
         std::unique_ptr<anet::TimeHistogram> histogram_;    ///< @todo ptr外し
-        std::unique_ptr<TensorVectorProbe> vec_probe_;      ///< @todo ptr外し
+        std::shared_ptr<IVectorProbe> probe_;
+    };
+
+
+    struct SweepedHeatMapObserverConfig {
+        int log_interval = 100;
+        uint64_t flags = anet::HeatMapFlags::HM_Default;
+        int grid_width = -1;    ///< 内部で生成するGridの幅。-1で指定なし(自動)
+        int grid_height = -1;   ///< 内部で生成するGridの高さ。-1で指定なし(自動)
+        int image_width = -1;   ///< 出力する画像の幅。-1で指定なし(自動)
+        int image_height = -1;  ///< 出力する画像の高さ。-1で指定なし(自動)
+    };
+
+    /**
+     * @brief NN 可視化のための 2D Sweep HeatMap Observer。
+     *
+     * - InputGenerator が grid_x, grid_y ごとの NN入力Tensor を生成
+     * - Observer が全セル分まとめてバッチ forward 実行
+     * - OutputExtractor が batched 出力から (grid_x, grid_y) の値を抽出
+     * - HeatMap に追加して画像として出力
+     */
+    class SweepedHeatMapObserver : public anet::rl::PostUpdateObserver {
+    public:
+    public:
+        SweepedHeatMapObserver(
+            const std::string& tag,
+            const SweepedHeatMapObserverConfig& config,
+            std::shared_ptr<ISweepInputGenerator> input_gen,
+            anet::rl::ApplyNNFn apply_nn_fn,
+            std::shared_ptr<ISweepOutputExtractor> output_ext);
+
+        void OnPostUpdate(
+            int step,
+            const anet::rl::BatchExperience& experience,
+            std::shared_ptr<const anet::rl::BatchUpdateResult> result
+        ) override;
+    private:
+        std::string tag_;
+        SweepedHeatMapObserverConfig config_;
+
+        std::shared_ptr<ISweepInputGenerator> input_gen_;
+        ApplyNNFn apply_nn_fn_;
+        std::shared_ptr<ISweepOutputExtractor> output_ext_;
+
+        int grid_w_ = 0;
+        int grid_h_ = 0;
+
+        std::unique_ptr<anet::HeatMap> heatmap_;
     };
 
 }

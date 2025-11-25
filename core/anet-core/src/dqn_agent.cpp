@@ -157,6 +157,15 @@ struct anet::rl::DQNAgent::QNetImpl : torch::nn::Module {
     }
 };
 
+ApplyNNFn DQNAgent::GetApplyFunction(const std::string& key) const
+{
+    ApplyNNFn fn = [this](const torch::Tensor& t) {
+		/// @todo 排他
+        auto tdev = t.to(device_);
+        return policy_net_->forward(tdev);
+        };
+    return fn;
+}
 
 // ===============================
 // DQNAgent::ActionDecider

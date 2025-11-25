@@ -1,4 +1,4 @@
-// image_log.cpp i”²ˆj
+ï»¿// image_log.cpp ï¼ˆæŠœç²‹ï¼‰
 
 #include "anet/probe.hpp"
 
@@ -9,7 +9,7 @@ namespace anet {
         const anet::rl::Experience& experience,
         std::shared_ptr<const anet::rl::BatchUpdateResult> result) const
     {
-        return result->GetScalar(key_);  ///< @todo GetScalar À‘•‚Æ‡‚í‚¹‚é
+        return result->GetScalar(key_);  ///< @todo GetScalar å®Ÿè£…ã¨åˆã‚ã›ã‚‹
     }
 
     std::optional<float> StaticScalarProbe::GetFloat(
@@ -40,8 +40,8 @@ namespace anet {
     //    const anet::rl::Experience& experience,
     //    std::shared_ptr<const anet::rl::BatchUpdateResult> result) const
     //{
-    //    // Œ»ó‚Í SetTensor Œo—R‚Å‚Ì‚İXV‚·‚éİŒv
-    //    /// @todo •K—v‚É‰‚¶‚Ä BatchExperience/BUR ‚©‚ç Tensor ‚ğæ“¾‚·‚éŒo˜H‚ğ’Ç‰Á
+    //    // ç¾çŠ¶ã¯ SetTensor çµŒç”±ã§ã®ã¿æ›´æ–°ã™ã‚‹è¨­è¨ˆ
+    //    /// @todo å¿…è¦ã«å¿œã˜ã¦ BatchExperience/BUR ã‹ã‚‰ Tensor ã‚’å–å¾—ã™ã‚‹çµŒè·¯ã‚’è¿½åŠ 
     //}
 
     std::optional<float> FunctionFloatProbe::GetFloat(
@@ -55,12 +55,12 @@ namespace anet {
      StateAxisProbe::StateAxisProbe(int state_index, const anet::rl::StateSpec* spec, bool for_next_state)
         : state_index_(state_index), for_next_state_(for_next_state)
     {
-        // EnvSpec ‚Ì state_spec ‚©‚ç min/max ‚ğæ“¾
+        // EnvSpec ã® state_spec ã‹ã‚‰ min/max ã‚’å–å¾—
         if (spec != nullptr && state_index >= 0 && state_index < (int)spec->CalcFlattenSize()) {
-            // w’è‚³‚ê‚½index‚Ì’è‹`î•ñ‚ğæ“¾
+            // æŒ‡å®šã•ã‚ŒãŸindexã®å®šç¾©æƒ…å ±ã‚’å–å¾—
             const anet::rl::StateDimInfo* s = spec->FindDim(state_index);
 
-            // ’è‹`î•ñ‚ğæ“¾o—ˆ‚½‚çmin/max‚ğƒZƒbƒg
+            // å®šç¾©æƒ…å ±ã‚’å–å¾—å‡ºæ¥ãŸã‚‰min/maxã‚’ã‚»ãƒƒãƒˆ
             if (s != nullptr) {
                 min_ = s->min_value;
                 max_ = s->max_value;
@@ -97,4 +97,98 @@ namespace anet {
         return experience.reward;
     }
 
-} // namespace anet::viz
+
+    RLStateSweepProcessor::RLStateSweepProcessor(
+        const anet::rl::EnvSpec& env_spec,
+        int x_index,
+        int y_index,
+        std::function<float(const torch::Tensor&)> value_extractor,
+        std::optional<torch::Tensor> base_state,
+        std::optional<float> x_min_override,
+        std::optional<float> x_max_override,
+        std::optional<float> y_min_override,
+        std::optional<float> y_max_override
+        )
+        : env_spec_(env_spec)
+        , state_spec_(env_spec.state_spec)
+        , x_index_(x_index)
+        , y_index_(y_index)
+        , value_extractor_(value_extractor)
+    {
+        int64_t flat_size = state_spec_.CalcFlattenSize();
+
+        if (base_state.has_value()) {
+            base_flatten_ = base_state.value().clone();
+        }
+        else {
+            base_flatten_ = torch::zeros({ flat_size }, torch::kFloat32);
+        }
+
+        // min/maxï¼šStateSpec ã‹ã‚‰
+        const auto* dx = state_spec_.FindDim(x_index_);
+        const auto* dy = state_spec_.FindDim(y_index_);
+
+        float xs_min = dx ? dx->min_value : -1.0f;
+        float xs_max = dx ? dx->max_value : 1.0f;
+        float ys_min = dy ? dy->min_value : -1.0f;
+        float ys_max = dy ? dy->max_value : 1.0f;
+
+        x_min_overridden_ = x_min_override.has_value();
+        x_max_overridden_ = x_max_override.has_value();
+        y_min_overridden_ = y_min_override.has_value();
+        y_max_overridden_ = y_max_override.has_value();
+
+        x_min_ = x_min_override.value_or(xs_min);
+        x_max_ = x_max_override.value_or(xs_max);
+        y_min_ = y_min_override.value_or(ys_min);
+        y_max_ = y_max_override.value_or(ys_max);
+    }
+
+    // ===========================================================
+    // ISweepInputGenerator
+    // ===========================================================
+
+    void RLStateSweepProcessor::ApplyGridSize(int width, int height)
+    {
+        if (width > 0) grid_w_ = width;
+        if (height> 0) grid_h_ = height;
+    }
+
+    std::pair<int, int> RLStateSweepProcessor::GetGridSize() const
+    {
+        return { grid_w_, grid_h_ };
+    }
+
+    torch::Tensor RLStateSweepProcessor::BuildInputTensor(int gx, int gy)
+    {
+        torch::Tensor input = base_flatten_.clone();
+
+        float xf = (grid_w_ > 1) ? float(gx) / float(grid_w_ - 1) : 0.f;
+        float yf = (grid_h_ > 1) ? float(gy) / float(grid_h_ - 1) : 0.f;
+
+        float xv = x_min_ + xf * (x_max_ - x_min_);
+        float yv = y_min_ + yf * (y_max_ - y_min_);
+
+        input[x_index_] = xv;
+        input[y_index_] = yv;
+
+        return input;  // (state_dim)
+    }
+
+    int64_t RLStateSweepProcessor::GetFlattenSize() const
+    {
+        return base_flatten_.size(0);
+    }
+
+    // ===========================================================
+    // ISweepOutputExtractor
+    // ===========================================================
+
+    float RLStateSweepProcessor::ExtractValue(const torch::Tensor& batched_out, int gx, int gy)
+    {
+        int idx = gy * grid_w_ + gx;
+        auto sample = batched_out[idx];
+        return value_extractor_(sample);
+    }
+
+}

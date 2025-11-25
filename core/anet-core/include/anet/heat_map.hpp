@@ -155,7 +155,7 @@ namespace anet {
             uint32_t flags = HM_AutoScaleAxis | HM_AutoNormValue,
             float base_min = std::numeric_limits<float>::quiet_NaN(),
             float base_max = std::numeric_limits<float>::quiet_NaN(),
-            float alpha = 0.05f
+            float alpha = 1.0f
             );
 
         void AddBatch(const std::vector<float>& values);

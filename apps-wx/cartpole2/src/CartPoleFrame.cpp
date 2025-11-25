@@ -96,6 +96,10 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     auto eval_result = anet::rl::EvaluateEnvironmentDifficulty(*env_, 100);
     anet::MetricsLogger::Instance()->LogJson("eval_env", eval_result.ToJson());
 
+    // --- Agent生成 ---
+    anet::ConfigData agentConfig = wxGetApp().GetConfig("agent");
+    agent_ = std::make_unique<anet::rl::DQNAgent>(agentConfig, env_spec, device_, rnd_);
+
     // MetricsLogObserver
     metrics_obs_ = std::make_shared<anet::rl::MetricsLogObserver>();
 
@@ -124,10 +128,10 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
         //float ymax = 1.0f;
 
     };
-    auto x_probe = new anet::StateAxisProbe(0, &env_spec.state_spec, true);
-    auto theta_probe = new anet::StateAxisProbe(2, &env_spec.state_spec, true);
-    auto theta_dot_probe = new anet::StateAxisProbe(3, &env_spec.state_spec, true);
-    auto reward_probe = new anet::RewardProbe(nullptr);
+    auto x_probe = std::make_shared<anet::StateAxisProbe>(0, &env_spec.state_spec, true);
+    auto theta_probe = std::make_shared<anet::StateAxisProbe>(2, &env_spec.state_spec, true);
+    auto theta_dot_probe = std::make_shared<anet::StateAxisProbe>(3, &env_spec.state_spec, true);
+    auto reward_probe = std::make_shared<anet::RewardProbe>(nullptr);
     visit1_heat_obs_ = std::make_shared<anet::rl::HeatMapObserver>(
         "43_agent_img/02_hm_visit1", visit_heat_obs_config, x_probe, theta_probe, reward_probe);
     visit2_heat_obs_ = std::make_shared<anet::rl::HeatMapObserver>(
@@ -147,19 +151,41 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
         std::numeric_limits<float>::quiet_NaN(),
         1.0f// alpha = 0.05f
     };
+    auto q_probe = std::make_shared<anet::BatchUpdateResultVectorProbe>("max_q");
     q_hist_obs_ = std::make_shared<anet::rl::TimeHistogramObserver>(
-        "43_agent_img/05_hm_q", q_hist_obs_config, "max_q");
+        "43_agent_img/04_hm_td", q_hist_obs_config, q_probe);
 
-    // --- Agent生成 ---
-    anet::ConfigData agentConfig = wxGetApp().GetConfig("agent");
-    agent_ = std::make_unique<anet::rl::DQNAgent>(agentConfig, env_spec, device_, rnd_);
+    //SweepedHeatMapObserver(
+    //    const std::string & tag,
+    //    const SweepedHeatMapObserverConfig & config,
+    //    std::shared_ptr<ISweepInputGenerator> input_gen,
+    //    ApplyNNFn apply_nn_fn,
+    //    std::shared_ptr<ISweepOutputExtractor> output_ext);
+
+    anet::rl::SweepedHeatMapObserverConfig q_sweep_obs_config {
+        100,    // log_interval
+        flags,  // flags
+        128,    // grid_width
+        128,    // grid_height
+        -1,     // image_width
+        -1,     // image_height
+    };
+    std::shared_ptr<anet::RLStateSweepProcessor> proc = std::make_shared<anet::RLStateSweepProcessor>(
+        env_spec,
+        0,  // x_index
+        2   // y_index
+    );
+    anet::rl::ApplyNNFn apply_fn = agent_->GetApplyFunction("policy_net");
+    q_sweep_obs_ = std::make_shared<anet::rl::SweepedHeatMapObserver>(
+        "43_agent_img/05_hm_q", q_sweep_obs_config, proc, apply_fn, proc);
 
     // --- Obserber登録 ---
     notifier_.AddObserver(metrics_obs_);
     notifier_.AddObserver(visit1_heat_obs_);
     notifier_.AddObserver(visit2_heat_obs_);
     notifier_.AddObserver(q_hist_obs_);
-   
+    notifier_.AddObserver(q_sweep_obs_);
+
     // --- 環境初期化 ---
     state_ = env_->Reset();  // ← reset() は 初期状態 を返す
     ANET_CHECK_DEVICE_CPU_MSG(state_.obs, "Initial state");
@@ -200,6 +226,8 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     // 再入防止
 	this->timer.Stop();
 
+    auto env_spec = env_->GetSpec();
+
     // --- 学習ステップを複数回回す ---
     //auto action = agent->select_action(state);
     float last_reward = 0.0f;
@@ -210,8 +238,12 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
             wxGetApp().Exit();
         }
 
-        // 行動選択
+        // Stateチェック
         wxLogDebug("CartPoleFrame::OnTimer() step=%d state=%s", step_count_, state_.ToString());
+        ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
+        ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.Flatten().obs));
+
+        // 行動選択
         auto action_info = agent_->MakeAction(state_);
         wxLogDebug("CartPoleFrame::OnTimer() step=%d action=%s", step_count_, action_info.ToString());
         ANET_CHECK_DEVICE(action_info.action, device_);

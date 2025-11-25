@@ -49,7 +49,7 @@ namespace anet {
 
         void Close();
     public:
-        VideoLogger(const std::string& path, int width, int height, int fps = 30, int in_rate = 120, const std::string& codec = "mjpeg");
+        VideoLogger(const std::string& path, int width, int height, int fps = 10, int in_rate = 30, const std::string& codec = "mjpeg");
         ~VideoLogger() { Close(); }
 
         void WriteFrame(const wxImage& img);

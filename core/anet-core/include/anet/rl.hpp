@@ -310,8 +310,11 @@ namespace anet::rl {
         virtual ~PostUpdateObserver() = default;
     };
 
+    using ApplyNNFn = std::function<torch::Tensor(const torch::Tensor&)>;
+
     class Agent : public Runner, public Learner {
     public:
+        virtual ApplyNNFn GetApplyFunction(const std::string& key) const = 0;
         virtual ~Agent() = default;
     };
 

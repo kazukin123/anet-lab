@@ -40,16 +40,16 @@ anet::rl::EnvSpec CartPoleEnv::GetSpec() const
         {4},   // shape
         {      //dims
             { {0}, -limit_x, limit_x,     "x"},         // dims[0] coords, min, max, name, desc
-            { {1}, -2, 2,                 "x_dot"},     // dims[1] coords, min, max, name, desc
+            { {1}, -2.0f, 2.0f,           "x_dot"},     // dims[1] coords, min, max, name, desc
             { {2}, -limit_theta * deg, limit_theta * deg, "theta"}, // dims[2] coords, min, max, name, desc
-            { {3}, -3, 3,                 "theta_dot"}  // dims[3] coords, min, max, name, desc
+            { {3}, -3.0f, 3.0f,           "theta_dot"}  // dims[3] coords, min, max, name, desc
         }
     };
     anet::rl::ActionSpec action = {
         true,   // is_discreate
         { "left", "right"}, // value_labels
         { // dims
-            { 0, 1, "force" } 
+            { 0, 1, "force" }  // min, max, name
         }
     };
     anet::rl::EnvSpec env_spec = {
