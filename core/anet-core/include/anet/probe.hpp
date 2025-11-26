@@ -257,6 +257,15 @@ namespace anet {
         virtual ~ISweepInputGenerator() = default;
     };
 
+    struct ExtractResult {
+        torch::Tensor grid;                          // HeatMap 用
+        std::vector<std::string> labels;             // それぞれの scalar 名
+        std::vector<torch::Tensor> scalars;          // 個別 scalar 値（GPU Tensor）
+    };
+
+    using ValueExtractFunction = std::function<
+        ExtractResult(const torch::Tensor& t, const std::unordered_set<std::string>& required_labels) >;
+
     /**
      * @brief SweepedHeatMap の出力処理側インタフェース。
      * batched NN 出力から HeatMap の 1セル値を抽出する役割を持つ。
@@ -282,9 +291,40 @@ namespace anet {
 
         /// @brief batched output から W*H 個の値を GPU 上で抽出
         /// @return shape = [W*H], dtype=float32, device=device
-        virtual torch::Tensor ExtractValue(
-            const torch::Tensor& output) = 0;
+        virtual ExtractResult Extract(const torch::Tensor& output,
+            const std::unordered_set<std::string>& required_labels) = 0;
     };
+
+    namespace extractor {
+        ExtractResult MaxExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req);
+        ExtractResult MeanExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req);
+        ExtractResult IndexExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req, int idx);
+        ExtractResult DiffIndexExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req, int plus_idx, int minus_idx);
+        ExtractResult PairDiffExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req, int n_actions);
+        ExtractResult QdeltaQmaxCombined(
+            const torch::Tensor& t, const std::unordered_set<std::string>& req,
+            int n_actions,
+            float qdelta_scale,      // ex: 0.5f
+            float qmax_threshold);    // ex: 20.0f;
+        ExtractResult QdeltaQmaxCombinedAuto(
+            const torch::Tensor& t, const std::unordered_set<std::string>& req,
+            int n_actions);
+        ExtractResult QdeltaQdiffCombinedAuto(
+            const torch::Tensor& t, const std::unordered_set<std::string>& req,
+            int n_actions,
+            int action_index_a,
+            int action_index_b);
+        ExtractResult BoundaryMaskFromQdiffAuto(
+            const torch::Tensor& t, const std::unordered_set<std::string>& req,
+            int n_actions,
+            int action_index_a,
+            int action_index_b);
+        ExtractResult BoundaryMaskedQdeltaAuto(
+            const torch::Tensor& t, const std::unordered_set<std::string>& req,
+            int n_actions,
+            int action_index_a,
+            int action_index_b);
+    }
 
     /**
      * @brief  
@@ -294,229 +334,6 @@ namespace anet {
      */
     class RLStateSweepProcessor : public ISweepInputGenerator, public ISweepOutputExtractor {
     public:
-        using ValueExtractFn = std::function<torch::Tensor(const torch::Tensor&)>;
-
-        static torch::Tensor MaxExtractor(const torch::Tensor& t) { // t: [W*H, out_dim]
-            return std::get<0>(t.max(1)); // [W*H]
-        }
-        static torch::Tensor MeanExtractor(const torch::Tensor& t) {
-            return t.mean(1); // [W*H]
-        }
-        static torch::Tensor IndexExtractor(const torch::Tensor& t, int idx) {
-            return t.index({ torch::indexing::Slice(), idx });
-        }
-        static torch::Tensor DiffIndexExtractor(const torch::Tensor& t, int plus_idx, int minus_idx) {
-            using namespace torch::indexing;
-            auto plus_val = t.index({ Slice(), plus_idx });
-            auto minus_va = t.index({ Slice(), minus_idx });
-            return plus_val - minus_va;
-        }
-        static torch::Tensor PairDiffExtractor(const torch::Tensor& t, int n_actions) {
-            using namespace torch::indexing;
-            ANET_CHECK_SHAPE(t, { ANET_SHAPE_ANY, n_actions * 2 });
-            auto q_online = t.index({ Slice(), Slice(0, n_actions) });               // [N, n_actions]
-            auto q_target = t.index({ Slice(), Slice(n_actions, n_actions * 2) });   // [N, n_actions]
-            auto diff = (q_online - q_target).abs().mean(1);                         // [N]
-            return diff;
-        }
-        static torch::Tensor QdeltaQmaxCombined(
-            const torch::Tensor& t,
-            int n_actions,
-            float qdelta_scale,      // ex: 0.5f
-            float qmax_threshold)    // ex: 20.0f
-        {
-            using namespace torch::indexing;
-
-            auto q_online = t.index({ Slice(), Slice(0, n_actions) });
-            auto q_target = t.index({ Slice(), Slice(n_actions, 2 * n_actions) });
-
-            // Qdelta = |online - target| の平均
-            auto qdelta = (q_online - q_target).abs().mean(1);       // [N]
-
-            // Qmax = |online| の最大値
-            auto qmax = std::get<0>(q_online.abs().max(1));       // [N]
-
-            // 正規化（0〜1）
-            auto qdelta_norm = (qdelta / qdelta_scale).clamp(0.0f, 1.0f);
-            auto qmax_norm = (qmax / qmax_threshold).clamp(0.0f, 1.0f);
-
-            // 合成
-            auto combined = qdelta_norm * qmax_norm;
-            return combined;
-        }
-        // =============================
-        // QdeltaQmaxCombinedAuto
-        // -----------------
-        //    Qdelta 高 × Qmax 高
-        //    → 発散で地形が壊れて target 追従不能の領域
-        //    Qdelta 高 × Qmax 低
-        //    → target追従不足（でも発散ではない）
-        //    Qdelta 低 × Qmax 高
-        //    → Qの発散だけが起きている領域（target が遅れて青くなる前兆）
-        //    両方低
-        //    → 安定
-        // -----------------
-        //    発散領域（本当に最悪の赤）
-        //    → 真っ赤に浮かび上がる
-        //    （Qdelta_norm ≈ 1＆Qmax_norm ≈ 1）
-        //    Qmax が高いのに Qdelta はまだ小さい（発散初期段階）
-        //    → 暗オレンジ色に現れる
-        //    → 崩壊の前兆が見える
-        //    赤いけれど発散ではない Qdelta の赤
-        //    → 黄色〜緑程度で止まる
-        //    Qdelta が高いが Qmax はまだ青い（target追従だけ遅れ）
-        //    → 緑〜黄に現れる
-        // =============================
-        static torch::Tensor QdeltaQmaxCombinedAuto(
-            const torch::Tensor& t,
-            int n_actions)
-        {
-            using namespace torch::indexing;
-
-            auto q_online = t.index({ Slice(), Slice(0, n_actions) });
-            auto q_target = t.index({ Slice(), Slice(n_actions, 2 * n_actions) });
-
-            auto qdelta = (q_online - q_target).abs().mean(1);
-            auto qmax = std::get<0>(q_online.abs().max(1));
-
-            // GPU 上の max（scalar-tensor）
-            auto qdelta_max = qdelta.max();  // shape [], device same as qdelta
-            auto qmax_max = qmax.max();    // shape [], device same as qmax
-
-            // EPS を GPU Tensor で作る
-            auto eps = torch::full({}, 1e-6, qdelta.options());   // shape=[]
-
-            // GPU同士の除算 → 完全GPU処理
-            auto qdelta_norm = qdelta / (qdelta_max + eps);
-            auto qmax_norm = qmax / (qmax_max + eps);
-
-            return qdelta_norm * qmax_norm;
-        }
-
-        /// QDELTA × |Qdiff|
-        static torch::Tensor QdeltaQdiffCombinedAuto(
-            const torch::Tensor& t,
-            int n_actions,
-            int action_index_a,
-            int action_index_b)
-        {
-            using namespace torch::indexing;
-
-            ANET_ASSERT(t.dim() == 2);
-            ANET_ASSERT(n_actions > 0);
-            ANET_ASSERT(t.size(1) == n_actions * 2);
-            ANET_ASSERT(action_index_a >= 0 && action_index_a < n_actions);
-            ANET_ASSERT(action_index_b >= 0 && action_index_b < n_actions);
-
-            // t: [N, 2 * n_actions] = [q_online, q_target]
-            auto q_online = t.index({ Slice(), Slice(0, n_actions) });
-            auto q_target = t.index({ Slice(), Slice(n_actions, 2 * n_actions) });
-
-            // Qdelta(s) = mean_a |Q_online(s,a) - Q_target(s,a)|
-            auto qdelta = (q_online - q_target).abs().mean(1);  // [N]
-
-            // Qdiff(s) = Q_online(s, b) - Q_online(s, a)
-            auto qdiff = q_online.index({ Slice(), action_index_b })
-                - q_online.index({ Slice(), action_index_a }); // [N]
-            auto qdiff_abs = qdiff.abs();                      // [N]
-
-            // GPU 上での max（0 次元 Tensor）
-            auto qdelta_max = qdelta.max();    // []
-            auto qdiff_max = qdiff_abs.max();  // []
-
-            // EPS を GPU Tensor で生成
-            auto eps = torch::full({}, 1e-6f, t.options());
-
-            // 自動正規化（0〜1）
-            auto qdelta_norm = qdelta / (qdelta_max + eps);
-            auto qdiff_norm = qdiff_abs / (qdiff_max + eps);
-
-            // 合成: target 乖離 × 境界ゆらぎ
-            auto combined = qdelta_norm * qdiff_norm;          // [N]
-
-            return combined;
-        }
-        static torch::Tensor BoundaryMaskFromQdiffAuto(
-            const torch::Tensor& t,
-            int n_actions,
-            int action_index_a,
-            int action_index_b)
-        {
-            using namespace torch::indexing;
-
-            ANET_ASSERT(t.dim() == 2);
-            ANET_ASSERT(n_actions > 0);
-            ANET_ASSERT(t.size(1) == n_actions);
-            ANET_ASSERT(action_index_a >= 0 && action_index_a < n_actions);
-            ANET_ASSERT(action_index_b >= 0 && action_index_b < n_actions);
-
-            // t: [N, 2 * n_actions] = [q_online, q_target]
-            auto q_online = t.index({ Slice(), Slice(0, n_actions) });
-
-            // Qdiff(s) = Q_online(s, b) - Q_online(s, a)
-            auto qdiff = q_online.index({ Slice(), action_index_b }) -
-                q_online.index({ Slice(), action_index_a });  // [N]
-            auto qdiff_abs = qdiff.abs();                             // [N]
-
-            // GPU 上で max を取得（0 次元 Tensor）
-            auto qdiff_max = qdiff_abs.max();                         // []
-
-            // EPS を GPU Tensor として生成
-            auto eps = torch::full({}, 1e-6f, t.options());
-
-            // 正規化: 0〜1 （境界からの距離）
-            auto qdiff_norm = qdiff_abs / (qdiff_max + eps);          // [N], 0〜1
-
-            // 境界強度: 境界付近ほど 1.0、遠いほど 0.0
-            auto boundary_strength = 1.0f - qdiff_norm;               // [N]
-
-            return boundary_strength;
-        }
-
-        static torch::Tensor BoundaryMaskedQdeltaAuto(
-            const torch::Tensor& t,
-            int n_actions,
-            int action_index_a,
-            int action_index_b)
-        {
-            using namespace torch::indexing;
-
-            ANET_ASSERT(t.dim() == 2);
-            ANET_ASSERT(n_actions > 0);
-            ANET_ASSERT(t.size(1) == n_actions * 2);
-            ANET_ASSERT(action_index_a >= 0 && action_index_a < n_actions);
-            ANET_ASSERT(action_index_b >= 0 && action_index_b < n_actions);
-
-            // t: [N, 2 * n_actions] = [q_online, q_target]
-            auto q_online = t.index({ Slice(), Slice(0, n_actions) });
-            auto q_target = t.index({ Slice(), Slice(n_actions, 2 * n_actions) });
-
-            // Qdelta(s) = mean_a |Q_online(s,a) - Q_target(s,a)|
-            auto qdelta = (q_online - q_target).abs().mean(1);        // [N]
-
-            // Qdiff(s) = Q_online(s, b) - Q_online(s, a)
-            auto qdiff = q_online.index({ Slice(), action_index_b }) -
-                q_online.index({ Slice(), action_index_a }); // [N]
-            auto qdiff_abs = qdiff.abs();                             // [N]
-
-            // max を GPU 上で取得
-            auto qdelta_max = qdelta.max();                           // []
-            auto qdiff_max = qdiff_abs.max();                        // []
-
-            auto eps = torch::full({}, 1e-6f, t.options());
-
-            // 0〜1 に自動正規化
-            auto qdelta_norm = qdelta / (qdelta_max + eps);           // [N]
-            auto qdiff_norm = qdiff_abs / (qdiff_max + eps);        // [N]
-
-            // 境界強度: 境界付近ほど 1.0、遠いほど 0.0
-            auto boundary_strength = 1.0f - qdiff_norm;               // [N]
-
-            // 境界まわりでの Qdelta を強調
-            auto combined = boundary_strength * qdelta_norm;          // [N]
-
-            return combined;
-        }
         /**
          * @param env_spec      状態仕様
          * @param x_index       X 軸に割り当てる state flatten index
@@ -532,7 +349,7 @@ namespace anet {
             const anet::rl::StateSpec& state_spec,
             int x_index,
             int y_index,
-            ValueExtractFn value_extract_fn = &MaxExtractor,
+            ValueExtractFunction value_extract_fn = &extractor::MaxExtractor,
             const torch::Device& device = torch::kCUDA,
             std::optional<torch::Tensor> base_state = std::nullopt,
             std::optional<float> x_min_override = std::nullopt,
@@ -547,7 +364,8 @@ namespace anet {
         std::pair<int, int> GetGridSize() const override;
         torch::Tensor BuildInputTensor() override;
         int64_t GetFlattenSize() const override;
-        torch::Tensor ExtractValue(const torch::Tensor& batched_out) override;
+        ExtractResult Extract(const torch::Tensor& batched_out,
+            const std::unordered_set<std::string>& required_labels) override;
     private:
         const anet::rl::StateSpec state_spec_;
         const torch::Device device_;
@@ -574,7 +392,7 @@ namespace anet {
         int grid_h_ = 256;
 
         // NN 出力 → 値抽出
-        ValueExtractFn value_extract_fn_;
+        ValueExtractFunction value_extract_fn_;
     };
 
     ///**

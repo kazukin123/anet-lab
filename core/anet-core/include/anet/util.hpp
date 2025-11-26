@@ -301,5 +301,15 @@ namespace anet {
         std::vector<K> order_;        // 定義順保持
     };
 
+    static std::unordered_map<std::string, std::string>
+        MakeReverseMap(const std::unordered_map<std::string, std::string>& m)
+    {
+        std::unordered_map<std::string, std::string> rev;
+        rev.reserve(m.size());
+        for (auto& kv : m) {
+            rev.emplace(kv.second, kv.first);
+        }
+        return rev;
+    }
 
 } // namespace anet

@@ -96,16 +96,17 @@ namespace anet::rl {
     }
 
     SweepedHeatMapObserver::SweepedHeatMapObserver(
-        const std::string& tag,
+        const std::string& heatmap_tag,
         const SweepedHeatMapObserverConfig& config,
         std::shared_ptr<ISweepInputGenerator> input_gen,
         TensorFunction tensor_fn,
-        std::shared_ptr<ISweepOutputExtractor> output_ext)
-        : tag_(tag), config_(config),
-        input_gen_(input_gen),
-        tensor_fn_(std::move(tensor_fn)),
-        output_ext_(output_ext)
+        std::shared_ptr<ISweepOutputExtractor> output_ext,
+        const std::unordered_map<std::string, std::string>& scalar_tag_label_map)
+        : heatmap_tag_(heatmap_tag), config_(config),
+        input_gen_(input_gen), tensor_fn_(std::move(tensor_fn)), output_ext_(output_ext)
     {
+        scalar_label_tag_map_ = MakeReverseMap(scalar_tag_label_map);
+
         // Observer → InputGenerator に GridSize 希望を渡す
         input_gen_->ApplyGridSize(config_.grid_width, config_.grid_height);
 
@@ -147,54 +148,69 @@ namespace anet::rl {
 
         const int64_t grid_num = static_cast<int64_t>(grid_w_) * static_cast<int64_t>(grid_h_);
 
-        // -----------------------------
         // 入力バッチ生成（GPU 上）
-        // -----------------------------
         torch::Tensor batch_in = input_gen_->BuildInputTensor();
         ANET_CHECK_SHAPE(batch_in, { grid_num, ANET_SHAPE_ENDANY });
         wxLogDebug(
             "SweepedHeatMapObserver::OnPostUpdate() batch_in=%s",
             anet::ToDefString(batch_in));
 
-        // -----------------------------
         // NN 適用（GPU 上）
-        // -----------------------------
         torch::Tensor batch_out = tensor_fn_(batch_in);
         ANET_CHECK_SHAPE(batch_out, { grid_num, ANET_SHAPE_ENDANY });
         wxLogDebug(
             "SweepedHeatMapObserver::OnPostUpdate() batch_out=%s",
             anet::ToDefString(batch_out));
 
-        // -----------------------------
-        // 出力から値抽出（GPU 上, [W*H]）
-        // -----------------------------
-        torch::Tensor grid_values = output_ext_->ExtractValue(batch_out);
-        ANET_CHECK_SHAPE(grid_values, { grid_num });
-        ANET_CHECK_DTYPE(grid_values, torch::kFloat32);
-        wxLogDebug(
-            "SweepedHeatMapObserver::OnPostUpdate() grid_values=%s",
-            anet::ToDefString(grid_values));
+        // リクエストするLabelをscalar_tag_label_map_からsetに詰める
+        std::unordered_set<std::string> req_label_set(scalar_label_tag_map_.size());
+        wxLogDebug("tag=%s req_label_set.size=%d", heatmap_tag_, req_label_set.size());
+        for (const auto& kv : scalar_label_tag_map_) {
+            req_label_set.insert(kv.first);
+            //wxLogDebug("tag=%s label=%s", heatmap_tag_, kv.second);
+        }
 
-        // -----------------------------
-        // CPU へ一括転送して HeatMap に投入
-        // -----------------------------
-        torch::Tensor grid_cpu = grid_values.to(torch::kCPU);
+        // 出力から値抽出（GPU 上, [W*H]）
+        ExtractResult extract_result = output_ext_->Extract(batch_out, req_label_set);
+        wxLogDebug(
+            "SweepedHeatMapObserver::OnPostUpdate() grid_values=%s  tag=%s", 
+            anet::ToDefString(extract_result.grid), heatmap_tag_);
+        ANET_CHECK_SHAPE(extract_result.grid, { grid_num });
+        ANET_CHECK_DTYPE(extract_result.grid, torch::kFloat32);
+        ANET_ASSERT(extract_result.labels.size() == extract_result.scalars.size());
+
+        // CPU へ一括転送
+        torch::Tensor grid_cpu = extract_result.grid.to(torch::kCPU);
         ANET_CHECK_SHAPE(grid_cpu, { grid_num });
         ANET_CHECK_DTYPE(grid_cpu, torch::kFloat32);
         float* data = grid_cpu.data_ptr<float>();
+        std::vector<torch::Tensor> scalars_cpu;
+        for (auto& t : extract_result.scalars) scalars_cpu.push_back(t.to(torch::kCPU));
+        wxLogDebug("SweepedHeatMapObserver::OnPostUpdate() Extract done.");
+
+        // HeatMapデータ設定
         heatmap_->SetGridValues(data, grid_w_, grid_h_);
         wxLogDebug("SweepedHeatMapObserver::OnPostUpdate() SetGridValues() done.");
 
-        // -----------------------------
         // 画像ログ出力
-        // -----------------------------
         MetricsLogger::Instance()->LogImage(
-            tag_,
+            heatmap_tag_,
             step,
             *heatmap_,
             config_.image_width,
             config_.image_height);
-        wxLogDebug("SweepedHeatMapObserver::OnPostUpdate() LogImage() done.");
+        wxLogDebug("SweepedHeatMapObserver::OnPostUpdate() LogImage() done. tag=%s", heatmap_tag_);
+
+        // Scalarログ出力
+        for (int i = 0; i < extract_result.labels.size(); i++) {
+            auto result_label = extract_result.labels[i];
+            auto tag_itr = scalar_label_tag_map_.find(result_label);
+            if (tag_itr != scalar_label_tag_map_.end()) {
+                auto scalar_tag = tag_itr->second;
+                auto scalar_value = scalars_cpu[i].item<float>();
+                MetricsLogger::Instance()->LogScalar(scalar_tag, step, scalar_value);
+            }
+        }
     }
 
 

@@ -97,14 +97,11 @@ namespace anet {
         return experience.reward;
     }
 
-    using ValueExtractFunction = std::function<float(const torch::Tensor&)>;
-
-
     RLStateSweepProcessor::RLStateSweepProcessor(
         const anet::rl::StateSpec& state_spec,
         int x_index,
         int y_index,
-        ValueExtractFn value_extract_fn,
+        ValueExtractFunction value_extract_fn,
         const torch::Device& device,
         std::optional<torch::Tensor> base_state,
         std::optional<float> x_min_override, std::optional<float> x_max_override,
@@ -211,15 +208,295 @@ namespace anet {
         return base_flatten_.size(0);
     }
 
-    torch::Tensor RLStateSweepProcessor::ExtractValue(const torch::Tensor& batched_out)
+    ExtractResult RLStateSweepProcessor::Extract(const torch::Tensor& batched_out,
+        const std::unordered_set<std::string>& required_labels)
     {
         const int64_t grid_num = static_cast<int64_t>(grid_w_) * static_cast<int64_t>(grid_h_);
         ANET_CHECK_SHAPE(batched_out, { grid_num, ANET_SHAPE_ENDANY });
 
-        torch::Tensor grid_values = value_extract_fn_(batched_out);
-        ANET_CHECK_SHAPE(grid_values, { grid_num });
+        auto extract_result = value_extract_fn_(batched_out, required_labels);
+        ANET_CHECK_SHAPE(extract_result.grid, { grid_num });
 
-        return grid_values;
+        return extract_result;
+    }
+
+    //struct ExtractResult {
+    //    torch::Tensor grid;                          // HeatMap 用
+    //    std::vector<std::string> labels;             // それぞれの scalar 名
+    //    std::vector<torch::Tensor> scalars;          // 個別 scalar 値（GPU Tensor）
+    //};
+
+    // ==== Extractors
+
+    namespace extractor {
+
+        // -------
+
+        template <class Map, class Key>
+        bool map_contains(const Map& m, const Key& k) {
+            return m.find(k) != m.end();
+        }
+
+        void push_scalar(std::vector<std::string>& labels, std::vector<torch::Tensor>& scalars,
+            const std::string& label, const torch::Tensor& scalar_tensor)
+        {
+            labels.push_back(label);
+            scalars.push_back(scalar_tensor);
+        }
+
+        // -------
+
+        ExtractResult MaxExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req) { // t: [W*H, out_dim]
+            auto grid = std::get<0>(t.max(1)); // [W*H]
+            auto max = grid.max();
+            return { grid,
+                { "max" },
+                { max }
+            };
+        }
+        ExtractResult MeanExtractor(
+            const torch::Tensor& t, const std::unordered_set<std::string>& req) {
+            return { t.mean(1) }; // [W*H]
+        }
+        ExtractResult IndexExtractor(
+            const torch::Tensor& t, const std::unordered_set<std::string>& req, int idx) {
+            return { t.index({ torch::indexing::Slice(), idx }) };
+        }
+        ExtractResult DiffIndexExtractor(
+            const torch::Tensor& t, const std::unordered_set<std::string>& req, int plus_idx, int minus_idx) {
+            using namespace torch::indexing;
+            auto plus_val = t.index({ Slice(), plus_idx });
+            auto minus_va = t.index({ Slice(), minus_idx });
+            return { plus_val - minus_va };
+        }
+        ExtractResult PairDiffExtractor(
+            const torch::Tensor& t, const std::unordered_set<std::string>& req, int n_actions) {
+            using namespace torch::indexing;
+            ANET_CHECK_SHAPE(t, { ANET_SHAPE_ANY, n_actions * 2 });
+            auto q_online = t.index({ Slice(), Slice(0, n_actions) });               // [N, n_actions]
+            auto q_target = t.index({ Slice(), Slice(n_actions, n_actions * 2) });   // [N, n_actions]
+            auto diff = (q_online - q_target).abs().mean(1);                         // [N]
+            return { diff };
+        }
+        ExtractResult QdeltaQmaxCombined(
+            const torch::Tensor& t, const std::unordered_set<std::string>& req,
+            int n_actions,
+            float qdelta_scale,      // ex: 0.5f
+            float qmax_threshold)    // ex: 20.0f
+        {
+            using namespace torch::indexing;
+
+            auto q_online = t.index({ Slice(), Slice(0, n_actions) });
+            auto q_target = t.index({ Slice(), Slice(n_actions, 2 * n_actions) });
+
+            // Qdelta = |online - target| の平均
+            auto qdelta = (q_online - q_target).abs().mean(1);       // [N]
+
+            // Qmax = |online| の最大値
+            auto qmax = std::get<0>(q_online.abs().max(1));       // [N]
+
+            // 正規化（0〜1）
+            auto qdelta_norm = (qdelta / qdelta_scale).clamp(0.0f, 1.0f);
+            auto qmax_norm = (qmax / qmax_threshold).clamp(0.0f, 1.0f);
+
+            // 合成
+            auto combined = qdelta_norm * qmax_norm;
+            return { combined };
+        }
+        // =============================
+        // QdeltaQmaxCombinedAuto
+        // -----------------
+        //    Qdelta 高 × Qmax 高
+        //    → 発散で地形が壊れて target 追従不能の領域
+        //    Qdelta 高 × Qmax 低
+        //    → target追従不足（でも発散ではない）
+        //    Qdelta 低 × Qmax 高
+        //    → Qの発散だけが起きている領域（target が遅れて青くなる前兆）
+        //    両方低
+        //    → 安定
+        // -----------------
+        //    発散領域（本当に最悪の赤）
+        //    → 真っ赤に浮かび上がる
+        //    （Qdelta_norm ≈ 1＆Qmax_norm ≈ 1）
+        //    Qmax が高いのに Qdelta はまだ小さい（発散初期段階）
+        //    → 暗オレンジ色に現れる
+        //    → 崩壊の前兆が見える
+        //    赤いけれど発散ではない Qdelta の赤
+        //    → 黄色〜緑程度で止まる
+        //    Qdelta が高いが Qmax はまだ青い（target追従だけ遅れ）
+        //    → 緑〜黄に現れる
+        // =============================
+        ExtractResult QdeltaQmaxCombinedAuto(
+            const torch::Tensor& t, const std::unordered_set<std::string>& req,
+            int n_actions)
+        {
+            using namespace torch::indexing;
+
+            auto q_online = t.index({ Slice(), Slice(0, n_actions) });
+            auto q_target = t.index({ Slice(), Slice(n_actions, 2 * n_actions) });
+
+            auto qdelta = (q_online - q_target).abs().mean(1);
+            auto qmax = std::get<0>(q_online.abs().max(1));
+
+            // GPU 上の max（scalar-tensor）
+            auto qdelta_max = qdelta.max();  // shape [], device same as qdelta
+            auto qmax_max = qmax.max();    // shape [], device same as qmax
+
+            // EPS を GPU Tensor で作る
+            auto eps = torch::full({}, 1e-6, qdelta.options());   // shape=[]
+
+            // GPU同士の除算 → 完全GPU処理
+            auto qdelta_norm = qdelta / (qdelta_max + eps);
+            auto qmax_norm = qmax / (qmax_max + eps);
+
+            return { qdelta_norm * qmax_norm };
+        }
+        /// QDELTA × |Qdiff|
+        ExtractResult QdeltaQdiffCombinedAuto(
+            const torch::Tensor& t, const std::unordered_set<std::string>& req,
+            int n_actions,
+            int action_index_a,
+            int action_index_b)
+        {
+            using namespace torch::indexing;
+
+            ANET_ASSERT(t.dim() == 2);
+            ANET_ASSERT(n_actions > 0);
+            ANET_ASSERT(t.size(1) == n_actions * 2);
+            ANET_ASSERT(action_index_a >= 0 && action_index_a < n_actions);
+            ANET_ASSERT(action_index_b >= 0 && action_index_b < n_actions);
+
+            // t: [N, 2 * n_actions] = [q_online, q_target]
+            auto q_online = t.index({ Slice(), Slice(0, n_actions) });
+            auto q_target = t.index({ Slice(), Slice(n_actions, 2 * n_actions) });
+
+            // Qdelta(s) = mean_a |Q_online(s,a) - Q_target(s,a)|
+            auto qdelta = (q_online - q_target).abs().mean(1);  // [N]
+
+            // Qdiff(s) = Q_online(s, b) - Q_online(s, a)
+            auto qdiff = q_online.index({ Slice(), action_index_b })
+                - q_online.index({ Slice(), action_index_a }); // [N]
+            auto qdiff_abs = qdiff.abs();                      // [N]
+
+            // GPU 上での max（0 次元 Tensor）
+            auto qdelta_max = qdelta.max();    // []
+            auto qdiff_max = qdiff_abs.max();  // []
+
+            // EPS を GPU Tensor で生成
+            auto eps = torch::full({}, 1e-6f, t.options());
+
+            // 自動正規化（0〜1）
+            auto qdelta_norm = qdelta / (qdelta_max + eps);
+            auto qdiff_norm = qdiff_abs / (qdiff_max + eps);
+
+            // 合成: target 乖離 × 境界ゆらぎ
+            auto combined = qdelta_norm * qdiff_norm;          // [N]
+
+            return { combined };
+        }
+        ExtractResult BoundaryMaskFromQdiffAuto(
+            const torch::Tensor& t, const std::unordered_set<std::string>& req,
+            int n_actions,
+            int action_index_a,
+            int action_index_b)
+        {
+            using namespace torch::indexing;
+
+            ANET_ASSERT(t.dim() == 2);
+            ANET_ASSERT(n_actions > 0);
+            ANET_ASSERT(t.size(1) == n_actions);
+            ANET_ASSERT(action_index_a >= 0 && action_index_a < n_actions);
+            ANET_ASSERT(action_index_b >= 0 && action_index_b < n_actions);
+
+            // t: [N, 2 * n_actions] = [q_online, q_target]
+            auto q_online = t.index({ Slice(), Slice(0, n_actions) });
+
+            // Qdiff(s) = Q_online(s, b) - Q_online(s, a)
+            auto qdiff = q_online.index({ Slice(), action_index_b }) -
+                q_online.index({ Slice(), action_index_a });  // [N]
+            auto qdiff_abs = qdiff.abs();                             // [N]
+
+            // GPU 上で max を取得（0 次元 Tensor）
+            auto qdiff_max = qdiff_abs.max();                         // []
+
+            // EPS を GPU Tensor として生成
+            auto eps = torch::full({}, 1e-6f, t.options());
+
+            // 正規化: 0〜1 （境界からの距離）
+            auto qdiff_norm = qdiff_abs / (qdiff_max + eps);          // [N], 0〜1
+
+            // 境界強度: 境界付近ほど 1.0、遠いほど 0.0
+            auto boundary_strength = 1.0f - qdiff_norm;               // [N]
+
+            return { boundary_strength };
+        }
+
+        ExtractResult BoundaryMaskedQdeltaAuto(
+            const torch::Tensor& t, const std::unordered_set<std::string>& req,
+            int n_actions,
+            int action_index_a,
+            int action_index_b)
+        {
+            using namespace torch::indexing;
+
+            ANET_ASSERT(t.dim() == 2);
+            ANET_ASSERT(n_actions > 0);
+            ANET_ASSERT(t.size(1) == n_actions * 2);
+            ANET_ASSERT(action_index_a >= 0 && action_index_a < n_actions);
+            ANET_ASSERT(action_index_b >= 0 && action_index_b < n_actions);
+
+            // t: [N, 2 * n_actions] = [q_online, q_target]
+            auto q_online = t.index({ Slice(), Slice(0, n_actions) });
+            auto q_target = t.index({ Slice(), Slice(n_actions, 2 * n_actions) });
+
+            // Qdelta(s) = mean_a |Q_online - Q_target|
+            auto qdelta = (q_online - q_target).abs().mean(1);   // [N]
+
+            // Qdiff(s) = Q_online(s,b) - Q_online(s,a)
+            auto qdiff = q_online.index({ Slice(), action_index_b })
+                - q_online.index({ Slice(), action_index_a });    // [N]
+            auto qdiff_abs = qdiff.abs();
+
+            // 正規化用 max
+            auto qdelta_max = qdelta.max();
+            auto qdiff_max = qdiff_abs.max();
+
+            auto eps = torch::full({}, 1e-6f, t.options());
+
+            // 0〜1 に normalize
+            auto qdelta_norm = qdelta / (qdelta_max + eps);
+            auto qdiff_norm = qdiff_abs / (qdiff_max + eps);
+
+            // 境界強度（1が境界付近）
+            auto boundary_strength = 1.0f - qdiff_norm;          // [N]
+
+            // HeatMap 用（正規化された combined）
+            auto combined = boundary_strength * qdelta_norm;     // [N]
+
+            std::vector<std::string> labels;
+            std::vector<torch::Tensor> scalars;
+
+            if (map_contains(req, "raw_qdelta_mean")) {
+                push_scalar(labels, scalars, "raw_qdelta_mean", qdelta.mean());
+            }
+            if (map_contains(req, "raw_qdelta_max")) {
+                push_scalar(labels, scalars, "raw_qdelta_max", qdelta.max());
+            }
+            if (map_contains(req, "raw_boundary_mean")) {
+                push_scalar(labels, scalars, "raw_boundary_mean", boundary_strength.mean());
+            }
+            if (map_contains(req, "boundary_area")) {
+                push_scalar(labels, scalars, "boundary_area", (boundary_strength > 0.5f).sum());
+            }
+            if (map_contains(req, "combined_mean")) {
+                push_scalar(labels, scalars, "combined_mean", combined.mean());
+            }
+            if (map_contains(req, "combined_max")) {
+                push_scalar(labels, scalars, "combined_max", combined.max());
+            }
+
+            return { combined, labels, scalars };
+        }
     }
 
 }

@@ -2,6 +2,7 @@
 #include "anet/rl.hpp"  // PostUpdateObserver, Experience, ActionInfo, UpdateResult
 #include "anet/probe.hpp"
 #include "anet/metrics_logger.hpp"
+#include "anet/util.hpp"
 
 namespace anet::rl {
 
@@ -156,11 +157,12 @@ namespace anet::rl {
     class SweepedHeatMapObserver : public anet::rl::PostUpdateObserver {
     public:
         SweepedHeatMapObserver(
-            const std::string& tag,
+            const std::string& heatmap_tag,
             const SweepedHeatMapObserverConfig& config,
             std::shared_ptr<ISweepInputGenerator> input_gen,
             TensorFunction tensor_fn_,
-            std::shared_ptr<ISweepOutputExtractor> output_ext);
+            std::shared_ptr<ISweepOutputExtractor> output_ext,
+            const std::unordered_map<std::string, std::string>& scalar_tag_label_map = {});
 
         void OnPostUpdate(
             int step,
@@ -168,8 +170,9 @@ namespace anet::rl {
             std::shared_ptr<const anet::rl::BatchUpdateResult> result
         ) override;
     private:
-        std::string tag_;
+        std::string heatmap_tag_;
         SweepedHeatMapObserverConfig config_;
+        std::unordered_map<std::string, std::string> scalar_label_tag_map_;
 
         std::shared_ptr<ISweepInputGenerator> input_gen_;
         TensorFunction tensor_fn_;

@@ -180,13 +180,26 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
         2,  // x_index = theta
         3   // y_index = theta_dot
     );
+    //RLStateSweepProcessor(
+    //    const anet::rl::StateSpec& state_spec,
+    //    int x_index,
+    //    int y_index,
+    //    ValueExtractFunction value_extract_fn = &extractor::MaxExtractor,
+    //    const torch::Device& device = torch::kCUDA,
+    //    std::optional<torch::Tensor> base_state = std::nullopt,
+    //    std::optional<float> x_min_override = std::nullopt,
+    //    std::optional<float> x_max_override = std::nullopt,
+    //    std::optional<float> y_min_override = std::nullopt,
+    //    std::optional<float> y_max_override = std::nullopt
+    //);
     auto proc_theta_thetadot_qdiff = std::make_shared<anet::RLStateSweepProcessor>(
         env_spec.state_spec,
         2,  // x_index = theta
         3,  // y_index = theta_dot
         std::bind(
-            &anet::RLStateSweepProcessor::DiffIndexExtractor,
+            &anet::extractor::DiffIndexExtractor,
             std::placeholders::_1,
+            std::placeholders::_2,
             0,
             1)
     );
@@ -195,8 +208,9 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
         2,  // x_index = theta
         3,  // y_index = theta_dot
         std::bind(
-            &anet::RLStateSweepProcessor::BoundaryMaskFromQdiffAuto,
+            &anet::extractor::BoundaryMaskFromQdiffAuto,
             std::placeholders::_1,
+            std::placeholders::_2,
             env_spec.action_spec.ActionCount(),
             0,
             1)
@@ -206,7 +220,11 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
         env_spec.state_spec,
         2,  // x_index = theta
         3,  // y_index = theta_dot
-        std::bind(&anet::RLStateSweepProcessor::PairDiffExtractor, std::placeholders::_1, env_spec.action_spec.ActionCount())
+        std::bind(
+            &anet::extractor::PairDiffExtractor,
+            std::placeholders::_1,
+            std::placeholders::_2,
+            env_spec.action_spec.ActionCount())
     );
     /// @brief QdeltaとQmaxの合成。
     /// <summary>
@@ -224,8 +242,9 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
         2,  // x_index = theta
         3,  // y_index = theta_dot
         std::bind(
-            &anet::RLStateSweepProcessor::QdeltaQmaxCombinedAuto,
+            &anet::extractor::QdeltaQmaxCombinedAuto,
             std::placeholders::_1,
+            std::placeholders::_2,
             env_spec.action_spec.ActionCount()
         )
     );
@@ -234,8 +253,9 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
         2,  // x_index = theta
         3,  // y_index = theta_dot
         std::bind(
-            &anet::RLStateSweepProcessor::QdeltaQdiffCombinedAuto,
+            &anet::extractor::QdeltaQdiffCombinedAuto,
             std::placeholders::_1,
+            std::placeholders::_2,
             env_spec.action_spec.ActionCount(),
             0,  // action_index_a (LEFT)
             1   // action_index_b (RIGHT)
@@ -246,13 +266,17 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
         2,  // x_index = theta
         3,  // y_index = theta_dot
         std::bind(
-            &anet::RLStateSweepProcessor::BoundaryMaskedQdeltaAuto,
+            &anet::extractor::BoundaryMaskedQdeltaAuto,
             std::placeholders::_1,
+            std::placeholders::_2,
             env_spec.action_spec.ActionCount(),
             0,  // action_index_a (LEFT)
             1   // action_index_b (RIGHT)
         )
     );
+
+    using StrMap = std::unordered_map<std::string, std::string>;
+
 
     anet::rl::TensorFunction policy_forward = agent_->GetTensorFunction("policy_net.forward");
     anet::rl::TensorFunction qpair_forward = agent_->GetTensorFunction("q_pair.forward");
@@ -273,7 +297,15 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     q_sweep_obs_23_combo_qdqdiff_ = std::make_shared<anet::rl::SweepedHeatMapObserver>(
         "43_agent_img/13_shm_23_qdelta_qdiff", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdelta_qdiff, qpair_forward, proc_theta_thetadot_pair_combo_qdelta_qdiff);
     q_sweep_obs_23_combo_qdelta_qdiff_masked_ = std::make_shared<anet::rl::SweepedHeatMapObserver>(
-        "43_agent_img/14_shm_23_qdelta_qdiff-masked", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdelta_qdiffmasked, qpair_forward, proc_theta_thetadot_pair_combo_qdelta_qdiffmasked);
+        "43_agent_img/14_shm_23_qdelta_qdiff-masked", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdelta_qdiffmasked, qpair_forward, proc_theta_thetadot_pair_combo_qdelta_qdiffmasked,
+        StrMap {
+            { "44_agent_imgsc/23qdd_raw_qdelta_mean", "raw_qdelta_mean" },
+            { "44_agent_imgsc/23qdd_raw_qdelta_max", "raw_qdelta_max" },
+            { "44_agent_imgsc/23qdd_raw_boundary_mean", "raw_boundary_mean" },
+            { "44_agent_imgsc/23qdd_boundary_area", "boundary_area"  },
+            { "44_agent_imgsc/23qdd_combined_mean", "combined_mean" },
+            { "44_agent_imgsc/23qdd_combined_max", "combined_max"  }
+        });
 
     // --- Obserber登録 ---
     notifier_.AddObserver(metrics_obs_);
