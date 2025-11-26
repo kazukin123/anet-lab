@@ -97,30 +97,29 @@ namespace anet {
         return experience.reward;
     }
 
+    using ValueExtractFunction = std::function<float(const torch::Tensor&)>;
+
 
     RLStateSweepProcessor::RLStateSweepProcessor(
-        const anet::rl::EnvSpec& env_spec,
+        const anet::rl::StateSpec& state_spec,
         int x_index,
         int y_index,
-        std::function<float(const torch::Tensor&)> value_extractor,
+        ValueExtractFn value_extract_fn,
+        const torch::Device& device,
         std::optional<torch::Tensor> base_state,
-        std::optional<float> x_min_override,
-        std::optional<float> x_max_override,
-        std::optional<float> y_min_override,
-        std::optional<float> y_max_override
-        )
-        : env_spec_(env_spec)
-        , state_spec_(env_spec.state_spec)
+        std::optional<float> x_min_override, std::optional<float> x_max_override,
+        std::optional<float> y_min_override, std::optional<float> y_max_override)
+        : state_spec_(state_spec)
+        , device_(device)
         , x_index_(x_index)
         , y_index_(y_index)
-        , value_extractor_(value_extractor)
+        , value_extract_fn_(value_extract_fn)
     {
         int64_t flat_size = state_spec_.CalcFlattenSize();
 
         if (base_state.has_value()) {
             base_flatten_ = base_state.value().clone();
-        }
-        else {
+        } else {
             base_flatten_ = torch::zeros({ flat_size }, torch::kFloat32);
         }
 
@@ -159,20 +158,52 @@ namespace anet {
         return { grid_w_, grid_h_ };
     }
 
-    torch::Tensor RLStateSweepProcessor::BuildInputTensor(int gx, int gy)
+    torch::Tensor RLStateSweepProcessor::BuildInputTensor()
     {
-        torch::Tensor input = base_flatten_.clone();
+        ANET_ASSERT(grid_w_ > 0);
+        ANET_ASSERT(grid_h_ > 0);
 
-        float xf = (grid_w_ > 1) ? float(gx) / float(grid_w_ - 1) : 0.f;
-        float yf = (grid_h_ > 1) ? float(gy) / float(grid_h_ - 1) : 0.f;
+        const int64_t flat_size = base_flatten_.size(0);
+        const int64_t grid_num = static_cast<int64_t>(grid_w_) * static_cast<int64_t>(grid_h_);
 
-        float xv = x_min_ + xf * (x_max_ - x_min_);
-        float yv = y_min_ + yf * (y_max_ - y_min_);
+        auto opts = torch::TensorOptions().dtype(torch::kFloat32).device(device_);
 
-        input[x_index_] = xv;
-        input[y_index_] = yv;
+        // base_flatten_ を device に移動し、全セル分に複製
+        torch::Tensor base = base_flatten_.to(opts);
+        torch::Tensor batch = base.unsqueeze(0).repeat({ grid_num, 1 });
 
-        return input;  // (state_dim)
+        // X軸補間値作成
+        torch::Tensor xs;
+        if (grid_w_ > 1) {
+            xs = torch::linspace(0.0f, 1.0f, grid_w_, opts);
+        } else {
+            xs = torch::zeros({ 1 }, opts);
+        }
+        torch::Tensor xv = x_min_ + xs * (x_max_ - x_min_);
+        xv = xv.repeat({ grid_h_ });
+
+        // Y軸補間値作成
+        torch::Tensor ys;
+        if (grid_h_ > 1) {
+            ys = torch::linspace(0.0f, 1.0f, grid_h_, opts);
+        } else {
+            ys = torch::zeros({ 1 }, opts);
+        }
+        torch::Tensor yv = y_min_ + ys * (y_max_ - y_min_);
+        yv = yv.repeat_interleave(grid_w_);
+
+        // 行インデックス [0 .. grid_num-1]
+        torch::Tensor idx = torch::arange(
+            grid_num, torch::TensorOptions().dtype(torch::kLong).device(device_));
+
+        // 指定された state index へ X/Y 値を上書き
+        batch.index_put_({ idx, static_cast<int64_t>(x_index_) }, xv);
+        batch.index_put_({ idx, static_cast<int64_t>(y_index_) }, yv);
+
+        // Shape 検証
+        ANET_CHECK_SHAPE(batch, { grid_num, flat_size });
+
+        return batch;  // [W*H, flat_size] on device_
     }
 
     int64_t RLStateSweepProcessor::GetFlattenSize() const
@@ -180,15 +211,15 @@ namespace anet {
         return base_flatten_.size(0);
     }
 
-    // ===========================================================
-    // ISweepOutputExtractor
-    // ===========================================================
-
-    float RLStateSweepProcessor::ExtractValue(const torch::Tensor& batched_out, int gx, int gy)
+    torch::Tensor RLStateSweepProcessor::ExtractValue(const torch::Tensor& batched_out)
     {
-        int idx = gy * grid_w_ + gx;
-        auto sample = batched_out[idx];
-        return value_extractor_(sample);
+        const int64_t grid_num = static_cast<int64_t>(grid_w_) * static_cast<int64_t>(grid_h_);
+        ANET_CHECK_SHAPE(batched_out, { grid_num, ANET_SHAPE_ENDANY });
+
+        torch::Tensor grid_values = value_extract_fn_(batched_out);
+        ANET_CHECK_SHAPE(grid_values, { grid_num });
+
+        return grid_values;
     }
 
 }

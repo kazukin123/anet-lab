@@ -1,8 +1,7 @@
-# train
+﻿# train
 train.preset=train.online
 #train.preset=train.batchrun
-#train.preset=train.batchrun2
-train.seed=0	# 0 -> AutoSeed
+#train.online.seed=171730964985300	# 0 -> AutoSeed
 
 # log 
 #log.enable_image_log = false 	# sec/10K = 1:18(78sec)       / 0:43
@@ -47,7 +46,9 @@ agent_asdqn_bool11.tau_half_life_recover = 2000 # 1000 安定後、τが2倍に�
 agent_asdqn_bool11.tau_recover_delay = 1000     # このステップ期間安定していたら回復開始
 agent_asdqn_bool11.act_bias_threshold = 0.35    # 行動偏り閾値 (|left_ratio - right_ratio| > act_bias_threshold → 崩壊)
 
-agent_asdqn_bool10.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_asdqn_bool10.alpha=2.5e-4            # ★学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+#agent_asdqn_bool10.alpha=5e-4            # ★学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+#agent_asdqn_bool10.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
 #agent_asdqn_bool10.alpha=2.5e-4            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
 #agent_asdqn_bool10.alpha=1.0e-4            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
 agent_asdqn_bool10.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す

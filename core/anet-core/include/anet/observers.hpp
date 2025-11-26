@@ -155,12 +155,11 @@ namespace anet::rl {
      */
     class SweepedHeatMapObserver : public anet::rl::PostUpdateObserver {
     public:
-    public:
         SweepedHeatMapObserver(
             const std::string& tag,
             const SweepedHeatMapObserverConfig& config,
             std::shared_ptr<ISweepInputGenerator> input_gen,
-            anet::rl::ApplyNNFn apply_nn_fn,
+            TensorFunction tensor_fn_,
             std::shared_ptr<ISweepOutputExtractor> output_ext);
 
         void OnPostUpdate(
@@ -173,7 +172,7 @@ namespace anet::rl {
         SweepedHeatMapObserverConfig config_;
 
         std::shared_ptr<ISweepInputGenerator> input_gen_;
-        ApplyNNFn apply_nn_fn_;
+        TensorFunction tensor_fn_;
         std::shared_ptr<ISweepOutputExtractor> output_ext_;
 
         int grid_w_ = 0;

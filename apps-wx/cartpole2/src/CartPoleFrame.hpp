@@ -45,7 +45,15 @@ private:
     std::shared_ptr<anet::rl::HeatMapObserver> visit1_heat_obs_;
     std::shared_ptr<anet::rl::HeatMapObserver> visit2_heat_obs_;
     std::shared_ptr<anet::rl::TimeHistogramObserver> q_hist_obs_;
-    std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_;
+    std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_02_qmax_;
+    std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_23_qmax_;
+    //std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_23_q0_;
+    std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_23_qdiff_;
+    std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_23_qdiff_mask_;
+    std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_23_qdelta_;
+    std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_23_combo_qdqmax_;
+    std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_23_combo_qdqdiff_;
+    std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_23_combo_qdelta_qdiff_masked_;
     anet::rl::Notifier notifier_;
 
     // メトリクス

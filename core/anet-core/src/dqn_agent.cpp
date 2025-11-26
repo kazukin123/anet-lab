@@ -157,13 +157,39 @@ struct anet::rl::DQNAgent::QNetImpl : torch::nn::Module {
     }
 };
 
-ApplyNNFn DQNAgent::GetApplyFunction(const std::string& key) const
+anet::rl::TensorFunction DQNAgent::GetTensorFunction(const std::string& key) const
 {
-    ApplyNNFn fn = [this](const torch::Tensor& t) {
-		/// @todo 排他
+    if (key == "policy_net.forward") {
+        anet::rl::TensorFunction fn = [this](const torch::Tensor& t) {
+            auto tdev = t.to(device_);
+            std::shared_lock<std::shared_mutex> lock(mutex_);
+            return policy_net_->forward(tdev);
+            };
+        return fn;
+    } else if (key == "target_net.forward") {
+        anet::rl::TensorFunction fn = [this](const torch::Tensor& t) {
+            auto tdev = t.to(device_);
+            std::shared_lock<std::shared_mutex> lock(mutex_);
+            return target_net_->forward(tdev);
+            };
+        return fn;
+    } else if (key == "q_pair.forward") {
+        anet::rl::TensorFunction fn = [this](const torch::Tensor& t) {
+            auto tdev = t.to(device_);
+            std::shared_lock<std::shared_mutex> lock(mutex_);
+            auto q_online = policy_net_->forward(tdev);     // [N, A]
+            auto q_target = target_net_->forward(tdev);     // [N, A]
+            return torch::cat({ q_online, q_target }, 1);   // [N, 2*A]
+            };
+        return fn;
+    }
+
+    // default
+    anet::rl::TensorFunction fn = [this](const torch::Tensor& t) {
         auto tdev = t.to(device_);
+        std::shared_lock<std::shared_mutex> lock(mutex_);
         return policy_net_->forward(tdev);
-        };
+    };
     return fn;
 }
 

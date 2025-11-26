@@ -124,7 +124,7 @@ namespace anet::rl {
         anet::rl::BatchActionInfo MakeAction(const anet::rl::BatchState& state, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
         std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromBatch(const anet::rl::BatchExperience& exprience) override;
 
-        ApplyNNFn GetApplyFunction(const std::string& key) const override;
+        anet::rl::TensorFunction GetTensorFunction(const std::string& key) const override;
     private:
         int state_dim_;
         int n_actions_;

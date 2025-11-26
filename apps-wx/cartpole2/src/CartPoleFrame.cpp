@@ -153,7 +153,7 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     };
     auto q_probe = std::make_shared<anet::BatchUpdateResultVectorProbe>("max_q");
     q_hist_obs_ = std::make_shared<anet::rl::TimeHistogramObserver>(
-        "43_agent_img/04_hm_td", q_hist_obs_config, q_probe);
+        "43_agent_img/04_thg_t", q_hist_obs_config, q_probe);
 
     //SweepedHeatMapObserver(
     //    const std::string & tag,
@@ -170,21 +170,125 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
         -1,     // image_width
         -1,     // image_height
     };
-    std::shared_ptr<anet::RLStateSweepProcessor> proc = std::make_shared<anet::RLStateSweepProcessor>(
-        env_spec,
-        0,  // x_index
-        2   // y_index
+    auto proc_x_theta_qmax = std::make_shared<anet::RLStateSweepProcessor>(
+        env_spec.state_spec,
+        0,  // x_index = x
+        2   // y_index = theta
     );
-    anet::rl::ApplyNNFn apply_fn = agent_->GetApplyFunction("policy_net");
-    q_sweep_obs_ = std::make_shared<anet::rl::SweepedHeatMapObserver>(
-        "43_agent_img/05_hm_q", q_sweep_obs_config, proc, apply_fn, proc);
+    auto proc_theta_thetadot_qmax = std::make_shared<anet::RLStateSweepProcessor>(
+        env_spec.state_spec,
+        2,  // x_index = theta
+        3   // y_index = theta_dot
+    );
+    auto proc_theta_thetadot_qdiff = std::make_shared<anet::RLStateSweepProcessor>(
+        env_spec.state_spec,
+        2,  // x_index = theta
+        3,  // y_index = theta_dot
+        std::bind(
+            &anet::RLStateSweepProcessor::DiffIndexExtractor,
+            std::placeholders::_1,
+            0,
+            1)
+    );
+    auto proc_theta_thetadot_qdiff_mask = std::make_shared<anet::RLStateSweepProcessor>(
+        env_spec.state_spec,
+        2,  // x_index = theta
+        3,  // y_index = theta_dot
+        std::bind(
+            &anet::RLStateSweepProcessor::BoundaryMaskFromQdiffAuto,
+            std::placeholders::_1,
+            env_spec.action_spec.ActionCount(),
+            0,
+            1)
+    );
+    /// policy_netとtarget_netの差分を見る
+    auto proc_theta_thetadot_pair_qdelta = std::make_shared<anet::RLStateSweepProcessor>(
+        env_spec.state_spec,
+        2,  // x_index = theta
+        3,  // y_index = theta_dot
+        std::bind(&anet::RLStateSweepProcessor::PairDiffExtractor, std::placeholders::_1, env_spec.action_spec.ActionCount())
+    );
+    /// @brief QdeltaとQmaxの合成。
+    /// <summary>
+    //    Qdelta 高 × Qmax 高
+    //    → 発散で地形が壊れて target 追従不能の領域
+    //    Qdelta 高 × Qmax 低
+    //    → target追従不足（でも発散ではない）
+    //    Qdelta 低 × Qmax 高
+    //    → Qの発散だけが起きている領域（target が遅れて青くなる前兆）
+    //    両方低
+    //    → 安定
+    /// </summary>
+    auto proc_theta_thetadot_pair_combo_qdeltaqmax = std::make_shared<anet::RLStateSweepProcessor>(
+        env_spec.state_spec,
+        2,  // x_index = theta
+        3,  // y_index = theta_dot
+        std::bind(
+            &anet::RLStateSweepProcessor::QdeltaQmaxCombinedAuto,
+            std::placeholders::_1,
+            env_spec.action_spec.ActionCount()
+        )
+    );
+    auto proc_theta_thetadot_pair_combo_qdelta_qdiff = std::make_shared<anet::RLStateSweepProcessor>(
+        env_spec.state_spec,
+        2,  // x_index = theta
+        3,  // y_index = theta_dot
+        std::bind(
+            &anet::RLStateSweepProcessor::QdeltaQdiffCombinedAuto,
+            std::placeholders::_1,
+            env_spec.action_spec.ActionCount(),
+            0,  // action_index_a (LEFT)
+            1   // action_index_b (RIGHT)
+        )
+    );
+    auto proc_theta_thetadot_pair_combo_qdelta_qdiffmasked = std::make_shared<anet::RLStateSweepProcessor>(
+        env_spec.state_spec,
+        2,  // x_index = theta
+        3,  // y_index = theta_dot
+        std::bind(
+            &anet::RLStateSweepProcessor::BoundaryMaskedQdeltaAuto,
+            std::placeholders::_1,
+            env_spec.action_spec.ActionCount(),
+            0,  // action_index_a (LEFT)
+            1   // action_index_b (RIGHT)
+        )
+    );
+
+    anet::rl::TensorFunction policy_forward = agent_->GetTensorFunction("policy_net.forward");
+    anet::rl::TensorFunction qpair_forward = agent_->GetTensorFunction("q_pair.forward");
+    q_sweep_obs_02_qmax_ = std::make_shared<anet::rl::SweepedHeatMapObserver>(
+        "43_agent_img/05_shm_02_qmax", q_sweep_obs_config, proc_x_theta_qmax, policy_forward, proc_x_theta_qmax);
+    q_sweep_obs_23_qmax_ = std::make_shared<anet::rl::SweepedHeatMapObserver>(
+        "43_agent_img/06_shm_23_qmax", q_sweep_obs_config, proc_theta_thetadot_qmax, policy_forward, proc_theta_thetadot_qmax);
+    //q_sweep_obs_23_q0_ = std::make_shared<anet::rl::SweepedHeatMapObserver>(
+    //    "43_agent_img/07_shm_23_q0", q_sweep_obs_config, proc_theta_thetadot_q0, policy_forward, proc_theta_thetadot_q0);
+    q_sweep_obs_23_qdiff_ = std::make_shared<anet::rl::SweepedHeatMapObserver>(
+        "43_agent_img/08_shm_23_qdiff", q_sweep_obs_config, proc_theta_thetadot_qdiff, policy_forward, proc_theta_thetadot_qdiff);
+    q_sweep_obs_23_qdiff_mask_ = std::make_shared<anet::rl::SweepedHeatMapObserver>(
+        "43_agent_img/09_shm_23_qdiff_mask", q_sweep_obs_config, proc_theta_thetadot_qdiff_mask, policy_forward, proc_theta_thetadot_qdiff_mask);
+    q_sweep_obs_23_qdelta_ = std::make_shared<anet::rl::SweepedHeatMapObserver>(
+        "43_agent_img/11_shm_23_qdelta", q_sweep_obs_config, proc_theta_thetadot_pair_qdelta, qpair_forward, proc_theta_thetadot_pair_qdelta);
+    q_sweep_obs_23_combo_qdqmax_ = std::make_shared<anet::rl::SweepedHeatMapObserver>(
+        "43_agent_img/12_shm_23_qdelta_qmax", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdeltaqmax, qpair_forward, proc_theta_thetadot_pair_combo_qdeltaqmax);
+    q_sweep_obs_23_combo_qdqdiff_ = std::make_shared<anet::rl::SweepedHeatMapObserver>(
+        "43_agent_img/13_shm_23_qdelta_qdiff", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdelta_qdiff, qpair_forward, proc_theta_thetadot_pair_combo_qdelta_qdiff);
+    q_sweep_obs_23_combo_qdelta_qdiff_masked_ = std::make_shared<anet::rl::SweepedHeatMapObserver>(
+        "43_agent_img/14_shm_23_qdelta_qdiff-masked", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdelta_qdiffmasked, qpair_forward, proc_theta_thetadot_pair_combo_qdelta_qdiffmasked);
 
     // --- Obserber登録 ---
     notifier_.AddObserver(metrics_obs_);
     notifier_.AddObserver(visit1_heat_obs_);
     notifier_.AddObserver(visit2_heat_obs_);
     notifier_.AddObserver(q_hist_obs_);
-    notifier_.AddObserver(q_sweep_obs_);
+    notifier_.AddObserver(q_sweep_obs_02_qmax_);
+    notifier_.AddObserver(q_sweep_obs_23_qmax_);
+    //notifier_.AddObserver(q_sweep_obs_23_q0_);
+    notifier_.AddObserver(q_sweep_obs_23_qdiff_);
+    notifier_.AddObserver(q_sweep_obs_23_qdiff_mask_);
+    notifier_.AddObserver(q_sweep_obs_23_qdelta_);
+    notifier_.AddObserver(q_sweep_obs_23_combo_qdqmax_);
+    notifier_.AddObserver(q_sweep_obs_23_combo_qdqdiff_);
+    notifier_.AddObserver(q_sweep_obs_23_combo_qdelta_qdiff_masked_);
 
     // --- 環境初期化 ---
     state_ = env_->Reset();  // ← reset() は 初期状態 を返す

@@ -310,11 +310,11 @@ namespace anet::rl {
         virtual ~PostUpdateObserver() = default;
     };
 
-    using ApplyNNFn = std::function<torch::Tensor(const torch::Tensor&)>;
+    using TensorFunction = std::function<torch::Tensor(const torch::Tensor&)>;
 
     class Agent : public Runner, public Learner {
     public:
-        virtual ApplyNNFn GetApplyFunction(const std::string& key) const = 0;
+        virtual TensorFunction GetTensorFunction(const std::string& key) const = 0;
         virtual ~Agent() = default;
     };
 
@@ -328,7 +328,7 @@ namespace anet::rl {
 
         int GetStepCount() const { return step_count_; }
     protected:
-        std::shared_mutex mutex_;
+        mutable std::shared_mutex mutex_;
     protected:
         // Resource（Agentが管理すべき領域）
         ConfigT config_;

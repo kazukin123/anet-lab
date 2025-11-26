@@ -79,6 +79,31 @@ void HeatMap::AddData(float x, float y, float value) {
 	UpdateMinMax_(value);
 }
 
+/// @brief グリッドの値を一括設定（高速パス）
+/// values は row-major (y * W + x)
+/// サイズ = W * H
+void HeatMap::SetGridValues(const float* values, int width, int height) {
+	ANET_ASSERT(width == width_);
+	ANET_ASSERT(height == height_);
+
+	samples_.clear();
+
+	float min_v = std::numeric_limits<float>::infinity();
+	float max_v = -std::numeric_limits<float>::infinity();
+
+	for (int i = 0; i < width * height; ++i) {
+		float v = values[i];
+		samples_.push_back({ static_cast<float>(i % width),
+							 static_cast<float>(i / width),
+							 v });
+		if (v < min_v) min_v = v;
+		if (v > max_v) max_v = v;
+	}
+
+	value_min_ = min_v;
+	value_max_ = max_v;
+}
+
 void HeatMap::Reset() {
 	samples_.clear();
 	value_min_ = std::numeric_limits<float>::max();
@@ -480,7 +505,7 @@ void TimeHistogram::AppendCurrentFrameOnly() {
 		bins[ix] += 1.0f;
 	}
 
-	// フレーム単位正規化（ここ重要）
+	// フレーム単位正規化
 	if (flags_ & HM_AutoNormValue) {
 		float mv = *std::max_element(bins.begin(), bins.end());
 		if (mv > 0.0f) {

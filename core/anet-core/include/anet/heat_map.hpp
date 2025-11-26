@@ -67,6 +67,7 @@ namespace anet {
         std::string GetImageSubType() const override { return "heat_map"; }
 
         void AddData(float x, float y, float value);
+        void SetGridValues(const float* values, int width, int height);
         void Reset() override;
         wxImage RenderRaw() const override;
     protected:

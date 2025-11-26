@@ -99,11 +99,11 @@ namespace anet::rl {
         const std::string& tag,
         const SweepedHeatMapObserverConfig& config,
         std::shared_ptr<ISweepInputGenerator> input_gen,
-        ApplyNNFn apply_nn_fn,
+        TensorFunction tensor_fn,
         std::shared_ptr<ISweepOutputExtractor> output_ext)
         : tag_(tag), config_(config),
         input_gen_(input_gen),
-        apply_nn_fn_(std::move(apply_nn_fn)),
+        tensor_fn_(std::move(tensor_fn)),
         output_ext_(output_ext)
     {
         // Observer → InputGenerator に GridSize 希望を渡す
@@ -141,60 +141,62 @@ namespace anet::rl {
     void SweepedHeatMapObserver::OnPostUpdate(
         int step,
         const anet::rl::BatchExperience& experience,
-        std::shared_ptr<const anet::rl::BatchUpdateResult> result) 
+        std::shared_ptr<const anet::rl::BatchUpdateResult> result)
     {
         if (step % config_.log_interval != 0) return;
 
-        auto flat_size = input_gen_->GetFlattenSize(); // 新規メソッド追加してもよい
-        torch::Tensor batch_in = torch::zeros({ grid_h_ * grid_w_, flat_size }, torch::kFloat32);
-        wxLogDebug("SweepedHeatMapObserver::OnPostUpdate() allocated batch_in=%s", anet::ToDefString(batch_in));
+        const int64_t grid_num = static_cast<int64_t>(grid_w_) * static_cast<int64_t>(grid_h_);
 
         // -----------------------------
-        // 全セルの入力Tensorを作成
+        // 入力バッチ生成（GPU 上）
         // -----------------------------
-        int idx = 0;
-        for (int y = 0; y < grid_h_; ++y) {
-            for (int x = 0; x < grid_w_; ++x) {
-                auto t = input_gen_->BuildInputTensor(x, y);
-                //wxLogDebug("SweepedHeatMapObserver::OnPostUpdate() x=%d y=%d tensor=%s",
-                    //x, y, anet::ToString(t));
-                batch_in.index_put_({ idx }, t);
-                idx++;
-            }
-        }
-        ANET_CHECK_SHAPE(batch_in, { grid_w_ * grid_h_, ANET_SHAPE_ENDANY });
-        wxLogDebug("SweepedHeatMapObserver::OnPostUpdate() batch_in=%s", anet::ToDefString(batch_in));
-        //wxLogDebug("SweepedHeatMapObserver::OnPostUpdate() batch_in=%s", anet::ToString(batch_in));
+        torch::Tensor batch_in = input_gen_->BuildInputTensor();
+        ANET_CHECK_SHAPE(batch_in, { grid_num, ANET_SHAPE_ENDANY });
+        wxLogDebug(
+            "SweepedHeatMapObserver::OnPostUpdate() batch_in=%s",
+            anet::ToDefString(batch_in));
 
         // -----------------------------
-        // NN 適用
+        // NN 適用（GPU 上）
         // -----------------------------
-        torch::Tensor batch_out = apply_nn_fn_(batch_in);
-        ANET_CHECK_SHAPE(batch_out, { grid_w_ * grid_h_, ANET_SHAPE_ENDANY });
-        wxLogDebug("SweepedHeatMapObserver::OnPostUpdate() batch_out=%s", anet::ToDefString(batch_out));
+        torch::Tensor batch_out = tensor_fn_(batch_in);
+        ANET_CHECK_SHAPE(batch_out, { grid_num, ANET_SHAPE_ENDANY });
+        wxLogDebug(
+            "SweepedHeatMapObserver::OnPostUpdate() batch_out=%s",
+            anet::ToDefString(batch_out));
 
         // -----------------------------
-        // OutputExtractor で値抽出した結果でHeatMapにデータ投入
+        // 出力から値抽出（GPU 上, [W*H]）
         // -----------------------------
-        heatmap_->Reset();
-
-        for (int y = 0; y < grid_h_; ++y) {
-            for (int x = 0; x < grid_w_; ++x) {
-                float v = output_ext_->ExtractValue(batch_out, x, y);
-                heatmap_->AddData(x, y, v);
-            }
-        }
-        wxLogDebug("SweepedHeatMapObserver::OnPostUpdate() AddData() done.");
+        torch::Tensor grid_values = output_ext_->ExtractValue(batch_out);
+        ANET_CHECK_SHAPE(grid_values, { grid_num });
+        ANET_CHECK_DTYPE(grid_values, torch::kFloat32);
+        wxLogDebug(
+            "SweepedHeatMapObserver::OnPostUpdate() grid_values=%s",
+            anet::ToDefString(grid_values));
 
         // -----------------------------
-        // 書き出し
+        // CPU へ一括転送して HeatMap に投入
+        // -----------------------------
+        torch::Tensor grid_cpu = grid_values.to(torch::kCPU);
+        ANET_CHECK_SHAPE(grid_cpu, { grid_num });
+        ANET_CHECK_DTYPE(grid_cpu, torch::kFloat32);
+        float* data = grid_cpu.data_ptr<float>();
+        heatmap_->SetGridValues(data, grid_w_, grid_h_);
+        wxLogDebug("SweepedHeatMapObserver::OnPostUpdate() SetGridValues() done.");
+
+        // -----------------------------
+        // 画像ログ出力
         // -----------------------------
         MetricsLogger::Instance()->LogImage(
-            tag_, step, *heatmap_,
-            config_.image_width, config_.image_height
-        );
+            tag_,
+            step,
+            *heatmap_,
+            config_.image_width,
+            config_.image_height);
         wxLogDebug("SweepedHeatMapObserver::OnPostUpdate() LogImage() done.");
     }
+
 
 /*
     static float ResolveAxis(
