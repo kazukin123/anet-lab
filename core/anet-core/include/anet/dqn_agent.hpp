@@ -16,7 +16,8 @@ namespace anet::rl {
         float gamma = 0.99f;   ///<  0.99f; 0.995f      γが高いほど「長期安定」を目指す
         float eps_max = 1.00f;
         float eps_min = 0.05f;    ///< 0.1f 0.05f
-        float eps_decay_step = 100000;
+        int eps_decay_step = 100000;
+        int eps_sigmoid_step = -1;
         float softupdate_tau = 0.01f;  ///<  1.0f 0.004f  0.01f 0.005f;   // 大きいとターゲットネットワークからの反映が早くなる。小さいと遅く滑らかになる。0.005→半減期138step
         int hardupdate_interval = 2000;
         bool use_grad_clip = true;
@@ -125,8 +126,11 @@ namespace anet::rl {
         std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromBatch(const anet::rl::BatchExperience& exprience) override;
 
         anet::rl::TensorFunction GetTensorFunction(const std::string& key) const override;
+        std::optional<float> GetScalar(const std::string& key) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const override;
     private:
-        int state_dim_;
+        int state_count_;
         int n_actions_;
     private:
         class BatchUpdateResult;

@@ -39,21 +39,8 @@ private:
 
     // 強化学習関連
     std::unique_ptr<CartPoleEnv> env_;
-    std::unique_ptr<anet::rl::Agent> agent_;
+    std::shared_ptr<anet::rl::Agent> agent_;
     anet::rl::BatchState state_;
-    std::shared_ptr<anet::rl::MetricsLogObserver> metrics_obs_;
-    std::shared_ptr<anet::rl::HeatMapObserver> visit1_heat_obs_;
-    std::shared_ptr<anet::rl::HeatMapObserver> visit2_heat_obs_;
-    std::shared_ptr<anet::rl::TimeHistogramObserver> q_hist_obs_;
-    std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_02_qmax_;
-    std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_23_qmax_;
-    //std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_23_q0_;
-    std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_23_qdiff_;
-    std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_23_qdiff_mask_;
-    std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_23_qdelta_;
-    std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_23_combo_qdqmax_;
-    std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_23_combo_qdqdiff_;
-    std::shared_ptr<anet::rl::SweepedHeatMapObserver> q_sweep_obs_23_combo_qdelta_qdiff_masked_;
     anet::rl::Notifier notifier_;
 
     // メトリクス

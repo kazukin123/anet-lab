@@ -137,6 +137,9 @@ public:
         if (key == "max_q") return max_q_;
         return std::nullopt;
     }
+    virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const override {
+        return std::nullopt;
+    }
 };
 
 // ======================================================
@@ -191,6 +194,30 @@ anet::rl::TensorFunction DQNAgent::GetTensorFunction(const std::string& key) con
         return policy_net_->forward(tdev);
     };
     return fn;
+}
+
+std::optional<float> DQNAgent::GetScalar(const std::string& key) const
+{
+    if (key.find("replaybuffer.") == 0)
+        return replay_buffer_->GetScalar(key);
+
+    return std::nullopt;
+}
+
+std::optional<torch::Tensor> DQNAgent::GetTensor(const std::string& key) const
+{
+    if (key.find("replaybuffer.") == 0)
+        return replay_buffer_->GetTensor(key);
+
+    return std::nullopt;
+}
+
+std::optional<std::vector<torch::Tensor>> DQNAgent::GetTensorVector(const std::string& key) const
+{
+    if (key.find("replaybuffer.") == 0)
+        return replay_buffer_->GetTensorVector(key);
+
+    return std::nullopt;
 }
 
 // ===============================
@@ -712,6 +739,15 @@ public:
             return 0.0f;
         }
 
+        if (config_.eps_sigmoid_step > 0) {
+            return ComputeEpsilonSigmoid(step);
+        } else {
+            return ComputeEpsilonDecay(step);
+        }
+    }
+private:
+    float ComputeEpsilonDecay(size_t step) const
+    {
         // 自然減衰
         float decay = std::exp(-static_cast<float>(step) / config_.eps_decay_step);
         float eps = config_.eps_min + (config_.eps_max - config_.eps_min) * decay;
@@ -720,7 +756,19 @@ public:
         eps = std::max(config_.eps_min, std::min(config_.eps_max, eps));
         return eps;
     }
-private:
+    float ComputeEpsilonSigmoid(size_t step) const
+    {
+        int t_max = config_.eps_sigmoid_step;
+        float eps_max = config_.eps_max;
+        float eps_min = config_.eps_min;
+
+        // int → float に自然に変換
+        float mid = t_max * 0.5f;
+        float k = 8.0f / t_max;   // steepness
+        float s = 1.0f / (1.0f + std::exp(k * (step - mid)));
+
+        return eps_min + (eps_max - eps_min) * s;
+    }
     const DQNAgentConfig& config_;
 };
 
@@ -729,10 +777,10 @@ private:
 // ======================================================
 DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, torch::Device device, std::shared_ptr<anet::RandomGenerator> rnd) :
     StepBasedAgent(config, device, rnd),
-    state_dim_(env_spec.state_spec.CalcFlattenSize()),
+    state_count_(env_spec.state_spec.CalcFlattenSize()),
     n_actions_(env_spec.action_spec.ActionCount()),
-    policy_net_(std::make_shared<QNetImpl>(state_dim_, n_actions_)),
-    target_net_(std::make_shared<QNetImpl>(state_dim_, n_actions_))
+    policy_net_(std::make_shared<QNetImpl>(state_count_, n_actions_)),
+    target_net_(std::make_shared<QNetImpl>(state_count_, n_actions_))
 {
     /// @todo  ヒートマップオブジェクト類をHeatMapObservberに移動
     //auto nan = std::numeric_limits<float>::quiet_NaN();
@@ -795,7 +843,7 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
 
 anet::rl::BatchActionInfo DQNAgent::MakeAction(const anet::rl::BatchState& state, anet::rl::RunMode mode)
 {
-    ANET_CHECK_SHAPE(state.obs, { ANY, state_dim_ });
+    ANET_CHECK_SHAPE(state.obs, { ANY, state_count_ });
 
     auto flat_state = state.Flatten();
     auto flat_obs = flat_state.obs.to(device_);
@@ -850,10 +898,10 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
         ANET_CHECK_DEVICE(raw_samples.next_states.dones, device_);
         ANET_CHECK_DEVICE(raw_samples.next_states.truncateds, device_);
         ANET_CHECK_DEVICE(raw_samples.next_states.episode_start, device_);
-        ANET_CHECK_SHAPE(raw_samples.obs, { B, state_dim_ });
+        ANET_CHECK_SHAPE(raw_samples.obs, { B, state_count_ });
         ANET_CHECK_SHAPE(raw_samples.actions, { B, 1 });    // 離散アクション
         ANET_CHECK_SHAPE(raw_samples.rewards, { B });
-        ANET_CHECK_SHAPE(raw_samples.next_states.obs, { B, state_dim_ });
+        ANET_CHECK_SHAPE(raw_samples.next_states.obs, { B, state_count_ });
         ANET_CHECK_SHAPE(raw_samples.next_states.dones, { B });
         ANET_CHECK_SHAPE(raw_samples.next_states.truncateds, { B });
         ANET_CHECK_SHAPE(raw_samples.next_states.episode_start, { B });

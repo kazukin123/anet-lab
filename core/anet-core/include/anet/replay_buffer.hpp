@@ -23,7 +23,7 @@ namespace anet::rl {
         std::string ToString() const;
     };
 
-    class ReplayBuffer : public RandomHolder {
+    class ReplayBuffer : public RandomHolder, public DataExporter {
     public:
         explicit ReplayBuffer(const EnvSpec& env_spec, size_t capacity = 10000, std::shared_ptr<anet::RandomGenerator> rnd = nullptr);
 
@@ -31,12 +31,17 @@ namespace anet::rl {
         void Push(const std::vector<Experience>& exps);
         ExperienceSample Sample(int64_t b, torch::Device device) const;
         size_t Size() const { return size_; }
+
+        std::optional<float> GetScalar(const std::string& key) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const override;
+
     private:
         void InitFromSpec(const EnvSpec& spec);
 
         size_t capacity_;
-        int64_t state_dim_;  ///< state_dim_ は StateSpec.shape の総積（flatten 後次元）
-        int64_t action_dim_;
+        int64_t state_count_;  ///< state_dim_ は StateSpec.shape の総積（flatten 後次元）
+        int64_t n_actions_;
 
         int64_t index_ = 0;
         size_t size_ = 0;
@@ -44,13 +49,13 @@ namespace anet::rl {
         bool is_discrete_ = true;
         torch::Device device_ = torch::kCPU;
 
-        torch::Tensor states_;
-        torch::Tensor actions_;
-        torch::Tensor next_states_;
-        torch::Tensor rewards_;
-        torch::Tensor dones_;
-        torch::Tensor truncateds_;
-        torch::Tensor episode_start_;
+        torch::Tensor states_;          ///< cpu (capacity, state_count) kFloat32
+        torch::Tensor actions_;         ///< cpu (capacity, n_actions_) kInt64 or kFloat32
+        torch::Tensor next_states_;     ///< cpu (capacity, state_count) kFloat32
+        torch::Tensor rewards_;         ///< cpu (capacity) kFloat32
+        torch::Tensor dones_;           ///< cpu (capacity) kBool
+        torch::Tensor truncateds_;      ///< cpu (capacity) kBool
+        torch::Tensor episode_start_;   ///< cpu (capacity) kBool
     };
 
 } // namespace anet

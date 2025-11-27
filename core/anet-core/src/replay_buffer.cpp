@@ -12,23 +12,23 @@ namespace anet::rl {
     ReplayBuffer::ReplayBuffer(const EnvSpec& spec, size_t capacity, std::shared_ptr<anet::RandomGenerator> rnd)
         : RandomHolder(rnd),
         capacity_(capacity),
-        state_dim_(spec.state_spec.CalcFlattenSize()),
-        action_dim_(spec.action_spec.ActionCount()),
+        state_count_(spec.state_spec.CalcFlattenSize()),
+        n_actions_(spec.action_spec.ActionCount()),
         device_(torch::kCPU)
     {
         is_discrete_ = spec.action_spec.is_discrete;
         if (is_discrete_) {
-            action_dim_ = 1;
+            n_actions_ = 1;
         }
 
-        ANET_ASSERT_MSG(state_dim_ > 0,
-            "ReplayBuffer::ReplayBuffer(): invalid state_dim.");
+        ANET_ASSERT_MSG(state_count_ > 0,
+            "ReplayBuffer::ReplayBuffer(): invalid state_count_.");
 
-        ANET_ASSERT_MSG(action_dim_ > 0,
-            "ReplayBuffer::ReplayBuffer(): invalid action_dim.");
+        ANET_ASSERT_MSG(n_actions_ > 0,
+            "ReplayBuffer::ReplayBuffer(): invalid action_count_.");
 
-        states_ = torch::zeros({ static_cast<long>(capacity_), state_dim_ });
-        next_states_ = torch::zeros({ static_cast<long>(capacity_), state_dim_ });
+        states_ = torch::zeros({ static_cast<long>(capacity_), state_count_ });
+        next_states_ = torch::zeros({ static_cast<long>(capacity_), state_count_ });
         rewards_ = torch::zeros({ static_cast<long>(capacity_) });
         dones_ = torch::zeros({ static_cast<long>(capacity_) }, torch::TensorOptions().dtype(torch::kBool));
         truncateds_ = torch::zeros({ static_cast<long>(capacity_) }, torch::TensorOptions().dtype(torch::kBool));
@@ -41,7 +41,7 @@ namespace anet::rl {
             );
         } else {
             actions_ = torch::zeros(
-                { static_cast<long>(capacity_), action_dim_ },
+                { static_cast<long>(capacity_), n_actions_ },
                 torch::TensorOptions().dtype(torch::kFloat32)
             );
         }
@@ -52,14 +52,14 @@ namespace anet::rl {
         // shape チェック
         const int64_t N = batch.state.obs.size(0);
 
-        ANET_CHECK_SHAPE(batch.state.obs, { N, state_dim_ });
+        ANET_CHECK_SHAPE(batch.state.obs, { N, state_count_ });
         ANET_CHECK_SHAPE(batch.state.done, { N });
         ANET_CHECK_SHAPE(batch.state.truncated, { N });
         ANET_CHECK_SHAPE(batch.state.episode_start, { N });
-        ANET_CHECK_SHAPE(batch.action.action, { N, action_dim_ });
-        ANET_CHECK_SHAPE(batch.action.is_random, { N, action_dim_ });
+        ANET_CHECK_SHAPE(batch.action.action, { N, n_actions_ });
+        ANET_CHECK_SHAPE(batch.action.is_random, { N, n_actions_ });
         ANET_CHECK_SHAPE(batch.reward, { N });
-        ANET_CHECK_SHAPE(batch.next_state.obs, { N, state_dim_ });
+        ANET_CHECK_SHAPE(batch.next_state.obs, { N, state_count_ });
         ANET_CHECK_SHAPE(batch.next_state.done, { N });
         ANET_CHECK_SHAPE(batch.next_state.truncated, { N });
         ANET_CHECK_SHAPE(batch.next_state.episode_start, { N });
@@ -103,9 +103,9 @@ namespace anet::rl {
 
             const int64_t idx = write_index_;
 
-            ANET_CHECK_SHAPE(e.state.obs, { state_dim_ });
-            ANET_CHECK_SHAPE(e.action, { action_dim_ });
-            ANET_CHECK_SHAPE(e.next_state.obs, { state_dim_ });
+            ANET_CHECK_SHAPE(e.state.obs, { state_count_ });
+            ANET_CHECK_SHAPE(e.action, { n_actions_ });
+            ANET_CHECK_SHAPE(e.next_state.obs, { state_count_ });
 
             states_[idx].copy_(e.state.obs);
             next_states_[idx].copy_(e.next_state.obs);
@@ -153,15 +153,84 @@ namespace anet::rl {
                 }
             });
 
-        ANET_CHECK_SHAPE(out.obs, { b, state_dim_ });
-        ANET_CHECK_SHAPE(out.actions,{ b, action_dim_ });
+        ANET_CHECK_SHAPE(out.obs, { b, state_count_ });
+        ANET_CHECK_SHAPE(out.actions,{ b, n_actions_ });
         ANET_CHECK_SHAPE(out.rewards, { b });
-        ANET_CHECK_SHAPE(out.next_states.obs, { b, state_dim_ });
+        ANET_CHECK_SHAPE(out.next_states.obs, { b, state_count_ });
         ANET_CHECK_SHAPE(out.next_states.dones, { b });
         ANET_CHECK_SHAPE(out.next_states.truncateds, { b });
         ANET_CHECK_SHAPE(out.next_states.episode_start, { b });
 
         return out;
+    }
+
+    std::vector<torch::Tensor> replay_in_order(
+        const torch::Tensor& t,
+        size_t size,
+        size_t capacity,
+        size_t write_index)
+    {
+        using Slice = torch::indexing::Slice;
+
+        std::vector<torch::Tensor> out;
+        if (size == 0) return out;
+
+        out.reserve(2);
+
+        size_t head = write_index;
+        size_t tail = (head + capacity - size) % capacity;
+
+        size_t first_len = std::min(size, capacity - tail);
+        if (first_len > 0) {
+            out.push_back(
+                t.index({ Slice((int64_t)tail, (int64_t)(tail + first_len)) })
+            );
+        }
+
+        size_t second_len = size - first_len;
+        if (second_len > 0) {
+            out.push_back(
+                t.index({ Slice(0, (int64_t)second_len) })
+            );
+        }
+
+        return out;
+    }
+
+    std::optional<float> ReplayBuffer::GetScalar(const std::string& key) const
+    {
+        return std::nullopt;
+    }
+
+    std::optional<torch::Tensor> ReplayBuffer::GetTensor(const std::string& key) const
+    {
+        return std::nullopt;
+    }
+
+    std::optional<std::vector<torch::Tensor>> ReplayBuffer::GetTensorVector(const std::string& key) const
+    {
+        // ReplayBuffer は ring-buffer 構造のため、時系列順のデータは
+        // メモリ上で最大 2 区間に分かれる。
+        // 1 Tensor に連結すると memcpy が必要になり重いため、
+        // コピーを避けるために vector<Tensor>（ビュー）で返す。
+        // 各 Tensor は index による view で実データのコピーは発生しない。
+
+        if (key == "replaybuffer.states")
+            return replay_in_order(states_, size_, capacity_, write_index_);
+        if (key == "replaybuffer.actions")
+            return replay_in_order(actions_, size_, capacity_, write_index_);
+        if (key == "replaybuffer.rewards")
+            return replay_in_order(rewards_, size_, capacity_, write_index_);
+        if (key == "replaybuffer.next_states")
+            return replay_in_order(next_states_, size_, capacity_, write_index_);
+        if (key == "replaybuffer.dones")
+            return replay_in_order(dones_, size_, capacity_, write_index_);
+        if (key == "replaybuffer.truncateds")
+            return replay_in_order(truncateds_, size_, capacity_, write_index_);
+        if (key == "replaybuffer.episode_start")
+            return replay_in_order(episode_start_, size_, capacity_, write_index_);
+
+        return std::nullopt;
     }
 
     ExperienceSample ExperienceSample::Flatten() const {

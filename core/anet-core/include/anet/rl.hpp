@@ -200,13 +200,19 @@ namespace anet::rl {
         std::string ToString() const;
     };
 
-    using MetricsMap = std::unordered_map<std::string, float>;
-
-    class BatchUpdateResult {
+    class DataExporter {
     public:
-        virtual MetricsMap GetMetricsMap() const = 0;
         virtual std::optional<float> GetScalar(const std::string& key) const = 0;
         virtual std::optional<torch::Tensor> GetTensor(const std::string& key) const = 0;
+        virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const = 0;
+        virtual ~DataExporter() = default;
+    };
+
+    using MetricsMap = std::unordered_map<std::string, float>;
+
+    class BatchUpdateResult : public DataExporter {
+    public:
+        virtual MetricsMap GetMetricsMap() const = 0;
         virtual ~BatchUpdateResult() = default;
     };
 
@@ -300,22 +306,23 @@ namespace anet::rl {
         virtual ~Learner() = default;
     };
 
+    using TensorFunction = std::function<torch::Tensor(const torch::Tensor&)>;
+
+    class Agent : public Runner, public Learner, public DataExporter {
+    public:
+        virtual TensorFunction GetTensorFunction(const std::string& key) const = 0;
+        virtual ~Agent() = default;
+    };
+
     class PostUpdateObserver {
     public:
         virtual void OnPostUpdate(
             int step,
+            std::shared_ptr<Agent> agent,
             const BatchExperience& expriences,
             std::shared_ptr<const BatchUpdateResult> result
-            ) = 0;
+        ) = 0;
         virtual ~PostUpdateObserver() = default;
-    };
-
-    using TensorFunction = std::function<torch::Tensor(const torch::Tensor&)>;
-
-    class Agent : public Runner, public Learner {
-    public:
-        virtual TensorFunction GetTensorFunction(const std::string& key) const = 0;
-        virtual ~Agent() = default;
     };
 
     // 環境のステップに同期して更新する Agent 基底クラス
@@ -359,38 +366,17 @@ namespace anet::rl {
 
         void Notify(
             size_t step,
+            std::shared_ptr<Agent> agent,
             const BatchExperience& expriences,
             const std::shared_ptr<const BatchUpdateResult>& result
         )
         {
             for (std::shared_ptr<PostUpdateObserver> o : observers_) {
-                o->OnPostUpdate(step, expriences, result);
+                o->OnPostUpdate(step, agent, expriences, result);
             }
         }
     private:
         std::vector<std::shared_ptr<PostUpdateObserver>> observers_;
     };
-
-    // =============================================================
-    // HeatMap 関連
-    // =============================================================
-
-    //std::unique_ptr<HeatMap> MakeStateHeatMapPtr(
-    //    const StateSpaceInfo& info,
-    //    int idx_x,
-    //    int idx_y,
-    //    int width = 256,
-    //    int height = 256,
-    //    size_t max_points = 10000,
-    //    uint32_t flags = HM_Default);
-
-    //std::unique_ptr<TimeHeatMap> MakeStateTimeHeatMapPtr(
-    //    const StateSpaceInfo& info,
-    //    int idx_x,
-    //    int width = 256,
-    //    int height = 2560,
-    //    size_t max_points = 0,
-    //    uint32_t flags = HM_Default,
-    //    TimeFrameMode mode = TimeFrameMode::Unlimited);
 
 } // namespace anet::rl

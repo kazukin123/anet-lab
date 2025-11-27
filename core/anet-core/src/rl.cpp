@@ -68,7 +68,7 @@ namespace anet::rl {
 
     bool StateSpec::MatchesShape(const torch::Tensor& obs) const
     {
-        wxLogDebug("dim=%d size=%d", static_cast<int>(obs.dim()), static_cast<int>(shape.size()));
+        //wxLogDebug("dim=%d size=%d", static_cast<int>(obs.dim()), static_cast<int>(shape.size()));
         ANET_ASSERT_MSG(
             obs.dim() == static_cast<int64_t>(shape.size() + 1),
             "StateSpec::MatchesShape: dimension mismatch.");

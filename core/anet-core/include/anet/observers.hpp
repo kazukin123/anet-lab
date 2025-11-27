@@ -13,11 +13,11 @@ namespace anet::rl {
 
         void OnPostUpdate(
             int step,
+            std::shared_ptr<Agent> agent,
             const anet::rl::BatchExperience& experiences,
             std::shared_ptr<const anet::rl::BatchUpdateResult> result
         ) override;
     };
-
 
     /**
      * @brief HeatMapObserver の設定
@@ -45,9 +45,6 @@ namespace anet::rl {
         float ymax = 1.0f;
     };
 
-    /**
-     * @brief State/Reward/TensorProbe を使って HeatMap を生成する Observer
-     */
     class HeatMapObserver : public anet::rl::PostUpdateObserver {
     public:
         HeatMapObserver(
@@ -59,9 +56,9 @@ namespace anet::rl {
 
         void OnPostUpdate(
             int step,
+            std::shared_ptr<Agent> agent,
             const anet::rl::BatchExperience& batch_experience,
             std::shared_ptr<const anet::rl::BatchUpdateResult> result) override;
-
     private:
         HeatMapObserverConfig config_;
         std::string tag_;
@@ -73,6 +70,30 @@ namespace anet::rl {
         std::unique_ptr<anet::HeatMap> heatmap_;  ///< @todo ptr外し
     };
 
+    class HeatMapVectorObserver : public anet::rl::PostUpdateObserver {
+    public:
+        HeatMapVectorObserver(
+            const std::string& tag,
+            const HeatMapObserverConfig& config,
+            std::shared_ptr<IVectorProbe> x_probe,
+            std::shared_ptr<IVectorProbe> y_probe,
+            std::shared_ptr<IVectorProbe> value_probe);
+
+        void OnPostUpdate(
+            int step,
+            std::shared_ptr<Agent> agent,
+            const anet::rl::BatchExperience& batch_experience,
+            std::shared_ptr<const anet::rl::BatchUpdateResult> result) override;
+    private:
+        HeatMapObserverConfig config_;
+        std::string tag_;
+
+        std::shared_ptr<IVectorProbe> x_probe_;
+        std::shared_ptr<IVectorProbe> y_probe_;
+        std::shared_ptr<IVectorProbe> value_probe_;
+
+        std::unique_ptr<anet::HeatMap> heatmap_;  ///< @todo ptr外し
+    };
 
     struct TimeHistogramObserverConfig {
         int bins = 128;
@@ -107,13 +128,14 @@ namespace anet::rl {
 
         void OnPostUpdate(
             int step,
+            std::shared_ptr<Agent> agent,
             const anet::rl::BatchExperience& batch_experience,
             std::shared_ptr<const anet::rl::BatchUpdateResult> result) override
         {
             // Probeで vectorを取得
             auto exp_list = batch_experience.ToExperienceList();
             for (auto exp : exp_list) {
-                auto values = probe_->GetVector(step, exp, result);
+                auto values = probe_->GetVector(step, agent, exp, result);
                 if (values.has_value()) {
                     histogram_->AddBatch(*values);
                 }
@@ -166,6 +188,7 @@ namespace anet::rl {
 
         void OnPostUpdate(
             int step,
+            std::shared_ptr<Agent> agent,
             const anet::rl::BatchExperience& experience,
             std::shared_ptr<const anet::rl::BatchUpdateResult> result
         ) override;
