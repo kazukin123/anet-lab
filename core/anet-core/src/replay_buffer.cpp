@@ -215,19 +215,19 @@ namespace anet::rl {
         // コピーを避けるために vector<Tensor>（ビュー）で返す。
         // 各 Tensor は index による view で実データのコピーは発生しない。
 
-        if (key == "replaybuffer.states")
+        if (key == STATE_OBS)
             return replay_in_order(states_, size_, capacity_, write_index_);
-        if (key == "replaybuffer.actions")
+        if (key == ACTION_ACTION)
             return replay_in_order(actions_, size_, capacity_, write_index_);
-        if (key == "replaybuffer.rewards")
+        if (key == REWARD)
             return replay_in_order(rewards_, size_, capacity_, write_index_);
-        if (key == "replaybuffer.next_states")
+        if (key == NEXT_STATE_OBS)
             return replay_in_order(next_states_, size_, capacity_, write_index_);
-        if (key == "replaybuffer.dones")
+        if (key == NEXT_STATE_DONE)
             return replay_in_order(dones_, size_, capacity_, write_index_);
-        if (key == "replaybuffer.truncateds")
+        if (key == NEXT_STATE_TRUNCATED)
             return replay_in_order(truncateds_, size_, capacity_, write_index_);
-        if (key == "replaybuffer.episode_start")
+        if (key == NEXT_STATE_EPISODE_START)
             return replay_in_order(episode_start_, size_, capacity_, write_index_);
 
         return std::nullopt;

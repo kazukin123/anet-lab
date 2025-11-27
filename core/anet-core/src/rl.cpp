@@ -2,6 +2,7 @@
 #include <wx/log.h>
 #include "anet/rl.hpp"
 #include "anet/common.hpp"
+#include "anet/util.hpp"
 #include "anet/tensor_utils.hpp"
 #include "anet/tensor_check.hpp"
 
@@ -319,6 +320,55 @@ namespace anet::rl {
     }
 
     // -----------------------------------------
+
+    std::optional<torch::Tensor> BatchExperience::GetTensor(
+        const std::string& key) const
+    {
+        if (key == NEXT_STATE_OBS)
+            return next_state.obs;
+        if (key == REWARD)
+            return reward;
+        if (key == ACTION_ACTION)
+            return action.action;
+        if (key == STATE_OBS)
+            return state.obs;
+
+        if (key == STATE_DONE)
+            return state.done;
+        if (key == STATE_TRUNCATED)
+            return state.truncated;
+        if (key == NEXT_STATE_EPISODE_START)
+            return state.episode_start;
+        
+        if (key == NEXT_STATE_DONE)
+            return next_state.done;
+        if (key == NEXT_STATE_TRUNCATED)
+            return next_state.truncated;
+        if (key == NEXT_STATE_EPISODE_START)
+            return next_state.episode_start;
+
+        if (key == ACTION_IS_RANDOM)
+            return action.is_random;
+
+        return std::nullopt;
+    }
+
+    std::optional<std::vector<torch::Tensor>>
+        BatchExperience::GetTensorVector(const std::string& key) const
+    {
+        auto t = GetTensor(key);
+        if (!t.has_value()) return std::nullopt;
+        return std::vector<torch::Tensor>{ *t };
+    }
+
+    BatchExperience BatchExperience::to(torch::Device d) const {
+        BatchExperience out;
+        out.state = state.to(d);
+        out.action = action.to(d);
+        out.reward = reward.to(d);
+        out.next_state = next_state.to(d);
+        return out;
+    }
 
     std::vector<Experience> BatchExperience::ToExperienceList() const
     {

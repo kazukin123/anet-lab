@@ -120,6 +120,8 @@ namespace anet::rl {
     // 実データ
     // ------------------------------------------------------------
 
+    // 「Batch～」はN環境対応版の意味
+
     // 状態
     struct BatchState {
         torch::Tensor obs;              ///< 行動前の観測 (N,state_dim) kFloat32
@@ -208,6 +210,15 @@ namespace anet::rl {
         virtual ~DataExporter() = default;
     };
 
+    class TensorDataExporter {
+    public:
+        virtual std::optional<float> GetScalar(const std::string& key) const { ; }
+        virtual std::optional<torch::Tensor> GetTensor(const std::string& key) const = 0;
+        virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const { ; }
+        virtual ~TensorDataExporter() = default;
+
+    };
+
     using MetricsMap = std::unordered_map<std::string, float>;
 
     class BatchUpdateResult : public DataExporter {
@@ -256,17 +267,39 @@ namespace anet::rl {
         std::string ToString() const;
     };
 
-    struct BatchExperience {
+    struct BatchExperience : public DataExporter {
         BatchState state;
         BatchActionInfo action;
         torch::Tensor reward;
         BatchState next_state;
 
-        BatchExperience to(torch::Device d) const {
-            return { state.to(d), action.to(d), reward.to(d), next_state.to(d) };
-        }
+        explicit BatchExperience() {}
+        BatchExperience(
+            const BatchState& state__,
+            const BatchActionInfo& action__,
+            const torch::Tensor& reward__,
+            const BatchState& next_state__
+        ) : state(state__), action(action__), reward(reward__), next_state(next_state__) { }
+
+        std::optional<float> GetScalar(const std::string& key) const { return std::nullopt; }
+        std::optional<torch::Tensor> GetTensor(const std::string& key) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const override;
+
+        BatchExperience to(torch::Device d) const;
         std::vector<Experience> ToExperienceList() const;
         std::string ToString() const;
+    public:
+        static constexpr const char* STATE_OBS = "experience.state.obs";
+        static constexpr const char* STATE_DONE = "experience.state.done";
+        static constexpr const char* STATE_TRUNCATED = "experience.state.truncated";
+        static constexpr const char* STATE_EPISODE_START = "experience.state.episode_start";
+        static constexpr const char* ACTION_ACTION = "experience.action.action";
+        static constexpr const char* ACTION_IS_RANDOM = "experience.action.is_random";
+        static constexpr const char* REWARD = "experience.reward";
+        static constexpr const char* NEXT_STATE_OBS = "experience.next_state.obs";
+        static constexpr const char* NEXT_STATE_DONE = "experience.next_state.done";
+        static constexpr const char* NEXT_STATE_TRUNCATED = "experience.next_state.truncated";
+        static constexpr const char* NEXT_STATE_EPISODE_START = "experience.next_state.episode_start";
     };
 
     // =============================================================

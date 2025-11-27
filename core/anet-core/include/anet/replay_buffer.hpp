@@ -35,7 +35,14 @@ namespace anet::rl {
         std::optional<float> GetScalar(const std::string& key) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const override;
-
+    public:
+        static constexpr const char* STATE_OBS = "replaybuffer.state";
+        static constexpr const char* ACTION_ACTION = "replaybuffer.action";
+        static constexpr const char* REWARD = "replaybuffer.reward";
+        static constexpr const char* NEXT_STATE_OBS = "replaybuffer.next_state";
+        static constexpr const char* NEXT_STATE_DONE = "replaybuffer.done";
+        static constexpr const char* NEXT_STATE_TRUNCATED = "replaybuffer.truncated";
+        static constexpr const char* NEXT_STATE_EPISODE_START = "replaybuffer.episode_start";
     private:
         void InitFromSpec(const EnvSpec& spec);
 

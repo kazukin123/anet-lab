@@ -52,9 +52,26 @@ struct DQNAgent::RuntimeVars {
     float unstable_ema = 0.0f;
 
     // Metrics：崩壊制御：Q
-    float q_z = 0.0f;
+
+    /// <summary>
+    /// Coefficient of Variation：q_cv = std(Q) / |mean(Q)|
+    /// 今回のサンプル群について、Q値がどれくらい散らばっているか（平均値基準）
+    /// </summary>
     float q_cv = 0.0f;
+
+    /// <summary>
+    /// Std Growth Ratio：q_z = std(Q) / std_ema(Q)
+    /// 今回の揺らぎが、直近過去と比べてどれだけ離れているかか
+    /// </summary>
+    float q_z = 0.0f;
+
+    /// <summary>
+    /// Normalized IQR：q_niqr = IQR(Q) / std_ema(Q)
+    /// Q 分布の中心がどれだけ広がっているか。
+    /// 今の分布の広がりが、過去の安定分布の何倍になっているか
+    /// </summary>
     float q_niqr = 0.0f;
+
     float q_unstable = 0.0f;
     anet::EmaFilter<float> q_unstable_ema;
     float e_t = 0.0f;
@@ -512,11 +529,6 @@ private:
         int64_t n = sorted.size(0);
         if (n <= 1) return;
 
-        // IQR
-        float q1 = sorted[static_cast<int64_t>(n * 0.25)].item<float>();
-        float q3 = sorted[static_cast<int64_t>(n * 0.75)].item<float>();
-        float iqr = q3 - q1;
-
         // CV
         const float eps = 1e-6f;
         vars.q_cv = q_std / (std::fabs(q_mean) + eps);
@@ -526,6 +538,9 @@ private:
         vars.q_z = q_std / (std_ref + eps);
 
         // NIQR: IQR を std_ref で正規化
+        float q1 = sorted[static_cast<int64_t>(round(n * 0.25))].item<float>();
+        float q3 = sorted[static_cast<int64_t>(round(n * 0.75))].item<float>();
+        float iqr = q3 - q1;
         vars.q_niqr = iqr / (std_ref + eps);
 
         // 閾値

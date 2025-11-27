@@ -120,20 +120,20 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
         -1,     // image_width
         -1,     // image_height
     };
-    auto visit_x_probe = std::make_shared<anet::StateAxisProbe>(0, &env_spec.state_spec, true);
-    auto visit_theta_probe = std::make_shared<anet::StateAxisProbe>(2, &env_spec.state_spec, true);
-    auto visit_theta_dot_probe = std::make_shared<anet::StateAxisProbe>(3, &env_spec.state_spec, true);
-    auto visit_reward_probe = std::make_shared<anet::RewardProbe>(nullptr);
+    auto visit_x_probe = std::make_shared<anet::rl::StateProbe>(0, &env_spec.state_spec, true);
+    auto visit_theta_probe = std::make_shared<anet::rl::StateProbe>(2, &env_spec.state_spec, true);
+    auto visit_theta_dot_probe = std::make_shared<anet::rl::StateProbe>(3, &env_spec.state_spec, true);
+    auto visit_reward_probe = std::make_shared<anet::rl::RewardProbe>(nullptr);
 
-    auto rep_x_probe = std::make_shared<anet::AgentTensorVectorProbe>("replaybuffer.next_states", 0, &env_spec.state_spec);
-    auto rep_theta_probe = std::make_shared<anet::AgentTensorVectorProbe>("replaybuffer.next_states", 2, &env_spec.state_spec);
-    auto rep_theta_dot_probe = std::make_shared<anet::AgentTensorVectorProbe>("replaybuffer.next_states", 3, &env_spec.state_spec);
-    auto rep_reward_probe = std::make_shared<anet::AgentTensorVectorProbe>("replaybuffer.rewards", -1, &env_spec.state_spec);
-
-    auto visit_02_reward = std::make_shared<anet::rl::HeatMapObserver>(
+    auto visit_02_reward = std::make_shared<anet::rl::HeatMapVectorObserver>(
         "43_agent_img/02_hm_visit_02", visit_heat_obs_config, visit_x_probe, visit_theta_probe, visit_reward_probe);
-    auto visit_23_reward = std::make_shared<anet::rl::HeatMapObserver>(
+    auto visit_23_reward = std::make_shared<anet::rl::HeatMapVectorObserver>(
         "43_agent_img/03_hm_visit_23", visit_heat_obs_config, visit_theta_probe, visit_theta_dot_probe, visit_reward_probe);
+
+    auto rep_x_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 0, &env_spec.state_spec);
+    auto rep_theta_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 2, &env_spec.state_spec);
+    auto rep_theta_dot_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 3, &env_spec.state_spec);
+    auto rep_reward_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::REWARD, -1, &env_spec.state_spec);
 
     auto replay_02_reward = std::make_shared<anet::rl::HeatMapVectorObserver>(
         "43_agent_img/12_hm_rep_02", visit_heat_obs_config, rep_x_probe, rep_theta_probe, rep_reward_probe);
@@ -155,7 +155,7 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
         std::numeric_limits<float>::quiet_NaN(),
         1.0f// alpha = 0.05f
     };
-    auto q_probe = std::make_shared<anet::BatchUpdateResultTensorProbe>("max_q");
+    auto q_probe = std::make_shared<anet::rl::BatchUpdateResultTensorProbe>("max_q");
     auto q_hist_obs = std::make_shared<anet::rl::TimeHistogramObserver>(
         "44_agent_img/04_thg_t", q_hist_obs_config, q_probe);
 
@@ -174,12 +174,12 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
         -1,     // image_width
         -1,     // image_height
     };
-    auto proc_x_theta_qmax = std::make_shared<anet::RLStateSweepProcessor>(
+    auto proc_x_theta_qmax = std::make_shared<anet::rl::StateSweepProcessor>(
         env_spec.state_spec,
         0,  // x_index = x
         2   // y_index = theta
     );
-    auto proc_theta_thetadot_qmax = std::make_shared<anet::RLStateSweepProcessor>(
+    auto proc_theta_thetadot_qmax = std::make_shared<anet::rl::StateSweepProcessor>(
         env_spec.state_spec,
         2,  // x_index = theta
         3   // y_index = theta_dot
@@ -196,23 +196,23 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     //    std::optional<float> y_min_override = std::nullopt,
     //    std::optional<float> y_max_override = std::nullopt
     //);
-    auto proc_theta_thetadot_qdiff = std::make_shared<anet::RLStateSweepProcessor>(
+    auto proc_theta_thetadot_qdiff = std::make_shared<anet::rl::StateSweepProcessor>(
         env_spec.state_spec,
         0,  // x_index = x
         2,  // y_index = theta
         std::bind(
-            &anet::extractor::DiffIndexExtractor,
+            &anet::rl::extractor::DiffIndexExtractor,
             std::placeholders::_1,
             std::placeholders::_2,
             0,
             1)
     );
-    auto proc_theta_thetadot_qdiff_mask = std::make_shared<anet::RLStateSweepProcessor>(
+    auto proc_theta_thetadot_qdiff_mask = std::make_shared<anet::rl::StateSweepProcessor>(
         env_spec.state_spec,
         0,  // x_index = x
         2,  // y_index = theta
         std::bind(
-            &anet::extractor::BoundaryMaskFromQdiffAuto,
+            &anet::rl::extractor::BoundaryMaskFromQdiffAuto,
             std::placeholders::_1,
             std::placeholders::_2,
             env_spec.action_spec.ActionCount(),
@@ -220,12 +220,12 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
             1)
     );
     /// policy_netとtarget_netの差分を見る
-    auto proc_theta_thetadot_pair_qdelta = std::make_shared<anet::RLStateSweepProcessor>(
+    auto proc_theta_thetadot_pair_qdelta = std::make_shared<anet::rl::StateSweepProcessor>(
         env_spec.state_spec,
         0,  // x_index = x
         2,  // y_index = theta
         std::bind(
-            &anet::extractor::PairDiffExtractor,
+            &anet::rl::extractor::PairDiffExtractor,
             std::placeholders::_1,
             std::placeholders::_2,
             env_spec.action_spec.ActionCount())
@@ -241,23 +241,23 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     //    両方低
     //    → 安定
     /// </summary>
-    auto proc_theta_thetadot_pair_combo_qdeltaqmax = std::make_shared<anet::RLStateSweepProcessor>(
+    auto proc_theta_thetadot_pair_combo_qdeltaqmax = std::make_shared<anet::rl::StateSweepProcessor>(
         env_spec.state_spec,
         0,  // x_index = x
         2,  // y_index = theta
         std::bind(
-            &anet::extractor::QdeltaQmaxCombinedAuto,
+            &anet::rl::extractor::QdeltaQmaxCombinedAuto,
             std::placeholders::_1,
             std::placeholders::_2,
             env_spec.action_spec.ActionCount()
         )
     );
-    auto proc_theta_thetadot_pair_combo_qdelta_qdiff = std::make_shared<anet::RLStateSweepProcessor>(
+    auto proc_theta_thetadot_pair_combo_qdelta_qdiff = std::make_shared<anet::rl::StateSweepProcessor>(
         env_spec.state_spec,
         0,  // x_index = x
         2,  // y_index = theta
         std::bind(
-            &anet::extractor::QdeltaQdiffCombinedAuto,
+            &anet::rl::extractor::QdeltaQdiffCombinedAuto,
             std::placeholders::_1,
             std::placeholders::_2,
             env_spec.action_spec.ActionCount(),
@@ -265,12 +265,12 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
             1   // action_index_b (RIGHT)
         )
     );
-    auto proc_theta_thetadot_pair_combo_qdelta_qdiffmasked = std::make_shared<anet::RLStateSweepProcessor>(
+    auto proc_theta_thetadot_pair_combo_qdelta_qdiffmasked = std::make_shared<anet::rl::StateSweepProcessor>(
         env_spec.state_spec,
         0,  // x_index = x
         2,  // y_index = theta
         std::bind(
-            &anet::extractor::BoundaryMaskedQdeltaAuto,
+            &anet::rl::extractor::BoundaryMaskedQdeltaAuto,
             std::placeholders::_1,
             std::placeholders::_2,
             env_spec.action_spec.ActionCount(),
@@ -288,8 +288,6 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
         "45_agent_img/05_shm_02_qmax", q_sweep_obs_config, proc_x_theta_qmax, policy_forward, proc_x_theta_qmax);
     auto q_sweep_obs_23_qmax = std::make_shared<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/06_shm_23_qmax", q_sweep_obs_config, proc_theta_thetadot_qmax, policy_forward, proc_theta_thetadot_qmax);
-    //q_sweep_obs_23_q0_ = std::make_shared<anet::rl::SweepedHeatMapObserver>(
-    //    "43_agent_img/07_shm_23_q0", q_sweep_obs_config, proc_theta_thetadot_q0, policy_forward, proc_theta_thetadot_q0);
     auto q_sweep_obs_02_qdiff = std::make_shared<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/08_shm_02_qdiff", q_sweep_obs_config, proc_theta_thetadot_qdiff, policy_forward, proc_theta_thetadot_qdiff);
     auto q_sweep_obs_02_qdiff_mask = std::make_shared<anet::rl::SweepedHeatMapObserver>(

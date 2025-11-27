@@ -31,69 +31,63 @@ namespace anet::rl {
         return fallback;
     }
 
-    HeatMapObserver::HeatMapObserver(
-        const std::string& tag,
-        const HeatMapObserverConfig& config,
-        std::shared_ptr<IFloatProbe> x_probe,
-        std::shared_ptr<IFloatProbe> y_probe,
-        std::shared_ptr<IFloatProbe>  value_probe)
-        : config_(config), tag_(tag),
-        x_probe_(x_probe), y_probe_(y_probe), value_probe_(value_probe)
-    {
+    //HeatMapObserver::HeatMapObserver(
+    //    const std::string& tag,
+    //    const HeatMapObserverConfig& config,
+    //    std::shared_ptr<IFloatProbe> x_probe,
+    //    std::shared_ptr<IFloatProbe> y_probe,
+    //    std::shared_ptr<IFloatProbe>  value_probe)
+    //    : config_(config), tag_(tag),
+    //    x_probe_(x_probe), y_probe_(y_probe), value_probe_(value_probe)
+    //{
 
-        // Probe の min/max と config の override から HeatMap 範囲決定
-        float xmin = ResolveMin(config_.override_xmin, config_.xmin, x_probe_->GetMin(), 0.0f);
-        float xmax = ResolveMax(config_.override_xmax, config_.xmax, x_probe_->GetMax(), 1.0f);
-        float ymin = ResolveMin(config_.override_ymin, config_.ymin, y_probe_->GetMin(), 0.0f);
-        float ymax = ResolveMax(config_.override_ymax, config_.ymax, y_probe_->GetMax(), 1.0f);
+    //    // Probe の min/max と config の override から HeatMap 範囲決定
+    //    float xmin = ResolveMin(config_.override_xmin, config_.xmin, x_probe_->GetMin(), 0.0f);
+    //    float xmax = ResolveMax(config_.override_xmax, config_.xmax, x_probe_->GetMax(), 1.0f);
+    //    float ymin = ResolveMin(config_.override_ymin, config_.ymin, y_probe_->GetMin(), 0.0f);
+    //    float ymax = ResolveMax(config_.override_ymax, config_.ymax, y_probe_->GetMax(), 1.0f);
 
-        //HeatMap(int width, int height, float x_min = 0.0f, float x_max = 1.0f,
-        //    float y_min = 0.0f, float y_max = 1.0f, size_t max_points = 0,
-        //    uint32_t flags = HM_Default);
+    //    //HeatMap(int width, int height, float x_min = 0.0f, float x_max = 1.0f,
+    //    //    float y_min = 0.0f, float y_max = 1.0f, size_t max_points = 0,
+    //    //    uint32_t flags = HM_Default);
 
-        heatmap_ = std::make_unique<anet::HeatMap>(
-            config_.width,
-            config_.height,
-            xmin, xmax, ymin, ymax,
-            config_.max_points,
-            config_.flags
-        );
-    }
+    //    heatmap_ = std::make_unique<anet::HeatMap>(
+    //        config_.width,
+    //        config_.height,
+    //        xmin, xmax, ymin, ymax,
+    //        config_.max_points,
+    //        config_.flags
+    //    );
+    //}
 
-    void HeatMapObserver::OnPostUpdate(
-        int step,
-        std::shared_ptr<Agent> agent,
-        const anet::rl::BatchExperience& batch_experience,
-        std::shared_ptr<const anet::rl::BatchUpdateResult> result)
-    {
-        // N 環境ぶんループ（Probe が Update を受けてから TryGetFloat）
-        //const int N = experience.state.size(0);
+    //void HeatMapObserver::OnPostUpdate(
+    //    int step,
+    //    std::shared_ptr<Agent> agent,
+    //    const anet::rl::BatchExperience& batch_exp,
+    //    std::shared_ptr<const anet::rl::BatchUpdateResult> result)
+    //{
+    //    // 生成： xv, yv, vv
+    //    auto xv = x_probe_->GetFloat(step, agent, batch_exp, result);
+    //    auto yv = y_probe_->GetFloat(step, agent, batch_exp, result);
+    //    auto vv = value_probe_->GetFloat(step, agent, batch_exp, result);
 
-        auto exp_list = batch_experience.ToExperienceList();
-        for (auto exp : exp_list) {
-            // 生成： xv, yv, vv
-            auto xv = x_probe_->GetFloat(step, agent, exp, result);
-            auto yv = y_probe_->GetFloat(step, agent, exp, result);
-            auto vv = value_probe_->GetFloat(step, agent, exp, result);
+    //    // 値が揃ってなかったらスキップ
+    //    if (!xv.has_value() || !yv.has_value() || !vv.has_value())
+    //        return;
 
-            // 値が揃ってなかったらスキップ
-            if (!xv.has_value() || !yv.has_value() || !vv.has_value())
-                continue;
+    //    // データ追加
+    //    heatmap_->AddData(*xv, *yv, *vv);
 
-            // データ追加
-            heatmap_->AddData(*xv, *yv, *vv);
-        }
-
-        if (step % config_.log_interval == 0) {
-            MetricsLogger::Instance()->LogImage(
-                tag_,
-                step,
-                *heatmap_,
-                config_.image_width,
-                config_.image_height
-            );
-        }
-    }
+    //    if (step % config_.log_interval == 0) {
+    //        MetricsLogger::Instance()->LogImage(
+    //            tag_,
+    //            step,
+    //            *heatmap_,
+    //            config_.image_width,
+    //            config_.image_height
+    //        );
+    //    }
+    //}
 
     HeatMapVectorObserver::HeatMapVectorObserver(
         const std::string& tag,
@@ -128,40 +122,30 @@ namespace anet::rl {
     void HeatMapVectorObserver::OnPostUpdate(
         int step,
         std::shared_ptr<Agent> agent,
-        const anet::rl::BatchExperience& batch_experience,
+        const anet::rl::BatchExperience& batch_exp,
         std::shared_ptr<const anet::rl::BatchUpdateResult> result)
     {
-        // N 環境ぶんループ（Probe が Update を受けてから TryGetFloat）
-        //const int N = experience.state.size(0);
+        // 生成： xv, yv, vv
+        auto xv = x_probe_->GetVector(step, agent, batch_exp, result);
+        auto yv = y_probe_->GetVector(step, agent, batch_exp, result);
+        auto vv = value_probe_->GetVector(step, agent, batch_exp, result);
 
-        //auto exp_list = batch_experience.ToExperienceList();
-        //for (auto exp : exp_list) {
+        // 揃ってなかったらスキップ
+        if (!xv.has_value() || !yv.has_value() || !vv.has_value())
+            return;
+        if (xv->size() != yv->size() || xv->size() != vv->size())
+            return;
 
-    	/// @todo expは不要だが参照なので渡さないといけない
+        // データ追加
+        const size_t n = xv->size();
+        heatmap_->ReserveSamples(n);
 
-        Experience exp;
-            // 生成： xv, yv, vv
-            auto xv = x_probe_->GetVector(step, agent, exp, result);
-            auto yv = y_probe_->GetVector(step, agent, exp, result);
-            auto vv = value_probe_->GetVector(step, agent, exp, result);
-
-            // 揃ってなかったらスキップ
-            if (!xv.has_value() || !yv.has_value() || !vv.has_value())
-                return;
-            if (xv->size() != yv->size() || xv->size() != vv->size())
-                return;
-
-            // データ追加
-            const size_t n = xv->size();
-            heatmap_->ReserveSamples(n);
-
-            for (size_t i = 0; i < n; i++) {
-                float x = (*xv)[i];
-                float y = (*yv)[i];
-                float v = (*vv)[i];
-                heatmap_->AddData(x, y, v);
-            }
-        //}
+        for (size_t i = 0; i < n; i++) {
+            float x = (*xv)[i];
+            float y = (*yv)[i];
+            float v = (*vv)[i];
+            heatmap_->AddData(x, y, v);
+        }
 
         if (step % config_.log_interval == 0) {
             MetricsLogger::Instance()->LogImage(
@@ -294,81 +278,4 @@ namespace anet::rl {
     }
 
 
-/*
-    static float ResolveAxis(
-        bool override_flag,
-        float override_v,
-        float fallback)
-    {
-        if (override_flag) return override_v;
-        return fallback;
-    }
-
-    SweepedHeatMapObserver::SweepedHeatMapObserver(
-        const std::string& tag,
-        const SweepedHeatMapObserverConfig& config,
-        SweepInputGenerator* input_gen,
-        SweepOutputExtractor* output_ext,
-        ForwardFn forward_fn)
-        : tag_(tag),
-        config_(config),
-        forward_fn_(forward_fn)
-    {
-        input_gen_.reset(input_gen);
-        output_ext_.reset(output_ext);
-
-        float xmin = ResolveAxis(config_.override_xmin, config_.xmin, config_.xmin);
-        float xmax = ResolveAxis(config_.override_xmax, config_.xmax, config_.xmax);
-        float ymin = ResolveAxis(config_.override_ymin, config_.ymin, config_.ymin);
-        float ymax = ResolveAxis(config_.override_ymax, config_.ymax, config_.ymax);
-
-        grid_ = std::make_unique<anet::SweepedHeatMap>(
-            config_.width,
-            config_.height,
-            xmin, xmax,
-            ymin, ymax
-        );
-    }
-
-    void SweepedHeatMapObserver::OnPostUpdate(
-        int step,
-        const anet::rl::BatchExperience& experiences,
-        std::shared_ptr<const anet::rl::BatchUpdateResult> result)
-    {
-        if (step % config_.log_interval != 0)
-            return;
-
-        const int W = config_.width;
-        const int H = config_.height;
-
-        std::vector<float> xs(W);
-        std::vector<float> ys(H);
-
-        for (int ix = 0; ix < W; ix++) {
-            xs[ix] = config_.xmin +
-                (config_.xmax - config_.xmin) * (float(ix) / float(W - 1));
-        }
-
-        for (int iy = 0; iy < H; iy++) {
-            ys[iy] = config_.ymin +
-                (config_.ymax - config_.ymin) * (float(iy) / float(H - 1));
-        }
-
-        // NNをバッチ駆動
-        torch::Tensor batch_input = input_gen_->BuildBatchInput(xs, ys, config_.x_index, config_.y_index);
-        torch::Tensor batch_output = forward_fn_(batch_input);
-        torch::Tensor value_grid = output_ext_->ExtractValue(batch_output, H, W);
-
-        // HeatMapに反映
-        grid_->SetValues(value_grid);
-
-        MetricsLogger::Instance()->LogImage(
-            tag_,
-            step,
-            *grid_,
-            config_.image_width,
-            config_.image_height
-        );
-    }
-*/
 }
