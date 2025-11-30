@@ -189,9 +189,9 @@ namespace anet::rl {
             j["dims"].push_back(d.ToJson());
         }
 
-        j["options"] = nlohmann::json::object();
-        for (const auto& kv : options) {
-            j["options"][kv.first] = kv.second;
+        j["info"] = nlohmann::json::object();
+        for (const auto& kv : info) {
+            j["info"][kv.first] = kv.second;
         }
 
         return j;
@@ -228,9 +228,9 @@ namespace anet::rl {
         }
 
         // オプション
-        j["options"] = nlohmann::json::object();
-        for (const auto& kv : options) {
-            j["options"][kv.first] = kv.second;
+        j["info"] = nlohmann::json::object();
+        for (const auto& kv : info) {
+            j["info"][kv.first] = kv.second;
         }
 
         return j;
@@ -251,9 +251,9 @@ namespace anet::rl {
             reward_range.second
         };
 
-        j["options"] = nlohmann::json::object();
-        for (const auto& kv : options) {
-            j["options"][kv.first] = kv.second;
+        j["info"] = nlohmann::json::object();
+        for (const auto& kv : info) {
+            j["info"][kv.first] = kv.second;
         }
 
         return j;
@@ -262,6 +262,18 @@ namespace anet::rl {
     std::string EnvSpec::ToString() const {
         return ToJson().dump(2);
     }
+
+    nlohmann::json BatchEnvSpec::ToJson() const {
+        nlohmann::json j;
+        j["batch_size"] = batch_size;
+        j["num_threads"] = num_threads;
+        return j;
+    }
+
+    std::string BatchEnvSpec::ToString() const {
+        return ToJson().dump(2);
+    }
+
     // -----------------------------------------
 
     std::string BatchState::ToString() const
@@ -290,11 +302,13 @@ namespace anet::rl {
     {
         std::ostringstream oss;
         oss << "BatchStepResult{";
-        oss << "next_state=" << next_state.ToString();
-        oss << ", reward=" << anet::ToString(reward);
+        oss << "reward=" << anet::ToString(reward);
+        oss << ", next_state=" << next_state.ToString();
+        oss << ", continue_state=" << continue_state.ToString();
         oss << "}";
         return oss.str();
     }
+
     std::string SingleState::ToString() const
     {
         std::ostringstream oss;
@@ -303,6 +317,24 @@ namespace anet::rl {
         oss << ", done=" << done;
         oss << ", truncated=" << truncated;
         oss << ", episode_start=" << episode_start;
+        oss << "}";
+        return oss.str();
+    }
+    std::string SingleDiscreteActionInfo::ToString() const
+    {
+        std::ostringstream oss;
+        oss << "SingleDiscreteActionInfo{";
+        oss << "action=" << action;
+        oss << ", is_random=" << is_random;
+        oss << "}";
+        return oss.str();
+    }
+    std::string SingleStepResult::ToString() const
+    {
+        std::ostringstream oss;
+        oss << "SingleStepResult{";
+        oss << "reward=" << reward;
+        oss << ", next_state=" << next_state.ToString();
         oss << "}";
         return oss.str();
     }
@@ -462,61 +494,182 @@ namespace anet::rl {
         return oss.str();
     }
 
-    //std::unique_ptr<HeatMap> MakeStateHeatMapPtr(
-    //    const anet::rl::StateSpaceInfo& info,
-    //    int idx_x,
-    //    int idx_y,
-    //    int width,
-    //    int height,
-    //    size_t max_points,
-    //    uint32_t flags)
-    //{
-    //    if (!info.low.defined() || !info.high.defined())
-    //        throw std::runtime_error("StateSpaceInfo.low/high are undefined.");
+    VectorizedDiscreteBatchEnv::VectorizedDiscreteBatchEnv(
+        std::shared_ptr<SingleDiscreteEnvFactory> factory, int batch_size)
+        : batch_spec_({ batch_size, 1 })
+    {
+        ANET_ASSERT(batch_size > 0);
+        envs_.reserve(batch_size);
 
-    //    auto dim = info.low.size(0);
-    //    if (idx_x >= dim || idx_y >= dim)
-    //        throw std::runtime_error("MakeStateHeatMapPtr: axis index out of range.");
+        // 最初の1個を生成してEnvSpec取得
+        auto env = factory->Create();
+        spec_ = std::make_unique<EnvSpec>(env->GetSpec());
+        envs_.push_back(std::move(env));
 
-    //    float x_min = info.low[idx_x].item<float>();
-    //    float x_max = info.high[idx_x].item<float>();
-    //    float y_min = info.low[idx_y].item<float>();
-    //    float y_max = info.high[idx_y].item<float>();
+        // 残り batch_size-1 個を生成
+        for (int i = 1; i < batch_size; ++i) {
+            envs_.push_back(factory->Create());
+        }
+    }
 
-    //    return std::make_unique<HeatMap>(
-    //        width,
-    //        height,
-    //        x_min, x_max,
-    //        y_min, y_max,
-    //        max_points,
-    //        flags);
-    //}
+    EnvSpec VectorizedDiscreteBatchEnv::GetSpec() const
+    {
+        return *spec_;
+    }
 
-    //std::unique_ptr<TimeHeatMap> MakeStateTimeHeatMapPtr(
-    //    const anet::rl::StateSpaceInfo& info,
-    //    int idx_x,
-    //    int width, int height,
-    //    size_t max_points,
-    //    uint32_t flags,
-    //    TimeFrameMode mode)
-    //{
-    //    if (!info.low.defined() || !info.high.defined())
-    //        throw std::runtime_error("StateSpaceInfo.low/high are undefined.");
+    BatchEnvSpec VectorizedDiscreteBatchEnv::GetBatchSpec() const
+    {
+        return batch_spec_;
+    }
 
-    //    auto dim = info.low.size(0);
-    //    if (idx_x >= dim)
-    //        throw std::runtime_error("MakeStateHeatMapPtr: axis index out of range.");
+    static std::vector<int64_t> prepend_batch(int N, at::IntArrayRef shape) {
+        std::vector<int64_t> out;
+        out.reserve(shape.size() + 1);
+        out.push_back(N);
+        out.insert(out.end(), shape.begin(), shape.end());
+        return out;
+    }
 
-    //    float x_min = info.low[idx_x].item<float>();
-    //    float x_max = info.high[idx_x].item<float>();
+    BatchState VectorizedDiscreteBatchEnv::Reset(RunMode mode)
+    {
+        const int N = batch_spec_.batch_size;
 
-    //    return std::make_unique<TimeHeatMap>(
-    //        width,
-    //        height,
-    //        x_min, x_max,
-    //        flags,
-    //        max_points,
-    //        mode);
-    //}
+        // 最初のenvで obs の shape を取得
+        SingleState s0 = envs_[0]->Reset(mode);
+        ANET_CHECK_SHAPE(s0.obs, { ANET_SHAPE_ENDANY });
+        ANET_CHECK_DTYPE(s0.obs, torch::kFloat32);
+
+        const auto obs_sizes = s0.obs.sizes();  // state_dim...
+
+        // BatchState 用 Tensor を作成 (N,state_dim...)
+        std::vector<int64_t> batch_obs_sizes;
+        batch_obs_sizes.reserve(obs_sizes.size() + 1);
+        batch_obs_sizes.push_back(N);
+        batch_obs_sizes.insert(batch_obs_sizes.end(), obs_sizes.begin(), obs_sizes.end());
+
+        // 戻り用のBatchSteteを準備
+        auto obs_options_float = torch::TensorOptions().dtype(torch::kFloat32).device(s0.obs.device());
+        auto obs_options_bool = torch::TensorOptions().dtype(torch::kBool).device(s0.obs.device());
+        BatchState batch_state {
+            torch::empty(batch_obs_sizes, obs_options_float), // obs           (N,state_dim...) kFloat
+            torch::empty({ N }, obs_options_bool),   // done          (N) kBool      
+            torch::empty({ N }, obs_options_bool),   // truncated     (N) kBool
+            torch::empty({ N }, obs_options_bool)    // episode_start (N) kBool
+        };
+
+        // 最初の環境の結果を詰める
+        batch_state.obs.index_put_({ 0 }, s0.obs);
+        batch_state.done.index_put_({ 0 }, s0.done);
+        batch_state.truncated.index_put_({ 0 }, s0.truncated);
+        batch_state.episode_start.index_put_({ 0 }, s0.episode_start);
+
+        // 残りの環境を順次リセットして直接詰める
+        for (int i = 1; i < N; ++i) {
+            SingleState s = envs_[i]->Reset(mode);
+            batch_state.obs.index_put_({ i }, s.obs);
+            batch_state.done.index_put_({ i }, s.done);
+            batch_state.truncated.index_put_({ i }, s.truncated);
+            batch_state.episode_start.index_put_({ i }, s.episode_start);
+        }
+
+        state_ = batch_state;
+
+        return state_;
+    }
+
+    BatchStepResult VectorizedDiscreteBatchEnv::Step(const torch::Tensor& actions, RunMode mode)
+    {
+        const int64_t N = batch_spec_.batch_size;
+        ANET_CHECK_DTYPE_MSG(actions, torch::kInt64,
+            "VectorizedDiscreteBatchEnv supports discrete action only. actions should be kInt64.");
+        ANET_CHECK_SHAPE(actions, { N });
+
+        // 1つ目の環境で Step を実行
+        auto a0 = actions[0].item<int64_t>();
+        SingleStepResult r0 = envs_[0]->Step(a0, mode);
+        const auto obs_sizes = r0.next_state.obs.sizes();
+
+        // obs shape を確定
+        std::vector<int64_t> batch_obs_sizes;
+        batch_obs_sizes.reserve(obs_sizes.size() + 1);
+        batch_obs_sizes.push_back(N);
+        batch_obs_sizes.insert(batch_obs_sizes.end(), obs_sizes.begin(), obs_sizes.end());
+
+        // BatchStepResult のテンソル群を作成
+        auto float_opt = torch::TensorOptions().dtype(torch::kFloat32).device(r0.next_state.obs.device());
+        auto bool_opt = torch::TensorOptions().dtype(torch::kBool).device(r0.next_state.obs.device());
+        BatchStepResult result{
+            torch::empty({ N }, float_opt),                 // reward        (N) kFloat32
+            BatchState {    // next_state
+                torch::empty(batch_obs_sizes, float_opt),   // obs           (N, state_dim..) kFloat32
+                torch::empty({ N }, bool_opt),              // done          (N) kBool
+                torch::empty({ N }, bool_opt),              // truncated     (N) kBool
+                torch::empty({ N }, bool_opt)               // episode_start (N) kBool
+            },
+            BatchState {    // continue_state
+                torch::empty(batch_obs_sizes, float_opt),   // obs           (N, state_dim..) kFloat32
+                torch::empty({ N }, bool_opt),              // done          (N) kBool
+                torch::empty({ N }, bool_opt),              // truncated     (N) kBool
+                torch::empty({ N }, bool_opt)               // episode_start (N) kBool
+            },
+        };
+
+        // ----- 最初の結果を詰める -----
+        result.next_state.obs.index_put_({ 0 }, r0.next_state.obs);
+        result.next_state.done.index_put_({ 0 }, r0.next_state.done);
+        result.next_state.truncated.index_put_({ 0 }, r0.next_state.truncated);
+        result.next_state.episode_start.index_put_({ 0 }, r0.next_state.episode_start);
+        result.reward.index_put_({ 0 }, r0.reward);
+
+        // ---- 最初分のcontinue_stateを詰める
+        if (r0.next_state.done || r0.next_state.truncated) {
+            SingleState rs = envs_[0]->Reset(mode);
+            result.continue_state.obs.index_put_({ 0 }, rs.obs);
+            result.continue_state.done.index_put_({ 0 }, rs.done);
+            result.continue_state.truncated.index_put_({ 0 }, rs.truncated);
+            result.continue_state.episode_start.index_put_({ 0 }, rs.episode_start);
+        } else {
+            result.continue_state.obs.index_put_({ 0 }, r0.next_state.obs);
+            result.continue_state.done.index_put_({ 0 }, false);
+            result.continue_state.truncated.index_put_({ 0 }, false);
+            result.continue_state.episode_start.index_put_({ 0 }, r0.next_state.episode_start);
+        }
+
+        // ----- 残りの環境を順次実行 -----
+        for (int i = 1; i < N; ++i) {
+            auto a = actions[i].item<int64_t>();
+            SingleStepResult ri = envs_[i]->Step(a, mode);
+
+            result.next_state.obs.index_put_({ i }, ri.next_state.obs);
+            result.next_state.done.index_put_({ i }, ri.next_state.done);
+            result.next_state.truncated.index_put_({ i }, ri.next_state.truncated);
+            result.next_state.episode_start.index_put_({ i }, ri.next_state.episode_start);
+            result.reward.index_put_({ i }, ri.reward);
+
+            // continue_state
+            if (ri.next_state.done || ri.next_state.truncated) {
+                SingleState rs = envs_[i]->Reset(mode);
+                result.continue_state.obs.index_put_({ i }, rs.obs);
+                result.continue_state.done.index_put_({ i }, rs.done);
+                result.continue_state.truncated.index_put_({ i }, rs.truncated);
+                result.continue_state.episode_start.index_put_({ i }, rs.episode_start);
+            } else {
+                result.continue_state.obs.index_put_({ i }, ri.next_state.obs);
+                result.continue_state.done.index_put_({ i }, false);
+                result.continue_state.truncated.index_put_({ i }, false);
+                result.continue_state.episode_start.index_put_({ i }, ri.next_state.episode_start);
+            }
+        }
+
+        // 継続用Stateを保存
+        state_ = result.continue_state;
+
+        return result;
+    }
+
+    BatchState VectorizedDiscreteBatchEnv::GetState() const
+    {
+        return state_;
+    }
 
 } // namespace anet::rl

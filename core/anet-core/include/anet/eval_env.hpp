@@ -19,6 +19,6 @@ namespace anet::rl {
     /// @param seed 固定したい場合の乱数シード
     /// @todo 将来: 複数モード(RandomPolicy/ZeroActionなど)追加
     EnvEvalResult EvaluateEnvironmentDifficulty(
-        anet::rl::BatchEnvironment& env,int n_episodes = 100, int64_t seed = -1
+        anet::rl::BatchEnv& env,int n_episodes = 100, std::int64_t seed = -1
     );
 }   // namespace anet::rl

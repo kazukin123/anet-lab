@@ -1,4 +1,5 @@
 ﻿#include <algorithm>
+#include <wx/log.h>
 #include "anet/eval_env.hpp"
 
 namespace anet::rl {
@@ -7,14 +8,22 @@ namespace anet::rl {
     // ローカル関数：ActionSpecから汎用ランダム行動を生成
     // =============================================================
     static torch::Tensor RandomActionFromSpec(
+        const BatchState& state,
         const ActionSpec& spec,
         RandomGenerator& rng)
     {
         if (spec.is_discrete) {
-            int n = spec.value_labels.size();  // 離散アクション数
+            wxLogDebug("state.obs=%s", anet::ToString(state.obs));
+            int n = state.obs.size(0);  // 環境数
             ANET_ASSERT(n > 0);
-            int64_t a = rng.RandInt(0, n - 1);
-            return torch::tensor({ a }, torch::kInt64);
+            auto actions = torch::empty({ n }, torch::kInt64);
+            for (int64_t i = 0; i < n; ++i) {
+                int64_t a = rng.RandInt(0, n - 1);
+                actions.index_put_({ i }, a);
+            }
+            wxLogDebug("at=%s", anet::ToString(actions));
+            ANET_CHECK_SHAPE(actions, { n });
+            return actions;
         }
 
         // -------- continuous action (Box) --------
@@ -49,10 +58,12 @@ namespace anet::rl {
     // EvaluateEnvironmentDifficulty()
     // =============================================================
     EnvEvalResult EvaluateEnvironmentDifficulty(
-        BatchEnvironment& env,
+        BatchEnv& env,
         int n_episodes,
-        int64_t seed)
+        std::int64_t seed)
     {
+        /// @todo N環境対応
+
         auto rng = RandomGenerator(seed, false, false);
 
         EnvEvalResult R;
@@ -70,17 +81,17 @@ namespace anet::rl {
             int   ep_len = 0;
 
             while (true) {
-                torch::Tensor action = RandomActionFromSpec(action_spec, rng);
-                BatchStepResult step = env.DoStep(action, RunMode::Eval1);
+                torch::Tensor action = RandomActionFromSpec(s, action_spec, rng);
+                BatchStepResult step = env.Step(action, RunMode::Train);
 
-                ep_ret += step.reward.item<float>();
+                ep_ret += step.reward.mean().item<float>();
                 ep_len++;
 
                 bool done = step.next_state.done.item<bool>();
                 bool truncated = step.next_state.truncated.item<bool>();
                 if (done || truncated) break;
 
-                s = step.next_state;
+                s = step.continue_state;
             }
 
             returns.push_back(ep_ret);

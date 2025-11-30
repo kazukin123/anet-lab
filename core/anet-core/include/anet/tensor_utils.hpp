@@ -4,10 +4,6 @@
 #include <sstream>
 #include "anet/common.hpp"
 
-#ifndef ANET_ENABLE_TENSOR_ASSERT
-#define ANET_ENABLE_TENSOR_ASSERT 1
-#endif
-
 namespace anet {
 
     // Device と dtype を一元管理する軽量コンテキスト

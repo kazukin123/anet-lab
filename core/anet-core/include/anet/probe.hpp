@@ -12,28 +12,19 @@
 namespace anet::rl {
 
     //==============================================================
-    // ■ ScalarProbe
+    // Probe interface
     //==============================================================
 
     class ScalarProbe {
     public:
-        /**
-         * @brief 観測情報からFloat値を生成
-         */
         virtual std::optional<float> GetFloat(
             int step,
             std::shared_ptr<anet::rl::Agent> agent,
             const anet::rl::BatchExperience& batch_exp,
             std::shared_ptr<const anet::rl::BatchUpdateResult> result) const = 0;
 
-        /**
-         * @brief 値の下限が決まっている場合に返す。
-         */
+        virtual std::optional<std::string> GetName() const { return std::nullopt; }
         virtual std::optional<float> GetMin() const = 0;
-
-        /**
-         * @brief 値の上限が決まっている場合に返す。
-         */
         virtual std::optional<float> GetMax() const = 0;
 
         virtual ~ScalarProbe() = default;
@@ -42,31 +33,32 @@ namespace anet::rl {
     /**
      * @brief TimeHistogram 用の float ベクトル Probe
      */
-    class IVectorProbe {
+    class VectorProbe {
     public:
-        virtual ~IVectorProbe() = default;
-
-        /**
-         * @brief 現在のベクトルデータを返す
-         * @return true = out に有効値が入る
-         */
         virtual std::optional<std::vector<float>> GetVector(
             int step,
             std::shared_ptr<anet::rl::Agent> agent,
             const anet::rl::BatchExperience& batch_exp,
             std::shared_ptr<const anet::rl::BatchUpdateResult> result) const = 0;
 
-        virtual std::optional<float> GetMin() const { return std::nullopt; }
-        virtual std::optional<float> GetMax() const { return std::nullopt; }
+        virtual std::optional<std::string> GetName() const { return std::nullopt; }
+        virtual std::optional<float> GetMin() const = 0;
+        virtual std::optional<float> GetMax() const = 0;
+
+        virtual ~VectorProbe() = default;
     };
+
+    //==============================================================
+    // ScalarProbe impl
+    //==============================================================
 
     /**
      * @brief MetricsMap に格納された scalar を参照する Probe。
      */
     class MetricsScalarProbe : public ScalarProbe {
     public:
-        explicit MetricsScalarProbe(std::string key)
-            : key_(std::move(key)) {
+        explicit MetricsScalarProbe(std::string key, std::optional<std::string> name = std::nullopt)
+            : key_(std::move(key)), name_(name) {
         }
 
         std::optional<float> GetFloat(
@@ -74,10 +66,13 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::Agent> agent,
             const anet::rl::BatchExperience& batch_exp,
             std::shared_ptr<const anet::rl::BatchUpdateResult> result) const override;
+
+        std::optional<std::string> GetName() const override { return name_.has_value() ? name_ : key_; }
         std::optional<float> GetMin() const override { return std::nullopt; }
         std::optional<float> GetMax() const override { return std::nullopt; }
 
     private:
+        std::optional<std::string> name_;
         std::string key_;
     };
 
@@ -86,8 +81,8 @@ namespace anet::rl {
      */
     class StaticScalarProbe : public ScalarProbe {
     public:
-        explicit StaticScalarProbe(float value)
-            : value_(value) {
+        explicit StaticScalarProbe(float value, const std::string& name)
+            : value_(value), name_(name) {
         }
 
         std::optional<float> GetFloat(
@@ -95,9 +90,12 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::Agent> agent,
             const anet::rl::BatchExperience& batch_exp,
             std::shared_ptr<const anet::rl::BatchUpdateResult> result) const override;
+
+        std::optional<std::string> GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return value_; }
         std::optional<float> GetMax() const override { return value_; }
     private:
+        std::string name_;
         float value_;
     };
 
@@ -114,6 +112,7 @@ namespace anet::rl {
                 std::shared_ptr<const anet::rl::BatchUpdateResult> result)>;
 
         FunctionScalarProbe(
+            const std::string& name,
             Fn fn,
             std::optional<float> min = std::nullopt,
             std::optional<float> max = std::nullopt)
@@ -125,16 +124,22 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::Agent> agent,
             const anet::rl::BatchExperience& batch_exp,
             std::shared_ptr<const anet::rl::BatchUpdateResult> result) const override;
+
+        std::optional<std::string> GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }
         std::optional<float> GetMax() const override { return max_; }
     private:
+        std::string name_;
         Fn fn_;
         std::optional<float> min_;
         std::optional<float> max_;
     };
 
+    //==============================================================
+    // VectorProbe impl
+    //==============================================================
 
-    class BatchExperienceBasedVectorProbe : public  IVectorProbe {
+    class BatchExperienceBasedVectorProbe : public  VectorProbe {
     public:
         virtual std::optional<std::vector<float>> GetVectorFromExperience(
             int step,
@@ -167,13 +172,15 @@ namespace anet::rl {
     /**
      * @brief EnvSpec.state_spec と index を用いて state から float を抽出する Probe。
      */
-    class StateProbe : public IVectorProbe {
+    class BatchExperienceStateProbe : public VectorProbe {
     public:
         /**
          * @param spec  値範囲抽出に使うSteteSpec。nullptrの場合は値範囲を定義しない。
          * @param index 抽出する state の次元（flatten 後の index）
          */
-        StateProbe(int state_index, const anet::rl::StateSpec* spec = nullptr, bool for_next_state = false);
+        BatchExperienceStateProbe(
+            int64_t state_index, const anet::rl::StateSpec* spec = nullptr, bool for_next_state = true,
+            const std::optional<std::string> name = std::nullopt);
 
         std::optional<std::vector<float>> GetVector(
             int step,
@@ -181,60 +188,76 @@ namespace anet::rl {
             const anet::rl::BatchExperience& batch_exp,
             std::shared_ptr<const anet::rl::BatchUpdateResult> result) const override;
 
+        std::optional<std::string> GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }
         std::optional<float> GetMax() const override { return max_; }
     private:
+        std::optional<std::string> name_;
         int state_index_;
         bool for_next_state_;
         std::optional<float> min_;
         std::optional<float> max_;
     };
 
-    class RewardProbe : public IVectorProbe {
+    class BatchExperienceRewardProbe : public VectorProbe {
     public:
         /**
          * @param spec 値範囲抽出に使うEnvSpec。nullの場合は値範囲を定義しない。
          */
-        RewardProbe(const anet::rl::EnvSpec* spec = nullptr);
+        BatchExperienceRewardProbe(const anet::rl::EnvSpec* spec = nullptr, std::optional<std::string> name = std::nullopt);
 
         std::optional<std::vector<float>> GetVector(
             int step,
             std::shared_ptr<anet::rl::Agent> agent,
             const anet::rl::BatchExperience& batch_exp,
             std::shared_ptr<const anet::rl::BatchUpdateResult> result) const override;
+
+        std::optional<std::string> GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }
         std::optional<float> GetMax() const override { return max_; }
     private:
+        std::string name_;
         std::optional<float> min_;
         std::optional<float> max_;
     };
 
-    //==============================================================
-    // ■ IVectorProbe
-    //==============================================================
-
-    class BatchUpdateResultTensorProbe : public IVectorProbe {
+    class BatchUpdateResultTensorToVectorProbe : public VectorProbe {
     public:
-        BatchUpdateResultTensorProbe(const std::string& key) : key_(key) {}
+        BatchUpdateResultTensorToVectorProbe(const std::string& key, std::optional<float> min = std::nullopt, std::optional<float> max = std::nullopt);
 
         std::optional<std::vector<float>> GetVector(
             int step,
             std::shared_ptr<anet::rl::Agent> agent,
             const anet::rl::BatchExperience& batch_exp,
             std::shared_ptr<const anet::rl::BatchUpdateResult> result) const override;
+
+        std::optional<std::string> GetName() const override { return name_; }
+        std::optional<float> GetMin() const override { return min_; }
+        std::optional<float> GetMax() const override { return max_; }
     private:
         std::string key_;
+        std::string name_;
+        std::optional<float> min_;
+        std::optional<float> max_;
     };
 
-    class AgentTensorVectorProbe : public IVectorProbe {
+    class AgentTensorVectorProbe : public VectorProbe {
+    public:
+        enum AutoScaleMode {
+            DISABLE,
+            PER_STEP,
+            GLOBAL,
+        };
     public:
         AgentTensorVectorProbe(
             const std::string& key,
             int index,
-            const anet::rl::StateSpec* state_spec,
+            const anet::rl::StateSpec* state_spec = nullptr,
             const anet::rl::ActionSpec* action_spec = nullptr,
+            AutoScaleMode auto_scale_mode = AutoScaleMode::DISABLE,
             std::optional<float> min_override = std::nullopt,
-            std::optional<float> max_override = std::nullopt);
+            std::optional<float> max_override = std::nullopt,
+            std::optional<std::string> name = std::nullopt);
 
         std::optional<std::vector<float>> GetVector(
             int step,
@@ -242,14 +265,21 @@ namespace anet::rl {
             const anet::rl::BatchExperience& batch_exp,
             std::shared_ptr<const anet::rl::BatchUpdateResult> result) const override;
 
+        std::optional<std::string> GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }
         std::optional<float> GetMax() const override { return max_; }
     private:
+        std::string name_;
         std::string key_;
         int index_;
-        std::optional<float> min_;
-        std::optional<float> max_;
+        AutoScaleMode auto_scale_mode_;
+        mutable std::optional<float> min_;  ///< @todo mutable除去
+        mutable std::optional<float> max_;  ///< @todo mutable除去
     };
+
+    //==============================================================
+    // Sweep
+    //==============================================================
 
     class ISweepInputGenerator {
     public:

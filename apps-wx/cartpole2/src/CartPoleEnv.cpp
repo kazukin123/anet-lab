@@ -7,8 +7,13 @@
 
 // 定数
 const int limit_step = 500;  // 終了条件
+const float reward_scale = 1.0f;  // 2 10  20
+const float done_reward = 1.0f;  // 2 10  20
+
 const float limit_x = 2.4f;
+const float limit_x_dot = 2.0f;
 const float limit_theta = 90.0f; // 12.0f 90.0f
+const float limit_theta_dot = 3.0f;
 
 const float gravity = 9.8f;
 const float masscart = 1.0f;
@@ -18,7 +23,8 @@ const float length = 0.5f;
 const float polemass_length = mass_pole * length;
 const float force_mag = 30.0f;  // 10.0f 30.0f
 const float tau = 0.02f;    //0.02f 0.01f
-const float reward_scale = 1.0f;  // 2 10  20
+
+const float deg = (float)M_PI / 180.0f;
 
 CartPoleEnv::CartPoleEnv(std::shared_ptr<anet::RandomGenerator> rnd) : RandomHolder(rnd)
 {
@@ -34,15 +40,13 @@ CartPoleEnv::CartPoleEnv(std::shared_ptr<anet::RandomGenerator> rnd) : RandomHol
 
 anet::rl::EnvSpec CartPoleEnv::GetSpec() const
 {
-    const float deg = (float)M_PI / 180.0f;
-
     anet::rl::StateSpec state = {
         {4},   // shape
         {      //dims
-            { {0}, -limit_x, limit_x,     "x"},         // dims[0] coords, min, max, name, desc
-            { {1}, -2.0f, 2.0f,           "x_dot"},     // dims[1] coords, min, max, name, desc
-            { {2}, -limit_theta * deg, limit_theta * deg, "theta"}, // dims[2] coords, min, max, name, desc
-            { {3}, -3.0f, 3.0f,           "theta_dot"}  // dims[3] coords, min, max, name, desc
+            { {0}, -limit_x - limit_x_dot * tau, limit_x + limit_x_dot * tau,     "x"},         // dims[0] coords, min, max, name, desc
+            { {1}, -limit_x_dot, limit_x_dot,           "x_dot"},     // dims[1] coords, min, max, name, desc
+            { {2}, -limit_theta * deg - limit_theta_dot * tau, limit_theta * deg + limit_theta_dot * tau, "theta"}, // dims[2] coords, min, max, name, desc
+            { {3}, -limit_theta_dot, limit_theta_dot,           "theta_dot"}  // dims[3] coords, min, max, name, desc
         }
     };
     anet::rl::ActionSpec action = {
@@ -55,13 +59,13 @@ anet::rl::EnvSpec CartPoleEnv::GetSpec() const
     anet::rl::EnvSpec env_spec = {
         state,
         action,
-        { -1, 2 }   //reward_range: min, max
+        { -1, 1 }   //reward_range: min, max
     };
 
     return env_spec;
 }
 
-anet::rl::BatchState CartPoleEnv::Reset(anet::rl::RunMode mode) {
+anet::rl::SingleState CartPoleEnv::Reset(anet::rl::RunMode mode) {
     if (anet::rl::IsTrain(mode)) {
         const float d = 0.05f;
         x_ =         rnd_->Uniform(-d, d);
@@ -86,20 +90,15 @@ anet::rl::BatchState CartPoleEnv::Reset(anet::rl::RunMode mode) {
     episode_start_ = true;
     step_count_ = 0;
 
-    return GetState();
-}
-
-anet::rl::BatchState CartPoleEnv::GetState() const {
     return {
-        torch::tensor({ x_, x_dot_, theta_, theta_dot_ }).unsqueeze(0), // (1, 4)
-        torch::tensor(done_, torch::kBool).unsqueeze(0),           // (1)
-        torch::tensor(truncated_, torch::kBool).unsqueeze(0),      // (1)
-        torch::tensor(episode_start_, torch::kBool).unsqueeze(0),  // (1)
+        torch::tensor({ x_, x_dot_, theta_, theta_dot_ }), // (4)
+        done_,
+        truncated_,
+        episode_start_
     };
 }
 
-anet::rl::BatchStepResult CartPoleEnv::DoStep(const torch::Tensor& action_tensor, anet::rl::RunMode mode) {
-    int action = action_tensor.item<int>();
+anet::rl::SingleStepResult CartPoleEnv::Step(int64_t action, anet::rl::RunMode mode) {
     episode_start_ = false;
 
     // 力の符号（1:右=+、0:左=-）
@@ -141,9 +140,10 @@ anet::rl::BatchStepResult CartPoleEnv::DoStep(const torch::Tensor& action_tensor
     theta_ += tau * theta_dot_;
     theta_dot_ += tau * thetaacc;
 
-    // 速度・角速度に上限を設ける
+    // clamp
     theta_dot_ = std::clamp(theta_dot_, -3.0f, 3.0f);
     x_dot_ = std::clamp(x_dot_, -2.0f, 2.0f);
+    //theta_ = std::clamp(theta_, -limit_theta * deg, limit_theta * deg);
 
     //wxLogInfo("STEP=%d x=%f theta=%f hit_wall=%d force=%f x_dot=%f theta_dot=%f, xacc=%f thetaacc=%f",
         //step_count, x, theta, hit_wall, force, x_dot, theta_dot,xacc, thetaacc);
@@ -157,6 +157,7 @@ anet::rl::BatchStepResult CartPoleEnv::DoStep(const torch::Tensor& action_tensor
     // 終了条件は下半分まで倒れたor500ステップを超えた
     float theta_deg = theta_ * 180.0f / M_PI;
     done_ = (x_ < -limit_x || x_ > limit_x || theta_deg < -limit_theta || theta_deg > limit_theta);
+    //wxLogDebug("done_:[%d] a=%d x:[%f %f], theta_deg:[%f %f]", done_, action, x_, limit_x, theta_deg, limit_theta);
     //if (step_count >= limit_step) { done_ = true; }
 
     // 報酬: 角度安定性 + 速度安定補正
@@ -187,17 +188,33 @@ anet::rl::BatchStepResult CartPoleEnv::DoStep(const torch::Tensor& action_tensor
     // 終了条件ごとに分岐
     if (theta_deg < -limit_theta || theta_deg > limit_theta || x_ < -limit_x || x_ > limit_x) {
         // 倒立失敗
-        reward = -reward_scale;   // ← ペナルティ
+        reward = -done_reward;   // ← ペナルティ
     } else if (step_count_ >= limit_step) {
         // 時間切れ成功
-        reward = +reward_scale;   // ← ボーナス
+        reward = done_reward;
         truncated_ = true;
     }
 
-    anet::rl::BatchStepResult result =
-    {
-        GetState(),     // obs
-        torch::tensor(reward, torch::kFloat32).unsqueeze(0),     // (1) reward
+    anet::rl::SingleStepResult result {
+        reward,
+        {
+            torch::tensor({ x_, x_dot_, theta_, theta_dot_ }), // obs (4)
+            done_,
+            truncated_,
+            episode_start_
+        },
     };
     return result;
 }
+
+CartPoleEnvFactory::CartPoleEnvFactory(std::shared_ptr<anet::RandomGenerator> rnd)
+    : RandomHolder(rnd)
+{
+    ;
+}
+
+std::shared_ptr<anet::rl::SingleDiscreteEnv> CartPoleEnvFactory::Create()
+{
+    return std::make_shared<CartPoleEnv>(rnd_);
+}
+

@@ -36,9 +36,9 @@ namespace anet::rl {
     // RunMode
     // =============================================================
 
-    enum class RunMode { Train, Eval1, Eval2 };
+    enum class RunMode { Train, Eval, Eval1, Eval2 };
     inline bool IsTrain(RunMode mode) { return mode == RunMode::Train; }
-    inline bool IsEval(RunMode mode) { return mode == RunMode::Eval1 || mode == RunMode::Eval2; }
+    inline bool IsEval(RunMode mode) { return mode == RunMode::Eval || mode == RunMode::Eval1 || mode == RunMode::Eval2; }
 
     // =============================================================
     // Environment 定義クラス
@@ -46,7 +46,7 @@ namespace anet::rl {
 
     // 観測次元情報
     struct StateDimInfo {
-        std::vector<int64_t> coords;  ///< 対象の位置情報。 例: {0}, {2}, {0,10,20} など
+        std::vector<std::int64_t> coords;  ///< 対象の位置情報。 例: {0}, {2}, {0,10,20} など
         float min_value = std::numeric_limits<float>::lowest();  ///< 最小値
         float max_value = std::numeric_limits<float>::max();     ///< 最大値
         std::string name;             ///< 名前（任意）
@@ -58,13 +58,13 @@ namespace anet::rl {
 
     // 観測仕様
     struct StateSpec {
-        std::vector<int64_t> shape;        // 任意次元対応
+        std::vector<std::int64_t> shape;        // 任意次元対応
         std::vector<StateDimInfo> dims;    // 必要な位置だけ登録（配列）
-        std::map<std::string, std::string> options;
+        std::map<std::string, std::string> info;
 
-        int64_t CalcFlattenSize() const;
-        const StateDimInfo* FindDim(const std::vector<int64_t>& coords) const;
-        const StateDimInfo* FindDim(int64_t flatten_index) const;
+        std::int64_t CalcFlattenSize() const;
+        const StateDimInfo* FindDim(const std::vector<std::int64_t>& coords) const;
+        const StateDimInfo* FindDim(std::int64_t flatten_index) const;
         bool MatchesShape(const torch::Tensor& obs) const;
         bool MatchesRange(const torch::Tensor& obs) const;
         bool MatchesRangeFlat(const torch::Tensor& flat_obs) const;
@@ -88,7 +88,7 @@ namespace anet::rl {
         bool is_discrete;
         std::vector<std::string> value_labels; // 離散アクションの場合のみ使用
         std::vector<ActionDimInfo> dims; // 連続アクションの場合のみ使用
-        std::map<std::string, std::string> options;
+        std::map<std::string, std::string> info;
 
         int ActionCount() const {
             if (is_discrete) {
@@ -110,7 +110,17 @@ namespace anet::rl {
         StateSpec state_spec;
         ActionSpec action_spec;
         std::pair<float, float> reward_range;
-        std::map<std::string, std::string> options;
+        std::map<std::string, std::string> info;
+
+        /// @todo RewardSpec
+
+        nlohmann::json ToJson() const;
+        std::string ToString() const;
+    };
+
+    struct BatchEnvSpec {
+        int batch_size;
+        int num_threads;
 
         nlohmann::json ToJson() const;
         std::string ToString() const;
@@ -177,7 +187,7 @@ namespace anet::rl {
 
     // 行動選択時のメタ情報
     struct BatchActionInfo {
-        torch::Tensor action;       ///< 実際に選択された行動値      (N, action_dim) kFloat32 or kInt64
+        torch::Tensor action;       ///< 実際に選択された行動値      (N, action_dim...) kFloat32 or kInt64
         torch::Tensor is_random;    ///< ε-greedy のランダム選択か  (N) kBool
 
         BatchActionInfo to(torch::Device device) const {
@@ -193,30 +203,14 @@ namespace anet::rl {
 
     // Env::DoStep() の結果
     struct BatchStepResult {
-        BatchState next_state;           ///< 遷移後の観測  (N,)
         torch::Tensor reward;       ///< 報酬          (N) kFloat32
+        BatchState next_state;      ///< 遷移後の観測  (N, state_dim...)
+        BatchState continue_state;  ///< 実行継続用（Reset 後の状態も含む）
 
         BatchStepResult to(torch::Device device) const {
-            return { next_state.to(device), reward.to(device) };
+            return { reward.to(device), next_state.to(device), continue_state.to(device)};
         }
         std::string ToString() const;
-    };
-
-    class DataExporter {
-    public:
-        virtual std::optional<float> GetScalar(const std::string& key) const = 0;
-        virtual std::optional<torch::Tensor> GetTensor(const std::string& key) const = 0;
-        virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const = 0;
-        virtual ~DataExporter() = default;
-    };
-
-    class TensorDataExporter {
-    public:
-        virtual std::optional<float> GetScalar(const std::string& key) const { ; }
-        virtual std::optional<torch::Tensor> GetTensor(const std::string& key) const = 0;
-        virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const { ; }
-        virtual ~TensorDataExporter() = default;
-
     };
 
     using MetricsMap = std::unordered_map<std::string, float>;
@@ -247,6 +241,20 @@ namespace anet::rl {
             ANET_CHECK_DTYPE(obs, torch::kFloat32);
             return { obs.to(device), done, truncated, episode_start };
         }
+        std::string ToString() const;
+    };
+
+    struct SingleDiscreteActionInfo {
+        std::int64_t action;  ///< 実際に選択された行動値      (action_dim...) kFloat32 or kInt64
+        bool is_random;       ///< ε-greedy のランダム選択か
+        
+        std::string ToString() const;
+    };
+
+    struct SingleStepResult {
+        float reward;              ///< 報酬         
+        SingleState next_state;    ///< 遷移後の観測  (state_dim...)
+
         std::string ToString() const;
     };
 
@@ -306,14 +314,73 @@ namespace anet::rl {
     // Environment
     // =============================================================
 
-    class BatchEnvironment {
+    /// not-thread-safe
+    class SingleDiscreteEnv {
     public:
         virtual EnvSpec GetSpec() const = 0;
+        virtual SingleState Reset(RunMode mode) = 0;
+        virtual SingleStepResult Step(int64_t action, RunMode mode) = 0;
+
+        virtual ~SingleDiscreteEnv() = default;
+    };
+
+    class SingleDiscreteEnvFactory {
+    public:
+        virtual std::shared_ptr<SingleDiscreteEnv> Create() = 0;
+
+        virtual ~SingleDiscreteEnvFactory() = default;
+    };
+
+    class BatchEnv {
+    public:
+        virtual EnvSpec GetSpec() const = 0;
+        virtual BatchEnvSpec GetBatchSpec() const = 0;
         virtual BatchState Reset(RunMode mode = RunMode::Train) = 0;
-        virtual BatchStepResult DoStep(const torch::Tensor& action, RunMode mode = RunMode::Train) = 0;
+        virtual BatchStepResult Step(const torch::Tensor& action, RunMode mode = RunMode::Train) = 0;
         virtual BatchState GetState() const = 0;
 
-        virtual ~BatchEnvironment() = default;
+        virtual ~BatchEnv() = default;
+    };
+
+    class VectorizedDiscreteBatchEnv : public BatchEnv {
+    public:
+        VectorizedDiscreteBatchEnv(std::shared_ptr<SingleDiscreteEnvFactory> factory, int batch_size);
+
+        EnvSpec GetSpec() const override;
+        BatchEnvSpec GetBatchSpec() const override;
+        BatchState Reset(RunMode mode) override;
+        BatchStepResult Step(const torch::Tensor& actions, RunMode mode) override;
+        BatchState GetState() const override;
+    private:
+        std::vector<std::shared_ptr<SingleDiscreteEnv>> envs_;
+        std::unique_ptr<EnvSpec> spec_;
+        BatchEnvSpec batch_spec_;
+        BatchState state_;   ///< 現在の環境状態
+    };
+
+    class ThreadPoolDiscreteEnv : public BatchEnv {
+    public:
+        ThreadPoolDiscreteEnv(std::shared_ptr<SingleDiscreteEnvFactory> factory,
+            int batch_size,
+            int worker_threads);
+
+        EnvSpec GetSpec() const override;
+        BatchEnvSpec GetBatchSpec() const override;
+        BatchState Reset(RunMode mode) override;
+        BatchStepResult Step(const torch::Tensor& actions, RunMode mode) override;
+    private:
+        struct StepTask {
+            SingleDiscreteEnv* env;
+            int64_t action;
+            SingleStepResult result;
+        };
+
+        std::vector<std::shared_ptr<SingleDiscreteEnv>> envs_;
+        EnvSpec spec_;
+        BatchEnvSpec batch_spec_;
+
+        // @todo: ThreadPool 実装 or 外部注入
+        // ThreadPool pool_;
     };
 
     // =============================================================

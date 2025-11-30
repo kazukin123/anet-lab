@@ -1,15 +1,44 @@
 ﻿#pragma once
 #include <torch/torch.h>
 #include <vector>
+
+#include <cuda_runtime.h>
+#include <wx/log.h>
 #include "anet/common.hpp"
 
 //------------------------------------------------------
-// Enable switches（デフォルトON）
+// Enable switches
 //------------------------------------------------------
+
+#ifdef ANET_ENABLE_ASSERT
 
 #ifndef ANET_ENABLE_TENSOR_ASSERT
 #define ANET_ENABLE_TENSOR_ASSERT 1
 #endif
+
+#ifndef ANET_ENABLE_SYNC_CHECK
+#define ANET_ENABLE_SYNC_CHECK 1
+#endif
+
+#ifndef ANET_ENABLE_ASSERT
+#define ANET_ENABLE_ASSERT 1
+#endif
+
+#else
+
+#ifndef ANET_ENABLE_TENSOR_ASSERT
+#define ANET_ENABLE_TENSOR_ASSERT 0
+#endif
+
+#ifndef ANET_ENABLE_SYNC_CHECK
+#define ANET_ENABLE_SYNC_CHECK 0
+#endif
+
+#ifndef ANET_ENABLE_ASSERT
+#define ANET_ENABLE_ASSERT 0
+#endif
+
+#endif   // NDEBUG
 
 //------------------------------------------------------
 // 内部実装関数（.cpp に実体あり）
@@ -33,6 +62,7 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
     const char* msg,
     const char* file,
     int line);
+
 #endif
 
 //------------------------------------------------------
@@ -154,3 +184,37 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
 #define ANET_CHECK_SHAPE_MSG(tensor, msg, ...)    do {} while(0)
 
 #endif
+
+/// デストラクタでCPU同期が発生するので注意。
+class CudaSyncCheck {
+public:
+    CudaSyncCheck(const char* label)
+        : label_(label)
+    {
+#if ANET_ENABLE_SYNC_CHECK
+        cudaEventCreate(&start_);
+        cudaEventCreate(&stop_);
+        cudaEventRecord(start_);
+#endif
+    }
+
+    ~CudaSyncCheck() {
+#if ANET_ENABLE_SYNC_CHECK
+        cudaEventRecord(stop_);
+        cudaEventSynchronize(stop_);
+        float ms = 0.0f;
+        cudaEventElapsedTime(&ms, start_, stop_);
+        if (ms > 0.1f) {  // 0.1ms 以上ならほぼ同期発生
+            wxLogDebug("[SYNC] CudaSyncCheck %s : %.3f ms\n", label_, ms);
+        }
+        cudaEventDestroy(start_);
+        cudaEventDestroy(stop_);
+#endif
+    }
+
+private:
+#if ANET_ENABLE_SYNC_CHECK
+    cudaEvent_t start_, stop_;
+#endif
+    const char* label_;
+};

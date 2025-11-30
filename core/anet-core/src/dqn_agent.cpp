@@ -1,8 +1,9 @@
-﻿#include "anet/dqn_agent.hpp"
-#include <iostream>
+﻿#include <iostream>
 #include <tuple>
 #include <wx/log.h>
 #include "nlohmann/json.hpp"
+#include "anet/dqn_agent.hpp"
+#include "anet/nn_util.hpp"
 #include "anet/tensor_utils.hpp"
 #include "anet/tensor_check.hpp"
 #include "anet/config.hpp"
@@ -163,13 +164,29 @@ public:
 // QNet 定義（Impl を CPP に置く）
 // ======================================================
 struct anet::rl::DQNAgent::QNetImpl : torch::nn::Module {
-    torch::nn::Linear fc1{ nullptr }, fc2{ nullptr }, fc3{ nullptr };
+    torch::nn::Linear fc1{ nullptr };
+    torch::nn::Linear fc2{ nullptr };
+    torch::nn::Linear fc3{ nullptr };
 
     QNetImpl(int state_dim, int n_actions) {
         fc1 = register_module("fc1", torch::nn::Linear(state_dim, 120));
         fc2 = register_module("fc2", torch::nn::Linear(120, 84));
         fc3 = register_module("fc3", torch::nn::Linear(84, n_actions));
     }
+    ///  He正規分布で重み初期化
+    void InitWeightsWithHeNormal() {
+        anet::ApplyHeNormal(fc1);
+        anet::ApplyHeNormal(fc2);
+        //anet::ApplyHeNormal(fc3);
+        anet::ApplyXavierUniform(fc3);
+        /// @todo 出力層だけはXavier uniformが良い(ピクピクで安定してしまう)
+    }
+    void InitWeightsWithXavierUniform() {
+        anet::ApplyXavierUniform(fc1);
+        anet::ApplyXavierUniform(fc2);
+        anet::ApplyXavierUniform(fc3);
+    }
+
     torch::Tensor forward(torch::Tensor x) {
         x = torch::relu(fc1->forward(x));
         x = torch::relu(fc2->forward(x));
@@ -186,14 +203,16 @@ anet::rl::TensorFunction DQNAgent::GetTensorFunction(const std::string& key) con
             return policy_net_->forward(tdev);
             };
         return fn;
-    } else if (key == "target_net.forward") {
+    }
+    if (key == "target_net.forward") {
         anet::rl::TensorFunction fn = [this](const torch::Tensor& t) {
             auto tdev = t.to(device_);
             std::shared_lock<std::shared_mutex> lock(mutex_);
             return target_net_->forward(tdev);
             };
         return fn;
-    } else if (key == "q_pair.forward") {
+    }
+    if (key == "q_pair.forward") {
         anet::rl::TensorFunction fn = [this](const torch::Tensor& t) {
             auto tdev = t.to(device_);
             std::shared_lock<std::shared_mutex> lock(mutex_);
@@ -254,8 +273,6 @@ public:
      */
     BatchActionInfo DecideBatch(const torch::Tensor& q_values, bool greedy_only)
     {
-        BatchActionInfo info;
-
         const auto device = q_values.device();
         const int64_t N = q_values.size(0);
         const int64_t A = q_values.size(1);
@@ -267,53 +284,30 @@ public:
         auto greedy = q_cpu.argmax(1);
 
         if (greedy_only) {
-            info.action = greedy.unsqueeze(1).to(device);       // (N, n_actions)
-            info.is_random = torch::zeros({ N }, torch::kBool).unsqueeze(1).to(device);
-            return info;
+            BatchActionInfo action_info{
+                greedy.to(device),       // (N, n_actions)
+                torch::zeros({ N }, torch::kBool).to(device)
+            };
+            return action_info;
         }
 
         const float eps = agent_.vars_->epsilon;
-        auto mask = torch::rand({ N }).lt(eps);     // (N) bool
+        auto mask = torch::rand({ N }).lt(eps); // (N) bool
         auto random_actions = torch::randint(/*low=*/0, /*high=*/A, { N }, torch::kInt64); // (N)random actions
 
         // greedy をコピー
-        auto actions = greedy.clone();              // (N)
+        auto actions = greedy.clone();          // (N)
 
         // pure-tensor で ε-greedy をセット
         actions = torch::where(mask, random_actions, actions);
 
-        info.action = actions.unsqueeze(1).to(device);      // (N, n_actions)
-        info.is_random = mask.unsqueeze(1).to(device);      // (N, n_actions)
+        BatchActionInfo action_info{
+            actions.to(device),   // action    (N) kInt64
+            mask.to(device)       // is_random (N) kBool
+        };
+        wxLogDebug("DeciceBatch() acion=%s", action_info.ToString());
 
-        return info;
-    }
-private:
-    /**
-     * @brief N個のランダム整数 [0, A-1] を返す
-     */
-    torch::Tensor RandomActions(int64_t N, int64_t A) const
-    {
-        torch::Tensor out = torch::empty({ N }, torch::kInt64);
-
-        auto acc = out.accessor<int64_t, 1>();
-        for (int64_t i = 0; i < N; i++) {
-            acc[i] = rnd_->RandInt(0, A - 1);
-        }
-        return out;
-    }
-
-    /**
-     * @brief N環境ぶんの「random or not」フラグ (bool tensor) を返す
-     */
-    torch::Tensor RandomMask(int64_t N, float epsilon) const
-    {
-        torch::Tensor mask = torch::empty({ N }, torch::kBool);
-
-        auto acc = mask.accessor<bool, 1>();
-        for (int64_t i = 0; i < N; i++) {
-            acc[i] = (rnd_->Uniform01() < epsilon);
-        }
-        return mask;
+        return action_info;
     }
 private:
     DQNAgent& agent_;
@@ -575,8 +569,8 @@ private:
 // ================================================
 class DQNAgent::StabilityController {
 public:
-    explicit StabilityController(const DQNAgentConfig& cfg)
-        : cfg_(cfg)
+    explicit StabilityController(const DQNAgentConfig& config)
+        : config_(config)
     {
     }
 
@@ -591,7 +585,7 @@ public:
         float eps_new = ComputeBoostEpsilon(vars.epsilon, collapse_s, step);
         vars.collapse_s = collapse_s;
 
-        if (cfg_.use_as_dqn) {
+        if (config_.use_as_dqn) {
             vars.epsilon = eps_new;
         }
     }
@@ -608,13 +602,15 @@ public:
         auto [eps_new, tau_new] = ComputeEpsilonTauLearn(vars.epsilon, vars.tau, collapse_l, update_step_count);
         vars.collapse_l = collapse_l;
 
-        if (cfg_.use_as_dqn) {
+        if (config_.use_as_dqn) {
             vars.epsilon = eps_new;
             vars.tau = tau_new;
         }
     }
 private:
-    const DQNAgentConfig& cfg_;
+    const DQNAgentConfig& config_;
+
+    /// @todo confg参照状況を整理
 
     // ============================================================
     // collapse（崩壊度）の設計
@@ -652,22 +648,22 @@ private:
     // ============================================================
     float ComputeBoostEpsilon(float eps, float collapse, size_t step) const
     {
-        if (collapse < cfg_.eps_gain) {
+        if (collapse < config_.eps_gain) {
             return eps; // ブーストしない
         }
 
         // ブースト用 half-life（崩壊時）
-        float h = static_cast<float>(cfg_.eps_boost_half_life_hit);
+        float h = static_cast<float>(config_.eps_boost_half_life_hit);
         float alpha = std::log(2.0f) / h;
 
-        float target = cfg_.eps_max * cfg_.eps_boost_max;
+        float target = config_.eps_max * config_.eps_boost_max;
         float new_eps = eps + alpha * (target - eps);
 
         // 再加熱も加える
-        new_eps = std::max(new_eps, cfg_.eps_reheat_floor);
+        new_eps = std::max(new_eps, config_.eps_reheat_floor);
 
         // clamp
-        new_eps = std::clamp(new_eps, cfg_.eps_min, cfg_.eps_max);
+        new_eps = std::clamp(new_eps, config_.eps_min, config_.eps_max);
         return new_eps;
     }
 
@@ -682,7 +678,7 @@ private:
         // ================================
         float eps_new = eps;
 
-        if (collapse > cfg_.eps_gain) {
+        if (collapse > config_.eps_gain) {
             //// ---- hit（崩壊中）：回復でなく減衰方向 ----
             //float h = static_cast<float>(cfg_.eps_boost_half_life_hit);
             //float alpha = std::log(2.0f) / h;
@@ -694,41 +690,41 @@ private:
             //eps_new = std::max(eps_new, cfg_.eps_reheat_floor);
         } else {
             // ---- recover（安定側）----
-            float h = static_cast<float>(cfg_.eps_boost_half_life_recover);
+            float h = static_cast<float>(config_.eps_boost_half_life_recover);
             float alpha = std::log(2.0f) / h;
 
-            float target = cfg_.eps_min;
+            float target = config_.eps_min;
             eps_new += alpha * (target - eps_new);
 
             // 軽い再加熱
-            eps_new = std::max(eps_new, cfg_.eps_reheat_base);
+            eps_new = std::max(eps_new, config_.eps_reheat_base);
         }
 
         // clamp
-        eps_new = std::clamp(eps_new, cfg_.eps_min, cfg_.eps_max);
+        eps_new = std::clamp(eps_new, config_.eps_min, config_.eps_max);
 
         // ================================
         // tau 側
         // ================================
         float tau_new = tau;
 
-        if (collapse > cfg_.eps_gain) {
+        if (collapse > config_.eps_gain) {
             // ---- hit（崩壊方向）：tau を減衰させる ----
-            float h = static_cast<float>(cfg_.tau_half_life_hit);
+            float h = static_cast<float>(config_.tau_half_life_hit);
             float alpha = std::log(2.0f) / h;
-            float target = cfg_.tau_min;
+            float target = config_.tau_min;
             tau_new += alpha * (target - tau_new);
         } else {
             // ---- recover：一定期間安定後、tau を回復 ----
-            float h = static_cast<float>(cfg_.tau_half_life_recover);
+            float h = static_cast<float>(config_.tau_half_life_recover);
             float alpha = std::log(2.0f) / h;
-            float target = cfg_.tau_max;
+            float target = config_.tau_max;
 
             tau_new += alpha * (target - tau_new);
         }
 
         // clamp
-        tau_new = std::clamp(tau_new, cfg_.tau_min, cfg_.tau_max);
+        tau_new = std::clamp(tau_new, config_.tau_min, config_.tau_max);
 
         return { eps_new, tau_new };
     }
@@ -797,18 +793,6 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
     policy_net_(std::make_shared<QNetImpl>(state_count_, n_actions_)),
     target_net_(std::make_shared<QNetImpl>(state_count_, n_actions_))
 {
-    /// @todo  ヒートマップオブジェクト類をHeatMapObservberに移動
-    //auto nan = std::numeric_limits<float>::quiet_NaN();
-    //auto info = env.GetStateSpaceInfo();
-    //auto flags = anet::HeatMapFlags::HM_LogScaleValue | anet::HeatMapFlags::HM_AutoNormValue
-    //    | anet::HeatMapFlags::HM_AutoScaleAxis | anet::HeatMapFlags::HM_LogScaleAxis | anet::HeatMapFlags::HM_ShowZeroLine;
-    //heatmap_visit1_ = anet::rl::MakeStateHeatMapPtr(info, 0, 2, 256, 256, 30000, flags | anet::HeatMapFlags::HM_SumMode);  // x vs theta → reward
-    //heatmap_visit2_ = anet::rl::MakeStateHeatMapPtr(info, 2, 3, 256, 256, 30000, flags | anet::HeatMapFlags::HM_SumMode);  // x vs theta → reward
-    //heatmap_td_ = anet::rl::MakeStateHeatMapPtr(info, 0, 2, 256, 256, 30000, flags | anet::HeatMapFlags::HM_MeanMode); // x vs theta → td
-    //hist_action_ = std::make_unique<anet::TimeHistogram>(
-    //    2, 200, anet::TimeFrameMode::Scroll, flags, -1.0f, 1.0f, 0.05f);
-    //hist_q_ = std::make_unique<anet::TimeHistogram>(
-    //    128, 1000, anet::TimeFrameMode::Unlimited, flags | anet::HeatMapFlags::HM_FlipY, 0.0f, nan, 0.05f);
 
     // use_replay_buffer=false の場合の強制
     if (!config_.use_replay_buffer) {
@@ -816,6 +800,12 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
         config_.replay_batch_size = 1;
         config_.replay_warmup_steps = 0;
         config_.replay_update_interval = 1;
+    }
+
+    if (config_.nn_init_mode == 1) {
+        policy_net_->InitWeightsWithXavierUniform();
+    } else if (config_.nn_init_mode == 2) {
+        policy_net_->InitWeightsWithHeNormal();
     }
 
     // NN初期化
@@ -858,6 +848,8 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
 
 anet::rl::BatchActionInfo DQNAgent::MakeAction(const anet::rl::BatchState& state, anet::rl::RunMode mode)
 {
+    CudaSyncCheck checek("DQNAgent::MakeAction()");
+
     ANET_CHECK_SHAPE(state.obs, { ANY, state_count_ });
 
     auto flat_state = state.Flatten();
@@ -877,6 +869,8 @@ anet::rl::BatchActionInfo DQNAgent::MakeAction(const anet::rl::BatchState& state
     // Eval → greedy-only
     bool greedy_only = (mode == anet::rl::RunMode::Eval1 || mode == anet::rl::RunMode::Eval2);
     auto act_info = action_decider_->DecideBatch(q, greedy_only);
+    ANET_CHECK_SHAPE(act_info.action, { state.obs.size(0) });
+    ANET_CHECK_SHAPE(act_info.is_random, { state.obs.size(0) });
 
     if (mode == anet::rl::RunMode::Train) {
         // 行動統計の更新
@@ -893,6 +887,7 @@ std::shared_ptr<const anet::rl::BatchUpdateResult>
 DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
 {
     std::unique_lock<std::shared_mutex> lock(mutex_);
+    CudaSyncCheck checek("DQNAgent::UpdateFromBatch()");
 
     // ReplayBuffer に push
     replay_buffer_->Push(batch_exp);

@@ -92,9 +92,9 @@ namespace anet::rl {
     HeatMapVectorObserver::HeatMapVectorObserver(
         const std::string& tag,
         const HeatMapObserverConfig& config,
-        std::shared_ptr<IVectorProbe> x_probe,
-        std::shared_ptr<IVectorProbe> y_probe,
-        std::shared_ptr<IVectorProbe>  value_probe)
+        std::shared_ptr<VectorProbe> x_probe,
+        std::shared_ptr<VectorProbe> y_probe,
+        std::shared_ptr<VectorProbe>  value_probe)
         : config_(config), tag_(tag),
         x_probe_(x_probe), y_probe_(y_probe), value_probe_(value_probe)
     {
@@ -145,6 +145,9 @@ namespace anet::rl {
             float y = (*yv)[i];
             float v = (*vv)[i];
             heatmap_->AddData(x, y, v);
+            //ANET_ASSERT(x >= heatmap_->x_min_ && x <= heatmap_->x_max_);
+            //ANET_ASSERT(y >= heatmap_->y_min_ && y <= heatmap_->y_max_);
+            //wxLogDebug("HeatMapVectorObserver::OnPostUpdate v=%f x=%f y=%f", v, sx, theta_deg);
         }
 
         if (step % config_.log_interval == 0) {
@@ -155,6 +158,121 @@ namespace anet::rl {
                 config_.image_width,
                 config_.image_height
             );
+        }
+    }
+
+    MultiPairHeatMapObserver::MultiPairHeatMapObserver(
+        const std::string& tag,
+        const HeatMapObserverConfig& config,
+        const std::vector<std::shared_ptr<VectorProbe>>& axis_probes,
+        std::shared_ptr<VectorProbe> value_probe)
+        : tag_(tag), config_(config), axis_probes_(axis_probes), value_probe_(value_probe)
+    {
+        ANET_ASSERT(axis_probes_.size() >= 2);
+
+        const size_t m = axis_probes_.size();
+        for (size_t i = 0; i < m; i++) {
+            wxLogInfo("MultiPairHeatMapObserver: %s axis_probes: [%d] %s (%f %f)",
+                tag_,
+                static_cast<int>(i), axis_probes_[i]->GetName().value(),
+                axis_probes_[i]->GetMin().value_or(0.0f),
+                axis_probes_[i]->GetMax().value_or(0.0f));
+        }
+        int plot_cnt = 0;
+        for (int i = 0; i < m; i++) {
+            auto x_name = axis_probes_[i]->GetName();
+            for (int j = i + 1; j < m; j++) {
+                auto y_name = axis_probes_[j]->GetName();
+                wxLogInfo("MultiPairHeatMapObserver: %s axis_patters: [%d] x=[%d]%s y=[%d]%s",
+                    tag_,
+                    plot_cnt,
+                    i, (x_name.has_value() ? (*x_name).c_str() : ""),
+                    j, (y_name.has_value() ? (*y_name).c_str() : ""));
+                plot_cnt++;
+            }
+        }
+
+        // HeatMap 生成
+        heatmap_ = std::make_unique<anet::HeatMap>(
+            config_.width, config_.height,
+            0.0f, 1.0f,
+            0.0f, 1.0f,
+            config_.max_points * plot_cnt,
+            config_.flags);
+
+    }
+
+    inline float Normalize01(
+        float v,
+        const std::optional<float>& min_opt,
+        const std::optional<float>& max_opt,
+        float fallback_min = -1.0f,
+        float fallback_max = 1.0f)
+    {
+        float mn = min_opt.value_or(fallback_min);
+        float mx = max_opt.value_or(fallback_max);
+
+        // min==max の場合は 0 に押しつぶす（ゼロ除算回避）
+        if (mx - mn < 1e-9f) return 0.0f;
+
+        float t = (v - mn) / (mx - mn);
+
+        // 0〜1 に clamp
+        if (t < 0.0f) t = 0.0f;
+        if (t > 1.0f) t = 1.0f;
+        return t;
+    }
+
+    void MultiPairHeatMapObserver::OnPostUpdate(
+        int step,
+        std::shared_ptr<Agent> agent,
+        const BatchExperience& batch_exp,
+        std::shared_ptr<const BatchUpdateResult> result)
+    {
+        // 値ベクトル
+        auto vv = value_probe_->GetVector(step, agent, batch_exp, result);
+        if (!vv) return;
+
+        // 全プローブペア i<j をスキャン
+        const size_t m = axis_probes_.size();
+
+        for (size_t i = 0; i < m; i++) {
+            auto xv = axis_probes_[i]->GetVector(step, agent, batch_exp, result);
+            if (!xv) continue;
+
+            auto xmin = axis_probes_[i]->GetMin();
+            auto xmax = axis_probes_[i]->GetMax();
+
+            for (size_t j = i + 1; j < m; j++) {
+                auto yv = axis_probes_[j]->GetVector(step, agent, batch_exp, result);
+                if (!yv) continue;
+
+                auto ymin = axis_probes_[j]->GetMin();
+                auto ymax = axis_probes_[j]->GetMax();
+
+                size_t n = std::min({ xv->size(), yv->size(), vv->size() });
+                heatmap_->ReserveSamples(n);
+
+                for (size_t k = 0; k < n; k++) {
+                    float x_raw = (*xv)[k];
+                    float y_raw = (*yv)[k];
+                    float v_raw = (*vv)[k];
+
+                    // (0〜1) 正規化
+                    float x_norm = Normalize01(x_raw, xmin, xmax);
+                    float y_norm = Normalize01(y_raw, ymin, ymax);
+
+                    heatmap_->AddData(x_norm, y_norm, v_raw);
+                }
+            }
+        }
+
+        if (step % config_.log_interval == 0) {
+            MetricsLogger::Instance()->LogImage(
+                tag_, step,
+                *heatmap_,
+                config_.image_width,
+                config_.image_height);
         }
     }
 

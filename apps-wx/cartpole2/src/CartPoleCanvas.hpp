@@ -1,15 +1,16 @@
-#pragma once
+Ôªø#pragma once
 
 #include <torch/torch.h>
 
 #include <wx/wx.h>
+#include "anet/rl.hpp"
 
 class CartPoleCanvas : public wxPanel {
 public:
     CartPoleCanvas(wxWindow* parent);
 
-    // ÉJÅ[Égà íuÅEäpìxÇÉZÉbÉg
-    void SetState(float x, float theta, float x_dot, float theta_dot);
+    // „Ç´„Éº„Éà‰ΩçÁΩÆ„ÉªËßíÂ∫¶„Çí„Çª„ÉÉ„Éà
+    void SetState(const anet::rl::BatchState& state, anet::rl::StateSpec spec);
     void SetAction(const torch::Tensor& action);
     void SetReward(float reward) { this->reward = reward; }
 
@@ -19,15 +20,15 @@ protected:
 
 private:
     float cart_x;
-    float pole_theta;
     float cart_x_dot;
+    float pole_theta;
     float pole_theta_dot;
 
     float reward;
 
     torch::Tensor action_;
 
-    // ï\é¶ÉXÉPÅ[ÉãÇ»Ç«
+    // Ë°®Á§∫„Çπ„Ç±„Éº„É´„Å™„Å©
     float cart_scale;
     float pole_length;
 

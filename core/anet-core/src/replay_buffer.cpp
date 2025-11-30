@@ -56,8 +56,13 @@ namespace anet::rl {
         ANET_CHECK_SHAPE(batch.state.done, { N });
         ANET_CHECK_SHAPE(batch.state.truncated, { N });
         ANET_CHECK_SHAPE(batch.state.episode_start, { N });
-        ANET_CHECK_SHAPE(batch.action.action, { N, n_actions_ });
-        ANET_CHECK_SHAPE(batch.action.is_random, { N, n_actions_ });
+        if (is_discrete_) {
+            ANET_CHECK_SHAPE(batch.action.action, { N });
+            ANET_CHECK_SHAPE(batch.action.is_random, { N });
+        } else {
+            ANET_CHECK_SHAPE(batch.action.action, { N, ANET_SHAPE_ENDANY });
+            ANET_CHECK_SHAPE(batch.action.is_random, { N, ANET_SHAPE_ENDANY });
+        }
         ANET_CHECK_SHAPE(batch.reward, { N });
         ANET_CHECK_SHAPE(batch.next_state.obs, { N, state_count_ });
         ANET_CHECK_SHAPE(batch.next_state.done, { N });

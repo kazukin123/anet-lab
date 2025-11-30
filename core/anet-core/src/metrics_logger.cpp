@@ -4,6 +4,7 @@
 #include <wx/wfstream.h>
 #include <wx/image.h>
 #include <wx/filename.h>
+#include <wx/log.h>
 
 namespace anet {
     //----------------------------------------------
@@ -26,16 +27,16 @@ namespace anet {
     //----------------------------------------------
     // VideoLogger 実装
     //----------------------------------------------
-    VideoLogger::VideoLogger(const std::string& path, int width, int height, int fps, int in_rate, const std::string& codec)
-        : width_(width), height_(height), path_(path), fps_(fps), in_rate_(in_rate), codec_(codec)
+    VideoLogger::VideoLogger(const std::string& path, int width, int height, int fps, const std::string& codec)
+        : width_(width), height_(height), path_(path), fps_(fps), codec_(codec)
     {
         wxFileName fn(wxString::FromUTF8(path_));
         wxFileName::Mkdir(fn.GetPath(), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
 
         wxString cmd = wxString::Format(
-            "ffmpeg -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -r %d -framerate %d "
-            "-i - -f matroska -c:v %s -q:v 2 \"%s\"",
-            width_, height_, in_rate, fps_, wxString::FromUTF8(codec_), wxString::FromUTF8(path_)
+            "ffmpeg -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d "
+            "-i - -thread_queue_size 512 -f matroska -c:v %s -q:v 2 \"%s\"",
+            width_, height_, fps_, wxString::FromUTF8(codec_), wxString::FromUTF8(path_)
         );
 
         process_ = new wxProcess();
@@ -54,7 +55,16 @@ namespace anet {
         if (!stream_ || !stream_->IsOk()) return;
         const unsigned char* data = img.GetData();
         size_t nbytes = width_ * height_ * 3;
-        stream_->Write(data, nbytes);
+
+        size_t written = 0;
+        while (written < nbytes) {
+            stream_->Write(data + written, nbytes - written);
+            if (!stream_->IsOk()) {
+                wxLogError("ffmpeg pipe write failed");
+                return;
+            }
+            written += stream_->LastWrite();
+        }
     }
 
     void VideoLogger::Close() {
@@ -180,19 +190,20 @@ namespace anet {
         auto vid_path = root_dir_ + "/" + run_name_ + "/videos/" + safe_tag + ".mkv";
         auto it = video_loggers_.find(tag);
         if (it == video_loggers_.end()) {
-            auto vlog = std::make_unique<VideoLogger>(vid_path, image.GetWidth(), image.GetHeight());
+            auto vlog = std::make_unique<VideoLogger>(
+                vid_path, image.GetWidth(), image.GetHeight(), 30);
             json vmeta = {
-                //{"run", run_name},
                 {"type", "video"},
                 {"tag", tag},
                 {"path", "videos/" + safe_tag + ".mkv"},
-                {"fps", 30},
                 {"timestamp", current_time_str()}
             };
             backend_->WriteJsonl(vmeta);
             it = video_loggers_.emplace(tag, std::move(vlog)).first;
         }
         it->second->WriteFrame(image);
+
+        /// @todo 動画フレーム情報Metrics出力
 
         // ---- JSONL (画像単体情報) ----
         //json obj = {

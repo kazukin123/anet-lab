@@ -13,6 +13,7 @@
 
 
 struct CartPoleFrame::Config : public anet::Config {
+    int batch_size = 1;
     int timer_ms = 20;
     int step_per_frame = 10;
     int eval_interval = 1;
@@ -22,6 +23,7 @@ struct CartPoleFrame::Config : public anet::Config {
     uint64_t seed = 0;
 
     CartPoleFrame::Config(const anet::ConfigData& configData) : anet::Config(configData, "train", "CartPoleFrame") {
+        ANET_APPLY_CONFIG(configData, batch_size);
         ANET_APPLY_CONFIG(configData, timer_ms);
         ANET_APPLY_CONFIG(configData, step_per_frame);
         ANET_APPLY_CONFIG(configData, eval_interval);
@@ -68,7 +70,9 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     Layout();
 
     // ログレベル
+#ifndef NDEBUG
     wxLog::SetLogLevel(wxLOG_Debug);
+#endif
 
     // --- ログ出力先をこのクラスに設定 ---
     wxLog::SetActiveTarget(this);
@@ -88,13 +92,18 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     anet::MetricsLogger::Instance()->Flush();
 
     // ENV生成 ---
-    env_ = std::make_unique<CartPoleEnv>(rnd_);
+    const int N = config_->batch_size;
+    auto env_factory = std::make_shared<CartPoleEnvFactory>(rnd_);
+    env_ = std::make_unique<anet::rl::VectorizedDiscreteBatchEnv>(env_factory, N);
+    auto batch_env_spec = env_->GetBatchSpec();
     auto env_spec = env_->GetSpec();
+    wxLogInfo("batch_env_spec=" + batch_env_spec.ToString());
     wxLogInfo("env_spec=" + env_spec.ToString());
 
     // ランダム方策で環境難易度評価
-    auto eval_result = anet::rl::EvaluateEnvironmentDifficulty(*env_, 100);
-    anet::MetricsLogger::Instance()->LogJson("eval_env", eval_result.ToJson());
+    /// @todo EvaluateEnvironmentDifficultyを復活
+    //auto eval_result = anet::rl::EvaluateEnvironmentDifficulty(*env_, 100);
+    //anet::MetricsLogger::Instance()->LogJson("eval_env", eval_result.ToJson());
 
     // --- Agent生成 ---
     anet::ConfigData agentConfig = wxGetApp().GetConfig("agent");
@@ -103,27 +112,56 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     // MetricsLogObserver
     auto metrics_obs = std::make_shared<anet::rl::MetricsLogObserver>();
 
+    notifier_.AddObserver(metrics_obs);
+    initImageLogObservers(env_spec);
+
+    // --- 環境初期化 ---
+    state_ = env_->Reset();  // ← reset() は 初期状態 を返す
+    ANET_CHECK_DEVICE_CPU_MSG(state_.obs, "Initial state");
+    ANET_CHECK_SHAPE(state_.obs, { ANET_SHAPE_ANY, 4 });
+
+    // --- タイマー開始 ---
+    Bind(wxEVT_TIMER, &CartPoleFrame::OnTimer, this);
+    timer.Start(config_->timer_ms);  // 学習＆描画更新
+    //auto now = std::chrono::high_resolution_clock::now();
+    //auto cnt = now.time_since_epoch().count();
+
+
+    // 時間計測開始
+    start_time_ = std::chrono::high_resolution_clock::now();
+    last_time_ = start_time_;
+}
+
+void CartPoleFrame::initImageLogObservers(const anet::rl::EnvSpec& env_spec)
+{
+    // 有効設定チェック
+    bool enable_image_log = wxGetApp().GetConfig("log").Get("enable_image_log", true);
+    if (!enable_image_log)
+        return;
+
     // HeatMapObserver
-    auto flags = 
+    auto flags =
         //anet::HeatMapFlags::HM_LogScaleValue | 
         anet::HeatMapFlags::HM_AutoNormValue
         | anet::HeatMapFlags::HM_AutoScaleAxis
         //| anet::HeatMapFlags::HM_LogScaleAxis
         | anet::HeatMapFlags::HM_SumMode; // | anet::HeatMapFlags::HM_ShowZeroLine;
 
-    anet::rl::HeatMapObserverConfig visit_heat_obs_config {
-        256,    // width
-        256,    // height
+    // ---- Experience visit ----
+
+    anet::rl::HeatMapObserverConfig visit_heat_obs_config{
+        512,    // width
+        512,    // height
         100,    // log_interval 
         30000,  // max_points
         flags   // flags
-        -1,     // image_width
+        - 1,     // image_width
         -1,     // image_height
     };
-    auto visit_x_probe = std::make_shared<anet::rl::StateProbe>(0, &env_spec.state_spec, true);
-    auto visit_theta_probe = std::make_shared<anet::rl::StateProbe>(2, &env_spec.state_spec, true);
-    auto visit_theta_dot_probe = std::make_shared<anet::rl::StateProbe>(3, &env_spec.state_spec, true);
-    auto visit_reward_probe = std::make_shared<anet::rl::RewardProbe>(nullptr);
+    auto visit_x_probe = std::make_shared<anet::rl::BatchExperienceStateProbe>(0, &env_spec.state_spec, true);
+    auto visit_theta_probe = std::make_shared<anet::rl::BatchExperienceStateProbe>(2, &env_spec.state_spec, true);
+    auto visit_theta_dot_probe = std::make_shared<anet::rl::BatchExperienceStateProbe>(3, &env_spec.state_spec, true);
+    auto visit_reward_probe = std::make_shared<anet::rl::BatchExperienceRewardProbe>(nullptr);
 
     auto visit_02_reward = std::make_shared<anet::rl::HeatMapVectorObserver>(
         "43_agent_img/02_hm_visit_02", visit_heat_obs_config, visit_x_probe, visit_theta_probe, visit_reward_probe);
@@ -135,38 +173,70 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     auto rep_theta_dot_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 3, &env_spec.state_spec);
     auto rep_reward_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::REWARD, -1, &env_spec.state_spec);
 
+    // ---- ReplayBuffer ----
+
+    anet::rl::HeatMapObserverConfig replay_heat_obs_config{
+        512,    // width
+        512,    // height
+        100,    // log_interval 
+        30000,  // max_points
+        flags   // flags
+        - 1,     // image_width
+        -1,     // image_height
+    };
+
     auto replay_02_reward = std::make_shared<anet::rl::HeatMapVectorObserver>(
         "43_agent_img/12_hm_rep_02", visit_heat_obs_config, rep_x_probe, rep_theta_probe, rep_reward_probe);
     auto replay_23_reward = std::make_shared<anet::rl::HeatMapVectorObserver>(
         "43_agent_img/13_hm_rep_23", visit_heat_obs_config, rep_theta_probe, rep_theta_dot_probe, rep_reward_probe);
 
+    auto auto_scale_mode = anet::rl::AgentTensorVectorProbe::AutoScaleMode::GLOBAL;
+    std::vector<std::shared_ptr<anet::rl::VectorProbe>> probes_3axis = {
+        std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 0, &env_spec.state_spec, nullptr, auto_scale_mode),
+        std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 2, &env_spec.state_spec, nullptr, auto_scale_mode),
+        std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 3, &env_spec.state_spec, nullptr, auto_scale_mode),
+    };
+    std::vector<std::shared_ptr<anet::rl::VectorProbe>> probes_4axis = {
+        std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 0, &env_spec.state_spec, nullptr, auto_scale_mode),
+        std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 1, &env_spec.state_spec, nullptr, auto_scale_mode),
+        std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 2, &env_spec.state_spec, nullptr, auto_scale_mode),
+        std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 3, &env_spec.state_spec, nullptr, auto_scale_mode),
+    };
+    auto replay_multi_reward3 = std::make_shared<anet::rl::MultiPairHeatMapObserver>(
+        "43_agent_img/21_hm_rep_multi3",
+        replay_heat_obs_config,
+        probes_3axis,
+        rep_reward_probe
+    );
+    auto replay_multi_reward4 = std::make_shared<anet::rl::MultiPairHeatMapObserver>(
+        "43_agent_img/22_hm_rep_multi4",
+        replay_heat_obs_config,
+        probes_4axis,
+        rep_reward_probe
+    );
 
-    // TimeHistogramObserver
-    anet::rl::TimeHistogramObserverConfig q_hist_obs_config {
+    // ---- TimeHistogram ----
+
+    anet::rl::TimeHistogramObserverConfig q_hist_obs_config{
         256,    // x bins
         1920,   // y max_frames
         512,    // image_height
         1920,   // image_width
         anet::TimeFrameMode::Scale,             // mode
-        flags | anet::HeatMapFlags::HM_FlipY,   // flags
+        flags | anet::HeatMapFlags::HM_FlipY | anet::HeatMapFlags::HM_LogScaleAxis,   // flags
         100,    // log_interval
         20,     // frame_interval
         std::numeric_limits<float>::quiet_NaN(),
         std::numeric_limits<float>::quiet_NaN(),
         1.0f// alpha = 0.05f
     };
-    auto q_probe = std::make_shared<anet::rl::BatchUpdateResultTensorProbe>("max_q");
-    auto q_hist_obs = std::make_shared<anet::rl::TimeHistogramObserver>(
+    auto q_probe = std::make_shared<anet::rl::BatchUpdateResultTensorToVectorProbe>("max_q");
+    auto q_th_obs = std::make_shared<anet::rl::TimeHistogramObserver>(
         "44_agent_img/04_thg_t", q_hist_obs_config, q_probe);
 
-    //SweepedHeatMapObserver(
-    //    const std::string & tag,
-    //    const SweepedHeatMapObserverConfig & config,
-    //    std::shared_ptr<ISweepInputGenerator> input_gen,
-    //    ApplyNNFn apply_nn_fn,
-    //    std::shared_ptr<ISweepOutputExtractor> output_ext);
+    // ---- SweepedHeatMap ----
 
-    anet::rl::SweepedHeatMapObserverConfig q_sweep_obs_config {
+    anet::rl::SweepedHeatMapObserverConfig q_sweep_obs_config{
         100,    // log_interval
         flags,  // flags
         128,    // grid_width
@@ -184,18 +254,6 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
         2,  // x_index = theta
         3   // y_index = theta_dot
     );
-    //RLStateSweepProcessor(
-    //    const anet::rl::StateSpec& state_spec,
-    //    int x_index,
-    //    int y_index,
-    //    ValueExtractFunction value_extract_fn = &extractor::MaxExtractor,
-    //    const torch::Device& device = torch::kCUDA,
-    //    std::optional<torch::Tensor> base_state = std::nullopt,
-    //    std::optional<float> x_min_override = std::nullopt,
-    //    std::optional<float> x_max_override = std::nullopt,
-    //    std::optional<float> y_min_override = std::nullopt,
-    //    std::optional<float> y_max_override = std::nullopt
-    //);
     auto proc_theta_thetadot_qdiff = std::make_shared<anet::rl::StateSweepProcessor>(
         env_spec.state_spec,
         0,  // x_index = x
@@ -281,9 +339,9 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
 
     using StrMap = std::unordered_map<std::string, std::string>;
 
-
     anet::rl::TensorFunction policy_forward = agent_->GetTensorFunction("policy_net.forward");
     anet::rl::TensorFunction qpair_forward = agent_->GetTensorFunction("q_pair.forward");
+
     auto q_sweep_obs_02_qmax = std::make_shared<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/05_shm_02_qmax", q_sweep_obs_config, proc_x_theta_qmax, policy_forward, proc_x_theta_qmax);
     auto q_sweep_obs_23_qmax = std::make_shared<anet::rl::SweepedHeatMapObserver>(
@@ -300,7 +358,7 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
         "45_agent_img/13_shm_02_qdelta_qdiff", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdelta_qdiff, qpair_forward, proc_theta_thetadot_pair_combo_qdelta_qdiff);
     auto q_sweep_obs_02_combo_qdelta_qdiff_masked = std::make_shared<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/14_shm_02_qdelta_qdiff-masked", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdelta_qdiffmasked, qpair_forward, proc_theta_thetadot_pair_combo_qdelta_qdiffmasked,
-        StrMap {
+        StrMap{
             { "46_agent_imgsc/02qdd_raw_qdelta_mean", "raw_qdelta_mean" },
             { "46_agent_imgsc/02qdd_raw_qdelta_max", "raw_qdelta_max" },
             { "46_agent_imgsc/02qdd_raw_boundary_mean", "raw_boundary_mean" },
@@ -310,36 +368,21 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
         });
 
     // --- Obserber登録 ---
-    notifier_.AddObserver(metrics_obs);
     notifier_.AddObserver(visit_02_reward);
     notifier_.AddObserver(visit_23_reward);
     notifier_.AddObserver(replay_02_reward);
     notifier_.AddObserver(replay_23_reward);
-    notifier_.AddObserver(q_hist_obs);
+    notifier_.AddObserver(replay_multi_reward3);
+    notifier_.AddObserver(replay_multi_reward4);
+    notifier_.AddObserver(q_th_obs);
     notifier_.AddObserver(q_sweep_obs_02_qmax);
     notifier_.AddObserver(q_sweep_obs_23_qmax);
-    //notifier_.AddObserver(q_sweep_obs_23_q0_);
     notifier_.AddObserver(q_sweep_obs_02_qdiff);
     notifier_.AddObserver(q_sweep_obs_02_qdiff_mask);
     notifier_.AddObserver(q_sweep_obs_02_qdelta);
     notifier_.AddObserver(q_sweep_obs_02_combo_qdqmax);
     notifier_.AddObserver(q_sweep_obs_02_combo_qdqdiff);
     notifier_.AddObserver(q_sweep_obs_02_combo_qdelta_qdiff_masked);
-
-    // --- 環境初期化 ---
-    state_ = env_->Reset();  // ← reset() は 初期状態 を返す
-    ANET_CHECK_DEVICE_CPU_MSG(state_.obs, "Initial state");
-    ANET_CHECK_SHAPE(state_.obs, { ANET_SHAPE_ANY, 4 });
-
-    // --- タイマー開始 ---
-    Bind(wxEVT_TIMER, &CartPoleFrame::OnTimer, this);
-    timer.Start(config_->timer_ms);  // 学習＆描画更新
-    //auto now = std::chrono::high_resolution_clock::now();
-    //auto cnt = now.time_since_epoch().count();
-
-
-    // 時間計測開始
-    last_time_ = std::chrono::high_resolution_clock::now();
 }
 
 CartPoleFrame::~CartPoleFrame() {
@@ -367,6 +410,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
 	this->timer.Stop();
 
     auto env_spec = env_->GetSpec();
+    auto batch_env_spec = env_->GetBatchSpec();
 
     // --- 学習ステップを複数回回す ---
     //auto action = agent->select_action(state);
@@ -382,49 +426,59 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         wxLogDebug("CartPoleFrame::OnTimer() step=%d state=%s", step_count_, state_.ToString());
         ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
         ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.Flatten().obs));
+        const int N = state_.obs.size(0);
 
         // 行動選択
         auto action_info = agent_->MakeAction(state_);
         wxLogDebug("CartPoleFrame::OnTimer() step=%d action=%s", step_count_, action_info.ToString());
         ANET_CHECK_DEVICE(action_info.action, device_);
+        ANET_CHECK_SHAPE(action_info.action, { N });
 
         // 環境ステップ実行
-        anet::rl::BatchStepResult result = env_->DoStep(action_info.action);    // next_state, reward, done, truncated
+        anet::rl::BatchStepResult result = env_->Step(action_info.action);    // next_state, reward, done, truncated
         wxLogDebug("CartPoleFrame::OnTimer() step=%d reward=%s", step_count_, anet::ToString(result.reward));
         wxLogDebug("CartPoleFrame::OnTimer() step=%d next_state=%s", step_count_, result.next_state.ToString());
         ANET_CHECK_DEVICE(result.next_state.obs, torch::kCPU);
         ANET_CHECK_DEVICE(result.next_state.done, torch::kCPU);
         ANET_CHECK_DEVICE(result.next_state.truncated, torch::kCPU);
         ANET_CHECK_DEVICE(result.reward, torch::kCPU);
-        ANET_CHECK_SHAPE(result.next_state.obs, { 1, ANET_SHAPE_ENDANY });
-        ANET_CHECK_SHAPE(result.next_state.done, { 1 });
-        ANET_CHECK_SHAPE(result.next_state.truncated, { 1 });
-        ANET_CHECK_SHAPE(result.reward, { 1 });
-       
+        ANET_CHECK_DEVICE(result.continue_state.obs, torch::kCPU);
+        ANET_CHECK_DEVICE(result.continue_state.done, torch::kCPU);
+        ANET_CHECK_DEVICE(result.continue_state.truncated, torch::kCPU);
+        ANET_CHECK_SHAPE(result.next_state.obs, { N, ANET_SHAPE_ENDANY });
+        ANET_CHECK_SHAPE(result.next_state.done, { N });
+        ANET_CHECK_SHAPE(result.next_state.truncated, { N });
+        ANET_CHECK_SHAPE(result.reward, { N });
+        ANET_CHECK_SHAPE(result.continue_state.obs, { N, ANET_SHAPE_ENDANY });
+        ANET_CHECK_SHAPE(result.continue_state.done, { N });
+        ANET_CHECK_SHAPE(result.continue_state.truncated, { N });
+
         // Agent更新
         anet::rl::BatchExperience exp({ state_, action_info, result.reward, result.next_state });
         auto update_result = agent_->UpdateFromBatch(exp);
 
         // 更新後処理
         notifier_.Notify(step_count_, agent_, exp, update_result);
-        state_ = result.next_state.Clone();
+        state_ = result.continue_state;
         last_reward = result.reward.squeeze(0).item<float>();
         train_total_reward_ += last_reward;
 
         // msec per step
         std::chrono::high_resolution_clock::time_point now = std::chrono::high_resolution_clock::now();
         auto msec_diff = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time_).count();
+        auto epalsed_sec = static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count())/1000.0f ;
         if (step_count_ != 0) { // 0ステップ目は誤差が大きいので
             msec_per_step_ema_.Update(msec_diff);
             anet::MetricsLogger::Instance()->LogScalar("90_train/01_msec_per_step", step_count_, msec_diff);
-            anet::MetricsLogger::Instance()->LogScalar("90_train/01_msec_per_step_ema", step_count_, msec_per_step_ema_.Value());
+            anet::MetricsLogger::Instance()->LogScalar("90_train/02_msec_per_step_ema", step_count_, msec_per_step_ema_.Value());
+            anet::MetricsLogger::Instance()->LogScalar("90_train/03_epalsed_sec", step_count_, epalsed_sec);
         }
         last_time_ = now;
 
         // ステップ数インプリメント（グローバルなステップ数）
         step_count_++;
 
-        canvas->SetState(env_->get_x(), env_->get_theta(), env_->get_x_dot(), env_->get_theta_dot());
+        canvas->SetState(state_, env_->GetSpec().state_spec);
         canvas->SetAction(action_info.action);
         canvas->SetReward(last_reward);
         canvas->Refresh();
@@ -447,17 +501,18 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
             if (episode_count_ % config_->eval_interval == 0) {
                 eval_count_++;
                 {   // ターゲットネットワークによる評価
-                    auto state = env_->Reset(anet::rl::RunMode::Eval1);
+                    auto state = env_->Reset(anet::rl::RunMode::Eval);
                     auto total_reward = 0.0f;
                     bool done = false;
                     bool truncated = false;
                     do {
                         auto action = agent_->MakeAction(state, anet::rl::RunMode::Eval1);
-                        auto env_result = env_->DoStep(action.action);
+                        auto env_result = env_->Step(action.action);
                         total_reward += env_result.reward.squeeze(0).item<float>();
                         state = env_result.next_state.Clone();
                         done = env_result.next_state.IsDone();
                         truncated = env_result.next_state.IsTruncated();
+                        //wxLogDebug("eval(): state=%s reward=%f", env_result.next_state.ToString(), anet::ToScalar(env_result.reward));
                     } while (!done && !truncated);
                     eval_total_reward = total_reward;
 
@@ -472,13 +527,13 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
                     //canvas->Refresh();
                 }
                 {   // メインネットワークによる評価
-                    auto state = env_->Reset(anet::rl::RunMode::Eval2);
+                    auto state = env_->Reset(anet::rl::RunMode::Eval);
                     auto total_reward = 0.0f;
                     bool done = false;
                     bool truncated = false;
                     do {
                         auto action = agent_->MakeAction(state, anet::rl::RunMode::Eval2);
-                        auto env_result = env_->DoStep(action.action);
+                        auto env_result = env_->Step(action.action);
                         total_reward += env_result.reward.squeeze(0).item<float>();
                         state = env_result.next_state.Clone();
                         done = env_result.next_state.IsDone();

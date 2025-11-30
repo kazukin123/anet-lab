@@ -23,6 +23,8 @@ public:
 
     virtual void DoLogText(const wxString& msg);
 private:
+    void initImageLogObservers(const anet::rl::EnvSpec& env_spec);
+private:
     // パラメータ
     struct Config;
     std::unique_ptr<Config> config_;
@@ -38,7 +40,7 @@ private:
     bool auto_pause_done_ = false;
 
     // 強化学習関連
-    std::unique_ptr<CartPoleEnv> env_;
+    std::unique_ptr<anet::rl::BatchEnv> env_;
     std::shared_ptr<anet::rl::Agent> agent_;
     anet::rl::BatchState state_;
     anet::rl::Notifier notifier_;
@@ -49,6 +51,7 @@ private:
     int episode_count_ = 0;
     int eval_count_ = 0;
     float train_total_reward_ = 0.0f;
+    std::chrono::high_resolution_clock::time_point start_time_;
     std::chrono::high_resolution_clock::time_point last_time_;
     anet::EmaFilter<float> msec_per_step_ema_;
 

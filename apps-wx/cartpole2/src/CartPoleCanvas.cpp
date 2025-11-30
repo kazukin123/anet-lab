@@ -21,27 +21,33 @@ CartPoleCanvas::CartPoleCanvas(wxWindow* parent)
     SetBackgroundStyle(wxBG_STYLE_PAINT);
 }
 
-void CartPoleCanvas::OnMouseClick(wxMouseEvent& event) {
+void CartPoleCanvas::OnMouseClick(wxMouseEvent& event)
+{
     auto* frame = dynamic_cast<CartPoleFrame*>(wxGetTopLevelParent(this));
     if (frame) frame->ToggleTraining();
 }
 
-void CartPoleCanvas::SetState(float x, float theta, float x_dot, float theta_dot) {
-    cart_x = x;
-    pole_theta = theta;
-    cart_x_dot = x_dot;
-    pole_theta_dot = theta_dot;
+void CartPoleCanvas::SetState(const anet::rl::BatchState& state, anet::rl::StateSpec spec)
+{
+    torch::Tensor obs = state.Flatten().obs[0];
+
+    cart_x = obs[0].item<float>();
+    cart_x_dot = obs[1].item<float>();
+    pole_theta = obs[2].item<float>();
+    pole_theta_dot = obs[3].item<float>();
 
     Refresh();
 }
 
-void CartPoleCanvas::SetAction(const torch::Tensor& action) {
+void CartPoleCanvas::SetAction(const torch::Tensor& action)
+{
     this->action_ = action;
 
 //    wxLogInfo("action=%s", action.toString());
 }
 
-void CartPoleCanvas::OnPaint(wxPaintEvent& event) {
+void CartPoleCanvas::OnPaint(wxPaintEvent& event)
+{
     wxAutoBufferedPaintDC dc(this);
     dc.Clear();
 

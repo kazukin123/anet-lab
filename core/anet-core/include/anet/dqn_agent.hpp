@@ -12,6 +12,8 @@
 namespace anet::rl {
 
     struct DQNAgentConfig : public anet::Config {
+        int nn_init_mode = 1;  // 0=default、1=XavierUniform、2=HeNormal
+
         float alpha = 1e-3f;   ///<  学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
         float gamma = 0.99f;   ///<  0.99f; 0.995f      γが高いほど「長期安定」を目指す
         float eps_max = 1.00f;
@@ -25,6 +27,7 @@ namespace anet::rl {
         bool use_td_clip = true;
         float td_clip_value = 4.0f;
         int eps_zero_step = -1;// 120000;
+
         bool use_double_dqn = true;   ///< Double DQN 有効化フラグ（trueで有効）
 
         bool use_replay_buffer = false;   ///< ReplayBuffer ON/OFF切替
@@ -32,10 +35,6 @@ namespace anet::rl {
         int replay_batch_size = 64;
         int replay_warmup_steps = 1000;
         int replay_update_interval = 4;
-
-        int heatmap_log_image_interval = 100;
-        int heatmap_log_sweep_interval = 100;
-        int heatmap_log_hist_interval = 10;
 
         bool use_as_dqn = false;            ///< Adaptive Stabilized DQN (AS-DQN)
         float q_z_threshold = 3.0f;         ///< z-score 崩壊判定閾値
@@ -67,6 +66,7 @@ namespace anet::rl {
 
         DQNAgentConfig() {}
         DQNAgentConfig(const ConfigData& configData) : anet::Config(configData, "agent", "DQNAgent") {
+            ANET_APPLY_CONFIG(configData, nn_init_mode);
             ANET_APPLY_CONFIG(configData, alpha);
             ANET_APPLY_CONFIG(configData, gamma);
             ANET_APPLY_CONFIG(configData, eps_max);
@@ -85,9 +85,6 @@ namespace anet::rl {
             ANET_APPLY_CONFIG(configData, replay_batch_size);
             ANET_APPLY_CONFIG(configData, replay_warmup_steps);
             ANET_APPLY_CONFIG(configData, replay_update_interval);
-            ANET_APPLY_CONFIG(configData, heatmap_log_image_interval);
-            ANET_APPLY_CONFIG(configData, heatmap_log_sweep_interval);
-            ANET_APPLY_CONFIG(configData, heatmap_log_hist_interval);
             ANET_APPLY_CONFIG(configData, use_as_dqn);
             ANET_APPLY_CONFIG(configData, q_z_threshold);
             ANET_APPLY_CONFIG(configData, q_cv_threshold);
@@ -117,7 +114,6 @@ namespace anet::rl {
         }
     };
 
-    /// @todo ラインナップ精査
     class DQNAgent : public anet::rl::StepBasedAgent<DQNAgentConfig> {
     public:
         DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, torch::Device device, std::shared_ptr<anet::RandomGenerator> rnd = nullptr);
@@ -157,12 +153,5 @@ namespace anet::rl {
         std::unique_ptr<TargetUpdater> target_updater_;
         std::unique_ptr<StabilityMonitor> stability_monitor_;
         std::unique_ptr<StabilityController> stability_controller_;
-        //private:
-    //    //暫定くん達
-    //    std::unique_ptr<anet::HeatMap> heatmap_visit1_;
-    //    std::unique_ptr<anet::HeatMap> heatmap_visit2_;
-    //    std::unique_ptr<anet::HeatMap> heatmap_td_;
-    //    std::unique_ptr<anet::TimeHistogram> hist_action_;
-    //    std::unique_ptr<anet::TimeHistogram> hist_q_;
     };
 }// namespace anet::rl

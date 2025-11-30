@@ -75,9 +75,9 @@ namespace anet::rl {
         HeatMapVectorObserver(
             const std::string& tag,
             const HeatMapObserverConfig& config,
-            std::shared_ptr<IVectorProbe> x_probe,
-            std::shared_ptr<IVectorProbe> y_probe,
-            std::shared_ptr<IVectorProbe> value_probe);
+            std::shared_ptr<VectorProbe> x_probe,
+            std::shared_ptr<VectorProbe> y_probe,
+            std::shared_ptr<VectorProbe> value_probe);
 
         void OnPostUpdate(
             int step,
@@ -88,9 +88,9 @@ namespace anet::rl {
         HeatMapObserverConfig config_;
         std::string tag_;
 
-        std::shared_ptr<IVectorProbe> x_probe_;
-        std::shared_ptr<IVectorProbe> y_probe_;
-        std::shared_ptr<IVectorProbe> value_probe_;
+        std::shared_ptr<VectorProbe> x_probe_;
+        std::shared_ptr<VectorProbe> y_probe_;
+        std::shared_ptr<VectorProbe> value_probe_;
 
         std::unique_ptr<anet::HeatMap> heatmap_;  ///< @todo ptr外し
     };
@@ -119,7 +119,7 @@ namespace anet::rl {
     public:
         TimeHistogramObserver(
             const std::string& tag, const TimeHistogramObserverConfig& config,
-            std::shared_ptr<IVectorProbe> probe)
+            std::shared_ptr<VectorProbe> probe)
             : tag_(tag), config_(config), probe_(probe)
         {
             histogram_ = std::make_unique<anet::TimeHistogram>(
@@ -155,9 +155,30 @@ namespace anet::rl {
         TimeHistogramObserverConfig config_;
         std::string tag_;
         std::unique_ptr<anet::TimeHistogram> histogram_;    ///< @todo ptr外し
-        std::shared_ptr<IVectorProbe> probe_;
+        std::shared_ptr<VectorProbe> probe_;
     };
 
+    class MultiPairHeatMapObserver : public anet::rl::PostUpdateObserver {
+    public:
+        MultiPairHeatMapObserver(
+            const std::string& tag,
+            const HeatMapObserverConfig& config,
+            const std::vector<std::shared_ptr<VectorProbe>>& axis_probes,
+            std::shared_ptr<VectorProbe> value_probe);
+
+        void OnPostUpdate(
+            int step,
+            std::shared_ptr<Agent> agent,
+            const BatchExperience& batch_exp,
+            std::shared_ptr<const BatchUpdateResult> result) override;
+
+    private:
+        std::string tag_;
+        HeatMapObserverConfig config_;
+        std::vector<std::shared_ptr<VectorProbe>> axis_probes_;
+        std::shared_ptr<VectorProbe> value_probe_;
+        std::unique_ptr<anet::HeatMap> heatmap_;
+    };
 
     struct SweepedHeatMapObserverConfig {
         int log_interval = 100;

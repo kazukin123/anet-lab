@@ -1,5 +1,7 @@
 ﻿// image_log.cpp （抜粋）
 
+#include <sstream>
+#include <wx/log.h>
 #include "anet/probe.hpp"
 
 using namespace anet::rl;
@@ -30,12 +32,18 @@ std::optional<float> FunctionScalarProbe::GetFloat(
 {
     return fn_(step, agent, batch_exp, std::move(result));
 }
-    
-StateProbe::StateProbe(int state_index, const anet::rl::StateSpec* spec, bool for_next_state)
+
+BatchExperienceStateProbe::BatchExperienceStateProbe(
+    int64_t state_index, const anet::rl::StateSpec* spec, bool for_next_state, std::optional<std::string> name)
     : state_index_(state_index), for_next_state_(for_next_state)
 {
-    // EnvSpec の state_spec から min/max を取得
-    if (spec != nullptr && state_index >= 0 && state_index < (int)spec->CalcFlattenSize()) {
+    ANET_ASSERT(state_index >= 0);
+
+    std::optional<std::string> name_spec;
+
+    if (spec != nullptr) {
+        ANET_ASSERT(state_index < spec->CalcFlattenSize());
+
         // 指定されたindexの定義情報を取得
         const anet::rl::StateDimInfo* s = spec->FindDim(state_index);
 
@@ -43,11 +51,25 @@ StateProbe::StateProbe(int state_index, const anet::rl::StateSpec* spec, bool fo
         if (s != nullptr) {
             min_ = s->min_value;
             max_ = s->max_value;
+            name_spec = s->name;
         }
+    }
+
+    // nameの個別指定があれば優先
+    if (name.has_value()) {
+        name_ = *name;
+    } else {
+        // 個別指定が無ければ自動生成
+        std::stringstream ss;
+        ss << BatchExperience::STATE_OBS << "[" << state_index << "]";
+        if (name_spec.has_value()) {
+            ss << "(" + *name_spec + ")";
+        }
+        name_ = ss.str();
     }
 }
 
-std::optional<std::vector<float>> StateProbe::GetVector(
+std::optional<std::vector<float>> BatchExperienceStateProbe::GetVector(
         int step,
         std::shared_ptr<anet::rl::Agent> agent,
         const anet::rl::BatchExperience& batch_exp,
@@ -88,15 +110,21 @@ std::optional<std::vector<float>> StateProbe::GetVector(
     return out;
 }
 
-RewardProbe::RewardProbe(const anet::rl::EnvSpec* spec)
+BatchExperienceRewardProbe::BatchExperienceRewardProbe(const anet::rl::EnvSpec* spec, std::optional<std::string> name)
 {
     if (spec != nullptr) {
         min_ = spec->reward_range.first;
         max_ = spec->reward_range.second;
     }
+    
+    if (name.has_value()) {
+        name_ = *name;
+    } else {
+        name_ = BatchExperience::REWARD;
+    }
 }
 
-std::optional<std::vector<float>> RewardProbe::GetVector(
+std::optional<std::vector<float>> BatchExperienceRewardProbe::GetVector(
     int step,
     std::shared_ptr<anet::rl::Agent> agent,
     const anet::rl::BatchExperience& batch_exp,
@@ -118,11 +146,15 @@ std::optional<std::vector<float>> RewardProbe::GetVector(
     return out;
 }
 
-std::optional<std::vector<float>> BatchUpdateResultTensorProbe::GetVector(
+BatchUpdateResultTensorToVectorProbe::BatchUpdateResultTensorToVectorProbe(const std::string& key, std::optional<float> min, std::optional<float> max)
+    : key_(key), min_(min), max_(max) {
+}
+
+std::optional<std::vector<float>> BatchUpdateResultTensorToVectorProbe::GetVector(
     int step,
     std::shared_ptr<anet::rl::Agent> agent,
     const anet::rl::BatchExperience& batch_exp,
-    std::shared_ptr<const anet::rl::BatchUpdateResult> result) const 
+    std::shared_ptr<const anet::rl::BatchUpdateResult> result) const
 {
     auto tensor = result->GetTensor(key_);
     //ANET_ASSERT(tensor.has_value());   // key誤りによるバグ防止のため
@@ -141,21 +173,13 @@ std::optional<std::vector<float>> BatchUpdateResultTensorProbe::GetVector(
 
 AgentTensorVectorProbe::AgentTensorVectorProbe(
     const std::string& key, int index,
-    const anet::rl::StateSpec* state_spec,
-    const anet::rl::ActionSpec* action_spec,
-    std::optional<float> min_override,
-    std::optional<float> max_override)
-    : key_(key), index_(index)
+    const anet::rl::StateSpec* state_spec, const anet::rl::ActionSpec* action_spec,
+    AutoScaleMode auto_scale_mode,
+    std::optional<float> min_override, std::optional<float> max_override,
+    std::optional<std::string> name)
+    : key_(key), index_(index), auto_scale_mode_(auto_scale_mode)
 {
-    // min/max の明示指定があればそれを最優先
-    if (min_override.has_value()) {
-        min_ = min_override;
-    }
-    if (max_override.has_value()) {
-        max_ = max_override;
-    }
-    if (min_.has_value() && max_.has_value())
-        return;
+    std::optional<std::string> name_spec;
 
     // EnvSpec の state_spec から min/max を取得
     if (state_spec != nullptr && index_ >= 0) {
@@ -166,23 +190,43 @@ AgentTensorVectorProbe::AgentTensorVectorProbe(
 
         // 定義情報を取得出来たらmin/maxをセット
         if (s != nullptr) {
-            min_ = s->min_value;
-            max_ = s->max_value;
-            return;
+            if (auto_scale_mode == AutoScaleMode::DISABLE) {
+                min_ = s->min_value;
+                max_ = s->max_value;
+            }
+            name_spec = s->name;
         }
-    }
-
-    //  ActionSpec には axis の概念はないため index_ は使わない
-
-    // ActionSpec から範囲を取る（離散を想定）
-    if (action_spec != nullptr) {
+    } else if (action_spec != nullptr) {
+        //  ActionSpec では index_ は使わない（離散を想定）
+        // ActionSpec から範囲を取る（離散を想定）
         ANET_ASSERT(action_spec->is_discrete);
 
         //  離散 [0, n_actions-1]
         const int n_actions = action_spec->ActionCount();
         ANET_ASSERT(n_actions > 0);
-        min_ = 0.0f;
-        max_ = static_cast<float>(n_actions - 1);
+        if (auto_scale_mode == AutoScaleMode::DISABLE) {
+            min_ = 0.0f;
+            max_ = static_cast<float>(n_actions - 1);
+        }
+    }
+
+    // min/max の明示指定があればそれを最優先
+    if (min_override.has_value()) {
+        min_ = min_override;
+    }
+    if (max_override.has_value()) {
+        max_ = max_override;
+    }
+
+    if (name.has_value()) {
+        name_ = *name;
+    } else {
+        std::stringstream ss;
+        ss << key_ << "[" << index_ << "]";
+        if (name_spec.has_value()) {
+            ss << "(" << *name_spec + ")";
+        }
+        name_ = ss.str();
     }
 
     // minだけ指定、maxだけ指定でもOK
@@ -202,7 +246,6 @@ std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(
 
     // ---- index 指定なし：flatten して全て連結 ----
     if (index_ < 0) {
-
         for (const auto& t : tvec) {
             torch::Tensor flat = t.flatten().to(torch::kCPU);
             auto dtype = flat.dtype();
@@ -238,6 +281,8 @@ std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(
     out.reserve(1024); // optional
 
     for (const auto& t : tvec) {
+        //wxLogDebug("AgentTensorVectorProbe::GetVector() t=%s", anet::ToString(t));
+
         // t must be 2-D (ReplayBuffer)
         ANET_ASSERT(t.dim() == 2);   // [rows, D]
 
@@ -251,22 +296,32 @@ std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(
             torch::indexing::Slice(),
             index_
             }).to(torch::kCPU);  // [rows]
+        if (!col.is_contiguous()) {
+            col = col.contiguous();
+        }
 
         auto dtype = col.dtype();
-        ANET_ASSERT(
-            dtype == torch::kFloat32 ||
-            dtype == torch::kInt64 ||
-            dtype == torch::kBool
-        );
+        ANET_ASSERT(dtype == torch::kFloat32 || dtype == torch::kInt64 || dtype == torch::kBool);
+        //wxLogDebug("AgentTensorVectorProbe::GetVector() col=%s", anet::ToString(col));
 
         const int64_t n = col.size(0);
         const size_t old = out.size();
+        //wxLogDebug("old=%zu n=%lld new_size=%zu", old, n, old + n);
         out.resize(old + n);
 
         float* dst = out.data() + old;
 
         if (dtype == torch::kFloat32) {
             std::memcpy(dst, col.data_ptr<float>(), n * sizeof(float));
+            if (auto_scale_mode_ == AutoScaleMode::PER_STEP) {
+                min_ = col.min().item<float>(); 
+                max_ = col.max().item<float>();
+            } else if (auto_scale_mode_ == AutoScaleMode::GLOBAL) {
+                const float min = col.min().item<float>();
+                const float max = col.max().item<float>();
+                min_ = std::min(min_.value_or(min), min);
+                max_ = std::max(max_.value_or(max), max);
+            }
         } else if (dtype == torch::kInt64) {
             const int64_t* src = col.data_ptr<int64_t>();
             for (int64_t i = 0; i < n; i++)

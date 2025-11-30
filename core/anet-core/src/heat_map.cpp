@@ -71,12 +71,17 @@ HeatMap::HeatMap(int width, int height, float x_min, float x_max, float y_min, f
 	value_max_(-std::numeric_limits<float>::max()),
 	max_points_(max_points),
 	flags_(flags) {
+	//Reset();
 }
 
 void HeatMap::AddData(float x, float y, float value) {
+	//wxLogDebug("AddData: x=%f y=%f v=%f  (before update: vmin=%f vmax=%f)",
+	//	x, y, value, value_min_, value_max_);
 	samples_.push_back({ x, y, value });
 	if (max_points_ > 0 && samples_.size() > max_points_) samples_.pop_front();
 	UpdateMinMax_(value);
+	//wxLogDebug("         (after update: vmin=%f vmax=%f)",
+	//	value_min_, value_max_);
 }
 
 /// @brief グリッドの値を一括設定（高速パス）
@@ -111,6 +116,9 @@ void HeatMap::Reset() {
 }
 
 wxImage HeatMap::RenderRaw() const {
+	//wxLogDebug("HeatMap frame start: vmin=%f vmax=%f samples=%zu",
+	//	value_min_, value_max_, samples_.size());
+
 	// --- スナップショット取得 ---
 	std::vector<Sample> snapshot(samples_.begin(), samples_.end());
 	if (snapshot.empty()) {
