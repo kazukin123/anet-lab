@@ -1,6 +1,9 @@
-﻿#include <iostream>
+﻿// dqn_agent.cpp
+
+#include <iostream>
 #include <tuple>
 #include <wx/log.h>
+
 #include "nlohmann/json.hpp"
 #include "anet/dqn_agent.hpp"
 #include "anet/nn_util.hpp"
@@ -194,10 +197,10 @@ struct anet::rl::DQNAgent::QNetImpl : torch::nn::Module {
     }
 };
 
-anet::rl::TensorFunction DQNAgent::GetTensorFunction(const std::string& key) const
+anet::TensorFunction DQNAgent::GetTensorFunction(const std::string& key) const
 {
     if (key == "policy_net.forward") {
-        anet::rl::TensorFunction fn = [this](const torch::Tensor& t) {
+        anet::TensorFunction fn = [this](const torch::Tensor& t) {
             auto tdev = t.to(device_);
             std::shared_lock<std::shared_mutex> lock(mutex_);
             return policy_net_->forward(tdev);
@@ -205,7 +208,7 @@ anet::rl::TensorFunction DQNAgent::GetTensorFunction(const std::string& key) con
         return fn;
     }
     if (key == "target_net.forward") {
-        anet::rl::TensorFunction fn = [this](const torch::Tensor& t) {
+        anet::TensorFunction fn = [this](const torch::Tensor& t) {
             auto tdev = t.to(device_);
             std::shared_lock<std::shared_mutex> lock(mutex_);
             return target_net_->forward(tdev);
@@ -213,7 +216,7 @@ anet::rl::TensorFunction DQNAgent::GetTensorFunction(const std::string& key) con
         return fn;
     }
     if (key == "q_pair.forward") {
-        anet::rl::TensorFunction fn = [this](const torch::Tensor& t) {
+        anet::TensorFunction fn = [this](const torch::Tensor& t) {
             auto tdev = t.to(device_);
             std::shared_lock<std::shared_mutex> lock(mutex_);
             auto q_online = policy_net_->forward(tdev);     // [N, A]
@@ -224,7 +227,7 @@ anet::rl::TensorFunction DQNAgent::GetTensorFunction(const std::string& key) con
     }
 
     // default
-    anet::rl::TensorFunction fn = [this](const torch::Tensor& t) {
+    anet::TensorFunction fn = [this](const torch::Tensor& t) {
         auto tdev = t.to(device_);
         std::shared_lock<std::shared_mutex> lock(mutex_);
         return policy_net_->forward(tdev);
@@ -273,41 +276,40 @@ public:
      */
     BatchActionInfo DecideBatch(const torch::Tensor& q_values, bool greedy_only)
     {
-        const auto device = q_values.device();
-        const int64_t N = q_values.size(0);
-        const int64_t A = q_values.size(1);
+        //wxLogDebug("q_values=%s", anet::ToString(q_values));
+        NvtxRange  r("DQNAgent::DecideBatch");
 
-        // 一旦 CPU に寄せる
-        auto q_cpu = q_values.to(torch::kCPU);
+        auto device = q_values.device();
 
-        // greedy: (N)
-        auto greedy = q_cpu.argmax(1);
+        // shape 読み取りは TensorOptions 経由で同期を回避可能
+        const int64_t N = q_values.sizes()[0];
+        const int64_t A = q_values.sizes()[1];
+
+        // greedy = argmax(q_values, dim=1)
+        auto greedy = q_values.argmax(1, /*keepdim=*/false);
 
         if (greedy_only) {
-            BatchActionInfo action_info{
-                greedy.to(device),       // (N, n_actions)
-                torch::zeros({ N }, torch::kBool).to(device)
-            };
-            return action_info;
+            NvtxRange  r("DQNAgent::DecideBatch.greedy_only");
+            auto zeros = torch::zeros({ N }, torch::TensorOptions().dtype(torch::kBool).device(device));
+            return { greedy, zeros };
         }
 
         const float eps = agent_.vars_->epsilon;
-        auto mask = torch::rand({ N }).lt(eps); // (N) bool
-        auto random_actions = torch::randint(/*low=*/0, /*high=*/A, { N }, torch::kInt64); // (N)random actions
 
-        // greedy をコピー
-        auto actions = greedy.clone();          // (N)
+        // mask: (N) bool, GPU上で生成
+        auto mask = torch::rand({ N }, torch::TensorOptions().device(device)).lt(eps);    // GPUで完結
 
-        // pure-tensor で ε-greedy をセット
-        actions = torch::where(mask, random_actions, actions);
+        // random actions (N) int64
+        auto random_actions =torch::randint(/*low=*/0, /*high=*/A, { N },
+                torch::TensorOptions().dtype(torch::kInt64).device(device));
 
-        BatchActionInfo action_info{
-            actions.to(device),   // action    (N) kInt64
-            mask.to(device)       // is_random (N) kBool
+        // actions: where(mask, random_actions, greedy)
+        auto actions = torch::where(mask, random_actions, greedy);
+
+        return {
+            actions,        // (N) kInt64
+            mask            // (N) kBool
         };
-        wxLogDebug("DeciceBatch() acion=%s", action_info.ToString());
-
-        return action_info;
     }
 private:
     DQNAgent& agent_;
@@ -363,6 +365,8 @@ public:
         const std::shared_ptr<const QNetImpl>& policy_net,
         const std::shared_ptr<QNetImpl>& target_net)
     {
+        anet::NvtxRange r("DQNAgent::Sync");
+
         // Hard update
         if (config_.hardupdate_interval > 0 &&
             (step % config_.hardupdate_interval) == 0)
@@ -435,6 +439,8 @@ public:
     // ------------------------------------------------------
     void UpdateActionStats(RuntimeVars& vars, const anet::rl::BatchActionInfo& info) const
     {
+        anet::NvtxRange  r("DQNAgent::UpdateActionStats");
+
         torch::Tensor a = info.action;  // (N, action_dim)
         auto a_cpu = a.to(torch::kCPU).reshape({ -1 });
         const int64_t n = a_cpu.numel();
@@ -482,6 +488,8 @@ public:
         const torch::Tensor& max_q,            // (B,) ← max_a Q(s,a)
         float grad_norm, float grad_clip_ratio) const
     {
+        anet::NvtxRange  r("DQNAgent::UpdateBatchStats");
+
         // --- A 群 -------------------------------------------------
 
         // TD
@@ -581,6 +589,8 @@ public:
     // ------------------------------------------------------------
     void UpdateOnStep(RuntimeVars& vars, StabilityMonitor& mon, size_t step) const
     {
+        anet::NvtxRange  r("DQNAgent::UpdateOnStep");
+
         float collapse_s = ComputeCollapseOnStep(vars, mon);
         float eps_new = ComputeBoostEpsilon(vars.epsilon, collapse_s, step);
         vars.collapse_s = collapse_s;
@@ -598,6 +608,8 @@ public:
     // ------------------------------------------------------------
     void UpdateOnLearn(RuntimeVars& vars, StabilityMonitor& mon, size_t update_step_count) const
     {
+        anet::NvtxRange  r("DQNAgent::UpdateOnLearn");
+
         float collapse_l = ComputeCollapseOnLearn(vars, mon);
         auto [eps_new, tau_new] = ComputeEpsilonTauLearn(vars.epsilon, vars.tau, collapse_l, update_step_count);
         vars.collapse_l = collapse_l;
@@ -743,6 +755,8 @@ public:
 
     float ComputeEpsilon(size_t step) const
     {
+        anet::NvtxRange  r("DQNAgent::ComputeEpsilon");
+
         // 強制ゼロ領域
         if (config_.eps_zero_step >= 0 &&
             static_cast<int>(step) >= config_.eps_zero_step)
@@ -793,6 +807,7 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
     policy_net_(std::make_shared<QNetImpl>(state_count_, n_actions_)),
     target_net_(std::make_shared<QNetImpl>(state_count_, n_actions_))
 {
+    anet::NvtxRange  r("DQNAgent::DQNAgent");
 
     // use_replay_buffer=false の場合の強制
     if (!config_.use_replay_buffer) {
@@ -848,29 +863,33 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
 
 anet::rl::BatchActionInfo DQNAgent::MakeAction(const anet::rl::BatchState& state, anet::rl::RunMode mode)
 {
-    CudaSyncCheck checek("DQNAgent::MakeAction()");
-
+    NvtxRange r1("DQNAgent::MakeAction");
     ANET_CHECK_SHAPE(state.obs, { ANY, state_count_ });
 
     auto flat_state = state.Flatten();
     auto flat_obs = flat_state.obs.to(device_);
-
-    std::shared_lock<std::shared_mutex> lock(mutex_);
-    torch::NoGradGuard ng;
-    torch::Tensor q;
-    if (mode == anet::rl::RunMode::Eval1) {
-        q = target_net_->forward(flat_obs);
-    }
-    else {
-        q = policy_net_->forward(flat_obs);
-    }
-    ANET_CHECK_SHAPE(q, { ANET_SHAPE_ANY, n_actions_ });  // (N, n_actions_)
-
-    // Eval → greedy-only
     bool greedy_only = (mode == anet::rl::RunMode::Eval1 || mode == anet::rl::RunMode::Eval2);
+
+    torch::NoGradGuard ng;
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+
+    NvtxRange r2("DQNAgent::MakeAction.forward");
+
+    torch::Tensor q;
+    if (mode == anet::rl::RunMode::Eval1)
+        q = target_net_->forward(flat_obs);
+    else
+        q = policy_net_->forward(flat_obs);
+    //ANET_CHECK_SHAPE(q, { ANET_SHAPE_ANY, n_actions_ });  // (N, n_actions_)
+
+    r2.End();
+
     auto act_info = action_decider_->DecideBatch(q, greedy_only);
-    ANET_CHECK_SHAPE(act_info.action, { state.obs.size(0) });
-    ANET_CHECK_SHAPE(act_info.is_random, { state.obs.size(0) });
+
+    //ANET_CHECK_SHAPE(act_info.action, { state.obs.size(0) });
+    //ANET_CHECK_SHAPE(act_info.is_random, { state.obs.size(0) });
+
+    NvtxRange r3("DQNAgent::MakeAction.update");
 
     if (mode == anet::rl::RunMode::Train) {
         // 行動統計の更新
@@ -886,8 +905,9 @@ anet::rl::BatchActionInfo DQNAgent::MakeAction(const anet::rl::BatchState& state
 std::shared_ptr<const anet::rl::BatchUpdateResult>
 DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
 {
+    NvtxRange r1("DQNAgent::UpdateFromBatch");
+
     std::unique_lock<std::shared_mutex> lock(mutex_);
-    CudaSyncCheck checek("DQNAgent::UpdateFromBatch()");
 
     // ReplayBuffer に push
     replay_buffer_->Push(batch_exp);
@@ -921,8 +941,9 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
         ANET_CHECK_DTYPE(raw_samples.next_states.dones, torch::kBool);
         ANET_CHECK_DTYPE(raw_samples.next_states.truncateds, torch::kBool);
         ANET_CHECK_DTYPE(raw_samples.next_states.episode_start, torch::kBool);
-
         wxLogDebug("ReplayBuffer batch OK: B=%lld", raw_samples.obs.size(0));
+
+        NvtxRange r2("DQNAgent::UpdateFromBatch.forward");
 
         // ReplayBufferから取り出した時点では生の多次元StateなのでFlattenする
         auto samples = raw_samples.Flatten();
@@ -976,6 +997,10 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
             max_next_q = std::get<0>(q_next_all.max(1));                         // (B,)
         }
 
+        r2.End();   // forward
+
+        NvtxRange r3("DQNAgent::UpdateFromBatch.backward");
+
         // -------------------------------------------------
         // TD target 計算
         //    td_target = r + (1 - terminal) * gamma * max_next_q
@@ -1012,6 +1037,9 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
         // optimizer step（grad clip 含む）
         optimizer_->zero_grad();
         loss_tensor.backward();
+
+        r3.End();
+        NvtxRange r4("DQNAgent::UpdateFromBatch.update");
 
         float grad_norm = 0.0f;
         bool grad_clipped = false;

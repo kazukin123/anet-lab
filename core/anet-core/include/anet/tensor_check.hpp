@@ -1,8 +1,6 @@
 ﻿#pragma once
 #include <torch/torch.h>
 #include <vector>
-
-#include <cuda_runtime.h>
 #include <wx/log.h>
 #include "anet/common.hpp"
 
@@ -10,35 +8,35 @@
 // Enable switches
 //------------------------------------------------------
 
-#ifdef ANET_ENABLE_ASSERT
+#ifdef ANET_ENABLE_DEBUGINFO
+
+#ifndef ANET_ENABLE_DEVICE_ASSERT
+#define ANET_ENABLE_DEVICE_ASSERT 1
+#endif
+
+#ifndef ANET_ENABLE_DTYPE_ASSERT
+#define ANET_ENABLE_DTYPE_ASSERT 1
+#endif
 
 #ifndef ANET_ENABLE_TENSOR_ASSERT
 #define ANET_ENABLE_TENSOR_ASSERT 1
 #endif
 
-#ifndef ANET_ENABLE_SYNC_CHECK
-#define ANET_ENABLE_SYNC_CHECK 1
-#endif
-
-#ifndef ANET_ENABLE_ASSERT
-#define ANET_ENABLE_ASSERT 1
-#endif
-
 #else
+
+#ifndef ANET_ENABLE_DEVICE_ASSERT
+#define ANET_ENABLE_DEVICE_ASSERT 0
+#endif
+
+#ifndef ANET_ENABLE_DTYPE_ASSERT
+#define ANET_ENABLE_DTYPE_ASSERT 0
+#endif
 
 #ifndef ANET_ENABLE_TENSOR_ASSERT
 #define ANET_ENABLE_TENSOR_ASSERT 0
 #endif
 
-#ifndef ANET_ENABLE_SYNC_CHECK
-#define ANET_ENABLE_SYNC_CHECK 0
 #endif
-
-#ifndef ANET_ENABLE_ASSERT
-#define ANET_ENABLE_ASSERT 0
-#endif
-
-#endif   // NDEBUG
 
 //------------------------------------------------------
 // 内部実装関数（.cpp に実体あり）
@@ -69,7 +67,7 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
 // Device チェック系マクロ
 //------------------------------------------------------
 
-#if ANET_ENABLE_TENSOR_ASSERT
+#if ANET_ENABLE_DEVICE_ASSERT
 
 // msg を自動生成（#tensor）
 #define ANET_CHECK_DEVICE(tensor, expected_dev)                                \
@@ -123,7 +121,8 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
 //------------------------------------------------------
 // dtype チェック
 //------------------------------------------------------
-#if ANET_ENABLE_TENSOR_ASSERT
+#if ANET_ENABLE_DTYPE_ASSERT
+
 #define ANET_CHECK_DTYPE(tensor, expected)                                        \
     do {                                                                          \
         if ((tensor).dtype() != (expected)) {                                     \
@@ -148,8 +147,10 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
         }                                                                          \
     } while (0)
 #else
+
 #define ANET_CHECK_DTYPE(tensor, expected)           do {} while(0)
 #define ANET_CHECK_DTYPE_MSG(tensor, expected, msg)  do {} while(0)
+
 #endif
 
 
@@ -185,36 +186,22 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
 
 #endif
 
-/// デストラクタでCPU同期が発生するので注意。
-class CudaSyncCheck {
-public:
-    CudaSyncCheck(const char* label)
-        : label_(label)
-    {
-#if ANET_ENABLE_SYNC_CHECK
-        cudaEventCreate(&start_);
-        cudaEventCreate(&stop_);
-        cudaEventRecord(start_);
-#endif
-    }
+namespace anet {
 
-    ~CudaSyncCheck() {
-#if ANET_ENABLE_SYNC_CHECK
-        cudaEventRecord(stop_);
-        cudaEventSynchronize(stop_);
-        float ms = 0.0f;
-        cudaEventElapsedTime(&ms, start_, stop_);
-        if (ms > 0.1f) {  // 0.1ms 以上ならほぼ同期発生
-            wxLogDebug("[SYNC] CudaSyncCheck %s : %.3f ms\n", label_, ms);
-        }
-        cudaEventDestroy(start_);
-        cudaEventDestroy(stop_);
-#endif
-    }
+    ///  @todo NvtxRange、リリースビルドやNVTX無効時はマクロで実態無し版に切換え
 
-private:
-#if ANET_ENABLE_SYNC_CHECK
-    cudaEvent_t start_, stop_;
-#endif
-    const char* label_;
-};
+    class NvtxRange {
+    public:
+        explicit NvtxRange(const char* name);
+        NvtxRange(const NvtxRange&) = delete;
+        NvtxRange& operator=(const NvtxRange&) = delete;
+        NvtxRange(NvtxRange&& other) noexcept;
+        ~NvtxRange();
+
+        NvtxRange& operator=(NvtxRange&& other) noexcept;
+        void End();
+    private:
+        bool active_;
+    };
+
+}

@@ -13,10 +13,12 @@ wxEND_EVENT_TABLE()
 
 CartPoleCanvas::CartPoleCanvas(wxWindow* parent)
     : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxSize(800, 400)),
-    cart_x(0.0f),
-    pole_theta(0.0f),
-    cart_scale(80.0f),    // x=1.0 の時の画面スケール
-    pole_length(120.0f)   // 棒のピクセル長
+    cart_x_(0.0f),
+    cart_x_dot_(0.0f),
+    pole_theta_(0.0f),
+    pole_theta_dot_(0.0f),
+    cart_scale_(80.0f),    // x=1.0 の時の画面スケール
+    pole_length_(120.0f)   // 棒のピクセル長
 {
     SetBackgroundStyle(wxBG_STYLE_PAINT);
 }
@@ -27,23 +29,20 @@ void CartPoleCanvas::OnMouseClick(wxMouseEvent& event)
     if (frame) frame->ToggleTraining();
 }
 
-void CartPoleCanvas::SetState(const anet::rl::BatchState& state, anet::rl::StateSpec spec)
+void CartPoleCanvas::SetBatchExperience(const anet::rl::BatchExperience& exp)
 {
-    torch::Tensor obs = state.Flatten().obs[0];
+    const int BATCH_POS = 0;
 
-    cart_x = obs[0].item<float>();
-    cart_x_dot = obs[1].item<float>();
-    pole_theta = obs[2].item<float>();
-    pole_theta_dot = obs[3].item<float>();
+    // state
+    torch::Tensor obs = exp.state.Flatten().obs[BATCH_POS];
+    cart_x_ = obs[0].item<float>();
+    pole_theta_ = obs[2].item<float>();
 
-    Refresh();
-}
+    // action
+    action_ = exp.action.action[BATCH_POS].item<int64_t>();
 
-void CartPoleCanvas::SetAction(const torch::Tensor& action)
-{
-    this->action_ = action;
-
-//    wxLogInfo("action=%s", action.toString());
+    // reward
+    reward_ = exp.reward[BATCH_POS].item<float>();
 }
 
 void CartPoleCanvas::OnPaint(wxPaintEvent& event)
@@ -69,7 +68,7 @@ void CartPoleCanvas::OnPaint(wxPaintEvent& event)
     dc.DrawLine(rightX, 0, rightX, height);
 
     // カート位置
-    float cartX = width / 2 + static_cast<int>(this->cart_x * scale);
+    float cartX = width / 2 + static_cast<int>(this->cart_x_ * scale);
     float cartY = groundY;
     float cartWidth = 50;
     float cartHeight = 20;
@@ -80,7 +79,7 @@ void CartPoleCanvas::OnPaint(wxPaintEvent& event)
 
     // ポール
     float poleLength = 100;
-    float angle = -this->pole_theta;
+    float angle = -this->pole_theta_;
     int poleX = cartX + static_cast<int>(std::sin(angle) * poleLength);
     int poleY = cartY - static_cast<int>(std::cos(angle) * poleLength);
 
@@ -89,7 +88,7 @@ void CartPoleCanvas::OnPaint(wxPaintEvent& event)
 
     // === 報酬バー ===
     // reward ∈ [0, 2] 程度を想定して正規化
-    float clamped_reward = std::max(0.0f, std::min(reward, 2.0f));
+    float clamped_reward = std::max(0.0f, std::min(reward_, 2.0f));
     int bar_width = static_cast<int>((width / 3) * (clamped_reward / 2.0f));
     int bar_height = 12;
     int bar_x = 100;
@@ -100,29 +99,26 @@ void CartPoleCanvas::OnPaint(wxPaintEvent& event)
 
     // 報酬文字
     dc.SetTextForeground(*wxBLACK);
-    dc.DrawText(wxString::Format("Reward: %.2f", reward), 10, bar_y - 2);// bar_x + bar_width + 8, bar_y - 2);
+    dc.DrawText(wxString::Format("Reward: %.2f", reward_), 10, bar_y - 2);// bar_x + bar_width + 8, bar_y - 2);
 
     // state文字
-    dc.DrawText(wxString::Format("X = %.2f", this->cart_x), 10, 10);
-    dc.DrawText(wxString::Format("θ = %.2f°", this->pole_theta * 180/ M_PI), 10, 30);
-    dc.DrawText(wxString::Format("dotX = %.2f", this->cart_x_dot), 10, 50);
-    dc.DrawText(wxString::Format("dotθ = %.2f", this->pole_theta_dot * 180 / M_PI), 10, 70);
+    dc.DrawText(wxString::Format("X = %.2f", this->cart_x_), 10, 10);
+    dc.DrawText(wxString::Format("θ = %.2f°", this->pole_theta_ * 180/ M_PI), 10, 30);
+    dc.DrawText(wxString::Format("dotX = %.2f", this->cart_x_dot_), 10, 50);
+    dc.DrawText(wxString::Format("dotθ = %.2f", this->pole_theta_dot_ * 180 / M_PI), 10, 70);
 
     // 力の方向ベクトルを描画
-    if (action_.defined()) {
-        int act = action_.item<int>();
-        float arrowLen = 40.0f;
-        wxPoint start(cartX, cartY + cartHeight / 2 + 5);
-        wxPoint end(cartX + (act == 1 ? arrowLen : -arrowLen), cartY + cartHeight / 2 + 5);
+    float arrowLen = 40.0f;
+    wxPoint start(cartX, cartY + cartHeight / 2 + 5);
+    wxPoint end(cartX + (action_ == 1 ? arrowLen : -arrowLen), cartY + cartHeight / 2 + 5);
 
-        dc.SetPen(wxPen(wxColour(255, 0, 0), 3));
-        dc.DrawLine(start, end);
+    dc.SetPen(wxPen(wxColour(255, 0, 0), 3));
+    dc.DrawLine(start, end);
 
-        // 矢印ヘッド
-        int dir = (act == 1) ? 1 : -1;
-        dc.DrawLine(end, wxPoint(end.x - dir * 8, end.y - 5));
-        dc.DrawLine(end, wxPoint(end.x - dir * 8, end.y + 5));
-    }
+    // 矢印ヘッド
+    int dir = (action_ == 1) ? 1 : -1;
+    dc.DrawLine(end, wxPoint(end.x - dir * 8, end.y - 5));
+    dc.DrawLine(end, wxPoint(end.x - dir * 8, end.y + 5));
 }
 
 

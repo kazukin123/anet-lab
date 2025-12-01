@@ -1,0 +1,80 @@
+﻿{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+
+  "configurePresets": [
+    {
+      "name": "x64-Debug",
+      "displayName": "Debug (x64)",
+      "description": "Debug build with asserts enabled",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/x64-Debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      },
+      "environment": {
+        "VSCMD_ARG_TGT_ARCH": "x64"
+      }
+    },
+    {
+      "name": "x64-RelWithDebInfo",
+      "displayName": "RelWithDebInfo (x64)",
+      "description": "Optimized build with debug symbols, asserts enabled",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/x64-RelWithDebInfo",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      },
+      "environment": {
+        "VSCMD_ARG_TGT_ARCH": "x64"
+      },
+    },
+    {
+      "name": "x64-Release",
+      "displayName": "Release (x64)",
+      "description": "Optimized build, asserts disabled",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/x64-Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      },
+      "environment": {
+        "VSCMD_ARG_TGT_ARCH": "x64"
+      }
+    }
+  ],
+
+  "buildPresets": [
+    {
+      "name": "x64-Debug",
+      "configurePreset": "x64-Debug"
+    },
+    {
+      "name": "x64-RelWithDebInfo",
+      "configurePreset": "x64-RelWithDebInfo"
+    },
+    {
+      "name": "x64-Release",
+      "configurePreset": "x64-Release"
+    }
+  ],
+
+  "testPresets": [
+    {
+      "name": "x64-Debug",
+      "configurePreset": "x64-Debug"
+    },
+    {
+      "name": "x64-RelWithDebInfo",
+      "configurePreset": "x64-RelWithDebInfo"
+    },
+    {
+      "name": "x64-Release",
+      "configurePreset": "x64-Release"
+    }
+  ]
+}

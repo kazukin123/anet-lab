@@ -1,5 +1,6 @@
-cmake_minimum_required(VERSION 3.20)
+﻿cmake_minimum_required(VERSION 3.20)
 project(anet-lab LANGUAGES CXX)
+set(CMAKE_CONFIGURATION_TYPES "Debug;RelWithDebInfo;Release" CACHE STRING "" FORCE)
 
 # ---------------------------------------------------------------------
 # 共通設定
@@ -12,59 +13,64 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # libtorch のパス検出
 # =====================================================================
 
-# 手動で Torch_DIR が設定されていればそのまま使用
-if(DEFINED Torch_DIR)
-    message(STATUS "Torch_DIR provided explicitly: ${Torch_DIR}")
+# Multi-config (Visual Studio 等)
+if(CMAKE_CONFIGURATION_TYPES)
+    # 現在の構成を得る
+    if(NOT DEFINED CMAKE_BUILD_TYPE)
+        # VS では CMAKE_BUILD_TYPE は空なのでジェネレータ表現で判定
+        set(_cfg "$<CONFIG>")
+    else()
+        set(_cfg "${CMAKE_BUILD_TYPE}")
+    endif()
 
-else()
-    # Debug 構成？
-    if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_CONFIGURATION_TYPES MATCHES "Debug")
-        # Torch_DIR_DEBUG（環境変数） があれば最優先
+    message(STATUS "Active configuration: ${_cfg}")
+
+    # Debug 構成
+    if(_cfg STREQUAL "Debug")
         if(DEFINED ENV{Torch_DIR_DEBUG})
             set(Torch_DIR "$ENV{Torch_DIR_DEBUG}")
-            message(STATUS "Using Torch_DIR_DEBUG from environment: ${Torch_DIR}")
-
-        # 次に Torch_DIR（環境変数）があれば使用
+            message(STATUS "Using Torch_DIR_DEBUG: ${Torch_DIR}")
         elseif(DEFINED ENV{Torch_DIR})
             set(Torch_DIR "$ENV{Torch_DIR}")
             message(STATUS "Using Torch_DIR (env) for Debug: ${Torch_DIR}")
-
-        # フォールバック
         else()
             set(Torch_DIR "${CMAKE_SOURCE_DIR}/third_party/libtorch/debug/share/cmake/Torch")
-            message(WARNING "Torch_DIR_DEBUG and Torch_DIR env not set. Fallback to local debug libtorch: ${Torch_DIR}")
+            message(WARNING "Fallback: local libtorch debug")
         endif()
 
-    # Release 構成？
+    # RelWithDebInfo と Release は同じ扱い
     else()
-        # Torch_DIR_RELEASE（環境変数）  があれば最優先
         if(DEFINED ENV{Torch_DIR_RELEASE})
             set(Torch_DIR "$ENV{Torch_DIR_RELEASE}")
-            message(STATUS "Using Torch_DIR_RELEASE from environment: ${Torch_DIR}")
-
-        # 次に Torch_DIR（環境変数）があれば使用
+            message(STATUS "Using Torch_DIR_RELEASE: ${Torch_DIR}")
         elseif(DEFINED ENV{Torch_DIR})
             set(Torch_DIR "$ENV{Torch_DIR}")
             message(STATUS "Using Torch_DIR (env) for Release: ${Torch_DIR}")
-
-        # フォールバック
         else()
             set(Torch_DIR "${CMAKE_SOURCE_DIR}/third_party/libtorch/release/share/cmake/Torch")
-            message(WARNING "Torch_DIR_RELEASE and Torch_DIR env not set. Fallback to local release libtorch: ${Torch_DIR}")
+            message(WARNING "Fallback: local libtorch release")
         endif()
+    endif()
+
+# Single-config (MinGW / Ninja 単体)
+else()
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(Torch_DIR "${CMAKE_SOURCE_DIR}/third_party/libtorch/debug/share/cmake/Torch")
+    else()
+        set(Torch_DIR "${CMAKE_SOURCE_DIR}/third_party/libtorch/release/share/cmake/Torch")
     endif()
 endif()
 
-# 最終的に設定された Torch_DIR を確認
 message(STATUS "Final Torch_DIR: ${Torch_DIR}")
 list(APPEND CMAKE_PREFIX_PATH "${Torch_DIR}")
-
 
 # ---------------------------------------------------------------------
 # 外部ライブラリ
 # ---------------------------------------------------------------------
 find_package(Torch REQUIRED)
 find_package(wxWidgets COMPONENTS core base OPTIONAL_COMPONENTS gl)
+
+include_directories("${PROJECT_SOURCE_DIR}/third_party/nvtx3")
 
 # ---------------------------------------------------------------------
 # サブプロジェクト
@@ -78,7 +84,7 @@ else()
     message(WARNING "wxWidgets not found: skipping apps-wx/")
 endif()
 
-add_subdirectory(apps/cartpole1)
+#add_subdirectory(apps/cartpole1)
 
 # ---------------------------------------------------------------------
 # Doxygen

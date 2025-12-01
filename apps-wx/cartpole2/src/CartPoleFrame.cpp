@@ -16,7 +16,7 @@ struct CartPoleFrame::Config : public anet::Config {
     int batch_size = 1;
     int timer_ms = 20;
     int step_per_frame = 10;
-    int eval_interval = 1;
+    int eval_interval = 50;
     int train_pause_step = 110000;
     int train_exit_step = -1; //110000;
 	int canvas_mode = 0;    //  0:評価エピソードの終了状況を描画 1:学習エピソードの終了状態を描画 2:学習状況を描画 
@@ -70,7 +70,7 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     Layout();
 
     // ログレベル
-#ifndef NDEBUG
+#if ANET_ENABLE_DEBUGINFO
     wxLog::SetLogLevel(wxLOG_Debug);
 #endif
 
@@ -109,10 +109,19 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     anet::ConfigData agentConfig = wxGetApp().GetConfig("agent");
     agent_ = std::make_shared<anet::rl::DQNAgent>(agentConfig, env_spec, device_, rnd_);
 
+    // EpisodeEvalObserver
+    auto eval_target_obs = std::make_shared<anet::rl::EpisodeEvalObserver>(
+        "11_eval/01_target_reward", env_factory, anet::rl::RunMode::Eval1, config_->eval_interval, config_->eval_interval);
+    auto eval_policy_obs = std::make_shared<anet::rl::EpisodeEvalObserver>(
+        "11_eval/02_policy_reward", env_factory, anet::rl::RunMode::Eval2, config_->eval_interval, config_->eval_interval);
+    notifier_.AddObserver(eval_target_obs);
+    notifier_.AddObserver(eval_policy_obs);
+
     // MetricsLogObserver
     auto metrics_obs = std::make_shared<anet::rl::MetricsLogObserver>();
-
     notifier_.AddObserver(metrics_obs);
+
+    // 画像ベースのObserverを初期化
     initImageLogObservers(env_spec);
 
     // --- 環境初期化 ---
@@ -125,7 +134,6 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     timer.Start(config_->timer_ms);  // 学習＆描画更新
     //auto now = std::chrono::high_resolution_clock::now();
     //auto cnt = now.time_since_epoch().count();
-
 
     // 時間計測開始
     start_time_ = std::chrono::high_resolution_clock::now();
@@ -190,7 +198,8 @@ void CartPoleFrame::initImageLogObservers(const anet::rl::EnvSpec& env_spec)
     auto replay_23_reward = std::make_shared<anet::rl::HeatMapVectorObserver>(
         "43_agent_img/13_hm_rep_23", visit_heat_obs_config, rep_theta_probe, rep_theta_dot_probe, rep_reward_probe);
 
-    auto auto_scale_mode = anet::rl::AgentTensorVectorProbe::AutoScaleMode::GLOBAL;
+    //auto auto_scale_mode = anet::rl::AgentTensorVectorProbe::AutoScaleMode::GLOBAL;   // サンプル値でmin/max調整
+    auto auto_scale_mode = anet::rl::AgentTensorVectorProbe::AutoScaleMode::DISABLE;    // EnvSpecで固定
     std::vector<std::shared_ptr<anet::rl::VectorProbe>> probes_3axis = {
         std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 0, &env_spec.state_spec, nullptr, auto_scale_mode),
         std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 2, &env_spec.state_spec, nullptr, auto_scale_mode),
@@ -339,8 +348,8 @@ void CartPoleFrame::initImageLogObservers(const anet::rl::EnvSpec& env_spec)
 
     using StrMap = std::unordered_map<std::string, std::string>;
 
-    anet::rl::TensorFunction policy_forward = agent_->GetTensorFunction("policy_net.forward");
-    anet::rl::TensorFunction qpair_forward = agent_->GetTensorFunction("q_pair.forward");
+    anet::TensorFunction policy_forward = agent_->GetTensorFunction("policy_net.forward");
+    anet::TensorFunction qpair_forward = agent_->GetTensorFunction("q_pair.forward");
 
     auto q_sweep_obs_02_qmax = std::make_shared<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/05_shm_02_qmax", q_sweep_obs_config, proc_x_theta_qmax, policy_forward, proc_x_theta_qmax);
@@ -413,9 +422,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     auto batch_env_spec = env_->GetBatchSpec();
 
     // --- 学習ステップを複数回回す ---
-    //auto action = agent->select_action(state);
-    float last_reward = 0.0f;
-    //anet::rl::BatchStepResult step_result;
+    float frame_total_reward = 0.0f;
     for (int i = 0; i < config_->step_per_frame; ++i) {
         if ((config_->train_exit_step > 0) && (step_count_ >= config_->train_exit_step)) {
             anet::MetricsLogger::Instance()->Flush();
@@ -460,8 +467,8 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         // 更新後処理
         notifier_.Notify(step_count_, agent_, exp, update_result);
         state_ = result.continue_state;
-        last_reward = result.reward.squeeze(0).item<float>();
-        train_total_reward_ += last_reward;
+        float step_reward = result.reward.mean().item<float>();
+        frame_total_reward += step_reward;
 
         // msec per step
         std::chrono::high_resolution_clock::time_point now = std::chrono::high_resolution_clock::now();
@@ -475,92 +482,26 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         }
         last_time_ = now;
 
-        // ステップ数インプリメント（グローバルなステップ数）
-        step_count_++;
+        // メトリクス出力
+        train_reward_ema_.Update(step_reward);
+        anet::MetricsLogger::Instance()->LogScalar("10_train/10_total_reward", step_count_, train_reward_ema_.Value());
 
-        canvas->SetState(state_, env_->GetSpec().state_spec);
-        canvas->SetAction(action_info.action);
-        canvas->SetReward(last_reward);
+        // 描画
+        canvas->SetBatchExperience(exp);
         canvas->Refresh();
 
-        //エピソード終了判定
-        if (result.next_state.IsDone() || result.next_state.IsTruncated()) {
-            episode_count_++;
-
-            // プロット更新
-            plotPanel->AddReward(train_total_reward_);
-
-            // Canvas更新（エピソード終了）
-            //canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
-            //canvas->SetAction(action);
-            //canvas->SetReward(last_reward);
-            //canvas->Refresh();
-
-            // 学習状況評価
-            float eval_total_reward = 0.0f;
-            if (episode_count_ % config_->eval_interval == 0) {
-                eval_count_++;
-                {   // ターゲットネットワークによる評価
-                    auto state = env_->Reset(anet::rl::RunMode::Eval);
-                    auto total_reward = 0.0f;
-                    bool done = false;
-                    bool truncated = false;
-                    do {
-                        auto action = agent_->MakeAction(state, anet::rl::RunMode::Eval1);
-                        auto env_result = env_->Step(action.action);
-                        total_reward += env_result.reward.squeeze(0).item<float>();
-                        state = env_result.next_state.Clone();
-                        done = env_result.next_state.IsDone();
-                        truncated = env_result.next_state.IsTruncated();
-                        //wxLogDebug("eval(): state=%s reward=%f", env_result.next_state.ToString(), anet::ToScalar(env_result.reward));
-                    } while (!done && !truncated);
-                    eval_total_reward = total_reward;
-
-                    // ログ
-                    anet::MetricsLogger::Instance()->LogScalar("10_epsode/02_eval_reward", episode_count_, total_reward);
-                    anet::MetricsLogger::Instance()->LogScalar("11_eval/01_target_reward",step_count_, total_reward);
-
-                    // ターゲットネットワークによる評価の終了状態を描画
-                    //canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
-                    //canvas->SetAction(action);
-                    //canvas->SetReward(env_result.reward);
-                    //canvas->Refresh();
-                }
-                {   // メインネットワークによる評価
-                    auto state = env_->Reset(anet::rl::RunMode::Eval);
-                    auto total_reward = 0.0f;
-                    bool done = false;
-                    bool truncated = false;
-                    do {
-                        auto action = agent_->MakeAction(state, anet::rl::RunMode::Eval2);
-                        auto env_result = env_->Step(action.action);
-                        total_reward += env_result.reward.squeeze(0).item<float>();
-                        state = env_result.next_state.Clone();
-                        done = env_result.next_state.IsDone();
-                        truncated = env_result.next_state.IsTruncated();
-                    } while (!done && !truncated);
-                    anet::MetricsLogger::Instance()->LogScalar("11_eval/02_policy_reward", step_count_, total_reward);
-                }
-
-                anet::MetricsLogger::Instance()->Flush();
-            }
-
-            // ログ
-            auto eps_step = step_count_ - last_episode_step_;
-            wxLogInfo("Episode finished. eps=%d total_step=%d  eps_step=%d train_reward=%f eval_reward=%f",
-                episode_count_, step_count_, eps_step, train_total_reward_, eval_total_reward);
-            anet::MetricsLogger::Instance()->LogScalar("10_epsode/01_total_reward",
-                episode_count_, train_total_reward_);
-
-            // 環境リセット
-            state_ = env_->Reset();
-
-            // エピソードが終わったので次エピソード準備
-            last_episode_step_ = step_count_;
-            train_total_reward_ = 0.0f;
-            //break;
-        }
+        // ステップ数インプリメント（グローバルなステップ数）
+        step_count_++;
     }
+
+    // フレームの平均報酬をプロット
+    plotPanel->AddReward(frame_total_reward);
+
+    // 平均報酬をログ出力
+    wxLogInfo("total_step=%d  train_mean_reward=%f", train_reward_ema_.Value());
+
+    /// @todo "10_train/10_total_reward" のMetrics出力を Observerに移行
+    /// @todo log出力をObserverに移行。
 
     // --- カート位置・角度の描画更新 ---
     //canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());

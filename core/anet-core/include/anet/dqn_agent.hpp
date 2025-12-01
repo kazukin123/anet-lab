@@ -121,7 +121,7 @@ namespace anet::rl {
         anet::rl::BatchActionInfo MakeAction(const anet::rl::BatchState& state, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
         std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromBatch(const anet::rl::BatchExperience& exprience) override;
 
-        anet::rl::TensorFunction GetTensorFunction(const std::string& key) const override;
+        anet::TensorFunction GetTensorFunction(const std::string& key) const override;
         std::optional<float> GetScalar(const std::string& key) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const override;

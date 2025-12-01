@@ -10,27 +10,25 @@ public:
     CartPoleCanvas(wxWindow* parent);
 
     // カート位置・角度をセット
-    void SetState(const anet::rl::BatchState& state, anet::rl::StateSpec spec);
-    void SetAction(const torch::Tensor& action);
-    void SetReward(float reward) { this->reward = reward; }
+    void SetBatchExperience(const anet::rl::BatchExperience& exp);
 
 protected:
     void OnPaint(wxPaintEvent& event);
     void OnMouseClick(wxMouseEvent& event);
 
 private:
-    float cart_x;
-    float cart_x_dot;
-    float pole_theta;
-    float pole_theta_dot;
+    float cart_x_;
+    float cart_x_dot_;
+    float pole_theta_;
+    float pole_theta_dot_;
 
-    float reward;
+    float reward_ = 0.0f;
 
-    torch::Tensor action_;
+    int64_t action_ = 0;
 
     // 表示スケールなど
-    float cart_scale;
-    float pole_length;
+    float cart_scale_;
+    float pole_length_;
 
     wxDECLARE_EVENT_TABLE();
 };

@@ -25,5 +25,5 @@ private:
 class CartPoleEnvFactory : public anet::rl::SingleDiscreteEnvFactory, public anet::RandomHolder {
 public:
     CartPoleEnvFactory(std::shared_ptr<anet::RandomGenerator> rnd = nullptr);
-    std::shared_ptr<anet::rl::SingleDiscreteEnv> Create() override;
+    std::unique_ptr<anet::rl::SingleDiscreteEnv> Create() override;
 };

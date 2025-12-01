@@ -213,8 +213,8 @@ CartPoleEnvFactory::CartPoleEnvFactory(std::shared_ptr<anet::RandomGenerator> rn
     ;
 }
 
-std::shared_ptr<anet::rl::SingleDiscreteEnv> CartPoleEnvFactory::Create()
+std::unique_ptr<anet::rl::SingleDiscreteEnv> CartPoleEnvFactory::Create()
 {
-    return std::make_shared<CartPoleEnv>(rnd_);
+    return std::make_unique<CartPoleEnv>(rnd_);
 }
 

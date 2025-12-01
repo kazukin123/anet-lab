@@ -231,6 +231,15 @@ namespace anet::rl {
         bool truncated;
         bool episode_start;
 
+        BatchState toBatchState() const{
+            return {
+                obs.unsqueeze(0),
+                torch::tensor(done, torch::kBool).unsqueeze(0),
+                torch::tensor(truncated, torch::kBool).unsqueeze(0),
+                torch::tensor(episode_start, torch::kBool).unsqueeze(0),
+            };
+        }
+
         /// 状態テンソルを 1D に変換する
         torch::Tensor Flatten() const {
             ANET_CHECK_DTYPE(obs, torch::kFloat32);
@@ -326,7 +335,7 @@ namespace anet::rl {
 
     class SingleDiscreteEnvFactory {
     public:
-        virtual std::shared_ptr<SingleDiscreteEnv> Create() = 0;
+        virtual std::unique_ptr<SingleDiscreteEnv> Create() = 0;
 
         virtual ~SingleDiscreteEnvFactory() = default;
     };
@@ -352,7 +361,7 @@ namespace anet::rl {
         BatchStepResult Step(const torch::Tensor& actions, RunMode mode) override;
         BatchState GetState() const override;
     private:
-        std::vector<std::shared_ptr<SingleDiscreteEnv>> envs_;
+        std::vector<std::unique_ptr<SingleDiscreteEnv>> envs_;
         std::unique_ptr<EnvSpec> spec_;
         BatchEnvSpec batch_spec_;
         BatchState state_;   ///< 現在の環境状態
@@ -406,23 +415,10 @@ namespace anet::rl {
         virtual ~Learner() = default;
     };
 
-    using TensorFunction = std::function<torch::Tensor(const torch::Tensor&)>;
-
     class Agent : public Runner, public Learner, public DataExporter {
     public:
         virtual TensorFunction GetTensorFunction(const std::string& key) const = 0;
         virtual ~Agent() = default;
-    };
-
-    class PostUpdateObserver {
-    public:
-        virtual void OnPostUpdate(
-            int step,
-            std::shared_ptr<Agent> agent,
-            const BatchExperience& expriences,
-            std::shared_ptr<const BatchUpdateResult> result
-        ) = 0;
-        virtual ~PostUpdateObserver() = default;
     };
 
     // 環境のステップに同期して更新する Agent 基底クラス
@@ -430,7 +426,8 @@ namespace anet::rl {
     class StepBasedAgent : public Agent, public anet::RandomHolder {
     public:
         StepBasedAgent(ConfigT config, torch::Device device, std::shared_ptr<anet::RandomGenerator> rnd = nullptr)
-            : config_(config), device_(device), RandomHolder(rnd) { }
+            : config_(config), device_(device), RandomHolder(rnd) {
+        }
         virtual ~StepBasedAgent() = default;
 
         int GetStepCount() const { return step_count_; }
@@ -445,21 +442,29 @@ namespace anet::rl {
         int step_count_ = 0;
     };
 
-    // 複数ステップ（軌跡）収集後に更新する Agent 基底クラス（PPO, TRPO など）
-    class TrajectoryBasedLearner : public Learner {
-    public:
-        // TODO: define
-        virtual ~TrajectoryBasedLearner() = default;
-    };
+    /// @todo 複数ステップ（軌跡）収集後に更新する Agent 基底クラス（PPO, TRPO など）
+    //class TrajectoryBasedLearner : public Learner {
+    //public:
+    //    virtual ~TrajectoryBasedLearner() = default;
+    //};
 
-    class RunnerFactory {
+    // =============================================================
+
+    class PostUpdateObserver {
     public:
-        virtual std::shared_ptr<Runner> CreateRunner() = 0;
-        virtual ~RunnerFactory() = default;
+        virtual void OnPostUpdate(
+            int step,
+            std::shared_ptr<Agent> agent,
+            const BatchExperience& expriences,
+            std::shared_ptr<const BatchUpdateResult> result
+        ) = 0;
+        virtual ~PostUpdateObserver() = default;
     };
 
     class Notifier {
     public:
+        Notifier() { ; }
+
         void AddObserver(std::shared_ptr<PostUpdateObserver> obs) {
             observers_.push_back(obs);
         }
@@ -478,5 +483,9 @@ namespace anet::rl {
     private:
         std::vector<std::shared_ptr<PostUpdateObserver>> observers_;
     };
+
+    // =============================================================
+
+    /// @todo class NNFactory
 
 } // namespace anet::rl

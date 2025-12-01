@@ -355,7 +355,7 @@ namespace anet::rl {
         // 出力から値抽出（GPU 上, [W*H]）
         ExtractResult extract_result = output_ext_->Extract(batch_out, req_label_set);
         wxLogDebug(
-            "SweepedHeatMapObserver::OnPostUpdate() grid_values=%s  tag=%s", 
+            "SweepedHeatMapObserver::OnPostUpdate() grid_values=%s  tag=%s",
             anet::ToDefString(extract_result.grid), heatmap_tag_);
         ANET_CHECK_SHAPE(extract_result.grid, { grid_num });
         ANET_CHECK_DTYPE(extract_result.grid, torch::kFloat32);
@@ -395,5 +395,42 @@ namespace anet::rl {
         }
     }
 
+    EpisodeEvalObserver::EpisodeEvalObserver(
+        const std::string& tag,
+        std::shared_ptr<anet::rl::SingleDiscreteEnvFactory> eval_env_factory,
+        anet::rl::RunMode runmode, int log_interval, int eval_inerval, float ema_decay)
+        : tag_(tag), runmode_(runmode), log_interval_(log_interval), eval_interval_(eval_inerval), eval_total_reward_(ema_decay)
+    {
+        env_ = std::make_unique<VectorizedDiscreteBatchEnv>(eval_env_factory, 1);
+    }
+
+    void EpisodeEvalObserver::OnPostUpdate(
+        int step,
+        std::shared_ptr<Agent> agent,
+        const BatchExperience& batch_exp,
+        std::shared_ptr<const BatchUpdateResult> result)
+    {
+        // 評価エピソードを終端まで回す
+        if (step % eval_interval_ == 0) {
+            auto state = env_->Reset(runmode_);
+            auto eps_total_reward = 0.0f;
+            bool done = false;
+            bool truncated = false;
+            do {
+                auto action = agent->MakeAction(state, runmode_);
+                auto env_result = env_->Step(action.action);
+                eps_total_reward += env_result.reward.mean().item<float>();
+                state = env_result.continue_state;
+                done = env_result.next_state.IsDone();
+                truncated = env_result.next_state.IsTruncated();
+            } while (!done && !truncated);
+            eval_total_reward_.Update(eps_total_reward);
+        }
+
+        // 評価エピソードのトータル報酬をメトリクスとして出力
+        if (step % log_interval_ == 0) {
+            MetricsLogger::Instance()->LogScalar(tag_, step, eval_total_reward_.Value());
+        }
+    }
 
 }

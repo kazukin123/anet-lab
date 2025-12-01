@@ -228,5 +228,28 @@ namespace anet::rl {
         std::unique_ptr<anet::HeatMap> heatmap_;
     };
 
+    class EpisodeEvalObserver : public anet::rl::PostUpdateObserver {
+    public:
+        EpisodeEvalObserver(
+            const std::string& tag,
+            std::shared_ptr<anet::rl::SingleDiscreteEnvFactory> eval_env_factory,
+            anet::rl::RunMode runmode_ = anet::rl::RunMode::Eval,
+            int log_interval = 10, int eval_interval = 10,
+            float ema_decay = 1.00);
+
+        void OnPostUpdate(
+            int step,
+            std::shared_ptr<Agent> agent,
+            const BatchExperience& batch_exp,
+            std::shared_ptr<const BatchUpdateResult> result) override;
+    private:
+        std::string tag_;
+        std::unique_ptr<anet::rl::BatchEnv> env_;
+        anet::rl::RunMode runmode_;
+        int log_interval_;
+        int eval_interval_;
+        anet::EmaFilter<float> eval_total_reward_;
+    };
+
 }
 
