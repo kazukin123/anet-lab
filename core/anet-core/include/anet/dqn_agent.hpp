@@ -72,6 +72,7 @@ namespace anet::rl {
             ANET_APPLY_CONFIG(configData, eps_max);
             ANET_APPLY_CONFIG(configData, eps_min);
             ANET_APPLY_CONFIG(configData, eps_decay_step);
+            ANET_APPLY_CONFIG(configData, eps_sigmoid_step);
             ANET_APPLY_CONFIG(configData, softupdate_tau);
             ANET_APPLY_CONFIG(configData, hardupdate_interval);
             ANET_APPLY_CONFIG(configData, use_grad_clip);

@@ -86,12 +86,14 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     wxLogInfo("CartPoleRLGUI started.");
 
     // パラメータ記録
-    wxLogInfo("seed=%lld", rnd_->GetSeed());
+    auto seed = rnd_->GetSeed();
+    wxLogInfo("seed=%lld", seed);
     wxLogInfo("train.preset=%s confg=%s", wxGetApp().GetConfig("train").Get("preset"), config_->ToStdString());
-    anet::MetricsLogger::Instance()->LogJson("train/params", config_->ToJson());
+    anet::MetricsLogger::Instance()->LogJson("train/rnd", { "seed", seed });
+    anet::MetricsLogger::Instance()->LogJson("train/config", config_->ToJson());
     anet::MetricsLogger::Instance()->Flush();
 
-    // ENV生成 ---
+    // ENV生成
     const int N = config_->batch_size;
     auto env_factory = std::make_shared<CartPoleEnvFactory>(rnd_);
     env_ = std::make_unique<anet::rl::VectorizedDiscreteBatchEnv>(env_factory, N);
@@ -99,13 +101,16 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     auto env_spec = env_->GetSpec();
     wxLogInfo("batch_env_spec=" + batch_env_spec.ToString());
     wxLogInfo("env_spec=" + env_spec.ToString());
+    anet::MetricsLogger::Instance()->LogJson("env/batch_env_spec", batch_env_spec.ToJson());
+    anet::MetricsLogger::Instance()->LogJson("env/env_spec", env_spec.ToJson());
+    anet::MetricsLogger::Instance()->Flush();
 
     // ランダム方策で環境難易度評価
     /// @todo EvaluateEnvironmentDifficultyを復活
     //auto eval_result = anet::rl::EvaluateEnvironmentDifficulty(*env_, 100);
     //anet::MetricsLogger::Instance()->LogJson("eval_env", eval_result.ToJson());
 
-    // --- Agent生成 ---
+    // Agent生成
     anet::ConfigData agentConfig = wxGetApp().GetConfig("agent");
     agent_ = std::make_shared<anet::rl::DQNAgent>(agentConfig, env_spec, device_, rnd_);
 
@@ -132,8 +137,6 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     // --- タイマー開始 ---
     Bind(wxEVT_TIMER, &CartPoleFrame::OnTimer, this);
     timer.Start(config_->timer_ms);  // 学習＆描画更新
-    //auto now = std::chrono::high_resolution_clock::now();
-    //auto cnt = now.time_since_epoch().count();
 
     // 時間計測開始
     start_time_ = std::chrono::high_resolution_clock::now();
@@ -498,21 +501,16 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     plotPanel->AddReward(frame_total_reward);
 
     // 平均報酬をログ出力
-    wxLogInfo("total_step=%d  train_mean_reward=%f", train_reward_ema_.Value());
+    wxLogInfo("total_step=%d  train_mean_reward=%f", step_count_, train_reward_ema_.Value());
 
     /// @todo "10_train/10_total_reward" のMetrics出力を Observerに移行
     /// @todo log出力をObserverに移行。
-
-    // --- カート位置・角度の描画更新 ---
-    //canvas->SetState(env->get_x(), env->get_theta(), env->get_x_dot(), env->get_theta_dot());
-    //canvas->SetAction(action);
-    //canvas->SetReward(last_reward);
-    //canvas->Refresh();
 
     if ((config_->train_exit_step > 0) && (step_count_ >= config_->train_exit_step)) {
         anet::MetricsLogger::Instance()->Flush();
         wxGetApp().Exit();
     }
+
     if ((config_->train_pause_step > 0) && (step_count_ >= config_->train_pause_step) && !auto_pause_done_) {
         auto_pause_done_ = true;
         training_paused = true;

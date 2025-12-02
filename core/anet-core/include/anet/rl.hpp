@@ -19,17 +19,53 @@
 namespace anet::rl {
 
     /*
-        Environment
-          ↓  (BatchState)
-        Runer(Agent)
-          ↓ （BatchActionInfo）
-        Environment
-          ↓  (BatchReward, BatchNextState) → BatchStepResult
-        Trainer
-          ↓  Batch(s, a ,r, s) ⇒ vector<Experience> ⇒ ReplayBuffer
-        Sampler(Agent)
-          ↓  ReplayBuffer ⇒ Update
-        Learner(Agent)
+     ========================
+
+    CPU(ENV)
+    │ state
+    ▼ ①
+    GPU(NN) ←──────────┐
+    │                            │
+    │ ② produce action          │
+    ▼                            │
+    CPU(ENV) ←───────③─┘
+    │ next_state, reward
+    ▼ ⑤
+    CPU(ReplayBuffer)
+    │ minibatch
+    ▼ ⑥
+    GPU(NN learner)
+    │
+    ▼ ⑦ training
+
+     ========================
+
+     ① CPU State → GPU（NN入力）
+        ENV が CPU 上で状態を生成
+        → Agent に渡すときに GPU へ転送
+        → NN へ入力
+
+     ② NNが GPU 上で Action を計算
+        Action は GPU Tensor として得られる
+
+     ③ GPU Action → CPU（ENV入力）
+        ENV に渡すため Action を CPU に転送
+
+     ④ ENV が next_state / reward を生成（CPU）
+        step を実行し、結果も CPU 上
+
+     ⑤ （CPU上の State, Action, Reward, 次State）→ ReplayBuffer(CPU)
+        ReplayBuffer は CPU 常駐
+        データを CPU のまま保存
+
+     ⑥ ReplayBuffer (CPU) → ミニバッチ → GPU
+        ミニバッチをサンプリングしたら GPU へ転送
+
+     ⑦ NN（GPU）で学習
+        GPU 上の NN にミニバッチを渡して
+        forward → loss → backward → optimizer
+
+    ========================
     */
 
     // =============================================================

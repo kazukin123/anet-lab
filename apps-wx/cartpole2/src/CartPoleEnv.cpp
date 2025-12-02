@@ -6,7 +6,8 @@
 #include <wx/log.h>
 
 // 定数
-const int limit_step = 500;  // 終了条件
+const int limit_step = 200;  // 終了条件
+//const int limit_step = 500;  // 終了条件
 const float reward_scale = 1.0f;  // 2 10  20
 const float done_reward = 1.0f;  // 2 10  20
 

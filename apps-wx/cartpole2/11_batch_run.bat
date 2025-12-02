@@ -1,8 +1,9 @@
 @echo off
-SET EXE="bin\Debug\CartPoleRLGUI.exe"
+SET EXE="bin\Release\CartPoleRLGUI.exe"
 
-call:run_exe train.batchrun agent_asdqn_bool10
-call:run_exe train.batchrun agent_asdqn_bool11
+call:run_exe train.preset=train.batchrun agent.preset=agent_trunk
+call:run_exe train.preset=train.batchrun agent.preset=agent_trunk
+call:run_exe train.preset=train.batchrun agent.preset=agent_trunk
 
 pause
 exit /b

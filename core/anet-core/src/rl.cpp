@@ -532,6 +532,8 @@ namespace anet::rl {
 
     BatchState VectorizedDiscreteBatchEnv::Reset(RunMode mode)
     {
+        /// @todo env0の特別扱いを廃止。
+
         const int N = batch_spec_.batch_size;
 
         // 最初のenvで obs の shape を取得
@@ -579,6 +581,8 @@ namespace anet::rl {
 
     BatchStepResult VectorizedDiscreteBatchEnv::Step(const torch::Tensor& actions, RunMode mode)
     {
+        /// @todo env0の特別扱いを廃止。
+
         const int64_t N = batch_spec_.batch_size;
         ANET_CHECK_DTYPE_MSG(actions, torch::kInt64,
             "VectorizedDiscreteBatchEnv supports discrete action only. actions should be kInt64.");

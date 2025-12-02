@@ -1,25 +1,25 @@
-﻿# train
+﻿
 train.preset=train.online
 #train.preset=train.batchrun
+
 train.online.batch_size = 1
 train.online.seed=171730964985300	# 0 -> AutoSeed
 
-# og 
 #log.enable_image_log = false
 log.enable_image_log = true
 
 # agent
-#agent.preset=agent_trunk
-agent.preset=agent_20251127-032759
+agent.preset=agent_trunk
+#agent.preset=agent_20251127-032759
 
 # ---- trunk
 agent_trunk.nn_init_mode=1          # ★ 0=default、1=XavierUniform、2=HeNormal
 agent_trunk.alpha=5e-4              # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-agent_trunk.gamma=0.99              # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent_trunk.gamma=0.99              # ★ 0.99f; 0.995f      γが高いほど「長期安定」を目指す
 agent_trunk.eps_max=1.00            # 指数減衰  
 agent_trunk.eps_min=0.05            # 0.1f 0.05f
 #agent_trunk.eps_decay_step=100000  # 100K
-agent_trunk.eps_sigmoid_step=200000 # ★ 200K
+agent_trunk.eps_sigmoid_step=200000 # ★ 100K
 agent_trunk.softupdate_tau=0.001    # ★ 1.0f 0.004f  0.01f 0.005f;
 agent_trunk.hardupdate_interval=-1  #  -1 5000; //200 500 1000
 agent_trunk.use_grad_clip=true      #
@@ -145,5 +145,6 @@ train.batchrun.batch_size = 1
 train.batchrun.timer_ms = 5
 train.batchrun.step_per_frame = 1000
 train.batchrun.eval_interval = 50
+train.batchrun.train_pause_step=-1
 train.batchrun.train_exit_step = 500000
 
