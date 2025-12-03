@@ -175,7 +175,7 @@ namespace anet::rl {
         torch::Tensor truncated;        ///< 人工終端     (N) kBool
         torch::Tensor episode_start;    ///< reset直後    (N) kBool
 
-        BatchState Clone() {
+        BatchState Clone() const {
             return { obs.clone(), done.clone(), truncated.clone(), episode_start.clone() };
         }
 
@@ -371,7 +371,7 @@ namespace anet::rl {
 
     class SingleDiscreteEnvFactory {
     public:
-        virtual std::unique_ptr<SingleDiscreteEnv> Create() = 0;
+        virtual std::unique_ptr<SingleDiscreteEnv> Create(std::optional<anet::seed_t> seed = std::nullopt) = 0;
 
         virtual ~SingleDiscreteEnvFactory() = default;
     };
@@ -385,47 +385,6 @@ namespace anet::rl {
         virtual BatchState GetState() const = 0;
 
         virtual ~BatchEnv() = default;
-    };
-
-    class VectorizedDiscreteBatchEnv : public BatchEnv {
-    public:
-        VectorizedDiscreteBatchEnv(std::shared_ptr<SingleDiscreteEnvFactory> factory, int batch_size);
-
-        EnvSpec GetSpec() const override;
-        BatchEnvSpec GetBatchSpec() const override;
-        BatchState Reset(RunMode mode) override;
-        BatchStepResult Step(const torch::Tensor& actions, RunMode mode) override;
-        BatchState GetState() const override;
-    private:
-        std::vector<std::unique_ptr<SingleDiscreteEnv>> envs_;
-        std::unique_ptr<EnvSpec> spec_;
-        BatchEnvSpec batch_spec_;
-        BatchState state_;   ///< 現在の環境状態
-    };
-
-    class ThreadPoolDiscreteEnv : public BatchEnv {
-    public:
-        ThreadPoolDiscreteEnv(std::shared_ptr<SingleDiscreteEnvFactory> factory,
-            int batch_size,
-            int worker_threads);
-
-        EnvSpec GetSpec() const override;
-        BatchEnvSpec GetBatchSpec() const override;
-        BatchState Reset(RunMode mode) override;
-        BatchStepResult Step(const torch::Tensor& actions, RunMode mode) override;
-    private:
-        struct StepTask {
-            SingleDiscreteEnv* env;
-            int64_t action;
-            SingleStepResult result;
-        };
-
-        std::vector<std::shared_ptr<SingleDiscreteEnv>> envs_;
-        EnvSpec spec_;
-        BatchEnvSpec batch_spec_;
-
-        // @todo: ThreadPool 実装 or 外部注入
-        // ThreadPool pool_;
     };
 
     // =============================================================
@@ -461,8 +420,8 @@ namespace anet::rl {
     template<typename ConfigT>
     class StepBasedAgent : public Agent, public anet::RandomHolder {
     public:
-        StepBasedAgent(ConfigT config, torch::Device device, std::shared_ptr<anet::RandomGenerator> rnd = nullptr)
-            : config_(config), device_(device), RandomHolder(rnd) {
+        StepBasedAgent(ConfigT config, torch::Device device, std::optional<seed_t> seed = std::nullopt)
+            : config_(config), device_(device), RandomHolder(seed) {
         }
         virtual ~StepBasedAgent() = default;
 
@@ -486,35 +445,44 @@ namespace anet::rl {
 
     // =============================================================
 
+    struct PostUpdateEvent {
+        int step;
+        std::shared_ptr<Agent> agent;
+        const BatchExperience& batch_exp;
+        std::shared_ptr<const BatchUpdateResult> update_result;
+    };
+
     class PostUpdateObserver {
     public:
+        /// @todo PostUpdateEventを組み込み
         virtual void OnPostUpdate(
             int step,
             std::shared_ptr<Agent> agent,
-            const BatchExperience& expriences,
-            std::shared_ptr<const BatchUpdateResult> result
+            const BatchExperience& batch_exp,
+            std::shared_ptr<const BatchUpdateResult> update_result
         ) = 0;
         virtual ~PostUpdateObserver() = default;
     };
 
     class Notifier {
     public:
-        Notifier() { ; }
+        Notifier();
 
-        void AddObserver(std::shared_ptr<PostUpdateObserver> obs) {
-            observers_.push_back(obs);
-        }
-
+        void Attach(std::shared_ptr<PostUpdateObserver> observer);
+        void Detach(std::shared_ptr<PostUpdateObserver> observer);
         void Notify(
             size_t step,
             std::shared_ptr<Agent> agent,
-            const BatchExperience& expriences,
-            const std::shared_ptr<const BatchUpdateResult>& result
-        )
+            const BatchExperience& batch_exp,
+            const std::shared_ptr<const BatchUpdateResult>& update_result
+        );
+    public:
+        template <class T, class... Args>
+        std::shared_ptr<T> Attach(Args&&... args)
         {
-            for (std::shared_ptr<PostUpdateObserver> o : observers_) {
-                o->OnPostUpdate(step, agent, expriences, result);
-            }
+            auto obs = std::make_shared<T>(std::forward<Args>(args)...);
+            Attach(obs);
+            return obs;
         }
     private:
         std::vector<std::shared_ptr<PostUpdateObserver>> observers_;

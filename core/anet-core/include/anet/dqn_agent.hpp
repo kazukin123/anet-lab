@@ -117,7 +117,7 @@ namespace anet::rl {
 
     class DQNAgent : public anet::rl::StepBasedAgent<DQNAgentConfig> {
     public:
-        DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, torch::Device device, std::shared_ptr<anet::RandomGenerator> rnd = nullptr);
+        DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, torch::Device device, std::optional<seed_t> seed = std::nullopt);
 
         anet::rl::BatchActionInfo MakeAction(const anet::rl::BatchState& state, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
         std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromBatch(const anet::rl::BatchExperience& exprience) override;

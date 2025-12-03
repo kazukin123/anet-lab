@@ -6,7 +6,7 @@
 /// CartPole環境実装（1環境固定）
 class CartPoleEnv : public anet::rl::SingleDiscreteEnv, public anet::RandomHolder {
 public:
-    CartPoleEnv(std::shared_ptr<anet::RandomGenerator> rnd = nullptr);
+    CartPoleEnv(std::optional<anet::seed_t> seed = std::nullopt);
 
     anet::rl::EnvSpec GetSpec() const override;
     anet::rl::SingleState Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
@@ -22,8 +22,8 @@ private:
     int step_count_ = 0;
 };
 
-class CartPoleEnvFactory : public anet::rl::SingleDiscreteEnvFactory, public anet::RandomHolder {
+class CartPoleEnvFactory : public anet::rl::SingleDiscreteEnvFactory {
 public:
-    CartPoleEnvFactory(std::shared_ptr<anet::RandomGenerator> rnd = nullptr);
-    std::unique_ptr<anet::rl::SingleDiscreteEnv> Create() override;
+    CartPoleEnvFactory();
+    std::unique_ptr<anet::rl::SingleDiscreteEnv> Create(std::optional<anet::seed_t> seed = std::nullopt) override;
 };

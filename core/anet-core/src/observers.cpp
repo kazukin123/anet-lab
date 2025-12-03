@@ -1,6 +1,7 @@
 ﻿#include <wx/log.h>
 #include "anet/observers.hpp"
 #include "anet/metrics_logger.hpp"
+#include "anet/vec_env.hpp"
 
 namespace anet::rl {
 
@@ -125,6 +126,8 @@ namespace anet::rl {
         const anet::rl::BatchExperience& batch_exp,
         std::shared_ptr<const anet::rl::BatchUpdateResult> result)
     {
+        anet::NvtxRange r("HeatMapVectorObserver::OnPostUpdate");
+
         // 生成： xv, yv, vv
         auto xv = x_probe_->GetVector(step, agent, batch_exp, result);
         auto yv = y_probe_->GetVector(step, agent, batch_exp, result);
@@ -138,7 +141,6 @@ namespace anet::rl {
 
         // データ追加
         const size_t n = xv->size();
-        heatmap_->ReserveSamples(n);
 
         for (size_t i = 0; i < n; i++) {
             float x = (*xv)[i];
@@ -229,6 +231,8 @@ namespace anet::rl {
         const BatchExperience& batch_exp,
         std::shared_ptr<const BatchUpdateResult> result)
     {
+        anet::NvtxRange r("MultiPairHeatMapObserver::OnPostUpdate");
+
         // 値ベクトル
         auto vv = value_probe_->GetVector(step, agent, batch_exp, result);
         if (!vv) return;
@@ -251,7 +255,6 @@ namespace anet::rl {
                 auto ymax = axis_probes_[j]->GetMax();
 
                 size_t n = std::min({ xv->size(), yv->size(), vv->size() });
-                heatmap_->ReserveSamples(n);
 
                 for (size_t k = 0; k < n; k++) {
                     float x_raw = (*xv)[k];
@@ -326,6 +329,8 @@ namespace anet::rl {
         const anet::rl::BatchExperience& experience,
         std::shared_ptr<const anet::rl::BatchUpdateResult> result)
     {
+        anet::NvtxRange r("SweepedHeatMapObserver::OnPostUpdate");
+
         if (step % config_.log_interval != 0) return;
 
         const int64_t grid_num = static_cast<int64_t>(grid_w_) * static_cast<int64_t>(grid_h_);
@@ -410,6 +415,8 @@ namespace anet::rl {
         const BatchExperience& batch_exp,
         std::shared_ptr<const BatchUpdateResult> result)
     {
+        anet::NvtxRange r("EpisodeEvalObserver::OnPostUpdate");
+
         // 評価エピソードを終端まで回す
         if (step % eval_interval_ == 0) {
             auto state = env_->Reset(runmode_);

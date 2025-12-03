@@ -494,186 +494,37 @@ namespace anet::rl {
         return oss.str();
     }
 
-    VectorizedDiscreteBatchEnv::VectorizedDiscreteBatchEnv(
-        std::shared_ptr<SingleDiscreteEnvFactory> factory, int batch_size)
-        : batch_spec_({ batch_size, 1 })
+    Notifier::Notifier() { ; }
+
+    void Notifier::Attach(std::shared_ptr<PostUpdateObserver> obs)
     {
-        ANET_ASSERT(batch_size > 0);
-        envs_.reserve(batch_size);
+        observers_.push_back(obs);
+    }
 
-        // 最初の1個を生成してEnvSpec取得
-        auto env = factory->Create();
-        spec_ = std::make_unique<EnvSpec>(env->GetSpec());
-        envs_.push_back(std::move(env));
+    void Notifier::Detach(std::shared_ptr<PostUpdateObserver> obs)
+    {
+        observers_.erase(
+            std::remove_if(
+                observers_.begin(), observers_.end(),
+                [&](const std::shared_ptr<PostUpdateObserver>& o) {
+                    return o == obs;
+                }
+            ),
+            observers_.end()
+        );
+    }
 
-        // 残り batch_size-1 個を生成
-        for (int i = 1; i < batch_size; ++i) {
-            envs_.push_back(factory->Create());
+    void Notifier::Notify(
+        size_t step,
+        std::shared_ptr<Agent> agent,
+        const BatchExperience& expriences,
+        const std::shared_ptr<const BatchUpdateResult>& result
+    )
+    {
+        anet::NvtxRange r("Notifier::Notify");
+
+        for (std::shared_ptr<PostUpdateObserver> o : observers_) {
+            o->OnPostUpdate(step, agent, expriences, result);
         }
     }
-
-    EnvSpec VectorizedDiscreteBatchEnv::GetSpec() const
-    {
-        return *spec_;
-    }
-
-    BatchEnvSpec VectorizedDiscreteBatchEnv::GetBatchSpec() const
-    {
-        return batch_spec_;
-    }
-
-    static std::vector<int64_t> prepend_batch(int N, at::IntArrayRef shape) {
-        std::vector<int64_t> out;
-        out.reserve(shape.size() + 1);
-        out.push_back(N);
-        out.insert(out.end(), shape.begin(), shape.end());
-        return out;
-    }
-
-    BatchState VectorizedDiscreteBatchEnv::Reset(RunMode mode)
-    {
-        /// @todo env0の特別扱いを廃止。
-
-        const int N = batch_spec_.batch_size;
-
-        // 最初のenvで obs の shape を取得
-        SingleState s0 = envs_[0]->Reset(mode);
-        ANET_CHECK_SHAPE(s0.obs, { ANET_SHAPE_ENDANY });
-        ANET_CHECK_DTYPE(s0.obs, torch::kFloat32);
-
-        const auto obs_sizes = s0.obs.sizes();  // state_dim...
-
-        // BatchState 用 Tensor を作成 (N,state_dim...)
-        std::vector<int64_t> batch_obs_sizes;
-        batch_obs_sizes.reserve(obs_sizes.size() + 1);
-        batch_obs_sizes.push_back(N);
-        batch_obs_sizes.insert(batch_obs_sizes.end(), obs_sizes.begin(), obs_sizes.end());
-
-        // 戻り用のBatchSteteを準備
-        auto obs_options_float = torch::TensorOptions().dtype(torch::kFloat32).device(s0.obs.device());
-        auto obs_options_bool = torch::TensorOptions().dtype(torch::kBool).device(s0.obs.device());
-        BatchState batch_state {
-            torch::empty(batch_obs_sizes, obs_options_float), // obs           (N,state_dim...) kFloat
-            torch::empty({ N }, obs_options_bool),   // done          (N) kBool      
-            torch::empty({ N }, obs_options_bool),   // truncated     (N) kBool
-            torch::empty({ N }, obs_options_bool)    // episode_start (N) kBool
-        };
-
-        // 最初の環境の結果を詰める
-        batch_state.obs.index_put_({ 0 }, s0.obs);
-        batch_state.done.index_put_({ 0 }, s0.done);
-        batch_state.truncated.index_put_({ 0 }, s0.truncated);
-        batch_state.episode_start.index_put_({ 0 }, s0.episode_start);
-
-        // 残りの環境を順次リセットして直接詰める
-        for (int i = 1; i < N; ++i) {
-            SingleState s = envs_[i]->Reset(mode);
-            batch_state.obs.index_put_({ i }, s.obs);
-            batch_state.done.index_put_({ i }, s.done);
-            batch_state.truncated.index_put_({ i }, s.truncated);
-            batch_state.episode_start.index_put_({ i }, s.episode_start);
-        }
-
-        state_ = batch_state;
-
-        return state_;
-    }
-
-    BatchStepResult VectorizedDiscreteBatchEnv::Step(const torch::Tensor& actions, RunMode mode)
-    {
-        /// @todo env0の特別扱いを廃止。
-
-        const int64_t N = batch_spec_.batch_size;
-        ANET_CHECK_DTYPE_MSG(actions, torch::kInt64,
-            "VectorizedDiscreteBatchEnv supports discrete action only. actions should be kInt64.");
-        ANET_CHECK_SHAPE(actions, { N });
-
-        // 1つ目の環境で Step を実行
-        auto a0 = actions[0].item<int64_t>();
-        SingleStepResult r0 = envs_[0]->Step(a0, mode);
-        const auto obs_sizes = r0.next_state.obs.sizes();
-
-        // obs shape を確定
-        std::vector<int64_t> batch_obs_sizes;
-        batch_obs_sizes.reserve(obs_sizes.size() + 1);
-        batch_obs_sizes.push_back(N);
-        batch_obs_sizes.insert(batch_obs_sizes.end(), obs_sizes.begin(), obs_sizes.end());
-
-        // BatchStepResult のテンソル群を作成
-        auto float_opt = torch::TensorOptions().dtype(torch::kFloat32).device(r0.next_state.obs.device());
-        auto bool_opt = torch::TensorOptions().dtype(torch::kBool).device(r0.next_state.obs.device());
-        BatchStepResult result{
-            torch::empty({ N }, float_opt),                 // reward        (N) kFloat32
-            BatchState {    // next_state
-                torch::empty(batch_obs_sizes, float_opt),   // obs           (N, state_dim..) kFloat32
-                torch::empty({ N }, bool_opt),              // done          (N) kBool
-                torch::empty({ N }, bool_opt),              // truncated     (N) kBool
-                torch::empty({ N }, bool_opt)               // episode_start (N) kBool
-            },
-            BatchState {    // continue_state
-                torch::empty(batch_obs_sizes, float_opt),   // obs           (N, state_dim..) kFloat32
-                torch::empty({ N }, bool_opt),              // done          (N) kBool
-                torch::empty({ N }, bool_opt),              // truncated     (N) kBool
-                torch::empty({ N }, bool_opt)               // episode_start (N) kBool
-            },
-        };
-
-        // ----- 最初の結果を詰める -----
-        result.next_state.obs.index_put_({ 0 }, r0.next_state.obs);
-        result.next_state.done.index_put_({ 0 }, r0.next_state.done);
-        result.next_state.truncated.index_put_({ 0 }, r0.next_state.truncated);
-        result.next_state.episode_start.index_put_({ 0 }, r0.next_state.episode_start);
-        result.reward.index_put_({ 0 }, r0.reward);
-
-        // ---- 最初分のcontinue_stateを詰める
-        if (r0.next_state.done || r0.next_state.truncated) {
-            SingleState rs = envs_[0]->Reset(mode);
-            result.continue_state.obs.index_put_({ 0 }, rs.obs);
-            result.continue_state.done.index_put_({ 0 }, rs.done);
-            result.continue_state.truncated.index_put_({ 0 }, rs.truncated);
-            result.continue_state.episode_start.index_put_({ 0 }, rs.episode_start);
-        } else {
-            result.continue_state.obs.index_put_({ 0 }, r0.next_state.obs);
-            result.continue_state.done.index_put_({ 0 }, false);
-            result.continue_state.truncated.index_put_({ 0 }, false);
-            result.continue_state.episode_start.index_put_({ 0 }, r0.next_state.episode_start);
-        }
-
-        // ----- 残りの環境を順次実行 -----
-        for (int i = 1; i < N; ++i) {
-            auto a = actions[i].item<int64_t>();
-            SingleStepResult ri = envs_[i]->Step(a, mode);
-
-            result.next_state.obs.index_put_({ i }, ri.next_state.obs);
-            result.next_state.done.index_put_({ i }, ri.next_state.done);
-            result.next_state.truncated.index_put_({ i }, ri.next_state.truncated);
-            result.next_state.episode_start.index_put_({ i }, ri.next_state.episode_start);
-            result.reward.index_put_({ i }, ri.reward);
-
-            // continue_state
-            if (ri.next_state.done || ri.next_state.truncated) {
-                SingleState rs = envs_[i]->Reset(mode);
-                result.continue_state.obs.index_put_({ i }, rs.obs);
-                result.continue_state.done.index_put_({ i }, rs.done);
-                result.continue_state.truncated.index_put_({ i }, rs.truncated);
-                result.continue_state.episode_start.index_put_({ i }, rs.episode_start);
-            } else {
-                result.continue_state.obs.index_put_({ i }, ri.next_state.obs);
-                result.continue_state.done.index_put_({ i }, false);
-                result.continue_state.truncated.index_put_({ i }, false);
-                result.continue_state.episode_start.index_put_({ i }, ri.next_state.episode_start);
-            }
-        }
-
-        // 継続用Stateを保存
-        state_ = result.continue_state;
-
-        return result;
-    }
-
-    BatchState VectorizedDiscreteBatchEnv::GetState() const
-    {
-        return state_;
-    }
-
 } // namespace anet::rl

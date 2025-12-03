@@ -9,8 +9,8 @@
 
 namespace anet::rl {
 
-    ReplayBuffer::ReplayBuffer(const EnvSpec& spec, size_t capacity, std::shared_ptr<anet::RandomGenerator> rnd)
-        : RandomHolder(rnd),
+    ReplayBuffer::ReplayBuffer(const EnvSpec& spec, size_t capacity, std::optional<seed_t> seed)
+        : RandomHolder(seed),
         capacity_(capacity),
         state_count_(spec.state_spec.CalcFlattenSize()),
         n_actions_(spec.action_spec.ActionCount()),

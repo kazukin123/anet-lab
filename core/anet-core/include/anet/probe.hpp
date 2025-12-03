@@ -109,7 +109,7 @@ namespace anet::rl {
                 int step,
                 std::shared_ptr<anet::rl::Agent> agent,
                 const anet::rl::BatchExperience& batch_exp,
-                std::shared_ptr<const anet::rl::BatchUpdateResult> result)>;
+                std::shared_ptr<const anet::rl::BatchUpdateResult> update_result)>;
 
         FunctionScalarProbe(
             const std::string& name,
@@ -123,7 +123,7 @@ namespace anet::rl {
             int step,
             std::shared_ptr<anet::rl::Agent> agent,
             const anet::rl::BatchExperience& batch_exp,
-            std::shared_ptr<const anet::rl::BatchUpdateResult> result) const override;
+            std::shared_ptr<const anet::rl::BatchUpdateResult> update_result) const override;
 
         std::optional<std::string> GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }

@@ -27,7 +27,7 @@ const float tau = 0.02f;    //0.02f 0.01f
 
 const float deg = (float)M_PI / 180.0f;
 
-CartPoleEnv::CartPoleEnv(std::shared_ptr<anet::RandomGenerator> rnd) : RandomHolder(rnd)
+CartPoleEnv::CartPoleEnv(std::optional<anet::seed_t> seed) : RandomHolder(seed)
 {
     // パラメータ記録
     nlohmann::json params = {
@@ -208,14 +208,13 @@ anet::rl::SingleStepResult CartPoleEnv::Step(int64_t action, anet::rl::RunMode m
     return result;
 }
 
-CartPoleEnvFactory::CartPoleEnvFactory(std::shared_ptr<anet::RandomGenerator> rnd)
-    : RandomHolder(rnd)
+CartPoleEnvFactory::CartPoleEnvFactory()
 {
     ;
 }
 
-std::unique_ptr<anet::rl::SingleDiscreteEnv> CartPoleEnvFactory::Create()
+std::unique_ptr<anet::rl::SingleDiscreteEnv> CartPoleEnvFactory::Create(std::optional<anet::seed_t> seed)
 {
-    return std::make_unique<CartPoleEnv>(rnd_);
+    return std::make_unique<CartPoleEnv>(seed);
 }
 

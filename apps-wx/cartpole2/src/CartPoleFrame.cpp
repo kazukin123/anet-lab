@@ -10,6 +10,7 @@
 
 #include <filesystem>
 #include "anet/tensor_check.hpp"
+#include "anet/vec_env.hpp"
 
 
 struct CartPoleFrame::Config : public anet::Config {
@@ -44,6 +45,7 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     //device(torch::kCPU),
     device_(torch::kCUDA),
     timer(this, wxID_ANY),
+    train_reward_ema_(0.001),
     msec_per_step_ema_(0.001)
 {
     //test_heatmap_and_histgram();
@@ -78,25 +80,29 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     wxLog::SetActiveTarget(this);
 
     if (config_->seed == 0) {
-        rnd_ = std::make_shared<anet::RandomGenerator>(true, true);
-    }
-    else {
-        rnd_ = std::make_shared<anet::RandomGenerator>(config_->seed, true, true);
+        master_seed_ = std::make_unique<anet::MasterSeedManager>();
+    } else {
+        master_seed_ = std::make_unique<anet::MasterSeedManager>(config_->seed);
     }
     wxLogInfo("CartPoleRLGUI started.");
 
+    // seed値生成
+    auto grobal_seed = master_seed_->GetMasterSeed();
+    auto env_seed = master_seed_->GetGroupSeed("env");
+    auto agent_seed = master_seed_->GetGroupSeed("agent");
+    wxLogInfo("grobal_seed=%lld env_seed=%lld agent_seed=%lld", grobal_seed, env_seed, agent_seed);
+
     // パラメータ記録
-    auto seed = rnd_->GetSeed();
-    wxLogInfo("seed=%lld", seed);
-    wxLogInfo("train.preset=%s confg=%s", wxGetApp().GetConfig("train").Get("preset"), config_->ToStdString());
-    anet::MetricsLogger::Instance()->LogJson("train/rnd", { "seed", seed });
+    wxLogInfo("train.preset=%s confg=%s", wxGetApp().GetConfig("train").Get("preset"), config_->ToString());
+    anet::MetricsLogger::Instance()->LogJson("train/seed",
+        { "grobal_seed", grobal_seed, "agent_seed", agent_seed, "env_seed", env_seed });
     anet::MetricsLogger::Instance()->LogJson("train/config", config_->ToJson());
     anet::MetricsLogger::Instance()->Flush();
 
     // ENV生成
-    const int N = config_->batch_size;
-    auto env_factory = std::make_shared<CartPoleEnvFactory>(rnd_);
-    env_ = std::make_unique<anet::rl::VectorizedDiscreteBatchEnv>(env_factory, N);
+    const int batch_size = config_->batch_size;
+    auto single_env_factory = std::make_shared<CartPoleEnvFactory>();
+    env_ = std::make_unique<anet::rl::VectorizedDiscreteBatchEnv>(single_env_factory, batch_size, env_seed);
     auto batch_env_spec = env_->GetBatchSpec();
     auto env_spec = env_->GetSpec();
     wxLogInfo("batch_env_spec=" + batch_env_spec.ToString());
@@ -112,19 +118,40 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
 
     // Agent生成
     anet::ConfigData agentConfig = wxGetApp().GetConfig("agent");
-    agent_ = std::make_shared<anet::rl::DQNAgent>(agentConfig, env_spec, device_, rnd_);
+    agent_ = std::make_shared<anet::rl::DQNAgent>(agentConfig, env_spec, device_, agent_seed);
 
     // EpisodeEvalObserver
-    auto eval_target_obs = std::make_shared<anet::rl::EpisodeEvalObserver>(
-        "11_eval/01_target_reward", env_factory, anet::rl::RunMode::Eval1, config_->eval_interval, config_->eval_interval);
-    auto eval_policy_obs = std::make_shared<anet::rl::EpisodeEvalObserver>(
-        "11_eval/02_policy_reward", env_factory, anet::rl::RunMode::Eval2, config_->eval_interval, config_->eval_interval);
-    notifier_.AddObserver(eval_target_obs);
-    notifier_.AddObserver(eval_policy_obs);
+    notifier_.Attach<anet::rl::EpisodeEvalObserver>(
+        "11_eval/01_target_reward", single_env_factory, anet::rl::RunMode::Eval1, config_->eval_interval, config_->eval_interval);
+    notifier_.Attach<anet::rl::EpisodeEvalObserver>(
+        "11_eval/02_policy_reward", single_env_factory, anet::rl::RunMode::Eval2, config_->eval_interval, config_->eval_interval);
 
     // MetricsLogObserver
-    auto metrics_obs = std::make_shared<anet::rl::MetricsLogObserver>();
-    notifier_.AddObserver(metrics_obs);
+    notifier_.Attach<anet::rl::MetricsLogObserver>();
+
+    // log
+    auto plot_reward = std::make_shared<float>(0.0f);
+    notifier_.Attach<anet::rl::FunctionObserver>(
+        //[&, plot_reward](int step,
+        [this, plot_reward](int step,
+                std::shared_ptr<anet::rl::Agent> agent,
+            const anet::rl::BatchExperience& batch_exp,
+            std::shared_ptr<const anet::rl::BatchUpdateResult> update_result)
+        {
+            float step_reward = batch_exp.reward.mean().item<float>();
+            train_reward_ema_.Update(step_reward);
+            anet::MetricsLogger::Instance()->LogScalar("10_train/10_total_reward", step_count_, train_reward_ema_.Value());
+
+            *plot_reward += step_reward;
+            if (step % 10 == 0) {
+                this->plotPanel->AddReward(*plot_reward);
+                *plot_reward = 0;
+            }
+            if (step % 100 == 0) {
+                wxLogInfo("step=%d  train_mean_reward=%f", step, train_reward_ema_.Value());
+            }
+        }
+    );
 
     // 画像ベースのObserverを初期化
     initImageLogObservers(env_spec);
@@ -150,7 +177,7 @@ void CartPoleFrame::initImageLogObservers(const anet::rl::EnvSpec& env_spec)
     if (!enable_image_log)
         return;
 
-    // HeatMapObserver
+    // flags
     auto flags =
         //anet::HeatMapFlags::HM_LogScaleValue | 
         anet::HeatMapFlags::HM_AutoNormValue
@@ -160,31 +187,32 @@ void CartPoleFrame::initImageLogObservers(const anet::rl::EnvSpec& env_spec)
 
     // ---- Experience visit ----
 
-    anet::rl::HeatMapObserverConfig visit_heat_obs_config{
-        512,    // width
-        512,    // height
-        100,    // log_interval 
-        30000,  // max_points
-        flags   // flags
-        - 1,     // image_width
-        -1,     // image_height
-    };
-    auto visit_x_probe = std::make_shared<anet::rl::BatchExperienceStateProbe>(0, &env_spec.state_spec, true);
-    auto visit_theta_probe = std::make_shared<anet::rl::BatchExperienceStateProbe>(2, &env_spec.state_spec, true);
-    auto visit_theta_dot_probe = std::make_shared<anet::rl::BatchExperienceStateProbe>(3, &env_spec.state_spec, true);
-    auto visit_reward_probe = std::make_shared<anet::rl::BatchExperienceRewardProbe>(nullptr);
+    //anet::rl::HeatMapObserverConfig visit_heat_obs_config{
+    //    512,    // width
+    //    512,    // height
+    //    100,    // log_interval 
+    //    30000,  // max_points
+    //    flags   // flags
+    //    - 1,     // image_width
+    //    -1,     // image_height
+    //};
+    //auto visit_x_probe = std::make_shared<anet::rl::BatchExperienceStateProbe>(0, &env_spec.state_spec, true);
+    //auto visit_theta_probe = std::make_shared<anet::rl::BatchExperienceStateProbe>(2, &env_spec.state_spec, true);
+    //auto visit_theta_dot_probe = std::make_shared<anet::rl::BatchExperienceStateProbe>(3, &env_spec.state_spec, true);
+    //auto visit_reward_probe = std::make_shared<anet::rl::BatchExperienceRewardProbe>(nullptr);
+    
+    //notifier_.Attach<anet::rl::HeatMapVectorObserver>(
+    //    "43_agent_img/02_hm_visit_02", visit_heat_obs_config, visit_x_probe, visit_theta_probe, visit_reward_probe);
+    //notifier_.Attach<anet::rl::HeatMapVectorObserver>(
+    //    "43_agent_img/03_hm_visit_23", visit_heat_obs_config, visit_theta_probe, visit_theta_dot_probe, visit_reward_probe);
 
-    auto visit_02_reward = std::make_shared<anet::rl::HeatMapVectorObserver>(
-        "43_agent_img/02_hm_visit_02", visit_heat_obs_config, visit_x_probe, visit_theta_probe, visit_reward_probe);
-    auto visit_23_reward = std::make_shared<anet::rl::HeatMapVectorObserver>(
-        "43_agent_img/03_hm_visit_23", visit_heat_obs_config, visit_theta_probe, visit_theta_dot_probe, visit_reward_probe);
+
+    // ---- ReplayBuffer ----
 
     auto rep_x_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 0, &env_spec.state_spec);
     auto rep_theta_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 2, &env_spec.state_spec);
     auto rep_theta_dot_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 3, &env_spec.state_spec);
     auto rep_reward_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::REWARD, -1, &env_spec.state_spec);
-
-    // ---- ReplayBuffer ----
 
     anet::rl::HeatMapObserverConfig replay_heat_obs_config{
         512,    // width
@@ -195,11 +223,6 @@ void CartPoleFrame::initImageLogObservers(const anet::rl::EnvSpec& env_spec)
         - 1,     // image_width
         -1,     // image_height
     };
-
-    auto replay_02_reward = std::make_shared<anet::rl::HeatMapVectorObserver>(
-        "43_agent_img/12_hm_rep_02", visit_heat_obs_config, rep_x_probe, rep_theta_probe, rep_reward_probe);
-    auto replay_23_reward = std::make_shared<anet::rl::HeatMapVectorObserver>(
-        "43_agent_img/13_hm_rep_23", visit_heat_obs_config, rep_theta_probe, rep_theta_dot_probe, rep_reward_probe);
 
     //auto auto_scale_mode = anet::rl::AgentTensorVectorProbe::AutoScaleMode::GLOBAL;   // サンプル値でmin/max調整
     auto auto_scale_mode = anet::rl::AgentTensorVectorProbe::AutoScaleMode::DISABLE;    // EnvSpecで固定
@@ -214,18 +237,21 @@ void CartPoleFrame::initImageLogObservers(const anet::rl::EnvSpec& env_spec)
         std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 2, &env_spec.state_spec, nullptr, auto_scale_mode),
         std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 3, &env_spec.state_spec, nullptr, auto_scale_mode),
     };
-    auto replay_multi_reward3 = std::make_shared<anet::rl::MultiPairHeatMapObserver>(
+
+    notifier_.Attach<anet::rl::HeatMapVectorObserver>(
+        "43_agent_img/12_hm_rep_02", replay_heat_obs_config, rep_x_probe, rep_theta_probe, rep_reward_probe);
+    notifier_.Attach<anet::rl::HeatMapVectorObserver>(
+        "43_agent_img/13_hm_rep_23", replay_heat_obs_config, rep_theta_probe, rep_theta_dot_probe, rep_reward_probe);
+    notifier_.Attach<anet::rl::MultiPairHeatMapObserver>(
         "43_agent_img/21_hm_rep_multi3",
         replay_heat_obs_config,
         probes_3axis,
-        rep_reward_probe
-    );
-    auto replay_multi_reward4 = std::make_shared<anet::rl::MultiPairHeatMapObserver>(
+        rep_reward_probe);
+    notifier_.Attach<anet::rl::MultiPairHeatMapObserver>(
         "43_agent_img/22_hm_rep_multi4",
         replay_heat_obs_config,
         probes_4axis,
-        rep_reward_probe
-    );
+        rep_reward_probe);
 
     // ---- TimeHistogram ----
 
@@ -243,7 +269,7 @@ void CartPoleFrame::initImageLogObservers(const anet::rl::EnvSpec& env_spec)
         1.0f// alpha = 0.05f
     };
     auto q_probe = std::make_shared<anet::rl::BatchUpdateResultTensorToVectorProbe>("max_q");
-    auto q_th_obs = std::make_shared<anet::rl::TimeHistogramObserver>(
+    notifier_.Attach<anet::rl::TimeHistogramObserver>(
         "44_agent_img/04_thg_t", q_hist_obs_config, q_probe);
 
     // ---- SweepedHeatMap ----
@@ -354,21 +380,21 @@ void CartPoleFrame::initImageLogObservers(const anet::rl::EnvSpec& env_spec)
     anet::TensorFunction policy_forward = agent_->GetTensorFunction("policy_net.forward");
     anet::TensorFunction qpair_forward = agent_->GetTensorFunction("q_pair.forward");
 
-    auto q_sweep_obs_02_qmax = std::make_shared<anet::rl::SweepedHeatMapObserver>(
+    notifier_.Attach<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/05_shm_02_qmax", q_sweep_obs_config, proc_x_theta_qmax, policy_forward, proc_x_theta_qmax);
-    auto q_sweep_obs_23_qmax = std::make_shared<anet::rl::SweepedHeatMapObserver>(
+    notifier_.Attach<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/06_shm_23_qmax", q_sweep_obs_config, proc_theta_thetadot_qmax, policy_forward, proc_theta_thetadot_qmax);
-    auto q_sweep_obs_02_qdiff = std::make_shared<anet::rl::SweepedHeatMapObserver>(
+    notifier_.Attach<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/08_shm_02_qdiff", q_sweep_obs_config, proc_theta_thetadot_qdiff, policy_forward, proc_theta_thetadot_qdiff);
-    auto q_sweep_obs_02_qdiff_mask = std::make_shared<anet::rl::SweepedHeatMapObserver>(
+    notifier_.Attach<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/09_shm_02_qdiff_mask", q_sweep_obs_config, proc_theta_thetadot_qdiff_mask, policy_forward, proc_theta_thetadot_qdiff_mask);
-    auto q_sweep_obs_02_qdelta = std::make_shared<anet::rl::SweepedHeatMapObserver>(
+    notifier_.Attach<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/11_shm_02_qdelta", q_sweep_obs_config, proc_theta_thetadot_pair_qdelta, qpair_forward, proc_theta_thetadot_pair_qdelta);
-    auto q_sweep_obs_02_combo_qdqmax = std::make_shared<anet::rl::SweepedHeatMapObserver>(
+    notifier_.Attach<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/12_shm_02_qdelta_qmax", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdeltaqmax, qpair_forward, proc_theta_thetadot_pair_combo_qdeltaqmax);
-    auto q_sweep_obs_02_combo_qdqdiff = std::make_shared<anet::rl::SweepedHeatMapObserver>(
+    notifier_.Attach<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/13_shm_02_qdelta_qdiff", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdelta_qdiff, qpair_forward, proc_theta_thetadot_pair_combo_qdelta_qdiff);
-    auto q_sweep_obs_02_combo_qdelta_qdiff_masked = std::make_shared<anet::rl::SweepedHeatMapObserver>(
+    notifier_.Attach<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/14_shm_02_qdelta_qdiff-masked", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdelta_qdiffmasked, qpair_forward, proc_theta_thetadot_pair_combo_qdelta_qdiffmasked,
         StrMap{
             { "46_agent_imgsc/02qdd_raw_qdelta_mean", "raw_qdelta_mean" },
@@ -378,43 +404,15 @@ void CartPoleFrame::initImageLogObservers(const anet::rl::EnvSpec& env_spec)
             { "46_agent_imgsc/02qdd_combined_mean", "combined_mean" },
             { "46_agent_imgsc/02qdd_combined_max", "combined_max"  }
         });
-
-    // --- Obserber登録 ---
-    notifier_.AddObserver(visit_02_reward);
-    notifier_.AddObserver(visit_23_reward);
-    notifier_.AddObserver(replay_02_reward);
-    notifier_.AddObserver(replay_23_reward);
-    notifier_.AddObserver(replay_multi_reward3);
-    notifier_.AddObserver(replay_multi_reward4);
-    notifier_.AddObserver(q_th_obs);
-    notifier_.AddObserver(q_sweep_obs_02_qmax);
-    notifier_.AddObserver(q_sweep_obs_23_qmax);
-    notifier_.AddObserver(q_sweep_obs_02_qdiff);
-    notifier_.AddObserver(q_sweep_obs_02_qdiff_mask);
-    notifier_.AddObserver(q_sweep_obs_02_qdelta);
-    notifier_.AddObserver(q_sweep_obs_02_combo_qdqmax);
-    notifier_.AddObserver(q_sweep_obs_02_combo_qdqdiff);
-    notifier_.AddObserver(q_sweep_obs_02_combo_qdelta_qdiff_masked);
 }
 
 CartPoleFrame::~CartPoleFrame() {
     wxLog::SetActiveTarget(NULL);
 }
 
-void CartPoleFrame::ToggleTraining() {
-    training_paused = !training_paused;
-    wxLogMessage(training_paused ? "Training paused" : "Training resumed");
-}
-void CartPoleFrame::DoLogText(const wxString& msg) {
-    this->logBox->AppendText(msg);
-    this->logBox->AppendText("\n");
-}
-
-void CartPoleFrame::OnMouseClick(wxMouseEvent& event) {
-    ToggleTraining();
-}
-
 void CartPoleFrame::OnTimer(wxTimerEvent& event) {
+    anet::NvtxRange r("CartPoleFrame::OnTimer");
+
     if (training_paused)
         return;  // ←停止中は一切処理しない
 
@@ -427,6 +425,8 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     // --- 学習ステップを複数回回す ---
     float frame_total_reward = 0.0f;
     for (int i = 0; i < config_->step_per_frame; ++i) {
+        anet::NvtxRange r("CartPoleFrame::OnTimer.step");
+
         if ((config_->train_exit_step > 0) && (step_count_ >= config_->train_exit_step)) {
             anet::MetricsLogger::Instance()->Flush();
             wxGetApp().Exit();
@@ -485,9 +485,6 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         }
         last_time_ = now;
 
-        // メトリクス出力
-        train_reward_ema_.Update(step_reward);
-        anet::MetricsLogger::Instance()->LogScalar("10_train/10_total_reward", step_count_, train_reward_ema_.Value());
 
         // 描画
         canvas->SetBatchExperience(exp);
@@ -496,15 +493,6 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         // ステップ数インプリメント（グローバルなステップ数）
         step_count_++;
     }
-
-    // フレームの平均報酬をプロット
-    plotPanel->AddReward(frame_total_reward);
-
-    // 平均報酬をログ出力
-    wxLogInfo("total_step=%d  train_mean_reward=%f", step_count_, train_reward_ema_.Value());
-
-    /// @todo "10_train/10_total_reward" のMetrics出力を Observerに移行
-    /// @todo log出力をObserverに移行。
 
     if ((config_->train_exit_step > 0) && (step_count_ >= config_->train_exit_step)) {
         anet::MetricsLogger::Instance()->Flush();
@@ -518,4 +506,18 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
 
     // タイマー再開
 	this->timer.Start();
+}
+
+void CartPoleFrame::ToggleTraining() {
+    training_paused = !training_paused;
+    wxLogMessage(training_paused ? "Training paused" : "Training resumed");
+}
+
+void CartPoleFrame::DoLogText(const wxString& msg) {
+    this->logBox->AppendText(msg);
+    this->logBox->AppendText("\n");
+}
+
+void CartPoleFrame::OnMouseClick(wxMouseEvent& event) {
+    ToggleTraining();
 }

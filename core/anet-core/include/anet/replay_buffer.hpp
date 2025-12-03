@@ -25,7 +25,7 @@ namespace anet::rl {
 
     class ReplayBuffer : public RandomHolder, public DataExporter {
     public:
-        explicit ReplayBuffer(const EnvSpec& env_spec, size_t capacity = 10000, std::shared_ptr<anet::RandomGenerator> rnd = nullptr);
+        explicit ReplayBuffer(const EnvSpec& env_spec, size_t capacity = 10000, std::optional<seed_t> seed = std::nullopt);
 
         void Push(const BatchExperience& batch);
         void Push(const std::vector<Experience>& exps);

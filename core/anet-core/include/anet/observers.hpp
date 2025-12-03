@@ -251,5 +251,27 @@ namespace anet::rl {
         anet::EmaFilter<float> eval_total_reward_;
     };
 
+    class FunctionObserver : public anet::rl::PostUpdateObserver {
+    public:
+        using Fn = std::function<
+            void(
+                int step,
+                std::shared_ptr<anet::rl::Agent> agent,
+                const anet::rl::BatchExperience& batch_exp,
+                std::shared_ptr<const anet::rl::BatchUpdateResult> result)>;
+    public:
+        FunctionObserver(Fn fn) : fn_(std::move(fn)) { ; }
+
+        void OnPostUpdate(
+            int step,
+            std::shared_ptr<Agent> agent,
+            const anet::rl::BatchExperience& batch_experience,
+            std::shared_ptr<const anet::rl::BatchUpdateResult> update_result) override
+        {
+            fn_(step, agent, batch_experience, update_result);
+        }
+    private:
+        Fn fn_;
+    };
 }
 

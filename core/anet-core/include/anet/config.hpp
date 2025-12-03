@@ -123,7 +123,7 @@ namespace anet {
     public:
         ConfigManager(const std::string& filePath,const wxCmdLineParser* cmdLine = nullptr);
 
-        ConfigData Make(const std::string& module, const std::string& defaultPreset = "") const;
+        ConfigData Make(const std::string& module, const std::string& defaultPreset = "") const;    ///< @todo ConfigDataに移す
         const ConfigData& GetConfigData() const { return data_; }
     private:
         void LoadFromFile(const std::string& filePath);
@@ -142,7 +142,7 @@ namespace anet {
         Config();
         Config(const ConfigData& configData, const std::string& className = "", const std::string& moduleName = "");
 
-        std::string ToStdString() const;
+        std::string ToString() const;
         nlohmann::json ToJson() const;
     protected:
         ConfigData configData_;

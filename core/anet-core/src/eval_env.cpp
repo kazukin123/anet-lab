@@ -64,7 +64,7 @@ namespace anet::rl {
     {
         /// @todo N環境対応
 
-        auto rng = RandomGenerator(seed, false, false);
+        auto rng = RandomGenerator(seed);
 
         EnvEvalResult R;
         std::vector<float> returns;

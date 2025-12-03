@@ -264,8 +264,8 @@ std::optional<std::vector<torch::Tensor>> DQNAgent::GetTensorVector(const std::s
 // ===============================
 class DQNAgent::ActionDecider : public anet::RandomHolder {
 public:
-    ActionDecider(DQNAgent& agent)
-        : agent_(agent), RandomHolder(agent.GetRandomGenerator())
+    ActionDecider(DQNAgent& agent, seed_t seed)
+        : agent_(agent), RandomHolder(seed)
     {
     }
 
@@ -800,14 +800,17 @@ private:
 // ======================================================
 // DQNAgent 本体
 // ======================================================
-DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, torch::Device device, std::shared_ptr<anet::RandomGenerator> rnd) :
-    StepBasedAgent(config, device, rnd),
+DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, torch::Device device, std::optional<seed_t> seed) :
+    StepBasedAgent(config, device, seed),
     state_count_(env_spec.state_spec.CalcFlattenSize()),
     n_actions_(env_spec.action_spec.ActionCount()),
     policy_net_(std::make_shared<QNetImpl>(state_count_, n_actions_)),
     target_net_(std::make_shared<QNetImpl>(state_count_, n_actions_))
 {
-    anet::NvtxRange  r("DQNAgent::DQNAgent");
+    //seed
+    anet::SeedMaker seed_maker(GetSeed());
+    auto replay_seed = seed_maker.MakeNamedSeed("replaybuffer");
+    auto action_decider_seed = seed_maker.MakeNamedSeed("action_decider");
 
     // use_replay_buffer=false の場合の強制
     if (!config_.use_replay_buffer) {
@@ -844,8 +847,8 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
     // 内部モジュール生成
     this->optimizer_ = std::make_unique<torch::optim::Adam>(policy_net_->parameters(), torch::optim::AdamOptions(config_.alpha));
     this->vars_updater_ = std::make_unique<RuntimeVarsUpdater>(config_);
-    this->replay_buffer_ = std::make_unique<anet::rl::ReplayBuffer>(env_spec, config_.replay_capacity, rnd);
-    this->action_decider_ = std::make_unique<ActionDecider>(*this);
+    this->replay_buffer_ = std::make_unique<anet::rl::ReplayBuffer>(env_spec, config_.replay_capacity, replay_seed);
+    this->action_decider_ = std::make_unique<ActionDecider>(*this, action_decider_seed);
     this->replay_scheduler_ = std::make_unique<ReplayScheduler>(this->config_);
     this->target_updater_ = std::make_unique<TargetUpdater>(this->config_);
     this->stability_monitor_ = std::make_unique<StabilityMonitor>(this->config_);
@@ -855,7 +858,7 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
     vars_updater_->Initilize(*this->vars_);
 
     // ログ：パラメータ記録
-    wxLogInfo("DQNAgent config=%s", config_.ToStdString());
+    wxLogInfo("DQNAgent config=%s", config_.ToString());
     anet::MetricsLogger::Instance()->LogJson("agent/params", config_.ToJson());
     anet::MetricsLogger::Instance()->Flush();
 }

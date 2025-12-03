@@ -56,7 +56,7 @@ private:
     torch::Device device_;
 
     // 乱数
-    std::shared_ptr<anet::RandomGenerator> rnd_;
+    std::unique_ptr<anet::MasterSeedManager> master_seed_;
 
     // イベントハンドラ
     void OnTimer(wxTimerEvent& event);

@@ -125,7 +125,7 @@ namespace anet {
             //apply(configData);
     }
 
-    std::string Config::ToStdString() const {
+    std::string Config::ToString() const {
         std::ostringstream oss;
         oss << "[class=" << className_ << ", module=" << moduleName_ << "]\n";
 

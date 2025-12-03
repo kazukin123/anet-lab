@@ -70,16 +70,30 @@ HeatMap::HeatMap(int width, int height, float x_min, float x_max, float y_min, f
 	value_min_(std::numeric_limits<float>::max()),
 	value_max_(-std::numeric_limits<float>::max()),
 	max_points_(max_points),
-	flags_(flags) {
+	flags_(flags)
+{
+	is_fixed_ = (max_points > 0);
+	if (is_fixed_) {
+		buf_.resize(max_points);
+	}
 	//Reset();
 }
 
 void HeatMap::AddData(float x, float y, float value) {
-	//wxLogDebug("AddData: x=%f y=%f v=%f  (before update: vmin=%f vmax=%f)",
-	//	x, y, value, value_min_, value_max_);
-	samples_.push_back({ x, y, value });
-	if (max_points_ > 0 && samples_.size() > max_points_) samples_.pop_front();
+	//wxLogDebug("[AddData raw] is_fixed=%d buf_size=%zu size_=%zu head=%zu",
+	//	(int)is_fixed_, buf_.size(), size_, head_);
+
+	if (is_fixed_) {
+		buf_[head_] = { x, y, value };
+		head_ = (head_ + 1) % max_points_;
+		if (size_ < max_points_) size_++;
+	} else {
+		buf_.push_back({ x, y, value });
+		size_++;
+	}
+
 	UpdateMinMax_(value);
+
 	//wxLogDebug("         (after update: vmin=%f vmax=%f)",
 	//	value_min_, value_max_);
 }
@@ -91,37 +105,43 @@ void HeatMap::SetGridValues(const float* values, int width, int height) {
 	ANET_ASSERT(width == width_);
 	ANET_ASSERT(height == height_);
 
-	samples_.clear();
+	const size_t N = width * height;
+	is_fixed_ = true;
+	max_points_ = N;
+	buf_.resize(N);
 
-	float min_v = std::numeric_limits<float>::infinity();
+	float min_v = +std::numeric_limits<float>::infinity();
 	float max_v = -std::numeric_limits<float>::infinity();
 
-	for (int i = 0; i < width * height; ++i) {
+	for (size_t i = 0; i < N; ++i) {
 		float v = values[i];
-		samples_.push_back({ static_cast<float>(i % width),
-							 static_cast<float>(i / width),
-							 v });
-		if (v < min_v) min_v = v;
-		if (v > max_v) max_v = v;
+		buf_[i] = { float(i % width), float(i / width), v };
+		min_v = std::min(min_v, v);
+		max_v = std::max(max_v, v);
 	}
 
+	head_ = 0;
+	size_ = N;
 	value_min_ = min_v;
 	value_max_ = max_v;
 }
 
-void HeatMap::Reset() {
-	samples_.clear();
+void HeatMap::Reset()
+{
+	if (!is_fixed_) {
+		buf_.clear();
+	}
+	size_ = 0;
+	head_ = 0;
 	value_min_ = std::numeric_limits<float>::max();
 	value_max_ = -std::numeric_limits<float>::max();
 }
 
-wxImage HeatMap::RenderRaw() const {
-	//wxLogDebug("HeatMap frame start: vmin=%f vmax=%f samples=%zu",
-	//	value_min_, value_max_, samples_.size());
+wxImage HeatMap::RenderRaw() const
+{
+	std::lock_guard<std::mutex> lock(mtx_);
 
-	// --- スナップショット取得 ---
-	std::vector<Sample> snapshot(samples_.begin(), samples_.end());
-	if (snapshot.empty()) {
+	if (size_ == 0) {
 		wxImage empty(1, 1);
 		empty.SetData(new unsigned char[3] {0, 0, 0});
 		return empty;
@@ -132,6 +152,26 @@ wxImage HeatMap::RenderRaw() const {
 	std::vector<float> buf(W * H, 0.0f);
 	std::vector<int> cnt(W * H, 0);
 
+	// sampleをグルグルするlooper
+	auto for_each_sample = [&](auto&& fn) {
+		if (size_ == 0) return;
+		if (!is_fixed_) {
+			for (size_t i = 0; i < size_; ++i) {
+				fn(buf_[i]);
+			}
+		} else {
+			const size_t cap = buf_.size();
+			if (cap == 0) return;
+			const size_t start = (head_ + cap - size_) % cap;
+			size_t idx = start;
+			for (size_t k = 0; k < size_; ++k) {
+				fn(buf_[idx]);
+				++idx;
+				if (idx == cap) idx = 0;
+			}
+		}
+	};
+
 	// --- 値レンジ決定（AutoNormValue有効時はゼロ値除外） ---
 	float vmin = value_min_;
 	float vmax = value_max_;
@@ -139,24 +179,30 @@ wxImage HeatMap::RenderRaw() const {
 		bool has_nonzero = false;
 		vmin = std::numeric_limits<float>::max();
 		vmax = -vmin;
-		for (const auto& s : snapshot) {
-			if (std::fabs(s.value) < 1e-8f) continue;  // 黒帯や未観測を除外
+		for_each_sample([&](const Sample& s) {
+			if (std::fabs(s.value) < 1e-8f) return;
 			has_nonzero = true;
 			vmin = std::min(vmin, s.value);
 			vmax = std::max(vmax, s.value);
+			});
+		if (!has_nonzero) {
+			vmin = -1.0f;
+			vmax = 1.0f;
 		}
-		if (!has_nonzero) { vmin = -1.0f; vmax = 1.0f; }
-		if (std::fabs(vmax - vmin) < 1e-6f) vmax = vmin + 1e-6f;
+		if (std::fabs(vmax - vmin) < 1e-6f) {
+			vmax = vmin + 1e-6f;
+		}
 	}
 
 	// --- サンプル配置（サブピクセル補間＋ゼロスキップ） ---
-	for (const auto& s : snapshot) {
-		if (std::fabs(s.value) < 1e-8f) continue;  // ゼロ値は描画に寄与しない
-		float fx = (s.x - x_min_) / (x_max_ - x_min_) * W;
+	for_each_sample([&](const Sample& s) {
+		if (std::fabs(s.value) < 1e-8f) return;
+		float fx = (s.x - x_min_) / (x_max_ - x_min_) * static_cast<float>(W);
 		int ix = static_cast<int>(std::floor(fx));
-		float frac = fx - ix;
-		int iy = static_cast<int>((s.y - y_min_) / (y_max_ - y_min_) * H);
-		if (iy < 0 || iy >= H) continue;
+		float frac = fx - static_cast<float>(ix);
+		int iy = static_cast<int>(
+			(s.y - y_min_) / (y_max_ - y_min_) * static_cast<float>(H));
+		if (iy < 0 || iy >= H) return;
 
 		if (ix >= 0 && ix < W) {
 			int idx = iy * W + ix;
@@ -168,12 +214,13 @@ wxImage HeatMap::RenderRaw() const {
 			buf[idx2] += frac * s.value;
 			cnt[idx2]++;
 		}
-	}
+		});
 
 	// --- 平均化（MeanMode有効時） ---
 	if (flags_ & HM_MeanMode) {
-		for (size_t i = 0; i < buf.size(); ++i)
-			if (cnt[i] > 0) buf[i] /= cnt[i];
+		for (size_t i = 0; i < buf.size(); ++i) {
+			if (cnt[i] > 0) buf[i] /= static_cast<float>(cnt[i]);
+		}
 	}
 
 	// --- 画像生成 ---
@@ -188,13 +235,14 @@ wxImage HeatMap::RenderRaw() const {
 			float v = buf[idx];
 
 			if (cnt[idx] == 0 || std::fabs(v) < 1e-8f) {
-				// 未観測またはゼロ値 → ほぼ黒
 				r = g = b = BACKGROUND_LEVEL;
 			}
 			else {
-				if (flags_ & HM_LogScaleValue)
+				if (flags_ & HM_LogScaleValue) {
 					v = std::copysign(std::log1p(std::fabs(v)), v);
-				float n = (v - vmin) / std::max(vmax - vmin, 1e-6f);
+				}
+				float denom = std::max(vmax - vmin, 1e-6f);
+				float n = (v - vmin) / denom;
 				ValueToRGB_Jet(n, r, g, b);
 			}
 
@@ -231,29 +279,31 @@ TimeHeatMap::TimeHeatMap(int width_frames, int height_bins, float in_min, float 
 
 void TimeHeatMap::AddData(float in, float out) {
 	HeatMap::AddData(static_cast<float>(cur_frame_), in, out);
+	//wxLogDebug("[AddData] cf=%d  adding_x=%f  size=%zu  head=%zu  fixed=%d",
+	//	cur_frame_, (float)cur_frame_, size_, head_, (int)is_fixed_);
 }
 
 void TimeHeatMap::Scroll_() {
-	for (auto& s : samples_) s.x -= 1.0f;
-	EraseCol_(0);
+	float dx = (x_max_ - x_min_) / float(total_frames_);
+	x_min_ += dx;
+	x_max_ += dx;
 }
 
 void TimeHeatMap::EraseCol_(int x_col) {
-	auto it = samples_.begin();
-	while (it != samples_.end()) {
-		if (std::lround(it->x) == x_col) it = samples_.erase(it); else ++it;
-	}
+	//auto it = samples_.begin();
+	//while (it != samples_.end()) {
+	//	if (std::lround(it->x) == x_col) it = samples_.erase(it); else ++it;
+	//}
 }
 
 void TimeHeatMap::NextFrame() {
 	if (mode_ == TimeFrameMode::Scroll) {
 		Scroll_(); cur_frame_ = width_ - 1;
-	}
-	else if (mode_ == TimeFrameMode::Overwrite) {
+	} else if (mode_ == TimeFrameMode::Overwrite) {
 		cur_frame_ = (cur_frame_ + 1) % width_;
-	}
-	else { // Scale
+	} else { // Scale
 		cur_frame_++; total_frames_++;
+		x_max_ = float(cur_frame_);
 	}
 }
 
@@ -267,12 +317,40 @@ wxImage TimeHeatMap::RenderRaw() const {
 	if (mode_ != TimeFrameMode::Scale)
 		return HeatMap::RenderRaw();
 
-	std::vector<Sample> snapshot(samples_.begin(), samples_.end());
-	if (snapshot.empty()) {
+	if (size_ == 0) {
 		wxImage empty(1, 1);
 		empty.SetData(new unsigned char[3] {0, 0, 0});
 		return empty;
 	}
+
+	// --- スナップショット取得 ---
+	std::vector<Sample> snapshot;
+	snapshot.reserve(size_);
+	{
+		std::lock_guard<std::mutex> lock(mtx_);
+
+		if (!is_fixed_) {
+			snapshot.assign(buf_.begin(), buf_.begin() + size_);
+		} else {
+			// ring buffer モード：最大2回のコピー
+			size_t cap = buf_.size();
+			size_t start = (head_ + cap - size_) % cap;
+
+			size_t first_len = std::min(size_, cap - start);
+			snapshot.insert(snapshot.end(),
+				buf_.begin() + start,
+				buf_.begin() + start + first_len);
+
+			size_t remain = size_ - first_len;
+			if (remain > 0) {
+				snapshot.insert(snapshot.end(),
+					buf_.begin(),
+					buf_.begin() + remain);
+			}
+		}
+	}
+
+	ANET_ASSERT(size_ == snapshot.size());
 
 	const int N = static_cast<int>(total_frames_ > 0 ? total_frames_ : snapshot.back().x + 1);
 	const int W = width_;

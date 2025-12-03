@@ -3,7 +3,7 @@ train.preset=train.online
 #train.preset=train.batchrun
 
 train.online.batch_size = 1
-train.online.seed=171730964985300	# 0 -> AutoSeed
+#train.online.seed=171730964985300	# 0 -> AutoSeed
 
 #log.enable_image_log = false
 log.enable_image_log = true

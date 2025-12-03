@@ -2,6 +2,7 @@
 #include <wx/image.h>
 #include <vector>
 #include <deque>
+#include <vector>
 #include <string>
 #include <mutex>
 #include <functional>
@@ -66,10 +67,6 @@ namespace anet {
 
         std::string GetImageSubType() const override { return "heat_map"; }
 
-        void ReserveSamples(size_t n) {
-            samples_.resize(samples_.size() + n);
-            samples_.resize(samples_.size() - n);
-        }
         void AddData(float x, float y, float value);
         void SetGridValues(const float* values, int width, int height);
         void Reset() override;
@@ -82,7 +79,12 @@ namespace anet {
         float value_min_, value_max_;
         size_t max_points_;
         uint32_t flags_;
-        std::deque<Sample> samples_;
+
+        std::vector<Sample> buf_;
+        size_t head_ = 0;
+        size_t size_ = 0;
+        bool is_fixed_ = false;
+
         mutable std::mutex mtx_;
 
         void UpdateMinMax_(float value) {
