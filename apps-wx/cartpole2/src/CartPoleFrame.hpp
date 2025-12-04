@@ -40,7 +40,7 @@ private:
     bool auto_pause_done_ = false;
 
     // 強化学習関連
-    std::unique_ptr<anet::rl::BatchEnv> env_;
+    std::shared_ptr<anet::rl::BatchEnv> env_;
     std::shared_ptr<anet::rl::Agent> agent_;
     anet::rl::BatchState state_;
     anet::rl::Notifier notifier_;
@@ -53,7 +53,7 @@ private:
     anet::EmaFilter<float> msec_per_step_ema_;
 
     // デバイス
-    torch::Device device_;
+    torch::Device device_agent_;
 
     // 乱数
     std::unique_ptr<anet::MasterSeedManager> master_seed_;

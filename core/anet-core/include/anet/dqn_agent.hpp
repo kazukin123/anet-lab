@@ -36,6 +36,8 @@ namespace anet::rl {
         int replay_warmup_steps = 1000;
         int replay_update_interval = 4;
 
+        /// @todo AS-DQN系メトリクスの計測か出力を無効化する設定を追加
+
         bool use_as_dqn = false;            ///< Adaptive Stabilized DQN (AS-DQN)
         float q_z_threshold = 3.0f;         ///< z-score 崩壊判定閾値
         float q_cv_threshold = 0.5f;        ///< CV 崩壊判定閾値

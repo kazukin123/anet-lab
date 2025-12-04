@@ -1,7 +1,8 @@
-﻿#include <wx/log.h>
-#include "anet/observers.hpp"
+﻿#include "anet/observers.hpp"
+#include <wx/log.h>
 #include "anet/metrics_logger.hpp"
-#include "anet/vec_env.hpp"
+#include "anet/env.hpp"
+#include "anet/profile.hpp"
 
 namespace anet::rl {
 
@@ -32,64 +33,6 @@ namespace anet::rl {
         return fallback;
     }
 
-    //HeatMapObserver::HeatMapObserver(
-    //    const std::string& tag,
-    //    const HeatMapObserverConfig& config,
-    //    std::shared_ptr<IFloatProbe> x_probe,
-    //    std::shared_ptr<IFloatProbe> y_probe,
-    //    std::shared_ptr<IFloatProbe>  value_probe)
-    //    : config_(config), tag_(tag),
-    //    x_probe_(x_probe), y_probe_(y_probe), value_probe_(value_probe)
-    //{
-
-    //    // Probe の min/max と config の override から HeatMap 範囲決定
-    //    float xmin = ResolveMin(config_.override_xmin, config_.xmin, x_probe_->GetMin(), 0.0f);
-    //    float xmax = ResolveMax(config_.override_xmax, config_.xmax, x_probe_->GetMax(), 1.0f);
-    //    float ymin = ResolveMin(config_.override_ymin, config_.ymin, y_probe_->GetMin(), 0.0f);
-    //    float ymax = ResolveMax(config_.override_ymax, config_.ymax, y_probe_->GetMax(), 1.0f);
-
-    //    //HeatMap(int width, int height, float x_min = 0.0f, float x_max = 1.0f,
-    //    //    float y_min = 0.0f, float y_max = 1.0f, size_t max_points = 0,
-    //    //    uint32_t flags = HM_Default);
-
-    //    heatmap_ = std::make_unique<anet::HeatMap>(
-    //        config_.width,
-    //        config_.height,
-    //        xmin, xmax, ymin, ymax,
-    //        config_.max_points,
-    //        config_.flags
-    //    );
-    //}
-
-    //void HeatMapObserver::OnPostUpdate(
-    //    int step,
-    //    std::shared_ptr<Agent> agent,
-    //    const anet::rl::BatchExperience& batch_exp,
-    //    std::shared_ptr<const anet::rl::BatchUpdateResult> result)
-    //{
-    //    // 生成： xv, yv, vv
-    //    auto xv = x_probe_->GetFloat(step, agent, batch_exp, result);
-    //    auto yv = y_probe_->GetFloat(step, agent, batch_exp, result);
-    //    auto vv = value_probe_->GetFloat(step, agent, batch_exp, result);
-
-    //    // 値が揃ってなかったらスキップ
-    //    if (!xv.has_value() || !yv.has_value() || !vv.has_value())
-    //        return;
-
-    //    // データ追加
-    //    heatmap_->AddData(*xv, *yv, *vv);
-
-    //    if (step % config_.log_interval == 0) {
-    //        MetricsLogger::Instance()->LogImage(
-    //            tag_,
-    //            step,
-    //            *heatmap_,
-    //            config_.image_width,
-    //            config_.image_height
-    //        );
-    //    }
-    //}
-
     HeatMapVectorObserver::HeatMapVectorObserver(
         const std::string& tag,
         const HeatMapObserverConfig& config,
@@ -119,14 +62,13 @@ namespace anet::rl {
         );
     }
 
-
     void HeatMapVectorObserver::OnPostUpdate(
         int step,
         std::shared_ptr<Agent> agent,
         const anet::rl::BatchExperience& batch_exp,
         std::shared_ptr<const anet::rl::BatchUpdateResult> result)
     {
-        anet::NvtxRange r("HeatMapVectorObserver::OnPostUpdate");
+        anet::ProfileRange r("HeatMapVectorObserver::OnPostUpdate");
 
         // 生成： xv, yv, vv
         auto xv = x_probe_->GetVector(step, agent, batch_exp, result);
@@ -231,7 +173,7 @@ namespace anet::rl {
         const BatchExperience& batch_exp,
         std::shared_ptr<const BatchUpdateResult> result)
     {
-        anet::NvtxRange r("MultiPairHeatMapObserver::OnPostUpdate");
+        anet::ProfileRange r("MultiPairHeatMapObserver::OnPostUpdate");
 
         // 値ベクトル
         auto vv = value_probe_->GetVector(step, agent, batch_exp, result);
@@ -329,7 +271,7 @@ namespace anet::rl {
         const anet::rl::BatchExperience& experience,
         std::shared_ptr<const anet::rl::BatchUpdateResult> result)
     {
-        anet::NvtxRange r("SweepedHeatMapObserver::OnPostUpdate");
+        anet::ProfileRange r("SweepedHeatMapObserver::OnPostUpdate");
 
         if (step % config_.log_interval != 0) return;
 
@@ -403,10 +345,11 @@ namespace anet::rl {
     EpisodeEvalObserver::EpisodeEvalObserver(
         const std::string& tag,
         std::shared_ptr<anet::rl::SingleDiscreteEnvFactory> eval_env_factory,
+        const torch::Device& device,
         anet::rl::RunMode runmode, int log_interval, int eval_inerval, float ema_decay)
         : tag_(tag), runmode_(runmode), log_interval_(log_interval), eval_interval_(eval_inerval), eval_total_reward_(ema_decay)
     {
-        env_ = std::make_unique<VectorizedDiscreteBatchEnv>(eval_env_factory, 1);
+        env_ = std::make_unique<VectorizedDiscreteBatchEnv>(eval_env_factory, 1, device);
     }
 
     void EpisodeEvalObserver::OnPostUpdate(
@@ -415,7 +358,7 @@ namespace anet::rl {
         const BatchExperience& batch_exp,
         std::shared_ptr<const BatchUpdateResult> result)
     {
-        anet::NvtxRange r("EpisodeEvalObserver::OnPostUpdate");
+        anet::ProfileRange r("EpisodeEvalObserver::OnPostUpdate");
 
         // 評価エピソードを終端まで回す
         if (step % eval_interval_ == 0) {

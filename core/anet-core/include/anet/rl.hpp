@@ -371,7 +371,11 @@ namespace anet::rl {
 
     class SingleDiscreteEnvFactory {
     public:
-        virtual std::unique_ptr<SingleDiscreteEnv> Create(std::optional<anet::seed_t> seed = std::nullopt) = 0;
+        virtual std::string GetTargetEnvClassName() const = 0;
+
+        virtual std::unique_ptr<SingleDiscreteEnv> CreateSingleEnv(
+            const torch::Device& device,
+            std::optional<anet::seed_t> seed = std::nullopt) = 0;
 
         virtual ~SingleDiscreteEnvFactory() = default;
     };
@@ -382,9 +386,14 @@ namespace anet::rl {
         virtual BatchEnvSpec GetBatchSpec() const = 0;
         virtual BatchState Reset(RunMode mode = RunMode::Train) = 0;
         virtual BatchStepResult Step(const torch::Tensor& action, RunMode mode = RunMode::Train) = 0;
-        virtual BatchState GetState() const = 0;
 
         virtual ~BatchEnv() = default;
+    };
+
+    class BatchEnvFactory {
+    public:
+        virtual std::shared_ptr<BatchEnv> CreateBatchEnv() = 0;
+        virtual ~BatchEnvFactory() = default;
     };
 
     // =============================================================

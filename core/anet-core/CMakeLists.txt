@@ -41,7 +41,7 @@ add_library(anet-core STATIC
     "src/metrics_logger.cpp"
     "src/dqn_agent.cpp"
     "src/config.cpp" "src/tensor_check.cpp" "src/tensor_utils.cpp" "src/random.cpp" 
-    "src/replay_buffer.cpp" "src/observers.cpp" "src/eval_env.cpp" "src/probe.cpp" "src/vec_env.cpp")
+    "src/replay_buffer.cpp" "src/observers.cpp" "src/eval_env.cpp" "src/probe.cpp" "src/env.cpp" "src/profile.cpp")
 
 target_include_directories(anet-core
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include

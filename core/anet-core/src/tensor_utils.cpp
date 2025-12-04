@@ -1,18 +1,28 @@
 ﻿
 
+#include "anet/tensor_utils.hpp"
 #include <functional>
 #include <iostream>
-#include "anet/tensor_utils.hpp"
 
 namespace anet {
 
-    std::string ToDefString(const torch::Tensor& t) {
+    torch::Device MakeDevice(int type, int index)
+    {
+        if (type == 0) return torch::Device(torch::kCPU);
+        if (type == 1) return torch::Device(torch::kCUDA, index);
+        ANET_ASSERT_MSG(false, "Invalid device type");
+        return torch::Device(torch::kCPU);
+    }
+
+    std::string ToDefString(const torch::Tensor& t)
+    {
         std::ostringstream oss;
         oss << "(" << t.device() << " " << t.dtype() << ") " << t.sizes();
         return oss.str();
     }
 
-    std::string ToString(const torch::Tensor& t, int precision) {
+    std::string ToString(const torch::Tensor& t, int precision)
+    {
         std::ostringstream oss;
         oss.precision(precision);
         oss << "(" << t.device() << " " << t.dtype() << ") " << t.sizes() << " -> ";

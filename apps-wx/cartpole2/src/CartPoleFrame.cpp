@@ -10,7 +10,8 @@
 
 #include <filesystem>
 #include "anet/tensor_check.hpp"
-#include "anet/vec_env.hpp"
+#include "anet/env.hpp"
+#include "anet/profile.hpp"
 
 
 struct CartPoleFrame::Config : public anet::Config {
@@ -39,11 +40,13 @@ EVT_TIMER(wxID_ANY, CartPoleFrame::OnTimer)
 EVT_LEFT_DOWN(CartPoleFrame::OnMouseClick)
 wxEND_EVENT_TABLE()
 
+//const torch::Device ENV_DEVICE = torch::kCPU;
+const torch::Device AGENT_DEVICE = torch::kCUDA;
+
 CartPoleFrame::CartPoleFrame(const wxString& title)
     : wxFrame(nullptr, wxID_ANY, title, wxDefaultPosition, wxSize(800, 800)),
     config_(std::make_unique<CartPoleFrame::Config>(wxGetApp().GetConfig("train"))),
-    //device(torch::kCPU),
-    device_(torch::kCUDA),
+    device_agent_(AGENT_DEVICE),
     timer(this, wxID_ANY),
     train_reward_ema_(0.001),
     msec_per_step_ema_(0.001)
@@ -100,9 +103,13 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     anet::MetricsLogger::Instance()->Flush();
 
     // ENV生成
-    const int batch_size = config_->batch_size;
-    auto single_env_factory = std::make_shared<CartPoleEnvFactory>();
-    env_ = std::make_unique<anet::rl::VectorizedDiscreteBatchEnv>(single_env_factory, batch_size, env_seed);
+    auto env_config_data = wxGetApp().GetConfig("env");
+    anet::rl::DefaultBatchEnvFactoryConfig env_config(env_config_data);
+    auto env_factory = anet::rl::DefaultBatchEnvFactory(env_config, config_->batch_size, env_seed);
+    auto env_device = env_factory.GetDevice();
+    auto single_env_factory = env_factory.GetSingleFactory();
+    env_ = env_factory.CreateBatchEnv();
+
     auto batch_env_spec = env_->GetBatchSpec();
     auto env_spec = env_->GetSpec();
     wxLogInfo("batch_env_spec=" + batch_env_spec.ToString());
@@ -118,13 +125,15 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
 
     // Agent生成
     anet::ConfigData agentConfig = wxGetApp().GetConfig("agent");
-    agent_ = std::make_shared<anet::rl::DQNAgent>(agentConfig, env_spec, device_, agent_seed);
+    agent_ = std::make_shared<anet::rl::DQNAgent>(agentConfig, env_spec, device_agent_, agent_seed);
 
     // EpisodeEvalObserver
     notifier_.Attach<anet::rl::EpisodeEvalObserver>(
-        "11_eval/01_target_reward", single_env_factory, anet::rl::RunMode::Eval1, config_->eval_interval, config_->eval_interval);
+        "11_eval/01_target_reward", single_env_factory, env_device, anet::rl::RunMode::Eval1,
+        config_->eval_interval, config_->eval_interval);
     notifier_.Attach<anet::rl::EpisodeEvalObserver>(
-        "11_eval/02_policy_reward", single_env_factory, anet::rl::RunMode::Eval2, config_->eval_interval, config_->eval_interval);
+        "11_eval/02_policy_reward", single_env_factory, env_device, anet::rl::RunMode::Eval2,
+        config_->eval_interval, config_->eval_interval);
 
     // MetricsLogObserver
     notifier_.Attach<anet::rl::MetricsLogObserver>();
@@ -411,7 +420,7 @@ CartPoleFrame::~CartPoleFrame() {
 }
 
 void CartPoleFrame::OnTimer(wxTimerEvent& event) {
-    anet::NvtxRange r("CartPoleFrame::OnTimer");
+    anet::ProfileRange r("CartPoleFrame::OnTimer");
 
     if (training_paused)
         return;  // ←停止中は一切処理しない
@@ -425,7 +434,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     // --- 学習ステップを複数回回す ---
     float frame_total_reward = 0.0f;
     for (int i = 0; i < config_->step_per_frame; ++i) {
-        anet::NvtxRange r("CartPoleFrame::OnTimer.step");
+        anet::ProfileRange r("CartPoleFrame::OnTimer.step");
 
         if ((config_->train_exit_step > 0) && (step_count_ >= config_->train_exit_step)) {
             anet::MetricsLogger::Instance()->Flush();
@@ -441,7 +450,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         // 行動選択
         auto action_info = agent_->MakeAction(state_);
         wxLogDebug("CartPoleFrame::OnTimer() step=%d action=%s", step_count_, action_info.ToString());
-        ANET_CHECK_DEVICE(action_info.action, device_);
+        ANET_CHECK_DEVICE(action_info.action, device_agent_);
         ANET_CHECK_SHAPE(action_info.action, { N });
 
         // 環境ステップ実行

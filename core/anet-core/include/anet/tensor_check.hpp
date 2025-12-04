@@ -186,22 +186,3 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
 
 #endif
 
-namespace anet {
-
-    ///  @todo NvtxRange、リリースビルドやNVTX無効時はマクロで実態無し版に切換え
-
-    class NvtxRange {
-    public:
-        explicit NvtxRange(const char* name);
-        NvtxRange(const NvtxRange&) = delete;
-        NvtxRange& operator=(const NvtxRange&) = delete;
-        NvtxRange(NvtxRange&& other) noexcept;
-        ~NvtxRange();
-
-        NvtxRange& operator=(NvtxRange&& other) noexcept;
-        void End();
-    private:
-        bool active_;
-    };
-
-}

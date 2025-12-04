@@ -12,6 +12,7 @@
 #include "anet/config.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/random.hpp"
+#include "anet/profile.hpp"
 
 using namespace anet::rl;
 
@@ -277,7 +278,7 @@ public:
     BatchActionInfo DecideBatch(const torch::Tensor& q_values, bool greedy_only)
     {
         //wxLogDebug("q_values=%s", anet::ToString(q_values));
-        NvtxRange  r("DQNAgent::DecideBatch");
+        ProfileRange  r("DQNAgent::DecideBatch");
 
         auto device = q_values.device();
 
@@ -289,7 +290,7 @@ public:
         auto greedy = q_values.argmax(1, /*keepdim=*/false);
 
         if (greedy_only) {
-            NvtxRange  r("DQNAgent::DecideBatch.greedy_only");
+            ProfileRange  r("DQNAgent::DecideBatch.greedy_only");
             auto zeros = torch::zeros({ N }, torch::TensorOptions().dtype(torch::kBool).device(device));
             return { greedy, zeros };
         }
@@ -365,7 +366,7 @@ public:
         const std::shared_ptr<const QNetImpl>& policy_net,
         const std::shared_ptr<QNetImpl>& target_net)
     {
-        anet::NvtxRange r("DQNAgent::Sync");
+        anet::ProfileRange r("DQNAgent::Sync");
 
         // Hard update
         if (config_.hardupdate_interval > 0 &&
@@ -439,7 +440,7 @@ public:
     // ------------------------------------------------------
     void UpdateActionStats(RuntimeVars& vars, const anet::rl::BatchActionInfo& info) const
     {
-        anet::NvtxRange  r("DQNAgent::UpdateActionStats");
+        anet::ProfileRange  r("DQNAgent::UpdateActionStats");
 
         torch::Tensor a = info.action;  // (N, action_dim)
         auto a_cpu = a.to(torch::kCPU).reshape({ -1 });
@@ -488,7 +489,7 @@ public:
         const torch::Tensor& max_q,            // (B,) ← max_a Q(s,a)
         float grad_norm, float grad_clip_ratio) const
     {
-        anet::NvtxRange  r("DQNAgent::UpdateBatchStats");
+        anet::ProfileRange  r("DQNAgent::UpdateBatchStats");
 
         // --- A 群 -------------------------------------------------
 
@@ -589,7 +590,7 @@ public:
     // ------------------------------------------------------------
     void UpdateOnStep(RuntimeVars& vars, StabilityMonitor& mon, size_t step) const
     {
-        anet::NvtxRange  r("DQNAgent::UpdateOnStep");
+        anet::ProfileRange  r("DQNAgent::UpdateOnStep");
 
         float collapse_s = ComputeCollapseOnStep(vars, mon);
         float eps_new = ComputeBoostEpsilon(vars.epsilon, collapse_s, step);
@@ -608,7 +609,7 @@ public:
     // ------------------------------------------------------------
     void UpdateOnLearn(RuntimeVars& vars, StabilityMonitor& mon, size_t update_step_count) const
     {
-        anet::NvtxRange  r("DQNAgent::UpdateOnLearn");
+        anet::ProfileRange  r("DQNAgent::UpdateOnLearn");
 
         float collapse_l = ComputeCollapseOnLearn(vars, mon);
         auto [eps_new, tau_new] = ComputeEpsilonTauLearn(vars.epsilon, vars.tau, collapse_l, update_step_count);
@@ -755,7 +756,7 @@ public:
 
     float ComputeEpsilon(size_t step) const
     {
-        anet::NvtxRange  r("DQNAgent::ComputeEpsilon");
+        anet::ProfileRange  r("DQNAgent::ComputeEpsilon");
 
         // 強制ゼロ領域
         if (config_.eps_zero_step >= 0 &&
@@ -866,7 +867,7 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
 
 anet::rl::BatchActionInfo DQNAgent::MakeAction(const anet::rl::BatchState& state, anet::rl::RunMode mode)
 {
-    NvtxRange r1("DQNAgent::MakeAction");
+    ProfileRange r1("DQNAgent::MakeAction");
     ANET_CHECK_SHAPE(state.obs, { ANY, state_count_ });
 
     auto flat_state = state.Flatten();
@@ -876,7 +877,7 @@ anet::rl::BatchActionInfo DQNAgent::MakeAction(const anet::rl::BatchState& state
     torch::NoGradGuard ng;
     std::shared_lock<std::shared_mutex> lock(mutex_);
 
-    NvtxRange r2("DQNAgent::MakeAction.forward");
+    ProfileRange r2("DQNAgent::MakeAction.forward");
 
     torch::Tensor q;
     if (mode == anet::rl::RunMode::Eval1)
@@ -892,7 +893,7 @@ anet::rl::BatchActionInfo DQNAgent::MakeAction(const anet::rl::BatchState& state
     //ANET_CHECK_SHAPE(act_info.action, { state.obs.size(0) });
     //ANET_CHECK_SHAPE(act_info.is_random, { state.obs.size(0) });
 
-    NvtxRange r3("DQNAgent::MakeAction.update");
+    ProfileRange r3("DQNAgent::MakeAction.update");
 
     if (mode == anet::rl::RunMode::Train) {
         // 行動統計の更新
@@ -908,7 +909,7 @@ anet::rl::BatchActionInfo DQNAgent::MakeAction(const anet::rl::BatchState& state
 std::shared_ptr<const anet::rl::BatchUpdateResult>
 DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
 {
-    NvtxRange r1("DQNAgent::UpdateFromBatch");
+    ProfileRange r1("DQNAgent::UpdateFromBatch");
 
     std::unique_lock<std::shared_mutex> lock(mutex_);
 
@@ -946,7 +947,7 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
         ANET_CHECK_DTYPE(raw_samples.next_states.episode_start, torch::kBool);
         wxLogDebug("ReplayBuffer batch OK: B=%lld", raw_samples.obs.size(0));
 
-        NvtxRange r2("DQNAgent::UpdateFromBatch.forward");
+        ProfileRange r2("DQNAgent::UpdateFromBatch.forward");
 
         // ReplayBufferから取り出した時点では生の多次元StateなのでFlattenする
         auto samples = raw_samples.Flatten();
@@ -1002,7 +1003,7 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
 
         r2.End();   // forward
 
-        NvtxRange r3("DQNAgent::UpdateFromBatch.backward");
+        anet::ProfileRange r3("DQNAgent::UpdateFromBatch.backward");
 
         // -------------------------------------------------
         // TD target 計算
@@ -1042,7 +1043,7 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
         loss_tensor.backward();
 
         r3.End();
-        NvtxRange r4("DQNAgent::UpdateFromBatch.update");
+        ProfileRange r4("DQNAgent::UpdateFromBatch.update");
 
         float grad_norm = 0.0f;
         bool grad_clipped = false;

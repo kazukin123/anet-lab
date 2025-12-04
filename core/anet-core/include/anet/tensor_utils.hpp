@@ -6,6 +6,8 @@
 
 namespace anet {
 
+    torch::Device MakeDevice(int type, int index);
+
     // Device と dtype を一元管理する軽量コンテキスト
     struct TensorContext {
         torch::Device device;

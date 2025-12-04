@@ -233,6 +233,7 @@ namespace anet::rl {
         EpisodeEvalObserver(
             const std::string& tag,
             std::shared_ptr<anet::rl::SingleDiscreteEnvFactory> eval_env_factory,
+            const torch::Device& device,
             anet::rl::RunMode runmode_ = anet::rl::RunMode::Eval,
             int log_interval = 10, int eval_interval = 10,
             float ema_decay = 1.00);

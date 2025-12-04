@@ -1,0 +1,30 @@
+﻿// anet/profile.hpp
+#pragma once
+
+namespace anet {
+
+    ///  @todo ProfileRange、リリースビルドやNVTX無効時はマクロで実態無し版に切換え
+
+    class ProfileRange {
+    public:
+        explicit ProfileRange(const char* name);
+        explicit ProfileRange(const char* name, int idx);
+        ProfileRange(const ProfileRange&) = delete;
+        ProfileRange& operator=(const ProfileRange&) = delete;
+        ProfileRange(ProfileRange&& other) noexcept;
+        ~ProfileRange();
+
+        ProfileRange& operator=(ProfileRange&& other) noexcept;
+        void End();
+    private:
+        bool active_;
+    };
+
+    class ProfileThreadName {
+    public:
+        explicit ProfileThreadName(const char* name);
+        ProfileThreadName(const char* base, int idx);
+    private:
+        char buf_[64];
+    };
+}

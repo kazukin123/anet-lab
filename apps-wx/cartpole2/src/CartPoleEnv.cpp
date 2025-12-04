@@ -1,9 +1,10 @@
 ﻿#include "CartPoleEnv.hpp"
-#include "app.hpp"
 #include <cmath>
 #include <algorithm>
 #include <random>
 #include <wx/log.h>
+#include "anet/profile.hpp"
+#include "app.hpp"
 
 // 定数
 const int limit_step = 200;  // 終了条件
@@ -27,7 +28,8 @@ const float tau = 0.02f;    //0.02f 0.01f
 
 const float deg = (float)M_PI / 180.0f;
 
-CartPoleEnv::CartPoleEnv(std::optional<anet::seed_t> seed) : RandomHolder(seed)
+CartPoleEnv::CartPoleEnv(const torch::Device& device, std::optional<anet::seed_t> seed)
+    : RandomHolder(seed)
 {
     // パラメータ記録
     nlohmann::json params = {
@@ -35,6 +37,8 @@ CartPoleEnv::CartPoleEnv(std::optional<anet::seed_t> seed) : RandomHolder(seed)
     };
     anet::MetricsLogger::Instance()->LogJson("env/params", params);
     anet::MetricsLogger::Instance()->Flush();
+
+    obs_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
 
     Reset();
 }
@@ -66,7 +70,10 @@ anet::rl::EnvSpec CartPoleEnv::GetSpec() const
     return env_spec;
 }
 
-anet::rl::SingleState CartPoleEnv::Reset(anet::rl::RunMode mode) {
+anet::rl::SingleState CartPoleEnv::Reset(anet::rl::RunMode mode)
+{
+    anet::ProfileRange r("CartPoleEnv::Reset");
+
     if (anet::rl::IsTrain(mode)) {
         const float d = 0.05f;
         x_ =         rnd_->Uniform(-d, d);
@@ -92,14 +99,17 @@ anet::rl::SingleState CartPoleEnv::Reset(anet::rl::RunMode mode) {
     step_count_ = 0;
 
     return {
-        torch::tensor({ x_, x_dot_, theta_, theta_dot_ }), // (4)
+        torch::tensor({ x_, x_dot_, theta_, theta_dot_ }, obs_opt_), // (4)
         done_,
         truncated_,
         episode_start_
     };
 }
 
-anet::rl::SingleStepResult CartPoleEnv::Step(int64_t action, anet::rl::RunMode mode) {
+anet::rl::SingleStepResult CartPoleEnv::Step(int64_t action, anet::rl::RunMode mode)
+{
+    anet::ProfileRange r("CartPoleEnv::Step");
+
     episode_start_ = false;
 
     // 力の符号（1:右=+、0:左=-）
@@ -199,7 +209,7 @@ anet::rl::SingleStepResult CartPoleEnv::Step(int64_t action, anet::rl::RunMode m
     anet::rl::SingleStepResult result {
         reward,
         {
-            torch::tensor({ x_, x_dot_, theta_, theta_dot_ }), // obs (4)
+            torch::tensor({ x_, x_dot_, theta_, theta_dot_ }, obs_opt_), // obs (4)
             done_,
             truncated_,
             episode_start_
@@ -213,8 +223,11 @@ CartPoleEnvFactory::CartPoleEnvFactory()
     ;
 }
 
-std::unique_ptr<anet::rl::SingleDiscreteEnv> CartPoleEnvFactory::Create(std::optional<anet::seed_t> seed)
+std::unique_ptr<anet::rl::SingleDiscreteEnv> CartPoleEnvFactory::CreateSingleEnv(
+    const torch::Device& device, std::optional<anet::seed_t> seed) 
 {
-    return std::make_unique<CartPoleEnv>(seed);
+    return std::make_unique<CartPoleEnv>(device, seed);
 }
+
+ANET_REGIST_ENV_FACTORY(CartPoleEnvFactory);
 

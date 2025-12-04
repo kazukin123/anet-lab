@@ -1,5 +1,4 @@
 ﻿#include "anet/tensor_check.hpp"
-#include <nvtx3/nvtx3.hpp>
 
 //----------------------------------------------
 // Device チェック実体
@@ -84,43 +83,3 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
 
     throw std::runtime_error(ss.str());
 }
-
-using namespace anet;
-
-NvtxRange::NvtxRange(const char* name)
-        : active_(true)
-{
-    nvtxRangePushA(name);
-}
-
-void NvtxRange::End() {
-    if (active_) {
-        nvtxRangePop();
-        active_ = false;
-    }
-}
-
-NvtxRange::~NvtxRange() {
-    if (active_) {
-        nvtxRangePop();
-    }
-}
-
-NvtxRange::NvtxRange(NvtxRange&& other) noexcept
-        : active_(other.active_)
-{
-    other.active_ = false; // 移動元のPOPは無効化
-}
-
-NvtxRange& NvtxRange::operator=(NvtxRange&& other) noexcept
-{
-    if (this != &other) {
-        if (active_) {
-            nvtxRangePop();
-        }
-        active_ = other.active_;
-        other.active_ = false;
-    }
-    return *this;
-}
-

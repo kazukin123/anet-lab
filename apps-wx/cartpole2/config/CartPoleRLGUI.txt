@@ -1,12 +1,15 @@
 ﻿
-train.preset=train.online
-#train.preset=train.batchrun
+#train.preset=train.online
+train.preset=train.batchrun
 
 train.online.batch_size = 1
-#train.online.seed=171730964985300	# 0 -> AutoSeed
+train.batchrun.batch_size = 1
 
-#log.enable_image_log = false
-log.enable_image_log = true
+train.online.seed=3077901837422269870
+train.batchrun.seed=3077901837422269870
+
+log.enable_image_log = false
+#log.enable_image_log = true
 
 # agent
 agent.preset=agent_trunk
@@ -78,6 +81,11 @@ agent_20251127-032759.tau_half_life_recover = 2000  # 1000 安定後、τが2倍
 agent_20251127-032759.tau_recover_delay = 1000      # このステップ期間安定していたら回復開始
 agent_20251127-032759.act_bias_threshold = 0.35     # 行動偏り閾値 (|left_ratio - right_ratio| > act_bias_threshold → 崩壊)
 
+env.env_class_id = CartPole
+env.worker_threads = -1	# -1=auto
+#env.seed = 0           # 0=AutoSeed
+#env.device_type = 0    # 0=cpu 1=cuda
+#env.device_index = -1  # GPU index -1=current device
 
 ## デフォルト設定
 agent.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
@@ -135,6 +143,7 @@ train.train_pause_step = -1
 train.train_exit_step = -1
 
 ## 描画更新
+train.online.batch_size = 1
 train.online.timer_ms = 10
 train.online.step_per_frame = 10
 train.online.eval_interval = 50

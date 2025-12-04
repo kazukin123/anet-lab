@@ -83,7 +83,7 @@ namespace anet {
         bool Read(const std::string& key, uint64_t& value, uint64_t defaultValue) const {
             auto it = kv_.find(key);
             if (it == kv_.end()) { value = defaultValue; return false; }
-            try { value = std::stod((*it).second); }
+            try { value = std::stoull((*it).second); }
             catch (...) { value = defaultValue; return false; }
             return true;
         }

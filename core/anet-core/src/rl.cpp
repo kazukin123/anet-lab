@@ -1,10 +1,11 @@
-﻿#include <stdexcept>
+﻿#include "anet/rl.hpp"
+#include <stdexcept>
 #include <wx/log.h>
-#include "anet/rl.hpp"
 #include "anet/common.hpp"
 #include "anet/util.hpp"
 #include "anet/tensor_utils.hpp"
 #include "anet/tensor_check.hpp"
+#include "anet/profile.hpp"
 
 namespace anet::rl {
 
@@ -521,7 +522,7 @@ namespace anet::rl {
         const std::shared_ptr<const BatchUpdateResult>& result
     )
     {
-        anet::NvtxRange r("Notifier::Notify");
+        anet::ProfileRange r("Notifier::Notify");
 
         for (std::shared_ptr<PostUpdateObserver> o : observers_) {
             o->OnPostUpdate(step, agent, expriences, result);
