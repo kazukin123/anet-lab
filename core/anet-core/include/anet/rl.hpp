@@ -1,18 +1,13 @@
 ﻿#pragma once
-#include <torch/torch.h>
-#include <iostream>
 #include <memory>
 #include <vector>
 #include <string>
-#include <tuple>
-#include <random>
 #include <map>
 #include <unordered_map>
 #include <optional>
 #include <cstdint>
+#include <torch/torch.h>
 #include <nlohmann/json.hpp>
-#include "anet/heat_map.hpp"
-#include "anet/tensor_utils.hpp"
 #include "anet/tensor_check.hpp"
 #include "anet/random.hpp"
 
@@ -371,11 +366,10 @@ namespace anet::rl {
 
     class SingleDiscreteEnvFactory {
     public:
-        virtual std::string GetTargetEnvClassName() const = 0;
-
         virtual std::unique_ptr<SingleDiscreteEnv> CreateSingleEnv(
             const torch::Device& device,
             std::optional<anet::seed_t> seed = std::nullopt) = 0;
+        virtual std::string GetTargetEnvClassId() const = 0;
 
         virtual ~SingleDiscreteEnvFactory() = default;
     };

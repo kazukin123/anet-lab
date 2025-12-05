@@ -1,12 +1,12 @@
-#include <gtest/gtest.h>
+ï»¿#include <filesystem>
 #include <wx/image.h>
-#include <filesystem>
+#include <gtest/gtest.h>
 #include "anet/HeatMap.hpp"
 
 using namespace anet;
 
 // ============================================================
-// ƒeƒXƒg‘O‰Šú‰»
+// ãƒ†ã‚¹ãƒˆå‰åˆæœŸåŒ–
 // ============================================================
 class HeatMapTest : public ::testing::Test {
 protected:
@@ -17,11 +17,11 @@ protected:
 };
 
 // ============================================================
-// HeatMap : •”wŒiE•`‰æƒeƒXƒg
+// HeatMap : é»’èƒŒæ™¯ãƒ»æç”»ãƒ†ã‚¹ãƒˆ
 // ============================================================
 TEST_F(HeatMapTest, BasicHeatMap_BlackBackground) {
     HeatMap map(64, 64, -1.0f, 1.0f, -1.0f, 1.0f, 0, HM_AutoNormValue);
-    // U•zFŒ´“_‹ß‚­‚ğW’†‰Á”M
+    // æ•£å¸ƒï¼šåŸç‚¹è¿‘ãã‚’é›†ä¸­åŠ ç†±
     for (int i = 0; i < 1000; ++i) {
         float x = (float(rand()) / RAND_MAX) * 2.0f - 1.0f;
         float y = (float(rand()) / RAND_MAX) * 2.0f - 1.0f;
@@ -34,7 +34,7 @@ TEST_F(HeatMapTest, BasicHeatMap_BlackBackground) {
 }
 
 // ============================================================
-// TimeHeatMap : ƒtƒŒ[ƒ€isƒeƒXƒg
+// TimeHeatMap : ãƒ•ãƒ¬ãƒ¼ãƒ é€²è¡Œãƒ†ã‚¹ãƒˆ
 // ============================================================
 TEST_F(HeatMapTest, TimeHeatMap_ScrollBehavior) {
     TimeHeatMap th(64, 32, -1.0f, 1.0f, HM_AutoNormValue | HM_ShowZeroLine, 0, TimeFrameMode::Scroll);
@@ -55,7 +55,7 @@ TEST_F(HeatMapTest, TimeHeatMap_ScrollBehavior) {
 }
 
 // ============================================================
-// TimeHistogram : ‘Î”²{©“®ƒXƒP[ƒ‹{ƒ[ƒƒ‰ƒCƒ“
+// TimeHistogram : å¯¾æ•°è»¸ï¼‹è‡ªå‹•ã‚¹ã‚±ãƒ¼ãƒ«ï¼‹ã‚¼ãƒ­ãƒ©ã‚¤ãƒ³
 // ============================================================
 TEST_F(HeatMapTest, TimeHistogram_LogScale_ZeroLine) {
     const int bins = 64;

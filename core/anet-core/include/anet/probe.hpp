@@ -3,10 +3,6 @@
 #include <vector>
 #include <memory>
 #include <optional>
-#include <unordered_map>
-#include <torch/torch.h>
-#include "anet/heat_map.hpp"
-#include "anet/tensor_check.hpp"
 #include "anet/rl.hpp"
 
 namespace anet::rl {

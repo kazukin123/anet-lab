@@ -2,10 +2,10 @@
 #include <stdexcept>
 #include <wx/log.h>
 #include "anet/common.hpp"
+#include "anet/profile.hpp"
 #include "anet/util.hpp"
 #include "anet/tensor_utils.hpp"
 #include "anet/tensor_check.hpp"
-#include "anet/profile.hpp"
 
 namespace anet::rl {
 

@@ -2,7 +2,6 @@
 #include <unordered_map>
 #include <vector>
 #include <utility>
-#include <cstddef>
 #include <type_traits>
 #include "anet/common.hpp"
 

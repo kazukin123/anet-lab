@@ -1,6 +1,7 @@
 ﻿#include "anet/config.hpp"
-#include <wx/string.h>
 #include <sstream>
+#include <fstream>
+#include <wx/string.h>
 
 namespace anet {
 

@@ -2,8 +2,8 @@
 #include <vector>
 #include <random>
 #include <torch/torch.h>
-#include "anet/rl.hpp"
 #include "anet/random.hpp"
+#include "anet/rl.hpp"
 
 namespace anet::rl {
 

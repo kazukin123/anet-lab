@@ -3,8 +3,9 @@
 #include <algorithm>
 #include <random>
 #include <wx/log.h>
+#include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
-#include "app.hpp"
+#include "anet/env.hpp"
 
 // 定数
 const int limit_step = 200;  // 終了条件

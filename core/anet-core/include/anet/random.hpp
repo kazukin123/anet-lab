@@ -1,7 +1,8 @@
 ﻿#pragma once
 #include <random>
 #include <cstdint>
-#include <torch/torch.h>
+#include <optional>
+#include <mutex>
 
 namespace anet {
 

@@ -1,8 +1,8 @@
 ﻿// image_log.cpp （抜粋）
 
+#include "anet/probe.hpp"
 #include <sstream>
 #include <wx/log.h>
-#include "anet/probe.hpp"
 
 using namespace anet::rl;
 

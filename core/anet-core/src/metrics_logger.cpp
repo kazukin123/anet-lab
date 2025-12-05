@@ -1,7 +1,6 @@
 ﻿#include "anet/metrics_logger.hpp"
 #include <stdexcept>
 #include <wx/process.h>
-#include <wx/wfstream.h>
 #include <wx/image.h>
 #include <wx/filename.h>
 #include <wx/log.h>

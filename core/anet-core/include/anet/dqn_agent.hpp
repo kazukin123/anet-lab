@@ -1,13 +1,11 @@
 ﻿#pragma once
 
-#include <torch/torch.h>
 #include <memory>
-#include <wx/cmdline.h>
+#include <torch/torch.h>
 
-#include "anet/rl.hpp"
-#include "anet/heat_map.hpp"
 #include "anet/config.hpp"
 #include "anet/replay_buffer.hpp"
+#include "anet/rl.hpp"
 
 namespace anet::rl {
 

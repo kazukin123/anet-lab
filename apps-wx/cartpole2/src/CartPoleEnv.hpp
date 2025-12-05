@@ -2,7 +2,6 @@
 #include <torch/torch.h>
 #include "anet/random.hpp"
 #include "anet/rl.hpp"
-#include "anet/env.hpp"
 
 /// CartPole環境実装（1環境固定）
 class CartPoleEnv : public anet::rl::SingleDiscreteEnv, public anet::RandomHolder {
@@ -30,7 +29,7 @@ class CartPoleEnvFactory : public anet::rl::SingleDiscreteEnvFactory {
 public:
     CartPoleEnvFactory();
 
-    std::string GetTargetEnvClassName() const { return "CartPole"; }
+    std::string GetTargetEnvClassId() const override { return "CartPole"; }
 
     std::unique_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
         const torch::Device& device, std::optional<anet::seed_t> seed = std::nullopt) override;

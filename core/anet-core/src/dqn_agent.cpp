@@ -1,17 +1,14 @@
 ﻿// dqn_agent.cpp
 
-#include <iostream>
+#include "anet/dqn_agent.hpp"
 #include <tuple>
 #include <wx/log.h>
-
-#include "nlohmann/json.hpp"
-#include "anet/dqn_agent.hpp"
 #include "anet/nn_util.hpp"
 #include "anet/tensor_utils.hpp"
 #include "anet/tensor_check.hpp"
+#include "anet/random.hpp"
 #include "anet/config.hpp"
 #include "anet/metrics_logger.hpp"
-#include "anet/random.hpp"
 #include "anet/profile.hpp"
 
 using namespace anet::rl;

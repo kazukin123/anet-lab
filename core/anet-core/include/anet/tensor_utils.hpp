@@ -1,7 +1,7 @@
 ﻿#pragma once
-#include <torch/torch.h>
 #include <string>
 #include <sstream>
+#include <torch/torch.h>
 #include "anet/common.hpp"
 
 namespace anet {

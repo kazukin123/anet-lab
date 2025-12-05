@@ -5,11 +5,11 @@ train.preset=train.batchrun
 train.online.batch_size = 1
 train.batchrun.batch_size = 1
 
-train.online.seed=3077901837422269870
-train.batchrun.seed=3077901837422269870
+#train.online.seed=3077901837422269870
+#train.batchrun.seed=3077901837422269870
 
-log.enable_image_log = false
-#log.enable_image_log = true
+#log.enable_image_log = false
+log.enable_image_log = true
 
 # agent
 agent.preset=agent_trunk
@@ -143,14 +143,14 @@ train.train_pause_step = -1
 train.train_exit_step = -1
 
 ## 描画更新
-train.online.batch_size = 1
+#train.online.batch_size = 1
 train.online.timer_ms = 10
 train.online.step_per_frame = 10
 train.online.eval_interval = 50
 train.online.train_pause_step = 500000 #500K
 
 ## バッチ実行用
-train.batchrun.batch_size = 1
+#train.batchrun.batch_size = 1
 train.batchrun.timer_ms = 5
 train.batchrun.step_per_frame = 1000
 train.batchrun.eval_interval = 50

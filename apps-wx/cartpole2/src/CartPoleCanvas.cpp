@@ -1,6 +1,6 @@
-﻿#include <wx/dcbuffer.h>
+﻿#include "CartPoleCanvas.hpp"
 #include <cmath>
-#include "CartPoleCanvas.hpp"
+#include <wx/dcbuffer.h>
 #include "CartPoleFrame.hpp"
 
 #define _USE_MATH_DEFINES // for C++

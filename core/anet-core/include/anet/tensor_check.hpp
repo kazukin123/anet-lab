@@ -1,6 +1,6 @@
 ﻿#pragma once
-#include <torch/torch.h>
 #include <vector>
+#include <torch/torch.h>
 #include <wx/log.h>
 #include "anet/common.hpp"
 

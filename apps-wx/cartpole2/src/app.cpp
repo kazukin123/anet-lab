@@ -1,10 +1,10 @@
-﻿
+﻿// app.cpp
 #include "app.hpp"
-#include "CartPoleFrame.hpp"
-#include <wx/cmdline.h>
-#include <wx/stdpaths.h>
-#include <wx/filename.h>
 #include <filesystem>
+#include <wx/stdpaths.h>
+#include <wx/cmdline.h>
+#include <wx/filename.h>
+#include "CartPoleFrame.hpp"
 
 wxString GetExeDir() {
     wxStandardPaths& sp = wxStandardPaths::Get();

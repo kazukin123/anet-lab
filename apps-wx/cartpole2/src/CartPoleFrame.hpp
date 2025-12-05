@@ -1,15 +1,15 @@
 ﻿#pragma once
 
-#include <wx/wx.h>
-#include <wx/timer.h>
 #include <memory>
 #include <torch/torch.h>
+#include <wx/wx.h>
+#include <wx/timer.h>
 
-#include "CartPoleEnv.hpp"
 #include "anet/dqn_agent.hpp"
 #include "anet/observers.hpp"
-#include "CartPoleCanvas.hpp"
 #include "PlotPanel.hpp"
+#include "CartPoleCanvas.hpp"
+#include "CartPoleEnv.hpp"
 
 //
 // --- メインウィンドウ（Frame） ---

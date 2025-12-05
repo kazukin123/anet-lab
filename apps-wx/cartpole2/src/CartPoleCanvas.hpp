@@ -1,7 +1,6 @@
 ﻿#pragma once
 
 #include <torch/torch.h>
-
 #include <wx/wx.h>
 #include "anet/rl.hpp"
 

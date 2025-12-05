@@ -1,10 +1,9 @@
+﻿// app.h
 #pragma once
 
-#include <wx/wx.h>
-#include <wx/cmdline.h>
+#include <wx/app.h>
 
 #include "anet/config.hpp"
-#include "anet/metrics_logger.hpp"
 
 #define WX_APP_COMPATIBLE
 

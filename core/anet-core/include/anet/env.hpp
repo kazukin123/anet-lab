@@ -1,8 +1,8 @@
 ﻿#pragma once
 #include <functional>
 #include <optional>
-#include "anet/rl.hpp"
 #include "anet/config.hpp"
+#include "anet/rl.hpp"
 
 namespace anet::rl {
 
@@ -133,7 +133,7 @@ namespace anet::rl {
             return inst;
         }
 
-        void Regist(const std::string& id, std::shared_ptr<SingleDiscreteEnvFactory> factory);
+        void Regist(std::shared_ptr<SingleDiscreteEnvFactory> factory);
         std::shared_ptr<SingleDiscreteEnvFactory> GetSingleDiscreteEnvFactory(const std::string& id) const;
     private:
         EnvRepository() = default;
@@ -144,7 +144,7 @@ namespace anet::rl {
 
     inline void RegistEnvFactory(std::shared_ptr<SingleDiscreteEnvFactory> factory)
     {
-        EnvRepository::Instance().Regist(factory->GetTargetEnvClassName(), factory);
+        EnvRepository::Instance().Regist(factory);
     }
 
     class DefaultBatchEnvFactory : public BatchEnvFactory {

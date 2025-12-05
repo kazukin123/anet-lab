@@ -1,7 +1,7 @@
-#pragma once
+﻿#pragma once
+#include <vector>
 #include <wx/wx.h>
 #include <wx/dcbuffer.h>
-#include <vector>
 
 class PlotPanel : public wxPanel {
 public:

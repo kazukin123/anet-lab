@@ -1,7 +1,7 @@
 ﻿#include "anet/heat_map.hpp"
+#include <cmath>
 #include <algorithm>
 #include <filesystem>
-#include <cmath>
 #include <wx/log.h>
 #include "anet/common.hpp"
 

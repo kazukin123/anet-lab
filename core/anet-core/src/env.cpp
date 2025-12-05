@@ -1,13 +1,14 @@
 ﻿
 #include "anet/env.hpp"
-#include <vector>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
 #include <functional>
 #include <deque>
+#include <vector>
+#include <mutex>
+#include <condition_variable>
 #include <atomic>
+#include <thread>
 #include "anet/profile.hpp"
+#include "anet/tensor_utils.hpp"
 
 using namespace anet::rl;
 
@@ -482,10 +483,11 @@ std::shared_ptr<SingleDiscreteEnvFactory> DefaultBatchEnvFactory::GetSingleFacto
     return factory;
 }
 
-void EnvRepository::Regist(const std::string& id, std::shared_ptr<SingleDiscreteEnvFactory> factory)
+void EnvRepository::Regist(std::shared_ptr<SingleDiscreteEnvFactory> factory)
 {
     std::lock_guard<std::mutex> lock(mtx_);
-    factories_[id] = factory;
+    auto class_id = factory->GetTargetEnvClassId();
+    factories_[class_id] = factory;
 }
 
 std::shared_ptr<SingleDiscreteEnvFactory> EnvRepository::GetSingleDiscreteEnvFactory(const std::string& id) const

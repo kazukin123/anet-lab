@@ -1,15 +1,12 @@
 ﻿#pragma once
-#include <wx/image.h>
-#include <vector>
-#include <deque>
 #include <vector>
 #include <string>
 #include <mutex>
 #include <functional>
 #include <cstdint>
-#include <cmath>
 #include <limits>
 #include <torch/torch.h>
+#include <wx/image.h>
 
 namespace anet {
 
