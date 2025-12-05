@@ -8,6 +8,7 @@
 #include <atomic>
 #include <thread>
 #include "anet/profile.hpp"
+#include "anet/thread.hpp"
 #include "anet/tensor_utils.hpp"
 
 using namespace anet::rl;
@@ -15,6 +16,7 @@ using namespace anet::rl;
 // ---- DiscreteBatchEnvBase
 
 DiscreteBatchEnvBase::DiscreteBatchEnvBase(
+    const ConfigData& config_data,
     std::shared_ptr<SingleDiscreteEnvFactory> factory, int batch_size,
     const torch::Device& device, std::optional<seed_t> seed)
     : batch_spec_({ batch_size, 1 }), batch_size_(batch_size), device_(device)
@@ -28,7 +30,7 @@ DiscreteBatchEnvBase::DiscreteBatchEnvBase(
     envs_.reserve(batch_size_);
     for (int i = 0; i < batch_size; ++i) {
         anet::seed_t env_seed = seed_maker.MakeIndexedSeed(i);
-        auto env = factory->CreateSingleEnv(device, env_seed);
+        auto env = factory->CreateSingleEnv(config_data, device, env_seed);
         envs_.push_back(std::move(env));
     }
 
@@ -89,11 +91,12 @@ anet::rl::BatchStepResult DiscreteBatchEnvBase::createEmptyStepResult() const
 // ---- VectorizedDiscreteBatchEnv
 
 VectorizedDiscreteBatchEnv::VectorizedDiscreteBatchEnv(
+    const ConfigData& configData,
     std::shared_ptr<SingleDiscreteEnvFactory> factory,
     int batch_size,
     const torch::Device& device,
     std::optional<seed_t> seed)
-    : DiscreteBatchEnvBase(factory, batch_size, device, seed)
+    : DiscreteBatchEnvBase(configData, factory, batch_size, device, seed)
 {
     ;
 }
@@ -163,119 +166,16 @@ BatchStepResult VectorizedDiscreteBatchEnv::Step(const torch::Tensor& batch_acti
     return batch_result;
 }
 
-// ---- PinnedThreadPool
-
-PinnedThreadPool::PinnedThreadPool(int worker_count)
-    : worker_count_(worker_count)
-    , stop_flag_(false)
-    , pending_tasks_(0)
-{
-    queues_ = std::make_unique<std::deque<TaskFunction>[]>(worker_count);
-    mutexes_ = std::make_unique<std::mutex[]>(worker_count);
-    cvs_ = std::make_unique<std::condition_variable[]>(worker_count);
-    workers_ = std::make_unique<std::thread[]>(worker_count);
-
-    for (int i = 0; i < worker_count_; ++i) {
-        workers_[i] = std::thread([this, i] { WorkerLoop(i); });
-    }
-}
-
-PinnedThreadPool::~PinnedThreadPool()
-{
-    Stop();
-}
-
-void PinnedThreadPool::Enqueue(int worker_id, TaskFunction fn)
-{
-    ANET_ASSERT(worker_id >= 0 && worker_id < worker_count_);
-
-    // queueにtaskを積む
-    {
-        std::lock_guard<std::mutex> lock(mutexes_[worker_id]);
-        queues_[worker_id].push_back(std::move(fn));
-    }
-
-    // 積んだので待ちタスク数を増やす
-    pending_tasks_.fetch_add(1, std::memory_order_relaxed);
-    cvs_[worker_id].notify_one();
-}
-
-void PinnedThreadPool::WaitAll()
-{
-    // 処理待ちタスクが捌けるまで待つ
-    while (pending_tasks_.load(std::memory_order_acquire) != 0) {   
-        std::this_thread::yield();
-    }
-
-    // busy wait を避けるため軽い sleep を入れてもよいが、
-    // Env のタスクは比較的重いためスピンで十分安定。
-}
-
-void PinnedThreadPool::WorkerLoop(int wid)
-{
-    ProfileThreadName thr_name("PinnedThreadPool::Worker", wid);
-
-    // 各スレッドのメインループ
-    while (true) {
-        TaskFunction task;
-        {
-            // worker(wid)のタスクキューをロック
-            std::unique_lock<std::mutex> lock(mutexes_[wid]);
-
-            // stop_flagがtrueになる、またはqueues_[wid]が非空になるまでwaitに入る
-            cvs_[wid].wait(lock, [&] {
-                // 偽起床の場合はsleep継続
-                return stop_flag_.load(std::memory_order_acquire)
-                    || !queues_[wid].empty();
-                });
-               
-            // queue が空かどうかを先に処理する
-            if (!queues_[wid].empty()) {
-                // キューからTaskを取り出す
-                task = std::move(queues_[wid].front());
-                queues_[wid].pop_front();
-            } else if (stop_flag_.load(std::memory_order_acquire)) {
-                // stop_flagがtrueの場合はループを抜けてスレッドを終了させる
-                break;
-            }
-        }
-
-        if (task) {
-            // 取り出したTaskを実行
-            task();
-
-            // PinnedThreadPool全体の実行待ち/実行中タスク数をアトミックにカウントダウン
-            pending_tasks_.fetch_sub(1, std::memory_order_release);
-        }
-    }
-}
-
-void PinnedThreadPool::Stop()
-{
-    // stop_flag_をロックフリーで一度だけtrueに変更
-    bool expected = false;
-    if (!stop_flag_.compare_exchange_strong(expected, true, std::memory_order_release))
-        return; // 同時操作で既にstop_flagが立ってたら抜ける
-
-    // 全てのworkerスレッドを起こす
-    for (int i = 0; i < worker_count_; ++i)
-        cvs_[i].notify_all();
-
-    // 全てのworkerスレッドを終了待ち
-    for (int i = 0; i < worker_count_; ++i)
-        if (workers_[i].joinable())
-            workers_[i].join();
-}
-
 // ---- ThreadPoolDiscreteEnv
 
 ThreadPoolDiscreteEnv::ThreadPoolDiscreteEnv(
+    const ConfigData& configData,
     std::shared_ptr<SingleDiscreteEnvFactory> factory,
     int batch_size,
     const torch::Device& device,
     std::shared_ptr<ThreadPool> pool,
     std::optional<seed_t> seed)
-    : DiscreteBatchEnvBase(factory, batch_size, device, seed)
+    : DiscreteBatchEnvBase(configData, factory, batch_size, device, seed)
     , pool_(std::move(pool))
 {
     ANET_ASSERT(pool_ != nullptr);
@@ -398,10 +298,12 @@ BatchStepResult ThreadPoolDiscreteEnv::Step(const torch::Tensor& actions, RunMod
 
 DefaultBatchEnvFactory::DefaultBatchEnvFactory(
     const DefaultBatchEnvFactoryConfig& config,
+    const ConfigData& config_data,
     int batch_size,
     std::optional<seed_t> seed,
     std::optional<const torch::Device> device)
-    : config_(config)
+	: config_data_(config_data)
+    , config_(config)
     , batch_size_(batch_size)
     , seed_(seed)
     , device_(device.value_or(anet::MakeDevice(config_.device_type, config_.device_index)))
@@ -442,7 +344,7 @@ int DefaultBatchEnvFactory::resolveWorkerThreads(int batch) const
     }
 }
 
-std::shared_ptr<ThreadPool> DefaultBatchEnvFactory::createPool(int worker_threads) const
+std::shared_ptr<anet::ThreadPool> DefaultBatchEnvFactory::createPool(int worker_threads) const
 {
     return std::make_shared<PinnedThreadPool>(worker_threads);
 }
@@ -454,11 +356,12 @@ std::shared_ptr<BatchEnv> DefaultBatchEnvFactory::CreateBatchEnv()
     auto factory = GetSingleFactory();
     if (factory == nullptr)
         return nullptr;
+    auto env_class_id = factory->GetTargetEnvClassId();
 
     // batch_size == 1 は VectorizedDiscreteBatchEnv の方が有利
     if (batch_size_ == 1) {
         return std::make_shared<VectorizedDiscreteBatchEnv>(
-            factory, 1, device_, seed_);
+            config_data_, factory, 1, device_, seed_);
     }
 
     int workers = resolveWorkerThreads(batch_size_);
@@ -471,8 +374,7 @@ std::shared_ptr<BatchEnv> DefaultBatchEnvFactory::CreateBatchEnv()
 
     // ThreadPoolDiscreteEnv の生成
     return std::make_shared<ThreadPoolDiscreteEnv>(
-        factory, batch_size_, device_, pool, seed_
-    );
+        config_data_, factory, batch_size_, device_, pool, seed_);
 }
 
 std::shared_ptr<SingleDiscreteEnvFactory> DefaultBatchEnvFactory::GetSingleFactory() const

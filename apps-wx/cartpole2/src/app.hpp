@@ -12,7 +12,7 @@ public:
     virtual bool OnInit() override;
     virtual int OnExit() override;
 
-    anet::ConfigData GetConfig(const std::string module) const { return config_mgr_->Make(module); }
+    anet::ConfigData GetConfig() const { return config_mgr_->GetConfigData(); }
 private:
     std::unique_ptr<anet::ConfigManager> config_mgr_;
 };

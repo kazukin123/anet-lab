@@ -159,6 +159,25 @@ namespace anet {
         backend_->WriteJsonl(meta);
     }
 
+    void MetricsLogger::LogJson(const std::string& tag, const json& data)
+    {
+        json rounded = round_numbers(data);
+        json obj = {
+            {"type", "json"},
+            {"tag", tag},
+            {"timestamp", current_time_str()},
+            {"data", rounded}
+        };
+        backend_->WriteJsonl(obj);
+
+        std::string safe_tag = sanitize_filename(tag);
+        std::string full_dir = root_dir_ + "/" + run_name_ + "/json";
+        std::string full_path = root_dir_ + "/" + run_name_ + "/json/" + safe_tag + ".json";
+        std::filesystem::create_directories(full_dir);
+        std::ofstream ofs(full_path);  // ファイルを開く
+        ofs << obj.dump(4) << std::endl;     // インデント幅 4 で書き出
+    }
+
     //----------------------------------------------
     // 画像・動画出力
     //----------------------------------------------

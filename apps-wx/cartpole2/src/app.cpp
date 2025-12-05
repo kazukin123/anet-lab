@@ -32,8 +32,6 @@ static wxCmdLineEntryDesc desc[] = {
     //{ wxCMD_LINE_SWITCH, "v",         "verbose", "エラー表示を饒舌に" }, // wxCMD_LINE_SWITCH:A boolean argument of the program;    e.g. -v to enable verbose mode.
     //{ wxCMD_LINE_OPTION, "f",         "file",    "設定ファイルのパス" }, // wxCMD_LINE_OPTION:An argument with an associated value; e.g. -o filename
 
-    { wxCMD_LINE_OPTION, "a",         "agent", "agent.presetの上書き値", wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL }, // wxCMD_LINE_OPTION:An argument with an associated value; e.g. -o filename
-    { wxCMD_LINE_OPTION, "t",         "train", "train.presetの上書き値", wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL }, // wxCMD_LINE_OPTION:An argument with an associated value; e.g. -o filename
     {
         wxCMD_LINE_PARAM,              // 種別：位置パラメータ
         nullptr,                       // 短いオプション名なし
@@ -43,7 +41,7 @@ static wxCmdLineEntryDesc desc[] = {
         wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE      // 複数 OK
     },
     //{ wxCMD_LINE_PARAM,  NULL,        NULL,  "引数",     wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },  // A parameter: a required program argument.
-    { wxCMD_LINE_USAGE_TEXT, NULL,    NULL,    "CartPoleRLGUI.exe --agent=agent_rb" },     //  Additional usage text.
+    { wxCMD_LINE_USAGE_TEXT, NULL,    NULL,    "CartPoleRLGUI.exe key1=value1 key2=value2" },     //  Additional usage text.
     { wxCMD_LINE_NONE } // 終了マーク
 };
 
@@ -51,16 +49,11 @@ bool MyApp::OnInit() {
     wxInitAllImageHandlers();
 
     wxCmdLineParser cmdline_(desc, argc, (wchar_t**)argv);
-    if (cmdline_.Parse(true)) {
+    if (cmdline_.Parse(true))
         return false;
-    }
+
     config_mgr_ = std::make_unique<anet::ConfigManager>(GetConfigFilePath(), &cmdline_);
-
     anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetLogsPath());
-
-    bool enable_image_log = config_mgr_->GetConfigData().Get("log.enable_image_log", true);
-    anet::MetricsLogger::Instance()->SetEnableImageLog(enable_image_log);
-
     auto* frame = new CartPoleFrame("CartPole RL");
     frame->Show(true);
     return true;

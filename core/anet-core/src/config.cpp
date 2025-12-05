@@ -2,6 +2,7 @@
 #include <sstream>
 #include <fstream>
 #include <wx/string.h>
+#include "anet/str_util.hpp"
 
 namespace anet {
 
@@ -16,6 +17,14 @@ namespace anet {
     void Properties::Load(const std::string& filename) {
         std::ifstream ifs(filename);
         if (!ifs) throw std::runtime_error("Properties: Cannot open: " + filename);
+
+        // BOM スキップ
+        char bom[3] = { 0 };
+        ifs.read(bom, 3);
+        if (!(bom[0] == '\xEF' && bom[1] == '\xBB' && bom[2] == '\xBF')) {
+            // BOM がなければ読み取り位置を戻す
+            ifs.seekg(0);
+        }
 
         std::string line;
         while (std::getline(ifs, line)) {
@@ -52,16 +61,71 @@ namespace anet {
         }
     }
 
+    // ---- Config ----
+
+    Config::Config(const std::string& config_prefix) : config_prefix_(config_prefix) {
+    }
+
+    Config::Config(const ConfigData& config_data, const std::string& config_prefix) :
+        config_prefix_(config_prefix)
+    {
+            //apply(configData);
+    }
+
+    std::string Config::ToString() const {
+        std::ostringstream oss;
+        oss << "[class=" << config_prefix_ << "]\n";
+
+        for (const auto& kv : my_config_data_.Map()) {
+            oss << kv.first << " = " << kv.second << "\n";
+        }
+
+        return oss.str();
+    }
+
+    nlohmann::json Config::ToJson() const {
+        nlohmann::json j;
+        j["class"] = config_prefix_;
+
+        nlohmann::json params = nlohmann::json::object();
+        for (const auto& kv : my_config_data_.Map()) {
+            const auto& key = kv.first;
+            const auto& val = kv.second;
+
+            // 数値かどうか簡易判定（小数点と符号は許容）
+            bool numeric = true;
+            for (char c : val) {
+                if (!(std::isdigit(c) || c == '.' || c == '-')) {
+                    numeric = false;
+                    break;
+                }
+            }
+
+            if (!val.empty() && numeric) {
+                params[key] = std::stod(val);
+            }
+            else {
+                params[key] = val;
+            }
+        }
+
+        j["params"] = params;
+        return j;
+    }
+
+    // ---- ConfigManager ----
+
     ConfigManager::ConfigManager(const std::string& filePath, const wxCmdLineParser* cmdLine) {
         LoadFromFile(filePath);
         if (cmdLine) {
             ApplyCmdLineOverrides(*cmdLine);
         }
+        AutoMerge();
     }
 
     void ConfigManager::LoadFromFile(const std::string& filePath) {
         Properties props(filePath);
-        data_ = props.ToConfigData();
+        map_ = props.ToConfigData().Map();
     }
 
     void ConfigManager::ApplyCmdLineOverrides(const wxCmdLineParser& cmdLine) {
@@ -79,93 +143,77 @@ namespace anet {
             const std::string val = p.substr(pos + 1);
 
             if (!key.empty()) {
-                data_.Set(key, val);
+                map_.Set(key, val);
             }
         }
     }
 
-    std::string ConfigManager::ResolveModule(const std::string& module, const std::string& defaultPreset) const {
-        const std::string presetKey = module + ".preset";
-        const std::string preset = data_.Get(presetKey, std::string());
+    static constexpr const char* MERGE_KEYWORD = ".$";
 
-        if (!preset.empty()) return preset;
-        if (!defaultPreset.empty()) return defaultPreset;
-
-        return module;
-    }
-
-    ConfigData ConfigManager::Make(const std::string& module, const std::string& defaultPreset) const {
-        ConfigData out;
-
-        // (1) resolvedModule の決定
-        const std::string resolved = ResolveModule(module, defaultPreset);
-        const std::string prefix = resolved + ".";
-
-        // (2) 元の data_ から resolved.* のみ抽出
-        for (const auto& kv : data_.Map()) {   // Raw() は map<string,string> 取得
-            const std::string& key = kv.first;
-            const std::string& val = kv.second;
-
-            // prefix に一致する場合だけ抽出
-            if (key.compare(0, prefix.size(), prefix) == 0) {
-                // 先頭の "resolved." を除去してローカルキーへ
-                const std::string localKey = key.substr(prefix.size());
-                out.Set(localKey, val);
-            }
-        }
-
-        return out;
-    }
-
-    Config::Config() {
-    }
-
-    Config::Config(const ConfigData& configData, const std::string& className, const std::string& moduleName) :
-            configData_(configData), className_(className), moduleName_(moduleName)
+    void ConfigManager::AutoMerge()
     {
-            //apply(configData);
-    }
+        // env.$ = env.common > env.trunk
+        // env.xxx = 1
+        // env.yyy = 2
+        // env.common.yyy = 10
+        // env.common.zzz = 20
+        // env.trunk.zzz = 200
+        // 
+        //   ↓
+        // 
+        // env.xxx = 1
+        // env.yyy = 10
+        // env.zzz = 200
+        //
 
-    std::string Config::ToString() const {
-        std::ostringstream oss;
-        oss << "[class=" << className_ << ", module=" << moduleName_ << "]\n";
+        ConfigData::MapType new_map;
+        ConfigData::MapType map = map_;
 
-        for (const auto& kv : configData_.Map()) {
-            oss << kv.first << " = " << kv.second << "\n";
+		std::vector<std::string> merge_keys;
+
+        // マージキー以外をそのままコピー
+        for (const auto& kv : map) {
+            const std::string key = kv.first;
+            const std::string val = kv.second;
+            if (!anet::EndsWith(key, MERGE_KEYWORD)) {
+                new_map.Set(key, val);
+            } else {
+				merge_keys.push_back(key);
+            }
         }
 
-        return oss.str();
-    }
+        // マージキーの上書き処理
+        for (const auto& merge_key : merge_keys) {
+			auto base_key = anet::RemoveSuffix(merge_key, MERGE_KEYWORD);   // env.$ -> env
 
-    nlohmann::json Config::ToJson() const {
-        nlohmann::json j;
-        j["class"] = className_;
-        j["module"] = moduleName_;
+			auto merge_val = map.Get(merge_key);                                             // "env.common > env.trunk"
+			std::vector<std::string> merge_target_keys = Split(merge_val, { ">" }, true);    // { env.common, env.trunk }
+            if (merge_target_keys.empty()) continue;
 
-        nlohmann::json params = nlohmann::json::object();
-        for (const auto& kv : configData_.Map()) {
-            const auto& key = kv.first;
-            const auto& val = kv.second;
+            for (auto merge_target_key : merge_target_keys) {   // env.common, env.trunk
+                if (merge_target_key.empty()) continue;
 
-            // 数値かどうか簡易判定（小数点と符号は許容）
-            bool numeric = true;
-            for (char c : val) {
-                if (!(std::isdigit(c) || c == '.' || c == '-')) {
-                    numeric = false;
-                    break;
+                for (const auto& kv2 : map) {
+                    std::string key2 = kv2.first;
+                    std::string val2 = kv2.second;
+                    if (anet::StartsWith(key2, merge_target_key)) {                    // env.common, env.common.yyy, env.common.zzz
+                        // ERASE: env.common, env.common.yyy, env.common.zzz
+                        new_map.Erase(key2);
+
+                        // SKIP env.common
+                        if (merge_target_key == key2) continue;
+
+                        auto key_suffix = anet::RemovePrefix(key2, merge_target_key);  // .yyy, .zzz
+                        auto target_key = base_key + key_suffix;                       // env.yyy, env.zzz
+
+                        // マージ対象のValueをマージ元のKeyでSet
+                        new_map.Set(target_key, val2);
+                    }
                 }
             }
-
-            if (numeric) {
-                params[key] = std::stod(val);
-            }
-            else {
-                params[key] = val;
-            }
         }
 
-        j["params"] = params;
-        return j;
+        map_ = new_map;
     }
 
 } // namespace anet

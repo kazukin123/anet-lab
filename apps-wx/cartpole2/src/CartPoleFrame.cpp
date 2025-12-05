@@ -15,24 +15,29 @@
 #include "app.hpp"
 
 
-struct CartPoleFrame::Config : public anet::Config {
+struct CartPoleFrame::Config : public anet::Config
+{
+    uint64_t seed = 0;
     int batch_size = 1;
+
     int timer_ms = 20;
     int step_per_frame = 10;
     int eval_interval = 50;
-    int train_pause_step = 110000;
+    int train_pause_step = -1;
     int train_exit_step = -1; //110000;
-	int canvas_mode = 0;    //  0:評価エピソードの終了状況を描画 1:学習エピソードの終了状態を描画 2:学習状況を描画 
-    uint64_t seed = 0;
 
-    CartPoleFrame::Config(const anet::ConfigData& configData) : anet::Config(configData, "train", "CartPoleFrame") {
-        ANET_APPLY_CONFIG(configData, batch_size);
-        ANET_APPLY_CONFIG(configData, timer_ms);
-        ANET_APPLY_CONFIG(configData, step_per_frame);
-        ANET_APPLY_CONFIG(configData, eval_interval);
-        ANET_APPLY_CONFIG(configData, train_pause_step);
-        ANET_APPLY_CONFIG(configData, train_exit_step);
-        ANET_APPLY_CONFIG(configData, seed);
+	bool enable_image_log = true;
+
+    CartPoleFrame::Config(const anet::ConfigData& config_data) : anet::Config(config_data, "train")
+    {
+        ANET_READ_CONFIG(config_data, seed);
+        ANET_READ_CONFIG(config_data, batch_size);
+        ANET_READ_CONFIG(config_data, timer_ms);
+        ANET_READ_CONFIG(config_data, step_per_frame);
+        ANET_READ_CONFIG(config_data, eval_interval);
+        ANET_READ_CONFIG(config_data, train_pause_step);
+        ANET_READ_CONFIG(config_data, train_exit_step);
+        ANET_READ_CONFIG(config_data, enable_image_log);
     }
 };
 
@@ -46,13 +51,14 @@ const torch::Device AGENT_DEVICE = torch::kCUDA;
 
 CartPoleFrame::CartPoleFrame(const wxString& title)
     : wxFrame(nullptr, wxID_ANY, title, wxDefaultPosition, wxSize(800, 800)),
-    config_(std::make_unique<CartPoleFrame::Config>(wxGetApp().GetConfig("train"))),
     device_agent_(AGENT_DEVICE),
     timer(this, wxID_ANY),
     train_reward_ema_(0.001),
     msec_per_step_ema_(0.001)
 {
-    //test_heatmap_and_histgram();
+	// --- 設定読み込み ---
+    auto config_data = wxGetApp().GetConfig();
+    config_ = std::make_unique<CartPoleFrame::Config>(config_data);
 
     // --- GUIレイアウト ---
     wxBoxSizer* vbox = new wxBoxSizer(wxVERTICAL);
@@ -97,19 +103,23 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     wxLogInfo("grobal_seed=%lld env_seed=%lld agent_seed=%lld", grobal_seed, env_seed, agent_seed);
 
     // パラメータ記録
-    wxLogInfo("train.preset=%s confg=%s", wxGetApp().GetConfig("train").Get("preset"), config_->ToString());
+    //wxLogInfo("train.preset=%s confg=%s", wxGetApp().GetConfig("train").Get("preset"), config_->ToString());
     anet::MetricsLogger::Instance()->LogJson("train/seed",
         { "grobal_seed", grobal_seed, "agent_seed", agent_seed, "env_seed", env_seed });
     anet::MetricsLogger::Instance()->LogJson("train/config", config_->ToJson());
     anet::MetricsLogger::Instance()->Flush();
 
     // ENV生成
-    auto env_config_data = wxGetApp().GetConfig("env");
-    anet::rl::DefaultBatchEnvFactoryConfig env_config(env_config_data);
-    auto env_factory = anet::rl::DefaultBatchEnvFactory(env_config, config_->batch_size, env_seed);
+    anet::rl::DefaultBatchEnvFactoryConfig env_config(config_data);
+    wxLogInfo("env_config=%s", env_config.ToString());
+    auto env_factory = anet::rl::DefaultBatchEnvFactory(env_config, config_data, config_->batch_size, env_seed);
     auto env_device = env_factory.GetDevice();
     auto single_env_factory = env_factory.GetSingleFactory();
     env_ = env_factory.CreateBatchEnv();
+    if (env_ == nullptr) {
+        wxLogError("Failed to create env.");
+        return;
+    }
 
     auto batch_env_spec = env_->GetBatchSpec();
     auto env_spec = env_->GetSpec();
@@ -125,15 +135,15 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     //anet::MetricsLogger::Instance()->LogJson("eval_env", eval_result.ToJson());
 
     // Agent生成
-    anet::ConfigData agentConfig = wxGetApp().GetConfig("agent");
-    agent_ = std::make_shared<anet::rl::DQNAgent>(agentConfig, env_spec, device_agent_, agent_seed);
+    anet::rl::DQNAgentConfig agent_config(config_data);
+    agent_ = std::make_shared<anet::rl::DQNAgent>(agent_config, env_spec, device_agent_, agent_seed);
 
     // EpisodeEvalObserver
     notifier_.Attach<anet::rl::EpisodeEvalObserver>(
-        "11_eval/01_target_reward", single_env_factory, env_device, anet::rl::RunMode::Eval1,
+        "11_eval/01_target_reward", single_env_factory, config_data, env_device, anet::rl::RunMode::Eval1,
         config_->eval_interval, config_->eval_interval);
     notifier_.Attach<anet::rl::EpisodeEvalObserver>(
-        "11_eval/02_policy_reward", single_env_factory, env_device, anet::rl::RunMode::Eval2,
+        "11_eval/02_policy_reward", single_env_factory, config_data, env_device, anet::rl::RunMode::Eval2,
         config_->eval_interval, config_->eval_interval);
 
     // MetricsLogObserver
@@ -183,8 +193,7 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
 void CartPoleFrame::initImageLogObservers(const anet::rl::EnvSpec& env_spec)
 {
     // 有効設定チェック
-    bool enable_image_log = wxGetApp().GetConfig("log").Get("enable_image_log", true);
-    if (!enable_image_log)
+    if (!config_->enable_image_log)
         return;
 
     // flags

@@ -346,11 +346,12 @@ namespace anet::rl {
     EpisodeEvalObserver::EpisodeEvalObserver(
         const std::string& tag,
         std::shared_ptr<anet::rl::SingleDiscreteEnvFactory> eval_env_factory,
+		const ConfigData& config_data,
         const torch::Device& device,
         anet::rl::RunMode runmode, int log_interval, int eval_inerval, float ema_decay)
         : tag_(tag), runmode_(runmode), log_interval_(log_interval), eval_interval_(eval_inerval), eval_total_reward_(ema_decay)
     {
-        env_ = std::make_unique<VectorizedDiscreteBatchEnv>(eval_env_factory, 1, device);
+        env_ = std::make_unique<VectorizedDiscreteBatchEnv>(config_data, eval_env_factory, 1, device);
     }
 
     void EpisodeEvalObserver::OnPostUpdate(

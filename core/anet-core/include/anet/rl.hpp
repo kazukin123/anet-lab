@@ -10,6 +10,7 @@
 #include <nlohmann/json.hpp>
 #include "anet/tensor_check.hpp"
 #include "anet/random.hpp"
+#include "anet/config.hpp"
 
 namespace anet::rl {
 
@@ -367,6 +368,7 @@ namespace anet::rl {
     class SingleDiscreteEnvFactory {
     public:
         virtual std::unique_ptr<SingleDiscreteEnv> CreateSingleEnv(
+            const anet::ConfigData& configData,
             const torch::Device& device,
             std::optional<anet::seed_t> seed = std::nullopt) = 0;
         virtual std::string GetTargetEnvClassId() const = 0;

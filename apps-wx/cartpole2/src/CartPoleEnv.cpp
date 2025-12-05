@@ -8,7 +8,7 @@
 #include "anet/env.hpp"
 
 // 定数
-const int limit_step = 200;  // 終了条件
+
 //const int limit_step = 500;  // 終了条件
 const float reward_scale = 1.0f;  // 2 10  20
 const float done_reward = 1.0f;  // 2 10  20
@@ -29,14 +29,13 @@ const float tau = 0.02f;    //0.02f 0.01f
 
 const float deg = (float)M_PI / 180.0f;
 
-CartPoleEnv::CartPoleEnv(const torch::Device& device, std::optional<anet::seed_t> seed)
-    : RandomHolder(seed)
+CartPoleEnv::CartPoleEnv(
+    const CartPoleEnvConfig& config,
+    const torch::Device& device, std::optional<anet::seed_t> seed)
+    : RandomHolder(seed), config_(config)
 {
     // パラメータ記録
-    nlohmann::json params = {
-        {"limit_step", limit_step},
-    };
-    anet::MetricsLogger::Instance()->LogJson("env/params", params);
+    anet::MetricsLogger::Instance()->LogJson("CartPoleEnvConfig", config_.ToJson());
     anet::MetricsLogger::Instance()->Flush();
 
     obs_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
@@ -201,7 +200,7 @@ anet::rl::SingleStepResult CartPoleEnv::Step(int64_t action, anet::rl::RunMode m
     if (theta_deg < -limit_theta || theta_deg > limit_theta || x_ < -limit_x || x_ > limit_x) {
         // 倒立失敗
         reward = -done_reward;   // ← ペナルティ
-    } else if (step_count_ >= limit_step) {
+    } else if (step_count_ >= config_.limit_step) {
         // 時間切れ成功
         reward = done_reward;
         truncated_ = true;
@@ -225,9 +224,11 @@ CartPoleEnvFactory::CartPoleEnvFactory()
 }
 
 std::unique_ptr<anet::rl::SingleDiscreteEnv> CartPoleEnvFactory::CreateSingleEnv(
-    const torch::Device& device, std::optional<anet::seed_t> seed) 
+    const anet::ConfigData& config_data,
+    const torch::Device& device, std::optional<anet::seed_t> seed)
 {
-    return std::make_unique<CartPoleEnv>(device, seed);
+    CartPoleEnvConfig config(config_data);
+    return std::make_unique<CartPoleEnv>(config, device, seed);
 }
 
 ANET_REGIST_ENV_FACTORY(CartPoleEnvFactory);

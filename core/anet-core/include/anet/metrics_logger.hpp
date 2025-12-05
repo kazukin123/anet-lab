@@ -73,8 +73,6 @@ namespace anet {
         static void Init(std::unique_ptr<IBackend> backend, const std::string& root = "logs", const std::string& run = "");
         static void Reset();
 
-        void SetEnableImageLog(bool enable_image_log) { enable_image_log_ = enable_image_log; }
-
         inline void LogScalar(const std::string& tag, int step, double value) {
             json obj = {
                 {"type", "scalar"},
@@ -85,24 +83,13 @@ namespace anet {
             backend_->WriteJsonl(obj);
         }
 
-        inline void LogJson(const std::string& tag, const json& data) {
-            json rounded = round_numbers(data);
-            json obj = {
-                {"type", "json"},
-                {"tag", tag},
-                {"timestamp", current_time_str()},
-                {"data", rounded}
-            };
-            backend_->WriteJsonl(obj);
-        }
+        void LogJson(const std::string& tag, const json& data);
 
         inline void LogImage(const std::string& tag, int step, const wxImage& image) {
-            if (!enable_image_log_) return;
             LogImage_subtyped(tag, step, image, "");
         }
 
         inline void LogImage(const std::string& tag, int step, const anet::ImageSource& src, int width = -1, int height = -1) {
-            if (!enable_image_log_) return;
             auto img = src.Render(width, height);
             auto subtype = src.GetImageSubType();
             LogImage_subtyped(tag, step, img, subtype);
@@ -115,8 +102,7 @@ namespace anet {
         std::unique_ptr<IBackend> backend_;
         std::string root_dir_;
         std::string run_name_;
-        bool enable_image_log_ = true;
-
+        
         // 画像・動画用連番管理
         std::unordered_map<std::string, uint64_t> image_seq_;
         std::unordered_map<std::string, std::unique_ptr<VideoLogger>> video_loggers_;

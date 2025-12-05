@@ -1,12 +1,23 @@
 ﻿#pragma once
 #include <torch/torch.h>
 #include "anet/random.hpp"
+#include "anet/config.hpp"
 #include "anet/rl.hpp"
 
 /// CartPole環境実装（1環境固定）
+
+struct CartPoleEnvConfig : public anet::Config {
+    int limit_step = 200;
+
+    CartPoleEnvConfig(const anet::ConfigData& config_data) : anet::Config(config_data, "CartPoleEnv") {
+        ANET_READ_CONFIG(config_data, limit_step);
+    }
+};
+
 class CartPoleEnv : public anet::rl::SingleDiscreteEnv, public anet::RandomHolder {
 public:
     CartPoleEnv(
+        const CartPoleEnvConfig& config,
         const torch::Device& device,
         const std::optional<anet::seed_t> seed = std::nullopt);
 
@@ -19,6 +30,8 @@ public:
     float get_x_dot() const { return x_dot_; }
     float get_theta_dot() const { return theta_dot_; }
 private:
+    CartPoleEnvConfig config_;
+
     float x_, x_dot_, theta_, theta_dot_;
     bool done_ = false, truncated_ = false, episode_start_ = true;
     int step_count_ = 0;
@@ -29,9 +42,10 @@ class CartPoleEnvFactory : public anet::rl::SingleDiscreteEnvFactory {
 public:
     CartPoleEnvFactory();
 
-    std::string GetTargetEnvClassId() const override { return "CartPole"; }
+    std::string GetTargetEnvClassId() const override { return "CartPoleEnv"; }
 
     std::unique_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
+        const anet::ConfigData& config_data,
         const torch::Device& device, std::optional<anet::seed_t> seed = std::nullopt) override;
 };
 

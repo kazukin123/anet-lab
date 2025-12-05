@@ -1,37 +1,43 @@
 ﻿#pragma once
 
 #include <string>
+#include <vector>
+#include <sstream>
 #include <wx/cmdline.h>
 #include <nlohmann/json.hpp>
 #include "anet/util.hpp"
 
-
-// ---- 読み込みマクロ ----
-#ifndef ANET_APPLY_CONFIG
-#define ANET_APPLY_CONFIG(configData,field) \
-        (configData).Read((#field), (field), (field))
-#endif
 
 namespace anet {
 
     ///  Key-Valueベースの設定データ
     class ConfigData {
     public:
+		using MapType = anet::OrderedMap<std::string, std::string>;
+    public:
         ConfigData() {}
-        ConfigData(const ConfigData& from) {
-            this->kv_ = from.kv_;
+        ConfigData(const MapType& map) : map_(map) { }
+        ConfigData(const ConfigData& from) : map_(from.map_) { }
+
+        //ConfigData Make(const std::string& sub_class_id) const;
+    public:
+        void Set(const std::string& key, const std::string& value) {
+            map_.Set(key, value);
         }
 
-        void Set(const std::string& key, const std::string& value) {
-            kv_.Set(key, value);
+        template<typename T>
+        void Set(const std::string& key, const T& value) {
+            std::stringstream ss;
+            ss << value;
+            map_.Set(key, ss.str());
         }
 
         bool Has(const std::string& key) const {
-            return kv_.find(key) != kv_.end();
+            return map_.find(key) != map_.end();
         }
 
         const anet::OrderedMap<std::string, std::string> Map() const {
-            return kv_;
+            return map_;
         }
     public:
         std::string Get(const std::string& key, const char* defaultValue = "") const {
@@ -48,47 +54,47 @@ namespace anet {
         }
     public:
         bool Read(const std::string& key, std::string& value, const std::string& defaultValue) const {
-            auto it = kv_.find(key);
-            if (it == kv_.end()) { value = defaultValue; return false; }
+            auto it = map_.find(key);
+            if (it == map_.end()) { value = defaultValue; return false; }
             value = (*it).second;
             return true;
         }
 
         bool Read(const std::string& key, int& value, int defaultValue) const {
-            auto it = kv_.find(key);
-            if (it == kv_.end()) { value = defaultValue; return false; }
+            auto it = map_.find(key);
+            if (it == map_.end()) { value = defaultValue; return false; }
             try { value = std::stoi((*it).second); }
             catch (...) { value = defaultValue; return false; }
             return true;
         }
 
         bool Read(const std::string& key, float& value, float defaultValue) const {
-            auto it = kv_.find(key);
-            if (it == kv_.end()) { value = defaultValue; return false; }
+            auto it = map_.find(key);
+            if (it == map_.end()) { value = defaultValue; return false; }
             try { value = std::stof((*it).second); }
             catch (...) { value = defaultValue; return false; }
             return true;
         }
 
         bool Read(const std::string& key, double& value, double defaultValue) const {
-            auto it = kv_.find(key);
-            if (it == kv_.end()) { value = defaultValue; return false; }
+            auto it = map_.find(key);
+            if (it == map_.end()) { value = defaultValue; return false; }
             try { value = std::stod((*it).second); }
             catch (...) { value = defaultValue; return false; }
             return true;
         }
 
         bool Read(const std::string& key, uint64_t& value, uint64_t defaultValue) const {
-            auto it = kv_.find(key);
-            if (it == kv_.end()) { value = defaultValue; return false; }
+            auto it = map_.find(key);
+            if (it == map_.end()) { value = defaultValue; return false; }
             try { value = std::stoull((*it).second); }
             catch (...) { value = defaultValue; return false; }
             return true;
         }
 
         bool Read(const std::string& key, bool& value, bool defaultValue) const {
-            auto it = kv_.find(key);
-            if (it == kv_.end()) { value = defaultValue; return false; }
+            auto it = map_.find(key);
+            if (it == map_.end()) { value = defaultValue; return false; }
             const auto& v = (*it).second;
             if (v == "true" || v == "TRUE" || v == "1" || v == "yes" || v == "on") { value = true; return true; }
             if (v == "false" || v == "FALSE" || v == "0" || v == "no" || v == "off") { value = false; return true; }
@@ -97,7 +103,9 @@ namespace anet {
         }
 
     private:
-        anet::OrderedMap<std::string, std::string> kv_;
+        //std::vector<std::string> ResolveModule(const std::string& module) const;
+    private:
+        MapType map_;
     };
 
     /// Properties類似形式の設定ファイル操作クラス
@@ -116,36 +124,46 @@ namespace anet {
         void Load(const std::string& filename);
     };
 
-    /// 設定マネージャー。コマンドラインオプションとPropertiesファイルを元にConfigDataを生成。
-    class ConfigManager {
-    public:
-        ConfigManager(const std::string& filePath,const wxCmdLineParser* cmdLine = nullptr);
-
-        ConfigData Make(const std::string& module, const std::string& defaultPreset = "") const;    ///< @todo ConfigDataに移す
-        const ConfigData& GetConfigData() const { return data_; }
-    private:
-        void LoadFromFile(const std::string& filePath);
-        void ApplyCmdLineOverrides(const wxCmdLineParser& cmdLine);
-
-        // (module, defaultPreset) → resolvedModule を返す
-        std::string ResolveModule(const std::string& module,
-            const std::string& defaultPreset) const;
-    private:
-        ConfigData data_;
-    };
-
     /// モジュール別Configクラス実装用の基底クラス
     class Config {
     public:
-        Config();
-        Config(const ConfigData& configData, const std::string& className = "", const std::string& moduleName = "");
+        Config(const std::string& config_prefix_);
+        Config(const ConfigData& config_data, const std::string& config_prefix_);
 
         std::string ToString() const;
         nlohmann::json ToJson() const;
     protected:
-        ConfigData configData_;
-        std::string className_;
-        std::string moduleName_;
+        template<typename T>
+        void ReadConfig(const ConfigData& config_data, const std::string& key, T& value) {
+			std::string config_data_key = config_prefix_ + "." + key;
+            config_data.Read(config_data_key, value, value);
+			//auto str_val = config_data.Get<std::string>(config_data_key);
+            my_config_data_.Set(key, value);
+		}
+    protected:
+        ConfigData my_config_data_;
+        std::string config_prefix_;
     };
 
-} // namespace anet
+    /// 設定マネージャー。コマンドラインオプションとPropertiesファイルを元にConfigDataを生成。
+    class ConfigManager {
+    public:
+        ConfigManager(const std::string& filePath, const wxCmdLineParser* cmdLine = nullptr);
+
+        ConfigData GetConfigData() const { return { map_ }; }
+    private:
+        void LoadFromFile(const std::string& filePath);
+        void ApplyCmdLineOverrides(const wxCmdLineParser& cmdLine);
+        void AutoMerge();
+    private:
+        ConfigData::MapType map_;
+    };
+
+}
+
+// namespace anet
+// ---- 読み込みマクロ ----
+#ifndef ANET_READ_CONFIG
+#define ANET_READ_CONFIG(config_data, field) \
+        ReadConfig(config_data, (#field), (field))
+#endif

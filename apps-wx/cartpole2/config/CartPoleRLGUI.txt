@@ -1,19 +1,16 @@
 ﻿
-#train.preset=train.online
-train.preset=train.batchrun
+train.$ = train.online
+#train.$ = train.batchrun
 
-train.online.batch_size = 1
-train.batchrun.batch_size = 1
+train.seed = 3077901837422269870
+train.batch_size = 1
+train.enable_image_log = true
+#train.enable_image_log = false
 
-#train.online.seed=3077901837422269870
-#train.batchrun.seed=3077901837422269870
+DQNAgent.$ = agent_trunk
+#agent.$ = agent_20251127-032759
 
-#log.enable_image_log = false
-log.enable_image_log = true
-
-# agent
-agent.preset=agent_trunk
-#agent.preset=agent_20251127-032759
+env.$ = env.cartpole
 
 # ---- trunk
 agent_trunk.nn_init_mode=1          # ★ 0=default、1=XavierUniform、2=HeNormal
@@ -81,79 +78,26 @@ agent_20251127-032759.tau_half_life_recover = 2000  # 1000 安定後、τが2倍
 agent_20251127-032759.tau_recover_delay = 1000      # このステップ期間安定していたら回復開始
 agent_20251127-032759.act_bias_threshold = 0.35     # 行動偏り閾値 (|left_ratio - right_ratio| > act_bias_threshold → 崩壊)
 
-env.env_class_id = CartPole
-env.worker_threads = -1	# -1=auto
-#env.seed = 0           # 0=AutoSeed
-#env.device_type = 0    # 0=cpu 1=cuda
-#env.device_index = -1  # GPU index -1=current device
+env.cartpole.env_class_id = CartPoleEnv
+env.cartpole.worker_threads = -1	# -1=auto
+env.cartpole.device_type = 0    # 0=cpu 1=cuda
+env.cartpole.device_index = -1  # GPU index -1=current device
 
-## デフォルト設定
-agent.alpha=1e-3            # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-agent.gamma=0.99            # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
-agent.eps_max=1.00
-agent.eps_min=0.05          #0.1f 0.05f
-agent.eps_decay_step=100000
-agent.softupdate_tau=0.015  # 1.0f 0.004f  0.01f 0.005f;   // 大きいとターゲットネットワークからの反映が早くなる。小さいと遅く滑らかになる。0.005→半減期138step
-agent.hardupdate_step=2000  # -1 5000; //200 500 1000
-agent.grad_clip_tau=30.0    # 10~40 1f 5f 10f
-agent.use_td_clip=true
-agent.td_clip_value=4.0
-agent.eps_zero_step=-1      #120000;
-agent.use_double_dqn=true   # Double DQN 有効化フラグ（trueで有効）
-agent.use_replay_buffer=true
-agent.replay_capacity=50000
-agent.replay_batch_size=64
-agent.replay_warmup_steps=1000
-agent.replay_update_interval=4
-agent.heatmap_log_image_interval = 100
-agent.heatmap_log_sweep_interval = 100
-agent.heatmap_log_hist_interval = 10
-agent.use_as_dqn = false             //Adaptive Stabilized DQN (AS-DQN)
-agent.qstd_alpha = 0.01           //Q値 std の EWMA 平滑率
-agent.q_z_threshold = 3.0         //z-score 崩壊判定閾値
-agent.q_cv_threshold = 0.5        //CV 崩壊判定閾値
-agent.q_niqr_threshold = 0.6      //NIQR 崩壊判定閾値
-agent.eps_boost_max = 2.0         //ε ブースト上限倍率
-agent.eps_boost_half_life = 8000  //ε ブーストの自然減衰半減期
-agent.eps_boost_up = 1.03
-agent.eps_reheat_floor = 0.20
-agent_asdqn1.tau_max = 0.01            #τ の上限
-agent.tau_min = 0.0005            //τ の下限
-agent.tau_decay_on_hit = 0.98   # 1stepごとに+0.2%回復
-agent.tau_recover_rate = 0.002   // 1stepごとに+0.2%回復
-agent.tau_recover_delay = 1000     // 1000step安定していたら回復開始
-agent.act_bias_threshold = 0.85  // 行動偏り閾値 (|left_ratio - right_ratio| > act_bias_threshold → 崩壊)
-agent.use_unstable_ema = false    // 連続崩壊制御を使うか（切替用）
-agent.uema_half_life = 2000   // 半減期 [step]。ln2/半減期 が EMA係数
-agent.uema_u0 = 0.12            // 作動し始めの基準（無次元）
-agent.uema_k = 12.0            // シグモイドの傾き
-agent.uema_g1 = 0.02            // εブースト倍率のゲイン（相対）
-agent.uema_g2 = 0.05            // ε再加熱floorのゲイン（絶対上乗せ）
-agent.uema_g3 = 0.10            // τ減衰のゲイン（exp(-g3*s)）
-agent.eps_reheat_base = 0.10    // 停滞時の軽い再加熱ベース
-agent.unstable_ema_s_threshold = 0.0  // 連続崩壊度の閾値
+CartPoleEnv.limit_step = 200
+#CartPoleEnv.limit_step = 500
 
-
-## train default
-train.batch_size = 1
-train.timer_ms = 50
-train.step_per_frame = 10
-train.eval_interval = 50
-train.train_pause_step = -1
-train.train_exit_step = -1
-
-## 描画更新
-#train.online.batch_size = 1
 train.online.timer_ms = 10
 train.online.step_per_frame = 10
-train.online.eval_interval = 50
 train.online.train_pause_step = 500000 #500K
 
-## バッチ実行用
-#train.batchrun.batch_size = 1
 train.batchrun.timer_ms = 5
 train.batchrun.step_per_frame = 1000
-train.batchrun.eval_interval = 50
-train.batchrun.train_pause_step=-1
 train.batchrun.train_exit_step = 500000
+
+train.eval_interval = 50
+
+## MEMO
+# agent.*は無条件で最初に採用される。
+# その上で、例えば "agent.$ = agent.base > agent.trunk" があれば
+# agent.baseとagent.trunkの配下の内容が順にagentにマージされる。
 

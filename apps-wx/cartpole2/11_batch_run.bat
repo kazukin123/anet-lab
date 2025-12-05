@@ -1,9 +1,9 @@
 @echo off
 SET EXE="bin\Release\CartPoleRLGUI.exe"
 
-call:run_exe train.preset=train.batchrun agent.preset=agent_trunk
-call:run_exe train.preset=train.batchrun agent.preset=agent_trunk
-call:run_exe train.preset=train.batchrun agent.preset=agent_trunk
+call:run_exe "train.$=train.batchrun" "agent.$=agent_trunk"
+call:run_exe "train.$=train.batchrun" "agent.$=agent_trunk"
+call:run_exe "train.$=train.batchrun" "agent.$=agent_trunk"
 
 pause
 exit /b
