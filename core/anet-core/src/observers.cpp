@@ -7,14 +7,23 @@
 
 namespace anet::rl {
 
-    void MetricsLogObserver::OnPostUpdate(
-        int step,
-        std::shared_ptr<Agent> agent,
-        const anet::rl::BatchExperience& experiences,
-        std::shared_ptr<const anet::rl::BatchUpdateResult> result
-    )
+    MetricsLogObserver::MetricsLogObserver()
     {
-        auto map = result->GetMetricsMap();
+    }
+
+    //std::vector<MetricsLogObserver::MetricDef> MetricsLogObserver::GetMetricsDef(const std::string& key) const
+    //{
+    //    return { { key, anet::rl::StepAxis::Train } };
+    //}
+
+	void MetricsLogObserver::OnPostUpdate(const PostUpdateEvent& event)
+    {
+		/// @todo メトリクスのSTEP軸を指定できるようにする
+        //auto step = event.counts.learn_step;
+        //auto step = event.counts.exp_step;
+        auto step = event.counts.train_step;
+
+        auto map = event.update_result->GetMetricsMap();
         for (const auto& [tag, value] : map) {
             MetricsLogger::Instance()->LogScalar(tag, step, value);
         }
@@ -63,18 +72,17 @@ namespace anet::rl {
         );
     }
 
-    void HeatMapVectorObserver::OnPostUpdate(
-        int step,
-        std::shared_ptr<Agent> agent,
-        const anet::rl::BatchExperience& batch_exp,
-        std::shared_ptr<const anet::rl::BatchUpdateResult> result)
+    void HeatMapVectorObserver::OnPostUpdate(const PostUpdateEvent& event)
     {
         anet::ProfileRange r("HeatMapVectorObserver::OnPostUpdate");
 
+		/// @todo メトリクスのSTEP軸を指定できるようにする
+		auto step = event.counts.GetByAxis(anet::rl::StepAxis::Train);    
+
         // 生成： xv, yv, vv
-        auto xv = x_probe_->GetVector(step, agent, batch_exp, result);
-        auto yv = y_probe_->GetVector(step, agent, batch_exp, result);
-        auto vv = value_probe_->GetVector(step, agent, batch_exp, result);
+        auto xv = x_probe_->GetVector(event);
+        auto yv = y_probe_->GetVector(event);
+        auto vv = value_probe_->GetVector(event);
 
         // 揃ってなかったらスキップ
         if (!xv.has_value() || !yv.has_value() || !vv.has_value())
@@ -103,6 +111,37 @@ namespace anet::rl {
                 config_.image_width,
                 config_.image_height
             );
+        }
+    }
+
+    TimeHistogramObserver::TimeHistogramObserver(
+        const std::string& tag, const TimeHistogramObserverConfig& config,
+        std::shared_ptr<VectorProbe> probe)
+        : tag_(tag), config_(config), probe_(probe)
+    {
+        histogram_ = std::make_unique<anet::TimeHistogram>(
+            config_.bins, config_.max_frames, config_.mode, config_.flags, config_.base_min, config_.base_max, config_.alpha);
+    }
+
+    void TimeHistogramObserver::OnPostUpdate(const PostUpdateEvent& event)
+    {
+		/// @todo メトリクスのSTEP軸を指定できるようにする
+        auto step = event.counts.GetByAxis(anet::rl::StepAxis::Train);
+
+        // Probeで vectorを取得
+        auto values = probe_->GetVector(event);
+        if (values.has_value()) {
+            histogram_->AddBatch(*values);
+        }
+
+        // フレーム更新
+        if (step % config_.frame_interval == 0) {
+            histogram_->NextFrame();
+        }
+
+        // ログ出力
+        if (step % config_.log_interval == 0) {
+            MetricsLogger::Instance()->LogImage(tag_, step, *histogram_, config_.image_width, config_.image_height);
         }
     }
 
@@ -168,30 +207,29 @@ namespace anet::rl {
         return t;
     }
 
-    void MultiPairHeatMapObserver::OnPostUpdate(
-        int step,
-        std::shared_ptr<Agent> agent,
-        const BatchExperience& batch_exp,
-        std::shared_ptr<const BatchUpdateResult> result)
+    void MultiPairHeatMapObserver::OnPostUpdate(const anet::rl::PostUpdateEvent& event)
     {
         anet::ProfileRange r("MultiPairHeatMapObserver::OnPostUpdate");
 
+		/// @todo メトリクスのSTEP軸を指定できるようにする
+        auto step = event.counts.GetByAxis(anet::rl::StepAxis::Train);
+
         // 値ベクトル
-        auto vv = value_probe_->GetVector(step, agent, batch_exp, result);
+        auto vv = value_probe_->GetVector(event);
         if (!vv) return;
 
         // 全プローブペア i<j をスキャン
         const size_t m = axis_probes_.size();
 
         for (size_t i = 0; i < m; i++) {
-            auto xv = axis_probes_[i]->GetVector(step, agent, batch_exp, result);
+            auto xv = axis_probes_[i]->GetVector(event);
             if (!xv) continue;
 
             auto xmin = axis_probes_[i]->GetMin();
             auto xmax = axis_probes_[i]->GetMax();
 
             for (size_t j = i + 1; j < m; j++) {
-                auto yv = axis_probes_[j]->GetVector(step, agent, batch_exp, result);
+                auto yv = axis_probes_[j]->GetVector(event);
                 if (!yv) continue;
 
                 auto ymin = axis_probes_[j]->GetMin();
@@ -266,13 +304,12 @@ namespace anet::rl {
         );
     }
 
-    void SweepedHeatMapObserver::OnPostUpdate(
-        int step,
-        std::shared_ptr<Agent> agent,
-        const anet::rl::BatchExperience& experience,
-        std::shared_ptr<const anet::rl::BatchUpdateResult> result)
+    void SweepedHeatMapObserver::OnPostUpdate(const anet::rl::PostUpdateEvent& event)
     {
         anet::ProfileRange r("SweepedHeatMapObserver::OnPostUpdate");
+
+		/// @todo メトリクスのSTEP軸を指定できるようにする
+        auto step = event.counts.GetByAxis(anet::rl::StepAxis::Train);
 
         if (step % config_.log_interval != 0) return;
 
@@ -354,27 +391,29 @@ namespace anet::rl {
         env_ = std::make_unique<VectorizedDiscreteBatchEnv>(config_data, eval_env_factory, 1, device);
     }
 
-    void EpisodeEvalObserver::OnPostUpdate(
-        int step,
-        std::shared_ptr<Agent> agent,
-        const BatchExperience& batch_exp,
-        std::shared_ptr<const BatchUpdateResult> result)
+    void EpisodeEvalObserver::OnPostUpdate(const anet::rl::PostUpdateEvent& event)
     {
         anet::ProfileRange r("EpisodeEvalObserver::OnPostUpdate");
 
+		/// @todo メトリクスのSTEP軸を指定できるようにする
+        auto step = event.counts.GetByAxis(anet::rl::StepAxis::Train);
+
         // 評価エピソードを終端まで回す
         if (step % eval_interval_ == 0) {
+			StepCounts counts;
             auto state = env_->Reset(runmode_);
             auto eps_total_reward = 0.0f;
             bool done = false;
             bool truncated = false;
             do {
-                auto action = agent->MakeAction(state, runmode_);
+                auto action = event.agent->MakeAction(counts, state, runmode_);
                 auto env_result = env_->Step(action.action);
                 eps_total_reward += env_result.reward.mean().item<float>();
                 state = env_result.continue_state;
                 done = env_result.next_state.IsDone();
                 truncated = env_result.next_state.IsTruncated();
+                
+                counts.train_step++;
             } while (!done && !truncated);
             eval_total_reward_.Update(eps_total_reward);
         }

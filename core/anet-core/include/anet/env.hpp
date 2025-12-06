@@ -134,13 +134,12 @@ namespace anet::rl {
         torch::Device GetDevice() const { return device_; }
     public:
     private:
-        std::shared_ptr<ThreadPool> createPool(int worker_threads) const;
-        int getLogicalCores() const;
-        int getPhysicalCores() const;
-        int resolveWorkerThreads(int batch) const;
+        std::shared_ptr<ThreadPool> CreatePool(int worker_threads) const;
+        int GetLogicalCores() const;
+        int ResolveWorkerThreads(int batch) const;
     private:
-        ConfigData config_data_;
         DefaultBatchEnvFactoryConfig config_;
+        ConfigData config_data_;
         int batch_size_;
         std::optional<seed_t> seed_;
         torch::Device device_;

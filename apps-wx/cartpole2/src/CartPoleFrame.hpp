@@ -23,12 +23,12 @@ public:
 
     virtual void DoLogText(const wxString& msg);
 private:
-    void initImageLogObservers(const anet::rl::EnvSpec& env_spec);
-private:
-    // パラメータ
-    struct Config;
-    std::unique_ptr<Config> config_;
+    // イベントハンドラ
+    void OnTimer(wxTimerEvent& event);
+    void OnMouseClick(wxMouseEvent& event);
 
+    wxDECLARE_EVENT_TABLE();
+private:
     // GUI部品
     CartPoleCanvas* canvas = nullptr;
     PlotPanel* plotPanel = nullptr;
@@ -38,19 +38,12 @@ private:
     wxTimer timer;
     bool training_paused = false;
     bool auto_pause_done_ = false;
-
-    // 強化学習関連
-    std::shared_ptr<anet::rl::BatchEnv> env_;
-    std::shared_ptr<anet::rl::Agent> agent_;
-    anet::rl::BatchState state_;
-    anet::rl::Notifier notifier_;
-
-    // メトリクス
-    int step_count_ = 0;
-    std::chrono::high_resolution_clock::time_point start_time_;
-    std::chrono::high_resolution_clock::time_point last_time_;
-    anet::EmaFilter<float> train_reward_ema_;
-    anet::EmaFilter<float> msec_per_step_ema_;
+private:
+    void initImageLogObservers(const anet::rl::EnvSpec& env_spec);
+private:
+    // パラメータ
+    struct Config;
+    std::unique_ptr<Config> config_;
 
     // デバイス
     torch::Device device_agent_;
@@ -58,9 +51,18 @@ private:
     // 乱数
     std::unique_ptr<anet::MasterSeedManager> master_seed_;
 
-    // イベントハンドラ
-    void OnTimer(wxTimerEvent& event);
-    void OnMouseClick(wxMouseEvent& event);
+    // 強化学習関連
+    anet::rl::StepCounts step_counts_;
+    std::shared_ptr<anet::rl::BatchEnv> env_;
+    std::shared_ptr<anet::rl::Agent> agent_;
+    anet::rl::BatchState state_;
 
-    wxDECLARE_EVENT_TABLE();
+    // メトリクス
+    anet::rl::Notifier notifier_;
+    std::chrono::high_resolution_clock::time_point start_time_;
+    std::chrono::high_resolution_clock::time_point last_time_;
+    anet::rl::step_t last_exp_step_ = 0;
+    anet::EmaFilter<float> train_reward_ema_;
+    anet::EmaFilter<float> train_step_per_sec_ema_;
+    anet::EmaFilter<float> exp_step_per_sec_ema_;
 };

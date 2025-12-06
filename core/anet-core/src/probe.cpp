@@ -6,31 +6,19 @@
 
 using namespace anet::rl;
 
-std::optional<float> MetricsScalarProbe::GetFloat(
-    int step,
-    std::shared_ptr<anet::rl::Agent> agent,
-    const anet::rl::BatchExperience& batch_exp,
-    std::shared_ptr<const anet::rl::BatchUpdateResult> result) const
+std::optional<float> MetricsScalarProbe::GetFloat(const PostUpdateEvent& event) const
 {
-    return result->GetScalar(key_);
+    return event.update_result->GetScalar(key_);
 }
 
-std::optional<float> StaticScalarProbe::GetFloat(
-    int,
-    std::shared_ptr<anet::rl::Agent> agent,
-    const anet::rl::BatchExperience& batch_exp,
-    std::shared_ptr<const anet::rl::BatchUpdateResult> result) const
+std::optional<float> StaticScalarProbe::GetFloat(const PostUpdateEvent& event) const
 {
     return value_;
 }
 
-std::optional<float> FunctionScalarProbe::GetFloat(
-    int step,
-    std::shared_ptr<anet::rl::Agent> agent,
-    const anet::rl::BatchExperience& batch_exp,
-    std::shared_ptr<const anet::rl::BatchUpdateResult> result) const
+std::optional<float> FunctionScalarProbe::GetFloat(const PostUpdateEvent& event) const
 {
-    return fn_(step, agent, batch_exp, std::move(result));
+    return fn_(event);
 }
 
 BatchExperienceStateProbe::BatchExperienceStateProbe(
@@ -69,16 +57,12 @@ BatchExperienceStateProbe::BatchExperienceStateProbe(
     }
 }
 
-std::optional<std::vector<float>> BatchExperienceStateProbe::GetVector(
-        int step,
-        std::shared_ptr<anet::rl::Agent> agent,
-        const anet::rl::BatchExperience& batch_exp,
-        std::shared_ptr<const anet::rl::BatchUpdateResult> result) const
+std::optional<std::vector<float>> BatchExperienceStateProbe::GetVector(const PostUpdateEvent& event) const
 {
     // 対象obs（現状態 or next_state）
     auto obs = (for_next_state_) ?
-        batch_exp.GetTensor(anet::rl::BatchExperience::NEXT_STATE_OBS) : 
-        batch_exp.GetTensor(anet::rl::BatchExperience::STATE_OBS);
+        event.batch_exp.GetTensor(anet::rl::BatchExperience::NEXT_STATE_OBS) :
+        event.batch_exp.GetTensor(anet::rl::BatchExperience::STATE_OBS);
     ANET_ASSERT(obs.has_value());
 
     if (!obs->defined())
@@ -124,13 +108,9 @@ BatchExperienceRewardProbe::BatchExperienceRewardProbe(const anet::rl::EnvSpec* 
     }
 }
 
-std::optional<std::vector<float>> BatchExperienceRewardProbe::GetVector(
-    int step,
-    std::shared_ptr<anet::rl::Agent> agent,
-    const anet::rl::BatchExperience& batch_exp,
-    std::shared_ptr<const anet::rl::BatchUpdateResult> result) const
+std::optional<std::vector<float>> BatchExperienceRewardProbe::GetVector(const PostUpdateEvent& event) const
 {
-    auto tensor = batch_exp.GetTensor(anet::rl::BatchExperience::REWARD);
+    auto tensor = event.batch_exp.GetTensor(anet::rl::BatchExperience::REWARD);
     ANET_ASSERT(tensor.has_value());
     ANET_CHECK_SHAPE(*tensor, { ANET_SHAPE_ANY });   // (N)
     ANET_CHECK_DTYPE(*tensor, torch::kFloat32);
@@ -147,16 +127,13 @@ std::optional<std::vector<float>> BatchExperienceRewardProbe::GetVector(
 }
 
 BatchUpdateResultTensorToVectorProbe::BatchUpdateResultTensorToVectorProbe(const std::string& key, std::optional<float> min, std::optional<float> max)
-    : key_(key), min_(min), max_(max) {
+    : key_(key), min_(min), max_(max)
+{
 }
 
-std::optional<std::vector<float>> BatchUpdateResultTensorToVectorProbe::GetVector(
-    int step,
-    std::shared_ptr<anet::rl::Agent> agent,
-    const anet::rl::BatchExperience& batch_exp,
-    std::shared_ptr<const anet::rl::BatchUpdateResult> result) const
+std::optional<std::vector<float>> BatchUpdateResultTensorToVectorProbe::GetVector(const PostUpdateEvent& event) const
 {
-    auto tensor = result->GetTensor(key_);
+    auto tensor = event.update_result->GetTensor(key_);
     //ANET_ASSERT(tensor.has_value());   // key誤りによるバグ防止のため
     if (!tensor.has_value()) return std::nullopt;
     if (!tensor->defined()) return std::nullopt;
@@ -232,13 +209,9 @@ AgentTensorVectorProbe::AgentTensorVectorProbe(
     // minだけ指定、maxだけ指定でもOK
 }
 
-std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(
-    int step,
-    std::shared_ptr<anet::rl::Agent> agent,
-    const anet::rl::BatchExperience& batch_exp,
-    std::shared_ptr<const anet::rl::BatchUpdateResult> result) const
+std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const PostUpdateEvent& event) const
 {
-    auto opt_vec = agent->GetTensorVector(key_);
+    auto opt_vec = event.agent->GetTensorVector(key_);
     ANET_ASSERT(opt_vec.has_value());
     const auto& tvec = opt_vec.value();
 

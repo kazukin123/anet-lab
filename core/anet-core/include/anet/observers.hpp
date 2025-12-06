@@ -8,15 +8,18 @@ namespace anet::rl {
 
     class MetricsLogObserver : public anet::rl::PostUpdateObserver {
     public:
-        MetricsLogObserver() = default;
+        struct MetricDef {
+            std::string tag;
+            anet::rl::StepAxis step_axis;
+		};
+        using MetricsDefMap = std::unordered_map<std::string, std::vector<MetricDef>>;
+    public:
+        MetricsLogObserver();
         virtual ~MetricsLogObserver() = default;
 
-        void OnPostUpdate(
-            int step,
-            std::shared_ptr<Agent> agent,
-            const anet::rl::BatchExperience& experiences,
-            std::shared_ptr<const anet::rl::BatchUpdateResult> result
-        ) override;
+        void OnPostUpdate(const PostUpdateEvent& event) override;
+    private:
+        MetricsDefMap metric_def_map_;
     };
 
     /**
@@ -79,11 +82,7 @@ namespace anet::rl {
             std::shared_ptr<VectorProbe> y_probe,
             std::shared_ptr<VectorProbe> value_probe);
 
-        void OnPostUpdate(
-            int step,
-            std::shared_ptr<Agent> agent,
-            const anet::rl::BatchExperience& batch_experience,
-            std::shared_ptr<const anet::rl::BatchUpdateResult> result) override;
+        void OnPostUpdate(const PostUpdateEvent& event) override;
     private:
         HeatMapObserverConfig config_;
         std::string tag_;
@@ -118,39 +117,11 @@ namespace anet::rl {
     class TimeHistogramObserver : public anet::rl::PostUpdateObserver {
     public:
         TimeHistogramObserver(
-            const std::string& tag, const TimeHistogramObserverConfig& config,
-            std::shared_ptr<VectorProbe> probe)
-            : tag_(tag), config_(config), probe_(probe)
-        {
-            histogram_ = std::make_unique<anet::TimeHistogram>(
-                config_.bins, config_.max_frames, config_.mode, config_.flags, config_.base_min, config_.base_max, config_.alpha);
-        }
+            const std::string& tag,
+            const TimeHistogramObserverConfig& config,
+            std::shared_ptr<VectorProbe> probe);
 
-        void OnPostUpdate(
-            int step,
-            std::shared_ptr<Agent> agent,
-            const anet::rl::BatchExperience& batch_exp,
-            std::shared_ptr<const anet::rl::BatchUpdateResult> result) override
-        {
-            // Probeで vectorを取得
-            //auto exp_list = batch_exp.ToExperienceList();
-            //for (auto exp : exp_list) {
-                auto values = probe_->GetVector(step, agent, batch_exp, result);
-                if (values.has_value()) {
-                    histogram_->AddBatch(*values);
-                }
-            //}
-
-            // フレーム更新
-            if (step % config_.frame_interval == 0) {
-                histogram_->NextFrame();
-            }
-
-            // ログ出力
-            if (step % config_.log_interval == 0) {
-                MetricsLogger::Instance()->LogImage(tag_, step, *histogram_, config_.image_width, config_.image_height);
-            }
-        }
+        void OnPostUpdate(const PostUpdateEvent& event) override;
     private:
         TimeHistogramObserverConfig config_;
         std::string tag_;
@@ -166,12 +137,7 @@ namespace anet::rl {
             const std::vector<std::shared_ptr<VectorProbe>>& axis_probes,
             std::shared_ptr<VectorProbe> value_probe);
 
-        void OnPostUpdate(
-            int step,
-            std::shared_ptr<Agent> agent,
-            const BatchExperience& batch_exp,
-            std::shared_ptr<const BatchUpdateResult> result) override;
-
+        void OnPostUpdate(const PostUpdateEvent& event) override;
     private:
         std::string tag_;
         HeatMapObserverConfig config_;
@@ -207,12 +173,7 @@ namespace anet::rl {
             std::shared_ptr<ISweepOutputExtractor> output_ext,
             const std::unordered_map<std::string, std::string>& scalar_tag_label_map = {});
 
-        void OnPostUpdate(
-            int step,
-            std::shared_ptr<Agent> agent,
-            const anet::rl::BatchExperience& experience,
-            std::shared_ptr<const anet::rl::BatchUpdateResult> result
-        ) override;
+        void OnPostUpdate(const PostUpdateEvent& event) override;
     private:
         std::string heatmap_tag_;
         SweepedHeatMapObserverConfig config_;
@@ -239,11 +200,7 @@ namespace anet::rl {
             int log_interval = 10, int eval_interval = 10,
             float ema_decay = 1.00);
 
-        void OnPostUpdate(
-            int step,
-            std::shared_ptr<Agent> agent,
-            const BatchExperience& batch_exp,
-            std::shared_ptr<const BatchUpdateResult> result) override;
+        void OnPostUpdate(const PostUpdateEvent& event) override;
     private:
         std::string tag_;
         std::unique_ptr<anet::rl::BatchEnv> env_;
@@ -255,22 +212,13 @@ namespace anet::rl {
 
     class FunctionObserver : public anet::rl::PostUpdateObserver {
     public:
-        using Fn = std::function<
-            void(
-                int step,
-                std::shared_ptr<anet::rl::Agent> agent,
-                const anet::rl::BatchExperience& batch_exp,
-                std::shared_ptr<const anet::rl::BatchUpdateResult> result)>;
+        using Fn = std::function<void(const anet::rl::PostUpdateEvent& event)>;
     public:
         FunctionObserver(Fn fn) : fn_(std::move(fn)) { ; }
 
-        void OnPostUpdate(
-            int step,
-            std::shared_ptr<Agent> agent,
-            const anet::rl::BatchExperience& batch_experience,
-            std::shared_ptr<const anet::rl::BatchUpdateResult> update_result) override
+        void OnPostUpdate(const anet::rl::PostUpdateEvent& event) override
         {
-            fn_(step, agent, batch_experience, update_result);
+            fn_(event);
         }
     private:
         Fn fn_;

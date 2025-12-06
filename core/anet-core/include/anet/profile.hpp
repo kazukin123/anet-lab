@@ -3,7 +3,7 @@
 
 namespace anet {
 
-    ///  @todo ProfileRange、リリースビルドやNVTX無効時はマクロで実態無し版に切換え
+    ///  @todo リリースビルドやNVTX無効時はマクロで実態無し版に切換え
 
     class ProfileRange {
     public:

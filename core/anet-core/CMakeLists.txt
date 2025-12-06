@@ -43,12 +43,14 @@ add_library(anet-core STATIC
     "src/config.cpp" "src/tensor_check.cpp" "src/tensor_utils.cpp" "src/random.cpp" 
     "src/replay_buffer.cpp" "src/observers.cpp" "src/eval_env.cpp" "src/probe.cpp" "src/env.cpp" "src/profile.cpp" "src/thread.cpp")
 
-target_include_directories(anet-core
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
+target_include_directories(anet-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+#target_precompile_headers(anet-core PRIVATE src/pch.h)
+target_link_libraries(anet-core PUBLIC ${TORCH_LIBRARIES})
 
-target_link_libraries(anet-core
-    PUBLIC ${TORCH_LIBRARIES}
+set_target_properties(anet-core PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY_DEBUG   ${CMAKE_CURRENT_SOURCE_DIR}/lib/Debug
+    ARCHIVE_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_CURRENT_SOURCE_DIR}/lib/RelWithDebugInfo
+    ARCHIVE_OUTPUT_DIRECTORY_RELEASE ${CMAKE_CURRENT_SOURCE_DIR}/lib/Release
 )
 
 set_property(TARGET anet-core PROPERTY CXX_STANDARD 17)

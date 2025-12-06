@@ -2,26 +2,36 @@
 train.$ = train.online
 #train.$ = train.batchrun
 
-train.seed = 3077901837422269870
-train.batch_size = 1
-train.enable_image_log = true
-#train.enable_image_log = false
+#train.seed = 3077901837422269870
+#train.seed = 10471613835926818675
+train.batch_size = 10
+#train.batch_size = 1
+train.enable_image_log = false      # default=true
 
 DQNAgent.$ = agent_trunk
 #agent.$ = agent_20251127-032759
 
 env.$ = env.cartpole
 
+#------------------
+
+## metrics
+#metrics.scalar.[32_agent_dqn_base/03_epsilon_learn] = agent.epsilon learn 
+#metrics.scalar.[32_agent_dqn_base/03_epsilon_train] = agent.epsilon train
+
+#------------------
+
 # ---- trunk
 agent_trunk.nn_init_mode=1          # ★ 0=default、1=XavierUniform、2=HeNormal
 agent_trunk.alpha=5e-4              # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+#agent_trunk.alpha=1e-4             # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
 agent_trunk.gamma=0.99              # ★ 0.99f; 0.995f      γが高いほど「長期安定」を目指す
 agent_trunk.eps_max=1.00            # 指数減衰  
 agent_trunk.eps_min=0.05            # 0.1f 0.05f
-#agent_trunk.eps_decay_step=100000  # 100K
-agent_trunk.eps_sigmoid_step=200000 # ★ 100K
+agent_trunk.eps_decay_step=20000    # 20K
+#agent_trunk.eps_sigmoid_step=20000 # ★ 10K
 agent_trunk.softupdate_tau=0.001    # ★ 1.0f 0.004f  0.01f 0.005f;
-agent_trunk.hardupdate_interval=-1  #  -1 5000; //200 500 1000
+#agent_trunk.hardupdate_interval=5000 #  -1 5000; //200 500 1000
 agent_trunk.use_grad_clip=true      #
 agent_trunk.grad_clip_tau=25        # 10 25 40 1f 5f 10f
 agent_trunk.use_td_clip=true        #
@@ -29,7 +39,7 @@ agent_trunk.td_clip_value=3.0       # 4.0
 agent_trunk.eps_zero_step=-1        # 120000;
 agent_trunk.use_double_dqn=true     # Double DQN 有効化フラグ（trueで有効）
 agent_trunk.use_replay_buffer=true  #
-agent_trunk.replay_capacity=30000   # ★
+agent_trunk.replay_capacity=10000   # ★
 agent_trunk.replay_batch_size=128
 agent_trunk.replay_warmup_steps=1000    #
 agent_trunk.replay_update_interval=10   # 
@@ -39,9 +49,36 @@ agent_trunk.q_niqr_threshold = 0.8        # 0.65 0.5 0.4-0.5 0.6 NIQR 崩壊判�
 agent_trunk.act_bias_threshold = 0.35     # 行動偏り閾値 (|left_ratio - right_ratio| > act_bias_threshold → 崩壊)
 agent_trunk.use_as_dqn = false            # Adaptive Stabilized DQN (AS-DQN)
 
+# ---- trunk
+#train.seed = 3077901837422269870
+agent_20251203-180040.nn_init_mode=1          # ★ 0=default、1=XavierUniform、2=HeNormal
+agent_20251203-180040.alpha=5e-4              # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_20251203-180040.gamma=0.99              # ★ 0.99f; 0.995f      γが高いほど「長期安定」を目指す
+agent_20251203-180040.eps_max=1.00            # 指数減衰  
+agent_20251203-180040.eps_min=0.05            # 0.1f 0.05f
+agent_20251203-180040.eps_sigmoid_step=200000 # ★ 100K
+agent_20251203-180040.softupdate_tau=0.001    # ★ 1.0f 0.004f  0.01f 0.005f;
+agent_20251203-180040.hardupdate_interval=-1  #  -1 5000; //200 500 1000
+agent_20251203-180040.use_grad_clip=true      #
+agent_20251203-180040.grad_clip_tau=25        # 10 25 40 1f 5f 10f
+agent_20251203-180040.use_td_clip=true        #
+agent_20251203-180040.td_clip_value=3.0       # 4.0
+agent_20251203-180040.eps_zero_step=-1        # 120000;
+agent_20251203-180040.use_double_dqn=true     # Double DQN 有効化フラグ（trueで有効）
+agent_20251203-180040.use_replay_buffer=true  #
+agent_20251203-180040.replay_capacity=30000   # ★
+agent_20251203-180040.replay_batch_size=128
+agent_20251203-180040.replay_warmup_steps=1000    #
+agent_20251203-180040.replay_update_interval=10   # 
+agent_20251203-180040.q_z_threshold = 2.6           # 2.0 1.5-2.0 3.0 z-score 崩壊判定閾値
+agent_20251203-180040.q_cv_threshold = 0.35         # 0.45 0.3 0.25-0.35 0.5 CV 崩壊判定閾値
+agent_20251203-180040.q_niqr_threshold = 0.8        # 0.65 0.5 0.4-0.5 0.6 NIQR 崩壊判定閾値
+agent_20251203-180040.act_bias_threshold = 0.35     # 行動偏り閾値 (|left_ratio - right_ratio| > act_bias_threshold → 崩壊)
+agent_20251203-180040.use_as_dqn = false            # Adaptive Stabilized DQN (AS-DQN)
+
 
 ### DQNAgent 暫定安定版
-##train.online.seed=171730964985300
+##train.seed=171730964985300
 agent_20251127-032759.nn_init_mode=0         # // 0=default、1=XavierUniform、2=HeNormal
 agent_20251127-032759.alpha=5e-4             # ★学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
 agent_20251127-032759.gamma=0.99             # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
@@ -95,6 +132,7 @@ train.batchrun.step_per_frame = 1000
 train.batchrun.train_exit_step = 500000
 
 train.eval_interval = 50
+train.perf_log_interval = 100
 
 ## MEMO
 # agent.*は無条件で最初に採用される。

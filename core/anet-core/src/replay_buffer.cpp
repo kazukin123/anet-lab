@@ -157,7 +157,6 @@ namespace anet::rl {
                     episode_start_.index_select(0, idx).to(device)  // next_states.episode_start
                 }
             });
-
         ANET_CHECK_SHAPE(out.obs, { b, state_count_ });
         ANET_CHECK_SHAPE(out.actions,{ b, n_actions_ });
         ANET_CHECK_SHAPE(out.rewards, { b });

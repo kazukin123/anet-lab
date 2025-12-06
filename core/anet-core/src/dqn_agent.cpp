@@ -2,6 +2,7 @@
 
 #include "anet/dqn_agent.hpp"
 #include <tuple>
+#include <torch/torch.h>
 #include <wx/log.h>
 #include "anet/nn_util.hpp"
 #include "anet/tensor_utils.hpp"
@@ -28,6 +29,7 @@ struct DQNAgent::RuntimeVars {
     // ランタイムパラメータ
     float epsilon = 1.0f;
     float tau = 0.0f;
+	step_t learn_step = 0;
 
     // --------------
 
@@ -110,8 +112,10 @@ private:
     //auto max_q_ = max_q_finite.detach().to(torch::kFloat32).contiguous().cpu(); // (N,)
 
 public:
-    DQNAgent::BatchUpdateResult(const DQNAgent::RuntimeVars& vars, const std::optional<torch::Tensor>& max_q)
-        : max_q_(max_q){
+    DQNAgent::BatchUpdateResult(const DQNAgent::RuntimeVars& vars,
+        const std::optional<torch::Tensor>& max_q, uint32_t learn_step_diff)
+        : anet::rl::BatchUpdateResult(learn_step_diff), max_q_(max_q)
+    {
         // A 群：DQN基本事項
         map_["32_agent_dqn_base/03_epsilon"] = vars.epsilon;
         map_["32_agent_dqn_base/04_tau"] = vars.tau;
@@ -313,7 +317,6 @@ private:
     DQNAgent& agent_;
 };
 
-
 // ===============================
 // DQNAgent::ReplayScheduler
 // ===============================
@@ -323,16 +326,16 @@ public:
         : config_(config) {
     }
 
-    bool CanUpdate(size_t step, const ReplayBuffer& buf) const
+    bool CanUpdate(step_t update_step, int batch_size, const ReplayBuffer& buf) const
     {
         // warmup（経験不足なら更新しない）
-        if (buf.Size() < static_cast<size_t>(config_.replay_warmup_steps)) {
+        if (buf.Size() < static_cast<size_t>(config_.replay_warmup_steps * batch_size)) {
             return false;
         }
 
         // interval（毎 step=4 のような更新頻度）
-        if (config_.replay_update_interval > 1 &&
-            (step % config_.replay_update_interval) != 0)
+        if (config_.replay_update_interval > 0 &&
+            (update_step % config_.replay_update_interval) != 0)
         {
             return false;
         }
@@ -437,11 +440,11 @@ public:
     // ------------------------------------------------------
     void UpdateActionStats(RuntimeVars& vars, const anet::rl::BatchActionInfo& info) const
     {
-        anet::ProfileRange  r("DQNAgent::UpdateActionStats");
-
+        anet::ProfileRange r("DQNAgent::UpdateActionStats");
         torch::Tensor a = info.action;  // (N, action_dim)
-        auto a_cpu = a.to(torch::kCPU).reshape({ -1 });
+        auto a_cpu = a.to(torch::kCPU).reshape({ -1 }).contiguous();
         const int64_t n = a_cpu.numel();
+        ANET_CHECK_DTYPE(a_cpu, torch::kInt64);
 
         int64_t cnt0 = 0;
         int64_t cnt1 = 0;
@@ -585,7 +588,7 @@ public:
     // ・行動偏りに基づく collapse を取得
     // ・epsilon ブースト（hit側）だけを担当
     // ------------------------------------------------------------
-    void UpdateOnStep(RuntimeVars& vars, StabilityMonitor& mon, size_t step) const
+    void UpdateOnStep(RuntimeVars& vars, StabilityMonitor& mon, step_t step) const
     {
         anet::ProfileRange  r("DQNAgent::UpdateOnStep");
 
@@ -656,7 +659,7 @@ private:
     // ============================================================
     // ε 更新：Step 側（hit = ブースト）
     // ============================================================
-    float ComputeBoostEpsilon(float eps, float collapse, size_t step) const
+    float ComputeBoostEpsilon(float eps, float collapse, step_t step) const
     {
         if (collapse < config_.eps_gain) {
             return eps; // ブーストしない
@@ -751,7 +754,7 @@ public:
         vars.tau = config_.softupdate_tau;
     }
 
-    float ComputeEpsilon(size_t step) const
+    float ComputeEpsilon(step_t step) const
     {
         anet::ProfileRange  r("DQNAgent::ComputeEpsilon");
 
@@ -769,7 +772,7 @@ public:
         }
     }
 private:
-    float ComputeEpsilonDecay(size_t step) const
+    float ComputeEpsilonDecay(step_t step) const
     {
         // 自然減衰
         float decay = std::exp(-static_cast<float>(step) / config_.eps_decay_step);
@@ -779,7 +782,7 @@ private:
         eps = std::max(config_.eps_min, std::min(config_.eps_max, eps));
         return eps;
     }
-    float ComputeEpsilonSigmoid(size_t step) const
+    float ComputeEpsilonSigmoid(step_t step) const
     {
         int t_max = config_.eps_sigmoid_step;
         float eps_max = config_.eps_max;
@@ -798,12 +801,15 @@ private:
 // ======================================================
 // DQNAgent 本体
 // ======================================================
-DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, torch::Device device, std::optional<seed_t> seed) :
-    StepBasedAgent(config, device, seed),
-    state_count_(env_spec.state_spec.CalcFlattenSize()),
-    n_actions_(env_spec.action_spec.ActionCount()),
-    policy_net_(std::make_shared<QNetImpl>(state_count_, n_actions_)),
-    target_net_(std::make_shared<QNetImpl>(state_count_, n_actions_))
+DQNAgent::DQNAgent(const DQNAgentConfig& config,
+    anet::rl::BatchEnvSpec batch_env_spec, anet::rl::EnvSpec& env_spec,
+    torch::Device device, std::optional<seed_t> seed)
+    : StepBasedAgent(config, device, seed)
+    , state_count_(env_spec.state_spec.CalcFlattenSize())
+    , n_actions_(env_spec.action_spec.ActionCount())
+	, batch_size_(batch_env_spec.batch_size)
+    , policy_net_(std::make_shared<QNetImpl>(state_count_, n_actions_))
+    , target_net_(std::make_shared<QNetImpl>(state_count_, n_actions_))
 {
     //seed
     anet::SeedMaker seed_maker(GetSeed());
@@ -845,7 +851,7 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
     // 内部モジュール生成
     this->optimizer_ = std::make_unique<torch::optim::Adam>(policy_net_->parameters(), torch::optim::AdamOptions(config_.alpha));
     this->vars_updater_ = std::make_unique<RuntimeVarsUpdater>(config_);
-    this->replay_buffer_ = std::make_unique<anet::rl::ReplayBuffer>(env_spec, config_.replay_capacity, replay_seed);
+    this->replay_buffer_ = std::make_unique<anet::rl::ReplayBuffer>(env_spec, batch_size_ * config_.replay_capacity, replay_seed);
     this->action_decider_ = std::make_unique<ActionDecider>(*this, action_decider_seed);
     this->replay_scheduler_ = std::make_unique<ReplayScheduler>(this->config_);
     this->target_updater_ = std::make_unique<TargetUpdater>(this->config_);
@@ -862,7 +868,8 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, to
 }
 
 
-anet::rl::BatchActionInfo DQNAgent::MakeAction(const anet::rl::BatchState& state, anet::rl::RunMode mode)
+anet::rl::BatchActionInfo DQNAgent::MakeAction(
+    const StepCounts& step, const anet::rl::BatchState& state, anet::rl::RunMode mode)
 {
     ProfileRange r1("DQNAgent::MakeAction");
     ANET_CHECK_SHAPE(state.obs, { ANY, state_count_ });
@@ -897,14 +904,14 @@ anet::rl::BatchActionInfo DQNAgent::MakeAction(const anet::rl::BatchState& state
         stability_monitor_->UpdateActionStats(*vars_, act_info);
 
         // 崩壊情報更新
-        stability_controller_->UpdateOnStep(*vars_, *stability_monitor_, step_count_);
+        stability_controller_->UpdateOnStep(*vars_, *stability_monitor_, vars_->learn_step);
     }
 
     return act_info;
 }
 
 std::shared_ptr<const anet::rl::BatchUpdateResult>
-DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
+DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp)
 {
     ProfileRange r1("DQNAgent::UpdateFromBatch");
 
@@ -914,8 +921,9 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
     replay_buffer_->Push(batch_exp);
 
     // 学習タイミング判定
-    const bool can_update = replay_scheduler_->CanUpdate(step_count_, *replay_buffer_);
+    const bool can_update = replay_scheduler_->CanUpdate(counts.update_step, batch_size_, *replay_buffer_);
 
+    uint32_t learn_step_diff = 0;
     std::optional<torch::Tensor> result_max_q;
     if (can_update) {
         const int B = config_.replay_batch_size;
@@ -1068,8 +1076,12 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
         // 更新
         optimizer_->step();
 
+        // optimizerを動かしたので step数を更新
+        vars_->learn_step++;
+        learn_step_diff++;
+
         // target_network更新
-        target_updater_->Sync(step_count_, vars_->tau, policy_net_, target_net_);
+        target_updater_->Sync(vars_->learn_step, vars_->tau, policy_net_, target_net_);
 
         // StabilityMonitor 更新（TD / loss / Q / 勾配ノルム）
         float loss_scalar = loss_tensor.item<float>();
@@ -1082,19 +1094,17 @@ DQNAgent::UpdateFromBatch(const anet::rl::BatchExperience& batch_exp)
             grad_clip_ratio);
 
         // 崩壊情報を更新
-        stability_controller_->UpdateOnLearn(*vars_, *stability_monitor_, step_count_);
-    }
+        stability_controller_->UpdateOnLearn(*vars_, *stability_monitor_, vars_->learn_step);
+
+    }   // can_update
 
     // 内部状態変数を更新
     if (!config_.use_as_dqn) {
-        vars_->epsilon = vars_updater_->ComputeEpsilon(step_count_);
+        vars_->epsilon = vars_updater_->ComputeEpsilon(vars_->learn_step);
     }
 
     // 戻り用変数
-    auto result = std::make_shared<DQNAgent::BatchUpdateResult>(*vars_, result_max_q);
-
-    // step カウンタ更新
-    step_count_++;
+    auto result = std::make_shared<DQNAgent::BatchUpdateResult>(*vars_, result_max_q, learn_step_diff);
 
     return result;
 }

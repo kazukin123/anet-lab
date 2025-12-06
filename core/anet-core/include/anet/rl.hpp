@@ -4,6 +4,7 @@
 #include <string>
 #include <map>
 #include <unordered_map>
+#include <stdexcept>
 #include <optional>
 #include <cstdint>
 #include <torch/torch.h>
@@ -63,6 +64,67 @@ namespace anet::rl {
 
     ========================
     */
+
+    // =============================================================
+
+    enum class StepAxis {
+        Train,
+        Exp,
+        Update,
+        Learn,
+        Episode,
+        Sim
+    };
+
+    using step_t = uint64_t;
+
+    struct StepCounts {
+        step_t train_step = 0;
+        step_t exp_step = 0;
+        step_t update_step = 0;
+        step_t learn_step = 0;
+        step_t episode_count = 0;
+        step_t sim_step = 0;
+
+        step_t& GetByAxis(StepAxis axis)
+        {
+            switch (axis) {
+            case StepAxis::Train: return train_step;
+            case StepAxis::Exp: return exp_step;
+            case StepAxis::Update: return update_step;
+            case StepAxis::Learn: return learn_step;
+            case StepAxis::Episode: return episode_count;
+            case StepAxis::Sim: return sim_step;
+            }
+            throw std::runtime_error("StepCounts::GetByAxis(): invalid StepAxis");
+		}
+
+        step_t GetByAxis(StepAxis axis) const
+        {
+            switch (axis) {
+            case StepAxis::Train: return train_step;
+            case StepAxis::Exp: return exp_step;
+            case StepAxis::Update: return update_step;
+            case StepAxis::Learn: return learn_step;
+            case StepAxis::Episode: return episode_count;
+            case StepAxis::Sim: return sim_step;
+            }
+            throw std::runtime_error("StepCounts::GetByAxis(): invalid StepAxis");
+        }
+    };
+
+    static std::string toString(StepAxis step_axis)
+    {
+        switch (step_axis) {
+        case StepAxis::Train: return "train";
+        case StepAxis::Exp: return "exp";
+        case StepAxis::Update: return "update";
+        case StepAxis::Learn: return "learn";
+        case StepAxis::Episode: return "episode";
+        case StepAxis::Sim: return "sim";
+        }
+        return "";
+    }
 
     // =============================================================
     // RunMode
@@ -238,9 +300,11 @@ namespace anet::rl {
         torch::Tensor reward;       ///< 報酬          (N) kFloat32
         BatchState next_state;      ///< 遷移後の観測  (N, state_dim...)
         BatchState continue_state;  ///< 実行継続用（Reset 後の状態も含む）
-
+        uint32_t n_transitions;     ///< 今回のStepにおける状態遷移カウント数
+        uint32_t n_done;            ///< 今回のStepにおけるエピソード終了カウント数
+        
         BatchStepResult to(torch::Device device) const {
-            return { reward.to(device), next_state.to(device), continue_state.to(device)};
+            return { reward.to(device), next_state.to(device), continue_state.to(device), n_transitions, n_done };
         }
         std::string ToString() const;
     };
@@ -249,8 +313,16 @@ namespace anet::rl {
 
     class BatchUpdateResult : public DataExporter {
     public:
+		BatchUpdateResult(uint32_t learn_step_diff) : learn_step_diff_(learn_step_diff) {}
+
         virtual MetricsMap GetMetricsMap() const = 0;
+        uint32_t GetLearnStepDiff() const { return learn_step_diff_; }
+
         virtual ~BatchUpdateResult() = default;
+    protected:
+        void SetLearnStepDiff(uint32_t diff) { learn_step_diff_ = diff; }
+    protected:
+        uint32_t learn_step_diff_;   ///< この batch で増えた learn_step数
     };
 
     // ------------------------------------------------------------
@@ -398,7 +470,8 @@ namespace anet::rl {
 
     class Runner {
     public:
-        virtual BatchActionInfo MakeAction(const anet::rl::BatchState& state, RunMode mode = RunMode::Train) = 0;
+        virtual BatchActionInfo MakeAction(
+            const StepCounts& counts, const anet::rl::BatchState& state, RunMode mode = RunMode::Train) = 0;
         virtual ~Runner() = default;
     };
 
@@ -411,7 +484,8 @@ namespace anet::rl {
 
     class Learner {
     public:
-        virtual std::shared_ptr<const BatchUpdateResult> UpdateFromBatch(const BatchExperience& expriences) = 0;
+        virtual std::shared_ptr<const BatchUpdateResult> UpdateFromBatch(
+            const StepCounts& step, const BatchExperience& expriences) = 0;
         virtual ~Learner() = default;
     };
 
@@ -430,7 +504,7 @@ namespace anet::rl {
         }
         virtual ~StepBasedAgent() = default;
 
-        int GetStepCount() const { return step_count_; }
+        //int GetStepCount() const { return step_count_; }
     protected:
         mutable std::shared_mutex mutex_;
     protected:
@@ -439,7 +513,7 @@ namespace anet::rl {
         torch::Device device_;
     protected:
         // InternalState
-        int step_count_ = 0;
+        //int step_count_ = 0;
     };
 
     /// @todo 複数ステップ（軌跡）収集後に更新する Agent 基底クラス（PPO, TRPO など）
@@ -451,21 +525,15 @@ namespace anet::rl {
     // =============================================================
 
     struct PostUpdateEvent {
-        int step;
-        std::shared_ptr<Agent> agent;
         const BatchExperience& batch_exp;
+        StepCounts counts;
+        std::shared_ptr<Agent> agent;
         std::shared_ptr<const BatchUpdateResult> update_result;
     };
 
     class PostUpdateObserver {
     public:
-        /// @todo PostUpdateEventを組み込み
-        virtual void OnPostUpdate(
-            int step,
-            std::shared_ptr<Agent> agent,
-            const BatchExperience& batch_exp,
-            std::shared_ptr<const BatchUpdateResult> update_result
-        ) = 0;
+        virtual void OnPostUpdate(const PostUpdateEvent& event) = 0;
         virtual ~PostUpdateObserver() = default;
     };
 
@@ -475,12 +543,7 @@ namespace anet::rl {
 
         void Attach(std::shared_ptr<PostUpdateObserver> observer);
         void Detach(std::shared_ptr<PostUpdateObserver> observer);
-        void Notify(
-            size_t step,
-            std::shared_ptr<Agent> agent,
-            const BatchExperience& batch_exp,
-            const std::shared_ptr<const BatchUpdateResult>& update_result
-        );
+        void Notify(const PostUpdateEvent& event);
     public:
         template <class T, class... Args>
         std::shared_ptr<T> Attach(Args&&... args)

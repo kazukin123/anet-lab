@@ -36,7 +36,7 @@ namespace anet {
             return map_.find(key) != map_.end();
         }
 
-        const anet::OrderedMap<std::string, std::string> Map() const {
+        const anet::OrderedMap<std::string, std::string>& Map() const {
             return map_;
         }
     public:
@@ -131,7 +131,7 @@ namespace anet {
         Config(const ConfigData& config_data, const std::string& config_prefix_);
 
         std::string ToString() const;
-        nlohmann::json ToJson() const;
+        nlohmann::json ToJson() const { return my_config_json_; }
     protected:
         template<typename T>
         void ReadConfig(const ConfigData& config_data, const std::string& key, T& value) {
@@ -139,9 +139,11 @@ namespace anet {
             config_data.Read(config_data_key, value, value);
 			//auto str_val = config_data.Get<std::string>(config_data_key);
             my_config_data_.Set(key, value);
+            my_config_json_[key] = value;
 		}
     protected:
-        ConfigData my_config_data_;
+        ConfigData my_config_data_;     ///<! my_config_data_ 廃止？
+        nlohmann::json my_config_json_;
         std::string config_prefix_;
     };
 

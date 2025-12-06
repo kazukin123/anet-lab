@@ -36,7 +36,9 @@ void CartPoleCanvas::SetBatchExperience(const anet::rl::BatchExperience& exp)
     // state
     torch::Tensor obs = exp.state.Flatten().obs[BATCH_POS];
     cart_x_ = obs[0].item<float>();
+	cart_x_dot_ = obs[1].item<float>();
     pole_theta_ = obs[2].item<float>();
+	pole_theta_dot_ = obs[3].item<float>();
 
     // action
     action_ = exp.action.action[BATCH_POS].item<int64_t>();

@@ -306,6 +306,8 @@ namespace anet::rl {
         oss << "reward=" << anet::ToString(reward);
         oss << ", next_state=" << next_state.ToString();
         oss << ", continue_state=" << continue_state.ToString();
+        oss << ", n_transitions=" << n_transitions;
+        oss << ", n_done=" << n_done;
         oss << "}";
         return oss.str();
     }
@@ -495,7 +497,10 @@ namespace anet::rl {
         return oss.str();
     }
 
-    Notifier::Notifier() { ; }
+    Notifier::Notifier()
+    {
+        ;
+    }
 
     void Notifier::Attach(std::shared_ptr<PostUpdateObserver> obs)
     {
@@ -515,17 +520,13 @@ namespace anet::rl {
         );
     }
 
-    void Notifier::Notify(
-        size_t step,
-        std::shared_ptr<Agent> agent,
-        const BatchExperience& expriences,
-        const std::shared_ptr<const BatchUpdateResult>& result
-    )
+	void Notifier::Notify(const PostUpdateEvent& event)
     {
         anet::ProfileRange r("Notifier::Notify");
 
         for (std::shared_ptr<PostUpdateObserver> o : observers_) {
-            o->OnPostUpdate(step, agent, expriences, result);
+            o->OnPostUpdate(event);
         }
     }
+
 } // namespace anet::rl

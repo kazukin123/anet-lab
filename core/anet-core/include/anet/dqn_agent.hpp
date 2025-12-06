@@ -19,7 +19,7 @@ namespace anet::rl {
         int eps_decay_step = 100000;
         int eps_sigmoid_step = -1;
         float softupdate_tau = 0.01f;  ///<  1.0f 0.004f  0.01f 0.005f;   // 大きいとターゲットネットワークからの反映が早くなる。小さいと遅く滑らかになる。0.005→半減期138step
-        int hardupdate_interval = 2000;
+        int hardupdate_interval = -1;
         bool use_grad_clip = true;
         float grad_clip_tau = 30.0f;
         bool use_td_clip = true;
@@ -32,7 +32,7 @@ namespace anet::rl {
         int replay_capacity = 50000;
         int replay_batch_size = 64;
         int replay_warmup_steps = 1000;
-        int replay_update_interval = 4;
+        int replay_update_interval = 10;
 
         /// @todo AS-DQN系メトリクスの計測か出力を無効化する設定を追加
 
@@ -117,10 +117,14 @@ namespace anet::rl {
 
     class DQNAgent : public anet::rl::StepBasedAgent<DQNAgentConfig> {
     public:
-        DQNAgent(const DQNAgentConfig& config, anet::rl::EnvSpec& env_spec, torch::Device device, std::optional<seed_t> seed = std::nullopt);
+        DQNAgent(
+            const DQNAgentConfig& config,
+            anet::rl::BatchEnvSpec batc_env_spec, anet::rl::EnvSpec& env_spec,
+            torch::Device device, std::optional<seed_t> seed = std::nullopt);
 
-        anet::rl::BatchActionInfo MakeAction(const anet::rl::BatchState& state, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
-        std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromBatch(const anet::rl::BatchExperience& exprience) override;
+        anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const anet::rl::BatchState& state, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
+        std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromBatch(
+            const StepCounts& step, const anet::rl::BatchExperience& exprience) override;
 
         anet::TensorFunction GetTensorFunction(const std::string& key) const override;
         std::optional<float> GetScalar(const std::string& key) const override;
@@ -129,6 +133,7 @@ namespace anet::rl {
     private:
         int state_count_;
         int n_actions_;
+		int batch_size_;
     private:
         class BatchUpdateResult;
     private:

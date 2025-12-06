@@ -73,45 +73,46 @@ namespace anet {
     }
 
     std::string Config::ToString() const {
-        std::ostringstream oss;
-        oss << "[class=" << config_prefix_ << "]\n";
+        //std::ostringstream oss;
+        //oss << "[class=" << config_prefix_ << "]\n";
 
-        for (const auto& kv : my_config_data_.Map()) {
-            oss << kv.first << " = " << kv.second << "\n";
-        }
+        //for (const auto& kv : my_config_data_.Map()) {
+        //    oss << kv.first << " = " << kv.second << "\n";
+        //}
 
-        return oss.str();
+        //return oss.str();
+        return ToJson().dump(2);
     }
 
-    nlohmann::json Config::ToJson() const {
-        nlohmann::json j;
-        j["class"] = config_prefix_;
+    //nlohmann::json Config::ToJson() const {
+    //    nlohmann::json j;
+    //    j["class"] = config_prefix_;
 
-        nlohmann::json params = nlohmann::json::object();
-        for (const auto& kv : my_config_data_.Map()) {
-            const auto& key = kv.first;
-            const auto& val = kv.second;
+    //    nlohmann::json params = nlohmann::json::object();
+    //    for (const auto& kv : my_config_data_.Map()) {
+    //        const auto& key = kv.first;
+    //        const auto& val = kv.second;
 
-            // 数値かどうか簡易判定（小数点と符号は許容）
-            bool numeric = true;
-            for (char c : val) {
-                if (!(std::isdigit(c) || c == '.' || c == '-')) {
-                    numeric = false;
-                    break;
-                }
-            }
+    //        // 数値かどうか簡易判定（小数点と符号は許容）
+    //        bool numeric = true;
+    //        for (char c : val) {
+    //            if (!(std::isdigit(c) || c == '.' || c == '-')) {
+    //                numeric = false;
+    //                break;
+    //            }
+    //        }
 
-            if (!val.empty() && numeric) {
-                params[key] = std::stod(val);
-            }
-            else {
-                params[key] = val;
-            }
-        }
+    //        if (!val.empty() && numeric) {
+    //            params[key] = std::stod(val);
+    //        }
+    //        else {
+    //            params[key] = val;
+    //        }
+    //    }
 
-        j["params"] = params;
-        return j;
-    }
+    //    j["params"] = params;
+    //    return j;
+    //}
 
     // ---- ConfigManager ----
 

@@ -18,7 +18,7 @@ namespace anet {
 
     void JsonlBackend::WriteJsonl(const json& obj) {
         ofs << obj.dump() << "\n";
-        ofs.flush();
+        //ofs.flush();
     }
 
     void JsonlBackend::Flush() { ofs.flush(); }

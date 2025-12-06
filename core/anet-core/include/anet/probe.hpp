@@ -13,11 +13,7 @@ namespace anet::rl {
 
     class ScalarProbe {
     public:
-        virtual std::optional<float> GetFloat(
-            int step,
-            std::shared_ptr<anet::rl::Agent> agent,
-            const anet::rl::BatchExperience& batch_exp,
-            std::shared_ptr<const anet::rl::BatchUpdateResult> result) const = 0;
+        virtual std::optional<float> GetFloat(const anet::rl::PostUpdateEvent& event) const = 0;
 
         virtual std::optional<std::string> GetName() const { return std::nullopt; }
         virtual std::optional<float> GetMin() const = 0;
@@ -31,11 +27,7 @@ namespace anet::rl {
      */
     class VectorProbe {
     public:
-        virtual std::optional<std::vector<float>> GetVector(
-            int step,
-            std::shared_ptr<anet::rl::Agent> agent,
-            const anet::rl::BatchExperience& batch_exp,
-            std::shared_ptr<const anet::rl::BatchUpdateResult> result) const = 0;
+        virtual std::optional<std::vector<float>> GetVector(const anet::rl::PostUpdateEvent& event) const = 0;
 
         virtual std::optional<std::string> GetName() const { return std::nullopt; }
         virtual std::optional<float> GetMin() const = 0;
@@ -57,11 +49,7 @@ namespace anet::rl {
             : key_(std::move(key)), name_(name) {
         }
 
-        std::optional<float> GetFloat(
-            int step,
-            std::shared_ptr<anet::rl::Agent> agent,
-            const anet::rl::BatchExperience& batch_exp,
-            std::shared_ptr<const anet::rl::BatchUpdateResult> result) const override;
+        std::optional<float> GetFloat(const anet::rl::PostUpdateEvent& event) const override;
 
         std::optional<std::string> GetName() const override { return name_.has_value() ? name_ : key_; }
         std::optional<float> GetMin() const override { return std::nullopt; }
@@ -81,11 +69,7 @@ namespace anet::rl {
             : value_(value), name_(name) {
         }
 
-        std::optional<float> GetFloat(
-            int step,
-            std::shared_ptr<anet::rl::Agent> agent,
-            const anet::rl::BatchExperience& batch_exp,
-            std::shared_ptr<const anet::rl::BatchUpdateResult> result) const override;
+        std::optional<float> GetFloat(const anet::rl::PostUpdateEvent& event) const override;
 
         std::optional<std::string> GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return value_; }
@@ -100,12 +84,7 @@ namespace anet::rl {
      */
     class FunctionScalarProbe : public ScalarProbe {
     public:
-        using Fn = std::function<
-            std::optional<float>(
-                int step,
-                std::shared_ptr<anet::rl::Agent> agent,
-                const anet::rl::BatchExperience& batch_exp,
-                std::shared_ptr<const anet::rl::BatchUpdateResult> update_result)>;
+        using Fn = std::function<std::optional<float>(const anet::rl::PostUpdateEvent& event)>;
 
         FunctionScalarProbe(
             const std::string& name,
@@ -115,11 +94,7 @@ namespace anet::rl {
             : fn_(std::move(fn)), min_(min), max_(max) {
         }
 
-        std::optional<float> GetFloat(
-            int step,
-            std::shared_ptr<anet::rl::Agent> agent,
-            const anet::rl::BatchExperience& batch_exp,
-            std::shared_ptr<const anet::rl::BatchUpdateResult> update_result) const override;
+        std::optional<float> GetFloat(const anet::rl::PostUpdateEvent& event) const override;
 
         std::optional<std::string> GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }
@@ -135,7 +110,7 @@ namespace anet::rl {
     // VectorProbe impl
     //==============================================================
 
-    class BatchExperienceBasedVectorProbe : public  VectorProbe {
+    class BatchExperienceBasedVectorProbe : public VectorProbe {
     public:
         virtual std::optional<std::vector<float>> GetVectorFromExperience(
             int step,
@@ -146,16 +121,15 @@ namespace anet::rl {
         /**
          * @brief 観測情報からFloat値を生成
          */
-        virtual std::optional<std::vector<float>> GetVector(
-            int step,
-            std::shared_ptr<anet::rl::Agent> agent,
-            const anet::rl::BatchExperience& batch_exp,
-            std::shared_ptr<const anet::rl::BatchUpdateResult> result) const
+		virtual std::optional<std::vector<float>> GetVector(const anet::rl::PostUpdateEvent& event) const override
         {
+			/// @todo step_counts のどれを使うか選択できるようにする
+			auto step = event.counts.train_step;
+
             std::vector<float> ret;
-            auto exps = batch_exp.ToExperienceList();
+            auto exps = event.batch_exp.ToExperienceList();
             for (auto e : exps) {
-                auto vec = GetVectorFromExperience(step, agent, e, result);
+                auto vec = GetVectorFromExperience(step, event.agent, e, event.update_result);
                 if (vec.has_value()) {
                     ret.insert(ret.begin(), vec->begin(), vec->end());
                 }
@@ -178,11 +152,7 @@ namespace anet::rl {
             int64_t state_index, const anet::rl::StateSpec* spec = nullptr, bool for_next_state = true,
             const std::optional<std::string> name = std::nullopt);
 
-        std::optional<std::vector<float>> GetVector(
-            int step,
-            std::shared_ptr<anet::rl::Agent> agent,
-            const anet::rl::BatchExperience& batch_exp,
-            std::shared_ptr<const anet::rl::BatchUpdateResult> result) const override;
+        std::optional<std::vector<float>> GetVector(const anet::rl::PostUpdateEvent& event) const override;
 
         std::optional<std::string> GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }
@@ -202,11 +172,7 @@ namespace anet::rl {
          */
         BatchExperienceRewardProbe(const anet::rl::EnvSpec* spec = nullptr, std::optional<std::string> name = std::nullopt);
 
-        std::optional<std::vector<float>> GetVector(
-            int step,
-            std::shared_ptr<anet::rl::Agent> agent,
-            const anet::rl::BatchExperience& batch_exp,
-            std::shared_ptr<const anet::rl::BatchUpdateResult> result) const override;
+        std::optional<std::vector<float>> GetVector(const anet::rl::PostUpdateEvent& event) const override;
 
         std::optional<std::string> GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }
@@ -221,11 +187,7 @@ namespace anet::rl {
     public:
         BatchUpdateResultTensorToVectorProbe(const std::string& key, std::optional<float> min = std::nullopt, std::optional<float> max = std::nullopt);
 
-        std::optional<std::vector<float>> GetVector(
-            int step,
-            std::shared_ptr<anet::rl::Agent> agent,
-            const anet::rl::BatchExperience& batch_exp,
-            std::shared_ptr<const anet::rl::BatchUpdateResult> result) const override;
+        std::optional<std::vector<float>> GetVector(const anet::rl::PostUpdateEvent& event) const override;
 
         std::optional<std::string> GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }
@@ -255,11 +217,7 @@ namespace anet::rl {
             std::optional<float> max_override = std::nullopt,
             std::optional<std::string> name = std::nullopt);
 
-        std::optional<std::vector<float>> GetVector(
-            int step,
-            std::shared_ptr<anet::rl::Agent> agent,
-            const anet::rl::BatchExperience& batch_exp,
-            std::shared_ptr<const anet::rl::BatchUpdateResult> result) const override;
+        std::optional<std::vector<float>> GetVector(const anet::rl::PostUpdateEvent& event) const override;
 
         std::optional<std::string> GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }

@@ -84,6 +84,8 @@ anet::rl::BatchStepResult DiscreteBatchEnvBase::createEmptyStepResult() const
             torch::empty({ batch_size_ }, bool_opt_),    // truncated     (N) kBool
             torch::empty({ batch_size_ }, bool_opt_)     // episode_start (N) kBool
         },
+        0,  // n_transitions
+		0   // n_done
     };
     return result;
 };
@@ -145,7 +147,7 @@ BatchStepResult VectorizedDiscreteBatchEnv::Step(const torch::Tensor& batch_acti
         batch_result.next_state.truncated.index_put_({ i }, single_result.next_state.truncated);
         batch_result.next_state.episode_start.index_put_({ i }, single_result.next_state.episode_start);
 
-        batch_result.reward.index_put_({ i }, single_result.reward);
+        batch_result.reward.select(0, i).fill_(single_result.reward);
 
         // Auto reset
         if (single_result.next_state.done || single_result.next_state.truncated) {
@@ -155,6 +157,9 @@ BatchStepResult VectorizedDiscreteBatchEnv::Step(const torch::Tensor& batch_acti
             batch_result.continue_state.done.index_put_({ i }, reset_state.done);
             batch_result.continue_state.truncated.index_put_({ i }, reset_state.truncated);
             batch_result.continue_state.episode_start.index_put_({ i }, reset_state.episode_start);
+
+            if (single_result.next_state.done)
+    			batch_result.n_done++;
         } else {
             batch_result.continue_state.obs.index_put_({ i }, single_result.next_state.obs);
             batch_result.continue_state.done.index_put_({ i }, false);
@@ -162,6 +167,8 @@ BatchStepResult VectorizedDiscreteBatchEnv::Step(const torch::Tensor& batch_acti
             batch_result.continue_state.episode_start.index_put_({ i }, single_result.next_state.episode_start);
         }
     }
+
+    batch_result.n_transitions = N;
 
     return batch_result;
 }
@@ -206,7 +213,7 @@ BatchState ThreadPoolDiscreteEnv::Reset(RunMode mode)
                 ANET_CHECK_DEVICE(s.obs, device_);
 
                 // 結果書き込み(i番目の行だけを書くので他 Worker と race しない)
-                state.obs[i].copy_(s.obs);
+                state.obs.select(0, i).copy_(s.obs);
                 state.done[i] = s.done;
                 state.truncated[i] = s.truncated;
                 state.episode_start[i] = s.episode_start;
@@ -231,27 +238,12 @@ BatchStepResult ThreadPoolDiscreteEnv::Step(const torch::Tensor& actions, RunMod
     ANET_ASSERT(worker_count > 0);
 
     // --- 返却バッファ（メインスレッドで一度だけ確保） ---
-
-    BatchStepResult result {
-        torch::empty({ N }, float_opt_),
-        BatchState {
-            torch::empty(obs_dims_, float_opt_),
-            torch::empty({ N }, bool_opt_),
-            torch::empty({ N }, bool_opt_),
-            torch::empty({ N }, bool_opt_),
-        },
-        BatchState {
-            torch::empty(obs_dims_, float_opt_),
-            torch::empty({ N }, bool_opt_),
-            torch::empty({ N }, bool_opt_),
-            torch::empty({ N }, bool_opt_),
-        },
-    };
+    BatchStepResult result = createEmptyStepResult();
 
     // --- 並列に Step + 結果書き込み ---
     for (int i = 0; i < N; ++i) {
         const int worker_id = i % worker_count;
-        int64_t action_i = actions[i].item<int64_t>();
+        const int64_t action_i = actions[i].item<int64_t>();
 
         pool_->Enqueue(worker_id,
             [this, &result, i, action_i, mode]()
@@ -261,7 +253,7 @@ BatchStepResult ThreadPoolDiscreteEnv::Step(const torch::Tensor& actions, RunMod
                 ANET_CHECK_DEVICE(r.next_state.obs, device_);
 
                 // --- next_state ---
-                result.next_state.obs[i].copy_(r.next_state.obs);
+                result.next_state.obs.select(0, i).copy_(r.next_state.obs);
                 result.next_state.done[i] = r.next_state.done;
                 result.next_state.truncated[i] = r.next_state.truncated;
                 result.next_state.episode_start[i] = r.next_state.episode_start;
@@ -274,23 +266,33 @@ BatchStepResult ThreadPoolDiscreteEnv::Step(const torch::Tensor& actions, RunMod
                     // Reset_required
                     SingleState reset_state = envs_[i]->Reset(mode);
                     ANET_CHECK_DEVICE(reset_state.obs, device_);
-                    result.continue_state.obs[i].copy_(reset_state.obs);
+                    result.continue_state.obs.select(0, i).copy_(reset_state.obs);
                     result.continue_state.done[i] = reset_state.done;
                     result.continue_state.truncated[i] = reset_state.truncated;
                     result.continue_state.episode_start[i] = reset_state.episode_start;
                 } else {
                     // Continue as-is
-                    result.continue_state.obs[i].copy_(r.next_state.obs);
+                    result.continue_state.obs.select(0, i).copy_(r.next_state.obs);
                     result.continue_state.done[i] = false;
                     result.continue_state.truncated[i] = false;
                     result.continue_state.episode_start[i] = r.next_state.episode_start;
                 }
             });
+
     }
 
     // --- すべてのタスク完了を待つ ---
     pool_->WaitAll();
 
+    // カウント
+    auto done = result.next_state.done;
+    if (done.device().is_cuda()) {
+        done = done.to(torch::kCPU);
+    }
+    result.n_done = done.sum().item<int>();
+    result.n_transitions = N;
+
+    // 返す
     return result;
 }
 
@@ -310,18 +312,20 @@ DefaultBatchEnvFactory::DefaultBatchEnvFactory(
 {
 }
 
-int DefaultBatchEnvFactory::getLogicalCores() const {
+int DefaultBatchEnvFactory::GetLogicalCores() const
+{
+	/// @todo 物理コア数も考慮する？
     unsigned int n = std::thread::hardware_concurrency();
     return (n == 0 ? 4 : (int)n);
 }
 
-int DefaultBatchEnvFactory::resolveWorkerThreads(int batch) const
+int DefaultBatchEnvFactory::ResolveWorkerThreads(int batch) const
 {
     int wt = config_.worker_threads;
 
     if (wt > 0) return wt;  // 明示指定
 
-    const int logical = getLogicalCores();
+    const int logical = GetLogicalCores();
 
     switch (wt) {
     case WorkerThreadAuto::AUTO: {
@@ -344,7 +348,7 @@ int DefaultBatchEnvFactory::resolveWorkerThreads(int batch) const
     }
 }
 
-std::shared_ptr<anet::ThreadPool> DefaultBatchEnvFactory::createPool(int worker_threads) const
+std::shared_ptr<anet::ThreadPool> DefaultBatchEnvFactory::CreatePool(int worker_threads) const
 {
     return std::make_shared<PinnedThreadPool>(worker_threads);
 }
@@ -364,13 +368,13 @@ std::shared_ptr<BatchEnv> DefaultBatchEnvFactory::CreateBatchEnv()
             config_data_, factory, 1, device_, seed_);
     }
 
-    int workers = resolveWorkerThreads(batch_size_);
+    int workers = ResolveWorkerThreads(batch_size_);
 
     // workers == 0 の理論的ケース防止
     if (workers <= 0) workers = 1;
 
     // ThreadPool の生成
-    auto pool = createPool(workers);
+    auto pool = CreatePool(workers);
 
     // ThreadPoolDiscreteEnv の生成
     return std::make_shared<ThreadPoolDiscreteEnv>(

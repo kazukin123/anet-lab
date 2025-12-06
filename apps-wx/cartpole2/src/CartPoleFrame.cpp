@@ -27,6 +27,7 @@ struct CartPoleFrame::Config : public anet::Config
     int train_exit_step = -1; //110000;
 
 	bool enable_image_log = true;
+    int perf_log_interval = 100;
 
     CartPoleFrame::Config(const anet::ConfigData& config_data) : anet::Config(config_data, "train")
     {
@@ -38,6 +39,7 @@ struct CartPoleFrame::Config : public anet::Config
         ANET_READ_CONFIG(config_data, train_pause_step);
         ANET_READ_CONFIG(config_data, train_exit_step);
         ANET_READ_CONFIG(config_data, enable_image_log);
+        ANET_READ_CONFIG(config_data, perf_log_interval);
     }
 };
 
@@ -54,7 +56,8 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     device_agent_(AGENT_DEVICE),
     timer(this, wxID_ANY),
     train_reward_ema_(0.001),
-    msec_per_step_ema_(0.001)
+    train_step_per_sec_ema_(0.001),
+    exp_step_per_sec_ema_(0.001)
 {
 	// --- 設定読み込み ---
     auto config_data = wxGetApp().GetConfig();
@@ -136,7 +139,7 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
 
     // Agent生成
     anet::rl::DQNAgentConfig agent_config(config_data);
-    agent_ = std::make_shared<anet::rl::DQNAgent>(agent_config, env_spec, device_agent_, agent_seed);
+    agent_ = std::make_shared<anet::rl::DQNAgent>(agent_config, batch_env_spec, env_spec, device_agent_, agent_seed);
 
     // EpisodeEvalObserver
     notifier_.Attach<anet::rl::EpisodeEvalObserver>(
@@ -153,22 +156,22 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
     auto plot_reward = std::make_shared<float>(0.0f);
     notifier_.Attach<anet::rl::FunctionObserver>(
         //[&, plot_reward](int step,
-        [this, plot_reward](int step,
-                std::shared_ptr<anet::rl::Agent> agent,
-            const anet::rl::BatchExperience& batch_exp,
-            std::shared_ptr<const anet::rl::BatchUpdateResult> update_result)
+        [this, plot_reward](const anet::rl::PostUpdateEvent& event)
         {
-            float step_reward = batch_exp.reward.mean().item<float>();
+            auto train_step = event.counts.train_step;
+
+            float step_reward = event.batch_exp.reward.mean().item<float>();
             train_reward_ema_.Update(step_reward);
-            anet::MetricsLogger::Instance()->LogScalar("10_train/10_total_reward", step_count_, train_reward_ema_.Value());
+            anet::MetricsLogger::Instance()->LogScalar(
+                "10_train/10_total_reward", train_step, train_reward_ema_.Value());
 
             *plot_reward += step_reward;
-            if (step % 10 == 0) {
+            if (event.counts.train_step % 10 == 0) {
                 this->plotPanel->AddReward(*plot_reward);
                 *plot_reward = 0;
             }
-            if (step % 100 == 0) {
-                wxLogInfo("step=%d  train_mean_reward=%f", step, train_reward_ema_.Value());
+            if (event.counts.train_step % 100 == 0) {
+                wxLogInfo("step=%llu  train_mean_reward=%f", train_step, train_reward_ema_.Value());
             }
         }
     );
@@ -446,27 +449,29 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
     for (int i = 0; i < config_->step_per_frame; ++i) {
         anet::ProfileRange r("CartPoleFrame::OnTimer.step");
 
-        if ((config_->train_exit_step > 0) && (step_count_ >= config_->train_exit_step)) {
+        auto train_step = step_counts_.train_step;
+
+        if ((config_->train_exit_step > 0) && (train_step >= config_->train_exit_step)) {
             anet::MetricsLogger::Instance()->Flush();
             wxGetApp().Exit();
         }
 
         // Stateチェック
-        wxLogDebug("CartPoleFrame::OnTimer() step=%d state=%s", step_count_, state_.ToString());
+        wxLogDebug("CartPoleFrame::OnTimer() step=%llu state=%s", train_step, state_.ToString());
         ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
         ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.Flatten().obs));
         const int N = state_.obs.size(0);
 
         // 行動選択
-        auto action_info = agent_->MakeAction(state_);
-        wxLogDebug("CartPoleFrame::OnTimer() step=%d action=%s", step_count_, action_info.ToString());
+        auto action_info = agent_->MakeAction(step_counts_, state_);
+        wxLogDebug("CartPoleFrame::OnTimer() step=%llu action=%s", train_step, action_info.ToString());
         ANET_CHECK_DEVICE(action_info.action, device_agent_);
         ANET_CHECK_SHAPE(action_info.action, { N });
 
         // 環境ステップ実行
         anet::rl::BatchStepResult result = env_->Step(action_info.action);    // next_state, reward, done, truncated
-        wxLogDebug("CartPoleFrame::OnTimer() step=%d reward=%s", step_count_, anet::ToString(result.reward));
-        wxLogDebug("CartPoleFrame::OnTimer() step=%d next_state=%s", step_count_, result.next_state.ToString());
+        wxLogDebug("CartPoleFrame::OnTimer() step=%llu reward=%s", train_step, anet::ToString(result.reward));
+        wxLogDebug("CartPoleFrame::OnTimer() step=%llu next_state=%s", train_step, result.next_state.ToString());
         ANET_CHECK_DEVICE(result.next_state.obs, torch::kCPU);
         ANET_CHECK_DEVICE(result.next_state.done, torch::kCPU);
         ANET_CHECK_DEVICE(result.next_state.truncated, torch::kCPU);
@@ -482,43 +487,74 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event) {
         ANET_CHECK_SHAPE(result.continue_state.done, { N });
         ANET_CHECK_SHAPE(result.continue_state.truncated, { N });
 
+        // カウント更新
+        step_counts_.train_step++;
+        step_counts_.exp_step += result.n_transitions;
+        step_counts_.episode_count += result.n_done;
+
         // Agent更新
         anet::rl::BatchExperience exp({ state_, action_info, result.reward, result.next_state });
-        auto update_result = agent_->UpdateFromBatch(exp);
+        auto update_result = agent_->UpdateFromBatch(step_counts_, exp);
+
+        // カウント更新
+        step_counts_.update_step++;
+        step_counts_.learn_step += update_result->GetLearnStepDiff();
 
         // 更新後処理
-        notifier_.Notify(step_count_, agent_, exp, update_result);
+        anet::rl::PostUpdateEvent  post_update_event { exp, step_counts_, agent_, update_result };
+        notifier_.Notify(post_update_event);
         state_ = result.continue_state;
         float step_reward = result.reward.mean().item<float>();
         frame_total_reward += step_reward;
 
-        // msec per step
+        // メトリクス算出（処理性能系）
+        auto exp_step = step_counts_.exp_step;
+		auto exp_step_delta = exp_step - last_exp_step_;
         std::chrono::high_resolution_clock::time_point now = std::chrono::high_resolution_clock::now();
         auto msec_diff = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time_).count();
-        auto epalsed_sec = static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count())/1000.0f ;
-        if (step_count_ != 0) { // 0ステップ目は誤差が大きいので
-            msec_per_step_ema_.Update(msec_diff);
-            anet::MetricsLogger::Instance()->LogScalar("90_train/01_msec_per_step", step_count_, msec_diff);
-            anet::MetricsLogger::Instance()->LogScalar("90_train/02_msec_per_step_ema", step_count_, msec_per_step_ema_.Value());
-            anet::MetricsLogger::Instance()->LogScalar("90_train/03_epalsed_sec", step_count_, epalsed_sec);
+        if (msec_diff <= 0) msec_diff = 1;
+        auto train_step_per_sec = 1.0f / static_cast<float>(msec_diff) * 1000.0f;
+        auto exp_step_per_sec = static_cast<float>(exp_step_delta) / static_cast<float>(msec_diff) * 1000.0f;
+        auto elapse_msec = static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count());
+        auto elapse_hour = elapse_msec / 1000.0f / 60.0f / 60.0f;
+
+
+        // メトリクス出力（処理性能系）
+        if (train_step != 0) { // 0ステップ目は誤差が大きいので
+            train_step_per_sec_ema_.Update(train_step_per_sec);
+            exp_step_per_sec_ema_.Update(exp_step_per_sec);
+
+            if (train_step % config_->perf_log_interval == 0) {
+                auto train_ema = train_step_per_sec_ema_.Value();
+                auto exp_ema = exp_step_per_sec_ema_.Value();
+
+                //anet::MetricsLogger::Instance()->LogScalar("90_perf/11_train_step_per_sec", train_step, train_step_per_sec);
+                //anet::MetricsLogger::Instance()->LogScalar("90_perf/12_exp_step_per_sec", train_step, exp_step_per_sec);
+                anet::MetricsLogger::Instance()->LogScalar("90_perf/21_train_step_per_sec_ema", train_step, train_ema);
+                anet::MetricsLogger::Instance()->LogScalar("90_perf/22_exp_step_per_sec_ema", train_step, exp_ema);
+                anet::MetricsLogger::Instance()->LogScalar("90_perf/82_exp_step", train_step, exp_step);
+                anet::MetricsLogger::Instance()->LogScalar("90_perf/90_elapse_hour", train_step, elapse_hour);
+            }
         }
         last_time_ = now;
-
+		last_exp_step_ = exp_step;
 
         // 描画
         canvas->SetBatchExperience(exp);
         canvas->Refresh();
 
-        // ステップ数インプリメント（グローバルなステップ数）
-        step_count_++;
     }
 
-    if ((config_->train_exit_step > 0) && (step_count_ >= config_->train_exit_step)) {
+    auto train_step = step_counts_.train_step;
+
+    // AP終了判定
+    if ((config_->train_exit_step > 0) && (train_step >= config_->train_exit_step)) {
         anet::MetricsLogger::Instance()->Flush();
         wxGetApp().Exit();
     }
 
-    if ((config_->train_pause_step > 0) && (step_count_ >= config_->train_pause_step) && !auto_pause_done_) {
+	// Train一時停止判定
+    if ((config_->train_pause_step > 0) && (train_step >= config_->train_pause_step) && !auto_pause_done_) {
         auto_pause_done_ = true;
         training_paused = true;
     }

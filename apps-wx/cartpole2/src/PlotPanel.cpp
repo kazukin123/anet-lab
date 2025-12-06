@@ -1,4 +1,4 @@
-#include "PlotPanel.hpp"
+ï»¿#include "PlotPanel.hpp"
 #include <algorithm>
 
 #include "CartPoleFrame.hpp"
@@ -11,7 +11,7 @@ wxEND_EVENT_TABLE()
 PlotPanel::PlotPanel(wxWindow* parent)
     : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_SIMPLE)
 {
-    SetBackgroundStyle(wxBG_STYLE_PAINT); // © ƒ_ƒuƒ‹ƒoƒbƒtƒ@•`‰æ—LŒø‰»
+    SetBackgroundStyle(wxBG_STYLE_PAINT); // â† ãƒ€ãƒ–ãƒ«ãƒãƒƒãƒ•ã‚¡æç”»æœ‰åŠ¹åŒ–
 }
 
 void PlotPanel::OnMouseClick(wxMouseEvent& event) {
@@ -21,9 +21,9 @@ void PlotPanel::OnMouseClick(wxMouseEvent& event) {
 
 void PlotPanel::AddReward(float reward) {
     rewards.push_back(reward);
-    if (rewards.size() > 1000)  // ÅV1000“_‚¾‚¯•Û
+    if (rewards.size() > 1000)  // æœ€æ–°1000ç‚¹ã ã‘ä¿æŒ
         rewards.erase(rewards.begin());
-    Refresh(false);            // Ä•`‰æ—v‹i‘¦‚Å‚Í‚È‚¢j
+    Refresh(false);            // å†æç”»è¦æ±‚ï¼ˆå³æ™‚ã§ã¯ãªã„ï¼‰
 }
 
 void PlotPanel::OnPaint(wxPaintEvent&) {
@@ -37,9 +37,9 @@ void PlotPanel::OnPaint(wxPaintEvent&) {
 
     wxSize sz = GetClientSize();
     float w = static_cast<float>(sz.GetWidth());
-    float h = static_cast<float>(sz.GetHeight());
+    float h = static_cast<float>(sz.GetHeight() - 50);
 
-    // ƒXƒP[ƒŠƒ“ƒO
+    // ã‚¹ã‚±ãƒ¼ãƒªãƒ³ã‚°
     float max_r = *std::max_element(rewards.begin(), rewards.end());
     float min_r = *std::min_element(rewards.begin(), rewards.end());
     if (max_r == min_r) { max_r += 1.0f; min_r -= 1.0f; }
@@ -49,17 +49,17 @@ void PlotPanel::OnPaint(wxPaintEvent&) {
     const int n = (int)rewards.size();
     for (int i = 1; i < n; i++) {
         float x1 = (w / (n - 1)) * (i - 1);
-        float y1 = h - (rewards[i - 1] - min_r) / (max_r - min_r) * h;
+        float y1 = 40 + h - (rewards[i - 1] - min_r) / (max_r - min_r) * h;
         float x2 = (w / (n - 1)) * i;
-        float y2 = h - (rewards[i] - min_r) / (max_r - min_r) * h;
+        float y2 = 40 + h - (rewards[i] - min_r) / (max_r - min_r) * h;
         dc.DrawLine(wxPoint(x1, y1), wxPoint(x2, y2));
     }
 
-    // ²ü
+    // è»¸ç·š
     dc.SetPen(wxPen(*wxBLACK, 1, wxPENSTYLE_DOT));
     dc.DrawLine(0, h / 2, w, h / 2);
 
-    // ÅV’l
+    // æœ€æ–°å€¤
     wxString txt;
     txt.Printf("Latest: %.3f", rewards.back());
     dc.DrawText(txt, 10, 10);
