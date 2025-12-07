@@ -11,8 +11,8 @@ public:
 
     void AddReward(float reward);
 private:
-    std::vector<float> rewards;
     void OnPaint(wxPaintEvent& event);
-
     wxDECLARE_EVENT_TABLE();
+private:
+    std::vector<float> rewards;
 };

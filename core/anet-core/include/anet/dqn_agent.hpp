@@ -4,8 +4,9 @@
 #include <torch/torch.h>
 
 #include "anet/config.hpp"
-#include "anet/replay_buffer.hpp"
 #include "anet/rl.hpp"
+#include "anet/replay_buffer.hpp"
+#include "anet/agent.hpp"
 
 namespace anet::rl {
 
@@ -64,8 +65,7 @@ namespace anet::rl {
         float eps_reheat_half_life = 1000;
         float unstable_ema_s_threshold = 0.0f; ///< 連続崩壊度の閾値
 
-        DQNAgentConfig() : anet::Config("DQNAgent") {}
-        DQNAgentConfig(const ConfigData& config_data) : anet::Config(config_data, "DQNAgent") {
+        DQNAgentConfig(const ConfigData& config_data = EmptyConfigData) : anet::Config(config_data, "DQNAgent") {
             ANET_READ_CONFIG(config_data, nn_init_mode);
             ANET_READ_CONFIG(config_data, alpha);
             ANET_READ_CONFIG(config_data, gamma);
@@ -115,16 +115,17 @@ namespace anet::rl {
         }
     };
 
-    class DQNAgent : public anet::rl::StepBasedAgent<DQNAgentConfig> {
+    class DQNAgent : public anet::rl::StepBasedAgent<DQNAgentConfig>, public std::enable_shared_from_this<DQNAgent> {
     public:
         DQNAgent(
             const DQNAgentConfig& config,
-            anet::rl::BatchEnvSpec batc_env_spec, anet::rl::EnvSpec& env_spec,
-            torch::Device device, std::optional<seed_t> seed = std::nullopt);
+            anet::rl::BatchEnvSpec batc_env_spec, anet::rl::EnvSpec& env_spec, torch::Device device,
+            std::shared_ptr<anet::rl::Notifier> notifier = nullptr,
+            std::optional<seed_t> seed = std::nullopt);
 
-        anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const anet::rl::BatchState& state, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
+        BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, RunMode mode = RunMode::Train) const override;
         std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromBatch(
-            const StepCounts& step, const anet::rl::BatchExperience& exprience) override;
+            const StepCounts& step, const anet::rl::BatchExperience& exprience, const anet::rl::Trainer& trainer) override;
 
         anet::TensorFunction GetTensorFunction(const std::string& key) const override;
         std::optional<float> GetScalar(const std::string& key) const override;

@@ -108,6 +108,8 @@ namespace anet {
         MapType map_;
     };
 
+	const ConfigData EmptyConfigData;
+
     /// Properties類似形式の設定ファイル操作クラス
     class Properties {
     public:

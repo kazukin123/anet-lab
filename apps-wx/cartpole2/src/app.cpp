@@ -4,6 +4,7 @@
 #include <wx/stdpaths.h>
 #include <wx/cmdline.h>
 #include <wx/filename.h>
+#include "anet/metrics_logger.hpp"
 #include "CartPoleFrame.hpp"
 
 wxString GetExeDir() {

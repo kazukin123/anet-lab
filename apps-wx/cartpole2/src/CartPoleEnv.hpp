@@ -9,7 +9,7 @@
 struct CartPoleEnvConfig : public anet::Config {
     int limit_step = 200;
 
-    CartPoleEnvConfig(const anet::ConfigData& config_data) : anet::Config(config_data, "CartPoleEnv") {
+    CartPoleEnvConfig(const anet::ConfigData& config_data = anet::EmptyConfigData) : anet::Config(config_data, "CartPoleEnv") {
         ANET_READ_CONFIG(config_data, limit_step);
     }
 };

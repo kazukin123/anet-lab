@@ -31,6 +31,8 @@ struct DQNAgent::RuntimeVars {
     float tau = 0.0f;
 	step_t learn_step = 0;
 
+    /// @todo std::atomicに変更してロックフリーにするげ
+
     // --------------
 
     // Metrics：基本
@@ -117,33 +119,33 @@ public:
         : anet::rl::BatchUpdateResult(learn_step_diff), max_q_(max_q)
     {
         // A 群：DQN基本事項
-        map_["32_agent_dqn_base/03_epsilon"] = vars.epsilon;
-        map_["32_agent_dqn_base/04_tau"] = vars.tau;
-        map_["37_agent_dqn_qtd/01_td_mean"] = vars.td_mean;
-        map_["37_agent_dqn_qtd/03_td_error_ema"] = vars.td_ema;
-        map_["37_agent_dqn_qtd/11_q_mean"] = vars.q_mean;
-        map_["37_agent_dqn_qtd/12_q_max"] = vars.q_max;
-        map_["37_agent_dqn_qtd/13_q_std"] = vars.q_std;
-        map_["37_agent_dqn_qtd/21_grad_norm"] = vars.grad_norm;
-        map_["37_agent_dqn_qtd/22_grad_clip_ratio"] = vars.grad_clip_ratio;
-        map_["38_agent_dqn_loss/01_loss"] = vars.loss;
-        map_["38_agent_dqn_loss/02_loss_ema"] = vars.loss_ema;
+        map_["epsilon"] = vars.epsilon;
+        map_["tau"] = vars.tau;
+        map_["td_mean"] = vars.td_mean;
+        map_["td_ema"] = vars.td_ema;
+        map_["q_mean"] = vars.q_mean;
+        map_["q_max"] = vars.q_max;
+        map_["q_std"] = vars.q_std;
+        map_["grad_norm"] = vars.grad_norm;
+        map_["grad_clip_ratio"] = vars.grad_clip_ratio;
+        map_["loss"] = vars.loss;
+        map_["loss_ema"] = vars.loss_ema;
 
         // B 群：AS-DQN関連
-        map_["32_agent_dqn_base/10_collapse_s"] = vars.collapse_s;
-        map_["32_agent_dqn_base/11_collapse_l"] = vars.collapse_l;
-        map_["33_agent_dqn_action/01_act_diff_ema"] = vars.act_diff_ema;
-        map_["33_agent_dqn_action/02_act_unstable"] = vars.act_unstable;
-        map_["33_agent_dqn_action/03_act_unstable_ema"] = vars.act_unstable_ema;
-        map_["37_agent_dqn_qtd/31_q_z"] = vars.q_z;
-        map_["37_agent_dqn_qtd/32_q_cv"] = vars.q_cv;
-        map_["37_agent_dqn_qtd/33_q_niqr"] = vars.q_niqr;
-        map_["37_agent_dqn_qtd/34_q_unstable"] = vars.q_unstable;
-        map_["37_agent_dqn_qtd/35_q_unstable_ema"] = vars.q_unstable_ema;
-        map_["37_agent_dqn_qtd/41_e_t"] = vars.e_t;
-        map_["37_agent_dqn_qtd/42_s"] = vars.s;
-        map_["37_agent_dqn_qtd/43_s_ema"] = vars.s_ema;
-        map_["37_agent_dqn_qtd/46_unstable_ema"] = vars.unstable_ema;
+        map_["collapse_s"] = vars.collapse_s;
+        map_["collapse_l"] = vars.collapse_l;
+        map_["act_diff_ema"] = vars.act_diff_ema;
+        map_["act_unstable"] = vars.act_unstable;
+        map_["act_unstable_ema"] = vars.act_unstable_ema;
+        map_["q_z"] = vars.q_z;
+        map_["q_cv"] = vars.q_cv;
+        map_["q_niqr"] = vars.q_niqr;
+        map_["q_unstable"] = vars.q_unstable;
+        map_["q_unstable_ema"] = vars.q_unstable_ema;
+        map_["e_t"] = vars.e_t;
+        map_["s"] = vars.s;
+        map_["s_ema"] = vars.s_ema;
+        map_["unstable_ema"] = vars.unstable_ema;
     }
 
     virtual MetricsMap GetMetricsMap() const override {
@@ -239,8 +241,18 @@ anet::TensorFunction DQNAgent::GetTensorFunction(const std::string& key) const
 
 std::optional<float> DQNAgent::GetScalar(const std::string& key) const
 {
-    if (key.find("replaybuffer.") == 0)
+    if (key.find("replaybuffer.") == 0) {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
         return replay_buffer_->GetScalar(key);
+    }
+    if (key == "epsilon") {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        return vars_->epsilon;
+	} 
+    if (key == "tau") {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        return vars_->tau;
+	}
 
     return std::nullopt;
 }
@@ -425,7 +437,6 @@ private:
 private:
     const DQNAgentConfig& config_;
 };
-
 
 /// Metrics出力および安定性評価のためのメトリクス情報を提供。Agent内部状態の変更は行わない。
 class DQNAgent::StabilityMonitor {
@@ -801,10 +812,12 @@ private:
 // ======================================================
 // DQNAgent 本体
 // ======================================================
-DQNAgent::DQNAgent(const DQNAgentConfig& config,
-    anet::rl::BatchEnvSpec batch_env_spec, anet::rl::EnvSpec& env_spec,
-    torch::Device device, std::optional<seed_t> seed)
-    : StepBasedAgent(config, device, seed)
+DQNAgent::DQNAgent(
+    const DQNAgentConfig& config
+    , anet::rl::BatchEnvSpec batch_env_spec, anet::rl::EnvSpec& env_spec, torch::Device device
+    , std::shared_ptr<anet::rl::Notifier> notifier
+    , std::optional<seed_t> seed)
+    : StepBasedAgent(config, device, notifier, seed)
     , state_count_(env_spec.state_spec.CalcFlattenSize())
     , n_actions_(env_spec.action_spec.ActionCount())
 	, batch_size_(batch_env_spec.batch_size)
@@ -869,7 +882,7 @@ DQNAgent::DQNAgent(const DQNAgentConfig& config,
 
 
 anet::rl::BatchActionInfo DQNAgent::MakeAction(
-    const StepCounts& step, const anet::rl::BatchState& state, anet::rl::RunMode mode)
+    const StepCounts& step, const anet::rl::BatchState& state, anet::rl::RunMode mode) const
 {
     ProfileRange r1("DQNAgent::MakeAction");
     ANET_CHECK_SHAPE(state.obs, { ANY, state_count_ });
@@ -911,200 +924,216 @@ anet::rl::BatchActionInfo DQNAgent::MakeAction(
 }
 
 std::shared_ptr<const anet::rl::BatchUpdateResult>
-DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp)
+DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp, const anet::rl::Trainer& trainer)
 {
     ProfileRange r1("DQNAgent::UpdateFromBatch");
 
-    std::unique_lock<std::shared_mutex> lock(mutex_);
+    bool can_update;
 
-    // ReplayBuffer に push
-    replay_buffer_->Push(batch_exp);
+    std::shared_ptr<DQNAgent::BatchUpdateResult> result;
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex_);
 
-    // 学習タイミング判定
-    const bool can_update = replay_scheduler_->CanUpdate(counts.update_step, batch_size_, *replay_buffer_);
+        // ReplayBuffer に push
+        replay_buffer_->Push(batch_exp);
 
-    uint32_t learn_step_diff = 0;
-    std::optional<torch::Tensor> result_max_q;
-    if (can_update) {
-        const int B = config_.replay_batch_size;
-        auto raw_samples = replay_buffer_->Sample(B, device_);
+        // 学習タイミング判定
+        can_update = replay_scheduler_->CanUpdate(counts.update_step, batch_size_, *replay_buffer_);
 
-        // device / shape チェック（dtype は Push 時点で保証済み）
-        ANET_CHECK_DEVICE(raw_samples.obs, device_);
-        ANET_CHECK_DEVICE(raw_samples.actions, device_);
-        ANET_CHECK_DEVICE(raw_samples.rewards, device_);
-        ANET_CHECK_DEVICE(raw_samples.next_states.obs, device_);
-        ANET_CHECK_DEVICE(raw_samples.next_states.dones, device_);
-        ANET_CHECK_DEVICE(raw_samples.next_states.truncateds, device_);
-        ANET_CHECK_DEVICE(raw_samples.next_states.episode_start, device_);
-        ANET_CHECK_SHAPE(raw_samples.obs, { B, state_count_ });
-        ANET_CHECK_SHAPE(raw_samples.actions, { B, 1 });    // 離散アクション
-        ANET_CHECK_SHAPE(raw_samples.rewards, { B });
-        ANET_CHECK_SHAPE(raw_samples.next_states.obs, { B, state_count_ });
-        ANET_CHECK_SHAPE(raw_samples.next_states.dones, { B });
-        ANET_CHECK_SHAPE(raw_samples.next_states.truncateds, { B });
-        ANET_CHECK_SHAPE(raw_samples.next_states.episode_start, { B });
-        ANET_CHECK_DTYPE(raw_samples.obs, torch::kFloat32);
-        ANET_CHECK_DTYPE(raw_samples.actions, torch::kInt64);    // 離散アクション
-        ANET_CHECK_DTYPE(raw_samples.rewards, torch::kFloat32);
-        ANET_CHECK_DTYPE(raw_samples.next_states.dones, torch::kBool);
-        ANET_CHECK_DTYPE(raw_samples.next_states.truncateds, torch::kBool);
-        ANET_CHECK_DTYPE(raw_samples.next_states.episode_start, torch::kBool);
-        wxLogDebug("ReplayBuffer batch OK: B=%lld", raw_samples.obs.size(0));
+        uint32_t learn_step_diff = 0;
 
-        ProfileRange r2("DQNAgent::UpdateFromBatch.forward");
+        if (can_update) {
+            const int B = config_.replay_batch_size;
+            auto raw_samples = replay_buffer_->Sample(B, device_);
 
-        // ReplayBufferから取り出した時点では生の多次元StateなのでFlattenする
-        auto samples = raw_samples.Flatten();
+            // device / shape チェック（dtype は Push 時点で保証済み）
+            ANET_CHECK_DEVICE(raw_samples.obs, device_);
+            ANET_CHECK_DEVICE(raw_samples.actions, device_);
+            ANET_CHECK_DEVICE(raw_samples.rewards, device_);
+            ANET_CHECK_DEVICE(raw_samples.next_states.obs, device_);
+            ANET_CHECK_DEVICE(raw_samples.next_states.dones, device_);
+            ANET_CHECK_DEVICE(raw_samples.next_states.truncateds, device_);
+            ANET_CHECK_DEVICE(raw_samples.next_states.episode_start, device_);
+            ANET_CHECK_SHAPE(raw_samples.obs, { B, state_count_ });
+            ANET_CHECK_SHAPE(raw_samples.actions, { B, 1 });    // 離散アクション
+            ANET_CHECK_SHAPE(raw_samples.rewards, { B });
+            ANET_CHECK_SHAPE(raw_samples.next_states.obs, { B, state_count_ });
+            ANET_CHECK_SHAPE(raw_samples.next_states.dones, { B });
+            ANET_CHECK_SHAPE(raw_samples.next_states.truncateds, { B });
+            ANET_CHECK_SHAPE(raw_samples.next_states.episode_start, { B });
+            ANET_CHECK_DTYPE(raw_samples.obs, torch::kFloat32);
+            ANET_CHECK_DTYPE(raw_samples.actions, torch::kInt64);    // 離散アクション
+            ANET_CHECK_DTYPE(raw_samples.rewards, torch::kFloat32);
+            ANET_CHECK_DTYPE(raw_samples.next_states.dones, torch::kBool);
+            ANET_CHECK_DTYPE(raw_samples.next_states.truncateds, torch::kBool);
+            ANET_CHECK_DTYPE(raw_samples.next_states.episode_start, torch::kBool);
+            wxLogDebug("ReplayBuffer batch OK: B=%lld", raw_samples.obs.size(0));
 
-        // Q(s, a) 生成
-        torch::Tensor q_all = policy_net_->forward(samples.obs); // (B, n_actions_)
-        ANET_CHECK_SHAPE(q_all, { B, n_actions_ });
-        //wxLogDebug("q_all=%s", anet::ToString(q_all));
+            ProfileRange r2("DQNAgent::UpdateFromBatch.forward");
 
-        // max_a Q(s,a)  (AS-DQN 用統計)
-        torch::Tensor max_q = std::get<0>(q_all.max(1)); // (B,)
-        result_max_q = max_q;
+            // ReplayBufferから取り出した時点では生の多次元StateなのでFlattenする
+            auto samples = raw_samples.Flatten();
 
-        // Q(s,a) for taken action
-        torch::Tensor actions_b = samples.actions.view({ B, 1 });   // (B,1)
-        ANET_CHECK_SHAPE(actions_b, { B, 1 });
-        ANET_CHECK_DTYPE(actions_b, torch::kInt64);
-        //wxLogDebug("actions_b=%s", anet::ToString(actions_b));
-        torch::Tensor q_sa = q_all.gather(1, actions_b).squeeze(1); // (B,)
-        ANET_CHECK_SHAPE(q_sa, { B });
-        //wxLogDebug("q_sa=%s", anet::ToString(q_sa));
+            // Q(s, a) 生成
+            torch::Tensor q_all = policy_net_->forward(samples.obs); // (B, n_actions_)
+            ANET_CHECK_SHAPE(q_all, { B, n_actions_ });
+            //wxLogDebug("q_all=%s", anet::ToString(q_all));
 
-        // -------------------------------------------------
-        // max_a' Q_target(s', a')（DQN / DoubleDQN 切替）
-        // -------------------------------------------------
-        torch::Tensor max_next_q;
+            // max_a Q(s,a)  (AS-DQN 用統計)
+            torch::Tensor max_q = std::get<0>(q_all.max(1)); // (B,)
+            auto result_max_q = max_q;
 
-        if (config_.use_double_dqn) {
-            torch::NoGradGuard no_grad;
+            // Q(s,a) for taken action
+            torch::Tensor actions_b = samples.actions.view({ B, 1 });   // (B,1)
+            ANET_CHECK_SHAPE(actions_b, { B, 1 });
+            ANET_CHECK_DTYPE(actions_b, torch::kInt64);
+            //wxLogDebug("actions_b=%s", anet::ToString(actions_b));
+            torch::Tensor q_sa = q_all.gather(1, actions_b).squeeze(1); // (B,)
+            ANET_CHECK_SHAPE(q_sa, { B });
+            //wxLogDebug("q_sa=%s", anet::ToString(q_sa));
 
-            // policy_net で argmax_a Q(s', a)
-            torch::Tensor q_next_policy = policy_net_->forward(samples.next_states.obs); // (B, n_actions_)
-            ANET_CHECK_SHAPE(q_next_policy, { B, n_actions_ });
-            auto next_policy_pair = q_next_policy.max(1);
-            torch::Tensor next_actions = std::get<1>(next_policy_pair); // (B,)
+            // -------------------------------------------------
+            // max_a' Q_target(s', a')（DQN / DoubleDQN 切替）
+            // -------------------------------------------------
+            torch::Tensor max_next_q;
 
-            // target_net で Q_target(s', argmax_a Q_online)
-            torch::Tensor q_next_target = target_net_->forward(samples.next_states.obs); // (B, n_actions_)
-            ANET_CHECK_SHAPE(q_next_target, { B, n_actions_ });
-            torch::Tensor next_actions_b = next_actions.view({ B, 1 });             // (B,1)
-            torch::Tensor q_next_selected =
-                q_next_target.gather(1, next_actions_b).squeeze(1);                 // (B,)
+            if (config_.use_double_dqn) {
+                torch::NoGradGuard no_grad;
 
-            max_next_q = q_next_selected;
-        } else {
-            torch::NoGradGuard no_grad;
+                // policy_net で argmax_a Q(s', a)
+                torch::Tensor q_next_policy = policy_net_->forward(samples.next_states.obs); // (B, n_actions_)
+                ANET_CHECK_SHAPE(q_next_policy, { B, n_actions_ });
+                auto next_policy_pair = q_next_policy.max(1);
+                torch::Tensor next_actions = std::get<1>(next_policy_pair); // (B,)
 
-            // 通常 DQN: max_a' Q_target(s', a')
-            torch::Tensor q_next_all = target_net_->forward(samples.next_states.obs); // (B, n_actions_)
-            ANET_CHECK_SHAPE(q_next_all, { B, n_actions_ });
-            max_next_q = std::get<0>(q_next_all.max(1));                         // (B,)
-        }
+                // target_net で Q_target(s', argmax_a Q_online)
+                torch::Tensor q_next_target = target_net_->forward(samples.next_states.obs); // (B, n_actions_)
+                ANET_CHECK_SHAPE(q_next_target, { B, n_actions_ });
+                torch::Tensor next_actions_b = next_actions.view({ B, 1 });             // (B,1)
+                torch::Tensor q_next_selected =
+                    q_next_target.gather(1, next_actions_b).squeeze(1);                 // (B,)
 
-        r2.End();   // forward
+                max_next_q = q_next_selected;
+            } else {
+                torch::NoGradGuard no_grad;
 
-        anet::ProfileRange r3("DQNAgent::UpdateFromBatch.backward");
-
-        // -------------------------------------------------
-        // TD target 計算
-        //    td_target = r + (1 - terminal) * gamma * max_next_q
-        // -------------------------------------------------
-        torch::Tensor terminal = (samples.next_states.dones | samples.next_states.truncateds); // (B,) bool
-        torch::Tensor not_terminal = 1.0f - terminal.to(torch::kFloat32); // (B,)
-        torch::Tensor rewards = samples.rewards; // (B,)
-        const float gamma = config_.gamma;
-        torch::Tensor td_target = rewards + not_terminal * (gamma * max_next_q); // (B,)
-
-        // -------------------------------------------------
-        // TD 誤差と loss（td_clip, Huber）
-        // -------------------------------------------------
-        // 生の TD 誤差（監視用）
-        torch::Tensor td_error_raw = q_sa - td_target.detach(); // (B,)
-
-        // 学習に使う TD 誤差（必要なら clip）
-        torch::Tensor td_error_for_loss = td_error_raw;
-        if (config_.use_td_clip) {
-            td_error_for_loss = torch::clamp(
-                td_error_for_loss,
-                -config_.td_clip_value,
-                config_.td_clip_value
-            );
-        }
-
-        // Smooth L1 (Huber, δ=1) を手動実装
-        torch::Tensor abs_td = td_error_for_loss.abs();               // (B,)
-        torch::Tensor quad = 0.5f * td_error_for_loss.pow(2);         // (B,)
-        torch::Tensor linear = abs_td - 0.5f;                         // (B,)
-        torch::Tensor per_sample_loss = torch::where(abs_td < 1.0f, quad, linear); // (B,)
-        torch::Tensor loss_tensor = per_sample_loss.mean();           // scalar
-
-        // optimizer step（grad clip 含む）
-        optimizer_->zero_grad();
-        loss_tensor.backward();
-
-        r3.End();
-        ProfileRange r4("DQNAgent::UpdateFromBatch.update");
-
-        float grad_norm = 0.0f;
-        bool grad_clipped = false;
-
-        if (config_.use_grad_clip) {
-            // clip_grad_norm_ の戻り値は clip 前の全体ノルム
-            double grad_norm_val =
-                torch::nn::utils::clip_grad_norm_(
-                    policy_net_->parameters(),
-                    config_.grad_clip_tau
-                );
-            grad_norm = static_cast<float>(grad_norm_val);
-            grad_clipped = (grad_norm_val > config_.grad_clip_tau);
-        } else {
-            // clip を使わない場合も全体ノルムだけは計算しておく
-            torch::Tensor total_sq = torch::zeros({ 1 }, loss_tensor.options());
-            for (auto& p : policy_net_->parameters()) {
-                if (!p.grad().defined()) continue;
-                total_sq += p.grad().data().pow(2).sum();
+                // 通常 DQN: max_a' Q_target(s', a')
+                torch::Tensor q_next_all = target_net_->forward(samples.next_states.obs); // (B, n_actions_)
+                ANET_CHECK_SHAPE(q_next_all, { B, n_actions_ });
+                max_next_q = std::get<0>(q_next_all.max(1));                         // (B,)
             }
-            grad_norm = std::sqrt(total_sq.item<float>());
+
+            r2.End();   // forward
+
+            anet::ProfileRange r3("DQNAgent::UpdateFromBatch.backward");
+
+            // -------------------------------------------------
+            // TD target 計算
+            //    td_target = r + (1 - terminal) * gamma * max_next_q
+            // -------------------------------------------------
+            torch::Tensor terminal = (samples.next_states.dones | samples.next_states.truncateds); // (B,) bool
+            torch::Tensor not_terminal = 1.0f - terminal.to(torch::kFloat32); // (B,)
+            torch::Tensor rewards = samples.rewards; // (B,)
+            const float gamma = config_.gamma;
+            torch::Tensor td_target = rewards + not_terminal * (gamma * max_next_q); // (B,)
+
+            // -------------------------------------------------
+            // TD 誤差と loss（td_clip, Huber）
+            // -------------------------------------------------
+            // 生の TD 誤差（監視用）
+            torch::Tensor td_error_raw = q_sa - td_target.detach(); // (B,)
+
+            // 学習に使う TD 誤差（必要なら clip）
+            torch::Tensor td_error_for_loss = td_error_raw;
+            if (config_.use_td_clip) {
+                td_error_for_loss = torch::clamp(
+                    td_error_for_loss,
+                    -config_.td_clip_value,
+                    config_.td_clip_value
+                );
+            }
+
+            // Smooth L1 (Huber, δ=1) を手動実装
+            torch::Tensor abs_td = td_error_for_loss.abs();               // (B,)
+            torch::Tensor quad = 0.5f * td_error_for_loss.pow(2);         // (B,)
+            torch::Tensor linear = abs_td - 0.5f;                         // (B,)
+            torch::Tensor per_sample_loss = torch::where(abs_td < 1.0f, quad, linear); // (B,)
+            torch::Tensor loss_tensor = per_sample_loss.mean();           // scalar
+
+            // optimizer step（grad clip 含む）
+            optimizer_->zero_grad();
+            loss_tensor.backward();
+
+            r3.End();
+            ProfileRange r4("DQNAgent::UpdateFromBatch.update");
+
+            float grad_norm = 0.0f;
+            bool grad_clipped = false;
+
+            if (config_.use_grad_clip) {
+                // clip_grad_norm_ の戻り値は clip 前の全体ノルム
+                double grad_norm_val =
+                    torch::nn::utils::clip_grad_norm_(
+                        policy_net_->parameters(),
+                        config_.grad_clip_tau
+                    );
+                grad_norm = static_cast<float>(grad_norm_val);
+                grad_clipped = (grad_norm_val > config_.grad_clip_tau);
+        } else {
+                // clip を使わない場合も全体ノルムだけは計算しておく
+                torch::Tensor total_sq = torch::zeros({ 1 }, loss_tensor.options());
+                for (auto& p : policy_net_->parameters()) {
+                    if (!p.grad().defined()) continue;
+                    total_sq += p.grad().data().pow(2).sum();
+                }
+                grad_norm = std::sqrt(total_sq.item<float>());
+            }
+            float grad_clip_ratio = grad_clipped ? 1.0f : 0.0f;
+
+            // 更新
+            optimizer_->step();
+
+            // optimizerを動かしたので step数を更新
+            vars_->learn_step++;
+            learn_step_diff++;
+
+            // target_network更新
+            target_updater_->Sync(vars_->learn_step, vars_->tau, policy_net_, target_net_);
+
+            // StabilityMonitor 更新（TD / loss / Q / 勾配ノルム）
+            float loss_scalar = loss_tensor.item<float>();
+            stability_monitor_->UpdateBatchStats(
+                *vars_,
+                td_error_raw,
+                per_sample_loss,
+                max_q,
+                grad_norm,
+                grad_clip_ratio);
+
+            // 崩壊情報を更新
+            stability_controller_->UpdateOnLearn(*vars_, *stability_monitor_, vars_->learn_step);
+
+            // 戻り値用オブジェクト生成
+            result = std::make_shared<DQNAgent::BatchUpdateResult>(*vars_, result_max_q, learn_step_diff);
+
         }
-        float grad_clip_ratio = grad_clipped ? 1.0f : 0.0f;
+        else {  // can_update
+            result = std::make_shared<DQNAgent::BatchUpdateResult>(*vars_, std::nullopt, learn_step_diff);
+        }
 
-        // 更新
-        optimizer_->step();
+        // 内部状態変数を更新
+        if (!config_.use_as_dqn) {
+            vars_->epsilon = vars_updater_->ComputeEpsilon(vars_->learn_step);
+        }
+    }
 
-        // optimizerを動かしたので step数を更新
-        vars_->learn_step++;
-        learn_step_diff++;
-
-        // target_network更新
-        target_updater_->Sync(vars_->learn_step, vars_->tau, policy_net_, target_net_);
-
-        // StabilityMonitor 更新（TD / loss / Q / 勾配ノルム）
-        float loss_scalar = loss_tensor.item<float>();
-        stability_monitor_->UpdateBatchStats(
-            *vars_,
-            td_error_raw,
-            per_sample_loss,
-            max_q,
-            grad_norm,
-            grad_clip_ratio);
-
-        // 崩壊情報を更新
-        stability_controller_->UpdateOnLearn(*vars_, *stability_monitor_, vars_->learn_step);
-
-    }   // can_update
-
-    // 内部状態変数を更新
-    if (!config_.use_as_dqn) {
-        vars_->epsilon = vars_updater_->ComputeEpsilon(vars_->learn_step);
+    // LearnEvent通知
+    if (notifier_ != nullptr && can_update) {
+        anet::rl::LearnEvent event{ batch_exp, trainer, counts, shared_from_this(), result };
+        notifier_->Notify(event);
     }
 
     // 戻り用変数
-    auto result = std::make_shared<DQNAgent::BatchUpdateResult>(*vars_, result_max_q, learn_step_diff);
 
     return result;
 }

@@ -108,8 +108,7 @@ namespace anet::rl {
         int device_type = 0;   ///< 0=cpu 1=cuda
         int device_index = -1; ///< GPU index -1=current device
 
-        DefaultBatchEnvFactoryConfig() : anet::Config("env") { }
-        DefaultBatchEnvFactoryConfig(const ConfigData& config_data)
+        DefaultBatchEnvFactoryConfig(const ConfigData& config_data = EmptyConfigData)
             : anet::Config(config_data, "env")
         {
             ANET_READ_CONFIG(config_data, env_class_id);

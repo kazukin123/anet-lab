@@ -21,9 +21,9 @@ void PlotPanel::OnMouseClick(wxMouseEvent& event) {
 
 void PlotPanel::AddReward(float reward) {
     rewards.push_back(reward);
-    if (rewards.size() > 1000)  // 最新1000点だけ保持
+    if (rewards.size() > 1000) // 最新1000点だけ保持
         rewards.erase(rewards.begin());
-    Refresh(false);            // 再描画要求（即時ではない）
+    //Refresh(false);            // 再描画要求（即時ではない）
 }
 
 void PlotPanel::OnPaint(wxPaintEvent&) {
@@ -63,4 +63,8 @@ void PlotPanel::OnPaint(wxPaintEvent&) {
     wxString txt;
     txt.Printf("Latest: %.3f", rewards.back());
     dc.DrawText(txt, 10, 10);
+    txt.Printf("Min: %.3f", min_r);
+    dc.DrawText(txt, 110, 10);
+    txt.Printf("Max: %.3f", max_r);
+    dc.DrawText(txt, 210, 10);
 }

@@ -68,12 +68,12 @@ namespace anet::rl {
     // =============================================================
 
     enum class StepAxis {
-        Train,
-        Exp,
-        Update,
-        Learn,
-        Episode,
-        Sim
+        TRAIN,
+        EXP,
+        UPDATE, ///< @todo 不要？
+        LEARN,
+        EPISODE,
+        SIM
     };
 
     using step_t = uint64_t;
@@ -89,12 +89,12 @@ namespace anet::rl {
         step_t& GetByAxis(StepAxis axis)
         {
             switch (axis) {
-            case StepAxis::Train: return train_step;
-            case StepAxis::Exp: return exp_step;
-            case StepAxis::Update: return update_step;
-            case StepAxis::Learn: return learn_step;
-            case StepAxis::Episode: return episode_count;
-            case StepAxis::Sim: return sim_step;
+            case StepAxis::TRAIN: return train_step;
+            case StepAxis::EXP: return exp_step;
+            case StepAxis::UPDATE: return update_step;
+            case StepAxis::LEARN: return learn_step;
+            case StepAxis::EPISODE: return episode_count;
+            case StepAxis::SIM: return sim_step;
             }
             throw std::runtime_error("StepCounts::GetByAxis(): invalid StepAxis");
 		}
@@ -102,12 +102,12 @@ namespace anet::rl {
         step_t GetByAxis(StepAxis axis) const
         {
             switch (axis) {
-            case StepAxis::Train: return train_step;
-            case StepAxis::Exp: return exp_step;
-            case StepAxis::Update: return update_step;
-            case StepAxis::Learn: return learn_step;
-            case StepAxis::Episode: return episode_count;
-            case StepAxis::Sim: return sim_step;
+            case StepAxis::TRAIN: return train_step;
+            case StepAxis::EXP: return exp_step;
+            case StepAxis::UPDATE: return update_step;
+            case StepAxis::LEARN: return learn_step;
+            case StepAxis::EPISODE: return episode_count;
+            case StepAxis::SIM: return sim_step;
             }
             throw std::runtime_error("StepCounts::GetByAxis(): invalid StepAxis");
         }
@@ -116,13 +116,14 @@ namespace anet::rl {
     static std::string toString(StepAxis step_axis)
     {
         switch (step_axis) {
-        case StepAxis::Train: return "train";
-        case StepAxis::Exp: return "exp";
-        case StepAxis::Update: return "update";
-        case StepAxis::Learn: return "learn";
-        case StepAxis::Episode: return "episode";
-        case StepAxis::Sim: return "sim";
+        case StepAxis::TRAIN: return "train";
+        case StepAxis::EXP: return "exp";
+        case StepAxis::UPDATE: return "update";
+        case StepAxis::LEARN: return "learn";
+        case StepAxis::EPISODE: return "episode";
+        case StepAxis::SIM: return "sim";
         }
+        ANET_ASSERT_MSG(false, "Invalid StepAxis.");
         return "";
     }
 
@@ -133,6 +134,16 @@ namespace anet::rl {
     enum class RunMode { Train, Eval, Eval1, Eval2 };
     inline bool IsTrain(RunMode mode) { return mode == RunMode::Train; }
     inline bool IsEval(RunMode mode) { return mode == RunMode::Eval || mode == RunMode::Eval1 || mode == RunMode::Eval2; }
+    inline std::string ToString(RunMode mode) {
+        switch (mode) {
+        case RunMode::Train: return "Train";
+        case RunMode::Eval: return "Eval";
+        case RunMode::Eval1: return "Eval1";
+        case RunMode::Eval2: return "Eval2";
+        }
+        ANET_ASSERT_MSG(false, "Invalid RunMode.");
+        return "";
+    }
 
     // =============================================================
     // Environment 定義クラス
@@ -468,10 +479,21 @@ namespace anet::rl {
     // Agent
     // =============================================================
 
+    class Trainer : public DataExporter {
+    public:
+		virtual ~Trainer() = default;
+    public:
+        static constexpr const char* TRAIN_REWARD_EMA = "train_reward_ema";
+        static constexpr const char* TARGET_EVAL_REWARD = "target_eval_reward";
+        static constexpr const char* TARGET_EVAL_REWARD_EMA = "target_eval_reward_ema";
+        static constexpr const char* POLICY_EVAL_REWARD = "policy_eval_reward";
+        static constexpr const char* POLICY_EVAL_REWARD_EMA = "policy_eval_reward_ema";
+    };
+
     class Runner {
     public:
         virtual BatchActionInfo MakeAction(
-            const StepCounts& counts, const anet::rl::BatchState& state, RunMode mode = RunMode::Train) = 0;
+            const StepCounts& counts, const anet::rl::BatchState& state, RunMode mode = RunMode::Train) const = 0;
         virtual ~Runner() = default;
     };
 
@@ -485,7 +507,8 @@ namespace anet::rl {
     class Learner {
     public:
         virtual std::shared_ptr<const BatchUpdateResult> UpdateFromBatch(
-            const StepCounts& step, const BatchExperience& expriences) = 0;
+            const StepCounts& step, const BatchExperience& expriences, const Trainer& trainer
+        ) = 0;
         virtual ~Learner() = default;
     };
 
@@ -493,27 +516,6 @@ namespace anet::rl {
     public:
         virtual TensorFunction GetTensorFunction(const std::string& key) const = 0;
         virtual ~Agent() = default;
-    };
-
-    // 環境のステップに同期して更新する Agent 基底クラス
-    template<typename ConfigT>
-    class StepBasedAgent : public Agent, public anet::RandomHolder {
-    public:
-        StepBasedAgent(ConfigT config, torch::Device device, std::optional<seed_t> seed = std::nullopt)
-            : config_(config), device_(device), RandomHolder(seed) {
-        }
-        virtual ~StepBasedAgent() = default;
-
-        //int GetStepCount() const { return step_count_; }
-    protected:
-        mutable std::shared_mutex mutex_;
-    protected:
-        // Resource（Agentが管理すべき領域）
-        ConfigT config_;
-        torch::Device device_;
-    protected:
-        // InternalState
-        //int step_count_ = 0;
     };
 
     /// @todo 複数ステップ（軌跡）収集後に更新する Agent 基底クラス（PPO, TRPO など）
@@ -524,26 +526,81 @@ namespace anet::rl {
 
     // =============================================================
 
-    struct PostUpdateEvent {
+    enum class EventType {
+        TRAIN,
+        LEARN
+        /// @todo EPISODE_END（ENV由来）を追加
+    };
+
+    enum class EventField {
+        BATCH_EXPERIENCE,
+        AGENT,
+		BATCH_UPDATE_RESULT,
+        TRAINER
+    };
+
+    struct BeforeStepEvent {
+        const Trainer& trainer;
+        const StepCounts counts;
+        std::shared_ptr<const Agent> agent;
+        std::shared_ptr<const BatchEnv> env;
+    };
+
+    struct UpdateEvent {
         const BatchExperience& batch_exp;
-        StepCounts counts;
-        std::shared_ptr<Agent> agent;
+		const Trainer& trainer;
+        const StepCounts counts;
+        std::shared_ptr<const Agent> agent;
         std::shared_ptr<const BatchUpdateResult> update_result;
     };
 
-    class PostUpdateObserver {
-    public:
-        virtual void OnPostUpdate(const PostUpdateEvent& event) = 0;
-        virtual ~PostUpdateObserver() = default;
+    struct TrainEvent : public UpdateEvent {
+        std::shared_ptr<const BatchEnv> env;
     };
+
+    struct LearnEvent : public UpdateEvent {
+    };
+
+    class BeforeStepObserver {
+    public:
+        virtual void OnBeforeStep(const BeforeStepEvent& event) = 0;
+        virtual std::string ToString() const = 0;
+        virtual ~BeforeStepObserver() = default;
+    };
+
+    class TrainObserver {
+    public:
+        virtual void OnTrain(const TrainEvent& event) = 0;
+        virtual std::string ToString() const = 0;
+        virtual ~TrainObserver() = default;
+    };
+
+    class LearnObserver {
+    public:
+        virtual void OnLearn(const LearnEvent& event) = 0;
+        virtual std::string ToString() const = 0;
+        virtual ~LearnObserver() = default;
+    };
+
+    // =============================================================
 
     class Notifier {
     public:
         Notifier();
 
-        void Attach(std::shared_ptr<PostUpdateObserver> observer);
-        void Detach(std::shared_ptr<PostUpdateObserver> observer);
-        void Notify(const PostUpdateEvent& event);
+        void Attach(std::shared_ptr<BeforeStepObserver> observer);
+        void Detach(std::shared_ptr<BeforeStepObserver> observer);
+        void Notify(const BeforeStepEvent& event);
+
+        void Attach(std::shared_ptr<TrainObserver> observer);
+        void Detach(std::shared_ptr<TrainObserver> observer);
+        void Notify(const TrainEvent& event);
+
+        void Attach(std::shared_ptr<LearnObserver> observer);
+        void Detach(std::shared_ptr<LearnObserver> observer);
+        void Notify(const LearnEvent& event);
+
+        void LogObservers() const;
     public:
         template <class T, class... Args>
         std::shared_ptr<T> Attach(Args&&... args)
@@ -553,7 +610,9 @@ namespace anet::rl {
             return obs;
         }
     private:
-        std::vector<std::shared_ptr<PostUpdateObserver>> observers_;
+        std::vector<std::shared_ptr<BeforeStepObserver>> before_step_observers_;
+        std::vector<std::shared_ptr<TrainObserver>> train_observers_;
+        std::vector<std::shared_ptr<LearnObserver>> learn_observers_;
     };
 
     // =============================================================

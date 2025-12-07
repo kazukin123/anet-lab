@@ -6,17 +6,17 @@
 
 using namespace anet::rl;
 
-std::optional<float> MetricsScalarProbe::GetFloat(const PostUpdateEvent& event) const
+std::optional<float> MetricsScalarProbe::GetFloat(const TrainEvent& event) const
 {
     return event.update_result->GetScalar(key_);
 }
 
-std::optional<float> StaticScalarProbe::GetFloat(const PostUpdateEvent& event) const
+std::optional<float> StaticScalarProbe::GetFloat(const TrainEvent& event) const
 {
     return value_;
 }
 
-std::optional<float> FunctionScalarProbe::GetFloat(const PostUpdateEvent& event) const
+std::optional<float> FunctionScalarProbe::GetFloat(const TrainEvent& event) const
 {
     return fn_(event);
 }
@@ -57,7 +57,7 @@ BatchExperienceStateProbe::BatchExperienceStateProbe(
     }
 }
 
-std::optional<std::vector<float>> BatchExperienceStateProbe::GetVector(const PostUpdateEvent& event) const
+std::optional<std::vector<float>> BatchExperienceStateProbe::GetVector(const TrainEvent& event) const
 {
     // 対象obs（現状態 or next_state）
     auto obs = (for_next_state_) ?
@@ -108,7 +108,7 @@ BatchExperienceRewardProbe::BatchExperienceRewardProbe(const anet::rl::EnvSpec* 
     }
 }
 
-std::optional<std::vector<float>> BatchExperienceRewardProbe::GetVector(const PostUpdateEvent& event) const
+std::optional<std::vector<float>> BatchExperienceRewardProbe::GetVector(const TrainEvent& event) const
 {
     auto tensor = event.batch_exp.GetTensor(anet::rl::BatchExperience::REWARD);
     ANET_ASSERT(tensor.has_value());
@@ -131,7 +131,7 @@ BatchUpdateResultTensorToVectorProbe::BatchUpdateResultTensorToVectorProbe(const
 {
 }
 
-std::optional<std::vector<float>> BatchUpdateResultTensorToVectorProbe::GetVector(const PostUpdateEvent& event) const
+std::optional<std::vector<float>> BatchUpdateResultTensorToVectorProbe::GetVector(const TrainEvent& event) const
 {
     auto tensor = event.update_result->GetTensor(key_);
     //ANET_ASSERT(tensor.has_value());   // key誤りによるバグ防止のため
@@ -209,7 +209,7 @@ AgentTensorVectorProbe::AgentTensorVectorProbe(
     // minだけ指定、maxだけ指定でもOK
 }
 
-std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const PostUpdateEvent& event) const
+std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const TrainEvent& event) const
 {
     auto opt_vec = event.agent->GetTensorVector(key_);
     ANET_ASSERT(opt_vec.has_value());

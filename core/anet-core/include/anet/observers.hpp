@@ -6,22 +6,32 @@
 
 namespace anet::rl {
 
-    class MetricsLogObserver : public anet::rl::PostUpdateObserver {
-    public:
-        struct MetricDef {
-            std::string tag;
-            anet::rl::StepAxis step_axis;
-		};
-        using MetricsDefMap = std::unordered_map<std::string, std::vector<MetricDef>>;
-    public:
-        MetricsLogObserver();
-        virtual ~MetricsLogObserver() = default;
+    // ==============================================================
 
-        void OnPostUpdate(const PostUpdateEvent& event) override;
-    private:
-        MetricsDefMap metric_def_map_;
+    class TaggedObserver {
+    public:
+		TaggedObserver(const std::string& tag) : tag_(tag) {}
+        virtual std::string GetClassName() const = 0;
+        virtual ~TaggedObserver() = default;
+    protected:
+        std::string ToStringInternal() const { return GetClassName() + "[" + tag_ + "]"; }
+        std::string tag_;
     };
 
+    class TaggedTrainObserver : public TaggedObserver, public anet::rl::TrainObserver {
+    public:
+		TaggedTrainObserver(const std::string& tag) : TaggedObserver(tag) {}
+        virtual std::string ToString() const override { return ToStringInternal(); }
+        virtual ~TaggedTrainObserver() = default;
+    };
+
+    class TaggedLearnObserver : public TaggedObserver, public anet::rl::LearnObserver {
+    public:
+        TaggedLearnObserver(const std::string& tag) : TaggedObserver(tag) {}
+        virtual std::string ToString() const override { return ToStringInternal(); }
+        virtual ~TaggedLearnObserver() = default;
+    };
+    
     /**
      * @brief HeatMapObserver の設定
      */
@@ -48,32 +58,7 @@ namespace anet::rl {
         float ymax = 1.0f;
     };
 
-    //class HeatMapObserver : public anet::rl::PostUpdateObserver {
-    //public:
-    //    HeatMapObserver(
-    //        const std::string& tag,
-    //        const HeatMapObserverConfig& config,
-    //        std::shared_ptr<IFloatProbe> x_probe,
-    //        std::shared_ptr<IFloatProbe> y_probe,
-    //        std::shared_ptr<IFloatProbe> value_probe);
-
-    //    void OnPostUpdate(
-    //        int step,
-    //        std::shared_ptr<Agent> agent,
-    //        const anet::rl::BatchExperience& batch_experience,
-    //        std::shared_ptr<const anet::rl::BatchUpdateResult> result) override;
-    //private:
-    //    HeatMapObserverConfig config_;
-    //    std::string tag_;
-
-    //    std::shared_ptr<IFloatProbe> x_probe_;
-    //    std::shared_ptr<IFloatProbe> y_probe_;
-    //    std::shared_ptr<IFloatProbe> value_probe_;
-
-    //    std::unique_ptr<anet::HeatMap> heatmap_;  ///< @todo ptr外し
-    //};
-
-    class HeatMapVectorObserver : public anet::rl::PostUpdateObserver {
+    class HeatMapVectorObserver : public anet::rl::TaggedTrainObserver {
     public:
         HeatMapVectorObserver(
             const std::string& tag,
@@ -82,10 +67,10 @@ namespace anet::rl {
             std::shared_ptr<VectorProbe> y_probe,
             std::shared_ptr<VectorProbe> value_probe);
 
-        void OnPostUpdate(const PostUpdateEvent& event) override;
+        void OnTrain(const TrainEvent& event) override;
+        std::string GetClassName() const override { return "HeatMapVectorObserver"; }
     private:
         HeatMapObserverConfig config_;
-        std::string tag_;
 
         std::shared_ptr<VectorProbe> x_probe_;
         std::shared_ptr<VectorProbe> y_probe_;
@@ -114,22 +99,22 @@ namespace anet::rl {
     * ExtractTensorFn:
     *torch::Tensor func(const anet::rl::BatchUpdateResult& result);
     */
-    class TimeHistogramObserver : public anet::rl::PostUpdateObserver {
+    class TimeHistogramObserver : public anet::rl::TaggedTrainObserver {
     public:
         TimeHistogramObserver(
             const std::string& tag,
             const TimeHistogramObserverConfig& config,
             std::shared_ptr<VectorProbe> probe);
 
-        void OnPostUpdate(const PostUpdateEvent& event) override;
+        void OnTrain(const TrainEvent& event) override;
+        std::string GetClassName() const override { return "TimeHistogramObserver"; }
     private:
         TimeHistogramObserverConfig config_;
-        std::string tag_;
         std::unique_ptr<anet::TimeHistogram> histogram_;    ///< @todo ptr外し
         std::shared_ptr<VectorProbe> probe_;
     };
 
-    class MultiPairHeatMapObserver : public anet::rl::PostUpdateObserver {
+    class MultiPairHeatMapObserver : public anet::rl::TaggedTrainObserver {
     public:
         MultiPairHeatMapObserver(
             const std::string& tag,
@@ -137,9 +122,9 @@ namespace anet::rl {
             const std::vector<std::shared_ptr<VectorProbe>>& axis_probes,
             std::shared_ptr<VectorProbe> value_probe);
 
-        void OnPostUpdate(const PostUpdateEvent& event) override;
+        void OnTrain(const TrainEvent& event) override;
+        std::string GetClassName() const override { return "MultiPairHeatMapObserver"; }
     private:
-        std::string tag_;
         HeatMapObserverConfig config_;
         std::vector<std::shared_ptr<VectorProbe>> axis_probes_;
         std::shared_ptr<VectorProbe> value_probe_;
@@ -163,19 +148,19 @@ namespace anet::rl {
      * - OutputExtractor が batched 出力から (grid_x, grid_y) の値を抽出
      * - HeatMap に追加して画像として出力
      */
-    class SweepedHeatMapObserver : public anet::rl::PostUpdateObserver {
+    class SweepedHeatMapObserver : public anet::rl::TaggedTrainObserver {
     public:
         SweepedHeatMapObserver(
-            const std::string& heatmap_tag,
+            const std::string& tag,
             const SweepedHeatMapObserverConfig& config,
             std::shared_ptr<ISweepInputGenerator> input_gen,
             TensorFunction tensor_fn_,
             std::shared_ptr<ISweepOutputExtractor> output_ext,
             const std::unordered_map<std::string, std::string>& scalar_tag_label_map = {});
 
-        void OnPostUpdate(const PostUpdateEvent& event) override;
+        void OnTrain(const TrainEvent& event) override;
+        std::string GetClassName() const override { return "SweepedHeatMapObserver"; }
     private:
-        std::string heatmap_tag_;
         SweepedHeatMapObserverConfig config_;
         std::unordered_map<std::string, std::string> scalar_label_tag_map_;
 
@@ -189,39 +174,102 @@ namespace anet::rl {
         std::unique_ptr<anet::HeatMap> heatmap_;
     };
 
-    class EpisodeEvalObserver : public anet::rl::PostUpdateObserver {
+    class EpisodeEvalObserver : public anet::rl::LearnObserver {
+    public:
+        using ReportFunction = std::function<void(float total_reward)>;
     public:
         EpisodeEvalObserver(
-            const std::string& tag,
+            ReportFunction report_function,
             std::shared_ptr<anet::rl::SingleDiscreteEnvFactory> eval_env_factory,
             const ConfigData& config_data,
             const torch::Device& device,
             anet::rl::RunMode runmode_ = anet::rl::RunMode::Eval,
-            int log_interval = 10, int eval_interval = 10,
-            float ema_decay = 1.00);
+            int log_interval = 10, int eval_interval = 10);
 
-        void OnPostUpdate(const PostUpdateEvent& event) override;
+        void OnLearn(const LearnEvent& event) override;
+        std::string ToString() const override;
     private:
-        std::string tag_;
+        ReportFunction report_function_;
         std::unique_ptr<anet::rl::BatchEnv> env_;
         anet::rl::RunMode runmode_;
         int log_interval_;
         int eval_interval_;
-        anet::EmaFilter<float> eval_total_reward_;
+        //anet::EmaFilter<float> eval_total_reward_;
     };
 
-    class FunctionObserver : public anet::rl::PostUpdateObserver {
+    class FunctionTrainObserver : public anet::rl::TrainObserver {
     public:
-        using Fn = std::function<void(const anet::rl::PostUpdateEvent& event)>;
+        using Fn = std::function<void(const anet::rl::TrainEvent& event)>;
     public:
-        FunctionObserver(Fn fn) : fn_(std::move(fn)) { ; }
-
-        void OnPostUpdate(const anet::rl::PostUpdateEvent& event) override
-        {
-            fn_(event);
-        }
+        FunctionTrainObserver(Fn fn, std::optional<std::string> name = std::nullopt);
+        void OnTrain(const TrainEvent& event) override { fn_(event); }
+        std::string ToString() const override { return name_; }
     private:
         Fn fn_;
+        std::string name_;
+    };
+
+    // ===========================================================
+
+    class FunctionLearnObserver : public anet::rl::LearnObserver {
+    public:
+        using Fn = std::function<void(const anet::rl::LearnEvent& event)>;
+    public:
+        FunctionLearnObserver(Fn fn, std::optional<std::string> name = std::nullopt);
+        void OnLearn(const LearnEvent& event) override { fn_(event); }
+        std::string ToString() const override { return name_; }
+    private:
+        Fn fn_;
+        std::string name_;
+    };
+
+    // ==============================================================
+
+    class MetricsLogObserverBase : public TaggedObserver {
+    public:
+        MetricsLogObserverBase(
+            const std::string& tag, const std::string& key,
+            anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field);
+        virtual ~MetricsLogObserverBase() = default;
+    protected:
+        void OnUpdate(const UpdateEvent& event);
+    private:
+        std::optional<float> GetScalar(const UpdateEvent& event, anet::rl::EventField event_field);
+    protected:
+        std::string key_;
+        anet::rl::StepAxis step_axis_;
+        std::optional<anet::rl::EventField> event_field_;
+    };
+
+    class MetricsLogTrainObserver : public MetricsLogObserverBase, public TrainObserver {
+    public:
+        MetricsLogTrainObserver(const std::string& tag, const std::string& key,
+            anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field);
+        void OnTrain(const TrainEvent& event) override { OnUpdate(event); }
+        std::string GetClassName() const override { return "MetricsLogTrainObserver"; }
+        virtual std::string ToString() const override { return ToStringInternal(); }
+    };
+
+    class MetricsLogLearnObserver : public MetricsLogObserverBase, public LearnObserver {
+    public:
+        MetricsLogLearnObserver(const std::string& tag, const std::string& key,
+            anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field);
+        void OnLearn(const LearnEvent& event) override { OnUpdate(event); }
+        std::string GetClassName() const override { return "MetricsLogLearnObserver"; }
+        virtual std::string ToString() const override { return ToStringInternal(); }
+    };
+
+	// ===========================================================
+
+    class ObserverFactory {
+    public:
+        ObserverFactory(const ConfigData& config_data);
+
+        std::vector<std::shared_ptr<anet::rl::TrainObserver>> GetUpdateObservers() { return train_observers_; }
+        std::vector<std::shared_ptr<anet::rl::LearnObserver>> GetLearnObservers() { return learn_observers_; }
+    private:
+        std::vector<std::shared_ptr<anet::rl::TrainObserver>> train_observers_;
+        std::vector<std::shared_ptr<anet::rl::LearnObserver>> learn_observers_;
     };
 }
 

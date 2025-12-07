@@ -9,7 +9,7 @@
 namespace anet {
 
     // ----- trim -----
-    std::string TrimCopy(const std::string & s) {
+    inline std::string TrimCopy(const std::string & s) {
         auto begin = std::find_if_not(s.begin(), s.end(), ::isspace);
         auto end = std::find_if_not(s.rbegin(), s.rend(), ::isspace).base();
         if (begin >= end) return "";
@@ -17,7 +17,7 @@ namespace anet {
     }
 
     // ----- find: 複数 delimiter のうち最小位置のものを探す -----
-    std::pair<size_t, size_t> FindDelim(const std::string & s,
+    inline std::pair<size_t, size_t> FindDelim(const std::string & s,
         size_t start,
         const std::vector<std::string>&delims)
     {
@@ -35,7 +35,7 @@ namespace anet {
     }
 
     // ----- split -----
-    std::vector<std::string> Split(const std::string & s,
+    inline std::vector<std::string> Split(const std::string & s,
         const std::vector<std::string>&delimiters,
         bool trim)
     {
@@ -60,28 +60,28 @@ namespace anet {
         return result;
     }
 
-    bool StartsWith(const std::string& str, const std::string& prefix)
+    inline bool StartsWith(const std::string& str, const std::string& prefix)
     {
         return str.size() >= prefix.size() && str.compare(0, prefix.size(), prefix) == 0;
     }
 
-    bool StartsWith(const std::string& str, const char* prefix)
+    inline bool StartsWith(const std::string& str, const char* prefix)
     {
         return StartsWith(str, std::string(prefix));
     }
 
-    bool EndsWith(const std::string& str, const std::string& suffix)
+    inline bool EndsWith(const std::string& str, const std::string& suffix)
     {
         if (str.size() < suffix.size()) return false;
         return str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
     }
 
-    bool EndsWith(const std::string& str, const char* suffix)
+    inline bool EndsWith(const std::string& str, const char* suffix)
     {
         return EndsWith(str, std::string(suffix));
     }
 
-    std::string RemoveSuffix(const std::string& str, const std::string& keyword)
+    inline std::string RemoveSuffix(const std::string& str, const std::string& keyword)
     {
         if (EndsWith(str, keyword)) {
             return str.substr(0, str.size() - keyword.size());
@@ -89,11 +89,28 @@ namespace anet {
         return str;
     }
 
-    std::string RemovePrefix(const std::string& a, const std::string& b)
+    inline std::string RemovePrefix(const std::string& a, const std::string& b)
     {
         if (a.rfind(b, 0) == 0) { // a の先頭に b がある?
             return a.substr(b.size());
         }
         return a; // 先頭にない場合はそのまま
+    }
+
+    inline std::string ExtractBetween(const std::string& src, const char* prefix, const char* suffix)
+    {
+        if (!prefix || !suffix) return "";
+
+        std::string pre(prefix);
+        std::string suf(suffix);
+
+        size_t start = src.find(pre);
+        if (start == std::string::npos) return "";
+
+        start += pre.length();
+        size_t end = src.find(suf, start);
+        if (end == std::string::npos) return "";
+
+        return src.substr(start, end - start);
     }
 }
