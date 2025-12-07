@@ -51,13 +51,12 @@ namespace anet::rl {
         std::chrono::high_resolution_clock::time_point start_time_;
         std::chrono::high_resolution_clock::time_point last_time_;
         anet::rl::step_t last_exp_step_ = 0;
-        float last_target_eval_reward_;
-        float last_policy_eval_reward_;
-        anet::EmaFilter<float> target_eval_reward_ema_;
-        anet::EmaFilter<float> policy_eval_reward_ema_;
+        float last_train_reward_ = 0.0f;
         anet::EmaFilter<float> train_reward_ema_;
-        anet::EmaFilter<float> train_step_per_sec_ema_;
-        anet::EmaFilter<float> exp_step_per_sec_ema_;
+        float last_target_eval_reward_ = 0.0f;
+        float last_policy_eval_reward_ = 0.0f;
+        float last_train_step_per_sec_ = std::numeric_limits<float>::quiet_NaN();
+        float last_exp_step_per_sec_ = std::numeric_limits<float>::quiet_NaN();
     };
 
 } // namespace anet::rl

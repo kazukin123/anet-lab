@@ -310,6 +310,7 @@ DefaultBatchEnvFactory::DefaultBatchEnvFactory(
     , seed_(seed)
     , device_(device.value_or(anet::MakeDevice(config_.device_type, config_.device_index)))
 {
+    ANET_ASSERT(batch_size_ > 0);
 }
 
 int DefaultBatchEnvFactory::GetLogicalCores() const
@@ -355,8 +356,6 @@ std::shared_ptr<anet::ThreadPool> DefaultBatchEnvFactory::CreatePool(int worker_
 
 std::shared_ptr<BatchEnv> DefaultBatchEnvFactory::CreateBatchEnv()
 {
-    ANET_ASSERT(config_.batch_size > 0);
-
     auto factory = GetSingleFactory();
     if (factory == nullptr)
         return nullptr;

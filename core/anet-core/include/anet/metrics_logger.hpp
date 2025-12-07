@@ -73,7 +73,7 @@ namespace anet {
         static void Init(std::unique_ptr<IBackend> backend, const std::string& root = "logs", const std::string& run = "");
         static void Reset();
 
-        inline void LogScalar(const std::string& tag, int step, double value) {
+        inline void LogScalar(const std::string& tag, int64_t step, double value) {
             json obj = {
                 {"type", "scalar"},
                 {"tag", tag},

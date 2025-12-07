@@ -93,8 +93,6 @@ void HeatMapVectorObserver::OnTrain(const TrainEvent& event)
             config_.image_height
         );
     }
-
-    return;
 }
 
 TimeHistogramObserver::TimeHistogramObserver(
@@ -127,8 +125,6 @@ void TimeHistogramObserver::OnTrain(const TrainEvent& event)
     if (step % config_.log_interval == 0) {
         MetricsLogger::Instance()->LogImage(tag_, step, *histogram_, config_.image_width, config_.image_height);
     }
-
-    return;
 }
 
 MultiPairHeatMapObserver::MultiPairHeatMapObserver(
@@ -245,8 +241,6 @@ void MultiPairHeatMapObserver::OnTrain(const TrainEvent& event)
             config_.image_width,
             config_.image_height);
     }
-
-    return;
 }
 
 SweepedHeatMapObserver::SweepedHeatMapObserver(
@@ -367,8 +361,6 @@ void SweepedHeatMapObserver::OnTrain(const TrainEvent& event)
             MetricsLogger::Instance()->LogScalar(scalar_tag, step, scalar_value);
         }
     }
-
-    return;
 }
 
 EpisodeEvalObserver::EpisodeEvalObserver(
@@ -392,20 +384,21 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
 
     // 評価エピソードを終端まで回す
     if (step % eval_interval_ == 0) {
-		StepCounts counts;
+		StepCounts counts_local;
+        step_t step = 0;
         auto state = env_->Reset(runmode_);
         auto eps_total_reward = 0.0f;
         bool done = false;
         bool truncated = false;
         do {
-            auto action = event.agent->MakeAction(counts, state, runmode_);
+            auto action = event.agent->MakeAction(counts_local, state, runmode_);
             auto env_result = env_->Step(action.action);
             eps_total_reward += env_result.reward.mean().item<float>();
             state = env_result.continue_state;
             done = env_result.next_state.IsDone();
             truncated = env_result.next_state.IsTruncated();
                 
-            counts.train_step++;
+            counts_local.train_step++;
         } while (!done && !truncated);
 
         this->report_function_(eps_total_reward);
@@ -432,24 +425,30 @@ FunctionLearnObserver::FunctionLearnObserver(Fn fn, std::optional<std::string> n
 
 // -------------------------------------------------------------
 
+///  @todo MetricsLogObserverBaseをProbe化
+
 MetricsLogObserverBase::MetricsLogObserverBase(
     const std::string& tag,
-    const std::string& key, anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field)
+    const std::string& key, anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
+    int interval, bool is_ema, float ema_alpha)
     : TaggedObserver(tag), key_(key), step_axis_(step_axis), event_field_(event_field)
+    , interval_(interval), is_ema_(is_ema), val_ema_(ema_alpha)
 {
     ;
 }
 
 MetricsLogTrainObserver::MetricsLogTrainObserver(const std::string& tag, const std::string& key,
-    anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field)
-    : MetricsLogObserverBase(tag, key, step_axis, event_field)
+    anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
+    int interval, bool is_ema, float ema_alpha)
+    : MetricsLogObserverBase(tag, key, step_axis, event_field, interval, is_ema, ema_alpha)
 {
     ;
 }
 
 MetricsLogLearnObserver::MetricsLogLearnObserver(const std::string& tag, const std::string& key,
-    anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field)
-    : MetricsLogObserverBase(tag, key, step_axis, event_field)
+    anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
+    int interval, bool is_ema, float ema_alpha)
+    : MetricsLogObserverBase(tag, key, step_axis, event_field, interval, is_ema, ema_alpha)
 {
     ;
 }
@@ -495,20 +494,28 @@ void MetricsLogObserverBase::OnUpdate(const UpdateEvent& event)
         if (!value.has_value()) value = GetScalar(event, anet::rl::EventField::TRAINER);
     }
 
-    if (!value.has_value()) {
+	// EMA更新
+    if (value.has_value()) {
+        if (is_ema_) {
+			val_ema_.Update(*value);
+        }
+    } else {
         wxLogWarning("MetricsLogObserverBase::OnUpdate(): value not found. tag=%s key=%s",
             tag_, key_);
-	}
-
-    // Metricsログ出力
-    if (value.has_value()) {
-        MetricsLogger::Instance()->LogScalar(
-            this->tag_,
-            event.counts.GetByAxis(this->step_axis_),
-            *value);
     }
 
-    return;
+	// STEP取得
+    auto step = event.counts.GetByAxis(this->step_axis_);
+
+	// ログ出力間隔チェック
+    if (step % interval_ != 0) return;
+
+	// ログ出力
+    if (is_ema_) {
+        MetricsLogger::Instance()->LogScalar(tag_, step, val_ema_.Value());
+    } else if (value.has_value()) {
+        MetricsLogger::Instance()->LogScalar(tag_, step, *value);
+    }
 }
 
 // -------------------------------------------------------------
@@ -539,22 +546,26 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
             std::optional<anet::rl::EventType> event_opt;
             std::optional<anet::rl::StepAxis> step_axis_opt;
 			std::optional<anet::rl::EventField> field_opt;
+            int interval = 1;
+            bool is_ema = false;
+			float ema_alpha = 0.01;
+
             for (auto v : values) {
                 if (v == "@train") {
                     event_opt = EventType::TRAIN;
                 } else if (v == "@learn") {
                     event_opt = EventType::LEARN;   /// @todo TRAINとLEARN以外の EventType も対応
-                } else if (v == "&train_step" || v == "&train") {
+                } else if (v == "$train_step") {
                     step_axis_opt = StepAxis::TRAIN;
-                } else if (v == "&learn_step" || v == "&learn_step") {
+                } else if (v == "$learn_step") {
                     step_axis_opt = StepAxis::LEARN;
-                } else if (v == "&episode_step" || v == "&episode") {
+                } else if (v == "$episode_step") {
                     step_axis_opt = StepAxis::EPISODE;
-                } else if (v == "&exp_step" || v == "&exp") {
+                } else if (v == "$exp_step") {
                     step_axis_opt = StepAxis::EXP;
-                } else if (v == "&update_step" || v == "&update_step") {
+                } else if (v == "$update_step") {
                     step_axis_opt = StepAxis::UPDATE;
-                } else if (v == "&sim_step" || v == "&sim") {
+                } else if (v == "$sim_step") {
                     step_axis_opt = StepAxis::SIM;
                 } else if (v == "$agent") {
                     field_opt = EventField::AGENT;
@@ -564,10 +575,73 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                     field_opt = EventField::BATCH_UPDATE_RESULT;
                 } else if (v == "$trainer") {
                     field_opt = EventField::TRAINER;
+                } else if (v == "$ema") {
+                    is_ema = true;
                 } else {
-                    key_opt = v;
+					auto attr_kv = anet::Split(v, { ":" }, true);
+                    if (attr_kv.size() == 2) {
+                        auto attr_key = attr_kv[0];
+                        auto attr_val = attr_kv[1];
+                        if (attr_key == "key") {
+                            key_opt = attr_val;
+                        } else if (attr_key == "event") {
+                            if (attr_val == "train")
+                                event_opt = EventType::TRAIN;
+                            else if (attr_val == "learn")
+                                event_opt = EventType::LEARN;
+                            else {
+                                wxLogWarning("Unknown event value. config_key=%s config_value=%s attr_val=%s",
+                                    config_key, config_value, attr_val);
+                            }
+                        } else if (attr_key == "step" || attr_key == "step_axis") {
+                            if (attr_val == "train")
+                                step_axis_opt = StepAxis::TRAIN;
+                            else if (attr_val == "learn")
+                                step_axis_opt = StepAxis::LEARN;
+                            else if (attr_val == "episode_step" || attr_val == "episode")
+                                step_axis_opt = StepAxis::EPISODE;
+                            else if (attr_val == "exp_step" || attr_val == "exp")
+                                step_axis_opt = StepAxis::EXP;
+                            else if (attr_val == "update_step" || attr_val == "update")
+                                step_axis_opt = StepAxis::UPDATE;
+                            else if (attr_val == "sim_step" || attr_val == "sim")
+                                step_axis_opt = StepAxis::SIM;
+                            else {
+                                wxLogWarning("Unknown step value. config_key=%s config_value=%s attr_val=%s",
+                                    config_key, config_value, attr_val);
+                            }
+                        } else if (attr_key == "target") {
+                            if (attr_val == "agent")
+                                field_opt = EventField::AGENT;
+                            else if (attr_val == "batch_experience" || attr_val == "exp")
+                                field_opt = EventField::BATCH_EXPERIENCE;
+                            else if (attr_val == "batch_update_result" || attr_val == "update_result" || attr_val == "result")
+                                field_opt = EventField::BATCH_UPDATE_RESULT;
+                            else if (attr_val == "trainer")
+                                field_opt = EventField::TRAINER;
+                            else {
+                                wxLogWarning("Unknown target value. config_key=%s config_value=%s attr_val=%s",
+                                    config_key, config_value, attr_val);
+                            }
+                        } else if (attr_key == "interval") {
+							interval = std::stoi(attr_val);
+                        } else if (attr_key == "ema_alpha") {
+                            is_ema = true;
+                            ema_alpha = std::stof(attr_val);
+                        } else {
+                            wxLogWarning("Unknown attribute key. config_key=%s config_value=%s attr_key=%s",
+                                config_key, config_value, attr_key);
+                        }
+                    } else {
+                        key_opt = v;
+                    }
 				}
             }
+//            # metrics.scalar.[tag] = key [@event] [$target] [$step] [$ema] [interval:N] [ema_alpha:A]
+//              #   @event   : (default: @train) @learn || @train
+//              #   $step    : $train_step || $learn_step || $episode_step || $exp_step || $update_step || $sim_step
+//              #   $target : $update_result || $agent || $exp || $trainer
+//                metrics.scalar.min.[10_train / 10_total_reward] = train_reward_ema $ema field=trainer event:train interval:10 ema_alpha:0.01
 
             if (!key_opt.has_value()) {
                 wxLogError("ObserverFactory: key not found. config_key=%s config_value=%s",
@@ -577,27 +651,32 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
 
             auto key = *key_opt;
             auto event = event_opt.value_or(EventType::TRAIN);
-			auto step_axis = step_axis_opt.value_or(
-                (*event_opt == EventType::LEARN) ? StepAxis::LEARN : StepAxis::TRAIN);
+            anet::rl::StepAxis step_axis;
+            if (step_axis_opt.has_value()) {
+                step_axis = *step_axis_opt;
+            } else {
+                // stepの指定がない場合はeventに合わせて決定。
+                step_axis = (event == EventType::TRAIN) ? StepAxis::TRAIN : StepAxis::LEARN;
+            }
 
             switch (event) {
             case EventType::TRAIN:
                 {
-                    auto train_obs = std::make_shared<MetricsLogTrainObserver>(scalar_metrics_tag, key, step_axis, field_opt);
+                    auto train_obs = std::make_shared<MetricsLogTrainObserver>(scalar_metrics_tag, key, step_axis, field_opt
+                        ,interval, is_ema, ema_alpha);
                     train_observers_.push_back(train_obs);
                 }
                 break;
             case EventType::LEARN:
                 {
-                    auto learn_obs = std::make_shared<MetricsLogLearnObserver>(scalar_metrics_tag, key, step_axis, field_opt);
+                    auto learn_obs = std::make_shared<MetricsLogLearnObserver>(scalar_metrics_tag, key, step_axis, field_opt
+                        , interval, is_ema, ema_alpha);
                     learn_observers_.push_back(learn_obs);
                 }
                 break;
             }
         }
  
-        /// @todo intervalを設定化
-		/// @todo EMAを設定化
         /// @todo HeatMap系Observerに対応
 	}
 }

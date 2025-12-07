@@ -99,8 +99,8 @@ namespace anet {
          * @param x 新しい観測値
          */
         void Update(T x) {
-            ANET_ASSERT(!std::isnan(x));
-            ANET_ASSERT(!std::isinf(x));
+            //ANET_ASSERT(!std::isnan(x));
+            //ANET_ASSERT(!std::isinf(x));
             if (std::isnan(x)) return;
             if (std::isinf(x)) return; 
 

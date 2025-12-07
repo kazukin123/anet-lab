@@ -229,7 +229,8 @@ namespace anet::rl {
     public:
         MetricsLogObserverBase(
             const std::string& tag, const std::string& key,
-            anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field);
+            anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
+            int interval, bool is_ema, float ema_alpha);
         virtual ~MetricsLogObserverBase() = default;
     protected:
         void OnUpdate(const UpdateEvent& event);
@@ -239,12 +240,16 @@ namespace anet::rl {
         std::string key_;
         anet::rl::StepAxis step_axis_;
         std::optional<anet::rl::EventField> event_field_;
+        bool is_ema_;
+		int interval_;
+		anet::EmaFilter<float> val_ema_;
     };
 
     class MetricsLogTrainObserver : public MetricsLogObserverBase, public TrainObserver {
     public:
         MetricsLogTrainObserver(const std::string& tag, const std::string& key,
-            anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field);
+            anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
+            int interval, bool is_ema, float ema_alpha);
         void OnTrain(const TrainEvent& event) override { OnUpdate(event); }
         std::string GetClassName() const override { return "MetricsLogTrainObserver"; }
         virtual std::string ToString() const override { return ToStringInternal(); }
@@ -253,7 +258,8 @@ namespace anet::rl {
     class MetricsLogLearnObserver : public MetricsLogObserverBase, public LearnObserver {
     public:
         MetricsLogLearnObserver(const std::string& tag, const std::string& key,
-            anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field);
+            anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
+            int interval, bool is_ema, float ema_alpha);
         void OnLearn(const LearnEvent& event) override { OnUpdate(event); }
         std::string GetClassName() const override { return "MetricsLogLearnObserver"; }
         virtual std::string ToString() const override { return ToStringInternal(); }

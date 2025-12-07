@@ -11,8 +11,8 @@ train.batch_size = 10
 
 CartPoleFrame.enable_image_log = false      # default=true
 
-metrics.scalar.$ = metrics.scalar.trunk
-#metrics.scalar.$ = metrics.scalar.min
+#metrics.scalar.$ = metrics.scalar.trunk
+metrics.scalar.$ = metrics.scalar.full
 
 DQNAgent.$ = agent_trunk
 #agent.$ = agent_20251127-032759
@@ -27,45 +27,52 @@ env.$ = env.cartpole
     #   &step    : &train_step || &learn_step || &episode_step || &exp_step || &update_step || &sim_step
     #   $target  : $update_result || $agent || $exp || $trainer
 
-
-metrics.scalar.min.[10_train/10_total_reward] = $trainer train_reward_ema @train
+metrics.scalar.min.[10_train/10_total_reward] = train_reward  $trainer @train
 metrics.scalar.min.[21_eval/01_target_reward] = $trainer target_eval_reward @learn
 metrics.scalar.min.[21_eval/02_policy_reward] = $trainer policy_eval_reward @learn
-metrics.scalar.min.[21_eval/03_target_reward_ema] = $trainer target_eval_reward_ema @learn
-metrics.scalar.min.[21_eval/04_policy_reward_ema] = $trainer policy_eval_reward_ema @learn
+metrics.scalar.min.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $trainer $ema interval:100 ema:0.01
+metrics.scalar.min.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $trainer $ema interval:100 ema:0.01
+metrics.scalar.min.[90_perf/90_elapse_hour] = elapse_hour @train $trainer interval:100
 
 
-metrics.scalar.trunk.[10_train/10_total_reward] = $trainer train_reward_ema @train
-metrics.scalar.trunk.[11_agent_dqn_base/03_epsilon_train] = $agent epsilon @train
-metrics.scalar.trunk.[21_eval/01_target_reward] = $trainer target_eval_reward @learn
-metrics.scalar.trunk.[21_eval/02_policy_reward] = $trainer policy_eval_reward @learn
-metrics.scalar.trunk.[21_eval/03_target_reward_ema] = $trainer target_eval_reward_ema @learn
-metrics.scalar.trunk.[21_eval/04_policy_reward_ema] = $trainer policy_eval_reward_ema @learn
-metrics.scalar.trunk.[32_agent_dqn_base/04_tau] = $agent tau @learn
-metrics.scalar.trunk.[32_agent_dqn_base/05_epsilon_learn] = $agent epsilon @learn 
-metrics.scalar.trunk.[37_agent_dqn_qtd/01_td_mean] = td_mean @learn
-metrics.scalar.trunk.[37_agent_dqn_qtd/03_td_ema] = td_ema @learn
-metrics.scalar.trunk.[37_agent_dqn_qtd/11_q_mean] = q_mean @learn
-metrics.scalar.trunk.[37_agent_dqn_qtd/12_q_max] = q_max @learn
-metrics.scalar.trunk.[37_agent_dqn_qtd/13_q_std] = q_std @learn
-metrics.scalar.trunk.[37_agent_dqn_qtd/21_grad_norm] = grad_norm @learn
-metrics.scalar.trunk.[37_agent_dqn_qtd/22_grad_clip_ratio] = grad_clip_ratio @learn
-metrics.scalar.trunk.[38_agent_dqn_loss/01_loss] = loss @learn
-metrics.scalar.trunk.[38_agent_dqn_loss/02_loss_ema] = loss_ema @learn
-metrics.scalar.trunk.[32_agent_dqn_base/10_collapse_s] = collapse_s @learn
-metrics.scalar.trunk.[32_agent_dqn_base/11_collapse_l] = collapse_l @learn
-metrics.scalar.trunk.[33_agent_dqn_action/01_act_diff_ema] = act_diff_ema @learn
-metrics.scalar.trunk.[33_agent_dqn_action/02_act_unstable] = act_unstable @learn
-metrics.scalar.trunk.[33_agent_dqn_action/03_act_unstable_ema] = act_unstable_ema @learn
-metrics.scalar.trunk.[37_agent_dqn_qtd/31_q_z] = q_z @learn
-metrics.scalar.trunk.[37_agent_dqn_qtd/32_q_cv] = q_cv @learn
-metrics.scalar.trunk.[37_agent_dqn_qtd/33_q_niqr] = q_niqr @learn
-metrics.scalar.trunk.[37_agent_dqn_qtd/34_q_unstable] = q_unstable @learn
-metrics.scalar.trunk.[37_agent_dqn_qtd/35_q_unstable_ema] = q_unstable_ema @learn
-metrics.scalar.trunk.[37_agent_dqn_qtd/41_e_t] = e_t @learn
-metrics.scalar.trunk.[37_agent_dqn_qtd/42_s] = s @learn
-metrics.scalar.trunk.[37_agent_dqn_qtd/43_s_ema] = s_ema @learn
-metrics.scalar.trunk.[37_agent_dqn_qtd/46_unstable_ema] = unstable_ema @learn
+metrics.scalar.full.[10_train/10_total_reward] = $trainer train_reward_ema @train
+metrics.scalar.full.[10_train/10_total_reward_ema] = train_reward $trainer @train $ema
+metrics.scalar.full.[11_agent_dqn_base/03_epsilon_train] = $agent epsilon @train
+metrics.scalar.full.[21_eval/01_target_reward] = $trainer target_eval_reward @learn
+metrics.scalar.full.[21_eval/02_policy_reward] = $trainer policy_eval_reward @learn
+metrics.scalar.full.[21_eval/03_target_reward_ema] = $trainer target_eval_reward $ema @learn
+metrics.scalar.full.[21_eval/04_policy_reward_ema] = $trainer policy_eval_reward $ema @learn
+metrics.scalar.full.[32_agent_dqn_base/04_tau] = $agent tau @learn
+metrics.scalar.full.[32_agent_dqn_base/05_epsilon_learn] = $agent epsilon @learn 
+metrics.scalar.full.[37_agent_dqn_qtd/01_td_mean] = td_mean @learn
+metrics.scalar.full.[37_agent_dqn_qtd/03_td_ema] = td_ema @learn
+metrics.scalar.full.[37_agent_dqn_qtd/11_q_mean] = q_mean @learn
+metrics.scalar.full.[37_agent_dqn_qtd/12_q_max] = q_max @learn
+metrics.scalar.full.[37_agent_dqn_qtd/13_q_std] = q_std @learn
+metrics.scalar.full.[37_agent_dqn_qtd/21_grad_norm] = grad_norm @learn
+metrics.scalar.full.[37_agent_dqn_qtd/22_grad_clip_ratio] = grad_clip_ratio @learn
+metrics.scalar.full.[38_agent_dqn_loss/01_loss] = loss @learn
+metrics.scalar.full.[38_agent_dqn_loss/02_loss_ema] = loss_ema @learn
+metrics.scalar.full.[32_agent_dqn_base/10_collapse_s] = collapse_s @learn
+metrics.scalar.full.[32_agent_dqn_base/11_collapse_l] = collapse_l @learn
+metrics.scalar.full.[33_agent_dqn_action/01_act_diff_ema] = act_diff_ema @learn
+metrics.scalar.full.[33_agent_dqn_action/02_act_unstable] = act_unstable @learn
+metrics.scalar.full.[33_agent_dqn_action/03_act_unstable_ema] = act_unstable_ema @learn
+metrics.scalar.full.[37_agent_dqn_qtd/31_q_z] = q_z @learn
+metrics.scalar.full.[37_agent_dqn_qtd/32_q_cv] = q_cv @learn
+metrics.scalar.full.[37_agent_dqn_qtd/33_q_niqr] = q_niqr @learn
+metrics.scalar.full.[37_agent_dqn_qtd/34_q_unstable] = q_unstable @learn
+metrics.scalar.full.[37_agent_dqn_qtd/35_q_unstable_ema] = q_unstable_ema @learn
+metrics.scalar.full.[37_agent_dqn_qtd/41_e_t] = e_t @learn
+metrics.scalar.full.[37_agent_dqn_qtd/42_s] = s @learn
+metrics.scalar.full.[37_agent_dqn_qtd/43_s_ema] = s_ema @learn
+metrics.scalar.full.[37_agent_dqn_qtd/46_unstable_ema] = unstable_ema @learn
+metrics.scalar.full.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $trainer interval:100
+metrics.scalar.full.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $trainer  interval:100
+metrics.scalar.full.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $trainer $ema interval:100 ema:0.01
+metrics.scalar.full.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $trainer $ema interval:100 ema:0.01
+metrics.scalar.full.[90_perf/82_exp_step] = exp_step @train $trainer interval:100
+metrics.scalar.full.[90_perf/90_elapse_hour] = elapse_hour @train $trainer interval:100
 
 
 #------------------

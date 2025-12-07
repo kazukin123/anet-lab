@@ -8,8 +8,13 @@
 #include <torch/torch.h>
 #include "anet/util.hpp"
 
+#if ANET_ENABLE_DEBUGINFO
+#ifndef ANET_ENABLE_ASSERT
+#define ANET_ENABLE_ASSERT 1
+#endif
+#endif
 
-#ifdef ANET_ENABLE_ASSERT
+#if ANET_ENABLE_ASSERT
 #define ANET_ASSERT(cond)                                                      \
     do {                                                                       \
         if (!(cond)) {                                                         \

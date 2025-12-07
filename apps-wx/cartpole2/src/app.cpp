@@ -46,7 +46,8 @@ static wxCmdLineEntryDesc desc[] = {
     { wxCMD_LINE_NONE } // 終了マーク
 };
 
-bool MyApp::OnInit() {
+bool MyApp::OnInit()
+{
     wxInitAllImageHandlers();
 
     wxCmdLineParser cmdline_(desc, argc, (wchar_t**)argv);

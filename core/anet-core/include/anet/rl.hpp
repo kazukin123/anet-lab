@@ -483,11 +483,22 @@ namespace anet::rl {
     public:
 		virtual ~Trainer() = default;
     public:
+        static constexpr const char* TRAIN_REWARD = "train_reward";
         static constexpr const char* TRAIN_REWARD_EMA = "train_reward_ema";
+
         static constexpr const char* TARGET_EVAL_REWARD = "target_eval_reward";
-        static constexpr const char* TARGET_EVAL_REWARD_EMA = "target_eval_reward_ema";
         static constexpr const char* POLICY_EVAL_REWARD = "policy_eval_reward";
-        static constexpr const char* POLICY_EVAL_REWARD_EMA = "policy_eval_reward_ema";
+
+        static constexpr const char* TRAIN_STEP = "train_step";
+        static constexpr const char* EXP_STEP = "exp_step";
+        static constexpr const char* LEARN_STEP = "learn_step";
+        static constexpr const char* EPISODE_COUNT = "episode_count";
+        static constexpr const char* SIM_STEP = "sim_step";
+
+        static constexpr const char* TRAIN_STEP_PER_SEC = "train_step_per_sec";
+        static constexpr const char* EXP_STEP_PER_SEC = "exp_step_per_sec";
+        static constexpr const char* ELAPSE_HOUR = "elapse_hour";
+
     };
 
     class Runner {

@@ -26,6 +26,33 @@ struct DefaultTrainer::Config : public anet::Config
     }
 };
 
+std::optional<float> DefaultTrainer::GetScalar(const std::string& key) const
+{
+    if (key == TRAIN_REWARD) return last_train_reward_;
+    if (key == TRAIN_REWARD_EMA) return train_reward_ema_.Value();
+
+    if (key == TARGET_EVAL_REWARD) return last_target_eval_reward_;
+    if (key == POLICY_EVAL_REWARD) return last_policy_eval_reward_;
+
+    if (key == TRAIN_STEP_PER_SEC) return last_train_step_per_sec_;
+    if (key == EXP_STEP_PER_SEC) return last_exp_step_per_sec_;
+
+    if (key == ELAPSE_HOUR) {
+        std::chrono::high_resolution_clock::time_point now = std::chrono::high_resolution_clock::now();
+        auto elapse_msec = static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count());
+        auto elapse_hour = elapse_msec / 1000.0f / 60.0f / 60.0f;
+        return elapse_hour;
+    }
+
+    if (key == TRAIN_STEP) return static_cast<float>(step_counts_.train_step);
+    if (key == EXP_STEP) return static_cast<float>(step_counts_.exp_step);
+    if (key == LEARN_STEP) return static_cast<float>(step_counts_.learn_step);
+    if (key == EPISODE_COUNT) return static_cast<float>(step_counts_.episode_count);
+    if (key == SIM_STEP) return static_cast<float>(step_counts_.sim_step);
+
+    return std::nullopt;
+}
+
 //const torch::Device ENV_DEVICE = torch::kCPU;
 const torch::Device AGENT_DEVICE = torch::kCUDA;
 
@@ -34,10 +61,10 @@ DefaultTrainer::DefaultTrainer(const ConfigData& config_data)
     : config_(std::make_unique<Config>(config_data))
     , device_agent_(AGENT_DEVICE)
     , train_reward_ema_(0.001)
-    , train_step_per_sec_ema_(0.001)
-    , exp_step_per_sec_ema_(0.001)
-    , target_eval_reward_ema_(0.1)
-    , policy_eval_reward_ema_(0.1)
+    //, train_step_per_sec_ema_(0.001)
+    //, exp_step_per_sec_ema_(0.001)
+    //, target_eval_reward_ema_(0.1)
+    //, policy_eval_reward_ema_(0.1)
 {
     Initialize(config_data);
 }
@@ -102,7 +129,6 @@ void DefaultTrainer::Initialize(const ConfigData& config_data)
         [this](float total_reward)
         {
             this->last_target_eval_reward_ = total_reward;
-            this->target_eval_reward_ema_.Update(total_reward);
         },
         single_env_factory, config_data, env_device, anet::rl::RunMode::Eval1,
         config_->eval_interval, config_->eval_interval);
@@ -110,7 +136,6 @@ void DefaultTrainer::Initialize(const ConfigData& config_data)
         [this](float total_reward)
         {
             this->last_policy_eval_reward_ = total_reward;
-            this->policy_eval_reward_ema_.Update(total_reward);
         },
         single_env_factory, config_data, env_device, anet::rl::RunMode::Eval2,
         config_->eval_interval, config_->eval_interval);
@@ -130,24 +155,6 @@ void DefaultTrainer::Initialize(const ConfigData& config_data)
     // 時間計測開始
     start_time_ = std::chrono::high_resolution_clock::now();
     last_time_ = start_time_;
-}
-
-std::optional<float> DefaultTrainer::GetScalar(const std::string& key) const
-{
-    if (key == TRAIN_REWARD_EMA)
-        return train_reward_ema_.Value();
-
-    if (key == TARGET_EVAL_REWARD)
-        return last_target_eval_reward_;
-    if (key == TARGET_EVAL_REWARD_EMA)
-        return target_eval_reward_ema_.Value();
-
-    if (key == POLICY_EVAL_REWARD)
-        return last_policy_eval_reward_;
-    if (key == POLICY_EVAL_REWARD_EMA)
-        return policy_eval_reward_ema_.Value();
-
-    return std::nullopt;
 }
 
 void DefaultTrainer::DoUpdateFrame(int max_step, ControlFunction pre_step_func, ControlFunction post_step_func)
@@ -204,7 +211,8 @@ void DefaultTrainer::DoUpdateFrame(int max_step, ControlFunction pre_step_func, 
 
         // 報酬更新
         float step_reward = result.reward.mean().item<float>();
-        train_reward_ema_.Update(step_reward);
+        last_train_reward_ = step_reward;
+		train_reward_ema_.Update(last_train_reward_);
 
         // カウント更新
         step_counts_.train_step++;
@@ -219,11 +227,6 @@ void DefaultTrainer::DoUpdateFrame(int max_step, ControlFunction pre_step_func, 
         step_counts_.update_step++;
         step_counts_.learn_step += update_result->GetLearnStepDiff();
 
-        // 更新後処理
-        anet::rl::TrainEvent update_event{ exp, *this, step_counts_, agent_, update_result, env_ };
-        notifier_->Notify(update_event);
-        state_ = result.continue_state;
-
         // メトリクス算出（処理性能系）
         auto exp_step = step_counts_.exp_step;
         auto exp_step_delta = exp_step - last_exp_step_;
@@ -232,26 +235,15 @@ void DefaultTrainer::DoUpdateFrame(int max_step, ControlFunction pre_step_func, 
         if (msec_diff <= 0) msec_diff = 1;
         auto train_step_per_sec = 1.0f / static_cast<float>(msec_diff) * 1000.0f;
         auto exp_step_per_sec = static_cast<float>(exp_step_delta) / static_cast<float>(msec_diff) * 1000.0f;
-        auto elapse_msec = static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count());
-        auto elapse_hour = elapse_msec / 1000.0f / 60.0f / 60.0f;
+        last_train_step_per_sec_ = train_step_per_sec;
+        last_exp_step_per_sec_ = exp_step_per_sec;
 
-        // メトリクス出力（処理性能系）
-        if (train_step != 0) { // 0ステップ目は誤差が大きいので
-            train_step_per_sec_ema_.Update(train_step_per_sec);
-            exp_step_per_sec_ema_.Update(exp_step_per_sec);
+        // 更新後処理
+        anet::rl::TrainEvent update_event{ exp, *this, step_counts_, agent_, update_result, env_ };
+        notifier_->Notify(update_event);
+        state_ = result.continue_state;
 
-            if (train_step % config_->perf_log_interval == 0) {
-                auto train_ema = train_step_per_sec_ema_.Value();
-                auto exp_ema = exp_step_per_sec_ema_.Value();
-
-                //anet::MetricsLogger::Instance()->LogScalar("90_perf/11_train_step_per_sec", train_step, train_step_per_sec);
-                //anet::MetricsLogger::Instance()->LogScalar("90_perf/12_exp_step_per_sec", train_step, exp_step_per_sec);
-                anet::MetricsLogger::Instance()->LogScalar("90_perf/21_train_step_per_sec_ema", train_step, train_ema);
-                anet::MetricsLogger::Instance()->LogScalar("90_perf/22_exp_step_per_sec_ema", train_step, exp_ema);
-                anet::MetricsLogger::Instance()->LogScalar("90_perf/82_exp_step", train_step, exp_step);
-                anet::MetricsLogger::Instance()->LogScalar("90_perf/90_elapse_hour", train_step, elapse_hour);
-            }
-        }
+        // 次準備
         last_time_ = now;
         last_exp_step_ = exp_step;
 
@@ -262,6 +254,9 @@ void DefaultTrainer::DoUpdateFrame(int max_step, ControlFunction pre_step_func, 
 		// Stepカウント
         frame_step++;
     }
+
+    // ログflush
+	anet::MetricsLogger::Instance()->Flush();
 
     auto train_step = step_counts_.train_step;
 }
