@@ -231,5 +231,5 @@ std::unique_ptr<anet::rl::SingleDiscreteEnv> CartPoleEnvFactory::CreateSingleEnv
     return std::make_unique<CartPoleEnv>(config, device, seed);
 }
 
-ANET_REGIST_ENV_FACTORY(CartPoleEnvFactory);
+ANET_REGISTER_ENV_FACTORY(CartPoleEnvFactory);
 

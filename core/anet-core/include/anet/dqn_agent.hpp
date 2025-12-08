@@ -119,7 +119,7 @@ namespace anet::rl {
     public:
         DQNAgent(
             const DQNAgentConfig& config,
-            anet::rl::BatchEnvSpec batc_env_spec, anet::rl::EnvSpec& env_spec, torch::Device device,
+            const anet::rl::BatchEnvSpec& batc_env_spec, const anet::rl::EnvSpec& env_spec, const torch::Device& device,
             std::shared_ptr<anet::rl::Notifier> notifier = nullptr,
             std::optional<seed_t> seed = std::nullopt);
 
@@ -161,4 +161,21 @@ namespace anet::rl {
         std::unique_ptr<StabilityMonitor> stability_monitor_;
         std::unique_ptr<StabilityController> stability_controller_;
     };
+
+    class DQNAgentFactory : public anet::rl::AgentFactory {
+    public:
+        DQNAgentFactory();
+
+        std::shared_ptr<Agent> CreateAgent(
+            const EnvSpec& env_spec,
+            const BatchEnvSpec& batch_env_spec,
+            const torch::Device& device,
+            const anet::ConfigData& config_data = EmptyConfigData,
+            std::shared_ptr<anet::rl::Notifier> notifier = nullptr,
+            std::optional<anet::seed_t> seed = std::nullopt
+        ) const override;
+
+        std::string GetTargetAgentClassId() const override { return "DQNAgent"; }
+    };
+
 }// namespace anet::rl

@@ -10,32 +10,28 @@ namespace anet::rl {
 
     class DefaultTrainer : public Trainer {
     public:
-		using ControlFunction = std::function<bool()>;
-        static bool noop_function() { return false; };
-    public:
         DefaultTrainer(const ConfigData& config_data);
 
-        void DoUpdateFrame(int max_step,
-            ControlFunction pre_step_func = noop_function,     ///< 学習ステップ実行前処理(bool戻り値trueで中断要求)
-            ControlFunction post_step_func = noop_function);   ///< 学習ステップ実行後処理(bool戻り値trueで中断要求)
-
+        TrainerStatus Initialize(const ConfigData& config_data);
+        StepCounts DoUpdateFrame(int max_steps,
+            ControlFunction pre_step_func = noop, ControlFunction post_step_func = noop);
+    public:
         std::optional<float> GetScalar(const std::string& key) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key) const override { return std::nullopt; }
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const override { return std::nullopt; }
+    public:
+        TrainerStatus GetStatus() const override { return status_; }
+        StepCounts GetCounts() const override { return step_counts_; }
+        std::shared_ptr<anet::rl::BatchEnv> GetBatchEnv()const override { return env_; }
+        std::shared_ptr<anet::rl::Agent> GetAgent() const override { return agent_; }
+        std::shared_ptr<anet::rl::Notifier> GetNotifier() const override { return notifier_; }
+    private:
+        // 内部状態
+        TrainerStatus status_ = TrainerStatus::NOT_INITIALIZED;
 
-        const StepCounts& GetCounts() const { return step_counts_; }
-        std::shared_ptr<anet::rl::BatchEnv> GetBatchEnv() { return env_; }
-        std::shared_ptr<anet::rl::Agent> GetAgent() { return agent_; }
-        std::shared_ptr<anet::rl::Notifier> GetNotifier() { return notifier_; }
-    private:
-        void Initialize(const ConfigData& config_data);
-    private:
         // パラメータ
         struct Config;
         std::unique_ptr<Config> config_;
-
-        // デバイス
-        torch::Device device_agent_;
 
         // 乱数
         std::unique_ptr<anet::MasterSeedManager> master_seed_;

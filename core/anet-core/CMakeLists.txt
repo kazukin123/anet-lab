@@ -26,7 +26,7 @@ elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
     add_compile_definitions(NDEBUG)
 endif()
 
-find_package(wxWidgets REQUIRED core base OPTIONAL_COMPONENTS gl)
+find_package(wxWidgets REQUIRED COMPONENTS core base)
 #find_package(CUDAToolkit REQUIRED)
 
 include(${wxWidgets_USE_FILE})
@@ -40,11 +40,23 @@ add_library(anet-core STATIC
     "src/heat_map.cpp"
     "src/metrics_logger.cpp"
     "src/dqn_agent.cpp"
-    "src/config.cpp" "src/tensor_check.cpp" "src/tensor_utils.cpp" "src/random.cpp" 
-    "src/replay_buffer.cpp" "src/observers.cpp" "src/eval_env.cpp" "src/probe.cpp" "src/env.cpp" "src/profile.cpp" "src/thread.cpp" "src/trainer.cpp")
+    "src/config.cpp"
+    "src/tensor_check.cpp"
+    "src/tensor_utils.cpp"
+    "src/random.cpp"
+    "src/replay_buffer.cpp"
+    "src/observers.cpp"
+    "src/eval_env.cpp"
+    "src/probe.cpp"
+    "src/env.cpp"
+    "src/profile.cpp"
+    "src/thread.cpp"
+    "src/trainer.cpp"
+    "src/agent.cpp"
+    "src/init.cpp")
 
 target_include_directories(anet-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-#target_precompile_headers(anet-core PRIVATE src/pch.h)
+target_precompile_headers(anet-core PRIVATE "src/pch.hpp")
 target_link_libraries(anet-core PUBLIC ${TORCH_LIBRARIES})
 
 set_target_properties(anet-core PROPERTIES

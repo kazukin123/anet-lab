@@ -451,7 +451,7 @@ namespace anet::rl {
     class SingleDiscreteEnvFactory {
     public:
         virtual std::unique_ptr<SingleDiscreteEnv> CreateSingleEnv(
-            const anet::ConfigData& configData,
+            const anet::ConfigData& config_data,
             const torch::Device& device,
             std::optional<anet::seed_t> seed = std::nullopt) = 0;
         virtual std::string GetTargetEnvClassId() const = 0;
@@ -479,26 +479,13 @@ namespace anet::rl {
     // Agent
     // =============================================================
 
-    class Trainer : public DataExporter {
+    class Trainer;
+
+    class Sampler {
     public:
-		virtual ~Trainer() = default;
-    public:
-        static constexpr const char* TRAIN_REWARD = "train_reward";
-        static constexpr const char* TRAIN_REWARD_EMA = "train_reward_ema";
-
-        static constexpr const char* TARGET_EVAL_REWARD = "target_eval_reward";
-        static constexpr const char* POLICY_EVAL_REWARD = "policy_eval_reward";
-
-        static constexpr const char* TRAIN_STEP = "train_step";
-        static constexpr const char* EXP_STEP = "exp_step";
-        static constexpr const char* LEARN_STEP = "learn_step";
-        static constexpr const char* EPISODE_COUNT = "episode_count";
-        static constexpr const char* SIM_STEP = "sim_step";
-
-        static constexpr const char* TRAIN_STEP_PER_SEC = "train_step_per_sec";
-        static constexpr const char* EXP_STEP_PER_SEC = "exp_step_per_sec";
-        static constexpr const char* ELAPSE_HOUR = "elapse_hour";
-
+        virtual void ObserveFirst(const BatchStepResult& step_result) = 0;
+        virtual void Observe(const BatchExperience& exprience) = 0;
+        virtual ~Sampler() = default;
     };
 
     class Runner {
@@ -506,13 +493,6 @@ namespace anet::rl {
         virtual BatchActionInfo MakeAction(
             const StepCounts& counts, const anet::rl::BatchState& state, RunMode mode = RunMode::Train) const = 0;
         virtual ~Runner() = default;
-    };
-
-    class Sampler {
-    public:
-        virtual void ObserveFirst(const BatchStepResult& step_result) = 0;
-        virtual void Observe(const BatchExperience& exprience) = 0;
-        virtual ~Sampler() = default;
     };
 
     class Learner {
@@ -528,12 +508,6 @@ namespace anet::rl {
         virtual TensorFunction GetTensorFunction(const std::string& key) const = 0;
         virtual ~Agent() = default;
     };
-
-    /// @todo 複数ステップ（軌跡）収集後に更新する Agent 基底クラス（PPO, TRPO など）
-    //class TrajectoryBasedLearner : public Learner {
-    //public:
-    //    virtual ~TrajectoryBasedLearner() = default;
-    //};
 
     // =============================================================
 
@@ -624,6 +598,71 @@ namespace anet::rl {
         std::vector<std::shared_ptr<BeforeStepObserver>> before_step_observers_;
         std::vector<std::shared_ptr<TrainObserver>> train_observers_;
         std::vector<std::shared_ptr<LearnObserver>> learn_observers_;
+    };
+
+    // =============================================================
+    // Trainer
+    // =============================================================
+
+    enum class TrainerStatus {
+        NOT_INITIALIZED, ///< 未初期化
+        RUNNING,         ///< 実行中
+        COMPLETED        ///< 終了済み
+    };
+
+    enum class ControlSignal {
+        CONTINUE,///< 処理継続
+        BREAK,   ///< フレーム内のループを中断して抜ける。Trainer自体は実行継続。
+        STOP     ///< TrainerのStatusをCOMPLETEDに変更
+    };
+
+    class Trainer : public DataExporter {
+    public:
+        using ControlFunction = std::function<ControlSignal(const StepCounts& counts)>; ///< 学習ステップ制御処理(戻り値trueで処理中断)
+        static ControlSignal noop(const StepCounts& counts) { return ControlSignal::CONTINUE; }
+    public:
+        virtual TrainerStatus Initialize(const ConfigData& config_data) = 0;
+        virtual StepCounts DoUpdateFrame(
+            int max_steps,
+            ControlFunction pre_step_func = noop, ControlFunction post_step_func = noop) = 0;
+        virtual TrainerStatus GetStatus() const = 0;
+    public:
+        virtual StepCounts GetCounts() const = 0;
+        virtual std::shared_ptr<anet::rl::BatchEnv> GetBatchEnv()const = 0;
+        virtual std::shared_ptr<anet::rl::Agent> GetAgent() const = 0;
+        virtual std::shared_ptr<anet::rl::Notifier> GetNotifier() const = 0;
+    public:
+        virtual ~Trainer() = default;
+    public:
+        static constexpr const char* TRAIN_REWARD = "train_reward";
+        static constexpr const char* TRAIN_REWARD_EMA = "train_reward_ema";
+        static constexpr const char* TARGET_EVAL_REWARD = "target_eval_reward";
+        static constexpr const char* POLICY_EVAL_REWARD = "policy_eval_reward";
+        static constexpr const char* TRAIN_STEP = "train_step";
+        static constexpr const char* EXP_STEP = "exp_step";
+        static constexpr const char* LEARN_STEP = "learn_step";
+        static constexpr const char* EPISODE_COUNT = "episode_count";
+        static constexpr const char* SIM_STEP = "sim_step";
+        static constexpr const char* TRAIN_STEP_PER_SEC = "train_step_per_sec";
+        static constexpr const char* EXP_STEP_PER_SEC = "exp_step_per_sec";
+        static constexpr const char* ELAPSE_HOUR = "elapse_hour";
+    };
+
+    // =============================================================
+
+    class AgentFactory {
+    public:
+        virtual std::shared_ptr<Agent> CreateAgent(
+            const EnvSpec& env_spec,
+            const BatchEnvSpec& batch_env_spec,
+            const torch::Device& device,
+            const anet::ConfigData& config_data = EmptyConfigData,
+            std::shared_ptr<anet::rl::Notifier> notifier = nullptr,
+            std::optional<anet::seed_t> seed = std::nullopt
+        ) const = 0;
+        virtual std::string GetTargetAgentClassId() const = 0;
+
+        virtual ~AgentFactory() = default;
     };
 
     // =============================================================

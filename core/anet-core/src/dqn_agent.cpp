@@ -2,6 +2,7 @@
 
 #include "anet/dqn_agent.hpp"
 #include <tuple>
+#include <memory>
 #include <torch/torch.h>
 #include <wx/log.h>
 #include "anet/nn_util.hpp"
@@ -814,7 +815,7 @@ private:
 // ======================================================
 DQNAgent::DQNAgent(
     const DQNAgentConfig& config
-    , anet::rl::BatchEnvSpec batch_env_spec, anet::rl::EnvSpec& env_spec, torch::Device device
+    , const anet::rl::BatchEnvSpec& batch_env_spec, const anet::rl::EnvSpec& env_spec, const torch::Device& device
     , std::shared_ptr<anet::rl::Notifier> notifier
     , std::optional<seed_t> seed)
     : StepBasedAgent(config, device, notifier, seed)
@@ -1137,3 +1138,23 @@ DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperie
 
     return result;
 }
+
+DQNAgentFactory::DQNAgentFactory()
+{
+    ;
+}
+
+std::shared_ptr<Agent> DQNAgentFactory::CreateAgent(
+    const EnvSpec& env_spec, const BatchEnvSpec& batch_env_spec,
+    const torch::Device& device, const anet::ConfigData& config_data,
+    std::shared_ptr<anet::rl::Notifier> notifier, std::optional<anet::seed_t> seed) const
+{
+    DQNAgentConfig config(config_data);
+    auto agent = std::make_shared<DQNAgent>(config, batch_env_spec, env_spec, device, notifier, seed);
+    return agent;
+
+    /// @todo 引数の順番を統一
+}
+
+//ANET_REGISTER_AGENT_FACTORY(DQNAgentFactory);
+

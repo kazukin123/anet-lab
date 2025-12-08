@@ -3,7 +3,9 @@
 #include "anet/profile.hpp"
 #include "anet/observers.hpp"
 #include "anet/tensor_utils.hpp"
+#include "anet/log.hpp"
 #include "anet/env.hpp"
+#include "anet/agent.hpp"
 #include "anet/dqn_agent.hpp"
 
 
@@ -15,14 +17,12 @@ struct DefaultTrainer::Config : public anet::Config
     uint64_t seed = 0;
     int batch_size = 1;
     int eval_interval = 50;
-    int perf_log_interval = 100;
 
     DefaultTrainer::Config(const anet::ConfigData& config_data) : anet::Config(config_data, "train")
     {
         ANET_READ_CONFIG(config_data, seed);
         ANET_READ_CONFIG(config_data, batch_size);
         ANET_READ_CONFIG(config_data, eval_interval);
-        ANET_READ_CONFIG(config_data, perf_log_interval);
     }
 };
 
@@ -53,23 +53,15 @@ std::optional<float> DefaultTrainer::GetScalar(const std::string& key) const
     return std::nullopt;
 }
 
-//const torch::Device ENV_DEVICE = torch::kCPU;
-const torch::Device AGENT_DEVICE = torch::kCUDA;
-
 
 DefaultTrainer::DefaultTrainer(const ConfigData& config_data)
     : config_(std::make_unique<Config>(config_data))
-    , device_agent_(AGENT_DEVICE)
     , train_reward_ema_(0.001)
-    //, train_step_per_sec_ema_(0.001)
-    //, exp_step_per_sec_ema_(0.001)
-    //, target_eval_reward_ema_(0.1)
-    //, policy_eval_reward_ema_(0.1)
 {
-    Initialize(config_data);
+    //Initialize(config_data);
 }
 
-void DefaultTrainer::Initialize(const ConfigData& config_data)
+TrainerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
 {
     // seed
     if (config_->seed == 0) {
@@ -85,7 +77,7 @@ void DefaultTrainer::Initialize(const ConfigData& config_data)
     auto global_seed = master_seed_->GetMasterSeed();
     auto env_seed = master_seed_->GetGroupSeed("env");
     auto agent_seed = master_seed_->GetGroupSeed("agent");
-    wxLogInfo("global_seed=%lld env_seed=%lld agent_seed=%lld", global_seed, env_seed, agent_seed);
+    ANET_LOG_INFO() << "global_seed=" << global_seed << " env_seed=" << env_seed << " agent_seed=" << agent_seed;
 
     // パラメータ記録
     //wxLogInfo("train.preset=%s confg=%s", wxGetApp().GetConfig("train").Get("preset"), config_->ToString());
@@ -96,20 +88,22 @@ void DefaultTrainer::Initialize(const ConfigData& config_data)
 
     // ENV生成
     anet::rl::DefaultBatchEnvFactoryConfig env_config(config_data);
-    wxLogInfo("env_config=%s", env_config.ToString());
-    auto env_factory = anet::rl::DefaultBatchEnvFactory(env_config, config_data, config_->batch_size, env_seed);
+    ANET_LOG_INFO() << "env_config=" << env_config.ToString();
+    auto env_factory = anet::rl::DefaultBatchEnvFactory(
+        env_config, config_data, config_->batch_size, env_seed);
     auto env_device = env_factory.GetDevice();
     auto single_env_factory = env_factory.GetSingleFactory();
     env_ = env_factory.CreateBatchEnv();
     if (env_ == nullptr) {
-        wxLogError("Failed to create env.");
-        return;
+        ANET_LOG_ERROR() << "Failed to create env.";
+        status_ = anet::rl::TrainerStatus::COMPLETED;
+        return status_;
     }
 
     auto batch_env_spec = env_->GetBatchSpec();
     auto env_spec = env_->GetSpec();
-    wxLogInfo("batch_env_spec=" + batch_env_spec.ToString());
-    wxLogInfo("env_spec=" + env_spec.ToString());
+    ANET_LOG_INFO() << "batch_env_spec=" << batch_env_spec.ToString();
+    ANET_LOG_INFO() << "env_spec=" << env_spec.ToString();
     anet::MetricsLogger::Instance()->LogJson("env/batch_env_spec", batch_env_spec.ToJson());
     anet::MetricsLogger::Instance()->LogJson("env/env_spec", env_spec.ToJson());
     anet::MetricsLogger::Instance()->Flush();
@@ -120,9 +114,15 @@ void DefaultTrainer::Initialize(const ConfigData& config_data)
     //anet::MetricsLogger::Instance()->LogJson("eval_env", eval_result.ToJson());
 
     // Agent生成
-    anet::rl::DQNAgentConfig agent_config(config_data);
-    agent_ = std::make_shared<anet::rl::DQNAgent>(
-        agent_config, batch_env_spec, env_spec, device_agent_, notifier_, agent_seed);
+    anet::rl::DefaultAgentFactoryConfig agent_factory_config(config_data);
+    auto agent_factory = anet::rl::DefaultAgentFactory(
+        agent_factory_config, env_spec, batch_env_spec, config_data, agent_seed);
+    agent_ = agent_factory.CreateAgent(notifier_);
+    if (agent_ == nullptr) {
+        ANET_LOG_ERROR() << "Failed to create agent." ;
+        status_ = anet::rl::TrainerStatus::COMPLETED;
+        return status_;
+    }
 
     // EpisodeEvalObserver
     notifier_->Attach<anet::rl::EpisodeEvalObserver>(
@@ -155,11 +155,17 @@ void DefaultTrainer::Initialize(const ConfigData& config_data)
     // 時間計測開始
     start_time_ = std::chrono::high_resolution_clock::now();
     last_time_ = start_time_;
+
+    status_ = anet::rl::TrainerStatus::RUNNING;
+
+    return status_;
 }
 
-void DefaultTrainer::DoUpdateFrame(int max_step, ControlFunction pre_step_func, ControlFunction post_step_func)
+StepCounts DefaultTrainer::DoUpdateFrame(int max_steps, ControlFunction pre_step_func, ControlFunction post_step_func)
 {
     anet::ProfileRange r("DefaultTrainer::DoUpdateFrame");
+
+    ANET_ASSERT(status_ == anet::rl::TrainerStatus::RUNNING);
 
     auto env_spec = env_->GetSpec();
     auto batch_env_spec = env_->GetBatchSpec();
@@ -167,33 +173,38 @@ void DefaultTrainer::DoUpdateFrame(int max_step, ControlFunction pre_step_func, 
     // --- 学習ステップを複数回回す ---
     float frame_total_reward = 0.0f;
     int frame_step = 0;
-    while (max_step < 0 || frame_step < max_step) {
+    while (max_steps < 0 || frame_step < max_steps) {
         anet::ProfileRange r("DefaultTrainer::DoUpdateFrame.step");
 
         // ステップ前処理
         BeforeStepEvent before_step_event{ *this, step_counts_, agent_, env_ };
         notifier_->Notify(before_step_event);
-        bool do_break = pre_step_func();
-        if (do_break) break;
+        auto control_signal_pre = pre_step_func(step_counts_);
+        if (control_signal_pre == anet::rl::ControlSignal::STOP) {
+            status_ = anet::rl::TrainerStatus::COMPLETED;
+            break;
+        }
+        if (control_signal_pre == anet::rl::ControlSignal::BREAK) {
+            break;
+        }
 
         auto train_step = step_counts_.train_step;
 
         // Stateチェック
-        wxLogDebug("CartPoleFrame::OnTimer() step=%llu state=%s", train_step, state_.ToString());
+        ANET_LOG_DEBUG() << "Trainer::DoUpdateFrame() step=" << train_step << " state=" << state_.ToString();
         ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
         ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.Flatten().obs));
         const int N = state_.obs.size(0);
 
         // 行動選択
         auto action_info = agent_->MakeAction(step_counts_, state_);
-        wxLogDebug("CartPoleFrame::OnTimer() step=%llu action=%s", train_step, action_info.ToString());
-        ANET_CHECK_DEVICE(action_info.action, device_agent_);
+        ANET_LOG_DEBUG() << "Trainer::DoUpdateFrame() step=" << train_step << " action=" << action_info.ToString();
         ANET_CHECK_SHAPE(action_info.action, { N });
 
         // 環境ステップ実行
         anet::rl::BatchStepResult result = env_->Step(action_info.action);    // next_state, reward, done, truncated
-        wxLogDebug("CartPoleFrame::OnTimer() step=%llu reward=%s", train_step, anet::ToString(result.reward));
-        wxLogDebug("CartPoleFrame::OnTimer() step=%llu next_state=%s", train_step, result.next_state.ToString());
+        ANET_LOG_DEBUG() << "Trainer::OnTimer() step=" << train_step << " reward=", anet::ToString(result.reward);
+        ANET_LOG_DEBUG() << "Trainer::OnTimer() step=" << train_step << " next_state=" << result.next_state.ToString();
         ANET_CHECK_DEVICE(result.next_state.obs, torch::kCPU);
         ANET_CHECK_DEVICE(result.next_state.done, torch::kCPU);
         ANET_CHECK_DEVICE(result.next_state.truncated, torch::kCPU);
@@ -248,8 +259,14 @@ void DefaultTrainer::DoUpdateFrame(int max_step, ControlFunction pre_step_func, 
         last_exp_step_ = exp_step;
 
         // ステップ後処理
-        bool do_break_post = post_step_func();
-		if (do_break_post) break;
+        auto control_signal_post = post_step_func(step_counts_);
+        if (control_signal_post == anet::rl::ControlSignal::STOP) {
+            status_ = anet::rl::TrainerStatus::COMPLETED;
+            break;
+        }
+        if (control_signal_post == anet::rl::ControlSignal::BREAK) {
+            break;
+        }
 
 		// Stepカウント
         frame_step++;
@@ -259,4 +276,6 @@ void DefaultTrainer::DoUpdateFrame(int max_step, ControlFunction pre_step_func, 
 	anet::MetricsLogger::Instance()->Flush();
 
     auto train_step = step_counts_.train_step;
+
+    return step_counts_;
 }

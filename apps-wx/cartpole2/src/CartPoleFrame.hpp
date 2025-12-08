@@ -42,7 +42,7 @@ private:
 private:
     struct Config;
     std::unique_ptr<Config> config_;
-    std::unique_ptr<anet::rl::DefaultTrainer> trainer_;
+    std::unique_ptr<anet::rl::Trainer> trainer_;
 private:
     void InitImageLogObservers();
 };

@@ -310,6 +310,7 @@ DefaultBatchEnvFactory::DefaultBatchEnvFactory(
     , seed_(seed)
     , device_(device.value_or(anet::MakeDevice(config_.device_type, config_.device_index)))
 {
+    /// @todo deviceの指定方法が設定ファイル、config、device、三箇所あるのを整理
     ANET_ASSERT(batch_size_ > 0);
 }
 
@@ -382,7 +383,7 @@ std::shared_ptr<BatchEnv> DefaultBatchEnvFactory::CreateBatchEnv()
 
 std::shared_ptr<SingleDiscreteEnvFactory> DefaultBatchEnvFactory::GetSingleFactory() const
 {
-    auto factory = EnvRepository::Instance().GetSingleDiscreteEnvFactory(config_.env_class_id);
+    auto factory = EnvRepository::Instance().GetSingleDiscreteEnvFactory(config_.class_id);
     if (factory == nullptr)
         return nullptr;
     return factory;

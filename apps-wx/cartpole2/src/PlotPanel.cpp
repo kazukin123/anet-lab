@@ -11,26 +11,29 @@ wxEND_EVENT_TABLE()
 PlotPanel::PlotPanel(wxWindow* parent)
     : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_SIMPLE)
 {
-    SetBackgroundStyle(wxBG_STYLE_PAINT); // ← ダブルバッファ描画有効化
+    SetBackgroundStyle(wxBG_STYLE_PAINT);
 }
 
-void PlotPanel::OnMouseClick(wxMouseEvent& event) {
+void PlotPanel::OnMouseClick(wxMouseEvent& event)
+{
     auto* frame = dynamic_cast<CartPoleFrame*>(wxGetTopLevelParent(this));
     if (frame) frame->ToggleTraining();
 }
 
-void PlotPanel::AddReward(float reward) {
-    rewards.push_back(reward);
-    if (rewards.size() > 1000) // 最新1000点だけ保持
-        rewards.erase(rewards.begin());
+void PlotPanel::AddData(float value)
+{
+    plot_data.push_back(value);
+    if (plot_data.size() > 1000) // 最新1000点だけ保持
+        plot_data.erase(plot_data.begin());
     //Refresh(false);            // 再描画要求（即時ではない）
 }
 
-void PlotPanel::OnPaint(wxPaintEvent&) {
+void PlotPanel::OnPaint(wxPaintEvent&)
+{
     wxAutoBufferedPaintDC dc(this);
     dc.Clear();
 
-    if (rewards.empty()) {
+    if (plot_data.empty()) {
         dc.DrawText("No data yet...", 10, 10);
         return;
     }
@@ -40,18 +43,18 @@ void PlotPanel::OnPaint(wxPaintEvent&) {
     float h = static_cast<float>(sz.GetHeight() - 50);
 
     // スケーリング
-    float max_r = *std::max_element(rewards.begin(), rewards.end());
-    float min_r = *std::min_element(rewards.begin(), rewards.end());
+    float max_r = *std::max_element(plot_data.begin(), plot_data.end());
+    float min_r = *std::min_element(plot_data.begin(), plot_data.end());
     if (max_r == min_r) { max_r += 1.0f; min_r -= 1.0f; }
 
     dc.SetPen(wxPen(*wxBLUE, 2));
 
-    const int n = (int)rewards.size();
+    const int n = (int)plot_data.size();
     for (int i = 1; i < n; i++) {
         float x1 = (w / (n - 1)) * (i - 1);
-        float y1 = 40 + h - (rewards[i - 1] - min_r) / (max_r - min_r) * h;
+        float y1 = 40 + h - (plot_data[i - 1] - min_r) / (max_r - min_r) * h;
         float x2 = (w / (n - 1)) * i;
-        float y2 = 40 + h - (rewards[i] - min_r) / (max_r - min_r) * h;
+        float y2 = 40 + h - (plot_data[i] - min_r) / (max_r - min_r) * h;
         dc.DrawLine(wxPoint(x1, y1), wxPoint(x2, y2));
     }
 
@@ -61,7 +64,7 @@ void PlotPanel::OnPaint(wxPaintEvent&) {
 
     // 最新値
     wxString txt;
-    txt.Printf("Latest: %.3f", rewards.back());
+    txt.Printf("Latest: %.3f", plot_data.back());
     dc.DrawText(txt, 10, 10);
     txt.Printf("Min: %.3f", min_r);
     dc.DrawText(txt, 110, 10);

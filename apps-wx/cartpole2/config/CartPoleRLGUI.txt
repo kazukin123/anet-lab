@@ -3,21 +3,20 @@
 CartPoleFrame.$ = CartPoleFrame.online
 #CartPoleFrame.$ = CartPoleFrame.batchrun
 
-#train.seed = 3077901837422269870
+train.seed = 3077901837422269870
 #train.seed = 10471613835926818675
 
-train.batch_size = 10
-#train.batch_size = 1
+#train.batch_size = 10
+train.batch_size = 1
 
 CartPoleFrame.enable_image_log = false      # default=true
 
 #metrics.scalar.$ = metrics.scalar.trunk
 metrics.scalar.$ = metrics.scalar.full
 
-DQNAgent.$ = agent_trunk
-#agent.$ = agent_20251127-032759
-
-env.$ = env.cartpole
+#DQNAgent.$ = agent_trunk
+#DQNAgent.$ = agent_20251127-032759
+DQNAgent.$ = agent_20251203-180040
 
 #------------------
 # metrics
@@ -30,8 +29,8 @@ env.$ = env.cartpole
 metrics.scalar.min.[10_train/10_total_reward] = train_reward  $trainer @train
 metrics.scalar.min.[21_eval/01_target_reward] = $trainer target_eval_reward @learn
 metrics.scalar.min.[21_eval/02_policy_reward] = $trainer policy_eval_reward @learn
-metrics.scalar.min.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $trainer $ema interval:100 ema:0.01
-metrics.scalar.min.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $trainer $ema interval:100 ema:0.01
+metrics.scalar.min.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $trainer $ema interval:100 ema_alpha:0.01
+metrics.scalar.min.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $trainer $ema interval:100 ema_alpha:0.01
 metrics.scalar.min.[90_perf/90_elapse_hour] = elapse_hour @train $trainer interval:100
 
 
@@ -69,8 +68,8 @@ metrics.scalar.full.[37_agent_dqn_qtd/43_s_ema] = s_ema @learn
 metrics.scalar.full.[37_agent_dqn_qtd/46_unstable_ema] = unstable_ema @learn
 metrics.scalar.full.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $trainer interval:100
 metrics.scalar.full.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $trainer  interval:100
-metrics.scalar.full.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $trainer $ema interval:100 ema:0.01
-metrics.scalar.full.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $trainer $ema interval:100 ema:0.01
+metrics.scalar.full.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $trainer $ema interval:100 ema_alpha:0.01
+metrics.scalar.full.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $trainer $ema interval:100 ema_alpha:0.01
 metrics.scalar.full.[90_perf/82_exp_step] = exp_step @train $trainer interval:100
 metrics.scalar.full.[90_perf/90_elapse_hour] = elapse_hour @train $trainer interval:100
 
@@ -171,10 +170,14 @@ agent_20251127-032759.tau_half_life_recover = 2000  # 1000 安定後、τが2倍
 agent_20251127-032759.tau_recover_delay = 1000      # このステップ期間安定していたら回復開始
 agent_20251127-032759.act_bias_threshold = 0.35     # 行動偏り閾値 (|left_ratio - right_ratio| > act_bias_threshold → 崩壊)
 
-env.cartpole.env_class_id = CartPoleEnv
-env.cartpole.worker_threads = -1	# -1=auto
-env.cartpole.device_type = 0    # 0=cpu 1=cuda
-env.cartpole.device_index = -1  # GPU index -1=current device
+agent.class_id = DQNAgent
+agent.device_type = 1    # 0=cpu 1=cuda
+agent.device_index = -1  # GPU index -1=current device
+
+env.class_id = CartPoleEnv
+env.worker_threads = -1	# -1=auto
+env.device_type = 0    # 0=cpu 1=cuda
+env.device_index = -1  # GPU index -1=current device
 
 CartPoleEnv.limit_step = 200
 #CartPoleEnv.limit_step = 500
@@ -186,11 +189,11 @@ CartPoleFrame.online.train_exit_step = -1
 
 CartPoleFrame.batchrun.timer_ms = 5
 CartPoleFrame.batchrun.step_per_frame = 1000
-CartPoleFrame.online.train_pause_step = -1
+CartPoleFrame.batchrun.train_pause_step = -1
 CartPoleFrame.batchrun.train_exit_step = 500000 #500K
 
 train.eval_interval = 1
-train.perf_log_interval = 100
+#train.perf_log_interval = 100
 
 ## MEMO
 # agent.*は無条件で最初に採用される。

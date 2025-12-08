@@ -5,6 +5,7 @@
 #include <wx/cmdline.h>
 #include <wx/filename.h>
 #include "anet/metrics_logger.hpp"
+#include "anet/init.hpp"
 #include "CartPoleFrame.hpp"
 
 wxString GetExeDir() {
@@ -49,6 +50,7 @@ static wxCmdLineEntryDesc desc[] = {
 bool MyApp::OnInit()
 {
     wxInitAllImageHandlers();
+    anet::rl::InitRL();
 
     wxCmdLineParser cmdline_(desc, argc, (wchar_t**)argv);
     if (cmdline_.Parse(true))

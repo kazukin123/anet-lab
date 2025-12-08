@@ -9,10 +9,10 @@ public:
 
     void OnMouseClick(wxMouseEvent& event);
 
-    void AddReward(float reward);
+    void AddData(float value);
 private:
     void OnPaint(wxPaintEvent& event);
     wxDECLARE_EVENT_TABLE();
 private:
-    std::vector<float> rewards;
+    std::vector<float> plot_data;
 };

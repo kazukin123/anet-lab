@@ -3,10 +3,10 @@
 #include <sstream>
 #include <filesystem>
 #include <torch/torch.h>
-#include <wx/stattext.h>
 #include <wx/sizer.h>
 #include "anet/tensor_utils.hpp"
 #include "anet/profile.hpp"
+#include "anet/log.hpp"
 #include "anet/observers.hpp"
 #include "anet/replay_buffer.hpp"
 #include "CartPoleCanvas.hpp"
@@ -77,6 +77,13 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
 
     // Trainer生成
     trainer_ = std::make_unique<anet::rl::DefaultTrainer>(config_data);
+    auto status = trainer_->Initialize(config_data);
+    if (status != anet::rl::TrainerStatus::RUNNING) {
+        wxLogError("Failed to initialize trainer.");
+        return;
+    }
+
+    // Trainer初期化
     InitTrainer();
     trainer_->GetNotifier()->LogObservers();
     InitImageLogObservers();
@@ -93,7 +100,7 @@ CartPoleFrame::~CartPoleFrame()
 
 void CartPoleFrame::InitTrainer()
 {
-    // log
+    // TrainObserver
     trainer_->GetNotifier()->Attach<anet::rl::FunctionTrainObserver>(
         [this](const anet::rl::TrainEvent& event)
         {
@@ -105,7 +112,7 @@ void CartPoleFrame::InitTrainer()
             if (event.counts.train_step % 10 == 0) {
                 auto train_reward_ema = event.trainer.GetScalar(anet::rl::Trainer::TRAIN_REWARD_EMA);
                 ANET_ASSERT(train_reward_ema.has_value());
-                this->plotPanel->AddReward(*train_reward_ema);
+                this->plotPanel->AddData(*train_reward_ema);
             }
 
             if (event.counts.train_step % 100 == 0) {
@@ -114,39 +121,31 @@ void CartPoleFrame::InitTrainer()
                 wxLogInfo("train_step=%llu train_mean_reward=%f", train_step, *train_reward_ema);
             }
 
-            return false;
-        }, "CartPoleFrame"
-    );
+        }, "CartPoleFrame");
+
+    // LearnObserver
     trainer_->GetNotifier()->Attach<anet::rl::FunctionLearnObserver>(
-        //[&, plot_reward](int step,
-        [this](const anet::rl::LearnEvent& event)
+        [](const anet::rl::LearnEvent& event)
         {
             auto train_step = event.counts.train_step;
             auto learn_step = event.counts.learn_step;
-
-            //float step_reward = event.batch_exp.reward.mean().item<float>();
-            //train_reward_ema_.Update(step_reward);
-            //anet::MetricsLogger::Instance()->LogScalar(
-            //    "10_train/10_total_reward", learn_step, train_reward_ema_.Value());
-
-            //*plot_reward += step_reward;
-            //if (event.counts.train_step % 10 == 0) {
-            //    this->plotPanel->AddReward(*plot_reward);
-            //    *plot_reward = 0;
-            //}
 
             if (event.counts.learn_step % 100 == 0) {
                 wxLogInfo("train_step=%llu learn_step=%llu",
                     train_step, learn_step);
             }
-            return false;
-        }, "CartPoleFrame"
-    );
+
+        }, "CartPoleFrame");
 }
 
 void CartPoleFrame::OnTimer(wxTimerEvent& event)
 {
     anet::ProfileRange r("CartPoleFrame::OnTimer");
+
+    // 実行無し判定
+    auto status = trainer_->GetStatus();
+    if (status != anet::rl::TrainerStatus::RUNNING)
+        return;
 
     // 停止中は一切処理しない
     if (training_paused) return;
@@ -155,25 +154,33 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event)
     timer.Stop();
 
     // RL frame
-    trainer_->DoUpdateFrame(config_->step_per_frame,
-        [this]()
+    auto counts = trainer_->DoUpdateFrame(config_->step_per_frame,
+        [this](const anet::rl::StepCounts& counts)
         {
-            // AP終了判定
+            // Train終了判定
             if ((config_->train_exit_step > 0) && (trainer_->GetCounts().train_step >= config_->train_exit_step)) {
-                anet::MetricsLogger::Instance()->Flush();
-                //wxGetApp().Exit();
-				return true;    // Train終了
+				return anet::rl::ControlSignal::STOP;    // Train終了
             }
-            return false;
+
+            // 自動Pause
+            if ((config_->train_pause_step > 0) && (counts.train_step >= config_->train_pause_step) && !auto_pause_done_) {
+                auto_pause_done_ = true;    // 一回だけ自動
+                training_paused = true;
+                ANET_LOG_INFO() << "Auto pause.";
+                return anet::rl::ControlSignal::BREAK;
+            }
+
+            return anet::rl::ControlSignal::CONTINUE;
         }
     );
 
-    // Train一時停止
-    if ((config_->train_pause_step > 0) && (trainer_->GetCounts().train_step >= config_->train_pause_step) && !auto_pause_done_) {
-        auto_pause_done_ = true;
-        training_paused = true;
+    // Train終了→AP終了
+    if (trainer_->GetStatus() == anet::rl::TrainerStatus::COMPLETED) {
+        wxGetApp().Exit();
+        anet::MetricsLogger::Instance()->Flush();
     }
 
+    // 画面表示更新
     Refresh();
 
     // タイマー再開

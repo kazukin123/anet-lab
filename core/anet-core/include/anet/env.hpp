@@ -103,7 +103,7 @@ namespace anet::rl {
 
     struct DefaultBatchEnvFactoryConfig : public anet::Config
     {
-        std::string env_class_id;
+        std::string class_id;
         int worker_threads = WorkerThreadAuto::AUTO; ///< 負値は自動設定
         int device_type = 0;   ///< 0=cpu 1=cuda
         int device_index = -1; ///< GPU index -1=current device
@@ -111,7 +111,7 @@ namespace anet::rl {
         DefaultBatchEnvFactoryConfig(const ConfigData& config_data = EmptyConfigData)
             : anet::Config(config_data, "env")
         {
-            ANET_READ_CONFIG(config_data, env_class_id);
+            ANET_READ_CONFIG(config_data, class_id);
             ANET_READ_CONFIG(config_data, worker_threads);
             ANET_READ_CONFIG(config_data, device_type);
             ANET_READ_CONFIG(config_data, device_index);
@@ -119,7 +119,6 @@ namespace anet::rl {
     };
 
     class DefaultBatchEnvFactory : public BatchEnvFactory {
-    public:
     public:
         DefaultBatchEnvFactory(
             const DefaultBatchEnvFactoryConfig& config,
@@ -145,7 +144,7 @@ namespace anet::rl {
     };
 }
 
-#define ANET_REGIST_ENV_FACTORY(FactoryType) \
+#define ANET_REGISTER_ENV_FACTORY(FactoryType) \
     namespace { \
         struct FactoryType##AutoRegister { \
             FactoryType##AutoRegister() { \

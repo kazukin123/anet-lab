@@ -68,7 +68,8 @@ list(APPEND CMAKE_PREFIX_PATH "${Torch_DIR}")
 # 外部ライブラリ
 # ---------------------------------------------------------------------
 find_package(Torch REQUIRED)
-find_package(wxWidgets COMPONENTS core base OPTIONAL_COMPONENTS gl)
+find_package(wxWidgets REQUIRED COMPONENTS core base)
+#find_package(wxWidgets COMPONENTS core base OPTIONAL_COMPONENTS gl)
 
 include_directories("${PROJECT_SOURCE_DIR}/third_party/nvtx3")
 
