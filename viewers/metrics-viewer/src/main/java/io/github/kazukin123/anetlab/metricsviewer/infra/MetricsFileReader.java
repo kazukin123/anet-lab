@@ -136,7 +136,7 @@ public class MetricsFileReader {
 			// 指定位置までスキップ（RandomAccessFileで補正済み）
 			final long skipped = in.skip(startOffset);
 			if (skipped < startOffset) {
-				log.warn("Skipped {} < requested {} (file may have truncated)", skipped, startOffset);
+				log.warn("Skipped {} < requested {} (file may have truncated) {}", skipped, startOffset, jsonlFile);
 			}
 
 			String line;
