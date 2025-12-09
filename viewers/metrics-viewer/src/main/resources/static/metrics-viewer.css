@@ -447,13 +447,13 @@ body.uninitialized::before {
 }
 
 /* --- Scrollbar --- */
-::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar { width: 12px; height: 8px; }
 ::-webkit-scrollbar-thumb {
-	background: #3f3f3f;
+	background: #afafaf;
 	border-radius: 4px;
 	border: 1px solid #2a2a2a;
 }
-::-webkit-scrollbar-thumb:hover { background: #565656; }
+::-webkit-scrollbar-thumb:hover { background: #e6e6e6; }
 
 /* --- Utility --- */
 .hidden { display: none !important; }
