@@ -2,10 +2,11 @@
 #include <cmath>
 #include <algorithm>
 #include <filesystem>
-#include <wx/log.h>
 #include "anet/common.hpp"
+#include "anet/log.hpp"
 
 using namespace anet;
+namespace LOG = anet::log;
 
 const unsigned char BACKGROUND_LEVEL = 10;
 
@@ -52,7 +53,7 @@ void ImageSource::SavePng(const std::string& filename, int width, int height) co
 	std::filesystem::path path(filename);
 	if (!path.parent_path().empty()) std::filesystem::create_directories(path.parent_path());
 	wxImage img = Render(width, height);
-	if (!img.IsOk()) { wxLogError("Render() returned invalid wxImage"); return; }
+	if (!img.IsOk()) { LOG::error() << "Render() returned invalid wxImage"; return; }
 	img.SaveFile(filename, wxBITMAP_TYPE_PNG);
 }
 
@@ -80,8 +81,7 @@ HeatMap::HeatMap(int width, int height, float x_min, float x_max, float y_min, f
 }
 
 void HeatMap::AddData(float x, float y, float value) {
-	//wxLogDebug("[AddData raw] is_fixed=%d buf_size=%zu size_=%zu head=%zu",
-	//	(int)is_fixed_, buf_.size(), size_, head_);
+	//ANET_LOG_DEBUG("is_fixed=" << is_fixed_ << " buf_size=" << buf_.size() << " size_=" << size_ << " head=" << head_);
 
 	if (is_fixed_) {
 		buf_[head_] = { x, y, value };
@@ -93,9 +93,6 @@ void HeatMap::AddData(float x, float y, float value) {
 	}
 
 	UpdateMinMax_(value);
-
-	//wxLogDebug("         (after update: vmin=%f vmax=%f)",
-	//	value_min_, value_max_);
 }
 
 /// @brief グリッドの値を一括設定（高速パス）
@@ -279,8 +276,6 @@ TimeHeatMap::TimeHeatMap(int width_frames, int height_bins, float in_min, float 
 
 void TimeHeatMap::AddData(float in, float out) {
 	HeatMap::AddData(static_cast<float>(cur_frame_), in, out);
-	//wxLogDebug("[AddData] cf=%d  adding_x=%f  size=%zu  head=%zu  fixed=%d",
-	//	cur_frame_, (float)cur_frame_, size_, head_, (int)is_fixed_);
 }
 
 void TimeHeatMap::Scroll_() {

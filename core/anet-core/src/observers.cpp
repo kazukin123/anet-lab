@@ -4,10 +4,11 @@
 #include "anet/str_util.hpp"
 #include "anet/tensor_utils.hpp"
 #include "anet/metrics_logger.hpp"
+#include "anet/log.hpp"
 #include "anet/env.hpp"
 
 using namespace anet::rl;
-
+namespace LOG = anet::log;
 
 static float ResolveMin(bool override_flag, float override_v, std::optional<float> probe_v, float fallback)
 {
@@ -139,22 +140,22 @@ MultiPairHeatMapObserver::MultiPairHeatMapObserver(
 
     const size_t m = axis_probes_.size();
     for (size_t i = 0; i < m; i++) {
-        wxLogInfo("MultiPairHeatMapObserver: %s axis_probes: [%d] %s (%f %f)",
-            tag_,
-            static_cast<int>(i), axis_probes_[i]->GetName().value(),
-            axis_probes_[i]->GetMin().value_or(0.0f),
-            axis_probes_[i]->GetMax().value_or(0.0f));
+        LOG::info() << "MultiPairHeatMapObserver: "
+            << tag_ << " axis_probes[" << i << "] "
+            << axis_probes_[i]->GetName().value()
+            << "(" << axis_probes_[i]->GetMin().value_or(0.0f)
+                   << axis_probes_[i]->GetMax().value_or(0.0f) << ")";
     }
     int plot_cnt = 0;
     for (int i = 0; i < m; i++) {
         auto x_name = axis_probes_[i]->GetName();
         for (int j = i + 1; j < m; j++) {
             auto y_name = axis_probes_[j]->GetName();
-            wxLogInfo("MultiPairHeatMapObserver: %s axis_patters: [%d] x=[%d]%s y=[%d]%s",
-                tag_,
-                plot_cnt,
-                i, (x_name.has_value() ? (*x_name).c_str() : ""),
-                j, (y_name.has_value() ? (*y_name).c_str() : ""));
+            LOG::info() << "MultiPairHeatMapObserver: "
+                << tag_
+                << " axis_pattern[" << plot_cnt << "]"
+                << " x=[" << i << "]" << (x_name.has_value() ? (*x_name).c_str() : "")
+                << " y=[" << j << "]" << (y_name.has_value() ? (*y_name).c_str() : "");
             plot_cnt++;
         }
     }
@@ -301,16 +302,12 @@ void SweepedHeatMapObserver::OnTrain(const TrainEvent& event)
     // 入力バッチ生成（GPU 上）
     torch::Tensor batch_in = input_gen_->BuildInputTensor();
     ANET_CHECK_SHAPE(batch_in, { grid_num, ANET_SHAPE_ENDANY });
-    wxLogDebug(
-        "SweepedHeatMapObserver::OnPostUpdate() batch_in=%s",
-        anet::ToDefString(batch_in));
+    ANET_LOG_DEBUG("batch_in=" << anet::ToDefString(batch_in));
 
     // NN 適用（GPU 上）
     torch::Tensor batch_out = tensor_fn_(batch_in);
     ANET_CHECK_SHAPE(batch_out, { grid_num, ANET_SHAPE_ENDANY });
-    wxLogDebug(
-        "SweepedHeatMapObserver::OnPostUpdate() batch_out=%s",
-        anet::ToDefString(batch_out));
+    ANET_LOG_DEBUG("batch_out=" << anet::ToDefString(batch_out));
 
     // リクエストするLabelをscalar_tag_label_map_からsetに詰める
     std::unordered_set<std::string> req_label_set(scalar_label_tag_map_.size());
@@ -322,9 +319,7 @@ void SweepedHeatMapObserver::OnTrain(const TrainEvent& event)
 
     // 出力から値抽出（GPU 上, [W*H]）
     ExtractResult extract_result = output_ext_->Extract(batch_out, req_label_set);
-    wxLogDebug(
-        "SweepedHeatMapObserver::OnPostUpdate() grid_values=%s  tag=%s",
-        anet::ToDefString(extract_result.grid), tag_);
+    ANET_LOG_DEBUG("grid_values=" << anet::ToDefString(extract_result.grid) << " tag=" << tag_);
     ANET_CHECK_SHAPE(extract_result.grid, { grid_num });
     ANET_CHECK_DTYPE(extract_result.grid, torch::kFloat32);
     ANET_ASSERT(extract_result.labels.size() == extract_result.scalars.size());
@@ -336,11 +331,11 @@ void SweepedHeatMapObserver::OnTrain(const TrainEvent& event)
     float* data = grid_cpu.data_ptr<float>();
     std::vector<torch::Tensor> scalars_cpu;
     for (auto& t : extract_result.scalars) scalars_cpu.push_back(t.to(torch::kCPU));
-    wxLogDebug("SweepedHeatMapObserver::OnPostUpdate() Extract done.");
+    ANET_LOG_DEBUG("Extract done.");
 
     // HeatMapデータ設定
     heatmap_->SetGridValues(data, grid_w_, grid_h_);
-    wxLogDebug("SweepedHeatMapObserver::OnPostUpdate() SetGridValues() done.");
+    ANET_LOG_DEBUG("SetGridValues() done.");
 
     // 画像ログ出力
     MetricsLogger::Instance()->LogImage(
@@ -349,7 +344,7 @@ void SweepedHeatMapObserver::OnTrain(const TrainEvent& event)
         *heatmap_,
         config_.image_width,
         config_.image_height);
-    wxLogDebug("SweepedHeatMapObserver::OnPostUpdate() LogImage() done. tag=%s", tag_);
+    ANET_LOG_DEBUG("LogImage() done. tag=" << tag_);
 
     // Scalarログ出力
     for (int i = 0; i < extract_result.labels.size(); i++) {
@@ -500,8 +495,7 @@ void MetricsLogObserverBase::OnUpdate(const UpdateEvent& event)
 			val_ema_.Update(*value);
         }
     } else {
-        wxLogWarning("MetricsLogObserverBase::OnUpdate(): value not found. tag=%s key=%s",
-            tag_, key_);
+        LOG::warn() << "MetricsLogObserverBase::OnUpdate(): value not found. tag=" << tag_ << " key=" << key_;
     }
 
 	// STEP取得
@@ -538,7 +532,7 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
 
 		if (!scalar_metrics_tag.empty())
         {
-            wxLogDebug("ObserverFactory: scalar: key=%s value=%s", scalar_metrics_tag, config_value);
+            ANET_LOG_DEBUG("ObserverFactory: scalar: key=" << scalar_metrics_tag  << " value=" << config_value);
             auto values = anet::Split(config_value, { " " }, true);
 
             // メトリクス定義情報を取得
@@ -590,8 +584,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                             else if (attr_val == "learn")
                                 event_opt = EventType::LEARN;
                             else {
-                                wxLogWarning("Unknown event value. config_key=%s config_value=%s attr_val=%s",
-                                    config_key, config_value, attr_val);
+                                LOG::warn() << "Unknown event value. config_key=" << config_key
+                                    << " config_value=" << config_value << " attr_val=" << attr_val;
                             }
                         } else if (attr_key == "step" || attr_key == "step_axis") {
                             if (attr_val == "train")
@@ -607,8 +601,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                             else if (attr_val == "sim_step" || attr_val == "sim")
                                 step_axis_opt = StepAxis::SIM;
                             else {
-                                wxLogWarning("Unknown step value. config_key=%s config_value=%s attr_val=%s",
-                                    config_key, config_value, attr_val);
+                                LOG::warn() << "Unknown step value. config_key=" << config_key
+                                    << " config_value=" << config_value << " attr_val=" << attr_val;
                             }
                         } else if (attr_key == "target") {
                             if (attr_val == "agent")
@@ -620,8 +614,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                             else if (attr_val == "trainer")
                                 field_opt = EventField::TRAINER;
                             else {
-                                wxLogWarning("Unknown target value. config_key=%s config_value=%s attr_val=%s",
-                                    config_key, config_value, attr_val);
+                                LOG::warn() << "Unknown target value. config_key=" << config_key
+                                    << " config_value=" << config_value << " attr_val = " << attr_val;
                             }
                         } else if (attr_key == "interval") {
 							interval = std::stoi(attr_val);
@@ -629,8 +623,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                             is_ema = true;
                             ema_alpha = std::stof(attr_val);
                         } else {
-                            wxLogWarning("Unknown attribute key. config_key=%s config_value=%s attr_key=%s",
-                                config_key, config_value, attr_key);
+                            LOG::warn() << "Unknown attribute key. config_key=" << config_key
+                                << " config_value=" << config_value << " attr_key=" << attr_key;
                         }
                     } else {
                         key_opt = v;
@@ -644,8 +638,7 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
 //                metrics.scalar.min.[10_train / 10_total_reward] = train_reward_ema $ema field=trainer event:train interval:10 ema_alpha:0.01
 
             if (!key_opt.has_value()) {
-                wxLogError("ObserverFactory: key not found. config_key=%s config_value=%s",
-                    config_value, config_value);
+                LOG::error() << "ObserverFactory: key not found. config_key=" << config_key << " config_value=" << config_value;
                 continue;
             }
 

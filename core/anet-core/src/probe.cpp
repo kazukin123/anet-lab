@@ -254,7 +254,6 @@ std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const TrainE
     out.reserve(1024); // optional
 
     for (const auto& t : tvec) {
-        //wxLogDebug("AgentTensorVectorProbe::GetVector() t=%s", anet::ToString(t));
 
         // t must be 2-D (ReplayBuffer)
         ANET_ASSERT(t.dim() == 2);   // [rows, D]
@@ -275,11 +274,9 @@ std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const TrainE
 
         auto dtype = col.dtype();
         ANET_ASSERT(dtype == torch::kFloat32 || dtype == torch::kInt64 || dtype == torch::kBool);
-        //wxLogDebug("AgentTensorVectorProbe::GetVector() col=%s", anet::ToString(col));
-
+        
         const int64_t n = col.size(0);
         const size_t old = out.size();
-        //wxLogDebug("old=%zu n=%lld new_size=%zu", old, n, old + n);
         out.resize(old + n);
 
         float* dst = out.data() + old;

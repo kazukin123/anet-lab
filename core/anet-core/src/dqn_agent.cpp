@@ -4,7 +4,6 @@
 #include <memory>
 #include <torch/torch.h>
 #include <tuple>
-#include <wx/log.h>
 #include "anet/nn_util.hpp"
 #include "anet/tensor_utils.hpp"
 #include "anet/tensor_check.hpp"
@@ -292,7 +291,6 @@ public:
      */
     BatchActionInfo DecideBatch(const torch::Tensor& q_values, bool greedy_only)
     {
-        //wxLogDebug("q_values=%s", anet::ToString(q_values));
         ProfileRange  r("DQNAgent::DecideBatch");
 
         auto device = q_values.device();
@@ -479,7 +477,7 @@ public:
         const float ratio_left = static_cast<float>(cnt0) / total;
         const float ratio_right = static_cast<float>(cnt1) / total;
         const float diff = ratio_right - ratio_left; // [-1, 1]
-        //wxLogDebug("UpdateActionStats() left=%f right=%f diff=%f", ratio_left, ratio_right, diff);
+        //ANET_LOG_DEBUG("UpdateActionStats() left=" << ratio_left << " right=" << ratio_right << " diff=" << diff);
 
         // 生の偏りはそのまま保持
         vars.act_diff = diff;
@@ -877,7 +875,7 @@ DQNAgent::DQNAgent(
     vars_updater_->Initilize(*this->vars_);
 
     // ログ：パラメータ記録
-    wxLogInfo("DQNAgent config=%s", config_.ToString());
+    anet::log::info() << "DQNAgent config=" << config_;
     anet::MetricsLogger::Instance()->LogJson("agent/params", config_.ToJson());
     anet::MetricsLogger::Instance()->Flush();
 }
@@ -979,7 +977,7 @@ DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperie
             // Q(s, a) 生成
             torch::Tensor q_all = policy_net_->forward(samples.obs); // (B, n_actions_)
             ANET_CHECK_SHAPE(q_all, { B, n_actions_ });
-            //wxLogDebug("q_all=%s", anet::ToString(q_all));
+            //ANET_LOG_DEBUG("q_all=" << anet::ToString(q_all));
 
             // max_a Q(s,a)  (AS-DQN 用統計)
             torch::Tensor max_q = std::get<0>(q_all.max(1)); // (B,)
@@ -989,10 +987,10 @@ DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperie
             torch::Tensor actions_b = samples.actions.view({ B, 1 });   // (B,1)
             ANET_CHECK_SHAPE(actions_b, { B, 1 });
             ANET_CHECK_DTYPE(actions_b, torch::kInt64);
-            //wxLogDebug("actions_b=%s", anet::ToString(actions_b));
+            //ANET_LOG_DEBUG("actions_b=" << anet::ToString(actions_b));
             torch::Tensor q_sa = q_all.gather(1, actions_b).squeeze(1); // (B,)
             ANET_CHECK_SHAPE(q_sa, { B });
-            //wxLogDebug("q_sa=%s", anet::ToString(q_sa));
+            //ANET_LOG_DEBUG("q_sa=" << anet::ToString(q_sa));
 
             // -------------------------------------------------
             // max_a' Q_target(s', a')（DQN / DoubleDQN 切替）

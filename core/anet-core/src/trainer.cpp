@@ -10,8 +10,8 @@
 
 
 using namespace anet::rl;
-using namespace anet::log;
 
+namespace LOG = anet::log;
 
 struct DefaultTrainer::Config : public anet::Config
 {
@@ -78,10 +78,9 @@ TrainerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
     auto global_seed = master_seed_->GetMasterSeed();
     auto env_seed = master_seed_->GetGroupSeed("env");
     auto agent_seed = master_seed_->GetGroupSeed("agent");
-    log::info() << "global_seed=" << global_seed << " env_seed=" << env_seed << " agent_seed=" << agent_seed;
+    LOG::info() << "global_seed=" << global_seed << " env_seed=" << env_seed << " agent_seed=" << agent_seed;
 
     // パラメータ記録
-    //wxLogInfo("train.preset=%s confg=%s", wxGetApp().GetConfig("train").Get("preset"), config_->ToString());
     anet::MetricsLogger::Instance()->LogJson("train/seed",
         { "global_seed", global_seed, "agent_seed", agent_seed, "env_seed", env_seed });
     anet::MetricsLogger::Instance()->LogJson("train/config", config_->ToJson());
@@ -91,24 +90,22 @@ TrainerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
 
     // ENV生成
     anet::rl::DefaultBatchEnvFactoryConfig env_config(config_data);
-
-    log::info() << "env_config=" << env_config.ToString();
- 
+    LOG::info() << "env_config=" << env_config.ToString();
     auto env_factory = anet::rl::DefaultBatchEnvFactory(
         env_config, config_data, config_->batch_size, env_seed);
     auto env_device = env_factory.GetDevice();
     auto single_env_factory = env_factory.GetSingleFactory();
     env_ = env_factory.CreateBatchEnv();
     if (env_ == nullptr) {
-        log::error() << "Failed to create env.";
+        LOG::error() << "Failed to create env.";
         status_ = anet::rl::TrainerStatus::COMPLETED;
         return status_;
     }
 
     auto batch_env_spec = env_->GetBatchSpec();
     auto env_spec = env_->GetSpec();
-    log::info() << "batch_env_spec=" << batch_env_spec.ToString();
-    log::info() << "env_spec=" << env_spec.ToString();
+    LOG::info() << "batch_env_spec=" << batch_env_spec.ToString();
+    LOG::info() << "env_spec=" << env_spec.ToString();
     anet::MetricsLogger::Instance()->LogJson("env/batch_env_spec", batch_env_spec.ToJson());
     anet::MetricsLogger::Instance()->LogJson("env/env_spec", env_spec.ToJson());
     anet::MetricsLogger::Instance()->Flush();
@@ -124,7 +121,7 @@ TrainerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
         agent_factory_config, env_spec, batch_env_spec, config_data, agent_seed);
     agent_ = agent_factory.CreateAgent(notifier_);
     if (agent_ == nullptr) {
-        log::error() << "Failed to create agent." ;
+        LOG::error() << "Failed to create agent." ;
         status_ = anet::rl::TrainerStatus::COMPLETED;
         return status_;
     }

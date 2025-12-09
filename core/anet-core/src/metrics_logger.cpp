@@ -3,7 +3,9 @@
 #include <wx/process.h>
 #include <wx/image.h>
 #include <wx/filename.h>
-#include <wx/log.h>
+#include "anet/log.hpp"
+
+namespace LOG = anet::log;
 
 namespace anet {
     //----------------------------------------------
@@ -59,7 +61,7 @@ namespace anet {
         while (written < nbytes) {
             stream_->Write(data + written, nbytes - written);
             if (!stream_->IsOk()) {
-                wxLogError("ffmpeg pipe write failed");
+                LOG::error() << "ffmpeg pipe write failed";
                 return;
             }
             written += stream_->LastWrite();

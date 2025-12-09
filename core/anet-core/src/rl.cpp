@@ -6,9 +6,10 @@
 #include "anet/util.hpp"
 #include "anet/tensor_utils.hpp"
 #include "anet/tensor_check.hpp"
+#include "anet/log.hpp"
 
 using namespace anet::rl;
-
+namespace LOG = anet::log;
 
 nlohmann::json StateDimInfo::ToJson() const {
     nlohmann::json j;
@@ -583,12 +584,12 @@ void Notifier::LogObservers() const
 {
     int idx = 0;
     for (auto obs : train_observers_) {
-        wxLogInfo("Notifier: TRAIN [%d] %s", idx, obs->ToString());
+        LOG::info() << "Notifier: TRAIN [" << idx << "] " << obs->ToString();
         idx++;
     }
     idx = 0;
     for (auto obs : learn_observers_) {
-        wxLogInfo("Notifier: LEARN [%d] %s", idx, obs->ToString());
-        idx++;
+        LOG::info() << "Notifier: LEARN [" << idx << "] " << obs->ToString();
+       idx++;
     }
 }

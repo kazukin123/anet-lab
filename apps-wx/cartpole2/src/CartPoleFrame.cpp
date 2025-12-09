@@ -3,6 +3,7 @@
 #include <sstream>
 #include <filesystem>
 #include <torch/torch.h>
+#include <wx/log.h>
 #include <wx/sizer.h>
 #include "anet/tensor_utils.hpp"
 #include "anet/profile.hpp"
@@ -17,7 +18,8 @@ EVT_TIMER(wxID_ANY, CartPoleFrame::OnTimer)
 EVT_LEFT_DOWN(CartPoleFrame::OnMouseClick)
 wxEND_EVENT_TABLE()
 
-using anet::log;
+namespace LOG = anet::log;
+
 
 struct CartPoleFrame::Config : public anet::Config
 {
@@ -74,14 +76,13 @@ CartPoleFrame::CartPoleFrame(const wxString& title)
 
     // ログ出力先をこのクラスに設定
     wxLog::SetActiveTarget(this);
-
-    wxLogInfo("CartPoleRLGUI started.");
+    LOG::info() << "CartPoleRLGUI started.";
 
     // Trainer生成
     trainer_ = std::make_unique<anet::rl::DefaultTrainer>(config_data);
     auto status = trainer_->Initialize(config_data);
     if (status != anet::rl::TrainerStatus::RUNNING) {
-        wxLogError("Failed to initialize trainer.");
+        LOG::error() << "Failed to initialize trainer.";
         return;
     }
 
@@ -120,7 +121,7 @@ void CartPoleFrame::InitTrainer()
             if (event.counts.train_step % 100 == 0) {
                 auto train_reward_ema = event.trainer.GetScalar(anet::rl::Trainer::TRAIN_REWARD_EMA);
                 ANET_ASSERT(train_reward_ema.has_value());
-                wxLogInfo("train_step=%llu train_mean_reward=%f", train_step, *train_reward_ema);
+                LOG::info() << "train_step=" << train_step << " train_mean_reward=" <<  *train_reward_ema;
             }
 
         }, "CartPoleFrame");
@@ -133,8 +134,7 @@ void CartPoleFrame::InitTrainer()
             auto learn_step = event.counts.learn_step;
 
             if (event.counts.learn_step % 100 == 0) {
-                wxLogInfo("train_step=%llu learn_step=%llu",
-                    train_step, learn_step);
+                LOG::info() << "train_step=" << train_step << " learn_step=" << learn_step;
             }
 
         }, "CartPoleFrame");
@@ -168,7 +168,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event)
             if ((config_->train_pause_step > 0) && (counts.train_step >= config_->train_pause_step) && !auto_pause_done_) {
                 auto_pause_done_ = true;    // 一回だけ自動
                 training_paused = true;
-                log::info() << "Auto pause.";
+                LOG::info() << "Auto pause.";
                 return anet::rl::ControlSignal::BREAK;
             }
 
@@ -192,7 +192,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event)
 void CartPoleFrame::ToggleTraining()
 {
     training_paused = !training_paused;
-    wxLogMessage(training_paused ? "Training paused" : "Training resumed");
+    LOG::info() << (training_paused ? "Training paused" : "Training resumed");
 }
 
 void CartPoleFrame::DoLogText(const wxString& msg)
