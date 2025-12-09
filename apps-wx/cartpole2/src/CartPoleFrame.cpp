@@ -17,6 +17,8 @@ EVT_TIMER(wxID_ANY, CartPoleFrame::OnTimer)
 EVT_LEFT_DOWN(CartPoleFrame::OnMouseClick)
 wxEND_EVENT_TABLE()
 
+using anet::log;
+
 struct CartPoleFrame::Config : public anet::Config
 {
     int timer_ms = 20;
@@ -166,7 +168,7 @@ void CartPoleFrame::OnTimer(wxTimerEvent& event)
             if ((config_->train_pause_step > 0) && (counts.train_step >= config_->train_pause_step) && !auto_pause_done_) {
                 auto_pause_done_ = true;    // 一回だけ自動
                 training_paused = true;
-                ANET_LOG_INFO() << "Auto pause.";
+                log::info() << "Auto pause.";
                 return anet::rl::ControlSignal::BREAK;
             }
 

@@ -5,17 +5,16 @@ project(CartPoleRLGUI)
 
 set(CMAKE_CONFIGURATION_TYPES "Debug;RelWithDebInfo;Release" CACHE STRING "" FORCE)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_COLOR_MAKEFILE ON)
 
 find_package(wxWidgets REQUIRED COMPONENTS core base)
 find_package(Torch REQUIRED)
 
 if (MSVC)
-  add_compile_options(/std:c++17 /permissive- /Zc:__cplusplus)
-  add_definitions(-D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS)
   add_compile_definitions(_HAS_CONDITIONAL_EXPLICIT=0)
   add_compile_options(/wd4267)  # warning C4267を無効化
   add_compile_options(/MP8)

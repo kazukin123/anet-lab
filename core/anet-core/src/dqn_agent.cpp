@@ -1,13 +1,14 @@
 ﻿// dqn_agent.cpp
 
 #include "anet/dqn_agent.hpp"
-#include <tuple>
 #include <memory>
 #include <torch/torch.h>
+#include <tuple>
 #include <wx/log.h>
 #include "anet/nn_util.hpp"
 #include "anet/tensor_utils.hpp"
 #include "anet/tensor_check.hpp"
+#include "anet/log.hpp"
 #include "anet/random.hpp"
 #include "anet/config.hpp"
 #include "anet/metrics_logger.hpp"
@@ -421,7 +422,7 @@ private:
     {
         torch::NoGradGuard ng;
 
-        wxLogDebug("SoftSync() tau=%f", tau);
+        ANET_LOG_DEBUG("SoftSync() tau=" << tau);
 
         auto p_params = policy_net->named_parameters(true);
         auto t_params = target_net->named_parameters(true);
@@ -968,7 +969,7 @@ DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperie
             ANET_CHECK_DTYPE(raw_samples.next_states.dones, torch::kBool);
             ANET_CHECK_DTYPE(raw_samples.next_states.truncateds, torch::kBool);
             ANET_CHECK_DTYPE(raw_samples.next_states.episode_start, torch::kBool);
-            wxLogDebug("ReplayBuffer batch OK: B=%lld", raw_samples.obs.size(0));
+            ANET_LOG_DEBUG("ReplayBuffer batch OK: B=" << raw_samples.obs.size(0));
 
             ProfileRange r2("DQNAgent::UpdateFromBatch.forward");
 

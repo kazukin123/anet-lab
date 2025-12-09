@@ -43,18 +43,18 @@ void PlotPanel::OnPaint(wxPaintEvent&)
     float h = static_cast<float>(sz.GetHeight() - 50);
 
     // スケーリング
-    float max_r = *std::max_element(plot_data.begin(), plot_data.end());
-    float min_r = *std::min_element(plot_data.begin(), plot_data.end());
-    if (max_r == min_r) { max_r += 1.0f; min_r -= 1.0f; }
+    float max_val = *std::max_element(plot_data.begin(), plot_data.end());
+    float min_val = *std::min_element(plot_data.begin(), plot_data.end());
+    if (max_val == min_val) { max_val += 1.0f; min_val -= 1.0f; }
 
     dc.SetPen(wxPen(*wxBLUE, 2));
 
     const int n = (int)plot_data.size();
     for (int i = 1; i < n; i++) {
         float x1 = (w / (n - 1)) * (i - 1);
-        float y1 = 40 + h - (plot_data[i - 1] - min_r) / (max_r - min_r) * h;
+        float y1 = 40 + h - (plot_data[i - 1] - min_val) / (max_val - min_val) * h;
         float x2 = (w / (n - 1)) * i;
-        float y2 = 40 + h - (plot_data[i] - min_r) / (max_r - min_r) * h;
+        float y2 = 40 + h - (plot_data[i] - min_val) / (max_val - min_val) * h;
         dc.DrawLine(wxPoint(x1, y1), wxPoint(x2, y2));
     }
 
@@ -66,8 +66,8 @@ void PlotPanel::OnPaint(wxPaintEvent&)
     wxString txt;
     txt.Printf("Latest: %.3f", plot_data.back());
     dc.DrawText(txt, 10, 10);
-    txt.Printf("Min: %.3f", min_r);
+    txt.Printf("Min: %.3f", min_val);
     dc.DrawText(txt, 110, 10);
-    txt.Printf("Max: %.3f", max_r);
+    txt.Printf("Max: %.3f", max_val);
     dc.DrawText(txt, 210, 10);
 }

@@ -1,8 +1,14 @@
 ﻿# anet-core
 
 set(CMAKE_CONFIGURATION_TYPES "Debug;RelWithDebInfo;Release" CACHE STRING "" FORCE)
-
 set(CMAKE_VERBOSE_MAKEFILE ON)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_COLOR_MAKEFILE ON)
+
 
 if (MSVC)
     add_compile_options(/wd4267)  # warning C4267を無効化
@@ -65,4 +71,3 @@ set_target_properties(anet-core PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY_RELEASE ${CMAKE_CURRENT_SOURCE_DIR}/lib/Release
 )
 
-set_property(TARGET anet-core PROPERTY CXX_STANDARD 17)

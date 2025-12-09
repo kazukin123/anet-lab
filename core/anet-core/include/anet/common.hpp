@@ -1,6 +1,8 @@
 ﻿#pragma once
 #include <memory>
 #include <optional>
+#include <type_traits>
+
 #include <string>
 #include <sstream>
 #include <stdexcept>
@@ -80,5 +82,16 @@ namespace anet {
         virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const { return std::nullopt; }
         virtual ~DataExporterBase() = default;
     };
+
+    // ToString() を持つかどうか判定するメタ関数
+    template<typename T>
+    using has_ToString = decltype(std::declval<const T&>().ToString());
+
+    // ToString()があれば何でもOKな operator<<
+    template<typename T,typename = has_ToString<T>>
+    std::ostream& operator<<(std::ostream& os, const T& v)
+    {
+        return (os << v.ToString());
+    }
 
 }   // namespace anet

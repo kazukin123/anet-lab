@@ -5,9 +5,12 @@ set(CMAKE_CONFIGURATION_TYPES "Debug;RelWithDebInfo;Release" CACHE STRING "" FOR
 # ---------------------------------------------------------------------
 # 共通設定
 # ---------------------------------------------------------------------
-set(CMAKE_CXX_STANDARD 17)
+
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_COLOR_MAKEFILE ON)
 
 # =====================================================================
 # libtorch のパス検出

@@ -1,9 +1,8 @@
 ﻿
-
 CartPoleFrame.$ = CartPoleFrame.online
 #CartPoleFrame.$ = CartPoleFrame.batchrun
 
-train.seed = 3077901837422269870
+#train.seed = 3077901837422269870
 #train.seed = 10471613835926818675
 
 #train.batch_size = 10
@@ -11,12 +10,12 @@ train.batch_size = 1
 
 CartPoleFrame.enable_image_log = false      # default=true
 
-#metrics.scalar.$ = metrics.scalar.trunk
+#metrics.scalar.$ = metrics.scalar.min
 metrics.scalar.$ = metrics.scalar.full
 
-#DQNAgent.$ = agent_trunk
+DQNAgent.$ = agent_trunk
 #DQNAgent.$ = agent_20251127-032759
-DQNAgent.$ = agent_20251203-180040
+#DQNAgent.$ = agent_20251203-180040
 
 #------------------
 # metrics
@@ -26,11 +25,13 @@ DQNAgent.$ = agent_20251203-180040
     #   &step    : &train_step || &learn_step || &episode_step || &exp_step || &update_step || &sim_step
     #   $target  : $update_result || $agent || $exp || $trainer
 
-metrics.scalar.min.[10_train/10_total_reward] = train_reward  $trainer @train
+metrics.scalar.min.[10_train/10_total_reward] = train_reward  $trainer @train $ema
 metrics.scalar.min.[21_eval/01_target_reward] = $trainer target_eval_reward @learn
 metrics.scalar.min.[21_eval/02_policy_reward] = $trainer policy_eval_reward @learn
-metrics.scalar.min.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $trainer $ema interval:100 ema_alpha:0.01
-metrics.scalar.min.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $trainer $ema interval:100 ema_alpha:0.01
+metrics.scalar.min.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $trainer interval:100
+metrics.scalar.min.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $trainer  interval:100
+metrics.scalar.min.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $trainer $ema interval:100 ema_alpha:0.001
+metrics.scalar.min.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $trainer $ema interval:100 ema_alpha:0.001
 metrics.scalar.min.[90_perf/90_elapse_hour] = elapse_hour @train $trainer interval:100
 
 
@@ -192,8 +193,7 @@ CartPoleFrame.batchrun.step_per_frame = 1000
 CartPoleFrame.batchrun.train_pause_step = -1
 CartPoleFrame.batchrun.train_exit_step = 500000 #500K
 
-train.eval_interval = 1
-#train.perf_log_interval = 100
+train.eval_interval = 10
 
 ## MEMO
 # agent.*は無条件で最初に採用される。
