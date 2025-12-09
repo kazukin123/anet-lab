@@ -66,6 +66,10 @@ namespace anet::rl {
     */
 
     // =============================================================
+    // Step / StepAxis
+    // =============================================================
+
+    using step_t = uint64_t;
 
     enum class StepAxis {
         TRAIN,
@@ -75,8 +79,6 @@ namespace anet::rl {
         EPISODE,
         SIM
     };
-
-    using step_t = uint64_t;
 
     struct StepCounts {
         step_t train_step = 0;
@@ -132,6 +134,7 @@ namespace anet::rl {
     // =============================================================
 
     enum class RunMode { Train, Eval, Eval1, Eval2 };
+
     inline bool IsTrain(RunMode mode) { return mode == RunMode::Train; }
     inline bool IsEval(RunMode mode) { return mode == RunMode::Eval || mode == RunMode::Eval1 || mode == RunMode::Eval2; }
     inline std::string ToString(RunMode mode) {
@@ -231,9 +234,72 @@ namespace anet::rl {
         std::string ToString() const;
     };
 
-    // ------------------------------------------------------------
-    // 実データ
-    // ------------------------------------------------------------
+    // =============================================================
+    // Single系データ
+    // =============================================================
+
+    struct SingleState {
+        torch::Tensor obs;          // (state_dim,...)
+        bool done;
+        bool truncated;
+        bool episode_start;
+
+        //BatchState toBatchState() const {
+        //    return {
+        //        obs.unsqueeze(0),
+        //        torch::tensor(done, torch::kBool).unsqueeze(0),
+        //        torch::tensor(truncated, torch::kBool).unsqueeze(0),
+        //        torch::tensor(episode_start, torch::kBool).unsqueeze(0),
+        //    };
+        //}
+
+        /// 状態テンソルを 1D に変換する
+        torch::Tensor Flatten() const {
+            ANET_CHECK_DTYPE(obs, torch::kFloat32);
+            return obs.reshape({ obs.numel() });
+        }
+        SingleState to(torch::Device device) const {
+            ANET_CHECK_SHAPE(obs, { ANET_SHAPE_ANY });
+            ANET_CHECK_DTYPE(obs, torch::kFloat32);
+            return { obs.to(device), done, truncated, episode_start };
+        }
+        std::string ToString() const;
+    };
+
+    struct SingleDiscreteActionInfo {
+        std::int64_t action;  ///< 実際に選択された行動値      (action_dim...) kFloat32 or kInt64
+        bool is_random;       ///< ε-greedy のランダム選択か
+
+        std::string ToString() const;
+    };
+
+    struct SingleStepResult {
+        float reward;              ///< 報酬         
+        SingleState next_state;    ///< 遷移後の観測  (state_dim...)
+
+        std::string ToString() const;
+    };
+
+    // 経験情報（Updateの入力情報、ReplayBufferに入る）
+    struct Experience {
+        SingleState state;
+        torch::Tensor action;       // (action_dim)
+        float reward;
+        SingleState next_state;
+
+        Experience to(torch::Device device) const {
+            ANET_CHECK_SHAPE(action, { });
+            ANET_ASSERT(action.dtype() == torch::kInt64 || action.dtype() == torch::kFloat32);
+            return {
+                state.to(device), action.to(device), reward, next_state.to(device)
+            };
+        }
+        std::string ToString() const;
+    };
+
+    // =============================================================
+    // Batch系データ
+    // =============================================================
 
     // 「Batch～」はN環境対応版の意味
 
@@ -313,7 +379,7 @@ namespace anet::rl {
         BatchState continue_state;  ///< 実行継続用（Reset 後の状態も含む）
         uint32_t n_transitions;     ///< 今回のStepにおける状態遷移カウント数
         uint32_t n_done;            ///< 今回のStepにおけるエピソード終了カウント数
-        
+
         BatchStepResult to(torch::Device device) const {
             return { reward.to(device), next_state.to(device), continue_state.to(device), n_transitions, n_done };
         }
@@ -324,7 +390,7 @@ namespace anet::rl {
 
     class BatchUpdateResult : public DataExporter {
     public:
-		BatchUpdateResult(uint32_t learn_step_diff) : learn_step_diff_(learn_step_diff) {}
+        BatchUpdateResult(uint32_t learn_step_diff) : learn_step_diff_(learn_step_diff) {}
 
         virtual MetricsMap GetMetricsMap() const = 0;
         uint32_t GetLearnStepDiff() const { return learn_step_diff_; }
@@ -334,69 +400,6 @@ namespace anet::rl {
         void SetLearnStepDiff(uint32_t diff) { learn_step_diff_ = diff; }
     protected:
         uint32_t learn_step_diff_;   ///< この batch で増えた learn_step数
-    };
-
-    // ------------------------------------------------------------
-    // 経験情報関連
-    // ------------------------------------------------------------
-
-    struct SingleState {
-        torch::Tensor obs;          // (state_dim,...)
-        bool done;
-        bool truncated;
-        bool episode_start;
-
-        BatchState toBatchState() const{
-            return {
-                obs.unsqueeze(0),
-                torch::tensor(done, torch::kBool).unsqueeze(0),
-                torch::tensor(truncated, torch::kBool).unsqueeze(0),
-                torch::tensor(episode_start, torch::kBool).unsqueeze(0),
-            };
-        }
-
-        /// 状態テンソルを 1D に変換する
-        torch::Tensor Flatten() const {
-            ANET_CHECK_DTYPE(obs, torch::kFloat32);
-            return obs.reshape({ obs.numel() });
-        }
-        SingleState to(torch::Device device) const {
-            ANET_CHECK_SHAPE(obs, { ANET_SHAPE_ANY });
-            ANET_CHECK_DTYPE(obs, torch::kFloat32);
-            return { obs.to(device), done, truncated, episode_start };
-        }
-        std::string ToString() const;
-    };
-
-    struct SingleDiscreteActionInfo {
-        std::int64_t action;  ///< 実際に選択された行動値      (action_dim...) kFloat32 or kInt64
-        bool is_random;       ///< ε-greedy のランダム選択か
-        
-        std::string ToString() const;
-    };
-
-    struct SingleStepResult {
-        float reward;              ///< 報酬         
-        SingleState next_state;    ///< 遷移後の観測  (state_dim...)
-
-        std::string ToString() const;
-    };
-
-    // 経験情報（Updateの入力情報、ReplayBufferに入る）
-    struct Experience {
-        SingleState state;
-        torch::Tensor action;       // (action_dim)
-        float reward;
-        SingleState next_state;
-
-        Experience to(torch::Device device) const {
-            ANET_CHECK_SHAPE(action, { });
-            ANET_ASSERT(action.dtype() == torch::kInt64 || action.dtype() == torch::kFloat32);
-            return {
-                state.to(device), action.to(device), reward, next_state.to(device)
-            };
-        }
-        std::string ToString() const;
     };
 
     struct BatchExperience : public DataExporter {
@@ -510,6 +513,8 @@ namespace anet::rl {
     };
 
     // =============================================================
+    // Observer
+    // =============================================================
 
     enum class EventType {
         TRAIN,
@@ -567,6 +572,8 @@ namespace anet::rl {
         virtual ~LearnObserver() = default;
     };
 
+    // =============================================================
+    // Notifier
     // =============================================================
 
     class Notifier {

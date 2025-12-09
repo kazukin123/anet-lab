@@ -8,7 +8,7 @@ CartPoleFrame.$ = CartPoleFrame.online
 #train.batch_size = 10
 train.batch_size = 1
 
-CartPoleFrame.enable_image_log = false      # default=true
+#CartPoleFrame.enable_image_log = false      # default=true
 
 #metrics.scalar.$ = metrics.scalar.min
 metrics.scalar.$ = metrics.scalar.full
