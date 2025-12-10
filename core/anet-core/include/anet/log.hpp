@@ -8,6 +8,7 @@
 #include <string_view>
 #include <algorithm>
 #include <wx/log.h>
+#include "anet/common.hpp"
 
 #if defined(_MSC_VER) && _MSC_VER < 1930
     // consteval が不完全な時

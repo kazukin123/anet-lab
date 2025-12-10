@@ -13,8 +13,11 @@ namespace anet::rl {
         DefaultTrainer(const ConfigData& config_data);
 
         TrainerStatus Initialize(const ConfigData& config_data);
+        StepCounts DoStep();
         StepCounts DoUpdateFrame(int max_steps,
             ControlFunction pre_step_func = noop, ControlFunction post_step_func = noop);
+
+        virtual ~DefaultTrainer() = default;
     public:
         std::optional<float> GetScalar(const std::string& key) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key) const override { return std::nullopt; }
@@ -28,6 +31,7 @@ namespace anet::rl {
     private:
         // 内部状態
         TrainerStatus status_ = TrainerStatus::NOT_INITIALIZED;
+        bool env_initialized_ = false;
 
         // パラメータ
         struct Config;
@@ -53,6 +57,34 @@ namespace anet::rl {
         float last_policy_eval_reward_ = 0.0f;
         float last_train_step_per_sec_ = std::numeric_limits<float>::quiet_NaN();
         float last_exp_step_per_sec_ = std::numeric_limits<float>::quiet_NaN();
+    };
+
+    class AsyncTrainerRunner {
+    public:
+        explicit AsyncTrainerRunner(std::shared_ptr<anet::rl::Trainer> trainer,
+            anet::rl::Trainer::ControlFunction pre_func = anet::rl::Trainer::noop,
+            anet::rl::Trainer::ControlFunction post_func = anet::rl::Trainer::noop);
+        ~AsyncTrainerRunner();
+
+        void Start();
+
+        /// Trainerスレッド停止＆停止待ち合わせ
+        void Stop();
+
+        // フラグ取得/設定
+        bool IsRunning() const { return running_.load(); }
+        bool IsPaused() const { return paused_.load(); }
+        void Pause() { paused_.store(true); }
+        void Resume() { paused_.store(false); }
+    private:
+        void ThreadMain();
+    private:
+        std::atomic<bool> running_{ false }; ///< thread実行中フラグ
+        std::atomic<bool> paused_{ false }; ///< thread実行中フラグ
+        std::shared_ptr<anet::rl::Trainer> trainer_;
+        std::thread worker_;
+        anet::rl::Trainer::ControlFunction pre_func_;
+        anet::rl::Trainer::ControlFunction post_func_;
     };
 
 } // namespace anet::rl

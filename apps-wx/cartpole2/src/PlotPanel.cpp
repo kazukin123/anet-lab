@@ -2,6 +2,7 @@
 #include <algorithm>
 
 #include "CartPoleFrame.hpp"
+#include "app.hpp"
 
 wxBEGIN_EVENT_TABLE(PlotPanel, wxPanel)
 EVT_PAINT(PlotPanel::OnPaint)
@@ -16,15 +17,18 @@ PlotPanel::PlotPanel(wxWindow* parent)
 
 void PlotPanel::OnMouseClick(wxMouseEvent& event)
 {
-    auto* frame = dynamic_cast<CartPoleFrame*>(wxGetTopLevelParent(this));
-    if (frame) frame->ToggleTraining();
+    //event.Skip();
+    wxMouseEvent evt = event;
+    GetParent()->GetEventHandler()->ProcessEvent(evt);
 }
 
 void PlotPanel::AddData(float value)
 {
-    plot_data.push_back(value);
-    if (plot_data.size() > 1000) // 最新1000点だけ保持
-        plot_data.erase(plot_data.begin());
+    std::lock_guard<std::mutex> lock(plot_mutex_);
+
+    plot_data_.push_back(value);
+    if (plot_data_.size() > 1000) // 最新1000点だけ保持
+        plot_data_.erase(plot_data_.begin());
     //Refresh(false);            // 再描画要求（即時ではない）
 }
 
@@ -32,6 +36,12 @@ void PlotPanel::OnPaint(wxPaintEvent&)
 {
     wxAutoBufferedPaintDC dc(this);
     dc.Clear();
+
+    std::vector<float> plot_data;
+    {
+        std::lock_guard<std::mutex> lock(plot_mutex_);
+        plot_data = plot_data_; // UI描画用にコピー
+    }
 
     if (plot_data.empty()) {
         dc.DrawText("No data yet...", 10, 10);

@@ -2,6 +2,7 @@
 #include <cmath>
 #include <wx/dcbuffer.h>
 #include "CartPoleFrame.hpp"
+#include "app.hpp"
 
 #define _USE_MATH_DEFINES // for C++
 #include <cmath>
@@ -25,13 +26,16 @@ CartPoleCanvas::CartPoleCanvas(wxWindow* parent)
 
 void CartPoleCanvas::OnMouseClick(wxMouseEvent& event)
 {
-    auto* frame = dynamic_cast<CartPoleFrame*>(wxGetTopLevelParent(this));
-    if (frame) frame->ToggleTraining();
+    wxGetApp().ToggleTraining();
 }
 
-void CartPoleCanvas::SetBatchExperience(const anet::rl::BatchExperience& exp)
+void CartPoleCanvas::SetUIData(const UISnapshot& snapshot)
 {
     const int BATCH_POS = 0;
+    auto exp = snapshot.train_exp;
+
+    // step
+    step_ = snapshot.counts.train_step;
 
     // state
     torch::Tensor obs = exp.state.Flatten().obs[BATCH_POS];
@@ -103,11 +107,14 @@ void CartPoleCanvas::OnPaint(wxPaintEvent& event)
     dc.SetTextForeground(*wxBLACK);
     dc.DrawText(wxString::Format("Reward: %.2f", reward_), 10, bar_y - 2);// bar_x + bar_width + 8, bar_y - 2);
 
+    // Step
+    dc.DrawText(wxString::Format("Step: %llu", step_), 10, 10);
+
     // state文字
-    dc.DrawText(wxString::Format("X = %.2f", this->cart_x_), 10, 10);
-    dc.DrawText(wxString::Format("θ = %.2f°", this->pole_theta_ * 180/ M_PI), 10, 30);
-    dc.DrawText(wxString::Format("dotX = %.2f", this->cart_x_dot_), 10, 50);
-    dc.DrawText(wxString::Format("dotθ = %.2f", this->pole_theta_dot_ * 180 / M_PI), 10, 70);
+    dc.DrawText(wxString::Format("X = %.2f", this->cart_x_), 10, 40);
+    dc.DrawText(wxString::Format("θ = %.2f°", this->pole_theta_ * 180/ M_PI), 10, 60);
+    dc.DrawText(wxString::Format("dotX = %.2f", this->cart_x_dot_), 10, 80);
+    dc.DrawText(wxString::Format("dotθ = %.2f", this->pole_theta_dot_ * 180 / M_PI), 10, 100);
 
     // 力の方向ベクトルを描画
     float arrowLen = 40.0f;

@@ -1,14 +1,15 @@
 ﻿
-CartPoleFrame.$ = CartPoleFrame.online
-#CartPoleFrame.$ = CartPoleFrame.batchrun
+CartPoleApp.$ = CartPoleApp.online
+#CartPoleApp.$ = CartPoleApp.batchrun
 
 #train.seed = 3077901837422269870
 #train.seed = 10471613835926818675
+train.seed = 14209897399466557630
 
 #train.batch_size = 10
 train.batch_size = 1
 
-#CartPoleFrame.enable_image_log = false      # default=true
+CartPoleApp.enable_image_log = false      # default=true
 
 #metrics.scalar.$ = metrics.scalar.min
 metrics.scalar.$ = metrics.scalar.full
@@ -183,15 +184,13 @@ env.device_index = -1  # GPU index -1=current device
 CartPoleEnv.limit_step = 200
 #CartPoleEnv.limit_step = 500
 
-CartPoleFrame.online.timer_ms = 10
-CartPoleFrame.online.step_per_frame = 10
-CartPoleFrame.online.train_pause_step = 500000 #500K
-CartPoleFrame.online.train_exit_step = -1
+CartPoleApp.online.train_pause_step = 500000 #500K
+CartPoleApp.online.train_exit_step = -1
+CartPoleApp.online.timer_ms = 10
 
-CartPoleFrame.batchrun.timer_ms = 5
-CartPoleFrame.batchrun.step_per_frame = 1000
-CartPoleFrame.batchrun.train_pause_step = -1
-CartPoleFrame.batchrun.train_exit_step = 500000 #500K
+CartPoleApp.batchrun.train_pause_step = -1
+CartPoleApp.batchrun.train_exit_step = 500000 #500K
+CartPoleApp.batchrun.timer_ms = 5
 
 train.eval_interval = 10
 

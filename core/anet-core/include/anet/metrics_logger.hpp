@@ -9,6 +9,8 @@
 #include <nlohmann/json.hpp>
 #include "anet/heat_map.hpp"
 
+wxDECLARE_EVENT(wxEVT_APP_EXECUTE_START, wxThreadEvent);
+
 namespace anet {
     using json = nlohmann::json;
 
@@ -33,6 +35,43 @@ namespace anet {
         void Open(const std::string& root_dir, const std::string& run_name) override;
         void WriteJsonl(const json& obj) override;
         void Flush() override;
+    };
+
+    //----------------------------------------------
+    // ExecuteStarter メインスレッドで(ffmpeg起動するための仕掛け）
+    //----------------------------------------------
+    class ExecuteStarter {
+    public:
+        ExecuteStarter(const wxString& command, wxProcess* process)
+            : command_(command), process_(process)
+        {
+            ;
+        }
+
+        void Execute()
+        {
+            std::unique_lock lock(mutex_);
+            wxThreadEvent* ev = new wxThreadEvent(wxEVT_APP_EXECUTE_START);
+            ev->SetPayload<ExecuteStarter*>(this);
+            wxQueueEvent(wxTheApp, ev);
+            cv_.wait(lock, [&] { return started_; });
+        }
+
+        void OnMainStart()
+        {
+            std::unique_lock lock(mutex_);
+            wxExecute(command_, wxEXEC_ASYNC, process_);
+            started_ = true;
+            cv_.notify_one();
+        }
+
+        wxString GetCommand() { return command_; }
+    private:
+        wxProcess* process_;
+        std::mutex mutex_;
+        std::condition_variable cv_;
+        wxString command_;
+        bool started_ = false;
     };
 
     //----------------------------------------------

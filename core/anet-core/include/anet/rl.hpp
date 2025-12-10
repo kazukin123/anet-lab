@@ -629,6 +629,7 @@ namespace anet::rl {
         static ControlSignal noop(const StepCounts& counts) { return ControlSignal::CONTINUE; }
     public:
         virtual TrainerStatus Initialize(const ConfigData& config_data) = 0;
+        virtual StepCounts DoStep() = 0;
         virtual StepCounts DoUpdateFrame(
             int max_steps,
             ControlFunction pre_step_func = noop, ControlFunction post_step_func = noop) = 0;

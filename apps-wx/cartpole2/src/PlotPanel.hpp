@@ -14,5 +14,6 @@ private:
     void OnPaint(wxPaintEvent& event);
     wxDECLARE_EVENT_TABLE();
 private:
-    std::vector<float> plot_data;
+    std::vector<float> plot_data_;
+    std::mutex plot_mutex_;
 };

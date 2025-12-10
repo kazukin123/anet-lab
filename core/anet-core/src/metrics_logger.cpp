@@ -7,7 +7,10 @@
 
 namespace LOG = anet::log;
 
+wxDEFINE_EVENT(wxEVT_APP_EXECUTE_START, wxThreadEvent);
+
 namespace anet {
+
     //----------------------------------------------
     // JsonlBackend 実装
     //----------------------------------------------
@@ -42,9 +45,17 @@ namespace anet {
 
         process_ = new wxProcess();
         process_->Redirect();  // 標準入出力をリダイレクト
-        long pid = wxExecute(cmd, wxEXEC_ASYNC | wxEXEC_HIDE_CONSOLE, process_);
-        if (pid == 0)
-            throw std::runtime_error("Failed to launch ffmpeg process");
+
+        if (!wxThread::IsMain()) {
+            ANET_LOG_DEBUG("Sending ffmpeg execue request into main thread. command=" << cmd);
+            ExecuteStarter executer(cmd, process_);
+            executer.Execute();
+            ANET_LOG_DEBUG("ffmpeg execute done. pid=" << process_->GetPid());
+        } else {
+            long pid = wxExecute(cmd, wxEXEC_ASYNC | wxEXEC_HIDE_CONSOLE, process_);
+            if (pid == 0)
+                throw std::runtime_error("Failed to launch ffmpeg process");
+        }
 
         // 書き込みストリーム取得
         stream_ = process_->GetOutputStream();

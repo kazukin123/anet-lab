@@ -3,19 +3,21 @@
 #include <torch/torch.h>
 #include <wx/wx.h>
 #include "anet/rl.hpp"
+#include "UISnapshot.hpp"
 
 class CartPoleCanvas : public wxPanel {
 public:
     CartPoleCanvas(wxWindow* parent);
 
-    // カート位置・角度をセット
-    void SetBatchExperience(const anet::rl::BatchExperience& exp);
+    // UIデータ設定
+    void SetUIData(const UISnapshot& snapshot);
 
 protected:
     void OnPaint(wxPaintEvent& event);
     void OnMouseClick(wxMouseEvent& event);
-
 private:
+    anet::rl::step_t step_;
+
     float cart_x_;
     float cart_x_dot_;
     float pole_theta_;
