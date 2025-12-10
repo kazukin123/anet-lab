@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <wx/image.h>
 #include <wx/process.h>
+#include <wx/app.h>
 #include <nlohmann/json.hpp>
 #include "anet/heat_map.hpp"
 
