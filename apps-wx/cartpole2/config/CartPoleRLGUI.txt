@@ -6,8 +6,8 @@ CartPoleApp.$ = CartPoleApp.online
 #train.seed = 10471613835926818675
 train.seed = 14209897399466557630
 
-#train.batch_size = 10
-train.batch_size = 1
+train.batch_size = 10
+#train.batch_size = 1
 
 CartPoleApp.enable_image_log = false      # default=true
 

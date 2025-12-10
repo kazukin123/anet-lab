@@ -140,16 +140,6 @@ bool CartPoleApp::OnInit()
             return anet::rl::ControlSignal::CONTINUE;
         });
 
-    //// 終了処理をメインスレッドで
-    //Bind(wxEVT_APP_TRAINER_SHUTDOWN, [this](wxThreadEvent&)
-    //    {
-    //        trainer_thread_->Stop();
-    //        //trainer_thread_.reset();    // 破棄（destructorで残処理も可）
-
-    //        // スレッド破棄が完了したので、ここで Exit 発行
-    //        wxGetApp().Exit();
-    //    });
-
     // Train開始！
     trainer_thread_->Start();
 
@@ -172,16 +162,11 @@ void CartPoleApp::ToggleTraining()
 void CartPoleApp::StopTraining()
 {
     trainer_thread_->Stop();
-    //trainer_thread_.reset();
 }
 
 int CartPoleApp::OnExit()
 {
-    //if (trainer_thread_.get() != nullptr) {
-        trainer_thread_->Stop();
-        //trainer_thread_.reset();
-    //}
-    //trainer_thread_.release();
+    trainer_thread_->Stop();
     anet::MetricsLogger::Reset();
     return 0;
 }
@@ -193,9 +178,6 @@ void CartPoleApp::InitTrainer()
         [this](const anet::rl::TrainEvent& event)
         {
             auto train_step = event.counts.train_step;
-
-            //canvas->SetBatchExperience(event.batch_exp);
-            //canvas->Refresh();
 
             // Trainスナップショット取得
             if (event.counts.train_step % 10 == 0) {

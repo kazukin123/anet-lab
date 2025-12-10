@@ -78,13 +78,6 @@ CartPoleFrame::~CartPoleFrame()
     wxLog::SetActiveTarget(NULL);
 }
 
-void CartPoleFrame::OnClose(wxCloseEvent& e)
-{
-    // TrainerスレッドのシャットダウンをAPに要求
-    //wxQueueEvent(wxTheApp, new wxThreadEvent(wxEVT_APP_TRAINER_SHUTDOWN));
-    //e.Skip(); // UI破棄は後で
-}
-
 void CartPoleFrame::OnTimer(wxTimerEvent& event)
 {
     anet::ProfileRange r("CartPoleFrame::OnTimer");

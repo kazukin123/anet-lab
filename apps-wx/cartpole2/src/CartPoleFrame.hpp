@@ -10,9 +10,7 @@
 #include "CartPoleCanvas.hpp"
 #include "CartPoleEnv.hpp"
 
-//
-// --- メインウィンドウ（Frame） ---
-//
+/// メインウィンドウ（Frame）
 class CartPoleFrame : public wxFrame, wxLog {
 public:
     CartPoleFrame(const wxString& title, int timer_ms);
@@ -24,7 +22,6 @@ private:
     // イベントハンドラ
     void OnTimer(wxTimerEvent& event);
     void OnMouseClick(wxMouseEvent& event);
-    void OnClose(wxCloseEvent& e);
 
     wxDECLARE_EVENT_TABLE();
 private:
