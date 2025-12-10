@@ -42,15 +42,14 @@
 .vs
 
 *.bak
-/cart1/out
 /out
 /artefacts
 /logs
 /enc_temp_folder
-/apps-wx/cartpole2/logs
-/apps-wx/cartpole2/runs
 /docs/html
-/apps-wx/cartpole2/logs
-/apps-wx/cartpole2/mlruns
 /build
-/apps-wx/cartpole2/runs_bk
+/apps/cartpole2/mlruns
+/apps/cartpole2/runs
+/apps/cartpole2/runs_bk
+/apps/cartpole2/bin
+/apps/cartpole2/logs
