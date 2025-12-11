@@ -5,12 +5,35 @@
 #include <mutex>
 #include <optional>
 #include "anet/rl.hpp"
+#include "LunarLanderEnv.hpp"
 
-struct UISnapshot {
-    anet::rl::StepCounts counts;                // 現在のステップ状況
-    anet::rl::BatchExperience train_exp;        // CPU化済みの Experience（描画対象）
-    //float train_reward_ema = 0.0f;    // 学習報酬EMA（UI表示用）
-    //std::shared_ptr<const anet::rl::Agent> agent; // 観測専用(sharedでOK)
+struct TerrainPoint {
+    float x;
+    float y;
+};
+
+struct TerrainPolyline {
+    std::vector<TerrainPoint> points;
+};
+
+struct UISnapshot
+{
+    // Step
+    anet::rl::step_t step;
+
+    // RL由来情報
+    anet::rl::Experience exp;
+
+    // ENV非可観測情報
+    std::optional<TerrainPolyline> terrain;  // episode_start時のみセット
+    LunarLanderEnv::PadInfo pad;             // episode_startでセット
+    float wind_x;                            // 毎step更新
+
+    // world transform (Canvas描画座標系)
+    float world_min_x;
+    float world_max_x;
+    float world_min_y;
+    float world_max_y;
 };
 
 class UISnapshotStore {

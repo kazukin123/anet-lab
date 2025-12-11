@@ -359,8 +359,10 @@ std::string Experience::ToString() const
 // -----------------------------------------
 
 std::optional<torch::Tensor> BatchExperience::GetTensor(
-    const std::string& key) const
+    const std::string& key, int index) const
 {
+    /// @todo index指定対応
+
     if (key == NEXT_STATE_OBS)
         return next_state.obs;
     if (key == REWARD)
@@ -391,8 +393,10 @@ std::optional<torch::Tensor> BatchExperience::GetTensor(
 }
 
 std::optional<std::vector<torch::Tensor>>
-    BatchExperience::GetTensorVector(const std::string& key) const
+    BatchExperience::GetTensorVector(const std::string& key, int index) const
 {
+    /// @todo index指定対応
+
     auto t = GetTensor(key);
     if (!t.has_value()) return std::nullopt;
     return std::vector<torch::Tensor>{ *t };

@@ -201,18 +201,20 @@ namespace anet::rl {
         return out;
     }
 
-    std::optional<float> ReplayBuffer::GetScalar(const std::string& key) const
+    std::optional<float> ReplayBuffer::GetScalar(const std::string& key, int index) const
     {
         return std::nullopt;
     }
 
-    std::optional<torch::Tensor> ReplayBuffer::GetTensor(const std::string& key) const
+    std::optional<torch::Tensor> ReplayBuffer::GetTensor(const std::string& key, int index) const
     {
         return std::nullopt;
     }
 
-    std::optional<std::vector<torch::Tensor>> ReplayBuffer::GetTensorVector(const std::string& key) const
+    std::optional<std::vector<torch::Tensor>> ReplayBuffer::GetTensorVector(const std::string& key, int index) const
     {
+        /// @todo index指定対応
+
         // ReplayBuffer は ring-buffer 構造のため、時系列順のデータは
         // メモリ上で最大 2 区間に分かれる。
         // 1 Tensor に連結すると memcpy が必要になり重いため、

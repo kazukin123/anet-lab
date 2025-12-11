@@ -19,9 +19,9 @@ namespace anet::rl {
 
         virtual ~DefaultTrainer() = default;
     public:
-        std::optional<float> GetScalar(const std::string& key) const override;
-        std::optional<torch::Tensor> GetTensor(const std::string& key) const override { return std::nullopt; }
-        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const override { return std::nullopt; }
+        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override { return std::nullopt; }
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override { return std::nullopt; }
     public:
         TrainerStatus GetStatus() const override { return status_; }
         StepCounts GetCounts() const override { return step_counts_; }

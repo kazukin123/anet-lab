@@ -1,35 +1,56 @@
 ﻿#pragma once
 
-#include <torch/torch.h>
+#include <optional>
+#include <vector>
 #include <wx/wx.h>
+#include <torch/torch.h>
 #include "anet/rl.hpp"
 #include "UISnapshot.hpp"
 
+struct TerrainPoint;
+
 class LunarLanderCanvas : public wxPanel {
 public:
-    LunarLanderCanvas(wxWindow* parent);
+    explicit LunarLanderCanvas(wxWindow* parent);
 
-    // UIデータ設定
-    void SetUIData(const UISnapshot& snapshot);
+    // UIデータ設定（Frame 側から呼ばれる）
+    void SetUISnapshot(const UISnapshot& snapshot);
 
 protected:
     void OnPaint(wxPaintEvent& event);
     void OnMouseClick(wxMouseEvent& event);
+
 private:
-    anet::rl::step_t step_;
+    // world座標→画面座標変換
+    wxPoint WorldToScreen(float wx, float wy, int width, int height) const;
 
-    float cart_x_;
-    float cart_x_dot_;
-    float pole_theta_;
-    float pole_theta_dot_;
+    // 描画ヘルパ
+    void DrawTerrain(wxDC& dc, int width, int height);
+    void DrawPad(wxDC& dc, int width, int height);
+    void DrawLander(wxDC& dc, int width, int height);
+    void DrawThrust(wxDC& dc,
+        int width,
+        int height,
+        float world_x,
+        float world_y,
+        float angle,
+        int64_t action);
+    void DrawWind(wxDC& dc, int width, int height);
 
-    float reward_ = 0.0f;
+private:
+    // 最新のUISnapshot
+    bool has_snapshot_ = false;
+    UISnapshot snapshot_;
 
-    int64_t action_ = 0;
+    // 地形キャッシュ（world座標系）
+    std::vector<TerrainPoint> terrain_points_;
+    bool has_terrain_ = false;
 
-    // 表示スケールなど
-    float cart_scale_;
-    float pole_length_;
+    // world座標系の範囲
+    float world_min_x_ = -10.0f;
+    float world_max_x_ = 10.0f;
+    float world_min_y_ = 0.0f;
+    float world_max_y_ = 15.0f;
 
     wxDECLARE_EVENT_TABLE();
 };

@@ -152,18 +152,18 @@ public:
     virtual MetricsMap GetMetricsMap() const override {
         return map_;
     }
-    virtual std::optional<float> GetScalar(const std::string& key) const override {
+    virtual std::optional<float> GetScalar(const std::string& key, int index) const override {
         auto itr = map_.find(key);
         if (itr == map_.end()) {
             return std::nullopt;
         }
         return itr->second;
     }
-    virtual std::optional<torch::Tensor> GetTensor(const std::string& key) const override {
+    virtual std::optional<torch::Tensor> GetTensor(const std::string& key, int index) const override {
         if (key == "max_q") return max_q_;
         return std::nullopt;
     }
-    virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const override {
+    virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index) const override {
         return std::nullopt;
     }
 };
@@ -240,7 +240,7 @@ anet::TensorFunction DQNAgent::GetTensorFunction(const std::string& key) const
     return fn;
 }
 
-std::optional<float> DQNAgent::GetScalar(const std::string& key) const
+std::optional<float> DQNAgent::GetScalar(const std::string& key, int index) const
 {
     if (key.find("replaybuffer.") == 0) {
         std::shared_lock<std::shared_mutex> lock(mutex_);
@@ -258,7 +258,7 @@ std::optional<float> DQNAgent::GetScalar(const std::string& key) const
     return std::nullopt;
 }
 
-std::optional<torch::Tensor> DQNAgent::GetTensor(const std::string& key) const
+std::optional<torch::Tensor> DQNAgent::GetTensor(const std::string& key, int index) const
 {
     if (key.find("replaybuffer.") == 0)
         return replay_buffer_->GetTensor(key);
@@ -266,7 +266,7 @@ std::optional<torch::Tensor> DQNAgent::GetTensor(const std::string& key) const
     return std::nullopt;
 }
 
-std::optional<std::vector<torch::Tensor>> DQNAgent::GetTensorVector(const std::string& key) const
+std::optional<std::vector<torch::Tensor>> DQNAgent::GetTensorVector(const std::string& key, int index) const
 {
     if (key.find("replaybuffer.") == 0)
         return replay_buffer_->GetTensorVector(key);

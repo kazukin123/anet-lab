@@ -416,9 +416,9 @@ namespace anet::rl {
             const BatchState& next_state__
         ) : state(state__), action(action__), reward(reward__), next_state(next_state__) { }
 
-        std::optional<float> GetScalar(const std::string& key) const { return std::nullopt; }
-        std::optional<torch::Tensor> GetTensor(const std::string& key) const override;
-        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const override;
+        std::optional<float> GetScalar(const std::string& key, int index = -1) const { return std::nullopt; }
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
 
         BatchExperience to(torch::Device d) const;
         std::vector<Experience> ToExperienceList() const;
@@ -442,7 +442,7 @@ namespace anet::rl {
     // =============================================================
 
     /// not-thread-safe
-    class SingleDiscreteEnv {
+    class SingleDiscreteEnv : public DataExporter {
     public:
         virtual EnvSpec GetSpec() const = 0;
         virtual SingleState Reset(RunMode mode) = 0;
@@ -462,7 +462,7 @@ namespace anet::rl {
         virtual ~SingleDiscreteEnvFactory() = default;
     };
 
-    class BatchEnv {
+    class BatchEnv : public DataExporter {
     public:
         virtual EnvSpec GetSpec() const = 0;
         virtual BatchEnvSpec GetBatchSpec() const = 0;

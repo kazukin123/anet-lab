@@ -1,236 +1,605 @@
 ﻿#include "LunarLanderEnv.hpp"
+
 #include <cmath>
 #include <algorithm>
-#include <random>
 #include <wx/log.h>
 #include <box2d/box2d.h>
 #include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
 #include "anet/env.hpp"
 
-// 定数
+namespace {
 
-//const int limit_step = 500;  // 終了条件
-const float reward_scale = 1.0f;  // 2 10  20
-const float done_reward = 1.0f;  // 2 10  20
+    // ボディのサイズなどは Gym をざっくり参考にした値
+    constexpr float kLanderRadius = 0.25f;
+    constexpr float kLanderDensity = 5.0f;
+    constexpr float kLegDensity = 1.0f;
+    constexpr float kMainEngineForce = 40.0f;
+    constexpr float kSideEngineForce = 10.0f;
 
-const float limit_x = 2.4f;
-const float limit_x_dot = 2.0f;
-const float limit_theta = 90.0f; // 12.0f 90.0f
-const float limit_theta_dot = 3.0f;
+    // 報酬関連の暫定値
+    constexpr float kStepPenality = -0.01f;
+    constexpr float kCrashPenalty = -100.0f;
+    constexpr float kLandReward = 100.0f;
 
-const float gravity = 9.8f;
-const float masscart = 1.0f;
-const float mass_pole = 0.10f;
-const float total_mass = masscart + mass_pole;
-const float length = 0.5f;
-const float polemass_length = mass_pole * length;
-const float force_mag = 30.0f;  // 10.0f 30.0f
-const float tau = 0.02f;    //0.02f 0.01f
+    /// @todo Gym の lunar_lander.py のパラメータと整合を取る。
 
-const float deg = (float)M_PI / 180.0f;
-
-LunarLanderEnv::LunarLanderEnv(
-    const LunarLanderEnvConfig& config,
-    const torch::Device& device, std::optional<anet::seed_t> seed)
-    : RandomHolder(seed), config_(config)
-{
-    // パラメータ記録
-    anet::MetricsLogger::Instance()->LogJson("LunarLanderEnvConfig", config_.ToJson());
-    anet::MetricsLogger::Instance()->Flush();
-
-    obs_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
-
-    Reset();
-}
+} // namespace
 
 anet::rl::EnvSpec LunarLanderEnv::GetSpec() const
 {
-    anet::rl::StateSpec state = {
-        {4},   // shape
-        {      //dims
-            { {0}, -limit_x - limit_x_dot * tau, limit_x + limit_x_dot * tau,     "x"},         // dims[0] coords, min, max, name, desc
-            { {1}, -limit_x_dot, limit_x_dot,           "x_dot"},     // dims[1] coords, min, max, name, desc
-            { {2}, -limit_theta * deg - limit_theta_dot * tau, limit_theta * deg + limit_theta_dot * tau, "theta"}, // dims[2] coords, min, max, name, desc
-            { {3}, -limit_theta_dot, limit_theta_dot,           "theta_dot"}  // dims[3] coords, min, max, name, desc
-        }
-    };
-    anet::rl::ActionSpec action = {
-        true,   // is_discreate
-        { "left", "right"}, // value_labels
-        { // dims
-            { 0, 1, "force" }  // min, max, name
-        }
-    };
-    anet::rl::EnvSpec env_spec = {
-        state,
-        action,
-        { -1, 1 }   //reward_range: min, max
+    anet::rl::StateSpec state_spec;
+    state_spec.shape = { 8 };
+
+    // ざっくりしたレンジ指定。Gym と完全一致ではない。
+    state_spec.dims = {
+        { {0}, -1.5f, 1.5f, "x", "" },
+        { {1}, -0.5f, 2.0f, "y", "" },
+        { {2}, -10.0f, 10.0f, "vx", "" },
+        { {3}, -10.0f, 15.0f, "vy", "" },
+        { {4}, -3.14f, 3.14f, "angle", "" },
+        { {5}, -15.0f, 15.0f, "angular_velocity", "" },
+        { {6}, 0.0f, 1.0f, "left_leg_contact", "" },
+        { {7}, 0.0f, 1.0f, "right_leg_contact", "" }
     };
 
+    anet::rl::ActionSpec action_spec;
+    action_spec.is_discrete = true;
+    action_spec.value_labels = {
+        "no_op",
+        "main_engine",
+        "left_engine",
+        "right_engine"
+    };
+
+    anet::rl::EnvSpec env_spec;
+    env_spec.state_spec = state_spec;
+    env_spec.action_spec = action_spec;
+    env_spec.reward_range = { -100.0f, 100.0f };
+
+    /// @todo EnvSpec.info に LunarLander 固有情報を入れる。
     return env_spec;
+}
+
+// ===== ContactListener =====
+
+void LunarLanderEnv::ContactListener::BeginContact(b2Contact* contact)
+{
+    auto fixture_a = contact->GetFixtureA();
+    auto fixture_b = contact->GetFixtureB();
+    b2Body* body_a = fixture_a->GetBody();
+    b2Body* body_b = fixture_b->GetBody();
+
+    if (body_a == env_.left_leg_body_ || body_b == env_.left_leg_body_) {
+        env_.left_leg_contact_ = true;
+    }
+    if (body_a == env_.right_leg_body_ || body_b == env_.right_leg_body_) {
+        env_.right_leg_contact_ = true;
+    }
+}
+
+void LunarLanderEnv::ContactListener::EndContact(b2Contact* contact)
+{
+    auto fixture_a = contact->GetFixtureA();
+    auto fixture_b = contact->GetFixtureB();
+    b2Body* body_a = fixture_a->GetBody();
+    b2Body* body_b = fixture_b->GetBody();
+
+    if (body_a == env_.left_leg_body_ || body_b == env_.left_leg_body_) {
+        env_.left_leg_contact_ = false;
+    }
+    if (body_a == env_.right_leg_body_ || body_b == env_.right_leg_body_) {
+        env_.right_leg_contact_ = false;
+    }
+}
+
+// ===== LunarLanderEnv =====
+
+LunarLanderEnv::LunarLanderEnv(
+    const LunarLanderEnvConfig& config,
+    const torch::Device& device,
+    const std::optional<anet::seed_t> seed)
+    : anet::RandomHolder(seed)
+    , config_(config)
+{
+    anet::MetricsLogger::Instance()->LogJson(
+        "LunarLanderEnvConfig",
+        config_.ToJson());
+    anet::MetricsLogger::Instance()->Flush();
+
+    obs_opt_ = torch::TensorOptions()
+        .dtype(torch::kFloat32)
+        .device(device);
+
+    buildWorld();
+}
+
+LunarLanderEnv::~LunarLanderEnv()
+{
+    destroyWorld();
+}
+
+void LunarLanderEnv::buildWorld()
+{
+    destroyWorld();
+
+    b2Vec2 gravity(0.0f, config_.gravity_y);
+    world_ = std::make_unique<b2World>(gravity);
+
+    contact_listener_ = std::make_unique<ContactListener>(*this);
+    world_->SetContactListener(contact_listener_.get());
+
+    buildGround();
+    buildLander();
+}
+
+void LunarLanderEnv::destroyWorld()
+{
+    if (!world_) {
+        return;
+    }
+
+    left_leg_joint_ = nullptr;
+    right_leg_joint_ = nullptr;
+    left_leg_body_ = nullptr;
+    right_leg_body_ = nullptr;
+    lander_body_ = nullptr;
+    ground_body_ = nullptr;
+
+    contact_listener_.reset();
+    world_.reset();
+}
+
+void LunarLanderEnv::buildGround()
+{
+    terrain_points_.clear();
+
+    const float half_w = config_.world_half_width;
+    const float ground_y = config_.ground_y;
+
+    // 着陸パッドは中央の一定区間とする
+    pad_info_.x1 = -half_w * 0.2f;
+    pad_info_.x2 = half_w * 0.2f;
+    pad_info_.y = ground_y;
+
+    // === ランダム地形 polyline 生成 ===
+
+    // 頂点数は 2 以上に制限
+    int point_count = std::max(2, config_.terrain_point_count);
+    const float min_x = -half_w;
+    const float max_x = half_w;
+    const float dx = (max_x - min_x) / static_cast<float>(point_count - 1);
+
+    terrain_points_.reserve(static_cast<size_t>(point_count));
+
+    for (int i = 0; i < point_count; ++i) {
+        const float x = min_x + dx * static_cast<float>(i);
+
+        float y = ground_y;
+        if (x >= pad_info_.x1 && x <= pad_info_.x2) {
+            // パッド区間は平坦
+            y = pad_info_.y;
+        }
+        else {
+            // パッド以外はノイズで高さを付与
+            const float noise =
+                rnd_->Uniform(0.0f, config_.terrain_noise_height);
+            y = ground_y + noise;
+        }
+
+        terrain_points_.push_back(b2Vec2(x, y));
+    }
+
+    // === Box2D 地形 Body / Fixture 構築 ===
+
+    b2BodyDef ground_def;
+    ground_def.position.Set(0.0f, 0.0f);
+    ground_body_ = world_->CreateBody(&ground_def);
+
+    // polyline の各区間を EdgeShape としてつなげる
+    /// @todo Gym lunar_lander.py の地形生成アルゴリズムと比較して調整する。
+    for (size_t i = 0; i + 1 < terrain_points_.size(); ++i) {
+        b2EdgeShape edge;
+        edge.SetTwoSided(terrain_points_[i], terrain_points_[i + 1]);
+        ground_body_->CreateFixture(&edge, 0.0f);
+    }
+}
+
+void LunarLanderEnv::buildLander()
+{
+    const float start_x = 0.0f;
+    const float start_y = config_.ground_y + config_.world_height * 0.6f;
+
+    // 本体
+    {
+        b2BodyDef body_def;
+        body_def.type = b2_dynamicBody;
+        body_def.position.Set(start_x, start_y);
+        body_def.angle = 0.0f;
+        body_def.linearDamping = 0.5f;
+        body_def.angularDamping = 0.5f;
+
+        lander_body_ = world_->CreateBody(&body_def);
+
+        b2CircleShape shape;
+        shape.m_radius = kLanderRadius;
+
+        b2FixtureDef fixture_def;
+        fixture_def.shape = &shape;
+        fixture_def.density = kLanderDensity;
+        fixture_def.friction = 0.3f;
+        fixture_def.restitution = 0.0f;
+        lander_body_->CreateFixture(&fixture_def);
+    }
+
+    // 脚
+    {
+        const float leg_length = 0.35f;
+        const float leg_offset_x = 0.5f;
+
+        b2BodyDef leg_def;
+        leg_def.type = b2_dynamicBody;
+
+        // 左脚
+        leg_def.position = lander_body_->GetPosition() +
+            b2Vec2(-leg_offset_x, -kLanderRadius - leg_length);
+        left_leg_body_ = world_->CreateBody(&leg_def);
+
+        b2PolygonShape leg_shape;
+        leg_shape.SetAsBox(
+            0.1f,
+            leg_length);
+
+        b2FixtureDef leg_fixture_def;
+        leg_fixture_def.shape = &leg_shape;
+        leg_fixture_def.density = kLegDensity;
+        leg_fixture_def.friction = 0.5f;
+        leg_fixture_def.restitution = 0.0f;
+        left_leg_body_->CreateFixture(&leg_fixture_def);
+
+        // 右脚
+        leg_def.position = lander_body_->GetPosition() +
+            b2Vec2(leg_offset_x, -kLanderRadius - leg_length);
+        right_leg_body_ = world_->CreateBody(&leg_def);
+        right_leg_body_->CreateFixture(&leg_fixture_def);
+
+        // ジョイント
+        b2RevoluteJointDef joint_def;
+        joint_def.enableLimit = true;
+        joint_def.lowerAngle = -0.4f;
+        joint_def.upperAngle = 0.4f;
+
+        // 左
+        joint_def.bodyA = lander_body_;
+        joint_def.bodyB = left_leg_body_;
+        joint_def.localAnchorA.Set(-leg_offset_x, -kLanderRadius);
+        joint_def.localAnchorB.Set(0.0f, leg_length);
+        left_leg_joint_ = static_cast<b2RevoluteJoint*>(
+            world_->CreateJoint(&joint_def));
+
+        // 右
+        joint_def.bodyA = lander_body_;
+        joint_def.bodyB = right_leg_body_;
+        joint_def.localAnchorA.Set(leg_offset_x, -kLanderRadius);
+        joint_def.localAnchorB.Set(0.0f, leg_length);
+        right_leg_joint_ = static_cast<b2RevoluteJoint*>(
+            world_->CreateJoint(&joint_def));
+    }
+
+    left_leg_contact_ = false;
+    right_leg_contact_ = false;
 }
 
 anet::rl::SingleState LunarLanderEnv::Reset(anet::rl::RunMode mode)
 {
-    anet::ProfileRange r("LunarLanderEnv::Reset");
+    anet::ProfileRange range("LunarLanderEnv::Reset");
 
-    if (anet::rl::IsTrain(mode)) {
-        const float d = 0.05f;
-        x_ =         rnd_->Uniform(-d, d);
-        x_dot_ =     rnd_->Uniform(-d, d);
-        theta_ =     rnd_->Uniform(-d, d);
-        theta_dot_ = rnd_->Uniform(-d, d);
-    } else {
-        // 評価モードでは初期状態固定
-        x_ = 0.0f;
-        x_dot_ = 0.0f;
-        theta_ = 0.0f;
-        theta_dot_ = 0.0f;
-    }
-    
-    //x = 0.2f;
-    //x_dot = 0.2f;
-    //theta = -0.05f;
-    //theta_dot = 0.05;// -1.0f * 0.5;// *0.5;
+    buildWorld();
 
-    done_ = false;
-    truncated_ = false;
-    episode_start_ = true;
     step_count_ = 0;
+    last_wind_x_ = 0.0f;
+    left_leg_contact_ = false;
+    right_leg_contact_ = false;
 
-    return {
-        torch::tensor({ x_, x_dot_, theta_, theta_dot_ }, obs_opt_), // (4)
-        done_,
-        truncated_,
-        episode_start_
-    };
+    // 初期状態は Train / Eval で変える
+    if (anet::rl::IsTrain(mode)) {
+        float dx = rnd_->Uniform(-1.0f, 1.0f);
+        lander_body_->SetTransform(
+            b2Vec2(dx, lander_body_->GetPosition().y),
+            rnd_->Uniform(-0.1f, 0.1f));
+    } else {
+        lander_body_->SetTransform(
+            b2Vec2(0.0f, lander_body_->GetPosition().y),
+            0.0f);
+    }
+
+    lander_body_->SetLinearVelocity(b2Vec2(0.0f, 0.0f));
+    lander_body_->SetAngularVelocity(0.0f);
+    left_leg_body_->SetLinearVelocity(b2Vec2(0.0f, 0.0f));
+    left_leg_body_->SetAngularVelocity(0.0f);
+    right_leg_body_->SetLinearVelocity(b2Vec2(0.0f, 0.0f));
+    right_leg_body_->SetAngularVelocity(0.0f);
+
+    auto state = makeState();
+    state.episode_start = true;
+    state.done = false;
+    state.truncated = false;
+
+    return state;
 }
 
-anet::rl::SingleStepResult LunarLanderEnv::Step(int64_t action, anet::rl::RunMode mode)
+void LunarLanderEnv::applyWind()
 {
-    anet::ProfileRange r("LunarLanderEnv::Step");
+    last_wind_x_ = 0.0f;
 
-    episode_start_ = false;
-
-    // 力の符号（1:右=+、0:左=-）
-    float force = (action == 1) ? force_mag : -force_mag;
-    //float force = force_mag;  // 動作確認用
-
-    // 運動方程式
-    float costheta = std::cos(theta_);
-    float sintheta = std::sin(theta_);
-
-    // --- 拘束反力モデル（完全拘束） ---
-    bool hit_wall = false;
-    if (x_ <= -limit_x && force < 0) {  // 左壁＋左向き力
-        hit_wall = true;
-        force = 0.0f;
-        x_ = -limit_x;
-        x_dot_ = 0.0f;
-    } else if (x_ >= limit_x && force > 0) {  // 右壁＋右向き力
-        hit_wall = true;
-        force = 0.0f;
-        x_ = limit_x;
-        x_dot_ = 0.0f;
+    if (!config_.enable_wind) {
+        return;
+    }
+    if (!lander_body_) {
+        return;
     }
 
-    float temp = (force + polemass_length * theta_dot_ * theta_dot_ * sintheta) / total_mass;
-    float thetaacc = (gravity * sintheta + 1 * costheta * temp) /
-        (length * (4.0f / 3.0f - mass_pole * costheta * costheta / total_mass));
-    float xacc = temp - polemass_length * thetaacc * costheta / total_mass;
+    float w = rnd_->Uniform(-1.0f, 1.0f) * config_.wind_power;
+    w += rnd_->Uniform(-1.0f, 1.0f) * config_.turbulence_power;
+    last_wind_x_ = w;
 
-    //thetaacc = 0;
-    //thetaacc = -100;
+    b2Vec2 force(w * 10, 0.0f);
+    lander_body_->ApplyForceToCenter(force, true);
+}
 
-    // リミット時、壁に押している場合は xacc を 0 に上書き
-    if (hit_wall) xacc = 0.0f;
+void LunarLanderEnv::applyActionForce(int64_t action)
+{
+    if (!lander_body_) {
+        return;
+    }
 
-    // 更新
-    x_ += tau * x_dot_;
-    x_dot_ += tau * xacc;
-    theta_ += tau * theta_dot_;
-    theta_dot_ += tau * thetaacc;
+    switch (action) {
+    case 1: { // main engine
+        b2Vec2 force(0.0f, kMainEngineForce);
+        lander_body_->ApplyForceToCenter(force, true);
+        break;
+    }
+    case 2: { // left engine
+        b2Vec2 force(-kSideEngineForce, kSideEngineForce * 0.5f);
+        lander_body_->ApplyForceToCenter(force, true);
+        lander_body_->ApplyTorque(5.0f, true);
+        break;
+    }
+    case 3: { // right engine
+        b2Vec2 force(kSideEngineForce, kSideEngineForce * 0.5f);
+        lander_body_->ApplyForceToCenter(force, true);
+        lander_body_->ApplyTorque(-5.0f, true);
+        break;
+    }
+    default:
+        break;
+    }
+}
 
-    // clamp
-    theta_dot_ = std::clamp(theta_dot_, -3.0f, 3.0f);
-    x_dot_ = std::clamp(x_dot_, -2.0f, 2.0f);
-    //theta_ = std::clamp(theta_, -limit_theta * deg, limit_theta * deg);
+bool LunarLanderEnv::checkCrash() const
+{
+    if (!lander_body_) {
+        return true;
+    }
+    const b2Vec2 pos = lander_body_->GetPosition();
 
-    //wxLogInfo("STEP=%d x=%f theta=%f hit_wall=%d force=%f x_dot=%f theta_dot=%f, xacc=%f thetaacc=%f",
-        //step_count, x, theta, hit_wall, force, x_dot, theta_dot,xacc, thetaacc);
+    const float min_x = -config_.world_half_width;
+    const float max_x = config_.world_half_width;
+    if (pos.x < min_x || pos.x > max_x) {
+        return true;
+    }
+    if (pos.y < config_.ground_y - 1.0f) {
+        return true;
+    }
+    return false;
+}
 
-    // ステップ完了
+bool LunarLanderEnv::checkLanded() const
+{
+    if (!lander_body_) {
+        return false;
+    }
+
+    const b2Vec2 pos = lander_body_->GetPosition();
+    const b2Vec2 vel = lander_body_->GetLinearVelocity();
+    const float raw_angle = lander_body_->GetAngle();
+    float angle = std::fmod(raw_angle + b2_pi, 2.0f * b2_pi);
+    if (angle < 0.0f) angle += 2.0f * b2_pi;
+    angle -= b2_pi;
+
+    const bool over_pad =
+        (pos.x >= pad_info_.x1) && (pos.x <= pad_info_.x2) &&
+        (std::abs(pos.y - pad_info_.y) < 0.5f);
+
+    const bool slow_enough =
+        (std::abs(vel.x) < 1.0f) &&
+        (std::abs(vel.y) < 1.0f) &&
+        (std::abs(angle) < 0.3f);
+
+    const bool legs_contact =
+        left_leg_contact_ && right_leg_contact_;
+
+    return over_pad && slow_enough && legs_contact;
+}
+
+anet::rl::SingleState LunarLanderEnv::makeState() const
+{
+    anet::rl::SingleState s;
+
+    if (!lander_body_) {
+        s.obs = torch::zeros({ 8 }, obs_opt_);
+        s.done = true;
+        s.truncated = false;
+        s.episode_start = false;
+        return s;
+    }
+
+    const b2Vec2 pos = lander_body_->GetPosition();
+    const b2Vec2 vel = lander_body_->GetLinearVelocity();
+    const float raw_angle = lander_body_->GetAngle();
+    float angle = std::fmod(raw_angle + b2_pi, 2.0f * b2_pi);
+    if (angle < 0.0f) angle += 2.0f * b2_pi;
+    angle -= b2_pi;
+    const float angular_vel = lander_body_->GetAngularVelocity();
+
+    const float norm_x = config_.world_half_width;
+    const float norm_y = config_.world_height;
+
+    float x = pos.x / norm_x;
+    float y = (pos.y - config_.ground_y) / norm_y;
+    float vx = vel.x;
+    float vy = vel.y;
+
+    float left_contact = left_leg_contact_ ? 1.0f : 0.0f;
+    float right_contact = right_leg_contact_ ? 1.0f : 0.0f;
+
+    s.obs = torch::tensor(
+        { x, y, vx, vy, angle, angular_vel, left_contact, right_contact },
+        obs_opt_);
+    s.done = false;
+    s.truncated = false;
+    s.episode_start = false;
+
+    return s;
+}
+
+float LunarLanderEnv::calcReward(
+    const anet::rl::SingleState& state,
+    bool done,
+    bool crashed,
+    bool landed) const
+{
+    float reward = kStepPenality;
+
+    const auto obs = state.obs;
+    const float x = obs[0].item<float>();
+    const float y = obs[1].item<float>();
+    const float angle = obs[4].item<float>();
+
+    // 中心と角度に近いほど少しプラス
+    reward += -std::abs(x) * 0.5f;
+    reward += -std::abs(angle) * 0.5f;
+    reward += y * 0.1f;
+
+    if (crashed) {
+        reward += kCrashPenalty;
+    }
+    else if (landed) {
+        reward += kLandReward;
+    }
+
+    /// @todo Gym の報酬関数により近づける。
+    return reward;
+}
+
+anet::rl::SingleStepResult LunarLanderEnv::Step(
+    int64_t action,
+    anet::rl::RunMode /*mode*/)
+{
+    anet::ProfileRange range("LunarLanderEnv::Step");
+
     step_count_++;
+    left_leg_contact_ = false;
+    right_leg_contact_ = false;
 
-    // 終了条件はステップ数のみ
-    //bool done = (step_count >= 500);
+    applyWind();
+    applyActionForce(action);
 
-    // 終了条件は下半分まで倒れたor500ステップを超えた
-    float theta_deg = theta_ * 180.0f / M_PI;
-    done_ = (x_ < -limit_x || x_ > limit_x || theta_deg < -limit_theta || theta_deg > limit_theta);
-    //wxLogDebug("done_:[%d] a=%d x:[%f %f], theta_deg:[%f %f]", done_, action, x_, limit_x, theta_deg, limit_theta);
-    //if (step_count >= limit_step) { done_ = true; }
+    const float time_step = 1.0f / 50.0f;
+    const int vel_iter = 6;
+    const int pos_iter = 2;
+    world_->Step(time_step, vel_iter, pos_iter);
 
-    // 報酬: 角度安定性 + 速度安定補正
-    //float reward = std::cos(theta) - 0.05f * std::abs(x_dot) - 0.01f * std::abs(theta_dot);
-    //if (reward < 0.0f) reward = 0.0f;  // 安定しない場合は0報酬
+    const bool crashed = checkCrash();
+    const bool landed = checkLanded();
 
-    //float reward = 0.0f;
-    //if (std::cos(theta) > 0.0f) {       // ポールが水平より上（-90° < θ < +90°）なら報酬を与える
-        //reward = std::cos(theta) - 0.4f * std::abs(x) / x_limit;
-    //}
-
-    //// θ=0（直立）で1.0、真横で0.0、下向きでは0
-    //float reward = 0.5f * (std::cos(theta) + 1.0f);  // [-1,1] → [0,1]
-    //reward *= std::exp(-0.05f * std::abs(x_dot));    // 横速度で減衰（常に正）
-
-    //float upright = std::max(0.0f, std::cos(theta));       // 立ってるほど高い
-    //float stable = 1.0f / (1.0f + std::abs(theta_dot));   // 揺れが少ないほど高い
-    //float reward = 10.0f * (0.5f + 0.5f * upright * stable);
-
-    //float reward = done ? -1.0f : 1.0f;
-    //float reward = done ? 0.0f : 1.0f;
-
-
-    float reward = reward_scale * (1.0f
-        - 0.01f * (std::abs(theta_deg) / 90.0f)   // 姿勢
-        - 0.002f * (std::abs(x_) / limit_x));      // 位置
-
-    // 終了条件ごとに分岐
-    if (theta_deg < -limit_theta || theta_deg > limit_theta || x_ < -limit_x || x_ > limit_x) {
-        // 倒立失敗
-        reward = -done_reward;   // ← ペナルティ
-    } else if (step_count_ >= config_.limit_step) {
-        // 時間切れ成功
-        reward = done_reward;
-        truncated_ = true;
+    bool done = crashed || landed;
+    bool truncated = false;
+    if (step_count_ >= config_.limit_step && !done) {
+        truncated = true;
+        done = true;
     }
 
-    anet::rl::SingleStepResult result {
+    auto state = makeState();
+    state.done = done;
+    state.truncated = truncated;
+
+    const float reward = calcReward(
+        state,
+        done,
+        crashed,
+        landed);
+
+    anet::rl::SingleStepResult result{
         reward,
-        {
-            torch::tensor({ x_, x_dot_, theta_, theta_dot_ }, obs_opt_), // obs (4)
-            done_,
-            truncated_,
-            episode_start_
-        },
+        state
     };
     return result;
 }
 
-LunarLanderEnvFactory::LunarLanderEnvFactory()
+std::optional<float> LunarLanderEnv::GetScalar(const std::string& key, int index) const
 {
-    ;
+    ANET_ASSERT(index == -1 || index == 0);
+
+    if (key == "wind_x") {
+        return last_wind_x_;
+    }
+
+    return std::nullopt;
 }
 
-std::unique_ptr<anet::rl::SingleDiscreteEnv> LunarLanderEnvFactory::CreateSingleEnv(
+std::optional<torch::Tensor> LunarLanderEnv::GetTensor(const std::string& key, int index) const
+{
+    ANET_ASSERT(index == -1 || index == 0);
+
+    if (key == "pad") {
+        // pad_info_: {x1, x2, y}
+        torch::Tensor t = torch::tensor({ pad_info_.x1, pad_info_.x2, pad_info_.y });
+        return t;
+    }
+
+    if (key == "world_bounds") {
+        float min_x = -config_.world_half_width;
+        float max_x = config_.world_half_width;
+        float min_y = config_.ground_y;
+        float max_y = config_.world_height;
+        torch::Tensor t = torch::tensor({ min_x, max_x, min_y, max_y });
+        return t;
+    }
+
+    return std::nullopt;
+}
+
+std::optional<std::vector<torch::Tensor>>
+LunarLanderEnv::GetTensorVector(const std::string& key, int index) const
+{
+    ANET_ASSERT(index == -1 || index == 0);
+
+    if (key == "terrain") {
+        std::vector<torch::Tensor> out;
+        out.reserve(terrain_points_.size());
+
+        for (const auto& p : terrain_points_) {
+            // 各点を (x, y) Tensor として格納
+            torch::Tensor pt = torch::tensor({ p.x, p.y });
+            out.push_back(pt);
+        }
+        return out;
+    }
+
+    return std::nullopt;
+}
+
+// ===== Factory =====
+
+std::unique_ptr<anet::rl::SingleDiscreteEnv>
+LunarLanderEnvFactory::CreateSingleEnv(
     const anet::ConfigData& config_data,
-    const torch::Device& device, std::optional<anet::seed_t> seed)
+    const torch::Device& device,
+    std::optional<anet::seed_t> seed)
 {
     LunarLanderEnvConfig config(config_data);
     return std::make_unique<LunarLanderEnv>(config, device, seed);
 }
 
 ANET_REGISTER_ENV_FACTORY(LunarLanderEnvFactory);
-

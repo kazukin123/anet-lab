@@ -20,6 +20,10 @@ namespace anet::rl {
 
         EnvSpec GetSpec() const override;
         BatchEnvSpec GetBatchSpec() const override;
+    public:
+        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
     protected:
         anet::rl::BatchState createEmptyState() const;
         anet::rl::BatchStepResult createEmptyStepResult() const;

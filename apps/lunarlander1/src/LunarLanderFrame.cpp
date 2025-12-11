@@ -35,13 +35,13 @@ LunarLanderFrame::LunarLanderFrame(const wxString& title, int timer_ms)
         wxDefaultPosition, wxSize(800, 150),
         wxTE_MULTILINE | wxTE_READONLY);
 
-    canvas->SetMinSize(wxSize(-1, 280));  // ← 上部の描画エリア固定高さ
-    canvas->SetMaxSize(wxSize(-1, 280));  // （上下方向のリサイズ禁止）
+    plotPanel->SetMinSize(wxSize(-1, 280));  // ← 上部の描画エリア固定高さ
+    plotPanel->SetMaxSize(wxSize(-1, 280));  // （上下方向のリサイズ禁止）
 
     logBox->SetMinSize(wxSize(-1, 150));  // ← 下部ログ固定高さ
     logBox->SetMaxSize(wxSize(-1, 150));
 
-    vbox->Add(canvas, 0, wxEXPAND | wxALL, 5);
+    vbox->Add(canvas, 1, wxEXPAND | wxALL, 5);
     vbox->Add(plotPanel, 1, wxEXPAND | wxALL, 5);
     vbox->Add(logBox, 0, wxEXPAND | wxALL, 5);
     SetSizer(vbox);
@@ -88,7 +88,7 @@ void LunarLanderFrame::OnTimer(wxTimerEvent& event)
     // スナップショットから画面描画
     auto snapshot = wxGetApp().GetUISnapshot();
     if (snapshot.has_value()) {
-        this->canvas->SetUIData(*snapshot);
+        this->canvas->SetUISnapshot(*snapshot);
     }
 
     // 画面表示更新

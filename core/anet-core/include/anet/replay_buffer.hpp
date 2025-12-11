@@ -32,9 +32,9 @@ namespace anet::rl {
         ExperienceSample Sample(int64_t b, torch::Device device) const;
         size_t Size() const { return size_; }
 
-        std::optional<float> GetScalar(const std::string& key) const override;
-        std::optional<torch::Tensor> GetTensor(const std::string& key) const override;
-        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const override;
+        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
     public:
         static constexpr const char* STATE_OBS = "replaybuffer.state";
         static constexpr const char* ACTION_ACTION = "replaybuffer.action";

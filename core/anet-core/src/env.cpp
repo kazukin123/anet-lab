@@ -90,6 +90,27 @@ anet::rl::BatchStepResult DiscreteBatchEnvBase::createEmptyStepResult() const
     return result;
 };
 
+std::optional<float> DiscreteBatchEnvBase::GetScalar(const std::string& key, int index) const
+{
+    ANET_ASSERT(index >= 0 && index < envs_.size());
+    return envs_[index]->GetScalar(key, -1);
+    /// @todo vec対応
+}
+
+std::optional<torch::Tensor> DiscreteBatchEnvBase::GetTensor(const std::string& key, int index) const
+{
+    ANET_ASSERT(index >= 0 && index < envs_.size());
+    return envs_[index]->GetTensor(key, -1);
+    /// @todo vec対応
+}
+
+std::optional<std::vector<torch::Tensor>> DiscreteBatchEnvBase::GetTensorVector(const std::string& key, int index) const
+{
+    ANET_ASSERT(index >= 0 && index < envs_.size());
+    return envs_[index]->GetTensorVector(key, -1);
+    /// @todo vec対応
+}
+
 // ---- VectorizedDiscreteBatchEnv
 
 VectorizedDiscreteBatchEnv::VectorizedDiscreteBatchEnv(

@@ -27,7 +27,7 @@ struct DefaultTrainer::Config : public anet::Config
     }
 };
 
-std::optional<float> DefaultTrainer::GetScalar(const std::string& key) const
+std::optional<float> DefaultTrainer::GetScalar(const std::string& key, int index) const
 {
     if (key == TRAIN_REWARD) return last_train_reward_;
     if (key == TRAIN_REWARD_EMA) return train_reward_ema_.Value();

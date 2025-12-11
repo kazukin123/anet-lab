@@ -128,9 +128,10 @@ namespace anet::rl {
             const StepCounts& step, const anet::rl::BatchExperience& exprience, const anet::rl::Trainer& trainer) override;
 
         anet::TensorFunction GetTensorFunction(const std::string& key) const override;
-        std::optional<float> GetScalar(const std::string& key) const override;
-        std::optional<torch::Tensor> GetTensor(const std::string& key) const override;
-        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const override;
+
+        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
     private:
         int state_count_;
         int n_actions_;

@@ -4,7 +4,7 @@ LunarLanderApp.$ = LunarLanderApp.online
 
 #train.seed = 3077901837422269870
 #train.seed = 10471613835926818675
-train.seed = 14209897399466557630
+#train.seed = 14209897399466557630
 
 train.batch_size = 10
 #train.batch_size = 1
@@ -80,8 +80,8 @@ metrics.scalar.full.[90_perf/90_elapse_hour] = elapse_hour @train $trainer inter
 
 # ---- trunk
 agent_trunk.nn_init_mode=1          # ★ 0=default、1=XavierUniform、2=HeNormal
-agent_trunk.alpha=5e-4              # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-#agent_trunk.alpha=1e-4             # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+#agent_trunk.alpha=5e-4              # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_trunk.alpha=1e-3             # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
 agent_trunk.gamma=0.99              # ★ 0.99f; 0.995f      γが高いほど「長期安定」を目指す
 agent_trunk.eps_max=1.00            # 指数減衰  
 agent_trunk.eps_min=0.05            # 0.1f 0.05f
@@ -98,8 +98,8 @@ agent_trunk.use_double_dqn=true     # Double DQN 有効化フラグ（trueで有
 agent_trunk.use_replay_buffer=true  #
 agent_trunk.replay_capacity=10000   # ★
 agent_trunk.replay_batch_size=128
-agent_trunk.replay_warmup_steps=1000    #
-agent_trunk.replay_update_interval=10   # 
+agent_trunk.replay_warmup_steps=1000   #
+agent_trunk.replay_update_interval=5   # 
 agent_trunk.q_z_threshold = 2.6           # 2.0 1.5-2.0 3.0 z-score 崩壊判定閾値
 agent_trunk.q_cv_threshold = 0.35         # 0.45 0.3 0.25-0.35 0.5 CV 崩壊判定閾値
 agent_trunk.q_niqr_threshold = 0.8        # 0.65 0.5 0.4-0.5 0.6 NIQR 崩壊判定閾値
@@ -185,7 +185,7 @@ env.device_index = -1  # GPU index -1=current device
 
 LunarLanderApp.online.train_pause_step = 500000 #500K
 LunarLanderApp.online.train_exit_step = -1
-LunarLanderApp.online.timer_ms = 10
+LunarLanderApp.online.timer_ms = 1
 
 LunarLanderApp.batchrun.train_pause_step = -1
 LunarLanderApp.batchrun.train_exit_step = 500000 #500K

@@ -180,19 +180,70 @@ void LunarLanderApp::InitTrainer()
             auto train_step = event.counts.train_step;
 
             // Trainスナップショット取得
-            if (event.counts.train_step % 10 == 0) {
+            if (train_step % 1 == 0) {
                 // 平均報酬をPlotデータ追加
                 auto train_reward_ema = event.trainer.GetScalar(anet::rl::Trainer::TRAIN_REWARD_EMA);
                 ANET_ASSERT(train_reward_ema.has_value());
                 frame_->AddPlotData(*train_reward_ema);
 
+                auto exps = event.batch_exp.ToExperienceList();
+                ANET_ASSERT(exps.size() > 0);
+
+                const int env_index = 0;
+
+                auto exp = exps[env_index];
+
                 // Train状況のSnapshotを更新
-                UISnapshot snapshot {
-                    event.counts,
-                    event.batch_exp,
-                    //*train_reward_ema,
-                    //event.agent
-                };
+                UISnapshot snapshot { train_step, exps[0] };
+
+                // ---- wind_x ----
+                {
+                    auto w = event.env->GetScalar("wind_x", env_index);
+                    snapshot.wind_x = w.has_value() ? *w : 0.0f;  // fallback
+                }
+
+                // ---- pad ----
+                {
+                    auto t = event.env->GetTensor("pad", env_index);
+                    if (t.has_value()) {
+                        const auto& pad_tensor = *t;
+                        ANET_ASSERT(pad_tensor.size(0) == 3);
+                        snapshot.pad.x1 = pad_tensor[0].item<float>();
+                        snapshot.pad.x2 = pad_tensor[1].item<float>();
+                        snapshot.pad.y = pad_tensor[2].item<float>();
+                    }
+                }
+
+                // ---- world bounds ----
+                {
+                    auto t = event.env->GetTensor("world_bounds", env_index);
+                    if (t.has_value()) {
+                        const auto& b = *t;
+                        ANET_ASSERT(b.size(0) == 4);
+                        snapshot.world_min_x = b[0].item<float>();
+                        snapshot.world_max_x = b[1].item<float>();
+                        snapshot.world_min_y = b[2].item<float>();
+                        snapshot.world_max_y = b[3].item<float>();
+                    }
+                }
+
+                // ---- terrain polyline ----
+                //if (exp.state.episode_start) {    /// @todo episode_start判定
+                {
+                    auto tv = event.env->GetTensorVector("terrain", env_index);
+                    if (tv.has_value()) {
+                        TerrainPolyline poly;
+                        for (auto& pt : *tv) {
+                            ANET_ASSERT(pt.size(0) == 2);
+                            TerrainPoint p{
+                                pt[0].item<float>(),
+                                pt[1].item<float>()
+                            };
+                            poly.points.push_back(p);
+                        }
+                        snapshot.terrain = poly;
+                    }
+                }
                 snapshot_store_.Update(snapshot);
             }
 

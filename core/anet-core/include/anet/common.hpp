@@ -69,17 +69,17 @@ namespace anet {
 
     class DataExporter {
     public:
-        virtual std::optional<float> GetScalar(const std::string& key) const = 0;
-        virtual std::optional<torch::Tensor> GetTensor(const std::string& key) const = 0;
-        virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const = 0;
+        virtual std::optional<float> GetScalar(const std::string& key, int index = -1) const = 0;
+        virtual std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const = 0;
+        virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const = 0;
         virtual ~DataExporter() = default;
     };
 
     class DataExporterBase {
     public:
-        virtual std::optional<float> GetScalar(const std::string& key) const { return std::nullopt; }
-        virtual std::optional<torch::Tensor> GetTensor(const std::string& key) const { return std::nullopt; }
-        virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key) const { return std::nullopt; }
+        virtual std::optional<float> GetScalar(const std::string& key, int index = -1) const { return std::nullopt; }
+        virtual std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const { return std::nullopt; }
+        virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const { return std::nullopt; }
         virtual ~DataExporterBase() = default;
     };
 
