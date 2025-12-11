@@ -14,36 +14,38 @@
 #include "UISnapshot.hpp"
 #include "LunarLanderApp.hpp"
 
-wxBEGIN_EVENT_TABLE(LunarLanderFrame, wxFrame)
-EVT_TIMER(wxID_ANY, LunarLanderFrame::OnTimer)
-EVT_LEFT_DOWN(LunarLanderFrame::OnMouseClick)
-wxEND_EVENT_TABLE()
-
 namespace LOG = anet::log;
 
 
-LunarLanderFrame::LunarLanderFrame(const wxString& title, int timer_ms)
+LunarLanderFrame::LunarLanderFrame(const wxString& title, int train_timer_ms, int eval_timer_ms, int eval_step_per_frame)
     : wxFrame(nullptr, wxID_ANY, title, wxDefaultPosition, wxSize(800, 800))
-    , timer_ms_(timer_ms), timer(this, wxID_ANY)
+    , train_timer_(this, wxID_ANY), eval_timer_(this, wxID_ANY), eval_step_per_frame_(eval_step_per_frame)
 {
     // GUIレイアウト ---
     wxBoxSizer* vbox = new wxBoxSizer(wxVERTICAL);
+    wxBoxSizer* hbox = new wxBoxSizer(wxHORIZONTAL);
 
-    canvas = new LunarLanderCanvas(this);
-    plotPanel = new PlotPanel(this);
-    logBox = new wxTextCtrl(this, wxID_ANY, wxEmptyString,
+    train_canvas_ = new LunarLanderCanvas(this);
+    eval_canvas_ = new LunarLanderCanvas(this);
+    plot_panel_ = new PlotPanel(this);
+    log_box_ = new wxTextCtrl(this, wxID_ANY, wxEmptyString,
         wxDefaultPosition, wxSize(800, 150),
         wxTE_MULTILINE | wxTE_READONLY);
 
-    plotPanel->SetMinSize(wxSize(-1, 280));  // ← 上部の描画エリア固定高さ
-    plotPanel->SetMaxSize(wxSize(-1, 280));  // （上下方向のリサイズ禁止）
 
-    logBox->SetMinSize(wxSize(-1, 150));  // ← 下部ログ固定高さ
-    logBox->SetMaxSize(wxSize(-1, 150));
+    plot_panel_->SetMinSize(wxSize(-1, 280));  // ← 上部の描画エリア固定高さ
+    plot_panel_->SetMaxSize(wxSize(-1, 280));  // （上下方向のリサイズ禁止）
 
-    vbox->Add(canvas, 1, wxEXPAND | wxALL, 5);
-    vbox->Add(plotPanel, 1, wxEXPAND | wxALL, 5);
-    vbox->Add(logBox, 0, wxEXPAND | wxALL, 5);
+    log_box_->SetMinSize(wxSize(-1, 150));  // ← 下部ログ固定高さ
+    log_box_->SetMaxSize(wxSize(-1, 150));
+
+    hbox->Add(train_canvas_, 1, wxEXPAND | wxALL, 2);
+    hbox->Add(eval_canvas_, 1, wxEXPAND | wxALL, 2);
+
+    vbox->Add(hbox, 1, wxEXPAND | wxALL, 2);
+    vbox->Add(plot_panel_, 1, wxEXPAND | wxALL, 2);
+    vbox->Add(log_box_, 0, wxEXPAND | wxALL, 2);
+
     SetSizer(vbox);
     Layout();
 
@@ -56,21 +58,22 @@ LunarLanderFrame::LunarLanderFrame(const wxString& title, int timer_ms)
     wxLog::SetActiveTarget(this);
     LOG::info() << "LunarLanderRLGUI started.";
 
-    //// Train開始！
-    //wxGetApp().StartTraining();
 
     // Train終了イベント
     Bind(wxEVT_TRAINER_EXIT, [this](wxCommandEvent&) {
         LOG::info() << "Stop training requested. Exiting.";
-        //wxGetApp().StopTraining();
-        //wxGetApp().Exit();                // UI スレッドで呼ぶ
         Close(true);    // Frameを閉じる
         });
-    //Bind(wxEVT_CLOSE_WINDOW, &LunarLanderFrame::OnClose, this);
+
+    // クリックイベント
+    Bind(wxEVT_LEFT_DOWN, &LunarLanderFrame::OnMouseLeftClick, this);
+    Bind(wxEVT_RIGHT_DOWN, &LunarLanderFrame::OnMouseRightClick, this);
 
     // タイマー開始
-    Bind(wxEVT_TIMER, &LunarLanderFrame::OnTimer, this);
-    timer.Start(timer_ms_);  // 学習＆描画更新
+    Bind(wxEVT_TIMER, &LunarLanderFrame::OnTrainTimer, this, train_timer_.GetId());
+    Bind(wxEVT_TIMER, &LunarLanderFrame::OnEvalTimer, this, eval_timer_.GetId());
+    train_timer_.Start(train_timer_ms);  // 学習＆描画更新
+    eval_timer_.Start(eval_timer_ms);  // 学習＆描画更新
 }
 
 LunarLanderFrame::~LunarLanderFrame()
@@ -78,38 +81,81 @@ LunarLanderFrame::~LunarLanderFrame()
     wxLog::SetActiveTarget(NULL);
 }
 
-void LunarLanderFrame::OnTimer(wxTimerEvent& event)
+void LunarLanderFrame::SetEvalRunner(std::shared_ptr<anet::rl::EvalRunner> eval_runner)
 {
-    anet::ProfileRange r("LunarLanderFrame::OnTimer");
+    eval_runner_ = eval_runner;
+
+    // 評価Canvas向けObserver準備
+    eval_runner_->GetNotifier()->Attach<anet::rl::FunctionTrainObserver>(
+        [this](const anet::rl::TrainEvent& event)
+        {
+            // Trainスナップショット取得
+            auto snapshot = LunarLanderApp::CreateSnapshot(event);
+            eval_canvas_->SetUISnapshot(snapshot);
+
+        }, "LunarLanderEvalApp");
+}
+
+void LunarLanderFrame::OnTrainTimer(wxTimerEvent& event)
+{
+    anet::ProfileRange r("LunarLanderFrame::OnTrainTimer");
 
     // 再入防止
-    timer.Stop();
+    train_timer_.Stop();
 
     // スナップショットから画面描画
     auto snapshot = wxGetApp().GetUISnapshot();
     if (snapshot.has_value()) {
-        this->canvas->SetUISnapshot(*snapshot);
+        this->train_canvas_->SetUISnapshot(*snapshot);
     }
 
     // 画面表示更新
-    Refresh();
+    train_canvas_->Refresh();
 
     // タイマー再開
-    this->timer.Start();
+    train_timer_.Start();
+}
+
+void LunarLanderFrame::OnEvalTimer(wxTimerEvent& event)
+{
+    if (is_eval_pause_) return;
+
+    // 再入防止
+    eval_timer_.Stop();
+
+    // 評価エピソードを1ステップ回す（Observer経由でeval_canvas更新)
+    if (eval_step_per_frame_ > 0) {
+        anet::ProfileRange r("LunarLanderFrame::OnEvalTimer.DoUpdateFrame");
+        eval_runner_->DoUpdateFrame(eval_step_per_frame_);
+    }
+
+    // 画面表示更新
+    eval_canvas_->Refresh();
+
+    // タイマー再開
+    eval_timer_.Start();
 }
 
 void LunarLanderFrame::DoLogText(const wxString& msg)
 {
-    this->logBox->AppendText(msg);
-    this->logBox->AppendText("\n");
+    this->log_box_->AppendText(msg);
+    this->log_box_->AppendText("\n");
 }
 
 void LunarLanderFrame::AddPlotData(float value)
 {
-    plotPanel->AddData(value);
+    plot_panel_->AddData(value);
+    plot_panel_->Refresh();
 }
 
-void LunarLanderFrame::OnMouseClick(wxMouseEvent& event)
+void LunarLanderFrame::OnMouseLeftClick(wxMouseEvent& event)
 {
     wxGetApp().ToggleTraining();
+}
+
+void LunarLanderFrame::OnMouseRightClick(wxMouseEvent& event)
+{
+    is_eval_pause_ = !is_eval_pause_;
+    LOG::info() << "Eval " << (is_eval_pause_ ? "paused." : " resumed.");
+    event.Skip();
 }

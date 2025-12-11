@@ -34,8 +34,8 @@ private:
     struct Config;
     std::unique_ptr<Config> config_;
     UISnapshotStore snapshot_store_;
-    std::shared_ptr<anet::rl::Trainer> trainer_;
-    std::unique_ptr<anet::rl::AsyncTrainerRunner> trainer_thread_;
+    std::shared_ptr<anet::rl::Runner> trainer_;
+    std::unique_ptr<anet::rl::RunnerThread> trainer_thread_;
     bool auto_pause_done_ = false;
 private:
     CartPoleFrame* frame_;

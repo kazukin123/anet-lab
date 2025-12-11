@@ -304,6 +304,7 @@ anet::rl::SingleState LunarLanderEnv::Reset(anet::rl::RunMode mode)
 
     step_count_ = 0;
     last_wind_x_ = 0.0f;
+    body_contact_ = false;
     left_leg_contact_ = false;
     right_leg_contact_ = false;
     has_prev_shaping_ = false;
@@ -391,7 +392,7 @@ bool LunarLanderEnv::checkCrash() const
 
     // Gym互換：本体が地面に触れたらクラッシュ
     if (body_contact_) {
-        ANET_LOG_DEBUG("crashed: body_contact. x=" << lander_body_->GetPosition().x);
+        ANET_LOG_DEBUG("crashed: body_contact. y=" << lander_body_->GetPosition().y);
         return true;
     }
 
@@ -539,6 +540,8 @@ anet::rl::SingleStepResult LunarLanderEnv::Step(
     anet::ProfileRange range("LunarLanderEnv::Step");
 
     step_count_++;
+    
+    body_contact_ = false;
     left_leg_contact_ = false;
     right_leg_contact_ = false;
 

@@ -10,18 +10,26 @@
 
 wxBEGIN_EVENT_TABLE(LunarLanderCanvas, wxPanel)
 EVT_PAINT(LunarLanderCanvas::OnPaint)
-EVT_LEFT_DOWN(LunarLanderCanvas::OnMouseClick)
+EVT_LEFT_DOWN(LunarLanderCanvas::OnMouseLeftClick)
+EVT_RIGHT_DOWN(LunarLanderCanvas::OnMouseRightClick)
 wxEND_EVENT_TABLE()
 
 LunarLanderCanvas::LunarLanderCanvas(wxWindow* parent)
-    : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxSize(800, 400))
+    : wxPanel(parent, wxID_ANY, wxDefaultPosition)//, wxSize(400, 400))
 {
     SetBackgroundStyle(wxBG_STYLE_PAINT);
 }
 
-void LunarLanderCanvas::OnMouseClick(wxMouseEvent& event)
+void LunarLanderCanvas::OnMouseLeftClick(wxMouseEvent& event)
 {
-    wxGetApp().ToggleTraining();
+    wxMouseEvent evt = event;
+    GetParent()->GetEventHandler()->ProcessEvent(evt);
+}
+
+void LunarLanderCanvas::OnMouseRightClick(wxMouseEvent& event)
+{
+    wxMouseEvent evt = event;
+    GetParent()->GetEventHandler()->ProcessEvent(evt);
 }
 
 void LunarLanderCanvas::SetUISnapshot(const UISnapshot& snapshot)

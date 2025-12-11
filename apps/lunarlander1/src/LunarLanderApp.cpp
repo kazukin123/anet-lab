@@ -22,14 +22,18 @@ struct LunarLanderApp::Config : public anet::Config
     int train_pause_step = -1;
     int train_exit_step = -1; //110000;
     bool enable_image_log = true;
-    int timer_ms = 10;
+    int train_timer_ms = 10;
+    int eval_timer_ms = 10;
+    int eval_step_per_frame = 1;
 
     LunarLanderApp::Config(const anet::ConfigData& config_data) : anet::Config(config_data, "LunarLanderApp")
     {
         ANET_READ_CONFIG(config_data, train_pause_step);
         ANET_READ_CONFIG(config_data, train_exit_step);
         ANET_READ_CONFIG(config_data, enable_image_log);
-        ANET_READ_CONFIG(config_data, timer_ms);
+        ANET_READ_CONFIG(config_data, train_timer_ms);
+        ANET_READ_CONFIG(config_data, eval_timer_ms);
+        ANET_READ_CONFIG(config_data, eval_step_per_frame);
     }
 };
 
@@ -95,20 +99,24 @@ bool LunarLanderApp::OnInit()
     // LunarLanderAppConfig
     config_ = std::make_unique<LunarLanderApp::Config>(config_data);
 
+    // LunarLanderFrame
+    frame_ = new LunarLanderFrame("LunarLander RL", config_->train_timer_ms, config_->eval_timer_ms, config_->eval_step_per_frame);
+    frame_->Show(true);
+
     // MetricsLogger
     anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetLogsPath());
 
-    // LunarLanderFrame
-    frame_ = new LunarLanderFrame("LunarLander RL", config_->timer_ms);
-    frame_->Show(true);
-
-    // Trainer
+    // Trainer生成
     trainer_ = std::make_unique<anet::rl::DefaultTrainer>(config_data);
     auto status = trainer_->Initialize(config_data);
-    if (status != anet::rl::TrainerStatus::RUNNING) {
+    if (status != anet::rl::RunnerStatus::RUNNING) {
         LOG::error() << "Failed to initialize trainer.";
         return true;
     }
+
+    // 評価Runner生成（描画用）
+    auto eval_runner = trainer_->CreateEvalRunner();
+    frame_->SetEvalRunner(std::move(eval_runner));
 
     // Trainer初期化
     InitTrainer();
@@ -116,7 +124,7 @@ bool LunarLanderApp::OnInit()
     InitImageLogObservers();
 
     // Trainerスレッド生成
-    trainer_thread_ = std::make_unique<anet::rl::AsyncTrainerRunner>(
+    trainer_thread_ = std::make_unique<anet::rl::RunnerThread>(
         trainer_,
         [this](const anet::rl::StepCounts& counts)   // pre_train_step_function
         {
@@ -171,6 +179,70 @@ int LunarLanderApp::OnExit()
     return 0;
 }
 
+UISnapshot LunarLanderApp::CreateSnapshot(anet::rl::TrainEvent event)
+{
+    auto train_step = event.counts.train_step;
+    auto exps = event.batch_exp.ToExperienceList();
+    ANET_ASSERT(exps.size() > 0);
+
+    const int env_index = 0;
+    auto exp = exps[env_index];
+
+    // Train状況のSnapshotを更新
+    UISnapshot snapshot{ train_step, exps[0] };
+
+    // ---- wind_x ----
+    {
+        auto w = event.env->GetScalar("wind_x", env_index);
+        snapshot.wind_x = w.has_value() ? *w : 0.0f;  // fallback
+    }
+
+    // ---- pad ----
+    {
+        auto t = event.env->GetTensor("pad", env_index);
+        if (t.has_value()) {
+            const auto& pad_tensor = *t;
+            ANET_ASSERT(pad_tensor.size(0) == 3);
+            snapshot.pad.x1 = pad_tensor[0].item<float>();
+            snapshot.pad.x2 = pad_tensor[1].item<float>();
+            snapshot.pad.y = pad_tensor[2].item<float>();
+        }
+    }
+
+    // ---- world bounds ----
+    {
+        auto t = event.env->GetTensor("world_bounds", env_index);
+        if (t.has_value()) {
+            const auto& b = *t;
+            ANET_ASSERT(b.size(0) == 4);
+            snapshot.world_min_x = b[0].item<float>();
+            snapshot.world_max_x = b[1].item<float>();
+            snapshot.world_min_y = b[2].item<float>();
+            snapshot.world_max_y = b[3].item<float>();
+        }
+    }
+
+    // ---- terrain polyline ----
+    //if (exp.state.episode_start) {    /// @todo episode_start判定
+    {
+        auto tv = event.env->GetTensorVector("terrain", env_index);
+        if (tv.has_value()) {
+            TerrainPolyline poly;
+            for (auto& pt : *tv) {
+                ANET_ASSERT(pt.size(0) == 2);
+                TerrainPoint p{
+                    pt[0].item<float>(),
+                    pt[1].item<float>()
+                };
+                poly.points.push_back(p);
+            }
+            snapshot.terrain = poly;
+        }
+    }
+    
+    return snapshot;
+}
+
 void LunarLanderApp::InitTrainer()
 {
     // TrainObserver
@@ -182,74 +254,18 @@ void LunarLanderApp::InitTrainer()
             // Trainスナップショット取得
             if (train_step % 1 == 0) {
                 // 平均報酬をPlotデータ追加
-                auto train_reward_ema = event.trainer.GetScalar(anet::rl::Trainer::TRAIN_REWARD_EMA);
+                auto train_reward_ema = event.runner.GetScalar(anet::rl::Runner::TRAIN_REWARD_EMA);
                 ANET_ASSERT(train_reward_ema.has_value());
                 frame_->AddPlotData(*train_reward_ema);
 
-                auto exps = event.batch_exp.ToExperienceList();
-                ANET_ASSERT(exps.size() > 0);
+                auto snapshot = CreateSnapshot(event);
 
-                const int env_index = 0;
-
-                auto exp = exps[env_index];
-
-                // Train状況のSnapshotを更新
-                UISnapshot snapshot { train_step, exps[0] };
-
-                // ---- wind_x ----
-                {
-                    auto w = event.env->GetScalar("wind_x", env_index);
-                    snapshot.wind_x = w.has_value() ? *w : 0.0f;  // fallback
-                }
-
-                // ---- pad ----
-                {
-                    auto t = event.env->GetTensor("pad", env_index);
-                    if (t.has_value()) {
-                        const auto& pad_tensor = *t;
-                        ANET_ASSERT(pad_tensor.size(0) == 3);
-                        snapshot.pad.x1 = pad_tensor[0].item<float>();
-                        snapshot.pad.x2 = pad_tensor[1].item<float>();
-                        snapshot.pad.y = pad_tensor[2].item<float>();
-                    }
-                }
-
-                // ---- world bounds ----
-                {
-                    auto t = event.env->GetTensor("world_bounds", env_index);
-                    if (t.has_value()) {
-                        const auto& b = *t;
-                        ANET_ASSERT(b.size(0) == 4);
-                        snapshot.world_min_x = b[0].item<float>();
-                        snapshot.world_max_x = b[1].item<float>();
-                        snapshot.world_min_y = b[2].item<float>();
-                        snapshot.world_max_y = b[3].item<float>();
-                    }
-                }
-
-                // ---- terrain polyline ----
-                //if (exp.state.episode_start) {    /// @todo episode_start判定
-                {
-                    auto tv = event.env->GetTensorVector("terrain", env_index);
-                    if (tv.has_value()) {
-                        TerrainPolyline poly;
-                        for (auto& pt : *tv) {
-                            ANET_ASSERT(pt.size(0) == 2);
-                            TerrainPoint p{
-                                pt[0].item<float>(),
-                                pt[1].item<float>()
-                            };
-                            poly.points.push_back(p);
-                        }
-                        snapshot.terrain = poly;
-                    }
-                }
                 snapshot_store_.Update(snapshot);
             }
 
             // Trainログ
             if (event.counts.train_step % 100 == 0) {
-                auto train_reward_ema = event.trainer.GetScalar(anet::rl::Trainer::TRAIN_REWARD_EMA);
+                auto train_reward_ema = event.runner.GetScalar(anet::rl::Runner::TRAIN_REWARD_EMA);
                 ANET_ASSERT(train_reward_ema.has_value());
                 LOG::info() << "train_step=" << train_step << " train_mean_reward=" << *train_reward_ema;
             }

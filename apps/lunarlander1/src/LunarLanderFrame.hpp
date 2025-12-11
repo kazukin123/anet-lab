@@ -13,28 +13,31 @@
 /// メインウィンドウ（Frame）
 class LunarLanderFrame : public wxFrame, wxLog {
 public:
-    LunarLanderFrame(const wxString& title, int timer_ms);
+    LunarLanderFrame(const wxString& title, int train_timer_ms, int eval_timer_ms, int eval_step_per_frame);
     ~LunarLanderFrame();
 
     void AddPlotData(float reward);
-    virtual void DoLogText(const wxString& msg);
+    void DoLogText(const wxString& msg) override;
+    void SetEvalRunner(std::shared_ptr<anet::rl::EvalRunner> eval_runner);
 private:
     // イベントハンドラ
-    void OnTimer(wxTimerEvent& event);
-    void OnMouseClick(wxMouseEvent& event);
-
-    wxDECLARE_EVENT_TABLE();
+    void OnTrainTimer(wxTimerEvent& event);
+    void OnEvalTimer(wxTimerEvent& event);
+    void OnMouseLeftClick(wxMouseEvent& event);
+    void OnMouseRightClick(wxMouseEvent& event);
 private:
-    // GUI部品
-    LunarLanderCanvas* canvas = nullptr;
-    PlotPanel* plotPanel = nullptr;
-    wxTextCtrl* logBox = nullptr;
+    LunarLanderCanvas* train_canvas_ = nullptr;
+    LunarLanderCanvas* eval_canvas_ = nullptr;
+    PlotPanel* plot_panel_ = nullptr;
+    wxTextCtrl* log_box_ = nullptr;
 
-    // タイマー
-    wxTimer timer;
-    bool training_paused = false;
-    bool auto_pause_done_ = false;
+    wxTimer train_timer_;
+    wxTimer eval_timer_;
+
+    bool is_eval_pause_ = false;
+
+    int eval_step_per_frame_ = 1;
 private:
-    int timer_ms_;
+    std::shared_ptr<anet::rl::EvalRunner> eval_runner_;
 };
 

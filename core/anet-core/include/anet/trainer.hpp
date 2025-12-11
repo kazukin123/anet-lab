@@ -4,50 +4,78 @@
 #include <memory>
 #include <chrono>
 #include "anet/util.hpp"
+#include "anet/env.hpp"
 #include "anet/rl.hpp"
 
 namespace anet::rl {
 
-    class DefaultTrainer : public Trainer {
+    class RunnerBase : public Runner {
     public:
-        DefaultTrainer(const ConfigData& config_data);
-
-        TrainerStatus Initialize(const ConfigData& config_data);
-        StepCounts DoStep();
+        RunnerBase();
+        virtual StepCounts DoStep() = 0;
         StepCounts DoUpdateFrame(int max_steps,
-            ControlFunction pre_step_func = noop, ControlFunction post_step_func = noop);
+            ControlFunction pre_step_func = noop, ControlFunction post_step_func = noop) override;
 
-        virtual ~DefaultTrainer() = default;
+        virtual ~RunnerBase() = default;
     public:
         std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override { return std::nullopt; }
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override { return std::nullopt; }
     public:
-        TrainerStatus GetStatus() const override { return status_; }
+        RunnerStatus GetStatus() const override { return status_; }
         StepCounts GetCounts() const override { return step_counts_; }
         std::shared_ptr<anet::rl::BatchEnv> GetBatchEnv()const override { return env_; }
         std::shared_ptr<anet::rl::Agent> GetAgent() const override { return agent_; }
         std::shared_ptr<anet::rl::Notifier> GetNotifier() const override { return notifier_; }
-    private:
+    protected:
         // 内部状態
-        TrainerStatus status_ = TrainerStatus::NOT_INITIALIZED;
+        RunnerStatus status_ = RunnerStatus::NOT_INITIALIZED;
         bool env_initialized_ = false;
-
-        // パラメータ
-        struct Config;
-        std::unique_ptr<Config> config_;
-
-        // 乱数
-        std::unique_ptr<anet::MasterSeedManager> master_seed_;
 
         // 強化学習関連
         anet::rl::StepCounts step_counts_;
         std::shared_ptr<anet::rl::BatchEnv> env_;
         std::shared_ptr<anet::rl::Agent> agent_;
         anet::rl::BatchState state_;
-
-        // メトリクス
         std::shared_ptr<anet::rl::Notifier> notifier_;
+    };
+
+
+    class EvalRunner : public RunnerBase {
+    public:
+        EvalRunner(std::shared_ptr<BatchEnv> env, std::shared_ptr<const Agent> agent, RunMode runmode = RunMode::Eval);
+
+        RunnerStatus Initialize(const ConfigData& config_data);
+        StepCounts DoStep() override;
+
+        ~EvalRunner() = default;
+    private:
+        std::shared_ptr<anet::rl::BatchEnv> env_;
+        std::shared_ptr<const anet::rl::Agent> agent_;
+        RunMode runmode_;
+    };
+
+
+    class DefaultTrainer : public RunnerBase {
+    public:
+        DefaultTrainer(const ConfigData& config_data, const std::string& config_prefix = "train");
+
+        RunnerStatus Initialize(const ConfigData& config_data);
+        StepCounts DoStep() override;
+        std::shared_ptr<EvalRunner> CreateEvalRunner(RunMode runmode = RunMode::Eval) const;
+        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
+
+        virtual ~DefaultTrainer() = default;
+    private:
+        // パラメータ
+        struct Config;
+        std::unique_ptr<Config> config_;
+
+        // 乱数
+        std::unique_ptr<anet::rl::DefaultBatchEnvFactory> env_factory_;
+        std::unique_ptr<anet::MasterSeedManager> master_seed_;
+    private:
+        // メトリクス
         std::chrono::high_resolution_clock::time_point start_time_;
         std::chrono::high_resolution_clock::time_point last_time_;
         anet::rl::step_t last_exp_step_ = 0;
@@ -59,12 +87,12 @@ namespace anet::rl {
         float last_exp_step_per_sec_ = std::numeric_limits<float>::quiet_NaN();
     };
 
-    class AsyncTrainerRunner {
+    class RunnerThread {
     public:
-        explicit AsyncTrainerRunner(std::shared_ptr<anet::rl::Trainer> trainer,
-            anet::rl::Trainer::ControlFunction pre_func = anet::rl::Trainer::noop,
-            anet::rl::Trainer::ControlFunction post_func = anet::rl::Trainer::noop);
-        ~AsyncTrainerRunner();
+        explicit RunnerThread(std::shared_ptr<anet::rl::Runner> runner,
+            anet::rl::Runner::ControlFunction pre_func = anet::rl::Runner::noop,
+            anet::rl::Runner::ControlFunction post_func = anet::rl::Runner::noop);
+        ~RunnerThread();
 
         void Start();
 
@@ -81,10 +109,10 @@ namespace anet::rl {
     private:
         std::atomic<bool> running_{ false }; ///< thread実行中フラグ
         std::atomic<bool> paused_{ false }; ///< thread実行中フラグ
-        std::shared_ptr<anet::rl::Trainer> trainer_;
+        std::shared_ptr<anet::rl::Runner> runner_;
         std::thread worker_;
-        anet::rl::Trainer::ControlFunction pre_func_;
-        anet::rl::Trainer::ControlFunction post_func_;
+        anet::rl::Runner::ControlFunction pre_func_;
+        anet::rl::Runner::ControlFunction post_func_;
     };
 
 } // namespace anet::rl

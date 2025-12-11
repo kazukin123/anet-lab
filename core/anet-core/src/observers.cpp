@@ -464,8 +464,8 @@ std::optional<float> MetricsLogObserverBase::GetScalar(const UpdateEvent& event,
     case anet::rl::EventField::BATCH_UPDATE_RESULT:
         target = event.update_result.get();
         break;
-    case anet::rl::EventField::TRAINER:
-        target = &event.trainer;
+    case anet::rl::EventField::RUNNER:
+        target = &event.runner;
         break;
     }
 
@@ -486,7 +486,7 @@ void MetricsLogObserverBase::OnUpdate(const UpdateEvent& event)
         value = GetScalar(event, anet::rl::EventField::BATCH_UPDATE_RESULT);
         if (!value.has_value()) value = GetScalar(event, anet::rl::EventField::AGENT);
         if (!value.has_value()) value = GetScalar(event, anet::rl::EventField::BATCH_EXPERIENCE);
-        if (!value.has_value()) value = GetScalar(event, anet::rl::EventField::TRAINER);
+        if (!value.has_value()) value = GetScalar(event, anet::rl::EventField::RUNNER);
     }
 
 	// EMA更新
@@ -567,8 +567,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                     field_opt = EventField::BATCH_EXPERIENCE;
                 } else if (v == "$batch_update_result" || v == "$update_result" || v == "$result") {
                     field_opt = EventField::BATCH_UPDATE_RESULT;
-                } else if (v == "$trainer") {
-                    field_opt = EventField::TRAINER;
+                } else if (v == "$runner") {
+                    field_opt = EventField::RUNNER;
                 } else if (v == "$ema") {
                     is_ema = true;
                 } else {
@@ -611,8 +611,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                                 field_opt = EventField::BATCH_EXPERIENCE;
                             else if (attr_val == "batch_update_result" || attr_val == "update_result" || attr_val == "result")
                                 field_opt = EventField::BATCH_UPDATE_RESULT;
-                            else if (attr_val == "trainer")
-                                field_opt = EventField::TRAINER;
+                            else if (attr_val == "runner")
+                                field_opt = EventField::RUNNER;
                             else {
                                 LOG::warn() << "Unknown target value. config_key=" << config_key
                                     << " config_value=" << config_value << " attr_val = " << attr_val;

@@ -18,7 +18,8 @@ public:
 
 protected:
     void OnPaint(wxPaintEvent& event);
-    void OnMouseClick(wxMouseEvent& event);
+    void OnMouseLeftClick(wxMouseEvent& event);
+    void OnMouseRightClick(wxMouseEvent& event);
 
 private:
     // world座標→画面座標変換

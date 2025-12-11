@@ -105,7 +105,7 @@ bool CartPoleApp::OnInit()
     // Trainer
     trainer_ = std::make_unique<anet::rl::DefaultTrainer>(config_data);
     auto status = trainer_->Initialize(config_data);
-    if (status != anet::rl::TrainerStatus::RUNNING) {
+    if (status != anet::rl::RunnerStatus::RUNNING) {
         LOG::error() << "Failed to initialize trainer.";
         return true;
     }
@@ -116,7 +116,7 @@ bool CartPoleApp::OnInit()
     InitImageLogObservers();
 
     // Trainerスレッド生成
-    trainer_thread_ = std::make_unique<anet::rl::AsyncTrainerRunner>(
+    trainer_thread_ = std::make_unique<anet::rl::RunnerThread>(
         trainer_,
         [this](const anet::rl::StepCounts& counts)   // pre_train_step_function
         {
@@ -182,7 +182,7 @@ void CartPoleApp::InitTrainer()
             // Trainスナップショット取得
             if (event.counts.train_step % 10 == 0) {
                 // 平均報酬をPlotデータ追加
-                auto train_reward_ema = event.trainer.GetScalar(anet::rl::Trainer::TRAIN_REWARD_EMA);
+                auto train_reward_ema = event.runner.GetScalar(anet::rl::Runner::TRAIN_REWARD_EMA);
                 ANET_ASSERT(train_reward_ema.has_value());
                 frame_->AddPlotData(*train_reward_ema);
 
@@ -198,7 +198,7 @@ void CartPoleApp::InitTrainer()
 
             // Trainログ
             if (event.counts.train_step % 100 == 0) {
-                auto train_reward_ema = event.trainer.GetScalar(anet::rl::Trainer::TRAIN_REWARD_EMA);
+                auto train_reward_ema = event.runner.GetScalar(anet::rl::Runner::TRAIN_REWARD_EMA);
                 ANET_ASSERT(train_reward_ema.has_value());
                 LOG::info() << "train_step=" << train_step << " train_mean_reward=" << *train_reward_ema;
             }

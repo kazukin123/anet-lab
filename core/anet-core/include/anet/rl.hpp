@@ -469,6 +469,8 @@ namespace anet::rl {
         virtual BatchState Reset(RunMode mode = RunMode::Train) = 0;
         virtual BatchStepResult Step(const torch::Tensor& action, RunMode mode = RunMode::Train) = 0;
 
+        //virtual std::shared_ptr<BatchEnv> Clone() const = 0;
+
         virtual ~BatchEnv() = default;
     };
 
@@ -482,7 +484,7 @@ namespace anet::rl {
     // Agent
     // =============================================================
 
-    class Trainer;
+    class Runner;
 
     class Sampler {
     public:
@@ -491,22 +493,22 @@ namespace anet::rl {
         virtual ~Sampler() = default;
     };
 
-    class Runner {
+    class ActionPolicy {
     public:
         virtual BatchActionInfo MakeAction(
             const StepCounts& counts, const anet::rl::BatchState& state, RunMode mode = RunMode::Train) const = 0;
-        virtual ~Runner() = default;
+        virtual ~ActionPolicy() = default;
     };
 
     class Learner {
     public:
         virtual std::shared_ptr<const BatchUpdateResult> UpdateFromBatch(
-            const StepCounts& step, const BatchExperience& expriences, const Trainer& trainer
+            const StepCounts& step, const BatchExperience& expriences, const Runner& trainer
         ) = 0;
         virtual ~Learner() = default;
     };
 
-    class Agent : public Runner, public Learner, public DataExporter {
+    class Agent : public ActionPolicy, public Learner, public DataExporter {
     public:
         virtual TensorFunction GetTensorFunction(const std::string& key) const = 0;
         virtual ~Agent() = default;
@@ -526,11 +528,11 @@ namespace anet::rl {
         BATCH_EXPERIENCE,
         AGENT,
 		BATCH_UPDATE_RESULT,
-        TRAINER
+        RUNNER
     };
 
     struct BeforeStepEvent {
-        const Trainer& trainer;
+        const Runner& runner;
         const StepCounts counts;
         std::shared_ptr<const Agent> agent;
         std::shared_ptr<const BatchEnv> env;
@@ -538,7 +540,7 @@ namespace anet::rl {
 
     struct UpdateEvent {
         const BatchExperience& batch_exp;
-		const Trainer& trainer;
+		const Runner& runner;
         const StepCounts counts;
         std::shared_ptr<const Agent> agent;
         std::shared_ptr<const BatchUpdateResult> update_result;
@@ -611,7 +613,7 @@ namespace anet::rl {
     // Trainer
     // =============================================================
 
-    enum class TrainerStatus {
+    enum class RunnerStatus {
         NOT_INITIALIZED, ///< 未初期化
         RUNNING,         ///< 実行中
         COMPLETED        ///< 終了済み
@@ -623,24 +625,23 @@ namespace anet::rl {
         STOP     ///< TrainerのStatusをCOMPLETEDに変更
     };
 
-    class Trainer : public DataExporter {
+    class Runner : public DataExporter {
     public:
         using ControlFunction = std::function<ControlSignal(const StepCounts& counts)>; ///< 学習ステップ制御処理(戻り値trueで処理中断)
         static ControlSignal noop(const StepCounts& counts) { return ControlSignal::CONTINUE; }
     public:
-        virtual TrainerStatus Initialize(const ConfigData& config_data) = 0;
+        virtual RunnerStatus Initialize(const ConfigData& config_data) = 0;
         virtual StepCounts DoStep() = 0;
-        virtual StepCounts DoUpdateFrame(
-            int max_steps,
+        virtual StepCounts DoUpdateFrame(int max_steps,
             ControlFunction pre_step_func = noop, ControlFunction post_step_func = noop) = 0;
-        virtual TrainerStatus GetStatus() const = 0;
+        virtual RunnerStatus GetStatus() const = 0;
     public:
         virtual StepCounts GetCounts() const = 0;
         virtual std::shared_ptr<anet::rl::BatchEnv> GetBatchEnv()const = 0;
         virtual std::shared_ptr<anet::rl::Agent> GetAgent() const = 0;
         virtual std::shared_ptr<anet::rl::Notifier> GetNotifier() const = 0;
     public:
-        virtual ~Trainer() = default;
+        virtual ~Runner() = default;
     public:
         static constexpr const char* TRAIN_REWARD = "train_reward";
         static constexpr const char* TRAIN_REWARD_EMA = "train_reward_ema";

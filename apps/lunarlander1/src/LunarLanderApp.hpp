@@ -26,6 +26,8 @@ public:
     //void StartTraining();
     void ToggleTraining();
     void StopTraining();
+public:
+    static UISnapshot CreateSnapshot(anet::rl::TrainEvent event);
 private:
     void InitTrainer();
     void InitImageLogObservers();
@@ -34,8 +36,8 @@ private:
     struct Config;
     std::unique_ptr<Config> config_;
     UISnapshotStore snapshot_store_;
-    std::shared_ptr<anet::rl::Trainer> trainer_;
-    std::unique_ptr<anet::rl::AsyncTrainerRunner> trainer_thread_;
+    std::shared_ptr<anet::rl::DefaultTrainer> trainer_;
+    std::unique_ptr<anet::rl::RunnerThread> trainer_thread_;
     bool auto_pause_done_ = false;
 private:
     LunarLanderFrame* frame_;

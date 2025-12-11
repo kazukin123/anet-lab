@@ -125,7 +125,7 @@ namespace anet::rl {
 
         BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, RunMode mode = RunMode::Train) const override;
         std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromBatch(
-            const StepCounts& step, const anet::rl::BatchExperience& exprience, const anet::rl::Trainer& trainer) override;
+            const StepCounts& step, const anet::rl::BatchExperience& exprience, const anet::rl::Runner& trainer) override;
 
         anet::TensorFunction GetTensorFunction(const std::string& key) const override;
 

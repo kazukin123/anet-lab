@@ -8,11 +8,11 @@ class PlotPanel : public wxPanel {
 public:
     PlotPanel(wxWindow* parent);
 
-    void OnMouseClick(wxMouseEvent& event);
-
     void AddData(float value);
 private:
     void OnPaint(wxPaintEvent& event);
+    void OnMouseLeftClick(wxMouseEvent& event);
+    void OnMouseRightClick(wxMouseEvent& event);
     wxDECLARE_EVENT_TABLE();
 private:
     std::vector<float> plot_data_;

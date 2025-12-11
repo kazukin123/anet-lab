@@ -6,7 +6,8 @@
 
 wxBEGIN_EVENT_TABLE(PlotPanel, wxPanel)
 EVT_PAINT(PlotPanel::OnPaint)
-EVT_LEFT_DOWN(PlotPanel::OnMouseClick)
+EVT_LEFT_DOWN(PlotPanel::OnMouseLeftClick)
+EVT_RIGHT_DOWN(PlotPanel::OnMouseRightClick)
 wxEND_EVENT_TABLE()
 
 PlotPanel::PlotPanel(wxWindow* parent)
@@ -15,9 +16,15 @@ PlotPanel::PlotPanel(wxWindow* parent)
     SetBackgroundStyle(wxBG_STYLE_PAINT);
 }
 
-void PlotPanel::OnMouseClick(wxMouseEvent& event)
+void PlotPanel::OnMouseLeftClick(wxMouseEvent& event)
 {
     //event.Skip();
+    wxMouseEvent evt = event;
+    GetParent()->GetEventHandler()->ProcessEvent(evt);
+}
+
+void PlotPanel::OnMouseRightClick(wxMouseEvent& event)
+{
     wxMouseEvent evt = event;
     GetParent()->GetEventHandler()->ProcessEvent(evt);
 }

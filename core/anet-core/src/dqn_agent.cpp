@@ -924,7 +924,7 @@ anet::rl::BatchActionInfo DQNAgent::MakeAction(
 }
 
 std::shared_ptr<const anet::rl::BatchUpdateResult>
-DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp, const anet::rl::Trainer& trainer)
+DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp, const anet::rl::Runner& runner)
 {
     ProfileRange r1("DQNAgent::UpdateFromBatch");
 
@@ -1129,7 +1129,7 @@ DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperie
 
     // LearnEvent通知
     if (notifier_ != nullptr && can_update) {
-        anet::rl::LearnEvent event{ batch_exp, trainer, counts, shared_from_this(), result };
+        anet::rl::LearnEvent event{ batch_exp, runner, counts, shared_from_this(), result };
         notifier_->Notify(event);
     }
 
