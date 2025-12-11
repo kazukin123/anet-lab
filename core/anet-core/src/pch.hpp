@@ -1,5 +1,6 @@
-#pragma once
+﻿#pragma once
 
 #include <wx/wx.h>
 #include <torch/torch.h>
 #include <torch/script.h>
+#include <nlohmann/json.hpp>

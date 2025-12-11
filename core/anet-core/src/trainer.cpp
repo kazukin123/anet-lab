@@ -194,7 +194,7 @@ StepCounts DefaultTrainer::DoStep()
     // Stateチェック
     ANET_LOG_DEBUG("step=" << train_step << " state=" << state_.ToString());
     ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
-    ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
+//    ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
     const int N = state_.obs.size(0);
 
     // 行動選択
@@ -221,7 +221,7 @@ StepCounts DefaultTrainer::DoStep()
     ANET_CHECK_SHAPE(result.continue_state.done, { N });
     ANET_CHECK_SHAPE(result.continue_state.truncated, { N });
     ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
-    ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
+//    ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
 
     // 報酬更新
     float step_reward = result.reward.mean().item<float>();

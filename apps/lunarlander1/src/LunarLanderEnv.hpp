@@ -13,18 +13,19 @@
 /// LunarLander 環境の設定
 struct LunarLanderEnvConfig : public anet::Config {
     int limit_step = 1000;
-    float world_half_width = 10.5f;
-    float world_height = 5.0f;
+    float world_half_width = 1.5f;
+    float world_height = 2.0f;
     float ground_y = 0.0f;
     float gravity_y = -10.0f;
 
-    bool enable_wind = true;
+    bool enable_wind = false;
     float wind_power = 15.0f;       ///< Gym の WIND_POWER 相当
     float turbulence_power = 1.5f;  ///< Gym の TURBULENCE_POWER 相当
 
     int terrain_point_count = 21;   ///< 地形 polyline の頂点数（少なくとも 2）
-    float terrain_noise_height = 2.0f; ///< 地形高さノイズの上限
-  
+    //float terrain_noise_height = 0.3f; ///< 地形高さノイズの上限
+    float terrain_noise_height = 0.0f; ///< 地形高さノイズの上限
+
     /// @todo terrain_point_count / terrain_noise_height の適切な値を検討する。
 
     LunarLanderEnvConfig(
@@ -114,11 +115,8 @@ private:
     void applyActionForce(int64_t action);
 
     anet::rl::SingleState makeState() const;
-    float calcReward(
-        const anet::rl::SingleState& state,
-        bool done,
-        bool crashed,
-        bool landed) const;
+    float computeShaping(const anet::rl::SingleState& state) const;
+    float calcReward(const anet::rl::SingleState& state, bool crashed, bool landed);
     bool checkCrash() const;
     bool checkLanded() const;
 
@@ -142,6 +140,9 @@ private:
 
     int step_count_ = 0;
     float last_wind_x_ = 0.0f;
+
+    float last_shaping_ = 0.0f;
+    bool has_prev_shaping_ = false;
 
     // ContactListener は脚の接地を検出するために使用
     class ContactListener : public b2ContactListener {

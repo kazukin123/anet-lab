@@ -30,20 +30,15 @@ void LunarLanderCanvas::SetUISnapshot(const UISnapshot& snapshot)
     snapshot_ = snapshot;
 
     // world bounds
-    //world_min_x_ = snapshot_.world_min_x;
-    //world_max_x_ = snapshot_.world_max_x;
-    //world_min_y_ = snapshot_.world_min_y;
-    //world_max_y_ = snapshot_.world_max_y;
+    world_min_x_ = snapshot_.world_min_x;
+    world_max_x_ = snapshot_.world_max_x;
+    world_min_y_ = snapshot_.world_min_y;
+    world_max_y_ = snapshot_.world_max_y;
 
-    world_min_x_ = -10.5f;
-    world_max_x_ = 10.5f;
-    world_min_y_ = -0.5f;
-    world_max_y_ = 10.0f;
-
-    //world_min_x_ = -1.5f;
-    //world_max_x_ = 1.5f;
+    //world_min_x_ = -10.5f;
+    //world_max_x_ = 10.5f;
     //world_min_y_ = -0.5f;
-    //world_max_y_ = 1.5f;
+    //world_max_y_ = 10.0f;
 
     // 地形キャッシュ更新
     if (snapshot_.terrain.has_value()) {
@@ -96,7 +91,7 @@ void LunarLanderCanvas::DrawTerrain(wxDC& dc, int width, int height)
         pts.push_back(WorldToScreen(p.x, p.y, width, height));
     }
 
-    dc.SetPen(wxPen(*wxLIGHT_GREY, 2));
+    dc.SetPen(wxPen(*wxBLACK, 3));
     dc.DrawLines(static_cast<int>(pts.size()), pts.data());
 }
 
@@ -125,12 +120,9 @@ void LunarLanderCanvas::DrawLander(wxDC& dc, int width, int height)
     const float y_norm = obs[1].item<float>();
     const float angle = obs[4].item<float>();
 
-    // 増幅率（調整可能）
-    const float Y_SCALE = 12.0f;
-
     // Canvas 用 world_y に変換
     const float world_x = x_norm;
-    const float world_y = y_norm * Y_SCALE;
+    const float world_y = y_norm;
 
     const wxPoint center = WorldToScreen(world_x, world_y, width, height);
 
@@ -217,7 +209,7 @@ void LunarLanderCanvas::DrawThrust(wxDC& dc,
     }
 
     // ====== flame 長さ ======
-    const float flame_len = 0.80f;
+    const float flame_len = 0.4f;
 
     float ex = nx + dir_x * flame_len;
     float ey = ny + dir_y * flame_len;
@@ -268,7 +260,7 @@ void LunarLanderCanvas::DrawWind(wxDC& dc, int width, int height)
 
     dc.SetPen(wxPen(*wxBLACK, 2));
 
-    const int base_len = 40;
+    const int base_len = 80;
     const float k = std::clamp(std::abs(wind_x) / 20.0f, 0.1f, 1.0f);
     const int len = static_cast<int>(base_len * k);
 
@@ -324,9 +316,14 @@ void LunarLanderCanvas::OnPaint(wxPaintEvent& event)
 
     // pos
     if (snapshot_.exp.state.obs.defined()) {
-        const float x_norm = snapshot_.exp.state.obs[0].item<float>();
-        const float y_norm = snapshot_.exp.state.obs[1].item<float>();
-        dc.DrawText(wxString::Format("Pos: (%f, %f)", x_norm, y_norm), 10, 70);
+        const float x = snapshot_.exp.state.obs[0].item<float>();
+        const float y = snapshot_.exp.state.obs[1].item<float>();
+        const float theta_deg = 180.0f / M_PI * snapshot_.exp.state.obs[4].item<float>();
+        const float contact_left = snapshot_.exp.state.obs[6].item<float>();
+        const float contact_right = snapshot_.exp.state.obs[7].item<float>();
+
+        dc.DrawText(wxString::Format("(X Y θ°): (%.2f %.2f %.1f)", x, y, theta_deg), 10, 70);
+        dc.DrawText(wxString::Format("Contact: (%.2f %.2f)", contact_left, contact_right), 10, 90);
     }
 
     DrawTerrain(dc, width, height);

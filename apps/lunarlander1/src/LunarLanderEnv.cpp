@@ -158,8 +158,8 @@ void LunarLanderEnv::buildGround()
     const float ground_y = config_.ground_y;
 
     // 着陸パッドは中央の一定区間とする
-    pad_info_.x1 = -half_w * 0.2f;
-    pad_info_.x2 = half_w * 0.2f;
+    pad_info_.x1 = -half_w * 0.5f;
+    pad_info_.x2 = half_w * 0.5f;
     pad_info_.y = ground_y;
 
     // === ランダム地形 polyline 生成 ===
@@ -176,7 +176,7 @@ void LunarLanderEnv::buildGround()
         const float x = min_x + dx * static_cast<float>(i);
 
         float y = ground_y;
-        if (x >= pad_info_.x1 && x <= pad_info_.x2) {
+        if (x >= pad_info_.x1 && x < pad_info_.x2) {
             // パッド区間は平坦
             y = pad_info_.y;
         }
@@ -218,7 +218,6 @@ void LunarLanderEnv::buildLander()
         body_def.angle = 0.0f;
         body_def.linearDamping = 0.5f;
         body_def.angularDamping = 0.5f;
-
         lander_body_ = world_->CreateBody(&body_def);
 
         b2CircleShape shape;
@@ -300,6 +299,8 @@ anet::rl::SingleState LunarLanderEnv::Reset(anet::rl::RunMode mode)
     last_wind_x_ = 0.0f;
     left_leg_contact_ = false;
     right_leg_contact_ = false;
+    has_prev_shaping_ = false;
+    last_shaping_ = 0.0f;
 
     // 初期状態は Train / Eval で変える
     if (anet::rl::IsTrain(mode)) {
@@ -388,7 +389,7 @@ bool LunarLanderEnv::checkCrash() const
     if (pos.x < min_x || pos.x > max_x) {
         return true;
     }
-    if (pos.y < config_.ground_y - 1.0f) {
+    if (pos.y < config_.ground_y + 0.1f) {
         return true;
     }
     return false;
@@ -463,32 +464,58 @@ anet::rl::SingleState LunarLanderEnv::makeState() const
     return s;
 }
 
-float LunarLanderEnv::calcReward(
-    const anet::rl::SingleState& state,
-    bool done,
-    bool crashed,
-    bool landed) const
+float LunarLanderEnv::computeShaping(
+    const anet::rl::SingleState& state) const
+{
+    const auto obs = state.obs;
+
+    const float x = obs[0].item<float>();   // 正規化済み x
+    const float y = obs[1].item<float>();   // 正規化済み y
+    const float vx = obs[2].item<float>();
+    const float vy = obs[3].item<float>();
+    const float angle = obs[4].item<float>();
+    const float left_contact = obs[6].item<float>();
+    const float right_contact = obs[7].item<float>();
+
+    const float dist = std::sqrt(x * x + y * y);
+    const float speed = std::sqrt(vx * vx + vy * vy);
+
+    float shaping = 0.0f;
+    shaping += -100.0f * dist;
+    shaping += -100.0f * speed;
+    shaping += -100.0f * std::abs(angle);
+    shaping += 10.0f * left_contact;
+    shaping += 10.0f * right_contact;
+
+    /// @todo Gym lunar_lander.py の shaping 係数との整合を検証する。
+    return shaping;
+}
+
+float LunarLanderEnv::calcReward(const anet::rl::SingleState& state, bool crashed, bool landed)
 {
     float reward = kStepPenality;
 
-    const auto obs = state.obs;
-    const float x = obs[0].item<float>();
-    const float y = obs[1].item<float>();
-    const float angle = obs[4].item<float>();
+    // Gym 互換の shaping を計算
+    const float shaping = computeShaping(state);
 
-    // 中心と角度に近いほど少しプラス
-    reward += -std::abs(x) * 0.5f;
-    reward += -std::abs(angle) * 0.5f;
-    reward += y * 0.1f;
+    // shaping 差分（前回 shaping が無ければ 0）
+    if (has_prev_shaping_) {
+        reward += (shaping - last_shaping_);
+    }
 
+    // 次回ステップのために更新
+    last_shaping_ = shaping;
+    has_prev_shaping_ = true;
+
+    // 終端ボーナス／ペナルティ
     if (crashed) {
         reward += kCrashPenalty;
-    }
-    else if (landed) {
+    } else if (landed) {
         reward += kLandReward;
     }
 
-    /// @todo Gym の報酬関数により近づける。
+    /// @todo Gym の燃料ペナルティ（エンジン使用量）を action から加味するか検討する。
+    /// @todo reward_range と実際の報酬スケールの整合を再確認する。
     return reward;
 }
 
@@ -524,11 +551,7 @@ anet::rl::SingleStepResult LunarLanderEnv::Step(
     state.done = done;
     state.truncated = truncated;
 
-    const float reward = calcReward(
-        state,
-        done,
-        crashed,
-        landed);
+    const float reward = calcReward(state, crashed, landed);
 
     anet::rl::SingleStepResult result{
         reward,
