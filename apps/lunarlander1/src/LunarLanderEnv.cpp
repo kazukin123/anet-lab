@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <wx/log.h>
 #include <box2d/box2d.h>
+#include "anet/log.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
 #include "anet/env.hpp"
@@ -70,6 +71,9 @@ void LunarLanderEnv::ContactListener::BeginContact(b2Contact* contact)
     b2Body* body_a = fixture_a->GetBody();
     b2Body* body_b = fixture_b->GetBody();
 
+    if (body_a == env_.lander_body_ || body_b == env_.lander_body_) {
+        env_.body_contact_ = true;
+    }
     if (body_a == env_.left_leg_body_ || body_b == env_.left_leg_body_) {
         env_.left_leg_contact_ = true;
     }
@@ -85,6 +89,9 @@ void LunarLanderEnv::ContactListener::EndContact(b2Contact* contact)
     b2Body* body_a = fixture_a->GetBody();
     b2Body* body_b = fixture_b->GetBody();
 
+    if (body_a == env_.lander_body_ || body_b == env_.lander_body_) {
+        env_.body_contact_ = false;
+    }
     if (body_a == env_.left_leg_body_ || body_b == env_.left_leg_body_) {
         env_.left_leg_contact_ = false;
     }
@@ -158,8 +165,8 @@ void LunarLanderEnv::buildGround()
     const float ground_y = config_.ground_y;
 
     // 着陸パッドは中央の一定区間とする
-    pad_info_.x1 = -half_w * 0.5f;
-    pad_info_.x2 = half_w * 0.5f;
+    pad_info_.x1 = -half_w * 0.25f;
+    pad_info_.x2 = half_w * 0.25f;
     pad_info_.y = ground_y;
 
     // === ランダム地形 polyline 生成 ===
@@ -379,19 +386,24 @@ void LunarLanderEnv::applyActionForce(int64_t action)
 
 bool LunarLanderEnv::checkCrash() const
 {
-    if (!lander_body_) {
+    if (!lander_body_)
         return true;
-    }
-    const b2Vec2 pos = lander_body_->GetPosition();
 
-    const float min_x = -config_.world_half_width;
-    const float max_x = config_.world_half_width;
-    if (pos.x < min_x || pos.x > max_x) {
+    // Gym互換：本体が地面に触れたらクラッシュ
+    if (body_contact_) {
+        ANET_LOG_DEBUG("crashed: body_contact. x=" << lander_body_->GetPosition().x);
         return true;
     }
-    if (pos.y < config_.ground_y + 0.1f) {
+
+    // 範囲外はクラッシュ扱い
+    float x = lander_body_->GetPosition().x;
+    if ((x < -config_.world_half_width) || (x > config_.world_half_width)) {
+        ANET_LOG_DEBUG("crashed x=" << x);
         return true;
     }
+
+    //ANET_LOG_DEBUG("Not crashed. x=" << x);
+
     return false;
 }
 
@@ -400,27 +412,28 @@ bool LunarLanderEnv::checkLanded() const
     if (!lander_body_) {
         return false;
     }
+    
+    // 両足が付いたら着陸
+    const bool legs_contact = left_leg_contact_ && right_leg_contact_;
+    return (legs_contact);
 
-    const b2Vec2 pos = lander_body_->GetPosition();
-    const b2Vec2 vel = lander_body_->GetLinearVelocity();
-    const float raw_angle = lander_body_->GetAngle();
-    float angle = std::fmod(raw_angle + b2_pi, 2.0f * b2_pi);
-    if (angle < 0.0f) angle += 2.0f * b2_pi;
-    angle -= b2_pi;
+    //const b2Vec2 pos = lander_body_->GetPosition();
+    //const b2Vec2 vel = lander_body_->GetLinearVelocity();
+    //const float raw_angle = lander_body_->GetAngle();
+    //float angle = std::fmod(raw_angle + b2_pi, 2.0f * b2_pi);
+    //if (angle < 0.0f) angle += 2.0f * b2_pi;
+    //angle -= b2_pi;
 
-    const bool over_pad =
-        (pos.x >= pad_info_.x1) && (pos.x <= pad_info_.x2) &&
-        (std::abs(pos.y - pad_info_.y) < 0.5f);
+    //const bool over_pad =
+    //    (pos.x >= pad_info_.x1) && (pos.x <= pad_info_.x2) &&
+    //    (std::abs(pos.y - pad_info_.y) < 0.5f);
 
-    const bool slow_enough =
-        (std::abs(vel.x) < 1.0f) &&
-        (std::abs(vel.y) < 1.0f) &&
-        (std::abs(angle) < 0.3f);
+    //const bool slow_enough =
+    //    (std::abs(vel.x) < 1.0f) &&
+    //    (std::abs(vel.y) < 1.0f) &&
+    //    (std::abs(angle) < 0.3f);
 
-    const bool legs_contact =
-        left_leg_contact_ && right_leg_contact_;
-
-    return over_pad && slow_enough && legs_contact;
+    //return over_pad && slow_enough && legs_contact;
 }
 
 anet::rl::SingleState LunarLanderEnv::makeState() const

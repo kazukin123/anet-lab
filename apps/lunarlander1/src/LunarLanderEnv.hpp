@@ -23,8 +23,7 @@ struct LunarLanderEnvConfig : public anet::Config {
     float turbulence_power = 1.5f;  ///< Gym の TURBULENCE_POWER 相当
 
     int terrain_point_count = 21;   ///< 地形 polyline の頂点数（少なくとも 2）
-    //float terrain_noise_height = 0.3f; ///< 地形高さノイズの上限
-    float terrain_noise_height = 0.0f; ///< 地形高さノイズの上限
+    float terrain_noise_height = 0.3f; ///< 地形高さノイズの上限
 
     /// @todo terrain_point_count / terrain_noise_height の適切な値を検討する。
 
@@ -135,6 +134,7 @@ private:
     std::vector<b2Vec2> terrain_points_;
     PadInfo pad_info_;
 
+    bool body_contact_ = false;
     bool left_leg_contact_ = false;
     bool right_leg_contact_ = false;
 

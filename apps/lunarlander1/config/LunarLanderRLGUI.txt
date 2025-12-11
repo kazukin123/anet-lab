@@ -181,8 +181,6 @@ env.worker_threads = -1	# -1=auto
 env.device_type = 0    # 0=cpu 1=cuda
 env.device_index = -1  # GPU index -1=current device
 
-#LunarLanderEnv.limit_step = 200
-
 LunarLanderApp.online.train_pause_step = 500000 #500K
 LunarLanderApp.online.train_exit_step = -1
 LunarLanderApp.online.timer_ms = 1
@@ -190,6 +188,24 @@ LunarLanderApp.online.timer_ms = 1
 LunarLanderApp.batchrun.train_pause_step = -1
 LunarLanderApp.batchrun.train_exit_step = 500000 #500K
 LunarLanderApp.batchrun.timer_ms = 5
+
+LunarLanderEnv.$ = LunarLanderEnv.easy
+
+LunarLanderEnv.easy.enable_wind = false
+LunarLanderEnv.easy.terrain_point_count = 2
+LunarLanderEnv.easy.terrain_noise_height = 0.0
+
+LunarLanderEnv.normal.enable_wind = true
+LunarLanderEnv.normal.wind_power = 15.0
+LunarLanderEnv.normal.terrain_point_count = 21
+LunarLanderEnv.normal.terrain_noise_height = 0.3
+
+LunarLanderEnv.limit_step = 1000;
+LunarLanderEnv.world_half_width = 1.5
+LunarLanderEnv.world_height = 2.0
+LunarLanderEnv.ground_y = 0.0
+LunarLanderEnv.gravity_y = -10.0
+LunarLanderEnv.normal.wind_power = 15.0
 
 train.eval_interval = 10
 
