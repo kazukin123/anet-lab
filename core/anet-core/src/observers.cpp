@@ -2,7 +2,7 @@
 #include <wx/log.h>
 #include "anet/profile.hpp"
 #include "anet/str_util.hpp"
-#include "anet/tensor_utils.hpp"
+#include "anet/tensor_util.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/log.hpp"
 #include "anet/env.hpp"

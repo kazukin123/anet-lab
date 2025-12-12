@@ -2,7 +2,7 @@
 #include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
 #include "anet/observers.hpp"
-#include "anet/tensor_utils.hpp"
+#include "anet/tensor_util.hpp"
 #include "anet/log.hpp"
 #include "anet/env.hpp"
 #include "anet/agent.hpp"
@@ -16,6 +16,12 @@ namespace LOG = anet::log;
 // =========================
 
 RunnerBase::RunnerBase()
+{
+    // Notifier生成
+    notifier_ = std::make_shared<anet::rl::Notifier>();
+}
+
+RunnerBase::RunnerBase(std::shared_ptr<BatchEnv> env) : env_(env)
 {
     // Notifier生成
     notifier_ = std::make_shared<anet::rl::Notifier>();
@@ -79,7 +85,7 @@ std::optional<float> RunnerBase::GetScalar(const std::string& key, int index) co
 // =========================
 
 EvalRunner::EvalRunner(std::shared_ptr<BatchEnv> env, std::shared_ptr<const Agent> agent, RunMode runmode)
-    : RunnerBase(), env_(env), agent_(agent), runmode_(runmode)
+    : RunnerBase(env), agent_(agent), runmode_(runmode)
 {
     ;
 }
@@ -88,6 +94,60 @@ RunnerStatus EvalRunner::Initialize(const ConfigData& config_data)
 {
     status_ = anet::rl::RunnerStatus::RUNNING;
     return status_;
+}
+
+StepCounts EvalRunner::DoStep(int64_t action)
+{
+    anet::ProfileRange r1("EvalRunner::DoStep");
+
+    if (!env_initialized_) {
+        // 環境初期化
+        state_ = env_->Reset(runmode_);
+        env_initialized_ = true;
+        ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
+    }
+
+    // ステップ前Observer
+    BeforeStepEvent before_step_event{ *this, step_counts_, agent_, env_ };
+    notifier_->Notify(before_step_event);
+
+    // ステップ前情報
+    auto train_step = step_counts_.train_step;
+    ANET_LOG_DEBUG("step=" << train_step << " state=" << state_.ToString());
+
+    // 行動選択
+    anet::rl::BatchActionInfo action_info = {
+        torch::tensor({ action }),
+        torch::tensor({ false })
+    };
+
+    // 環境ステップ実行
+    anet::rl::BatchStepResult result = env_->Step(action_info.action, runmode_);    // next_state, reward, done, truncated
+    ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info.ToString());
+    ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result.next_state.ToString());
+    ANET_LOG_DEBUG("step=" << train_step << " continue_state=" << result.continue_state.ToString());
+    ANET_LOG_DEBUG("step=" << train_step << " reward=" << anet::ToString(result.reward));
+    ANET_CHECK_DEVICE(result.next_state.obs, torch::kCPU);
+    ANET_CHECK_DEVICE(result.next_state.done, torch::kCPU);
+    ANET_CHECK_DEVICE(result.next_state.truncated, torch::kCPU);
+    ANET_CHECK_DEVICE(result.reward, torch::kCPU);
+    ANET_CHECK_DEVICE(result.continue_state.obs, torch::kCPU);
+    ANET_CHECK_DEVICE(result.continue_state.done, torch::kCPU);
+    ANET_CHECK_DEVICE(result.continue_state.truncated, torch::kCPU);
+
+    // カウント更新
+    step_counts_.train_step++;
+    step_counts_.exp_step += result.n_transitions;
+    step_counts_.episode_count += result.n_done;
+
+    anet::rl::BatchExperience exp({ state_, action_info, result.reward, result.next_state });
+
+    // 更新後処理
+    anet::rl::TrainEvent update_event{ exp, *this, step_counts_, agent_, nullptr, env_, result };
+    notifier_->Notify(update_event);
+    state_ = result.continue_state;
+
+    return step_counts_;
 }
 
 StepCounts EvalRunner::DoStep()
@@ -107,7 +167,6 @@ StepCounts EvalRunner::DoStep()
     BeforeStepEvent before_step_event{ *this, step_counts_, agent_, env_ };
     notifier_->Notify(before_step_event);
 
-
     // ステップ前情報
     auto train_step = step_counts_.train_step;
 
@@ -117,7 +176,7 @@ StepCounts EvalRunner::DoStep()
     //ANET_CHECK_SHAPE(action_info.action, { N });
 
     // 環境ステップ実行
-    anet::rl::BatchStepResult result = env_->Step(action_info.action);    // next_state, reward, done, truncated
+    anet::rl::BatchStepResult result = env_->Step(action_info.action, runmode_);    // next_state, reward, done, truncated
     ANET_LOG_DEBUG("step=" << train_step << " reward=" << anet::ToString(result.reward));
     ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result.next_state.ToString());
     ANET_CHECK_DEVICE(result.next_state.obs, torch::kCPU);
@@ -150,7 +209,7 @@ StepCounts EvalRunner::DoStep()
     anet::rl::BatchExperience exp({ state_, action_info, result.reward, result.next_state });
 
     // 更新後処理
-    anet::rl::TrainEvent update_event{ exp, *this, step_counts_, agent_, nullptr, env_ };
+    anet::rl::TrainEvent update_event{ exp, *this, step_counts_, agent_, nullptr, env_, result };
     notifier_->Notify(update_event);
     state_ = result.continue_state;
 
@@ -370,7 +429,7 @@ StepCounts DefaultTrainer::DoStep()
     last_exp_step_per_sec_ = exp_step_per_sec;
 
     // 更新後処理
-    anet::rl::TrainEvent update_event{ exp, *this, step_counts_, agent_, update_result, env_ };
+    anet::rl::TrainEvent update_event{ exp, *this, step_counts_, agent_, update_result, env_, result };
     notifier_->Notify(update_event);
     state_ = result.continue_state;
 
@@ -385,7 +444,7 @@ std::shared_ptr<EvalRunner> DefaultTrainer::CreateEvalRunner(RunMode runmode) co
 {
     ANET_ASSERT(status_ == anet::rl::RunnerStatus::RUNNING);
 
-    auto env = env_factory_->CreateBatchEnv();
+    auto env = env_factory_->CreateBatchEnv(1);
     auto eval_runner = std::make_shared<EvalRunner>(env, agent_, runmode);
     return eval_runner;
 }

@@ -12,6 +12,16 @@ struct TerrainPoint {
     float y;
 };
 
+struct UISegment {
+    float x0, y0;
+    float x1, y1;
+};
+
+struct Legs {
+    UISegment left_leg;       // 左脚の座標情報
+    UISegment right_leg;      // 右脚の座標情報
+};
+
 struct TerrainPolyline {
     std::vector<TerrainPoint> points;
 };
@@ -22,11 +32,17 @@ struct UISnapshot
     anet::rl::step_t step;
 
     // RL由来情報
-    anet::rl::Experience exp;
+    anet::rl::SingleState state;
+    std::int64_t action;
+    float reward;
+
+    /// @todo 毎回取る情報と取らない情報を分離整理
 
     // ENV非可観測情報
     std::optional<TerrainPolyline> terrain;  // episode_start時のみセット
-    LunarLanderEnv::PadInfo pad;             // episode_startでセット
+    Legs legs;                // 脚の座標情報
+    LunarLanderEnv::PadInfo pad;             // 着陸パッド情報
+
     float wind_x;                            // 毎step更新
 
     // world transform (Canvas描画座標系)
@@ -34,6 +50,8 @@ struct UISnapshot
     float world_max_x;
     float world_min_y;
     float world_max_y;
+
+    std::optional<float> total_reward;
 };
 
 class UISnapshotStore {

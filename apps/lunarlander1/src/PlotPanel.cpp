@@ -8,6 +8,7 @@ wxBEGIN_EVENT_TABLE(PlotPanel, wxPanel)
 EVT_PAINT(PlotPanel::OnPaint)
 EVT_LEFT_DOWN(PlotPanel::OnMouseLeftClick)
 EVT_RIGHT_DOWN(PlotPanel::OnMouseRightClick)
+EVT_KEY_DOWN(PlotPanel::OnKeyDonw)
 wxEND_EVENT_TABLE()
 
 PlotPanel::PlotPanel(wxWindow* parent)
@@ -28,6 +29,16 @@ void PlotPanel::OnMouseRightClick(wxMouseEvent& event)
     wxMouseEvent evt = event;
     GetParent()->GetEventHandler()->ProcessEvent(evt);
 }
+
+void PlotPanel::OnKeyDonw(wxKeyEvent& event)
+{
+    wxLogInfo("PlotPanel::OnKeyDown() KeyDown: key=%d", event.GetKeyCode());
+
+    //event.Skip();
+    wxKeyEvent evt = event;
+    GetParent()->GetEventHandler()->ProcessEvent(evt);
+}
+
 
 void PlotPanel::AddData(float value)
 {

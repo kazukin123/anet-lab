@@ -10,6 +10,10 @@
 #include "anet/config.hpp"
 #include "anet/rl.hpp"
 
+
+/// Lander本体（円形）の半径
+constexpr float kLanderRadius = 0.25f;
+
 /// LunarLander 環境の設定
 struct LunarLanderEnvConfig : public anet::Config {
     int limit_step = 1000;

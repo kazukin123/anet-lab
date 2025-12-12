@@ -48,7 +48,7 @@ add_library(anet-core STATIC
     "src/dqn_agent.cpp"
     "src/config.cpp"
     "src/tensor_check.cpp"
-    "src/tensor_utils.cpp"
+    "src/tensor_util.cpp"
     "src/random.cpp"
     "src/replay_buffer.cpp"
     "src/observers.cpp"

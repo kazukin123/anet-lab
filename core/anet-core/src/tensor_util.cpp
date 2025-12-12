@@ -1,6 +1,6 @@
 ﻿
 
-#include "anet/tensor_utils.hpp"
+#include "anet/tensor_util.hpp"
 #include <functional>
 #include <iostream>
 

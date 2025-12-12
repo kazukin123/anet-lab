@@ -1,6 +1,6 @@
 ﻿#include "anet/agent.hpp"
 #include "anet/config.hpp"
-#include "anet/tensor_utils.hpp"
+#include "anet/tensor_util.hpp"
 
 using namespace anet::rl;
 

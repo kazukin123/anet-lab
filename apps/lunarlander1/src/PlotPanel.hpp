@@ -13,6 +13,8 @@ private:
     void OnPaint(wxPaintEvent& event);
     void OnMouseLeftClick(wxMouseEvent& event);
     void OnMouseRightClick(wxMouseEvent& event);
+    void OnKeyDonw(wxKeyEvent& event);
+
     wxDECLARE_EVENT_TABLE();
 private:
     std::vector<float> plot_data_;

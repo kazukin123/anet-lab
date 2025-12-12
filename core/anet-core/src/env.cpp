@@ -9,7 +9,7 @@
 #include <thread>
 #include "anet/profile.hpp"
 #include "anet/thread.hpp"
-#include "anet/tensor_utils.hpp"
+#include "anet/tensor_util.hpp"
 
 using namespace anet::rl;
 
@@ -252,6 +252,7 @@ BatchStepResult ThreadPoolDiscreteEnv::Step(const torch::Tensor& actions, RunMod
     ProfileRange r("ThreadPoolDiscreteEnv::Step");
 
     const int N = batch_size_;
+    ANET_LOG_DEBUG("action=" << anet::ToString(actions));
     ANET_CHECK_DTYPE_MSG(actions, torch::kInt64,
         "ThreadPoolDiscreteEnv supports discrete action only. actions should be kInt64.");
     ANET_CHECK_SHAPE(actions, { N });
@@ -376,20 +377,22 @@ std::shared_ptr<anet::ThreadPool> DefaultBatchEnvFactory::CreatePool(int worker_
     return std::make_shared<PinnedThreadPool>(worker_threads);
 }
 
-std::shared_ptr<BatchEnv> DefaultBatchEnvFactory::CreateBatchEnv()
+std::shared_ptr<BatchEnv> DefaultBatchEnvFactory::CreateBatchEnv(int batch_size_in)
 {
     auto factory = GetSingleFactory();
     if (factory == nullptr)
         return nullptr;
     auto env_class_id = factory->GetTargetEnvClassId();
 
+    int batch_size = batch_size_in < 0 ? batch_size_ : batch_size_in;
+
     // batch_size == 1 は VectorizedDiscreteBatchEnv の方が有利
-    if (batch_size_ == 1) {
+    if (batch_size == 1) {
         return std::make_shared<VectorizedDiscreteBatchEnv>(
             config_data_, factory, 1, device_, seed_);
     }
 
-    int workers = ResolveWorkerThreads(batch_size_);
+    int workers = ResolveWorkerThreads(batch_size);
 
     // workers == 0 の理論的ケース防止
     if (workers <= 0) workers = 1;
@@ -399,7 +402,7 @@ std::shared_ptr<BatchEnv> DefaultBatchEnvFactory::CreateBatchEnv()
 
     // ThreadPoolDiscreteEnv の生成
     return std::make_shared<ThreadPoolDiscreteEnv>(
-        config_data_, factory, batch_size_, device_, pool, seed_);
+        config_data_, factory, batch_size, device_, pool, seed_);
 }
 
 std::shared_ptr<SingleDiscreteEnvFactory> DefaultBatchEnvFactory::GetSingleFactory() const

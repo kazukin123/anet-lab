@@ -131,7 +131,7 @@ namespace anet::rl {
             std::optional<seed_t> seed = std::nullopt,
             std::optional<const torch::Device> device = std::nullopt);
 
-        std::shared_ptr<BatchEnv> CreateBatchEnv() override;
+        std::shared_ptr<BatchEnv> CreateBatchEnv(int batch_size = -1) override;
         std::shared_ptr<SingleDiscreteEnvFactory> GetSingleFactory() const;
         torch::Device GetDevice() const { return device_; }
     public:

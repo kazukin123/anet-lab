@@ -12,6 +12,8 @@
 #include "anet/tensor_check.hpp"
 #include "anet/random.hpp"
 #include "anet/config.hpp"
+#include "anet/log.hpp"
+#include "anet/tensor_util.hpp"
 
 namespace anet::rl {
 
@@ -276,6 +278,7 @@ namespace anet::rl {
     struct SingleStepResult {
         float reward;              ///< 報酬         
         SingleState next_state;    ///< 遷移後の観測  (state_dim...)
+        std::unordered_map<std::string, torch::Tensor> aux; ///< 任意の追加情報（UI描画用の非可観測情報を含む）
 
         std::string ToString() const;
     };
@@ -338,20 +341,20 @@ namespace anet::rl {
                 truncated.to(device), episode_start.to(device)
             };
         }
-        bool IsDone() const {   // 1環境専用
+        bool IsDone() const {
             ANET_CHECK_SHAPE(done, { ANET_SHAPE_ANY });
-            ANET_ASSERT(done.size(0) == 1);
-            return done.item<bool>();
+            ANET_ASSERT(done.size(0) >= 1);
+            return done[0].item<bool>();
         }
-        bool IsTruncated() const {  // 1環境専用
+        bool IsTruncated() const {
             ANET_CHECK_SHAPE(done, { ANET_SHAPE_ANY });
-            ANET_ASSERT(done.size(0) == 1);
-            return truncated.item<bool>();
+            ANET_ASSERT(done.size(0) >= 1);
+            return truncated[0].item<bool>();
         }
-        bool IsEpisodeStart() const {   // 1環境専用
+        bool IsEpisodeStart() const {
             ANET_CHECK_SHAPE(episode_start, { ANET_SHAPE_ANY });
-            ANET_ASSERT(episode_start.size(0) == 1);
-            return episode_start.item<bool>();
+            ANET_ASSERT(episode_start.size(0) >= 1);
+            return episode_start[0].item<bool>();
         }
         std::string ToString() const;
     };
@@ -379,9 +382,10 @@ namespace anet::rl {
         BatchState continue_state;  ///< 実行継続用（Reset 後の状態も含む）
         uint32_t n_transitions;     ///< 今回のStepにおける状態遷移カウント数
         uint32_t n_done;            ///< 今回のStepにおけるエピソード終了カウント数
+        std::vector<std::unordered_map<std::string, torch::Tensor>> auxs; ///< 任意の追加情報（UI描画用の非可観測情報を含む）
 
         BatchStepResult to(torch::Device device) const {
-            return { reward.to(device), next_state.to(device), continue_state.to(device), n_transitions, n_done };
+            return { reward.to(device), next_state.to(device), continue_state.to(device), n_transitions, n_done, auxs };
         }
         std::string ToString() const;
     };
@@ -476,7 +480,7 @@ namespace anet::rl {
 
     class BatchEnvFactory {
     public:
-        virtual std::shared_ptr<BatchEnv> CreateBatchEnv() = 0;
+        virtual std::shared_ptr<BatchEnv> CreateBatchEnv(int batch_size = -1) = 0;	///< batch_size=-1でbatch_size自動
         virtual ~BatchEnvFactory() = default;
     };
 
@@ -548,6 +552,7 @@ namespace anet::rl {
 
     struct TrainEvent : public UpdateEvent {
         std::shared_ptr<const BatchEnv> env;
+        BatchStepResult batch_step_result;
     };
 
     struct LearnEvent : public UpdateEvent {

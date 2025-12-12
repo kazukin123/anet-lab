@@ -2,17 +2,15 @@
 LunarLanderApp.$ = LunarLanderApp.online
 #LunarLanderApp.$ = LunarLanderApp.batchrun
 
-#train.seed = 3077901837422269870
-#train.seed = 10471613835926818675
-#train.seed = 14209897399466557630
+#train.seed = 8652243831821134381
 
 train.batch_size = 10
 #train.batch_size = 1
 
 LunarLanderApp.enable_image_log = false      # default=true
 
-#metrics.scalar.$ = metrics.scalar.min
-metrics.scalar.$ = metrics.scalar.full
+metrics.scalar.$ = metrics.scalar.min
+#metrics.scalar.$ = metrics.scalar.full
 
 DQNAgent.$ = agent_trunk
 #DQNAgent.$ = agent_20251127-032759
@@ -184,7 +182,7 @@ env.device_index = -1  # GPU index -1=current device
 LunarLanderApp.online.train_pause_step = 500000 #500K
 LunarLanderApp.online.train_exit_step = -1
 LunarLanderApp.online.train_timer_ms = 10
-LunarLanderApp.online.eval_timer_ms = 2
+LunarLanderApp.online.eval_timer_ms = 10
 LunarLanderApp.online.eval_step_per_frame = 1;
 
 LunarLanderApp.batchrun.train_pause_step = -1
@@ -193,24 +191,25 @@ LunarLanderApp.batchrun.train_timer_ms = 50
 LunarLanderApp.batchrun.eval_timer_ms = 50
 LunarLanderApp.batchrun.eval_step_per_frame = 10;
 
-LunarLanderEnv.$ = LunarLanderEnv.normal
-#LunarLanderEnv.$ = LunarLanderEnv.easy
+#LunarLanderEnv.$ = LunarLanderEnv.normal
+LunarLanderEnv.$ = LunarLanderEnv.easy
 
 LunarLanderEnv.easy.enable_wind = false
 LunarLanderEnv.easy.terrain_point_count = 2
 LunarLanderEnv.easy.terrain_noise_height = 0.0
+LunarLanderEnv.easy.ground_y = 0.0
 
 LunarLanderEnv.normal.enable_wind = true
 LunarLanderEnv.normal.wind_power = 15.0
-LunarLanderEnv.normal.terrain_point_count = 21
-LunarLanderEnv.normal.terrain_noise_height = 0.3
+LunarLanderEnv.normal.terrain_point_count = 10 #21
+LunarLanderEnv.normal.terrain_noise_height = 0.2
 
 LunarLanderEnv.limit_step = 1000;
 LunarLanderEnv.world_half_width = 1.5
-LunarLanderEnv.world_height = 2.0
-LunarLanderEnv.ground_y = 0.0
+LunarLanderEnv.world_height = 2.0 #2.0
+LunarLanderEnv.ground_y = 0.5
 LunarLanderEnv.gravity_y = -10.0
-LunarLanderEnv.normal.wind_power = 15.0
+LunarLanderEnv.wind_power = 15.0
 
 train.eval_interval = 10
 

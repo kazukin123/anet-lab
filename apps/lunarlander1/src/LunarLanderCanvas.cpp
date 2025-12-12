@@ -14,6 +14,7 @@ EVT_LEFT_DOWN(LunarLanderCanvas::OnMouseLeftClick)
 EVT_RIGHT_DOWN(LunarLanderCanvas::OnMouseRightClick)
 wxEND_EVENT_TABLE()
 
+
 LunarLanderCanvas::LunarLanderCanvas(wxWindow* parent)
     : wxPanel(parent, wxID_ANY, wxDefaultPosition)//, wxSize(400, 400))
 {
@@ -41,12 +42,7 @@ void LunarLanderCanvas::SetUISnapshot(const UISnapshot& snapshot)
     world_min_x_ = snapshot_.world_min_x;
     world_max_x_ = snapshot_.world_max_x;
     world_min_y_ = snapshot_.world_min_y;
-    world_max_y_ = snapshot_.world_max_y;
-
-    //world_min_x_ = -10.5f;
-    //world_max_x_ = 10.5f;
-    //world_min_y_ = -0.5f;
-    //world_max_y_ = 10.0f;
+    world_max_y_ = std::max(snapshot_.world_max_y, snapshot.state.obs[1].item<float>());  // yの値でスケーリング
 
     // 地形キャッシュ更新
     if (snapshot_.terrain.has_value()) {
@@ -58,10 +54,14 @@ void LunarLanderCanvas::SetUISnapshot(const UISnapshot& snapshot)
         has_terrain_ = !terrain_points_.empty();
     }
 
+    // 脚の情報
+    legs = snapshot.legs;
+
     Refresh(false);
 }
 
-wxPoint LunarLanderCanvas::WorldToScreen(float wx,
+wxPoint LunarLanderCanvas::WorldToScreen(
+    float wx,
     float wy,
     int width,
     int height) const
@@ -73,14 +73,30 @@ wxPoint LunarLanderCanvas::WorldToScreen(float wx,
 
     const float sx = static_cast<float>(width - 2 * margin) / world_w;
     const float sy = static_cast<float>(height - 2 * margin) / world_h;
-    const float scale = std::min(sx, sy);
+    const float scale = std::max(sx, sy);
 
-    // 正しい座標変換
     const float canvas_x = margin + (wx - world_min_x_) * scale;
     const float canvas_y = height - (margin + (wy - world_min_y_) * scale);
+    //const float canvas_x = margin + (wx - world_min_x_) * sx;
+    //const float canvas_y = height - (margin + (wy - world_min_y_) * sy);
 
-    return wxPoint(static_cast<int>(canvas_x),
+    return wxPoint(
+        static_cast<int>(canvas_x),
         static_cast<int>(canvas_y));
+}
+
+int LunarLanderCanvas::WorldToScreen(float size, int width, int height) const
+{
+    const int margin = 40;
+    const float world_w = std::max(0.1f, world_max_x_ - world_min_x_);
+    const float world_h = std::max(0.1f, world_max_y_ - world_min_y_);
+
+    const float sx = static_cast<float>(width - 2 * margin) / world_w;
+    const float sy = static_cast<float>(height - 2 * margin) / world_h;
+    const float scale = std::min(sx, sy);
+
+    int canvas_size = std::round(size * scale);
+    return canvas_size;
 }
 
 void LunarLanderCanvas::DrawTerrain(wxDC& dc, int width, int height)
@@ -109,53 +125,69 @@ void LunarLanderCanvas::DrawPad(wxDC& dc, int width, int height)
 
     const wxPoint p1 = WorldToScreen(pad.x1, pad.y, width, height);
     const wxPoint p2 = WorldToScreen(pad.x2, pad.y, width, height);
-
     dc.SetPen(wxPen(*wxGREEN, 3));
     dc.DrawLine(p1, p2);
+
+    const wxPoint p3 = WorldToScreen(world_min_x_, 1.0, width, height);
+    const wxPoint p4 = WorldToScreen(world_max_x_, 1.0, width, height);
+    dc.SetPen(wxPen(*wxLIGHT_GREY, 1));
+    dc.DrawLine(p3, p4);
 }
 
 void LunarLanderCanvas::DrawLander(wxDC& dc, int width, int height)
 {
-    const auto& exp = snapshot_.exp;
+    const auto& state = snapshot_.state;
 
-    if (!exp.state.obs.defined()) {
+    if (!state.obs.defined()) {
         return;
     }
 
     // obs = [x, y, vx, vy, angle, angular_vel, left_contact, right_contact]
-    const auto obs = exp.state.obs;
+    const auto obs = state.obs;
     const float x_norm = obs[0].item<float>();
     const float y_norm = obs[1].item<float>();
-    const float angle = obs[4].item<float>();
+    const float obs_angle = obs[4].item<float>();
+    const float draw_angle = obs_angle + M_PI / 2.0f;   // obsは右基準なので、上基準の角度にするために90°回転
 
     // Canvas 用 world_y に変換
     const float world_x = x_norm;
     const float world_y = y_norm;
 
+    // ランダー本体の座標とサイズを算出
     const wxPoint center = WorldToScreen(world_x, world_y, width, height);
+    int base_radius = WorldToScreen(0.5f * kLanderRadius, width, height);
 
     // ランダー本体を円で描画
-    const int base_radius = 30;
-    dc.SetBrush(*wxBLUE_BRUSH);
+    dc.SetBrush(*wxCYAN_BRUSH);
     dc.SetPen(wxPen(*wxBLACK, 1));
     dc.DrawCircle(center, base_radius);
 
+    // 脚を描画
+    if (legs.has_value()) {
+        // 左脚
+        dc.SetPen(wxPen(*wxRED, 1));
+        dc.DrawLine(
+            WorldToScreen(legs->left_leg.x0, legs->left_leg.y0, width, height),
+            WorldToScreen(legs->left_leg.x1, legs->left_leg.y1, width, height));
+        // 右脚
+        dc.SetPen(wxPen(*wxGREEN, 1));
+        dc.DrawLine(
+            WorldToScreen(legs->right_leg.x0, legs->right_leg.y0, width, height),
+            WorldToScreen(legs->right_leg.x1, legs->right_leg.y1, width, height));
+    }
+
     // 機体の向きを線で示す
     const float dir_len = static_cast<float>(base_radius) * 1.5f;
-    const float dx = std::sin(angle) * dir_len;
-    const float dy = std::cos(angle) * dir_len;
+    const float draw_x = std::cos(draw_angle) * dir_len;
+    const float draw_y = std::sin(draw_angle) * dir_len;
 
     dc.SetPen(wxPen(*wxBLACK, 3));
-    const wxPoint nose(center.x + static_cast<int>(dx),
-        center.y - static_cast<int>(dy));
+    const wxPoint nose(center.x + static_cast<int>(draw_x),center.y - static_cast<int>(draw_y));
     dc.DrawLine(center, nose);
 
     // thrust 描画
-    int64_t action = 0;
-    if (exp.action.defined()) {
-        action = exp.action.item<int64_t>();
-    }
-    DrawThrust(dc, width, height, world_x, world_y, angle, action);
+    int64_t action = snapshot_.action;
+    DrawThrust(dc, width, height, world_x, world_y, obs_angle, action);
 }
 
 void LunarLanderCanvas::DrawThrust(wxDC& dc,
@@ -198,7 +230,7 @@ void LunarLanderCanvas::DrawThrust(wxDC& dc,
     float dir_x = -std::sin(angle);
     float dir_y = -std::cos(angle);
 
-    const float side_angle = 0.45f;
+    const float side_angle = 1.57f; // 90deg
 
     // side engines
     if (action == 2) {
@@ -207,8 +239,7 @@ void LunarLanderCanvas::DrawThrust(wxDC& dc,
         float dx = dir_x * ca2 - dir_y * sa2;
         float dy = dir_x * sa2 + dir_y * ca2;
         dir_x = dx; dir_y = dy;
-    }
-    else if (action == 3) {
+    } else if (action == 3) {
         float ca2 = std::cos(+side_angle);
         float sa2 = std::sin(+side_angle);
         float dx = dir_x * ca2 - dir_y * sa2;
@@ -257,14 +288,12 @@ void LunarLanderCanvas::DrawWind(wxDC& dc, int width, int height)
 {
     const float wind_x = snapshot_.wind_x;
 
-    const int margin = 10;
+    const int margin = 15;
     const int y = height - margin - 10;
     const int center_x = width - 120;
 
     dc.SetTextForeground(*wxBLACK);
-    dc.DrawText(wxString::Format("Wind: %.2f", wind_x),
-        center_x - 40,
-        y - 20);
+    dc.DrawText(wxString::Format("Wind: %.2f", wind_x), center_x - 40, y);
 
     dc.SetPen(wxPen(*wxBLACK, 2));
 
@@ -314,24 +343,27 @@ void LunarLanderCanvas::OnPaint(wxPaintEvent& event)
         10);
 
     // Reward
-    dc.DrawText(wxString::Format("Reward: %.2f", snapshot_.exp.reward), 10, 30);
+    dc.DrawText(wxString::Format("Reward: %.2f", snapshot_.reward), 10, 30);
 
     // Action
-    if (snapshot_.exp.action.defined()) {
-        int64_t action = snapshot_.exp.action.item<int64_t>();
-        dc.DrawText(wxString::Format("Action: %llu", action), 10, 50);
-    }
+    dc.DrawText(wxString::Format("Action: %llu", snapshot_.action), 10, 50);
 
     // pos
-    if (snapshot_.exp.state.obs.defined()) {
-        const float x = snapshot_.exp.state.obs[0].item<float>();
-        const float y = snapshot_.exp.state.obs[1].item<float>();
-        const float theta_deg = 180.0f / M_PI * snapshot_.exp.state.obs[4].item<float>();
-        const float contact_left = snapshot_.exp.state.obs[6].item<float>();
-        const float contact_right = snapshot_.exp.state.obs[7].item<float>();
+    if (snapshot_.state.obs.defined()) {
+        const float x = snapshot_.state.obs[0].item<float>();
+        const float y = snapshot_.state.obs[1].item<float>();
+        const float theta = snapshot_.state.obs[4].item<float>();
+        const float theta_deg = 180.0f / M_PI * theta;
+        const float contact_left = snapshot_.state.obs[6].item<float>();
+        const float contact_right = snapshot_.state.obs[7].item<float>();
 
-        dc.DrawText(wxString::Format("(X Y θ°): (%.2f %.2f %.1f)", x, y, theta_deg), 10, 70);
+        dc.DrawText(wxString::Format("(X Y θ°): (%.2f %.2f %.1f[%.2f])", x, y, theta_deg, theta), 10, 70);
         dc.DrawText(wxString::Format("Contact: (%.2f %.2f)", contact_left, contact_right), 10, 90);
+    }
+
+    // total_reward
+    if (snapshot_.total_reward.has_value()) {
+        dc.DrawText(wxString::Format("Total reward: %.3f", snapshot_.total_reward.value()), 10, 110);
     }
 
     DrawTerrain(dc, width, height);

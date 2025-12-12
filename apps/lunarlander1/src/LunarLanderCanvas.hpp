@@ -24,6 +24,7 @@ protected:
 private:
     // world座標→画面座標変換
     wxPoint WorldToScreen(float wx, float wy, int width, int height) const;
+    int WorldToScreen(float size, int width, int height) const;
 
     // 描画ヘルパ
     void DrawTerrain(wxDC& dc, int width, int height);
@@ -46,6 +47,7 @@ private:
     // 地形キャッシュ（world座標系）
     std::vector<TerrainPoint> terrain_points_;
     bool has_terrain_ = false;
+    std::optional<Legs> legs;                ///< 脚の座標情報
 
     // world座標系の範囲
     float world_min_x_ = -10.0f;

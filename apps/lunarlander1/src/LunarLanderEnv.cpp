@@ -12,13 +12,19 @@
 namespace {
 
     // ボディのサイズなどは Gym をざっくり参考にした値
-    constexpr float kLanderRadius = 0.25f;
     constexpr float kLanderDensity = 5.0f;
     constexpr float kLegDensity = 1.0f;
     constexpr float kMainEngineForce = 40.0f;
     constexpr float kSideEngineForce = 10.0f;
 
-    // 報酬関連の暫定値
+    // 脚の定義
+    constexpr float kLegLength = 0.35f;
+    constexpr float kLegOffsetX = 0.40f;
+    //constexpr float kLegAttachAngle = 0.5236f; // 30°
+    constexpr float kLegAttachAngle = 0.7854f; // 45°
+    constexpr float kLegWidth = 0.1f;
+
+    // 報酬関連の定数値
     constexpr float kStepPenality = -0.01f;
     constexpr float kCrashPenalty = -100.0f;
     constexpr float kLandReward = 100.0f;
@@ -190,7 +196,7 @@ void LunarLanderEnv::buildGround()
         else {
             // パッド以外はノイズで高さを付与
             const float noise =
-                rnd_->Uniform(0.0f, config_.terrain_noise_height);
+                rnd_->Uniform(-config_.terrain_noise_height, config_.terrain_noise_height);
             y = ground_y + noise;
         }
 
@@ -208,7 +214,12 @@ void LunarLanderEnv::buildGround()
     for (size_t i = 0; i + 1 < terrain_points_.size(); ++i) {
         b2EdgeShape edge;
         edge.SetTwoSided(terrain_points_[i], terrain_points_[i + 1]);
-        ground_body_->CreateFixture(&edge, 0.0f);
+        b2FixtureDef fd;
+        fd.shape = &edge;
+        fd.density = 0.0f;        // Static body
+        fd.restitution = 0.1f;    // 反発係数：Gym と合わせるなら 0.0〜0.1
+        fd.friction = 0.5f;
+        ground_body_->CreateFixture(&fd);
     }
 }
 
@@ -230,7 +241,7 @@ void LunarLanderEnv::buildLander()
         b2CircleShape shape;
         shape.m_radius = kLanderRadius;
 
-        b2FixtureDef fixture_def;
+        b2FixtureDef fixture_def;   /// @todo 衝突マスクで地面だけ衝突判定にする
         fixture_def.shape = &shape;
         fixture_def.density = kLanderDensity;
         fixture_def.friction = 0.3f;
@@ -238,62 +249,62 @@ void LunarLanderEnv::buildLander()
         lander_body_->CreateFixture(&fixture_def);
     }
 
+    // --------------------
     // 脚
-    {
-        const float leg_length = 0.35f;
-        const float leg_offset_x = 0.5f;
+    // --------------------
 
-        b2BodyDef leg_def;
-        leg_def.type = b2_dynamicBody;
+    const float lander_angle = lander_body_->GetAngle();
 
-        // 左脚
-        leg_def.position = lander_body_->GetPosition() +
-            b2Vec2(-leg_offset_x, -kLanderRadius - leg_length);
-        left_leg_body_ = world_->CreateBody(&leg_def);
+    b2PolygonShape leg_shape;
+    leg_shape.SetAsBox(
+        0.05f,                     // 半幅
+        kLegLength * 0.5f,         // 半長
+        b2Vec2(0.0f, -kLegLength * 0.5f), // ★下方向
+        0.0f
+    );
 
-        b2PolygonShape leg_shape;
-        leg_shape.SetAsBox(
-            0.1f,
-            leg_length);
+    b2FixtureDef leg_fix;
+    leg_fix.shape = &leg_shape;
+    leg_fix.density = kLegDensity;
+    leg_fix.friction = 0.5f;
+    leg_fix.restitution = 0.0f;
 
-        b2FixtureDef leg_fixture_def;
-        leg_fixture_def.shape = &leg_shape;
-        leg_fixture_def.density = kLegDensity;
-        leg_fixture_def.friction = 0.5f;
-        leg_fixture_def.restitution = 0.0f;
-        left_leg_body_->CreateFixture(&leg_fixture_def);
+    // ---------- 左脚 ----------
+    b2BodyDef left_leg_def;
+    left_leg_def.type = b2_dynamicBody;
+    left_leg_def.position = lander_body_->GetPosition() + b2Vec2(-kLegOffsetX, -kLanderRadius);
+    left_leg_def.angle = lander_angle + kLegAttachAngle;
+    left_leg_body_ = world_->CreateBody(&left_leg_def);
+    left_leg_body_->CreateFixture(&leg_fix);
 
-        // 右脚
-        leg_def.position = lander_body_->GetPosition() +
-            b2Vec2(leg_offset_x, -kLanderRadius - leg_length);
-        right_leg_body_ = world_->CreateBody(&leg_def);
-        right_leg_body_->CreateFixture(&leg_fixture_def);
+    // ---------- 右脚 ----------
+    b2BodyDef right_leg_def;
+    right_leg_def.type = b2_dynamicBody;
+    right_leg_def.position = lander_body_->GetPosition() + b2Vec2(+kLegOffsetX, -kLanderRadius);
+    right_leg_def.angle = lander_angle - kLegAttachAngle;
+    right_leg_body_ = world_->CreateBody(&right_leg_def);
+    right_leg_body_->CreateFixture(&leg_fix);
 
-        // ジョイント
-        b2RevoluteJointDef joint_def;
-        joint_def.enableLimit = true;
-        joint_def.lowerAngle = -0.4f;
-        joint_def.upperAngle = 0.4f;
+    // --------------------
+    // ジョイント（固定）
+    // --------------------
+    b2RevoluteJointDef joint_def;
+    joint_def.enableLimit = true;
+    joint_def.lowerAngle = 0.0f;
+    joint_def.upperAngle = 0.0f;
+    joint_def.referenceAngle = 0.0f;
+    joint_def.bodyA = lander_body_;
+    joint_def.localAnchorB.Set(0.0f, 0.0f);   // ★脚の原点＝付け根
 
-        // 左
-        joint_def.bodyA = lander_body_;
-        joint_def.bodyB = left_leg_body_;
-        joint_def.localAnchorA.Set(-leg_offset_x, -kLanderRadius);
-        joint_def.localAnchorB.Set(0.0f, leg_length);
-        left_leg_joint_ = static_cast<b2RevoluteJoint*>(
-            world_->CreateJoint(&joint_def));
+    // 左脚ジョイント
+    joint_def.bodyB = left_leg_body_;
+    joint_def.localAnchorA.Set(-kLegOffsetX, -kLanderRadius);
+    left_leg_joint_ = static_cast<b2RevoluteJoint*>(world_->CreateJoint(&joint_def));
 
-        // 右
-        joint_def.bodyA = lander_body_;
-        joint_def.bodyB = right_leg_body_;
-        joint_def.localAnchorA.Set(leg_offset_x, -kLanderRadius);
-        joint_def.localAnchorB.Set(0.0f, leg_length);
-        right_leg_joint_ = static_cast<b2RevoluteJoint*>(
-            world_->CreateJoint(&joint_def));
-    }
-
-    left_leg_contact_ = false;
-    right_leg_contact_ = false;
+    // 右脚ジョイント
+    joint_def.bodyB = right_leg_body_;
+    joint_def.localAnchorA.Set(+kLegOffsetX, -kLanderRadius);
+    right_leg_joint_ = static_cast<b2RevoluteJoint*>(world_->CreateJoint(&joint_def));
 }
 
 anet::rl::SingleState LunarLanderEnv::Reset(anet::rl::RunMode mode)
@@ -322,6 +333,7 @@ anet::rl::SingleState LunarLanderEnv::Reset(anet::rl::RunMode mode)
             0.0f);
     }
 
+    // 速度リセット
     lander_body_->SetLinearVelocity(b2Vec2(0.0f, 0.0f));
     lander_body_->SetAngularVelocity(0.0f);
     left_leg_body_->SetLinearVelocity(b2Vec2(0.0f, 0.0f));
@@ -533,9 +545,7 @@ float LunarLanderEnv::calcReward(const anet::rl::SingleState& state, bool crashe
     return reward;
 }
 
-anet::rl::SingleStepResult LunarLanderEnv::Step(
-    int64_t action,
-    anet::rl::RunMode /*mode*/)
+anet::rl::SingleStepResult LunarLanderEnv::Step(int64_t action, anet::rl::RunMode runmode)
 {
     anet::ProfileRange range("LunarLanderEnv::Step");
 
@@ -576,8 +586,74 @@ anet::rl::SingleStepResult LunarLanderEnv::Step(
     return result;
 }
 
+struct Segment {
+    b2Vec2 p0;
+    b2Vec2 p1;
+};
+
+//static Segment getLegSegment(const b2Body* leg_body, float leg_length)
+//{
+//    const b2Vec2 c = leg_body->GetPosition();
+//    const float a = leg_body->GetAngle();
+//
+//    // 脚のローカルY軸方向（下向き）
+//    const b2Vec2 dir(std::sin(a), -std::cos(a));
+//
+//    const float half = leg_length * 0.5f;
+//
+//    Segment s;
+//    s.p0 = c + half * dir; // 足先
+//    s.p1 = c - half * dir; // 付け根
+//    return s;
+//}
+
+//static Segment getLegSegment(const b2Body* leg_body, float leg_length)
+//{
+//    const b2Vec2 center = leg_body->GetPosition();
+//    const float angle = leg_body->GetAngle();
+//
+//    // Box2D 正式：ローカル -Y 方向
+//    const b2Vec2 dir(-std::sin(angle), std::cos(angle));
+//    const float half = leg_length * 0.5f;
+//
+//    Segment s;
+//    s.p0 = center + half * dir; // 足先
+//    s.p1 = center - half * dir; // 付け根
+//    return s;
+//}
+
+//static Segment getLegSegment(const b2Body* leg_body, float leg_length)
+//{
+//    const b2Vec2 center = leg_body->GetPosition();
+//
+//    // 脚の「下向き」方向（ローカル -Y）
+//    const b2Vec2 down = -leg_body->GetWorldVector(b2Vec2(0.0f, 1.0f));
+//    const float half = leg_length * 0.5f;
+//
+//    Segment s;
+//    s.p0 = center + half * down; // 足先
+//    s.p1 = center - half * down; // 付け根
+//    return s;
+//}
+
+static Segment getLegSegment(const b2Body* leg_body, float leg_length)
+{
+    const b2Vec2 root = leg_body->GetPosition(); // 付け根（ボディ原点）
+    const b2Vec2 down = -leg_body->GetWorldVector(b2Vec2(0.0f, 1.0f)); // ローカル -Y
+
+    // Box2Dの演算子が環境によって微妙なら手で掛け算するのが安全
+    const b2Vec2 d(down.x * leg_length, down.y * leg_length);
+
+    Segment s;
+    s.p0 = root;        // 付け根
+    s.p1 = root + d;    // 足先
+    return s;
+}
+
 std::optional<float> LunarLanderEnv::GetScalar(const std::string& key, int index) const
 {
+    /// @todo auxに移行
+
     ANET_ASSERT(index == -1 || index == 0);
 
     if (key == "wind_x") {
@@ -589,19 +665,36 @@ std::optional<float> LunarLanderEnv::GetScalar(const std::string& key, int index
 
 std::optional<torch::Tensor> LunarLanderEnv::GetTensor(const std::string& key, int index) const
 {
+    /// @todo auxに移行
+
     ANET_ASSERT(index == -1 || index == 0);
 
     if (key == "pad") {
-        // pad_info_: {x1, x2, y}
         torch::Tensor t = torch::tensor({ pad_info_.x1, pad_info_.x2, pad_info_.y });
+        return t;
+    }
+
+    if (key == "legs") {
+        auto left_seg = getLegSegment(left_leg_body_, kLegLength);
+        auto right_seg = getLegSegment(right_leg_body_, kLegLength);
+        ANET_LOG_DEBUG("lander_body=" << lander_body_->GetPosition().x << " " << lander_body_->GetPosition().y);
+        ANET_LOG_DEBUG("left_seg.p0=" << left_seg.p0.x << " " << left_seg.p0.y);
+        ANET_LOG_DEBUG("left_seg.p1=" << left_seg.p1.x << " " << left_seg.p1.y);
+        ANET_LOG_DEBUG("right_seg.p0=" << right_seg.p0.x << " " << right_seg.p0.y);
+        ANET_LOG_DEBUG("right_seg.p1=" << right_seg.p1.x << " " << right_seg.p1.y);
+
+        torch::Tensor t = torch::tensor({
+            left_seg.p0.x, left_seg.p0.y, left_seg.p1.x, left_seg.p1.y,
+            right_seg.p0.x, right_seg.p0.y, right_seg.p1.x, right_seg.p1.y,
+            });
         return t;
     }
 
     if (key == "world_bounds") {
         float min_x = -config_.world_half_width;
         float max_x = config_.world_half_width;
-        float min_y = config_.ground_y;
-        float max_y = config_.world_height;
+        float min_y = std::min(0.0f, config_.ground_y);
+        float max_y = std::max(config_.world_height, config_.ground_y);
         torch::Tensor t = torch::tensor({ min_x, max_x, min_y, max_y });
         return t;
     }
@@ -612,6 +705,8 @@ std::optional<torch::Tensor> LunarLanderEnv::GetTensor(const std::string& key, i
 std::optional<std::vector<torch::Tensor>>
 LunarLanderEnv::GetTensorVector(const std::string& key, int index) const
 {
+    /// @todo auxに移行
+
     ANET_ASSERT(index == -1 || index == 0);
 
     if (key == "terrain") {

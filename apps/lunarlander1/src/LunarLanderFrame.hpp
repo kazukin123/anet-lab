@@ -25,6 +25,7 @@ private:
     void OnEvalTimer(wxTimerEvent& event);
     void OnMouseLeftClick(wxMouseEvent& event);
     void OnMouseRightClick(wxMouseEvent& event);
+    void OnKeyDown(wxKeyEvent& event);
 private:
     LunarLanderCanvas* train_canvas_ = nullptr;
     LunarLanderCanvas* eval_canvas_ = nullptr;
@@ -35,6 +36,7 @@ private:
     wxTimer eval_timer_;
 
     bool is_eval_pause_ = false;
+    float eval_total_reward_ = 0.0;
 
     int eval_step_per_frame_ = 1;
 private:

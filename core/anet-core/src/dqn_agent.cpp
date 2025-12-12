@@ -5,7 +5,7 @@
 #include <torch/torch.h>
 #include <tuple>
 #include "anet/nn_util.hpp"
-#include "anet/tensor_utils.hpp"
+#include "anet/tensor_util.hpp"
 #include "anet/tensor_check.hpp"
 #include "anet/log.hpp"
 #include "anet/random.hpp"

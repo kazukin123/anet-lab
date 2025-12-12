@@ -12,6 +12,7 @@ namespace anet::rl {
     class RunnerBase : public Runner {
     public:
         RunnerBase();
+        RunnerBase(std::shared_ptr<BatchEnv> env);
         virtual StepCounts DoStep() = 0;
         StepCounts DoUpdateFrame(int max_steps,
             ControlFunction pre_step_func = noop, ControlFunction post_step_func = noop) override;
@@ -46,11 +47,11 @@ namespace anet::rl {
         EvalRunner(std::shared_ptr<BatchEnv> env, std::shared_ptr<const Agent> agent, RunMode runmode = RunMode::Eval);
 
         RunnerStatus Initialize(const ConfigData& config_data);
+        StepCounts DoStep(int64_t action);
         StepCounts DoStep() override;
 
         ~EvalRunner() = default;
     private:
-        std::shared_ptr<anet::rl::BatchEnv> env_;
         std::shared_ptr<const anet::rl::Agent> agent_;
         RunMode runmode_;
     };

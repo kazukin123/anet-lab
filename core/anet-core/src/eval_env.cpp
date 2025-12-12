@@ -1,7 +1,7 @@
 ﻿#include "anet/eval_env.hpp"
 #include <algorithm>
 #include <wx/log.h>
-#include "anet/tensor_utils.hpp"
+#include "anet/tensor_util.hpp"
 
 namespace anet::rl {
 

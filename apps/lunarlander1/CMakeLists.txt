@@ -65,7 +65,8 @@ target_include_directories(LunarLanderRLGUI PRIVATE
     "${BOX2D_ROOT}/include"
 )
 
-#target_precompile_headers(LunarLanderRLGUI PRIVATE "src/pch.hpp")
+target_precompile_headers(LunarLanderRLGUI PRIVATE "src/pch.hpp")
+
 target_link_libraries(LunarLanderRLGUI PRIVATE
     anet-core
     ${TORCH_LIBRARIES}

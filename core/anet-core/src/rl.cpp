@@ -4,7 +4,7 @@
 #include "anet/common.hpp"
 #include "anet/profile.hpp"
 #include "anet/util.hpp"
-#include "anet/tensor_utils.hpp"
+#include "anet/tensor_util.hpp"
 #include "anet/tensor_check.hpp"
 #include "anet/log.hpp"
 
@@ -310,7 +310,15 @@ std::string BatchStepResult::ToString() const
     oss << ", continue_state=" << continue_state.ToString();
     oss << ", n_transitions=" << n_transitions;
     oss << ", n_done=" << n_done;
-    oss << "}";
+    oss << ", auxs={";
+    for (auto aux : auxs) {
+        oss << " [";
+        for (auto kv : aux) {
+            oss << " " << kv.first << "=" << anet::ToString(kv.second);
+        }
+        oss << "] ";
+    }
+    oss << "}}";
     return oss.str();
 }
 
@@ -340,7 +348,11 @@ std::string SingleStepResult::ToString() const
     oss << "SingleStepResult{";
     oss << "reward=" << reward;
     oss << ", next_state=" << next_state.ToString();
-    oss << "}";
+    oss << ", aux=[";
+    for (auto kv : aux) {
+        oss << " " << kv.first << "=" << anet::ToString(kv.second);
+    }
+    oss << "]}";
     return oss.str();
 }
 
@@ -478,6 +490,13 @@ std::vector<Experience> BatchExperience::ToExperienceList() const
             next_state.truncated[i].item<bool>(),
             next_state.episode_start[i].item<bool>()
         };
+        SingleState cs = {
+            next_state.obs[i],
+            next_state.done[i].item<bool>(),
+            next_state.truncated[i].item<bool>(),
+            next_state.episode_start[i].item<bool>()
+        };
+
         out.push_back({
             s,
             action.action.index({i}),

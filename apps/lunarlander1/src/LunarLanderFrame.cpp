@@ -5,7 +5,7 @@
 #include <torch/torch.h>
 #include <wx/log.h>
 #include <wx/sizer.h>
-#include "anet/tensor_utils.hpp"
+#include "anet/tensor_util.hpp"
 #include "anet/profile.hpp"
 #include "anet/log.hpp"
 #include "anet/observers.hpp"
@@ -18,7 +18,7 @@ namespace LOG = anet::log;
 
 
 LunarLanderFrame::LunarLanderFrame(const wxString& title, int train_timer_ms, int eval_timer_ms, int eval_step_per_frame)
-    : wxFrame(nullptr, wxID_ANY, title, wxDefaultPosition, wxSize(800, 800))
+    : wxFrame(nullptr, wxID_ANY, title, wxDefaultPosition, wxSize(900, 800))
     , train_timer_(this, wxID_ANY), eval_timer_(this, wxID_ANY), eval_step_per_frame_(eval_step_per_frame)
 {
     // GUIレイアウト ---
@@ -29,9 +29,8 @@ LunarLanderFrame::LunarLanderFrame(const wxString& title, int train_timer_ms, in
     eval_canvas_ = new LunarLanderCanvas(this);
     plot_panel_ = new PlotPanel(this);
     log_box_ = new wxTextCtrl(this, wxID_ANY, wxEmptyString,
-        wxDefaultPosition, wxSize(800, 150),
-        wxTE_MULTILINE | wxTE_READONLY);
-
+        wxDefaultPosition, wxSize(800, 150),wxTE_MULTILINE | wxTE_READONLY);
+    log_box_->Enable(false);
 
     plot_panel_->SetMinSize(wxSize(-1, 280));  // ← 上部の描画エリア固定高さ
     plot_panel_->SetMaxSize(wxSize(-1, 280));  // （上下方向のリサイズ禁止）
@@ -65,13 +64,15 @@ LunarLanderFrame::LunarLanderFrame(const wxString& title, int train_timer_ms, in
         Close(true);    // Frameを閉じる
         });
 
-    // クリックイベント
+    // イベントハンドラ
     Bind(wxEVT_LEFT_DOWN, &LunarLanderFrame::OnMouseLeftClick, this);
     Bind(wxEVT_RIGHT_DOWN, &LunarLanderFrame::OnMouseRightClick, this);
-
-    // タイマー開始
+    Bind(wxEVT_KEY_DOWN, &LunarLanderFrame::OnKeyDown, this);
+    Bind(wxEVT_CHAR_HOOK, &LunarLanderFrame::OnKeyDown, this);
     Bind(wxEVT_TIMER, &LunarLanderFrame::OnTrainTimer, this, train_timer_.GetId());
     Bind(wxEVT_TIMER, &LunarLanderFrame::OnEvalTimer, this, eval_timer_.GetId());
+
+    // タイマー開始
     train_timer_.Start(train_timer_ms);  // 学習＆描画更新
     eval_timer_.Start(eval_timer_ms);  // 学習＆描画更新
 }
@@ -89,9 +90,22 @@ void LunarLanderFrame::SetEvalRunner(std::shared_ptr<anet::rl::EvalRunner> eval_
     eval_runner_->GetNotifier()->Attach<anet::rl::FunctionTrainObserver>(
         [this](const anet::rl::TrainEvent& event)
         {
-            // Trainスナップショット取得
+            if (event.batch_exp.state.IsEpisodeStart()) {
+                eval_total_reward_ = 0;
+            }
+
+            eval_total_reward_ += event.batch_exp.reward[0].item<float>();
+
+            // スナップショットを生成
             auto snapshot = LunarLanderApp::CreateSnapshot(event);
+            snapshot.total_reward = eval_total_reward_;
+
+            // スナップショットをUIに設定
             eval_canvas_->SetUISnapshot(snapshot);
+
+            // エピソード終了なら総報酬をリセット
+            //if (event.batch_exp.next_state.IsDone() || event.batch_exp.next_state.IsTruncated())
+            //    eval_total_reward_ = 0.0f;
 
         }, "LunarLanderEvalApp");
 }
@@ -158,4 +172,23 @@ void LunarLanderFrame::OnMouseRightClick(wxMouseEvent& event)
     is_eval_pause_ = !is_eval_pause_;
     LOG::info() << "Eval " << (is_eval_pause_ ? "paused." : " resumed.");
     event.Skip();
+}
+
+void LunarLanderFrame::OnKeyDown(wxKeyEvent& event)
+{
+    LOG::info() << "KeyDown: key=" << event.GetKeyCode();
+
+    int64_t action;
+
+    switch (event.GetKeyCode()) {
+    case WXK_UP: action = 0; break;     // NOOP
+    case WXK_DOWN: action = 1; break;   // MAIN ENGINE
+    case WXK_LEFT: action = 2; break;   // LEFT ENGINE
+    case WXK_RIGHT: action = 3; break;  // RIGHT ENGINE
+    default:
+        return;
+    }
+
+    eval_runner_->DoStep(action);
+    eval_canvas_->Refresh();
 }

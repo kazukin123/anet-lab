@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <wx/log.h>
 #include "anet/common.hpp"
-#include "anet/tensor_utils.hpp"
+#include "anet/tensor_util.hpp"
 #include "anet/tensor_check.hpp"
 #include "anet/rl.hpp"
 
