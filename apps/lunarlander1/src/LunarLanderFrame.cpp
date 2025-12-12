@@ -29,8 +29,9 @@ LunarLanderFrame::LunarLanderFrame(const wxString& title, int train_timer_ms, in
     eval_canvas_ = new LunarLanderCanvas(this);
     plot_panel_ = new PlotPanel(this);
     log_box_ = new wxTextCtrl(this, wxID_ANY, wxEmptyString,
-        wxDefaultPosition, wxSize(800, 150),wxTE_MULTILINE | wxTE_READONLY);
-    log_box_->Enable(false);
+        wxDefaultPosition, wxSize(800, 150), wxTE_MULTILINE | wxTE_READONLY);
+    //log_box_->Enable(false);
+    log_box_->SetCanFocus(false);
 
     plot_panel_->SetMinSize(wxSize(-1, 280));  // ← 上部の描画エリア固定高さ
     plot_panel_->SetMaxSize(wxSize(-1, 280));  // （上下方向のリサイズ禁止）
@@ -74,8 +75,8 @@ LunarLanderFrame::LunarLanderFrame(const wxString& title, int train_timer_ms, in
     Bind(wxEVT_CLOSE_WINDOW, &LunarLanderFrame::OnCloseWindow, this, eval_timer_.GetId());
 
     // タイマー開始
-    train_timer_.Start(train_timer_ms);  // 学習＆描画更新
-    eval_timer_.Start(eval_timer_ms);  // 学習＆描画更新
+    train_timer_.Start(train_timer_ms); // 学習＆描画更新
+    eval_timer_.Start(eval_timer_ms);   // 評価＆描画更新
 }
 
 LunarLanderFrame::~LunarLanderFrame()
@@ -134,6 +135,7 @@ void LunarLanderFrame::OnTrainTimer(wxTimerEvent& event)
 void LunarLanderFrame::OnEvalTimer(wxTimerEvent& event)
 {
     if (is_eval_pause_) return;
+    if (eval_runner_ == nullptr) return;
 
     // 再入防止
     eval_timer_.Stop();
@@ -177,7 +179,8 @@ void LunarLanderFrame::OnMouseRightClick(wxMouseEvent& event)
 
 void LunarLanderFrame::OnKeyDown(wxKeyEvent& event)
 {
-    LOG::info() << "KeyDown: key=" << event.GetKeyCode();
+    //LOG::info() << "KeyDown: key=" << event.GetKeyCode();
+    ANET_LOG_DEBUG("KeyDown: key=" << event.GetKeyCode());
 
     int64_t action;
 

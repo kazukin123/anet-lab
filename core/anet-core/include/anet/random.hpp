@@ -63,7 +63,7 @@ namespace anet {
 
     class RandomHolder {
     public:
-        explicit RandomHolder(std::optional<seed_t> seed = std::nullopt);
+        explicit RandomHolder(std::optional<seed_t> seed);
         RandomHolder(std::shared_ptr<RandomGenerator> rnd) : rnd_(rnd) { }
 
         void SetSeed(seed_t seed) { rnd_->SetSeed(seed); }

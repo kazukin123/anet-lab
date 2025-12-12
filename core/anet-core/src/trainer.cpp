@@ -441,6 +441,8 @@ StepCounts DefaultTrainer::DoStep()
 
 std::shared_ptr<EvalRunner> DefaultTrainer::CreateEvalRunner(RunMode runmode) const
 {
+    /// @todo seed指定対応
+
     ANET_ASSERT(status_ == anet::rl::RunnerStatus::RUNNING);
 
     auto env = env_factory_->CreateBatchEnv(1);

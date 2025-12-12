@@ -10,8 +10,10 @@
 #include "anet/profile.hpp"
 #include "anet/thread.hpp"
 #include "anet/tensor_util.hpp"
+#include "anet/log.hpp"
 
 using namespace anet::rl;
+namespace LOG = anet::log;
 
 // ---- DiscreteBatchEnvBase
 
@@ -19,7 +21,7 @@ DiscreteBatchEnvBase::DiscreteBatchEnvBase(
     const ConfigData& config_data,
     std::shared_ptr<SingleDiscreteEnvFactory> factory, int batch_size,
     const torch::Device& device, std::optional<seed_t> seed)
-    : batch_spec_({ batch_size, 1 }), batch_size_(batch_size), device_(device)
+    : RandomHolder(seed), batch_spec_({ batch_size, 1 }), batch_size_(batch_size), device_(device)
 {
     ANET_ASSERT(batch_size_ > 0);
     ANET_LOG_DEBUG("seed=" << this->GetSeed());
