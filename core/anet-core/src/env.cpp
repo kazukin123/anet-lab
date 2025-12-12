@@ -22,6 +22,7 @@ DiscreteBatchEnvBase::DiscreteBatchEnvBase(
     : batch_spec_({ batch_size, 1 }), batch_size_(batch_size), device_(device)
 {
     ANET_ASSERT(batch_size_ > 0);
+    ANET_LOG_DEBUG("seed=" << this->GetSeed());
 
     // ベースのシードを準備
     anet::SeedMaker seed_maker(seed);
@@ -87,6 +88,8 @@ anet::rl::BatchStepResult DiscreteBatchEnvBase::createEmptyStepResult() const
         0,  // n_transitions
 		0   // n_done
     };
+    result.auxs.resize(batch_size_);
+
     return result;
 };
 
@@ -121,7 +124,7 @@ VectorizedDiscreteBatchEnv::VectorizedDiscreteBatchEnv(
     std::optional<seed_t> seed)
     : DiscreteBatchEnvBase(configData, factory, batch_size, device, seed)
 {
-    ;
+    ANET_LOG_DEBUG("seed=" << this->GetSeed());
 }
 
 BatchState VectorizedDiscreteBatchEnv::Reset(RunMode mode)
@@ -170,6 +173,8 @@ BatchStepResult VectorizedDiscreteBatchEnv::Step(const torch::Tensor& batch_acti
 
         batch_result.reward.select(0, i).fill_(single_result.reward);
 
+        batch_result.auxs[i] = single_result.aux;
+
         // Auto reset
         if (single_result.next_state.done || single_result.next_state.truncated) {
             SingleState reset_state = envs_[i]->Reset(mode);
@@ -207,6 +212,7 @@ ThreadPoolDiscreteEnv::ThreadPoolDiscreteEnv(
     , pool_(std::move(pool))
 {
     ANET_ASSERT(pool_ != nullptr);
+    ANET_LOG_DEBUG("seed=" << this->GetSeed());
     this->batch_spec_.num_threads = pool_->GetWorkerCount();
 }
 
@@ -282,6 +288,9 @@ BatchStepResult ThreadPoolDiscreteEnv::Step(const torch::Tensor& actions, RunMod
 
                 // --- reward ---
                 result.reward[i] = r.reward;
+
+                // --- aux ---
+                result.auxs[i] = r.aux;
 
                 // --- continue_state ---
                 if (r.next_state.done || r.next_state.truncated) {

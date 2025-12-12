@@ -77,4 +77,13 @@ namespace anet {
         return s.item<float>();
     }
 
+    inline std::string ToString(const std::unordered_map<std::string, torch::Tensor>& data)
+    {
+        std::ostringstream oss;
+        for (auto kv : data) {
+            oss << kv.first << " : " << anet::ToString(kv.second) << "\n";
+        }
+        return oss.str();
+    }
+
 } // namespace anet::util

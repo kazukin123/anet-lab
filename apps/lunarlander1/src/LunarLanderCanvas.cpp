@@ -38,24 +38,22 @@ void LunarLanderCanvas::SetUISnapshot(const UISnapshot& snapshot)
     has_snapshot_ = true;
     snapshot_ = snapshot;
 
-    // world bounds
-    world_min_x_ = snapshot_.world_min_x;
-    world_max_x_ = snapshot_.world_max_x;
-    world_min_y_ = snapshot_.world_min_y;
-    world_max_y_ = std::max(snapshot_.world_max_y, snapshot.state.obs[1].item<float>());  // yの値でスケーリング
+    auto it = snapshot_.aux.find("world");
+    if (it != snapshot_.aux.end()) {
+        const auto w = it->second;
+        world_min_x_ = w[0].item<float>();
+        world_max_x_ = w[1].item<float>();
+        world_min_y_ = w[2].item<float>();
+        world_max_y_ = w[3].item<float>();
 
-    // 地形キャッシュ更新
-    if (snapshot_.terrain.has_value()) {
-        terrain_points_.clear();
-        terrain_points_.reserve(snapshot_.terrain->points.size());
-        for (const auto& p : snapshot_.terrain->points) {
-            terrain_points_.push_back(p);
+        auto it2 = snapshot_.aux.find("lander");
+        if (it2 != snapshot_.aux.end()) {
+            const auto v = it2->second;
+            const float lander_y = v[1].item<float>();
+
+            world_max_y_ = std::max(world_max_y_, lander_y + kLanderRadius);
         }
-        has_terrain_ = !terrain_points_.empty();
     }
-
-    // 脚の情報
-    legs = snapshot.legs;
 
     Refresh(false);
 }
@@ -73,16 +71,14 @@ wxPoint LunarLanderCanvas::WorldToScreen(
 
     const float sx = static_cast<float>(width - 2 * margin) / world_w;
     const float sy = static_cast<float>(height - 2 * margin) / world_h;
-    const float scale = std::max(sx, sy);
+    const float scale = std::min(sx, sy);
 
-    const float canvas_x = margin + (wx - world_min_x_) * scale;
-    const float canvas_y = height - (margin + (wy - world_min_y_) * scale);
-    //const float canvas_x = margin + (wx - world_min_x_) * sx;
-    //const float canvas_y = height - (margin + (wy - world_min_y_) * sy);
+    const float x = margin + (wx - world_min_x_) * scale;
+    const float y = height - (margin + (wy - world_min_y_) * scale);
 
     return wxPoint(
-        static_cast<int>(canvas_x),
-        static_cast<int>(canvas_y));
+        static_cast<int>(std::round(x)),
+        static_cast<int>(std::round(y)));
 }
 
 int LunarLanderCanvas::WorldToScreen(float size, int width, int height) const
@@ -90,250 +86,225 @@ int LunarLanderCanvas::WorldToScreen(float size, int width, int height) const
     const int margin = 40;
     const float world_w = std::max(0.1f, world_max_x_ - world_min_x_);
     const float world_h = std::max(0.1f, world_max_y_ - world_min_y_);
+    const float scale = std::min(
+        (width - 2 * margin) / world_w,
+        (height - 2 * margin) / world_h);
 
-    const float sx = static_cast<float>(width - 2 * margin) / world_w;
-    const float sy = static_cast<float>(height - 2 * margin) / world_h;
-    const float scale = std::min(sx, sy);
-
-    int canvas_size = std::round(size * scale);
-    return canvas_size;
+    return static_cast<int>(std::round(size * scale));
 }
 
 void LunarLanderCanvas::DrawTerrain(wxDC& dc, int width, int height)
 {
-    if (!has_terrain_) {
+    auto it = snapshot_.aux.find("terrain");
+    if (it == snapshot_.aux.end()) {
         return;
     }
 
-    if (terrain_points_.size() < 2) {
+    const auto& t = it->second;
+    if (t.size(0) < 2) {
         return;
     }
 
     std::vector<wxPoint> pts;
-    pts.reserve(terrain_points_.size());
-    for (const auto& p : terrain_points_) {
-        pts.push_back(WorldToScreen(p.x, p.y, width, height));
+    pts.reserve(t.size(0));
+
+    for (int64_t i = 0; i < t.size(0); ++i) {
+        pts.emplace_back(WorldToScreen(
+                t[i][0].item<float>(), t[i][1].item<float>(),width, height));
     }
 
     dc.SetPen(wxPen(*wxBLACK, 3));
+    dc.DrawLines(static_cast<int>(pts.size()), pts.data());
     dc.DrawLines(static_cast<int>(pts.size()), pts.data());
 }
 
 void LunarLanderCanvas::DrawPad(wxDC& dc, int width, int height)
 {
-    const auto& pad = snapshot_.pad;
+    auto it = snapshot_.aux.find("pad");
+    if (it == snapshot_.aux.end()) {
+        return;
+    }
 
-    const wxPoint p1 = WorldToScreen(pad.x1, pad.y, width, height);
-    const wxPoint p2 = WorldToScreen(pad.x2, pad.y, width, height);
+    const auto p = it->second;
+    const wxPoint p1 = WorldToScreen(p[0].item<float>(), p[2].item<float>(), width, height);
+    const wxPoint p2 = WorldToScreen(p[1].item<float>(), p[2].item<float>(), width, height);
+
     dc.SetPen(wxPen(*wxGREEN, 3));
     dc.DrawLine(p1, p2);
-
-    const wxPoint p3 = WorldToScreen(world_min_x_, 1.0, width, height);
-    const wxPoint p4 = WorldToScreen(world_max_x_, 1.0, width, height);
-    dc.SetPen(wxPen(*wxLIGHT_GREY, 1));
-    dc.DrawLine(p3, p4);
 }
 
 void LunarLanderCanvas::DrawLander(wxDC& dc, int width, int height)
 {
-    const auto& state = snapshot_.state;
-
-    if (!state.obs.defined()) {
+    auto it = snapshot_.aux.find("lander");
+    if (it == snapshot_.aux.end()) {
         return;
     }
 
-    // obs = [x, y, vx, vy, angle, angular_vel, left_contact, right_contact]
-    const auto obs = state.obs;
-    const float x_norm = obs[0].item<float>();
-    const float y_norm = obs[1].item<float>();
-    const float obs_angle = obs[4].item<float>();
-    const float draw_angle = obs_angle + M_PI / 2.0f;   // obsは右基準なので、上基準の角度にするために90°回転
+    const auto v = it->second;
+    const float x = v[0].item<float>();
+    const float y = v[1].item<float>();
+    const float angle = v[4].item<float>();
 
-    // Canvas 用 world_y に変換
-    const float world_x = x_norm;
-    const float world_y = y_norm;
+    const wxPoint c = WorldToScreen(x, y, width, height);
+    const int r = WorldToScreen(kLanderRadius, width, height);
 
-    // ランダー本体の座標とサイズを算出
-    const wxPoint center = WorldToScreen(world_x, world_y, width, height);
-    int base_radius = WorldToScreen(0.5f * kLanderRadius, width, height);
-
-    // ランダー本体を円で描画
     dc.SetBrush(*wxCYAN_BRUSH);
     dc.SetPen(wxPen(*wxBLACK, 1));
-    dc.DrawCircle(center, base_radius);
+    dc.DrawCircle(c, r);
 
-    // 脚を描画
-    if (legs.has_value()) {
-        // 左脚
-        dc.SetPen(wxPen(*wxRED, 1));
-        dc.DrawLine(
-            WorldToScreen(legs->left_leg.x0, legs->left_leg.y0, width, height),
-            WorldToScreen(legs->left_leg.x1, legs->left_leg.y1, width, height));
-        // 右脚
-        dc.SetPen(wxPen(*wxGREEN, 1));
-        dc.DrawLine(
-            WorldToScreen(legs->right_leg.x0, legs->right_leg.y0, width, height),
-            WorldToScreen(legs->right_leg.x1, legs->right_leg.y1, width, height));
-    }
+    const float draw_angle = angle + static_cast<float>(M_PI) / 2.0f;
+    const wxPoint nose(
+        c.x + static_cast<int>(std::cos(draw_angle) * r * 1.5f),
+        c.y - static_cast<int>(std::sin(draw_angle) * r * 1.5f));
 
-    // 機体の向きを線で示す
-    const float dir_len = static_cast<float>(base_radius) * 1.5f;
-    const float draw_x = std::cos(draw_angle) * dir_len;
-    const float draw_y = std::sin(draw_angle) * dir_len;
-
-    dc.SetPen(wxPen(*wxBLACK, 3));
-    const wxPoint nose(center.x + static_cast<int>(draw_x),center.y - static_cast<int>(draw_y));
-    dc.DrawLine(center, nose);
-
-    // thrust 描画
-    int64_t action = snapshot_.action;
-    DrawThrust(dc, width, height, world_x, world_y, obs_angle, action);
+    dc.SetPen(wxPen(*wxBLACK, 2));
+    dc.DrawLine(c, nose);
 }
 
-void LunarLanderCanvas::DrawThrust(wxDC& dc,
-    int width,
-    int height,
-    float world_x,
-    float world_y,
-    float angle,
-    int64_t action)
+void LunarLanderCanvas::DrawLegs(wxDC& dc, int width, int height)
 {
-    if (action == 0) return;
-
-    const float R = 0.25f;      // 機体半径
-
-    // ====== ノズル位置 ======
-    float ox = 0.0f;
-    float oy = -R;
-
-    if (action == 2) { // left
-        ox = -R * 0.55f;        // 機体と自然に見える比率（0.55R）
-        oy = -R * 0.20f;
-    }
-    else if (action == 3) { // right
-        ox = +R * 0.55f;
-        oy = -R * 0.20f;
+    auto it = snapshot_.aux.find("legs");
+    if (it == snapshot_.aux.end()) {
+        return;
     }
 
-    // ====== ローカル→ワールド ======
-    float ca = std::cos(angle);
-    float sa = std::sin(angle);
+    const auto l = it->second;
 
-    float nx = world_x + ox * ca - oy * sa;
-    float ny = world_y + ox * sa + oy * ca;
+    dc.SetPen(wxPen(*wxBLUE, 2));
 
-    wxPoint p0 = WorldToScreen(nx, ny, width, height);
+    dc.DrawLine(
+        WorldToScreen(l[0].item<float>(), l[1].item<float>(), width, height),
+        WorldToScreen(l[2].item<float>(), l[3].item<float>(), width, height));
 
-    // ====== thrust 方向（本体の真下） ======
-    // nose = (sin(a), cos(a)) → 上向き
-    // down = (-sin(a), -cos(a))
-    float dir_x = -std::sin(angle);
-    float dir_y = -std::cos(angle);
+    dc.DrawLine(
+        WorldToScreen(l[4].item<float>(), l[5].item<float>(), width, height),
+        WorldToScreen(l[6].item<float>(), l[7].item<float>(), width, height));
+}
 
-    const float side_angle = 1.57f; // 90deg
-
-    // side engines
-    if (action == 2) {
-        float ca2 = std::cos(-side_angle);
-        float sa2 = std::sin(-side_angle);
-        float dx = dir_x * ca2 - dir_y * sa2;
-        float dy = dir_x * sa2 + dir_y * ca2;
-        dir_x = dx; dir_y = dy;
-    } else if (action == 3) {
-        float ca2 = std::cos(+side_angle);
-        float sa2 = std::sin(+side_angle);
-        float dx = dir_x * ca2 - dir_y * sa2;
-        float dy = dir_x * sa2 + dir_y * ca2;
-        dir_x = dx; dir_y = dy;
+void LunarLanderCanvas::DrawThrust(wxDC& dc, int width, int height)
+{
+    const int64_t action = snapshot_.action;
+    if (action == 0) {
+        return;
     }
 
-    // ====== flame 長さ ======
-    const float flame_len = 0.4f;
+    auto it = snapshot_.aux.find("lander");
+    if (it == snapshot_.aux.end()) {
+        return;
+    }
 
-    float ex = nx + dir_x * flame_len;
-    float ey = ny + dir_y * flame_len;
+    const auto lander = it->second;
+    const float x = lander[0].item<float>();
+    const float y = lander[1].item<float>();
+    const float angle = lander[4].item<float>();
 
-    wxPoint p1 = WorldToScreen(ex, ey, width, height);
+    constexpr float kLanderRadius = 0.25f;
 
-    // ====== 矢印本体 ======
-    dc.SetPen(wxPen(wxColour(250, 40, 40), 3));
+    float local_off_x = 0.0f;
+    float local_off_y = 0.0f;
+    float local_dir_x = 0.0f;
+    float local_dir_y = 0.0f;
+    float arrow_len = 0.0f;
+
+    if (action == 1) {
+        // --- Main Engine ---
+        local_off_y = -kLanderRadius;
+        local_dir_y = -1.0f;
+        arrow_len = kMainEngineForce;
+    } else if (action == 2 || action == 3) {
+        // --- Side Engine ---
+        const float h = kLanderRadius * 0.80f;
+        const float r = kLanderRadius;
+        const float dx = std::sqrt(std::max(0.0f, r * r - h * h));
+
+        local_off_y = h;
+
+        if (action == 2) {
+            // Left Engine
+            local_off_x = -dx;
+            local_dir_x = -1.0f;
+        } else {
+            // Right Engine
+            local_off_x = +dx;
+            local_dir_x = +1.0f;
+        }
+
+        arrow_len = kSideEngineForce * 3;
+    }
+    else {
+        return;
+    }
+
+    // --- 回転変換 ---
+    const float ca = std::cos(angle);
+    const float sa = std::sin(angle);
+
+    const float off_x =
+        local_off_x * ca - local_off_y * sa;
+    const float off_y =
+        local_off_x * sa + local_off_y * ca;
+
+    const float dir_x =
+        local_dir_x * ca - local_dir_y * sa;
+    const float dir_y =
+        local_dir_x * sa + local_dir_y * ca;
+
+    const float start_x = x + off_x;
+    const float start_y = y + off_y;
+
+    const wxPoint p0 =
+        WorldToScreen(start_x, start_y, width, height);
+
+    const wxPoint p1(
+        p0.x + static_cast<int>(std::round(dir_x * arrow_len)),
+        p0.y - static_cast<int>(std::round(dir_y * arrow_len)));
+
+    dc.SetPen(wxPen(wxColour(220, 0, 0), 2));
     dc.DrawLine(p0, p1);
 
-    // ====== arrowhead（細く、見やすく） ======
-    // perpendicular ベクトル
-    float px = -dir_y;
-    float py = dir_x;
+    // --- Arrow head ---
+    constexpr float head_len = 8.0f;
+    constexpr float head_ang = 0.5f;
 
-    const float head_len = 0.18f;      // 矢尻“長さ”
-    const float head_width = 0.12f;    // 矢尻“横幅”（狭め）
+    const float back_x = -dir_x;
+    const float back_y = -dir_y;
 
-    wxPoint h1 = WorldToScreen(
-        ex - dir_x * head_len + px * head_width,
-        ey - dir_y * head_len + py * head_width,
-        width, height);
+    const float hx1 =
+        back_x * std::cos(head_ang) - back_y * std::sin(head_ang);
+    const float hy1 =
+        back_x * std::sin(head_ang) + back_y * std::cos(head_ang);
 
-    wxPoint h2 = WorldToScreen(
-        ex - dir_x * head_len - px * head_width,
-        ey - dir_y * head_len - py * head_width,
-        width, height);
+    const float hx2 =
+        back_x * std::cos(-head_ang) - back_y * std::sin(-head_ang);
+    const float hy2 =
+        back_x * std::sin(-head_ang) + back_y * std::cos(-head_ang);
 
-    wxPoint headPts[3] = { p1, h1, h2 };
+    dc.DrawLine(
+        p1,
+        wxPoint(
+            p1.x + static_cast<int>(hx1 * head_len),
+            p1.y - static_cast<int>(hy1 * head_len)));
 
-    dc.SetBrush(wxBrush(wxColour(250, 40, 40)));
-    dc.DrawPolygon(3, headPts);
+    dc.DrawLine(
+        p1,
+        wxPoint(
+            p1.x + static_cast<int>(hx2 * head_len),
+            p1.y - static_cast<int>(hy2 * head_len)));
 }
-
 
 void LunarLanderCanvas::DrawWind(wxDC& dc, int width, int height)
 {
-    const float wind_x = snapshot_.wind_x;
-
-    const int margin = 15;
-    const int y = height - margin - 10;
-    const int center_x = width - 120;
-
-    dc.SetTextForeground(*wxBLACK);
-    dc.DrawText(wxString::Format("Wind: %.2f", wind_x), center_x - 40, y);
-
-    dc.SetPen(wxPen(*wxBLACK, 2));
-
-    const int base_len = 80;
-    const float k = std::clamp(std::abs(wind_x) / 20.0f, 0.1f, 1.0f);
-    const int len = static_cast<int>(base_len * k);
-
-    int x1 = center_x - len / 2;
-    int x2 = center_x + len / 2;
-    if (wind_x < 0.0f) {
-        std::swap(x1, x2);
-    }
-
-    dc.DrawLine(x1, y, x2, y);
-
-    const int arrow = 6;
-    if (wind_x > 0.0f) {
-        dc.DrawLine(x2, y, x2 - arrow, y - arrow);
-        dc.DrawLine(x2, y, x2 - arrow, y + arrow);
-    }
-    else if (wind_x < 0.0f) {
-        dc.DrawLine(x2, y, x2 + arrow, y - arrow);
-        dc.DrawLine(x2, y, x2 + arrow, y + arrow);
-    }
-}
-
-void LunarLanderCanvas::OnPaint(wxPaintEvent& event)
-{
-    wxAutoBufferedPaintDC dc(this);
-    dc.Clear();
-
-    if (!has_snapshot_) {
-        dc.DrawText("No snapshot", 10, 50);
+    auto it = snapshot_.aux.find("forces");
+    if (it == snapshot_.aux.end()) {
         return;
     }
 
-    const wxSize size = GetClientSize();
-    const int width = size.GetWidth();
-    const int height = size.GetHeight();
+    const float wind = it->second[0].item<float>();
+    dc.DrawText(wxString::Format("Wind: %.2f", wind), 10, height - 20);
+}
 
+void LunarLanderCanvas::DrawRL(wxDC& dc)
+{
     dc.SetTextForeground(*wxBLACK);
 
     // Step
@@ -356,18 +327,40 @@ void LunarLanderCanvas::OnPaint(wxPaintEvent& event)
         const float theta_deg = 180.0f / M_PI * theta;
         const float contact_left = snapshot_.state.obs[6].item<float>();
         const float contact_right = snapshot_.state.obs[7].item<float>();
+        const float x_dot = snapshot_.state.obs[2].item<float>();
+        const float y_dot = snapshot_.state.obs[3].item<float>();
+        const float theta_dot = snapshot_.state.obs[5].item<float>();
 
-        dc.DrawText(wxString::Format("(X Y θ°): (%.2f %.2f %.1f[%.2f])", x, y, theta_deg, theta), 10, 70);
+        dc.DrawText(wxString::Format("(X Y θ): (%.2f %.2f %.2f[%.1f])", x, y, theta, theta_deg), 10, 70);
         dc.DrawText(wxString::Format("Contact: (%.2f %.2f)", contact_left, contact_right), 10, 90);
+        dc.DrawText(wxString::Format("dot(X Y θ): (%.2f %.2f %.2f)", x_dot, y_dot, theta_dot), 10, 110);
     }
 
     // total_reward
     if (snapshot_.total_reward.has_value()) {
-        dc.DrawText(wxString::Format("Total reward: %.3f", snapshot_.total_reward.value()), 10, 110);
+        dc.DrawText(wxString::Format("Total reward: %.3f", snapshot_.total_reward.value()), 10, 130);
+    }
+}
+
+void LunarLanderCanvas::OnPaint(wxPaintEvent& event)
+{
+    wxAutoBufferedPaintDC dc(this);
+    dc.Clear();
+
+    if (!has_snapshot_) {
+        dc.DrawText("No snapshot", 10, 50);
+        return;
     }
 
+    const wxSize size = GetClientSize();
+    const int width = size.GetWidth();
+    const int height = size.GetHeight();
+
+    DrawRL(dc);
     DrawTerrain(dc, width, height);
     DrawPad(dc, width, height);
+    DrawLegs(dc, width, height);
     DrawLander(dc, width, height);
+    DrawThrust(dc, width, height);
     DrawWind(dc, width, height);
 }

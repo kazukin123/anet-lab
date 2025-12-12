@@ -184,88 +184,25 @@ UISnapshot LunarLanderApp::CreateSnapshot(anet::rl::TrainEvent event)
 {
     anet::ProfileRange r1("CreateSnapshot");
 
-    auto train_step = event.counts.train_step;
-    auto exps = event.batch_exp.ToExperienceList();
-    ANET_ASSERT(exps.size() > 0);
+    ANET_LOG_DEBUG("batch_step_result=" << event.batch_step_result.ToString());
 
-    const int env_index = 0;
-    auto exp = exps[env_index];
+    const int ENV_INDEX = 0;
     
     // RL由来情報
+    auto train_step = event.counts.train_step;
     anet::rl::SingleState state = {
-        event.batch_step_result.continue_state.obs[0],
-        event.batch_step_result.continue_state.done[0].item<bool>(),
-        event.batch_step_result.continue_state.truncated[0].item<bool>(),
-        event.batch_step_result.continue_state.episode_start[0].item<bool>(),
+        event.batch_step_result.next_state.obs[ENV_INDEX],
+        event.batch_step_result.next_state.done[ENV_INDEX].item<bool>(),
+        event.batch_step_result.next_state.truncated[ENV_INDEX].item<bool>(),
+        event.batch_step_result.next_state.episode_start[ENV_INDEX].item<bool>(),
     };
-    auto action = event.batch_exp.action.action[0].item<int64_t>();
-    auto reward = event.batch_exp.reward[0].item<float>();
+    auto action = event.batch_exp.action.action[ENV_INDEX].item<int64_t>();
+    auto reward = event.batch_exp.reward[ENV_INDEX].item<float>();
+    const auto& aux = event.batch_step_result.auxs[ENV_INDEX];
 
-    // 一旦UISnapshotを作る
-    UISnapshot snapshot{ train_step, state, action, reward };
+    // Snapshotを作る
+    UISnapshot snapshot{ train_step, state, action, reward, aux };
 
-    // ---- wind_x ----
-    {
-        auto w = event.env->GetScalar("wind_x", env_index);
-        snapshot.wind_x = w.has_value() ? *w : 0.0f;  // fallback
-    }
-    // ---- pad ----
-    {
-        auto t = event.env->GetTensor("pad", env_index);
-        if (t.has_value()) {
-            const auto& pad_tensor = *t;
-            ANET_ASSERT(pad_tensor.size(0) == 3);
-            snapshot.pad.x1 = pad_tensor[0].item<float>();
-            snapshot.pad.x2 = pad_tensor[1].item<float>();
-            snapshot.pad.y = pad_tensor[2].item<float>();
-        }
-    }
-    // ---- legs ----
-    {
-        auto t = event.env->GetTensor("legs", env_index);
-        if (t.has_value()) {
-            const auto& legs_tensor = *t;
-            ANET_ASSERT(legs_tensor.size(0) == 8);
-            snapshot.legs.left_leg.x0 = legs_tensor[0].item<float>();
-            snapshot.legs.left_leg.y0 = legs_tensor[1].item<float>();
-            snapshot.legs.left_leg.x1 = legs_tensor[2].item<float>();
-            snapshot.legs.left_leg.y1 = legs_tensor[3].item<float>();
-            snapshot.legs.right_leg.x0 = legs_tensor[4].item<float>();
-            snapshot.legs.right_leg.y0 = legs_tensor[5].item<float>();
-            snapshot.legs.right_leg.x1 = legs_tensor[6].item<float>();
-            snapshot.legs.right_leg.y1 = legs_tensor[7].item<float>();
-        }
-    }
-    // ---- world bounds ----
-    {
-        auto t = event.env->GetTensor("world_bounds", env_index);
-        if (t.has_value()) {
-            const auto& b = *t;
-            ANET_ASSERT(b.size(0) == 4);
-            snapshot.world_min_x = b[0].item<float>();
-            snapshot.world_max_x = b[1].item<float>();
-            snapshot.world_min_y = b[2].item<float>();
-            snapshot.world_max_y = b[3].item<float>();
-        }
-    }
-    // ---- terrain polyline ----
-    //if (exp.state.episode_start) {    /// @todo episode_start判定
-    {
-        auto tv = event.env->GetTensorVector("terrain", env_index);
-        if (tv.has_value()) {
-            TerrainPolyline poly;
-            for (auto& pt : *tv) {
-                ANET_ASSERT(pt.size(0) == 2);
-                TerrainPoint p{
-                    pt[0].item<float>(),
-                    pt[1].item<float>()
-                };
-                poly.points.push_back(p);
-            }
-            snapshot.terrain = poly;
-        }
-    }
-    
     return snapshot;
 }
 

@@ -36,22 +36,13 @@ struct UISnapshot
     std::int64_t action;
     float reward;
 
-    /// @todo 毎回取る情報と取らない情報を分離整理
+    // ENV由来情報
+    std::unordered_map<std::string, torch::Tensor> aux;
 
-    // ENV非可観測情報
-    std::optional<TerrainPolyline> terrain;  // episode_start時のみセット
-    Legs legs;                // 脚の座標情報
-    LunarLanderEnv::PadInfo pad;             // 着陸パッド情報
-
-    float wind_x;                            // 毎step更新
-
-    // world transform (Canvas描画座標系)
-    float world_min_x;
-    float world_max_x;
-    float world_min_y;
-    float world_max_y;
-
+    // 表示用情報
     std::optional<float> total_reward;
+
+    /// @todo 毎回取る情報と取らない情報を分離整理
 };
 
 class UISnapshotStore {

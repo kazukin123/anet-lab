@@ -233,7 +233,6 @@ struct DefaultTrainer::Config : public anet::Config
     }
 };
 
-
 DefaultTrainer::DefaultTrainer(const ConfigData& config_data, const std::string& config_prefix)
     : RunnerBase()
     , config_(std::make_unique<Config>(config_data, config_prefix))
@@ -498,6 +497,8 @@ void RunnerThread::Start()
 // Trainerスレッド停止＆停止待ち合わせ
 void RunnerThread::Stop()
 {
+    ANET_LOG_DEBUG("BEGIN");
+
     // 実行中なら
     if (running_.load()) {
         // 実行中フラグを落とす
@@ -507,11 +508,13 @@ void RunnerThread::Stop()
     // スレッド終了待ち合わせ
     if (worker_.joinable())
         worker_.join();
+
+    ANET_LOG_DEBUG("END");
 }
 
 void RunnerThread::ThreadMain()
 {
-    ANET_LOG_DEBUG("Train thread begin.");
+    ANET_LOG_DEBUG("BEGIN");
 
     // Trainループ
     while (running_.load()) {
@@ -527,4 +530,6 @@ void RunnerThread::ThreadMain()
         auto status = runner_->GetStatus();
         if (status == anet::rl::RunnerStatus::COMPLETED) break;
     }
+
+    ANET_LOG_DEBUG("END");
 }

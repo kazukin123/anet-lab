@@ -14,8 +14,6 @@ namespace {
     // ボディのサイズなどは Gym をざっくり参考にした値
     constexpr float kLanderDensity = 5.0f;
     constexpr float kLegDensity = 1.0f;
-    constexpr float kMainEngineForce = 40.0f;
-    constexpr float kSideEngineForce = 10.0f;
 
     // 脚の定義
     constexpr float kLegLength = 0.35f;
@@ -115,14 +113,14 @@ LunarLanderEnv::LunarLanderEnv(
     : anet::RandomHolder(seed)
     , config_(config)
 {
+    ANET_LOG_DEBUG("seed=" << this->GetSeed());
+
     anet::MetricsLogger::Instance()->LogJson(
         "LunarLanderEnvConfig",
         config_.ToJson());
     anet::MetricsLogger::Instance()->Flush();
 
-    obs_opt_ = torch::TensorOptions()
-        .dtype(torch::kFloat32)
-        .device(device);
+    obs_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
 
     buildWorld();
 }
@@ -170,54 +168,67 @@ void LunarLanderEnv::buildGround()
     const float half_w = config_.world_half_width;
     const float ground_y = config_.ground_y;
 
-    // 着陸パッドは中央の一定区間とする
-    pad_info_.x1 = -half_w * 0.25f;
-    pad_info_.x2 = half_w * 0.25f;
+    // --- Pad 定義 ---
+    pad_info_.x1 = -kLegOffsetX * 1.5f;
+    pad_info_.x2 = +kLegOffsetX * 1.5f;
     pad_info_.y = ground_y;
 
-    // === ランダム地形 polyline 生成 ===
-
-    // 頂点数は 2 以上に制限
-    int point_count = std::max(2, config_.terrain_point_count);
     const float min_x = -half_w;
-    const float max_x = half_w;
-    const float dx = (max_x - min_x) / static_cast<float>(point_count - 1);
+    const float max_x = +half_w;
 
-    terrain_points_.reserve(static_cast<size_t>(point_count));
+    const int total_points = std::max(2, config_.terrain_point_count);
+    const int left_points =
+        std::max(2, static_cast<int>(total_points *
+            (pad_info_.x1 - min_x) / (max_x - min_x)));
+    const int right_points =
+        std::max(2, total_points - left_points);
 
-    for (int i = 0; i < point_count; ++i) {
-        const float x = min_x + dx * static_cast<float>(i);
+    // --- 左側地形 ---
+    {
+        const float dx =
+            (pad_info_.x1 - min_x) / static_cast<float>(left_points - 1);
 
-        float y = ground_y;
-        if (x >= pad_info_.x1 && x < pad_info_.x2) {
-            // パッド区間は平坦
-            y = pad_info_.y;
-        }
-        else {
-            // パッド以外はノイズで高さを付与
+        for (int i = 0; i < left_points; ++i) {
+            const float x = min_x + dx * static_cast<float>(i);
             const float noise =
-                rnd_->Uniform(-config_.terrain_noise_height, config_.terrain_noise_height);
-            y = ground_y + noise;
+                rnd_->Uniform(-config_.terrain_noise_height,
+                    config_.terrain_noise_height);
+            const float y = ground_y + noise;
+            terrain_points_.emplace_back(x, y);
         }
-
-        terrain_points_.push_back(b2Vec2(x, y));
     }
 
-    // === Box2D 地形 Body / Fixture 構築 ===
+    // --- Pad（完全に水平） ---
+    terrain_points_.emplace_back(pad_info_.x1, pad_info_.y);
+    terrain_points_.emplace_back(pad_info_.x2, pad_info_.y);
 
+    // --- 右側地形 ---
+    {
+        const float dx =
+            (max_x - pad_info_.x2) / static_cast<float>(right_points - 1);
+
+        for (int i = 1; i < right_points; ++i) {
+            const float x = pad_info_.x2 + dx * static_cast<float>(i);
+            const float noise =
+                rnd_->Uniform(-config_.terrain_noise_height,
+                    config_.terrain_noise_height);
+            const float y = ground_y + noise;
+            terrain_points_.emplace_back(x, y);
+        }
+    }
+
+    // --- Box2D Body ---
     b2BodyDef ground_def;
     ground_def.position.Set(0.0f, 0.0f);
     ground_body_ = world_->CreateBody(&ground_def);
 
-    // polyline の各区間を EdgeShape としてつなげる
-    /// @todo Gym lunar_lander.py の地形生成アルゴリズムと比較して調整する。
     for (size_t i = 0; i + 1 < terrain_points_.size(); ++i) {
         b2EdgeShape edge;
         edge.SetTwoSided(terrain_points_[i], terrain_points_[i + 1]);
         b2FixtureDef fd;
         fd.shape = &edge;
-        fd.density = 0.0f;        // Static body
-        fd.restitution = 0.1f;    // 反発係数：Gym と合わせるなら 0.0〜0.1
+        fd.density = 0.0f;
+        fd.restitution = 0.1f;
         fd.friction = 0.5f;
         ground_body_->CreateFixture(&fd);
     }
@@ -383,13 +394,13 @@ void LunarLanderEnv::applyActionForce(int64_t action)
     case 2: { // left engine
         b2Vec2 force(-kSideEngineForce, kSideEngineForce * 0.5f);
         lander_body_->ApplyForceToCenter(force, true);
-        lander_body_->ApplyTorque(5.0f, true);
+        lander_body_->ApplyTorque(-kSideEngineTorque, true);
         break;
     }
     case 3: { // right engine
         b2Vec2 force(kSideEngineForce, kSideEngineForce * 0.5f);
         lander_body_->ApplyForceToCenter(force, true);
-        lander_body_->ApplyTorque(-5.0f, true);
+        lander_body_->ApplyTorque(+kSideEngineTorque, true);
         break;
     }
     default:
@@ -507,7 +518,7 @@ float LunarLanderEnv::computeShaping(
     const float speed = std::sqrt(vx * vx + vy * vy);
 
     float shaping = 0.0f;
-    shaping += -100.0f * dist;
+    shaping += -400.0f * dist;
     shaping += -100.0f * speed;
     shaping += -100.0f * std::abs(angle);
     shaping += 10.0f * left_contact;
@@ -579,10 +590,8 @@ anet::rl::SingleStepResult LunarLanderEnv::Step(int64_t action, anet::rl::RunMod
 
     const float reward = calcReward(state, crashed, landed);
 
-    anet::rl::SingleStepResult result{
-        reward,
-        state
-    };
+    anet::rl::SingleStepResult result { reward, state, CreateAux() };
+
     return result;
 }
 
@@ -590,51 +599,6 @@ struct Segment {
     b2Vec2 p0;
     b2Vec2 p1;
 };
-
-//static Segment getLegSegment(const b2Body* leg_body, float leg_length)
-//{
-//    const b2Vec2 c = leg_body->GetPosition();
-//    const float a = leg_body->GetAngle();
-//
-//    // 脚のローカルY軸方向（下向き）
-//    const b2Vec2 dir(std::sin(a), -std::cos(a));
-//
-//    const float half = leg_length * 0.5f;
-//
-//    Segment s;
-//    s.p0 = c + half * dir; // 足先
-//    s.p1 = c - half * dir; // 付け根
-//    return s;
-//}
-
-//static Segment getLegSegment(const b2Body* leg_body, float leg_length)
-//{
-//    const b2Vec2 center = leg_body->GetPosition();
-//    const float angle = leg_body->GetAngle();
-//
-//    // Box2D 正式：ローカル -Y 方向
-//    const b2Vec2 dir(-std::sin(angle), std::cos(angle));
-//    const float half = leg_length * 0.5f;
-//
-//    Segment s;
-//    s.p0 = center + half * dir; // 足先
-//    s.p1 = center - half * dir; // 付け根
-//    return s;
-//}
-
-//static Segment getLegSegment(const b2Body* leg_body, float leg_length)
-//{
-//    const b2Vec2 center = leg_body->GetPosition();
-//
-//    // 脚の「下向き」方向（ローカル -Y）
-//    const b2Vec2 down = -leg_body->GetWorldVector(b2Vec2(0.0f, 1.0f));
-//    const float half = leg_length * 0.5f;
-//
-//    Segment s;
-//    s.p0 = center + half * down; // 足先
-//    s.p1 = center - half * down; // 付け根
-//    return s;
-//}
 
 static Segment getLegSegment(const b2Body* leg_body, float leg_length)
 {
@@ -722,6 +686,116 @@ LunarLanderEnv::GetTensorVector(const std::string& key, int index) const
     }
 
     return std::nullopt;
+}
+
+std::unordered_map<std::string, torch::Tensor> LunarLanderEnv::CreateAux()
+{
+    std::unordered_map<std::string, torch::Tensor> aux;
+
+    if (!lander_body_) {
+        return aux;
+    }
+
+    // --- world 定義（描画用・不変） ---
+    {
+        const float min_x = -config_.world_half_width;
+        const float max_x = +config_.world_half_width;
+        const float min_y = config_.ground_y - config_.terrain_noise_height;
+        const float max_y = config_.ground_y + config_.world_height;
+
+        aux.emplace(
+            "world",
+            torch::tensor(
+                { min_x, max_x, min_y, max_y },
+                obs_opt_));
+    }
+    // --- Lander 本体 ---
+    {
+        const b2Vec2 pos = lander_body_->GetPosition();
+        const b2Vec2 vel = lander_body_->GetLinearVelocity();
+        const float angle = lander_body_->GetAngle();
+        const float angular_vel = lander_body_->GetAngularVelocity();
+
+        aux.emplace(
+            "lander",
+            torch::tensor(
+                { pos.x, pos.y, vel.x, vel.y, angle, angular_vel },
+                obs_opt_));
+    }
+
+    // --- 脚セグメント ---
+    {
+        auto left = getLegSegment(left_leg_body_, kLegLength);
+        auto right = getLegSegment(right_leg_body_, kLegLength);
+
+        aux.emplace(
+            "legs",
+            torch::tensor(
+                {
+                    left.p0.x,  left.p0.y,  left.p1.x,  left.p1.y,
+                    right.p0.x, right.p0.y, right.p1.x, right.p1.y
+                },
+                obs_opt_));
+    }
+
+    // --- パッド ---
+    {
+        aux.emplace(
+            "pad",
+            torch::tensor(
+                { pad_info_.x1, pad_info_.x2, pad_info_.y },
+                obs_opt_));
+    }
+
+    // --- 地形（terrain polyline） ---
+    {
+        const size_t n = terrain_points_.size();
+        if (n > 0) {
+            torch::Tensor terrain = torch::empty({ static_cast<long>(n), 2 }, obs_opt_);
+
+            for (size_t i = 0; i < n; ++i) {
+                terrain[i][0] = terrain_points_[i].x;
+                terrain[i][1] = terrain_points_[i].y;
+            }
+
+            aux.emplace("terrain", terrain);
+        }
+    }
+
+    // --- 接地フラグ（物理真値） ---
+    {
+        aux.emplace(
+            "contacts",
+            torch::tensor(
+                {
+                    left_leg_contact_ ? 1.0f : 0.0f,
+                    right_leg_contact_ ? 1.0f : 0.0f
+                },
+                obs_opt_));
+    }
+
+    // --- joint 情報 ---
+    if (left_leg_joint_ && right_leg_joint_) {
+        aux.emplace(
+            "joint_angle",
+            torch::tensor(
+                {
+                    left_leg_joint_->GetJointAngle(),
+                    right_leg_joint_->GetJointAngle()
+                },
+                obs_opt_));
+    }
+
+    // --- 推力・風 ---
+    {
+        aux.emplace(
+            "forces",
+            torch::tensor(
+                { last_wind_x_ },
+                obs_opt_));
+    }
+
+    return aux;
 }
 
 // ===== Factory =====

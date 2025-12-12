@@ -2,15 +2,15 @@
 LunarLanderApp.$ = LunarLanderApp.online
 #LunarLanderApp.$ = LunarLanderApp.batchrun
 
-#train.seed = 8652243831821134381
+#train.seed = 15308168817357534720
 
 train.batch_size = 10
 #train.batch_size = 1
 
 LunarLanderApp.enable_image_log = false      # default=true
 
-metrics.scalar.$ = metrics.scalar.min
-#metrics.scalar.$ = metrics.scalar.full
+#metrics.scalar.$ = metrics.scalar.min
+metrics.scalar.$ = metrics.scalar.full
 
 DQNAgent.$ = agent_trunk
 #DQNAgent.$ = agent_20251127-032759
@@ -23,6 +23,7 @@ DQNAgent.$ = agent_trunk
     #   @event   : (default: @train) @learn || @train
     #   &step    : &train_step || &learn_step || &episode_step || &exp_step || &update_step || &sim_step
     #   $target  : $update_result || $agent || $exp || $runner
+
 
 metrics.scalar.min.[10_train/10_total_reward] = train_reward  $runner @train $ema
 metrics.scalar.min.[21_eval/01_target_reward] = $runner target_eval_reward @learn
@@ -54,15 +55,15 @@ metrics.scalar.full.[38_agent_dqn_loss/01_loss] = loss @learn
 metrics.scalar.full.[38_agent_dqn_loss/02_loss_ema] = loss_ema @learn
 metrics.scalar.full.[32_agent_dqn_base/10_collapse_s] = collapse_s @learn
 metrics.scalar.full.[32_agent_dqn_base/11_collapse_l] = collapse_l @learn
-metrics.scalar.full.[33_agent_dqn_action/01_act_diff_ema] = act_diff_ema @learn
-metrics.scalar.full.[33_agent_dqn_action/02_act_unstable] = act_unstable @learn
-metrics.scalar.full.[33_agent_dqn_action/03_act_unstable_ema] = act_unstable_ema @learn
+#metrics.scalar.full.[33_agent_dqn_action/01_act_diff_ema] = act_diff_ema @learn
+#metrics.scalar.full.[33_agent_dqn_action/02_act_unstable] = act_unstable @learn
+#metrics.scalar.full.[33_agent_dqn_action/03_act_unstable_ema] = act_unstable_ema @learn
 metrics.scalar.full.[37_agent_dqn_qtd/31_q_z] = q_z @learn
 metrics.scalar.full.[37_agent_dqn_qtd/32_q_cv] = q_cv @learn
 metrics.scalar.full.[37_agent_dqn_qtd/33_q_niqr] = q_niqr @learn
 metrics.scalar.full.[37_agent_dqn_qtd/34_q_unstable] = q_unstable @learn
 metrics.scalar.full.[37_agent_dqn_qtd/35_q_unstable_ema] = q_unstable_ema @learn
-metrics.scalar.full.[37_agent_dqn_qtd/41_e_t] = e_t @learn
+#metrics.scalar.full.[37_agent_dqn_qtd/41_e_t] = e_t @learn
 metrics.scalar.full.[37_agent_dqn_qtd/42_s] = s @learn
 metrics.scalar.full.[37_agent_dqn_qtd/43_s_ema] = s_ema @learn
 metrics.scalar.full.[37_agent_dqn_qtd/46_unstable_ema] = unstable_ema @learn
@@ -78,8 +79,8 @@ metrics.scalar.full.[90_perf/90_elapse_hour] = elapse_hour @train $runner interv
 
 # ---- trunk
 agent_trunk.nn_init_mode=1          # ★ 0=default、1=XavierUniform、2=HeNormal
-#agent_trunk.alpha=5e-4              # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-agent_trunk.alpha=1e-3             # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+agent_trunk.alpha=5e-4              # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+#agent_trunk.alpha=1e-3             # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
 agent_trunk.gamma=0.99              # ★ 0.99f; 0.995f      γが高いほど「長期安定」を目指す
 agent_trunk.eps_max=1.00            # 指数減衰  
 agent_trunk.eps_min=0.05            # 0.1f 0.05f
@@ -202,11 +203,11 @@ LunarLanderEnv.easy.ground_y = 0.0
 LunarLanderEnv.normal.enable_wind = true
 LunarLanderEnv.normal.wind_power = 15.0
 LunarLanderEnv.normal.terrain_point_count = 10 #21
-LunarLanderEnv.normal.terrain_noise_height = 0.2
+LunarLanderEnv.normal.terrain_noise_height = 0.3
 
 LunarLanderEnv.limit_step = 1000;
-LunarLanderEnv.world_half_width = 1.5
-LunarLanderEnv.world_height = 2.0 #2.0
+LunarLanderEnv.world_half_width = 2.5
+LunarLanderEnv.world_height = 4.0 #2.0
 LunarLanderEnv.ground_y = 0.5
 LunarLanderEnv.gravity_y = -10.0
 LunarLanderEnv.wind_power = 15.0

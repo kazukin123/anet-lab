@@ -11,8 +11,10 @@
 #include "anet/rl.hpp"
 
 
-/// Lander本体（円形）の半径
-constexpr float kLanderRadius = 0.25f;
+constexpr float kMainEngineForce = 40.0f;   ///< メインエンジンの推力
+constexpr float kSideEngineForce = 10.0f;   ///< サイドエンジンの推力
+constexpr float kSideEngineTorque = 5.0f;   ///< サイドエンジンの回転トルク
+constexpr float kLanderRadius = 0.25f;      ///< Lander本体（円形）の半径
 
 /// LunarLander 環境の設定
 struct LunarLanderEnvConfig : public anet::Config {
@@ -123,6 +125,7 @@ private:
     bool checkCrash() const;
     bool checkLanded() const;
 
+    std::unordered_map<std::string, torch::Tensor> CreateAux();
 private:
     LunarLanderEnvConfig config_;
     torch::TensorOptions obs_opt_;

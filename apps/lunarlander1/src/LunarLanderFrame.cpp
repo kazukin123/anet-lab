@@ -71,6 +71,7 @@ LunarLanderFrame::LunarLanderFrame(const wxString& title, int train_timer_ms, in
     Bind(wxEVT_CHAR_HOOK, &LunarLanderFrame::OnKeyDown, this);
     Bind(wxEVT_TIMER, &LunarLanderFrame::OnTrainTimer, this, train_timer_.GetId());
     Bind(wxEVT_TIMER, &LunarLanderFrame::OnEvalTimer, this, eval_timer_.GetId());
+    Bind(wxEVT_CLOSE_WINDOW, &LunarLanderFrame::OnCloseWindow, this, eval_timer_.GetId());
 
     // タイマー開始
     train_timer_.Start(train_timer_ms);  // 学習＆描画更新
@@ -186,9 +187,16 @@ void LunarLanderFrame::OnKeyDown(wxKeyEvent& event)
     case WXK_LEFT: action = 2; break;   // LEFT ENGINE
     case WXK_RIGHT: action = 3; break;  // RIGHT ENGINE
     default:
+        eval_runner_->DoStep();
+        eval_canvas_->Refresh();
         return;
     }
 
     eval_runner_->DoStep(action);
     eval_canvas_->Refresh();
+}
+
+void LunarLanderFrame::OnCloseWindow(wxCloseEvent& event)
+{
+    wxGetApp().StopTraining();
 }
