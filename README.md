@@ -22,28 +22,32 @@ TODO：実行手順を書く
 	* 強化学習基本インタフェース 
 	* Double DQN Agent実装
 	* CartPole環境APP実装
+	* LunarLander環境APP実装
 * メトリクス
-	* MetricsViewer.java：フェーズ1.5：差分ロード
-	* MetricsViewer.java：フェーズ1.0(基本機能)
+	* MetricsViewer.java：フェーズ1.5：基本機能、差分ロード
 	* TensorBoard対応（ブリッジpyスクリプト経由）
 	* Ploty＋pythonによる独自グラフ出力
 	* ヒストグラムやヒートマップの時系列動画出力（ffmpeg利用）
-* AP改善
-	* 設定情報をいい感じにメトリクスとして記録
-	* 設定ファイル
+* AP機能
+	* CUDAによる高速処理
+	* N環境スレッド対応
+	* seed値指定
+	* 設定でメトリクス定義
+	* 設定の継承読み込み
+	* 学習と推論の表示分離
 
 ### DOING
 
 * 学習アルゴリズム
 * メトリクス
 * AP改善
-	* リファクタリング：DDQNAgent実装整理
-	* リファクタリング：可視化関連
+	* 評価RunnerでENVとAPの個別RunMode指定
+	* 同じクラスでインスタンス別の設定キー
 
 ### TODO
 
 * 学習アルゴリズム
-	* Rainbow-Lite対応
+	* Rainbow対応
 * メトリクス
 	* MetricsViewer.java：フェーズ1.5：ハイパラ表示対応
 	* MetricsViewer.java：フェーズ1.5：Loadingスケジュール最適化
@@ -53,14 +57,10 @@ TODO：実行手順を書く
 	* ヒートマップ：ヒストグラムTB対応
 	* TB:add_hparams対応
 * AP改善
-	* N環境スレッド対応
-
 	* コマンドライン引数でRun名を指定
 	* Runフォルダに設定内容ダンプを残す
-	* 設定の継承読み込み
 	* TODOコメントいれまくり
 	* constいれまくり
-	* 学習と推論の表示分離
 	* GPU対応向けソース可読性向上
 	* ヒートマップ：サンプリング量で書き出しタイミング制御
 
@@ -77,7 +77,6 @@ TODO：実行手順を書く
 	* Adaptive α-schedule
 * メトリクス
 * AP改善
-	* マルチスレッド対応（危険）
 	* 起動時にRun名をプロンプト
 
 ## 備考

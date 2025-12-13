@@ -14,6 +14,9 @@ EVT_LEFT_DOWN(LunarLanderCanvas::OnMouseLeftClick)
 EVT_RIGHT_DOWN(LunarLanderCanvas::OnMouseRightClick)
 wxEND_EVENT_TABLE()
 
+using anet::ToBool;
+using anet::ToFloat;
+
 
 LunarLanderCanvas::LunarLanderCanvas(wxWindow* parent)
     : wxPanel(parent, wxID_ANY, wxDefaultPosition)//, wxSize(400, 400))
@@ -35,6 +38,8 @@ void LunarLanderCanvas::OnMouseRightClick(wxMouseEvent& event)
 
 void LunarLanderCanvas::SetUISnapshot(const UISnapshot& snapshot)
 {
+    //ANET_LOG_DEBUG("aux=" << anet::ToString(snapshot_.aux));
+
     has_snapshot_ = true;
     snapshot_ = snapshot;
 
@@ -59,10 +64,7 @@ void LunarLanderCanvas::SetUISnapshot(const UISnapshot& snapshot)
 }
 
 wxPoint LunarLanderCanvas::WorldToScreen(
-    float wx,
-    float wy,
-    int width,
-    int height) const
+    float wx, float wy, int width, int height) const
 {
     const int margin = 40;
 
@@ -73,12 +75,19 @@ wxPoint LunarLanderCanvas::WorldToScreen(
     const float sy = static_cast<float>(height - 2 * margin) / world_h;
     const float scale = std::min(sx, sy);
 
-    const float x = margin + (wx - world_min_x_) * scale;
-    const float y = height - (margin + (wy - world_min_y_) * scale);
+    // world 中心
+    const float world_cx = 0.5f * (world_min_x_ + world_max_x_);
+    const float world_cy = 0.5f * (world_min_y_ + world_max_y_);
 
-    return wxPoint(
-        static_cast<int>(std::round(x)),
-        static_cast<int>(std::round(y)));
+    // canvas 中心
+    const float canvas_cx = 0.5f * width;
+    const float canvas_cy = 0.5f * height;
+
+    // 中心基準変換
+    const float x = canvas_cx + (wx - world_cx) * scale;
+    const float y = canvas_cy - (wy - world_cy) * scale;
+
+    return wxPoint(static_cast<int>(x), static_cast<int>(y));
 }
 
 int LunarLanderCanvas::WorldToScreen(float size, int width, int height) const
@@ -168,17 +177,38 @@ void LunarLanderCanvas::DrawLegs(wxDC& dc, int width, int height)
         return;
     }
 
-    const auto l = it->second;
+    auto it2 = snapshot_.aux.find("contacts");
+    bool left_contact = false;
+    bool right_contact = false;
+    if (it2 != snapshot_.aux.end()) {
+        left_contact = ToBool(it2->second[0]);
+        right_contact = ToBool(it2->second[1]);
+    }
 
-    dc.SetPen(wxPen(*wxBLUE, 2));
+    ANET_LOG_DEBUG("left_contact=" << left_contact);
+    ANET_LOG_DEBUG("right_contact=" << right_contact);
 
-    dc.DrawLine(
-        WorldToScreen(l[0].item<float>(), l[1].item<float>(), width, height),
-        WorldToScreen(l[2].item<float>(), l[3].item<float>(), width, height));
+    const auto legs = it->second;
 
-    dc.DrawLine(
-        WorldToScreen(l[4].item<float>(), l[5].item<float>(), width, height),
-        WorldToScreen(l[6].item<float>(), l[7].item<float>(), width, height));
+    {
+        if (left_contact)
+            dc.SetPen(wxPen(*wxGREEN, 2));
+        else
+            dc.SetPen(wxPen(*wxBLUE, 2));
+        dc.DrawLine(
+            WorldToScreen(ToFloat(legs[0]), ToFloat(legs[1]), width, height),
+            WorldToScreen(ToFloat(legs[2]), ToFloat(legs[3]), width, height));
+    }
+
+    {
+        if (right_contact)
+            dc.SetPen(wxPen(*wxGREEN, 2));
+        else
+            dc.SetPen(wxPen(*wxBLUE, 2));
+        dc.DrawLine(
+            WorldToScreen(legs[4].item<float>(), legs[5].item<float>(), width, height),
+            WorldToScreen(legs[6].item<float>(), legs[7].item<float>(), width, height));
+    }
 }
 
 void LunarLanderCanvas::DrawThrust(wxDC& dc, int width, int height)

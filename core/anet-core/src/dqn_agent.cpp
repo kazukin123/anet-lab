@@ -824,6 +824,8 @@ DQNAgent::DQNAgent(
     , policy_net_(std::make_shared<QNetImpl>(state_count_, n_actions_))
     , target_net_(std::make_shared<QNetImpl>(state_count_, n_actions_))
 {
+    ANET_LOG_DEBUG("seed=" << GetSeed());
+
     //seed
     anet::SeedMaker seed_maker(GetSeed());
     auto replay_seed = seed_maker.MakeNamedSeed("replaybuffer");
@@ -889,7 +891,7 @@ anet::rl::BatchActionInfo DQNAgent::MakeAction(
 
     auto flat_state = state.Flatten();
     auto flat_obs = flat_state.obs.to(device_);
-    bool greedy_only = (mode == anet::rl::RunMode::Eval1 || mode == anet::rl::RunMode::Eval2);
+    bool greedy_only = anet::rl::IsEval(mode);
 
     torch::NoGradGuard ng;
     std::shared_lock<std::shared_mutex> lock(mutex_);

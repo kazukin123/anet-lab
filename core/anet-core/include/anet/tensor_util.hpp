@@ -42,10 +42,18 @@ namespace anet {
         return t.detach().to(dev);
     }
 
-    // スカラ取得（GPU→CPU同期を含む）※今回は現状維持する方針
+    // スカラ取得（GPU→CPU同期を含む）
     template<typename T = float>
     inline T ToScalar(const torch::Tensor& t) {
         return t.cpu().item<T>();
+    }
+
+    inline float ToFloat(const torch::Tensor& t) {
+        return t.cpu().item<float>();
+    }
+
+    inline bool ToBool(const torch::Tensor& t) {
+        return t.cpu().item<bool>();
     }
 
     // =========================

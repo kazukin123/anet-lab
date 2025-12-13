@@ -184,7 +184,8 @@ namespace anet::rl {
             const ConfigData& config_data,
             const torch::Device& device,
             anet::rl::RunMode runmode_ = anet::rl::RunMode::Eval,
-            int log_interval = 10, int eval_interval = 10);
+            int log_interval = 10, int eval_interval = 10,
+            std::optional<seed_t> seed = std::nullopt);
 
         void OnLearn(const LearnEvent& event) override;
         std::string ToString() const override;

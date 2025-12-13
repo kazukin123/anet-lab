@@ -363,11 +363,12 @@ EpisodeEvalObserver::EpisodeEvalObserver(
     std::shared_ptr<anet::rl::SingleDiscreteEnvFactory> eval_env_factory,
 	const ConfigData& config_data,
     const torch::Device& device,
-    anet::rl::RunMode runmode, int log_interval, int eval_inerval)
+    anet::rl::RunMode runmode, int log_interval, int eval_inerval,
+    std::optional<seed_t> seed)
     : report_function_(std::move(report_function))
     , runmode_(runmode), log_interval_(log_interval), eval_interval_(eval_inerval)
 {
-    env_ = std::make_unique<VectorizedDiscreteBatchEnv>(config_data, eval_env_factory, 1, device);
+    env_ = std::make_unique<VectorizedDiscreteBatchEnv>(config_data, eval_env_factory, 1, device, seed);
 }
 
 void EpisodeEvalObserver::OnLearn(const LearnEvent& event)

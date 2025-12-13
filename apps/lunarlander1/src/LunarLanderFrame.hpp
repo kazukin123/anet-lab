@@ -26,7 +26,9 @@ private:
     void OnMouseLeftClick(wxMouseEvent& event);
     void OnMouseRightClick(wxMouseEvent& event);
     void OnKeyDown(wxKeyEvent& event);
-    void OnCloseWindow(wxCloseEvent& event);
+    void OnClose(wxCloseEvent& event);
+private:
+    void ToggleEval();
 private:
     LunarLanderCanvas* train_canvas_ = nullptr;
     LunarLanderCanvas* eval_canvas_ = nullptr;

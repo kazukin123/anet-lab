@@ -254,6 +254,7 @@ RunnerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
     auto global_seed = master_seed_->GetMasterSeed();
     auto env_seed = master_seed_->GetGroupSeed("env");
     auto agent_seed = master_seed_->GetGroupSeed("agent");
+    auto eval_obs_seed = master_seed_->GetGroupSeed("eval_obs");
     LOG::info() << "global_seed=" << global_seed << " env_seed=" << env_seed << " agent_seed=" << agent_seed;
 
     // パラメータ記録
@@ -308,14 +309,14 @@ RunnerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
             this->last_target_eval_reward_ = total_reward;
         },
         single_env_factory, config_data, env_device, anet::rl::RunMode::Eval1,
-        config_->eval_interval, config_->eval_interval);
+        config_->eval_interval, config_->eval_interval, eval_obs_seed);
     notifier_->Attach<anet::rl::EpisodeEvalObserver>(
         [this](float total_reward)
         {
             this->last_policy_eval_reward_ = total_reward;
         },
         single_env_factory, config_data, env_device, anet::rl::RunMode::Eval2,
-        config_->eval_interval, config_->eval_interval);
+        config_->eval_interval, config_->eval_interval, eval_obs_seed);
 
     // 設定からObserverを生成して登録
     anet::rl::ObserverFactory factory(config_data);

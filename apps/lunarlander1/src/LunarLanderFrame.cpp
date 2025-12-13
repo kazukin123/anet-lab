@@ -72,7 +72,7 @@ LunarLanderFrame::LunarLanderFrame(const wxString& title, int train_timer_ms, in
     Bind(wxEVT_CHAR_HOOK, &LunarLanderFrame::OnKeyDown, this);
     Bind(wxEVT_TIMER, &LunarLanderFrame::OnTrainTimer, this, train_timer_.GetId());
     Bind(wxEVT_TIMER, &LunarLanderFrame::OnEvalTimer, this, eval_timer_.GetId());
-    Bind(wxEVT_CLOSE_WINDOW, &LunarLanderFrame::OnCloseWindow, this, eval_timer_.GetId());
+    Bind(wxEVT_CLOSE_WINDOW, &LunarLanderFrame::OnClose, this, eval_timer_.GetId());
 
     // タイマー開始
     train_timer_.Start(train_timer_ms); // 学習＆描画更新
@@ -172,9 +172,13 @@ void LunarLanderFrame::OnMouseLeftClick(wxMouseEvent& event)
 
 void LunarLanderFrame::OnMouseRightClick(wxMouseEvent& event)
 {
+    ToggleEal();
+}
+
+void LunarLanderFrame::ToggleEval()
+{
     is_eval_pause_ = !is_eval_pause_;
     LOG::info() << "Eval " << (is_eval_pause_ ? "paused." : " resumed.");
-    event.Skip();
 }
 
 void LunarLanderFrame::OnKeyDown(wxKeyEvent& event)
@@ -189,6 +193,24 @@ void LunarLanderFrame::OnKeyDown(wxKeyEvent& event)
     case WXK_DOWN: action = 1; break;   // MAIN ENGINE
     case WXK_LEFT: action = 2; break;   // LEFT ENGINE
     case WXK_RIGHT: action = 3; break;  // RIGHT ENGINE
+
+    case WXK_NUMPAD0: action = 0; break;
+    case WXK_NUMPAD1: action = 1; break;
+    case WXK_NUMPAD2: action = 2; break;
+    case WXK_NUMPAD3: action = 3; break;
+    case WXK_NUMPAD4: action = 4; break;
+    case WXK_NUMPAD5: action = 5; break;
+    case WXK_NUMPAD6: action = 6; break;
+    case WXK_NUMPAD7: action = 7; break;
+    case WXK_NUMPAD8: action = 8; break;
+    case WXK_NUMPAD9: action = 9; break;
+
+    case WXK_SHIFT:
+        wxGetApp().ToggleTraining();
+        return;
+    case WXK_SPACE:
+        ToggleEal();
+        return;
     default:
         eval_runner_->DoStep();
         eval_canvas_->Refresh();
@@ -199,7 +221,7 @@ void LunarLanderFrame::OnKeyDown(wxKeyEvent& event)
     eval_canvas_->Refresh();
 }
 
-void LunarLanderFrame::OnCloseWindow(wxCloseEvent& event)
+void LunarLanderFrame::OnClose(wxCloseEvent& event)
 {
     wxGetApp().StopTraining();
 }

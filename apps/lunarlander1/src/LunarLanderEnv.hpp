@@ -22,7 +22,7 @@ struct LunarLanderEnvConfig : public anet::Config {
     float world_half_width = 1.5f;
     float world_height = 2.0f;
     float ground_y = 0.0f;
-    float gravity_y = -10.0f;
+    float gravity = -10.0f;
 
     bool enable_wind = false;
     float wind_power = 15.0f;       ///< Gym の WIND_POWER 相当
@@ -41,7 +41,7 @@ struct LunarLanderEnvConfig : public anet::Config {
         ANET_READ_CONFIG(config_data, world_half_width);
         ANET_READ_CONFIG(config_data, world_height);
         ANET_READ_CONFIG(config_data, ground_y);
-        ANET_READ_CONFIG(config_data, gravity_y);
+        ANET_READ_CONFIG(config_data, gravity);
         ANET_READ_CONFIG(config_data, enable_wind);
         ANET_READ_CONFIG(config_data, wind_power);
         ANET_READ_CONFIG(config_data, turbulence_power);
@@ -58,10 +58,7 @@ struct LunarLanderEnvConfig : public anet::Config {
 /// 現時点では下記が @todo:
 /// - Gym と同等の地形ランダム生成
 /// - Gym と同等の報酬設計・終端条件
-class LunarLanderEnv
-    : public anet::rl::SingleDiscreteEnv
-    , public anet::RandomHolder
-{
+class LunarLanderEnv : public anet::rl::SingleDiscreteEnv, public anet::RandomHolder {
 public:
     LunarLanderEnv(
         const LunarLanderEnvConfig& config,
@@ -121,14 +118,15 @@ private:
 
     anet::rl::SingleState makeState() const;
     float computeShaping(const anet::rl::SingleState& state) const;
-    float calcReward(const anet::rl::SingleState& state, bool crashed, bool landed);
+    float calcReward(const anet::rl::SingleState& state, bool crashed, bool landed, int64_t action);
     bool checkCrash() const;
     bool checkLanded() const;
 
     std::unordered_map<std::string, torch::Tensor> CreateAux();
 private:
     LunarLanderEnvConfig config_;
-    torch::TensorOptions obs_opt_;
+    torch::TensorOptions float_opt_;
+    torch::TensorOptions bool_opt_;
 
     std::unique_ptr<b2World> world_;
     b2Body* ground_body_ = nullptr;

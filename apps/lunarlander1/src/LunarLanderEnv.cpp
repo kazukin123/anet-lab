@@ -9,27 +9,27 @@
 #include "anet/profile.hpp"
 #include "anet/env.hpp"
 
-namespace {
+// ボディの定義
+constexpr float kLanderDensity = 5.0f;
+constexpr float kLegDensity = 1.0f;
 
-    // ボディのサイズなどは Gym をざっくり参考にした値
-    constexpr float kLanderDensity = 5.0f;
-    constexpr float kLegDensity = 1.0f;
+// 脚の定義
+constexpr float kLegLength = 0.35f;
+constexpr float kLegOffsetX = 0.40f;
+//constexpr float kLegAttachAngle = 0.5236f; // 30°
+constexpr float kLegAttachAngle = 0.7854f; // 45°
+constexpr float kLegWidth = 0.1f;
 
-    // 脚の定義
-    constexpr float kLegLength = 0.35f;
-    constexpr float kLegOffsetX = 0.40f;
-    //constexpr float kLegAttachAngle = 0.5236f; // 30°
-    constexpr float kLegAttachAngle = 0.7854f; // 45°
-    constexpr float kLegWidth = 0.1f;
+// 報酬関連の定数
+constexpr float kStepPenality = -0.01f;
+constexpr float kCrashPenalty = -100.0f;
+constexpr float kLandReward = 100.0f;
 
-    // 報酬関連の定数値
-    constexpr float kStepPenality = -0.01f;
-    constexpr float kCrashPenalty = -100.0f;
-    constexpr float kLandReward = 100.0f;
+enum class GroundFixtureType : std::uintptr_t {
+    Terrain = 0,
+    Pad = 1
+};
 
-    /// @todo Gym の lunar_lander.py のパラメータと整合を取る。
-
-} // namespace
 
 anet::rl::EnvSpec LunarLanderEnv::GetSpec() const
 {
@@ -70,36 +70,52 @@ anet::rl::EnvSpec LunarLanderEnv::GetSpec() const
 
 void LunarLanderEnv::ContactListener::BeginContact(b2Contact* contact)
 {
-    auto fixture_a = contact->GetFixtureA();
-    auto fixture_b = contact->GetFixtureB();
-    b2Body* body_a = fixture_a->GetBody();
-    b2Body* body_b = fixture_b->GetBody();
+    b2Fixture* fa = contact->GetFixtureA();
+    b2Fixture* fb = contact->GetFixtureB();
 
-    if (body_a == env_.lander_body_ || body_b == env_.lander_body_) {
-        env_.body_contact_ = true;
-    }
-    if (body_a == env_.left_leg_body_ || body_b == env_.left_leg_body_) {
+    auto is_pad = [](b2Fixture* f) {
+        return f->GetUserData().pointer ==
+            static_cast<std::uintptr_t>(GroundFixtureType::Pad);
+        };
+
+    auto is_left_leg = [&](b2Fixture* f) {
+        return f->GetBody() == env_.left_leg_body_;
+        };
+
+    auto is_right_leg = [&](b2Fixture* f) {
+        return f->GetBody() == env_.right_leg_body_;
+        };
+
+    // 左脚 × pad
+    if ((is_left_leg(fa) && is_pad(fb)) ||
+        (is_left_leg(fb) && is_pad(fa))) {
         env_.left_leg_contact_ = true;
     }
-    if (body_a == env_.right_leg_body_ || body_b == env_.right_leg_body_) {
+
+    // 右脚 × pad
+    if ((is_right_leg(fa) && is_pad(fb)) ||
+        (is_right_leg(fb) && is_pad(fa))) {
         env_.right_leg_contact_ = true;
     }
 }
 
 void LunarLanderEnv::ContactListener::EndContact(b2Contact* contact)
 {
-    auto fixture_a = contact->GetFixtureA();
-    auto fixture_b = contact->GetFixtureB();
-    b2Body* body_a = fixture_a->GetBody();
-    b2Body* body_b = fixture_b->GetBody();
+    b2Fixture* fa = contact->GetFixtureA();
+    b2Fixture* fb = contact->GetFixtureB();
 
-    if (body_a == env_.lander_body_ || body_b == env_.lander_body_) {
-        env_.body_contact_ = false;
-    }
-    if (body_a == env_.left_leg_body_ || body_b == env_.left_leg_body_) {
+    auto is_pad = [](b2Fixture* f) {
+        return f->GetUserData().pointer ==
+            static_cast<std::uintptr_t>(GroundFixtureType::Pad);
+        };
+
+    if ((fa->GetBody() == env_.left_leg_body_ && is_pad(fb)) ||
+        (fb->GetBody() == env_.left_leg_body_ && is_pad(fa))) {
         env_.left_leg_contact_ = false;
     }
-    if (body_a == env_.right_leg_body_ || body_b == env_.right_leg_body_) {
+
+    if ((fa->GetBody() == env_.right_leg_body_ && is_pad(fb)) ||
+        (fb->GetBody() == env_.right_leg_body_ && is_pad(fa))) {
         env_.right_leg_contact_ = false;
     }
 }
@@ -115,12 +131,11 @@ LunarLanderEnv::LunarLanderEnv(
 {
     ANET_LOG_DEBUG("seed=" << this->GetSeed());
 
-    anet::MetricsLogger::Instance()->LogJson(
-        "LunarLanderEnvConfig",
-        config_.ToJson());
+    anet::MetricsLogger::Instance()->LogJson("LunarLanderEnvConfig", config_.ToJson());
     anet::MetricsLogger::Instance()->Flush();
 
-    obs_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
+    float_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
+    bool_opt_ = torch::TensorOptions().dtype(torch::kBool).device(device);
 
     buildWorld();
 }
@@ -134,7 +149,7 @@ void LunarLanderEnv::buildWorld()
 {
     destroyWorld();
 
-    b2Vec2 gravity(0.0f, config_.gravity_y);
+    b2Vec2 gravity(0.0f, config_.gravity);
     world_ = std::make_unique<b2World>(gravity);
 
     contact_listener_ = std::make_unique<ContactListener>(*this);
@@ -222,15 +237,47 @@ void LunarLanderEnv::buildGround()
     ground_def.position.Set(0.0f, 0.0f);
     ground_body_ = world_->CreateBody(&ground_def);
 
+    // --- Terrain fixtures ---
     for (size_t i = 0; i + 1 < terrain_points_.size(); ++i) {
+        const b2Vec2& p0 = terrain_points_[i];
+        const b2Vec2& p1 = terrain_points_[i + 1];
+
+        // Pad 区間は terrain fixture を作らない
+        if ((p0.x >= pad_info_.x1 && p0.x <= pad_info_.x2) &&
+            (p1.x >= pad_info_.x1 && p1.x <= pad_info_.x2)) {
+            continue;
+        }
+
         b2EdgeShape edge;
-        edge.SetTwoSided(terrain_points_[i], terrain_points_[i + 1]);
+        edge.SetTwoSided(p0, p1);
+
         b2FixtureDef fd;
         fd.shape = &edge;
         fd.density = 0.0f;
         fd.restitution = 0.1f;
         fd.friction = 0.5f;
-        ground_body_->CreateFixture(&fd);
+
+        b2Fixture* f = ground_body_->CreateFixture(&fd);
+        f->GetUserData().pointer =
+            static_cast<std::uintptr_t>(GroundFixtureType::Terrain);
+    }
+
+    // --- Pad fixture（完全に独立） ---
+    {
+        b2EdgeShape edge;
+        edge.SetTwoSided(
+            b2Vec2(pad_info_.x1, pad_info_.y),
+            b2Vec2(pad_info_.x2, pad_info_.y));
+
+        b2FixtureDef fd;
+        fd.shape = &edge;
+        fd.density = 0.0f;
+        fd.restitution = 0.1f;
+        fd.friction = 0.5f;
+
+        b2Fixture* f = ground_body_->CreateFixture(&fd);
+        f->GetUserData().pointer =
+            static_cast<std::uintptr_t>(GroundFixtureType::Pad);
     }
 }
 
@@ -413,7 +460,7 @@ bool LunarLanderEnv::checkCrash() const
     if (!lander_body_)
         return true;
 
-    // Gym互換：本体が地面に触れたらクラッシュ
+    // 本体が地面に触れたらクラッシュ
     if (body_contact_) {
         ANET_LOG_DEBUG("crashed: body_contact. y=" << lander_body_->GetPosition().y);
         return true;
@@ -465,7 +512,7 @@ anet::rl::SingleState LunarLanderEnv::makeState() const
     anet::rl::SingleState s;
 
     if (!lander_body_) {
-        s.obs = torch::zeros({ 8 }, obs_opt_);
+        s.obs = torch::zeros({ 8 }, float_opt_);
         s.done = true;
         s.truncated = false;
         s.episode_start = false;
@@ -491,9 +538,8 @@ anet::rl::SingleState LunarLanderEnv::makeState() const
     float left_contact = left_leg_contact_ ? 1.0f : 0.0f;
     float right_contact = right_leg_contact_ ? 1.0f : 0.0f;
 
-    s.obs = torch::tensor(
-        { x, y, vx, vy, angle, angular_vel, left_contact, right_contact },
-        obs_opt_);
+    s.obs = torch::tensor({ x, y, vx, vy, angle, angular_vel, left_contact, right_contact },
+        float_opt_);
     s.done = false;
     s.truncated = false;
     s.episode_start = false;
@@ -528,7 +574,7 @@ float LunarLanderEnv::computeShaping(
     return shaping;
 }
 
-float LunarLanderEnv::calcReward(const anet::rl::SingleState& state, bool crashed, bool landed)
+float LunarLanderEnv::calcReward(const anet::rl::SingleState& state, bool crashed, bool landed, int64_t action)
 {
     float reward = kStepPenality;
 
@@ -544,6 +590,12 @@ float LunarLanderEnv::calcReward(const anet::rl::SingleState& state, bool crashe
     last_shaping_ = shaping;
     has_prev_shaping_ = true;
 
+    // 燃料噴射ペナルティ
+    if (action == 2)
+        reward -= 0.3f;     // main engine fire
+    else if (action == 1 || action == 3)    // side engine fire
+        reward -= 0.03f;
+
     // 終端ボーナス／ペナルティ
     if (crashed) {
         reward += kCrashPenalty;
@@ -551,14 +603,13 @@ float LunarLanderEnv::calcReward(const anet::rl::SingleState& state, bool crashe
         reward += kLandReward;
     }
 
-    /// @todo Gym の燃料ペナルティ（エンジン使用量）を action から加味するか検討する。
     /// @todo reward_range と実際の報酬スケールの整合を再確認する。
     return reward;
 }
 
 anet::rl::SingleStepResult LunarLanderEnv::Step(int64_t action, anet::rl::RunMode runmode)
 {
-    anet::ProfileRange range("LunarLanderEnv::Step");
+    anet::ProfileRange r1("LunarLanderEnv::Step");
 
     step_count_++;
     
@@ -588,7 +639,7 @@ anet::rl::SingleStepResult LunarLanderEnv::Step(int64_t action, anet::rl::RunMod
     state.done = done;
     state.truncated = truncated;
 
-    const float reward = calcReward(state, crashed, landed);
+    const float reward = calcReward(state, crashed, landed, action);
 
     anet::rl::SingleStepResult result { reward, state, CreateAux() };
 
@@ -629,8 +680,6 @@ std::optional<float> LunarLanderEnv::GetScalar(const std::string& key, int index
 
 std::optional<torch::Tensor> LunarLanderEnv::GetTensor(const std::string& key, int index) const
 {
-    /// @todo auxに移行
-
     ANET_ASSERT(index == -1 || index == 0);
 
     if (key == "pad") {
@@ -669,8 +718,6 @@ std::optional<torch::Tensor> LunarLanderEnv::GetTensor(const std::string& key, i
 std::optional<std::vector<torch::Tensor>>
 LunarLanderEnv::GetTensorVector(const std::string& key, int index) const
 {
-    /// @todo auxに移行
-
     ANET_ASSERT(index == -1 || index == 0);
 
     if (key == "terrain") {
@@ -690,6 +737,8 @@ LunarLanderEnv::GetTensorVector(const std::string& key, int index) const
 
 std::unordered_map<std::string, torch::Tensor> LunarLanderEnv::CreateAux()
 {
+    anet::ProfileRange r1("LunarLanderEnv::CreateAux");
+
     std::unordered_map<std::string, torch::Tensor> aux;
 
     if (!lander_body_) {
@@ -707,7 +756,7 @@ std::unordered_map<std::string, torch::Tensor> LunarLanderEnv::CreateAux()
             "world",
             torch::tensor(
                 { min_x, max_x, min_y, max_y },
-                obs_opt_));
+                float_opt_));
     }
     // --- Lander 本体 ---
     {
@@ -720,7 +769,7 @@ std::unordered_map<std::string, torch::Tensor> LunarLanderEnv::CreateAux()
             "lander",
             torch::tensor(
                 { pos.x, pos.y, vel.x, vel.y, angle, angular_vel },
-                obs_opt_));
+                float_opt_));
     }
 
     // --- 脚セグメント ---
@@ -735,7 +784,7 @@ std::unordered_map<std::string, torch::Tensor> LunarLanderEnv::CreateAux()
                     left.p0.x,  left.p0.y,  left.p1.x,  left.p1.y,
                     right.p0.x, right.p0.y, right.p1.x, right.p1.y
                 },
-                obs_opt_));
+                float_opt_));
     }
 
     // --- パッド ---
@@ -744,14 +793,14 @@ std::unordered_map<std::string, torch::Tensor> LunarLanderEnv::CreateAux()
             "pad",
             torch::tensor(
                 { pad_info_.x1, pad_info_.x2, pad_info_.y },
-                obs_opt_));
+                float_opt_));
     }
 
     // --- 地形（terrain polyline） ---
     {
         const size_t n = terrain_points_.size();
         if (n > 0) {
-            torch::Tensor terrain = torch::empty({ static_cast<long>(n), 2 }, obs_opt_);
+            torch::Tensor terrain = torch::empty({ static_cast<long>(n), 2 }, float_opt_);
 
             for (size_t i = 0; i < n; ++i) {
                 terrain[i][0] = terrain_points_[i].x;
@@ -768,10 +817,10 @@ std::unordered_map<std::string, torch::Tensor> LunarLanderEnv::CreateAux()
             "contacts",
             torch::tensor(
                 {
-                    left_leg_contact_ ? 1.0f : 0.0f,
-                    right_leg_contact_ ? 1.0f : 0.0f
+                    left_leg_contact_,
+                    right_leg_contact_
                 },
-                obs_opt_));
+                bool_opt_));
     }
 
     // --- joint 情報 ---
@@ -783,7 +832,7 @@ std::unordered_map<std::string, torch::Tensor> LunarLanderEnv::CreateAux()
                     left_leg_joint_->GetJointAngle(),
                     right_leg_joint_->GetJointAngle()
                 },
-                obs_opt_));
+                float_opt_));
     }
 
     // --- 推力・風 ---
@@ -792,8 +841,10 @@ std::unordered_map<std::string, torch::Tensor> LunarLanderEnv::CreateAux()
             "forces",
             torch::tensor(
                 { last_wind_x_ },
-                obs_opt_));
+                float_opt_));
     }
+
+    ANET_LOG_DEBUG("aux=" << anet::ToString(aux));
 
     return aux;
 }

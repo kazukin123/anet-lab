@@ -305,20 +305,20 @@ std::string BatchStepResult::ToString() const
 {
     std::ostringstream oss;
     oss << "BatchStepResult{\n";
-    oss << "reward=" << anet::ToString(reward) << "\n";
-    oss << ", next_state=" << next_state.ToString() << "\n";
-    oss << ", continue_state=" << continue_state.ToString() << "\n";
-    oss << ", n_transitions=" << n_transitions;
-    oss << ", n_done=" << n_done;
-    oss << ", auxs={";
+    oss << "  reward=" << anet::ToString(reward) << "\n";
+    oss << "  , next_state=" << next_state.ToString() << "\n";
+    oss << "  , continue_state=" << continue_state.ToString() << "\n";
+    oss << "  , n_transitions=" << n_transitions;
+    oss << "  , n_done=" << n_done;
+    oss << "  , auxs={";
     for (auto aux : auxs) {
-        oss << " [\n";
+        oss << "  [\n";
         for (auto kv : aux) {
-            oss << "     " << kv.first << "=" << anet::ToString(kv.second) << "\n";
+            oss << "    " << kv.first << "=" << anet::ToString(kv.second) << "\n";
         }
-        oss << "]\n";
+        oss << "  ]\n";
     }
-    oss << "}}";
+    oss << "  }}";
     return oss.str();
 }
 
