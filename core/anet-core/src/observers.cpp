@@ -389,10 +389,10 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
         do {
             auto action = event.agent->MakeAction(counts_local, state, runmode_);
             auto env_result = env_->Step(action.action);
-            eps_total_reward += env_result.reward.mean().item<float>();
-            state = env_result.continue_state;
-            done = env_result.next_state.IsDone();
-            truncated = env_result.next_state.IsTruncated();
+            eps_total_reward += env_result->reward.mean().item<float>();
+            state = env_result->continue_state;
+            done = env_result->next_state.IsDone();
+            truncated = env_result->next_state.IsTruncated();
                 
             counts_local.train_step++;
         } while (!done && !truncated);

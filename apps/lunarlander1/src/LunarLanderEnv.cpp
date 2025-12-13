@@ -126,6 +126,26 @@ void LunarLanderEnv::ContactListener::EndContact(b2Contact* contact)
     }
 }
 
+// ===== LunarLanderEnv::StepResult =====
+
+class LunarLanderEnv::StepResult : public anet::rl::SingleStepResult {
+public:
+    LunarLanderEnv::StepResult(
+        std::shared_ptr<const LunarLanderEnv> env,
+        const std::pair<float, float>& rewards,
+        const anet::rl::SingleState& next_state)
+        : SingleStepResult(rewards.first, next_state), env_(env), rewards_(rewards)  { }
+
+    anet::rl::AuxData GetAuxData() const override
+    {
+        return env_->CreateAuxData(rewards_);
+
+    }
+private:
+    std::shared_ptr<const LunarLanderEnv> env_;
+    std::pair<float, float> rewards_;
+};
+
 // ===== LunarLanderEnv =====
 
 LunarLanderEnv::LunarLanderEnv(
@@ -627,7 +647,7 @@ std::pair<float, float> LunarLanderEnv::calcReward(const anet::rl::SingleState& 
     return { reward, raw_reward };
 }
 
-anet::rl::SingleStepResult LunarLanderEnv::Step(int64_t action, anet::rl::RunMode runmode)
+std::shared_ptr<const anet::rl::SingleStepResult> LunarLanderEnv::Step(int64_t action, anet::rl::RunMode runmode)
 {
     anet::ProfileRange r1("LunarLanderEnv::Step");
 
@@ -661,7 +681,7 @@ anet::rl::SingleStepResult LunarLanderEnv::Step(int64_t action, anet::rl::RunMod
 
     const auto rewards = calcReward(state, crashed, landed, action);
 
-    anet::rl::SingleStepResult result { rewards.first, state, CreateAux(rewards) };
+    const auto result = std::make_shared<LunarLanderEnv::StepResult>(this->shared_from_this(), rewards, state);
 
     return result;
 }
@@ -755,11 +775,11 @@ LunarLanderEnv::GetTensorVector(const std::string& key, int index) const
     return std::nullopt;
 }
 
-std::unordered_map<std::string, torch::Tensor> LunarLanderEnv::CreateAux(const std::pair<float, float>& rewards)
+anet::rl::AuxData LunarLanderEnv::CreateAuxData(const std::pair<float, float>& rewards) const
 {
     anet::ProfileRange r1("LunarLanderEnv::CreateAux");
 
-    std::unordered_map<std::string, torch::Tensor> aux;
+    anet::rl::AuxData aux;
 
     if (!lander_body_) {
         return aux;
@@ -874,18 +894,15 @@ std::unordered_map<std::string, torch::Tensor> LunarLanderEnv::CreateAux(const s
                 float_opt_));
     }
 
-    ANET_LOG_DEBUG("aux=" << anet::ToString(aux));
+    //ANET_LOG_DEBUG("aux=" << anet::ToString(aux));
 
     return aux;
 }
 
 // ===== Factory =====
 
-std::unique_ptr<anet::rl::SingleDiscreteEnv>
-LunarLanderEnvFactory::CreateSingleEnv(
-    const anet::ConfigData& config_data,
-    const torch::Device& device,
-    std::optional<anet::seed_t> seed)
+std::shared_ptr<anet::rl::SingleDiscreteEnv>
+LunarLanderEnvFactory::CreateSingleEnv(const anet::ConfigData& config_data, const torch::Device& device, std::optional<anet::seed_t> seed)
 {
     LunarLanderEnvConfig config(config_data);
     return std::make_unique<LunarLanderEnv>(config, device, seed);

@@ -71,26 +71,59 @@ anet::rl::BatchState DiscreteBatchEnvBase::createEmptyState() const
     return batch_state;
 }
 
-anet::rl::BatchStepResult DiscreteBatchEnvBase::createEmptyStepResult() const
+class DiscreteBatchEnvBase::StepResult : public BatchStepResult
 {
-    BatchStepResult result {
+public:
+    DiscreteBatchEnvBase::StepResult(
+        int batch_size,
+        torch::Tensor reward, BatchState next_state, BatchState continue_state, uint32_t n_transitions, uint32_t n_done)
+        : BatchStepResult(std::move(reward), std::move(next_state), std::move(continue_state), n_transitions, n_done)
+    {
+        single_results.resize(batch_size);
+    }
+   
+
+    std::vector<AuxData> GetAuxDataList(int env_index = -1) const override
+    {
+        std::vector<AuxData> auxs;
+        if (env_index >= 0) {
+            auto aux = single_results[env_index]->GetAuxData();
+            auxs.push_back(aux);
+        } else {
+            for (auto result : single_results) {
+                auto aux = result->GetAuxData();
+                auxs.push_back(aux);
+            }
+        }
+
+        return auxs;
+    }
+public:
+    std::vector<std::shared_ptr<const SingleStepResult>> single_results;
+
+};
+
+std::shared_ptr<DiscreteBatchEnvBase::StepResult> DiscreteBatchEnvBase::createEmptyStepResult() const
+{
+    auto result = std::make_shared<DiscreteBatchEnvBase::StepResult>(
+        batch_size_,
+
         torch::empty({ batch_size_ }, float_opt_),       // reward        (N) kFloat32
-        {    // next_state
+        BatchState{    // next_state
             torch::empty(obs_dims_, float_opt_),         // obs           (N, state_dim..) kFloat32
             torch::empty({ batch_size_ }, bool_opt_),    // done          (N) kBool
             torch::empty({ batch_size_ }, bool_opt_),    // truncated     (N) kBool
             torch::empty({ batch_size_ }, bool_opt_)     // episode_start (N) kBool
         },
-        {    // continue_state
+        BatchState{    // continue_state
             torch::empty(obs_dims_, float_opt_),         // obs           (N, state_dim..) kFloat32
             torch::empty({ batch_size_ }, bool_opt_),    // done          (N) kBool
             torch::empty({ batch_size_ }, bool_opt_),    // truncated     (N) kBool
             torch::empty({ batch_size_ }, bool_opt_)     // episode_start (N) kBool
         },
         0,  // n_transitions
-		0   // n_done
-    };
-    result.auxs.resize(batch_size_);
+        0   // n_done
+    );
 
     return result;
 };
@@ -149,7 +182,7 @@ BatchState VectorizedDiscreteBatchEnv::Reset(RunMode mode)
     return state;
 }
 
-BatchStepResult VectorizedDiscreteBatchEnv::Step(const torch::Tensor& batch_action, RunMode mode)
+std::shared_ptr<const BatchStepResult> VectorizedDiscreteBatchEnv::Step(const torch::Tensor& batch_action, RunMode mode)
 {
     ProfileRange r("VectorizedDiscreteBatchEnv::Step");
 
@@ -160,43 +193,43 @@ BatchStepResult VectorizedDiscreteBatchEnv::Step(const torch::Tensor& batch_acti
     ANET_CHECK_SHAPE(batch_action, { N });
 
     // 戻りの枠生成
-    BatchStepResult batch_result = createEmptyStepResult();
+    std::shared_ptr<DiscreteBatchEnvBase::StepResult> batch_result = createEmptyStepResult();
 
     // ----- 環境を順次実行して埋める -----
     for (int i = 0; i < N; ++i) {
         auto a = batch_action[i].item<int64_t>();
-        SingleStepResult single_result = envs_[i]->Step(a, mode);
-        ANET_CHECK_DEVICE(single_result.next_state.obs, device_);
+        std::shared_ptr<const SingleStepResult> single_result = envs_[i]->Step(a, mode);
+        ANET_CHECK_DEVICE(single_result->next_state.obs, device_);
 
-        batch_result.next_state.obs.index_put_({ i }, single_result.next_state.obs);
-        batch_result.next_state.done.index_put_({ i }, single_result.next_state.done);
-        batch_result.next_state.truncated.index_put_({ i }, single_result.next_state.truncated);
-        batch_result.next_state.episode_start.index_put_({ i }, single_result.next_state.episode_start);
+        batch_result->single_results[i] = single_result;
 
-        batch_result.reward.select(0, i).fill_(single_result.reward);
+        batch_result->next_state.obs.index_put_({ i }, single_result->next_state.obs);
+        batch_result->next_state.done.index_put_({ i }, single_result->next_state.done);
+        batch_result->next_state.truncated.index_put_({ i }, single_result->next_state.truncated);
+        batch_result->next_state.episode_start.index_put_({ i }, single_result->next_state.episode_start);
 
-        batch_result.auxs[i] = single_result.aux;
+        batch_result->reward.select(0, i).fill_(single_result->reward);
 
         // Auto reset
-        if (single_result.next_state.done || single_result.next_state.truncated) {
+        if (single_result->next_state.done || single_result->next_state.truncated) {
             SingleState reset_state = envs_[i]->Reset(mode);
             ANET_CHECK_DEVICE(reset_state.obs, device_);
-            batch_result.continue_state.obs.index_put_({ i }, reset_state.obs);
-            batch_result.continue_state.done.index_put_({ i }, reset_state.done);
-            batch_result.continue_state.truncated.index_put_({ i }, reset_state.truncated);
-            batch_result.continue_state.episode_start.index_put_({ i }, reset_state.episode_start);
+            batch_result->continue_state.obs.index_put_({ i }, reset_state.obs);
+            batch_result->continue_state.done.index_put_({ i }, reset_state.done);
+            batch_result->continue_state.truncated.index_put_({ i }, reset_state.truncated);
+            batch_result->continue_state.episode_start.index_put_({ i }, reset_state.episode_start);
 
-            if (single_result.next_state.done)
-    			batch_result.n_done++;
+            if (single_result->next_state.done)
+    			batch_result->n_done++;
         } else {
-            batch_result.continue_state.obs.index_put_({ i }, single_result.next_state.obs);
-            batch_result.continue_state.done.index_put_({ i }, false);
-            batch_result.continue_state.truncated.index_put_({ i }, false);
-            batch_result.continue_state.episode_start.index_put_({ i }, single_result.next_state.episode_start);
+            batch_result->continue_state.obs.index_put_({ i }, single_result->next_state.obs);
+            batch_result->continue_state.done.index_put_({ i }, false);
+            batch_result->continue_state.truncated.index_put_({ i }, false);
+            batch_result->continue_state.episode_start.index_put_({ i }, single_result->next_state.episode_start);
         }
     }
 
-    batch_result.n_transitions = N;
+    batch_result->n_transitions = N;
 
     return batch_result;
 }
@@ -255,7 +288,7 @@ BatchState ThreadPoolDiscreteEnv::Reset(RunMode mode)
     return state;
 }
 
-BatchStepResult ThreadPoolDiscreteEnv::Step(const torch::Tensor& actions, RunMode mode)
+std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(const torch::Tensor& actions, RunMode mode)
 {
     ProfileRange r("ThreadPoolDiscreteEnv::Step");
 
@@ -267,8 +300,8 @@ BatchStepResult ThreadPoolDiscreteEnv::Step(const torch::Tensor& actions, RunMod
     const int worker_count = pool_->GetWorkerCount();
     ANET_ASSERT(worker_count > 0);
 
-    // --- 返却バッファ（メインスレッドで一度だけ確保） ---
-    BatchStepResult result = createEmptyStepResult();
+    // --- 返却バッファ ---
+    std::shared_ptr<DiscreteBatchEnvBase::StepResult> result = createEmptyStepResult();
 
     // --- 並列に Step + 結果書き込み ---
     for (int i = 0; i < N; ++i) {
@@ -279,36 +312,36 @@ BatchStepResult ThreadPoolDiscreteEnv::Step(const torch::Tensor& actions, RunMod
             [this, &result, i, action_i, mode]()
             {
                 // --- SingleEnv の Step 実行 ---
-                SingleStepResult r = envs_[i]->Step(action_i, mode);
-                ANET_CHECK_DEVICE(r.next_state.obs, device_);
+                auto r = envs_[i]->Step(action_i, mode);
+                ANET_CHECK_DEVICE(r->next_state.obs, device_);
+
+                // --- single_result ---
+                result->single_results[i] = r;
 
                 // --- next_state ---
-                result.next_state.obs.select(0, i).copy_(r.next_state.obs);
-                result.next_state.done[i] = r.next_state.done;
-                result.next_state.truncated[i] = r.next_state.truncated;
-                result.next_state.episode_start[i] = r.next_state.episode_start;
+                result->next_state.obs.select(0, i).copy_(r->next_state.obs);
+                result->next_state.done[i] = r->next_state.done;
+                result->next_state.truncated[i] = r->next_state.truncated;
+                result->next_state.episode_start[i] = r->next_state.episode_start;
 
                 // --- reward ---
-                result.reward[i] = r.reward;
-
-                // --- aux ---
-                result.auxs[i] = r.aux;
+                result->reward[i] = r->reward;
 
                 // --- continue_state ---
-                if (r.next_state.done || r.next_state.truncated) {
+                if (r->next_state.done || r->next_state.truncated) {
                     // Reset_required
                     SingleState reset_state = envs_[i]->Reset(mode);
                     ANET_CHECK_DEVICE(reset_state.obs, device_);
-                    result.continue_state.obs.select(0, i).copy_(reset_state.obs);
-                    result.continue_state.done[i] = reset_state.done;
-                    result.continue_state.truncated[i] = reset_state.truncated;
-                    result.continue_state.episode_start[i] = reset_state.episode_start;
+                    result->continue_state.obs.select(0, i).copy_(reset_state.obs);
+                    result->continue_state.done[i] = reset_state.done;
+                    result->continue_state.truncated[i] = reset_state.truncated;
+                    result->continue_state.episode_start[i] = reset_state.episode_start;
                 } else {
                     // Continue as-is
-                    result.continue_state.obs.select(0, i).copy_(r.next_state.obs);
-                    result.continue_state.done[i] = false;
-                    result.continue_state.truncated[i] = false;
-                    result.continue_state.episode_start[i] = r.next_state.episode_start;
+                    result->continue_state.obs.select(0, i).copy_(r->next_state.obs);
+                    result->continue_state.done[i] = false;
+                    result->continue_state.truncated[i] = false;
+                    result->continue_state.episode_start[i] = r->next_state.episode_start;
                 }
             });
 
@@ -318,12 +351,12 @@ BatchStepResult ThreadPoolDiscreteEnv::Step(const torch::Tensor& actions, RunMod
     pool_->WaitAll();
 
     // カウント
-    auto done = result.next_state.done;
+    auto done = result->next_state.done;
     if (done.device().is_cuda()) {
         done = done.to(torch::kCPU);
     }
-    result.n_done = done.sum().item<int>();
-    result.n_transitions = N;
+    result->n_done = done.sum().item<int>();
+    result->n_transitions = N;
 
     // 返す
     return result;

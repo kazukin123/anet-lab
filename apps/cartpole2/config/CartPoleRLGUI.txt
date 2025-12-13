@@ -72,7 +72,7 @@ metrics.scalar.full.[90_perf/11_train_step_per_sec] = train_step_per_sec @train 
 metrics.scalar.full.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $runner  interval:100
 metrics.scalar.full.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema interval:100 ema_alpha:0.01
 metrics.scalar.full.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema interval:100 ema_alpha:0.01
-metrics.scalar.full.[90_perf/82_exp_step] = exp_step @train $trainer interval:100
+metrics.scalar.full.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 metrics.scalar.full.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
 
 

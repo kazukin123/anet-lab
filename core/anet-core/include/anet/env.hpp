@@ -24,12 +24,13 @@ namespace anet::rl {
         std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
-    protected:
+    public:
+        class StepResult;
         anet::rl::BatchState createEmptyState() const;
-        anet::rl::BatchStepResult createEmptyStepResult() const;
+        std::shared_ptr<DiscreteBatchEnvBase::StepResult> createEmptyStepResult() const;
     protected:
         int64_t batch_size_;
-        std::vector<std::unique_ptr<SingleDiscreteEnv>> envs_;
+        std::vector<std::shared_ptr<SingleDiscreteEnv>> envs_;
         std::unique_ptr<EnvSpec> spec_;
         BatchEnvSpec batch_spec_;
         torch::Device device_;
@@ -51,7 +52,7 @@ namespace anet::rl {
             std::optional<seed_t> seed = std::nullopt);
 
         BatchState Reset(RunMode mode) override;
-        BatchStepResult Step(const torch::Tensor& actions, RunMode mode) override;
+        std::shared_ptr<const BatchStepResult> Step(const torch::Tensor& action, RunMode mode) override;
     };
 
     class ThreadPoolDiscreteEnv : public DiscreteBatchEnvBase {
@@ -65,7 +66,7 @@ namespace anet::rl {
             std::optional<seed_t> seed = std::nullopt);
 
         BatchState Reset(RunMode mode) override;
-        BatchStepResult Step(const torch::Tensor& a, RunMode mode) override;
+        std::shared_ptr<const BatchStepResult> Step(const torch::Tensor& action, RunMode mode) override;
     private:
         std::shared_ptr<ThreadPool> pool_;
     };

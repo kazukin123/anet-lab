@@ -3,6 +3,7 @@
 #include <sstream>
 #include <torch/torch.h>
 #include "anet/common.hpp"
+#include "anet/rl.hpp"
 
 namespace anet {
 
@@ -85,13 +86,13 @@ namespace anet {
         return s.item<float>();
     }
 
-    inline std::string ToString(const std::unordered_map<std::string, torch::Tensor>& data)
-    {
-        std::ostringstream oss;
-        for (auto kv : data) {
-            oss << kv.first << " : " << anet::ToString(kv.second) << "\n";
-        }
-        return oss.str();
-    }
+    //inline std::string ToString(const anet::rl::AuxData& aux_data)
+    //{
+    //    std::ostringstream oss;
+    //    for (auto kv : aux_data) {
+    //        oss << kv.first << " : " << anet::ToString(kv.second) << "\n";
+    //    }
+    //    return oss.str();
+    //}
 
 } // namespace anet::util

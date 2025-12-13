@@ -184,21 +184,25 @@ UISnapshot LunarLanderApp::CreateSnapshot(anet::rl::TrainEvent event)
 {
     anet::ProfileRange r1("CreateSnapshot");
 
-    ANET_LOG_DEBUG("batch_step_result=" << event.batch_step_result.ToString());
+    ANET_LOG_DEBUG("batch_step_result=" << event.batch_step_result->ToString());
 
     const int ENV_INDEX = 0;
     
     // RL由来情報
     auto train_step = event.counts.train_step;
     anet::rl::SingleState state = {
-        event.batch_step_result.next_state.obs[ENV_INDEX],
-        event.batch_step_result.next_state.done[ENV_INDEX].item<bool>(),
-        event.batch_step_result.next_state.truncated[ENV_INDEX].item<bool>(),
-        event.batch_step_result.next_state.episode_start[ENV_INDEX].item<bool>(),
+        event.batch_step_result->next_state.obs[ENV_INDEX],
+        event.batch_step_result->next_state.done[ENV_INDEX].item<bool>(),
+        event.batch_step_result->next_state.truncated[ENV_INDEX].item<bool>(),
+        event.batch_step_result->next_state.episode_start[ENV_INDEX].item<bool>(),
     };
     auto action = event.batch_exp.action.action[ENV_INDEX].item<int64_t>();
     auto reward = event.batch_exp.reward[ENV_INDEX].item<float>();
-    const auto& aux = event.batch_step_result.auxs[ENV_INDEX];
+
+    // aux情報
+    auto auxs = event.batch_step_result->GetAuxDataList(ENV_INDEX);
+    ANET_ASSERT(auxs.size() > 0);
+    auto aux = auxs[0];
 
     // Snapshotを作る
     UISnapshot snapshot{ train_step, state, action, reward, aux };
@@ -216,14 +220,16 @@ void LunarLanderApp::InitTrainer()
             auto train_step = event.counts.train_step;
 
             // Trainスナップショット取得
-            if (train_step % 1 == 0) {
-                // 平均報酬をPlotデータ追加
-                auto train_reward_ema = event.runner.GetScalar(anet::rl::Runner::TRAIN_REWARD_EMA);
+            if (snapshot_store_.IsDataRequest() || (train_step % 2000 == 0)) {
+                ANET_LOG_DEBUG("UI data. train_step=" << train_step);
+
+                // Plotデータ追加
+                auto train_reward_ema = event.runner.GetScalar(anet::rl::Runner::TARGET_EVAL_REWARD);
                 ANET_ASSERT(train_reward_ema.has_value());
                 frame_->AddPlotData(*train_reward_ema);
 
+                // UIスナップショットを生成＆更新
                 auto snapshot = CreateSnapshot(event);
-
                 snapshot_store_.Update(snapshot);
             }
 

@@ -28,6 +28,7 @@ private:
 
     // 描画ヘルパ
     void DrawRL(wxDC& dc);
+    void DrawWorldLine(wxDC& dc, int width, int height);
     void DrawTerrain(wxDC& dc, int width, int height);
     void DrawPad(wxDC& dc, int width, int height);
     void DrawLander(wxDC& dc, int width, int height);

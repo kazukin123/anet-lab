@@ -275,12 +275,31 @@ namespace anet::rl {
         std::string ToString() const;
     };
 
-    struct SingleStepResult {
+    using AuxData = std::unordered_map<std::string, torch::Tensor>; ///< 任意の追加情報（UI描画用の非可観測情報を含む）
+
+
+    class SingleStepResult {
+    public:
+        SingleStepResult(float reward_in, const SingleState& next_state_in)
+            : reward(reward_in), next_state(next_state_in) { } 
+
+        virtual AuxData GetAuxData() const = 0;
+
+        virtual ~SingleStepResult() = default;
+        std::string ToString() const;
+    public:
         float reward;              ///< 報酬         
         SingleState next_state;    ///< 遷移後の観測  (state_dim...)
-        std::unordered_map<std::string, torch::Tensor> aux; ///< 任意の追加情報（UI描画用の非可観測情報を含む）
 
-        std::string ToString() const;
+    };
+
+    class DefaultSingleStepResult : public SingleStepResult {
+    public:
+        DefaultSingleStepResult(float reward_in, const SingleState& next_state_in)
+            : SingleStepResult(reward_in, next_state_in) {}
+        AuxData GetAuxData() const override { return AuxData(); }
+
+        virtual ~DefaultSingleStepResult() = default;
     };
 
     // 経験情報（Updateの入力情報、ReplayBufferに入る）
@@ -312,6 +331,11 @@ namespace anet::rl {
         torch::Tensor done;             ///< 自然終端     (N) kBool
         torch::Tensor truncated;        ///< 人工終端     (N) kBool
         torch::Tensor episode_start;    ///< reset直後    (N) kBool
+
+        BatchState() {}
+
+        BatchState(torch::Tensor o, torch::Tensor d, torch::Tensor t, torch::Tensor e)
+            : obs(std::move(o)), done(std::move(d)), truncated(std::move(t)), episode_start(std::move(e)) { }
 
         BatchState Clone() const {
             return { obs.clone(), done.clone(), truncated.clone(), episode_start.clone() };
@@ -375,19 +399,19 @@ namespace anet::rl {
         std::string ToString() const;
     };
 
-    // Env::DoStep() の結果
-    struct BatchStepResult {
+    class BatchStepResult {
+    public:
+        BatchStepResult(torch::Tensor reward_in, BatchState next_state_in, BatchState continue_state_in, uint32_t n_transitions_in, uint32_t n_done_in);
+        virtual std::vector<AuxData> GetAuxDataList(int env_index = -1) const = 0;
+        std::string ToString() const;
+
+        virtual ~BatchStepResult() = default;
+    public:
         torch::Tensor reward;       ///< 報酬          (N) kFloat32
         BatchState next_state;      ///< 遷移後の観測  (N, state_dim...)
         BatchState continue_state;  ///< 実行継続用（Reset 後の状態も含む）
         uint32_t n_transitions;     ///< 今回のStepにおける状態遷移カウント数
         uint32_t n_done;            ///< 今回のStepにおけるエピソード終了カウント数
-        std::vector<std::unordered_map<std::string, torch::Tensor>> auxs; ///< 任意の追加情報（UI描画用の非可観測情報を含む）
-
-        BatchStepResult to(torch::Device device) const {
-            return { reward.to(device), next_state.to(device), continue_state.to(device), n_transitions, n_done, auxs };
-        }
-        std::string ToString() const;
     };
 
     using MetricsMap = std::unordered_map<std::string, float>;
@@ -450,14 +474,14 @@ namespace anet::rl {
     public:
         virtual EnvSpec GetSpec() const = 0;
         virtual SingleState Reset(RunMode mode) = 0;
-        virtual SingleStepResult Step(int64_t action, RunMode mode) = 0;
+        virtual std::shared_ptr<const SingleStepResult> Step(int64_t action, RunMode mode) = 0;
 
         virtual ~SingleDiscreteEnv() = default;
     };
 
     class SingleDiscreteEnvFactory {
     public:
-        virtual std::unique_ptr<SingleDiscreteEnv> CreateSingleEnv(
+        virtual std::shared_ptr<SingleDiscreteEnv> CreateSingleEnv(
             const anet::ConfigData& config_data,
             const torch::Device& device,
             std::optional<anet::seed_t> seed = std::nullopt) = 0;
@@ -471,7 +495,7 @@ namespace anet::rl {
         virtual EnvSpec GetSpec() const = 0;
         virtual BatchEnvSpec GetBatchSpec() const = 0;
         virtual BatchState Reset(RunMode mode = RunMode::Train) = 0;
-        virtual BatchStepResult Step(const torch::Tensor& action, RunMode mode = RunMode::Train) = 0;
+        virtual std::shared_ptr<const BatchStepResult> Step(const torch::Tensor& action, RunMode mode = RunMode::Train) = 0;
 
         //virtual std::shared_ptr<BatchEnv> Clone() const = 0;
 
@@ -552,7 +576,7 @@ namespace anet::rl {
 
     struct TrainEvent : public UpdateEvent {
         std::shared_ptr<const BatchEnv> env;
-        BatchStepResult batch_step_result;
+        std::shared_ptr<const BatchStepResult> batch_step_result;
     };
 
     struct LearnEvent : public UpdateEvent {

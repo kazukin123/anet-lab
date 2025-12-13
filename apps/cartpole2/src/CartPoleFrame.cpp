@@ -5,7 +5,7 @@
 #include <torch/torch.h>
 #include <wx/log.h>
 #include <wx/sizer.h>
-#include "anet/tensor_utils.hpp"
+#include "anet/tensor_util.hpp"
 #include "anet/profile.hpp"
 #include "anet/log.hpp"
 #include "anet/observers.hpp"

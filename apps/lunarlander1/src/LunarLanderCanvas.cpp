@@ -102,6 +102,26 @@ int LunarLanderCanvas::WorldToScreen(float size, int width, int height) const
     return static_cast<int>(std::round(size * scale));
 }
 
+void LunarLanderCanvas::DrawWorldLine(wxDC& dc, int width, int height)
+{
+    dc.SetPen(wxPen(*wxLIGHT_GREY, 2));
+
+    // 下
+    const wxPoint p1 = WorldToScreen(world_min_x_, world_min_y_, width, height);
+    const wxPoint p2 = WorldToScreen(world_max_x_, world_min_y_, width, height);
+    dc.DrawLine(p1, p2);
+
+    // 左
+    const wxPoint p3 = WorldToScreen(world_min_x_, world_min_y_, width, height);
+    const wxPoint p4 = WorldToScreen(world_min_x_, world_max_y_, width, height);
+    dc.DrawLine(p3, p4);
+
+    // 右
+    const wxPoint p5 = WorldToScreen(world_max_x_, world_min_y_, width, height);
+    const wxPoint p6 = WorldToScreen(world_max_x_, world_max_y_, width, height);
+    dc.DrawLine(p5, p6);
+}
+
 void LunarLanderCanvas::DrawTerrain(wxDC& dc, int width, int height)
 {
     auto it = snapshot_.aux.find("terrain");
@@ -401,6 +421,7 @@ void LunarLanderCanvas::OnPaint(wxPaintEvent& event)
     const int height = size.GetHeight();
 
     DrawRL(dc);
+    DrawWorldLine(dc, width, height);
     DrawTerrain(dc, width, height);
     DrawPad(dc, width, height);
     DrawLegs(dc, width, height);

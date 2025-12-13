@@ -23,7 +23,7 @@ public:
 
     anet::rl::EnvSpec GetSpec() const override;
     anet::rl::SingleState Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
-    anet::rl::SingleStepResult Step(int64_t action, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
+    std::shared_ptr<const anet::rl::SingleStepResult> Step(int64_t action, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
     
     std::optional<float> GetScalar(const std::string& key, int index = -1) const override { return std::nullopt; }
     std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override { return std::nullopt; }
@@ -48,7 +48,7 @@ public:
 
     std::string GetTargetEnvClassId() const override { return "CartPoleEnv"; }
 
-    std::unique_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
+    std::shared_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
         const anet::ConfigData& config_data,
         const torch::Device& device, std::optional<anet::seed_t> seed = std::nullopt) override;
 };

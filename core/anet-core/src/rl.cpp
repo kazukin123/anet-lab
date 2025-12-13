@@ -279,6 +279,15 @@ std::string BatchEnvSpec::ToString() const {
 
 // -----------------------------------------
 
+BatchStepResult::BatchStepResult(torch::Tensor reward_in, BatchState next_state_in, BatchState continue_state_in, uint32_t n_transitions_in,uint32_t n_done_in)
+    : reward(std::move(reward_in))
+    , next_state(std::move(next_state_in))
+    , continue_state(std::move(continue_state_in))
+    , n_transitions(n_transitions_in)
+    , n_done(n_done_in)
+{
+}
+
 std::string BatchState::ToString() const
 {
     std::ostringstream oss;
@@ -311,6 +320,7 @@ std::string BatchStepResult::ToString() const
     oss << "  , n_transitions=" << n_transitions;
     oss << "  , n_done=" << n_done;
     oss << "  , auxs={";
+    auto auxs = GetAuxDataList();
     for (auto aux : auxs) {
         oss << "  [\n";
         for (auto kv : aux) {
@@ -333,6 +343,7 @@ std::string SingleState::ToString() const
     oss << "}";
     return oss.str();
 }
+
 std::string SingleDiscreteActionInfo::ToString() const
 {
     std::ostringstream oss;
@@ -342,6 +353,7 @@ std::string SingleDiscreteActionInfo::ToString() const
     oss << "}";
     return oss.str();
 }
+
 std::string SingleStepResult::ToString() const
 {
     std::ostringstream oss;
@@ -349,6 +361,7 @@ std::string SingleStepResult::ToString() const
     oss << "reward=" << reward;
     oss << ", next_state=" << next_state.ToString();
     oss << ", aux=[";
+    auto aux = GetAuxData();
     for (auto kv : aux) {
         oss << " " << kv.first << "=" << anet::ToString(kv.second);
     }

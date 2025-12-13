@@ -122,30 +122,30 @@ StepCounts EvalRunner::DoStep(int64_t action)
     };
 
     // 環境ステップ実行
-    anet::rl::BatchStepResult result = env_->Step(action_info.action, runmode_);    // next_state, reward, done, truncated
+    auto result = env_->Step(action_info.action, runmode_);    // next_state, reward, done, truncated
     ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info.ToString());
-    ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result.next_state.ToString());
-    ANET_LOG_DEBUG("step=" << train_step << " continue_state=" << result.continue_state.ToString());
-    ANET_LOG_DEBUG("step=" << train_step << " reward=" << anet::ToString(result.reward));
-    ANET_CHECK_DEVICE(result.next_state.obs, torch::kCPU);
-    ANET_CHECK_DEVICE(result.next_state.done, torch::kCPU);
-    ANET_CHECK_DEVICE(result.next_state.truncated, torch::kCPU);
-    ANET_CHECK_DEVICE(result.reward, torch::kCPU);
-    ANET_CHECK_DEVICE(result.continue_state.obs, torch::kCPU);
-    ANET_CHECK_DEVICE(result.continue_state.done, torch::kCPU);
-    ANET_CHECK_DEVICE(result.continue_state.truncated, torch::kCPU);
+    ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result->next_state.ToString());
+    ANET_LOG_DEBUG("step=" << train_step << " continue_state=" << result->continue_state.ToString());
+    ANET_LOG_DEBUG("step=" << train_step << " reward=" << anet::ToString(result->reward));
+    ANET_CHECK_DEVICE(result->next_state.obs, torch::kCPU);
+    ANET_CHECK_DEVICE(result->next_state.done, torch::kCPU);
+    ANET_CHECK_DEVICE(result->next_state.truncated, torch::kCPU);
+    ANET_CHECK_DEVICE(result->reward, torch::kCPU);
+    ANET_CHECK_DEVICE(result->continue_state.obs, torch::kCPU);
+    ANET_CHECK_DEVICE(result->continue_state.done, torch::kCPU);
+    ANET_CHECK_DEVICE(result->continue_state.truncated, torch::kCPU);
 
     // カウント更新
     step_counts_.train_step++;
-    step_counts_.exp_step += result.n_transitions;
-    step_counts_.episode_count += result.n_done;
+    step_counts_.exp_step += result->n_transitions;
+    step_counts_.episode_count += result->n_done;
 
-    anet::rl::BatchExperience exp({ state_, action_info, result.reward, result.next_state });
+    anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
 
     // 更新後処理
     anet::rl::TrainEvent update_event{ exp, *this, step_counts_, agent_, nullptr, env_, result };
     notifier_->Notify(update_event);
-    state_ = result.continue_state;
+    state_ = result->continue_state;
 
     return step_counts_;
 }
@@ -176,42 +176,37 @@ StepCounts EvalRunner::DoStep()
     //ANET_CHECK_SHAPE(action_info.action, { N });
 
     // 環境ステップ実行
-    anet::rl::BatchStepResult result = env_->Step(action_info.action, runmode_);    // next_state, reward, done, truncated
-    ANET_LOG_DEBUG("step=" << train_step << " reward=" << anet::ToString(result.reward));
-    ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result.next_state.ToString());
-    ANET_CHECK_DEVICE(result.next_state.obs, torch::kCPU);
-    ANET_CHECK_DEVICE(result.next_state.done, torch::kCPU);
-    ANET_CHECK_DEVICE(result.next_state.truncated, torch::kCPU);
-    ANET_CHECK_DEVICE(result.reward, torch::kCPU);
-    ANET_CHECK_DEVICE(result.continue_state.obs, torch::kCPU);
-    ANET_CHECK_DEVICE(result.continue_state.done, torch::kCPU);
-    ANET_CHECK_DEVICE(result.continue_state.truncated, torch::kCPU);
-    //ANET_CHECK_SHAPE(result.next_state.obs, { N, ANET_SHAPE_ENDANY });
-    //ANET_CHECK_SHAPE(result.next_state.done, { N });
-    //ANET_CHECK_SHAPE(result.next_state.truncated, { N });
-    //ANET_CHECK_SHAPE(result.reward, { N });
-    //ANET_CHECK_SHAPE(result.continue_state.obs, { N, ANET_SHAPE_ENDANY });
-    //ANET_CHECK_SHAPE(result.continue_state.done, { N });
-    //ANET_CHECK_SHAPE(result.continue_state.truncated, { N });
+    auto result = env_->Step(action_info.action, runmode_);    // next_state, reward, done, truncated
+    ANET_LOG_DEBUG("step=" << train_step << " reward=" << anet::ToString(result->reward));
+    ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result->next_state.ToString());
+    ANET_CHECK_DEVICE(result->next_state.obs, torch::kCPU);
+    ANET_CHECK_DEVICE(result->next_state.done, torch::kCPU);
+    ANET_CHECK_DEVICE(result->next_state.truncated, torch::kCPU);
+    ANET_CHECK_DEVICE(result->reward, torch::kCPU);
+    ANET_CHECK_DEVICE(result->continue_state.obs, torch::kCPU);
+    ANET_CHECK_DEVICE(result->continue_state.done, torch::kCPU);
+    ANET_CHECK_DEVICE(result->continue_state.truncated, torch::kCPU);
+    //ANET_CHECK_SHAPE(result->next_state.obs, { N, ANET_SHAPE_ENDANY });
+    //ANET_CHECK_SHAPE(result->next_state.done, { N });
+    //ANET_CHECK_SHAPE(result->next_state.truncated, { N });
+    //ANET_CHECK_SHAPE(result->reward, { N });
+    //ANET_CHECK_SHAPE(result->continue_state.obs, { N, ANET_SHAPE_ENDANY });
+    //ANET_CHECK_SHAPE(result->continue_state.done, { N });
+    //ANET_CHECK_SHAPE(result->continue_state.truncated, { N });
     //ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
     //    ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
 
-    // 報酬更新
-    //float step_reward = result.reward.mean().item<float>();
-    //last_train_reward_ = step_reward;
-    //train_reward_ema_.Update(last_train_reward_);
-
     // カウント更新
     step_counts_.train_step++;
-    step_counts_.exp_step += result.n_transitions;
-    step_counts_.episode_count += result.n_done;
+    step_counts_.exp_step += result->n_transitions;
+    step_counts_.episode_count += result->n_done;
 
-    anet::rl::BatchExperience exp({ state_, action_info, result.reward, result.next_state });
+    anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
 
     // 更新後処理
     anet::rl::TrainEvent update_event{ exp, *this, step_counts_, agent_, nullptr, env_, result };
     notifier_->Notify(update_event);
-    state_ = result.continue_state;
+    state_ = result->continue_state;
 
     return step_counts_;
 }
@@ -382,38 +377,38 @@ StepCounts DefaultTrainer::DoStep()
     ANET_CHECK_SHAPE(action_info.action, { N });
 
     // 環境ステップ実行
-    anet::rl::BatchStepResult result = env_->Step(action_info.action);    // next_state, reward, done, truncated
-    ANET_LOG_DEBUG("step=" << train_step << " reward=" << anet::ToString(result.reward));
-    ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result.next_state.ToString());
-    ANET_CHECK_DEVICE(result.next_state.obs, torch::kCPU);
-    ANET_CHECK_DEVICE(result.next_state.done, torch::kCPU);
-    ANET_CHECK_DEVICE(result.next_state.truncated, torch::kCPU);
-    ANET_CHECK_DEVICE(result.reward, torch::kCPU);
-    ANET_CHECK_DEVICE(result.continue_state.obs, torch::kCPU);
-    ANET_CHECK_DEVICE(result.continue_state.done, torch::kCPU);
-    ANET_CHECK_DEVICE(result.continue_state.truncated, torch::kCPU);
-    ANET_CHECK_SHAPE(result.next_state.obs, { N, ANET_SHAPE_ENDANY });
-    ANET_CHECK_SHAPE(result.next_state.done, { N });
-    ANET_CHECK_SHAPE(result.next_state.truncated, { N });
-    ANET_CHECK_SHAPE(result.reward, { N });
-    ANET_CHECK_SHAPE(result.continue_state.obs, { N, ANET_SHAPE_ENDANY });
-    ANET_CHECK_SHAPE(result.continue_state.done, { N });
-    ANET_CHECK_SHAPE(result.continue_state.truncated, { N });
+    auto result = env_->Step(action_info.action);    // next_state, reward, done, truncated
+    ANET_LOG_DEBUG("step=" << train_step << " reward=" << anet::ToString(result->reward));
+    ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result->next_state.ToString());
+    ANET_CHECK_DEVICE(result->next_state.obs, torch::kCPU);
+    ANET_CHECK_DEVICE(result->next_state.done, torch::kCPU);
+    ANET_CHECK_DEVICE(result->next_state.truncated, torch::kCPU);
+    ANET_CHECK_DEVICE(result->reward, torch::kCPU);
+    ANET_CHECK_DEVICE(result->continue_state.obs, torch::kCPU);
+    ANET_CHECK_DEVICE(result->continue_state.done, torch::kCPU);
+    ANET_CHECK_DEVICE(result->continue_state.truncated, torch::kCPU);
+    ANET_CHECK_SHAPE(result->next_state.obs, { N, ANET_SHAPE_ENDANY });
+    ANET_CHECK_SHAPE(result->next_state.done, { N });
+    ANET_CHECK_SHAPE(result->next_state.truncated, { N });
+    ANET_CHECK_SHAPE(result->reward, { N });
+    ANET_CHECK_SHAPE(result->continue_state.obs, { N, ANET_SHAPE_ENDANY });
+    ANET_CHECK_SHAPE(result->continue_state.done, { N });
+    ANET_CHECK_SHAPE(result->continue_state.truncated, { N });
     ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
 //    ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
 
     // 報酬更新
-    float step_reward = result.reward.mean().item<float>();
+    float step_reward = result->reward.mean().item<float>();
     last_train_reward_ = step_reward;
 	train_reward_ema_.Update(last_train_reward_);
 
     // カウント更新
     step_counts_.train_step++;
-    step_counts_.exp_step += result.n_transitions;
-    step_counts_.episode_count += result.n_done;
+    step_counts_.exp_step += result->n_transitions;
+    step_counts_.episode_count += result->n_done;
 
     // Agent更新
-    anet::rl::BatchExperience exp({ state_, action_info, result.reward, result.next_state });
+    anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
     auto update_result = agent_->UpdateFromBatch(step_counts_, exp, *this);
 
     // カウント更新
@@ -432,9 +427,9 @@ StepCounts DefaultTrainer::DoStep()
     last_exp_step_per_sec_ = exp_step_per_sec;
 
     // 更新後処理
-    anet::rl::TrainEvent update_event{ exp, *this, step_counts_, agent_, update_result, env_, result };
-    notifier_->Notify(update_event);
-    state_ = result.continue_state;
+    anet::rl::TrainEvent train_event{ exp, *this, step_counts_, agent_, update_result, env_, result };
+    notifier_->Notify(train_event);
+    state_ = result->continue_state;
 
     // 次準備
     last_time_ = now;

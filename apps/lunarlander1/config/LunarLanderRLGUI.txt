@@ -212,14 +212,14 @@ env.device_index = -1  # GPU index -1=current device
 
 LunarLanderApp.online.train_pause_step = 500000 #500K
 LunarLanderApp.online.train_exit_step = -1
-LunarLanderApp.online.train_timer_ms = 10
-LunarLanderApp.online.eval_timer_ms = 10
+LunarLanderApp.online.train_timer_ms = 100
+LunarLanderApp.online.eval_timer_ms = 30
 LunarLanderApp.online.eval_step_per_frame = 1;
 
 LunarLanderApp.batchrun.train_pause_step = -1
 LunarLanderApp.batchrun.train_exit_step = 500000 #500K
-LunarLanderApp.batchrun.train_timer_ms = 50
-LunarLanderApp.batchrun.eval_timer_ms = 50
+LunarLanderApp.batchrun.train_timer_ms = 500
+LunarLanderApp.batchrun.eval_timer_ms = 500
 LunarLanderApp.batchrun.eval_step_per_frame = 10;
 
 

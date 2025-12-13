@@ -2,6 +2,7 @@
 #include <cmath>
 #include <algorithm>
 #include <random>
+#include <memory>
 #include <wx/log.h>
 #include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
@@ -106,7 +107,7 @@ anet::rl::SingleState CartPoleEnv::Reset(anet::rl::RunMode mode)
     };
 }
 
-anet::rl::SingleStepResult CartPoleEnv::Step(int64_t action, anet::rl::RunMode mode)
+std::shared_ptr<const anet::rl::SingleStepResult> CartPoleEnv::Step(int64_t action, anet::rl::RunMode mode)
 {
     anet::ProfileRange r("CartPoleEnv::Step");
 
@@ -206,15 +207,15 @@ anet::rl::SingleStepResult CartPoleEnv::Step(int64_t action, anet::rl::RunMode m
         truncated_ = true;
     }
 
-    anet::rl::SingleStepResult result {
+    auto result = std::make_shared<anet::rl::DefaultSingleStepResult>(
         reward,
-        {
+        anet::rl::SingleState {
             torch::tensor({ x_, x_dot_, theta_, theta_dot_ }, obs_opt_), // obs (4)
             done_,
             truncated_,
             episode_start_
-        },
-    };
+        });
+
     return result;
 }
 
@@ -223,12 +224,12 @@ CartPoleEnvFactory::CartPoleEnvFactory()
     ;
 }
 
-std::unique_ptr<anet::rl::SingleDiscreteEnv> CartPoleEnvFactory::CreateSingleEnv(
+std::shared_ptr<anet::rl::SingleDiscreteEnv> CartPoleEnvFactory::CreateSingleEnv(
     const anet::ConfigData& config_data,
     const torch::Device& device, std::optional<anet::seed_t> seed)
 {
     CartPoleEnvConfig config(config_data);
-    return std::make_unique<CartPoleEnv>(config, device, seed);
+    return std::make_shared<CartPoleEnv>(config, device, seed);
 }
 
 ANET_REGISTER_ENV_FACTORY(CartPoleEnvFactory);

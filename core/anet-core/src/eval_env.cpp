@@ -83,16 +83,16 @@ namespace anet::rl {
 
             while (true) {
                 torch::Tensor action = RandomActionFromSpec(s, action_spec, rng);
-                BatchStepResult step = env.Step(action, RunMode::Train);
+                auto step = env.Step(action, RunMode::Train);
 
-                ep_ret += step.reward.mean().item<float>();
+                ep_ret += step->reward.mean().item<float>();
                 ep_len++;
 
-                bool done = step.next_state.done.item<bool>();
-                bool truncated = step.next_state.truncated.item<bool>();
+                bool done = step->next_state.done.item<bool>();
+                bool truncated = step->next_state.truncated.item<bool>();
                 if (done || truncated) break;
 
-                s = step.continue_state;
+                s = step->continue_state;
             }
 
             returns.push_back(ep_ret);

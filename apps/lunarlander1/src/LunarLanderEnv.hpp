@@ -58,7 +58,7 @@ struct LunarLanderEnvConfig : public anet::Config {
 /// 現時点では下記が @todo:
 /// - Gym と同等の地形ランダム生成
 /// - Gym と同等の報酬設計・終端条件
-class LunarLanderEnv : public anet::rl::SingleDiscreteEnv, public anet::RandomHolder {
+class LunarLanderEnv : public anet::rl::SingleDiscreteEnv, public anet::RandomHolder, public std::enable_shared_from_this<LunarLanderEnv> {
 public:
     LunarLanderEnv(
         const LunarLanderEnvConfig& config,
@@ -68,44 +68,15 @@ public:
     ~LunarLanderEnv() override;
 
     anet::rl::EnvSpec GetSpec() const override;
-    anet::rl::SingleState Reset(
-        anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
-    anet::rl::SingleStepResult Step(
-        int64_t action,
-        anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
-
-    // === UI / AP 向けの補助 Getter ===
-
-    /// 地形を構成する地面の頂点列（world 座標系、Box2D 単位）
-    const std::vector<b2Vec2>& GetTerrainPolyline() const { return terrain_points_; }
-
-    /// 着陸パッドの水平区間と高さ
-    struct PadInfo {
-        float x1 = 0.0f;
-        float x2 = 0.0f;
-        float y = 0.0f;
-    };
-
-    PadInfo GetPadInfo() const { return pad_info_; }
-
-    /// World の描画・スケーリング向け境界
-    void GetWorldBounds(
-        float& min_x, float& max_x,
-        float& min_y, float& max_y) const
-    {
-        min_x = -config_.world_half_width;
-        max_x = config_.world_half_width;
-        min_y = config_.ground_y;
-        max_y = config_.world_height;
-    }
-
-    /// 現在の風（直近 step で適用した wind_x）
-    float GetLastWindX() const { return last_wind_x_; }
+    anet::rl::SingleState Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
+    std::shared_ptr<const anet::rl::SingleStepResult> Step(int64_t action, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
 
 public:
     std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
     std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
     std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
+private:
+    class StepResult;
 private:
     void buildWorld();
     void destroyWorld();
@@ -122,7 +93,14 @@ private:
     bool checkCrash() const;
     bool checkLanded() const;
 
-    std::unordered_map<std::string, torch::Tensor> CreateAux(const std::pair<float, float>& rewards);
+    anet::rl::AuxData CreateAuxData(const std::pair<float, float>& rewards) const;
+private:
+    // 着陸パッドの水平区間と高さ
+    struct PadInfo {
+        float x1 = 0.0f;
+        float x2 = 0.0f;
+        float y = 0.0f;
+    };
 private:
     LunarLanderEnvConfig config_;
     torch::TensorOptions float_opt_;
@@ -168,7 +146,7 @@ public:
 
     std::string GetTargetEnvClassId() const override { return "LunarLanderEnv"; }
 
-    std::unique_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
+    std::shared_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
         const anet::ConfigData& config_data,
         const torch::Device& device,
         std::optional<anet::seed_t> seed = std::nullopt) override;

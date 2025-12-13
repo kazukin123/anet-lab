@@ -49,17 +49,23 @@ class UISnapshotStore {
 public:
     UISnapshotStore() = default;
 
+    bool IsDataRequest() {
+        return data_request_.load();
+    }
+
     // Trainer側から更新（コピーを保持）
     void Update(const UISnapshot& s) {
         std::lock_guard<std::mutex> lock(m_);
         snap_ = s;
         data_exists_.store(true);
+        data_request_.store(false);
     }
 
     // UI側から取得（コピーを返す）
-    std::optional<UISnapshot> Get() const {
+    std::optional<UISnapshot> Get() {
         if (data_exists_.load() == false) return std::nullopt;
         std::lock_guard<std::mutex> lock(m_);
+        data_request_.store(true);
         return snap_;
     }
 
@@ -67,4 +73,5 @@ private:
     mutable std::mutex m_;
     UISnapshot snap_; // 最新状態の保持
     std::atomic<bool> data_exists_{ false };
+    std::atomic<bool> data_request_{ true };
 };
