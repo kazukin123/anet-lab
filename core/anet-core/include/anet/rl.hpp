@@ -480,7 +480,7 @@ namespace anet::rl {
 
     class BatchEnvFactory {
     public:
-        virtual std::shared_ptr<BatchEnv> CreateBatchEnv(int batch_size = -1) = 0;	///< batch_size=-1でbatch_size自動
+        virtual std::shared_ptr<BatchEnv> CreateBatchEnv(std::optional<seed_t> seed = std::nullopt, int batch_size = -1) = 0;	///< batch_size=-1でbatch_size自動
         virtual ~BatchEnvFactory() = default;
     };
 

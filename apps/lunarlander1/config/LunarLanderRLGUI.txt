@@ -2,7 +2,7 @@
 LunarLanderApp.$ = LunarLanderApp.online
 #LunarLanderApp.$ = LunarLanderApp.batchrun
 
-train.seed = 15308168817357534720
+#train.seed = 15308168817357534720
 
 train.batch_size = 10
 #train.batch_size = 1
@@ -25,7 +25,7 @@ DQNAgent.$ = DQNAgent.trunk
     #   &step    : &train_step || &learn_step || &episode_step || &exp_step || &update_step || &sim_step
     #   $target  : $update_result || $agent || $exp || $runner
 
-metrics.scalar.trunk.[10_train/10_total_reward] = $runner train_rewarda @train
+metrics.scalar.trunk.[10_train/10_total_reward] = $runner train_reward @train
 #metrics.scalar.trunk.[10_train/10_total_reward_ema] = train_reward $runner @train $ema
 metrics.scalar.trunk.[11_agent_dqn_base/03_epsilon_train] = $agent epsilon @train
 metrics.scalar.trunk.[21_eval/01_target_reward] = $runner target_eval_reward @learn
@@ -65,7 +65,7 @@ metrics.scalar.min.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @tra
 metrics.scalar.min.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema interval:100 ema_alpha:0.0001
 metrics.scalar.min.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
 
-metrics.scalar.full.[10_train/10_total_reward] = $runner train_reward_ema @train
+metrics.scalar.full.[10_train/10_total_reward] = $runner train_reward @train
 metrics.scalar.full.[10_train/10_total_reward_ema] = train_reward $runner @train $ema
 metrics.scalar.full.[11_agent_dqn_base/03_epsilon_train] = $agent epsilon @train
 metrics.scalar.full.[21_eval/01_target_reward] = $runner target_eval_reward @learn

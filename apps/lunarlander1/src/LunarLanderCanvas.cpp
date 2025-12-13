@@ -149,23 +149,34 @@ void LunarLanderCanvas::DrawLander(wxDC& dc, int width, int height)
         return;
     }
 
+    // 生の位置・角度
     const auto v = it->second;
     const float x = v[0].item<float>();
     const float y = v[1].item<float>();
     const float angle = v[4].item<float>();
 
+    // 描画用の位置・大きさ
     const wxPoint c = WorldToScreen(x, y, width, height);
     const int r = WorldToScreen(kLanderRadius, width, height);
 
+    // 本体接触情報
+    bool body_contact = false;
+    auto it2 = snapshot_.aux.find("contacts");
+    if (it2 != snapshot_.aux.end()) {
+        body_contact = ToBool(it2->second[2]);
+    }
+
+    // 本体描画
+    if (body_contact) dc.SetPen(wxPen(*wxRED, 2));
+    else dc.SetPen(wxPen(*wxBLACK, 1));
     dc.SetBrush(*wxCYAN_BRUSH);
-    dc.SetPen(wxPen(*wxBLACK, 1));
     dc.DrawCircle(c, r);
 
+    // 本体角度線描画
     const float draw_angle = angle + static_cast<float>(M_PI) / 2.0f;
     const wxPoint nose(
         c.x + static_cast<int>(std::cos(draw_angle) * r * 1.5f),
         c.y - static_cast<int>(std::sin(draw_angle) * r * 1.5f));
-
     dc.SetPen(wxPen(*wxBLACK, 2));
     dc.DrawLine(c, nose);
 }
@@ -185,8 +196,8 @@ void LunarLanderCanvas::DrawLegs(wxDC& dc, int width, int height)
         right_contact = ToBool(it2->second[1]);
     }
 
-    ANET_LOG_DEBUG("left_contact=" << left_contact);
-    ANET_LOG_DEBUG("right_contact=" << right_contact);
+    //ANET_LOG_DEBUG("left_contact=" << left_contact);
+    //ANET_LOG_DEBUG("right_contact=" << right_contact);
 
     const auto legs = it->second;
 
@@ -344,7 +355,10 @@ void LunarLanderCanvas::DrawRL(wxDC& dc)
         10);
 
     // Reward
-    dc.DrawText(wxString::Format("Reward: %.2f", snapshot_.reward), 10, 30);
+    auto raw_reward = 0.0f;
+    auto it = snapshot_.aux.find("rewards");
+    if (it != snapshot_.aux.end()) raw_reward = ToFloat(it->second[1]);
+    dc.DrawText(wxString::Format("Reward: %.2f (%.2f)", snapshot_.reward, raw_reward), 10, 30);
 
     // Action
     dc.DrawText(wxString::Format("Action: %llu", snapshot_.action), 10, 50);

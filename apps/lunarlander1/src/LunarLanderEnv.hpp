@@ -118,11 +118,11 @@ private:
 
     anet::rl::SingleState makeState() const;
     float computeShaping(const anet::rl::SingleState& state) const;
-    float calcReward(const anet::rl::SingleState& state, bool crashed, bool landed, int64_t action);
+    std::pair<float, float> calcReward(const anet::rl::SingleState& state, bool crashed, bool landed, int64_t action);
     bool checkCrash() const;
     bool checkLanded() const;
 
-    std::unordered_map<std::string, torch::Tensor> CreateAux();
+    std::unordered_map<std::string, torch::Tensor> CreateAux(const std::pair<float, float>& rewards);
 private:
     LunarLanderEnvConfig config_;
     torch::TensorOptions float_opt_;

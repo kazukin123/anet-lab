@@ -130,7 +130,7 @@ namespace anet {
     class Config {
     public:
         Config(const std::string& config_prefix_);
-        Config(const ConfigData& config_data, const std::string& config_prefix_);
+        Config(const ConfigData& config_data, const std::string& config_prefix_);   ///< @todo インスタンスグループ対応（例：同じENV設定でもTrainとEvalで設定を分ける）
 
         std::string ToString() const;
         nlohmann::json ToJson() const { return my_config_json_; }

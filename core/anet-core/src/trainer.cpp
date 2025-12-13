@@ -252,24 +252,27 @@ RunnerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
 
     // seed値生成
     auto global_seed = master_seed_->GetMasterSeed();
-    auto env_seed = master_seed_->GetGroupSeed("env");
+    auto train_env_seed = master_seed_->GetGroupSeed("env");
+    auto eval_env_seed = master_seed_->GetGroupSeed("eval_env");
     auto agent_seed = master_seed_->GetGroupSeed("agent");
     auto eval_obs_seed = master_seed_->GetGroupSeed("eval_obs");
-    LOG::info() << "global_seed=" << global_seed << " env_seed=" << env_seed << " agent_seed=" << agent_seed;
+    LOG::info() << "global_seed=" << global_seed << " train_env_seed="
+        << train_env_seed << " eval_env_seed" << eval_env_seed << " agent_seed=" << agent_seed;
+    eval_env_seed_ = eval_env_seed;
 
     // パラメータ記録
     anet::MetricsLogger::Instance()->LogJson("train/seed",
-        { "global_seed", global_seed, "agent_seed", agent_seed, "env_seed", env_seed });
+        { "global_seed", global_seed, "agent_seed", agent_seed, "train_env_seed", train_env_seed });
     anet::MetricsLogger::Instance()->LogJson("train/config", config_->ToJson());
     anet::MetricsLogger::Instance()->Flush();
 
     // ENV生成
     anet::rl::DefaultBatchEnvFactoryConfig env_config(config_data);
     LOG::info() << "env_config=" << env_config.ToString();
-    env_factory_ = std::make_unique<anet::rl::DefaultBatchEnvFactory>(env_config, config_data, config_->batch_size, env_seed);
+    env_factory_ = std::make_unique<anet::rl::DefaultBatchEnvFactory>(env_config, config_data, config_->batch_size);
     auto env_device = env_factory_->GetDevice();
     auto single_env_factory = env_factory_->GetSingleFactory();
-    env_ = env_factory_->CreateBatchEnv();
+    env_ = env_factory_->CreateBatchEnv(train_env_seed, -1);
     if (env_ == nullptr) {
         LOG::error() << "Failed to create env.";
         status_ = anet::rl::RunnerStatus::COMPLETED;
@@ -446,7 +449,7 @@ std::shared_ptr<EvalRunner> DefaultTrainer::CreateEvalRunner(RunMode runmode) co
 
     ANET_ASSERT(status_ == anet::rl::RunnerStatus::RUNNING);
 
-    auto env = env_factory_->CreateBatchEnv(1);
+    auto env = env_factory_->CreateBatchEnv(eval_env_seed_,1);
     auto eval_runner = std::make_shared<EvalRunner>(env, agent_, runmode);
     return eval_runner;
 }

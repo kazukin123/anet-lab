@@ -70,8 +70,10 @@ anet::rl::EnvSpec LunarLanderEnv::GetSpec() const
 
 void LunarLanderEnv::ContactListener::BeginContact(b2Contact* contact)
 {
-    b2Fixture* fa = contact->GetFixtureA();
-    b2Fixture* fb = contact->GetFixtureB();
+    b2Fixture* fixture_a = contact->GetFixtureA();
+    b2Fixture* fixture_b = contact->GetFixtureB();
+    b2Body* body_a = fixture_a->GetBody();
+    b2Body* body_b = fixture_b->GetBody();
 
     auto is_pad = [](b2Fixture* f) {
         return f->GetUserData().pointer ==
@@ -86,15 +88,19 @@ void LunarLanderEnv::ContactListener::BeginContact(b2Contact* contact)
         return f->GetBody() == env_.right_leg_body_;
         };
 
+    // Lander本体
+    if (body_a == env_.lander_body_ || body_b == env_.lander_body_) {
+        env_.body_contact_ = true;
+    }
     // 左脚 × pad
-    if ((is_left_leg(fa) && is_pad(fb)) ||
-        (is_left_leg(fb) && is_pad(fa))) {
+    if ((is_left_leg(fixture_a) && is_pad(fixture_b)) ||
+        (is_left_leg(fixture_b) && is_pad(fixture_a))) {
         env_.left_leg_contact_ = true;
     }
 
     // 右脚 × pad
-    if ((is_right_leg(fa) && is_pad(fb)) ||
-        (is_right_leg(fb) && is_pad(fa))) {
+    if ((is_right_leg(fixture_a) && is_pad(fixture_b)) ||
+        (is_right_leg(fixture_b) && is_pad(fixture_a))) {
         env_.right_leg_contact_ = true;
     }
 }
@@ -574,37 +580,51 @@ float LunarLanderEnv::computeShaping(
     return shaping;
 }
 
-float LunarLanderEnv::calcReward(const anet::rl::SingleState& state, bool crashed, bool landed, int64_t action)
+std::pair<float, float> LunarLanderEnv::calcReward(const anet::rl::SingleState& state, bool crashed, bool landed, int64_t action)
 {
     float reward = kStepPenality;
+    float raw_reward = kStepPenality;
 
-    // Gym 互換の shaping を計算
+    // shaping を計算
     const float shaping = computeShaping(state);
+    //ANET_LOG_DEBUG("shaping=" << shaping);
 
     // shaping 差分（前回 shaping が無ければ 0）
     if (has_prev_shaping_) {
         reward += (shaping - last_shaping_);
     }
+    raw_reward += shaping;
+    //ANET_LOG_DEBUG("reward=" << reward);
+    //ANET_LOG_DEBUG("raw_reward=" << raw_reward);
 
     // 次回ステップのために更新
     last_shaping_ = shaping;
     has_prev_shaping_ = true;
 
     // 燃料噴射ペナルティ
-    if (action == 2)
+    if (action == 2) {
         reward -= 0.3f;     // main engine fire
-    else if (action == 1 || action == 3)    // side engine fire
+        raw_reward -= 0.3f;
+    } else if (action == 1 || action == 3) {   // side engine fire
         reward -= 0.03f;
+        raw_reward -= 0.03f;
+    }
+    //ANET_LOG_DEBUG("reward=" << reward);
+    //ANET_LOG_DEBUG("raw_reward=" << raw_reward);
 
     // 終端ボーナス／ペナルティ
     if (crashed) {
         reward += kCrashPenalty;
+        raw_reward += kCrashPenalty;
     } else if (landed) {
         reward += kLandReward;
+        raw_reward += kLandReward;
     }
+    //ANET_LOG_DEBUG("reward=" << reward);
+    //ANET_LOG_DEBUG("raw_reward=" << raw_reward);
 
     /// @todo reward_range と実際の報酬スケールの整合を再確認する。
-    return reward;
+    return { reward, raw_reward };
 }
 
 anet::rl::SingleStepResult LunarLanderEnv::Step(int64_t action, anet::rl::RunMode runmode)
@@ -639,9 +659,9 @@ anet::rl::SingleStepResult LunarLanderEnv::Step(int64_t action, anet::rl::RunMod
     state.done = done;
     state.truncated = truncated;
 
-    const float reward = calcReward(state, crashed, landed, action);
+    const auto rewards = calcReward(state, crashed, landed, action);
 
-    anet::rl::SingleStepResult result { reward, state, CreateAux() };
+    anet::rl::SingleStepResult result { rewards.first, state, CreateAux(rewards) };
 
     return result;
 }
@@ -735,7 +755,7 @@ LunarLanderEnv::GetTensorVector(const std::string& key, int index) const
     return std::nullopt;
 }
 
-std::unordered_map<std::string, torch::Tensor> LunarLanderEnv::CreateAux()
+std::unordered_map<std::string, torch::Tensor> LunarLanderEnv::CreateAux(const std::pair<float, float>& rewards)
 {
     anet::ProfileRange r1("LunarLanderEnv::CreateAux");
 
@@ -818,7 +838,8 @@ std::unordered_map<std::string, torch::Tensor> LunarLanderEnv::CreateAux()
             torch::tensor(
                 {
                     left_leg_contact_,
-                    right_leg_contact_
+                    right_leg_contact_,
+                    body_contact_
                 },
                 bool_opt_));
     }
@@ -841,6 +862,15 @@ std::unordered_map<std::string, torch::Tensor> LunarLanderEnv::CreateAux()
             "forces",
             torch::tensor(
                 { last_wind_x_ },
+                float_opt_));
+    }
+
+    // --- 報酬 ---
+    {
+        aux.emplace(
+            "rewards",
+            torch::tensor(
+                { rewards.first, rewards.second },  // RL報酬、Raw報酬
                 float_opt_));
     }
 

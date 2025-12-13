@@ -335,12 +335,10 @@ DefaultBatchEnvFactory::DefaultBatchEnvFactory(
     const DefaultBatchEnvFactoryConfig& config,
     const ConfigData& config_data,
     int batch_size,
-    std::optional<seed_t> seed,
     std::optional<const torch::Device> device)
 	: config_data_(config_data)
     , config_(config)
     , batch_size_(batch_size)
-    , seed_(seed)
     , device_(device.value_or(anet::MakeDevice(config_.device_type, config_.device_index)))
 {
     /// @todo deviceの指定方法が設定ファイル、config、device、三箇所あるのを整理
@@ -388,11 +386,11 @@ std::shared_ptr<anet::ThreadPool> DefaultBatchEnvFactory::CreatePool(int worker_
     return std::make_shared<PinnedThreadPool>(worker_threads);
 }
 
-std::shared_ptr<BatchEnv> DefaultBatchEnvFactory::CreateBatchEnv(int batch_size_in)
+std::shared_ptr<BatchEnv> DefaultBatchEnvFactory::CreateBatchEnv(std::optional<seed_t> seed, int batch_size_in)
 {
     auto factory = GetSingleFactory();
-    if (factory == nullptr)
-        return nullptr;
+    if (factory == nullptr) return nullptr;
+
     auto env_class_id = factory->GetTargetEnvClassId();
 
     int batch_size = batch_size_in < 0 ? batch_size_ : batch_size_in;
@@ -400,7 +398,7 @@ std::shared_ptr<BatchEnv> DefaultBatchEnvFactory::CreateBatchEnv(int batch_size_
     // batch_size == 1 は VectorizedDiscreteBatchEnv の方が有利
     if (batch_size == 1) {
         return std::make_shared<VectorizedDiscreteBatchEnv>(
-            config_data_, factory, 1, device_, seed_);
+            config_data_, factory, 1, device_, seed);
     }
 
     int workers = ResolveWorkerThreads(batch_size);
@@ -413,7 +411,7 @@ std::shared_ptr<BatchEnv> DefaultBatchEnvFactory::CreateBatchEnv(int batch_size_
 
     // ThreadPoolDiscreteEnv の生成
     return std::make_shared<ThreadPoolDiscreteEnv>(
-        config_data_, factory, batch_size, device_, pool, seed_);
+        config_data_, factory, batch_size, device_, pool, seed);
 }
 
 std::shared_ptr<SingleDiscreteEnvFactory> DefaultBatchEnvFactory::GetSingleFactory() const

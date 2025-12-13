@@ -75,6 +75,7 @@ namespace anet::rl {
         // 乱数
         std::unique_ptr<anet::rl::DefaultBatchEnvFactory> env_factory_;
         std::unique_ptr<anet::MasterSeedManager> master_seed_;
+        seed_t eval_env_seed_;
     private:
         // メトリクス
         std::chrono::high_resolution_clock::time_point start_time_;

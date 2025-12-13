@@ -172,7 +172,7 @@ void LunarLanderFrame::OnMouseLeftClick(wxMouseEvent& event)
 
 void LunarLanderFrame::OnMouseRightClick(wxMouseEvent& event)
 {
-    ToggleEal();
+    ToggleEval();
 }
 
 void LunarLanderFrame::ToggleEval()
@@ -209,7 +209,7 @@ void LunarLanderFrame::OnKeyDown(wxKeyEvent& event)
         wxGetApp().ToggleTraining();
         return;
     case WXK_SPACE:
-        ToggleEal();
+        ToggleEval();
         return;
     default:
         eval_runner_->DoStep();
