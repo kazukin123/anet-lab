@@ -521,6 +521,35 @@ std::vector<Experience> BatchExperience::ToExperienceList() const
     return out;
 }
 
+ExperienceSample ExperienceSample::Flatten() const {
+    return ExperienceSample{
+        obs.flatten(1), // obs
+        actions,        // action
+        rewards,        // reward
+        {
+            next_states.obs.flatten(1), // next_states.obs
+            next_states.dones,          // next_states.dones
+            next_states.truncateds,     // next_states.truncateds
+            next_states.episode_start   // next_states.episode_start
+        }
+    };
+}
+
+std::string ExperienceSample::ToString() const
+{
+    std::ostringstream oss;
+    oss << "ExperienceSample{\n";
+    oss << "  obs     = " << anet::ToString(obs) << "\n";
+    oss << "  action  = " << anet::ToString(actions) << "\n";
+    oss << "  reward  = " << anet::ToString(rewards) << "\n";
+    oss << "  next_state.obs           = " << anet::ToString(next_states.obs) << "\n";
+    oss << "  next_state.dones         = " << anet::ToString(next_states.dones) << "\n";
+    oss << "  next_state.truncateds    = " << anet::ToString(next_states.truncateds) << "\n";
+    oss << "  next_state.episode_start = " << anet::ToString(next_states.episode_start) << "\n";
+    oss << "}";
+    return oss.str();
+}
+
 std::string BatchExperience::ToString() const
 {
     ANET_CHECK_DTYPE(reward, torch::kFloat32);

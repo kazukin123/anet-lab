@@ -15,7 +15,7 @@ namespace anet::rl {
     public:
         virtual std::optional<float> GetFloat(const TrainEvent& event) const = 0;
 
-        virtual std::optional<std::string> GetName() const { return std::nullopt; }
+        virtual std::string GetName() const = 0;
         virtual std::optional<float> GetMin() const = 0;
         virtual std::optional<float> GetMax() const = 0;
 
@@ -29,7 +29,7 @@ namespace anet::rl {
     public:
         virtual std::optional<std::vector<float>> GetVector(const TrainEvent& event) const = 0;
 
-        virtual std::optional<std::string> GetName() const { return std::nullopt; }
+        virtual std::string GetName() const = 0;
         virtual std::optional<float> GetMin() const = 0;
         virtual std::optional<float> GetMax() const = 0;
 
@@ -46,17 +46,17 @@ namespace anet::rl {
     class MetricsScalarProbe : public ScalarProbe {
     public:
         explicit MetricsScalarProbe(std::string key, std::optional<std::string> name = std::nullopt)
-            : key_(std::move(key)), name_(name) {
+            : key_(std::move(key)), name_(name.has_value() ? *name : "") {
         }
 
         std::optional<float> GetFloat(const TrainEvent& event) const override;
 
-        std::optional<std::string> GetName() const override { return name_.has_value() ? name_ : key_; }
+        std::string GetName() const override { return name_.empty() ? key_: name_; }
         std::optional<float> GetMin() const override { return std::nullopt; }
         std::optional<float> GetMax() const override { return std::nullopt; }
 
     private:
-        std::optional<std::string> name_;
+        std::string name_;
         std::string key_;
     };
 
@@ -71,7 +71,7 @@ namespace anet::rl {
 
         std::optional<float> GetFloat(const TrainEvent& event) const override;
 
-        std::optional<std::string> GetName() const override { return name_; }
+        std::string GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return value_; }
         std::optional<float> GetMax() const override { return value_; }
     private:
@@ -96,7 +96,7 @@ namespace anet::rl {
 
         std::optional<float> GetFloat(const TrainEvent& event) const override;
 
-        std::optional<std::string> GetName() const override { return name_; }
+        std::string GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }
         std::optional<float> GetMax() const override { return max_; }
     private:
@@ -150,11 +150,11 @@ namespace anet::rl {
 
         std::optional<std::vector<float>> GetVector(const TrainEvent& event) const override;
 
-        std::optional<std::string> GetName() const override { return name_; }
+        std::string GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }
         std::optional<float> GetMax() const override { return max_; }
     private:
-        std::optional<std::string> name_;
+        std::string name_;
         int state_index_;
         bool for_next_state_;
         std::optional<float> min_;
@@ -170,7 +170,7 @@ namespace anet::rl {
 
         std::optional<std::vector<float>> GetVector(const TrainEvent& event) const override;
 
-        std::optional<std::string> GetName() const override { return name_; }
+        std::string GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }
         std::optional<float> GetMax() const override { return max_; }
     private:
@@ -185,7 +185,7 @@ namespace anet::rl {
 
         std::optional<std::vector<float>> GetVector(const TrainEvent& event) const override;
 
-        std::optional<std::string> GetName() const override { return name_; }
+        std::string GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }
         std::optional<float> GetMax() const override { return max_; }
     private:
@@ -215,7 +215,7 @@ namespace anet::rl {
 
         std::optional<std::vector<float>> GetVector(const TrainEvent& event) const override;
 
-        std::optional<std::string> GetName() const override { return name_; }
+        std::string GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }
         std::optional<float> GetMax() const override { return max_; }
     private:

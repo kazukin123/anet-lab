@@ -364,7 +364,7 @@ void CartPoleApp::InitImageLogObservers()
             &anet::rl::extractor::BoundaryMaskFromQdiffAuto,
             std::placeholders::_1,
             std::placeholders::_2,
-            env_spec.action_spec.ActionCount(),
+            env_spec.action_spec.GetNumActions(),
             0,
             1)
     );
@@ -377,7 +377,7 @@ void CartPoleApp::InitImageLogObservers()
             &anet::rl::extractor::PairDiffExtractor,
             std::placeholders::_1,
             std::placeholders::_2,
-            env_spec.action_spec.ActionCount())
+            env_spec.action_spec.GetNumActions())
     );
     /// @brief QdeltaとQmaxの合成。
     /// <summary>
@@ -398,7 +398,7 @@ void CartPoleApp::InitImageLogObservers()
             &anet::rl::extractor::QdeltaQmaxCombinedAuto,
             std::placeholders::_1,
             std::placeholders::_2,
-            env_spec.action_spec.ActionCount()
+            env_spec.action_spec.GetNumActions()
         )
     );
     auto proc_theta_thetadot_pair_combo_qdelta_qdiff = std::make_shared<anet::rl::StateSweepProcessor>(
@@ -409,7 +409,7 @@ void CartPoleApp::InitImageLogObservers()
             &anet::rl::extractor::QdeltaQdiffCombinedAuto,
             std::placeholders::_1,
             std::placeholders::_2,
-            env_spec.action_spec.ActionCount(),
+            env_spec.action_spec.GetNumActions(),
             0,  // action_index_a (LEFT)
             1   // action_index_b (RIGHT)
         )
@@ -422,7 +422,7 @@ void CartPoleApp::InitImageLogObservers()
             &anet::rl::extractor::BoundaryMaskedQdeltaAuto,
             std::placeholders::_1,
             std::placeholders::_2,
-            env_spec.action_spec.ActionCount(),
+            env_spec.action_spec.GetNumActions(),
             0,  // action_index_a (LEFT)
             1   // action_index_b (RIGHT)
         )
@@ -430,25 +430,27 @@ void CartPoleApp::InitImageLogObservers()
 
     using StrMap = std::unordered_map<std::string, std::string>;
 
-    anet::TensorFunction policy_forward = agent->GetTensorFunction("policy_net.forward");
-    anet::TensorFunction qpair_forward = agent->GetTensorFunction("q_pair.forward");
+    std::optional<anet::TensorFunction> policy_forward = agent->GetTensorFunction("policy_net.forward");
+    std::optional<anet::TensorFunction> qpair_forward = agent->GetTensorFunction("q_pair.forward");
+    ANET_ASSERT(policy_forward.has_value());
+    ANET_ASSERT(qpair_forward.has_value());
 
     notifier->Attach<anet::rl::SweepedHeatMapObserver>(
-        "45_agent_img/05_shm_02_qmax", q_sweep_obs_config, proc_x_theta_qmax, policy_forward, proc_x_theta_qmax);
+        "45_agent_img/05_shm_02_qmax", q_sweep_obs_config, proc_x_theta_qmax, *policy_forward, proc_x_theta_qmax);
     notifier->Attach<anet::rl::SweepedHeatMapObserver>(
-        "45_agent_img/06_shm_23_qmax", q_sweep_obs_config, proc_theta_thetadot_qmax, policy_forward, proc_theta_thetadot_qmax);
+        "45_agent_img/06_shm_23_qmax", q_sweep_obs_config, proc_theta_thetadot_qmax, *policy_forward, proc_theta_thetadot_qmax);
     notifier->Attach<anet::rl::SweepedHeatMapObserver>(
-        "45_agent_img/08_shm_02_qdiff", q_sweep_obs_config, proc_theta_thetadot_qdiff, policy_forward, proc_theta_thetadot_qdiff);
+        "45_agent_img/08_shm_02_qdiff", q_sweep_obs_config, proc_theta_thetadot_qdiff, *policy_forward, proc_theta_thetadot_qdiff);
     notifier->Attach<anet::rl::SweepedHeatMapObserver>(
-        "45_agent_img/09_shm_02_qdiff_mask", q_sweep_obs_config, proc_theta_thetadot_qdiff_mask, policy_forward, proc_theta_thetadot_qdiff_mask);
+        "45_agent_img/09_shm_02_qdiff_mask", q_sweep_obs_config, proc_theta_thetadot_qdiff_mask, *policy_forward, proc_theta_thetadot_qdiff_mask);
     notifier->Attach<anet::rl::SweepedHeatMapObserver>(
-        "45_agent_img/11_shm_02_qdelta", q_sweep_obs_config, proc_theta_thetadot_pair_qdelta, qpair_forward, proc_theta_thetadot_pair_qdelta);
+        "45_agent_img/11_shm_02_qdelta", q_sweep_obs_config, proc_theta_thetadot_pair_qdelta, *qpair_forward, proc_theta_thetadot_pair_qdelta);
     notifier->Attach<anet::rl::SweepedHeatMapObserver>(
-        "45_agent_img/12_shm_02_qdelta_qmax", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdeltaqmax, qpair_forward, proc_theta_thetadot_pair_combo_qdeltaqmax);
+        "45_agent_img/12_shm_02_qdelta_qmax", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdeltaqmax, *qpair_forward, proc_theta_thetadot_pair_combo_qdeltaqmax);
     notifier->Attach<anet::rl::SweepedHeatMapObserver>(
-        "45_agent_img/13_shm_02_qdelta_qdiff", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdelta_qdiff, qpair_forward, proc_theta_thetadot_pair_combo_qdelta_qdiff);
+        "45_agent_img/13_shm_02_qdelta_qdiff", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdelta_qdiff, *qpair_forward, proc_theta_thetadot_pair_combo_qdelta_qdiff);
     notifier->Attach<anet::rl::SweepedHeatMapObserver>(
-        "45_agent_img/14_shm_02_qdelta_qdiff-masked", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdelta_qdiffmasked, qpair_forward, proc_theta_thetadot_pair_combo_qdelta_qdiffmasked,
+        "45_agent_img/14_shm_02_qdelta_qdiff-masked", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdelta_qdiffmasked, *qpair_forward, proc_theta_thetadot_pair_combo_qdelta_qdiffmasked,
         StrMap{
             { "46_agent_imgsc/02qdd_raw_qdelta_mean", "raw_qdelta_mean" },
             { "46_agent_imgsc/02qdd_raw_qdelta_max", "raw_qdelta_max" },

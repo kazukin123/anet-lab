@@ -259,6 +259,103 @@ void LunarLanderApp::InitTrainer()
 
 void LunarLanderApp::InitImageLogObservers()
 {
+    if (!config_->enable_image_log)
+        return;
+
+    auto notifier = trainer_->GetNotifier();
+    auto env_spec = trainer_->GetBatchEnv()->GetSpec();
+    auto agent = trainer_->GetAgent();
+
+    // flags
+    auto flags =
+        //anet::HeatMapFlags::HM_LogScaleValue | 
+        anet::HeatMapFlags::HM_AutoNormValue
+        | anet::HeatMapFlags::HM_AutoScaleAxis
+        //| anet::HeatMapFlags::HM_LogScaleAxis
+        | anet::HeatMapFlags::HM_SumMode; // | anet::HeatMapFlags::HM_ShowZeroLine;
+
+    // ---- Visit ----
+
+    //anet::rl::HeatMapObserverConfig visit_heat_obs_config{
+    //    512,    // width
+    //    512,    // height
+    //    100,    // log_interval 
+    //    30000,  // max_points
+    //    flags   // flags
+    //    - 1,     // image_width
+    //    -1,     // image_height
+    //};
+    //auto visit_x_probe = std::make_shared<anet::rl::BatchExperienceStateProbe>(0, &env_spec.state_spec, true);
+    //auto visit_y_probe = std::make_shared<anet::rl::BatchExperienceStateProbe>(1, &env_spec.state_spec, true);
+    //auto visit_reward_probe = std::make_shared<anet::rl::BatchExperienceRewardProbe>(nullptr);
+    ////auto visit_q_probe = std::make_shared<anet::rl::BatchUpdateResultTensorToVectorProbe>("max_q");
+
+    //notifier->Attach<anet::rl::HeatMapVectorObserver>(
+    //    "43_agent_img/02_hm_visit_01_reward", visit_heat_obs_config, visit_x_probe, visit_y_probe, visit_reward_probe);
+    //notifier->Attach<anet::rl::HeatMapVectorObserver>(
+    //    "43_agent_img/03_hm_visit_01_maxq", visit_heat_obs_config, visit_x_probe, visit_y_probe, visit_q_probe);
+
+    // ---- ReplayBuffer ----
+
+    auto rep_x_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 0, &env_spec.state_spec);
+    auto rep_y_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 1, &env_spec.state_spec);
+    auto rep_theta_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 4, &env_spec.state_spec);
+    auto rep_reward_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::REWARD, -1, &env_spec.state_spec);
+
+    anet::rl::HeatMapObserverConfig replay_heat_obs_config{
+        512,    // width
+        512,    // height
+        100,    // log_interval 
+        60000,  // max_points
+        flags   // flags
+        - 1,     // image_width
+        -1,     // image_height
+    };
+
+    //auto auto_scale_mode = anet::rl::AgentTensorVectorProbe::AutoScaleMode::GLOBAL;   // サンプル値でmin/max調整
+    auto auto_scale_mode = anet::rl::AgentTensorVectorProbe::AutoScaleMode::DISABLE;    // EnvSpecで固定
+    std::vector<std::shared_ptr<anet::rl::VectorProbe>> probes_3axis = {
+        std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 0, &env_spec.state_spec, nullptr, auto_scale_mode),  // X
+        std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 1, &env_spec.state_spec, nullptr, auto_scale_mode),  // Y
+        std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 4, &env_spec.state_spec, nullptr, auto_scale_mode),  // theta
+    };
+
+    notifier->Attach<anet::rl::HeatMapVectorObserver>(
+        "43_agent_img/12_hm_rep_01", replay_heat_obs_config, rep_x_probe, rep_y_probe, rep_reward_probe);
+    //notifier->Attach<anet::rl::HeatMapVectorObserver>(
+    //    "43_agent_img/13_hm_rep_04", replay_heat_obs_config, rep_x_probe, rep_theta_probe, rep_reward_probe);
+    notifier->Attach<anet::rl::MultiPairHeatMapObserver>(
+        "43_agent_img/21_hm_rep_multi3",
+        replay_heat_obs_config,
+        probes_3axis,
+        rep_reward_probe);
+
+    // ---- SweepedHeatMap ----
+
+    anet::rl::SweepedHeatMapObserverConfig q_sweep_obs_config{
+        100,    // log_interval
+        flags,  // flags
+        128,    // grid_width
+        128,    // grid_height
+        -1,     // image_width
+        -1,     // image_height
+    };
+    auto proc_x_y_qmax = std::make_shared<anet::rl::StateSweepProcessor>(
+        env_spec.state_spec,
+        0,  // x_index = x
+        1   // y_index = y
+    );
+
+    using StrMap = std::unordered_map<std::string, std::string>;
+
+    std::optional<anet::TensorFunction> policy_forward = agent->GetTensorFunction("policy_net.forward");
+    //std::optional<anet::TensorFunction> qpair_forward = agent->GetTensorFunction("q_pair.forward");
+    ANET_ASSERT(policy_forward.has_value());
+    //ANET_ASSERT(qpair_forward.has_value());
+
+    notifier->Attach<anet::rl::SweepedHeatMapObserver>(
+        "45_agent_img/05_shm_01_qmax", q_sweep_obs_config, proc_x_y_qmax, *policy_forward, proc_x_y_qmax);
+
 }
 
 wxIMPLEMENT_APP(LunarLanderApp);

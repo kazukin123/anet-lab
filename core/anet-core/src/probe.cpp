@@ -129,6 +129,7 @@ std::optional<std::vector<float>> BatchExperienceRewardProbe::GetVector(const Tr
 BatchUpdateResultTensorToVectorProbe::BatchUpdateResultTensorToVectorProbe(const std::string& key, std::optional<float> min, std::optional<float> max)
     : key_(key), min_(min), max_(max)
 {
+    name_ = "BatchUpdateResultTensorToVectorProbe[" + key + "]";
 }
 
 std::optional<std::vector<float>> BatchUpdateResultTensorToVectorProbe::GetVector(const TrainEvent& event) const
@@ -179,7 +180,7 @@ AgentTensorVectorProbe::AgentTensorVectorProbe(
         ANET_ASSERT(action_spec->is_discrete);
 
         //  離散 [0, n_actions-1]
-        const int n_actions = action_spec->ActionCount();
+        const int n_actions = action_spec->GetNumActions();
         ANET_ASSERT(n_actions > 0);
         if (auto_scale_mode == AutoScaleMode::DISABLE) {
             min_ = 0.0f;

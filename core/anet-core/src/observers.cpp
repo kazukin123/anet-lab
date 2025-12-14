@@ -69,8 +69,10 @@ void HeatMapVectorObserver::OnTrain(const TrainEvent& event)
     // 揃ってなかったらスキップ
     if (!xv.has_value() || !yv.has_value() || !vv.has_value())
         return;
-    if (xv->size() != yv->size() || xv->size() != vv->size())
+    if (xv->size() != yv->size() || xv->size() != vv->size()) {
+        LOG::warn() << "HeatMapVectorObserver: size mismatch. x=" << x_probe_->GetName() << " y=" << y_probe_->GetName() << " v=" << value_probe_->GetName();
         return;
+    }
 
     // データ追加
     const size_t n = xv->size();
@@ -142,7 +144,7 @@ MultiPairHeatMapObserver::MultiPairHeatMapObserver(
     for (size_t i = 0; i < m; i++) {
         LOG::info() << "MultiPairHeatMapObserver: "
             << tag_ << " axis_probes[" << i << "] "
-            << axis_probes_[i]->GetName().value()
+            << axis_probes_[i]->GetName()
             << "(" << axis_probes_[i]->GetMin().value_or(0.0f)
                    << axis_probes_[i]->GetMax().value_or(0.0f) << ")";
     }
@@ -154,8 +156,8 @@ MultiPairHeatMapObserver::MultiPairHeatMapObserver(
             LOG::info() << "MultiPairHeatMapObserver: "
                 << tag_
                 << " axis_pattern[" << plot_cnt << "]"
-                << " x=[" << i << "]" << (x_name.has_value() ? (*x_name).c_str() : "")
-                << " y=[" << j << "]" << (y_name.has_value() ? (*y_name).c_str() : "");
+                << " x=[" << i << "]" << x_name
+                << " y=[" << j << "]" << y_name;
             plot_cnt++;
         }
     }

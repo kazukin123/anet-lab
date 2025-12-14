@@ -420,7 +420,6 @@ void LunarLanderCanvas::OnPaint(wxPaintEvent& event)
     const int width = size.GetWidth();
     const int height = size.GetHeight();
 
-    DrawRL(dc);
     DrawWorldLine(dc, width, height);
     DrawTerrain(dc, width, height);
     DrawPad(dc, width, height);
@@ -428,4 +427,5 @@ void LunarLanderCanvas::OnPaint(wxPaintEvent& event)
     DrawLander(dc, width, height);
     DrawThrust(dc, width, height);
     DrawWind(dc, width, height);
+    DrawRL(dc);
 }

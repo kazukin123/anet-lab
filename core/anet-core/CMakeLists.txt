@@ -59,9 +59,14 @@ add_library(anet-core STATIC
     "src/thread.cpp"
     "src/trainer.cpp"
     "src/agent.cpp"
-    "src/init.cpp")
+    "src/init.cpp" "src/rainbow_agent.cpp" "src/rainbow_agent_impl.cpp")
 
-target_include_directories(anet-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(anet-core
+    PUBLIC 
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
 target_precompile_headers(anet-core PRIVATE "src/pch.hpp")
 target_link_libraries(anet-core PUBLIC ${TORCH_LIBRARIES})
 

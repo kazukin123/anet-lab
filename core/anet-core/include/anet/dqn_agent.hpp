@@ -4,8 +4,8 @@
 #include <torch/torch.h>
 
 #include "anet/config.hpp"
-#include "anet/rl.hpp"
 #include "anet/replay_buffer.hpp"
+#include "anet/rl.hpp"
 #include "anet/agent.hpp"
 
 namespace anet::rl {
@@ -35,7 +35,7 @@ namespace anet::rl {
         int replay_warmup_steps = 1000;
         int replay_update_interval = 10;
 
-        /// @todo AS-DQN系メトリクスの計測か出力を無効化する設定を追加
+        /// @todo AS-DQN系メトリクス計測を無効化する設定を追加
 
         bool use_as_dqn = false;            ///< Adaptive Stabilized DQN (AS-DQN)
         float q_z_threshold = 3.0f;         ///< z-score 崩壊判定閾値
@@ -65,7 +65,7 @@ namespace anet::rl {
         float eps_reheat_half_life = 1000;
         float unstable_ema_s_threshold = 0.0f; ///< 連続崩壊度の閾値
 
-        DQNAgentConfig(const ConfigData& config_data = EmptyConfigData) : anet::Config(config_data, "DQNAgent") {
+        explicit DQNAgentConfig(const ConfigData& config_data = EmptyConfigData) : anet::Config(config_data, "DQNAgent") {
             ANET_READ_CONFIG(config_data, nn_init_mode);
             ANET_READ_CONFIG(config_data, alpha);
             ANET_READ_CONFIG(config_data, gamma);
@@ -127,7 +127,7 @@ namespace anet::rl {
         std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromBatch(
             const StepCounts& step, const anet::rl::BatchExperience& exprience, const anet::rl::Runner& trainer) override;
 
-        anet::TensorFunction GetTensorFunction(const std::string& key) const override;
+        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) const override;
 
         std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;

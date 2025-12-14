@@ -20,49 +20,56 @@ TODO：実行手順を書く
 
 * 学習アルゴリズム
 	* 強化学習基本インタフェース 
-	* Double DQN Agent実装
-	* CartPole環境APP実装
-	* LunarLander環境APP実装
+	* DQNAgent
+	* CartPoleEnvGUI
+	* LunarLanderEnvGUI
 * メトリクス
-	* MetricsViewer.java：フェーズ1.5：基本機能、差分ロード
+	* MetricsViewer.java：フェーズ1.5(基本機能、差分ロード)
 	* TensorBoard対応（ブリッジpyスクリプト経由）
 	* Ploty＋pythonによる独自グラフ出力
 	* ヒストグラムやヒートマップの時系列動画出力（ffmpeg利用）
 * AP機能
-	* CUDAによる高速処理
+	* CUDA対応
 	* N環境スレッド対応
-	* seed値指定
-	* 設定でメトリクス定義
-	* 設定の継承読み込み
-	* 学習と推論の表示分離
+	* 設定による柔軟なメトリクス定義
+	* 学習と推論の同時分離表示
 
 ### DOING
 
 * 学習アルゴリズム
+	* RainbowAgent
 * メトリクス
 * AP改善
 	* 評価RunnerでENVとAPの個別RunMode指定
-	* 同じクラスでインスタンス別の設定キー
 
 ### TODO
 
 * 学習アルゴリズム
-	* Rainbow対応
+	* AlphaZero-Lite
+	* MuZero
 * メトリクス
 	* MetricsViewer.java：フェーズ1.5：ハイパラ表示対応
 	* MetricsViewer.java：フェーズ1.5：Loadingスケジュール最適化
 	* 閾値値等の基準横線出力対応
+	* ヒートマップ：Config対応
 	* ヒートマップ：凡例出力対応
 	* ヒートマップ：MetricsViewer統合
 	* ヒートマップ：ヒストグラムTB対応
 	* TB:add_hparams対応
 * AP改善
 	* コマンドライン引数でRun名を指定
-	* Runフォルダに設定内容ダンプを残す
+	* 同じクラスでインスタンス別の設定キー
 	* TODOコメントいれまくり
 	* constいれまくり
 	* GPU対応向けソース可読性向上
 	* ヒートマップ：サンプリング量で書き出しタイミング制御
+
+* ### DONE (自分用メモ)
+
+* AP改善
+	* 設定の継承読み込み
+	* Runフォルダに設定内容ダンプを残す
+	* seed値指定
 
 ### SUSPENDED
 * 学習アルゴリズム

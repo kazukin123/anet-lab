@@ -26,8 +26,8 @@ namespace anet::rl {
     protected:
         // Resource（Agentが管理すべき領域）
         ConfigT config_;
-        torch::Device device_;
-        std::shared_ptr<anet::rl::Notifier> notifier_;
+        const torch::Device device_;
+        const std::shared_ptr<anet::rl::Notifier> notifier_;
 
     };
 

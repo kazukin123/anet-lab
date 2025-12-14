@@ -7,42 +7,19 @@
 
 namespace anet::rl {
 
-    /// ReplayBatchから取り出したB個のサンプルデータ（「N環境」ではなく「Bサンプル」である事に注意）
-    struct ExperienceSample {
-        torch::Tensor obs;          // (B, state_dim...)
-        torch::Tensor actions;      // (B, action_dim...)
-        torch::Tensor rewards;      // (B,)
-        struct {
-            torch::Tensor obs;            // (B, state_dim...)
-            torch::Tensor dones;          // (B,)
-            torch::Tensor truncateds;     // (B,)
-            torch::Tensor episode_start;  // (B,)
-        } next_states;
 
-        ExperienceSample Flatten() const;
-        std::string ToString() const;
-    };
-
-    class ReplayBuffer : public RandomHolder, public DataExporter {
+    class PlainReplayBuffer : public ReplayBuffer, public RandomHolder {
     public:
-        explicit ReplayBuffer(const EnvSpec& env_spec, size_t capacity = 10000, std::optional<seed_t> seed = std::nullopt);
+        explicit PlainReplayBuffer(const EnvSpec& env_spec, size_t capacity = 10000, std::optional<seed_t> seed = std::nullopt);
 
-        void Push(const BatchExperience& batch);
-        void Push(const std::vector<Experience>& exps);
-        ExperienceSample Sample(int64_t b, torch::Device device) const;
-        size_t Size() const { return size_; }
+        void Push(const BatchExperience& batch) override;
+        void Push(const std::vector<Experience>& exps) override;
+        ExperienceSample Sample(int64_t b, torch::Device device) const override;
+        size_t Size() const  override { return size_; }
 
         std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
-    public:
-        static constexpr const char* STATE_OBS = "replaybuffer.state";
-        static constexpr const char* ACTION_ACTION = "replaybuffer.action";
-        static constexpr const char* REWARD = "replaybuffer.reward";
-        static constexpr const char* NEXT_STATE_OBS = "replaybuffer.next_state";
-        static constexpr const char* NEXT_STATE_DONE = "replaybuffer.done";
-        static constexpr const char* NEXT_STATE_TRUNCATED = "replaybuffer.truncated";
-        static constexpr const char* NEXT_STATE_EPISODE_START = "replaybuffer.episode_start";
     private:
         void InitFromSpec(const EnvSpec& spec);
 

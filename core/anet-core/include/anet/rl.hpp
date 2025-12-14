@@ -200,7 +200,7 @@ namespace anet::rl {
         std::vector<ActionDimInfo> dims; // 連続アクションの場合のみ使用
         std::map<std::string, std::string> info;
 
-        int ActionCount() const {
+        int GetNumActions() const {
             if (is_discrete) {
                 return (int)value_labels.size();
             }
@@ -387,6 +387,7 @@ namespace anet::rl {
     struct BatchActionInfo {
         torch::Tensor action;       ///< 実際に選択された行動値      (N, action_dim...) kFloat32 or kInt64
         torch::Tensor is_random;    ///< ε-greedy のランダム選択か  (N) kBool
+        std::optional<std::unordered_map<std::string, torch::Tensor>> aux;  /// @todo aux経由のProbeやメトリクス対応
 
         BatchActionInfo to(torch::Device device) const {
             ANET_CHECK_SHAPE(action, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
@@ -420,7 +421,7 @@ namespace anet::rl {
     public:
         BatchUpdateResult(uint32_t learn_step_diff) : learn_step_diff_(learn_step_diff) {}
 
-        virtual MetricsMap GetMetricsMap() const = 0;
+        //virtual MetricsMap GetMetricsMap() const = 0;
         uint32_t GetLearnStepDiff() const { return learn_step_diff_; }
 
         virtual ~BatchUpdateResult() = default;
@@ -538,8 +539,46 @@ namespace anet::rl {
 
     class Agent : public ActionPolicy, public Learner, public DataExporter {
     public:
-        virtual TensorFunction GetTensorFunction(const std::string& key) const = 0;
+        virtual std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) const = 0;
         virtual ~Agent() = default;
+    };
+
+    // =============================================================
+    // ReplayBuffer 
+    // =============================================================
+
+    /// ReplayBatchから取り出したB個のサンプルデータ（「N環境」ではなく「Bサンプル」である事に注意）
+    struct ExperienceSample {
+        torch::Tensor obs;          // (B, state_dim...)
+        torch::Tensor actions;      // (B, action_dim...)
+        torch::Tensor rewards;      // (B,)
+        struct {
+            torch::Tensor obs;            // (B, state_dim...)
+            torch::Tensor dones;          // (B,)
+            torch::Tensor truncateds;     // (B,)
+            torch::Tensor episode_start;  // (B,)
+        } next_states;
+
+        ExperienceSample Flatten() const;
+        std::string ToString() const;
+    };
+
+    class ReplayBuffer : public DataExporter {
+    public:
+        virtual void Push(const BatchExperience& batch_exp) = 0;
+        virtual void Push(const std::vector<Experience>& exps) = 0;
+        virtual ExperienceSample Sample(int64_t minibatch_size, torch::Device device) const = 0;
+        virtual size_t Size() const = 0;
+
+        virtual ~ReplayBuffer() = default;
+    public:
+        static constexpr const char* STATE_OBS = "replaybuffer.state";
+        static constexpr const char* ACTION_ACTION = "replaybuffer.action";
+        static constexpr const char* REWARD = "replaybuffer.reward";
+        static constexpr const char* NEXT_STATE_OBS = "replaybuffer.next_state";
+        static constexpr const char* NEXT_STATE_DONE = "replaybuffer.done";
+        static constexpr const char* NEXT_STATE_TRUNCATED = "replaybuffer.truncated";
+        static constexpr const char* NEXT_STATE_EPISODE_START = "replaybuffer.episode_start";
     };
 
     // =============================================================

@@ -9,11 +9,11 @@
 
 namespace anet::rl {
 
-    ReplayBuffer::ReplayBuffer(const EnvSpec& spec, size_t capacity, std::optional<seed_t> seed)
+    PlainReplayBuffer::PlainReplayBuffer(const EnvSpec& spec, size_t capacity, std::optional<seed_t> seed)
         : RandomHolder(seed),
         capacity_(capacity),
         state_count_(spec.state_spec.CalcFlattenSize()),
-        n_actions_(spec.action_spec.ActionCount()),
+        n_actions_(spec.action_spec.GetNumActions()),
         device_(torch::kCPU)
     {
         is_discrete_ = spec.action_spec.is_discrete;
@@ -47,7 +47,7 @@ namespace anet::rl {
         }
     }
 
-    void ReplayBuffer::Push(const BatchExperience& batch)
+    void PlainReplayBuffer::Push(const BatchExperience& batch)
     {
         // shape チェック
         const int64_t N = batch.state.obs.size(0);
@@ -98,7 +98,7 @@ namespace anet::rl {
         }
     }
 
-    void ReplayBuffer::Push(const std::vector<Experience>& exps)
+    void PlainReplayBuffer::Push(const std::vector<Experience>& exps)
     {
         size_t n = exps.size();
         if (n == 0) return;
@@ -125,11 +125,11 @@ namespace anet::rl {
         }
     }
 
-    ExperienceSample ReplayBuffer::Sample(int64_t b, torch::Device device) const
+    ExperienceSample PlainReplayBuffer::Sample(int64_t b, torch::Device device) const
     {
         ANET_ASSERT_MSG(size_ > 0, "ReplayBuffer::Sample: buffer empty.");
         ANET_ASSERT_MSG(b > 0, "ReplayBuffer::Sample: n must be > 0.");
-        ANET_ASSERT_MSG(b <= size_, "ReplayBuffer::Sample: n exceeds current size.");
+        //ANET_ASSERT_MSG(b <= size_, "ReplayBuffer::Sample: n exceeds current size.");
 
         // ---- RNG を使って n 個のインデックスを取得 ----
         std::vector<int64_t> idx_vec;
@@ -201,17 +201,17 @@ namespace anet::rl {
         return out;
     }
 
-    std::optional<float> ReplayBuffer::GetScalar(const std::string& key, int index) const
+    std::optional<float> PlainReplayBuffer::GetScalar(const std::string& key, int index) const
     {
         return std::nullopt;
     }
 
-    std::optional<torch::Tensor> ReplayBuffer::GetTensor(const std::string& key, int index) const
+    std::optional<torch::Tensor> PlainReplayBuffer::GetTensor(const std::string& key, int index) const
     {
         return std::nullopt;
     }
 
-    std::optional<std::vector<torch::Tensor>> ReplayBuffer::GetTensorVector(const std::string& key, int index) const
+    std::optional<std::vector<torch::Tensor>> PlainReplayBuffer::GetTensorVector(const std::string& key, int index) const
     {
         /// @todo index指定対応
 
@@ -239,33 +239,5 @@ namespace anet::rl {
         return std::nullopt;
     }
 
-    ExperienceSample ExperienceSample::Flatten() const {
-        return ExperienceSample{
-            obs.flatten(1), // obs
-            actions,        // action
-            rewards,        // reward
-            {
-                next_states.obs.flatten(1), // next_states.obs
-                next_states.dones,          // next_states.dones
-                next_states.truncateds,     // next_states.truncateds
-                next_states.episode_start   // next_states.episode_start
-            }
-        };
-    }
-
-    std::string ExperienceSample::ToString() const
-    {
-        std::ostringstream oss;
-        oss << "ExperienceSample{\n";
-        oss << "  obs     = " << anet::ToString(obs) << "\n";
-        oss << "  action  = " << anet::ToString(actions) << "\n";
-        oss << "  reward  = " << anet::ToString(rewards) << "\n";
-        oss << "  next_state.obs           = " << anet::ToString(next_states.obs) << "\n";
-        oss << "  next_state.dones         = " << anet::ToString(next_states.dones) << "\n";
-        oss << "  next_state.truncateds    = " << anet::ToString(next_states.truncateds) << "\n";
-        oss << "  next_state.episode_start = " << anet::ToString(next_states.episode_start) << "\n";
-        oss << "}";
-        return oss.str();
-    }
 
 } // namespace anet::rl

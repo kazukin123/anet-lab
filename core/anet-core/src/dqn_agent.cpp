@@ -149,9 +149,6 @@ public:
         map_["unstable_ema"] = vars.unstable_ema;
     }
 
-    virtual MetricsMap GetMetricsMap() const override {
-        return map_;
-    }
     virtual std::optional<float> GetScalar(const std::string& key, int index) const override {
         auto itr = map_.find(key);
         if (itr == map_.end()) {
@@ -202,7 +199,7 @@ struct anet::rl::DQNAgent::QNetImpl : torch::nn::Module {
     }
 };
 
-anet::TensorFunction DQNAgent::GetTensorFunction(const std::string& key) const
+std::optional<anet::TensorFunction> DQNAgent::GetTensorFunction(const std::string& key) const
 {
     if (key == "policy_net.forward") {
         anet::TensorFunction fn = [this](const torch::Tensor& t) {
@@ -237,7 +234,8 @@ anet::TensorFunction DQNAgent::GetTensorFunction(const std::string& key) const
         std::shared_lock<std::shared_mutex> lock(mutex_);
         return policy_net_->forward(tdev);
     };
-    return fn;
+
+    return std::nullopt;
 }
 
 std::optional<float> DQNAgent::GetScalar(const std::string& key, int index) const
@@ -819,7 +817,7 @@ DQNAgent::DQNAgent(
     , std::optional<seed_t> seed)
     : StepBasedAgent(config, device, notifier, seed)
     , state_count_(env_spec.state_spec.CalcFlattenSize())
-    , n_actions_(env_spec.action_spec.ActionCount())
+    , n_actions_(env_spec.action_spec.GetNumActions())
 	, batch_size_(batch_env_spec.batch_size)
     , policy_net_(std::make_shared<QNetImpl>(state_count_, n_actions_))
     , target_net_(std::make_shared<QNetImpl>(state_count_, n_actions_))
@@ -866,7 +864,7 @@ DQNAgent::DQNAgent(
     // 内部モジュール生成
     this->optimizer_ = std::make_unique<torch::optim::Adam>(policy_net_->parameters(), torch::optim::AdamOptions(config_.alpha));
     this->vars_updater_ = std::make_unique<RuntimeVarsUpdater>(config_);
-    this->replay_buffer_ = std::make_unique<anet::rl::ReplayBuffer>(env_spec, batch_size_ * config_.replay_capacity, replay_seed);
+    this->replay_buffer_ = std::make_unique<anet::rl::PlainReplayBuffer>(env_spec, batch_size_ * config_.replay_capacity, replay_seed);
     this->action_decider_ = std::make_unique<ActionDecider>(*this, action_decider_seed);
     this->replay_scheduler_ = std::make_unique<ReplayScheduler>(this->config_);
     this->target_updater_ = std::make_unique<TargetUpdater>(this->config_);
