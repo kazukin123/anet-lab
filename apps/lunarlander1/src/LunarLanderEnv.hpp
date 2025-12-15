@@ -53,11 +53,7 @@ struct LunarLanderEnvConfig : public anet::Config {
 };
 
 /// LunarLander 単一環境クラス（離散アクション）
-///
 /// Box2D を用いて 2D 物理を簡易再現する。
-/// 現時点では下記が @todo:
-/// - Gym と同等の地形ランダム生成
-/// - Gym と同等の報酬設計・終端条件
 class LunarLanderEnv : public anet::rl::SingleDiscreteEnv, public anet::RandomHolder, public std::enable_shared_from_this<LunarLanderEnv> {
 public:
     LunarLanderEnv(

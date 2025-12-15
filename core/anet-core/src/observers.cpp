@@ -526,6 +526,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
     
     // metrics.scalar.[tag] = <expr>  <$axis>  <@EventType>  <EventField>
 
+    /// @todo BatchActionInfoからのメトリクス抽出対応
+
     for (const auto& kv : config_map) {
         const std::string& config_key = kv.first;
         const std::string& config_value = kv.second;

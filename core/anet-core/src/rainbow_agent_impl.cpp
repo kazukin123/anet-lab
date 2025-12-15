@@ -146,6 +146,8 @@ BatchActionInfo RainbowAgent::ActionPolicy::SelectAction(const torch::Tensor& ob
 {
     ProfileRange  r("RainbowAgent::SelectAction");
 
+    torch::NoGradGuard;
+
     // Q値生成
     auto q_values = network_.ForwardExpectation(obs);
 
@@ -385,6 +387,8 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
         torch::Tensor next_actions_b = next_actions.view({ B, 1 });             // (B,1)
         max_next_q = next_q_target.gather(1, next_actions_b).squeeze(1);
     } else {
+        torch::NoGradGuard;
+
         auto next_q_target = network.ForwardRaw(next_obs, /*use_target=*/true);
         ANET_CHECK_SHAPE(next_q_target, { B, A });
         max_next_q = std::get<0>(next_q_target.max(1));
