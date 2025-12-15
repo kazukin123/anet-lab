@@ -149,6 +149,31 @@ std::optional<std::vector<float>> BatchUpdateResultTensorToVectorProbe::GetVecto
     return out;
 }
 
+BatchActionInfoToVectorProbe::BatchActionInfoToVectorProbe(const std::string& key, std::optional<float> min, std::optional<float> max)
+    : key_(key), min_(min), max_(max)
+{
+    name_ = "BatchActionInfoToVectorProbe[" + key + "]";
+}
+
+std::optional<std::vector<float>> BatchActionInfoToVectorProbe::GetVector(const TrainEvent& event) const
+{
+    auto itr = event.action_info.aux.find(key_);
+    if (itr == event.action_info.aux.end()) return std::nullopt;
+    auto tensor = itr->second;
+
+    //ANET_ASSERT(tensor.has_value());   // key誤りによるバグ防止のため
+    if (!tensor.defined()) return std::nullopt;
+
+    torch::Tensor flat = tensor.flatten().to(torch::kCPU);
+    ANET_CHECK_SHAPE(flat, { ANET_SHAPE_ANY });
+    ANET_CHECK_DTYPE(flat, torch::kFloat32);
+
+    std::vector<float> out;
+    out.resize(flat.size(0));
+    std::memcpy(out.data(), flat.data_ptr<float>(), flat.size(0) * sizeof(float));
+    return out;
+}
+
 AgentTensorVectorProbe::AgentTensorVectorProbe(
     const std::string& key, int index,
     const anet::rl::StateSpec* state_spec, const anet::rl::ActionSpec* action_spec,

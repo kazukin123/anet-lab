@@ -153,12 +153,13 @@ RainbowAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExp
 
     std::shared_ptr<const anet::rl::BatchUpdateResult> update_result;
 
-    {
-        // 共有ロック
+    if (true) {
+        // 排他ロック
         std::unique_lock<std::shared_mutex> lock(mutex_);
-
         // Update実行
         update_result = this->learner_->UpdateFromBatch(counts, batch_exp, runner);
+    } else {
+        update_result = std::make_shared<anet::rl::RainbowAgent::BatchUpdateResult>(0);
     }
 
     // LearnEvent通知

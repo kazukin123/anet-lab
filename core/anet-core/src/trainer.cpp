@@ -143,7 +143,7 @@ StepCounts EvalRunner::DoStep(int64_t action)
     anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
 
     // 更新後処理
-    anet::rl::TrainEvent update_event{ exp, *this, step_counts_, agent_, nullptr, env_, result };
+    anet::rl::TrainEvent update_event{ exp, *this, step_counts_, agent_, nullptr, env_, result, action_info };
     notifier_->Notify(update_event);
     state_ = result->continue_state;
 
@@ -204,7 +204,7 @@ StepCounts EvalRunner::DoStep()
     anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
 
     // 更新後処理
-    anet::rl::TrainEvent update_event{ exp, *this, step_counts_, agent_, nullptr, env_, result };
+    anet::rl::TrainEvent update_event{ exp, *this, step_counts_, agent_, nullptr, env_, result, action_info };
     notifier_->Notify(update_event);
     state_ = result->continue_state;
 
@@ -427,7 +427,7 @@ StepCounts DefaultTrainer::DoStep()
     last_exp_step_per_sec_ = exp_step_per_sec;
 
     // 更新後処理
-    anet::rl::TrainEvent train_event{ exp, *this, step_counts_, agent_, update_result, env_, result };
+    anet::rl::TrainEvent train_event{ exp, *this, step_counts_, agent_, update_result, env_, result, action_info };
     notifier_->Notify(train_event);
     state_ = result->continue_state;
 

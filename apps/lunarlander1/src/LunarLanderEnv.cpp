@@ -290,16 +290,19 @@ void LunarLanderEnv::buildGround()
 
     // --- Pad fixture（完全に独立） ---
     {
-        b2EdgeShape edge;
-        edge.SetTwoSided(
-            b2Vec2(pad_info_.x1, pad_info_.y),
-            b2Vec2(pad_info_.x2, pad_info_.y));
+        const float pad_half_width = 0.5f * (pad_info_.x2 - pad_info_.x1);
+        const float pad_thickness = 0.1f; // 推奨 0.05～0.2
+
+        b2PolygonShape pad_shape;
+        pad_shape.SetAsBox(pad_half_width, pad_thickness * 0.5f,
+            b2Vec2(0.5f * (pad_info_.x1 + pad_info_.x2),pad_info_.y - pad_thickness * 0.5f),
+            0.0f);
 
         b2FixtureDef fd;
-        fd.shape = &edge;
+        fd.shape = &pad_shape;
         fd.density = 0.0f;
-        fd.restitution = 0.1f;
-        fd.friction = 0.5f;
+        fd.restitution = 0.0f;
+        fd.friction = 1.5f;
 
         b2Fixture* f = ground_body_->CreateFixture(&fd);
         f->GetUserData().pointer =
@@ -707,8 +710,6 @@ static Segment getLegSegment(const b2Body* leg_body, float leg_length)
 
 std::optional<float> LunarLanderEnv::GetScalar(const std::string& key, int index) const
 {
-    /// @todo auxに移行
-
     ANET_ASSERT(index == -1 || index == 0);
 
     if (key == "wind_x") {

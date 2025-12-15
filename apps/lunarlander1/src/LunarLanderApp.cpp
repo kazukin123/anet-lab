@@ -276,24 +276,24 @@ void LunarLanderApp::InitImageLogObservers()
 
     // ---- Visit ----
 
-    //anet::rl::HeatMapObserverConfig visit_heat_obs_config{
-    //    512,    // width
-    //    512,    // height
-    //    100,    // log_interval 
-    //    30000,  // max_points
-    //    flags   // flags
-    //    - 1,     // image_width
-    //    -1,     // image_height
-    //};
-    //auto visit_x_probe = std::make_shared<anet::rl::BatchExperienceStateProbe>(0, &env_spec.state_spec, true);
-    //auto visit_y_probe = std::make_shared<anet::rl::BatchExperienceStateProbe>(1, &env_spec.state_spec, true);
+    anet::rl::HeatMapObserverConfig visit_heat_obs_config{
+        512,    // width
+        512,    // height
+        100,    // log_interval 
+        30000,  // max_points
+        flags   // flags
+        - 1,     // image_width
+        -1,     // image_height
+    };
+    auto visit_x_probe = std::make_shared<anet::rl::BatchExperienceStateProbe>(0, &env_spec.state_spec, true);
+    auto visit_y_probe = std::make_shared<anet::rl::BatchExperienceStateProbe>(1, &env_spec.state_spec, true);
     //auto visit_reward_probe = std::make_shared<anet::rl::BatchExperienceRewardProbe>(nullptr);
-    ////auto visit_q_probe = std::make_shared<anet::rl::BatchUpdateResultTensorToVectorProbe>("max_q");
+    auto visit_q_probe = std::make_shared<anet::rl::BatchActionInfoToVectorProbe>("max_q");
 
     //notifier->Attach<anet::rl::HeatMapVectorObserver>(
     //    "43_agent_img/02_hm_visit_01_reward", visit_heat_obs_config, visit_x_probe, visit_y_probe, visit_reward_probe);
-    //notifier->Attach<anet::rl::HeatMapVectorObserver>(
-    //    "43_agent_img/03_hm_visit_01_maxq", visit_heat_obs_config, visit_x_probe, visit_y_probe, visit_q_probe);
+    notifier->Attach<anet::rl::HeatMapVectorObserver>(
+        "43_agent_img/03_hm_visit_01_maxq", visit_heat_obs_config, visit_x_probe, visit_y_probe, visit_q_probe);
 
     // ---- ReplayBuffer ----
 
@@ -343,7 +343,14 @@ void LunarLanderApp::InitImageLogObservers()
     auto proc_x_y_qmax = std::make_shared<anet::rl::StateSweepProcessor>(
         env_spec.state_spec,
         0,  // x_index = x
-        1   // y_index = y
+        1,   // y_index = y
+        anet::rl::extractor::MaxExtractor
+    );
+    auto proc_x_y_qmean = std::make_shared<anet::rl::StateSweepProcessor>(
+        env_spec.state_spec,
+        0,  // x_index = x
+        1,   // y_index = y
+        anet::rl::extractor::MeanExtractor
     );
 
     using StrMap = std::unordered_map<std::string, std::string>;
@@ -355,6 +362,8 @@ void LunarLanderApp::InitImageLogObservers()
 
     notifier->Attach<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/05_shm_01_qmax", q_sweep_obs_config, proc_x_y_qmax, *policy_forward, proc_x_y_qmax);
+    notifier->Attach<anet::rl::SweepedHeatMapObserver>(
+        "45_agent_img/06_shm_02_qmean", q_sweep_obs_config, proc_x_y_qmean, *policy_forward, proc_x_y_qmean);
 
 }
 

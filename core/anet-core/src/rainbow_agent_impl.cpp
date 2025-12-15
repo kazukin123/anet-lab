@@ -163,7 +163,14 @@ BatchActionInfo RainbowAgent::ActionPolicy::SelectAction(const torch::Tensor& ob
     if (greedy_only) {
         ProfileRange  r("RainbowAgent::SelectAction.greedy_only");
         auto zeros = torch::zeros({ N }, torch::TensorOptions().dtype(torch::kBool).device(device));
-        return { greedy, zeros };
+        BatchActionInfo action_info{ greedy, zeros };
+
+        // aux[max_q]
+        auto max_pair = q_values.max(1);
+        auto max_q = std::get<0>(max_pair).detach();
+        action_info.aux["max_q"] = max_q;
+
+        return action_info;
     }
 
     const float eps = vars_.epsilon;
@@ -178,10 +185,17 @@ BatchActionInfo RainbowAgent::ActionPolicy::SelectAction(const torch::Tensor& ob
     // actions: where(mask, random_actions, greedy)
     auto actions = torch::where(mask, random_actions, greedy);
 
-    return {
+    BatchActionInfo action_info {
         actions,        // (N) kInt64
         mask            // (N) kBool
     };
+
+    // aux[max_q]
+    auto max_pair = q_values.max(1);
+    auto max_q = std::get<0>(max_pair).detach();
+    action_info.aux["max_q"] = max_q;
+
+    return action_info;
 }
 
 // ======================================================
@@ -297,7 +311,7 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
 
     // Update不可ならLeanStep差分無しで返す
     if (!CanUpdate(update_step)) {
-        auto result = std::make_shared<anet::rl::RainbowAgent::BatchUpdateResult>(0, torch::Tensor());
+        auto result = std::make_shared<anet::rl::RainbowAgent::BatchUpdateResult>(0);
         return result;
     }
 
@@ -349,7 +363,7 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     ANET_CHECK_SHAPE(q_sa, { B });
     ANET_CHECK_DTYPE(q_sa, torch::kFloat32);
 
-    torch::Tensor max_q = std::get<0>(q_all.max(1)); // (B,)
+    torch::Tensor max_q = std::get<0>(q_all.max(1)).detach(); // (B,)
 
     // ------------------------------------------------------------
     // max_a' Q(s', a')
@@ -409,19 +423,12 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     // ------------------------------------------------------------
     // grad_clip
     // ------------------------------------------------------------
-    if (config.use_grad_clip && config.grad_clip_tau > 0.0f) {
-        torch::nn::utils::clip_grad_norm_(network.GetPolicyParameters(), config.grad_clip_tau);
-    }
-
     float grad_norm = 0.0f;
     bool grad_clipped = false;
     if (config.use_grad_clip) {
         // clip_grad_norm_ の戻り値は clip 前の全体ノルム
-        double grad_norm_val =
-            torch::nn::utils::clip_grad_norm_(
-                network.GetPolicyParameters(),
-                config.grad_clip_tau
-            );
+        double grad_norm_val = torch::nn::utils::clip_grad_norm_(
+                network.GetPolicyParameters(), config.grad_clip_tau);
         grad_norm = static_cast<float>(grad_norm_val);
         grad_clipped = (grad_norm_val > config.grad_clip_tau);
     } else {
@@ -435,7 +442,7 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
         grad_norm = std::sqrt(total_sq.item<float>());
     }
     float grad_clip_ratio = grad_clipped ? 1.0f : 0.0f;
-
+    /// @todo grad_normの遅延評価 or 評価無しによる性能検討
 
     // ------------------------------------------------------------
     // optimize
@@ -456,11 +463,12 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     // ------------------------------------------------------------
     // UpdateResult
     // ------------------------------------------------------------
-    auto result = std::make_shared<anet::rl::RainbowAgent::BatchUpdateResult>(1, max_q);
-    result->loss = loss.item<float>();
-    result->td_mean = td_error.abs().mean().item<float>();
+    auto result = std::make_shared<anet::rl::RainbowAgent::BatchUpdateResult>(1);
+    result->loss = loss;
+    result->td_error = td_error;
     result->grad_norm = grad_norm;
     result->grad_clip_ratio = grad_clip_ratio;
+    result->max_q = max_q;
 
     return result;
 }

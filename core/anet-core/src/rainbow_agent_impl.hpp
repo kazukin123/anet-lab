@@ -23,27 +23,36 @@ struct RainbowAgent::RuntimeVars {
 
 class RainbowAgent::BatchUpdateResult : public anet::rl::BatchUpdateResult {
 public:
-    float loss = 0.0f;
-    float td_mean = 0.0f;
     float grad_norm = 0.0f;
     float grad_clip_ratio = 0.0f;
-    const torch::Tensor max_q;
-
+    torch::Tensor loss;
+    torch::Tensor td_error;
+    torch::Tensor max_q;
+    mutable torch::Tensor max_q_cpu;
 public:
-    RainbowAgent::BatchUpdateResult(uint32_t learn_step_diff, const torch::Tensor max_q_in)
-        : anet::rl::BatchUpdateResult(learn_step_diff), max_q(std::move(max_q_in))
+    RainbowAgent::BatchUpdateResult(uint32_t learn_step_diff)
+        : anet::rl::BatchUpdateResult(learn_step_diff)
     {
     }
 
     std::optional<float> GetScalar(const std::string& key, int index) const override
     {
-        if (key == "loss") return loss;
-        if (key == "td_mean") return td_mean;
+        if (key == "loss") return loss.item<float>();
+        if (key == "td_mean") return td_error.abs().mean().item<float>();
         if (key == "grad_norm") return grad_norm;
         if (key == "grad_clip_ratio") return grad_clip_ratio;
-        if (key == "q_max") return max_q.defined() ? std::optional<float>(max_q.max().item<float>()) : std::nullopt;
-        if (key == "q_mean") return max_q.defined() ? std::optional<float>(max_q.mean().item<float>()) : std::nullopt;
-        if (key == "q_std") return max_q.defined() ? std::optional<float>(max_q.std(false).item<float>()) : std::nullopt;
+        if (key == "q_max") {
+            TransQToCpu();
+            return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.max().item<float>()) : std::nullopt;
+        }
+        if (key == "q_mean") {
+            TransQToCpu();
+            return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.mean().item<float>()) : std::nullopt;
+        }
+        if (key == "q_std") {
+            TransQToCpu();
+            return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.std(false).item<float>()) : std::nullopt;
+        }
         return std::nullopt;
     }
 
@@ -56,6 +65,11 @@ public:
     std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index) const override
     {
         return std::nullopt;
+    }
+private:
+    void TransQToCpu() const {
+        if (max_q_cpu.defined()) return;
+        max_q_cpu = max_q.cpu();
     }
 };
 

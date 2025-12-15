@@ -277,7 +277,6 @@ namespace anet::rl {
 
     using AuxData = std::unordered_map<std::string, torch::Tensor>; ///< 任意の追加情報（UI描画用の非可観測情報を含む）
 
-
     class SingleStepResult {
     public:
         SingleStepResult(float reward_in, const SingleState& next_state_in)
@@ -387,7 +386,7 @@ namespace anet::rl {
     struct BatchActionInfo {
         torch::Tensor action;       ///< 実際に選択された行動値      (N, action_dim...) kFloat32 or kInt64
         torch::Tensor is_random;    ///< ε-greedy のランダム選択か  (N) kBool
-        std::optional<std::unordered_map<std::string, torch::Tensor>> aux;  /// @todo aux経由のProbeやメトリクス対応
+        AuxData aux;
 
         BatchActionInfo to(torch::Device device) const {
             ANET_CHECK_SHAPE(action, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
@@ -395,7 +394,7 @@ namespace anet::rl {
             ANET_ASSERT(action.dtype() == torch::kFloat32 || action.dtype() == torch::kInt64);
             ANET_CHECK_DTYPE(is_random, torch::kBool);
 
-            return BatchActionInfo{ action.to(device), is_random.to(device) };
+            return BatchActionInfo{ action.to(device), is_random.to(device), aux };
         }
         std::string ToString() const;
     };
@@ -421,7 +420,6 @@ namespace anet::rl {
     public:
         BatchUpdateResult(uint32_t learn_step_diff) : learn_step_diff_(learn_step_diff) {}
 
-        //virtual MetricsMap GetMetricsMap() const = 0;
         uint32_t GetLearnStepDiff() const { return learn_step_diff_; }
 
         virtual ~BatchUpdateResult() = default;
@@ -616,6 +614,7 @@ namespace anet::rl {
     struct TrainEvent : public UpdateEvent {
         std::shared_ptr<const BatchEnv> env;
         std::shared_ptr<const BatchStepResult> batch_step_result;
+        const BatchActionInfo& action_info;
     };
 
     struct LearnEvent : public UpdateEvent {

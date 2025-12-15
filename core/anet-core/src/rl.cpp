@@ -306,6 +306,11 @@ std::string BatchActionInfo::ToString() const
     oss << "BatchActionInfo{";
     oss << "action=" << anet::ToString(action);
     oss << ", is_random=" << anet::ToString(is_random);
+    oss << ", aux={";
+    for (auto kv : aux) {
+        oss << "\n    " << kv.first << "=" << anet::ToString(kv.second);
+    }
+    oss << "  }}";
     oss << "}";
     return oss.str();
 }

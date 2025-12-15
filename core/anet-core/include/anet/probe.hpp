@@ -195,6 +195,22 @@ namespace anet::rl {
         std::optional<float> max_;
     };
 
+    class BatchActionInfoToVectorProbe : public VectorProbe {
+    public:
+        BatchActionInfoToVectorProbe(const std::string& key, std::optional<float> min = std::nullopt, std::optional<float> max = std::nullopt);
+
+        std::optional<std::vector<float>> GetVector(const TrainEvent& event) const override;
+
+        std::string GetName() const override { return name_; }
+        std::optional<float> GetMin() const override { return min_; }
+        std::optional<float> GetMax() const override { return max_; }
+    private:
+        std::string key_;
+        std::string name_;
+        std::optional<float> min_;
+        std::optional<float> max_;
+    };
+
     class AgentTensorVectorProbe : public VectorProbe {
     public:
         enum AutoScaleMode {
