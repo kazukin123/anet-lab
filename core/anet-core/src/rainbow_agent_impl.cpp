@@ -443,33 +443,29 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     auto raw_samples = replay_buffer_->Sample(config.replay_batch_size, device);
     ANET_CHECK_DEVICE(raw_samples.obs, device);
     ANET_CHECK_DEVICE(raw_samples.actions, device);
-    ANET_CHECK_DEVICE(raw_samples.rewards, device);
+    ANET_CHECK_DEVICE(raw_samples.target_values, device);
     ANET_CHECK_DEVICE(raw_samples.next_states.obs, device);
-    ANET_CHECK_DEVICE(raw_samples.next_states.dones, device);
-    ANET_CHECK_DEVICE(raw_samples.next_states.truncateds, device);
-    ANET_CHECK_DEVICE(raw_samples.next_states.episode_start, device);
+    ANET_CHECK_DEVICE(raw_samples.next_states.terminals, device);
+    ANET_CHECK_DEVICE(raw_samples.n_steps, device);
     ANET_CHECK_SHAPE(raw_samples.obs, { B, S });
     ANET_CHECK_SHAPE(raw_samples.actions, { B, 1 });    // 離散アクション
-    ANET_CHECK_SHAPE(raw_samples.rewards, { B });
+    ANET_CHECK_SHAPE(raw_samples.target_values, { B });
     ANET_CHECK_SHAPE(raw_samples.next_states.obs, { B, S });
-    ANET_CHECK_SHAPE(raw_samples.next_states.dones, { B });
-    ANET_CHECK_SHAPE(raw_samples.next_states.truncateds, { B });
-    ANET_CHECK_SHAPE(raw_samples.next_states.episode_start, { B });
+    ANET_CHECK_SHAPE(raw_samples.next_states.terminals, { B });
+    ANET_CHECK_SHAPE(raw_samples.n_steps, { B });
     ANET_CHECK_DTYPE(raw_samples.obs, torch::kFloat32);
     ANET_CHECK_DTYPE(raw_samples.actions, torch::kInt64);    // 離散アクション
-    ANET_CHECK_DTYPE(raw_samples.rewards, torch::kFloat32);
-    ANET_CHECK_DTYPE(raw_samples.next_states.dones, torch::kBool);
-    ANET_CHECK_DTYPE(raw_samples.next_states.truncateds, torch::kBool);
-    ANET_CHECK_DTYPE(raw_samples.next_states.episode_start, torch::kBool);
+    ANET_CHECK_DTYPE(raw_samples.target_values, torch::kFloat32);
+    ANET_CHECK_DTYPE(raw_samples.next_states.terminals, torch::kBool);
+    ANET_CHECK_DTYPE(raw_samples.n_steps, torch::kInt);
 
-    auto samples = raw_samples.Flatten();
+    auto samples = raw_samples.FlattenStates();
 
     const auto& obs = samples.obs;
     const auto& actions = samples.actions;
-    const auto& rewards = samples.rewards;
+    const auto& target_values = samples.target_values;
     const auto& next_obs = samples.next_states.obs;
-    const auto& dones = samples.next_states.dones;
-    const auto& truncateds = samples.next_states.truncateds;
+    const auto& terminals = samples.next_states.terminals;
 
     // ------------------------------------------------------------
     // Q(s, a)
@@ -519,10 +515,8 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     // ------------------------------------------------------------
     // TD target
     // ------------------------------------------------------------
-    auto terminal = (dones | truncateds); // (B,) bool
-    auto not_terminal = 1.0f - terminal.to(torch::kFloat32); // (B,)
-    auto sample_rewards = samples.rewards; // (B,)
-    auto td_target = sample_rewards + not_terminal * config.gamma * max_next_q.detach(); // (B,)
+    auto not_terminal = 1.0f - terminals.to(torch::kFloat32); // (B,)
+    auto td_target = target_values + not_terminal * config.gamma * max_next_q.detach(); // (B,)
     ANET_CHECK_SHAPE(td_target, { B });
     ANET_CHECK_DTYPE(td_target, torch::kFloat32);
 

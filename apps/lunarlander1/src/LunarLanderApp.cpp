@@ -337,7 +337,7 @@ void LunarLanderApp::InitImageLogObservers()
     auto v_extractor =
         [](const torch::Tensor& t, const std::unordered_set<std::string>& req)
         {
-            return anet::rl::extractor::IndexExtractor(t, req, 1);  // V : index=0
+            return anet::rl::extractor::IndexExtractor(t, req, 0);  // V : index=0
         };
 
     anet::rl::SweepedHeatMapObserverConfig q_sweep_obs_config{

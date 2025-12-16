@@ -374,7 +374,7 @@ std::string SingleStepResult::ToString() const
     return oss.str();
 }
 
-std::string Experience::ToString() const
+std::string SingleExperience::ToString() const
 {
     std::ostringstream oss;
     oss << "Experience{";
@@ -441,7 +441,7 @@ BatchExperience BatchExperience::to(torch::Device d) const {
     return out;
 }
 
-std::vector<Experience> BatchExperience::ToExperienceList() const
+std::vector<SingleExperience> BatchExperience::ToExperienceList() const
 {
     // ---- N (batch 次元) の取得 ----
     ANET_CHECK_DTYPE(state.obs, torch::kFloat32);
@@ -491,7 +491,7 @@ std::vector<Experience> BatchExperience::ToExperienceList() const
         "MakeFromBatch: next_state.obs total elements not divisible by batch size.");
 
     // ---- main loop ----
-    std::vector<Experience> out;
+    std::vector<SingleExperience> out;
     out.reserve(N);
 
     for (int64_t i = 0; i < N; ++i) {
@@ -526,31 +526,29 @@ std::vector<Experience> BatchExperience::ToExperienceList() const
     return out;
 }
 
-ExperienceSample ExperienceSample::Flatten() const {
-    return ExperienceSample{
-        obs.flatten(1), // obs
-        actions,        // action
-        rewards,        // reward
+ExperienceSamples ExperienceSamples::FlattenStates() const {
+    return ExperienceSamples{
+        obs.flatten(1),
+        actions,
+        target_values,
         {
-            next_states.obs.flatten(1), // next_states.obs
-            next_states.dones,          // next_states.dones
-            next_states.truncateds,     // next_states.truncateds
-            next_states.episode_start   // next_states.episode_start
-        }
+            next_states.obs.flatten(1),
+            next_states.terminals,
+        },
+        n_steps
     };
 }
 
-std::string ExperienceSample::ToString() const
+std::string ExperienceSamples::ToString() const
 {
     std::ostringstream oss;
-    oss << "ExperienceSample{\n";
+    oss << "ExperienceSamples{\n";
     oss << "  obs     = " << anet::ToString(obs) << "\n";
     oss << "  action  = " << anet::ToString(actions) << "\n";
-    oss << "  reward  = " << anet::ToString(rewards) << "\n";
+    oss << "  target_values  = " << anet::ToString(target_values) << "\n";
     oss << "  next_state.obs           = " << anet::ToString(next_states.obs) << "\n";
-    oss << "  next_state.dones         = " << anet::ToString(next_states.dones) << "\n";
-    oss << "  next_state.truncateds    = " << anet::ToString(next_states.truncateds) << "\n";
-    oss << "  next_state.episode_start = " << anet::ToString(next_states.episode_start) << "\n";
+    oss << "  next_state.terminals     = " << anet::ToString(next_states.terminals) << "\n";
+    oss << "  n_steps                  = " << anet::ToString(n_steps) << "\n";
     oss << "}";
     return oss.str();
 }

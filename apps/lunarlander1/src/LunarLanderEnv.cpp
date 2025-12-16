@@ -291,7 +291,7 @@ void LunarLanderEnv::buildGround()
     // --- Pad fixture（完全に独立） ---
     {
         const float pad_half_width = 0.5f * (pad_info_.x2 - pad_info_.x1);
-        const float pad_thickness = 0.1f; // 推奨 0.05～0.2
+        const float pad_thickness = 0.2f; // Pad厚み。 推奨 0.05～0.2
 
         b2PolygonShape pad_shape;
         pad_shape.SetAsBox(pad_half_width, pad_thickness * 0.5f,
@@ -302,7 +302,7 @@ void LunarLanderEnv::buildGround()
         fd.shape = &pad_shape;
         fd.density = 0.0f;
         fd.restitution = 0.0f;
-        fd.friction = 1.5f;
+        fd.friction = 2.5f;
 
         b2Fixture* f = ground_body_->CreateFixture(&fd);
         f->GetUserData().pointer =
@@ -342,43 +342,76 @@ void LunarLanderEnv::buildLander()
 
     const float lander_angle = lander_body_->GetAngle();
 
+    // ===============================
+    // 脚 共通 fixture 定義
+    // ===============================
+
+    // --- 脚本体（細長い box） ---
     b2PolygonShape leg_shape;
     leg_shape.SetAsBox(
-        0.05f,                     // 半幅
-        kLegLength * 0.5f,         // 半長
-        b2Vec2(0.0f, -kLegLength * 0.5f), // ★下方向
-        0.0f
-    );
+        0.05f,                       // 半幅
+        kLegLength * 0.5f,           // 半高さ
+        b2Vec2(0.0f, -kLegLength * 0.5f), // 脚原点から下方向
+        0.0f);
 
     b2FixtureDef leg_fix;
     leg_fix.shape = &leg_shape;
-    leg_fix.density = kLegDensity;
+    leg_fix.density = 1.0f;
     leg_fix.friction = 1.5f;
     leg_fix.restitution = 0.0f;
 
-    // ---------- 左脚 ----------
-    b2BodyDef left_leg_def;
-    left_leg_def.type = b2_dynamicBody;
-    left_leg_def.position = lander_body_->GetPosition() + b2Vec2(-kLegOffsetX, -kLanderRadius);
-    left_leg_def.angle = lander_angle + kLegAttachAngle;
-    left_leg_body_ = world_->CreateBody(&left_leg_def);
-    left_leg_body_->CreateFixture(&leg_fix);
+    // --- 足裏（円） ---
+    b2CircleShape foot_shape;
+    foot_shape.m_radius = 0.06f;
+    foot_shape.m_p.Set(0.0f, -kLegLength); // 脚先端
 
-    // ---------- 右脚 ----------
-    b2BodyDef right_leg_def;
-    right_leg_def.type = b2_dynamicBody;
-    right_leg_def.position = lander_body_->GetPosition() + b2Vec2(+kLegOffsetX, -kLanderRadius);
-    right_leg_def.angle = lander_angle - kLegAttachAngle;
-    right_leg_body_ = world_->CreateBody(&right_leg_def);
-    right_leg_body_->CreateFixture(&leg_fix);
+    b2FixtureDef foot_fix;
+    foot_fix.shape = &foot_shape;
+    foot_fix.density = 0.0f;
+    foot_fix.friction = 2.0f;
+    foot_fix.restitution = 0.0f;
+
+    // ===============================
+    // 左脚
+    // ===============================
+    {
+        b2BodyDef def;
+        def.type = b2_dynamicBody;
+        def.position =
+            lander_body_->GetPosition() +
+            b2Vec2(-kLegOffsetX, -kLanderRadius);
+        def.angle = lander_body_->GetAngle() + kLegAttachAngle;
+        def.angularDamping = 5.0f;
+
+        left_leg_body_ = world_->CreateBody(&def);
+        left_leg_body_->CreateFixture(&leg_fix);
+        left_leg_body_->CreateFixture(&foot_fix);
+    }
+
+    // ===============================
+    // 右脚
+    // ===============================
+    {
+        b2BodyDef def;
+        def.type = b2_dynamicBody;
+        def.position =
+            lander_body_->GetPosition() +
+            b2Vec2(+kLegOffsetX, -kLanderRadius);
+        def.angle = lander_body_->GetAngle() - kLegAttachAngle;
+        def.angularDamping = 5.0f;
+
+        right_leg_body_ = world_->CreateBody(&def);
+        right_leg_body_->CreateFixture(&leg_fix);
+        right_leg_body_->CreateFixture(&foot_fix);
+    }
 
     // --------------------
     // ジョイント（固定）
     // --------------------
     b2RevoluteJointDef joint_def;
     joint_def.enableLimit = true;
-    joint_def.lowerAngle = 0.0f;
-    joint_def.upperAngle = 0.0f;
+    joint_def.lowerAngle = -0.2f;   // 約-11°
+    joint_def.upperAngle = 0.2f;    // 約+11°
     joint_def.referenceAngle = 0.0f;
     joint_def.bodyA = lander_body_;
     joint_def.localAnchorB.Set(0.0f, 0.0f);   // ★脚の原点＝付け根
@@ -656,15 +689,11 @@ std::shared_ptr<const anet::rl::SingleStepResult> LunarLanderEnv::Step(int64_t a
 
     step_count_++;
     
-    body_contact_ = false;
-    left_leg_contact_ = false;
-    right_leg_contact_ = false;
-
     applyWind();
     applyActionForce(action);
 
     const float time_step = 1.0f / 50.0f;
-    const int vel_iter = 6;
+    const int vel_iter = 10;
     const int pos_iter = 2;
     world_->Step(time_step, vel_iter, pos_iter);
 

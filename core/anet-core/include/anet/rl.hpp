@@ -302,13 +302,13 @@ namespace anet::rl {
     };
 
     // 経験情報（Updateの入力情報、ReplayBufferに入る）
-    struct Experience {
+    struct SingleExperience {
         SingleState state;
         torch::Tensor action;       // (action_dim)
         float reward;
         SingleState next_state;
 
-        Experience to(torch::Device device) const {
+        SingleExperience to(torch::Device device) const {
             ANET_CHECK_SHAPE(action, { });
             ANET_ASSERT(action.dtype() == torch::kInt64 || action.dtype() == torch::kFloat32);
             return {
@@ -448,7 +448,7 @@ namespace anet::rl {
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
 
         BatchExperience to(torch::Device d) const;
-        std::vector<Experience> ToExperienceList() const;
+        std::vector<SingleExperience> ToExperienceList() const;
         std::string ToString() const;
     public:
         static constexpr const char* STATE_OBS = "experience.state.obs";
@@ -545,27 +545,30 @@ namespace anet::rl {
     // ReplayBuffer 
     // =============================================================
 
-    /// ReplayBatchから取り出したB個のサンプルデータ（「N環境」ではなく「Bサンプル」である事に注意）
-    struct ExperienceSample {
-        torch::Tensor obs;          // (B, state_dim...)
-        torch::Tensor actions;      // (B, action_dim...)
-        torch::Tensor rewards;      // (B,)
+    /// ReplayBufferから取り出したB個のサンプルデータ（「N環境」ではなく「Bサンプル」である事に注意）
+    struct ExperienceSamples {
+        torch::Tensor obs;            // (B, state_dim...)
+        torch::Tensor actions;        // (B, action_dim...)
+        torch::Tensor target_values;  // (B,)
         struct {
-            torch::Tensor obs;            // (B, state_dim...)
-            torch::Tensor dones;          // (B,)
-            torch::Tensor truncateds;     // (B,)
-            torch::Tensor episode_start;  // (B,)
+            torch::Tensor obs;             // (B, state_dim...)
+            //torch::Tensor dones;         // (B,)
+            //torch::Tensor truncateds;    // (B,)
+            //torch::Tensor episode_start; // (B,)
+            torch::Tensor terminals;       // (B,) bool
         } next_states;
+        torch::Tensor n_steps;       // (B,) int
 
-        ExperienceSample Flatten() const;
+
+        ExperienceSamples FlattenStates() const;
         std::string ToString() const;
     };
 
     class ReplayBuffer : public DataExporter {
     public:
         virtual void Push(const BatchExperience& batch_exp) = 0;
-        virtual void Push(const std::vector<Experience>& exps) = 0;
-        virtual ExperienceSample Sample(int64_t minibatch_size, torch::Device device) const = 0;
+        virtual void Push(const std::vector<SingleExperience>& exps) = 0;
+        virtual ExperienceSamples Sample(int64_t minibatch_size, torch::Device device) const = 0;
         virtual size_t Size() const = 0;
 
         virtual ~ReplayBuffer() = default;
@@ -574,9 +577,8 @@ namespace anet::rl {
         static constexpr const char* ACTION_ACTION = "replaybuffer.action";
         static constexpr const char* REWARD = "replaybuffer.reward";
         static constexpr const char* NEXT_STATE_OBS = "replaybuffer.next_state";
-        static constexpr const char* NEXT_STATE_DONE = "replaybuffer.done";
-        static constexpr const char* NEXT_STATE_TRUNCATED = "replaybuffer.truncated";
-        static constexpr const char* NEXT_STATE_EPISODE_START = "replaybuffer.episode_start";
+        static constexpr const char* NEXT_STATE_TERMINAL = "replaybuffer.terminal";
+        static constexpr const char* NEXT_STATE_N_STEP = "replaybuffer.n_step";
     };
 
     // =============================================================

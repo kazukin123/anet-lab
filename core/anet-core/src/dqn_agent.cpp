@@ -946,30 +946,24 @@ DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperie
             // device / shape チェック（dtype は Push 時点で保証済み）
             ANET_CHECK_DEVICE(raw_samples.obs, device_);
             ANET_CHECK_DEVICE(raw_samples.actions, device_);
-            ANET_CHECK_DEVICE(raw_samples.rewards, device_);
+            ANET_CHECK_DEVICE(raw_samples.target_values, device_);
             ANET_CHECK_DEVICE(raw_samples.next_states.obs, device_);
-            ANET_CHECK_DEVICE(raw_samples.next_states.dones, device_);
-            ANET_CHECK_DEVICE(raw_samples.next_states.truncateds, device_);
-            ANET_CHECK_DEVICE(raw_samples.next_states.episode_start, device_);
+            ANET_CHECK_DEVICE(raw_samples.next_states.terminals, device_);
             ANET_CHECK_SHAPE(raw_samples.obs, { B, state_dim_ });
             ANET_CHECK_SHAPE(raw_samples.actions, { B, 1 });    // 離散アクション
-            ANET_CHECK_SHAPE(raw_samples.rewards, { B });
+            ANET_CHECK_SHAPE(raw_samples.target_values, { B });
             ANET_CHECK_SHAPE(raw_samples.next_states.obs, { B, state_dim_ });
-            ANET_CHECK_SHAPE(raw_samples.next_states.dones, { B });
-            ANET_CHECK_SHAPE(raw_samples.next_states.truncateds, { B });
-            ANET_CHECK_SHAPE(raw_samples.next_states.episode_start, { B });
+            ANET_CHECK_SHAPE(raw_samples.next_states.terminals, { B });
             ANET_CHECK_DTYPE(raw_samples.obs, torch::kFloat32);
             ANET_CHECK_DTYPE(raw_samples.actions, torch::kInt64);    // 離散アクション
-            ANET_CHECK_DTYPE(raw_samples.rewards, torch::kFloat32);
-            ANET_CHECK_DTYPE(raw_samples.next_states.dones, torch::kBool);
-            ANET_CHECK_DTYPE(raw_samples.next_states.truncateds, torch::kBool);
-            ANET_CHECK_DTYPE(raw_samples.next_states.episode_start, torch::kBool);
+            ANET_CHECK_DTYPE(raw_samples.target_values, torch::kFloat32);
+            ANET_CHECK_DTYPE(raw_samples.next_states.terminals, torch::kBool);
             ANET_LOG_DEBUG("ReplayBuffer batch OK: B=" << raw_samples.obs.size(0));
 
             ProfileRange r2("DQNAgent::UpdateFromBatch.forward");
 
             // ReplayBufferから取り出した時点では生の多次元StateなのでFlattenする
-            auto samples = raw_samples.Flatten();
+            auto samples = raw_samples.FlattenStates();
 
             // Q(s, a) 生成
             torch::Tensor q_all = policy_net_->forward(samples.obs); // (B, n_actions_)
@@ -1028,9 +1022,8 @@ DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperie
             // TD target 計算
             //    td_target = r + (1 - terminal) * gamma * max_next_q
             // -------------------------------------------------
-            torch::Tensor terminal = (samples.next_states.dones | samples.next_states.truncateds); // (B,) bool
-            torch::Tensor not_terminal = 1.0f - terminal.to(torch::kFloat32); // (B,)
-            torch::Tensor rewards = samples.rewards; // (B,)
+            torch::Tensor not_terminal = 1.0f - samples.next_states.terminals.to(torch::kFloat32); // (B,)
+            torch::Tensor rewards = samples.target_values; // (B,)
             const float gamma = config_.gamma;
             torch::Tensor td_target = rewards + not_terminal * (gamma * max_next_q); // (B,)
 

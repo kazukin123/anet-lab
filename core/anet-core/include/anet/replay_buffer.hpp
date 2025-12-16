@@ -13,8 +13,8 @@ namespace anet::rl {
         explicit PlainReplayBuffer(const EnvSpec& env_spec, size_t capacity = 10000, std::optional<seed_t> seed = std::nullopt);
 
         void Push(const BatchExperience& batch) override;
-        void Push(const std::vector<Experience>& exps) override;
-        ExperienceSample Sample(int64_t b, torch::Device device) const override;
+        void Push(const std::vector<SingleExperience>& exps) override;
+        ExperienceSamples Sample(int64_t b, torch::Device device) const override;
         size_t Size() const  override { return size_; }
 
         std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
@@ -37,9 +37,7 @@ namespace anet::rl {
         torch::Tensor actions_;         ///< cpu (capacity, n_actions_) kInt64 or kFloat32
         torch::Tensor next_states_;     ///< cpu (capacity, state_count) kFloat32
         torch::Tensor rewards_;         ///< cpu (capacity) kFloat32
-        torch::Tensor dones_;           ///< cpu (capacity) kBool
-        torch::Tensor truncateds_;      ///< cpu (capacity) kBool
-        torch::Tensor episode_start_;   ///< cpu (capacity) kBool
+        torch::Tensor terminals_;       ///< cpu (capacity) kBool
     };
 
 } // namespace anet

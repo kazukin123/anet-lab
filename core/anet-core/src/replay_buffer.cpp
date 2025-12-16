@@ -30,9 +30,7 @@ namespace anet::rl {
         states_ = torch::zeros({ static_cast<long>(capacity_), state_dim_ });
         next_states_ = torch::zeros({ static_cast<long>(capacity_), state_dim_ });
         rewards_ = torch::zeros({ static_cast<long>(capacity_) });
-        dones_ = torch::zeros({ static_cast<long>(capacity_) }, torch::TensorOptions().dtype(torch::kBool));
-        truncateds_ = torch::zeros({ static_cast<long>(capacity_) }, torch::TensorOptions().dtype(torch::kBool));
-        episode_start_ = torch::zeros({ static_cast<long>(capacity_) }, torch::TensorOptions().dtype(torch::kBool));
+        terminals_ = torch::zeros({ static_cast<long>(capacity_) }, torch::TensorOptions().dtype(torch::kBool));
 
         if (is_discrete_) {
             actions_ = torch::zeros(
@@ -81,24 +79,11 @@ namespace anet::rl {
         ANET_CHECK_DTYPE(batch.next_state.truncated, torch::kBool);
         ANET_CHECK_DTYPE(batch.next_state.episode_start, torch::kBool);
 
-        // 1件ずつ circular buffer に書き込む
-        for (int64_t i = 0; i < N; ++i) {   // N環境を回しながら取り出す事でunbatchする
-            const int64_t idx = write_index_;
-
-            states_[idx].copy_(batch.state.obs[i]);
-            next_states_[idx].copy_(batch.next_state.obs[i]);
-            actions_[idx].copy_(batch.action.action[i]);
-            rewards_[idx] = batch.reward[i].item<float>();
-            dones_[idx] = batch.next_state.done[i].item<bool>();
-            truncateds_[idx] = batch.next_state.truncated[i].item<bool>();
-            episode_start_[idx] = batch.next_state.episode_start[i].item<bool>();
-
-            write_index_ = (write_index_ + 1) % static_cast<int64_t>(capacity_);
-            if (size_ < capacity_) size_++;
-        }
+        auto exps = batch.ToExperienceList();
+        Push(exps);
     }
 
-    void PlainReplayBuffer::Push(const std::vector<Experience>& exps)
+    void PlainReplayBuffer::Push(const std::vector<SingleExperience>& exps)
     {
         size_t n = exps.size();
         if (n == 0) return;
@@ -109,23 +94,21 @@ namespace anet::rl {
             const int64_t idx = write_index_;
 
             ANET_CHECK_SHAPE(e.state.obs, { state_dim_ });
-            ANET_CHECK_SHAPE(e.action, { n_actions_ });
+            ANET_CHECK_SHAPE(e.action, { });
             ANET_CHECK_SHAPE(e.next_state.obs, { state_dim_ });
 
             states_[idx].copy_(e.state.obs);
             next_states_[idx].copy_(e.next_state.obs);
             actions_[idx].copy_(e.action);
             rewards_[idx] = e.reward;
-            dones_[idx] = e.next_state.done ? 1.0f : 0.0f;
-            truncateds_[idx] = e.next_state.truncated ? 1.0f : 0.0f;
-            episode_start_[idx] = e.next_state.episode_start ? 1.0f : 0.0f;
+            terminals_[idx] = (e.next_state.done || e.next_state.truncated) ? 1.0f : 0.0f;
 
             write_index_ = (write_index_ + 1) % static_cast<int64_t>(capacity_);
             if (size_ < capacity_) size_++;
         }
     }
 
-    ExperienceSample PlainReplayBuffer::Sample(int64_t b, torch::Device device) const
+    ExperienceSamples PlainReplayBuffer::Sample(int64_t b, torch::Device device) const
     {
         ANET_ASSERT_MSG(size_ > 0, "ReplayBuffer::Sample: buffer empty.");
         ANET_ASSERT_MSG(b > 0, "ReplayBuffer::Sample: n must be > 0.");
@@ -146,24 +129,21 @@ namespace anet::rl {
 
         torch::Tensor idx = torch::tensor(idx_vec, torch::TensorOptions().dtype(torch::kLong));
 
-        ExperienceSample out({
+        ExperienceSamples out({
                 states_.index_select(0, idx).to(device),        // obs
                 actions_.index_select(0, idx).to(device),       // action
                 rewards_.index_select(0, idx).to(device),       // reward
                 {   // next_states
                     next_states_.index_select(0, idx).to(device),   // next_states.obs
-                    dones_.index_select(0, idx).to(device),         // next_states.dones
-                    truncateds_.index_select(0, idx).to(device),    // next_states.truncateds
-                    episode_start_.index_select(0, idx).to(device)  // next_states.episode_start
-                }
+                    terminals_.index_select(0, idx).to(device),     // next_states.terminals
+                },
+                torch::Tensor() // n-steps
             });
         ANET_CHECK_SHAPE(out.obs, { b, state_dim_ });
         ANET_CHECK_SHAPE(out.actions,{ b, n_actions_ });
-        ANET_CHECK_SHAPE(out.rewards, { b });
+        ANET_CHECK_SHAPE(out.target_values, { b });
         ANET_CHECK_SHAPE(out.next_states.obs, { b, state_dim_ });
-        ANET_CHECK_SHAPE(out.next_states.dones, { b });
-        ANET_CHECK_SHAPE(out.next_states.truncateds, { b });
-        ANET_CHECK_SHAPE(out.next_states.episode_start, { b });
+        ANET_CHECK_SHAPE(out.next_states.terminals, { b });
 
         return out;
     }
@@ -229,12 +209,10 @@ namespace anet::rl {
             return replay_in_order(rewards_, size_, capacity_, write_index_);
         if (key == NEXT_STATE_OBS)
             return replay_in_order(next_states_, size_, capacity_, write_index_);
-        if (key == NEXT_STATE_DONE)
-            return replay_in_order(dones_, size_, capacity_, write_index_);
-        if (key == NEXT_STATE_TRUNCATED)
-            return replay_in_order(truncateds_, size_, capacity_, write_index_);
-        if (key == NEXT_STATE_EPISODE_START)
-            return replay_in_order(episode_start_, size_, capacity_, write_index_);
+        if (key == NEXT_STATE_TERMINAL)
+            return replay_in_order(terminals_, size_, capacity_, write_index_);
+        if (key == NEXT_STATE_N_STEP)
+            return std::nullopt;    // 非対応
 
         return std::nullopt;
     }
