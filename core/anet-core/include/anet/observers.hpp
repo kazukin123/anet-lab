@@ -148,7 +148,7 @@ namespace anet::rl {
      * - OutputExtractor が batched 出力から (grid_x, grid_y) の値を抽出
      * - HeatMap に追加して画像として出力
      */
-    class SweepedHeatMapObserver : public anet::rl::TaggedTrainObserver {
+    class SweepedHeatMapObserver : public anet::rl::TaggedLearnObserver {
     public:
         SweepedHeatMapObserver(
             const std::string& tag,
@@ -158,7 +158,7 @@ namespace anet::rl {
             std::shared_ptr<ISweepOutputExtractor> output_ext,
             const std::unordered_map<std::string, std::string>& scalar_tag_label_map = {});
 
-        void OnTrain(const TrainEvent& event) override;
+        void OnLearn(const LearnEvent& event) override;
         std::string GetClassName() const override { return "SweepedHeatMapObserver"; }
     private:
         SweepedHeatMapObserverConfig config_;
@@ -231,7 +231,7 @@ namespace anet::rl {
         MetricsLogObserverBase(
             const std::string& tag, const std::string& key,
             anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
-            int interval, bool is_ema, float ema_alpha);
+            int interval, bool is_ema, float ema_alpha, std::optional<float> clip);
         virtual ~MetricsLogObserverBase() = default;
     protected:
         void OnUpdate(const UpdateEvent& event);
@@ -244,13 +244,14 @@ namespace anet::rl {
         bool is_ema_;
 		int interval_;
 		anet::EmaFilter<float> val_ema_;
+        std::optional<float> clip_;
     };
 
     class MetricsLogTrainObserver : public MetricsLogObserverBase, public TrainObserver {
     public:
         MetricsLogTrainObserver(const std::string& tag, const std::string& key,
             anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
-            int interval, bool is_ema, float ema_alpha);
+            int interval, bool is_ema, float ema_alpha, std::optional<float> clip);
         void OnTrain(const TrainEvent& event) override { OnUpdate(event); }
         std::string GetClassName() const override { return "MetricsLogTrainObserver"; }
         virtual std::string ToString() const override { return ToStringInternal(); }
@@ -260,7 +261,7 @@ namespace anet::rl {
     public:
         MetricsLogLearnObserver(const std::string& tag, const std::string& key,
             anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
-            int interval, bool is_ema, float ema_alpha);
+            int interval, bool is_ema, float ema_alpha, std::optional<float> clip);
         void OnLearn(const LearnEvent& event) override { OnUpdate(event); }
         std::string GetClassName() const override { return "MetricsLogLearnObserver"; }
         virtual std::string ToString() const override { return ToStringInternal(); }

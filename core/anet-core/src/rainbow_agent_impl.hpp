@@ -23,7 +23,8 @@ struct RainbowAgent::RuntimeVars {
 
 class RainbowAgent::BatchUpdateResult : public anet::rl::BatchUpdateResult {
 public:
-    float grad_norm = 0.0f;
+    torch::Tensor grad_norm_tensor;
+    std::optional<float> grad_norm;
     float grad_clip_ratio = 0.0f;
     torch::Tensor loss;
     torch::Tensor td_error;
@@ -39,7 +40,13 @@ public:
     {
         if (key == "loss") return loss.item<float>();
         if (key == "td_mean") return td_error.abs().mean().item<float>();
-        if (key == "grad_norm") return grad_norm;
+        if (key == "grad_norm") {
+            if (grad_norm.has_value())
+                return *grad_norm;
+            if (grad_norm_tensor.defined())
+                return grad_norm_tensor.item<float>();
+            return std::nullopt;
+        }
         if (key == "grad_clip_ratio") return grad_clip_ratio;
         if (key == "q_max") {
             TransQToCpu();
@@ -83,7 +90,7 @@ public:
     virtual ~QNet() = default;
 
     /// 観測からQ表現を出力する。
-    virtual torch::Tensor forward(const torch::Tensor& obs) = 0;
+    virtual torch::Tensor Forward(const torch::Tensor& obs) = 0;
 
     /// アクションの個数（離散アクション前提）
     virtual int64_t GetNumActions() const = 0;
@@ -94,29 +101,48 @@ public:
     /// このQNetが分布的表現を返すかどうか。
     virtual bool IsDistributional() const { return false; }
 
-    /// @todo QNet全体共通要素をQNetに移す
+    /// メトリクス用
+    virtual std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex) = 0;
 };
 
-class PlainQNet : public QNet {
+class BaseQNet : public QNet {
 public:
-    explicit PlainQNet(const RainbowAgentConfig& config, int state_dim, int n_actions);
-
-    torch::Tensor forward(const torch::Tensor& obs) override;
+    BaseQNet() = delete;
+    virtual ~BaseQNet() = default;
 
     int64_t GetNumActions() const override { return n_actions_; }
     bool IsDistributional() const override { return false; }
     int64_t GetNumQuantiles() const override { return 1; }
-private:
-    void InitWeights(int nn_init_mode);
-private:
-    int64_t state_dim_;
-    int64_t n_actions_;
+protected:
+    BaseQNet(const RainbowAgentConfig& config, int64_t state_dim, int64_t n_actions);
 
+    void InitWeightsLinear(torch::nn::Linear& layer, int nn_init_mode, bool is_relu);
+protected:
+    int64_t state_dim_ = 0;
+    int64_t n_actions_ = 0;
     torch::nn::Linear fc1_{ nullptr };
     torch::nn::Linear fc2_{ nullptr };
+};
+
+class PlainQNet : public BaseQNet {
+public:
+    explicit PlainQNet(const RainbowAgentConfig& config, int state_dim, int n_actions);
+    torch::Tensor Forward(const torch::Tensor& obs) override;
+    std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex) override;
+private:
     torch::nn::Linear fc3_{ nullptr };
 };
 
+class DuelingQNet : public BaseQNet {
+public:
+    explicit DuelingQNet(const RainbowAgentConfig& config, int state_dim, int n_actions);
+    torch::Tensor Forward(const torch::Tensor& obs) ;
+
+    std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex) override;
+private:
+    torch::nn::Linear value_{ nullptr };  // (H -> 1)
+    torch::nn::Linear adv_{ nullptr };    // (H -> A)
+};
 
 // ======================================================
 // RainbowAgent Network
@@ -125,13 +151,15 @@ private:
 class RainbowAgent::Network {
 public:
     RainbowAgent::Network(
-        const RainbowAgentConfig& config, std::shared_ptr<QNet> policy_net, std::shared_ptr<QNet> target_net);
+        const RainbowAgentConfig& config, const torch::Device& device,
+        std::shared_ptr<QNet> policy_net, std::shared_ptr<QNet> target_net);
 
     /// 行動選択用：期待値Q (B, A)
     torch::Tensor ForwardExpectation(const torch::Tensor& obs) const;
 
-    /// Learner用：生の出力 DQN=(B, A) QR-DQN=(B, A, Nq)
-    torch::Tensor ForwardRaw(const torch::Tensor& obs, bool use_target) const;
+    /// Learner用：Q出力 DQN=(B, A) QR-DQN=(B, A, Nq)
+    torch::Tensor Forward(const torch::Tensor& obs, bool use_target) const;
+
 
     /// QR-DQN専用：Quantile 出力
     torch::Tensor ForwardQuantiles(const torch::Tensor& obs, bool use_target) const;
@@ -141,6 +169,9 @@ public:
 
     /// target network 同期
     void UpdateTarget(step_t learn_step);
+
+    /// メトリクス用：NN生出力
+    std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex);
 private:
     void SoftUpdate();
     void HardUpdate();

@@ -12,7 +12,7 @@ namespace anet::rl {
     PlainReplayBuffer::PlainReplayBuffer(const EnvSpec& spec, size_t capacity, std::optional<seed_t> seed)
         : RandomHolder(seed),
         capacity_(capacity),
-        state_count_(spec.state_spec.CalcFlattenSize()),
+        state_dim_(spec.state_spec.CalcFlattenDim()),
         n_actions_(spec.action_spec.GetNumActions()),
         device_(torch::kCPU)
     {
@@ -21,14 +21,14 @@ namespace anet::rl {
             n_actions_ = 1;
         }
 
-        ANET_ASSERT_MSG(state_count_ > 0,
+        ANET_ASSERT_MSG(state_dim_ > 0,
             "ReplayBuffer::ReplayBuffer(): invalid state_count_.");
 
         ANET_ASSERT_MSG(n_actions_ > 0,
             "ReplayBuffer::ReplayBuffer(): invalid action_count_.");
 
-        states_ = torch::zeros({ static_cast<long>(capacity_), state_count_ });
-        next_states_ = torch::zeros({ static_cast<long>(capacity_), state_count_ });
+        states_ = torch::zeros({ static_cast<long>(capacity_), state_dim_ });
+        next_states_ = torch::zeros({ static_cast<long>(capacity_), state_dim_ });
         rewards_ = torch::zeros({ static_cast<long>(capacity_) });
         dones_ = torch::zeros({ static_cast<long>(capacity_) }, torch::TensorOptions().dtype(torch::kBool));
         truncateds_ = torch::zeros({ static_cast<long>(capacity_) }, torch::TensorOptions().dtype(torch::kBool));
@@ -52,7 +52,7 @@ namespace anet::rl {
         // shape チェック
         const int64_t N = batch.state.obs.size(0);
 
-        ANET_CHECK_SHAPE(batch.state.obs, { N, state_count_ });
+        ANET_CHECK_SHAPE(batch.state.obs, { N, state_dim_ });
         ANET_CHECK_SHAPE(batch.state.done, { N });
         ANET_CHECK_SHAPE(batch.state.truncated, { N });
         ANET_CHECK_SHAPE(batch.state.episode_start, { N });
@@ -64,7 +64,7 @@ namespace anet::rl {
             ANET_CHECK_SHAPE(batch.action.is_random, { N, ANET_SHAPE_ENDANY });
         }
         ANET_CHECK_SHAPE(batch.reward, { N });
-        ANET_CHECK_SHAPE(batch.next_state.obs, { N, state_count_ });
+        ANET_CHECK_SHAPE(batch.next_state.obs, { N, state_dim_ });
         ANET_CHECK_SHAPE(batch.next_state.done, { N });
         ANET_CHECK_SHAPE(batch.next_state.truncated, { N });
         ANET_CHECK_SHAPE(batch.next_state.episode_start, { N });
@@ -108,9 +108,9 @@ namespace anet::rl {
 
             const int64_t idx = write_index_;
 
-            ANET_CHECK_SHAPE(e.state.obs, { state_count_ });
+            ANET_CHECK_SHAPE(e.state.obs, { state_dim_ });
             ANET_CHECK_SHAPE(e.action, { n_actions_ });
-            ANET_CHECK_SHAPE(e.next_state.obs, { state_count_ });
+            ANET_CHECK_SHAPE(e.next_state.obs, { state_dim_ });
 
             states_[idx].copy_(e.state.obs);
             next_states_[idx].copy_(e.next_state.obs);
@@ -157,10 +157,10 @@ namespace anet::rl {
                     episode_start_.index_select(0, idx).to(device)  // next_states.episode_start
                 }
             });
-        ANET_CHECK_SHAPE(out.obs, { b, state_count_ });
+        ANET_CHECK_SHAPE(out.obs, { b, state_dim_ });
         ANET_CHECK_SHAPE(out.actions,{ b, n_actions_ });
         ANET_CHECK_SHAPE(out.rewards, { b });
-        ANET_CHECK_SHAPE(out.next_states.obs, { b, state_count_ });
+        ANET_CHECK_SHAPE(out.next_states.obs, { b, state_dim_ });
         ANET_CHECK_SHAPE(out.next_states.dones, { b });
         ANET_CHECK_SHAPE(out.next_states.truncateds, { b });
         ANET_CHECK_SHAPE(out.next_states.episode_start, { b });

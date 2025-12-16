@@ -24,7 +24,7 @@ namespace anet::rl {
         void InitFromSpec(const EnvSpec& spec);
 
         size_t capacity_;
-        int64_t state_count_;  ///< state_dim_ は StateSpec.shape の総積（flatten 後次元）
+        int64_t state_dim_;  ///< state_dim_ は StateSpec.shape の総積（flatten 後次元）
         int64_t n_actions_;
 
         int64_t index_ = 0;

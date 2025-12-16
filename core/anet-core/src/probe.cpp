@@ -30,7 +30,7 @@ BatchExperienceStateProbe::BatchExperienceStateProbe(
     std::optional<std::string> name_spec;
 
     if (spec != nullptr) {
-        ANET_ASSERT(state_index < spec->CalcFlattenSize());
+        ANET_ASSERT(state_index < spec->CalcFlattenDim());
 
         // 指定されたindexの定義情報を取得
         const anet::rl::StateDimInfo* s = spec->FindDim(state_index);
@@ -186,7 +186,7 @@ AgentTensorVectorProbe::AgentTensorVectorProbe(
 
     // EnvSpec の state_spec から min/max を取得
     if (state_spec != nullptr && index_ >= 0) {
-        ANET_ASSERT(index_ < (int)state_spec->CalcFlattenSize());
+        ANET_ASSERT(index_ < (int)state_spec->CalcFlattenDim());
 
         // 指定されたindexの定義情報を取得
         const anet::rl::StateDimInfo* s = state_spec->FindDim(index_);
@@ -347,7 +347,7 @@ StateSweepProcessor::StateSweepProcessor(
     , y_index_(y_index)
     , value_extract_fn_(value_extract_fn)
 {
-    int64_t flat_size = state_spec_.CalcFlattenSize();
+    int64_t flat_size = state_spec_.CalcFlattenDim();
 
     if (base_state.has_value()) {
         base_flatten_ = base_state.value().clone();
@@ -417,7 +417,7 @@ torch::Tensor StateSweepProcessor::BuildInputTensor()
     // Y軸補間値作成
     torch::Tensor ys;
     if (grid_h_ > 1) {
-        ys = torch::linspace(0.0f, 1.0f, grid_h_, opts);
+        ys = torch::linspace(1.0f, 0.0f, grid_h_, opts);
     } else {
         ys = torch::zeros({ 1 }, opts);
     }

@@ -115,7 +115,7 @@ namespace anet::rl {
         }
     };
 
-    class DQNAgent : public anet::rl::StepBasedAgent<DQNAgentConfig>, public std::enable_shared_from_this<DQNAgent> {
+    class DQNAgent : public anet::rl::FlatStateAgent<DQNAgentConfig>, public std::enable_shared_from_this<DQNAgent> {
     public:
         DQNAgent(
             const DQNAgentConfig& config,
@@ -127,15 +127,11 @@ namespace anet::rl {
         std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromBatch(
             const StepCounts& step, const anet::rl::BatchExperience& exprience, const anet::rl::Runner& trainer) override;
 
-        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) const override;
+        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override;
 
         std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
-    private:
-        int state_count_;
-        int n_actions_;
-		int batch_size_;
     private:
         class BatchUpdateResult;
     private:

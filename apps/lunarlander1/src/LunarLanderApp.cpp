@@ -83,7 +83,7 @@ bool LunarLanderApp::OnInit()
     wxInitAllImageHandlers();
     anet::rl::InitRL();
     
-    // メインスレッドでのffmpeg実行準備
+    // メインスレッドでffmpeg実行する準備
     Bind(wxEVT_APP_EXECUTE_START, [&](wxThreadEvent& event) {
         anet::ExecuteStarter* executer = event.GetPayload<anet::ExecuteStarter*>();
         ANET_LOG_DEBUG("Executing command on main thread. command=" << executer->GetCommand());
@@ -97,15 +97,17 @@ bool LunarLanderApp::OnInit()
     config_mgr_ = std::make_unique<anet::ConfigManager>(GetConfigFilePath(), &cmdline_);
     auto config_data = config_mgr_->GetConfigData();
 
+    // MetricsLogger
+    anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetLogsPath());
+
     // LunarLanderAppConfig
     config_ = std::make_unique<LunarLanderApp::Config>(config_data);
+    anet::MetricsLogger::Instance()->LogJson("LunarLanderApp", config_->ToJson());
+    anet::MetricsLogger::Instance()->Flush();
 
     // LunarLanderFrame
     frame_ = new LunarLanderFrame("LunarLander RL", config_->train_timer_ms, config_->eval_timer_ms, config_->eval_step_per_frame);
     frame_->Show(true);
-
-    // MetricsLogger
-    anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetLogsPath());
 
     // Trainer生成
     trainer_ = std::make_unique<anet::rl::DefaultTrainer>(config_data);
@@ -332,8 +334,14 @@ void LunarLanderApp::InitImageLogObservers()
 
     // ---- SweepedHeatMap ----
 
+    auto v_extractor =
+        [](const torch::Tensor& t, const std::unordered_set<std::string>& req)
+        {
+            return anet::rl::extractor::IndexExtractor(t, req, 1);  // V : index=0
+        };
+
     anet::rl::SweepedHeatMapObserverConfig q_sweep_obs_config{
-        100,    // log_interval
+        10,    // log_interval
         flags,  // flags
         128,    // grid_width
         128,    // grid_height
@@ -352,18 +360,73 @@ void LunarLanderApp::InitImageLogObservers()
         1,   // y_index = y
         anet::rl::extractor::MeanExtractor
     );
+    auto proc_x_y_v = std::make_shared<anet::rl::StateSweepProcessor>(
+        env_spec.state_spec,
+        0,  // x_index = x
+        1,   // y_index = y
+        v_extractor
+    );
+
 
     using StrMap = std::unordered_map<std::string, std::string>;
 
     std::optional<anet::TensorFunction> policy_forward = agent->GetTensorFunction("policy_net.forward");
+    std::optional<anet::TensorFunction> va_policy_forward = agent->GetTensorFunction("policy_net.forward.va");
     //std::optional<anet::TensorFunction> qpair_forward = agent->GetTensorFunction("q_pair.forward");
     ANET_ASSERT(policy_forward.has_value());
-    //ANET_ASSERT(qpair_forward.has_value());
+
 
     notifier->Attach<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/05_shm_01_qmax", q_sweep_obs_config, proc_x_y_qmax, *policy_forward, proc_x_y_qmax);
     notifier->Attach<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/06_shm_02_qmean", q_sweep_obs_config, proc_x_y_qmean, *policy_forward, proc_x_y_qmean);
+    if (va_policy_forward.has_value())
+        notifier->Attach<anet::rl::SweepedHeatMapObserver>(
+            "45_agent_img/07_shm_03_v", q_sweep_obs_config, proc_x_y_v, *va_policy_forward, proc_x_y_v);
+
+
+    //const int grid_w = 128;
+    //const int grid_h = 128;
+    //const float y_min = 0.0f;
+    //const float y_max = 1.0f;
+    //const float x_min = 0.0f;
+    //const float x_max = 1.0f;
+    //anet::rl::ValueExtractFunction debug_x_extract =
+    //    [=](const torch::Tensor& t, const std::unordered_set<std::string>&)
+    //    -> anet::rl::ExtractResult
+    //    {
+    //        const int64_t grid_num = static_cast<int64_t>(grid_w) * grid_h;
+    //        auto idx = torch::arange(grid_num, torch::TensorOptions().dtype(torch::kInt64).device(t.device()));
+    //        auto x_idx = idx.remainder(grid_w); //            // x = idx % W
+    //        auto x = x_min + x_idx.to(torch::kFloat32) * (x_max - x_min) / (grid_w - 1);
+    //        return { x };
+    //    };
+    //anet::rl::ValueExtractFunction debug_y_extract =
+    //    [=](const torch::Tensor& t, const std::unordered_set<std::string>&)
+    //    -> anet::rl::ExtractResult
+    //    {
+    //        const int64_t grid_num = grid_w * grid_h;
+    //        auto idx = torch::arange(grid_num, torch::TensorOptions() .dtype(torch::kInt64).device(t.device()));
+    //        auto y_idx = idx.div(grid_w, "floor");
+    //        auto y = y_min + y_idx.to(torch::kFloat32) * (y_max - y_min) / (grid_h - 1);
+    //        return  { y };
+    //    };
+    //auto proc_x_debug = std::make_shared<anet::rl::StateSweepProcessor>(
+    //    env_spec.state_spec,
+    //    0,  // x_index = x
+    //    1,   // y_index = y
+    //    debug_x_extract
+    //);
+    //auto proc_y_debug = std::make_shared<anet::rl::StateSweepProcessor>(
+    //    env_spec.state_spec,
+    //    0,  // x_index = x
+    //    1,   // y_index = y
+    //    debug_y_extract
+    //);
+    //notifier->Attach<anet::rl::SweepedHeatMapObserver>(
+    //    "45_agent_img/99_debug_x", q_sweep_obs_config, proc_x_debug, *policy_forward, proc_x_debug);
+    //notifier->Attach<anet::rl::SweepedHeatMapObserver>(
+    //    "45_agent_img/99_debug_y", q_sweep_obs_config, proc_y_debug, *policy_forward, proc_y_debug);
 
 }
 

@@ -253,7 +253,7 @@ SweepedHeatMapObserver::SweepedHeatMapObserver(
     TensorFunction tensor_fn,
     std::shared_ptr<ISweepOutputExtractor> output_ext,
     const std::unordered_map<std::string, std::string>& scalar_tag_label_map)
-    : TaggedTrainObserver(tag), config_(config),
+    : TaggedLearnObserver(tag), config_(config),
     input_gen_(input_gen), tensor_fn_(std::move(tensor_fn)), output_ext_(output_ext)
 {
     scalar_label_tag_map_ = MakeReverseMap(scalar_tag_label_map);
@@ -290,12 +290,12 @@ SweepedHeatMapObserver::SweepedHeatMapObserver(
     );
 }
 
-void SweepedHeatMapObserver::OnTrain(const TrainEvent& event)
+void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
 {
     anet::ProfileRange r("SweepedHeatMapObserver::OnPostUpdate");
 
 	/// @todo メトリクスのSTEP軸を指定できるようにする
-    auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);
+    auto step = event.counts.learn_step;
 
     if (step % config_.log_interval != 0) return;
 
@@ -428,25 +428,25 @@ FunctionLearnObserver::FunctionLearnObserver(Fn fn, std::optional<std::string> n
 MetricsLogObserverBase::MetricsLogObserverBase(
     const std::string& tag,
     const std::string& key, anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
-    int interval, bool is_ema, float ema_alpha)
+    int interval, bool is_ema, float ema_alpha, std::optional<float> clip)
     : TaggedObserver(tag), key_(key), step_axis_(step_axis), event_field_(event_field)
-    , interval_(interval), is_ema_(is_ema), val_ema_(ema_alpha)
+    , interval_(interval), is_ema_(is_ema), val_ema_(ema_alpha), clip_(clip)
 {
     ;
 }
 
 MetricsLogTrainObserver::MetricsLogTrainObserver(const std::string& tag, const std::string& key,
     anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
-    int interval, bool is_ema, float ema_alpha)
-    : MetricsLogObserverBase(tag, key, step_axis, event_field, interval, is_ema, ema_alpha)
+    int interval, bool is_ema, float ema_alpha, std::optional<float> clip)
+    : MetricsLogObserverBase(tag, key, step_axis, event_field, interval, is_ema, ema_alpha, clip)
 {
     ;
 }
 
 MetricsLogLearnObserver::MetricsLogLearnObserver(const std::string& tag, const std::string& key,
     anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
-    int interval, bool is_ema, float ema_alpha)
-    : MetricsLogObserverBase(tag, key, step_axis, event_field, interval, is_ema, ema_alpha)
+    int interval, bool is_ema, float ema_alpha, std::optional<float> clip)
+    : MetricsLogObserverBase(tag, key, step_axis, event_field, interval, is_ema, ema_alpha, clip)
 {
     ;
 }
@@ -477,6 +477,9 @@ std::optional<float> MetricsLogObserverBase::GetScalar(const UpdateEvent& event,
 
     // Scalar値取得
     auto scalar_value = target->GetScalar(this->key_);
+    if (clip_.has_value() && scalar_value.has_value()) {
+        scalar_value = std::clamp<float>(*scalar_value, -*clip_, *clip_);
+    }
     return scalar_value;
 }
 
@@ -548,6 +551,7 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
             int interval = 1;
             bool is_ema = false;
 			float ema_alpha = 0.01;
+            std::optional<float> clip;
 
             for (auto v : values) {
                 if (v == "@train") {
@@ -627,6 +631,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                         } else if (attr_key == "ema_alpha") {
                             is_ema = true;
                             ema_alpha = std::stof(attr_val);
+                        } else if (attr_key == "clip") {
+                            clip = std::stof(attr_val);
                         } else {
                             LOG::warn() << "Unknown attribute key. config_key=" << config_key
                                 << " config_value=" << config_value << " attr_key=" << attr_key;
@@ -661,14 +667,14 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
             case EventType::TRAIN:
                 {
                     auto train_obs = std::make_shared<MetricsLogTrainObserver>(scalar_metrics_tag, key, step_axis, field_opt
-                        ,interval, is_ema, ema_alpha);
+                        ,interval, is_ema, ema_alpha, clip);
                     train_observers_.push_back(train_obs);
                 }
                 break;
             case EventType::LEARN:
                 {
                     auto learn_obs = std::make_shared<MetricsLogLearnObserver>(scalar_metrics_tag, key, step_axis, field_opt
-                        , interval, is_ema, ema_alpha);
+                        , interval, is_ema, ema_alpha, clip);
                     learn_observers_.push_back(learn_obs);
                 }
                 break;

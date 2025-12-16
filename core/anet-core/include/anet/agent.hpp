@@ -11,23 +11,30 @@ namespace anet::rl {
 
     // 環境のステップに同期して更新する Agent 基底クラス
     template<typename ConfigT>
-    class StepBasedAgent : public Agent, public anet::RandomHolder {
+    class FlatStateAgent : public Agent, public anet::RandomHolder {
     public:
-        StepBasedAgent(ConfigT config, torch::Device device,
+        FlatStateAgent(ConfigT config, torch::Device device,
             std::shared_ptr<anet::rl::Notifier> notifier,
+            const BatchEnvSpec& batch_env_spec,
+            const EnvSpec& env_spec,
             std::optional<seed_t> seed = std::nullopt)
             : RandomHolder(seed), config_(config), notifier_(notifier),device_(device)
+            , state_dim_(env_spec.state_spec.CalcFlattenDim())
+            , n_actions_(env_spec.action_spec.GetNumActions())
+            , batch_size_(batch_env_spec.batch_size)
         {
+            mutex_ = std::make_shared<std::shared_mutex>();
         }
 
-        virtual ~StepBasedAgent() = default;
+        virtual ~FlatStateAgent() = default;
     protected:
-        mutable std::shared_mutex mutex_;
-    protected:
-        // Resource（Agentが管理すべき領域）
         ConfigT config_;
+        std::shared_ptr<std::shared_mutex> mutex_;
         const torch::Device device_;
         const std::shared_ptr<anet::rl::Notifier> notifier_;
+        int state_dim_;
+        int n_actions_;
+        int batch_size_;
 
     };
 

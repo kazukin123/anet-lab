@@ -157,7 +157,7 @@ LunarLanderEnv::LunarLanderEnv(
 {
     ANET_LOG_DEBUG("seed=" << this->GetSeed());
 
-    anet::MetricsLogger::Instance()->LogJson("LunarLanderEnvConfig", config_.ToJson());
+    anet::MetricsLogger::Instance()->LogJson("LunarLanderEnv", config_.ToJson());
     anet::MetricsLogger::Instance()->Flush();
 
     float_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
@@ -353,7 +353,7 @@ void LunarLanderEnv::buildLander()
     b2FixtureDef leg_fix;
     leg_fix.shape = &leg_shape;
     leg_fix.density = kLegDensity;
-    leg_fix.friction = 0.5f;
+    leg_fix.friction = 1.5f;
     leg_fix.restitution = 0.0f;
 
     // ---------- 左脚 ----------

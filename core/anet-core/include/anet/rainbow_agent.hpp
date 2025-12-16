@@ -29,12 +29,13 @@ namespace anet::rl {
         float td_clip_value = 4.0f;
         //int eps_zero_step = -1;// 120000;
 
-        bool use_double_dqn = true;   ///< Double DQN 有効化フラグ
-
         int replay_capacity = 10000;
         int replay_batch_size = 128;
         int update_warmup_steps = 1000;
         int update_interval = 10;
+
+        bool use_double_dqn = true;   ///< Double DQN 有効化フラグ
+        bool use_dueling_net = true;  ///< Dueling Net 有効化フラグ
 
         explicit RainbowAgentConfig(const ConfigData& config_data = EmptyConfigData) : anet::Config(config_data, "RainbowAgent") {
             ANET_READ_CONFIG(config_data, nn_init_mode);
@@ -53,15 +54,17 @@ namespace anet::rl {
             ANET_READ_CONFIG(config_data, use_td_clip);
             ANET_READ_CONFIG(config_data, td_clip_value);
             //ANET_READ_CONFIG(config_data, eps_zero_step);
-            ANET_READ_CONFIG(config_data, use_double_dqn);
             ANET_READ_CONFIG(config_data, replay_capacity);
             ANET_READ_CONFIG(config_data, replay_batch_size);
             ANET_READ_CONFIG(config_data, update_warmup_steps);
             ANET_READ_CONFIG(config_data, update_interval);
+
+            ANET_READ_CONFIG(config_data, use_double_dqn);
+            ANET_READ_CONFIG(config_data, use_dueling_net);
         }
     };
 
-    class RainbowAgent: public anet::rl::StepBasedAgent<RainbowAgentConfig>, public std::enable_shared_from_this<RainbowAgent> {
+    class RainbowAgent: public anet::rl::FlatStateAgent<RainbowAgentConfig>, public std::enable_shared_from_this<RainbowAgent> {
     public:
         RainbowAgent(
             const RainbowAgentConfig& config,
@@ -73,7 +76,7 @@ namespace anet::rl {
         std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromBatch(
             const StepCounts& step, const anet::rl::BatchExperience& exprience, const anet::rl::Runner& trainer) override;
     public:
-        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) const override;
+        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override;
 
         std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
@@ -96,10 +99,6 @@ namespace anet::rl {
     private:
         std::shared_ptr<ActionPolicy> action_policy_;
         std::shared_ptr<Learner> learner_;
-    private:
-        int state_dim_;
-        int n_actions_;
-        int batch_size_;
     };
 
     class RainbowAgentFactory : public anet::rl::AgentFactory {

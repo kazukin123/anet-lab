@@ -5,6 +5,7 @@
 #include <memory>
 #include <torch/torch.h>
 #include <tuple>
+#include "anet/str_util.hpp"
 #include "anet/nn_util.hpp"
 #include "anet/tensor_util.hpp"
 #include "anet/tensor_check.hpp"
@@ -28,12 +29,14 @@ RainbowAgent::RainbowAgent(
     , const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, const torch::Device& device
     , std::shared_ptr<Notifier> notifier
     , std::optional<seed_t> seed)
-    : StepBasedAgent(config, device, notifier, seed)
-    , state_dim_(env_spec.state_spec.CalcFlattenSize())
-    , n_actions_(env_spec.action_spec.GetNumActions())
-    , batch_size_(batch_env_spec.batch_size)
+    : FlatStateAgent(config, device, notifier, batch_env_spec, env_spec, seed)
 {
     ANET_LOG_DEBUG("seed=" << GetSeed());
+
+    // ログ：パラメータ記録
+    anet::log::info() << "RainbowAgent config=" << config_;
+    anet::MetricsLogger::Instance()->LogJson("RainbowAgent", config_.ToJson());
+    anet::MetricsLogger::Instance()->Flush();
 
     //seed
     anet::SeedMaker seed_maker(GetSeed());
@@ -44,12 +47,15 @@ RainbowAgent::RainbowAgent(
     this->vars_ = std::make_unique<RuntimeVars>();
 
     // NN生成＆初期化
-    auto qnet_policy = std::make_shared<PlainQNet>(config_, state_dim_, n_actions_);
-    auto qnet_target = std::make_shared<PlainQNet>(config_, state_dim_, n_actions_);
-    qnet_policy->to(device_);
-    qnet_target->to(device_);
-    qnet_target->eval();
-    this->network_ = std::make_unique<RainbowAgent::Network>(config_, qnet_policy, qnet_target);
+    if (config_.use_dueling_net) {
+        auto policy_net = std::make_shared<DuelingQNet>(config_, state_dim_, n_actions_);
+        auto target_qnet = std::make_shared<DuelingQNet>(config_, state_dim_, n_actions_);
+        this->network_ = std::make_unique<RainbowAgent::Network>(config_, device_, policy_net, target_qnet);
+    } else {
+        auto policy_net = std::make_shared<PlainQNet>(config_, state_dim_, n_actions_);
+        auto target_qnet= std::make_shared<PlainQNet>(config_, state_dim_, n_actions_);
+        this->network_ = std::make_unique<RainbowAgent::Network>(config_, device_, policy_net, target_qnet);
+    }
 
     // ActionPolicy生成
     this->action_policy_ = std::make_unique<RainbowAgent::ActionPolicy>(*network_, *vars_, action_policy_seed);
@@ -59,46 +65,19 @@ RainbowAgent::RainbowAgent(
 }
 
 
-std::optional<anet::TensorFunction> RainbowAgent::GetTensorFunction(const std::string& key) const
+std::optional<anet::TensorFunction> RainbowAgent::GetTensorFunction(const std::string& key)
 {
-    if (key == "policy_net.forward") {
-        anet::TensorFunction fn = [this](const torch::Tensor& t) {
-            auto tdev = t.to(device_);
-            std::shared_lock<std::shared_mutex> lock(mutex_);
-            return network_->ForwardRaw(t, false).to(tdev);
-            };
-        return fn;
-    }
-    if (key == "target_net.forward") {
-        anet::TensorFunction fn = [this](const torch::Tensor& t) {
-            auto tdev = t.to(device_);
-            std::shared_lock<std::shared_mutex> lock(mutex_);
-            return network_->ForwardRaw(t, true).to(tdev);
-            };
-        return fn;
-    }
-    if (key == "q_pair.forward") {
-        anet::TensorFunction fn = [this](const torch::Tensor& t) {
-            auto tdev = t.to(device_);
-            std::shared_lock<std::shared_mutex> lock(mutex_);
-            auto q_online = network_->ForwardRaw(t, false).to(tdev);    // [N, A]
-            auto q_target = network_->ForwardRaw(t, true).to(tdev);     // [N, A]
-            return torch::cat({ q_online, q_target }, 1);               // [N, 2*A]
-            };
-        return fn;
-    }
-
-    return std::nullopt;
+    return network_->GetTensorFunction(key, device_, mutex_);
 }
 
 std::optional<float> RainbowAgent::GetScalar(const std::string& key, int index) const
 {
     if (key == "epsilon") {
-        std::shared_lock<std::shared_mutex> lock(mutex_);
+        std::shared_lock<std::shared_mutex> lock(*mutex_);
         return vars_->epsilon;
     }
     if (key.find("replaybuffer.") == 0) {
-        std::shared_lock<std::shared_mutex> lock(mutex_);
+        std::shared_lock<std::shared_mutex> lock(*mutex_);
         return learner_->GetScalar(key);
     }
 
@@ -108,7 +87,7 @@ std::optional<float> RainbowAgent::GetScalar(const std::string& key, int index) 
 std::optional<torch::Tensor> RainbowAgent::GetTensor(const std::string& key, int index) const
 {
     if (key.find("replaybuffer.") == 0) {
-        std::shared_lock<std::shared_mutex> lock(mutex_);
+        std::shared_lock<std::shared_mutex> lock(*mutex_);
         return learner_->GetTensor(key);
     }
 
@@ -118,7 +97,7 @@ std::optional<torch::Tensor> RainbowAgent::GetTensor(const std::string& key, int
 std::optional<std::vector<torch::Tensor>> RainbowAgent::GetTensorVector(const std::string& key, int index) const
 {
     if (key.find("replaybuffer.") == 0) {
-        std::shared_lock<std::shared_mutex> lock(mutex_);
+        std::shared_lock<std::shared_mutex> lock(*mutex_);
         return learner_->GetTensorVector(key);
     }
 
@@ -131,7 +110,7 @@ BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const BatchStat
     ANET_CHECK_SHAPE(state.obs, { ANET_SHAPE_ANY, state_dim_ });
 
     // 共有ロック＆Grad抑止
-    std::shared_lock<std::shared_mutex> lock(mutex_);
+    std::shared_lock<std::shared_mutex> lock(*mutex_);
     torch::NoGradGuard ng;
 
     // Flatなobsを生成
@@ -155,7 +134,7 @@ RainbowAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExp
 
     if (true) {
         // 排他ロック
-        std::unique_lock<std::shared_mutex> lock(mutex_);
+        std::unique_lock<std::shared_mutex> lock(*mutex_);
         // Update実行
         update_result = this->learner_->UpdateFromBatch(counts, batch_exp, runner);
     } else {

@@ -3,27 +3,164 @@
 #include "anet/profile.hpp"
 #include "anet/tensor_check.hpp"
 #include "anet/tensor_util.hpp"
+#include "anet/str_util.hpp"
 
 using namespace anet::rl;
 namespace LOG = anet::log;
+
+
+// ======================================================
+// RainbowAgent BaseQNet
+// ======================================================
+
+BaseQNet::BaseQNet(const RainbowAgentConfig& config, int64_t state_dim, int64_t n_actions)
+        : state_dim_(state_dim), n_actions_(n_actions)
+{
+    ANET_ASSERT(state_dim_ > 0);
+    ANET_ASSERT(n_actions_ > 0);
+
+    fc1_ = register_module("fc1", torch::nn::Linear(state_dim_, config.nn_hidden1));
+    fc2_ = register_module("fc2", torch::nn::Linear(config.nn_hidden1, config.nn_hidden2));
+
+    InitWeightsLinear(fc1_, config.nn_init_mode, /*is_relu=*/true);
+    InitWeightsLinear(fc2_, config.nn_init_mode, /*is_relu=*/true);
+}
+
+void BaseQNet::InitWeightsLinear(torch::nn::Linear& layer, int nn_init_mode, bool is_relu)
+{
+    if (nn_init_mode == 1) {
+        torch::nn::init::xavier_uniform_(layer->weight);
+        if (layer->bias.defined()) {
+            torch::nn::init::zeros_(layer->bias);
+        }
+    } else if (nn_init_mode == 2) {
+        if (is_relu) {
+            torch::nn::init::kaiming_normal_(layer->weight, 0.0, torch::kFanIn, torch::kReLU);
+        } else {
+            torch::nn::init::kaiming_normal_(layer->weight, 0.0, torch::kFanIn, torch::kLinear);
+        }
+        if (layer->bias.defined()) {
+            torch::nn::init::zeros_(layer->bias);
+        }
+    }
+}
+
+// ======================================================
+// RainbowAgent PlainQNet
+// ======================================================
+
+PlainQNet::PlainQNet(const RainbowAgentConfig& config, int state_dim, int n_actions)
+    : BaseQNet(config, state_dim, n_actions)
+{
+    fc3_ = register_module("fc3", torch::nn::Linear(config.nn_hidden2, n_actions_));
+    InitWeightsLinear(fc3_, config.nn_init_mode, /*is_relu=*/false);
+}
+
+torch::Tensor PlainQNet::Forward(const torch::Tensor& obs)
+{
+    auto x = obs;
+    x = torch::relu(fc1_->forward(x));
+    x = torch::relu(fc2_->forward(x));
+    x = fc3_->forward(x);
+    return x;
+}
+
+std::optional<anet::TensorFunction> PlainQNet::GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex)
+{
+    if (key == "forward" || key == "forward.q") {
+        anet::TensorFunction fn = [this, device, smutex](const torch::Tensor& t) {
+            auto tdev = t.to(device);
+            std::shared_lock<std::shared_mutex> lock(*smutex);
+            return Forward(tdev);
+            };
+        return fn;
+    }
+
+    return std::nullopt;
+}
+
+// ======================================================
+// RainbowAgent DuelingQNet
+// ======================================================
+
+DuelingQNet ::DuelingQNet(const RainbowAgentConfig& config, int state_dim, int n_actions)
+        : BaseQNet(config, state_dim, n_actions)
+{
+    value_ = register_module("value", torch::nn::Linear(config.nn_hidden2, 1));
+    adv_ = register_module("adv", torch::nn::Linear(config.nn_hidden2, n_actions_));
+
+    InitWeightsLinear(value_, config.nn_init_mode, /*is_relu=*/false);
+    InitWeightsLinear(adv_, config.nn_init_mode, /*is_relu=*/false);
+}
+
+torch::Tensor DuelingQNet::Forward(const torch::Tensor& obs)
+{
+    auto x = obs;
+    x = torch::relu(fc1_->forward(x));
+    x = torch::relu(fc2_->forward(x));
+
+    auto v = value_->forward(x);   // (B, 1)
+    auto a = adv_->forward(x);     // (B, A)
+
+    auto a_mean = a.mean(/*dim=*/1, /*keepdim=*/true);  // (B, 1)
+    auto q = v + (a - a_mean);                          // (B, A)
+    return q;
+}
+
+std::optional<anet::TensorFunction> DuelingQNet::GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex)
+{
+    if (key == "forward" || key == "forward.q") {
+        anet::TensorFunction fn = [this, device, smutex](const torch::Tensor& t) {
+            auto tdev = t.to(device);
+            std::shared_lock<std::shared_mutex> lock(*smutex);
+            auto q = Forward(tdev);
+            return q;
+            };
+        return fn;
+    }
+    if (key == "forward.va") {
+        anet::TensorFunction fn = [this, device, smutex](const torch::Tensor& t) {
+            auto x = t.to(device);
+            std::shared_lock<std::shared_mutex> lock(*smutex);
+            x = torch::relu(fc1_->forward(x));
+            x = torch::relu(fc2_->forward(x));
+
+            auto v = value_->forward(x);        // (B, 1)
+            auto a = adv_->forward(x);          // (B, A)
+            auto va = torch::cat({ v, a }, 1);  // [B, 1 + A]
+            ANET_CHECK_SHAPE(va, { ANET_SHAPE_ANY, 1 + n_actions_ });
+
+            return va;
+
+            };
+        return fn;
+    }
+
+    return std::nullopt;
+}
 
 // ======================================================
 // RainbowAgent Network
 // ======================================================
 
 RainbowAgent::Network::Network(
-    const RainbowAgentConfig& config, std::shared_ptr<QNet> policy_net, std::shared_ptr<QNet> target_net)
+    const RainbowAgentConfig& config, const torch::Device& device, std::shared_ptr<QNet> policy_net, std::shared_ptr<QNet> target_net)
     : config_(config), policy_net_(std::move(policy_net)), target_net_(std::move(target_net))
 {
     ANET_ASSERT(policy_net_);
     ANET_ASSERT(target_net_);
+
+    policy_net_->to(device);
+    target_net_->to(device);
+    target_net_->eval();
+
 }
 
 torch::Tensor RainbowAgent::Network::ForwardExpectation(const torch::Tensor& obs) const
 {
     ANET_ASSERT(!policy_net_->IsDistributional());    /// @todo QR-DQN対応
 
-    auto q = policy_net_->forward(obs);
+    auto q = policy_net_->Forward(obs);
  
     ///// @todo QR-DQN の場合は quantile の平均を取る
     //if (policy_net_->IsDistributional()) {
@@ -33,10 +170,10 @@ torch::Tensor RainbowAgent::Network::ForwardExpectation(const torch::Tensor& obs
     return q;
 }
 
-torch::Tensor RainbowAgent::Network::ForwardRaw(const torch::Tensor& obs, bool use_target) const
+torch::Tensor RainbowAgent::Network::Forward(const torch::Tensor& obs, bool use_target) const
 {
     const auto& net = use_target ? target_net_ : policy_net_;
-    return net->forward(obs);
+    return net->Forward(obs);
 }
 
 torch::Tensor RainbowAgent::Network::ForwardQuantiles(const torch::Tensor& obs, bool use_target) const
@@ -45,7 +182,7 @@ torch::Tensor RainbowAgent::Network::ForwardQuantiles(const torch::Tensor& obs, 
     ANET_ASSERT(policy_net_->IsDistributional());
 
     const auto& net = use_target ? target_net_ : policy_net_;
-    return net->forward(obs);
+    return net->Forward(obs);
 }
 
 std::vector<torch::Tensor> RainbowAgent::Network::GetPolicyParameters() const
@@ -91,45 +228,28 @@ void RainbowAgent::Network::HardUpdate()
     }
 }
 
-// ======================================================
-// RainbowAgent PlainQNet
-// ======================================================
-
-PlainQNet::PlainQNet(const RainbowAgentConfig& config, int state_dim, int n_actions)
-    : state_dim_(state_dim), n_actions_(n_actions)
+/// メトリクス用：NN生出力
+std::optional<anet::TensorFunction> RainbowAgent::Network::GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex)
 {
-    ANET_ASSERT(state_dim_ > 0);
-    ANET_ASSERT(n_actions > 0);
+    static constexpr const char* POLICY_PREFIX = "policy_net.";
+    static constexpr const char* TARGET_PREFIX = "target_net.";
 
-    fc1_ = register_module("fc1", torch::nn::Linear(state_dim_, config.nn_hidden1));
-    fc2_ = register_module("fc2", torch::nn::Linear(config.nn_hidden1, config.nn_hidden2));
-    fc3_ = register_module("fc3", torch::nn::Linear(config.nn_hidden2, n_actions_));
-
-    InitWeights(config.nn_init_mode);
-}
-
-torch::Tensor PlainQNet::forward(const torch::Tensor& obs)
-{
-    auto x = obs;
-    x = torch::relu(fc1_->forward(x));
-    x = torch::relu(fc2_->forward(x));
-    x = fc3_->forward(x);
-    return x;
-}
-
-void PlainQNet::InitWeights(int nn_init_mode)
-{
-    if (nn_init_mode == 1) {
-        torch::nn::init::xavier_uniform_(fc1_->weight);
-        torch::nn::init::xavier_uniform_(fc2_->weight);
-        torch::nn::init::xavier_uniform_(fc3_->weight);
-    } else if (nn_init_mode == 2) {
-        torch::nn::init::kaiming_normal_(fc1_->weight, 0.0, torch::kFanIn, torch::kReLU);
-        torch::nn::init::kaiming_normal_(fc2_->weight, 0.0, torch::kFanIn, torch::kReLU);
-        torch::nn::init::kaiming_normal_(fc3_->weight, 0.0, torch::kFanIn, torch::kLinear);
+    // policy net
+    if (anet::StartsWith(key, POLICY_PREFIX)) {
+        auto subkey = anet::RemovePrefix(key, POLICY_PREFIX);
+        auto fn = policy_net_->GetTensorFunction(subkey, device, smutex);
+        return fn;
     }
-}
 
+    // target net
+    if (anet::StartsWith(key, TARGET_PREFIX)) {
+        auto subkey = anet::RemovePrefix(key, TARGET_PREFIX);
+        auto fn = target_net_->GetTensorFunction(subkey, device, smutex);
+        return fn;
+    }
+
+    return std::nullopt;
+}
 
 // ======================================================
 // RainbowAgent ActionPolicy 
@@ -354,7 +474,7 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     // ------------------------------------------------------------
     // Q(s, a)
     // ------------------------------------------------------------
-    auto q_all = network.ForwardRaw(obs, /*use_target=*/false);
+    auto q_all = network.Forward(obs, /*use_target=*/false);
     ANET_CHECK_SHAPE(q_all, { B, A });
 
     torch::Tensor idx_actions = samples.actions.view({ B, 1 });   // (B,1)
@@ -376,20 +496,20 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
         torch::NoGradGuard no_grad;
 
         // policy_net で argmax_a Q(s', a)
-        auto next_q_policy = network.ForwardRaw(next_obs, /*use_target=*/false);
+        auto next_q_policy = network.Forward(next_obs, /*use_target=*/false);
         ANET_CHECK_SHAPE(next_q_policy, { B, A });
         auto next_actions = std::get<1>(next_q_policy.max(1));
         ANET_CHECK_SHAPE(next_actions, { B });
 
         // target_net で Q_target(s', argmax_a Q_online)
-        auto next_q_target = network.ForwardRaw(next_obs, /*use_target=*/true);
+        auto next_q_target = network.Forward(next_obs, /*use_target=*/true);
         ANET_CHECK_SHAPE(next_q_target, { B, A });
         torch::Tensor next_actions_b = next_actions.view({ B, 1 });             // (B,1)
         max_next_q = next_q_target.gather(1, next_actions_b).squeeze(1);
     } else {
         torch::NoGradGuard;
 
-        auto next_q_target = network.ForwardRaw(next_obs, /*use_target=*/true);
+        auto next_q_target = network.Forward(next_obs, /*use_target=*/true);
         ANET_CHECK_SHAPE(next_q_target, { B, A });
         max_next_q = std::get<0>(next_q_target.max(1));
     }
@@ -417,36 +537,36 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
         td_error_for_loss,
         torch::zeros_like(td_error_for_loss),
         torch::nn::functional::SmoothL1LossFuncOptions().reduction(torch::kMean));
-
+    
     // ------------------------------------------------------------
     //  backward
     // ------------------------------------------------------------
     optimizer_->zero_grad();
     loss.backward();
-
+    
     // ------------------------------------------------------------
     // grad_clip
     // ------------------------------------------------------------
-    float grad_norm = 0.0f;
+    torch::Tensor grad_norm_tensor;
+    std::optional<float> grad_norm;
     bool grad_clipped = false;
     if (config.use_grad_clip) {
         // clip_grad_norm_ の戻り値は clip 前の全体ノルム
         double grad_norm_val = torch::nn::utils::clip_grad_norm_(
-                network.GetPolicyParameters(), config.grad_clip_tau);
+                network.GetPolicyParameters(), config.grad_clip_tau);   // use_grad_clip=true では CPU同期は現状避けられない
         grad_norm = static_cast<float>(grad_norm_val);
         grad_clipped = (grad_norm_val > config.grad_clip_tau);
     } else {
-        // clip を使わない場合も全体ノルムだけは計算しておく
         torch::Tensor total_sq = torch::zeros({ 1 }, loss.options());
         auto params = network.GetPolicyParameters();
         for (auto& p : params) {
             if (!p.grad().defined()) continue;
-            total_sq += p.grad().data().pow(2).sum();
+            total_sq += p.grad().detach().pow(2).sum();
         }
-        grad_norm = std::sqrt(total_sq.item<float>());
+        // sqrt までは GPU 上でやる
+        grad_norm_tensor = total_sq.sqrt();
     }
     float grad_clip_ratio = grad_clipped ? 1.0f : 0.0f;
-    /// @todo grad_normの遅延評価 or 評価無しによる性能検討
 
     // ------------------------------------------------------------
     // optimize
@@ -471,6 +591,7 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     result->loss = loss;
     result->td_error = td_error;
     result->grad_norm = grad_norm;
+    result->grad_norm_tensor = grad_norm_tensor;
     result->grad_clip_ratio = grad_clip_ratio;
     result->max_q = max_q;
 

@@ -25,15 +25,15 @@ std::string StateDimInfo::ToString() const {
     return ToJson().dump(2); // 2-space indent for pretty print
 }
 
-int64_t StateSpec::CalcFlattenSize() const
+int64_t StateSpec::CalcFlattenDim() const
 {
     ANET_ASSERT_MSG(!shape.empty(),
-        "StateSpec::CalcStateDim: shape must not be empty.");
+        "StateSpec::CalcFlattenDim: shape must not be empty.");
 
     int64_t dim = 1;
     for (auto v : shape) {
         ANET_ASSERT_MSG(v > 0,
-            "StateSpec::CalcStateDim: shape elements must be > 0.");
+            "StateSpec::CalcFlattenDim: shape elements must be > 0.");
         dim *= v;
     }
     return dim;
@@ -52,8 +52,8 @@ const StateDimInfo* StateSpec::FindDim(int64_t flatten_index) const
     if (shape.empty()) return nullptr;
 
     // flatten size 超えは無効
-    const int64_t flat_size = CalcFlattenSize();
-    if (flatten_index < 0 || flatten_index >= flat_size)
+    const int64_t flat_dim = CalcFlattenDim();
+    if (flatten_index < 0 || flatten_index >= flat_dim)
         return nullptr;
 
     // flatten_index → coords（多次元インデクス）へ逆変換

@@ -172,7 +172,7 @@ namespace anet::rl {
         std::vector<StateDimInfo> dims;    // 必要な位置だけ登録（配列）
         std::map<std::string, std::string> info;
 
-        std::int64_t CalcFlattenSize() const;
+        std::int64_t CalcFlattenDim() const;
         const StateDimInfo* FindDim(const std::vector<std::int64_t>& coords) const;
         const StateDimInfo* FindDim(std::int64_t flatten_index) const;
         bool MatchesShape(const torch::Tensor& obs) const;
@@ -537,7 +537,7 @@ namespace anet::rl {
 
     class Agent : public ActionPolicy, public Learner, public DataExporter {
     public:
-        virtual std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) const = 0;
+        virtual std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) = 0;
         virtual ~Agent() = default;
     };
 

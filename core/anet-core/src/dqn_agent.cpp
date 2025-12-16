@@ -199,12 +199,12 @@ struct anet::rl::DQNAgent::QNetImpl : torch::nn::Module {
     }
 };
 
-std::optional<anet::TensorFunction> DQNAgent::GetTensorFunction(const std::string& key) const
+std::optional<anet::TensorFunction> DQNAgent::GetTensorFunction(const std::string& key)
 {
     if (key == "policy_net.forward") {
         anet::TensorFunction fn = [this](const torch::Tensor& t) {
             auto tdev = t.to(device_);
-            std::shared_lock<std::shared_mutex> lock(mutex_);
+            std::shared_lock<std::shared_mutex> lock(*mutex_);
             return policy_net_->forward(tdev);
             };
         return fn;
@@ -212,7 +212,7 @@ std::optional<anet::TensorFunction> DQNAgent::GetTensorFunction(const std::strin
     if (key == "target_net.forward") {
         anet::TensorFunction fn = [this](const torch::Tensor& t) {
             auto tdev = t.to(device_);
-            std::shared_lock<std::shared_mutex> lock(mutex_);
+            std::shared_lock<std::shared_mutex> lock(*mutex_);
             return target_net_->forward(tdev);
             };
         return fn;
@@ -220,7 +220,7 @@ std::optional<anet::TensorFunction> DQNAgent::GetTensorFunction(const std::strin
     if (key == "q_pair.forward") {
         anet::TensorFunction fn = [this](const torch::Tensor& t) {
             auto tdev = t.to(device_);
-            std::shared_lock<std::shared_mutex> lock(mutex_);
+            std::shared_lock<std::shared_mutex> lock(*mutex_);
             auto q_online = policy_net_->forward(tdev);     // [N, A]
             auto q_target = target_net_->forward(tdev);     // [N, A]
             return torch::cat({ q_online, q_target }, 1);   // [N, 2*A]
@@ -231,7 +231,7 @@ std::optional<anet::TensorFunction> DQNAgent::GetTensorFunction(const std::strin
     // default
     anet::TensorFunction fn = [this](const torch::Tensor& t) {
         auto tdev = t.to(device_);
-        std::shared_lock<std::shared_mutex> lock(mutex_);
+        std::shared_lock<std::shared_mutex> lock(*mutex_);
         return policy_net_->forward(tdev);
     };
 
@@ -241,15 +241,15 @@ std::optional<anet::TensorFunction> DQNAgent::GetTensorFunction(const std::strin
 std::optional<float> DQNAgent::GetScalar(const std::string& key, int index) const
 {
     if (key.find("replaybuffer.") == 0) {
-        std::shared_lock<std::shared_mutex> lock(mutex_);
+        std::shared_lock<std::shared_mutex> lock(*mutex_);
         return replay_buffer_->GetScalar(key);
     }
     if (key == "epsilon") {
-        std::shared_lock<std::shared_mutex> lock(mutex_);
+        std::shared_lock<std::shared_mutex> lock(*mutex_);
         return vars_->epsilon;
 	} 
     if (key == "tau") {
-        std::shared_lock<std::shared_mutex> lock(mutex_);
+        std::shared_lock<std::shared_mutex> lock(*mutex_);
         return vars_->tau;
 	}
 
@@ -815,12 +815,9 @@ DQNAgent::DQNAgent(
     , const anet::rl::BatchEnvSpec& batch_env_spec, const anet::rl::EnvSpec& env_spec, const torch::Device& device
     , std::shared_ptr<anet::rl::Notifier> notifier
     , std::optional<seed_t> seed)
-    : StepBasedAgent(config, device, notifier, seed)
-    , state_count_(env_spec.state_spec.CalcFlattenSize())
-    , n_actions_(env_spec.action_spec.GetNumActions())
-	, batch_size_(batch_env_spec.batch_size)
-    , policy_net_(std::make_shared<QNetImpl>(state_count_, n_actions_))
-    , target_net_(std::make_shared<QNetImpl>(state_count_, n_actions_))
+    : FlatStateAgent(config, device, notifier, batch_env_spec, env_spec, seed)
+    , policy_net_(std::make_shared<QNetImpl>(state_dim_, n_actions_))
+    , target_net_(std::make_shared<QNetImpl>(state_dim_, n_actions_))
 {
     ANET_LOG_DEBUG("seed=" << GetSeed());
 
@@ -885,14 +882,14 @@ anet::rl::BatchActionInfo DQNAgent::MakeAction(
     const StepCounts& step, const anet::rl::BatchState& state, anet::rl::RunMode mode) const
 {
     ProfileRange r1("DQNAgent::MakeAction");
-    ANET_CHECK_SHAPE(state.obs, { ANY, state_count_ });
+    ANET_CHECK_SHAPE(state.obs, { ANY, state_dim_ });
 
     auto flat_state = state.Flatten();
     auto flat_obs = flat_state.obs.to(device_);
     bool greedy_only = anet::rl::IsEval(mode);
 
     torch::NoGradGuard ng;
-    std::shared_lock<std::shared_mutex> lock(mutex_);
+    std::shared_lock<std::shared_mutex> lock(*mutex_);
 
     ProfileRange r2("DQNAgent::MakeAction.forward");
 
@@ -932,7 +929,7 @@ DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperie
 
     std::shared_ptr<DQNAgent::BatchUpdateResult> result;
     {
-        std::unique_lock<std::shared_mutex> lock(mutex_);
+        std::unique_lock<std::shared_mutex> lock(*mutex_);
 
         // ReplayBuffer に push
         replay_buffer_->Push(batch_exp);
@@ -954,10 +951,10 @@ DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperie
             ANET_CHECK_DEVICE(raw_samples.next_states.dones, device_);
             ANET_CHECK_DEVICE(raw_samples.next_states.truncateds, device_);
             ANET_CHECK_DEVICE(raw_samples.next_states.episode_start, device_);
-            ANET_CHECK_SHAPE(raw_samples.obs, { B, state_count_ });
+            ANET_CHECK_SHAPE(raw_samples.obs, { B, state_dim_ });
             ANET_CHECK_SHAPE(raw_samples.actions, { B, 1 });    // 離散アクション
             ANET_CHECK_SHAPE(raw_samples.rewards, { B });
-            ANET_CHECK_SHAPE(raw_samples.next_states.obs, { B, state_count_ });
+            ANET_CHECK_SHAPE(raw_samples.next_states.obs, { B, state_dim_ });
             ANET_CHECK_SHAPE(raw_samples.next_states.dones, { B });
             ANET_CHECK_SHAPE(raw_samples.next_states.truncateds, { B });
             ANET_CHECK_SHAPE(raw_samples.next_states.episode_start, { B });
