@@ -432,12 +432,12 @@ std::optional<std::vector<torch::Tensor>>
     return std::vector<torch::Tensor>{ *t };
 }
 
-BatchExperience BatchExperience::to(torch::Device d) const {
+BatchExperience BatchExperience::To(torch::Device d) const {
     BatchExperience out;
-    out.state = state.to(d);
-    out.action = action.to(d);
+    out.state = state.To(d);
+    out.action = action.To(d);
     out.reward = reward.to(d);
-    out.next_state = next_state.to(d);
+    out.next_state = next_state.To(d);
     return out;
 }
 
@@ -526,7 +526,22 @@ std::vector<SingleExperience> BatchExperience::ToExperienceList() const
     return out;
 }
 
-ExperienceSamples ExperienceSamples::FlattenStates() const {
+ExperienceSamples ExperienceSamples::To(torch::Device device) const
+{
+    return ExperienceSamples{
+        obs.to(device),
+        actions.to(device),
+        target_values.to(device),
+        {
+            next_states.obs.flatten(1).to(device),
+            next_states.terminals.to(device),
+        },
+        n_steps.to(device)
+    };
+}
+
+ExperienceSamples ExperienceSamples::FlattenStates() const
+{
     return ExperienceSamples{
         obs.flatten(1),
         actions,

@@ -119,7 +119,8 @@ BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const BatchStat
 
     // 行動選択
     auto greedy_only = anet::rl::IsEval(runmode);
-    auto act_info = this->action_policy_->SelectAction(flat_obs, greedy_only);
+    auto use_target = (runmode == anet::rl::RunMode::Eval1);
+    auto act_info = this->action_policy_->SelectAction(flat_obs, greedy_only, use_target);
 
     // ActionInfoを返す
     return act_info;

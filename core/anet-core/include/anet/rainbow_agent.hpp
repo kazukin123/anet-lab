@@ -34,8 +34,11 @@ namespace anet::rl {
         int update_warmup_steps = 1000;
         int update_interval = 10;
 
+        int n_step = 3;
+
         bool use_double_dqn = true;   ///< Double DQN 有効化フラグ
         bool use_dueling_net = true;  ///< Dueling Net 有効化フラグ
+        bool use_n_step = true;
 
         explicit RainbowAgentConfig(const ConfigData& config_data = EmptyConfigData) : anet::Config(config_data, "RainbowAgent") {
             ANET_READ_CONFIG(config_data, nn_init_mode);
@@ -59,8 +62,11 @@ namespace anet::rl {
             ANET_READ_CONFIG(config_data, update_warmup_steps);
             ANET_READ_CONFIG(config_data, update_interval);
 
+            ANET_READ_CONFIG(config_data, n_step);
+
             ANET_READ_CONFIG(config_data, use_double_dqn);
             ANET_READ_CONFIG(config_data, use_dueling_net);
+            ANET_READ_CONFIG(config_data, use_n_step);
         }
     };
 

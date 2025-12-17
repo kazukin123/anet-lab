@@ -15,7 +15,7 @@ namespace anet::rl {
         void Push(const BatchExperience& batch) override;
         void Push(const std::vector<SingleExperience>& exps) override;
         ExperienceSamples Sample(int64_t b, torch::Device device) const override;
-        size_t Size() const  override { return size_; }
+        int64_t Size() const  override { return size_; }
 
         std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
@@ -38,6 +38,33 @@ namespace anet::rl {
         torch::Tensor next_states_;     ///< cpu (capacity, state_count) kFloat32
         torch::Tensor rewards_;         ///< cpu (capacity) kFloat32
         torch::Tensor terminals_;       ///< cpu (capacity) kBool
+    };
+
+    // ======================================================
+
+    enum class ReplayBufferType {
+        Plain = 0,  ///< 1-step, uniform
+        NStep       ///< N-step, uniform
+        // PER は後で追加
+    };
+
+    struct ReplayBufferConfig {
+        ReplayBufferType type = ReplayBufferType::Plain;
+
+        int64_t capacity = 10000;   // 10K
+
+        // ---- N-step 用 ----
+        int n_step = 1;
+        float gamma = 0.99f;
+    };
+
+    class ReplayBufferFactory {
+    public:
+        ReplayBufferFactory(const ReplayBufferConfig& config);
+        std::shared_ptr<ReplayBuffer> Create(
+            const EnvSpec& env_spec, torch::Device device, int batch_size, seed_t seed);
+    private:
+        ReplayBufferConfig config_;
     };
 
 } // namespace anet

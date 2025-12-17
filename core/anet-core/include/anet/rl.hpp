@@ -340,6 +340,16 @@ namespace anet::rl {
             return { obs.clone(), done.clone(), truncated.clone(), episode_start.clone() };
         }
 
+        SingleState GetSingle(int64_t index) const
+        {
+            return {
+                obs[index],
+                done[index].item<bool>(),
+                truncated[index].item<bool>(),
+                episode_start[index].item<bool>()
+            };
+        }
+
         /// obs を (N, state_dim) にフラット化
         BatchState Flatten() const {
             ANET_CHECK_DTYPE(obs, torch::kFloat32);
@@ -349,7 +359,7 @@ namespace anet::rl {
             return { f, done, truncated, episode_start };
         }
 
-        BatchState to(torch::Device device) const {
+        BatchState To(torch::Device device) const {
             ANET_CHECK_SHAPE(obs, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
             ANET_CHECK_SHAPE(done, { ANET_SHAPE_ANY });
             ANET_CHECK_SHAPE(truncated, { ANET_SHAPE_ANY });
@@ -388,7 +398,7 @@ namespace anet::rl {
         torch::Tensor is_random;    ///< ε-greedy のランダム選択か  (N) kBool
         AuxData aux;
 
-        BatchActionInfo to(torch::Device device) const {
+        BatchActionInfo To(torch::Device device) const {
             ANET_CHECK_SHAPE(action, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
             ANET_CHECK_SHAPE(is_random, { ANET_SHAPE_ANY });
             ANET_ASSERT(action.dtype() == torch::kFloat32 || action.dtype() == torch::kInt64);
@@ -447,7 +457,7 @@ namespace anet::rl {
         std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
 
-        BatchExperience to(torch::Device d) const;
+        BatchExperience To(torch::Device d) const;
         std::vector<SingleExperience> ToExperienceList() const;
         std::string ToString() const;
     public:
@@ -561,6 +571,7 @@ namespace anet::rl {
 
 
         ExperienceSamples FlattenStates() const;
+        ExperienceSamples To(torch::Device device) const;
         std::string ToString() const;
     };
 
@@ -569,16 +580,16 @@ namespace anet::rl {
         virtual void Push(const BatchExperience& batch_exp) = 0;
         virtual void Push(const std::vector<SingleExperience>& exps) = 0;
         virtual ExperienceSamples Sample(int64_t minibatch_size, torch::Device device) const = 0;
-        virtual size_t Size() const = 0;
+        virtual int64_t Size() const = 0;
 
         virtual ~ReplayBuffer() = default;
     public:
         static constexpr const char* STATE_OBS = "replaybuffer.state";
-        static constexpr const char* ACTION_ACTION = "replaybuffer.action";
+        static constexpr const char* ACTION = "replaybuffer.action";
         static constexpr const char* REWARD = "replaybuffer.reward";
         static constexpr const char* NEXT_STATE_OBS = "replaybuffer.next_state";
         static constexpr const char* NEXT_STATE_TERMINAL = "replaybuffer.terminal";
-        static constexpr const char* NEXT_STATE_N_STEP = "replaybuffer.n_step";
+        static constexpr const char* N_STEP = "replaybuffer.n_step";
     };
 
     // =============================================================

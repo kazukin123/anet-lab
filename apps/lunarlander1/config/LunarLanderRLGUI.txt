@@ -41,10 +41,18 @@ RainbowAgent.trunk.td_clip_value = 30.0         # 4.0 20 30
 RainbowAgent.trunk.replay_capacity= 10000       # 
 RainbowAgent.trunk.replay_batch_size = 128      #
 RainbowAgent.trunk.update_warmup_steps = 1000   # 1000
+#RainbowAgent.trunk.update_warmup_steps = 1   # 1000
 RainbowAgent.trunk.update_interval = 5          #
+
 RainbowAgent.trunk.use_double_dqn = true        # Double DQN 有効化フラグ（trueで有効）
 RainbowAgent.trunk.use_dueling_net = true       # ★ 
 #RainbowAgent.trunk.use_dueling_net = false      # ★ 
+RainbowAgent.trunk.use_n_step = true;
+#RainbowAgent.trunk.use_n_step = false;
+
+#RainbowAgent.trunk.n_step = 1;
+#RainbowAgent.trunk.n_step = 2;
+RainbowAgent.trunk.n_step = 3;
 
 # ----- metrics
 
@@ -54,7 +62,7 @@ RainbowAgent.trunk.use_dueling_net = true       # ★
     #   $target  : $update_result || $agent || $exp || $runner
 
 metrics.scalar.rainbow.[10_train/10_total_reward] = $runner train_reward @train
-metrics.scalar.rainbow.[10_train/10_total_reward_ema] = train_reward $runner @train $ema    # 重い？
+metrics.scalar.rainbow.[10_train/10_total_reward_ema] = train_reward $runner @train $ema ema_alpha:0.001   # 重い？
 metrics.scalar.rainbow.[11_agent_dqn_base/03_epsilon_train] = $agent epsilon @train
 metrics.scalar.rainbow.[21_eval/01_target_reward] = $runner target_eval_reward @learn clip:3000
 metrics.scalar.rainbow.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn clip:3000
@@ -66,8 +74,8 @@ metrics.scalar.rainbow.[37_agent_dqn_qtd/03_td_mean_ema] = td_mean @learn $ema
 metrics.scalar.rainbow.[37_agent_dqn_qtd/11_q_mean] = q_mean @learn
 metrics.scalar.rainbow.[37_agent_dqn_qtd/12_q_max] = q_max @learn
 metrics.scalar.rainbow.[37_agent_dqn_qtd/13_q_std] = q_std @learn
-metrics.scalar.rainbow.[37_agent_dqn_qtd/21_grad_norm] = grad_norm @learn interval:10
-metrics.scalar.rainbow.[37_agent_dqn_qtd/22_grad_clip_ratio] = grad_clip_ratio @learn  interval:10
+metrics.scalar.rainbow.[37_agent_dqn_qtd/21_grad_norm] = grad_norm @learn interval:50
+#metrics.scalar.rainbow.[37_agent_dqn_qtd/22_grad_clip_ratio] = grad_clip_ratio @learn interval:50
 metrics.scalar.rainbow.[38_agent_dqn_loss/01_loss] = loss @learn
 metrics.scalar.rainbow.[38_agent_dqn_loss/02_loss_ema] = loss @learn $ema
 metrics.scalar.rainbow.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
@@ -235,7 +243,7 @@ env.device_type = 0     # 0=cpu 1=cuda
 env.device_index = -1   # GPU index -1=current device
 
 
-#LunarLanderApp.online.train_pause_step = 500000 #500K
+#LunarLanderApp.online.train_exit_step = 2000 #2K
 LunarLanderApp.online.train_pause_step = 200000 #200K
 LunarLanderApp.online.train_exit_step = -1
 LunarLanderApp.online.train_timer_ms = 100

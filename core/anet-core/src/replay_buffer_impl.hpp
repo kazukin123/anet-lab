@@ -3,6 +3,7 @@
 
 #include<vector>
 #include<memory>
+#include <cstddef>
 #include "anet/rl.hpp"
 
 using namespace anet::rl;
@@ -26,14 +27,27 @@ using namespace anet::rl;
 //  ↓
 //Learner
 
+
+// ======================================================
+// ReplayBuffer ExperienceQueue 
+// ======================================================
+
 class ExperienceQueue {
 public:
-    void Push(const SingleExperience& exp);
-    void Pop(size_t k);
-    std::vector<SingleExperience> Peek(size_t k) const;
-    size_t Size() const;
-    /// @todo impl
+    ExperienceQueue() = default;
+    void Push(const SingleExperience& exp);             ///< 末尾に 1 Experience を追加
+    void Pop(size_t k);                                 ///< 先頭から k 個を削除
+    std::vector<SingleExperience> Peek(size_t k) const; ///< 先頭から k 個を取得（コピー）
+    size_t Size() const;                                ///< 現在の保持数
+    void Clear();                                       ///< 空にする
+private:
+    std::vector<SingleExperience> buffer_;
 };
+
+
+// ======================================================
+// ReplayBuffer ExperienceQueueController 
+// ======================================================
 
 using ExperienceSequence = std::vector<SingleExperience>;
 
@@ -44,6 +58,29 @@ public:
     virtual ~ExperienceQueueController() = default;
 
 };
+
+class PlainExperienceQueueController final : public ExperienceQueueController {
+public:
+    PlainExperienceQueueController() = default;
+
+    std::vector<ExperienceSequence>
+        ProcessSingleExperience(ExperienceQueue& queue, const SingleExperience& exp) override;
+};
+
+class NStepExperienceQueueController final : public ExperienceQueueController {
+public:
+    explicit NStepExperienceQueueController(size_t n_step);
+
+    std::vector<ExperienceSequence>
+        ProcessSingleExperience(ExperienceQueue& queue, const SingleExperience& exp) override;
+private:
+    const size_t n_step_;
+};
+
+
+// ======================================================
+// ReplayBuffer ReplayExperienceBuilder
+// ======================================================
 
 struct ReplayExperience {
     SingleState state;
@@ -60,48 +97,98 @@ public:
     virtual ~ReplayExperienceBuilder() = default;
 };
 
-class ReplayExperienceStorage {
+class PlainReplayExperienceBuilder final : public ReplayExperienceBuilder {
 public:
-    void Push(const ReplayExperience& exp);
-    size_t Size() const;
-    ExperienceSamples Gather(const torch::Tensor& indices) const;
-    const ReplayExperience& Get(size_t index) const;
-
-    /// @todo impl
-private:
-    torch::Tensor states;        // (N, state_dim)
-    torch::Tensor actions;       // (N, action_dim)
-    torch::Tensor target_values; // (N,)
-    torch::Tensor next_states;   // (N, state_dim)
-    torch::Tensor terminals;     // (N,) bool
-    torch::Tensor n_steps;       // (N,) int
+    PlainReplayExperienceBuilder() = default;
+    ReplayExperience Build(const ExperienceSequence& sequence) const override;
 };
+
+class NStepReplayExperienceBuilder final : public ReplayExperienceBuilder {
+public:
+    explicit NStepReplayExperienceBuilder(float gamma);
+    ReplayExperience Build(const ExperienceSequence& sequence) const override;
+private:
+    const float gamma_;
+};
+
+
+// ======================================================
+// ReplayBuffer ReplayExperienceStorage
+// ======================================================
+
+class ReplayExperienceStorage : public anet::DataExporter {
+public:
+    ReplayExperienceStorage(const EnvSpec& env_spec, int64_t capacity, torch::Device device);
+    void Push(const ReplayExperience& exp);
+    int64_t Size() const;
+    ExperienceSamples Gather(const torch::Tensor& indices,std::optional<torch::Device> out_device = std::nullopt) const;
+    //const ReplayExperience& Get(size_t index) const;
+public: //---- DataExporter ----
+    std::optional<float> GetScalar(const std::string& key, int index) const override;
+    std::optional<torch::Tensor> GetTensor(const std::string& key, int index) const override;
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index) const override;
+private:
+    const int64_t capacity_;
+    const torch::Device device_;
+private:
+    int64_t size_ = 0;
+    int64_t write_index_ = 0;
+    torch::Tensor states_;        // (N, state_dim)
+    torch::Tensor actions_;       // (N, action_dim)
+    torch::Tensor target_values_; // (N,)
+    torch::Tensor next_states_;   // (N, state_dim)
+    torch::Tensor terminals_;     // (N,) bool
+    torch::Tensor n_steps_;       // (N,) int
+};
+
+
+// ======================================================
+// ReplayBuffer ReplayExperienceSampler
+// ======================================================
 
 class ReplayExperienceSampler {
 public:
-    virtual torch::Tensor SampleIndices(size_t minibatch_size) = 0;
+    virtual torch::Tensor SampleIndices(const ReplayExperienceStorage& storage, int64_t minibatch_size) = 0;
     virtual ~ReplayExperienceSampler() = default;
 };
 
+class UniformReplayExperienceSampler final : public ReplayExperienceSampler, public anet::RandomHolder {
+public:
+    explicit UniformReplayExperienceSampler(anet::seed_t seed);
+    torch::Tensor SampleIndices(const ReplayExperienceStorage& storage, int64_t minibatch_size) override;
+};
+
+
+// ======================================================
+// DefaultReplayBuffer
+// ======================================================
+
 class DefaultReplayBuffer : public ReplayBuffer {
 public:
-    /// @todo impl
-    void Push(const BatchExperience& batch_exp);
-    void Push(const std::vector<SingleExperience>& exps);
-    ExperienceSamples Sample(int64_t minibatch_size, torch::Device device) const;
-    size_t Size() const;
-private:    // data
-    std::unique_ptr<ExperienceQueue> queue_;
-    std::unique_ptr<ReplayExperienceStorage> storage_;
-private:    // logic
+    DefaultReplayBuffer(
+        const EnvSpec& env_spec, int64_t capacity, int64_t num_envs,
+        std::unique_ptr<ExperienceQueueController> queue_controller,
+        std::unique_ptr<ReplayExperienceBuilder> replay_exp_builder,
+        std::unique_ptr<ReplayExperienceSampler> sampler,
+        torch::Device device);
+
+    void Push(const BatchExperience& batch_exp) override;
+    void Push(const std::vector<SingleExperience>& exps) override;
+    ExperienceSamples Sample(int64_t minibatch_size, torch::Device device) const override;
+    int64_t Size() const override;
+public: // DataExporter
+    std::optional<float> GetScalar(const std::string& key, int index) const override;
+    std::optional<torch::Tensor> GetTensor(const std::string& key, int index) const override;
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index) const override;
+private:
+    // N 環境分
+    const int64_t num_envs_;
+    std::vector<ExperienceQueue> queues_;
+
+    // 共通
     std::unique_ptr<ExperienceQueueController> queue_controller_;
     std::unique_ptr<ReplayExperienceBuilder> replay_exp_builder_;
+    std::unique_ptr<ReplayExperienceSampler> sampler_;
+    std::unique_ptr<ReplayExperienceStorage> storage_;
 };
-
-class ReplayBufferFactory {
-public:
-    /// @todo impl
-    std::shared_ptr<ReplayBuffer> CreateReplayBuffer();
-};
-
 

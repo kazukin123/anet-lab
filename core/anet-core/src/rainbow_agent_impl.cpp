@@ -45,6 +45,7 @@ void BaseQNet::InitWeightsLinear(torch::nn::Linear& layer, int nn_init_mode, boo
     }
 }
 
+
 // ======================================================
 // RainbowAgent PlainQNet
 // ======================================================
@@ -78,6 +79,7 @@ std::optional<anet::TensorFunction> PlainQNet::GetTensorFunction(const std::stri
 
     return std::nullopt;
 }
+
 
 // ======================================================
 // RainbowAgent DuelingQNet
@@ -139,6 +141,7 @@ std::optional<anet::TensorFunction> DuelingQNet::GetTensorFunction(const std::st
     return std::nullopt;
 }
 
+
 // ======================================================
 // RainbowAgent Network
 // ======================================================
@@ -156,11 +159,12 @@ RainbowAgent::Network::Network(
 
 }
 
-torch::Tensor RainbowAgent::Network::ForwardExpectation(const torch::Tensor& obs) const
+torch::Tensor RainbowAgent::Network::ForwardExpectation(const torch::Tensor& obs, bool use_target) const
 {
     ANET_ASSERT(!policy_net_->IsDistributional());    /// @todo QR-DQN対応
 
-    auto q = policy_net_->Forward(obs);
+    const auto& net = use_target ? target_net_ : policy_net_;
+    auto q = net->Forward(obs);
  
     ///// @todo QR-DQN の場合は quantile の平均を取る
     //if (policy_net_->IsDistributional()) {
@@ -251,6 +255,7 @@ std::optional<anet::TensorFunction> RainbowAgent::Network::GetTensorFunction(con
     return std::nullopt;
 }
 
+
 // ======================================================
 // RainbowAgent ActionPolicy 
 // ======================================================
@@ -262,14 +267,14 @@ RainbowAgent::ActionPolicy::ActionPolicy(
     // RandomHolderを継承しているが、GPU側でrand生成しているので意味はない。ただ、マークとしてそのままにしておく。
 }
 
-BatchActionInfo RainbowAgent::ActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only) const
+BatchActionInfo RainbowAgent::ActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const
 {
     ProfileRange  r("RainbowAgent::SelectAction");
 
     torch::NoGradGuard;
 
     // Q値生成
-    auto q_values = network_.ForwardExpectation(obs);
+    auto q_values = network_.ForwardExpectation(obs, use_target);
 
     auto device = q_values.device();
     
@@ -320,6 +325,7 @@ BatchActionInfo RainbowAgent::ActionPolicy::SelectAction(const torch::Tensor& ob
     return action_info;
 }
 
+
 // ======================================================
 // RainbowAgent Learner
 // ======================================================
@@ -355,6 +361,7 @@ std::optional<std::vector<torch::Tensor>> RainbowAgent::Learner::GetTensorVector
     return std::nullopt;
 }
 
+
 // ======================================================
 // RainbowAgent TDLearner
 // ======================================================
@@ -363,8 +370,26 @@ RainbowAgent::TDLearner::TDLearner(RainbowAgent& agent, const EnvSpec& env_spec,
     : Learner(agent)
 {
     // ReplayBuffer生成
-    this->replay_buffer_ = std::make_unique<anet::rl::PlainReplayBuffer>(env_spec, agent_.config_.replay_capacity, replay_seed);
-    /// @todo ReplayBufferFactoryを利用
+    //this->replay_buffer_ = std::make_shared<anet::rl::PlainReplayBuffer>(env_spec, agent_.config_.replay_capacity, replay_seed);
+
+    // ReplayBufferConfig
+    anet::rl::ReplayBufferConfig rep_config{};
+    rep_config.capacity = agent_.config_.replay_capacity;
+    rep_config.gamma = agent_.config_.gamma;
+    rep_config.n_step = agent_.config_.n_step;
+    if (agent_.config_.use_n_step)
+        rep_config.type = ReplayBufferType::NStep;
+    else
+        rep_config.type = ReplayBufferType::Plain;
+
+    // ReplayBuffer生成
+    anet::rl::ReplayBufferFactory rep_factory(rep_config);
+    if (agent_.config_.use_n_step)
+        this->replay_buffer_ = rep_factory.Create(env_spec, agent.device_, agent_.batch_size_, replay_seed);
+    else
+        this->replay_buffer_ = std::make_shared<anet::rl::PlainReplayBuffer>(env_spec, agent_.config_.replay_capacity, replay_seed);
+
+
 
     // Optimizer生成
     this->optimizer_ = std::make_unique<torch::optim::Adam>(agent_.network_->GetPolicyParameters(), torch::optim::AdamOptions(agent_.config_.alpha));
@@ -374,6 +399,8 @@ bool RainbowAgent::TDLearner::CanUpdate(step_t update_step) const
 {
     //if (replay_buffer_->Size() < agent_.config_.replay_batch_size)
     //    return false;
+
+    /// @todo ReplayBuffer充足チェックにexp_stepを使う？
 
     // warmup（batch_sizeが大きいとexpが早く溜まるので補正）
     if (update_step < agent_.config_.update_warmup_steps * agent_.batch_size_)
@@ -448,7 +475,7 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     ANET_CHECK_DEVICE(raw_samples.next_states.terminals, device);
     ANET_CHECK_DEVICE(raw_samples.n_steps, device);
     ANET_CHECK_SHAPE(raw_samples.obs, { B, S });
-    ANET_CHECK_SHAPE(raw_samples.actions, { B, 1 });    // 離散アクション
+    ANET_CHECK_SHAPE(raw_samples.actions, { B });    // 離散アクション
     ANET_CHECK_SHAPE(raw_samples.target_values, { B });
     ANET_CHECK_SHAPE(raw_samples.next_states.obs, { B, S });
     ANET_CHECK_SHAPE(raw_samples.next_states.terminals, { B });
@@ -457,7 +484,7 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     ANET_CHECK_DTYPE(raw_samples.actions, torch::kInt64);    // 離散アクション
     ANET_CHECK_DTYPE(raw_samples.target_values, torch::kFloat32);
     ANET_CHECK_DTYPE(raw_samples.next_states.terminals, torch::kBool);
-    ANET_CHECK_DTYPE(raw_samples.n_steps, torch::kInt);
+    ANET_CHECK_DTYPE(raw_samples.n_steps, torch::kInt64);
 
     auto samples = raw_samples.FlattenStates();
 
@@ -470,7 +497,7 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     // ------------------------------------------------------------
     // Q(s, a)
     // ------------------------------------------------------------
-    auto q_all = network.Forward(obs, /*use_target=*/false);
+    auto q_all = network.Forward(obs, /*use_target=*/false);      // (B,A)
     ANET_CHECK_SHAPE(q_all, { B, A });
 
     torch::Tensor idx_actions = samples.actions.view({ B, 1 });   // (B,1)

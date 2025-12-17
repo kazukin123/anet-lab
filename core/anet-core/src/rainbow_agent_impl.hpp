@@ -155,7 +155,7 @@ public:
         std::shared_ptr<QNet> policy_net, std::shared_ptr<QNet> target_net);
 
     /// 行動選択用：期待値Q (B, A)
-    torch::Tensor ForwardExpectation(const torch::Tensor& obs) const;
+    torch::Tensor ForwardExpectation(const torch::Tensor& obs, bool use_target) const;
 
     /// Learner用：Q出力 DQN=(B, A) QR-DQN=(B, A, Nq)
     torch::Tensor Forward(const torch::Tensor& obs, bool use_target) const;
@@ -191,7 +191,7 @@ public:
     ActionPolicy(
         const RainbowAgent::Network& network, const RainbowAgent::RuntimeVars& vars, seed_t seed);
 
-    BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only) const;
+    BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const;
 private:
     const RainbowAgent::Network& network_;
     const RainbowAgent::RuntimeVars& vars_;
@@ -212,7 +212,7 @@ public:
     virtual ~Learner() = default;
 protected:
     RainbowAgent& agent_;
-    std::unique_ptr<anet::rl::ReplayBuffer> replay_buffer_;
+    std::shared_ptr<anet::rl::ReplayBuffer> replay_buffer_;
 };
 
 class RainbowAgent::TDLearner : public RainbowAgent::Learner {

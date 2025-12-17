@@ -1,14 +1,12 @@
 @echo off
 SET EXE="bin\Release\LunarLanderRLGUI.exe"
 
-call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "train.seed=8680553529747499138"
-call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "train.seed=9527375268760563797"
-call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "train.seed=7159038980716138760"
-call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "train.seed=17268299675072012765"
-call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "train.seed=15840880607899339877"
-call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "train.seed=45934658819433618"
-call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "train.seed=3512965569908297564"
-call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "train.seed=2794877750456487840"
+call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "RainbowAgent.trunk.n_step=1" "RainbowAgent.trunk.use_dueling_net=true"
+call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "RainbowAgent.trunk.n_step=2" "RainbowAgent.trunk.use_dueling_net=true"
+call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "RainbowAgent.trunk.n_step=3" "RainbowAgent.trunk.use_dueling_net=true"
+call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "RainbowAgent.trunk.n_step=1" "RainbowAgent.trunk.use_dueling_net=false"
+call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "RainbowAgent.trunk.n_step=2" "RainbowAgent.trunk.use_dueling_net=false"
+call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "RainbowAgent.trunk.n_step=3" "RainbowAgent.trunk.use_dueling_net=false"
 
 pause
 exit /b

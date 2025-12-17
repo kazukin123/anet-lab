@@ -5,6 +5,7 @@
 #include "anet/common.hpp"
 #include "anet/tensor_util.hpp"
 #include "anet/tensor_check.hpp"
+#include "anet/profile.hpp"
 #include "anet/rl.hpp"
 
 namespace anet::rl {
@@ -47,6 +48,8 @@ namespace anet::rl {
 
     void PlainReplayBuffer::Push(const BatchExperience& batch)
     {
+        anet::ProfileRange r1("PlainReplayBuffer::Push1");
+
         // shape チェック
         const int64_t N = batch.state.obs.size(0);
 
@@ -85,6 +88,8 @@ namespace anet::rl {
 
     void PlainReplayBuffer::Push(const std::vector<SingleExperience>& exps)
     {
+        anet::ProfileRange r1("PlainReplayBuffer::Push2");
+
         size_t n = exps.size();
         if (n == 0) return;
 
@@ -110,6 +115,8 @@ namespace anet::rl {
 
     ExperienceSamples PlainReplayBuffer::Sample(int64_t b, torch::Device device) const
     {
+        anet::ProfileRange r1("PlainReplayBuffer::Sample");
+
         ANET_ASSERT_MSG(size_ > 0, "ReplayBuffer::Sample: buffer empty.");
         ANET_ASSERT_MSG(b > 0, "ReplayBuffer::Sample: n must be > 0.");
         //ANET_ASSERT_MSG(b <= size_, "ReplayBuffer::Sample: n exceeds current size.");
@@ -193,6 +200,8 @@ namespace anet::rl {
 
     std::optional<std::vector<torch::Tensor>> PlainReplayBuffer::GetTensorVector(const std::string& key, int index) const
     {
+        anet::ProfileRange r1("PlainReplayBuffer::GetTensorVector");
+
         /// @todo index指定対応
 
         // ReplayBuffer は ring-buffer 構造のため、時系列順のデータは
@@ -203,7 +212,7 @@ namespace anet::rl {
 
         if (key == STATE_OBS)
             return replay_in_order(states_, size_, capacity_, write_index_);
-        if (key == ACTION_ACTION)
+        if (key == ACTION)
             return replay_in_order(actions_, size_, capacity_, write_index_);
         if (key == REWARD)
             return replay_in_order(rewards_, size_, capacity_, write_index_);
@@ -211,7 +220,7 @@ namespace anet::rl {
             return replay_in_order(next_states_, size_, capacity_, write_index_);
         if (key == NEXT_STATE_TERMINAL)
             return replay_in_order(terminals_, size_, capacity_, write_index_);
-        if (key == NEXT_STATE_N_STEP)
+        if (key == N_STEP)
             return std::nullopt;    // 非対応
 
         return std::nullopt;
