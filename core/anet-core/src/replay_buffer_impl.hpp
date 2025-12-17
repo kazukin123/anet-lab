@@ -38,8 +38,8 @@ public:
     void Push(const SingleExperience& exp);             ///< 末尾に 1 Experience を追加
     void Pop(size_t k);                                 ///< 先頭から k 個を削除
     std::vector<SingleExperience> Peek(size_t k) const; ///< 先頭から k 個を取得（コピー）
-    size_t Size() const;                                ///< 現在の保持数
-    void Clear();                                       ///< 空にする
+    size_t Size() const { return buffer_.size(); }      ///< 現在の保持数
+    void Clear() { buffer_.clear(); }                             ///< 空にする
 private:
     std::vector<SingleExperience> buffer_;
 };
@@ -120,7 +120,7 @@ class ReplayExperienceStorage : public anet::DataExporter {
 public:
     ReplayExperienceStorage(const EnvSpec& env_spec, int64_t capacity, torch::Device device);
     void Push(const ReplayExperience& exp);
-    int64_t Size() const;
+    int64_t Size() const { return size_; }
     ExperienceSamples Gather(const torch::Tensor& indices,std::optional<torch::Device> out_device = std::nullopt) const;
     //const ReplayExperience& Get(size_t index) const;
 public: //---- DataExporter ----

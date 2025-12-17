@@ -384,8 +384,10 @@ RainbowAgent::TDLearner::TDLearner(RainbowAgent& agent, const EnvSpec& env_spec,
 
     // ReplayBuffer生成
     anet::rl::ReplayBufferFactory rep_factory(rep_config);
-    if (agent_.config_.use_n_step)
-        this->replay_buffer_ = rep_factory.Create(env_spec, agent.device_, agent_.batch_size_, replay_seed);
+    if (agent_.config_.use_n_step) {
+        //this->replay_buffer_ = rep_factory.Create(env_spec, agent.device_, agent_.batch_size_, replay_seed);      // GPUだと遅くなる
+        this->replay_buffer_ = rep_factory.Create(env_spec, torch::kCPU, agent_.batch_size_, replay_seed);
+    }
     else
         this->replay_buffer_ = std::make_shared<anet::rl::PlainReplayBuffer>(env_spec, agent_.config_.replay_capacity, replay_seed);
 

@@ -43,16 +43,6 @@ std::vector<SingleExperience> ExperienceQueue::Peek(size_t k) const
     );
 }
 
-size_t ExperienceQueue::Size() const
-{
-    return buffer_.size();
-}
-
-void ExperienceQueue::Clear()
-{
-    buffer_.clear();
-}
-
 
 // ======================================================
 // PlainExperienceQueueController
@@ -232,11 +222,6 @@ void ReplayExperienceStorage::Push(const ReplayExperience& exp)
 
     write_index_ = (write_index_ + 1) % capacity_;
     if (size_ < capacity_) size_++;
-}
-
-int64_t ReplayExperienceStorage::Size() const
-{
-    return size_;
 }
 
 ExperienceSamples ReplayExperienceStorage::Gather(
