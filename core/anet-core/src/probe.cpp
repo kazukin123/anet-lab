@@ -157,8 +157,8 @@ BatchActionInfoToVectorProbe::BatchActionInfoToVectorProbe(const std::string& ke
 
 std::optional<std::vector<float>> BatchActionInfoToVectorProbe::GetVector(const TrainEvent& event) const
 {
-    auto itr = event.action_info.aux.find(key_);
-    if (itr == event.action_info.aux.end()) return std::nullopt;
+    auto itr = event.action_info.GetAuxData().find(key_);
+    if (itr == event.action_info.GetAuxData().end()) return std::nullopt;
     auto tensor = itr->second;
 
     //ANET_ASSERT(tensor.has_value());   // key誤りによるバグ防止のため

@@ -118,11 +118,10 @@ StepCounts EvalRunner::DoStep(int64_t action)
     // 行動選択
     anet::rl::BatchActionInfo action_info = {
         torch::tensor({ action }),
-        torch::tensor({ false })
     };
 
     // 環境ステップ実行
-    auto result = env_->Step(action_info.action, runmode_);    // next_state, reward, done, truncated
+    auto result = env_->Step(action_info, runmode_);    // next_state, reward, done, truncated
     ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info.ToString());
     ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result->next_state.ToString());
     ANET_LOG_DEBUG("step=" << train_step << " continue_state=" << result->continue_state.ToString());
@@ -176,7 +175,7 @@ StepCounts EvalRunner::DoStep()
     //ANET_CHECK_SHAPE(action_info.action, { N });
 
     // 環境ステップ実行
-    auto result = env_->Step(action_info.action, runmode_);    // next_state, reward, done, truncated
+    auto result = env_->Step(action_info, runmode_);    // next_state, reward, done, truncated
     ANET_LOG_DEBUG("step=" << train_step << " reward=" << anet::ToString(result->reward));
     ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result->next_state.ToString());
     ANET_CHECK_DEVICE(result->next_state.obs, torch::kCPU);
@@ -374,10 +373,10 @@ StepCounts DefaultTrainer::DoStep()
     // 行動選択
     auto action_info = agent_->MakeAction(step_counts_, state_);
     ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info.ToString());
-    ANET_CHECK_SHAPE(action_info.action, { N });
+    ANET_CHECK_SHAPE(action_info.GetAction(), {N});
 
     // 環境ステップ実行
-    auto result = env_->Step(action_info.action);    // next_state, reward, done, truncated
+    auto result = env_->Step(action_info);    // next_state, reward, done, truncated
     ANET_LOG_DEBUG("step=" << train_step << " reward=" << anet::ToString(result->reward));
     ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result->next_state.ToString());
     ANET_CHECK_DEVICE(result->next_state.obs, torch::kCPU);

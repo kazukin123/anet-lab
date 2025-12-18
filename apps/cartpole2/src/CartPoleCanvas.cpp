@@ -45,7 +45,7 @@ void CartPoleCanvas::SetUIData(const UISnapshot& snapshot)
 	pole_theta_dot_ = obs[3].item<float>();
 
     // action
-    action_ = exp.action.action[BATCH_POS].item<int64_t>();
+    action_ = exp.action.GetAction(torch::kCPU)[BATCH_POS].item<int64_t>();
 
     // reward
     reward_ = exp.reward[BATCH_POS].item<float>();

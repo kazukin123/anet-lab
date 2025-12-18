@@ -121,8 +121,7 @@ public:
     ReplayExperienceStorage(const EnvSpec& env_spec, int64_t capacity, torch::Device device);
     void Push(const ReplayExperience& exp);
     int64_t Size() const { return size_; }
-    ExperienceSamples Gather(const torch::Tensor& indices,std::optional<torch::Device> out_device = std::nullopt) const;
-    //const ReplayExperience& Get(size_t index) const;
+    ExperienceSamples Gather(const std::vector<int64_t>& indices,std::optional<torch::Device> out_device = std::nullopt) const;
 public: //---- DataExporter ----
     std::optional<float> GetScalar(const std::string& key, int index) const override;
     std::optional<torch::Tensor> GetTensor(const std::string& key, int index) const override;
@@ -130,6 +129,7 @@ public: //---- DataExporter ----
 private:
     const int64_t capacity_;
     const torch::Device device_;
+    const torch::TensorOptions int64_opt_;
 private:
     int64_t size_ = 0;
     int64_t write_index_ = 0;
@@ -148,14 +148,16 @@ private:
 
 class ReplayExperienceSampler {
 public:
-    virtual torch::Tensor SampleIndices(const ReplayExperienceStorage& storage, int64_t minibatch_size) = 0;
+    virtual std::vector<int64_t> SampleIndices(const ReplayExperienceStorage& storage, int64_t minibatch_size) = 0;
     virtual ~ReplayExperienceSampler() = default;
 };
 
 class UniformReplayExperienceSampler final : public ReplayExperienceSampler, public anet::RandomHolder {
 public:
     explicit UniformReplayExperienceSampler(anet::seed_t seed);
-    torch::Tensor SampleIndices(const ReplayExperienceStorage& storage, int64_t minibatch_size) override;
+    std::vector<int64_t> SampleIndices(const ReplayExperienceStorage& storage, int64_t minibatch_size) override;
+private:
+    const torch::TensorOptions opts_;
 };
 
 
@@ -170,7 +172,7 @@ public:
         std::unique_ptr<ExperienceQueueController> queue_controller,
         std::unique_ptr<ReplayExperienceBuilder> replay_exp_builder,
         std::unique_ptr<ReplayExperienceSampler> sampler,
-        torch::Device device);
+        torch::Device device, bool use_prefetch = false);
 
     void Push(const BatchExperience& batch_exp) override;
     void Push(const std::vector<SingleExperience>& exps) override;
@@ -181,6 +183,11 @@ public: // DataExporter
     std::optional<torch::Tensor> GetTensor(const std::string& key, int index) const override;
     std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index) const override;
 private:
+    ExperienceSamples sampleInternal(int64_t minibatch_size, torch::Device device) const;
+private:
+    // 設定
+    bool use_prefetch_;
+
     // N 環境分
     const int64_t num_envs_;
     std::vector<ExperienceQueue> queues_;
@@ -190,5 +197,9 @@ private:
     std::unique_ptr<ReplayExperienceBuilder> replay_exp_builder_;
     std::unique_ptr<ReplayExperienceSampler> sampler_;
     std::unique_ptr<ReplayExperienceStorage> storage_;
+
+    // Prefech
+    mutable bool prefetch_cached_ = false;
+    mutable ExperienceSamples prefetch_result_;
 };
 

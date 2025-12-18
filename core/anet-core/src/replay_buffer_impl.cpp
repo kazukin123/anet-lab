@@ -183,6 +183,7 @@ ReplayExperience NStepReplayExperienceBuilder::Build(const ExperienceSequence& s
 
 ReplayExperienceStorage::ReplayExperienceStorage(const EnvSpec& env_spec, int64_t capacity, torch::Device device)
     : device_(device), capacity_(capacity)
+    , int64_opt_(torch::TensorOptions().dtype(torch::kInt64).device(device_))
 {
     auto state_dim = env_spec.state_spec.CalcFlattenDim();
     auto action_dim = env_spec.action_spec.GetNumActions();
@@ -190,9 +191,9 @@ ReplayExperienceStorage::ReplayExperienceStorage(const EnvSpec& env_spec, int64_
     ANET_ASSERT(action_dim > 0);
     ANET_ASSERT(capacity_ > 0);
 
-    auto f32 = torch::TensorOptions().dtype(torch::kFloat32).device(device_);
-    auto i64 = torch::TensorOptions().dtype(torch::kInt64).device(device_);
-    auto b = torch::TensorOptions().dtype(torch::kBool).device(device_);
+    auto f32 = torch::TensorOptions().dtype(torch::kFloat32).device(device_).pinned_memory(true);
+    auto i64 = torch::TensorOptions().dtype(torch::kInt64).device(device_).pinned_memory(true);
+    auto b = torch::TensorOptions().dtype(torch::kBool).device(device_).pinned_memory(true);
 
     states_ = torch::zeros({ capacity_, state_dim }, f32);
     target_values_ = torch::zeros({ capacity_ }, f32);
@@ -225,15 +226,17 @@ void ReplayExperienceStorage::Push(const ReplayExperience& exp)
 }
 
 ExperienceSamples ReplayExperienceStorage::Gather(
-    const torch::Tensor& indices, std::optional<torch::Device> out_device) const
+    const std::vector<int64_t>& indices, std::optional<torch::Device> out_device) const
 {
     anet::ProfileRange r1("ReplayExperienceStorage::Gather");
 
-    ANET_CHECK_DTYPE(indices, torch::kInt64);
+    // vector→Tensor変換
+    auto index_tensor = torch::from_blob(
+        const_cast<int64_t*>(indices.data()),{ static_cast<int64_t>(indices.size()) }, int64_opt_).clone();
+    ANET_CHECK_DTYPE(index_tensor, torch::kInt64);
 
-    auto idx = indices.to(device_);
-    auto dst_device = out_device.value_or(device_);
-
+    // gather
+    auto idx = index_tensor.to(device_);
     ExperienceSamples out {
         states_.index_select(0, idx),           // obs
         actions_.index_select(0, idx),          // actions
@@ -243,8 +246,10 @@ ExperienceSamples ReplayExperienceStorage::Gather(
         n_steps_.index_select(0, idx)           // n_steps
     };
 
+    // 必要に応じてdevice転送
+    auto dst_device = out_device.value_or(device_);
     if (dst_device != device_) {
-        out = out.To(dst_device);   // FlattenStates 後段想定
+        out = out.To(dst_device, true);   // FlattenStates 後段想定
     }
 
     return out;
@@ -309,30 +314,24 @@ ReplayExperienceStorage::GetTensor(const std::string& key, int index) const
 
 UniformReplayExperienceSampler::UniformReplayExperienceSampler(anet::seed_t seed)
     : RandomHolder(seed)
+    , opts_(torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU))
 {
 }
 
-torch::Tensor UniformReplayExperienceSampler::SampleIndices(
+std::vector<int64_t> UniformReplayExperienceSampler::SampleIndices(
     const ReplayExperienceStorage& storage, int64_t minibatch_size)
 {
     anet::ProfileRange r1("UniformReplayExperienceSampler::SampleIndices");
 
-    const int64_t size = storage.Size();
-    ANET_ASSERT(size > 0);
+    const int64_t storaget_size = storage.Size();
+    ANET_ASSERT(storaget_size > 0);
     ANET_ASSERT(minibatch_size > 0);
 
-    // replacement = true（ReplayBufferが満杯でなくてもOK）
-    auto opts = torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU);
-    //auto opts = torch::TensorOptions().dtype(torch::kInt64
-
-    //auto indices = torch::randint(0, size, { minibatch_size }, opts);
-
-    /// @todo torch版とRandomHolder版で性能比較
-
     // ---- RNG を使って n 個のインデックスを取得 ----
-    std::vector<int64_t> buf(minibatch_size);
-    for (int64_t i = 0; i < minibatch_size; ++i) buf[i] = rnd_->RandIndex(size);
-    auto indices = torch::from_blob(buf.data(), { minibatch_size }, opts).clone();
+    std::vector<int64_t> indices(minibatch_size);
+    for (int64_t i = 0; i < minibatch_size; ++i)
+        indices[i] = rnd_->RandIndex(storaget_size);
+    //auto indices = torch::from_blob(buf.data(), { minibatch_size }, opts_).clone();
 
     return indices;
 }
@@ -347,12 +346,13 @@ DefaultReplayBuffer::DefaultReplayBuffer(
     std::unique_ptr<ExperienceQueueController> queue_controller,
     std::unique_ptr<ReplayExperienceBuilder> replay_exp_builder,
     std::unique_ptr<ReplayExperienceSampler> sampler,
-    torch::Device device)
+    torch::Device device, bool use_prefetch)
     : num_envs_(num_envs)
     , queues_(num_envs)
     , queue_controller_(std::move(queue_controller))
     , replay_exp_builder_(std::move(replay_exp_builder))
     , sampler_(std::move(sampler))
+    , use_prefetch_(use_prefetch)
 {
     ANET_ASSERT(num_envs_ > 0);
     storage_ = std::make_unique<ReplayExperienceStorage>(env_spec, capacity, device);
@@ -397,14 +397,34 @@ void DefaultReplayBuffer::Push(const std::vector<SingleExperience>& exps)
     }
 }
 
+ExperienceSamples DefaultReplayBuffer::sampleInternal(int64_t minibatch_size, torch::Device device) const
+{
+    anet::ProfileRange r1("DefaultReplayBuffer::sampleInternal");
+
+    ANET_ASSERT(storage_->Size() > 0);
+
+    auto indices = sampler_->SampleIndices(*storage_, minibatch_size);
+    return storage_->Gather(indices, device);
+}
+
 ExperienceSamples DefaultReplayBuffer::Sample(int64_t minibatch_size, torch::Device device) const
 {
     anet::ProfileRange r1("DefaultReplayBuffer::Sample");
 
     ANET_ASSERT(storage_->Size() > 0);
 
-    auto indices = sampler_->SampleIndices(*storage_, minibatch_size);
-    return storage_->Gather(indices, device);
+    if (use_prefetch_) {
+        if (!prefetch_cached_) {
+            prefetch_result_ = sampleInternal(minibatch_size, device);
+            prefetch_cached_ = true;
+            return sampleInternal(minibatch_size, device);
+        }
+        auto result = prefetch_result_;
+        prefetch_result_ = sampleInternal(minibatch_size, device);
+        return result;
+    }
+
+    return sampleInternal(minibatch_size, device);
 }
 
 int64_t DefaultReplayBuffer::Size() const

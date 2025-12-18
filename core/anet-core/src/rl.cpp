@@ -1,5 +1,8 @@
 ﻿#include "anet/rl.hpp"
 #include <stdexcept>
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/CUDAEvent.h>
+
 #include <wx/log.h>
 #include "anet/common.hpp"
 #include "anet/profile.hpp"
@@ -304,10 +307,9 @@ std::string BatchActionInfo::ToString() const
 {
     std::ostringstream oss;
     oss << "BatchActionInfo{";
-    oss << "action=" << anet::ToString(action);
-    oss << ", is_random=" << anet::ToString(is_random);
+    oss << "action=" << anet::ToString(GetAction(torch::kCPU));
     oss << ", aux={";
-    for (auto kv : aux) {
+    for (auto kv : aux_) {
         oss << "\n    " << kv.first << "=" << anet::ToString(kv.second);
     }
     oss << "  }}";
@@ -398,7 +400,7 @@ std::optional<torch::Tensor> BatchExperience::GetTensor(
     if (key == REWARD)
         return reward;
     if (key == ACTION_ACTION)
-        return action.action;
+        return action.GetAction();
     if (key == STATE_OBS)
         return state.obs;
 
@@ -416,9 +418,6 @@ std::optional<torch::Tensor> BatchExperience::GetTensor(
     if (key == NEXT_STATE_EPISODE_START)
         return next_state.episode_start;
 
-    if (key == ACTION_IS_RANDOM)
-        return action.is_random;
-
     return std::nullopt;
 }
 
@@ -433,11 +432,12 @@ std::optional<std::vector<torch::Tensor>>
 }
 
 BatchExperience BatchExperience::To(torch::Device d) const {
-    BatchExperience out;
-    out.state = state.To(d);
-    out.action = action.To(d);
-    out.reward = reward.to(d);
-    out.next_state = next_state.To(d);
+    BatchExperience out {
+        state.To(d),
+        action.To(d),
+        reward.to(d),
+        next_state.To(d)
+    };
     return out;
 }
 
@@ -469,8 +469,8 @@ std::vector<SingleExperience> BatchExperience::ToExperienceList() const
         "MakeFromBatch: next_state.episode_start batch size mismatch.");
 
     // ---- actions の整合検査 ----
-    ANET_CHECK_DTYPE(action.action, torch::kInt64);
-    ANET_ASSERT_MSG(action.action.size(0) == N,
+    ANET_CHECK_DTYPE(action.GetAction(), torch::kInt64);
+    ANET_ASSERT_MSG(action.GetAction().size(0) == N,
         "MakeFromBatch: action.action batch size mismatch.");
 
     // ---- rewards の shape チェック ----
@@ -517,7 +517,7 @@ std::vector<SingleExperience> BatchExperience::ToExperienceList() const
 
         out.push_back({
             s,
-            action.action.index({i}),
+            action.GetAction().index({i}),
             reward[i].item<float>(),
             ns
             });
@@ -526,17 +526,20 @@ std::vector<SingleExperience> BatchExperience::ToExperienceList() const
     return out;
 }
 
-ExperienceSamples ExperienceSamples::To(torch::Device device) const
+ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking) const
 {
+    auto stream = at::cuda::getDefaultCUDAStream();
+    at::cuda::CUDAStreamGuard guard(stream);
+
     return ExperienceSamples{
-        obs.to(device),
-        actions.to(device),
-        target_values.to(device),
+        obs.to(device, non_blocking),
+        actions.to(device, non_blocking),
+        target_values.to(device, non_blocking),
         {
-            next_states.obs.flatten(1).to(device),
-            next_states.terminals.to(device),
+            next_states.obs.to(device, non_blocking).flatten(1),
+            next_states.terminals.to(device, non_blocking),
         },
-        n_steps.to(device)
+        n_steps.to(device, non_blocking)
     };
 }
 

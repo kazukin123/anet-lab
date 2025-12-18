@@ -182,22 +182,24 @@ BatchState VectorizedDiscreteBatchEnv::Reset(RunMode mode)
     return state;
 }
 
-std::shared_ptr<const BatchStepResult> VectorizedDiscreteBatchEnv::Step(const torch::Tensor& batch_action, RunMode mode)
+std::shared_ptr<const BatchStepResult> VectorizedDiscreteBatchEnv::Step(const BatchActionInfo& batch_action, RunMode mode)
 {
     ProfileRange r("VectorizedDiscreteBatchEnv::Step");
 
     const int64_t N = batch_spec_.batch_size;
 
-    ANET_CHECK_DTYPE_MSG(batch_action, torch::kInt64,
+    ANET_CHECK_DTYPE_MSG(batch_action.GetAction(), torch::kInt64,
         "VectorizedDiscreteBatchEnv supports discrete action only. actions should be kInt64.");
-    ANET_CHECK_SHAPE(batch_action, { N });
+    ANET_CHECK_SHAPE(batch_action.GetAction(), {N});
 
     // 戻りの枠生成
     std::shared_ptr<DiscreteBatchEnvBase::StepResult> batch_result = createEmptyStepResult();
 
+    auto actions = batch_action.GetAction(device_);
+
     // ----- 環境を順次実行して埋める -----
     for (int i = 0; i < N; ++i) {
-        auto a = batch_action[i].item<int64_t>();
+        auto a = actions[i].item<int64_t>();
         std::shared_ptr<const SingleStepResult> single_result = envs_[i]->Step(a, mode);
         ANET_CHECK_DEVICE(single_result->next_state.obs, device_);
 
@@ -288,20 +290,22 @@ BatchState ThreadPoolDiscreteEnv::Reset(RunMode mode)
     return state;
 }
 
-std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(const torch::Tensor& actions, RunMode mode)
+std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(const BatchActionInfo& batch_action, RunMode mode)
 {
     ProfileRange r("ThreadPoolDiscreteEnv::Step");
 
     const int N = batch_size_;
-    ANET_LOG_DEBUG("action=" << anet::ToString(actions));
-    ANET_CHECK_DTYPE_MSG(actions, torch::kInt64,
+    ANET_LOG_DEBUG("action=" << anet::ToString(batch_action.GetAction()));
+    ANET_CHECK_DTYPE_MSG(batch_action.GetAction(), torch::kInt64,
         "ThreadPoolDiscreteEnv supports discrete action only. actions should be kInt64.");
-    ANET_CHECK_SHAPE(actions, { N });
+    ANET_CHECK_SHAPE(batch_action.GetAction(), {N});
     const int worker_count = pool_->GetWorkerCount();
     ANET_ASSERT(worker_count > 0);
 
     // --- 返却バッファ ---
     std::shared_ptr<DiscreteBatchEnvBase::StepResult> result = createEmptyStepResult();
+
+    auto actions = batch_action.GetAction(this->device_);
 
     // --- 並列に Step + 結果書き込み ---
     for (int i = 0; i < N; ++i) {

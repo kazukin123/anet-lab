@@ -302,8 +302,7 @@ public:
 
         if (greedy_only) {
             ProfileRange  r("DQNAgent::DecideBatch.greedy_only");
-            auto zeros = torch::zeros({ N }, torch::TensorOptions().dtype(torch::kBool).device(device));
-            return { greedy, zeros };
+            return { greedy };
         }
 
         const float eps = agent_.vars_->epsilon;
@@ -320,7 +319,6 @@ public:
 
         return {
             actions,        // (N) kInt64
-            mask            // (N) kBool
         };
     }
 private:
@@ -450,7 +448,7 @@ public:
     void UpdateActionStats(RuntimeVars& vars, const anet::rl::BatchActionInfo& info) const
     {
         anet::ProfileRange r("DQNAgent::UpdateActionStats");
-        torch::Tensor a = info.action;  // (N, action_dim)
+        torch::Tensor a = info.GetAction(torch::kCPU);  // (N, action_dim)
         auto a_cpu = a.to(torch::kCPU).reshape({ -1 }).contiguous();
         const int64_t n = a_cpu.numel();
         ANET_CHECK_DTYPE(a_cpu, torch::kInt64);

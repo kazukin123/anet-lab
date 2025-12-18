@@ -58,11 +58,9 @@ namespace anet::rl {
         ANET_CHECK_SHAPE(batch.state.truncated, { N });
         ANET_CHECK_SHAPE(batch.state.episode_start, { N });
         if (is_discrete_) {
-            ANET_CHECK_SHAPE(batch.action.action, { N });
-            ANET_CHECK_SHAPE(batch.action.is_random, { N });
+            ANET_CHECK_SHAPE(batch.action.GetAction(), {N});
         } else {
-            ANET_CHECK_SHAPE(batch.action.action, { N, ANET_SHAPE_ENDANY });
-            ANET_CHECK_SHAPE(batch.action.is_random, { N, ANET_SHAPE_ENDANY });
+            ANET_CHECK_SHAPE(batch.action.GetAction(), {N, ANET_SHAPE_ENDANY});
         }
         ANET_CHECK_SHAPE(batch.reward, { N });
         ANET_CHECK_SHAPE(batch.next_state.obs, { N, state_dim_ });
@@ -74,8 +72,7 @@ namespace anet::rl {
         ANET_CHECK_DTYPE(batch.state.done, torch::kBool);
         ANET_CHECK_DTYPE(batch.state.truncated, torch::kBool);
         ANET_CHECK_DTYPE(batch.state.episode_start, torch::kBool);
-        ANET_CHECK_DTYPE(batch.action.action, is_discrete_ ? torch::kInt64 : torch::kFloat32);
-        ANET_CHECK_DTYPE(batch.action.is_random, torch::kBool);
+        ANET_CHECK_DTYPE(batch.action.GetAction(), is_discrete_ ? torch::kInt64 : torch::kFloat32);
         ANET_CHECK_DTYPE(batch.reward, torch::kFloat32);
         ANET_CHECK_DTYPE(batch.next_state.obs, torch::kFloat32);
         ANET_CHECK_DTYPE(batch.next_state.done, torch::kBool);

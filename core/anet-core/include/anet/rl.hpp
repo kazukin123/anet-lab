@@ -272,6 +272,8 @@ namespace anet::rl {
         std::int64_t action;  ///< 実際に選択された行動値      (action_dim...) kFloat32 or kInt64
         bool is_random;       ///< ε-greedy のランダム選択か
 
+        /// @todo is_random廃止？
+
         std::string ToString() const;
     };
 
@@ -392,21 +394,75 @@ namespace anet::rl {
         std::string ToString() const;
     };
 
-    // 行動選択時のメタ情報
+    // 行動選択時の情報
     struct BatchActionInfo {
-        torch::Tensor action;       ///< 実際に選択された行動値      (N, action_dim...) kFloat32 or kInt64
-        torch::Tensor is_random;    ///< ε-greedy のランダム選択か  (N) kBool
-        AuxData aux;
+    public:
+        BatchActionInfo() {}
 
-        BatchActionInfo To(torch::Device device) const {
-            ANET_CHECK_SHAPE(action, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
-            ANET_CHECK_SHAPE(is_random, { ANET_SHAPE_ANY });
-            ANET_ASSERT(action.dtype() == torch::kFloat32 || action.dtype() == torch::kInt64);
-            ANET_CHECK_DTYPE(is_random, torch::kBool);
-
-            return BatchActionInfo{ action.to(device), is_random.to(device), aux };
+        BatchActionInfo(const torch::Tensor action, const AuxData& aux)
+            : action_cpu_(action.device().is_cpu() ? std::move(action) : torch::Tensor())
+            , aux_(aux)
+        {
+            if (action.device().is_cuda())
+                gpu_ = std::pair(action.device(), std::move(action));
         }
+
+        BatchActionInfo(const torch::Tensor action)
+            : BatchActionInfo(action, AuxData{})
+        {
+        }
+
+        torch::Tensor GetAction() const
+        {
+            if (action_cpu_.defined())
+                return action_cpu_;
+            if (gpu_.has_value())
+                return gpu_->second;
+            return torch::Tensor();
+        }
+
+        torch::Tensor GetAction(torch::Device device) const
+        {
+            // --- CPU requested ---
+            if (device.is_cpu()) {
+                if (!action_cpu_.defined()) {
+                    if (!gpu_)
+                        throw std::logic_error("BatchActionInfo: no tensor available to create CPU action");
+                    action_cpu_ = gpu_->second.to(torch::kCPU);
+                }
+                return action_cpu_;
+            }
+
+            // --- GPU requested ---
+            if (!device.is_cuda()) {
+                throw std::logic_error("BatchActionInfo: unsupported device type");
+            }
+            if (!gpu_) {
+                if (!action_cpu_.defined())
+                    throw std::logic_error("BatchActionInfo: no tensor available to create GPU action");
+                gpu_ = std::make_pair(device, action_cpu_.to(device));
+                return gpu_->second;
+            }
+            if (gpu_->first != device) {
+                throw std::logic_error(
+                    "BatchActionInfo: GPU device mismatch (cached="
+                    + gpu_->first.str() + ", requested=" + device.str() + ")"
+                );
+            }
+
+            return gpu_->second;
+        }
+        BatchActionInfo To(torch::Device device) const {
+            return BatchActionInfo{ GetAction(device), aux_};
+        }
+        const AuxData& GetAuxData() const { return aux_; }
+        AuxData& GetAuxData() { return aux_; }
+
         std::string ToString() const;
+    private:
+        mutable torch::Tensor action_cpu_;
+        mutable std::optional<std::pair<torch::Device, torch::Tensor>> gpu_;
+        AuxData aux_;
     };
 
     class BatchStepResult {
@@ -445,13 +501,13 @@ namespace anet::rl {
         torch::Tensor reward;
         BatchState next_state;
 
-        explicit BatchExperience() {}
+        BatchExperience() {}
         BatchExperience(
             const BatchState& state__,
             const BatchActionInfo& action__,
-            const torch::Tensor& reward__,
+            torch::Tensor reward__,
             const BatchState& next_state__
-        ) : state(state__), action(action__), reward(reward__), next_state(next_state__) { }
+        ) : state(state__), action(action__), reward(std::move(reward__)), next_state(next_state__) { }
 
         std::optional<float> GetScalar(const std::string& key, int index = -1) const { return std::nullopt; }
         std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
@@ -504,7 +560,7 @@ namespace anet::rl {
         virtual EnvSpec GetSpec() const = 0;
         virtual BatchEnvSpec GetBatchSpec() const = 0;
         virtual BatchState Reset(RunMode mode = RunMode::Train) = 0;
-        virtual std::shared_ptr<const BatchStepResult> Step(const torch::Tensor& action, RunMode mode = RunMode::Train) = 0;
+        virtual std::shared_ptr<const BatchStepResult> Step(const BatchActionInfo& action_info, RunMode mode = RunMode::Train) = 0;
 
         //virtual std::shared_ptr<BatchEnv> Clone() const = 0;
 
@@ -571,7 +627,7 @@ namespace anet::rl {
 
 
         ExperienceSamples FlattenStates() const;
-        ExperienceSamples To(torch::Device device) const;
+        ExperienceSamples To(torch::Device device, bool non_blocking) const;
         std::string ToString() const;
     };
 

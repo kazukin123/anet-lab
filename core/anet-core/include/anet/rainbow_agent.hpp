@@ -49,21 +49,17 @@ namespace anet::rl {
             ANET_READ_CONFIG(config_data, eps_max);
             ANET_READ_CONFIG(config_data, eps_min);
             ANET_READ_CONFIG(config_data, eps_decay_step);
-            //ANET_READ_CONFIG(config_data, eps_sigmoid_step);
             ANET_READ_CONFIG(config_data, soft_update_tau);
             ANET_READ_CONFIG(config_data, hard_update_interval);
             ANET_READ_CONFIG(config_data, use_grad_clip);
             ANET_READ_CONFIG(config_data, grad_clip_tau);
             ANET_READ_CONFIG(config_data, use_td_clip);
             ANET_READ_CONFIG(config_data, td_clip_value);
-            //ANET_READ_CONFIG(config_data, eps_zero_step);
             ANET_READ_CONFIG(config_data, replay_capacity);
             ANET_READ_CONFIG(config_data, replay_batch_size);
             ANET_READ_CONFIG(config_data, update_warmup_steps);
             ANET_READ_CONFIG(config_data, update_interval);
-
             ANET_READ_CONFIG(config_data, n_step);
-
             ANET_READ_CONFIG(config_data, use_double_dqn);
             ANET_READ_CONFIG(config_data, use_dueling_net);
             ANET_READ_CONFIG(config_data, use_n_step);

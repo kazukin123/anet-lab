@@ -2,7 +2,7 @@
 #LunarLanderApp.$ = LunarLanderApp.batchrun
 
 #train.seed = 5542346184581256364  # 踊り
-#train.seed = 540080446186335311
+train.seed = 540080446186335311
 
 #agent.class_id = DQNAgent
 agent.class_id = RainbowAgent
@@ -18,7 +18,6 @@ metrics.scalar.$ = metrics.scalar.rainbow
 #metrics.scalar.$ = metrics.scalar.full
 
 DQNAgent.$ = DQNAgent.trunk
-#DQNAgent.$ = agent.20251127-032759
 
 RainbowAgent.$ = RainbowAgent.trunk
 
@@ -38,21 +37,21 @@ RainbowAgent.trunk.use_grad_clip = false        # ★
 RainbowAgent.trunk.grad_clip_tau = 25           # 10 25 40 1f 5f 10f
 RainbowAgent.trunk.use_td_clip = false          # ★
 RainbowAgent.trunk.td_clip_value = 30.0         # 4.0 20 30
-RainbowAgent.trunk.replay_capacity= 10000       # 
+RainbowAgent.trunk.replay_capacity = 10000       # 
 RainbowAgent.trunk.replay_batch_size = 128      #
 RainbowAgent.trunk.update_warmup_steps = 1000   # 1000
 #RainbowAgent.trunk.update_warmup_steps = 1   # 1000
 RainbowAgent.trunk.update_interval = 5          #
+
+#RainbowAgent.trunk.n_step = 1;
+#RainbowAgent.trunk.n_step = 2;
+RainbowAgent.trunk.n_step = 3;
 
 RainbowAgent.trunk.use_double_dqn = true        # Double DQN 有効化フラグ（trueで有効）
 RainbowAgent.trunk.use_dueling_net = true       # ★ 
 #RainbowAgent.trunk.use_dueling_net = false      # ★ 
 RainbowAgent.trunk.use_n_step = true;
 #RainbowAgent.trunk.use_n_step = false;
-
-#RainbowAgent.trunk.n_step = 1;
-#RainbowAgent.trunk.n_step = 2;
-RainbowAgent.trunk.n_step = 3;
 
 # ----- metrics
 
@@ -66,8 +65,8 @@ metrics.scalar.rainbow.[10_train/10_total_reward_ema] = train_reward $runner @tr
 metrics.scalar.rainbow.[11_agent_dqn_base/03_epsilon_train] = $agent epsilon @train
 metrics.scalar.rainbow.[21_eval/01_target_reward] = $runner target_eval_reward @learn clip:3000
 metrics.scalar.rainbow.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn clip:3000
-metrics.scalar.rainbow.[21_eval/03_target_reward_ema] = $runner target_eval_reward $ema @learn clip:3000
-metrics.scalar.rainbow.[21_eval/04_policy_reward_ema] = $runner policy_eval_reward $ema @learn clip:3000
+metrics.scalar.rainbow.[21_eval/03_target_reward_ema] = $runner target_eval_reward $ema @learn clip:1000
+metrics.scalar.rainbow.[21_eval/04_policy_reward_ema] = $runner policy_eval_reward $ema @learn clip:1000
 metrics.scalar.rainbow.[32_agent_dqn_base/05_epsilon_learn] = $agent epsilon @learn 
 metrics.scalar.rainbow.[37_agent_dqn_qtd/01_td_mean] = td_mean @learn
 metrics.scalar.rainbow.[37_agent_dqn_qtd/03_td_mean_ema] = td_mean @learn $ema
@@ -243,7 +242,6 @@ env.device_type = 0     # 0=cpu 1=cuda
 env.device_index = -1   # GPU index -1=current device
 
 
-#LunarLanderApp.online.train_exit_step = 2000 #2K
 LunarLanderApp.online.train_pause_step = 200000 #200K
 LunarLanderApp.online.train_exit_step = -1
 LunarLanderApp.online.train_timer_ms = 100

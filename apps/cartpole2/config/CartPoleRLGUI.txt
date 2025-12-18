@@ -11,12 +11,43 @@ train.batch_size = 10
 
 CartPoleApp.enable_image_log = false      # default=true
 
-#metrics.scalar.$ = metrics.scalar.min
-metrics.scalar.$ = metrics.scalar.full
+#agent.class_id = RainbowAgent
+agent.class_id = DQNAgent
+
+metrics.scalar.$ = metrics.scalar.min
+#metrics.scalar.$ = metrics.scalar.full
 
 DQNAgent.$ = agent_trunk
 #DQNAgent.$ = agent_20251127-032759
 #DQNAgent.$ = agent_20251203-180040
+
+RainbowAgent.$ = RainbowAgent.trunk
+
+# ---- RainbowAgent
+
+RainbowAgent.trunk.nn_init_mode = 1             # 0=default、1=XavierUniform、2=HeNormal
+RainbowAgent.trunk.nn_hidden1 = 120
+RainbowAgent.trunk.nn_hidden2 = 84
+RainbowAgent.trunk.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+RainbowAgent.trunk.gamma = 0.99                 # 0.99 0.995  γが高いほど「長期安定」を目指す
+RainbowAgent.trunk.eps_max = 1.00               # 指数減衰  
+RainbowAgent.trunk.eps_min = 0.05               # 0.1f 0.05f
+RainbowAgent.trunk.eps_decay_step = 20000       # 20K
+RainbowAgent.trunk.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
+#RainbowAgent.trunk.hard_update_interval = 5000 #  -1 5000; //200 500 1000
+RainbowAgent.trunk.use_grad_clip = false        # ★
+RainbowAgent.trunk.grad_clip_tau = 25           # 10 25 40 1f 5f 10f
+RainbowAgent.trunk.use_td_clip = false          # ★
+RainbowAgent.trunk.td_clip_value = 30.0         # 4.0 20 30
+RainbowAgent.trunk.replay_capacity= 10000       # 
+RainbowAgent.trunk.replay_batch_size = 128      #
+RainbowAgent.trunk.update_warmup_steps = 1000   # 1000
+#RainbowAgent.trunk.update_warmup_steps = 1   # 1000
+RainbowAgent.trunk.update_interval = 5          #
+RainbowAgent.trunk.n_step = 3;
+RainbowAgent.trunk.use_double_dqn = true        # Double DQN 有効化フラグ（trueで有効）
+RainbowAgent.trunk.use_dueling_net = true       # ★ 
+RainbowAgent.trunk.use_n_step = true;
 
 #------------------
 # metrics
@@ -172,7 +203,7 @@ agent_20251127-032759.tau_half_life_recover = 2000  # 1000 安定後、τが2倍
 agent_20251127-032759.tau_recover_delay = 1000      # このステップ期間安定していたら回復開始
 agent_20251127-032759.act_bias_threshold = 0.35     # 行動偏り閾値 (|left_ratio - right_ratio| > act_bias_threshold → 崩壊)
 
-agent.class_id = DQNAgent
+
 agent.device_type = 1    # 0=cpu 1=cuda
 agent.device_index = -1  # GPU index -1=current device
 

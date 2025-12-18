@@ -289,13 +289,12 @@ BatchActionInfo RainbowAgent::ActionPolicy::SelectAction(const torch::Tensor& ob
 
     if (greedy_only) {
         ProfileRange  r("RainbowAgent::SelectAction.greedy_only");
-        auto zeros = torch::zeros({ N }, torch::TensorOptions().dtype(torch::kBool).device(device));
-        BatchActionInfo action_info{ greedy, zeros };
+        BatchActionInfo action_info{ greedy };
 
         // aux[max_q]
         auto max_pair = q_values.max(1);
         auto max_q = std::get<0>(max_pair).detach();
-        action_info.aux["max_q"] = max_q;
+        action_info.GetAuxData()["max_q"] = max_q;
 
         return action_info;
     }
@@ -312,15 +311,12 @@ BatchActionInfo RainbowAgent::ActionPolicy::SelectAction(const torch::Tensor& ob
     // actions: where(mask, random_actions, greedy)
     auto actions = torch::where(mask, random_actions, greedy);
 
-    BatchActionInfo action_info {
-        actions,        // (N) kInt64
-        mask            // (N) kBool
-    };
+    BatchActionInfo action_info{ actions }; // (N) kInt64
 
     // aux[max_q]
     auto max_pair = q_values.max(1);
     auto max_q = std::get<0>(max_pair).detach();
-    action_info.aux["max_q"] = max_q;
+    action_info.GetAuxData()["max_q"] = max_q;
 
     return action_info;
 }

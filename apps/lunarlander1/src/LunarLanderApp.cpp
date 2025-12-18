@@ -198,7 +198,7 @@ UISnapshot LunarLanderApp::CreateSnapshot(anet::rl::TrainEvent event)
         event.batch_step_result->next_state.truncated[ENV_INDEX].item<bool>(),
         event.batch_step_result->next_state.episode_start[ENV_INDEX].item<bool>(),
     };
-    auto action = event.batch_exp.action.action[ENV_INDEX].item<int64_t>();
+    auto action = event.batch_exp.action.GetAction(torch::kCPU)[ENV_INDEX].item<int64_t>();
     auto reward = event.batch_exp.reward[ENV_INDEX].item<float>();
 
     // aux情報

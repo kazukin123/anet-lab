@@ -52,7 +52,7 @@ namespace anet::rl {
             std::optional<seed_t> seed = std::nullopt);
 
         BatchState Reset(RunMode mode) override;
-        std::shared_ptr<const BatchStepResult> Step(const torch::Tensor& action, RunMode mode) override;
+        std::shared_ptr<const BatchStepResult> Step(const BatchActionInfo& action, RunMode mode) override;
     };
 
     class ThreadPoolDiscreteEnv : public DiscreteBatchEnvBase {
@@ -66,7 +66,7 @@ namespace anet::rl {
             std::optional<seed_t> seed = std::nullopt);
 
         BatchState Reset(RunMode mode) override;
-        std::shared_ptr<const BatchStepResult> Step(const torch::Tensor& action, RunMode mode) override;
+        std::shared_ptr<const BatchStepResult> Step(const BatchActionInfo& action, RunMode mode) override;
     private:
         std::shared_ptr<ThreadPool> pool_;
     };
