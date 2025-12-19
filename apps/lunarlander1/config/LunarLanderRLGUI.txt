@@ -36,8 +36,8 @@ RainbowAgent.trunk.eps_min = 0.05               # 0.1f 0.05f
 RainbowAgent.trunk.eps_decay_step = 20000       # 20K
 RainbowAgent.trunk.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
 #RainbowAgent.trunk.hard_update_interval = 5000 #  -1 5000; //200 500 1000
-RainbowAgent.trunk.use_grad_clip = false        # ★
-RainbowAgent.trunk.grad_clip_tau = 25           # 10 25 40 1f 5f 10f
+RainbowAgent.trunk.use_grad_clip = true        # ★
+RainbowAgent.trunk.grad_clip_tau = 10           # 10 25 40 1f 5f 10f
 RainbowAgent.trunk.use_td_clip = false          # ★
 RainbowAgent.trunk.td_clip_value = 30.0         # 4.0 20 30
 RainbowAgent.trunk.replay_capacity = 100000       #  10000 30000
@@ -58,7 +58,7 @@ RainbowAgent.trunk.per_beta_step = 20000      # 20K betaを収束値まで線形
 RainbowAgent.trunk.per_eps = 1e-6f             # 優先度加算用微小値
 RainbowAgent.trunk.per_initial_priority = 1.0f # 新規データの初期優先度
 RainbowAgent.trunk.use_per_prio_clip = true   # 優先度をクリッピングするか
-RainbowAgent.trunk.per_prio_clip_value = 10.0  # 優先度の上限値
+RainbowAgent.trunk.per_prio_clip_value = 20.0  # 優先度の上限値
 
 
 RainbowAgent.trunk.use_double_dqn = true        # Double DQN 有効化フラグ（trueで有効）
@@ -116,8 +116,10 @@ metrics.scalar.rainbow.[37_agent_qtd/03_td_mean_ema] = td_mean @learn $ema
 metrics.scalar.rainbow.[37_agent_qtd/11_q_mean] = q_mean @learn
 metrics.scalar.rainbow.[37_agent_qtd/12_q_max] = q_max @learn
 metrics.scalar.rainbow.[37_agent_qtd/13_q_std] = q_std @learn
-metrics.scalar.rainbow.[37_agent_qtd/21_grad_norm] = grad_norm @learn interval:50
-#metrics.scalar.rainbow.[37_agent_qtd/22_grad_clip_ratio] = grad_clip_ratio @learn interval:50
+metrics.scalar.rainbow.[37_agent_qtd/21_grad_norm] = grad_norm @learn interval:10
+metrics.scalar.rainbow.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema
+metrics.scalar.rainbow.[37_agent_qtd/24_grad_clip_ratio] = grad_clip_ratio @learn interval:10
+metrics.scalar.rainbow.[37_agent_qtd/25_grad_clip_ratio_ema] = grad_clip_ratio @learn interval:10 $ema
 metrics.scalar.rainbow.[38_agent_loss/01_loss] = loss @learn
 metrics.scalar.rainbow.[38_agent_loss/02_loss_ema] = loss @learn $ema
 
