@@ -1,0 +1,10 @@
+{
+    "data": {
+        "batch_size": 10,
+        "eval_interval": 10,
+        "seed": 7508636947373324265
+    },
+    "tag": "train/config",
+    "timestamp": "2025-12-19T21:31:11",
+    "type": "json"
+}

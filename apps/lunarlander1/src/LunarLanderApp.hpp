@@ -31,6 +31,7 @@ public:
 private:
     void InitTrainer();
     void InitImageLogObservers();
+    void InitPERImageLogObservers();
 private:
     std::unique_ptr<anet::ConfigManager> config_mgr_;
     struct Config;

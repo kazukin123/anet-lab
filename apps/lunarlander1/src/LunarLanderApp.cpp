@@ -22,19 +22,21 @@ struct LunarLanderApp::Config : public anet::Config
 {
     int train_pause_step = -1;
     int train_exit_step = -1; //110000;
-    bool enable_image_log = true;
     int train_timer_ms = 10;
     int eval_timer_ms = 10;
     int eval_step_per_frame = 1;
+    bool use_image_log = true;
+    bool use_per_image_log = true;
 
     LunarLanderApp::Config(const anet::ConfigData& config_data) : anet::Config(config_data, "LunarLanderApp")
     {
         ANET_READ_CONFIG(config_data, train_pause_step);
         ANET_READ_CONFIG(config_data, train_exit_step);
-        ANET_READ_CONFIG(config_data, enable_image_log);
         ANET_READ_CONFIG(config_data, train_timer_ms);
         ANET_READ_CONFIG(config_data, eval_timer_ms);
         ANET_READ_CONFIG(config_data, eval_step_per_frame);
+        ANET_READ_CONFIG(config_data, use_image_log);
+        ANET_READ_CONFIG(config_data, use_per_image_log);
     }
 };
 
@@ -124,7 +126,8 @@ bool LunarLanderApp::OnInit()
     // Trainer初期化
     InitTrainer();
     trainer_->GetNotifier()->LogObservers();
-    InitImageLogObservers();
+    if (config_->use_image_log) InitImageLogObservers();
+    if (config_->use_per_image_log) InitPERImageLogObservers();
 
     // Trainerスレッド生成
     trainer_thread_ = std::make_unique<anet::rl::RunnerThread>(
@@ -261,9 +264,6 @@ void LunarLanderApp::InitTrainer()
 
 void LunarLanderApp::InitImageLogObservers()
 {
-    if (!config_->enable_image_log)
-        return;
-
     auto notifier = trainer_->GetNotifier();
     auto env_spec = trainer_->GetBatchEnv()->GetSpec();
     auto agent = trainer_->GetAgent();
@@ -310,7 +310,7 @@ void LunarLanderApp::InitImageLogObservers()
         100,    // log_interval 
         60000,  // max_points
         flags   // flags
-        - 1,     // image_width
+        -1,     // image_width
         -1,     // image_height
     };
 
@@ -429,6 +429,62 @@ void LunarLanderApp::InitImageLogObservers()
     //    "45_agent_img/99_debug_y", q_sweep_obs_config, proc_y_debug, *policy_forward, proc_y_debug);
 
 }
+
+
+void LunarLanderApp::InitPERImageLogObservers()
+{
+    auto notifier = trainer_->GetNotifier();
+    auto env_spec = trainer_->GetBatchEnv()->GetSpec();
+    auto agent = trainer_->GetAgent();
+
+    // flags
+    auto flags =
+        //anet::HeatMapFlags::HM_LogScaleValue | 
+        anet::HeatMapFlags::HM_AutoNormValue
+        | anet::HeatMapFlags::HM_AutoScaleAxis
+        //| anet::HeatMapFlags::HM_LogScaleAxis
+        | anet::HeatMapFlags::HM_SumMode; // | anet::HeatMapFlags::HM_ShowZeroLine;
+
+    // ---- ReplayBuffer ----
+
+    auto rep_x_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 0, &env_spec.state_spec);
+    auto rep_y_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 1, &env_spec.state_spec);
+    auto rep_prio_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::PER_DIST, -1);
+
+    anet::rl::HeatMapObserverConfig replay_heat_obs_config{
+        512,    // width
+        512,    // height
+        100,    // log_interval 
+        100000,  // max_points
+        flags   // flags
+        -1,     // image_width
+        -1,     // image_height
+    };
+
+    auto auto_scale_mode = anet::rl::AgentTensorVectorProbe::AutoScaleMode::DISABLE;    // EnvSpecで固定
+
+    notifier->Attach<anet::rl::HeatMapVectorObserver>(
+        "43_agent_img/52_per_hm_prio_01", replay_heat_obs_config, rep_x_probe, rep_y_probe, rep_prio_probe);
+
+
+    anet::rl::TimeHistogramObserverConfig prio_hist_obs_config {
+        256,    // x bins
+        1920,   // y max_frames
+        512,    // image_height
+        1920,   // image_width
+        anet::TimeFrameMode::Scale,             // mode
+        flags | anet::HeatMapFlags::HM_FlipY | anet::HeatMapFlags::HM_LogScaleAxis,   // flags
+        100,    // log_interval
+        20,     // frame_interval
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN(),
+        1.0f// alpha = 0.05f
+    };
+    notifier->Attach<anet::rl::TimeHistogramObserver>(
+        "44_agent_img/52_per_thg_prio", prio_hist_obs_config, rep_prio_probe);
+
+}
+
 
 wxIMPLEMENT_APP(LunarLanderApp);
 

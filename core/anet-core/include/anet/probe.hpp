@@ -27,7 +27,8 @@ namespace anet::rl {
      */
     class VectorProbe {
     public:
-        virtual std::optional<std::vector<float>> GetVector(const TrainEvent& event) const = 0;
+        virtual std::optional<std::vector<float>> GetVector(const UpdateEvent& event) const = 0;
+        virtual std::optional<std::vector<float>> GetVector(const TrainEvent& event) const { return GetVector((UpdateEvent)event); }
 
         virtual std::string GetName() const = 0;
         virtual std::optional<float> GetMin() const = 0;
@@ -112,12 +113,12 @@ namespace anet::rl {
 
     class BatchExperienceBasedVectorProbe : public VectorProbe {
     public:
-        virtual std::optional<std::vector<float>> GetVectorFromExperience(const TrainEvent& event) const = 0;
+        virtual std::optional<std::vector<float>> GetVectorFromExperience(const UpdateEvent& event) const = 0;
     public:
         /**
          * @brief 観測情報からFloat値を生成
          */
-		virtual std::optional<std::vector<float>> GetVector(const TrainEvent& event) const override
+		std::optional<std::vector<float>> GetVector(const UpdateEvent& event) const override
         {
 			/// @todo step_counts のどれを使うか選択できるようにする
 			auto step = event.counts.train_step;
@@ -148,7 +149,7 @@ namespace anet::rl {
             int64_t state_index, const anet::rl::StateSpec* spec = nullptr, bool for_next_state = true,
             const std::optional<std::string> name = std::nullopt);
 
-        std::optional<std::vector<float>> GetVector(const TrainEvent& event) const override;
+        std::optional<std::vector<float>> GetVector(const UpdateEvent& event) const override;
 
         std::string GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }
@@ -168,7 +169,7 @@ namespace anet::rl {
          */
         BatchExperienceRewardProbe(const anet::rl::EnvSpec* spec = nullptr, std::optional<std::string> name = std::nullopt);
 
-        std::optional<std::vector<float>> GetVector(const TrainEvent& event) const override;
+        std::optional<std::vector<float>> GetVector(const UpdateEvent& event) const override;
 
         std::string GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }
@@ -183,7 +184,7 @@ namespace anet::rl {
     public:
         BatchUpdateResultTensorToVectorProbe(const std::string& key, std::optional<float> min = std::nullopt, std::optional<float> max = std::nullopt);
 
-        std::optional<std::vector<float>> GetVector(const TrainEvent& event) const override;
+        std::optional<std::vector<float>> GetVector(const UpdateEvent& event) const override;
 
         std::string GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }
@@ -199,6 +200,7 @@ namespace anet::rl {
     public:
         BatchActionInfoToVectorProbe(const std::string& key, std::optional<float> min = std::nullopt, std::optional<float> max = std::nullopt);
 
+        std::optional<std::vector<float>> GetVector(const UpdateEvent& event) const override { return std::nullopt; }
         std::optional<std::vector<float>> GetVector(const TrainEvent& event) const override;
 
         std::string GetName() const override { return name_; }
@@ -229,7 +231,7 @@ namespace anet::rl {
             std::optional<float> max_override = std::nullopt,
             std::optional<std::string> name = std::nullopt);
 
-        std::optional<std::vector<float>> GetVector(const TrainEvent& event) const override;
+        std::optional<std::vector<float>> GetVector(const UpdateEvent& event) const override;
 
         std::string GetName() const override { return name_; }
         std::optional<float> GetMin() const override { return min_; }

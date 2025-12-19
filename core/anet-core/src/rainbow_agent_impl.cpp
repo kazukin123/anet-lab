@@ -561,6 +561,12 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     // ------------------------------------------------------------
     // PER Priority Update
     // ------------------------------------------------------------
+
+    // PER Metrics用 Tensor
+    torch::Tensor metric_per_clipped_count;
+    torch::Tensor metric_per_priorities;
+    torch::Tensor metric_per_is_weights;
+
     if (config.use_per) {
         torch::NoGradGuard no_grad;
 
@@ -568,16 +574,38 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
         auto abs_td_error = td_error.abs().detach();
         auto new_priorities = abs_td_error + config.per_eps;
 
-        // Tensor -> vector (CPU)
-        auto prios_cpu = new_priorities.cpu();
-        auto prios_ptr = prios_cpu.data_ptr<float>();
-        std::vector<float> priorities_vec(prios_ptr, prios_ptr + B);
+        // Priority Clipping
+        if (config.use_per_prio_clip) {
+            // [Metric Source] Clipped Count (Keep as Tensor)
+            metric_per_clipped_count = (new_priorities > config.per_prio_clip_value).sum(); // (Scalar Tensor)
 
+            // クリップ実行
+            new_priorities = torch::clamp(new_priorities, 0.0f, config.per_prio_clip_value);
+        } else {
+            // クリップしない場合は0
+            metric_per_clipped_count = torch::zeros({}, abs_td_error.options());
+        }
+
+        // [Metric Source] Priorities
+        metric_per_priorities = new_priorities; // (B,)
+
+        // Tensor -> vector (CPU)
+        // ※ここでCPU転送(同期)が発生するのはSumTree(CPU)更新のため避けられない
         auto indices_cpu = samples.indices.cpu();
         auto indices_ptr = indices_cpu.data_ptr<int64_t>();
         std::vector<int64_t> indices_vec(indices_ptr, indices_ptr + B);
 
+        auto prios_cpu = new_priorities.cpu();
+        auto prios_ptr = prios_cpu.data_ptr<float>();
+        std::vector<float> priorities_vec(prios_ptr, prios_ptr + B);
+
+        // Priority更新
         replay_buffer_->UpdatePriorities(indices_vec, priorities_vec);
+
+        // [Metric Source] IS Weights
+        if (samples.is_weights.defined()) {
+            metric_per_is_weights = samples.is_weights;
+        }
     }
 
     // ------------------------------------------------------------
@@ -670,6 +698,11 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     result->grad_norm_tensor = grad_norm_tensor;
     result->grad_clip_ratio = grad_clip_ratio;
     result->max_q = max_q;
-
+    if (config.use_per) {
+        result->per_minibatch_size = B;
+        result->per_clipped_count = metric_per_clipped_count;
+        result->per_priorities = metric_per_priorities;
+        result->per_is_weights = metric_per_is_weights;
+    }
     return result;
 }

@@ -1,9 +1,9 @@
-﻿#LunarLanderApp.$ = LunarLanderApp.online
-LunarLanderApp.$ = LunarLanderApp.batchrun
+﻿LunarLanderApp.$ = LunarLanderApp.online
+#LunarLanderApp.$ = LunarLanderApp.batchrun
 
-#train.seed = 5542346184581256364  # 踊り
-#train.seed = 540080446186335311
-train.seed = 7508636947373324265
+#train.seed = 5542346184581256364  # 踊りだした！
+#train.seed = 540080446186335311 # N-STEP評価用
+train.seed = 7508636947373324265 # PER評価用
 
 #agent.class_id = DQNAgent
 agent.class_id = RainbowAgent
@@ -11,7 +11,8 @@ agent.class_id = RainbowAgent
 train.batch_size = 10
 #train.batch_size = 1
 
-#LunarLanderApp.enable_image_log = false      # default=true
+#LunarLanderApp.use_image_log = false      # default=true
+#LunarLanderApp.use_per_image_log = false      # default=true
 
 metrics.scalar.$ = metrics.scalar.rainbow
 #metrics.scalar.$ = metrics.scalar.min
@@ -39,10 +40,10 @@ RainbowAgent.trunk.use_grad_clip = false        # ★
 RainbowAgent.trunk.grad_clip_tau = 25           # 10 25 40 1f 5f 10f
 RainbowAgent.trunk.use_td_clip = false          # ★
 RainbowAgent.trunk.td_clip_value = 30.0         # 4.0 20 30
-RainbowAgent.trunk.replay_capacity = 10000       # 
+RainbowAgent.trunk.replay_capacity = 100000       #  10000 30000
 RainbowAgent.trunk.replay_batch_size = 128      #
-RainbowAgent.trunk.update_warmup_steps = 1000   # 1000
-#RainbowAgent.trunk.update_warmup_steps = 1   # 1000
+#RainbowAgent.trunk.update_warmup_steps = 1000   # 1000
+RainbowAgent.trunk.update_warmup_steps = 1   # 1000
 RainbowAgent.trunk.update_interval = 5          #
 
 #RainbowAgent.trunk.n_step = 1
@@ -56,6 +57,9 @@ RainbowAgent.trunk.per_beta_end = 1.0f         # IS重みの補正度合い「be
 RainbowAgent.trunk.per_beta_step = 20000      # 20K betaを収束値まで線形変化させるステップ数
 RainbowAgent.trunk.per_eps = 1e-6f             # 優先度加算用微小値
 RainbowAgent.trunk.per_initial_priority = 1.0f # 新規データの初期優先度
+RainbowAgent.trunk.use_per_prio_clip = true   # 優先度をクリッピングするか
+RainbowAgent.trunk.per_prio_clip_value = 10.0  # 優先度の上限値
+
 
 RainbowAgent.trunk.use_double_dqn = true        # Double DQN 有効化フラグ（trueで有効）
 RainbowAgent.trunk.use_dueling_net = true       # ★ 
@@ -105,17 +109,30 @@ metrics.scalar.rainbow.[21_eval/01_target_reward] = $runner target_eval_reward @
 metrics.scalar.rainbow.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn clip:3000
 metrics.scalar.rainbow.[21_eval/03_target_reward_ema] = $runner target_eval_reward $ema @learn clip:1000
 metrics.scalar.rainbow.[21_eval/04_policy_reward_ema] = $runner policy_eval_reward $ema @learn clip:1000
-metrics.scalar.rainbow.[32_agent_dqn_base/05_epsilon_learn] = $agent epsilon @learn 
-metrics.scalar.rainbow.[32_agent_dqn_base/06_per_beta] = $agent per_beta @learn 
-metrics.scalar.rainbow.[37_agent_dqn_qtd/01_td_mean] = td_mean @learn
-metrics.scalar.rainbow.[37_agent_dqn_qtd/03_td_mean_ema] = td_mean @learn $ema
-metrics.scalar.rainbow.[37_agent_dqn_qtd/11_q_mean] = q_mean @learn
-metrics.scalar.rainbow.[37_agent_dqn_qtd/12_q_max] = q_max @learn
-metrics.scalar.rainbow.[37_agent_dqn_qtd/13_q_std] = q_std @learn
-metrics.scalar.rainbow.[37_agent_dqn_qtd/21_grad_norm] = grad_norm @learn interval:50
-#metrics.scalar.rainbow.[37_agent_dqn_qtd/22_grad_clip_ratio] = grad_clip_ratio @learn interval:50
-metrics.scalar.rainbow.[38_agent_dqn_loss/01_loss] = loss @learn
-metrics.scalar.rainbow.[38_agent_dqn_loss/02_loss_ema] = loss @learn $ema
+metrics.scalar.rainbow.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn 
+metrics.scalar.rainbow.[32_agent_base/06_per_beta] = $agent per_beta @learn 
+metrics.scalar.rainbow.[37_agent_qtd/01_td_mean] = td_mean @learn
+metrics.scalar.rainbow.[37_agent_qtd/03_td_mean_ema] = td_mean @learn $ema
+metrics.scalar.rainbow.[37_agent_qtd/11_q_mean] = q_mean @learn
+metrics.scalar.rainbow.[37_agent_qtd/12_q_max] = q_max @learn
+metrics.scalar.rainbow.[37_agent_qtd/13_q_std] = q_std @learn
+metrics.scalar.rainbow.[37_agent_qtd/21_grad_norm] = grad_norm @learn interval:50
+#metrics.scalar.rainbow.[37_agent_qtd/22_grad_clip_ratio] = grad_clip_ratio @learn interval:50
+metrics.scalar.rainbow.[38_agent_loss/01_loss] = loss @learn
+metrics.scalar.rainbow.[38_agent_loss/02_loss_ema] = loss @learn $ema
+
+metrics.scalar.rainbow.[39_agent_per/01_per_td_error_abs_max] = per_td_error_abs_max @learn
+metrics.scalar.rainbow.[39_agent_per/02_per_per_prio_max] = per_prio_max @learn
+metrics.scalar.rainbow.[39_agent_per/03_per_prio_clip_ratio] = per_prio_clip_ratio @learn
+metrics.scalar.rainbow.[39_agent_per/04_per_batch_prio_mean] = per_batch_prio_mean @learn
+metrics.scalar.rainbow.[39_agent_per/05_per_is_weight_mean] = per_is_weight_mean @learn
+
+metrics.scalar.rainbow.[39_agent_per/11_per_td_error_abs_max_ema] = per_td_error_abs_max @learn $ema
+metrics.scalar.rainbow.[39_agent_per/12_per_per_prio_max_ema] = per_prio_max @learn $ema
+metrics.scalar.rainbow.[39_agent_per/13_per_prio_clip_ratio_ema] = per_prio_clip_ratio @learn $ema
+metrics.scalar.rainbow.[39_agent_per/14_per_batch_prio_mean_ema] = per_batch_prio_mean @learn $ema
+metrics.scalar.rainbow.[39_agent_per/15_per_is_weight_mean_ema] = per_is_weight_mean @learn $ema
+
 #metrics.scalar.rainbow.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
 metrics.scalar.rainbow.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
 #metrics.scalar.rainbow.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
@@ -288,8 +305,8 @@ LunarLanderApp.online.eval_timer_ms = 30
 LunarLanderApp.online.eval_step_per_frame = 3;
 
 LunarLanderApp.batchrun.train_pause_step = -1
-#LunarLanderApp.batchrun.train_exit_step = 500000 #500K
-LunarLanderApp.batchrun.train_exit_step = 200000 #200K
+LunarLanderApp.batchrun.train_exit_step = 500000 #500K
+#LunarLanderApp.batchrun.train_exit_step = 200000 #200K
 LunarLanderApp.batchrun.train_timer_ms = 500
 LunarLanderApp.batchrun.eval_timer_ms = 500
 LunarLanderApp.batchrun.eval_step_per_frame = 10;
@@ -316,6 +333,16 @@ LunarLanderEnv.gravity = -10.0
 LunarLanderEnv.wind_power = 15.0
 
 train.eval_interval = 10
+
+
+# ■per_alpha
+#  α（0≦α≦1）はExperienceサンプリングのランダム度合い。
+#  α=0でランダムサンプリングと同一、α=1.0でGreedyに優先度を反映させる。
+# ■per_beta
+#  優先度に応じてサンプリングを行うと同じExperienceを何度も学習して学習安定性を損なう恐れがあるため、
+#  TD誤差に対してサンプリング確率に応じた補正を行う。（サンプリング優先度が高いほどQ値への反映度合いを抑える）
+#  学習初期はTD誤差が安定していないため、per_betaを小さくして上記補正を抑制する。
+# 　per_beta=0　→ 補正無し、 per_beta=1.0 →完全補正
 
 ## MEMO
 # agent.*は無条件で最初に採用される。

@@ -99,14 +99,14 @@ namespace anet::rl {
     * ExtractTensorFn:
     *torch::Tensor func(const anet::rl::BatchUpdateResult& result);
     */
-    class TimeHistogramObserver : public anet::rl::TaggedTrainObserver {
+    class TimeHistogramObserver : public anet::rl::TaggedLearnObserver {
     public:
         TimeHistogramObserver(
             const std::string& tag,
             const TimeHistogramObserverConfig& config,
             std::shared_ptr<VectorProbe> probe);
 
-        void OnTrain(const TrainEvent& event) override;
+        void OnLearn(const LearnEvent& event) override;
         std::string GetClassName() const override { return "TimeHistogramObserver"; }
     private:
         TimeHistogramObserverConfig config_;

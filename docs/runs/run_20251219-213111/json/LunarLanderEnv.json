@@ -1,0 +1,17 @@
+{
+    "data": {
+        "enable_wind": false,
+        "gravity": -10.0,
+        "ground_y": 0.0,
+        "limit_step": 1000,
+        "terrain_noise_height": 0.0,
+        "terrain_point_count": 2,
+        "turbulence_power": 1.5,
+        "wind_power": 15.0,
+        "world_half_width": 2.5,
+        "world_height": 4.0
+    },
+    "tag": "LunarLanderEnv",
+    "timestamp": "2025-12-19T21:31:11",
+    "type": "json"
+}

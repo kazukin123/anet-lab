@@ -1,0 +1,14 @@
+{
+    "data": {
+        "eval_step_per_frame": 3,
+        "eval_timer_ms": 30,
+        "train_exit_step": -1,
+        "train_pause_step": 200000,
+        "train_timer_ms": 100,
+        "use_image_log": true,
+        "use_per_image_log": true
+    },
+    "tag": "LunarLanderApp",
+    "timestamp": "2025-12-19T21:31:11",
+    "type": "json"
+}

@@ -30,6 +30,12 @@ public:
     torch::Tensor td_error;
     torch::Tensor max_q;
     mutable torch::Tensor max_q_cpu;
+
+    // PER Metrics Source Tensors (GPU)
+    torch::Tensor per_is_weights;      ///< IS Weights (B,)
+    torch::Tensor per_priorities;      ///< Updated Priorities (B,)
+    torch::Tensor per_clipped_count;   ///< Clipped Count (scalar tensor)
+    long per_minibatch_size = 0;           ///< Batch Size
 public:
     RainbowAgent::BatchUpdateResult(uint32_t learn_step_diff)
         : anet::rl::BatchUpdateResult(learn_step_diff)
@@ -59,6 +65,33 @@ public:
         if (key == "q_std") {
             TransQToCpu();
             return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.std(false).item<float>()) : std::nullopt;
+        }
+
+        // PER Metrics (Lazy Evaluation)
+        if (key == "per_td_error_abs_max") {
+            if (td_error.defined())
+                return td_error.abs().max().item<float>();
+            return std::nullopt;
+        }
+        if (key == "per_prio_clip_ratio") {
+            if (per_clipped_count.defined() && per_minibatch_size > 0)
+                return per_clipped_count.item<float>() / static_cast<float>(per_minibatch_size);
+            return std::nullopt;
+        }
+        if (key == "per_prio_max") {
+            if (per_priorities.defined())
+                return per_priorities.max().item<float>();
+            return std::nullopt;
+        }
+        if (key == "per_batch_prio_mean") {
+            if (per_priorities.defined())
+                return per_priorities.mean().item<float>();
+            return std::nullopt;
+        }
+        if (key == "per_is_weight_mean") {
+            if (per_is_weights.defined())
+                return per_is_weights.mean().item<float>();
+            return std::nullopt;
         }
         return std::nullopt;
     }

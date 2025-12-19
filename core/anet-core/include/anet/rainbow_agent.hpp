@@ -42,6 +42,8 @@ namespace anet::rl {
         int   per_beta_step = 100000;      ///< betaを収束値まで線形変化させるステップ数
         float per_eps = 1e-6f;             ///< 優先度加算用微小値
         float per_initial_priority = 1.0f; ///< 新規データの初期優先度
+        bool use_per_prio_clip = false;    ///< 優先度をクリッピングするか
+        float per_prio_clip_value = 50.0f; ///< 優先度の上限値
 
         bool use_double_dqn = true;   ///< Double DQN 有効化フラグ
         bool use_dueling_net = true;  ///< Dueling Net 有効化フラグ
@@ -74,6 +76,8 @@ namespace anet::rl {
             ANET_READ_CONFIG(config_data, per_beta_step);
             ANET_READ_CONFIG(config_data, per_eps);
             ANET_READ_CONFIG(config_data, per_initial_priority);
+            ANET_READ_CONFIG(config_data, use_per_prio_clip);
+            ANET_READ_CONFIG(config_data, per_prio_clip_value);
             ANET_READ_CONFIG(config_data, use_double_dqn);
             ANET_READ_CONFIG(config_data, use_dueling_net);
             ANET_READ_CONFIG(config_data, use_n_step);

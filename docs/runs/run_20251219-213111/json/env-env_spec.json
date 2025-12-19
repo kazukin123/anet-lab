@@ -1,0 +1,103 @@
+{
+    "data": {
+        "action_spec": {
+            "dims": [],
+            "info": null,
+            "is_discrete": true,
+            "value_labels": [
+                "no_op",
+                "main_engine",
+                "left_engine",
+                "right_engine"
+            ]
+        },
+        "info": null,
+        "reward_range": [
+            -100.0,
+            100.0
+        ],
+        "state_spec": {
+            "dims": [
+                {
+                    "coords": [
+                        0
+                    ],
+                    "description": "",
+                    "max_value": 1.5,
+                    "min_value": -1.5,
+                    "name": "x"
+                },
+                {
+                    "coords": [
+                        1
+                    ],
+                    "description": "",
+                    "max_value": 2.0,
+                    "min_value": -0.5,
+                    "name": "y"
+                },
+                {
+                    "coords": [
+                        2
+                    ],
+                    "description": "",
+                    "max_value": 10.0,
+                    "min_value": -10.0,
+                    "name": "vx"
+                },
+                {
+                    "coords": [
+                        3
+                    ],
+                    "description": "",
+                    "max_value": 15.0,
+                    "min_value": -10.0,
+                    "name": "vy"
+                },
+                {
+                    "coords": [
+                        4
+                    ],
+                    "description": "",
+                    "max_value": 3.14,
+                    "min_value": -3.14,
+                    "name": "angle"
+                },
+                {
+                    "coords": [
+                        5
+                    ],
+                    "description": "",
+                    "max_value": 15.0,
+                    "min_value": -15.0,
+                    "name": "angular_velocity"
+                },
+                {
+                    "coords": [
+                        6
+                    ],
+                    "description": "",
+                    "max_value": 1.0,
+                    "min_value": 0.0,
+                    "name": "left_leg_contact"
+                },
+                {
+                    "coords": [
+                        7
+                    ],
+                    "description": "",
+                    "max_value": 1.0,
+                    "min_value": 0.0,
+                    "name": "right_leg_contact"
+                }
+            ],
+            "info": null,
+            "shape": [
+                8
+            ]
+        }
+    },
+    "tag": "env/env_spec",
+    "timestamp": "2025-12-19T21:31:11",
+    "type": "json"
+}

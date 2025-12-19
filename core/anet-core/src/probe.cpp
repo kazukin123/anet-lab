@@ -57,7 +57,7 @@ BatchExperienceStateProbe::BatchExperienceStateProbe(
     }
 }
 
-std::optional<std::vector<float>> BatchExperienceStateProbe::GetVector(const TrainEvent& event) const
+std::optional<std::vector<float>> BatchExperienceStateProbe::GetVector(const UpdateEvent& event) const
 {
     // 対象obs（現状態 or next_state）
     auto obs = (for_next_state_) ?
@@ -108,7 +108,7 @@ BatchExperienceRewardProbe::BatchExperienceRewardProbe(const anet::rl::EnvSpec* 
     }
 }
 
-std::optional<std::vector<float>> BatchExperienceRewardProbe::GetVector(const TrainEvent& event) const
+std::optional<std::vector<float>> BatchExperienceRewardProbe::GetVector(const UpdateEvent& event) const
 {
     auto tensor = event.batch_exp.GetTensor(anet::rl::BatchExperience::REWARD);
     ANET_ASSERT(tensor.has_value());
@@ -132,7 +132,7 @@ BatchUpdateResultTensorToVectorProbe::BatchUpdateResultTensorToVectorProbe(const
     name_ = "BatchUpdateResultTensorToVectorProbe[" + key + "]";
 }
 
-std::optional<std::vector<float>> BatchUpdateResultTensorToVectorProbe::GetVector(const TrainEvent& event) const
+std::optional<std::vector<float>> BatchUpdateResultTensorToVectorProbe::GetVector(const UpdateEvent& event) const
 {
     auto tensor = event.update_result->GetTensor(key_);
     //ANET_ASSERT(tensor.has_value());   // key誤りによるバグ防止のため
@@ -235,7 +235,7 @@ AgentTensorVectorProbe::AgentTensorVectorProbe(
     // minだけ指定、maxだけ指定でもOK
 }
 
-std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const TrainEvent& event) const
+std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const UpdateEvent& event) const
 {
     auto opt_vec = event.agent->GetTensorVector(key_);
     ANET_ASSERT(opt_vec.has_value());
@@ -280,8 +280,10 @@ std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const TrainE
     out.reserve(1024); // optional
 
     for (const auto& t : tvec) {
+        ANET_LOG_DEBUG("t=" << anet::ToDefString(t));
 
         // t must be 2-D (ReplayBuffer)
+        ANET_CHECK_SHAPE(t, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
         ANET_ASSERT(t.dim() == 2);   // [rows, D]
 
         const int64_t rows = t.size(0);

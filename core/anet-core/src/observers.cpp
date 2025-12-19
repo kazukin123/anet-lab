@@ -101,17 +101,17 @@ void HeatMapVectorObserver::OnTrain(const TrainEvent& event)
 TimeHistogramObserver::TimeHistogramObserver(
     const std::string& tag, const TimeHistogramObserverConfig& config,
     std::shared_ptr<VectorProbe> probe)
-	: TaggedTrainObserver(tag)
+	: TaggedLearnObserver(tag)
     , config_(config), probe_(probe)
 {
     histogram_ = std::make_unique<anet::TimeHistogram>(
         config_.bins, config_.max_frames, config_.mode, config_.flags, config_.base_min, config_.base_max, config_.alpha);
 }
 
-void TimeHistogramObserver::OnTrain(const TrainEvent& event)
+void TimeHistogramObserver::OnLearn(const LearnEvent& event)
 {
 	/// @todo メトリクスのSTEP軸を指定できるようにする
-    auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);
+    auto step = event.counts.GetByAxis(anet::rl::StepAxis::LEARN);
 
     // Probeで vectorを取得
     auto values = probe_->GetVector(event);

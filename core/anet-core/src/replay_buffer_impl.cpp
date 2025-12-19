@@ -533,15 +533,17 @@ std::optional<std::vector<torch::Tensor>> PrioritizedReplayExperienceManager::Ge
     const std::string& key, int index) const
 {
     if (key == ReplayBuffer::PER_DIST) {
-        const int64_t capacity = sum_tree_.Capacity();
-        auto opts = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
+	    const int64_t capacity = sum_tree_.Capacity();
+	    const auto opts = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
 
-        std::vector<float> buf(static_cast<size_t>(capacity));
+        std::vector<float> buf;
+        buf.reserve(capacity);
         for (int64_t i = 0; i < capacity; ++i) {
-            buf[static_cast<size_t>(i)] = sum_tree_.Get(i);
+            auto prio = sum_tree_.Get(i);
+            if (prio != 0.0)    /// @todo prioゼロ＝未設定ではなく明示的な判定を入れる？per_epsがゼロ出ない限りこれでも問題ないけど。
+                buf.push_back(prio);
         }
-
-        auto t = torch::from_blob(buf.data(), { capacity }, opts).clone();
+        auto t = torch::from_blob(buf.data(), { static_cast<int64_t>(buf.size()), 1 }, opts).clone();
         return std::vector<torch::Tensor>{ std::move(t) };
     }
 
