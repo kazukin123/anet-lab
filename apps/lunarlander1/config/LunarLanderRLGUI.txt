@@ -1,8 +1,9 @@
-﻿LunarLanderApp.$ = LunarLanderApp.online
-#LunarLanderApp.$ = LunarLanderApp.batchrun
+﻿#LunarLanderApp.$ = LunarLanderApp.online
+LunarLanderApp.$ = LunarLanderApp.batchrun
 
 #train.seed = 5542346184581256364  # 踊り
-train.seed = 540080446186335311
+#train.seed = 540080446186335311
+train.seed = 7508636947373324265
 
 #agent.class_id = DQNAgent
 agent.class_id = RainbowAgent
@@ -20,6 +21,7 @@ metrics.scalar.$ = metrics.scalar.rainbow
 DQNAgent.$ = DQNAgent.trunk
 
 RainbowAgent.$ = RainbowAgent.trunk
+#RainbowAgent.$ = RainbowAgent.baseline
 
 # ---- RainbowAgent
 
@@ -43,15 +45,51 @@ RainbowAgent.trunk.update_warmup_steps = 1000   # 1000
 #RainbowAgent.trunk.update_warmup_steps = 1   # 1000
 RainbowAgent.trunk.update_interval = 5          #
 
-#RainbowAgent.trunk.n_step = 1;
-#RainbowAgent.trunk.n_step = 2;
-RainbowAgent.trunk.n_step = 3;
+#RainbowAgent.trunk.n_step = 1
+#RainbowAgent.trunk.n_step = 2
+RainbowAgent.trunk.n_step = 3
+
+RainbowAgent.trunk.per_alpha = 0.6f            # 優先度の反映度合い (0:uniform, 1:full)
+RainbowAgent.trunk.per_beta_start = 0.4f       # IS重みの補正度合い「beta」の初期値
+RainbowAgent.trunk.per_beta_end = 1.0f         # IS重みの補正度合い「beta」の収束値
+#RainbowAgent.trunk.per_beta_step = 50000      # 50K betaを収束値まで線形変化させるステップ数
+RainbowAgent.trunk.per_beta_step = 20000      # 20K betaを収束値まで線形変化させるステップ数
+RainbowAgent.trunk.per_eps = 1e-6f             # 優先度加算用微小値
+RainbowAgent.trunk.per_initial_priority = 1.0f # 新規データの初期優先度
 
 RainbowAgent.trunk.use_double_dqn = true        # Double DQN 有効化フラグ（trueで有効）
 RainbowAgent.trunk.use_dueling_net = true       # ★ 
-#RainbowAgent.trunk.use_dueling_net = false      # ★ 
-RainbowAgent.trunk.use_n_step = true;
-#RainbowAgent.trunk.use_n_step = false;
+#RainbowAgent.trunk.use_dueling_net = false     # ★ 
+RainbowAgent.trunk.use_n_step = true
+#RainbowAgent.trunk.use_n_step = false
+
+RainbowAgent.trunk.use_per = true
+
+
+
+RainbowAgent.baseline.nn_init_mode = 1             # 0=default、1=XavierUniform、2=HeNormal
+RainbowAgent.baseline.nn_hidden1 = 120
+RainbowAgent.baseline.nn_hidden2 = 84
+RainbowAgent.baseline.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+RainbowAgent.baseline.gamma = 0.99                 # 0.99 0.995  γが高いほど「長期安定」を目指す
+RainbowAgent.baseline.eps_max = 1.00               # 指数減衰  
+RainbowAgent.baseline.eps_min = 0.05               # 0.1f 0.05f
+RainbowAgent.baseline.eps_decay_step = 20000       # 20K
+RainbowAgent.baseline.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
+RainbowAgent.baseline.use_grad_clip = false        # ★
+RainbowAgent.baseline.grad_clip_tau = 25           # 10 25 40 1f 5f 10f
+RainbowAgent.baseline.use_td_clip = false          # ★
+RainbowAgent.baseline.td_clip_value = 30.0         # 4.0 20 30
+RainbowAgent.baseline.replay_capacity = 10000       # 
+RainbowAgent.baseline.replay_batch_size = 128      #
+RainbowAgent.baseline.update_warmup_steps = 1000   # 1000
+RainbowAgent.baseline.update_interval = 5          #
+RainbowAgent.baseline.n_step = 3
+RainbowAgent.baseline.use_double_dqn = true        # Double DQN 有効化フラグ（trueで有効）
+RainbowAgent.baseline.use_dueling_net = true       # ★ 
+RainbowAgent.baseline.use_n_step = true
+RainbowAgent.baseline.use_per = false
+
 
 # ----- metrics
 
@@ -68,6 +106,7 @@ metrics.scalar.rainbow.[21_eval/02_policy_reward] = $runner policy_eval_reward @
 metrics.scalar.rainbow.[21_eval/03_target_reward_ema] = $runner target_eval_reward $ema @learn clip:1000
 metrics.scalar.rainbow.[21_eval/04_policy_reward_ema] = $runner policy_eval_reward $ema @learn clip:1000
 metrics.scalar.rainbow.[32_agent_dqn_base/05_epsilon_learn] = $agent epsilon @learn 
+metrics.scalar.rainbow.[32_agent_dqn_base/06_per_beta] = $agent per_beta @learn 
 metrics.scalar.rainbow.[37_agent_dqn_qtd/01_td_mean] = td_mean @learn
 metrics.scalar.rainbow.[37_agent_dqn_qtd/03_td_mean_ema] = td_mean @learn $ema
 metrics.scalar.rainbow.[37_agent_dqn_qtd/11_q_mean] = q_mean @learn
@@ -77,10 +116,9 @@ metrics.scalar.rainbow.[37_agent_dqn_qtd/21_grad_norm] = grad_norm @learn interv
 #metrics.scalar.rainbow.[37_agent_dqn_qtd/22_grad_clip_ratio] = grad_clip_ratio @learn interval:50
 metrics.scalar.rainbow.[38_agent_dqn_loss/01_loss] = loss @learn
 metrics.scalar.rainbow.[38_agent_dqn_loss/02_loss_ema] = loss @learn $ema
-metrics.scalar.rainbow.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
-metrics.scalar.rainbow.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $runner interval:100
+#metrics.scalar.rainbow.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
 metrics.scalar.rainbow.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
-metrics.scalar.rainbow.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
+#metrics.scalar.rainbow.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
 metrics.scalar.rainbow.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
 
 
@@ -133,31 +171,32 @@ metrics.scalar.full.[21_eval/01_target_reward] = $runner target_eval_reward @lea
 metrics.scalar.full.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn clip:3000
 metrics.scalar.full.[21_eval/03_target_reward_ema] = $runner target_eval_reward $ema @learn
 metrics.scalar.full.[21_eval/04_policy_reward_ema] = $runner policy_eval_reward $ema @learn
-metrics.scalar.full.[32_agent_dqn_base/04_tau] = $agent tau @learn
-metrics.scalar.full.[32_agent_dqn_base/05_epsilon_learn] = $agent epsilon @learn 
-metrics.scalar.full.[32_agent_dqn_base/10_collapse_s] = collapse_s @learn
-metrics.scalar.full.[32_agent_dqn_base/11_collapse_l] = collapse_l @learn
-metrics.scalar.full.[37_agent_dqn_qtd/01_td_mean] = td_mean @learn
-metrics.scalar.full.[37_agent_dqn_qtd/03_td_ema] = td_ema @learn
-metrics.scalar.full.[37_agent_dqn_qtd/11_q_mean] = q_mean @learn
-metrics.scalar.full.[37_agent_dqn_qtd/12_q_max] = q_max @learn
-metrics.scalar.full.[37_agent_dqn_qtd/13_q_std] = q_std @learn
-metrics.scalar.full.[37_agent_dqn_qtd/21_grad_norm] = grad_norm @learn
-metrics.scalar.full.[37_agent_dqn_qtd/22_grad_clip_ratio] = grad_clip_ratio @learn
-metrics.scalar.full.[38_agent_dqn_loss/01_loss] = loss @learn
-metrics.scalar.full.[38_agent_dqn_loss/02_loss_ema] = loss_ema @learn
-#metrics.scalar.full.[33_agent_dqn_action/01_act_diff_ema] = act_diff_ema @learn
-#metrics.scalar.full.[33_agent_dqn_action/02_act_unstable] = act_unstable @learn
-#metrics.scalar.full.[33_agent_dqn_action/03_act_unstable_ema] = act_unstable_ema @learn
-metrics.scalar.full.[37_agent_dqn_qtd/31_q_z] = q_z @learn
-metrics.scalar.full.[37_agent_dqn_qtd/32_q_cv] = q_cv @learn
-metrics.scalar.full.[37_agent_dqn_qtd/33_q_niqr] = q_niqr @learn
-metrics.scalar.full.[37_agent_dqn_qtd/34_q_unstable] = q_unstable @learn
-metrics.scalar.full.[37_agent_dqn_qtd/35_q_unstable_ema] = q_unstable_ema @learn
-#metrics.scalar.full.[37_agent_dqn_qtd/41_e_t] = e_t @learn
-metrics.scalar.full.[37_agent_dqn_qtd/42_s] = s @learn
-metrics.scalar.full.[37_agent_dqn_qtd/43_s_ema] = s_ema @learn
-metrics.scalar.full.[37_agent_dqn_qtd/46_unstable_ema] = unstable_ema @learn
+metrics.scalar.full.[32_agent_base/04_tau] = $agent tau @learn
+metrics.scalar.full.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn 
+metrics.scalar.full.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn 
+metrics.scalar.full.[32_agent_base/10_collapse_s] = collapse_s @learn
+metrics.scalar.full.[32_agent_base/11_collapse_l] = collapse_l @learn
+metrics.scalar.full.[37_agent_qtd/01_td_mean] = td_mean @learn
+metrics.scalar.full.[37_agent_qtd/03_td_ema] = td_ema @learn
+metrics.scalar.full.[37_agent_qtd/11_q_mean] = q_mean @learn
+metrics.scalar.full.[37_agent_qtd/12_q_max] = q_max @learn
+metrics.scalar.full.[37_agent_qtd/13_q_std] = q_std @learn
+metrics.scalar.full.[37_agent_qtd/21_grad_norm] = grad_norm @learn
+metrics.scalar.full.[37_agent_qtd/22_grad_clip_ratio] = grad_clip_ratio @learn
+metrics.scalar.full.[38_agent_loss/01_loss] = loss @learn
+metrics.scalar.full.[38_agent_loss/02_loss_ema] = loss_ema @learn
+#metrics.scalar.full.[33_agent_action/01_act_diff_ema] = act_diff_ema @learn
+#metrics.scalar.full.[33_agent_action/02_act_unstable] = act_unstable @learn
+#metrics.scalar.full.[33_agent_action/03_act_unstable_ema] = act_unstable_ema @learn
+metrics.scalar.full.[37_agent_qtd/31_q_z] = q_z @learn
+metrics.scalar.full.[37_agent_qtd/32_q_cv] = q_cv @learn
+metrics.scalar.full.[37_agent_qtd/33_q_niqr] = q_niqr @learn
+metrics.scalar.full.[37_agent_qtd/34_q_unstable] = q_unstable @learn
+metrics.scalar.full.[37_agent_qtd/35_q_unstable_ema] = q_unstable_ema @learn
+#metrics.scalar.full.[37_agent_qtd/41_e_t] = e_t @learn
+metrics.scalar.full.[37_agent_qtd/42_s] = s @learn
+metrics.scalar.full.[37_agent_qtd/43_s_ema] = s_ema @learn
+metrics.scalar.full.[37_agent_qtd/46_unstable_ema] = unstable_ema @learn
 metrics.scalar.full.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
 metrics.scalar.full.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $runner interval:100
 metrics.scalar.full.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
@@ -249,7 +288,8 @@ LunarLanderApp.online.eval_timer_ms = 30
 LunarLanderApp.online.eval_step_per_frame = 3;
 
 LunarLanderApp.batchrun.train_pause_step = -1
-LunarLanderApp.batchrun.train_exit_step = 500000 #500K
+#LunarLanderApp.batchrun.train_exit_step = 500000 #500K
+LunarLanderApp.batchrun.train_exit_step = 200000 #200K
 LunarLanderApp.batchrun.train_timer_ms = 500
 LunarLanderApp.batchrun.eval_timer_ms = 500
 LunarLanderApp.batchrun.eval_step_per_frame = 10;

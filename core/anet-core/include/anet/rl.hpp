@@ -625,27 +625,41 @@ namespace anet::rl {
         } next_states;
         torch::Tensor n_steps;       // (B,) int
 
+        torch::Tensor indices;          // (B,) kInt64
+        torch::Tensor sampling_prob;    // (B,) kFloat32
+        torch::Tensor is_weights;       // (B,) kFloat32
 
         ExperienceSamples FlattenStates() const;
         ExperienceSamples To(torch::Device device, bool non_blocking) const;
         std::string ToString() const;
     };
 
-    class ReplayBuffer : public DataExporter {
+    class ReplayPriorityController : public anet::DataExporter {
+    public:
+        virtual void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) = 0;
+
+        ~ReplayPriorityController() = default;
+    };
+
+    class ReplayBuffer : public ReplayPriorityController {
     public:
         virtual void Push(const BatchExperience& batch_exp) = 0;
         virtual void Push(const std::vector<SingleExperience>& exps) = 0;
-        virtual ExperienceSamples Sample(int64_t minibatch_size, torch::Device device) const = 0;
+        virtual ExperienceSamples Sample(int64_t minibatch_size, torch::Device device, float beta = -1) const = 0;
         virtual int64_t Size() const = 0;
 
         virtual ~ReplayBuffer() = default;
     public:
-        static constexpr const char* STATE_OBS = "replaybuffer.state";
-        static constexpr const char* ACTION = "replaybuffer.action";
-        static constexpr const char* REWARD = "replaybuffer.reward";
-        static constexpr const char* NEXT_STATE_OBS = "replaybuffer.next_state";
-        static constexpr const char* NEXT_STATE_TERMINAL = "replaybuffer.terminal";
-        static constexpr const char* N_STEP = "replaybuffer.n_step";
+        static constexpr const char* STATE_OBS = "replaybuffer.storage.state";
+        static constexpr const char* ACTION = "replaybuffer.storage.action";
+        static constexpr const char* REWARD = "replaybuffer.storage.reward";
+        static constexpr const char* NEXT_STATE_OBS = "replaybuffer.storage.next_state";
+        static constexpr const char* NEXT_STATE_TERMINAL = "replaybuffer.storage.terminal";
+        static constexpr const char* N_STEP = "replaybuffer.storage.n_step";
+
+        static constexpr const char* PER_TOTAL = "replaybuffer.per.total";
+        static constexpr const char* PER_VALUES = "replaybuffer.per.values";
+        static constexpr const char* PER_DIST = "replaybuffer.per.distribution";
     };
 
     // =============================================================

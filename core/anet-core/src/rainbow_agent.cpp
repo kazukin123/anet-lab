@@ -76,6 +76,10 @@ std::optional<float> RainbowAgent::GetScalar(const std::string& key, int index) 
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return vars_->epsilon;
     }
+    if (key == "per_beta") {
+        std::shared_lock<std::shared_mutex> lock(*mutex_);
+        return vars_->per_beta;
+    }
     if (key.find("replaybuffer.") == 0) {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return learner_->GetScalar(key);

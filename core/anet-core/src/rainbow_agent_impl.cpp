@@ -365,29 +365,38 @@ std::optional<std::vector<torch::Tensor>> RainbowAgent::Learner::GetTensorVector
 RainbowAgent::TDLearner::TDLearner(RainbowAgent& agent, const EnvSpec& env_spec, seed_t replay_seed)
     : Learner(agent)
 {
-    // ReplayBuffer生成
-    //this->replay_buffer_ = std::make_shared<anet::rl::PlainReplayBuffer>(env_spec, agent_.config_.replay_capacity, replay_seed);
-
     // ReplayBufferConfig
     anet::rl::ReplayBufferConfig rep_config{};
     rep_config.capacity = agent_.config_.replay_capacity;
     rep_config.gamma = agent_.config_.gamma;
     rep_config.n_step = agent_.config_.n_step;
+
+    // N-Step 設定
     if (agent_.config_.use_n_step)
-        rep_config.type = ReplayBufferType::NStep;
+        rep_config.type = ReplayBuilderType::NSTEP;
     else
-        rep_config.type = ReplayBufferType::Plain;
+        rep_config.type = ReplayBuilderType::PLAIN;
+
+    // PER 設定
+    if (agent_.config_.use_per) {
+        rep_config.sampler_type = ReplaySamplerType::PRIOTIZED;
+        rep_config.per_alpha = agent_.config_.per_alpha;
+        rep_config.per_initial_priority = agent_.config_.per_initial_priority;
+
+        // RuntimeVarsのbeta初期化
+        agent_.vars_->per_beta = agent_.config_.per_beta_start;
+    } else {
+        rep_config.sampler_type = ReplaySamplerType::UNIFORM;
+    }
 
     // ReplayBuffer生成
     anet::rl::ReplayBufferFactory rep_factory(rep_config);
-    if (agent_.config_.use_n_step) {
+    //if (agent_.config_.use_n_step) {
         //this->replay_buffer_ = rep_factory.Create(env_spec, agent.device_, agent_.batch_size_, replay_seed);      // GPUだと遅くなる
         this->replay_buffer_ = rep_factory.Create(env_spec, torch::kCPU, agent_.batch_size_, replay_seed);
-    }
-    else
-        this->replay_buffer_ = std::make_shared<anet::rl::PlainReplayBuffer>(env_spec, agent_.config_.replay_capacity, replay_seed);
-
-
+    //} else {
+    //    this->replay_buffer_ = std::make_shared<anet::rl::PlainReplayBuffer>(env_spec, agent_.config_.replay_capacity, replay_seed);
+    //}
 
     // Optimizer生成
     this->optimizer_ = std::make_unique<torch::optim::Adam>(agent_.network_->GetPolicyParameters(), torch::optim::AdamOptions(agent_.config_.alpha));
@@ -440,7 +449,6 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
 {
     ProfileRange r("RainbowAgent::TDLearner::UpdateFromBatch");
 
-    const auto& train_step = counts.train_step;
     const auto& update_step = counts.update_step;
     const auto& config = agent_.config_;
     auto& network = *agent_.network_;
@@ -450,7 +458,7 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     const int S = agent_.state_dim_;
     const int A = agent_.n_actions_;
     const torch::Device& device = agent_.device_;
- 
+
     // ------------------------------------------------------------
     // ReplayBuffer へ push
     // ------------------------------------------------------------
@@ -465,7 +473,11 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     // ------------------------------------------------------------
     // Sample
     // ------------------------------------------------------------
-    auto raw_samples = replay_buffer_->Sample(config.replay_batch_size, device);
+    // PERの場合は現在のbetaを使用、それ以外は無視される
+    float current_beta = config.use_per ? vars.per_beta : 0.0f;
+    auto raw_samples = replay_buffer_->Sample(config.replay_batch_size, device, current_beta);
+
+    // Check shapes & dtypes
     ANET_CHECK_DEVICE(raw_samples.obs, device);
     ANET_CHECK_DEVICE(raw_samples.actions, device);
     ANET_CHECK_DEVICE(raw_samples.target_values, device);
@@ -487,7 +499,7 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     auto samples = raw_samples.FlattenStates();
 
     const auto& obs = samples.obs;
-    const auto& actions = samples.actions;
+    // const auto& actions = samples.actions; // 未使用
     const auto& target_values = samples.target_values;
     const auto& next_obs = samples.next_states.obs;
     const auto& terminals = samples.next_states.terminals;
@@ -502,11 +514,11 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     ANET_CHECK_SHAPE(idx_actions, { B, 1 });
     ANET_CHECK_DTYPE(idx_actions, torch::kInt64);
 
-    auto q_sa = q_all.gather(1, idx_actions).squeeze(1);
+    auto q_sa = q_all.gather(1, idx_actions).squeeze(1);          // (B)
     ANET_CHECK_SHAPE(q_sa, { B });
     ANET_CHECK_DTYPE(q_sa, torch::kFloat32);
 
-    torch::Tensor max_q = std::get<0>(q_all.max(1)).detach(); // (B,)
+    torch::Tensor max_q = std::get<0>(q_all.max(1)).detach();     // (B)
 
     // ------------------------------------------------------------
     // max_a' Q(s', a')
@@ -516,7 +528,7 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     if (config.use_double_dqn) {
         torch::NoGradGuard no_grad;
 
-        // policy_net で argmax_a Q(s', a)
+        // Double DQN: policy_netで行動選択、target_netで価値計算
         auto next_q_policy = network.Forward(next_obs, /*use_target=*/false);
         ANET_CHECK_SHAPE(next_q_policy, { B, A });
         auto next_actions = std::get<1>(next_q_policy.max(1));
@@ -529,7 +541,6 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
         max_next_q = next_q_target.gather(1, next_actions_b).squeeze(1);
     } else {
         torch::NoGradGuard;
-
         auto next_q_target = network.Forward(next_obs, /*use_target=*/true);
         ANET_CHECK_SHAPE(next_q_target, { B, A });
         max_next_q = std::get<0>(next_q_target.max(1));
@@ -538,34 +549,74 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     ANET_CHECK_DTYPE(max_next_q, torch::kFloat32);
 
     // ------------------------------------------------------------
-    // TD target
+    // TD target & TD Error
     // ------------------------------------------------------------
     auto not_terminal = 1.0f - terminals.to(torch::kFloat32); // (B,)
     auto td_target = target_values + not_terminal * config.gamma * max_next_q.detach(); // (B,)
     ANET_CHECK_SHAPE(td_target, { B });
     ANET_CHECK_DTYPE(td_target, torch::kFloat32);
 
+    auto td_error = q_sa - td_target; // (B,)
+
     // ------------------------------------------------------------
-    // TD loss
+    // PER Priority Update
     // ------------------------------------------------------------
-    auto td_error = q_sa - td_target;
+    if (config.use_per) {
+        torch::NoGradGuard no_grad;
+
+        // 優先度 = |td_error| + eps
+        auto abs_td_error = td_error.abs().detach();
+        auto new_priorities = abs_td_error + config.per_eps;
+
+        // Tensor -> vector (CPU)
+        auto prios_cpu = new_priorities.cpu();
+        auto prios_ptr = prios_cpu.data_ptr<float>();
+        std::vector<float> priorities_vec(prios_ptr, prios_ptr + B);
+
+        auto indices_cpu = samples.indices.cpu();
+        auto indices_ptr = indices_cpu.data_ptr<int64_t>();
+        std::vector<int64_t> indices_vec(indices_ptr, indices_ptr + B);
+
+        replay_buffer_->UpdatePriorities(indices_vec, priorities_vec);
+    }
+
+    // ------------------------------------------------------------
+    // Loss Calculation
+    // ------------------------------------------------------------
     torch::Tensor td_error_for_loss = td_error;
     if (config.use_td_clip && config.td_clip_value > 0.0f)
         td_error_for_loss = torch::clamp(td_error_for_loss, -config.td_clip_value, config.td_clip_value);
-    auto loss = torch::nn::functional::smooth_l1_loss(
-        td_error_for_loss,
-        torch::zeros_like(td_error_for_loss),
-        torch::nn::functional::SmoothL1LossFuncOptions().reduction(torch::kMean));
-    
+
+    torch::Tensor loss;
+
+    if (config.use_per) {
+        // PER: IS Weights を loss に適用
+        // element-wise loss (reduction=none)
+        auto element_loss = torch::nn::functional::smooth_l1_loss(
+            td_error_for_loss,
+            torch::zeros_like(td_error_for_loss),
+            torch::nn::functional::SmoothL1LossFuncOptions().reduction(torch::kNone));
+
+        // 重みを適用して平均
+        auto weights = samples.is_weights.to(element_loss.device());
+        loss = (element_loss * weights).mean();
+    } else {
+        // 通常: mean reduction
+        loss = torch::nn::functional::smooth_l1_loss(
+            td_error_for_loss,
+            torch::zeros_like(td_error_for_loss),
+            torch::nn::functional::SmoothL1LossFuncOptions().reduction(torch::kMean));
+    }
+
     // ------------------------------------------------------------
-    //  backward
+    //  backward & grad
     // ------------------------------------------------------------
+
+    // backward
     optimizer_->zero_grad();
     loss.backward();
-    
-    // ------------------------------------------------------------
+
     // grad_clip
-    // ------------------------------------------------------------
     torch::Tensor grad_norm_tensor;
     std::optional<float> grad_norm;
     bool grad_clipped = false;
@@ -594,14 +645,20 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     vars.learn_step++;
 
     // ------------------------------------------------------------
-    // target network 更新
+    // Post Updates
     // ------------------------------------------------------------
     UpdateTargetNetwork(vars.learn_step);
-
-    // ------------------------------------------------------------
-    // epsilon 更新
-    // ------------------------------------------------------------
     UpdateEpsilon(vars.learn_step);
+
+    // PER Beta Update
+    if (config.use_per) {
+        if (vars.learn_step < config.per_beta_step) {
+            float progress = static_cast<float>(vars.learn_step) / static_cast<float>(config.per_beta_step);
+            vars.per_beta = config.per_beta_start + progress * (config.per_beta_end - config.per_beta_start);
+        } else {
+            vars.per_beta = config.per_beta_end;
+        }
+    }
 
     // ------------------------------------------------------------
     // UpdateResult

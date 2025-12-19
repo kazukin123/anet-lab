@@ -14,11 +14,11 @@ const float MET_EMA_DECAY_ACT = 0.0005f;  // 平滑化係数(メトリクス用)
 // RainbowAgent データ構造
 // ======================================================
 
-/// Agent内部変数
+/// ランタイム変数
 struct RainbowAgent::RuntimeVars {
-    // ランタイム変数
     float epsilon = 1.0f;
     step_t learn_step = 0;
+    float per_beta = 0.0f;  ///< PER用beta
 };
 
 class RainbowAgent::BatchUpdateResult : public anet::rl::BatchUpdateResult {

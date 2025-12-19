@@ -116,20 +116,37 @@ private:
 // ReplayBuffer ReplayExperienceStorage
 // ======================================================
 
+enum class StorageWriteEventCode {
+    Append,
+    Overwrite
+};
+
+struct StorageWriteEvent {
+    StorageWriteEventCode code;
+    int64_t index;
+};
+
 class ReplayExperienceStorage : public anet::DataExporter {
+public:
+    using EventHandler = std::function<void(const StorageWriteEvent&)>;
 public:
     ReplayExperienceStorage(const EnvSpec& env_spec, int64_t capacity, torch::Device device);
     void Push(const ReplayExperience& exp);
     int64_t Size() const { return size_; }
     ExperienceSamples Gather(const std::vector<int64_t>& indices,std::optional<torch::Device> out_device = std::nullopt) const;
+public:
+    void AttachEventHandler(EventHandler handler);
 public: //---- DataExporter ----
     std::optional<float> GetScalar(const std::string& key, int index) const override;
     std::optional<torch::Tensor> GetTensor(const std::string& key, int index) const override;
     std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index) const override;
 private:
+    void Notify(const StorageWriteEvent& ev);
+private:
     const int64_t capacity_;
     const torch::Device device_;
     const torch::TensorOptions int64_opt_;
+    std::vector<EventHandler> event_handlers_;
 private:
     int64_t size_ = 0;
     int64_t write_index_ = 0;
@@ -146,18 +163,82 @@ private:
 // ReplayBuffer ReplayExperienceSampler
 // ======================================================
 
+struct IndexSampleResult {
+    explicit IndexSampleResult(int64_t size)
+        : indices(size), sampling_prob(size), is_weights(size) { }
+
+    IndexSampleResult(
+        const std::vector<int64_t>& indices_in, const std::vector<float>& sampling_prob_in, const std::vector<float>& is_weights_in)
+        : indices(indices_in), sampling_prob(sampling_prob_in), is_weights(is_weights_in) { }
+
+    IndexSampleResult(const std::vector<int64_t>& indices_in)
+        : indices(indices_in) { }
+
+    std::vector<int64_t> indices;
+    std::vector<float> sampling_prob;
+    std::vector<float> is_weights;
+};
+
 class ReplayExperienceSampler {
 public:
-    virtual std::vector<int64_t> SampleIndices(const ReplayExperienceStorage& storage, int64_t minibatch_size) = 0;
+    virtual IndexSampleResult SampleIndices(const ReplayExperienceStorage& storage, int64_t minibatch_size, float beta = -1) = 0;
     virtual ~ReplayExperienceSampler() = default;
 };
 
 class UniformReplayExperienceSampler final : public ReplayExperienceSampler, public anet::RandomHolder {
 public:
     explicit UniformReplayExperienceSampler(anet::seed_t seed);
-    std::vector<int64_t> SampleIndices(const ReplayExperienceStorage& storage, int64_t minibatch_size) override;
+    IndexSampleResult SampleIndices(const ReplayExperienceStorage& storage, int64_t minibatch_size, float beta) override;
 private:
     const torch::TensorOptions opts_;
+};
+
+
+// ======================================================
+// SumTree
+// ======================================================
+
+/// @note This implementation is NOT thread-safe.
+class SumTree {
+public:
+    explicit SumTree(int64_t capacity);
+
+    void Update(int64_t index, float value);
+    float Get(int64_t index) const;
+    int64_t Sample(float value) const;
+    int64_t Capacity() const noexcept { return capacity_; }
+    float Total() const noexcept { return tree_[1]; }
+private:
+    int64_t capacity_;
+    std::vector<float> tree_; // size = 2 * capacity_
+};
+
+
+// ======================================================
+// ReplayPriorityController
+// ======================================================
+
+class NoopReplayExperienceSampler final : public ReplayPriorityController {
+public:
+    /// @todo nullptr指定で良いので不要？
+    NoopReplayExperienceSampler() = default;
+    void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override { }
+};
+
+class PrioritizedReplayExperienceManager final
+    : public ReplayExperienceSampler, public ReplayPriorityController, public anet::RandomHolder {
+public:
+    PrioritizedReplayExperienceManager(int64_t capacity, float alpha, anet::seed_t seed);
+
+    IndexSampleResult SampleIndices(const ReplayExperienceStorage& storage, int64_t minibatch_size, float beta) override;
+    void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override;
+public: // DataExporter
+    std::optional<float> GetScalar(const std::string& key, int index) const override;
+    std::optional<torch::Tensor> GetTensor(const std::string& key, int index) const override;
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index) const override;
+private:
+    SumTree sum_tree_;
+    float alpha_;
 };
 
 
@@ -165,28 +246,32 @@ private:
 // DefaultReplayBuffer
 // ======================================================
 
-class DefaultReplayBuffer : public ReplayBuffer {
+class DefaultReplayBuffer final : public ReplayBuffer {
 public:
     DefaultReplayBuffer(
         const EnvSpec& env_spec, int64_t capacity, int64_t num_envs,
         std::unique_ptr<ExperienceQueueController> queue_controller,
         std::unique_ptr<ReplayExperienceBuilder> replay_exp_builder,
-        std::unique_ptr<ReplayExperienceSampler> sampler,
-        torch::Device device, bool use_prefetch = false);
+        std::shared_ptr<ReplayExperienceSampler> sampler,
+        std::shared_ptr<ReplayPriorityController> prio_controller,
+        torch::Device device, float initial_priority = 1.0f, bool use_prefetch = false);
 
     void Push(const BatchExperience& batch_exp) override;
     void Push(const std::vector<SingleExperience>& exps) override;
-    ExperienceSamples Sample(int64_t minibatch_size, torch::Device device) const override;
+    ExperienceSamples Sample(int64_t minibatch_size, torch::Device device, float beta) const override;
     int64_t Size() const override;
+
+    void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override;
 public: // DataExporter
     std::optional<float> GetScalar(const std::string& key, int index) const override;
     std::optional<torch::Tensor> GetTensor(const std::string& key, int index) const override;
     std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index) const override;
 private:
-    ExperienceSamples sampleInternal(int64_t minibatch_size, torch::Device device) const;
+    ExperienceSamples sampleInternal(int64_t minibatch_size, torch::Device device, float beta) const;
 private:
     // 設定
     bool use_prefetch_;
+    float initial_priority_;
 
     // N 環境分
     const int64_t num_envs_;
@@ -195,8 +280,9 @@ private:
     // 共通
     std::unique_ptr<ExperienceQueueController> queue_controller_;
     std::unique_ptr<ReplayExperienceBuilder> replay_exp_builder_;
-    std::unique_ptr<ReplayExperienceSampler> sampler_;
     std::unique_ptr<ReplayExperienceStorage> storage_;
+    std::shared_ptr<ReplayExperienceSampler> sampler_;
+    std::shared_ptr<ReplayPriorityController> prio_controller_;
 
     // Prefech
     mutable bool prefetch_cached_ = false;

@@ -531,7 +531,7 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
     auto stream = at::cuda::getDefaultCUDAStream();
     at::cuda::CUDAStreamGuard guard(stream);
 
-    return ExperienceSamples{
+    return ExperienceSamples {
         obs.to(device, non_blocking),
         actions.to(device, non_blocking),
         target_values.to(device, non_blocking),
@@ -539,7 +539,10 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
             next_states.obs.to(device, non_blocking).flatten(1),
             next_states.terminals.to(device, non_blocking),
         },
-        n_steps.to(device, non_blocking)
+        n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,
+        indices.to(device, non_blocking),
+        sampling_prob.defined() ? sampling_prob.to(device, non_blocking) : sampling_prob,
+        is_weights.defined() ? is_weights.to(device, non_blocking) : is_weights,
     };
 }
 
@@ -553,7 +556,10 @@ ExperienceSamples ExperienceSamples::FlattenStates() const
             next_states.obs.flatten(1),
             next_states.terminals,
         },
-        n_steps
+        n_steps,
+        indices,
+        sampling_prob,
+        is_weights
     };
 }
 
@@ -567,6 +573,9 @@ std::string ExperienceSamples::ToString() const
     oss << "  next_state.obs           = " << anet::ToString(next_states.obs) << "\n";
     oss << "  next_state.terminals     = " << anet::ToString(next_states.terminals) << "\n";
     oss << "  n_steps                  = " << anet::ToString(n_steps) << "\n";
+    oss << "  indices                  = " << anet::ToString(indices) << "\n";
+    oss << "  sampling_prob            = " << anet::ToString(sampling_prob) << "\n";
+    oss << "  is_weights               = " << anet::ToString(is_weights) << "\n";
     oss << "}";
     return oss.str();
 }

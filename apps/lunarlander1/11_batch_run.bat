@@ -1,14 +1,16 @@
 @echo off
 SET EXE="bin\Release\LunarLanderRLGUI.exe"
 
-call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "RainbowAgent.trunk.n_step=1" "RainbowAgent.trunk.use_dueling_net=true"
-call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "RainbowAgent.trunk.n_step=1" "RainbowAgent.trunk.use_dueling_net=false"
-call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "RainbowAgent.trunk.n_step=2" "RainbowAgent.trunk.use_dueling_net=true"
-call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "RainbowAgent.trunk.n_step=2" "RainbowAgent.trunk.use_dueling_net=false"
-call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "RainbowAgent.trunk.n_step=3" "RainbowAgent.trunk.use_dueling_net=true"
-call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "RainbowAgent.trunk.n_step=3" "RainbowAgent.trunk.use_dueling_net=false"
-call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "RainbowAgent.trunk.n_step=4" "RainbowAgent.trunk.use_dueling_net=true"
-call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun" "RainbowAgent.trunk.n_step=4" "RainbowAgent.trunk.use_dueling_net=false"
+call:run_exe "RainbowAgent.trunk.per_beta_step=5000"
+call:run_exe "RainbowAgent.trunk.per_beta_step=10000"
+call:run_exe "RainbowAgent.trunk.per_beta_step=20000"
+call:run_exe "RainbowAgent.trunk.per_beta_step=40000"
+call:run_exe "RainbowAgent.trunk.per_beta_step=80000"
+
+REM call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun"
+REM call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun"
+REM call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun"
+REM call:run_exe "LunarLanderApp.$=LunarLanderApp.batchrun"
 
 pause
 exit /b

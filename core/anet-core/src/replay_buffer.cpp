@@ -110,7 +110,7 @@ namespace anet::rl {
         }
     }
 
-    ExperienceSamples PlainReplayBuffer::Sample(int64_t b, torch::Device device) const
+    ExperienceSamples PlainReplayBuffer::Sample(int64_t b, torch::Device device, float beta) const
     {
         anet::ProfileRange r1("PlainReplayBuffer::Sample");
 
@@ -141,7 +141,10 @@ namespace anet::rl {
                     next_states_.index_select(0, idx).to(device),   // next_states.obs
                     terminals_.index_select(0, idx).to(device),     // next_states.terminals
                 },
-                torch::Tensor() // n-steps
+                torch::Tensor(), // n-steps
+                torch::Tensor(),        // indices          (B,) kInt64
+                torch::Tensor(),        // sampling_prob;   (B,) kFloat32
+                torch::Tensor(),        // is_weights;      (B,) kFloat32
             });
         ANET_CHECK_SHAPE(out.obs, { b, state_dim_ });
         ANET_CHECK_SHAPE(out.actions,{ b, n_actions_ });
