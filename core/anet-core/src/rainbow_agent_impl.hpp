@@ -15,7 +15,7 @@ const float MET_EMA_DECAY_ACT = 0.0005f;  // 平滑化係数(メトリクス用)
 // ======================================================
 
 /// ランタイム変数
-struct RainbowAgent::RuntimeVars {
+struct RainbowAgent::RuntimeVars final {
     float epsilon = 1.0f;
     step_t learn_step = 0;
     float per_beta = 0.0f;  ///< PER用beta
@@ -31,11 +31,15 @@ public:
     torch::Tensor max_q;
     mutable torch::Tensor max_q_cpu;
 
-    // PER Metrics Source Tensors (GPU)
+    // PER Metrics Source Tensors
     torch::Tensor per_is_weights;      ///< IS Weights (B,)
     torch::Tensor per_priorities;      ///< Updated Priorities (B,)
     torch::Tensor per_clipped_count;   ///< Clipped Count (scalar tensor)
-    long per_minibatch_size = 0;           ///< Batch Size
+    long per_minibatch_size = 0;       ///< Batch Size
+
+    // QR-DQN Metrics
+    torch::Tensor q_std; // 分布の標準偏差
+
 public:
     RainbowAgent::BatchUpdateResult(uint32_t learn_step_diff)
         : anet::rl::BatchUpdateResult(learn_step_diff)
@@ -44,8 +48,12 @@ public:
 
     std::optional<float> GetScalar(const std::string& key, int index) const override
     {
-        if (key == "loss") return loss.item<float>();
-        if (key == "td_mean") return td_error.abs().mean().item<float>();
+        // 必要になって初めてCPUに転送する
+
+        if (key == "loss")
+            return loss.item<float>();
+        if (key == "td_mean")
+            return td_error.abs().mean().item<float>();
         if (key == "grad_norm") {
             if (grad_norm.has_value())
                 return *grad_norm;
@@ -53,16 +61,17 @@ public:
                 return grad_norm_tensor.item<float>();
             return std::nullopt;
         }
-        if (key == "grad_clip_ratio") return grad_clip_ratio;
-        if (key == "q_max") {
+        if (key == "grad_clip_ratio")
+            return grad_clip_ratio;
+        if (key == "q_max_max") {
             TransQToCpu();
             return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.max().item<float>()) : std::nullopt;
         }
-        if (key == "q_mean") {
+        if (key == "q_max_mean") {
             TransQToCpu();
             return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.mean().item<float>()) : std::nullopt;
         }
-        if (key == "q_std") {
+        if (key == "q_max_std") {
             TransQToCpu();
             return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.std(false).item<float>()) : std::nullopt;
         }
@@ -93,6 +102,11 @@ public:
                 return per_is_weights.mean().item<float>();
             return std::nullopt;
         }
+        if (key == "q_std") {
+            if (q_std.defined()) return anet::ToFloat(q_std);
+            return 0.0f;
+        }
+
         return std::nullopt;
     }
 
@@ -124,6 +138,11 @@ public:
 
     /// 観測からQ表現を出力する。
     virtual torch::Tensor Forward(const torch::Tensor& obs) = 0;
+
+    /// QR-DQN専用：Quantile 出力 (B, A, N)
+    virtual torch::Tensor ForwardQuantiles(const torch::Tensor& obs) {
+        throw std::runtime_error("ForwardQuantiles not implemented for this QNet.");
+    }
 
     /// アクションの個数（離散アクション前提）
     virtual int64_t GetNumActions() const = 0;
@@ -157,7 +176,7 @@ protected:
     torch::nn::Linear fc2_{ nullptr };
 };
 
-class PlainQNet : public BaseQNet {
+class PlainQNet final : public BaseQNet {
 public:
     explicit PlainQNet(const RainbowAgentConfig& config, int state_dim, int n_actions);
     torch::Tensor Forward(const torch::Tensor& obs) override;
@@ -176,6 +195,46 @@ private:
     torch::nn::Linear value_{ nullptr };  // (H -> 1)
     torch::nn::Linear adv_{ nullptr };    // (H -> A)
 };
+
+class QuantilePlainQNet final : public BaseQNet {
+public:
+    explicit QuantilePlainQNet(const RainbowAgentConfig& config, int state_dim, int n_actions);
+
+    // 平均値を返す (DQN互換)
+    torch::Tensor Forward(const torch::Tensor& obs) override;
+
+    // 分位数 (B, A, N) を返す
+    torch::Tensor ForwardQuantiles(const torch::Tensor& obs) override;
+
+    int64_t GetNumQuantiles() const override { return num_quantiles_; }
+    bool IsDistributional() const override { return true; }
+
+    std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex) override;
+private:
+    int64_t num_quantiles_;
+    torch::nn::Linear fc3_{ nullptr };
+};
+
+class QuantileDuelingQNet final : public BaseQNet {
+public:
+    explicit QuantileDuelingQNet(const RainbowAgentConfig& config, int state_dim, int n_actions);
+
+    // 平均値を返す (DQN互換)
+    torch::Tensor Forward(const torch::Tensor& obs) override;
+
+    // 分位数 (B, A, N) を返す
+    torch::Tensor ForwardQuantiles(const torch::Tensor& obs) override;
+
+    int64_t GetNumQuantiles() const override { return num_quantiles_; }
+    bool IsDistributional() const override { return true; }
+
+    std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex) override;
+private:
+    int64_t num_quantiles_;
+    torch::nn::Linear value_{ nullptr };  // (H -> 1*N)
+    torch::nn::Linear adv_{ nullptr };    // (H -> A*N)
+};
+
 
 // ======================================================
 // RainbowAgent Network
@@ -230,6 +289,7 @@ private:
     const RainbowAgent::RuntimeVars& vars_;
 };
 
+
 // ======================================================
 // RainbowAgent Learner
 // ======================================================
@@ -238,29 +298,49 @@ class RainbowAgent::Learner : public anet::rl::Learner, public DataExporter {
 public:
     Learner(RainbowAgent& agent);
 
+    std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromBatch(
+        const StepCounts& step, const BatchExperience& expriences, const Runner& trainer) override;
+
     std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
     std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
     std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
 
     virtual ~Learner() = default;
 protected:
-    RainbowAgent& agent_;
-    std::shared_ptr<anet::rl::ReplayBuffer> replay_buffer_;
-};
-
-class RainbowAgent::TDLearner : public RainbowAgent::Learner {
-public:
-    explicit TDLearner(RainbowAgent& agent, const EnvSpec& env_spec, seed_t replay_seed);
-
-    std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromBatch(
-        const StepCounts& step, const BatchExperience& expriences, const Runner& trainer) override;
-
+    // アルゴリズム固有の更新処理 (Loss計算, Backprop, Priority更新)
+    virtual std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
+        const anet::rl::ExperienceSamples& samples) = 0;
+protected:
+    void SetupOptimizer();                  ///< 共通初期化処理（Optimizer生成など）
+    void SetupReplayBuffer(const EnvSpec& env_spec, seed_t seed);
 private:
     bool CanUpdate(step_t update_step) const;
+    void UpdatePerBeta(step_t learn_step);  ///<  PERのβ更新など
     void UpdateEpsilon(step_t learn_step);
     void UpdateTargetNetwork(step_t step);
-private:
+protected:
+    RainbowAgent& agent_;
+    std::shared_ptr<anet::rl::ReplayBuffer> replay_buffer_;
     std::unique_ptr<torch::optim::Adam> optimizer_;
 };
 
+class RainbowAgent::TDLearner final : public RainbowAgent::Learner {
+public:
+    explicit TDLearner(RainbowAgent& agent, const EnvSpec& env_spec, seed_t replay_seed);
+
+    std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
+        const anet::rl::ExperienceSamples& samples) override;
+};
+
+class RainbowAgent::QRLearner final : public RainbowAgent::Learner {
+public:
+    explicit QRLearner(RainbowAgent& agent, const EnvSpec& env_spec, seed_t replay_seed);
+
+    std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
+        const anet::rl::ExperienceSamples& samples) override; 
+private:
+    torch::Tensor ComputeQuantileHuberLoss(
+        const torch::Tensor& current_dist, const torch::Tensor& target_dist,
+        const torch::Tensor& weights) const;
+};
 

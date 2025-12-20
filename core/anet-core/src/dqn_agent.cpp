@@ -124,9 +124,9 @@ public:
         map_["tau"] = vars.tau;
         map_["td_mean"] = vars.td_mean;
         map_["td_ema"] = vars.td_ema;
-        map_["q_mean"] = vars.q_mean;
-        map_["q_max"] = vars.q_max;
-        map_["q_std"] = vars.q_std;
+        map_["q_max_mean"] = vars.q_mean;
+        map_["q_max_max"] = vars.q_max;
+        map_["q_max_std"] = vars.q_std;
         map_["grad_norm"] = vars.grad_norm;
         map_["grad_clip_ratio"] = vars.grad_clip_ratio;
         map_["loss"] = vars.loss;

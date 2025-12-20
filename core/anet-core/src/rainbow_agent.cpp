@@ -34,7 +34,7 @@ RainbowAgent::RainbowAgent(
     ANET_LOG_DEBUG("seed=" << GetSeed());
 
     // ログ：パラメータ記録
-    anet::log::info() << "RainbowAgent config=" << config_;
+    LOG::info() << "RainbowAgent config=" << config_;
     anet::MetricsLogger::Instance()->LogJson("RainbowAgent", config_.ToJson());
     anet::MetricsLogger::Instance()->Flush();
 
@@ -46,24 +46,49 @@ RainbowAgent::RainbowAgent(
     // RuntimeVars生成
     this->vars_ = std::make_unique<RuntimeVars>();
 
-    // NN生成＆初期化
-    if (config_.use_dueling_net) {
-        auto policy_net = std::make_shared<DuelingQNet>(config_, state_dim_, n_actions_);
-        auto target_qnet = std::make_shared<DuelingQNet>(config_, state_dim_, n_actions_);
-        this->network_ = std::make_unique<RainbowAgent::Network>(config_, device_, policy_net, target_qnet);
-    } else {
-        auto policy_net = std::make_shared<PlainQNet>(config_, state_dim_, n_actions_);
-        auto target_qnet= std::make_shared<PlainQNet>(config_, state_dim_, n_actions_);
-        this->network_ = std::make_unique<RainbowAgent::Network>(config_, device_, policy_net, target_qnet);
+    // QR-DQN設定確認 (use_qr フラグと num_quantiles の整合性)
+    bool is_distributional = config_.use_qr;
+    if (is_distributional && config_.num_quantiles <= 1) {
+        LOG::warn() << "use_qr is true but num_quantiles <= 1. Treating as Scalar DQN.";
+        is_distributional = false;
     }
+
+    // NN生成＆初期化
+    std::shared_ptr<QNet> policy_net;
+    std::shared_ptr<QNet> target_net;
+    if (config_.use_dueling_net) {
+        if (is_distributional) {
+            policy_net = std::make_shared<QuantileDuelingQNet>(config_, state_dim_, n_actions_);
+            target_net = std::make_shared<QuantileDuelingQNet>(config_, state_dim_, n_actions_);
+        } else {
+            policy_net = std::make_shared<DuelingQNet>(config_, state_dim_, n_actions_);
+            target_net = std::make_shared<DuelingQNet>(config_, state_dim_, n_actions_);
+        }
+    } else {
+        if (is_distributional) {
+            policy_net = std::make_shared<QuantilePlainQNet>(config_, state_dim_, n_actions_);
+            target_net = std::make_shared<QuantilePlainQNet>(config_, state_dim_, n_actions_);
+        } else {
+            policy_net = std::make_shared<PlainQNet>(config_, state_dim_, n_actions_);
+            target_net = std::make_shared<PlainQNet>(config_, state_dim_, n_actions_);
+        }
+    }
+    
+    // Network生成
+    this->network_ = std::make_unique<RainbowAgent::Network>(config_, device_, policy_net, target_net);
 
     // ActionPolicy生成
     this->action_policy_ = std::make_unique<RainbowAgent::ActionPolicy>(*network_, *vars_, action_policy_seed);
 
-    // Learner生成    /// @todo Learner暫定コンストラクタ
-    this->learner_ = std::make_unique<RainbowAgent::TDLearner>(*this, env_spec, replay_seed);
+    // Learner生成
+    if (is_distributional) {
+        this->learner_ = std::make_unique<RainbowAgent::QRLearner>(*this, env_spec, replay_seed);
+        LOG::info() << "Initialized QRLearner (Quantiles=" << config_.num_quantiles << ")";
+    } else {
+        this->learner_ = std::make_unique<RainbowAgent::TDLearner>(*this, env_spec, replay_seed);
+        LOG::info() << "Initialized TDLearner";
+    }
 }
-
 
 std::optional<anet::TensorFunction> RainbowAgent::GetTensorFunction(const std::string& key)
 {

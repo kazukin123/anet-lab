@@ -52,21 +52,25 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
 {
     auto actual = t.sizes().vec();
 
-    for (const auto& e : expects) {
-        if (actual.size() != e.size()) continue;
+    if (expects.size() == 0) {
+        if (t .sizes().size() == 0) return;
+    } else {
+        for (const auto& e : expects) {
+            if (actual.size() != e.size()) continue;
 
-        bool ok = true;
+            bool ok = true;
 
-        for (size_t i = 0; i < e.size(); ++i) {
-            if (e[i] == ANET_SHAPE_ENDANY) break;  // ここから先は全て許容
-            if (e[i] == ANET_SHAPE_ANY) continue;  // 任意次元
-            if (actual[i] != e[i]) {
-                ok = false;
-                break;
+            for (size_t i = 0; i < e.size(); ++i) {
+                if (e[i] == ANET_SHAPE_ENDANY) break;  // ここから先は全て許容
+                if (e[i] == ANET_SHAPE_ANY) continue;  // 任意次元
+                if (actual[i] != e[i]) {
+                    ok = false;
+                    break;
+                }
             }
-        }
 
-        if (ok) return;  // いずれかにマッチ
+            if (ok) return;  // いずれかにマッチ
+        }
     }
 
     std::stringstream ss;

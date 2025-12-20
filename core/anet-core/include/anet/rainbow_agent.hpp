@@ -45,10 +45,14 @@ namespace anet::rl {
         bool use_per_prio_clip = false;    ///< 優先度をクリッピングするか
         float per_prio_clip_value = 50.0f; ///< 優先度の上限値
 
+        int num_quantiles = 51;         ///< 分位数 N (デフォルト51)
+        float quantile_huber_kappa = 1.0f;///< Huber Loss の閾値 kappa
+
         bool use_double_dqn = true;   ///< Double DQN 有効化フラグ
         bool use_dueling_net = true;  ///< Dueling Net 有効化フラグ
         bool use_n_step = true;       ///< N-STEPを使用するか
         bool use_per = true;          ///< PERを使用するか
+        bool use_qr = false;            ///< QR-DQN 有効化フラグ
 
         explicit RainbowAgentConfig(const ConfigData& config_data = EmptyConfigData) : anet::Config(config_data, "RainbowAgent") {
             ANET_READ_CONFIG(config_data, nn_init_mode);
@@ -78,10 +82,13 @@ namespace anet::rl {
             ANET_READ_CONFIG(config_data, per_initial_priority);
             ANET_READ_CONFIG(config_data, use_per_prio_clip);
             ANET_READ_CONFIG(config_data, per_prio_clip_value);
+            ANET_READ_CONFIG(config_data, num_quantiles);
+            ANET_READ_CONFIG(config_data, quantile_huber_kappa);
             ANET_READ_CONFIG(config_data, use_double_dqn);
             ANET_READ_CONFIG(config_data, use_dueling_net);
             ANET_READ_CONFIG(config_data, use_n_step);
             ANET_READ_CONFIG(config_data, use_per);
+            ANET_READ_CONFIG(config_data, use_qr);
         }
     };
 
@@ -112,12 +119,10 @@ namespace anet::rl {
 
         class Learner;              ///< 学習アルゴリズム
         class TDLearner;
-        //class QRLearner;
+        class QRLearner;
     private:
         std::unique_ptr<RuntimeVars> vars_;
         std::unique_ptr<Network> network_;
-        //std::unique_ptr<ReplayBuffer> replay_buffer_;
-    private:
         std::shared_ptr<ActionPolicy> action_policy_;
         std::shared_ptr<Learner> learner_;
     };

@@ -11,8 +11,8 @@ agent.class_id = RainbowAgent
 train.batch_size = 10
 #train.batch_size = 1
 
-#LunarLanderApp.use_image_log = false      # default=true
-#LunarLanderApp.use_per_image_log = false      # default=true
+LunarLanderApp.use_image_log = false      # default=true
+LunarLanderApp.use_per_image_log = false      # default=true
 
 metrics.scalar.$ = metrics.scalar.rainbow
 #metrics.scalar.$ = metrics.scalar.min
@@ -37,8 +37,8 @@ RainbowAgent.trunk.eps_decay_step = 20000       # 20K
 RainbowAgent.trunk.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
 #RainbowAgent.trunk.hard_update_interval = 5000 #  -1 5000; //200 500 1000
 RainbowAgent.trunk.use_grad_clip = true        # ★
-RainbowAgent.trunk.grad_clip_tau = 10           # 10 25 40 1f 5f 10f
-RainbowAgent.trunk.use_td_clip = false          # ★
+RainbowAgent.trunk.grad_clip_tau = 30           # ★10 25 40 1f 5f 10f
+RainbowAgent.trunk.use_td_clip = false          # 
 RainbowAgent.trunk.td_clip_value = 30.0         # 4.0 20 30
 RainbowAgent.trunk.replay_capacity = 100000       #  10000 30000
 RainbowAgent.trunk.replay_batch_size = 128      #
@@ -58,16 +58,23 @@ RainbowAgent.trunk.per_beta_step = 20000      # 20K betaを収束値まで線形
 RainbowAgent.trunk.per_eps = 1e-6f             # 優先度加算用微小値
 RainbowAgent.trunk.per_initial_priority = 1.0f # 新規データの初期優先度
 RainbowAgent.trunk.use_per_prio_clip = true   # 優先度をクリッピングするか
-RainbowAgent.trunk.per_prio_clip_value = 20.0  # 優先度の上限値
-
+RainbowAgent.trunk.per_prio_clip_value = 800.0  # 優先度の上限値
 
 RainbowAgent.trunk.use_double_dqn = true        # Double DQN 有効化フラグ（trueで有効）
+
 RainbowAgent.trunk.use_dueling_net = true       # ★ 
 #RainbowAgent.trunk.use_dueling_net = false     # ★ 
+
 RainbowAgent.trunk.use_n_step = true
 #RainbowAgent.trunk.use_n_step = false
 
 RainbowAgent.trunk.use_per = true
+#RainbowAgent.trunk.use_per = false
+
+RainbowAgent.trunk.num_quantiles = 51           # 分位数 N (デフォルト51)
+RainbowAgent.trunk.quantile_huber_kappa = 1.0   # Huber Loss の閾値 kappa
+#RainbowAgent.trunk.use_qr = false                # QR-DQN 有効化フラグ
+RainbowAgent.trunk.use_qr = true                # QR-DQN 有効化フラグ
 
 
 
@@ -80,19 +87,27 @@ RainbowAgent.baseline.eps_max = 1.00               # 指数減衰
 RainbowAgent.baseline.eps_min = 0.05               # 0.1f 0.05f
 RainbowAgent.baseline.eps_decay_step = 20000       # 20K
 RainbowAgent.baseline.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
-RainbowAgent.baseline.use_grad_clip = false        # ★
+RainbowAgent.baseline.use_grad_clip = true         # ★
 RainbowAgent.baseline.grad_clip_tau = 25           # 10 25 40 1f 5f 10f
 RainbowAgent.baseline.use_td_clip = false          # ★
-RainbowAgent.baseline.td_clip_value = 30.0         # 4.0 20 30
-RainbowAgent.baseline.replay_capacity = 10000       # 
+RainbowAgent.baseline.td_clip_value = 10.0         # 4.0 20 30
+RainbowAgent.baseline.replay_capacity = 10000      # 
 RainbowAgent.baseline.replay_batch_size = 128      #
 RainbowAgent.baseline.update_warmup_steps = 1000   # 1000
 RainbowAgent.baseline.update_interval = 5          #
 RainbowAgent.baseline.n_step = 3
+RainbowAgent.baseline.per_alpha = 0.6f            # 優先度の反映度合い (0:uniform, 1:full)
+RainbowAgent.baseline.per_beta_start = 0.4f       # IS重みの補正度合い「beta」の初期値
+RainbowAgent.baseline.per_beta_end = 1.0f         # IS重みの補正度合い「beta」の収束値
+RainbowAgent.baseline.per_beta_step = 20000       # 20K betaを収束値まで線形変化させるステップ数
+RainbowAgent.baseline.per_eps = 1e-6f             # 優先度加算用微小値
+RainbowAgent.baseline.per_initial_priority = 1.0f # 新規データの初期優先度
+RainbowAgent.baseline.use_per_prio_clip = true    # 優先度をクリッピングするか
+RainbowAgent.baseline.per_prio_clip_value = 20.0  # 優先度の上限値
 RainbowAgent.baseline.use_double_dqn = true        # Double DQN 有効化フラグ（trueで有効）
-RainbowAgent.baseline.use_dueling_net = true       # ★ 
+RainbowAgent.baseline.use_dueling_net = true       #  
 RainbowAgent.baseline.use_n_step = true
-RainbowAgent.baseline.use_per = false
+RainbowAgent.baseline.use_per = true
 
 
 # ----- metrics
@@ -113,9 +128,10 @@ metrics.scalar.rainbow.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn
 metrics.scalar.rainbow.[32_agent_base/06_per_beta] = $agent per_beta @learn 
 metrics.scalar.rainbow.[37_agent_qtd/01_td_mean] = td_mean @learn
 metrics.scalar.rainbow.[37_agent_qtd/03_td_mean_ema] = td_mean @learn $ema
-metrics.scalar.rainbow.[37_agent_qtd/11_q_mean] = q_mean @learn
-metrics.scalar.rainbow.[37_agent_qtd/12_q_max] = q_max @learn
-metrics.scalar.rainbow.[37_agent_qtd/13_q_std] = q_std @learn
+metrics.scalar.rainbow.[37_agent_qtd/11_q_max_mean] = q_max_mean @learn
+metrics.scalar.rainbow.[37_agent_qtd/12_q_max_max] = q_max_max @learn
+metrics.scalar.rainbow.[37_agent_qtd/13_q_max_std] = q_max_std @learn
+metrics.scalar.rainbow.[37_agent_qtd/16_q_std] = q_std @learn
 metrics.scalar.rainbow.[37_agent_qtd/21_grad_norm] = grad_norm @learn interval:10
 metrics.scalar.rainbow.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema
 metrics.scalar.rainbow.[37_agent_qtd/24_grad_clip_ratio] = grad_clip_ratio @learn interval:10
@@ -153,9 +169,9 @@ metrics.scalar.dqn.[32_agent_dqn_base/10_collapse_s] = collapse_s @learn
 metrics.scalar.dqn.[32_agent_dqn_base/11_collapse_l] = collapse_l @learn
 metrics.scalar.dqn.[37_agent_dqn_qtd/01_td_mean] = td_mean @learn
 metrics.scalar.dqn.[37_agent_dqn_qtd/03_td_mean_ema] = td_mean @learn $ema
-metrics.scalar.dqn.[37_agent_dqn_qtd/11_q_mean] = q_mean @learn
-metrics.scalar.dqn.[37_agent_dqn_qtd/12_q_max] = q_max @learn
-metrics.scalar.dqn.[37_agent_dqn_qtd/13_q_std] = q_std @learn
+metrics.scalar.dqn.[37_agent_dqn_qtd/11_qmax_mean] = q_max_mean @learn
+metrics.scalar.dqn.[37_agent_dqn_qtd/12_qmax_max] = q_max_max @learn
+metrics.scalar.dqn.[37_agent_dqn_qtd/13_qmax_std] = q_max_std @learn
 metrics.scalar.dqn.[37_agent_dqn_qtd/21_grad_norm] = grad_norm @learn
 metrics.scalar.dqn.[37_agent_dqn_qtd/22_grad_clip_ratio] = grad_clip_ratio @learn
 metrics.scalar.dqn.[38_agent_dqn_loss/01_loss] = loss @learn
@@ -197,9 +213,9 @@ metrics.scalar.full.[32_agent_base/10_collapse_s] = collapse_s @learn
 metrics.scalar.full.[32_agent_base/11_collapse_l] = collapse_l @learn
 metrics.scalar.full.[37_agent_qtd/01_td_mean] = td_mean @learn
 metrics.scalar.full.[37_agent_qtd/03_td_ema] = td_ema @learn
-metrics.scalar.full.[37_agent_qtd/11_q_mean] = q_mean @learn
-metrics.scalar.full.[37_agent_qtd/12_q_max] = q_max @learn
-metrics.scalar.full.[37_agent_qtd/13_q_std] = q_std @learn
+metrics.scalar.full.[37_agent_qtd/11_qmax_mean] = q_max_mean @learn
+metrics.scalar.full.[37_agent_qtd/12_qmax_max] = q_max_max @learn
+metrics.scalar.full.[37_agent_qtd/13_qmax_std] = q_max_std @learn
 metrics.scalar.full.[37_agent_qtd/21_grad_norm] = grad_norm @learn
 metrics.scalar.full.[37_agent_qtd/22_grad_clip_ratio] = grad_clip_ratio @learn
 metrics.scalar.full.[38_agent_loss/01_loss] = loss @learn

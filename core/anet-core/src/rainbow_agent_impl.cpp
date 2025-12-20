@@ -143,6 +143,163 @@ std::optional<anet::TensorFunction> DuelingQNet::GetTensorFunction(const std::st
 
 
 // ======================================================
+// RainbowAgent QuantilePlainQNet
+// ======================================================
+
+QuantilePlainQNet::QuantilePlainQNet(const RainbowAgentConfig& config, int state_dim, int n_actions)
+    : BaseQNet(config, state_dim, n_actions), num_quantiles_(config.num_quantiles)
+{
+    ANET_ASSERT(num_quantiles_ > 1);
+
+    // 出力層: Actions * Quantiles
+    fc3_ = register_module("fc3", torch::nn::Linear(config.nn_hidden2, n_actions_ * num_quantiles_));
+    InitWeightsLinear(fc3_, config.nn_init_mode, /*is_relu=*/false);
+}
+
+torch::Tensor QuantilePlainQNet::Forward(const torch::Tensor& obs)
+{
+    // 分布を計算し、平均を取って期待値Qとする
+    auto q_dist = ForwardQuantiles(obs); // (B, A, N)
+    return q_dist.mean(2);               // (B, A) -> mean over quantiles
+}
+
+torch::Tensor QuantilePlainQNet::ForwardQuantiles(const torch::Tensor& obs)
+{
+    auto x = obs;
+    x = torch::relu(fc1_->forward(x));
+    x = torch::relu(fc2_->forward(x));
+    x = fc3_->forward(x); // (B, A * N)
+
+    // Reshape to (B, A, N)
+    auto batch_size = x.size(0);
+    x = x.view({ batch_size, n_actions_, num_quantiles_ });
+
+    return x;
+}
+
+std::optional<anet::TensorFunction> QuantilePlainQNet::GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex)
+{
+    // 既存の可視化用キー
+    if (key == "forward" || key == "forward.q") {
+        return [this, device, smutex](const torch::Tensor& t) {
+            auto tdev = t.to(device);
+            std::shared_lock<std::shared_mutex> lock(*smutex);
+            return Forward(tdev);
+            };
+    }
+    // 分布可視化用
+    if (key == "forward.dist") {
+        return [this, device, smutex](const torch::Tensor& t) {
+            auto tdev = t.to(device);
+            std::shared_lock<std::shared_mutex> lock(*smutex);
+            return ForwardQuantiles(tdev);
+            };
+    }
+    return std::nullopt;
+}
+
+
+// ======================================================
+// RainbowAgent QuantileDuelingQNet
+// ======================================================
+
+QuantileDuelingQNet::QuantileDuelingQNet(const RainbowAgentConfig& config, int state_dim, int n_actions)
+    : BaseQNet(config, state_dim, n_actions), num_quantiles_(config.num_quantiles)
+{
+    ANET_ASSERT(num_quantiles_ > 1);
+
+    // Value stream: (Batch, 1 * N)
+    value_ = register_module("value", torch::nn::Linear(config.nn_hidden2, 1 * num_quantiles_));
+
+    // Advantage stream: (Batch, A * N)
+    adv_ = register_module("adv", torch::nn::Linear(config.nn_hidden2, n_actions_ * num_quantiles_));
+
+    InitWeightsLinear(value_, config.nn_init_mode, /*is_relu=*/false);
+    InitWeightsLinear(adv_, config.nn_init_mode, /*is_relu=*/false);
+}
+
+torch::Tensor QuantileDuelingQNet::Forward(const torch::Tensor& obs)
+{
+    auto q_dist = ForwardQuantiles(obs); // (B, A, N)
+    return q_dist.mean(2);               // (B, A)
+}
+
+torch::Tensor QuantileDuelingQNet::ForwardQuantiles(const torch::Tensor& obs)
+{
+    auto x = obs;
+    x = torch::relu(fc1_->forward(x));
+    x = torch::relu(fc2_->forward(x));
+
+    // Value: (B, H) -> (B, N) -> (B, 1, N)
+    auto v = value_->forward(x);
+    auto batch_size = v.size(0);
+    v = v.view({ batch_size, 1, num_quantiles_ });
+
+    // Advantage: (B, H) -> (B, A * N) -> (B, A, N)
+    auto a = adv_->forward(x);
+    a = a.view({ batch_size, n_actions_, num_quantiles_ });
+
+    // Mean Advantage across actions: (B, 1, N)
+    auto a_mean = a.mean(/*dim=*/1, /*keepdim=*/true);
+
+    // Q(s, a, tau) = V(s, tau) + (A(s, a, tau) - mean(A, dim=1))
+    // Broadcasting: (B, 1, N) + (B, A, N) - (B, 1, N) => (B, A, N)
+    auto q = v + (a - a_mean);
+
+    return q;
+}
+
+std::optional<anet::TensorFunction> QuantileDuelingQNet::GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex)
+{
+    // 平均値Q (Scalar)
+    if (key == "forward" || key == "forward.q") {
+        return [this, device, smutex](const torch::Tensor& t) {
+            auto tdev = t.to(device);
+            std::shared_lock<std::shared_mutex> lock(*smutex);
+            return Forward(tdev);
+            };
+    }
+    // 分布Q (Distribution)
+    if (key == "forward.dist") {
+        return [this, device, smutex](const torch::Tensor& t) {
+            auto tdev = t.to(device);
+            std::shared_lock<std::shared_mutex> lock(*smutex);
+            return ForwardQuantiles(tdev);
+            };
+    }
+    // Value & Advantage 分離出力 (B, 1+A, N)
+    if (key == "forward.va") {
+        return [this, device, smutex](const torch::Tensor& t) {
+            auto x = t.to(device);
+            std::shared_lock<std::shared_mutex> lock(*smutex);
+
+            x = torch::relu(fc1_->forward(x));
+            x = torch::relu(fc2_->forward(x));
+
+            // Value: (B, H) -> (B, 1*N) -> (B, 1, N)
+            auto v = value_->forward(x);
+            auto batch_size = v.size(0);
+            v = v.view({ batch_size, 1, num_quantiles_ });
+
+            // Advantage: (B, H) -> (B, A*N) -> (B, A, N)
+            auto a = adv_->forward(x);
+            a = a.view({ batch_size, n_actions_, num_quantiles_ });
+
+            // Concatenate: (B, 1 + A, N)
+            // index 0: Value Distribution
+            // index 1..A: Advantage Distribution
+            auto va = torch::cat({ v, a }, 1);
+            ANET_CHECK_SHAPE(va, { ANET_SHAPE_ANY, 1 + n_actions_, num_quantiles_ });
+
+            return va;
+            };
+    }
+
+    return std::nullopt;
+}
+
+
+// ======================================================
 // RainbowAgent Network
 // ======================================================
 
@@ -161,16 +318,8 @@ RainbowAgent::Network::Network(
 
 torch::Tensor RainbowAgent::Network::ForwardExpectation(const torch::Tensor& obs, bool use_target) const
 {
-    ANET_ASSERT(!policy_net_->IsDistributional());    /// @todo QR-DQN対応
-
     const auto& net = use_target ? target_net_ : policy_net_;
     auto q = net->Forward(obs);
- 
-    ///// @todo QR-DQN の場合は quantile の平均を取る
-    //if (policy_net_->IsDistributional()) {
-    //    return q.mean(-1);
-    //}
-
     return q;
 }
 
@@ -186,7 +335,7 @@ torch::Tensor RainbowAgent::Network::ForwardQuantiles(const torch::Tensor& obs, 
     ANET_ASSERT(policy_net_->IsDistributional());
 
     const auto& net = use_target ? target_net_ : policy_net_;
-    return net->Forward(obs);
+    return net->ForwardQuantiles(obs);
 }
 
 std::vector<torch::Tensor> RainbowAgent::Network::GetPolicyParameters() const
@@ -357,72 +506,50 @@ std::optional<std::vector<torch::Tensor>> RainbowAgent::Learner::GetTensorVector
     return std::nullopt;
 }
 
-
-// ======================================================
-// RainbowAgent TDLearner
-// ======================================================
-
-RainbowAgent::TDLearner::TDLearner(RainbowAgent& agent, const EnvSpec& env_spec, seed_t replay_seed)
-    : Learner(agent)
+void RainbowAgent::Learner::SetupOptimizer()
 {
-    // ReplayBufferConfig
+    this->optimizer_ = std::make_unique<torch::optim::Adam>(
+        agent_.network_->GetPolicyParameters(),
+        torch::optim::AdamOptions(agent_.config_.alpha));
+}
+
+void RainbowAgent::Learner::SetupReplayBuffer(const EnvSpec& env_spec, seed_t seed)
+{
     anet::rl::ReplayBufferConfig rep_config{};
     rep_config.capacity = agent_.config_.replay_capacity;
     rep_config.gamma = agent_.config_.gamma;
     rep_config.n_step = agent_.config_.n_step;
+    rep_config.type = agent_.config_.use_n_step ? ReplayBuilderType::NSTEP : ReplayBuilderType::PLAIN;
 
-    // N-Step 設定
-    if (agent_.config_.use_n_step)
-        rep_config.type = ReplayBuilderType::NSTEP;
-    else
-        rep_config.type = ReplayBuilderType::PLAIN;
-
-    // PER 設定
     if (agent_.config_.use_per) {
         rep_config.sampler_type = ReplaySamplerType::PRIOTIZED;
         rep_config.per_alpha = agent_.config_.per_alpha;
         rep_config.per_initial_priority = agent_.config_.per_initial_priority;
-
-        // RuntimeVarsのbeta初期化
         agent_.vars_->per_beta = agent_.config_.per_beta_start;
     } else {
         rep_config.sampler_type = ReplaySamplerType::UNIFORM;
     }
 
-    // ReplayBuffer生成
     anet::rl::ReplayBufferFactory rep_factory(rep_config);
-    //if (agent_.config_.use_n_step) {
-        //this->replay_buffer_ = rep_factory.Create(env_spec, agent.device_, agent_.batch_size_, replay_seed);      // GPUだと遅くなる
-        this->replay_buffer_ = rep_factory.Create(env_spec, torch::kCPU, agent_.batch_size_, replay_seed);
-    //} else {
-    //    this->replay_buffer_ = std::make_shared<anet::rl::PlainReplayBuffer>(env_spec, agent_.config_.replay_capacity, replay_seed);
-    //}
-
-    // Optimizer生成
-    this->optimizer_ = std::make_unique<torch::optim::Adam>(agent_.network_->GetPolicyParameters(), torch::optim::AdamOptions(agent_.config_.alpha));
+    this->replay_buffer_ = rep_factory.Create(env_spec, torch::kCPU, agent_.batch_size_, seed);
 }
 
-bool RainbowAgent::TDLearner::CanUpdate(step_t update_step) const
+bool RainbowAgent::Learner::CanUpdate(step_t update_step) const
 {
-    //if (replay_buffer_->Size() < agent_.config_.replay_batch_size)
-    //    return false;
-
     /// @todo ReplayBuffer充足チェックにexp_stepを使う？
 
-    // warmup（batch_sizeが大きいとexpが早く溜まるので補正）
+    // warmup
     if (update_step < agent_.config_.update_warmup_steps * agent_.batch_size_)
         return false;
-
-    // update_interval間隔で更新
+    // update_interval
     if ((update_step % agent_.config_.update_interval) != 0)
         return false;
-
     return true;
 }
 
-void RainbowAgent::TDLearner::UpdateEpsilon(step_t learn_step)
+void RainbowAgent::Learner::UpdateEpsilon(step_t learn_step)
 {
-    ProfileRange r("RainbowAgent::TDLearner::UpdateEpsilon");
+    ProfileRange r("RainbowAgent::Learner::UpdateEpsilon");
 
     const auto& config = agent_.config_;
     auto& vars = *agent_.vars_;
@@ -431,49 +558,52 @@ void RainbowAgent::TDLearner::UpdateEpsilon(step_t learn_step)
         vars.epsilon = config.eps_min;
         return;
     }
-
     const float t = static_cast<float>(learn_step) / static_cast<float>(config.eps_decay_step);
-
     vars.epsilon = config.eps_max + t * (config.eps_min - config.eps_max);
 }
 
-void RainbowAgent::TDLearner::UpdateTargetNetwork(step_t step)
+void RainbowAgent::Learner::UpdateTargetNetwork(step_t step)
 {
-    ProfileRange r("RainbowAgent::TDLearner::UpdateTargetNetwork");
-
+    ProfileRange r("RainbowAgent::Learner::UpdateTargetNetwork");
     agent_.network_->UpdateTarget(step);
 }
 
-std::shared_ptr<const anet::rl::BatchUpdateResult>
-RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchExperience& experiences, const Runner& trainer)
+void RainbowAgent::Learner::UpdatePerBeta(step_t learn_step)
 {
-    ProfileRange r("RainbowAgent::TDLearner::UpdateFromBatch");
+    ProfileRange r("RainbowAgent::Learner::UpdatePerBeta");
 
-    const auto& update_step = counts.update_step;
     const auto& config = agent_.config_;
-    auto& network = *agent_.network_;
     auto& vars = *agent_.vars_;
 
-    const int B = config.replay_batch_size;
-    const int S = agent_.state_dim_;
-    const int A = agent_.n_actions_;
-    const torch::Device& device = agent_.device_;
+    if (!config.use_per) return;
 
-    // ------------------------------------------------------------
+    if (learn_step < config.per_beta_step) {
+        float progress = static_cast<float>(learn_step) / static_cast<float>(config.per_beta_step);
+        vars.per_beta = config.per_beta_start + progress * (config.per_beta_end - config.per_beta_start);
+    } else {
+        vars.per_beta = config.per_beta_end;
+    }
+}
+
+std::shared_ptr<const anet::rl::BatchUpdateResult> RainbowAgent::Learner::UpdateFromBatch(
+    const StepCounts& counts, const BatchExperience& experiences, const Runner& trainer)
+{
     // ReplayBuffer へ push
-    // ------------------------------------------------------------
     replay_buffer_->Push(experiences);
 
-    // Update不可ならLeanStep差分無しで返す
-    if (!CanUpdate(update_step)) {
-        auto result = std::make_shared<anet::rl::RainbowAgent::BatchUpdateResult>(0);
-        return result;
+    // Update不可なら空の結果を返す
+    if (!CanUpdate(counts.update_step)) {
+        return std::make_shared<anet::rl::RainbowAgent::BatchUpdateResult>(0);
     }
 
-    // ------------------------------------------------------------
+    const auto& config = agent_.config_;
+    auto& vars = *agent_.vars_;
+    const torch::Device& device = agent_.device_;
+    const int B = config.replay_batch_size;
+    const int S = agent_.state_dim_;
+    //const int A = agent_.n_actions_;
+
     // Sample
-    // ------------------------------------------------------------
-    // PERの場合は現在のbetaを使用、それ以外は無視される
     float current_beta = config.use_per ? vars.per_beta : 0.0f;
     auto raw_samples = replay_buffer_->Sample(config.replay_batch_size, device, current_beta);
 
@@ -498,8 +628,44 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
 
     auto samples = raw_samples.FlattenStates();
 
+    // 固有処理呼び出し
+    auto result = UpdateFromSamples(samples);
+
+    // Post Updates (学習ステップ更新後に行う)
+    vars.learn_step++;
+
+    // 更新後処理
+    UpdateTargetNetwork(vars.learn_step);
+    UpdateEpsilon(vars.learn_step);
+    UpdatePerBeta(vars.learn_step);
+
+    return result;
+}
+
+// ======================================================
+// RainbowAgent TDLearner
+// ======================================================
+
+RainbowAgent::TDLearner::TDLearner(RainbowAgent& agent, const EnvSpec& env_spec, seed_t replay_seed)
+    : Learner(agent)
+{
+    SetupReplayBuffer(env_spec, replay_seed);
+    SetupOptimizer();
+}
+
+std::shared_ptr<const anet::rl::BatchUpdateResult>
+RainbowAgent::TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
+{
+    ProfileRange r("RainbowAgent::TDLearner::UpdateFromBatch");
+
+    const auto& config = agent_.config_;
+    auto& network = *agent_.network_;
+    auto& vars = *agent_.vars_;
+    const int B = config.replay_batch_size;
+    const int S = agent_.state_dim_;
+    const int A = agent_.n_actions_;
+    const torch::Device& device = agent_.device_;
     const auto& obs = samples.obs;
-    // const auto& actions = samples.actions; // 未使用
     const auto& target_values = samples.target_values;
     const auto& next_obs = samples.next_states.obs;
     const auto& terminals = samples.next_states.terminals;
@@ -555,7 +721,6 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     auto td_target = target_values + not_terminal * config.gamma * max_next_q.detach(); // (B,)
     ANET_CHECK_SHAPE(td_target, { B });
     ANET_CHECK_DTYPE(td_target, torch::kFloat32);
-
     auto td_error = q_sa - td_target; // (B,)
 
     // ------------------------------------------------------------
@@ -611,6 +776,7 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     // ------------------------------------------------------------
     // Loss Calculation
     // ------------------------------------------------------------
+
     torch::Tensor td_error_for_loss = td_error;
     if (config.use_td_clip && config.td_clip_value > 0.0f)
         td_error_for_loss = torch::clamp(td_error_for_loss, -config.td_clip_value, config.td_clip_value);
@@ -670,23 +836,6 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
     // optimize
     // ------------------------------------------------------------
     optimizer_->step();
-    vars.learn_step++;
-
-    // ------------------------------------------------------------
-    // Post Updates
-    // ------------------------------------------------------------
-    UpdateTargetNetwork(vars.learn_step);
-    UpdateEpsilon(vars.learn_step);
-
-    // PER Beta Update
-    if (config.use_per) {
-        if (vars.learn_step < config.per_beta_step) {
-            float progress = static_cast<float>(vars.learn_step) / static_cast<float>(config.per_beta_step);
-            vars.per_beta = config.per_beta_start + progress * (config.per_beta_end - config.per_beta_start);
-        } else {
-            vars.per_beta = config.per_beta_end;
-        }
-    }
 
     // ------------------------------------------------------------
     // UpdateResult
@@ -704,5 +853,266 @@ RainbowAgent::TDLearner::UpdateFromBatch(const StepCounts& counts, const BatchEx
         result->per_priorities = metric_per_priorities;
         result->per_is_weights = metric_per_is_weights;
     }
+    return result;
+}
+
+
+// ======================================================
+// RainbowAgent QRLearner (New Implementation)
+// ======================================================
+
+RainbowAgent::QRLearner::QRLearner(RainbowAgent& agent, const EnvSpec& env_spec, seed_t replay_seed)
+    : Learner(agent)
+{
+    SetupReplayBuffer(env_spec, replay_seed);
+    SetupOptimizer();
+}
+
+torch::Tensor RainbowAgent::QRLearner::ComputeQuantileHuberLoss(
+    const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& weights) const
+{
+    ProfileRange r("RainbowAgent::QRLearner::ComputeQuantileHuberLoss");
+
+    const int N = agent_.config_.num_quantiles;
+    const float kappa = agent_.config_.quantile_huber_kappa;
+    const auto& device = current_dist.device();
+    const auto B = current_dist.size(0);
+
+    // 入力チェック
+    ANET_CHECK_SHAPE(current_dist, { B, N });
+    ANET_CHECK_SHAPE(target_dist, { B, N });
+    ANET_CHECK_SHAPE(weights, { B });
+
+    // current: (B, N) -> (B, N, 1)
+    // target : (B, N) -> (B, 1, N)
+    auto cur = current_dist.unsqueeze(2);
+    auto tgt = target_dist.unsqueeze(1);
+    ANET_CHECK_SHAPE(cur, { B, N, 1 });
+    ANET_CHECK_SHAPE(tgt, { B, 1, N });
+
+    // pair-wise差分: (B, N, N)
+    auto diff = tgt - cur;
+    ANET_CHECK_SHAPE(diff, { B, N, N });
+
+    // 分位数 tau_i = (i + 0.5) / N
+    auto tau = torch::arange(0.5f / N, 1.0f, 1.0f / N, device).view({ 1, N, 1 });
+    ANET_CHECK_SHAPE(tau, { 1, N, 1 });
+
+    // Huber Loss
+    auto abs_diff = diff.abs();
+    auto huber = torch::where(abs_diff < kappa, 0.5f * diff.pow(2), kappa * (abs_diff - 0.5f * kappa));
+    ANET_CHECK_SHAPE(huber, { B, N, N });
+
+    // Quantile Regression Loss
+    // rho_tau(u) = |tau - I(u<0)| * L_k(u)
+    auto indicator = (diff.detach() < 0).to(torch::kFloat);
+    auto quantile_weight = torch::abs(tau - indicator);
+    ANET_CHECK_SHAPE(quantile_weight, { B, N, N });
+
+    auto loss_per_pair = quantile_weight * huber; // (B, N, N)
+    ANET_CHECK_SHAPE(loss_per_pair, { B, N, N });
+
+    // ターゲット分位数(dim=2)で総和、現在の分位数(dim=1)で平均
+    auto loss_per_batch = loss_per_pair.sum(2).mean(1); // (B)
+    ANET_CHECK_SHAPE(loss_per_batch, { B });
+
+    // 重み付き平均
+    auto weighted_loss = (loss_per_batch * weights).mean();
+    ANET_CHECK_SHAPE(weighted_loss, {});
+
+    return weighted_loss;
+}
+
+std::shared_ptr<const anet::rl::BatchUpdateResult>
+RainbowAgent::QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
+{
+    ProfileRange r("RainbowAgent::QRLearner::UpdateFromSamples");
+
+    const auto& config = agent_.config_;
+    const int B = config.replay_batch_size;
+    const int A = agent_.n_actions_;
+    const int N = config.num_quantiles;
+    const torch::Device& device = agent_.device_;
+
+    // 入力チェック
+    ANET_CHECK_SHAPE(samples.actions, { B });
+    ANET_CHECK_SHAPE(samples.target_values, { B });
+    ANET_CHECK_SHAPE(samples.next_states.terminals, { B });
+
+    // 現在の分布計算: Z(s, a)、ForwardQuantiles は (B, A, N) を返す
+    auto current_dist_all = agent_.network_->ForwardQuantiles(samples.obs, /*use_target=*/false);
+    ANET_CHECK_SHAPE(current_dist_all, { B, A, N });
+
+    // 選択された行動の分布を取得: (B, A, N) -> (B, N)
+    torch::Tensor idx_actions = samples.actions.view({ B, 1, 1 }).expand({ B, 1, N });
+    ANET_CHECK_SHAPE(idx_actions, { B, 1, N });
+
+    auto current_dist = current_dist_all.gather(1, idx_actions).squeeze(1); // (B, N)
+    ANET_CHECK_SHAPE(current_dist, { B, N });
+
+    // メトリクス用: 平均値をmax_qとして報告
+    auto max_q = current_dist.mean(1).detach(); // (B)
+    ANET_CHECK_SHAPE(max_q, { B });
+
+    // メトリクス用: Q Std (分布の標準偏差)、 GPUTensor (Scalar) のまま保持
+    auto std_q_tensor = current_dist.std(1).mean().detach();
+    ANET_CHECK_SHAPE(std_q_tensor, {});
+
+    // ターゲット分布計算: r + gamma * Z(s', a*)
+    torch::Tensor target_dist;
+    {
+        torch::NoGradGuard no_grad;
+
+        // 次状態のGreedy行動 a* = argmax E[Z(s', a')]
+        torch::Tensor next_actions;
+        if (config.use_double_dqn) {
+            auto next_q_policy = agent_.network_->Forward(samples.next_states.obs, /*use_target=*/false); // (B, A)
+            ANET_CHECK_SHAPE(next_q_policy, { B, A });
+            next_actions = std::get<1>(next_q_policy.max(1)); // (B)
+        } else {
+            auto next_q_target = agent_.network_->Forward(samples.next_states.obs, /*use_target=*/true); // (B, A)
+            ANET_CHECK_SHAPE(next_q_target, { B, A });
+            next_actions = std::get<1>(next_q_target.max(1)); // (B)
+        }
+        ANET_CHECK_SHAPE(next_actions, { B });
+
+        // 次状態のターゲット分布: Z_target(s', :)
+        auto next_dist_all = agent_.network_->ForwardQuantiles(samples.next_states.obs, /*use_target=*/true); // (B, A, N)
+        ANET_CHECK_SHAPE(next_dist_all, { B, A, N });
+
+        // a* に対応する分布を選択: (B, A, N) -> (B, N)
+        torch::Tensor idx_next_actions = next_actions.view({ B, 1, 1 }).expand({ B, 1, N });
+        ANET_CHECK_SHAPE(idx_next_actions, { B, 1, N });
+
+        auto next_dist = next_dist_all.gather(1, idx_next_actions).squeeze(1); // (B, N)
+        ANET_CHECK_SHAPE(next_dist, { B, N });
+
+        // ベルマン作用素適用: T = r + gamma * Z(s', a*)
+        auto reward = samples.target_values.view({ B, 1 }); // (B, 1)
+        auto not_terminal = (1.0f - samples.next_states.terminals.to(torch::kFloat32)).view({ B, 1 }); // (B, 1)
+        ANET_CHECK_SHAPE(reward, { B, 1 });
+        ANET_CHECK_SHAPE(not_terminal, { B, 1 });
+
+        // (B, 1) + (B, 1) * (B, N) -> (B, N)
+        target_dist = reward + config.gamma * not_terminal * next_dist;
+        ANET_CHECK_SHAPE(target_dist, { B, N });
+    }
+
+    // target_dist: (B, N) -> mean -> (B)
+    auto target_mean = target_dist.mean(1).detach();
+
+    // current_dist.mean(1) は max_q (detach済み) と同じ
+    // TDLearner: q_sa - td_target に合わせる
+    auto td_error_tensor = max_q - target_mean;
+
+    // 損失計算 (Quantile Huber Loss)
+    torch::Tensor weights = config.use_per ? samples.is_weights : torch::ones({ B }, device);
+    ANET_CHECK_SHAPE(weights, { B });
+
+    // Loss: (B, N) vs (B, N) -> Scalar
+    auto loss = ComputeQuantileHuberLoss(current_dist, target_dist, weights);
+    ANET_CHECK_SHAPE(loss, {}); // scalar
+
+    // 勾配計算
+    optimizer_->zero_grad();
+    loss.backward();
+
+    // 勾配クリッピング
+    torch::Tensor grad_norm_tensor;
+    std::optional<float> grad_norm;
+    bool grad_clipped = false;
+    if (config.use_grad_clip) {
+        double grad_norm_val = torch::nn::utils::clip_grad_norm_(
+            agent_.network_->GetPolicyParameters(), config.grad_clip_tau);
+        grad_norm = static_cast<float>(grad_norm_val);
+        grad_clipped = (grad_norm_val > config.grad_clip_tau);
+    } else {
+        torch::Tensor total_sq = torch::zeros({ 1 }, loss.options());
+        for (auto& p : agent_.network_->GetPolicyParameters()) {
+            if (!p.grad().defined()) continue;
+            total_sq += p.grad().detach().pow(2).sum();
+        }
+        grad_norm_tensor = total_sq.sqrt();
+    }
+    float grad_clip_ratio = grad_clipped ? 1.0f : 0.0f;
+
+    // パラメータ更新
+    optimizer_->step();
+
+    // PER優先度更新
+    torch::Tensor metric_per_clipped_count;
+    torch::Tensor metric_per_priorities;
+    torch::Tensor metric_per_is_weights;
+
+    if (config.use_per) {
+        torch::NoGradGuard no_grad;
+
+        // 優先度用に要素ごとのLossを再計算（ブロードキャストを利用して全ペア差分を計算）
+        auto tgt = target_dist.unsqueeze(1); // (B, 1, N)
+        auto cur = current_dist.unsqueeze(2); // (B, N, 1)
+        ANET_CHECK_SHAPE(tgt, { B, 1, N });
+        ANET_CHECK_SHAPE(cur, { B, N, 1 });
+
+        auto diff = tgt - cur; // (B, N, N)
+        ANET_CHECK_SHAPE(diff, { B, N, N });
+
+        // HuberLoss 部分
+        auto tau = torch::arange(0.5f / N, 1.0f, 1.0f / N, device).view({ 1, N, 1 });
+        auto huber_loss = torch::where(
+            diff.abs() < config.quantile_huber_kappa,
+            0.5f * diff.pow(2),
+            config.quantile_huber_kappa * (diff.abs() - 0.5f * config.quantile_huber_kappa)
+        );
+
+        // Quantile Loss 部分: rho_tau(u) = |tau - I(u<0)| * L_k(u)
+        auto element_wise_loss = (torch::abs(tau - (diff.detach() < 0).to(torch::kFloat)) * huber_loss).sum(2).mean(1); // (B)
+        ANET_CHECK_SHAPE(element_wise_loss, { B });
+
+        // Priority
+        auto new_priorities = element_wise_loss + config.per_eps;
+        ANET_CHECK_SHAPE(new_priorities, { B });
+
+        // PER clip
+        if (config.use_per_prio_clip) {
+            metric_per_clipped_count = (new_priorities > config.per_prio_clip_value).sum();
+            new_priorities = torch::clamp(new_priorities, 0.0f, config.per_prio_clip_value);
+        } else {
+            metric_per_clipped_count = torch::zeros({}, new_priorities.options());
+        }
+        metric_per_priorities = new_priorities;
+
+        // Priorityをstd::vectorに詰める
+        auto indices_cpu = samples.indices.cpu();
+        auto indices_ptr = indices_cpu.data_ptr<int64_t>();
+        std::vector<int64_t> indices_vec(indices_ptr, indices_ptr + B);
+
+        auto prios_cpu = new_priorities.cpu();
+        auto prios_ptr = prios_cpu.data_ptr<float>();
+        std::vector<float> priorities_vec(prios_ptr, prios_ptr + B);
+            /// @todo PERの優先度更新にはCPU値が必要なので、ここでは同期が発生する
+
+        // Priority更新
+        replay_buffer_->UpdatePriorities(indices_vec, priorities_vec);
+        if (samples.is_weights.defined()) {
+            metric_per_is_weights = samples.is_weights;
+        }
+    }
+
+    // 結果生成
+    auto result = std::make_shared<anet::rl::RainbowAgent::BatchUpdateResult>(1);
+    result->loss = loss;
+    result->td_error = td_error_tensor;
+    result->grad_norm = grad_norm;
+    result->grad_norm_tensor = grad_norm_tensor;
+    result->grad_clip_ratio = grad_clip_ratio;
+    result->max_q = max_q;
+    if (config.use_per) {
+        result->per_minibatch_size = B;
+        result->per_clipped_count = metric_per_clipped_count;
+        result->per_priorities = metric_per_priorities;
+        result->per_is_weights = metric_per_is_weights;
+    }
+    result->q_std = std_q_tensor;
+
     return result;
 }
