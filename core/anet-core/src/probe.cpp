@@ -2,9 +2,10 @@
 
 #include "anet/probe.hpp"
 #include <sstream>
-#include <wx/log.h>
+#include "anet/log.hpp"
 
 using namespace anet::rl;
+namespace LOG = anet::log;
 
 std::optional<float> MetricsScalarProbe::GetFloat(const TrainEvent& event) const
 {
@@ -238,7 +239,12 @@ AgentTensorVectorProbe::AgentTensorVectorProbe(
 std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const UpdateEvent& event) const
 {
     auto opt_vec = event.agent->GetTensorVector(key_);
-    ANET_ASSERT(opt_vec.has_value());
+    //ANET_ASSERT(opt_vec.has_value());
+    if (!opt_vec.has_value()) {
+        //LOG::warn() << "AgentTensorVectorProbe::GetVector() failed to get value." << this->GetName();
+        return std::nullopt;
+    }
+
     const auto& tvec = opt_vec.value();
 
     std::vector<float> out;
@@ -496,8 +502,15 @@ namespace anet::rl::extractor {
         return { t.mean(1) }; // [W*H]
     }
     ExtractResult IndexExtractor(
-        const torch::Tensor& t, const std::unordered_set<std::string>& req, int idx) {
-        return { t.index({ torch::indexing::Slice(), idx }) };
+        const torch::Tensor& t, const std::unordered_set<std::string>& req, int idx)
+    {
+        //return { t.index({ torch::indexing::Slice(), idx }) };
+
+        auto extracted = t.index({ torch::indexing::Slice(), idx });
+        if (extracted.dim() > 1) {
+            extracted = extracted.mean(/*dim=*/1);
+        }
+        return { extracted };
     }
     ExtractResult DiffIndexExtractor(
         const torch::Tensor& t, const std::unordered_set<std::string>& req, int plus_idx, int minus_idx) {

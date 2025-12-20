@@ -10,6 +10,7 @@
 #include "anet/log.hpp"
 #include "anet/observers.hpp"
 #include "anet/replay_buffer.hpp"
+#include "anet/rainbow_agent.hpp"
 #include "LunarLanderFrame.hpp"
 #include "UISnapshot.hpp"
 
@@ -25,8 +26,8 @@ struct LunarLanderApp::Config : public anet::Config
     int train_timer_ms = 10;
     int eval_timer_ms = 10;
     int eval_step_per_frame = 1;
-    bool use_image_log = true;
-    bool use_per_image_log = true;
+    bool use_image_log = false;
+    bool use_per_image_log = false;
 
     LunarLanderApp::Config(const anet::ConfigData& config_data) : anet::Config(config_data, "LunarLanderApp")
     {
@@ -127,7 +128,7 @@ bool LunarLanderApp::OnInit()
     InitTrainer();
     trainer_->GetNotifier()->LogObservers();
     if (config_->use_image_log) InitImageLogObservers();
-    if (config_->use_per_image_log) InitPERImageLogObservers();
+    if (config_->use_per_image_log) InitPERImageLogObservers(config_data);
 
     // Trainerスレッド生成
     trainer_thread_ = std::make_unique<anet::rl::RunnerThread>(
@@ -272,9 +273,11 @@ void LunarLanderApp::InitImageLogObservers()
     auto flags =
         //anet::HeatMapFlags::HM_LogScaleValue | 
         anet::HeatMapFlags::HM_AutoNormValue
-        | anet::HeatMapFlags::HM_AutoScaleAxis
+        | anet::HeatMapFlags::HM_AutoScaleAxis	// ★
         //| anet::HeatMapFlags::HM_LogScaleAxis
-        | anet::HeatMapFlags::HM_SumMode; // | anet::HeatMapFlags::HM_ShowZeroLine;
+        //| anet::HeatMapFlags::HM_MeanMode;
+        | anet::HeatMapFlags::HM_SumMode;
+        //| anet::HeatMapFlags::HM_ShowZeroLine;
 
     // ---- Visit ----
 
@@ -337,12 +340,24 @@ void LunarLanderApp::InitImageLogObservers()
     auto v_extractor =
         [](const torch::Tensor& t, const std::unordered_set<std::string>& req)
         {
-            return anet::rl::extractor::IndexExtractor(t, req, 0);  // V : index=0
+            ANET_LOG_DEBUG("req=" << anet::ToDefString(t));
+            auto ret = anet::rl::extractor::IndexExtractor(t, req, 0);  // V : index=0
+            ANET_LOG_DEBUG("ret=" << anet::ToDefString(ret.grid));
+
+            // ★デバッグ用: 値の範囲と異常値をチェック
+            float min_val = ret.grid.min().item<float>();
+            float max_val = ret.grid.max().item<float>();
+            bool has_nan = ret.grid.isnan().any().item<bool>();
+
+            ANET_LOG_DEBUG("V_Extract: Shape=" << anet::ToDefString(ret.grid)
+                << " Min=" << min_val << " Max=" << max_val << " HasNaN=" << has_nan);
+
+            return ret;
         };
 
     anet::rl::SweepedHeatMapObserverConfig q_sweep_obs_config{
-        10,    // log_interval
-        flags,  // flags
+        1,    // log_interval
+        flags | anet::HeatMapFlags::HM_AutoScaleAxis,  // flags
         128,    // grid_width
         128,    // grid_height
         -1,     // image_width
@@ -371,7 +386,7 @@ void LunarLanderApp::InitImageLogObservers()
     using StrMap = std::unordered_map<std::string, std::string>;
 
     std::optional<anet::TensorFunction> policy_forward = agent->GetTensorFunction("policy_net.forward");
-    std::optional<anet::TensorFunction> va_policy_forward = agent->GetTensorFunction("policy_net.forward.va");
+    std::optional<anet::TensorFunction> v_policy_forward = agent->GetTensorFunction("policy_net.forward.v");
     //std::optional<anet::TensorFunction> qpair_forward = agent->GetTensorFunction("q_pair.forward");
     ANET_ASSERT(policy_forward.has_value());
 
@@ -380,59 +395,19 @@ void LunarLanderApp::InitImageLogObservers()
         "45_agent_img/05_shm_01_qmax", q_sweep_obs_config, proc_x_y_qmax, *policy_forward, proc_x_y_qmax);
     notifier->Attach<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/06_shm_02_qmean", q_sweep_obs_config, proc_x_y_qmean, *policy_forward, proc_x_y_qmean);
-    if (va_policy_forward.has_value())
+    if (v_policy_forward.has_value())
         notifier->Attach<anet::rl::SweepedHeatMapObserver>(
-            "45_agent_img/07_shm_03_v", q_sweep_obs_config, proc_x_y_v, *va_policy_forward, proc_x_y_v);
-
-
-    //const int grid_w = 128;
-    //const int grid_h = 128;
-    //const float y_min = 0.0f;
-    //const float y_max = 1.0f;
-    //const float x_min = 0.0f;
-    //const float x_max = 1.0f;
-    //anet::rl::ValueExtractFunction debug_x_extract =
-    //    [=](const torch::Tensor& t, const std::unordered_set<std::string>&)
-    //    -> anet::rl::ExtractResult
-    //    {
-    //        const int64_t grid_num = static_cast<int64_t>(grid_w) * grid_h;
-    //        auto idx = torch::arange(grid_num, torch::TensorOptions().dtype(torch::kInt64).device(t.device()));
-    //        auto x_idx = idx.remainder(grid_w); //            // x = idx % W
-    //        auto x = x_min + x_idx.to(torch::kFloat32) * (x_max - x_min) / (grid_w - 1);
-    //        return { x };
-    //    };
-    //anet::rl::ValueExtractFunction debug_y_extract =
-    //    [=](const torch::Tensor& t, const std::unordered_set<std::string>&)
-    //    -> anet::rl::ExtractResult
-    //    {
-    //        const int64_t grid_num = grid_w * grid_h;
-    //        auto idx = torch::arange(grid_num, torch::TensorOptions() .dtype(torch::kInt64).device(t.device()));
-    //        auto y_idx = idx.div(grid_w, "floor");
-    //        auto y = y_min + y_idx.to(torch::kFloat32) * (y_max - y_min) / (grid_h - 1);
-    //        return  { y };
-    //    };
-    //auto proc_x_debug = std::make_shared<anet::rl::StateSweepProcessor>(
-    //    env_spec.state_spec,
-    //    0,  // x_index = x
-    //    1,   // y_index = y
-    //    debug_x_extract
-    //);
-    //auto proc_y_debug = std::make_shared<anet::rl::StateSweepProcessor>(
-    //    env_spec.state_spec,
-    //    0,  // x_index = x
-    //    1,   // y_index = y
-    //    debug_y_extract
-    //);
-    //notifier->Attach<anet::rl::SweepedHeatMapObserver>(
-    //    "45_agent_img/99_debug_x", q_sweep_obs_config, proc_x_debug, *policy_forward, proc_x_debug);
-    //notifier->Attach<anet::rl::SweepedHeatMapObserver>(
-    //    "45_agent_img/99_debug_y", q_sweep_obs_config, proc_y_debug, *policy_forward, proc_y_debug);
-
+            "45_agent_img/07_shm_03_v", q_sweep_obs_config, proc_x_y_v, *v_policy_forward, proc_x_y_v);
 }
 
-
-void LunarLanderApp::InitPERImageLogObservers()
+void LunarLanderApp::InitPERImageLogObservers(const anet::ConfigData& config_data)
 {
+    anet::rl::RainbowAgentConfig agent_config(config_data);
+    if (!agent_config.use_per) {
+        LOG::warn() << "PER agent config disabled. Skipping PER ImageLog observer.";
+        return;
+    }
+
     auto notifier = trainer_->GetNotifier();
     auto env_spec = trainer_->GetBatchEnv()->GetSpec();
     auto agent = trainer_->GetAgent();
@@ -451,7 +426,7 @@ void LunarLanderApp::InitPERImageLogObservers()
     auto rep_y_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 1, &env_spec.state_spec);
     auto rep_prio_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::PER_DIST, -1);
 
-    anet::rl::HeatMapObserverConfig replay_heat_obs_config{
+    anet::rl::HeatMapObserverConfig replay_heat_obs_config {
         512,    // width
         512,    // height
         100,    // log_interval 

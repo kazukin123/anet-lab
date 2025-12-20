@@ -109,7 +109,8 @@ torch::Tensor DuelingQNet::Forward(const torch::Tensor& obs)
     return q;
 }
 
-std::optional<anet::TensorFunction> DuelingQNet::GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex)
+std::optional<anet::TensorFunction> DuelingQNet::GetTensorFunction(
+    const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex)
 {
     if (key == "forward" || key == "forward.q") {
         anet::TensorFunction fn = [this, device, smutex](const torch::Tensor& t) {
@@ -134,6 +135,20 @@ std::optional<anet::TensorFunction> DuelingQNet::GetTensorFunction(const std::st
 
             return va;
 
+            };
+        return fn;
+    }
+    if (key == "forward.v") {
+        anet::TensorFunction fn = [this, device, smutex](const torch::Tensor& t) {
+            auto x = t.to(device);
+            std::shared_lock<std::shared_mutex> lock(*smutex);
+            x = torch::relu(fc1_->forward(x));
+            x = torch::relu(fc2_->forward(x));
+
+            auto v = value_->forward(x);        // (B, 1)
+            ANET_CHECK_SHAPE(v, { ANET_SHAPE_ANY, 1 });
+
+            return v;
             };
         return fn;
     }
@@ -220,8 +235,23 @@ QuantileDuelingQNet::QuantileDuelingQNet(const RainbowAgentConfig& config, int s
 
 torch::Tensor QuantileDuelingQNet::Forward(const torch::Tensor& obs)
 {
-    auto q_dist = ForwardQuantiles(obs); // (B, A, N)
-    return q_dist.mean(2);               // (B, A)
+    auto x = obs;
+    x = torch::relu(fc1_->forward(x));
+    x = torch::relu(fc2_->forward(x));
+
+    // Value: (B, H) -> (B, N) -> mean -> (B, 1)
+    auto v_dist = value_->forward(x);
+    auto v_mean = v_dist.view({ -1, 1, num_quantiles_ }).mean(2); // (B, 1)
+
+    // Advantage: (B, H) -> (B, A*N) -> (B, A, N) -> mean -> (B, A)
+    auto a_dist = adv_->forward(x);
+    auto a_mean = a_dist.view({ -1, n_actions_, num_quantiles_ }).mean(2); // (B, A)
+
+    // Dueling scalar calculation
+    auto a_mean_mean = a_mean.mean(1, true); // (B, 1)
+    auto q = v_mean + (a_mean - a_mean_mean);
+
+    return q;
 }
 
 torch::Tensor QuantileDuelingQNet::ForwardQuantiles(const torch::Tensor& obs)
@@ -285,16 +315,41 @@ std::optional<anet::TensorFunction> QuantileDuelingQNet::GetTensorFunction(const
             auto a = adv_->forward(x);
             a = a.view({ batch_size, n_actions_, num_quantiles_ });
 
+            // A正規化
+            auto a_mean = a.mean(/*dim=*/1, /*keepdim=*/true); // (B, 1, N)
+            auto a_centered = a - a_mean;
+
             // Concatenate: (B, 1 + A, N)
             // index 0: Value Distribution
-            // index 1..A: Advantage Distribution
-            auto va = torch::cat({ v, a }, 1);
+            // index 1..A: Centered Advantage Distribution (実際にQ計算に使われる値)
+            auto va = torch::cat({ v, a_centered }, 1);
+
             ANET_CHECK_SHAPE(va, { ANET_SHAPE_ANY, 1 + n_actions_, num_quantiles_ });
 
             return va;
             };
     }
+    if (key == "forward.v") {
+        return [this, device, smutex](const torch::Tensor& t) {
+            auto tdev = t.to(device);
+            std::shared_lock<std::shared_mutex> lock(*smutex);
 
+            // 分布 Q(s, a, q) を取得
+            auto q_dist = ForwardQuantiles(tdev); // (B, A, N)
+
+            // 平均値 Q(s, a) を計算して、Greedy行動 a* を決定
+            auto q_mean = q_dist.mean(2); // (B, A)
+            auto best_actions = std::get<1>(q_mean.max(1)); // (B)
+
+            // a* に対応する分布を抜き出す
+            // (B, A, N) -> (B, 1, N)
+            auto idx = best_actions.view({ -1, 1, 1 }).expand({ -1, 1, num_quantiles_ });
+            auto v_true_dist = q_dist.gather(1, idx);
+
+            ANET_CHECK_SHAPE(v_true_dist, { ANET_SHAPE_ANY, 1, num_quantiles_ });
+            return v_true_dist;
+            };
+    }
     return std::nullopt;
 }
 
@@ -631,13 +686,13 @@ std::shared_ptr<const anet::rl::BatchUpdateResult> RainbowAgent::Learner::Update
     // 固有処理呼び出し
     auto result = UpdateFromSamples(samples);
 
-    // Post Updates (学習ステップ更新後に行う)
-    vars.learn_step++;
-
     // 更新後処理
     UpdateTargetNetwork(vars.learn_step);
     UpdateEpsilon(vars.learn_step);
     UpdatePerBeta(vars.learn_step);
+
+    // Post Updates (学習ステップ更新後に行う)
+    vars.learn_step++;
 
     return result;
 }
@@ -869,7 +924,7 @@ RainbowAgent::QRLearner::QRLearner(RainbowAgent& agent, const EnvSpec& env_spec,
 }
 
 torch::Tensor RainbowAgent::QRLearner::ComputeQuantileHuberLoss(
-    const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& weights) const
+    const torch::Tensor& current_dist, const torch::Tensor& target_dist) const
 {
     ProfileRange r("RainbowAgent::QRLearner::ComputeQuantileHuberLoss");
 
@@ -906,21 +961,16 @@ torch::Tensor RainbowAgent::QRLearner::ComputeQuantileHuberLoss(
     // Quantile Regression Loss
     // rho_tau(u) = |tau - I(u<0)| * L_k(u)
     auto indicator = (diff.detach() < 0).to(torch::kFloat);
-    auto quantile_weight = torch::abs(tau - indicator);
+    auto quantile_weight = torch::abs(tau - indicator);	 // Broadcasting Check: (1, N, 1) - (B, N, N) -> (B, N, N)
     ANET_CHECK_SHAPE(quantile_weight, { B, N, N });
 
     auto loss_per_pair = quantile_weight * huber; // (B, N, N)
-    ANET_CHECK_SHAPE(loss_per_pair, { B, N, N });
 
-    // ターゲット分位数(dim=2)で総和、現在の分位数(dim=1)で平均
-    auto loss_per_batch = loss_per_pair.sum(2).mean(1); // (B)
-    ANET_CHECK_SHAPE(loss_per_batch, { B });
+    // ターゲット分位数(dim=2)で総和、現在の分位数(dim=1)で平均 "Loss per Batch element"
+    auto element_wise_loss = loss_per_pair.sum(2).mean(1); // (B)
+    ANET_CHECK_SHAPE(element_wise_loss, { B });
 
-    // 重み付き平均
-    auto weighted_loss = (loss_per_batch * weights).mean();
-    ANET_CHECK_SHAPE(weighted_loss, {});
-
-    return weighted_loss;
+    return element_wise_loss;
 }
 
 std::shared_ptr<const anet::rl::BatchUpdateResult>
@@ -938,6 +988,11 @@ RainbowAgent::QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
     ANET_CHECK_SHAPE(samples.actions, { B });
     ANET_CHECK_SHAPE(samples.target_values, { B });
     ANET_CHECK_SHAPE(samples.next_states.terminals, { B });
+
+
+    // ------------------------------------------------------------
+    // 分布計算
+    // ------------------------------------------------------------
 
     // 現在の分布計算: Z(s, a)、ForwardQuantiles は (B, A, N) を返す
     auto current_dist_all = agent_.network_->ForwardQuantiles(samples.obs, /*use_target=*/false);
@@ -958,7 +1013,11 @@ RainbowAgent::QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
     auto std_q_tensor = current_dist.std(1).mean().detach();
     ANET_CHECK_SHAPE(std_q_tensor, {});
 
+
+    // ------------------------------------------------------------
     // ターゲット分布計算: r + gamma * Z(s', a*)
+    // ------------------------------------------------------------
+
     torch::Tensor target_dist;
     {
         torch::NoGradGuard no_grad;
@@ -1001,23 +1060,34 @@ RainbowAgent::QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
     // target_dist: (B, N) -> mean -> (B)
     auto target_mean = target_dist.mean(1).detach();
 
-    // current_dist.mean(1) は max_q (detach済み) と同じ
-    // TDLearner: q_sa - td_target に合わせる
+    // current_dist.mean(1) は max_q (detach済み) と同じ。 TDLearner: q_sa - td_target に合わせる
     auto td_error_tensor = max_q - target_mean;
 
-    // 損失計算 (Quantile Huber Loss)
+
+    // ------------------------------------------------------------
+    // Loss Calculation
+    // ------------------------------------------------------------
+
+    // 要素ごとのLoss (B) を取得  ※ここで重い計算を一回だけ行う
+    auto element_loss = ComputeQuantileHuberLoss(current_dist, target_dist);
+    ANET_CHECK_SHAPE(element_loss, { B });
+
+    // 最適化用Loss(Scalar) ※ PERの重み (IS Weights) を適用
     torch::Tensor weights = config.use_per ? samples.is_weights : torch::ones({ B }, device);
-    ANET_CHECK_SHAPE(weights, { B });
+    auto loss = (element_loss * weights).mean();
+    ANET_CHECK_SHAPE(loss, {});
+    
 
-    // Loss: (B, N) vs (B, N) -> Scalar
-    auto loss = ComputeQuantileHuberLoss(current_dist, target_dist, weights);
-    ANET_CHECK_SHAPE(loss, {}); // scalar
-
-    // 勾配計算
+    // ------------------------------------------------------------
+    // Optimize
+    // ------------------------------------------------------------
     optimizer_->zero_grad();
     loss.backward();
 
+
+    // ------------------------------------------------------------
     // 勾配クリッピング
+    // ------------------------------------------------------------
     torch::Tensor grad_norm_tensor;
     std::optional<float> grad_norm;
     bool grad_clipped = false;
@@ -1039,7 +1109,11 @@ RainbowAgent::QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
     // パラメータ更新
     optimizer_->step();
 
+
+    // ------------------------------------------------------------
     // PER優先度更新
+    // ------------------------------------------------------------
+
     torch::Tensor metric_per_clipped_count;
     torch::Tensor metric_per_priorities;
     torch::Tensor metric_per_is_weights;
@@ -1068,8 +1142,8 @@ RainbowAgent::QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
         auto element_wise_loss = (torch::abs(tau - (diff.detach() < 0).to(torch::kFloat)) * huber_loss).sum(2).mean(1); // (B)
         ANET_CHECK_SHAPE(element_wise_loss, { B });
 
-        // Priority
-        auto new_priorities = element_wise_loss + config.per_eps;
+        // Priority (element_loss を N で割ってスケーリング)
+        auto new_priorities = (element_loss / static_cast<float>(N)) + config.per_eps;
         ANET_CHECK_SHAPE(new_priorities, { B });
 
         // PER clip
@@ -1098,7 +1172,11 @@ RainbowAgent::QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
         }
     }
 
+
+    // ------------------------------------------------------------
     // 結果生成
+    // ------------------------------------------------------------
+
     auto result = std::make_shared<anet::rl::RainbowAgent::BatchUpdateResult>(1);
     result->loss = loss;
     result->td_error = td_error_tensor;

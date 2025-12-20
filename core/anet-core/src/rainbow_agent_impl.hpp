@@ -180,7 +180,8 @@ class PlainQNet final : public BaseQNet {
 public:
     explicit PlainQNet(const RainbowAgentConfig& config, int state_dim, int n_actions);
     torch::Tensor Forward(const torch::Tensor& obs) override;
-    std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex) override;
+    std::optional<anet::TensorFunction> GetTensorFunction(
+        const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex) override;
 private:
     torch::nn::Linear fc3_{ nullptr };
 };
@@ -190,7 +191,8 @@ public:
     explicit DuelingQNet(const RainbowAgentConfig& config, int state_dim, int n_actions);
     torch::Tensor Forward(const torch::Tensor& obs) ;
 
-    std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex) override;
+    std::optional<anet::TensorFunction> GetTensorFunction(
+        const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex) override;
 private:
     torch::nn::Linear value_{ nullptr };  // (H -> 1)
     torch::nn::Linear adv_{ nullptr };    // (H -> A)
@@ -340,7 +342,6 @@ public:
         const anet::rl::ExperienceSamples& samples) override; 
 private:
     torch::Tensor ComputeQuantileHuberLoss(
-        const torch::Tensor& current_dist, const torch::Tensor& target_dist,
-        const torch::Tensor& weights) const;
+        const torch::Tensor& current_dist, const torch::Tensor& target_dist) const;
 };
 

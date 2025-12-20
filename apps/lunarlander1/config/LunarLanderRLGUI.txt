@@ -11,8 +11,8 @@ agent.class_id = RainbowAgent
 train.batch_size = 10
 #train.batch_size = 1
 
-LunarLanderApp.use_image_log = false      # default=true
-LunarLanderApp.use_per_image_log = false      # default=true
+LunarLanderApp.use_image_log = true      # default=false
+LunarLanderApp.use_per_image_log = true      # default=false
 
 metrics.scalar.$ = metrics.scalar.rainbow
 #metrics.scalar.$ = metrics.scalar.min
@@ -57,8 +57,8 @@ RainbowAgent.trunk.per_beta_end = 1.0f         # IS重みの補正度合い「be
 RainbowAgent.trunk.per_beta_step = 20000      # 20K betaを収束値まで線形変化させるステップ数
 RainbowAgent.trunk.per_eps = 1e-6f             # 優先度加算用微小値
 RainbowAgent.trunk.per_initial_priority = 1.0f # 新規データの初期優先度
-RainbowAgent.trunk.use_per_prio_clip = true   # 優先度をクリッピングするか
-RainbowAgent.trunk.per_prio_clip_value = 800.0  # 優先度の上限値
+RainbowAgent.trunk.use_per_prio_clip = true    # 優先度をクリッピングするか
+RainbowAgent.trunk.per_prio_clip_value = 20.0  # 優先度の上限値
 
 RainbowAgent.trunk.use_double_dqn = true        # Double DQN 有効化フラグ（trueで有効）
 
