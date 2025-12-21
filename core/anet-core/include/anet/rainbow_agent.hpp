@@ -8,91 +8,65 @@
 #include "anet/rl.hpp"
 #include "anet/agent.hpp"
 
-namespace anet::rl {
+namespace anet::rl::dqn {
 
     struct RainbowAgentConfig : public anet::Config {
-        int nn_init_mode = 1;  // 0=default、1=XavierUniform、2=HeNormal
-        int nn_hidden1 = 128;
-        int nn_hidden2 = 128;
 
-        float alpha = 1e-3f;   ///<  学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-        float gamma = 0.99f;   ///<  0.99f; 0.995f      γが高いほど「長期安定」を目指す
-        float eps_max = 1.00f;
-        float eps_min = 0.05f;    ///< 0.1f 0.05f
-        int eps_decay_step = 100000;
-        //int eps_sigmoid_step = -1;
-        float soft_update_tau = 0.01f;  ///<  1.0f 0.004f  0.01f 0.005f;   // 大きいとターゲットネットワークからの反映が早くなる。小さいと遅く滑らかになる。0.005→半減期138step
-        int hard_update_interval = -1;
-        bool use_grad_clip = true;
-        float grad_clip_tau = 30.0f;
-        bool use_td_clip = true;
-        float td_clip_value = 4.0f;
-        //int eps_zero_step = -1;// 120000;
+        QNetConfig qnet;
+        NetworkConfig network;
+        LearnerConfig learner;
 
-        int replay_capacity = 10000;
-        int replay_batch_size = 128;
-        int update_warmup_steps = 1000;
-        int update_interval = 10;
-
-        int n_step = 3;
-
-        float per_alpha = 0.6f;            ///< 優先度の反映度合い (0:uniform, 1:full)
-        float per_beta_start = 0.4f;       ///< IS重みの補正度合い (初期値)
-        float per_beta_end = 1.0f;         ///< IS重みの補正度合い (収束値)
-        int   per_beta_step = 100000;      ///< betaを収束値まで線形変化させるステップ数
-        float per_eps = 1e-6f;             ///< 優先度加算用微小値
-        float per_initial_priority = 1.0f; ///< 新規データの初期優先度
-        bool use_per_prio_clip = false;    ///< 優先度をクリッピングするか
-        float per_prio_clip_value = 50.0f; ///< 優先度の上限値
-
-        int num_quantiles = 51;         ///< 分位数 N (デフォルト51)
-        float quantile_huber_kappa = 1.0f;///< Huber Loss の閾値 kappa
-
-        bool use_double_dqn = true;   ///< Double DQN 有効化フラグ
-        bool use_dueling_net = true;  ///< Dueling Net 有効化フラグ
-        bool use_n_step = true;       ///< N-STEPを使用するか
-        bool use_per = true;          ///< PERを使用するか
-        bool use_qr = false;            ///< QR-DQN 有効化フラグ
+        int num_quantiles = 51;
+        bool use_dueling_net = true;
+        bool use_qr = true;
 
         explicit RainbowAgentConfig(const ConfigData& config_data = EmptyConfigData) : anet::Config(config_data, "RainbowAgent") {
-            ANET_READ_CONFIG(config_data, nn_init_mode);
-            ANET_READ_CONFIG(config_data, nn_hidden1);
-            ANET_READ_CONFIG(config_data, nn_hidden2);
-            ANET_READ_CONFIG(config_data, alpha);
-            ANET_READ_CONFIG(config_data, gamma);
-            ANET_READ_CONFIG(config_data, eps_max);
-            ANET_READ_CONFIG(config_data, eps_min);
-            ANET_READ_CONFIG(config_data, eps_decay_step);
-            ANET_READ_CONFIG(config_data, soft_update_tau);
-            ANET_READ_CONFIG(config_data, hard_update_interval);
-            ANET_READ_CONFIG(config_data, use_grad_clip);
-            ANET_READ_CONFIG(config_data, grad_clip_tau);
-            ANET_READ_CONFIG(config_data, use_td_clip);
-            ANET_READ_CONFIG(config_data, td_clip_value);
-            ANET_READ_CONFIG(config_data, replay_capacity);
-            ANET_READ_CONFIG(config_data, replay_batch_size);
-            ANET_READ_CONFIG(config_data, update_warmup_steps);
-            ANET_READ_CONFIG(config_data, update_interval);
-            ANET_READ_CONFIG(config_data, n_step);
-            ANET_READ_CONFIG(config_data, per_alpha);
-            ANET_READ_CONFIG(config_data, per_beta_start);
-            ANET_READ_CONFIG(config_data, per_beta_end);
-            ANET_READ_CONFIG(config_data, per_beta_step);
-            ANET_READ_CONFIG(config_data, per_eps);
-            ANET_READ_CONFIG(config_data, per_initial_priority);
-            ANET_READ_CONFIG(config_data, use_per_prio_clip);
-            ANET_READ_CONFIG(config_data, per_prio_clip_value);
+            ANET_READ_CONFIG(config_data, qnet.nn_init_mode);
+            ANET_READ_CONFIG(config_data, qnet.nn_hidden1);
+            ANET_READ_CONFIG(config_data, qnet.nn_hidden2);
+            ANET_READ_CONFIG(config_data, qnet.num_quantiles);
+
+            ANET_READ_CONFIG(config_data, network.soft_update_tau);
+            ANET_READ_CONFIG(config_data, network.hard_update_interval);
+
+            ANET_READ_CONFIG(config_data, learner.alpha);
+            ANET_READ_CONFIG(config_data, learner.gamma);
+            ANET_READ_CONFIG(config_data, learner.eps_max);
+            ANET_READ_CONFIG(config_data, learner.eps_min);
+            ANET_READ_CONFIG(config_data, learner.eps_decay_step);
+            ANET_READ_CONFIG(config_data, learner.use_grad_clip);
+            ANET_READ_CONFIG(config_data, learner.grad_clip_tau);
+            ANET_READ_CONFIG(config_data, learner.use_td_clip);
+            ANET_READ_CONFIG(config_data, learner.td_clip_value);
+            ANET_READ_CONFIG(config_data, learner.replay_capacity);
+            ANET_READ_CONFIG(config_data, learner.replay_batch_size);
+            ANET_READ_CONFIG(config_data, learner.update_warmup_steps);
+            ANET_READ_CONFIG(config_data, learner.update_interval);
+            ANET_READ_CONFIG(config_data, learner.n_step);
+            ANET_READ_CONFIG(config_data, learner.per_alpha);
+            ANET_READ_CONFIG(config_data, learner.per_beta_start);
+            ANET_READ_CONFIG(config_data, learner.per_beta_end);
+            ANET_READ_CONFIG(config_data, learner.per_beta_step);
+            ANET_READ_CONFIG(config_data, learner.per_eps);
+            ANET_READ_CONFIG(config_data, learner.per_initial_priority);
+            ANET_READ_CONFIG(config_data, learner.use_per_prio_clip);
+            ANET_READ_CONFIG(config_data, learner.per_prio_clip_value);
+            ANET_READ_CONFIG(config_data, learner.quantile_huber_kappa);
+
+            ANET_READ_CONFIG(config_data, learner.use_double_dqn);
+            ANET_READ_CONFIG(config_data, learner.use_n_step);
+            ANET_READ_CONFIG(config_data, learner.use_per);
+
             ANET_READ_CONFIG(config_data, num_quantiles);
-            ANET_READ_CONFIG(config_data, quantile_huber_kappa);
-            ANET_READ_CONFIG(config_data, use_double_dqn);
             ANET_READ_CONFIG(config_data, use_dueling_net);
-            ANET_READ_CONFIG(config_data, use_n_step);
-            ANET_READ_CONFIG(config_data, use_per);
             ANET_READ_CONFIG(config_data, use_qr);
+
+            qnet.num_quantiles = num_quantiles;
+            learner.num_quantiles = num_quantiles;
         }
     };
 
-    class RainbowAgent: public anet::rl::FlatStateAgent<RainbowAgentConfig>, public std::enable_shared_from_this<RainbowAgent> {
+    class RainbowAgent: public anet::rl::FlatStateAgent, public std::enable_shared_from_this<RainbowAgent> {
     public:
         RainbowAgent(
             const RainbowAgentConfig& config,
@@ -100,7 +74,7 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::Notifier> notifier = nullptr,
             std::optional<seed_t> seed = std::nullopt);
 
-        BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, RunMode mode = RunMode::Train) const override;
+        anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, RunMode mode = RunMode::Train) const override;
         std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromBatch(
             const StepCounts& step, const anet::rl::BatchExperience& exprience, const anet::rl::Runner& trainer) override;
     public:
@@ -110,28 +84,20 @@ namespace anet::rl {
         std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
     private:
-        class BatchUpdateResult;
+        //class BatchUpdateResult;
     private:
-        struct RuntimeVars;         ///< Agent内部変数
-        class Network;              ///< NN
-
-        class ActionPolicy;         ///< 行動選択アルゴリズム
-
-        class Learner;              ///< 学習アルゴリズム
-        class TDLearner;
-        class QRLearner;
-    private:
-        std::unique_ptr<RuntimeVars> vars_;
-        std::unique_ptr<Network> network_;
-        std::shared_ptr<ActionPolicy> action_policy_;
-        std::shared_ptr<Learner> learner_;
+        RainbowAgentConfig config_;
+        std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
+        std::unique_ptr<anet::rl::dqn::Network> network_;
+        std::shared_ptr<anet::rl::dqn::ActionPolicy> action_policy_;
+        std::shared_ptr<anet::rl::dqn::Learner> learner_;
     };
 
     class RainbowAgentFactory : public anet::rl::AgentFactory {
     public:
         RainbowAgentFactory() { }
 
-        std::shared_ptr<Agent> CreateAgent(
+        std::shared_ptr<anet::rl::Agent> CreateAgent(
             const EnvSpec& env_spec,
             const BatchEnvSpec& batch_env_spec,
             const torch::Device& device,

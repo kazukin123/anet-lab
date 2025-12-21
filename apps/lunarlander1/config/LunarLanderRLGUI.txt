@@ -26,54 +26,55 @@ RainbowAgent.$ = RainbowAgent.trunk
 
 # ---- RainbowAgent
 
-RainbowAgent.trunk.nn_init_mode = 1             # 0=default、1=XavierUniform、2=HeNormal
-RainbowAgent.trunk.nn_hidden1 = 120
-RainbowAgent.trunk.nn_hidden2 = 84
-RainbowAgent.trunk.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-RainbowAgent.trunk.gamma = 0.99                 # 0.99 0.995  γが高いほど「長期安定」を目指す
-RainbowAgent.trunk.eps_max = 1.00               # 指数減衰  
-RainbowAgent.trunk.eps_min = 0.05               # 0.1f 0.05f
-RainbowAgent.trunk.eps_decay_step = 20000       # 20K
-RainbowAgent.trunk.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
-#RainbowAgent.trunk.hard_update_interval = 5000 #  -1 5000; //200 500 1000
-RainbowAgent.trunk.use_grad_clip = true        # ★
-RainbowAgent.trunk.grad_clip_tau = 30           # ★10 25 40 1f 5f 10f
-RainbowAgent.trunk.use_td_clip = false          # 
-RainbowAgent.trunk.td_clip_value = 30.0         # 4.0 20 30
-RainbowAgent.trunk.replay_capacity = 100000       #  10000 30000
-RainbowAgent.trunk.replay_batch_size = 128      #
-RainbowAgent.trunk.update_warmup_steps = 1000   # 1000
-#RainbowAgent.trunk.update_warmup_steps = 0   # 1000
-RainbowAgent.trunk.update_interval = 5          #
-#RainbowAgent.trunk.update_interval = 1          #
+RainbowAgent.trunk.qnet.nn_init_mode = 1             # 0=default、1=XavierUniform、2=HeNormal
+RainbowAgent.trunk.qnet.nn_hidden1 = 120
+RainbowAgent.trunk.qnet.nn_hidden2 = 84
+RainbowAgent.trunk.network.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
+#RainbowAgent.trunk.network.hard_update_interval = 5000 #  -1 5000; //200 500 1000
 
-#RainbowAgent.trunk.n_step = 1
-#RainbowAgent.trunk.n_step = 2
-RainbowAgent.trunk.n_step = 3
+RainbowAgent.trunk.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+RainbowAgent.trunk.learner.gamma = 0.99                 # 0.99 0.995  γが高いほど「長期安定」を目指す
+RainbowAgent.trunk.learner.eps_max = 1.00               # 指数減衰  
+RainbowAgent.trunk.learner.eps_min = 0.05               # 0.1f 0.05f
+RainbowAgent.trunk.learner.eps_decay_step = 20000       # 20K
+RainbowAgent.trunk.learner.use_grad_clip = true        # ★
+RainbowAgent.trunk.learner.grad_clip_tau = 30           # ★10 25 40 1f 5f 10f
+RainbowAgent.trunk.learner.use_td_clip = false          # 
+RainbowAgent.trunk.learner.td_clip_value = 30.0         # 4.0 20 30
+RainbowAgent.trunk.learner.replay_capacity = 100000       #  10000 30000
+RainbowAgent.trunk.learner.replay_batch_size = 128      #
+RainbowAgent.trunk.learner.update_warmup_steps = 1000   # 1000
+#RainbowAgent.trunk.learner.update_warmup_steps = 0   # 1000
+RainbowAgent.trunk.learner.update_interval = 5          #
+#RainbowAgent.trunk.learner.update_interval = 1          #
 
-RainbowAgent.trunk.per_alpha = 0.6f            # 優先度の反映度合い (0:uniform, 1:full)
-RainbowAgent.trunk.per_beta_start = 0.4f       # IS重みの補正度合い「beta」の初期値
-RainbowAgent.trunk.per_beta_end = 1.0f         # IS重みの補正度合い「beta」の収束値
-#RainbowAgent.trunk.per_beta_step = 50000      # 50K betaを収束値まで線形変化させるステップ数
-RainbowAgent.trunk.per_beta_step = 20000      # 20K betaを収束値まで線形変化させるステップ数
-RainbowAgent.trunk.per_eps = 1e-6f             # 優先度加算用微小値
-RainbowAgent.trunk.per_initial_priority = 1.0f # 新規データの初期優先度
-RainbowAgent.trunk.use_per_prio_clip = true    # 優先度をクリッピングするか
-RainbowAgent.trunk.per_prio_clip_value = 20.0  # 優先度の上限値
+#RainbowAgent.trunk.learner.n_step = 1
+#RainbowAgent.trunk.learner.n_step = 2
+RainbowAgent.trunk.learner.n_step = 3
 
-RainbowAgent.trunk.use_double_dqn = true        # Double DQN 有効化フラグ（trueで有効）
+RainbowAgent.trunk.learner.per_alpha = 0.6f            # 優先度の反映度合い (0:uniform, 1:full)
+RainbowAgent.trunk.learner.per_beta_start = 0.4f       # IS重みの補正度合い「beta」の初期値
+RainbowAgent.trunk.learner.per_beta_end = 1.0f         # IS重みの補正度合い「beta」の収束値
+#RainbowAgent.trunk.learner.per_beta_step = 50000      # 50K betaを収束値まで線形変化させるステップ数
+RainbowAgent.trunk.learner.per_beta_step = 20000      # 20K betaを収束値まで線形変化させるステップ数
+RainbowAgent.trunk.learner.per_eps = 1e-6f             # 優先度加算用微小値
+RainbowAgent.trunk.learner.per_initial_priority = 1.0f # 新規データの初期優先度
+RainbowAgent.trunk.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
+RainbowAgent.trunk.learner.per_prio_clip_value = 20.0  # 優先度の上限値
 
-RainbowAgent.trunk.use_dueling_net = true       # ★ 
-#RainbowAgent.trunk.use_dueling_net = false     # ★ 
+RainbowAgent.trunk.learner.quantile_huber_kappa = 1.0   # Huber Loss の閾値 kappa
 
-RainbowAgent.trunk.use_n_step = true
-#RainbowAgent.trunk.use_n_step = false
+RainbowAgent.trunk.learner.use_n_step = true
+#RainbowAgent.trunk.learner.use_n_step = false
 
-RainbowAgent.trunk.use_per = true
-#RainbowAgent.trunk.use_per = false
+RainbowAgent.trunk.learner.use_per = true
+#RainbowAgent.trunk.learner.use_per = false
+
+RainbowAgent.trunk.learner.use_double_dqn = true        # Double DQN 有効化フラグ（trueで有効）
+RainbowAgent.trunk.learner.use_dueling_net = true       # ★ 
+#RainbowAgent.trunk.learner.use_dueling_net = false     # ★ 
 
 RainbowAgent.trunk.num_quantiles = 51           # 分位数 N (デフォルト51)
-RainbowAgent.trunk.quantile_huber_kappa = 1.0   # Huber Loss の閾値 kappa
 #RainbowAgent.trunk.use_qr = false                # QR-DQN 有効化フラグ
 RainbowAgent.trunk.use_qr = true                # QR-DQN 有効化フラグ
 

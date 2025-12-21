@@ -1,11 +1,13 @@
 ﻿
-#include "rainbow_agent_impl.hpp"
+#include "dqn_based_agent.hpp"
+#include <tuple>
 #include "anet/profile.hpp"
 #include "anet/tensor_check.hpp"
 #include "anet/tensor_util.hpp"
 #include "anet/str_util.hpp"
+#include "anet/replay_buffer.hpp"
 
-using namespace anet::rl;
+using namespace anet::rl::dqn;
 namespace LOG = anet::log;
 
 
@@ -13,7 +15,7 @@ namespace LOG = anet::log;
 // RainbowAgent BaseQNet
 // ======================================================
 
-BaseQNet::BaseQNet(const RainbowAgentConfig& config, int64_t state_dim, int64_t n_actions)
+BaseQNet::BaseQNet(const QNetConfig& config, int64_t state_dim, int64_t n_actions)
         : state_dim_(state_dim), n_actions_(n_actions)
 {
     ANET_ASSERT(state_dim_ > 0);
@@ -50,7 +52,7 @@ void BaseQNet::InitWeightsLinear(torch::nn::Linear& layer, int nn_init_mode, boo
 // RainbowAgent PlainQNet
 // ======================================================
 
-PlainQNet::PlainQNet(const RainbowAgentConfig& config, int state_dim, int n_actions)
+PlainQNet::PlainQNet(const QNetConfig& config, int state_dim, int n_actions)
     : BaseQNet(config, state_dim, n_actions)
 {
     fc3_ = register_module("fc3", torch::nn::Linear(config.nn_hidden2, n_actions_));
@@ -85,7 +87,7 @@ std::optional<anet::TensorFunction> PlainQNet::GetTensorFunction(const std::stri
 // RainbowAgent DuelingQNet
 // ======================================================
 
-DuelingQNet ::DuelingQNet(const RainbowAgentConfig& config, int state_dim, int n_actions)
+DuelingQNet ::DuelingQNet(const QNetConfig& config, int state_dim, int n_actions)
         : BaseQNet(config, state_dim, n_actions)
 {
     value_ = register_module("value", torch::nn::Linear(config.nn_hidden2, 1));
@@ -161,7 +163,7 @@ std::optional<anet::TensorFunction> DuelingQNet::GetTensorFunction(
 // RainbowAgent QuantilePlainQNet
 // ======================================================
 
-QuantilePlainQNet::QuantilePlainQNet(const RainbowAgentConfig& config, int state_dim, int n_actions)
+QuantilePlainQNet::QuantilePlainQNet(const QNetConfig& config, int state_dim, int n_actions)
     : BaseQNet(config, state_dim, n_actions), num_quantiles_(config.num_quantiles)
 {
     ANET_ASSERT(num_quantiles_ > 1);
@@ -218,7 +220,7 @@ std::optional<anet::TensorFunction> QuantilePlainQNet::GetTensorFunction(const s
 // RainbowAgent QuantileDuelingQNet
 // ======================================================
 
-QuantileDuelingQNet::QuantileDuelingQNet(const RainbowAgentConfig& config, int state_dim, int n_actions)
+QuantileDuelingQNet::QuantileDuelingQNet(const QNetConfig& config, int state_dim, int n_actions)
     : BaseQNet(config, state_dim, n_actions), num_quantiles_(config.num_quantiles)
 {
     ANET_ASSERT(num_quantiles_ > 1);
@@ -358,8 +360,8 @@ std::optional<anet::TensorFunction> QuantileDuelingQNet::GetTensorFunction(const
 // RainbowAgent Network
 // ======================================================
 
-RainbowAgent::Network::Network(
-    const RainbowAgentConfig& config, const torch::Device& device, std::shared_ptr<QNet> policy_net, std::shared_ptr<QNet> target_net)
+Network::Network(
+    const NetworkConfig& config, const torch::Device& device, std::shared_ptr<QNet> policy_net, std::shared_ptr<QNet> target_net)
     : config_(config), policy_net_(std::move(policy_net)), target_net_(std::move(target_net))
 {
     ANET_ASSERT(policy_net_);
@@ -368,23 +370,22 @@ RainbowAgent::Network::Network(
     policy_net_->to(device);
     target_net_->to(device);
     target_net_->eval();
-
 }
 
-torch::Tensor RainbowAgent::Network::ForwardExpectation(const torch::Tensor& obs, bool use_target) const
+torch::Tensor Network::ForwardExpectation(const torch::Tensor& obs, bool use_target) const
 {
     const auto& net = use_target ? target_net_ : policy_net_;
     auto q = net->Forward(obs);
     return q;
 }
 
-torch::Tensor RainbowAgent::Network::Forward(const torch::Tensor& obs, bool use_target) const
+torch::Tensor Network::Forward(const torch::Tensor& obs, bool use_target) const
 {
     const auto& net = use_target ? target_net_ : policy_net_;
     return net->Forward(obs);
 }
 
-torch::Tensor RainbowAgent::Network::ForwardQuantiles(const torch::Tensor& obs, bool use_target) const
+torch::Tensor Network::ForwardQuantiles(const torch::Tensor& obs, bool use_target) const
 {
     ANET_ASSERT(target_net_->IsDistributional());
     ANET_ASSERT(policy_net_->IsDistributional());
@@ -393,13 +394,13 @@ torch::Tensor RainbowAgent::Network::ForwardQuantiles(const torch::Tensor& obs, 
     return net->ForwardQuantiles(obs);
 }
 
-std::vector<torch::Tensor> RainbowAgent::Network::GetPolicyParameters() const
+std::vector<torch::Tensor> Network::GetPolicyParameters() const
 {
     auto params = policy_net_->parameters();
     return params;
 }
 
-void RainbowAgent::Network::UpdateTarget(step_t learn_step)
+void Network::UpdateTarget(step_t learn_step)
 {
     if (config_.hard_update_interval > 0) {
         if (learn_step % config_.hard_update_interval == 0) {
@@ -410,7 +411,7 @@ void RainbowAgent::Network::UpdateTarget(step_t learn_step)
     SoftUpdate();
 }
 
-void RainbowAgent::Network::SoftUpdate()
+void Network::SoftUpdate()
 {
     // @todo optimizer 非依存での soft update 実装
     auto p_params = policy_net_->parameters();
@@ -424,7 +425,7 @@ void RainbowAgent::Network::SoftUpdate()
     }
 }
 
-void RainbowAgent::Network::HardUpdate()
+void Network::HardUpdate()
 {
     auto p_params = policy_net_->parameters();
     auto t_params = target_net_->parameters();
@@ -437,7 +438,7 @@ void RainbowAgent::Network::HardUpdate()
 }
 
 /// メトリクス用：NN生出力
-std::optional<anet::TensorFunction> RainbowAgent::Network::GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex)
+std::optional<anet::TensorFunction> Network::GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex)
 {
     static constexpr const char* POLICY_PREFIX = "policy_net.";
     static constexpr const char* TARGET_PREFIX = "target_net.";
@@ -464,16 +465,16 @@ std::optional<anet::TensorFunction> RainbowAgent::Network::GetTensorFunction(con
 // RainbowAgent ActionPolicy 
 // ======================================================
 
-RainbowAgent::ActionPolicy::ActionPolicy(
-    const RainbowAgent::Network& network, const RainbowAgent::RuntimeVars& vars, seed_t seed)
-    : RandomHolder(seed), network_(network), vars_(vars)
+anet::rl::dqn::ActionPolicy::ActionPolicy(
+    const anet::rl::dqn::Network& network, const RuntimeVars& vars, anet::seed_t seed)
+    : anet::RandomHolder(seed), network_(network), vars_(vars)
 {
     // RandomHolderを継承しているが、GPU側でrand生成しているので意味はない。ただ、マークとしてそのままにしておく。
 }
 
-BatchActionInfo RainbowAgent::ActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const
+anet::rl::BatchActionInfo ActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const
 {
-    ProfileRange  r("RainbowAgent::SelectAction");
+    ProfileRange  r("ActionPolicy::SelectAction");
 
     torch::NoGradGuard;
 
@@ -492,7 +493,7 @@ BatchActionInfo RainbowAgent::ActionPolicy::SelectAction(const torch::Tensor& ob
     auto greedy = q_values.argmax(1, /*keepdim=*/false);
 
     if (greedy_only) {
-        ProfileRange  r("RainbowAgent::SelectAction.greedy_only");
+        ProfileRange  r("ActionPolicy::SelectAction.greedy_only");
         BatchActionInfo action_info{ greedy };
 
         // aux[max_q]
@@ -530,13 +531,16 @@ BatchActionInfo RainbowAgent::ActionPolicy::SelectAction(const torch::Tensor& ob
 // RainbowAgent Learner
 // ======================================================
 
-RainbowAgent::Learner::Learner(RainbowAgent& agent)
-    : agent_(agent)
+Learner::Learner(const LearnerConfig& config, Network& network, RuntimeVars& vars,
+    const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed)
+    : config_(config), network_(network), vars_(vars), batch_size_(batch_env_spec.batch_size)
+    , n_actions_(env_spec.action_spec.GetNumActions()), state_dim_(env_spec.state_spec.CalcFlattenDim())
+    , device_(std::move(device))
 {
     ;
 }
 
-std::optional<float> RainbowAgent::Learner::GetScalar(const std::string& key, int index) const
+std::optional<float> Learner::GetScalar(const std::string& key, int index) const
 {
     if (key.find("replaybuffer.") == 0 && replay_buffer_ != nullptr) {
         return replay_buffer_->GetScalar(key);
@@ -545,7 +549,7 @@ std::optional<float> RainbowAgent::Learner::GetScalar(const std::string& key, in
     return std::nullopt;
 }
 
-std::optional<torch::Tensor> RainbowAgent::Learner::GetTensor(const std::string& key, int index) const
+std::optional<torch::Tensor> Learner::GetTensor(const std::string& key, int index) const
 {
     if (key.find("replaybuffer.") == 0 && replay_buffer_ != nullptr)
         return replay_buffer_->GetTensor(key);
@@ -553,7 +557,7 @@ std::optional<torch::Tensor> RainbowAgent::Learner::GetTensor(const std::string&
     return std::nullopt;
 }
 
-std::optional<std::vector<torch::Tensor>> RainbowAgent::Learner::GetTensorVector(const std::string& key, int index) const
+std::optional<std::vector<torch::Tensor>> Learner::GetTensorVector(const std::string& key, int index) const
 {
     if (key.find("replaybuffer.") == 0 && replay_buffer_ != nullptr)
         return replay_buffer_->GetTensorVector(key);
@@ -561,115 +565,105 @@ std::optional<std::vector<torch::Tensor>> RainbowAgent::Learner::GetTensorVector
     return std::nullopt;
 }
 
-void RainbowAgent::Learner::SetupOptimizer()
+void Learner::SetupOptimizer()
 {
     this->optimizer_ = std::make_unique<torch::optim::Adam>(
-        agent_.network_->GetPolicyParameters(),
-        torch::optim::AdamOptions(agent_.config_.alpha));
+        network_.GetPolicyParameters(), torch::optim::AdamOptions(config_.alpha));
 }
 
-void RainbowAgent::Learner::SetupReplayBuffer(const EnvSpec& env_spec, seed_t seed)
+void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, seed_t seed)
 {
     anet::rl::ReplayBufferConfig rep_config{};
-    rep_config.capacity = agent_.config_.replay_capacity;
-    rep_config.gamma = agent_.config_.gamma;
-    rep_config.n_step = agent_.config_.n_step;
-    rep_config.type = agent_.config_.use_n_step ? ReplayBuilderType::NSTEP : ReplayBuilderType::PLAIN;
+    rep_config.capacity = config_.replay_capacity;
+    rep_config.gamma = config_.gamma;
+    rep_config.n_step = config_.n_step;
+    rep_config.type = config_.use_n_step ? ReplayBuilderType::NSTEP : ReplayBuilderType::PLAIN;
 
-    if (agent_.config_.use_per) {
+    if (config_.use_per) {
         rep_config.sampler_type = ReplaySamplerType::PRIOTIZED;
-        rep_config.per_alpha = agent_.config_.per_alpha;
-        rep_config.per_initial_priority = agent_.config_.per_initial_priority;
-        agent_.vars_->per_beta = agent_.config_.per_beta_start;
+        rep_config.per_alpha = config_.per_alpha;
+        rep_config.per_initial_priority = config_.per_initial_priority;
+        vars_.per_beta = config_.per_beta_start;
     } else {
         rep_config.sampler_type = ReplaySamplerType::UNIFORM;
     }
 
     anet::rl::ReplayBufferFactory rep_factory(rep_config);
-    this->replay_buffer_ = rep_factory.Create(env_spec, torch::kCPU, agent_.batch_size_, seed);
+    this->replay_buffer_ = rep_factory.Create(env_spec, torch::kCPU, batch_env_spec.batch_size, seed);
 }
 
-bool RainbowAgent::Learner::CanUpdate(step_t update_step) const
+bool Learner::CanUpdate(step_t update_step) const
 {
     // update_interval
-    if ((update_step % agent_.config_.update_interval) != 0)
+    if ((update_step % config_.update_interval) != 0)
         return false;
     // warmup
-    if (agent_.config_.update_warmup_steps > 0 && update_step < agent_.config_.update_warmup_steps * agent_.batch_size_)
+    if (config_.update_warmup_steps > 0 && update_step < config_.update_warmup_steps * batch_size_)
         return false;
     // ReplayBufferのサイズがminibatchサイズに満たない場合はスキップ（N-STEPであり得る）
-    if (replay_buffer_->Size() < agent_.config_.replay_batch_size)
+    if (replay_buffer_->Size() < config_.replay_batch_size)
         return false;
     return true;
 }
 
-void RainbowAgent::Learner::UpdateEpsilon(step_t learn_step)
+void Learner::UpdateEpsilon(step_t learn_step)
 {
     ProfileRange r("RainbowAgent::Learner::UpdateEpsilon");
 
-    const auto& config = agent_.config_;
-    auto& vars = *agent_.vars_;
-
-    if (learn_step >= config.eps_decay_step) {
-        vars.epsilon = config.eps_min;
+    if (learn_step >= config_.eps_decay_step) {
+        vars_.epsilon = config_.eps_min;
         return;
     }
-    const float t = static_cast<float>(learn_step) / static_cast<float>(config.eps_decay_step);
-    vars.epsilon = config.eps_max + t * (config.eps_min - config.eps_max);
+    const float t = static_cast<float>(learn_step) / static_cast<float>(config_.eps_decay_step);
+    vars_.epsilon = config_.eps_max + t * (config_.eps_min - config_.eps_max);
 }
 
-void RainbowAgent::Learner::UpdateTargetNetwork(step_t step)
+void Learner::UpdateTargetNetwork(step_t step)
 {
     ProfileRange r("RainbowAgent::Learner::UpdateTargetNetwork");
-    agent_.network_->UpdateTarget(step);
+    network_.UpdateTarget(step);
 }
 
-void RainbowAgent::Learner::UpdatePerBeta(step_t learn_step)
+void Learner::UpdatePerBeta(step_t learn_step)
 {
     ProfileRange r("RainbowAgent::Learner::UpdatePerBeta");
 
-    const auto& config = agent_.config_;
-    auto& vars = *agent_.vars_;
+    if (!config_.use_per) return;
 
-    if (!config.use_per) return;
-
-    if (learn_step < config.per_beta_step) {
-        float progress = static_cast<float>(learn_step) / static_cast<float>(config.per_beta_step);
-        vars.per_beta = config.per_beta_start + progress * (config.per_beta_end - config.per_beta_start);
+    if (learn_step < config_.per_beta_step) {
+        float progress = static_cast<float>(learn_step) / static_cast<float>(config_.per_beta_step);
+        vars_.per_beta = config_.per_beta_start + progress * (config_.per_beta_end - config_.per_beta_start);
     } else {
-        vars.per_beta = config.per_beta_end;
+        vars_.per_beta = config_.per_beta_end;
     }
 }
 
-std::shared_ptr<const anet::rl::BatchUpdateResult> RainbowAgent::Learner::UpdateFromBatch(
-    const StepCounts& counts, const BatchExperience& experiences, const Runner& trainer)
+std::shared_ptr<const anet::rl::BatchUpdateResult> Learner::UpdateFromBatch(
+    const anet::rl::StepCounts& counts, const anet::rl::BatchExperience& experiences, const anet::rl::Runner& trainer)
 {
     // ReplayBuffer へ push
     replay_buffer_->Push(experiences);
 
     // Update不可なら空の結果を返す
     if (!CanUpdate(counts.update_step)) {
-        return std::make_shared<anet::rl::RainbowAgent::BatchUpdateResult>(0);
+        return std::make_shared<BatchUpdateResult>(0);
     }
 
-    const auto& config = agent_.config_;
-    auto& vars = *agent_.vars_;
-    const torch::Device& device = agent_.device_;
-    const int B = config.replay_batch_size;
-    const int S = agent_.state_dim_;
+    const int B = config_.replay_batch_size;
+    const int S = state_dim_;
     //const int A = agent_.n_actions_;
 
     // Sample
-    float current_beta = config.use_per ? vars.per_beta : 0.0f;
-    auto raw_samples = replay_buffer_->Sample(config.replay_batch_size, device, current_beta);
+    float current_beta = config_.use_per ? vars_.per_beta : 0.0f;
+    auto raw_samples = replay_buffer_->Sample(config_.replay_batch_size, device_, current_beta);
 
     // Check shapes & dtypes
-    ANET_CHECK_DEVICE(raw_samples.obs, device);
-    ANET_CHECK_DEVICE(raw_samples.actions, device);
-    ANET_CHECK_DEVICE(raw_samples.target_values, device);
-    ANET_CHECK_DEVICE(raw_samples.next_states.obs, device);
-    ANET_CHECK_DEVICE(raw_samples.next_states.terminals, device);
-    ANET_CHECK_DEVICE(raw_samples.n_steps, device);
+    ANET_CHECK_DEVICE(raw_samples.obs, device_);
+    ANET_CHECK_DEVICE(raw_samples.actions, device_);
+    ANET_CHECK_DEVICE(raw_samples.target_values, device_);
+    ANET_CHECK_DEVICE(raw_samples.next_states.obs, device_);
+    ANET_CHECK_DEVICE(raw_samples.next_states.terminals, device_);
+    ANET_CHECK_DEVICE(raw_samples.n_steps, device_);
     ANET_CHECK_SHAPE(raw_samples.obs, { B, S });
     ANET_CHECK_SHAPE(raw_samples.actions, { B });    // 離散アクション
     ANET_CHECK_SHAPE(raw_samples.target_values, { B });
@@ -688,12 +682,12 @@ std::shared_ptr<const anet::rl::BatchUpdateResult> RainbowAgent::Learner::Update
     auto result = UpdateFromSamples(samples);
 
     // 更新後処理
-    UpdateTargetNetwork(vars.learn_step);
-    UpdateEpsilon(vars.learn_step);
-    UpdatePerBeta(vars.learn_step);
+    UpdateTargetNetwork(vars_.learn_step);
+    UpdateEpsilon(vars_.learn_step);
+    UpdatePerBeta(vars_.learn_step);
 
     // Post Updates (学習ステップ更新後に行う)
-    vars.learn_step++;
+    vars_.learn_step++;
 
     return result;
 }
@@ -702,25 +696,23 @@ std::shared_ptr<const anet::rl::BatchUpdateResult> RainbowAgent::Learner::Update
 // RainbowAgent TDLearner
 // ======================================================
 
-RainbowAgent::TDLearner::TDLearner(RainbowAgent& agent, const EnvSpec& env_spec, seed_t replay_seed)
-    : Learner(agent)
+
+TDLearner::TDLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars,
+    const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed)
+    : Learner(config, network, vars, batch_env_spec, env_spec, device, replay_seed)
 {
-    SetupReplayBuffer(env_spec, replay_seed);
+    SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
 }
 
 std::shared_ptr<const anet::rl::BatchUpdateResult>
-RainbowAgent::TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
+TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 {
     ProfileRange r("RainbowAgent::TDLearner::UpdateFromBatch");
 
-    const auto& config = agent_.config_;
-    auto& network = *agent_.network_;
-    auto& vars = *agent_.vars_;
-    const int B = config.replay_batch_size;
-    const int S = agent_.state_dim_;
-    const int A = agent_.n_actions_;
-    const torch::Device& device = agent_.device_;
+    const int B = config_.replay_batch_size;
+    const int S = state_dim_;
+    const int A = n_actions_;
     const auto& obs = samples.obs;
     const auto& target_values = samples.target_values;
     const auto& next_obs = samples.next_states.obs;
@@ -729,7 +721,7 @@ RainbowAgent::TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
     // ------------------------------------------------------------
     // Q(s, a)
     // ------------------------------------------------------------
-    auto q_all = network.Forward(obs, /*use_target=*/false);      // (B,A)
+    auto q_all = network_.Forward(obs, /*use_target=*/false);      // (B,A)
     ANET_CHECK_SHAPE(q_all, { B, A });
 
     torch::Tensor idx_actions = samples.actions.view({ B, 1 });   // (B,1)
@@ -747,23 +739,23 @@ RainbowAgent::TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
     // ------------------------------------------------------------
     torch::Tensor max_next_q;
 
-    if (config.use_double_dqn) {
+    if (config_.use_double_dqn) {
         torch::NoGradGuard no_grad;
 
         // Double DQN: policy_netで行動選択、target_netで価値計算
-        auto next_q_policy = network.Forward(next_obs, /*use_target=*/false);
+        auto next_q_policy = network_.Forward(next_obs, /*use_target=*/false);
         ANET_CHECK_SHAPE(next_q_policy, { B, A });
         auto next_actions = std::get<1>(next_q_policy.max(1));
         ANET_CHECK_SHAPE(next_actions, { B });
 
         // target_net で Q_target(s', argmax_a Q_online)
-        auto next_q_target = network.Forward(next_obs, /*use_target=*/true);
+        auto next_q_target = network_.Forward(next_obs, /*use_target=*/true);
         ANET_CHECK_SHAPE(next_q_target, { B, A });
         torch::Tensor next_actions_b = next_actions.view({ B, 1 });             // (B,1)
         max_next_q = next_q_target.gather(1, next_actions_b).squeeze(1);
     } else {
         torch::NoGradGuard;
-        auto next_q_target = network.Forward(next_obs, /*use_target=*/true);
+        auto next_q_target = network_.Forward(next_obs, /*use_target=*/true);
         ANET_CHECK_SHAPE(next_q_target, { B, A });
         max_next_q = std::get<0>(next_q_target.max(1));
     }
@@ -774,7 +766,7 @@ RainbowAgent::TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
     // TD target & TD Error
     // ------------------------------------------------------------
     auto not_terminal = 1.0f - terminals.to(torch::kFloat32); // (B,)
-    auto td_target = target_values + not_terminal * config.gamma * max_next_q.detach(); // (B,)
+    auto td_target = target_values + not_terminal * config_.gamma * max_next_q.detach(); // (B,)
     ANET_CHECK_SHAPE(td_target, { B });
     ANET_CHECK_DTYPE(td_target, torch::kFloat32);
     auto td_error = q_sa - td_target; // (B,)
@@ -788,20 +780,20 @@ RainbowAgent::TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
     torch::Tensor metric_per_priorities;
     torch::Tensor metric_per_is_weights;
 
-    if (config.use_per) {
+    if (config_.use_per) {
         torch::NoGradGuard no_grad;
 
         // 優先度 = |td_error| + eps
         auto abs_td_error = td_error.abs().detach();
-        auto new_priorities = abs_td_error + config.per_eps;
+        auto new_priorities = abs_td_error + config_.per_eps;
 
         // Priority Clipping
-        if (config.use_per_prio_clip) {
+        if (config_.use_per_prio_clip) {
             // [Metric Source] Clipped Count (Keep as Tensor)
-            metric_per_clipped_count = (new_priorities > config.per_prio_clip_value).sum(); // (Scalar Tensor)
+            metric_per_clipped_count = (new_priorities > config_.per_prio_clip_value).sum(); // (Scalar Tensor)
 
             // クリップ実行
-            new_priorities = torch::clamp(new_priorities, 0.0f, config.per_prio_clip_value);
+            new_priorities = torch::clamp(new_priorities, 0.0f, config_.per_prio_clip_value);
         } else {
             // クリップしない場合は0
             metric_per_clipped_count = torch::zeros({}, abs_td_error.options());
@@ -834,12 +826,12 @@ RainbowAgent::TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
     // ------------------------------------------------------------
 
     torch::Tensor td_error_for_loss = td_error;
-    if (config.use_td_clip && config.td_clip_value > 0.0f)
-        td_error_for_loss = torch::clamp(td_error_for_loss, -config.td_clip_value, config.td_clip_value);
+    if (config_.use_td_clip && config_.td_clip_value > 0.0f)
+        td_error_for_loss = torch::clamp(td_error_for_loss, -config_.td_clip_value, config_.td_clip_value);
 
     torch::Tensor loss;
 
-    if (config.use_per) {
+    if (config_.use_per) {
         // PER: IS Weights を loss に適用
         // element-wise loss (reduction=none)
         auto element_loss = torch::nn::functional::smooth_l1_loss(
@@ -870,15 +862,15 @@ RainbowAgent::TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
     torch::Tensor grad_norm_tensor;
     std::optional<float> grad_norm;
     bool grad_clipped = false;
-    if (config.use_grad_clip) {
+    if (config_.use_grad_clip) {
         // clip_grad_norm_ の戻り値は clip 前の全体ノルム
         double grad_norm_val = torch::nn::utils::clip_grad_norm_(
-                network.GetPolicyParameters(), config.grad_clip_tau);   // use_grad_clip=true では CPU同期は現状避けられない
+                network_.GetPolicyParameters(), config_.grad_clip_tau);   // use_grad_clip=true では CPU同期は現状避けられない
         grad_norm = static_cast<float>(grad_norm_val);
-        grad_clipped = (grad_norm_val > config.grad_clip_tau);
+        grad_clipped = (grad_norm_val > config_.grad_clip_tau);
     } else {
         torch::Tensor total_sq = torch::zeros({ 1 }, loss.options());
-        auto params = network.GetPolicyParameters();
+        auto params = network_.GetPolicyParameters();
         for (auto& p : params) {
             if (!p.grad().defined()) continue;
             total_sq += p.grad().detach().pow(2).sum();
@@ -896,14 +888,14 @@ RainbowAgent::TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
     // ------------------------------------------------------------
     // UpdateResult
     // ------------------------------------------------------------
-    auto result = std::make_shared<anet::rl::RainbowAgent::BatchUpdateResult>(1);
+    auto result = std::make_shared<BatchUpdateResult>(1);
     result->loss = loss;
     result->td_error = td_error;
     result->grad_norm = grad_norm;
     result->grad_norm_tensor = grad_norm_tensor;
     result->grad_clip_ratio = grad_clip_ratio;
     result->max_q = max_q;
-    if (config.use_per) {
+    if (config_.use_per) {
         result->per_minibatch_size = B;
         result->per_clipped_count = metric_per_clipped_count;
         result->per_priorities = metric_per_priorities;
@@ -917,20 +909,24 @@ RainbowAgent::TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
 // RainbowAgent QRLearner (New Implementation)
 // ======================================================
 
-RainbowAgent::QRLearner::QRLearner(RainbowAgent& agent, const EnvSpec& env_spec, seed_t replay_seed)
-    : Learner(agent)
+//explicit TDLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars,
+//    const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed);
+
+QRLearner::QRLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars,
+    const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed)
+    : Learner(config, network, vars, batch_env_spec, env_spec, std::move(device), replay_seed)
 {
-    SetupReplayBuffer(env_spec, replay_seed);
+    SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
 }
 
-torch::Tensor RainbowAgent::QRLearner::ComputeQuantileHuberLoss(
+torch::Tensor QRLearner::ComputeQuantileHuberLoss(
     const torch::Tensor& current_dist, const torch::Tensor& target_dist) const
 {
     ProfileRange r("RainbowAgent::QRLearner::ComputeQuantileHuberLoss");
 
-    const int N = agent_.config_.num_quantiles;
-    const float kappa = agent_.config_.quantile_huber_kappa;
+    const int N = config_.num_quantiles;
+    const float kappa = config_.quantile_huber_kappa;
     const auto& device = current_dist.device();
     const auto B = current_dist.size(0);
 
@@ -974,15 +970,13 @@ torch::Tensor RainbowAgent::QRLearner::ComputeQuantileHuberLoss(
 }
 
 std::shared_ptr<const anet::rl::BatchUpdateResult>
-RainbowAgent::QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
+QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 {
     ProfileRange r("RainbowAgent::QRLearner::UpdateFromSamples");
 
-    const auto& config = agent_.config_;
-    const int B = config.replay_batch_size;
-    const int A = agent_.n_actions_;
-    const int N = config.num_quantiles;
-    const torch::Device& device = agent_.device_;
+    const int B = config_.replay_batch_size;
+    const int A = n_actions_;
+    const int N = config_.num_quantiles;
 
     // 入力チェック
     ANET_CHECK_SHAPE(samples.actions, { B });
@@ -995,7 +989,7 @@ RainbowAgent::QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
     // ------------------------------------------------------------
 
     // 現在の分布計算: Z(s, a)、ForwardQuantiles は (B, A, N) を返す
-    auto current_dist_all = agent_.network_->ForwardQuantiles(samples.obs, /*use_target=*/false);
+    auto current_dist_all = network_.ForwardQuantiles(samples.obs, /*use_target=*/false);
     ANET_CHECK_SHAPE(current_dist_all, { B, A, N });
 
     // 選択された行動の分布を取得: (B, A, N) -> (B, N)
@@ -1024,19 +1018,19 @@ RainbowAgent::QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
 
         // 次状態のGreedy行動 a* = argmax E[Z(s', a')]
         torch::Tensor next_actions;
-        if (config.use_double_dqn) {
-            auto next_q_policy = agent_.network_->Forward(samples.next_states.obs, /*use_target=*/false); // (B, A)
+        if (config_.use_double_dqn) {
+            auto next_q_policy = network_.Forward(samples.next_states.obs, /*use_target=*/false); // (B, A)
             ANET_CHECK_SHAPE(next_q_policy, { B, A });
             next_actions = std::get<1>(next_q_policy.max(1)); // (B)
         } else {
-            auto next_q_target = agent_.network_->Forward(samples.next_states.obs, /*use_target=*/true); // (B, A)
+            auto next_q_target = network_.Forward(samples.next_states.obs, /*use_target=*/true); // (B, A)
             ANET_CHECK_SHAPE(next_q_target, { B, A });
             next_actions = std::get<1>(next_q_target.max(1)); // (B)
         }
         ANET_CHECK_SHAPE(next_actions, { B });
 
         // 次状態のターゲット分布: Z_target(s', :)
-        auto next_dist_all = agent_.network_->ForwardQuantiles(samples.next_states.obs, /*use_target=*/true); // (B, A, N)
+        auto next_dist_all = network_.ForwardQuantiles(samples.next_states.obs, /*use_target=*/true); // (B, A, N)
         ANET_CHECK_SHAPE(next_dist_all, { B, A, N });
 
         // a* に対応する分布を選択: (B, A, N) -> (B, N)
@@ -1053,7 +1047,7 @@ RainbowAgent::QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
         ANET_CHECK_SHAPE(not_terminal, { B, 1 });
 
         // (B, 1) + (B, 1) * (B, N) -> (B, N)
-        target_dist = reward + config.gamma * not_terminal * next_dist;
+        target_dist = reward + config_.gamma * not_terminal * next_dist;
         ANET_CHECK_SHAPE(target_dist, { B, N });
     }
 
@@ -1073,7 +1067,7 @@ RainbowAgent::QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
     ANET_CHECK_SHAPE(element_loss, { B });
 
     // 最適化用Loss(Scalar) ※ PERの重み (IS Weights) を適用
-    torch::Tensor weights = config.use_per ? samples.is_weights : torch::ones({ B }, device);
+    torch::Tensor weights = config_.use_per ? samples.is_weights : torch::ones({ B }, device_);
     auto loss = (element_loss * weights).mean();
     ANET_CHECK_SHAPE(loss, {});
     
@@ -1091,14 +1085,14 @@ RainbowAgent::QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
     torch::Tensor grad_norm_tensor;
     std::optional<float> grad_norm;
     bool grad_clipped = false;
-    if (config.use_grad_clip) {
+    if (config_.use_grad_clip) {
         double grad_norm_val = torch::nn::utils::clip_grad_norm_(
-            agent_.network_->GetPolicyParameters(), config.grad_clip_tau);
+            network_.GetPolicyParameters(), config_.grad_clip_tau);
         grad_norm = static_cast<float>(grad_norm_val);
-        grad_clipped = (grad_norm_val > config.grad_clip_tau);
+        grad_clipped = (grad_norm_val > config_.grad_clip_tau);
     } else {
         torch::Tensor total_sq = torch::zeros({ 1 }, loss.options());
-        for (auto& p : agent_.network_->GetPolicyParameters()) {
+        for (auto& p : network_.GetPolicyParameters()) {
             if (!p.grad().defined()) continue;
             total_sq += p.grad().detach().pow(2).sum();
         }
@@ -1118,7 +1112,7 @@ RainbowAgent::QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
     torch::Tensor metric_per_priorities;
     torch::Tensor metric_per_is_weights;
 
-    if (config.use_per) {
+    if (config_.use_per) {
         torch::NoGradGuard no_grad;
 
         // 優先度用に要素ごとのLossを再計算（ブロードキャストを利用して全ペア差分を計算）
@@ -1131,11 +1125,11 @@ RainbowAgent::QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
         ANET_CHECK_SHAPE(diff, { B, N, N });
 
         // HuberLoss 部分
-        auto tau = torch::arange(0.5f / N, 1.0f, 1.0f / N, device).view({ 1, N, 1 });
+        auto tau = torch::arange(0.5f / N, 1.0f, 1.0f / N, device_).view({ 1, N, 1 });
         auto huber_loss = torch::where(
-            diff.abs() < config.quantile_huber_kappa,
+            diff.abs() < config_.quantile_huber_kappa,
             0.5f * diff.pow(2),
-            config.quantile_huber_kappa * (diff.abs() - 0.5f * config.quantile_huber_kappa)
+            config_.quantile_huber_kappa * (diff.abs() - 0.5f * config_.quantile_huber_kappa)
         );
 
         // Quantile Loss 部分: rho_tau(u) = |tau - I(u<0)| * L_k(u)
@@ -1143,13 +1137,13 @@ RainbowAgent::QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
         ANET_CHECK_SHAPE(element_wise_loss, { B });
 
         // Priority (element_loss を N で割ってスケーリング)
-        auto new_priorities = (element_loss / static_cast<float>(N)) + config.per_eps;
+        auto new_priorities = (element_loss / static_cast<float>(N)) + config_.per_eps;
         ANET_CHECK_SHAPE(new_priorities, { B });
 
         // PER clip
-        if (config.use_per_prio_clip) {
-            metric_per_clipped_count = (new_priorities > config.per_prio_clip_value).sum();
-            new_priorities = torch::clamp(new_priorities, 0.0f, config.per_prio_clip_value);
+        if (config_.use_per_prio_clip) {
+            metric_per_clipped_count = (new_priorities > config_.per_prio_clip_value).sum();
+            new_priorities = torch::clamp(new_priorities, 0.0f, config_.per_prio_clip_value);
         } else {
             metric_per_clipped_count = torch::zeros({}, new_priorities.options());
         }
@@ -1177,14 +1171,14 @@ RainbowAgent::QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
     // 結果生成
     // ------------------------------------------------------------
 
-    auto result = std::make_shared<anet::rl::RainbowAgent::BatchUpdateResult>(1);
+    auto result = std::make_shared<BatchUpdateResult>(1);
     result->loss = loss;
     result->td_error = td_error_tensor;
     result->grad_norm = grad_norm;
     result->grad_norm_tensor = grad_norm_tensor;
     result->grad_clip_ratio = grad_clip_ratio;
     result->max_q = max_q;
-    if (config.use_per) {
+    if (config_.use_per) {
         result->per_minibatch_size = B;
         result->per_clipped_count = metric_per_clipped_count;
         result->per_priorities = metric_per_priorities;
@@ -1194,3 +1188,4 @@ RainbowAgent::QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& sa
 
     return result;
 }
+

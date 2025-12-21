@@ -115,7 +115,7 @@ namespace anet::rl {
         }
     };
 
-    class DQNAgent : public anet::rl::FlatStateAgent<DQNAgentConfig>, public std::enable_shared_from_this<DQNAgent> {
+    class DQNAgent : public anet::rl::FlatStateAgent, public std::enable_shared_from_this<DQNAgent> {
     public:
         DQNAgent(
             const DQNAgentConfig& config,
@@ -144,6 +144,7 @@ namespace anet::rl {
         class StabilityMonitor;     ///< メトリクス情報管理
         class StabilityController;  ///< 安定制御
     private:
+        DQNAgentConfig config_;
         // Resource（Agentが管理すべき内部データ）
         std::unique_ptr<RuntimeVars> vars_;
         std::shared_ptr<QNetImpl> policy_net_;

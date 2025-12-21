@@ -395,8 +395,8 @@ void LunarLanderApp::InitImageLogObservers()
 
 void LunarLanderApp::InitPERImageLogObservers(const anet::ConfigData& config_data)
 {
-    anet::rl::RainbowAgentConfig agent_config(config_data);
-    if (!agent_config.use_per) {
+    anet::rl::dqn::RainbowAgentConfig agent_config(config_data);
+    if (!agent_config.learner.use_per) {
         LOG::warn() << "PER agent config disabled. Skipping PER ImageLog observer.";
         return;
     }

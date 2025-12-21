@@ -7,5 +7,5 @@ using namespace anet::rl;
 void anet::rl::InitRL()
 {
 	RegisterAgentFactory<DQNAgentFactory>();
-	RegisterAgentFactory<RainbowAgentFactory>();
+	RegisterAgentFactory<anet::rl::dqn::RainbowAgentFactory>();
 }

@@ -813,7 +813,8 @@ DQNAgent::DQNAgent(
     , const anet::rl::BatchEnvSpec& batch_env_spec, const anet::rl::EnvSpec& env_spec, const torch::Device& device
     , std::shared_ptr<anet::rl::Notifier> notifier
     , std::optional<seed_t> seed)
-    : FlatStateAgent(config, device, notifier, batch_env_spec, env_spec, seed)
+    : FlatStateAgent( device, notifier, batch_env_spec, env_spec, seed)
+    , config_(config)
     , policy_net_(std::make_shared<QNetImpl>(state_dim_, n_actions_))
     , target_net_(std::make_shared<QNetImpl>(state_dim_, n_actions_))
 {

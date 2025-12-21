@@ -1,7 +1,7 @@
 ﻿// dqn_agent.cpp
 
 #include "anet/rainbow_agent.hpp"
-#include "rainbow_agent_impl.hpp"
+#include "dqn_based_agent.hpp"
 #include <memory>
 #include <torch/torch.h>
 #include <tuple>
@@ -16,7 +16,7 @@
 #include "anet/profile.hpp"
 
 
-using namespace anet::rl;
+using namespace anet::rl::dqn;
 namespace LOG = anet::log;
 
 
@@ -29,7 +29,8 @@ RainbowAgent::RainbowAgent(
     , const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, const torch::Device& device
     , std::shared_ptr<Notifier> notifier
     , std::optional<seed_t> seed)
-    : FlatStateAgent(config, device, notifier, batch_env_spec, env_spec, seed)
+    : FlatStateAgent(device, notifier, batch_env_spec, env_spec, seed)
+    , config_(config)
 {
     ANET_LOG_DEBUG("seed=" << GetSeed());
 
@@ -44,7 +45,7 @@ RainbowAgent::RainbowAgent(
     auto action_policy_seed = seed_maker.MakeNamedSeed("action_policy");
 
     // RuntimeVars生成
-    this->vars_ = std::make_unique<RuntimeVars>();
+    this->vars_ = std::make_unique<dqn::RuntimeVars>();
 
     // QR-DQN設定確認 (use_qr フラグと num_quantiles の整合性)
     bool is_distributional = config_.use_qr;
@@ -54,38 +55,38 @@ RainbowAgent::RainbowAgent(
     }
 
     // NN生成＆初期化
-    std::shared_ptr<QNet> policy_net;
-    std::shared_ptr<QNet> target_net;
+    std::shared_ptr<anet::rl::dqn::QNet> policy_net;
+    std::shared_ptr<anet::rl::dqn::QNet> target_net;
     if (config_.use_dueling_net) {
         if (is_distributional) {
-            policy_net = std::make_shared<QuantileDuelingQNet>(config_, state_dim_, n_actions_);
-            target_net = std::make_shared<QuantileDuelingQNet>(config_, state_dim_, n_actions_);
+            policy_net = std::make_shared<anet::rl::dqn::QuantileDuelingQNet>(config_.qnet, state_dim_, n_actions_);
+            target_net = std::make_shared<anet::rl::dqn::QuantileDuelingQNet>(config_.qnet, state_dim_, n_actions_);
         } else {
-            policy_net = std::make_shared<DuelingQNet>(config_, state_dim_, n_actions_);
-            target_net = std::make_shared<DuelingQNet>(config_, state_dim_, n_actions_);
+            policy_net = std::make_shared<anet::rl::dqn::DuelingQNet>(config_.qnet, state_dim_, n_actions_);
+            target_net = std::make_shared<anet::rl::dqn::DuelingQNet>(config_.qnet, state_dim_, n_actions_);
         }
     } else {
         if (is_distributional) {
-            policy_net = std::make_shared<QuantilePlainQNet>(config_, state_dim_, n_actions_);
-            target_net = std::make_shared<QuantilePlainQNet>(config_, state_dim_, n_actions_);
+            policy_net = std::make_shared<anet::rl::dqn::QuantilePlainQNet>(config_.qnet, state_dim_, n_actions_);
+            target_net = std::make_shared<anet::rl::dqn::QuantilePlainQNet>(config_.qnet, state_dim_, n_actions_);
         } else {
-            policy_net = std::make_shared<PlainQNet>(config_, state_dim_, n_actions_);
-            target_net = std::make_shared<PlainQNet>(config_, state_dim_, n_actions_);
+            policy_net = std::make_shared<anet::rl::dqn::PlainQNet>(config_.qnet, state_dim_, n_actions_);
+            target_net = std::make_shared<anet::rl::dqn::PlainQNet>(config_.qnet, state_dim_, n_actions_);
         }
     }
     
     // Network生成
-    this->network_ = std::make_unique<RainbowAgent::Network>(config_, device_, policy_net, target_net);
+    this->network_ = std::make_unique<dqn::Network>(config_.network, device_, policy_net, target_net);
 
     // ActionPolicy生成
-    this->action_policy_ = std::make_unique<RainbowAgent::ActionPolicy>(*network_, *vars_, action_policy_seed);
+    this->action_policy_ = std::make_unique<dqn::ActionPolicy>(*network_, *vars_, action_policy_seed);
 
     // Learner生成
     if (is_distributional) {
-        this->learner_ = std::make_unique<RainbowAgent::QRLearner>(*this, env_spec, replay_seed);
+        this->learner_ = std::make_unique<dqn::QRLearner>(config_.learner, *network_, *vars_, batch_env_spec, env_spec, device_, replay_seed);
         LOG::info() << "Initialized QRLearner (Quantiles=" << config_.num_quantiles << ")";
     } else {
-        this->learner_ = std::make_unique<RainbowAgent::TDLearner>(*this, env_spec, replay_seed);
+        this->learner_ = std::make_unique<dqn::TDLearner>(config_.learner, *network_, *vars_, batch_env_spec, env_spec, device_, replay_seed);
         LOG::info() << "Initialized TDLearner";
     }
 }
@@ -133,7 +134,7 @@ std::optional<std::vector<torch::Tensor>> RainbowAgent::GetTensorVector(const st
     return std::nullopt;
 }
 
-BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const BatchState& state, RunMode runmode) const
+anet::rl::BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const BatchState& state, RunMode runmode) const
 {
     ProfileRange r1("RainbowAgent::MakeAction");
     ANET_CHECK_SHAPE(state.obs, { ANET_SHAPE_ANY, state_dim_ });
@@ -168,7 +169,7 @@ RainbowAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExp
         // Update実行
         update_result = this->learner_->UpdateFromBatch(counts, batch_exp, runner);
     } else {
-        update_result = std::make_shared<anet::rl::RainbowAgent::BatchUpdateResult>(0);
+        update_result = std::make_shared<dqn::BatchUpdateResult>(0);
     }
 
     // LearnEvent通知
@@ -185,7 +186,7 @@ RainbowAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExp
 // RainbowAgentFactory
 // ======================================================
 
-std::shared_ptr<Agent> RainbowAgentFactory::CreateAgent(
+std::shared_ptr<anet::rl::Agent> RainbowAgentFactory::CreateAgent(
     const EnvSpec& env_spec, const BatchEnvSpec& batch_env_spec,
     const torch::Device& device, const anet::ConfigData& config_data,
     std::shared_ptr<anet::rl::Notifier> notifier, std::optional<anet::seed_t> seed) const
