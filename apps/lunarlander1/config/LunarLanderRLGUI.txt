@@ -11,8 +11,8 @@ agent.class_id = RainbowAgent
 train.batch_size = 10
 #train.batch_size = 1
 
-LunarLanderApp.use_image_log = true      # default=false
-LunarLanderApp.use_per_image_log = true      # default=false
+#LunarLanderApp.use_image_log = true      # default=false
+#LunarLanderApp.use_per_image_log = true      # default=false
 
 metrics.scalar.$ = metrics.scalar.rainbow
 #metrics.scalar.$ = metrics.scalar.min
@@ -42,8 +42,8 @@ RainbowAgent.trunk.use_td_clip = false          #
 RainbowAgent.trunk.td_clip_value = 30.0         # 4.0 20 30
 RainbowAgent.trunk.replay_capacity = 100000       #  10000 30000
 RainbowAgent.trunk.replay_batch_size = 128      #
-#RainbowAgent.trunk.update_warmup_steps = 1000   # 1000
-RainbowAgent.trunk.update_warmup_steps = 1   # 1000
+RainbowAgent.trunk.update_warmup_steps = 1000   # 1000
+#RainbowAgent.trunk.update_warmup_steps = 1   # 1000
 RainbowAgent.trunk.update_interval = 5          #
 
 #RainbowAgent.trunk.n_step = 1
@@ -117,13 +117,16 @@ RainbowAgent.baseline.use_per = true
     #   &step    : &train_step || &learn_step || &episode_step || &exp_step || &update_step || &sim_step
     #   $target  : $update_result || $agent || $exp || $runner
 
-metrics.scalar.rainbow.[10_train/10_total_reward] = $runner train_reward @train
-metrics.scalar.rainbow.[10_train/10_total_reward_ema] = train_reward $runner @train $ema ema_alpha:0.001   # 重い？
-metrics.scalar.rainbow.[11_agent_dqn_base/03_epsilon_train] = $agent epsilon @train
+metrics.scalar.rainbow.[20_train/11_eps_count] = $runner episode_count @train $runner interval:100
+metrics.scalar.rainbow.[20_train/12_epsilon] = $agent epsilon @train
+metrics.scalar.rainbow.[20_train/20_total_reward] = $runner train_reward @train
+metrics.scalar.rainbow.[20_train/21_total_reward_ema] = train_reward $runner @train $ema
+
 metrics.scalar.rainbow.[21_eval/01_target_reward] = $runner target_eval_reward @learn clip:3000
 metrics.scalar.rainbow.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn clip:3000
 metrics.scalar.rainbow.[21_eval/03_target_reward_ema] = $runner target_eval_reward $ema @learn clip:1000
 metrics.scalar.rainbow.[21_eval/04_policy_reward_ema] = $runner policy_eval_reward $ema @learn clip:1000
+
 metrics.scalar.rainbow.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn 
 metrics.scalar.rainbow.[32_agent_base/06_per_beta] = $agent per_beta @learn 
 metrics.scalar.rainbow.[37_agent_qtd/01_td_mean] = td_mean @learn
@@ -140,13 +143,13 @@ metrics.scalar.rainbow.[38_agent_loss/01_loss] = loss @learn
 metrics.scalar.rainbow.[38_agent_loss/02_loss_ema] = loss @learn $ema
 
 metrics.scalar.rainbow.[39_agent_per/01_per_td_error_abs_max] = per_td_error_abs_max @learn
-metrics.scalar.rainbow.[39_agent_per/02_per_per_prio_max] = per_prio_max @learn
+metrics.scalar.rainbow.[39_agent_per/02_per_prio_max] = per_prio_max @learn
 metrics.scalar.rainbow.[39_agent_per/03_per_prio_clip_ratio] = per_prio_clip_ratio @learn
 metrics.scalar.rainbow.[39_agent_per/04_per_batch_prio_mean] = per_batch_prio_mean @learn
 metrics.scalar.rainbow.[39_agent_per/05_per_is_weight_mean] = per_is_weight_mean @learn
 
 metrics.scalar.rainbow.[39_agent_per/11_per_td_error_abs_max_ema] = per_td_error_abs_max @learn $ema
-metrics.scalar.rainbow.[39_agent_per/12_per_per_prio_max_ema] = per_prio_max @learn $ema
+metrics.scalar.rainbow.[39_agent_per/12_per_prio_max_ema] = per_prio_max @learn $ema
 metrics.scalar.rainbow.[39_agent_per/13_per_prio_clip_ratio_ema] = per_prio_clip_ratio @learn $ema
 metrics.scalar.rainbow.[39_agent_per/14_per_batch_prio_mean_ema] = per_batch_prio_mean @learn $ema
 metrics.scalar.rainbow.[39_agent_per/15_per_is_weight_mean_ema] = per_is_weight_mean @learn $ema
@@ -157,6 +160,9 @@ metrics.scalar.rainbow.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec 
 metrics.scalar.rainbow.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
 
 
+
+metrics.scalar.dqn.[10_train/10_episode_reward] = $runner train_episode_reward @train
+metrics.scalar.dqn.[10_train/11_episode_reward_ema] = $runner train_episode_reward @train $ema ema_alpha:0.001 clip:1000
 metrics.scalar.dqn.[10_train/10_total_reward] = $runner train_reward @train
 #metrics.scalar.dqn.[10_train/10_total_reward_ema] = train_reward $runner @train $ema
 metrics.scalar.dqn.[11_agent_dqn_base/03_epsilon_train] = $agent epsilon @train
@@ -188,20 +194,19 @@ metrics.scalar.dqn.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 metrics.scalar.dqn.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
 
 
-#metrics.scalar.min.[10_train/10_total_reward] = train_reward  $runner @train $ema
-metrics.scalar.min.[10_train/10_total_reward] = train_reward  $runner @train
+metrics.scalar.min.[10_train/10_episode_reward] = $runner train_episode_reward @train
 metrics.scalar.min.[21_eval/01_target_reward] = $runner target_eval_reward @learn clip:3000
 metrics.scalar.min.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn clip:3000
-metrics.scalar.min.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
-metrics.scalar.min.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $runner interval:100
 metrics.scalar.min.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
-metrics.scalar.min.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
 metrics.scalar.min.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
 
 
-metrics.scalar.full.[10_train/10_total_reward] = $runner train_reward @train
-metrics.scalar.full.[10_train/10_total_reward_ema] = train_reward $runner @train $ema
-metrics.scalar.full.[11_agent_dqn_base/03_epsilon_train] = $agent epsilon @train
+metrics.scalar.full.[10_eps/10_eps_reward] = $runner $episode_step train_episode_reward @train
+metrics.scalar.full.[10_eps/11_eps_reward_ema] = $runner $episode_step train_episode_reward @train $ema ema_alpha:0.01 clip:1000
+metrics.scalar.full.[20_train/11_eps_count] = $runner episode_count @train $runner interval:100
+metrics.scalar.full.[20_train/12_epsilon] = $agent epsilon @train
+metrics.scalar.full.[20_train/20_total_reward] = $runner train_reward @train
+metrics.scalar.full.[20_train/21_total_reward_ema] = train_reward $runner @train $ema
 metrics.scalar.full.[21_eval/01_target_reward] = $runner target_eval_reward @learn clip:3000
 metrics.scalar.full.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn clip:3000
 metrics.scalar.full.[21_eval/03_target_reward_ema] = $runner target_eval_reward $ema @learn

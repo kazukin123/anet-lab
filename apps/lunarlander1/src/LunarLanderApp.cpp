@@ -287,7 +287,7 @@ void LunarLanderApp::InitImageLogObservers()
         100,    // log_interval 
         30000,  // max_points
         flags   // flags
-        - 1,     // image_width
+        -1,     // image_width
         -1,     // image_height
     };
     auto visit_x_probe = std::make_shared<anet::rl::BatchExperienceStateProbe>(0, &env_spec.state_spec, true);
@@ -356,7 +356,7 @@ void LunarLanderApp::InitImageLogObservers()
         };
 
     anet::rl::SweepedHeatMapObserverConfig q_sweep_obs_config{
-        1,    // log_interval
+        100,    // log_interval
         flags | anet::HeatMapFlags::HM_AutoScaleAxis,  // flags
         128,    // grid_width
         128,    // grid_height

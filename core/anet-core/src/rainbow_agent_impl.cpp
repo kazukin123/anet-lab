@@ -936,7 +936,6 @@ torch::Tensor RainbowAgent::QRLearner::ComputeQuantileHuberLoss(
     // 入力チェック
     ANET_CHECK_SHAPE(current_dist, { B, N });
     ANET_CHECK_SHAPE(target_dist, { B, N });
-    ANET_CHECK_SHAPE(weights, { B });
 
     // current: (B, N) -> (B, N, 1)
     // target : (B, N) -> (B, 1, N)

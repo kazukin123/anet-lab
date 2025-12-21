@@ -512,9 +512,11 @@ void MetricsLogObserverBase::OnUpdate(const UpdateEvent& event)
 
 	// ログ出力
     if (is_ema_) {
-        MetricsLogger::Instance()->LogScalar(tag_, step, val_ema_.Value());
+        if (val_ema_.IsInitialized())
+            MetricsLogger::Instance()->LogScalar(tag_, step, val_ema_.Value());
     } else if (value.has_value()) {
-        MetricsLogger::Instance()->LogScalar(tag_, step, *value);
+        if (std::isfinite(*value))    // NaNと∞は出さない
+            MetricsLogger::Instance()->LogScalar(tag_, step, *value);
     }
 }
 

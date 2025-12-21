@@ -235,6 +235,36 @@ DefaultTrainer::DefaultTrainer(const ConfigData& config_data, const std::string&
     //Initialize(config_data);
 }
 
+
+std::optional<float> DefaultTrainer::GetScalar(const std::string& key, int index) const
+{
+    if (key == TRAIN_REWARD) return last_train_reward_;
+    if (key == TRAIN_REWARD_EMA) return train_reward_ema_.Value();
+
+    if (key == TRAIN_EPISODE_REWARD) {
+        if (episode_total_reward_comp_.defined()) {
+            auto ret = anet::ToFloat(episode_total_reward_comp_.mean());   // エピソード総報酬の平均
+            return ret;
+        } else {
+            return std::numeric_limits<float>::quiet_NaN();
+        }
+    }
+    if (key == TARGET_EVAL_REWARD) return last_target_eval_reward_;
+    if (key == POLICY_EVAL_REWARD) return last_policy_eval_reward_;
+
+    if (key == TRAIN_STEP_PER_SEC) return last_train_step_per_sec_;
+    if (key == EXP_STEP_PER_SEC) return last_exp_step_per_sec_;
+
+    if (key == ELAPSE_HOUR) {
+        std::chrono::high_resolution_clock::time_point now = std::chrono::high_resolution_clock::now();
+        auto elapse_msec = static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count());
+        auto elapse_hour = elapse_msec / 1000.0f / 60.0f / 60.0f;
+        return elapse_hour;
+    }
+
+    return RunnerBase::GetScalar(key, index);
+}
+
 RunnerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
 {
     // seed
@@ -281,6 +311,11 @@ RunnerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
     anet::MetricsLogger::Instance()->LogJson("env/batch_env_spec", batch_env_spec.ToJson());
     anet::MetricsLogger::Instance()->LogJson("env/env_spec", env_spec.ToJson());
     anet::MetricsLogger::Instance()->Flush();
+
+    // メトリクス初期化
+    auto fopt = torch::TensorOptions().dtype(torch::kFloat32).device(env_device);
+    episode_total_reward_cur_ = torch::zeros({ batch_env_spec.batch_size }, fopt);
+    ANET_CHECK_SHAPE(episode_total_reward_cur_, { batch_env_spec.batch_size });
 
     // ランダム方策で環境難易度評価
     /// @todo EvaluateEnvironmentDifficultyを復活
@@ -396,10 +431,17 @@ StepCounts DefaultTrainer::DoStep()
     ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
 //    ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
 
-    // 報酬更新
-    float step_reward = result->reward.mean().item<float>();
-    last_train_reward_ = step_reward;
+    // 平均報酬更新
+    float step_reward_mean = result->reward.mean().item<float>();
+    last_train_reward_ = step_reward_mean;
 	train_reward_ema_.Update(last_train_reward_);
+
+    // エピソード合計報酬更新
+    episode_total_reward_cur_ += result->reward;                // 現エピソード報酬加算
+    auto finished = result->next_state.done.to(torch::kBool)
+        | result->next_state.truncated.to(torch::kBool);   // 終了マスク
+    episode_total_reward_comp_ = episode_total_reward_cur_.masked_select(finished);  // 終了したエピソードの報酬を確定
+    episode_total_reward_cur_.masked_fill_(finished, 0.0f);  // 終了したENVのエピソード総報酬をゼロクリア
 
     // カウント更新
     step_counts_.train_step++;
@@ -446,27 +488,6 @@ std::shared_ptr<EvalRunner> DefaultTrainer::CreateEvalRunner(RunMode runmode) co
     auto env = env_factory_->CreateBatchEnv(eval_env_seed_,1);
     auto eval_runner = std::make_shared<EvalRunner>(env, agent_, runmode);
     return eval_runner;
-}
-
-std::optional<float> DefaultTrainer::GetScalar(const std::string& key, int index) const
-{
-    if (key == TRAIN_REWARD) return last_train_reward_;
-    if (key == TRAIN_REWARD_EMA) return train_reward_ema_.Value();
-
-    if (key == TARGET_EVAL_REWARD) return last_target_eval_reward_;
-    if (key == POLICY_EVAL_REWARD) return last_policy_eval_reward_;
-
-    if (key == TRAIN_STEP_PER_SEC) return last_train_step_per_sec_;
-    if (key == EXP_STEP_PER_SEC) return last_exp_step_per_sec_;
-
-    if (key == ELAPSE_HOUR) {
-        std::chrono::high_resolution_clock::time_point now = std::chrono::high_resolution_clock::now();
-        auto elapse_msec = static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count());
-        auto elapse_hour = elapse_msec / 1000.0f / 60.0f / 60.0f;
-        return elapse_hour;
-    }
-
-    return RunnerBase::GetScalar(key, index);
 }
 
 // =========================

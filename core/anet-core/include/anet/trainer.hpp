@@ -87,6 +87,8 @@ namespace anet::rl {
         float last_policy_eval_reward_ = 0.0f;
         float last_train_step_per_sec_ = std::numeric_limits<float>::quiet_NaN();
         float last_exp_step_per_sec_ = std::numeric_limits<float>::quiet_NaN();
+        torch::Tensor episode_total_reward_cur_;        ///< Trainのエピソード単位総報酬を集計するために現在値
+        torch::Tensor episode_total_reward_comp_;       ///< Trainのエピソード単位総報酬
     };
 
     class RunnerThread {

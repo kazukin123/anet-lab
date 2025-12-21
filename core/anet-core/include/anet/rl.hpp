@@ -795,6 +795,7 @@ namespace anet::rl {
     public:
         static constexpr const char* TRAIN_REWARD = "train_reward";
         static constexpr const char* TRAIN_REWARD_EMA = "train_reward_ema";
+        static constexpr const char* TRAIN_EPISODE_REWARD = "train_episode_reward";
         static constexpr const char* TARGET_EVAL_REWARD = "target_eval_reward";
         static constexpr const char* POLICY_EVAL_REWARD = "policy_eval_reward";
         static constexpr const char* TRAIN_STEP = "train_step";
