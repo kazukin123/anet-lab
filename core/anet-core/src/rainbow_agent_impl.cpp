@@ -591,13 +591,14 @@ void RainbowAgent::Learner::SetupReplayBuffer(const EnvSpec& env_spec, seed_t se
 
 bool RainbowAgent::Learner::CanUpdate(step_t update_step) const
 {
-    /// @todo ReplayBuffer充足チェックにexp_stepを使う？
-
-    // warmup
-    if (update_step < agent_.config_.update_warmup_steps * agent_.batch_size_)
-        return false;
     // update_interval
     if ((update_step % agent_.config_.update_interval) != 0)
+        return false;
+    // warmup
+    if (agent_.config_.update_warmup_steps > 0 && update_step < agent_.config_.update_warmup_steps * agent_.batch_size_)
+        return false;
+    // ReplayBufferのサイズがminibatchサイズに満たない場合はスキップ（N-STEPであり得る）
+    if (replay_buffer_->Size() < agent_.config_.replay_batch_size)
         return false;
     return true;
 }

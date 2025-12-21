@@ -65,6 +65,7 @@ namespace anet {
         std::string GetImageSubType() const override { return "heat_map"; }
 
         void AddData(float x, float y, float value);
+        void AddDataBatch(const std::vector<float>& xv, const std::vector<float>& yv, const std::vector<float>& vv);
         void SetGridValues(const float* values, int width, int height);
         void Reset() override;
         wxImage RenderRaw() const override;
@@ -88,6 +89,10 @@ namespace anet {
             value_min_ = std::min(value_min_, value);
             value_max_ = std::max(value_max_, value);
         }
+    private:
+        // ワークバッファ
+        mutable std::vector<float> work_buf_;
+        mutable std::vector<int> work_cnt_;
     };
 
     // ============================================================

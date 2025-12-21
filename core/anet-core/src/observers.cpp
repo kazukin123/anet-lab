@@ -56,12 +56,12 @@ HeatMapVectorObserver::HeatMapVectorObserver(
 
 void HeatMapVectorObserver::OnTrain(const TrainEvent& event)
 {
-    anet::ProfileRange r("HeatMapVectorObserver::OnPostUpdate");
+    anet::ProfileRange r("HeatMapVectorObserver::OnTrain");
 
-	/// @todo メトリクスのSTEP軸を指定できるようにする
-	auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);    
+    auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);
 
     // 生成： xv, yv, vv
+    anet::ProfileRange r1("HeatMapVectorObserver::OnTrain.GetVector");
     auto xv = x_probe_->GetVector(event);
     auto yv = y_probe_->GetVector(event);
     auto vv = value_probe_->GetVector(event);
@@ -69,24 +69,22 @@ void HeatMapVectorObserver::OnTrain(const TrainEvent& event)
     // 揃ってなかったらスキップ
     if (!xv.has_value() || !yv.has_value() || !vv.has_value())
         return;
+
+    // サイズチェック
     if (xv->size() != yv->size() || xv->size() != vv->size()) {
-        LOG::warn() << "HeatMapVectorObserver: size mismatch. x=" << x_probe_->GetName() << " y=" << y_probe_->GetName() << " v=" << value_probe_->GetName();
+        LOG::warn() << "HeatMapVectorObserver: size mismatch. x=" << x_probe_->GetName()
+            << " y=" << y_probe_->GetName() << " v=" << value_probe_->GetName();
         return;
     }
 
     // データ追加
-    const size_t n = xv->size();
-
-    for (size_t i = 0; i < n; i++) {
-        float x = (*xv)[i];
-        float y = (*yv)[i];
-        float v = (*vv)[i];
-        heatmap_->AddData(x, y, v);
-        //ANET_ASSERT(x >= heatmap_->x_min_ && x <= heatmap_->x_max_);
-        //ANET_ASSERT(y >= heatmap_->y_min_ && y <= heatmap_->y_max_);
-        //wxLogDebug("HeatMapVectorObserver::OnPostUpdate v=%f x=%f y=%f", v, sx, theta_deg);
+    if (!xv->empty()) {
+        anet::ProfileRange r2("HeatMapVectorObserver::OnTrain.addDataBatch", r1);
+        heatmap_->AddDataBatch(*xv, *yv, *vv);
     }
 
+    // 画像保存
+    anet::ProfileRange r3("HeatMapVectorObserver::OnTrain.logImage", r1); // 親スコープをr1に変更(r2はif内なので)
     if (step % config_.log_interval == 0) {
         MetricsLogger::Instance()->LogImage(
             tag_,
@@ -110,10 +108,13 @@ TimeHistogramObserver::TimeHistogramObserver(
 
 void TimeHistogramObserver::OnLearn(const LearnEvent& event)
 {
-	/// @todo メトリクスのSTEP軸を指定できるようにする
+    anet::ProfileRange r("TimeHistogramObserver::OnTrain");
+    
+    /// @todo メトリクスのSTEP軸を指定できるようにする
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::LEARN);
 
     // Probeで vectorを取得
+    anet::ProfileRange r1("TimeHistogramObserver::OnTrain.getVector");
     auto values = probe_->GetVector(event);
     if (values.has_value()) {
         histogram_->AddBatch(*values);
@@ -124,6 +125,7 @@ void TimeHistogramObserver::OnLearn(const LearnEvent& event)
         histogram_->NextFrame();
     }
 
+    anet::ProfileRange r2("TimeHistogramObserver::OnTrain.logImage", r1);
     // ログ出力
     if (step % config_.log_interval == 0) {
         MetricsLogger::Instance()->LogImage(tag_, step, *histogram_, config_.image_width, config_.image_height);
@@ -195,48 +197,88 @@ inline float Normalize01(
 
 void MultiPairHeatMapObserver::OnTrain(const TrainEvent& event)
 {
-    anet::ProfileRange r("MultiPairHeatMapObserver::OnPostUpdate");
+    anet::ProfileRange r("MultiPairHeatMapObserver::OnTrain");
 
-	/// @todo メトリクスのSTEP軸を指定できるようにする
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);
 
-    // 値ベクトル
+    // --- 値ベクトル取得 ---
+    anet::ProfileRange r1("MultiPairHeatMapObserver::OnTrain.GetVector");
     auto vv = value_probe_->GetVector(event);
-    if (!vv) return;
+    if (!vv || vv->empty()) return;
 
-    // 全プローブペア i<j をスキャン
     const size_t m = axis_probes_.size();
+    if (m < 2) return;
 
+    // --- 準備: バッファの再利用 ---
+    static thread_local std::vector<float> batch_x;
+    static thread_local std::vector<float> batch_y;
+    static thread_local std::vector<float> batch_v;
+
+    // スレッドローカル変数の容量確保（前回のサイズを維持）
+    size_t estimated_size = vv->size();
+    if (batch_x.capacity() < estimated_size) batch_x.reserve(estimated_size);
+    if (batch_y.capacity() < estimated_size) batch_y.reserve(estimated_size);
+    if (batch_v.capacity() < estimated_size) batch_v.reserve(estimated_size);
+
+    anet::ProfileRange r2("MultiPairHeatMapObserver::OnTrain.processPairs", r1);
+
+    // --- 全プローブペア i < j をスキャン ---
     for (size_t i = 0; i < m; i++) {
         auto xv = axis_probes_[i]->GetVector(event);
-        if (!xv) continue;
+        if (!xv || xv->empty()) continue;
 
-        auto xmin = axis_probes_[i]->GetMin();
-        auto xmax = axis_probes_[i]->GetMax();
+        auto xmin_opt = axis_probes_[i]->GetMin();
+        auto xmax_opt = axis_probes_[i]->GetMax();
+        if (!xmin_opt || !xmax_opt) continue; // 範囲未定ならスキップ
+
+        float xmin = *xmin_opt;
+        float xmax = *xmax_opt;
+        float x_range = xmax - xmin;
+        float x_scale = (std::fabs(x_range) > 1e-6f) ? (1.0f / x_range) : 0.0f;
 
         for (size_t j = i + 1; j < m; j++) {
             auto yv = axis_probes_[j]->GetVector(event);
-            if (!yv) continue;
+            if (!yv || yv->empty()) continue;
 
-            auto ymin = axis_probes_[j]->GetMin();
-            auto ymax = axis_probes_[j]->GetMax();
+            auto ymin_opt = axis_probes_[j]->GetMin();
+            auto ymax_opt = axis_probes_[j]->GetMax();
+            if (!ymin_opt || !ymax_opt) continue;   // 範囲未定ならスキップ
+
+            float ymin = *ymin_opt;
+            float ymax = *ymax_opt;
+            float y_range = ymax - ymin;
+            float y_scale = (std::fabs(y_range) > 1e-6f) ? (1.0f / y_range) : 0.0f;
 
             size_t n = std::min({ xv->size(), yv->size(), vv->size() });
+            if (n == 0) continue;
+
+            // バッファのリセット
+            batch_x.clear();
+            batch_y.clear();
+            batch_v.clear();
+
+            // --- データ変換ループ ---
+            const float* px = xv->data();
+            const float* py = yv->data();
+            const float* pv = vv->data();
 
             for (size_t k = 0; k < n; k++) {
-                float x_raw = (*xv)[k];
-                float y_raw = (*yv)[k];
-                float v_raw = (*vv)[k];
+                // 事前計算した係数で乗算 (除算回避)
+                float x_norm = (px[k] - xmin) * x_scale;
+                float y_norm = (py[k] - ymin) * y_scale;
 
-                // (0〜1) 正規化
-                float x_norm = Normalize01(x_raw, xmin, xmax);
-                float y_norm = Normalize01(y_raw, ymin, ymax);
-
-                heatmap_->AddData(x_norm, y_norm, v_raw);
+                batch_x.push_back(x_norm);
+                batch_y.push_back(y_norm);
+                batch_v.push_back(pv[k]);
             }
+
+            // 一括追加
+            heatmap_->AddDataBatch(batch_x, batch_y, batch_v);
         }
     }
 
+    // --- 画像保存 ---
+    anet::ProfileRange r3("MultiPairHeatMapObserver::OnTrain.logImage", r2);
     if (step % config_.log_interval == 0) {
         MetricsLogger::Instance()->LogImage(
             tag_, step,
@@ -292,7 +334,7 @@ SweepedHeatMapObserver::SweepedHeatMapObserver(
 
 void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
 {
-    anet::ProfileRange r("SweepedHeatMapObserver::OnPostUpdate");
+    anet::ProfileRange r("SweepedHeatMapObserver::OnLearn");
 
 	/// @todo メトリクスのSTEP軸を指定できるようにする
     auto step = event.counts.learn_step;
@@ -301,12 +343,15 @@ void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
 
     const int64_t grid_num = static_cast<int64_t>(grid_w_) * static_cast<int64_t>(grid_h_);
 
+
     // 入力バッチ生成（GPU 上）
+    anet::ProfileRange r1("SweepedHeatMapObserver::OnTrain.build");
     torch::Tensor batch_in = input_gen_->BuildInputTensor();
     ANET_CHECK_SHAPE(batch_in, { grid_num, ANET_SHAPE_ENDANY });
     ANET_LOG_DEBUG("batch_in=" << anet::ToDefString(batch_in));
 
     // NN 適用（GPU 上）
+    anet::ProfileRange r2("SweepedHeatMapObserver::OnTrain.nn", r1);
     torch::Tensor batch_out = tensor_fn_(batch_in);
     ANET_CHECK_SHAPE(batch_out, { grid_num, ANET_SHAPE_ENDANY });
     ANET_LOG_DEBUG("batch_out=" << anet::ToDefString(batch_out));
@@ -320,6 +365,7 @@ void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
     }
 
     // 出力から値抽出（GPU 上, [W*H]）
+    anet::ProfileRange r3("SweepedHeatMapObserver::OnTrain.extract", r2);
     ExtractResult extract_result = output_ext_->Extract(batch_out, req_label_set);
     ANET_LOG_DEBUG("grid_values=" << anet::ToDefString(extract_result.grid) << " tag=" << tag_);
     ANET_CHECK_SHAPE(extract_result.grid, { grid_num });
@@ -327,6 +373,7 @@ void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
     ANET_ASSERT(extract_result.labels.size() == extract_result.scalars.size());
 
     // CPU へ一括転送
+    anet::ProfileRange r4("SweepedHeatMapObserver::OnTrain.transfer", r3);
     torch::Tensor grid_cpu = extract_result.grid.to(torch::kCPU);
     ANET_CHECK_SHAPE(grid_cpu, { grid_num });
     ANET_CHECK_DTYPE(grid_cpu, torch::kFloat32);
@@ -336,6 +383,7 @@ void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
     ANET_LOG_DEBUG("Extract done.");
 
     // HeatMapデータ設定
+    anet::ProfileRange r5("SweepedHeatMapObserver::OnTrain.logImage", r4);
     heatmap_->SetGridValues(data, grid_w_, grid_h_);
     ANET_LOG_DEBUG("SetGridValues() done.");
 
@@ -349,6 +397,7 @@ void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
     ANET_LOG_DEBUG("LogImage() done. tag=" << tag_);
 
     // Scalarログ出力
+    anet::ProfileRange r6("SweepedHeatMapObserver::OnTrain.logScalar", r5);
     for (int i = 0; i < extract_result.labels.size(); i++) {
         auto result_label = extract_result.labels[i];
         auto tag_itr = scalar_label_tag_map_.find(result_label);

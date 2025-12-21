@@ -26,6 +26,8 @@ struct LunarLanderApp::Config : public anet::Config
     int train_timer_ms = 10;
     int eval_timer_ms = 10;
     int eval_step_per_frame = 1;
+    int image_log_interval = 100;
+    int image_log_interval_thm = 500;
     bool use_image_log = false;
     bool use_per_image_log = false;
 
@@ -36,6 +38,8 @@ struct LunarLanderApp::Config : public anet::Config
         ANET_READ_CONFIG(config_data, train_timer_ms);
         ANET_READ_CONFIG(config_data, eval_timer_ms);
         ANET_READ_CONFIG(config_data, eval_step_per_frame);
+        ANET_READ_CONFIG(config_data, image_log_interval);
+        ANET_READ_CONFIG(config_data, image_log_interval_thm);
         ANET_READ_CONFIG(config_data, use_image_log);
         ANET_READ_CONFIG(config_data, use_per_image_log);
     }
@@ -281,10 +285,10 @@ void LunarLanderApp::InitImageLogObservers()
 
     // ---- Visit ----
 
-    anet::rl::HeatMapObserverConfig visit_heat_obs_config{
+    anet::rl::HeatMapObserverConfig visit_heat_obs_config {
         512,    // width
         512,    // height
-        100,    // log_interval 
+        config_->image_log_interval,    // log_interval 
         30000,  // max_points
         flags   // flags
         -1,     // image_width
@@ -297,8 +301,8 @@ void LunarLanderApp::InitImageLogObservers()
 
     //notifier->Attach<anet::rl::HeatMapVectorObserver>(
     //    "43_agent_img/02_hm_visit_01_reward", visit_heat_obs_config, visit_x_probe, visit_y_probe, visit_reward_probe);
-    notifier->Attach<anet::rl::HeatMapVectorObserver>(
-        "43_agent_img/03_hm_visit_01_maxq", visit_heat_obs_config, visit_x_probe, visit_y_probe, visit_q_probe);
+    //notifier->Attach<anet::rl::HeatMapVectorObserver>(
+    //    "43_agent_img/03_hm_visit_01_maxq", visit_heat_obs_config, visit_x_probe, visit_y_probe, visit_q_probe);
 
     // ---- ReplayBuffer ----
 
@@ -307,10 +311,10 @@ void LunarLanderApp::InitImageLogObservers()
     auto rep_theta_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 4, &env_spec.state_spec);
     auto rep_reward_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::REWARD, -1, &env_spec.state_spec);
 
-    anet::rl::HeatMapObserverConfig replay_heat_obs_config{
+    anet::rl::HeatMapObserverConfig replay_heat_obs_config {
         512,    // width
         512,    // height
-        100,    // log_interval 
+        config_->image_log_interval,    // log_interval 
         60000,  // max_points
         flags   // flags
         -1,     // image_width
@@ -340,23 +344,12 @@ void LunarLanderApp::InitImageLogObservers()
     auto v_extractor =
         [](const torch::Tensor& t, const std::unordered_set<std::string>& req)
         {
-            ANET_LOG_DEBUG("req=" << anet::ToDefString(t));
             auto ret = anet::rl::extractor::IndexExtractor(t, req, 0);  // V : index=0
-            ANET_LOG_DEBUG("ret=" << anet::ToDefString(ret.grid));
-
-            // ★デバッグ用: 値の範囲と異常値をチェック
-            float min_val = ret.grid.min().item<float>();
-            float max_val = ret.grid.max().item<float>();
-            bool has_nan = ret.grid.isnan().any().item<bool>();
-
-            ANET_LOG_DEBUG("V_Extract: Shape=" << anet::ToDefString(ret.grid)
-                << " Min=" << min_val << " Max=" << max_val << " HasNaN=" << has_nan);
-
             return ret;
         };
 
     anet::rl::SweepedHeatMapObserverConfig q_sweep_obs_config{
-        100,    // log_interval
+        config_->image_log_interval,    // log_interval
         flags | anet::HeatMapFlags::HM_AutoScaleAxis,  // flags
         128,    // grid_width
         128,    // grid_height
@@ -429,7 +422,7 @@ void LunarLanderApp::InitPERImageLogObservers(const anet::ConfigData& config_dat
     anet::rl::HeatMapObserverConfig replay_heat_obs_config {
         512,    // width
         512,    // height
-        100,    // log_interval 
+        config_->image_log_interval,    // log_interval 
         100000,  // max_points
         flags   // flags
         -1,     // image_width
@@ -449,7 +442,7 @@ void LunarLanderApp::InitPERImageLogObservers(const anet::ConfigData& config_dat
         1920,   // image_width
         anet::TimeFrameMode::Scale,             // mode
         flags | anet::HeatMapFlags::HM_FlipY | anet::HeatMapFlags::HM_LogScaleAxis,   // flags
-        100,    // log_interval
+        config_->image_log_interval_thm,    // log_interval
         20,     // frame_interval
         std::numeric_limits<float>::quiet_NaN(),
         std::numeric_limits<float>::quiet_NaN(),

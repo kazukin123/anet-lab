@@ -3,6 +3,7 @@
 #include "anet/probe.hpp"
 #include <sstream>
 #include "anet/log.hpp"
+#include "anet/profile.hpp"
 
 using namespace anet::rl;
 namespace LOG = anet::log;
@@ -60,6 +61,8 @@ BatchExperienceStateProbe::BatchExperienceStateProbe(
 
 std::optional<std::vector<float>> BatchExperienceStateProbe::GetVector(const UpdateEvent& event) const
 {
+    ProfileRange r("BatchExperienceStateProbe::GetVector");
+
     // 対象obs（現状態 or next_state）
     auto obs = (for_next_state_) ?
         event.batch_exp.GetTensor(anet::rl::BatchExperience::NEXT_STATE_OBS) :
@@ -158,6 +161,8 @@ BatchActionInfoToVectorProbe::BatchActionInfoToVectorProbe(const std::string& ke
 
 std::optional<std::vector<float>> BatchActionInfoToVectorProbe::GetVector(const TrainEvent& event) const
 {
+    ProfileRange r("BatchActionInfoToVectorProbe::GetVector");
+
     auto itr = event.action_info.GetAuxData().find(key_);
     if (itr == event.action_info.GetAuxData().end()) return std::nullopt;
     auto tensor = itr->second;
@@ -238,6 +243,9 @@ AgentTensorVectorProbe::AgentTensorVectorProbe(
 
 std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const UpdateEvent& event) const
 {
+    ProfileRange r("AgentTensorVectorProbe::GetVector");
+
+    ProfileRange r1("AgentTensorVectorProbe::GetVector.getTensorVector");
     auto opt_vec = event.agent->GetTensorVector(key_);
     //ANET_ASSERT(opt_vec.has_value());
     if (!opt_vec.has_value()) {
@@ -245,10 +253,9 @@ std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const Update
         return std::nullopt;
     }
 
+    ProfileRange r2("AgentTensorVectorProbe::GetVector.dump", r1);
     const auto& tvec = opt_vec.value();
-
     std::vector<float> out;
-
     // ---- index 指定なし：flatten して全て連結 ----
     if (index_ < 0) {
         for (const auto& t : tvec) {
@@ -283,8 +290,8 @@ std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const Update
         return out;
     }
 
+    ProfileRange r3("AgentTensorVectorProbe::GetVector.extract", r2);
     out.reserve(1024); // optional
-
     for (const auto& t : tvec) {
         ANET_LOG_DEBUG("t=" << anet::ToDefString(t));
 

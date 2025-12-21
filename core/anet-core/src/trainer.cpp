@@ -29,14 +29,14 @@ RunnerBase::RunnerBase(std::shared_ptr<BatchEnv> env) : env_(env)
 
 StepCounts RunnerBase::DoUpdateFrame(int max_steps, ControlFunction pre_step_func, ControlFunction post_step_func)
 {
-    anet::ProfileRange r("DefaultTrainer::DoUpdateFrame");
+    anet::ProfileRange r("RunnerBase::DoUpdateFrame");
 
     int frame_step = 0;
     //StepCounts step_counts_;
 
     // --- 学習ステップを複数回回す ---
     while (max_steps < 0 || frame_step < max_steps) {
-        anet::ProfileRange r2("DefaultTrainer::DoUpdateFrame.step");
+        anet::ProfileRange r1("RunnerBase::DoUpdateFrame.step");
 
         // ステップ前制御
         auto control_signal_pre = pre_step_func(step_counts_);
@@ -66,7 +66,7 @@ StepCounts RunnerBase::DoUpdateFrame(int max_steps, ControlFunction pre_step_fun
     }
 
     // ログflush
-    //anet::MetricsLogger::Instance()->Flush();
+    anet::MetricsLogger::Instance()->Flush();
 
     return step_counts_;
 }
@@ -364,7 +364,7 @@ RunnerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
 
 StepCounts DefaultTrainer::DoStep()
 {
-    anet::ProfileRange r("DefaultTrainer::Step");
+    anet::ProfileRange r("DefaultTrainer::DoStep");
 
     ANET_ASSERT(status_ == anet::rl::RunnerStatus::RUNNING);
 
@@ -373,6 +373,8 @@ StepCounts DefaultTrainer::DoStep()
     auto batch_env_spec = env_->GetBatchSpec();
 
     if (!env_initialized_) {
+        anet::ProfileRange r1("DefaultTrainer::DoUpdateFrame.initialize");
+
         // 環境初期化
         state_ = env_->Reset();  // ← reset() は 初期状態 を返す
         env_initialized_ = true;
@@ -386,11 +388,11 @@ StepCounts DefaultTrainer::DoStep()
         last_time_ = start_time_;
     }
 
+    anet::ProfileRange r2("DefaultTrainer::DoUpdateFrame.makeAction");
+
     // --- 学習ステップを回す ---
     float frame_total_reward = 0.0f;
     int frame_step = 0;
-
-    anet::ProfileRange r2("DefaultTrainer::DoUpdateFrame.step");
 
     // ステップ前Observer
     BeforeStepEvent before_step_event{ *this, step_counts_, agent_, env_ };
@@ -409,6 +411,8 @@ StepCounts DefaultTrainer::DoStep()
     auto action_info = agent_->MakeAction(step_counts_, state_);
     ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info.ToString());
     ANET_CHECK_SHAPE(action_info.GetAction(), {N});
+
+    anet::ProfileRange r3("DefaultTrainer::DoUpdateFrame.envStep", r2);
 
     // 環境ステップ実行
     auto result = env_->Step(action_info);    // next_state, reward, done, truncated
@@ -431,6 +435,8 @@ StepCounts DefaultTrainer::DoStep()
     ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
 //    ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
 
+    anet::ProfileRange r4("DefaultTrainer::DoUpdateFrame.envStepPost", r3);
+
     // 平均報酬更新
     float step_reward_mean = result->reward.mean().item<float>();
     last_train_reward_ = step_reward_mean;
@@ -449,10 +455,12 @@ StepCounts DefaultTrainer::DoStep()
     step_counts_.episode_count += result->n_done;
 
     // Agent更新
+    anet::ProfileRange r5("DefaultTrainer::DoUpdateFrame.updateAgent", r4);
     anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
     auto update_result = agent_->UpdateFromBatch(step_counts_, exp, *this);
 
     // カウント更新
+    anet::ProfileRange r6("DefaultTrainer::DoUpdateFrame.postUpdate", r5);
     step_counts_.update_step++;
     step_counts_.learn_step += update_result->GetLearnStepDiff();
 
@@ -468,9 +476,18 @@ StepCounts DefaultTrainer::DoStep()
     last_exp_step_per_sec_ = exp_step_per_sec;
 
     // 更新後処理
+    anet::ProfileRange r7("DefaultTrainer::DoUpdateFrame.notify", r6);
     anet::rl::TrainEvent train_event{ exp, *this, step_counts_, agent_, update_result, env_, result, action_info };
     notifier_->Notify(train_event);
     state_ = result->continue_state;
+
+    // カウント更新
+    /// @todo カウント位置検討
+    //step_counts_.train_step++;
+    //step_counts_.exp_step += result->n_transitions;
+    //step_counts_.episode_count += result->n_done;
+    //step_counts_.update_step++;
+    //step_counts_.learn_step += update_result->GetLearnStepDiff();
 
     // 次準備
     last_time_ = now;

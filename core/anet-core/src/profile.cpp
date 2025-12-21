@@ -16,9 +16,26 @@ ProfileRange::ProfileRange(const char* name, int idx)
 {
     char buf[128];
     snprintf(buf, sizeof(buf), "%s[%d]", name, idx);
-
     nvtxRangePushA(buf);
 }
+
+ProfileRange::ProfileRange(const char* name, ProfileRange& previous)
+    : active_(true)
+{
+    previous.End();
+    nvtxRangePushA(name);
+}
+
+ProfileRange::ProfileRange(const char* name, int idx, ProfileRange& previous)
+    : active_(true)
+{
+    previous.End();
+
+    char buf[128];
+    snprintf(buf, sizeof(buf), "%s[%d]", name, idx);
+    nvtxRangePushA(buf);
+}
+
 
 void ProfileRange::End() {
     if (active_) {

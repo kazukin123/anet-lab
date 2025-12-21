@@ -11,8 +11,8 @@ agent.class_id = RainbowAgent
 train.batch_size = 10
 #train.batch_size = 1
 
-#LunarLanderApp.use_image_log = true      # default=false
-#LunarLanderApp.use_per_image_log = true      # default=false
+LunarLanderApp.use_image_log = true      # default=false
+LunarLanderApp.use_per_image_log = true      # default=false
 
 metrics.scalar.$ = metrics.scalar.rainbow
 #metrics.scalar.$ = metrics.scalar.min
@@ -43,8 +43,9 @@ RainbowAgent.trunk.td_clip_value = 30.0         # 4.0 20 30
 RainbowAgent.trunk.replay_capacity = 100000       #  10000 30000
 RainbowAgent.trunk.replay_batch_size = 128      #
 RainbowAgent.trunk.update_warmup_steps = 1000   # 1000
-#RainbowAgent.trunk.update_warmup_steps = 1   # 1000
+#RainbowAgent.trunk.update_warmup_steps = 0   # 1000
 RainbowAgent.trunk.update_interval = 5          #
+#RainbowAgent.trunk.update_interval = 1          #
 
 #RainbowAgent.trunk.n_step = 1
 #RainbowAgent.trunk.n_step = 2
@@ -154,7 +155,7 @@ metrics.scalar.rainbow.[39_agent_per/13_per_prio_clip_ratio_ema] = per_prio_clip
 metrics.scalar.rainbow.[39_agent_per/14_per_batch_prio_mean_ema] = per_batch_prio_mean @learn $ema
 metrics.scalar.rainbow.[39_agent_per/15_per_is_weight_mean_ema] = per_is_weight_mean @learn $ema
 
-#metrics.scalar.rainbow.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
+metrics.scalar.rainbow.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
 metrics.scalar.rainbow.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
 #metrics.scalar.rainbow.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
 metrics.scalar.rainbow.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
@@ -194,9 +195,11 @@ metrics.scalar.dqn.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 metrics.scalar.dqn.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
 
 
-metrics.scalar.min.[10_train/10_episode_reward] = $runner train_episode_reward @train
+metrics.scalar.min.[00_train/11_eps_count] = $runner episode_count @train $runner interval:100
+metrics.scalar.min.[10_eps/10_eps_reward] = $runner $episode_step train_episode_reward @train
 metrics.scalar.min.[21_eval/01_target_reward] = $runner target_eval_reward @learn clip:3000
 metrics.scalar.min.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn clip:3000
+metrics.scalar.min.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
 metrics.scalar.min.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
 metrics.scalar.min.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
 
@@ -320,7 +323,10 @@ env.worker_threads = -1	# -1=auto
 env.device_type = 0     # 0=cpu 1=cuda
 env.device_index = -1   # GPU index -1=current device
 
+LunarLanderApp.image_log_interval = 50
+LunarLanderApp.image_log_interval_thm = 200
 
+#LunarLanderApp.online.train_pause_step = 10000 #10K
 LunarLanderApp.online.train_pause_step = 200000 #200K
 LunarLanderApp.online.train_exit_step = -1
 LunarLanderApp.online.train_timer_ms = 100
@@ -356,7 +362,7 @@ LunarLanderEnv.gravity = -10.0
 LunarLanderEnv.wind_power = 15.0
 
 train.eval_interval = 10
-
+#train.eval_interval = 1000
 
 # ■per_alpha
 #  α（0≦α≦1）はExperienceサンプリングのランダム度合い。

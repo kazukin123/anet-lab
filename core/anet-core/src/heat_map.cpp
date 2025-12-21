@@ -4,6 +4,7 @@
 #include <filesystem>
 #include "anet/common.hpp"
 #include "anet/log.hpp"
+#include "anet/profile.hpp"
 
 using namespace anet;
 namespace LOG = anet::log;
@@ -13,22 +14,21 @@ const unsigned char BACKGROUND_LEVEL = 10;
 // ============================================================
 // Util: 値 → Jet RGB
 // ============================================================
-static void ValueToRGB_Jet(float norm, unsigned char& r, unsigned char& g, unsigned char& b) {
+static void ValueToRGB_Jet(float norm, unsigned char& r, unsigned char& g, unsigned char& b)
+{
+	//ProfileRange r("ValueToRGB_Jet");
+
 	norm = std::clamp(norm, 0.0f, 1.0f);
 	float rf = 0.0f, gf = 0.0f, bf = 0.0f;
 	if (norm < 0.125f) {
 		rf = 0.0f; gf = 0.0f; bf = 0.5f + norm * 4.0f;
-	}
-	else if (norm < 0.375f) {
+	} else if (norm < 0.375f) {
 		rf = 0.0f; gf = (norm - 0.125f) * 4.0f; bf = 1.0f;
-	}
-	else if (norm < 0.625f) {
+	} else if (norm < 0.625f) {
 		rf = (norm - 0.375f) * 4.0f; gf = 1.0f; bf = 1.0f - (norm - 0.375f) * 4.0f;
-	}
-	else if (norm < 0.875f) {
+	} else if (norm < 0.875f) {
 		rf = 1.0f; gf = 1.0f - (norm - 0.625f) * 4.0f; bf = 0.0f;
-	}
-	else { rf = 1.0f - (norm - 0.875f) * 4.0f; gf = 0.0f; bf = 0.0f; }
+	} else { rf = 1.0f - (norm - 0.875f) * 4.0f; gf = 0.0f; bf = 0.0f; }
 	r = static_cast<unsigned char>(rf * 255);
 	g = static_cast<unsigned char>(gf * 255);
 	b = static_cast<unsigned char>(bf * 255);
@@ -42,11 +42,18 @@ static inline float safe_log1p_abs(float v) {
 // ImageSource
 // ============================================================
 wxImage ImageSource::Render(int width, int height) const {
+	ProfileRange r("ImageSource::Render");
+
 	wxImage src = RenderRaw();
 	if (width < 0 && height < 0) return src;
 	if (width < 0) width = src.GetWidth();
 	if (height < 0) height = src.GetHeight();
-	return src.Scale(width, height, wxIMAGE_QUALITY_HIGH);
+	if (width == src.GetWidth() && height == src.GetHeight())
+		return src;
+
+	ProfileRange r1("ImageSource::Render.Scale");
+	//return src.Scale(width, height, wxIMAGE_QUALITY_HIGH);
+	return src.Scale(width, height, wxIMAGE_QUALITY_NORMAL);
 }
 
 void ImageSource::SavePng(const std::string& filename, int width, int height) const {
@@ -80,8 +87,9 @@ HeatMap::HeatMap(int width, int height, float x_min, float x_max, float y_min, f
 	//Reset();
 }
 
-void HeatMap::AddData(float x, float y, float value) {
-	//ANET_LOG_DEBUG("is_fixed=" << is_fixed_ << " buf_size=" << buf_.size() << " size_=" << size_ << " head=" << head_);
+void HeatMap::AddData(float x, float y, float value)
+{
+	ProfileRange r("HeatMap::AddData");
 
 	if (is_fixed_) {
 		buf_[head_] = { x, y, value };
@@ -95,10 +103,74 @@ void HeatMap::AddData(float x, float y, float value) {
 	UpdateMinMax_(value);
 }
 
+/// @brief 複数のデータを一括追加（AddDataの高速版）
+/// SoA (xv, yv, vv) を受け取り、内部でAoS (buf_) に変換して格納する
+void HeatMap::AddDataBatch(const std::vector<float>& xv, const std::vector<float>& yv, const std::vector<float>& vv)
+{
+	ProfileRange r("HeatMap::AddDataBatch");
+
+	// サイズチェック
+	size_t n = xv.size();
+	if (n == 0) return;
+	// (呼び出し元でチェック済みなら省略可だが安全のため)
+	if (yv.size() != n || vv.size() != n) return;
+
+	std::lock_guard<std::mutex> lock(mtx_); // ロックは1回だけ
+
+	// --- Min/Max の一括更新 (SIMD化されやすいループ) ---
+	float local_min = std::numeric_limits<float>::max();
+	float local_max = -std::numeric_limits<float>::max();
+
+	// 値の範囲チェック用（AutoNormValueなどで使う場合）
+	for (float v : vv) {
+		if (v < local_min) local_min = v;
+		if (v > local_max) local_max = v;
+	}
+
+	// グローバルなMin/Maxを更新
+	if (local_min < value_min_) value_min_ = local_min;
+	if (local_max > value_max_) value_max_ = local_max;
+
+	// --- バッファへのデータ転送 ---
+	if (!is_fixed_) {
+		// --- 可変長モード (単純追加) ---
+		// 必要なメモリを一度に確保
+		buf_.reserve(size_ + n);
+
+		for (size_t i = 0; i < n; ++i) {
+			buf_.push_back({ xv[i], yv[i], vv[i] });
+		}
+		size_ += n;
+	} else {
+		// --- 固定長リングバッファモード ---
+		// 剰余演算(%)をループ内でやると遅いので、2回のコピーに分ける
+
+		size_t cap = buf_.size(); // max_points_ と同義と仮定
+		if (cap == 0) return;
+
+		size_t current_idx = head_;
+
+		for (size_t i = 0; i < n; ++i) {
+			buf_[current_idx] = { xv[i], yv[i], vv[i] };
+
+			// インクリメントとラップアラウンド
+			current_idx++;
+			if (current_idx == cap) current_idx = 0;
+		}
+
+		// 状態更新
+		head_ = current_idx;
+		size_ = std::min(size_ + n, cap);
+	}
+}
+
 /// @brief グリッドの値を一括設定（高速パス）
 /// values は row-major (y * W + x)
 /// サイズ = W * H
-void HeatMap::SetGridValues(const float* values, int width, int height) {
+void HeatMap::SetGridValues(const float* values, int width, int height)
+{
+	ProfileRange r("HeatMap::SetGridValues");
+
 	ANET_ASSERT(width == width_);
 	ANET_ASSERT(height == height_);
 
@@ -136,122 +208,169 @@ void HeatMap::Reset()
 
 wxImage HeatMap::RenderRaw() const
 {
+	ProfileRange r("HeatMap::RenderRaw");
+
 	std::lock_guard<std::mutex> lock(mtx_);
 
 	if (size_ == 0) {
 		wxImage empty(1, 1);
-		empty.SetData(new unsigned char[3] {0, 0, 0});
+		unsigned char* d = (unsigned char*)malloc(3);
+		d[0] = 0; d[1] = 0; d[2] = 0;
+		empty.SetData(d);
 		return empty;
 	}
 
+	ProfileRange r1("HeatMap::RenderRaw.prepare");
+
 	const int W = width_;
 	const int H = height_;
-	std::vector<float> buf(W * H, 0.0f);
-	std::vector<int> cnt(W * H, 0);
+	const size_t pixel_count = static_cast<size_t>(W) * H;
 
-	// sampleをグルグルするlooper
-	auto for_each_sample = [&](auto&& fn) {
-		if (size_ == 0) return;
+	// バッファ再利用 (サイズ変更時のみ確保発生)
+	if (work_buf_.size() != pixel_count) {
+		work_buf_.resize(pixel_count);
+		work_cnt_.resize(pixel_count);
+	}
+	//std::fill(work_buf_.begin(), work_buf_.end(), 0.0f);
+	//std::fill(work_cnt_.begin(), work_cnt_.end(), 0);
+	std::memset(work_buf_.data(), 0, work_buf_.size() * sizeof(float));
+	std::memset(work_cnt_.data(), 0, work_cnt_.size() * sizeof(int));
+
+	// --- 座標変換係数の事前計算 (除算を排除) ---
+	const float range_x = x_max_ - x_min_;
+	const float range_y = y_max_ - y_min_;
+	const float scale_x = (range_x > 1e-6f) ? (static_cast<float>(W) / range_x) : 0.0f;
+	const float scale_y = (range_y > 1e-6f) ? (static_cast<float>(H) / range_y) : 0.0f;
+	const float offset_x = -x_min_ * scale_x;
+	const float offset_y = -y_min_ * scale_y;
+
+	// --- サンプル走査ヘルパー ---
+	auto traverse_samples = [&](auto process_func) {
 		if (!is_fixed_) {
-			for (size_t i = 0; i < size_; ++i) {
-				fn(buf_[i]);
-			}
+			for (size_t i = 0; i < size_; ++i) process_func(buf_[i]);
 		} else {
 			const size_t cap = buf_.size();
 			if (cap == 0) return;
-			const size_t start = (head_ + cap - size_) % cap;
-			size_t idx = start;
-			for (size_t k = 0; k < size_; ++k) {
-				fn(buf_[idx]);
-				++idx;
-				if (idx == cap) idx = 0;
+			size_t start = (head_ + cap - size_) % cap;
+			size_t run1 = std::min(size_, cap - start);
+			size_t run2 = size_ - run1;
+			for (size_t i = 0; i < run1; ++i) process_func(buf_[start + i]);
+			if (run2 > 0) {
+				for (size_t i = 0; i < run2; ++i) process_func(buf_[i]);
 			}
 		}
-	};
+		};
 
-	// --- 値レンジ決定（AutoNormValue有効時はゼロ値除外） ---
+	// --- 値レンジ決定 ---
+	ProfileRange r2("HeatMap::RenderRaw.autoNormValue", r1);
 	float vmin = value_min_;
 	float vmax = value_max_;
+
 	if (flags_ & HM_AutoNormValue) {
+		// ... (既存ロジックそのまま) ...
+		float l_min = std::numeric_limits<float>::max();
+		float l_max = -std::numeric_limits<float>::max();
 		bool has_nonzero = false;
-		vmin = std::numeric_limits<float>::max();
-		vmax = -vmin;
-		for_each_sample([&](const Sample& s) {
+		traverse_samples([&](const Sample& s) {
 			if (std::fabs(s.value) < 1e-8f) return;
 			has_nonzero = true;
-			vmin = std::min(vmin, s.value);
-			vmax = std::max(vmax, s.value);
+			if (s.value < l_min) l_min = s.value;
+			if (s.value > l_max) l_max = s.value;
 			});
-		if (!has_nonzero) {
-			vmin = -1.0f;
-			vmax = 1.0f;
-		}
-		if (std::fabs(vmax - vmin) < 1e-6f) {
-			vmax = vmin + 1e-6f;
+		if (has_nonzero) {
+			vmin = l_min; vmax = l_max;
+			if (std::fabs(vmax - vmin) < 1e-6f) vmax = vmin + 1e-6f;
+		} else {
+			vmin = -1.0f; vmax = 1.0f;
 		}
 	}
 
-	// --- サンプル配置（サブピクセル補間＋ゼロスキップ） ---
-	for_each_sample([&](const Sample& s) {
-		if (std::fabs(s.value) < 1e-8f) return;
-		float fx = (s.x - x_min_) / (x_max_ - x_min_) * static_cast<float>(W);
-		int ix = static_cast<int>(std::floor(fx));
-		float frac = fx - static_cast<float>(ix);
-		int iy = static_cast<int>(
-			(s.y - y_min_) / (y_max_ - y_min_) * static_cast<float>(H));
-		if (iy < 0 || iy >= H) return;
+	// --- サンプル配置 ---
+	ProfileRange r3("HeatMap::RenderRaw.normalize", r2);
 
-		if (ix >= 0 && ix < W) {
-			int idx = iy * W + ix;
-			buf[idx] += (1.0f - frac) * s.value;
-			cnt[idx]++;
-		}
-		if (ix + 1 >= 0 && ix + 1 < W) {
-			int idx2 = iy * W + (ix + 1);
-			buf[idx2] += frac * s.value;
-			cnt[idx2]++;
+	float* p_buf = work_buf_.data();
+	int* p_cnt = work_cnt_.data();
+
+	traverse_samples([&](const Sample& s) {
+		if (std::fabs(s.value) < 1e-8f) return;
+
+		float fx = s.x * scale_x + offset_x;
+		float fy = s.y * scale_y + offset_y;
+
+		if (fy < 0.0f || fy >= static_cast<float>(H)) return;
+
+		int ix = static_cast<int>(fx);
+		int iy = static_cast<int>(fy);
+		float frac = fx - static_cast<float>(ix);
+		int base_idx = iy * W;
+
+		// 最適化: 端以外の大部分のケースを高速パスへ
+		// (ix >= 0 && ix < W-1)
+		if (static_cast<unsigned int>(ix) < static_cast<unsigned int>(W - 1)) {
+			int idx = base_idx + ix;
+			p_buf[idx] += (1.0f - frac) * s.value;
+			p_cnt[idx]++;
+
+			p_buf[idx + 1] += frac * s.value;
+			p_cnt[idx + 1]++;
+		} else {
+			// 境界チェックありパス
+			if (ix >= 0 && ix < W) {
+				int idx = base_idx + ix;
+				p_buf[idx] += (1.0f - frac) * s.value;
+				p_cnt[idx]++;
+			}
+			if (ix + 1 >= 0 && ix + 1 < W) {
+				int idx2 = base_idx + ix + 1;
+				p_buf[idx2] += frac * s.value;
+				p_cnt[idx2]++;
+			}
 		}
 		});
 
-	// --- 平均化（MeanMode有効時） ---
+	// --- 平均化 ---
 	if (flags_ & HM_MeanMode) {
-		for (size_t i = 0; i < buf.size(); ++i) {
-			if (cnt[i] > 0) buf[i] /= static_cast<float>(cnt[i]);
+		for (size_t i = 0; i < pixel_count; ++i) {
+			if (p_cnt[i] > 0) p_buf[i] /= static_cast<float>(p_cnt[i]);
 		}
 	}
 
-	// --- 画像生成 ---
+	// --- 画像生成 (ポインタアクセスによる高速化) ---
+	ProfileRange r4("HeatMap::RenderRaw.draw", r3);
 	wxImage img(W, H);
-	img.SetData(new unsigned char[W * H * 3]);
-	unsigned char* data = img.GetData();
+	unsigned char* data = (unsigned char*)malloc(W * H * 3);
+	img.SetData(data);
 
+	const float denom_inv = 1.0f / std::max(vmax - vmin, 1e-6f);
+	const bool is_log = (flags_ & HM_LogScaleValue);
+	const bool flip_y = (flags_ & HM_FlipY);
+
+	// ★OpenMP有効化: 画像サイズが大きいほど効果大
+#pragma omp parallel for schedule(static)
 	for (int y = 0; y < H; ++y) {
-		for (int x = 0; x < W; ++x) {
-			int idx = y * W + x;
-			unsigned char r = 0, g = 0, b = 0;
-			float v = buf[idx];
+		int out_y = flip_y ? y : (H - 1 - y);
+		unsigned char* row_ptr = data + (out_y * W * 3);
+		int src_idx = y * W;
 
-			if (cnt[idx] == 0 || std::fabs(v) < 1e-8f) {
+		// 行単位でポインタを進める
+		for (int x = 0; x < W; ++x, ++src_idx) {
+			float v = p_buf[src_idx];
+			int c = p_cnt[src_idx]; // int load
+
+			unsigned char r, g, b;
+			if (c == 0 || std::fabs(v) < 1e-8f) {
 				r = g = b = BACKGROUND_LEVEL;
-			}
-			else {
-				if (flags_ & HM_LogScaleValue) {
+			} else {
+				if (is_log) {
 					v = std::copysign(std::log1p(std::fabs(v)), v);
 				}
-				float denom = std::max(vmax - vmin, 1e-6f);
-				float n = (v - vmin) / denom;
+				float n = (v - vmin) * denom_inv;
 				ValueToRGB_Jet(n, r, g, b);
 			}
 
-			int di;
-			if (flags_ & HM_FlipY)
-				di = (y * W + x) * 3;
-			else
-				di = ((H - 1 - y) * W + x) * 3;
-
-			data[di] = r;
-			data[di + 1] = g;
-			data[di + 2] = b;
+			*row_ptr++ = r;
+			*row_ptr++ = g;
+			*row_ptr++ = b;
 		}
 	}
 
@@ -308,7 +427,10 @@ void TimeHeatMap::Reset() {
 	total_frames_ = 0;
 }
 
-wxImage TimeHeatMap::RenderRaw() const {
+wxImage TimeHeatMap::RenderRaw() const
+{
+	ProfileRange r("TimeHeatMap::RenderRaw");
+
 	if (mode_ != TimeFrameMode::Scale)
 		return HeatMap::RenderRaw();
 
@@ -453,7 +575,10 @@ void Histgram::AddData(float value) {
 
 void Histgram::Reset() { std::fill(counts_.begin(), counts_.end(), 0); }
 
-wxImage Histgram::RenderRaw() const {
+wxImage Histgram::RenderRaw() const
+{
+	ProfileRange r("Histgram::RenderRaw");
+
 	std::lock_guard<std::mutex> lock(mtx_);
 	wxImage img(width_, height_);
 	img.SetData(new unsigned char[width_ * height_ * 3]);
@@ -535,7 +660,10 @@ int TimeHistogram::MapToBin_(float v) const {
 	return MapToBinLinear_(v);
 }
 
-void TimeHistogram::AddBatch(const std::vector<float>& values) {
+void TimeHistogram::AddBatch(const std::vector<float>& values)
+{
+	ProfileRange r("TimeHistogram::AddBatch");
+
 	if (values.empty()) return;
 
 	float old_min = min_val_;
@@ -603,7 +731,10 @@ void TimeHistogram::AppendCurrentFrameOnly() {
 	thm_.NextFrame();
 }
 
-void TimeHistogram::RebuildFromRaw() {
+void TimeHistogram::RebuildFromRaw()
+{
+	ProfileRange r("TimeHistogram::RebuildFromRaw");
+
 	thm_.Reset();
 
 	for (const auto& frame : frames_raw_) {
@@ -641,7 +772,10 @@ void TimeHistogram::Reset() {
 	need_rebuild_ = false;
 }
 
-wxImage TimeHistogram::RenderRaw() const {
+wxImage TimeHistogram::RenderRaw() const
+{
+	ProfileRange r("TimeHistogram::RenderRaw");
+
 	wxImage img = thm_.RenderRaw();
 	if (!img.IsOk()) return img;
 
@@ -700,7 +834,10 @@ void SweepedHeatMap::Evaluate(const std::function<float(float, float)>& func) {
 	}
 }
 
-wxImage SweepedHeatMap::RenderRaw()const {
+wxImage SweepedHeatMap::RenderRaw() const
+{
+	ProfileRange r("SweepedHeatMap::RenderRaw");
+
 	wxImage img(width_, height_);
 	img.SetData(new unsigned char[width_ * height_ * 3]);
 	unsigned char* d = img.GetData();
