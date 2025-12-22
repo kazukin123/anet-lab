@@ -119,6 +119,7 @@ private:
 
     int step_count_ = 0;
     float last_wind_x_ = 0.0f;
+    float current_wind_velocity_ = 0.0f;
 
     float last_shaping_ = 0.0f;
     bool has_prev_shaping_ = false;

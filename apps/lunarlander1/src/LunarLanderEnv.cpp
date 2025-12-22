@@ -480,11 +480,21 @@ void LunarLanderEnv::applyWind()
         return;
     }
 
-    float w = rnd_->Uniform(-1.0f, 1.0f) * config_.wind_power;
-    w += rnd_->Uniform(-1.0f, 1.0f) * config_.turbulence_power;
-    last_wind_x_ = w;
+    // 新しい「目標風速」をランダムに決める
+    float target_wind = rnd_->Uniform(-1.0f, 1.0f) * config_.wind_power;
 
-    b2Vec2 force(w * 10, 0.0f);
+    // 乱気流は高周波ノイズのまま（ジリジリした揺れ）
+    float turbulence = rnd_->Uniform(-1.0f, 1.0f) * config_.turbulence_power;
+
+    // 前回の風速と混ぜる
+    const float smooth_factor = 0.95f;
+    current_wind_velocity_ = current_wind_velocity_ * smooth_factor + target_wind * (1.0f - smooth_factor);
+
+    // 最終的な風力 = なめらかなベース風 + 乱気流
+    float total_wind = current_wind_velocity_ + turbulence;
+
+    last_wind_x_ = total_wind;
+    b2Vec2 force(total_wind * 10.0f, 0.0f); // ※係数10倍はBox2Dのスケール合わせ
     lander_body_->ApplyForceToCenter(force, true);
 }
 
