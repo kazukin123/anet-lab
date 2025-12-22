@@ -52,7 +52,6 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.use_per_prio_clip);
             ANET_READ_CONFIG(config_data, learner.per_prio_clip_value);
             ANET_READ_CONFIG(config_data, learner.quantile_huber_kappa);
-
             ANET_READ_CONFIG(config_data, learner.use_double_dqn);
             ANET_READ_CONFIG(config_data, learner.use_n_step);
             ANET_READ_CONFIG(config_data, learner.use_per);

@@ -592,13 +592,13 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
     this->replay_buffer_ = rep_factory.Create(env_spec, torch::kCPU, batch_env_spec.batch_size, seed);
 }
 
-bool Learner::CanUpdate(step_t update_step) const
+bool Learner::CanUpdate(step_t update_step, step_t exp_step) const
 {
     // update_interval
     if ((update_step % config_.update_interval) != 0)
         return false;
     // warmup
-    if (config_.update_warmup_steps > 0 && update_step < config_.update_warmup_steps * batch_size_)
+    if (config_.update_warmup_steps > 0 && exp_step < config_.update_warmup_steps)
         return false;
     // ReplayBufferのサイズがminibatchサイズに満たない場合はスキップ（N-STEPであり得る）
     if (replay_buffer_->Size() < config_.replay_batch_size)
@@ -645,7 +645,7 @@ std::shared_ptr<const anet::rl::BatchUpdateResult> Learner::UpdateFromBatch(
     replay_buffer_->Push(experiences);
 
     // Update不可なら空の結果を返す
-    if (!CanUpdate(counts.update_step)) {
+    if (!CanUpdate(counts.update_step, counts.exp_step)) {
         return std::make_shared<BatchUpdateResult>(0);
     }
 

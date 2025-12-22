@@ -328,7 +328,7 @@ namespace anet::rl::dqn {
         void SetupOptimizer();                  ///< 共通初期化処理（Optimizer生成など）
         void SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, anet::seed_t seed);
     private:
-        bool CanUpdate(step_t update_step) const;
+        bool CanUpdate(step_t update_step, step_t exp_step) const;
         void UpdatePerBeta(step_t learn_step);  ///<  PERのβ更新など
         void UpdateEpsilon(step_t learn_step);
         void UpdateTargetNetwork(step_t step);
