@@ -144,8 +144,7 @@ anet::rl::BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const
     torch::NoGradGuard ng;
 
     // Flatなobsを生成
-    auto flat_state = state.Flatten();
-    auto flat_obs = flat_state.obs.to(device_);
+    auto flat_obs = state.To(device_).Flatten().obs;
 
     // 行動選択
     auto greedy_only = anet::rl::IsEval(runmode);

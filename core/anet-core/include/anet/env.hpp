@@ -38,6 +38,9 @@ namespace anet::rl {
         std::vector<int64_t> obs_dims_;
         torch::TensorOptions float_opt_;
         torch::TensorOptions bool_opt_;
+    protected:
+        BatchState persistent_state_;
+        std::shared_ptr<StepResult> persistent_result_;
     };
 
     // ==============
@@ -105,6 +108,11 @@ namespace anet::rl {
         static constexpr int LOGICAL_CORES_EXACT = -4; ///< 論理コア数（HT込み）
         //static constexpr int PHYSICAL_EXACT = -5;      ///< 物理コア数そのまま
     }
+    namespace WorkerType {
+        static constexpr int AUTO = 0;
+        static constexpr int SINGLE_THREAD = 1;
+        static constexpr int THREAD_POOL = 2;
+    }
 
     struct DefaultBatchEnvFactoryConfig : public anet::Config
     {
@@ -112,7 +120,8 @@ namespace anet::rl {
         int worker_threads = WorkerThreadAuto::AUTO; ///< 負値は自動設定
         int device_type = 0;   ///< 0=cpu 1=cuda
         int device_index = -1; ///< GPU index -1=current device
-
+        int worker_type = WorkerType::AUTO;
+ 
         DefaultBatchEnvFactoryConfig(const ConfigData& config_data = EmptyConfigData)
             : anet::Config(config_data, "env")
         {
@@ -120,6 +129,7 @@ namespace anet::rl {
             ANET_READ_CONFIG(config_data, worker_threads);
             ANET_READ_CONFIG(config_data, device_type);
             ANET_READ_CONFIG(config_data, device_index);
+            ANET_READ_CONFIG(config_data, worker_type);
         }
     };
 

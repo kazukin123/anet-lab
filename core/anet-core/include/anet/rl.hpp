@@ -361,7 +361,7 @@ namespace anet::rl {
             return { f, done, truncated, episode_start };
         }
 
-        BatchState To(torch::Device device) const {
+        BatchState To(torch::Device device, bool non_blocking = true) const {
             ANET_CHECK_SHAPE(obs, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
             ANET_CHECK_SHAPE(done, { ANET_SHAPE_ANY });
             ANET_CHECK_SHAPE(truncated, { ANET_SHAPE_ANY });
@@ -372,8 +372,8 @@ namespace anet::rl {
             ANET_CHECK_DTYPE(episode_start, torch::kBool);
 
             return {
-                obs.to(device), done.to(device),
-                truncated.to(device), episode_start.to(device)
+                obs.to(device, non_blocking), done.to(device, non_blocking),
+                truncated.to(device,non_blocking), episode_start.to(device, non_blocking)
             };
         }
         bool IsDone() const {
@@ -423,6 +423,8 @@ namespace anet::rl {
 
         torch::Tensor GetAction(torch::Device device) const
         {
+        	/// @todo GPU→CPUのno_blockingは同期が必要で面倒なので使わない
+        	
             // --- CPU requested ---
             if (device.is_cpu()) {
                 if (!action_cpu_.defined()) {
@@ -513,7 +515,7 @@ namespace anet::rl {
         std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
 
-        BatchExperience To(torch::Device d) const;
+        BatchExperience To(torch::Device d, bool non_blocking = true) const;
         std::vector<SingleExperience> ToExperienceList() const;
         std::string ToString() const;
     public:
@@ -559,9 +561,9 @@ namespace anet::rl {
     public:
         virtual EnvSpec GetSpec() const = 0;
         virtual BatchEnvSpec GetBatchSpec() const = 0;
-        virtual BatchState Reset(RunMode mode = RunMode::Train) = 0;
-        virtual std::shared_ptr<const BatchStepResult> Step(const BatchActionInfo& action_info, RunMode mode = RunMode::Train) = 0;
 
+        virtual BatchState Reset(RunMode mode = RunMode::Train) = 0;    /// BatchStateは使い回されるので必要に応じてDeepCopy必須
+        virtual std::shared_ptr<const BatchStepResult> Step(const BatchActionInfo& action_info, RunMode mode = RunMode::Train) = 0; /// BatchStepResultは使い回されるので必要に応じてDeepCopy必須
         //virtual std::shared_ptr<BatchEnv> Clone() const = 0;
 
         virtual ~BatchEnv() = default;

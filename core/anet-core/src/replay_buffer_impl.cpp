@@ -651,6 +651,8 @@ ExperienceSamples DefaultReplayBuffer::sampleInternal(int64_t minibatch_size, to
             const_cast<float*>(indices_result.is_weights.data()),
             { minibatch_size }, opts).clone();
 
+        /// @todo StorageではなくExperienceSamplesでpinned_memory出来るようにする（Storage全体をpinnedすると容量次第でマシン負荷に繋がる）
+
         // データのデバイスに合わせて転送
         samples.sampling_prob = prob_tensor.to(device);
         samples.is_weights = weights_tensor.to(device);

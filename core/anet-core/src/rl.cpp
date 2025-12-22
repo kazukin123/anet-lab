@@ -431,12 +431,12 @@ std::optional<std::vector<torch::Tensor>>
     return std::vector<torch::Tensor>{ *t };
 }
 
-BatchExperience BatchExperience::To(torch::Device d) const {
+BatchExperience BatchExperience::To(torch::Device d, bool non_blocking) const {
     BatchExperience out {
-        state.To(d),
-        action.To(d),
-        reward.to(d),
-        next_state.To(d)
+        state.To(d, non_blocking),
+        action.To(d, false),// GPU→CPUは明示的な同期が必要でバグの温床になるのでnon_blocking無しにしておく
+        reward.to(d, non_blocking),
+        next_state.To(d, non_blocking)
     };
     return out;
 }
