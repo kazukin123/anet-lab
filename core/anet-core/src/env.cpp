@@ -15,6 +15,56 @@
 using namespace anet::rl;
 namespace LOG = anet::log;
 
+
+// ---- DiscreteBatchEnvBase::Result
+
+class DiscreteBatchEnvBase::Result : virtual public BatchEnvResult {
+public:
+    Result(int batch_size)
+    {
+        single_results.resize(batch_size);
+    }
+
+    std::vector<AuxData> GetAuxDataList(int env_index = -1) const override
+    {
+        std::vector<AuxData> auxs;
+        if (env_index >= 0) {
+            auto aux = single_results[env_index]->GetAuxData();
+            auxs.push_back(aux);
+        } else {
+            for (auto result : single_results) {
+                auto aux = result->GetAuxData();
+                auxs.push_back(aux);
+            }
+        }
+
+        return auxs;
+    }
+public:
+    std::vector<std::shared_ptr<const SingleEnvResult>> single_results;
+
+};
+
+class DiscreteBatchEnvBase::ResetResult : virtual public DiscreteBatchEnvBase::Result, public anet::rl::BatchResetResult {
+public:
+    ResetResult(int batch_size, anet::rl::BatchState state)
+        : Result(batch_size), BatchResetResult(std::move(state))
+    {
+        ;
+    }
+};
+
+class DiscreteBatchEnvBase::StepResult : virtual public DiscreteBatchEnvBase::Result, public anet::rl::BatchStepResult {
+public:
+    StepResult(int batch_size,
+        torch::Tensor reward, BatchState next_state, BatchState continue_state, uint32_t n_transitions, uint32_t n_done)
+        : Result(batch_size), BatchStepResult(std::move(reward), std::move(next_state), std::move(continue_state), n_transitions, n_done)
+    {
+        ;
+    }
+};
+
+
 // ---- DiscreteBatchEnvBase
 
 DiscreteBatchEnvBase::DiscreteBatchEnvBase(
@@ -49,11 +99,11 @@ DiscreteBatchEnvBase::DiscreteBatchEnvBase(
     float_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
     bool_opt_ = torch::TensorOptions().dtype(torch::kBool).device(device);
     if (device_.is_cpu()) {
-        float_opt_ = float_opt_.pinned_memory(true);
-        bool_opt_ = bool_opt_.pinned_memory(true);
+        //float_opt_ = float_opt_.pinned_memory(true);
+        //bool_opt_ = bool_opt_.pinned_memory(true);
     }
-    persistent_state_ = createEmptyState();
-    persistent_result_ = createEmptyStepResult();
+    reset_result_ = createEmptyResetResult();
+    step_result_ = createEmptyStepResult();
 }
 
 EnvSpec DiscreteBatchEnvBase::GetSpec() const
@@ -66,48 +116,18 @@ BatchEnvSpec DiscreteBatchEnvBase::GetBatchSpec() const
     return batch_spec_;
 }
 
-anet::rl::BatchState DiscreteBatchEnvBase::createEmptyState() const
+std::shared_ptr<DiscreteBatchEnvBase::ResetResult> DiscreteBatchEnvBase::createEmptyResetResult() const
 {
-    anet::rl::BatchState batch_state {
-        torch::empty(obs_dims_, float_opt_),
-        torch::empty({ batch_size_ }, bool_opt_),
-        torch::empty({ batch_size_ }, bool_opt_),
-        torch::empty({ batch_size_ }, bool_opt_)
-    };
-    return batch_state;
+    auto result = std::make_shared<DiscreteBatchEnvBase::ResetResult>(
+        batch_size_,
+        anet::rl::BatchState {
+            torch::empty(obs_dims_, float_opt_),
+            torch::empty({ batch_size_ }, bool_opt_),
+            torch::empty({ batch_size_ }, bool_opt_),
+            torch::empty({ batch_size_ }, bool_opt_)
+        });
+    return result;
 }
-
-class DiscreteBatchEnvBase::StepResult : public BatchStepResult
-{
-public:
-    DiscreteBatchEnvBase::StepResult(
-        int batch_size,
-        torch::Tensor reward, BatchState next_state, BatchState continue_state, uint32_t n_transitions, uint32_t n_done)
-        : BatchStepResult(std::move(reward), std::move(next_state), std::move(continue_state), n_transitions, n_done)
-    {
-        single_results.resize(batch_size);
-    }
-   
-
-    std::vector<AuxData> GetAuxDataList(int env_index = -1) const override
-    {
-        std::vector<AuxData> auxs;
-        if (env_index >= 0) {
-            auto aux = single_results[env_index]->GetAuxData();
-            auxs.push_back(aux);
-        } else {
-            for (auto result : single_results) {
-                auto aux = result->GetAuxData();
-                auxs.push_back(aux);
-            }
-        }
-
-        return auxs;
-    }
-public:
-    std::vector<std::shared_ptr<const SingleStepResult>> single_results;
-
-};
 
 std::shared_ptr<DiscreteBatchEnvBase::StepResult> DiscreteBatchEnvBase::createEmptyStepResult() const
 {
@@ -132,7 +152,22 @@ std::shared_ptr<DiscreteBatchEnvBase::StepResult> DiscreteBatchEnvBase::createEm
     );
 
     return result;
-};
+}
+
+std::shared_ptr<DiscreteBatchEnvBase::ResetResult> DiscreteBatchEnvBase::getResetResult() const
+{
+    //std::shared_ptr<DiscreteBatchEnvBase::ResetResult> result = this->reset_result_;    // 使い回す
+    std::shared_ptr<DiscreteBatchEnvBase::ResetResult> result = createEmptyResetResult();
+    return result;
+}
+
+std::shared_ptr<DiscreteBatchEnvBase::StepResult> DiscreteBatchEnvBase::getStepResult() const
+{
+    //std::shared_ptr<DiscreteBatchEnvBase::StepResult> result = this->step_result_;    // 使い回す
+    std::shared_ptr<DiscreteBatchEnvBase::StepResult> result = createEmptyStepResult();
+    return result;
+}
+
 
 std::optional<float> DiscreteBatchEnvBase::GetScalar(const std::string& key, int index) const
 {
@@ -168,24 +203,25 @@ VectorizedDiscreteBatchEnv::VectorizedDiscreteBatchEnv(
     ANET_LOG_DEBUG("seed=" << this->GetSeed());
 }
 
-BatchState VectorizedDiscreteBatchEnv::Reset(RunMode mode)
+std::shared_ptr<const BatchResetResult> VectorizedDiscreteBatchEnv::Reset(RunMode mode)
 {
     ProfileRange r("VectorizedDiscreteBatchEnv::Reset");
 
-    // 戻り用に空のBatchState枠を作る
-    BatchState& state = this->persistent_state_;    // 使い回す
+    // 戻りの枠生成
+    auto result = getResetResult();
 
     // 全環境を初期化し、state_ バッファに書き込む（バッファは constructor 確保済み）
     for (int i = 0; i < batch_size_; ++i) {
-        auto reset_state = envs_[i]->Reset(mode);
-        ANET_CHECK_DEVICE(reset_state.obs, device_);
-        state.obs[i].copy_(reset_state.obs);
-        state.done[i] = reset_state.done;
-        state.truncated[i] = reset_state.truncated;
-        state.episode_start[i] = reset_state.episode_start;
+        auto reset_result = envs_[i]->Reset(mode);
+        ANET_CHECK_DEVICE(reset_result->state.obs, device_);
+        result->state.obs[i].copy_(reset_result->state.obs);
+        result->state.done[i] = reset_result->state.done;
+        result->state.truncated[i] = reset_result->state.truncated;
+        result->state.episode_start[i] = reset_result->state.episode_start;
+        result->single_results[i] = reset_result;
     }
 
-    return state;
+    return result;
 }
 
 std::shared_ptr<const BatchStepResult> VectorizedDiscreteBatchEnv::Step(const BatchActionInfo& batch_action, RunMode mode)
@@ -199,10 +235,9 @@ std::shared_ptr<const BatchStepResult> VectorizedDiscreteBatchEnv::Step(const Ba
     ANET_CHECK_SHAPE(batch_action.GetAction(), {N});
 
     // 戻りの枠生成
-    std::shared_ptr<DiscreteBatchEnvBase::StepResult> result = this->persistent_result_;    // 使い回す
+    auto result = getStepResult();
 
     auto actions = batch_action.GetAction(device_);
-
     // ----- 環境を順次実行して埋める -----
     for (int i = 0; i < N; ++i) {
         auto a = actions[i].item<int64_t>();
@@ -220,12 +255,12 @@ std::shared_ptr<const BatchStepResult> VectorizedDiscreteBatchEnv::Step(const Ba
 
         // Auto reset
         if (single_result->next_state.done || single_result->next_state.truncated) {
-            SingleState reset_state = envs_[i]->Reset(mode);
-            ANET_CHECK_DEVICE(reset_state.obs, device_);
-            result->continue_state.obs.index_put_({ i }, reset_state.obs);
-            result->continue_state.done.index_put_({ i }, reset_state.done);
-            result->continue_state.truncated.index_put_({ i }, reset_state.truncated);
-            result->continue_state.episode_start.index_put_({ i }, reset_state.episode_start);
+            auto reset_result = envs_[i]->Reset(mode);
+            ANET_CHECK_DEVICE(reset_result->state.obs, device_);
+            result->continue_state.obs.index_put_({ i }, reset_result->state.obs);
+            result->continue_state.done.index_put_({ i }, reset_result->state.done);
+            result->continue_state.truncated.index_put_({ i }, reset_result->state.truncated);
+            result->continue_state.episode_start.index_put_({ i }, reset_result->state.episode_start);
 
             if (single_result->next_state.done)
                 result->n_done++;
@@ -259,7 +294,7 @@ ThreadPoolDiscreteEnv::ThreadPoolDiscreteEnv(
     this->batch_spec_.num_threads = pool_->GetWorkerCount();
 }
 
-BatchState ThreadPoolDiscreteEnv::Reset(RunMode mode)
+std::shared_ptr<const BatchResetResult>  ThreadPoolDiscreteEnv::Reset(RunMode mode)
 {
     ProfileRange r("ThreadPoolDiscreteEnv::Reset");
 
@@ -269,31 +304,31 @@ BatchState ThreadPoolDiscreteEnv::Reset(RunMode mode)
 
     const int N = batch_size_;
 
-    // 全ENV分の Reset結果を一時保存するバッファ（スレッド毎に index 固定なので race なし）
-    BatchState& state = this->persistent_state_;    // 使い回す
+    // 戻りの枠生成
+    auto result = getResetResult();
 
     // 全ENV分のResetタスクをキューに積む
     for (int i = 0; i < N; ++i) {
         const int worker_id = i % worker_count;
 
-        pool_->Enqueue(worker_id, [this, &state, i, mode]()
+        pool_->Enqueue(worker_id, [this, &result, i, mode]()
             {
                 // ENV Reset 実行
-                SingleState s = envs_[i]->Reset(mode);
-                ANET_CHECK_DEVICE(s.obs, device_);
+                auto single_result = envs_[i]->Reset(mode);
+                ANET_CHECK_DEVICE(single_result->state.obs, device_);
 
                 // 結果書き込み(i番目の行だけを書くので他 Worker と race しない)
-                state.obs.select(0, i).copy_(s.obs);
-                state.done[i] = s.done;
-                state.truncated[i] = s.truncated;
-                state.episode_start[i] = s.episode_start;
+                result->state.obs.select(0, i).copy_(single_result->state.obs);
+                result->state.done[i] = single_result->state.done;
+                result->state.truncated[i] = single_result->state.truncated;
+                result->state.episode_start[i] = single_result->state.episode_start;
             });
     }
 
     // 全タスク終了待ち
     pool_->WaitAll();
 
-    return state;
+    return result;
 }
 
 std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(const BatchActionInfo& batch_action, RunMode mode)
@@ -309,7 +344,7 @@ std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(const BatchAc
     ANET_ASSERT(worker_count > 0);
 
     // --- 返却バッファ ---
-    std::shared_ptr<DiscreteBatchEnvBase::StepResult> result = this->persistent_result_;    // 使い回す
+    auto result = getStepResult();
 
     auto actions = batch_action.GetAction(this->device_);
 
@@ -340,12 +375,12 @@ std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(const BatchAc
                 // --- continue_state ---
                 if (r->next_state.done || r->next_state.truncated) {
                     // Reset_required
-                    SingleState reset_state = envs_[i]->Reset(mode);
-                    ANET_CHECK_DEVICE(reset_state.obs, device_);
-                    result->continue_state.obs.select(0, i).copy_(reset_state.obs);
-                    result->continue_state.done[i] = reset_state.done;
-                    result->continue_state.truncated[i] = reset_state.truncated;
-                    result->continue_state.episode_start[i] = reset_state.episode_start;
+                    auto reset_result = envs_[i]->Reset(mode);
+                    ANET_CHECK_DEVICE(reset_result->state.obs, device_);
+                    result->continue_state.obs.select(0, i).copy_(reset_result->state.obs);
+                    result->continue_state.done[i] = reset_result->state.done;
+                    result->continue_state.truncated[i] = reset_result->state.truncated;
+                    result->continue_state.episode_start[i] = reset_result->state.episode_start;
                 } else {
                     // Continue as-is
                     result->continue_state.obs.select(0, i).copy_(r->next_state.obs);

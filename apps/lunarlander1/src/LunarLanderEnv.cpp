@@ -1,4 +1,10 @@
-﻿#include "LunarLanderEnv.hpp"
+﻿/*
+ * LunarLander C++ Port
+ * Based on work by OpenAI and Farama Foundation.
+ * Licensed under the MIT License. See LICENSE file for details.
+ */
+
+#include "LunarLanderEnv.hpp"
 
 #include <cmath>
 #include <algorithm>
@@ -128,22 +134,32 @@ void LunarLanderEnv::ContactListener::EndContact(b2Contact* contact)
 
 // ===== LunarLanderEnv::StepResult =====
 
-class LunarLanderEnv::StepResult : public anet::rl::SingleStepResult {
+class LunarLanderEnv::Result : virtual public anet::rl::SingleEnvResult {
 public:
-    LunarLanderEnv::StepResult(
-        std::shared_ptr<const LunarLanderEnv> env,
-        const std::pair<float, float>& rewards,
-        const anet::rl::SingleState& next_state)
-        : SingleStepResult(rewards.first, next_state), env_(env), rewards_(rewards)  { }
+    Result(std::shared_ptr<const LunarLanderEnv> env, float reward, float raw_reward)
+        : env_(env), reward_(reward), raw_reward_(raw_reward) { }
+    anet::rl::AuxData GetAuxData() const override { return env_->CreateAuxData(reward_, raw_reward_); }
 
-    anet::rl::AuxData GetAuxData() const override
-    {
-        return env_->CreateAuxData(rewards_);
-
-    }
-private:
+    virtual ~Result() = default;
+protected:
     std::shared_ptr<const LunarLanderEnv> env_;
-    std::pair<float, float> rewards_;
+    float reward_;
+    float raw_reward_;
+};
+
+class LunarLanderEnv::ResetResult : public anet::rl::SingleResetResult, public LunarLanderEnv::Result {
+public:
+    ResetResult(
+        std::shared_ptr<const LunarLanderEnv> env, const anet::rl::SingleState state)
+        : Result(env, 0.0f, 0.0f), SingleResetResult(std::move(state)) { }
+};
+
+class LunarLanderEnv::StepResult : public anet::rl::SingleStepResult, public LunarLanderEnv::Result {
+public:
+    StepResult(
+        std::shared_ptr<const LunarLanderEnv> env, float reward, float raw_reward,
+        anet::rl::SingleState next_state)
+        : Result(env, reward, raw_reward), SingleStepResult(reward, std::move(next_state)) { }
 };
 
 // ===== LunarLanderEnv =====
@@ -427,19 +443,27 @@ void LunarLanderEnv::buildLander()
     right_leg_joint_ = static_cast<b2RevoluteJoint*>(world_->CreateJoint(&joint_def));
 }
 
-anet::rl::SingleState LunarLanderEnv::Reset(anet::rl::RunMode mode)
+std::shared_ptr<const anet::rl::SingleResetResult> LunarLanderEnv::Reset(anet::rl::RunMode mode)
 {
     anet::ProfileRange range("LunarLanderEnv::Reset");
 
     buildWorld();
 
     step_count_ = 0;
-    last_wind_x_ = 0.0f;
     body_contact_ = false;
     left_leg_contact_ = false;
     right_leg_contact_ = false;
     has_prev_shaping_ = false;
     last_shaping_ = 0.0f;
+
+    if (config_.enable_wind) {
+        wind_idx_ = rnd_->RandInt(-9999, 9999);
+        torque_idx_ = rnd_->RandInt(-9999, 9999);
+    } else {
+        wind_idx_ = 0;
+        torque_idx_ = 0;
+    }
+    applyWind();
 
     // 初期状態は Train / Eval で変える
     if (anet::rl::IsTrain(mode)) {
@@ -461,18 +485,18 @@ anet::rl::SingleState LunarLanderEnv::Reset(anet::rl::RunMode mode)
     right_leg_body_->SetLinearVelocity(b2Vec2(0.0f, 0.0f));
     right_leg_body_->SetAngularVelocity(0.0f);
 
+    // 戻り生成
     auto state = makeState();
     state.episode_start = true;
     state.done = false;
     state.truncated = false;
+    auto ret = std::make_shared<ResetResult>(this->shared_from_this(), std::move(state));
 
-    return state;
+    return ret;
 }
 
 void LunarLanderEnv::applyWind()
 {
-    last_wind_x_ = 0.0f;
-
     if (!config_.enable_wind) {
         return;
     }
@@ -480,22 +504,31 @@ void LunarLanderEnv::applyWind()
         return;
     }
 
-    // 新しい「目標風速」をランダムに決める
-    float target_wind = rnd_->Uniform(-1.0f, 1.0f) * config_.wind_power;
+    // --- Gymに仕様に合わせる
 
-    // 乱気流は高周波ノイズのまま（ジリジリした揺れ）
-    float turbulence = rnd_->Uniform(-1.0f, 1.0f) * config_.turbulence_power;
+    // 水平方向の風力を計算
+    const double k = 0.01;
+    const double idx_w = static_cast<double>(wind_idx_);
+    float wind_val = std::tanh(std::sin(2.0 * k * idx_w) + std::sin(b2_pi * k * idx_w));        // sin(0.02 * idx) + sin(pi * 0.01 * idx)
+    float wind_mag = wind_val * config_.wind_power;
+    wind_idx_++;
 
-    // 前回の風速と混ぜる
-    const float smooth_factor = 0.95f;
-    current_wind_velocity_ = current_wind_velocity_ * smooth_factor + target_wind * (1.0f - smooth_factor);
-
-    // 最終的な風力 = なめらかなベース風 + 乱気流
-    float total_wind = current_wind_velocity_ + turbulence;
-
-    last_wind_x_ = total_wind;
-    b2Vec2 force(total_wind * 10.0f, 0.0f); // ※係数10倍はBox2Dのスケール合わせ
+    // 水平方向の風力を反映
+    b2Vec2 force(wind_mag, 0.0f);
     lander_body_->ApplyForceToCenter(force, true);
+
+    // 風による回転力（乱気流）を計算
+    const double idx_t = static_cast<double>(torque_idx_);
+    float torque_val = std::tanh(std::sin(2.0 * k * idx_t) + std::sin(b2_pi * k * idx_t));
+    float torque_mag = torque_val * config_.turbulence_power;
+    torque_idx_++;
+
+    // 回転力を反映
+    lander_body_->ApplyTorque(torque_mag, true);
+
+    // 記録用 (GetScalar等で使用)
+    last_wind_x_ = wind_mag;
+    last_wind_torque_ = torque_mag;
 }
 
 void LunarLanderEnv::applyActionForce(int64_t action)
@@ -707,9 +740,9 @@ std::shared_ptr<const anet::rl::SingleStepResult> LunarLanderEnv::Step(int64_t a
     const int pos_iter = 2;
     world_->Step(time_step, vel_iter, pos_iter);
 
+    // エピソード終了判定
     const bool crashed = checkCrash();
     const bool landed = checkLanded();
-
     bool done = crashed || landed;
     bool truncated = false;
     if (step_count_ >= config_.limit_step && !done) {
@@ -717,13 +750,13 @@ std::shared_ptr<const anet::rl::SingleStepResult> LunarLanderEnv::Step(int64_t a
         done = true;
     }
 
+    // 戻り生成
     auto state = makeState();
     state.done = done;
     state.truncated = truncated;
-
     const auto rewards = calcReward(state, crashed, landed, action);
-
-    const auto result = std::make_shared<LunarLanderEnv::StepResult>(this->shared_from_this(), rewards, state);
+    const auto result = std::make_shared<LunarLanderEnv::StepResult>(
+        this->shared_from_this(), rewards.first, rewards.second, std::move(state));
 
     return result;
 }
@@ -751,9 +784,8 @@ std::optional<float> LunarLanderEnv::GetScalar(const std::string& key, int index
 {
     ANET_ASSERT(index == -1 || index == 0);
 
-    if (key == "wind_x") {
-        return last_wind_x_;
-    }
+    if (key == "wind_x") return last_wind_x_;
+    if (key == "wind_torque") return last_wind_torque_;
 
     return std::nullopt;
 }
@@ -815,7 +847,7 @@ LunarLanderEnv::GetTensorVector(const std::string& key, int index) const
     return std::nullopt;
 }
 
-anet::rl::AuxData LunarLanderEnv::CreateAuxData(const std::pair<float, float>& rewards) const
+anet::rl::AuxData LunarLanderEnv::CreateAuxData(float reward, float raw_reward) const
 {
     anet::ProfileRange r1("LunarLanderEnv::CreateAux");
 
@@ -921,7 +953,7 @@ anet::rl::AuxData LunarLanderEnv::CreateAuxData(const std::pair<float, float>& r
         aux.emplace(
             "forces",
             torch::tensor(
-                { last_wind_x_ },
+                { last_wind_x_, last_wind_torque_ },
                 float_opt_));
     }
 
@@ -930,7 +962,7 @@ anet::rl::AuxData LunarLanderEnv::CreateAuxData(const std::pair<float, float>& r
         aux.emplace(
             "rewards",
             torch::tensor(
-                { rewards.first, rewards.second },  // RL報酬、Raw報酬
+                { reward, raw_reward },  // RL報酬、Raw報酬
                 float_opt_));
     }
 
@@ -949,3 +981,4 @@ LunarLanderEnvFactory::CreateSingleEnv(const anet::ConfigData& config_data, cons
 }
 
 ANET_REGISTER_ENV_FACTORY(LunarLanderEnvFactory);
+

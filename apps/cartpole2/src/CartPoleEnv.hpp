@@ -22,7 +22,7 @@ public:
         const std::optional<anet::seed_t> seed = std::nullopt);
 
     anet::rl::EnvSpec GetSpec() const override;
-    anet::rl::SingleState Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
+    std::shared_ptr<const anet::rl::SingleResetResult> Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
     std::shared_ptr<const anet::rl::SingleStepResult> Step(int64_t action, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
     
     std::optional<float> GetScalar(const std::string& key, int index = -1) const override { return std::nullopt; }

@@ -64,7 +64,7 @@ public:
     ~LunarLanderEnv() override;
 
     anet::rl::EnvSpec GetSpec() const override;
-    anet::rl::SingleState Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
+    std::shared_ptr<const anet::rl::SingleResetResult> Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
     std::shared_ptr<const anet::rl::SingleStepResult> Step(int64_t action, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
 
 public:
@@ -72,6 +72,8 @@ public:
     std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
     std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
 private:
+    class Result;
+    class ResetResult;
     class StepResult;
 private:
     void buildWorld();
@@ -89,7 +91,7 @@ private:
     bool checkCrash() const;
     bool checkLanded() const;
 
-    anet::rl::AuxData CreateAuxData(const std::pair<float, float>& rewards) const;
+    anet::rl::AuxData CreateAuxData(float reward, float raw_reward) const;
 private:
     // 着陸パッドの水平区間と高さ
     struct PadInfo {
@@ -119,7 +121,9 @@ private:
 
     int step_count_ = 0;
     float last_wind_x_ = 0.0f;
-    float current_wind_velocity_ = 0.0f;
+    float last_wind_torque_ = 0.0f;
+    int64_t wind_idx_ = 0;
+    int64_t torque_idx_ = 0;
 
     float last_shaping_ = 0.0f;
     bool has_prev_shaping_ = false;

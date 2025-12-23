@@ -433,7 +433,8 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
     if (step % eval_interval_ == 0) {
 		StepCounts counts_local;
         step_t step = 0;
-        auto state = env_->Reset(runmode_);
+        auto reset_result = env_->Reset(runmode_);
+        auto state = reset_result->state;
         auto eps_total_reward = 0.0f;
         bool done = false;
         bool truncated = false;

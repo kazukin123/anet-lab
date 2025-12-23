@@ -102,7 +102,7 @@ namespace anet {
     class MetricsLogger {
     public:
         explicit MetricsLogger(std::unique_ptr<IBackend> b,
-            const std::string& root = "logs",
+            const std::string& root = "runs",
             const std::string& run = "");
 
         MetricsLogger(const MetricsLogger&) = delete;

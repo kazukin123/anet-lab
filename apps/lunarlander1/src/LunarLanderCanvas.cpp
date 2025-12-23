@@ -360,8 +360,9 @@ void LunarLanderCanvas::DrawWind(wxDC& dc, int width, int height)
         return;
     }
 
-    const float wind = it->second[0].item<float>();
-    dc.DrawText(wxString::Format("Wind: %.2f", wind), 10, height - 20);
+    const float wind_x = it->second[0].item<float>();
+    const float wind_torque = it->second[1].item<float>();
+    dc.DrawText(wxString::Format("Wind: %.2f %.2f", wind_x, wind_torque), 10, height - 20);
 }
 
 void LunarLanderCanvas::DrawRL(wxDC& dc)

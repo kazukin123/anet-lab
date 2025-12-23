@@ -246,15 +246,6 @@ namespace anet::rl {
         bool truncated;
         bool episode_start;
 
-        //BatchState toBatchState() const {
-        //    return {
-        //        obs.unsqueeze(0),
-        //        torch::tensor(done, torch::kBool).unsqueeze(0),
-        //        torch::tensor(truncated, torch::kBool).unsqueeze(0),
-        //        torch::tensor(episode_start, torch::kBool).unsqueeze(0),
-        //    };
-        //}
-
         /// 状態テンソルを 1D に変換する
         torch::Tensor Flatten() const {
             ANET_CHECK_DTYPE(obs, torch::kFloat32);
@@ -279,19 +270,33 @@ namespace anet::rl {
 
     using AuxData = std::unordered_map<std::string, torch::Tensor>; ///< 任意の追加情報（UI描画用の非可観測情報を含む）
 
-    class SingleStepResult {
-    public:
-        SingleStepResult(float reward_in, const SingleState& next_state_in)
-            : reward(reward_in), next_state(next_state_in) { } 
 
-        virtual AuxData GetAuxData() const = 0;
+    class SingleEnvResult {
+    public:
+        virtual AuxData GetAuxData() const { return AuxData(); }
+        virtual ~SingleEnvResult() = default;
+    };
+
+    class SingleResetResult : virtual public SingleEnvResult {
+    public:
+        explicit SingleResetResult(SingleState state_in)
+            : state(std::move(state_in)) {}
+
+        virtual ~SingleResetResult() = default;
+    public:
+        SingleState state;
+    };
+
+    class SingleStepResult : virtual public SingleEnvResult {
+    public:
+        SingleStepResult(float reward_in, SingleState next_state_in)
+            : reward(reward_in), next_state(std::move(next_state_in)) { } 
 
         virtual ~SingleStepResult() = default;
         std::string ToString() const;
     public:
         float reward;              ///< 報酬         
         SingleState next_state;    ///< 遷移後の観測  (state_dim...)
-
     };
 
     class DefaultSingleStepResult : public SingleStepResult {
@@ -467,10 +472,25 @@ namespace anet::rl {
         AuxData aux_;
     };
 
-    class BatchStepResult {
+    class BatchEnvResult {
+    public:
+        virtual std::vector<AuxData> GetAuxDataList(int env_index = -1) const = 0;
+        virtual ~BatchEnvResult() = default;
+    };
+
+    class BatchResetResult : virtual public BatchEnvResult {
+    public:
+        BatchResetResult(BatchState state_in) : state(std::move(state_in)) { }
+        std::string ToString() const;
+
+        virtual ~BatchResetResult() = default;
+    public:
+        BatchState state;      ///<初期の観測情報  (N, state_dim...)
+    };
+
+    class BatchStepResult : virtual public BatchEnvResult {
     public:
         BatchStepResult(torch::Tensor reward_in, BatchState next_state_in, BatchState continue_state_in, uint32_t n_transitions_in, uint32_t n_done_in);
-        virtual std::vector<AuxData> GetAuxDataList(int env_index = -1) const = 0;
         std::string ToString() const;
 
         virtual ~BatchStepResult() = default;
@@ -540,7 +560,7 @@ namespace anet::rl {
     class SingleDiscreteEnv : public DataExporter {
     public:
         virtual EnvSpec GetSpec() const = 0;
-        virtual SingleState Reset(RunMode mode) = 0;
+        virtual std::shared_ptr<const SingleResetResult> Reset(RunMode mode) = 0;
         virtual std::shared_ptr<const SingleStepResult> Step(int64_t action, RunMode mode) = 0;
 
         virtual ~SingleDiscreteEnv() = default;
@@ -562,8 +582,8 @@ namespace anet::rl {
         virtual EnvSpec GetSpec() const = 0;
         virtual BatchEnvSpec GetBatchSpec() const = 0;
 
-        virtual BatchState Reset(RunMode mode = RunMode::Train) = 0;    /// BatchStateは使い回されるので必要に応じてDeepCopy必須
-        virtual std::shared_ptr<const BatchStepResult> Step(const BatchActionInfo& action_info, RunMode mode = RunMode::Train) = 0; /// BatchStepResultは使い回されるので必要に応じてDeepCopy必須
+        virtual std::shared_ptr<const BatchResetResult> Reset(RunMode mode = RunMode::Train) = 0;    ///< BatchStateは使い回されるので必要に応じてDeepCopy必須
+        virtual std::shared_ptr<const BatchStepResult> Step(const BatchActionInfo& action_info, RunMode mode = RunMode::Train) = 0; ///< BatchStepResultは使い回されるので必要に応じてDeepCopy必須
         //virtual std::shared_ptr<BatchEnv> Clone() const = 0;
 
         virtual ~BatchEnv() = default;
@@ -599,7 +619,7 @@ namespace anet::rl {
     public:
         virtual std::shared_ptr<const BatchUpdateResult> UpdateFromBatch(
             const StepCounts& step, const BatchExperience& expriences, const Runner& trainer
-        ) = 0;
+        ) = 0;  ///< @todo 戻りをstd::vector化?
         virtual ~Learner() = default;
     };
 

@@ -434,7 +434,7 @@ std::optional<std::vector<torch::Tensor>>
 BatchExperience BatchExperience::To(torch::Device d, bool non_blocking) const {
     BatchExperience out {
         state.To(d, non_blocking),
-        action.To(d, false),// GPU→CPUは明示的な同期が必要でバグの温床になるのでnon_blocking無しにしておく
+        action.To(d),// GPU→CPUは明示的な同期が必要でバグの温床になるのでnon_blocking無しにしておく
         reward.to(d, non_blocking),
         next_state.To(d, non_blocking)
     };

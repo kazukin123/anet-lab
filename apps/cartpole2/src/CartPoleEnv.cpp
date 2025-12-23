@@ -71,7 +71,7 @@ anet::rl::EnvSpec CartPoleEnv::GetSpec() const
     return env_spec;
 }
 
-anet::rl::SingleState CartPoleEnv::Reset(anet::rl::RunMode mode)
+std::shared_ptr<const anet::rl::SingleResetResult> CartPoleEnv::Reset(anet::rl::RunMode mode)
 {
     anet::ProfileRange r("CartPoleEnv::Reset");
 
@@ -99,12 +99,15 @@ anet::rl::SingleState CartPoleEnv::Reset(anet::rl::RunMode mode)
     episode_start_ = true;
     step_count_ = 0;
 
-    return {
-        torch::tensor({ x_, x_dot_, theta_, theta_dot_ }, obs_opt_), // (4)
-        done_,
-        truncated_,
-        episode_start_
-    };
+    auto result = std::make_shared<anet::rl::SingleResetResult>(
+        anet::rl::SingleState {
+            torch::tensor({ x_, x_dot_, theta_, theta_dot_ }, obs_opt_), // (4)
+            done_,
+            truncated_,
+            episode_start_
+        }
+    );
+    return result;
 }
 
 std::shared_ptr<const anet::rl::SingleStepResult> CartPoleEnv::Step(int64_t action, anet::rl::RunMode mode)

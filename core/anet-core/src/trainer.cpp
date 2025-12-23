@@ -102,7 +102,8 @@ StepCounts EvalRunner::DoStep(int64_t action)
 
     if (!env_initialized_) {
         // 環境初期化
-        state_ = env_->Reset(runmode_);
+        auto reset_result = env_->Reset(runmode_);
+        state_ = reset_result->state;
         env_initialized_ = true;
         ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
     }
@@ -155,7 +156,8 @@ StepCounts EvalRunner::DoStep()
 
     if (!env_initialized_) {
         // 環境初期化
-        state_ = env_->Reset(runmode_);
+        auto reset_result = env_->Reset(runmode_);
+        state_ = reset_result->state;
         env_initialized_ = true;
         ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
     }
@@ -376,7 +378,8 @@ StepCounts DefaultTrainer::DoStep()
         anet::ProfileRange r1("DefaultTrainer::DoUpdateFrame.initialize");
 
         // 環境初期化
-        state_ = env_->Reset();  // ← reset() は 初期状態 を返す
+        auto reset_result = env_->Reset();
+        state_ = reset_result->state;
         env_initialized_ = true;
         ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
         ANET_CHECK_DEVICE_CPU_MSG(state_.obs, "Initial state");

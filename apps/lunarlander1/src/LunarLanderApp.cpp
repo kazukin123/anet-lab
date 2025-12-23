@@ -21,6 +21,7 @@ wxDEFINE_EVENT(wxEVT_APP_TRAINER_SHUTDOWN, wxThreadEvent);
 
 struct LunarLanderApp::Config : public anet::Config
 {
+    bool train_auto_start = true;
     int train_pause_step = -1;
     int train_exit_step = -1; //110000;
     int train_timer_ms = 10;
@@ -33,6 +34,7 @@ struct LunarLanderApp::Config : public anet::Config
 
     LunarLanderApp::Config(const anet::ConfigData& config_data) : anet::Config(config_data, "LunarLanderApp")
     {
+        ANET_READ_CONFIG(config_data, train_auto_start);
         ANET_READ_CONFIG(config_data, train_pause_step);
         ANET_READ_CONFIG(config_data, train_exit_step);
         ANET_READ_CONFIG(config_data, train_timer_ms);
@@ -160,7 +162,8 @@ bool LunarLanderApp::OnInit()
         });
 
     // Train開始！
-    trainer_thread_->Start();
+    if (config_->train_auto_start)
+        trainer_thread_->Start();
 
     return true;
 }
@@ -329,15 +332,15 @@ void LunarLanderApp::InitImageLogObservers()
         std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 4, &env_spec.state_spec, nullptr, auto_scale_mode),  // theta
     };
 
-    notifier->Attach<anet::rl::HeatMapVectorObserver>(
-        "43_agent_img/12_hm_rep_01", replay_heat_obs_config, rep_x_probe, rep_y_probe, rep_reward_probe);
+    //notifier->Attach<anet::rl::HeatMapVectorObserver>(
+    //    "43_agent_img/12_hm_rep_01", replay_heat_obs_config, rep_x_probe, rep_y_probe, rep_reward_probe);
     //notifier->Attach<anet::rl::HeatMapVectorObserver>(
     //    "43_agent_img/13_hm_rep_04", replay_heat_obs_config, rep_x_probe, rep_theta_probe, rep_reward_probe);
-    notifier->Attach<anet::rl::MultiPairHeatMapObserver>(
-        "43_agent_img/21_hm_rep_multi3",
-        replay_heat_obs_config,
-        probes_3axis,
-        rep_reward_probe);
+    //notifier->Attach<anet::rl::MultiPairHeatMapObserver>(
+    //    "43_agent_img/21_hm_rep_multi3",
+    //    replay_heat_obs_config,
+    //    probes_3axis,
+    //    rep_reward_probe);
 
     // ---- SweepedHeatMap ----
 

@@ -25,9 +25,14 @@ namespace anet::rl {
         std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
     public:
+        class Result;
+        class ResetResult;
         class StepResult;
-        anet::rl::BatchState createEmptyState() const;
+        std::shared_ptr<DiscreteBatchEnvBase::ResetResult> createEmptyResetResult() const;
         std::shared_ptr<DiscreteBatchEnvBase::StepResult> createEmptyStepResult() const;
+    protected:
+        std::shared_ptr<DiscreteBatchEnvBase::ResetResult> getResetResult() const;
+        std::shared_ptr<DiscreteBatchEnvBase::StepResult> getStepResult() const;
     protected:
         int64_t batch_size_;
         std::vector<std::shared_ptr<SingleDiscreteEnv>> envs_;
@@ -39,8 +44,8 @@ namespace anet::rl {
         torch::TensorOptions float_opt_;
         torch::TensorOptions bool_opt_;
     protected:
-        BatchState persistent_state_;
-        std::shared_ptr<StepResult> persistent_result_;
+        std::shared_ptr<ResetResult> reset_result_;
+        std::shared_ptr<StepResult> step_result_;
     };
 
     // ==============
@@ -54,7 +59,7 @@ namespace anet::rl {
             const torch::Device& device,
             std::optional<seed_t> seed = std::nullopt);
 
-        BatchState Reset(RunMode mode) override;
+        std::shared_ptr<const BatchResetResult> Reset(RunMode mode) override;
         std::shared_ptr<const BatchStepResult> Step(const BatchActionInfo& action, RunMode mode) override;
     };
 
@@ -68,7 +73,7 @@ namespace anet::rl {
             std::shared_ptr<ThreadPool> pool,
             std::optional<seed_t> seed = std::nullopt);
 
-        BatchState Reset(RunMode mode) override;
+        std::shared_ptr<const BatchResetResult> Reset(RunMode mode) override;
         std::shared_ptr<const BatchStepResult> Step(const BatchActionInfo& action, RunMode mode) override;
     private:
         std::shared_ptr<ThreadPool> pool_;

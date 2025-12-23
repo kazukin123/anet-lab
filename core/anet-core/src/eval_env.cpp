@@ -76,7 +76,8 @@ namespace anet::rl {
         const ActionSpec action_spec = env.GetSpec().action_spec;
 
         for (int ep = 0; ep < n_episodes; ++ep) {
-            BatchState s = env.Reset(RunMode::Eval1);
+            auto reset_result = env.Reset(RunMode::Eval1);
+            auto s = reset_result->state;
 
             float ep_ret = 0.0f;
             int   ep_len = 0;
