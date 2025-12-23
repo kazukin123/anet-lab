@@ -31,6 +31,7 @@ struct LunarLanderApp::Config : public anet::Config
     int image_log_interval_thm = 500;
     bool use_image_log = false;
     bool use_per_image_log = false;
+    std::string run_name = "run_%t";
 
     LunarLanderApp::Config(const anet::ConfigData& config_data) : anet::Config(config_data, "LunarLanderApp")
     {
@@ -44,6 +45,7 @@ struct LunarLanderApp::Config : public anet::Config
         ANET_READ_CONFIG(config_data, image_log_interval_thm);
         ANET_READ_CONFIG(config_data, use_image_log);
         ANET_READ_CONFIG(config_data, use_per_image_log);
+        ANET_READ_CONFIG(config_data, run_name);
     }
 };
 
@@ -64,7 +66,7 @@ std::string GetConfigFilePath() {
     return (GetProjectRootDir() / "config" / "LunarLanderRLGUI.txt").string();  // パスを結合
 }
 
-std::string GetLogsPath() {
+std::string GetRunsPath() {
     return (GetProjectRootDir() / "runs").string();
 }
 
@@ -106,11 +108,13 @@ bool LunarLanderApp::OnInit()
     config_mgr_ = std::make_unique<anet::ConfigManager>(GetConfigFilePath(), &cmdline_);
     auto config_data = config_mgr_->GetConfigData();
 
-    // MetricsLogger
-    anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetLogsPath());
-
     // LunarLanderAppConfig
     config_ = std::make_unique<LunarLanderApp::Config>(config_data);
+
+    // MetricsLogger
+    anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetRunsPath(), config_->run_name);
+
+    // LunarLanderAppConfigをダンプ
     anet::MetricsLogger::Instance()->LogJson("LunarLanderApp", config_->ToJson());
     anet::MetricsLogger::Instance()->Flush();
 

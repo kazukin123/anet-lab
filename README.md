@@ -45,6 +45,8 @@ TODO：実行手順を書く
 ### TODO
 
 * 学習アルゴリズム
+	* CNN
+	* Transformer
 	* AlphaZero-Lite
 	* MuZero
 * メトリクス
@@ -76,7 +78,6 @@ TODO：実行手順を書く
 	* DDPG対応
 	* TD3対応
 	* SAC対応
-	* AS-DQN：ハイパラ調整
 	* Adaptive Stabilized DQN (AS-DQN)：unstable_ema
 	* AS-DQN：過安定制御(stagnant) 
 	* AS-DQN：勾配／損失ベース
@@ -84,7 +85,6 @@ TODO：実行手順を書く
 	* Adaptive α-schedule
 * メトリクス
 * AP改善
-	* 起動時にRun名をプロンプト
 
 ## 備考
 

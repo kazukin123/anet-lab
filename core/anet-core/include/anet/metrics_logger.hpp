@@ -101,17 +101,18 @@ namespace anet {
     //----------------------------------------------
     class MetricsLogger {
     public:
-        explicit MetricsLogger(std::unique_ptr<IBackend> b,
-            const std::string& root = "runs",
-            const std::string& run = "");
+        explicit MetricsLogger(
+            std::unique_ptr<IBackend> backend, const std::string& root = "runs", const std::string& run_name_tmpl = "");
 
         MetricsLogger(const MetricsLogger&) = delete;
         MetricsLogger& operator=(const MetricsLogger&) = delete;
 
         // --- Singleton API ---
         static std::shared_ptr<MetricsLogger> Instance();
-        static void Init(std::unique_ptr<IBackend> backend, const std::string& root = "logs", const std::string& run = "");
+        static void Init(std::unique_ptr<IBackend> backend, const std::string& root = "runs", const std::string& run_name_tmpl = "run_%t");
         static void Reset();
+
+        static std::string GetRunName(const std::string& run_name_tmpl);
 
         inline void LogScalar(const std::string& tag, int64_t step, double value) {
             json obj = {
@@ -138,6 +139,9 @@ namespace anet {
         inline std::string GetRunName() const { return run_name_; }
         inline std::string GetOutDir() const { return std::filesystem::relative(root_dir_ + "/" + run_name_).string(); }
         inline void Flush() { backend_->Flush(); }
+    private:
+        std::string CreateTimeStampStr() const;
+        std::string CreateRunName(const std::string& run_name_tmpl) const;
     private:
         std::unique_ptr<IBackend> backend_;
         std::string root_dir_;

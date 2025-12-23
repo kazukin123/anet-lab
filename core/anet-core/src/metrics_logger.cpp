@@ -1,9 +1,11 @@
 ﻿#include "anet/metrics_logger.hpp"
 #include <stdexcept>
+#include <algorithm>
 #include <wx/process.h>
 #include <wx/image.h>
 #include <wx/filename.h>
 #include "anet/log.hpp"
+#include "anet/str_util.hpp"
 
 namespace LOG = anet::log;
 
@@ -145,31 +147,41 @@ namespace anet {
     //----------------------------------------------
     // MetricsLogger コンストラクタ
     //----------------------------------------------
-    MetricsLogger::MetricsLogger(std::unique_ptr<IBackend> b,
-        const std::string& root,
-        const std::string& run)
-        : backend_(std::move(b)), root_dir_(root)
+    MetricsLogger::MetricsLogger(std::unique_ptr<IBackend> backend, const std::string& root, const std::string& run_name_tmpl)
+        : backend_(std::move(backend)), root_dir_(root)
     {
-        if (run.empty()) {
-            auto t = std::chrono::system_clock::now();
-            std::time_t tt = std::chrono::system_clock::to_time_t(t);
-            std::tm tm{};
-#ifdef _WIN32
-            localtime_s(&tm, &tt);
-#else
-            localtime_r(&tt, &tm);
-#endif
-            char buf_ts[64];
-            std::strftime(buf_ts, sizeof(buf_ts), "run_%Y%m%d-%H%M%S", &tm);
-            run_name_ = buf_ts;
-        }
-        else {
-            run_name_ = run;
+        if (run_name_tmpl.empty()) {
+            run_name_ = "run_" + CreateTimeStampStr();
+        } else {
+            run_name_ = CreateRunName(run_name_tmpl);
         }
 
         backend_->Open(root_dir_, run_name_);
         json meta = { {"type","meta"}, {"event","start"}, {"timestamp", current_time_str()} };
         backend_->WriteJsonl(meta);
+    }
+
+    std::string MetricsLogger::CreateTimeStampStr() const
+    {
+        auto t = std::chrono::system_clock::now();
+        std::time_t tt = std::chrono::system_clock::to_time_t(t);
+        std::tm tm{};
+#ifdef _WIN32
+        localtime_s(&tm, &tt);
+#else
+        localtime_r(&tt, &tm);
+#endif
+        char buf_ts[64];
+        std::strftime(buf_ts, sizeof(buf_ts), "%Y%m%d-%H%M%S", &tm);
+
+        return buf_ts;
+    }
+
+    std::string MetricsLogger::CreateRunName(const std::string& run_name_tmpl) const
+    {
+        auto t = CreateTimeStampStr();
+        auto run_name = anet::ReplaceAll(run_name_tmpl, "%t", t);
+        return run_name;
     }
 
     void MetricsLogger::LogJson(const std::string& tag, const json& data)
@@ -260,9 +272,8 @@ namespace anet {
         return instance_;
     }
 
-    void MetricsLogger::Init(std::unique_ptr<IBackend> backend,
-        const std::string& root,
-        const std::string& run) {
+    void MetricsLogger::Init(std::unique_ptr<IBackend> backend, const std::string& root, const std::string& run)
+    {
         std::lock_guard<std::mutex> lock(instance_mutex_);
         if (!instance_) {
             instance_ = std::make_shared<MetricsLogger>(std::move(backend), root, run);

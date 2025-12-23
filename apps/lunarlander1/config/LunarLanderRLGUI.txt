@@ -391,6 +391,7 @@ LunarLanderApp.batchrun.eval_timer_ms = 500
 LunarLanderApp.batchrun.eval_step_per_frame = 10;
 
 LunarLanderApp.train_auto_start = false
+LunarLanderApp.run_name = run_%t
 
 
 #LunarLanderEnv.$ = LunarLanderEnv.normal
