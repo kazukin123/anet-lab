@@ -75,11 +75,14 @@ namespace anet {
         virtual ~DataExporter() = default;
     };
 
-    class DataExporterBase {
+    class DataExporterBase : virtual public DataExporter {
     public:
-        virtual std::optional<float> GetScalar(const std::string& key, int index = -1) const { return std::nullopt; }
-        virtual std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const { return std::nullopt; }
-        virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const { return std::nullopt; }
+        virtual std::optional<float> GetScalar(const std::string& key, int index = -1) const override
+            { return std::nullopt; }
+        virtual std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override
+            { return std::nullopt; }
+        virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override
+            { return std::nullopt; }
         virtual ~DataExporterBase() = default;
     };
 

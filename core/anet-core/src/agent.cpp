@@ -1,9 +1,15 @@
 ﻿#include "anet/agent.hpp"
 #include "anet/config.hpp"
 #include "anet/tensor_util.hpp"
+#include "anet/tensor_check.hpp"
+#include "anet/profile.hpp"
 
 using namespace anet::rl;
 
+
+// =============================================================
+// AgentRepository
+// =============================================================
 
 void AgentRepository::Register(std::shared_ptr<AgentFactory> factory)
 {
@@ -19,6 +25,11 @@ std::shared_ptr<AgentFactory> AgentRepository::GetAgentFactory(const std::string
     if (it == factories_.end()) return nullptr;
     return it->second;
 }
+
+
+// =============================================================
+// DefaultAgentFactory
+// =============================================================
 
 DefaultAgentFactory::DefaultAgentFactory(
     const DefaultAgentFactoryConfig& config,
@@ -46,12 +57,5 @@ std::shared_ptr<Agent> DefaultAgentFactory::CreateAgent(
     auto agent = factory->CreateAgent(
         env_spec_, batch_env_spec_, device_, config_data_, notifier, seed_);
     
-    //const EnvSpec& env_spec,
-    //    const BatchEnvSpec& batch_env_spec,
-    //    const torch::Device& device,
-    //    const anet::ConfigData& config_data = EmptyConfigData,
-    //    std::shared_ptr<anet::rl::Notifier> notifier = nullptr,
-    //    std::optional<anet::seed_t> seed = std::nullopt
-
     return agent;
 }

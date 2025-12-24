@@ -168,6 +168,7 @@ RainbowAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExp
         // Update実行
         update_result = this->learner_->UpdateFromBatch(counts, batch_exp, runner);
     } else {
+        // 更新なしでResultだけ作る
         update_result = std::make_shared<dqn::BatchUpdateResult>(0);
     }
 
