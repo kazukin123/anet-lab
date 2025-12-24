@@ -36,17 +36,18 @@ namespace anet::rl {
 
     };
 
+
+    // =============================================================
+    // DQN
     // =============================================================
 
     namespace dqn {
         struct RuntimeVars;         ///< Agent内部変数
-
         class Network;              ///< NN
         class ActionPolicy;         ///< 行動選択アルゴリズム
         class Learner;              ///< 学習アルゴリズム
         class TDLearner;
         class QRLearner;
-
         class BatchUpdateResult;
 
         struct QNetConfig {

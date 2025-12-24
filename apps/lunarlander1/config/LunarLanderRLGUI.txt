@@ -1,12 +1,9 @@
 ﻿LunarLanderApp.$ = LunarLanderApp.online
 #LunarLanderApp.$ = LunarLanderApp.batchrun
 
-#train.seed = 5542346184581256364  # 踊りだした！
+#train.seed = 5542346184581256364  # 
 #train.seed = 540080446186335311 # N-STEP評価用
-train.seed = 7508636947373324265 # PER評価用
-
-#agent.class_id = DQNAgent
-agent.class_id = RainbowAgent
+train.seed = 7508636947373324265 # 評価用
 
 #train.batch_size = 256
 train.batch_size = 10
@@ -15,146 +12,148 @@ train.batch_size = 10
 LunarLanderApp.use_image_log = true      # default=false
 LunarLanderApp.use_per_image_log = true      # default=false
 
-metrics.scalar.$ = metrics.scalar.rainbow
+metrics.scalar.$ = metrics.scalar.baseline
 #metrics.scalar.$ = metrics.scalar.min
-#metrics.scalar.$ = metrics.scalar.trunk
 #metrics.scalar.$ = metrics.scalar.full
 
-DQNAgent.$ = DQNAgent.trunk
+#DefaultDQNAgent.$ = DefaultDQNAgent.trunk
+DefaultDQNAgent.$ = DefaultDQNAgent.baseline
 
-#RainbowAgent.$ = RainbowAgent.trunk
-RainbowAgent.$ = RainbowAgent.trunk2
-#RainbowAgent.$ = RainbowAgent.baseline
+RainbowAgent.$ = RainbowAgent.baseline
+DQNAgent.$ = DQNAgent.baseline
+
+# ---- DefaultDQNAgent
+
+DefaultDQNAgent.trunk.qnet.nn_init_mode = 1             # 0=default、1=XavierUniform、2=HeNormal
+DefaultDQNAgent.trunk.qnet.nn_hidden1 = 120
+DefaultDQNAgent.trunk.qnet.nn_hidden2 = 84
+DefaultDQNAgent.trunk.network.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
+#DefaultDQNAgent.trunk.network.hard_update_interval = 5000 #  -1 5000; //200 500 1000
+
+#DefaultDQNAgent.trunk.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+DefaultDQNAgent.trunk.learner.alpha = 1e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+DefaultDQNAgent.trunk.learner.gamma = 0.99                 # 0.99 0.995  γが高いほど「長期安定」を目指す
+DefaultDQNAgent.trunk.learner.eps_max = 1.00               # 指数減衰  
+DefaultDQNAgent.trunk.learner.eps_min = 0.05               # 0.1f 0.05f
+DefaultDQNAgent.trunk.learner.eps_decay_step = 150000       # 150K
+DefaultDQNAgent.trunk.learner.use_grad_clip = true        # ★
+#DefaultDQNAgent.trunk.learner.grad_clip_tau = 30           # ★10 25 40 1f 5f 10f
+DefaultDQNAgent.trunk.learner.grad_clip_tau = 1           # ★10 25 40 1f 5f 10f
+DefaultDQNAgent.trunk.learner.use_td_clip = false          # 
+DefaultDQNAgent.trunk.learner.td_clip_value = 30.0         # 4.0 20 30
+#DefaultDQNAgent.trunk.learner.replay_capacity = 100000       #  10000 30000
+DefaultDQNAgent.trunk.learner.replay_capacity = 1000000       #  10000 30000
+#DefaultDQNAgent.trunk.learner.replay_batch_size = 128      #
+DefaultDQNAgent.trunk.learner.replay_batch_size = 256      #
+#DefaultDQNAgent.trunk.learner.update_warmup_steps = 1000   # 1000
+#DefaultDQNAgent.trunk.learner.update_warmup_steps = 10   # 1000
+DefaultDQNAgent.trunk.learner.update_warmup_steps = 0   # 1000
+#DefaultDQNAgent.trunk.learner.update_interval = 5          #
+#DefaultDQNAgent.trunk.learner.update_interval = 2          #
+DefaultDQNAgent.trunk.learner.update_interval = 1          #
+
+#DefaultDQNAgent.trunk.learner.n_step = 1
+#DefaultDQNAgent.trunk.learner.n_step = 2
+DefaultDQNAgent.trunk.learner.n_step = 3
+
+DefaultDQNAgent.trunk.learner.per_alpha = 0.6f            # 優先度の反映度合い (0:uniform, 1:full)
+DefaultDQNAgent.trunk.learner.per_beta_start = 0.4f       # IS重みの補正度合い「beta」の初期値
+DefaultDQNAgent.trunk.learner.per_beta_end = 1.0f         # IS重みの補正度合い「beta」の収束値
+#DefaultDQNAgent.trunk.learner.per_beta_step = 50000      # 50K betaを収束値まで線形変化させるステップ数
+DefaultDQNAgent.trunk.learner.per_beta_step = 50000      # 50K betaを収束値まで線形変化させるステップ数
+DefaultDQNAgent.trunk.learner.per_eps = 1e-6f             # 優先度加算用微小値
+DefaultDQNAgent.trunk.learner.per_initial_priority = 1.0f # 新規データの初期優先度
+DefaultDQNAgent.trunk.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
+DefaultDQNAgent.trunk.learner.per_prio_clip_value = 20.0  # 優先度の上限値
+
+DefaultDQNAgent.trunk.learner.quantile_huber_kappa = 1.0   # Huber Loss の閾値 kappa
+
+DefaultDQNAgent.trunk.learner.use_n_step = true
+#DefaultDQNAgent.trunk.learner.use_n_step = false
+
+DefaultDQNAgent.trunk.learner.use_per = true
+#DefaultDQNAgent.trunk.learner.use_per = false
+
+DefaultDQNAgent.trunk.learner.use_double_dqn = true        # Double DQN 有効化フラグ（trueで有効）
+DefaultDQNAgent.trunk.use_dueling_net = true       # ★ 
+#DefaultDQNAgent.trunk.use_dueling_net = false     # ★ 
+
+DefaultDQNAgent.trunk.num_quantiles = 51           # 分位数 N (デフォルト51)
+#DefaultDQNAgent.trunk.use_qr = false                # QR-DQN 有効化フラグ
+DefaultDQNAgent.trunk.use_qr = true                # QR-DQN 有効化フラグ
+
+# ----
+
+DefaultDQNAgent.baseline.qnet.nn_init_mode = 1             # 0=default、1=XavierUniform、2=HeNormal
+DefaultDQNAgent.baseline.qnet.nn_hidden1 = 120
+DefaultDQNAgent.baseline.qnet.nn_hidden2 = 84
+DefaultDQNAgent.baseline.network.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
+DefaultDQNAgent.baseline.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+DefaultDQNAgent.baseline.learner.gamma = 0.99                # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
+DefaultDQNAgent.baseline.learner.eps_max = 1.00               # 指数減衰  
+DefaultDQNAgent.baseline.learner.eps_min = 0.05               # 0.1f 0.05f
+DefaultDQNAgent.baseline.learner.eps_decay_step = 20000       # 20K
+DefaultDQNAgent.baseline.learner.use_grad_clip = true        # ★
+DefaultDQNAgent.baseline.learner.grad_clip_tau = 30           # ★10 25 40 1f 5f 10f
+DefaultDQNAgent.baseline.learner.use_td_clip = false          # 
+DefaultDQNAgent.baseline.learner.td_clip_value = 30.0         # 4.0 20 30
+DefaultDQNAgent.baseline.learner.replay_capacity = 100000       #  10000 30000
+DefaultDQNAgent.baseline.learner.replay_batch_size = 128      #
+DefaultDQNAgent.baseline.learner.update_warmup_steps = 1000   # 1000
+DefaultDQNAgent.baseline.learner.update_interval = 5          #
+DefaultDQNAgent.baseline.learner.n_step = 3
+DefaultDQNAgent.baseline.learner.per_alpha = 0.6             # 優先度の反映度合い (0:uniform, 1:full)
+DefaultDQNAgent.baseline.learner.per_beta_start = 0.4        # IS重みの補正度合い「beta」の初期値
+DefaultDQNAgent.baseline.learner.per_beta_end = 1.0f         # IS重みの補正度合い「beta」の収束値
+DefaultDQNAgent.baseline.learner.per_beta_step = 20000       # 20K betaを収束値まで線形変化させるステップ数
+DefaultDQNAgent.baseline.learner.per_eps = 1e-6f             # 優先度加算用微小値
+DefaultDQNAgent.baseline.learner.per_initial_priority = 1.0  # 新規データの初期優先度
+DefaultDQNAgent.baseline.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
+DefaultDQNAgent.baseline.learner.per_prio_clip_value = 20.0  # 優先度の上限値
+DefaultDQNAgent.baseline.learner.quantile_huber_kappa = 1.0  # Huber Loss の閾値 kappa
+DefaultDQNAgent.baseline.learner.use_double_dqn = true       # Double DQN 有効化フラグ（trueで有効）
+DefaultDQNAgent.baseline.learner.use_n_step = true
+DefaultDQNAgent.baseline.learner.use_per = true
+DefaultDQNAgent.baseline.use_dueling_net = true       #  
+DefaultDQNAgent.baseline.num_quantiles = 51           # 分位数 N (デフォルト51)
+DefaultDQNAgent.baseline.use_qr = true                # QR-DQN 有効化フラグ
+
 
 # ---- RainbowAgent
 
-RainbowAgent.trunk.qnet.nn_init_mode = 1             # 0=default、1=XavierUniform、2=HeNormal
-RainbowAgent.trunk.qnet.nn_hidden1 = 120
-RainbowAgent.trunk.qnet.nn_hidden2 = 84
-RainbowAgent.trunk.network.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
-#RainbowAgent.trunk.network.hard_update_interval = 5000 #  -1 5000; //200 500 1000
-
-#RainbowAgent.trunk.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-RainbowAgent.trunk.learner.alpha = 1e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-RainbowAgent.trunk.learner.gamma = 0.99                 # 0.99 0.995  γが高いほど「長期安定」を目指す
-RainbowAgent.trunk.learner.eps_max = 1.00               # 指数減衰  
-RainbowAgent.trunk.learner.eps_min = 0.05               # 0.1f 0.05f
-RainbowAgent.trunk.learner.eps_decay_step = 150000       # 150K
-RainbowAgent.trunk.learner.use_grad_clip = true        # ★
-#RainbowAgent.trunk.learner.grad_clip_tau = 30           # ★10 25 40 1f 5f 10f
-RainbowAgent.trunk.learner.grad_clip_tau = 1           # ★10 25 40 1f 5f 10f
-RainbowAgent.trunk.learner.use_td_clip = false          # 
-RainbowAgent.trunk.learner.td_clip_value = 30.0         # 4.0 20 30
-#RainbowAgent.trunk.learner.replay_capacity = 100000       #  10000 30000
-RainbowAgent.trunk.learner.replay_capacity = 1000000       #  10000 30000
-#RainbowAgent.trunk.learner.replay_batch_size = 128      #
-RainbowAgent.trunk.learner.replay_batch_size = 256      #
-#RainbowAgent.trunk.learner.update_warmup_steps = 1000   # 1000
-#RainbowAgent.trunk.learner.update_warmup_steps = 10   # 1000
-RainbowAgent.trunk.learner.update_warmup_steps = 0   # 1000
-#RainbowAgent.trunk.learner.update_interval = 5          #
-#RainbowAgent.trunk.learner.update_interval = 2          #
-RainbowAgent.trunk.learner.update_interval = 1          #
-
-#RainbowAgent.trunk.learner.n_step = 1
-#RainbowAgent.trunk.learner.n_step = 2
-RainbowAgent.trunk.learner.n_step = 3
-
-RainbowAgent.trunk.learner.per_alpha = 0.6f            # 優先度の反映度合い (0:uniform, 1:full)
-RainbowAgent.trunk.learner.per_beta_start = 0.4f       # IS重みの補正度合い「beta」の初期値
-RainbowAgent.trunk.learner.per_beta_end = 1.0f         # IS重みの補正度合い「beta」の収束値
-#RainbowAgent.trunk.learner.per_beta_step = 50000      # 50K betaを収束値まで線形変化させるステップ数
-RainbowAgent.trunk.learner.per_beta_step = 50000      # 50K betaを収束値まで線形変化させるステップ数
-RainbowAgent.trunk.learner.per_eps = 1e-6f             # 優先度加算用微小値
-RainbowAgent.trunk.learner.per_initial_priority = 1.0f # 新規データの初期優先度
-RainbowAgent.trunk.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
-RainbowAgent.trunk.learner.per_prio_clip_value = 20.0  # 優先度の上限値
-
-RainbowAgent.trunk.learner.quantile_huber_kappa = 1.0   # Huber Loss の閾値 kappa
-
-RainbowAgent.trunk.learner.use_n_step = true
-#RainbowAgent.trunk.learner.use_n_step = false
-
-RainbowAgent.trunk.learner.use_per = true
-#RainbowAgent.trunk.learner.use_per = false
-
-RainbowAgent.trunk.learner.use_double_dqn = true        # Double DQN 有効化フラグ（trueで有効）
-RainbowAgent.trunk.use_dueling_net = true       # ★ 
-#RainbowAgent.trunk.use_dueling_net = false     # ★ 
-
-RainbowAgent.trunk.num_quantiles = 51           # 分位数 N (デフォルト51)
-#RainbowAgent.trunk.use_qr = false                # QR-DQN 有効化フラグ
-RainbowAgent.trunk.use_qr = true                # QR-DQN 有効化フラグ
-
-
-
-RainbowAgent.trunk2.qnet.nn_init_mode = 1             # 0=default、1=XavierUniform、2=HeNormal
-RainbowAgent.trunk2.qnet.nn_hidden1 = 120
-RainbowAgent.trunk2.qnet.nn_hidden2 = 84
-RainbowAgent.trunk2.network.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
-RainbowAgent.trunk2.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-RainbowAgent.trunk2.learner.gamma = 0.996                # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
-RainbowAgent.trunk2.learner.eps_max = 1.00               # 指数減衰  
-RainbowAgent.trunk2.learner.eps_min = 0.05               # 0.1f 0.05f
-RainbowAgent.trunk2.learner.eps_decay_step = 20000       # 20K
-RainbowAgent.trunk2.learner.use_grad_clip = true        # ★
-RainbowAgent.trunk2.learner.grad_clip_tau = 30           # ★10 25 40 1f 5f 10f
-RainbowAgent.trunk2.learner.use_td_clip = false          # 
-RainbowAgent.trunk2.learner.td_clip_value = 30.0         # 4.0 20 30
-RainbowAgent.trunk2.learner.replay_capacity = 100000       #  10000 30000
-RainbowAgent.trunk2.learner.replay_batch_size = 128      #
-RainbowAgent.trunk2.learner.update_warmup_steps = 1000   # 1000
-RainbowAgent.trunk2.learner.update_interval = 5          #
-RainbowAgent.trunk2.learner.n_step = 3
-RainbowAgent.trunk2.learner.per_alpha = 0.6f            # 優先度の反映度合い (0:uniform, 1:full)
-RainbowAgent.trunk2.learner.per_beta_start = 0.4f       # IS重みの補正度合い「beta」の初期値
-RainbowAgent.trunk2.learner.per_beta_end = 1.0f         # IS重みの補正度合い「beta」の収束値
-RainbowAgent.trunk2.learner.per_beta_step = 20000      # 20K betaを収束値まで線形変化させるステップ数
-RainbowAgent.trunk2.learner.per_eps = 1e-6f             # 優先度加算用微小値
-RainbowAgent.trunk2.learner.per_initial_priority = 1.0f # 新規データの初期優先度
-RainbowAgent.trunk2.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
-RainbowAgent.trunk2.learner.per_prio_clip_value = 20.0  # 優先度の上限値
-RainbowAgent.trunk2.learner.quantile_huber_kappa = 1.0   # Huber Loss の閾値 kappa
-RainbowAgent.trunk2.learner.use_double_dqn = true        # Double DQN 有効化フラグ（trueで有効）
-RainbowAgent.trunk2.learner.use_n_step = true
-RainbowAgent.trunk2.learner.use_per = true
-RainbowAgent.trunk2.use_dueling_net = true       # ★ 
-RainbowAgent.trunk2.num_quantiles = 51           # 分位数 N (デフォルト51)
-RainbowAgent.trunk2.use_qr = true                # QR-DQN 有効化フラグ
-
-
-
-RainbowAgent.baseline.nn_init_mode = 1             # 0=default、1=XavierUniform、2=HeNormal
-RainbowAgent.baseline.nn_hidden1 = 120
-RainbowAgent.baseline.nn_hidden2 = 84
-RainbowAgent.baseline.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-RainbowAgent.baseline.gamma = 0.99                 # 0.99 0.995  γが高いほど「長期安定」を目指す
-RainbowAgent.baseline.eps_max = 1.00               # 指数減衰  
-RainbowAgent.baseline.eps_min = 0.05               # 0.1f 0.05f
-RainbowAgent.baseline.eps_decay_step = 20000       # 20K
-RainbowAgent.baseline.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
-RainbowAgent.baseline.use_grad_clip = true         # ★
-RainbowAgent.baseline.grad_clip_tau = 25           # 10 25 40 1f 5f 10f
-RainbowAgent.baseline.use_td_clip = false          # ★
-RainbowAgent.baseline.td_clip_value = 10.0         # 4.0 20 30
-RainbowAgent.baseline.replay_capacity = 10000      # 
-RainbowAgent.baseline.replay_batch_size = 128      #
-RainbowAgent.baseline.update_warmup_steps = 1000   # 1000 exp_step単位
-RainbowAgent.baseline.update_interval = 5          #
-RainbowAgent.baseline.n_step = 3
-RainbowAgent.baseline.per_alpha = 0.6f            # 優先度の反映度合い (0:uniform, 1:full)
-RainbowAgent.baseline.per_beta_start = 0.4f       # IS重みの補正度合い「beta」の初期値
-RainbowAgent.baseline.per_beta_end = 1.0f         # IS重みの補正度合い「beta」の収束値
-RainbowAgent.baseline.per_beta_step = 20000       # 20K betaを収束値まで線形変化させるステップ数
-RainbowAgent.baseline.per_eps = 1e-6f             # 優先度加算用微小値
-RainbowAgent.baseline.per_initial_priority = 1.0f # 新規データの初期優先度
-RainbowAgent.baseline.use_per_prio_clip = true    # 優先度をクリッピングするか
-RainbowAgent.baseline.per_prio_clip_value = 20.0  # 優先度の上限値
-RainbowAgent.baseline.use_double_dqn = true        # Double DQN 有効化フラグ（trueで有効）
+RainbowAgent.baseline.qnet.nn_init_mode = 1             # 0=default、1=XavierUniform、2=HeNormal
+RainbowAgent.baseline.qnet.nn_hidden1 = 120
+RainbowAgent.baseline.qnet.nn_hidden2 = 84
+RainbowAgent.baseline.network.soft_update_tau = 0.001     # 1.0f 0.004f  0.01f 0.005f;
+RainbowAgent.baseline.learner.alpha = 5e-4                # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+RainbowAgent.baseline.learner.gamma = 0.99                # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
+RainbowAgent.baseline.learner.eps_max = 1.00              # 指数減衰  
+RainbowAgent.baseline.learner.eps_min = 0.05              # 0.1f 0.05f
+RainbowAgent.baseline.learner.eps_decay_step = 20000      # 20K
+RainbowAgent.baseline.learner.use_grad_clip = true        # ★
+RainbowAgent.baseline.learner.grad_clip_tau = 30          # ★10 25 40 1f 5f 10f
+RainbowAgent.baseline.learner.use_td_clip = false         # 
+RainbowAgent.baseline.learner.td_clip_value = 30.0        # 4.0 20 30
+RainbowAgent.baseline.learner.replay_capacity = 100000    #  10000 30000
+RainbowAgent.baseline.learner.replay_batch_size = 128     #
+RainbowAgent.baseline.learner.update_warmup_steps = 1000  # 1000
+RainbowAgent.baseline.learner.update_interval = 5         #
+RainbowAgent.baseline.learner.n_step = 3
+RainbowAgent.baseline.learner.per_alpha = 0.6             # 優先度の反映度合い (0:uniform, 1:full)
+RainbowAgent.baseline.learner.per_beta_start = 0.4        # IS重みの補正度合い「beta」の初期値
+RainbowAgent.baseline.learner.per_beta_end = 1.0          # IS重みの補正度合い「beta」の収束値
+RainbowAgent.baseline.learner.per_beta_step = 20000       # 20K betaを収束値まで線形変化させるステップ数
+RainbowAgent.baseline.learner.per_eps = 1e-6f             # 優先度加算用微小値
+RainbowAgent.baseline.learner.per_initial_priority = 1.0  # 新規データの初期優先度
+RainbowAgent.baseline.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
+RainbowAgent.baseline.learner.per_prio_clip_value = 20.0  # 優先度の上限値
+RainbowAgent.baseline.learner.quantile_huber_kappa = 1.0  # Huber Loss の閾値 kappa
+RainbowAgent.baseline.learner.use_double_dqn = true       # Double DQN 有効化フラグ（trueで有効）
+RainbowAgent.baseline.learner.use_n_step = true
+RainbowAgent.baseline.learner.use_per = true
 RainbowAgent.baseline.use_dueling_net = true       #  
-RainbowAgent.baseline.use_n_step = true
-RainbowAgent.baseline.use_per = true
-
+RainbowAgent.baseline.num_quantiles = 51           # 分位数 N (デフォルト51)
+RainbowAgent.baseline.use_qr = true                # QR-DQN 有効化フラグ
 
 # ----- metrics
 
@@ -163,48 +162,48 @@ RainbowAgent.baseline.use_per = true
     #   &step    : &train_step || &learn_step || &episode_step || &exp_step || &update_step || &sim_step
     #   $target  : $update_result || $agent || $exp || $runner
 
-metrics.scalar.rainbow.[10_train/11_eps_count] = $runner episode_count @train $runner interval:100
-metrics.scalar.rainbow.[10_train/12_epsilon] = $agent epsilon @train
+metrics.scalar.baseline.[10_train/11_eps_count] = $runner episode_count @train $runner interval:100
+metrics.scalar.baseline.[10_train/12_epsilon] = $agent epsilon @train
 
-metrics.scalar.rainbow.[20_eps/10_train_reward] = $runner $episode_step train_episode_reward @train
-metrics.scalar.rainbow.[20_eps/11_train_reward_ema] = $runner train_episode_reward @train $ema ema_alpha:0.001 clip:1000
-metrics.scalar.rainbow.[21_eval/01_target_reward] = $runner target_eval_reward @learn clip:3000
-metrics.scalar.rainbow.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn clip:3000
-metrics.scalar.rainbow.[21_eval/03_target_reward_ema] = $runner target_eval_reward $ema @learn clip:1000
-metrics.scalar.rainbow.[21_eval/04_policy_reward_ema] = $runner policy_eval_reward $ema @learn clip:1000
+metrics.scalar.baseline.[20_eps/10_train_reward] = $runner $episode_step train_episode_reward @train
+metrics.scalar.baseline.[20_eps/11_train_reward_ema] = $runner train_episode_reward @train $ema ema_alpha:0.001 clip:1000
+metrics.scalar.baseline.[21_eval/01_target_reward] = $runner target_eval_reward @learn clip:3000
+metrics.scalar.baseline.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn clip:3000
+metrics.scalar.baseline.[21_eval/03_target_reward_ema] = $runner target_eval_reward $ema @learn clip:1000
+metrics.scalar.baseline.[21_eval/04_policy_reward_ema] = $runner policy_eval_reward $ema @learn clip:1000
 
-metrics.scalar.rainbow.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn 
-metrics.scalar.rainbow.[32_agent_base/06_per_beta] = $agent per_beta @learn 
-metrics.scalar.rainbow.[37_agent_qtd/01_td_mean] = td_mean @learn
-metrics.scalar.rainbow.[37_agent_qtd/03_td_mean_ema] = td_mean @learn $ema
-metrics.scalar.rainbow.[37_agent_qtd/11_q_max_mean] = q_max_mean @learn
-metrics.scalar.rainbow.[37_agent_qtd/12_q_max_max] = q_max_max @learn
-metrics.scalar.rainbow.[37_agent_qtd/13_q_max_std] = q_max_std @learn
-metrics.scalar.rainbow.[37_agent_qtd/16_q_std] = q_std @learn
-metrics.scalar.rainbow.[37_agent_qtd/21_grad_norm] = grad_norm @learn interval:10
-metrics.scalar.rainbow.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema
-metrics.scalar.rainbow.[37_agent_qtd/24_grad_clip_ratio] = grad_clip_ratio @learn interval:10
-metrics.scalar.rainbow.[37_agent_qtd/25_grad_clip_ratio_ema] = grad_clip_ratio @learn interval:10 $ema
-metrics.scalar.rainbow.[38_agent_loss/01_loss] = loss @learn
-metrics.scalar.rainbow.[38_agent_loss/02_loss_ema] = loss @learn $ema
+metrics.scalar.baseline.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn 
+metrics.scalar.baseline.[32_agent_base/06_per_beta] = $agent per_beta @learn 
+metrics.scalar.baseline.[37_agent_qtd/01_td_mean] = td_mean @learn
+metrics.scalar.baseline.[37_agent_qtd/03_td_mean_ema] = td_mean @learn $ema
+metrics.scalar.baseline.[37_agent_qtd/11_q_max_mean] = q_max_mean @learn
+metrics.scalar.baseline.[37_agent_qtd/12_q_max_max] = q_max_max @learn
+metrics.scalar.baseline.[37_agent_qtd/13_q_max_std] = q_max_std @learn
+metrics.scalar.baseline.[37_agent_qtd/16_q_std] = q_std @learn
+metrics.scalar.baseline.[37_agent_qtd/21_grad_norm] = grad_norm @learn interval:10
+metrics.scalar.baseline.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema
+metrics.scalar.baseline.[37_agent_qtd/24_grad_clip_ratio] = grad_clip_ratio @learn interval:10
+metrics.scalar.baseline.[37_agent_qtd/25_grad_clip_ratio_ema] = grad_clip_ratio @learn interval:10 $ema
+metrics.scalar.baseline.[38_agent_loss/01_loss] = loss @learn
+metrics.scalar.baseline.[38_agent_loss/02_loss_ema] = loss @learn $ema
 
-metrics.scalar.rainbow.[39_agent_per/01_per_td_error_abs_max] = per_td_error_abs_max @learn
-metrics.scalar.rainbow.[39_agent_per/02_per_prio_max] = per_prio_max @learn
-metrics.scalar.rainbow.[39_agent_per/03_per_prio_clip_ratio] = per_prio_clip_ratio @learn
-metrics.scalar.rainbow.[39_agent_per/04_per_batch_prio_mean] = per_batch_prio_mean @learn
-metrics.scalar.rainbow.[39_agent_per/05_per_is_weight_mean] = per_is_weight_mean @learn
+metrics.scalar.baseline.[39_agent_per/01_per_td_error_abs_max] = per_td_error_abs_max @learn
+metrics.scalar.baseline.[39_agent_per/02_per_prio_max] = per_prio_max @learn
+metrics.scalar.baseline.[39_agent_per/03_per_prio_clip_ratio] = per_prio_clip_ratio @learn
+metrics.scalar.baseline.[39_agent_per/04_per_batch_prio_mean] = per_batch_prio_mean @learn
+metrics.scalar.baseline.[39_agent_per/05_per_is_weight_mean] = per_is_weight_mean @learn
 
-metrics.scalar.rainbow.[39_agent_per/11_per_td_error_abs_max_ema] = per_td_error_abs_max @learn $ema
-metrics.scalar.rainbow.[39_agent_per/12_per_prio_max_ema] = per_prio_max @learn $ema
-metrics.scalar.rainbow.[39_agent_per/13_per_prio_clip_ratio_ema] = per_prio_clip_ratio @learn $ema
-metrics.scalar.rainbow.[39_agent_per/14_per_batch_prio_mean_ema] = per_batch_prio_mean @learn $ema
-metrics.scalar.rainbow.[39_agent_per/15_per_is_weight_mean_ema] = per_is_weight_mean @learn $ema
+metrics.scalar.baseline.[39_agent_per/11_per_td_error_abs_max_ema] = per_td_error_abs_max @learn $ema
+metrics.scalar.baseline.[39_agent_per/12_per_prio_max_ema] = per_prio_max @learn $ema
+metrics.scalar.baseline.[39_agent_per/13_per_prio_clip_ratio_ema] = per_prio_clip_ratio @learn $ema
+metrics.scalar.baseline.[39_agent_per/14_per_batch_prio_mean_ema] = per_batch_prio_mean @learn $ema
+metrics.scalar.baseline.[39_agent_per/15_per_is_weight_mean_ema] = per_is_weight_mean @learn $ema
 
-metrics.scalar.rainbow.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
-metrics.scalar.rainbow.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
-metrics.scalar.rainbow.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $runner interval:100
-metrics.scalar.rainbow.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
-metrics.scalar.rainbow.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
+metrics.scalar.baseline.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
+metrics.scalar.baseline.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
+metrics.scalar.baseline.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $runner interval:100
+metrics.scalar.baseline.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
+metrics.scalar.baseline.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
 
 
 
@@ -292,7 +291,7 @@ metrics.scalar.full.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 metrics.scalar.full.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
 
 
-# ----- DQNAgent
+# ---- DQNAgent
 
 DQNAgent.20251127-032759.nn_init_mode=0         # // 0=default、1=XavierUniform、2=HeNormal
 DQNAgent.20251127-032759.alpha=5e-4             # ★学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
@@ -330,46 +329,61 @@ DQNAgent.20251127-032759.tau_half_life_recover = 2000  # 1000 安定後、τが2
 DQNAgent.20251127-032759.tau_recover_delay = 1000      # このステップ期間安定していたら回復開始
 DQNAgent.20251127-032759.act_bias_threshold = 0.35     # 行動偏り閾値 (|left_ratio - right_ratio| > act_bias_threshold → 崩壊)
 
-DQNAgent.trunk.nn_init_mode=1          # 0=default、1=XavierUniform、2=HeNormal
-DQNAgent.trunk.alpha=5e-4              # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-#DQNAgent.trunk.alpha=1e-3             # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-DQNAgent.trunk.gamma=0.99              # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
-DQNAgent.trunk.eps_max=1.00            # 指数減衰  
-DQNAgent.trunk.eps_min=0.05            # 0.1f 0.05f
-DQNAgent.trunk.eps_decay_step=20000    # 20K
-#DQNAgent.trunk.eps_sigmoid_step=20000 # 20K
-DQNAgent.trunk.softupdate_tau=0.001    # ★ 1.0f 0.004f  0.01f 0.005f;
-#DQNAgent.trunk.hardupdate_interval=5000 #  -1 5000; //200 500 1000
-DQNAgent.trunk.use_grad_clip=true      #
-DQNAgent.trunk.grad_clip_tau=25        # 10 25 40 1f 5f 10f
-DQNAgent.trunk.use_td_clip=true        #
-DQNAgent.trunk.td_clip_value=3.0       # 4.0
-DQNAgent.trunk.eps_zero_step=-1        # 120000;
-DQNAgent.trunk.use_double_dqn=true     # Double DQN 有効化フラグ（trueで有効）
-DQNAgent.trunk.use_replay_buffer=true  #
-DQNAgent.trunk.replay_capacity=10000   # ★
-DQNAgent.trunk.replay_batch_size=128   # ★
-DQNAgent.trunk.replay_warmup_steps=1000   #
-DQNAgent.trunk.replay_update_interval=5   #  ★
-DQNAgent.trunk.q_z_threshold = 2.6           # 2.0 1.5-2.0 3.0 z-score 崩壊判定閾値
-DQNAgent.trunk.q_cv_threshold = 0.35         # 0.45 0.3 0.25-0.35 0.5 CV 崩壊判定閾値
-DQNAgent.trunk.q_niqr_threshold = 0.8        # 0.65 0.5 0.4-0.5 0.6 NIQR 崩壊判定閾値
-DQNAgent.trunk.act_bias_threshold = 0.35     # 行動偏り閾値 (|left_ratio - right_ratio| > act_bias_threshold → 崩壊)
-DQNAgent.trunk.use_as_dqn = false            # Adaptive Stabilized DQN (AS-DQN)
+DQNAgent.baseline.nn_init_mode=1          # 0=default、1=XavierUniform、2=HeNormal
+DQNAgent.baseline.alpha=5e-4              # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+#DQNAgent.baseline.alpha=1e-3             # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+DQNAgent.baseline.gamma=0.99              # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
+DQNAgent.baseline.eps_max=1.00            # 指数減衰  
+DQNAgent.baseline.eps_min=0.05            # 0.1f 0.05f
+DQNAgent.baseline.eps_decay_step=20000    # 20K
+#DQNAgent.baseline.eps_sigmoid_step=20000 # 20K
+DQNAgent.baseline.softupdate_tau=0.001    # ★ 1.0f 0.004f  0.01f 0.005f;
+#DQNAgent.baseline.hardupdate_interval=5000 #  -1 5000; //200 500 1000
+DQNAgent.baseline.use_grad_clip=true      #
+DQNAgent.baseline.grad_clip_tau=25        # 10 25 40 1f 5f 10f
+DQNAgent.baseline.use_td_clip=true        #
+DQNAgent.baseline.td_clip_value=3.0       # 4.0
+DQNAgent.baseline.eps_zero_step=-1        # 120000;
+DQNAgent.baseline.use_double_dqn=true     # Double DQN 有効化フラグ（trueで有効）
+DQNAgent.baseline.use_replay_buffer=true  #
+DQNAgent.baseline.replay_capacity=10000   # ★
+DQNAgent.baseline.replay_batch_size=128   # ★
+DQNAgent.baseline.replay_warmup_steps=1000   #
+DQNAgent.baseline.replay_update_interval=5   #  ★
+DQNAgent.baseline.q_z_threshold = 2.6           # 2.0 1.5-2.0 3.0 z-score 崩壊判定閾値
+DQNAgent.baseline.q_cv_threshold = 0.35         # 0.45 0.3 0.25-0.35 0.5 CV 崩壊判定閾値
+DQNAgent.baseline.q_niqr_threshold = 0.8        # 0.65 0.5 0.4-0.5 0.6 NIQR 崩壊判定閾値
+DQNAgent.baseline.act_bias_threshold = 0.35     # 行動偏り閾値 (|left_ratio - right_ratio| > act_bias_threshold → 崩壊)
+DQNAgent.baseline.use_as_dqn = false            # Adaptive Stabilized DQN (AS-DQN)
 
-#------------------
+# ---- agent
+
+#agent.class_id = DQNAgent
+#agent.class_id = RainbowAgent
+agent.class_id = DefaultDQNAgent
 
 #agent.device_type = 0    # 0=cpu 1=cuda
 agent.device_type = 1    # 0=cpu 1=cuda
 agent.device_index = -1  # GPU index -1=current device
 
+# ---- env
+
 env.class_id = LunarLanderEnv
 env.worker_threads = -1	# -1=auto
 env.device_type = 0     # 0=cpu 1=cuda
 env.device_index = -1   # GPU index -1=current device
-env.worker_type = 0 # 0=AUTO 1=SINGLE_THEAD 2=THREAD_POOL
-#env.worker_type = 1 # 0=AUTO 1=SINGLE_THEAD 2=THREAD_POOL
+env.worker_type = 0     # 0=AUTO 1=SINGLE_THEAD 2=THREAD_POOL
 
+# ---- trainer
+
+train.eval_interval = 10
+#train.eval_interval = 1000
+
+
+# ---- LunarLanderApp
+
+LunarLanderApp.run_name = run_%t
+LunarLanderApp.train_auto_start = false
 LunarLanderApp.image_log_interval = 50
 LunarLanderApp.image_log_interval_thm = 200
 
@@ -381,18 +395,18 @@ LunarLanderApp.online.train_exit_step = -1
 LunarLanderApp.online.train_timer_ms = 100
 LunarLanderApp.online.eval_timer_ms = 30
 LunarLanderApp.online.eval_step_per_frame = 3;
+#LunarLanderApp.online.eval_step_per_frame = 1;
 
+LunarLanderApp..batchrun.train_auto_start = true
 LunarLanderApp.batchrun.train_pause_step = -1
-#LunarLanderApp.batchrun.train_exit_step = 500000 #500K
+LunarLanderApp.batchrun.train_exit_step = 500000 #500K
 #LunarLanderApp.batchrun.train_exit_step = 200000 #200K
-LunarLanderApp.batchrun.train_exit_step = 10000 #10K
+#LunarLanderApp.batchrun.train_exit_step = 10000  #10K
 LunarLanderApp.batchrun.train_timer_ms = 500
 LunarLanderApp.batchrun.eval_timer_ms = 500
 LunarLanderApp.batchrun.eval_step_per_frame = 10;
 
-LunarLanderApp.train_auto_start = false
-LunarLanderApp.run_name = run_%t
-
+# ---- LunarLanderEnv
 
 #LunarLanderEnv.$ = LunarLanderEnv.normal
 LunarLanderEnv.$ = LunarLanderEnv.easy
@@ -423,8 +437,6 @@ LunarLanderEnv.ground_y = 0.5
 LunarLanderEnv.gravity = -10.0
 LunarLanderEnv.wind_power = 15.0
 
-train.eval_interval = 10
-#train.eval_interval = 1000
 
 # ■per_alpha
 #  α（0≦α≦1）はExperienceサンプリングのランダム度合い。
