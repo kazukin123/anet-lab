@@ -16,6 +16,11 @@ constexpr float kSideEngineForce = 10.0f;   ///< サイドエンジンの推力
 constexpr float kSideEngineTorque = 5.0f;   ///< サイドエンジンの回転トルク
 constexpr float kLanderRadius = 0.25f;      ///< Lander本体（円形）の半径
 
+constexpr int kActionNoop = 0;
+constexpr int kActionLeft = 1;
+constexpr int kActionMain = 2;
+constexpr int kActionRight = 3;
+
 /// LunarLander 環境の設定
 struct LunarLanderEnvConfig : public anet::Config {
     int limit_step = 1000;

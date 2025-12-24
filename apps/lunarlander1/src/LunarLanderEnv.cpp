@@ -31,6 +31,7 @@ constexpr float kStepPenality = -0.01f;
 constexpr float kCrashPenalty = -100.0f;
 constexpr float kLandReward = 100.0f;
 
+
 enum class GroundFixtureType : std::uintptr_t {
     Terrain = 0,
     Pad = 1
@@ -58,8 +59,8 @@ anet::rl::EnvSpec LunarLanderEnv::GetSpec() const
     action_spec.is_discrete = true;
     action_spec.value_labels = {
         "no_op",
-        "main_engine",
         "left_engine",
+        "main_engine",
         "right_engine"
     };
 
@@ -538,19 +539,19 @@ void LunarLanderEnv::applyActionForce(int64_t action)
     }
 
     switch (action) {
-    case 1: { // main engine
+    case kActionMain: { // main engine
         b2Vec2 force(0.0f, kMainEngineForce);
         lander_body_->ApplyForceToCenter(force, true);
         break;
     }
-    case 2: { // left engine
-        b2Vec2 force(-kSideEngineForce, kSideEngineForce * 0.5f);
+    case kActionLeft: { // left engine
+        b2Vec2 force(+kSideEngineForce, kSideEngineForce * 0.5f);
         lander_body_->ApplyForceToCenter(force, true);
         lander_body_->ApplyTorque(-kSideEngineTorque, true);
         break;
     }
-    case 3: { // right engine
-        b2Vec2 force(kSideEngineForce, kSideEngineForce * 0.5f);
+    case kActionRight: { // right engine
+        b2Vec2 force(-kSideEngineForce, kSideEngineForce * 0.5f);
         lander_body_->ApplyForceToCenter(force, true);
         lander_body_->ApplyTorque(+kSideEngineTorque, true);
         break;
@@ -701,10 +702,10 @@ std::pair<float, float> LunarLanderEnv::calcReward(const anet::rl::SingleState& 
     has_prev_shaping_ = true;
 
     // 燃料噴射ペナルティ
-    if (action == 2) {
+    if (action == kActionMain) {
         reward -= 0.3f;     // main engine fire
         raw_reward -= 0.3f;
-    } else if (action == 1 || action == 3) {   // side engine fire
+    } else if (action == kActionLeft || action == kActionRight) {   // side engine fire
         reward -= 0.03f;
         raw_reward -= 0.03f;
     }

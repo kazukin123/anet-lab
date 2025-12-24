@@ -3,6 +3,7 @@
 #include <cmath>
 #include <wx/dcbuffer.h>
 #include "LunarLanderFrame.hpp"
+#include "LunarLanderEnv.hpp"
 #include "LunarLanderApp.hpp"
 
 #define _USE_MATH_DEFINES // for C++
@@ -267,12 +268,12 @@ void LunarLanderCanvas::DrawThrust(wxDC& dc, int width, int height)
     float local_dir_y = 0.0f;
     float arrow_len = 0.0f;
 
-    if (action == 1) {
+    if (action == kActionMain) {
         // --- Main Engine ---
         local_off_y = -kLanderRadius;
         local_dir_y = -1.0f;
         arrow_len = kMainEngineForce;
-    } else if (action == 2 || action == 3) {
+    } else if (action == kActionLeft || action == kActionRight) {
         // --- Side Engine ---
         const float h = kLanderRadius * 0.80f;
         const float r = kLanderRadius;
@@ -280,7 +281,7 @@ void LunarLanderCanvas::DrawThrust(wxDC& dc, int width, int height)
 
         local_off_y = h;
 
-        if (action == 2) {
+        if (action == kActionLeft) {
             // Left Engine
             local_off_x = -dx;
             local_dir_x = -1.0f;
@@ -313,8 +314,7 @@ void LunarLanderCanvas::DrawThrust(wxDC& dc, int width, int height)
     const float start_x = x + off_x;
     const float start_y = y + off_y;
 
-    const wxPoint p0 =
-        WorldToScreen(start_x, start_y, width, height);
+    const wxPoint p0 = WorldToScreen(start_x, start_y, width, height);
 
     const wxPoint p1(
         p0.x + static_cast<int>(std::round(dir_x * arrow_len)),
@@ -340,15 +340,10 @@ void LunarLanderCanvas::DrawThrust(wxDC& dc, int width, int height)
     const float hy2 =
         back_x * std::sin(-head_ang) + back_y * std::cos(-head_ang);
 
-    dc.DrawLine(
-        p1,
-        wxPoint(
+    dc.DrawLine(p1, wxPoint(
             p1.x + static_cast<int>(hx1 * head_len),
             p1.y - static_cast<int>(hy1 * head_len)));
-
-    dc.DrawLine(
-        p1,
-        wxPoint(
+    dc.DrawLine(p1, wxPoint(
             p1.x + static_cast<int>(hx2 * head_len),
             p1.y - static_cast<int>(hy2 * head_len)));
 }
