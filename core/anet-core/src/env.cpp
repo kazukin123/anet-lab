@@ -156,8 +156,10 @@ std::shared_ptr<DiscreteBatchEnvBase::StepResult> DiscreteBatchEnvBase::createEm
 
 std::shared_ptr<DiscreteBatchEnvBase::ResetResult> DiscreteBatchEnvBase::getResetResult() const
 {
-    //std::shared_ptr<DiscreteBatchEnvBase::ResetResult> result = this->reset_result_;    // 使い回す
-    std::shared_ptr<DiscreteBatchEnvBase::ResetResult> result = createEmptyResetResult();
+    /// @todo どこかでDeepCopyしてない処理があるみたいので特定＆修正し、使いまわし&pinnedで高速化
+    
+    std::shared_ptr<DiscreteBatchEnvBase::ResetResult> result = this->reset_result_;    // 使い回す
+    //std::shared_ptr<DiscreteBatchEnvBase::ResetResult> result = createEmptyResetResult();
     return result;
 }
 
