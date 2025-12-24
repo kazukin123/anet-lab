@@ -11,7 +11,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_COLOR_MAKEFILE ON)
 
-find_package(wxWidgets REQUIRED COMPONENTS core base)
+find_package(wxWidgets REQUIRED COMPONENTS core base gl)
 find_package(Torch REQUIRED)
 #find_package(box2d REQUIRED)
 
@@ -49,7 +49,7 @@ add_executable(LunarLanderRLGUI
     "src/LunarLanderFrame.cpp"
     "src/LunarLanderCanvas.cpp"
     "src/PlotPanel.cpp"
-)
+    "src/HeatMapFrame.cpp")
 
 
 set(BOX2D_ROOT "C:/dev/box2d")

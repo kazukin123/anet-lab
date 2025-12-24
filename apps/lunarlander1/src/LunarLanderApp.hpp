@@ -22,7 +22,8 @@ public:
 
     anet::ConfigData GetConfig() const { return config_mgr_->GetConfigData(); }
     std::optional<UISnapshot> GetUISnapshot() { return snapshot_store_.Get(); }
-    
+    std::shared_ptr<anet::rl::DefaultTrainer> GetTrainer() { return trainer_; }
+
     //void StartTraining();
     void ToggleTraining();
     void StopTraining();

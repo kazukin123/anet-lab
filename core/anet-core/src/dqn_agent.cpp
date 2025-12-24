@@ -201,7 +201,7 @@ struct anet::rl::DQNAgent::QNetImpl : torch::nn::Module {
 
 std::optional<anet::TensorFunction> DQNAgent::GetTensorFunction(const std::string& key)
 {
-    if (key == "policy_net.forward") {
+    if (key == "policy-net.forward") {
         anet::TensorFunction fn = [this](const torch::Tensor& t) {
             auto tdev = t.to(device_);
             std::shared_lock<std::shared_mutex> lock(*mutex_);
@@ -209,7 +209,7 @@ std::optional<anet::TensorFunction> DQNAgent::GetTensorFunction(const std::strin
             };
         return fn;
     }
-    if (key == "target_net.forward") {
+    if (key == "target-net.forward") {
         anet::TensorFunction fn = [this](const torch::Tensor& t) {
             auto tdev = t.to(device_);
             std::shared_lock<std::shared_mutex> lock(*mutex_);
@@ -217,7 +217,7 @@ std::optional<anet::TensorFunction> DQNAgent::GetTensorFunction(const std::strin
             };
         return fn;
     }
-    if (key == "q_pair.forward") {
+    if (key == "q-pair.forward") {
         anet::TensorFunction fn = [this](const torch::Tensor& t) {
             auto tdev = t.to(device_);
             std::shared_lock<std::shared_mutex> lock(*mutex_);

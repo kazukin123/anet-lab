@@ -150,6 +150,11 @@ namespace anet::rl {
      */
     class SweepedHeatMapObserver : public anet::rl::TaggedLearnObserver {
     public:
+        struct ImageResult {
+            wxImage image;
+            step_t step;
+        };
+    public:
         SweepedHeatMapObserver(
             const std::string& tag,
             const SweepedHeatMapObserverConfig& config,
@@ -160,7 +165,12 @@ namespace anet::rl {
 
         void OnLearn(const LearnEvent& event) override;
         std::string GetClassName() const override { return "SweepedHeatMapObserver"; }
+
+        ImageResult GetImage(int width = -1, int height = -1);
     private:
+        std::pair<ExtractResult, std::vector<torch::Tensor>> Render();
+    private:
+        std::shared_mutex mutex_;
         SweepedHeatMapObserverConfig config_;
         std::unordered_map<std::string, std::string> scalar_label_tag_map_;
 
@@ -171,6 +181,7 @@ namespace anet::rl {
         int grid_w_ = 0;
         int grid_h_ = 0;
 
+        step_t captured_step_ = 0;
         std::unique_ptr<anet::HeatMap> heatmap_;
     };
 

@@ -599,17 +599,20 @@ Notifier::Notifier()
     ;
 }
 
-void Notifier::Attach(std::shared_ptr<BeforeStepObserver> obs)
+std::shared_ptr<BeforeStepObserver> Notifier::Attach(std::shared_ptr<BeforeStepObserver> obs)
 {
     before_step_observers_.push_back(obs);
+    return obs;
 }
-void Notifier::Attach(std::shared_ptr<TrainObserver> obs)
+std::shared_ptr<TrainObserver> Notifier::Attach(std::shared_ptr<TrainObserver> obs)
 {
     train_observers_.push_back(obs);
+    return obs;
 }
-void Notifier::Attach(std::shared_ptr<LearnObserver> obs)
+std::shared_ptr<LearnObserver> Notifier::Attach(std::shared_ptr<LearnObserver> obs)
 {
     learn_observers_.push_back(obs);
+    return obs;
 }
 
 

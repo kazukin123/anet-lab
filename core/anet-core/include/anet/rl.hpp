@@ -754,15 +754,15 @@ namespace anet::rl {
     public:
         Notifier();
 
-        void Attach(std::shared_ptr<BeforeStepObserver> observer);
+        std::shared_ptr<BeforeStepObserver> Attach(std::shared_ptr<BeforeStepObserver> observer);
         void Detach(std::shared_ptr<BeforeStepObserver> observer);
         void Notify(const BeforeStepEvent& event);
 
-        void Attach(std::shared_ptr<TrainObserver> observer);
+        std::shared_ptr<TrainObserver> Attach(std::shared_ptr<TrainObserver> observer);
         void Detach(std::shared_ptr<TrainObserver> observer);
         void Notify(const TrainEvent& event);
 
-        void Attach(std::shared_ptr<LearnObserver> observer);
+        std::shared_ptr<LearnObserver> Attach(std::shared_ptr<LearnObserver> observer);
         void Detach(std::shared_ptr<LearnObserver> observer);
         void Notify(const LearnEvent& event);
 

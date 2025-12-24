@@ -496,29 +496,180 @@ namespace anet::rl::extractor {
 
     // -------
 
-    ExtractResult MaxExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req) { // t: [W*H, out_dim]
-        auto grid = std::get<0>(t.max(1)); // [W*H]
-        auto max = grid.max();
+    ExtractResult MaxExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req)
+    {
+        return MaxIdxExtractor(t, req, -1);
+    }
+
+    ExtractResult MinExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req)
+    {
+        return MinIdxExtractor(t, req, -1);
+    }
+
+    ExtractResult MeanExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req)
+    {
+        return MeanIdxExtractor(t, req, -1);
+    }
+
+    ExtractResult ArgmaxExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req)
+    {
+        return ArgmaxIdxExtractor(t, req, -1);
+    }
+
+    ExtractResult StdExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req)
+    {
+        return StdIdxExtractor(t, req, -1);
+    }
+
+    static torch::Tensor ApplyIndex(torch::Tensor t,int idx)
+    {
+        // t: [W*H, 4, 51] (例)
+        torch::Tensor target_t;
+
+        if (idx < 0) {
+            // 全次元を集計対象にする場合
+            // [W*H, 4, 51] -> [W*H, 4*51] (dim=1以降を平坦化)
+            target_t = t.flatten(1);
+        } else {
+            // 特定の次元(4の次元)を指定してスライスする場合
+            // [W*H, 4, 51] -> [W*H, 51] (dim=1 の idx を選択)
+            target_t = t.select(1, idx);
+        }
+
+        return target_t;
+    }
+
+    ExtractResult MaxIdxExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req, int idx)
+    {
+        // idxを適用して展開・選択
+        auto target_t = ApplyIndex(t, idx);
+
+        // 描画用Tensor
+        torch::Tensor grid;
+
+        // target_t がすでに [W*H] の1次元になっている場合、
+        // これ以上の集計は不要なので、そのままグリッドとして使う
+        if (target_t.dim() == 1) {
+            grid = target_t;
+        } else {
+            // 特徴量の次元(dim=1)で集計して [W*H] にする
+            grid = std::get<0>(target_t.max(1));
+        }
+
+        // grid全体の集計
+        auto grid_val = grid.max();
+
         return { grid,
             { "max" },
-            { max }
+            { grid_val }
         };
     }
-    ExtractResult MeanExtractor(
-        const torch::Tensor& t, const std::unordered_set<std::string>& req) {
-        return { t.mean(1) }; // [W*H]
-    }
-    ExtractResult IndexExtractor(
-        const torch::Tensor& t, const std::unordered_set<std::string>& req, int idx)
-    {
-        //return { t.index({ torch::indexing::Slice(), idx }) };
 
-        auto extracted = t.index({ torch::indexing::Slice(), idx });
-        if (extracted.dim() > 1) {
-            extracted = extracted.mean(/*dim=*/1);
+    ExtractResult MinIdxExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req, int idx)
+    {
+        // idxを適用して展開・選択
+        auto target_t = ApplyIndex(t, idx);
+
+        // 描画用Tensor
+        torch::Tensor grid;
+
+        // target_t がすでに [W*H] の1次元になっている場合、
+        // これ以上の集計は不要なので、そのままグリッドとして使う
+        if (target_t.dim() == 1) {
+            grid = target_t;
+        } else {
+            // 特徴量の次元(dim=1)で集計して [W*H] にする
+            grid = std::get<0>(target_t.min(1));
         }
-        return { extracted };
+
+        // grid全体の集計
+        auto grid_val = grid.min();
+
+        return { grid,
+            { "min" },
+            { grid_val }
+        };
     }
+
+    ExtractResult MeanIdxExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req, int idx)
+    {
+        // idxを適用して展開・選択
+        auto target_t = ApplyIndex(t, idx);
+
+        // 描画用Tensor
+        torch::Tensor grid;
+
+        // target_t がすでに [W*H] の1次元になっている場合、
+        // これ以上の集計は不要なので、そのままグリッドとして使う
+        if (target_t.dim() == 1) {
+            grid = target_t;
+        } else {
+            // 特徴量の次元(dim=1)で集計して [W*H] にする
+            grid = target_t.mean(1);
+        }
+
+        // grid全体の集計
+        auto grid_val = grid.mean();
+
+        return { grid,
+            { "mean" },
+            { grid_val }
+        };
+    }
+
+    ExtractResult StdIdxExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req, int idx)
+    {
+        // idxを適用して展開・選択
+        auto target_t = ApplyIndex(t, idx);
+
+        // 描画用Tensor
+        torch::Tensor grid;
+
+        // target_t がすでに [W*H] の1次元になっている場合、
+        // これ以上の集計は不要なので、そのままグリッドとして使う
+        if (target_t.dim() == 1) {
+            // 要素が1つ(スカラー)の場合、標準偏差は定義上 0
+            grid = torch::zeros_like(target_t);
+        } else {
+            // 特徴量の次元(dim=1)で集計して [W*H] にする
+            grid = target_t.std(1);
+        }
+
+        // grid全体の集計
+        auto grid_val = grid.std();
+
+        return { grid,
+            { "std" },
+            { grid_val }
+        };
+    }
+
+    ExtractResult ArgmaxIdxExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req, int idx)
+    {
+        // idxを適用して展開・選択
+        auto target_t = ApplyIndex(t, idx);
+
+        // 描画用Tensor
+        torch::Tensor grid;
+
+        // --- 修正箇所 ---
+        if (target_t.dim() == 1) {
+            // 1次元（スカラー列）の場合、"最大値のインデックス" は常に 0
+            // 値そのものではなく、0 で埋め尽くされたテンソルを作成して返す
+            grid = torch::zeros_like(target_t);
+        } else {
+            // 2次元以上なら通常通り argmax を計算
+            grid = target_t.argmax(1).to(torch::kFloat);
+        }
+
+        auto grid_val = grid.max(); // インデックスの最大値 (例: 3.0)
+
+        return { grid,
+            { "argmax" },
+            { grid_val }
+        };
+    }
+
     ExtractResult DiffIndexExtractor(
         const torch::Tensor& t, const std::unordered_set<std::string>& req, int plus_idx, int minus_idx) {
         using namespace torch::indexing;

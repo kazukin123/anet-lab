@@ -27,6 +27,7 @@ private:
     void OnMouseRightClick(wxMouseEvent& event);
     void OnKeyDown(wxKeyEvent& event);
     void OnClose(wxCloseEvent& event);
+    void OnViewHeatMap(wxCommandEvent& event);
 private:
     void ToggleEval();
 private:

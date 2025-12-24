@@ -338,12 +338,14 @@ void CartPoleApp::InitImageLogObservers()
     auto proc_x_theta_qmax = std::make_shared<anet::rl::StateSweepProcessor>(
         env_spec.state_spec,
         0,  // x_index = x
-        2   // y_index = theta
+        2,   // y_index = theta
+        anet::rl::extractor::MaxExtractor
     );
     auto proc_theta_thetadot_qmax = std::make_shared<anet::rl::StateSweepProcessor>(
         env_spec.state_spec,
         2,  // x_index = theta
-        3   // y_index = theta_dot
+        3,   // y_index = theta_dot
+        anet::rl::extractor::MaxExtractor
     );
     auto proc_theta_thetadot_qdiff = std::make_shared<anet::rl::StateSweepProcessor>(
         env_spec.state_spec,
@@ -430,8 +432,8 @@ void CartPoleApp::InitImageLogObservers()
 
     using StrMap = std::unordered_map<std::string, std::string>;
 
-    std::optional<anet::TensorFunction> policy_forward = agent->GetTensorFunction("policy_net.forward");
-    std::optional<anet::TensorFunction> qpair_forward = agent->GetTensorFunction("q_pair.forward");
+    std::optional<anet::TensorFunction> policy_forward = agent->GetTensorFunction("policy-net.forward");
+    std::optional<anet::TensorFunction> qpair_forward = agent->GetTensorFunction("q-pair.forward");
     ANET_ASSERT(policy_forward.has_value());
     ANET_ASSERT(qpair_forward.has_value());
 

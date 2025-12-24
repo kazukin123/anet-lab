@@ -154,7 +154,19 @@ std::optional<anet::TensorFunction> DuelingQNet::GetTensorFunction(
             };
         return fn;
     }
+    if (key == "forward.a") {
+        anet::TensorFunction fn = [this, device, smutex](const torch::Tensor& t) {
+            auto x = t.to(device);
+            std::shared_lock<std::shared_mutex> lock(*smutex);
+            x = torch::relu(fc1_->forward(x));
+            x = torch::relu(fc2_->forward(x));
 
+            auto a = adv_->forward(x);          // (B, A)
+            ANET_CHECK_SHAPE(a, { ANET_SHAPE_ANY, n_actions_ });
+            return a;
+            };
+        return fn;
+    }
     return std::nullopt;
 }
 
@@ -352,6 +364,28 @@ std::optional<anet::TensorFunction> QuantileDuelingQNet::GetTensorFunction(const
             return v_true_dist;
             };
     }
+    if (key == "forward.a") {
+        return [this, device, smutex](const torch::Tensor& t) {
+            auto x = t.to(device);
+            std::shared_lock<std::shared_mutex> lock(*smutex);
+
+            x = torch::relu(fc1_->forward(x));
+            x = torch::relu(fc2_->forward(x));
+
+            // Advantage: (B, H) -> (B, A*N) -> (B, A, N)
+            auto a = adv_->forward(x);
+            auto batch_size = a.size(0);
+            a = a.view({ batch_size, n_actions_, num_quantiles_ });
+
+            // A正規化
+            auto a_mean = a.mean(/*dim=*/1, /*keepdim=*/true); // (B, 1, N)
+            auto a_centered = a - a_mean;
+
+            ANET_CHECK_SHAPE(a_centered, { ANET_SHAPE_ANY, n_actions_, num_quantiles_ });
+
+            return a_centered;
+            };
+    }
     return std::nullopt;
 }
 
@@ -440,8 +474,8 @@ void Network::HardUpdate()
 /// メトリクス用：NN生出力
 std::optional<anet::TensorFunction> Network::GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex)
 {
-    static constexpr const char* POLICY_PREFIX = "policy_net.";
-    static constexpr const char* TARGET_PREFIX = "target_net.";
+    static constexpr const char* POLICY_PREFIX = "policy-net.";
+    static constexpr const char* TARGET_PREFIX = "target-net.";
 
     // policy net
     if (anet::StartsWith(key, POLICY_PREFIX)) {

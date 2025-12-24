@@ -336,22 +336,61 @@ void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
 {
     anet::ProfileRange r("SweepedHeatMapObserver::OnLearn");
 
-	/// @todo メトリクスのSTEP軸を指定できるようにする
-    auto step = event.counts.learn_step;
+    anet::ProfileRange r1("SweepedHeatMapObserver::OnTrain.render");
 
+    std::unique_lock<std::shared_mutex> lock(mutex_);
+
+    /// @todo メトリクスのSTEP軸を指定できるようにする
+    auto step = event.counts.learn_step;
     if (step % config_.log_interval != 0) return;
 
+    // データ採取
+    captured_step_ = step;
+    auto result = Render();
+    const auto& extract_result = result.first;
+    const auto& scalars_cpu = result.second;
+
+    // 画像ログ出力
+    MetricsLogger::Instance()->LogImage(
+        tag_,
+        step,
+        *heatmap_,
+        config_.image_width,
+        config_.image_height);
+    ANET_LOG_DEBUG("LogImage() done. tag=" << tag_);
+
+    // Scalarログ出力
+    anet::ProfileRange r6("SweepedHeatMapObserver::OnTrain.logScalar", r1);
+    for (int i = 0; i < extract_result.labels.size(); i++) {
+        auto result_label = extract_result.labels[i];
+        auto tag_itr = scalar_label_tag_map_.find(result_label);
+        if (tag_itr != scalar_label_tag_map_.end()) {
+            auto scalar_tag = tag_itr->second;
+            auto scalar_value = scalars_cpu[i].item<float>();
+            MetricsLogger::Instance()->LogScalar(scalar_tag, step, scalar_value);
+        }
+    }
+}
+
+SweepedHeatMapObserver::ImageResult SweepedHeatMapObserver::GetImage(int width, int height)
+{
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    auto image = heatmap_->Render(width, height);
+    return { image, captured_step_ };
+}
+
+std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Render()
+{
     const int64_t grid_num = static_cast<int64_t>(grid_w_) * static_cast<int64_t>(grid_h_);
 
-
     // 入力バッチ生成（GPU 上）
-    anet::ProfileRange r1("SweepedHeatMapObserver::OnTrain.build");
+    anet::ProfileRange r1("SweepedHeatMapObserver::Render.build");
     torch::Tensor batch_in = input_gen_->BuildInputTensor();
     ANET_CHECK_SHAPE(batch_in, { grid_num, ANET_SHAPE_ENDANY });
     ANET_LOG_DEBUG("batch_in=" << anet::ToDefString(batch_in));
 
     // NN 適用（GPU 上）
-    anet::ProfileRange r2("SweepedHeatMapObserver::OnTrain.nn", r1);
+    anet::ProfileRange r2("SweepedHeatMapObserver::Render.nn", r1);
     torch::Tensor batch_out = tensor_fn_(batch_in);
     ANET_CHECK_SHAPE(batch_out, { grid_num, ANET_SHAPE_ENDANY });
     ANET_LOG_DEBUG("batch_out=" << anet::ToDefString(batch_out));
@@ -365,7 +404,7 @@ void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
     }
 
     // 出力から値抽出（GPU 上, [W*H]）
-    anet::ProfileRange r3("SweepedHeatMapObserver::OnTrain.extract", r2);
+    anet::ProfileRange r3("SweepedHeatMapObserver::Render.extract", r2);
     ExtractResult extract_result = output_ext_->Extract(batch_out, req_label_set);
     ANET_LOG_DEBUG("grid_values=" << anet::ToDefString(extract_result.grid) << " tag=" << tag_);
     ANET_CHECK_SHAPE(extract_result.grid, { grid_num });
@@ -373,7 +412,7 @@ void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
     ANET_ASSERT(extract_result.labels.size() == extract_result.scalars.size());
 
     // CPU へ一括転送
-    anet::ProfileRange r4("SweepedHeatMapObserver::OnTrain.transfer", r3);
+    anet::ProfileRange r4("SweepedHeatMapObserver::Render.transfer", r3);
     torch::Tensor grid_cpu = extract_result.grid.to(torch::kCPU);
     ANET_CHECK_SHAPE(grid_cpu, { grid_num });
     ANET_CHECK_DTYPE(grid_cpu, torch::kFloat32);
@@ -383,31 +422,13 @@ void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
     ANET_LOG_DEBUG("Extract done.");
 
     // HeatMapデータ設定
-    anet::ProfileRange r5("SweepedHeatMapObserver::OnTrain.logImage", r4);
+    anet::ProfileRange r5("SweepedHeatMapObserver::Render.logImage", r4);
     heatmap_->SetGridValues(data, grid_w_, grid_h_);
     ANET_LOG_DEBUG("SetGridValues() done.");
 
-    // 画像ログ出力
-    MetricsLogger::Instance()->LogImage(
-        tag_,
-        step,
-        *heatmap_,
-        config_.image_width,
-        config_.image_height);
-    ANET_LOG_DEBUG("LogImage() done. tag=" << tag_);
-
-    // Scalarログ出力
-    anet::ProfileRange r6("SweepedHeatMapObserver::OnTrain.logScalar", r5);
-    for (int i = 0; i < extract_result.labels.size(); i++) {
-        auto result_label = extract_result.labels[i];
-        auto tag_itr = scalar_label_tag_map_.find(result_label);
-        if (tag_itr != scalar_label_tag_map_.end()) {
-            auto scalar_tag = tag_itr->second;
-            auto scalar_value = scalars_cpu[i].item<float>();
-            MetricsLogger::Instance()->LogScalar(scalar_tag, step, scalar_value);
-        }
-    }
+    return { extract_result, scalars_cpu };
 }
+
 
 EpisodeEvalObserver::EpisodeEvalObserver(
     ReportFunction report_function,

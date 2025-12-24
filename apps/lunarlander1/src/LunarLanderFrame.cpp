@@ -13,39 +13,49 @@
 #include "LunarLanderCanvas.hpp"
 #include "UISnapshot.hpp"
 #include "LunarLanderApp.hpp"
+#include "HeatMapFrame.hpp"
 
 namespace LOG = anet::log;
 
+enum
+{
+    ID_VIEW_HEAT_MAP = wxID_HIGHEST + 1
+};
 
 LunarLanderFrame::LunarLanderFrame(const wxString& title, int train_timer_ms, int eval_timer_ms, int eval_step_per_frame)
     : wxFrame(nullptr, wxID_ANY, title, wxDefaultPosition, wxSize(900, 800))
     , train_timer_(this, wxID_ANY), eval_timer_(this, wxID_ANY), eval_step_per_frame_(eval_step_per_frame)
 {
-    // GUIレイアウト ---
-    wxBoxSizer* vbox = new wxBoxSizer(wxVERTICAL);
-    wxBoxSizer* hbox = new wxBoxSizer(wxHORIZONTAL);
+    // メニュー
+    auto menu_file = new wxMenu();
+    menu_file->Append(wxID_EXIT, "E&xit");
+    auto menu_view = new wxMenu();
+    menu_view->Append(ID_VIEW_HEAT_MAP, "&HeatMap");
+    auto menu_bar = new wxMenuBar();
+    menu_bar->Append(menu_file, "&File");
+    menu_bar->Append(menu_view, "&View");
+    SetMenuBar(menu_bar);
 
+    // GUIパネル群
     train_canvas_ = new LunarLanderCanvas(this);
     eval_canvas_ = new LunarLanderCanvas(this);
     plot_panel_ = new PlotPanel(this);
     log_box_ = new wxTextCtrl(this, wxID_ANY, wxEmptyString,
         wxDefaultPosition, wxSize(800, 150), wxTE_MULTILINE | wxTE_READONLY);
-    //log_box_->Enable(false);
     log_box_->SetCanFocus(false);
 
+    // GUIレイアウト ---
+    wxBoxSizer* vbox = new wxBoxSizer(wxVERTICAL);
+    wxBoxSizer* hbox = new wxBoxSizer(wxHORIZONTAL);
     plot_panel_->SetMinSize(wxSize(-1, 280));  // ← 上部の描画エリア固定高さ
     plot_panel_->SetMaxSize(wxSize(-1, 280));  // （上下方向のリサイズ禁止）
-
     log_box_->SetMinSize(wxSize(-1, 150));  // ← 下部ログ固定高さ
     log_box_->SetMaxSize(wxSize(-1, 150));
-
     hbox->Add(train_canvas_, 1, wxEXPAND | wxALL, 2);
     hbox->Add(eval_canvas_, 1, wxEXPAND | wxALL, 2);
-
     vbox->Add(hbox, 1, wxEXPAND | wxALL, 2);
     vbox->Add(plot_panel_, 1, wxEXPAND | wxALL, 2);
     vbox->Add(log_box_, 0, wxEXPAND | wxALL, 2);
-
     SetSizer(vbox);
     Layout();
 
@@ -65,7 +75,7 @@ LunarLanderFrame::LunarLanderFrame(const wxString& title, int train_timer_ms, in
         Close(true);    // Frameを閉じる
         });
 
-    // イベントハンドラ
+    // UIイベントハンドラ
     Bind(wxEVT_LEFT_DOWN, &LunarLanderFrame::OnMouseLeftClick, this);
     Bind(wxEVT_RIGHT_DOWN, &LunarLanderFrame::OnMouseRightClick, this);
     Bind(wxEVT_KEY_DOWN, &LunarLanderFrame::OnKeyDown, this);
@@ -73,6 +83,8 @@ LunarLanderFrame::LunarLanderFrame(const wxString& title, int train_timer_ms, in
     Bind(wxEVT_TIMER, &LunarLanderFrame::OnTrainTimer, this, train_timer_.GetId());
     Bind(wxEVT_TIMER, &LunarLanderFrame::OnEvalTimer, this, eval_timer_.GetId());
     Bind(wxEVT_CLOSE_WINDOW, &LunarLanderFrame::OnClose, this, eval_timer_.GetId());
+    Bind(wxEVT_MENU, [=](wxCommandEvent&) { Close(true);}, wxID_EXIT);
+    Bind(wxEVT_MENU, &LunarLanderFrame::OnViewHeatMap, this, ID_VIEW_HEAT_MAP);
 
     // タイマー開始
     train_timer_.Start(train_timer_ms); // 学習＆描画更新
@@ -190,8 +202,8 @@ void LunarLanderFrame::OnKeyDown(wxKeyEvent& event)
 
     switch (event.GetKeyCode()) {
     case WXK_UP: action = 0; break;     // NOOP
-    case WXK_DOWN: action = 1; break;   // MAIN ENGINE
-    case WXK_LEFT: action = 2; break;   // LEFT ENGINE
+    case WXK_DOWN: action = 2; break;   // MAIN ENGINE
+    case WXK_LEFT: action = 1; break;   // LEFT ENGINE
     case WXK_RIGHT: action = 3; break;  // RIGHT ENGINE
 
     case WXK_NUMPAD0: action = 0; break;
@@ -214,14 +226,36 @@ void LunarLanderFrame::OnKeyDown(wxKeyEvent& event)
     default:
         eval_runner_->DoStep();
         eval_canvas_->Refresh();
+        event.Skip();
         return;
     }
 
     eval_runner_->DoStep(action);
     eval_canvas_->Refresh();
+
+    event.Skip();
 }
 
 void LunarLanderFrame::OnClose(wxCloseEvent& event)
 {
     wxGetApp().StopTraining();
+}
+
+void LunarLanderFrame::OnViewHeatMap(wxCommandEvent& event)
+{
+    auto trainer = wxGetApp().GetTrainer();
+    auto env_spec = trainer->GetBatchEnv()->GetSpec();
+
+    // ダイアログ生成
+    SweepHeatMapDialog dialog(this, env_spec);
+
+    if (dialog.ShowModal() == wxID_OK)
+    {
+        // 構造体でまとめて取得
+        SweepHeatMapSettings s = dialog.GetSettings();
+
+
+        auto frame = new SweepHeatMapFrame(this, s.tag, s, trainer);
+        frame->Show();
+    }
 }

@@ -311,8 +311,17 @@ namespace anet::rl {
 
     namespace extractor {
         ExtractResult MaxExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req);
+        ExtractResult MinExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req);
         ExtractResult MeanExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req);
-        ExtractResult IndexExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req, int idx);
+        ExtractResult StdExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req);
+        ExtractResult ArgmaxExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req);
+
+        ExtractResult MaxIdxExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req, int idx = -1);
+        ExtractResult MinIdxExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req, int idx = -1);
+        ExtractResult MeanIdxExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req, int idx = -1);
+        ExtractResult StdIdxExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req, int idx = -1);
+        ExtractResult ArgmaxIdxExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req, int idx = -1);
+
         ExtractResult DiffIndexExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req, int plus_idx, int minus_idx);
         ExtractResult PairDiffExtractor(const torch::Tensor& t, const std::unordered_set<std::string>& req, int n_actions);
         ExtractResult QdeltaQmaxCombined(
@@ -363,7 +372,7 @@ namespace anet::rl {
             const anet::rl::StateSpec& state_spec,
             int x_index,
             int y_index,
-            ValueExtractFunction value_extract_fn = &extractor::MaxExtractor,
+            ValueExtractFunction value_extract_fn,
             const torch::Device& device = torch::kCUDA,
             std::optional<torch::Tensor> base_state = std::nullopt,
             std::optional<float> x_min_override = std::nullopt,

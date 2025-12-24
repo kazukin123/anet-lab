@@ -45,6 +45,7 @@ TODO：実行手順を書く
 ### TODO
 
 * 学習アルゴリズム
+	* SWA
 	* CNN
 	* Transformer
 	* AlphaZero-Lite

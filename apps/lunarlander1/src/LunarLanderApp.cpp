@@ -120,7 +120,7 @@ bool LunarLanderApp::OnInit()
 
     // LunarLanderFrame
     frame_ = new LunarLanderFrame("LunarLander RL", config_->train_timer_ms, config_->eval_timer_ms, config_->eval_step_per_frame);
-    frame_->Show(true);
+    frame_->Show();
 
     // Trainer生成
     trainer_ = std::make_unique<anet::rl::DefaultTrainer>(config_data);
@@ -166,8 +166,9 @@ bool LunarLanderApp::OnInit()
         });
 
     // Train開始！
-    if (config_->train_auto_start)
-        trainer_thread_->Start();
+    if (!config_->train_auto_start)
+        trainer_thread_->Pause();
+    trainer_thread_->Start();
 
     return true;
 }
@@ -351,7 +352,8 @@ void LunarLanderApp::InitImageLogObservers()
     auto v_extractor =
         [](const torch::Tensor& t, const std::unordered_set<std::string>& req)
         {
-            auto ret = anet::rl::extractor::IndexExtractor(t, req, 0);  // V : index=0
+            // あまり意味ないけどサンプルとして残しておく
+            auto ret = anet::rl::extractor::MeanIdxExtractor(t, req, 0);  // V : index=0
             return ret;
         };
 
@@ -385,8 +387,8 @@ void LunarLanderApp::InitImageLogObservers()
 
     using StrMap = std::unordered_map<std::string, std::string>;
 
-    std::optional<anet::TensorFunction> policy_forward = agent->GetTensorFunction("policy_net.forward");
-    std::optional<anet::TensorFunction> v_policy_forward = agent->GetTensorFunction("policy_net.forward.v");
+    std::optional<anet::TensorFunction> policy_forward = agent->GetTensorFunction("policy-net.forward");
+    std::optional<anet::TensorFunction> v_policy_forward = agent->GetTensorFunction("policy-net.forward.v");
     //std::optional<anet::TensorFunction> qpair_forward = agent->GetTensorFunction("q_pair.forward");
     ANET_ASSERT(policy_forward.has_value());
 
