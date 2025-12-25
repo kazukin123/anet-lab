@@ -64,18 +64,17 @@ namespace anet::rl {
         };
 
         struct LearnerConfig {
-            float alpha = 1e-3f;   ///<  学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-            float gamma = 0.99f;   ///<  0.99f; 0.995f      γが高いほど「長期安定」を目指す
+            float alpha = 1e-3f;         ///<  学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+            float gamma = 0.99f;         ///<  0.99f; 0.995f      γが高いほど「長期安定」を目指す
             float eps_max = 1.00f;
-            float eps_min = 0.05f;    ///< 0.1f 0.05f
+            float eps_min = 0.05f;       ///< 0.1f 0.05f
             int eps_decay_step = 100000;
-            //int eps_sigmoid_step = -1;
+            float adam_eps = 1e-5;       ///< ゼロ除算防止項。LibTorchのデフォルトは1e-8。大きくすることで小さな勾配の変化に敏感になりすぎるのを防ぎ学習をマイルドに。
 
             bool use_grad_clip = true;
             float grad_clip_tau = 30.0f;
             bool use_td_clip = true;
             float td_clip_value = 4.0f;
-            //int eps_zero_step = -1;// 120000;
 
             int replay_capacity = 10000;
             int replay_batch_size = 128;

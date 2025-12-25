@@ -37,7 +37,9 @@ TODO：実行手順を書く
 ### DOING
 
 * 学習アルゴリズム
-	* RainbowAgent
+	* Orthogonal Initialization
+	* Adam Optimizer's Epsilon Parameter optimization
+	* Observation Normalization
 * メトリクス
 * AP改善
 	* 評価RunnerでENVとAPの個別RunMode指定

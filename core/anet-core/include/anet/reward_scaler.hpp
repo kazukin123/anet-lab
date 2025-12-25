@@ -79,7 +79,7 @@ namespace anet::rl {
         float scaling_epsilon = 1e-8f;
 
         bool use_auto_post_scale = true;     ///< gammaを使って自動設定するか？
-        float target_q_scale = 30.0f;        ///< 自動設定時のQ値の目標スケール (推奨: 3.0 ~ 30.0)
+        float reference_q_std = 30.0f;        ///< 自動設定時のQ値の目標スケール (推奨: 3.0 ~ 30.0)
         float manual_post_scale = 1.0f;
 
         // dynamicなScalerの種類が増えたらそのアルゴリズムを指定する設定を追加

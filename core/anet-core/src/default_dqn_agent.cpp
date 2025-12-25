@@ -124,7 +124,7 @@ std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int inde
 
 std::optional<torch::Tensor> DefaultDQNAgent::GetTensor(const std::string& key, int index) const
 {
-    if (key.find("replaybuffer.") == 0) {
+    if (key.find(ReplayBuffer::kKeyPrefix) == 0) {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return learner_->GetTensor(key);
     }
@@ -134,7 +134,7 @@ std::optional<torch::Tensor> DefaultDQNAgent::GetTensor(const std::string& key, 
 
 std::optional<std::vector<torch::Tensor>> DefaultDQNAgent::GetTensorVector(const std::string& key, int index) const
 {
-    if (key.find("replaybuffer.") == 0) {
+    if (key.find(ReplayBuffer::kKeyPrefix) == 0) {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return learner_->GetTensorVector(key);
     }

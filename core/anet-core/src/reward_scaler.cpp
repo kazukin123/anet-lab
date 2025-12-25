@@ -161,7 +161,7 @@ std::unique_ptr<RewardScaler> RewardScalerFactory::CreateRewardScaler(float gamm
     float final_post_scale = 1.0f;
     if (config_.use_auto_post_scale) {
         // 理論式: post_scale = Q_target * (1 - gamma)
-        final_post_scale = config_.target_q_scale * (1.0f - gamma);
+        final_post_scale = config_.reference_q_std * (1.0f - gamma);
     } else {
         final_post_scale = config_.manual_post_scale;
     }

@@ -39,6 +39,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.eps_max);
             ANET_READ_CONFIG(config_data, learner.eps_min);
             ANET_READ_CONFIG(config_data, learner.eps_decay_step);
+            ANET_READ_CONFIG(config_data, learner.adam_eps);
             ANET_READ_CONFIG(config_data, learner.use_grad_clip);
             ANET_READ_CONFIG(config_data, learner.grad_clip_tau);
             ANET_READ_CONFIG(config_data, learner.use_td_clip);
@@ -67,7 +68,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, reward_scaler.use_dynamic_scaling);
             ANET_READ_CONFIG(config_data, reward_scaler.scaling_epsilon);
             ANET_READ_CONFIG(config_data, reward_scaler.use_auto_post_scale);
-            ANET_READ_CONFIG(config_data, reward_scaler.target_q_scale);
+            ANET_READ_CONFIG(config_data, reward_scaler.reference_q_std);
             ANET_READ_CONFIG(config_data, reward_scaler.manual_post_scale);
 
             ANET_READ_CONFIG(config_data, num_quantiles);

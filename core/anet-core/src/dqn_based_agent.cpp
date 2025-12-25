@@ -1,6 +1,7 @@
 ﻿
 #include "dqn_based_agent.hpp"
 #include <tuple>
+#include "anet/log.hpp"
 #include "anet/profile.hpp"
 #include "anet/tensor_check.hpp"
 #include "anet/tensor_util.hpp"
@@ -12,7 +13,7 @@ namespace LOG = anet::log;
 
 
 // ======================================================
-// RainbowAgent BaseQNet
+// BaseQNet
 // ======================================================
 
 BaseQNet::BaseQNet(const QNetConfig& config, int64_t state_dim, int64_t n_actions)
@@ -28,7 +29,6 @@ BaseQNet::BaseQNet(const QNetConfig& config, int64_t state_dim, int64_t n_action
     InitWeightsLinear(fc2_, config.nn_init_mode, /*is_relu=*/true);
 }
 
-// nn_init_mode: 0=default, 1=XavierUniform, 2=HeNormal, 3=Orthogonal
 void BaseQNet::InitWeightsLinear(torch::nn::Linear& layer, int nn_init_mode, bool is_relu)
 {
     if (nn_init_mode == 1) {
@@ -36,7 +36,8 @@ void BaseQNet::InitWeightsLinear(torch::nn::Linear& layer, int nn_init_mode, boo
         if (layer->bias.defined())
             torch::nn::init::zeros_(layer->bias);
     } else if (nn_init_mode == 2) {
-        auto nonlinearity = is_relu ? torch::kReLU : torch::kLinear;
+        using torch::nn::init::NonlinearityType;
+        auto nonlinearity = is_relu ? (NonlinearityType)torch::kReLU : (NonlinearityType)torch::kLinear;
         torch::nn::init::kaiming_normal_(layer->weight, 0.0, torch::kFanIn, nonlinearity);
         if (layer->bias.defined())
             torch::nn::init::zeros_(layer->bias);
@@ -45,7 +46,7 @@ void BaseQNet::InitWeightsLinear(torch::nn::Linear& layer, int nn_init_mode, boo
 
 
 // ======================================================
-// RainbowAgent PlainQNet
+// PlainQNet
 // ======================================================
 
 PlainQNet::PlainQNet(const QNetConfig& config, int state_dim, int n_actions)
@@ -597,8 +598,9 @@ std::optional<std::vector<torch::Tensor>> Learner::GetTensorVector(const std::st
 
 void Learner::SetupOptimizer()
 {
-    this->optimizer_ = std::make_unique<torch::optim::Adam>(
-        network_.GetPolicyParameters(), torch::optim::AdamOptions(config_.alpha));
+    auto params = torch::optim::AdamOptions(config_.alpha).eps(config_.adam_eps);
+    ANET_LOG_DEBUG("lr=" << params.lr() << " eps=" << params.eps());
+    this->optimizer_ = std::make_unique<torch::optim::Adam>(network_.GetPolicyParameters(), params);
 }
 
 void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, seed_t seed)
