@@ -672,6 +672,8 @@ namespace anet::rl {
 
         virtual ~ReplayBuffer() = default;
     public:
+        static constexpr const char* kKeyPrefix = "replaybuffer.";
+
         static constexpr const char* STATE_OBS = "replaybuffer.storage.state";
         static constexpr const char* ACTION = "replaybuffer.storage.action";
         static constexpr const char* REWARD = "replaybuffer.storage.reward";

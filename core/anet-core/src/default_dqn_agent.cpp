@@ -54,6 +54,10 @@ DefaultDQNAgent::DefaultDQNAgent(
         is_distributional = false;
     }
 
+    // RewardScaler生成
+    anet::rl::RewardScalerFactory reward_scaler_factory(config_.reward_scaler);
+    this->reward_scaler_ = reward_scaler_factory.CreateRewardScaler(config_.learner.gamma);
+
     // NN生成＆初期化
     std::shared_ptr<anet::rl::dqn::QNet> policy_net;
     std::shared_ptr<anet::rl::dqn::QNet> target_net;
@@ -106,9 +110,13 @@ std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int inde
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return vars_->per_beta;
     }
-    if (key.find("replaybuffer.") == 0) {
+    if (key.find(ReplayBuffer::kKeyPrefix) == 0) {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return learner_->GetScalar(key);
+    }
+    if (key.find(RewardScaler::kKeyPrefix) == 0) {
+        std::shared_lock<std::shared_mutex> lock(*mutex_);
+        return reward_scaler_->GetScalar(key);
     }
 
     return std::nullopt;
@@ -165,8 +173,13 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
     if (true) {
         // 排他ロック
         std::unique_lock<std::shared_mutex> lock(*mutex_);
+
+        // RewardScaler
+        auto scaled_rewards = this->reward_scaler_->Scale(batch_exp.reward);
+        BatchExperience scaled_exp { batch_exp.state, batch_exp.action, scaled_rewards, batch_exp.next_state };
+
         // Update実行
-        update_result = this->learner_->UpdateFromBatch(counts, batch_exp, runner);
+        update_result = this->learner_->UpdateFromBatch(counts, scaled_exp, runner);
     } else {
         // 更新なしでResultだけ作る
         update_result = std::make_shared<dqn::BatchUpdateResult>(0);

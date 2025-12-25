@@ -9,15 +9,16 @@ train.seed = 7508636947373324265 # 評価用
 train.batch_size = 10
 #train.batch_size = 1
 
-LunarLanderApp.use_image_log = true      # default=false
-LunarLanderApp.use_per_image_log = true      # default=false
+#LunarLanderApp.use_image_log = true      # default=false
+#LunarLanderApp.use_per_image_log = true      # default=false
 
 metrics.scalar.$ = metrics.scalar.baseline
 #metrics.scalar.$ = metrics.scalar.min
 #metrics.scalar.$ = metrics.scalar.full
 
 #DefaultDQNAgent.$ = DefaultDQNAgent.trunk
-DefaultDQNAgent.$ = DefaultDQNAgent.baseline
+DefaultDQNAgent.$ = DefaultDQNAgent.trunk2
+#DefaultDQNAgent.$ = DefaultDQNAgent.baseline
 
 RainbowAgent.$ = RainbowAgent.baseline
 DQNAgent.$ = DQNAgent.baseline
@@ -84,6 +85,50 @@ DefaultDQNAgent.trunk.use_qr = true                # QR-DQN 有効化フラグ
 
 # ----
 
+DefaultDQNAgent.trunk2.qnet.nn_init_mode = 1             # 0=default、1=XavierUniform、2=HeNormal
+DefaultDQNAgent.trunk2.qnet.nn_hidden1 = 120
+DefaultDQNAgent.trunk2.qnet.nn_hidden2 = 84
+DefaultDQNAgent.trunk2.network.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
+DefaultDQNAgent.trunk2.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+DefaultDQNAgent.trunk2.learner.gamma = 0.99                # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
+DefaultDQNAgent.trunk2.learner.eps_max = 1.00               # 指数減衰  
+DefaultDQNAgent.trunk2.learner.eps_min = 0.05               # 0.1f 0.05f
+DefaultDQNAgent.trunk2.learner.eps_decay_step = 20000       # 20K
+DefaultDQNAgent.trunk2.learner.use_grad_clip = true        # ★
+DefaultDQNAgent.trunk2.learner.grad_clip_tau = 30           # ★10 25 40 1f 5f 10f
+DefaultDQNAgent.trunk2.learner.use_td_clip = false          # 
+DefaultDQNAgent.trunk2.learner.td_clip_value = 30.0         # 4.0 20 30
+DefaultDQNAgent.trunk2.learner.replay_capacity = 100000       #  10000 30000
+DefaultDQNAgent.trunk2.learner.replay_batch_size = 128      #
+DefaultDQNAgent.trunk2.learner.update_warmup_steps = 1000   # 1000
+DefaultDQNAgent.trunk2.learner.update_interval = 5          #
+DefaultDQNAgent.trunk2.learner.n_step = 3
+DefaultDQNAgent.trunk2.learner.per_alpha = 0.6             # 優先度の反映度合い (0:uniform, 1:full)
+DefaultDQNAgent.trunk2.learner.per_beta_start = 0.4        # IS重みの補正度合い「beta」の初期値
+DefaultDQNAgent.trunk2.learner.per_beta_end = 1.0f         # IS重みの補正度合い「beta」の収束値
+DefaultDQNAgent.trunk2.learner.per_beta_step = 20000       # 20K betaを収束値まで線形変化させるステップ数
+DefaultDQNAgent.trunk2.learner.per_eps = 1e-6f             # 優先度加算用微小値
+DefaultDQNAgent.trunk2.learner.per_initial_priority = 1.0  # 新規データの初期優先度
+DefaultDQNAgent.trunk2.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
+DefaultDQNAgent.trunk2.learner.per_prio_clip_value = 20.0  # 優先度の上限値
+DefaultDQNAgent.trunk2.learner.quantile_huber_kappa = 1.0  # Huber Loss の閾値 kappa
+DefaultDQNAgent.trunk2.learner.use_double_dqn = true       # Double DQN 有効化フラグ（trueで有効）
+DefaultDQNAgent.trunk2.learner.use_n_step = true
+DefaultDQNAgent.trunk2.learner.use_per = true
+DefaultDQNAgent.trunk2.use_dueling_net = true       #  
+DefaultDQNAgent.trunk2.num_quantiles = 51           # 分位数 N (デフォルト51)
+DefaultDQNAgent.trunk2.use_qr = true                # QR-DQN 有効化フラグ
+DefaultDQNAgent.trunk2.reward_scaler.use_clip = false
+DefaultDQNAgent.trunk2.reward_scaler.clip_threshold = 10
+DefaultDQNAgent.trunk2.reward_scaler.constant_scale = 0.01
+DefaultDQNAgent.trunk2.reward_scaler.use_dynamic_scaling = true
+DefaultDQNAgent.trunk2.reward_scaler.scaling_epsilon = 1e-8
+DefaultDQNAgent.trunk2.reward_scaler.use_auto_post_scale = true   # gammaを使って自動設定するか？
+DefaultDQNAgent.trunk2.reward_scaler.target_q_scale = 30.0        # 自動設定時のQ値の目標スケール (推奨: 1.0 ~ 30.0)
+DefaultDQNAgent.trunk2.reward_scaler.manual_post_scale = 1.0      # use_auto_post_scale=true では使われない
+
+
+
 DefaultDQNAgent.baseline.qnet.nn_init_mode = 1             # 0=default、1=XavierUniform、2=HeNormal
 DefaultDQNAgent.baseline.qnet.nn_hidden1 = 120
 DefaultDQNAgent.baseline.qnet.nn_hidden2 = 84
@@ -117,7 +162,14 @@ DefaultDQNAgent.baseline.learner.use_per = true
 DefaultDQNAgent.baseline.use_dueling_net = true       #  
 DefaultDQNAgent.baseline.num_quantiles = 51           # 分位数 N (デフォルト51)
 DefaultDQNAgent.baseline.use_qr = true                # QR-DQN 有効化フラグ
-
+DefaultDQNAgent.baseline.reward_scaler.use_clip = false
+DefaultDQNAgent.baseline.reward_scaler.clip_threshold = 10
+DefaultDQNAgent.baseline.reward_scaler.constant_scale = 0.01
+DefaultDQNAgent.baseline.reward_scaler.use_dynamic_scaling = true
+DefaultDQNAgent.baseline.reward_scaler.scaling_epsilon = 1e-8
+DefaultDQNAgent.baseline.reward_scaler.use_auto_post_scale = true   # gammaを使って自動設定するか？
+DefaultDQNAgent.baseline.reward_scaler.target_q_scale = 30.0        # 自動設定時のQ値の目標スケール (推奨: 1.0 ~ 30.0)
+DefaultDQNAgent.baseline.reward_scaler.manual_post_scale = 1.0      # use_auto_post_scale=true では使われない
 
 # ---- RainbowAgent
 
@@ -165,8 +217,8 @@ RainbowAgent.baseline.use_qr = true                # QR-DQN 有効化フラグ
 metrics.scalar.baseline.[10_train/11_eps_count] = $runner episode_count @train $runner interval:100
 metrics.scalar.baseline.[10_train/12_epsilon] = $agent epsilon @train
 
-metrics.scalar.baseline.[20_eps/10_train_reward] = $runner $episode_step train_episode_reward @train
-metrics.scalar.baseline.[20_eps/11_train_reward_ema] = $runner train_episode_reward @train $ema ema_alpha:0.001 clip:1000
+metrics.scalar.baseline.[20_eps/10_train_reward]     = $runner $episode_step train_episode_reward @train
+metrics.scalar.baseline.[20_eps/11_train_reward_ema] = $runner $episode_step train_episode_reward @train $ema ema_alpha:0.001 clip:1000
 metrics.scalar.baseline.[21_eval/01_target_reward] = $runner target_eval_reward @learn clip:3000
 metrics.scalar.baseline.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn clip:3000
 metrics.scalar.baseline.[21_eval/03_target_reward_ema] = $runner target_eval_reward $ema @learn clip:1000
@@ -198,6 +250,8 @@ metrics.scalar.baseline.[39_agent_per/12_per_prio_max_ema] = per_prio_max @learn
 metrics.scalar.baseline.[39_agent_per/13_per_prio_clip_ratio_ema] = per_prio_clip_ratio @learn $ema
 metrics.scalar.baseline.[39_agent_per/14_per_batch_prio_mean_ema] = per_batch_prio_mean @learn $ema
 metrics.scalar.baseline.[39_agent_per/15_per_is_weight_mean_ema] = per_is_weight_mean @learn $ema
+
+metrics.scalar.baseline.[40_agent_rs/01_scale] = $agent reward_scaler.scale @learn
 
 metrics.scalar.baseline.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
 metrics.scalar.baseline.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
@@ -289,6 +343,12 @@ metrics.scalar.full.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @tr
 metrics.scalar.full.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
 metrics.scalar.full.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 metrics.scalar.full.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
+metrics.scalar.full.[40_agent_rs/01_scale] = $agent reward_scaler.scale @learn
+metrics.scalar.full.[40_agent_rs/21_std] = $agent reward_scaler.std @learn
+metrics.scalar.full.[40_agent_rs/22_m2] = $agent reward_scaler.m2 @learn
+metrics.scalar.full.[40_agent_rs/23_mean] = $agent reward_scaler.mean @learn
+metrics.scalar.full.[40_agent_rs/24_count] = $agent reward_scaler.count @learn
+
 
 
 # ---- DQNAgent
@@ -382,7 +442,7 @@ train.eval_interval = 10
 
 # ---- LunarLanderApp
 
-LunarLanderApp.run_name = run_%t
+LunarLanderApp.run_name = run_{t}
 LunarLanderApp.train_auto_start = false
 LunarLanderApp.image_log_interval = 50
 LunarLanderApp.image_log_interval_thm = 200
@@ -397,8 +457,9 @@ LunarLanderApp.online.eval_timer_ms = 30
 LunarLanderApp.online.eval_step_per_frame = 3;
 #LunarLanderApp.online.eval_step_per_frame = 1;
 
-LunarLanderApp..batchrun.train_auto_start = true
+LunarLanderApp.batchrun.train_auto_start = true
 LunarLanderApp.batchrun.train_pause_step = -1
+#LunarLanderApp.batchrun.train_exit_step = 1000000 #1000K
 LunarLanderApp.batchrun.train_exit_step = 500000 #500K
 #LunarLanderApp.batchrun.train_exit_step = 200000 #200K
 #LunarLanderApp.batchrun.train_exit_step = 10000  #10K
@@ -409,8 +470,8 @@ LunarLanderApp.batchrun.eval_step_per_frame = 10;
 # ---- LunarLanderEnv
 
 #LunarLanderEnv.$ = LunarLanderEnv.normal
-LunarLanderEnv.$ = LunarLanderEnv.easy
-#LunarLanderEnv.$ = LunarLanderEnv.trunk
+#LunarLanderEnv.$ = LunarLanderEnv.easy
+LunarLanderEnv.$ = LunarLanderEnv.trunk
 
 LunarLanderEnv.trunk.enable_wind = true
 LunarLanderEnv.trunk.wind_power = 3.0

@@ -8,6 +8,7 @@
 #include "anet/replay_buffer.hpp"
 #include "anet/rl.hpp"
 #include "anet/agent.hpp"
+#include "anet/reward_scaler.hpp"
 
 namespace anet::rl::dqn {
 
@@ -16,12 +17,15 @@ namespace anet::rl::dqn {
         QNetConfig qnet;
         NetworkConfig network;
         LearnerConfig learner;
+        RewardScalerConfig reward_scaler;
 
         int num_quantiles = 51;
         bool use_dueling_net = true;
         bool use_qr = true;
 
-        explicit DefaultDQNAgentConfig(const ConfigData& config_data = EmptyConfigData) : anet::Config(config_data, "DefaultDQNAgent") {
+        explicit DefaultDQNAgentConfig(const ConfigData& config_data = EmptyConfigData)
+            : anet::Config(config_data, "DefaultDQNAgent")
+        {
             ANET_READ_CONFIG(config_data, qnet.nn_init_mode);
             ANET_READ_CONFIG(config_data, qnet.nn_hidden1);
             ANET_READ_CONFIG(config_data, qnet.nn_hidden2);
@@ -57,6 +61,15 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.use_n_step);
             ANET_READ_CONFIG(config_data, learner.use_per);
 
+            ANET_READ_CONFIG(config_data, reward_scaler.use_clip);
+            ANET_READ_CONFIG(config_data, reward_scaler.clip_threshold);
+            ANET_READ_CONFIG(config_data, reward_scaler.constant_scale);
+            ANET_READ_CONFIG(config_data, reward_scaler.use_dynamic_scaling);
+            ANET_READ_CONFIG(config_data, reward_scaler.scaling_epsilon);
+            ANET_READ_CONFIG(config_data, reward_scaler.use_auto_post_scale);
+            ANET_READ_CONFIG(config_data, reward_scaler.target_q_scale);
+            ANET_READ_CONFIG(config_data, reward_scaler.manual_post_scale);
+
             ANET_READ_CONFIG(config_data, num_quantiles);
             ANET_READ_CONFIG(config_data, use_dueling_net);
             ANET_READ_CONFIG(config_data, use_qr);
@@ -85,6 +98,7 @@ namespace anet::rl::dqn {
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
     private:
         DefaultDQNAgentConfig config_;
+        std::unique_ptr<anet::rl::RewardScaler> reward_scaler_;
         std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
         std::unique_ptr<anet::rl::dqn::Network> network_;
         std::shared_ptr<anet::rl::dqn::ActionPolicy> action_policy_;

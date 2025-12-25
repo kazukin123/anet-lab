@@ -114,13 +114,14 @@ bool LunarLanderApp::OnInit()
     // MetricsLogger
     anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetRunsPath(), config_->run_name);
 
-    // LunarLanderAppConfigをダンプ
-    anet::MetricsLogger::Instance()->LogJson("LunarLanderApp", config_->ToJson());
-    anet::MetricsLogger::Instance()->Flush();
-
     // LunarLanderFrame
     frame_ = new LunarLanderFrame("LunarLander RL", config_->train_timer_ms, config_->eval_timer_ms, config_->eval_step_per_frame);
     frame_->Show();
+
+    // LunarLanderAppConfigをダンプ
+    anet::MetricsLogger::Instance()->LogJson("LunarLanderApp", config_->ToJson());
+    anet::MetricsLogger::Instance()->Flush();
+    LOG::info() << "LunarLanderApp config=" << *config_;
 
     // Trainer生成
     trainer_ = std::make_unique<anet::rl::DefaultTrainer>(config_data);
@@ -318,7 +319,6 @@ void LunarLanderApp::InitImageLogObservers()
     auto rep_y_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 1, &env_spec.state_spec);
     auto rep_theta_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 4, &env_spec.state_spec);
     auto rep_reward_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::REWARD, -1, &env_spec.state_spec);
-
     anet::rl::HeatMapObserverConfig replay_heat_obs_config {
         512,    // width
         512,    // height
@@ -384,7 +384,6 @@ void LunarLanderApp::InitImageLogObservers()
         v_extractor
     );
 
-
     using StrMap = std::unordered_map<std::string, std::string>;
 
     std::optional<anet::TensorFunction> policy_forward = agent->GetTensorFunction("policy-net.forward");
@@ -439,7 +438,6 @@ void LunarLanderApp::InitPERImageLogObservers(const anet::ConfigData& config_dat
     };
 
     auto auto_scale_mode = anet::rl::AgentTensorVectorProbe::AutoScaleMode::DISABLE;    // EnvSpecで固定
-
     notifier->Attach<anet::rl::HeatMapVectorObserver>(
         "43_agent_img/52_per_hm_prio_01", replay_heat_obs_config, rep_x_probe, rep_y_probe, rep_prio_probe);
 
@@ -457,8 +455,8 @@ void LunarLanderApp::InitPERImageLogObservers(const anet::ConfigData& config_dat
         std::numeric_limits<float>::quiet_NaN(),
         1.0f// alpha = 0.05f
     };
-    notifier->Attach<anet::rl::TimeHistogramObserver>(
-        "44_agent_img/52_per_thg_prio", prio_hist_obs_config, rep_prio_probe);
+    //notifier->Attach<anet::rl::TimeHistogramObserver>(
+    //    "44_agent_img/52_per_thg_prio", prio_hist_obs_config, rep_prio_probe);
 
 }
 

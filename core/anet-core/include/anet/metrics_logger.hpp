@@ -109,7 +109,7 @@ namespace anet {
 
         // --- Singleton API ---
         static std::shared_ptr<MetricsLogger> Instance();
-        static void Init(std::unique_ptr<IBackend> backend, const std::string& root = "runs", const std::string& run_name_tmpl = "run_%t");
+        static void Init(std::unique_ptr<IBackend> backend, const std::string& root = "runs", const std::string& run_name_tmpl = "run_{t}");
         static void Reset();
 
         static std::string GetRunName(const std::string& run_name_tmpl);
@@ -126,15 +126,8 @@ namespace anet {
 
         void LogJson(const std::string& tag, const json& data);
 
-        inline void LogImage(const std::string& tag, int step, const wxImage& image) {
-            LogImage_subtyped(tag, step, image, "");
-        }
-
-        inline void LogImage(const std::string& tag, int step, const anet::ImageSource& src, int width = -1, int height = -1) {
-            auto img = src.Render(width, height);
-            auto subtype = src.GetImageSubType();
-            LogImage_subtyped(tag, step, img, subtype);
-        }
+        void LogImage(const std::string& tag, int step, const wxImage& image);
+        void LogImage(const std::string& tag, int step, const anet::ImageSource& src, int width = -1, int height = -1);
 
         inline std::string GetRunName() const { return run_name_; }
         inline std::string GetOutDir() const { return std::filesystem::relative(root_dir_ + "/" + run_name_).string(); }

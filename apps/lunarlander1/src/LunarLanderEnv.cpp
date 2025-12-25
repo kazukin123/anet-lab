@@ -670,7 +670,7 @@ float LunarLanderEnv::computeShaping(
     const float speed = std::sqrt(vx * vx + vy * vy);
 
     float shaping = 0.0f;
-    shaping += -400.0f * dist;
+    shaping += -100.0f * dist;
     shaping += -100.0f * speed;
     shaping += -100.0f * std::abs(angle);
     shaping += 10.0f * left_contact;

@@ -28,22 +28,18 @@ BaseQNet::BaseQNet(const QNetConfig& config, int64_t state_dim, int64_t n_action
     InitWeightsLinear(fc2_, config.nn_init_mode, /*is_relu=*/true);
 }
 
+// nn_init_mode: 0=default, 1=XavierUniform, 2=HeNormal, 3=Orthogonal
 void BaseQNet::InitWeightsLinear(torch::nn::Linear& layer, int nn_init_mode, bool is_relu)
 {
     if (nn_init_mode == 1) {
         torch::nn::init::xavier_uniform_(layer->weight);
-        if (layer->bias.defined()) {
+        if (layer->bias.defined())
             torch::nn::init::zeros_(layer->bias);
-        }
     } else if (nn_init_mode == 2) {
-        if (is_relu) {
-            torch::nn::init::kaiming_normal_(layer->weight, 0.0, torch::kFanIn, torch::kReLU);
-        } else {
-            torch::nn::init::kaiming_normal_(layer->weight, 0.0, torch::kFanIn, torch::kLinear);
-        }
-        if (layer->bias.defined()) {
+        auto nonlinearity = is_relu ? torch::kReLU : torch::kLinear;
+        torch::nn::init::kaiming_normal_(layer->weight, 0.0, torch::kFanIn, nonlinearity);
+        if (layer->bias.defined())
             torch::nn::init::zeros_(layer->bias);
-        }
     }
 }
 
@@ -84,7 +80,7 @@ std::optional<anet::TensorFunction> PlainQNet::GetTensorFunction(const std::stri
 
 
 // ======================================================
-// RainbowAgent DuelingQNet
+// DuelingQNet
 // ======================================================
 
 DuelingQNet ::DuelingQNet(const QNetConfig& config, int state_dim, int n_actions)
@@ -172,7 +168,7 @@ std::optional<anet::TensorFunction> DuelingQNet::GetTensorFunction(
 
 
 // ======================================================
-// RainbowAgent QuantilePlainQNet
+// QuantilePlainQNet
 // ======================================================
 
 QuantilePlainQNet::QuantilePlainQNet(const QNetConfig& config, int state_dim, int n_actions)
@@ -229,7 +225,7 @@ std::optional<anet::TensorFunction> QuantilePlainQNet::GetTensorFunction(const s
 
 
 // ======================================================
-// RainbowAgent QuantileDuelingQNet
+// QuantileDuelingQNet
 // ======================================================
 
 QuantileDuelingQNet::QuantileDuelingQNet(const QNetConfig& config, int state_dim, int n_actions)
@@ -391,7 +387,7 @@ std::optional<anet::TensorFunction> QuantileDuelingQNet::GetTensorFunction(const
 
 
 // ======================================================
-// RainbowAgent Network
+// Network
 // ======================================================
 
 Network::Network(
@@ -496,7 +492,7 @@ std::optional<anet::TensorFunction> Network::GetTensorFunction(const std::string
 
 
 // ======================================================
-// RainbowAgent ActionPolicy 
+// ActionPolicy 
 // ======================================================
 
 anet::rl::dqn::ActionPolicy::ActionPolicy(
@@ -562,7 +558,7 @@ anet::rl::BatchActionInfo ActionPolicy::SelectAction(const torch::Tensor& obs, b
 
 
 // ======================================================
-// RainbowAgent Learner
+// Learner
 // ======================================================
 
 Learner::Learner(const LearnerConfig& config, Network& network, RuntimeVars& vars,
@@ -576,7 +572,7 @@ Learner::Learner(const LearnerConfig& config, Network& network, RuntimeVars& var
 
 std::optional<float> Learner::GetScalar(const std::string& key, int index) const
 {
-    if (key.find("replaybuffer.") == 0 && replay_buffer_ != nullptr) {
+    if (key.find(ReplayBuffer::kKeyPrefix) == 0 && replay_buffer_ != nullptr) {
         return replay_buffer_->GetScalar(key);
     }
 
@@ -585,7 +581,7 @@ std::optional<float> Learner::GetScalar(const std::string& key, int index) const
 
 std::optional<torch::Tensor> Learner::GetTensor(const std::string& key, int index) const
 {
-    if (key.find("replaybuffer.") == 0 && replay_buffer_ != nullptr)
+    if (key.find(ReplayBuffer::kKeyPrefix) == 0 && replay_buffer_ != nullptr)
         return replay_buffer_->GetTensor(key);
 
     return std::nullopt;
@@ -593,7 +589,7 @@ std::optional<torch::Tensor> Learner::GetTensor(const std::string& key, int inde
 
 std::optional<std::vector<torch::Tensor>> Learner::GetTensorVector(const std::string& key, int index) const
 {
-    if (key.find("replaybuffer.") == 0 && replay_buffer_ != nullptr)
+    if (key.find(ReplayBuffer::kKeyPrefix) == 0 && replay_buffer_ != nullptr)
         return replay_buffer_->GetTensorVector(key);
 
     return std::nullopt;
@@ -642,7 +638,7 @@ bool Learner::CanUpdate(step_t update_step, step_t exp_step) const
 
 void Learner::UpdateEpsilon(step_t learn_step)
 {
-    ProfileRange r("RainbowAgent::Learner::UpdateEpsilon");
+    ProfileRange r("Learner::UpdateEpsilon");
 
     if (learn_step >= config_.eps_decay_step) {
         vars_.epsilon = config_.eps_min;
@@ -654,13 +650,13 @@ void Learner::UpdateEpsilon(step_t learn_step)
 
 void Learner::UpdateTargetNetwork(step_t step)
 {
-    ProfileRange r("RainbowAgent::Learner::UpdateTargetNetwork");
+    ProfileRange r("Learner::UpdateTargetNetwork");
     network_.UpdateTarget(step);
 }
 
 void Learner::UpdatePerBeta(step_t learn_step)
 {
-    ProfileRange r("RainbowAgent::Learner::UpdatePerBeta");
+    ProfileRange r("Learner::UpdatePerBeta");
 
     if (!config_.use_per) return;
 
@@ -727,7 +723,7 @@ std::shared_ptr<const anet::rl::BatchUpdateResult> Learner::UpdateFromBatch(
 }
 
 // ======================================================
-// RainbowAgent TDLearner
+// TDLearner
 // ======================================================
 
 
@@ -742,7 +738,7 @@ TDLearner::TDLearner(const LearnerConfig& config, Network& network, RuntimeVars&
 std::shared_ptr<const anet::rl::BatchUpdateResult>
 TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 {
-    ProfileRange r("RainbowAgent::TDLearner::UpdateFromBatch");
+    ProfileRange r("TDLearner::UpdateFromBatch");
 
     const int B = config_.replay_batch_size;
     const int S = state_dim_;
@@ -940,7 +936,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
 
 // ======================================================
-// RainbowAgent QRLearner (New Implementation)
+// QRLearner
 // ======================================================
 
 //explicit TDLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars,
@@ -957,7 +953,7 @@ QRLearner::QRLearner(const LearnerConfig& config, Network& network, RuntimeVars&
 torch::Tensor QRLearner::ComputeQuantileHuberLoss(
     const torch::Tensor& current_dist, const torch::Tensor& target_dist) const
 {
-    ProfileRange r("RainbowAgent::QRLearner::ComputeQuantileHuberLoss");
+    ProfileRange r("QRLearner::ComputeQuantileHuberLoss");
 
     const int N = config_.num_quantiles;
     const float kappa = config_.quantile_huber_kappa;
@@ -1006,7 +1002,7 @@ torch::Tensor QRLearner::ComputeQuantileHuberLoss(
 std::shared_ptr<const anet::rl::BatchUpdateResult>
 QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 {
-    ProfileRange r("RainbowAgent::QRLearner::UpdateFromSamples");
+    ProfileRange r("QRLearner::UpdateFromSamples");
 
     const int B = config_.replay_batch_size;
     const int A = n_actions_;

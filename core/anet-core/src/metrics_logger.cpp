@@ -6,6 +6,7 @@
 #include <wx/filename.h>
 #include "anet/log.hpp"
 #include "anet/str_util.hpp"
+#include "anet/profile.hpp"
 
 namespace LOG = anet::log;
 
@@ -180,7 +181,7 @@ namespace anet {
     std::string MetricsLogger::CreateRunName(const std::string& run_name_tmpl) const
     {
         auto t = CreateTimeStampStr();
-        auto run_name = anet::ReplaceAll(run_name_tmpl, "%t", t);
+        auto run_name = anet::ReplaceAll(run_name_tmpl, "{t}", t);
         return run_name;
     }
 
@@ -203,6 +204,22 @@ namespace anet {
         ofs << obj.dump(4) << std::endl;     // インデント幅 4 で書き出
     }
 
+    void MetricsLogger::LogImage(const std::string& tag, int step, const wxImage& image)
+    {
+        ProfileRange r("MetricsLogger::LogImage1");
+
+        LogImage_subtyped(tag, step, image, "");
+    }
+
+    void MetricsLogger::LogImage(const std::string& tag, int step, const anet::ImageSource& src, int width, int height)
+    {
+        ProfileRange r("MetricsLogger::LogImage2");
+
+        auto image = src.Render(width, height);
+        auto subtype = src.GetImageSubType();
+        LogImage_subtyped(tag, step, image, subtype);
+    }
+
     //----------------------------------------------
     // 画像・動画出力
     //----------------------------------------------
@@ -211,6 +228,10 @@ namespace anet {
         const wxImage& image,
         const std::string& subtype_or_empty)
     {
+        ProfileRange r("MetricsLogger::LogImage_subtyped");
+
+        ProfileRange r1("MetricsLogger::::LogImage_subtyped.prepare");
+
         // タグを安全なファイル名に変換
         std::string safe_tag = sanitize_filename(tag);
 
@@ -233,6 +254,8 @@ namespace anet {
         auto vid_path = root_dir_ + "/" + run_name_ + "/videos/" + safe_tag + ".mkv";
         auto it = video_loggers_.find(tag);
         if (it == video_loggers_.end()) {
+            ProfileRange r2("MetricsLogger::::LogImage_subtyped.make_VideoLogger");
+
             auto vlog = std::make_unique<VideoLogger>(
                 vid_path, image.GetWidth(), image.GetHeight(), 30);
             json vmeta = {
@@ -244,6 +267,8 @@ namespace anet {
             backend_->WriteJsonl(vmeta);
             it = video_loggers_.emplace(tag, std::move(vlog)).first;
         }
+
+        ProfileRange r3("MetricsLogger::::LogImage_subtyped.writeFrame", r1);
         it->second->WriteFrame(image);
 
         /// @todo 動画フレーム情報Metrics出力
