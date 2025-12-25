@@ -8,7 +8,7 @@
 #include "anet/replay_buffer.hpp"
 #include "anet/rl.hpp"
 #include "anet/agent.hpp"
-#include "anet/reward_scaler.hpp"
+#include "anet/scaler.hpp"
 
 namespace anet::rl::dqn {
 
@@ -29,6 +29,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, qnet.nn_init_mode);
             ANET_READ_CONFIG(config_data, qnet.nn_hidden1);
             ANET_READ_CONFIG(config_data, qnet.nn_hidden2);
+            ANET_READ_CONFIG(config_data, qnet.output_init_gain);
             ANET_READ_CONFIG(config_data, qnet.num_quantiles);
 
             ANET_READ_CONFIG(config_data, network.soft_update_tau);

@@ -1,6 +1,7 @@
 ﻿
 #include "dqn_based_agent.hpp"
 #include <tuple>
+#include <cmath>
 #include "anet/log.hpp"
 #include "anet/profile.hpp"
 #include "anet/tensor_check.hpp"
@@ -29,16 +30,37 @@ BaseQNet::BaseQNet(const QNetConfig& config, int64_t state_dim, int64_t n_action
     InitWeightsLinear(fc2_, config.nn_init_mode, /*is_relu=*/true);
 }
 
-void BaseQNet::InitWeightsLinear(torch::nn::Linear& layer, int nn_init_mode, bool is_relu)
+// nn_init_mode: 0=default, 1=XavierUniform, 2=HeNormal, 3=Orthogonal
+void BaseQNet::InitWeightsLinear(torch::nn::Linear& layer, int nn_init_mode, bool is_relu, float manual_gain)
 {
     if (nn_init_mode == 1) {
         torch::nn::init::xavier_uniform_(layer->weight);
         if (layer->bias.defined())
             torch::nn::init::zeros_(layer->bias);
     } else if (nn_init_mode == 2) {
+        // ReLUなら gain=sqrt(2), Linearなら gain=1 が内部で使われる
         using torch::nn::init::NonlinearityType;
         auto nonlinearity = is_relu ? (NonlinearityType)torch::kReLU : (NonlinearityType)torch::kLinear;
         torch::nn::init::kaiming_normal_(layer->weight, 0.0, torch::kFanIn, nonlinearity);
+        if (layer->bias.defined())
+            torch::nn::init::zeros_(layer->bias);
+    } else if (nn_init_mode == 3) {
+        // ゲインの計算：
+        //   ReLUの場合: sqrt(2)
+        //   Tanhの場合: 5/3 (約1.67)
+        //   Linear(出力層など)の場合: 1.0 または 手動指定(0.01など)
+        double gain = 1.0;
+        if (manual_gain > 0.0f) {
+            gain = manual_gain;
+        } else if (is_relu) {
+            gain = std::sqrt(2.0); // torch::nn::init::calculate_gain(torch::kReLU) と同等
+        } else {
+            // is_relu=false かつ manual_gain指定なしの場合 (通常はLinear層)
+            gain = 1.0;
+        }
+
+        // 初期化
+        torch::nn::init::orthogonal_(layer->weight, gain);
         if (layer->bias.defined())
             torch::nn::init::zeros_(layer->bias);
     }
@@ -53,7 +75,7 @@ PlainQNet::PlainQNet(const QNetConfig& config, int state_dim, int n_actions)
     : BaseQNet(config, state_dim, n_actions)
 {
     fc3_ = register_module("fc3", torch::nn::Linear(config.nn_hidden2, n_actions_));
-    InitWeightsLinear(fc3_, config.nn_init_mode, /*is_relu=*/false);
+    InitWeightsLinear(fc3_, config.nn_init_mode, /*is_relu=*/false, config.output_init_gain);
 }
 
 torch::Tensor PlainQNet::Forward(const torch::Tensor& obs)
@@ -90,8 +112,8 @@ DuelingQNet ::DuelingQNet(const QNetConfig& config, int state_dim, int n_actions
     value_ = register_module("value", torch::nn::Linear(config.nn_hidden2, 1));
     adv_ = register_module("adv", torch::nn::Linear(config.nn_hidden2, n_actions_));
 
-    InitWeightsLinear(value_, config.nn_init_mode, /*is_relu=*/false);
-    InitWeightsLinear(adv_, config.nn_init_mode, /*is_relu=*/false);
+    InitWeightsLinear(value_, config.nn_init_mode, /*is_relu=*/false, config.output_init_gain);
+    InitWeightsLinear(adv_, config.nn_init_mode, /*is_relu=*/false, config.output_init_gain);
 }
 
 torch::Tensor DuelingQNet::Forward(const torch::Tensor& obs)
@@ -179,7 +201,7 @@ QuantilePlainQNet::QuantilePlainQNet(const QNetConfig& config, int state_dim, in
 
     // 出力層: Actions * Quantiles
     fc3_ = register_module("fc3", torch::nn::Linear(config.nn_hidden2, n_actions_ * num_quantiles_));
-    InitWeightsLinear(fc3_, config.nn_init_mode, /*is_relu=*/false);
+    InitWeightsLinear(fc3_, config.nn_init_mode, /*is_relu=*/false, config.output_init_gain);
 }
 
 torch::Tensor QuantilePlainQNet::Forward(const torch::Tensor& obs)
@@ -240,8 +262,8 @@ QuantileDuelingQNet::QuantileDuelingQNet(const QNetConfig& config, int state_dim
     // Advantage stream: (Batch, A * N)
     adv_ = register_module("adv", torch::nn::Linear(config.nn_hidden2, n_actions_ * num_quantiles_));
 
-    InitWeightsLinear(value_, config.nn_init_mode, /*is_relu=*/false);
-    InitWeightsLinear(adv_, config.nn_init_mode, /*is_relu=*/false);
+    InitWeightsLinear(value_, config.nn_init_mode, /*is_relu=*/false, config.output_init_gain);
+    InitWeightsLinear(adv_, config.nn_init_mode, /*is_relu=*/false, config.output_init_gain);
 }
 
 torch::Tensor QuantileDuelingQNet::Forward(const torch::Tensor& obs)

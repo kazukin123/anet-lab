@@ -36,8 +36,7 @@ DefaultDQNAgent::DefaultDQNAgent(
 
     // ログ：パラメータ記録
     LOG::info() << "DefaultDQNAgent config=" << config_;
-    anet::MetricsLogger::Instance()->LogJson("DefaultDQNAgent", config_.ToJson());
-    anet::MetricsLogger::Instance()->Flush();
+    anet::MetricsLogger::Instance()->Log(config_);
 
     //seed
     anet::SeedMaker seed_maker(GetSeed());

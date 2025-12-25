@@ -37,8 +37,7 @@ TODO：実行手順を書く
 ### DOING
 
 * 学習アルゴリズム
-	* Orthogonal Initialization
-	* Adam Optimizer's Epsilon Parameter optimization
+	* Replay Ratio対応
 	* Observation Normalization
 * メトリクス
 * AP改善
@@ -71,6 +70,9 @@ TODO：実行手順を書く
 
 * ### DONE (自分用メモ)
 
+* 学習アルゴリズム
+	* Orthogonal Initialization
+	* Adam Optimizer's Epsilon Parameter optimization
 * AP改善
 	* 設定の継承読み込み
 	* Runフォルダに設定内容ダンプを残す

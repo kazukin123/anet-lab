@@ -9,6 +9,7 @@
 #include <wx/app.h>
 #include <nlohmann/json.hpp>
 #include "anet/heat_map.hpp"
+#include "anet/config.hpp"
 
 wxDECLARE_EVENT(wxEVT_APP_EXECUTE_START, wxThreadEvent);
 
@@ -124,6 +125,7 @@ namespace anet {
             backend_->WriteJsonl(obj);
         }
 
+        void Log(const anet::Config& config);
         void LogJson(const std::string& tag, const json& data);
 
         void LogImage(const std::string& tag, int step, const wxImage& image);
@@ -139,6 +141,7 @@ namespace anet {
         std::unique_ptr<IBackend> backend_;
         std::string root_dir_;
         std::string run_name_;
+        std::mutex config_mutex_;
         
         // 画像・動画用連番管理
         std::unordered_map<std::string, uint64_t> image_seq_;

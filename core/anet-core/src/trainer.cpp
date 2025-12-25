@@ -289,7 +289,7 @@ RunnerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
     // パラメータ記録
     anet::MetricsLogger::Instance()->LogJson("train/seed",
         { "global_seed", global_seed, "agent_seed", agent_seed, "train_env_seed", train_env_seed });
-    anet::MetricsLogger::Instance()->LogJson("train/config", config_->ToJson());
+    anet::MetricsLogger::Instance()->Log(*config_);
     anet::MetricsLogger::Instance()->Flush();
 
     // ENV生成

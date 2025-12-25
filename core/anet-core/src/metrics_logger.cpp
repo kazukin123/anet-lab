@@ -1,6 +1,7 @@
 ﻿#include "anet/metrics_logger.hpp"
 #include <stdexcept>
 #include <algorithm>
+#include <iostream>
 #include <wx/process.h>
 #include <wx/image.h>
 #include <wx/filename.h>
@@ -183,6 +184,36 @@ namespace anet {
         auto t = CreateTimeStampStr();
         auto run_name = anet::ReplaceAll(run_name_tmpl, "{t}", t);
         return run_name;
+    }
+
+    void MetricsLogger::Log(const anet::Config& config)
+    {
+        std::lock_guard<std::mutex> lock(config_mutex_);
+
+        auto tag = config.GetConfigPrefix();
+
+        auto json_data = config.ToJson();
+        json rounded = round_numbers(json_data);
+        json obj = {
+            {"type", "config"},
+            {"tag", tag},
+            {"timestamp", current_time_str()},
+            {"data", rounded}
+        };
+        backend_->WriteJsonl(obj);
+
+        auto config_prefix = config.GetConfigPrefix();
+        std::string safe_tag = sanitize_filename(tag);
+        std::string full_dir = root_dir_ + "/" + run_name_;
+        std::string full_path = root_dir_ + "/" + run_name_ + "/config.txt";
+        std::filesystem::create_directories(full_dir);
+        std::ofstream ofs(full_path, std::ios_base::app);  // ファイルを開く
+        auto map = config.GetConfigData().Map();
+        for (auto kv : map) {
+            auto key = kv.first;
+            auto value = kv.second;
+            ofs << config_prefix << "." << key << " = " << value << std::endl;
+        }
     }
 
     void MetricsLogger::LogJson(const std::string& tag, const json& data)

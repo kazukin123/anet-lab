@@ -134,6 +134,8 @@ namespace anet {
 
         std::string ToString() const;
         nlohmann::json ToJson() const { return my_config_json_; }
+        std::string GetConfigPrefix() const { return config_prefix_; }
+        anet::ConfigData GetConfigData() const { return my_config_data_; }
     protected:
         template<typename T>
         void ReadConfig(const ConfigData& config_data, const std::string& key, T& value) {

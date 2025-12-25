@@ -8,6 +8,7 @@
 #include <atomic>
 #include <thread>
 #include "anet/profile.hpp"
+#include "anet/metrics_logger.hpp"
 #include "anet/thread.hpp"
 #include "anet/tensor_util.hpp"
 #include "anet/log.hpp"
@@ -423,6 +424,10 @@ DefaultBatchEnvFactory::DefaultBatchEnvFactory(
 {
     /// @todo deviceの指定方法が設定ファイル、config、device、三箇所あるのを整理
     ANET_ASSERT(batch_size_ > 0);
+
+    // ログ：パラメータ記録
+    LOG::info() << "DefaultBatchEnvFactory config=" << config_;
+    anet::MetricsLogger::Instance()->Log(config_);
 }
 
 int DefaultBatchEnvFactory::GetLogicalCores() const

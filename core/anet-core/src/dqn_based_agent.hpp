@@ -178,7 +178,7 @@ namespace anet::rl::dqn {
     protected:
         BaseQNet(const QNetConfig& config, int64_t state_dim, int64_t n_actions);
 
-        void InitWeightsLinear(torch::nn::Linear& layer, int nn_init_mode, bool is_relu);
+        void InitWeightsLinear(torch::nn::Linear& layer, int nn_init_mode, bool is_relu, float manual_gain = -1.0f);
     protected:
         int64_t state_dim_ = 0;
         int64_t n_actions_ = 0;

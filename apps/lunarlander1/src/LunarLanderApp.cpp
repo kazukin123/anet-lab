@@ -119,9 +119,8 @@ bool LunarLanderApp::OnInit()
     frame_->Show();
 
     // LunarLanderAppConfigをダンプ
-    anet::MetricsLogger::Instance()->LogJson("LunarLanderApp", config_->ToJson());
-    anet::MetricsLogger::Instance()->Flush();
     LOG::info() << "LunarLanderApp config=" << *config_;
+    anet::MetricsLogger::Instance()->Log(*config_);
 
     // Trainer生成
     trainer_ = std::make_unique<anet::rl::DefaultTrainer>(config_data);

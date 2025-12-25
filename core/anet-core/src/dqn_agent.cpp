@@ -872,7 +872,7 @@ DQNAgent::DQNAgent(
 
     // ログ：パラメータ記録
     anet::log::info() << "DQNAgent config=" << config_;
-    anet::MetricsLogger::Instance()->LogJson("agent/params", config_.ToJson());
+    anet::MetricsLogger::Instance()->Log(config_);
     anet::MetricsLogger::Instance()->Flush();
 }
 
