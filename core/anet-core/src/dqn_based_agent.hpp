@@ -163,7 +163,7 @@ namespace anet::rl::dqn {
         virtual bool IsDistributional() const { return false; }
 
         /// メトリクス用
-        virtual std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex) = 0;
+        virtual std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device) = 0;
     };
 
     class BaseQNet : public QNet {
@@ -190,7 +190,7 @@ namespace anet::rl::dqn {
         explicit PlainQNet(const QNetConfig& config, int state_dim, int n_actions);
         torch::Tensor Forward(const torch::Tensor& obs) override;
         std::optional<anet::TensorFunction> GetTensorFunction(
-            const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex) override;
+            const std::string& key, const torch::Device& device) override;
     private:
         torch::nn::Linear fc3_{ nullptr };
     };
@@ -200,8 +200,7 @@ namespace anet::rl::dqn {
         explicit DuelingQNet(const QNetConfig& config, int state_dim, int n_actions);
         torch::Tensor Forward(const torch::Tensor& obs);
 
-        std::optional<anet::TensorFunction> GetTensorFunction(
-            const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex) override;
+        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device) override;
     private:
         torch::nn::Linear value_{ nullptr };  // (H -> 1)
         torch::nn::Linear adv_{ nullptr };    // (H -> A)
@@ -220,7 +219,7 @@ namespace anet::rl::dqn {
         int64_t GetNumQuantiles() const override { return num_quantiles_; }
         bool IsDistributional() const override { return true; }
 
-        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex) override;
+        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device) override;
     private:
         int64_t num_quantiles_;
         torch::nn::Linear fc3_{ nullptr };
@@ -239,7 +238,7 @@ namespace anet::rl::dqn {
         int64_t GetNumQuantiles() const override { return num_quantiles_; }
         bool IsDistributional() const override { return true; }
 
-        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex) override;
+        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device) override;
     private:
         int64_t num_quantiles_;
         torch::nn::Linear value_{ nullptr };  // (H -> 1*N)
@@ -273,7 +272,7 @@ namespace anet::rl::dqn {
         void UpdateTarget(anet::rl::step_t learn_step);
 
         /// メトリクス用：NN生出力
-        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex);
+        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device);
     private:
         void SoftUpdate();
         void HardUpdate();

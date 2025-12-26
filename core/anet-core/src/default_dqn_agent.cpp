@@ -102,7 +102,20 @@ DefaultDQNAgent::DefaultDQNAgent(
 
 std::optional<anet::TensorFunction> DefaultDQNAgent::GetTensorFunction(const std::string& key)
 {
-    return network_->GetTensorFunction(key, device_, mutex_);
+    auto fn = network_->GetTensorFunction(key, device_);
+    if (fn == std::nullopt) return fn;
+
+    auto self = shared_from_this();
+    auto network_fn = *fn;
+
+    anet::TensorFunction norm_fn = [self, network_fn](const torch::Tensor& obs) {
+        std::shared_lock<std::shared_mutex> lock(*(self->mutex_));
+        auto obs_norm = self->obs_norm_->Normalize(obs);
+        auto out = network_fn(obs_norm);
+        return out;
+        };
+
+    return norm_fn;
 }
 
 std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int index) const
@@ -199,10 +212,7 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
 
         // Normalize observations 統計更新
         this->obs_norm_->NormalizeAndUpdateStats(batch_exp.state.obs);
-
-        // 【重要】next_state では更新しない (false)
-        // 理由：next_stateには終端状態などが含まれ、入力分布を歪める可能性があるため
-        // また、state だけで十分なサンプル数があるため
+        this->obs_norm_->NormalizeAndUpdateStats(batch_exp.next_state.obs); // 二重計上になるがエピソード終端（着地/墜落）の状態も統計に反映させる
 
         // BatchExperience生成
         // 【重要】ReplayBufferには「生の観測」を渡す。 報酬だけはスケール済みを使う

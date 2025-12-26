@@ -27,23 +27,36 @@ namespace anet::rl {
         static constexpr const char* kKeyPrefix = "obs_norm.";
 
         static constexpr const char* kKeyCount = "obs_norm.count";
-        static constexpr const char* kKeyMeanMean = "obs_norm.mean_mean"; // 平均の平均（ドリフト監視）
-        static constexpr const char* kKeyStdMean = "obs_norm.std_mean";   // 標準偏差の平均（探索範囲監視）
-        static constexpr const char* kKeyMean = "obs_norm.mean"; // 平均の平均（ドリフト監視）
-        static constexpr const char* kKeyStd = "obs_norm.std";   // 標準偏差の平均（探索範囲監視）
-        static constexpr const char* kKeyClipRatio = "obs_norm.clip_ratio"; // クリップ率
+        static constexpr const char* kKeyMeanMean = "obs_norm.mean_mean";   ///< 平均の平均（ドリフト監視）
+        static constexpr const char* kKeyStdMean = "obs_norm.std_mean";     ///< 標準偏差の平均（探索範囲監視）
+        static constexpr const char* kKeyMean = "obs_norm.mean";            ///< 平均の平均（ドリフト監視）
+        static constexpr const char* kKeyStd = "obs_norm.std";              ///< 標準偏差の平均（探索範囲監視）
+        static constexpr const char* kKeyClipRatio = "obs_norm.clip_ratio"; ///< クリップ率
+        static constexpr const char* kKeyRobustOutlierRatio = "obs_norm.robust_outlier_ratio"; ///< Robust Updateで除外された割合
     };
+    
+    static constexpr const int kPostProcessNone = 0;
+    static constexpr const int kPostProcessSymLog = 1;
+    static constexpr const int kPostProcessTanh = 2;
+    static constexpr const int kPostProcessSoftsign = 3;
 
     struct ObservationNormalizerConfig {
-        bool pass_through = false;
-        bool use_clipping = true;
-        float clip_range = 10.0f; // [-10, 10] にクリップ
-        bool use_dynamic_scaling = true;
-        float epsilon = 1e-4f;    // ゼロ除算防止
-        std::vector<float> constant_mean; // 指定なし(空)なら 0
-        std::vector<float> constant_std;  // 指定なし(空)なら 1
-        bool use_raw_clipping = true;
-        float raw_clip_range = 5.0f;
+        bool pass_through = false;          ///< 生のObservationをそのまま使う。Clippingも無効。
+
+        bool use_clipping = true;           ///< 最後にClippingするならtrue
+        float clip_range = 10.0f;           ///
+
+        std::vector<float> constant_mean;   ///< use_dynamic_scaling=falseの場合向けの次元毎の固定値。指定なし(空)なら0
+        std::vector<float> constant_std;    ///< use_dynamic_scaling=falseの場合向けの次元毎の固定値。指定なし(空)なら1
+
+        bool use_dynamic_scaling = true;    ///< 実行中にOBSの分散や平均の統計から動的にスケールするならtrue
+        bool use_centering = false;         ///< 平均値を引く補正をするかどうか (零点に意味がある場合はfalse推奨）
+        float epsilon = 1.0f;               ///< ゼロ除算防止＆最小分散値
+        bool use_robust_update = true;      ///< 標準偏差が閾値より大きい異常値を統計から自動除外するならtrue
+        int robust_warmup_count = 200;      ///< 開始直後から落ち着くまで無条件で統計に反映するサンプル数
+        float robust_std_threshold = 5.0f;  ///< この分散値より大きい値を統計から自動除外
+        int post_process_type = kPostProcessSymLog;
+        float post_process_threshold = 10.0f;
 
         // dynamicなScalerの種類が増えたらそのアルゴリズムを指定する設定を追加
     };

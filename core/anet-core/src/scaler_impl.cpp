@@ -35,6 +35,8 @@ void RunningMeanStd::Reset()
 
 void RunningMeanStd::Update(const torch::Tensor& batch_input)
 {
+    ANET_LOG_DEBUG("batch_input=" << anet::ToString(batch_input));
+
     // 入力が空なら何もしない
     if (batch_input.numel() == 0) return;
 
@@ -65,7 +67,7 @@ void RunningMeanStd::Update(const torch::Tensor& batch_input)
     batch_var_t = batch_var_t.to(target_device).to(torch::kDouble);
 
     // バッチサイズ (Obsの場合は行数)
-    long long batch_count = 0;
+    int64_t batch_count = 0;
     if (mean_.ndimension() == 0) {
         batch_count = batch_input.numel();
     } else {
@@ -79,7 +81,7 @@ void RunningMeanStd::Update(const torch::Tensor& batch_input)
     updateFromBatchStats(batch_mean_t, batch_m2_t, batch_count);
 }
 
-void RunningMeanStd::updateFromBatchStats(const torch::Tensor& batch_mean, const torch::Tensor& batch_m2, int batch_count)
+void RunningMeanStd::updateFromBatchStats(const torch::Tensor& batch_mean, const torch::Tensor& batch_m2, int64_t batch_count)
 {
     int64_t new_count = count_ + batch_count;
 
@@ -188,6 +190,7 @@ std::optional<float> ConstantObservationNormalizer::GetScalar(const std::string&
     if (key == kKeyMeanMean) return std::numeric_limits<float>::quiet_NaN();
     if (key == kKeyStdMean) return std::numeric_limits<float>::quiet_NaN();
     if (key == kKeyClipRatio) return last_clip_ratio_;
+    if (key == kKeyRobustOutlierRatio) return std::numeric_limits<float>::quiet_NaN();
 
     return std::nullopt;
 }
@@ -205,9 +208,17 @@ std::optional<torch::Tensor> ConstantObservationNormalizer::GetTensor(const std:
 // =============================================================
 
 RunningStdObservationNormalizer::RunningStdObservationNormalizer(
-    const std::optional<float>& clip_range, const std::optional<float>& raw_clip_range,
-    const std::vector<int64_t>& shape, float epsilon)
-    : clip_range_(clip_range), raw_clip_range_(raw_clip_range), shape_(shape)
+    const std::optional<float>& clip_range,
+    const std::vector<int64_t>& shape, float epsilon,
+    bool use_robust_update, int robust_warmup_count, float robust_std_threshold,
+    int post_process_type, float post_process_threshold, bool use_centering)
+    : clip_range_(clip_range), shape_(shape)
+    , use_robust_update_(use_robust_update)
+    , use_centering_(use_centering)
+    , robust_warmup_count_(robust_warmup_count)
+    , robust_std_threshold_(robust_std_threshold)
+    , post_process_type_(post_process_type)
+    , post_process_threshold_(post_process_threshold)
     , stats_(shape, epsilon) // Vectorモードで初期化
 {
     LOG::info() << "ObservationNormalizer initialized with. shape=" << shape_;
@@ -217,6 +228,7 @@ void RunningStdObservationNormalizer::Reset()
 {
     stats_.Reset();
     last_clip_ratio_ = 0.0f;
+    last_outlier_ratio_ = 0.0f;
 }
 
 std::pair<torch::Tensor, float>
@@ -249,11 +261,52 @@ RunningStdObservationNormalizer::normalizeInternal(const torch::Tensor& obs) con
     auto device = obs.device();
 
     // 統計量取得 (Double CPU Tensor -> Float Device Tensor)
-    torch::Tensor mean = stats_.GetMean().to(device).to(torch::kFloat32);
     torch::Tensor std = stats_.GetStd().to(device).to(torch::kFloat32);
 
     // 正規化 (Broadcasting: [B, state_dim...] -> [ state_dim...])
-    torch::Tensor normalized = (obs - mean) / std;
+    torch::Tensor normalized;
+    if (use_centering_) {
+        // (x - mean) / std
+        auto mean = stats_.GetMean().to(device).to(torch::kFloat32);
+        normalized = (obs - mean) / std;
+    } else {
+        // x / std → 「スケール」だけが揃い、「原点」は保存される
+        normalized = obs / std;
+    }
+
+    // 後処理
+    switch (post_process_type_) {
+    case kPostProcessSymLog: {
+        // 式: sign(x) * ln(|x| + 1)
+
+        // scaleがあれば適用: symlog(x / scale) * scale
+        float scale = (post_process_threshold_ > 0) ? post_process_threshold_ : 1.0f;
+
+        // 正規化後の値(normalized)自体がすでに「σ単位」になっているので、
+        // そのまま SymLog に通しても良いが
+        // 「10σまではリニアに扱いたい」なら scale=10.0 に設定
+
+        // 実装: y = scale * symlog(x / scale)
+        auto scaled_in = normalized / scale;
+        normalized = torch::sign(scaled_in) * torch::log1p(torch::abs(scaled_in)) * scale;
+        break;
+    }
+    case kPostProcessTanh: {
+        float scale = (post_process_threshold_ > 0) ? post_process_threshold_ : 1.0f;
+        normalized = torch::tanh(normalized / scale) * scale;
+        break;
+    }
+    case kPostProcessSoftsign: {
+        float limit = (post_process_threshold_ > 0) ? post_process_threshold_ : 1.0f;
+        normalized = normalized / (1.0f + normalized.abs() / limit);
+        break;
+    }
+    case kPostProcessNone:
+        break;
+    default:
+        LOG::warn() << "Unknown squash_type.";
+        break;
+    }
 
     // クリッピング
     float clipped = 0.0f;
@@ -280,17 +333,121 @@ torch::Tensor RunningStdObservationNormalizer::NormalizeAndUpdateStats(const tor
 {
     // 統計更新の前に、入力値を常識的な範囲にクリップする
     // これにより、暴発値で統計（分散）が爆発するのを防ぐ
-    if (raw_clip_range_.has_value()) {
-        float limit = *raw_clip_range_;
-        auto clipped_obs = torch::clamp(obs, -limit, limit);
-        stats_.Update(clipped_obs);
+    if (use_robust_update_) {
+        // 現在の平均・標準偏差を取得 (デバイス合わせる)
+        auto device = obs.device();
+        auto mean = stats_.GetMean().to(device).to(torch::kFloat32);
+        auto std = stats_.GetStd().to(device).to(torch::kFloat32);
+
+        // 偏差 (z-score の分子)
+        auto deviation = (obs - mean).abs();
+
+        // 閾値: N * std
+        auto threshold = robust_std_threshold_ * std;
+
+        // マスク作成: 正常な値だけ true
+        torch::Tensor mask;
+        if (stats_.GetCount() < robust_warmup_count_) {
+            // 初期は無条件で更新して統計を安定させる
+            stats_.Update(obs);
+            last_outlier_ratio_ = 0.0f;
+        } else {
+            // 異常値判定:thresholdより小さい(正常)、または thresholdが小さすぎる(初期)なら採用
+            auto is_normal = (deviation <= threshold);
+
+            // 正常なデータのみを抽出してUpdateに回す
+            // ※ 部分更新の実装は RunningMeanStd 側で対応が必要だが、
+            //    簡易的には「バッチ内の平均外れ値率」を見て、健全なバッチだけUpdateする手もある。
+            //    厳密にやるなら以下のようにマスクしたデータを渡す。
+
+            if (is_normal.all().item<bool>()) {
+                // 全部正常ならそのまま更新
+                stats_.Update(obs);
+            } else {
+
+                // 一部異常なら、正常な行だけ選んで更新（要: RunningMeanStdが可変長バッチ対応していること）
+                // obs[is_normal] でフィルタリングすると形状が変わる(Flattenされる)が、
+                // RunningMeanStd は [N, F] or [N] なので、フィルタリングして [M, F] にして渡せばOK
+
+                // ただし、obsが [B, F] で、F次元のうち1つでも異常ならそのサンプルの更新を諦めるか、
+                // 次元ごとに更新するかという問題がある。
+                // ObservationNormalizerは通常「次元ごとに独立」なので、次元ごとにマスクして更新するのが正しいが実装コストが高い。
+
+                // 【現実解】: バッチ内のサンプル単位（行単位）で、「全次元が正常な行」だけ更新に使う。
+                // (obs - mean).abs() > threshold  -> [B, F]
+                // (outliers).any(dim=1) -> [B] (異常を含む行)
+
+
+                // 外れ値判定 (deviation > threshold)
+                auto is_outlier = (deviation > threshold);
+
+                // 外れ値率を記録 (全要素に対する割合)
+                this->last_outlier_ratio_ = is_outlier.to(torch::kFloat32).mean().item<float>();
+
+                // 全次元が正常な行だけを抽出
+                auto is_outlier_row = is_outlier.any(1); // [B] -> trueならその行に異常あり
+                auto valid_indices = (~is_outlier_row).nonzero().squeeze();
+
+                // DEBUG
+                if (is_outlier_row.any().item<bool>()) {
+                    std::stringstream ss;
+
+                    // 異常行のインデックスを取得
+                    auto row_indices = is_outlier_row.nonzero(); // [K, 1]
+                    int num_logs = std::min((int)row_indices.size(0), 3); // 最大3件まで表示
+
+                    ss << "Outlier Row Detected! (Showing " << num_logs << " samples):\n";
+
+                    for (int i = 0; i < num_logs; ++i) {
+                        int r_idx = row_indices[i][0].item<int>();
+
+                        // 行全体の生データ
+                        auto raw_row = obs[r_idx]; // [Feature]
+
+                        // Tensor標準出力で見やすく表示
+                        ss << " [Sample " << r_idx << "]\n";
+                        ss << "  Full Obs: " << raw_row << "\n";
+
+                        // どの次元が引っかかったか詳細を列挙
+                        ss << "  Details:\n";
+                        for (int d = 0; d < raw_row.size(0); ++d) {
+                            float dev_val = deviation[r_idx][d].item<float>();
+                            float th_val = threshold[d].item<float>();
+
+                            if (dev_val > th_val) {
+                                float val = raw_row[d].item<float>();
+                                float mu = mean[d].item<float>();
+                                float sigma = std[d].item<float>();
+
+                                ss << "   - Dim[" << d << "] Val=" << val
+                                    << " (Mean=" << mu << ", Std=" << sigma
+                                    << ", Dev=" << dev_val << " > Th=" << th_val << ")\n";
+                            }
+                        }
+                    }
+                    LOG::warn() << ss.str();
+                }
+
+                // 全正常な行があればそれらで統計更新
+                if (valid_indices.numel() > 0) {
+                    if (valid_indices.ndimension() == 0) { // 1行だけの場合
+                        stats_.Update(obs.index_select(0, valid_indices.unsqueeze(0)));
+                    } else {
+                        stats_.Update(obs.index_select(0, valid_indices));
+                    }
+                }
+
+                // 全部異常なら更新スキップ
+            }
+        }
     } else {
         stats_.Update(obs);
+        last_outlier_ratio_ = 0.0f;
     }
     auto result = normalizeInternal(obs);
     this->last_clip_ratio_ = result.second;
     return result.first;
-}
+} 
 
 std::optional<float> RunningStdObservationNormalizer::GetScalar(const std::string& key, int index) const
 {
@@ -298,6 +455,7 @@ std::optional<float> RunningStdObservationNormalizer::GetScalar(const std::strin
     if (key == kKeyMeanMean) return static_cast<float>(stats_.GetMeanMean());
     if (key == kKeyStdMean) return static_cast<float>(stats_.GetStdMean());
     if (key == kKeyClipRatio) return last_clip_ratio_;
+    if (key == kKeyRobustOutlierRatio) return last_outlier_ratio_;
 
     return std::nullopt;
 }
@@ -331,15 +489,13 @@ std::shared_ptr<ObservationNormalizer> ObservationNormalizerFactory::CreateObser
     if (config_.use_clipping)
         clip = config_.clip_range;
 
-    // Raw Clip
-    std::optional<float> raw_clip;
-    if (config_.use_raw_clipping) raw_clip = config_.raw_clip_range;
-
     // Scaler生成
-    if (!config_.use_dynamic_scaling) {
+    if (config_.pass_through || !config_.use_dynamic_scaling) {
         return std::make_shared<ConstantObservationNormalizer>(config_.pass_through, shape, clip, config_.constant_mean, config_.constant_std);
     } else {
-        return std::make_shared<RunningStdObservationNormalizer>(clip, raw_clip, shape, config_.epsilon);
+        return std::make_shared<RunningStdObservationNormalizer>(
+            clip, shape, config_.epsilon, config_.use_robust_update, config_.robust_warmup_count, config_.robust_std_threshold,
+            config_.post_process_type, config_.post_process_threshold, config_.use_centering);
     }
 }
 

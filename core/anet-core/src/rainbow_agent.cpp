@@ -93,7 +93,19 @@ RainbowAgent::RainbowAgent(
 
 std::optional<anet::TensorFunction> RainbowAgent::GetTensorFunction(const std::string& key)
 {
-    return network_->GetTensorFunction(key, device_, mutex_);
+    auto fn = network_->GetTensorFunction(key, device_);
+    if (fn == std::nullopt) return fn;
+
+    auto self = shared_from_this();
+    auto network_fn = *fn;
+
+    anet::TensorFunction norm_fn = [self, network_fn](const torch::Tensor& obs) {
+        std::shared_lock<std::shared_mutex> lock(*(self->mutex_));
+        auto out = network_fn(obs);
+        return out;
+        };
+
+    return norm_fn;
 }
 
 std::optional<float> RainbowAgent::GetScalar(const std::string& key, int index) const

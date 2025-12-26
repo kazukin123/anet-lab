@@ -87,12 +87,11 @@ torch::Tensor PlainQNet::Forward(const torch::Tensor& obs)
     return x;
 }
 
-std::optional<anet::TensorFunction> PlainQNet::GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex)
+std::optional<anet::TensorFunction> PlainQNet::GetTensorFunction(const std::string& key, const torch::Device& device)
 {
     if (key == "forward" || key == "forward.q") {
-        anet::TensorFunction fn = [this, device, smutex](const torch::Tensor& t) {
+        anet::TensorFunction fn = [this, device](const torch::Tensor& t) {
             auto tdev = t.to(device);
-            std::shared_lock<std::shared_mutex> lock(*smutex);
             return Forward(tdev);
             };
         return fn;
@@ -130,22 +129,19 @@ torch::Tensor DuelingQNet::Forward(const torch::Tensor& obs)
     return q;
 }
 
-std::optional<anet::TensorFunction> DuelingQNet::GetTensorFunction(
-    const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex)
+std::optional<anet::TensorFunction> DuelingQNet::GetTensorFunction(const std::string& key, const torch::Device& device)
 {
     if (key == "forward" || key == "forward.q") {
-        anet::TensorFunction fn = [this, device, smutex](const torch::Tensor& t) {
+        anet::TensorFunction fn = [this, device](const torch::Tensor& t) {
             auto tdev = t.to(device);
-            std::shared_lock<std::shared_mutex> lock(*smutex);
             auto q = Forward(tdev);
             return q;
             };
         return fn;
     }
     if (key == "forward.va") {
-        anet::TensorFunction fn = [this, device, smutex](const torch::Tensor& t) {
+        anet::TensorFunction fn = [this, device](const torch::Tensor& t) {
             auto x = t.to(device);
-            std::shared_lock<std::shared_mutex> lock(*smutex);
             x = torch::relu(fc1_->forward(x));
             x = torch::relu(fc2_->forward(x));
 
@@ -160,9 +156,8 @@ std::optional<anet::TensorFunction> DuelingQNet::GetTensorFunction(
         return fn;
     }
     if (key == "forward.v") {
-        anet::TensorFunction fn = [this, device, smutex](const torch::Tensor& t) {
+        anet::TensorFunction fn = [this, device](const torch::Tensor& t) {
             auto x = t.to(device);
-            std::shared_lock<std::shared_mutex> lock(*smutex);
             x = torch::relu(fc1_->forward(x));
             x = torch::relu(fc2_->forward(x));
 
@@ -174,9 +169,8 @@ std::optional<anet::TensorFunction> DuelingQNet::GetTensorFunction(
         return fn;
     }
     if (key == "forward.a") {
-        anet::TensorFunction fn = [this, device, smutex](const torch::Tensor& t) {
+        anet::TensorFunction fn = [this, device](const torch::Tensor& t) {
             auto x = t.to(device);
-            std::shared_lock<std::shared_mutex> lock(*smutex);
             x = torch::relu(fc1_->forward(x));
             x = torch::relu(fc2_->forward(x));
 
@@ -225,21 +219,19 @@ torch::Tensor QuantilePlainQNet::ForwardQuantiles(const torch::Tensor& obs)
     return x;
 }
 
-std::optional<anet::TensorFunction> QuantilePlainQNet::GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex)
+std::optional<anet::TensorFunction> QuantilePlainQNet::GetTensorFunction(const std::string& key, const torch::Device& device)
 {
     // 既存の可視化用キー
     if (key == "forward" || key == "forward.q") {
-        return [this, device, smutex](const torch::Tensor& t) {
+        return [this, device](const torch::Tensor& t) {
             auto tdev = t.to(device);
-            std::shared_lock<std::shared_mutex> lock(*smutex);
             return Forward(tdev);
             };
     }
     // 分布可視化用
     if (key == "forward.dist") {
-        return [this, device, smutex](const torch::Tensor& t) {
+        return [this, device](const torch::Tensor& t) {
             auto tdev = t.to(device);
-            std::shared_lock<std::shared_mutex> lock(*smutex);
             return ForwardQuantiles(tdev);
             };
     }
@@ -312,30 +304,26 @@ torch::Tensor QuantileDuelingQNet::ForwardQuantiles(const torch::Tensor& obs)
     return q;
 }
 
-std::optional<anet::TensorFunction> QuantileDuelingQNet::GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex)
+std::optional<anet::TensorFunction> QuantileDuelingQNet::GetTensorFunction(const std::string& key, const torch::Device& device)
 {
     // 平均値Q (Scalar)
     if (key == "forward" || key == "forward.q") {
-        return [this, device, smutex](const torch::Tensor& t) {
+        return [this, device](const torch::Tensor& t) {
             auto tdev = t.to(device);
-            std::shared_lock<std::shared_mutex> lock(*smutex);
             return Forward(tdev);
             };
     }
     // 分布Q (Distribution)
     if (key == "forward.dist") {
-        return [this, device, smutex](const torch::Tensor& t) {
+        return [this, device](const torch::Tensor& t) {
             auto tdev = t.to(device);
-            std::shared_lock<std::shared_mutex> lock(*smutex);
             return ForwardQuantiles(tdev);
             };
     }
     // Value & Advantage 分離出力 (B, 1+A, N)
     if (key == "forward.va") {
-        return [this, device, smutex](const torch::Tensor& t) {
+        return [this, device](const torch::Tensor& t) {
             auto x = t.to(device);
-            std::shared_lock<std::shared_mutex> lock(*smutex);
-
             x = torch::relu(fc1_->forward(x));
             x = torch::relu(fc2_->forward(x));
 
@@ -363,9 +351,8 @@ std::optional<anet::TensorFunction> QuantileDuelingQNet::GetTensorFunction(const
             };
     }
     if (key == "forward.v") {
-        return [this, device, smutex](const torch::Tensor& t) {
+        return [this, device](const torch::Tensor& t) {
             auto tdev = t.to(device);
-            std::shared_lock<std::shared_mutex> lock(*smutex);
 
             // 分布 Q(s, a, q) を取得
             auto q_dist = ForwardQuantiles(tdev); // (B, A, N)
@@ -384,9 +371,8 @@ std::optional<anet::TensorFunction> QuantileDuelingQNet::GetTensorFunction(const
             };
     }
     if (key == "forward.a") {
-        return [this, device, smutex](const torch::Tensor& t) {
+        return [this, device](const torch::Tensor& t) {
             auto x = t.to(device);
-            std::shared_lock<std::shared_mutex> lock(*smutex);
 
             x = torch::relu(fc1_->forward(x));
             x = torch::relu(fc2_->forward(x));
@@ -491,7 +477,7 @@ void Network::HardUpdate()
 }
 
 /// メトリクス用：NN生出力
-std::optional<anet::TensorFunction> Network::GetTensorFunction(const std::string& key, const torch::Device& device, std::shared_ptr<std::shared_mutex> smutex)
+std::optional<anet::TensorFunction> Network::GetTensorFunction(const std::string& key, const torch::Device& device)
 {
     static constexpr const char* POLICY_PREFIX = "policy-net.";
     static constexpr const char* TARGET_PREFIX = "target-net.";
@@ -499,14 +485,14 @@ std::optional<anet::TensorFunction> Network::GetTensorFunction(const std::string
     // policy net
     if (anet::StartsWith(key, POLICY_PREFIX)) {
         auto subkey = anet::RemovePrefix(key, POLICY_PREFIX);
-        auto fn = policy_net_->GetTensorFunction(subkey, device, smutex);
+        auto fn = policy_net_->GetTensorFunction(subkey, device);
         return fn;
     }
 
     // target net
     if (anet::StartsWith(key, TARGET_PREFIX)) {
         auto subkey = anet::RemovePrefix(key, TARGET_PREFIX);
-        auto fn = target_net_->GetTensorFunction(subkey, device, smutex);
+        auto fn = target_net_->GetTensorFunction(subkey, device);
         return fn;
     }
 

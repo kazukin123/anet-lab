@@ -579,7 +579,11 @@ bool LunarLanderEnv::checkCrash() const
         return true;
     }
 
-    //ANET_LOG_DEBUG("Not crashed. x=" << x);
+    // 空高く上がったらクラッシュ扱い
+    //float y = lander_body_->GetPosition().y;
+    //if (y > 6.0f) {
+    //    return true;
+    //}
 
     return false;
 }

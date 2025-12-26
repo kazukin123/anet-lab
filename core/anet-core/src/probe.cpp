@@ -432,7 +432,8 @@ torch::Tensor StateSweepProcessor::BuildInputTensor()
     // Y軸補間値作成
     torch::Tensor ys;
     if (grid_h_ > 1) {
-        ys = torch::linspace(1.0f, 0.0f, grid_h_, opts);
+        //ys = torch::linspace(1.0f, 0.0f, grid_h_, opts);    // Y軸反転
+        ys = torch::linspace(0.0f, 1.0f, grid_h_, opts);    // Y軸反転
     } else {
         ys = torch::zeros({ 1 }, opts);
     }

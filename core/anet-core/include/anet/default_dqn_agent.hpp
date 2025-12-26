@@ -77,11 +77,15 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, obs_norm.use_clipping);
             ANET_READ_CONFIG(config_data, obs_norm.clip_range);
             ANET_READ_CONFIG(config_data, obs_norm.use_dynamic_scaling);
+            ANET_READ_CONFIG(config_data, obs_norm.use_centering);
             ANET_READ_CONFIG(config_data, obs_norm.epsilon);
             ANET_READ_CONFIG(config_data, obs_norm.constant_mean);
             ANET_READ_CONFIG(config_data, obs_norm.constant_std);
-            ANET_READ_CONFIG(config_data, obs_norm.use_raw_clipping);
-            ANET_READ_CONFIG(config_data, obs_norm.raw_clip_range);
+            ANET_READ_CONFIG(config_data, obs_norm.use_robust_update);
+            ANET_READ_CONFIG(config_data, obs_norm.robust_warmup_count);
+            ANET_READ_CONFIG(config_data, obs_norm.robust_std_threshold);
+            ANET_READ_CONFIG(config_data, obs_norm.post_process_type);
+            ANET_READ_CONFIG(config_data, obs_norm.post_process_threshold);
 
             ANET_READ_CONFIG(config_data, num_quantiles);
             ANET_READ_CONFIG(config_data, use_dueling_net);
