@@ -4,9 +4,8 @@
 #include <optional>
 #include "anet/agent.hpp"
 #include "anet/rl.hpp"
+#include "anet/scaler.hpp"
 
-//using namespace anet::rl::dqn;
-//using namespace anet::rl;
 
 namespace anet::rl::dqn {
 
@@ -302,13 +301,12 @@ namespace anet::rl::dqn {
 
 
     // ======================================================
-    // RainbowAgent Learner
+    // Learner
     // ======================================================
-
 
     class Learner : public anet::rl::Learner, public anet::DataExporter {
     public:
-        Learner(const LearnerConfig& config, Network& network, RuntimeVars& vars,
+        Learner(const LearnerConfig& config, Network& network, RuntimeVars& vars, ObservationNormalizer* obs_norm,
             const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec,
             torch::Device device, anet::seed_t replay_seed);
 
@@ -340,13 +338,14 @@ namespace anet::rl::dqn {
         LearnerConfig config_;
         Network& network_;
         RuntimeVars& vars_;
+        ObservationNormalizer* obs_norm_;
         std::shared_ptr<anet::rl::ReplayBuffer> replay_buffer_;
         std::unique_ptr<torch::optim::Adam> optimizer_;
     };
 
     class TDLearner final : public anet::rl::dqn::Learner {
     public:
-        explicit TDLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars,
+        explicit TDLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, ObservationNormalizer* obs_norm,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed);
 
         std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
@@ -355,7 +354,7 @@ namespace anet::rl::dqn {
 
     class QRLearner final : public anet::rl::dqn::Learner {
     public:
-        explicit QRLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars,
+        explicit QRLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, ObservationNormalizer* obs_norm,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed);
 
         std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(

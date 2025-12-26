@@ -207,7 +207,7 @@ namespace anet {
         std::string full_dir = root_dir_ + "/" + run_name_;
         std::string full_path = root_dir_ + "/" + run_name_ + "/config.txt";
         std::filesystem::create_directories(full_dir);
-        std::ofstream ofs(full_path, std::ios_base::app);  // ファイルを開く
+        std::ofstream ofs(full_path, std::ios_base::app);  // 追記モードでファイルを開く
         auto map = config.GetConfigData().Map();
         for (auto kv : map) {
             auto key = kv.first;

@@ -25,66 +25,6 @@ DQNAgent.$ = DQNAgent.baseline
 
 # ---- DefaultDQNAgent
 
-DefaultDQNAgent.trunk.qnet.nn_init_mode = 1             # 0=default、1=XavierUniform、2=HeNormal
-DefaultDQNAgent.trunk.qnet.nn_hidden1 = 120
-DefaultDQNAgent.trunk.qnet.nn_hidden2 = 84
-DefaultDQNAgent.trunk.network.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
-#DefaultDQNAgent.trunk.network.hard_update_interval = 5000 #  -1 5000; //200 500 1000
-
-#DefaultDQNAgent.trunk.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-DefaultDQNAgent.trunk.learner.alpha = 1e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-DefaultDQNAgent.trunk.learner.gamma = 0.99                 # 0.99 0.995  γが高いほど「長期安定」を目指す
-DefaultDQNAgent.trunk.learner.eps_max = 1.00               # 指数減衰  
-DefaultDQNAgent.trunk.learner.eps_min = 0.05               # 0.1f 0.05f
-DefaultDQNAgent.trunk.learner.eps_decay_step = 150000       # 150K
-DefaultDQNAgent.trunk.learner.use_grad_clip = true        # ★
-#DefaultDQNAgent.trunk.learner.grad_clip_tau = 30           # ★10 25 40 1f 5f 10f
-DefaultDQNAgent.trunk.learner.grad_clip_tau = 1           # ★10 25 40 1f 5f 10f
-DefaultDQNAgent.trunk.learner.use_td_clip = false          # 
-DefaultDQNAgent.trunk.learner.td_clip_value = 30.0         # 4.0 20 30
-#DefaultDQNAgent.trunk.learner.replay_capacity = 100000       #  10000 30000
-DefaultDQNAgent.trunk.learner.replay_capacity = 1000000       #  10000 30000
-#DefaultDQNAgent.trunk.learner.replay_batch_size = 128      #
-DefaultDQNAgent.trunk.learner.replay_batch_size = 256      #
-#DefaultDQNAgent.trunk.learner.update_warmup_steps = 1000   # 1000
-#DefaultDQNAgent.trunk.learner.update_warmup_steps = 10   # 1000
-DefaultDQNAgent.trunk.learner.update_warmup_steps = 0   # 1000
-#DefaultDQNAgent.trunk.learner.update_interval = 5          #
-#DefaultDQNAgent.trunk.learner.update_interval = 2          #
-DefaultDQNAgent.trunk.learner.update_interval = 1          #
-
-#DefaultDQNAgent.trunk.learner.n_step = 1
-#DefaultDQNAgent.trunk.learner.n_step = 2
-DefaultDQNAgent.trunk.learner.n_step = 3
-
-DefaultDQNAgent.trunk.learner.per_alpha = 0.6f            # 優先度の反映度合い (0:uniform, 1:full)
-DefaultDQNAgent.trunk.learner.per_beta_start = 0.4f       # IS重みの補正度合い「beta」の初期値
-DefaultDQNAgent.trunk.learner.per_beta_end = 1.0f         # IS重みの補正度合い「beta」の収束値
-#DefaultDQNAgent.trunk.learner.per_beta_step = 50000      # 50K betaを収束値まで線形変化させるステップ数
-DefaultDQNAgent.trunk.learner.per_beta_step = 50000      # 50K betaを収束値まで線形変化させるステップ数
-DefaultDQNAgent.trunk.learner.per_eps = 1e-6f             # 優先度加算用微小値
-DefaultDQNAgent.trunk.learner.per_initial_priority = 1.0f # 新規データの初期優先度
-DefaultDQNAgent.trunk.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
-DefaultDQNAgent.trunk.learner.per_prio_clip_value = 20.0  # 優先度の上限値
-
-DefaultDQNAgent.trunk.learner.quantile_huber_kappa = 1.0   # Huber Loss の閾値 kappa
-
-DefaultDQNAgent.trunk.learner.use_n_step = true
-#DefaultDQNAgent.trunk.learner.use_n_step = false
-
-DefaultDQNAgent.trunk.learner.use_per = true
-#DefaultDQNAgent.trunk.learner.use_per = false
-
-DefaultDQNAgent.trunk.learner.use_double_dqn = true        # Double DQN 有効化フラグ（trueで有効）
-DefaultDQNAgent.trunk.use_dueling_net = true       # ★ 
-#DefaultDQNAgent.trunk.use_dueling_net = false     # ★ 
-
-DefaultDQNAgent.trunk.num_quantiles = 51           # 分位数 N (デフォルト51)
-#DefaultDQNAgent.trunk.use_qr = false                # QR-DQN 有効化フラグ
-DefaultDQNAgent.trunk.use_qr = true                # QR-DQN 有効化フラグ
-
-# ----
-
 DefaultDQNAgent.trunk2.qnet.nn_init_mode = 1                # 0=default, 1=XavierUniform, 2=HeNormal, 3=Orthogonal
 DefaultDQNAgent.trunk2.qnet.nn_hidden1 = 120
 DefaultDQNAgent.trunk2.qnet.nn_hidden2 = 84
@@ -97,7 +37,7 @@ DefaultDQNAgent.trunk2.learner.eps_min = 0.05               # 0.1f 0.05f
 DefaultDQNAgent.trunk2.learner.eps_decay_step = 20000       # 20K
 DefaultDQNAgent.trunk2.learner.adam_eps = 1e-5              # 小さな勾配の変化に敏感になりすぎるのを防ぎ、学習をマイルドに
 DefaultDQNAgent.trunk2.learner.use_grad_clip = true         # ★
-DefaultDQNAgent.trunk2.learner.grad_clip_tau = 1            # ★10 25 40 1f 5f 10f
+DefaultDQNAgent.trunk2.learner.grad_clip_tau = 5            # ★10 25 40 1f 5f 10f
 DefaultDQNAgent.trunk2.learner.use_td_clip = false          # 
 DefaultDQNAgent.trunk2.learner.td_clip_value = 30.0         # 4.0 20 30
 DefaultDQNAgent.trunk2.learner.replay_capacity = 100000     #  10000 30000
@@ -117,14 +57,25 @@ DefaultDQNAgent.trunk2.learner.quantile_huber_kappa = 1.0  # Huber Loss の閾�
 DefaultDQNAgent.trunk2.learner.use_double_dqn = true       # Double DQN 有効化フラグ（trueで有効）
 DefaultDQNAgent.trunk2.learner.use_n_step = true
 DefaultDQNAgent.trunk2.learner.use_per = true
-DefaultDQNAgent.trunk2.reward_scaler.use_clip = true
-DefaultDQNAgent.trunk2.reward_scaler.clip_threshold = 10
+DefaultDQNAgent.trunk2.reward_scaler.use_clipping = true
+DefaultDQNAgent.trunk2.reward_scaler.clip_range = 10
 DefaultDQNAgent.trunk2.reward_scaler.constant_scale = 0.01
 DefaultDQNAgent.trunk2.reward_scaler.use_dynamic_scaling = true
-DefaultDQNAgent.trunk2.reward_scaler.scaling_epsilon = 1e-8
+DefaultDQNAgent.trunk2.reward_scaler.epsilon = 1e-8
 DefaultDQNAgent.trunk2.reward_scaler.use_auto_post_scale = true   # gammaを使って自動設定するか
 DefaultDQNAgent.trunk2.reward_scaler.reference_q_std = 30.0       # 自動設定時のQ値分散目標スケール (推奨: 3.0～30.0)
 DefaultDQNAgent.trunk2.reward_scaler.manual_post_scale = 1.0      # use_auto_post_scale=true では使われない
+
+DefaultDQNAgent.trunk2.obs_norm.pass_through = false
+DefaultDQNAgent.trunk2.obs_norm.use_clipping = true
+DefaultDQNAgent.trunk2.obs_norm.clip_range = 10.0
+DefaultDQNAgent.trunk2.obs_norm.use_dynamic_scaling = true
+DefaultDQNAgent.trunk2.obs_norm.epsilon = 1e-4
+DefaultDQNAgent.trunk2.obs_norm.constant_mean = 0 0 0 0 0 0 0 0
+DefaultDQNAgent.trunk2.obs_norm.constant_std = 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+DefaultDQNAgent.trunk2.obs_norm.use_raw_clipping = false 
+DefaultDQNAgent.trunk2.obs_norm.raw_clip_range = 5.0
+
 DefaultDQNAgent.trunk2.use_dueling_net = true       #  
 DefaultDQNAgent.trunk2.num_quantiles = 51           # 分位数 N (デフォルト51)
 DefaultDQNAgent.trunk2.use_qr = true                # QR-DQN 有効化フラグ
@@ -163,11 +114,11 @@ DefaultDQNAgent.baseline.learner.quantile_huber_kappa = 1.0  # Huber Loss の閾
 DefaultDQNAgent.baseline.learner.use_double_dqn = true       # Double DQN 有効化フラグ（trueで有効）
 DefaultDQNAgent.baseline.learner.use_n_step = true
 DefaultDQNAgent.baseline.learner.use_per = true
-DefaultDQNAgent.baseline.reward_scaler.use_clip = true
-DefaultDQNAgent.baseline.reward_scaler.clip_threshold = 10
+DefaultDQNAgent.baseline.reward_scaler.use_clipping = true
+DefaultDQNAgent.baseline.reward_scaler.clip_range = 10 # ★10
 DefaultDQNAgent.baseline.reward_scaler.constant_scale = 0.01
 DefaultDQNAgent.baseline.reward_scaler.use_dynamic_scaling = true
-DefaultDQNAgent.baseline.reward_scaler.scaling_epsilon = 1e-8
+DefaultDQNAgent.baseline.reward_scaler.epsilon = 1e-8
 DefaultDQNAgent.baseline.reward_scaler.use_auto_post_scale = true   # gammaを使って自動設定するか
 DefaultDQNAgent.baseline.reward_scaler.target_q_scale = 30.0        # 自動設定時のQ値分散目標スケール (推奨: 3.0～30.0)
 DefaultDQNAgent.baseline.reward_scaler.manual_post_scale = 1.0      # use_auto_post_scale=true では使われない
@@ -256,6 +207,13 @@ metrics.scalar.baseline.[39_agent_per/14_per_batch_prio_mean_ema] = per_batch_pr
 metrics.scalar.baseline.[39_agent_per/15_per_is_weight_mean_ema] = per_is_weight_mean @learn $ema
 
 metrics.scalar.baseline.[40_agent_rs/01_scale] = $agent reward_scaler.scale @learn
+metrics.scalar.baseline.[40_agent_rs/02_clip_ratio] = $agent reward_scaler.clip_ratio @learn
+
+metrics.scalar.baseline.[41_agent_on/01_scale] = $agent obs_norm.count @learn
+metrics.scalar.baseline.[41_agent_on/02_mean_mean] = $agent obs_norm.mean_mean @learn
+metrics.scalar.baseline.[41_agent_on/03_std_mean] = $agent obs_norm.std_mean @learn
+metrics.scalar.baseline.[41_agent_on/04_clip_ratio] = $agent obs_norm.clip_ratio @learn
+
 
 metrics.scalar.baseline.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
 metrics.scalar.baseline.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
@@ -341,18 +299,20 @@ metrics.scalar.full.[37_agent_qtd/35_q_unstable_ema] = q_unstable_ema @learn
 metrics.scalar.full.[37_agent_qtd/42_s] = s @learn
 metrics.scalar.full.[37_agent_qtd/43_s_ema] = s_ema @learn
 metrics.scalar.full.[37_agent_qtd/46_unstable_ema] = unstable_ema @learn
+metrics.scalar.full.[40_agent_rs/01_scale] = $agent reward_scaler.scale @learn
+metrics.scalar.full.[40_agent_rs/21_std] = $agent reward_scaler.std @learn
+metrics.scalar.full.[40_agent_rs/23_mean] = $agent reward_scaler.mean @learn
+metrics.scalar.full.[40_agent_rs/24_count] = $agent reward_scaler.count @learn
+metrics.scalar.full.[41_agent_on/01_scale] = $agent obs_norm.count @learn
+metrics.scalar.full.[41_agent_on/02_mean_mean] = $agent obs_norm.mean_mean @learn
+metrics.scalar.full.[41_agent_on/03_std_mean] = $agent obs_norm.std_mean @learn
+metrics.scalar.full.[41_agent_on/04_clip_ratio] = $agent obs_norm.clip_ratio @learn
 metrics.scalar.full.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
 metrics.scalar.full.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $runner interval:100
 metrics.scalar.full.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
 metrics.scalar.full.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
 metrics.scalar.full.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 metrics.scalar.full.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
-metrics.scalar.full.[40_agent_rs/01_scale] = $agent reward_scaler.scale @learn
-metrics.scalar.full.[40_agent_rs/21_std] = $agent reward_scaler.std @learn
-metrics.scalar.full.[40_agent_rs/22_m2] = $agent reward_scaler.m2 @learn
-metrics.scalar.full.[40_agent_rs/23_mean] = $agent reward_scaler.mean @learn
-metrics.scalar.full.[40_agent_rs/24_count] = $agent reward_scaler.count @learn
-
 
 
 # ---- DQNAgent

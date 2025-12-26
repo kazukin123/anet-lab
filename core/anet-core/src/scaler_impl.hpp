@@ -1,0 +1,156 @@
+﻿// scaler_impl.hpp
+#pragma once
+
+#include "anet/scaler.hpp"
+
+namespace anet::rl {
+
+    // =============================================================
+    // RunningMeanStd
+    // =============================================================
+
+    /**
+     * @brief 並列Welfordアルゴリズムを用いて、ストリームデータの平均と分散を逐次計算するクラス。
+     * Reward Scaling (Scalar) と Observation Normalization (Vector) の両方で使用可能。
+     */
+    class RunningMeanStd {
+    public:
+        /**
+         * @param shape 統計を取るデータの形状。
+         * Reward用(Scalar)なら空のvector {}
+         * Obs用(Vector)なら {feature_dim}
+         * @param epsilon ゼロ除算防止用
+         */
+        explicit RunningMeanStd(const std::vector<int64_t>& shape = {}, double epsilon = 1e-4);
+
+        virtual ~RunningMeanStd() = default;
+
+        void Reset();
+
+        /**
+         * @brief バッチデータを入力して統計情報を更新する
+         * @param batch_input
+         * Rewardの場合: [Batch] or [Batch, 1] -> 全要素をスカラー統計として扱う
+         * Obsの場合:    [Batch, Feature]      -> Batch次元(dim0)をつぶしてFeatureごとの統計を取る
+         */
+        void Update(const torch::Tensor& batch_input);
+
+        // ---- 内部状態取得
+        torch::Tensor GetMean() const { return mean_; }
+        torch::Tensor GetVar() const { return var_; }
+        torch::Tensor GetStd() const { return torch::sqrt(var_) + epsilon_; }
+        int64_t GetCount() const { return count_; }
+
+        // ---- メトリクス監視用
+        double GetMeanMean() const { return mean_.mean().item<double>(); }      ///< 平均ベクトルの平均値（ドリフト検知用）
+        double GetStdMean() const { return GetStd().mean().item<double>(); }    ///< 標準偏差ベクトルの平均値（探索範囲拡大/縮小の検知用）
+        double GetMeanMax() const { return mean_.abs().max().item<double>(); }  ///< 平均の最大値（最も偏っている次元の検知）
+    private:
+        void updateFromBatchStats(const torch::Tensor& batch_mean, const torch::Tensor& batch_m2, int batch_size);
+    private:
+        int64_t count_;
+        double epsilon_;
+
+        // 内部状態はすべて Double Tensor (Scalar or Vector)
+        torch::Tensor mean_;
+        torch::Tensor var_;
+        torch::Tensor m2_;
+    };
+
+
+    // =============================================================
+    // ObservationNormalizer
+    // =============================================================
+
+    class ConstantObservationNormalizer : public ObservationNormalizer, virtual public DataExporterBase {
+    public:
+        ConstantObservationNormalizer(bool pass_through,
+            const std::vector<int64_t>& shape, const std::optional<float>& clip_range,
+            const std::vector<float>& fixed_mean = {}, // 空なら 0.0
+            const std::vector<float>& fixed_std = {}   // 空なら 1.0
+        );
+        virtual ~ConstantObservationNormalizer() = default;
+
+        torch::Tensor Normalize(const torch::Tensor& obs) const override;
+        torch::Tensor NormalizeAndUpdateStats(const torch::Tensor& obs) override;
+        void Reset() override;
+    public:
+        // DataExporter interface
+        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
+    private:
+        std::pair<torch::Tensor, float> normalizeInternal(const torch::Tensor& obs) const;
+    private:
+        // 設定情報
+        bool pass_through_;
+        const std::vector<int64_t> shape_;
+        const std::optional<float> clip_range_;
+        torch::Tensor mean_;
+        torch::Tensor std_;
+
+        // 統計情報
+        mutable float last_clip_ratio_ = 0.0f;  ///< 直近のNormalizeでのクリップ率（メトリクス用）
+    };
+
+    class RunningStdObservationNormalizer : public ObservationNormalizer, virtual public DataExporterBase {
+    public:
+        RunningStdObservationNormalizer(
+            const std::optional<float>& clip_range, const std::optional<float>& raw_clip_range, 
+            const std::vector<int64_t>& shape, float epsilon);
+        virtual ~RunningStdObservationNormalizer() = default;
+
+        torch::Tensor Normalize(const torch::Tensor& obs) const override;
+        torch::Tensor NormalizeAndUpdateStats(const torch::Tensor& obs) override;
+        void Reset() override;
+    public:
+        // DataExporter interface
+        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
+    private:
+        std::pair<torch::Tensor, float> normalizeInternal(const torch::Tensor& obs) const;
+    private:
+        // 設定情報
+        const std::optional<float> clip_range_;
+        const std::optional<float> raw_clip_range_;
+        const std::vector<int64_t> shape_; // 期待する形状 (e.g. {S}、{C, H, W})
+
+        // 統計情報
+        RunningMeanStd stats_;
+        mutable float last_clip_ratio_ = 0.0f;  ///< 直近のNormalizeでのクリップ率（メトリクス用）
+    };
+
+    // =============================================================
+    // RewardScaler
+    // =============================================================
+
+    class ConstantRewardScaler : public RewardScaler, virtual public DataExporterBase {
+    public:
+        ConstantRewardScaler(float scale_factor, const std::optional<float>& clip_range = std::nullopt);
+        torch::Tensor Scale(const torch::Tensor& reward) override;
+        void Reset() override {}
+    public:
+        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
+    private:
+        float scale_factor_;
+        const std::optional<float> clip_range_;
+        float last_clip_ratio_;
+    };
+
+    class RunningStdRewardScaler : public RewardScaler, virtual public DataExporterBase {
+    public:
+        RunningStdRewardScaler(const std::optional<float>& clip_range = std::nullopt, float epsilon = 1e-8f, float post_scale = 1.0f);
+
+        torch::Tensor Scale(const torch::Tensor& reward) override;
+        void Reset() override;
+    public:
+        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
+    private:
+        // 設定
+        const std::optional<float> clip_range_; ///< クリップ範囲
+        const float epsilon_;             ///< ゼロ除算防止用の極小値
+        const float post_scale_;
+
+        // 統計
+        RunningMeanStd stats_;
+        float last_clip_ratio_ = 0.0f;  ///< 直近のNormalizeでのクリップ率（メトリクス用）
+    };
+
+} // namespace anet::rl

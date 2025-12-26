@@ -584,9 +584,10 @@ anet::rl::BatchActionInfo ActionPolicy::SelectAction(const torch::Tensor& obs, b
 // Learner
 // ======================================================
 
-Learner::Learner(const LearnerConfig& config, Network& network, RuntimeVars& vars,
+Learner::Learner(const LearnerConfig& config, Network& network, RuntimeVars& vars, ObservationNormalizer* obs_norm,
     const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed)
-    : config_(config), network_(network), vars_(vars), batch_size_(batch_env_spec.batch_size)
+    : config_(config), network_(network), vars_(vars), obs_norm_(obs_norm)
+    , batch_size_(batch_env_spec.batch_size)
     , n_actions_(env_spec.action_spec.GetNumActions()), state_dim_(env_spec.state_spec.CalcFlattenDim())
     , device_(std::move(device))
 {
@@ -751,9 +752,9 @@ std::shared_ptr<const anet::rl::BatchUpdateResult> Learner::UpdateFromBatch(
 // ======================================================
 
 
-TDLearner::TDLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars,
+TDLearner::TDLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, ObservationNormalizer* obs_norm,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed)
-    : Learner(config, network, vars, batch_env_spec, env_spec, device, replay_seed)
+    : Learner(config, network, vars, obs_norm, batch_env_spec, env_spec, device, replay_seed)
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
@@ -767,10 +768,17 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     const int B = config_.replay_batch_size;
     const int S = state_dim_;
     const int A = n_actions_;
-    const auto& obs = samples.obs;
     const auto& target_values = samples.target_values;
-    const auto& next_obs = samples.next_states.obs;
     const auto& terminals = samples.next_states.terminals;
+
+    // Observation正規化
+    torch::Tensor obs = samples.obs;
+    torch::Tensor next_obs = samples.next_states.obs;
+    if (obs_norm_) {
+        // 統計更新は Agent 側の収集フェーズで行うためここでは適用のみ(false)
+        obs = obs_norm_->Normalize(samples.obs);
+        next_obs = obs_norm_->Normalize(samples.next_states.obs);
+    }
 
     // ------------------------------------------------------------
     // Q(s, a)
@@ -963,12 +971,9 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 // QRLearner
 // ======================================================
 
-//explicit TDLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars,
-//    const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed);
-
-QRLearner::QRLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars,
+QRLearner::QRLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, ObservationNormalizer* obs_norm,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed)
-    : Learner(config, network, vars, batch_env_spec, env_spec, std::move(device), replay_seed)
+    : Learner(config, network, vars, obs_norm, batch_env_spec, env_spec, std::move(device), replay_seed)
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
@@ -1037,13 +1042,21 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     ANET_CHECK_SHAPE(samples.target_values, { B });
     ANET_CHECK_SHAPE(samples.next_states.terminals, { B });
 
+    // Observation正規化
+    torch::Tensor obs = samples.obs;
+    torch::Tensor next_obs = samples.next_states.obs;
+    if (obs_norm_) {
+        // 統計更新は Agent 側の収集フェーズで行うためここでは適用のみ(false)
+        obs = obs_norm_->Normalize(samples.obs);
+        next_obs = obs_norm_->Normalize(samples.next_states.obs);
+    }
 
     // ------------------------------------------------------------
     // 分布計算
     // ------------------------------------------------------------
 
     // 現在の分布計算: Z(s, a)、ForwardQuantiles は (B, A, N) を返す
-    auto current_dist_all = network_.ForwardQuantiles(samples.obs, /*use_target=*/false);
+    auto current_dist_all = network_.ForwardQuantiles(obs, /*use_target=*/false);
     ANET_CHECK_SHAPE(current_dist_all, { B, A, N });
 
     // 選択された行動の分布を取得: (B, A, N) -> (B, N)
@@ -1073,18 +1086,18 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // 次状態のGreedy行動 a* = argmax E[Z(s', a')]
         torch::Tensor next_actions;
         if (config_.use_double_dqn) {
-            auto next_q_policy = network_.Forward(samples.next_states.obs, /*use_target=*/false); // (B, A)
+            auto next_q_policy = network_.Forward(next_obs, /*use_target=*/false); // (B, A)
             ANET_CHECK_SHAPE(next_q_policy, { B, A });
             next_actions = std::get<1>(next_q_policy.max(1)); // (B)
         } else {
-            auto next_q_target = network_.Forward(samples.next_states.obs, /*use_target=*/true); // (B, A)
+            auto next_q_target = network_.Forward(next_obs, /*use_target=*/true); // (B, A)
             ANET_CHECK_SHAPE(next_q_target, { B, A });
             next_actions = std::get<1>(next_q_target.max(1)); // (B)
         }
         ANET_CHECK_SHAPE(next_actions, { B });
 
         // 次状態のターゲット分布: Z_target(s', :)
-        auto next_dist_all = network_.ForwardQuantiles(samples.next_states.obs, /*use_target=*/true); // (B, A, N)
+        auto next_dist_all = network_.ForwardQuantiles(next_obs, /*use_target=*/true); // (B, A, N)
         ANET_CHECK_SHAPE(next_dist_all, { B, A, N });
 
         // a* に対応する分布を選択: (B, A, N) -> (B, N)

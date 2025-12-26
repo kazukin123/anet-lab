@@ -56,6 +56,10 @@ DefaultDQNAgent::DefaultDQNAgent(
     // RewardScaler生成
     anet::rl::RewardScalerFactory reward_scaler_factory(config_.reward_scaler);
     this->reward_scaler_ = reward_scaler_factory.CreateRewardScaler(config_.learner.gamma);
+    
+    // ObservationNormalizer生成
+    anet::rl::ObservationNormalizerFactory obs_norm_factory(config_.obs_norm);
+    this->obs_norm_ = obs_norm_factory.CreateObservationNormalizer(env_spec.state_spec);
 
     // NN生成＆初期化
     std::shared_ptr<anet::rl::dqn::QNet> policy_net;
@@ -86,10 +90,12 @@ DefaultDQNAgent::DefaultDQNAgent(
 
     // Learner生成
     if (is_distributional) {
-        this->learner_ = std::make_unique<dqn::QRLearner>(config_.learner, *network_, *vars_, batch_env_spec, env_spec, device_, replay_seed);
+        this->learner_ = std::make_unique<dqn::QRLearner>(
+            config_.learner, *network_, *vars_, obs_norm_.get(), batch_env_spec, env_spec, device_, replay_seed);
         LOG::info() << "Initialized QRLearner (Quantiles=" << config_.num_quantiles << ")";
     } else {
-        this->learner_ = std::make_unique<dqn::TDLearner>(config_.learner, *network_, *vars_, batch_env_spec, env_spec, device_, replay_seed);
+        this->learner_ = std::make_unique<dqn::TDLearner>(
+            config_.learner, *network_, *vars_, obs_norm_.get(), batch_env_spec, env_spec, device_, replay_seed);
         LOG::info() << "Initialized TDLearner";
     }
 }
@@ -116,6 +122,10 @@ std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int inde
     if (key.find(RewardScaler::kKeyPrefix) == 0) {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return reward_scaler_->GetScalar(key);
+    }
+    if (key.find(ObservationNormalizer::kKeyPrefix) == 0) {
+        std::shared_lock<std::shared_mutex> lock(*mutex_);
+        return obs_norm_->GetScalar(key);
     }
 
     return std::nullopt;
@@ -153,10 +163,13 @@ anet::rl::BatchActionInfo DefaultDQNAgent::MakeAction(const StepCounts& step, co
     // Flatなobsを生成
     auto flat_obs = state.To(device_).Flatten().obs;
 
+    // Normalize observations
+    auto obs_norm = this->obs_norm_->Normalize(flat_obs);
+
     // 行動選択
     auto greedy_only = anet::rl::IsEval(runmode);
     auto use_target = (runmode == anet::rl::RunMode::Eval1);
-    auto act_info = this->action_policy_->SelectAction(flat_obs, greedy_only, use_target);
+    auto act_info = this->action_policy_->SelectAction(obs_norm, greedy_only, use_target);
 
     // ActionInfoを返す
     return act_info;
@@ -175,10 +188,25 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
 
         // RewardScaler
         auto scaled_rewards = this->reward_scaler_->Scale(batch_exp.reward);
-        BatchExperience scaled_exp { batch_exp.state, batch_exp.action, scaled_rewards, batch_exp.next_state };
+
+        // Normalize observations 統計更新
+        this->obs_norm_->NormalizeAndUpdateStats(batch_exp.state.obs);
+
+        // 【重要】next_state では更新しない (false)
+        // 理由：next_stateには終端状態などが含まれ、入力分布を歪める可能性があるため
+        // また、state だけで十分なサンプル数があるため
+
+        // BatchExperience生成
+        // 【重要】ReplayBufferには「生の観測」を渡す。 報酬だけはスケール済みを使う
+        BatchExperience exp {
+            batch_exp.state,
+            batch_exp.action,
+            scaled_rewards,
+            batch_exp.next_state
+        };
 
         // Update実行
-        update_result = this->learner_->UpdateFromBatch(counts, scaled_exp, runner);
+        update_result = this->learner_->UpdateFromBatch(counts, exp, runner);
     } else {
         // 更新なしでResultだけ作る
         update_result = std::make_shared<dqn::BatchUpdateResult>(0);

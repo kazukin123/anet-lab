@@ -6,7 +6,7 @@
 #include <wx/cmdline.h>
 #include <nlohmann/json.hpp>
 #include "anet/util.hpp"
-
+#include "anet/str_util.hpp"
 
 namespace anet {
 
@@ -92,7 +92,8 @@ namespace anet {
             return true;
         }
 
-        bool Read(const std::string& key, bool& value, bool defaultValue) const {
+        bool Read(const std::string& key, bool& value, bool defaultValue) const
+        {
             auto it = map_.find(key);
             if (it == map_.end()) { value = defaultValue; return false; }
             const auto& v = (*it).second;
@@ -100,6 +101,23 @@ namespace anet {
             if (v == "false" || v == "FALSE" || v == "0" || v == "no" || v == "off") { value = false; return true; }
             value = defaultValue;
             return false;
+        }
+
+        bool Read(const std::string& key, std::vector<float>& value, std::vector<float> defaultValue) const
+        {
+            auto it = map_.find(key);
+            if (it == map_.end()) { value = defaultValue; return false; }
+            try {
+                auto str_vec = anet::Split((*it).second, { " ", "　" }, true);
+                value.resize(str_vec.size());
+                for (int i = 0; i < value.size(); i++) {
+                    value[i] = std::stof(str_vec[i]);
+                }
+            } catch (...) {
+                value = defaultValue;
+                return false;
+            }
+            return true;
         }
 
     private:

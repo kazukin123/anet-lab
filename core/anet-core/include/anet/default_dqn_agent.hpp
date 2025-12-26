@@ -18,6 +18,7 @@ namespace anet::rl::dqn {
         NetworkConfig network;
         LearnerConfig learner;
         RewardScalerConfig reward_scaler;
+        ObservationNormalizerConfig obs_norm;
 
         int num_quantiles = 51;
         bool use_dueling_net = true;
@@ -63,14 +64,24 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.use_n_step);
             ANET_READ_CONFIG(config_data, learner.use_per);
 
-            ANET_READ_CONFIG(config_data, reward_scaler.use_clip);
-            ANET_READ_CONFIG(config_data, reward_scaler.clip_threshold);
+            ANET_READ_CONFIG(config_data, reward_scaler.use_clipping);
+            ANET_READ_CONFIG(config_data, reward_scaler.clip_range);
             ANET_READ_CONFIG(config_data, reward_scaler.constant_scale);
             ANET_READ_CONFIG(config_data, reward_scaler.use_dynamic_scaling);
-            ANET_READ_CONFIG(config_data, reward_scaler.scaling_epsilon);
+            ANET_READ_CONFIG(config_data, reward_scaler.epsilon);
             ANET_READ_CONFIG(config_data, reward_scaler.use_auto_post_scale);
             ANET_READ_CONFIG(config_data, reward_scaler.reference_q_std);
             ANET_READ_CONFIG(config_data, reward_scaler.manual_post_scale);
+
+            ANET_READ_CONFIG(config_data, obs_norm.pass_through);
+            ANET_READ_CONFIG(config_data, obs_norm.use_clipping);
+            ANET_READ_CONFIG(config_data, obs_norm.clip_range);
+            ANET_READ_CONFIG(config_data, obs_norm.use_dynamic_scaling);
+            ANET_READ_CONFIG(config_data, obs_norm.epsilon);
+            ANET_READ_CONFIG(config_data, obs_norm.constant_mean);
+            ANET_READ_CONFIG(config_data, obs_norm.constant_std);
+            ANET_READ_CONFIG(config_data, obs_norm.use_raw_clipping);
+            ANET_READ_CONFIG(config_data, obs_norm.raw_clip_range);
 
             ANET_READ_CONFIG(config_data, num_quantiles);
             ANET_READ_CONFIG(config_data, use_dueling_net);
@@ -101,6 +112,7 @@ namespace anet::rl::dqn {
     private:
         DefaultDQNAgentConfig config_;
         std::unique_ptr<anet::rl::RewardScaler> reward_scaler_;
+        std::unique_ptr<anet::rl::ObservationNormalizer> obs_norm_;
         std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
         std::unique_ptr<anet::rl::dqn::Network> network_;
         std::shared_ptr<anet::rl::dqn::ActionPolicy> action_policy_;
