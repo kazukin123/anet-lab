@@ -192,6 +192,13 @@ std::optional<float> ConstantObservationNormalizer::GetScalar(const std::string&
     return std::nullopt;
 }
 
+std::optional<torch::Tensor> ConstantObservationNormalizer::GetTensor(const std::string& key, int index) const
+{
+    if (key == kKeyMean) return mean_;
+    if (key == kKeyStd) return std_;
+
+    return std::nullopt;
+}
 
 // =============================================================
 // RunningStdObservationNormalizer
@@ -291,6 +298,14 @@ std::optional<float> RunningStdObservationNormalizer::GetScalar(const std::strin
     if (key == kKeyMeanMean) return static_cast<float>(stats_.GetMeanMean());
     if (key == kKeyStdMean) return static_cast<float>(stats_.GetStdMean());
     if (key == kKeyClipRatio) return last_clip_ratio_;
+
+    return std::nullopt;
+}
+
+std::optional<torch::Tensor> RunningStdObservationNormalizer::GetTensor(const std::string& key, int index) const
+{
+    if (key == kKeyMean) return stats_.GetMean();
+    if (key == kKeyStd) return stats_.GetStd();
 
     return std::nullopt;
 }

@@ -29,6 +29,8 @@ namespace anet::rl {
         static constexpr const char* kKeyCount = "obs_norm.count";
         static constexpr const char* kKeyMeanMean = "obs_norm.mean_mean"; // 平均の平均（ドリフト監視）
         static constexpr const char* kKeyStdMean = "obs_norm.std_mean";   // 標準偏差の平均（探索範囲監視）
+        static constexpr const char* kKeyMean = "obs_norm.mean"; // 平均の平均（ドリフト監視）
+        static constexpr const char* kKeyStd = "obs_norm.std";   // 標準偏差の平均（探索範囲監視）
         static constexpr const char* kKeyClipRatio = "obs_norm.clip_ratio"; // クリップ率
     };
 

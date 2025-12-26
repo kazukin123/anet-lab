@@ -137,6 +137,14 @@ std::optional<torch::Tensor> DefaultDQNAgent::GetTensor(const std::string& key, 
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return learner_->GetTensor(key);
     }
+    if (key.find(RewardScaler::kKeyPrefix) == 0) {
+        std::shared_lock<std::shared_mutex> lock(*mutex_);
+        return reward_scaler_->GetTensor(key);
+    }
+    if (key.find(ObservationNormalizer::kKeyPrefix) == 0) {
+        std::shared_lock<std::shared_mutex> lock(*mutex_);
+        return obs_norm_->GetTensor(key);
+    }
 
     return std::nullopt;
 }
