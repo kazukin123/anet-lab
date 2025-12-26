@@ -64,7 +64,6 @@ add_library(anet-core STATIC
     "src/dqn_based_agent.cpp"
     "src/replay_buffer_impl.cpp"
     "src/default_dqn_agent.cpp"
-    "src/scaler.cpp"
     "src/scaler_impl.cpp")
 
 target_include_directories(anet-core

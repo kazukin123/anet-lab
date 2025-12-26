@@ -91,11 +91,11 @@ DefaultDQNAgent::DefaultDQNAgent(
     // Learner生成
     if (is_distributional) {
         this->learner_ = std::make_unique<dqn::QRLearner>(
-            config_.learner, *network_, *vars_, obs_norm_.get(), batch_env_spec, env_spec, device_, replay_seed);
+            config_.learner, *network_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed);
         LOG::info() << "Initialized QRLearner (Quantiles=" << config_.num_quantiles << ")";
     } else {
         this->learner_ = std::make_unique<dqn::TDLearner>(
-            config_.learner, *network_, *vars_, obs_norm_.get(), batch_env_spec, env_spec, device_, replay_seed);
+            config_.learner, *network_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed);
         LOG::info() << "Initialized TDLearner";
     }
 }

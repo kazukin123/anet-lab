@@ -112,7 +112,7 @@ namespace anet::rl::dqn {
     private:
         DefaultDQNAgentConfig config_;
         std::unique_ptr<anet::rl::RewardScaler> reward_scaler_;
-        std::unique_ptr<anet::rl::ObservationNormalizer> obs_norm_;
+        std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm_;
         std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
         std::unique_ptr<anet::rl::dqn::Network> network_;
         std::shared_ptr<anet::rl::dqn::ActionPolicy> action_policy_;

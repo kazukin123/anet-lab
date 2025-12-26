@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <memory>
 #include <vector>
 #include <torch/torch.h>
 #include "anet/common.hpp"
@@ -48,7 +49,7 @@ namespace anet::rl {
     class ObservationNormalizerFactory {
     public:
         ObservationNormalizerFactory(const ObservationNormalizerConfig& config);
-        std::unique_ptr<ObservationNormalizer> CreateObservationNormalizer(const StateSpec& state_spec) const;
+        std::shared_ptr<ObservationNormalizer> CreateObservationNormalizer(const StateSpec& state_spec) const;
     private:
         ObservationNormalizerConfig config_;
     };

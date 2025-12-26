@@ -584,7 +584,7 @@ anet::rl::BatchActionInfo ActionPolicy::SelectAction(const torch::Tensor& obs, b
 // Learner
 // ======================================================
 
-Learner::Learner(const LearnerConfig& config, Network& network, RuntimeVars& vars, ObservationNormalizer* obs_norm,
+Learner::Learner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed)
     : config_(config), network_(network), vars_(vars), obs_norm_(obs_norm)
     , batch_size_(batch_env_spec.batch_size)
@@ -752,7 +752,7 @@ std::shared_ptr<const anet::rl::BatchUpdateResult> Learner::UpdateFromBatch(
 // ======================================================
 
 
-TDLearner::TDLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, ObservationNormalizer* obs_norm,
+TDLearner::TDLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed)
     : Learner(config, network, vars, obs_norm, batch_env_spec, env_spec, device, replay_seed)
 {
@@ -971,7 +971,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 // QRLearner
 // ======================================================
 
-QRLearner::QRLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, ObservationNormalizer* obs_norm,
+QRLearner::QRLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed)
     : Learner(config, network, vars, obs_norm, batch_env_spec, env_spec, std::move(device), replay_seed)
 {

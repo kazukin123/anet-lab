@@ -306,7 +306,7 @@ ObservationNormalizerFactory::ObservationNormalizerFactory(const ObservationNorm
     ;
 }
 
-std::unique_ptr<ObservationNormalizer> ObservationNormalizerFactory::CreateObservationNormalizer(
+std::shared_ptr<ObservationNormalizer> ObservationNormalizerFactory::CreateObservationNormalizer(
     const StateSpec& state_spec) const
 {
     auto shape = state_spec.shape;
@@ -322,9 +322,9 @@ std::unique_ptr<ObservationNormalizer> ObservationNormalizerFactory::CreateObser
 
     // Scaler生成
     if (!config_.use_dynamic_scaling) {
-        return std::make_unique<ConstantObservationNormalizer>(config_.pass_through, shape, clip, config_.constant_mean, config_.constant_std);
+        return std::make_shared<ConstantObservationNormalizer>(config_.pass_through, shape, clip, config_.constant_mean, config_.constant_std);
     } else {
-        return std::make_unique<RunningStdObservationNormalizer>(clip, raw_clip, shape, config_.epsilon);
+        return std::make_shared<RunningStdObservationNormalizer>(clip, raw_clip, shape, config_.epsilon);
     }
 }
 
