@@ -10,7 +10,6 @@ jobs:
   build:
     runs-on: windows-2022
     
-    # === ここが重要：マトリックス設定 ===
     strategy:
       fail-fast: false # どちらかが失敗しても、もう片方は続ける
       matrix:
@@ -26,15 +25,28 @@ jobs:
     - uses: actions/checkout@v4
 
     # ----------------------------------------------------------------
-    # 1. LibTorch のキャッシュ (構成によらず共通)
+    # CUDA Toolkit
+    # ----------------------------------------------------------------
+    - name: Install CUDA Toolkit
+      uses: Jimver/cuda-toolkit@v0.2.30
+      id: cuda-toolkit
+      with:
+        cuda: '13.0.0'
+
+    - run: echo "Installed cuda version is: ${{steps.cuda-toolkit.outputs.cuda}}"
+
+    - run: echo "Cuda install location: ${{steps.cuda-toolkit.outputs.CUDA_PATH}}"
+
+    - run: nvcc -V
+
+    # ----------------------------------------------------------------
+    # LibTorch のキャッシュ (構成によらず共通)
     # ----------------------------------------------------------------
     - name: Cache LibTorch
       id: cache-libtorch
       uses: actions/cache@v3
       with:
         path: deps/libtorch
-        # LibTorchはDebug/Release両方のファイルをまとめてdepsに置く戦略なので
-        # キャッシュキーに build_type は含めなくてOKです
         key: libtorch-${{ env.LIBTORCH_VER }}-windows-v1
 
     - name: Download and Extract LibTorch
@@ -65,7 +77,7 @@ jobs:
         Remove-Item temp_rel, temp_dbg -Recurse -Force
 
     # ----------------------------------------------------------------
-    # 2. wxWidgets のキャッシュとビルド
+    # wxWidgets のキャッシュとビルド
     #    配置場所: third_party/wxwidgets
     # ----------------------------------------------------------------
     - name: Cache wxWidgets
@@ -116,7 +128,7 @@ jobs:
         Remove-Item $wxBuild -Recurse -Force
 
     # ----------------------------------------------------------------
-    # 3. メインプロジェクト (anet-lab)
+    # メインプロジェクト (anet-lab)
     # ----------------------------------------------------------------
     - name: Configure CMake
       shell: pwsh
