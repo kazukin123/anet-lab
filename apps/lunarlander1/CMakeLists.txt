@@ -54,6 +54,8 @@ add_executable(LunarLanderRLGUI
 
 target_precompile_headers(LunarLanderRLGUI PRIVATE "src/pch.hpp")
 
+target_compile_definitions(LunarLanderRLGUI PUBLIC WXINTL_NO_GETTEXT_MACRO)    # N_()マクロ競合対策
+
 target_link_libraries(LunarLanderRLGUI PRIVATE
     anet-core
     ${TORCH_LIBRARIES}

@@ -47,6 +47,9 @@ add_executable(CartPoleRLGUI
 )
 
 target_precompile_headers(CartPoleRLGUI PRIVATE "src/pch.hpp")
+
+target_compile_definitions(CartPoleRLGUI PUBLIC WXINTL_NO_GETTEXT_MACRO)    # N_()マクロ競合対策
+
 target_link_libraries(CartPoleRLGUI PRIVATE
     anet-core
     anet_wx

@@ -66,7 +66,11 @@ target_include_directories(anet-core
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
+
 target_precompile_headers(anet-core PRIVATE "src/pch.hpp")
+
+target_compile_definitions(anet-core PUBLIC WXINTL_NO_GETTEXT_MACRO)    # N_()マクロ競合対策
+
 target_link_libraries(anet-core PUBLIC
     ${TORCH_LIBRARIES}
     anet_wx
