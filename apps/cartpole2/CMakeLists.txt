@@ -11,7 +11,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_COLOR_MAKEFILE ON)
 
-find_package(wxWidgets REQUIRED COMPONENTS core base)
+#find_package(wxWidgets REQUIRED COMPONENTS core base)
 find_package(Torch REQUIRED)
 
 if (MSVC)
