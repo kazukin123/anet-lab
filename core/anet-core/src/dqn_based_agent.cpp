@@ -289,10 +289,12 @@ torch::Tensor QuantileDuelingQNet::ForwardQuantiles(const torch::Tensor& obs)
     auto v = value_->forward(x);
     auto batch_size = v.size(0);
     v = v.view({ batch_size, 1, num_quantiles_ });
+    ANET_CHECK_NAN(v);
 
     // Advantage: (B, H) -> (B, A * N) -> (B, A, N)
     auto a = adv_->forward(x);
     a = a.view({ batch_size, n_actions_, num_quantiles_ });
+    ANET_CHECK_NAN(a);
 
     // Mean Advantage across actions: (B, 1, N)
     auto a_mean = a.mean(/*dim=*/1, /*keepdim=*/true);
@@ -580,7 +582,7 @@ Learner::Learner(const LearnerConfig& config, Network& network, RuntimeVars& var
     ;
 }
 
-std::optional<float> Learner::GetScalar(const std::string& key, int index) const
+std::optional<float> Learner::GetScalar(const std::string& key, int64_t index) const
 {
     if (key.find(ReplayBuffer::kKeyPrefix) == 0 && replay_buffer_ != nullptr) {
         return replay_buffer_->GetScalar(key);
@@ -589,7 +591,7 @@ std::optional<float> Learner::GetScalar(const std::string& key, int index) const
     return std::nullopt;
 }
 
-std::optional<torch::Tensor> Learner::GetTensor(const std::string& key, int index) const
+std::optional<torch::Tensor> Learner::GetTensor(const std::string& key, int64_t index) const
 {
     if (key.find(ReplayBuffer::kKeyPrefix) == 0 && replay_buffer_ != nullptr)
         return replay_buffer_->GetTensor(key);
@@ -597,7 +599,7 @@ std::optional<torch::Tensor> Learner::GetTensor(const std::string& key, int inde
     return std::nullopt;
 }
 
-std::optional<std::vector<torch::Tensor>> Learner::GetTensorVector(const std::string& key, int index) const
+std::optional<std::vector<torch::Tensor>> Learner::GetTensorVector(const std::string& key, int64_t index) const
 {
     if (key.find(ReplayBuffer::kKeyPrefix) == 0 && replay_buffer_ != nullptr)
         return replay_buffer_->GetTensorVector(key);
@@ -1036,6 +1038,8 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         obs = obs_norm_->Normalize(samples.obs);
         next_obs = obs_norm_->Normalize(samples.next_states.obs);
     }
+    ANET_CHECK_NAN(obs);
+    ANET_CHECK_NAN(next_obs);
 
     // ------------------------------------------------------------
     // 分布計算
@@ -1044,13 +1048,16 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     // 現在の分布計算: Z(s, a)、ForwardQuantiles は (B, A, N) を返す
     auto current_dist_all = network_.ForwardQuantiles(obs, /*use_target=*/false);
     ANET_CHECK_SHAPE(current_dist_all, { B, A, N });
+    ANET_CHECK_NAN(current_dist_all);
 
     // 選択された行動の分布を取得: (B, A, N) -> (B, N)
     torch::Tensor idx_actions = samples.actions.view({ B, 1, 1 }).expand({ B, 1, N });
     ANET_CHECK_SHAPE(idx_actions, { B, 1, N });
+    ANET_CHECK_NAN(idx_actions);
 
     auto current_dist = current_dist_all.gather(1, idx_actions).squeeze(1); // (B, N)
     ANET_CHECK_SHAPE(current_dist, { B, N });
+    ANET_CHECK_NAN(current_dist);
 
     // メトリクス用: 平均値をmax_qとして報告
     auto max_q = current_dist.mean(1).detach(); // (B)
@@ -1103,6 +1110,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         target_dist = reward + config_.gamma * not_terminal * next_dist;
         ANET_CHECK_SHAPE(target_dist, { B, N });
     }
+    ANET_CHECK_NAN(target_dist);
 
     // target_dist: (B, N) -> mean -> (B)
     auto target_mean = target_dist.mean(1).detach();
@@ -1118,12 +1126,15 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     // 要素ごとのLoss (B) を取得  ※ここで重い計算を一回だけ行う
     auto element_loss = ComputeQuantileHuberLoss(current_dist, target_dist);
     ANET_CHECK_SHAPE(element_loss, { B });
+    ANET_CHECK_NAN(element_loss);
 
     // 最適化用Loss(Scalar) ※ PERの重み (IS Weights) を適用
     torch::Tensor weights = config_.use_per ? samples.is_weights : torch::ones({ B }, device_);
+    ANET_CHECK_NAN(weights);
     auto loss = (element_loss * weights).mean();
     ANET_CHECK_SHAPE(loss, {});
-    
+    ANET_CHECK_NAN(loss);
+
 
     // ------------------------------------------------------------
     // Optimize
@@ -1131,6 +1142,14 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     optimizer_->zero_grad();
     loss.backward();
 
+    // 勾配NaNチェック
+#if ANET_ENABLE_TENSOR_NAN_CHECK
+    for (auto& param : network_.GetPolicyParameters()) {
+        if (param.grad().defined()) { // 勾配が存在する場合
+            ANET_CHECK_NAN(param.grad());
+        }
+    }
+#endif
 
     // ------------------------------------------------------------
     // 勾配クリッピング
@@ -1192,6 +1211,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // Priority (element_loss を N で割ってスケーリング)
         auto new_priorities = (element_loss / static_cast<float>(N)) + config_.per_eps;
         ANET_CHECK_SHAPE(new_priorities, { B });
+        ANET_CHECK_NAN(new_priorities);
 
         // PER clip
         if (config_.use_per_prio_clip) {

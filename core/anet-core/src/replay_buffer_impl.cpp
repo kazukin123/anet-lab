@@ -301,7 +301,7 @@ static std::vector<torch::Tensor> ring_view(
 }
 
 std::optional<std::vector<torch::Tensor>>
-ReplayExperienceStorage::GetTensorVector(const std::string& key, int index) const
+ReplayExperienceStorage::GetTensorVector(const std::string& key, int64_t index) const
 {
     anet::ProfileRange r1("ReplayExperienceStorage::GetTensorVector");
 
@@ -321,13 +321,13 @@ ReplayExperienceStorage::GetTensorVector(const std::string& key, int index) cons
 }
 
 std::optional<float>
-ReplayExperienceStorage::GetScalar(const std::string& key, int index) const
+ReplayExperienceStorage::GetScalar(const std::string& key, int64_t index) const
 {
     return std::nullopt;
 }
 
 std::optional<torch::Tensor>
-ReplayExperienceStorage::GetTensor(const std::string& key, int index) const
+ReplayExperienceStorage::GetTensor(const std::string& key, int64_t index) const
 {
     return std::nullopt;
 }
@@ -468,11 +468,13 @@ IndexSampleResult PrioritizedReplayExperienceManager::SampleIndices(
         result.indices[i] = index;
 
         // 当該 index が選択される確率 P(i) を計算
-        const float p = sum_tree_.Get(index) / total_priority;
-        result.sampling_prob[i] = p;
+        const float priority_val = sum_tree_.Get(index);
+        const float p = (total_priority > 0.0f) ? (priority_val / total_priority) : 0.0f;   //total_priority が 0 の場合のガード
 
         // Importance Sampling weight を計算（選択確率の偏り補正）
-        float w = std::pow(1.0f / (static_cast<float>(valid_size) * p), beta);
+        const float safe_p = std::max(p, 1e-10f);
+        const float w = std::pow(1.0f / (static_cast<float>(valid_size) * safe_p), beta);
+        ANET_ASSERT(!std::isinf(w));
         result.is_weights[i] = w;
         max_weight = std::max(max_weight, w);
     }
@@ -506,8 +508,7 @@ void PrioritizedReplayExperienceManager::UpdatePriorities(const std::vector<int6
     }
 }
 
-std::optional<float> PrioritizedReplayExperienceManager::GetScalar(
-    const std::string& key, int index) const
+std::optional<float> PrioritizedReplayExperienceManager::GetScalar(const std::string& key, int64_t index) const
 {
     // priority/total : 全体のみ
     if (key == ReplayBuffer::PER_TOTAL) {
@@ -517,7 +518,7 @@ std::optional<float> PrioritizedReplayExperienceManager::GetScalar(
     return std::nullopt;
 }
 
-std::optional<torch::Tensor> PrioritizedReplayExperienceManager::GetTensor(const std::string& key, int index) const
+std::optional<torch::Tensor> PrioritizedReplayExperienceManager::GetTensor(const std::string& key, int64_t index) const
 {
     if (key == ReplayBuffer::PER_VALUES) {
         if (index < 0 || index >= sum_tree_.Capacity())
@@ -530,18 +531,17 @@ std::optional<torch::Tensor> PrioritizedReplayExperienceManager::GetTensor(const
 }
 
 std::optional<std::vector<torch::Tensor>> PrioritizedReplayExperienceManager::GetTensorVector(
-    const std::string& key, int index) const
+    const std::string& key, int64_t index) const
 {
     if (key == ReplayBuffer::PER_DIST) {
-	    const int64_t capacity = sum_tree_.Capacity();
+        const int64_t size = index;   /// @todo 無理やりindexをsize想定に
 	    const auto opts = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
 
         std::vector<float> buf;
-        buf.reserve(capacity);
-        for (int64_t i = 0; i < capacity; ++i) {
+        buf.resize(size);
+        for (int64_t i = 0; i < size; ++i) {
             auto prio = sum_tree_.Get(i);
-            if (prio != 0.0)    /// @todo prioゼロ＝未設定ではなく明示的な判定を入れる？per_epsがゼロ出ない限りこれでも問題ないけど。
-                buf.push_back(prio);
+            buf[i] = prio;
         }
         auto t = torch::from_blob(buf.data(), { static_cast<int64_t>(buf.size()), 1 }, opts).clone();
         return std::vector<torch::Tensor>{ std::move(t) };
@@ -589,24 +589,15 @@ DefaultReplayBuffer::DefaultReplayBuffer(
 
 void DefaultReplayBuffer::Push(const BatchExperience& batch_exp)
 {
-    anet::ProfileRange r1("DefaultReplayBuffer::Push1");
+    anet::ProfileRange r("DefaultReplayBuffer::Push1");
 
+    anet::ProfileRange r1("DefaultReplayBuffer::Push1.expand");
     auto exps = batch_exp.ToExperienceList();
     const int64_t N = exps.size();
     ANET_ASSERT(N == num_envs_);
 
-    int64_t i = 0;
-    for (auto exp : exps) {
-        auto& queue = queues_[i];
-        auto sequences = queue_controller_->ProcessSingleExperience(queue, exp);
-
-        for (const auto& seq : sequences) {
-            ReplayExperience re = replay_exp_builder_->Build(seq);
-            storage_->Push(re);
-        }
-
-        i++;
-    }
+    anet::ProfileRange r2("DefaultReplayBuffer::Push1.loop", r1);
+    Push(exps);
 }
 
 void DefaultReplayBuffer::Push(const std::vector<SingleExperience>& exps)
@@ -692,7 +683,7 @@ void DefaultReplayBuffer::UpdatePriorities(const std::vector<int64_t>& indices, 
         prio_controller_->UpdatePriorities(indices, priorities);
 }
 
-std::optional<float> DefaultReplayBuffer::GetScalar(const std::string& key, int index) const
+std::optional<float> DefaultReplayBuffer::GetScalar(const std::string& key, int64_t index) const
 {
     auto storage_ret = storage_->GetScalar(key, index);
     if (storage_ret.has_value()) return *storage_ret;
@@ -700,7 +691,7 @@ std::optional<float> DefaultReplayBuffer::GetScalar(const std::string& key, int 
     return std::nullopt;
 }
 
-std::optional<torch::Tensor> DefaultReplayBuffer::GetTensor(const std::string& key, int index) const
+std::optional<torch::Tensor> DefaultReplayBuffer::GetTensor(const std::string& key, int64_t index) const
 {
     auto storage_ret = storage_->GetTensor(key, index);
     if (storage_ret.has_value()) return *storage_ret;
@@ -709,11 +700,11 @@ std::optional<torch::Tensor> DefaultReplayBuffer::GetTensor(const std::string& k
 }
 
 std::optional<std::vector<torch::Tensor>>
-DefaultReplayBuffer::GetTensorVector(const std::string& key, int index) const
+DefaultReplayBuffer::GetTensorVector(const std::string& key, int64_t index) const
 {
     auto storage_ret = storage_->GetTensorVector(key, index);
     if (storage_ret.has_value()) return *storage_ret;
-    if (prio_controller_ != nullptr) return prio_controller_->GetTensorVector(key, index);
+    if (prio_controller_ != nullptr) return prio_controller_->GetTensorVector(key, storage_->Size());   // 無理やり
     return std::nullopt;
 }
 
