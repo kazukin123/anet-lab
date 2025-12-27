@@ -146,6 +146,8 @@ void LunarLanderFrame::OnTrainTimer(wxTimerEvent& event)
 
 void LunarLanderFrame::OnEvalTimer(wxTimerEvent& event)
 {
+    anet::ProfileRange r("LunarLanderFrame::OnEvalTimer");
+
     if (is_eval_pause_) return;
     if (eval_runner_ == nullptr) return;
 
@@ -167,6 +169,8 @@ void LunarLanderFrame::OnEvalTimer(wxTimerEvent& event)
 
 void LunarLanderFrame::DoLogText(const wxString& msg)
 {
+    anet::ProfileRange r("LunarLanderFrame::DoLogText");
+
     this->log_box_->AppendText(msg);
     this->log_box_->AppendText("\n");
 }

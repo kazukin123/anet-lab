@@ -191,16 +191,9 @@ namespace anet {
         std::lock_guard<std::mutex> lock(config_mutex_);
 
         auto tag = config.GetConfigPrefix();
-
         auto json_data = config.ToJson();
-        json rounded = round_numbers(json_data);
-        json obj = {
-            {"type", "config"},
-            {"tag", tag},
-            {"timestamp", current_time_str()},
-            {"data", rounded}
-        };
-        backend_->WriteJsonl(obj);
+
+        LogJson(tag, json_data);
 
         auto config_prefix = config.GetConfigPrefix();
         std::string safe_tag = sanitize_filename(tag);

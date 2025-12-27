@@ -22,6 +22,10 @@
 #define ANET_ENABLE_TENSOR_ASSERT 1
 #endif
 
+#ifndef ANET_ENABLE_TENSOR_NAN_CHECK
+#define ANET_ENABLE_TENSOR_NAN_CHECK 1
+#endif
+
 #else
 
 #ifndef ANET_ENABLE_DEVICE_ASSERT
@@ -36,10 +40,14 @@
 #define ANET_ENABLE_TENSOR_ASSERT 0
 #endif
 
+#ifndef ANET_ENABLE_TENSOR_NAN_CHECK
+#define ANET_ENABLE_TENSOR_NAN_CHECK 0
+#endif
+
 #endif
 
 //------------------------------------------------------
-// 内部実装関数（.cpp に実体あり）
+// 内部実装関数
 //------------------------------------------------------
 #if ANET_ENABLE_TENSOR_ASSERT
 
@@ -51,15 +59,13 @@ void _anet_check_device_impl(const torch::Tensor& t,
 
 void _anet_check_shape_impl(const torch::Tensor& t,
     const std::vector<int64_t>& expect,
-    const char* msg,
-    const char* file,
-    int line);
+    const char* msg, const char* file, int line);
 
 void _anet_check_shape_or_impl(const torch::Tensor& t,
     const std::vector<std::vector<int64_t>>& expects,
-    const char* msg,
-    const char* file,
-    int line);
+    const char* msg, const char* file, int line);
+
+void _anet_check_nan_impl(const torch::Tensor& t, const char* msg, const char* file, int line);
 
 #endif
 
@@ -184,5 +190,14 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
 #define ANET_CHECK_SHAPE(tensor, ...)             do {} while(0)
 #define ANET_CHECK_SHAPE_MSG(tensor, msg, ...)    do {} while(0)
 
+#endif
+
+#if ANET_ENABLE_TENSOR_NAN_CHECK
+#define ANET_CHECK_NAN(tensor)                                                 \
+    do {                                                                       \
+        _anet_check_nan_impl((tensor), #tensor, __FILE__, __LINE__);           \
+    } while (0)
+#else
+#define ANET_CHECK_NAN(tensor)             do {} while(0)
 #endif
 

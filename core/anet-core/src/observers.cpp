@@ -61,7 +61,7 @@ void HeatMapVectorObserver::OnTrain(const TrainEvent& event)
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);
 
     // 生成： xv, yv, vv
-    anet::ProfileRange r1("HeatMapVectorObserver::OnTrain.GetVector");
+    anet::ProfileRange r1("HeatMapVectorObserver::OnTrain.getVector");
     auto xv = x_probe_->GetVector(event);
     auto yv = y_probe_->GetVector(event);
     auto vv = value_probe_->GetVector(event);
@@ -73,7 +73,8 @@ void HeatMapVectorObserver::OnTrain(const TrainEvent& event)
     // サイズチェック
     if (xv->size() != yv->size() || xv->size() != vv->size()) {
         LOG::warn() << "HeatMapVectorObserver: size mismatch. x=" << x_probe_->GetName()
-            << " y=" << y_probe_->GetName() << " v=" << value_probe_->GetName();
+            << " y=" << y_probe_->GetName() << " v=" << value_probe_->GetName()
+            << "x.size=" << xv->size() << " y.size=" << yv->size() << " v.size=" << vv->size();
         return;
     }
 
@@ -202,7 +203,8 @@ void MultiPairHeatMapObserver::OnTrain(const TrainEvent& event)
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);
 
     // --- 値ベクトル取得 ---
-    anet::ProfileRange r1("MultiPairHeatMapObserver::OnTrain.GetVector");
+    anet::ProfileRange r1("MultiPairHeatMapObserver::OnTrain.getVector");
+    
     auto vv = value_probe_->GetVector(event);
     if (!vv || vv->empty()) return;
 
@@ -451,7 +453,7 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::LEARN);
 
     // 評価エピソードを終端まで回す
-    if (step % eval_interval_ == 0) {
+    if (eval_interval_ > 0 && step % eval_interval_ == 0) {
 		StepCounts counts_local;
         step_t step = 0;
         auto reset_result = env_->Reset(runmode_);

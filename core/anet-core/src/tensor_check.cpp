@@ -87,3 +87,15 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
 
     throw std::runtime_error(ss.str());
 }
+
+void _anet_check_nan_impl(const torch::Tensor& t, const char* msg, const char* file, int line)
+{
+    if (torch::isnan(t).any().item<bool>() || torch::isinf(t).any().item<bool>()) {
+        std::stringstream ss;
+        ss << "NaN detected: " <<  msg
+            << " | tensor=" << t
+            << " | File: " << file << ":" << line;
+
+        throw std::runtime_error(ss.str());
+    }
+}
