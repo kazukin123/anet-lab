@@ -120,22 +120,3 @@ jobs:
         #    あるいは install フォルダだけが重要なので他は放置でも可（CI終了時に消えるため）。
         #    ここでは明示的に build だけ消しておきます。
         Remove-Item $wxBuild -Recurse -Force
-
-    # ----------------------------------------------------------------
-    # メインプロジェクト (anet-lab)
-    # ----------------------------------------------------------------
-    - name: Configure CMake
-      shell: pwsh
-      run: |
-        $env:Torch_DIR_RELEASE = "${{ github.workspace }}/deps/libtorch/release/share/cmake/Torch"
-        $env:Torch_DIR_DEBUG   = "${{ github.workspace }}/deps/libtorch/debug/share/cmake/Torch"
-        
-        # 修正: インストール先を指定
-        $env:wxWidgets_ROOT    = "${{ github.workspace }}/third_party/wxwidgets/install"
-        
-        cmake -B build `
-          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} `
-          -DCMAKE_CONFIGURATION_TYPES="${{ matrix.build_type }}"
-
-    - name: Build
-      run: cmake --build build --config ${{ matrix.build_type }} --parallel
