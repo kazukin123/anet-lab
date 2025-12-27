@@ -91,7 +91,7 @@ jobs:
 
         # 3. Clone (third_party/wxwidgets 直下にソースを展開)
         #    Note: git clone でフォルダ自体が作られるので、親ディレクトリで実行する
-        git clone --branch v${{ env.WX_VER }} --depth 1 https://github.com/wxWidgets/wxWidgets.git $wxRoot
+        git clone --branch v${{ env.WX_VER }} --depth 1 --recurse-submodules --shallow-submodules https://github.com/wxWidgets/wxWidgets.git $wxRoot
 
         # 4. CMake Configure
         #    ソース: $wxRoot
