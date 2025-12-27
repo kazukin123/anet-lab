@@ -67,7 +67,10 @@ target_include_directories(anet-core
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 target_precompile_headers(anet-core PRIVATE "src/pch.hpp")
-target_link_libraries(anet-core PUBLIC ${TORCH_LIBRARIES})
+target_link_libraries(anet-core PUBLIC
+    ${TORCH_LIBRARIES}
+    anet_wx
+)
 
 set_target_properties(anet-core PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY_DEBUG   ${CMAKE_CURRENT_SOURCE_DIR}/lib/Debug
