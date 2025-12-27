@@ -14,9 +14,7 @@ jobs:
     strategy:
       fail-fast: false # どちらかが失敗しても、もう片方は続ける
       matrix:
-        # ここにリストした構成が並列で走ります
-        build_type: [Debug, Release] 
-        # 必要なら [Debug, Release, RelWithDebInfo] にもできます
+        build_type: [Debug, RelWithDebInfo, Release] 
 
     env:
       # マトリックス変数を使用
@@ -67,33 +65,55 @@ jobs:
         Remove-Item temp_rel, temp_dbg -Recurse -Force
 
     # ----------------------------------------------------------------
-    # 2. wxWidgets のキャッシュとビルド (構成ごとに別キャッシュ)
+    # 2. wxWidgets のキャッシュとビルド
+    #    配置場所: third_party/wxwidgets
     # ----------------------------------------------------------------
     - name: Cache wxWidgets
       id: cache-wx
       uses: actions/cache@v3
       with:
-        path: deps/wx_install
-        # DebugとReleaseでバイナリが違うため、キーに build_type を含める
+        # インストール先（成果物）をキャッシュ対象にする
+        path: third_party/wxwidgets/install
         key: wxwidgets-${{ env.WX_VER }}-vs2022-${{ matrix.build_type }}
 
     - name: Build wxWidgets (if not cached)
       if: steps.cache-wx.outputs.cache-hit != 'true'
       shell: pwsh
       run: |
-        git clone --branch v${{ env.WX_VER }} --depth 1 https://github.com/wxWidgets/wxWidgets.git wx_src
-        
-        # 構成に合わせてビルド
-        cmake -S wx_src -B wx_build `
-          -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/deps/wx_install" `
+        # 1. パス定義
+        $wxRoot  = "third_party/wxwidgets"
+        $wxBuild = "$wxRoot/build"
+        $wxInst  = "$wxRoot/install"
+
+        # 2. フォルダ準備（ゴミが残っているとエラーになるので掃除）
+        if (Test-Path $wxRoot) { Remove-Item $wxRoot -Recurse -Force }
+        New-Item -ItemType Directory -Force -Path $wxRoot
+
+        # 3. Clone (third_party/wxwidgets 直下にソースを展開)
+        #    Note: git clone でフォルダ自体が作られるので、親ディレクトリで実行する
+        git clone --branch v${{ env.WX_VER }} --depth 1 https://github.com/wxWidgets/wxWidgets.git $wxRoot
+
+        # 4. CMake Configure
+        #    ソース: $wxRoot
+        #    ビルド作業: $wxBuild
+        #    インストール先: $wxInst
+        cmake -S $wxRoot -B $wxBuild `
+          -DCMAKE_INSTALL_PREFIX="$wxInst" `
           -DCMAKE_CONFIGURATION_TYPES="${{ matrix.build_type }}" `
           -DwxBUILD_SHARED=ON `
           -DwxBUILD_PRECOMP=ON
-        
-        cmake --build wx_build --config ${{ matrix.build_type }} --parallel
-        cmake --install wx_build --config ${{ matrix.build_type }}
-        
-        Remove-Item wx_src, wx_build -Recurse -Force
+
+        # 5. Build
+        cmake --build $wxBuild --config ${{ matrix.build_type }} --parallel
+
+        # 6. Install (ここで cmake_install.cmake が使われる)
+        cmake --install $wxBuild --config ${{ matrix.build_type }}
+
+        # 7. ビルド中間ファイルの削除（キャッシュ容量節約のため、installフォルダ以外は消す）
+        #    ソース($wxRoot)ごと消すと install も消えるので、build と .git 等を消す、
+        #    あるいは install フォルダだけが重要なので他は放置でも可（CI終了時に消えるため）。
+        #    ここでは明示的に build だけ消しておきます。
+        Remove-Item $wxBuild -Recurse -Force
 
     # ----------------------------------------------------------------
     # 3. メインプロジェクト (anet-lab)
@@ -103,8 +123,9 @@ jobs:
       run: |
         $env:Torch_DIR_RELEASE = "${{ github.workspace }}/deps/libtorch/release/share/cmake/Torch"
         $env:Torch_DIR_DEBUG   = "${{ github.workspace }}/deps/libtorch/debug/share/cmake/Torch"
-        $env:wxWidgets_ROOT    = "${{ github.workspace }}/deps/wx_install"
         
+        # 修正: インストール先を指定
+        $env:wxWidgets_ROOT    = "${{ github.workspace }}/third_party/wxwidgets/install"
         
         cmake -B build `
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} `
