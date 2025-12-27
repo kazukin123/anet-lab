@@ -33,12 +33,6 @@ jobs:
       with:
         cuda: '13.0.0'
 
-    - run: echo "Installed cuda version is: ${{steps.cuda-toolkit.outputs.cuda}}"
-
-    - run: echo "Cuda install location: ${{steps.cuda-toolkit.outputs.CUDA_PATH}}"
-
-    - run: nvcc -V
-
     # ----------------------------------------------------------------
     # LibTorch のキャッシュ (構成によらず共通)
     # ----------------------------------------------------------------
