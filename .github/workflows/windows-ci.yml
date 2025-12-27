@@ -132,7 +132,7 @@ jobs:
         # 【デバッグ用】実際にどんなファイルが生成されたか確認する
         Write-Host "=== Checking wxWidgets Lib folder ==="
         if (Test-Path "$wxInst/lib") {
-            Get-ChildItem -Path "$wxInst/lib" -File | Select-Object Name
+            Get-ChildItem -Path "$wxInst/lib" -Dir
         } else {
             Write-Error "wxWidgets lib folder not found!"
         }
