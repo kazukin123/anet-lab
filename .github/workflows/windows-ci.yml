@@ -1,0 +1,114 @@
+name: Windows Build
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build:
+    runs-on: windows-2022
+    
+    # === ここが重要：マトリックス設定 ===
+    strategy:
+      fail-fast: false # どちらかが失敗しても、もう片方は続ける
+      matrix:
+        # ここにリストした構成が並列で走ります
+        build_type: [Debug, Release] 
+        # 必要なら [Debug, Release, RelWithDebInfo] にもできます
+
+    env:
+      # マトリックス変数を使用
+      BUILD_TYPE: ${{ matrix.build_type }}
+      LIBTORCH_VER: "2.9.1-cu130"
+      WX_VER: "3.3.1"
+
+    steps:
+    - uses: actions/checkout@v4
+
+    # ----------------------------------------------------------------
+    # 1. LibTorch のキャッシュ (構成によらず共通)
+    # ----------------------------------------------------------------
+    - name: Cache LibTorch
+      id: cache-libtorch
+      uses: actions/cache@v3
+      with:
+        path: deps/libtorch
+        # LibTorchはDebug/Release両方のファイルをまとめてdepsに置く戦略なので
+        # キャッシュキーに build_type は含めなくてOKです
+        key: libtorch-${{ env.LIBTORCH_VER }}-windows-v1
+
+    - name: Download and Extract LibTorch
+      if: steps.cache-libtorch.outputs.cache-hit != 'true'
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path deps
+        $urlRel = "https://download.pytorch.org/libtorch/cu130/libtorch-win-shared-with-deps-2.9.1%2Bcu130.zip"
+        $urlDbg = "https://download.pytorch.org/libtorch/cu130/libtorch-win-shared-with-deps-debug-2.9.1%2Bcu130.zip"
+
+        # 並列DLせず順次DLして確実に配置
+        Write-Host "Downloading LibTorch Release..."
+        Invoke-WebRequest -Uri $urlRel -OutFile libtorch-release.zip
+        Write-Host "Downloading LibTorch Debug..."
+        Invoke-WebRequest -Uri $urlDbg -OutFile libtorch-debug.zip
+
+        Write-Host "Extracting Release..."
+        Expand-Archive -Path libtorch-release.zip -DestinationPath temp_rel
+        New-Item -ItemType Directory -Force -Path deps/libtorch/release
+        Move-Item -Path temp_rel/libtorch/* -Destination deps/libtorch/release/
+
+        Write-Host "Extracting Debug..."
+        Expand-Archive -Path libtorch-debug.zip -DestinationPath temp_dbg
+        New-Item -ItemType Directory -Force -Path deps/libtorch/debug
+        Move-Item -Path temp_dbg/libtorch/* -Destination deps/libtorch/debug/
+
+        Remove-Item libtorch-release.zip, libtorch-debug.zip
+        Remove-Item temp_rel, temp_dbg -Recurse -Force
+
+    # ----------------------------------------------------------------
+    # 2. wxWidgets のキャッシュとビルド (構成ごとに別キャッシュ)
+    # ----------------------------------------------------------------
+    - name: Cache wxWidgets
+      id: cache-wx
+      uses: actions/cache@v3
+      with:
+        path: deps/wx_install
+        # DebugとReleaseでバイナリが違うため、キーに build_type を含める
+        key: wxwidgets-${{ env.WX_VER }}-vs2022-${{ matrix.build_type }}
+
+    - name: Build wxWidgets (if not cached)
+      if: steps.cache-wx.outputs.cache-hit != 'true'
+      shell: pwsh
+      run: |
+        git clone --branch v${{ env.WX_VER }} --depth 1 https://github.com/wxWidgets/wxWidgets.git wx_src
+        
+        # 構成に合わせてビルド
+        cmake -S wx_src -B wx_build `
+          -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/deps/wx_install" `
+          -DCMAKE_CONFIGURATION_TYPES="${{ matrix.build_type }}" `
+          -DwxBUILD_SHARED=ON `
+          -DwxBUILD_PRECOMP=ON
+        
+        cmake --build wx_build --config ${{ matrix.build_type }} --parallel
+        cmake --install wx_build --config ${{ matrix.build_type }}
+        
+        Remove-Item wx_src, wx_build -Recurse -Force
+
+    # ----------------------------------------------------------------
+    # 3. メインプロジェクト (anet-lab)
+    # ----------------------------------------------------------------
+    - name: Configure CMake
+      shell: pwsh
+      run: |
+        $env:Torch_DIR_RELEASE = "${{ github.workspace }}/deps/libtorch/release/share/cmake/Torch"
+        $env:Torch_DIR_DEBUG   = "${{ github.workspace }}/deps/libtorch/debug/share/cmake/Torch"
+        $env:wxWidgets_ROOT    = "${{ github.workspace }}/deps/wx_install"
+        
+        
+        cmake -B build `
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} `
+          -DCMAKE_CONFIGURATION_TYPES="${{ matrix.build_type }}"
+
+    - name: Build
+      run: cmake --build build --config ${{ matrix.build_type }} --parallel
