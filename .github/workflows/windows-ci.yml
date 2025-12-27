@@ -115,8 +115,41 @@ jobs:
         # 6. Install (ここで cmake_install.cmake が使われる)
         cmake --install $wxBuild --config ${{ matrix.build_type }}
 
-        # 7. ビルド中間ファイルの削除（キャッシュ容量節約のため、installフォルダ以外は消す）
-        #    ソース($wxRoot)ごと消すと install も消えるので、build と .git 等を消す、
-        #    あるいは install フォルダだけが重要なので他は放置でも可（CI終了時に消えるため）。
-        #    ここでは明示的に build だけ消しておきます。
+        # 7. ビルド中間ファイルの削除（キャッシュ容量節約のためbuild だけ消しておく）
         Remove-Item $wxBuild -Recurse -Force
+
+    # ----------------------------------------------------------------
+    # メインプロジェクト (anet-lab)
+    # ----------------------------------------------------------------
+    - name: Configure CMake
+      shell: pwsh
+      run: |
+        $env:Torch_DIR_RELEASE = "${{ github.workspace }}/deps/libtorch/release/share/cmake/Torch"
+        $env:Torch_DIR_DEBUG   = "${{ github.workspace }}/deps/libtorch/debug/share/cmake/Torch"
+        
+        $wxInst = "${{ github.workspace }}/third_party/wxwidgets/install"
+        
+        # 【デバッグ用】実際にどんなファイルが生成されたか確認する
+        Write-Host "=== Checking wxWidgets Lib folder ==="
+        if (Test-Path "$wxInst/lib") {
+            Get-ChildItem -Path "$wxInst/lib" -File | Select-Object Name
+        } else {
+            Write-Error "wxWidgets lib folder not found!"
+        }
+
+        # ROOTではなくDIRを使い、Configモードを強制する
+        # wxWidgetsConfig.cmake があるディレクトリを指定
+        $env:wxWidgets_DIR = "$wxInst/lib/cmake/wxWidgets"
+        
+        # 念のため ROOT は空にしておく
+        $env:wxWidgets_ROOT = ""
+
+        # CUDAパス表示
+        Write-Host "CUDA_PATH is: $env:CUDA_PATH"
+
+        # ビルド
+        cmake -B build `
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} `
+          -DCMAKE_CONFIGURATION_TYPES="${{ matrix.build_type }}" `
+          -DCUDAToolkit_ROOT="$env:CUDA_PATH" `
+          -DCMAKE_CUDA_COMPILER="$env:CUDA_PATH/bin/nvcc.exe"
