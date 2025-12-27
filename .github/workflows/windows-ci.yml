@@ -155,3 +155,6 @@ jobs:
           -DCMAKE_CUDA_COMPILER="$env:CUDA_PATH/bin/nvcc.exe" `
           -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON `
           -DwxWidgets_DIR="$wxInst/lib/cmake/wxWidgets"
+
+    - name: Build
+      run: cmake --build build --config ${{ matrix.build_type }} --parallel
