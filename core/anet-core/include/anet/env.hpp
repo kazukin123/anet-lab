@@ -21,9 +21,9 @@ namespace anet::rl {
         EnvSpec GetSpec() const override;
         BatchEnvSpec GetBatchSpec() const override;
     public:
-        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
-        std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
-        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
     public:
         class Result;
         class ResetResult;

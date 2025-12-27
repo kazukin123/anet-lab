@@ -25,9 +25,9 @@ public:
     std::shared_ptr<const anet::rl::SingleResetResult> Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
     std::shared_ptr<const anet::rl::SingleStepResult> Step(int64_t action, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
     
-    std::optional<float> GetScalar(const std::string& key, int index = -1) const override { return std::nullopt; }
-    std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override { return std::nullopt; }
-    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override { return std::nullopt; }
+    std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
+    std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
 
     float get_x() const { return x_; }
     float get_theta() const { return theta_; }

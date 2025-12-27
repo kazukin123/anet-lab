@@ -118,7 +118,7 @@ std::optional<anet::TensorFunction> DefaultDQNAgent::GetTensorFunction(const std
     return norm_fn;
 }
 
-std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int index) const
+std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int64_t index) const
 {
     if (key == "epsilon") {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
@@ -144,7 +144,7 @@ std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int inde
     return std::nullopt;
 }
 
-std::optional<torch::Tensor> DefaultDQNAgent::GetTensor(const std::string& key, int index) const
+std::optional<torch::Tensor> DefaultDQNAgent::GetTensor(const std::string& key, int64_t index) const
 {
     if (key.find(ReplayBuffer::kKeyPrefix) == 0) {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
@@ -162,7 +162,7 @@ std::optional<torch::Tensor> DefaultDQNAgent::GetTensor(const std::string& key, 
     return std::nullopt;
 }
 
-std::optional<std::vector<torch::Tensor>> DefaultDQNAgent::GetTensorVector(const std::string& key, int index) const
+std::optional<std::vector<torch::Tensor>> DefaultDQNAgent::GetTensorVector(const std::string& key, int64_t index) const
 {
     if (key.find(ReplayBuffer::kKeyPrefix) == 0) {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
@@ -215,7 +215,7 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
         this->obs_norm_->NormalizeAndUpdateStats(batch_exp.next_state.obs); // 二重計上になるがエピソード終端（着地/墜落）の状態も統計に反映させる
 
         // BatchExperience生成
-        // 【重要】ReplayBufferには「生の観測」を渡す。 報酬だけはスケール済みを使う
+        // ReplayBufferには「生の観測」を渡す。 報酬だけはスケール済みを使う
         BatchExperience exp {
             batch_exp.state,
             batch_exp.action,

@@ -73,9 +73,9 @@ public:
     std::shared_ptr<const anet::rl::SingleStepResult> Step(int64_t action, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
 
 public:
-    std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
-    std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
-    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
+    std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+    std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
 private:
     class Result;
     class ResetResult;

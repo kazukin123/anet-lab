@@ -137,9 +137,9 @@ public:
 public:
     void AttachEventHandler(EventHandler handler);
 public: //---- DataExporter ----
-    std::optional<float> GetScalar(const std::string& key, int index) const override;
-    std::optional<torch::Tensor> GetTensor(const std::string& key, int index) const override;
-    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index) const override;
+    std::optional<float> GetScalar(const std::string& key, int64_t index) const override;
+    std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index) const override;
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index) const override;
 private:
     void Notify(const StorageWriteEvent& ev);
 private:
@@ -218,13 +218,6 @@ private:
 // ReplayPriorityController
 // ======================================================
 
-class NoopReplayExperienceSampler final : public ReplayPriorityController {
-public:
-    /// @todo nullptr指定で良いので不要？
-    NoopReplayExperienceSampler() = default;
-    void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override { }
-};
-
 class PrioritizedReplayExperienceManager final
     : public ReplayExperienceSampler, public ReplayPriorityController, public anet::RandomHolder {
 public:
@@ -232,10 +225,10 @@ public:
 
     IndexSampleResult SampleIndices(const ReplayExperienceStorage& storage, int64_t minibatch_size, float beta) override;
     void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override;
-public: // DataExporter
-    std::optional<float> GetScalar(const std::string& key, int index) const override;
-    std::optional<torch::Tensor> GetTensor(const std::string& key, int index) const override;
-    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index) const override;
+public:
+    std::optional<float> GetScalar(const std::string& key, int64_t index) const override;
+    std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index) const override;
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index) const override;
 private:
     SumTree sum_tree_;
     float alpha_;
@@ -263,9 +256,9 @@ public:
 
     void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override;
 public: // DataExporter
-    std::optional<float> GetScalar(const std::string& key, int index) const override;
-    std::optional<torch::Tensor> GetTensor(const std::string& key, int index) const override;
-    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index) const override;
+    std::optional<float> GetScalar(const std::string& key, int64_t index) const override;
+    std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index) const override;
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index) const override;
 private:
     ExperienceSamples sampleInternal(int64_t minibatch_size, torch::Device device, float beta) const;
 private:

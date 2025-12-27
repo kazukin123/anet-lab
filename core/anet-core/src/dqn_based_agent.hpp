@@ -54,7 +54,7 @@ namespace anet::rl::dqn {
         {
         }
 
-        std::optional<float> GetScalar(const std::string& key, int index) const override
+        std::optional<float> GetScalar(const std::string& key, int64_t index) const override
         {
             // 必要になって初めてCPUに転送する
 
@@ -118,13 +118,13 @@ namespace anet::rl::dqn {
             return std::nullopt;
         }
 
-        std::optional<torch::Tensor> GetTensor(const std::string& key, int index) const override
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index) const override
         {
             if (key == "max_q") return max_q;
             return std::nullopt;
         }
 
-        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index) const override
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index) const override
         {
             return std::nullopt;
         }
@@ -312,9 +312,9 @@ namespace anet::rl::dqn {
         std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromBatch(
             const StepCounts& step, const BatchExperience& expriences, const Runner& trainer) override;
 
-        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
-        std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
-        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
 
         virtual ~Learner() = default;
     protected:

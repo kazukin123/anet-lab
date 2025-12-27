@@ -108,7 +108,7 @@ std::optional<anet::TensorFunction> RainbowAgent::GetTensorFunction(const std::s
     return norm_fn;
 }
 
-std::optional<float> RainbowAgent::GetScalar(const std::string& key, int index) const
+std::optional<float> RainbowAgent::GetScalar(const std::string& key, int64_t index) const
 {
     if (key == "epsilon") {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
@@ -126,7 +126,7 @@ std::optional<float> RainbowAgent::GetScalar(const std::string& key, int index) 
     return std::nullopt;
 }
 
-std::optional<torch::Tensor> RainbowAgent::GetTensor(const std::string& key, int index) const
+std::optional<torch::Tensor> RainbowAgent::GetTensor(const std::string& key, int64_t index) const
 {
     if (key.find("replaybuffer.") == 0) {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
@@ -136,7 +136,7 @@ std::optional<torch::Tensor> RainbowAgent::GetTensor(const std::string& key, int
     return std::nullopt;
 }
 
-std::optional<std::vector<torch::Tensor>> RainbowAgent::GetTensorVector(const std::string& key, int index) const
+std::optional<std::vector<torch::Tensor>> RainbowAgent::GetTensorVector(const std::string& key, int64_t index) const
 {
     if (key.find("replaybuffer.") == 0) {
         std::shared_lock<std::shared_mutex> lock(*mutex_);

@@ -110,9 +110,9 @@ namespace anet::rl::dqn {
     public:
         std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override;
 
-        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
-        std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
-        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
     private:
         DefaultDQNAgentConfig config_;
         std::unique_ptr<anet::rl::RewardScaler> reward_scaler_;

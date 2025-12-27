@@ -188,17 +188,17 @@ namespace anet::rl {
         return out;
     }
 
-    std::optional<float> PlainReplayBuffer::GetScalar(const std::string& key, int index) const
+    std::optional<float> PlainReplayBuffer::GetScalar(const std::string& key, int64_t index) const
     {
         return std::nullopt;
     }
 
-    std::optional<torch::Tensor> PlainReplayBuffer::GetTensor(const std::string& key, int index) const
+    std::optional<torch::Tensor> PlainReplayBuffer::GetTensor(const std::string& key, int64_t index) const
     {
         return std::nullopt;
     }
 
-    std::optional<std::vector<torch::Tensor>> PlainReplayBuffer::GetTensorVector(const std::string& key, int index) const
+    std::optional<std::vector<torch::Tensor>> PlainReplayBuffer::GetTensorVector(const std::string& key, int64_t index) const
     {
         anet::ProfileRange r1("PlainReplayBuffer::GetTensorVector");
 

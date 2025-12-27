@@ -18,9 +18,9 @@ namespace anet::rl {
         int64_t Size() const  override { return size_; }
         void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) { }
 
-        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
-        std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
-        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
     private:
         void InitFromSpec(const EnvSpec& spec);
 

@@ -75,8 +75,8 @@ namespace anet::rl {
         torch::Tensor NormalizeAndUpdateStats(const torch::Tensor& obs) override;
         void Reset() override;
     public:
-        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
-        std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
     private:
         std::pair<torch::Tensor, float> normalizeInternal(const torch::Tensor& obs) const;
     private:
@@ -105,8 +105,8 @@ namespace anet::rl {
         torch::Tensor NormalizeAndUpdateStats(const torch::Tensor& obs) override;
         void Reset() override;
     public:
-        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
-        std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
     private:
         std::pair<torch::Tensor, float> normalizeInternal(const torch::Tensor& obs) const;
     private:
@@ -136,7 +136,7 @@ namespace anet::rl {
         torch::Tensor Scale(const torch::Tensor& reward) override;
         void Reset() override {}
     public:
-        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
     private:
         float scale_factor_;
         const std::optional<float> clip_range_;
@@ -150,7 +150,7 @@ namespace anet::rl {
         torch::Tensor Scale(const torch::Tensor& reward) override;
         void Reset() override;
     public:
-        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
     private:
         // 設定
         const std::optional<float> clip_range_; ///< クリップ範囲

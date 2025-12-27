@@ -71,7 +71,7 @@ StepCounts RunnerBase::DoUpdateFrame(int max_steps, ControlFunction pre_step_fun
     return step_counts_;
 }
 
-std::optional<float> RunnerBase::GetScalar(const std::string& key, int index) const
+std::optional<float> RunnerBase::GetScalar(const std::string& key, int64_t index) const
 {
     if (key == TRAIN_STEP) return static_cast<float>(step_counts_.train_step);
     if (key == EXP_STEP) return static_cast<float>(step_counts_.exp_step);
@@ -238,7 +238,7 @@ DefaultTrainer::DefaultTrainer(const ConfigData& config_data, const std::string&
 }
 
 
-std::optional<float> DefaultTrainer::GetScalar(const std::string& key, int index) const
+std::optional<float> DefaultTrainer::GetScalar(const std::string& key, int64_t index) const
 {
     if (key == TRAIN_REWARD) return last_train_reward_;
     if (key == TRAIN_REWARD_EMA) return train_reward_ema_.Value();
@@ -467,22 +467,30 @@ StepCounts DefaultTrainer::DoStep()
     step_counts_.update_step++;
     step_counts_.learn_step += update_result->GetLearnStepDiff();
 
-    // メトリクス算出（処理性能系）
-    auto exp_step = step_counts_.exp_step;
-    auto exp_step_delta = exp_step - last_exp_step_;
-    std::chrono::high_resolution_clock::time_point now = std::chrono::high_resolution_clock::now();
-    auto usec_diff = std::chrono::duration_cast<std::chrono::microseconds>(now - last_time_).count();
-    if (usec_diff <= 0) usec_diff = 1;
-    auto train_step_per_sec = 1.0f *1000000.0f / usec_diff;
-    auto exp_step_per_sec = static_cast<float>(exp_step_delta) * 1000000.0f / usec_diff;
-    last_train_step_per_sec_ = train_step_per_sec;
-    last_exp_step_per_sec_ = exp_step_per_sec;
-
     // 更新後処理
     anet::ProfileRange r7("DefaultTrainer::DoUpdateFrame.notify", r6);
     anet::rl::TrainEvent train_event{ exp, *this, step_counts_, agent_, update_result, env_, result, action_info };
     notifier_->Notify(train_event);
     state_ = result->continue_state;
+
+    // メトリクス算出（処理性能系）
+    auto trin_step = step_counts_.train_step;
+    auto exp_step = step_counts_.exp_step;
+    auto train_step_delta = train_step - last_train_step_;
+    auto exp_step_delta = exp_step - last_exp_step_;
+    auto now = std::chrono::high_resolution_clock::now();
+    auto usec_diff = std::chrono::duration_cast<std::chrono::microseconds>(now - last_time_).count();
+    if (usec_diff <= 0) usec_diff = 1;
+
+    if (usec_diff >= 200000) { // 200msec 積算
+        last_train_step_per_sec_ = static_cast<float>(train_step_delta) * 1000000.0f / usec_diff;
+        last_exp_step_per_sec_ = static_cast<float>(exp_step_delta) * 1000000.0f / usec_diff;
+        acc_train_steps_ = 0;
+        acc_exp_steps_ = 0;
+        last_time_ = now;
+        last_train_step_ = train_step;
+        last_exp_step_ = exp_step;
+    }
 
     // カウント更新
     /// @todo カウント位置検討
@@ -491,10 +499,6 @@ StepCounts DefaultTrainer::DoStep()
     //step_counts_.episode_count += result->n_done;
     //step_counts_.update_step++;
     //step_counts_.learn_step += update_result->GetLearnStepDiff();
-
-    // 次準備
-    last_time_ = now;
-    last_exp_step_ = exp_step;
 
     return step_counts_;
 }
@@ -556,6 +560,7 @@ void RunnerThread::Stop()
 void RunnerThread::ThreadMain()
 {
     ANET_LOG_DEBUG("BEGIN");
+    anet::ProfileThreadName th("RunnerThread");
 
     // Trainループ
     while (running_.load()) {

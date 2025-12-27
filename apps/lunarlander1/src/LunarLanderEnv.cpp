@@ -785,7 +785,7 @@ static Segment getLegSegment(const b2Body* leg_body, float leg_length)
     return s;
 }
 
-std::optional<float> LunarLanderEnv::GetScalar(const std::string& key, int index) const
+std::optional<float> LunarLanderEnv::GetScalar(const std::string& key, int64_t index) const
 {
     ANET_ASSERT(index == -1 || index == 0);
 
@@ -795,7 +795,7 @@ std::optional<float> LunarLanderEnv::GetScalar(const std::string& key, int index
     return std::nullopt;
 }
 
-std::optional<torch::Tensor> LunarLanderEnv::GetTensor(const std::string& key, int index) const
+std::optional<torch::Tensor> LunarLanderEnv::GetTensor(const std::string& key, int64_t index) const
 {
     ANET_ASSERT(index == -1 || index == 0);
 
@@ -833,7 +833,7 @@ std::optional<torch::Tensor> LunarLanderEnv::GetTensor(const std::string& key, i
 }
 
 std::optional<std::vector<torch::Tensor>>
-LunarLanderEnv::GetTensorVector(const std::string& key, int index) const
+LunarLanderEnv::GetTensorVector(const std::string& key, int64_t index) const
 {
     ANET_ASSERT(index == -1 || index == 0);
 

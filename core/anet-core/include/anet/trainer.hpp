@@ -19,9 +19,9 @@ namespace anet::rl {
 
         virtual ~RunnerBase() = default;
     public:
-        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
-        std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override { return std::nullopt; }
-        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override { return std::nullopt; }
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
     public:
         RunnerStatus GetStatus() const override { return status_; }
         StepCounts GetCounts() const override { return step_counts_; }
@@ -64,7 +64,7 @@ namespace anet::rl {
         RunnerStatus Initialize(const ConfigData& config_data);
         StepCounts DoStep() override;
         std::shared_ptr<EvalRunner> CreateEvalRunner(RunMode runmode = RunMode::Eval) const;
-        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
 
         virtual ~DefaultTrainer() = default;
     private:
@@ -80,15 +80,19 @@ namespace anet::rl {
         // メトリクス
         std::chrono::high_resolution_clock::time_point start_time_;
         std::chrono::high_resolution_clock::time_point last_time_;
-        anet::rl::step_t last_exp_step_ = 0;
         float last_train_reward_ = 0.0f;
         anet::EmaFilter<float> train_reward_ema_;
         float last_target_eval_reward_ = 0.0f;
         float last_policy_eval_reward_ = 0.0f;
-        float last_train_step_per_sec_ = std::numeric_limits<float>::quiet_NaN();
-        float last_exp_step_per_sec_ = std::numeric_limits<float>::quiet_NaN();
         torch::Tensor episode_total_reward_cur_;        ///< Trainのエピソード単位総報酬を集計するために現在値
         torch::Tensor episode_total_reward_comp_;       ///< Trainのエピソード単位総報酬
+
+        step_t acc_train_steps_ = 0;
+        step_t acc_exp_steps_ = 0;
+        anet::rl::step_t last_train_step_ = 0;
+        anet::rl::step_t last_exp_step_ = 0;
+        float last_train_step_per_sec_ = std::numeric_limits<float>::quiet_NaN();
+        float last_exp_step_per_sec_ = std::numeric_limits<float>::quiet_NaN();
     };
 
     class RunnerThread {

@@ -184,7 +184,7 @@ torch::Tensor ConstantObservationNormalizer::NormalizeAndUpdateStats(const torch
     return result.first;
 }
 
-std::optional<float> ConstantObservationNormalizer::GetScalar(const std::string& key, int index) const
+std::optional<float> ConstantObservationNormalizer::GetScalar(const std::string& key, int64_t index) const
 {
     if (key == kKeyCount) return std::numeric_limits<float>::quiet_NaN();
     if (key == kKeyMeanMean) return std::numeric_limits<float>::quiet_NaN();
@@ -195,7 +195,7 @@ std::optional<float> ConstantObservationNormalizer::GetScalar(const std::string&
     return std::nullopt;
 }
 
-std::optional<torch::Tensor> ConstantObservationNormalizer::GetTensor(const std::string& key, int index) const
+std::optional<torch::Tensor> ConstantObservationNormalizer::GetTensor(const std::string& key, int64_t index) const
 {
     if (key == kKeyMean) return mean_;
     if (key == kKeyStd) return std_;
@@ -449,7 +449,7 @@ torch::Tensor RunningStdObservationNormalizer::NormalizeAndUpdateStats(const tor
     return result.first;
 } 
 
-std::optional<float> RunningStdObservationNormalizer::GetScalar(const std::string& key, int index) const
+std::optional<float> RunningStdObservationNormalizer::GetScalar(const std::string& key, int64_t index) const
 {
     if (key == kKeyCount) return static_cast<float>(stats_.GetCount());
     if (key == kKeyMeanMean) return static_cast<float>(stats_.GetMeanMean());
@@ -460,7 +460,7 @@ std::optional<float> RunningStdObservationNormalizer::GetScalar(const std::strin
     return std::nullopt;
 }
 
-std::optional<torch::Tensor> RunningStdObservationNormalizer::GetTensor(const std::string& key, int index) const
+std::optional<torch::Tensor> RunningStdObservationNormalizer::GetTensor(const std::string& key, int64_t index) const
 {
     if (key == kKeyMean) return stats_.GetMean();
     if (key == kKeyStd) return stats_.GetStd();
@@ -526,7 +526,7 @@ torch::Tensor ConstantRewardScaler::Scale(const torch::Tensor& reward)
     return scaled;
 }
 
-std::optional<float> ConstantRewardScaler::GetScalar(const std::string& key, int index) const
+std::optional<float> ConstantRewardScaler::GetScalar(const std::string& key, int64_t index) const
 {
     if (key == kKeyScale) return scale_factor_;
     if (key == kKeyCount) return std::numeric_limits<float>::quiet_NaN();
@@ -595,7 +595,7 @@ torch::Tensor RunningStdRewardScaler::Scale(const torch::Tensor& reward)
     return scaled;
 }
 
-std::optional<float> RunningStdRewardScaler::GetScalar(const std::string& key, int index) const
+std::optional<float> RunningStdRewardScaler::GetScalar(const std::string& key, int64_t index) const
 {
     // stats_ から情報を取得
     if (key == kKeyCount) return static_cast<float>(stats_.GetCount());

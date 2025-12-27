@@ -531,9 +531,9 @@ namespace anet::rl {
             const BatchState& next_state__
         ) : state(state__), action(action__), reward(std::move(reward__)), next_state(next_state__) { }
 
-        std::optional<float> GetScalar(const std::string& key, int index = -1) const { return std::nullopt; }
-        std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
-        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const { return std::nullopt; }
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
 
         BatchExperience To(torch::Device d, bool non_blocking = true) const;
         std::vector<SingleExperience> ToExperienceList() const;

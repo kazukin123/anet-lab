@@ -69,19 +69,19 @@ namespace anet {
 
     class DataExporter {
     public:
-        virtual std::optional<float> GetScalar(const std::string& key, int index = -1) const = 0;
-        virtual std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const = 0;
-        virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const = 0;
+        virtual std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const = 0;
+        virtual std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const = 0;
+        virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const = 0;
         virtual ~DataExporter() = default;
     };
 
     class DataExporterBase : virtual public DataExporter {
     public:
-        virtual std::optional<float> GetScalar(const std::string& key, int index = -1) const override
+        virtual std::optional<float> GetScalar(const std::string& key, int64_t = -1) const override
             { return std::nullopt; }
-        virtual std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override
+        virtual std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t = -1) const override
             { return std::nullopt; }
-        virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override
+        virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t = -1) const override
             { return std::nullopt; }
         virtual ~DataExporterBase() = default;
     };

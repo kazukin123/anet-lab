@@ -391,7 +391,7 @@ std::string SingleExperience::ToString() const
 // -----------------------------------------
 
 std::optional<torch::Tensor> BatchExperience::GetTensor(
-    const std::string& key, int index) const
+    const std::string& key, int64_t index) const
 {
     /// @todo index指定対応
 
@@ -422,7 +422,7 @@ std::optional<torch::Tensor> BatchExperience::GetTensor(
 }
 
 std::optional<std::vector<torch::Tensor>>
-    BatchExperience::GetTensorVector(const std::string& key, int index) const
+    BatchExperience::GetTensorVector(const std::string& key, int64_t index) const
 {
     /// @todo index指定対応
 

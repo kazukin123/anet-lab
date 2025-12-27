@@ -129,9 +129,9 @@ namespace anet::rl {
 
         std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override;
 
-        std::optional<float> GetScalar(const std::string& key, int index = -1) const override;
-        std::optional<torch::Tensor> GetTensor(const std::string& key, int index = -1) const override;
-        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int index = -1) const override;
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
     private:
         class BatchUpdateResult;
     private:
@@ -158,6 +158,8 @@ namespace anet::rl {
         std::unique_ptr<TargetUpdater> target_updater_;
         std::unique_ptr<StabilityMonitor> stability_monitor_;
         std::unique_ptr<StabilityController> stability_controller_;
+
+        /// @todo AS-DQN要素だけ抽出してdqn_based_agentに統合
     };
 
     class DQNAgentFactory : public anet::rl::AgentFactory {
