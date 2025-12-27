@@ -1,4 +1,6 @@
-﻿cmake_minimum_required(VERSION 3.20)
+﻿# anet-lab/CMakeLists.txt
+
+cmake_minimum_required(VERSION 3.20)
 project(anet-lab LANGUAGES CXX)
 set(CMAKE_CONFIGURATION_TYPES "Debug;RelWithDebInfo;Release" CACHE STRING "" FORCE)
 
@@ -72,14 +74,16 @@ list(APPEND CMAKE_PREFIX_PATH "${Torch_DIR}")
 # ---------------------------------------------------------------------
 find_package(Torch REQUIRED)
 find_package(wxWidgets REQUIRED COMPONENTS core base)
-#find_package(wxWidgets COMPONENTS core base OPTIONAL_COMPONENTS gl)
 
-include_directories("${PROJECT_SOURCE_DIR}/third_party/nvtx3")
+include_directories("${PROJECT_SOURCE_DIR}/third_party/nvtx3/include")
+include_directories("${PROJECT_SOURCE_DIR}/third_party/nlohmann/include")
 
 # ---------------------------------------------------------------------
 # サブプロジェクト
 # ---------------------------------------------------------------------
 add_subdirectory(core/anet-core)
+
+add_subdirectory(third_party/box2d-2.4.2)
 
 #add_subdirectory(apps/cartpole1)
 add_subdirectory(apps/cartpole2)

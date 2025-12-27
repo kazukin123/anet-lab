@@ -1,4 +1,6 @@
-﻿#LunarLanderRLGUI
+﻿# anet-lab/apps/lunarlander1/CMakeLists.txt
+
+#LunarLanderRLGUI
 
 cmake_minimum_required(VERSION 3.18)
 project(LunarLanderRLGUI)
@@ -13,7 +15,6 @@ set(CMAKE_COLOR_MAKEFILE ON)
 
 find_package(wxWidgets REQUIRED COMPONENTS core base gl)
 find_package(Torch REQUIRED)
-#find_package(box2d REQUIRED)
 
 #message(STATUS "Box2D_DIR: ${box2d_DIR}")
 
@@ -51,28 +52,13 @@ add_executable(LunarLanderRLGUI
     "src/PlotPanel.cpp"
     "src/HeatMapFrame.cpp")
 
-
-set(BOX2D_ROOT "C:/dev/box2d")
-
-
-add_library(Box2D STATIC IMPORTED)
-set_target_properties(Box2D PROPERTIES
-    IMPORTED_LOCATION_DEBUG          "${BOX2D_ROOT}/build/bin/Debug/box2d.lib"
-    IMPORTED_LOCATION_RELWITHDEBINFO "${BOX2D_ROOT}/build/bin/Release/box2d.lib"
-    IMPORTED_LOCATION_RELEASE        "${BOX2D_ROOT}/build/bin/Release/box2d.lib"
-)
-target_include_directories(LunarLanderRLGUI PRIVATE
-    "${BOX2D_ROOT}/include"
-)
-
 target_precompile_headers(LunarLanderRLGUI PRIVATE "src/pch.hpp")
 
 target_link_libraries(LunarLanderRLGUI PRIVATE
     anet-core
     ${TORCH_LIBRARIES}
     ${wxWidgets_LIBRARIES}
-    Box2D
-#    box2d::box2d
+    box2d
 )
 
 set_target_properties(LunarLanderRLGUI PROPERTIES

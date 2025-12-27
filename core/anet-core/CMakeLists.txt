@@ -33,13 +33,8 @@ elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
 endif()
 
 find_package(wxWidgets REQUIRED COMPONENTS core base)
-#find_package(CUDAToolkit REQUIRED)
 
 include(${wxWidgets_USE_FILE})
-#include_directories(${CUDAToolkit_INCLUDE_DIRS})
-#include_directories("$ENV{CUDA_PATH}/extras/CUPTI/include")
-#include_directories("$ENV{CUDA_PATH}/include")
-#include_directories("C:/Program Files/NVIDIA Corporation/Nsight Systems 2025.3.2/target-windows-x64/nvtx/include")
 
 add_library(anet-core STATIC
     "src/rl.cpp"
