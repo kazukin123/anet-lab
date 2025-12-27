@@ -73,7 +73,35 @@ list(APPEND CMAKE_PREFIX_PATH "${Torch_DIR}")
 # 外部ライブラリ
 # ---------------------------------------------------------------------
 find_package(Torch REQUIRED)
-find_package(wxWidgets REQUIRED COMPONENTS core base)
+find_package(wxWidgets REQUIRED COMPONENTS core base gl)
+
+# =====================================================================
+# wxWidgets 互換性レイヤー
+# =====================================================================
+add_library(anet_wx INTERFACE)
+if(TARGET wx::core)
+    # --- 【CI環境 / Configモード】 ---
+    # wx::core などのターゲットが見つかった場合
+    message(STATUS "wxWidgets: Config mode detected (Targets available)")
+    target_link_libraries(anet_wx INTERFACE wx::core wx::base wx::gl)
+else()
+    # --- 【ローカル環境 / Moduleモード】 ---
+    # ターゲットがなく、変数(wxWidgets_LIBRARIES)のみの場合
+    message(STATUS "wxWidgets: Module mode detected (Variables available)")
+    
+    # Moduleモードではこのファイルをincludeして定義やパスを一括設定するのが定石
+    if(wxWidgets_USE_FILE)
+        include(${wxWidgets_USE_FILE})
+    endif()
+
+    # 変数を仲介ターゲットに紐付ける
+    target_link_libraries(anet_wx INTERFACE ${wxWidgets_LIBRARIES})
+    
+    # includeパスも明示的に継承させる (USE_FILEで足りない場合用)
+    if(wxWidgets_INCLUDE_DIRS)
+        target_include_directories(anet_wx INTERFACE ${wxWidgets_INCLUDE_DIRS})
+    endif()
+endif()
 
 include_directories("${PROJECT_SOURCE_DIR}/third_party/nvtx3/include")
 include_directories("${PROJECT_SOURCE_DIR}/third_party/nlohmann/include")
@@ -93,6 +121,7 @@ add_subdirectory(apps/lunarlander1)
 # Doxygen
 # ---------------------------------------------------------------------
 find_package(Doxygen)
+
 if(DOXYGEN_FOUND)
     set(DOXYGEN_IN  ${CMAKE_CURRENT_SOURCE_DIR}/docs/Doxyfile)
     add_custom_target(doc
@@ -100,4 +129,7 @@ if(DOXYGEN_FOUND)
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/docs
         COMMENT "Generating full documentation with Doxygen"
     )
+else()
+    message(STATUS "Doxygen not found. Documentation target will be skipped.")
 endif()
+

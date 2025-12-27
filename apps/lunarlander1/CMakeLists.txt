@@ -13,7 +13,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_COLOR_MAKEFILE ON)
 
-find_package(wxWidgets REQUIRED COMPONENTS core base gl)
+#find_package(wxWidgets REQUIRED COMPONENTS core base gl)
 find_package(Torch REQUIRED)
 
 #message(STATUS "Box2D_DIR: ${box2d_DIR}")
@@ -42,7 +42,7 @@ elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
     add_compile_definitions(NDEBUG)
 endif()
 
-include(${wxWidgets_USE_FILE})
+#include(${wxWidgets_USE_FILE})
 
 add_executable(LunarLanderRLGUI
     "src/LunarLanderApp.cpp"
@@ -57,7 +57,7 @@ target_precompile_headers(LunarLanderRLGUI PRIVATE "src/pch.hpp")
 target_link_libraries(LunarLanderRLGUI PRIVATE
     anet-core
     ${TORCH_LIBRARIES}
-    ${wxWidgets_LIBRARIES}
+    anet_wx
     box2d
 )
 

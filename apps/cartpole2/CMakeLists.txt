@@ -38,9 +38,6 @@ elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
     add_compile_definitions(NDEBUG)
 endif()
 
-include(${wxWidgets_USE_FILE})
-
-
 add_executable(CartPoleRLGUI
     "src/app.cpp"
     "src/CartPoleEnv.cpp"
@@ -52,8 +49,8 @@ add_executable(CartPoleRLGUI
 target_precompile_headers(CartPoleRLGUI PRIVATE "src/pch.hpp")
 target_link_libraries(CartPoleRLGUI PRIVATE
     anet-core
+    anet_wx
     ${TORCH_LIBRARIES}
-    ${wxWidgets_LIBRARIES}
 )
 
 set_target_properties(CartPoleRLGUI PROPERTIES

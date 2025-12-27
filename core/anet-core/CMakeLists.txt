@@ -32,9 +32,8 @@ elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
     add_compile_definitions(NDEBUG)
 endif()
 
-find_package(wxWidgets REQUIRED COMPONENTS core base)
-
-include(${wxWidgets_USE_FILE})
+#find_package(wxWidgets REQUIRED COMPONENTS core base)
+#include(${wxWidgets_USE_FILE})
 
 add_library(anet-core STATIC
     "src/rl.cpp"
