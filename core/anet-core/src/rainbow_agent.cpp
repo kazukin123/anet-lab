@@ -167,31 +167,31 @@ anet::rl::BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const
     return act_info;
 }
 
-std::shared_ptr<const anet::rl::BatchUpdateResult>
+anet::rl::BatchUpdateResultList
 RainbowAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp, const anet::rl::Runner& runner)
 {
     ProfileRange r1("RainbowAgent::UpdateFromBatch");
 
-    std::shared_ptr<const anet::rl::BatchUpdateResult> update_result;
-
-    if (true) {
+    anet::rl::BatchUpdateResultList result_list;
+    {
         // 排他ロック
         std::unique_lock<std::shared_mutex> lock(*mutex_);
+
         // Update実行
-        update_result = this->learner_->UpdateFromBatch(counts, batch_exp, runner);
-    } else {
-        // 更新なしでResultだけ作る
-        update_result = std::make_shared<dqn::BatchUpdateResult>(0);
+        auto result = this->learner_->UpdateFromBatch(counts, batch_exp, runner);
+        result_list = std::move(result);
     }
 
     // LearnEvent通知
-    if (update_result->GetLearnStepDiff() > 0 && notifier_ != nullptr) {
-        anet::rl::LearnEvent event{ batch_exp, runner, counts, shared_from_this(), update_result };
-        notifier_->Notify(event);
+    if (notifier_ != nullptr) {
+        for (auto result : result_list) {
+            anet::rl::LearnEvent event{ batch_exp, runner, counts, shared_from_this(), result_list };
+            notifier_->Notify(event);
+        }
     }
 
-    // BatchUpdateResultを返す
-    return update_result;
+    // BatchUpdateResultListを返す
+    return result_list;
 }
 
 // ======================================================

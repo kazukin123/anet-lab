@@ -303,6 +303,40 @@ std::string BatchState::ToString() const
     return oss.str();
 }
 
+torch::Tensor BatchActionInfo::GetAction(torch::Device device) const
+{
+    /// @todo GPU→CPUのno_blockingは同期が必要で面倒なので使わない
+
+    // --- CPU requested ---
+    if (device.is_cpu()) {
+        if (!action_cpu_.defined()) {
+            if (!gpu_)
+                throw std::logic_error("BatchActionInfo: no tensor available to create CPU action");
+            action_cpu_ = gpu_->second.to(torch::kCPU);
+        }
+        return action_cpu_;
+    }
+
+    // --- GPU requested ---
+    if (!device.is_cuda()) {
+        throw std::logic_error("BatchActionInfo: unsupported device type");
+    }
+    if (!gpu_) {
+        if (!action_cpu_.defined())
+            throw std::logic_error("BatchActionInfo: no tensor available to create GPU action");
+        gpu_ = std::make_pair(device, action_cpu_.to(device));
+        return gpu_->second;
+    }
+    if (gpu_->first != device) {
+        throw std::logic_error(
+            "BatchActionInfo: GPU device mismatch (cached="
+            + gpu_->first.str() + ", requested=" + device.str() + ")"
+        );
+    }
+
+    return gpu_->second;
+}
+
 std::string BatchActionInfo::ToString() const
 {
     std::ostringstream oss;

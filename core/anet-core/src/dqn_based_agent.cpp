@@ -637,9 +637,6 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
 
 bool Learner::CanUpdate(step_t update_step, step_t exp_step) const
 {
-    // update_interval
-    if ((update_step % config_.update_interval) != 0)
-        return false;
     // warmup
     if (config_.update_warmup_steps > 0 && exp_step < config_.update_warmup_steps)
         return false;
@@ -681,58 +678,81 @@ void Learner::UpdatePerBeta(step_t learn_step)
     }
 }
 
-std::shared_ptr<const anet::rl::BatchUpdateResult> Learner::UpdateFromBatch(
-    const anet::rl::StepCounts& counts, const anet::rl::BatchExperience& experiences, const anet::rl::Runner& trainer)
+anet::rl::BatchUpdateResultList
+Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::BatchExperience& experiences, const anet::rl::Runner& trainer)
 {
     // ReplayBuffer へ push
     replay_buffer_->Push(experiences);
 
+    // 戻り値のUpdateResultを準備
+    BatchUpdateResultList result_list;
+
     // Update不可なら空の結果を返す
     if (!CanUpdate(counts.update_step, counts.exp_step)) {
-        return std::make_shared<BatchUpdateResult>(0);
+        //update_results.push_back(std::make_shared<BatchUpdateResult>());
+        return result_list;  // 空配列
+    }
+    
+    // Credit計算
+    float earned_credit = 0.0f;
+    if (config_.replay_ratio > 0) { 
+        // RRモード:  U = (N * RR) / B
+        earned_credit = static_cast<float>(batch_size_) * config_.replay_ratio / config_.replay_batch_size;
+    } else {
+        // Intervalモード: U = 1.0 / Interval
+        earned_credit = 1.0f / static_cast<float>(std::max(1, config_.update_interval));
     }
 
-    const int B = config_.replay_batch_size;
-    const int S = state_dim_;
-    //const int A = agent_.n_actions_;
+    // Credit加算
+    update_credit_ += earned_credit;
 
-    // Sample
-    float current_beta = config_.use_per ? vars_.per_beta : 0.0f;
-    auto raw_samples = replay_buffer_->Sample(config_.replay_batch_size, device_, current_beta);
+    // update_credit が十分な間、学習ループを回す
+    while (update_credit_ >= 1.0f) {
+        if (!CanUpdate(counts.update_step, counts.exp_step))
+            break;
+            
+        const int B = config_.replay_batch_size;
+        const int S = state_dim_;
 
-    // Check shapes & dtypes
-    ANET_CHECK_DEVICE(raw_samples.obs, device_);
-    ANET_CHECK_DEVICE(raw_samples.actions, device_);
-    ANET_CHECK_DEVICE(raw_samples.target_values, device_);
-    ANET_CHECK_DEVICE(raw_samples.next_states.obs, device_);
-    ANET_CHECK_DEVICE(raw_samples.next_states.terminals, device_);
-    ANET_CHECK_DEVICE(raw_samples.n_steps, device_);
-    ANET_CHECK_SHAPE(raw_samples.obs, { B, S });
-    ANET_CHECK_SHAPE(raw_samples.actions, { B });    // 離散アクション
-    ANET_CHECK_SHAPE(raw_samples.target_values, { B });
-    ANET_CHECK_SHAPE(raw_samples.next_states.obs, { B, S });
-    ANET_CHECK_SHAPE(raw_samples.next_states.terminals, { B });
-    ANET_CHECK_SHAPE(raw_samples.n_steps, { B });
-    ANET_CHECK_DTYPE(raw_samples.obs, torch::kFloat32);
-    ANET_CHECK_DTYPE(raw_samples.actions, torch::kInt64);    // 離散アクション
-    ANET_CHECK_DTYPE(raw_samples.target_values, torch::kFloat32);
-    ANET_CHECK_DTYPE(raw_samples.next_states.terminals, torch::kBool);
-    ANET_CHECK_DTYPE(raw_samples.n_steps, torch::kInt64);
+        // Sample
+        float current_beta = config_.use_per ? vars_.per_beta : 0.0f;
+        auto raw_samples = replay_buffer_->Sample(config_.replay_batch_size, device_, current_beta);
 
-    auto samples = raw_samples.FlattenStates();
+        // Check shapes & dtypes
+        ANET_CHECK_DEVICE(raw_samples.obs, device_);
+        ANET_CHECK_DEVICE(raw_samples.actions, device_);
+        ANET_CHECK_DEVICE(raw_samples.target_values, device_);
+        ANET_CHECK_DEVICE(raw_samples.next_states.obs, device_);
+        ANET_CHECK_DEVICE(raw_samples.next_states.terminals, device_);
+        ANET_CHECK_DEVICE(raw_samples.n_steps, device_);
+        ANET_CHECK_SHAPE(raw_samples.obs, { B, S });
+        ANET_CHECK_SHAPE(raw_samples.actions, { B });    // 離散アクション
+        ANET_CHECK_SHAPE(raw_samples.target_values, { B });
+        ANET_CHECK_SHAPE(raw_samples.next_states.obs, { B, S });
+        ANET_CHECK_SHAPE(raw_samples.next_states.terminals, { B });
+        ANET_CHECK_SHAPE(raw_samples.n_steps, { B });
+        ANET_CHECK_DTYPE(raw_samples.obs, torch::kFloat32);
+        ANET_CHECK_DTYPE(raw_samples.actions, torch::kInt64);    // 離散アクション
+        ANET_CHECK_DTYPE(raw_samples.target_values, torch::kFloat32);
+        ANET_CHECK_DTYPE(raw_samples.next_states.terminals, torch::kBool);
+        ANET_CHECK_DTYPE(raw_samples.n_steps, torch::kInt64);
 
-    // 固有処理呼び出し
-    auto result = UpdateFromSamples(samples);
+        // 固有処理呼び出し
+        auto samples = raw_samples.FlattenStates();
+        auto result = UpdateFromSamples(samples);
+        result_list.push_back(result);
 
-    // 更新後処理
-    UpdateTargetNetwork(vars_.learn_step);
-    UpdateEpsilon(vars_.learn_step);
-    UpdatePerBeta(vars_.learn_step);
+        // 更新後処理
+        UpdateTargetNetwork(vars_.learn_step);
+        UpdateEpsilon(vars_.learn_step);
+        UpdatePerBeta(vars_.learn_step);
 
-    // Post Updates (学習ステップ更新後に行う)
-    vars_.learn_step++;
+        // カウント系更新
+        vars_.learn_step++;
+        update_credit_ -= 1.0f;
+    }
 
-    return result;
+    return result_list;
 }
 
 // ======================================================
@@ -938,7 +958,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     // ------------------------------------------------------------
     // UpdateResult
     // ------------------------------------------------------------
-    auto result = std::make_shared<BatchUpdateResult>(1);
+    auto result = std::make_shared<BatchUpdateResult>();
     result->loss = loss;
     result->td_error = td_error;
     result->grad_norm = grad_norm;
@@ -1244,7 +1264,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     // 結果生成
     // ------------------------------------------------------------
 
-    auto result = std::make_shared<BatchUpdateResult>(1);
+    auto result = std::make_shared<BatchUpdateResult>();
     result->loss = loss;
     result->td_error = td_error_tensor;
     result->grad_norm = grad_norm;

@@ -50,6 +50,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.replay_batch_size);
             ANET_READ_CONFIG(config_data, learner.update_warmup_steps);
             ANET_READ_CONFIG(config_data, learner.update_interval);
+            ANET_READ_CONFIG(config_data, learner.replay_ratio);
             ANET_READ_CONFIG(config_data, learner.n_step);
             ANET_READ_CONFIG(config_data, learner.per_alpha);
             ANET_READ_CONFIG(config_data, learner.per_beta_start);
@@ -105,8 +106,8 @@ namespace anet::rl::dqn {
             std::optional<seed_t> seed = std::nullopt);
 
         anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, RunMode mode = RunMode::Train) const override;
-        std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromBatch(
-            const StepCounts& step, const anet::rl::BatchExperience& exprience, const anet::rl::Runner& trainer) override;
+
+        BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences, const Runner& trainer) override;
     public:
         std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override;
 

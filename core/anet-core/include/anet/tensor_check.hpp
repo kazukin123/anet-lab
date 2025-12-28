@@ -69,6 +69,8 @@ void _anet_check_nan_impl(const torch::Tensor& t, const char* msg, const char* f
 
 #endif
 
+/// @todo CHECK（リリースビルドでも適用） → ASSERT（デバッグビルドのみ）
+
 //------------------------------------------------------
 // Device チェック系マクロ
 //------------------------------------------------------

@@ -8,10 +8,11 @@
 using namespace anet::rl;
 namespace LOG = anet::log;
 
-std::optional<float> MetricsScalarProbe::GetFloat(const TrainEvent& event) const
-{
-    return event.update_result->GetScalar(key_);
-}
+
+//std::optional<float> MetricsScalarProbe::GetFloat(const TrainEvent& event) const
+//{
+//    return event.update_result->GetScalar(key_);
+//}
 
 std::optional<float> StaticScalarProbe::GetFloat(const TrainEvent& event) const
 {
@@ -138,19 +139,33 @@ BatchUpdateResultTensorToVectorProbe::BatchUpdateResultTensorToVectorProbe(const
 
 std::optional<std::vector<float>> BatchUpdateResultTensorToVectorProbe::GetVector(const UpdateEvent& event) const
 {
-    auto tensor = event.update_result->GetTensor(key_);
-    //ANET_ASSERT(tensor.has_value());   // key誤りによるバグ防止のため
-    if (!tensor.has_value()) return std::nullopt;
-    if (!tensor->defined()) return std::nullopt;
-
-    torch::Tensor flat = tensor->flatten().to(torch::kCPU);
-    ANET_CHECK_SHAPE(flat, { ANET_SHAPE_ANY });
-    ANET_CHECK_DTYPE(flat, torch::kFloat32);
-
+    const auto& result_list = event.update_result_list;
     std::vector<float> out;
-    out.resize(flat.size(0));
-    std::memcpy(out.data(), flat.data_ptr<float>(), flat.size(0) * sizeof(float));
-    return out;
+    bool has_value = false;
+
+    // BatchUpdateResultListで回す
+    for (auto result : result_list) {
+        // 値取得
+        auto tensor = result->GetTensor(key_);
+
+        // 値取得判定
+        //ANET_ASSERT(tensor.has_value());   // key誤りによるバグ防止のため
+        if (!tensor.has_value()) continue;
+        if (!tensor->defined()) continue;
+        has_value = true;
+
+        // データ取り出し準備
+        torch::Tensor flat = tensor->flatten().to(torch::kCPU).contiguous();
+        ANET_CHECK_SHAPE(flat, { ANET_SHAPE_ANY });
+        ANET_CHECK_DTYPE(flat, torch::kFloat32);
+
+        // outに詰める（追加）
+        const float* ptr = flat.data_ptr<float>();
+        out.insert(out.end(), ptr, ptr + flat.numel());
+    }
+
+    if (has_value) return out;
+    return std::nullopt;
 }
 
 BatchActionInfoToVectorProbe::BatchActionInfoToVectorProbe(const std::string& key, std::optional<float> min, std::optional<float> max)

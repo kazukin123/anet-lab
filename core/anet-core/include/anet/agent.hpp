@@ -80,7 +80,8 @@ namespace anet::rl {
             int replay_capacity = 10000;
             int replay_batch_size = 128;
             int update_warmup_steps = 1000;
-            int update_interval = 10;
+            int update_interval = 2;         ///< 何ステップに1回Updateするか。replay_ratioが正なら使われない。
+            float replay_ratio = -1;         ///< 環境1ステップあたり平均何回の勾配更新を行うか。batch_sizeに依存しない。負数ではuppdate_intervalのみ使う
 
             int n_step = 3;
 

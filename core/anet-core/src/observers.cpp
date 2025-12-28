@@ -524,8 +524,69 @@ MetricsLogLearnObserver::MetricsLogLearnObserver(const std::string& tag, const s
     ;
 }
 
-std::optional<float> MetricsLogObserverBase::GetScalar(const UpdateEvent& event, anet::rl::EventField event_field)
+//std::optional<float> MetricsLogObserverBase::GetScalar(const UpdateEvent& event, anet::rl::EventField event_field)
+//{
+//    std::optional<float> ret;
+//
+//    // BatchUpdateEventが対象の場合はリストになるので平均を取る
+//    if (event_field == anet::rl::EventField::BATCH_UPDATE_RESULT) {
+//        const auto& update_result_list = event.update_result_list;
+//
+//        if (update_result_list.size() == 1) {
+//            ret = update_result_list[0]->GetScalar(this->key_);
+//        } else if (!update_result_list.empty()) {
+//            float sum = 0.0f;
+//            int count = 0;
+//            for (const auto& update_result : update_result_list) {
+//                auto scaler = update_result->GetScalar(this->key_);
+//                if (!scaler.has_value()) continue;
+//                sum += *scaler;
+//                count++;
+//            }
+//            if (count > 0) {
+//                float mean = sum / static_cast<float>(count);
+//                ret = mean;
+//            }
+//        }   // 空リストならstd::nullopt
+//    } else {
+//        // Scalar取得対象
+//        const anet::DataExporter* target = nullptr;
+//
+//        // 指定に従ってScalar取得対象を取得
+//        switch (event_field) {
+//        case anet::rl::EventField::BATCH_EXPERIENCE:
+//            target = &event.batch_exp;
+//            break;
+//        case anet::rl::EventField::AGENT:
+//            target = event.agent.get();
+//            break;
+//        case anet::rl::EventField::RUNNER:
+//            target = &event.runner;
+//            break;
+//        default:
+//            ANET_SYSTEM_ERROR("Unknown event field: " << static_cast<int>(event_field));
+//            break;
+//        }
+//
+//        // 値取得
+//        if (target != nullptr)
+//            ret = target->GetScalar(this->key_);
+//    }
+//
+//    // clip
+//    if (clip_.has_value() && ret.has_value()) {
+//        ret = std::clamp<float>(*ret, -*clip_, *clip_);
+//    }
+//
+//    // return
+//    return ret;
+//}
+
+/// BATCH_UPDATE_RESULT以外用のメトリクス情報取得処理
+MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(const UpdateEvent& event, EventField event_field)
 {
+    ANET_CHECK(event_field != EventField::BATCH_UPDATE_RESULT);
+
     // Scalar取得対象
     const anet::DataExporter* target = nullptr;
 
@@ -537,59 +598,169 @@ std::optional<float> MetricsLogObserverBase::GetScalar(const UpdateEvent& event,
     case anet::rl::EventField::AGENT:
         target = event.agent.get();
         break;
-    case anet::rl::EventField::BATCH_UPDATE_RESULT:
-        target = event.update_result.get();
-        break;
     case anet::rl::EventField::RUNNER:
         target = &event.runner;
         break;
+    default:
+        ANET_SYSTEM_ERROR("Unknown event field: " << static_cast<int>(event_field));
+        break;
     }
 
-    if (target == nullptr)
-        return std::nullopt;
+    // step取得
+    auto step = event.counts.GetByAxis(this->step_axis_);
 
-    // Scalar値取得
-    auto scalar_value = target->GetScalar(this->key_);
-    if (clip_.has_value() && scalar_value.has_value()) {
-        scalar_value = std::clamp<float>(*scalar_value, -*clip_, *clip_);
+    // 値取得
+    std::optional<float> value;
+    if (target != nullptr)
+        value = target->GetScalar(this->key_);
+
+    // 結果生成
+    MetricsData ret{ step, value };
+    return ret;
+}
+
+/// BATCH_UPDATE_RESULT専用のメトリクス情報取得処理
+MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataListFromUpdateResultList(const UpdateEvent& event)
+{
+    MetricsDataList ret;
+
+    // 取得元のBatchUpdateResultList
+    auto learn_step = event.counts.learn_step;
+    const auto& update_result_list = event.update_result_list;
+
+    // 空の場合は空
+    if (update_result_list.empty())
+        return ret;
+    
+    if (step_axis_ == StepAxis::LEARN) {
+        // StepAxis::LEARNの場合、UpdateResultの一件毎にメトリクス情報
+        for (const auto& update_result : update_result_list) {
+            // メトリクス情報取得
+            auto scaler = update_result->GetScalar(this->key_);
+            MetricsData data{ learn_step, scaler };
+            ret.push_back(data);
+
+            // カウント進める
+            learn_step++;
+        }
+    } else {
+        // StepAxis::LEARN以外の場合は平均値
+
+        float sum = 0.0f;
+        int count = 0;
+        for (const auto& update_result : update_result_list) {
+            auto scaler = update_result->GetScalar(this->key_);
+            if (!scaler.has_value()) continue;
+            sum += *scaler;
+            count++;
+        }
+        if (count > 0) {
+            // step取得
+            auto step = event.counts.GetByAxis(this->step_axis_);
+
+            // 平均値として値算出
+            float mean = sum / static_cast<float>(count);
+
+            // メトリクス情報追加
+            MetricsData data{ step, mean };
+            ret.push_back(data);
+        }
     }
-    return scalar_value;
+
+    return ret;
+}
+
+
+MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataList(const UpdateEvent& event)
+{
+    MetricsDataList ret;
+
+    if (event_field_.has_value()) {
+        // 対象フィールドが指定されている場合
+
+        if (*event_field_ == anet::rl::EventField::BATCH_UPDATE_RESULT) {
+            // UpdateResultList用メソッドでメトリクス情報を取得
+            auto data_list = GetMetricsDataListFromUpdateResultList(event);
+            ret = std::move(data_list);
+        } else {
+            // その他メソッドでメトリクス情報を取得
+            auto data = GetMetricsData(event, *event_field_);
+            ret.push_back(data);
+        }
+    } else {
+        // 対象フィールドが指定されていない場合、順番に試す
+
+        // BatchUpdateResultList
+        auto data_list = GetMetricsDataListFromUpdateResultList(event);
+        if (!data_list.empty()) {
+            ret = std::move(data_list);
+        } else {
+            // Agent
+            auto data = GetMetricsData(event, anet::rl::EventField::AGENT);
+            if (data.second.has_value()) {
+                ret.push_back(data);
+            } else {
+                // BatchExperience
+                auto data = GetMetricsData(event, anet::rl::EventField::BATCH_EXPERIENCE);
+                if (data.second.has_value()) {
+                    ret.push_back(data);
+                } else {
+                    // Runner
+                    auto data = GetMetricsData(event, anet::rl::EventField::RUNNER);
+                    if (data.second.has_value()) {
+                        ret.push_back(data);
+                    }
+                }
+            }
+        }
+    }
+
+    return ret;
 }
 
 void MetricsLogObserverBase::OnUpdate(const UpdateEvent& event)
 {
-    std::optional<float> value;
-    if (event_field_.has_value()) {
-        value = GetScalar(event, *event_field_);
-    } else {
-        value = GetScalar(event, anet::rl::EventField::BATCH_UPDATE_RESULT);
-        if (!value.has_value()) value = GetScalar(event, anet::rl::EventField::AGENT);
-        if (!value.has_value()) value = GetScalar(event, anet::rl::EventField::BATCH_EXPERIENCE);
-        if (!value.has_value()) value = GetScalar(event, anet::rl::EventField::RUNNER);
-    }
+    // メトリクスの出力データをリストとして取得
+    auto metrics_list = GetMetricsDataList(event);
 
-	// EMA更新
-    if (value.has_value()) {
-        if (is_ema_) {
-			val_ema_.Update(*value);
+    // 取れたメトリクスを順に試す
+    for (const auto& metrics : metrics_list) {
+        const auto& step = metrics.first;
+        const auto& value_opt = metrics.second;
+
+        // メトリクス出力値
+        std::optional<float> final_value;
+
+        // EMA更新（出力しない場合も更新、クリッピング前の値で更新）
+        if (value_opt.has_value()) {
+            if (is_ema_) {
+                val_ema_.Update(*value_opt);
+                if (val_ema_.IsInitialized())
+                    final_value = val_ema_.Value();
+            } else {
+                final_value = *value_opt;
+            }
+        } else {
+            // メトリクス見つからない
+            LOG::warn() << "MetricsLogObserverBase::OnUpdate(): value not found. tag=" << tag_ << " key=" << key_ << " step=" << step;
+            continue;
         }
-    } else {
-        LOG::warn() << "MetricsLogObserverBase::OnUpdate(): value not found. tag=" << tag_ << " key=" << key_;
-    }
 
-	// STEP取得
-    auto step = event.counts.GetByAxis(this->step_axis_);
+        // メトリクス出力間隔チェック
+        if (step % interval_ != 0) continue;
 
-	// ログ出力間隔チェック
-    if (step % interval_ != 0) return;
+        //  値が利用可能かチェック (EMA初期化前など)
+        if (!final_value.has_value()) continue;
 
-	// ログ出力
-    if (is_ema_) {
-        if (val_ema_.IsInitialized())
-            MetricsLogger::Instance()->LogScalar(tag_, step, val_ema_.Value());
-    } else if (value.has_value()) {
-        if (std::isfinite(*value))    // NaNと∞は出さない
-            MetricsLogger::Instance()->LogScalar(tag_, step, *value);
+        // NaNやInFは出さないチェック (出力する最終値を見る)
+        if (!std::isfinite(*final_value)) continue;
+
+        // クリッピング
+        if (clip_.has_value() && final_value.has_value())
+            final_value = std::clamp<float>(*final_value, -*clip_, *clip_);
+
+        // メトリクス出力
+        MetricsLogger::Instance()->LogScalar(tag_, step, *final_value);
     }
 }
 

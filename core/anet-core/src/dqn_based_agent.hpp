@@ -49,10 +49,7 @@ namespace anet::rl::dqn {
         torch::Tensor q_std; // 分布の標準偏差
 
     public:
-        BatchUpdateResult(uint32_t learn_step_diff)
-            : anet::rl::BatchUpdateResult(learn_step_diff)
-        {
-        }
+        BatchUpdateResult() = default;
 
         std::optional<float> GetScalar(const std::string& key, int64_t index) const override
         {
@@ -309,14 +306,13 @@ namespace anet::rl::dqn {
             const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec,
             torch::Device device, anet::seed_t replay_seed);
 
-        std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromBatch(
-            const StepCounts& step, const BatchExperience& expriences, const Runner& trainer) override;
+        BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences, const Runner& trainer) override;
 
+        virtual ~Learner() = default;
+    public:
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
-
-        virtual ~Learner() = default;
     protected:
         // アルゴリズム固有の更新処理 (Loss計算, Backprop, Priority更新)
         virtual std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
@@ -326,7 +322,7 @@ namespace anet::rl::dqn {
         void SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, anet::seed_t seed);
     private:
         bool CanUpdate(step_t update_step, step_t exp_step) const;
-        void UpdatePerBeta(step_t learn_step);  ///<  PERのβ更新など
+        void UpdatePerBeta(step_t learn_step);
         void UpdateEpsilon(step_t learn_step);
         void UpdateTargetNetwork(step_t step);
     protected:
@@ -340,6 +336,8 @@ namespace anet::rl::dqn {
         std::shared_ptr<ObservationNormalizer> obs_norm_;
         std::shared_ptr<anet::rl::ReplayBuffer> replay_buffer_;
         std::unique_ptr<torch::optim::Adam> optimizer_;
+    protected:
+        float update_credit_ = 0.0f;
     };
 
     class TDLearner final : public anet::rl::dqn::Learner {

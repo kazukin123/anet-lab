@@ -116,8 +116,8 @@ private:
 
 public:
     DQNAgent::BatchUpdateResult(const DQNAgent::RuntimeVars& vars,
-        const std::optional<torch::Tensor>& max_q, uint32_t learn_step_diff)
-        : anet::rl::BatchUpdateResult(learn_step_diff), max_q_(max_q)
+        const std::optional<torch::Tensor>& max_q)
+        : max_q_(max_q)
     {
         // A 群：DQN基本事項
         map_["epsilon"] = vars.epsilon;
@@ -919,14 +919,14 @@ anet::rl::BatchActionInfo DQNAgent::MakeAction(
     return act_info;
 }
 
-std::shared_ptr<const anet::rl::BatchUpdateResult>
+BatchUpdateResultList
 DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp, const anet::rl::Runner& runner)
 {
     ProfileRange r1("DQNAgent::UpdateFromBatch");
 
     bool can_update;
 
-    std::shared_ptr<DQNAgent::BatchUpdateResult> result;
+    BatchUpdateResultList result_list;
     {
         std::unique_lock<std::shared_mutex> lock(*mutex_);
 
@@ -935,8 +935,6 @@ DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperie
 
         // 学習タイミング判定
         can_update = replay_scheduler_->CanUpdate(counts.update_step, batch_size_, *replay_buffer_);
-
-        uint32_t learn_step_diff = 0;
 
         if (can_update) {
             const int B = config_.replay_batch_size;
@@ -1084,7 +1082,6 @@ DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperie
 
             // optimizerを動かしたので step数を更新
             vars_->learn_step++;
-            learn_step_diff++;
 
             // target_network更新
             target_updater_->Sync(vars_->learn_step, vars_->tau, policy_net_, target_net_);
@@ -1103,11 +1100,8 @@ DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperie
             stability_controller_->UpdateOnLearn(*vars_, *stability_monitor_, vars_->learn_step);
 
             // 戻り値用オブジェクト生成
-            result = std::make_shared<DQNAgent::BatchUpdateResult>(*vars_, result_max_q, learn_step_diff);
-
-        }
-        else {  // can_update
-            result = std::make_shared<DQNAgent::BatchUpdateResult>(*vars_, std::nullopt, learn_step_diff);
+            auto result = std::make_shared<DQNAgent::BatchUpdateResult>(*vars_, result_max_q);
+            result_list.push_back(result);
         }
 
         // 内部状態変数を更新
@@ -1117,14 +1111,15 @@ DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperie
     }
 
     // LearnEvent通知
-    if (notifier_ != nullptr && can_update) {
-        anet::rl::LearnEvent event{ batch_exp, runner, counts, shared_from_this(), result };
-        notifier_->Notify(event);
+    if (notifier_ != nullptr) {
+        for (const auto& result : result_list) {
+            anet::rl::LearnEvent event{ batch_exp, runner, counts, shared_from_this(), result_list };
+            notifier_->Notify(event);
+        }
     }
 
-    // 戻り用変数
-
-    return result;
+    // 戻り
+    return result_list;
 }
 
 DQNAgentFactory::DQNAgentFactory()

@@ -14,8 +14,8 @@ namespace anet::rl {
         RunnerBase();
         RunnerBase(std::shared_ptr<BatchEnv> env);
         virtual StepCounts DoStep() = 0;
-        StepCounts DoUpdateFrame(int max_steps,
-            ControlFunction pre_step_func = noop, ControlFunction post_step_func = noop) override;
+        StepCounts DoUpdateFrame(
+            int max_steps, ControlFunction pre_step_func = nullptr, ControlFunction post_step_func = nullptr) override;
 
         virtual ~RunnerBase() = default;
     public:
@@ -97,9 +97,13 @@ namespace anet::rl {
 
     class RunnerThread {
     public:
+        using ExceptionFunction = std::function<void()>;
+        static void noop(void) { }
+    public:
         explicit RunnerThread(std::shared_ptr<anet::rl::Runner> runner,
-            anet::rl::Runner::ControlFunction pre_func = anet::rl::Runner::noop,
-            anet::rl::Runner::ControlFunction post_func = anet::rl::Runner::noop);
+            anet::rl::Runner::ControlFunction pre_func = nullptr,
+            anet::rl::Runner::ControlFunction post_func = nullptr,
+            ExceptionFunction exception_func = nullptr);
         ~RunnerThread();
 
         void Start();
@@ -121,6 +125,7 @@ namespace anet::rl {
         std::thread worker_;
         anet::rl::Runner::ControlFunction pre_func_;
         anet::rl::Runner::ControlFunction post_func_;
+        ExceptionFunction exception_func_;
     };
 
 } // namespace anet::rl

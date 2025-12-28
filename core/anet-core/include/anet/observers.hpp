@@ -247,7 +247,13 @@ namespace anet::rl {
     protected:
         void OnUpdate(const UpdateEvent& event);
     private:
-        std::optional<float> GetScalar(const UpdateEvent& event, anet::rl::EventField event_field);
+        using MetricsData = std::pair<step_t, std::optional<float>>;
+        using MetricsDataList = std::vector<MetricsData>;
+    private:
+        MetricsDataList GetMetricsDataList(const UpdateEvent& event);
+
+        MetricsData GetMetricsData(const UpdateEvent& event, EventField event_field);
+        MetricsDataList GetMetricsDataListFromUpdateResultList(const UpdateEvent& event);
     protected:
         std::string key_;
         anet::rl::StepAxis step_axis_;

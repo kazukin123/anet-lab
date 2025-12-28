@@ -41,25 +41,22 @@ namespace anet::rl {
     // ScalarProbe impl
     //==============================================================
 
-    /**
-     * @brief MetricsMap に格納された scalar を参照する Probe。
-     */
-    class MetricsScalarProbe : public ScalarProbe {
-    public:
-        explicit MetricsScalarProbe(std::string key, std::optional<std::string> name = std::nullopt)
-            : key_(std::move(key)), name_(name.has_value() ? *name : "") {
-        }
-
-        std::optional<float> GetFloat(const TrainEvent& event) const override;
-
-        std::string GetName() const override { return name_.empty() ? key_: name_; }
-        std::optional<float> GetMin() const override { return std::nullopt; }
-        std::optional<float> GetMax() const override { return std::nullopt; }
-
-    private:
-        std::string name_;
-        std::string key_;
-    };
+    ///**
+    // * @brief MetricsMap に格納された scalar を参照する Probe。
+    // */
+    //class MetricsScalarProbe : public ScalarProbe {
+    //public:
+    //    explicit MetricsScalarProbe(std::string key, std::optional<std::string> name = std::nullopt)
+    //        : key_(std::move(key)), name_(name.has_value() ? *name : "") {
+    //    }
+    //    std::optional<float> GetFloat(const TrainEvent& event) const override;
+    //    std::string GetName() const override { return name_.empty() ? key_: name_; }
+    //    std::optional<float> GetMin() const override { return std::nullopt; }
+    //    std::optional<float> GetMax() const override { return std::nullopt; }
+    //private:
+    //    std::string name_;
+    //    std::string key_;
+    //};
 
     /**
      * @brief 固定値を返す Probe。

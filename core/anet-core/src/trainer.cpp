@@ -39,26 +39,30 @@ StepCounts RunnerBase::DoUpdateFrame(int max_steps, ControlFunction pre_step_fun
         anet::ProfileRange r1("RunnerBase::DoUpdateFrame.step");
 
         // ステップ前制御
-        auto control_signal_pre = pre_step_func(step_counts_);
-        if (control_signal_pre == anet::rl::ControlSignal::STOP) {
-            status_ = anet::rl::RunnerStatus::COMPLETED;
-            break;
-        }
-        if (control_signal_pre == anet::rl::ControlSignal::BREAK) {
-            break;
+        if (pre_step_func != nullptr) {
+            auto control_signal_pre = pre_step_func(step_counts_);
+            if (control_signal_pre == anet::rl::ControlSignal::STOP) {
+                status_ = anet::rl::RunnerStatus::COMPLETED;
+                break;
+            }
+            if (control_signal_pre == anet::rl::ControlSignal::BREAK) {
+                break;
+            }
         }
 
         // Step実行
         step_counts_ = DoStep();
 
         // ステップ後処理
-        auto control_signal_post = post_step_func(step_counts_);
-        if (control_signal_post == anet::rl::ControlSignal::STOP) {
-            status_ = anet::rl::RunnerStatus::COMPLETED;
-            break;
-        }
-        if (control_signal_post == anet::rl::ControlSignal::BREAK) {
-            break;
+        if (post_step_func != nullptr) {
+            auto control_signal_post = post_step_func(step_counts_);
+            if (control_signal_post == anet::rl::ControlSignal::STOP) {
+                status_ = anet::rl::RunnerStatus::COMPLETED;
+                break;
+            }
+            if (control_signal_post == anet::rl::ControlSignal::BREAK) {
+                break;
+            }
         }
 
         // Stepカウント
@@ -143,7 +147,7 @@ StepCounts EvalRunner::DoStep(int64_t action)
     anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
 
     // 更新後処理
-    anet::rl::TrainEvent update_event{ exp, *this, step_counts_, agent_, nullptr, env_, result, action_info };
+    anet::rl::TrainEvent update_event{ exp, *this, step_counts_, agent_, BatchUpdateResultList(), env_, result, action_info };
     notifier_->Notify(update_event);
     state_ = result->continue_state;
 
@@ -205,7 +209,7 @@ StepCounts EvalRunner::DoStep()
     anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
 
     // 更新後処理
-    anet::rl::TrainEvent update_event{ exp, *this, step_counts_, agent_, nullptr, env_, result, action_info };
+    anet::rl::TrainEvent update_event { exp, *this, step_counts_, agent_, BatchUpdateResultList(), env_, result, action_info };
     notifier_->Notify(update_event);
     state_ = result->continue_state;
 
@@ -460,16 +464,16 @@ StepCounts DefaultTrainer::DoStep()
     // Agent更新
     anet::ProfileRange r5("DefaultTrainer::DoUpdateFrame.updateAgent", r4);
     anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
-    auto update_result = agent_->UpdateFromBatch(step_counts_, exp, *this);
+    auto result_list = agent_->UpdateFromBatch(step_counts_, exp, *this);
 
     // カウント更新
     anet::ProfileRange r6("DefaultTrainer::DoUpdateFrame.postUpdate", r5);
     step_counts_.update_step++;
-    step_counts_.learn_step += update_result->GetLearnStepDiff();
+    step_counts_.learn_step += result_list.size();
 
     // 更新後処理
     anet::ProfileRange r7("DefaultTrainer::DoUpdateFrame.notify", r6);
-    anet::rl::TrainEvent train_event{ exp, *this, step_counts_, agent_, update_result, env_, result, action_info };
+    anet::rl::TrainEvent train_event{ exp, *this, step_counts_, agent_, result_list, env_, result, action_info };
     notifier_->Notify(train_event);
     state_ = result->continue_state;
 
@@ -518,8 +522,9 @@ std::shared_ptr<EvalRunner> DefaultTrainer::CreateEvalRunner(RunMode runmode) co
 
 RunnerThread::RunnerThread(std::shared_ptr<anet::rl::Runner> runner,
         anet::rl::Runner::ControlFunction pre_func,
-        anet::rl::Runner::ControlFunction post_func)
-        : runner_(runner), pre_func_(pre_func), post_func_(post_func)
+        anet::rl::Runner::ControlFunction post_func,
+        ExceptionFunction exception_func)
+        : runner_(runner), pre_func_(pre_func), post_func_(post_func), exception_func_(exception_func)
 {
 }
 
@@ -562,19 +567,24 @@ void RunnerThread::ThreadMain()
     ANET_LOG_DEBUG("BEGIN");
     anet::ProfileThreadName th("RunnerThread");
 
-    // Trainループ
-    while (running_.load()) {
-        if (paused_.load()) {
-            std::this_thread::sleep_for(std::chrono::microseconds(10));
-            continue;
+    try {
+        // Trainループ
+        while (running_.load()) {
+            if (paused_.load()) {
+                std::this_thread::sleep_for(std::chrono::microseconds(10));
+                continue;
+            }
+
+            // フレーム実行
+            runner_->DoUpdateFrame(1, pre_func_, post_func_);
+
+            // 学習終わってたらスレッド終了
+            auto status = runner_->GetStatus();
+            if (status == anet::rl::RunnerStatus::COMPLETED) break;
         }
-
-        // フレーム実行
-        runner_->DoUpdateFrame(1, pre_func_, post_func_);
-
-        // 学習終わってたらスレッド終了
-        auto status = runner_->GetStatus();
-        if (status == anet::rl::RunnerStatus::COMPLETED) break;
+    } catch (...) {
+        if (exception_func_ != nullptr)
+            exception_func_();
     }
 
     ANET_LOG_DEBUG("END");

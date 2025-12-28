@@ -196,12 +196,12 @@ anet::rl::BatchActionInfo DefaultDQNAgent::MakeAction(const StepCounts& step, co
     return act_info;
 }
 
-std::shared_ptr<const anet::rl::BatchUpdateResult>
+anet::rl::BatchUpdateResultList
 DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp, const anet::rl::Runner& runner)
 {
     ProfileRange r1("DefaultDQNAgent::UpdateFromBatch");
 
-    std::shared_ptr<const anet::rl::BatchUpdateResult> update_result;
+    BatchUpdateResultList result_list;
 
     if (true) {
         // 排他ロック
@@ -224,20 +224,20 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
         };
 
         // Update実行
-        update_result = this->learner_->UpdateFromBatch(counts, exp, runner);
-    } else {
-        // 更新なしでResultだけ作る
-        update_result = std::make_shared<dqn::BatchUpdateResult>(0);
+        auto result = this->learner_->UpdateFromBatch(counts, exp, runner);
+        result_list = std::move(result);
     }
 
-    // LearnEvent通知
-    if (update_result->GetLearnStepDiff() > 0 && notifier_ != nullptr) {
-        anet::rl::LearnEvent event{ batch_exp, runner, counts, shared_from_this(), update_result };
-        notifier_->Notify(event);
+    // LearnEvent通知（排他解除後でないとデッドロックになる）
+    if (result_list.size() > 0 && notifier_ != nullptr) {
+        for (auto result : result_list) {
+            anet::rl::LearnEvent event{ batch_exp, runner, counts, shared_from_this(), result_list };
+            notifier_->Notify(event);
+        }
     }
 
     // BatchUpdateResultを返す
-    return update_result;
+    return result_list;
 }
 
 // ======================================================

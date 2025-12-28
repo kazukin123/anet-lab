@@ -71,8 +71,10 @@ namespace anet::rl {
     // Step / StepAxis
     // =============================================================
 
+    /// ステップ数型
     using step_t = uint64_t;
 
+    /// Step軸
     enum class StepAxis {
         TRAIN,
         EXP,
@@ -426,39 +428,7 @@ namespace anet::rl {
             return torch::Tensor();
         }
 
-        torch::Tensor GetAction(torch::Device device) const
-        {
-        	/// @todo GPU→CPUのno_blockingは同期が必要で面倒なので使わない
-        	
-            // --- CPU requested ---
-            if (device.is_cpu()) {
-                if (!action_cpu_.defined()) {
-                    if (!gpu_)
-                        throw std::logic_error("BatchActionInfo: no tensor available to create CPU action");
-                    action_cpu_ = gpu_->second.to(torch::kCPU);
-                }
-                return action_cpu_;
-            }
-
-            // --- GPU requested ---
-            if (!device.is_cuda()) {
-                throw std::logic_error("BatchActionInfo: unsupported device type");
-            }
-            if (!gpu_) {
-                if (!action_cpu_.defined())
-                    throw std::logic_error("BatchActionInfo: no tensor available to create GPU action");
-                gpu_ = std::make_pair(device, action_cpu_.to(device));
-                return gpu_->second;
-            }
-            if (gpu_->first != device) {
-                throw std::logic_error(
-                    "BatchActionInfo: GPU device mismatch (cached="
-                    + gpu_->first.str() + ", requested=" + device.str() + ")"
-                );
-            }
-
-            return gpu_->second;
-        }
+        torch::Tensor GetAction(torch::Device device) const;
         BatchActionInfo To(torch::Device device) const {
             return BatchActionInfo{ GetAction(device), aux_};
         }
@@ -506,15 +476,9 @@ namespace anet::rl {
 
     class BatchUpdateResult : public DataExporter {
     public:
-        BatchUpdateResult(uint32_t learn_step_diff) : learn_step_diff_(learn_step_diff) {}
-
-        uint32_t GetLearnStepDiff() const { return learn_step_diff_; }
+        BatchUpdateResult() {}
 
         virtual ~BatchUpdateResult() = default;
-    protected:
-        void SetLearnStepDiff(uint32_t diff) { learn_step_diff_ = diff; }
-    protected:
-        uint32_t learn_step_diff_;   ///< この batch で増えた learn_step数
     };
 
     struct BatchExperience : public DataExporter {
@@ -615,11 +579,12 @@ namespace anet::rl {
         virtual ~ActionPolicy() = default;
     };
 
+    using BatchUpdateResultList = std::vector<std::shared_ptr<const anet::rl::BatchUpdateResult>>;
+
     class Learner {
     public:
-        virtual std::shared_ptr<const BatchUpdateResult> UpdateFromBatch(
-            const StepCounts& step, const BatchExperience& expriences, const Runner& trainer
-        ) = 0;  ///< @todo 戻りをstd::vector化?
+        virtual BatchUpdateResultList UpdateFromBatch(
+            const StepCounts& step, const BatchExperience& expriences, const Runner& trainer) = 0;
         virtual ~Learner() = default;
     };
 
@@ -715,7 +680,7 @@ namespace anet::rl {
 		const Runner& runner;
         const StepCounts counts;
         std::shared_ptr<const Agent> agent;
-        std::shared_ptr<const BatchUpdateResult> update_result;
+        BatchUpdateResultList update_result_list;
     };
 
     struct TrainEvent : public UpdateEvent {
@@ -802,12 +767,11 @@ namespace anet::rl {
     class Runner : public DataExporter {
     public:
         using ControlFunction = std::function<ControlSignal(const StepCounts& counts)>; ///< 学習ステップ制御処理(戻り値trueで処理中断)
-        static ControlSignal noop(const StepCounts& counts) { return ControlSignal::CONTINUE; }
     public:
         virtual RunnerStatus Initialize(const ConfigData& config_data) = 0;
         virtual StepCounts DoStep() = 0;
         virtual StepCounts DoUpdateFrame(int max_steps,
-            ControlFunction pre_step_func = noop, ControlFunction post_step_func = noop) = 0;
+            ControlFunction pre_step_func = nullptr, ControlFunction post_step_func = nullptr) = 0;
         virtual RunnerStatus GetStatus() const = 0;
     public:
         virtual StepCounts GetCounts() const = 0;
