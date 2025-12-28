@@ -330,6 +330,7 @@ namespace anet::rl::dqn {
         int batch_size_;
         int state_dim_;
         int n_actions_;
+        float earned_credit_;
         LearnerConfig config_;
         Network& network_;
         RuntimeVars& vars_;

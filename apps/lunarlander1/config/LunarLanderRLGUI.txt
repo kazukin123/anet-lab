@@ -275,7 +275,6 @@ metrics.scalar.full.[21_eval/03_target_reward_ema] = $runner target_eval_reward 
 metrics.scalar.full.[21_eval/04_policy_reward_ema] = $runner policy_eval_reward $ema @learn
 metrics.scalar.full.[32_agent_base/04_tau] = $agent tau @learn
 metrics.scalar.full.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn 
-metrics.scalar.full.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn 
 metrics.scalar.full.[32_agent_base/10_collapse_s] = collapse_s @learn
 metrics.scalar.full.[32_agent_base/11_collapse_l] = collapse_l @learn
 metrics.scalar.full.[37_agent_qtd/01_td_mean] = td_mean @learn

@@ -579,7 +579,16 @@ Learner::Learner(const LearnerConfig& config, Network& network, RuntimeVars& var
     , n_actions_(env_spec.action_spec.GetNumActions()), state_dim_(env_spec.state_spec.CalcFlattenDim())
     , device_(std::move(device))
 {
-    ;
+    // Credit計算
+    if (config_.replay_ratio > 0) {
+        // RRモード:  U = (N * RR) / B
+        earned_credit_ = static_cast<float>(batch_size_) * config_.replay_ratio / config_.replay_batch_size;
+    } else {
+        // Intervalモード: U = 1.0 / Interval
+        earned_credit_ = 1.0f / static_cast<float>(std::max(1, config_.update_interval));
+    }
+    
+    LOG::info() << "Learner: earned_credit =" << earned_credit_;
 }
 
 std::optional<float> Learner::GetScalar(const std::string& key, int64_t index) const
@@ -692,19 +701,9 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
         //update_results.push_back(std::make_shared<BatchUpdateResult>());
         return result_list;  // 空配列
     }
-    
-    // Credit計算
-    float earned_credit = 0.0f;
-    if (config_.replay_ratio > 0) { 
-        // RRモード:  U = (N * RR) / B
-        earned_credit = static_cast<float>(batch_size_) * config_.replay_ratio / config_.replay_batch_size;
-    } else {
-        // Intervalモード: U = 1.0 / Interval
-        earned_credit = 1.0f / static_cast<float>(std::max(1, config_.update_interval));
-    }
 
     // Credit加算
-    update_credit_ += earned_credit;
+    update_credit_ += earned_credit_;
 
     // update_credit が十分な間、学習ループを回す
     while (update_credit_ >= 1.0f) {
