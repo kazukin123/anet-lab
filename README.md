@@ -1,5 +1,7 @@
 ﻿# anet-lab
 
+[![Windows Build](https://github.com/kazukin123/anet-lab/actions/workflows/windows-ci.yml/badge.svg)](https://github.com/kazukin123/anet-lab/actions/workflows/windows-ci.yml)
+
 ## 概要
 
 - libtorchを基盤としたC++による強化学習実装

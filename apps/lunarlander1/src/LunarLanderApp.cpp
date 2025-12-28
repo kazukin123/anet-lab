@@ -12,7 +12,9 @@
 #include "anet/replay_buffer.hpp"
 #include "anet/rainbow_agent.hpp"
 #include "anet/scaler.hpp"
+#include "anet/exception.hpp"
 #include "anet/profile.hpp"
+#include "ErrorDialog.hpp"
 #include "LunarLanderFrame.hpp"
 #include "UISnapshot.hpp"
 
@@ -147,7 +149,7 @@ bool LunarLanderApp::OnInit()
     // Trainerスレッド生成
     trainer_thread_ = std::make_unique<anet::rl::RunnerThread>(
         trainer_,
-        [this](const anet::rl::StepCounts& counts)   // pre_train_step_function
+        [this](const anet::rl::StepCounts& counts)   // pre_train_step_func
         {
             auto train_step = counts.train_step;
 
@@ -167,7 +169,13 @@ bool LunarLanderApp::OnInit()
             }
 
             return anet::rl::ControlSignal::CONTINUE;
-        });
+        },
+        nullptr,    // post_train_step_func
+        [this]() {  // exception_func
+            wxGetApp().StoreCurrentException();
+            wxGetApp().CallAfter([] { wxGetApp().RethrowStoredException(); });
+        }
+    );
 
     // Train開始！
     if (!config_->train_auto_start)
@@ -200,6 +208,34 @@ int LunarLanderApp::OnExit()
     trainer_thread_->Stop();
     anet::MetricsLogger::Reset();
     return 0;
+}
+
+void LunarLanderApp::showFatalError()
+{
+    try {
+        // 現在発生している例外を再スローして型を特定する
+        throw;
+    } catch (const anet::AnetException& e1) {
+        auto msg = wxString::FromUTF8(e1.what());
+        auto detail = wxString::FromUTF8(e1.stack_trace());
+        ShowErrorDialog(msg, detail);
+    } catch (const std::exception& e) {
+        auto msg = wxString::FromUTF8(e.what());
+        ShowErrorDialog(msg);
+    } catch (...) {
+        wxMessageBox("System error", "System Error", wxICON_ERROR);
+    }
+}
+
+bool LunarLanderApp::OnExceptionInMainLoop()
+{
+    showFatalError();
+    return false;
+}
+
+void LunarLanderApp::OnUnhandledException()
+{
+    showFatalError();
 }
 
 UISnapshot LunarLanderApp::CreateSnapshot(anet::rl::TrainEvent event)

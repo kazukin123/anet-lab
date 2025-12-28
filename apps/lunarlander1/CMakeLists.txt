@@ -50,7 +50,9 @@ add_executable(LunarLanderRLGUI
     "src/LunarLanderFrame.cpp"
     "src/LunarLanderCanvas.cpp"
     "src/PlotPanel.cpp"
-    "src/HeatMapFrame.cpp")
+    "src/HeatMapFrame.cpp"
+    "src/ErrorDialog.cpp"
+    )
 
 target_precompile_headers(LunarLanderRLGUI PRIVATE "src/pch.hpp")
 

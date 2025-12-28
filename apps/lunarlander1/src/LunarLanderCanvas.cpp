@@ -408,7 +408,7 @@ void LunarLanderCanvas::OnPaint(wxPaintEvent& event)
     dc.Clear();
 
     if (!has_snapshot_) {
-        dc.DrawText("No snapshot", 10, 50);
+        dc.DrawText("No data", 10, 50);
         return;
     }
 

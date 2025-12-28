@@ -62,7 +62,7 @@ void PlotPanel::OnPaint(wxPaintEvent&)
     }
 
     if (plot_data.empty()) {
-        dc.DrawText("No data yet...", 10, 10);
+        dc.DrawText("No data", 10, 10);
         return;
     }
 

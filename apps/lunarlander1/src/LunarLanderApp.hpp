@@ -17,8 +17,10 @@ wxDECLARE_EVENT(wxEVT_APP_TRAINER_SHUTDOWN, wxThreadEvent);
 
 class LunarLanderApp : public wxApp {
 public:
-    virtual bool OnInit() override;
-    virtual int OnExit() override;
+    bool OnInit() override;
+    int OnExit() override;
+    bool OnExceptionInMainLoop() override;
+    void OnUnhandledException() override;
 
     anet::ConfigData GetConfig() const { return config_mgr_->GetConfigData(); }
     std::optional<UISnapshot> GetUISnapshot() { return snapshot_store_.Get(); }
@@ -33,6 +35,7 @@ private:
     void InitTrainer();
     void InitImageLogObservers();
     void InitPERImageLogObservers(const anet::ConfigData& config_data);
+    void showFatalError();
 private:
     std::unique_ptr<anet::ConfigManager> config_mgr_;
     struct Config;
