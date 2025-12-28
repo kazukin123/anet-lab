@@ -61,6 +61,7 @@ add_library(anet-core STATIC
     "src/scaler_impl.cpp"
     "src/common.cpp"
     "src/exception.cpp"
+    "src/str_util.cpp"
 )
 
 target_include_directories(anet-core

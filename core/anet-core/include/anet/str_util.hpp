@@ -34,31 +34,7 @@ namespace anet {
         return { pos, len };    // 見つかった位置と、その長さ
     }
 
-    // ----- split -----
-    inline std::vector<std::string> Split(const std::string & s,
-        const std::vector<std::string>&delimiters,
-        bool trim)
-    {
-        std::vector<std::string> result;
-        size_t start = 0;
-
-        while (true) {
-            auto [pos, len] = FindDelim(s, start, delimiters);
-            if (pos == std::string::npos) break;  // もう無い
-
-            std::string token = s.substr(start, pos - start);
-            std::string trimmed_token = trim ? TrimCopy(token) : token;
-            if (!trimmed_token.empty()) result.push_back(trimmed_token);
-            start = pos + len;
-        }
-
-        // 最後のトークン
-        std::string token = s.substr(start);
-        std::string trimmed_token = trim ? TrimCopy(token) : token;
-        if (!trimmed_token.empty()) result.push_back(trimmed_token);
-
-        return result;
-    }
+    std::vector<std::string> Split(const std::string& s, const std::vector<std::string>& delimiters,bool trim);
 
     inline bool StartsWith(const std::string& str, const std::string& prefix)
     {
@@ -97,31 +73,8 @@ namespace anet {
         return a; // 先頭にない場合はそのまま
     }
 
-    inline std::string ExtractBetween(const std::string& src, const char* prefix, const char* suffix)
-    {
-        if (!prefix || !suffix) return "";
+    std::string ExtractBetween(const std::string& src, const char* prefix, const char* suffix);
+    std::string ReplaceAll(std::string str, const std::string& from, const std::string& to);
+    std::string FormatWithCommas(uint64_t value);
 
-        std::string pre(prefix);
-        std::string suf(suffix);
-
-        size_t start = src.find(pre);
-        if (start == std::string::npos) return "";
-
-        start += pre.length();
-        size_t end = src.find(suf, start);
-        if (end == std::string::npos) return "";
-
-        return src.substr(start, end - start);
-    }
-
-    inline std::string ReplaceAll(std::string str, const std::string& from, const std::string& to) {
-        if (from.empty()) return str; // 検索対象が空ならそのまま返す
-
-        size_t start_pos = 0;
-        while ((start_pos = str.find(from, start_pos)) != std::string::npos) {
-            str.replace(start_pos, from.length(), to);
-            start_pos += to.length();
-        }
-        return str;
-    }
 }

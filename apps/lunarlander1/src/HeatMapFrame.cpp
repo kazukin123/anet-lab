@@ -346,24 +346,17 @@ void SweepHeatMapFrame::UpdateRefreshRate()
     }
 }
 
-static wxString ToString(uint64_t step)
-{
-    return wxNumberFormatter::ToString(
-        static_cast<unsigned long long>(step),
-        wxNumberFormatter::Style_WithThousandsSep); // カンマ区切り
-}
-
 void SweepHeatMapFrame::OnRefreshButton(wxCommandEvent& event)
 {
     captured_ = observer_->GetImage();
-    step_text_->SetValue(ToString(captured_.step));
+    step_text_->SetValue(anet::FormatWithCommas(captured_.step));
     canvas_->Refresh();
 }
 
 void SweepHeatMapFrame::OnTimer(wxTimerEvent& event)
 {
     captured_ = observer_->GetImage();
-    step_text_->SetValue(ToString(captured_.step));
+    step_text_->SetValue(anet::FormatWithCommas(captured_.step));
     canvas_->Refresh();
 }
 

@@ -40,7 +40,7 @@ namespace anet::rl {
         int height = 256;
 
         int log_interval = 100;
-        size_t max_points = 30000;
+        int max_points = 30000;
         uint32_t flags = HM_Default;
 
         int image_width = -1;
