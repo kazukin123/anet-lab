@@ -12,6 +12,7 @@
 #include "anet/replay_buffer.hpp"
 #include "anet/rainbow_agent.hpp"
 #include "anet/scaler.hpp"
+#include "anet/profile.hpp"
 #include "LunarLanderFrame.hpp"
 #include "UISnapshot.hpp"
 
@@ -94,7 +95,9 @@ bool LunarLanderApp::OnInit()
     // ライブラリ初期化
     wxInitAllImageHandlers();
     anet::rl::InitRL();
-    
+
+    anet::ProfileThreadName th("MainThread");
+
     // メインスレッドでffmpeg実行する準備
     Bind(wxEVT_APP_EXECUTE_START, [&](wxThreadEvent& event) {
         anet::ExecuteStarter* executer = event.GetPayload<anet::ExecuteStarter*>();
@@ -411,6 +414,7 @@ void LunarLanderApp::InitImageLogObservers()
             "45_agent_img/07_shm_03_v", q_sweep_obs_config, proc_x_y_v, *v_policy_forward, proc_x_y_v);
 }
 
+
 void LunarLanderApp::InitPERImageLogObservers(const anet::ConfigData& config_data)
 {
     anet::rl::dqn::RainbowAgentConfig agent_config(config_data);
@@ -432,7 +436,6 @@ void LunarLanderApp::InitPERImageLogObservers(const anet::ConfigData& config_dat
         | anet::HeatMapFlags::HM_SumMode; // | anet::HeatMapFlags::HM_ShowZeroLine;
 
     // ---- ReplayBuffer ----
-
     auto rep_x_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 0, &env_spec.state_spec);
     auto rep_y_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 1, &env_spec.state_spec);
     auto rep_prio_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::PER_DIST, -1);
@@ -441,8 +444,9 @@ void LunarLanderApp::InitPERImageLogObservers(const anet::ConfigData& config_dat
         512,    // width
         512,    // height
         config_->image_log_interval,    // log_interval 
-        100000,  // max_points
-        flags   // flags
+        //100000,  // max_points
+        agent_config.learner.replay_capacity,	// max_points
+        flags,   // flags
         -1,     // image_width
         -1,     // image_height
     };
