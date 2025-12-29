@@ -9,7 +9,7 @@ namespace anet::rl {
         float max_return = 0.0f;
         float min_return = 0.0f;
 
-        nlohmann::json ToJson() const;
+        anet::json ToJson() const;
     };
 
     /// @brief 環境の本質的難易度（reward/episode_length分布）を推定する

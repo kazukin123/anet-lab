@@ -242,23 +242,23 @@ UISnapshot LunarLanderApp::CreateSnapshot(anet::rl::TrainEvent event)
 {
     anet::ProfileRange r1("CreateSnapshot");
 
-    ANET_LOG_DEBUG("batch_step_result=" << event.batch_step_result->ToString());
+    ANET_LOG_DEBUG("step_result=" << event.step_result->ToString());
 
     const int ENV_INDEX = 0;
     
     // RL由来情報
     auto train_step = event.counts.train_step;
     anet::rl::SingleState state = {
-        event.batch_step_result->next_state.obs[ENV_INDEX],
-        event.batch_step_result->next_state.done[ENV_INDEX].item<bool>(),
-        event.batch_step_result->next_state.truncated[ENV_INDEX].item<bool>(),
-        event.batch_step_result->next_state.episode_start[ENV_INDEX].item<bool>(),
+        event.step_result->next_state.obs[ENV_INDEX],
+        event.step_result->next_state.done[ENV_INDEX].item<bool>(),
+        event.step_result->next_state.truncated[ENV_INDEX].item<bool>(),
+        event.step_result->next_state.episode_start[ENV_INDEX].item<bool>(),
     };
-    auto action = event.batch_exp.action.GetAction(torch::kCPU)[ENV_INDEX].item<int64_t>();
-    auto reward = event.batch_exp.reward[ENV_INDEX].item<float>();
+    auto action = event.experience.action.GetAction(torch::kCPU)[ENV_INDEX].item<int64_t>();
+    auto reward = event.experience.reward[ENV_INDEX].item<float>();
 
     // aux情報
-    auto auxs = event.batch_step_result->GetAuxDataList(ENV_INDEX);
+    auto auxs = event.step_result->GetAuxDataList(ENV_INDEX);
     ANET_ASSERT(auxs.size() > 0);
     auto aux = auxs[0];
 

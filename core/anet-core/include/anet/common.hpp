@@ -66,6 +66,8 @@
 
 namespace anet {
 
+    using json = nlohmann::json;
+
     void ThrowError(const char* file, int line, const char* prefix, const char* cond, const std::string& msg = "");
 
     using TensorFunction = std::function<torch::Tensor(const torch::Tensor&)>;
@@ -86,7 +88,7 @@ namespace anet {
     //    virtual void Load(std::istream& stream) const = 0;
     //    virtual void Save(std::ostream& stream) const = 0;
     //    virtual void Print(std::ostream& stream) const = 0;
-    //    virtual nlohmann::json ToJson(bool recursive = true) = 0;
+    //    virtual anet::json ToJson(bool recursive = true) = 0;
     //public:
     //    virtual ~Module() = default;
     //};

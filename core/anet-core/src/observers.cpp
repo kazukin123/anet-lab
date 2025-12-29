@@ -585,15 +585,15 @@ MetricsLogLearnObserver::MetricsLogLearnObserver(const std::string& tag, const s
 /// BATCH_UPDATE_RESULT以外用のメトリクス情報取得処理
 MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(const UpdateEvent& event, EventField event_field)
 {
-    ANET_CHECK(event_field != EventField::BATCH_UPDATE_RESULT);
+    ANET_CHECK(event_field != EventField::UPDATE_RESULT);
 
     // Scalar取得対象
     const anet::DataExporter* target = nullptr;
 
     // 指定に従ってScalar取得対象を取得
     switch (event_field) {
-    case anet::rl::EventField::BATCH_EXPERIENCE:
-        target = &event.batch_exp;
+    case anet::rl::EventField::EXPERIENCE:
+        target = &event.experience;
         break;
     case anet::rl::EventField::AGENT:
         target = event.agent.get();
@@ -678,7 +678,7 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
     if (event_field_.has_value()) {
         // 対象フィールドが指定されている場合
 
-        if (*event_field_ == anet::rl::EventField::BATCH_UPDATE_RESULT) {
+        if (*event_field_ == anet::rl::EventField::UPDATE_RESULT) {
             // UpdateResultList用メソッドでメトリクス情報を取得
             auto data_list = GetMetricsDataListFromUpdateResultList(event);
             ret = std::move(data_list);
@@ -701,7 +701,7 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
                 ret.push_back(data);
             } else {
                 // BatchExperience
-                auto data = GetMetricsData(event, anet::rl::EventField::BATCH_EXPERIENCE);
+                auto data = GetMetricsData(event, anet::rl::EventField::EXPERIENCE);
                 if (data.second.has_value()) {
                     ret.push_back(data);
                 } else {
@@ -819,9 +819,9 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                 } else if (v == "$agent") {
                     field_opt = EventField::AGENT;
                 } else if (v == "$batch_experience" || v == "$exp") {
-                    field_opt = EventField::BATCH_EXPERIENCE;
+                    field_opt = EventField::EXPERIENCE;
                 } else if (v == "$batch_update_result" || v == "$update_result" || v == "$result") {
-                    field_opt = EventField::BATCH_UPDATE_RESULT;
+                    field_opt = EventField::UPDATE_RESULT;
                 } else if (v == "$runner") {
                     field_opt = EventField::RUNNER;
                 } else if (v == "$ema") {
@@ -863,9 +863,9 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                             if (attr_val == "agent")
                                 field_opt = EventField::AGENT;
                             else if (attr_val == "batch_experience" || attr_val == "exp")
-                                field_opt = EventField::BATCH_EXPERIENCE;
+                                field_opt = EventField::EXPERIENCE;
                             else if (attr_val == "batch_update_result" || attr_val == "update_result" || attr_val == "result")
-                                field_opt = EventField::BATCH_UPDATE_RESULT;
+                                field_opt = EventField::UPDATE_RESULT;
                             else if (attr_val == "runner")
                                 field_opt = EventField::RUNNER;
                             else {

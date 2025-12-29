@@ -104,11 +104,11 @@ void LunarLanderFrame::SetEvalRunner(std::shared_ptr<anet::rl::EvalRunner> eval_
     eval_runner_->GetNotifier()->Attach<anet::rl::FunctionTrainObserver>(
         [this](const anet::rl::TrainEvent& event)
         {
-            if (event.batch_exp.state.IsEpisodeStart()) {
+            if (event.experience.state.IsEpisodeStart()) {
                 eval_total_reward_ = 0;
             }
 
-            eval_total_reward_ += event.batch_exp.reward[0].item<float>();
+            eval_total_reward_ += event.experience.reward[0].item<float>();
 
             // スナップショットを生成
             auto snapshot = LunarLanderApp::CreateSnapshot(event);
@@ -118,7 +118,7 @@ void LunarLanderFrame::SetEvalRunner(std::shared_ptr<anet::rl::EvalRunner> eval_
             eval_canvas_->SetUISnapshot(snapshot);
 
             // エピソード終了なら総報酬をリセット
-            //if (event.batch_exp.next_state.IsDone() || event.batch_exp.next_state.IsTruncated())
+            //if (event.experience.next_state.IsDone() || event.experience.next_state.IsTruncated())
             //    eval_total_reward_ = 0.0f;
 
         }, "LunarLanderEvalApp");

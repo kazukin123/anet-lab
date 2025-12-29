@@ -8,7 +8,7 @@
 #include <optional>
 #include <cstdint>
 #include <torch/torch.h>
-#include <nlohmann/json.hpp>
+#include "anet/common.hpp"
 #include "anet/tensor_check.hpp"
 #include "anet/random.hpp"
 #include "anet/config.hpp"
@@ -164,7 +164,7 @@ namespace anet::rl {
         std::string name;             ///< 名前（任意）
         std::string description;      ///< 説明（任意）
 
-        nlohmann::json ToJson() const;
+        anet::json ToJson() const;
         std::string ToString() const;
     };
 
@@ -180,7 +180,7 @@ namespace anet::rl {
         bool MatchesShape(const torch::Tensor& obs) const;
         bool MatchesRange(const torch::Tensor& obs) const;
         bool MatchesRangeFlat(const torch::Tensor& flat_obs) const;
-        nlohmann::json ToJson() const;
+        anet::json ToJson() const;
         std::string ToString() const;
     };
 
@@ -191,7 +191,7 @@ namespace anet::rl {
         std::string name;
         std::string description;
 
-        nlohmann::json ToJson() const;
+        anet::json ToJson() const;
         std::string ToString() const;
     };
 
@@ -213,7 +213,7 @@ namespace anet::rl {
             return (int)dims.size();
         }
 
-        nlohmann::json ToJson() const;
+        anet::json ToJson() const;
         std::string ToString() const;
     };
 
@@ -226,7 +226,7 @@ namespace anet::rl {
 
         /// @todo RewardSpec
 
-        nlohmann::json ToJson() const;
+        anet::json ToJson() const;
         std::string ToString() const;
     };
 
@@ -234,7 +234,7 @@ namespace anet::rl {
         int batch_size;
         int num_threads;
 
-        nlohmann::json ToJson() const;
+        anet::json ToJson() const;
         std::string ToString() const;
     };
 
@@ -662,9 +662,9 @@ namespace anet::rl {
     };
 
     enum class EventField {
-        BATCH_EXPERIENCE,
+        EXPERIENCE,
         AGENT,
-		BATCH_UPDATE_RESULT,
+		UPDATE_RESULT,
         RUNNER
     };
 
@@ -676,7 +676,7 @@ namespace anet::rl {
     };
 
     struct UpdateEvent {
-        const BatchExperience& batch_exp;
+        const BatchExperience& experience;
 		const Runner& runner;
         const StepCounts counts;
         std::shared_ptr<const Agent> agent;
@@ -685,7 +685,7 @@ namespace anet::rl {
 
     struct TrainEvent : public UpdateEvent {
         std::shared_ptr<const BatchEnv> env;
-        std::shared_ptr<const BatchStepResult> batch_step_result;
+        std::shared_ptr<const BatchStepResult> step_result;
         const BatchActionInfo& action_info;
     };
 

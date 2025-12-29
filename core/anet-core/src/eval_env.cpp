@@ -45,9 +45,9 @@ namespace anet::rl {
     // =============================================================
     // EnvEvalResult::ToJson()
     // =============================================================
-    nlohmann::json EnvEvalResult::ToJson() const
+    anet::json EnvEvalResult::ToJson() const
     {
-        nlohmann::json j;
+        anet::json j;
         j["average_return"] = average_return;
         j["average_length"] = average_length;
         j["max_return"] = max_return;

@@ -21,46 +21,54 @@ namespace anet {
 
         //ConfigData Make(const std::string& sub_class_id) const;
     public:
-        void Set(const std::string& key, const std::string& value) {
+        void Set(const std::string& key, const std::string& value)
+        {
             map_.Set(key, value);
         }
 
         template<typename T>
-        void Set(const std::string& key, const T& value) {
+        void Set(const std::string& key, const T& value)
+        {
             std::stringstream ss;
             ss << value;
             map_.Set(key, ss.str());
         }
 
-        bool Has(const std::string& key) const {
+        bool Has(const std::string& key) const
+        {
             return map_.find(key) != map_.end();
         }
 
-        const anet::OrderedMap<std::string, std::string>& Map() const {
+        const anet::OrderedMap<std::string, std::string>& Map() const
+        {
             return map_;
         }
     public:
-        std::string Get(const std::string& key, const char* defaultValue = "") const {
+        std::string Get(const std::string& key, const char* defaultValue = "") const
+        {
             std::string v(defaultValue);
             Read(key, v, v);
             return v;
         }
 
         template<typename T>
-        T Get(const std::string& key, T defaultValue = T()) const {
+        T Get(const std::string& key, T defaultValue = T()) const
+        {
             T v = defaultValue;
             Read(key, v, defaultValue);
             return v;
         }
     public:
-        bool Read(const std::string& key, std::string& value, const std::string& defaultValue) const {
+        bool Read(const std::string& key, std::string& value, const std::string& defaultValue) const
+        {
             auto it = map_.find(key);
             if (it == map_.end()) { value = defaultValue; return false; }
             value = (*it).second;
             return true;
         }
 
-        bool Read(const std::string& key, int& value, int defaultValue) const {
+        bool Read(const std::string& key, int& value, int defaultValue) const
+        {
             auto it = map_.find(key);
             if (it == map_.end()) { value = defaultValue; return false; }
             try { value = std::stoi((*it).second); }
@@ -68,7 +76,8 @@ namespace anet {
             return true;
         }
 
-        bool Read(const std::string& key, float& value, float defaultValue) const {
+        bool Read(const std::string& key, float& value, float defaultValue) const
+        {
             auto it = map_.find(key);
             if (it == map_.end()) { value = defaultValue; return false; }
             try { value = std::stof((*it).second); }
@@ -76,7 +85,8 @@ namespace anet {
             return true;
         }
 
-        bool Read(const std::string& key, double& value, double defaultValue) const {
+        bool Read(const std::string& key, double& value, double defaultValue) const
+        {
             auto it = map_.find(key);
             if (it == map_.end()) { value = defaultValue; return false; }
             try { value = std::stod((*it).second); }
@@ -84,7 +94,8 @@ namespace anet {
             return true;
         }
 
-        bool Read(const std::string& key, uint64_t& value, uint64_t defaultValue) const {
+        bool Read(const std::string& key, uint64_t& value, uint64_t defaultValue) const
+        {
             auto it = map_.find(key);
             if (it == map_.end()) { value = defaultValue; return false; }
             try { value = std::stoull((*it).second); }
@@ -151,21 +162,23 @@ namespace anet {
         Config(const ConfigData& config_data, const std::string& config_prefix_);   ///< @todo インスタンスグループ対応（例：同じENV設定でもTrainとEvalで設定を分ける）
 
         std::string ToString() const;
-        nlohmann::json ToJson() const { return my_config_json_; }
+        anet::json ToJson() const { return my_config_json_; }
         std::string GetConfigPrefix() const { return config_prefix_; }
         anet::ConfigData GetConfigData() const { return my_config_data_; }
     protected:
         template<typename T>
-        void ReadConfig(const ConfigData& config_data, const std::string& key, T& value) {
+        void ReadConfig(const ConfigData& config_data, const std::string& key, T& value)
+        {
 			std::string config_data_key = config_prefix_ + "." + key;
             config_data.Read(config_data_key, value, value);
-			//auto str_val = config_data.Get<std::string>(config_data_key);
             my_config_data_.Set(key, value);
             my_config_json_[key] = value;
 		}
     protected:
-        ConfigData my_config_data_;     ///<! my_config_data_ 廃止？
-        nlohmann::json my_config_json_;
+        /// Configの値としてConfigは含まめず、あくまでもフラットな設定データ構造とする
+
+        ConfigData my_config_data_; ///< Key=String Value=String
+        anet::json my_config_json_; ///< JSONデータとして元の型情報を覚えておく
         std::string config_prefix_;
     };
 

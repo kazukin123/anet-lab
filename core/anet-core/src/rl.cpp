@@ -14,8 +14,8 @@
 using namespace anet::rl;
 namespace LOG = anet::log;
 
-nlohmann::json StateDimInfo::ToJson() const {
-    nlohmann::json j;
+anet::json StateDimInfo::ToJson() const {
+    anet::json j;
     j["coords"] = coords;
     j["min_value"] = min_value;
     j["max_value"] = max_value;
@@ -186,16 +186,17 @@ bool StateSpec::MatchesRangeFlat(const torch::Tensor& flat_obs) const
     return true;
 }
 
-nlohmann::json StateSpec::ToJson() const {
-    nlohmann::json j;
+anet::json StateSpec::ToJson() const
+{
+    anet::json j;
     j["shape"] = shape;
 
-    j["dims"] = nlohmann::json::array();
+    j["dims"] = anet::json::array();
     for (const auto& d : dims) {
         j["dims"].push_back(d.ToJson());
     }
 
-    j["info"] = nlohmann::json::object();
+    j["info"] = anet::json::object();
     for (const auto& kv : info) {
         j["info"][kv.first] = kv.second;
     }
@@ -203,12 +204,14 @@ nlohmann::json StateSpec::ToJson() const {
     return j;
 }
 
-std::string StateSpec::ToString() const {
+std::string StateSpec::ToString() const
+{
     return ToJson().dump(2); // pretty JSON
 }
 
-nlohmann::json ActionDimInfo::ToJson() const {
-    nlohmann::json j;
+anet::json ActionDimInfo::ToJson() const
+{
+    anet::json j;
     j["min_value"] = min_value;
     j["max_value"] = max_value;
     j["name"] = name;
@@ -216,25 +219,27 @@ nlohmann::json ActionDimInfo::ToJson() const {
     return j;
 }
 
-std::string ActionDimInfo::ToString() const {
+std::string ActionDimInfo::ToString() const
+{
     return ToJson().dump(2);
 }
 
-nlohmann::json ActionSpec::ToJson() const {
-    nlohmann::json j;
+anet::json ActionSpec::ToJson() const
+{
+    anet::json j;
     j["is_discrete"] = is_discrete;
 
     // 離散アクションラベル
     j["value_labels"] = value_labels;
 
     // 連続アクション次元
-    j["dims"] = nlohmann::json::array();
+    j["dims"] = anet::json::array();
     for (const auto& d : dims) {
         j["dims"].push_back(d.ToJson());
     }
 
     // オプション
-    j["info"] = nlohmann::json::object();
+    j["info"] = anet::json::object();
     for (const auto& kv : info) {
         j["info"][kv.first] = kv.second;
     }
@@ -242,12 +247,14 @@ nlohmann::json ActionSpec::ToJson() const {
     return j;
 }
 
-std::string ActionSpec::ToString() const {
+std::string ActionSpec::ToString() const
+{
     return ToJson().dump(2);
 }
 
-nlohmann::json EnvSpec::ToJson() const {
-    nlohmann::json j;
+anet::json EnvSpec::ToJson() const
+{
+    anet::json j;
 
     j["state_spec"] = state_spec.ToJson();
     j["action_spec"] = action_spec.ToJson();
@@ -257,7 +264,7 @@ nlohmann::json EnvSpec::ToJson() const {
         reward_range.second
     };
 
-    j["info"] = nlohmann::json::object();
+    j["info"] = anet::json::object();
     for (const auto& kv : info) {
         j["info"][kv.first] = kv.second;
     }
@@ -265,18 +272,21 @@ nlohmann::json EnvSpec::ToJson() const {
     return j;
 }
 
-std::string EnvSpec::ToString() const {
+std::string EnvSpec::ToString() const
+{
     return ToJson().dump(2);
 }
 
-nlohmann::json BatchEnvSpec::ToJson() const {
-    nlohmann::json j;
+anet::json BatchEnvSpec::ToJson() const
+{
+    anet::json j;
     j["batch_size"] = batch_size;
     j["num_threads"] = num_threads;
     return j;
 }
 
-std::string BatchEnvSpec::ToString() const {
+std::string BatchEnvSpec::ToString() const
+{
     return ToJson().dump(2);
 }
 

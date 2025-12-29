@@ -121,7 +121,7 @@ namespace anet::rl {
 			auto step = event.counts.train_step;
 
             std::vector<float> ret;
-            auto exps = event.batch_exp.ToExperienceList();
+            auto exps = event.experience.ToExperienceList();
             for (auto e : exps) {
                 auto vec = GetVectorFromExperience(event);
                 if (vec.has_value()) {

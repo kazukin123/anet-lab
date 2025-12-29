@@ -14,7 +14,6 @@
 wxDECLARE_EVENT(wxEVT_APP_EXECUTE_START, wxThreadEvent);
 
 namespace anet {
-    using json = nlohmann::json;
 
     //----------------------------------------------
     // Backendインターフェース

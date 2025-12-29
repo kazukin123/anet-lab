@@ -63,60 +63,24 @@ namespace anet {
 
     // ---- Config ----
 
-    Config::Config(const std::string& config_prefix) : config_prefix_(config_prefix) {
+    Config::Config(const std::string& config_prefix) : config_prefix_(config_prefix)
+    {
     }
 
     Config::Config(const ConfigData& config_data, const std::string& config_prefix) :
         config_prefix_(config_prefix)
     {
-            //apply(configData);
     }
 
     std::string Config::ToString() const {
-        //std::ostringstream oss;
-        //oss << "[class=" << config_prefix_ << "]\n";
-
-        //for (const auto& kv : my_config_data_.Map()) {
-        //    oss << kv.first << " = " << kv.second << "\n";
-        //}
-
-        //return oss.str();
         return ToJson().dump(2);
     }
 
-    //nlohmann::json Config::ToJson() const {
-    //    nlohmann::json j;
-    //    j["class"] = config_prefix_;
-
-    //    nlohmann::json params = nlohmann::json::object();
-    //    for (const auto& kv : my_config_data_.Map()) {
-    //        const auto& key = kv.first;
-    //        const auto& val = kv.second;
-
-    //        // 数値かどうか簡易判定（小数点と符号は許容）
-    //        bool numeric = true;
-    //        for (char c : val) {
-    //            if (!(std::isdigit(c) || c == '.' || c == '-')) {
-    //                numeric = false;
-    //                break;
-    //            }
-    //        }
-
-    //        if (!val.empty() && numeric) {
-    //            params[key] = std::stod(val);
-    //        }
-    //        else {
-    //            params[key] = val;
-    //        }
-    //    }
-
-    //    j["params"] = params;
-    //    return j;
-    //}
 
     // ---- ConfigManager ----
 
-    ConfigManager::ConfigManager(const std::string& filePath, const wxCmdLineParser* cmdLine) {
+    ConfigManager::ConfigManager(const std::string& filePath, const wxCmdLineParser* cmdLine)
+    {
         LoadFromFile(filePath);
         if (cmdLine) {
             ApplyCmdLineOverrides(*cmdLine);
@@ -124,12 +88,14 @@ namespace anet {
         AutoMerge();
     }
 
-    void ConfigManager::LoadFromFile(const std::string& filePath) {
+    void ConfigManager::LoadFromFile(const std::string& filePath)
+    {
         Properties props(filePath);
         map_ = props.ToConfigData().Map();
     }
 
-    void ConfigManager::ApplyCmdLineOverrides(const wxCmdLineParser& cmdLine) {
+    void ConfigManager::ApplyCmdLineOverrides(const wxCmdLineParser& cmdLine)
+    {
         // 例: agent.lr=0.001 をパラメータとして渡す
         // executable agent.lr=0.001 train.max_steps=20000
         const int count = cmdLine.GetParamCount();

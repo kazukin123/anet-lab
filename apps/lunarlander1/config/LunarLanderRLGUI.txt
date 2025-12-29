@@ -1,5 +1,5 @@
-﻿LunarLanderApp.$ = LunarLanderApp.online
-#LunarLanderApp.$ = LunarLanderApp.batchrun
+﻿#LunarLanderApp.$ = LunarLanderApp.online > P
+LunarLanderApp.$ = LunarLanderApp.batchrun > P
 
 #train.seed = 5542346184581256364  # 
 #train.seed = 540080446186335311 # N-STEP評価用
@@ -9,23 +9,23 @@ train.batch_size = 256
 #train.batch_size = 10
 #train.batch_size = 1
 
-#LunarLanderApp.use_image_log = true      # default=false
-#LunarLanderApp.use_per_image_log = true      # default=false
+LunarLanderApp.use_image_log = true      # default=false
+LunarLanderApp.use_per_image_log = true      # default=false
 
-metrics.scalar.$ = metrics.scalar.baseline
-#metrics.scalar.$ = metrics.scalar.min
-#metrics.scalar.$ = metrics.scalar.full
+metrics.scalar.$ = metrics.scalar.baseline > M
+#metrics.scalar.$ = metrics.scalar.min > M
+#metrics.scalar.$ = metrics.scalar.full > M
 
-#DefaultDQNAgent.$ = DefaultDQNAgent.trunk
-DefaultDQNAgent.$ = DefaultDQNAgent.trunk2
-#DefaultDQNAgent.$ = DefaultDQNAgent.baseline
+#DefaultDQNAgent.$ = DefaultDQNAgent.trunk > A
+DefaultDQNAgent.$ = DefaultDQNAgent.trunk2 > A
+#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A
 
 RainbowAgent.$ = RainbowAgent.baseline
 DQNAgent.$ = DQNAgent.baseline
 
 # ---- DefaultDQNAgent
 
-DefaultDQNAgent.trunk2.qnet.nn_init_mode = 3                # 0=default, 1=XavierUniform, 2=HeNormal, 3=Orthogonal
+DefaultDQNAgent.trunk2.qnet.nn_init_mode = 1                # 0=default, 1=XavierUniform, 2=HeNormal, 3=Orthogonal
 DefaultDQNAgent.trunk2.qnet.nn_hidden1 = 120
 DefaultDQNAgent.trunk2.qnet.nn_hidden2 = 84
 DefaultDQNAgent.trunk2.qnet.output_init_gain = 1.0          # 1.0 or 0.01 0.01 にするとQ値やロジットがほぼ0になり全行動がフラットな状態からスタート

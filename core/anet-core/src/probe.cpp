@@ -66,8 +66,8 @@ std::optional<std::vector<float>> BatchExperienceStateProbe::GetVector(const Upd
 
     // 対象obs（現状態 or next_state）
     auto obs = (for_next_state_) ?
-        event.batch_exp.GetTensor(anet::rl::BatchExperience::NEXT_STATE_OBS) :
-        event.batch_exp.GetTensor(anet::rl::BatchExperience::STATE_OBS);
+        event.experience.GetTensor(anet::rl::BatchExperience::NEXT_STATE_OBS) :
+        event.experience.GetTensor(anet::rl::BatchExperience::STATE_OBS);
     ANET_ASSERT(obs.has_value());
 
     if (!obs->defined())
@@ -115,7 +115,7 @@ BatchExperienceRewardProbe::BatchExperienceRewardProbe(const anet::rl::EnvSpec* 
 
 std::optional<std::vector<float>> BatchExperienceRewardProbe::GetVector(const UpdateEvent& event) const
 {
-    auto tensor = event.batch_exp.GetTensor(anet::rl::BatchExperience::REWARD);
+    auto tensor = event.experience.GetTensor(anet::rl::BatchExperience::REWARD);
     ANET_ASSERT(tensor.has_value());
     ANET_CHECK_SHAPE(*tensor, { ANET_SHAPE_ANY });   // (N)
     ANET_CHECK_DTYPE(*tensor, torch::kFloat32);
