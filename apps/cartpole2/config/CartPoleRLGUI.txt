@@ -6,13 +6,15 @@ CartPoleApp.$ = CartPoleApp.online
 #train.seed = 10471613835926818675
 train.seed = 14209897399466557630
 
+#train.batch_size = 256
 train.batch_size = 10
 #train.batch_size = 1
 
-CartPoleApp.enable_image_log = false      # default=true
+#CartPoleApp.enable_image_log = false      # default=true
 
+agent.class_id = DefaultDQNAgent
 #agent.class_id = RainbowAgent
-agent.class_id = DQNAgent
+#agent.class_id = DQNAgent
 
 metrics.scalar.$ = metrics.scalar.min
 #metrics.scalar.$ = metrics.scalar.full
@@ -22,6 +24,73 @@ DQNAgent.$ = agent_trunk
 #DQNAgent.$ = agent_20251203-180040
 
 RainbowAgent.$ = RainbowAgent.trunk
+
+DefaultDQNAgent.$ = DefaultDQNAgent.trunk2
+
+# ---- DefaultDQNAgent
+
+DefaultDQNAgent.trunk2.qnet.nn_init_mode = 3                # 0=default, 1=XavierUniform, 2=HeNormal, 3=Orthogonal
+DefaultDQNAgent.trunk2.qnet.nn_hidden1 = 120
+DefaultDQNAgent.trunk2.qnet.nn_hidden2 = 84
+DefaultDQNAgent.trunk2.qnet.output_init_gain = 1.0          # 1.0 or 0.01 0.01 にするとQ値やロジットがほぼ0になり全行動がフラットな状態からスタート
+DefaultDQNAgent.trunk2.network.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
+DefaultDQNAgent.trunk2.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+DefaultDQNAgent.trunk2.learner.gamma = 0.99                 # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
+DefaultDQNAgent.trunk2.learner.eps_max = 1.00               # 指数減衰  
+DefaultDQNAgent.trunk2.learner.eps_min = 0.05               # 0.1f 0.05f
+DefaultDQNAgent.trunk2.learner.eps_decay_step = 40000       # 40K
+DefaultDQNAgent.trunk2.learner.adam_eps = 1e-5              # 小さな勾配の変化に敏感になりすぎるのを防ぎ、学習をマイルドに
+DefaultDQNAgent.trunk2.learner.use_grad_clip = true         # ★
+DefaultDQNAgent.trunk2.learner.grad_clip_tau = 5            # ★10 25 40 1f 5f 10f
+DefaultDQNAgent.trunk2.learner.use_td_clip = false          # 
+DefaultDQNAgent.trunk2.learner.td_clip_value = 30.0         # 4.0 20 30
+#DefaultDQNAgent.trunk2.learner.replay_capacity = 2560000    # batch_size=256向け。 256✕1000step→10エピソード分
+DefaultDQNAgent.trunk2.learner.replay_capacity = 256000    # batch_size=128向け。 128✕200step→10エピソード分
+DefaultDQNAgent.trunk2.learner.replay_batch_size = 128      #
+#DefaultDQNAgent.trunk2.learner.replay_batch_size = 1024      #
+DefaultDQNAgent.trunk2.learner.update_warmup_steps = 1000  # 1000
+DefaultDQNAgent.trunk2.learner.update_interval = 1         # 環境何ステップ毎にUpdateするか。replay_rationが正なら使われない
+DefaultDQNAgent.trunk2.learner.replay_ratio = 4            # 環境1ステップあたり平均何回のUpdateするか。負数ではupdate_interval側を使う
+DefaultDQNAgent.trunk2.learner.n_step = 3
+DefaultDQNAgent.trunk2.learner.per_alpha = 0.6             # 優先度の反映度合い (0.0:ランダム選択, 1.0:優先度のみ考慮して選択)
+DefaultDQNAgent.trunk2.learner.per_beta_start = 0.4        # 「beta」の初期値 β：同じ行動を選び続けないように優先度補正する強度
+DefaultDQNAgent.trunk2.learner.per_beta_end = 1.0f         # 「beta」の収束値 β：同じ行動を選び続けないように優先度補正する強度
+DefaultDQNAgent.trunk2.learner.per_beta_step = 40000       # 20K betaを収束値まで線形変化させるステップ数（初期は当てにならないので補正を弱める）
+DefaultDQNAgent.trunk2.learner.per_eps = 1e-6f             # 優先度加算用微小値
+DefaultDQNAgent.trunk2.learner.per_initial_priority = 1.0  # 新規データの初期優先度
+DefaultDQNAgent.trunk2.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
+DefaultDQNAgent.trunk2.learner.per_prio_clip_value = 20.0  # 優先度の上限値
+DefaultDQNAgent.trunk2.learner.quantile_huber_kappa = 1.0  # Huber Loss の閾値 kappa
+DefaultDQNAgent.trunk2.learner.use_double_dqn = true       # Double DQN 有効化フラグ（trueで有効）
+DefaultDQNAgent.trunk2.learner.use_n_step = true
+DefaultDQNAgent.trunk2.learner.use_per = true
+DefaultDQNAgent.trunk2.reward_scaler.use_clipping = false
+DefaultDQNAgent.trunk2.reward_scaler.clip_range = 10
+DefaultDQNAgent.trunk2.reward_scaler.constant_scale = 0.01
+DefaultDQNAgent.trunk2.reward_scaler.use_dynamic_scaling = true
+DefaultDQNAgent.trunk2.reward_scaler.epsilon = 1e-8
+DefaultDQNAgent.trunk2.reward_scaler.use_auto_post_scale = true   # gammaを使って自動設定するか
+DefaultDQNAgent.trunk2.reward_scaler.reference_q_std = 30.0       # 自動設定時のQ値分散目標スケール (推奨: 3.0～30.0)
+DefaultDQNAgent.trunk2.reward_scaler.manual_post_scale = 1.0      # use_auto_post_scale=true では使われない
+
+DefaultDQNAgent.trunk2.obs_norm.pass_through = true      # ★
+DefaultDQNAgent.trunk2.obs_norm.constant_mean = 0 0 0 0
+DefaultDQNAgent.trunk2.obs_norm.constant_std = 1 1 1 1
+DefaultDQNAgent.trunk2.obs_norm.use_clipping = false
+DefaultDQNAgent.trunk2.obs_norm.clip_range = 10.0
+DefaultDQNAgent.trunk2.obs_norm.use_dynamic_scaling = true        # 
+DefaultDQNAgent.trunk2.obs_norm.use_centering = false             # ★LunarLanderにおいては零点が意味を持つのでfalseのほうが良い
+DefaultDQNAgent.trunk2.obs_norm.epsilon = 1                       # 1 0.1 小さいとContractが異常値扱いで弾かれるので1.0推奨
+DefaultDQNAgent.trunk2.obs_norm.use_robust_update = true
+DefaultDQNAgent.trunk2.obs_norm.robust_warmup_count = 200
+DefaultDQNAgent.trunk2.obs_norm.robust_std_threshold = 5.0
+DefaultDQNAgent.trunk2.obs_norm.post_process_type = 1             # 0=none 1=SymLog 2=Tanh 3=Softsign
+DefaultDQNAgent.trunk2.obs_norm.post_process_threshold = 10.0
+
+DefaultDQNAgent.trunk2.use_dueling_net = true       #  
+DefaultDQNAgent.trunk2.num_quantiles = 51           # 分位数 N (デフォルト51)
+DefaultDQNAgent.trunk2.use_qr = true                # QR-DQN 有効化フラグ
+
 
 # ---- RainbowAgent
 
@@ -66,13 +135,15 @@ RainbowAgent.trunk.use_n_step = true;
     #   $target  : $update_result || $agent || $exp || $runner
 
 metrics.scalar.min.[10_train/10_total_reward] = train_reward  $runner @train $ema
-metrics.scalar.min.[21_eval/01_target_reward] = $runner target_eval_reward @learn
-metrics.scalar.min.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn
+metrics.scalar.min.[11_eval/01_target_reward] = $runner target_eval_reward @learn
+metrics.scalar.min.[11_eval/02_policy_reward] = $runner policy_eval_reward @learn
+metrics.scalar.min.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn 
 metrics.scalar.min.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
 metrics.scalar.min.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $runner  interval:100
 metrics.scalar.min.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
 metrics.scalar.min.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
 metrics.scalar.min.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
+
 
 
 metrics.scalar.full.[10_train/10_total_reward] = $runner train_reward_ema @train

@@ -28,7 +28,7 @@ public:
     void StopTraining();
 private:
     void InitTrainer();
-    void InitImageLogObservers();
+    void InitImageLogObservers(const anet::ConfigData& config_data);
 private:
     std::unique_ptr<anet::ConfigManager> config_mgr_;
     struct Config;

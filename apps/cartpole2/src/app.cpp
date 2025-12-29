@@ -9,6 +9,7 @@
 #include "anet/log.hpp"
 #include "anet/observers.hpp"
 #include "anet/replay_buffer.hpp"
+#include "anet/rainbow_agent.hpp"
 #include "CartPoleFrame.hpp"
 #include "UISnapshot.hpp"
 
@@ -113,7 +114,7 @@ bool CartPoleApp::OnInit()
     // Trainer初期化
     InitTrainer();
     trainer_->GetNotifier()->LogObservers();
-    InitImageLogObservers();
+    InitImageLogObservers(config_data);
 
     // Trainerスレッド生成
     trainer_thread_ = std::make_unique<anet::rl::RunnerThread>(
@@ -189,7 +190,7 @@ void CartPoleApp::InitTrainer()
                 // Train状況のSnapshotを更新
                 UISnapshot snapshot {
                     event.counts,
-                    event.batch_exp,
+                    event.experience,
                     //*train_reward_ema,
                     //event.agent
                 };
@@ -220,7 +221,7 @@ void CartPoleApp::InitTrainer()
         }, "CartPoleApp");
 }
 
-void CartPoleApp::InitImageLogObservers()
+void CartPoleApp::InitImageLogObservers(const anet::ConfigData& config_data)
 {
     // 有効設定チェック
     if (!config_->enable_image_log)
@@ -291,20 +292,20 @@ void CartPoleApp::InitImageLogObservers()
         std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 3, &env_spec.state_spec, nullptr, auto_scale_mode),
     };
 
-    notifier->Attach<anet::rl::HeatMapVectorObserver>(
-        "43_agent_img/12_hm_rep_02", replay_heat_obs_config, rep_x_probe, rep_theta_probe, rep_reward_probe);
-    notifier->Attach<anet::rl::HeatMapVectorObserver>(
-        "43_agent_img/13_hm_rep_23", replay_heat_obs_config, rep_theta_probe, rep_theta_dot_probe, rep_reward_probe);
-    notifier->Attach<anet::rl::MultiPairHeatMapObserver>(
-        "43_agent_img/21_hm_rep_multi3",
-        replay_heat_obs_config,
-        probes_3axis,
-        rep_reward_probe);
-    notifier->Attach<anet::rl::MultiPairHeatMapObserver>(
-        "43_agent_img/22_hm_rep_multi4",
-        replay_heat_obs_config,
-        probes_4axis,
-        rep_reward_probe);
+    //notifier->Attach<anet::rl::HeatMapVectorObserver>(
+    //    "43_agent_img/12_hm_rep_02", replay_heat_obs_config, rep_x_probe, rep_theta_probe, rep_reward_probe);
+    //notifier->Attach<anet::rl::HeatMapVectorObserver>(
+    //    "43_agent_img/13_hm_rep_23", replay_heat_obs_config, rep_theta_probe, rep_theta_dot_probe, rep_reward_probe);
+    //notifier->Attach<anet::rl::MultiPairHeatMapObserver>(
+    //    "43_agent_img/21_hm_rep_multi3",
+    //    replay_heat_obs_config,
+    //    probes_3axis,
+    //    rep_reward_probe);
+    //notifier->Attach<anet::rl::MultiPairHeatMapObserver>(
+    //    "43_agent_img/22_hm_rep_multi4",
+    //    replay_heat_obs_config,
+    //    probes_4axis,
+    //    rep_reward_probe);
 
     // ---- TimeHistogram ----
 
@@ -433,34 +434,76 @@ void CartPoleApp::InitImageLogObservers()
     using StrMap = std::unordered_map<std::string, std::string>;
 
     std::optional<anet::TensorFunction> policy_forward = agent->GetTensorFunction("policy-net.forward");
-    std::optional<anet::TensorFunction> qpair_forward = agent->GetTensorFunction("q-pair.forward");
+    //std::optional<anet::TensorFunction> qpair_forward = agent->GetTensorFunction("q-pair.forward");
     ANET_ASSERT(policy_forward.has_value());
-    ANET_ASSERT(qpair_forward.has_value());
+    //ANET_ASSERT(qpair_forward.has_value());
 
     notifier->Attach<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/05_shm_02_qmax", q_sweep_obs_config, proc_x_theta_qmax, *policy_forward, proc_x_theta_qmax);
     notifier->Attach<anet::rl::SweepedHeatMapObserver>(
         "45_agent_img/06_shm_23_qmax", q_sweep_obs_config, proc_theta_thetadot_qmax, *policy_forward, proc_theta_thetadot_qmax);
-    notifier->Attach<anet::rl::SweepedHeatMapObserver>(
-        "45_agent_img/08_shm_02_qdiff", q_sweep_obs_config, proc_theta_thetadot_qdiff, *policy_forward, proc_theta_thetadot_qdiff);
-    notifier->Attach<anet::rl::SweepedHeatMapObserver>(
-        "45_agent_img/09_shm_02_qdiff_mask", q_sweep_obs_config, proc_theta_thetadot_qdiff_mask, *policy_forward, proc_theta_thetadot_qdiff_mask);
-    notifier->Attach<anet::rl::SweepedHeatMapObserver>(
-        "45_agent_img/11_shm_02_qdelta", q_sweep_obs_config, proc_theta_thetadot_pair_qdelta, *qpair_forward, proc_theta_thetadot_pair_qdelta);
-    notifier->Attach<anet::rl::SweepedHeatMapObserver>(
-        "45_agent_img/12_shm_02_qdelta_qmax", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdeltaqmax, *qpair_forward, proc_theta_thetadot_pair_combo_qdeltaqmax);
-    notifier->Attach<anet::rl::SweepedHeatMapObserver>(
-        "45_agent_img/13_shm_02_qdelta_qdiff", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdelta_qdiff, *qpair_forward, proc_theta_thetadot_pair_combo_qdelta_qdiff);
-    notifier->Attach<anet::rl::SweepedHeatMapObserver>(
-        "45_agent_img/14_shm_02_qdelta_qdiff-masked", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdelta_qdiffmasked, *qpair_forward, proc_theta_thetadot_pair_combo_qdelta_qdiffmasked,
-        StrMap{
-            { "46_agent_imgsc/02qdd_raw_qdelta_mean", "raw_qdelta_mean" },
-            { "46_agent_imgsc/02qdd_raw_qdelta_max", "raw_qdelta_max" },
-            { "46_agent_imgsc/02qdd_raw_boundary_mean", "raw_boundary_mean" },
-            { "46_agent_imgsc/02qdd_boundary_area", "boundary_area"  },
-            { "46_agent_imgsc/02qdd_combined_mean", "combined_mean" },
-            { "46_agent_imgsc/02qdd_combined_max", "combined_max"  }
-        });
+    //notifier->Attach<anet::rl::SweepedHeatMapObserver>(
+    //    "45_agent_img/08_shm_02_qdiff", q_sweep_obs_config, proc_theta_thetadot_qdiff, *policy_forward, proc_theta_thetadot_qdiff);
+    //notifier->Attach<anet::rl::SweepedHeatMapObserver>(
+    //    "45_agent_img/09_shm_02_qdiff_mask", q_sweep_obs_config, proc_theta_thetadot_qdiff_mask, *policy_forward, proc_theta_thetadot_qdiff_mask);
+    //notifier->Attach<anet::rl::SweepedHeatMapObserver>(
+    //    "45_agent_img/11_shm_02_qdelta", q_sweep_obs_config, proc_theta_thetadot_pair_qdelta, *qpair_forward, proc_theta_thetadot_pair_qdelta);
+    //notifier->Attach<anet::rl::SweepedHeatMapObserver>(
+    //    "45_agent_img/12_shm_02_qdelta_qmax", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdeltaqmax, *qpair_forward, proc_theta_thetadot_pair_combo_qdeltaqmax);
+    //notifier->Attach<anet::rl::SweepedHeatMapObserver>(
+    //    "45_agent_img/13_shm_02_qdelta_qdiff", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdelta_qdiff, *qpair_forward, proc_theta_thetadot_pair_combo_qdelta_qdiff);
+//    notifier->Attach<anet::rl::SweepedHeatMapObserver>(
+//        "45_agent_img/14_shm_02_qdelta_qdiff-masked", q_sweep_obs_config, proc_theta_thetadot_pair_combo_qdelta_qdiffmasked, *qpair_forward, proc_theta_thetadot_pair_combo_qdelta_qdiffmasked,
+//        StrMap{
+//            { "46_agent_imgsc/02qdd_raw_qdelta_mean", "raw_qdelta_mean" },
+//            { "46_agent_imgsc/02qdd_raw_qdelta_max", "raw_qdelta_max" },
+//            { "46_agent_imgsc/02qdd_raw_boundary_mean", "raw_boundary_mean" },
+//            { "46_agent_imgsc/02qdd_boundary_area", "boundary_area"  },
+//            { "46_agent_imgsc/02qdd_combined_mean", "combined_mean" },
+//            { "46_agent_imgsc/02qdd_combined_max", "combined_max"  }
+//        });
+
+
+    {
+        anet::rl::dqn::RainbowAgentConfig agent_config(config_data);
+        if (!agent_config.learner.use_per) {
+            LOG::warn() << "PER agent config disabled. Skipping PER ImageLog observer.";
+            return;
+        }
+
+        auto notifier = trainer_->GetNotifier();
+        auto env_spec = trainer_->GetBatchEnv()->GetSpec();
+        auto agent = trainer_->GetAgent();
+
+        // flags
+        auto flags =
+            //anet::HeatMapFlags::HM_LogScaleValue | 
+            anet::HeatMapFlags::HM_AutoNormValue
+            | anet::HeatMapFlags::HM_AutoScaleAxis
+            //| anet::HeatMapFlags::HM_LogScaleAxis
+            | anet::HeatMapFlags::HM_SumMode; // | anet::HeatMapFlags::HM_ShowZeroLine;
+
+        // ---- ReplayBuffer ----
+        auto rep_x_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 0, &env_spec.state_spec);
+        auto rep_y_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 2, &env_spec.state_spec);
+        auto rep_prio_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::PER_DIST, -1);
+
+        anet::rl::HeatMapObserverConfig replay_heat_obs_config{
+            512,    // width
+            512,    // height
+            100,    // log_interval 
+            //100000,  // max_points
+            agent_config.learner.replay_capacity,	// max_points
+            flags,   // flags
+            -1,     // image_width
+            -1,     // image_height
+        };
+
+        auto auto_scale_mode = anet::rl::AgentTensorVectorProbe::AutoScaleMode::DISABLE;    // EnvSpecで固定
+        notifier->Attach<anet::rl::HeatMapVectorObserver>(
+            "43_agent_img/52_per_hm_prio_02", replay_heat_obs_config, rep_x_probe, rep_y_probe, rep_prio_probe);
+    }
+
 }
 
 wxIMPLEMENT_APP(CartPoleApp);
