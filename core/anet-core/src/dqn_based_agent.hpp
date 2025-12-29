@@ -300,7 +300,7 @@ namespace anet::rl::dqn {
     // Learner
     // ======================================================
 
-    class Learner : public anet::rl::Learner, public anet::DataExporter {
+    class Learner : public anet::rl::Learner, public anet::Module {
     public:
         Learner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
             const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec,

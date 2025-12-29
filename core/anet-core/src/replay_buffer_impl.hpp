@@ -126,7 +126,7 @@ struct StorageWriteEvent {
     int64_t index;
 };
 
-class ReplayExperienceStorage : public anet::DataExporter {
+class ReplayExperienceStorage : public anet::Module {
 public:
     using EventHandler = std::function<void(const StorageWriteEvent&)>;
 public:

@@ -93,15 +93,15 @@ namespace anet {
     //    virtual ~Module() = default;
     //};
 
-    class DataExporter {
+    class Module {
     public:
         virtual std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const = 0;
         virtual std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const = 0;
         virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const = 0;
-        virtual ~DataExporter() = default;
+        virtual ~Module() = default;
     };
 
-    class DataExporterBase : virtual public DataExporter {
+    class ModuleBase : virtual public Module {
     public:
         virtual std::optional<float> GetScalar(const std::string& key, int64_t = -1) const override
             { return std::nullopt; }
@@ -109,7 +109,7 @@ namespace anet {
             { return std::nullopt; }
         virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t = -1) const override
             { return std::nullopt; }
-        virtual ~DataExporterBase() = default;
+        virtual ~ModuleBase() = default;
     };
 
     // ToString() を持つかどうか判定するメタ関数

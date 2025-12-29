@@ -16,7 +16,7 @@ namespace anet::rl {
     // ObservationNormalizer
     // =============================================================
 
-    class ObservationNormalizer : virtual public DataExporter {
+    class ObservationNormalizer : virtual public Module {
     public:
         virtual torch::Tensor Normalize(const torch::Tensor& obs) const = 0;
         virtual torch::Tensor NormalizeAndUpdateStats(const torch::Tensor& obs) = 0;
@@ -73,7 +73,7 @@ namespace anet::rl {
     // RewardScaler
     // =============================================================
 
-    class RewardScaler : virtual public DataExporter {
+    class RewardScaler : virtual public Module {
     public:
         /**
          * @brief 報酬(Batch)を受け取り、統計を更新し、スケールされたTensorを返す

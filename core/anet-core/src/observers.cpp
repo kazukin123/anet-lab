@@ -588,7 +588,7 @@ MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(const
     ANET_CHECK(event_field != EventField::UPDATE_RESULT);
 
     // Scalar取得対象
-    const anet::DataExporter* target = nullptr;
+    const anet::Module* target = nullptr;
 
     // 指定に従ってScalar取得対象を取得
     switch (event_field) {

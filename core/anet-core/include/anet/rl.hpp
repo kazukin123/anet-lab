@@ -474,14 +474,14 @@ namespace anet::rl {
 
     using MetricsMap = std::unordered_map<std::string, float>;
 
-    class BatchUpdateResult : public DataExporter {
+    class BatchUpdateResult : public Module {
     public:
         BatchUpdateResult() {}
 
         virtual ~BatchUpdateResult() = default;
     };
 
-    struct BatchExperience : public DataExporter {
+    struct BatchExperience : public Module {
         BatchState state;
         BatchActionInfo action;
         torch::Tensor reward;
@@ -521,7 +521,7 @@ namespace anet::rl {
     // =============================================================
 
     /// not-thread-safe
-    class SingleDiscreteEnv : public DataExporter {
+    class SingleDiscreteEnv : public Module {
     public:
         virtual EnvSpec GetSpec() const = 0;
         virtual std::shared_ptr<const SingleResetResult> Reset(RunMode mode) = 0;
@@ -541,7 +541,7 @@ namespace anet::rl {
         virtual ~SingleDiscreteEnvFactory() = default;
     };
 
-    class BatchEnv : public DataExporter {
+    class BatchEnv : public Module {
     public:
         virtual EnvSpec GetSpec() const = 0;
         virtual BatchEnvSpec GetBatchSpec() const = 0;
@@ -588,7 +588,7 @@ namespace anet::rl {
         virtual ~Learner() = default;
     };
 
-    class Agent : public ActionPolicy, public Learner, public DataExporter {
+    class Agent : public ActionPolicy, public Learner, public Module {
     public:
         virtual std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) = 0;
         virtual ~Agent() = default;
@@ -621,7 +621,7 @@ namespace anet::rl {
         std::string ToString() const;
     };
 
-    class ReplayPriorityController : public anet::DataExporter {
+    class ReplayPriorityController : public anet::Module {
     public:
         virtual void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) = 0;
 
@@ -764,7 +764,7 @@ namespace anet::rl {
         STOP     ///< TrainerのStatusをCOMPLETEDに変更
     };
 
-    class Runner : public DataExporter {
+    class Runner : public Module {
     public:
         using ControlFunction = std::function<ControlSignal(const StepCounts& counts)>; ///< 学習ステップ制御処理(戻り値trueで処理中断)
     public:

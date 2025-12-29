@@ -62,7 +62,7 @@ namespace anet::rl {
     // ObservationNormalizer
     // =============================================================
 
-    class ConstantObservationNormalizer : public ObservationNormalizer, virtual public DataExporterBase {
+    class ConstantObservationNormalizer : public ObservationNormalizer, virtual public ModuleBase {
     public:
         ConstantObservationNormalizer(bool pass_through,
             const std::vector<int64_t>& shape, const std::optional<float>& clip_range,
@@ -91,7 +91,7 @@ namespace anet::rl {
         float last_clip_ratio_ = 0.0f;  ///< 直近のNormalizeでのクリップ率（メトリクス用）
     };
 
-    class RunningStdObservationNormalizer : public ObservationNormalizer, virtual public DataExporterBase {
+    class RunningStdObservationNormalizer : public ObservationNormalizer, virtual public ModuleBase {
     public:
         RunningStdObservationNormalizer(
             const std::optional<float>& clip_range,
@@ -130,7 +130,7 @@ namespace anet::rl {
     // RewardScaler
     // =============================================================
 
-    class ConstantRewardScaler : public RewardScaler, virtual public DataExporterBase {
+    class ConstantRewardScaler : public RewardScaler, virtual public ModuleBase {
     public:
         ConstantRewardScaler(float scale_factor, const std::optional<float>& clip_range = std::nullopt);
         torch::Tensor Scale(const torch::Tensor& reward) override;
@@ -143,7 +143,7 @@ namespace anet::rl {
         float last_clip_ratio_;
     };
 
-    class RunningStdRewardScaler : public RewardScaler, virtual public DataExporterBase {
+    class RunningStdRewardScaler : public RewardScaler, virtual public ModuleBase {
     public:
         RunningStdRewardScaler(const std::optional<float>& clip_range = std::nullopt, float epsilon = 1e-8f, float post_scale = 1.0f);
 
