@@ -671,21 +671,21 @@ namespace anet::rl {
     struct BeforeStepEvent {
         const Runner& runner;
         const StepCounts counts;
-        std::shared_ptr<const Agent> agent;
-        std::shared_ptr<const BatchEnv> env;
+        const std::shared_ptr<const Agent> agent;
+        const std::shared_ptr<const BatchEnv> env;
     };
 
     struct UpdateEvent {
         const BatchExperience& experience;
 		const Runner& runner;
         const StepCounts counts;
-        std::shared_ptr<const Agent> agent;
-        BatchUpdateResultList update_result_list;
+        const std::shared_ptr<const Agent> agent;
+        const BatchUpdateResultList update_result_list;
     };
 
     struct TrainEvent : public UpdateEvent {
-        std::shared_ptr<const BatchEnv> env;
-        std::shared_ptr<const BatchStepResult> step_result;
+        const std::shared_ptr<const BatchEnv> env;
+        const std::shared_ptr<const BatchStepResult> step_result;
         const BatchActionInfo& action_info;
     };
 

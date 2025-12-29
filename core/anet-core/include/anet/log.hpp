@@ -8,6 +8,7 @@
 #include <string_view>
 #include <algorithm>
 #include <wx/log.h>
+#include <wx/debug.h>
 #include "anet/common.hpp"
 
 #if defined(_MSC_VER) && _MSC_VER < 1930
@@ -16,6 +17,22 @@
 #else
 #define ANET_CONSTEXTRACT consteval
 #endif
+
+#if ANET_ENABLE_DEBUGINFO
+
+#ifndef ANET_ENABLE_DEBUG_LOG
+//#define ANET_ENABLE_DEBUG_LOG 1
+#define ANET_ENABLE_DEBUG_LOG 0
+#endif
+
+#else
+
+#ifndef ANET_ENABLE_DEBUG_LOG
+#define ANET_ENABLE_DEBUG_LOG 0
+#endif
+
+#endif
+
 
 namespace anet::log {
 
@@ -161,16 +178,19 @@ namespace anet::log {
 #define ANET_THIS_FILENAME anet::log::ExtractSourceFileName( __FILE__ )
 
 
-#if ANET_ENABLE_DEBUGINFO
-#define ANET_LOG_DEBUG(expr)                                            \
-    do {                                                                \
-        auto _stream = anet::log::WxLogStream(wxLOG_Debug,              \
-                           ANET_THIS_FILENAME, __LINE__, __func__);     \
-        _stream << expr;                                                \
+#if ANET_ENABLE_DEBUG_LOG
+#define ANET_LOG_DEBUG(expr)                                             \
+    do {                                                                 \
+        if (wxIsDebuggerRunning() &&                                     \
+            wxLog::IsLevelEnabled(                                       \
+            wxLOG_Debug, wxString::FromAscii(wxLOG_COMPONENT))) {        \
+            auto _stream = anet::log::WxLogStream(wxLOG_Debug,           \
+                                ANET_THIS_FILENAME, __LINE__, __func__); \
+            _stream << expr;                                             \
+        }                                                                \
     } while(0)
 
 #else
 #define ANET_LOG_DEBUG(expr) do {} while(0)
 #endif
-
 

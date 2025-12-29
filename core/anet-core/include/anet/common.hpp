@@ -11,10 +11,19 @@
 #include "anet/util.hpp"
 
 #if ANET_ENABLE_DEBUGINFO
+
 #ifndef ANET_ENABLE_ASSERT
 #define ANET_ENABLE_ASSERT 1
 #endif
+
+#else
+
+#ifndef ANET_ENABLE_ASSERT
+#define ANET_ENABLE_ASSERT 0
 #endif
+
+#endif
+
 
 #if ANET_ENABLE_ASSERT
 
