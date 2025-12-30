@@ -14,9 +14,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_COLOR_MAKEFILE ON)
 
-# =====================================================================
+# ---------------------------------------------------------------------
 # libtorch のパス検出
-# =====================================================================
+# ---------------------------------------------------------------------
 
 # Multi-config (Visual Studio 等)
 if(CMAKE_CONFIGURATION_TYPES)
@@ -75,15 +75,15 @@ list(APPEND CMAKE_PREFIX_PATH "${Torch_DIR}")
 find_package(Torch REQUIRED)
 find_package(wxWidgets REQUIRED COMPONENTS core base gl aui)
 
-# =====================================================================
+# ---------------------------------------------------------------------
 # wxWidgets 互換性レイヤー
-# =====================================================================
+# ---------------------------------------------------------------------
 add_library(anet_wx INTERFACE)
 if(TARGET wx::core)
     # --- 【CI環境 / Configモード】 ---
     # wx::core などのターゲットが見つかった場合
     message(STATUS "wxWidgets: Config mode detected (Targets available)")
-    target_link_libraries(anet_wx INTERFACE wx::core wx::base wx::gl)
+    target_link_libraries(anet_wx INTERFACE wx::core wx::base wx::gl wx::aui)
 else()
     # --- 【ローカル環境 / Moduleモード】 ---
     # ターゲットがなく、変数(wxWidgets_LIBRARIES)のみの場合
@@ -103,6 +103,9 @@ else()
     endif()
 endif()
 
+# ---------------------------------------------------------------------
+# third_party
+# ---------------------------------------------------------------------
 include_directories("${PROJECT_SOURCE_DIR}/third_party/nvtx3/include")
 include_directories("${PROJECT_SOURCE_DIR}/third_party/nlohmann/include")
 
