@@ -1,6 +1,7 @@
 ﻿#include "PlotPanel.hpp"
 
 #include <algorithm>
+#include <wx/dcbuffer.h>
 
 
 wxBEGIN_EVENT_TABLE(PlotPanel, wxPanel)
