@@ -1,8 +1,10 @@
-﻿#pragma once
+﻿// PlotPanel.hpp
+
+#pragma once
+
 #include <vector>
 #include <mutex>
 #include <wx/wx.h>
-#include <wx/dcbuffer.h>
 
 class PlotPanel : public wxPanel {
 public:

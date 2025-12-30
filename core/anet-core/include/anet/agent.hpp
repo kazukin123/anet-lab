@@ -103,6 +103,39 @@ namespace anet::rl {
         };
     }
 
+
+    // =============================================================
+    // AgentRepository
+    // =============================================================
+
+    class AgentRepository {
+    public:
+        static AgentRepository& Instance() {
+            static AgentRepository inst;
+            return inst;
+        }
+
+        /// @todo AgentFactory → AgentCreator
+
+        void Register(std::shared_ptr<AgentFactory> factory);
+        std::shared_ptr<AgentFactory> GetAgentFactory(const std::string& id) const;
+    private:
+        AgentRepository() = default;
+
+        mutable std::mutex mtx_;
+        std::unordered_map<std::string, std::shared_ptr<AgentFactory>> factories_;
+    };
+
+    template<typename T, class... Args>
+    inline void RegisterAgentFactory(Args&&... args)
+    {
+        auto factory = std::make_shared<T>(std::forward<Args>(args)...);
+        AgentRepository::Instance().Register(factory);
+    }
+
+
+    // =============================================================
+    // DefaultAgentFactory
     // =============================================================
 
     struct DefaultAgentFactoryConfig : public anet::Config
@@ -125,7 +158,7 @@ namespace anet::rl {
         DefaultAgentFactory(
             const DefaultAgentFactoryConfig& config,
             const EnvSpec& env_spec,
-			const BatchEnvSpec& batch_env_spec,
+            const BatchEnvSpec& batch_env_spec,
             const anet::ConfigData& config_data = anet::EmptyConfigData,
             std::optional<seed_t> seed = std::nullopt);
 
@@ -135,39 +168,13 @@ namespace anet::rl {
         DefaultAgentFactoryConfig config_;
         anet::ConfigData config_data_;
         EnvSpec env_spec_;
-		BatchEnvSpec batch_env_spec_;
+        BatchEnvSpec batch_env_spec_;
         std::optional<seed_t> seed_;
         torch::Device device_;
     };
 
-    // =============================================================
-
-    class AgentRepository {
-    public:
-        static AgentRepository& Instance() {
-            static AgentRepository inst;
-            return inst;
-        }
-
-        void Register(std::shared_ptr<AgentFactory> factory);
-        std::shared_ptr<AgentFactory> GetAgentFactory(const std::string& id) const;
-    private:
-        AgentRepository() = default;
-
-        mutable std::mutex mtx_;
-        std::unordered_map<std::string, std::shared_ptr<AgentFactory>> factories_;
-    };
-
-    template<typename T, class... Args>
-    inline void RegisterAgentFactory(Args&&... args)
-    {
-        auto factory = std::make_shared<T>(std::forward<Args>(args)...);
-        AgentRepository::Instance().Register(factory);
-    }
-
 } // namespace anet::rl
 
-  // =============================================================
 
 #define ANET_REGISTER_AGENT_FACTORY(FactoryType) \
     namespace { \

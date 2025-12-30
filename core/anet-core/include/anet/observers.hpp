@@ -209,6 +209,8 @@ namespace anet::rl {
         //anet::EmaFilter<float> eval_total_reward_;
     };
 
+    // ===========================================================
+
     class FunctionTrainObserver : public anet::rl::TrainObserver {
     public:
         using Fn = std::function<void(const anet::rl::TrainEvent& event)>;
@@ -220,8 +222,6 @@ namespace anet::rl {
         Fn fn_;
         std::string name_;
     };
-
-    // ===========================================================
 
     class FunctionLearnObserver : public anet::rl::LearnObserver {
     public:

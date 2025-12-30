@@ -692,13 +692,6 @@ namespace anet::rl {
     struct LearnEvent : public UpdateEvent {
     };
 
-    class BeforeStepObserver {
-    public:
-        virtual void OnBeforeStep(const BeforeStepEvent& event) = 0;
-        virtual std::string ToString() const = 0;
-        virtual ~BeforeStepObserver() = default;
-    };
-
     class TrainObserver {
     public:
         virtual void OnTrain(const TrainEvent& event) = 0;
@@ -721,16 +714,14 @@ namespace anet::rl {
     public:
         Notifier();
 
-        std::shared_ptr<BeforeStepObserver> Attach(std::shared_ptr<BeforeStepObserver> observer);
-        void Detach(std::shared_ptr<BeforeStepObserver> observer);
-        void Notify(const BeforeStepEvent& event);
-
         std::shared_ptr<TrainObserver> Attach(std::shared_ptr<TrainObserver> observer);
         void Detach(std::shared_ptr<TrainObserver> observer);
+        void Detach(const TrainObserver* observer);
         void Notify(const TrainEvent& event);
 
         std::shared_ptr<LearnObserver> Attach(std::shared_ptr<LearnObserver> observer);
         void Detach(std::shared_ptr<LearnObserver> observer);
+        void Detach(const LearnObserver* observer);
         void Notify(const LearnEvent& event);
 
         void LogObservers() const;
@@ -743,7 +734,6 @@ namespace anet::rl {
             return obs;
         }
     private:
-        std::vector<std::shared_ptr<BeforeStepObserver>> before_step_observers_;
         std::vector<std::shared_ptr<TrainObserver>> train_observers_;
         std::vector<std::shared_ptr<LearnObserver>> learn_observers_;
     };

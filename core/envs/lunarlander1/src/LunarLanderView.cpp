@@ -1,46 +1,90 @@
-﻿#include "LunarLanderCanvas.hpp"
+﻿#include "LunarLanderView.hpp"
 
 #include <cmath>
 #include <wx/dcbuffer.h>
-#include "LunarLanderFrame.hpp"
+#include "anet/profile.hpp"
 #include "LunarLanderEnv.hpp"
-#include "LunarLanderApp.hpp"
 
 #define _USE_MATH_DEFINES // for C++
 #include <cmath>
 
-wxBEGIN_EVENT_TABLE(LunarLanderCanvas, wxPanel)
-EVT_PAINT(LunarLanderCanvas::OnPaint)
-EVT_LEFT_DOWN(LunarLanderCanvas::OnMouseLeftClick)
-EVT_RIGHT_DOWN(LunarLanderCanvas::OnMouseRightClick)
-wxEND_EVENT_TABLE()
-
+using namespace anet::rl::env;
 using anet::ToBool;
 using anet::ToFloat;
 
 
-LunarLanderCanvas::LunarLanderCanvas(wxWindow* parent)
-    : wxPanel(parent, wxID_ANY, wxDefaultPosition)//, wxSize(400, 400))
+// =============================================================
+// LunarLanderData
+// =============================================================
+
+
+LunarLanderData LunarLanderData::Create(anet::rl::TrainEvent event)
+{
+    anet::ProfileRange r1("LunarLanderData::Create");
+
+    //ANET_LOG_DEBUG("step_result=" << event.step_result->ToString());
+
+    const int ENV_INDEX = 0;
+
+    // RL由来情報
+    auto train_step = event.counts.train_step;
+    anet::rl::SingleState state = {
+        event.step_result->next_state.obs[ENV_INDEX],
+        event.step_result->next_state.done[ENV_INDEX].item<bool>(),
+        event.step_result->next_state.truncated[ENV_INDEX].item<bool>(),
+        event.step_result->next_state.episode_start[ENV_INDEX].item<bool>(),
+    };
+    auto action = event.experience.action.GetAction(torch::kCPU)[ENV_INDEX].item<int64_t>();
+    auto reward = event.experience.reward[ENV_INDEX].item<float>();
+
+    // aux情報
+    auto auxs = event.step_result->GetAuxDataList(ENV_INDEX);
+    ANET_ASSERT(auxs.size() > 0);
+    auto aux = auxs[0];
+
+    // Snapshotを作る
+    LunarLanderData snapshot{ train_step, state, action, reward, aux };
+
+    return snapshot;
+}
+
+
+// =============================================================
+// LunarLanderCanvas
+// =============================================================
+
+wxBEGIN_EVENT_TABLE(LunarLanderPanel, wxPanel)
+EVT_PAINT(LunarLanderPanel::OnPaint)
+//EVT_LEFT_DOWN(LunarLanderPanel::OnMouseLeftClick)
+//EVT_RIGHT_DOWN(LunarLanderPanel::OnMouseRightClick)
+EVT_CLOSE(LunarLanderPanel::OnClose)
+wxEND_EVENT_TABLE()
+
+//LunarLanderPanel::LunarLanderPanel(wxWindow* parent, std::shared_ptr<LunarLanderView> view, int update_timer_ms)
+LunarLanderPanel::LunarLanderPanel(wxWindow* parent)
+    : anet::rl::gui::Panel(parent, wxID_ANY, wxDefaultPosition)
+    //, view_(view)
 {
     SetBackgroundStyle(wxBG_STYLE_PAINT);
 }
 
-void LunarLanderCanvas::OnMouseLeftClick(wxMouseEvent& event)
+void LunarLanderPanel::OnClose(wxCloseEvent& event)
 {
-    wxMouseEvent evt = event;
-    GetParent()->GetEventHandler()->ProcessEvent(evt);
 }
 
-void LunarLanderCanvas::OnMouseRightClick(wxMouseEvent& event)
+void LunarLanderPanel::ApplyData(LunarLanderView& view)
 {
-    wxMouseEvent evt = event;
-    GetParent()->GetEventHandler()->ProcessEvent(evt);
-}
+    // UIデータ取り出し
+    auto data = view.PopData();
 
-void LunarLanderCanvas::SetUISnapshot(const UISnapshot& snapshot)
-{
-    //ANET_LOG_DEBUG("aux=" << anet::ToString(snapshot_.aux));
+    // データが取り出せなかったら何もしないで終わり
+    if (!data.has_value())
+        return;
 
+    ANET_LOG_DEBUG("Data captured.");
+
+    // データ（スナップショット）が取り出せたら取り込む
+    auto snapshot = *data;
     has_snapshot_ = true;
     snapshot_ = snapshot;
 
@@ -60,12 +104,9 @@ void LunarLanderCanvas::SetUISnapshot(const UISnapshot& snapshot)
             world_max_y_ = std::max(world_max_y_, lander_y + kLanderRadius);
         }
     }
-
-    Refresh(false);
 }
 
-wxPoint LunarLanderCanvas::WorldToScreen(
-    float wx, float wy, int width, int height) const
+wxPoint LunarLanderPanel::WorldToScreen(float wx, float wy, int width, int height) const
 {
     const int margin = 40;
 
@@ -91,7 +132,7 @@ wxPoint LunarLanderCanvas::WorldToScreen(
     return wxPoint(static_cast<int>(x), static_cast<int>(y));
 }
 
-int LunarLanderCanvas::WorldToScreen(float size, int width, int height) const
+int LunarLanderPanel::WorldToScreen(float size, int width, int height) const
 {
     const int margin = 40;
     const float world_w = std::max(0.1f, world_max_x_ - world_min_x_);
@@ -103,7 +144,7 @@ int LunarLanderCanvas::WorldToScreen(float size, int width, int height) const
     return static_cast<int>(std::round(size * scale));
 }
 
-void LunarLanderCanvas::DrawWorldLine(wxDC& dc, int width, int height)
+void LunarLanderPanel::DrawWorldLine(wxDC& dc, int width, int height)
 {
     dc.SetPen(wxPen(*wxLIGHT_GREY, 2));
 
@@ -123,7 +164,7 @@ void LunarLanderCanvas::DrawWorldLine(wxDC& dc, int width, int height)
     dc.DrawLine(p5, p6);
 }
 
-void LunarLanderCanvas::DrawTerrain(wxDC& dc, int width, int height)
+void LunarLanderPanel::DrawTerrain(wxDC& dc, int width, int height)
 {
     auto it = snapshot_.aux.find("terrain");
     if (it == snapshot_.aux.end()) {
@@ -148,7 +189,7 @@ void LunarLanderCanvas::DrawTerrain(wxDC& dc, int width, int height)
     dc.DrawLines(static_cast<int>(pts.size()), pts.data());
 }
 
-void LunarLanderCanvas::DrawPad(wxDC& dc, int width, int height)
+void LunarLanderPanel::DrawPad(wxDC& dc, int width, int height)
 {
     auto it = snapshot_.aux.find("pad");
     if (it == snapshot_.aux.end()) {
@@ -163,7 +204,7 @@ void LunarLanderCanvas::DrawPad(wxDC& dc, int width, int height)
     dc.DrawLine(p1, p2);
 }
 
-void LunarLanderCanvas::DrawLander(wxDC& dc, int width, int height)
+void LunarLanderPanel::DrawLander(wxDC& dc, int width, int height)
 {
     auto it = snapshot_.aux.find("lander");
     if (it == snapshot_.aux.end()) {
@@ -202,7 +243,7 @@ void LunarLanderCanvas::DrawLander(wxDC& dc, int width, int height)
     dc.DrawLine(c, nose);
 }
 
-void LunarLanderCanvas::DrawLegs(wxDC& dc, int width, int height)
+void LunarLanderPanel::DrawLegs(wxDC& dc, int width, int height)
 {
     auto it = snapshot_.aux.find("legs");
     if (it == snapshot_.aux.end()) {
@@ -243,7 +284,7 @@ void LunarLanderCanvas::DrawLegs(wxDC& dc, int width, int height)
     }
 }
 
-void LunarLanderCanvas::DrawThrust(wxDC& dc, int width, int height)
+void LunarLanderPanel::DrawThrust(wxDC& dc, int width, int height)
 {
     const int64_t action = snapshot_.action;
     if (action == 0) {
@@ -292,8 +333,7 @@ void LunarLanderCanvas::DrawThrust(wxDC& dc, int width, int height)
         }
 
         arrow_len = kSideEngineForce * 3;
-    }
-    else {
+    } else {
         return;
     }
 
@@ -348,7 +388,7 @@ void LunarLanderCanvas::DrawThrust(wxDC& dc, int width, int height)
             p1.y - static_cast<int>(hy2 * head_len)));
 }
 
-void LunarLanderCanvas::DrawWind(wxDC& dc, int width, int height)
+void LunarLanderPanel::DrawWind(wxDC& dc, int width, int height)
 {
     auto it = snapshot_.aux.find("forces");
     if (it == snapshot_.aux.end()) {
@@ -360,7 +400,7 @@ void LunarLanderCanvas::DrawWind(wxDC& dc, int width, int height)
     dc.DrawText(wxString::Format("Wind: %.2f %.2f", wind_x, wind_torque), 10, height - 20);
 }
 
-void LunarLanderCanvas::DrawRL(wxDC& dc)
+void LunarLanderPanel::DrawRL(wxDC& dc)
 {
     dc.SetTextForeground(*wxBLACK);
 
@@ -402,7 +442,7 @@ void LunarLanderCanvas::DrawRL(wxDC& dc)
     }
 }
 
-void LunarLanderCanvas::OnPaint(wxPaintEvent& event)
+void LunarLanderPanel::OnPaint(wxPaintEvent& event)
 {
     wxAutoBufferedPaintDC dc(this);
     dc.Clear();
@@ -424,4 +464,41 @@ void LunarLanderCanvas::OnPaint(wxPaintEvent& event)
     DrawThrust(dc, width, height);
     DrawWind(dc, width, height);
     DrawRL(dc);
+}
+
+
+// =============================================================
+// LunarLanderView
+// =============================================================
+
+//LunarLanderView::LunarLanderView(wxWindow* parent, std::shared_ptr<anet::rl::Notifier> notifier)
+LunarLanderView::LunarLanderView(wxWindow* parent)
+    : parent_(parent)
+{
+}
+
+void LunarLanderView::Initialize()
+{
+    auto self = this->shared_from_this();
+    this->panel_ = new LunarLanderPanel(parent_);
+}
+
+void LunarLanderView::CaptureViewData()
+{
+    panel_->ApplyData(*this);
+}
+
+void LunarLanderView::UpdateViewData(const anet::rl::TrainEvent& event, bool force)
+{
+    const auto& train_step = event.counts.train_step;
+
+    // Update不要ならスキップ
+    if (!force && !data_store_.ShouldUpdate())
+        return;
+
+    // UIデータを生成
+    auto ui_data = LunarLanderData::Create(event);
+
+    // UIデータを保存
+    data_store_.Update(ui_data);
 }

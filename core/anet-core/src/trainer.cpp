@@ -112,10 +112,6 @@ StepCounts EvalRunner::DoStep(int64_t action)
         ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
     }
 
-    // ステップ前Observer
-    BeforeStepEvent before_step_event{ *this, step_counts_, agent_, env_ };
-    notifier_->Notify(before_step_event);
-
     // ステップ前情報
     auto train_step = step_counts_.train_step;
     ANET_LOG_DEBUG("step=" << train_step << " state=" << state_.ToString());
@@ -165,12 +161,6 @@ StepCounts EvalRunner::DoStep()
         env_initialized_ = true;
         ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
     }
-
-    //if (state_.episode_start)
-
-    // ステップ前Observer
-    BeforeStepEvent before_step_event{ *this, step_counts_, agent_, env_ };
-    notifier_->Notify(before_step_event);
 
     // ステップ前情報
     auto train_step = step_counts_.train_step;
@@ -287,7 +277,7 @@ RunnerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
     auto agent_seed = master_seed_->GetGroupSeed("agent");
     auto eval_obs_seed = master_seed_->GetGroupSeed("eval_obs");
     LOG::info() << "global_seed=" << global_seed << " train_env_seed="
-        << train_env_seed << " eval_env_seed" << eval_env_seed << " agent_seed=" << agent_seed;
+        << train_env_seed << " eval_env_seed=" << eval_env_seed << " agent_seed=" << agent_seed;
     eval_env_seed_ = eval_env_seed;
 
     // パラメータ記録
@@ -300,6 +290,7 @@ RunnerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
     anet::rl::DefaultBatchEnvFactoryConfig env_config(config_data);
     LOG::info() << "env_config=" << env_config.ToString();
     env_factory_ = std::make_unique<anet::rl::DefaultBatchEnvFactory>(env_config, config_data, config_->batch_size);
+    env_class_id_ = env_config.class_id;
     auto env_device = env_factory_->GetDevice();
     auto single_env_factory = env_factory_->GetSingleFactory();
     env_ = env_factory_->CreateBatchEnv(train_env_seed, -1);
@@ -400,10 +391,6 @@ StepCounts DefaultTrainer::DoStep()
     // --- 学習ステップを回す ---
     float frame_total_reward = 0.0f;
     int frame_step = 0;
-
-    // ステップ前Observer
-    BeforeStepEvent before_step_event{ *this, step_counts_, agent_, env_ };
-    notifier_->Notify(before_step_event);
 
     // ステップ前情報
     auto train_step = step_counts_.train_step;

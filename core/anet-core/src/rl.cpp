@@ -638,40 +638,28 @@ std::string BatchExperience::ToString() const
     return oss.str();
 }
 
+
+// =============================================================
+// Notifier
+// =============================================================
+
 Notifier::Notifier()
 {
     ;
 }
 
-std::shared_ptr<BeforeStepObserver> Notifier::Attach(std::shared_ptr<BeforeStepObserver> obs)
-{
-    before_step_observers_.push_back(obs);
-    return obs;
-}
 std::shared_ptr<TrainObserver> Notifier::Attach(std::shared_ptr<TrainObserver> obs)
 {
     train_observers_.push_back(obs);
     return obs;
 }
+
 std::shared_ptr<LearnObserver> Notifier::Attach(std::shared_ptr<LearnObserver> obs)
 {
     learn_observers_.push_back(obs);
     return obs;
 }
 
-
-void Notifier::Detach(std::shared_ptr<BeforeStepObserver> obs)
-{
-    before_step_observers_.erase(
-        std::remove_if(
-            before_step_observers_.begin(), before_step_observers_.end(),
-            [&](const std::shared_ptr<BeforeStepObserver>& o) {
-                return o == obs;
-            }
-        ),
-        before_step_observers_.end()
-    );
-}
 void Notifier::Detach(std::shared_ptr<TrainObserver> obs)
 {
     train_observers_.erase(
@@ -684,6 +672,7 @@ void Notifier::Detach(std::shared_ptr<TrainObserver> obs)
         train_observers_.end()
     );
 }
+
 void Notifier::Detach(std::shared_ptr<LearnObserver> obs)
 {
     learn_observers_.erase(
@@ -697,14 +686,32 @@ void Notifier::Detach(std::shared_ptr<LearnObserver> obs)
     );
 }
 
-void Notifier::Notify(const BeforeStepEvent& event)
+void Notifier::Detach(const TrainObserver* observer)
 {
-    anet::ProfileRange r("Notifier::Notify");
-
-    for (auto obs : before_step_observers_) {
-        obs->OnBeforeStep(event);
-    }
+    train_observers_.erase(
+        std::remove_if(
+            train_observers_.begin(), train_observers_.end(),
+            [&](const std::shared_ptr<TrainObserver>& o) {
+                return o.get() == observer;
+            }
+        ),
+        train_observers_.end()
+    );
 }
+
+void Notifier::Detach(const LearnObserver* observer)
+{
+    learn_observers_.erase(
+        std::remove_if(
+            learn_observers_.begin(), learn_observers_.end(),
+            [&](const std::shared_ptr<LearnObserver>& o) {
+                return o.get() == observer;
+            }
+        ),
+        learn_observers_.end()
+    );
+}
+
 void Notifier::Notify(const TrainEvent& event)
 {
     anet::ProfileRange r("Notifier::Notify");

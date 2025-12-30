@@ -1,0 +1,4 @@
+// wxWidgets標準のリソース定義
+#include <wx/msw/wx.rc>
+
+//aaaa ICON "runner.ico"

@@ -83,10 +83,13 @@ namespace anet::rl {
 
     class EnvRepository {
     public:
-        static EnvRepository& Instance() {
+        static EnvRepository& Instance()
+        {
             static EnvRepository inst;
             return inst;
         }
+
+        /// @todo SingleDiscreteEnvFactory → SingleDiscreteEnvCreator
 
         void Regist(std::shared_ptr<SingleDiscreteEnvFactory> factory);
         std::shared_ptr<SingleDiscreteEnvFactory> GetSingleDiscreteEnvFactory(const std::string& id) const;

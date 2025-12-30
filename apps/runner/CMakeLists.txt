@@ -1,9 +1,9 @@
-﻿# anet-lab/apps/lunarlander1/CMakeLists.txt
+﻿# anet-lab/apps/runner/CMakeLists.txt
 
-#LunarLanderRLGUI
+# AnetRLRunner
 
 cmake_minimum_required(VERSION 3.18)
-project(LunarLanderRLGUI)
+project(AnetRLRunner)
 
 set(CMAKE_CONFIGURATION_TYPES "Debug;RelWithDebInfo;Release" CACHE STRING "" FORCE)
 
@@ -16,8 +16,6 @@ set(CMAKE_COLOR_MAKEFILE ON)
 #find_package(wxWidgets REQUIRED COMPONENTS core base gl)
 find_package(Torch REQUIRED)
 
-#message(STATUS "Box2D_DIR: ${box2d_DIR}")
-
 if (MSVC)
   add_compile_definitions(_HAS_CONDITIONAL_EXPLICIT=0)
   add_compile_options(/wd4267)  # warning C4267を無効化
@@ -25,7 +23,6 @@ if (MSVC)
   #add_link_options(/DEBUG:FULL)
   #add_link_options(/DEBUG:FASTLINK)
   add_link_options(/INCREMENTAL)
-
 #  add_compile_options(/diagnostics:color)
 #  add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 endif()
@@ -42,37 +39,43 @@ elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
     add_compile_definitions(NDEBUG)
 endif()
 
-#include(${wxWidgets_USE_FILE})
-
-add_executable(LunarLanderRLGUI
-    "src/LunarLanderApp.cpp"
-    "src/LunarLanderEnv.cpp"
-    "src/LunarLanderFrame.cpp"
-    "src/LunarLanderCanvas.cpp"
+add_executable(AnetRLRunner
+    "src/RunnerApp.cpp"
     "src/PlotPanel.cpp"
-    "src/HeatMapFrame.cpp"
+    "src/HeatMapPanel.cpp"
     "src/ErrorDialog.cpp"
+    "src/RunnerFrame.cpp"
+    "src/LogPanel.cpp"
+    "src/TrainPanel.cpp"
+    "src/EvalPanel.cpp")
+
+if(WIN32)
+    target_sources(${PROJECT_NAME} PRIVATE
+        src/runner.manifest
+        src/runner.rc
     )
+endif()
 
-target_precompile_headers(LunarLanderRLGUI PRIVATE "src/pch.hpp")
+target_precompile_headers(AnetRLRunner PRIVATE "src/pch.hpp")
 
-target_compile_definitions(LunarLanderRLGUI PUBLIC WXINTL_NO_GETTEXT_MACRO)    # N_()マクロ競合対策
+target_compile_definitions(AnetRLRunner PUBLIC WXINTL_NO_GETTEXT_MACRO)    # N_()マクロ競合対策
 
-target_link_libraries(LunarLanderRLGUI PRIVATE
-    anet-core
+target_link_libraries(AnetRLRunner PRIVATE
     ${TORCH_LIBRARIES}
     anet_wx
+    anet-core
     box2d
+    LunarLanderEnv
 )
 
-set_target_properties(LunarLanderRLGUI PROPERTIES
+set_target_properties(AnetRLRunner PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_DEBUG   ${CMAKE_CURRENT_SOURCE_DIR}/bin/Debug
     RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_CURRENT_SOURCE_DIR}/bin/RelWithDebInfo
     RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_CURRENT_SOURCE_DIR}/bin/Release
 )
 
 if (WIN32)
-  set_target_properties(LunarLanderRLGUI PROPERTIES
+  set_target_properties(AnetRLRunner PROPERTIES
       WIN32_EXECUTABLE TRUE
       LINK_FLAGS "/SUBSYSTEM:WINDOWS"
   )
@@ -90,11 +93,11 @@ if (MSVC)
   file(GLOB TORCH_DLLS "${TORCH_DLL_DIR}/*.dll")
 
   if(TORCH_DLLS)
-    add_custom_command(TARGET LunarLanderRLGUI POST_BUILD
+    add_custom_command(TARGET AnetRLRunner POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E echo "Copying libtorch DLLs from ${TORCH_DLL_DIR}"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 ${TORCH_DLLS}
-                $<TARGET_FILE_DIR:LunarLanderRLGUI>
+                $<TARGET_FILE_DIR:AnetRLRunner>
         COMMENT "Copying libtorch DLLs"
     )
   else()

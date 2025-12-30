@@ -53,7 +53,9 @@
 /apps/cartpole2/runs_bk
 /apps/cartpole2/bin
 /apps/cartpole2/logs
-/apps/lunarlander1/runs
 /apps/lunarlander1/logs
-/apps/lunarlander1/runs_*
+/apps/lunarlander1/runs*
 /third_party/box2d-2.4.2/build
+/apps/runner/logs
+/apps/runner/runs*
+/apps/runner/src/RC*

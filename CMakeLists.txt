@@ -73,7 +73,7 @@ list(APPEND CMAKE_PREFIX_PATH "${Torch_DIR}")
 # 外部ライブラリ
 # ---------------------------------------------------------------------
 find_package(Torch REQUIRED)
-find_package(wxWidgets REQUIRED COMPONENTS core base gl)
+find_package(wxWidgets REQUIRED COMPONENTS core base gl aui)
 
 # =====================================================================
 # wxWidgets 互換性レイヤー
@@ -110,12 +110,14 @@ include_directories("${PROJECT_SOURCE_DIR}/third_party/nlohmann/include")
 # サブプロジェクト
 # ---------------------------------------------------------------------
 add_subdirectory(core/anet-core)
+add_subdirectory(core/envs/lunarlander1)
 
 add_subdirectory(third_party/box2d-2.4.2)
 
 #add_subdirectory(apps/cartpole1)
 add_subdirectory(apps/cartpole2)
-add_subdirectory(apps/lunarlander1)
+#add_subdirectory(apps/lunarlander1)
+add_subdirectory(apps/runner)
 
 # ---------------------------------------------------------------------
 # Doxygen

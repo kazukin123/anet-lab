@@ -65,6 +65,7 @@ namespace anet::rl {
         StepCounts DoStep() override;
         std::shared_ptr<EvalRunner> CreateEvalRunner(RunMode runmode = RunMode::Eval) const;
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+        std::string GetEnvClassId() const { return env_class_id_; }
 
         virtual ~DefaultTrainer() = default;
     private:
@@ -77,6 +78,9 @@ namespace anet::rl {
         std::unique_ptr<anet::MasterSeedManager> master_seed_;
         seed_t eval_env_seed_;
     private:
+        // Trainer情報
+        std::string env_class_id_;
+
         // メトリクス
         std::chrono::high_resolution_clock::time_point start_time_;
         std::chrono::high_resolution_clock::time_point last_time_;

@@ -15,6 +15,10 @@
 #include "anet/profile.hpp"
 #include "anet/env.hpp"
 
+
+using namespace anet::rl::env;
+
+
 // ボディの定義
 constexpr float kLanderDensity = 5.0f;
 constexpr float kLegDensity = 1.0f;
@@ -568,14 +572,14 @@ bool LunarLanderEnv::checkCrash() const
 
     // 本体が地面に触れたらクラッシュ
     if (body_contact_) {
-        ANET_LOG_DEBUG("crashed: body_contact. y=" << lander_body_->GetPosition().y);
+        //ANET_LOG_DEBUG("crashed: body_contact. y=" << lander_body_->GetPosition().y);
         return true;
     }
 
     // 範囲外はクラッシュ扱い
     float x = lander_body_->GetPosition().x;
     if ((x < -config_.world_half_width) || (x > config_.world_half_width)) {
-        ANET_LOG_DEBUG("crashed x=" << x);
+        //ANET_LOG_DEBUG("crashed x=" << x);
         return true;
     }
 

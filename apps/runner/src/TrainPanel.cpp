@@ -1,0 +1,78 @@
+﻿// TrainPanel.cpp
+
+#include "TrainPanel.hpp"
+#include "RunnerApp.hpp"
+#include "anet/config.hpp"
+#include "anet/rl.hpp"
+#include "anet/observers.hpp"
+
+
+TrainPanel::TrainPanel(wxWindow* parent, const TrainPanelConfig& config)
+	: anet::rl::gui::Panel(parent), config_(config), update_timer_(this, wxID_ANY)
+{
+
+}
+
+void TrainPanel::Initialize(std::shared_ptr<anet::rl::DefaultTrainer> trainer)
+{
+	//Bind(wxEVT_LEFT_DOWN, &TrainPanel::OnMouseLeftClick, this);
+	//Bind(wxEVT_RIGHT_DOWN, &TrainPanel::OnMouseRightClick, this);
+
+	// View生成
+	view_ = wxGetApp().CreateExperinceView(this);
+	view_window_ = view_->AsWindow();
+
+	// レイアウト
+	wxBoxSizer* sizer = new wxBoxSizer(wxVERTICAL);
+	sizer->Add(view_window_, 1, wxEXPAND | wxALL, 5);
+	this->SetSizer(sizer);
+	this->Layout();
+
+	// Observer生成
+	auto notifier = trainer->GetNotifier();
+	this->observer_ = notifier->Attach<anet::rl::FunctionTrainObserver>(
+		[this](const anet::rl::TrainEvent& event)
+		{
+			view_->UpdateViewData(event);
+		},
+		"TrainPanel");
+
+	// Timer開始
+	Bind(wxEVT_TIMER, &TrainPanel::OnTimer, this, update_timer_.GetId());
+	int interval = 1000 / config_.fps;
+	ANET_LOG_DEBUG("interval=" << interval);
+	update_timer_.Start(interval);
+}
+
+void TrainPanel::OnTimer(wxTimerEvent& event)
+{
+	ANET_LOG_DEBUG("TrainPanel::OnTimer size=(" << this->GetSize().x << ", " << this->GetSize().y << ")");
+	wxWindow* parent = GetParent();
+	wxSize parent_size = parent ? parent->GetClientSize() : wxSize(-1, -1);
+	ANET_LOG_DEBUG("TrainPanel::OnTimer parent_size=(" << parent_size.x << ", " << parent_size.y << ")");
+
+	// データ断面をキャプチャ
+	view_->CaptureViewData();
+
+	// 表示反映（リクエスト）
+	Refresh();
+}
+
+void TrainPanel::OnClose(wxCloseEvent& event)
+{
+	auto notifier = wxGetApp().GetTrainer()->GetNotifier();
+	notifier->Detach(this->observer_);
+}
+
+//void TrainPanel::OnMouseLeftClick(wxMouseEvent& event)
+//{
+//	wxMouseEvent evt = event;
+//	GetParent()->GetEventHandler()->ProcessEvent(evt);
+//}
+//
+//void TrainPanel::OnMouseRightClick(wxMouseEvent& event)
+//{
+//	wxMouseEvent evt = event;
+//	GetParent()->GetEventHandler()->ProcessEvent(evt);
+//}
+
