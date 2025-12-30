@@ -8,33 +8,27 @@
 
 namespace LOG = anet::log;
 
-// 仮のViewクラス定義 (コンパイルを通すためのスタブ。本来は別ファイル)
-class ModuleBrowser : public wxPanel { public: using wxPanel::wxPanel; };
 
+/// @todo 仮枠
+class ModuleBrowser : public wxPanel { public: using wxPanel::wxPanel; };
+/// @todo 仮枠
 class RunPanel : public wxPanel { public: using wxPanel::wxPanel; };
 
 
-// --- ID Definitions ---
 enum {
     ID_ResetLayout = wxID_HIGHEST + 1,
-    ID_ModuleBrowser, // View Menu用
-    ID_RunView,
     ID_LogView,
-    ID_HeatMap
+    ID_HeatMap,
+    //ID_ModuleBrowser,
+    //ID_RunView,
 };
 
-wxBEGIN_EVENT_TABLE(RunnerFrame, wxFrame)
-    EVT_MENU(wxID_EXIT, RunnerFrame::OnExit)
-    EVT_MENU(wxID_ABOUT, RunnerFrame::OnAbout)
-    EVT_MENU(ID_ResetLayout, RunnerFrame::OnResetLayout)
-    EVT_CLOSE(RunnerFrame::OnClose)
-wxEND_EVENT_TABLE()
 
 RunnerFrame::RunnerFrame(const wxString& title, const TrainPanelConfig& train_panel_config, const EvalPanelConfig& eval_panel_config)
     : wxFrame(NULL, wxID_ANY, title, wxDefaultPosition, wxSize(1280, 800))
 {
     // AUI Managerの管理下に置く
-    m_mgr_.SetManagedWindow(this);
+    aui_mgr_.SetManagedWindow(this);
 
     // 画面レイアウトを作る
     SetupMenuBar();
@@ -45,7 +39,7 @@ RunnerFrame::RunnerFrame(const wxString& title, const TrainPanelConfig& train_pa
     SetupEvents();
 
     // 変更を反映
-    m_mgr_.Update();
+    aui_mgr_.Update();
 
     // ウィンドウ表示
     Centre();
@@ -53,7 +47,7 @@ RunnerFrame::RunnerFrame(const wxString& title, const TrainPanelConfig& train_pa
 
 RunnerFrame::~RunnerFrame()
 {
-    m_mgr_.UnInit();
+    aui_mgr_.UnInit();
 }
 
 void RunnerFrame::SetupMenuBar()
@@ -91,7 +85,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
 {
     // Log View
     log_panel_ = new LogPanel(this);
-    m_mgr_.AddPane(log_panel_, wxAuiPaneInfo()
+    aui_mgr_.AddPane(log_panel_, wxAuiPaneInfo()
         .Name("LogPanel").Caption("Logs")
         .Bottom().Layer(10)          // Layer:大きいほど外側
         .BestSize(-1, 200)          // ドッキング時の推奨サイズ 
@@ -102,7 +96,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
 
     // Run View
     //run_panel_ = new RunPanel(this);
-    //m_mgr_.AddPane(run_panel_, wxAuiPaneInfo()
+    //aui_mgr_.AddPane(run_panel_, wxAuiPaneInfo()
     //    .Name("RunPanel").Caption("Run Control")
     //    .Left().Layer(5).Position(0)
     //    .BestSize(250, 150)
@@ -113,7 +107,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
 
     // Module Browser
     //module_browser_ = new ModuleBrowser(this);
-    //m_mgr_.AddPane(module_browser_, wxAuiPaneInfo()
+    //aui_mgr_.AddPane(module_browser_, wxAuiPaneInfo()
     //    .Name("ModuleBrowser").Caption("Modules")
     //    .Left().Layer(5).Position(1)
     //    .BestSize(250, 800)
@@ -123,7 +117,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
 
     // TrainExperienceView
     train_panel_ = new TrainPanel(this, train_panel_config);
-    m_mgr_.AddPane(train_panel_, wxAuiPaneInfo()
+    aui_mgr_.AddPane(train_panel_, wxAuiPaneInfo()
         .Name("TrainExperiencePanel").Caption("Train View")
         //.Left().Layer(0)
         .Centre()
@@ -133,43 +127,24 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
 
     // EvalExperienceView
     eval_panel_ = new EvalPanel(this, eval_panel_config);
-    m_mgr_.AddPane(eval_panel_, wxAuiPaneInfo()
+    aui_mgr_.AddPane(eval_panel_, wxAuiPaneInfo()
         .Name("EvalExperiencePanel").Caption("Evaluation View")
         //.Centre()
         .Right().Layer(20)
         .BestSize(400, 400)
         .MinSize(200, 200)
-        .CloseButton(true).MaximizeButton(true)
+        .CloseButton(false).MaximizeButton(true)
     );
 
     // 全てのペイン追加後に更新
-    m_mgr_.Update();
+    aui_mgr_.Update();
 }
 
 void RunnerFrame::Initialize(std::shared_ptr<anet::rl::DefaultTrainer> trainer)
 {
     train_panel_->Initialize(trainer);
     eval_panel_->Initialize(trainer);
-    Layout();
-
-    // 現在のENVに合ったTrainPanelを生成
-    //auto train_view_panel = new TrainPanel(train_panel_, train_panel_config);
-
-    //// TrainPanelを表示に反映
-    //wxBoxSizer* train_sizer = new wxBoxSizer(wxVERTICAL);
-    //train_sizer->Add(train_view_panel, 1, wxEXPAND | wxALL);
-    //train_panel_->SetSizer(train_sizer);
-    //train_panel_->Layout();
-
-    // 現在のENVに合ったEvalPanelを生成
-    //auto eval_view_panel = new EvalPanel(eval_panel_, eval_panel_config);
-
-    // EvalPanelを表示に反映
-    //wxBoxSizer* eval_sizer = new wxBoxSizer(wxVERTICAL);
-    //eval_sizer->Add(eval_view_panel, 1, wxEXPAND | wxALL);
-    //eval_panel_->SetSizer(eval_sizer);
-    //eval_panel_->Layout();
-
+    //Layout();
 }
 
 void RunnerFrame::SetupEvents()
@@ -181,9 +156,8 @@ void RunnerFrame::SetupEvents()
     // メニューイベント
     Bind(wxEVT_MENU, &RunnerFrame::OnExit, this, wxID_EXIT);
     Bind(wxEVT_MENU, &RunnerFrame::OnAbout, this, wxID_ABOUT);
-    Bind(wxEVT_MENU, &RunnerFrame::OnResetLayout, this, ID_ResetLayout);
     Bind(wxEVT_MENU, &RunnerFrame::OnHeatMap, this, ID_HeatMap);
-    //Bind(wxEVT_MENU, &LunarLanderFrame::OnViewHeatMap, this, ID_VIEW_HEAT_MAP, this);
+    Bind(wxEVT_MENU, &RunnerFrame::OnResetLayout, this, ID_ResetLayout);
 
     // きーまう
     Bind(anet::rl::gui::EVT_FORWARDED_MOUSE, &RunnerFrame::OnMouse, this);
@@ -203,26 +177,14 @@ void RunnerFrame::OnMouse(anet::rl::gui::ForwardedMouseEvent& event)
 {
     auto mouse_event = event.GetMouseEvent();
     if (mouse_event.LeftDown())
-        wxGetApp().ToggleTraining();
+        wxGetApp().ToggleTraining();    // 左クリック：Trainingトグル
     else
-        eval_panel_->TogglePause();
+        eval_panel_->TogglePause();     // 右クリック：Evalトグル
 }
-
-//void RunnerFrame::OnMouseRightClick(wxMouseEvent& event)
-//{
-//    //ToggleEval();
-//}
-
-//void RunnerFrame::ToggleEval()
-//{
-//    is_eval_pause_ = !is_eval_pause_;
-//    LOG::info() << "Eval " << (is_eval_pause_ ? "paused." : " resumed.");
-//}
 
 void RunnerFrame::OnKey(anet::rl::gui::ForwardedKeyEvent& event)
 {
     auto key_event = event.GetKeyEvent();
-    //key_event.Get
     LOG::info() << "RunnerFrame::OnKey() key=" << key_event.GetKeyCode() << " eventType=" << key_event.GetEventType();
     ANET_LOG_DEBUG("KeyDown: key=" << key_event.GetKeyCode());
 
@@ -233,7 +195,6 @@ void RunnerFrame::OnKey(anet::rl::gui::ForwardedKeyEvent& event)
     case WXK_DOWN: action = 2; break;   // MAIN ENGINE
     case WXK_LEFT: action = 1; break;   // LEFT ENGINE
     case WXK_RIGHT: action = 3; break;  // RIGHT ENGINE
-
     case WXK_NUMPAD0: action = 0; break;
     case WXK_NUMPAD1: action = 1; break;
     case WXK_NUMPAD2: action = 2; break;
@@ -246,21 +207,23 @@ void RunnerFrame::OnKey(anet::rl::gui::ForwardedKeyEvent& event)
     case WXK_NUMPAD9: action = 9; break;
 
     case WXK_SHIFT:
+        // SHIFT：Trainningトグル
         wxGetApp().ToggleTraining();
         return;
     case WXK_SPACE:
-        //ToggleEval();
+        // スペース：Evalトグル
+        eval_panel_->TogglePause();
         return;
     default:
-        //eval_runner_->DoStep();
-        //eval_canvas_->Refresh();
+        eval_panel_->DoStep();
+        eval_panel_->Refresh();
         event.Skip();
         return;
     }
 
+    // 選択されたActionをEvalPanelで実行
     eval_panel_->DoStep(action);
     eval_panel_->Refresh();
-
     event.Skip();
 }
 
@@ -273,11 +236,12 @@ void RunnerFrame::OnHeatMap(wxCommandEvent& event)
     SweepHeatMapDialog dialog(this, env_spec);
 
     if (dialog.ShowModal() == wxID_OK) {
-        // 構造体でまとめて取得
+        // 代案で指定されたHeatMap設定を取得
         SweepHeatMapSettings s = dialog.GetSettings();
 
+        // HeatMapパネルを生成
         auto heatmap_panel = new SweepHeatMapPanel(this, s.tag, s, trainer);
-        m_mgr_.AddPane(heatmap_panel,
+        aui_mgr_.AddPane(heatmap_panel,
             PanelInfo("HeatMapPanel", "HeatMap", s.tag)
             .Right().Layer(20)          // Layer:大きいほど外側
             .BestSize(400, 400)          // ドッキング時の推奨サイズ 
@@ -287,13 +251,16 @@ void RunnerFrame::OnHeatMap(wxCommandEvent& event)
             .Dock()
             .CloseButton(true).MaximizeButton(true)
         );
-        //heatmap_panel->Show();
-        m_mgr_.Update();
+
+        // レイアウト反映
+        aui_mgr_.Update();
     }
 }
 
 void RunnerFrame::OnResetLayout(wxCommandEvent& WXUNUSED(event))
 {
+    /// @todo impl.
+
     // 保存されたパースペクティブがあればロード、なければデフォルト設定
     // m_mgr_.LoadPerspective(default_perspective_);
 }
@@ -312,6 +279,6 @@ void RunnerFrame::OnAbout(wxCommandEvent& WXUNUSED(event))
 void RunnerFrame::OnClose(wxCloseEvent& event)
 {
     wxGetApp().StopTraining();
-    m_mgr_.UnInit();
+    aui_mgr_.UnInit();
     event.Skip();
 }

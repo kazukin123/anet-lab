@@ -1,12 +1,13 @@
 ﻿// EvalPanel.cpp
 
 #include "EvalPanel.hpp"
-#include "RunnerApp.hpp"
+#include "anet/profile.hpp"
 #include "anet/log.hpp"
 #include "anet/config.hpp"
-#include "anet/profile.hpp"
 #include "anet/rl.hpp"
 #include "anet/observers.hpp"
+#include "RunnerApp.hpp"
+
 
 namespace LOG = anet::log;
 
@@ -48,6 +49,13 @@ void EvalPanel::Initialize(std::shared_ptr<anet::rl::DefaultTrainer> trainer)
 	update_timer_.Start(interval); 
 }
 
+void EvalPanel::DoStep()
+{
+	eval_runner_->DoStep();
+	view_->CaptureViewData();
+	Refresh();
+}
+
 void EvalPanel::DoStep(int64_t action)
 {
 	eval_runner_->DoStep(action);
@@ -58,7 +66,7 @@ void EvalPanel::DoStep(int64_t action)
 void EvalPanel::TogglePause()
 {
 	is_pause_ = !is_pause_;
-	LOG::info() << "Eval " << (is_pause_ ? "paused." : " resumed.");
+	LOG::info() << "Eval " << (is_pause_ ? "paused." : "resumed.");
 }
 
 void EvalPanel::OnTimer(wxTimerEvent& event)

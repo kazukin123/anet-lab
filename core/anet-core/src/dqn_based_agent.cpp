@@ -698,7 +698,6 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
 
     // Update不可なら空の結果を返す
     if (!CanUpdate(counts.update_step, counts.exp_step)) {
-        //update_results.push_back(std::make_shared<BatchUpdateResult>());
         return result_list;  // 空配列
     }
 

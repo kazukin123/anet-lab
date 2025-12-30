@@ -27,8 +27,8 @@ wxDEFINE_EVENT(wxEVT_TRAINER_EXIT, wxCommandEvent);
 wxDEFINE_EVENT(wxEVT_APP_TRAINER_SHUTDOWN, wxThreadEvent);
 
 
-struct RunnerApp::Config : public anet::Config
-{
+struct RunnerApp::Config : public anet::Config {
+    std::string run_name = "run_{%t}";
     bool train_auto_start = true;
     int train_pause_step = -1;
     int train_exit_step = -1; //110000;
@@ -36,17 +36,14 @@ struct RunnerApp::Config : public anet::Config
     TrainPanelConfig train_panel;
     EvalPanelConfig eval_panel;
 
-    //int train_timer_ms = 10;
-    //int eval_timer_ms = 10;
-    //int eval_step_per_frame = 1;
     //int image_log_interval = 100;
     //int image_log_interval_thm = 500;
     //bool use_image_log = false;
     //bool use_per_image_log = false;
-    std::string run_name = "run_{%t}";
 
     RunnerApp::Config(const anet::ConfigData& config_data) : anet::Config(config_data, "RunnerApp")
     {
+        ANET_READ_CONFIG(config_data, run_name);
         ANET_READ_CONFIG(config_data, train_auto_start);
         ANET_READ_CONFIG(config_data, train_pause_step);
         ANET_READ_CONFIG(config_data, train_exit_step);
@@ -54,15 +51,16 @@ struct RunnerApp::Config : public anet::Config
         ANET_READ_CONFIG(config_data, train_panel.fps);
         ANET_READ_CONFIG(config_data, eval_panel.fps);
         ANET_READ_CONFIG(config_data, eval_panel.step_per_frame);
+
         //ANET_READ_CONFIG(config_data, image_log_interval);
         //ANET_READ_CONFIG(config_data, image_log_interval_thm);
         //ANET_READ_CONFIG(config_data, use_image_log);
         //ANET_READ_CONFIG(config_data, use_per_image_log);
-        ANET_READ_CONFIG(config_data, run_name);
     }
 };
 
-wxString GetExeDir() {
+wxString GetExeDir()
+{
     wxStandardPaths& sp = wxStandardPaths::Get();
     wxString exe_path = sp.GetExecutablePath();      // フルパス (C:\proj\bin\myapp.exe 等)
     wxFileName fn(exe_path);
@@ -75,11 +73,13 @@ std::filesystem::path GetProjectRootDir()
     return exePath.parent_path().parent_path();    // exe の親ディレクトリを返す
 }
 
-std::string GetConfigFilePath() {
+std::string GetConfigFilePath()
+{
     return (GetProjectRootDir() / "config" / "runner.txt").string();  // パスを結合
 }
 
-std::string GetRunsPath() {
+std::string GetRunsPath()
+{
     return (GetProjectRootDir() / "runs").string();
 }
 
@@ -97,7 +97,7 @@ static wxCmdLineEntryDesc desc[] = {
         wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE      // 複数 OK
     },
     //{ wxCMD_LINE_PARAM,  NULL,        NULL,  "引数",     wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE },  // A parameter: a required program argument.
-    { wxCMD_LINE_USAGE_TEXT, NULL,    NULL,    "AnetRLRunner.exe key1=value1 key2=value2" },     //  Additional usage text.
+    //{ wxCMD_LINE_USAGE_TEXT, NULL,    NULL,    "AnetRLRunner.exe key1=value1 key2=value2" },     //  Additional usage text.
     { wxCMD_LINE_NONE } // 終了マーク
 };
 
@@ -115,6 +115,19 @@ bool RunnerApp::OnInit()
     wxLog::SetLogLevel(wxLOG_Debug);
 #endif
 
+    // コマンドライン引数解析
+    wxCmdLineParser cmdline_(desc, argc, (wchar_t**)argv);
+    if (cmdline_.Parse(true)) {
+        return false;
+    }
+
+    // ConfigManager
+    config_mgr_ = std::make_unique<anet::ConfigManager>(GetConfigFilePath(), &cmdline_);
+    auto config_data = config_mgr_->GetConfigData();
+
+    // RunnerApp設定生成
+    config_ = std::make_unique<RunnerApp::Config>(config_data);
+
     // メインスレッドでffmpeg実行する準備
     Bind(wxEVT_APP_EXECUTE_START, [&](wxThreadEvent& event) {
         anet::ExecuteStarter* executer = event.GetPayload<anet::ExecuteStarter*>();
@@ -122,22 +135,11 @@ bool RunnerApp::OnInit()
         executer->OnMainStart();   // wxExecute 内部呼び出し
         });
 
-    // ConfigManager
-    wxCmdLineParser cmdline_(desc, argc, (wchar_t**)argv);
-    if (cmdline_.Parse(true))
-        return false;
-    config_mgr_ = std::make_unique<anet::ConfigManager>(GetConfigFilePath(), &cmdline_);
-    auto config_data = config_mgr_->GetConfigData();
-
-    // RunnerApp
-    config_ = std::make_unique<RunnerApp::Config>(config_data);
-
     // MetricsLogger
     anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetRunsPath(), config_->run_name);
 
-    // RunnerFrame
+    // RunnerFrame生成＆表示
     frame_ = new RunnerFrame("Anet RL Runner", config_->train_panel, config_->eval_panel);
-    //frame_ = new RunnerFrame("Anet RL Runner", config_->train_timer_ms, config_->eval_timer_ms, config_->eval_step_per_frame);
     frame_->Show();
 
     // RunnerAppConfigをダンプ
@@ -155,10 +157,6 @@ bool RunnerApp::OnInit()
     // DefaultViewFactory
     view_factory_ = std::make_unique<anet::rl::gui::DefaultViewFactory>(config_data);
     
-    // 評価Runner生成（描画用）
-    //auto eval_runner = trainer_->CreateEvalRunner();
-    //frame_->SetEvalRunner(std::move(eval_runner));
-
     // Trainer初期化
     InitTrainer();
     //if (config_->use_image_log) InitImageLogObservers();
@@ -323,14 +321,13 @@ std::shared_ptr<anet::rl::gui::View> RunnerApp::CreateExperinceView(wxWindow* pa
 {
     auto env_class_id = trainer_->GetEnvClassId();
     auto notifier = trainer_->GetNotifier();
-    auto view = this->view_factory_->CreateView(parent, env_class_id, notifier);
+    auto view = view_factory_->CreateView(parent, env_class_id, notifier);
     if (view == nullptr) {
         LOG::error() << "Failed to create view. env_class_id=" << env_class_id;
         return nullptr;
     }
     return view;
 }
-
 
 wxIMPLEMENT_APP(RunnerApp);
 

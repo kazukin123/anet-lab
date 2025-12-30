@@ -1,4 +1,5 @@
 ﻿// ErrorDialog.cpp
+
 #include "ErrorDialog.hpp"
 #include <wx/clipbrd.h>
 #include <wx/artprov.h>
@@ -49,7 +50,6 @@ void ShowErrorDialog(const wxString& message, const wxString& detail)
     detail_text->SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_3DLIGHT));
 
     v_sizer->Add(detail_text, 1, wxALL | wxEXPAND, 10);
-
 
     // --- ボタンエリア (下部) ---
     wxBoxSizer* btn_sizer = new wxBoxSizer(wxHORIZONTAL);

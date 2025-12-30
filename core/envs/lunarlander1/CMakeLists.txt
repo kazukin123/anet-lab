@@ -1,6 +1,5 @@
 ﻿# anet-lab/core/envs/lunarlander1/CMakeLists.txt
 
-
 cmake_minimum_required(VERSION 3.18)
 project(LunarLanderEnv)
 
@@ -44,10 +43,10 @@ target_precompile_headers(LunarLanderEnv PRIVATE "src/pch.hpp")
 target_compile_definitions(LunarLanderEnv PUBLIC WXINTL_NO_GETTEXT_MACRO)    # N_()マクロ競合対策
 
 target_link_libraries(LunarLanderEnv PRIVATE
-    anet-core
     ${TORCH_LIBRARIES}
     anet_wx
     box2d
+    anet-core
 )
 
 set_target_properties(LunarLanderEnv PROPERTIES

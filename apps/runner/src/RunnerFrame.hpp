@@ -13,7 +13,7 @@
 class ModuleBrowser;
 class RunPanel;
 
-class RunnerFrame : public wxFrame {
+class RunnerFrame final : public wxFrame {
 public:
     RunnerFrame(const wxString& title, const TrainPanelConfig& train_panel_config, const EvalPanelConfig& eval_panel_config);
 
@@ -21,7 +21,6 @@ public:
 
     void Initialize(std::shared_ptr<anet::rl::DefaultTrainer> trainer);
 protected:
-    // --- Event Handlers ---
     void OnExit(wxCommandEvent& event);
     void OnAbout(wxCommandEvent& event);
     void OnClose(wxCloseEvent& event);
@@ -31,9 +30,7 @@ protected:
 
     void OnHeatMap(wxCommandEvent& event);
     void OnResetLayout(wxCommandEvent& event);
-
 private:
-    // --- Setup Helpers ---
     void SetupMenuBar();
     void CreateStatusBar();
     void SetupPanes(const TrainPanelConfig& train_panel_config, const EvalPanelConfig& eval_panel_config);
@@ -41,19 +38,11 @@ private:
 private:
     wxAuiPaneInfo PanelInfo(const wxString& name, const wxString& caption, const wxString& sub_caption = wxEmptyString);
 private:
-    // AUI Manager
-    wxAuiManager m_mgr_;
-
-    // --- Pane Pointers ---
+    wxAuiManager aui_mgr_;
 
     ModuleBrowser* module_browser_ = nullptr;
     RunPanel* run_panel_ = nullptr;
     TrainPanel* train_panel_ = nullptr;
     EvalPanel* eval_panel_ = nullptr;
     LogPanel* log_panel_ = nullptr;
-
-    // Visualizerがない時のプレースホルダ
-    wxPanel* empty_center_panel_ = nullptr;
-
-    wxDECLARE_EVENT_TABLE();
 };

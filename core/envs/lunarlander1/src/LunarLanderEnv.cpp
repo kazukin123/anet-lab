@@ -5,14 +5,12 @@
  */
 
 #include "LunarLanderEnv.hpp"
-
 #include <cmath>
 #include <algorithm>
-#include <wx/log.h>
 #include <box2d/box2d.h>
+#include "anet/profile.hpp"
 #include "anet/log.hpp"
 #include "anet/metrics_logger.hpp"
-#include "anet/profile.hpp"
 #include "anet/env.hpp"
 
 

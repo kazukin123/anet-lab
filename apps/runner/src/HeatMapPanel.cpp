@@ -1,4 +1,5 @@
-﻿
+﻿// HeatMapPanel.cpp
+
 #include "HeatMapPanel.hpp"
 #include <wx/numformatter.h>
 #include "anet/heat_map.hpp"
@@ -8,11 +9,11 @@
 #define GL_CLAMP_TO_EDGE 0x812F
 #endif
 
-SweepHeatMapDialog::SweepHeatMapDialog(wxWindow* parent, const anet::rl::EnvSpec& env_spec,
-    int default_x, int default_y)
-    : wxDialog(parent, wxID_ANY, "Sweep HeatMap Settings",
-        wxDefaultPosition, wxSize(600, 300),
-        wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER) // リサイズ可能にするフラグ
+SweepHeatMapDialog::SweepHeatMapDialog(
+    wxWindow* parent, const anet::rl::EnvSpec& env_spec,int default_x, int default_y)
+    : wxDialog(parent, wxID_ANY, "Sweep HeatMap Settings"
+        , wxDefaultPosition, wxSize(600, 300)
+        , wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER) // リサイズ可
 {
     auto state_dim = env_spec.state_spec.CalcFlattenDim();
     auto n_actions = env_spec.action_spec.GetNumActions();
@@ -49,40 +50,40 @@ SweepHeatMapDialog::SweepHeatMapDialog(wxWindow* parent, const anet::rl::EnvSpec
     // 2列目（入力欄）が横幅いっぱいに広がるように設定 (Column index 1)
     grid_sizer->AddGrowableCol(1, 1);
 
-    // --- 1段目: X (0 ~ max_x) ---
+    // --- X (0 ~ max_x) ---
     grid_sizer->Add(new wxStaticText(this, wxID_ANY, "X:"), 0, wxALIGN_CENTER_VERTICAL);
     spin_x_ = new wxSpinCtrl(this, wxID_ANY);
     spin_x_->SetRange(0, state_dim - 1);
     spin_x_->SetValue(default_x);
     grid_sizer->Add(spin_x_, 1, wxEXPAND);
 
-    // --- 2段目: Y (0 ~ max_y) ---
+    // --- Y (0 ~ max_y) ---
     grid_sizer->Add(new wxStaticText(this, wxID_ANY, "Y:"), 0, wxALIGN_CENTER_VERTICAL);
     spin_y_ = new wxSpinCtrl(this, wxID_ANY);
     spin_y_->SetRange(0, state_dim - 1);
     spin_y_->SetValue(default_y);
     grid_sizer->Add(spin_y_, 1, wxEXPAND);
 
-    // --- 3段目: Value (ComboBox) ---
+    // --- Value (ComboBox) ---
     grid_sizer->Add(new wxStaticText(this, wxID_ANY, "Value:"), 0, wxALIGN_CENTER_VERTICAL);
     network_combo_ = new wxComboBox(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, network_choices, wxCB_READONLY);
     network_combo_->SetSelection(0); // デフォルトで先頭を選択
     grid_sizer->Add(network_combo_, 1, wxEXPAND);
 
-    // --- 4段目: ValueIndex (数値入力) ---
+    // --- ValueIndex (数値入力) ---
     grid_sizer->Add(new wxStaticText(this, wxID_ANY, "Extractor:"), 0, wxALIGN_CENTER_VERTICAL);
     extractor_combo_ = new wxComboBox(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, extractor_choices, wxCB_READONLY);
     extractor_combo_->SetSelection(0); // デフォルトで先頭を選択
     grid_sizer->Add(extractor_combo_, 1, wxEXPAND);
 
-    // --- 4段目: ValueIndex (数値入力) ---
+    // --- ValueIndex (数値入力) ---
     grid_sizer->Add(new wxStaticText(this, wxID_ANY, "Extractor index:"), 0, wxALIGN_CENTER_VERTICAL);
     extractor_idx_ = new wxSpinCtrl(this, wxID_ANY);
     extractor_idx_->SetRange(-1, n_actions - 1);
     extractor_idx_->SetValue(-1);
     grid_sizer->Add(extractor_idx_, 1, wxEXPAND);
 
-    // --- 5段目: Tag (TextCtrl) ---
+    // --- Tag (TextCtrl) ---
     grid_sizer->Add(new wxStaticText(this, wxID_ANY, "Tag:"), 0, wxALIGN_CENTER_VERTICAL);
     tag_text_ = new wxTextCtrl(this, wxID_ANY);
     grid_sizer->Add(tag_text_, 1, wxEXPAND);
@@ -104,20 +105,21 @@ SweepHeatMapDialog::SweepHeatMapDialog(wxWindow* parent, const anet::rl::EnvSpec
     // デフォルトtag生成
     UpdateTag();
 
-    auto updateFunc = [this](wxEvent&) {
+    // 入力値変更で随時タグ再生成、イベントハンドラ
+    auto update_tag_func = [this](wxEvent& event) {
         this->UpdateTag();
-        // event.Skip(); // 必要であれば
+         event.Skip();
         };
-
-    // SpinCtrlは「矢印クリック(SPINCTRL)」と「手入力(TEXT)」の両方に反応させる
-    spin_x_->Bind(wxEVT_SPINCTRL, updateFunc);
-    spin_x_->Bind(wxEVT_TEXT, updateFunc);
-    spin_y_->Bind(wxEVT_SPINCTRL, updateFunc);
-    spin_y_->Bind(wxEVT_TEXT, updateFunc);
-    network_combo_->Bind(wxEVT_COMBOBOX, updateFunc);
-    extractor_combo_->Bind(wxEVT_COMBOBOX, updateFunc);
-    extractor_idx_->Bind(wxEVT_SPINCTRL, updateFunc);
-    extractor_idx_->Bind(wxEVT_TEXT, updateFunc);
+    
+    // 入力値変更で随時タグ再生成、Bind
+    spin_x_->Bind(wxEVT_SPINCTRL, update_tag_func); // SpinCtrlは「矢印クリック(SPINCTRL)」と「手入力(TEXT)」の両方に反応させる
+    spin_x_->Bind(wxEVT_TEXT, update_tag_func);
+    spin_y_->Bind(wxEVT_SPINCTRL, update_tag_func);
+    spin_y_->Bind(wxEVT_TEXT, update_tag_func);
+    network_combo_->Bind(wxEVT_COMBOBOX, update_tag_func);
+    extractor_combo_->Bind(wxEVT_COMBOBOX, update_tag_func);
+    extractor_idx_->Bind(wxEVT_SPINCTRL, update_tag_func);
+    extractor_idx_->Bind(wxEVT_TEXT, update_tag_func);
 
     // 画面中央に配置
     Centre();
@@ -156,10 +158,6 @@ SweepHeatMapSettings SweepHeatMapDialog::GetSettings() const
 
     return settings;
 }
-
-//Panel(wxWindow* parent, wxWindowID id = wxID_ANY,
-//    const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxDefaultSize,
-//    long style = wxTAB_TRAVERSAL, const wxString& name = wxPanelNameStr);
 
 SweepHeatMapPanel::SweepHeatMapPanel(wxWindow* parent, const wxString& title,
     const SweepHeatMapSettings& settings, std::shared_ptr<anet::rl::DefaultTrainer> trainer)
@@ -400,7 +398,7 @@ void SweepHeatMapPanel::Render()
             unsigned char* rgb = captured_.image.GetData();
 
             // ---------------------------------------------------------
-            // 1. テクスチャの準備と転送
+            // テクスチャの準備と転送
             // ---------------------------------------------------------
             GLuint textureID;
             glGenTextures(1, &textureID);          // テクスチャID生成
@@ -423,7 +421,7 @@ void SweepHeatMapPanel::Render()
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, rgb);
 
             // ---------------------------------------------------------
-            // 2. 描画 (四角形に貼り付け)
+            // 描画 (四角形に貼り付け)
             // ---------------------------------------------------------
             glEnable(GL_TEXTURE_2D); // テクスチャ有効化
 

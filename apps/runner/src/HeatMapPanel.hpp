@@ -1,18 +1,19 @@
-﻿// HeatMapFrame.hpp
+﻿// HeatMapPanel.hpp
+
 #pragma once
+
 #include <memory>
 #include <vector>
 #include <wx/wx.h>
 #include <wx/spinctrl.h>
 #include <wx/glcanvas.h>
 #include <wx/timer.h>
-#include "anet/observers.hpp"
 #include "anet/rl.hpp"
+#include "anet/observers.hpp"
 #include "anet/trainer.hpp"
 #include "anet/gui.hpp"
 
-struct SweepHeatMapSettings
-{
+struct SweepHeatMapSettings {
     int x;
     int y;
     wxString network_key;
@@ -21,34 +22,26 @@ struct SweepHeatMapSettings
     wxString tag;
 };
 
-class SweepHeatMapDialog : public wxDialog
-{
+class SweepHeatMapDialog final : public wxDialog {
 public:
-    // コンストラクタ
-    // max_x, max_y: 数値選択の最大値
-    // value_choices: コンボボックスの選択肢リスト
     SweepHeatMapDialog(wxWindow* parent, const anet::rl::EnvSpec& env_spec, int default_x = 0, int default_y = 1);
 
-    virtual ~SweepHeatMapDialog() {}
-
-    // 入力値を構造体として取得するメソッド
+    // 入力値を構造体として取得
     SweepHeatMapSettings GetSettings() const;
 private:
     void UpdateTag();
 private:
-    // コントロールへのポインタ
-    wxSpinCtrl* spin_x_;
-    wxSpinCtrl* spin_y_;
-    wxComboBox* network_combo_;
-    wxComboBox* extractor_combo_;
-    wxSpinCtrl* extractor_idx_;
-    wxTextCtrl* tag_text_;
+    wxSpinCtrl* spin_x_ = nullptr;
+    wxSpinCtrl* spin_y_ = nullptr;
+    wxComboBox* network_combo_ = nullptr;
+    wxComboBox* extractor_combo_ = nullptr;
+    wxSpinCtrl* extractor_idx_ = nullptr;
+    wxTextCtrl* tag_text_ = nullptr;
 };
 
-class SweepHeatMapPanel : public anet::rl::gui::Panel
+class SweepHeatMapPanel final : public anet::rl::gui::Panel
 {
 public:
-    // コンストラクタ
     // observer: ヒートマップ生成ロジックを持つクラスの所有権を受け取る
     SweepHeatMapPanel(wxWindow* parent, const wxString& title,
         const SweepHeatMapSettings& settings, std::shared_ptr<anet::rl::DefaultTrainer> trainer);
@@ -68,22 +61,19 @@ private:
     // UI更新処理 (タイマー間隔の変更)
     void UpdateRefreshRate();
 private:
-    void CreateObserver(const SweepHeatMapSettings& settings,
-        std::shared_ptr<anet::rl::DefaultTrainer> trainer, int log_interval);
+    void CreateObserver(
+        const SweepHeatMapSettings& settings, std::shared_ptr<anet::rl::DefaultTrainer> trainer, int log_interval);
 private:
     // UIコンポーネント
-    wxGLCanvas* canvas_;
-    wxGLContext* context_;
-    wxTextCtrl* step_text_;
-    wxComboBox* refresh_combo_;
+    wxGLCanvas* canvas_ = nullptr;
+    wxGLContext* context_ = nullptr;
+    wxTextCtrl* step_text_ = nullptr;
+    wxComboBox* refresh_combo_ = nullptr;
     wxTimer timer_;
 
     // ロジック
     std::shared_ptr<anet::rl::SweepedHeatMapObserver> observer_;
 
     // 描画用バッファ (Observerから受け取った画像データを保持)
-    //std::vector<unsigned char> rgb_data_;
     anet::rl::SweepedHeatMapObserver::ImageResult captured_;
-    //int img_width_ = 0;
-    //int img_height_ = 0;
 };

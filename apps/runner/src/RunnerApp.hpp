@@ -10,7 +10,6 @@
 #include "anet/gui.hpp"
 #include "RunnerFrame.hpp"
 
-#define WX_APP_COMPATIBLE
 
 //bool IsDarkMode() {
 //    // 背景色の明るさ(Luminance)を取得して判定
@@ -22,21 +21,17 @@
 wxDECLARE_EVENT(wxEVT_TRAINER_EXIT, wxCommandEvent);
 wxDECLARE_EVENT(wxEVT_APP_TRAINER_SHUTDOWN, wxThreadEvent);
 
-class RunnerApp : public wxApp {
+class RunnerApp final : public wxApp {
 public:
     bool OnInit() override;
     int OnExit() override;
     bool OnExceptionInMainLoop() override;
     void OnUnhandledException() override;
-
-    anet::ConfigData GetConfig() const { return config_mgr_->GetConfigData(); }
-    //std::optional<UISnapshot> GetUISnapshot() { return snapshot_store_.Get(); }
-    std::shared_ptr<anet::rl::DefaultTrainer> GetTrainer() { return trainer_; }
-
-    //void StartTraining();
+public:
     void ToggleTraining();
     void StopTraining();
-public:
+    anet::ConfigData GetConfig() const { return config_mgr_->GetConfigData(); }
+    std::shared_ptr<anet::rl::DefaultTrainer> GetTrainer() { return trainer_; }
     std::shared_ptr<anet::rl::gui::View> CreateExperinceView(wxWindow* parent);
 private:
     void InitTrainer();
@@ -47,12 +42,10 @@ private:
     std::unique_ptr<anet::ConfigManager> config_mgr_;
     struct Config;
     std::unique_ptr<Config> config_;
-    //UISnapshotStore snapshot_store_;
     std::shared_ptr<anet::rl::DefaultTrainer> trainer_;
     std::unique_ptr<anet::rl::RunnerThread> trainer_thread_;
     std::unique_ptr<anet::rl::gui::DefaultViewFactory> view_factory_;
     bool auto_pause_done_ = false;
-private:
     RunnerFrame* frame_;
 };
 

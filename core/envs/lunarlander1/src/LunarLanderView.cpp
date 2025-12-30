@@ -5,10 +5,8 @@
 #include "anet/profile.hpp"
 #include "LunarLanderEnv.hpp"
 
-#define _USE_MATH_DEFINES // for C++
-#include <cmath>
-
 using namespace anet::rl::env;
+
 using anet::ToBool;
 using anet::ToFloat;
 
@@ -16,7 +14,6 @@ using anet::ToFloat;
 // =============================================================
 // LunarLanderData
 // =============================================================
-
 
 LunarLanderData LunarLanderData::Create(anet::rl::TrainEvent event)
 {
@@ -55,8 +52,6 @@ LunarLanderData LunarLanderData::Create(anet::rl::TrainEvent event)
 
 wxBEGIN_EVENT_TABLE(LunarLanderPanel, wxPanel)
 EVT_PAINT(LunarLanderPanel::OnPaint)
-//EVT_LEFT_DOWN(LunarLanderPanel::OnMouseLeftClick)
-//EVT_RIGHT_DOWN(LunarLanderPanel::OnMouseRightClick)
 EVT_CLOSE(LunarLanderPanel::OnClose)
 wxEND_EVENT_TABLE()
 

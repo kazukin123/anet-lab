@@ -5,17 +5,15 @@
 #include <vector>
 #include <mutex>
 #include <wx/wx.h>
+#include "anet/gui.hpp"
 
-class PlotPanel : public wxPanel {
+class PlotPanel : public anet::rl::gui::Panel {
 public:
     PlotPanel(wxWindow* parent);
 
     void AddData(float value);
 private:
     void OnPaint(wxPaintEvent& event);
-    void OnMouseLeftClick(wxMouseEvent& event);
-    void OnMouseRightClick(wxMouseEvent& event);
-    void OnKeyDonw(wxKeyEvent& event);
 
     wxDECLARE_EVENT_TABLE();
 private:
