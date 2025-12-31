@@ -72,10 +72,41 @@ namespace anet {
     {
     }
 
-    std::string Config::ToString() const {
+    std::string Config::ToString() const
+    {
         return ToJson().dump(2);
     }
 
+    std::string Config::ToConfigString() const
+    {
+        std::ostringstream oss;
+
+        auto json = round_numbers(my_config_json_);
+        for (auto kv : json.items()) {
+            auto key = kv.key();
+            auto value = kv.value();
+            if (value.is_array()) {
+                oss << config_prefix_ << "." << key << " =";
+                for (auto& v : value) {
+                    if (v.is_string()) {
+                        oss << " " << v.get<std::string>();
+                    } else {
+                        oss << " " << v;
+                    }
+                }
+                oss << std::endl;
+
+                //    json arr = json::array();
+                //for (auto& v : j) arr.push_back(round_numbers(v, precision));
+            } else if (value.is_string()) {
+                oss << config_prefix_ << "." << key << " = " << value.get<std::string>() << std::endl;
+            } else {
+                oss << config_prefix_ << "." << key << " = " << value << std::endl;
+            }
+        }
+
+        return oss.str();
+    }
 
     // ---- ConfigManager ----
 

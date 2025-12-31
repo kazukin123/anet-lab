@@ -644,17 +644,6 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
     this->replay_buffer_ = rep_factory.Create(env_spec, torch::kCPU, batch_env_spec.batch_size, seed);
 }
 
-bool Learner::CanUpdate(step_t update_step, step_t exp_step) const
-{
-    // warmup
-    if (config_.update_warmup_steps > 0 && exp_step < config_.update_warmup_steps)
-        return false;
-    // ReplayBufferのサイズがminibatchサイズに満たない場合はスキップ（N-STEPであり得る）
-    if (replay_buffer_->Size() < config_.replay_batch_size)
-        return false;
-    return true;
-}
-
 void Learner::UpdateEpsilon(step_t learn_step)
 {
     ProfileRange r("Learner::UpdateEpsilon");
@@ -685,6 +674,19 @@ void Learner::UpdatePerBeta(step_t learn_step)
     } else {
         vars_.per_beta = config_.per_beta_end;
     }
+}
+
+bool Learner::CanUpdate(step_t update_step, step_t exp_step) const
+{
+    // warmup
+    if (config_.update_warmup_steps > 0 && exp_step < config_.update_warmup_steps)
+        return false;
+
+    // ReplayBufferのサイズがminibatchサイズに満たない場合はスキップ（N-STEPであり得る）
+    if (replay_buffer_->Size() < config_.replay_batch_size)
+        return false;
+
+    return true;
 }
 
 anet::rl::BatchUpdateResultList

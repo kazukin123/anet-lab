@@ -79,6 +79,8 @@ namespace anet {
 
     void ThrowError(const char* file, int line, const char* prefix, const char* cond, const std::string& msg = "");
 
+    json round_numbers(const json& j, int precision = 6);
+
     using TensorFunction = std::function<torch::Tensor(const torch::Tensor&)>;
 
     //class Module : public std::enable_shared_from_this<Module> {

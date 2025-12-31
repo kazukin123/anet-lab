@@ -146,7 +146,6 @@ namespace anet {
         std::unordered_map<std::string, uint64_t> image_seq_;
         std::unordered_map<std::string, std::unique_ptr<VideoLogger>> video_loggers_;
 
-        static json round_numbers(const json& j, int precision = 6);
         static std::string current_time_str();
         static std::string sanitize_filename(const std::string& s);
 

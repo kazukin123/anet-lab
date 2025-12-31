@@ -109,7 +109,7 @@ DefaultDQNAgent.baseline.learner.use_td_clip = false          #
 DefaultDQNAgent.baseline.learner.td_clip_value = 30.0         # 4.0 20 30
 DefaultDQNAgent.baseline.learner.replay_capacity = 2560000    # batch_size=256向け。 256✕1000step→10エピソード分
 DefaultDQNAgent.baseline.learner.replay_batch_size = 1024     #
-DefaultDQNAgent.baseline.learner.update_warmup_steps = 1000  # 1000
+DefaultDQNAgent.baseline.learner.update_warmup_steps = 1000  # 1000　exp_step
 DefaultDQNAgent.baseline.learner.update_interval = 1         # 環境何ステップ毎にUpdateするか。replay_rationが正なら使われない
 DefaultDQNAgent.baseline.learner.replay_ratio = 4            # 環境1ステップあたり平均何回のUpdateするか。負数ではupdate_interval側を使う
 DefaultDQNAgent.baseline.learner.n_step = 3
@@ -135,7 +135,7 @@ DefaultDQNAgent.baseline.reward_scaler.reference_q_std = 30.0       # 自動設�
 DefaultDQNAgent.baseline.reward_scaler.manual_post_scale = 1.0      # use_auto_post_scale=true では使われない
 DefaultDQNAgent.baseline.obs_norm.pass_through = true               # ★LunarLanderにおいては効果を確認出来ていない(逆に悪化)のでtrue
 DefaultDQNAgent.baseline.obs_norm.constant_mean = 0 0 0 0 0 0 0 0
-DefaultDQNAgent.baseline.obs_norm.constant_std = 1.273 1.275 1.39 2 1.814 4.365 1.013 1.016
+DefaultDQNAgent.baseline.obs_norm.constant_std = 1.273 1.275 1.39 2.0 1.814 4.365 1.013 1.016
 DefaultDQNAgent.baseline.obs_norm.use_clipping = false
 DefaultDQNAgent.baseline.obs_norm.clip_range = 10.0
 DefaultDQNAgent.baseline.obs_norm.use_dynamic_scaling = true        # 

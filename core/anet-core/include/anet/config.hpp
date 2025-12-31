@@ -162,6 +162,7 @@ namespace anet {
         Config(const ConfigData& config_data, const std::string& config_prefix_);   ///< @todo インスタンスグループ対応（例：同じENV設定でもTrainとEvalで設定を分ける）
 
         std::string ToString() const;
+        std::string ToConfigString() const;
         anet::json ToJson() const { return my_config_json_; }
         std::string GetConfigPrefix() const { return config_prefix_; }
         anet::ConfigData GetConfigData() const { return my_config_data_; }

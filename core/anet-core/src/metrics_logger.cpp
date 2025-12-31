@@ -18,14 +18,16 @@ namespace anet {
     //----------------------------------------------
     // JsonlBackend 実装
     //----------------------------------------------
-    void JsonlBackend::Open(const std::string& root_dir, const std::string& run_name) {
+    void JsonlBackend::Open(const std::string& root_dir, const std::string& run_name)
+    {
         std::filesystem::create_directories(root_dir + "/" + run_name);
         auto path = root_dir + "/" + run_name + "/metrics.jsonl";
         ofs.open(path, std::ios::app);
         if (!ofs) throw std::runtime_error("Failed to open: " + path);
     }
 
-    void JsonlBackend::WriteJsonl(const json& obj) {
+    void JsonlBackend::WriteJsonl(const json& obj)
+    {
         ofs << obj.dump() << "\n";
         //ofs.flush();
     }
@@ -67,7 +69,8 @@ namespace anet {
             throw std::runtime_error("Failed to get ffmpeg stdin stream");
     }
 
-    void VideoLogger::WriteFrame(const wxImage& img) {
+    void VideoLogger::WriteFrame(const wxImage& img)
+    {
         if (!stream_ || !stream_->IsOk()) return;
         const unsigned char* data = img.GetData();
         size_t nbytes = width_ * height_ * 3;
@@ -83,7 +86,8 @@ namespace anet {
         }
     }
 
-    void VideoLogger::Close() {
+    void VideoLogger::Close()
+    {
         if (stream_) {
             stream_ = nullptr;
         }
@@ -95,29 +99,8 @@ namespace anet {
         }
     }
 
-    //----------------------------------------------
-    // MetricsLogger 内部ヘルパ
-    //----------------------------------------------
-    json MetricsLogger::round_numbers(const json& j, int precision) {
-        if (j.is_number_float()) {
-            double val = j.get<double>();
-            double scale = std::pow(10.0, precision);
-            return std::round(val * scale) / scale;
-        }
-        else if (j.is_object()) {
-            json res;
-            for (auto& [k, v] : j.items()) res[k] = round_numbers(v, precision);
-            return res;
-        }
-        else if (j.is_array()) {
-            json arr = json::array();
-            for (auto& v : j) arr.push_back(round_numbers(v, precision));
-            return arr;
-        }
-        return j;
-    }
-
-    std::string MetricsLogger::current_time_str() {
+    std::string MetricsLogger::current_time_str()
+    {
         auto t = std::chrono::system_clock::now();
         std::time_t tt = std::chrono::system_clock::to_time_t(t);
         std::tm tm{};
@@ -131,7 +114,8 @@ namespace anet {
         return buf;
     }
 
-    std::string MetricsLogger::sanitize_filename(const std::string& s) {
+    std::string MetricsLogger::sanitize_filename(const std::string& s)
+    {
         std::string r = s;
         for (char& c : r) {
             switch (c) {
@@ -201,12 +185,16 @@ namespace anet {
         std::string full_path = root_dir_ + "/" + run_name_ + "/config.txt";
         std::filesystem::create_directories(full_dir);
         std::ofstream ofs(full_path, std::ios_base::app);  // 追記モードでファイルを開く
-        auto map = config.GetConfigData().Map();
-        for (auto kv : map) {
-            auto key = kv.first;
-            auto value = kv.second;
-            ofs << config_prefix << "." << key << " = " << value << std::endl;
-        }
+        
+        auto config_str = config.ToConfigString();
+        ofs << config_str;
+
+        //auto map = config.GetConfigData().Map();
+        //for (auto kv : map) {
+        //    auto key = kv.first;
+        //    auto value = kv.second;
+        //    ofs << config_prefix << "." << key << " = " << value << std::endl;
+        //}
     }
 
     void MetricsLogger::LogJson(const std::string& tag, const json& data)

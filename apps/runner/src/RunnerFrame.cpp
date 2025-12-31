@@ -149,7 +149,13 @@ void RunnerFrame::Initialize(std::shared_ptr<anet::rl::DefaultTrainer> trainer)
 
 void RunnerFrame::SetupEvents()
 {
-    // 基本イベント
+    // Train終了イベント
+    Bind(wxEVT_TRAINER_EXIT, [this](wxCommandEvent&) {
+        LOG::info() << "Stop training requested. Exiting.";
+        Close(true);    // Frameを閉じる
+        });
+
+    // UI基本イベント
     Bind(wxEVT_CLOSE_WINDOW, &RunnerFrame::OnClose, this);
     //Bind(wxEVT_MENU, [=](wxCommandEvent&) { Close(true); }, wxID_EXIT);
 
