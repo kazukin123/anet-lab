@@ -176,8 +176,8 @@ LunarLanderEnv::LunarLanderEnv(
 {
     ANET_LOG_DEBUG("seed=" << this->GetSeed());
 
-    anet::MetricsLogger::Instance()->Log(config_);
-    anet::MetricsLogger::Instance()->Flush();
+    //anet::MetricsLogger::Instance()->Log(config_);
+    anet::MetricsLogger::Instance()->Log("LunarLanderEnv", config_.ToJson());
 
     float_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
     bool_opt_ = torch::TensorOptions().dtype(torch::kBool).device(device);

@@ -124,11 +124,13 @@ namespace anet {
             backend_->WriteJsonl(obj);
         }
 
+        void Log(const std::string& tag, const anet::Config& config);
         void Log(const anet::Config& config);
-        void LogJson(const std::string& tag, const json& data);
 
-        void LogImage(const std::string& tag, int step, const wxImage& image);
-        void LogImage(const std::string& tag, int step, const anet::ImageSource& src, int width = -1, int height = -1);
+        void Log(const std::string& tag, const json& data);
+
+        void Log(const std::string& tag, int step, const wxImage& image);
+        void Log(const std::string& tag, int step, const anet::ImageSource& src, int width = -1, int height = -1);
 
         inline std::string GetRunName() const { return run_name_; }
         inline std::string GetOutDir() const { return std::filesystem::relative(root_dir_ + "/" + run_name_).string(); }

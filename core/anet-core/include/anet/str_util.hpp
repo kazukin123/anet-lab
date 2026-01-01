@@ -65,12 +65,12 @@ namespace anet {
         return str;
     }
 
-    inline std::string RemovePrefix(const std::string& a, const std::string& b)
+    inline std::string RemovePrefix(const std::string& str, const std::string& prefix)
     {
-        if (a.rfind(b, 0) == 0) { // a の先頭に b がある?
-            return a.substr(b.size());
+        if (str.rfind(prefix, 0) == 0) { // a の先頭に b がある?
+            return str.substr(prefix.size());
         }
-        return a; // 先頭にない場合はそのまま
+        return str; // 先頭にない場合はそのまま
     }
 
     std::string ExtractBetween(const std::string& src, const char* prefix, const char* suffix);

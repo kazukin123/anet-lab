@@ -36,7 +36,7 @@ CartPoleEnv::CartPoleEnv(
     : RandomHolder(seed), config_(config)
 {
     // パラメータ記録
-    anet::MetricsLogger::Instance()->LogJson("CartPoleEnvConfig", config_.ToJson());
+    anet::MetricsLogger::Instance()->Log("CartPoleEnvConfig", config_.ToJson());
     anet::MetricsLogger::Instance()->Flush();
 
     obs_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);

@@ -57,10 +57,13 @@ namespace anet {
             ExecuteStarter executer(cmd, process_);
             executer.Execute();
             ANET_LOG_DEBUG("ffmpeg execute done. pid=" << process_->GetPid());
+            LOG::info() << "ffmpeg started from thread. pid=" << process_->GetPid();
         } else {
             long pid = wxExecute(cmd, wxEXEC_ASYNC | wxEXEC_HIDE_CONSOLE, process_);
             if (pid == 0)
                 throw std::runtime_error("Failed to launch ffmpeg process");
+            ANET_LOG_DEBUG("ffmpeg started from main thread. pid=" << pid);
+            LOG::info() << "ffmpeg started from main thread. pid=" << pid;
         }
 
         // 書き込みストリーム取得
@@ -71,6 +74,7 @@ namespace anet {
 
     void VideoLogger::WriteFrame(const wxImage& img)
     {
+        ANET_CHECK(stream_ != nullptr);
         if (!stream_ || !stream_->IsOk()) return;
         const unsigned char* data = img.GetData();
         size_t nbytes = width_ * height_ * 3;
@@ -170,14 +174,12 @@ namespace anet {
         return run_name;
     }
 
-    void MetricsLogger::Log(const anet::Config& config)
+    void MetricsLogger::Log(const std::string& tag, const anet::Config& config)
     {
         std::lock_guard<std::mutex> lock(config_mutex_);
 
-        auto tag = config.GetConfigPrefix();
         auto json_data = config.ToJson();
-
-        LogJson(tag, json_data);
+        Log(tag, json_data);
 
         auto config_prefix = config.GetConfigPrefix();
         std::string safe_tag = sanitize_filename(tag);
@@ -197,7 +199,13 @@ namespace anet {
         //}
     }
 
-    void MetricsLogger::LogJson(const std::string& tag, const json& data)
+    void MetricsLogger::Log(const anet::Config& config)
+    {
+        auto tag = config.GetConfigPrefix();
+        Log(tag, config);
+    }
+
+    void MetricsLogger::Log(const std::string& tag, const json& data)
     {
         json rounded = round_numbers(data);
         json obj = {
@@ -216,14 +224,14 @@ namespace anet {
         ofs << obj.dump(4) << std::endl;     // インデント幅 4 で書き出
     }
 
-    void MetricsLogger::LogImage(const std::string& tag, int step, const wxImage& image)
+    void MetricsLogger::Log(const std::string& tag, int step, const wxImage& image)
     {
         ProfileRange r("MetricsLogger::LogImage1");
 
         LogImage_subtyped(tag, step, image, "");
     }
 
-    void MetricsLogger::LogImage(const std::string& tag, int step, const anet::ImageSource& src, int width, int height)
+    void MetricsLogger::Log(const std::string& tag, int step, const anet::ImageSource& src, int width, int height)
     {
         ProfileRange r("MetricsLogger::LogImage2");
 
@@ -247,7 +255,7 @@ namespace anet {
         // タグを安全なファイル名に変換
         std::string safe_tag = sanitize_filename(tag);
 
-        // ---- 画像書き込み (個別PNG保存は無効化) ----
+        // ---- 画像書き込み (個別PNG保存はデバッグ用) ----
         if (false) {
             uint64_t seq = image_seq_[tag]++;
             char buf[32];

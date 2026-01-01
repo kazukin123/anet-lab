@@ -36,7 +36,7 @@ RainbowAgent::RainbowAgent(
 
     // ログ：パラメータ記録
     LOG::info() << "RainbowAgent config=" << config_;
-    anet::MetricsLogger::Instance()->LogJson("RainbowAgent", config_.ToJson());
+    anet::MetricsLogger::Instance()->Log("RainbowAgent", config_.ToJson());
     anet::MetricsLogger::Instance()->Flush();
 
     //seed

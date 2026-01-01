@@ -276,7 +276,8 @@ torch::Tensor QuantileDuelingQNet::Forward(const torch::Tensor& obs)
     auto a_mean_mean = a_mean.mean(1, true); // (B, 1)
     auto q = v_mean + (a_mean - a_mean_mean);
 
-    return q;
+    ANET_LOG_DEBUG("q=" << anet::ToDefString(q));
+    return q;   // (B, A)
 }
 
 torch::Tensor QuantileDuelingQNet::ForwardQuantiles(const torch::Tensor& obs)
@@ -303,7 +304,8 @@ torch::Tensor QuantileDuelingQNet::ForwardQuantiles(const torch::Tensor& obs)
     // Broadcasting: (B, 1, N) + (B, A, N) - (B, 1, N) => (B, A, N)
     auto q = v + (a - a_mean);
 
-    return q;
+    ANET_LOG_DEBUG("q=" << anet::ToDefString(q));
+    return q;   // (B, A, N)
 }
 
 std::optional<anet::TensorFunction> QuantileDuelingQNet::GetTensorFunction(const std::string& key, const torch::Device& device)
@@ -541,6 +543,7 @@ anet::rl::BatchActionInfo ActionPolicy::SelectAction(const torch::Tensor& obs, b
         auto max_pair = q_values.max(1);
         auto max_q = std::get<0>(max_pair).detach();
         action_info.GetAuxData()["max_q"] = max_q;
+        action_info.GetAuxData()["q_values"] = q_values;
 
         return action_info;
     }
@@ -563,6 +566,7 @@ anet::rl::BatchActionInfo ActionPolicy::SelectAction(const torch::Tensor& obs, b
     auto max_pair = q_values.max(1);
     auto max_q = std::get<0>(max_pair).detach();
     action_info.GetAuxData()["max_q"] = max_q;
+    action_info.GetAuxData()["q_values"] = q_values;
 
     return action_info;
 }
@@ -588,7 +592,7 @@ Learner::Learner(const LearnerConfig& config, Network& network, RuntimeVars& var
         earned_credit_ = 1.0f / static_cast<float>(std::max(1, config_.update_interval));
     }
     
-    LOG::info() << "Learner: earned_credit =" << earned_credit_;
+    LOG::info() << "Learner: earned_credit = " << earned_credit_;
 }
 
 std::optional<float> Learner::GetScalar(const std::string& key, int64_t index) const

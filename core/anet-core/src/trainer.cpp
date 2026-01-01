@@ -281,7 +281,7 @@ RunnerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
     eval_env_seed_ = eval_env_seed;
 
     // パラメータ記録
-    anet::MetricsLogger::Instance()->LogJson("train/seed",
+    anet::MetricsLogger::Instance()->Log("train/seed",
         { "global_seed", global_seed, "agent_seed", agent_seed, "train_env_seed", train_env_seed });
     anet::MetricsLogger::Instance()->Log(*config_);
     anet::MetricsLogger::Instance()->Flush();
@@ -305,8 +305,8 @@ RunnerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
     auto env_spec = env_->GetSpec();
     LOG::info() << "batch_env_spec=" << batch_env_spec.ToString();
     LOG::info() << "env_spec=" << env_spec.ToString();
-    anet::MetricsLogger::Instance()->LogJson("env/batch_env_spec", batch_env_spec.ToJson());
-    anet::MetricsLogger::Instance()->LogJson("env/env_spec", env_spec.ToJson());
+    anet::MetricsLogger::Instance()->Log("env/batch_env_spec", batch_env_spec.ToJson());
+    anet::MetricsLogger::Instance()->Log("env/env_spec", env_spec.ToJson());
     anet::MetricsLogger::Instance()->Flush();
 
     // メトリクス初期化
@@ -403,7 +403,7 @@ StepCounts DefaultTrainer::DoStep()
 
     // 行動選択
     auto action_info = agent_->MakeAction(step_counts_, state_);
-    ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info.ToString());
+    //ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info.ToString());
     ANET_CHECK_SHAPE(action_info.GetAction(), {N});
 
     anet::ProfileRange r3("DefaultTrainer::DoUpdateFrame.envStep", r2);
