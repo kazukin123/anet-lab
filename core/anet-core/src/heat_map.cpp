@@ -39,32 +39,6 @@ static inline float safe_log1p_abs(float v) {
 }
 
 // ============================================================
-// ImageSource
-// ============================================================
-wxImage ImageSource::Render(int width, int height) const {
-	ProfileRange r("ImageSource::Render");
-
-	wxImage src = RenderRaw();
-	if (width < 0 && height < 0) return src;
-	if (width < 0) width = src.GetWidth();
-	if (height < 0) height = src.GetHeight();
-	if (width == src.GetWidth() && height == src.GetHeight())
-		return src;
-
-	ProfileRange r1("ImageSource::Render.Scale");
-	//return src.Scale(width, height, wxIMAGE_QUALITY_HIGH);
-	return src.Scale(width, height, wxIMAGE_QUALITY_NORMAL);
-}
-
-void ImageSource::SavePng(const std::string& filename, int width, int height) const {
-	std::filesystem::path path(filename);
-	if (!path.parent_path().empty()) std::filesystem::create_directories(path.parent_path());
-	wxImage img = Render(width, height);
-	if (!img.IsOk()) { LOG::error() << "Render() returned invalid wxImage"; return; }
-	img.SaveFile(filename, wxBITMAP_TYPE_PNG);
-}
-
-// ============================================================
 // HeatMap
 // ============================================================
 HeatMap::HeatMap(int width, int height, float x_min, float x_max, float y_min, float y_max,
@@ -85,6 +59,9 @@ HeatMap::HeatMap(int width, int height, float x_min, float x_max, float y_min, f
 		buf_.resize(max_points);
 	}
 	//Reset();
+
+	ANET_CHECK(width_ > 0);
+	ANET_CHECK(height_ > 0);
 }
 
 void HeatMap::AddData(float x, float y, float value)
@@ -213,9 +190,10 @@ wxImage HeatMap::RenderRaw() const
 	std::lock_guard<std::mutex> lock(mtx_);
 
 	if (size_ == 0) {
-		wxImage empty(1, 1);
-		unsigned char* d = (unsigned char*)malloc(3);
-		d[0] = 0; d[1] = 0; d[2] = 0;
+		wxImage empty(width_, height_);
+		size_t buf_size = width_ * height_ * 3;
+		unsigned char* d = (unsigned char*)malloc(buf_size);
+		memset(d, BACKGROUND_LEVEL, buf_size);
 		empty.SetData(d);
 		return empty;
 	}

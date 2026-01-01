@@ -462,6 +462,16 @@ std::optional<torch::Tensor> BatchExperience::GetTensor(
     if (key == NEXT_STATE_EPISODE_START)
         return next_state.episode_start;
 
+    if (key.find("action.") == 0) {
+        auto sub_key = anet::RemovePrefix(key, "action.");
+        auto aux = action.GetAuxData();
+        auto aux_itr = aux.find(sub_key);
+        if (aux_itr == aux.end()) return std::nullopt;
+        const auto& aux_tensor = aux_itr->second;
+        return aux_tensor;
+
+    }
+
     return std::nullopt;
 }
 

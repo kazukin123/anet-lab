@@ -8,6 +8,8 @@
 #include "anet/config.hpp"
 #include "anet/trainer.hpp"
 #include "anet/gui.hpp"
+#include "anet/image.hpp"
+
 #include "RunnerFrame.hpp"
 
 
@@ -45,6 +47,7 @@ private:
     std::shared_ptr<anet::rl::DefaultTrainer> trainer_;
     std::unique_ptr<anet::rl::RunnerThread> trainer_thread_;
     std::unique_ptr<anet::rl::gui::DefaultViewFactory> view_factory_;
+    std::unique_ptr<anet::rl::ImageProviderManager> img_prov_mgr_;
     bool auto_pause_done_ = false;
     RunnerFrame* frame_;
 };

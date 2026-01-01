@@ -7,14 +7,16 @@
 #include <limits>
 #include <torch/torch.h>
 #include <wx/image.h>
+#include "anet/image.hpp"
+
 
 namespace anet {
 
+
     // ============================================================
-    // フラグ（既存との互換維持）
-    //  0..5 は既存を維持。HM_LogScale を HM_LogScaleValue 名に変更。
-    //  6..  を拡張として追加。
+    // HeatMapConfig
     // ============================================================
+
     enum HeatMapFlags : uint32_t {
         HM_None = 0,
         HM_LogScaleValue = 1 << 0,  // 値(色強度)の対数圧縮（既存: HM_LogScale）
@@ -33,29 +35,17 @@ namespace anet {
         HM_Default = HM_AutoNormValue | HM_SumMode
     };
 
-    enum class TimeFrameMode { 
+    enum class TimeFrameMode {
         Scale = 0,
         Overwrite,
         Scroll
     };
 
-    // ============================================================
-    // 画像化の共通インタフェース
-    // ============================================================
-    class ImageSource {
-    public:
-        virtual void Reset() = 0;
-        virtual wxImage RenderRaw() const = 0;
-        virtual std::string GetImageSubType() const = 0;
-
-        wxImage Render(int width = -1, int height = -1) const;
-        void SavePng(const std::string& filename, int width = -1, int height = -1) const;
-        virtual ~ImageSource() = default;
-    };
 
     // ============================================================
     // HeatMap : 任意 (x,y,value) の散布を2Dヒートマップ化
     // ============================================================
+
     class HeatMap : public ImageSource {
     public:
         HeatMap(int width, int height, float x_min = 0.0f, float x_max = 1.0f,
@@ -95,6 +85,7 @@ namespace anet {
         mutable std::vector<int> work_cnt_;
     };
 
+
     // ============================================================
     // 時系列ヒートマップ：横(右方向)に時間進行、縦は値軸
     //   AddData(in, out): in=縦方向値(=値軸), out=強度
@@ -130,6 +121,7 @@ namespace anet {
         void Scroll_();
         void EraseCol_(int x_col);
     };
+
 
     // ============================================================
     // Histgram : 静的1Dヒストグラム
@@ -204,6 +196,7 @@ namespace anet {
         int MapToBinLinear_(float v) const;
         int MapToBinLogAxis_(float v) const;
     };
+
 
     // ============================================================
     // SweepedHeatMap : (x,y) 全域をスイープして値評価

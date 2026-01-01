@@ -14,15 +14,27 @@ namespace LOG = anet::log;
 //    return event.update_result->GetScalar(key_);
 //}
 
+// ============================================================
+// StaticScalarProbe
+// ============================================================
+
 std::optional<float> StaticScalarProbe::GetFloat(const TrainEvent& event) const
 {
     return value_;
 }
 
+// ============================================================
+// FunctionScalarProbe
+// ============================================================
+
 std::optional<float> FunctionScalarProbe::GetFloat(const TrainEvent& event) const
 {
     return fn_(event);
 }
+
+// ============================================================
+// BatchExperience*Probe
+// ============================================================
 
 BatchExperienceStateProbe::BatchExperienceStateProbe(
     int64_t state_index, const anet::rl::StateSpec* spec, bool for_next_state, std::optional<std::string> name)
@@ -131,6 +143,183 @@ std::optional<std::vector<float>> BatchExperienceRewardProbe::GetVector(const Up
     return out;
 }
 
+// ============================================================
+// BatchExperienceVectorProbe
+// ============================================================
+
+BatchExperienceVectorProbe::BatchExperienceVectorProbe(
+    const std::string& key, int index,
+    const anet::rl::StateSpec* state_spec, const anet::rl::ActionSpec* action_spec,
+    std::optional<float> min_override, std::optional<float> max_override,
+    std::optional<std::string> name)
+    : key_(key), index_(index)
+{
+    std::optional<std::string> name_spec;
+
+    // EnvSpec の state_spec から min/max を取得
+    if (state_spec != nullptr && index_ >= 0) {
+        ANET_ASSERT(index_ < (int)state_spec->CalcFlattenDim());
+
+        // 指定されたindexの定義情報を取得
+        const anet::rl::StateDimInfo* s = state_spec->FindDim(index_);
+
+        // 定義情報を取得出来たらmin/maxをセット
+        if (s != nullptr) {
+            //if (auto_scale_mode == AutoScaleMode::DISABLE) {
+                min_ = s->min_value;
+                max_ = s->max_value;
+            //}
+            name_spec = s->name;
+        }
+    } else if (action_spec != nullptr) {
+        //  ActionSpec では index_ は使わない（離散を想定）
+        // ActionSpec から範囲を取る（離散を想定）
+        ANET_ASSERT(action_spec->is_discrete);
+
+        //  離散 [0, n_actions-1]
+        const int n_actions = action_spec->GetNumActions();
+        ANET_ASSERT(n_actions > 0);
+        //if (auto_scale_mode == AutoScaleMode::DISABLE) {
+            min_ = 0.0f;
+            max_ = static_cast<float>(n_actions - 1);
+        //}
+        ANET_CHECK_MSG(index_ < 0 || index_ < action_spec->value_labels.size(), "Invalid index:" << index_);
+        if (index_ >= 0) name_spec = action_spec->value_labels[index_];
+    }
+
+    // min/max の明示指定があればそれを最優先
+    if (min_override.has_value()) {
+        min_ = min_override;
+    }
+    if (max_override.has_value()) {
+        max_ = max_override;
+    }
+
+    if (name.has_value()) {
+        name_ = *name;
+    } else {
+        std::stringstream ss;
+        ss << key_ << "[" << index_ << "]";
+        if (name_spec.has_value()) {
+            ss << "(" << *name_spec + ")";
+        }
+        name_ = ss.str();
+    }
+
+    // minだけ指定、maxだけ指定でもOK
+}
+
+std::optional<std::vector<float>> BatchExperienceVectorProbe::GetVector(const UpdateEvent& event) const
+{
+    ProfileRange r("BatchExperienceVectorProbe::GetVector");
+
+    ProfileRange r1("BatchExperienceVectorProbe::GetVector.getTensorVector");
+
+    auto opt_vec = event.experience.GetTensorVector(key_);
+
+    //ANET_ASSERT(opt_vec.has_value());
+    if (!opt_vec.has_value()) {
+        LOG::warn() << "BatchExperienceVectorProbe::GetVector() failed to get value." << this->GetName();
+        return std::nullopt;
+    }
+
+    ProfileRange r2("BatchExperienceVectorProbe::GetVector.dump", r1);
+    const auto& tvec = opt_vec.value();
+    std::vector<float> out;
+
+    // ---- index 指定なし：flatten して全て連結 ----
+    if (index_ < 0) {
+        for (const auto& t : tvec) {
+            torch::Tensor flat = t.flatten().to(torch::kCPU);
+            auto dtype = flat.dtype();
+
+            ANET_ASSERT(dtype == torch::kFloat32 ||
+                dtype == torch::kInt64 ||
+                dtype == torch::kBool);
+
+            const int64_t n = flat.size(0);
+            const size_t old = out.size();
+            out.resize(old + n);
+
+            if (dtype == torch::kFloat32) {
+                std::memcpy(out.data() + old, flat.data_ptr<float>(), n * sizeof(float));
+            } else if (dtype == torch::kInt64) {
+                const int64_t* src = flat.data_ptr<int64_t>();
+                float* dst = out.data() + old;
+                for (int64_t i = 0; i < n; i++)
+                    dst[i] = static_cast<float>(src[i]);
+            } else if (dtype == torch::kBool) {
+                const bool* src = flat.data_ptr<bool>();
+                float* dst = out.data() + old;
+                for (int64_t i = 0; i < n; i++)
+                    dst[i] = src[i] ? 1.0f : 0.0f;
+            }
+        }
+
+        return out;
+    }
+
+    ProfileRange r3("BatchExperienceVectorProbe::GetVector.extract", r2);
+    out.reserve(1024); // optional
+    for (const auto& t : tvec) {
+        ANET_LOG_DEBUG("t=" << anet::ToDefString(t));
+
+        // t must be 2-D (ReplayBuffer)
+        ANET_CHECK_SHAPE(t, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
+        ANET_ASSERT(t.dim() == 2);   // [rows, D]
+
+        const int64_t rows = t.size(0);
+        const int64_t dim = t.size(1);
+
+        ANET_ASSERT(index_ < dim);
+
+        // 1列だけ抽出
+        torch::Tensor col = t.index({
+            torch::indexing::Slice(),
+            index_
+            }).to(torch::kCPU);  // [rows]
+        if (!col.is_contiguous()) {
+            col = col.contiguous();
+        }
+
+        auto dtype = col.dtype();
+        ANET_ASSERT(dtype == torch::kFloat32 || dtype == torch::kInt64 || dtype == torch::kBool);
+
+        const int64_t n = col.size(0);
+        const size_t old = out.size();
+        out.resize(old + n);
+
+        float* dst = out.data() + old;
+
+        if (dtype == torch::kFloat32) {
+            std::memcpy(dst, col.data_ptr<float>(), n * sizeof(float));
+            //if (auto_scale_mode_ == AutoScaleMode::PER_STEP) {
+            //    min_ = col.min().item<float>();
+            //    max_ = col.max().item<float>();
+            //} else if (auto_scale_mode_ == AutoScaleMode::GLOBAL) {
+            //    const float min = col.min().item<float>();
+            //    const float max = col.max().item<float>();
+            //    min_ = std::min(min_.value_or(min), min);
+            //    max_ = std::max(max_.value_or(max), max);
+            //}
+        } else if (dtype == torch::kInt64) {
+            const int64_t* src = col.data_ptr<int64_t>();
+            for (int64_t i = 0; i < n; i++)
+                dst[i] = static_cast<float>(src[i]);
+        } else { // bool
+            const bool* src = col.data_ptr<bool>();
+            for (int64_t i = 0; i < n; i++)
+                dst[i] = src[i] ? 1.0f : 0.0f;
+        }
+    }
+
+    return out;
+}
+
+// ============================================================
+// BatchUpdateResultTensorToVectorProbe
+// ============================================================
+
 BatchUpdateResultTensorToVectorProbe::BatchUpdateResultTensorToVectorProbe(const std::string& key, std::optional<float> min, std::optional<float> max)
     : key_(key), min_(min), max_(max)
 {
@@ -168,32 +357,36 @@ std::optional<std::vector<float>> BatchUpdateResultTensorToVectorProbe::GetVecto
     return std::nullopt;
 }
 
-BatchActionInfoToVectorProbe::BatchActionInfoToVectorProbe(const std::string& key, std::optional<float> min, std::optional<float> max)
-    : key_(key), min_(min), max_(max)
-{
-    name_ = "BatchActionInfoToVectorProbe[" + key + "]";
-}
+//BatchActionInfoToVectorProbe::BatchActionInfoToVectorProbe(const std::string& key, std::optional<float> min, std::optional<float> max)
+//    : key_(key), min_(min), max_(max)
+//{
+//    name_ = "BatchActionInfoToVectorProbe[" + key + "]";
+//}
+//
+//std::optional<std::vector<float>> BatchActionInfoToVectorProbe::GetVector(const TrainEvent& event) const
+//{
+//    ProfileRange r("BatchActionInfoToVectorProbe::GetVector");
+//
+//    auto itr = event.action_info.GetAuxData().find(key_);
+//    if (itr == event.action_info.GetAuxData().end()) return std::nullopt;
+//    auto tensor = itr->second;
+//
+//    //ANET_ASSERT(tensor.has_value());   // key誤りによるバグ防止のため
+//    if (!tensor.defined()) return std::nullopt;
+//
+//    torch::Tensor flat = tensor.flatten().to(torch::kCPU);
+//    ANET_CHECK_SHAPE(flat, { ANET_SHAPE_ANY });
+//    ANET_CHECK_DTYPE(flat, torch::kFloat32);
+//
+//    std::vector<float> out;
+//    out.resize(flat.size(0));
+//    std::memcpy(out.data(), flat.data_ptr<float>(), flat.size(0) * sizeof(float));
+//    return out;
+//}
 
-std::optional<std::vector<float>> BatchActionInfoToVectorProbe::GetVector(const TrainEvent& event) const
-{
-    ProfileRange r("BatchActionInfoToVectorProbe::GetVector");
-
-    auto itr = event.action_info.GetAuxData().find(key_);
-    if (itr == event.action_info.GetAuxData().end()) return std::nullopt;
-    auto tensor = itr->second;
-
-    //ANET_ASSERT(tensor.has_value());   // key誤りによるバグ防止のため
-    if (!tensor.defined()) return std::nullopt;
-
-    torch::Tensor flat = tensor.flatten().to(torch::kCPU);
-    ANET_CHECK_SHAPE(flat, { ANET_SHAPE_ANY });
-    ANET_CHECK_DTYPE(flat, torch::kFloat32);
-
-    std::vector<float> out;
-    out.resize(flat.size(0));
-    std::memcpy(out.data(), flat.data_ptr<float>(), flat.size(0) * sizeof(float));
-    return out;
-}
+// ============================================================
+// AgentTensorVectorProbe
+// ============================================================
 
 AgentTensorVectorProbe::AgentTensorVectorProbe(
     const std::string& key, int index,
@@ -232,6 +425,8 @@ AgentTensorVectorProbe::AgentTensorVectorProbe(
             min_ = 0.0f;
             max_ = static_cast<float>(n_actions - 1);
         }
+        ANET_CHECK(index < action_spec->value_labels.size());
+        name_spec = action_spec->value_labels[index];
     }
 
     // min/max の明示指定があればそれを最優先
@@ -287,14 +482,12 @@ std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const Update
 
             if (dtype == torch::kFloat32) {
                 std::memcpy(out.data() + old, flat.data_ptr<float>(), n * sizeof(float));
-            }
-            else if (dtype == torch::kInt64) {
+            } else if (dtype == torch::kInt64) {
                 const int64_t* src = flat.data_ptr<int64_t>();
                 float* dst = out.data() + old;
                 for (int64_t i = 0; i < n; i++)
                     dst[i] = static_cast<float>(src[i]);
-            }
-            else if (dtype == torch::kBool) {
+            } else if (dtype == torch::kBool) {
                 const bool* src = flat.data_ptr<bool>();
                 float* dst = out.data() + old;
                 for (int64_t i = 0; i < n; i++)
@@ -361,6 +554,10 @@ std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const Update
 
     return out;
 }
+
+// ============================================================
+// StateSweepProcessor
+// ============================================================
 
 StateSweepProcessor::StateSweepProcessor(
     const anet::rl::StateSpec& state_spec,

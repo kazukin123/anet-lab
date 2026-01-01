@@ -115,6 +115,13 @@ bool RunnerApp::OnInit()
     wxLog::SetLogLevel(wxLOG_Debug);
 #endif
 
+    // メインスレッドでffmpeg実行する準備
+    Bind(wxEVT_APP_EXECUTE_START, [&](wxThreadEvent& event) {
+        anet::ExecuteStarter* executer = event.GetPayload<anet::ExecuteStarter*>();
+        ANET_LOG_DEBUG("Executing command on main thread. command=" << executer->GetCommand());
+        executer->OnMainStart();   // wxExecute 内部呼び出し
+        });
+
     // コマンドライン引数解析
     wxCmdLineParser cmdline_(desc, argc, (wchar_t**)argv);
     if (cmdline_.Parse(true)) {
@@ -128,12 +135,7 @@ bool RunnerApp::OnInit()
     // RunnerApp設定生成
     config_ = std::make_unique<RunnerApp::Config>(config_data);
 
-    // メインスレッドでffmpeg実行する準備
-    Bind(wxEVT_APP_EXECUTE_START, [&](wxThreadEvent& event) {
-        anet::ExecuteStarter* executer = event.GetPayload<anet::ExecuteStarter*>();
-        ANET_LOG_DEBUG("Executing command on main thread. command=" << executer->GetCommand());
-        executer->OnMainStart();   // wxExecute 内部呼び出し
-        });
+
 
     // MetricsLogger
     anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetRunsPath(), config_->run_name);
@@ -159,6 +161,15 @@ bool RunnerApp::OnInit()
     
     // Trainer初期化
     InitTrainer();
+
+    // ImageProviderManager
+    auto env_spec = trainer_->GetBatchEnv()->GetSpec();
+    auto notifier = trainer_->GetNotifier();
+    auto agent = trainer_->GetAgent();
+    img_prov_mgr_ = std::make_unique<anet::rl::ImageProviderManager>(env_spec, notifier);
+    img_prov_mgr_->CreateAndRegister(config_data, agent);
+
+    // ManualObserver
     //if (config_->use_image_log) InitImageLogObservers();
     //if (config_->use_per_image_log) InitPERImageLogObservers(config_data);
 
@@ -328,6 +339,67 @@ std::shared_ptr<anet::rl::gui::View> RunnerApp::CreateExperinceView(wxWindow* pa
     }
     return view;
 }
+
+
+//void RunnerApp::InitPERImageLogObservers(const anet::ConfigData& config_data)
+//{
+//    anet::rl::dqn::RainbowAgentConfig agent_config(config_data);
+//    if (!agent_config.learner.use_per) {
+//        LOG::warn() << "PER agent config disabled. Skipping PER ImageLog observer.";
+//        return;
+//    }
+//
+//    auto notifier = trainer_->GetNotifier();
+//    auto env_spec = trainer_->GetBatchEnv()->GetSpec();
+//    auto agent = trainer_->GetAgent();
+//
+//    // flags
+//    auto flags =
+//        //anet::HeatMapFlags::HM_LogScaleValue | 
+//        anet::HeatMapFlags::HM_AutoNormValue
+//        | anet::HeatMapFlags::HM_AutoScaleAxis
+//        //| anet::HeatMapFlags::HM_LogScaleAxis
+//        | anet::HeatMapFlags::HM_SumMode; // | anet::HeatMapFlags::HM_ShowZeroLine;
+//
+//    // ---- ReplayBuffer ----
+//    auto rep_x_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 0, &env_spec.state_spec);
+//    auto rep_y_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 1, &env_spec.state_spec);
+//    auto rep_prio_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::PER_DIST, -1);
+//
+//    anet::rl::HeatMapObserverConfig replay_heat_obs_config{
+//        512,    // width
+//        512,    // height
+//        config_->image_log_interval,    // log_interval 
+//        //100000,  // max_points
+//        agent_config.learner.replay_capacity,	// max_points
+//        flags,   // flags
+//        -1,     // image_width
+//        -1,     // image_height
+//    };
+//
+//    auto auto_scale_mode = anet::rl::AgentTensorVectorProbe::AutoScaleMode::DISABLE;    // EnvSpecで固定
+//    notifier->Attach<anet::rl::HeatMapVectorObserver>(
+//        "43_agent_img/52_per_hm_prio_01_", replay_heat_obs_config, rep_x_probe, rep_y_probe, rep_prio_probe);
+//
+//
+//    anet::rl::TimeHistogramObserverConfig prio_hist_obs_config{
+//        256,    // x bins
+//        1920,   // y max_frames
+//        512,    // image_height
+//        1920,   // image_width
+//        anet::TimeFrameMode::Scale,             // mode
+//        flags | anet::HeatMapFlags::HM_FlipY | anet::HeatMapFlags::HM_LogScaleAxis,   // flags
+//        config_->image_log_interval_thm,    // log_interval
+//        20,     // frame_interval
+//        std::numeric_limits<float>::quiet_NaN(),
+//        std::numeric_limits<float>::quiet_NaN(),
+//        1.0f// alpha = 0.05f
+//    };
+//    //notifier->Attach<anet::rl::TimeHistogramObserver>(
+//    //    "44_agent_img/52_per_thg_prio", prio_hist_obs_config, rep_prio_probe);
+//
+//}
+
 
 wxIMPLEMENT_APP(RunnerApp);
 

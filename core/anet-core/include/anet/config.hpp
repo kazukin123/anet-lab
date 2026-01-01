@@ -131,6 +131,23 @@ namespace anet {
             return true;
         }
 
+        bool Read(const std::string& key, std::vector<std::string>& value, std::vector<std::string> defaultValue) const
+        {
+            auto it = map_.find(key);
+            if (it == map_.end()) { value = defaultValue; return false; }
+            try {
+                auto str_vec = anet::Split((*it).second, { " ", "　" }, true);
+                value.resize(str_vec.size());
+                for (int i = 0; i < value.size(); i++) {
+                    value[i] = str_vec[i];
+                }
+            } catch (...) {
+                value = defaultValue;
+                return false;
+            }
+            return true;
+        }
+
     private:
         //std::vector<std::string> ResolveModule(const std::string& module) const;
     private:
@@ -170,7 +187,7 @@ namespace anet {
         template<typename T>
         void ReadConfig(const ConfigData& config_data, const std::string& key, T& value)
         {
-			std::string config_data_key = config_prefix_ + "." + key;
+			std::string config_data_key = (config_prefix_.empty() ? "" : config_prefix_ + ".") + key;
             config_data.Read(config_data_key, value, value);
             my_config_data_.Set(key, value);
             my_config_json_[key] = value;
@@ -178,9 +195,9 @@ namespace anet {
     protected:
         /// Configの値としてConfigは含まめず、あくまでもフラットな設定データ構造とする
 
+        std::string config_prefix_;
         ConfigData my_config_data_; ///< Key=String Value=String
         anet::json my_config_json_; ///< JSONデータとして元の型情報を覚えておく
-        std::string config_prefix_;
     };
 
     /// 設定マネージャー。コマンドラインオプションとPropertiesファイルを元にConfigDataを生成。

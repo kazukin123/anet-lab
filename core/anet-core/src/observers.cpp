@@ -7,8 +7,10 @@
 #include "anet/log.hpp"
 #include "anet/env.hpp"
 
+
 using namespace anet::rl;
 namespace LOG = anet::log;
+
 
 static float ResolveMin(bool override_flag, float override_v, std::optional<float> probe_v, float fallback)
 {
@@ -58,10 +60,15 @@ void HeatMapVectorObserver::OnTrain(const TrainEvent& event)
 {
     anet::ProfileRange r("HeatMapVectorObserver::OnTrain");
 
+    // 実行判定
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);
+    if (config_.log_interval <= 0) return;
+    if (step % config_.log_interval != 0) return;
+
+    anet::ProfileRange r1("HeatMapVectorObserver::OnTrain.getVector");
+    std::unique_lock<std::shared_mutex> lock(mutex_);
 
     // 生成： xv, yv, vv
-    anet::ProfileRange r1("HeatMapVectorObserver::OnTrain.getVector");
     auto xv = x_probe_->GetVector(event);
     auto yv = y_probe_->GetVector(event);
     auto vv = value_probe_->GetVector(event);
@@ -79,23 +86,30 @@ void HeatMapVectorObserver::OnTrain(const TrainEvent& event)
     }
 
     // データ追加
-    if (!xv->empty()) {
-        anet::ProfileRange r2("HeatMapVectorObserver::OnTrain.addDataBatch", r1);
-        heatmap_->AddDataBatch(*xv, *yv, *vv);
-    }
+    anet::ProfileRange r2("HeatMapVectorObserver::OnTrain.addDataBatch", r1);
+    heatmap_->AddDataBatch(*xv, *yv, *vv);
+
+    captured_step_ = step;
 
     // 画像保存
     anet::ProfileRange r3("HeatMapVectorObserver::OnTrain.logImage", r1); // 親スコープをr1に変更(r2はif内なので)
-    if (step % config_.log_interval == 0) {
-        MetricsLogger::Instance()->LogImage(
-            tag_,
-            step,
-            *heatmap_,
-            config_.image_width,
-            config_.image_height
-        );
-    }
+    MetricsLogger::Instance()->Log(
+        tag_,
+        step,
+        *heatmap_,
+        config_.image_width,
+        config_.image_height
+    );
 }
+
+anet::rl::ImageData HeatMapVectorObserver::GetImageData(int width, int height)
+{
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    auto image = heatmap_->Render(width, height);
+    return { image, captured_step_ };
+}
+
+// -------------------------------------------------------------
 
 TimeHistogramObserver::TimeHistogramObserver(
     const std::string& tag, const TimeHistogramObserverConfig& config,
@@ -110,9 +124,11 @@ TimeHistogramObserver::TimeHistogramObserver(
 void TimeHistogramObserver::OnLearn(const LearnEvent& event)
 {
     anet::ProfileRange r("TimeHistogramObserver::OnTrain");
-    
+
     /// @todo メトリクスのSTEP軸を指定できるようにする
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::LEARN);
+
+    std::unique_lock<std::shared_mutex> lock(mutex_);
 
     // Probeで vectorを取得
     anet::ProfileRange r1("TimeHistogramObserver::OnTrain.getVector");
@@ -121,17 +137,33 @@ void TimeHistogramObserver::OnLearn(const LearnEvent& event)
         histogram_->AddBatch(*values);
     }
 
-    // フレーム更新
-    if (step % config_.frame_interval == 0) {
+    // フレーム更新判定
+    bool is_frame_updated = false;
+    if (config_.frame_interval > 0 && step % config_.frame_interval == 0) {
         histogram_->NextFrame();
+        is_frame_updated = true;
     }
 
-    anet::ProfileRange r2("TimeHistogramObserver::OnTrain.logImage", r1);
-    // ログ出力
-    if (step % config_.log_interval == 0) {
-        MetricsLogger::Instance()->LogImage(tag_, step, *histogram_, config_.image_width, config_.image_height);
+    //  ログ出力（フレーム更新があった時だけチェックする）
+    if (is_frame_updated && config_.log_interval > 0) {
+        // A. ログ頻度がフレームより高い (log < frame) → 毎回出す（間引きようがないため）
+        // B. ログ頻度が低い (log >= frame) → ステップがログ間隔と合う時だけ出す
+        if (config_.log_interval <= config_.frame_interval || step % config_.log_interval == 0) {
+            anet::ProfileRange r2("TimeHistogramObserver::OnTrain.logImage", r1);
+            captured_step_ = step;
+            MetricsLogger::Instance()->Log(tag_, step, *histogram_, config_.image_width, config_.image_height);
+        }
     }
 }
+
+anet::rl::ImageData TimeHistogramObserver::GetImageData(int width, int height)
+{
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    auto image = histogram_->Render(width, height);
+    return { image, captured_step_ };
+}
+
+// -------------------------------------------------------------
 
 MultiPairHeatMapObserver::MultiPairHeatMapObserver(
     const std::string& tag,
@@ -281,8 +313,8 @@ void MultiPairHeatMapObserver::OnTrain(const TrainEvent& event)
 
     // --- 画像保存 ---
     anet::ProfileRange r3("MultiPairHeatMapObserver::OnTrain.logImage", r2);
-    if (step % config_.log_interval == 0) {
-        MetricsLogger::Instance()->LogImage(
+    if (config_.log_interval > 0 && step % config_.log_interval == 0) {
+        MetricsLogger::Instance()->Log(
             tag_, step,
             *heatmap_,
             config_.image_width,
@@ -290,13 +322,16 @@ void MultiPairHeatMapObserver::OnTrain(const TrainEvent& event)
     }
 }
 
+// -------------------------------------------------------------
+
 SweepedHeatMapObserver::SweepedHeatMapObserver(
     const std::string& tag,
     const SweepedHeatMapObserverConfig& config,
     std::shared_ptr<ISweepInputGenerator> input_gen,
     TensorFunction tensor_fn,
     std::shared_ptr<ISweepOutputExtractor> output_ext,
-    const std::unordered_map<std::string, std::string>& scalar_tag_label_map)
+    const std::unordered_map<std::string, std::string>& scalar_tag_label_map
+    )
     : TaggedLearnObserver(tag), config_(config),
     input_gen_(input_gen), tensor_fn_(std::move(tensor_fn)), output_ext_(output_ext)
 {
@@ -338,22 +373,24 @@ void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
 {
     anet::ProfileRange r("SweepedHeatMapObserver::OnLearn");
 
-    anet::ProfileRange r1("SweepedHeatMapObserver::OnTrain.render");
+    /// @todo メトリクスのSTEP軸を指定できるようにする？
 
-    std::unique_lock<std::shared_mutex> lock(mutex_);
-
-    /// @todo メトリクスのSTEP軸を指定できるようにする
+    // 実行判定
     auto step = event.counts.learn_step;
+    if (config_.log_interval <= 0) return;
     if (step % config_.log_interval != 0) return;
 
+    anet::ProfileRange r1("SweepedHeatMapObserver::OnTrain.render");
+    std::unique_lock<std::shared_mutex> lock(mutex_);
+
     // データ採取
-    captured_step_ = step;
     auto result = Render();
+    captured_step_ = step;
     const auto& extract_result = result.first;
     const auto& scalars_cpu = result.second;
 
     // 画像ログ出力
-    MetricsLogger::Instance()->LogImage(
+    MetricsLogger::Instance()->Log(
         tag_,
         step,
         *heatmap_,
@@ -374,7 +411,7 @@ void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
     }
 }
 
-SweepedHeatMapObserver::ImageResult SweepedHeatMapObserver::GetImage(int width, int height)
+anet::rl::ImageData SweepedHeatMapObserver::GetImageData(int width, int height)
 {
     std::shared_lock<std::shared_mutex> lock(mutex_);
     auto image = heatmap_->Render(width, height);
@@ -431,6 +468,7 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
     return { extract_result, scalars_cpu };
 }
 
+// -------------------------------------------------------------
 
 EpisodeEvalObserver::EpisodeEvalObserver(
     ReportFunction report_function,
@@ -481,6 +519,8 @@ std::string EpisodeEvalObserver::ToString() const
     auto mode_str = anet::rl::ToString(runmode_);
     return std::string("EpisodeEvalObserver[") + mode_str + "]";
 }
+
+// -------------------------------------------------------------
 
 FunctionTrainObserver::FunctionTrainObserver(Fn fn, std::optional<std::string> name)
     : fn_(std::move(fn))

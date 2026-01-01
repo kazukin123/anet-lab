@@ -63,6 +63,7 @@ add_library(anet-core STATIC
     "src/exception.cpp"
     "src/str_util.cpp"
     "src/gui.cpp"
+    "src/image.cpp"
 )
 
 target_include_directories(anet-core

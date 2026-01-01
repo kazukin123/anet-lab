@@ -75,5 +75,5 @@ private:
     std::shared_ptr<anet::rl::SweepedHeatMapObserver> observer_;
 
     // 描画用バッファ (Observerから受け取った画像データを保持)
-    anet::rl::SweepedHeatMapObserver::ImageResult captured_;
+    anet::rl::ImageData captured_;
 };

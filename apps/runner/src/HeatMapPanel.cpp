@@ -289,16 +289,17 @@ void SweepHeatMapPanel::CreateObserver(const SweepHeatMapSettings& settings,
             };
     }
 
-    auto proc_x_y_qmax = std::make_shared<anet::rl::StateSweepProcessor>(
+    auto processor = std::make_shared<anet::rl::StateSweepProcessor>(
         env_spec.state_spec,
         settings.x,  // x_index = x
         settings.y,  // y_index = y
         extractor
     );
+
     std::optional<anet::TensorFunction> policy_forward = agent->GetTensorFunction(settings.network_key.ToStdString());
     ANET_ASSERT(policy_forward.has_value());
     this->observer_ = notifier->Attach<anet::rl::SweepedHeatMapObserver>(
-        settings.tag.ToStdString() , q_sweep_obs_config, proc_x_y_qmax, *policy_forward, proc_x_y_qmax);
+        settings.tag.ToStdString() , q_sweep_obs_config, processor, *policy_forward, processor);
 }
 
 SweepHeatMapPanel::~SweepHeatMapPanel()
@@ -349,14 +350,14 @@ void SweepHeatMapPanel::UpdateRefreshRate()
 
 void SweepHeatMapPanel::OnRefreshButton(wxCommandEvent& event)
 {
-    captured_ = observer_->GetImage();
+    captured_ = observer_->GetImageData();
     step_text_->SetValue(anet::FormatWithCommas(captured_.step));
     canvas_->Refresh();
 }
 
 void SweepHeatMapPanel::OnTimer(wxTimerEvent& event)
 {
-    captured_ = observer_->GetImage();
+    captured_ = observer_->GetImageData();
     step_text_->SetValue(anet::FormatWithCommas(captured_.step));
     canvas_->Refresh();
 }

@@ -113,7 +113,7 @@ namespace anet::rl {
         virtual std::optional<std::vector<float>> GetVectorFromExperience(const UpdateEvent& event) const = 0;
     public:
         /**
-         * @brief 観測情報からFloat値を生成
+         * @brief Float値を生成
          */
 		std::optional<std::vector<float>> GetVector(const UpdateEvent& event) const override
         {
@@ -177,6 +177,34 @@ namespace anet::rl {
         std::optional<float> max_;
     };
 
+    class BatchExperienceVectorProbe : public VectorProbe {
+    public:
+        BatchExperienceVectorProbe(
+            const std::string& key,
+            int index,
+            const anet::rl::StateSpec* state_spec = nullptr,
+            const anet::rl::ActionSpec* action_spec = nullptr,
+            std::optional<float> min_override = std::nullopt,
+            std::optional<float> max_override = std::nullopt,
+            std::optional<std::string> name = std::nullopt);
+
+        std::optional<std::vector<float>> GetVector(const UpdateEvent& event) const override;
+
+        std::string GetName() const override { return name_; }
+        std::optional<float> GetMin() const override { return min_; }
+        std::optional<float> GetMax() const override { return max_; }
+    private:
+        std::string name_;
+        std::string key_;
+        int index_;
+        std::optional<float> min_;
+        std::optional<float> max_;
+    };
+
+    // ============================================================
+    // BatchExperience*BatchUpdateResultTensorToVectorProbe
+    // ============================================================
+
     class BatchUpdateResultTensorToVectorProbe : public VectorProbe {
     public:
         BatchUpdateResultTensorToVectorProbe(const std::string& key, std::optional<float> min = std::nullopt, std::optional<float> max = std::nullopt);
@@ -193,22 +221,27 @@ namespace anet::rl {
         std::optional<float> max_;
     };
 
-    class BatchActionInfoToVectorProbe : public VectorProbe {
-    public:
-        BatchActionInfoToVectorProbe(const std::string& key, std::optional<float> min = std::nullopt, std::optional<float> max = std::nullopt);
+    //class BatchActionInfoToVectorProbe : public VectorProbe {
+    //public:
+    //    BatchActionInfoToVectorProbe(const std::string& key, std::optional<float> min = std::nullopt, std::optional<float> max = std::nullopt);
 
-        std::optional<std::vector<float>> GetVector(const UpdateEvent& event) const override { return std::nullopt; }
-        std::optional<std::vector<float>> GetVector(const TrainEvent& event) const override;
+    //    std::optional<std::vector<float>> GetVector(const UpdateEvent& event) const override { return std::nullopt; }
+    //    std::optional<std::vector<float>> GetVector(const TrainEvent& event) const override;
 
-        std::string GetName() const override { return name_; }
-        std::optional<float> GetMin() const override { return min_; }
-        std::optional<float> GetMax() const override { return max_; }
-    private:
-        std::string key_;
-        std::string name_;
-        std::optional<float> min_;
-        std::optional<float> max_;
-    };
+    //    std::string GetName() const override { return name_; }
+    //    std::optional<float> GetMin() const override { return min_; }
+    //    std::optional<float> GetMax() const override { return max_; }
+    //private:
+    //    std::string key_;
+    //    std::string name_;
+    //    std::optional<float> min_;
+    //    std::optional<float> max_;
+    //};
+
+
+    // ============================================================
+    // AgentTensorVectorProbe
+    // ============================================================
 
     class AgentTensorVectorProbe : public VectorProbe {
     public:

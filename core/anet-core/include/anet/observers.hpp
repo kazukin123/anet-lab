@@ -1,8 +1,12 @@
-﻿#pragma once
+﻿// anet/observers.hpp
+
+#pragma once
+
 #include "anet/util.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/probe.hpp"
 #include "anet/rl.hpp" 
+#include "anet/image.hpp"
 
 namespace anet::rl {
 
@@ -31,6 +35,8 @@ namespace anet::rl {
         virtual std::string ToString() const override { return ToStringInternal(); }
         virtual ~TaggedLearnObserver() = default;
     };
+
+    // ==============================================================
     
     /**
      * @brief HeatMapObserver の設定
@@ -58,7 +64,7 @@ namespace anet::rl {
         float ymax = 1.0f;
     };
 
-    class HeatMapVectorObserver : public anet::rl::TaggedTrainObserver {
+    class HeatMapVectorObserver : public anet::rl::TaggedTrainObserver, public anet::rl::ImageProvider {
     public:
         HeatMapVectorObserver(
             const std::string& tag,
@@ -69,6 +75,8 @@ namespace anet::rl {
 
         void OnTrain(const TrainEvent& event) override;
         std::string GetClassName() const override { return "HeatMapVectorObserver"; }
+    public:
+        anet::rl::ImageData GetImageData(int width = -1, int height = -1) override;
     private:
         HeatMapObserverConfig config_;
 
@@ -76,8 +84,13 @@ namespace anet::rl {
         std::shared_ptr<VectorProbe> y_probe_;
         std::shared_ptr<VectorProbe> value_probe_;
 
-        std::unique_ptr<anet::HeatMap> heatmap_;  ///< @todo ptr外し
+        std::unique_ptr<anet::HeatMap> heatmap_;
+    private:
+        std::shared_mutex mutex_;
+        step_t captured_step_ = 0;
     };
+    
+    // ==============================================================
 
     struct TimeHistogramObserverConfig {
         int bins = 128;
@@ -99,7 +112,7 @@ namespace anet::rl {
     * ExtractTensorFn:
     *torch::Tensor func(const anet::rl::BatchUpdateResult& result);
     */
-    class TimeHistogramObserver : public anet::rl::TaggedLearnObserver {
+    class TimeHistogramObserver : public anet::rl::TaggedLearnObserver, public anet::rl::ImageProvider {
     public:
         TimeHistogramObserver(
             const std::string& tag,
@@ -108,11 +121,18 @@ namespace anet::rl {
 
         void OnLearn(const LearnEvent& event) override;
         std::string GetClassName() const override { return "TimeHistogramObserver"; }
+    public:
+        anet::rl::ImageData GetImageData(int width = -1, int height = -1) override;
     private:
         TimeHistogramObserverConfig config_;
         std::unique_ptr<anet::TimeHistogram> histogram_;    ///< @todo ptr外し
         std::shared_ptr<VectorProbe> probe_;
+    private:
+        std::shared_mutex mutex_;
+        step_t captured_step_ = 0;
     };
+    
+	// ==============================================================
 
     class MultiPairHeatMapObserver : public anet::rl::TaggedTrainObserver {
     public:
@@ -130,10 +150,12 @@ namespace anet::rl {
         std::shared_ptr<VectorProbe> value_probe_;
         std::unique_ptr<anet::HeatMap> heatmap_;
     };
+    
+    // ==============================================================
 
     struct SweepedHeatMapObserverConfig {
         int log_interval = 100;
-        uint64_t flags = anet::HeatMapFlags::HM_Default;
+        uint32_t flags = anet::HeatMapFlags::HM_Default;
         int grid_width = -1;    ///< 内部で生成するGridの幅。-1で指定なし(自動)
         int grid_height = -1;   ///< 内部で生成するGridの高さ。-1で指定なし(自動)
         int image_width = -1;   ///< 出力する画像の幅。-1で指定なし(自動)
@@ -148,12 +170,7 @@ namespace anet::rl {
      * - OutputExtractor が batched 出力から (grid_x, grid_y) の値を抽出
      * - HeatMap に追加して画像として出力
      */
-    class SweepedHeatMapObserver : public anet::rl::TaggedLearnObserver {
-    public:
-        struct ImageResult {
-            wxImage image;
-            step_t step;
-        };
+    class SweepedHeatMapObserver : public anet::rl::TaggedLearnObserver, public anet::rl::ImageProvider {
     public:
         SweepedHeatMapObserver(
             const std::string& tag,
@@ -161,16 +178,16 @@ namespace anet::rl {
             std::shared_ptr<ISweepInputGenerator> input_gen,
             TensorFunction tensor_fn_,
             std::shared_ptr<ISweepOutputExtractor> output_ext,
-            const std::unordered_map<std::string, std::string>& scalar_tag_label_map = {});
+            const std::unordered_map<std::string, std::string>& scalar_tag_label_map = {}
+            );
 
         void OnLearn(const LearnEvent& event) override;
         std::string GetClassName() const override { return "SweepedHeatMapObserver"; }
-
-        ImageResult GetImage(int width = -1, int height = -1);
+    public:
+        anet::rl::ImageData GetImageData(int width = -1, int height = -1) override;
     private:
         std::pair<ExtractResult, std::vector<torch::Tensor>> Render();
     private:
-        std::shared_mutex mutex_;
         SweepedHeatMapObserverConfig config_;
         std::unordered_map<std::string, std::string> scalar_label_tag_map_;
 
@@ -180,9 +197,10 @@ namespace anet::rl {
 
         int grid_w_ = 0;
         int grid_h_ = 0;
-
-        step_t captured_step_ = 0;
         std::unique_ptr<anet::HeatMap> heatmap_;
+    private:
+        std::shared_mutex mutex_;
+        step_t captured_step_ = 0;
     };
 
     class EpisodeEvalObserver : public anet::rl::LearnObserver {
