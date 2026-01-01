@@ -508,7 +508,6 @@ namespace anet::rl {
         static constexpr const char* STATE_TRUNCATED = "experience.state.truncated";
         static constexpr const char* STATE_EPISODE_START = "experience.state.episode_start";
         static constexpr const char* ACTION_ACTION = "experience.action.action";
-        static constexpr const char* ACTION_IS_RANDOM = "experience.action.is_random";
         static constexpr const char* REWARD = "experience.reward";
         static constexpr const char* NEXT_STATE_OBS = "experience.next_state.obs";
         static constexpr const char* NEXT_STATE_DONE = "experience.next_state.done";
