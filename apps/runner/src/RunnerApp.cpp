@@ -15,6 +15,7 @@
 #include "anet/exception.hpp"
 #include "anet/profile.hpp"
 #include "anet/env/LunarLander.hpp"
+#include "anet/env/CartPole.hpp"
 #include "ErrorDialog.hpp"
 #include "RunnerFrame.hpp"
 #include "TrainPanel.hpp"
@@ -99,6 +100,7 @@ bool RunnerApp::OnInit()
     wxInitAllImageHandlers();
     anet::rl::InitRL();
     anet::rl::env::InitLunarLander();
+    anet::rl::env::InitCartPole();
 
     // 全体ログレベル設定
 #if ANET_ENABLE_DEBUGINFO

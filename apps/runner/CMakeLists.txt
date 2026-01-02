@@ -62,10 +62,11 @@ target_compile_definitions(AnetRLRunner PUBLIC WXINTL_NO_GETTEXT_MACRO)    # N_(
 
 target_link_libraries(AnetRLRunner PRIVATE
     ${TORCH_LIBRARIES}
-    anet_wx
+    anet-wx
     anet-core
     box2d
     LunarLanderEnv
+    CartPoleEnv
 )
 
 set_target_properties(AnetRLRunner PROPERTIES

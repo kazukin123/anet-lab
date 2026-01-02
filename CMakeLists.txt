@@ -78,12 +78,12 @@ find_package(wxWidgets REQUIRED COMPONENTS core base gl aui)
 # ---------------------------------------------------------------------
 # wxWidgets 互換性レイヤー
 # ---------------------------------------------------------------------
-add_library(anet_wx INTERFACE)
+add_library(anet-wx INTERFACE)
 if(TARGET wx::core)
     # --- 【CI環境 / Configモード】 ---
     # wx::core などのターゲットが見つかった場合
     message(STATUS "wxWidgets: Config mode detected (Targets available)")
-    target_link_libraries(anet_wx INTERFACE wx::core wx::base wx::gl wx::aui)
+    target_link_libraries(anet-wx INTERFACE wx::core wx::base wx::gl wx::aui)
 else()
     # --- 【ローカル環境 / Moduleモード】 ---
     # ターゲットがなく、変数(wxWidgets_LIBRARIES)のみの場合
@@ -95,11 +95,11 @@ else()
     endif()
 
     # 変数を仲介ターゲットに紐付ける
-    target_link_libraries(anet_wx INTERFACE ${wxWidgets_LIBRARIES})
+    target_link_libraries(anet-wx INTERFACE ${wxWidgets_LIBRARIES})
     
     # includeパスも明示的に継承させる (USE_FILEで足りない場合用)
     if(wxWidgets_INCLUDE_DIRS)
-        target_include_directories(anet_wx INTERFACE ${wxWidgets_INCLUDE_DIRS})
+        target_include_directories(anet-wx INTERFACE ${wxWidgets_INCLUDE_DIRS})
     endif()
 endif()
 
@@ -112,13 +112,13 @@ include_directories("${PROJECT_SOURCE_DIR}/third_party/nlohmann/include")
 # ---------------------------------------------------------------------
 # サブプロジェクト
 # ---------------------------------------------------------------------
-add_subdirectory(core/anet-core)
-add_subdirectory(core/envs/lunarlander1)
-
 add_subdirectory(third_party/box2d-2.4.2)
 
+add_subdirectory(core/anet-core)
+add_subdirectory(core/envs/lunarlander1)
+add_subdirectory(core/envs/cartpole2)
 #add_subdirectory(apps/cartpole1)
-add_subdirectory(apps/cartpole2)
+#add_subdirectory(apps/cartpole2)
 #add_subdirectory(apps/lunarlander1)
 add_subdirectory(apps/runner)
 

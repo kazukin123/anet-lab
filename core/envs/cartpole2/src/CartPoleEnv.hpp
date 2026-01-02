@@ -1,10 +1,12 @@
-﻿#pragma once
+﻿// CartPoleEnv.hpp
+
+#pragma once
+
 #include <torch/torch.h>
 #include "anet/random.hpp"
 #include "anet/config.hpp"
 #include "anet/rl.hpp"
 
-/// CartPole環境実装（1環境固定）
 
 struct CartPoleEnvConfig : public anet::Config {
     int limit_step = 200;

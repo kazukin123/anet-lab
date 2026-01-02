@@ -1,0 +1,70 @@
+﻿
+app.$ = app.online
+#app.$ = app.batchrun
+
+#train.seed = 3077901837422269870
+#train.seed = 10471613835926818675
+train.seed = 14209897399466557630
+
+train.batch_size = 256
+#train.batch_size = 10
+#train.batch_size = 1
+
+agent.class_id = DefaultDQNAgent
+#agent.class_id = RainbowAgent
+#agent.class_id = DQNAgent
+
+metrics.scalar.$ = metrics.scalar.baseline > M
+#metrics.scalar.$ = metrics.scalar.min > M
+#metrics.scalar.$ = metrics.scalar.full > M
+
+metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.per-prio > image.phm.s02
+
+
+#DefaultDQNAgent.$ = DefaultDQNAgent.trunk > A
+#DefaultDQNAgent.$ = DefaultDQNAgent.trunk2 > A
+DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A
+
+# ---
+
+agent.device_type = 1    # 0=cpu 1=cuda
+agent.device_index = -1  # GPU index -1=current device
+
+env.class_id = CartPoleEnv
+env.worker_threads = -1	# -1=auto
+env.device_type = 0    # 0=cpu 1=cuda
+env.device_index = -1  # GPU index -1=current device
+
+# --- CartPoleEnv
+
+CartPoleEnv.limit_step = 200
+#CartPoleEnv.limit_step = 500
+
+# --- app
+
+app.run_name = run_{t}
+#app.train_auto_start = false
+app.train_auto_start = true
+
+#app.online.train_pause_step = 1000000 #1000K
+#app.online.train_pause_step = 200000  #200K
+app.online.train_pause_step  = 100000  #100K
+app.online.train_exit_step = -1
+app.online.train_panel.fps = 30
+app.online.eval_panel.fps = 30
+app.online.eval_panel.step_per_frame = 3
+
+app.batchrun.train_auto_start = true
+app.batchrun.train_pause_step = -1
+#app.batchrun.train_exit_step = 1000000 #1000K
+#app.batchrun.train_exit_step = 500000 #500K
+#app.batchrun.train_exit_step = 200000 #200K
+app.batchrun.train_exit_step  = 100000  #100K
+app.batchrun.train_panel.fps = 0.5
+app.batchrun.eval_panel.fps = 0.5
+app.batchrun.eval_panel.step_per_frame = 1
+
+train.eval_interval = 10
+
+
+

@@ -1,43 +1,37 @@
-﻿#include "CartPoleCanvas.hpp"
+﻿// CartPoleView.cpp
+
+#include "CartPoleView.hpp"
+
 #include <cmath>
 #include <wx/dcbuffer.h>
-#include "CartPoleFrame.hpp"
-#include "app.hpp"
 
-#define _USE_MATH_DEFINES // for C++
-#include <cmath>
 
-wxBEGIN_EVENT_TABLE(CartPoleCanvas, wxPanel)
-EVT_PAINT(CartPoleCanvas::OnPaint)
-EVT_LEFT_DOWN(CartPoleCanvas::OnMouseClick)
-wxEND_EVENT_TABLE()
+// =============================================================
+// CartPolePanel
+// =============================================================
 
-CartPoleCanvas::CartPoleCanvas(wxWindow* parent)
-    : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxSize(800, 400)),
-    cart_x_(0.0f),
-    cart_x_dot_(0.0f),
-    pole_theta_(0.0f),
-    pole_theta_dot_(0.0f),
-    cart_scale_(80.0f),    // x=1.0 の時の画面スケール
-    pole_length_(120.0f)   // 棒のピクセル長
+CartPolePanel::CartPolePanel(wxWindow* parent)
+    : anet::rl::gui::Panel(parent)
+    , cart_x_(0.0f)
+    , cart_x_dot_(0.0f)
+    , pole_theta_(0.0f)
+    , pole_theta_dot_(0.0f)
+    , cart_scale_(80.0f)    // x=1.0 の時の画面スケール
+    , pole_length_(120.0f)   // 棒のピクセル長
 {
     SetBackgroundStyle(wxBG_STYLE_PAINT);
+    Bind(wxEVT_PAINT, &CartPolePanel::OnPaint, this);
 }
 
-void CartPoleCanvas::OnMouseClick(wxMouseEvent& event)
-{
-    wxGetApp().ToggleTraining();
-}
-
-void CartPoleCanvas::SetUIData(const UISnapshot& snapshot)
+void CartPolePanel::ApplyData(const CartPoleData& data)
 {
     const int BATCH_POS = 0;
-    auto exp = snapshot.train_exp;
 
     // step
-    step_ = snapshot.counts.train_step;
+    step_ = data.counts.train_step;
 
     // state
+    auto exp = data.train_exp;
     torch::Tensor obs = exp.state.Flatten().obs[BATCH_POS];
     cart_x_ = obs[0].item<float>();
 	cart_x_dot_ = obs[1].item<float>();
@@ -51,7 +45,7 @@ void CartPoleCanvas::SetUIData(const UISnapshot& snapshot)
     reward_ = exp.reward[BATCH_POS].item<float>();
 }
 
-void CartPoleCanvas::OnPaint(wxPaintEvent& event)
+void CartPolePanel::OnPaint(wxPaintEvent& event)
 {
     wxAutoBufferedPaintDC dc(this);
     dc.Clear();
@@ -131,3 +125,17 @@ void CartPoleCanvas::OnPaint(wxPaintEvent& event)
 }
 
 
+// =============================================================
+// CartPoleView
+// =============================================================
+
+CartPoleView::CartPoleView(wxWindow* parent)
+    : ViewBaseType(parent)
+{
+    window_ = new CartPolePanel(parent_);
+}
+
+CartPoleData CartPoleView::CreateViewData(const anet::rl::TrainEvent& event) const
+{
+    return { event.counts, event.experience };
+}

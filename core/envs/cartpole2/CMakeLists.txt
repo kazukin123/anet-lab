@@ -1,7 +1,7 @@
-﻿# anet-lab/core/envs/lunarlander1/CMakeLists.txt
+﻿# anet-lab/core/envs/cartpole2/CMakeLists.txt
 
 cmake_minimum_required(VERSION 3.18)
-project(LunarLanderEnv)
+project(CartPoleEnv)
 
 set(CMAKE_CONFIGURATION_TYPES "Debug;RelWithDebInfo;Release" CACHE STRING "" FORCE)
 
@@ -25,31 +25,30 @@ elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
     add_compile_definitions(NDEBUG)
 endif()
 
-add_library(LunarLanderEnv STATIC
-    "src/LunarLanderEnv.cpp"
-    "src/LunarLanderView.cpp"
-    "src/LunarLander.cpp"
+add_library(CartPoleEnv STATIC
+    "src/CartPoleEnv.cpp"
+    "src/CartPoleView.cpp"
+    "src/CartPole.cpp"
 )
 
-target_include_directories(LunarLanderEnv
+target_include_directories(CartPoleEnv
     PUBLIC 
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_precompile_headers(LunarLanderEnv PRIVATE "src/pch.hpp")
+target_precompile_headers(CartPoleEnv PRIVATE "src/pch.hpp")
 
-target_compile_definitions(LunarLanderEnv PUBLIC WXINTL_NO_GETTEXT_MACRO)    # N_()マクロ競合対策
+target_compile_definitions(CartPoleEnv PUBLIC WXINTL_NO_GETTEXT_MACRO)    # N_()マクロ競合対策
 
-target_link_libraries(LunarLanderEnv PRIVATE
+target_link_libraries(CartPoleEnv PRIVATE
     ${TORCH_LIBRARIES}
     anet-wx
-    box2d
     anet-core
 )
 
-set_target_properties(LunarLanderEnv PROPERTIES
+set_target_properties(CartPoleEnv PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_DEBUG   ${CMAKE_CURRENT_SOURCE_DIR}/bin/Debug
     RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_CURRENT_SOURCE_DIR}/bin/RelWithDebInfo
     RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_CURRENT_SOURCE_DIR}/bin/Release

@@ -79,7 +79,7 @@ target_compile_definitions(anet-core PUBLIC WXINTL_NO_GETTEXT_MACRO)    # N_()ãƒ
 
 target_link_libraries(anet-core PUBLIC
     ${TORCH_LIBRARIES}
-    anet_wx
+    anet-wx
 )
 
 set_target_properties(anet-core PROPERTIES
