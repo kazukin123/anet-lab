@@ -1,7 +1,7 @@
 ﻿
 
-RunnerApp.$ = RunnerApp.online > P
-#RunnerApp.$ = RunnerApp.batchrun > P
+#RunnerApp.$ = RunnerApp.online > P
+RunnerApp.$ = RunnerApp.batchrun > P
 
 #train.seed = 5542346184581256364  # 
 #train.seed = 540080446186335311 # N-STEP評価用
@@ -32,8 +32,8 @@ metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.per-prio > i
 #metrics.image.[45_agent_img/05_shm_01_qma02].$   = image.shm.qmax > image.shm.s02
 metrics.image.[45_agent_img/05_shm_01_maxq_01].$        = image.shm.qmax > image.shm.01
 
-#metrics.image.[53_agent_img/52_per_hm_prio_01_test].$ = image.phm.per-prio > image.phm.s01 > image.test
-#metrics.image.[55_agent_img/05_shm_01_maxq_01_test].$        = image.shm.qmax > image.shm.01 > image.test
+#metrics.image.[53_agent_img/52_per_hm_prio_01_test].$   = image.phm.per-prio > image.phm.s01 > image.test
+#metrics.image.[55_agent_img/05_shm_01_maxq_01_test].$   = image.shm.qmax > image.shm.01 > image.test
 
 # ---- DefaultDQNAgent
 
@@ -119,7 +119,7 @@ DefaultDQNAgent.baseline.learner.use_td_clip = false          #
 DefaultDQNAgent.baseline.learner.td_clip_value = 30.0         # 4.0 20 30
 DefaultDQNAgent.baseline.learner.replay_capacity = 2560000    # batch_size=256向け。 256✕1000step→10エピソード分
 DefaultDQNAgent.baseline.learner.replay_batch_size = 1024     #
-DefaultDQNAgent.baseline.learner.update_warmup_steps = 1000  # 1000　exp_step
+DefaultDQNAgent.baseline.learner.update_warmup_steps = 4096  # 1000　exp_step
 DefaultDQNAgent.baseline.learner.update_interval = 1         # 環境何ステップ毎にUpdateするか。replay_rationが正なら使われない
 DefaultDQNAgent.baseline.learner.replay_ratio = 4            # 環境1ステップあたり平均何回のUpdateするか。負数ではupdate_interval側を使う
 DefaultDQNAgent.baseline.learner.n_step = 3
@@ -396,7 +396,7 @@ image.phm.per-prio.flags = AutoNormValue MeanMode
 #image.phm.per-prio.interval = 1  # 0 1 100
 image.phm.per-prio.heatmap.width = 512
 image.phm.per-prio.heatmap.height = 512
-image.phm.per-prio.heatmap.max_points = 100000
+image.phm.per-prio.heatmap.max_points = 2560000 # 100000
 image.phm.per-prio.heatmap.probe.x.source = agent
 image.phm.per-prio.heatmap.probe.x.key = replaybuffer.storage.next_state
 image.phm.per-prio.heatmap.probe.x.index = 0

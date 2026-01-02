@@ -281,7 +281,7 @@ namespace anet::rl {
 
     class ISweepInputGenerator {
     public:
-        // nullopt の axis は Generator が決めてよい
+        // -1 の axis は Generator が決めてよい
         /// @param grid_width gridの幅。-1は指定しないの意味
         /// @param grid_height gridの高さ。-1は指定しないの意味
         /// @brief Observer側からの希望Gridサイズを受け取る

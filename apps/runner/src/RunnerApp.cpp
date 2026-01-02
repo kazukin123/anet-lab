@@ -135,8 +135,6 @@ bool RunnerApp::OnInit()
     // RunnerApp設定生成
     config_ = std::make_unique<RunnerApp::Config>(config_data);
 
-
-
     // MetricsLogger
     anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetRunsPath(), config_->run_name);
 
