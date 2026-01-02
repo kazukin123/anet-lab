@@ -102,14 +102,89 @@ class Toast {
 	}
 }
 
-function base64ToFloat32Array(base64) {
+/**
+ * Base64文字列(単一or配列)をデコードしてFloat32Arrayに変換
+ * 文字列連結を行わず、直接バイナリバッファに書き込むことでメモリ溢れを防ぐ
+ */
+function base64ToFloat32Array(input) {
+  if (!input) return new Float32Array(0);
+  
+  // 単一文字列が来た場合（互換性維持）
+  if (typeof input === "string") return _decodeSingleBase64ToFloat32(input);
+  
+  // 配列が来た場合（Chunk分割対応）
+  if (Array.isArray(input)) {
+    // 1. 全体のバイトサイズを計算
+    let totalBytes = 0;
+    for (const chunk of input) {
+        // Base64の長さからパディング(=)を除いたバイト数を計算
+        // 正確には (len * 3) / 4 - padding
+        const len = chunk.length;
+        let padding = 0;
+        if (chunk.endsWith("==")) padding = 2;
+        else if (chunk.endsWith("=")) padding = 1;
+        totalBytes += (len * 3 / 4) - padding;
+    }
+
+    // 2. 最終的な配列を確保
+    const result = new Float32Array(totalBytes / 4);
+    const resultBytes = new Uint8Array(result.buffer);
+    
+    // 3. チャンクごとにデコードして書き込み
+    let offset = 0;
+    for (const chunk of input) {
+        const binStr = atob(chunk); // チャンク単位なら巨大文字列にならないので安全
+        const len = binStr.length;
+        for (let i = 0; i < len; i++) {
+            resultBytes[offset + i] = binStr.charCodeAt(i);
+        }
+        offset += len;
+    }
+    return result;
+  }
+  return new Float32Array(0);
+}
+
+function _decodeSingleBase64ToFloat32(base64) {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return new Float32Array(bytes.buffer);
 }
 
-function base64ToInt32Array(base64) {
+function base64ToInt32Array(input) {
+  if (!input) return new Int32Array(0);
+
+  if (typeof input === "string") return _decodeSingleBase64ToInt32(input);
+
+  if (Array.isArray(input)) {
+    let totalBytes = 0;
+    for (const chunk of input) {
+        const len = chunk.length;
+        let padding = 0;
+        if (chunk.endsWith("==")) padding = 2;
+        else if (chunk.endsWith("=")) padding = 1;
+        totalBytes += (len * 3 / 4) - padding;
+    }
+
+    const result = new Int32Array(totalBytes / 4);
+    const resultBytes = new Uint8Array(result.buffer);
+    
+    let offset = 0;
+    for (const chunk of input) {
+        const binStr = atob(chunk);
+        const len = binStr.length;
+        for (let i = 0; i < len; i++) {
+            resultBytes[offset + i] = binStr.charCodeAt(i);
+        }
+        offset += len;
+    }
+    return result;
+  }
+  return new Int32Array(0);
+}
+
+function _decodeSingleBase64ToInt32(base64) {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);

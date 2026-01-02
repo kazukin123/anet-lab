@@ -1,5 +1,7 @@
 package io.github.kazukin123.anetlab.metricsviewer.view.model;
 
+import java.util.List;
+
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -25,12 +27,12 @@ public class TagTrace {
 	private final float[] values;
 
 	@JsonProperty("encodedSteps")
-	public String getEncodedSteps() {
+	public List<String> getEncodedSteps() {
 		return MetricTraceEncoder.encodeIntArray(steps);
 	}
 
 	@JsonProperty("encodedValues")
-	public String getEncodedValues() {
+	public List<String> getEncodedValues() {
 		return MetricTraceEncoder.encodeFloatArray(values);
 	}
 }
