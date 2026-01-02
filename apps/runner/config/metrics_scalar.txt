@@ -1,0 +1,145 @@
+﻿
+# ----- metrics
+
+    # metrics.scalar.[tag] = key [&step]  [@event]  [$target]
+    #   @event   : (default: @train) @learn || @train
+    #   &step    : &train_step || &learn_step || &episode_step || &exp_step || &update_step || &sim_step
+    #   $target  : $update_result || $agent || $exp || $runner
+
+metrics.scalar.baseline.[10_train/11_eps_count] = $runner episode_count @train $runner interval:100
+metrics.scalar.baseline.[10_train/12_epsilon] = $agent epsilon @train
+metrics.scalar.baseline.[20_eps/10_train_reward]     = $runner $episode_step train_episode_reward @train
+metrics.scalar.baseline.[20_eps/11_train_reward_ema] = $runner $episode_step train_episode_reward @train $ema ema_alpha:0.001 clip:1000
+metrics.scalar.baseline.[21_eval/01_target_reward] = $runner target_eval_reward @learn clip:3000
+metrics.scalar.baseline.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn clip:3000
+metrics.scalar.baseline.[21_eval/03_target_reward_ema] = $runner target_eval_reward @learn $ema ema_alpha:0.001 clip:1000
+metrics.scalar.baseline.[21_eval/04_policy_reward_ema] = $runner policy_eval_reward @learn $ema ema_alpha:0.001 clip:1000
+metrics.scalar.baseline.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn 
+metrics.scalar.baseline.[32_agent_base/06_per_beta] = $agent per_beta @learn 
+metrics.scalar.baseline.[37_agent_qtd/01_td_mean] = td_mean @learn
+metrics.scalar.baseline.[37_agent_qtd/03_td_mean_ema] = td_mean @learn $ema
+metrics.scalar.baseline.[37_agent_qtd/11_q_max_mean] = q_max_mean @learn
+metrics.scalar.baseline.[37_agent_qtd/12_q_max_max] = q_max_max @learn
+metrics.scalar.baseline.[37_agent_qtd/13_q_max_std] = q_max_std @learn
+metrics.scalar.baseline.[37_agent_qtd/16_q_std] = q_std @learn
+metrics.scalar.baseline.[37_agent_qtd/21_grad_norm] = grad_norm @learn interval:10
+metrics.scalar.baseline.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema
+metrics.scalar.baseline.[37_agent_qtd/24_grad_clip_ratio] = grad_clip_ratio @learn interval:10
+metrics.scalar.baseline.[37_agent_qtd/25_grad_clip_ratio_ema] = grad_clip_ratio @learn interval:10 $ema
+metrics.scalar.baseline.[38_agent_loss/01_loss] = loss @learn
+metrics.scalar.baseline.[38_agent_loss/02_loss_ema] = loss @learn $ema
+metrics.scalar.baseline.[39_agent_per/01_per_td_error_abs_max] = per_td_error_abs_max @learn
+metrics.scalar.baseline.[39_agent_per/02_per_prio_max] = per_prio_max @learn
+metrics.scalar.baseline.[39_agent_per/03_per_prio_clip_ratio] = per_prio_clip_ratio @learn
+metrics.scalar.baseline.[39_agent_per/04_per_batch_prio_mean] = per_batch_prio_mean @learn
+metrics.scalar.baseline.[39_agent_per/05_per_is_weight_mean] = per_is_weight_mean @learn
+metrics.scalar.baseline.[39_agent_per/11_per_td_error_abs_max_ema] = per_td_error_abs_max @learn $ema
+metrics.scalar.baseline.[39_agent_per/12_per_prio_max_ema] = per_prio_max @learn $ema
+metrics.scalar.baseline.[39_agent_per/13_per_prio_clip_ratio_ema] = per_prio_clip_ratio @learn $ema
+metrics.scalar.baseline.[39_agent_per/14_per_batch_prio_mean_ema] = per_batch_prio_mean @learn $ema
+metrics.scalar.baseline.[39_agent_per/15_per_is_weight_mean_ema] = per_is_weight_mean @learn $ema
+metrics.scalar.baseline.[40_agent_rs/01_scale] = $agent reward_scaler.scale @learn
+metrics.scalar.baseline.[40_agent_rs/02_clip_ratio] = $agent reward_scaler.clip_ratio @learn
+#metrics.scalar.baseline.[41_agent_on/02_mean_mean] = $agent obs_norm.mean_mean @learn
+#metrics.scalar.baseline.[41_agent_on/03_std_mean] = $agent obs_norm.std_mean @learn
+#metrics.scalar.baseline.[41_agent_on/05_outlier_ratio] = $agent obs_norm.robust_outlier_ratio @learn
+
+metrics.scalar.baseline.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
+metrics.scalar.baseline.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $runner interval:100
+metrics.scalar.baseline.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema ema_alpha:0.001 interval:100 
+metrics.scalar.baseline.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema ema_alpha:0.001 interval:100 
+metrics.scalar.baseline.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
+
+
+
+metrics.scalar.dqn.[10_train/10_episode_reward] = $runner train_episode_reward @train
+metrics.scalar.dqn.[10_train/11_episode_reward_ema] = $runner train_episode_reward @train $ema ema_alpha:0.001 clip:1000
+metrics.scalar.dqn.[10_train/10_total_reward] = $runner train_reward @train
+#metrics.scalar.dqn.[10_train/10_total_reward_ema] = train_reward $runner @train $ema
+metrics.scalar.dqn.[11_agent_dqn_base/03_epsilon_train] = $agent epsilon @train
+metrics.scalar.dqn.[21_eval/01_target_reward] = $runner target_eval_reward @learn clip:3000
+metrics.scalar.dqn.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn clip:3000
+#metrics.scalar.dqn.[21_eval/03_target_reward_ema] = $runner target_eval_reward $ema @learn
+#metrics.scalar.dqn.[21_eval/04_policy_reward_ema] = $runner policy_eval_reward $ema @learn
+metrics.scalar.dqn.[32_agent_dqn_base/05_epsilon_learn] = $agent epsilon @learn 
+metrics.scalar.dqn.[32_agent_dqn_base/10_collapse_s] = collapse_s @learn
+metrics.scalar.dqn.[32_agent_dqn_base/11_collapse_l] = collapse_l @learn
+metrics.scalar.dqn.[37_agent_dqn_qtd/01_td_mean] = td_mean @learn
+metrics.scalar.dqn.[37_agent_dqn_qtd/03_td_mean_ema] = td_mean @learn $ema
+metrics.scalar.dqn.[37_agent_dqn_qtd/11_qmax_mean] = q_max_mean @learn
+metrics.scalar.dqn.[37_agent_dqn_qtd/12_qmax_max] = q_max_max @learn
+metrics.scalar.dqn.[37_agent_dqn_qtd/13_qmax_std] = q_max_std @learn
+metrics.scalar.dqn.[37_agent_dqn_qtd/21_grad_norm] = grad_norm @learn
+metrics.scalar.dqn.[37_agent_dqn_qtd/22_grad_clip_ratio] = grad_clip_ratio @learn
+metrics.scalar.dqn.[38_agent_dqn_loss/01_loss] = loss @learn
+metrics.scalar.dqn.[38_agent_dqn_loss/02_loss_ema] = loss_ema @learn
+metrics.scalar.dqn.[37_agent_dqn_qtd/31_q_z] = q_z @learn
+metrics.scalar.dqn.[37_agent_dqn_qtd/32_q_cv] = q_cv @learn
+metrics.scalar.dqn.[37_agent_dqn_qtd/33_q_niqr] = q_niqr @learn
+metrics.scalar.dqn.[37_agent_dqn_qtd/43_s_ema] = s_ema @learn
+metrics.scalar.dqn.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
+metrics.scalar.dqn.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $runner interval:100
+metrics.scalar.dqn.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
+metrics.scalar.dqn.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
+metrics.scalar.dqn.[90_perf/82_exp_step] = exp_step @train $runner interval:100
+metrics.scalar.dqn.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
+
+
+metrics.scalar.min.[00_train/11_eps_count] = $runner episode_count @train $runner interval:100
+metrics.scalar.min.[10_eps/10_eps_reward] = $runner $episode_step train_episode_reward @train
+metrics.scalar.min.[21_eval/01_target_reward] = $runner target_eval_reward @learn clip:3000
+metrics.scalar.min.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn clip:3000
+metrics.scalar.min.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
+metrics.scalar.min.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
+metrics.scalar.min.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
+
+
+metrics.scalar.full.[10_train/11_eps_count] = $runner episode_count @train $runner interval:100
+metrics.scalar.full.[10_train/12_epsilon] = $agent epsilon @train
+metrics.scalar.full.[20_eps/10_train_reward] = $runner $episode_step train_episode_reward @train
+metrics.scalar.full.[20_eps/11_train_reward_ema] = $runner train_episode_reward @train $ema ema_alpha:0.001 clip:1000
+metrics.scalar.full.[21_eval/01_target_reward] = $runner target_eval_reward @learn clip:3000
+metrics.scalar.full.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn clip:3000
+metrics.scalar.full.[21_eval/03_target_reward_ema] = $runner target_eval_reward $ema @learn
+metrics.scalar.full.[21_eval/04_policy_reward_ema] = $runner policy_eval_reward $ema @learn
+metrics.scalar.full.[32_agent_base/04_tau] = $agent tau @learn
+metrics.scalar.full.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn 
+metrics.scalar.full.[32_agent_base/10_collapse_s] = collapse_s @learn
+metrics.scalar.full.[32_agent_base/11_collapse_l] = collapse_l @learn
+metrics.scalar.full.[37_agent_qtd/01_td_mean] = td_mean @learn
+metrics.scalar.full.[37_agent_qtd/03_td_ema] = td_ema @learn
+metrics.scalar.full.[37_agent_qtd/11_qmax_mean] = q_max_mean @learn
+metrics.scalar.full.[37_agent_qtd/12_qmax_max] = q_max_max @learn
+metrics.scalar.full.[37_agent_qtd/13_qmax_std] = q_max_std @learn
+metrics.scalar.full.[37_agent_qtd/21_grad_norm] = grad_norm @learn
+metrics.scalar.full.[37_agent_qtd/22_grad_clip_ratio] = grad_clip_ratio @learn
+metrics.scalar.full.[38_agent_loss/01_loss] = loss @learn
+metrics.scalar.full.[38_agent_loss/02_loss_ema] = loss_ema @learn
+#metrics.scalar.full.[33_agent_action/01_act_diff_ema] = act_diff_ema @learn
+#metrics.scalar.full.[33_agent_action/02_act_unstable] = act_unstable @learn
+#metrics.scalar.full.[33_agent_action/03_act_unstable_ema] = act_unstable_ema @learn
+metrics.scalar.full.[37_agent_qtd/31_q_z] = q_z @learn
+metrics.scalar.full.[37_agent_qtd/32_q_cv] = q_cv @learn
+metrics.scalar.full.[37_agent_qtd/33_q_niqr] = q_niqr @learn
+metrics.scalar.full.[37_agent_qtd/34_q_unstable] = q_unstable @learn
+metrics.scalar.full.[37_agent_qtd/35_q_unstable_ema] = q_unstable_ema @learn
+#metrics.scalar.full.[37_agent_qtd/41_e_t] = e_t @learn
+metrics.scalar.full.[37_agent_qtd/42_s] = s @learn
+metrics.scalar.full.[37_agent_qtd/43_s_ema] = s_ema @learn
+metrics.scalar.full.[37_agent_qtd/46_unstable_ema] = unstable_ema @learn
+metrics.scalar.full.[40_agent_rs/01_scale] = $agent reward_scaler.scale @learn
+metrics.scalar.full.[40_agent_rs/21_std] = $agent reward_scaler.std @learn
+metrics.scalar.full.[40_agent_rs/23_mean] = $agent reward_scaler.mean @learn
+metrics.scalar.full.[40_agent_rs/24_count] = $agent reward_scaler.count @learn
+metrics.scalar.full.[41_agent_on/01_count] = $agent obs_norm.count @learn
+metrics.scalar.full.[41_agent_on/02_mean_mean] = $agent obs_norm.mean_mean @learn
+metrics.scalar.full.[41_agent_on/03_std_mean] = $agent obs_norm.std_mean @learn
+metrics.scalar.full.[41_agent_on/04_clip_ratio] = $agent obs_norm.clip_ratio @learn
+metrics.scalar.full.[41_agent_on/05_outlier_ratio] = $agent obs_norm.robust_outlier_ratio @learn
+metrics.scalar.full.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
+metrics.scalar.full.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $runner interval:100
+metrics.scalar.full.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
+metrics.scalar.full.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
+metrics.scalar.full.[90_perf/82_exp_step] = exp_step @train $runner interval:100
+metrics.scalar.full.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
+

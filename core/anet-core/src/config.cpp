@@ -3,6 +3,9 @@
 #include <fstream>
 #include <wx/string.h>
 #include "anet/str_util.hpp"
+#include "anet/log.hpp"
+
+namespace LOG = anet::log;
 
 namespace anet {
 
@@ -14,9 +17,17 @@ namespace anet {
         return s.substr(b, e - b + 1);
     }
 
-    void Properties::Load(const std::string& filename) {
+    void Properties::Load(const std::string& filename, int depth) {
+        if (depth >= 10) {
+            throw std::runtime_error("ANET_SYSTEM_ERROR: Include depth limit exceeded (max 10).");
+        }
+
         std::ifstream ifs(filename);
-        if (!ifs) throw std::runtime_error("Properties: Cannot open: " + filename);
+        if (!ifs) {
+            // ファイルが見つからない場合は警告のみで続行
+            LOG::warn() << "Properties: Failed to open file: " << filename;
+            return;
+        }
 
         // BOM スキップ
         char bom[3] = { 0 };
@@ -26,20 +37,90 @@ namespace anet {
             ifs.seekg(0);
         }
 
+        // カレントファイルのディレクトリを取得（相対パス解決用）
+        std::filesystem::path current_path(filename);
+        std::filesystem::path parent_dir = current_path.parent_path();
+
         std::string line;
         while (std::getline(ifs, line)) {
             if (line.empty() || line[0] == '#') continue; // コメント行スキップ
 
-            size_t posHash = line.find('#');   // '#' 以降はコメント扱い
-            if (posHash != std::string::npos)
-                line = line.substr(0, posHash);
+            size_t pos_hash = line.find('#');   // '#' 以降はコメント扱い
+            if (pos_hash != std::string::npos)
+                line = line.substr(0, pos_hash);
 
-            size_t posSlash = line.find("//");  // '//' 以降はコメント扱い
-            if (posSlash != std::string::npos)
-                line = line.substr(0, posSlash);
+            size_t pos_slash = line.find("//");  // '//' 以降はコメント扱い
+            if (pos_slash != std::string::npos)
+                line = line.substr(0, pos_slash);
 
             line = Trim(line);  // 前後の空白除去
             if (line.empty()) continue;
+
+            // ---- $include 処理 ----
+            // $とincludeの間にはスペースが入る可能性があるため、先頭から解析
+            if (line[0] == '$') {
+                std::string s = line.substr(1); // '$'除去
+
+                // 先頭の空白スキップ
+                size_t b = s.find_first_not_of(" \t");
+                if (b != std::string::npos) {
+                    s = s.substr(b);
+                    // "include" (case insensitive) チェック
+                    if (s.size() >= 7) {
+                        std::string prefix = s.substr(0, 7);
+                        std::transform(prefix.begin(), prefix.end(), prefix.begin(), ::tolower);
+
+                        if (prefix == "include") {
+                            // include以降のパス部分を抽出
+                            std::string path_part = s.substr(7);
+                            path_part = Trim(path_part); // 前後の空白除去
+
+                            if (path_part.empty()) {
+                                LOG::error() << "Properties: Empty include path in " << filename;
+                                continue;
+                            }
+
+                            // 囲み文字処理
+                            char start_char = path_part.front();
+                            char end_char = path_part.back();
+
+                            if (start_char == '<' || start_char == '[' || start_char == '(' || start_char == '"') {
+                                char expected_end = 0;
+                                if (start_char == '<') expected_end = '>';
+                                else if (start_char == '[') expected_end = ']';
+                                else if (start_char == '(') expected_end = ')';
+                                else if (start_char == '"') expected_end = '"';
+
+                                if (end_char == expected_end) {
+                                    // 囲み文字を除去
+                                    path_part = path_part.substr(1, path_part.size() - 2);
+                                    path_part = Trim(path_part); // 中身もトリム
+                                } else {
+                                    // 囲み文字が閉じられていない場合はエラー
+                                    LOG::error() << "Properties: Mismatched include brackets in " << filename << ": " << line;
+                                    continue;
+                                }
+                            }
+
+                            if (path_part.empty()) {
+                                LOG::error() << "Properties: Empty filename after parsing include in " << filename;
+                                continue;
+                            }
+
+                            // パス結合（親ファイル基準）
+                            std::filesystem::path include_path = path_part;
+                            if (include_path.is_relative()) {
+                                include_path = parent_dir / include_path;
+                            }
+
+                            // 再帰読み込み
+                            Load(include_path.string(), depth + 1);
+                            continue; // 次の行へ
+                        }
+                    }
+                }
+            }
+            // ---------------------
 
             size_t pos = line.find('=');    // '=' または ':' で区切る
             if (pos == std::string::npos)

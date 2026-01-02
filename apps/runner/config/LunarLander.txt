@@ -1,0 +1,131 @@
+﻿
+# ----
+
+app.$ = app.online > P
+#app.$ = app.batchrun > P
+
+#train.seed = 5542346184581256364  # 
+#train.seed = 540080446186335311 # N-STEP評価用
+train.seed = 7508636947373324265 # 評価用
+
+train.batch_size = 256
+#train.batch_size = 10
+#train.batch_size = 1
+
+metrics.scalar.$ = metrics.scalar.baseline > M
+#metrics.scalar.$ = metrics.scalar.min > M
+#metrics.scalar.$ = metrics.scalar.full > M
+
+#DefaultDQNAgent.$ = DefaultDQNAgent.trunk > A
+#DefaultDQNAgent.$ = DefaultDQNAgent.trunk2 > A
+DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A
+
+
+# ---- image metrics
+
+#metrics.image.interval = 0  # 出力全無効
+#metrics.image.interval = 1  # 毎ステップ出力（重い）
+metrics.image.interval = 50  # 通常運用
+
+metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.per-prio > image.phm.s01
+#metrics.image.[43_agent_img/02_hm_visit_03_maxq].$     = image.phm.visit-maxq
+#metrics.image.[44_agent_img/52_per_thg_prio].$         = image.thg.per-prio
+#metrics.image.[45_agent_img/05_shm_01_qma01].$   = image.shm.qmax > image.shm.s01
+#metrics.image.[45_agent_img/05_shm_01_qma02].$   = image.shm.qmax > image.shm.s02
+metrics.image.[45_agent_img/05_shm_01_maxq_01].$        = image.shm.qmax > image.shm.01
+
+#metrics.image.[53_agent_img/52_per_hm_prio_01_test].$   = image.phm.per-prio > image.phm.s01 > image.test
+#metrics.image.[55_agent_img/05_shm_01_maxq_01_test].$   = image.shm.qmax > image.shm.01 > image.test
+
+# ---- agent
+i
+#agent.class_id = DQNAgent
+#agent.class_id = RainbowAgent
+agent.class_id = DefaultDQNAgent
+
+#agent.device_type = 0    # 0=cpu 1=cuda
+agent.device_type = 1    # 0=cpu 1=cuda
+agent.device_index = -1  # GPU index -1=current device
+
+# ---- env
+
+env.class_id = LunarLanderEnv
+env.worker_threads = -1	# -1=auto
+env.device_type = 0     # 0=cpu 1=cuda
+env.device_index = -1   # GPU index -1=current device
+env.worker_type = 0     # 0=AUTO 1=SINGLE_THEAD 2=THREAD_POOL
+
+# ---- trainer
+
+#train.eval_interval = 0
+#train.eval_interval = 10
+#train.eval_interval = 50
+train.eval_interval = 100
+#train.eval_interval = 1000
+
+
+# ---- app
+
+app.run_name = run_{t}
+#app.train_auto_start = false
+app.train_auto_start = true
+
+#app.online.train_pause_step = 3000    #3K
+#app.online.train_pause_step = 10000   #10K
+#app.online.train_pause_step = 200000  #200K
+app.online.train_pause_step  = 100000  #100K
+#app.online.train_pause_step = 1000000 #1000K
+app.online.train_exit_step = -1
+app.online.train_panel.fps = 30
+app.online.eval_panel.fps = 30
+app.online.eval_panel.step_per_frame = 3
+
+app.batchrun.train_auto_start = true
+app.batchrun.train_pause_step = -1
+#app.batchrun.train_exit_step = 1000000 #1000K
+#app.batchrun.train_exit_step = 500000 #500K
+#app.batchrun.train_exit_step = 200000 #200K
+app.batchrun.train_exit_step  = 100000  #100K
+#app.batchrun.train_exit_step = 10000  #10K
+app.batchrun.train_panel.fps = 0.5
+app.batchrun.eval_panel.fps = 0.5
+app.batchrun.eval_panel.step_per_frame = 3
+
+# ---- LunarLanderEnv
+
+#LunarLanderEnv.$ = LunarLanderEnv.normal
+#LunarLanderEnv.$ = LunarLanderEnv.easy
+LunarLanderEnv.$ = LunarLanderEnv.trunk
+
+LunarLanderEnv.trunk.enable_wind = true
+LunarLanderEnv.trunk.wind_power = 3.0
+LunarLanderEnv.trunk.turbulence_power = 0.5
+LunarLanderEnv.trunk.terrain_point_count = 10
+LunarLanderEnv.trunk.terrain_noise_height = 0.7
+LunarLanderEnv.trunk.ground_y = 0.0
+
+LunarLanderEnv.easy.enable_wind = false
+LunarLanderEnv.easy.terrain_point_count = 2
+LunarLanderEnv.easy.terrain_noise_height = 0.0
+LunarLanderEnv.easy.ground_y = 0.0
+
+LunarLanderEnv.normal.enable_wind = true
+LunarLanderEnv.normal.wind_power = 15.0
+LunarLanderEnv.normal.turbulence_power = 1.5
+LunarLanderEnv.normal.ground_y = 0.2
+LunarLanderEnv.normal.terrain_point_count = 11 #21
+LunarLanderEnv.normal.terrain_noise_height = 1.0
+
+LunarLanderEnv.limit_step = 1000
+LunarLanderEnv.world_half_width = 2.5
+LunarLanderEnv.world_height = 4.0 #2.0
+LunarLanderEnv.ground_y = 0.5
+LunarLanderEnv.gravity = -10.0
+LunarLanderEnv.wind_power = 15.0
+
+
+## MEMO
+# agent.*は無条件で最初に採用される。
+# その上で、例えば "agent.$ = agent.base > agent.trunk" があれば
+# agent.baseとagent.trunkの配下の内容が順にagentにマージされる。
+

@@ -1,0 +1,91 @@
+﻿
+# ---- 
+
+image.thg.per-prio.type = TimeHistgram
+image.thg.per-prio.image_width = -1
+image.thg.per-prio.image_height = -1
+image.thg.per-prio.flags = AutoNormValue MeanMode FlipY LogScaleAxis
+#image.thg.per-prio.interval = 1  # 0 1 100
+image.thg.per-prio.histgram.bins = 256
+image.thg.per-prio.histgram.max_frames = 1000
+image.thg.per-prio.histgram.frame_mode = Scale    # Scale Scroll Overwrite
+image.thg.per-prio.histgram.frame_interval = 10 # 20
+image.thg.per-prio.histgram.alpha = 1.0
+image.thg.per-prio.histgram.probe.value.source = agent
+image.thg.per-prio.histgram.probe.value.key = replaybuffer.per.distribution
+image.thg.per-prio.histgram.probe.value.index = -1
+
+# ---- 
+
+image.phm.visit-maxq.type = HeatMap
+image.phm.visit-maxq.image_width = -1
+image.phm.visit-maxq.image_height = -1
+image.phm.visit-maxq.flags = AutoNormValue MeanMode
+#image.phm.visit-maxq.interval = 1  # 0 1 100
+image.phm.visit-maxq.heatmap.width = 512
+image.phm.visit-maxq.heatmap.height = 512
+image.phm.visit-maxq.heatmap.max_points = 100000
+image.phm.visit-maxq.heatmap.probe.x.source = experience
+image.phm.visit-maxq.heatmap.probe.x.key = experience.next_state.obs
+image.phm.visit-maxq.heatmap.probe.x.index = 0
+image.phm.visit-maxq.heatmap.probe.y.source = experience
+image.phm.visit-maxq.heatmap.probe.y.key = experience.next_state.obs
+image.phm.visit-maxq.heatmap.probe.y.index = 1
+image.phm.visit-maxq.heatmap.probe.value.source = experience
+image.phm.visit-maxq.heatmap.probe.value.key = action.max_q
+image.phm.visit-maxq.heatmap.probe.value.index = -1
+
+image.phm.per-prio.type = HeatMap
+image.phm.per-prio.image_width = -1
+image.phm.per-prio.image_height = -1
+image.phm.per-prio.flags = AutoNormValue MeanMode
+#image.phm.per-prio.interval = 1  # 0 1 100
+image.phm.per-prio.heatmap.width = 512
+image.phm.per-prio.heatmap.height = 512
+image.phm.per-prio.heatmap.max_points = 2560000 # 100000
+image.phm.per-prio.heatmap.probe.x.source = agent
+image.phm.per-prio.heatmap.probe.x.key = replaybuffer.storage.next_state
+image.phm.per-prio.heatmap.probe.x.index = 0
+image.phm.per-prio.heatmap.probe.x.auto_scale_mode = 0 # 0=none 1=PerStep 2=Global
+image.phm.per-prio.heatmap.probe.y.source = agent
+image.phm.per-prio.heatmap.probe.y.key = replaybuffer.storage.next_state
+image.phm.per-prio.heatmap.probe.y.index = 1
+image.phm.per-prio.heatmap.probe.y.auto_scale_mode = 0 # 0=none 1=PerStep 2=Global
+image.phm.per-prio.heatmap.probe.value.source = agent
+image.phm.per-prio.heatmap.probe.value.key = replaybuffer.per.distribution
+image.phm.per-prio.heatmap.probe.value.index = -1
+
+image.phm.s01.heatmap.probe.x.index = 0
+image.phm.s01.heatmap.probe.y.index = 1
+
+image.phm.s02.heatmap.probe.x.index = 0
+image.phm.s02.heatmap.probe.y.index = 2
+
+# ---- 
+
+image.shm.qmax.type = SweepStateHeatMap
+image.shm.qmax.image_width = -1
+image.shm.qmax.image_height = -1
+image.shm.qmax.flags = AutoScaleAxis AutoNormValue AutoScaleAxis SumMode
+image.shm.qmax.interval = 1   # ★ 100
+image.shm.qmax.sweep_obs.width = 1024
+image.shm.qmax.sweep_obs.height = 1024
+image.shm.qmax.sweep_obs.x_index = 0
+image.shm.qmax.sweep_obs.y_index = 1
+image.shm.qmax.sweep_obs.network_key = policy-net.forward
+image.shm.qmax.sweep_obs.extractor_name = max
+image.shm.qmax.sweep_obs.extractor_index = -1
+
+image.shm.s01.sweep_obs.x_index = 0
+image.shm.s01.sweep_obs.y_index = 1
+
+image.shm.s02.sweep_obs.x_index = 0
+image.shm.s02.sweep_obs.y_index = 2
+
+
+metrics.image.histgram.interval = 50
+metrics.image.histgram.frame_interval = 10
+
+image.test.interval = 1
+image.test.histgram.frame_interval = 10
+

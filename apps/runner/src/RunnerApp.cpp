@@ -36,12 +36,7 @@ struct RunnerApp::Config : public anet::Config {
     TrainPanelConfig train_panel;
     EvalPanelConfig eval_panel;
 
-    //int image_log_interval = 100;
-    //int image_log_interval_thm = 500;
-    //bool use_image_log = false;
-    //bool use_per_image_log = false;
-
-    RunnerApp::Config(const anet::ConfigData& config_data) : anet::Config(config_data, "RunnerApp")
+    RunnerApp::Config(const anet::ConfigData& config_data) : anet::Config(config_data, "app")
     {
         ANET_READ_CONFIG(config_data, run_name);
         ANET_READ_CONFIG(config_data, train_auto_start);
@@ -51,11 +46,6 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, train_panel.fps);
         ANET_READ_CONFIG(config_data, eval_panel.fps);
         ANET_READ_CONFIG(config_data, eval_panel.step_per_frame);
-
-        //ANET_READ_CONFIG(config_data, image_log_interval);
-        //ANET_READ_CONFIG(config_data, image_log_interval_thm);
-        //ANET_READ_CONFIG(config_data, use_image_log);
-        //ANET_READ_CONFIG(config_data, use_per_image_log);
     }
 };
 
@@ -75,7 +65,7 @@ std::filesystem::path GetProjectRootDir()
 
 std::string GetConfigFilePath()
 {
-    return (GetProjectRootDir() / "config" / "runner.txt").string();  // パスを結合
+    return (GetProjectRootDir() / "config" / "_main.txt").string();  // パスを結合
 }
 
 std::string GetRunsPath()

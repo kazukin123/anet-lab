@@ -169,7 +169,7 @@ namespace anet {
         ConfigData configData;
 
         static std::string Trim(const std::string& s);
-        void Load(const std::string& filename);
+        void Load(const std::string& filename, int depth = 0);
     };
 
     /// モジュール別Configクラス実装用の基底クラス
