@@ -148,7 +148,7 @@ std::optional<anet::TensorFunction> DuelingQNet::GetTensorFunction(const std::st
             auto v = value_->forward(x);        // (B, 1)
             auto a = adv_->forward(x);          // (B, A)
             auto va = torch::cat({ v, a }, 1);  // [B, 1 + A]
-            ANET_CHECK_SHAPE(va, { ANET_SHAPE_ANY, 1 + n_actions_ });
+            ANET_ASSERT_SHAPE(va, { ANET_SHAPE_ANY, 1 + n_actions_ });
 
             return va;
 
@@ -162,7 +162,7 @@ std::optional<anet::TensorFunction> DuelingQNet::GetTensorFunction(const std::st
             x = torch::relu(fc2_->forward(x));
 
             auto v = value_->forward(x);        // (B, 1)
-            ANET_CHECK_SHAPE(v, { ANET_SHAPE_ANY, 1 });
+            ANET_ASSERT_SHAPE(v, { ANET_SHAPE_ANY, 1 });
 
             return v;
             };
@@ -175,7 +175,7 @@ std::optional<anet::TensorFunction> DuelingQNet::GetTensorFunction(const std::st
             x = torch::relu(fc2_->forward(x));
 
             auto a = adv_->forward(x);          // (B, A)
-            ANET_CHECK_SHAPE(a, { ANET_SHAPE_ANY, n_actions_ });
+            ANET_ASSERT_SHAPE(a, { ANET_SHAPE_ANY, n_actions_ });
             return a;
             };
         return fn;
@@ -290,12 +290,12 @@ torch::Tensor QuantileDuelingQNet::ForwardQuantiles(const torch::Tensor& obs)
     auto v = value_->forward(x);
     auto batch_size = v.size(0);
     v = v.view({ batch_size, 1, num_quantiles_ });
-    ANET_CHECK_NAN(v);
+    ANET_ASSERT_NAN(v);
 
     // Advantage: (B, H) -> (B, A * N) -> (B, A, N)
     auto a = adv_->forward(x);
     a = a.view({ batch_size, n_actions_, num_quantiles_ });
-    ANET_CHECK_NAN(a);
+    ANET_ASSERT_NAN(a);
 
     // Mean Advantage across actions: (B, 1, N)
     auto a_mean = a.mean(/*dim=*/1, /*keepdim=*/true);
@@ -349,7 +349,7 @@ std::optional<anet::TensorFunction> QuantileDuelingQNet::GetTensorFunction(const
             // index 1..A: Centered Advantage Distribution (実際にQ計算に使われる値)
             auto va = torch::cat({ v, a_centered }, 1);
 
-            ANET_CHECK_SHAPE(va, { ANET_SHAPE_ANY, 1 + n_actions_, num_quantiles_ });
+            ANET_ASSERT_SHAPE(va, { ANET_SHAPE_ANY, 1 + n_actions_, num_quantiles_ });
 
             return va;
             };
@@ -370,7 +370,7 @@ std::optional<anet::TensorFunction> QuantileDuelingQNet::GetTensorFunction(const
             auto idx = best_actions.view({ -1, 1, 1 }).expand({ -1, 1, num_quantiles_ });
             auto v_true_dist = q_dist.gather(1, idx);
 
-            ANET_CHECK_SHAPE(v_true_dist, { ANET_SHAPE_ANY, 1, num_quantiles_ });
+            ANET_ASSERT_SHAPE(v_true_dist, { ANET_SHAPE_ANY, 1, num_quantiles_ });
             return v_true_dist;
             };
     }
@@ -390,7 +390,7 @@ std::optional<anet::TensorFunction> QuantileDuelingQNet::GetTensorFunction(const
             auto a_mean = a.mean(/*dim=*/1, /*keepdim=*/true); // (B, 1, N)
             auto a_centered = a - a_mean;
 
-            ANET_CHECK_SHAPE(a_centered, { ANET_SHAPE_ANY, n_actions_, num_quantiles_ });
+            ANET_ASSERT_SHAPE(a_centered, { ANET_SHAPE_ANY, n_actions_, num_quantiles_ });
 
             return a_centered;
             };
@@ -723,23 +723,23 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
         auto raw_samples = replay_buffer_->Sample(config_.replay_batch_size, device_, current_beta);
 
         // Check shapes & dtypes
-        ANET_CHECK_DEVICE(raw_samples.obs, device_);
-        ANET_CHECK_DEVICE(raw_samples.actions, device_);
-        ANET_CHECK_DEVICE(raw_samples.target_values, device_);
-        ANET_CHECK_DEVICE(raw_samples.next_states.obs, device_);
-        ANET_CHECK_DEVICE(raw_samples.next_states.terminals, device_);
-        ANET_CHECK_DEVICE(raw_samples.n_steps, device_);
-        ANET_CHECK_SHAPE(raw_samples.obs, { B, S });
-        ANET_CHECK_SHAPE(raw_samples.actions, { B });    // 離散アクション
-        ANET_CHECK_SHAPE(raw_samples.target_values, { B });
-        ANET_CHECK_SHAPE(raw_samples.next_states.obs, { B, S });
-        ANET_CHECK_SHAPE(raw_samples.next_states.terminals, { B });
-        ANET_CHECK_SHAPE(raw_samples.n_steps, { B });
-        ANET_CHECK_DTYPE(raw_samples.obs, torch::kFloat32);
-        ANET_CHECK_DTYPE(raw_samples.actions, torch::kInt64);    // 離散アクション
-        ANET_CHECK_DTYPE(raw_samples.target_values, torch::kFloat32);
-        ANET_CHECK_DTYPE(raw_samples.next_states.terminals, torch::kBool);
-        ANET_CHECK_DTYPE(raw_samples.n_steps, torch::kInt64);
+        ANET_ASSERT_DEVICE(raw_samples.obs, device_);
+        ANET_ASSERT_DEVICE(raw_samples.actions, device_);
+        ANET_ASSERT_DEVICE(raw_samples.target_values, device_);
+        ANET_ASSERT_DEVICE(raw_samples.next_states.obs, device_);
+        ANET_ASSERT_DEVICE(raw_samples.next_states.terminals, device_);
+        ANET_ASSERT_DEVICE(raw_samples.n_steps, device_);
+        ANET_ASSERT_SHAPE(raw_samples.obs, { B, S });
+        ANET_ASSERT_SHAPE(raw_samples.actions, { B });    // 離散アクション
+        ANET_ASSERT_SHAPE(raw_samples.target_values, { B });
+        ANET_ASSERT_SHAPE(raw_samples.next_states.obs, { B, S });
+        ANET_ASSERT_SHAPE(raw_samples.next_states.terminals, { B });
+        ANET_ASSERT_SHAPE(raw_samples.n_steps, { B });
+        ANET_ASSERT_DTYPE(raw_samples.obs, torch::kFloat32);
+        ANET_ASSERT_DTYPE(raw_samples.actions, torch::kInt64);    // 離散アクション
+        ANET_ASSERT_DTYPE(raw_samples.target_values, torch::kFloat32);
+        ANET_ASSERT_DTYPE(raw_samples.next_states.terminals, torch::kBool);
+        ANET_ASSERT_DTYPE(raw_samples.n_steps, torch::kInt64);
 
         // 固有処理呼び出し
         auto samples = raw_samples.FlattenStates();
@@ -796,15 +796,15 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     // Q(s, a)
     // ------------------------------------------------------------
     auto q_all = network_.Forward(obs, /*use_target=*/false);      // (B,A)
-    ANET_CHECK_SHAPE(q_all, { B, A });
+    ANET_ASSERT_SHAPE(q_all, { B, A });
 
     torch::Tensor idx_actions = samples.actions.view({ B, 1 });   // (B,1)
-    ANET_CHECK_SHAPE(idx_actions, { B, 1 });
-    ANET_CHECK_DTYPE(idx_actions, torch::kInt64);
+    ANET_ASSERT_SHAPE(idx_actions, { B, 1 });
+    ANET_ASSERT_DTYPE(idx_actions, torch::kInt64);
 
     auto q_sa = q_all.gather(1, idx_actions).squeeze(1);          // (B)
-    ANET_CHECK_SHAPE(q_sa, { B });
-    ANET_CHECK_DTYPE(q_sa, torch::kFloat32);
+    ANET_ASSERT_SHAPE(q_sa, { B });
+    ANET_ASSERT_DTYPE(q_sa, torch::kFloat32);
 
     torch::Tensor max_q = std::get<0>(q_all.max(1)).detach();     // (B)
 
@@ -818,31 +818,31 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
         // Double DQN: policy_netで行動選択、target_netで価値計算
         auto next_q_policy = network_.Forward(next_obs, /*use_target=*/false);
-        ANET_CHECK_SHAPE(next_q_policy, { B, A });
+        ANET_ASSERT_SHAPE(next_q_policy, { B, A });
         auto next_actions = std::get<1>(next_q_policy.max(1));
-        ANET_CHECK_SHAPE(next_actions, { B });
+        ANET_ASSERT_SHAPE(next_actions, { B });
 
         // target_net で Q_target(s', argmax_a Q_online)
         auto next_q_target = network_.Forward(next_obs, /*use_target=*/true);
-        ANET_CHECK_SHAPE(next_q_target, { B, A });
+        ANET_ASSERT_SHAPE(next_q_target, { B, A });
         torch::Tensor next_actions_b = next_actions.view({ B, 1 });             // (B,1)
         max_next_q = next_q_target.gather(1, next_actions_b).squeeze(1);
     } else {
         torch::NoGradGuard;
         auto next_q_target = network_.Forward(next_obs, /*use_target=*/true);
-        ANET_CHECK_SHAPE(next_q_target, { B, A });
+        ANET_ASSERT_SHAPE(next_q_target, { B, A });
         max_next_q = std::get<0>(next_q_target.max(1));
     }
-    ANET_CHECK_SHAPE(max_next_q, { B });
-    ANET_CHECK_DTYPE(max_next_q, torch::kFloat32);
+    ANET_ASSERT_SHAPE(max_next_q, { B });
+    ANET_ASSERT_DTYPE(max_next_q, torch::kFloat32);
 
     // ------------------------------------------------------------
     // TD target & TD Error
     // ------------------------------------------------------------
     auto not_terminal = 1.0f - terminals.to(torch::kFloat32); // (B,)
     auto td_target = target_values + not_terminal * config_.gamma * max_next_q.detach(); // (B,)
-    ANET_CHECK_SHAPE(td_target, { B });
-    ANET_CHECK_DTYPE(td_target, torch::kFloat32);
+    ANET_ASSERT_SHAPE(td_target, { B });
+    ANET_ASSERT_DTYPE(td_target, torch::kFloat32);
     auto td_error = q_sa - td_target; // (B,)
 
     // ------------------------------------------------------------
@@ -1002,40 +1002,40 @@ torch::Tensor QRLearner::ComputeQuantileHuberLoss(
     const auto B = current_dist.size(0);
 
     // 入力チェック
-    ANET_CHECK_SHAPE(current_dist, { B, N });
-    ANET_CHECK_SHAPE(target_dist, { B, N });
+    ANET_ASSERT_SHAPE(current_dist, { B, N });
+    ANET_ASSERT_SHAPE(target_dist, { B, N });
 
     // current: (B, N) -> (B, N, 1)
     // target : (B, N) -> (B, 1, N)
     auto cur = current_dist.unsqueeze(2);
     auto tgt = target_dist.unsqueeze(1);
-    ANET_CHECK_SHAPE(cur, { B, N, 1 });
-    ANET_CHECK_SHAPE(tgt, { B, 1, N });
+    ANET_ASSERT_SHAPE(cur, { B, N, 1 });
+    ANET_ASSERT_SHAPE(tgt, { B, 1, N });
 
     // pair-wise差分: (B, N, N)
     auto diff = tgt - cur;
-    ANET_CHECK_SHAPE(diff, { B, N, N });
+    ANET_ASSERT_SHAPE(diff, { B, N, N });
 
     // 分位数 tau_i = (i + 0.5) / N
     auto tau = torch::arange(0.5f / N, 1.0f, 1.0f / N, device).view({ 1, N, 1 });
-    ANET_CHECK_SHAPE(tau, { 1, N, 1 });
+    ANET_ASSERT_SHAPE(tau, { 1, N, 1 });
 
     // Huber Loss
     auto abs_diff = diff.abs();
     auto huber = torch::where(abs_diff < kappa, 0.5f * diff.pow(2), kappa * (abs_diff - 0.5f * kappa));
-    ANET_CHECK_SHAPE(huber, { B, N, N });
+    ANET_ASSERT_SHAPE(huber, { B, N, N });
 
     // Quantile Regression Loss
     // rho_tau(u) = |tau - I(u<0)| * L_k(u)
     auto indicator = (diff.detach() < 0).to(torch::kFloat);
     auto quantile_weight = torch::abs(tau - indicator);	 // Broadcasting Check: (1, N, 1) - (B, N, N) -> (B, N, N)
-    ANET_CHECK_SHAPE(quantile_weight, { B, N, N });
+    ANET_ASSERT_SHAPE(quantile_weight, { B, N, N });
 
     auto loss_per_pair = quantile_weight * huber; // (B, N, N)
 
     // ターゲット分位数(dim=2)で総和、現在の分位数(dim=1)で平均 "Loss per Batch element"
     auto element_wise_loss = loss_per_pair.sum(2).mean(1); // (B)
-    ANET_CHECK_SHAPE(element_wise_loss, { B });
+    ANET_ASSERT_SHAPE(element_wise_loss, { B });
 
     return element_wise_loss;
 }
@@ -1050,9 +1050,9 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     const int N = config_.num_quantiles;
 
     // 入力チェック
-    ANET_CHECK_SHAPE(samples.actions, { B });
-    ANET_CHECK_SHAPE(samples.target_values, { B });
-    ANET_CHECK_SHAPE(samples.next_states.terminals, { B });
+    ANET_ASSERT_SHAPE(samples.actions, { B });
+    ANET_ASSERT_SHAPE(samples.target_values, { B });
+    ANET_ASSERT_SHAPE(samples.next_states.terminals, { B });
 
     // Observation正規化
     torch::Tensor obs = samples.obs;
@@ -1062,8 +1062,8 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         obs = obs_norm_->Normalize(samples.obs);
         next_obs = obs_norm_->Normalize(samples.next_states.obs);
     }
-    ANET_CHECK_NAN(obs);
-    ANET_CHECK_NAN(next_obs);
+    ANET_ASSERT_NAN(obs);
+    ANET_ASSERT_NAN(next_obs);
 
     // ------------------------------------------------------------
     // 分布計算
@@ -1071,25 +1071,25 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
     // 現在の分布計算: Z(s, a)、ForwardQuantiles は (B, A, N) を返す
     auto current_dist_all = network_.ForwardQuantiles(obs, /*use_target=*/false);
-    ANET_CHECK_SHAPE(current_dist_all, { B, A, N });
-    ANET_CHECK_NAN(current_dist_all);
+    ANET_ASSERT_SHAPE(current_dist_all, { B, A, N });
+    ANET_ASSERT_NAN(current_dist_all);
 
     // 選択された行動の分布を取得: (B, A, N) -> (B, N)
     torch::Tensor idx_actions = samples.actions.view({ B, 1, 1 }).expand({ B, 1, N });
-    ANET_CHECK_SHAPE(idx_actions, { B, 1, N });
-    ANET_CHECK_NAN(idx_actions);
+    ANET_ASSERT_SHAPE(idx_actions, { B, 1, N });
+    ANET_ASSERT_NAN(idx_actions);
 
     auto current_dist = current_dist_all.gather(1, idx_actions).squeeze(1); // (B, N)
-    ANET_CHECK_SHAPE(current_dist, { B, N });
-    ANET_CHECK_NAN(current_dist);
+    ANET_ASSERT_SHAPE(current_dist, { B, N });
+    ANET_ASSERT_NAN(current_dist);
 
     // メトリクス用: 平均値をmax_qとして報告
     auto max_q = current_dist.mean(1).detach(); // (B)
-    ANET_CHECK_SHAPE(max_q, { B });
+    ANET_ASSERT_SHAPE(max_q, { B });
 
     // メトリクス用: Q Std (分布の標準偏差)、 GPUTensor (Scalar) のまま保持
     auto std_q_tensor = current_dist.std(1).mean().detach();
-    ANET_CHECK_SHAPE(std_q_tensor, {});
+    ANET_ASSERT_SHAPE(std_q_tensor, {});
 
 
     // ------------------------------------------------------------
@@ -1104,37 +1104,37 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         torch::Tensor next_actions;
         if (config_.use_double_dqn) {
             auto next_q_policy = network_.Forward(next_obs, /*use_target=*/false); // (B, A)
-            ANET_CHECK_SHAPE(next_q_policy, { B, A });
+            ANET_ASSERT_SHAPE(next_q_policy, { B, A });
             next_actions = std::get<1>(next_q_policy.max(1)); // (B)
         } else {
             auto next_q_target = network_.Forward(next_obs, /*use_target=*/true); // (B, A)
-            ANET_CHECK_SHAPE(next_q_target, { B, A });
+            ANET_ASSERT_SHAPE(next_q_target, { B, A });
             next_actions = std::get<1>(next_q_target.max(1)); // (B)
         }
-        ANET_CHECK_SHAPE(next_actions, { B });
+        ANET_ASSERT_SHAPE(next_actions, { B });
 
         // 次状態のターゲット分布: Z_target(s', :)
         auto next_dist_all = network_.ForwardQuantiles(next_obs, /*use_target=*/true); // (B, A, N)
-        ANET_CHECK_SHAPE(next_dist_all, { B, A, N });
+        ANET_ASSERT_SHAPE(next_dist_all, { B, A, N });
 
         // a* に対応する分布を選択: (B, A, N) -> (B, N)
         torch::Tensor idx_next_actions = next_actions.view({ B, 1, 1 }).expand({ B, 1, N });
-        ANET_CHECK_SHAPE(idx_next_actions, { B, 1, N });
+        ANET_ASSERT_SHAPE(idx_next_actions, { B, 1, N });
 
         auto next_dist = next_dist_all.gather(1, idx_next_actions).squeeze(1); // (B, N)
-        ANET_CHECK_SHAPE(next_dist, { B, N });
+        ANET_ASSERT_SHAPE(next_dist, { B, N });
 
         // ベルマン作用素適用: T = r + gamma * Z(s', a*)
         auto reward = samples.target_values.view({ B, 1 }); // (B, 1)
         auto not_terminal = (1.0f - samples.next_states.terminals.to(torch::kFloat32)).view({ B, 1 }); // (B, 1)
-        ANET_CHECK_SHAPE(reward, { B, 1 });
-        ANET_CHECK_SHAPE(not_terminal, { B, 1 });
+        ANET_ASSERT_SHAPE(reward, { B, 1 });
+        ANET_ASSERT_SHAPE(not_terminal, { B, 1 });
 
         // (B, 1) + (B, 1) * (B, N) -> (B, N)
         target_dist = reward + config_.gamma * not_terminal * next_dist;
-        ANET_CHECK_SHAPE(target_dist, { B, N });
+        ANET_ASSERT_SHAPE(target_dist, { B, N });
     }
-    ANET_CHECK_NAN(target_dist);
+    ANET_ASSERT_NAN(target_dist);
 
     // target_dist: (B, N) -> mean -> (B)
     auto target_mean = target_dist.mean(1).detach();
@@ -1149,15 +1149,15 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
     // 要素ごとのLoss (B) を取得  ※ここで重い計算を一回だけ行う
     auto element_loss = ComputeQuantileHuberLoss(current_dist, target_dist);
-    ANET_CHECK_SHAPE(element_loss, { B });
-    ANET_CHECK_NAN(element_loss);
+    ANET_ASSERT_SHAPE(element_loss, { B });
+    ANET_ASSERT_NAN(element_loss);
 
     // 最適化用Loss(Scalar) ※ PERの重み (IS Weights) を適用
     torch::Tensor weights = config_.use_per ? samples.is_weights : torch::ones({ B }, device_);
-    ANET_CHECK_NAN(weights);
+    ANET_ASSERT_NAN(weights);
     auto loss = (element_loss * weights).mean();
-    ANET_CHECK_SHAPE(loss, {});
-    ANET_CHECK_NAN(loss);
+    ANET_ASSERT_SHAPE(loss, {});
+    ANET_ASSERT_NAN(loss);
 
 
     // ------------------------------------------------------------
@@ -1170,7 +1170,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 #if ANET_ENABLE_TENSOR_NAN_CHECK
     for (auto& param : network_.GetPolicyParameters()) {
         if (param.grad().defined()) { // 勾配が存在する場合
-            ANET_CHECK_NAN(param.grad());
+            ANET_ASSERT_NAN(param.grad());
         }
     }
 #endif
@@ -1214,11 +1214,11 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // 優先度用に要素ごとのLossを再計算（ブロードキャストを利用して全ペア差分を計算）
         auto tgt = target_dist.unsqueeze(1); // (B, 1, N)
         auto cur = current_dist.unsqueeze(2); // (B, N, 1)
-        ANET_CHECK_SHAPE(tgt, { B, 1, N });
-        ANET_CHECK_SHAPE(cur, { B, N, 1 });
+        ANET_ASSERT_SHAPE(tgt, { B, 1, N });
+        ANET_ASSERT_SHAPE(cur, { B, N, 1 });
 
         auto diff = tgt - cur; // (B, N, N)
-        ANET_CHECK_SHAPE(diff, { B, N, N });
+        ANET_ASSERT_SHAPE(diff, { B, N, N });
 
         // HuberLoss 部分
         auto tau = torch::arange(0.5f / N, 1.0f, 1.0f / N, device_).view({ 1, N, 1 });
@@ -1230,12 +1230,12 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
         // Quantile Loss 部分: rho_tau(u) = |tau - I(u<0)| * L_k(u)
         auto element_wise_loss = (torch::abs(tau - (diff.detach() < 0).to(torch::kFloat)) * huber_loss).sum(2).mean(1); // (B)
-        ANET_CHECK_SHAPE(element_wise_loss, { B });
+        ANET_ASSERT_SHAPE(element_wise_loss, { B });
 
         // Priority (element_loss を N で割ってスケーリング)
         auto new_priorities = (element_loss / static_cast<float>(N)) + config_.per_eps;
-        ANET_CHECK_SHAPE(new_priorities, { B });
-        ANET_CHECK_NAN(new_priorities);
+        ANET_ASSERT_SHAPE(new_priorities, { B });
+        ANET_ASSERT_NAN(new_priorities);
 
         // PER clip
         if (config_.use_per_prio_clip) {

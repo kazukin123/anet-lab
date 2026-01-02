@@ -53,31 +53,31 @@ namespace anet::rl {
         // shape チェック
         const int64_t N = batch.state.obs.size(0);
 
-        ANET_CHECK_SHAPE(batch.state.obs, { N, state_dim_ });
-        ANET_CHECK_SHAPE(batch.state.done, { N });
-        ANET_CHECK_SHAPE(batch.state.truncated, { N });
-        ANET_CHECK_SHAPE(batch.state.episode_start, { N });
+        ANET_ASSERT_SHAPE(batch.state.obs, { N, state_dim_ });
+        ANET_ASSERT_SHAPE(batch.state.done, { N });
+        ANET_ASSERT_SHAPE(batch.state.truncated, { N });
+        ANET_ASSERT_SHAPE(batch.state.episode_start, { N });
         if (is_discrete_) {
-            ANET_CHECK_SHAPE(batch.action.GetAction(), {N});
+            ANET_ASSERT_SHAPE(batch.action.GetAction(), {N});
         } else {
-            ANET_CHECK_SHAPE(batch.action.GetAction(), {N, ANET_SHAPE_ENDANY});
+            ANET_ASSERT_SHAPE(batch.action.GetAction(), {N, ANET_SHAPE_ENDANY});
         }
-        ANET_CHECK_SHAPE(batch.reward, { N });
-        ANET_CHECK_SHAPE(batch.next_state.obs, { N, state_dim_ });
-        ANET_CHECK_SHAPE(batch.next_state.done, { N });
-        ANET_CHECK_SHAPE(batch.next_state.truncated, { N });
-        ANET_CHECK_SHAPE(batch.next_state.episode_start, { N });
+        ANET_ASSERT_SHAPE(batch.reward, { N });
+        ANET_ASSERT_SHAPE(batch.next_state.obs, { N, state_dim_ });
+        ANET_ASSERT_SHAPE(batch.next_state.done, { N });
+        ANET_ASSERT_SHAPE(batch.next_state.truncated, { N });
+        ANET_ASSERT_SHAPE(batch.next_state.episode_start, { N });
 
-        ANET_CHECK_DTYPE(batch.state.obs, torch::kFloat32);
-        ANET_CHECK_DTYPE(batch.state.done, torch::kBool);
-        ANET_CHECK_DTYPE(batch.state.truncated, torch::kBool);
-        ANET_CHECK_DTYPE(batch.state.episode_start, torch::kBool);
-        ANET_CHECK_DTYPE(batch.action.GetAction(), is_discrete_ ? torch::kInt64 : torch::kFloat32);
-        ANET_CHECK_DTYPE(batch.reward, torch::kFloat32);
-        ANET_CHECK_DTYPE(batch.next_state.obs, torch::kFloat32);
-        ANET_CHECK_DTYPE(batch.next_state.done, torch::kBool);
-        ANET_CHECK_DTYPE(batch.next_state.truncated, torch::kBool);
-        ANET_CHECK_DTYPE(batch.next_state.episode_start, torch::kBool);
+        ANET_ASSERT_DTYPE(batch.state.obs, torch::kFloat32);
+        ANET_ASSERT_DTYPE(batch.state.done, torch::kBool);
+        ANET_ASSERT_DTYPE(batch.state.truncated, torch::kBool);
+        ANET_ASSERT_DTYPE(batch.state.episode_start, torch::kBool);
+        ANET_ASSERT_DTYPE(batch.action.GetAction(), is_discrete_ ? torch::kInt64 : torch::kFloat32);
+        ANET_ASSERT_DTYPE(batch.reward, torch::kFloat32);
+        ANET_ASSERT_DTYPE(batch.next_state.obs, torch::kFloat32);
+        ANET_ASSERT_DTYPE(batch.next_state.done, torch::kBool);
+        ANET_ASSERT_DTYPE(batch.next_state.truncated, torch::kBool);
+        ANET_ASSERT_DTYPE(batch.next_state.episode_start, torch::kBool);
 
         auto exps = batch.ToExperienceList();
         Push(exps);
@@ -95,9 +95,9 @@ namespace anet::rl {
 
             const int64_t idx = write_index_;
 
-            ANET_CHECK_SHAPE(e.state.obs, { state_dim_ });
-            ANET_CHECK_SHAPE(e.action, { });
-            ANET_CHECK_SHAPE(e.next_state.obs, { state_dim_ });
+            ANET_ASSERT_SHAPE(e.state.obs, { state_dim_ });
+            ANET_ASSERT_SHAPE(e.action, { });
+            ANET_ASSERT_SHAPE(e.next_state.obs, { state_dim_ });
 
             states_[idx].copy_(e.state.obs);
             next_states_[idx].copy_(e.next_state.obs);
@@ -146,11 +146,11 @@ namespace anet::rl {
                 torch::Tensor(),        // sampling_prob;   (B,) kFloat32
                 torch::Tensor(),        // is_weights;      (B,) kFloat32
             });
-        ANET_CHECK_SHAPE(out.obs, { b, state_dim_ });
-        ANET_CHECK_SHAPE(out.actions,{ b, n_actions_ });
-        ANET_CHECK_SHAPE(out.target_values, { b });
-        ANET_CHECK_SHAPE(out.next_states.obs, { b, state_dim_ });
-        ANET_CHECK_SHAPE(out.next_states.terminals, { b });
+        ANET_ASSERT_SHAPE(out.obs, { b, state_dim_ });
+        ANET_ASSERT_SHAPE(out.actions,{ b, n_actions_ });
+        ANET_ASSERT_SHAPE(out.target_values, { b });
+        ANET_ASSERT_SHAPE(out.next_states.obs, { b, state_dim_ });
+        ANET_ASSERT_SHAPE(out.next_states.terminals, { b });
 
         return out;
     }

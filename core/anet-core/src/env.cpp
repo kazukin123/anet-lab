@@ -216,7 +216,7 @@ std::shared_ptr<const BatchResetResult> VectorizedDiscreteBatchEnv::Reset(RunMod
     // 全環境を初期化し、state_ バッファに書き込む（バッファは constructor 確保済み）
     for (int i = 0; i < batch_size_; ++i) {
         auto reset_result = envs_[i]->Reset(mode);
-        ANET_CHECK_DEVICE(reset_result->state.obs, device_);
+        ANET_ASSERT_DEVICE(reset_result->state.obs, device_);
         result->state.obs[i].copy_(reset_result->state.obs);
         result->state.done[i] = reset_result->state.done;
         result->state.truncated[i] = reset_result->state.truncated;
@@ -233,9 +233,9 @@ std::shared_ptr<const BatchStepResult> VectorizedDiscreteBatchEnv::Step(const Ba
 
     const int64_t N = batch_spec_.batch_size;
 
-    ANET_CHECK_DTYPE_MSG(batch_action.GetAction(), torch::kInt64,
+    ANET_ASSERT_DTYPE_MSG(batch_action.GetAction(), torch::kInt64,
         "VectorizedDiscreteBatchEnv supports discrete action only. actions should be kInt64.");
-    ANET_CHECK_SHAPE(batch_action.GetAction(), {N});
+    ANET_ASSERT_SHAPE(batch_action.GetAction(), {N});
 
     // 戻りの枠生成
     auto result = getStepResult();
@@ -245,7 +245,7 @@ std::shared_ptr<const BatchStepResult> VectorizedDiscreteBatchEnv::Step(const Ba
     for (int i = 0; i < N; ++i) {
         auto a = actions[i].item<int64_t>();
         std::shared_ptr<const SingleStepResult> single_result = envs_[i]->Step(a, mode);
-        ANET_CHECK_DEVICE(single_result->next_state.obs, device_);
+        ANET_ASSERT_DEVICE(single_result->next_state.obs, device_);
 
         result->single_results[i] = single_result;
 
@@ -259,7 +259,7 @@ std::shared_ptr<const BatchStepResult> VectorizedDiscreteBatchEnv::Step(const Ba
         // Auto reset
         if (single_result->next_state.done || single_result->next_state.truncated) {
             auto reset_result = envs_[i]->Reset(mode);
-            ANET_CHECK_DEVICE(reset_result->state.obs, device_);
+            ANET_ASSERT_DEVICE(reset_result->state.obs, device_);
             result->continue_state.obs.index_put_({ i }, reset_result->state.obs);
             result->continue_state.done.index_put_({ i }, reset_result->state.done);
             result->continue_state.truncated.index_put_({ i }, reset_result->state.truncated);
@@ -318,7 +318,7 @@ std::shared_ptr<const BatchResetResult>  ThreadPoolDiscreteEnv::Reset(RunMode mo
             {
                 // ENV Reset 実行
                 auto single_result = envs_[i]->Reset(mode);
-                ANET_CHECK_DEVICE(single_result->state.obs, device_);
+                ANET_ASSERT_DEVICE(single_result->state.obs, device_);
 
                 // 結果書き込み(i番目の行だけを書くので他 Worker と race しない)
                 result->state.obs.select(0, i).copy_(single_result->state.obs);
@@ -340,9 +340,9 @@ std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(const BatchAc
 
     const int N = batch_size_;
     ANET_LOG_DEBUG("action=" << anet::ToString(batch_action.GetAction()));
-    ANET_CHECK_DTYPE_MSG(batch_action.GetAction(), torch::kInt64,
+    ANET_ASSERT_DTYPE_MSG(batch_action.GetAction(), torch::kInt64,
         "ThreadPoolDiscreteEnv supports discrete action only. actions should be kInt64.");
-    ANET_CHECK_SHAPE(batch_action.GetAction(), {N});
+    ANET_ASSERT_SHAPE(batch_action.GetAction(), {N});
     const int worker_count = pool_->GetWorkerCount();
     ANET_ASSERT(worker_count > 0);
 
@@ -361,7 +361,7 @@ std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(const BatchAc
             {
                 // --- SingleEnv の Step 実行 ---
                 auto r = envs_[i]->Step(action_i, mode);
-                ANET_CHECK_DEVICE(r->next_state.obs, device_);
+                ANET_ASSERT_DEVICE(r->next_state.obs, device_);
 
                 // --- single_result ---
                 result->single_results[i] = r;
@@ -379,7 +379,7 @@ std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(const BatchAc
                 if (r->next_state.done || r->next_state.truncated) {
                     // Reset_required
                     auto reset_result = envs_[i]->Reset(mode);
-                    ANET_CHECK_DEVICE(reset_result->state.obs, device_);
+                    ANET_ASSERT_DEVICE(reset_result->state.obs, device_);
                     result->continue_state.obs.select(0, i).copy_(reset_result->state.obs);
                     result->continue_state.done[i] = reset_result->state.done;
                     result->continue_state.truncated[i] = reset_result->state.truncated;

@@ -451,7 +451,7 @@ public:
         torch::Tensor a = info.GetAction(torch::kCPU);  // (N, action_dim)
         auto a_cpu = a.to(torch::kCPU).reshape({ -1 }).contiguous();
         const int64_t n = a_cpu.numel();
-        ANET_CHECK_DTYPE(a_cpu, torch::kInt64);
+        ANET_ASSERT_DTYPE(a_cpu, torch::kInt64);
 
         int64_t cnt0 = 0;
         int64_t cnt1 = 0;
@@ -881,7 +881,7 @@ anet::rl::BatchActionInfo DQNAgent::MakeAction(
     const StepCounts& step, const anet::rl::BatchState& state, anet::rl::RunMode mode) const
 {
     ProfileRange r1("DQNAgent::MakeAction");
-    ANET_CHECK_SHAPE(state.obs, { ANY, state_dim_ });
+    ANET_ASSERT_SHAPE(state.obs, { ANY, state_dim_ });
 
     auto flat_state = state.Flatten();
     auto flat_obs = flat_state.obs.to(device_);
@@ -897,14 +897,14 @@ anet::rl::BatchActionInfo DQNAgent::MakeAction(
         q = target_net_->forward(flat_obs);
     else
         q = policy_net_->forward(flat_obs);
-    //ANET_CHECK_SHAPE(q, { ANET_SHAPE_ANY, n_actions_ });  // (N, n_actions_)
+    //ANET_ASSERT_SHAPE(q, { ANET_SHAPE_ANY, n_actions_ });  // (N, n_actions_)
 
     r2.End();
 
     auto act_info = action_decider_->DecideBatch(q, greedy_only);
 
-    //ANET_CHECK_SHAPE(act_info.action, { state.obs.size(0) });
-    //ANET_CHECK_SHAPE(act_info.is_random, { state.obs.size(0) });
+    //ANET_ASSERT_SHAPE(act_info.action, { state.obs.size(0) });
+    //ANET_ASSERT_SHAPE(act_info.is_random, { state.obs.size(0) });
 
     ProfileRange r3("DQNAgent::MakeAction.update");
 
@@ -941,20 +941,20 @@ DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperie
             auto raw_samples = replay_buffer_->Sample(B, device_);
 
             // device / shape チェック（dtype は Push 時点で保証済み）
-            ANET_CHECK_DEVICE(raw_samples.obs, device_);
-            ANET_CHECK_DEVICE(raw_samples.actions, device_);
-            ANET_CHECK_DEVICE(raw_samples.target_values, device_);
-            ANET_CHECK_DEVICE(raw_samples.next_states.obs, device_);
-            ANET_CHECK_DEVICE(raw_samples.next_states.terminals, device_);
-            ANET_CHECK_SHAPE(raw_samples.obs, { B, state_dim_ });
-            ANET_CHECK_SHAPE(raw_samples.actions, { B, 1 });    // 離散アクション
-            ANET_CHECK_SHAPE(raw_samples.target_values, { B });
-            ANET_CHECK_SHAPE(raw_samples.next_states.obs, { B, state_dim_ });
-            ANET_CHECK_SHAPE(raw_samples.next_states.terminals, { B });
-            ANET_CHECK_DTYPE(raw_samples.obs, torch::kFloat32);
-            ANET_CHECK_DTYPE(raw_samples.actions, torch::kInt64);    // 離散アクション
-            ANET_CHECK_DTYPE(raw_samples.target_values, torch::kFloat32);
-            ANET_CHECK_DTYPE(raw_samples.next_states.terminals, torch::kBool);
+            ANET_ASSERT_DEVICE(raw_samples.obs, device_);
+            ANET_ASSERT_DEVICE(raw_samples.actions, device_);
+            ANET_ASSERT_DEVICE(raw_samples.target_values, device_);
+            ANET_ASSERT_DEVICE(raw_samples.next_states.obs, device_);
+            ANET_ASSERT_DEVICE(raw_samples.next_states.terminals, device_);
+            ANET_ASSERT_SHAPE(raw_samples.obs, { B, state_dim_ });
+            ANET_ASSERT_SHAPE(raw_samples.actions, { B, 1 });    // 離散アクション
+            ANET_ASSERT_SHAPE(raw_samples.target_values, { B });
+            ANET_ASSERT_SHAPE(raw_samples.next_states.obs, { B, state_dim_ });
+            ANET_ASSERT_SHAPE(raw_samples.next_states.terminals, { B });
+            ANET_ASSERT_DTYPE(raw_samples.obs, torch::kFloat32);
+            ANET_ASSERT_DTYPE(raw_samples.actions, torch::kInt64);    // 離散アクション
+            ANET_ASSERT_DTYPE(raw_samples.target_values, torch::kFloat32);
+            ANET_ASSERT_DTYPE(raw_samples.next_states.terminals, torch::kBool);
             ANET_LOG_DEBUG("ReplayBuffer batch OK: B=" << raw_samples.obs.size(0));
 
             ProfileRange r2("DQNAgent::UpdateFromBatch.forward");
@@ -964,7 +964,7 @@ DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperie
 
             // Q(s, a) 生成
             torch::Tensor q_all = policy_net_->forward(samples.obs); // (B, n_actions_)
-            ANET_CHECK_SHAPE(q_all, { B, n_actions_ });
+            ANET_ASSERT_SHAPE(q_all, { B, n_actions_ });
             //ANET_LOG_DEBUG("q_all=" << anet::ToString(q_all));
 
             // max_a Q(s,a)  (AS-DQN 用統計)
@@ -973,11 +973,11 @@ DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperie
 
             // Q(s,a) for taken action
             torch::Tensor actions_b = samples.actions.view({ B, 1 });   // (B,1)
-            ANET_CHECK_SHAPE(actions_b, { B, 1 });
-            ANET_CHECK_DTYPE(actions_b, torch::kInt64);
+            ANET_ASSERT_SHAPE(actions_b, { B, 1 });
+            ANET_ASSERT_DTYPE(actions_b, torch::kInt64);
             //ANET_LOG_DEBUG("actions_b=" << anet::ToString(actions_b));
             torch::Tensor q_sa = q_all.gather(1, actions_b).squeeze(1); // (B,)
-            ANET_CHECK_SHAPE(q_sa, { B });
+            ANET_ASSERT_SHAPE(q_sa, { B });
             //ANET_LOG_DEBUG("q_sa=" << anet::ToString(q_sa));
 
             // -------------------------------------------------
@@ -990,13 +990,13 @@ DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperie
 
                 // policy_net で argmax_a Q(s', a)
                 torch::Tensor q_next_policy = policy_net_->forward(samples.next_states.obs); // (B, n_actions_)
-                ANET_CHECK_SHAPE(q_next_policy, { B, n_actions_ });
+                ANET_ASSERT_SHAPE(q_next_policy, { B, n_actions_ });
                 auto next_policy_pair = q_next_policy.max(1);
                 torch::Tensor next_actions = std::get<1>(next_policy_pair); // (B,)
 
                 // target_net で Q_target(s', argmax_a Q_online)
                 torch::Tensor q_next_target = target_net_->forward(samples.next_states.obs); // (B, n_actions_)
-                ANET_CHECK_SHAPE(q_next_target, { B, n_actions_ });
+                ANET_ASSERT_SHAPE(q_next_target, { B, n_actions_ });
                 torch::Tensor next_actions_b = next_actions.view({ B, 1 });             // (B,1)
                 torch::Tensor q_next_selected =
                     q_next_target.gather(1, next_actions_b).squeeze(1);                 // (B,)
@@ -1007,7 +1007,7 @@ DQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperie
 
                 // 通常 DQN: max_a' Q_target(s', a')
                 torch::Tensor q_next_all = target_net_->forward(samples.next_states.obs); // (B, n_actions_)
-                ANET_CHECK_SHAPE(q_next_all, { B, n_actions_ });
+                ANET_ASSERT_SHAPE(q_next_all, { B, n_actions_ });
                 max_next_q = std::get<0>(q_next_all.max(1));                         // (B,)
             }
 

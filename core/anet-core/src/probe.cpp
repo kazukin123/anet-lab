@@ -86,7 +86,7 @@ std::optional<std::vector<float>> BatchExperienceStateProbe::GetVector(const Upd
         return std::nullopt;
 
     // CPU 転送
-    ANET_CHECK_DTYPE(*obs, torch::kFloat32);
+    ANET_ASSERT_DTYPE(*obs, torch::kFloat32);
     auto obs_cpu = obs->to(torch::kCPU);
 
     // state: (N, dim1, dim2, ..., dimK)
@@ -95,7 +95,7 @@ std::optional<std::vector<float>> BatchExperienceStateProbe::GetVector(const Upd
 
     // flatten: dim1～(K) を flatten -> (N, flat_dim)
     torch::Tensor flat = obs_cpu.flatten(1);
-    ANET_CHECK_SHAPE(flat, { N, ANET_SHAPE_ANY });
+    ANET_ASSERT_SHAPE(flat, { N, ANET_SHAPE_ANY });
     const int64_t flat_size = flat.size(1);
     ANET_ASSERT(state_index_ >= 0 && state_index_ < flat_size);
 
@@ -129,11 +129,11 @@ std::optional<std::vector<float>> BatchExperienceRewardProbe::GetVector(const Up
 {
     auto tensor = event.experience.GetTensor(anet::rl::BatchExperience::REWARD);
     ANET_ASSERT(tensor.has_value());
-    ANET_CHECK_SHAPE(*tensor, { ANET_SHAPE_ANY });   // (N)
-    ANET_CHECK_DTYPE(*tensor, torch::kFloat32);
+    ANET_ASSERT_SHAPE(*tensor, { ANET_SHAPE_ANY });   // (N)
+    ANET_ASSERT_DTYPE(*tensor, torch::kFloat32);
 
     torch::Tensor flat = tensor->flatten().to(torch::kCPU);
-    ANET_CHECK_SHAPE(flat, { ANET_SHAPE_ANY });
+    ANET_ASSERT_SHAPE(flat, { ANET_SHAPE_ANY });
 
     const int64_t n = flat.size(0);
     std::vector<float> out;
@@ -265,7 +265,7 @@ std::optional<std::vector<float>> BatchExperienceVectorProbe::GetVector(const Up
         ANET_LOG_DEBUG("t=" << anet::ToDefString(t));
 
         // t must be 2-D (ReplayBuffer)
-        ANET_CHECK_SHAPE(t, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
+        ANET_ASSERT_SHAPE(t, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
         ANET_ASSERT(t.dim() == 2);   // [rows, D]
 
         const int64_t rows = t.size(0);
@@ -345,8 +345,8 @@ std::optional<std::vector<float>> BatchUpdateResultTensorToVectorProbe::GetVecto
 
         // データ取り出し準備
         torch::Tensor flat = tensor->flatten().to(torch::kCPU).contiguous();
-        ANET_CHECK_SHAPE(flat, { ANET_SHAPE_ANY });
-        ANET_CHECK_DTYPE(flat, torch::kFloat32);
+        ANET_ASSERT_SHAPE(flat, { ANET_SHAPE_ANY });
+        ANET_ASSERT_DTYPE(flat, torch::kFloat32);
 
         // outに詰める（追加）
         const float* ptr = flat.data_ptr<float>();
@@ -375,8 +375,8 @@ std::optional<std::vector<float>> BatchUpdateResultTensorToVectorProbe::GetVecto
 //    if (!tensor.defined()) return std::nullopt;
 //
 //    torch::Tensor flat = tensor.flatten().to(torch::kCPU);
-//    ANET_CHECK_SHAPE(flat, { ANET_SHAPE_ANY });
-//    ANET_CHECK_DTYPE(flat, torch::kFloat32);
+//    ANET_ASSERT_SHAPE(flat, { ANET_SHAPE_ANY });
+//    ANET_ASSERT_DTYPE(flat, torch::kFloat32);
 //
 //    std::vector<float> out;
 //    out.resize(flat.size(0));
@@ -504,7 +504,7 @@ std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const Update
         ANET_LOG_DEBUG("t=" << anet::ToDefString(t));
 
         // t must be 2-D (ReplayBuffer)
-        ANET_CHECK_SHAPE(t, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
+        ANET_ASSERT_SHAPE(t, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
         ANET_ASSERT(t.dim() == 2);   // [rows, D]
 
         const int64_t rows = t.size(0);
@@ -661,7 +661,7 @@ torch::Tensor StateSweepProcessor::BuildInputTensor()
     batch.index_put_({ idx, static_cast<int64_t>(y_index_) }, yv);
 
     // Shape 検証
-    ANET_CHECK_SHAPE(batch, { grid_num, flat_size });
+    ANET_ASSERT_SHAPE(batch, { grid_num, flat_size });
 
     return batch;  // [W*H, flat_size] on device_
 }
@@ -675,10 +675,10 @@ ExtractResult StateSweepProcessor::Extract(const torch::Tensor& batched_out,
     const std::unordered_set<std::string>& required_labels)
 {
     const int64_t grid_num = static_cast<int64_t>(grid_w_) * static_cast<int64_t>(grid_h_);
-    ANET_CHECK_SHAPE(batched_out, { grid_num, ANET_SHAPE_ENDANY });
+    ANET_ASSERT_SHAPE(batched_out, { grid_num, ANET_SHAPE_ENDANY });
 
     auto extract_result = value_extract_fn_(batched_out, required_labels);
-    ANET_CHECK_SHAPE(extract_result.grid, { grid_num });
+    ANET_ASSERT_SHAPE(extract_result.grid, { grid_num });
 
     return extract_result;
 }
@@ -893,7 +893,7 @@ namespace anet::rl::extractor {
     ExtractResult PairDiffExtractor(
         const torch::Tensor& t, const std::unordered_set<std::string>& req, int n_actions) {
         using namespace torch::indexing;
-        ANET_CHECK_SHAPE(t, { ANET_SHAPE_ANY, n_actions * 2 });
+        ANET_ASSERT_SHAPE(t, { ANET_SHAPE_ANY, n_actions * 2 });
         auto q_online = t.index({ Slice(), Slice(0, n_actions) });               // [N, n_actions]
         auto q_target = t.index({ Slice(), Slice(n_actions, n_actions * 2) });   // [N, n_actions]
         auto diff = (q_online - q_target).abs().mean(1);                         // [N]

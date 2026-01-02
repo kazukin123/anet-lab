@@ -237,7 +237,7 @@ RunningStdObservationNormalizer::normalizeInternal(const torch::Tensor& obs) con
     ProfileRange r("RunningStdObservationNormalizer::Normalize");
 
     // 型チェック
-    ANET_CHECK_DTYPE(obs, torch::kFloat32);
+    ANET_ASSERT_DTYPE(obs, torch::kFloat32);
 
     // 次元数チェック: [Batch, state_dim...]
     if (obs.ndimension() != static_cast<int64_t>(shape_.size() + 1)) {
@@ -558,8 +558,8 @@ torch::Tensor RunningStdRewardScaler::Scale(const torch::Tensor& reward)
 {
     ProfileRange r("RunningStdScaler::Scale");
 
-    ANET_CHECK_SHAPE(reward, { ANET_SHAPE_ANY });
-    ANET_CHECK_DTYPE(reward, torch::kFloat32);
+    ANET_ASSERT_SHAPE(reward, { ANET_SHAPE_ANY });
+    ANET_ASSERT_DTYPE(reward, torch::kFloat32);
 
     // reward: [N] (並列環境数分の報酬)
 

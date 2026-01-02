@@ -78,38 +78,38 @@ void _anet_check_nan_impl(const torch::Tensor& t, const char* msg, const char* f
 #if ANET_ENABLE_DEVICE_ASSERT
 
 // msg を自動生成（#tensor）
-#define ANET_CHECK_DEVICE(tensor, expected_dev)                                \
+#define ANET_ASSERT_DEVICE(tensor, expected_dev)                                \
     do {                                                                       \
         _anet_check_device_impl((tensor), (expected_dev), #tensor,             \
                                 __FILE__, __LINE__);                           \
     } while (0)
 
 // msg 明示版（従来動作）
-#define ANET_CHECK_DEVICE_MSG(tensor, expected_dev, msg)                       \
+#define ANET_ASSERT_DEVICE_MSG(tensor, expected_dev, msg)                       \
     do {                                                                       \
         _anet_check_device_impl((tensor), (expected_dev), (msg),               \
                                 __FILE__, __LINE__);                           \
     } while (0)
 
-#define ANET_CHECK_DEVICE_CPU(tensor)                                                 \
+#define ANET_ASSERT_DEVICE_CPU(tensor)                                                 \
     do {                                                                       \
         _anet_check_device_impl((tensor), torch::Device(torch::kCPU), #tensor, \
                                 __FILE__, __LINE__);                           \
     } while (0)
 
-#define ANET_CHECK_DEVICE_CPU_MSG(tensor, msg)                                        \
+#define ANET_ASSERT_DEVICE_CPU_MSG(tensor, msg)                                        \
     do {                                                                       \
         _anet_check_device_impl((tensor), torch::Device(torch::kCPU), (msg),   \
                                 __FILE__, __LINE__);                           \
     } while (0)
 
-#define ANET_CHECK_DEVICE_CUDA(tensor)                                                \
+#define ANET_ASSERT_DEVICE_CUDA(tensor)                                                \
     do {                                                                       \
         _anet_check_device_impl((tensor), torch::Device(torch::kCUDA), #tensor,\
                                 __FILE__, __LINE__);                           \
     } while (0)
 
-#define ANET_CHECK_DEVICE_CUDA_MSG(tensor, msg)                                       \
+#define ANET_ASSERT_DEVICE_CUDA_MSG(tensor, msg)                                       \
     do {                                                                       \
         _anet_check_device_impl((tensor), torch::Device(torch::kCUDA), (msg),  \
                                 __FILE__, __LINE__);                           \
@@ -117,12 +117,12 @@ void _anet_check_nan_impl(const torch::Tensor& t, const char* msg, const char* f
 
 #else
 
-#define ANET_CHECK_DEVICE(t, d)                     do {} while(0)
-#define ANET_CHECK_DEVICE_MSG(t, d, msg)            do {} while(0)
-#define ANET_CHECK_DEVICE_CPU(t)                    do {} while(0)
-#define ANET_CHECK_DEVICE_CPU_MSG(t, msg)           do {} while(0)
-#define ANET_CHECK_DEVICE_CUDA(t)                   do {} while(0)
-#define ANET_CHECK_DEVICE_CUDA_MSG(t, msg)          do {} while(0)
+#define ANET_ASSERT_DEVICE(t, d)                     do {} while(0)
+#define ANET_ASSERT_DEVICE_MSG(t, d, msg)            do {} while(0)
+#define ANET_ASSERT_DEVICE_CPU(t)                    do {} while(0)
+#define ANET_ASSERT_DEVICE_CPU_MSG(t, msg)           do {} while(0)
+#define ANET_ASSERT_DEVICE_CUDA(t)                   do {} while(0)
+#define ANET_ASSERT_DEVICE_CUDA_MSG(t, msg)          do {} while(0)
 
 #endif
 
@@ -131,22 +131,22 @@ void _anet_check_nan_impl(const torch::Tensor& t, const char* msg, const char* f
 //------------------------------------------------------
 #if ANET_ENABLE_DTYPE_ASSERT
 
-#define ANET_CHECK_DTYPE(tensor, expected)                                        \
+#define ANET_ASSERT_DTYPE(tensor, expected)                                        \
     do {                                                                          \
         if ((tensor).dtype() != (expected)) {                                     \
             std::stringstream ss;                                                 \
-            ss << "ANET_CHECK_DTYPE failed: tensor=" << #tensor                   \
+            ss << "ANET_ASSERT_DTYPE failed: tensor=" << #tensor                   \
                << ", expected_dtype=" << (expected)                               \
                << ", actual_dtype=" << (tensor).dtype()                           \
                << ", shape=" << (tensor).sizes();                                 \
             throw std::runtime_error(ss.str());                                   \
         }                                                                         \
     } while (0)
-#define ANET_CHECK_DTYPE_MSG(tensor, expected, msg)                              \
+#define ANET_ASSERT_DTYPE_MSG(tensor, expected, msg)                              \
     do {                                                                          \
         if ((tensor).dtype() != (expected)) {                                     \
             std::stringstream ss;                                                 \
-            ss << "ANET_CHECK_DTYPE failed: tensor=" << #tensor                   \
+            ss << "ANET_ASSERT_DTYPE failed: tensor=" << #tensor                   \
                << ", expected_dtype=" << (expected)                               \
                << ", actual_dtype=" << (tensor).dtype()                            \
                << ", shape=" << (tensor).sizes()                                  \
@@ -156,8 +156,8 @@ void _anet_check_nan_impl(const torch::Tensor& t, const char* msg, const char* f
     } while (0)
 #else
 
-#define ANET_CHECK_DTYPE(tensor, expected)           do {} while(0)
-#define ANET_CHECK_DTYPE_MSG(tensor, expected, msg)  do {} while(0)
+#define ANET_ASSERT_DTYPE(tensor, expected)           do {} while(0)
+#define ANET_ASSERT_DTYPE_MSG(tensor, expected, msg)  do {} while(0)
 
 #endif
 
@@ -172,7 +172,7 @@ void _anet_check_nan_impl(const torch::Tensor& t, const char* msg, const char* f
 #if ANET_ENABLE_TENSOR_ASSERT
 
 // msg = #tensor
-#define ANET_CHECK_SHAPE(tensor, ...)                                           \
+#define ANET_ASSERT_SHAPE(tensor, ...)                                           \
     do {                                                                        \
         std::vector<std::vector<int64_t>> _anet_shapes = { __VA_ARGS__ };       \
         _anet_check_shape_or_impl((tensor), _anet_shapes, #tensor,              \
@@ -180,7 +180,7 @@ void _anet_check_nan_impl(const torch::Tensor& t, const char* msg, const char* f
     } while (0)
 
 // 明示 msg 版
-#define ANET_CHECK_SHAPE_MSG(tensor, msg, ...)                                  \
+#define ANET_ASSERT_SHAPE_MSG(tensor, msg, ...)                                  \
     do {                                                                        \
         std::vector<std::vector<int64_t>> _anet_shapes = { __VA_ARGS__ };       \
         _anet_check_shape_or_impl((tensor), _anet_shapes, (msg),                \
@@ -189,17 +189,17 @@ void _anet_check_nan_impl(const torch::Tensor& t, const char* msg, const char* f
 
 #else
 
-#define ANET_CHECK_SHAPE(tensor, ...)             do {} while(0)
-#define ANET_CHECK_SHAPE_MSG(tensor, msg, ...)    do {} while(0)
+#define ANET_ASSERT_SHAPE(tensor, ...)             do {} while(0)
+#define ANET_ASSERT_SHAPE_MSG(tensor, msg, ...)    do {} while(0)
 
 #endif
 
 #if ANET_ENABLE_TENSOR_NAN_CHECK
-#define ANET_CHECK_NAN(tensor)                                                 \
+#define ANET_ASSERT_NAN(tensor)                                                 \
     do {                                                                       \
         _anet_check_nan_impl((tensor), #tensor, __FILE__, __LINE__);           \
     } while (0)
 #else
-#define ANET_CHECK_NAN(tensor)             do {} while(0)
+#define ANET_ASSERT_NAN(tensor)             do {} while(0)
 #endif
 

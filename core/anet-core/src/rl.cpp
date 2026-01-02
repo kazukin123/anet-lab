@@ -93,7 +93,7 @@ bool StateSpec::MatchesShape(const torch::Tensor& obs) const
 
 bool StateSpec::MatchesRange(const torch::Tensor& obs) const
 {
-    ANET_CHECK_DTYPE(obs, torch::kFloat32);
+    ANET_ASSERT_DTYPE(obs, torch::kFloat32);
 
     if (dims.empty()) return true;
 
@@ -147,7 +147,7 @@ bool StateSpec::MatchesRange(const torch::Tensor& obs) const
 
 bool StateSpec::MatchesRangeFlat(const torch::Tensor& flat_obs) const
 {
-    ANET_CHECK_DTYPE(flat_obs, torch::kFloat32);
+    ANET_ASSERT_DTYPE(flat_obs, torch::kFloat32);
     ANET_ASSERT_MSG(
         flat_obs.dim() == 1,
         "StateSpec::MatchesRangeFlat: expected 1D tensor.");
@@ -498,11 +498,11 @@ BatchExperience BatchExperience::To(torch::Device d, bool non_blocking) const {
 std::vector<SingleExperience> BatchExperience::ToExperienceList() const
 {
     // ---- N (batch 次元) の取得 ----
-    ANET_CHECK_DTYPE(state.obs, torch::kFloat32);
-    ANET_CHECK_DTYPE(next_state.obs, torch::kFloat32);
-    ANET_CHECK_SHAPE(state.done, { ANET_SHAPE_ANY });
-    ANET_CHECK_SHAPE(state.truncated, { ANET_SHAPE_ANY });
-    ANET_CHECK_SHAPE(state.episode_start, { ANET_SHAPE_ANY });
+    ANET_ASSERT_DTYPE(state.obs, torch::kFloat32);
+    ANET_ASSERT_DTYPE(next_state.obs, torch::kFloat32);
+    ANET_ASSERT_SHAPE(state.done, { ANET_SHAPE_ANY });
+    ANET_ASSERT_SHAPE(state.truncated, { ANET_SHAPE_ANY });
+    ANET_ASSERT_SHAPE(state.episode_start, { ANET_SHAPE_ANY });
 
     const int64_t N = state.obs.size(0);
 
@@ -523,12 +523,12 @@ std::vector<SingleExperience> BatchExperience::ToExperienceList() const
         "MakeFromBatch: next_state.episode_start batch size mismatch.");
 
     // ---- actions の整合検査 ----
-    ANET_CHECK_DTYPE(action.GetAction(), torch::kInt64);
+    ANET_ASSERT_DTYPE(action.GetAction(), torch::kInt64);
     ANET_ASSERT_MSG(action.GetAction().size(0) == N,
         "MakeFromBatch: action.action batch size mismatch.");
 
     // ---- rewards の shape チェック ----
-    ANET_CHECK_DTYPE(reward, torch::kFloat32);
+    ANET_ASSERT_DTYPE(reward, torch::kFloat32);
     ANET_ASSERT_MSG(reward.size(0) == N,
         "MakeFromBatch: reward batch size mismatch.");
 
@@ -636,8 +636,8 @@ std::string ExperienceSamples::ToString() const
 
 std::string BatchExperience::ToString() const
 {
-    ANET_CHECK_DTYPE(reward, torch::kFloat32);
-    ANET_CHECK_SHAPE(reward, { ANET_SHAPE_ANY });
+    ANET_ASSERT_DTYPE(reward, torch::kFloat32);
+    ANET_ASSERT_SHAPE(reward, { ANET_SHAPE_ANY });
     std::ostringstream oss;
     oss << "BatchExperience{\n";
     oss << "  state      = " << state.ToString() << "\n";

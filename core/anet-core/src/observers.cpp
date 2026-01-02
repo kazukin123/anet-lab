@@ -425,13 +425,13 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
     // 入力バッチ生成（GPU 上）
     anet::ProfileRange r1("SweepedHeatMapObserver::Render.build");
     torch::Tensor batch_in = input_gen_->BuildInputTensor();
-    ANET_CHECK_SHAPE(batch_in, { grid_num, ANET_SHAPE_ENDANY });
+    ANET_ASSERT_SHAPE(batch_in, { grid_num, ANET_SHAPE_ENDANY });
     ANET_LOG_DEBUG("batch_in=" << anet::ToDefString(batch_in));
 
     // NN 適用（GPU 上）
     anet::ProfileRange r2("SweepedHeatMapObserver::Render.nn", r1);
     torch::Tensor batch_out = tensor_fn_(batch_in);
-    ANET_CHECK_SHAPE(batch_out, { grid_num, ANET_SHAPE_ENDANY });
+    ANET_ASSERT_SHAPE(batch_out, { grid_num, ANET_SHAPE_ENDANY });
     ANET_LOG_DEBUG("batch_out=" << anet::ToDefString(batch_out));
 
     // リクエストするLabelをscalar_tag_label_map_からsetに詰める
@@ -446,15 +446,15 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
     anet::ProfileRange r3("SweepedHeatMapObserver::Render.extract", r2);
     ExtractResult extract_result = output_ext_->Extract(batch_out, req_label_set);
     ANET_LOG_DEBUG("grid_values=" << anet::ToDefString(extract_result.grid) << " tag=" << tag_);
-    ANET_CHECK_SHAPE(extract_result.grid, { grid_num });
-    ANET_CHECK_DTYPE(extract_result.grid, torch::kFloat32);
+    ANET_ASSERT_SHAPE(extract_result.grid, { grid_num });
+    ANET_ASSERT_DTYPE(extract_result.grid, torch::kFloat32);
     ANET_ASSERT(extract_result.labels.size() == extract_result.scalars.size());
 
     // CPU へ一括転送
     anet::ProfileRange r4("SweepedHeatMapObserver::Render.transfer", r3);
     torch::Tensor grid_cpu = extract_result.grid.to(torch::kCPU);
-    ANET_CHECK_SHAPE(grid_cpu, { grid_num });
-    ANET_CHECK_DTYPE(grid_cpu, torch::kFloat32);
+    ANET_ASSERT_SHAPE(grid_cpu, { grid_num });
+    ANET_ASSERT_DTYPE(grid_cpu, torch::kFloat32);
     float* data = grid_cpu.data_ptr<float>();
     std::vector<torch::Tensor> scalars_cpu;
     for (auto& t : extract_result.scalars) scalars_cpu.push_back(t.to(torch::kCPU));

@@ -243,7 +243,7 @@ ExperienceSamples ReplayExperienceStorage::Gather(
     // vector→Tensor変換
     auto index_tensor = torch::from_blob(
         const_cast<int64_t*>(indices.data()),{ static_cast<int64_t>(indices.size()) }, int64_opt_).clone();
-    ANET_CHECK_DTYPE(index_tensor, torch::kInt64);
+    ANET_ASSERT_DTYPE(index_tensor, torch::kInt64);
 
     // gather
     auto idx = index_tensor.to(device_);

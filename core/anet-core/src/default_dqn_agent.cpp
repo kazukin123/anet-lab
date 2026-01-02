@@ -175,7 +175,7 @@ std::optional<std::vector<torch::Tensor>> DefaultDQNAgent::GetTensorVector(const
 anet::rl::BatchActionInfo DefaultDQNAgent::MakeAction(const StepCounts& step, const BatchState& state, RunMode runmode) const
 {
     ProfileRange r1("DefaultDQNAgent::MakeAction");
-    ANET_CHECK_SHAPE(state.obs, { ANET_SHAPE_ANY, state_dim_ });
+    ANET_ASSERT_SHAPE(state.obs, { ANET_SHAPE_ANY, state_dim_ });
 
     // 共有ロック＆Grad抑止
     std::shared_lock<std::shared_mutex> lock(*mutex_);

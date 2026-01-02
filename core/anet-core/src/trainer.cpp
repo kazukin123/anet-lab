@@ -127,13 +127,13 @@ StepCounts EvalRunner::DoStep(int64_t action)
     ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result->next_state.ToString());
     ANET_LOG_DEBUG("step=" << train_step << " continue_state=" << result->continue_state.ToString());
     ANET_LOG_DEBUG("step=" << train_step << " reward=" << anet::ToString(result->reward));
-    ANET_CHECK_DEVICE(result->next_state.obs, torch::kCPU);
-    ANET_CHECK_DEVICE(result->next_state.done, torch::kCPU);
-    ANET_CHECK_DEVICE(result->next_state.truncated, torch::kCPU);
-    ANET_CHECK_DEVICE(result->reward, torch::kCPU);
-    ANET_CHECK_DEVICE(result->continue_state.obs, torch::kCPU);
-    ANET_CHECK_DEVICE(result->continue_state.done, torch::kCPU);
-    ANET_CHECK_DEVICE(result->continue_state.truncated, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->next_state.obs, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->next_state.done, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->next_state.truncated, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->reward, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->continue_state.obs, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->continue_state.done, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->continue_state.truncated, torch::kCPU);
 
     // カウント更新
     step_counts_.train_step++;
@@ -168,26 +168,26 @@ StepCounts EvalRunner::DoStep()
     // 行動選択
     auto action_info = agent_->MakeAction(step_counts_, state_, runmode_);
     ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info.ToString());
-    //ANET_CHECK_SHAPE(action_info.action, { N });
+    //ANET_ASSERT_SHAPE(action_info.action, { N });
 
     // 環境ステップ実行
     auto result = env_->Step(action_info, runmode_);    // next_state, reward, done, truncated
     ANET_LOG_DEBUG("step=" << train_step << " reward=" << anet::ToString(result->reward));
     ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result->next_state.ToString());
-    ANET_CHECK_DEVICE(result->next_state.obs, torch::kCPU);
-    ANET_CHECK_DEVICE(result->next_state.done, torch::kCPU);
-    ANET_CHECK_DEVICE(result->next_state.truncated, torch::kCPU);
-    ANET_CHECK_DEVICE(result->reward, torch::kCPU);
-    ANET_CHECK_DEVICE(result->continue_state.obs, torch::kCPU);
-    ANET_CHECK_DEVICE(result->continue_state.done, torch::kCPU);
-    ANET_CHECK_DEVICE(result->continue_state.truncated, torch::kCPU);
-    //ANET_CHECK_SHAPE(result->next_state.obs, { N, ANET_SHAPE_ENDANY });
-    //ANET_CHECK_SHAPE(result->next_state.done, { N });
-    //ANET_CHECK_SHAPE(result->next_state.truncated, { N });
-    //ANET_CHECK_SHAPE(result->reward, { N });
-    //ANET_CHECK_SHAPE(result->continue_state.obs, { N, ANET_SHAPE_ENDANY });
-    //ANET_CHECK_SHAPE(result->continue_state.done, { N });
-    //ANET_CHECK_SHAPE(result->continue_state.truncated, { N });
+    ANET_ASSERT_DEVICE(result->next_state.obs, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->next_state.done, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->next_state.truncated, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->reward, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->continue_state.obs, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->continue_state.done, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->continue_state.truncated, torch::kCPU);
+    //ANET_ASSERT_SHAPE(result->next_state.obs, { N, ANET_SHAPE_ENDANY });
+    //ANET_ASSERT_SHAPE(result->next_state.done, { N });
+    //ANET_ASSERT_SHAPE(result->next_state.truncated, { N });
+    //ANET_ASSERT_SHAPE(result->reward, { N });
+    //ANET_ASSERT_SHAPE(result->continue_state.obs, { N, ANET_SHAPE_ENDANY });
+    //ANET_ASSERT_SHAPE(result->continue_state.done, { N });
+    //ANET_ASSERT_SHAPE(result->continue_state.truncated, { N });
     //ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
     //    ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
 
@@ -312,7 +312,7 @@ RunnerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
     // メトリクス初期化
     auto fopt = torch::TensorOptions().dtype(torch::kFloat32).device(env_device);
     episode_total_reward_cur_ = torch::zeros({ batch_env_spec.batch_size }, fopt);
-    ANET_CHECK_SHAPE(episode_total_reward_cur_, { batch_env_spec.batch_size });
+    ANET_ASSERT_SHAPE(episode_total_reward_cur_, { batch_env_spec.batch_size });
 
     // ランダム方策で環境難易度評価
     /// @todo EvaluateEnvironmentDifficultyを復活
@@ -377,7 +377,7 @@ StepCounts DefaultTrainer::DoStep()
         state_ = reset_result->state;
         env_initialized_ = true;
         ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
-        ANET_CHECK_DEVICE_CPU_MSG(state_.obs, "Initial state");
+        ANET_ASSERT_DEVICE_CPU_MSG(state_.obs, "Initial state");
         ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
         ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
 
@@ -404,7 +404,7 @@ StepCounts DefaultTrainer::DoStep()
     // 行動選択
     auto action_info = agent_->MakeAction(step_counts_, state_);
     //ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info.ToString());
-    ANET_CHECK_SHAPE(action_info.GetAction(), {N});
+    ANET_ASSERT_SHAPE(action_info.GetAction(), {N});
 
     anet::ProfileRange r3("DefaultTrainer::DoUpdateFrame.envStep", r2);
 
@@ -412,20 +412,20 @@ StepCounts DefaultTrainer::DoStep()
     auto result = env_->Step(action_info);    // next_state, reward, done, truncated
     ANET_LOG_DEBUG("step=" << train_step << " reward=" << anet::ToString(result->reward));
     ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result->next_state.ToString());
-    ANET_CHECK_DEVICE(result->next_state.obs, torch::kCPU);
-    ANET_CHECK_DEVICE(result->next_state.done, torch::kCPU);
-    ANET_CHECK_DEVICE(result->next_state.truncated, torch::kCPU);
-    ANET_CHECK_DEVICE(result->reward, torch::kCPU);
-    ANET_CHECK_DEVICE(result->continue_state.obs, torch::kCPU);
-    ANET_CHECK_DEVICE(result->continue_state.done, torch::kCPU);
-    ANET_CHECK_DEVICE(result->continue_state.truncated, torch::kCPU);
-    ANET_CHECK_SHAPE(result->next_state.obs, { N, ANET_SHAPE_ENDANY });
-    ANET_CHECK_SHAPE(result->next_state.done, { N });
-    ANET_CHECK_SHAPE(result->next_state.truncated, { N });
-    ANET_CHECK_SHAPE(result->reward, { N });
-    ANET_CHECK_SHAPE(result->continue_state.obs, { N, ANET_SHAPE_ENDANY });
-    ANET_CHECK_SHAPE(result->continue_state.done, { N });
-    ANET_CHECK_SHAPE(result->continue_state.truncated, { N });
+    ANET_ASSERT_DEVICE(result->next_state.obs, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->next_state.done, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->next_state.truncated, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->reward, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->continue_state.obs, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->continue_state.done, torch::kCPU);
+    ANET_ASSERT_DEVICE(result->continue_state.truncated, torch::kCPU);
+    ANET_ASSERT_SHAPE(result->next_state.obs, { N, ANET_SHAPE_ENDANY });
+    ANET_ASSERT_SHAPE(result->next_state.done, { N });
+    ANET_ASSERT_SHAPE(result->next_state.truncated, { N });
+    ANET_ASSERT_SHAPE(result->reward, { N });
+    ANET_ASSERT_SHAPE(result->continue_state.obs, { N, ANET_SHAPE_ENDANY });
+    ANET_ASSERT_SHAPE(result->continue_state.done, { N });
+    ANET_ASSERT_SHAPE(result->continue_state.truncated, { N });
     ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
 //    ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
 

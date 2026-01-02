@@ -149,7 +149,7 @@ std::optional<std::vector<torch::Tensor>> RainbowAgent::GetTensorVector(const st
 anet::rl::BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const BatchState& state, RunMode runmode) const
 {
     ProfileRange r1("RainbowAgent::MakeAction");
-    ANET_CHECK_SHAPE(state.obs, { ANET_SHAPE_ANY, state_dim_ });
+    ANET_ASSERT_SHAPE(state.obs, { ANET_SHAPE_ANY, state_dim_ });
 
     // 共有ロック＆Grad抑止
     std::shared_lock<std::shared_mutex> lock(*mutex_);

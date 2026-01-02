@@ -23,7 +23,7 @@ namespace anet::rl {
                 actions.index_put_({ i }, a);
             }
             wxLogDebug("at=%s", anet::ToString(actions));
-            ANET_CHECK_SHAPE(actions, { n });
+            ANET_ASSERT_SHAPE(actions, { n });
             return actions;
         }
 

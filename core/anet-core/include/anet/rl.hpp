@@ -250,12 +250,12 @@ namespace anet::rl {
 
         /// 状態テンソルを 1D に変換する
         torch::Tensor Flatten() const {
-            ANET_CHECK_DTYPE(obs, torch::kFloat32);
+            ANET_ASSERT_DTYPE(obs, torch::kFloat32);
             return obs.reshape({ obs.numel() });
         }
         SingleState to(torch::Device device) const {
-            ANET_CHECK_SHAPE(obs, { ANET_SHAPE_ANY });
-            ANET_CHECK_DTYPE(obs, torch::kFloat32);
+            ANET_ASSERT_SHAPE(obs, { ANET_SHAPE_ANY });
+            ANET_ASSERT_DTYPE(obs, torch::kFloat32);
             return { obs.to(device), done, truncated, episode_start };
         }
         std::string ToString() const;
@@ -318,7 +318,7 @@ namespace anet::rl {
         SingleState next_state;
 
         SingleExperience to(torch::Device device) const {
-            ANET_CHECK_SHAPE(action, { });
+            ANET_ASSERT_SHAPE(action, { });
             ANET_ASSERT(action.dtype() == torch::kInt64 || action.dtype() == torch::kFloat32);
             return {
                 state.to(device), action.to(device), reward, next_state.to(device)
@@ -361,7 +361,7 @@ namespace anet::rl {
 
         /// obs を (N, state_dim) にフラット化
         BatchState Flatten() const {
-            ANET_CHECK_DTYPE(obs, torch::kFloat32);
+            ANET_ASSERT_DTYPE(obs, torch::kFloat32);
             int64_t N = obs.size(0);
             int64_t flat_dim = obs.numel() / N;
             auto f = obs.reshape({ N, flat_dim });
@@ -369,14 +369,14 @@ namespace anet::rl {
         }
 
         BatchState To(torch::Device device, bool non_blocking = true) const {
-            ANET_CHECK_SHAPE(obs, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
-            ANET_CHECK_SHAPE(done, { ANET_SHAPE_ANY });
-            ANET_CHECK_SHAPE(truncated, { ANET_SHAPE_ANY });
-            ANET_CHECK_SHAPE(episode_start, { ANET_SHAPE_ANY });
-            ANET_CHECK_DTYPE(obs, torch::kFloat32);
-            ANET_CHECK_DTYPE(done, torch::kBool);
-            ANET_CHECK_DTYPE(truncated, torch::kBool);
-            ANET_CHECK_DTYPE(episode_start, torch::kBool);
+            ANET_ASSERT_SHAPE(obs, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
+            ANET_ASSERT_SHAPE(done, { ANET_SHAPE_ANY });
+            ANET_ASSERT_SHAPE(truncated, { ANET_SHAPE_ANY });
+            ANET_ASSERT_SHAPE(episode_start, { ANET_SHAPE_ANY });
+            ANET_ASSERT_DTYPE(obs, torch::kFloat32);
+            ANET_ASSERT_DTYPE(done, torch::kBool);
+            ANET_ASSERT_DTYPE(truncated, torch::kBool);
+            ANET_ASSERT_DTYPE(episode_start, torch::kBool);
 
             return {
                 obs.to(device, non_blocking), done.to(device, non_blocking),
@@ -384,17 +384,17 @@ namespace anet::rl {
             };
         }
         bool IsDone() const {
-            ANET_CHECK_SHAPE(done, { ANET_SHAPE_ANY });
+            ANET_ASSERT_SHAPE(done, { ANET_SHAPE_ANY });
             ANET_ASSERT(done.size(0) >= 1);
             return done[0].item<bool>();
         }
         bool IsTruncated() const {
-            ANET_CHECK_SHAPE(done, { ANET_SHAPE_ANY });
+            ANET_ASSERT_SHAPE(done, { ANET_SHAPE_ANY });
             ANET_ASSERT(done.size(0) >= 1);
             return truncated[0].item<bool>();
         }
         bool IsEpisodeStart() const {
-            ANET_CHECK_SHAPE(episode_start, { ANET_SHAPE_ANY });
+            ANET_ASSERT_SHAPE(episode_start, { ANET_SHAPE_ANY });
             ANET_ASSERT(episode_start.size(0) >= 1);
             return episode_start[0].item<bool>();
         }
