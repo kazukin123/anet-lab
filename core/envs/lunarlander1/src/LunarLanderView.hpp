@@ -60,23 +60,14 @@ struct LunarLanderData {
 // LunarLanderCanvas
 // =============================================================
 
-class LunarLanderView;
-
 class LunarLanderPanel : public anet::rl::gui::Panel {
 public:
-    //explicit LunarLanderPanel(wxWindow* parent, std::shared_ptr<LunarLanderView> view, int update_timer_ms);
     explicit LunarLanderPanel(wxWindow* parent);
 
-    void ApplyData(LunarLanderView& view);
-    //void SetData(const LunarLanderData& data);
+    void ApplyData(const LunarLanderData& data);
 protected:
     void OnPaint(wxPaintEvent& event);
-    //void OnMouseLeftClick(wxMouseEvent& event);
-    //void OnMouseRightClick(wxMouseEvent& event);
-    void OnClose(wxCloseEvent& event);
-    //void OnTimer(wxTimerEvent& event);
 private:
-
     // world座標→画面座標変換
     wxPoint WorldToScreen(float wx, float wy, int width, int height) const;
     int WorldToScreen(float size, int width, int height) const;
@@ -100,8 +91,6 @@ private:
     float world_max_x_ = 10.0f;
     float world_min_y_ = 0.0f;
     float world_max_y_ = 15.0f;
-
-    wxDECLARE_EVENT_TABLE();
 };
 
 
@@ -109,31 +98,10 @@ private:
 // LunarLanderView
 // =============================================================
 
-class LunarLanderCanvas;
-
-class LunarLanderView : public anet::rl::gui::ViewBase, public std::enable_shared_from_this<LunarLanderView> {
+class LunarLanderView final : public anet::rl::gui::ViewBase<LunarLanderData, LunarLanderPanel> {
 public:
-    //explicit LunarLanderView(
-    //    const LunarLanderViewConfig& config, wxWindow* parent, std::shared_ptr<anet::rl::Notifier> notifier);
     explicit LunarLanderView(wxWindow* parent);
-    void Initialize();
-
-    void CaptureViewData() override;
-    void UpdateViewData(const anet::rl::TrainEvent& event, bool force) override;
-    //void OnTrain(const anet::rl::TrainEvent& event) override;
-    //void OnLearn(const anet::rl::LearnEvent& event) override;
-    //std::string ToString() const override;
-    wxWindow* AsWindow() override { return panel_; }
-
-    std::optional<LunarLanderData> PopData() { return data_store_.Get(); }
-    //void DetachFromNotifier();
-
-    ~LunarLanderView() = default;
-private:
-    //LunarLanderViewConfig config_;
-    wxWindow* parent_;
-    LunarLanderPanel* panel_;
-    anet::rl::gui::UIDataStore<LunarLanderData> data_store_;
+    LunarLanderData CreateViewData(const anet::rl::TrainEvent& event) const override;
 };
 
 
@@ -141,18 +109,14 @@ private:
 // LunarLanderViewCreator
 // =============================================================
 
-class LunarLanderViewCreator : public anet::rl::gui::ViewCreator {
+class LunarLanderViewCreator final : public anet::rl::gui::ViewCreator {
 public:
     LunarLanderViewCreator() = default;
 
     std::shared_ptr<anet::rl::gui::View> CreateView(
-        wxWindow* parent, const anet::ConfigData config_data, std::shared_ptr<anet::rl::Notifier> notifier) const
+        wxWindow* parent, const anet::ConfigData& config_data, std::shared_ptr<anet::rl::Notifier> notifier) const
     {
-        //LunarLanderViewConfig config(config_data);
-        //auto ret = std::make_shared<LunarLanderView>(config, parent, notifier);
-        auto ret = std::make_shared<LunarLanderView>(parent);
-        ret->Initialize();
-        return ret;
+        return std::make_shared<LunarLanderView>(parent);
     }
 
     std::string GetTargetClassId() const override

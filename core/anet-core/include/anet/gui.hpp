@@ -161,19 +161,41 @@ namespace anet::rl::gui {
 		virtual ~View() = default;
 	};
 
+    template<typename ViewDataType, typename ViewWindowType>
     class ViewBase : public View {
+    protected:
+        using ViewBaseType = ViewBase<ViewDataType, ViewWindowType>;
     public:
-        explicit ViewBase() {}
-        //explicit ViewBase(std::shared_ptr<anet::rl::Notifier> notifier) : notifier_(notifier) {}
+        explicit ViewBase(wxWindow* parent) : parent_(parent) {}
 
-        //void UpdateViewData(const anet::rl::TrainEvent& event) override {}
+        virtual ViewDataType CreateViewData(const anet::rl::TrainEvent& event) const = 0;
+
+        void CaptureViewData() override
+        {
+            auto data = data_store_.Get();
+            if (!data.has_value()) return;
+            window_->ApplyData(*data);
+        }
         void UpdateViewData(const anet::rl::LearnEvent& event, bool force) override {}
+        void UpdateViewData(const anet::rl::TrainEvent& event, bool force = false)
+        {
+            // Update不要ならスキップ
+            if (!force && !data_store_.ShouldUpdate())
+                return;
 
+            // UIデータを生成
+            ViewDataType ui_data = CreateViewData(event);
+
+            // UIデータを保存
+            data_store_.Update(ui_data);
+        }
+        wxWindow* AsWindow() override { return window_; }
+        
         virtual ~ViewBase() = default;
     protected:
-        //void DetachSelfFromNotifier();
-    protected:
-        //std::shared_ptr<anet::rl::Notifier> notifier_;
+        wxWindow* parent_;
+        anet::rl::gui::UIDataStore<ViewDataType> data_store_;
+        ViewWindowType* window_ = nullptr;
     };
 
 
@@ -184,7 +206,7 @@ namespace anet::rl::gui {
 	class ViewCreator {
 	public:
 		virtual std::shared_ptr<View> CreateView(
-            wxWindow* parent, const anet::ConfigData config_data, std::shared_ptr<Notifier> notifier) const = 0;
+            wxWindow* parent, const anet::ConfigData& config_data, std::shared_ptr<Notifier> notifier) const = 0;
         virtual std::string GetTargetClassId() const = 0;
         virtual  ~ViewCreator() = default;
 	};

@@ -50,36 +50,20 @@ LunarLanderData LunarLanderData::Create(anet::rl::TrainEvent event)
 // LunarLanderCanvas
 // =============================================================
 
-wxBEGIN_EVENT_TABLE(LunarLanderPanel, wxPanel)
-EVT_PAINT(LunarLanderPanel::OnPaint)
-EVT_CLOSE(LunarLanderPanel::OnClose)
-wxEND_EVENT_TABLE()
-
-//LunarLanderPanel::LunarLanderPanel(wxWindow* parent, std::shared_ptr<LunarLanderView> view, int update_timer_ms)
 LunarLanderPanel::LunarLanderPanel(wxWindow* parent)
     : anet::rl::gui::Panel(parent, wxID_ANY, wxDefaultPosition)
-    //, view_(view)
 {
     SetBackgroundStyle(wxBG_STYLE_PAINT);
+
+    Bind(wxEVT_PAINT, &LunarLanderPanel::OnPaint, this);
 }
 
-void LunarLanderPanel::OnClose(wxCloseEvent& event)
+void LunarLanderPanel::ApplyData(const LunarLanderData& data)
 {
-}
-
-void LunarLanderPanel::ApplyData(LunarLanderView& view)
-{
-    // UIデータ取り出し
-    auto data = view.PopData();
-
-    // データが取り出せなかったら何もしないで終わり
-    if (!data.has_value())
-        return;
-
     ANET_LOG_DEBUG("Data captured.");
 
     // データ（スナップショット）が取り出せたら取り込む
-    auto snapshot = *data;
+    auto snapshot = data;
     has_snapshot_ = true;
     snapshot_ = snapshot;
 
@@ -466,34 +450,13 @@ void LunarLanderPanel::OnPaint(wxPaintEvent& event)
 // LunarLanderView
 // =============================================================
 
-//LunarLanderView::LunarLanderView(wxWindow* parent, std::shared_ptr<anet::rl::Notifier> notifier)
 LunarLanderView::LunarLanderView(wxWindow* parent)
-    : parent_(parent)
+    : ViewBaseType(parent)
 {
+    window_ = new LunarLanderPanel(parent_);
 }
 
-void LunarLanderView::Initialize()
+LunarLanderData LunarLanderView::CreateViewData(const anet::rl::TrainEvent& event) const
 {
-    auto self = this->shared_from_this();
-    this->panel_ = new LunarLanderPanel(parent_);
-}
-
-void LunarLanderView::CaptureViewData()
-{
-    panel_->ApplyData(*this);
-}
-
-void LunarLanderView::UpdateViewData(const anet::rl::TrainEvent& event, bool force)
-{
-    const auto& train_step = event.counts.train_step;
-
-    // Update不要ならスキップ
-    if (!force && !data_store_.ShouldUpdate())
-        return;
-
-    // UIデータを生成
-    auto ui_data = LunarLanderData::Create(event);
-
-    // UIデータを保存
-    data_store_.Update(ui_data);
+    return LunarLanderData::Create(event);
 }
