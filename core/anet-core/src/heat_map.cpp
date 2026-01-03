@@ -245,7 +245,6 @@ wxImage HeatMap::RenderRaw() const
 	float vmax = value_max_;
 
 	if (flags_ & HM_AutoNormValue) {
-		// ... (既存ロジックそのまま) ...
 		float l_min = std::numeric_limits<float>::max();
 		float l_max = -std::numeric_limits<float>::max();
 		bool has_nonzero = false;

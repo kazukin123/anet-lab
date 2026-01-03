@@ -53,7 +53,7 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
     auto actual = t.sizes().vec();
 
     if (expects.size() == 0) {
-        if (t .sizes().size() == 0) return;
+        if (t.sizes().size() == 0) return;
     } else {
         for (const auto& e : expects) {
             if (actual.size() < e.size()) continue;

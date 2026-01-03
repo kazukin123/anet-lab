@@ -113,13 +113,13 @@ void CartPolePanel::OnPaint(wxPaintEvent& event)
     // 力の方向ベクトルを描画
     float arrowLen = 40.0f;
     wxPoint start(cartX, cartY + cartHeight / 2 + 5);
-    wxPoint end(cartX + (action_ == 1 ? arrowLen : -arrowLen), cartY + cartHeight / 2 + 5);
+    wxPoint end(cartX + (action_ == 1 ? -arrowLen : arrowLen), cartY + cartHeight / 2 + 5);
 
     dc.SetPen(wxPen(wxColour(255, 0, 0), 3));
     dc.DrawLine(start, end);
 
     // 矢印ヘッド
-    int dir = (action_ == 1) ? 1 : -1;
+    int dir = (action_ == 1) ? -1 : 1;
     dc.DrawLine(end, wxPoint(end.x - dir * 8, end.y - 5));
     dc.DrawLine(end, wxPoint(end.x - dir * 8, end.y + 5));
 }

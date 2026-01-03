@@ -197,8 +197,8 @@ std::optional<float> ConstantObservationNormalizer::GetScalar(const std::string&
 
 std::optional<torch::Tensor> ConstantObservationNormalizer::GetTensor(const std::string& key, int64_t index) const
 {
-    if (key == kKeyMean) return mean_;
-    if (key == kKeyStd) return std_;
+    //if (key == kKeyMean) return mean_;
+    //if (key == kKeyStd) return std_;
 
     return std::nullopt;
 }

@@ -63,6 +63,11 @@ void EvalPanel::DoStep(int64_t action)
 	Refresh();
 }
 
+std::shared_ptr<anet::rl::Notifier> EvalPanel::GetNotifier()
+{
+	return eval_runner_->GetNotifier();
+}
+
 void EvalPanel::TogglePause()
 {
 	is_pause_ = !is_pause_;

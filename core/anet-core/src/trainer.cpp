@@ -117,8 +117,12 @@ StepCounts EvalRunner::DoStep(int64_t action)
     ANET_LOG_DEBUG("step=" << train_step << " state=" << state_.ToString());
 
     // 行動選択
+    auto action_info_raw = agent_->MakeAction(step_counts_, state_, runmode_);
+    ANET_LOG_DEBUG("step=" << train_step << " action_info_raw=" << action_info_raw.ToString());
+
+    // 指定のactionとAgent選択のAux情報でaction_infoを生成
     anet::rl::BatchActionInfo action_info = {
-        torch::tensor({ action }),
+        torch::tensor({ action }), action_info_raw.GetAuxData()
     };
 
     // 環境ステップ実行
@@ -143,8 +147,8 @@ StepCounts EvalRunner::DoStep(int64_t action)
     anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
 
     // 更新後処理
-    anet::rl::TrainEvent update_event{ exp, *this, step_counts_, agent_, BatchUpdateResultList(), env_, result, action_info };
-    notifier_->Notify(update_event);
+    anet::rl::TrainEvent event{ exp, *this, step_counts_, agent_, BatchUpdateResultList(), env_, result, action_info };
+    notifier_->Notify(event);
     state_ = result->continue_state;
 
     return step_counts_;
@@ -199,8 +203,8 @@ StepCounts EvalRunner::DoStep()
     anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
 
     // 更新後処理
-    anet::rl::TrainEvent update_event { exp, *this, step_counts_, agent_, BatchUpdateResultList(), env_, result, action_info };
-    notifier_->Notify(update_event);
+    anet::rl::TrainEvent event { exp, *this, step_counts_, agent_, BatchUpdateResultList(), env_, result, action_info };
+    notifier_->Notify(event);
     state_ = result->continue_state;
 
     return step_counts_;

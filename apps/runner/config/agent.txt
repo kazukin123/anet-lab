@@ -70,6 +70,16 @@ DefaultDQNAgent.trunk2.use_qr = true                # QR-DQN 有効化フラグ
 
 
 
+## MEMO
+# U = N * RR / B
+# RR = U * B / N
+
+## MEMO
+# 報酬は暴れてないか？ → reward_scaler
+# 設定単純な反射神経ゲーか、戦略ゲーか？ → gamma （長期戦略が必要な場合はgammaを上げる）
+# 設定どれくらい複雑か？ → Network Size設定　（大きすぎると過学習気味になる。単純なモデルなら中間層 64とかに下げる）
+
+
 DefaultDQNAgent.baseline.qnet.nn_init_mode = 1                # 0=default, 1=XavierUniform, 2=HeNormal, 3=Orthogonal
 DefaultDQNAgent.baseline.qnet.nn_hidden1 = 120
 DefaultDQNAgent.baseline.qnet.nn_hidden2 = 84

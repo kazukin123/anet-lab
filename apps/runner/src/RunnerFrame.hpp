@@ -9,6 +9,7 @@
 #include "LogPanel.hpp"
 #include "TrainPanel.hpp"
 #include "EvalPanel.hpp"
+#include "QValuePanel.hpp"
 
 class ModuleBrowser;
 class RunPanel;
@@ -45,4 +46,5 @@ private:
     TrainPanel* train_panel_ = nullptr;
     EvalPanel* eval_panel_ = nullptr;
     LogPanel* log_panel_ = nullptr;
+    QValuePanel* q_value_panel_ = nullptr;
 };

@@ -1,0 +1,16 @@
+﻿
+
+#QValuePanel.row_height = 24
+QValuePanel.row_height = 48
+QValuePanel.use_hist_smooth = true
+QValuePanel.smooth_radius = 5 # 4 1個の分位の描画幅（実際は幅無しだが可視化の都合）
+QValuePanel.hist_bins = 510
+QValuePanel.hist_range_k = 5    # 1.0 2.5	描画範囲
+#QValuePanel.hist_range_k = 10    # 1.0 2.5
+#QValuePanel.hist_range_k = 20.5    # 1.0 2.5
+
+
+## MEMO: smooth_radius
+# 計算式: Bins (510) ÷ Quantile数 (N) 程度が目安。
+#   もし N=51 なら、510 / 51 = 10 ビンくらいの隙間が空く可能性がある
+#   半径を 3 ～ 5 に設定すれば、左右に広がるのでだいたい埋まる。

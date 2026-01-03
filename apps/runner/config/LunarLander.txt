@@ -33,6 +33,7 @@ metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.per-prio > i
 #metrics.image.[45_agent_img/05_shm_01_qma01].$   = image.shm.qmax > image.shm.s01
 #metrics.image.[45_agent_img/05_shm_01_qma02].$   = image.shm.qmax > image.shm.s02
 metrics.image.[45_agent_img/05_shm_01_maxq_01].$        = image.shm.qmax > image.shm.01
+#metrics.image.[45_agent_img/05_shm_01_maxq_01].interval = 100
 
 #metrics.image.[53_agent_img/52_per_hm_prio_01_test].$   = image.phm.per-prio > image.phm.s01 > image.test
 #metrics.image.[55_agent_img/05_shm_01_maxq_01_test].$   = image.shm.qmax > image.shm.01 > image.test
@@ -77,7 +78,7 @@ app.online.train_pause_step  = 100000  #100K
 #app.online.train_pause_step = 1000000 #1000K
 app.online.train_exit_step = -1
 app.online.train_panel.fps = 30
-app.online.eval_panel.fps = 30
+app.online.eval_panel.fps = 15
 app.online.eval_panel.step_per_frame = 3
 
 app.batchrun.train_auto_start = true
@@ -89,7 +90,7 @@ app.batchrun.train_exit_step  = 100000  #100K
 #app.batchrun.train_exit_step = 10000  #10K
 app.batchrun.train_panel.fps = 0.5
 app.batchrun.eval_panel.fps = 0.5
-app.batchrun.eval_panel.step_per_frame = 3
+app.batchrun.eval_panel.step_per_frame = 1
 
 # ---- LunarLanderEnv
 

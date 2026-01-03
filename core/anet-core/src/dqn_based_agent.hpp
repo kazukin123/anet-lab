@@ -258,6 +258,8 @@ namespace anet::rl::dqn {
         /// Learner用：Q出力 DQN=(B, A) QR-DQN=(B, A, Nq)
         torch::Tensor Forward(const torch::Tensor& obs, bool use_target) const;
 
+        /// QR判定
+        bool IsDistributional(bool use_target) const;
 
         /// QR-DQN専用：Quantile 出力
         torch::Tensor ForwardQuantiles(const torch::Tensor& obs, bool use_target) const;

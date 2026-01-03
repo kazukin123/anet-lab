@@ -58,7 +58,7 @@ anet::rl::EnvSpec CartPoleEnv::GetSpec() const
     };
     anet::rl::ActionSpec action = {
         true,   // is_discreate
-        { "left", "right"}, // value_labels
+        { "right", "left"}, // value_labels
         { // dims
             { 0, 1, "force" }  // min, max, name
         }
@@ -117,8 +117,8 @@ std::shared_ptr<const anet::rl::SingleStepResult> CartPoleEnv::Step(int64_t acti
 
     episode_start_ = false;
 
-    // 力の符号（1:右=+、0:左=-）
-    float force = (action == 1) ? force_mag : -force_mag;
+    // 力の符号（0右=+、1:左=-）
+    float force = (action == 1) ? -force_mag : force_mag;
     //float force = force_mag;  // 動作確認用
 
     // 運動方程式

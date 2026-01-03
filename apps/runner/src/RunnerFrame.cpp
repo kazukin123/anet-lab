@@ -87,10 +87,11 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
     log_panel_ = new LogPanel(this);
     aui_mgr_.AddPane(log_panel_, wxAuiPaneInfo()
         .Name("LogPanel").Caption("Logs")
-        .Bottom().Layer(10)          // Layer:大きいほど外側
-        .BestSize(-1, 200)          // ドッキング時の推奨サイズ 
+        .Right().Layer(10)          // Layer:大きいほど外側
+        //.Bottom().Layer(10)          // Layer:大きいほど外側
+        .BestSize(200, 200)          // ドッキング時の推奨サイズ 
         .FloatingSize(800, 400)     // 切り離したときのウィンドウサイズ
-        .MinSize(200, 100)          // これ以上小さくならないようにする
+        .MinSize(500, 100)          // これ以上小さくならないようにする
         .CloseButton(false).MaximizeButton(true)
     );
 
@@ -119,9 +120,10 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
     train_panel_ = new TrainPanel(this, train_panel_config);
     aui_mgr_.AddPane(train_panel_, wxAuiPaneInfo()
         .Name("TrainExperiencePanel").Caption("Train View")
-        //.Left().Layer(0)
-        .Centre()
-        .BestSize(400, 400)
+        .Right().Layer(10)          // Layer:大きいほど外側
+        //.Centre()
+        .BestSize(300, 300)
+        .MinSize(200, 200)
         .CloseButton(false).MaximizeButton(true)
     );
 
@@ -129,12 +131,27 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
     eval_panel_ = new EvalPanel(this, eval_panel_config);
     aui_mgr_.AddPane(eval_panel_, wxAuiPaneInfo()
         .Name("EvalExperiencePanel").Caption("Evaluation View")
-        //.Centre()
-        .Right().Layer(20)
-        .BestSize(400, 400)
+        .Centre()
+        //.Right().Layer(20)
+        .BestSize(900, 400)
         .MinSize(200, 200)
         .CloseButton(false).MaximizeButton(true)
     );
+
+    // QValuePanel
+    auto config_data = wxGetApp().GetConfigData();
+    q_value_panel_ = new QValuePanel(this, config_data);
+    aui_mgr_.AddPane(q_value_panel_, wxAuiPaneInfo()
+        .Name("EvalQValuePanel").Caption("Q-Values")
+        //.Right().Layer(20)
+        .Bottom().Layer(10)
+        //.Left().Layer(20)
+        .BestSize(900, 500)
+        .MinSize(700, 300)
+        .CloseButton(false).MaximizeButton(true).MinimizeButton(true)//.PinButton(true)
+        .DestroyOnClose(true)
+    );
+
 
     // 全てのペイン追加後に更新
     aui_mgr_.Update();
@@ -144,7 +161,10 @@ void RunnerFrame::Initialize(std::shared_ptr<anet::rl::DefaultTrainer> trainer)
 {
     train_panel_->Initialize(trainer);
     eval_panel_->Initialize(trainer);
-    //Layout();
+
+    auto action_spec = wxGetApp().GetTrainer()->GetBatchEnv()->GetSpec().action_spec;
+    auto notifier = eval_panel_->GetNotifier();
+    q_value_panel_->Initialize(action_spec, notifier);
 }
 
 void RunnerFrame::SetupEvents()

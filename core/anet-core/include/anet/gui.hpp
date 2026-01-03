@@ -101,7 +101,7 @@ namespace anet::rl::gui {
             if (data_request_.load(std::memory_order_acquire))
                 return true;
 
-            // 強制更新設定が無効なら終了
+            // 強制更新時間間隔指定が無効なら終了
             if (force_update_interval_.count() <= 0)
                 return false;
 

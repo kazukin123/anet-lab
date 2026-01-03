@@ -47,7 +47,9 @@ add_executable(AnetRLRunner
     "src/RunnerFrame.cpp"
     "src/LogPanel.cpp"
     "src/TrainPanel.cpp"
-    "src/EvalPanel.cpp")
+    "src/EvalPanel.cpp"
+    "src/QValuePanel.cpp"
+)
 
 if(WIN32)
     target_sources(${PROJECT_NAME} PRIVATE

@@ -32,7 +32,7 @@ public:
 public:
     void ToggleTraining();
     void StopTraining();
-    anet::ConfigData GetConfig() const { return config_mgr_->GetConfigData(); }
+    anet::ConfigData GetConfigData() const { return config_mgr_->GetConfigData(); }
     std::shared_ptr<anet::rl::DefaultTrainer> GetTrainer() { return trainer_; }
     std::shared_ptr<anet::rl::gui::View> CreateExperinceView(wxWindow* parent);
 private:

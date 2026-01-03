@@ -307,7 +307,7 @@ void RunnerApp::InitTrainer()
                 auto obs_norm_stat_mean = event.agent->GetTensor(anet::rl::ObservationNormalizer::kKeyMean);
                 auto obs_norm_stat_std = event.agent->GetTensor(anet::rl::ObservationNormalizer::kKeyStd);
 
-                if (obs_norm_stat_mean.has_value()) {
+                if (obs_norm_stat_mean.has_value() && obs_norm_stat_mean) {
                     LOG::info() << "obs_norm_stat_mean=" << anet::ToString(*obs_norm_stat_mean);
                 }
                 if (obs_norm_stat_std.has_value()) {

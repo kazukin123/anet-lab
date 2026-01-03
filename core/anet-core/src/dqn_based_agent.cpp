@@ -437,6 +437,12 @@ torch::Tensor Network::ForwardQuantiles(const torch::Tensor& obs, bool use_targe
     return net->ForwardQuantiles(obs);
 }
 
+bool Network::IsDistributional(bool use_target) const
+{
+    const auto& net = use_target ? target_net_ : policy_net_;
+    return net->IsDistributional();
+}
+
 std::vector<torch::Tensor> Network::GetPolicyParameters() const
 {
     auto params = policy_net_->parameters();
@@ -517,14 +523,19 @@ anet::rl::dqn::ActionPolicy::ActionPolicy(
 
 anet::rl::BatchActionInfo ActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const
 {
-    ProfileRange  r("ActionPolicy::SelectAction");
+    ProfileRange r("ActionPolicy::SelectAction");
 
     torch::NoGradGuard;
 
     // Q値生成
     auto q_values = network_.ForwardExpectation(obs, use_target);
-
     auto device = q_values.device();
+
+    // Q値(メトリクス用)
+    torch::Tensor q_quantiles;
+    if (network_.IsDistributional(use_target)) {
+        q_quantiles = network_.ForwardQuantiles(obs, use_target);
+    }
     
     // shape: (N, A)
 
@@ -538,12 +549,14 @@ anet::rl::BatchActionInfo ActionPolicy::SelectAction(const torch::Tensor& obs, b
     if (greedy_only) {
         ProfileRange  r("ActionPolicy::SelectAction.greedy_only");
         BatchActionInfo action_info{ greedy };
+        auto& aux = action_info.GetAuxData();
 
         // aux[max_q]
         auto max_pair = q_values.max(1);
         auto max_q = std::get<0>(max_pair).detach();
-        action_info.GetAuxData()["max_q"] = max_q;
-        action_info.GetAuxData()["q_values"] = q_values;
+        aux["max_q"] = max_q;
+        aux["q_values"] = q_values;
+        aux["q_quantiles"] = q_quantiles;
 
         return action_info;
     }
@@ -565,8 +578,10 @@ anet::rl::BatchActionInfo ActionPolicy::SelectAction(const torch::Tensor& obs, b
     // aux[max_q]
     auto max_pair = q_values.max(1);
     auto max_q = std::get<0>(max_pair).detach();
-    action_info.GetAuxData()["max_q"] = max_q;
-    action_info.GetAuxData()["q_values"] = q_values;
+    auto& aux = action_info.GetAuxData();
+    aux["max_q"] = max_q;
+    aux["q_values"] = q_values;
+    aux["q_quantiles"] = q_quantiles;
 
     return action_info;
 }
@@ -592,7 +607,7 @@ Learner::Learner(const LearnerConfig& config, Network& network, RuntimeVars& var
         earned_credit_ = 1.0f / static_cast<float>(std::max(1, config_.update_interval));
     }
     
-    LOG::info() << "Learner: earned_credit = " << earned_credit_;
+    LOG::info() << "Learner: U = " << earned_credit_;
 }
 
 std::optional<float> Learner::GetScalar(const std::string& key, int64_t index) const

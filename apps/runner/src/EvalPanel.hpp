@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <memory>
 #include <wx/wx.h>
 #include "anet/config.hpp"
 #include "anet/rl.hpp"
@@ -23,6 +24,8 @@ public:
 	void TogglePause();
 	void DoStep();
 	void DoStep(int64_t action);
+
+	std::shared_ptr<anet::rl::Notifier> GetNotifier();
 protected:
 	void OnTimer(wxTimerEvent& event);
 	void OnClose(wxCloseEvent& event);
