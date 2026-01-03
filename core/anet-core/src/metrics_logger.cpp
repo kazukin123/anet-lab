@@ -211,10 +211,8 @@ namespace anet {
         json obj = {
             {"type", "json"},
             {"tag", tag},
-            {"timestamp", current_time_str()},
             {"data", rounded}
         };
-        backend_->WriteJsonl(obj);
 
         std::string safe_tag = sanitize_filename(tag);
         std::string full_dir = root_dir_ + "/" + run_name_ + "/json";
@@ -222,6 +220,9 @@ namespace anet {
         std::filesystem::create_directories(full_dir);
         std::ofstream ofs(full_path);  // ファイルを開く
         ofs << obj.dump(4) << std::endl;     // インデント幅 4 で書き出
+
+        obj["timestamp"] = current_time_str();
+        backend_->WriteJsonl(obj);
     }
 
     void MetricsLogger::Log(const std::string& tag, int step, const wxImage& image)
