@@ -518,9 +518,73 @@ anet::rl::dqn::ActionPolicy::ActionPolicy(const ActionPolicyConfig& config,
     const anet::rl::dqn::Network& network, RuntimeVars& vars, anet::seed_t seed)
     : config_(config), anet::RandomHolder(seed), network_(network), vars_(vars)
 {
-    // RandomHolderを継承しているが、GPU側でrand生成しているので意味はない。ただ、マークとしてそのままにしておく。
+    // RandomHolderを継承しているが、基本GPU側で乱数生成しているので意味はない。ただ、マークとしてそのままにしておく。
 }
 
+torch::Tensor anet::rl::dqn::ActionPolicy::MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t batch_size, int64_t n_actions) const
+{
+    ProfileRange  r("ActionPolicy::MakeEpsilonGreedyAction");
+
+    auto device = greedy_action.device();
+
+    // mask: (N) bool, GPU上で生成
+    auto mask = torch::rand({ batch_size }, torch::TensorOptions().device(device)).lt(epsilon);    // GPUで完結
+
+    // random actions (N) int64
+    auto random_actions = torch::randint(/*low=*/0, /*high=*/n_actions, { batch_size },
+        torch::TensorOptions().dtype(torch::kInt64).device(device));
+
+    // actions: where(mask, random_actions, greedy)
+    auto actions = torch::where(mask, random_actions, greedy_action);
+
+    return actions;
+}
+
+torch::Tensor anet::rl::dqn::ActionPolicy::GetQuantiles(const torch::Tensor& obs, bool use_target) const
+{
+    if (network_.IsDistributional(use_target)) {
+        return network_.ForwardQuantiles(obs, use_target);
+    }
+    return torch::Tensor();
+}
+
+anet::rl::BatchActionInfo anet::rl::dqn::ActionPolicy::MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const
+{
+    ProfileRange  r("ActionPolicy::MakeActionInfo");
+
+    BatchActionInfo action_info{ action_values };
+    auto& aux = action_info.GetAuxData();
+
+    // aux[max_q]
+    auto max_pair = q_values.max(1);
+    auto max_q = std::get<0>(max_pair).detach();
+    aux["max_q"] = max_q;
+    aux["q_values"] = q_values;
+    aux["q_quantiles"] = q_quantiles;
+
+    return action_info;
+}
+
+void anet::rl::dqn::ActionPolicy::UpdateEpsilon(step_t step, bool is_uqe)
+{
+    if (is_uqe) {
+        if (config_.uqe_eps_decay_step <= 0) return;
+        if (step >= config_.uqe_eps_decay_step) {
+            vars_.epsilon = config_.uqe_eps_min;
+        } else {
+            const float t = static_cast<float>(step) / static_cast<float>(config_.uqe_eps_decay_step);
+            vars_.epsilon = config_.uqe_eps_max + t * (config_.uqe_eps_min - config_.uqe_eps_max);
+        }
+    } else {
+        if (config_.eps_decay_step <= 0) return;
+        if (step >= config_.eps_decay_step) {
+            vars_.epsilon = config_.eps_min;
+        } else {
+            const float t = static_cast<float>(step) / static_cast<float>(config_.eps_decay_step);
+            vars_.epsilon = config_.eps_max + t * (config_.eps_min - config_.eps_max);
+        }
+    }
+}
 
 // ======================================================
 // EpsilonGreedyActionPolicy 
@@ -530,87 +594,34 @@ anet::rl::dqn::EpsilonGreedyActionPolicy::EpsilonGreedyActionPolicy(const Action
     const anet::rl::dqn::Network& network, RuntimeVars& vars, anet::seed_t seed)
     : ActionPolicy(config, network, vars, seed)
 {
-    ;
+    vars_.epsilon = config_.eps_max;
+}
+
+void anet::rl::dqn::EpsilonGreedyActionPolicy::OnLearn(const StepCounts& counts)
+{
+    UpdateEpsilon(counts.exp_step);
 }
 
 anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const
 {
     ProfileRange r("EpsilonGreedyActionPolicy::SelectAction");
 
-    torch::NoGradGuard;
+    torch::NoGradGuard guard;
 
     // Q値生成
-    auto q_values = network_.ForwardExpectation(obs, use_target);
-    auto device = q_values.device();
+    auto q_quantiles = GetQuantiles(obs, use_target);
+    auto q_values = q_quantiles.defined() ? q_quantiles.mean(-1) : network_.ForwardExpectation(obs, use_target);
+    auto greedy_action = q_values.argmax(1, /*keepdim=*/false);        // greedy = argmax(q_values, dim=1)
 
-    // Q値(メトリクス用)
-    torch::Tensor q_quantiles;
-    if (network_.IsDistributional(use_target)) {
-        q_quantiles = network_.ForwardQuantiles(obs, use_target);
-    }
-    
-    // shape: (N, A)
+    // Greedy指定ならargmxを返す
+    if (greedy_only) return MakeActionInfo(greedy_action, q_values, q_quantiles);
 
-    // shape 読み取りは TensorOptions 経由で同期を回避
-    const int64_t N = q_values.sizes()[0];
+    // EpsilonGreedy
+    const int64_t N = q_values.sizes()[0];      // shape 読み取りは TensorOptions 経由で同期を回避
     const int64_t A = q_values.sizes()[1];
-
-    // greedy = argmax(q_values, dim=1)
-    auto greedy = q_values.argmax(1, /*keepdim=*/false);
-
-    if (greedy_only) {
-        ProfileRange  r("EpsilonGreedyActionPolicy::SelectAction.greedy_only");
-        BatchActionInfo action_info{ greedy };
-        auto& aux = action_info.GetAuxData();
-
-        // aux[max_q]
-        auto max_pair = q_values.max(1);
-        auto max_q = std::get<0>(max_pair).detach();
-        aux["max_q"] = max_q;
-        aux["q_values"] = q_values;
-        aux["q_quantiles"] = q_quantiles;
-
-        return action_info;
-    }
-
-    const float eps = vars_.epsilon;
-
-    // mask: (N) bool, GPU上で生成
-    auto mask = torch::rand({ N }, torch::TensorOptions().device(device)).lt(eps);    // GPUで完結
-
-    // random actions (N) int64
-    auto random_actions = torch::randint(/*low=*/0, /*high=*/A, { N },
-        torch::TensorOptions().dtype(torch::kInt64).device(device));
-
-    // actions: where(mask, random_actions, greedy)
-    auto actions = torch::where(mask, random_actions, greedy);
-
-    BatchActionInfo action_info{ actions }; // (N) kInt64
-
-    // aux[max_q]
-    auto max_pair = q_values.max(1);
-    auto max_q = std::get<0>(max_pair).detach();
-    auto& aux = action_info.GetAuxData();
-    aux["max_q"] = max_q;
-    aux["q_values"] = q_values;
-    aux["q_quantiles"] = q_quantiles;
-
+    auto actions = MakeEpsilonGreedyAction(greedy_action, vars_.epsilon, N, A);
+    auto action_info = MakeActionInfo(actions, q_values, q_quantiles);
     return action_info;
-}
-
-void anet::rl::dqn::EpsilonGreedyActionPolicy::UpdateEpsilon(step_t step)
-{
-    if (step >= config_.eps_decay_step) {
-        vars_.epsilon = config_.eps_min;
-        return;
-    }
-    const float t = static_cast<float>(step) / static_cast<float>(config_.eps_decay_step);
-    vars_.epsilon = config_.eps_max + t * (config_.eps_min - config_.eps_max);
-}
-
-void anet::rl::dqn::EpsilonGreedyActionPolicy::OnLearn(const StepCounts& counts)
-{
-    UpdateEpsilon(counts.exp_step);
 }
 
 // ======================================================
@@ -621,50 +632,35 @@ anet::rl::dqn::UQEActionPolicy::UQEActionPolicy(const ActionPolicyConfig& config
     const anet::rl::dqn::Network& network, RuntimeVars& vars, anet::seed_t seed)
     : ActionPolicy(config, network, vars, seed)
 {
-    ;
+    vars_.epsilon = config_.uqe_eps_max;
+    vars_.uqe_tau = config_.uqe_tau_max;
 }
 
-anet::rl::BatchActionInfo UQEActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const
+void anet::rl::dqn::UQEActionPolicy::UpdateTau(step_t step)
 {
-    ProfileRange r("UQEActionPolicy::SelectAction");
-
-    torch::NoGradGuard guard;
-
-    //  平均値 (Mean) の計算: 評価(Greedy)およびログ用
-    auto q_mean = network_.ForwardExpectation(obs, use_target);
-
-    // greedy = argmax(E[Q]) : 平均値に基づくGreedy (評価用)
-    auto greedy_action = q_mean.argmax(1, /*keepdim=*/false);
-
-    // greedy_only (評価モード) の場合、「平均値(リスク中立)」を使う
-    if (greedy_only) {
-        ProfileRange r_greedy("UQEActionPolicy::SelectAction.greedy_only");
-
-        BatchActionInfo action_info{ greedy_action };
-        auto& aux = action_info.GetAuxData();
-
-        // ログ用にMaxQを保存
-        auto max_pair = q_mean.max(1);
-        auto max_q = std::get<0>(max_pair).detach(); // detach重要
-        aux["max_q"] = max_q;
-        aux["q_values"] = q_mean;
-
-        // 分布情報の保存 (もしネットワークが対応していれば)
-        if (network_.IsDistributional(use_target)) {
-            aux["q_quantiles"] = network_.ForwardQuantiles(obs, use_target);
-        }
-
-        return action_info;
+    if (config_.uqe_tau_decay_step <= 0) return;
+    if (step >= config_.uqe_tau_decay_step) {
+        vars_.uqe_tau = config_.uqe_tau_min;
+        return;
     }
+    const float t = static_cast<float>(step) / static_cast<float>(config_.uqe_tau_decay_step);
+    vars_.uqe_tau = config_.uqe_tau_max + t * (config_.uqe_tau_min - config_.uqe_tau_max);
+}
 
-    // 分布 (Quantiles) の取得
-    auto q_quantiles = network_.ForwardQuantiles(obs, use_target);  // (N, A, n_quantiles)
+void anet::rl::dqn::UQEActionPolicy::OnLearn(const StepCounts& counts)
+{
+    UpdateEpsilon(counts.exp_step, true);
+    UpdateTau(counts.exp_step);
+}
+
+torch::Tensor UQEActionPolicy::MakeUQEAction(float tau, const torch::Tensor& q_quantiles) const
+{
+    ProfileRange r("UQEActionPolicy::MakeUQEAction");
 
     // GPU同期を避けるため、sizes() からメタデータのみ取得
     const int64_t n_quantiles = q_quantiles.size(-1);
 
     // インデックス決定: floor(tau * (N-1)) clampして範囲外アクセスを防止
-    const float tau = vars_.uqe_tau;
     int64_t tau_idx = static_cast<int64_t>(tau * (n_quantiles - 1));
     tau_idx = std::max<int64_t>(0, std::min<int64_t>(tau_idx, n_quantiles - 1));
     ANET_LOG_DEBUG("tau_idx=" << tau_idx);
@@ -687,37 +683,121 @@ anet::rl::BatchActionInfo UQEActionPolicy::SelectAction(const torch::Tensor& obs
 
     // UQE Actions: argmax(Q_tau)
     auto actions = uqe_values.argmax(1);
+    return actions;
+}
 
-    BatchActionInfo action_info{ actions };
+torch::Tensor UQEActionPolicy::MakeVectorizedUQEAction(const torch::Tensor& tau_tensor, const torch::Tensor& q_quantiles) const
+{
+    // q_quantiles: (N, A, n_quantiles)
+    // tau_tensor:  (N, 1)  (0.0 ~ 1.0)
 
-    // 4. ログデータの作成 (greedy時と同様)
-    auto& aux = action_info.GetAuxData();
+    const int64_t N = q_quantiles.size(0);
+    const int64_t A = q_quantiles.size(1);
+    const int64_t n_quantiles = q_quantiles.size(2);
+    auto device = q_quantiles.device();
 
-    // max_q は Mean基準
-    auto max_pair = q_mean.max(1);
-    auto max_q_mean = std::get<0>(max_pair).detach();
+    // 1. インデックスの計算 (N, 1)
+    // floor(tau * (n_q - 1))
+    auto tau_idx = (tau_tensor * (n_quantiles - 1)).to(torch::kLong);
+    tau_idx = tau_idx.clamp(0, n_quantiles - 1);
 
-    aux["max_q"] = max_q_mean;
-    aux["q_values"] = q_mean;      // Mean
-    aux["q_quantiles"] = q_quantiles; // Raw Dist
+    torch::Tensor uqe_values;
 
+    if (config_.uqe_use_tail_mean) {
+        // 【難所】Tail Meanの場合 (バッチごとに開始位置が違うため slice は使えない)
+        // マスクを使って平均を計算する
+
+        // range: (1, 1, n_quantiles) -> [0, 1, 2, ...]
+        auto range = torch::arange(n_quantiles, device).view({ 1, 1, -1 });
+
+        // mask: (N, 1, n_quantiles)
+        // range >= tau_idx の部分が True (1.0)
+        // tau_idx は (N, 1) なので (N, 1, 1) に view して broadcast
+        auto mask = range.ge(tau_idx.view({ N, 1, 1 })).to(q_quantiles.dtype());
+
+        // 平均計算: (sum(Q * mask) / sum(mask))
+        // small_epsilon を足して 0除算防止
+        uqe_values = (q_quantiles * mask).sum(-1) / (mask.sum(-1) + 1e-6);
+    } else {
+        // tau_idx を (N, A, 1) に拡張
+        // バッチ(N)ごとに違うインデックスだが、Action(A)に対しては同じインデックスを使う
+        auto gather_idx = tau_idx.view({ N, 1, 1 }).expand({ N, A, 1 });
+
+        // gather: dim=-1 (quantiles次元) に沿って収集
+        // output: (N, A, 1) -> squeeze -> (N, A)
+        uqe_values = q_quantiles.gather(-1, gather_idx).squeeze(-1);
+    }
+
+    return uqe_values.argmax(1);
+}
+
+anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const torch::Tensor& obs, bool greedy_only, bool use_target) const
+{
+    ProfileRange r("UQEActionPolicy::MakeUQEActionInfo");
+
+    torch::NoGradGuard guard;
+
+    auto q_quantiles = GetQuantiles(obs, use_target);
+    auto q_values = q_quantiles.mean(-1);
+
+    // greedy_only (評価モード) の場合、「平均値(リスク中立)」を使う
+    if (greedy_only) {
+        auto greedy_action = q_values.argmax(1, /*keepdim=*/false);        // greedy = argmax(q_values, dim=1)
+        return MakeActionInfo(greedy_action, q_values, q_quantiles);
+    }
+
+    const float epsilon = vars_.epsilon;
+    const int64_t N = q_values.sizes()[0];      // shape 読み取りは TensorOptions 経由で同期を回避
+    const int64_t A = q_values.sizes()[1];
+
+    torch::Tensor uqe_action;
+    if (tau_tensor.defined()) {
+        uqe_action = MakeVectorizedUQEAction(tau_tensor, q_quantiles);
+    } else {
+        uqe_action = MakeUQEAction(tau, q_quantiles);
+    }
+    auto actions = MakeEpsilonGreedyAction(uqe_action, epsilon, N, A);
+    auto action_info = MakeActionInfo(actions, q_values, q_quantiles);
     return action_info;
 }
 
-void anet::rl::dqn::UQEActionPolicy::UpdateTau(step_t step)
+anet::rl::BatchActionInfo UQEActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const
 {
-    if (step >= config_.uqe_tau_decay_step) {
-        vars_.uqe_tau = config_.uqe_tau_min;
-        return;
-    }
-    const float t = static_cast<float>(step) / static_cast<float>(config_.uqe_tau_decay_step);
-    vars_.uqe_tau = config_.uqe_tau_max + t * (config_.uqe_tau_min - config_.uqe_tau_max);
+    ANET_ASSERT(network_.IsDistributional(use_target)); // 念の為チェック
+
+    return MakeUQEActionInfo(vars_.uqe_tau, torch::Tensor(), obs, greedy_only, use_target);
 }
 
-void anet::rl::dqn::UQEActionPolicy::OnLearn(const StepCounts& counts)
+
+// ======================================================
+// ThompsonSamplingActionPolicy
+// ======================================================
+
+anet::rl::dqn::ThompsonSamplingActionPolicy::ThompsonSamplingActionPolicy(const ActionPolicyConfig& config,
+    const anet::rl::dqn::Network& network, RuntimeVars& vars, anet::seed_t seed)
+    : UQEActionPolicy(config, network, vars, seed)
 {
-    UpdateTau(counts.exp_step);
+    ;
 }
+
+void anet::rl::dqn::ThompsonSamplingActionPolicy::OnLearn(const StepCounts& counts)
+{
+    UpdateEpsilon(counts.exp_step, true);
+    //UpdateTau(counts.exp_step);
+}
+
+anet::rl::BatchActionInfo ThompsonSamplingActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const
+{
+    ANET_ASSERT(network_.IsDistributional(use_target)); // 念の為チェック
+
+    // ランダムな Tau をバッチサイズ分生成 (N, 1)
+    const int64_t N = obs.size(0);
+    auto tau_tensor = torch::rand({ N, 1 }, torch::TensorOptions().device(obs.device()));
+
+    // tau_tensor(ランダム)でUQE適用
+    return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, use_target);
+}
+
 
 // ======================================================
 // Learner
@@ -806,7 +886,7 @@ void Learner::UpdatePerBeta(step_t step)
     ProfileRange r("Learner::UpdatePerBeta");
 
     if (!config_.use_per) return;
-
+    if (config_.per_beta_step <= 0) return;
     if (step < config_.per_beta_step) {
         float progress = static_cast<float>(step) / static_cast<float>(config_.per_beta_step);
         vars_.per_beta = config_.per_beta_start + progress * (config_.per_beta_end - config_.per_beta_start);

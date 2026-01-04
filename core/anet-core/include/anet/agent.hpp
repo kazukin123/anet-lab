@@ -66,9 +66,10 @@ namespace anet::rl {
 
         static constexpr int kActionPolicyType_EpsilonGreedy = 0;
         static constexpr int kActionPolicyType_UQE = 1;
+        static constexpr int kActionPolicyType_ThompsonSampling = 2;
 
         struct ActionPolicyConfig {
-            int policy_type = 0;         ///< 0=EpsilonGreedy 1=UQE
+            int policy_type = 1;         ///< 0=EpsilonGreedy 1=UQE 2=TompsonSampling
 
             float eps_max = 1.00f;
             float eps_min = 0.05f;       ///< 0.1f 0.05f
@@ -77,6 +78,11 @@ namespace anet::rl {
             float uqe_tau_max = 0.9f;
             float uqe_tau_min = 0.5f;
             int uqe_tau_decay_step = 100000;
+
+            float uqe_eps_max = 0.05f;
+            float uqe_eps_min = 0.05f;       ///< 0.1f 0.05f
+            int uqe_eps_decay_step = 0;
+
             bool uqe_use_tail_mean = false;
         };
 

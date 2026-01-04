@@ -284,7 +284,7 @@ namespace anet::rl::dqn {
 
 
     // ======================================================
-    // ActionPolicy 
+    // ActionPolicy
     // ======================================================
 
     class ActionPolicy : public anet::RandomHolder {
@@ -293,9 +293,14 @@ namespace anet::rl::dqn {
             const anet::rl::dqn::Network& network, anet::rl::dqn::RuntimeVars& vars, anet::seed_t seed);
 
         virtual BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const = 0;
-        virtual void OnLearn(const StepCounts& counts) = 0;
+        virtual void OnLearn(const StepCounts& counts) { }
 
         virtual ~ActionPolicy() = default;
+    protected:
+        torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t batch_size, int64_t n_actions) const;
+        BatchActionInfo MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const;
+        torch::Tensor GetQuantiles(const torch::Tensor& obs, bool use_target) const;
+        void UpdateEpsilon(step_t step, bool is_uqe = false);
     protected:
         const ActionPolicyConfig config_;
         const anet::rl::dqn::Network& network_;
@@ -309,11 +314,7 @@ namespace anet::rl::dqn {
 
         BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const;
         void OnLearn(const StepCounts& counts) override;
-    private:
-        void UpdateEpsilon(step_t step);
     };
-
-    /// Upper Quantile Exploration：上位 tau(例: 0.8〜0.9) の分位点を使って行動選択
 
     /**
      * UQE (Upper Quantile Exploration)
@@ -323,17 +324,31 @@ namespace anet::rl::dqn {
      * 1. Q-UCB: 特定の上位分位点(tau)の値を使用 (falseの場合)
      * 2. Upper CVaR: 上位tauから1.0までの平均値を使用 (trueの場合)
      */
-    class UQEActionPolicy final : public ActionPolicy {
+    class UQEActionPolicy : public ActionPolicy {
     public:
         UQEActionPolicy(const ActionPolicyConfig& config,
             const anet::rl::dqn::Network& network, anet::rl::dqn::RuntimeVars& vars, anet::seed_t seed);
 
         BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const;
         void OnLearn(const StepCounts& counts) override;
-    private:
+
+        virtual ~UQEActionPolicy() = default;
+    protected:
+        anet::rl::BatchActionInfo MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const torch::Tensor& obs, bool greedy_only, bool use_target) const;
         void UpdateTau(step_t step);
+    private:
+        torch::Tensor MakeUQEAction(float tau, const torch::Tensor& q_quantiles) const;
+        torch::Tensor MakeVectorizedUQEAction(const torch::Tensor& tau_tensor, const torch::Tensor& q_quantiles) const;
     };
 
+    class ThompsonSamplingActionPolicy final : public UQEActionPolicy {
+    public:
+        ThompsonSamplingActionPolicy(const ActionPolicyConfig& config,
+            const anet::rl::dqn::Network& network, anet::rl::dqn::RuntimeVars& vars, anet::seed_t seed);
+
+        BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const;
+        void OnLearn(const StepCounts& counts) override;
+    };
 
     // ======================================================
     // Learner

@@ -45,21 +45,19 @@ DefaultDQNAgent::DefaultDQNAgent(
 
     // RuntimeVars生成
     this->vars_ = std::make_unique<dqn::RuntimeVars>();
-    this->vars_->epsilon = config_.action_policy.eps_max;
-    this->vars_->uqe_tau = config_.action_policy.uqe_tau_max;
 
     // QR-DQN設定確認 (use_qrとの整合性)
     bool is_distributional = config_.use_qr;
     if (is_distributional && config_.num_quantiles <= 1) {
         LOG::error() << "use_qr is true but num_quantiles <= 1. Treating as Scalar DQN.";
         ANET_SYSTEM_ERROR("use_qr is true but num_quantiles <= 1. Treating as Scalar DQN.");
-        is_distributional = false;
     }
-    if (config_.action_policy.policy_type == kActionPolicyType_UQE && !is_distributional) {
-        // UQEではQR必須
-        LOG::error() << "action_policy.policy_type is UQE but use_qr disabled.";
-        ANET_SYSTEM_ERROR("action_policy.policy_type is UQE but use_qr disabled.");
-        is_distributional = false;
+    if (!is_distributional) {
+        if (config_.action_policy.policy_type == kActionPolicyType_UQE || config_.action_policy.policy_type == kActionPolicyType_ThompsonSampling) {
+            // UQEbベースではQR必須
+            LOG::error() << "action_policy.policy_type is UQE but use_qr disabled.";
+            ANET_SYSTEM_ERROR("action_policy.policy_type is UQE but use_qr disabled.");
+        }
     }
 
     // RewardScaler生成
@@ -99,6 +97,8 @@ DefaultDQNAgent::DefaultDQNAgent(
         this->action_policy_ = std::make_unique<dqn::EpsilonGreedyActionPolicy>(config_.action_policy, *network_, *vars_, action_policy_seed);
     } else if (config_.action_policy.policy_type == kActionPolicyType_UQE) {
         this->action_policy_ = std::make_unique<dqn::UQEActionPolicy>(config_.action_policy, *network_, *vars_, action_policy_seed);
+    }  else if (config_.action_policy.policy_type == kActionPolicyType_ThompsonSampling) {
+        this->action_policy_ = std::make_unique<dqn::ThompsonSamplingActionPolicy>(config_.action_policy, *network_, *vars_, action_policy_seed);
     } else {
         ANET_SYSTEM_ERROR("Unknown action policy type. action_policy.policy_type=" << config_.action_policy.policy_type);
     }

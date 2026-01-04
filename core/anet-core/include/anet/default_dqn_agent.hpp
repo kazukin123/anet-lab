@@ -44,6 +44,9 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, action_policy.uqe_tau_max);
             ANET_READ_CONFIG(config_data, action_policy.uqe_tau_min);
             ANET_READ_CONFIG(config_data, action_policy.uqe_tau_decay_step);
+            ANET_READ_CONFIG(config_data, action_policy.uqe_eps_max);
+            ANET_READ_CONFIG(config_data, action_policy.uqe_eps_min);
+            ANET_READ_CONFIG(config_data, action_policy.uqe_eps_decay_step);
             ANET_READ_CONFIG(config_data, action_policy.uqe_use_tail_mean);
 
             ANET_READ_CONFIG(config_data, learner.alpha);
