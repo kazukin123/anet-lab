@@ -46,6 +46,7 @@ RainbowAgent::RainbowAgent(
 
     // RuntimeVars生成
     this->vars_ = std::make_unique<dqn::RuntimeVars>();
+    this->vars_->epsilon = config_.action_policy.eps_max;
 
     // QR-DQN設定確認 (use_qr フラグと num_quantiles の整合性)
     bool is_distributional = config_.use_qr;
@@ -79,7 +80,7 @@ RainbowAgent::RainbowAgent(
     this->network_ = std::make_unique<dqn::Network>(config_.network, device_, policy_net, target_net);
 
     // ActionPolicy生成
-    this->action_policy_ = std::make_unique<dqn::ActionPolicy>(*network_, *vars_, action_policy_seed);
+    this->action_policy_ = std::make_unique<dqn::EpsilonGreedyActionPolicy>(config_.action_policy, *network_, *vars_, action_policy_seed);
 
     // Learner生成
     if (is_distributional) {
@@ -180,6 +181,9 @@ RainbowAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExp
         // Update実行
         auto result = this->learner_->UpdateFromBatch(counts, batch_exp, runner);
         result_list = std::move(result);
+
+        // Update後処理
+        action_policy_->OnLearn(counts);
     }
 
     // LearnEvent通知

@@ -7,15 +7,16 @@
     #   $target  : $update_result || $agent || $exp || $runner
 
 metrics.scalar.baseline.[10_train/11_eps_count] = $runner episode_count @train $runner interval:100
-metrics.scalar.baseline.[10_train/12_epsilon] = $agent epsilon @train
+#metrics.scalar.baseline.[10_train/12_epsilon] = $agent epsilon @train
 metrics.scalar.baseline.[20_eps/10_train_reward]     = $runner $episode_step train_episode_reward @train
 metrics.scalar.baseline.[20_eps/11_train_reward_ema] = $runner $episode_step train_episode_reward @train $ema ema_alpha:0.001 clip:1000
 metrics.scalar.baseline.[21_eval/01_target_reward] = $runner target_eval_reward @learn clip:3000
 metrics.scalar.baseline.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn clip:3000
 metrics.scalar.baseline.[21_eval/03_target_reward_ema] = $runner target_eval_reward @learn $ema ema_alpha:0.001 clip:1000
 metrics.scalar.baseline.[21_eval/04_policy_reward_ema] = $runner policy_eval_reward @learn $ema ema_alpha:0.001 clip:1000
-metrics.scalar.baseline.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn 
-metrics.scalar.baseline.[32_agent_base/06_per_beta] = $agent per_beta @learn 
+metrics.scalar.baseline.[32_agent_base/04_uqe_tau] = $agent uqe_tau @learn $exp_step
+metrics.scalar.baseline.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn $exp_step
+metrics.scalar.baseline.[32_agent_base/06_per_beta] = $agent per_beta @learn $exp_step
 metrics.scalar.baseline.[37_agent_qtd/01_td_mean] = td_mean @learn
 metrics.scalar.baseline.[37_agent_qtd/03_td_mean_ema] = td_mean @learn $ema
 metrics.scalar.baseline.[37_agent_qtd/11_q_max_mean] = q_max_mean @learn
@@ -102,8 +103,9 @@ metrics.scalar.full.[21_eval/01_target_reward] = $runner target_eval_reward @lea
 metrics.scalar.full.[21_eval/02_policy_reward] = $runner policy_eval_reward @learn clip:3000
 metrics.scalar.full.[21_eval/03_target_reward_ema] = $runner target_eval_reward $ema @learn
 metrics.scalar.full.[21_eval/04_policy_reward_ema] = $runner policy_eval_reward $ema @learn
-metrics.scalar.full.[32_agent_base/04_tau] = $agent tau @learn
-metrics.scalar.full.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn 
+metrics.scalar.full.[32_agent_base/04_uqe_tau] = $agent uqe_tau @learn $exp_step
+metrics.scalar.full.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn $exp_step
+metrics.scalar.full.[32_agent_base/06_tau] = $agent tau @learn $exp_step
 metrics.scalar.full.[32_agent_base/10_collapse_s] = collapse_s @learn
 metrics.scalar.full.[32_agent_base/11_collapse_l] = collapse_l @learn
 metrics.scalar.full.[37_agent_qtd/01_td_mean] = td_mean @learn

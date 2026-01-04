@@ -33,6 +33,8 @@ struct RunnerApp::Config : public anet::Config {
     bool train_auto_start = true;
     int train_pause_step = -1;
     int train_exit_step = -1; //110000;
+    int exp_pause_step = -1;
+    int exp_exit_step = -1;
 
     TrainPanelConfig train_panel;
     EvalPanelConfig eval_panel;
@@ -43,6 +45,8 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, train_auto_start);
         ANET_READ_CONFIG(config_data, train_pause_step);
         ANET_READ_CONFIG(config_data, train_exit_step);
+        ANET_READ_CONFIG(config_data, exp_pause_step);
+        ANET_READ_CONFIG(config_data, exp_exit_step);
 
         ANET_READ_CONFIG(config_data, train_panel.fps);
         ANET_READ_CONFIG(config_data, eval_panel.fps);
@@ -131,7 +135,8 @@ bool RunnerApp::OnInit()
     anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetRunsPath(), config_->run_name);
 
     // RunnerFrame生成＆表示
-    frame_ = new RunnerFrame("Anet RL Runner", config_->train_panel, config_->eval_panel);
+    wxString frame_title = anet::MetricsLogger::Instance()->GetRunName() + " - ANET RL Runner";
+    frame_ = new RunnerFrame(frame_title, config_->train_panel, config_->eval_panel);
     frame_->Show();
 
     // RunnerAppConfigをダンプ
@@ -174,17 +179,27 @@ bool RunnerApp::OnInit()
         trainer_,
         [this](const anet::rl::StepCounts& counts)   // pre_train_step_func
         {
-            auto train_step = counts.train_step;
+            const auto& train_step = counts.train_step;
+            const auto& exp_step = counts.exp_step;
 
             // Train終了判定
-            if ((config_->train_exit_step > 0) && (trainer_->GetCounts().train_step >= config_->train_exit_step)) {
+            if ((config_->train_exit_step > 0) && (train_step >= config_->train_exit_step)) {
                 wxQueueEvent(wxTheApp->GetTopWindow(), new wxCommandEvent(wxEVT_TRAINER_EXIT)); // Mainスレッドに終了要求
-                //LOG::info() << "Auto exit.";
+                return anet::rl::ControlSignal::STOP;    // Train終了
+            }
+            if ((config_->exp_exit_step > 0) && (exp_step >= config_->exp_exit_step)) {
+                wxQueueEvent(wxTheApp->GetTopWindow(), new wxCommandEvent(wxEVT_TRAINER_EXIT)); // Mainスレッドに終了要求
                 return anet::rl::ControlSignal::STOP;    // Train終了
             }
 
             // 自動Pause
             if ((config_->train_pause_step > 0) && (train_step >= config_->train_pause_step) && !auto_pause_done_) {
+                auto_pause_done_ = true;    // 一回だけ自動
+                trainer_thread_->Pause();
+                LOG::info() << "Auto pause.";
+                return anet::rl::ControlSignal::BREAK;
+            }
+            if ((config_->exp_pause_step > 0) && (exp_step >= config_->exp_pause_step) && !auto_pause_done_) {
                 auto_pause_done_ = true;    // 一回だけ自動
                 trainer_thread_->Pause();
                 LOG::info() << "Auto pause.";

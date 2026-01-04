@@ -16,6 +16,7 @@ namespace anet::rl::dqn {
 
         QNetConfig qnet;
         NetworkConfig network;
+        ActionPolicyConfig action_policy;
         LearnerConfig learner;
         RewardScalerConfig reward_scaler;
         ObservationNormalizerConfig obs_norm;
@@ -36,11 +37,17 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, network.soft_update_tau);
             ANET_READ_CONFIG(config_data, network.hard_update_interval);
 
+            ANET_READ_CONFIG(config_data, action_policy.policy_type);
+            ANET_READ_CONFIG(config_data, action_policy.eps_max);
+            ANET_READ_CONFIG(config_data, action_policy.eps_min);
+            ANET_READ_CONFIG(config_data, action_policy.eps_decay_step);
+            ANET_READ_CONFIG(config_data, action_policy.uqe_tau_max);
+            ANET_READ_CONFIG(config_data, action_policy.uqe_tau_min);
+            ANET_READ_CONFIG(config_data, action_policy.uqe_tau_decay_step);
+            ANET_READ_CONFIG(config_data, action_policy.uqe_use_tail_mean);
+
             ANET_READ_CONFIG(config_data, learner.alpha);
             ANET_READ_CONFIG(config_data, learner.gamma);
-            ANET_READ_CONFIG(config_data, learner.eps_max);
-            ANET_READ_CONFIG(config_data, learner.eps_min);
-            ANET_READ_CONFIG(config_data, learner.eps_decay_step);
             ANET_READ_CONFIG(config_data, learner.adam_eps);
             ANET_READ_CONFIG(config_data, learner.use_grad_clip);
             ANET_READ_CONFIG(config_data, learner.grad_clip_tau);

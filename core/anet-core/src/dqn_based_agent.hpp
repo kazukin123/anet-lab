@@ -20,6 +20,7 @@ namespace anet::rl::dqn {
     /// ランタイム変数
     struct anet::rl::dqn::RuntimeVars {
         float epsilon = 1.0f;
+        float uqe_tau = 0.9f;
         anet::rl::step_t learn_step = 0;
         float per_beta = 0.0f;  ///< PER用beta
     };
@@ -288,13 +289,49 @@ namespace anet::rl::dqn {
 
     class ActionPolicy : public anet::RandomHolder {
     public:
-        ActionPolicy(
-            const anet::rl::dqn::Network& network, const anet::rl::dqn::RuntimeVars& vars, anet::seed_t seed);
+        ActionPolicy(const ActionPolicyConfig& config,
+            const anet::rl::dqn::Network& network, anet::rl::dqn::RuntimeVars& vars, anet::seed_t seed);
+
+        virtual BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const = 0;
+        virtual void OnLearn(const StepCounts& counts) = 0;
+
+        virtual ~ActionPolicy() = default;
+    protected:
+        const ActionPolicyConfig config_;
+        const anet::rl::dqn::Network& network_;
+        RuntimeVars& vars_;
+    };
+
+    class EpsilonGreedyActionPolicy final : public ActionPolicy {
+    public:
+        EpsilonGreedyActionPolicy(const ActionPolicyConfig& config,
+            const anet::rl::dqn::Network& network, anet::rl::dqn::RuntimeVars& vars, anet::seed_t seed);
 
         BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const;
+        void OnLearn(const StepCounts& counts) override;
     private:
-        const anet::rl::dqn::Network& network_;
-        const RuntimeVars& vars_;
+        void UpdateEpsilon(step_t step);
+    };
+
+    /// Upper Quantile Exploration：上位 tau(例: 0.8〜0.9) の分位点を使って行動選択
+
+    /**
+     * UQE (Upper Quantile Exploration)
+     * 分布型RLにおける楽観的探索 (Optimistic Exploration) を行うクラス。
+     * 分布の右裾（上位Quantile）の情報を用いて、不確実性の高い行動を積極的に探索する。
+     * * uqe_use_tail_meanにより、以下2つの標準的な手法に対応：
+     * 1. Q-UCB: 特定の上位分位点(tau)の値を使用 (falseの場合)
+     * 2. Upper CVaR: 上位tauから1.0までの平均値を使用 (trueの場合)
+     */
+    class UQEActionPolicy final : public ActionPolicy {
+    public:
+        UQEActionPolicy(const ActionPolicyConfig& config,
+            const anet::rl::dqn::Network& network, anet::rl::dqn::RuntimeVars& vars, anet::seed_t seed);
+
+        BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const;
+        void OnLearn(const StepCounts& counts) override;
+    private:
+        void UpdateTau(step_t step);
     };
 
 
@@ -324,8 +361,7 @@ namespace anet::rl::dqn {
         void SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, anet::seed_t seed);
     private:
         bool CanUpdate(step_t update_step, step_t exp_step) const;
-        void UpdatePerBeta(step_t learn_step);
-        void UpdateEpsilon(step_t learn_step);
+        void UpdatePerBeta(step_t step);
         void UpdateTargetNetwork(step_t step);
     protected:
         const torch::Device device_;

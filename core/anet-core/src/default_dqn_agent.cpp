@@ -45,11 +45,20 @@ DefaultDQNAgent::DefaultDQNAgent(
 
     // RuntimeVars生成
     this->vars_ = std::make_unique<dqn::RuntimeVars>();
+    this->vars_->epsilon = config_.action_policy.eps_max;
+    this->vars_->uqe_tau = config_.action_policy.uqe_tau_max;
 
-    // QR-DQN設定確認 (use_qr フラグと num_quantiles の整合性)
+    // QR-DQN設定確認 (use_qrとの整合性)
     bool is_distributional = config_.use_qr;
     if (is_distributional && config_.num_quantiles <= 1) {
-        LOG::warn() << "use_qr is true but num_quantiles <= 1. Treating as Scalar DQN.";
+        LOG::error() << "use_qr is true but num_quantiles <= 1. Treating as Scalar DQN.";
+        ANET_SYSTEM_ERROR("use_qr is true but num_quantiles <= 1. Treating as Scalar DQN.");
+        is_distributional = false;
+    }
+    if (config_.action_policy.policy_type == kActionPolicyType_UQE && !is_distributional) {
+        // UQEではQR必須
+        LOG::error() << "action_policy.policy_type is UQE but use_qr disabled.";
+        ANET_SYSTEM_ERROR("action_policy.policy_type is UQE but use_qr disabled.");
         is_distributional = false;
     }
 
@@ -86,7 +95,13 @@ DefaultDQNAgent::DefaultDQNAgent(
     this->network_ = std::make_unique<dqn::Network>(config_.network, device_, policy_net, target_net);
 
     // ActionPolicy生成
-    this->action_policy_ = std::make_unique<dqn::ActionPolicy>(*network_, *vars_, action_policy_seed);
+    if (config_.action_policy.policy_type == kActionPolicyType_EpsilonGreedy) {
+        this->action_policy_ = std::make_unique<dqn::EpsilonGreedyActionPolicy>(config_.action_policy, *network_, *vars_, action_policy_seed);
+    } else if (config_.action_policy.policy_type == kActionPolicyType_UQE) {
+        this->action_policy_ = std::make_unique<dqn::UQEActionPolicy>(config_.action_policy, *network_, *vars_, action_policy_seed);
+    } else {
+        ANET_SYSTEM_ERROR("Unknown action policy type. action_policy.policy_type=" << config_.action_policy.policy_type);
+    }
 
     // Learner生成
     if (is_distributional) {
@@ -123,6 +138,10 @@ std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int64_t 
     if (key == "epsilon") {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return vars_->epsilon;
+    }
+    if (key == "uqe_tau") {
+        std::shared_lock<std::shared_mutex> lock(*mutex_);
+        return vars_->uqe_tau;
     }
     if (key == "per_beta") {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
@@ -226,6 +245,9 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
         // Update実行
         auto result = this->learner_->UpdateFromBatch(counts, exp, runner);
         result_list = std::move(result);
+
+        // Update後処理
+        action_policy_->OnLearn(counts);
     }
 
     // LearnEvent通知（排他解除後でないとデッドロックになる）

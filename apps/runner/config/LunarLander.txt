@@ -20,6 +20,23 @@ metrics.scalar.$ = metrics.scalar.baseline > M
 #DefaultDQNAgent.$ = DefaultDQNAgent.trunk2 > A
 DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A
 
+# --- Agent設定
+
+A.learner.replay_batch_size = 1024
+#A.learner.replay_batch_size = 256  # 256：実時間はかかるけどステップあたりの学習効率は高い
+
+# --- 環境依存Agent設定
+
+A.learner.gamma = 0.99
+A.learner.update_warmup_steps = 76,800  # exp_step単位。256(B) * 300step = 76800
+A.action_policy.eps_decay_step = 10,000,000  # 10M
+A.action_policy.uqe_tau_decay_step = 10,000,000  # 10M
+
+#A.qnet.nn_hidden1 = 128
+#A.qnet.nn_hidden2 = 128
+#A.action_policy.uqe_use_tail_mean = true
+#A.reward_scaler.reference_q_std = 10.0
+
 
 # ---- image metrics
 
@@ -38,8 +55,12 @@ metrics.image.[45_agent_img/05_shm_01_maxq_01].$        = image.shm.qmax > image
 #metrics.image.[53_agent_img/52_per_hm_prio_01_test].$   = image.phm.per-prio > image.phm.s01 > image.test
 #metrics.image.[55_agent_img/05_shm_01_maxq_01_test].$   = image.shm.qmax > image.shm.01 > image.test
 
+# ---- scalar metrics
+
+metrics.scalar.[90_perf/82_exp_step] = exp_step @train $runner interval:100
+
 # ---- agent
-i
+
 #agent.class_id = DQNAgent
 #agent.class_id = RainbowAgent
 agent.class_id = DefaultDQNAgent
@@ -71,26 +92,16 @@ app.run_name = run_{t}
 #app.train_auto_start = false
 app.train_auto_start = true
 
-#app.online.train_pause_step = 3000    #3K
-#app.online.train_pause_step = 10000   #10K
-#app.online.train_pause_step = 200000  #200K
-app.online.train_pause_step  = 100000  #100K
-#app.online.train_pause_step = 1000000 #1000K
-app.online.train_exit_step = -1
+app.online.exp_pause_step  = 25,600,000   # 256 * 100K
 app.online.train_panel.fps = 30
 app.online.eval_panel.fps = 15
 app.online.eval_panel.step_per_frame = 3
 
 app.batchrun.train_auto_start = true
-app.batchrun.train_pause_step = -1
-#app.batchrun.train_exit_step = 1000000 #1000K
-#app.batchrun.train_exit_step = 500000 #500K
-#app.batchrun.train_exit_step = 200000 #200K
-app.batchrun.train_exit_step  = 100000  #100K
-#app.batchrun.train_exit_step = 10000  #10K
+app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
 app.batchrun.train_panel.fps = 0.5
 app.batchrun.eval_panel.fps = 0.5
-app.batchrun.eval_panel.step_per_frame = 1
+app.batchrun.eval_panel.step_per_frame = 10
 
 # ---- LunarLanderEnv
 

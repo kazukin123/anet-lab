@@ -203,9 +203,9 @@ void RunnerFrame::OnMouse(anet::rl::gui::ForwardedMouseEvent& event)
 {
     auto mouse_event = event.GetMouseEvent();
     if (mouse_event.LeftDown())
-        wxGetApp().ToggleTraining();    // 左クリック：Trainingトグル
+        eval_panel_->TogglePause();     // 左クリック：Evalトグル
     else
-        eval_panel_->TogglePause();     // 右クリック：Evalトグル
+        wxGetApp().ToggleTraining();    // 右クリック：Trainingトグル
 }
 
 void RunnerFrame::OnKey(anet::rl::gui::ForwardedKeyEvent& event)

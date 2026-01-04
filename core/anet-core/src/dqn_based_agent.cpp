@@ -514,16 +514,28 @@ std::optional<anet::TensorFunction> Network::GetTensorFunction(const std::string
 // ActionPolicy 
 // ======================================================
 
-anet::rl::dqn::ActionPolicy::ActionPolicy(
-    const anet::rl::dqn::Network& network, const RuntimeVars& vars, anet::seed_t seed)
-    : anet::RandomHolder(seed), network_(network), vars_(vars)
+anet::rl::dqn::ActionPolicy::ActionPolicy(const ActionPolicyConfig& config,
+    const anet::rl::dqn::Network& network, RuntimeVars& vars, anet::seed_t seed)
+    : config_(config), anet::RandomHolder(seed), network_(network), vars_(vars)
 {
     // RandomHolderを継承しているが、GPU側でrand生成しているので意味はない。ただ、マークとしてそのままにしておく。
 }
 
-anet::rl::BatchActionInfo ActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const
+
+// ======================================================
+// EpsilonGreedyActionPolicy 
+// ======================================================
+
+anet::rl::dqn::EpsilonGreedyActionPolicy::EpsilonGreedyActionPolicy(const ActionPolicyConfig& config,
+    const anet::rl::dqn::Network& network, RuntimeVars& vars, anet::seed_t seed)
+    : ActionPolicy(config, network, vars, seed)
 {
-    ProfileRange r("ActionPolicy::SelectAction");
+    ;
+}
+
+anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const
+{
+    ProfileRange r("EpsilonGreedyActionPolicy::SelectAction");
 
     torch::NoGradGuard;
 
@@ -547,7 +559,7 @@ anet::rl::BatchActionInfo ActionPolicy::SelectAction(const torch::Tensor& obs, b
     auto greedy = q_values.argmax(1, /*keepdim=*/false);
 
     if (greedy_only) {
-        ProfileRange  r("ActionPolicy::SelectAction.greedy_only");
+        ProfileRange  r("EpsilonGreedyActionPolicy::SelectAction.greedy_only");
         BatchActionInfo action_info{ greedy };
         auto& aux = action_info.GetAuxData();
 
@@ -586,6 +598,126 @@ anet::rl::BatchActionInfo ActionPolicy::SelectAction(const torch::Tensor& obs, b
     return action_info;
 }
 
+void anet::rl::dqn::EpsilonGreedyActionPolicy::UpdateEpsilon(step_t step)
+{
+    if (step >= config_.eps_decay_step) {
+        vars_.epsilon = config_.eps_min;
+        return;
+    }
+    const float t = static_cast<float>(step) / static_cast<float>(config_.eps_decay_step);
+    vars_.epsilon = config_.eps_max + t * (config_.eps_min - config_.eps_max);
+}
+
+void anet::rl::dqn::EpsilonGreedyActionPolicy::OnLearn(const StepCounts& counts)
+{
+    UpdateEpsilon(counts.exp_step);
+}
+
+// ======================================================
+// UQEActionPolicy
+// ======================================================
+
+anet::rl::dqn::UQEActionPolicy::UQEActionPolicy(const ActionPolicyConfig& config,
+    const anet::rl::dqn::Network& network, RuntimeVars& vars, anet::seed_t seed)
+    : ActionPolicy(config, network, vars, seed)
+{
+    ;
+}
+
+anet::rl::BatchActionInfo UQEActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const
+{
+    ProfileRange r("UQEActionPolicy::SelectAction");
+
+    torch::NoGradGuard guard;
+
+    //  平均値 (Mean) の計算: 評価(Greedy)およびログ用
+    auto q_mean = network_.ForwardExpectation(obs, use_target);
+
+    // greedy = argmax(E[Q]) : 平均値に基づくGreedy (評価用)
+    auto greedy_action = q_mean.argmax(1, /*keepdim=*/false);
+
+    // greedy_only (評価モード) の場合、「平均値(リスク中立)」を使う
+    if (greedy_only) {
+        ProfileRange r_greedy("UQEActionPolicy::SelectAction.greedy_only");
+
+        BatchActionInfo action_info{ greedy_action };
+        auto& aux = action_info.GetAuxData();
+
+        // ログ用にMaxQを保存
+        auto max_pair = q_mean.max(1);
+        auto max_q = std::get<0>(max_pair).detach(); // detach重要
+        aux["max_q"] = max_q;
+        aux["q_values"] = q_mean;
+
+        // 分布情報の保存 (もしネットワークが対応していれば)
+        if (network_.IsDistributional(use_target)) {
+            aux["q_quantiles"] = network_.ForwardQuantiles(obs, use_target);
+        }
+
+        return action_info;
+    }
+
+    // 分布 (Quantiles) の取得
+    auto q_quantiles = network_.ForwardQuantiles(obs, use_target);  // (N, A, n_quantiles)
+
+    // GPU同期を避けるため、sizes() からメタデータのみ取得
+    const int64_t n_quantiles = q_quantiles.size(-1);
+
+    // インデックス決定: floor(tau * (N-1)) clampして範囲外アクセスを防止
+    const float tau = vars_.uqe_tau;
+    int64_t tau_idx = static_cast<int64_t>(tau * (n_quantiles - 1));
+    tau_idx = std::max<int64_t>(0, std::min<int64_t>(tau_idx, n_quantiles - 1));
+    ANET_LOG_DEBUG("tau_idx=" << tau_idx);
+
+    torch::Tensor uqe_values;
+    if (config_.uqe_use_tail_mean) {
+        // 上位分位点すべての平均を使う場合
+
+        // tau_idx から 最後まで (N-1) の範囲を切り出す
+        auto tail_values = q_quantiles.slice(-1, tau_idx, n_quantiles);  // (B, A, N - tau_idx)
+        ANET_LOG_DEBUG("tail_values=" << anet::ToString(tail_values));
+
+        // 切り出した範囲の平均をとる
+        uqe_values = tail_values.mean(-1);
+    } else {
+        // 特定の分位点におけるQ値を取得
+        uqe_values = q_quantiles.select(-1, tau_idx);  // (B, A, N) -> (B, A)
+    }
+    ANET_LOG_DEBUG("uqe_values=" << anet::ToString(uqe_values));
+
+    // UQE Actions: argmax(Q_tau)
+    auto actions = uqe_values.argmax(1);
+
+    BatchActionInfo action_info{ actions };
+
+    // 4. ログデータの作成 (greedy時と同様)
+    auto& aux = action_info.GetAuxData();
+
+    // max_q は Mean基準
+    auto max_pair = q_mean.max(1);
+    auto max_q_mean = std::get<0>(max_pair).detach();
+
+    aux["max_q"] = max_q_mean;
+    aux["q_values"] = q_mean;      // Mean
+    aux["q_quantiles"] = q_quantiles; // Raw Dist
+
+    return action_info;
+}
+
+void anet::rl::dqn::UQEActionPolicy::UpdateTau(step_t step)
+{
+    if (step >= config_.uqe_tau_decay_step) {
+        vars_.uqe_tau = config_.uqe_tau_min;
+        return;
+    }
+    const float t = static_cast<float>(step) / static_cast<float>(config_.uqe_tau_decay_step);
+    vars_.uqe_tau = config_.uqe_tau_max + t * (config_.uqe_tau_min - config_.uqe_tau_max);
+}
+
+void anet::rl::dqn::UQEActionPolicy::OnLearn(const StepCounts& counts)
+{
+    UpdateTau(counts.exp_step);
+}
 
 // ======================================================
 // Learner
@@ -663,32 +795,20 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
     this->replay_buffer_ = rep_factory.Create(env_spec, torch::kCPU, batch_env_spec.batch_size, seed);
 }
 
-void Learner::UpdateEpsilon(step_t learn_step)
-{
-    ProfileRange r("Learner::UpdateEpsilon");
-
-    if (learn_step >= config_.eps_decay_step) {
-        vars_.epsilon = config_.eps_min;
-        return;
-    }
-    const float t = static_cast<float>(learn_step) / static_cast<float>(config_.eps_decay_step);
-    vars_.epsilon = config_.eps_max + t * (config_.eps_min - config_.eps_max);
-}
-
 void Learner::UpdateTargetNetwork(step_t step)
 {
     ProfileRange r("Learner::UpdateTargetNetwork");
     network_.UpdateTarget(step);
 }
 
-void Learner::UpdatePerBeta(step_t learn_step)
+void Learner::UpdatePerBeta(step_t step)
 {
     ProfileRange r("Learner::UpdatePerBeta");
 
     if (!config_.use_per) return;
 
-    if (learn_step < config_.per_beta_step) {
-        float progress = static_cast<float>(learn_step) / static_cast<float>(config_.per_beta_step);
+    if (step < config_.per_beta_step) {
+        float progress = static_cast<float>(step) / static_cast<float>(config_.per_beta_step);
         vars_.per_beta = config_.per_beta_start + progress * (config_.per_beta_end - config_.per_beta_start);
     } else {
         vars_.per_beta = config_.per_beta_end;
@@ -763,8 +883,7 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
 
         // 更新後処理
         UpdateTargetNetwork(vars_.learn_step);
-        UpdateEpsilon(vars_.learn_step);
-        UpdatePerBeta(vars_.learn_step);
+        UpdatePerBeta(counts.exp_step);
 
         // カウント系更新
         vars_.learn_step++;

@@ -64,12 +64,26 @@ namespace anet::rl {
             int hard_update_interval = -1;
         };
 
-        struct LearnerConfig {
-            float alpha = 1e-3f;         ///<  学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-            float gamma = 0.99f;         ///<  0.99f; 0.995f      γが高いほど「長期安定」を目指す
+        static constexpr int kActionPolicyType_EpsilonGreedy = 0;
+        static constexpr int kActionPolicyType_UQE = 1;
+
+        struct ActionPolicyConfig {
+            int policy_type = 0;         ///< 0=EpsilonGreedy 1=UQE
+
             float eps_max = 1.00f;
             float eps_min = 0.05f;       ///< 0.1f 0.05f
             int eps_decay_step = 100000;
+
+            float uqe_tau_max = 0.9f;
+            float uqe_tau_min = 0.5f;
+            int uqe_tau_decay_step = 100000;
+            bool uqe_use_tail_mean = false;
+        };
+
+        struct LearnerConfig {
+            float alpha = 1e-3f;         ///<  学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+            float gamma = 0.99f;         ///<  0.99f; 0.995f      γが高いほど「長期安定」を目指す
+
             float adam_eps = 1e-5;       ///< ゼロ除算防止項。LibTorchのデフォルトは1e-8。大きくすることで小さな勾配の変化に敏感になりすぎるのを防ぎ学習をマイルドに。
 
             bool use_grad_clip = true;

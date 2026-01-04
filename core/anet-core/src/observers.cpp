@@ -946,7 +946,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                 step_axis = *step_axis_opt;
             } else {
                 // stepの指定がない場合はeventに合わせて決定。
-                step_axis = (event == EventType::TRAIN) ? StepAxis::TRAIN : StepAxis::LEARN;
+                //step_axis = (event == EventType::TRAIN) ? StepAxis::TRAIN : StepAxis::LEARN;
+                step_axis = (event == EventType::TRAIN) ? StepAxis::TRAIN : StepAxis::EXP; // LearnEventはEXPステップベースで比較
             }
 
             switch (event) {

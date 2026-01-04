@@ -71,7 +71,8 @@ namespace anet {
         {
             auto it = map_.find(key);
             if (it == map_.end()) { value = defaultValue; return false; }
-            try { value = std::stoi((*it).second); }
+            auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
+            try { value = std::stoi(str.c_str()); }
             catch (...) { value = defaultValue; return false; }
             return true;
         }
@@ -80,7 +81,8 @@ namespace anet {
         {
             auto it = map_.find(key);
             if (it == map_.end()) { value = defaultValue; return false; }
-            try { value = std::stof((*it).second); }
+            auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
+            try { value = std::stof(str.c_str()); }
             catch (...) { value = defaultValue; return false; }
             return true;
         }
@@ -89,7 +91,8 @@ namespace anet {
         {
             auto it = map_.find(key);
             if (it == map_.end()) { value = defaultValue; return false; }
-            try { value = std::stod((*it).second); }
+            auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
+            try { value = std::stod(str.c_str()); }
             catch (...) { value = defaultValue; return false; }
             return true;
         }
@@ -98,7 +101,8 @@ namespace anet {
         {
             auto it = map_.find(key);
             if (it == map_.end()) { value = defaultValue; return false; }
-            try { value = std::stoull((*it).second); }
+            auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
+            try { value = std::stoull(str); }
             catch (...) { value = defaultValue; return false; }
             return true;
         }

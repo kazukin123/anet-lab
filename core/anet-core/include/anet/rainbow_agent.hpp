@@ -14,6 +14,7 @@ namespace anet::rl::dqn {
 
         QNetConfig qnet;
         NetworkConfig network;
+        ActionPolicyConfig action_policy;
         LearnerConfig learner;
 
         int num_quantiles = 51;
@@ -29,11 +30,12 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, network.soft_update_tau);
             ANET_READ_CONFIG(config_data, network.hard_update_interval);
 
+            ANET_READ_CONFIG(config_data, action_policy.eps_max);
+            ANET_READ_CONFIG(config_data, action_policy.eps_min);
+            ANET_READ_CONFIG(config_data, action_policy.eps_decay_step);
+
             ANET_READ_CONFIG(config_data, learner.alpha);
             ANET_READ_CONFIG(config_data, learner.gamma);
-            ANET_READ_CONFIG(config_data, learner.eps_max);
-            ANET_READ_CONFIG(config_data, learner.eps_min);
-            ANET_READ_CONFIG(config_data, learner.eps_decay_step);
             ANET_READ_CONFIG(config_data, learner.use_grad_clip);
             ANET_READ_CONFIG(config_data, learner.grad_clip_tau);
             ANET_READ_CONFIG(config_data, learner.use_td_clip);
