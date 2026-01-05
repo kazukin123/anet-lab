@@ -301,9 +301,14 @@ void RunnerApp::InitTrainer()
 
             // Trainログ
             if (event.counts.train_step % 100 == 0) {
-                auto train_reward_ema = event.runner.GetScalar(anet::rl::Runner::TRAIN_REWARD_EMA);
-                ANET_ASSERT(train_reward_ema.has_value());
-                LOG::info() << "train_step=" << train_step << " train_mean_reward=" << *train_reward_ema;
+                //auto train_reward_ema = event.runner.GetScalar(anet::rl::Runner::TRAIN_REWARD_EMA);
+                auto eval_target_reward_ema = event.runner.GetScalar(anet::rl::Runner::TARGET_EVAL_REWARD);
+                auto eval_policy_reward_ema = event.runner.GetScalar(anet::rl::Runner::POLICY_EVAL_REWARD);
+                ANET_CHECK(eval_target_reward_ema.has_value());
+                ANET_CHECK(eval_policy_reward_ema.has_value());
+                LOG::info() << "train_step=" << train_step
+                    << " eval_target_reward_ema=" << *eval_target_reward_ema
+                    << " eval_policy_reward_ema=" << *eval_policy_reward_ema;
             }
 
         }, "RunnerApp");
@@ -312,12 +317,13 @@ void RunnerApp::InitTrainer()
     trainer_->GetNotifier()->Attach<anet::rl::FunctionLearnObserver>(
         [](const anet::rl::LearnEvent& event)
         {
-            auto train_step = event.counts.train_step;
-            auto learn_step = event.counts.learn_step;
-
             // Learnログ
             if (event.counts.learn_step % 100 == 0) {
-                LOG::info() << "train_step=" << train_step << " learn_step=" << learn_step;
+                auto train_step = event.counts.train_step;
+                auto learn_step = event.counts.learn_step;
+				auto exp_step = event.counts.exp_step;
+
+                LOG::info() << "train_step=" << train_step << " exp_step=" << exp_step << " learn_step=" << learn_step;
 
                 auto obs_norm_stat_mean = event.agent->GetTensor(anet::rl::ObservationNormalizer::kKeyMean);
                 auto obs_norm_stat_std = event.agent->GetTensor(anet::rl::ObservationNormalizer::kKeyStd);

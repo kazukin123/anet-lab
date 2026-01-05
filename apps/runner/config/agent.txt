@@ -21,7 +21,7 @@ DefaultDQNAgent.baseline.qnet.nn_hidden1 = 120
 DefaultDQNAgent.baseline.qnet.nn_hidden2 = 84
 DefaultDQNAgent.baseline.qnet.output_init_gain = 1.0          # 1.0 or 0.01 0.01 にするとQ値やロジットがほぼ0になり全行動がフラットな状態からスタート
 DefaultDQNAgent.baseline.network.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
-DefaultDQNAgent.baseline.action_policy.policy_type = 1        # 0=EpsilonGreedy 1=UQE
+DefaultDQNAgent.baseline.action_policy.policy_type = 1        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
 DefaultDQNAgent.baseline.action_policy.eps_max = 1.00               # 指数減衰 for EpsilonGreedy  
 DefaultDQNAgent.baseline.action_policy.eps_min = 0.05               # 0.1f 0.05f for EpsilonGreedy
 DefaultDQNAgent.baseline.action_policy.eps_decay_step = 10,000,000  # 10M for EpsilonGreedy
@@ -30,8 +30,8 @@ DefaultDQNAgent.baseline.action_policy.uqe_tau_min = 0.5            # for UQE
 DefaultDQNAgent.baseline.action_policy.uqe_tau_decay_step = 10,000,000  # 10M for UQE
 DefaultDQNAgent.baseline.action_policy.uqe_eps_max = 0.05
 DefaultDQNAgent.baseline.action_policy.uqe_eps_min = 0.05
-DefaultDQNAgent.baseline.action_policy.uqe_eps_decay_step = 0       # max固定
-DefaultDQNAgent.baseline.action_policy.uqe_use_tail_mean = false    # for UQE
+DefaultDQNAgent.baseline.action_policy.uqe_eps_decay_step = 0       # 0=max固定
+DefaultDQNAgent.baseline.action_policy.uqe_use_tail_mean = false    # for UQE&TomsonSampling
 DefaultDQNAgent.baseline.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
 DefaultDQNAgent.baseline.learner.gamma = 0.99                 # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
 DefaultDQNAgent.baseline.learner.adam_eps = 1e-5              # 小さな勾配の変化に敏感になりすぎるのを防ぎ、学習をマイルドに

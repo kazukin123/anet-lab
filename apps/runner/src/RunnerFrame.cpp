@@ -240,9 +240,12 @@ void RunnerFrame::OnKey(anet::rl::gui::ForwardedKeyEvent& event)
         // スペース：Evalトグル
         eval_panel_->TogglePause();
         return;
-    default:
+    case WXK_CONTROL:
+		// CTRL：Evalステップ実行
         eval_panel_->DoStep();
         eval_panel_->Refresh();
+        return;
+    default:
         event.Skip();
         return;
     }

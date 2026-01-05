@@ -1,8 +1,6 @@
 ﻿
-# ----
-
-app.$ = app.online > P
-#app.$ = app.batchrun > P
+#app.$ = app.online > P
+app.$ = app.batchrun > P
 
 #train.seed = 5542346184581256364  # 
 #train.seed = 540080446186335311 # N-STEP評価用
@@ -12,18 +10,15 @@ train.batch_size = 256
 #train.batch_size = 10
 #train.batch_size = 1
 
-metrics.scalar.$ = metrics.scalar.baseline > M
-#metrics.scalar.$ = metrics.scalar.min > M
-#metrics.scalar.$ = metrics.scalar.full > M
-
-#DefaultDQNAgent.$ = DefaultDQNAgent.trunk > A
-#DefaultDQNAgent.$ = DefaultDQNAgent.trunk2 > A
 DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A
+
 
 # --- Agent設定
 
 A.learner.replay_batch_size = 1024
 #A.learner.replay_batch_size = 256  # 256：実時間はかかるけどステップあたりの学習効率は高い
+#A.learner.replay_ratio = 4          # ENVステップあたりのUpdate回数→大きいほど学習効率が上がるが実時間がかかる
+
 
 # --- 実験
 
@@ -37,10 +32,11 @@ A.learner.replay_batch_size = 1024
 
 # --- 環境依存Agent設定
 
-A.learner.gamma = 0.99
-A.learner.update_warmup_steps = 76,800  # exp_step単位。256(B) * 300step = 76800
-A.action_policy.eps_decay_step = 10,000,000  # 10M
+A.action_policy.eps_decay_step = 10,000,000      # 10M
 A.action_policy.uqe_tau_decay_step = 10,000,000  # 10M
+A.learner.gamma = 0.99
+A.learner.update_warmup_steps = 76,800           # exp_step単位。256(B) * 300step = 76800
+A.learner.per_beta_step = 10,000,000             # 10M betaを収束値まで線形変化させるexpステップ数（初期は当てにならないので補正を弱める）
 
 #A.qnet.nn_hidden1 = 128
 #A.qnet.nn_hidden2 = 128
@@ -64,9 +60,15 @@ metrics.image.[45_agent_img/05_shm_01_maxq_01].$        = image.shm.qmax > image
 #metrics.image.[53_agent_img/52_per_hm_prio_01_test].$   = image.phm.per-prio > image.phm.s01 > image.test
 #metrics.image.[55_agent_img/05_shm_01_maxq_01_test].$   = image.shm.qmax > image.shm.01 > image.test
 
+
 # ---- scalar metrics
 
+metrics.scalar.$ = metrics.scalar.baseline > M
+#metrics.scalar.$ = metrics.scalar.min > M
+#metrics.scalar.$ = metrics.scalar.full > M
+
 metrics.scalar.[90_perf/82_exp_step] = exp_step @train $runner interval:100
+
 
 # ---- agent
 
@@ -78,6 +80,7 @@ agent.class_id = DefaultDQNAgent
 agent.device_type = 1    # 0=cpu 1=cuda
 agent.device_index = -1  # GPU index -1=current device
 
+
 # ---- env
 
 env.class_id = LunarLanderEnv
@@ -85,6 +88,7 @@ env.worker_threads = -1	# -1=auto
 env.device_type = 0     # 0=cpu 1=cuda
 env.device_index = -1   # GPU index -1=current device
 env.worker_type = 0     # 0=AUTO 1=SINGLE_THEAD 2=THREAD_POOL
+
 
 # ---- trainer
 
@@ -98,19 +102,13 @@ train.eval_interval = 100
 # ---- app
 
 app.run_name = run_{t}
-#app.train_auto_start = false
-app.train_auto_start = true
 
 app.online.exp_pause_step  = 25,600,000   # 256 * 100K
-app.online.train_panel.fps = 30
-app.online.eval_panel.fps = 15
-app.online.eval_panel.step_per_frame = 3
-
-app.batchrun.train_auto_start = true
 app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
-app.batchrun.train_panel.fps = 0.5
-app.batchrun.eval_panel.fps = 0.5
-app.batchrun.eval_panel.step_per_frame = 10
+
+app.online.eval_panel.fps = 30
+app.online.eval_panel.step_per_frame = 1
+
 
 # ---- LunarLanderEnv
 
