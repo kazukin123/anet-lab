@@ -348,7 +348,7 @@ void QValuePanel::Update()
     bool is_log = IsLogScale();
 
     // --------------------------------------------------------
-    // 0. 統計量計算 (GridとHeatMap共通で使用)
+    // 統計量計算 (GridとHeatMap共通で使用)
     // --------------------------------------------------------
     double sum = std::accumulate(data.vv.begin(), data.vv.end(), 0.0);
     double global_mean = sum / data.vv.size();
@@ -359,11 +359,10 @@ void QValuePanel::Update()
 
 
     // --------------------------------------------------------
-    // 1. Grid更新 (Advantage対応)
+    // Grid更新 (Advantage対応)
     // --------------------------------------------------------
     int current_rows = grid_->GetNumberRows();
     int new_rows = static_cast<int>(action_names_.size());
-
 
     // 最大のMeanを持つアクションを特定する
     float max_mean_val = -std::numeric_limits<float>::infinity();
@@ -417,7 +416,7 @@ void QValuePanel::Update()
 
 
     // --------------------------------------------------------
-    // 2. HeatMapデータ加工プロセス
+    // HeatMapデータ加工プロセス
     // --------------------------------------------------------
 
     // [Phase A] 値の変換 (Advantage)
@@ -439,7 +438,7 @@ void QValuePanel::Update()
 
     if (is_hist) {
         // ----------------------------------------------------
-        // 1. 現在のフレームでの有効範囲を計算 (Mean ± Xσ)
+        // 現在のフレームでの有効範囲を計算 (Mean ± Xσ)
         // ----------------------------------------------------
         float range_k = config_->hist_range_k;// 1.0f;
         float current_min = static_cast<float>(global_mean - range_k * global_stdev);
@@ -451,7 +450,7 @@ void QValuePanel::Update()
         if (current_max < *mm.second) current_max = *mm.second;
 
         // ----------------------------------------------------
-        // 2. 累積範囲 (カメラ) の更新
+        // 累積範囲 (カメラ) の更新
         //    一度広がった範囲は狭めない（カメラ固定）
         // ----------------------------------------------------
         if (current_min < accumulated_min_) accumulated_min_ = current_min;
@@ -474,7 +473,7 @@ void QValuePanel::Update()
         }
 
         // ----------------------------------------------------
-        // 3. センターライン (0の位置) の計算
+        // センターライン (0の位置) の計算
         // ----------------------------------------------------
         // Advantageなら 0.0 は平均値の位置。Rawなら絶対値の0。
         float zero_point = 0.0f;
@@ -483,7 +482,7 @@ void QValuePanel::Update()
         }
 
         // ----------------------------------------------------
-        // 4. 投票 (Voting)
+        // 投票 (Voting)
         // ----------------------------------------------------
         int n_actions = data.height;
 
@@ -538,6 +537,7 @@ void QValuePanel::Update()
         data.vv = new_vv;
         data.width = n_bins;
     }
+
 
     // ==========================================
     // [Phase C] 色付けのための手動正規化 (Manual Normalization)
@@ -605,7 +605,7 @@ void QValuePanel::Update()
     }
 
     // 描画
-    uint32_t flags = anet::HeatMapFlags::HM_SumMode;
+    uint32_t flags = anet::HeatMapFlags::HM_SumMode | anet::HeatMapFlags::HM_FlipY;
     anet::HeatMap heat_map(data.width, data.height, 0, data.width, 0, data.height, 0, flags);
     heat_map.AddDataBatch(data.xv, data.yv, data.vv);
     auto heatmap_image = heat_map.Render();
@@ -613,215 +613,7 @@ void QValuePanel::Update()
     int total_rows = static_cast<int>(action_names_.size());
     int target_height = total_rows * config_->row_height;
     heatmap_panel_->UpdateHeatMap(heatmap_image, 0, target_height, guide_line_ratio);
-    //heatmap_panel_->UpdateHeatMap(heatmap_image, 0, target_height);
 }
-
-//void QValuePanel::Update()
-//{
-//    auto data_opt = data_store_.Get();
-//    if (!data_opt.has_value()) return;
-//    auto data = *data_opt;
-//
-//    bool log_scale = IsLogScale();
-//
-//    // Grid更新処理
-//    int current_rows = grid_->GetNumberRows();
-//    int new_rows = static_cast<int>(action_names_.size());
-//
-//    grid_->BeginBatch(); // 再描画抑制
-//
-//    if (new_rows > current_rows) {
-//        grid_->AppendRows(new_rows - current_rows);
-//    } else if (new_rows < current_rows) {
-//        grid_->DeleteRows(new_rows, current_rows - new_rows);
-//    }
-//
-//    for (int i = 0; i < new_rows; ++i) {
-//        grid_->SetRowLabelValue(i, wxString::Format("%d", i));
-//        grid_->SetCellValue(i, 0, action_names_[i]);
-//        grid_->SetCellValue(i, 1, wxString::Format("%.3f", data.stats[i].mean));
-//        grid_->SetCellValue(i, 2, wxString::Format("%.3f", data.stats[i].std_dev));
-//        grid_->SetCellValue(i, 3, wxString::Format("%.3f", data.stats[i].max));
-//        grid_->SetCellValue(i, 4, wxString::Format("%.3f", data.stats[i].min));
-//    }
-//
-//    grid_->EndBatch();
-//    grid_->AutoSizeColumns(false);
-//    grid_->InvalidateBestSize();
-//    this->Layout();
-//
-//    // UI状態取得
-//    bool is_hist = IsHistogram();
-//    bool is_adv = IsAdvantage();
-//    bool is_log = IsLogScale();
-//
-//    // --------------------------------------------------------
-//    // 2. HeatMapデータ加工プロセス
-//    // --------------------------------------------------------
-//
-//    if (data.vv.empty()) return;
-//
-//    // 全体の統計量計算 (Advantage計算やHist範囲決定に使用)
-//    double sum = std::accumulate(data.vv.begin(), data.vv.end(), 0.0);
-//    double global_mean = sum / data.vv.size();
-//
-//    // 分散・標準偏差計算
-//    double sq_sum = std::inner_product(data.vv.begin(), data.vv.end(), data.vv.begin(), 0.0);
-//    double global_stdev = std::sqrt(sq_sum / data.vv.size() - global_mean * global_mean);
-//
-//
-//    // ==========================================
-//    // [Phase A] 値の変換 (Advantage)
-//    // ==========================================
-//    if (is_adv) {
-//        // 平均を引く (中心化)
-//        for (auto& val : data.vv) {
-//            val -= static_cast<float>(global_mean);
-//        }
-//        // 中心化したので、基準となるMeanは0になる
-//        global_mean = 0.0;
-//    }
-//
-//    // ==========================================
-//    // [Phase B] ヒストグラム化 (Histogram)
-//    // ==========================================
-//    if (is_hist) {
-//        // 表示範囲決定: Mean ± 2.5σ (ここは変更なしでOK)
-//        // ※分布の裾野を見たい場合は 2.5 -> 3.0 や 4.0 に広げても良いです
-//        float range_k = 3.0f;
-//        float hist_min = static_cast<float>(global_mean - range_k * global_stdev);
-//        float hist_max = static_cast<float>(global_mean + range_k * global_stdev);
-//
-//        // GridのMin/Max情報も参考にして、明らかにデータが存在する範囲にクリップ
-//        auto mm = std::minmax_element(data.vv.begin(), data.vv.end());
-//        // ただし、Advantageの場合は0中心を見たいので、あまり極端にMin/Maxに合わせすぎない方が良い場合もあります
-//        // ここでは「計算範囲」と「実データ」の共通部分をとるロジックにします
-//        if (hist_min > *mm.first) hist_min = *mm.first;   // 左端を実データまで広げるか、あるいは固定するか
-//        if (hist_max < *mm.second) hist_max = *mm.second; // 右端を広げるか
-//
-//        // ※ 見やすさ優先なら、実データのMinMaxに合わせず、σ範囲で切って
-//        //    はみ出した分を端に寄せる（以下のClamp処理）のがベストです。
-//        //    今回は「σ範囲固定」に戻します。
-//        hist_min = static_cast<float>(global_mean - range_k * global_stdev);
-//        hist_max = static_cast<float>(global_mean + range_k * global_stdev);
-//
-//        if (std::abs(hist_max - hist_min) < 1e-4) {
-//            hist_max = hist_min + 1.0f;
-//        }
-//
-//        // ビン数設定
-//        int n_actions = data.height;
-//        int n_bins = 510; // 解像度
-//
-//        std::vector<float> new_xv, new_yv, new_vv;
-//        int total_points = n_actions * n_bins;
-//        new_xv.reserve(total_points);
-//        new_yv.reserve(total_points);
-//        new_vv.assign(total_points, 0.0f);
-//
-//        // 投票
-//        float inv_range = 1.0f / (hist_max - hist_min);
-//
-//        for (size_t i = 0; i < data.vv.size(); ++i) {
-//            int action_idx = static_cast<int>(data.yv[i]);
-//            float val = data.vv[i];
-//
-//            // 正規化位置計算
-//            float norm = (val - hist_min) * inv_range;
-//            int bin_idx = static_cast<int>(std::floor(norm * n_bins));
-//
-//            // 【修正】範囲外を捨てずに、両端に集約する (Clamp)
-//            if (bin_idx < 0) bin_idx = 0;
-//            if (bin_idx >= n_bins) bin_idx = n_bins - 1;
-//
-//            new_vv[action_idx * n_bins + bin_idx] += 1.0f;
-//        }
-//
-//        // --- 以下変更なし ---
-//        // 座標生成
-//        for (int y = 0; y < n_actions; ++y) {
-//            for (int x = 0; x < n_bins; ++x) {
-//                new_xv.push_back(static_cast<float>(x));
-//                new_yv.push_back(static_cast<float>(y));
-//            }
-//        }
-//        data.xv = new_xv;
-//        data.yv = new_yv;
-//        data.vv = new_vv;
-//        data.width = n_bins;
-//    }
-//
-//
-//    // ==========================================
-//    // [Phase C] 色付けのための手動正規化 (Manual Normalization)
-//    // ==========================================
-//    // ★対策1: HeatMapのAutoNormを使わず、ここで 0.0～1.0 に値を整える
-//
-//    // 表示したい値の範囲を決定
-//    float disp_min = 0.0f;
-//    float disp_max = 1.0f;
-//
-//    if (is_hist) {
-//        // ヒストグラムの場合: 0 ～ 最大頻度
-//        auto mm = std::minmax_element(data.vv.begin(), data.vv.end());
-//        disp_min = 0.0f;
-//        disp_max = *mm.second; // 最大頻度
-//
-//        // LogScale対応
-//        if (is_log) {
-//            // log(1 + x) 等で変換
-//            for (auto& val : data.vv) {
-//                val = std::log1p(val);
-//            }
-//            disp_max = std::log1p(disp_max);
-//        }
-//
-//    } else {
-//        // Raw / Advantage の場合
-//        if (is_adv) {
-//            // Advantage: 0を中心に、絶対値の最大幅をとる (対称レンジ)
-//            // 例: -5 ～ +5 -> 0.0 ～ 1.0 (0が0.5になる)
-//            auto mm = std::minmax_element(data.vv.begin(), data.vv.end());
-//            float abs_max = std::max(std::abs(*mm.first), std::abs(*mm.second));
-//            disp_min = -abs_max;
-//            disp_max = abs_max;
-//        } else {
-//            // Raw (Value): 単純なMin-Max
-//            auto mm = std::minmax_element(data.vv.begin(), data.vv.end());
-//            disp_min = *mm.first;
-//            disp_max = *mm.second;
-//        }
-//    }
-//
-//    // 正規化実行 (0.0 ～ 1.0 にマップ)
-//    if (std::abs(disp_max - disp_min) > 1e-6) {
-//        float inv_range = 1.0f / (disp_max - disp_min);
-//        for (auto& val : data.vv) {
-//            val = (val - disp_min) * inv_range;
-//            // クリップ
-//            if (val < 0.0f) val = 0.0f;
-//            if (val > 1.0f) val = 1.0f;
-//        }
-//    } else {
-//        std::fill(data.vv.begin(), data.vv.end(), 0.5f); // 範囲がない場合はグレー
-//    }
-//
-//
-//    // --------------------------------------------------------
-//    // 描画
-//    // --------------------------------------------------------
-//    uint32_t flags = 0;    //  HM_AutoNormValue は指定しない (既に0-1に正規化済みのため)
-//    //if (log_scale) flags |= anet::HeatMapFlags::HM_LogScaleValue;     // LogScaleも自前でやったので指定しない
-//
-//    anet::HeatMap heat_map(data.width, data.height, 0, data.width, 0, data.height, 0, flags);
-//    heat_map.AddDataBatch(data.xv, data.yv, data.vv);
-//    auto heatmap_image = heat_map.Render();
-//
-//    //  HeatMapパネル更新
-//    int total_rows = static_cast<int>(action_names_.size());
-//    int target_height = total_rows * kRowHeight;
-//    heatmap_panel_->UpdateHeatMap(heatmap_image, 0, target_height);
-//}
 
 bool QValuePanel::IsHistogram() const
 {
