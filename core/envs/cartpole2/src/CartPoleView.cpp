@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <wx/dcbuffer.h>
+#include "anet/str_util.hpp"
 
 
 // =============================================================
@@ -28,7 +29,7 @@ void CartPolePanel::ApplyData(const CartPoleData& data)
     const int BATCH_POS = 0;
 
     // step
-    step_ = data.counts.train_step;
+    step_ = data.counts.exp_step;
 
     // state
     auto exp = data.train_exp;
@@ -57,7 +58,7 @@ void CartPolePanel::OnPaint(wxPaintEvent& event)
     const int groundY = height / 2;
 
     // 床線
-    dc.SetPen(*wxBLACK_PEN);
+    //dc.SetPen(*wxBLACK_PEN);
     dc.DrawLine(0, groundY, width, groundY);
 
     // x_limit表示
@@ -98,17 +99,17 @@ void CartPolePanel::OnPaint(wxPaintEvent& event)
     dc.DrawRectangle(bar_x, bar_y, bar_width, bar_height);
 
     // 報酬文字
-    dc.SetTextForeground(*wxBLACK);
+    //dc.SetTextForeground(*wxBLACK);
     dc.DrawText(wxString::Format("Reward: %.2f", reward_), 10, bar_y - 2);// bar_x + bar_width + 8, bar_y - 2);
 
     // Step
-    dc.DrawText(wxString::Format("Step: %llu", step_), 10, 10);
+    dc.DrawText(wxString::Format("Step: %s", anet::FormatWithCommas(step_)), 10, 10);
 
     // state文字
     dc.DrawText(wxString::Format("X = %.2f", this->cart_x_), 10, 40);
-    dc.DrawText(wxString::Format("θ = %.2f°", this->pole_theta_ * 180/ M_PI), 10, 60);
+    dc.DrawText(wxString::Format("theta = %.2f(%.2f)", this->pole_theta_, this->pole_theta_ * 180/ M_PI), 10, 60);
     dc.DrawText(wxString::Format("dotX = %.2f", this->cart_x_dot_), 10, 80);
-    dc.DrawText(wxString::Format("dotθ = %.2f", this->pole_theta_dot_ * 180 / M_PI), 10, 100);
+    dc.DrawText(wxString::Format("dotTheta = %.2f(%.2f)", this->pole_theta_dot_, this->pole_theta_dot_ * 180 / M_PI), 10, 100);
 
     // 力の方向ベクトルを描画
     float arrowLen = 40.0f;

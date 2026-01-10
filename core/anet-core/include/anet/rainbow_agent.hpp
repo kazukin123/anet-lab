@@ -7,12 +7,13 @@
 #include "anet/replay_buffer.hpp"
 #include "anet/rl.hpp"
 #include "anet/agent.hpp"
+#include "anet/nn.hpp"
 
 namespace anet::rl::dqn {
 
     struct RainbowAgentConfig : public anet::Config {
 
-        QNetConfig qnet;
+        anet::nn::WeightInitConfig head_init;
         NetworkConfig network;
         ActionPolicyConfig action_policy;
         LearnerConfig learner;
@@ -22,10 +23,9 @@ namespace anet::rl::dqn {
         bool use_qr = true;
 
         explicit RainbowAgentConfig(const ConfigData& config_data = EmptyConfigData) : anet::Config(config_data, "RainbowAgent") {
-            ANET_READ_CONFIG(config_data, qnet.nn_init_mode);
-            ANET_READ_CONFIG(config_data, qnet.nn_hidden1);
-            ANET_READ_CONFIG(config_data, qnet.nn_hidden2);
-            ANET_READ_CONFIG(config_data, qnet.num_quantiles);
+            ANET_READ_CONFIG(config_data, head_init.mode);
+            ANET_READ_CONFIG(config_data, head_init.manual_gain);
+            head_init.nonlinearity = "linear";
 
             ANET_READ_CONFIG(config_data, network.soft_update_tau);
             ANET_READ_CONFIG(config_data, network.hard_update_interval);
@@ -62,7 +62,6 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, use_dueling_net);
             ANET_READ_CONFIG(config_data, use_qr);
 
-            qnet.num_quantiles = num_quantiles;
             learner.num_quantiles = num_quantiles;
         }
     };
@@ -71,6 +70,7 @@ namespace anet::rl::dqn {
     public:
         RainbowAgent(
             const RainbowAgentConfig& config,
+            const anet::nn::NetworkConfig& net_config,
             const anet::rl::BatchEnvSpec& batc_env_spec, const anet::rl::EnvSpec& env_spec, const torch::Device& device,
             std::shared_ptr<anet::rl::Notifier> notifier = nullptr,
             std::optional<seed_t> seed = std::nullopt);

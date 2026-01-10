@@ -14,18 +14,41 @@ agent.class_id = DefaultDQNAgent
 #agent.class_id = RainbowAgent
 #agent.class_id = DQNAgent
 
+#DefaultDQNAgent.$ = DefaultDQNAgent.trunk > A
+#DefaultDQNAgent.$ = DefaultDQNAgent.trunk2 > A
+DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A
+
+
+# --- NN設定
+
+net.body.$ = net.body.MLP2
+
+net.block.FC1.linear.out_features = 120
+net.block.FC1.init.mode = 1
+
+net.block.FC2.linear.out_features = 80
+net.block.FC2.init.mode = 1
+
+A.head_init.mode = 1,
+A.head_init.manual_gain = 0.0
+
+
+# --- 環境依存Agent設定
+
+A.learner.gamma = 0.99
+A.learner.update_warmup_steps = 51200
+A.reward_scaler.reference_q_std = 10.0
+A.learner.replay_batch_size = 128
+A.action_policy.policy_type = 0        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
+
+
+# ---
+
 metrics.scalar.$ = metrics.scalar.baseline > M
 #metrics.scalar.$ = metrics.scalar.min > M
 #metrics.scalar.$ = metrics.scalar.full > M
 
 metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.per-prio > image.phm.s02
-
-
-#DefaultDQNAgent.$ = DefaultDQNAgent.trunk > A
-#DefaultDQNAgent.$ = DefaultDQNAgent.trunk2 > A
-DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A
-
-# ---
 
 agent.device_type = 1    # 0=cpu 1=cuda
 agent.device_index = -1  # GPU index -1=current device
@@ -35,10 +58,12 @@ env.worker_threads = -1	# -1=auto
 env.device_type = 0    # 0=cpu 1=cuda
 env.device_index = -1  # GPU index -1=current device
 
+
 # --- CartPoleEnv
 
 CartPoleEnv.limit_step = 200
 #CartPoleEnv.limit_step = 500
+
 
 # --- app
 
@@ -46,23 +71,16 @@ app.run_name = run_{t}
 #app.train_auto_start = false
 app.train_auto_start = true
 
-#app.online.train_pause_step = 1000000 #1000K
-#app.online.train_pause_step = 200000  #200K
-app.online.train_pause_step  = 100000  #100K
-app.online.train_exit_step = -1
+app.online.exp_pause_step  = 25,600,000   # 256 * 100K
 app.online.train_panel.fps = 30
 app.online.eval_panel.fps = 30
 app.online.eval_panel.step_per_frame = 3
 
 app.batchrun.train_auto_start = true
-app.batchrun.train_pause_step = -1
-#app.batchrun.train_exit_step = 1000000 #1000K
-#app.batchrun.train_exit_step = 500000 #500K
-#app.batchrun.train_exit_step = 200000 #200K
-app.batchrun.train_exit_step  = 100000  #100K
+app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K
 app.batchrun.train_panel.fps = 0.5
 app.batchrun.eval_panel.fps = 0.5
-app.batchrun.eval_panel.step_per_frame = 1
+app.batchrun.eval_panel.step_per_frame = 10
 
 train.eval_interval = 10
 

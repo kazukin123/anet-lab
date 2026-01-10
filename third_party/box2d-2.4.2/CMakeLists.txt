@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.8)
+﻿cmake_minimum_required(VERSION 3.20)
 
 # https://cmake.org/cmake/help/latest/command/project.html
 project(box2d VERSION 2.4.1)
@@ -9,7 +9,6 @@ set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 
 option(BOX2D_USER_SETTINGS "Override Box2D settings with b2UserSettings.h" OFF)
-
 option(BUILD_SHARED_LIBS "Build Box2D as a shared library" OFF)
 
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)

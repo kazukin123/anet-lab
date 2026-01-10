@@ -5,6 +5,7 @@
 #include "anet/agent.hpp"
 #include "anet/rl.hpp"
 #include "anet/scaler.hpp"
+#include "anet/nn.hpp"
 
 
 namespace anet::rl::dqn {
@@ -135,134 +136,27 @@ namespace anet::rl::dqn {
 
 
     // ======================================================
-    //  QNet
-    // ======================================================
-
-    class QNet : public torch::nn::Module {
-    public:
-        QNet() = default;
-        virtual ~QNet() = default;
-
-        /// 観測からQ表現を出力する。
-        virtual torch::Tensor Forward(const torch::Tensor& obs) = 0;
-
-        /// QR-DQN専用：Quantile 出力 (B, A, N)
-        virtual torch::Tensor ForwardQuantiles(const torch::Tensor& obs) {
-            throw std::runtime_error("ForwardQuantiles not implemented for this QNet.");
-        }
-
-        /// アクションの個数（離散アクション前提）
-        virtual int64_t GetNumActions() const = 0;
-
-        /// Quantile 数を返す。
-        virtual int64_t GetNumQuantiles() const { return 1; }
-
-        /// このQNetが分布的表現を返すかどうか。
-        virtual bool IsDistributional() const { return false; }
-
-        /// メトリクス用
-        virtual std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device) = 0;
-    };
-
-    class BaseQNet : public QNet {
-    public:
-        BaseQNet() = delete;
-        virtual ~BaseQNet() = default;
-
-        int64_t GetNumActions() const override { return n_actions_; }
-        bool IsDistributional() const override { return false; }
-        int64_t GetNumQuantiles() const override { return 1; }
-    protected:
-        BaseQNet(const QNetConfig& config, int64_t state_dim, int64_t n_actions);
-
-        void InitWeightsLinear(torch::nn::Linear& layer, int nn_init_mode, bool is_relu, float manual_gain = -1.0f);
-    protected:
-        int64_t state_dim_ = 0;
-        int64_t n_actions_ = 0;
-        torch::nn::Linear fc1_{ nullptr };
-        torch::nn::Linear fc2_{ nullptr };
-    };
-
-    class PlainQNet final : public BaseQNet {
-    public:
-        explicit PlainQNet(const QNetConfig& config, int state_dim, int n_actions);
-        torch::Tensor Forward(const torch::Tensor& obs) override;
-        std::optional<anet::TensorFunction> GetTensorFunction(
-            const std::string& key, const torch::Device& device) override;
-    private:
-        torch::nn::Linear fc3_{ nullptr };
-    };
-
-    class DuelingQNet : public BaseQNet {
-    public:
-        explicit DuelingQNet(const QNetConfig& config, int state_dim, int n_actions);
-        torch::Tensor Forward(const torch::Tensor& obs);
-
-        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device) override;
-    private:
-        torch::nn::Linear value_{ nullptr };  // (H -> 1)
-        torch::nn::Linear adv_{ nullptr };    // (H -> A)
-    };
-
-    class QuantilePlainQNet final : public BaseQNet {
-    public:
-        explicit QuantilePlainQNet(const QNetConfig& config, int state_dim, int n_actions);
-
-        // 平均値を返す (DQN互換)
-        torch::Tensor Forward(const torch::Tensor& obs) override;
-
-        // 分位数 (B, A, N) を返す
-        torch::Tensor ForwardQuantiles(const torch::Tensor& obs) override;
-
-        int64_t GetNumQuantiles() const override { return num_quantiles_; }
-        bool IsDistributional() const override { return true; }
-
-        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device) override;
-    private:
-        int64_t num_quantiles_;
-        torch::nn::Linear fc3_{ nullptr };
-    };
-
-    class QuantileDuelingQNet final : public BaseQNet {
-    public:
-        explicit QuantileDuelingQNet(const QNetConfig& config, int state_dim, int n_actions);
-
-        // 平均値を返す (DQN互換)
-        torch::Tensor Forward(const torch::Tensor& obs) override;
-
-        // 分位数 (B, A, N) を返す
-        torch::Tensor ForwardQuantiles(const torch::Tensor& obs) override;
-
-        int64_t GetNumQuantiles() const override { return num_quantiles_; }
-        bool IsDistributional() const override { return true; }
-
-        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device) override;
-    private:
-        int64_t num_quantiles_;
-        torch::nn::Linear value_{ nullptr };  // (H -> 1*N)
-        torch::nn::Linear adv_{ nullptr };    // (H -> A*N)
-    };
-
-
-    // ======================================================
     //  Network
     // ======================================================
 
     class Network {
     public:
         Network(
-            const NetworkConfig& config, const torch::Device& device, std::shared_ptr<QNet> policy_net, std::shared_ptr<QNet> target_net);
+            const NetworkConfig& config, const torch::Device& device,
+            std::shared_ptr<anet::nn::Network> policy_net,
+            std::shared_ptr<anet::nn::Network> target_net,
+            int64_t n_actions,
+            int64_t num_quantiles = 1);
 
-        /// 行動選択用：期待値Q (B, A)
-        torch::Tensor ForwardExpectation(const torch::Tensor& obs, bool use_target) const;
-
-        /// Learner用：Q出力 DQN=(B, A) QR-DQN=(B, A, Nq)
+        /// 行動選択・学習用：期待値Q (B, A) を返す
+        /// QR-DQNの場合は分布の平均を計算して返す
         torch::Tensor Forward(const torch::Tensor& obs, bool use_target) const;
 
         /// QR判定
         bool IsDistributional(bool use_target) const;
 
-        /// QR-DQN専用：Quantile 出力
+        /// QR-DQN学習用：Quantile 出力 (B, A, N) を返す
+        /// 内部で (B, A*N) -> (B, A, N) へのReshapeを行う
         torch::Tensor ForwardQuantiles(const torch::Tensor& obs, bool use_target) const;
 
         /// policy_netのパラメータ取得
@@ -278,8 +172,11 @@ namespace anet::rl::dqn {
         void HardUpdate();
     private:
         const NetworkConfig config_;
-        std::shared_ptr<QNet> policy_net_;
-        std::shared_ptr<QNet> target_net_;
+        std::shared_ptr<anet::nn::Network> policy_net_;
+        std::shared_ptr<anet::nn::Network> target_net_;
+
+        int64_t n_actions_;
+        int64_t num_quantiles_;
     };
 
 

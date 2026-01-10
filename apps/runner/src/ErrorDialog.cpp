@@ -27,9 +27,8 @@ void ShowErrorDialog(const wxString& message, const wxString& detail)
 
     // エラーメッセージ
     wxTextCtrl* msg_ctrl = new wxTextCtrl(&dlg, wxID_ANY, message,
-        wxDefaultPosition, wxSize(-1, 80),
+        wxDefaultPosition, wxSize(-1, 120),
         wxTE_MULTILINE | wxTE_READONLY | wxBORDER_THEME);
-    msg_ctrl->SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_3DLIGHT)); // 背景色を馴染ませる
 
     // メッセージが短い場合は高さを制限、長い場合は広がるように調整
     top_sizer->Add(msg_ctrl, 1, wxEXPAND | wxTOP | wxBOTTOM | wxRIGHT, 5);
@@ -42,12 +41,9 @@ void ShowErrorDialog(const wxString& message, const wxString& detail)
         wxDefaultPosition, wxDefaultSize,
         wxTE_MULTILINE | wxTE_READONLY | wxHSCROLL | wxTE_RICH);
 
-    // 等幅フォントを設定
+    // 等幅フォント
     wxFont font(10, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
     detail_text->SetFont(font);
-
-    // 背景色を薄いグレーに設定
-    detail_text->SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_3DLIGHT));
 
     v_sizer->Add(detail_text, 1, wxALL | wxEXPAND, 10);
 

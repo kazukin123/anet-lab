@@ -1,34 +1,34 @@
 ﻿# anet-lab/core/envs/cartpole2/CMakeLists.txt
 
-cmake_minimum_required(VERSION 3.18)
+
+# ---------------------------------------------------------------------
+# プロジェクト定義
+# ---------------------------------------------------------------------
+
+cmake_minimum_required(VERSION 3.20)
 project(CartPoleEnv)
 
-set(CMAKE_CONFIGURATION_TYPES "Debug;RelWithDebInfo;Release" CACHE STRING "" FORCE)
 
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_COLOR_MAKEFILE ON)
+# ---------------------------------------------------------------------
+# ファイル収集
+# ---------------------------------------------------------------------
 
-find_package(Torch REQUIRED)
+file(GLOB_RECURSE ANET_PRIVATE_SOURCES "src/*.cpp" "src/*.hpp")
 
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG -DDEBUG -DANET_ENABLE_DEBUGINFO")
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -DNDEBUG -DANET_ENABLE_DEBUGINFO")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DNDEBUG")
 
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    add_compile_definitions(_DEBUG DEBUG ANET_ENABLE_DEBUGINFO)
-elseif(CMAKE_BUILD_TYPE STREQUAL "RelWithDebugInfo")
-    add_compile_definitions(NDEBUG ANET_ENABLE_DEBUGINFO)
-elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
-    add_compile_definitions(NDEBUG)
-endif()
+# ---------------------------------------------------------------------
+# ターゲット定義
+# ---------------------------------------------------------------------
 
-add_library(CartPoleEnv STATIC
-    "src/CartPoleEnv.cpp"
-    "src/CartPoleView.cpp"
-    "src/CartPole.cpp"
+add_library(CartPoleEnv STATIC)
+
+
+# ---------------------------------------------------------------------
+# ソース設定
+# ---------------------------------------------------------------------
+
+target_sources(CartPoleEnv PRIVATE
+    ${ANET_PRIVATE_SOURCES}
 )
 
 target_include_directories(CartPoleEnv
@@ -40,13 +40,16 @@ target_include_directories(CartPoleEnv
 
 target_precompile_headers(CartPoleEnv PRIVATE "src/pch.hpp")
 
-target_compile_definitions(CartPoleEnv PUBLIC WXINTL_NO_GETTEXT_MACRO)    # N_()マクロ競合対策
-
 target_link_libraries(CartPoleEnv PRIVATE
     ${TORCH_LIBRARIES}
     anet-wx
     anet-core
 )
+
+
+# ---------------------------------------------------------------------
+# 出力ディレクトリ設定
+# ---------------------------------------------------------------------
 
 set_target_properties(CartPoleEnv PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_DEBUG   ${CMAKE_CURRENT_SOURCE_DIR}/bin/Debug
@@ -55,4 +58,9 @@ set_target_properties(CartPoleEnv PROPERTIES
 )
 
 
+# ---------------------------------------------------------------------
+#  IDE用設定
+# ---------------------------------------------------------------------
 
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" PREFIX "src" FILES ${ANET_PRIVATE_SOURCES})
+source_group("src" REGULAR_EXPRESSION "cmake_pch.*")

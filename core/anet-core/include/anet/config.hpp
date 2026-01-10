@@ -152,6 +152,28 @@ namespace anet {
             return true;
         }
 
+        anet::json ToJson() const
+        {
+            anet::json j;
+            for (const auto& kv : map_) {
+				j[kv.first] = kv.second;
+            }
+            return j;
+        }
+
+        std::string ToString() const
+        {
+            std::stringstream ss;
+            ss << "{";
+            bool first = true;
+            for (const auto& kv : map_) {
+                if (!first) ss << ", ";
+                ss << kv.first << "=" << kv.second;
+                first = false;
+            }
+            ss << "}";
+            return ss.str();
+		}
     private:
         //std::vector<std::string> ResolveModule(const std::string& module) const;
     private:

@@ -1,80 +1,54 @@
 ﻿# anet-lab/apps/runner/CMakeLists.txt
 
-# AnetRLRunner
 
-cmake_minimum_required(VERSION 3.18)
+# ---------------------------------------------------------------------
+# プロジェクト定義
+# ---------------------------------------------------------------------
+
+cmake_minimum_required(VERSION 3.20)
 project(AnetRLRunner)
 
-set(CMAKE_CONFIGURATION_TYPES "Debug;RelWithDebInfo;Release" CACHE STRING "" FORCE)
 
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_COLOR_MAKEFILE ON)
+# ---------------------------------------------------------------------
+# ファイル収集
+# ---------------------------------------------------------------------
 
-#find_package(wxWidgets REQUIRED COMPONENTS core base gl)
-find_package(Torch REQUIRED)
-
-if (MSVC)
-  add_compile_definitions(_HAS_CONDITIONAL_EXPLICIT=0)
-  add_compile_options(/wd4267)  # warning C4267を無効化
-  add_compile_options(/MP8)
-  #add_link_options(/DEBUG:FULL)
-  #add_link_options(/DEBUG:FASTLINK)
-  add_link_options(/INCREMENTAL)
-#  add_compile_options(/diagnostics:color)
-#  add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
-endif()
-
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG -DDEBUG -DANET_ENABLE_DEBUGINFO")
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -DNDEBUG -DANET_ENABLE_DEBUGINFO")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DNDEBUG")
-
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    add_compile_definitions(_DEBUG DEBUG ANET_ENABLE_DEBUGINFO)
-elseif(CMAKE_BUILD_TYPE STREQUAL "RelWithDebugInfo")
-    add_compile_definitions(NDEBUG ANET_ENABLE_DEBUGINFO)
-elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
-    add_compile_definitions(NDEBUG)
-endif()
-
-add_executable(AnetRLRunner
-    "src/RunnerApp.cpp"
-    "src/PlotPanel.cpp"
-    "src/HeatMapPanel.cpp"
-    "src/ErrorDialog.cpp"
-    "src/RunnerFrame.cpp"
-    "src/LogPanel.cpp"
-    "src/TrainPanel.cpp"
-    "src/EvalPanel.cpp"
-    "src/QValuePanel.cpp"
-)
+file(GLOB_RECURSE ANET_PRIVATE_SOURCES "src/*.cpp" "src/*.hpp")
+file(GLOB ANET_CONFIGS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/config/*.txt")
 
 if(WIN32)
-    target_sources(${PROJECT_NAME} PRIVATE
-        src/runner.manifest
-        src/runner.rc
+    set(ANET_WIN_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/runner.manifest"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/runner.rc"
     )
 endif()
 
-target_precompile_headers(AnetRLRunner PRIVATE "src/pch.hpp")
 
-target_compile_definitions(AnetRLRunner PUBLIC WXINTL_NO_GETTEXT_MACRO)    # N_()マクロ競合対策
+# ---------------------------------------------------------------------
+# ターゲット定義
+# ---------------------------------------------------------------------
+add_executable(AnetRLRunner)
+
+
+# ---------------------------------------------------------------------
+# ソース設定
+# ---------------------------------------------------------------------
+
+target_sources(AnetRLRunner PRIVATE
+    ${ANET_CONFIGS}
+    ${ANET_PRIVATE_SOURCES}
+    ${ANET_WIN_SOURCES}
+)
+
+target_precompile_headers(AnetRLRunner PRIVATE "src/pch.hpp")
 
 target_link_libraries(AnetRLRunner PRIVATE
     ${TORCH_LIBRARIES}
     anet-wx
-    anet-core
     box2d
+    anet-core
     LunarLanderEnv
     CartPoleEnv
-)
-
-set_target_properties(AnetRLRunner PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY_DEBUG   ${CMAKE_CURRENT_SOURCE_DIR}/bin/Debug
-    RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_CURRENT_SOURCE_DIR}/bin/RelWithDebInfo
-    RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_CURRENT_SOURCE_DIR}/bin/Release
 )
 
 if (WIN32)
@@ -83,6 +57,22 @@ if (WIN32)
       LINK_FLAGS "/SUBSYSTEM:WINDOWS"
   )
 endif()
+
+
+# ---------------------------------------------------------------------
+# 出力ディレクトリ設定
+# ---------------------------------------------------------------------
+
+set_target_properties(AnetRLRunner PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG   ${CMAKE_CURRENT_SOURCE_DIR}/bin/Debug
+    RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_CURRENT_SOURCE_DIR}/bin/RelWithDebInfo
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_CURRENT_SOURCE_DIR}/bin/Release
+)
+
+
+# ---------------------------------------------------------------------
+#  DLLコピー
+# ---------------------------------------------------------------------
 
 if (MSVC)
   # --- Torchルート決定（上位Torch_DIRを利用） ---
@@ -109,4 +99,15 @@ if (MSVC)
 endif()
 
 
+# ---------------------------------------------------------------------
+#  IDE用設定
+# ---------------------------------------------------------------------
 
+#source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" PREFIX "src" FILES ${ANET_PRIVATE_SOURCES})
+#source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/config" PREFIX "config" FILES ${ANET_CONFIGS})
+source_group("config" FILES ${ANET_CONFIGS})
+source_group("src" FILES ${ANET_PRIVATE_SOURCES})
+source_group("src" REGULAR_EXPRESSION "cmake_pch.*")
+if(WIN32)
+    source_group("src" FILES ${ANET_WIN_SOURCES})
+endif()

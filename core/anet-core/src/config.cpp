@@ -193,11 +193,21 @@ namespace anet {
 
     ConfigManager::ConfigManager(const std::string& filePath, const wxCmdLineParser* cmdLine)
     {
+        // ベース読み込み
         LoadFromFile(filePath);
+
+        // コマンドライン引数を上書き
         if (cmdLine) {
             ApplyCmdLineOverrides(*cmdLine);
         }
+
+        // マージ実行（.$ = を展開）
         AutoMerge();
+
+		// 再度コマンドライン引数を上書き（マージされた値よりコマンドライン指定を優先させるため）
+        if (cmdLine) {
+            ApplyCmdLineOverrides(*cmdLine);
+        }
     }
 
     void ConfigManager::LoadFromFile(const std::string& filePath)
@@ -277,7 +287,7 @@ namespace anet {
                     std::string val2 = kv2.second;
                     if (anet::StartsWith(key2, merge_target_key)) {                    // env.common, env.common.yyy, env.common.zzz
                         // ERASE: env.common, env.common.yyy, env.common.zzz
-                        new_map.Erase(key2);
+                        //new_map.Erase(key2);	// 2回目のマージで困るので消さない
 
                         // SKIP env.common
                         if (merge_target_key == key2) continue;

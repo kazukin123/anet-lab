@@ -77,12 +77,12 @@ namespace anet::log {
             msg << body;
 
             switch (level_) {
-            case wxLOG_Debug:   wxLogDebug(msg.str());   break;
-            case wxLOG_Info:    wxLogInfo(msg.str());    break;
-            case wxLOG_Message: wxLogMessage(msg.str()); break;
-            case wxLOG_Warning: wxLogWarning(msg.str()); break;
-            case wxLOG_Error:   wxLogError(msg.str());   break;
-            default:            wxLogMessage(msg.str()); break;
+            case wxLOG_Debug:   wxLogDebug(msg.str()); break;
+            case wxLOG_Info:    wxLogDebug(msg.str()); wxLogInfo(msg.str());    break;
+            case wxLOG_Message: wxLogDebug(msg.str()); wxLogMessage(msg.str()); break;
+            case wxLOG_Warning: wxLogDebug(msg.str()); wxLogWarning(msg.str()); break;
+            case wxLOG_Error:   wxLogDebug(msg.str()); wxLogError(msg.str());   break;
+            default:            wxLogDebug(msg.str()); wxLogMessage(msg.str()); break;
             }
         }
         wxLogLevel level_;

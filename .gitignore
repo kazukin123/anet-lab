@@ -48,6 +48,7 @@
 /enc_temp_folder
 /docs/html
 /build
+/build_
 /apps/cartpole2/mlruns
 /apps/cartpole2/runs
 /apps/cartpole2/runs_bk
@@ -59,3 +60,4 @@
 /apps/runner/logs
 /apps/runner/runs*
 /apps/runner/src/RC*
+/dist

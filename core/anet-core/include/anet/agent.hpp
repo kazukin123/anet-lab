@@ -50,15 +50,6 @@ namespace anet::rl {
         class QRLearner;
         class BatchUpdateResult;
 
-        struct QNetConfig {
-            int nn_init_mode = 1;  // 0=default、1=XavierUniform、2=HeNormal
-            int nn_hidden1 = 128;
-            int nn_hidden2 = 128;
-            float output_init_gain = 1.0;
-
-            int num_quantiles = 51;
-        };
-
         struct NetworkConfig {
             float soft_update_tau = 0.01f;
             int hard_update_interval = -1;

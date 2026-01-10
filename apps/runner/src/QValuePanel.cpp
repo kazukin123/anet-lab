@@ -389,8 +389,8 @@ void QValuePanel::Update()
     // Grid表示用のオフセット値
     float grid_offset = is_adv ? static_cast<float>(global_mean) : 0.0f;
 
-    const wxColour kHighlightColor(255, 225, 225); // 薄い赤 (ご希望通り)
-    const wxColour kNormalColor(*wxWHITE);         // 通常色
+    const wxColour kHighlightBg = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT);
+    const wxColour kHighlightText = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHTTEXT);
 
     for (int i = 0; i < new_rows; ++i) {
         grid_->SetRowLabelValue(i, wxString::Format("%d", i));
@@ -403,9 +403,17 @@ void QValuePanel::Update()
         grid_->SetCellValue(i, 3, wxString::Format("%.3f", data.stats[i].max - grid_offset));
         grid_->SetCellValue(i, 4, wxString::Format("%.3f", data.stats[i].min - grid_offset));
 
-        wxColour bg_color = (i == max_mean_idx) ? kHighlightColor : kNormalColor;
-        for (int col = 0; col < 5; ++col) {
-            grid_->SetCellBackgroundColour(i, col, bg_color);
+        if (i == max_mean_idx) {
+            for (int col = 0; col < 5; ++col) {
+                grid_->SetCellBackgroundColour(i, col, kHighlightBg);
+                grid_->SetCellTextColour(i, col, kHighlightText); // 重要: 文字色も合わせる
+            }
+        } else {
+            for (int col = 0; col < 5; ++col) {
+                // wxNullColourでリセット（システムデフォルトに戻る）
+                grid_->SetCellBackgroundColour(i, col, wxNullColour);
+                grid_->SetCellTextColour(i, col, wxNullColour);
+            }
         }
     }
 

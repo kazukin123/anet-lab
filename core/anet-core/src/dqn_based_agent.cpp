@@ -14,433 +14,65 @@ namespace LOG = anet::log;
 
 
 // ======================================================
-// BaseQNet
-// ======================================================
-
-BaseQNet::BaseQNet(const QNetConfig& config, int64_t state_dim, int64_t n_actions)
-        : state_dim_(state_dim), n_actions_(n_actions)
-{
-    ANET_ASSERT(state_dim_ > 0);
-    ANET_ASSERT(n_actions_ > 0);
-
-    fc1_ = register_module("fc1", torch::nn::Linear(state_dim_, config.nn_hidden1));
-    fc2_ = register_module("fc2", torch::nn::Linear(config.nn_hidden1, config.nn_hidden2));
-
-    InitWeightsLinear(fc1_, config.nn_init_mode, /*is_relu=*/true);
-    InitWeightsLinear(fc2_, config.nn_init_mode, /*is_relu=*/true);
-}
-
-// nn_init_mode: 0=default, 1=XavierUniform, 2=HeNormal, 3=Orthogonal
-void BaseQNet::InitWeightsLinear(torch::nn::Linear& layer, int nn_init_mode, bool is_relu, float manual_gain)
-{
-    if (nn_init_mode == 1) {
-        torch::nn::init::xavier_uniform_(layer->weight);
-        if (layer->bias.defined())
-            torch::nn::init::zeros_(layer->bias);
-    } else if (nn_init_mode == 2) {
-        // ReLUなら gain=sqrt(2), Linearなら gain=1 が内部で使われる
-        using torch::nn::init::NonlinearityType;
-        auto nonlinearity = is_relu ? (NonlinearityType)torch::kReLU : (NonlinearityType)torch::kLinear;
-        torch::nn::init::kaiming_normal_(layer->weight, 0.0, torch::kFanIn, nonlinearity);
-        if (layer->bias.defined())
-            torch::nn::init::zeros_(layer->bias);
-    } else if (nn_init_mode == 3) {
-        // ゲインの計算：
-        //   ReLUの場合: sqrt(2)
-        //   Tanhの場合: 5/3 (約1.67)
-        //   Linear(出力層など)の場合: 1.0 または 手動指定(0.01など)
-        double gain = 1.0;
-        if (manual_gain > 0.0f) {
-            gain = manual_gain;
-        } else if (is_relu) {
-            gain = std::sqrt(2.0); // torch::nn::init::calculate_gain(torch::kReLU) と同等
-        } else {
-            // is_relu=false かつ manual_gain指定なしの場合 (通常はLinear層)
-            gain = 1.0;
-        }
-
-        // 初期化
-        torch::nn::init::orthogonal_(layer->weight, gain);
-        if (layer->bias.defined())
-            torch::nn::init::zeros_(layer->bias);
-    }
-}
-
-
-// ======================================================
-// PlainQNet
-// ======================================================
-
-PlainQNet::PlainQNet(const QNetConfig& config, int state_dim, int n_actions)
-    : BaseQNet(config, state_dim, n_actions)
-{
-    fc3_ = register_module("fc3", torch::nn::Linear(config.nn_hidden2, n_actions_));
-    InitWeightsLinear(fc3_, config.nn_init_mode, /*is_relu=*/false, config.output_init_gain);
-}
-
-torch::Tensor PlainQNet::Forward(const torch::Tensor& obs)
-{
-    auto x = obs;
-    x = torch::relu(fc1_->forward(x));
-    x = torch::relu(fc2_->forward(x));
-    x = fc3_->forward(x);
-    return x;
-}
-
-std::optional<anet::TensorFunction> PlainQNet::GetTensorFunction(const std::string& key, const torch::Device& device)
-{
-    if (key == "forward" || key == "forward.q") {
-        anet::TensorFunction fn = [this, device](const torch::Tensor& t) {
-            auto tdev = t.to(device);
-            return Forward(tdev);
-            };
-        return fn;
-    }
-
-    return std::nullopt;
-}
-
-
-// ======================================================
-// DuelingQNet
-// ======================================================
-
-DuelingQNet ::DuelingQNet(const QNetConfig& config, int state_dim, int n_actions)
-        : BaseQNet(config, state_dim, n_actions)
-{
-    value_ = register_module("value", torch::nn::Linear(config.nn_hidden2, 1));
-    adv_ = register_module("adv", torch::nn::Linear(config.nn_hidden2, n_actions_));
-
-    InitWeightsLinear(value_, config.nn_init_mode, /*is_relu=*/false, config.output_init_gain);
-    InitWeightsLinear(adv_, config.nn_init_mode, /*is_relu=*/false, config.output_init_gain);
-}
-
-torch::Tensor DuelingQNet::Forward(const torch::Tensor& obs)
-{
-    auto x = obs;
-    x = torch::relu(fc1_->forward(x));
-    x = torch::relu(fc2_->forward(x));
-
-    auto v = value_->forward(x);   // (B, 1)
-    auto a = adv_->forward(x);     // (B, A)
-
-    auto a_mean = a.mean(/*dim=*/1, /*keepdim=*/true);  // (B, 1)
-    auto q = v + (a - a_mean);                          // (B, A)
-    return q;
-}
-
-std::optional<anet::TensorFunction> DuelingQNet::GetTensorFunction(const std::string& key, const torch::Device& device)
-{
-    if (key == "forward" || key == "forward.q") {
-        anet::TensorFunction fn = [this, device](const torch::Tensor& t) {
-            auto tdev = t.to(device);
-            auto q = Forward(tdev);
-            return q;
-            };
-        return fn;
-    }
-    if (key == "forward.va") {
-        anet::TensorFunction fn = [this, device](const torch::Tensor& t) {
-            auto x = t.to(device);
-            x = torch::relu(fc1_->forward(x));
-            x = torch::relu(fc2_->forward(x));
-
-            auto v = value_->forward(x);        // (B, 1)
-            auto a = adv_->forward(x);          // (B, A)
-            auto va = torch::cat({ v, a }, 1);  // [B, 1 + A]
-            ANET_ASSERT_SHAPE(va, { ANET_SHAPE_ANY, 1 + n_actions_ });
-
-            return va;
-
-            };
-        return fn;
-    }
-    if (key == "forward.v") {
-        anet::TensorFunction fn = [this, device](const torch::Tensor& t) {
-            auto x = t.to(device);
-            x = torch::relu(fc1_->forward(x));
-            x = torch::relu(fc2_->forward(x));
-
-            auto v = value_->forward(x);        // (B, 1)
-            ANET_ASSERT_SHAPE(v, { ANET_SHAPE_ANY, 1 });
-
-            return v;
-            };
-        return fn;
-    }
-    if (key == "forward.a") {
-        anet::TensorFunction fn = [this, device](const torch::Tensor& t) {
-            auto x = t.to(device);
-            x = torch::relu(fc1_->forward(x));
-            x = torch::relu(fc2_->forward(x));
-
-            auto a = adv_->forward(x);          // (B, A)
-            ANET_ASSERT_SHAPE(a, { ANET_SHAPE_ANY, n_actions_ });
-            return a;
-            };
-        return fn;
-    }
-    return std::nullopt;
-}
-
-
-// ======================================================
-// QuantilePlainQNet
-// ======================================================
-
-QuantilePlainQNet::QuantilePlainQNet(const QNetConfig& config, int state_dim, int n_actions)
-    : BaseQNet(config, state_dim, n_actions), num_quantiles_(config.num_quantiles)
-{
-    ANET_ASSERT(num_quantiles_ > 1);
-
-    // 出力層: Actions * Quantiles
-    fc3_ = register_module("fc3", torch::nn::Linear(config.nn_hidden2, n_actions_ * num_quantiles_));
-    InitWeightsLinear(fc3_, config.nn_init_mode, /*is_relu=*/false, config.output_init_gain);
-}
-
-torch::Tensor QuantilePlainQNet::Forward(const torch::Tensor& obs)
-{
-    // 分布を計算し、平均を取って期待値Qとする
-    auto q_dist = ForwardQuantiles(obs); // (B, A, N)
-    return q_dist.mean(2);               // (B, A) -> mean over quantiles
-}
-
-torch::Tensor QuantilePlainQNet::ForwardQuantiles(const torch::Tensor& obs)
-{
-    auto x = obs;
-    x = torch::relu(fc1_->forward(x));
-    x = torch::relu(fc2_->forward(x));
-    x = fc3_->forward(x); // (B, A * N)
-
-    // Reshape to (B, A, N)
-    auto batch_size = x.size(0);
-    x = x.view({ batch_size, n_actions_, num_quantiles_ });
-
-    return x;
-}
-
-std::optional<anet::TensorFunction> QuantilePlainQNet::GetTensorFunction(const std::string& key, const torch::Device& device)
-{
-    // 既存の可視化用キー
-    if (key == "forward" || key == "forward.q") {
-        return [this, device](const torch::Tensor& t) {
-            auto tdev = t.to(device);
-            return Forward(tdev);
-            };
-    }
-    // 分布可視化用
-    if (key == "forward.dist") {
-        return [this, device](const torch::Tensor& t) {
-            auto tdev = t.to(device);
-            return ForwardQuantiles(tdev);
-            };
-    }
-    return std::nullopt;
-}
-
-
-// ======================================================
-// QuantileDuelingQNet
-// ======================================================
-
-QuantileDuelingQNet::QuantileDuelingQNet(const QNetConfig& config, int state_dim, int n_actions)
-    : BaseQNet(config, state_dim, n_actions), num_quantiles_(config.num_quantiles)
-{
-    ANET_ASSERT(num_quantiles_ > 1);
-
-    // Value stream: (Batch, 1 * N)
-    value_ = register_module("value", torch::nn::Linear(config.nn_hidden2, 1 * num_quantiles_));
-
-    // Advantage stream: (Batch, A * N)
-    adv_ = register_module("adv", torch::nn::Linear(config.nn_hidden2, n_actions_ * num_quantiles_));
-
-    InitWeightsLinear(value_, config.nn_init_mode, /*is_relu=*/false, config.output_init_gain);
-    InitWeightsLinear(adv_, config.nn_init_mode, /*is_relu=*/false, config.output_init_gain);
-}
-
-torch::Tensor QuantileDuelingQNet::Forward(const torch::Tensor& obs)
-{
-    auto x = obs;
-    x = torch::relu(fc1_->forward(x));
-    x = torch::relu(fc2_->forward(x));
-
-    // Value: (B, H) -> (B, N) -> mean -> (B, 1)
-    auto v_dist = value_->forward(x);
-    auto v_mean = v_dist.view({ -1, 1, num_quantiles_ }).mean(2); // (B, 1)
-
-    // Advantage: (B, H) -> (B, A*N) -> (B, A, N) -> mean -> (B, A)
-    auto a_dist = adv_->forward(x);
-    auto a_mean = a_dist.view({ -1, n_actions_, num_quantiles_ }).mean(2); // (B, A)
-
-    // Dueling scalar calculation
-    auto a_mean_mean = a_mean.mean(1, true); // (B, 1)
-    auto q = v_mean + (a_mean - a_mean_mean);
-
-    ANET_LOG_DEBUG("q=" << anet::ToDefString(q));
-    return q;   // (B, A)
-}
-
-torch::Tensor QuantileDuelingQNet::ForwardQuantiles(const torch::Tensor& obs)
-{
-    auto x = obs;
-    x = torch::relu(fc1_->forward(x));
-    x = torch::relu(fc2_->forward(x));
-
-    // Value: (B, H) -> (B, N) -> (B, 1, N)
-    auto v = value_->forward(x);
-    auto batch_size = v.size(0);
-    v = v.view({ batch_size, 1, num_quantiles_ });
-    ANET_ASSERT_NAN(v);
-
-    // Advantage: (B, H) -> (B, A * N) -> (B, A, N)
-    auto a = adv_->forward(x);
-    a = a.view({ batch_size, n_actions_, num_quantiles_ });
-    ANET_ASSERT_NAN(a);
-
-    // Mean Advantage across actions: (B, 1, N)
-    auto a_mean = a.mean(/*dim=*/1, /*keepdim=*/true);
-
-    // Q(s, a, tau) = V(s, tau) + (A(s, a, tau) - mean(A, dim=1))
-    // Broadcasting: (B, 1, N) + (B, A, N) - (B, 1, N) => (B, A, N)
-    auto q = v + (a - a_mean);
-
-    ANET_LOG_DEBUG("q=" << anet::ToDefString(q));
-    return q;   // (B, A, N)
-}
-
-std::optional<anet::TensorFunction> QuantileDuelingQNet::GetTensorFunction(const std::string& key, const torch::Device& device)
-{
-    // 平均値Q (Scalar)
-    if (key == "forward" || key == "forward.q") {
-        return [this, device](const torch::Tensor& t) {
-            auto tdev = t.to(device);
-            return Forward(tdev);
-            };
-    }
-    // 分布Q (Distribution)
-    if (key == "forward.dist") {
-        return [this, device](const torch::Tensor& t) {
-            auto tdev = t.to(device);
-            return ForwardQuantiles(tdev);
-            };
-    }
-    // Value & Advantage 分離出力 (B, 1+A, N)
-    if (key == "forward.va") {
-        return [this, device](const torch::Tensor& t) {
-            auto x = t.to(device);
-            x = torch::relu(fc1_->forward(x));
-            x = torch::relu(fc2_->forward(x));
-
-            // Value: (B, H) -> (B, 1*N) -> (B, 1, N)
-            auto v = value_->forward(x);
-            auto batch_size = v.size(0);
-            v = v.view({ batch_size, 1, num_quantiles_ });
-
-            // Advantage: (B, H) -> (B, A*N) -> (B, A, N)
-            auto a = adv_->forward(x);
-            a = a.view({ batch_size, n_actions_, num_quantiles_ });
-
-            // A正規化
-            auto a_mean = a.mean(/*dim=*/1, /*keepdim=*/true); // (B, 1, N)
-            auto a_centered = a - a_mean;
-
-            // Concatenate: (B, 1 + A, N)
-            // index 0: Value Distribution
-            // index 1..A: Centered Advantage Distribution (実際にQ計算に使われる値)
-            auto va = torch::cat({ v, a_centered }, 1);
-
-            ANET_ASSERT_SHAPE(va, { ANET_SHAPE_ANY, 1 + n_actions_, num_quantiles_ });
-
-            return va;
-            };
-    }
-    if (key == "forward.v") {
-        return [this, device](const torch::Tensor& t) {
-            auto tdev = t.to(device);
-
-            // 分布 Q(s, a, q) を取得
-            auto q_dist = ForwardQuantiles(tdev); // (B, A, N)
-
-            // 平均値 Q(s, a) を計算して、Greedy行動 a* を決定
-            auto q_mean = q_dist.mean(2); // (B, A)
-            auto best_actions = std::get<1>(q_mean.max(1)); // (B)
-
-            // a* に対応する分布を抜き出す
-            // (B, A, N) -> (B, 1, N)
-            auto idx = best_actions.view({ -1, 1, 1 }).expand({ -1, 1, num_quantiles_ });
-            auto v_true_dist = q_dist.gather(1, idx);
-
-            ANET_ASSERT_SHAPE(v_true_dist, { ANET_SHAPE_ANY, 1, num_quantiles_ });
-            return v_true_dist;
-            };
-    }
-    if (key == "forward.a") {
-        return [this, device](const torch::Tensor& t) {
-            auto x = t.to(device);
-
-            x = torch::relu(fc1_->forward(x));
-            x = torch::relu(fc2_->forward(x));
-
-            // Advantage: (B, H) -> (B, A*N) -> (B, A, N)
-            auto a = adv_->forward(x);
-            auto batch_size = a.size(0);
-            a = a.view({ batch_size, n_actions_, num_quantiles_ });
-
-            // A正規化
-            auto a_mean = a.mean(/*dim=*/1, /*keepdim=*/true); // (B, 1, N)
-            auto a_centered = a - a_mean;
-
-            ANET_ASSERT_SHAPE(a_centered, { ANET_SHAPE_ANY, n_actions_, num_quantiles_ });
-
-            return a_centered;
-            };
-    }
-    return std::nullopt;
-}
-
-
-// ======================================================
 // Network
 // ======================================================
 
 Network::Network(
-    const NetworkConfig& config, const torch::Device& device, std::shared_ptr<QNet> policy_net, std::shared_ptr<QNet> target_net)
+    const NetworkConfig& config, const torch::Device& device,
+    std::shared_ptr<anet::nn::Network> policy_net, std::shared_ptr<anet::nn::Network> target_net,
+    int64_t n_actions,int64_t num_quantiles)
     : config_(config), policy_net_(std::move(policy_net)), target_net_(std::move(target_net))
+    , n_actions_(n_actions)
+    , num_quantiles_(num_quantiles)
 {
     ANET_ASSERT(policy_net_);
     ANET_ASSERT(target_net_);
+    ANET_ASSERT(n_actions_ > 0);
+    ANET_ASSERT(num_quantiles_ > 0);
 
-    policy_net_->to(device);
+    policy_net_->to(device);    /// @todo Agent側で実行されるので削除？
     target_net_->to(device);
     target_net_->eval();
-}
-
-torch::Tensor Network::ForwardExpectation(const torch::Tensor& obs, bool use_target) const
-{
-    const auto& net = use_target ? target_net_ : policy_net_;
-    auto q = net->Forward(obs);
-    return q;
 }
 
 torch::Tensor Network::Forward(const torch::Tensor& obs, bool use_target) const
 {
     const auto& net = use_target ? target_net_ : policy_net_;
-    return net->Forward(obs);
+
+    // 生の出力:
+    //  Plain Head    -> (B, A)
+    //  Quantile Head -> (B, A*N)
+    auto output = net->Forward(obs);
+
+    if (num_quantiles_ > 1) {
+        // QR-DQNの場合: 分布の平均を取って Q(s,a) を返す
+        auto batch_size = output.size(0);
+        // Reshape: (B, A*N) -> (B, A, N)
+        auto reshaped = output.view({ batch_size, n_actions_, num_quantiles_ });
+        // Mean: (B, A, N) -> (B, A)
+        return reshaped.mean(2);
+    } else {
+        // DQNの場合: そのまま返す (B, A)
+        return output;
+    }
 }
 
 torch::Tensor Network::ForwardQuantiles(const torch::Tensor& obs, bool use_target) const
 {
-    ANET_ASSERT(target_net_->IsDistributional());
-    ANET_ASSERT(policy_net_->IsDistributional());
+    // QR-DQNでない場合は呼んではいけない
+    ANET_ASSERT(num_quantiles_ > 1);
 
     const auto& net = use_target ? target_net_ : policy_net_;
-    return net->ForwardQuantiles(obs);
+    auto output = net->Forward(obs); // (B, A*N)
+
+    // Reshape: (B, A*N) -> (B, A, N)
+    auto batch_size = output.size(0);
+    return output.view({ batch_size, n_actions_, num_quantiles_ });
 }
 
 bool Network::IsDistributional(bool use_target) const
 {
-    const auto& net = use_target ? target_net_ : policy_net_;
-    return net->IsDistributional();
+    return (num_quantiles_ > 1);
 }
 
 std::vector<torch::Tensor> Network::GetPolicyParameters() const
@@ -495,14 +127,14 @@ std::optional<anet::TensorFunction> Network::GetTensorFunction(const std::string
     // policy net
     if (anet::StartsWith(key, POLICY_PREFIX)) {
         auto subkey = anet::RemovePrefix(key, POLICY_PREFIX);
-        auto fn = policy_net_->GetTensorFunction(subkey, device);
+        auto fn = policy_net_->GetTensorFunction(subkey);
         return fn;
     }
 
     // target net
     if (anet::StartsWith(key, TARGET_PREFIX)) {
         auto subkey = anet::RemovePrefix(key, TARGET_PREFIX);
-        auto fn = target_net_->GetTensorFunction(subkey, device);
+        auto fn = target_net_->GetTensorFunction(subkey);
         return fn;
     }
 
@@ -610,7 +242,7 @@ anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const torch::T
 
     // Q値生成
     auto q_quantiles = GetQuantiles(obs, use_target);
-    auto q_values = q_quantiles.defined() ? q_quantiles.mean(-1) : network_.ForwardExpectation(obs, use_target);
+    auto q_values = q_quantiles.defined() ? q_quantiles.mean(-1) : network_.Forward(obs, use_target);
     auto greedy_action = q_values.argmax(1, /*keepdim=*/false);        // greedy = argmax(q_values, dim=1)
 
     // Greedy指定ならargmxを返す

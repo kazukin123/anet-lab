@@ -1,0 +1,178 @@
+﻿# ==============================================================================
+# Neural Network Configuration (Backbone Only)
+# ==============================================================================
+
+
+# ------------------------------------------------------------------------------
+# 1. Block Definitions (部品カタログ)
+# ------------------------------------------------------------------------------
+
+# --- Common Utilities ---
+net.block.[ReLU].type = ReLU
+net.block.[Flatten].type = Flatten
+net.block.[Add].type = Add
+
+#net.block.[GlobalPool].type = GlobalAvgPool1d
+#net.block.[GlobalAvgPool].type = GlobalAvgPool2d
+
+# --- MLP Components ---
+
+net.block.[Linear_84].type = Linear
+net.block.[Linear_84].linear.out_features = 84
+net.block.[Linear_84].init.mode = 1
+
+net.block.[Linear_120].type = Linear
+net.block.[Linear_120].linear.out_features = 120
+net.block.[Linear_120].init.mode = 1
+
+net.block.[Linear_256].type = Linear
+net.block.[Linear_256].linear.out_features = 256
+net.block.[Linear_256].init.mode = 1
+
+net.block.[Linear_512].type = Linear
+net.block.[Linear_512].linear.out_features = 512
+net.block.[Linear_512].init.mode = 1
+
+# --- CNN Components (1D) ---
+net.block.[Conv1d_S].type = Conv1d
+net.block.[Conv1d_S].out_channels = 32
+net.block.[Conv1d_S].kernel_size = 8
+net.block.[Conv1d_S].stride = 4
+net.block.[Conv1d_S].padding = 0
+
+net.block.[Conv1d_M].type = Conv1d
+net.block.[Conv1d_M].out_channels = 64
+net.block.[Conv1d_M].kernel_size = 4
+net.block.[Conv1d_M].stride = 2
+net.block.[Conv1d_M].padding = 1
+
+# --- CNN Components (2D) ---
+net.block.[Conv2d_S].type = Conv2d
+net.block.[Conv2d_S].out_channels = 32
+net.block.[Conv2d_S].kernel_size = 8
+net.block.[Conv2d_S].stride = 4
+net.block.[Conv2d_S].padding = 0
+
+net.block.[Conv2d_M].type = Conv2d
+net.block.[Conv2d_M].out_channels = 64
+net.block.[Conv2d_M].kernel_size = 4
+net.block.[Conv2d_M].stride = 2
+net.block.[Conv2d_M].padding = 1
+
+# --- Transformer Components ---
+#net.block.[PosEnc].type = PositionalEncoding
+
+#net.block.[TransEnc_Block].type = TransformerEncoder
+#net.block.[TransEnc_Block].d_model = 128
+#net.block.[TransEnc_Block].nhead = 4
+#net.block.[TransEnc_Block].dim_feedforward = 512
+#net.block.[TransEnc_Block].num_layers = 2
+#net.block.[TransEnc_Block].dropout = 0.1
+
+# --- ResBlock定義 (Bottleneck構造など)
+
+#net.block.[ResA].type = ResNetBottleneck
+#net.block.[ResA].in_channels = 64
+#net.block.[ResA].out_channels = 256
+# ... 他のパラメータ
+#net.block.[ResB].type = ResNetBottleneck
+# ...
+#net.block.[ResC].type = ResNetBottleneck
+# ...
+#net.block.[ResD].type = ResNetBottleneck
+
+
+# ------------------------------------------------------------------------------
+# Structure Definition Samples
+#    最終出力は必ず「1次元ベクトル」になるように定義
+# ------------------------------------------------------------------------------
+
+# [Pattern 1] Simple MLP
+# 入力 -> Flatten -> Dense -> Dense -> (Vector Output)
+net.body.MLP.structure = Flatten > Linear_120 > ReLU > Linear_84 > ReLU
+
+# [Pattern 2] 1D-CNN (Atari Style)
+# Conv -> Conv -> Flatten -> (Vector Output)
+net.body.Conv1D.structure = Conv1d_S > ReLU > Conv1d_M > ReLU > Flatten
+
+# [Pattern 3] 2D-CNN (Image Style)
+# Conv -> Conv -> Flatten -> (Vector Output)
+net.body.Conv2D.structure = Conv2d_S > ReLU > Conv2d_M > ReLU > Flatten
+
+# [Pattern 4] Transformer
+# Linear -> PosEnc -> Transformer -> Pooling -> (Vector Output)
+net.body.Transformer.structure = Linear_128 > ReLU > PosEnc > TransEnc_Block > GlobalPool
+
+# [Pattern 5] ResNet-like (Complex Graph)
+net.body.ResNet.structure = Linear_128 > ReLU > Linear_128(=skip_val) > Linear_128 > ReLU > Linear_128(=proc_val) > Add(@skip_val @proc_val) > ReLU > Linear_512 > MyReLU
+
+# [Pattern 6] ResNet-152 (Many layers)
+net.body.ResNet152.structure = Conv1_Input > MaxPool > ResA(*3) > ResB(*8) > ResC(*36) > ResD(*3) > GlobalAvgPool
+
+
+# ------------------------------------------------------------------------------
+# MLP
+# ------------------------------------------------------------------------------
+
+net.block.[MLP_FC1].$ = net.block.[Linear_120] > net.block.FC1  # default: out_features = 120
+net.block.[MLP_FC2].$ = net.block.[Linear_84] > net.block.FC2   # default: out_features = 84
+net.block.[MLP_FC3].$ = net.block.[Linear_84] > net.block.FC2   # default: out_features = 84
+
+net.body.MLP2.structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU
+net.body.MLP3.structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU > MLP_FC3 > ReLU
+
+
+# ------------------------------------------------------------------------------
+# MLP ResBlock
+# ------------------------------------------------------------------------------
+
+net.block.[Linear_Proj].type = Linear
+net.block.[Linear_Proj].linear.out_features = 64
+net.block.[Linear_Proj].init.mode = 1
+
+# ※ Residual Addをするため、入出力次元が揃っている必要あり
+net.block.[Linear_Hid].type = Linear
+net.block.[Linear_Hid].linear.out_features = 64
+net.block.[Linear_Hid].init.mode = 1
+
+net.block.[Linear_Out].type = Linear
+net.block.[Linear_Out].linear.out_features = 128
+net.block.[Linear_Out].init.mode = 1
+
+net.block.[ResBlock].type = Composite
+net.block.[ResBlock].structure = Linear_Hid > ReLU > Linear_Hid(=proc) > Add(@input @proc) > ReLU
+
+net.body.MLP_RES.structure = Flatten > Linear_Proj > ReLU > ResBlock(*3) > Linear_Out > ReLU
+
+# ------------------------------------------------------------------------------
+# 3. Active Backbone Selection
+# ------------------------------------------------------------------------------
+
+# 使用するバックボーンを選択
+# net.body.$ = net.body.MLP2
+# net.body.$ = net.body.Conv1D
+# net.body.$ = net.body.Conv2D
+
+
+
+## 記法[net.body.structure]
+# 記載      意味	              例
+# BlockName ブロックの配置        Conv1
+#  >		ブロックの連結        Conv1 > ReLU > Conv2
+# (=Tag)    出力に名前を付ける    Conv1(=skip)
+# (@Source) 入力元をtagで指定する Add(@skip @main)
+# (*N)      同じブロックを繰り返し配置する      ResBlock(*3)
+
+
+## MEMO:表現出来ないパターン
+# ・重み共有
+#    「同じ構造のブロックを2回使う」のではなく、「全く同一の実体（メモリ上の重み）を2回使い回す」 ケース
+# ・密なスキップ結合：
+#  　U-Netでは「Encoderの1層目の出力を、Decoderの最後の層に入力」「Encoderの2層目を、Decoderの最後から2番目に...」という風に、遠く離れた層同士が多数結合する。
+#　  今の記法での表現: 可能だが、タグだらけになる。
+# ・条件分岐
+#    「入力データの平均値が0.5以上ならBlockAを、そうでなければBlockBを通す」といった、データ依存の動的な分岐。
+#     必要になったらConditionalBlockをC++側で実装して対応。
+# ・再帰構造
+#    RNNやLSTMのように、同じブロックを時間軸に沿って繰り返し適用する構造。
+#    必要になったらLSTM層やRNN層をC++側で実装して対応。

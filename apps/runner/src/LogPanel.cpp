@@ -27,12 +27,18 @@ void LogPanel::SetupControls()
     wxFont font = wxFont(10, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
     text_ctrl_->SetFont(font);
 
-    // 背景色を少し暗くしてコンソールっぽく
-    // text_ctrl_->SetBackgroundColour(wxColour(30, 30, 30));
-    // text_ctrl_->SetForegroundColour(wxColour(200, 200, 200));
-    
-    // text_ctrl_->SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_LISTBOX));
-     //text_ctrl_->SetForegroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_LISTBOXTEXT));
+    // 色をシステム初期に強制
+    auto bg_color = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW);
+    auto fg_color = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT);
+    text_ctrl_->SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
+    text_ctrl_->SetForegroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
+
+    // 色をシステム初期に強制
+    wxTextAttr defaultStyle;
+    defaultStyle.SetTextColour(fg_color);
+    defaultStyle.SetBackgroundColour(bg_color);
+    defaultStyle.SetFont(font);
+    text_ctrl_->SetDefaultStyle(defaultStyle);
 
     // レイアウト (Sizerを使ってPanelいっぱいに広げる)
     wxBoxSizer* sizer = new wxBoxSizer(wxVERTICAL);

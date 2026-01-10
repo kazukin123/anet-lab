@@ -100,6 +100,9 @@ bool RunnerApp::OnInit()
 {
     anet::ProfileThreadName th("MainThread");
 
+    // DarkModeサポート
+    SetAppearance(Appearance::System);
+
     // ライブラリ初期化
     wxInitAllImageHandlers();
     anet::rl::InitRL();
@@ -119,13 +122,13 @@ bool RunnerApp::OnInit()
         });
 
     // コマンドライン引数解析
-    wxCmdLineParser cmdline_(desc, argc, (wchar_t**)argv);
-    if (cmdline_.Parse(true)) {
+    wxCmdLineParser cmdline(desc, argc, (wchar_t**)argv);
+    if (cmdline.Parse(true)) {
         return false;
     }
 
     // ConfigManager
-    config_mgr_ = std::make_unique<anet::ConfigManager>(GetConfigFilePath(), &cmdline_);
+    config_mgr_ = std::make_unique<anet::ConfigManager>(GetConfigFilePath(), &cmdline);
     auto config_data = config_mgr_->GetConfigData();
 
     // RunnerApp設定生成
@@ -133,13 +136,14 @@ bool RunnerApp::OnInit()
 
     // MetricsLogger
     anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetRunsPath(), config_->run_name);
+    anet::MetricsLogger::Instance()->Log("config_data", config_data.ToJson());
 
     // RunnerFrame生成＆表示
     wxString frame_title = anet::MetricsLogger::Instance()->GetRunName() + " - ANET RL Runner";
     frame_ = new RunnerFrame(frame_title, config_->train_panel, config_->eval_panel);
     frame_->Show();
 
-    // RunnerAppConfigをダンプ
+    // Configをダンプ
     LOG::info() << "RunnerApp config=" << *config_;
     anet::MetricsLogger::Instance()->Log(*config_);
 

@@ -587,9 +587,8 @@ namespace anet::rl {
         virtual ~Learner() = default;
     };
 
-    class Agent : public ActionPolicy, public Learner, public Module {
+    class Agent : public ActionPolicy, public Learner, public Module, public TensorFunctionProvider {
     public:
-        virtual std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) = 0;
         virtual ~Agent() = default;
     };
 

@@ -14,7 +14,7 @@
 #include "anet/config.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
-
+#include "nn_heads.hpp"
 
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
@@ -26,6 +26,7 @@ namespace LOG = anet::log;
 
 RainbowAgent::RainbowAgent(
     const RainbowAgentConfig& config
+    , const anet::nn::NetworkConfig& net_config
     , const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, const torch::Device& device
     , std::shared_ptr<Notifier> notifier
     , std::optional<seed_t> seed)
@@ -55,29 +56,58 @@ RainbowAgent::RainbowAgent(
         is_distributional = false;
     }
 
-    // NN生成＆初期化
-    std::shared_ptr<anet::rl::dqn::QNet> policy_net;
-    std::shared_ptr<anet::rl::dqn::QNet> target_net;
-    if (config_.use_dueling_net) {
-        if (is_distributional) {
-            policy_net = std::make_shared<anet::rl::dqn::QuantileDuelingQNet>(config_.qnet, state_dim_, n_actions_);
-            target_net = std::make_shared<anet::rl::dqn::QuantileDuelingQNet>(config_.qnet, state_dim_, n_actions_);
+    // ------------------------------------------------------------
+	// HeadFactory の準備
+	// ------------------------------------------------------------
+	
+	// Head用の初期化設定を作成 (AgentがConfigDataから読み取る)
+    const anet::nn::WeightInitConfig& head_init_config = config_.head_init;
+
+    std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory;
+
+    // アルゴリズムに応じてFactoryを切り替え
+    if (is_distributional) {
+        if (config_.use_dueling_net) {
+            head_factory = std::make_shared<anet::nn::QuantileDuelingHeadFactory>(
+                n_actions_, config_.num_quantiles, head_init_config);
+            LOG::info() << "Network Head: Quantile Dueling (N=" << config_.num_quantiles << ")";
         } else {
-            policy_net = std::make_shared<anet::rl::dqn::DuelingQNet>(config_.qnet, state_dim_, n_actions_);
-            target_net = std::make_shared<anet::rl::dqn::DuelingQNet>(config_.qnet, state_dim_, n_actions_);
+            head_factory = std::make_shared<anet::nn::QuantileHeadFactory>(
+                n_actions_, config_.num_quantiles, head_init_config);
+            LOG::info() << "Network Head: Quantile Plain (N=" << config_.num_quantiles << ")";
         }
     } else {
-        if (is_distributional) {
-            policy_net = std::make_shared<anet::rl::dqn::QuantilePlainQNet>(config_.qnet, state_dim_, n_actions_);
-            target_net = std::make_shared<anet::rl::dqn::QuantilePlainQNet>(config_.qnet, state_dim_, n_actions_);
+        if (config_.use_dueling_net) {
+            head_factory = std::make_shared<anet::nn::DuelingHeadFactory>(
+                n_actions_, head_init_config);
+            LOG::info() << "Network Head: Dueling";
         } else {
-            policy_net = std::make_shared<anet::rl::dqn::PlainQNet>(config_.qnet, state_dim_, n_actions_);
-            target_net = std::make_shared<anet::rl::dqn::PlainQNet>(config_.qnet, state_dim_, n_actions_);
+            head_factory = std::make_shared<anet::nn::LinearHeadFactory>(
+                n_actions_, head_init_config);
+            LOG::info() << "Network Head: Plain Linear";
         }
     }
-    
-    // Network生成
-    this->network_ = std::make_unique<dqn::Network>(config_.network, device_, policy_net, target_net);
+
+    // ------------------------------------------------------------
+    // Network構築 (Builder)
+    // ------------------------------------------------------------
+
+    // 入力形状 (C, H, W) or (L,)
+    auto input_shape = env_spec.state_spec.shape;
+
+    // Network構築
+    auto policy_net = anet::nn::NetworkBuilder::BuildNetwork(net_config, input_shape, head_factory);
+    auto target_net = anet::nn::NetworkBuilder::BuildNetwork(net_config, input_shape, head_factory);
+
+    // デバイス転送
+    policy_net->to(device_);
+    target_net->to(device_);
+
+    // 管理クラス (dqn::Network) に委譲
+    this->network_ = std::make_unique<dqn::Network>(
+        config_.network, device_, policy_net, target_net, n_actions_, config_.num_quantiles
+    );
+
 
     // ActionPolicy生成
     this->action_policy_ = std::make_unique<dqn::EpsilonGreedyActionPolicy>(config_.action_policy, *network_, *vars_, action_policy_seed);
@@ -208,7 +238,8 @@ std::shared_ptr<anet::rl::Agent> RainbowAgentFactory::CreateAgent(
     std::shared_ptr<anet::rl::Notifier> notifier, std::optional<anet::seed_t> seed) const
 {
     RainbowAgentConfig config(config_data);
-    auto agent = std::make_shared<RainbowAgent>(config, batch_env_spec, env_spec, device, notifier, seed);
+    anet::nn::NetworkConfig net_config(config_data);
+    auto agent = std::make_shared<RainbowAgent>(config, net_config, batch_env_spec, env_spec, device, notifier, seed);
     return agent;
 
     /// @todo 引数の順番を統一

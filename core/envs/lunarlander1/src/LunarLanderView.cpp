@@ -3,6 +3,7 @@
 #include <cmath>
 #include <wx/dcbuffer.h>
 #include "anet/profile.hpp"
+#include "anet/str_util.hpp"
 #include "LunarLanderEnv.hpp"
 
 using namespace anet::rl::env;
@@ -24,7 +25,7 @@ LunarLanderData LunarLanderData::Create(anet::rl::TrainEvent event)
     const int ENV_INDEX = 0;
 
     // RL由来情報
-    auto train_step = event.counts.train_step;
+    auto exp_step = event.counts.exp_step;
     anet::rl::SingleState state = {
         event.step_result->next_state.obs[ENV_INDEX],
         event.step_result->next_state.done[ENV_INDEX].item<bool>(),
@@ -40,7 +41,7 @@ LunarLanderData LunarLanderData::Create(anet::rl::TrainEvent event)
     auto aux = auxs[0];
 
     // Snapshotを作る
-    LunarLanderData snapshot{ train_step, state, action, reward, aux };
+    LunarLanderData snapshot{ exp_step, state, action, reward, aux };
 
     return snapshot;
 }
@@ -163,7 +164,8 @@ void LunarLanderPanel::DrawTerrain(wxDC& dc, int width, int height)
                 t[i][0].item<float>(), t[i][1].item<float>(),width, height));
     }
 
-    dc.SetPen(wxPen(*wxBLACK, 3));
+    wxColour ground_color(255, 140, 0);
+    dc.SetPen(wxPen(ground_color, 3));
     dc.DrawLines(static_cast<int>(pts.size()), pts.data());
     dc.DrawLines(static_cast<int>(pts.size()), pts.data());
 }
@@ -381,13 +383,11 @@ void LunarLanderPanel::DrawWind(wxDC& dc, int width, int height)
 
 void LunarLanderPanel::DrawRL(wxDC& dc)
 {
-    dc.SetTextForeground(*wxBLACK);
+    //dc.SetTextForeground(*wxBLACK);
 
     // Step
-    dc.DrawText(wxString::Format("Step: %llu",
-        static_cast<unsigned long long>(snapshot_.step)),
-        10,
-        10);
+    auto step_str = anet::FormatWithCommas(snapshot_.step);
+    dc.DrawText(wxString::Format("Step: %s", step_str), 10, 10);
 
     // Reward
     auto raw_reward = 0.0f;
@@ -410,9 +410,9 @@ void LunarLanderPanel::DrawRL(wxDC& dc)
         const float y_dot = snapshot_.state.obs[3].item<float>();
         const float theta_dot = snapshot_.state.obs[5].item<float>();
 
-        dc.DrawText(wxString::Format("(X Y θ): (%.2f %.2f %.2f[%.1f])", x, y, theta, theta_deg), 10, 70);
+        dc.DrawText(wxString::Format("(X Y theta): (%.2f %.2f %.2f[%.1f])", x, y, theta, theta_deg), 10, 70);
         dc.DrawText(wxString::Format("Contact: (%.2f %.2f)", contact_left, contact_right), 10, 90);
-        dc.DrawText(wxString::Format("dot(X Y θ): (%.2f %.2f %.2f)", x_dot, y_dot, theta_dot), 10, 110);
+        dc.DrawText(wxString::Format("dot(X Y theta): (%.2f %.2f %.2f)", x_dot, y_dot, theta_dot), 10, 110);
     }
 
     // total_reward

@@ -1,18 +1,63 @@
 ﻿# anet-lab/CMakeLists.txt
 
+
+# ---------------------------------------------------------------------
+# プロジェクト定義
+# ---------------------------------------------------------------------
+
 cmake_minimum_required(VERSION 3.20)
 project(anet-lab LANGUAGES CXX)
-set(CMAKE_CONFIGURATION_TYPES "Debug;RelWithDebInfo;Release" CACHE STRING "" FORCE)
+
 
 # ---------------------------------------------------------------------
 # 共通設定
 # ---------------------------------------------------------------------
 
+set(CMAKE_CONFIGURATION_TYPES "Debug;RelWithDebInfo;Release" CACHE STRING "" FORCE)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_COLOR_MAKEFILE ON)
+#set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+#set(CMAKE_COLOR_MAKEFILE ON)
+#set(CMAKE_VERBOSE_MAKEFILE ON)
+
+
+# ---------------------------------------------------------------------
+# ビルド定数定義
+# ---------------------------------------------------------------------
+
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG -DDEBUG -DANET_ENABLE_DEBUGINFO")
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -DNDEBUG -DANET_ENABLE_DEBUGINFO")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DNDEBUG")
+
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_compile_definitions(_DEBUG ANET_ENABLE_DEBUGINFO)
+elseif(CMAKE_BUILD_TYPE STREQUAL "RelWithDebugInfo")
+    add_compile_definitions(NDEBUG ANET_ENABLE_DEBUGINFO)
+elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_compile_definitions(NDEBUG)
+endif()
+
+add_compile_definitions(WXINTL_NO_GETTEXT_MACRO) # N_()マクロ競合対策
+
+
+# ---------------------------------------------------------------------
+# コンパイルオプション
+# ---------------------------------------------------------------------
+if (MSVC)
+    #add_compile_definitions(_HAS_CONDITIONAL_EXPLICIT=0)
+    #add_compile_options(/MP8)
+    #add_link_options(/DEBUG:FULL)
+    #add_link_options(/DEBUG:FASTLINK)
+    add_link_options(/INCREMENTAL)
+    #add_compile_options(/diagnostics:color)
+    #add_compile_options(/wd4267)  # warning C4267を無効化
+
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")  # mtd
+    add_compile_options(/utf-8)
+endif()
+
 
 # ---------------------------------------------------------------------
 # libtorch のパス検出
@@ -69,11 +114,13 @@ endif()
 message(STATUS "Final Torch_DIR: ${Torch_DIR}")
 list(APPEND CMAKE_PREFIX_PATH "${Torch_DIR}")
 
+
 # ---------------------------------------------------------------------
 # 外部ライブラリ
 # ---------------------------------------------------------------------
 find_package(Torch REQUIRED)
 find_package(wxWidgets REQUIRED COMPONENTS core base gl aui)
+
 
 # ---------------------------------------------------------------------
 # wxWidgets 互換性レイヤー
@@ -103,11 +150,13 @@ else()
     endif()
 endif()
 
+
 # ---------------------------------------------------------------------
 # third_party
 # ---------------------------------------------------------------------
 include_directories("${PROJECT_SOURCE_DIR}/third_party/nvtx3/include")
 include_directories("${PROJECT_SOURCE_DIR}/third_party/nlohmann/include")
+
 
 # ---------------------------------------------------------------------
 # サブプロジェクト
@@ -121,6 +170,7 @@ add_subdirectory(core/envs/cartpole2)
 #add_subdirectory(apps/cartpole2)
 #add_subdirectory(apps/lunarlander1)
 add_subdirectory(apps/runner)
+
 
 # ---------------------------------------------------------------------
 # Doxygen

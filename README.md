@@ -25,6 +25,8 @@ TODO：実行手順を書く
 	* DQNAgent
 	* CartPoleEnvGUI
 	* LunarLanderEnvGUI
+	* Replay Ratio対応
+	* Observation Normalization
 * メトリクス
 	* MetricsViewer.java：フェーズ1.5(基本機能、差分ロード)
 	* TensorBoard対応（ブリッジpyスクリプト経由）
@@ -33,25 +35,22 @@ TODO：実行手順を書く
 * AP機能
 	* CUDA対応
 	* N環境スレッド対応
+	* 設定によるNN生成
 	* 設定による柔軟なメトリクス定義
-	* 学習と推論の同時分離表示
 
 ### DOING
 
 * 学習アルゴリズム
-	* Replay Ratio対応
-	* Observation Normalization
 * メトリクス
 * AP改善
-	* 評価RunnerでENVとAPの個別RunMode指定
 
 ### TODO
 
 * 学習アルゴリズム
+	* Swish活性化関数
 	* SWA
 	* CNN
 	* Transformer
-	* AlphaZero-Lite
 	* MuZero
 * メトリクス
 	* MetricsViewer.java：フェーズ1.5：ハイパラ表示対応
@@ -60,10 +59,9 @@ TODO：実行手順を書く
 	* ヒートマップ：Config対応
 	* ヒートマップ：凡例出力対応
 	* ヒートマップ：MetricsViewer統合
-	* ヒートマップ：ヒストグラムTB対応
 	* TB:add_hparams対応
 * AP改善
-	* コマンドライン引数でRun名を指定
+	* 評価RunnerでENVとAPの個別RunMode指定
 	* 同じクラスでインスタンス別の設定キー
 	* TODOコメントいれまくり
 	* constいれまくり
@@ -79,6 +77,8 @@ TODO：実行手順を書く
 	* 設定の継承読み込み
 	* Runフォルダに設定内容ダンプを残す
 	* seed値指定
+	* コマンドライン引数でRun名を指定
+	* 学習と推論の同時分離表示
 
 ### SUSPENDED
 * 学習アルゴリズム
@@ -90,7 +90,9 @@ TODO：実行手順を書く
 	* AS-DQN：勾配／損失ベース
 	* Adaptive Grad Control
 	* Adaptive α-schedule
+	* AlphaZero-Lite
 * メトリクス
+	* ヒートマップ：ヒストグラムTB対応
 * AP改善
 
 ## 備考

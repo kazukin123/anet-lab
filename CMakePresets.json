@@ -2,7 +2,7 @@
   "version": 3,
   "cmakeMinimumRequired": {
     "major": 3,
-    "minor": 21,
+    "minor": 20,
     "patch": 0
   },
 
@@ -17,7 +17,9 @@
         "CMAKE_BUILD_TYPE": "Debug"
       },
       "environment": {
-        "VSCMD_ARG_TGT_ARCH": "x64"
+        "VSCMD_ARG_TGT_ARCH": "x64",
+        "VSLANG": "1033",
+        "DOTNET_CLI_UI_LANGUAGE": "en-US"
       }
     },
     {
@@ -30,8 +32,10 @@
         "CMAKE_BUILD_TYPE": "RelWithDebInfo"
       },
       "environment": {
-        "VSCMD_ARG_TGT_ARCH": "x64"
-      },
+        "VSCMD_ARG_TGT_ARCH": "x64",
+        "VSLANG": "1033",
+        "DOTNET_CLI_UI_LANGUAGE": "en-US"
+      }
     },
     {
       "name": "x64-Release",
@@ -43,7 +47,9 @@
         "CMAKE_BUILD_TYPE": "Release"
       },
       "environment": {
-        "VSCMD_ARG_TGT_ARCH": "x64"
+        "VSCMD_ARG_TGT_ARCH": "x64",
+        "VSLANG": "1033",
+        "DOTNET_CLI_UI_LANGUAGE": "en-US"
       }
     }
   ],
