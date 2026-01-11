@@ -68,7 +68,7 @@ html, body {
 	display: flex;
 	flex-direction: column;
 	box-sizing: border-box;
-	padding: 10px;
+	padding: 3px;
 	overflow-y: auto;
 }
 
@@ -204,7 +204,7 @@ html, body {
 	transform: rotate(45deg);
 }
 .run-row {
-	font-size: 14px;
+	font-size: 12px;
 	background-color: transparent;
 	transition: background-color 0.15s ease;
 	align-items: center;      /* 縦中央揃え */
