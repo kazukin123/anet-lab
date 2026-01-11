@@ -87,11 +87,12 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
     log_panel_ = new LogPanel(this);
     aui_mgr_.AddPane(log_panel_, wxAuiPaneInfo()
         .Name("LogPanel").Caption("Logs")
-        .Right().Layer(10)          // Layer:大きいほど外側
+        .Right().Layer(20)          // Layer:大きいほど外側
         //.Bottom().Layer(10)          // Layer:大きいほど外側
         .BestSize(200, 200)          // ドッキング時の推奨サイズ 
         .FloatingSize(800, 400)     // 切り離したときのウィンドウサイズ
         .MinSize(500, 100)          // これ以上小さくならないようにする
+        .Position(1)
         .CloseButton(false).MaximizeButton(true)
     );
 
@@ -120,7 +121,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
     train_panel_ = new TrainPanel(this, train_panel_config);
     aui_mgr_.AddPane(train_panel_, wxAuiPaneInfo()
         .Name("TrainExperiencePanel").Caption("Train View")
-        .Right().Layer(10)          // Layer:大きいほど外側
+        .Right().Layer(20)          // Layer:大きいほど外側
         //.Centre()
         .BestSize(300, 300)
         .MinSize(200, 200)
@@ -144,7 +145,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
     aui_mgr_.AddPane(q_value_panel_, wxAuiPaneInfo()
         .Name("EvalQValuePanel").Caption("Q-Values")
         //.Right().Layer(20)
-        .Bottom().Layer(10)
+        .Bottom().Layer(15)
         //.Left().Layer(20)
         .BestSize(900, 500)
         .MinSize(700, 300)
