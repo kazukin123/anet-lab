@@ -603,9 +603,6 @@ namespace anet::rl {
         torch::Tensor target_values;  // (B,)
         struct {
             torch::Tensor obs;             // (B, state_dim...)
-            //torch::Tensor dones;         // (B,)
-            //torch::Tensor truncateds;    // (B,)
-            //torch::Tensor episode_start; // (B,)
             torch::Tensor terminals;       // (B,) bool
         } next_states;
         torch::Tensor n_steps;       // (B,) int

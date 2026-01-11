@@ -69,7 +69,7 @@ private:
     bool with_bias_;
 };
 
-// Lazy Conv2d Implementation
+// Lazy Conv1d Implementation
 class Conv1dModule : public NetworkModule {
 public:
 
@@ -90,10 +90,10 @@ public:
             ANET_LOG_DEBUG("in_channels=" << in_channels);
 
             // モジュール生成と登録
-            torch::nn::Conv2dOptions opts(in_channels, out_channels_, kernel_size_);
+            torch::nn::Conv1dOptions opts(in_channels, out_channels_, kernel_size_);
             opts.stride(stride_);
             opts.padding(padding_);
-            conv = register_module("conv", torch::nn::Conv2d(opts));
+            conv = register_module("conv", torch::nn::Conv1d(opts));
 
             // 重み初期化
             conv->to(x.device(), x.scalar_type());
@@ -109,7 +109,7 @@ public:
     }
 private:
     WeightInitConfig init_config_;
-    torch::nn::Conv2d conv{ nullptr };
+    torch::nn::Conv1d conv{ nullptr };
     int64_t out_channels_;
     int64_t kernel_size_;
     int64_t stride_;
@@ -127,25 +127,25 @@ public:
     {
         anet::ProfileRange r("Conv2dModule::forward");
 
-        if (!conv) {
+        if (!conv_) {
             // 初回の処理で入力チャンネル数(in_channels)を自動取得
 
             // x: (Batch, Channel, Length) -> in_channels is dim 1
             const int64_t in_channels = x.size(1);
 
             // モジュール生成と登録
-            torch::nn::Conv1dOptions opts(in_channels, out_channels_, kernel_size_);
+            torch::nn::Conv2dOptions opts(in_channels, out_channels_, kernel_size_);
             opts.stride(stride_);
 			opts.padding(padding_);
-            conv = register_module("conv1d", torch::nn::Conv1d(opts));
+            conv_ = register_module("conv2d", torch::nn::Conv2d(opts));
 
             // 重み初期化
-            conv->to(x.device(), x.scalar_type());
+            conv_->to(x.device(), x.scalar_type());
 
             // 重み初期化
-            WeightInitializer::Initialize(conv, init_config_);
+            WeightInitializer::Initialize(conv_, init_config_);
         }
-        return conv->forward(x);
+        return conv_->forward(x);
     }
 
     torch::Tensor Forward(torch::Tensor input) override {
@@ -153,7 +153,7 @@ public:
     }
 private:
     WeightInitConfig init_config_;
-    torch::nn::Conv1d conv{ nullptr };
+    torch::nn::Conv2d conv_{ nullptr };
     int64_t out_channels_;
     int64_t kernel_size_;
     int64_t stride_;
