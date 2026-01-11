@@ -71,6 +71,7 @@ private:
     void OnSize(wxSizeEvent& event);
     void OnCloseWindow(wxCloseEvent& event);
     void OnCheck(wxCommandEvent& event); // 共通のチェックイベントハンドラ
+    void OnResetRangeClick(wxCommandEvent& event);
 private:
     class Config;
 private:
@@ -78,6 +79,8 @@ private:
     wxCheckBox* hist_check_;
     wxCheckBox* adv_check_;
     wxCheckBox* log_scale_check_;
+    wxCheckBox* auto_range_check_;
+    wxButton* reset_range_button_;
     QValueHeatMapPanel* heatmap_panel_;
 
     std::unique_ptr<Config> config_;

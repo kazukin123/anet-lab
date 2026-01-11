@@ -16,6 +16,7 @@ static constexpr int kColMinWidth = 70;
 static constexpr bool kHistDefaultCheck = true;
 static constexpr bool kAdvDefaultCheck = true;
 static constexpr bool kLogScaleDefaultCheck = true;
+static constexpr bool kAutoRangeDefaultCheck = true;
 
 
 // ----------------------------------------------------------------------------
@@ -178,6 +179,18 @@ void QValuePanel::InitLayout()
     log_scale_check_->Bind(wxEVT_CHECKBOX, &QValuePanel::OnCheck, this);
     header_sizer->Add(log_scale_check_, 0, wxALIGN_CENTER_VERTICAL | wxALL, 0);
 
+    // Auto Range CheckBox
+    auto_range_check_ = new wxCheckBox(header_panel, wxID_ANY, "Auto Range");
+    auto_range_check_->SetValue(kAutoRangeDefaultCheck);
+    auto_range_check_->Bind(wxEVT_CHECKBOX, &QValuePanel::OnCheck, this);
+    header_sizer->Add(auto_range_check_, 0, wxALIGN_CENTER_VERTICAL | wxALL, 0);
+
+	// Reset Range Button
+    reset_range_button_ = new wxButton(header_panel, wxID_ANY, "Reset Range", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+    reset_range_button_->Bind(wxEVT_BUTTON, &QValuePanel::OnResetRangeClick, this);
+    header_sizer->Add(reset_range_button_, 0, wxALIGN_CENTER_VERTICAL | wxALL, 0);
+
+    // ヘッダパネルを追加
     header_panel->SetSizer(header_sizer);
     right_sizer->Add(header_panel, 0, wxEXPAND | wxTOP | wxRIGHT, 5);
 
@@ -457,12 +470,30 @@ void QValuePanel::Update()
         if (current_min > *mm.first) current_min = *mm.first;
         if (current_max < *mm.second) current_max = *mm.second;
 
+        bool is_auto_range = auto_range_check_->GetValue();
+        float shrink_rate = is_auto_range ? 0.05f : 0.0f;
+
         // ----------------------------------------------------
         // 累積範囲 (カメラ) の更新
-        //    一度広がった範囲は狭めない（カメラ固定）
         // ----------------------------------------------------
-        if (current_min < accumulated_min_) accumulated_min_ = current_min;
-        if (current_max > accumulated_max_) accumulated_max_ = current_max;
+
+        // --- Max側の更新 ---
+        if (current_max > accumulated_max_) {
+            // 広がる方向は常に即時反映 (データが見切れるのを防ぐため)
+            accumulated_max_ = current_max;
+        } else {
+            // 狭まる方向は shrink_rate に従う (AutoRangeOFFなら狭まらない)
+            accumulated_max_ = accumulated_max_ + (current_max - accumulated_max_) * shrink_rate;
+        }
+
+        // --- Min側の更新 ---
+        if (current_min < accumulated_min_) {
+            // 広がる方向は常に即時反映 (データが見切れるのを防ぐため)
+            accumulated_min_ = current_min;
+        } else {
+            // 狭まる方向は shrink_rate に従う (AutoRangeOFFなら狭まらない)
+            accumulated_min_ = accumulated_min_ + (current_min - accumulated_min_) * shrink_rate;
+        }
 
         // Advantageモードの場合は、0を中心に対称にする（左右のバランスを保つため）
         if (is_adv) {
@@ -623,6 +654,11 @@ void QValuePanel::Update()
     heatmap_panel_->UpdateHeatMap(heatmap_image, 0, target_height, guide_line_ratio);
 }
 
+void QValuePanel::ResetRange() {
+    accumulated_min_ = std::numeric_limits<float>::max();
+    accumulated_max_ = std::numeric_limits<float>::lowest();
+}
+
 bool QValuePanel::IsHistogram() const
 {
     return hist_check_->GetValue();
@@ -655,9 +691,13 @@ void QValuePanel::OnCheck(wxCommandEvent& event)
     Update();
 }
 
-void QValuePanel::ResetRange() {
-    accumulated_min_ = std::numeric_limits<float>::max();
-    accumulated_max_ = std::numeric_limits<float>::lowest();
+void QValuePanel::OnResetRangeClick(wxCommandEvent& event)
+{
+    // 蓄積された最大・最小範囲をクリア（無限大/無限小に戻す）
+    ResetRange();
+
+    // 画面を更新
+    Update();
 }
 
 void QValuePanel::OnSize(wxSizeEvent& event)
