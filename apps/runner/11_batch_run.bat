@@ -2,7 +2,12 @@
 REM SET EXE="bin\RelWithDebInfo\AnetRLRunner.exe"
 SET EXE="bin\Release\AnetRLRunner.exe" app.$=app.batchrun
 
-SET COMMON_ARGS="net.body.$=net.body.MLP2 net.block.FC1.init.mode=1 net.block.FC2.init.mode=1 A.head_init.mode=1"
+call:run_exe app.run_name=run_{t}_A_5e-4 "A.learner.alpha=5e-4"
+call:run_exe app.run_name=run_{t}_A_1e-3 "A.learner.alpha=1e-3"
+call:run_exe app.run_name=run_{t}_A_5e-3 "A.learner.alpha=5e-3"
+call:run_exe app.run_name=run_{t}_A_1e-2 "A.learner.alpha=1e-2"
+
+REM SET COMMON_ARGS="net.body.$=net.body.MLP2 net.block.FC1.init.mode=1 net.block.FC2.init.mode=1 A.head_init.mode=1"
 
 REM ==========================================================
 REM 1. Init Mode 0 (Experimental)
@@ -40,34 +45,34 @@ REM 1. Baseline (Gain=0.0 / Default)
 REM ==========================================================
 REM 設定ファイル(LunarLander.txt)のデフォルト値。
 REM 0.0が「無効(ライブラリ規定値)」なのか「完全な0初期化」なのかの基準点。
-call:run_exe app.run_name=run_{t}_Gain_0.0 %COMMON_ARGS% "A.head_init.manual_gain=0.0"
+REM call:run_exe app.run_name=run_{t}_Gain_0.0 %COMMON_ARGS% "A.head_init.manual_gain=0.0"
 
 REM ==========================================================
 REM 2. Small Gain (0.01)
 REM ==========================================================
 REM 多くのRL実装(PPO等)で推奨される設定。
 REM 初期Q値を0付近に抑え、初期の探索を安定させる効果を期待。
-call:run_exe app.run_name=run_{t}_Gain_0.01 %COMMON_ARGS% "A.head_init.manual_gain=0.01"
+REM call:run_exe app.run_name=run_{t}_Gain_0.01 %COMMON_ARGS% "A.head_init.manual_gain=0.01"
 
 REM ==========================================================
 REM 3. Medium Gain (0.1)
 REM ==========================================================
 REM 0.01では小さすぎる場合の、中間的なスケーリング。
-call:run_exe app.run_name=run_{t}_Gain_0.1 %COMMON_ARGS% "A.head_init.manual_gain=0.1"
+REM call:run_exe app.run_name=run_{t}_Gain_0.1 %COMMON_ARGS% "A.head_init.manual_gain=0.1"
 
 REM ==========================================================
 REM 4. Standard Gain (1.0)
 REM ==========================================================
 REM スケーリングなし（init.modeの計算値をそのまま使用）。
 REM Xavier/He初期化の分散をそのまま適用した場合の挙動確認。
-call:run_exe app.run_name=run_{t}_Gain_1.0 %COMMON_ARGS% "A.head_init.manual_gain=1.0"
+REM call:run_exe app.run_name=run_{t}_Gain_1.0 %COMMON_ARGS% "A.head_init.manual_gain=1.0"
 
 REM ==========================================================
 REM 5. Large Gain (0.5 or 5.0 - Orthogonal-like)
 REM ==========================================================
 REM 直交行列初期化(Orthogonal)などでは gain=sqrt(2) ≒ 1.41 などが使われることがあるため、
 REM 少し大きめの値もテスト。ここでは1.41を採用。
-call:run_exe app.run_name=run_{t}_Gain_1.41 %COMMON_ARGS% "A.head_init.manual_gain=1.41"
+REM call:run_exe app.run_name=run_{t}_Gain_1.41 %COMMON_ARGS% "A.head_init.manual_gain=1.41"
 
 
 REM ==========================================================

@@ -598,11 +598,14 @@ namespace anet::rl {
 
     /// ReplayBufferから取り出したB個のサンプルデータ（「N環境」ではなく「Bサンプル」である事に注意）
     struct ExperienceSamples {
-        torch::Tensor obs;            // (B, state_dim...)
+		// B=ミニバッチ
+		// S=Stacked frame
+
+        torch::Tensor obs;            // (B, S, state_dim...)
         torch::Tensor actions;        // (B, action_dim...)
         torch::Tensor target_values;  // (B,)
         struct {
-            torch::Tensor obs;             // (B, state_dim...)
+            torch::Tensor obs;             // (B, S, state_dim...)
             torch::Tensor terminals;       // (B,) bool
         } next_states;
         torch::Tensor n_steps;       // (B,) int

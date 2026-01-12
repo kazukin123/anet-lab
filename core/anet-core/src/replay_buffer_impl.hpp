@@ -23,7 +23,9 @@ using namespace anet::rl;
 //  ↓
 //Sampler::SampleIndices
 //  ↓
-//ReplayExperienceStorage::Gather
+//ReplayExperienceStacker
+//  ↓
+//ReplayExperienceStorage::Gather/Get
 //  ↓
 //Learner
 
@@ -132,11 +134,22 @@ public:
 public:
     ReplayExperienceStorage(const EnvSpec& env_spec, int64_t capacity, torch::Device device);
     void Push(const ReplayExperience& exp);
-    int64_t Size() const { return size_; }
-    ExperienceSamples Gather(const std::vector<int64_t>& indices,std::optional<torch::Device> out_device = std::nullopt) const;
+    ExperienceSamples Gather(const std::vector<int64_t>& indices, std::optional<torch::Device> out_device = std::nullopt) const;
+
+    int64_t GetWriteIndex() const { return write_index_; }
+    int64_t GetSize() const { return size_; }
+    int64_t GetCapacity() const { return capacity_; }
+
+    const torch::Tensor& GetStates() const { return states_; }
+    const torch::Tensor& GetActions() const { return actions_; }
+    const torch::Tensor& GetTargetValues() const { return target_values_; }
+    const torch::Tensor& GetNextStates() const { return next_states_; }
+    const torch::Tensor& GetTerminals() const { return terminals_; }
+    const torch::Tensor& GetNSteps() const { return n_steps_; }
+    const torch::Tensor& GetEpisodeStarts() const { return episode_starts_; }
 public:
     void AttachEventHandler(EventHandler handler);
-public: //---- DataExporter ----
+public:
     std::optional<float> GetScalar(const std::string& key, int64_t index) const override;
     std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index) const override;
     std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index) const override;
@@ -156,6 +169,9 @@ private:
     torch::Tensor next_states_;   // (N, state_dim)
     torch::Tensor terminals_;     // (N,) bool
     torch::Tensor n_steps_;       // (N,) int
+    torch::Tensor episode_starts_;// (N,) bool
+
+    /// @todo state → obs
 };
 
 
@@ -236,6 +252,31 @@ private:
 
 
 // ======================================================
+// ReplayExperienceStacker
+// ======================================================
+
+class ReplayExperienceStacker {
+public:
+    virtual ExperienceSamples SampleBatch(
+        const ReplayExperienceStorage& storage, const IndexSampleResult& index_result, int64_t minibatch_size, torch::Device device) = 0;
+    virtual ~ReplayExperienceStacker() = default;
+};
+
+class ReplayExperienceStateStacker final : public ReplayExperienceStacker {
+public:
+    ReplayExperienceStateStacker(int stack_count, int num_envs, const std::vector<int64_t>& state_shape);
+
+    ExperienceSamples SampleBatch(
+        const ReplayExperienceStorage& storage, const IndexSampleResult& index_result, int64_t minibatch_size, torch::Device device) override;
+private:
+    torch::TensorOptions stacked_indices_opts_;
+    const int stack_count_;
+    const int num_envs_;
+    std::vector<int64_t> state_shape_;
+};
+
+
+// ======================================================
 // DefaultReplayBuffer
 // ======================================================
 
@@ -247,6 +288,7 @@ public:
         std::unique_ptr<ReplayExperienceBuilder> replay_exp_builder,
         std::shared_ptr<ReplayExperienceSampler> sampler,
         std::shared_ptr<ReplayPriorityController> prio_controller,
+        std::shared_ptr<ReplayExperienceStacker> stacker,
         torch::Device device, float initial_priority = 1.0f, bool use_prefetch = false);
 
     void Push(const BatchExperience& batch_exp) override;
@@ -276,6 +318,7 @@ private:
     std::unique_ptr<ReplayExperienceStorage> storage_;
     std::shared_ptr<ReplayExperienceSampler> sampler_;
     std::shared_ptr<ReplayPriorityController> prio_controller_;
+	std::shared_ptr<ReplayExperienceStacker> stacker_;
 
     // Prefech
     mutable bool prefetch_cached_ = false;

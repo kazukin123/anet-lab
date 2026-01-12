@@ -41,6 +41,9 @@ namespace anet::rl {
         torch::Tensor terminals_;       ///< cpu (capacity) kBool
     };
 
+
+    // ======================================================
+    // ReplayBufferFactory
     // ======================================================
 
     enum class ReplayBuilderType {
@@ -67,6 +70,10 @@ namespace anet::rl {
         // PER系
         float per_alpha = 0.5f;
         float per_initial_priority = 1.0f;
+
+        // Stacker
+		bool use_stacker = false;
+		int stack_count = 4;
     };
 
     class ReplayBufferFactory {

@@ -7,10 +7,10 @@
 #include "anet/env.hpp"
 #include "anet/agent.hpp"
 #include "anet/dqn_agent.hpp"
+#include "test.hpp"
 
 
 using namespace anet::rl;
-
 namespace LOG = anet::log;
 
 
@@ -234,8 +234,8 @@ DefaultTrainer::DefaultTrainer(const ConfigData& config_data, const std::string&
     , train_reward_ema_(0.001)
 {
     //Initialize(config_data);
+    Test(*this);
 }
-
 
 std::optional<float> DefaultTrainer::GetScalar(const std::string& key, int64_t index) const
 {

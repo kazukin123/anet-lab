@@ -200,6 +200,7 @@ ReplayExperienceStorage::ReplayExperienceStorage(const EnvSpec& env_spec, int64_
     next_states_ = torch::zeros({ capacity_, state_dim }, f32);
     terminals_ = torch::zeros({ capacity_ }, b);
     n_steps_ = torch::zeros({ capacity_ }, i64);
+    episode_starts_ = torch::zeros({ capacity_ }, b);
 
     if (env_spec.action_spec.is_discrete) {
         actions_ = torch::zeros({ capacity_ }, i64); // 離散アクションでは1次元かつint64固定
@@ -221,7 +222,8 @@ void ReplayExperienceStorage::Push(const ReplayExperience& exp)
     next_states_[idx].copy_(exp.next_state.obs.to(device_));
     terminals_[idx] = exp.terminal;
     n_steps_[idx] = exp.n_step;
-
+	episode_starts_[idx] = exp.state.episode_start;
+	
     // write_index_を更新
     write_index_ = (write_index_ + 1) % capacity_;
     bool overwrite = false;
@@ -348,7 +350,7 @@ IndexSampleResult UniformReplayExperienceSampler::SampleIndices(
 {
     anet::ProfileRange r1("UniformReplayExperienceSampler::SampleIndices");
 
-    const int64_t storaget_size = storage.Size();
+    const int64_t storaget_size = storage.GetSize();
     ANET_ASSERT(storaget_size > 0);
     ANET_ASSERT(minibatch_size > 0);
 
@@ -452,7 +454,7 @@ IndexSampleResult PrioritizedReplayExperienceManager::SampleIndices(
     ANET_ASSERT_MSG(total_priority > 0.0f, "SumTree total priority must be positive");
 
     // 有効な experience 数（IS weight 計算に使用）
-    const int64_t valid_size = storage.Size();
+    const int64_t valid_size = storage.GetSize();
     ANET_ASSERT_MSG(valid_size > 0, "ReplayExperienceStorage is empty");
 
     float max_weight = 0.0f;
@@ -552,6 +554,159 @@ std::optional<std::vector<torch::Tensor>> PrioritizedReplayExperienceManager::Ge
 
 
 // ======================================================
+// ReplayExperienceStateStacker
+// ======================================================
+
+ReplayExperienceStateStacker::ReplayExperienceStateStacker(int stack_count, int num_envs, const std::vector<int64_t>& state_shape)
+    : stack_count_(stack_count)
+    , num_envs_(num_envs)
+    , state_shape_(state_shape)
+{
+    stacked_indices_opts_ = torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU);
+}
+
+ExperienceSamples ReplayExperienceStateStacker::SampleBatch(
+        const ReplayExperienceStorage& storage, const IndexSampleResult& index_result,
+        int64_t minibatch_size, torch::Device device)
+{
+	anet::ProfileRange r("ReplayExperienceStateStacker::SampleBatch");
+
+    // -----------------------------------------------------------------------
+    // 準備
+    // -----------------------------------------------------------------------
+    anet::ProfileRange r1("ReplayExperienceStateStacker::SampleBatch.prepare");
+    const std::vector<int64_t>& indices_vec = index_result.indices;
+    const int64_t* indices_ptr = indices_vec.data();
+
+    // Storage情報取得
+    const int64_t write_idx = storage.GetWriteIndex();
+    const int64_t capacity = storage.GetCapacity();
+    const int64_t size = storage.GetSize();
+
+    // EpisodeStarts (CPU Tensor) のポインタ取得
+    const auto ep_tensor = storage.GetEpisodeStarts();
+    const bool* ep_ptr = ep_tensor.data_ptr<bool>();
+
+    // 結果格納用インデックス (Flatten: B * S)
+    torch::Tensor stacked_indices = torch::empty({ minibatch_size * stack_count_ }, stacked_indices_opts_);
+    int64_t* out_ptr = stacked_indices.data_ptr<int64_t>();
+
+    // -----------------------------------------------------------------------
+    // 時系列を過去に遡りながら境界判定してstacked_indicesを埋める
+    // -----------------------------------------------------------------------
+    anet::ProfileRange r2("ReplayExperienceStateStacker::SampleBatch.idx", r1);
+    for (int64_t b = 0; b < minibatch_size; ++b) {
+        int64_t current_idx = indices_ptr[b];
+
+        // 書き込み先頭ポインタ [t-(S-1), ..., t]
+        int64_t* batch_head_ptr = out_ptr + (b * stack_count_);
+
+        bool hit_boundary = false;
+        int64_t padding_idx = -1;
+
+        // 最新 (k=0、Samplingされたidx) から 過去 (k=S-1) へ
+        for (int k = 0; k < stack_count_; ++k) {
+            int write_pos = stack_count_ - 1 - k;
+
+            // エピソード開始に到達した済みの場合、そのidxでパディングして終わり
+            if (hit_boundary) {
+                batch_head_ptr[write_pos] = padding_idx;
+                continue;
+            }
+
+            // インデックス計算
+            int64_t target_idx = current_idx - (k * num_envs_);
+            if (target_idx < 0) {
+				target_idx += capacity; // リングバッファなので先頭まで行ったら末尾に戻る
+            }
+
+            // データ有効性チェック (Garbage / Future Data Protection)
+            // 「最新データ(write_idx-1) からの距離」が size 未満なら有効
+            // target_idx が未書き込み領域(ゴミ)や、上書き境界を超えた未来データを指していないか確認
+            bool is_valid_range = ((write_idx - 1 - target_idx + capacity) % capacity) < size;
+
+            // 有効範囲外（まだデータがない、または周回して消えた）
+            if (!is_valid_range) {
+                hit_boundary = true;
+                // padding_idx は更新せず、前回の有効値(または初期値-1)を使う
+                // もし一度も有効値がない(k=0から無効)場合は、ゼロ埋め等が必要だが、
+                // samplerが有効なindicesを返している前提ならk=0は必ずValidになる。
+
+                // 「境界に当たった」とみなして処理
+                if (padding_idx == -1) padding_idx = current_idx; // 念のためのフォールバック
+                batch_head_ptr[write_pos] = padding_idx;
+                continue;
+            }
+
+            // エピソード開始判定
+            if (ep_ptr[target_idx]) {
+				// エピソード開始に到達した場合、以降同じidxでパディングするためにidx保存
+                hit_boundary = true;
+                padding_idx = target_idx;
+                batch_head_ptr[write_pos] = target_idx;
+            } else {
+                batch_head_ptr[write_pos] = target_idx;
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // データ取得 (Gather) & Reshape
+    // -----------------------------------------------------------------------
+    anet::ProfileRange r3("ReplayExperienceStateStacker::SampleBatch.gather", r2);
+
+    // Stacked Indices をデバイスへ転送
+    auto stacked_indices_dev = stacked_indices.to(device);
+
+    // State (Stacked) -> (B * S, state_dim...)
+    auto flat_states = storage.GetStates().index_select(0, stacked_indices_dev);
+
+    // Next State (Stacked)
+    auto flat_next_states = storage.GetNextStates().index_select(0, stacked_indices_dev);
+
+    // State出漁用の出力形状情報を生成
+    std::vector<int64_t> out_shape;
+    out_shape.push_back(minibatch_size);
+    out_shape.push_back(stack_count_);
+    for (auto d : state_shape_) out_shape.push_back(d);
+
+    // Reshape： (B * S, state_dim...) -> (B, S, state_dim...)
+    const auto stacked_states = flat_states.view(out_shape);
+    const auto stacked_next_obs = flat_next_states.view(out_shape);
+
+    // その他 (Actions, TargetValues, Terminals)はindices (vector) を Tensor化してデバイス転送
+    const auto indices_dev = torch::tensor(indices_vec, torch::TensorOptions().dtype(torch::kInt64));// .to(device);
+    const auto actions = storage.GetActions().index_select(0, indices_dev);
+    const auto target_values = storage.GetTargetValues().index_select(0, indices_dev);
+    const auto terminals = storage.GetTerminals().index_select(0, indices_dev);
+    const auto n_steps = storage.GetNSteps().index_select(0, indices_dev);
+
+    // 結果を生成
+    anet::ProfileRange r4("ReplayExperienceStateStacker::SampleBatch.result", r3);
+    ExperienceSamples samples {
+        stacked_states,    // obs
+        actions,		   // actions
+        target_values,     // target_values
+        {                  // next_states
+            stacked_next_obs, // next_states.obs
+            terminals,        // next_states.terminals   
+        },
+        n_steps,           // n_steps
+        indices_dev,       // indices
+		(!index_result.sampling_prob.empty()) ? // sampling_prob
+            torch::tensor(index_result.sampling_prob, torch::TensorOptions().dtype(torch::kFloat32)).to(device) : torch::Tensor(),
+        (!index_result.is_weights.empty()) ?    // is_weights
+            torch::tensor(index_result.is_weights, torch::TensorOptions().dtype(torch::kFloat32)).to(device) : torch::Tensor(),
+    };
+
+    // device転送
+    samples = samples.To(device, true);
+
+    return samples;
+}
+
+
+// ======================================================
 // DefaultReplayBuffer
 // ======================================================
 
@@ -561,6 +716,7 @@ DefaultReplayBuffer::DefaultReplayBuffer(
     std::unique_ptr<ReplayExperienceBuilder> replay_exp_builder,
     std::shared_ptr<ReplayExperienceSampler> sampler,
     std::shared_ptr<ReplayPriorityController> prio_controller,
+    std::shared_ptr<ReplayExperienceStacker> stacker,
     torch::Device device, float initial_priority, bool use_prefetch)
     : num_envs_(num_envs)
     , queues_(num_envs)
@@ -568,6 +724,7 @@ DefaultReplayBuffer::DefaultReplayBuffer(
     , replay_exp_builder_(std::move(replay_exp_builder))
     , sampler_(sampler)
     , prio_controller_(prio_controller)
+	, stacker_(stacker)
     , use_prefetch_(use_prefetch)
     , initial_priority_(initial_priority)
 {
@@ -621,32 +778,39 @@ ExperienceSamples DefaultReplayBuffer::sampleInternal(int64_t minibatch_size, to
 {
     anet::ProfileRange r1("DefaultReplayBuffer::sampleInternal");
 
-    ANET_ASSERT(storage_->Size() > 0);
+    ANET_ASSERT(storage_->GetSize() > 0);
 
     // Samplerからインデックスと重みを取得
     auto indices_result = sampler_->SampleIndices(*storage_, minibatch_size, beta);
 
-    // Storageからデータを収集 (この時点では prob, weights は空)
-    auto samples = storage_->Gather(indices_result.indices, device);
+    ExperienceSamples samples;
 
-    // Samplerが計算した prob, weights を Tensor化してセット
-    if (!indices_result.sampling_prob.empty()) {
-        auto opts = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
+    if (stacker_ == nullptr) {
+        // Storageからデータを収集 (この時点では prob, weights は空)
+        samples = storage_->Gather(indices_result.indices, device);
 
-        // vector -> Tensor
-        auto prob_tensor = torch::from_blob(
-            const_cast<float*>(indices_result.sampling_prob.data()),
-            { minibatch_size }, opts).clone();
+        // Samplerが計算した prob, weights を Tensor化してセット
+        if (!indices_result.sampling_prob.empty()) {
+            auto opts = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
 
-        auto weights_tensor = torch::from_blob(
-            const_cast<float*>(indices_result.is_weights.data()),
-            { minibatch_size }, opts).clone();
+            // vector -> Tensor
+            auto prob_tensor = torch::from_blob(
+                const_cast<float*>(indices_result.sampling_prob.data()),
+                { minibatch_size }, opts).clone();
 
-        /// @todo StorageではなくExperienceSamplesでpinned_memory出来るようにする（Storage全体をpinnedすると容量次第でマシン負荷に繋がる）
+            auto weights_tensor = torch::from_blob(
+                const_cast<float*>(indices_result.is_weights.data()),
+                { minibatch_size }, opts).clone();
 
-        // データのデバイスに合わせて転送
-        samples.sampling_prob = prob_tensor.to(device);
-        samples.is_weights = weights_tensor.to(device);
+            /// @todo StorageではなくExperienceSamplesでpinned_memory出来るようにする（Storage全体をpinnedすると容量次第でマシン負荷に繋がる）
+
+            // データのデバイスに合わせて転送
+            samples.sampling_prob = prob_tensor.to(device);
+            samples.is_weights = weights_tensor.to(device);
+        }
+    } else {
+		// Stackerでスタッキング
+		samples = stacker_->SampleBatch(*storage_, indices_result, minibatch_size, device);
     }
 
     return samples;
@@ -656,7 +820,7 @@ ExperienceSamples DefaultReplayBuffer::Sample(int64_t minibatch_size, torch::Dev
 {
     anet::ProfileRange r1("DefaultReplayBuffer::Sample");
 
-    ANET_ASSERT(storage_->Size() > 0);
+    ANET_ASSERT(storage_->GetSize() > 0);
 
     if (use_prefetch_) {
         if (!prefetch_cached_) {
@@ -674,7 +838,7 @@ ExperienceSamples DefaultReplayBuffer::Sample(int64_t minibatch_size, torch::Dev
 
 int64_t DefaultReplayBuffer::Size() const
 {
-    return storage_->Size();
+    return storage_->GetSize();
 }
 
 void DefaultReplayBuffer::UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities)
@@ -704,7 +868,7 @@ DefaultReplayBuffer::GetTensorVector(const std::string& key, int64_t index) cons
 {
     auto storage_ret = storage_->GetTensorVector(key, index);
     if (storage_ret.has_value()) return *storage_ret;
-    if (prio_controller_ != nullptr) return prio_controller_->GetTensorVector(key, storage_->Size());   // 無理やり
+    if (prio_controller_ != nullptr) return prio_controller_->GetTensorVector(key, storage_->GetSize());   // 無理やり
     return std::nullopt;
 }
 
@@ -766,6 +930,17 @@ ReplayBufferFactory::Create(const EnvSpec& env_spec, torch::Device device, int b
         break;
     }
 
+    // -------------------------------------------------------------
+    // Stacker
+    // -------------------------------------------------------------
+    std::shared_ptr<ReplayExperienceStacker> stacker = nullptr;
+    if (config_.use_stacker) {
+        int stack_count = config_.stack_count;
+        ANET_CHECK_MSG(stack_count > 1, "stack_count must be greater than 1");
+        int num_envs = batch_size;
+        const auto& state_shape = env_spec.state_spec.shape;
+        stacker = std::make_shared<ReplayExperienceStateStacker>(stack_count, batch_size, state_shape);
+	}
 
     // -------------------------------------------------------------
     // ReplayBuffer 本体生成
@@ -778,6 +953,7 @@ ReplayBufferFactory::Create(const EnvSpec& env_spec, torch::Device device, int b
         std::move(replay_exp_builder),
         sampler,
         prio_controller,
+        stacker,
         device,
         config_.per_initial_priority);
 
