@@ -30,6 +30,9 @@ RunnerFrame::RunnerFrame(const wxString& title, const TrainPanelConfig& train_pa
     // AUI Managerの管理下に置く
     aui_mgr_.SetManagedWindow(this);
 
+    // フラグ設定
+    aui_mgr_.SetFlags(wxAUI_MGR_ALLOW_FLOATING | wxAUI_MGR_TRANSPARENT_DRAG | wxAUI_MGR_TRANSPARENT_HINT);
+
     // 画面レイアウトを作る
     SetupMenuBar();
     CreateStatusBar();
@@ -38,7 +41,7 @@ RunnerFrame::RunnerFrame(const wxString& title, const TrainPanelConfig& train_pa
     // イベントハンドラ登録
     SetupEvents();
 
-    // 変更を反映
+    // AUIレイアウトを反映
     aui_mgr_.Update();
 
     // ウィンドウ表示
@@ -152,10 +155,6 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         .CloseButton(false).MaximizeButton(true).MinimizeButton(true)//.PinButton(true)
         .DestroyOnClose(true)
     );
-
-
-    // 全てのペイン追加後に更新
-    aui_mgr_.Update();
 }
 
 void RunnerFrame::Initialize(std::shared_ptr<anet::rl::DefaultTrainer> trainer)
