@@ -24,10 +24,14 @@ namespace anet {
     std::string ToString(const torch::Tensor& t, int precision)
     {
         std::ostringstream oss;
-        oss.precision(precision);
-        oss << "(" << t.device() << " " << t.dtype() << ") " << t.sizes() << " -> ";
-        printTensorAsNestedBrackets(t, oss); //oss << "\n";
-        //printTensorAsRows(t, oss);
+        if (t.defined()) {
+            oss.precision(precision);
+            oss << "(" << t.device() << " " << t.dtype() << ") " << t.sizes() << " -> ";
+            printTensorAsNestedBrackets(t, oss); //oss << "\n";
+            //printTensorAsRows(t, oss);
+        } else {
+            oss << "undefined";
+        }
         return oss.str();
     }
 

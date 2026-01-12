@@ -121,7 +121,8 @@ DefaultDQNAgent::DefaultDQNAgent(
 
     // 管理クラス (dqn::Network) に委譲
     this->network_ = std::make_unique<dqn::Network>(
-        config_.network, device_, policy_net, target_net, n_actions_, config_.num_quantiles
+        config_.network, device_, policy_net, target_net, n_actions_,
+        config_.use_qr ? config_.num_quantiles : 0
     );
 
     // ActionPolicy生成

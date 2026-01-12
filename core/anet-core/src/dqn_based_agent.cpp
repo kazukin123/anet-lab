@@ -28,7 +28,6 @@ Network::Network(
     ANET_ASSERT(policy_net_);
     ANET_ASSERT(target_net_);
     ANET_ASSERT(n_actions_ > 0);
-    ANET_ASSERT(num_quantiles_ > 0);
 
     policy_net_->to(device);    /// @todo Agent側で実行されるので削除？
     target_net_->to(device);

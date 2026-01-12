@@ -278,7 +278,7 @@ std::optional<QValueData> QValuePanel::CreateData(const anet::rl::TrainEvent& ev
 
     auto q_quantiles_itr = aux_data.find("q_quantiles");
     torch::Tensor q_values = q_values_plain;
-    if (q_quantiles_itr != aux_data.end()) q_values = q_quantiles_itr->second;
+    if (q_quantiles_itr != aux_data.end() && q_quantiles_itr->second.defined()) q_values = q_quantiles_itr->second;
 
     ANET_LOG_DEBUG("q_values=" << anet::ToString(q_values));
 
