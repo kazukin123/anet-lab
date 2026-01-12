@@ -135,6 +135,23 @@ namespace anet {
             return true;
         }
 
+        bool Read(const std::string& key, std::vector<int64_t>& value, std::vector<int64_t> defaultValue) const
+        {
+            auto it = map_.find(key);
+            if (it == map_.end()) { value = defaultValue; return false; }
+            try {
+                auto str_vec = anet::Split((*it).second, { " ", "　" }, true);
+                value.resize(str_vec.size());
+                for (int i = 0; i < value.size(); i++) {
+                    value[i] = std::stoull(str_vec[i]);
+                }
+            } catch (...) {
+                value = defaultValue;
+                return false;
+            }
+            return true;
+        }
+
         bool Read(const std::string& key, std::vector<std::string>& value, std::vector<std::string> defaultValue) const
         {
             auto it = map_.find(key);

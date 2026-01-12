@@ -202,6 +202,27 @@ private:
     int split_count_;
 };
 
+/// Permute Module (Transpose axes)
+/// e.g. dims=[0, 2, 1] -> (Batch, Time, Feat) -> (Batch, Feat, Time)
+class PermuteModule : public NetworkModule {
+public:
+    explicit PermuteModule(std::vector<int64_t> dims) : dims_(std::move(dims))
+    {
+    }
+
+    torch::Tensor forward(torch::Tensor x)
+    {
+        anet::ProfileRange r("PermuteModule::forward");
+        return x.permute(dims_);
+    }
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        return forward(input);
+    }
+private:
+    std::vector<int64_t> dims_;
+};
+
 /// Flatten Module
 class FlattenModule : public NetworkModule {
 public:
@@ -247,6 +268,10 @@ struct ConvConfig {
     int kernel_size = 3;
     int stride = 1;
     int padding = 1;
+};
+
+struct PermuteConfig {
+    std::vector<int64_t> dims;
 };
 
 
@@ -334,6 +359,25 @@ public:
     }
 };
 
+class PermuteModuleFactory final : public NetworkModuleFactory {
+private:
+    struct Config : anet::Config {
+        PermuteConfig permute;
+        Config(const anet::ConfigData& config_data) : anet::Config("") {
+            ANET_READ_CONFIG(config_data, permute.dims);
+        }
+    };
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        Config config(config_data);
+        if (config.permute.dims.empty()) {
+            ANET_SYSTEM_ERROR("PermuteModule: 'dims' is empty.");
+        }
+        return std::make_shared<PermuteModule>(config.permute.dims);
+    }
+};
+
 class FlattenModuleFactory final : public NetworkModuleFactory {
 public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
@@ -357,6 +401,7 @@ public:
     repo.Register("Conv1d", std::make_shared<Conv1dModuleFactory>());
     repo.Register("Conv2d", std::make_shared<Conv2dModuleFactory>());
     repo.Register("Add", std::make_shared<ElementwiseAddModuleFactory>());
+    repo.Register("Permute", std::make_shared<PermuteModuleFactory>());
     repo.Register("Flatten", std::make_shared<FlattenModuleFactory>());
     repo.Register("ReLU", std::make_shared<ReLUModuleFactory>());
 
