@@ -15,7 +15,7 @@ static constexpr int kColWidth = 80;
 static constexpr int kColMinWidth = 70;
 static constexpr bool kHistDefaultCheck = true;
 static constexpr bool kAdvDefaultCheck = true;
-static constexpr bool kLogScaleDefaultCheck = true;
+static constexpr bool kLogScaleDefaultCheck = false;
 static constexpr bool kAutoRangeDefaultCheck = true;
 
 
