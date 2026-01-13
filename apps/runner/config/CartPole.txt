@@ -24,12 +24,11 @@ DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A
 net.body.$ = net.body.MLP2
 
 net.block.FC1.linear.out_features = 120
-net.block.FC1.init.mode = 1
-
 net.block.FC2.linear.out_features = 80
+net.block.FC1.init.mode = 1
 net.block.FC2.init.mode = 1
 
-A.head_init.mode = 1,
+A.head_init.mode = 1
 A.head_init.manual_gain = 0.0
 
 
@@ -54,9 +53,6 @@ agent.device_type = 1    # 0=cpu 1=cuda
 agent.device_index = -1  # GPU index -1=current device
 
 env.class_id = CartPoleEnv
-env.worker_threads = -1	# -1=auto
-env.device_type = 0    # 0=cpu 1=cuda
-env.device_index = -1  # GPU index -1=current device
 
 
 # --- CartPoleEnv
@@ -66,21 +62,6 @@ CartPoleEnv.limit_step = 200
 
 
 # --- app
-
-app.run_name = run_{t}
-#app.train_auto_start = false
-app.train_auto_start = true
-
-app.online.exp_pause_step  = 25,600,000   # 256 * 100K
-app.online.train_panel.fps = 30
-app.online.eval_panel.fps = 30
-app.online.eval_panel.step_per_frame = 3
-
-app.batchrun.train_auto_start = true
-app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K
-app.batchrun.train_panel.fps = 0.5
-app.batchrun.eval_panel.fps = 0.5
-app.batchrun.eval_panel.step_per_frame = 10
 
 train.eval_interval = 10
 

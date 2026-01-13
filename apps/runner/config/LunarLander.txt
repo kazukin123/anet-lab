@@ -33,19 +33,18 @@ AS.heavy.learner.replay_ratio = 4
 
 # --- NN設定
 
-net.body.$ = net.body.MLP2
+#net.body.$ = net.body.MLP2
 #net.body.$ = net.body.MLP_RES
+net.body.$ = net.body.Conv1D
+
 
 net.block.FC1.linear.out_features = 120
 net.block.FC2.linear.out_features = 80
-
 #net.block.FC1.linear.out_features = 256
 #net.block.FC2.linear.out_features = 120
-
 net.block.FC1.init.mode = 1
 net.block.FC2.init.mode = 1
 A.head_init.mode = 1,
-
 A.head_init.manual_gain = 0.0
 
 # --- 環境依存Agent設定
@@ -63,6 +62,14 @@ A.learner.per_beta_step = 10,000,000             # 10M betaを収束値まで線
 
 # --- 実験
 
+
+A.stucker.use_stacker = true
+A.stucker.stack_count = 4
+
+#A.learner.update_warmup_steps = 0           # exp_step単位。256(B) * 300step = 76800
+
+A.learner.alpha = 5e-3
+
 #A.use_qr = false
 #A.action_policy.policy_type = 0
 
@@ -70,16 +77,13 @@ A.learner.per_beta_step = 10,000,000             # 10M betaを収束値まで線
 #A.action_policy.policy_type = 1        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
 #A.action_policy.policy_type = 2        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
 
-#A.action_policy.uqe_eps_max = 0.0
-#A.action_policy.uqe_eps_min = 0.0
 
-#A.learner.update_warmup_steps = 0           # exp_step単位。256(B) * 300step = 76800
 
 # ---- image metrics
 
-#metrics.image.interval = 0   # 出力全無効
+metrics.image.interval = 0   # 出力全無効
 #metrics.image.interval = 1   # 毎ステップ出力（重い）
-metrics.image.interval = 50   # 通常運用
+#metrics.image.interval = 50   # 通常運用
 #metrics.image.interval = 500 # 重い場合
 
 metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.per-prio > image.phm.s01
@@ -117,10 +121,6 @@ agent.device_index = -1  # GPU index -1=current device
 # ---- env
 
 env.class_id = LunarLanderEnv
-env.worker_threads = -1	# -1=auto
-env.device_type = 0     # 0=cpu 1=cuda
-env.device_index = -1   # GPU index -1=current device
-env.worker_type = 0     # 0=AUTO 1=SINGLE_THEAD 2=THREAD_POOL
 
 
 # ---- trainer
@@ -134,7 +134,6 @@ train.eval_interval = 100
 
 # ---- app
 
-app.run_name = run_{t}
 
 app.online.exp_pause_step  = 25,600,000   # 256 * 100K
 app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M

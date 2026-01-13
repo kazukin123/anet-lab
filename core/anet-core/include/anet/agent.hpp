@@ -9,6 +9,20 @@
 
 namespace anet::rl {
 
+    // ----------------------------------------------------------------------
+    // DefaultActionContext
+    // ----------------------------------------------------------------------
+    // 加工を行わず、State内のobsをそのまま通過させるActionContext 
+    class DefaultActionContext : public ActionContext {
+    public:
+        DefaultActionContext(RunMode run_mode) : ActionContext(run_mode) { }
+
+        torch::Tensor PushObservation(const BatchState& state) override { return state.obs; } ///< そのまま obs を返す
+        void Reset() override { }
+
+		virtual ~DefaultActionContext() = default;
+    };
+
     // 環境のステップに同期して更新する Agent 基底クラス
     class FlatStateAgent : public Agent, public anet::RandomHolder {
     public:
@@ -25,6 +39,11 @@ namespace anet::rl {
             mutex_ = std::make_shared<std::shared_mutex>();
         }
 
+        std::shared_ptr<ActionContext> CreateActionContext(
+            const BatchEnvSpec& batch_env_spec, RunMode run_mode) const override
+        {
+            return std::make_shared<DefaultActionContext>(run_mode);
+        }
         virtual ~FlatStateAgent() = default;
     protected:
         std::shared_ptr<std::shared_mutex> mutex_;
@@ -75,6 +94,11 @@ namespace anet::rl {
             int uqe_eps_decay_step = 0;
 
             bool uqe_use_tail_mean = false;
+        };
+
+        struct StuckerConfig {
+            bool use_stacker = false;
+            int stack_count = 4;
         };
 
         struct LearnerConfig {

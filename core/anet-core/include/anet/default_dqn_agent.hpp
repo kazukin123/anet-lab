@@ -16,6 +16,7 @@ namespace anet::rl::dqn {
     struct DefaultDQNAgentConfig : public anet::Config {
 
         NetworkConfig network;
+        StuckerConfig stucker;
         ActionPolicyConfig action_policy;
         LearnerConfig learner;
         RewardScalerConfig reward_scaler;
@@ -32,6 +33,9 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, head_init.mode);
             ANET_READ_CONFIG(config_data, head_init.manual_gain);
 			head_init.nonlinearity = "linear";
+
+            ANET_READ_CONFIG(config_data, stucker.use_stacker);
+            ANET_READ_CONFIG(config_data, stucker.stack_count);
 
             ANET_READ_CONFIG(config_data, network.soft_update_tau);
             ANET_READ_CONFIG(config_data, network.hard_update_interval);
@@ -114,7 +118,9 @@ namespace anet::rl::dqn {
             std::shared_ptr<anet::rl::Notifier> notifier = nullptr,
             std::optional<seed_t> seed = std::nullopt);
 
-        anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, RunMode mode = RunMode::Train) const override;
+        std::shared_ptr<ActionContext> CreateActionContext(
+            const BatchEnvSpec& batch_env_spec, RunMode run_mode = RunMode::Train) const override;
+        anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const override;
 
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences, const Runner& trainer) override;
     public:

@@ -92,7 +92,7 @@ std::optional<float> RunnerBase::GetScalar(const std::string& key, int64_t index
 EvalRunner::EvalRunner(std::shared_ptr<BatchEnv> env, std::shared_ptr<const Agent> agent, RunMode runmode)
     : RunnerBase(env), agent_(agent), runmode_(runmode)
 {
-    ;
+    action_context_ = agent_->CreateActionContext(env_->GetBatchSpec(), runmode_);
 }
 
 RunnerStatus EvalRunner::Initialize(const ConfigData& config_data)
@@ -118,7 +118,7 @@ StepCounts EvalRunner::DoStep(int64_t action)
     ANET_LOG_DEBUG("step=" << train_step << " state=" << state_.ToString());
 
     // 行動選択
-    auto action_info_raw = agent_->MakeAction(step_counts_, state_, runmode_);
+    auto action_info_raw = agent_->MakeAction(step_counts_, state_, action_context_);
     ANET_LOG_DEBUG("step=" << train_step << " action_info_raw=" << action_info_raw.ToString());
 
     // 指定のactionとAgent選択のAux情報でaction_infoを生成
@@ -171,7 +171,7 @@ StepCounts EvalRunner::DoStep()
     auto train_step = step_counts_.train_step;
 
     // 行動選択
-    auto action_info = agent_->MakeAction(step_counts_, state_, runmode_);
+    auto action_info = agent_->MakeAction(step_counts_, state_, action_context_);
     ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info.ToString());
     //ANET_ASSERT_SHAPE(action_info.action, { N });
 
@@ -336,6 +336,9 @@ RunnerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
         return status_;
     }
 
+	// ActionContext生成
+	action_context_ = agent_->CreateActionContext(batch_env_spec, anet::rl::RunMode::Train);
+
     // EpisodeEvalObserver
     notifier_->Attach<anet::rl::EpisodeEvalObserver>(
         [this](float total_reward)
@@ -407,7 +410,7 @@ StepCounts DefaultTrainer::DoStep()
     const int N = state_.obs.size(0);
 
     // 行動選択
-    auto action_info = agent_->MakeAction(step_counts_, state_);
+    auto action_info = agent_->MakeAction(step_counts_, state_, action_context_);
     //ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info.ToString());
     ANET_ASSERT_SHAPE(action_info.GetAction(), {N});
 

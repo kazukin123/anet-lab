@@ -53,6 +53,7 @@ namespace anet::rl {
         ~EvalRunner() = default;
     private:
         std::shared_ptr<const anet::rl::Agent> agent_;
+		std::shared_ptr<ActionContext> action_context_ = nullptr;
         RunMode runmode_;
     };
 
@@ -77,6 +78,9 @@ namespace anet::rl {
         std::unique_ptr<anet::rl::DefaultBatchEnvFactory> env_factory_;
         std::unique_ptr<anet::MasterSeedManager> master_seed_;
         seed_t eval_env_seed_;
+
+		// ActionContext
+		std::shared_ptr<ActionContext> action_context_ = nullptr;
     private:
         // Trainer情報
         std::string env_class_id_;

@@ -258,17 +258,18 @@ private:
 class ReplayExperienceStacker {
 public:
     virtual ExperienceSamples SampleBatch(
-        const ReplayExperienceStorage& storage, const IndexSampleResult& index_result, int64_t minibatch_size, torch::Device device) = 0;
+        const ReplayExperienceStorage& storage, const IndexSampleResult& index_result, int64_t minibatch_size, torch::Device target_device) = 0;
     virtual ~ReplayExperienceStacker() = default;
 };
 
 class ReplayExperienceStateStacker final : public ReplayExperienceStacker {
 public:
-    ReplayExperienceStateStacker(int stack_count, int num_envs, const std::vector<int64_t>& state_shape);
+    ReplayExperienceStateStacker(int stack_count, int num_envs, const std::vector<int64_t>& state_shape, torch::Device device);
 
     ExperienceSamples SampleBatch(
-        const ReplayExperienceStorage& storage, const IndexSampleResult& index_result, int64_t minibatch_size, torch::Device device) override;
+        const ReplayExperienceStorage& storage, const IndexSampleResult& index_result, int64_t minibatch_size, torch::Device target_device) override;
 private:
+    const torch::Device device_;
     torch::TensorOptions stacked_indices_opts_;
     const int stack_count_;
     const int num_envs_;

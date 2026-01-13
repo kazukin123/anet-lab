@@ -14,6 +14,7 @@
 #include "anet/config.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
+#include "anet/stacker.hpp"
 #include "nn_heads.hpp"
 
 
@@ -111,6 +112,11 @@ DefaultDQNAgent::DefaultDQNAgent(
     // 入力形状 (C, H, W) or (L,)
     auto input_shape = env_spec.state_spec.shape;
 
+    // Stackの次元を先頭に追加（S, F)
+    if (config_.stucker.use_stacker) {
+        input_shape.insert(input_shape.begin(), config_.stucker.stack_count);
+    }
+
     // Network構築
     auto policy_net = anet::nn::NetworkBuilder::BuildNetwork(net_config, input_shape, head_factory);
     auto target_net = anet::nn::NetworkBuilder::BuildNetwork(net_config, input_shape, head_factory);
@@ -139,11 +145,11 @@ DefaultDQNAgent::DefaultDQNAgent(
     // Learner生成
     if (is_distributional) {
         this->learner_ = std::make_unique<dqn::QRLearner>(
-            config_.learner, *network_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed);
+            config_.learner, *network_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, config_.stucker);
         LOG::info() << "Initialized QRLearner (Quantiles=" << config_.num_quantiles << ")";
     } else {
         this->learner_ = std::make_unique<dqn::TDLearner>(
-            config_.learner, *network_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed);
+            config_.learner, *network_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, config_.stucker);
         LOG::info() << "Initialized TDLearner";
     }
 }
@@ -224,7 +230,21 @@ std::optional<std::vector<torch::Tensor>> DefaultDQNAgent::GetTensorVector(const
     return std::nullopt;
 }
 
-anet::rl::BatchActionInfo DefaultDQNAgent::MakeAction(const StepCounts& step, const BatchState& state, RunMode runmode) const
+std::shared_ptr<anet::rl::ActionContext> DefaultDQNAgent::CreateActionContext(
+    const BatchEnvSpec& batch_env_spec, RunMode run_mode) const
+{
+    if (config_.stucker.use_stacker) {
+        // Stackerを作成して包んで返す
+        auto stacker = std::make_shared<TensorFrameStacker>(
+            config_.stucker.stack_count, batch_env_spec.batch_size, this->device_ );
+        return std::make_shared<StackerActionContext>(run_mode, stacker);
+    }
+
+    // Stacker無効ならデフォルト
+    return std::make_shared<DefaultActionContext>(run_mode);
+}
+
+anet::rl::BatchActionInfo DefaultDQNAgent::MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const
 {
     ProfileRange r1("DefaultDQNAgent::MakeAction");
     ANET_ASSERT_SHAPE(state.obs, { ANET_SHAPE_ANY, state_dim_ });
@@ -233,15 +253,17 @@ anet::rl::BatchActionInfo DefaultDQNAgent::MakeAction(const StepCounts& step, co
     std::shared_lock<std::shared_mutex> lock(*mutex_);
     torch::NoGradGuard ng;
 
-    // Flatなobsを生成
-    auto flat_obs = state.To(device_).Flatten().obs;
+    // obsを生成
+    torch::Tensor obs = state.obs;
+    if (ctx) obs = ctx->PushObservation(state);
 
     // Normalize observations
-    auto obs_norm = this->obs_norm_->Normalize(flat_obs);
+    auto obs_norm = this->obs_norm_->Normalize(obs);
 
     // 行動選択
-    auto greedy_only = anet::rl::IsEval(runmode);
-    auto use_target = (runmode == anet::rl::RunMode::Eval1);
+	auto run_mode = (ctx != nullptr) ? ctx->GetRunMode(): anet::rl::RunMode::Train;
+    auto greedy_only = anet::rl::IsEval(run_mode);
+    auto use_target = (run_mode == anet::rl::RunMode::Eval1);
     auto act_info = this->action_policy_->SelectAction(obs_norm, greedy_only, use_target);
 
     // ActionInfoを返す

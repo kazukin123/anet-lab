@@ -878,11 +878,12 @@ DQNAgent::DQNAgent(
 
 
 anet::rl::BatchActionInfo DQNAgent::MakeAction(
-    const StepCounts& step, const anet::rl::BatchState& state, anet::rl::RunMode mode) const
+    const StepCounts& step, const anet::rl::BatchState& state, std::shared_ptr<ActionContext> ctx) const
 {
     ProfileRange r1("DQNAgent::MakeAction");
     ANET_ASSERT_SHAPE(state.obs, { ANY, state_dim_ });
 
+    auto mode = (ctx == nullptr) ? RunMode::Train : ctx->GetRunMode();
     auto flat_state = state.Flatten();
     auto flat_obs = flat_state.obs.to(device_);
     bool greedy_only = anet::rl::IsEval(mode);

@@ -9,6 +9,14 @@ QValuePanel.hist_range_k = 5    # 1.0 2.5	描画範囲
 #QValuePanel.hist_range_k = 10    # 1.0 2.5
 #QValuePanel.hist_range_k = 20.5    # 1.0 2.5
 
+
+# ---- env
+
+env.worker_threads = -1	# -1=auto
+env.device_type = 0     # 0=cpu 1=cuda
+env.device_index = -1   # GPU index -1=current device
+env.worker_type = 0     # 0=AUTO 1=SINGLE_THEAD 2=THREAD_POOL
+
 # --- app
 
 app.run_name = run_{t}

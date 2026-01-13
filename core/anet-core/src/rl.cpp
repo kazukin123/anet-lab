@@ -590,7 +590,7 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
         actions.to(device, non_blocking),
         target_values.to(device, non_blocking),
         {
-            next_states.obs.to(device, non_blocking).flatten(1),
+            next_states.obs.to(device, non_blocking),
             next_states.terminals.to(device, non_blocking),
         },
         n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,

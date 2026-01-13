@@ -435,8 +435,9 @@ anet::rl::BatchActionInfo ThompsonSamplingActionPolicy::SelectAction(const torch
 // ======================================================
 
 Learner::Learner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
-    const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed)
-    : config_(config), network_(network), vars_(vars), obs_norm_(obs_norm)
+    const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
+    std::optional<StuckerConfig> stucker_config)
+    : config_(config), stucker_config_(stucker_config), network_(network), vars_(vars), obs_norm_(obs_norm)
     , batch_size_(batch_env_spec.batch_size)
     , n_actions_(env_spec.action_spec.GetNumActions()), state_dim_(env_spec.state_spec.CalcFlattenDim())
     , device_(std::move(device))
@@ -501,7 +502,11 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
     } else {
         rep_config.sampler_type = ReplaySamplerType::UNIFORM;
     }
-
+    if (stucker_config_.has_value()) {
+        rep_config.use_stacker = stucker_config_->use_stacker;
+        rep_config.stack_count = stucker_config_->stack_count;
+	}
+    
     anet::rl::ReplayBufferFactory rep_factory(rep_config);
     this->replay_buffer_ = rep_factory.Create(env_spec, torch::kCPU, batch_env_spec.batch_size, seed);
 }
@@ -567,6 +572,8 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
         // Sample
         float current_beta = config_.use_per ? vars_.per_beta : 0.0f;
         auto raw_samples = replay_buffer_->Sample(config_.replay_batch_size, device_, current_beta);
+        //ANET_LOG_DEBUG("raw_samples.obs=" << anet::ToDefString(raw_samples.obs));
+        //ANET_LOG_DEBUG("raw_samples.next_states.obs=" << anet::ToDefString(raw_samples.next_states.obs));
 
         // Check shapes & dtypes
         ANET_ASSERT_DEVICE(raw_samples.obs, device_);
@@ -575,10 +582,10 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
         ANET_ASSERT_DEVICE(raw_samples.next_states.obs, device_);
         ANET_ASSERT_DEVICE(raw_samples.next_states.terminals, device_);
         ANET_ASSERT_DEVICE(raw_samples.n_steps, device_);
-        ANET_ASSERT_SHAPE(raw_samples.obs, { B, S });
+        //ANET_ASSERT_SHAPE(raw_samples.obs, { B, S });
         ANET_ASSERT_SHAPE(raw_samples.actions, { B });    // 離散アクション
         ANET_ASSERT_SHAPE(raw_samples.target_values, { B });
-        ANET_ASSERT_SHAPE(raw_samples.next_states.obs, { B, S });
+        //ANET_ASSERT_SHAPE(raw_samples.next_states.obs, { B, S });
         ANET_ASSERT_SHAPE(raw_samples.next_states.terminals, { B });
         ANET_ASSERT_SHAPE(raw_samples.n_steps, { B });
         ANET_ASSERT_DTYPE(raw_samples.obs, torch::kFloat32);
@@ -588,8 +595,8 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
         ANET_ASSERT_DTYPE(raw_samples.n_steps, torch::kInt64);
 
         // 固有処理呼び出し
-        auto samples = raw_samples.FlattenStates();
-        auto result = UpdateFromSamples(samples);
+        //auto samples = raw_samples.FlattenStates();
+        auto result = UpdateFromSamples(raw_samples);
         result_list.push_back(result);
 
         // 更新後処理
@@ -610,8 +617,9 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
 
 
 TDLearner::TDLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
-    const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed)
-    : Learner(config, network, vars, obs_norm, batch_env_spec, env_spec, device, replay_seed)
+    const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
+    std::optional<StuckerConfig> stucker_config)
+    : Learner(config, network, vars, obs_norm, batch_env_spec, env_spec, device, replay_seed, stucker_config)
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
@@ -829,8 +837,9 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 // ======================================================
 
 QRLearner::QRLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
-    const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed)
-    : Learner(config, network, vars, obs_norm, batch_env_spec, env_spec, std::move(device), replay_seed)
+    const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
+    std::optional<StuckerConfig> stucker_config)
+    : Learner(config, network, vars, obs_norm, batch_env_spec, env_spec, std::move(device), replay_seed, stucker_config)
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
@@ -898,6 +907,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     ANET_ASSERT_SHAPE(samples.actions, { B });
     ANET_ASSERT_SHAPE(samples.target_values, { B });
     ANET_ASSERT_SHAPE(samples.next_states.terminals, { B });
+    //ANET_LOG_DEBUG("obs=" << anet::ToDefString(samples.obs));
 
     // Observation正規化
     torch::Tensor obs = samples.obs;

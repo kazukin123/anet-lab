@@ -564,17 +564,29 @@ namespace anet::rl {
 
     class Runner;
 
-    class Sampler {
+    class ActionContext {
     public:
-        virtual void ObserveFirst(const BatchStepResult& step_result) = 0;
-        virtual void Observe(const BatchExperience& exprience) = 0;
-        virtual ~Sampler() = default;
+		ActionContext(RunMode mode) : run_mode_(mode) {}
+
+        RunMode GetRunMode() const { return run_mode_; }
+        
+        /// @return 加工されたObservation
+        virtual torch::Tensor PushObservation(const anet::rl::BatchState& state) = 0;
+        virtual void Reset() = 0;
+
+        virtual ~ActionContext() = default;
+    private:
+        RunMode run_mode_;
     };
 
     class ActionPolicy {
     public:
+        virtual std::shared_ptr<ActionContext> CreateActionContext(
+            const BatchEnvSpec& batch_env_spec, RunMode mode = RunMode::Train) const = 0;
+
         virtual BatchActionInfo MakeAction(
-            const StepCounts& counts, const anet::rl::BatchState& state, RunMode mode = RunMode::Train) const = 0;
+            const StepCounts& counts, const anet::rl::BatchState& state, std::shared_ptr<ActionContext> ctx) const = 0;
+
         virtual ~ActionPolicy() = default;
     };
 

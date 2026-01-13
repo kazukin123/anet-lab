@@ -144,6 +144,28 @@ net.block.[ResBlock].structure = Linear_Hid > ReLU > Linear_Hid(=proc) > Add(@in
 
 net.body.MLP_RES.structure = Flatten > Linear_Proj > ReLU > ResBlock(*3) > Linear_Out > ReLU
 
+
+# ------------------------------------------------------------------------------
+# Conv1D
+# ------------------------------------------------------------------------------
+
+net.block.[Conv1D_Permute].type = Permute
+net.block.[Conv1D_Permute].permute.dims = 0 2 1
+
+net.block.[Conv1D_Conv1d].type = Conv1d
+net.block.[Conv1D_Conv1d].out_channels = 64
+net.block.[Conv1D_Conv1d].kernel_size = 2
+net.block.[Conv1D_Conv1d].stride = 1
+net.block.[Conv1D_Conv1d].padding = 0
+net.block.[Conv1D_Conv1d].init.mode = 1
+net.block.[Conv1D_Conv1d].init.nonlinearity = relu # linear
+
+net.block.[Conv1D_Linear].type = Linear
+net.block.[Conv1D_Linear].linear.out_features = 64
+net.block.[Conv1D_Linear].init.mode = 1
+
+net.body.Conv1D.structure = Conv1D_Permute > Conv1D_Conv1d > ReLU > Flatten > Conv1D_Linear > ReLU
+
 # ------------------------------------------------------------------------------
 # 3. Active Backbone Selection
 # ------------------------------------------------------------------------------

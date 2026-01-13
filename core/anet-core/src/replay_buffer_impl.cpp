@@ -557,17 +557,18 @@ std::optional<std::vector<torch::Tensor>> PrioritizedReplayExperienceManager::Ge
 // ReplayExperienceStateStacker
 // ======================================================
 
-ReplayExperienceStateStacker::ReplayExperienceStateStacker(int stack_count, int num_envs, const std::vector<int64_t>& state_shape)
+ReplayExperienceStateStacker::ReplayExperienceStateStacker(int stack_count, int num_envs, const std::vector<int64_t>& state_shape, torch::Device device)
     : stack_count_(stack_count)
     , num_envs_(num_envs)
     , state_shape_(state_shape)
+    , device_(device)
 {
     stacked_indices_opts_ = torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU);
 }
 
 ExperienceSamples ReplayExperienceStateStacker::SampleBatch(
         const ReplayExperienceStorage& storage, const IndexSampleResult& index_result,
-        int64_t minibatch_size, torch::Device device)
+        int64_t minibatch_size, torch::Device target_device)
 {
 	anet::ProfileRange r("ReplayExperienceStateStacker::SampleBatch");
 
@@ -656,12 +657,12 @@ ExperienceSamples ReplayExperienceStateStacker::SampleBatch(
     anet::ProfileRange r3("ReplayExperienceStateStacker::SampleBatch.gather", r2);
 
     // Stacked Indices をデバイスへ転送
-    auto stacked_indices_dev = stacked_indices.to(device);
+    auto stacked_indices_dev = stacked_indices.to(device_);
 
-    // State (Stacked) -> (B * S, state_dim...)
+    // State (Stacked) : (B * S, state_dim...)
     auto flat_states = storage.GetStates().index_select(0, stacked_indices_dev);
 
-    // Next State (Stacked)
+    // Next State (Stacked) : (B * S, state_dim...)
     auto flat_next_states = storage.GetNextStates().index_select(0, stacked_indices_dev);
 
     // State出漁用の出力形状情報を生成
@@ -675,7 +676,7 @@ ExperienceSamples ReplayExperienceStateStacker::SampleBatch(
     const auto stacked_next_obs = flat_next_states.view(out_shape);
 
     // その他 (Actions, TargetValues, Terminals)はindices (vector) を Tensor化してデバイス転送
-    const auto indices_dev = torch::tensor(indices_vec, torch::TensorOptions().dtype(torch::kInt64));// .to(device);
+    const auto indices_dev = torch::tensor(indices_vec, torch::TensorOptions().dtype(torch::kInt64)).to(device_);
     const auto actions = storage.GetActions().index_select(0, indices_dev);
     const auto target_values = storage.GetTargetValues().index_select(0, indices_dev);
     const auto terminals = storage.GetTerminals().index_select(0, indices_dev);
@@ -694,13 +695,13 @@ ExperienceSamples ReplayExperienceStateStacker::SampleBatch(
         n_steps,           // n_steps
         indices_dev,       // indices
 		(!index_result.sampling_prob.empty()) ? // sampling_prob
-            torch::tensor(index_result.sampling_prob, torch::TensorOptions().dtype(torch::kFloat32)).to(device) : torch::Tensor(),
+            torch::tensor(index_result.sampling_prob, torch::TensorOptions().dtype(torch::kFloat32)).to(device_) : torch::Tensor(),
         (!index_result.is_weights.empty()) ?    // is_weights
-            torch::tensor(index_result.is_weights, torch::TensorOptions().dtype(torch::kFloat32)).to(device) : torch::Tensor(),
+            torch::tensor(index_result.is_weights, torch::TensorOptions().dtype(torch::kFloat32)).to(device_) : torch::Tensor(),
     };
 
     // device転送
-    samples = samples.To(device, true);
+    samples = samples.To(target_device, true);
 
     return samples;
 }
@@ -939,7 +940,7 @@ ReplayBufferFactory::Create(const EnvSpec& env_spec, torch::Device device, int b
         ANET_CHECK_MSG(stack_count > 1, "stack_count must be greater than 1");
         int num_envs = batch_size;
         const auto& state_shape = env_spec.state_spec.shape;
-        stacker = std::make_shared<ReplayExperienceStateStacker>(stack_count, batch_size, state_shape);
+        stacker = std::make_shared<ReplayExperienceStateStacker>(stack_count, batch_size, state_shape, device);
 	}
 
     // -------------------------------------------------------------

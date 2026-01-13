@@ -487,6 +487,10 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
 {
     anet::ProfileRange r("EpisodeEvalObserver::OnPostUpdate");
 
+    if (action_context_ == nullptr) {
+        action_context_ = event.agent->CreateActionContext(env_->GetBatchSpec(), runmode_);
+	}
+
 	/// @todo メトリクスのSTEP軸を指定できるようにする
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::LEARN);
 
@@ -500,7 +504,7 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
         bool done = false;
         bool truncated = false;
         do {
-            auto action = event.agent->MakeAction(counts_local, state, runmode_);
+            auto action = event.agent->MakeAction(counts_local, state, action_context_);
             auto env_result = env_->Step(action.GetAction());
             eps_total_reward += env_result->reward.mean().item<float>();
             state = env_result->continue_state;

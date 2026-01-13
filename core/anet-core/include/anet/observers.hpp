@@ -224,6 +224,7 @@ namespace anet::rl {
         anet::rl::RunMode runmode_;
         int log_interval_;
         int eval_interval_;
+		std::shared_ptr<ActionContext> action_context_ = nullptr;
         //anet::EmaFilter<float> eval_total_reward_;
     };
 

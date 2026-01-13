@@ -255,7 +255,8 @@ namespace anet::rl::dqn {
     public:
         Learner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
             const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec,
-            torch::Device device, anet::seed_t replay_seed);
+            torch::Device device, anet::seed_t replay_seed,
+            std::optional<StuckerConfig> stucker_config = std::nullopt);
 
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences, const Runner& trainer) override;
 
@@ -282,6 +283,7 @@ namespace anet::rl::dqn {
         int n_actions_;
         float earned_credit_;
         LearnerConfig config_;
+        std::optional<StuckerConfig> stucker_config_;
         Network& network_;
         RuntimeVars& vars_;
         std::shared_ptr<ObservationNormalizer> obs_norm_;
@@ -294,7 +296,8 @@ namespace anet::rl::dqn {
     class TDLearner final : public anet::rl::dqn::Learner {
     public:
         explicit TDLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
-            const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed);
+            const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
+            std::optional<StuckerConfig> stucker_config = std::nullopt);
 
         std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
             const anet::rl::ExperienceSamples& samples) override;
@@ -303,7 +306,8 @@ namespace anet::rl::dqn {
     class QRLearner final : public anet::rl::dqn::Learner {
     public:
         explicit QRLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
-            const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed);
+            const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
+            std::optional<StuckerConfig> stucker_config = std::nullopt);
 
         std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
             const anet::rl::ExperienceSamples& samples) override;

@@ -177,7 +177,7 @@ std::optional<std::vector<torch::Tensor>> RainbowAgent::GetTensorVector(const st
     return std::nullopt;
 }
 
-anet::rl::BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const BatchState& state, RunMode runmode) const
+anet::rl::BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const
 {
     ProfileRange r1("RainbowAgent::MakeAction");
     ANET_ASSERT_SHAPE(state.obs, { ANET_SHAPE_ANY, state_dim_ });
@@ -190,8 +190,9 @@ anet::rl::BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const
     auto flat_obs = state.To(device_).Flatten().obs;
 
     // 行動選択
-    auto greedy_only = anet::rl::IsEval(runmode);
-    auto use_target = (runmode == anet::rl::RunMode::Eval1);
+    auto run_mode = ctx != nullptr ? ctx->GetRunMode() : anet::rl::RunMode::Train;
+    auto greedy_only = anet::rl::IsEval(run_mode);
+    auto use_target = (run_mode == anet::rl::RunMode::Eval1);
     auto act_info = this->action_policy_->SelectAction(flat_obs, greedy_only, use_target);
 
     // ActionInfoを返す
