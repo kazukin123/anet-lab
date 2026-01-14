@@ -64,7 +64,15 @@ namespace anet::log {
         using Manip = std::ostream& (*)(std::ostream&);
         WxLogStream& operator<<(Manip manip) { manip(stream_); return *this; }
     private:
-        void flush() {
+        void LogDebug(const std::string& msg)
+        {
+            if (wxIsDebuggerRunning()
+                && wxLog::IsLevelEnabled(wxLOG_Debug, wxString::FromAscii(wxLOG_COMPONENT))) {
+                wxMessageOutputDebug().Output(msg);
+            }
+		}
+        void flush()
+        {
             const std::string body = stream_.str();
             if (body.empty()) return;
 
@@ -77,13 +85,15 @@ namespace anet::log {
             msg << body;
 
             switch (level_) {
-            case wxLOG_Debug:   wxLogDebug(msg.str()); break;
-            case wxLOG_Info:    wxLogDebug(msg.str()); wxLogInfo(msg.str());    break;
-            case wxLOG_Message: wxLogDebug(msg.str()); wxLogMessage(msg.str()); break;
-            case wxLOG_Warning: wxLogDebug(msg.str()); wxLogWarning(msg.str()); break;
-            case wxLOG_Error:   wxLogDebug(msg.str()); wxLogError(msg.str());   break;
-            default:            wxLogDebug(msg.str()); wxLogMessage(msg.str()); break;
+            case wxLOG_Debug:   LogDebug(msg.str()); break;
+            case wxLOG_Message: LogDebug("[MSG] " + msg.str()); wxLogMessage(msg.str());  break;
+            case wxLOG_Info:    LogDebug("[INFO] " + msg.str()); wxLogInfo(msg.str());    break;
+            case wxLOG_Warning: LogDebug("[WARN] " + msg.str()); wxLogWarning(msg.str()); break;
+            case wxLOG_Error:   LogDebug("[ERROR] " + msg.str()); wxLogError(msg.str());  break;
+            default:            LogDebug(msg.str()); wxLogMessage(msg.str()); break;
             }
+
+            //wxLog::FlushActive();
         }
         wxLogLevel level_;
         std::string_view fn_;
@@ -141,34 +151,9 @@ namespace anet::log {
 
     // ====== log ======
 
-    inline auto info() { return anet::log::WxLogStream(wxLOG_Message); }
+    inline auto info() { return anet::log::WxLogStream(wxLOG_Message); }    /// @todo 本来はInfoがVerboseログでMessageが通常ログ
     inline auto warn() { return anet::log::WxLogStream(wxLOG_Warning); }
     inline auto error() { return anet::log::WxLogStream(wxLOG_Error); }
-
-
-    // ====== Logger ======
-
-    //class Logger {
-    //public:
-    //    explicit Logger(const char* tag) : tag_(tag) {}
-
-    //    auto info()  const { return WxLogStream(wxLOG_Info) << "[" << tag_ << "] "; }
-    //    auto debug() const { return WxLogStream(wxLOG_Debug) << "[" << tag_ << "] "; }
-    //    auto warn()  const { return WxLogStream(wxLOG_Warning) << "[" << tag_ << "] "; }
-    //    auto error() const { return WxLogStream(wxLOG_Error) << "[" << tag_ << "] "; }
-
-    //private:
-    //    const char* tag_;
-    //};
-
-    //template<typename T>
-    //struct ClassLog {
-    //    static Logger logger;
-    //};
-
-    //template<typename T>
-    //Logger ClassLog<T>::logger{ typeid(T).name() };
-
 
 }
 
