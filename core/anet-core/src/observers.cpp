@@ -568,64 +568,6 @@ MetricsLogLearnObserver::MetricsLogLearnObserver(const std::string& tag, const s
     ;
 }
 
-//std::optional<float> MetricsLogObserverBase::GetScalar(const UpdateEvent& event, anet::rl::EventField event_field)
-//{
-//    std::optional<float> ret;
-//
-//    // BatchUpdateEventが対象の場合はリストになるので平均を取る
-//    if (event_field == anet::rl::EventField::BATCH_UPDATE_RESULT) {
-//        const auto& update_result_list = event.update_result_list;
-//
-//        if (update_result_list.size() == 1) {
-//            ret = update_result_list[0]->GetScalar(this->key_);
-//        } else if (!update_result_list.empty()) {
-//            float sum = 0.0f;
-//            int count = 0;
-//            for (const auto& update_result : update_result_list) {
-//                auto scaler = update_result->GetScalar(this->key_);
-//                if (!scaler.has_value()) continue;
-//                sum += *scaler;
-//                count++;
-//            }
-//            if (count > 0) {
-//                float mean = sum / static_cast<float>(count);
-//                ret = mean;
-//            }
-//        }   // 空リストならstd::nullopt
-//    } else {
-//        // Scalar取得対象
-//        const anet::DataExporter* target = nullptr;
-//
-//        // 指定に従ってScalar取得対象を取得
-//        switch (event_field) {
-//        case anet::rl::EventField::BATCH_EXPERIENCE:
-//            target = &event.batch_exp;
-//            break;
-//        case anet::rl::EventField::AGENT:
-//            target = event.agent.get();
-//            break;
-//        case anet::rl::EventField::RUNNER:
-//            target = &event.runner;
-//            break;
-//        default:
-//            ANET_SYSTEM_ERROR("Unknown event field: " << static_cast<int>(event_field));
-//            break;
-//        }
-//
-//        // 値取得
-//        if (target != nullptr)
-//            ret = target->GetScalar(this->key_);
-//    }
-//
-//    // clip
-//    if (clip_.has_value() && ret.has_value()) {
-//        ret = std::clamp<float>(*ret, -*clip_, *clip_);
-//    }
-//
-//    // return
-//    return ret;
-//}
-
 /// BATCH_UPDATE_RESULT以外用のメトリクス情報取得処理
 MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(const UpdateEvent& event, EventField event_field)
 {
