@@ -2,10 +2,34 @@
 REM SET EXE="bin\RelWithDebInfo\AnetRLRunner.exe"
 SET EXE="bin\Release\AnetRLRunner.exe" app.$=app.batchrun
 
-call:run_exe app.run_name=run_{t}_A_5e-4 "A.learner.alpha=5e-4"
-call:run_exe app.run_name=run_{t}_A_1e-3 "A.learner.alpha=1e-3"
-call:run_exe app.run_name=run_{t}_A_5e-3 "A.learner.alpha=5e-3"
-call:run_exe app.run_name=run_{t}_A_1e-2 "A.learner.alpha=1e-2"
+REM --------------------------------------------------
+REM Baseline (Kernel=2, Ch=64)
+REM --------------------------------------------------
+call:run_exe app.run_name=run_{t}_Base_K2_C64
+
+REM --------------------------------------------------
+REM Experiment 1: Kernel Size (物理特性の抽出能力)
+REM Kernel=3 にして「加速度/変化の滑らかさ」を見させる
+REM --------------------------------------------------
+call:run_exe app.run_name=run_{t}_K3_C64 "net.block.[Conv1D_Conv1d].kernel_size=3"
+
+REM --------------------------------------------------
+REM Experiment 2: Channels (表現力の強弱)
+REM Ch=32 (軽量化しても行けるか？)
+REM --------------------------------------------------
+call:run_exe app.run_name=run_{t}_K2_C32 "net.block.[Conv1D_Conv1d].out_channels=32" "net.block.[Conv1D_Linear].linear.out_features=32"
+
+REM --------------------------------------------------
+REM Experiment 3: Channels Boost (リッチな表現力)
+REM Ch=128 (より複雑な制御則を見つけられるか？)
+REM --------------------------------------------------
+call:run_exe app.run_name=run_{t}_K2_C128 "net.block.[Conv1D_Conv1d].out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128"
+
+
+REM call:run_exe app.run_name=run_{t}_A_5e-4 "A.learner.alpha=5e-4"
+REM call:run_exe app.run_name=run_{t}_A_1e-3 "A.learner.alpha=1e-3"
+REM call:run_exe app.run_name=run_{t}_A_5e-3 "A.learner.alpha=5e-3"
+REM call:run_exe app.run_name=run_{t}_A_1e-2 "A.learner.alpha=1e-2"
 
 REM SET COMMON_ARGS="net.body.$=net.body.MLP2 net.block.FC1.init.mode=1 net.block.FC2.init.mode=1 A.head_init.mode=1"
 

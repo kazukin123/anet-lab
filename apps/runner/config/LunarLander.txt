@@ -68,7 +68,7 @@ A.stucker.stack_count = 4
 
 #A.learner.update_warmup_steps = 0           # exp_step単位。256(B) * 300step = 76800
 
-A.learner.alpha = 5e-3
+#A.learner.alpha = 5e-3
 
 #A.use_qr = false
 #A.action_policy.policy_type = 0
@@ -81,9 +81,9 @@ A.learner.alpha = 5e-3
 
 # ---- image metrics
 
-metrics.image.interval = 0   # 出力全無効
+#metrics.image.interval = 0   # 出力全無効
 #metrics.image.interval = 1   # 毎ステップ出力（重い）
-#metrics.image.interval = 50   # 通常運用
+metrics.image.interval = 50   # 通常運用
 #metrics.image.interval = 500 # 重い場合
 
 metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.per-prio > image.phm.s01

@@ -161,10 +161,28 @@ std::optional<anet::TensorFunction> DefaultDQNAgent::GetTensorFunction(const std
 
     auto self = shared_from_this();
     auto network_fn = *fn;
+    bool use_stacker = config_.stucker.use_stacker;
+    int stack_count = config_.stucker.stack_count;
 
-    anet::TensorFunction norm_fn = [self, network_fn](const torch::Tensor& obs) {
+    anet::TensorFunction norm_fn = [self, network_fn, use_stacker, stack_count](const torch::Tensor& obs) {
+
         std::shared_lock<std::shared_mutex> lock(*(self->mutex_));
-        auto obs_norm = self->obs_norm_->Normalize(obs);
+
+        //ANET_LOG_DEBUG("obs=" << anet::ToDefString(obs));
+        torch::Tensor proc_obs = obs;
+
+        // Stacker有効なのに送られてきたデータが2次元(N, F)だった場合、時間方向に複製して3次元化する
+        if (use_stacker && proc_obs.dim() == 2) {
+            // (N, F) -> (N, 1, F) -> (N, Stack, F)
+            proc_obs = proc_obs.unsqueeze(1).expand({ -1, stack_count, -1 });
+        }
+        //ANET_LOG_DEBUG("proc_obs=" << anet::ToDefString(proc_obs));
+
+        // 正規化
+        auto obs_norm = self->obs_norm_->Normalize(proc_obs);
+        //ANET_LOG_DEBUG("obs_norm=" << anet::ToDefString(obs_norm));
+
+		// ネットワーク実行 (stack有効の場合は(N, S, F)、無効の場合は(N, F)
         auto out = network_fn(obs_norm);
         return out;
         };
