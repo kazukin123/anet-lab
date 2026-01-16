@@ -149,6 +149,9 @@ net.body.MLP_RES.structure = Flatten > Linear_Proj > ReLU > ResBlock(*3) > Linea
 # Conv1D
 # ------------------------------------------------------------------------------
 
+## init.mode 1=Xavier 2=He 3=Orthogonal
+# 浅いネットワークでは1=Xavierのほうが良好な結果が出る
+
 net.block.[Conv1D_Permute].type = Permute
 net.block.[Conv1D_Permute].permute.dims = 0 2 1
 
@@ -157,15 +160,16 @@ net.block.[Conv1D_Conv1d].conv.out_channels = 128
 net.block.[Conv1D_Conv1d].conv.kernel_size = 2
 net.block.[Conv1D_Conv1d].conv.stride = 1
 net.block.[Conv1D_Conv1d].conv.padding = 0
-net.block.[Conv1D_Conv1d].init.mode = 2  # 1=Xavier 2=He
+net.block.[Conv1D_Conv1d].init.mode = 1
 net.block.[Conv1D_Conv1d].init.nonlinearity = relu
 
 net.block.[Conv1D_Linear].type = Linear
 net.block.[Conv1D_Linear].linear.out_features = 128
-net.block.[Conv1D_Linear].init.mode = 2             # 1=Xavier 2=He
+net.block.[Conv1D_Linear].init.mode = 1
 net.block.[Conv1D_Linear].init.nonlinearity = relu
 
 net.body.Conv1D.structure = Conv1D_Permute > Conv1D_Conv1d > ReLU > Flatten > Conv1D_Linear > ReLU
+
 
 # ------------------------------------------------------------------------------
 # 3. Active Backbone Selection

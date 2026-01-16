@@ -7,12 +7,12 @@ REM call:run_exe app.run_name=run_{t}_C128_LR2e3 "A.learner.alpha=2e-3"
 REM call:run_exe app.run_name=run_{t}_C128_LR1e4 "A.learner.alpha=1e-4"
 
 call:run_exe app.run_name=run_{t}_K2_C128_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128"
-call:run_exe app.run_name=run_{t}_K2_C128_L128x "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].init.mode=1" "net.block.[Conv1D_Linear].init.mode=1"
 call:run_exe app.run_name=run_{t}_K3_C128_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=3"
 call:run_exe app.run_name=run_{t}_K2_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128"
-call:run_exe app.run_name=run_{t}_K2_C256_L256  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=256"
 call:run_exe app.run_name=run_{t}_K2_C128_L64   "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=64"
 call:run_exe app.run_name=run_{t}_K2_C64_L64    "net.block.[Conv1D_Conv1d].conv.out_channels=64"  "net.block.[Conv1D_Linear].linear.out_features=64"
+call:run_exe app.run_name=run_{t}_K2_C256_L256  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=256"
+REM call:run_exe app.run_name=run_{t}_K2_C128_L128he "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].init.mode=2" "net.block.[Conv1D_Linear].init.mode=2" "A.head_init.mode=1"
 
 
 REM call:run_exe app.run_name=run_{t}_K2_C64_L64   "net.block.[Conv1D_Conv1d].conv.out_channels=64"  "net.block.[Conv1D_Linear].linear.out_features=64"
