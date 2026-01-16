@@ -814,6 +814,9 @@ namespace anet::rl {
         static constexpr const char* TRAIN_STEP_PER_SEC = "train_step_per_sec";
         static constexpr const char* EXP_STEP_PER_SEC = "exp_step_per_sec";
         static constexpr const char* ELAPSE_HOUR = "elapse_hour";
+
+        static constexpr const char* REWARD = "reward";
+        static constexpr const char* REWARD_EMA= "reward_ema";
     };
 
     // =============================================================
