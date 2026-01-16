@@ -40,8 +40,9 @@ namespace anet::rl::env {
         /// @todo terrain_point_count / terrain_noise_height の適切な値を検討する。
 
         LunarLanderEnvConfig(
-            const anet::ConfigData& config_data = anet::EmptyConfigData)
-            : anet::Config(config_data, "LunarLanderEnv")
+            const anet::ConfigData& config_data = anet::EmptyConfigData,
+            const std::string& config_prefix = "")
+            : anet::Config(config_data, "LunarLanderEnv", config_prefix)
         {
             ANET_READ_CONFIG(config_data, limit_step);
             ANET_READ_CONFIG(config_data, world_half_width);
@@ -156,6 +157,7 @@ namespace anet::rl::env {
         std::shared_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
             const anet::ConfigData& config_data,
             const torch::Device& device,
-            std::optional<anet::seed_t> seed = std::nullopt) override;
+            std::optional<anet::seed_t> seed = std::nullopt,
+            const std::string& config_prefix = "") override;
     };
 }

@@ -241,7 +241,7 @@ namespace anet::rl {
                 ANET_READ_CONFIG(config_data, histgram.probe.value.index);
             }
 
-            config_prefix_ = config_prefix;
+            default_prefix_ = config_prefix;
         }
     };
 

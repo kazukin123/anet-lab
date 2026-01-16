@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 #include <sstream>
+#include <unordered_map>
+#include <unordered_set>
 #include <wx/cmdline.h>
 #include <nlohmann/json.hpp>
 #include "anet/util.hpp"
@@ -20,6 +22,9 @@ namespace anet {
         ConfigData(const ConfigData& from) : map_(from.map_) { }
 
         //ConfigData Make(const std::string& sub_class_id) const;
+    public:
+        std::unordered_map<std::string, ConfigData> MakeSubConfigData(const std::string& prefix) const;
+		std::unordered_set<std::string> GetSubConfigTags(const std::string& prefix) const;
     public:
         void Set(const std::string& key, const std::string& value)
         {
@@ -219,26 +224,37 @@ namespace anet {
     class Config {
     public:
         Config(const std::string& config_prefix_);
-        Config(const ConfigData& config_data, const std::string& config_prefix_);   ///< @todo インスタンスグループ対応（例：同じENV設定でもTrainとEvalで設定を分ける）
+        Config(const ConfigData& config_data, const std::string& default_prefix);
+        Config(const ConfigData& config_data, const std::string& default_prefix, const std::string& prefix);
 
         std::string ToString() const;
         std::string ToConfigString() const;
         anet::json ToJson() const { return my_config_json_; }
-        std::string GetConfigPrefix() const { return config_prefix_; }
+        
+        std::string GetConfigPrefix() const { return default_prefix_; }
+        std::string GetOverridePrefix() const { return override_prefix_; }
         anet::ConfigData GetConfigData() const { return my_config_data_; }
     protected:
         template<typename T>
         void ReadConfig(const ConfigData& config_data, const std::string& key, T& value)
         {
-			std::string config_data_key = (config_prefix_.empty() ? "" : config_prefix_ + ".") + key;
-            config_data.Read(config_data_key, value, value);
+            // default_prefixで設定取得
+			std::string default_config_key = (default_prefix_.empty() ? "" : default_prefix_ + ".") + key;
+            config_data.Read(default_config_key, value, value);
+
+			// override_prefixで上書き設定があれば取得
+			std::string override_config_key = (override_prefix_.empty() ? "" : override_prefix_ + ".") + key;
+            config_data.Read(override_config_key, value, value);
+
+			// 取り込んだKeyとValueを保存
             my_config_data_.Set(key, value);
             my_config_json_[key] = value;
 		}
     protected:
         /// Configの値としてConfigは含まめず、あくまでもフラットな設定データ構造とする
 
-        std::string config_prefix_;
+        std::string default_prefix_;
+        std::string override_prefix_;
         ConfigData my_config_data_; ///< Key=String Value=String
         anet::json my_config_json_; ///< JSONデータとして元の型情報を覚えておく
     };

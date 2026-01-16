@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <optional>
 #include <cstdint>
+#include <cctype>
 #include <torch/torch.h>
 #include "anet/common.hpp"
 #include "anet/tensor_check.hpp"
@@ -141,16 +142,28 @@ namespace anet::rl {
 
     inline bool IsTrain(RunMode mode) { return mode == RunMode::Train; }
     inline bool IsEval(RunMode mode) { return mode == RunMode::Eval || mode == RunMode::Eval1 || mode == RunMode::Eval2; }
-    inline std::string ToString(RunMode mode) {
+    inline std::string ToString(RunMode mode)
+    {
         switch (mode) {
         case RunMode::Train: return "Train";
         case RunMode::Eval: return "Eval";
         case RunMode::Eval1: return "Eval1";
         case RunMode::Eval2: return "Eval2";
         }
-        ANET_ASSERT_MSG(false, "Invalid RunMode.");
+        ANET_SYSTEM_ERROR("RunModeFromString(): RunMode:" << static_cast<int>(mode));
         return "";
     }
+    inline RunMode RunModeFromString(const std::string& str)
+    {
+        auto mode_str = anet::ToLower(str);
+
+        if (mode_str == "train") return RunMode::Train;
+        if (mode_str == "eval") return RunMode::Eval;
+        if (mode_str == "eval1") return RunMode::Eval1;
+        if (mode_str == "eval2") return RunMode::Eval2;
+        ANET_SYSTEM_ERROR("RunModeFromString(): invalid string: " <<  str);
+		return RunMode::Train;
+	}
 
     // =============================================================
     // Environment 定義クラス
@@ -534,8 +547,14 @@ namespace anet::rl {
         virtual std::shared_ptr<SingleDiscreteEnv> CreateSingleEnv(
             const anet::ConfigData& config_data,
             const torch::Device& device,
-            std::optional<anet::seed_t> seed = std::nullopt) = 0;
+            std::optional<anet::seed_t> seed = std::nullopt,
+            const std::string& config_prefix = "") = 0;
+
         virtual std::string GetTargetEnvClassId() const = 0;
+        virtual std::string GetDefaultConfigPrefix() const
+        {
+            return GetTargetEnvClassId();
+        }
 
         virtual ~SingleDiscreteEnvFactory() = default;
     };
@@ -544,6 +563,7 @@ namespace anet::rl {
     public:
         virtual EnvSpec GetSpec() const = 0;
         virtual BatchEnvSpec GetBatchSpec() const = 0;
+        virtual torch::Device GetDevice() const = 0;
 
         virtual std::shared_ptr<const BatchResetResult> Reset(RunMode mode = RunMode::Train) = 0;    ///< BatchStateは使い回されるので必要に応じてDeepCopy必須
         virtual std::shared_ptr<const BatchStepResult> Step(const BatchActionInfo& action_info, RunMode mode = RunMode::Train) = 0; ///< BatchStepResultは使い回されるので必要に応じてDeepCopy必須
@@ -784,8 +804,8 @@ namespace anet::rl {
         static constexpr const char* TRAIN_REWARD = "train_reward";
         static constexpr const char* TRAIN_REWARD_EMA = "train_reward_ema";
         static constexpr const char* TRAIN_EPISODE_REWARD = "train_episode_reward";
-        static constexpr const char* TARGET_EVAL_REWARD = "target_eval_reward";
-        static constexpr const char* POLICY_EVAL_REWARD = "policy_eval_reward";
+        static constexpr const char* TARGET_EVAL_REWARD = "eval.[eval1].eps_total_reward";
+        static constexpr const char* POLICY_EVAL_REWARD = "eval.[eval2].eps_total_reward";
         static constexpr const char* TRAIN_STEP = "train_step";
         static constexpr const char* EXP_STEP = "exp_step";
         static constexpr const char* LEARN_STEP = "learn_step";

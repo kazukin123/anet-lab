@@ -1,4 +1,41 @@
 ﻿
+# --- agent
+
+#agent.class_id = DQNAgent
+#agent.class_id = RainbowAgent
+agent.class_id = DefaultDQNAgent
+
+#agent.device_type = 0    # 0=cpu 1=cuda
+agent.device_type = 1    # 0=cpu 1=cuda
+agent.device_index = -1  # GPU index -1=current device
+
+
+# replay_batch_size ：小さいと実時間はかかるけどステップあたりの学習精度は高い。大きいと早いけど学習精度が落ちる
+# replay_ratio      : ENVステップあたりのUpdate回数→大きいほど学習効率が上がるが実時間がかかる
+
+# 早い(局所解に陥りやすい？)
+AS.fast.learner.replay_batch_size = 1024
+AS.fast.learner.replay_ratio = 4
+
+# バランス型
+AS.balance.learner.replay_batch_size = 256
+AS.balance.learner.replay_ratio = 2         
+
+# 高精度(遅い)
+AS.heavy.learner.replay_batch_size = 256
+AS.heavy.learner.replay_ratio = 4
+
+
+
+# ---- env
+
+env.worker_threads = -1	# -1=auto
+env.device_type = 0     # 0=cpu 1=cuda
+env.device_index = -1   # GPU index -1=current device
+env.worker_type = 0     # 0=AUTO 1=SINGLE_THEAD 2=THREAD_POOL
+
+
+# app-gui
 
 #QValuePanel.row_height = 24
 QValuePanel.row_height = 48
@@ -10,13 +47,6 @@ QValuePanel.hist_range_k = 5    # 1.0 2.5	描画範囲
 #QValuePanel.hist_range_k = 20.5    # 1.0 2.5
 
 
-# ---- env
-
-env.worker_threads = -1	# -1=auto
-env.device_type = 0     # 0=cpu 1=cuda
-env.device_index = -1   # GPU index -1=current device
-env.worker_type = 0     # 0=AUTO 1=SINGLE_THEAD 2=THREAD_POOL
-
 # --- app
 
 app.run_name = run_{t}
@@ -26,8 +56,10 @@ app.train_auto_start = true
 
 app.online.exp_pause_step  = 25,600,000   # 256 * 100K
 app.online.train_panel.fps = 30
-app.online.eval_panel.fps = 15
-app.online.eval_panel.step_per_frame = 3
+#app.online.eval_panel.fps = 15
+#app.online.eval_panel.step_per_frame = 3
+app.online.eval_panel.fps = 30
+app.online.eval_panel.step_per_frame = 1
 
 app.batchrun.train_auto_start = true
 app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M

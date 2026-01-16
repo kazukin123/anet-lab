@@ -476,11 +476,12 @@ EpisodeEvalObserver::EpisodeEvalObserver(
 	const ConfigData& config_data,
     const torch::Device& device,
     anet::rl::RunMode runmode, int log_interval, int eval_inerval,
-    std::optional<seed_t> seed)
+    std::optional<seed_t> seed,
+    const std::string& config_prefix)
     : report_function_(std::move(report_function))
     , runmode_(runmode), log_interval_(log_interval), eval_interval_(eval_inerval)
 {
-    env_ = std::make_unique<VectorizedDiscreteBatchEnv>(config_data, eval_env_factory, 1, device, seed);
+    env_ = std::make_unique<VectorizedDiscreteBatchEnv>(config_data, eval_env_factory, 1, device, seed, config_prefix);
 }
 
 void EpisodeEvalObserver::OnLearn(const LearnEvent& event)

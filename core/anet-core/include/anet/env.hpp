@@ -16,10 +16,12 @@ namespace anet::rl {
             std::shared_ptr<SingleDiscreteEnvFactory> factory,
             int batch_size,
             const torch::Device& device,
-            std::optional<seed_t> seed);
+            std::optional<seed_t> seed,
+            const std::string& config_prefix);
 
         EnvSpec GetSpec() const override;
         BatchEnvSpec GetBatchSpec() const override;
+		torch::Device GetDevice() const override { return device_; }
     public:
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
@@ -57,7 +59,8 @@ namespace anet::rl {
             std::shared_ptr<SingleDiscreteEnvFactory> factory,
             int batch_size,
             const torch::Device& device,
-            std::optional<seed_t> seed = std::nullopt);
+            std::optional<seed_t> seed = std::nullopt,
+            const std::string& config_prefix = "");
 
         std::shared_ptr<const BatchResetResult> Reset(RunMode mode) override;
         std::shared_ptr<const BatchStepResult> Step(const BatchActionInfo& action, RunMode mode) override;
@@ -71,7 +74,8 @@ namespace anet::rl {
             int batch_size,
             const torch::Device& device,
             std::shared_ptr<ThreadPool> pool,
-            std::optional<seed_t> seed = std::nullopt);
+            std::optional<seed_t> seed = std::nullopt,
+            const std::string& config_prefix = "");
 
         std::shared_ptr<const BatchResetResult> Reset(RunMode mode) override;
         std::shared_ptr<const BatchStepResult> Step(const BatchActionInfo& action, RunMode mode) override;

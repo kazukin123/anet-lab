@@ -13,6 +13,7 @@ namespace anet::rl {
     public:
         RunnerBase();
         RunnerBase(std::shared_ptr<BatchEnv> env);
+
         virtual StepCounts DoStep() = 0;
         StepCounts DoUpdateFrame(
             int max_steps, ControlFunction pre_step_func = nullptr, ControlFunction post_step_func = nullptr) override;
@@ -29,6 +30,9 @@ namespace anet::rl {
         std::shared_ptr<anet::rl::Agent> GetAgent() const override { return agent_; }
         std::shared_ptr<anet::rl::Notifier> GetNotifier() const override { return notifier_; }
     protected:
+        void InitializeMetrics();
+        void UpdateMetrics(std::shared_ptr<const BatchStepResult> result);
+    protected:
         // 内部状態
         RunnerStatus status_ = RunnerStatus::NOT_INITIALIZED;
         bool env_initialized_ = false;
@@ -39,6 +43,14 @@ namespace anet::rl {
         std::shared_ptr<anet::rl::Agent> agent_;
         anet::rl::BatchState state_;
         std::shared_ptr<anet::rl::Notifier> notifier_;
+
+        // メトリクス
+        //std::chrono::high_resolution_clock::time_point start_time_;
+        //std::chrono::high_resolution_clock::time_point last_time_;
+        float last_reward_ = 0.0f;
+        anet::EmaFilter<float> reward_ema_;
+        torch::Tensor episode_total_reward_cur_;        ///< エピソード単位総報酬を集計するために現在値
+        torch::Tensor episode_total_reward_comp_;       ///< エピソード単位総報酬
     };
 
 
@@ -88,12 +100,13 @@ namespace anet::rl {
         // メトリクス
         std::chrono::high_resolution_clock::time_point start_time_;
         std::chrono::high_resolution_clock::time_point last_time_;
-        float last_train_reward_ = 0.0f;
-        anet::EmaFilter<float> train_reward_ema_;
-        float last_target_eval_reward_ = 0.0f;
-        float last_policy_eval_reward_ = 0.0f;
-        torch::Tensor episode_total_reward_cur_;        ///< Trainのエピソード単位総報酬を集計するために現在値
-        torch::Tensor episode_total_reward_comp_;       ///< Trainのエピソード単位総報酬
+		std::unordered_map<std::string, float> eval_last_rewards_;
+        //float last_train_reward_ = 0.0f;
+        //anet::EmaFilter<float> train_reward_ema_;
+        //float last_target_eval_reward_ = 0.0f;
+        //float last_policy_eval_reward_ = 0.0f;
+        //torch::Tensor episode_total_reward_cur_;        ///< エピソード単位総報酬を集計するために現在値
+        //torch::Tensor episode_total_reward_comp_;       ///< エピソード単位総報酬
 
         step_t acc_train_steps_ = 0;
         step_t acc_exp_steps_ = 0;

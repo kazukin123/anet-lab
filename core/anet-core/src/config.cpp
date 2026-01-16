@@ -9,6 +9,68 @@ namespace LOG = anet::log;
 
 namespace anet {
 
+    // train.eval.[greedy].interval = 100
+    // train.eval.[greedy].run_mode = 1
+    // train.eval.[greedy].env.init.x_range = 0.0
+    //   prefix = "train.eval"
+    //   key_prefix = "train.eval.["
+    //   key_suffix = "]"
+    //   tag = greedy
+	//   sub_key = interval, run_mode, env.init.x_range
+	//   value = 100, 1, 0.0
+
+    std::unordered_map<std::string, ConfigData> ConfigData::MakeSubConfigData(const std::string& prefix) const
+    {
+        //std::unordered_map<std::string, std::unordered_map<std::string, std::string>> tag_block_map;
+        std::unordered_map<std::string, ConfigData> tag_sub_config;
+
+        auto config_map = Map();
+        for (const auto& kv : config_map) {
+            const std::string& config_key = kv.first;
+            const std::string& config_value = kv.second;
+
+            // 設定Keyからtagを抽出
+			const std::string key_prefix = prefix + ".[";
+            const std::string key_suffix = "]";
+            auto config_tag = anet::ExtractBetween(config_key, key_prefix.c_str(), key_suffix.c_str());
+            if (config_tag.empty()) {
+                continue;
+            }
+
+            // サブキーを抽出
+            auto pos = config_key.find(key_suffix);
+            auto size = config_key.size();
+            if ((pos + 2) >= config_key.size()) continue;
+            auto config_sub_key = config_key.substr(pos + 2);
+            if (config_sub_key.empty()) continue;
+
+            // 保存
+            tag_sub_config[config_tag].Set(config_sub_key, config_value);
+        }
+
+		return tag_sub_config;
+    }
+
+    std::unordered_set<std::string> ConfigData::GetSubConfigTags(const std::string& prefix) const
+    {
+        std::unordered_set<std::string> tags;
+
+        auto config_map = Map();
+        for (const auto& kv : config_map) {
+            const std::string& config_key = kv.first;
+            const std::string& config_value = kv.second;
+
+            // 設定Keyからtagを抽出
+            const std::string key_prefix = prefix + ".[";
+            const std::string key_suffix = "]";
+            auto config_tag = anet::ExtractBetween(config_key, key_prefix.c_str(), key_suffix.c_str());
+            if (!config_tag.empty()) {
+                tags.insert(config_tag);
+            }
+        }
+        return tags;
+    }
+
     std::string Properties::Trim(const std::string& s) {
         const char* ws = " \t\r\n";
         size_t b = s.find_first_not_of(ws);
@@ -144,13 +206,21 @@ namespace anet {
 
     // ---- Config ----
 
-    Config::Config(const std::string& config_prefix) : config_prefix_(config_prefix)
+    Config::Config(const std::string& default_prefix)
+        : default_prefix_(default_prefix)
     {
     }
 
-    Config::Config(const ConfigData& config_data, const std::string& config_prefix) :
-        config_prefix_(config_prefix)
+    Config::Config(const ConfigData& config_data, const std::string& default_prefix)
+        : default_prefix_(default_prefix)
     {
+    }
+
+    Config::Config(const ConfigData& config_data, const std::string& default_prefix, const std::string& override_prefix)
+        : default_prefix_(default_prefix)
+        , override_prefix_(override_prefix)
+    {
+        ;
     }
 
     std::string Config::ToString() const
@@ -167,7 +237,7 @@ namespace anet {
             auto key = kv.key();
             auto value = kv.value();
             if (value.is_array()) {
-                oss << config_prefix_ << "." << key << " =";
+                oss << default_prefix_ << "." << key << " =";
                 for (auto& v : value) {
                     if (v.is_string()) {
                         oss << " " << v.get<std::string>();
@@ -180,9 +250,9 @@ namespace anet {
                 //    json arr = json::array();
                 //for (auto& v : j) arr.push_back(round_numbers(v, precision));
             } else if (value.is_string()) {
-                oss << config_prefix_ << "." << key << " = " << value.get<std::string>() << std::endl;
+                oss << default_prefix_ << "." << key << " = " << value.get<std::string>() << std::endl;
             } else {
-                oss << config_prefix_ << "." << key << " = " << value << std::endl;
+                oss << default_prefix_ << "." << key << " = " << value << std::endl;
             }
         }
 

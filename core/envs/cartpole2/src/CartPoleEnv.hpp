@@ -11,7 +11,8 @@
 struct CartPoleEnvConfig : public anet::Config {
     int limit_step = 200;
 
-    CartPoleEnvConfig(const anet::ConfigData& config_data = anet::EmptyConfigData) : anet::Config(config_data, "CartPoleEnv") {
+    CartPoleEnvConfig(const anet::ConfigData& config_data = anet::EmptyConfigData, const std::string& config_prefix = "")
+        : anet::Config(config_data, "CartPoleEnv", config_prefix) {
         ANET_READ_CONFIG(config_data, limit_step);
     }
 };
@@ -52,6 +53,7 @@ public:
 
     std::shared_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
         const anet::ConfigData& config_data,
-        const torch::Device& device, std::optional<anet::seed_t> seed = std::nullopt) override;
+        const torch::Device& device, std::optional<anet::seed_t> seed = std::nullopt,
+        const std::string& config_prefix = "") override;
 };
 

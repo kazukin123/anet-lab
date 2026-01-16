@@ -17,15 +17,47 @@ namespace LOG = anet::log;
 // =========================
 
 RunnerBase::RunnerBase()
+    : reward_ema_(0.001)
 {
     // Notifier生成
     notifier_ = std::make_shared<anet::rl::Notifier>();
 }
 
-RunnerBase::RunnerBase(std::shared_ptr<BatchEnv> env) : env_(env)
+RunnerBase::RunnerBase(std::shared_ptr<BatchEnv> env)
+    : env_(env)
+    , reward_ema_(0.001)
 {
     // Notifier生成
     notifier_ = std::make_shared<anet::rl::Notifier>();
+}
+
+void RunnerBase::InitializeMetrics()
+{
+    ANET_CHECK(env_ != nullptr);
+
+    auto env_device = env_->GetDevice();
+    auto batch_env_spec = env_->GetBatchSpec();
+
+    // メトリクス初期化
+    auto fopt = torch::TensorOptions().dtype(torch::kFloat32).device(env_device);
+    episode_total_reward_cur_ = torch::zeros({ batch_env_spec.batch_size }, fopt);
+    ANET_ASSERT_SHAPE(episode_total_reward_cur_, { batch_env_spec.batch_size });
+}
+
+void RunnerBase::UpdateMetrics(std::shared_ptr<const BatchStepResult> result)
+{
+    // 平均報酬更新
+    float step_reward_mean = result->reward.mean().item<float>();
+    last_reward_ = step_reward_mean;
+    reward_ema_.Update(last_reward_);
+
+    // エピソード合計報酬更新
+    ANET_CHECK(episode_total_reward_cur_.defined());
+    episode_total_reward_cur_ += result->reward;                // 現エピソード報酬加算
+    auto finished = result->next_state.done.to(torch::kBool)
+        | result->next_state.truncated.to(torch::kBool);   // 終了マスク
+    episode_total_reward_comp_ = episode_total_reward_cur_.masked_select(finished);  // 終了したエピソードの報酬を確定
+    episode_total_reward_cur_.masked_fill_(finished, 0.0f);  // 終了したENVのエピソード総報酬をゼロクリア
 }
 
 StepCounts RunnerBase::DoUpdateFrame(int max_steps, ControlFunction pre_step_func, ControlFunction post_step_func)
@@ -84,6 +116,10 @@ std::optional<float> RunnerBase::GetScalar(const std::string& key, int64_t index
     if (key == EPISODE_COUNT) return static_cast<float>(step_counts_.episode_count);
     if (key == SIM_STEP) return static_cast<float>(step_counts_.sim_step);
 
+    if (key == REWARD) return last_reward_;
+    if (key == REWARD_EMA) return reward_ema_.Value();
+
+
     return std::nullopt;
 }
 
@@ -97,6 +133,7 @@ EvalRunner::EvalRunner(std::shared_ptr<BatchEnv> env, std::shared_ptr<const Agen
 
 RunnerStatus EvalRunner::Initialize(const ConfigData& config_data)
 {
+    InitializeMetrics();
     status_ = anet::rl::RunnerStatus::RUNNING;
     return status_;
 }
@@ -121,9 +158,10 @@ StepCounts EvalRunner::DoStep(int64_t action)
     auto action_info_raw = agent_->MakeAction(step_counts_, state_, action_context_);
     ANET_LOG_DEBUG("step=" << train_step << " action_info_raw=" << action_info_raw.ToString());
 
-    // 指定のactionとAgent選択のAux情報でaction_infoを生成
+    // action_infoを生成
     anet::rl::BatchActionInfo action_info = {
-        torch::tensor({ action }), action_info_raw.GetAuxData()
+        action < 0 ? action_info_raw.GetAction() : torch::tensor({ action }), // 指定のactionがあれば強制
+        action_info_raw.GetAuxData()
     };
 
     // 環境ステップ実行
@@ -139,6 +177,9 @@ StepCounts EvalRunner::DoStep(int64_t action)
     ANET_ASSERT_DEVICE(result->continue_state.obs, torch::kCPU);
     ANET_ASSERT_DEVICE(result->continue_state.done, torch::kCPU);
     ANET_ASSERT_DEVICE(result->continue_state.truncated, torch::kCPU);
+
+	// メトリクス更新
+	//UpdateMetrics(result);
 
     // カウント更新
     step_counts_.train_step++;
@@ -157,58 +198,7 @@ StepCounts EvalRunner::DoStep(int64_t action)
 
 StepCounts EvalRunner::DoStep()
 {
-    anet::ProfileRange r1("EvalRunner::DoStep");
-
-    if (!env_initialized_) {
-        // 環境初期化
-        auto reset_result = env_->Reset(runmode_);
-        state_ = reset_result->state;
-        env_initialized_ = true;
-        ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
-    }
-
-    // ステップ前情報
-    auto train_step = step_counts_.train_step;
-
-    // 行動選択
-    auto action_info = agent_->MakeAction(step_counts_, state_, action_context_);
-    ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info.ToString());
-    //ANET_ASSERT_SHAPE(action_info.action, { N });
-
-    // 環境ステップ実行
-    auto result = env_->Step(action_info, runmode_);    // next_state, reward, done, truncated
-    ANET_LOG_DEBUG("step=" << train_step << " reward=" << anet::ToString(result->reward));
-    ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result->next_state.ToString());
-    ANET_ASSERT_DEVICE(result->next_state.obs, torch::kCPU);
-    ANET_ASSERT_DEVICE(result->next_state.done, torch::kCPU);
-    ANET_ASSERT_DEVICE(result->next_state.truncated, torch::kCPU);
-    ANET_ASSERT_DEVICE(result->reward, torch::kCPU);
-    ANET_ASSERT_DEVICE(result->continue_state.obs, torch::kCPU);
-    ANET_ASSERT_DEVICE(result->continue_state.done, torch::kCPU);
-    ANET_ASSERT_DEVICE(result->continue_state.truncated, torch::kCPU);
-    //ANET_ASSERT_SHAPE(result->next_state.obs, { N, ANET_SHAPE_ENDANY });
-    //ANET_ASSERT_SHAPE(result->next_state.done, { N });
-    //ANET_ASSERT_SHAPE(result->next_state.truncated, { N });
-    //ANET_ASSERT_SHAPE(result->reward, { N });
-    //ANET_ASSERT_SHAPE(result->continue_state.obs, { N, ANET_SHAPE_ENDANY });
-    //ANET_ASSERT_SHAPE(result->continue_state.done, { N });
-    //ANET_ASSERT_SHAPE(result->continue_state.truncated, { N });
-    //ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
-    //    ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
-
-    // カウント更新
-    step_counts_.train_step++;
-    step_counts_.exp_step += result->n_transitions;
-    step_counts_.episode_count += result->n_done;
-
-    anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
-
-    // 更新後処理
-    anet::rl::TrainEvent event { exp, *this, step_counts_, agent_, BatchUpdateResultList(), env_, result, action_info };
-    notifier_->Notify(event);
-    state_ = result->continue_state;
-
-    return step_counts_;
+    return DoStep(-1);
 }
 
 // =========================
@@ -231,7 +221,6 @@ struct DefaultTrainer::Config : public anet::Config
 DefaultTrainer::DefaultTrainer(const ConfigData& config_data, const std::string& config_prefix)
     : RunnerBase()
     , config_(std::make_unique<Config>(config_data, config_prefix))
-    , train_reward_ema_(0.001)
 {
     //Initialize(config_data);
     Test(*this);
@@ -239,8 +228,8 @@ DefaultTrainer::DefaultTrainer(const ConfigData& config_data, const std::string&
 
 std::optional<float> DefaultTrainer::GetScalar(const std::string& key, int64_t index) const
 {
-    if (key == TRAIN_REWARD) return last_train_reward_;
-    if (key == TRAIN_REWARD_EMA) return train_reward_ema_.Value();
+    if (key == TRAIN_REWARD) return last_reward_;
+    if (key == TRAIN_REWARD_EMA) return reward_ema_.Value();
 
     if (key == TRAIN_EPISODE_REWARD) {
         if (episode_total_reward_comp_.defined()) {
@@ -250,8 +239,6 @@ std::optional<float> DefaultTrainer::GetScalar(const std::string& key, int64_t i
             return std::numeric_limits<float>::quiet_NaN();
         }
     }
-    if (key == TARGET_EVAL_REWARD) return last_target_eval_reward_;
-    if (key == POLICY_EVAL_REWARD) return last_policy_eval_reward_;
 
     if (key == TRAIN_STEP_PER_SEC) return last_train_step_per_sec_;
     if (key == EXP_STEP_PER_SEC) return last_exp_step_per_sec_;
@@ -262,6 +249,24 @@ std::optional<float> DefaultTrainer::GetScalar(const std::string& key, int64_t i
         auto elapse_hour = elapse_msec / 1000.0f / 60.0f / 60.0f;
         return elapse_hour;
     }
+
+	//evalのlast_reward取得
+    if (key.find("eval.[") == 0) {
+        for (const auto& kv : eval_last_rewards_) {
+            const auto& tag = kv.first;
+			const auto& reward = kv.second;
+
+            //auto prefix_ema = "eval.[" + kv.first + "].eps_total_reward_ema";
+            //if (key.find(prefix_ema) == 0) {
+            //    this->eval_last_rewards[tag];
+            //}
+            auto prefix = "eval.[" + kv.first + "].eps_total_reward";
+            if (key.find(prefix) == 0) {
+                return reward;
+			}
+        }
+    }
+
 
     return RunnerBase::GetScalar(key, index);
 }
@@ -315,9 +320,7 @@ RunnerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
     anet::MetricsLogger::Instance()->Flush();
 
     // メトリクス初期化
-    auto fopt = torch::TensorOptions().dtype(torch::kFloat32).device(env_device);
-    episode_total_reward_cur_ = torch::zeros({ batch_env_spec.batch_size }, fopt);
-    ANET_ASSERT_SHAPE(episode_total_reward_cur_, { batch_env_spec.batch_size });
+    InitializeMetrics();
 
     // ランダム方策で環境難易度評価
     /// @todo EvaluateEnvironmentDifficultyを復活
@@ -340,20 +343,42 @@ RunnerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
 	action_context_ = agent_->CreateActionContext(batch_env_spec, anet::rl::RunMode::Train);
 
     // EpisodeEvalObserver
-    notifier_->Attach<anet::rl::EpisodeEvalObserver>(
-        [this](float total_reward)
-        {
-            this->last_target_eval_reward_ = total_reward;
-        },
-        single_env_factory, config_data, env_device, anet::rl::RunMode::Eval1,
-        config_->eval_interval, config_->eval_interval, eval_obs_seed);
-    notifier_->Attach<anet::rl::EpisodeEvalObserver>(
-        [this](float total_reward)
-        {
-            this->last_policy_eval_reward_ = total_reward;
-        },
-        single_env_factory, config_data, env_device, anet::rl::RunMode::Eval2,
-        config_->eval_interval, config_->eval_interval, eval_obs_seed);
+	auto eval_configs = config_data.MakeSubConfigData("train.eval");
+    for (const auto& kv : eval_configs) {
+		// Eval設定取得
+        const auto& tag = kv.first;
+		const auto& eval_config_data = kv.second;
+        std::string config_prefix = "train.eval.[" + tag + "].env";
+
+		// Eval設定ログ
+		anet::MetricsLogger::Instance()->Log(config_prefix, eval_config_data.ToJson());
+
+		// RunMode取得
+        std::string run_mode_str = "eval1";
+        eval_config_data.Read("run_mode", run_mode_str, run_mode_str);
+        anet::rl::RunMode run_mode = anet::rl::RunModeFromString(run_mode_str);
+
+        // Interval取得
+        int interval = 100;
+        eval_config_data.Read("interval", interval, interval);
+
+		// EvalObserver生成
+		//auto config_prefix = "train.eval." + tag;
+        auto obs = std::make_shared<anet::rl::EpisodeEvalObserver>(
+            [this, tag](float total_reward) {   // report_function
+				ANET_LOG_DEBUG("EvalObserver: tag=" << tag << " total_reward=" << total_reward);
+                this->eval_last_rewards_[tag] = total_reward;
+            },
+            single_env_factory, config_data, env_device, run_mode,
+			interval,   // log_interval
+			interval,   // eval_interval
+            eval_obs_seed,
+            config_prefix
+        );
+
+        // EvalObserver登録
+        notifier_->Attach(obs);
+    }
 
     // 設定からObserverを生成して登録
     anet::rl::ObserverFactory factory(config_data);
@@ -439,17 +464,8 @@ StepCounts DefaultTrainer::DoStep()
 
     anet::ProfileRange r4("DefaultTrainer::DoUpdateFrame.envStepPost", r3);
 
-    // 平均報酬更新
-    float step_reward_mean = result->reward.mean().item<float>();
-    last_train_reward_ = step_reward_mean;
-	train_reward_ema_.Update(last_train_reward_);
-
-    // エピソード合計報酬更新
-    episode_total_reward_cur_ += result->reward;                // 現エピソード報酬加算
-    auto finished = result->next_state.done.to(torch::kBool)
-        | result->next_state.truncated.to(torch::kBool);   // 終了マスク
-    episode_total_reward_comp_ = episode_total_reward_cur_.masked_select(finished);  // 終了したエピソードの報酬を確定
-    episode_total_reward_cur_.masked_fill_(finished, 0.0f);  // 終了したENVのエピソード総報酬をゼロクリア
+    //メトリクス更新
+    UpdateMetrics(result);
 
     // カウント更新
     step_counts_.train_step++;
@@ -508,7 +524,7 @@ std::shared_ptr<EvalRunner> DefaultTrainer::CreateEvalRunner(RunMode runmode) co
 
     ANET_ASSERT(status_ == anet::rl::RunnerStatus::RUNNING);
 
-    auto env = env_factory_->CreateBatchEnv(eval_env_seed_,1);
+    auto env = env_factory_->CreateBatchEnv(eval_env_seed_, 1); // batch_size = 1
     auto eval_runner = std::make_shared<EvalRunner>(env, agent_, runmode);
     return eval_runner;
 }

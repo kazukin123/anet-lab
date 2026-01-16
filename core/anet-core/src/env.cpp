@@ -71,7 +71,8 @@ public:
 DiscreteBatchEnvBase::DiscreteBatchEnvBase(
     const ConfigData& config_data,
     std::shared_ptr<SingleDiscreteEnvFactory> factory, int batch_size,
-    const torch::Device& device, std::optional<seed_t> seed)
+    const torch::Device& device, std::optional<seed_t> seed,
+    const std::string& config_prefix)
     : RandomHolder(seed), batch_spec_({ batch_size, 1 }), batch_size_(batch_size), device_(device)
 {
     ANET_ASSERT(batch_size_ > 0);
@@ -84,7 +85,7 @@ DiscreteBatchEnvBase::DiscreteBatchEnvBase(
     envs_.reserve(batch_size_);
     for (int i = 0; i < batch_size; ++i) {
         anet::seed_t env_seed = seed_maker.MakeIndexedSeed(i);
-        auto env = factory->CreateSingleEnv(config_data, device, env_seed);
+        auto env = factory->CreateSingleEnv(config_data, device, env_seed, config_prefix);
         envs_.push_back(std::move(env));
     }
 
@@ -200,8 +201,9 @@ VectorizedDiscreteBatchEnv::VectorizedDiscreteBatchEnv(
     std::shared_ptr<SingleDiscreteEnvFactory> factory,
     int batch_size,
     const torch::Device& device,
-    std::optional<seed_t> seed)
-    : DiscreteBatchEnvBase(configData, factory, batch_size, device, seed)
+    std::optional<seed_t> seed,
+    const std::string& config_prefix)
+    : DiscreteBatchEnvBase(configData, factory, batch_size, device, seed, config_prefix)
 {
     ANET_LOG_DEBUG("seed=" << this->GetSeed());
 }
@@ -288,8 +290,9 @@ ThreadPoolDiscreteEnv::ThreadPoolDiscreteEnv(
     int batch_size,
     const torch::Device& device,
     std::shared_ptr<ThreadPool> pool,
-    std::optional<seed_t> seed)
-    : DiscreteBatchEnvBase(configData, factory, batch_size, device, seed)
+    std::optional<seed_t> seed,
+    const std::string& config_prefix)
+    : DiscreteBatchEnvBase(configData, factory, batch_size, device, seed, config_prefix)
     , pool_(std::move(pool))
 {
     ANET_ASSERT(pool_ != nullptr);

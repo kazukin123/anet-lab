@@ -13,22 +13,6 @@ train.batch_size = 256
 DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A
 
 
-# --- Agent設定
-
-# replay_batch_size ：小さいと実時間はかかるけどステップあたりの学習精度は高い。大きいと早いけど学習精度が落ちる
-# replay_ratio      : ENVステップあたりのUpdate回数→大きいほど学習効率が上がるが実時間がかかる
-
-# 早い(局所解に陥りやすい？)
-AS.fast.learner.replay_batch_size = 1024
-AS.fast.learner.replay_ratio = 4
-
-# バランス型
-AS.balance.learner.replay_batch_size = 256
-AS.balance.learner.replay_ratio = 2         
-
-# 高精度(遅い)
-AS.heavy.learner.replay_batch_size = 256
-AS.heavy.learner.replay_ratio = 4
 
 
 # --- NN設定
@@ -62,9 +46,27 @@ A.learner.per_beta_step = 10,000,000             # 10M betaを収束値まで線
 
 # --- 実験
 
+train.eval.[eval1].interval = 100
+train.eval.[eval1].run_mode = eval1
 
-A.stucker.use_stacker = true
-A.stucker.stack_count = 4
+train.eval.[eval2].interval = 100
+train.eval.[eval2].run_mode = eval2
+
+train.eval.[test1].interval = 100
+train.eval.[test1].run_mode = eval1
+train.eval.[test1].env.$ = LunarLanderEnv.normal
+#train.eval.[test1].env.limit_step = 1000
+
+train.eval.[test2].interval = 100
+train.eval.[test2].run_mode = eval2
+train.eval.[test2].env.$ = LunarLanderEnv.normal
+#train.eval.[test1].env.limit_step = 1000
+
+metrics.scalar.[22_eval/01_test1_reward]     = $runner eval.[test1].eps_total_reward @learn clip:3000
+metrics.scalar.[22_eval/02_test2_reward]     = $runner eval.[test2].eps_total_reward @learn clip:3000
+metrics.scalar.[22_eval/03_test1_reward_ema] = $runner eval.[test1].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
+metrics.scalar.[22_eval/04_test2_reward_ema] = $runner eval.[test2].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
+
 
 #A.learner.update_warmup_steps = 0           # exp_step単位。256(B) * 300step = 76800
 
@@ -107,17 +109,6 @@ metrics.scalar.$ = metrics.scalar.baseline > M
 metrics.scalar.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 
 
-# ---- agent
-
-#agent.class_id = DQNAgent
-#agent.class_id = RainbowAgent
-agent.class_id = DefaultDQNAgent
-
-#agent.device_type = 0    # 0=cpu 1=cuda
-agent.device_type = 1    # 0=cpu 1=cuda
-agent.device_index = -1  # GPU index -1=current device
-
-
 # ---- env
 
 env.class_id = LunarLanderEnv
@@ -128,7 +119,7 @@ env.class_id = LunarLanderEnv
 #train.eval_interval = 0
 #train.eval_interval = 10
 #train.eval_interval = 50
-train.eval_interval = 100
+#train.eval_interval = 100
 #train.eval_interval = 1000
 
 
@@ -138,8 +129,7 @@ train.eval_interval = 100
 app.online.exp_pause_step  = 25,600,000   # 256 * 100K
 app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
 
-app.online.eval_panel.fps = 30
-app.online.eval_panel.step_per_frame = 1
+
 
 
 # ---- LunarLanderEnv

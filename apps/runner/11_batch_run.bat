@@ -2,29 +2,24 @@
 REM SET EXE="bin\RelWithDebInfo\AnetRLRunner.exe"
 SET EXE="bin\Release\AnetRLRunner.exe" app.$=app.batchrun
 
-REM --------------------------------------------------
-REM Baseline (Kernel=2, Ch=64)
-REM --------------------------------------------------
-call:run_exe app.run_name=run_{t}_Base_K2_C64
+call:run_exe app.run_name=run_{t}_C128_LR5e4
+call:run_exe app.run_name=run_{t}_C128_LR2e3 "A.learner.alpha=2e-3"
+REM call:run_exe app.run_name=run_{t}_C128_LR1e4 "A.learner.alpha=1e-4"
+call:run_exe app.run_name=run_{t}_C256_LR5e4 "net.block.[Conv1D_Conv1d].out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=256"
+call:run_exe app.run_name=run_{t}_C256_LR5e4_L128 "net.block.[Conv1D_Conv1d].out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128"
+call:run_exe app.run_name=run_{t}_C128_LR5e4_L256 "net.block.[Conv1D_Conv1d].out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=256"
+REM ↑ 容量倍増：Gapだけ広がってスコア落ちたら過学習
 
-REM --------------------------------------------------
-REM Experiment 1: Kernel Size (物理特性の抽出能力)
-REM Kernel=3 にして「加速度/変化の滑らかさ」を見させる
-REM --------------------------------------------------
-call:run_exe app.run_name=run_{t}_K3_C64 "net.block.[Conv1D_Conv1d].kernel_size=3"
+call:run_exe app.run_name=run_{t}_eps-10 "A.action_policy.uqe_eps_max=1.0" "A.action_policy.uqe_eps_decay_step=10000000"
+call:run_exe app.run_name=run_{t}_eps-08 "A.action_policy.uqe_eps_max=0.8" "A.action_policy.uqe_eps_decay_step=10000000"
+call:run_exe app.run_name=run_{t}_eps-04 "A.action_policy.uqe_eps_max=0.4" "A.action_policy.uqe_eps_decay_step=10000000"
+call:run_exe app.run_name=run_{t}_eps-10a "A.action_policy.uqe_eps_max=1.0" "A.action_policy.uqe_eps_decay_step=5000000"
+call:run_exe app.run_name=run_{t}_eps-100 "A.action_policy.uqe_eps_max=1.0" "A.action_policy.uqe_eps_min=0.0" "A.action_policy.uqe_eps_decay_step=10000000"
 
-REM --------------------------------------------------
-REM Experiment 2: Channels (表現力の強弱)
-REM Ch=32 (軽量化しても行けるか？)
-REM --------------------------------------------------
-call:run_exe app.run_name=run_{t}_K2_C32 "net.block.[Conv1D_Conv1d].out_channels=32" "net.block.[Conv1D_Linear].linear.out_features=32"
-
-REM --------------------------------------------------
-REM Experiment 3: Channels Boost (リッチな表現力)
-REM Ch=128 (より複雑な制御則を見つけられるか？)
-REM --------------------------------------------------
-call:run_exe app.run_name=run_{t}_K2_C128 "net.block.[Conv1D_Conv1d].out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128"
-
+REM call:run_exe app.run_name=run_{t}_Base_K2_C64
+REM call:run_exe app.run_name=run_{t}_K3_C64 "net.block.[Conv1D_Conv1d].kernel_size=3"
+REM call:run_exe app.run_name=run_{t}_K2_C32 "net.block.[Conv1D_Conv1d].out_channels=32" "net.block.[Conv1D_Linear].linear.out_features=32"
+REM call:run_exe app.run_name=run_{t}_K2_C128 "net.block.[Conv1D_Conv1d].out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128"
 
 REM call:run_exe app.run_name=run_{t}_A_5e-4 "A.learner.alpha=5e-4"
 REM call:run_exe app.run_name=run_{t}_A_1e-3 "A.learner.alpha=1e-3"
@@ -33,36 +28,11 @@ REM call:run_exe app.run_name=run_{t}_A_1e-2 "A.learner.alpha=1e-2"
 
 REM SET COMMON_ARGS="net.body.$=net.body.MLP2 net.block.FC1.init.mode=1 net.block.FC2.init.mode=1 A.head_init.mode=1"
 
-REM ==========================================================
-REM 1. Init Mode 0 (Experimental)
-REM ==========================================================
-REM 一般的な初期化パターン (e.g., Uniform or Zero - Depends on C++ impl)
 REM call:run_exe app.run_name=run_{t}_Init_Mode0 %COMMON_ARGS% "net.block.FC1.init.mode=0 net.block.FC2.init.mode=0 A.head_init.mode=0"
-
-REM ==========================================================
-REM 2. Init Mode 1 (Baseline / Default)
-REM ==========================================================
-REM 定義済みファイルでのデフォルト設定 [cite: 1, 11]
 REM call:run_exe app.run_name=run_{t}_Init_Mode1_Base %COMMON_ARGS% "net.block.FC1.init.mode=1 net.block.FC2.init.mode=1 A.head_init.mode=1"
-
-REM ==========================================================
-REM 3. Init Mode 2 (Experimental - e.g., Kaiming/He)
-REM ==========================================================
-REM 異なる分散スケーリングを試行
 REM call:run_exe app.run_name=run_{t}_Init_Mode2 %COMMON_ARGS% "net.block.FC1.init.mode=2 net.block.FC2.init.mode=2 A.head_init.mode=2"
-
-REM ==========================================================
-REM 4. Init Mode 3 (Experimental - e.g., Orthogonal)
-REM ==========================================================
 REM call:run_exe app.run_name=run_{t}_Init_Mode3 %COMMON_ARGS% "net.block.FC1.init.mode=3 net.block.FC2.init.mode=3 A.head_init.mode=3"
-
-REM ==========================================================
-REM 5. Mixed Strategy (Hidden=Mode2, Head=Mode1)
-REM ==========================================================
-REM 隠れ層は強めに(Mode2)、出力層はデフォルト(Mode1)にするハイブリッド構成
 REM call:run_exe app.run_name=run_{t}_Init_Mixed %COMMON_ARGS% "net.block.FC1.init.mode=2" "net.block.FC2.init.mode=2" "A.head_init.mode=1"
-
-
 
 REM ==========================================================
 REM 1. Baseline (Gain=0.0 / Default)
@@ -176,8 +146,6 @@ REM call:run_exe app.run_name=run_{t}-01_UQE  A.action_policy.policy_type=1
 REM call:run_exe app.run_name=run_{t}-02_H128 A.qnet.nn_hidden1=128 A.qnet.nn_hidden2=128
 REM call:run_exe app.run_name=run_{t}-03_B256 A.learner.replay_batch_size=256
 REM call:run_exe app.run_name=run_{t}-04_B128 A.learner.replay_batch_size=128
-
-
 
 
 pause

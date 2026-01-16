@@ -19,6 +19,8 @@ DQNAgent.$ = DQNAgent.baseline
 DefaultDQNAgent.baseline.head_init.manual_gain = 0.0
 DefaultDQNAgent.baseline.head_init.mode = 1
 DefaultDQNAgent.baseline.network.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
+DefaultDQNAgent.baseline.stucker.use_stacker = true
+DefaultDQNAgent.baseline.stucker.stack_count = 4
 DefaultDQNAgent.baseline.action_policy.policy_type = 1        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
 DefaultDQNAgent.baseline.action_policy.eps_max = 1.00               # 指数減衰 for EpsilonGreedy  
 DefaultDQNAgent.baseline.action_policy.eps_min = 0.05               # 0.1f 0.05f for EpsilonGreedy

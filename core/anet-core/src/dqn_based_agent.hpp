@@ -33,13 +33,18 @@ namespace anet::rl::dqn {
 
     class BatchUpdateResult : public anet::rl::BatchUpdateResult {
     public:
+        // grad/loss/td
         torch::Tensor grad_norm_tensor;
         std::optional<float> grad_norm;
         float grad_clip_ratio = 0.0f;
         torch::Tensor loss;
         torch::Tensor td_error;
+
+		// Q Value Metrics Source Tensors
         torch::Tensor max_q;
         mutable torch::Tensor max_q_cpu;
+        torch::Tensor q_gap;
+        torch::Tensor q_gap_rel;
 
         // PER Metrics Source Tensors
         torch::Tensor per_is_weights;      ///< IS Weights (B,)
@@ -57,10 +62,9 @@ namespace anet::rl::dqn {
         {
             // 必要になって初めてCPUに転送する
 
-            if (key == "loss")
-                return loss.item<float>();
-            if (key == "td_mean")
-                return td_error.abs().mean().item<float>();
+            // loss/td/grad
+            if (key == "loss") return loss.item<float>();
+            if (key == "td_mean") return td_error.abs().mean().item<float>();
             if (key == "grad_norm") {
                 if (grad_norm.has_value())
                     return *grad_norm;
@@ -68,8 +72,9 @@ namespace anet::rl::dqn {
                     return grad_norm_tensor.item<float>();
                 return std::nullopt;
             }
-            if (key == "grad_clip_ratio")
-                return grad_clip_ratio;
+            if (key == "grad_clip_ratio") return grad_clip_ratio;
+
+			// Q Values
             if (key == "q_max_max") {
                 TransQToCpu();
                 return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.max().item<float>()) : std::nullopt;
@@ -82,8 +87,20 @@ namespace anet::rl::dqn {
                 TransQToCpu();
                 return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.std(false).item<float>()) : std::nullopt;
             }
+            if (key == "q_std") {
+                if (q_std.defined()) return anet::ToFloat(q_std);
+                return 0.0f;
+            }
+            if (key == "q_gap") {
+                if (q_gap.defined()) return anet::ToFloat(q_gap);
+                return 0.0f;
+            }
+            if (key == "q_gap_rel") {
+                if (q_gap_rel.defined()) return anet::ToFloat(q_gap_rel);
+                return 0.0f;
+            }
 
-            // PER Metrics (Lazy Evaluation)
+            // PER Metrics
             if (key == "per_td_error_abs_max") {
                 if (td_error.defined())
                     return td_error.abs().max().item<float>();
@@ -108,10 +125,6 @@ namespace anet::rl::dqn {
                 if (per_is_weights.defined())
                     return per_is_weights.mean().item<float>();
                 return std::nullopt;
-            }
-            if (key == "q_std") {
-                if (q_std.defined()) return anet::ToFloat(q_std);
-                return 0.0f;
             }
 
             return std::nullopt;

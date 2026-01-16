@@ -1,8 +1,8 @@
 ﻿// anet/str_util.hpp
 #pragma once
 
-#include <vector>
 #include <string>
+#include <vector>
 #include <algorithm>
 #include <cctype>
 
@@ -77,4 +77,11 @@ namespace anet {
     std::string ReplaceAll(std::string str, const std::string& from, const std::string& to);
     std::string FormatWithCommas(uint64_t value);
 
+    inline std::string ToLower(const std::string& str)
+    {
+        std::string result = str;
+        std::transform(result.begin(), result.end(), result.begin(),
+            [](unsigned char c) { return std::tolower(c); });
+        return result;
+	}
 }

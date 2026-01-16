@@ -230,9 +230,10 @@ CartPoleEnvFactory::CartPoleEnvFactory()
 
 std::shared_ptr<anet::rl::SingleDiscreteEnv> CartPoleEnvFactory::CreateSingleEnv(
     const anet::ConfigData& config_data,
-    const torch::Device& device, std::optional<anet::seed_t> seed)
+    const torch::Device& device, std::optional<anet::seed_t> seed,
+    const std::string& config_prefix)
 {
-    CartPoleEnvConfig config(config_data);
+    CartPoleEnvConfig config(config_data, config_prefix);
     return std::make_shared<CartPoleEnv>(config, device, seed);
 }
 

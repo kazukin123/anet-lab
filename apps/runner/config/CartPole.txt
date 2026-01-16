@@ -10,9 +10,6 @@ train.batch_size = 256
 #train.batch_size = 10
 #train.batch_size = 1
 
-agent.class_id = DefaultDQNAgent
-#agent.class_id = RainbowAgent
-#agent.class_id = DQNAgent
 
 #DefaultDQNAgent.$ = DefaultDQNAgent.trunk > A
 #DefaultDQNAgent.$ = DefaultDQNAgent.trunk2 > A

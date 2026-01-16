@@ -661,6 +661,24 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
     torch::Tensor max_q = std::get<0>(q_all.max(1)).detach();     // (B)
 
+    torch::Tensor gap_abs;
+    torch::Tensor gap_rel;
+    if (n_actions_ >= 2) {  // 念の為
+        auto top2 = std::get<0>(q_all.topk(2, 1));  //  (B, 2) 上位2つのQ値
+        auto q_best = top2.select(1, 0);       // 1位 (B)
+        auto q_second = top2.select(1, 1);     // 2位 (B)
+
+        // 絶対値差分
+        auto gap_batch = q_best - q_second;
+        gap_abs = gap_batch.mean().detach();
+
+        // Relative Gap (相対差分: Gap / (|MaxQ| + eps))
+        //   Q値は負になることもあるので abs() が必要
+        //   学習初期は 0 になるので 1e-6 で割るのを防ぐ
+        auto denom = q_best.abs() + 1e-6f;
+        gap_rel = (gap_batch / denom).mean().detach();
+    }
+
     // ------------------------------------------------------------
     // max_a' Q(s', a')
     // ------------------------------------------------------------
@@ -822,6 +840,8 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     result->grad_norm_tensor = grad_norm_tensor;
     result->grad_clip_ratio = grad_clip_ratio;
     result->max_q = max_q;
+    result->q_gap = gap_abs;
+    result->q_gap_rel = gap_rel;
     if (config_.use_per) {
         result->per_minibatch_size = B;
         result->per_clipped_count = metric_per_clipped_count;
@@ -946,6 +966,25 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     auto std_q_tensor = current_dist.std(1).mean().detach();
     ANET_ASSERT_SHAPE(std_q_tensor, {});
 
+    // メトリクス用: トップActionと2位ActionのQ値Gap平均、 GPUTensor (Scalar) のまま保持
+	torch::Tensor gap_abs;
+    torch::Tensor gap_rel;
+    if (n_actions_ >= 2) {  // 念の為
+        auto q_values_mean = current_dist_all.mean(2);      // (B, A, N) -> (B, A)
+        auto top2 = std::get<0>(q_values_mean.topk(2, 1));  //  (B, 2) 上位2つのQ値
+        auto q_best = top2.select(1, 0);       // 1位 (B)
+        auto q_second = top2.select(1, 1);     // 2位 (B)
+
+        // 絶対値差分
+        auto gap_batch = q_best - q_second;
+        gap_abs = gap_batch.mean().detach();
+
+        // Relative Gap (相対差分: Gap / (|MaxQ| + eps))
+        //   Q値は負になることもあるので abs() が必要
+        //   学習初期は 0 になるので 1e-6 で割るのを防ぐ
+        auto denom = q_best.abs() + 1e-6f;
+        gap_rel = (gap_batch / denom).mean().detach();
+    }
 
     // ------------------------------------------------------------
     // ターゲット分布計算: r + gamma * Z(s', a*)
@@ -1130,13 +1169,15 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     result->grad_norm_tensor = grad_norm_tensor;
     result->grad_clip_ratio = grad_clip_ratio;
     result->max_q = max_q;
+    result->q_std = std_q_tensor;
+    result->q_gap = gap_abs;
+    result->q_gap_rel = gap_rel;
     if (config_.use_per) {
         result->per_minibatch_size = B;
         result->per_clipped_count = metric_per_clipped_count;
         result->per_priorities = metric_per_priorities;
         result->per_is_weights = metric_per_is_weights;
     }
-    result->q_std = std_q_tensor;
 
     return result;
 }

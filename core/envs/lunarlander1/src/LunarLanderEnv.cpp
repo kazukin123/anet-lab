@@ -15,6 +15,7 @@
 
 
 using namespace anet::rl::env;
+namespace LOG = anet::log;
 
 
 // ボディの定義
@@ -981,10 +982,12 @@ anet::rl::AuxData LunarLanderEnv::CreateAuxData(float reward, float raw_reward) 
 // ===== Factory =====
 
 std::shared_ptr<anet::rl::SingleDiscreteEnv>
-LunarLanderEnvFactory::CreateSingleEnv(const anet::ConfigData& config_data, const torch::Device& device, std::optional<anet::seed_t> seed)
+LunarLanderEnvFactory::CreateSingleEnv(const anet::ConfigData& config_data, const torch::Device& device,
+    std::optional<anet::seed_t> seed, const std::string& config_prefix)
 {
-    LunarLanderEnvConfig config(config_data);
-    return std::make_unique<LunarLanderEnv>(config, device, seed);
+    LunarLanderEnvConfig config(config_data, config_prefix);
+    //LOG::info() << "LunarLanderEnvFactory: config_prefix=" << config_prefix << " config=" << config.ToJson();
+    return std::make_shared<LunarLanderEnv>(config, device, seed);
 }
 
 ANET_REGISTER_ENV_FACTORY(LunarLanderEnvFactory);

@@ -305,14 +305,12 @@ void RunnerApp::InitTrainer()
 
             // Trainログ
             if (event.counts.train_step % 100 == 0) {
-                //auto train_reward_ema = event.runner.GetScalar(anet::rl::Runner::TRAIN_REWARD_EMA);
-                auto eval_target_reward_ema = event.runner.GetScalar(anet::rl::Runner::TARGET_EVAL_REWARD);
-                auto eval_policy_reward_ema = event.runner.GetScalar(anet::rl::Runner::POLICY_EVAL_REWARD);
-                ANET_CHECK(eval_target_reward_ema.has_value());
-                ANET_CHECK(eval_policy_reward_ema.has_value());
+                auto eval_target_reward = event.runner.GetScalar(anet::rl::Runner::TARGET_EVAL_REWARD);
+                auto eval_policy_reward = event.runner.GetScalar(anet::rl::Runner::POLICY_EVAL_REWARD);
+                if (!eval_target_reward.has_value() || !eval_policy_reward.has_value())  return;
                 LOG::info() << "train_step=" << train_step
-                    << " eval_target_reward_ema=" << *eval_target_reward_ema
-                    << " eval_policy_reward_ema=" << *eval_policy_reward_ema;
+                    << " eval_target_reward_ema=" << *eval_target_reward
+                    << " eval_policy_reward_ema=" << *eval_policy_reward;
             }
 
         }, "RunnerApp");
