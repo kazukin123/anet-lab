@@ -63,16 +63,3 @@ void TrainPanel::OnClose(wxCloseEvent& event)
 	auto notifier = wxGetApp().GetTrainer()->GetNotifier();
 	notifier->Detach(this->observer_);
 }
-
-//void TrainPanel::OnMouseLeftClick(wxMouseEvent& event)
-//{
-//	wxMouseEvent evt = event;
-//	GetParent()->GetEventHandler()->ProcessEvent(evt);
-//}
-//
-//void TrainPanel::OnMouseRightClick(wxMouseEvent& event)
-//{
-//	wxMouseEvent evt = event;
-//	GetParent()->GetEventHandler()->ProcessEvent(evt);
-//}
-

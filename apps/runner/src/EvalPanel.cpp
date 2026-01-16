@@ -71,7 +71,9 @@ std::shared_ptr<anet::rl::Notifier> EvalPanel::GetNotifier()
 void EvalPanel::TogglePause()
 {
 	is_pause_ = !is_pause_;
-	LOG::info() << "Eval " << (is_pause_ ? "paused." : "resumed.");
+	auto log_str = std::string("Eval ") + (is_pause_ ? "paused." : "resumed.");
+	LOG::info() << log_str;
+	wxGetApp().GetMainFrame()->SetStatusText(log_str);
 }
 
 void EvalPanel::OnTimer(wxTimerEvent& event)

@@ -230,14 +230,16 @@ bool RunnerApp::OnInit()
 void RunnerApp::ToggleTraining()
 {
     bool paused = trainer_thread_->IsPaused();
-
+    std::string log_str;
     if (paused) {
         trainer_thread_->Resume();
-        LOG::info() << "Training resumed";
+        log_str = "Training resumed";
     } else {
         trainer_thread_->Pause();
-        LOG::info() << "Training paused";
+        log_str = "Training paused";
     }
+	LOG::info() << log_str;
+    wxGetApp().GetMainFrame()->SetStatusText(log_str);
 }
 
 void RunnerApp::StopTraining()
