@@ -183,43 +183,14 @@ LunarLanderEnv::LunarLanderEnv(
     float_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
     bool_opt_ = torch::TensorOptions().dtype(torch::kBool).device(device);
 
-    buildWorld();
+    // 初期化（乱数での初期化は改めてResetで行われる想定）
+    float default_start_y = config_.ground_y + config_.world_height * 0.6f;
+    buildWorld(0.0f, default_start_y, 0.0f);
 }
 
 LunarLanderEnv::~LunarLanderEnv()
 {
     destroyWorld();
-}
-
-void LunarLanderEnv::buildWorld()
-{
-    destroyWorld();
-
-    b2Vec2 gravity(0.0f, config_.gravity);
-    world_ = std::make_unique<b2World>(gravity);
-
-    contact_listener_ = std::make_unique<ContactListener>(*this);
-    world_->SetContactListener(contact_listener_.get());
-
-    buildGround();
-    buildLander();
-}
-
-void LunarLanderEnv::destroyWorld()
-{
-    if (!world_) {
-        return;
-    }
-
-    left_leg_joint_ = nullptr;
-    right_leg_joint_ = nullptr;
-    left_leg_body_ = nullptr;
-    right_leg_body_ = nullptr;
-    lander_body_ = nullptr;
-    ground_body_ = nullptr;
-
-    contact_listener_.reset();
-    world_.reset();
 }
 
 void LunarLanderEnv::buildGround()
@@ -330,17 +301,14 @@ void LunarLanderEnv::buildGround()
     }
 }
 
-void LunarLanderEnv::buildLander()
+void LunarLanderEnv::buildLander(float init_x, float init_y, float init_angle)
 {
-    const float start_x = 0.0f;
-    const float start_y = config_.ground_y + config_.world_height * 0.6f;
-
     // 本体
     {
         b2BodyDef body_def;
         body_def.type = b2_dynamicBody;
-        body_def.position.Set(start_x, start_y);
-        body_def.angle = 0.0f;
+        body_def.position.Set(init_x, init_y);
+        body_def.angle = init_angle;
         body_def.linearDamping = 0.5f;
         body_def.angularDamping = 0.5f;
         lander_body_ = world_->CreateBody(&body_def);
@@ -360,7 +328,7 @@ void LunarLanderEnv::buildLander()
     // 脚
     // --------------------
 
-    const float lander_angle = lander_body_->GetAngle();
+    b2Rot rotation(init_angle);
 
     // ===============================
     // 脚 共通 fixture 定義
@@ -395,11 +363,11 @@ void LunarLanderEnv::buildLander()
     // 左脚
     // ===============================
     {
+        b2Vec2 offset(-kLegOffsetX, -kLanderRadius);
+
         b2BodyDef def;
         def.type = b2_dynamicBody;
-        def.position =
-            lander_body_->GetPosition() +
-            b2Vec2(-kLegOffsetX, -kLanderRadius);
+        def.position = lander_body_->GetPosition() + b2Mul(rotation, offset);
         def.angle = lander_body_->GetAngle() + kLegAttachAngle;
         def.angularDamping = 5.0f;
 
@@ -412,11 +380,11 @@ void LunarLanderEnv::buildLander()
     // 右脚
     // ===============================
     {
+        b2Vec2 offset(+kLegOffsetX, -kLanderRadius);
+
         b2BodyDef def;
         def.type = b2_dynamicBody;
-        def.position =
-            lander_body_->GetPosition() +
-            b2Vec2(+kLegOffsetX, -kLanderRadius);
+        def.position = lander_body_->GetPosition() + b2Mul(rotation, offset);
         def.angle = lander_body_->GetAngle() - kLegAttachAngle;
         def.angularDamping = 5.0f;
 
@@ -445,58 +413,6 @@ void LunarLanderEnv::buildLander()
     joint_def.bodyB = right_leg_body_;
     joint_def.localAnchorA.Set(+kLegOffsetX, -kLanderRadius);
     right_leg_joint_ = static_cast<b2RevoluteJoint*>(world_->CreateJoint(&joint_def));
-}
-
-std::shared_ptr<const anet::rl::SingleResetResult> LunarLanderEnv::Reset(anet::rl::RunMode mode)
-{
-    anet::ProfileRange range("LunarLanderEnv::Reset");
-
-    buildWorld();
-
-    step_count_ = 0;
-    body_contact_ = false;
-    left_leg_contact_ = false;
-    right_leg_contact_ = false;
-    has_prev_shaping_ = false;
-    last_shaping_ = 0.0f;
-
-    if (config_.enable_wind) {
-        wind_idx_ = rnd_->RandInt(-9999, 9999);
-        torque_idx_ = rnd_->RandInt(-9999, 9999);
-    } else {
-        wind_idx_ = 0;
-        torque_idx_ = 0;
-    }
-    applyWind();
-
-    // 初期状態は Train / Eval で変える
-    if (anet::rl::IsTrain(mode)) {
-        float dx = rnd_->Uniform(-1.0f, 1.0f);
-        lander_body_->SetTransform(
-            b2Vec2(dx, lander_body_->GetPosition().y),
-            rnd_->Uniform(-0.1f, 0.1f));
-    } else {
-        lander_body_->SetTransform(
-            b2Vec2(0.0f, lander_body_->GetPosition().y),
-            0.0f);
-    }
-
-    // 速度リセット
-    lander_body_->SetLinearVelocity(b2Vec2(0.0f, 0.0f));
-    lander_body_->SetAngularVelocity(0.0f);
-    left_leg_body_->SetLinearVelocity(b2Vec2(0.0f, 0.0f));
-    left_leg_body_->SetAngularVelocity(0.0f);
-    right_leg_body_->SetLinearVelocity(b2Vec2(0.0f, 0.0f));
-    right_leg_body_->SetAngularVelocity(0.0f);
-
-    // 戻り生成
-    auto state = makeState();
-    state.episode_start = true;
-    state.done = false;
-    state.truncated = false;
-    auto ret = std::make_shared<ResetResult>(this->shared_from_this(), std::move(state));
-
-    return ret;
 }
 
 void LunarLanderEnv::applyWind()
@@ -533,6 +449,98 @@ void LunarLanderEnv::applyWind()
     // 記録用 (GetScalar等で使用)
     last_wind_x_ = wind_mag;
     last_wind_torque_ = torque_mag;
+}
+
+void LunarLanderEnv::destroyWorld()
+{
+    if (!world_) {
+        return;
+    }
+
+    left_leg_joint_ = nullptr;
+    right_leg_joint_ = nullptr;
+    left_leg_body_ = nullptr;
+    right_leg_body_ = nullptr;
+    lander_body_ = nullptr;
+    ground_body_ = nullptr;
+
+    contact_listener_.reset();
+    world_.reset();
+}
+
+void LunarLanderEnv::buildWorld(float init_x, float init_y, float init_angle)
+{
+    destroyWorld();
+
+    b2Vec2 gravity(0.0f, config_.gravity);
+    world_ = std::make_unique<b2World>(gravity);
+
+    contact_listener_ = std::make_unique<ContactListener>(*this);
+    world_->SetContactListener(contact_listener_.get());
+
+    buildGround();
+    buildLander(init_x, init_y, init_angle);
+}
+
+std::shared_ptr<const anet::rl::SingleResetResult> LunarLanderEnv::Reset(anet::rl::RunMode mode)
+{
+    anet::ProfileRange range("LunarLanderEnv::Reset");
+
+    // ランダム初期値生成
+    float dx = rnd_->Uniform(-config_.init.x_range, config_.init.x_range);
+    float dy = rnd_->Uniform(-config_.init.y_range, config_.init.y_range);
+    float init_angle = rnd_->Uniform(-config_.init.angle_range, config_.init.angle_range);
+    float init_x_vel = rnd_->Uniform(-config_.init.x_velocity_range, config_.init.x_velocity_range);
+    float init_y_vel = rnd_->Uniform(-config_.init.y_velocity_range, config_.init.y_velocity_range);
+    float init_anglular_vel = rnd_->Uniform(-config_.init.angular_velocity_range, config_.init.angular_velocity_range);
+
+    // ベース位置（Y座標はコンフィグ依存）
+    float init_x = dx;
+    float init_y = config_.ground_y + config_.world_height * 0.6f + dy;
+
+    // ワールド再構築
+    buildWorld(init_x, init_y, init_angle);
+
+    // 状態変数初期化
+    step_count_ = 0;
+    body_contact_ = false;
+    left_leg_contact_ = false;
+    right_leg_contact_ = false;
+    has_prev_shaping_ = false;
+    last_shaping_ = 0.0f;
+
+    // 風初期化
+    if (config_.enable_wind) {
+        wind_idx_ = rnd_->RandInt(-9999, 9999);
+        torque_idx_ = rnd_->RandInt(-9999, 9999);
+    } else {
+        wind_idx_ = 0;
+        torque_idx_ = 0;
+    }
+    applyWind();
+
+    // 本体の速度・角速度リセット
+    lander_body_->SetLinearVelocity(b2Vec2(init_x_vel, init_y_vel));
+    lander_body_->SetAngularVelocity(init_anglular_vel);
+
+    // 左脚の速度・角速度リセット
+    b2Vec2 left_vel = lander_body_->GetLinearVelocityFromWorldPoint(left_leg_body_->GetWorldCenter());
+    left_leg_body_->SetLinearVelocity(left_vel);
+    left_leg_body_->SetAngularVelocity(init_anglular_vel);
+
+    // 右脚の速度・角速度リセット
+    b2Vec2 right_vel = lander_body_->GetLinearVelocityFromWorldPoint(right_leg_body_->GetWorldCenter());
+    right_leg_body_->SetLinearVelocity(right_vel);
+    right_leg_body_->SetAngularVelocity(init_anglular_vel);
+
+    // 戻り生成
+    auto state = makeState();
+    state.episode_start = true;
+    state.done = false;
+    state.truncated = false;
+    auto ret = std::make_shared<ResetResult>(this->shared_from_this(), std::move(state));
+
+    return ret;
 }
 
 void LunarLanderEnv::applyActionForce(int64_t action)

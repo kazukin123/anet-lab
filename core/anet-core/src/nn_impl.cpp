@@ -163,6 +163,8 @@ NetworkConfig::NetworkConfig(const anet::ConfigData& config_data)
 
 anet::json NetworkConfig::ToJson() const
 {
+	/// @todo 設定ではなく実際に適用されている構造を出力するようにする
+
     anet::json j;
 
     // ルート構造文字列を保存

@@ -93,6 +93,8 @@ namespace anet {
 
     float RandomGenerator::Uniform(float low, float high)
     {
+		if (low == high) return low;
+
         std::lock_guard<std::mutex> lock(mutex_);
 
         std::uniform_real_distribution<float> dist(low, high);
@@ -101,6 +103,8 @@ namespace anet {
 
     int RandomGenerator::RandInt(int low, int high)
     {
+        if (low == high) return low;
+
         std::lock_guard<std::mutex> lock(mutex_);
 
         std::uniform_int_distribution<int> dist(low, high);

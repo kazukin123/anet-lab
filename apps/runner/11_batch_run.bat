@@ -2,19 +2,29 @@
 REM SET EXE="bin\RelWithDebInfo\AnetRLRunner.exe"
 SET EXE="bin\Release\AnetRLRunner.exe" app.$=app.batchrun
 
-call:run_exe app.run_name=run_{t}_C128_LR5e4
-call:run_exe app.run_name=run_{t}_C128_LR2e3 "A.learner.alpha=2e-3"
+REM call:run_exe app.run_name=run_{t}_C128_LR5e4
+REM call:run_exe app.run_name=run_{t}_C128_LR2e3 "A.learner.alpha=2e-3"
 REM call:run_exe app.run_name=run_{t}_C128_LR1e4 "A.learner.alpha=1e-4"
-call:run_exe app.run_name=run_{t}_C256_LR5e4 "net.block.[Conv1D_Conv1d].out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=256"
-call:run_exe app.run_name=run_{t}_C256_LR5e4_L128 "net.block.[Conv1D_Conv1d].out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128"
-call:run_exe app.run_name=run_{t}_C128_LR5e4_L256 "net.block.[Conv1D_Conv1d].out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=256"
+
+call:run_exe app.run_name=run_{t}_K2_C128_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128"
+call:run_exe app.run_name=run_{t}_K2_C128_L128x "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].init.mode=1" "net.block.[Conv1D_Linear].init.mode=1"
+call:run_exe app.run_name=run_{t}_K3_C128_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=3"
+call:run_exe app.run_name=run_{t}_K2_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128"
+call:run_exe app.run_name=run_{t}_K2_C256_L256  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=256"
+call:run_exe app.run_name=run_{t}_K2_C128_L64   "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=64"
+call:run_exe app.run_name=run_{t}_K2_C64_L64    "net.block.[Conv1D_Conv1d].conv.out_channels=64"  "net.block.[Conv1D_Linear].linear.out_features=64"
+
+
+REM call:run_exe app.run_name=run_{t}_K2_C64_L64   "net.block.[Conv1D_Conv1d].conv.out_channels=64"  "net.block.[Conv1D_Linear].linear.out_features=64"
+REM call:run_exe app.run_name=run_{t}_K2_C256_L128 "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128"
+REM call:run_exe app.run_name=run_{t}_K2_C128_L256 "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=256"
 REM Å™ óeó î{ëùÅFGapÇæÇØçLÇ™Ç¡ÇƒÉXÉRÉAóéÇøÇΩÇÁâﬂäwèK
 
-call:run_exe app.run_name=run_{t}_eps-10 "A.action_policy.uqe_eps_max=1.0" "A.action_policy.uqe_eps_decay_step=10000000"
-call:run_exe app.run_name=run_{t}_eps-08 "A.action_policy.uqe_eps_max=0.8" "A.action_policy.uqe_eps_decay_step=10000000"
-call:run_exe app.run_name=run_{t}_eps-04 "A.action_policy.uqe_eps_max=0.4" "A.action_policy.uqe_eps_decay_step=10000000"
-call:run_exe app.run_name=run_{t}_eps-10a "A.action_policy.uqe_eps_max=1.0" "A.action_policy.uqe_eps_decay_step=5000000"
-call:run_exe app.run_name=run_{t}_eps-100 "A.action_policy.uqe_eps_max=1.0" "A.action_policy.uqe_eps_min=0.0" "A.action_policy.uqe_eps_decay_step=10000000"
+REM call:run_exe app.run_name=run_{t}_eps-10 "A.action_policy.uqe_eps_max=1.0" "A.action_policy.uqe_eps_decay_step=10000000"
+REM call:run_exe app.run_name=run_{t}_eps-08 "A.action_policy.uqe_eps_max=0.8" "A.action_policy.uqe_eps_decay_step=10000000"
+REM call:run_exe app.run_name=run_{t}_eps-04 "A.action_policy.uqe_eps_max=0.4" "A.action_policy.uqe_eps_decay_step=10000000"
+REM call:run_exe app.run_name=run_{t}_eps-10a "A.action_policy.uqe_eps_max=1.0" "A.action_policy.uqe_eps_decay_step=5000000"
+REM call:run_exe app.run_name=run_{t}_eps-100 "A.action_policy.uqe_eps_max=1.0" "A.action_policy.uqe_eps_min=0.0" "A.action_policy.uqe_eps_decay_step=10000000"
 
 REM call:run_exe app.run_name=run_{t}_Base_K2_C64
 REM call:run_exe app.run_name=run_{t}_K3_C64 "net.block.[Conv1D_Conv1d].kernel_size=3"

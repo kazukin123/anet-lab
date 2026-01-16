@@ -264,10 +264,10 @@ struct LinearConfig {
 };
 
 struct ConvConfig {
-    int out_channels = 32;
+    int out_channels = 128;
     int kernel_size = 3;
     int stride = 1;
-    int padding = 1;
+    int padding = 0;
 };
 
 struct PermuteConfig {

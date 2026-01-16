@@ -37,6 +37,15 @@ namespace anet::rl::env {
         int terrain_point_count = 21;   ///< 地形 polyline の頂点数（少なくとも 2）
         float terrain_noise_height = 0.3f; ///< 地形高さノイズの上限
 
+        struct {
+            float x_range = 1.0;
+            float y_range = 0.0;
+            float x_velocity_range = 0.0;
+            float y_velocity_range = 0.0;
+            float angle_range = 0.1;
+            float angular_velocity_range = 0.0;
+        } init;
+
         /// @todo terrain_point_count / terrain_noise_height の適切な値を検討する。
 
         LunarLanderEnvConfig(
@@ -54,6 +63,13 @@ namespace anet::rl::env {
             ANET_READ_CONFIG(config_data, turbulence_power);
             ANET_READ_CONFIG(config_data, terrain_point_count);
             ANET_READ_CONFIG(config_data, terrain_noise_height);
+            ANET_READ_CONFIG(config_data, init.x_range);
+            ANET_READ_CONFIG(config_data, init.y_range);
+            ANET_READ_CONFIG(config_data, init.x_velocity_range);
+            ANET_READ_CONFIG(config_data, init.y_velocity_range);
+            ANET_READ_CONFIG(config_data, init.angle_range);
+            ANET_READ_CONFIG(config_data, init.angular_velocity_range);
+
 
             ANET_ASSERT(terrain_point_count >= 2);
         }
@@ -83,11 +99,11 @@ namespace anet::rl::env {
         class ResetResult;
         class StepResult;
     private:
-        void buildWorld();
+        void buildWorld(float init_x, float init_y, float init_angle);
         void destroyWorld();
 
         void buildGround();
-        void buildLander();
+        void buildLander(float init_x, float init_y, float init_angle);
 
         void applyWind();
         void applyActionForce(int64_t action);

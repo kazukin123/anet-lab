@@ -54,13 +54,11 @@ train.eval.[eval2].run_mode = eval2
 
 train.eval.[test1].interval = 100
 train.eval.[test1].run_mode = eval1
-train.eval.[test1].env.$ = LunarLanderEnv.normal
-#train.eval.[test1].env.limit_step = 1000
+train.eval.[test1].env.$ = LunarLanderEnv.eval
 
 train.eval.[test2].interval = 100
-train.eval.[test2].run_mode = eval2
+train.eval.[test2].run_mode = eval1
 train.eval.[test2].env.$ = LunarLanderEnv.normal
-#train.eval.[test1].env.limit_step = 1000
 
 metrics.scalar.[22_eval/01_test1_reward]     = $runner eval.[test1].eps_total_reward @learn clip:3000
 metrics.scalar.[22_eval/02_test2_reward]     = $runner eval.[test2].eps_total_reward @learn clip:3000
@@ -79,6 +77,7 @@ metrics.scalar.[22_eval/04_test2_reward_ema] = $runner eval.[test2].eps_total_re
 #A.action_policy.policy_type = 1        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
 #A.action_policy.policy_type = 2        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
 
+#app.train_auto_start = false
 
 
 # ---- image metrics
@@ -138,6 +137,32 @@ app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
 #LunarLanderEnv.$ = LunarLanderEnv.easy
 LunarLanderEnv.$ = LunarLanderEnv.trunk
 
+
+LunarLanderEnv.test1.enable_wind = true
+LunarLanderEnv.test1.wind_power = 3.0
+LunarLanderEnv.test1.turbulence_power = 0.5
+LunarLanderEnv.test1.terrain_point_count = 10
+LunarLanderEnv.test1.terrain_noise_height = 0.7
+LunarLanderEnv.test1.init.x_range = 1.5  # 1.0
+LunarLanderEnv.test1.init.y_range = 0.5
+LunarLanderEnv.test1.init.x_velocity_range = 4.0
+LunarLanderEnv.test1.init.y_velocity_range = 2.0
+LunarLanderEnv.test1.init.angle_range = 0.4  # 0.2=11.5度 0.4=23度 0.8=46度
+LunarLanderEnv.test1.init.angular_velocity_range = 0.5   # 0.5=28.6度/sec
+
+LunarLanderEnv.test2.enable_wind = true
+LunarLanderEnv.test2.wind_power = 15.0
+LunarLanderEnv.test2.turbulence_power = 1.5
+LunarLanderEnv.test2.terrain_point_count = 10
+LunarLanderEnv.test2.terrain_noise_height = 0.7
+LunarLanderEnv.test2.init.x_range = 1.5  # 1.0
+LunarLanderEnv.test2.init.y_range = 0.5
+LunarLanderEnv.test2.init.x_velocity_range = 4.0
+LunarLanderEnv.test2.init.y_velocity_range = 2.0
+LunarLanderEnv.test2.init.angle_range = 0.4  # 0.2=11.5度 0.4=23度 0.8=46度
+LunarLanderEnv.test2.init.angular_velocity_range = 0.5   # 0.5=28.6度/sec
+
+
 LunarLanderEnv.trunk.enable_wind = true
 LunarLanderEnv.trunk.wind_power = 3.0
 LunarLanderEnv.trunk.turbulence_power = 0.5
@@ -158,11 +183,20 @@ LunarLanderEnv.normal.terrain_point_count = 11 #21
 LunarLanderEnv.normal.terrain_noise_height = 1.0
 
 LunarLanderEnv.limit_step = 1000
-LunarLanderEnv.world_half_width = 2.5
-LunarLanderEnv.world_height = 4.0 #2.0
+LunarLanderEnv.world_half_width = 2.5 # 2.5 10
+LunarLanderEnv.world_height = 2.0 #2.0
 LunarLanderEnv.ground_y = 0.5
 LunarLanderEnv.gravity = -10.0
 LunarLanderEnv.wind_power = 15.0
+LunarLanderEnv.turbulence_power = 1.5
+LunarLanderEnv.init.x_range = 1.0
+LunarLanderEnv.init.y_range = 0.0
+LunarLanderEnv.init.x_velocity_range = 0.0
+LunarLanderEnv.init.y_velocity_range = 0.0
+LunarLanderEnv.init.angle_range = 0.1
+LunarLanderEnv.init.angular_velocity_range = 0.0
+
+
 
 
 ## MEMO
