@@ -211,7 +211,7 @@ void RunnerFrame::OnMouse(anet::rl::gui::ForwardedMouseEvent& event)
 void RunnerFrame::OnKey(anet::rl::gui::ForwardedKeyEvent& event)
 {
     auto key_event = event.GetKeyEvent();
-    LOG::info() << "RunnerFrame::OnKey() key=" << key_event.GetKeyCode() << " eventType=" << key_event.GetEventType();
+    //LOG::info() << "RunnerFrame::OnKey() key=" << key_event.GetKeyCode() << " eventType=" << key_event.GetEventType();
     ANET_LOG_DEBUG("KeyDown: key=" << key_event.GetKeyCode());
 
     int64_t action;

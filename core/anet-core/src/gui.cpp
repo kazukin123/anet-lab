@@ -80,7 +80,7 @@ void Panel::OnMouse(wxMouseEvent& event)
 
 void Panel::OnKey(wxKeyEvent& event)
 {
-    LOG::info() << "Panel::OnKey() type=" << event.GetEventType();
+    //LOG::info() << "Panel::OnKey() type=" << event.GetEventType();
 
     // 多重発火防止： 自分が「最下層のPanel」なのか、それとも「すでに処理済みのイベントを受け取った親Panel」なのかを判定
     wxWindow* target = dynamic_cast<wxWindow*>(event.GetEventObject());
