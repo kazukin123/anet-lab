@@ -1,4 +1,6 @@
 ﻿
+# --- 基本設定
+
 app.$ = app.online > P
 #app.$ = app.batchrun > P
 
@@ -16,13 +18,10 @@ DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A
 # --- NN設定
 
 #net.body.$ = net.body.MLP2
-#net.body.$ = net.body.MLP_RES
 net.body.$ = net.body.Conv1D
 
-net.block.FC1.linear.out_features = 120
-net.block.FC2.linear.out_features = 80
-#net.block.FC1.linear.out_features = 256
-#net.block.FC2.linear.out_features = 120
+net.block.FC1.linear.out_features = 256
+net.block.FC2.linear.out_features = 128
 net.block.FC1.init.mode = 1
 net.block.FC2.init.mode = 1
 
@@ -32,30 +31,38 @@ A.head_init.manual_gain = 0.0
 
 # --- 環境依存Agent設定
 
+A.stucker.use_stacker = true
+A.stucker.stack_count = 4
+
 A.action_policy.eps_decay_step = 10,000,000      # 10M
 A.action_policy.uqe_tau_decay_step = 10,000,000  # 10M
 A.learner.update_warmup_steps = 76,800           # exp_step単位。256(B) * 300step = 76800
 A.learner.per_beta_step = 10,000,000             # 10M betaを収束値まで線形変化させるexpステップ数（初期は当てにならないので補正を弱める）
 
-#A.learner.gamma = 0.99
-#A.reward_scaler.reference_q_std = 10.0
 
-
-# --- 実験
-
-train.eval.[test1].interval = 100
+#train.eval.[test1].interval = 100
+#train.eval.[test1].interval = 0
+train.eval.[test1].interval = 1000
 train.eval.[test1].run_mode = eval1
-train.eval.[test1].env.$ = LunarLanderEnv.eval
+train.eval.[test1].env.$ = LunarLanderEnv.test1
 
-train.eval.[test2].interval = 100
+#train.eval.[test2].interval = 100
+#train.eval.[test2].interval = 0
+train.eval.[test2].interval = 1000
 train.eval.[test2].run_mode = eval1
-train.eval.[test2].env.$ = LunarLanderEnv.normal
+train.eval.[test2].env.$ = LunarLanderEnv.test2
 
 metrics.scalar.[22_eval/01_test1_reward]     = $runner eval.[test1].eps_total_reward @learn clip:3000
 metrics.scalar.[22_eval/02_test2_reward]     = $runner eval.[test2].eps_total_reward @learn clip:3000
 metrics.scalar.[22_eval/03_test1_reward_ema] = $runner eval.[test1].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
 metrics.scalar.[22_eval/04_test2_reward_ema] = $runner eval.[test2].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
 
+
+#A.learner.gamma = 0.99
+#A.reward_scaler.reference_q_std = 10.0
+
+
+# --- 実験
 
 #A.learner.update_warmup_steps = 0           # exp_step単位。256(B) * 300step = 76800
 
@@ -116,28 +123,26 @@ app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
 LunarLanderEnv.$ = LunarLanderEnv.trunk
 
 
+LunarLanderEnv.test1.limit_step = 400
 LunarLanderEnv.test1.enable_wind = true
 LunarLanderEnv.test1.wind_power = 3.0
 LunarLanderEnv.test1.turbulence_power = 0.5
-LunarLanderEnv.test1.terrain_point_count = 10
-LunarLanderEnv.test1.terrain_noise_height = 0.7
 LunarLanderEnv.test1.init.x_range = 1.5  # 1.0
 LunarLanderEnv.test1.init.y_range = 0.5
 LunarLanderEnv.test1.init.x_velocity_range = 4.0
 LunarLanderEnv.test1.init.y_velocity_range = 2.0
-LunarLanderEnv.test1.init.angle_range = 0.4  # 0.2=11.5度 0.4=23度 0.8=46度
+LunarLanderEnv.test1.init.angle_range = 0.4              # 0.2=11.5度 0.4=23度 0.8=46度
 LunarLanderEnv.test1.init.angular_velocity_range = 0.5   # 0.5=28.6度/sec
 
+LunarLanderEnv.test2.limit_step = 400
 LunarLanderEnv.test2.enable_wind = true
 LunarLanderEnv.test2.wind_power = 15.0
 LunarLanderEnv.test2.turbulence_power = 1.5
-LunarLanderEnv.test2.terrain_point_count = 10
-LunarLanderEnv.test2.terrain_noise_height = 0.7
 LunarLanderEnv.test2.init.x_range = 1.5  # 1.0
 LunarLanderEnv.test2.init.y_range = 0.5
 LunarLanderEnv.test2.init.x_velocity_range = 4.0
 LunarLanderEnv.test2.init.y_velocity_range = 2.0
-LunarLanderEnv.test2.init.angle_range = 0.4  # 0.2=11.5度 0.4=23度 0.8=46度
+LunarLanderEnv.test2.init.angle_range = 0.4              # 0.2=11.5度 0.4=23度 0.8=46度
 LunarLanderEnv.test2.init.angular_velocity_range = 0.5   # 0.5=28.6度/sec
 
 
@@ -147,6 +152,7 @@ LunarLanderEnv.trunk.turbulence_power = 0.5
 LunarLanderEnv.trunk.terrain_point_count = 10
 LunarLanderEnv.trunk.terrain_noise_height = 0.7
 LunarLanderEnv.trunk.ground_y = 0.0
+
 
 LunarLanderEnv.easy.enable_wind = false
 LunarLanderEnv.easy.terrain_point_count = 2

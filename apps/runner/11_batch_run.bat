@@ -2,16 +2,30 @@
 REM SET EXE="bin\RelWithDebInfo\AnetRLRunner.exe"
 SET EXE="bin\Release\AnetRLRunner.exe" app.$=app.batchrun
 
-REM call:run_exe app.run_name=run_{t}_C128_LR5e4
+call:run_exe app.run_name=run_{t}
+
+REM ■好成績順上位3件は収束値はほぼ同じ。違いは立ち上がりの速さ(大差ではない)。
+REM call:run_exe app.run_name=run_{t}_K4_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=4"
+REM call:run_exe app.run_name=run_{t}_K2_C512_L256  "net.block.[Conv1D_Conv1d].conv.out_channels=512" "net.block.[Conv1D_Linear].linear.out_features=256"
+REM call:run_exe app.run_name=run_{t}_K2_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128"
+REM call:run_exe app.run_name=run_{t}_K3_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=3"
+REM call:run_exe app.run_name=run_{t}_02_MLP_Wide "net.body.MLP.structure=Linear_256 > ReLU > Linear_120 > ReLU"
+
+
+REM call:run_exe app.run_name=run_{t}_K3_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=3"
+REM call:run_exe app.run_name=run_{t}_K4_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=4"
+REM call:run_exe app.run_name=run_{t}_K2_C512_L256  "net.block.[Conv1D_Conv1d].conv.out_channels=512" "net.block.[Conv1D_Linear].linear.out_features=256"
+REM call:run_exe app.run_name=run_{t}_MLP_256_128   "net.body.MLP.structure=Linear_256 > ReLU > Linear_128 > ReLU"
+
 REM call:run_exe app.run_name=run_{t}_C128_LR2e3 "A.learner.alpha=2e-3"
 REM call:run_exe app.run_name=run_{t}_C128_LR1e4 "A.learner.alpha=1e-4"
 
-call:run_exe app.run_name=run_{t}_K2_C128_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128"
-call:run_exe app.run_name=run_{t}_K3_C128_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=3"
-call:run_exe app.run_name=run_{t}_K2_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128"
-call:run_exe app.run_name=run_{t}_K2_C128_L64   "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=64"
-call:run_exe app.run_name=run_{t}_K2_C64_L64    "net.block.[Conv1D_Conv1d].conv.out_channels=64"  "net.block.[Conv1D_Linear].linear.out_features=64"
-call:run_exe app.run_name=run_{t}_K2_C256_L256  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=256"
+REM call:run_exe app.run_name=run_{t}_K2_C128_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128"
+REM call:run_exe app.run_name=run_{t}_K3_C128_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=3"
+REM call:run_exe app.run_name=run_{t}_K2_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128"
+REM call:run_exe app.run_name=run_{t}_K2_C128_L64   "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=64"
+REM call:run_exe app.run_name=run_{t}_K2_C64_L64    "net.block.[Conv1D_Conv1d].conv.out_channels=64"  "net.block.[Conv1D_Linear].linear.out_features=64"
+REM call:run_exe app.run_name=run_{t}_K2_C256_L256  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=256"
 REM call:run_exe app.run_name=run_{t}_K2_C128_L128he "net.block.[Conv1D_Conv1d].conv.out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].init.mode=2" "net.block.[Conv1D_Linear].init.mode=2" "A.head_init.mode=1"
 
 
@@ -32,9 +46,10 @@ REM call:run_exe app.run_name=run_{t}_K2_C32 "net.block.[Conv1D_Conv1d].out_chan
 REM call:run_exe app.run_name=run_{t}_K2_C128 "net.block.[Conv1D_Conv1d].out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128"
 
 REM call:run_exe app.run_name=run_{t}_A_5e-4 "A.learner.alpha=5e-4"
-REM call:run_exe app.run_name=run_{t}_A_1e-3 "A.learner.alpha=1e-3"
+REM call:run_exe app.run_name=run_{t}_A_5e-5 "A.learner.alpha=5e-3"
 REM call:run_exe app.run_name=run_{t}_A_5e-3 "A.learner.alpha=5e-3"
 REM call:run_exe app.run_name=run_{t}_A_1e-2 "A.learner.alpha=1e-2"
+REM call:run_exe app.run_name=run_{t}_A_1e-1 "A.learner.alpha=1e-1"
 
 REM SET COMMON_ARGS="net.body.$=net.body.MLP2 net.block.FC1.init.mode=1 net.block.FC2.init.mode=1 A.head_init.mode=1"
 

@@ -1,4 +1,5 @@
-﻿#include "anet/trainer.hpp"
+﻿#include <limits>
+#include "anet/trainer.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
 #include "anet/observers.hpp"
@@ -361,6 +362,9 @@ RunnerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
         // Interval取得
         int interval = 100;
         eval_config_data.Read("interval", interval, interval);
+
+        // メトリクス初期化
+        eval_last_rewards_[tag] = std::numeric_limits<float>::quiet_NaN();
 
 		// EvalObserver生成
 		//auto config_prefix = "train.eval." + tag;
