@@ -17,8 +17,8 @@ DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A
 
 # --- NN設定
 
-#net.body.$ = net.body.MLP2
-net.body.$ = net.body.Conv1D
+net.body.$ = net.body.MLP2
+#net.body.$ = net.body.Conv1D
 
 net.block.FC1.linear.out_features = 256
 net.block.FC2.linear.out_features = 128
