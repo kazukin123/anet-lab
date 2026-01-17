@@ -544,36 +544,63 @@ std::vector<SingleExperience> BatchExperience::ToExperienceList() const
     ANET_ASSERT_MSG(next_state.obs.numel() % N == 0,
         "MakeFromBatch: next_state.obs total elements not divisible by batch size.");
 
-    // ---- main loop ----
+    // ReplayBufferがCPU前提なので、ここで一括してCPUに移す (GPU->CPU転送コストを1回に集約)
+    // unbind(0) で N個の Tensor (view または copy) のリストに分解しておく
+
+    // Observation / NextObservation
+    auto state_obs_cpu = state.obs.cpu();
+    auto state_obs_list = state_obs_cpu.unbind(0);
+    auto next_obs_cpu = next_state.obs.cpu();
+    auto next_obs_list = next_obs_cpu.unbind(0);
+
+    // Action
+    auto action_cpu = action.GetAction().cpu();
+    auto action_list = action_cpu.unbind(0);
+
+    // Scalars (Done, Truncated, EpisodeStart, Reward)
+    auto s_done_cpu = state.done.to(torch::kCPU).contiguous();
+    auto s_trunc_cpu = state.truncated.to(torch::kCPU).contiguous();
+    auto s_start_cpu = state.episode_start.to(torch::kCPU).contiguous();
+    auto ns_done_cpu = next_state.done.to(torch::kCPU).contiguous();
+    auto ns_trunc_cpu = next_state.truncated.to(torch::kCPU).contiguous();
+    auto ns_start_cpu = next_state.episode_start.to(torch::kCPU).contiguous();
+    auto reward_cpu = reward.to(torch::kCPU).contiguous();
+
+    // 生ポインタ取得 (オーバーヘッド回避)
+    const bool* s_done_ptr = s_done_cpu.data_ptr<bool>();
+    const bool* s_trunc_ptr = s_trunc_cpu.data_ptr<bool>();
+    const bool* s_start_ptr = s_start_cpu.data_ptr<bool>();
+    const bool* ns_done_ptr = ns_done_cpu.data_ptr<bool>();
+    const bool* ns_trunc_ptr = ns_trunc_cpu.data_ptr<bool>();
+    const bool* ns_start_ptr = ns_start_cpu.data_ptr<bool>();
+    const float* reward_ptr = reward_cpu.data_ptr<float>();
+
+    // =========================================================
+    // ループ構築
+    // =========================================================
     std::vector<SingleExperience> out;
     out.reserve(N);
 
     for (int64_t i = 0; i < N; ++i) {
         SingleState s = {
-            state.obs[i],
-            state.done[i].item<bool>(),
-            state.truncated[i].item<bool>(),
-            state.episode_start[i].item<bool>()
+            state_obs_list[i],  // CPU Tensor
+            s_done_ptr[i],
+            s_trunc_ptr[i],
+            s_start_ptr[i]
         };
 
         SingleState ns = {
-            next_state.obs[i],
-            next_state.done[i].item<bool>(),
-            next_state.truncated[i].item<bool>(),
-            next_state.episode_start[i].item<bool>()
-        };
-        SingleState cs = {
-            next_state.obs[i],
-            next_state.done[i].item<bool>(),
-            next_state.truncated[i].item<bool>(),
-            next_state.episode_start[i].item<bool>()
+            next_obs_list[i],   // CPU Tensor
+            ns_done_ptr[i],
+            ns_trunc_ptr[i],
+            ns_start_ptr[i]
         };
 
         out.push_back({
-            s,
-            action.GetAction().index({i}),
-            reward[i].item<float>(),
-            ns
+            std::move(s),
+            action_list[i],     // CPU Tensor
+            reward_ptr[i],      // float
+            std::move(ns)
             });
     }
 

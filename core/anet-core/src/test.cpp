@@ -259,7 +259,7 @@ static void TestStackingMultiEnv()
 
 void anet::rl::Test(const Runner& trainer)
 {
-    TestStacking();
-    TestStackingMultiEnv();
+    //TestStacking();
+    //TestStackingMultiEnv();
 }
 

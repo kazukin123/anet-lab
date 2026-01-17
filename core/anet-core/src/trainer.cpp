@@ -1,4 +1,5 @@
 ﻿#include <limits>
+#include "anet/cuda.hpp"
 #include "anet/trainer.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
@@ -447,8 +448,8 @@ StepCounts DefaultTrainer::DoStep()
 
     // 環境ステップ実行
     auto result = env_->Step(action_info);    // next_state, reward, done, truncated
-    ANET_LOG_DEBUG("step=" << train_step << " reward=" << anet::ToString(result->reward));
-    ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result->next_state.ToString());
+    //ANET_LOG_DEBUG("step=" << train_step << " reward=" << anet::ToString(result->reward));
+    //ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result->next_state.ToString());
     ANET_ASSERT_DEVICE(result->next_state.obs, torch::kCPU);
     ANET_ASSERT_DEVICE(result->next_state.done, torch::kCPU);
     ANET_ASSERT_DEVICE(result->next_state.truncated, torch::kCPU);
