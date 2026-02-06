@@ -36,18 +36,20 @@ TODO：実行手順を書く
 	* CUDA対応
 	* N環境スレッド対応
 	* 設定によるNN生成
-	* 設定による柔軟なメトリクス定義
-	* CartPoleEnvGUI
-	* LunarLanderEnvGUI
+	* 設定によるメトリクス定義
+* Env実装
+	* CartPoleEnv
+	* LunarLanderEnv
+	* DropMergeEnv
 
 ### DOING
 
 * 学習アルゴリズム
+	* 2D-Conv対応
 	* マルチエージェント対応
 * メトリクス
 * AP改善
 	* EvalRunnerのseed指定
-	* DropMergeEnv
 
 ### TODO
 
@@ -60,6 +62,7 @@ TODO：実行手順を書く
 	* SWA
 	* Swish活性化関数
 * メトリクス
+	* MetricsViewer.java：間引データ連携対応
 	* MetricsViewer.java：フェーズ1.5：ハイパラ表示対応
 	* MetricsViewer.java：フェーズ1.5：Loadingスケジュール最適化
 	* 閾値値等の基準横線出力対応
@@ -68,6 +71,7 @@ TODO：実行手順を書く
 	* ヒートマップ：MetricsViewer統合
 	* TB:add_hparams対応
 * AP改善
+	* Dict Observation Space
 	* EvalPanelに自動アクション選択を追加
 	* NNパラメータの保存と読込
 	* 同じクラスでインスタンス別の設定キー

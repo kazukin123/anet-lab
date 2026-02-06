@@ -7,6 +7,7 @@ $include <nn.txt>
 $include <common.txt>
 
 #$include <CartPole.txt>
-$include <LunarLander.txt>
+#$include <LunarLander.txt>
+$include <DropMerge.txt>
 
 

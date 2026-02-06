@@ -16,6 +16,7 @@
 #include "anet/profile.hpp"
 #include "anet/env/LunarLander.hpp"
 #include "anet/env/CartPole.hpp"
+#include "anet/env/DropMerge.hpp"
 #include "ErrorDialog.hpp"
 #include "RunnerFrame.hpp"
 #include "TrainPanel.hpp"
@@ -108,6 +109,7 @@ bool RunnerApp::OnInit()
     anet::rl::InitRL();
     anet::rl::env::InitLunarLander();
     anet::rl::env::InitCartPole();
+    anet::rl::env::InitDropMerge();
 
     // 全体ログレベル設定
 #if ANET_ENABLE_DEBUGINFO
@@ -157,7 +159,7 @@ bool RunnerApp::OnInit()
 
     // DefaultViewFactory
     view_factory_ = std::make_unique<anet::rl::gui::DefaultViewFactory>(config_data);
-    
+
     // Trainer初期化
     InitTrainer();
 
@@ -235,7 +237,7 @@ void RunnerApp::ToggleTraining()
         trainer_thread_->Pause();
         log_str = "Training paused";
     }
-	LOG::info() << log_str;
+    LOG::info() << log_str;
     wxGetApp().GetMainFrame()->SetStatusText(log_str);
 }
 
@@ -308,7 +310,7 @@ void RunnerApp::InitTrainer()
             if (event.counts.learn_step % 100 == 0) {
                 auto train_step = event.counts.train_step;
                 auto learn_step = event.counts.learn_step;
-				auto exp_step = event.counts.exp_step;
+                auto exp_step = event.counts.exp_step;
 
                 LOG::info() << "train_step=" << train_step << " exp_step=" << exp_step << " learn_step=" << learn_step;
 

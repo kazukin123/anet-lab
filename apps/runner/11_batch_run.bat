@@ -1,12 +1,43 @@
 @echo off
 REM SET EXE="bin\RelWithDebInfo\AnetRLRunner.exe"
-SET EXE="bin\Release\AnetRLRunner.exe" app.$=app.batchrun
+REM SET EXE="bin\Release\AnetRLRunner.exe" app.$=app.batchrun
+SET EXE="bin\Release\AnetRLRunner.exe"
 
-call:run_exe app.run_name=run_{t}_s4
-call:run_exe app.run_name=run_{t}_s8      "A.stucker.stack_count=8"
-call:run_exe app.run_name=run_{t}_s16     "A.stucker.stack_count=16"
-call:run_exe app.run_name=run_{t}_s4_n64  "A.stucker.stack_count=4" "net.block.FC2.linear.out_features=64"
-call:run_exe app.run_name=run_{t}_s4_n128 "A.stucker.stack_count=4" "net.block.FC2.linear.out_features=128"
+REM call:run_exe app.run_name=run_{t}_seed train.seed=7508636947373324265 
+
+REM call:run_exe app.run_name=run_{t}
+REM call:run_exe app.run_name=run_{t}_g20  E.grid_rows=20  E.grid_cols=20
+call:run_exe app.run_name=run_{t}_g20w net.block.FC1.linear.out_features=2048 net.block.FC2.linear.out_features=1024
+REM call:run_exe app.run_name=run_{t}_g30  E.grid_rows=30  E.grid_cols=30
+
+
+REM call:run_exe app.run_name=run_{t}_g10  E.grid_rows=10  E.grid_cols=10
+REM call:run_exe app.run_name=run_{t}_g30  E.grid_rows=30  E.grid_cols=30
+REM call:run_exe app.run_name=run_{t}_g100 E.grid_rows=100 E.grid_cols=100
+
+REM call:run_exe app.run_name=run_{t}_b128  A.learner.replay_batch_size=128
+REM call:run_exe app.run_name=run_{t}_b512  A.learner.replay_batch_size=512
+
+REM call:run_exe app.run_name=run_{t}-EPS   A.action_policy.policy_type=0
+REM call:run_exe app.run_name=run_{t}-UQE   A.action_policy.policy_type=1
+REM call:run_exe app.run_name=run_{t}-TS    A.action_policy.policy_type=2
+
+REM call:run_exe app.run_name=run_{t}-A_5e-5 A.learner.alpha=5e-5
+REM call:run_exe app.run_name=run_{t}-A_5e-3 A.learner.alpha=5e-3
+
+
+REM call:run_exe app.run_name=run_{t}_B-16 train.batch_size=16 
+REM call:run_exe app.run_name=run_{t}_B-32 train.batch_size=32
+REM call:run_exe app.run_name=run_{t}_B-64 train.batch_size=64
+REM call:run_exe app.run_name=run_{t}_B-128 train.batch_size=128
+REM call:run_exe app.run_name=run_{t}_B-256 train.batch_size=256
+REM call:run_exe app.run_name=run_{t}_B-512 train.batch_size=512
+REM call:run_exe app.run_name=run_{t}_B-1024 train.batch_size=1024
+
+REM call:run_exe app.run_name=run_{t}_s8      "A.stucker.stack_count=8"
+REM call:run_exe app.run_name=run_{t}_s16     "A.stucker.stack_count=16"
+REM call:run_exe app.run_name=run_{t}_s4_n64  "A.stucker.stack_count=4" "net.block.FC2.linear.out_features=64"
+REM call:run_exe app.run_name=run_{t}_s4_n128 "A.stucker.stack_count=4" "net.block.FC2.linear.out_features=128"
 
 REM ■好成績順上位3件は収束値はほぼ同じ。違いは立ち上がりの速さ(大差ではない)。
 REM call:run_exe app.run_name=run_{t}_K4_C256_L128  "net.block.[Conv1D_Conv1d].conv.out_channels=256" "net.block.[Conv1D_Linear].linear.out_features=128" "net.block.[Conv1D_Conv1d].conv.kernel_size=4"
@@ -49,8 +80,9 @@ REM call:run_exe app.run_name=run_{t}_K3_C64 "net.block.[Conv1D_Conv1d].kernel_s
 REM call:run_exe app.run_name=run_{t}_K2_C32 "net.block.[Conv1D_Conv1d].out_channels=32" "net.block.[Conv1D_Linear].linear.out_features=32"
 REM call:run_exe app.run_name=run_{t}_K2_C128 "net.block.[Conv1D_Conv1d].out_channels=128" "net.block.[Conv1D_Linear].linear.out_features=128"
 
+REM call:run_exe app.run_name=run_{t}_A_5e-5 "A.learner.alpha=5e-5"
 REM call:run_exe app.run_name=run_{t}_A_5e-4 "A.learner.alpha=5e-4"
-REM call:run_exe app.run_name=run_{t}_A_5e-5 "A.learner.alpha=5e-3"
+REM call:run_exe app.run_name=run_{t}_A_1e-3 "A.learner.alpha=1e-3"
 REM call:run_exe app.run_name=run_{t}_A_5e-3 "A.learner.alpha=5e-3"
 REM call:run_exe app.run_name=run_{t}_A_1e-2 "A.learner.alpha=1e-2"
 REM call:run_exe app.run_name=run_{t}_A_1e-1 "A.learner.alpha=1e-1"

@@ -1,0 +1,208 @@
+﻿# --- 基本設定
+
+app.$ = app.online > P
+#app.$ = app.batchrun > P
+
+train.seed = 1
+
+#train.batch_size = 256
+train.batch_size = 128
+#train.batch_size = 10
+#train.batch_size = 1
+
+DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A
+#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > B	 # Random Policy
+
+
+# --- 実験
+
+## 長時間Run
+train.batch_size = 256
+app.online.exp_pause_step  = -1
+E.max_step = 20000
+A.action_policy.uqe_tau_decay_step = 100,000,000 # 100M
+A.learner.per_beta_step = 100,000,000            # 100M
+A.learner.alpha = 1e-5
+A.learner.gamma = 0.995 # ★
+A.learner.n_step = 80
+A.learner.replay_capacity = 1,024,000 
+A.learner.per_prio_clip_value = 10.0  # 30 優先度の上限値
+A.reward_scaler.use_clipping = false
+A.reward_scaler.use_dynamic_scaling = false
+A.reward_scaler.constant_scale = 1.0
+train.eval.[eval1].interval = 1000
+train.eval.[eval2].interval = 1000
+
+
+#A.learner.per_prio_clip_value = 100.0  # 30 優先度の上限値
+#A.learner.per_prio_clip_value = 60.0  # 30 優先度の上限値
+
+#app.batchrun.exp_exit_step  = 5,000,000
+
+#train.eval.[eval1].interval = 100
+#train.eval.[eval2].interval = 100
+#train.eval.[eval1].run_mode = eval1
+#train.eval.[eval2].run_mode = eval2
+
+#A.action_policy.policy_type = 0        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
+
+
+# --- Env依存設定
+
+A.reward_scaler.use_clipping = true
+A.reward_scaler.clip_range = 10.0
+A.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
+
+#A.stucker.use_stacker = true
+#A.stucker.stack_count = 4
+
+#A.learner.alpha = 5e-5 # 5e-4
+A.learner.replay_ratio = 1.0
+A.learner.replay_capacity = 256,000 
+A.learner.replay_batch_size = 256
+A.learner.grad_clip_tau = 40
+
+
+#A.action_policy.eps_decay_step = 10,000,000      # 10M
+#A.action_policy.uqe_tau_decay_step = 10,000,000  # 10M
+#A.learner.update_warmup_steps = 76,800           # exp_step単位。256(B) * 300step = 76800
+#A.learner.per_beta_step = 10,000,000             # 10M betaを収束値まで線形変化させるexpステップ数（初期は当てにならないので補正を弱める）
+#A.n_step = 3
+
+#app.online.exp_pause_step  = 25,600,000   # 256 * 100K
+#app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
+
+
+B.action_policy.policy_type = 0        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
+B.action_policy.eps_max = 1.00
+B.action_policy.eps_min = 1.00
+B.learner.replay_capacity = 256,000 
+B.learner.update_warmup_steps = 999999999
+B.learner.alpha = 0
+
+
+# --- NN設定 (MLP)
+
+#  904 (4 + 30x30) x 4stack ≒ 3600次元
+#  104 (4 + 10x10) x 4stack ＝  416次元
+
+net.body.$ = net.body.MLP2
+
+#net.block.FC1.linear.out_features = 1024
+#net.block.FC2.linear.out_features = 512
+
+net.block.FC1.linear.out_features = 2048
+net.block.FC2.linear.out_features = 1024
+
+net.block.FC1.init.mode = 1
+net.block.FC2.init.mode = 1
+
+
+# ---- scalar metrics
+
+metrics.scalar.$ = metrics.scalar.baseline > M
+#metrics.scalar.$ = metrics.scalar.min > M
+#metrics.scalar.$ = metrics.scalar.full > M
+
+#metrics.scalar.[90_perf/82_exp_step] = exp_step @train $runner interval:100
+
+#metrics.scalar.[22_eval/01_test1_reward]     = $runner eval.[test1].eps_total_reward @learn clip:3000
+#metrics.scalar.[22_eval/02_test2_reward]     = $runner eval.[test2].eps_total_reward @learn clip:3000
+#metrics.scalar.[22_eval/03_test1_reward_ema] = $runner eval.[test1].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
+#metrics.scalar.[22_eval/04_test2_reward_ema] = $runner eval.[test2].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
+
+
+# ---- image metrics
+
+metrics.image.interval = 0   # 出力全無効
+#metrics.image.interval = 1   # 毎ステップ出力（重い）
+#metrics.image.interval = 50   # 通常運用
+#metrics.image.interval = 500 # 重い場合
+
+metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.per-prio > image.phm.s01
+#metrics.image.[43_agent_img/02_hm_visit_03_maxq].$     = image.phm.visit-maxq
+#metrics.image.[44_agent_img/52_per_thg_prio].$         = image.thg.per-prio
+#metrics.image.[45_agent_img/05_shm_01_qma01].$   = image.shm.qmax > image.shm.s01
+#metrics.image.[45_agent_img/05_shm_01_qma02].$   = image.shm.qmax > image.shm.s02
+##metrics.image.[45_agent_img/05_shm_01_maxq_01].$        = image.shm.qmax > image.shm.01
+#metrics.image.[45_agent_img/05_shm_01_maxq_01].interval = 100
+
+#metrics.image.[53_agent_img/52_per_hm_prio_01_test].$   = image.phm.per-prio > image.phm.s01 > image.test
+#metrics.image.[55_agent_img/05_shm_01_maxq_01_test].$   = image.shm.qmax > image.shm.01 > image.test
+
+# --- ap
+
+app.online.eval_panel.step_per_frame = 5
+
+# --- env
+
+env.class_id = DropMergeEnv
+
+# 定義セットの適用
+DropMergeEnv.$ = DropMergeEnv.baseline > E
+
+
+# --- DropMergeEnv ---
+
+# グリッド
+#DropMergeEnv.baseline.grid_rows = 30
+#DropMergeEnv.baseline.grid_cols = 30
+#DropMergeEnv.baseline.grid_rows = 10
+#DropMergeEnv.baseline.grid_cols = 10
+DropMergeEnv.baseline.grid_rows = 20
+DropMergeEnv.baseline.grid_cols = 20
+
+# 箱サイズ
+DropMergeEnv.baseline.box_width = 3.0
+DropMergeEnv.baseline.box_height = 4.0
+DropMergeEnv.baseline.ground_y = 0.5
+
+# ゲームバランス
+DropMergeEnv.baseline.max_step = 4000         # 3000
+DropMergeEnv.baseline.dropper_speed = 0.05
+DropMergeEnv.baseline.reload_min_steps = 20   # 物理判定が即座に終わっても、最低これだけは待つ（連打防止）。
+DropMergeEnv.baseline.reload_max_steps = 300  # DROPしてから次RELOADまでの強制抑制解除ステップ数
+DropMergeEnv.baseline.pop_force = 0.5         # 0.5 1.5 爆発力
+DropMergeEnv.baseline.restitution = 0.05      # 反発係数
+DropMergeEnv.baseline.friction = 0.3          # 摩擦
+DropMergeEnv.baseline.time_penalty = -0.0001   # 時間ペナルティ
+DropMergeEnv.baseline.game_over_penalty = -5.0 # GameOverペナルティ
+
+# 果物スコア: 三角数ベース + α
+DropMergeEnv.baseline.fruit_scores  = 0.1 0.3 0.6 1.0 1.5 2.1 2.8 3.6 4.5 5.5 6.6 
+
+# 果物半径
+DropMergeEnv.baseline.fruit_radii = 0.09 0.13 0.17 0.22 0.28 0.35 0.43 0.52 0.62 0.72 0.84
+
+# 果物密度
+DropMergeEnv.baseline.fruit_densities = 5.0 5.0 5.0 5.0 5.0 5.0 5.0 5.0 5.0 5.0 5.0   # 大きめにすると吹き飛びにくい
+
+# ドロッパー出現率分布
+DropMergeEnv.baseline.drop_probs = 20.0 20.0 20.0 20.0 20.0
+
+# --- メトリクス・可視化 ---
+
+metrics.image.interval = 100
+app.online.train_panel.fps = 30
+
+
+# --- Eval設定 ---
+
+#DropMergeEnv.test1.max_step = 8000
+#
+#train.eval.[test1].interval = 5000
+#train.eval.[test1].run_mode = eval1
+#train.eval.[test1].env.$ = DropMergeEnv.standard > DropMergeEnv.test1 > E1
+
+### 報酬
+# ランク	フルーツ	マージ報酬	累積スコア(Rewardは約/10)
+# Rank 2	いちご		0.3		3
+# Rank 3	ぶどう		0.6		12
+# Rank 4	デコポン	1.0		34
+# Rank 5	柿			1.5		83
+# Rank 6	りんご		2.1		187
+# Rank 7	梨			2.8		402
+# Rank 8	桃			3.6		840
+# Rank 9	パイン		4.5		1725
+# Rank 10	メロン		5.5		3505
+# Rank 11	スイカ		6.6		7076

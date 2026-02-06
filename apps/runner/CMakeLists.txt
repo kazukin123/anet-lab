@@ -49,6 +49,7 @@ target_link_libraries(AnetRLRunner PRIVATE
     anet-core
     LunarLanderEnv
     CartPoleEnv
+    DropMergeEnv
 )
 
 if (WIN32)
