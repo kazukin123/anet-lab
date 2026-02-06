@@ -11,8 +11,8 @@ import lombok.Data;
 @AllArgsConstructor
 public class MetricsFileBlock {
 	
-	private final int startOffset;
-	private final int endOffset;
+	private final long startOffset;
+	private final long endOffset;
 	private final List<MetricsFileLine> lines;
 	private final long lastModified;
 	private final boolean isEOF;

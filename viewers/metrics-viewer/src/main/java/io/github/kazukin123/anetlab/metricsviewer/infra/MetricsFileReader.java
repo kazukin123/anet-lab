@@ -140,7 +140,7 @@ public class MetricsFileReader {
 			}
 
 			String line;
-			int lineCount = 0;
+			long lineCount = 0;
 
 			while ((line = br.readLine()) != null) {
 				bytesRead += line.getBytes(StandardCharsets.UTF_8).length + 1;
@@ -190,7 +190,7 @@ public class MetricsFileReader {
 					lineCount, bytesRead / 1_000_000,
 					(tEnd - tStart), eof);
 
-			return new MetricsFileBlock((int) startOffset, (int) bytesRead, lines, fileLastModified, eof);
+			return new MetricsFileBlock(startOffset, bytesRead, lines, fileLastModified, eof);
 
 		} catch (IOException e) {
 			log.error("Error reading metrics file {}: {}", jsonlFile, e.getMessage());
