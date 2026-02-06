@@ -87,6 +87,7 @@ void HeatMapVectorObserver::OnTrain(const TrainEvent& event)
 
     // データ追加
     anet::ProfileRange r2("HeatMapVectorObserver::OnTrain.addDataBatch", r1);
+    heatmap_->Reset();  // 毎回バッファクリア（最新のRB内容だけ描画）
     heatmap_->AddDataBatch(*xv, *yv, *vv);
 
     captured_step_ = step;
@@ -586,7 +587,7 @@ MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(const
         target = event.agent.get();
         break;
     case anet::rl::EventField::RUNNER:
-        target = &event.runner;
+        target = event.runner.get();
         break;
     default:
         ANET_SYSTEM_ERROR("Unknown event field: " << static_cast<int>(event_field));

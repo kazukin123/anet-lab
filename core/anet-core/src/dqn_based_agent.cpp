@@ -156,6 +156,11 @@ torch::Tensor anet::rl::dqn::ActionPolicy::MakeEpsilonGreedyAction(const torch::
 {
     ProfileRange  r("ActionPolicy::MakeEpsilonGreedyAction");
 
+    // epsilongがゼロ(十分小さい)場合はGreedy（乱数生成影響を排除）
+    if (epsilon <= std::numeric_limits<float>::epsilon()) {
+        return greedy_action;
+    }
+
     auto device = greedy_action.device();
 
     // mask: (N) bool, GPU上で生成
@@ -284,6 +289,8 @@ void anet::rl::dqn::UQEActionPolicy::OnLearn(const StepCounts& counts)
     UpdateTau(counts.exp_step);
 }
 
+/// Q分布の上位tau%(上振れ時)Q値が最大になる行動を選択する。
+/// tauが大きい(1.0に近い)程、不確実だけど化ける可能性がある行動が相対的に選択されやすくなる
 torch::Tensor UQEActionPolicy::MakeUQEAction(float tau, const torch::Tensor& q_quantiles) const
 {
     ProfileRange r("UQEActionPolicy::MakeUQEAction");
@@ -335,7 +342,6 @@ torch::Tensor UQEActionPolicy::MakeVectorizedUQEAction(const torch::Tensor& tau_
     torch::Tensor uqe_values;
 
     if (config_.uqe_use_tail_mean) {
-        // 【難所】Tail Meanの場合 (バッチごとに開始位置が違うため slice は使えない)
         // マスクを使って平均を計算する
 
         // range: (1, 1, n_quantiles) -> [0, 1, 2, ...]
@@ -545,7 +551,7 @@ bool Learner::CanUpdate(step_t update_step, step_t exp_step) const
 }
 
 anet::rl::BatchUpdateResultList
-Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::BatchExperience& experiences, const anet::rl::Runner& trainer)
+Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::BatchExperience& experiences, std::shared_ptr<const anet::rl::Runner> runner)
 {
     // ReplayBuffer へ push
     replay_buffer_->Push(experiences);

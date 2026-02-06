@@ -12,6 +12,7 @@ train.batch_size = 256
 #train.batch_size = 10
 #train.batch_size = 1
 
+#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.heavy > A
 DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A
 
 
@@ -62,9 +63,13 @@ metrics.scalar.[22_eval/04_test2_reward_ema] = $runner eval.[test2].eps_total_re
 #A.reward_scaler.reference_q_std = 10.0
 
 
-# --- 実験
+# --- 実験・デバッグ
 
 #A.learner.update_warmup_steps = 0           # exp_step単位。256(B) * 300step = 76800
+
+#app.online.train_panel.fps = 120
+#app.online.train_panel.fps = 30
+#app.online.eval_panel.fps = 0
 
 #A.learner.alpha = 5e-3
 
@@ -112,6 +117,8 @@ env.class_id = LunarLanderEnv
 
 # ---- app
 
+#app.online.exp_pause_step  = -1
+#app.online.exp_pause_step  = 50,000
 app.online.exp_pause_step  = 25,600,000   # 256 * 100K
 app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
 
@@ -168,7 +175,8 @@ LunarLanderEnv.normal.terrain_noise_height = 1.0
 
 LunarLanderEnv.limit_step = 1000
 LunarLanderEnv.world_half_width = 2.5 # 2.5 10
-LunarLanderEnv.world_height = 2.0 #2.0
+#LunarLanderEnv.world_height = 2.0 #2.0
+LunarLanderEnv.world_height = 4.0 #2.0
 LunarLanderEnv.ground_y = 0.5
 LunarLanderEnv.gravity = -10.0
 LunarLanderEnv.wind_power = 15.0

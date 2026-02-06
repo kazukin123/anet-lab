@@ -289,7 +289,7 @@ anet::rl::BatchActionInfo DefaultDQNAgent::MakeAction(const StepCounts& step, co
 }
 
 anet::rl::BatchUpdateResultList
-DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp, const anet::rl::Runner& runner)
+DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp, std::shared_ptr<const anet::rl::Runner> runner)
 {
     ProfileRange r1("DefaultDQNAgent::UpdateFromBatch");
 

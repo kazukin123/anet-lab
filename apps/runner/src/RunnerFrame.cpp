@@ -157,14 +157,17 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
     );
 }
 
-void RunnerFrame::Initialize(std::shared_ptr<anet::rl::DefaultTrainer> trainer)
+void RunnerFrame::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
 {
-    train_panel_->Initialize(trainer);
-    eval_panel_->Initialize(trainer);
+    // TrainPanel初期化
+    train_panel_->Initialize(run_manager);
 
-    auto action_spec = wxGetApp().GetTrainer()->GetBatchEnv()->GetSpec().action_spec;
-    auto notifier = eval_panel_->GetNotifier();
-    q_value_panel_->Initialize(action_spec, notifier);
+    // EvalPanel初期化
+    auto eval_runner = run_manager->CreateEvalRunner("EvalPanel");
+    eval_panel_->Initialize(run_manager, eval_runner);
+
+    // QValuePanel初期化
+    q_value_panel_->Initialize(run_manager, eval_runner);
 }
 
 void RunnerFrame::SetupEvents()
@@ -258,8 +261,8 @@ void RunnerFrame::OnKey(anet::rl::gui::ForwardedKeyEvent& event)
 
 void RunnerFrame::OnHeatMap(wxCommandEvent& event)
 {
-    auto trainer = wxGetApp().GetTrainer();
-    auto env_spec = trainer->GetBatchEnv()->GetSpec();
+    auto train_runner = wxGetApp().GetRunManager().GetTrainRunner();
+    auto env_spec = train_runner->GetBatchEnv()->GetSpec();
 
     // ダイアログ生成
     SweepHeatMapDialog dialog(this, env_spec);
@@ -269,7 +272,7 @@ void RunnerFrame::OnHeatMap(wxCommandEvent& event)
         SweepHeatMapSettings s = dialog.GetSettings();
 
         // HeatMapパネルを生成
-        auto heatmap_panel = new SweepHeatMapPanel(this, s.tag, s, trainer);
+        auto heatmap_panel = new SweepHeatMapPanel(this, s.tag, s, train_runner);
         aui_mgr_.AddPane(heatmap_panel,
             PanelInfo("HeatMapPanel", "HeatMap", s.tag)
             .Right().Layer(20)          // Layer:大きいほど外側

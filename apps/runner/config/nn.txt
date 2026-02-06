@@ -126,7 +126,7 @@ net.body.ResNet152.structure = Conv1_Input > MaxPool > ResA(*3) > ResB(*8) > Res
 
 net.block.[MLP_FC1].$ = net.block.[Linear_120] > net.block.FC1  # default: out_features = 120
 net.block.[MLP_FC2].$ = net.block.[Linear_84] > net.block.FC2   # default: out_features = 84
-net.block.[MLP_FC3].$ = net.block.[Linear_84] > net.block.FC2   # default: out_features = 84
+net.block.[MLP_FC3].$ = net.block.[Linear_84] > net.block.FC3   # default: out_features = 84
 
 net.body.MLP2.structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU
 net.body.MLP3.structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU > MLP_FC3 > ReLU

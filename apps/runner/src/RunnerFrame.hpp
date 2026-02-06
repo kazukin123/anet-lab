@@ -20,7 +20,7 @@ public:
 
     virtual ~RunnerFrame();
 
-    void Initialize(std::shared_ptr<anet::rl::DefaultTrainer> trainer);
+    void Initialize(std::shared_ptr<anet::rl::RunManager> run_manager);
 protected:
     void OnExit(wxCommandEvent& event);
     void OnAbout(wxCommandEvent& event);

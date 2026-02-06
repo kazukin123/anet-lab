@@ -615,7 +615,7 @@ namespace anet::rl {
     class Learner {
     public:
         virtual BatchUpdateResultList UpdateFromBatch(
-            const StepCounts& step, const BatchExperience& expriences, const Runner& trainer) = 0;
+            const StepCounts& step, const BatchExperience& expriences, std::shared_ptr<const anet::rl::Runner> runner) = 0;
         virtual ~Learner() = default;
     };
 
@@ -698,16 +698,9 @@ namespace anet::rl {
         RUNNER
     };
 
-    struct BeforeStepEvent {
-        const Runner& runner;
-        const StepCounts counts;
-        const std::shared_ptr<const Agent> agent;
-        const std::shared_ptr<const BatchEnv> env;
-    };
-
     struct UpdateEvent {
         const BatchExperience& experience;
-		const Runner& runner;
+        const std::shared_ptr<const Runner> runner;
         const StepCounts counts;
         const std::shared_ptr<const Agent> agent;
         const BatchUpdateResultList update_result_list;
@@ -734,6 +727,33 @@ namespace anet::rl {
         virtual void OnLearn(const LearnEvent& event) = 0;
         virtual std::string ToString() const = 0;
         virtual ~LearnObserver() = default;
+    };
+
+    // -----------------------------------------------------------------
+    // RunnerScopedTrainObserver
+    // -----------------------------------------------------------------
+    class RunnerScopedTrainObserver : public TrainObserver {
+    public:
+        RunnerScopedTrainObserver(std::shared_ptr<TrainObserver> real_observer, std::shared_ptr<const Runner> target_runner);
+
+        void OnTrain(const TrainEvent& event) override;
+        std::string ToString() const override;
+    private:
+        std::shared_ptr<TrainObserver> real_observer_;
+        std::shared_ptr<const Runner> target_runner_;
+    };
+
+    // -----------------------------------------------------------------
+    // RunnerScopedLearnObserver
+    // -----------------------------------------------------------------
+    class RunnerScopedLearnObserver : public LearnObserver {
+    public:
+        RunnerScopedLearnObserver(std::shared_ptr<LearnObserver> real_observer, std::shared_ptr<const Runner> target_runner);
+        void OnLearn(const LearnEvent& event) override;
+        std::string ToString() const override;
+    private:
+        std::shared_ptr<LearnObserver> real_observer_;
+        std::shared_ptr<const Runner> target_runner_;
     };
 
     // =============================================================
@@ -763,6 +783,32 @@ namespace anet::rl {
             Attach(obs);
             return obs;
         }
+        template <class T, class... Args>
+        std::shared_ptr<T> AttachScoped(std::shared_ptr<Runner> target_runner, Args&&... args)
+        {
+            auto obs = std::make_shared<T>(std::forward<Args>(args)...);
+            if constexpr (std::is_base_of_v<TrainObserver, T>) {
+                auto wrapper = std::make_shared<RunnerScopedTrainObserver>(obs, target_runner);
+                this->Attach(wrapper);
+            }
+            if constexpr (std::is_base_of_v<LearnObserver, T>) {
+                auto wrapper = std::make_shared<RunnerScopedLearnObserver>(obs, target_runner);
+                this->Attach(wrapper);
+            }
+            return obs;
+        }
+        std::shared_ptr<TrainObserver> AttachScoped(std::shared_ptr<TrainObserver> observer, std::shared_ptr<const Runner> target_runner)
+        {
+            auto wrapper = std::make_shared<RunnerScopedTrainObserver>(observer, target_runner);
+            this->Attach(wrapper);
+            return observer;
+        }
+        std::shared_ptr<LearnObserver> AttachScoped(std::shared_ptr<LearnObserver> observer, std::shared_ptr<const Runner> target_runner)
+        {
+            auto wrapper = std::make_shared<RunnerScopedLearnObserver>(observer, target_runner);
+            this->Attach(wrapper);
+            return observer;
+        }
     private:
         std::vector<std::shared_ptr<TrainObserver>> train_observers_;
         std::vector<std::shared_ptr<LearnObserver>> learn_observers_;
@@ -788,7 +834,7 @@ namespace anet::rl {
     public:
         using ControlFunction = std::function<ControlSignal(const StepCounts& counts)>; ///< 学習ステップ制御処理(戻り値trueで処理中断)
     public:
-        virtual RunnerStatus Initialize(const ConfigData& config_data) = 0;
+        //virtual RunnerStatus Initialize(const ConfigData& config_data) = 0;
         virtual StepCounts DoStep() = 0;
         virtual StepCounts DoUpdateFrame(int max_steps,
             ControlFunction pre_step_func = nullptr, ControlFunction post_step_func = nullptr) = 0;

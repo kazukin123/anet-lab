@@ -200,7 +200,7 @@ anet::rl::BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const
 }
 
 anet::rl::BatchUpdateResultList
-RainbowAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp, const anet::rl::Runner& runner)
+RainbowAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp, std::shared_ptr<const anet::rl::Runner> runner)
 {
     ProfileRange r1("RainbowAgent::UpdateFromBatch");
 

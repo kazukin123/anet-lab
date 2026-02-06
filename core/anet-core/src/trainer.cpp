@@ -1,5 +1,4 @@
 ﻿#include <limits>
-#include "anet/cuda.hpp"
 #include "anet/trainer.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
@@ -16,21 +15,22 @@ using namespace anet::rl;
 namespace LOG = anet::log;
 
 
-// =========================
+// ======================================================
+// RunnerBase
+// ======================================================
 
-RunnerBase::RunnerBase()
-    : reward_ema_(0.001)
-{
-    // Notifier生成
-    notifier_ = std::make_shared<anet::rl::Notifier>();
-}
-
-RunnerBase::RunnerBase(std::shared_ptr<BatchEnv> env)
+RunnerBase::RunnerBase(
+    std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier, RunMode runmode)
     : env_(env)
+    , agent_(agent)
+    , notifier_(notifier)
+    , runmode_(runmode)
     , reward_ema_(0.001)
 {
-    // Notifier生成
-    notifier_ = std::make_shared<anet::rl::Notifier>();
+    InitializeMetrics();
+    status_ = anet::rl::RunnerStatus::RUNNING;
+    auto batch_env_spec = env_->GetBatchSpec();
+    action_context_ = agent_->CreateActionContext(batch_env_spec, runmode_);
 }
 
 void RunnerBase::InitializeMetrics()
@@ -125,19 +125,18 @@ std::optional<float> RunnerBase::GetScalar(const std::string& key, int64_t index
     return std::nullopt;
 }
 
-// =========================
 
-EvalRunner::EvalRunner(std::shared_ptr<BatchEnv> env, std::shared_ptr<const Agent> agent, RunMode runmode)
-    : RunnerBase(env), agent_(agent), runmode_(runmode)
-{
-    action_context_ = agent_->CreateActionContext(env_->GetBatchSpec(), runmode_);
-}
+// ======================================================
+// EvalRunner
+// ======================================================
 
-RunnerStatus EvalRunner::Initialize(const ConfigData& config_data)
+EvalRunner::EvalRunner(
+    std::shared_ptr<anet::rl::BatchEnv> env,
+    std::shared_ptr<anet::rl::Agent> agent,
+    std::shared_ptr<anet::rl::Notifier> notifier,
+    RunMode runmode)
+    : RunnerBase(env, agent, notifier, runmode)
 {
-    InitializeMetrics();
-    status_ = anet::rl::RunnerStatus::RUNNING;
-    return status_;
 }
 
 StepCounts EvalRunner::DoStep(int64_t action)
@@ -191,7 +190,8 @@ StepCounts EvalRunner::DoStep(int64_t action)
     anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
 
     // 更新後処理
-    anet::rl::TrainEvent event{ exp, *this, step_counts_, agent_, BatchUpdateResultList(), env_, result, action_info };
+    auto self = this->shared_from_this();
+    anet::rl::TrainEvent event{ exp, self, step_counts_, agent_, BatchUpdateResultList(), env_, result, action_info };
     notifier_->Notify(event);
     state_ = result->continue_state;
 
@@ -203,32 +203,25 @@ StepCounts EvalRunner::DoStep()
     return DoStep(-1);
 }
 
-// =========================
 
-struct DefaultTrainer::Config : public anet::Config
+// ======================================================
+// TrainRunner
+// ======================================================
+
+TrainRunner::TrainRunner(
+    //const ConfigData& config_data,
+    std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier)
+    : RunnerBase(env, agent, notifier, anet::rl::RunMode::Train)
 {
-    uint64_t seed = 0;
-    int batch_size = 1;
-    int eval_interval = 50;
 
-    DefaultTrainer::Config(const anet::ConfigData& config_data, const std::string& config_prefix = "train")
-        : anet::Config(config_data, config_prefix)
-    {
-        ANET_READ_CONFIG(config_data, seed);
-        ANET_READ_CONFIG(config_data, batch_size);
-        ANET_READ_CONFIG(config_data, eval_interval);
-    }
-};
-
-DefaultTrainer::DefaultTrainer(const ConfigData& config_data, const std::string& config_prefix)
-    : RunnerBase()
-    , config_(std::make_unique<Config>(config_data, config_prefix))
-{
-    //Initialize(config_data);
-    Test(*this);
 }
 
-std::optional<float> DefaultTrainer::GetScalar(const std::string& key, int64_t index) const
+void TrainRunner::SetEvalLastReward(const std::string& name, float val)
+{
+    eval_last_rewards_[name] = val;
+}
+
+std::optional<float> TrainRunner::GetScalar(const std::string& key, int64_t index) const
 {
     if (key == TRAIN_REWARD) return last_reward_;
     if (key == TRAIN_REWARD_EMA) return reward_ema_.Value();
@@ -273,131 +266,7 @@ std::optional<float> DefaultTrainer::GetScalar(const std::string& key, int64_t i
     return RunnerBase::GetScalar(key, index);
 }
 
-RunnerStatus DefaultTrainer::Initialize(const ConfigData& config_data)
-{
-    // seed
-    if (config_->seed == 0) {
-        master_seed_ = std::make_unique<anet::MasterSeedManager>();
-    }else {
-        master_seed_ = std::make_unique<anet::MasterSeedManager>(config_->seed);
-    }
-
-    // seed値生成
-    auto global_seed = master_seed_->GetMasterSeed();
-    auto train_env_seed = master_seed_->GetGroupSeed("env");
-    auto eval_env_seed = master_seed_->GetGroupSeed("eval_env");
-    auto agent_seed = master_seed_->GetGroupSeed("agent");
-    auto eval_obs_seed = master_seed_->GetGroupSeed("eval_obs");
-    LOG::info() << "global_seed=" << global_seed << " train_env_seed="
-        << train_env_seed << " eval_env_seed=" << eval_env_seed << " agent_seed=" << agent_seed;
-    eval_env_seed_ = eval_env_seed;
-
-    // パラメータ記録
-    anet::MetricsLogger::Instance()->Log("train/seed",
-        { "global_seed", global_seed, "agent_seed", agent_seed, "train_env_seed", train_env_seed });
-    anet::MetricsLogger::Instance()->Log(*config_);
-    anet::MetricsLogger::Instance()->Flush();
-
-    // ENV生成
-    anet::rl::DefaultBatchEnvFactoryConfig env_config(config_data);
-    LOG::info() << "env_config=" << env_config.ToString();
-    env_factory_ = std::make_unique<anet::rl::DefaultBatchEnvFactory>(env_config, config_data, config_->batch_size);
-    env_class_id_ = env_config.class_id;
-    auto env_device = env_factory_->GetDevice();
-    auto single_env_factory = env_factory_->GetSingleFactory();
-    env_ = env_factory_->CreateBatchEnv(train_env_seed, -1);
-    if (env_ == nullptr) {
-        LOG::error() << "Failed to create env.";
-        status_ = anet::rl::RunnerStatus::COMPLETED;
-        return status_;
-    }
-
-    // ログ
-    auto batch_env_spec = env_->GetBatchSpec();
-    auto env_spec = env_->GetSpec();
-    LOG::info() << "batch_env_spec=" << batch_env_spec.ToString();
-    LOG::info() << "env_spec=" << env_spec.ToString();
-    anet::MetricsLogger::Instance()->Log("env/batch_env_spec", batch_env_spec.ToJson());
-    anet::MetricsLogger::Instance()->Log("env/env_spec", env_spec.ToJson());
-    anet::MetricsLogger::Instance()->Flush();
-
-    // メトリクス初期化
-    InitializeMetrics();
-
-    // ランダム方策で環境難易度評価
-    /// @todo EvaluateEnvironmentDifficultyを復活
-    //auto eval_result = anet::rl::EvaluateEnvironmentDifficulty(*env_, 100);
-    //anet::MetricsLogger::Instance()->LogJson("eval_env", eval_result.ToJson());
-
-    // Agent生成
-    anet::rl::DefaultAgentFactoryConfig agent_factory_config(config_data);
-    auto agent_factory = anet::rl::DefaultAgentFactory(
-        agent_factory_config, env_spec, batch_env_spec, config_data, agent_seed);
-    auto agent_device = agent_factory.GetDevice();
-    agent_ = agent_factory.CreateAgent(notifier_);
-    if (agent_ == nullptr) {
-        LOG::error() << "Failed to create agent." ;
-        status_ = anet::rl::RunnerStatus::COMPLETED;
-        return status_;
-    }
-
-	// ActionContext生成
-	action_context_ = agent_->CreateActionContext(batch_env_spec, anet::rl::RunMode::Train);
-
-    // EpisodeEvalObserver
-	auto eval_configs = config_data.MakeSubConfigData("train.eval");
-    for (const auto& kv : eval_configs) {
-		// Eval設定取得
-        const auto& tag = kv.first;
-		const auto& eval_config_data = kv.second;
-        std::string config_prefix = "train.eval.[" + tag + "].env";
-
-		// Eval設定ログ
-		anet::MetricsLogger::Instance()->Log(config_prefix, eval_config_data.ToJson());
-
-		// RunMode取得
-        std::string run_mode_str = "eval1";
-        eval_config_data.Read("run_mode", run_mode_str, run_mode_str);
-        anet::rl::RunMode run_mode = anet::rl::RunModeFromString(run_mode_str);
-
-        // Interval取得
-        int interval = 100;
-        eval_config_data.Read("interval", interval, interval);
-
-        // メトリクス初期化
-        eval_last_rewards_[tag] = std::numeric_limits<float>::quiet_NaN();
-
-		// EvalObserver生成
-		//auto config_prefix = "train.eval." + tag;
-        auto obs = std::make_shared<anet::rl::EpisodeEvalObserver>(
-            [this, tag](float total_reward) {   // report_function
-				ANET_LOG_DEBUG("EvalObserver: tag=" << tag << " total_reward=" << total_reward);
-                this->eval_last_rewards_[tag] = total_reward;
-            },
-            single_env_factory, config_data, env_device, run_mode,
-			interval,   // log_interval
-			interval,   // eval_interval
-            eval_obs_seed,
-            config_prefix
-        );
-
-        // EvalObserver登録
-        notifier_->Attach(obs);
-    }
-
-    // 設定からObserverを生成して登録
-    anet::rl::ObserverFactory factory(config_data);
-    auto train_obs = factory.GetUpdateObservers();
-    auto learn_obs = factory.GetLearnObservers();
-    for (auto obs : train_obs) notifier_->Attach(obs);
-    for (auto obs : learn_obs) notifier_->Attach(obs);
-
-    status_ = anet::rl::RunnerStatus::RUNNING;
-
-    return status_;
-}
-
-StepCounts DefaultTrainer::DoStep()
+StepCounts TrainRunner::DoStep()
 {
     anet::ProfileRange r("DefaultTrainer::DoStep");
 
@@ -477,10 +346,12 @@ StepCounts DefaultTrainer::DoStep()
     step_counts_.exp_step += result->n_transitions;
     step_counts_.episode_count += result->n_done;
 
+
     // Agent更新
     anet::ProfileRange r5("DefaultTrainer::DoUpdateFrame.updateAgent", r4);
     anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
-    auto result_list = agent_->UpdateFromBatch(step_counts_, exp, *this);
+    auto self = this->shared_from_this();
+    auto result_list = agent_->UpdateFromBatch(step_counts_, exp, self);
 
     // カウント更新
     anet::ProfileRange r6("DefaultTrainer::DoUpdateFrame.postUpdate", r5);
@@ -489,7 +360,7 @@ StepCounts DefaultTrainer::DoStep()
 
     // 更新後処理
     anet::ProfileRange r7("DefaultTrainer::DoUpdateFrame.notify", r6);
-    anet::rl::TrainEvent train_event{ exp, *this, step_counts_, agent_, result_list, env_, result, action_info };
+    anet::rl::TrainEvent train_event{ exp, self, step_counts_, agent_, result_list, env_, result, action_info };
     notifier_->Notify(train_event);
     state_ = result->continue_state;
 
@@ -523,14 +394,164 @@ StepCounts DefaultTrainer::DoStep()
     return step_counts_;
 }
 
-std::shared_ptr<EvalRunner> DefaultTrainer::CreateEvalRunner(RunMode runmode) const
+
+// ======================================================
+// RunManager
+// ======================================================
+
+struct RunManager::Config : public anet::Config
+{
+    uint64_t seed = 0;
+    int batch_size = 1;
+    int eval_interval = 50;
+
+    RunManager::Config(const anet::ConfigData& config_data, const std::string& config_prefix = "train") /// @todo config_prefixをrunに変更
+        : anet::Config(config_data, config_prefix)
+    {
+        ANET_READ_CONFIG(config_data, seed);
+        ANET_READ_CONFIG(config_data, batch_size);
+        ANET_READ_CONFIG(config_data, eval_interval);
+    }
+};
+
+RunManager::RunManager(const ConfigData& config_data)
+{
+    // Config
+    config_ = std::make_unique<Config>(config_data);    ///< @todo config_prefixをtrainからrunに変更？
+
+    // seed
+    if (config_->seed == 0) {
+        master_seed_ = std::make_unique<anet::MasterSeedManager>();
+    } else {
+        master_seed_ = std::make_unique<anet::MasterSeedManager>(config_->seed);
+    }
+
+    // seed値生成
+    auto global_seed = master_seed_->GetMasterSeed();
+    auto train_env_seed = master_seed_->GetGroupSeed("env");
+    auto eval_env_seed = master_seed_->GetGroupSeed("eval_env");
+    auto agent_seed = master_seed_->GetGroupSeed("agent");
+    auto eval_obs_seed = master_seed_->GetGroupSeed("eval_obs");
+    LOG::info() << "global_seed=" << global_seed << " train_env_seed="
+        << train_env_seed << " eval_env_seed=" << eval_env_seed << " agent_seed=" << agent_seed;
+    eval_env_seed_ = eval_env_seed;
+
+    // パラメータ記録
+    anet::MetricsLogger::Instance()->Log("train/seed",
+        { "global_seed", global_seed, "agent_seed", agent_seed, "train_env_seed", train_env_seed });
+    anet::MetricsLogger::Instance()->Log(*config_);
+    anet::MetricsLogger::Instance()->Flush();
+
+    // Notifier生成
+    notifier_ = std::make_shared<Notifier>();
+
+    // BatchEnv生成
+    anet::rl::DefaultBatchEnvFactoryConfig env_config(config_data);
+    LOG::info() << "env_config=" << env_config.ToString();
+    env_factory_ = std::make_unique<anet::rl::DefaultBatchEnvFactory>(env_config, config_data, config_->batch_size);
+    env_class_id_ = env_config.class_id;
+    auto env_device = env_factory_->GetDevice();
+    auto single_env_factory = env_factory_->GetSingleFactory();
+    env_ = env_factory_->CreateBatchEnv(train_env_seed, -1);
+    if (env_ == nullptr) {
+        LOG::error() << "Failed to create env.";
+        return;
+    }
+
+    // BatchEnvログ
+    auto batch_env_spec = env_->GetBatchSpec();
+    auto env_spec = env_->GetSpec();
+    LOG::info() << "batch_env_spec=" << batch_env_spec.ToString();
+    LOG::info() << "env_spec=" << env_spec.ToString();
+    anet::MetricsLogger::Instance()->Log("env/batch_env_spec", batch_env_spec.ToJson());
+    anet::MetricsLogger::Instance()->Log("env/env_spec", env_spec.ToJson());
+    anet::MetricsLogger::Instance()->Flush();
+
+    // Agent生成
+    anet::rl::DefaultAgentFactoryConfig agent_factory_config(config_data);
+    auto agent_factory = anet::rl::DefaultAgentFactory(
+        agent_factory_config, env_spec, batch_env_spec, config_data, agent_seed);
+    auto agent_device = agent_factory.GetDevice();
+    agent_ = agent_factory.CreateAgent(notifier_);
+    if (agent_ == nullptr) {
+        LOG::error() << "Failed to create agent.";
+        return;
+    }
+
+    // TrainRunner生成
+    train_runner_ = std::make_shared<TrainRunner>(env_, agent_, notifier_);
+
+    // 設定からObserverを生成して登録
+    anet::rl::ObserverFactory factory(config_data);
+    auto train_obs = factory.GetUpdateObservers();
+    auto learn_obs = factory.GetLearnObservers();
+    for (auto obs : train_obs) {
+        auto scoped_obs = std::make_shared< RunnerScopedTrainObserver>(obs, train_runner_);
+        notifier_->Attach(scoped_obs);
+    }
+    for (auto obs : learn_obs) {
+        auto scoped_obs = std::make_shared< RunnerScopedLearnObserver>(obs, train_runner_);
+        notifier_->Attach(scoped_obs);
+    }
+
+    // EpisodeEvalObserver
+    auto eval_configs = config_data.MakeSubConfigData("train.eval");
+    for (const auto& kv : eval_configs) {
+        // Eval設定取得
+        const auto& tag = kv.first;
+        const auto& eval_config_data = kv.second;
+        std::string config_prefix = "train.eval.[" + tag + "].env";
+
+        // Eval設定ログ
+        anet::MetricsLogger::Instance()->Log(config_prefix, eval_config_data.ToJson());
+
+        // RunMode取得
+        std::string run_mode_str = "eval1";
+        eval_config_data.Read("run_mode", run_mode_str, run_mode_str);
+        anet::rl::RunMode run_mode = anet::rl::RunModeFromString(run_mode_str);
+
+        // Interval取得
+        int interval = 100;
+        eval_config_data.Read("interval", interval, interval);
+
+        // メトリクス初期化
+        //eval_last_rewards_[tag] = std::numeric_limits<float>::quiet_NaN();
+        train_runner_->SetEvalLastReward(tag, std::numeric_limits<float>::quiet_NaN());
+
+        // EvalObserver生成&登録
+        //auto config_prefix = "train.eval." + tag;
+        notifier_->AttachScoped<anet::rl::EpisodeEvalObserver>(
+            train_runner_,
+            [this, tag](float total_reward) {   // report_function
+                ANET_LOG_DEBUG("EvalObserver: tag=" << tag << " total_reward=" << total_reward);
+                train_runner_->SetEvalLastReward(tag, total_reward);
+            },
+            single_env_factory, config_data, env_device, run_mode,
+            interval,   // log_interval
+            interval,   // eval_interval
+            eval_obs_seed,
+            config_prefix
+        );
+    };
+
+    // 成功！
+    status_ = anet::rl::RunnerStatus::RUNNING;
+}
+
+RunManager::~RunManager()
+{
+    ;
+}
+
+std::shared_ptr<EvalRunner> RunManager::CreateEvalRunner(const std::string& name, RunMode runmode)
 {
     /// @todo seed指定対応
 
     ANET_ASSERT(status_ == anet::rl::RunnerStatus::RUNNING);
 
     auto env = env_factory_->CreateBatchEnv(eval_env_seed_, 1); // batch_size = 1
-    auto eval_runner = std::make_shared<EvalRunner>(env, agent_, runmode);
+    auto eval_runner = std::make_shared<EvalRunner>(env, agent_, notifier_, runmode);
+    this->eval_runners[name] = eval_runner;
     return eval_runner;
 }
 

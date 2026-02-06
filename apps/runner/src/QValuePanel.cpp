@@ -241,16 +241,16 @@ void QValuePanel::SetupGrid()
         });
 }
 
-void QValuePanel::Initialize(const anet::rl::ActionSpec& action_spec, std::shared_ptr<anet::rl::Notifier> notifier)
+void QValuePanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, std::shared_ptr<anet::rl::EvalRunner> runner)
 {
     // アクション名
+    auto action_spec = runner->GetBatchEnv()->GetSpec().action_spec;
     action_names_.insert(action_names_.begin(), action_spec.value_labels.begin(), action_spec.value_labels.end());
 
-    // Detach用にNotifierを保持
-    notifier_ = notifier;
-
-    // Notifier
-    this->observer_ = notifier->Attach<anet::rl::FunctionTrainObserver>(
+	// Observer生成&登録
+    auto notifier = run_manager->GetNotifier();
+    this->observer_ = notifier->AttachScoped<anet::rl::FunctionTrainObserver>(
+        runner,
         [this](const anet::rl::TrainEvent& event)
         {
             /// @todo Eval想定で毎Step反映固定なのを再検討
@@ -265,6 +265,9 @@ void QValuePanel::Initialize(const anet::rl::ActionSpec& action_spec, std::share
             ApplyData(*data);
         },
         "QValuePanel");
+
+    // Detach用にNotifierを保持
+    notifier_ = notifier;
 }
 
 std::optional<QValueData> QValuePanel::CreateData(const anet::rl::TrainEvent& event)
@@ -280,7 +283,7 @@ std::optional<QValueData> QValuePanel::CreateData(const anet::rl::TrainEvent& ev
     torch::Tensor q_values = q_values_plain;
     if (q_quantiles_itr != aux_data.end() && q_quantiles_itr->second.defined()) q_values = q_quantiles_itr->second;
 
-    ANET_LOG_DEBUG("q_values=" << anet::ToString(q_values));
+    //ANET_LOG_DEBUG("q_values=" << anet::ToString(q_values));
 
     ANET_CHECK(q_values.size(0) > 0);
     //ANET_ASSERT_SHAPE(q_values, { ANET_SHAPE_ANY, static_cast<int64_t>(action_names_.size()), ANET_SHAPE_ENDANY });

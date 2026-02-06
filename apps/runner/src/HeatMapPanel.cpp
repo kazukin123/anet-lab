@@ -160,7 +160,7 @@ SweepHeatMapSettings SweepHeatMapDialog::GetSettings() const
 }
 
 SweepHeatMapPanel::SweepHeatMapPanel(wxWindow* parent, const wxString& title,
-    const SweepHeatMapSettings& settings, std::shared_ptr<anet::rl::DefaultTrainer> trainer)
+    const SweepHeatMapSettings& settings, std::shared_ptr<anet::rl::Runner> runner)
     : anet::rl::gui::Panel(parent, wxID_ANY, wxDefaultPosition, wxSize(600, 600))
 {
     // メインのレイアウト
@@ -226,15 +226,15 @@ SweepHeatMapPanel::SweepHeatMapPanel(wxWindow* parent, const wxString& title,
     Centre();
 
     // Observer生成
-    CreateObserver(settings, trainer, 10);
+    CreateObserver(settings, runner, 10);
 }
 
 void SweepHeatMapPanel::CreateObserver(const SweepHeatMapSettings& settings,
-    std::shared_ptr<anet::rl::DefaultTrainer> trainer, int log_interval)
+    std::shared_ptr<anet::rl::Runner> runner, int log_interval)
 {
-    auto agent = trainer->GetAgent();
-    auto notifier = trainer->GetNotifier();
-    auto env_spec = trainer->GetBatchEnv()->GetSpec();
+    auto agent = runner->GetAgent();
+    auto notifier = runner->GetNotifier();
+    auto env_spec = runner->GetBatchEnv()->GetSpec();
 
     // flags
     auto flags =

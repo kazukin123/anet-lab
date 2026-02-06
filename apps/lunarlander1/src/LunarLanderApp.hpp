@@ -24,7 +24,7 @@ public:
 
     anet::ConfigData GetConfig() const { return config_mgr_->GetConfigData(); }
     std::optional<UISnapshot> GetUISnapshot() { return snapshot_store_.Get(); }
-    std::shared_ptr<anet::rl::DefaultTrainer> GetTrainer() { return trainer_; }
+    std::shared_ptr<anet::rl::RunManager> GetRunManager() { return run_manager; }
 
     //void StartTraining();
     void ToggleTraining();
@@ -41,7 +41,7 @@ private:
     struct Config;
     std::unique_ptr<Config> config_;
     UISnapshotStore snapshot_store_;
-    std::shared_ptr<anet::rl::DefaultTrainer> trainer_;
+    std::unique_ptr<anet::rl::RunManager> run_manager;
     std::unique_ptr<anet::rl::RunnerThread> trainer_thread_;
     bool auto_pause_done_ = false;
 private:

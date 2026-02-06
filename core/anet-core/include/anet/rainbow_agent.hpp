@@ -76,7 +76,7 @@ namespace anet::rl::dqn {
             std::optional<seed_t> seed = std::nullopt);
 
         anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const override;
-        BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const anet::rl::BatchExperience& exprience, const anet::rl::Runner& trainer) override;
+        BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const anet::rl::BatchExperience& exprience, std::shared_ptr<const anet::rl::Runner> runner) override;
     public:
         std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override;
 

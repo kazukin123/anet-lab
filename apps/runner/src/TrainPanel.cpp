@@ -13,11 +13,8 @@ TrainPanel::TrainPanel(wxWindow* parent, const TrainPanelConfig& config)
 
 }
 
-void TrainPanel::Initialize(std::shared_ptr<anet::rl::DefaultTrainer> trainer)
+void TrainPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
 {
-	//Bind(wxEVT_LEFT_DOWN, &TrainPanel::OnMouseLeftClick, this);
-	//Bind(wxEVT_RIGHT_DOWN, &TrainPanel::OnMouseRightClick, this);
-
 	// View生成
 	view_ = wxGetApp().CreateExperinceView(this);
 	view_window_ = view_->AsWindow();
@@ -29,8 +26,10 @@ void TrainPanel::Initialize(std::shared_ptr<anet::rl::DefaultTrainer> trainer)
 	this->Layout();
 
 	// Observer生成
-	auto notifier = trainer->GetNotifier();
-	this->observer_ = notifier->Attach<anet::rl::FunctionTrainObserver>(
+	auto train_runner = run_manager->GetTrainRunner();
+	auto notifier = run_manager->GetNotifier();
+	this->observer_ = notifier->AttachScoped<anet::rl::FunctionTrainObserver>(
+		train_runner,
 		[this](const anet::rl::TrainEvent& event)
 		{
 			view_->UpdateViewData(event);
@@ -60,6 +59,6 @@ void TrainPanel::OnTimer(wxTimerEvent& event)
 
 void TrainPanel::OnClose(wxCloseEvent& event)
 {
-	auto notifier = wxGetApp().GetTrainer()->GetNotifier();
+	auto notifier = wxGetApp().GetRunManager().GetNotifier();
 	notifier->Detach(this->observer_);
 }

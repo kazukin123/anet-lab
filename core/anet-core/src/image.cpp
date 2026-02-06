@@ -323,29 +323,33 @@ static std::shared_ptr<TimeHistogramObserver> MakeTimeHistogramObserver(const st
 }
 
 template<typename T>
-static ImageProviderBundle MakeBundle(std::shared_ptr<T> observer)
+static ImageProviderBundle MakeBundle(std::shared_ptr<T> observer, std::shared_ptr<const Runner> runner)
 {
 	auto observer_wp = std::weak_ptr<T>(observer);
 	return {
 		observer,
-		[observer](auto n) { n->Attach(observer); },		// attach
+		[observer, runner](auto n)
+		{
+			//auto scoped_obs = std::make_shared<RunnerScopedTrainObserver>(observer, runner);
+			n->AttachScoped(observer, runner);
+		},		// attach
 		[observer_wp](auto n) { if (auto p = observer_wp.lock()) n->Detach(p); }	// detach
 	};
 }
 
-ImageProviderBundle ImageProviderFactory::CreateImageProvider(const std::string& tag, ImageProviderConfig config, const EnvSpec& env_spec, std::shared_ptr<Agent>agent)
+ImageProviderBundle ImageProviderFactory::CreateImageProvider(const std::string& tag, ImageProviderConfig config, const EnvSpec& env_spec, std::shared_ptr<Agent>agent, std::shared_ptr<const Runner> runner)
 {
 	if (config.type == kImageType_StateSweepedHeatMap) {
 		auto observer = MakeSweepedHeatMapObserver(tag, config, env_spec, agent);
-		return MakeBundle<SweepedHeatMapObserver>(observer);
+		return MakeBundle<SweepedHeatMapObserver>(observer, runner);
 	}
 	if (config.type == kImageType_HeatMap) {
 		auto observer = MakeHeatMapVectorObserver(tag, config, env_spec, agent);
-		return MakeBundle<HeatMapVectorObserver>(observer);
+		return MakeBundle<HeatMapVectorObserver>(observer, runner);
 	}
 	if (config.type == kImageType_TimeHistgram) {
 		auto observer = MakeTimeHistogramObserver(tag, config, env_spec);
-		return MakeBundle<TimeHistogramObserver>(observer);
+		return MakeBundle<TimeHistogramObserver>(observer, runner);
 	}
 
 	ANET_SYSTEM_ERROR("Unknown ImageProvider type: " << config.type << " config=" << config.ToString());
@@ -363,7 +367,7 @@ ImageProviderManager::ImageProviderManager(const EnvSpec& env_spec, std::shared_
 	;
 }
 
-void ImageProviderManager::CreateAndRegister(const std::string& tag, const ImageProviderConfig& config, std::shared_ptr<Agent> agent)
+void ImageProviderManager::CreateAndRegister(const std::string& tag, const ImageProviderConfig& config, std::shared_ptr<Agent> agent, std::shared_ptr<const Runner> runner)
 {
 	// 重複チェック
 	if (registry_.find(tag) != registry_.end()) {
@@ -372,7 +376,7 @@ void ImageProviderManager::CreateAndRegister(const std::string& tag, const Image
 	}
 
 	//  Factoryを使って生成 (Bundleを受け取る)
-	auto bundle = factory_.CreateImageProvider(tag, config, env_spec_, agent);
+	auto bundle = factory_.CreateImageProvider(tag, config, env_spec_, agent, runner);
 	ANET_CHECK(bundle.image_provider);
 
 	//  Notifierへの登録 (Attach)
@@ -393,7 +397,7 @@ static constexpr const char* CONFIG_KEY_METRICS_IMAGE_DEFAULT_PREFIX = "metrics.
 static constexpr const char* CONFIG_KEY_METRICS_IMAGE_PREFIX = "metrics.image.[";
 static constexpr const char* CONFIG_KEY_METRICS_IMAGE_SUFFIX = "]";
 
-void ImageProviderManager::CreateAndRegister(const anet::ConfigData& config_data, std::shared_ptr<Agent> agent, const std::string& key_prefix)
+void ImageProviderManager::CreateAndRegister(const anet::ConfigData& config_data, std::shared_ptr<Agent> agent, std::shared_ptr<const Runner> runner, const std::string& key_prefix)
 {
 	// 一つのtagが複数行にわたるので一旦tag単位でまとめる
 	std::unordered_map<std::string, std::unordered_map<std::string, std::string>> tag_map;
@@ -450,7 +454,7 @@ void ImageProviderManager::CreateAndRegister(const anet::ConfigData& config_data
 		// tagとConfigDataを使って生成＆登録
 		auto config_key_prefix = CONFIG_KEY_METRICS_IMAGE_PREFIX + tag + CONFIG_KEY_METRICS_IMAGE_SUFFIX;
 		ImageProviderConfig provider_config(sub_config_data, config_key_prefix);
-		this->CreateAndRegister(tag, provider_config, agent);
+		this->CreateAndRegister(tag, provider_config, agent, runner);
 	}
 }
 

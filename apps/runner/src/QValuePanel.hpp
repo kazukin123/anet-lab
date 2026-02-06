@@ -10,6 +10,7 @@
 #include <wx/wx.h>
 #include "anet/rl.hpp"
 #include "anet/gui.hpp"
+#include "anet/trainer.hpp"
 
 class QValueHeatMapPanel : public anet::rl::gui::Panel {
 public:
@@ -53,7 +54,7 @@ public:
 class QValuePanel : public anet::rl::gui::Panel {
 public:
     explicit QValuePanel(wxWindow* parent, const anet::ConfigData& config_data);
-    void Initialize(const anet::rl::ActionSpec& action_spec, std::shared_ptr<anet::rl::Notifier> notifier);
+    void Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, std::shared_ptr<anet::rl::EvalRunner> runner);
     ~QValuePanel() noexcept override  = default;
 
     void ApplyData(const QValueData& data);

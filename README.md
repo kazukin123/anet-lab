@@ -23,9 +23,9 @@ TODO：実行手順を書く
 * 学習アルゴリズム
 	* 強化学習基本インタフェース 
 	* DQNAgent
-	* CartPoleEnvGUI
-	* LunarLanderEnvGUI
+	* RainbowAgent
 	* Replay Ratio対応
+	* Reward Scaling
 	* Observation Normalization
 * メトリクス
 	* MetricsViewer.java：フェーズ1.5(基本機能、差分ロード)
@@ -37,21 +37,28 @@ TODO：実行手順を書く
 	* N環境スレッド対応
 	* 設定によるNN生成
 	* 設定による柔軟なメトリクス定義
+	* CartPoleEnvGUI
+	* LunarLanderEnvGUI
 
 ### DOING
 
 * 学習アルゴリズム
+	* マルチエージェント対応
 * メトリクス
 * AP改善
+	* EvalRunnerのseed指定
+	* DropMergeEnv
 
 ### TODO
 
 * 学習アルゴリズム
-	* Swish活性化関数
-	* SWA
-	* CNN
+	* LayerNorm
+	* ActionMasking
+	* Ape-X Exploration(分散ε)
 	* Transformer
 	* MuZero
+	* SWA
+	* Swish活性化関数
 * メトリクス
 	* MetricsViewer.java：フェーズ1.5：ハイパラ表示対応
 	* MetricsViewer.java：フェーズ1.5：Loadingスケジュール最適化
@@ -61,7 +68,8 @@ TODO：実行手順を書く
 	* ヒートマップ：MetricsViewer統合
 	* TB:add_hparams対応
 * AP改善
-	* 評価RunnerでENVとAPの個別RunMode指定
+	* EvalPanelに自動アクション選択を追加
+	* NNパラメータの保存と読込
 	* 同じクラスでインスタンス別の設定キー
 	* TODOコメントいれまくり
 	* constいれまくり
@@ -73,6 +81,7 @@ TODO：実行手順を書く
 * 学習アルゴリズム
 	* Orthogonal Initialization
 	* Adam Optimizer's Epsilon Parameter optimization
+	* 1d-conv
 * AP改善
 	* 設定の継承読み込み
 	* Runフォルダに設定内容ダンプを残す

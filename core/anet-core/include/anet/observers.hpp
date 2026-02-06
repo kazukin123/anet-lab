@@ -151,7 +151,10 @@ namespace anet::rl {
         std::unique_ptr<anet::HeatMap> heatmap_;
     };
     
-    // ==============================================================
+
+    // -----------------------------------------------------------------
+    // SweepedHeatMapObserver
+    // -----------------------------------------------------------------
 
     struct SweepedHeatMapObserverConfig {
         int log_interval = 100;
@@ -229,7 +232,10 @@ namespace anet::rl {
         //anet::EmaFilter<float> eval_total_reward_;
     };
 
-    // ===========================================================
+
+    // -----------------------------------------------------------------
+    // FunctionObserver
+    // -----------------------------------------------------------------
 
     class FunctionTrainObserver : public anet::rl::TrainObserver {
     public:
@@ -255,7 +261,10 @@ namespace anet::rl {
         std::string name_;
     };
 
-    // ==============================================================
+
+    // -----------------------------------------------------------------
+    // MetricsLogObserver
+    // -----------------------------------------------------------------
 
     class MetricsLogObserverBase : public TaggedObserver {
     public:
@@ -304,7 +313,7 @@ namespace anet::rl {
         virtual std::string ToString() const override { return ToStringInternal(); }
     };
 
-	// ===========================================================
+    // ===========================================================
 
     class ObserverFactory {
     public:

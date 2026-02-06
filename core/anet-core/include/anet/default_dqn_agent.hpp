@@ -122,7 +122,7 @@ namespace anet::rl::dqn {
             const BatchEnvSpec& batch_env_spec, RunMode run_mode = RunMode::Train) const override;
         anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const override;
 
-        BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences, const Runner& trainer) override;
+        BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences, std::shared_ptr<const anet::rl::Runner> runner) override;
     public:
         std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override;
 

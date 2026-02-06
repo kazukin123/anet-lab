@@ -44,7 +44,7 @@ class SweepHeatMapPanel final : public anet::rl::gui::Panel
 public:
     // observer: ヒートマップ生成ロジックを持つクラスの所有権を受け取る
     SweepHeatMapPanel(wxWindow* parent, const wxString& title,
-        const SweepHeatMapSettings& settings, std::shared_ptr<anet::rl::DefaultTrainer> trainer);
+        const SweepHeatMapSettings& settings, std::shared_ptr<anet::rl::Runner> runner);
 
     virtual ~SweepHeatMapPanel();
 private:
@@ -62,7 +62,7 @@ private:
     void UpdateRefreshRate();
 private:
     void CreateObserver(
-        const SweepHeatMapSettings& settings, std::shared_ptr<anet::rl::DefaultTrainer> trainer, int log_interval);
+        const SweepHeatMapSettings& settings, std::shared_ptr<anet::rl::Runner> runner, int log_interval);
 private:
     // UIコンポーネント
     wxGLCanvas* canvas_ = nullptr;

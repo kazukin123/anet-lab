@@ -271,7 +271,7 @@ namespace anet::rl::dqn {
             torch::Device device, anet::seed_t replay_seed,
             std::optional<StuckerConfig> stucker_config = std::nullopt);
 
-        BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences, const Runner& trainer) override;
+        BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences, std::shared_ptr<const anet::rl::Runner> runner) override;
 
         virtual ~Learner() = default;
     public:

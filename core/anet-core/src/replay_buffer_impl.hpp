@@ -298,7 +298,7 @@ public:
     int64_t Size() const override;
 
     void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override;
-public: // DataExporter
+public:
     std::optional<float> GetScalar(const std::string& key, int64_t index) const override;
     std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index) const override;
     std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index) const override;

@@ -276,7 +276,7 @@ namespace anet::rl {
 
     class ImageProviderFactory {
     public:
-        ImageProviderBundle CreateImageProvider(const std::string& tag, ImageProviderConfig config, const EnvSpec& env_spec, std::shared_ptr<Agent> agent);
+        ImageProviderBundle CreateImageProvider(const std::string& tag, ImageProviderConfig config, const EnvSpec& env_spec, std::shared_ptr<Agent> agent, std::shared_ptr<const Runner> runner);
     };
 
 
@@ -294,8 +294,8 @@ namespace anet::rl {
     public:
         ImageProviderManager(const EnvSpec& env_spec, std::shared_ptr<Notifier> notifier);
 
-        void CreateAndRegister(const ConfigData& config_data, std::shared_ptr<Agent> agent, const std::string& key_prefix = "metrics.image.");
-        void CreateAndRegister(const std::string& tag, const ImageProviderConfig& config, std::shared_ptr<Agent> agent);
+        void CreateAndRegister(const ConfigData& config_data, std::shared_ptr<Agent> agent, std::shared_ptr<const Runner> runner, const std::string& key_prefix = "metrics.image.");
+        void CreateAndRegister(const std::string& tag, const ImageProviderConfig& config, std::shared_ptr<Agent> agent, std::shared_ptr<const Runner> runner);
         void Remove(const std::string& tag, std::shared_ptr<Notifier> notifier);
         std::vector<Entry> List() const;
     private:

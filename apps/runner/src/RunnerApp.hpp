@@ -33,19 +33,18 @@ public:
     void ToggleTraining();
     void StopTraining();
     anet::ConfigData GetConfigData() const { return config_mgr_->GetConfigData(); }
-    std::shared_ptr<anet::rl::DefaultTrainer> GetTrainer() { return trainer_; }
+    anet::rl::RunManager& GetRunManager() { return *run_manager_; }
     std::shared_ptr<anet::rl::gui::View> CreateExperinceView(wxWindow* parent);
 	wxFrame* GetMainFrame() { return frame_; }
 private:
     void InitTrainer();
-    //void InitImageLogObservers();
-    //void InitPERImageLogObservers(const anet::ConfigData& config_data);
     void showFatalError();
 private:
     std::unique_ptr<anet::ConfigManager> config_mgr_;
     struct Config;
     std::unique_ptr<Config> config_;
-    std::shared_ptr<anet::rl::DefaultTrainer> trainer_;
+    
+    std::shared_ptr<anet::rl::RunManager> run_manager_;
     std::unique_ptr<anet::rl::RunnerThread> trainer_thread_;
     std::unique_ptr<anet::rl::gui::DefaultViewFactory> view_factory_;
     std::unique_ptr<anet::rl::ImageProviderManager> img_prov_mgr_;

@@ -19,19 +19,17 @@ class EvalPanel final : public wxPanel {
 public:
 	EvalPanel(wxWindow* parent, const EvalPanelConfig& config);
 
-	void Initialize(std::shared_ptr<anet::rl::DefaultTrainer> trainer);
+	void Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, std::shared_ptr<anet::rl::EvalRunner> runner);
 
 	void TogglePause();
 	void DoStep();
 	void DoStep(int64_t action);
-
-	std::shared_ptr<anet::rl::Notifier> GetNotifier();
 protected:
 	void OnTimer(wxTimerEvent& event);
 	void OnClose(wxCloseEvent& event);
 private:
 	const EvalPanelConfig config_;
-	std::shared_ptr<anet::rl::EvalRunner> eval_runner_ = nullptr;
+	std::shared_ptr<anet::rl::EvalRunner> runner_ = nullptr;
 	std::shared_ptr<anet::rl::gui::View> view_ = nullptr;
 	std::shared_ptr<anet::rl::TrainObserver> observer_ = nullptr;
 	wxWindow* view_window_ = nullptr;

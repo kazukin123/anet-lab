@@ -17,7 +17,7 @@ EvalPanel::EvalPanel(wxWindow* parent, const EvalPanelConfig& config)
 {
 }
 
-void EvalPanel::Initialize(std::shared_ptr<anet::rl::DefaultTrainer> trainer)
+void EvalPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, std::shared_ptr<anet::rl::EvalRunner> runner)
 {
 	// View生成
 	view_ = wxGetApp().CreateExperinceView(this);
@@ -29,12 +29,13 @@ void EvalPanel::Initialize(std::shared_ptr<anet::rl::DefaultTrainer> trainer)
 	this->SetSizer(sizer);
 	this->Layout();
 
-	// EvalRunner生成(これで独自の評価エピソードを回す。ENVはTrainと同等の別インスタンス、AGENTはTrainと共用)
-	eval_runner_ = trainer->CreateEvalRunner();
+	// EvalRunnerを保存(これで独自の評価エピソードを回す。ENVはTrainと同等の別インスタンス、AGENTはTrainと共用)
+	runner_ = runner;
 
 	// Observer生成
-	auto notifier = eval_runner_->GetNotifier();
-	this->observer_ = notifier->Attach<anet::rl::FunctionTrainObserver>(
+	auto notifier = run_manager->GetNotifier();
+	this->observer_ = notifier->AttachScoped<anet::rl::FunctionTrainObserver>(
+		runner,
 		[this](const anet::rl::TrainEvent& event)
 		{
 			view_->UpdateViewData(event, true);		// Step毎に画面反映したいかもなのでforce=true
@@ -51,21 +52,16 @@ void EvalPanel::Initialize(std::shared_ptr<anet::rl::DefaultTrainer> trainer)
 
 void EvalPanel::DoStep()
 {
-	eval_runner_->DoStep();
+	runner_->DoStep();
 	view_->CaptureViewData();
 	Refresh();
 }
 
 void EvalPanel::DoStep(int64_t action)
 {
-	eval_runner_->DoStep(action);
+	runner_->DoStep(action);
 	view_->CaptureViewData();
 	Refresh();
-}
-
-std::shared_ptr<anet::rl::Notifier> EvalPanel::GetNotifier()
-{
-	return eval_runner_->GetNotifier();
 }
 
 void EvalPanel::TogglePause()
@@ -85,7 +81,7 @@ void EvalPanel::OnTimer(wxTimerEvent& event)
 	// 評価エピソードを回す（Observer経由でeval_canvas更新)
 	if (config_.step_per_frame > 0) {
 		anet::ProfileRange r("LunarLanderFrame::OnEvalTimer.DoUpdateFrame");
-		eval_runner_->DoUpdateFrame(config_.step_per_frame);
+		runner_->DoUpdateFrame(config_.step_per_frame);
 	}
 
 	// データ断面をキャプチャ
@@ -97,6 +93,6 @@ void EvalPanel::OnTimer(wxTimerEvent& event)
 
 void EvalPanel::OnClose(wxCloseEvent& event)
 {
-	auto notifier = wxGetApp().GetTrainer()->GetNotifier();
+	auto notifier = wxGetApp().GetRunManager().GetNotifier();
 	notifier->Detach(this->observer_);
 }

@@ -147,11 +147,11 @@ bool RunnerApp::OnInit()
     LOG::info() << "RunnerApp config=" << *config_;
     anet::MetricsLogger::Instance()->Log(*config_);
 
-    // Trainer生成
-    trainer_ = std::make_unique<anet::rl::DefaultTrainer>(config_data);
-    auto status = trainer_->Initialize(config_data);
+    // RunManager生成
+    run_manager_ = std::make_shared<anet::rl::RunManager>(config_data);
+    auto status = run_manager_->GetStatus();
     if (status != anet::rl::RunnerStatus::RUNNING) {
-        LOG::error() << "Failed to initialize trainer.";
+        LOG::error() << "Failed to initialize RunManager.";
         return true;
     }
 
@@ -162,25 +162,22 @@ bool RunnerApp::OnInit()
     InitTrainer();
 
     // ImageProviderManager
-    auto env_spec = trainer_->GetBatchEnv()->GetSpec();
-    auto notifier = trainer_->GetNotifier();
-    auto agent = trainer_->GetAgent();
+    auto notifier = run_manager_->GetNotifier();
+    auto agent = run_manager_->GetAgent();
+    auto env_spec = run_manager_->GetTrainRunner()->GetBatchEnv()->GetSpec();
+    auto train_runner = run_manager_->GetTrainRunner();
     img_prov_mgr_ = std::make_unique<anet::rl::ImageProviderManager>(env_spec, notifier);
-    img_prov_mgr_->CreateAndRegister(config_data, agent);
-
-    // ManualObserver
-    //if (config_->use_image_log) InitImageLogObservers();
-    //if (config_->use_per_image_log) InitPERImageLogObservers(config_data);
+    img_prov_mgr_->CreateAndRegister(config_data, agent, train_runner);
 
     // Trainer初期化後のUI初期化
-    frame_->Initialize(trainer_);
+    frame_->Initialize(run_manager_);
 
     // ログ
-    trainer_->GetNotifier()->LogObservers();
+    run_manager_->GetNotifier()->LogObservers();
 
     // Trainerスレッド生成
     trainer_thread_ = std::make_unique<anet::rl::RunnerThread>(
-        trainer_,
+        run_manager_->GetTrainRunner(),
         [this](const anet::rl::StepCounts& counts)   // pre_train_step_func
         {
             const auto& train_step = counts.train_step;
@@ -285,30 +282,16 @@ void RunnerApp::OnUnhandledException()
 void RunnerApp::InitTrainer()
 {
     // TrainObserver
-    trainer_->GetNotifier()->Attach<anet::rl::FunctionTrainObserver>(
+    run_manager_->GetNotifier()->Attach<anet::rl::FunctionTrainObserver>(
         [this](const anet::rl::TrainEvent& event)
         {
             anet::ProfileRange r1("FunctionTrainObserver");
             auto train_step = event.counts.train_step;
 
-            // Trainスナップショット取得
-            //if (snapshot_store_.IsDataRequest() || (train_step % 2000 == 0)) {
-            //    ANET_LOG_DEBUG("UI data. train_step=" << train_step);
-
-                // Plotデータ追加
-                //auto train_reward_ema = event.runner.GetScalar(anet::rl::Runner::TARGET_EVAL_REWARD);
-                //ANET_ASSERT(train_reward_ema.has_value());
-                //frame_->AddPlotData(*train_reward_ema);
-
-                // UIスナップショットを生成＆更新
-                //auto snapshot = CreateSnapshot(event);
-                //snapshot_store_.Update(snapshot);
-            //}
-
             // Trainログ
             if (event.counts.train_step % 100 == 0) {
-                auto eval_target_reward = event.runner.GetScalar(anet::rl::Runner::TARGET_EVAL_REWARD);
-                auto eval_policy_reward = event.runner.GetScalar(anet::rl::Runner::POLICY_EVAL_REWARD);
+                auto eval_target_reward = event.runner->GetScalar(anet::rl::Runner::TARGET_EVAL_REWARD);
+                auto eval_policy_reward = event.runner->GetScalar(anet::rl::Runner::POLICY_EVAL_REWARD);
                 if (!eval_target_reward.has_value() || !eval_policy_reward.has_value())  return;
                 LOG::info() << "train_step=" << train_step
                     << " eval_target_reward_ema=" << *eval_target_reward
@@ -318,7 +301,7 @@ void RunnerApp::InitTrainer()
         }, "RunnerApp");
 
     // LearnObserver
-    trainer_->GetNotifier()->Attach<anet::rl::FunctionLearnObserver>(
+    run_manager_->GetNotifier()->Attach<anet::rl::FunctionLearnObserver>(
         [](const anet::rl::LearnEvent& event)
         {
             // Learnログ
@@ -345,8 +328,8 @@ void RunnerApp::InitTrainer()
 
 std::shared_ptr<anet::rl::gui::View> RunnerApp::CreateExperinceView(wxWindow* parent)
 {
-    auto env_class_id = trainer_->GetEnvClassId();
-    auto notifier = trainer_->GetNotifier();
+    auto env_class_id = run_manager_->GetEnvClassId();
+    auto notifier = run_manager_->GetNotifier();
     auto view = view_factory_->CreateView(parent, env_class_id, notifier);
     if (view == nullptr) {
         LOG::error() << "Failed to create view. env_class_id=" << env_class_id;
@@ -354,67 +337,6 @@ std::shared_ptr<anet::rl::gui::View> RunnerApp::CreateExperinceView(wxWindow* pa
     }
     return view;
 }
-
-
-//void RunnerApp::InitPERImageLogObservers(const anet::ConfigData& config_data)
-//{
-//    anet::rl::dqn::RainbowAgentConfig agent_config(config_data);
-//    if (!agent_config.learner.use_per) {
-//        LOG::warn() << "PER agent config disabled. Skipping PER ImageLog observer.";
-//        return;
-//    }
-//
-//    auto notifier = trainer_->GetNotifier();
-//    auto env_spec = trainer_->GetBatchEnv()->GetSpec();
-//    auto agent = trainer_->GetAgent();
-//
-//    // flags
-//    auto flags =
-//        //anet::HeatMapFlags::HM_LogScaleValue | 
-//        anet::HeatMapFlags::HM_AutoNormValue
-//        | anet::HeatMapFlags::HM_AutoScaleAxis
-//        //| anet::HeatMapFlags::HM_LogScaleAxis
-//        | anet::HeatMapFlags::HM_SumMode; // | anet::HeatMapFlags::HM_ShowZeroLine;
-//
-//    // ---- ReplayBuffer ----
-//    auto rep_x_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 0, &env_spec.state_spec);
-//    auto rep_y_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::NEXT_STATE_OBS, 1, &env_spec.state_spec);
-//    auto rep_prio_probe = std::make_shared<anet::rl::AgentTensorVectorProbe>(anet::rl::ReplayBuffer::PER_DIST, -1);
-//
-//    anet::rl::HeatMapObserverConfig replay_heat_obs_config{
-//        512,    // width
-//        512,    // height
-//        config_->image_log_interval,    // log_interval 
-//        //100000,  // max_points
-//        agent_config.learner.replay_capacity,	// max_points
-//        flags,   // flags
-//        -1,     // image_width
-//        -1,     // image_height
-//    };
-//
-//    auto auto_scale_mode = anet::rl::AgentTensorVectorProbe::AutoScaleMode::DISABLE;    // EnvSpecで固定
-//    notifier->Attach<anet::rl::HeatMapVectorObserver>(
-//        "43_agent_img/52_per_hm_prio_01_", replay_heat_obs_config, rep_x_probe, rep_y_probe, rep_prio_probe);
-//
-//
-//    anet::rl::TimeHistogramObserverConfig prio_hist_obs_config{
-//        256,    // x bins
-//        1920,   // y max_frames
-//        512,    // image_height
-//        1920,   // image_width
-//        anet::TimeFrameMode::Scale,             // mode
-//        flags | anet::HeatMapFlags::HM_FlipY | anet::HeatMapFlags::HM_LogScaleAxis,   // flags
-//        config_->image_log_interval_thm,    // log_interval
-//        20,     // frame_interval
-//        std::numeric_limits<float>::quiet_NaN(),
-//        std::numeric_limits<float>::quiet_NaN(),
-//        1.0f// alpha = 0.05f
-//    };
-//    //notifier->Attach<anet::rl::TimeHistogramObserver>(
-//    //    "44_agent_img/52_per_thg_prio", prio_hist_obs_config, rep_prio_probe);
-//
-//}
-
 
 wxIMPLEMENT_APP(RunnerApp);
 
