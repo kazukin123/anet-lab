@@ -675,6 +675,47 @@ std::string BatchExperience::ToString() const
     return oss.str();
 }
 
+// -----------------------------------------------------------------
+// RunnerScopedTrainObserver
+// -----------------------------------------------------------------
+
+RunnerScopedTrainObserver::RunnerScopedTrainObserver(std::shared_ptr<TrainObserver> real_observer, std::shared_ptr<const Runner> target_runner)
+    : real_observer_(real_observer), target_runner_(target_runner)
+{
+    ANET_CHECK(target_runner_ != nullptr);
+}
+
+void RunnerScopedTrainObserver::OnTrain(const TrainEvent& event)
+{
+    if (event.runner == target_runner_) {
+        real_observer_->OnTrain(event);
+    }
+}
+
+std::string RunnerScopedTrainObserver::ToString() const
+{
+    return "RunnerScopedTrainObserver(" + real_observer_->ToString() + ")";
+}
+
+// -----------------------------------------------------------------
+// RunnerScopedLearnObserver
+// -----------------------------------------------------------------
+RunnerScopedLearnObserver::RunnerScopedLearnObserver(std::shared_ptr<LearnObserver> real_observer, std::shared_ptr<const Runner> target_runner)
+    : real_observer_(real_observer), target_runner_(target_runner)
+{
+}
+
+void RunnerScopedLearnObserver::OnLearn(const LearnEvent& event)
+{
+    if (event.runner == target_runner_) {
+        real_observer_->OnLearn(event);
+    }
+}
+
+std::string RunnerScopedLearnObserver::ToString() const
+{
+    return "RunnerScopedLearnObserver(" + real_observer_->ToString() + ")";
+}
 
 // =============================================================
 // Notifier
