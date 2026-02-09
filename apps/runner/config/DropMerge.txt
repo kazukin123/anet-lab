@@ -6,32 +6,82 @@ app.$ = app.online > P
 train.seed = 1
 
 #train.batch_size = 256
-train.batch_size = 128
+#train.batch_size = 128
 #train.batch_size = 10
 #train.batch_size = 1
 
-DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A
+DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > B	 # Random Policy
 
+#net.body.$ = net.body.MLP2
+
+#net.body.$ = net.body.SuikaNet20
+net.body.$ = net.body.SuikaNet2032
+#net.body.$ = net.body.SuikaNet40
+#net.body.$ = net.body.SuikaNet4064
+
+#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G20 > E
+DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G2032 > E
+#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G40 > E
+#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > E
 
 # --- 実験
 
-## 長時間Run
+#A.learner.update_warmup_steps = 0           # exp_step単位。256(B) * 300step = 76800
+
+
+## ハイパラ調整
+
+#train.batch_size = 512
 train.batch_size = 256
-app.online.exp_pause_step  = -1
-E.max_step = 20000
-A.action_policy.uqe_tau_decay_step = 100,000,000 # 100M
-A.learner.per_beta_step = 100,000,000            # 100M
-A.learner.alpha = 1e-5
-A.learner.gamma = 0.995 # ★
-A.learner.n_step = 80
-A.learner.replay_capacity = 1,024,000 
-A.learner.per_prio_clip_value = 10.0  # 30 優先度の上限値
-A.reward_scaler.use_clipping = false
-A.reward_scaler.use_dynamic_scaling = false
-A.reward_scaler.constant_scale = 1.0
+#train.batch_size = 128
+#app.online.exp_pause_step  = -1
+#app.online.exp_pause_step  = 200,000,000    # 200M
+app.online.exp_pause_step  = 100,000,000      # 100M
+#app.online.exp_pause_step  = 20,000,000      # 20M
+app.batchrun.exp_exit_step  = 40,000,000     # 40M
+#E.max_step = 20000
+E.max_step = 10000
+#E.max_step = 5000
+#E.max_step = 1000
+#E.max_step = 3
+#R.action_policy.uqe_tau_decay_step = 100,000,000 # 100M
+R.action_policy.uqe_tau_decay_step = 10,000,000   # 10M
+#R.learner.per_beta_step = 100,000,000            # 100M
+R.learner.per_beta_step = 10,000,000              # 10M
+#R.learner.alpha = 1e-5
+R.learner.alpha = 5e-5
+#R.learner.alpha = 5e-4
+#R.learner.alpha = 1e-4
+#R.learner.gamma = 0.995 # ★
+R.learner.gamma = 0.99   # ★
+#R.learner.n_step = 80
+#R.learner.n_step = 20 # ★
+R.learner.n_step = 10 # ★
+#R.learner.n_step = 3  # ★
+#R.learner.replay_capacity = 1,000,000
+#R.learner.replay_capacity  =  500,000
+R.learner.replay_capacity  =  200,000
+#R.learner.replay_capacity =  100,000
+R.learner.per_beta_start = 0.6                    # 0.4
+R.learner.per_prio_clip_value = 50                # 30 
+R.network.soft_update_tau = 0.005                 # 0.01
+
+R.reward_scaler.use_clipping = false
+R.reward_scaler.use_dynamic_scaling = false
+R.reward_scaler.use_auto_post_scale = false
+R.reward_scaler.constant_scale = 1.0         # ★
+R.reward_scaler.manual_post_scale = 1.0
+
+#R.reward_scaler.use_dynamic_scaling = true
+#R.reward_scaler.reference_q_std = 1.0 # 30.0
+
 train.eval.[eval1].interval = 1000
 train.eval.[eval2].interval = 1000
+#train.eval.[eval1].interval = 500
+#train.eval.[eval2].interval = 500
+#train.eval.[eval1].interval = 200
+#train.eval.[eval2].interval = 200
 
 
 #A.learner.per_prio_clip_value = 100.0  # 30 優先度の上限値
@@ -60,7 +110,7 @@ A.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
 A.learner.replay_ratio = 1.0
 A.learner.replay_capacity = 256,000 
 A.learner.replay_batch_size = 256
-A.learner.grad_clip_tau = 40
+A.learner.grad_clip_tau = 30
 
 
 #A.action_policy.eps_decay_step = 10,000,000      # 10M
@@ -86,8 +136,6 @@ B.learner.alpha = 0
 #  904 (4 + 30x30) x 4stack ≒ 3600次元
 #  104 (4 + 10x10) x 4stack ＝  416次元
 
-net.body.$ = net.body.MLP2
-
 #net.block.FC1.linear.out_features = 1024
 #net.block.FC2.linear.out_features = 512
 
@@ -98,12 +146,143 @@ net.block.FC1.init.mode = 1
 net.block.FC2.init.mode = 1
 
 
+# --- NN設定 (2D-CONV)
+
+# 出力前 全結合層
+net.block.[LinearOut].type = Linear
+net.block.[LinearOut].linear.out_features = 512
+net.block.[LinearOut].linear.bias = true
+net.block.[LinearOut].init.mode = 2
+
+# ==============================================================================
+# Suika Game 20x20 20x32 Configuration
+# ==============================================================================
+
+# 入力: (B, Stack*16, 20, 20)
+net.block.[Embed20].type = SpatialEmbedder
+net.block.[Embed20].embed.scalar_dim = 4
+net.block.[Embed20].embed.grid_width = 20
+net.block.[Embed20].embed.grid_height = 20
+net.block.[Embed20].embed.num_classes = 12
+
+# 入力: (B, Stack*16, 20, 32)
+net.block.[Embed2032].type = SpatialEmbedder
+net.block.[Embed2032].embed.scalar_dim = 4
+net.block.[Embed2032].embed.grid_width = 20
+net.block.[Embed2032].embed.grid_height = 32
+net.block.[Embed2032].embed.num_classes = 12
+
+# 入力: (B, Stack*16, 40, 64)
+net.block.[Embed4064].type = SpatialEmbedder
+net.block.[Embed4064].embed.scalar_dim = 4
+net.block.[Embed4064].embed.grid_width = 40
+net.block.[Embed4064].embed.grid_height = 64
+net.block.[Embed4064].embed.num_classes = 12
+
+# Layer 1 : 縦横半分に圧縮
+# Input: 20x20 -> Output: 10x10 
+# Input: 20x32 -> Output: 10x16
+net.block.[Conv1].type = Conv2d
+#net.block.[Conv1].conv.out_channels = 32
+net.block.[Conv1].conv.out_channels = 64
+net.block.[Conv1].conv.kernel_size = 3
+net.block.[Conv1].conv.stride = 2
+net.block.[Conv1].conv.padding = 1
+net.block.[Conv1].init.mode = 2
+
+# Layer 2 : サイズ維持 (特徴抽出)
+net.block.[Conv2].type = Conv2d
+#net.block.[Conv2].conv.out_channels = 64
+net.block.[Conv2].conv.out_channels = 128
+net.block.[Conv2].conv.kernel_size = 3
+#net.block.[Conv2].conv.stride = 2
+net.block.[Conv2].conv.stride = 1
+net.block.[Conv2].conv.padding = 1
+net.block.[Conv2].init.mode = 2
+
+# Layer 3 : 最終圧縮
+# Input: 10x10 -> Output: 5x5
+# Input: 10x16 -> Output: 5x8
+net.block.[Conv3].type = Conv2d
+net.block.[Conv3].conv.out_channels = 128
+net.block.[Conv3].conv.kernel_size = 3
+net.block.[Conv3].conv.stride = 2
+net.block.[Conv3].conv.padding = 1
+net.block.[Conv3].init.mode = 2
+
+# Structure
+net.body.SuikaNet20.structure = Embed20 > Conv1 > ReLU > Conv2 > ReLU > Conv3 > ReLU > Flatten > LinearOut > ReLU
+net.body.SuikaNet2032.structure = Embed2032 > Conv1 > ReLU > Conv2 > ReLU > Conv3 > ReLU > Flatten > LinearOut > ReLU
+net.body.SuikaNet4064.structure = Embed4064 > Conv1 > ReLU > Conv2 > ReLU > Conv3 > ReLU > Flatten > LinearOut > ReLU
+
+
+# ==============================================================================
+# Suika Game 40x40 Configuration
+# ==============================================================================
+
+# --- Spatial Embedder (40x40) ---
+# Input: (Batch, Stack, 1604) -> (Batch, Stack*16, 40, 40)
+#  - Scalar: 4
+#  - Grid: 40x40 (1600), NumClasses: 12
+net.block.[Embed40].type = SpatialEmbedder
+net.block.[Embed40].embed.scalar_dim = 4
+net.block.[Embed40].embed.grid_width = 40
+net.block.[Embed40].embed.grid_height = 40
+net.block.[Embed40].embed.num_classes = 12
+
+
+# --- CNN Backbone (For 40x40) ---
+
+# Layer 1: 細部を見る (40x40 -> 40x40)
+# Stride 1 で解像度を維持し、One-Hotのギザギザを滑らかにする
+net.block.[Conv40_1].type = Conv2d
+net.block.[Conv40_1].conv.out_channels = 64
+net.block.[Conv40_1].conv.kernel_size = 3
+net.block.[Conv40_1].conv.stride = 1
+net.block.[Conv40_1].conv.padding = 1
+net.block.[Conv40_1].init.mode = 2
+
+# Layer 2: 圧縮開始 (40x40 -> 20x20)
+# 特徴量を増やしながらサイズ半減
+net.block.[Conv40_2].type = Conv2d
+net.block.[Conv40_2].conv.out_channels = 128
+net.block.[Conv40_2].conv.kernel_size = 3
+net.block.[Conv40_2].conv.stride = 2
+net.block.[Conv40_2].conv.padding = 1
+net.block.[Conv40_2].init.mode = 2
+
+# Layer 3: 中間特徴 (20x20 -> 10x10)
+net.block.[Conv40_3].type = Conv2d
+net.block.[Conv40_3].conv.out_channels = 128
+net.block.[Conv40_3].conv.kernel_size = 3
+net.block.[Conv40_3].conv.stride = 2
+net.block.[Conv40_3].conv.padding = 1
+net.block.[Conv40_3].init.mode = 2
+
+# Layer 4: 全体構造 (10x10 -> 5x5)
+# 最終的に 5x5x256 = 6400次元の特徴ベクトルにする
+net.block.[Conv40_4].type = Conv2d
+net.block.[Conv40_4].conv.out_channels = 256
+net.block.[Conv40_4].conv.kernel_size = 3
+net.block.[Conv40_4].conv.stride = 2
+net.block.[Conv40_4].conv.padding = 1
+net.block.[Conv40_4].init.mode = 2
+
+
+# --- Structure Definition ---
+
+# 40x40
+net.body.SuikaNet40.structure = Embed40 > Conv40_1 > ReLU > Conv40_2 > ReLU > Conv40_3 > ReLU > Conv40_4 > ReLU > Flatten> LinearOut > ReLU
+
+
+
 # ---- scalar metrics
 
 metrics.scalar.$ = metrics.scalar.baseline > M
 #metrics.scalar.$ = metrics.scalar.min > M
 #metrics.scalar.$ = metrics.scalar.full > M
 
+metrics.scalar.baseline.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema clip:1.0 # 初期の変動をclip
 #metrics.scalar.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 
 #metrics.scalar.[22_eval/01_test1_reward]     = $runner eval.[test1].eps_total_reward @learn clip:3000
@@ -119,7 +298,7 @@ metrics.image.interval = 0   # 出力全無効
 #metrics.image.interval = 50   # 通常運用
 #metrics.image.interval = 500 # 重い場合
 
-metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.per-prio > image.phm.s01
+#metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.per-prio > image.phm.s01
 #metrics.image.[43_agent_img/02_hm_visit_03_maxq].$     = image.phm.visit-maxq
 #metrics.image.[44_agent_img/52_per_thg_prio].$         = image.thg.per-prio
 #metrics.image.[45_agent_img/05_shm_01_qma01].$   = image.shm.qmax > image.shm.s01
@@ -138,17 +317,19 @@ app.online.eval_panel.step_per_frame = 5
 
 env.class_id = DropMergeEnv
 
-# 定義セットの適用
-DropMergeEnv.$ = DropMergeEnv.baseline > E
-
-
 # --- DropMergeEnv ---
 
+DropMergeEnv.G4064.grid_cols = 40
+DropMergeEnv.G4064.grid_rows = 64
+DropMergeEnv.G40.grid_cols = 40
+DropMergeEnv.G40.grid_rows = 40
+DropMergeEnv.G2032.grid_cols = 20
+DropMergeEnv.G2032.grid_rows = 32
+DropMergeEnv.G20.grid_cols = 20
+DropMergeEnv.G20.grid_rows = 20
+
+
 # グリッド
-#DropMergeEnv.baseline.grid_rows = 30
-#DropMergeEnv.baseline.grid_cols = 30
-#DropMergeEnv.baseline.grid_rows = 10
-#DropMergeEnv.baseline.grid_cols = 10
 DropMergeEnv.baseline.grid_rows = 20
 DropMergeEnv.baseline.grid_cols = 20
 
@@ -162,11 +343,12 @@ DropMergeEnv.baseline.max_step = 4000         # 3000
 DropMergeEnv.baseline.dropper_speed = 0.05
 DropMergeEnv.baseline.reload_min_steps = 20   # 物理判定が即座に終わっても、最低これだけは待つ（連打防止）。
 DropMergeEnv.baseline.reload_max_steps = 300  # DROPしてから次RELOADまでの強制抑制解除ステップ数
-DropMergeEnv.baseline.pop_force = 0.5         # 0.5 1.5 爆発力
+DropMergeEnv.baseline.pop_force = 0.2         # 0.5 1.5 爆発力
 DropMergeEnv.baseline.restitution = 0.05      # 反発係数
 DropMergeEnv.baseline.friction = 0.3          # 摩擦
-DropMergeEnv.baseline.time_penalty = -0.0001   # 時間ペナルティ
-DropMergeEnv.baseline.game_over_penalty = -5.0 # GameOverペナルティ
+DropMergeEnv.baseline.time_penalty = -0.0001    # 時間ペナルティ
+#DropMergeEnv.baseline.game_over_penalty = -5.0 # GameOverペナルティ
+DropMergeEnv.baseline.game_over_penalty = -100.0 # GameOverペナルティ
 
 # 果物スコア: 三角数ベース + α
 DropMergeEnv.baseline.fruit_scores  = 0.1 0.3 0.6 1.0 1.5 2.1 2.8 3.6 4.5 5.5 6.6 
@@ -184,6 +366,8 @@ DropMergeEnv.baseline.drop_probs = 20.0 20.0 20.0 20.0 20.0
 
 metrics.image.interval = 100
 app.online.train_panel.fps = 30
+app.batchrun.train_panel.fps = 0.5
+app.batchrun.eval_panel.fps = 0.1
 
 
 # --- Eval設定 ---
