@@ -21,10 +21,10 @@ TODO：実行手順を書く
 ### DONE
 
 * 学習アルゴリズム
-	* 強化学習基本インタフェース 
-	* DQNAgent
-	* RainbowAgent
-	* Replay Ratio対応
+	* 強化学習基本クラス群
+	* Rainbow Agent
+	* QR-DQN
+	* 1D-Conv/2D-Conv
 	* Reward Scaling
 	* Observation Normalization
 * メトリクス
@@ -34,8 +34,8 @@ TODO：実行手順を書く
 	* ヒストグラムやヒートマップの時系列動画出力（ffmpeg利用）
 * AP機能
 	* CUDA対応
-	* N環境スレッド対応
-	* 設定によるNN生成
+	* N環境並列実行
+	* 設定によるNN定義
 	* 設定によるメトリクス定義
 * Env実装
 	* CartPoleEnv
@@ -45,7 +45,6 @@ TODO：実行手順を書く
 ### DOING
 
 * 学習アルゴリズム
-	* 2D-Conv対応
 	* マルチエージェント対応
 * メトリクス
 * AP改善
@@ -71,6 +70,9 @@ TODO：実行手順を書く
 	* ヒートマップ：MetricsViewer統合
 	* TB:add_hparams対応
 * AP改善
+	* PolicyコピーによるEval性能向上
+	* EnvRunnerのスレッド化
+	* RB:NextStateのメモリ削減
 	* Dict Observation Space
 	* EvalPanelに自動アクション選択を追加
 	* NNパラメータの保存と読込
@@ -85,7 +87,7 @@ TODO：実行手順を書く
 * 学習アルゴリズム
 	* Orthogonal Initialization
 	* Adam Optimizer's Epsilon Parameter optimization
-	* 1d-conv
+	* Replay Ratio対応
 * AP改善
 	* 設定の継承読み込み
 	* Runフォルダに設定内容ダンプを残す

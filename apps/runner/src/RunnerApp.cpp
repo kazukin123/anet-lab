@@ -200,12 +200,14 @@ bool RunnerApp::OnInit()
                 auto_pause_done_ = true;    // 一回だけ自動
                 trainer_thread_->Pause();
                 LOG::info() << "Auto pause.";
+                wxGetApp().GetMainFrame()->SetStatusText("Auto pause.");
                 return anet::rl::ControlSignal::BREAK;
             }
             if ((config_->exp_pause_step > 0) && (exp_step >= config_->exp_pause_step) && !auto_pause_done_) {
                 auto_pause_done_ = true;    // 一回だけ自動
                 trainer_thread_->Pause();
                 LOG::info() << "Auto pause.";
+                wxGetApp().GetMainFrame()->SetStatusText("Auto pause.");
                 return anet::rl::ControlSignal::BREAK;
             }
 

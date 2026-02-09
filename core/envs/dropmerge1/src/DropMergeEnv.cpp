@@ -49,25 +49,37 @@ static std::pair<BodyType, int> DecodeUserData(uintptr_t val) {
 
 class DropMergeEnv::Result : virtual public anet::rl::SingleEnvResult {
 public:
-    Result(std::shared_ptr<const DropMergeEnv> env, float reward, float raw_reward)
+    Result(std::shared_ptr<const DropMergeEnv> env, float reward, float raw_reward, bool capture_now)
         : env_(env), reward_(reward), raw_reward_(raw_reward)
     {
+        if (capture_now) {
+            cached_aux_ = env->CreateAuxData(reward, raw_reward);
+            has_cache_ = true;
+        }
     }
-    
     anet::rl::AuxData GetAuxData() const override
     {
+        // キャッシュがあればそれを返す（Reset後でも大丈夫）
+        if (has_cache_) {
+            return cached_aux_;
+        }
+
+        // キャッシュがなければ、今のEnvから生成する（通常時はこちら）
         return env_->CreateAuxData(reward_, raw_reward_);
     }
 protected:
     std::shared_ptr<const DropMergeEnv> env_;
     float reward_;
     float raw_reward_;
+    bool has_cache_ = false;
+    anet::rl::AuxData cached_aux_;
 };
 
 class DropMergeEnv::ResetResult : public anet::rl::SingleResetResult, public DropMergeEnv::Result {
 public:
     ResetResult(std::shared_ptr<const DropMergeEnv> env, const anet::rl::SingleState state)
-        : Result(env, 0.0f, 0.0f), SingleResetResult(std::move(state))
+        : Result(env, 0.0f, 0.0f, false)
+        , SingleResetResult(std::move(state))
     {
     }
 };
@@ -75,7 +87,9 @@ public:
 class DropMergeEnv::StepResult : public anet::rl::SingleStepResult, public DropMergeEnv::Result {
 public:
     StepResult(std::shared_ptr<const DropMergeEnv> env, float reward, float raw_reward, anet::rl::SingleState next_state)
-        : Result(env, reward, raw_reward), SingleStepResult(reward, std::move(next_state))
+//		: Result(env, reward, raw_reward, next_state.done || next_state.truncated)  // エピソード終了時は断面キャプチャ
+		: Result(env, reward, raw_reward, false)
+        , SingleStepResult(reward, std::move(next_state))
     {
     }
 };
@@ -495,6 +509,12 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     state.done = done;
     state.truncated = truncated;
 
+	// エピソード終了時の情報記録
+    if (done || truncated) {
+        last_episode_score_ = episode_score_;
+        last_episode_step_ = step_count_;
+    }
+
     // 報酬計算
     auto rewards = calcReward();
 
@@ -585,7 +605,8 @@ anet::rl::SingleState DropMergeEnv::makeState() const
 
         b2Vec2 pos = b->GetPosition();
         float r = config_.fruit_radii[data.second - 1];
-        float val = data.second * norm_scale; // 正規化ランク
+		//if (data.second == 1) r *= 2.0f; // 1.3さくらんぼハック:小さすぎて見えくなる対策（物理挙動には影響しない）
+        float val = data.second;
 
         // この果物がカバーするグリッド範囲を計算
         // バウンディングボックスからインデックス範囲を割り出す
@@ -624,9 +645,13 @@ anet::rl::SingleState DropMergeEnv::makeState() const
                     // グリッド座標変換 (上から順か下から順か...ここでは下から順、row=0が底)
                     int idx = iy * config_.grid_cols + ix;
 
-                    // 重なっている場合は値が大きい方（ランクが高い方）を優先、あるいは上書き。
-                    // スイカゲームでは小さい果物が手前に来たりするが、ここではシンプルに「最大ランク」を残すことにする
-                    if (val > grid_obs[idx]) {
+                    // 重なっている場合はランクが高い方を優先
+                    //if (val > grid_obs[idx]) {
+                    //    grid_obs[idx] = val;
+                    //}
+
+                    // 重なっている場合はランクが低い方を優先
+                    if (grid_obs[idx] == 0.0f || val < grid_obs[idx]) {
                         grid_obs[idx] = val;
                     }
                 }
@@ -729,9 +754,11 @@ anet::rl::AuxData DropMergeEnv::CreateAuxData(float reward, float raw_reward) co
     // 報酬・ステップ
     aux.emplace("rewards", torch::tensor({ reward, raw_reward }, float_opt_));
     aux.emplace("step", torch::tensor({ (float)step_count_ }, float_opt_));
+    aux.emplace("last_step", torch::tensor({ (float)last_episode_step_ }, float_opt_));
 
     // スコア
     aux.emplace("score", torch::tensor({ episode_score_ }, float_opt_));
+    aux.emplace("last_score", torch::tensor({ last_episode_score_ }, float_opt_));
 
     return aux;
 }

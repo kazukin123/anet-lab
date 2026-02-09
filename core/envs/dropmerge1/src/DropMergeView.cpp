@@ -50,6 +50,7 @@ DropMergePanel::DropMergePanel(wxWindow* parent)
 {
     SetBackgroundStyle(wxBG_STYLE_PAINT);
     Bind(wxEVT_PAINT, &DropMergePanel::OnPaint, this);
+    Bind(wxEVT_MIDDLE_DOWN, &DropMergePanel::OnMiddleClick, this);
 }
 
 void DropMergePanel::ApplyData(const DropMergeData& data)
@@ -70,6 +71,14 @@ void DropMergePanel::ApplyData(const DropMergeData& data)
         world_max_y_ = gy + h;
     }
 
+    // 描画更新
+    Refresh();
+}
+
+void DropMergePanel::OnMiddleClick(wxMouseEvent& event)
+{
+    // Grid描画モード切り替え
+    grid_draw_mode_ = (grid_draw_mode_ + 1) % GRID_DRAW_MODE_MAX;
     Refresh();
 }
 
@@ -78,11 +87,11 @@ wxColour DropMergePanel::GetFruitColor(int rank) const
     // Rank 1..10
     switch (rank) {
     case 1: return wxColour(255, 100, 100);  // Cherry (Pink/Red)
-    case 2: return wxColour(255, 0, 0);      // Strawberry (Red)
+    case 2: return wxColour(255, 20, 20);    // Strawberry (Vivid Red)
     case 3: return wxColour(150, 50, 200);   // Grape (Purple)
     case 4: return wxColour(255, 175, 0);    // Decopon (Orange)
     case 5: return wxColour(255, 140, 0);    // Persimmon (Dark Orange)
-    case 6: return wxColour(200, 50, 50);    // Apple (Red)
+    case 6: return wxColour(200, 10, 60);    // Apple (Crimson / Cool Red)
     case 7: return wxColour(200, 200, 50);   // Pear (Yellow)
     case 8: return wxColour(255, 200, 200);  // Peach (Pink)
     case 9: return wxColour(255, 255, 0);    // Pineapple (Yellow)
@@ -155,15 +164,16 @@ void DropMergePanel::DrawBackground(wxDC& dc)
     main_view_rect_ = wxRect(0, 0, size.x - side_panel_width, size.y);
     side_view_rect_ = wxRect(size.x - side_panel_width, 0, side_panel_width, size.y);
 
-    // Main Area
-    //dc.SetBrush(*wxWHITE_BRUSH);
+    wxColour bgColor = wxSystemSettings::GetColour(wxSYS_COLOUR_3DFACE);
+
+    // Main Area (通常モードの背景色を変更)
+    //dc.SetBrush(wxBrush(bgColor));
     //dc.SetPen(*wxTRANSPARENT_PEN);
     //dc.DrawRectangle(main_view_rect_);
 
-    // Side Area
-    wxColour sideColor = wxSystemSettings::GetColour(wxSYS_COLOUR_3DFACE);
-    dc.SetBrush(wxBrush(sideColor));
-    dc.SetPen(*wxTRANSPARENT_PEN); // 枠線なしで塗りつぶし
+    // Side Area (同じ色で塗る)
+    dc.SetBrush(wxBrush(bgColor));
+    dc.SetPen(*wxTRANSPARENT_PEN);
     dc.DrawRectangle(side_view_rect_);
 
     // 区切り線 (少し暗く/明るくして境界を目立たせる)
@@ -211,9 +221,25 @@ void DropMergePanel::DrawGrid(wxDC& dc)
     float cell_w = world_w / cols;
     float cell_h = world_h / rows;
 
+
+    // グリッド塗りつぶし
+    {
+        wxPoint p_tl = WorldToScreen(world_min_x_, world_max_y_); // 左上
+        wxPoint p_br = WorldToScreen(world_max_x_, world_min_y_); // 右下
+        wxRect boardRect(p_tl, p_br);
+
+        wxColour bgColor = wxSystemSettings::GetColour(wxSYS_COLOUR_3DFACE);
+        dc.SetBrush(wxBrush(bgColor));
+        dc.SetPen(*wxTRANSPARENT_PEN);
+        dc.DrawRectangle(boardRect);
+    }
+
     dc.SetPen(wxPen(wxSystemSettings::GetColour(wxSYS_COLOUR_3DSHADOW), 1));
     dc.SetFont(wxFont(9, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
-    dc.SetTextForeground(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
+
+    // ランク文字の色：Grid Viewなら黒、通常ならシステム色
+    if (grid_draw_mode_ == GRID_DRAW_MODE_DEFAULT) dc.SetTextForeground(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
+    else dc.SetTextForeground(*wxBLACK);
 
     for (int r = 0; r < rows; ++r) {
         for (int c = 0; c < cols; ++c) {
@@ -223,18 +249,38 @@ void DropMergePanel::DrawGrid(wxDC& dc)
             wxPoint p1 = WorldToScreen(wx, wy); // 左下
             wxPoint p2 = WorldToScreen(wx + cell_w, wy + cell_h); // 右上 (Screen座標系ではYが小さい)
 
-            // DrawRectangleの引数は (x, y, w, h) 左上基準
-            // WorldToScreenはY反転しているので、p2.y が小さく(上)、p1.y が大きい(下)
-            dc.DrawRectangle(p1.x, p2.y, p2.x - p1.x, p1.y - p2.y);
+            // ランク取得
+            float val = t[r][c].item<float>();
+            int rank = 0;
+            if (val > 0.001f) rank = (int)std::round(val);
+
+            // Grid矩形
+            wxRect rect(p1.x, p2.y, p2.x - p1.x, p1.y - p2.y);
+
+            // Grid描画
+            if (grid_draw_mode_ == GRID_DRAW_MODE_DEFAULT) {
+                // 通常モード: 枠線のみ
+                dc.SetBrush(*wxTRANSPARENT_BRUSH);
+                dc.SetPen(wxPen(wxSystemSettings::GetColour(wxSYS_COLOUR_3DSHADOW), 1));
+                dc.DrawRectangle(rect);
+            } else {
+                // Grid Viewモード: 塗りつぶし
+                if (rank > 0) {
+                    wxColour color = GetFruitColor(rank);
+                    dc.SetBrush(wxBrush(color));
+                    dc.SetPen(*wxTRANSPARENT_PEN); // 枠なし
+                    dc.DrawRectangle(rect);
+                }
+
+                // グリッド線（薄く）
+                dc.SetBrush(*wxTRANSPARENT_BRUSH);
+                dc.SetPen(wxPen(wxColour(100, 100, 100), 1));
+                dc.DrawRectangle(rect);
+            }
 
             // ランク文字
-            float val = t[r][c].item<float>();
-            if (val > 0.001f) {
-                // Rank復元 (val * 10)
-                int rank = (int)std::round(val * kFruitTypeCount);
+            if (rank > 0) {
                 wxString str = wxString::Format("%d", rank);
-
-                // セル左上にランク文字描画
                 dc.DrawText(str, p1.x + 2, p2.y + 2);
             }
         }
@@ -243,6 +289,7 @@ void DropMergePanel::DrawGrid(wxDC& dc)
 
 void DropMergePanel::DrawFruits(wxDC& dc)
 {
+	if (grid_draw_mode_ == GRID_DRAW_MODE_GRID_ONLY) return;
     if (!snapshot_.aux.count("fruits")) return;
 
     auto t = snapshot_.aux.at("fruits"); // Nx5 [x, y, r, rank, angle]
@@ -362,17 +409,55 @@ void DropMergePanel::DrawSidePanel(wxDC& dc)
         score = snapshot_.aux.at("rewards")[1].item<float>();
     }
     dc.SetFont(wxFont(14, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
-    dc.DrawText(wxString::Format("Score: %.0f", score * 10.0f), r.x, y);
+    wxString score_str = wxString::Format("Score: %.0f", score * 10.0f);
+    dc.DrawText(score_str, r.x, y);
+
+    // 前回のスコア (右側に少し小さく/色を変えて表示)
+    if (snapshot_.aux.count("last_score")) {
+        float last_score = snapshot_.aux.at("last_score").item<float>();
+
+        if (last_score >= 0.0f) {
+            wxSize textSize = dc.GetTextExtent(score_str);
+            wxString lastStr = wxString::Format("(%.0f)", last_score * 10.0f);
+
+            // フォントサイズを少し小さく
+            dc.SetFont(wxFont(12, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
+            dc.SetTextForeground(wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT)); // グレー
+
+            // "Score: 1230" の幅を測って、その右に描画
+            dc.DrawText(lastStr, r.x + textSize.x + 5, y + 4); // 少し位置調整
+
+            // 色とフォントを戻す
+            dc.SetTextForeground(wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT));
+        }
+    }
     y += line_h;
 
-    // エピソード内ステップ
+    // エピソード内ステップ数
     int ep_step = 0;
     if (snapshot_.aux.count("step")) {
         ep_step = (int)snapshot_.aux.at("step").item<float>();
     }
     auto ep_step_str = anet::FormatWithCommas(ep_step);
-    dc.SetFont(wxFont(12, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
-    dc.DrawText(wxString::Format("Step : %s", ep_step_str), r.x, y);
+    dc.SetFont(wxFont(14, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
+    wxString step_str = wxString::Format("Step : %s", ep_step_str);
+    dc.DrawText(step_str, r.x, y);
+
+    // 前回のステップ数
+    if (snapshot_.aux.count("last_step")) {
+        int last_step = (int)snapshot_.aux.at("last_step").item<float>();
+
+        if (last_step >= 0) {
+            wxSize stepSize = dc.GetTextExtent(step_str);
+            wxString lastStepStr = wxString::Format("(%s)", anet::FormatWithCommas(last_step));
+
+            dc.SetFont(wxFont(12, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
+            dc.SetTextForeground(wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT));
+            dc.DrawText(lastStepStr, r.x + stepSize.x + 5, y + 2);
+
+            dc.SetTextForeground(wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT));
+        }
+    }
     y += line_h;
 
     // --- Details ---

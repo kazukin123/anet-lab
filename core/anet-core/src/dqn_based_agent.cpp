@@ -377,23 +377,34 @@ anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const to
     auto q_quantiles = GetQuantiles(obs, use_target);
     auto q_values = q_quantiles.mean(-1);
 
-    // greedy_only (評価モード) の場合、「平均値(リスク中立)」を使う
+    // パラメータの決定 (Train vs Eval)
+    float effective_epsilon = vars_.epsilon;
+    float effective_tau = tau;
+    bool use_vectorized_tau = tau_tensor.defined();
+
+	// greedy_only (評価モード) の場合、固定パラメータを使った上でランダム性を排除
     if (greedy_only) {
-        auto greedy_action = q_values.argmax(1, /*keepdim=*/false);        // greedy = argmax(q_values, dim=1)
-        return MakeActionInfo(greedy_action, q_values, q_quantiles);
+		effective_epsilon = 0.0f;               // Eval時はGreedyのみ
+		effective_tau = config_.uqe_eval_tau;   // Eval用の固定Tauを使う
+        use_vectorized_tau = false;             // Eval時は固定スカラーTauを使うので、VectorizedモードはOFFにする
     }
 
-    const float epsilon = vars_.epsilon;
+    // UQE (楽観的Q値) の計算
+    torch::Tensor uqe_action_values;
+    if (use_vectorized_tau) {
+        // 学習時: バッチごとに異なるTauが渡されている場合（hompsonSampling向け）
+        uqe_action_values = MakeVectorizedUQEAction(tau_tensor, q_quantiles);
+    } else {
+        // Eval時 または 学習時(固定Tau): スカラーTauを使う
+        uqe_action_values = MakeUQEAction(effective_tau, q_quantiles);
+    }
+
+    // EpsilonGreedy
     const int64_t N = q_values.sizes()[0];      // shape 読み取りは TensorOptions 経由で同期を回避
     const int64_t A = q_values.sizes()[1];
+    auto actions = MakeEpsilonGreedyAction(uqe_action_values, effective_epsilon, N, A);
 
-    torch::Tensor uqe_action;
-    if (tau_tensor.defined()) {
-        uqe_action = MakeVectorizedUQEAction(tau_tensor, q_quantiles);
-    } else {
-        uqe_action = MakeUQEAction(tau, q_quantiles);
-    }
-    auto actions = MakeEpsilonGreedyAction(uqe_action, epsilon, N, A);
+    // 情報詰め替え
     auto action_info = MakeActionInfo(actions, q_values, q_quantiles);
     return action_info;
 }

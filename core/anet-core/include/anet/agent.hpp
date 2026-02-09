@@ -94,6 +94,8 @@ namespace anet::rl {
             int uqe_eps_decay_step = 0;
 
             bool uqe_use_tail_mean = false;
+
+            float uqe_eval_tau = 0.80f;
         };
 
         struct StuckerConfig {

@@ -1,13 +1,23 @@
 @echo off
 REM SET EXE="bin\RelWithDebInfo\AnetRLRunner.exe"
-REM SET EXE="bin\Release\AnetRLRunner.exe" app.$=app.batchrun
-SET EXE="bin\Release\AnetRLRunner.exe"
+SET EXE="bin\Release\AnetRLRunner.exe" app.$=app.batchrun
+REM SET EXE="bin\Release\AnetRLRunner.exe"
+
+call:run_exe app.run_name=run_{t}_r1 X.learner.replay_ratio=1.0
+call:run_exe app.run_name=run_{t}_r2 X.learner.replay_ratio=2.0
+call:run_exe app.run_name=run_{t}_r4 X.learner.replay_ratio=4.0
+
+
+REM call:run_exe app.run_name=run_{t}_b256 train.batch_size=256
+REM call:run_exe app.run_name=run_{t}_b256_4064 net.body.$=net.body.SuikaNet4064 "DropMergeEnv.$=DropMergeEnv.baseline > DropMergeEnv.G4064 > E"
+REM call:run_exe app.run_name=run_{t}_b512 train.batch_size=512
+
 
 REM call:run_exe app.run_name=run_{t}_seed train.seed=7508636947373324265 
 
 REM call:run_exe app.run_name=run_{t}
 REM call:run_exe app.run_name=run_{t}_g20  E.grid_rows=20  E.grid_cols=20
-call:run_exe app.run_name=run_{t}_g20w net.block.FC1.linear.out_features=2048 net.block.FC2.linear.out_features=1024
+REM call:run_exe app.run_name=run_{t}_g20w net.block.FC1.linear.out_features=2048 net.block.FC2.linear.out_features=1024
 REM call:run_exe app.run_name=run_{t}_g30  E.grid_rows=30  E.grid_cols=30
 
 

@@ -45,10 +45,10 @@ void TrainPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
 
 void TrainPanel::OnTimer(wxTimerEvent& event)
 {
-	ANET_LOG_DEBUG("TrainPanel::OnTimer size=(" << this->GetSize().x << ", " << this->GetSize().y << ")");
+	//ANET_LOG_DEBUG("TrainPanel::OnTimer size=(" << this->GetSize().x << ", " << this->GetSize().y << ")");
 	wxWindow* parent = GetParent();
 	wxSize parent_size = parent ? parent->GetClientSize() : wxSize(-1, -1);
-	ANET_LOG_DEBUG("TrainPanel::OnTimer parent_size=(" << parent_size.x << ", " << parent_size.y << ")");
+	//ANET_LOG_DEBUG("TrainPanel::OnTimer parent_size=(" << parent_size.x << ", " << parent_size.y << ")");
 
 	// データ断面をキャプチャ
 	view_->CaptureViewData();

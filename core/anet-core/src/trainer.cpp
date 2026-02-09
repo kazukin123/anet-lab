@@ -55,11 +55,13 @@ void RunnerBase::UpdateMetrics(std::shared_ptr<const BatchStepResult> result)
 
     // エピソード合計報酬更新
     ANET_CHECK(episode_total_reward_cur_.defined());
-    episode_total_reward_cur_ += result->reward;                // 現エピソード報酬加算
-    auto finished = result->next_state.done.to(torch::kBool)
-        | result->next_state.truncated.to(torch::kBool);   // 終了マスク
+    episode_total_reward_cur_ += result->reward; // 現エピソード報酬加算
+    auto finished = result->next_state.done.to(torch::kBool) | result->next_state.truncated.to(torch::kBool);   // 終了マスク
     episode_total_reward_comp_ = episode_total_reward_cur_.masked_select(finished);  // 終了したエピソードの報酬を確定
     episode_total_reward_cur_.masked_fill_(finished, 0.0f);  // 終了したENVのエピソード総報酬をゼロクリア
+    //ANET_LOG_DEBUG("finished=" << anet::ToString(finished));
+    //ANET_LOG_DEBUG("episode_total_reward_comp_=" << anet::ToString(episode_total_reward_comp_));
+    //ANET_LOG_DEBUG("episode_total_reward_cur_=" << anet::ToString(episode_total_reward_cur_));
 }
 
 StepCounts RunnerBase::DoUpdateFrame(int max_steps, ControlFunction pre_step_func, ControlFunction post_step_func)
@@ -228,7 +230,14 @@ std::optional<float> TrainRunner::GetScalar(const std::string& key, int64_t inde
 
     if (key == TRAIN_EPISODE_REWARD) {
         if (episode_total_reward_comp_.defined()) {
-            auto ret = anet::ToFloat(episode_total_reward_comp_.mean());   // エピソード総報酬の平均
+			/// @todo 平均・最大選択可能にする
+            /// @todo Train単位ではなくExpもしくはエピソード単位で取得可能とする
+            //auto ret = anet::ToFloat(episode_total_reward_comp_.mean());   // エピソード総報酬の平均
+            if (episode_total_reward_comp_.numel() == 0) {
+                return std::numeric_limits<float>::quiet_NaN();
+			}
+            auto ret = anet::ToFloat(episode_total_reward_comp_.max());   // エピソード総報酬の最大
+            ANET_LOG_DEBUG("key=" << key << " ret=" << ret << " episode_total_reward_comp_=" << anet::ToString(episode_total_reward_comp_));
             return ret;
         } else {
             return std::numeric_limits<float>::quiet_NaN();

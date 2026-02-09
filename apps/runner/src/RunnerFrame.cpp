@@ -18,6 +18,9 @@ class RunPanel : public wxPanel { public: using wxPanel::wxPanel; };
 enum {
     ID_ResetLayout = wxID_HIGHEST + 1,
     ID_LogView,
+    ID_TrainPanel,
+	ID_EvalPanel,
+	ID_QValuePanel,
     ID_HeatMap,
     //ID_ModuleBrowser,
     //ID_RunView,
@@ -65,6 +68,13 @@ void RunnerFrame::SetupMenuBar()
     // View Menu
     wxMenu* view_menu = new wxMenu;
     //view_menu->Append(ID_ResetLayout, "&Reset Layout", "Reset to default layout");
+    view_menu->AppendCheckItem(ID_LogView, "&Log View")->Check(true);
+    view_menu->AppendSeparator();
+    view_menu->AppendCheckItem(ID_TrainPanel, "&Train View")->Check(true);
+    view_menu->AppendSeparator();
+    //view_menu->AppendCheckItem(ID_EvalPanel, "&Evaluation View")->Check(true);
+    view_menu->AppendCheckItem(ID_QValuePanel, "&Evaluation QValue View")->Check(true);
+    view_menu->AppendSeparator();
     view_menu->Append(ID_HeatMap, "&HeatMap");
     menu_bar->Append(view_menu, "&View");
 
@@ -96,7 +106,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         .FloatingSize(800, 400)     // 切り離したときのウィンドウサイズ
         .MinSize(500, 100)          // これ以上小さくならないようにする
         .Position(1)
-        .CloseButton(false).MaximizeButton(true)
+        .CloseButton(true).MaximizeButton(true).MinimizeButton(true).PinButton(true)
     );
 
     // Run View
@@ -128,7 +138,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         //.Centre()
         .BestSize(300, 300)
         .MinSize(200, 200)
-        .CloseButton(false).MaximizeButton(true)
+        .CloseButton(true).MaximizeButton(true).MinimizeButton(true).PinButton(true)
     );
 
     // EvalExperienceView
@@ -139,7 +149,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         //.Right().Layer(20)
         .BestSize(900, 400)
         .MinSize(200, 200)
-        .CloseButton(false).MaximizeButton(true)
+        .CloseButton(false).MaximizeButton(true).MinimizeButton(true).PinButton(false)
     );
 
     // QValuePanel
@@ -152,8 +162,8 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         //.Left().Layer(20)
         .BestSize(900, 500)
         .MinSize(700, 300)
-        .CloseButton(false).MaximizeButton(true).MinimizeButton(true)//.PinButton(true)
-        .DestroyOnClose(true)
+        .CloseButton(true).MaximizeButton(true).MinimizeButton(true).PinButton(true)
+        //.DestroyOnClose(false) // デフォルトで、✕ボタンPanelを消しても非表示になるだけ
     );
 }
 
@@ -185,8 +195,73 @@ void RunnerFrame::SetupEvents()
     // メニューイベント
     Bind(wxEVT_MENU, &RunnerFrame::OnExit, this, wxID_EXIT);
     Bind(wxEVT_MENU, &RunnerFrame::OnAbout, this, wxID_ABOUT);
-    Bind(wxEVT_MENU, &RunnerFrame::OnHeatMap, this, ID_HeatMap);
     Bind(wxEVT_MENU, &RunnerFrame::OnResetLayout, this, ID_ResetLayout);
+    Bind(wxEVT_MENU, &RunnerFrame::OnHeatMap, this, ID_HeatMap);
+
+	// パネル表示/非表示メニュー連動 (チェック状態に合わせてパネル表示切替)
+    Bind(wxEVT_MENU, [this](wxCommandEvent& event) {
+        auto& pane = aui_mgr_.GetPane(log_panel_);
+        if (pane.IsOk()) {
+            pane.Show(event.IsChecked());
+            aui_mgr_.Update();
+        }
+        }, ID_LogView);
+    Bind(wxEVT_MENU, [this](wxCommandEvent& event) {
+        auto& pane = aui_mgr_.GetPane(train_panel_);
+        if (pane.IsOk()) {
+            pane.Show(event.IsChecked());
+            aui_mgr_.Update();
+        }
+        }, ID_TrainPanel);
+    Bind(wxEVT_MENU, [this](wxCommandEvent& event) {
+        auto& pane = aui_mgr_.GetPane(eval_panel_);
+        if (pane.IsOk()) {
+            pane.Show(event.IsChecked());
+            aui_mgr_.Update();
+        }
+        }, ID_EvalPanel);
+    Bind(wxEVT_MENU, [this](wxCommandEvent& event) {
+        auto& pane = aui_mgr_.GetPane(q_value_panel_);
+        if (pane.IsOk()) {
+            pane.Show(event.IsChecked());
+            aui_mgr_.Update();
+        }
+        }, ID_QValuePanel);
+
+
+	// ✕ボタンによるパネルクローズ時のメニュー連動
+    Bind(wxEVT_AUI_PANE_CLOSE, [this](wxAuiManagerEvent& event) {
+        if (event.GetPane()->window == log_panel_) {
+            if (GetMenuBar()) {
+                GetMenuBar()->Check(ID_LogView, false);
+            }
+        }
+        event.Skip();
+        });
+    Bind(wxEVT_AUI_PANE_CLOSE, [this](wxAuiManagerEvent& event) {
+        if (event.GetPane()->window == train_panel_) {
+            if (GetMenuBar()) {
+                GetMenuBar()->Check(ID_TrainPanel, false);
+            }
+        }
+        event.Skip();
+        });
+    Bind(wxEVT_AUI_PANE_CLOSE, [this](wxAuiManagerEvent& event) {
+        if (event.GetPane()->window == eval_panel_) {
+            if (GetMenuBar()) {
+                GetMenuBar()->Check(ID_EvalPanel, false);
+            }
+        }
+        event.Skip();
+        });
+    Bind(wxEVT_AUI_PANE_CLOSE, [this](wxAuiManagerEvent& event) {
+        if (event.GetPane()->window == q_value_panel_) {
+            if (GetMenuBar()) {
+                GetMenuBar()->Check(ID_QValuePanel, false);
+            }
+        }
+        event.Skip();
+        });
 
     // きーまう
     Bind(anet::rl::gui::EVT_FORWARDED_MOUSE, &RunnerFrame::OnMouse, this);

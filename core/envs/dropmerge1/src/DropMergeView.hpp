@@ -42,6 +42,7 @@ public:
     void ApplyData(const DropMergeData& data);
 protected:
     void OnPaint(wxPaintEvent& event);
+    void OnMiddleClick(wxMouseEvent& event);
 private:
     // 座標変換
     wxPoint WorldToScreen(float wx, float wy) const;
@@ -60,6 +61,15 @@ private:
 private:
     bool has_snapshot_ = false;
     DropMergeData snapshot_;
+
+    // Grid描画モード
+    enum GridDrawMode {
+        GRID_DRAW_MODE_DEFAULT = 0,
+        GRID_DRAW_MODE_GRID_AND_FRUITS,
+        GRID_DRAW_MODE_GRID_ONLY,
+        GRID_DRAW_MODE_MAX
+    } ;
+    int grid_draw_mode_ = GRID_DRAW_MODE_DEFAULT;
 
     // レイアウト計算用
     wxRect main_view_rect_;

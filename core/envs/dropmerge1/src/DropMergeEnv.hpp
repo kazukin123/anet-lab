@@ -168,6 +168,10 @@ namespace anet::rl::env {
         std::pair<float, float> calcReward();
         anet::rl::AuxData CreateAuxData(float reward, float raw_reward) const;
 
+        // 前回の成績保持用 (Resetで初期化しない)
+        float last_episode_score_ = -1.0f;
+        int last_episode_step_ = -1;
+
         // 衝突コールバック
         class ContactListener : public b2ContactListener {
         public:
