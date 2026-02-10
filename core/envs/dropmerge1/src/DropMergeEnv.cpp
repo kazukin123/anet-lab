@@ -9,6 +9,7 @@
 #include "anet/env.hpp"
 
 using namespace anet::rl::env;
+namespace LOG = anet::log;
 
 // -------------------------------------------------------------
 // Constants & UserData definition
@@ -254,7 +255,9 @@ std::shared_ptr<const anet::rl::SingleResetResult> DropMergeEnv::Reset(anet::rl:
 
     step_count_ = 0;
     game_over_ = false;
+    game_over_timer_ = 0;
     episode_score_ = 0.0f;
+    episode_reward_ = 0.0f;
 
     // Dropper初期化
     dropper_.x = 0.0f;
@@ -275,6 +278,15 @@ std::shared_ptr<const anet::rl::SingleResetResult> DropMergeEnv::Reset(anet::rl:
 
 void DropMergeEnv::processAction(int64_t action)
 {
+    // NOOP時の自動移動オプション
+    if (config_.noop_override && action == kActionNoop) {
+        if (dropper_.x > 0.0f) {
+            action = kActionLeft;       // 画面中央(0.0)に向かって動く
+        } else {
+            action = kActionRight;      // 画面中央(0.0)に向かって動く
+        }
+    }
+
     // リロード判定ロジック
     if (dropper_.is_busy) {
         // タイマー減算
@@ -295,8 +307,8 @@ void DropMergeEnv::processAction(int64_t action)
             dropper_.pending_body = nullptr;
         }
     }
-
-	// 移動範囲の計算準備
+    
+    // 移動範囲の計算準備
     float half_w = config_.box_width * 0.5f;
     int check_rank = (dropper_.current_rank > 0) ? dropper_.current_rank : dropper_.next_rank;
     if (check_rank < 1) check_rank = 1;
@@ -457,27 +469,48 @@ bool DropMergeEnv::checkGameOver()
     // 箱の上端判定
     float dead_line_y = config_.ground_y + config_.box_height;
 
+	// overferlow中判定
+    bool is_overflowing = false;
+
     for (b2Body* b = world_->GetBodyList(); b; b = b->GetNext()) {
+        // 果物以外は無視
         if (b->GetType() != b2_dynamicBody) continue;
 
+        // 落下中の果物は判定から除外
+        if (b == dropper_.pending_body) continue;
 
+        // 位置取得
         b2Vec2 pos = b->GetWorldCenter();
+
+        // 横にはみ出した（壁抜けバグ）
+        if (std::abs(pos.x) > config_.box_width * 0.6f) {
+            LOG::warn() << "Fruit out of bounds (x=" << pos.x << ")";   // ログだけ
+            ANET_ASSERT_MSG(false, "Fruit out of bounds");
+        }
+
         if (pos.y > dead_line_y) {
             // 少し猶予を持たせるため、速度を見る
-            if (b->GetLinearVelocity().LengthSquared() < 0.1f) {
-                return true;
-            }
+            //if (b->GetLinearVelocity().LengthSquared() < 0.1f) {
+            //    continue;
+            //}
 
-            // 完全に画面外
-            if (pos.y > dead_line_y + 1.0f) {
-                return true;
-            }
-        }
-        // 横にはみ出した（壁抜けバグ対策）
-        if (std::abs(pos.x) > config_.box_width * 0.6f) {
-            return true;
+            is_overflowing = true;
+            break;
         }
     }
+
+    // オーバーフロー処理
+    if (is_overflowing) {
+		game_over_timer_++;   // 超えていたらタイマー加算
+    } else {
+        game_over_timer_ = 0; // 超えてなければリセット（回復）
+    }
+
+    // 60step以上オーバーフローが続いたらゲームオーバー
+    if (game_over_timer_ > 60) {
+        return true;
+    }
+
     return false;
 }
 
@@ -509,14 +542,23 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     state.done = done;
     state.truncated = truncated;
 
-	// エピソード終了時の情報記録
+    // Reward計算
+    auto rewards = calcReward();
+
+    // NOOPペナルティ
+    if (action == kActionNoop) {
+        rewards.first += config_.noop_penalty;
+    }
+
+    // 累積報酬更新
+    episode_reward_ += rewards.first;
+
+    // エピソード終了時の情報記録
     if (done || truncated) {
         last_episode_score_ = episode_score_;
         last_episode_step_ = step_count_;
+        last_episode_reward_ = episode_reward_;
     }
-
-    // 報酬計算
-    auto rewards = calcReward();
 
     return std::make_shared<StepResult>(
         this->shared_from_this(), rewards.first, rewards.second, std::move(state));
@@ -751,8 +793,15 @@ anet::rl::AuxData DropMergeEnv::CreateAuxData(float reward, float raw_reward) co
         config_.box_width, config_.box_height, config_.ground_y
         }, float_opt_));
 
-    // 報酬・ステップ
-    aux.emplace("rewards", torch::tensor({ reward, raw_reward }, float_opt_));
+    // 報酬
+    aux.emplace("rewards", torch::tensor({
+        reward,
+        raw_reward,
+        episode_reward_,
+        last_episode_reward_
+        }, float_opt_));
+
+    // ステップ
     aux.emplace("step", torch::tensor({ (float)step_count_ }, float_opt_));
     aux.emplace("last_step", torch::tensor({ (float)last_episode_step_ }, float_opt_));
 

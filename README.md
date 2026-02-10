@@ -70,6 +70,7 @@ TODO：実行手順を書く
 	* ヒートマップ：MetricsViewer統合
 	* TB:add_hparams対応
 * AP改善
+	* Envのメトリクス取得
 	* PolicyコピーによるEval性能向上
 	* EnvRunnerのスレッド化
 	* RB:NextStateのメモリ削減

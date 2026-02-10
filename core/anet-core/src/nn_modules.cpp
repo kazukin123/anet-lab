@@ -372,6 +372,192 @@ private:
 
 
 // ===========================================================================
+//  BatchNorm2d Module
+// ===========================================================================
+
+// BatchNorm2d Module
+class BatchNorm2dModule : public NetworkModule {
+public:
+    explicit BatchNorm2dModule(int64_t num_features)
+        : num_features_(num_features) {
+    }
+
+    torch::Tensor Forward(torch::Tensor input) override {
+        // Lazy Init
+        if (!bn_) {
+            torch::nn::BatchNorm2dOptions opts(num_features_);
+            bn_ = register_module("bn", torch::nn::BatchNorm2d(opts));
+            bn_->to(input.device(), input.scalar_type());
+        }
+        return bn_->forward(input);
+    }
+private:
+    int64_t num_features_;
+    torch::nn::BatchNorm2d bn_{ nullptr };
+};
+
+// Factory
+class BatchNorm2dModuleFactory final : public NetworkModuleFactory {
+private:
+    struct Config : anet::Config {
+        int num_features = 0;
+        Config(const anet::ConfigData& config_data) : anet::Config("") {
+            ANET_READ_CONFIG(config_data, num_features);
+        }
+    };
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override {
+        Config config(config_data);
+        // num_featuresが0(自動)の場合は、Forwardでの検知が必要ですが、
+        // BNは通常channel数固定で使うことが多いので今回は設定必須またはResBlock内で制御します
+        return std::make_shared<BatchNorm2dModule>(config.num_features);
+    }
+};
+
+
+// ===========================================================================
+//  ResBlock Module
+// ===========================================================================
+
+struct ResBlockConfig {
+    int channels = 64;
+    int kernel_size = 3;
+    int stride = 1;
+};
+
+class ResBlockModule : public NetworkModule {
+public:
+    ResBlockModule(const ResBlockConfig& config, const WeightInitConfig& init_config)
+        : config_(config), init_config_(init_config)
+    {
+    }
+
+    torch::Tensor Forward(torch::Tensor input) override {
+        anet::ProfileRange r("ResBlockModule::Forward");
+
+        // Lazy Initialization
+        if (!conv1_) {
+            anet::ProfileRange r2("ResBlockModule::Forward.init");
+
+            int64_t in_channels = input.size(1);
+
+            // --- Main Path (Conv1) ---
+
+            torch::nn::Conv2dOptions conv1_opts(in_channels, config_.channels, config_.kernel_size);
+            conv1_opts.stride(config_.stride);
+            conv1_opts.padding(config_.kernel_size / 2);
+            conv1_opts.bias(false);
+
+            conv1_ = register_module("conv1", torch::nn::Conv2d(conv1_opts));
+            bn1_ = register_module("bn1", torch::nn::BatchNorm2d(config_.channels));
+
+            // --- Main Path (Conv2) ---
+
+            // Conv2は常にStride=1 (サイズ維持)
+            torch::nn::Conv2dOptions conv2_opts(config_.channels, config_.channels, config_.kernel_size);
+            conv2_opts.stride(1);
+            conv2_opts.padding(config_.kernel_size / 2);
+            conv2_opts.bias(false);
+
+            conv2_ = register_module("conv2", torch::nn::Conv2d(conv2_opts));
+            bn2_ = register_module("bn2", torch::nn::BatchNorm2d(config_.channels));
+
+            // --- 3. Downsample Path (Projection Shortcut) ---
+
+            // サイズが変わる(stride > 1) または チャンネルが変わる場合、
+            // input側も合わせるために 1x1 Conv を通す
+            if (config_.stride > 1 || in_channels != config_.channels) {
+                torch::nn::Conv2dOptions ds_opts(in_channels, config_.channels, 1); // Kernel=1 (1x1 Conv)
+                ds_opts.stride(config_.stride); // Main Pathと同じStrideで縮小
+                ds_opts.padding(0);             // 1x1なのでPadding不要
+                ds_opts.bias(false);
+
+                downsample_conv_ = register_module("ds_conv", torch::nn::Conv2d(ds_opts));
+                downsample_bn_ = register_module("ds_bn", torch::nn::BatchNorm2d(config_.channels));
+
+                // Init Downsample
+                // 1x1 Convへの初期化も適用
+                downsample_conv_->to(input.device(), input.scalar_type());
+                downsample_bn_->to(input.device(), input.scalar_type());
+                WeightInitializer::Initialize(downsample_conv_, init_config_);
+            }
+
+            // Init Main Path
+            auto device = input.device();
+            auto dtype = input.scalar_type();
+            conv1_->to(device, dtype); bn1_->to(device, dtype);
+            conv2_->to(device, dtype); bn2_->to(device, dtype);
+
+            WeightInitializer::Initialize(conv1_, init_config_);
+            WeightInitializer::Initialize(conv2_, init_config_);
+        }
+
+        // --- Forwarding ---
+
+        // Main Path
+        anet::ProfileRange r3("ResBlockModule::Forward.conv1");
+        torch::Tensor out = conv1_->forward(input);
+        out = bn1_->forward(out);
+        out = torch::relu(out);
+
+        anet::ProfileRange r4("ResBlockModule::Forward.conv2", r3);
+        out = conv2_->forward(out);
+        out = bn2_->forward(out);
+
+        //  Shortcut Path
+        anet::ProfileRange r5("ResBlockModule::Forward.downsample", r4);
+        torch::Tensor residual = input;
+        if (downsample_conv_) { // 次元合わせが必要な場合
+            residual = downsample_conv_->forward(residual);
+            residual = downsample_bn_->forward(residual);
+        }
+
+        // Shortcut-Connection & Activate
+        anet::ProfileRange r6("ResBlockModule::Forward.fin", r5);
+        out += residual;
+        out = torch::relu(out);
+
+        return out;
+    }
+
+private:
+    ResBlockConfig config_;
+    WeightInitConfig init_config_;
+
+    torch::nn::Conv2d conv1_{ nullptr };
+    torch::nn::BatchNorm2d bn1_{ nullptr };
+    torch::nn::Conv2d conv2_{ nullptr };
+    torch::nn::BatchNorm2d bn2_{ nullptr };
+
+    // Shortcut調整用 (不要な合はnullptr)
+    torch::nn::Conv2d downsample_conv_{ nullptr };
+    torch::nn::BatchNorm2d downsample_bn_{ nullptr };
+};
+
+// ResBlockModuleFactory
+class ResBlockModuleFactory final : public NetworkModuleFactory {
+private:
+    struct Config : anet::Config {
+        ResBlockConfig res;
+        WeightInitConfig init;
+
+        Config(const anet::ConfigData& config_data) : anet::Config("") {
+            ANET_READ_CONFIG(config_data, res.channels);
+            ANET_READ_CONFIG(config_data, res.kernel_size);
+            ANET_READ_CONFIG(config_data, res.stride);
+            ANET_READ_CONFIG(config_data, init.mode);
+            ANET_READ_CONFIG(config_data, init.manual_gain);
+            ANET_READ_CONFIG(config_data, init.nonlinearity);
+        }
+    };
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override {
+        Config config(config_data);
+        return std::make_shared<ResBlockModule>(config.res, config.init);
+    }
+};
+
+// ===========================================================================
 //  NetworkModuleFactory
 // ===========================================================================
 
@@ -541,6 +727,8 @@ public:
     repo.Register("Flatten", std::make_shared<FlattenModuleFactory>());
     repo.Register("ReLU", std::make_shared<ReLUModuleFactory>());
     repo.Register("SpatialEmbedder", std::make_shared<SpatialEmbedderModuleFactory>());
+    repo.Register("BatchNorm2d", std::make_shared<BatchNorm2dModuleFactory>());
+    repo.Register("ResBlock", std::make_shared<ResBlockModuleFactory>());
 
     //RegisterNetworkModuleFactory<Module>("Linear");
  }

@@ -38,9 +38,11 @@ namespace anet::rl::env {
         float pop_force = 1.0f;        ///< 合体時の弾き飛ばし力
         int reload_min_steps = 20;     ///< Drop抑止ステップ数（物理判定が早くても必ず待つ時間）
         int reload_max_steps = 300;    ///< Drop抑止タイムアウトステップ数（物理判定が効かない場合の強制解除）
+		bool noop_override = false;     ///< NOOPアクションを中央方向移動に上書きするか
 
         // --- 報酬調整用パラメータ ---
         float time_penalty = -0.0001f;     ///< 毎ステップ引かれる罰報酬
+        float noop_penalty = -0.001f;     ///< NOOPアクションを選ぶ事による罰報酬
         float game_over_penalty = -5.0f;   ///< ゲームオーバー時の罰報酬
 
         // --- 果物パラメータ (Rank 1 -> 10) ---
@@ -64,13 +66,15 @@ namespace anet::rl::env {
             ANET_READ_CONFIG(config_data, grid_rows);
             ANET_READ_CONFIG(config_data, grid_cols);
             ANET_READ_CONFIG(config_data, dropper_speed);
+            ANET_READ_CONFIG(config_data, pop_force);
             ANET_READ_CONFIG(config_data, reload_min_steps);
             ANET_READ_CONFIG(config_data, reload_max_steps);
-            ANET_READ_CONFIG(config_data, pop_force);
+            ANET_READ_CONFIG(config_data, noop_override);
+            ANET_READ_CONFIG(config_data, time_penalty);
+            ANET_READ_CONFIG(config_data, noop_penalty);
+            ANET_READ_CONFIG(config_data, game_over_penalty);
             ANET_READ_CONFIG(config_data, restitution);
             ANET_READ_CONFIG(config_data, friction);
-            ANET_READ_CONFIG(config_data, time_penalty);
-            ANET_READ_CONFIG(config_data, game_over_penalty);
 
             // デフォルト値 (Configファイルがない場合用)を定義
             std::vector<float> def_radii = {
@@ -171,6 +175,10 @@ namespace anet::rl::env {
         // 前回の成績保持用 (Resetで初期化しない)
         float last_episode_score_ = -1.0f;
         int last_episode_step_ = -1;
+            
+        // 報酬集計用
+        float episode_reward_ = 0.0f;           ///< エピソード累積報酬 (Penalty込み)
+        float last_episode_reward_ = 0.0f;      ///< 前回のエピソード累積報酬
 
         // 衝突コールバック
         class ContactListener : public b2ContactListener {
@@ -196,6 +204,7 @@ namespace anet::rl::env {
         DropperState dropper_;
         int step_count_ = 0;
         bool game_over_ = false;
+        int game_over_timer_ = 0;
 
         // マージ処理用
         std::vector<MergeRequest> merge_requests_;

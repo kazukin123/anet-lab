@@ -15,6 +15,7 @@ namespace LOG = anet::log;
 EvalPanel::EvalPanel(wxWindow* parent, const EvalPanelConfig& config)
 	: wxPanel(parent), config_(config), update_timer_(this, wxID_ANY)
 {
+	is_pause_ = config_.auto_start ? false : true;
 }
 
 void EvalPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, std::shared_ptr<anet::rl::EvalRunner> runner)

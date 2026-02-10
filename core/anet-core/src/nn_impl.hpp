@@ -22,7 +22,6 @@ namespace anet::nn {
 
     class WeightInitializer {
     public:
-        // 引数から bool is_relu を削除
         template <typename T>
         static void Initialize(T& layer, const WeightInitConfig& config) {
 

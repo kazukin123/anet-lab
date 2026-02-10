@@ -384,9 +384,15 @@ anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const to
 
 	// greedy_only (評価モード) の場合、固定パラメータを使った上でランダム性を排除
     if (greedy_only) {
-		effective_epsilon = 0.0f;               // Eval時はGreedyのみ
-		effective_tau = config_.uqe_eval_tau;   // Eval用の固定Tauを使う
-        use_vectorized_tau = false;             // Eval時は固定スカラーTauを使うので、VectorizedモードはOFFにする
+		if (config_.uqe_eval_tau >= 0) {    // Evalモード用のTauが指定されている場合
+            effective_epsilon = 0.0f;               // Eval時はGreedyのみ
+            effective_tau = config_.uqe_eval_tau;   // Eval用の固定Tauを使う
+            use_vectorized_tau = false;             // Eval時は固定スカラーTauを使うので、VectorizedモードはOFFにする
+        } else {
+			// 評価向けtauの指定がない場合はQ値（Quantile平均）に基づくGreedy選択
+            auto greedy_action = q_values.argmax(1, /*keepdim=*/false);
+            return MakeActionInfo(greedy_action, q_values, q_quantiles);
+        }
     }
 
     // UQE (楽観的Q値) の計算

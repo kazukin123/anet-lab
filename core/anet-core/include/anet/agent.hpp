@@ -95,7 +95,7 @@ namespace anet::rl {
 
             bool uqe_use_tail_mean = false;
 
-            float uqe_eval_tau = 0.80f;
+            float uqe_eval_tau = -1;// 0.80f;   ///< policy_type=1かつEvalRun時向けのUQEτ値。-1の場合はUQEではなくGreedy選択。
         };
 
         struct StuckerConfig {

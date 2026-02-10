@@ -13,6 +13,7 @@
 struct EvalPanelConfig {
 	float fps = 30.0f;
 	int step_per_frame = 3;
+	bool auto_start = true;
 };
 
 class EvalPanel final : public wxPanel {

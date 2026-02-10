@@ -138,7 +138,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         //.Centre()
         .BestSize(300, 300)
         .MinSize(200, 200)
-        .CloseButton(true).MaximizeButton(true).MinimizeButton(true).PinButton(true)
+        .CloseButton(false).MaximizeButton(true).MinimizeButton(true).PinButton(false)
     );
 
     // EvalExperienceView
@@ -162,7 +162,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         //.Left().Layer(20)
         .BestSize(900, 500)
         .MinSize(700, 300)
-        .CloseButton(true).MaximizeButton(true).MinimizeButton(true).PinButton(true)
+        .CloseButton(false).MaximizeButton(true).MinimizeButton(true).PinButton(false)
         //.DestroyOnClose(false) // デフォルトで、✕ボタンPanelを消しても非表示になるだけ
     );
 }

@@ -469,17 +469,31 @@ void DropMergePanel::DrawSidePanel(wxDC& dc)
     dc.DrawText(wxString::Format("Total Step: %s", total_step_str), r.x, y);
     y += line_h;
 
-    // Reward
-    float reward = snapshot_.reward;
-    dc.DrawText(wxString::Format("Reward: %f", reward), r.x, y);
-    y += line_h;
+    // 報酬
+    if (snapshot_.aux.count("rewards")) {
+        auto t = snapshot_.aux.at("rewards");
+        // t[0]: Step Reward
+        // t[1]: Raw Step Reward
+        // t[2]: Total Reward
+        // t[3]: Last Total Reward
+        float step_r = t[0].item<float>();
+        float total_r = t[2].item<float>();
+        float last_total_r = t[3].item<float>();
+
+        dc.DrawText(wxString::Format("Reward: %.4f", step_r), r.x, y);
+        y += line_h;
+
+        // 強調表示
+        dc.DrawText(wxString::Format("Total Rew: %f (%f)", total_r, last_total_r), r.x, y);
+        y += line_h;
+    }
 
     // Action
     int action = (int)snapshot_.action;
     wxString act_str = "NOOP";
-    if (action == 1) act_str = "LEFT";
-    if (action == 2) act_str = "DROP";
-    if (action == 3) act_str = "RIGHT";
+    if (action == kActionLeft) act_str = "LEFT";
+    if (action == kActionDrop) act_str = "DROP";
+    if (action == kActionRight) act_str = "RIGHT";
     dc.DrawText(wxString::Format("Action: %s", act_str), r.x, y);
     y += line_h;
 
