@@ -1,4 +1,7 @@
-﻿# --- 基本設定
+﻿
+# ==============================================================================
+# 基本設定
+# ==============================================================================
 
 app.$ = app.online > P
 #app.$ = app.batchrun > P
@@ -13,55 +16,85 @@ train.batch_size = 256
 DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > B	 # Random Policy
 
-
-
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G20 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G2032 > E
-DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > E
+#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > E
+DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > E
 
 #net.body.$ = net.body.MLP2
-#net.body.$ = net.body.SuikaNet20
 #net.body.$ = net.body.SuikaNet2032
 #net.body.$ = net.body.SuikaNet4064
-net.body.$ = net.body.SuikaResNet4064
+#net.body.$ = net.body.SuikaResNet4064_06
+net.body.$ = net.body.SuikaResNet4064_10
 
 
-# --- 実験
+# ==============================================================================
+# 実験
+# ==============================================================================
 
-E.use_fast_move = true
-E.use_instant_drop = true
+#R.reward_scaler.use_dynamic_scaling = true
+#R.reward_scaler.use_auto_post_scale = true
+
+#E.use_fast_move = false
+#E.use_instant_drop = false
 
 #E.game_over_penalty = -10.0
 #E.game_over_penalty = -5.0
 #E.game_over_penalty = -10.0
-E.game_over_penalty = 0.0
+#E.game_over_penalty = 0.0
 #E.game_over_penalty = -200.0
 #E.game_over_penalty = -500.0
 
-E.time_penalty = -0.001    # NEET対策
+#E.time_penalty = -0.001    # NEET対策
 #E.time_penalty = -0.1    # NEET対策
 #E.time_penalty = 0
 
-
-app.online.eval_panel.auto_start = false
-app.batchrun.eval_panel.auto_start = false
-
-#A.learner.update_warmup_steps = 0           # exp_step単位。256(B) * 300step = 76800
-#A.learner.update_warmup_steps = 10           # exp_step単位。256(B) * 300step = 76800
-#A.learner.update_warmup_steps = 999999999
-A.learner.update_warmup_steps = 25,600       # 256(replay-sample) * 100step
-
-
-## ハイパラ調整
-
-A.learner.adam_eps = 1.5e-04
+#A.learner.adam_eps = 1.5e-04
 
 #R.action_policy.uqe_eps_max = 1.00
-R.action_policy.uqe_eps_max = 0.60
+#R.action_policy.uqe_eps_max = 0.60
 
-R.action_policy.uqe_eps_min = 0.05
+#R.action_policy.uqe_eps_min = 0.05
 #R.action_policy.uqe_eps_min = 0.0
 
+#R.learner.alpha = 5e-6
+#R.learner.alpha = 1e-5
+#R.learner.alpha = 5e-5
+#R.learner.alpha = 5e-4
+#R.learner.alpha = 1e-4
+
+#R.learner.gamma = 0.995 # ★ 長期戦略考慮
+#R.learner.gamma = 0.99   # ★
+
+#R.learner.n_step = 30   # ★長期戦略考慮
+#R.learner.n_step = 20
+#R.learner.n_step = 10
+#R.learner.n_step = 3
+
+#R.learner.replay_capacity = 800,000
+#R.learner.replay_capacity  =  500,000
+#R.learner.replay_capacity  =  200,000
+#R.learner.replay_capacity =  100,000
+
+#R.learner.per_beta_start = 0.6                    # 0.4
+#R.learner.per_prio_clip_value = 50                # 30 
+
+#R.network.soft_update_tau = 0.005                 # 0.01
+#R.network.soft_update_tau = 0.001                 # 0.01
+
+#R.reward_scaler.constant_scale = 1.0         # ★
+#R.reward_scaler.constant_scale = 0.1         # ★
+#R.reward_scaler.constant_scale = 0.01         # ★
+R.reward_scaler.constant_scale = 0.001         # ★
+
+#A.learner.per_prio_clip_value = 100.0  # 30 優先度の上限値
+#A.learner.per_prio_clip_value = 60.0  # 30 優先度の上限値
+
+
+
+# ==============================================================================
+# ステップ数 依存設定
+# ==============================================================================
 
 #app.online.exp_pause_step  = 200,000,000    # 200M
 #app.online.exp_pause_step  = 100,000,000      # 100M
@@ -69,114 +102,50 @@ R.action_policy.uqe_eps_min = 0.05
 app.online.exp_pause_step  = 40,000,000      # 40M
 app.batchrun.exp_exit_step  = 40,000,000     # 40M
 
+A.action_policy.uqe_eps_decay_step = 10,000,000      # 10M
+#A.action_policy.uqe_eps_decay_step = 2,000,000      # 2M
 
-R.action_policy.uqe_eps_decay_step = 10,000,000      # 10M
-#R.action_policy.uqe_eps_decay_step = 2,000,000      # 2M
-
-#R.action_policy.uqe_tau_decay_step = 100,000,000 # 100M
-#R.action_policy.uqe_tau_decay_step = 20,000,000   # 20M
-R.action_policy.uqe_tau_decay_step = 10,000,000   # 10M
-#R.action_policy.uqe_tau_decay_step = 2,000,000   # 2M
+#A.action_policy.uqe_tau_decay_step = 100,000,000 # 100M
+#A.action_policy.uqe_tau_decay_step = 20,000,000   # 20M
+A.action_policy.uqe_tau_decay_step = 10,000,000   # 10M
+#A.action_policy.uqe_tau_decay_step = 2,000,000   # 2M
 
 #R.learner.per_beta_step = 100,000,000            # 100M
 #R.learner.per_beta_step = 10,000,000              # 10M
 #R.learner.per_beta_step = 20,000,000              # 20M
-R.learner.per_beta_step = 20,000,000               # 20M
+A.learner.per_beta_step = 20,000,000               # 20M
 
 
-#train.batch_size = 512
-#train.batch_size = 256
-#train.batch_size = 128
-#app.online.exp_pause_step  = -1
-E.max_step = 20000
-#E.max_step = 10000
-#E.max_step = 5000
-#E.max_step = 1000
-#E.max_step = 3
-R.learner.alpha =  5e-6
-#R.learner.alpha = 1e-5
-#R.learner.alpha = 5e-5
-#R.learner.alpha = 5e-4
-#R.learner.alpha = 1e-4
-#R.learner.gamma = 0.995 # ★ 長期戦略考慮
-R.learner.gamma = 0.99   # ★
-R.learner.n_step = 30   # ★長期戦略考慮
-#R.learner.n_step = 20
-#R.learner.n_step = 10
-#R.learner.n_step = 3
-R.learner.replay_capacity = 1,000,000
-#R.learner.replay_capacity = 800,000
-#R.learner.replay_capacity  =  500,000
-#R.learner.replay_capacity  =  200,000
-#R.learner.replay_capacity =  100,000
-R.learner.per_beta_start = 0.6                    # 0.4
-R.learner.per_prio_clip_value = 50                # 30 
-#R.network.soft_update_tau = 0.005                 # 0.01
-R.network.soft_update_tau = 0.001                 # 0.01
+# ==============================================================================
+# Env依存設定
+# ==============================================================================
 
-R.reward_scaler.use_clipping = false
-R.reward_scaler.use_dynamic_scaling = false
-R.reward_scaler.use_auto_post_scale = false
-#R.reward_scaler.constant_scale = 1.0         # ★
-#R.reward_scaler.constant_scale = 0.1         # ★
-R.reward_scaler.constant_scale = 0.01         # ★
-R.reward_scaler.manual_post_scale = 1.0
-
-#R.reward_scaler.use_dynamic_scaling = true
-#R.reward_scaler.reference_q_std = 1.0 # 30.0
-
-R.learner.use_td_clip = true
-#R.learner.td_clip_value = 10.0
-R.learner.td_clip_value = 0.5
-
-#train.eval.[eval1].interval = 0
-#train.eval.[eval2].interval = 0
-#train.eval.[eval1].interval = 1000
-#train.eval.[eval2].interval = 1000
-train.eval.[eval1].interval = 500
-train.eval.[eval2].interval = 500
-#train.eval.[eval1].interval = 200
-#train.eval.[eval2].interval = 200
-
-
-#A.learner.per_prio_clip_value = 100.0  # 30 優先度の上限値
-#A.learner.per_prio_clip_value = 60.0  # 30 優先度の上限値
-
-#app.batchrun.exp_exit_step  = 5,000,000
-
-#train.eval.[eval1].interval = 100
-#train.eval.[eval2].interval = 100
-#train.eval.[eval1].run_mode = eval1
-#train.eval.[eval2].run_mode = eval2
-
-#A.action_policy.policy_type = 0        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
-
-
-# --- Env依存設定
-
-A.reward_scaler.use_clipping = true
-A.reward_scaler.clip_range = 10.0
-A.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
 
 #A.stucker.use_stacker = true
 #A.stucker.stack_count = 4
 
-#A.learner.alpha = 5e-5 # 5e-4
+A.action_policy.uqe_eps_max = 0.60
+A.action_policy.uqe_eps_min = 0.05
+
+A.learner.alpha = 5e-6         # ★
+A.learner.gamma = 0.99          # ★
+A.learner.n_step = 30           # ★長期戦略考慮
 A.learner.replay_ratio = 1.0
-A.learner.replay_capacity = 256,000 
+A.learner.replay_capacity = 1,000,000
 A.learner.replay_batch_size = 256
 A.learner.grad_clip_tau = 30
-#A.learner.grad_clip_tau = 1.0
+A.learner.update_warmup_steps = 25,600       # 256(replay-sample) * 100step
+A.learner.per_beta_start = 0.6               # 0.4
+A.learner.per_prio_clip_value = 50           # 30 
+A.learner.use_per_prio_clip = true           # 優先度をクリッピングするか
 
+A.reward_scaler.use_dynamic_scaling = false
+A.reward_scaler.use_auto_post_scale = false
+A.reward_scaler.constant_scale = 0.01             # ★
+A.reward_scaler.use_clipping = false
+A.reward_scaler.clip_range = 10.0
 
-#A.action_policy.eps_decay_step = 10,000,000      # 10M
-#A.action_policy.uqe_tau_decay_step = 10,000,000  # 10M
-#A.learner.update_warmup_steps = 76,800           # exp_step単位。256(B) * 300step = 76800
-#A.learner.per_beta_step = 10,000,000             # 10M betaを収束値まで線形変化させるexpステップ数（初期は当てにならないので補正を弱める）
-#A.n_step = 3
-
-#app.online.exp_pause_step  = 25,600,000   # 256 * 100K
-#app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
+A.network.soft_update_tau = 0.001                 # 0.01
 
 
 B.action_policy.policy_type = 0        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
@@ -187,7 +156,10 @@ B.learner.update_warmup_steps = 999999999
 B.learner.alpha = 0
 
 
-# --- NN設定 (MLP)
+
+# ==============================================================================
+# SuikaMLP
+# ==============================================================================
 
 #  904 (4 + 30x30) x 4stack ≒ 3600次元
 #  104 (4 + 10x10) x 4stack ＝  416次元
@@ -202,27 +174,10 @@ net.block.FC1.init.mode = 1
 net.block.FC2.init.mode = 1
 
 
-# --- NN設定 (2D-CONV)
-
-# 出力前 全結合層
-net.block.[LinearOut].type = Linear
-net.block.[LinearOut].linear.out_features = 512
-net.block.[LinearOut].linear.bias = true
-#net.block.[LinearOut].init.mode = 1
-net.block.[LinearOut].init.mode = 3				# Orthogonal
-net.block.[LinearOut].init.manual_gain = 0.01
-
 
 # ==============================================================================
-# Suika 20x20 20x32 Configuration
+# SuikaNet 共通設定
 # ==============================================================================
-
-# 入力: (B, Stack*16, 20, 20)
-net.block.[Embed20].type = SpatialEmbedder
-net.block.[Embed20].embed.scalar_dim = 4
-net.block.[Embed20].embed.grid_width = 20
-net.block.[Embed20].embed.grid_height = 20
-net.block.[Embed20].embed.num_classes = 12
 
 # 入力: (B, Stack*16, 20, 32)
 net.block.[Embed2032].type = SpatialEmbedder
@@ -237,6 +192,19 @@ net.block.[Embed4064].embed.scalar_dim = 4
 net.block.[Embed4064].embed.grid_width = 40
 net.block.[Embed4064].embed.grid_height = 64
 net.block.[Embed4064].embed.num_classes = 12
+
+# 出力前 全結合層
+net.block.[LinearOut].type = Linear
+net.block.[LinearOut].linear.out_features = 512
+net.block.[LinearOut].linear.bias = true
+#net.block.[LinearOut].init.mode = 1            # Xavier Uniform
+net.block.[LinearOut].init.mode = 3				# Orthogonal
+net.block.[LinearOut].init.manual_gain = 0.01
+
+
+# ==============================================================================
+# Suika CNN
+# ==============================================================================
 
 # Layer 1 : 縦横半分に圧縮
 # Input: 20x20 -> Output: 10x10 
@@ -270,13 +238,12 @@ net.block.[Conv3].conv.padding = 1
 net.block.[Conv3].init.mode = 2
 
 # Structure
-net.body.SuikaNet20.structure = Embed20 > Conv1 > ReLU > Conv2 > ReLU > Conv3 > ReLU > Flatten > LinearOut
 net.body.SuikaNet2032.structure = Embed2032 > Conv1 > ReLU > Conv2 > ReLU > Conv3 > ReLU > Flatten > LinearOut
-#net.body.SuikaNet4064.structure = Embed4064 > Conv1 > ReLU > Conv2 > ReLU > Conv3 > ReLU > Flatten > LinearOut
+net.body.SuikaNet4064.structure = Embed4064 > Conv1 > ReLU > Conv2 > ReLU > Conv3 > ReLU > Flatten > LinearOut
 
 
 # ==============================================================================
-# Suika 40x48 ResNet Configuration
+# Suika ResNet
 # ==============================================================================
 
 net.block.[ConvInit32].type = Conv2d
@@ -303,10 +270,8 @@ net.block.[ConvCompress].conv.padding = 0
 net.block.[ConvCompress].init.mode = 2
 
 # 構造定義
-#net.body.SuikaResNet4064.structure = Embed4064 > ConvInit32 > ReLU > ResBlock32(*4) > ConvCompress > ReLU > Flatten > LinearOut
-#net.body.SuikaResNet4064.structure = Embed4064 > ConvInit32 > ReLU > ResBlock32(*2) > ConvCompress > ReLU > Flatten > LinearOut
-#net.body.SuikaResNet4064.structure = Embed4064 > ConvInit32 > SiLU > ResBlock32(*2) > ConvCompress > SiLU > Flatten > LinearOut
-net.body.SuikaResNet4064.structure = Embed4064 > ConvInit32 > SiLU > ResBlock32(*4) > ConvCompress > SiLU > Flatten > LinearOut
+net.body.SuikaResNet4064_06.structure = Embed4064 > ConvInit32 > SiLU > ResBlock32(*2) > ConvCompress > SiLU > Flatten > LinearOut
+net.body.SuikaResNet4064_10.structure = Embed4064 > ConvInit32 > SiLU > ResBlock32(*4) > ConvCompress > SiLU > Flatten > LinearOut
 
 
 
@@ -343,13 +308,19 @@ metrics.image.interval = 0   # 出力全無効
 #metrics.image.[53_agent_img/52_per_hm_prio_01_test].$   = image.phm.per-prio > image.phm.s01 > image.test
 #metrics.image.[55_agent_img/05_shm_01_maxq_01_test].$   = image.shm.qmax > image.shm.01 > image.test
 
-# --- ap
+
+# --- app
 
 app.online.eval_panel.step_per_frame = 5
+
+app.online.eval_panel.auto_start = false
+app.batchrun.eval_panel.auto_start = false
+
 
 # --- env
 
 env.class_id = DropMergeEnv
+
 
 # --- DropMergeEnv ---
 
@@ -357,71 +328,88 @@ DropMergeEnv.G4064.grid_cols = 40
 DropMergeEnv.G4064.grid_rows = 64
 DropMergeEnv.G2032.grid_cols = 20
 DropMergeEnv.G2032.grid_rows = 32
-DropMergeEnv.G20.grid_cols = 20
-DropMergeEnv.G20.grid_rows = 20
 
 
-# グリッド
-DropMergeEnv.baseline.grid_rows = 40
-DropMergeEnv.baseline.grid_cols = 64
+# --- DropMergeEnv Heavy ドバドバ落としても難しい物性
 
-# 箱サイズ
-DropMergeEnv.baseline.box_width = 3.0
-DropMergeEnv.baseline.box_height = 4.0
-DropMergeEnv.baseline.ground_y = 0.5
+DropMergeEnv.heavy.friction = 0.3      # 摩擦: 0.1(液体) -> 0.3(物体)  隙間に勝手に滑り込むのを防ぐ
+DropMergeEnv.heavy.restitution = 0.2   # 0.05(粘土) -> 0.2(ゴム)       適当に落とすと弾かれて計算が狂う
+DropMergeEnv.heavy.fruit_densities = 10.0  6.5  4.8  3.4  2.4  1.75  1.26  0.93  0.75  0.59  0.48  # ランクが上がるごとに少しずつ重くなる (スイカはさくらんぼの4倍重い）
+# DropMergeEnv.heavy.pop_force = 0.1   # 爆発で事故を少し誘発
 
-# ゲームバランス
-DropMergeEnv.baseline.max_step = 20000         # 3000
-#DropMergeEnv.baseline.no_drop_timeout_steps = 1000   # DROPしないでいると強制エピソード打ち切り(truncated)になるステップ数
-DropMergeEnv.baseline.no_drop_timeout_steps = 500   # DROPしないでいると強制エピソード打ち切り(truncated)になるステップ数
-DropMergeEnv.baseline.use_fast_move = false
-DropMergeEnv.baseline.use_instant_drop = false
-DropMergeEnv.baseline.dropper_speed = 0.05
-DropMergeEnv.baseline.dropper_speed2 = 0.30
-DropMergeEnv.baseline.reload_min_steps = 20   # 物理判定が即座に終わっても、最低これだけは待つ（連打防止）。
-DropMergeEnv.baseline.reload_max_steps = 300  # DROPしてから次RELOADまでの強制抑制解除ステップ数
-#DropMergeEnv.baseline.pop_force = 0.2         # 0.5 1.5 爆発力
-DropMergeEnv.baseline.pop_force = 0.0         # 0.5 1.5 爆発力
-#DropMergeEnv.baseline.restitution = 0.05      # 反発係数
-#DropMergeEnv.baseline.restitution = 0.10        # 反発係数
-DropMergeEnv.baseline.restitution = 0.05        # 反発係数
-#DropMergeEnv.baseline.friction = 0.3          # 摩擦
-DropMergeEnv.baseline.friction = 0.1          # 摩擦 ツルツル
-#DropMergeEnv.baseline.time_penalty = -0.0001    # 時間ペナルティ
-#DropMergeEnv.baseline.time_penalty = -0.001     # 時間ペナルティ
-DropMergeEnv.baseline.time_penalty = 0.0        # 時間ペナルティ
-DropMergeEnv.baseline.noop_penalty = 0.0
-DropMergeEnv.baseline.noop_override = false       # NOOPを中央方向移動に変換するか
 
-DropMergeEnv.baseline.game_over_penalty = -10.0 # GameOverペナルティ
-#DropMergeEnv.baseline.game_over_penalty = -5.0 # GameOverペナルティ
-#DropMergeEnv.baseline.game_over_penalty = -100.0 # GameOverペナルティ
-#DropMergeEnv.baseline.game_over_penalty = 0.0     # GameOverペナルティ 与えるとDROPしないNEETになってしまう
-
-DropMergeEnv.baseline.game_over_grace_step = 5  # ゲームオーバー猶予ステップ数
-#DropMergeEnv.baseline.game_over_grace_step = 60  # ゲームオーバー猶予ステップ数
-DropMergeEnv.baseline.drop_noise = 0.01f;        # Drop時のX座標ノイズ ゼロにするとAgentが局所解のタワー作りにハマってしまいがち
-#DropMergeEnv.baseline.spin_noise = 2.0f;         # Drop時の初期角速度ノイズ(rad/s)
-DropMergeEnv.baseline.spin_noise = 0.0f;         # Drop時の初期角速度ノイズ(rad/s)
-
+# --- DropMergeEnv 通常設定
 
 # 果物スコア
 #                                     1    2    3    4   5   6   7   8   9    10   11
-DropMergeEnv.baseline.fruit_scores = 0.1  0.3  0.6  1.0 1.5 2.1 2.8 3.6  4.5  5.5   6.6      # 本家相当。ただし本家ではダブルスイカ(ランク11)でスコア入らない
+#DropMergeEnv.baseline.fruit_scores = 0.1  0.3  0.6  1.0 1.5 2.1 2.8 3.6  4.5  5.5   6.6      # 本家相当。ただし本家ではダブルスイカ(ランク11)でスコア入らない
 #DropMergeEnv.baseline.fruit_scores = 0.01 0.02 0.05 0.1 0.2 0.5 1.5 4.0 10.0 30.0 100.0
 #DropMergeEnv.baseline.fruit_scores = 0.0001 0.0001 0.0001 0.0001 0.0001 0.0001 0.0001 1.0  4.0  10.0 100.0
 #DropMergeEnv.baseline.fruit_scores  = 0.001  0.002  0.005  0.01   0.05   0.15   0.50   1.50 4.00 10.0 100.0
 DropMergeEnv.baseline.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0   # 本家ベースで「Rank N+1 のスコア ＞ Rank N のスコア × 2」になるよう調整
 
-# 果物半径
-DropMergeEnv.baseline.fruit_radii = 0.09 0.13 0.17 0.22 0.28 0.35 0.43 0.52 0.62 0.72 0.84
+DropMergeEnv.baseline.use_fast_move = true
+DropMergeEnv.baseline.use_instant_drop = true
 
-# 果物密度
-#DropMergeEnv.baseline.fruit_densities = 5.0 5.0 5.0 5.0 5.0 5.0 5.0 5.0 5.0 5.0 5.0      # 大きめにすると吹き飛びにくい
-DropMergeEnv.baseline.fruit_densities = 10.0 5.0 3.0 1.8 1.1 0.7 0.45 0.30 0.22 0.16 0.12 # 全部同じ重さ
+#DropMergeEnv.baseline.restitution = 0.05      # 反発係数
+#DropMergeEnv.baseline.restitution = 0.10        # 反発係数
+DropMergeEnv.baseline.restitution = 0.05        # 反発係数
 
-# ドロッパー出現率分布
-DropMergeEnv.baseline.drop_probs = 20.0 20.0 20.0 20.0 20.0
+#DropMergeEnv.baseline.friction = 0.3          # 摩擦
+DropMergeEnv.baseline.friction = 0.1          # 摩擦 ツルツル
+
+#DropMergeEnv.baseline.time_penalty = -0.0001    # 時間ペナルティ
+DropMergeEnv.baseline.time_penalty = -0.001     # 時間ペナルティ
+#DropMergeEnv.baseline.time_penalty = 0.0        # 時間ペナルティ
+
+#DropMergeEnv.baseline.game_over_penalty = -10.0   # GameOverペナルティ
+#DropMergeEnv.baseline.game_over_penalty = -5.0    # GameOverペナルティ
+#DropMergeEnv.baseline.game_over_penalty = -100.0  # GameOverペナルティ
+#DropMergeEnv.baseline.game_over_penalty = 0.0     # GameOverペナルティ 与えるとDROPしないNEETになってしまう場合が多い
+
+
+
+
+# --- DropMergeEnv 本家風
+
+DropMergeEnv.orig.fruit_scores = 0.1 0.3 0.6 1.0 1.5 2.1 2.8 3.6 4.5 5.5 0.0    #  ダブルスイカ(ランク11)でスコア入らない
+DropMergeEnv.orig.use_fast_move = false
+DropMergeEnv.orig.use_instant_drop = false
+DropMergeEnv.orig.game_over_grace_step = 1
+
+
+
+# --- DropMergeEnv デフォルト設定
+
+DropMergeEnv.box_width = 3.0
+DropMergeEnv.box_height = 4.0
+DropMergeEnv.ground_y = 0.5
+DropMergeEnv.grid_rows = 40              # グリッド列数（横方向）
+DropMergeEnv.grid_cols = 64              # グリッド行数（高さ方向）
+DropMergeEnv.max_step = 20000            # エピソード打ち切りステップ数 スイカ以上のためには10000以上推奨
+DropMergeEnv.no_drop_timeout_steps = 200 # 500 DROPしないでいると強制エピソード打ち切り(truncated)とするステップ数
+DropMergeEnv.use_fast_move = false
+DropMergeEnv.use_instant_drop = false
+DropMergeEnv.dropper_speed = 0.05
+DropMergeEnv.dropper_speed2 = 0.30
+DropMergeEnv.reload_min_steps = 20      # 物理判定が即座に終わっても、最低これだけは待つ（連打防止）。
+DropMergeEnv.reload_max_steps = 300     # DROPしてから次RELOADまでの強制抑制解除ステップ数
+DropMergeEnv.pop_force = 0.0            # 0.5 1.5 爆発力
+DropMergeEnv.restitution = 0.05         # 反発係数 衝撃吸収
+DropMergeEnv.friction = 0.1             # 摩擦 ツルツル
+DropMergeEnv.game_over_penalty = 0      # ★ -10.0  GameOverペナルティ
+DropMergeEnv.time_penalty = 0.0         # ★ 時間ペナルティ
+DropMergeEnv.noop_penalty = 0.0         # NOOPペナルティ
+DropMergeEnv.noop_override = false      # NOOPを中央方向移動に変換するか
+DropMergeEnv.game_over_grace_step = 5   # ゲームオーバー猶予ステップ数
+DropMergeEnv.drop_noise = 0.01f;        # Drop時のX座標ノイズ ゼロにするとAgentが局所解のタワー作りにハマってしまいがち
+DropMergeEnv.spin_noise = 0.0f;         # Drop時の初期角速度ノイズ(rad/s)
+DropMergeEnv.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0   # 本家ベースで「Rank N+1 のスコア ＞ Rank N のスコア × 2」になるよう調整
+DropMergeEnv.fruit_radii = 0.09 0.13 0.17 0.22 0.28 0.35 0.43 0.52 0.62 0.72 0.84          # 果物半径
+DropMergeEnv.fruit_densities = 10.0 5.0 3.0 1.8 1.1 0.7 0.45 0.30 0.22 0.16 0.12           # 全部同じ重さ
+DropMergeEnv.drop_probs = 20.0 20.0 20.0 20.0 20.0                                         # ドロッパー出現率分布（ランク別）
+
+
 
 # --- メトリクス・可視化 ---
 
@@ -433,11 +421,20 @@ app.batchrun.eval_panel.fps = 0.1
 
 # --- Eval設定 ---
 
+#train.eval.[eval1].interval = 0
+#train.eval.[eval2].interval = 0
+#train.eval.[eval1].interval = 1000
+#train.eval.[eval2].interval = 1000
+train.eval.[eval1].interval = 500
+train.eval.[eval2].interval = 500
+#train.eval.[eval1].interval = 200
+#train.eval.[eval2].interval = 200
+
 #DropMergeEnv.test1.max_step = 8000
-#
 #train.eval.[test1].interval = 5000
 #train.eval.[test1].run_mode = eval1
 #train.eval.[test1].env.$ = DropMergeEnv.standard > DropMergeEnv.test1 > E1
+
 
 ##==================================================================
 ## ゲームバランス試算
