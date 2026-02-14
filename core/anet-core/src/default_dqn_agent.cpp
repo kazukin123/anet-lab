@@ -42,6 +42,21 @@ DefaultDQNAgent::DefaultDQNAgent(
     anet::MetricsLogger::Instance()->Log(config_);
     anet::MetricsLogger::Instance()->Log("net.body", net_config.ToJson());
 
+	// 割引率gammaと実効ホライズンのログ
+    {
+        // 実効ホライズン (Effective Horizon) = 1 / (1 - gamma)
+        // gamma=0.9 -> 10 steps, 0.99 -> 100 steps, 0.995 -> 200 steps
+        float g = config_.learner.gamma;
+        float horizon = (std::abs(g - 1.0f) < 1e-6) ? -1.0f : (1.0f / (1.0f - g));
+
+        //時系列の重みが約37%に減衰するまでのSTEP数
+        if (horizon > 0) {
+            LOG::info() << "gamma=" << g << " (EffectiveHorizon: " << static_cast<int>(horizon) << " steps)";
+        } else {
+            LOG::info() << "gamma=" << g << " (Effective Horizon: Infinite)";
+        }
+    }
+
     //seed
     anet::SeedMaker seed_maker(GetSeed());
     auto replay_seed = seed_maker.MakeNamedSeed("replaybuffer");
