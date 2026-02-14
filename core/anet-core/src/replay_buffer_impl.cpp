@@ -123,7 +123,7 @@ ReplayExperience PlainReplayExperienceBuilder::Build(const ExperienceSequence& s
         exp.action,
         exp.reward,
         exp.next_state,
-        exp.next_state.done || exp.next_state.truncated,
+        exp.next_state.done,
         1
     };
 }
@@ -151,16 +151,25 @@ ReplayExperience NStepReplayExperienceBuilder::Build(const ExperienceSequence& s
     float gamma_pow = 1.0f;
     bool terminal = false;
 
+	// N-STEP TARGET VALUE 計算ループ
     for (size_t i = 0; i < n; ++i) {
         const auto& exp = sequence[i];
 
         G += gamma_pow * exp.reward;
         gamma_pow *= gamma_;
 
-        if (exp.next_state.done || exp.next_state.truncated) {
-            terminal = true;
+        if (exp.next_state.done) {
+            terminal = true; // エピソード終了
             break;
         }
+        if (exp.next_state.truncated) {
+            terminal = false; // 時間切れはterminalじゃない
+            break; // でもループ（N-step）はここで打ち切る
+        }
+        //if (exp.next_state.done || exp.next_state.truncated) {
+        //    terminal = true;
+        //    break;
+        //}
     }
 
     const SingleExperience& first = sequence.front();
@@ -191,9 +200,12 @@ ReplayExperienceStorage::ReplayExperienceStorage(const EnvSpec& env_spec, int64_
     ANET_ASSERT(action_dim > 0);
     ANET_ASSERT(capacity_ > 0);
 
-    auto f32 = torch::TensorOptions().dtype(torch::kFloat32).device(device_).pinned_memory(true);
-    auto i64 = torch::TensorOptions().dtype(torch::kInt64).device(device_).pinned_memory(true);
-    auto b = torch::TensorOptions().dtype(torch::kBool).device(device_).pinned_memory(true);
+    //auto f32 = torch::TensorOptions().dtype(torch::kFloat32).device(device_).pinned_memory(true);
+    //auto i64 = torch::TensorOptions().dtype(torch::kInt64).device(device_).pinned_memory(true);
+    //auto b = torch::TensorOptions().dtype(torch::kBool).device(device_).pinned_memory(true);
+    auto f32 = torch::TensorOptions().dtype(torch::kFloat32).device(device_).pinned_memory(false);
+    auto i64 = torch::TensorOptions().dtype(torch::kInt64).device(device_).pinned_memory(false);
+    auto b = torch::TensorOptions().dtype(torch::kBool).device(device_).pinned_memory(false);
 
     states_ = torch::zeros({ capacity_, state_dim }, f32);
     target_values_ = torch::zeros({ capacity_ }, f32);

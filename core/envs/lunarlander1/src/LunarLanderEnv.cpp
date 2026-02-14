@@ -763,7 +763,6 @@ std::shared_ptr<const anet::rl::SingleStepResult> LunarLanderEnv::Step(int64_t a
     bool truncated = false;
     if (step_count_ >= config_.limit_step && !done) {
         truncated = true;
-        done = true;
     }
 
     // 戻り生成
