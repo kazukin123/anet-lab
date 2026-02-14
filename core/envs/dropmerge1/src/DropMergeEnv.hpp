@@ -17,6 +17,8 @@ namespace anet::rl::env {
     constexpr int kActionLeft = 1;
     constexpr int kActionDrop = 2;
     constexpr int kActionRight = 3;
+    constexpr int kActionFastLeft = 4;
+    constexpr int kActionFastRight = 5;
 
     constexpr int kFruitTypeCount = 11; // 11種類 (Rank 1..11)
 
@@ -24,6 +26,7 @@ namespace anet::rl::env {
     struct DropMergeEnvConfig : public anet::Config {
         // --- 環境パラメータ ---
         int max_step = 3000;
+        int no_drop_timeout_steps = 200;
         float box_width = 3.0f;
         float box_height = 4.0f;
         float ground_y = 0.5f;     // 箱の底の高さ
@@ -34,11 +37,17 @@ namespace anet::rl::env {
         int grid_cols = 30;
 
         // --- ゲームプレイパラメータ ---
-        float dropper_speed = 0.05f;   ///< 1ステップあたりのDropper移動量
-        float pop_force = 1.0f;        ///< 合体時の弾き飛ばし力
-        int reload_min_steps = 20;     ///< Drop抑止ステップ数（物理判定が早くても必ず待つ時間）
-        int reload_max_steps = 300;    ///< Drop抑止タイムアウトステップ数（物理判定が効かない場合の強制解除）
+		bool use_fast_move = false;     ///< 高速移動モード
+        bool use_instant_drop = false;  ///< 即時ドロップモード
+        float dropper_speed = 0.05f;    ///< 1ステップあたりのDropper移動量
+        float dropper_speed2 = 0.30f;   ///< 1ステップあたりのDropper移動量(FAST)
+        float pop_force = 1.0f;         ///< 合体時の弾き飛ばし力
+        int reload_min_steps = 20;      ///< Drop抑止ステップ数（物理判定が早くても必ず待つ時間）
+        int reload_max_steps = 300;     ///< Drop抑止タイムアウトステップ数（物理判定が効かない場合の強制解除）
 		bool noop_override = false;     ///< NOOPアクションを中央方向移動に上書きするか
+		int game_over_grace_step = 60;  ///< 上端から溢れてからゲームオーバーとするまでの猶予ステップ数      
+        float drop_noise = 0.01f;       ///< Drop時のX座標ノイズ 
+        float spin_noise = 0.0f;        ///< Drop時の初期角速度ノイズ(rad/s)
 
         // --- 報酬調整用パラメータ ---
         float time_penalty = -0.0001f;     ///< 毎ステップ引かれる罰報酬
@@ -59,17 +68,24 @@ namespace anet::rl::env {
             : anet::Config(config_data, "DropMergeEnv", config_prefix)
         {
             ANET_READ_CONFIG(config_data, max_step);
+            ANET_READ_CONFIG(config_data, no_drop_timeout_steps);
             ANET_READ_CONFIG(config_data, box_width);
             ANET_READ_CONFIG(config_data, box_height);
             ANET_READ_CONFIG(config_data, ground_y);
             ANET_READ_CONFIG(config_data, gravity);
             ANET_READ_CONFIG(config_data, grid_rows);
             ANET_READ_CONFIG(config_data, grid_cols);
+            ANET_READ_CONFIG(config_data, use_fast_move);
+            ANET_READ_CONFIG(config_data, use_instant_drop);
             ANET_READ_CONFIG(config_data, dropper_speed);
+            ANET_READ_CONFIG(config_data, dropper_speed2);
             ANET_READ_CONFIG(config_data, pop_force);
             ANET_READ_CONFIG(config_data, reload_min_steps);
             ANET_READ_CONFIG(config_data, reload_max_steps);
             ANET_READ_CONFIG(config_data, noop_override);
+            ANET_READ_CONFIG(config_data, game_over_grace_step);
+            ANET_READ_CONFIG(config_data, drop_noise);
+            ANET_READ_CONFIG(config_data, spin_noise);
             ANET_READ_CONFIG(config_data, time_penalty);
             ANET_READ_CONFIG(config_data, noop_penalty);
             ANET_READ_CONFIG(config_data, game_over_penalty);
@@ -156,6 +172,8 @@ namespace anet::rl::env {
     private:
         void buildWorld();
         void destroyWorld();
+        bool isSpawnAreaClear(float x, float y, float r) const;
+        void updateDropperStatus();
 
         // ゲームロジック
         void notifyContact(b2Body* body);
@@ -171,7 +189,7 @@ namespace anet::rl::env {
         anet::rl::SingleState makeState() const;
         std::pair<float, float> calcReward();
         anet::rl::AuxData CreateAuxData(float reward, float raw_reward) const;
-
+    private:
         // 前回の成績保持用 (Resetで初期化しない)
         float last_episode_score_ = -1.0f;
         int last_episode_step_ = -1;
@@ -205,6 +223,7 @@ namespace anet::rl::env {
         int step_count_ = 0;
         bool game_over_ = false;
         int game_over_timer_ = 0;
+        int steps_since_last_drop_ = 0;
 
         // マージ処理用
         std::vector<MergeRequest> merge_requests_;

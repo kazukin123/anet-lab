@@ -137,18 +137,21 @@ anet::rl::EnvSpec DropMergeEnv::GetSpec() const
     anet::rl::StateSpec state_spec;
     state_spec.shape = { static_cast<int64_t>(fixed_dim + grid_dim) };
 
-    // Dim infoは詳細記述可能だが、ここでは代表的なもののみ
     state_spec.dims = {
         { {0}, -1.0f, 1.0f, "dropper_x", "Dropper X position" },
-        { {1}, 0.0f, 1.0f, "current_rank", "Current fruit rank" },
-        { {2}, 0.0f, 1.0f, "next_rank", "Next fruit rank" },
-        { {3}, 0.0f, 1.0f, "is_busy", "Dropper busy flag" },
+        { {1},  0.0f, 1.0f, "current_rank", "Current fruit rank" },
+        { {2},  0.0f, 1.0f, "next_rank", "Next fruit rank" },
+        { {3},  0.0f, 1.0f, "is_busy", "Dropper busy flag" },
         /// @todo Grid部分は省略
     };
 
     anet::rl::ActionSpec action_spec;
     action_spec.is_discrete = true;
-    action_spec.value_labels = { "NOOP", "LEFT", "DROP", "RIGHT" };
+    if (config_.use_fast_move) {
+        action_spec.value_labels = { "NOOP", "LEFT", "DROP", "RIGHT", "F_LEFT", "F_RIGHT" };
+    } else {
+        action_spec.value_labels = { "NOOP", "LEFT", "DROP", "RIGHT" };
+    }
 
     anet::rl::EnvSpec env_spec;
     env_spec.state_spec = state_spec;
@@ -251,9 +254,12 @@ int DropMergeEnv::determineNextRank()
 
 std::shared_ptr<const anet::rl::SingleResetResult> DropMergeEnv::Reset(anet::rl::RunMode mode)
 {
+    anet::ProfileRange r("DropMergeEnv::Reset");
+
     buildWorld();
 
     step_count_ = 0;
+    steps_since_last_drop_ = 0;
     game_over_ = false;
     game_over_timer_ = 0;
     episode_score_ = 0.0f;
@@ -272,82 +278,32 @@ std::shared_ptr<const anet::rl::SingleResetResult> DropMergeEnv::Reset(anet::rl:
     return std::make_shared<ResetResult>(this->shared_from_this(), std::move(state));
 }
 
-// -------------------------------------------------------------
-// Action & Step Logic
-// -------------------------------------------------------------
-
-void DropMergeEnv::processAction(int64_t action)
+bool DropMergeEnv::isSpawnAreaClear(float x, float y, float r) const
 {
-    // NOOP時の自動移動オプション
-    if (config_.noop_override && action == kActionNoop) {
-        if (dropper_.x > 0.0f) {
-            action = kActionLeft;       // 画面中央(0.0)に向かって動く
-        } else {
-            action = kActionRight;      // 画面中央(0.0)に向かって動く
+    constexpr float kOverlapMargin = 0.95f;
+
+    for (b2Body* b = world_->GetBodyList(); b; b = b->GetNext()) {
+        if (b->GetType() != b2_dynamicBody) continue;
+
+        // 自分自身（生成前なので本来ないはずだが念のため）は除外
+        if (b == dropper_.pending_body) continue;
+
+        b2Vec2 pos = b->GetPosition();
+
+        // UserDataから半径を取得
+        auto data = DecodeUserData(b->GetUserData().pointer);
+        if (data.first != BodyType::Fruit) continue;
+
+        float r_other = config_.fruit_radii[data.second - 1];
+        float dist_sq = (pos.x - x) * (pos.x - x) + (pos.y - y) * (pos.y - y);
+        float radius_sum = (r + r_other) * kOverlapMargin;
+
+        // 接触（重なり）判定
+        if (dist_sq < radius_sum * radius_sum) {
+            return false; // 埋まっている
         }
     }
-
-    // リロード判定ロジック
-    if (dropper_.is_busy) {
-        // タイマー減算
-        if (dropper_.wait_timer > 0) dropper_.wait_timer--;
-        if (dropper_.min_wait_timer > 0) dropper_.min_wait_timer--;
-
-        // 解除条件A: 物理的に着地した OR タイムアウト
-        bool physics_ready = (dropper_.pending_body == nullptr || dropper_.wait_timer <= 0);
-
-        // 解除条件B: アニメーション最小時間を経過した
-        bool anim_ready = (dropper_.min_wait_timer <= 0);
-
-        // A&Bならリロード完了
-        if (physics_ready && anim_ready) {
-            dropper_.current_rank = dropper_.next_rank;
-            dropper_.next_rank = determineNextRank();
-            dropper_.is_busy = false;
-            dropper_.pending_body = nullptr;
-        }
-    }
-    
-    // 移動範囲の計算準備
-    float half_w = config_.box_width * 0.5f;
-    int check_rank = (dropper_.current_rank > 0) ? dropper_.current_rank : dropper_.next_rank;
-    if (check_rank < 1) check_rank = 1;
-    float r = config_.fruit_radii[check_rank - 1];
-    float margin = 0.05f;
-    float base_limit = half_w - r - margin; // 壁にめり込まない範囲
-
-    // 左の方が移動範囲が少し広い
-    float r_cherry = config_.fruit_radii[0]; // Rank 1 radius
-    float asymmetry_offset = r_cherry / 3.0f;
-    float limit_left = base_limit + asymmetry_offset;
-    float limit_right = base_limit;
-
-    // 移動処理
-    if (action == kActionLeft) {
-        dropper_.x -= config_.dropper_speed;
-    } else if (action == kActionRight) {
-        dropper_.x += config_.dropper_speed;
-    }
-
-    // 範囲制限
-    if (dropper_.x < -limit_left) {
-		dropper_.x = limit_right;   // 左端から右端にワープ
-    } else if (dropper_.x > limit_right) {
-		dropper_.x = -limit_left;   // 右端から左端にワープ
-    }
-
-    // DROP処理
-    if (action == kActionDrop && !dropper_.is_busy) {
-        // 果物生成
-        float spawn_y = config_.ground_y + config_.box_height;// -0.5f;
-        dropper_.pending_body = spawnFruit(dropper_.x, spawn_y, dropper_.current_rank);
-
-        // リロード待ちに入る
-        dropper_.wait_timer = config_.reload_max_steps;
-        dropper_.min_wait_timer = config_.reload_min_steps;
-        dropper_.is_busy = true;
-        dropper_.current_rank = 0;  // 手持ちを空に（表示用）
-    }
+    return true;
 }
 
 b2Body* DropMergeEnv::spawnFruit(float x, float y, int rank)
@@ -373,7 +329,101 @@ b2Body* DropMergeEnv::spawnFruit(float x, float y, int rank)
 
     body->CreateFixture(&fd);
 
-	return body;
+    if (config_.spin_noise > 0.0f) {
+        float spin = rnd_->Uniform(-config_.spin_noise, config_.spin_noise);
+        body->SetAngularVelocity(spin);
+    }
+    return body;
+}
+
+void DropMergeEnv::processAction(int64_t action)
+{
+    // NOOP時の自動移動オプション
+    if (config_.noop_override && action == kActionNoop) {
+        if (dropper_.x > 0.0f) {
+            action = kActionLeft;       // 画面中央(0.0)に向かって動く
+        } else {
+            action = kActionRight;      // 画面中央(0.0)に向かって動く
+        }
+    }
+
+    // Busyチェック
+    if (dropper_.is_busy) {
+        return;
+    }
+    
+    // 移動範囲の計算準備
+    float half_w = config_.box_width * 0.5f;
+    int check_rank = (dropper_.current_rank > 0) ? dropper_.current_rank : dropper_.next_rank;
+    if (check_rank < 1) check_rank = 1;
+    float r = config_.fruit_radii[check_rank - 1];
+    float margin = 0.05f;
+    float base_limit = half_w - r - margin; // 壁にめり込まない範囲
+
+    // 左の方が移動範囲が少し広い
+    float r_cherry = config_.fruit_radii[0]; // Rank 1 radius
+    float asymmetry_offset = r_cherry / 3.0f;
+    float limit_left = base_limit + asymmetry_offset;
+    float limit_right = base_limit;
+
+    // 移動処理
+    if (action == kActionLeft) {
+        dropper_.x -= config_.dropper_speed;
+    } else if (action == kActionRight) {
+        dropper_.x += config_.dropper_speed;
+    } else if (action == kActionFastLeft) {
+        dropper_.x -= config_.dropper_speed2;
+    } else if (action == kActionFastRight) {
+        dropper_.x += config_.dropper_speed2;
+    }
+
+    // 端ワープ
+    float total_width = limit_right - (-limit_left);
+    if (dropper_.x > limit_right) {     // 右にはみ出した場合
+        // limit_right を超えた分だけ、左端(-limit_left)から右に進める
+        while (dropper_.x > limit_right) {
+            dropper_.x -= total_width;
+        }
+    } else if (dropper_.x < -limit_left) {  // 左にはみ出した場合
+        // -limit_left を超えた分だけ、右端(limit_right)から左に戻る
+        while (dropper_.x < -limit_left) {
+            dropper_.x += total_width;
+        }
+    }
+    // DROP処理 (Drop予約のみ)
+    if (action == kActionDrop) {
+        // 果物生成
+        float spawn_y = config_.ground_y + config_.box_height;
+        float r_drop = config_.fruit_radii[dropper_.current_rank - 1];
+
+        // ノイズ計算
+        float noise = 0.0f;
+        if (config_.drop_noise > 0.0f) {
+            noise = rnd_->Uniform(-config_.drop_noise, config_.drop_noise);
+        }
+        float actual_x = dropper_.x + noise;
+
+        // 壁めり込み防止クランプ
+        float half_w = config_.box_width * 0.5f;
+        float limit = half_w - r_drop - 0.01f;
+        actual_x = std::clamp(actual_x, -limit, limit);
+
+        // 置けない状態でDROPしたらGameOver
+        if (!isSpawnAreaClear(actual_x, spawn_y, r_drop)) {
+            game_over_ = true;
+            LOG::info() << "Game Over: Spawn area blocked. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x ;
+            return;
+        }
+
+        // 新しい果物つくる
+        dropper_.pending_body = spawnFruit(actual_x, spawn_y, dropper_.current_rank);
+
+        // リロード待ちに入る（タイマーセット）
+        dropper_.wait_timer = config_.reload_max_steps;
+        dropper_.min_wait_timer = config_.reload_min_steps;
+        dropper_.is_busy = true;
+        dropper_.current_rank = 0;  // 手持ちを空に（表示用）
+    }
 }
 
 /// 衝突通知
@@ -408,10 +458,18 @@ void DropMergeEnv::processMerges()
             current_step_merge_score_ += s;
             episode_score_ += s;
 
+            // ログ
+            if (req.next_rank >= kFruitTypeCount) { // スイカが出来たらログ＆音
+                LOG::info() << "Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_ << " current_step_merge_score_=" << current_step_merge_score_;
+                wxBell();       /// @todo wxBell()はスレッドセーフじゃないのでwxSoundを使うべき
+            }
+
             // 小爆発
             applyExplosion(req.center, config_.pop_force);
         } else {
-            // スイカ同士が消えた場合はSpawnしない（Rank 11相当）
+            // スイカ同士が消えた場合はSpawnしない（Rank 12相当）
+            LOG::info() << "Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_ << " current_step_merge_score_=" << current_step_merge_score_;
+            wxBell();       /// @todo wxBell()はスレッドセーフじゃないのでwxSoundを使うべき
 
             // スコア加算
             float s = config_.fruit_scores[kFruitTypeCount - 1];
@@ -507,51 +565,127 @@ bool DropMergeEnv::checkGameOver()
     }
 
     // 60step以上オーバーフローが続いたらゲームオーバー
-    if (game_over_timer_ > 60) {
+    if (game_over_timer_ > config_.game_over_grace_step) {
+        LOG::info() << "Game Over: overflow timeout. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
         return true;
     }
 
     return false;
 }
 
+void DropMergeEnv::updateDropperStatus()
+{
+    if (dropper_.is_busy) {
+        // タイマー減算
+        if (dropper_.wait_timer > 0) dropper_.wait_timer--;
+        if (dropper_.min_wait_timer > 0) dropper_.min_wait_timer--;
+
+        // 解除条件A: 物理的に着地した OR タイムアウト
+        bool physics_ready = (dropper_.pending_body == nullptr || dropper_.wait_timer <= 0);
+
+        // 解除条件B: アニメーション最小時間を経過した
+        // InstantDrop時は、物理判定さえ終わればアニメーション時間は無視する(待たない)
+        bool anim_ready = (config_.use_instant_drop) ? true : (dropper_.min_wait_timer <= 0);
+
+        // A&Bならリロード完了
+        if (physics_ready && anim_ready) {
+            dropper_.current_rank = dropper_.next_rank;
+            dropper_.next_rank = determineNextRank();
+            dropper_.is_busy = false;
+            dropper_.pending_body = nullptr;
+        }
+    }
+}
+
 std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t action, anet::rl::RunMode mode)
 {
+    anet::ProfileRange r("DropMergeEnv::Step");
+
+    // エピソードstepインクリメント
     step_count_++;
 
+    // DROP無しカウント更新
+    if (action == kActionDrop) {
+        steps_since_last_drop_ = 0; // DROPしたらリセット
+    } else {
+        steps_since_last_drop_++;   // それ以外（移動・NOOP）ならカウント
+    }
+
+	// アクション処理
     processAction(action);
 
-    // Box2D Step
-    float time_step = 1.0f / 60.0f;
-    int32 velocity_iterations = 6;
-    int32 position_iterations = 2;
-    world_->Step(time_step, velocity_iterations, position_iterations);
+    // 物理ステップ実行 (通常は1回、InstantDrop時はBusyが解けるまで回す)
+    float accumulated_reward = 0.0f;
+    float accumulated_raw_reward = 0.0f;
 
-	// マージ処理
-    processMerges();
+    if (game_over_) {
+        //  スポーン位置ブロックで即死した場合、物理演算は行わず、即座に罰報酬のみを計算する
+        auto rewards = calcReward();
+        accumulated_reward += rewards.first;
+        accumulated_raw_reward += rewards.second;
+    } else {
+        // 生存している場合、物理演算ループを回す
+        int sim_steps = 0;
 
-	// ゲームオーバー判定
-    game_over_ = checkGameOver();
+        // 最低1回は回す
+        do {
+            // Box2D Step
+            float time_step = 1.0f / 60.0f;
+            int32 velocity_iterations = 6;
+            int32 position_iterations = 2;
+            world_->Step(time_step, velocity_iterations, position_iterations);
+            sim_steps++;
+
+            // マージ処理 (スコア加算はこの中で current_step_merge_score_ に入る)
+            processMerges();
+
+            // ゲームオーバー判定
+            if (!game_over_) {
+                game_over_ = checkGameOver();
+            }
+
+            // 報酬計算 (1ステップ分)
+            auto rewards = calcReward();
+            accumulated_reward += rewards.first;
+            accumulated_raw_reward += rewards.second;
+
+            // リロード判定ロジック
+            updateDropperStatus();
+
+            // 即時モードでなければ1回で抜ける
+            if (!config_.use_instant_drop) break;
+
+            // ゲームオーバーになったら即抜ける
+            if (game_over_) break;
+
+            // Busy状態が続いている限り回し続ける
+            // ただし無限ループ防止のため、reload_max_steps + α で強制脱出
+            if (sim_steps > config_.reload_max_steps + 10) break;
+
+        } while (dropper_.is_busy);
+    }
 
     // エピソード完了判定
     bool done = game_over_;
     bool truncated = (step_count_ >= config_.max_step);
-    if (truncated) done = true;
+
+    // ショットクロック判定
+    if (config_.no_drop_timeout_steps > 0 && steps_since_last_drop_ >= config_.no_drop_timeout_steps) {
+        truncated = true;
+        LOG::info() << "Episode truncated due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+    }
 
     // State生成
     auto state = makeState();
     state.done = done;
     state.truncated = truncated;
-
-    // Reward計算
-    auto rewards = calcReward();
-
     // NOOPペナルティ
     if (action == kActionNoop) {
-        rewards.first += config_.noop_penalty;
+        accumulated_reward += config_.noop_penalty;
     }
 
     // 累積報酬更新
-    episode_reward_ += rewards.first;
+    episode_reward_ += accumulated_reward;
 
     // エピソード終了時の情報記録
     if (done || truncated) {
@@ -561,7 +695,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     }
 
     return std::make_shared<StepResult>(
-        this->shared_from_this(), rewards.first, rewards.second, std::move(state));
+        this->shared_from_this(), accumulated_reward, accumulated_raw_reward, std::move(state));
 }
 
 // -------------------------------------------------------------
@@ -605,6 +739,8 @@ void DropMergeEnv::ContactListener::BeginContact(b2Contact* contact)
 
 anet::rl::SingleState DropMergeEnv::makeState() const
 {
+    anet::ProfileRange r("DropMergeEnv::makeState");
+
     anet::rl::SingleState s;
 
     // Dropper Info (4 dims)
@@ -621,7 +757,10 @@ anet::rl::SingleState DropMergeEnv::makeState() const
     fixed_obs.push_back(dropper_.next_rank * norm_scale);
 
     // Busy
-    fixed_obs.push_back(dropper_.is_busy ? 1.0f : 0.0f);
+	bool is_busy = (config_.use_instant_drop) ? false : dropper_.is_busy;  // instant_dropモード時は常に非Busy扱い(必ずis_busy=falseのはずだが念の為) 
+    fixed_obs.push_back(is_busy ? 1.0f : 0.0f);
+
+	/// @todo instant_dropモード時はis_busy次元を無くす（設定次第で次元数が変化するので簡単ではない）
 
     // ---- Grid Info ----
 
@@ -745,6 +884,8 @@ std::pair<float, float> DropMergeEnv::calcReward()
 
 anet::rl::AuxData DropMergeEnv::CreateAuxData(float reward, float raw_reward) const
 {
+	anet::ProfileRange r("DropMergeEnv::CreateAuxData");
+
     anet::rl::AuxData aux;
 
     // --- Dropper情報 ---

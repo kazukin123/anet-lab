@@ -494,6 +494,8 @@ void DropMergePanel::DrawSidePanel(wxDC& dc)
     if (action == kActionLeft) act_str = "LEFT";
     if (action == kActionDrop) act_str = "DROP";
     if (action == kActionRight) act_str = "RIGHT";
+    if (action == kActionFastLeft) act_str = "F_LEFT";
+    if (action == kActionFastRight) act_str = "F_RIGHT";
     dc.DrawText(wxString::Format("Action: %s", act_str), r.x, y);
     y += line_h;
 
