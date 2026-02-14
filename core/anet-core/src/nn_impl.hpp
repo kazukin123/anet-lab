@@ -23,28 +23,25 @@ namespace anet::nn {
     class WeightInitializer {
     public:
         template <typename T>
-        static void Initialize(T& layer, const WeightInitConfig& config) {
-
+        static void Initialize(T& layer, const WeightInitConfig& config)
+        {
             if (config.mode == 0) return;
 
             auto& weight = layer->weight;
-            auto& bias = layer->bias;
 
+            // 初期化中は勾配計算不要
+            torch::NoGradGuard no_grad;
+
+			// mode別に初期化実行
             if (config.mode == 1) { // Xavier Uniform
                 // Xavierは通常 gain=1.0 前提だが、calculate_gainを使う手もある
                 torch::nn::init::xavier_uniform_(weight);
-                if (bias.defined()) torch::nn::init::zeros_(bias);
-
             } else if (config.mode == 2) { // He Normal (Kaiming)
                 // 文字列からLibtorchの定数へ変換
-                // "relu" -> kReLU, "linear" -> kLinear 等
-                // デフォルトは ReLU 扱いにする
                 auto nonlinearity_mode = GetNonlinearityType(config.nonlinearity);
-                // kaiming_normal_ は内部で nonlinearity に応じた gain を計算してくれる
-                torch::nn::init::kaiming_normal_(weight, 0.0, torch::kFanIn, nonlinearity_mode);
 
-                if (bias.defined()) torch::nn::init::zeros_(bias);
-
+                // 重み初期化(kaiming_normal_ は内部で nonlinearity に応じた gain を計算してくれる)
+                torch::nn::init::kaiming_normal_(weight, 0.0, torch::kFanOut, nonlinearity_mode);
             } else if (config.mode == 3) { // Orthogonal
                 double gain = 1.0;
 
@@ -61,8 +58,14 @@ namespace anet::nn {
                     }
                 }
 
+				// Orthogonal初期化
                 torch::nn::init::orthogonal_(weight, gain);
-                if (bias.defined()) torch::nn::init::zeros_(bias);
+            }
+
+            // バイアスはゼロ初期化
+            auto& bias = layer->bias;
+            if (bias.defined() && config.mode != 0) {
+                torch::nn::init::constant_(bias, 0.0);
             }
         }
     };

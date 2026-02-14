@@ -10,12 +10,23 @@
 
 # --- Common Utilities ---
 
-net.block.[ReLU].type = ReLU
-net.block.[Flatten].type = Flatten
 net.block.[Add].type = Add
+net.block.[Flatten].type = Flatten
 
-#net.block.[GlobalPool].type = GlobalAvgPool1d
-#net.block.[GlobalAvgPool].type = GlobalAvgPool2d
+
+# --- 活性化関数  ---
+
+net.block.[ReLU].type = ReLU
+
+net.block.[GELU].type = GELU           # ResNet, Transformer, ConvNeXt 等で推奨。
+net.block.[GELU].approximate = none    # approximate: "none" (精度重視/Default) or "tanh" (速度重視/BERT互換)
+
+net.block.[SiLU].type = SiLU           # 別名「Swish」  CNNにおいてReLUより深く学習しやすい
+
+net.block.[Mish].type = Mish           # YOLOv4 等で採用
+
+net.block.[LeakyReLU].type = LeakyReLU        # LeakyReLU： Dying ReLU問題でlossが減らない現象を軽減。GELUやSiLUほど有効ではないが軽い。
+net.block.[LeakyReLU].negative_slope = 0.01   # negative_slope: 負の領域の傾き (Default: 0.01)
 
 
 # --- MLP Components ---

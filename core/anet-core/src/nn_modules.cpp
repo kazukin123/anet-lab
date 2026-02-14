@@ -238,6 +238,10 @@ public:
     }
 };
 
+// ===========================================================================
+// 活性化関数Modules
+// ===========================================================================
+
 /// ReLU Module
 class ReLUModule : public NetworkModule {
 public:
@@ -252,6 +256,71 @@ public:
         return forward(input);
     }
 };
+
+// --- GELU Module ---
+class GELUModule : public NetworkModule {
+public:
+    explicit GELUModule(const std::string& approximate)
+    {
+        torch::nn::GELUOptions opts;
+        opts.approximate(approximate); // "none" or "tanh"
+        impl_ = register_module("gelu", torch::nn::GELU(opts));
+    }
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        return impl_->forward(input);
+    }
+private:
+    torch::nn::GELU impl_{ nullptr };
+};
+
+// --- SiLU (Swish) Module ---
+class SiLUModule : public NetworkModule {
+public:
+    SiLUModule()
+    {
+        impl_ = register_module("silu", torch::nn::SiLU());
+    }
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        return impl_->forward(input);
+    }
+private:
+    torch::nn::SiLU impl_{ nullptr };
+};
+
+// --- Mish Module ---
+class MishModule : public NetworkModule {
+public:
+    MishModule()
+    {
+        impl_ = register_module("mish", torch::nn::Mish());
+    }
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        return impl_->forward(input);
+    }
+private:
+    torch::nn::Mish impl_{ nullptr };
+};
+
+// --- LeakyReLU Module ---
+class LeakyReLUModule : public NetworkModule {
+public:
+    explicit LeakyReLUModule(double negative_slope)
+    {
+        torch::nn::LeakyReLUOptions opts;
+        opts.negative_slope(negative_slope);
+        impl_ = register_module("leaky_relu", torch::nn::LeakyReLU(opts));
+    }
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        return impl_->forward(input);
+    }
+private:
+    torch::nn::LeakyReLU impl_{ nullptr };
+};
+
 
 // ===========================================================================
 // SpatialEmbedderModule (For 2D Grid + Scalar Input)
@@ -408,8 +477,6 @@ private:
 public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override {
         Config config(config_data);
-        // num_featuresが0(自動)の場合は、Forwardでの検知が必要ですが、
-        // BNは通常channel数固定で使うことが多いので今回は設定必須またはResBlock内で制御します
         return std::make_shared<BatchNorm2dModule>(config.num_features);
     }
 };
@@ -423,13 +490,22 @@ struct ResBlockConfig {
     int channels = 64;
     int kernel_size = 3;
     int stride = 1;
+    std::string activation = "relu"; // "relu" (default) or "silu" / "swish"
 };
 
 class ResBlockModule : public NetworkModule {
+private:
+    enum class ActType { ReLU, SiLU };
 public:
     ResBlockModule(const ResBlockConfig& config, const WeightInitConfig& init_config)
         : config_(config), init_config_(init_config)
     {
+        if (config_.activation == "SiLU" || config_.activation == "silu" ||
+            config_.activation == "Swish" || config_.activation == "swish") {
+            act_type_ = ActType::SiLU;
+        } else {
+            act_type_ = ActType::ReLU;
+        }
     }
 
     torch::Tensor Forward(torch::Tensor input) override {
@@ -462,7 +538,7 @@ public:
             conv2_ = register_module("conv2", torch::nn::Conv2d(conv2_opts));
             bn2_ = register_module("bn2", torch::nn::BatchNorm2d(config_.channels));
 
-            // --- 3. Downsample Path (Projection Shortcut) ---
+            // --- Downsample Path (Projection Shortcut) ---
 
             // サイズが変わる(stride > 1) または チャンネルが変わる場合、
             // input側も合わせるために 1x1 Conv を通す
@@ -494,12 +570,15 @@ public:
 
         // --- Forwarding ---
 
-        // Main Path
+        // Conv1
         anet::ProfileRange r3("ResBlockModule::Forward.conv1");
         torch::Tensor out = conv1_->forward(input);
         out = bn1_->forward(out);
-        out = torch::relu(out);
 
+        // Activation 1
+        out = Activate(out);
+
+        // Conv2
         anet::ProfileRange r4("ResBlockModule::Forward.conv2", r3);
         out = conv2_->forward(out);
         out = bn2_->forward(out);
@@ -515,14 +594,24 @@ public:
         // Shortcut-Connection & Activate
         anet::ProfileRange r6("ResBlockModule::Forward.fin", r5);
         out += residual;
-        out = torch::relu(out);
+
+        // Activation 2
+        out = Activate(out);
 
         return out;
     }
-
+private:
+    inline torch::Tensor Activate(const torch::Tensor& x) const {
+        if (act_type_ == ActType::SiLU) {
+            return torch::silu(x);
+        }
+        return torch::relu(x);
+    }
 private:
     ResBlockConfig config_;
     WeightInitConfig init_config_;
+
+    ActType act_type_ = ActType::ReLU;
 
     torch::nn::Conv2d conv1_{ nullptr };
     torch::nn::BatchNorm2d bn1_{ nullptr };
@@ -556,6 +645,7 @@ public:
         return std::make_shared<ResBlockModule>(config.res, config.init);
     }
 };
+
 
 // ===========================================================================
 //  NetworkModuleFactory
@@ -681,22 +771,6 @@ public:
     }
 };
 
-class FlattenModuleFactory final : public NetworkModuleFactory {
-public:
-    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
-    {
-        return std::make_shared<FlattenModule>();
-    }
-};
-
-class ReLUModuleFactory final : public NetworkModuleFactory {
-public:
-    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
-    {
-        return std::make_shared<ReLUModule>();
-    }
-};
-
 class SpatialEmbedderModuleFactory final : public NetworkModuleFactory {
 private:
     struct Config : anet::Config {
@@ -716,16 +790,96 @@ public:
     }
 };
 
+class FlattenModuleFactory final : public NetworkModuleFactory {
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        return std::make_shared<FlattenModule>();
+    }
+};
+
+class ReLUModuleFactory final : public NetworkModuleFactory {
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        return std::make_shared<ReLUModule>();
+    }
+};
+class GELUModuleFactory final : public NetworkModuleFactory {
+private:
+
+    struct Config : anet::Config {
+        /// none:標準正規分布の累積分布関数（厳密解、デフォルト）
+		/// tanh: 計算コストが抑えられた近似関数
+        std::string approximate = "none";
+
+
+        Config(const anet::ConfigData& config_data) : anet::Config("") {
+            ANET_READ_CONFIG(config_data, approximate);
+        }
+    };
+
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& ctx) const override {
+        Config config(config_data);
+        return std::make_shared<GELUModule>(config.approximate);
+    }
+};
+
+class SiLUModuleFactory final : public NetworkModuleFactory {
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& ctx) const override {
+        return std::make_shared<SiLUModule>();
+    }
+};
+
+class MishModuleFactory final : public NetworkModuleFactory {
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& ctx) const override {
+        return std::make_shared<MishModule>();
+    }
+};
+
+// --- LeakyReLU Factory ---
+class LeakyReLUModuleFactory final : public NetworkModuleFactory {
+private:
+
+    struct Config : anet::Config {
+        /// 負の領域(x < 0)における直線の傾き係数。 例: 0.01 (default) の場合、負の値は 0.01倍 されて出力される
+        double negative_slope = 0.01;
+
+        Config(const anet::ConfigData& config_data) : anet::Config("") {
+            ANET_READ_CONFIG(config_data, negative_slope);
+        }
+    };
+
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& ctx) const override {
+        Config config(config_data);
+        return std::make_shared<LeakyReLUModule>(config.negative_slope);
+    }
+};
+
  void anet::nn::InitNN()
  {
     auto& repo = NetworkModuleRepository::Instance();
+
+	// 基本モジュール登録
+    repo.Register("Add", std::make_shared<ElementwiseAddModuleFactory>());
+    repo.Register("Flatten", std::make_shared<FlattenModuleFactory>());
+    repo.Register("Permute", std::make_shared<PermuteModuleFactory>());
+
+	// 活性化関数モジュール登録
+    repo.Register("ReLU", std::make_shared<ReLUModuleFactory>());
+    repo.Register("GELU", std::make_shared<GELUModuleFactory>());
+    repo.Register("SiLU", std::make_shared<SiLUModuleFactory>());
+    repo.Register("Mish", std::make_shared<MishModuleFactory>());
+    repo.Register("LeakyReLU", std::make_shared<LeakyReLUModuleFactory>());
+
+	// その他モジュール登録
     repo.Register("Linear", std::make_shared<LinearModuleFactory>());
     repo.Register("Conv1d", std::make_shared<Conv1dModuleFactory>());
     repo.Register("Conv2d", std::make_shared<Conv2dModuleFactory>());
-    repo.Register("Add", std::make_shared<ElementwiseAddModuleFactory>());
-    repo.Register("Permute", std::make_shared<PermuteModuleFactory>());
-    repo.Register("Flatten", std::make_shared<FlattenModuleFactory>());
-    repo.Register("ReLU", std::make_shared<ReLUModuleFactory>());
     repo.Register("SpatialEmbedder", std::make_shared<SpatialEmbedderModuleFactory>());
     repo.Register("BatchNorm2d", std::make_shared<BatchNorm2dModuleFactory>());
     repo.Register("ResBlock", std::make_shared<ResBlockModuleFactory>());
