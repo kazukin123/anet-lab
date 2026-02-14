@@ -18,6 +18,25 @@ EvalPanel::EvalPanel(wxWindow* parent, const EvalPanelConfig& config)
 	is_pause_ = config_.auto_start ? false : true;
 }
 
+void EvalPanel::DoClose()
+{
+	if (update_timer_.IsRunning()) {
+		update_timer_.Stop();
+	}
+	if (observer_) {
+		auto notifier = wxGetApp().GetRunManager().GetNotifier();
+		if (notifier) {
+			notifier->Detach(this->observer_);
+		}
+		observer_ = nullptr;
+	}
+}
+
+EvalPanel::~EvalPanel()
+{
+	DoClose();
+}
+
 void EvalPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, std::shared_ptr<anet::rl::EvalRunner> runner)
 {
 	// View生成
@@ -94,6 +113,7 @@ void EvalPanel::OnTimer(wxTimerEvent& event)
 
 void EvalPanel::OnClose(wxCloseEvent& event)
 {
+	update_timer_.Stop();
 	auto notifier = wxGetApp().GetRunManager().GetNotifier();
 	notifier->Detach(this->observer_);
 }

@@ -275,6 +275,13 @@ std::optional<float> TrainRunner::GetScalar(const std::string& key, int64_t inde
     return RunnerBase::GetScalar(key, index);
 }
 
+void TrainRunner::Shutdown()
+{
+    env_->Shutdown();
+    //env_.reset();
+}
+
+
 StepCounts TrainRunner::DoStep()
 {
     anet::ProfileRange r("DefaultTrainer::DoStep");
@@ -549,7 +556,8 @@ RunManager::RunManager(const ConfigData& config_data)
 
 RunManager::~RunManager()
 {
-    ;
+    this->env_.reset();
+    this->agent_.reset();
 }
 
 std::shared_ptr<EvalRunner> RunManager::CreateEvalRunner(const std::string& name, RunMode runmode)
@@ -632,6 +640,9 @@ void RunnerThread::ThreadMain()
         if (exception_func_ != nullptr)
             exception_func_();
     }
+
+    runner_->Shutdown();
+    //runner_.reset();
 
     ANET_LOG_DEBUG("END");
 }

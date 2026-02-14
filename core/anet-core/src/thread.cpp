@@ -1,6 +1,7 @@
 ﻿#include "anet/thread.hpp"
 #include "anet/common.hpp"
 #include "anet/profile.hpp"
+#include "anet/log.hpp"
 
 using namespace anet;
 
@@ -56,6 +57,8 @@ void PinnedThreadPool::WorkerLoop(int wid)
 {
     ProfileThreadName thr_name("PinnedThreadPool::Worker", wid);
 
+    ANET_LOG_DEBUG("BEGIN");
+
     // 各スレッドのメインループ
     while (true) {
         TaskFunction task;
@@ -90,6 +93,8 @@ void PinnedThreadPool::WorkerLoop(int wid)
             pending_tasks_.fetch_sub(1, std::memory_order_release);
         }
     }
+
+    ANET_LOG_DEBUG("END");
 }
 
 void PinnedThreadPool::Stop()

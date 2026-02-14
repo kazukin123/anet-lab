@@ -300,6 +300,21 @@ ThreadPoolDiscreteEnv::ThreadPoolDiscreteEnv(
     this->batch_spec_.num_threads = pool_->GetWorkerCount();
 }
 
+void ThreadPoolDiscreteEnv::Shutdown()
+{
+    if (pool_) {
+        pool_->Stop();
+        //pool = nullptr;
+    }
+}
+
+ThreadPoolDiscreteEnv::~ThreadPoolDiscreteEnv()
+{
+    if (pool_) {
+        pool_->Stop();
+    }
+}
+
 std::shared_ptr<const BatchResetResult>  ThreadPoolDiscreteEnv::Reset(RunMode mode)
 {
     ProfileRange r("ThreadPoolDiscreteEnv::Reset");

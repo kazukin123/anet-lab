@@ -19,8 +19,10 @@ struct EvalPanelConfig {
 class EvalPanel final : public wxPanel {
 public:
 	EvalPanel(wxWindow* parent, const EvalPanelConfig& config);
+	~EvalPanel();
 
 	void Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, std::shared_ptr<anet::rl::EvalRunner> runner);
+	void DoClose();
 
 	void TogglePause();
 	void DoStep();

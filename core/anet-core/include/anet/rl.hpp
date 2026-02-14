@@ -257,8 +257,8 @@ namespace anet::rl {
 
     struct SingleState {
         torch::Tensor obs;          // (state_dim,...)
-        bool done;
-        bool truncated;
+        bool done;                  ///< Gymnasiumのterminated相当。真の終了（ゲームオーバー、クリア）。未来の価値は 0。doneとtruncatedは独立。
+		bool truncated;             ///< Gymnasiumのtruncated相当。時間切れなどの人工終了。未来の価値は 0。doneとtruncatedは独立。
         bool episode_start;
 
         /// 状態テンソルを 1D に変換する
@@ -349,8 +349,8 @@ namespace anet::rl {
     // 状態
     struct BatchState {
         torch::Tensor obs;              ///< 行動前の観測 (N,state_dim) kFloat32
-        torch::Tensor done;             ///< 自然終端     (N) kBool
-        torch::Tensor truncated;        ///< 人工終端     (N) kBool
+        torch::Tensor done;             ///< (N) kBool Gymnasiumのterminated相当。真の終了（ゲームオーバー、クリア）。未来の価値は 0。doneとtruncatedは独立。
+        torch::Tensor truncated;        ///< (N) kBool Gymnasiumのtruncated相当。時間切れなどの人工終了。未来の価値は 0。doneとtruncatedは独立。
         torch::Tensor episode_start;    ///< reset直後    (N) kBool
 
         BatchState() {}
@@ -568,6 +568,8 @@ namespace anet::rl {
         virtual std::shared_ptr<const BatchResetResult> Reset(RunMode mode = RunMode::Train) = 0;    ///< BatchStateは使い回されるので必要に応じてDeepCopy必須
         virtual std::shared_ptr<const BatchStepResult> Step(const BatchActionInfo& action_info, RunMode mode = RunMode::Train) = 0; ///< BatchStepResultは使い回されるので必要に応じてDeepCopy必須
         //virtual std::shared_ptr<BatchEnv> Clone() const = 0;
+
+        virtual void Shutdown() { }
 
         virtual ~BatchEnv() = default;
     };
@@ -839,6 +841,8 @@ namespace anet::rl {
         virtual StepCounts DoUpdateFrame(int max_steps,
             ControlFunction pre_step_func = nullptr, ControlFunction post_step_func = nullptr) = 0;
         virtual RunnerStatus GetStatus() const = 0;
+
+        virtual void Shutdown() = 0;
     public:
         virtual StepCounts GetCounts() const = 0;
         virtual std::shared_ptr<anet::rl::BatchEnv> GetBatchEnv()const = 0;

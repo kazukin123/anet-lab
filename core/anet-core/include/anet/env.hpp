@@ -77,8 +77,11 @@ namespace anet::rl {
             std::optional<seed_t> seed = std::nullopt,
             const std::string& config_prefix = "");
 
+        virtual ~ThreadPoolDiscreteEnv();
+
         std::shared_ptr<const BatchResetResult> Reset(RunMode mode) override;
         std::shared_ptr<const BatchStepResult> Step(const BatchActionInfo& action, RunMode mode) override;
+        void Shutdown() override;
     private:
         std::shared_ptr<ThreadPool> pool_;
     };

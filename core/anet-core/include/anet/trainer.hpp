@@ -69,6 +69,8 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::Notifier> notifier,
             RunMode runmode = RunMode::Eval);
 
+        void Shutdown() override { }
+
         //RunnerStatus Initialize(const ConfigData& config_data);
         StepCounts DoStep(int64_t action);
         StepCounts DoStep() override;
@@ -86,6 +88,8 @@ namespace anet::rl {
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::string GetEnvClassId() const { return env_class_id_; }
         void SetEvalLastReward(const std::string& name, float val);
+
+        void Shutdown() override;
     private:
         // 乱数
     private:

@@ -16,11 +16,12 @@ namespace anet {
         virtual void Enqueue(int worker_id, TaskFunction fn) = 0;
         virtual void WaitAll() = 0;
         virtual int GetWorkerCount() const = 0;
+        virtual void Stop() = 0;
 
         virtual ~ThreadPool() = default;
     };
 
-    class PinnedThreadPool : public ThreadPool {
+    class PinnedThreadPool final : public ThreadPool {
     public:
         explicit PinnedThreadPool(int worker_count);
         ~PinnedThreadPool();
@@ -28,6 +29,7 @@ namespace anet {
         int GetWorkerCount() const override { return worker_count_; }
         void Enqueue(int worker_id, TaskFunction fn) override;
         void WaitAll() override;
+        void Stop();
     public:
         // コピー不可
         PinnedThreadPool(const PinnedThreadPool&) = delete;
@@ -46,6 +48,5 @@ namespace anet {
         std::atomic<int> pending_tasks_;    ///< PinnedThreadPool全体の実行待ち/実行中タスク数
     private:
         void WorkerLoop(int wid);
-        void Stop();
     };
 }
