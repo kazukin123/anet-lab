@@ -81,21 +81,28 @@ void Panel::OnMouse(wxMouseEvent& event)
 void Panel::OnKey(wxKeyEvent& event)
 {
     //LOG::info() << "Panel::OnKey() type=" << event.GetEventType();
+    ANET_LOG_DEBUG("KeyCode=" << event.GetKeyCode() << " EventType=" << event.GetEventType());
 
     // 多重発火防止： 自分が「最下層のPanel」なのか、それとも「すでに処理済みのイベントを受け取った親Panel」なのかを判定
     wxWindow* target = dynamic_cast<wxWindow*>(event.GetEventObject());
     bool childPanelExists = false;
 
     if (target && target != this) {
-        // 発生元(target)から、自分(this)に辿り着くまでの親を順にチェック
-        wxWindow* p = target->GetParent();
-        while (p && p != this) {
-            // もし途中にPanelクラスがあれば、その下位パネルがすでにイベントを発行しているはずなのでスルー
-            if (dynamic_cast<Panel*>(p)) {
-                childPanelExists = true;
-                break;
+        // 発生元(target)自体が、自分(this)ではない別のPanelである場合をチェック
+        bool is_panel = (dynamic_cast<Panel*>(target) != nullptr);
+        if (is_panel) {
+            childPanelExists = true;
+        } else {
+            // 発生元(target)から、自分(this)に辿り着くまでの親を順にチェック
+            wxWindow* p = target->GetParent();
+            while (p && p != this) {
+                // もし途中にPanelクラスがあれば、その下位パネルがすでにイベントを発行しているはずなのでスルー
+                if (dynamic_cast<Panel*>(p)) {
+                    childPanelExists = true;
+                    break;
+                }
+                p = p->GetParent();
             }
-            p = p->GetParent();
         }
     }
 
