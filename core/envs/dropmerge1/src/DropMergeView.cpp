@@ -8,7 +8,7 @@
 #include "anet/str_util.hpp"
 #include "DropMergeEnv.hpp"
 
-using namespace anet::rl::env;
+using namespace anet::rl::env::drop_merge;
 
 static constexpr int kFruitAlpha = 200;
 

@@ -8,7 +8,7 @@
 
 void anet::rl::env::InitDropMerge()
 {
-	anet::rl::RegistEnvFactory(std::make_shared<DropMergeEnvFactory>());
+	anet::rl::RegistEnvFactory(std::make_shared<anet::rl::env::drop_merge::DropMergeEnvFactory>());
 	anet::rl::gui::RegisterViewCreator<DropMergeViewCreator>();
 }
 

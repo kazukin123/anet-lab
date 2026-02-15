@@ -8,7 +8,7 @@
 #include "anet/metrics_logger.hpp"
 #include "anet/env.hpp"
 
-using namespace anet::rl::env;
+using namespace anet::rl::env::drop_merge;
 namespace LOG = anet::log;
 
 // -------------------------------------------------------------
@@ -104,12 +104,46 @@ DropMergeEnv::DropMergeEnv(
     const DropMergeEnvConfig& config,
     const torch::Device& device,
     const std::optional<anet::seed_t> seed)
-    : anet::RandomHolder(seed)
+    : anet::RandomHolder(std::nullopt)
     , config_(config)
 {
     // メトリクスログなど
     anet::MetricsLogger::Instance()->Log("DropMergeEnv", config_.ToJson());
 
+    // --- Seed Mode の解析 ---
+    std::string mode_str = anet::ToLower(config_.seed_mode);
+    if (mode_str == "fixed") {
+        seed_mode_ = SeedMode::Fixed;
+    } else if (mode_str == "global_fixed") {
+        seed_mode_ = SeedMode::GlobalFixed;
+        anet::json seed_info = {
+            {"mode", "global_fixed"},
+            {"global_seed", config_.global_seed}
+		};
+        anet::MetricsLogger::Instance()->Log("DropMergeEnv_seed", seed_info);
+    } else {
+        seed_mode_ = SeedMode::Normal;
+    }
+
+    // --- Initial Seed の決定 ---
+    if (seed_mode_ == SeedMode::GlobalFixed) {
+        // GlobalFixed: 設定ファイルの値を優先。未設定(-1)ならオート生成だが、
+        // 「固定」なのでオート生成した値を保存して使い回す。
+        if (config_.global_seed >= 0) {
+            initial_seed_ = static_cast<anet::seed_t>(config_.global_seed);
+        } else {
+            initial_seed_ = anet::SeedMaker::MakeAutoSeed();
+        }
+    } else {
+        // Normal / Fixed: Factoryから渡されたSeedを使用 (なければオート)
+        initial_seed_ = seed.value_or(anet::SeedMaker::MakeAutoSeed());
+    }
+
+    // RNGの初期化 (RandomHolder::rnd_ はコンストラクタで生成済み)
+    // RandomHolderのコンストラクタにnulloptを渡したので、ここでSetSeedする
+    SetSeed(initial_seed_);
+
+	// TensorOptionsの初期化
     float_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
     bool_opt_ = torch::TensorOptions().dtype(torch::kBool).device(device);
 
@@ -255,6 +289,13 @@ int DropMergeEnv::determineNextRank()
 std::shared_ptr<const anet::rl::SingleResetResult> DropMergeEnv::Reset(anet::rl::RunMode mode)
 {
     anet::ProfileRange r("DropMergeEnv::Reset");
+
+    // --- Seed Reset Logic ---
+    // Normal: 何もしない (継続性維持)
+    // Fixed / GlobalFixed: 毎回同じSeedに戻す (完全再現)
+    if (seed_mode_ != SeedMode::Normal) {
+        SetSeed(initial_seed_);
+    }
 
     buildWorld();
 

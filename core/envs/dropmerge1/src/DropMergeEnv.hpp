@@ -11,7 +11,7 @@
 #include "anet/config.hpp"
 #include "anet/rl.hpp"
 
-namespace anet::rl::env {
+namespace anet::rl::env::drop_merge {
 
     constexpr int kActionNoop = 0;
     constexpr int kActionLeft = 1;
@@ -22,8 +22,20 @@ namespace anet::rl::env {
 
     constexpr int kFruitTypeCount = 11; // 11種類 (Rank 1..11)
 
+
+    enum class SeedMode {
+        Normal,         ///< 初期化時のみSeed指定（Factory由来）。Resetでは変更しない（現状通り）。
+        Fixed,          ///< 初期化時のSeed（Factory由来）で、毎Reset時にRNGをリセットする。
+        GlobalFixed     ///< 全環境で共通の設定値（global_seed）を使用し、毎Reset時にRNGをリセットする。
+    };
+
     /// DropMerge 環境の設定
     struct DropMergeEnvConfig : public anet::Config {
+
+        // --- Seed制御 ---
+        std::string seed_mode = "normal";   ///< "normal", "fixed", "global_fixed"
+        seed_t global_seed = -1;           ///< global_fixedモード時のSeed値 (-1: Auto)
+
         // --- 環境パラメータ ---
         int max_step = 3000;
         int no_drop_timeout_steps = 200;
@@ -67,6 +79,8 @@ namespace anet::rl::env {
             const std::string& config_prefix = "")
             : anet::Config(config_data, "DropMergeEnv", config_prefix)
         {
+            ANET_READ_CONFIG(config_data, seed_mode);
+            ANET_READ_CONFIG(config_data, global_seed);
             ANET_READ_CONFIG(config_data, max_step);
             ANET_READ_CONFIG(config_data, no_drop_timeout_steps);
             ANET_READ_CONFIG(config_data, box_width);
@@ -214,6 +228,10 @@ namespace anet::rl::env {
 
         std::unique_ptr<b2World> world_;
         std::unique_ptr<ContactListener> contact_listener_;
+
+        // Seed管理
+        SeedMode seed_mode_ = SeedMode::Normal;
+        anet::seed_t initial_seed_ = 0;
 
         // コンテナ
         b2Body* ground_body_ = nullptr;

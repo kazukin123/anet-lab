@@ -19,7 +19,9 @@ DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G20 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G2032 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > E
-DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > E
+#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > E
+DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.realistic> E
+
 
 #net.body.$ = net.body.MLP2
 #net.body.$ = net.body.SuikaNet2032
@@ -31,6 +33,10 @@ net.body.$ = net.body.SuikaResNet4064_10
 # ==============================================================================
 # 実験
 # ==============================================================================
+
+#E.seed_mode = fixed
+E.seed_mode = global_fixed
+E.global_seed = 12345
 
 #R.reward_scaler.use_dynamic_scaling = true
 #R.reward_scaler.use_auto_post_scale = true
@@ -65,6 +71,7 @@ net.body.$ = net.body.SuikaResNet4064_10
 
 #R.learner.gamma = 0.995 # ★ 長期戦略考慮
 #R.learner.gamma = 0.99   # ★
+R.learner.gamma = 0.95   # ★
 
 #R.learner.n_step = 30   # ★長期戦略考慮
 #R.learner.n_step = 20
@@ -330,6 +337,13 @@ DropMergeEnv.G2032.grid_cols = 20
 DropMergeEnv.G2032.grid_rows = 32
 
 
+# --- DropMergeEnv Realistic 現実に近い感じ スイカ作りやすい？
+
+DropMergeEnv.realistic.friction = 0.1      # 摩擦ツルツルなので重い果物が下方に落ち込みやすい
+DropMergeEnv.realistic.restitution = 0.05  # 反発係数 弾みにくい
+DropMergeEnv.realistic.fruit_densities = 3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0 　# 全部同じ密度。面積が大きいほど重い。スイカはサクランボの約87倍の重さ
+
+
 # --- DropMergeEnv Heavy ドバドバ落としても難しい物性
 
 DropMergeEnv.heavy.friction = 0.3      # 摩擦: 0.1(液体) -> 0.3(物体)  隙間に勝手に滑り込むのを防ぐ
@@ -381,6 +395,7 @@ DropMergeEnv.orig.game_over_grace_step = 1
 
 # --- DropMergeEnv デフォルト設定
 
+DropMergeEnv.seed_mode = normal
 DropMergeEnv.box_width = 3.0
 DropMergeEnv.box_height = 4.0
 DropMergeEnv.ground_y = 0.5
