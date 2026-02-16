@@ -677,7 +677,7 @@ ExperienceSamples ReplayExperienceStateStacker::SampleBatch(
     // Next State (Stacked) : (B * S, state_dim...)
     auto flat_next_states = storage.GetNextStates().index_select(0, stacked_indices_dev);
 
-    // State出漁用の出力形状情報を生成
+    // State出力用の出力形状情報を生成
     std::vector<int64_t> out_shape;
     out_shape.push_back(minibatch_size);
     out_shape.push_back(stack_count_);
