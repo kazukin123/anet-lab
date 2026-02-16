@@ -20,7 +20,7 @@ DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G2032 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > E
-DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.realistic> E
+DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.realistic > E
 
 
 #net.body.$ = net.body.MLP2
@@ -33,6 +33,8 @@ net.body.$ = net.body.SuikaResNet4064_10
 # ==============================================================================
 # 実験
 # ==============================================================================
+
+E.learner.grad_clip_tau = 5
 
 #E.seed_mode = fixed
 E.seed_mode = global_fixed
@@ -72,6 +74,7 @@ E.global_seed = 12345
 #R.learner.gamma = 0.995 # ★ 長期戦略考慮
 #R.learner.gamma = 0.99   # ★
 R.learner.gamma = 0.95   # ★
+#R.learner.gamma = 0.92   # ★
 
 #R.learner.n_step = 30   # ★長期戦略考慮
 #R.learner.n_step = 20
@@ -93,6 +96,7 @@ R.learner.gamma = 0.95   # ★
 #R.reward_scaler.constant_scale = 0.1         # ★
 #R.reward_scaler.constant_scale = 0.01         # ★
 R.reward_scaler.constant_scale = 0.001         # ★
+#R.reward_scaler.constant_scale = 0.0005         # ★
 
 #A.learner.per_prio_clip_value = 100.0  # 30 優先度の上限値
 #A.learner.per_prio_clip_value = 60.0  # 30 優先度の上限値
@@ -341,8 +345,8 @@ DropMergeEnv.G2032.grid_rows = 32
 
 DropMergeEnv.realistic.friction = 0.1      # 摩擦ツルツルなので重い果物が下方に落ち込みやすい
 DropMergeEnv.realistic.restitution = 0.05  # 反発係数 弾みにくい
-DropMergeEnv.realistic.fruit_densities = 3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0 　# 全部同じ密度。面積が大きいほど重い。スイカはサクランボの約87倍の重さ
-
+# DropMergeEnv.realistic.fruit_densities = 3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0 　 # 全部同じ密度。面積が大きいほど重い。スイカはサクランボの約87倍の重さ
+DropMergeEnv.realistic.fruit_densities = 3.0  2.9  3.4  4.0  5.0  6.4  8.4  11.5  16.2  24.0  35.3  # 質量保存の法則 スイカはさくらんぼの1024倍重い！
 
 # --- DropMergeEnv Heavy ドバドバ落としても難しい物性
 
