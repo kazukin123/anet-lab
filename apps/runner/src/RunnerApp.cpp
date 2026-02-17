@@ -4,6 +4,7 @@
 #include <wx/stdpaths.h>
 #include <wx/cmdline.h>
 #include <wx/filename.h>
+#include <wx/snglinst.h>
 #include "anet/profile.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/init.hpp"
@@ -140,6 +141,9 @@ bool RunnerApp::OnInit()
     // MetricsLogger
     anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetRunsPath(), config_->run_name);
     anet::MetricsLogger::Instance()->Log("config_data", config_data.ToJson());
+
+    // RunNameを記録
+	this->WriteLastRunName(anet::MetricsLogger::Instance()->GetRunName());
 
     // RunnerFrame生成＆表示
     wxString frame_title = anet::MetricsLogger::Instance()->GetRunName() + " - ANET RL Runner";
@@ -341,6 +345,51 @@ std::shared_ptr<anet::rl::gui::View> RunnerApp::CreateExperinceView(wxWindow* pa
         return nullptr;
     }
     return view;
+}
+
+bool RunnerApp::WriteLastRunName(const std::string& run_name) const
+{
+    // 保存先ディレクトリ（var）のパスを作成・取得
+    //wxFileName dir(GetProjectRootDir().string(), "");
+    //LOG::info() << "fn1=" << fn.GetFullPath().c_str();
+    //fn.AppendDir("var");
+    //LOG::info() << "dir=" << dir.GetFullPath().c_str();
+
+    // ディレクトリがなければ作成
+    //if (!dir.DirExists()) {
+        //dir.Mkdir(wxPATH_MKDIR_FULL);
+    //}
+
+    // ファイル名を設定
+    wxFileName fn(GetProjectRootDir().string(), "runname.txt");
+    wxString file_path = fn.GetFullPath();
+    //LOG::info() << "file_path=" << file_path;
+
+    // ファイルごとに固有のロック名を作成
+    wxSingleInstanceChecker lock(file_path);
+
+    // 他のプロセスが掴んでいたら待機
+    int attempts = 0;
+    const int maxAttempts = 50; // 最大5秒待機 (100ms * 50)
+    while (lock.IsAnotherRunning()) {
+        if (++attempts > maxAttempts) {
+			ANET_SYSTEM_ERROR("Failed to acquire lock for writing last run name after multiple attempts.");
+            return false;
+        }
+        wxMilliSleep(100);
+    }
+
+    // ファイルを新規作成(無ければ)して開く
+    wxFile file;
+    if (file.Create(file_path, true)) {
+        file.Write(run_name);
+        file.Close();
+    } else {
+        ANET_SYSTEM_ERROR("Failed to create or open file for writing runname.txt.");
+        return false;
+	}
+        
+    return true;
 }
 
 wxIMPLEMENT_APP(RunnerApp);

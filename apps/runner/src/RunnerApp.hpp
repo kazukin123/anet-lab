@@ -39,6 +39,7 @@ public:
 private:
     void InitTrainer();
     void showFatalError();
+    bool WriteLastRunName(const std::string& run_name) const;
 private:
     std::unique_ptr<anet::ConfigManager> config_mgr_;
     struct Config;
