@@ -48,9 +48,10 @@ namespace anet::nn {
     };
 
     struct WeightInitConfig {
-        int mode = 1;             // 0:Default, 1:Xavier, 2:He, 3:Orthogonal
-        float manual_gain = 0.0f; // Orthogonal時の手動ゲイン (0.0なら自動計算)
-        std::string nonlinearity = "relu"; // "relu", "linear", "tanh" etc.
+        int mode = 1;                       ///< 0:Default, 1:Xavier, 2:He, 3:Orthogonal 4:Constant
+        double manual_gain = 0.0f;          ///< Orthogonal時の手動ゲイン (0.0なら自動計算)
+        std::string nonlinearity = "relu";  ///< "relu", "linear", "tanh" etc.
+        double constant_val = 0.0;          ///< for Constant
     };
 
 

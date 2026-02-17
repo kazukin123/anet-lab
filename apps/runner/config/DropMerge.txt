@@ -27,18 +27,22 @@ DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.reali
 #net.body.$ = net.body.SuikaNet2032
 #net.body.$ = net.body.SuikaNet4064
 #net.body.$ = net.body.SuikaResNet4064_06
-net.body.$ = net.body.SuikaResNet4064_10
+#net.body.$ = net.body.SuikaResNet4064_08d
+#net.body.$ = net.body.SuikaResNet4064_10
+net.body.$ = net.body.SuikaResNet4064_10d_64
+#net.body.$ = net.body.SuikaResNet4064_18
 
 
 # ==============================================================================
 # 実験
 # ==============================================================================
 
-E.learner.grad_clip_tau = 5
+#R.learner.grad_clip_tau = 1.0 # ★
+R.learner.grad_clip_tau = 0.5 # ★
 
 #E.seed_mode = fixed
-E.seed_mode = global_fixed
-E.global_seed = 12345
+#E.seed_mode = global_fixed
+#E.global_seed = 12345
 
 #R.reward_scaler.use_dynamic_scaling = true
 #R.reward_scaler.use_auto_post_scale = true
@@ -73,8 +77,9 @@ E.global_seed = 12345
 
 #R.learner.gamma = 0.995 # ★ 長期戦略考慮
 #R.learner.gamma = 0.99   # ★
-R.learner.gamma = 0.95   # ★
+#R.learner.gamma = 0.95   # ★
 #R.learner.gamma = 0.92   # ★
+#R.learner.gamma = 0.9   # ★
 
 #R.learner.n_step = 30   # ★長期戦略考慮
 #R.learner.n_step = 20
@@ -95,8 +100,9 @@ R.learner.gamma = 0.95   # ★
 #R.reward_scaler.constant_scale = 1.0         # ★
 #R.reward_scaler.constant_scale = 0.1         # ★
 #R.reward_scaler.constant_scale = 0.01         # ★
-R.reward_scaler.constant_scale = 0.001         # ★
+#R.reward_scaler.constant_scale = 0.001         # ★
 #R.reward_scaler.constant_scale = 0.0005         # ★
+R.reward_scaler.constant_scale = 0.0001         # ★
 
 #A.learner.per_prio_clip_value = 100.0  # 30 優先度の上限値
 #A.learner.per_prio_clip_value = 60.0  # 30 優先度の上限値
@@ -121,10 +127,9 @@ A.action_policy.uqe_eps_decay_step = 10,000,000      # 10M
 A.action_policy.uqe_tau_decay_step = 10,000,000   # 10M
 #A.action_policy.uqe_tau_decay_step = 2,000,000   # 2M
 
-#R.learner.per_beta_step = 100,000,000            # 100M
-#R.learner.per_beta_step = 10,000,000              # 10M
-#R.learner.per_beta_step = 20,000,000              # 20M
-A.learner.per_beta_step = 20,000,000               # 20M
+#A.learner.per_beta_step = 100,000,000            # 100M
+#A.learner.per_beta_step = 20,000,000              # 20M
+A.learner.per_beta_step = 10,000,000              # 10M
 
 
 # ==============================================================================
@@ -140,7 +145,8 @@ A.action_policy.uqe_eps_min = 0.05
 
 A.learner.alpha = 5e-6         # ★
 A.learner.gamma = 0.99          # ★
-A.learner.n_step = 30           # ★長期戦略考慮
+#A.learner.n_step = 30           # ★
+A.learner.n_step = 3           # ★
 A.learner.replay_ratio = 1.0
 A.learner.replay_capacity = 1,000,000
 A.learner.replay_batch_size = 256
@@ -264,13 +270,49 @@ net.block.[ConvInit32].conv.padding = 1
 net.block.[ConvInit32].conv.stride = 2
 net.block.[ConvInit32].init.mode = 2
 
-# ResBlock
+net.block.[ConvInit64].type = Conv2d
+net.block.[ConvInit64].conv.out_channels = 64
+net.block.[ConvInit64].conv.kernel_size = 3
+net.block.[ConvInit64].conv.padding = 1
+net.block.[ConvInit64].conv.stride = 2
+net.block.[ConvInit64].init.mode = 2
+
+
 net.block.[ResBlock32].type = ResBlock
 net.block.[ResBlock32].res.channels = 32
 net.block.[ResBlock32].res.kernel_size = 3
-net.block.[ResBlock32].init.mode = 2
 net.block.[ResBlock32].activation = silu
-#net.block.[ResBlock32].activation = relu
+
+net.block.[ResBlock32d2].type = ResBlock
+net.block.[ResBlock32d2].res.channels = 32
+net.block.[ResBlock32d2].res.kernel_size = 3
+net.block.[ResBlock32d2].activation = silu
+net.block.[ResBlock32d2].dilation = 2
+
+net.block.[ResBlock32d4].type = ResBlock
+net.block.[ResBlock32d4].res.channels = 32
+net.block.[ResBlock32d4].res.kernel_size = 3
+net.block.[ResBlock32d4].activation = silu
+net.block.[ResBlock32d4].dilation = 4
+
+
+net.block.[ResBlock64].type = ResBlock
+net.block.[ResBlock64].res.channels = 64
+net.block.[ResBlock64].res.kernel_size = 3
+net.block.[ResBlock64].activation = silu
+
+net.block.[ResBlock64d2].type = ResBlock
+net.block.[ResBlock64d2].res.channels = 64
+net.block.[ResBlock64d2].res.kernel_size = 3
+net.block.[ResBlock64d2].activation = silu
+net.block.[ResBlock64d2].dilation = 2
+
+net.block.[ResBlock64d4].type = ResBlock
+net.block.[ResBlock64d4].res.channels = 64
+net.block.[ResBlock64d4].res.kernel_size = 3
+net.block.[ResBlock64d4].activation = silu
+net.block.[ResBlock64d4].dilation = 4
+
 
 # 圧縮用 1x1 Conv (32ch -> 4ch)
 net.block.[ConvCompress].type = Conv2d
@@ -282,8 +324,10 @@ net.block.[ConvCompress].init.mode = 2
 
 # 構造定義
 net.body.SuikaResNet4064_06.structure = Embed4064 > ConvInit32 > SiLU > ResBlock32(*2) > ConvCompress > SiLU > Flatten > LinearOut
+net.body.SuikaResNet4064_08d.structure = Embed4064 > ConvInit32 > SiLU > ResBlock32 > ResBlock32d2 > ResBlock32d4 > ConvCompress > SiLU > Flatten > LinearOut
 net.body.SuikaResNet4064_10.structure = Embed4064 > ConvInit32 > SiLU > ResBlock32(*4) > ConvCompress > SiLU > Flatten > LinearOut
-
+net.body.SuikaResNet4064_18.structure = Embed4064 > ConvInit32 > SiLU > ResBlock32(*8) > ConvCompress > SiLU > Flatten > LinearOut
+net.body.SuikaResNet4064_10d_64.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64 > ResBlock64d2 > ResBlock64d4 > ResBlock64 > ConvCompress > SiLU > Flatten > LinearOut
 
 
 # ---- scalar metrics

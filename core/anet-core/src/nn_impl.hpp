@@ -54,18 +54,25 @@ namespace anet::nn {
                         gain = torch::nn::init::calculate_gain(nonlinearity_mode);
                     } catch (...) {
                         ANET_SYSTEM_ERROR("Unknown nonlinearity: " << config.nonlinearity << ". Using gain=1.0");
-                        //gain = 1.0;
                     }
                 }
 
 				// Orthogonal初期化
                 torch::nn::init::orthogonal_(weight, gain);
+            } else if (config.mode == 4) { // Constant
+                torch::nn::init::constant_(weight, config.constant_val);
             }
 
             // バイアスはゼロ初期化
             auto& bias = layer->bias;
             if (bias.defined() && config.mode != 0) {
-                torch::nn::init::constant_(bias, 0.0);
+                if (config.mode == 4) {
+                    // Constantモードならバイアスも同じ値で埋める (ZeroInit用など)
+                    torch::nn::init::constant_(bias, config.constant_val);
+                } else {
+                    // 通常はゼロ初期化
+                    torch::nn::init::constant_(bias, 0.0);
+                }
             }
         }
     };
