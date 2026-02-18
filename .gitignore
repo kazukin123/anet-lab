@@ -62,3 +62,4 @@
 /apps/runner/src/RC*
 /dist
 /docs/*.lock
+/apps/runner/runname.txt
