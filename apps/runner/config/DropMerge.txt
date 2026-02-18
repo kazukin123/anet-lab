@@ -27,15 +27,27 @@ DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.reali
 #net.body.$ = net.body.SuikaNet2032
 #net.body.$ = net.body.SuikaNet4064
 #net.body.$ = net.body.SuikaResNet4064_06
-#net.body.$ = net.body.SuikaResNet4064_08d
 #net.body.$ = net.body.SuikaResNet4064_10
-net.body.$ = net.body.SuikaResNet4064_10d_64
+net.body.$ = net.body.SuikaResNet4064_10d
+#net.body.$ = net.body.SuikaResNet4064_10d_64
 #net.body.$ = net.body.SuikaResNet4064_18
+
 
 
 # ==============================================================================
 # 実験
 # ==============================================================================
+
+R.action_policy.use_amp = true
+R.action_policy.use_amp_bf16 = true
+R.learner.use_amp = true
+R.learner.use_amp_bf16 = true
+
+
+R.learner.replay_batch_size = 128   # 256
+#R.learner.replay_batch_size = 64   # 256
+
+#R.learner.replay_ratio = 2.0  # 1.0
 
 #R.learner.grad_clip_tau = 1.0 # ★
 R.learner.grad_clip_tau = 0.5 # ★
@@ -57,17 +69,21 @@ R.learner.grad_clip_tau = 0.5 # ★
 #E.game_over_penalty = -200.0
 #E.game_over_penalty = -500.0
 
+E.time_penalty = -0.0001    # NEET対策
 #E.time_penalty = -0.001    # NEET対策
 #E.time_penalty = -0.1    # NEET対策
-E.time_penalty = 0
+#E.time_penalty = 0
 
-#A.learner.adam_eps = 1.5e-04
+#A.learner.adam_eps = 1.5e-4
+A.learner.adam_eps = 1e-4   # AMP有効時は大きめにする
 
 #R.action_policy.uqe_eps_max = 1.00
 #R.action_policy.uqe_eps_max = 0.60
 
 #R.action_policy.uqe_eps_min = 0.05
 #R.action_policy.uqe_eps_min = 0.0
+
+R.action_policy.uqe_tau_min = 0.75  # ビビリ対策
 
 #R.learner.alpha = 5e-6
 #R.learner.alpha = 1e-5
@@ -323,10 +339,10 @@ net.block.[ConvCompress].conv.padding = 0
 net.block.[ConvCompress].init.mode = 2
 
 # 構造定義
-net.body.SuikaResNet4064_06.structure = Embed4064 > ConvInit32 > SiLU > ResBlock32(*2) > ConvCompress > SiLU > Flatten > LinearOut
-net.body.SuikaResNet4064_08d.structure = Embed4064 > ConvInit32 > SiLU > ResBlock32 > ResBlock32d2 > ResBlock32d4 > ConvCompress > SiLU > Flatten > LinearOut
-net.body.SuikaResNet4064_10.structure = Embed4064 > ConvInit32 > SiLU > ResBlock32(*4) > ConvCompress > SiLU > Flatten > LinearOut
-net.body.SuikaResNet4064_18.structure = Embed4064 > ConvInit32 > SiLU > ResBlock32(*8) > ConvCompress > SiLU > Flatten > LinearOut
+net.body.SuikaResNet4064_06.structure  = Embed4064 > ConvInit32 > SiLU > ResBlock32(*2) > ConvCompress > SiLU > Flatten > LinearOut
+net.body.SuikaResNet4064_10d.structure = Embed4064 > ConvInit32 > SiLU > ResBlock32 > ResBlock32d2 > ResBlock32d4 > ResBlock32 > ConvCompress > SiLU > Flatten > LinearOut
+net.body.SuikaResNet4064_10.structure  = Embed4064 > ConvInit32 > SiLU > ResBlock32(*4) > ConvCompress > SiLU > Flatten > LinearOut
+net.body.SuikaResNet4064_18.structure  = Embed4064 > ConvInit32 > SiLU > ResBlock32(*8) > ConvCompress > SiLU > Flatten > LinearOut
 net.body.SuikaResNet4064_10d_64.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64 > ResBlock64d2 > ResBlock64d4 > ResBlock64 > ConvCompress > SiLU > Flatten > LinearOut
 
 

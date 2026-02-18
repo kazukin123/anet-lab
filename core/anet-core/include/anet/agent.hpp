@@ -96,6 +96,9 @@ namespace anet::rl {
             bool uqe_use_tail_mean = false;
 
             float uqe_eval_tau = -1;// 0.80f;   ///< policy_type=1かつEvalRun時向けのUQEτ値。-1の場合はUQEではなくGreedy選択。
+
+            bool use_amp = false;
+            bool use_amp_bf16 = false;
         };
 
         struct StuckerConfig {
@@ -137,6 +140,9 @@ namespace anet::rl {
 
             int num_quantiles = 51;         ///< 分位数 N (デフォルト51)
             float quantile_huber_kappa = 1.0f;///< Huber Loss の閾値 kappa
+
+            bool use_amp = false;
+            bool use_amp_bf16 = false;
         };
     }
 

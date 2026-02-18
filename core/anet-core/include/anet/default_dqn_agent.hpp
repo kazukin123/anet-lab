@@ -51,6 +51,8 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, action_policy.uqe_eps_min);
             ANET_READ_CONFIG(config_data, action_policy.uqe_eps_decay_step);
             ANET_READ_CONFIG(config_data, action_policy.uqe_use_tail_mean);
+            ANET_READ_CONFIG(config_data, action_policy.use_amp);
+            ANET_READ_CONFIG(config_data, action_policy.use_amp_bf16);
 
             ANET_READ_CONFIG(config_data, learner.alpha);
             ANET_READ_CONFIG(config_data, learner.gamma);
@@ -77,6 +79,8 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.use_double_dqn);
             ANET_READ_CONFIG(config_data, learner.use_n_step);
             ANET_READ_CONFIG(config_data, learner.use_per);
+            ANET_READ_CONFIG(config_data, learner.use_amp);
+            ANET_READ_CONFIG(config_data, learner.use_amp_bf16);
 
             ANET_READ_CONFIG(config_data, reward_scaler.use_clipping);
             ANET_READ_CONFIG(config_data, reward_scaler.clip_range);
@@ -129,6 +133,8 @@ namespace anet::rl::dqn {
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
+
+        int64_t Save(anet::OutputArchive& archive) const override;
     private:
         DefaultDQNAgentConfig config_;
         std::unique_ptr<anet::rl::RewardScaler> reward_scaler_;

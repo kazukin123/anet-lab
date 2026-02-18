@@ -15,6 +15,7 @@
 #include "anet/config.hpp"
 #include "anet/log.hpp"
 #include "anet/tensor_util.hpp"
+#include "anet/serialize.hpp"
 
 namespace anet::rl {
 
@@ -621,8 +622,10 @@ namespace anet::rl {
         virtual ~Learner() = default;
     };
 
-    class Agent : public ActionPolicy, public Learner, public Module, public TensorFunctionProvider {
+    class Agent : public ActionPolicy, public Learner, public Module, public TensorFunctionProvider, public Serializable {
     public:
+        virtual int64_t Save(anet::OutputArchive& archive) const override { return 0;  }
+        virtual int64_t Load(anet::InputArchive& archive) override { return 0; }
         virtual ~Agent() = default;
     };
 

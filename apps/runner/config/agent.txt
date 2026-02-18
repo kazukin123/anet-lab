@@ -34,6 +34,8 @@ DefaultDQNAgent.baseline.action_policy.uqe_eps_decay_step = 0       # 0=max固�
 DefaultDQNAgent.baseline.action_policy.uqe_use_tail_mean = false    # for UQE&TomsonSampling
 #DefaultDQNAgent.baseline.action_policy.uqe_eval_tau = 0.5 		    # for UQE eval時
 DefaultDQNAgent.baseline.action_policy.uqe_eval_tau = -1 		    # for UQE eval時 -1でUQE使わず平均Q値で選択
+DefaultDQNAgent.baseline.action_policy.use_amp = false
+DefaultDQNAgent.baseline.action_policy.use_amp_bf16 = false
 DefaultDQNAgent.baseline.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4 batch_sizeを上げたら少し上げて良い
 DefaultDQNAgent.baseline.learner.gamma = 0.99                 # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
 DefaultDQNAgent.baseline.learner.adam_eps = 1e-5              # 小さな勾配の変化に敏感になりすぎるのを防ぎ、学習をマイルドに
@@ -59,6 +61,8 @@ DefaultDQNAgent.baseline.learner.quantile_huber_kappa = 1.0  # Huber Loss の閾
 DefaultDQNAgent.baseline.learner.use_double_dqn = true       # Double DQN 有効化フラグ（trueで有効）
 DefaultDQNAgent.baseline.learner.use_n_step = true
 DefaultDQNAgent.baseline.learner.use_per = true
+DefaultDQNAgent.baseline.learner.use_amp = false
+DefaultDQNAgent.baseline.learner.use_amp_bf16 = false
 DefaultDQNAgent.baseline.reward_scaler.use_clipping = false
 DefaultDQNAgent.baseline.reward_scaler.clip_range = 10
 DefaultDQNAgent.baseline.reward_scaler.constant_scale = 0.01

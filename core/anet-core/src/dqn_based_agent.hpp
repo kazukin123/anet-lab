@@ -6,6 +6,7 @@
 #include "anet/rl.hpp"
 #include "anet/scaler.hpp"
 #include "anet/nn.hpp"
+#include "anet/nn_util.hpp"
 
 
 namespace anet::rl::dqn {
@@ -126,7 +127,43 @@ namespace anet::rl::dqn {
                     return per_is_weights.mean().item<float>();
                 return std::nullopt;
             }
-
+            // CV = 標準偏差 / 平均
+            //  高: 特定の経験に優先度が集中しており、PERが「選別」を強く行っている状態。
+            //  低(0に近い) : すべての経験が似たようなTD誤差を持っており、一様サンプリングに近い状態。
+            // 対策: per_alpha を調整
+            if (key == "per_prio_cv") {
+                if (per_priorities.defined()) {
+                    auto mean = per_priorities.mean();
+                    auto std = per_priorities.std();
+                    return (std / (mean + 1e-9)).item<float>();
+                }
+                return std::nullopt;
+            }
+            // 勾配更新の偏り(IS Weightsベース)
+            if (key == "per_is_ess_ratio") {
+                if (per_is_weights.defined() && per_minibatch_size > 0) {
+                    auto w = per_is_weights;
+                    auto sum_w = w.sum();
+                    auto sum_w2 = (w * w).sum();
+                    // ESS = (Σw)^2 / (Σw^2) / B
+                    return ((sum_w * sum_w) / (static_cast<float>(per_minibatch_size) * sum_w2 + 1e-9)).item<float>();
+                }
+                return std::nullopt;
+            }
+            // 有効サンプルサイズ比率 (ESS Ratio) 実質的にバッチ内の何割のデータが学習に寄与しているか (0.0 ~ 1.0) 公式: (Σp)^2 / (B * Σp^2)
+            //   1.0に近い: バッチ内のデータが均等に重要。
+            //   0に近い : バッチ内の極一部のデータ（外れ値など）が支配的で、実質的な学習効率が低下している警告信号。 対策: per_beta を上げる（初期値を 0.6 -> 0.8 にするなど）か、per_alpha を下げる。
+            // 理想: 0.5 〜 0.8 付近
+            if (key == "per_prio_ess_ratio") {
+                if (per_priorities.defined() && per_minibatch_size > 0) {
+                    auto p = per_priorities;
+                    auto sum_p = p.sum();
+                    auto sum_p2 = (p * p).sum();
+                    auto ess = (sum_p * sum_p) / (static_cast<float>(per_minibatch_size) * sum_p2 + 1e-9);
+                    return ess.item<float>();
+                }
+                return std::nullopt;
+            }
             return std::nullopt;
         }
 
@@ -183,7 +220,8 @@ namespace anet::rl::dqn {
     private:
         void SoftUpdate();
         void HardUpdate();
-    private:
+    //private:
+    public:
         const NetworkConfig config_;
         std::shared_ptr<anet::nn::Network> policy_net_;
         std::shared_ptr<anet::nn::Network> target_net_;
@@ -289,7 +327,8 @@ namespace anet::rl::dqn {
         bool CanUpdate(step_t update_step, step_t exp_step) const;
         void UpdatePerBeta(step_t step);
         void UpdateTargetNetwork(step_t step);
-    protected:
+    //protected:
+    public:
         const torch::Device device_;
         int batch_size_;
         int state_dim_;
@@ -302,6 +341,7 @@ namespace anet::rl::dqn {
         std::shared_ptr<ObservationNormalizer> obs_norm_;
         std::shared_ptr<anet::rl::ReplayBuffer> replay_buffer_;
         std::unique_ptr<torch::optim::Adam> optimizer_;
+        anet::GradScaler grad_scaler_;
     protected:
         float update_credit_ = 0.0f;
     };

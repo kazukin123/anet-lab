@@ -16,7 +16,7 @@
 #include "anet/profile.hpp"
 #include "anet/stacker.hpp"
 #include "nn_heads.hpp"
-
+#include "anet/serialize.hpp"
 
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
@@ -168,6 +168,59 @@ DefaultDQNAgent::DefaultDQNAgent(
         LOG::info() << "Initialized TDLearner";
     }
 }
+
+int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
+{
+    ProfileRange r1("DefaultDQNAgent::Save");
+
+	int64_t total_size = 0;
+
+    // ヘッダ
+    anet::ArchiveHeader header;
+    header.info = "DefaultDQNAgent";
+    auto header_size = archive.Write(header);
+	total_size += header_size;
+
+    // Config
+    auto config_size = archive.Write(this->config_.ToString());
+	total_size += config_size;
+
+    // policy_net
+    auto policy_net_size = archive.WriteTorchObject(this->network_->policy_net_);
+	total_size += policy_net_size;
+
+    // target_net
+    auto target_net_size = archive.WriteTorchObject(this->network_->target_net_);
+	total_size += target_net_size;
+
+    // Adam
+    auto adam_size = archive.WriteTorchObject(*learner_->optimizer_);
+	total_size += adam_size;
+
+    // ログ
+    LOG::info() << "DefaultDQNAgent Serialized. total_size=" << anet::FormatWithCommas(total_size)
+        << " config_size=" << anet::FormatWithCommas(config_size)
+        << " adam_size=" << anet::FormatWithCommas(adam_size)
+        << " policy_net_size=" << anet::FormatWithCommas(policy_net_size)
+        << " target_net_size=" << anet::FormatWithCommas(target_net_size);
+
+    return total_size;
+}
+
+    // --- Load from File ---
+    //{
+    //    MyModelData loaded_data;
+    //    std::ifstream ifs("data.bin", std::ios::binary);
+    //    anet::InputContext in(ifs);
+
+    //    // ヘッダ検証
+    //    anet::FileHeader header;
+    //    in.Read(header);
+    //    std::cout << "Desc: " << header.description << std::endl;
+
+    //    // データ復元
+    //    in.Read(loaded_data);
+    //}
 
 std::optional<anet::TensorFunction> DefaultDQNAgent::GetTensorFunction(const std::string& key)
 {
