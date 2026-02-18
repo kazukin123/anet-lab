@@ -640,6 +640,15 @@ public:
 
         // --- Forwarding ---
 
+        /// @todo Pre-Activation対応
+
+        // Post Activation (ResNet v1、今の実装)
+        //    Conv->BN->ReLU->Conv->BN->Add->ReLU
+        // Pre Activation(ResNet v2)
+        //    BN->ReLU->Conv->BN->ReLU->Conv->Add
+        // Postは最後にReLUがあるため、マイナス値を出力し辛い。Preは最後にActivationがないため、ResBlockの出力はマイナス値も問題無い。
+        // Preの方が勾配の流れが良いため、学習初期の不安定な時期を抜け出しやすい。
+
         // Block 1: Conv -> Norm -> Act
         anet::ProfileRange r3("ResBlockModule::Forward.conv1");
         torch::Tensor out = conv1_->forward(input);
