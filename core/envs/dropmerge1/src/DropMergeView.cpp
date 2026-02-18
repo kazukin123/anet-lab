@@ -323,7 +323,6 @@ void DropMergePanel::DrawFruits(wxDC& dc)
         dc.SetBrush(*wxBLACK_BRUSH);
         dc.DrawCircle(center.x - radius / 3, center.y - radius / 4, std::max(1, radius / 10)); // 左目
         dc.DrawCircle(center.x + radius / 3, center.y - radius / 4, std::max(1, radius / 10)); // 右目
-        // 口 (円弧は面倒なので直線)
         dc.DrawLine(center.x - radius / 4, center.y + radius / 4, center.x + radius / 4, center.y + radius / 4);
     }
 }
@@ -547,29 +546,63 @@ void DropMergePanel::DrawSidePanel(wxDC& dc)
 
 void DropMergePanel::OnPaint(wxPaintEvent& event)
 {
-    // dc
-    wxAutoBufferedPaintDC dc(this);
-    dc.Clear();
+    //ANET_LOG_DEBUG("BEGIN");
 
-	// GCDC使用可能ならGCDCを使う
-    wxDC* pDC = &dc; // GCDCが使えない場合のフォールバック
-    wxGCDC gdc(dc);
+    // ClientSizeチェック
+    auto cl_size = GetClientSize();
+    if (cl_size.GetWidth() <= 0 || cl_size.GetHeight() <= 0) {
+		return; // 描画領域なしなら描画しない
+    }
+
+	// DC
+    wxPaintDC dc(this);
+
+    // wxAutoBufferedPaintDCとwxGCDC を組み合わせだとClose時に OnPaintが呼ばれ続けてウィンドウ閉じれない問題が起きたので独自にダブルバッファリング処理
+
+    // メモリDC
+    wxMemoryDC memDC;
+    wxBitmap bitmap(GetClientSize());
+    memDC.SelectObject(bitmap);
+    wxColour bgColor = wxSystemSettings::GetColour(wxSYS_COLOUR_BACKGROUND);
+    memDC.SetBackground(wxBrush(bgColor));
+    memDC.Clear();
+    wxDC* pDC = &memDC;
+
+    // GCDC使用可能ならGCDCを使う（透過描画で必要）
+    wxGCDC gdc(memDC);
     if (gdc.IsOk()) {
         pDC = &gdc;
+        wxSize sz = GetClientSize();
+        if (sz.GetWidth() > 0 && sz.GetHeight() > 0) {
+            pDC->SetClippingRegion(0, 0, sz.GetWidth(), sz.GetHeight());
+        }
     }
 
+    // DCチェック
+    //double sx, sy;
+    //pDC->GetUserScale(&sx, &sy);
+    //if (!std::isfinite(sx) || !std::isfinite(sy) || sx == 0 || sy == 0) {
+    //    return; // スケール異常なら描画しない
+    //}
+
+    // 背景描画
     DrawBackground(*pDC);
 
+    // 中身描画
     if (!has_snapshot_) {
-        dc.DrawText("Waiting for data...", 20, 20);
-        return;
+        pDC->DrawText("Waiting for data...", 20, 20);
+    } else {
+        DrawGrid(*pDC);
+        DrawContainer(*pDC);
+        DrawFruits(*pDC);
+        DrawDropper(*pDC);
+        DrawSidePanel(*pDC);
     }
 
-    DrawGrid(*pDC);
-    DrawContainer(*pDC);
-    DrawFruits(*pDC);
-    DrawDropper(*pDC);
-    DrawSidePanel(*pDC);
+	// メモリ上のビットマップを画面に転送
+    dc.Blit(0, 0, bitmap.GetWidth(), bitmap.GetHeight(), &memDC, 0, 0);
+
+    //ANET_LOG_DEBUG("END");
 }
 
 // =============================================================
