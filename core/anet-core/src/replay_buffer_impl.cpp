@@ -200,6 +200,7 @@ ReplayExperienceStorage::ReplayExperienceStorage(const EnvSpec& env_spec, int64_
     ANET_ASSERT(action_dim > 0);
     ANET_ASSERT(capacity_ > 0);
 
+
     //auto f32 = torch::TensorOptions().dtype(torch::kFloat32).device(device_).pinned_memory(true);
     //auto i64 = torch::TensorOptions().dtype(torch::kInt64).device(device_).pinned_memory(true);
     //auto b = torch::TensorOptions().dtype(torch::kBool).device(device_).pinned_memory(true);
@@ -419,29 +420,22 @@ float SumTree::Get(int64_t index) const
 
 int64_t SumTree::Sample(float value) const
 {
-    // @todo 分散低減のための区間分割サンプリング（stratified sampling）を検討
+    /// @todo 分散低減のための区間分割サンプリング（stratified sampling）を検討
 
-    // ルートノードから探索を開始
     int64_t node = 1;
 
-    // 葉ノードに到達するまで木を降下する
     while (node < capacity_) {
         int64_t left = node << 1;
         float left_sum = tree_[static_cast<size_t>(left)];
 
-        // 左部分木の累積和と比較し、対応する子ノードを選択する（右の子は left | 1）
-        if (value <= left_sum) {
-            node = left;
-        } else {
-            value -= left_sum;
-            node = left | 1;
-        }
+        bool go_right = (value > left_sum);
+        value -= go_right ? left_sum : 0.0f;
+        node = left | static_cast<int64_t>(go_right);
     }
 
-    // 葉ノードのインデックスを論理インデックスに変換する
-    return node - capacity_;
+    int64_t data_idx = node - capacity_;
+    return std::clamp<int64_t>(data_idx, 0, capacity_ - 1);
 }
-
 
 // ======================================================
 // PrioritizedReplayExperienceSampler
