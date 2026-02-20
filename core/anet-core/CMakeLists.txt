@@ -43,6 +43,7 @@ target_precompile_headers(anet-core PRIVATE "src/pch.hpp")
 
 target_link_libraries(anet-core PUBLIC
     ${TORCH_LIBRARIES}
+    tracy
     anet-wx
 )
 

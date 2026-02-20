@@ -27,9 +27,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # ビルド定数定義
 # ---------------------------------------------------------------------
 
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG -DDEBUG -DANET_ENABLE_DEBUGINFO")
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -DNDEBUG -DANET_ENABLE_DEBUGINFO")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DNDEBUG")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG -DDEBUG -DANET_ENABLE_DEBUGINFO -DANET_ENABLE_TRACY")
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -DNDEBUG -DANET_ENABLE_DEBUGINFO -DANET_ENABLE_TRACY")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DNDEBUG -DANET_ENABLE_TRACY")
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_compile_definitions(_DEBUG ANET_ENABLE_DEBUGINFO)
@@ -156,12 +156,14 @@ endif()
 # ---------------------------------------------------------------------
 include_directories("${PROJECT_SOURCE_DIR}/third_party/nvtx3/include")
 include_directories("${PROJECT_SOURCE_DIR}/third_party/nlohmann/include")
+#include_directories("${PROJECT_SOURCE_DIR}/third_party/tracy/include")
 
 
 # ---------------------------------------------------------------------
 # サブプロジェクト
 # ---------------------------------------------------------------------
 add_subdirectory(third_party/box2d-2.4.2)
+add_subdirectory(third_party/tracy)
 
 add_subdirectory(core/anet-core)
 add_subdirectory(core/envs/lunarlander1)

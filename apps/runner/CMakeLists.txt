@@ -46,6 +46,7 @@ target_link_libraries(AnetRLRunner PRIVATE
     ${TORCH_LIBRARIES}
     anet-wx
     box2d
+    tracy
     anet-core
     LunarLanderEnv
     CartPoleEnv
