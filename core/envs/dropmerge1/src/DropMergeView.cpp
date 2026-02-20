@@ -241,16 +241,44 @@ void DropMergePanel::DrawGrid(wxDC& dc)
     if (grid_draw_mode_ == GRID_DRAW_MODE_DEFAULT) dc.SetTextForeground(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
     else dc.SetTextForeground(*wxBLACK);
 
+    // テンソルアクセスの最適化 (PyTorch/LibTorchの場合)
+    // .item<float>() は遅いため、メモリアクセスが高速な accessor を使用
+    auto t_accessor = t.accessor<float, 2>();
+
+    // GDIオブジェクト（Pen, Brush）の事前生成 (ループ外)
+    wxPen defaultGridPen(wxSystemSettings::GetColour(wxSYS_COLOUR_3DSHADOW), 1);
+    wxPen gridLinePen(wxColour(100, 100, 100), 1);
+
+    // ランクごとのBrushとStringのキャッシュ
+    std::vector<wxBrush> rankBrushes(kFruitTypeCount, *wxTRANSPARENT_BRUSH);
+    std::vector<wxString> rankStrings(kFruitTypeCount);
+    for (int i = 1; i < kFruitTypeCount; ++i) {
+        rankStrings[i] = wxString::Format("%d", i);
+    }
+    if (grid_draw_mode_ != GRID_DRAW_MODE_DEFAULT) {
+        for (int i = 1; i < kFruitTypeCount; ++i) {
+            rankBrushes[i] = wxBrush(GetFruitColor(i));
+        }
+    } else {
+        // デフォルトモードの場合は、ここで一度だけSetしておけばループ内で不要
+        dc.SetBrush(*wxTRANSPARENT_BRUSH);
+        dc.SetPen(defaultGridPen);
+    }
+
+    // 描画ループ
     for (int r = 0; r < rows; ++r) {
+        float base_wy = world_min_y_ + r * cell_h;
+
         for (int c = 0; c < cols; ++c) {
             // セル枠線
             float wx = world_min_x_ + c * cell_w;
-            float wy = world_min_y_ + r * cell_h;
-            wxPoint p1 = WorldToScreen(wx, wy); // 左下
-            wxPoint p2 = WorldToScreen(wx + cell_w, wy + cell_h); // 右上 (Screen座標系ではYが小さい)
+
+            // 座標変換
+            wxPoint p1 = WorldToScreen(wx, base_wy); // 左下
+            wxPoint p2 = WorldToScreen(wx + cell_w, base_wy + cell_h); // 右上 (Screen座標系ではYが小さい)
 
             // ランク取得
-            float val = t[r][c].item<float>();
+            float val = t_accessor[r][c];
             int rank = 0;
             if (val > 0.001f) rank = (int)std::round(val);
 
@@ -259,29 +287,24 @@ void DropMergePanel::DrawGrid(wxDC& dc)
 
             // Grid描画
             if (grid_draw_mode_ == GRID_DRAW_MODE_DEFAULT) {
-                // 通常モード: 枠線のみ
-                dc.SetBrush(*wxTRANSPARENT_BRUSH);
-                dc.SetPen(wxPen(wxSystemSettings::GetColour(wxSYS_COLOUR_3DSHADOW), 1));
-                dc.DrawRectangle(rect);
+                dc.DrawRectangle(rect);         // 通常モード: ループ外でPen/Brush設定済みなのでDrawのみ
             } else {
                 // Grid Viewモード: 塗りつぶし
-                if (rank > 0) {
-                    wxColour color = GetFruitColor(rank);
-                    dc.SetBrush(wxBrush(color));
-                    dc.SetPen(*wxTRANSPARENT_PEN); // 枠なし
+                if (rank > 0 && rank < kFruitTypeCount) {
+                    dc.SetBrush(rankBrushes[rank]); // キャッシュしたBrushを使用
+                    dc.SetPen(*wxTRANSPARENT_PEN);
                     dc.DrawRectangle(rect);
                 }
 
-                // グリッド線（薄く）
+                // グリッド線
                 dc.SetBrush(*wxTRANSPARENT_BRUSH);
-                dc.SetPen(wxPen(wxColour(100, 100, 100), 1));
+                dc.SetPen(defaultGridPen);
                 dc.DrawRectangle(rect);
             }
 
             // ランク文字
-            if (rank > 0) {
-                wxString str = wxString::Format("%d", rank);
-                dc.DrawText(str, p1.x + 2, p2.y + 2);
+            if (rank > 0 && rank < kFruitTypeCount) {
+                dc.DrawText(rankStrings[rank], p1.x + 2, p2.y + 2);
             }
         }
     }
