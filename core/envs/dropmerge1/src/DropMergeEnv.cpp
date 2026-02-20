@@ -842,35 +842,38 @@ anet::rl::SingleState DropMergeEnv::makeState() const
         r_min = std::max(0, r_min);
         r_max = std::min(config_.grid_rows - 1, r_max);
 
+        // 判定用の半径の2乗を事前に計算
+        float r_sq = r * r;
+
         // 円形判定
         for (int iy = r_min; iy <= r_max; ++iy) {
             // Y方向の範囲
             float cell_y1 = min_y + iy * cell_h;
-            float cell_y2 = min_y + (iy + 1) * cell_h;
+            float cell_y2 = cell_y1 + cell_h;
+
+            // Y軸に関する計算は ix に依存しないため、外側のループに出す
+            float closest_y = std::clamp(pos.y, cell_y1, cell_y2);
+            float dy = pos.y - closest_y;
+            float dy_sq = dy * dy; // 2乗もここで計算しておく
+
+            // 行のベースとなるインデックスを事前計算
+            int row_idx = iy * config_.grid_cols;
 
             for (int ix = c_min; ix <= c_max; ++ix) {
                 // Circle-AABB Intersection
 
                 // X方向の範囲
                 float cell_x1 = min_x + ix * cell_w;
-                float cell_x2 = min_x + (ix + 1) * cell_w;
+                float cell_x2 = cell_x1 + cell_w; // 乗算を削減し、加算に
 
-                // セル矩形上の、円の中心に最も近い点を求める
+                // X軸の計算のみを行う
                 float closest_x = std::clamp(pos.x, cell_x1, cell_x2);
-                float closest_y = std::clamp(pos.y, cell_y1, cell_y2);
-
-                // その点と円の中心との距離をチェック
                 float dx = pos.x - closest_x;
-                float dy = pos.y - closest_y;
 
-                if (dx * dx + dy * dy <= r * r) {
-                    // グリッド座標変換 (上から順か下から順か...ここでは下から順、row=0が底)
-                    int idx = iy * config_.grid_cols + ix;
-
-                    // 重なっている場合はランクが高い方を優先
-                    //if (val > grid_obs[idx]) {
-                    //    grid_obs[idx] = val;
-                    //}
+                // dx * dx と、外で計算済みの dy_sq を足すだけ
+                if (dx * dx + dy_sq <= r_sq) {
+                    // グリッド座標変換 (乗算を排除)
+                    int idx = row_idx + ix;
 
                     // 重なっている場合はランクが低い方を優先
                     if (grid_obs[idx] == 0.0f || val < grid_obs[idx]) {
