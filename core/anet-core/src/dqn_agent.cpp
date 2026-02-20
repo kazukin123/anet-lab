@@ -871,7 +871,7 @@ DQNAgent::DQNAgent(
     vars_updater_->Initilize(*this->vars_);
 
     // ログ：パラメータ記録
-    anet::log::info() << "DQNAgent config=" << config_;
+    anet::log::info() << "DQNAgent config=" << config_.ToString();
     anet::MetricsLogger::Instance()->Log(config_);
     anet::MetricsLogger::Instance()->Flush();
 }

@@ -36,6 +36,9 @@ public:
     anet::rl::RunManager& GetRunManager() { return *run_manager_; }
     std::shared_ptr<anet::rl::gui::View> CreateExperinceView(wxWindow* parent);
 	wxFrame* GetMainFrame() { return frame_; }
+
+    std::ofstream GetOutputStream(const std::string& file_name);
+    int64_t SaveAgent(const std::string& file_name);
 private:
     void InitTrainer();
     void showFatalError();

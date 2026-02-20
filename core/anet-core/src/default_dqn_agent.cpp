@@ -38,7 +38,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     ANET_LOG_DEBUG("seed=" << GetSeed());
 
     // ログ：パラメータ記録
-    LOG::info() << "DefaultDQNAgent config=" << config_;
+    LOG::info() << "DefaultDQNAgent config=" << config_.ToString();
     anet::MetricsLogger::Instance()->Log(config_);
     anet::MetricsLogger::Instance()->Log("net.body", net_config.ToJson());
 
@@ -185,42 +185,26 @@ int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
     auto config_size = archive.Write(this->config_.ToString());
 	total_size += config_size;
 
-    // policy_net
-    auto policy_net_size = archive.WriteTorchObject(this->network_->policy_net_);
-	total_size += policy_net_size;
+    /// @todo state_dim_やn_actions_の永続化対応(NN整合チェックで必要)
+    /// @todo RewardScalerの永続化対応
+    /// @todo ObservationNormalizerの永続化対応
 
-    // target_net
-    auto target_net_size = archive.WriteTorchObject(this->network_->target_net_);
-	total_size += target_net_size;
+    // Network(policy_net/target_net)
+	auto network_size = network_->Save(archive);
+	total_size += network_size;
 
-    // Adam
-    auto adam_size = archive.WriteTorchObject(*learner_->optimizer_);
+    // Learner(Adam)
+    auto adam_size = learner_->Save(archive);
 	total_size += adam_size;
 
     // ログ
     LOG::info() << "DefaultDQNAgent Serialized. total_size=" << anet::FormatWithCommas(total_size)
         << " config_size=" << anet::FormatWithCommas(config_size)
         << " adam_size=" << anet::FormatWithCommas(adam_size)
-        << " policy_net_size=" << anet::FormatWithCommas(policy_net_size)
-        << " target_net_size=" << anet::FormatWithCommas(target_net_size);
+        << " network_size=" << network_size;
 
     return total_size;
 }
-
-    // --- Load from File ---
-    //{
-    //    MyModelData loaded_data;
-    //    std::ifstream ifs("data.bin", std::ios::binary);
-    //    anet::InputContext in(ifs);
-
-    //    // ヘッダ検証
-    //    anet::FileHeader header;
-    //    in.Read(header);
-    //    std::cout << "Desc: " << header.description << std::endl;
-
-    //    // データ復元
-    //    in.Read(loaded_data);
-    //}
 
 std::optional<anet::TensorFunction> DefaultDQNAgent::GetTensorFunction(const std::string& key)
 {

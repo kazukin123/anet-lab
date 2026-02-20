@@ -173,8 +173,8 @@ void RunnerFrame::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
     train_panel_->Initialize(run_manager);
 
     // EvalPanel初期化
-    auto eval_runner = run_manager->CreateEvalRunner("EvalPanel");
-    //auto eval_runner = run_manager->CreateEvalRunner("EvalPanel", anet::rl::RunMode::Eval1);
+    //auto eval_runner = run_manager->CreateEvalRunner("EvalPanel");
+    auto eval_runner = run_manager->CreateEvalRunner("EvalPanel", anet::rl::RunMode::Eval1);
     eval_panel_->Initialize(run_manager, eval_runner);
 
     // QValuePanel初期化
@@ -388,10 +388,12 @@ void RunnerFrame::OnClose(wxCloseEvent& event)
 {
 	LOG::info() << "RunnerFrame::OnClose() called.";
  
+    wxGetApp().StopTraining();
+    wxGetApp().SaveAgent("agent_close.anet");
+
     if (eval_panel_) {
         eval_panel_->DoClose();
     }
     aui_mgr_.UnInit();
-    wxGetApp().StopTraining();
     event.Skip();
 }

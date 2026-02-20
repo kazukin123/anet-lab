@@ -140,6 +140,21 @@ std::optional<anet::TensorFunction> Network::GetTensorFunction(const std::string
     return std::nullopt;
 }
 
+int64_t Network::Save(OutputArchive& archive) const
+{
+	int64_t size = 0;
+    size += archive.WriteTorchObject(*policy_net_);
+    size += archive.WriteTorchObject(*target_net_);
+    return size;
+}
+
+int64_t Network::Load(InputArchive& archive)
+{
+    int64_t size = 0;
+    size += archive.ReadTorchObject(*policy_net_);
+    size += archive.ReadTorchObject(*target_net_);
+    return size;
+}
 
 // ======================================================
 // ActionPolicy 
@@ -638,6 +653,21 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
     return result_list;
 }
 
+int64_t Learner::Save(OutputArchive& archive) const
+{
+    int64_t size = 0;
+    size += archive.WriteTorchObject(*optimizer_);
+    return size;
+}
+
+int64_t Learner::Load(InputArchive& archive)
+{
+    int64_t size = 0;
+    size += archive.ReadTorchObject(*optimizer_);
+    return size;
+}
+
+
 // ======================================================
 // TDLearner
 // ======================================================
@@ -656,6 +686,8 @@ std::shared_ptr<const anet::rl::BatchUpdateResult>
 TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 {
     ProfileRange r("TDLearner::UpdateFromBatch");
+
+    /// @todo コード整理
 
     const int B = config_.replay_batch_size;
     const int S = state_dim_;
@@ -869,6 +901,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         result->grad_norm = grad_norm;
         result->grad_norm_tensor = grad_norm_tensor;
         result->grad_clip_ratio = grad_clip_ratio;
+        result->grad_clip_tau = config_.use_grad_clip ? config_.grad_clip_tau : std::numeric_limits<float>::infinity();
         result->max_q = max_q;
         result->q_gap = gap_abs;
         result->q_gap_rel = gap_rel;
@@ -925,6 +958,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         result->td_error = td_error;
         result->grad_norm = grad_norm;
         result->grad_clip_ratio = grad_clip_ratio;
+        result->grad_clip_tau = config_.use_grad_clip ? config_.grad_clip_tau : std::numeric_limits<float>::infinity();
         result->max_q = max_q;
         result->q_gap = gap_abs;
         result->q_gap_rel = gap_rel;
@@ -978,6 +1012,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         result->grad_norm = grad_norm;
         result->grad_norm_tensor = grad_norm_tensor;
         result->grad_clip_ratio = grad_clip_ratio;
+        result->grad_clip_tau = config_.use_grad_clip ? config_.grad_clip_tau : std::numeric_limits<float>::infinity();
         result->max_q = max_q;
         result->q_gap = gap_abs;
         result->q_gap_rel = gap_rel;
@@ -1058,6 +1093,8 @@ std::shared_ptr<const anet::rl::BatchUpdateResult>
 QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 {
     ProfileRange r("QRLearner::UpdateFromSamples");
+
+    /// @todo コード整理
 
     const int B = config_.replay_batch_size;
     const int A = n_actions_;
@@ -1185,9 +1222,9 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             target_dist = reward + config_.gamma * not_terminal * next_dist;
             ANET_ASSERT_SHAPE(target_dist, { B, N });
         }
-        ANET_ASSERT_NAN(target_dist);
+        ANET_ASSERT_NAN(target_dist); // 同期で重くなる
 
-    // target_dist: (B, N) -> mean -> (B)
+        // target_dist: (B, N) -> mean -> (B)
         auto target_mean = target_dist.mean(1).detach();
 
         // current_dist.mean(1) は max_q (detach済み) と同じ。 TDLearner: q_sa - td_target に合わせる
@@ -1226,7 +1263,6 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         loss.backward();
 
 		// grad_clip
-        bool found_inf = false; // 簡易実装: step内でチェックさせる
         bool grad_clipped = false;
 
         if (config_.use_grad_clip) {
@@ -1289,23 +1325,28 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         }
 #endif
 
-        // ------------------------------------------------------------
-        // 勾配クリッピング
-        // ------------------------------------------------------------
-        bool grad_clipped = false;
-        if (config_.use_grad_clip) {
-            double grad_norm_val = torch::nn::utils::clip_grad_norm_(network_.GetPolicyParameters(), config_.grad_clip_tau);
-            grad_norm = static_cast<float>(grad_norm_val);
-            grad_clipped = (grad_norm_val > config_.grad_clip_tau);
-        } else {
-            torch::Tensor total_sq = torch::zeros({ 1 }, loss.options());
-            for (auto& p : network_.GetPolicyParameters()) {
-                if (!p.grad().defined()) continue;
-                total_sq += p.grad().detach().pow(2).sum();
-            }
-            grad_norm_tensor = total_sq.sqrt();
+        // 勾配ノルム計算とクリッピング (非同期)
+        torch::Tensor total_sq = torch::zeros({ 1 }, loss.options());
+        auto params = network_.GetPolicyParameters();
+        for (auto& p : params) {
+            if (!p.grad().defined()) continue;
+            total_sq += p.grad().detach().pow(2).sum();
         }
-        grad_clip_ratio = grad_clipped ? 1.0f : 0.0f;
+
+        // Result側で grad_norm_tensor にフォールバックさせるため nullopt にする
+        grad_norm = std::nullopt;
+        grad_norm_tensor = total_sq.sqrt();
+
+        if (config_.use_grad_clip) {
+            // テンソルのまま非同期でスケール計算と乗算を行う
+            torch::Tensor tau_tensor = torch::full({ 1 }, config_.grad_clip_tau, loss.options());
+            torch::Tensor scale = (tau_tensor / (grad_norm_tensor + 1e-6)).clamp_max(1.0);
+
+            for (auto& p : params) {
+                if (!p.grad().defined()) continue;
+                p.grad().detach().mul_(scale);
+            }
+        }
 
         // パラメータ更新
         optimizer_->step();
@@ -1341,14 +1382,13 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         metric_per_priorities = new_priorities;
 
         // Priorityをstd::vectorに詰める
-        auto indices_cpu = samples.indices.cpu();
+        auto indices_cpu = samples.indices.cpu();   /// @todo PERの優先度更新にはCPU値が必要なので、ここで同期が発生する
         auto indices_ptr = indices_cpu.data_ptr<int64_t>();
         std::vector<int64_t> indices_vec(indices_ptr, indices_ptr + B);
 
         auto prios_cpu = new_priorities.cpu();
         auto prios_ptr = prios_cpu.data_ptr<float>();
         std::vector<float> priorities_vec(prios_ptr, prios_ptr + B);
-            /// @todo PERの優先度更新にはCPU値が必要なので、ここでは同期が発生する
 
         // Priority更新
         replay_buffer_->UpdatePriorities(indices_vec, priorities_vec);
@@ -1368,6 +1408,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     result->grad_norm = grad_norm;
     result->grad_norm_tensor = grad_norm_tensor;
     result->grad_clip_ratio = grad_clip_ratio;
+    result->grad_clip_tau = config_.use_grad_clip ? config_.grad_clip_tau : std::numeric_limits<float>::infinity();
     result->max_q = max_q;
     result->q_std = std_q_tensor;
     result->q_gap = gap_abs;

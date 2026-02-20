@@ -103,15 +103,11 @@ bool RunnerApp::OnInit()
 {
     anet::ProfileThreadName th("MainThread");
 
+    // wxWidgets初期化
+    wxInitAllImageHandlers();
+
     // DarkModeサポート
     SetAppearance(Appearance::System);
-
-    // ライブラリ初期化
-    wxInitAllImageHandlers();
-    anet::rl::InitRL();
-    anet::rl::env::InitLunarLander();
-    anet::rl::env::InitCartPole();
-    anet::rl::env::InitDropMerge();
 
     // 全体ログレベル設定
 #if ANET_ENABLE_DEBUGINFO
@@ -137,6 +133,15 @@ bool RunnerApp::OnInit()
 
     // RunnerApp設定生成
     config_ = std::make_unique<RunnerApp::Config>(config_data);
+
+    // ライブラリ初期化
+	anet::rl::BackendConfig backend_config(config_data);
+    anet::rl::InitRL(backend_config);
+
+	// ENV初期化
+    anet::rl::env::InitLunarLander();
+    anet::rl::env::InitCartPole();
+    anet::rl::env::InitDropMerge();
 
     // MetricsLogger
     anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetRunsPath(), config_->run_name);
@@ -225,12 +230,31 @@ bool RunnerApp::OnInit()
         }
     );
 
+    // 永続化
+    SaveAgent("agent_init.anet");
+
     // Train開始！
     if (!config_->train_auto_start)
         trainer_thread_->Pause();
     trainer_thread_->Start();
 
     return true;
+}
+
+std::ofstream RunnerApp::GetOutputStream(const std::string& file_name)
+{
+    auto file = GetProjectRootDir() / file_name;
+    return std::ofstream(file);
+}
+
+int64_t RunnerApp::SaveAgent(const std::string& file_name)
+{
+    auto agent = GetRunManager().GetAgent();
+    auto os = wxGetApp().GetOutputStream(file_name);
+    anet::OutputArchive archive(os, file_name);
+    auto size = agent->Save(archive);
+    os.close();
+	return size;
 }
 
 void RunnerApp::ToggleTraining()

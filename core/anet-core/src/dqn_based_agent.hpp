@@ -40,6 +40,7 @@ namespace anet::rl::dqn {
         float grad_clip_ratio = 0.0f;
         torch::Tensor loss;
         torch::Tensor td_error;
+		float grad_clip_tau;
 
 		// Q Value Metrics Source Tensors
         torch::Tensor max_q;
@@ -73,7 +74,10 @@ namespace anet::rl::dqn {
                     return grad_norm_tensor.item<float>();
                 return std::nullopt;
             }
-            if (key == "grad_clip_ratio") return grad_clip_ratio;
+            if (key == "grad_clip_ratio") {
+                if (!grad_norm_tensor.defined()) return 0.0f;
+                return (grad_norm_tensor.item<float>() > grad_clip_tau) ? 1.0f : 0.0f;
+            }
 
 			// Q Values
             if (key == "q_max_max") {
@@ -189,7 +193,7 @@ namespace anet::rl::dqn {
     //  Network
     // ======================================================
 
-    class Network {
+    class Network : public anet::Serializable {
     public:
         Network(
             const NetworkConfig& config, const torch::Device& device,
@@ -217,11 +221,13 @@ namespace anet::rl::dqn {
 
         /// メトリクス用：NN生出力
         std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device);
+    public:
+        int64_t Save(OutputArchive& archive) const override;
+        int64_t Load(InputArchive& archive) override;
     private:
         void SoftUpdate();
         void HardUpdate();
-    //private:
-    public:
+    private:
         const NetworkConfig config_;
         std::shared_ptr<anet::nn::Network> policy_net_;
         std::shared_ptr<anet::nn::Network> target_net_;
@@ -302,7 +308,7 @@ namespace anet::rl::dqn {
     // Learner
     // ======================================================
 
-    class Learner : public anet::rl::Learner, public anet::Module {
+    class Learner : public anet::rl::Learner, public anet::Module, public anet::Serializable {
     public:
         Learner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
             const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec,
@@ -316,6 +322,9 @@ namespace anet::rl::dqn {
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
+    public:
+        int64_t Save(OutputArchive& archive) const override;
+        int64_t Load(InputArchive& archive) override;
     protected:
         // アルゴリズム固有の更新処理 (Loss計算, Backprop, Priority更新)
         virtual std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
@@ -327,8 +336,7 @@ namespace anet::rl::dqn {
         bool CanUpdate(step_t update_step, step_t exp_step) const;
         void UpdatePerBeta(step_t step);
         void UpdateTargetNetwork(step_t step);
-    //protected:
-    public:
+    protected:
         const torch::Device device_;
         int batch_size_;
         int state_dim_;

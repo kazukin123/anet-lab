@@ -130,14 +130,14 @@ namespace anet {
     };
 
     // ToString() を持つかどうか判定するメタ関数
-    template<typename T>
-    using has_ToString = decltype(std::declval<const T&>().ToString());
+    //template<typename T>
+    //using has_ToString = decltype(std::declval<const T&>().ToString());
 
     // ToString()があれば何でもOKな operator<<
-    template<typename T,typename = has_ToString<T>>
-    std::ostream& operator<<(std::ostream& os, const T& v)
-    {
-        return (os << v.ToString());
-    }
+    //template<typename T,typename = has_ToString<T>>
+    //std::ostream& operator<<(std::ostream& os, const T& v)
+    //{
+    //    return (os << v.ToString());
+    //}
 
 }   // namespace anet
