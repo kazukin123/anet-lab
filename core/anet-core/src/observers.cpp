@@ -540,7 +540,110 @@ FunctionLearnObserver::FunctionLearnObserver(Fn fn, std::optional<std::string> n
 {
 }
 
-// -------------------------------------------------------------
+
+// ===========================================================================
+// Conv2dVisualizationObserver
+// ===========================================================================
+
+Conv2dVisualizationObserver::Conv2dVisualizationObserver(
+    const std::string& tag, int episode_interval, anet::TensorDictFunction dict_func, const Conv2dVisualizerConfig& vis_config)
+    : TaggedTrainObserver(tag)
+    , episode_interval_(episode_interval)
+    , is_recording_(false)
+    , dict_func_(std::move(dict_func))
+    , visualizer_(vis_config)
+{
+    LOG::info() << "Conv2dVisualizationObserver() tag=" << tag << " channels_per_row=" << vis_config.channels_per_row;
+}
+
+void Conv2dVisualizationObserver::OnTrain(const TrainEvent& event)
+{
+    anet::ProfileRange r("Conv2dVisualizationObserver::OnTrain");
+
+    auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);
+    const auto& state = event.experience.state;
+    const auto& next_state = event.experience.next_state;
+
+    // ---  録画の開始判定 ＆ フェイルセーフ ---
+
+    if (state.IsEpisodeStart()) {
+        anet::log::info() << "Conv2dVisualizationObserver: Episode start detected. episode_count=" << local_episode_count_;
+
+        // 事故対策: もし録画中なのに新しいエピソードが始まってしまったら強制クローズ
+        if (is_recording_) {
+            anet::log::warn() << "Conv2dVisualizationObserver: force-ended due to unexpected episode_start. Previous episode may not have finished cleanly.";
+            is_recording_ = false;
+        }
+
+        // 今回のエピソードが録画対象かチェック
+        if (episode_interval_ > 0 && (local_episode_count_ % episode_interval_ == 0)) {
+            is_recording_ = true;
+            anet::log::info() << "Conv2dVisualizationObserver: Visualization started. train_step=" << event.counts.train_step << " learn_step=" << event.counts.learn_step << " tag=" << tag_;
+        }
+
+        // エピソード数インクリメント
+        local_episode_count_++;
+    }
+
+    // --- 録画中でなければ即リターン ---
+    if (!is_recording_) return;
+
+    // --- 画像化と保存 ---
+    if (state.obs.defined() && state.obs.size(0) > 0) {
+        torch::Tensor single_obs = state.obs.slice(0, 0, 1);
+        auto dict = dict_func_(single_obs);
+
+        if (!dict.Empty()) {
+            auto vis_result = visualizer_.Visualize(step, dict);
+            wxImage image = vis_result.first;
+
+            if (image.IsOk()) {
+                MetricsLogger::Instance()->Log(tag_, step, image);
+
+                std::lock_guard<std::mutex> lock(image_mutex_);
+                last_image_.image = image;
+                last_image_.step = step;
+            }
+
+            if (is_first_record_) {
+                auto json = vis_result.second;
+                MetricsLogger::Instance()->Log(tag_, json);
+                is_first_record_ = false;
+            }
+        }
+    }
+
+    // --- 録画の終了判定 ---
+    if (next_state.IsDone() || next_state.IsTruncated()) {
+        if (is_recording_) {
+            anet::log::info() << "Conv2dVisualizationObserver: Visualization ended. train_step=" << event.counts.train_step << " learn_step=" << event.counts.learn_step << " tag=" << tag_;
+        }
+        is_recording_ = false;
+    }
+}
+
+ImageData Conv2dVisualizationObserver::GetImageData(int width, int height)
+{
+    std::lock_guard<std::mutex> lock(image_mutex_);
+
+    // まだ画像が生成されていない場合は空を返す
+    if (!last_image_.image.IsOk()) {
+        return last_image_;
+    }
+
+    wxImage img = last_image_.image;
+
+    // 要求されたサイズが現在のサイズと異なる場合はリサイズ
+    if (width > 0 && height > 0 && (width != img.GetWidth() || height != img.GetHeight())) {
+        img = img.Scale(width, height, wxIMAGE_QUALITY_NEAREST);
+    }
+
+    return { img, last_image_.step };
+}
+
+// ===========================================================================
+// MetricsLogObserverBase
+// ===========================================================================
 
 ///  @todo MetricsLogObserverBaseをProbe化
 
@@ -658,7 +761,6 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
     return ret;
 }
 
-
 MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataList(const UpdateEvent& event)
 {
     MetricsDataList ret;
@@ -752,7 +854,9 @@ void MetricsLogObserverBase::OnUpdate(const UpdateEvent& event)
     }
 }
 
-// -------------------------------------------------------------
+// ===========================================================================
+// ObserverFactory
+// ===========================================================================
 
 static constexpr const char* CONFIG_KEY_METRICS_SCALAR_PREFIX = "metrics.scalar.[";
 static constexpr const char* CONFIG_KEY_METRICS_SCALAR_SUFFIX = "]";

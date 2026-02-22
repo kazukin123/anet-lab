@@ -67,6 +67,8 @@ namespace anet::nn {
         ///        多態性を持たせるために純粋仮想関数として再定義する。
         virtual torch::Tensor Forward(torch::Tensor input) = 0;
 
+        virtual bool IsConv2dVisualizable() const { return false; }
+
         virtual ~NetworkModule() = default;
     };
 
@@ -99,6 +101,7 @@ namespace anet::nn {
 
         std::optional<TensorFunction> GetTensorFunction(const std::string& key) override;
         torch::Tensor Forward(torch::Tensor input); ///<  Input -> Body -> Feature -> Head -> Output
+        anet::TensorDict GetConv2dOutputs(const torch::Tensor& input) const;
     private:
         std::shared_ptr<NetworkBody> body_;
         std::shared_ptr<NetworkHead> head_;
@@ -113,4 +116,4 @@ namespace anet::nn {
         );
     };
 
-}
+} // namepsacfe anet::nn

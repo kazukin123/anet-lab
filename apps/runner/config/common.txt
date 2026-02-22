@@ -60,7 +60,7 @@ QValuePanel.hist_range_k = 5    # 1.0 2.5	描画範囲
 backend.use_tf32_cublas = true;
 backend.use_tf32_cudnn = true;
 backend.cudnn_deterministic = false;
-backend.cudnn_benchmark = false;
+backend.cudnn_benchmark = true;
 
 
 # --- app

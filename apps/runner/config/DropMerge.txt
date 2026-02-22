@@ -13,13 +13,16 @@ train.batch_size = 256
 #train.batch_size = 10
 #train.batch_size = 1
 
+#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > BF16.agent >  R > X
 DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > B	 # Random Policy
+
 
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G20 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G2032 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > E
+#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > BF16.env > E
 DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.realistic > E
 
 
@@ -28,8 +31,8 @@ DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.reali
 #net.body.$ = net.body.SuikaNet4064
 #net.body.$ = net.body.SuikaResNet4064_06
 #net.body.$ = net.body.SuikaResNet4064_10
-net.body.$ = net.body.SuikaResNet4064_10d
-#net.body.$ = net.body.SuikaResNet4064_10d_64
+net.body.$ = net.body.SuikaResNet4064_10d     # ★
+#net.body.$ = net.body.SuikaResNet4064_10d_64 # ★
 #net.body.$ = net.body.SuikaResNet4064_18
 
 
@@ -38,10 +41,44 @@ net.body.$ = net.body.SuikaResNet4064_10d
 # 実験
 # ==============================================================================
 
-R.action_policy.use_amp = true
-R.action_policy.use_amp_bf16 = true
-R.learner.use_amp = true
-R.learner.use_amp_bf16 = true
+app.run_name = run_{t}
+
+#R.learner.update_warmup_steps = 0
+
+#R.stucker.stack_count = 1
+
+R.learner.replay_capacity = 500,000
+
+#R.learner.per_alpha = 0.4      # 0.6 マイルド
+R.learner.per_alpha = 0.2       # ノイズを気にしない
+
+R.learner.per_beta_start = 0.4  # 0.6 
+
+#R.reward_scaler.constant_scale = 1.0         # ★
+#R.reward_scaler.constant_scale = 0.1         # ★
+#R.reward_scaler.constant_scale = 0.01         # ★
+R.reward_scaler.constant_scale = 0.001         # ★
+#R.reward_scaler.constant_scale = 0.0005         # ★
+#R.reward_scaler.constant_scale = 0.0001         # ★
+
+#E.game_over_penalty = -10.0
+#E.game_over_penalty = -5.0
+#E.game_over_penalty = -10.0
+E.game_over_penalty = 0.0
+#E.game_over_penalty = -200.0
+#E.game_over_penalty = -500.0
+
+E.time_penalty = -0.0001    # NEET対策
+#E.time_penalty = -0.001    # NEET対策
+#E.time_penalty = -0.01    # NEET対策
+#E.time_penalty = -0.1    # NEET対策
+#E.time_penalty = 0
+
+
+R.learner.grad_clip_tau = 0.5 # ★
+#R.learner.grad_clip_tau = 1.0 # ★
+#R.learner.grad_clip_tau = 10.0 # ★
+#R.learner.grad_clip_tau = 30.0 # ★
 
 
 R.learner.replay_batch_size = 128   # 256
@@ -49,33 +86,14 @@ R.learner.replay_batch_size = 128   # 256
 
 #R.learner.replay_ratio = 2.0  # 1.0
 
-#R.learner.grad_clip_tau = 1.0 # ★
-R.learner.grad_clip_tau = 0.5 # ★
-
 #E.seed_mode = fixed
 #E.seed_mode = global_fixed
 #E.global_seed = 12345
 
-#R.reward_scaler.use_dynamic_scaling = true
-#R.reward_scaler.use_auto_post_scale = true
-
 #E.use_fast_move = false
 #E.use_instant_drop = false
 
-#E.game_over_penalty = -10.0
-#E.game_over_penalty = -5.0
-#E.game_over_penalty = -10.0
-#E.game_over_penalty = 0.0
-#E.game_over_penalty = -200.0
-#E.game_over_penalty = -500.0
-
-E.time_penalty = -0.0001    # NEET対策
-#E.time_penalty = -0.001    # NEET対策
-#E.time_penalty = -0.1    # NEET対策
-#E.time_penalty = 0
-
 #A.learner.adam_eps = 1.5e-4
-A.learner.adam_eps = 1e-4   # AMP有効時は大きめにする
 
 #R.action_policy.uqe_eps_max = 1.00
 #R.action_policy.uqe_eps_max = 0.60
@@ -113,16 +131,25 @@ R.learner.alpha = 5e-5
 R.network.soft_update_tau = 0.005                 # 0.01
 #R.network.soft_update_tau = 0.001                 # 0.01
 
-#R.reward_scaler.constant_scale = 1.0         # ★
-#R.reward_scaler.constant_scale = 0.1         # ★
-#R.reward_scaler.constant_scale = 0.01         # ★
-R.reward_scaler.constant_scale = 0.001         # ★
-#R.reward_scaler.constant_scale = 0.0005         # ★
-#R.reward_scaler.constant_scale = 0.0001         # ★
-
 #R.learner.per_prio_clip_value = 100.0  # 30 優先度の上限値
 #R.learner.per_prio_clip_value = 60.0  # 30 優先度の上限値
 
+#R.reward_scaler.use_dynamic_scaling = true
+#R.reward_scaler.use_auto_post_scale = true
+
+
+# ==============================================================================
+# BF16
+# ==============================================================================
+
+BF16.agent.action_policy.use_amp = false
+BF16.agent.action_policy.use_amp_bf16 = true
+BF16.agent.learner.use_amp = true
+BF16.agent.learner.use_amp_bf16 = true
+BF16.agent.reward_scaler.constant_scale = 0.1
+BF16.agent.learner.adam_eps = 1e-4   # AMP有効時は大きめにする
+BF16.agent.learner.grad_clip_tau = 30.0
+BF16.env.time_penalty = -0.01    # NEET対策
 
 
 # ==============================================================================
@@ -131,9 +158,10 @@ R.reward_scaler.constant_scale = 0.001         # ★
 
 #app.online.exp_pause_step  = 200,000,000    # 200M
 #app.online.exp_pause_step  = 100,000,000      # 100M
-#app.online.exp_pause_step  = 20,000,000      # 20M
-app.online.exp_pause_step  = 40,000,000      # 40M
-app.batchrun.exp_exit_step  = 40,000,000     # 40M
+app.online.exp_pause_step  = 20,000,000      # 20M
+#app.online.exp_pause_step  = 40,000,000      # 40M
+#app.batchrun.exp_exit_step  = 40,000,000     # 40M
+app.batchrun.exp_exit_step  = 20,000,000     # 20M
 
 A.action_policy.uqe_eps_decay_step = 10,000,000      # 10M
 #A.action_policy.uqe_eps_decay_step = 2,000,000      # 2M
@@ -379,6 +407,62 @@ metrics.image.interval = 0   # 出力全無効
 #metrics.image.[53_agent_img/52_per_hm_prio_01_test].$   = image.phm.per-prio > image.phm.s01 > image.test
 #metrics.image.[55_agent_img/05_shm_01_maxq_01_test].$   = image.shm.qmax > image.shm.01 > image.test
 
+#metrics.image.[60_agent_img/01_conv2d].$ = image.conv2d
+
+#metrics.image.[60_agent_img/01_conv2d_16p].type = Conv2d
+#metrics.image.[60_agent_img/01_conv2d_16p].interval = 100
+#metrics.image.[60_agent_img/01_conv2d_16p].conv2d.channels_per_row = 16
+#metrics.image.[60_agent_img/01_conv2d_16p].conv2d.network_key = policy-net.conv2d
+#metrics.image.[60_agent_img/01_conv2d_16p].conv2d.min_block_size = 40
+
+metrics.image.[60_agent_img/02_conv2d_32p].type = Conv2d
+#metrics.image.[60_agent_img/02_conv2d_32p].interval = 100
+metrics.image.[60_agent_img/02_conv2d_32p].interval = 10
+metrics.image.[60_agent_img/02_conv2d_32p].conv2d.channels_per_row = 32
+metrics.image.[60_agent_img/02_conv2d_32p].conv2d.network_key = policy-net.conv2d
+metrics.image.[60_agent_img/02_conv2d_32p].conv2d.min_block_size = 40
+
+#metrics.image.[60_agent_img/03_conv2d_64p].type = Conv2d
+#metrics.image.[60_agent_img/03_conv2d_64p].interval = 100
+#metrics.image.[60_agent_img/03_conv2d_64p].conv2d.channels_per_row = 64
+#metrics.image.[60_agent_img/03_conv2d_64p].conv2d.network_key = policy-net.conv2d
+#metrics.image.[60_agent_img/03_conv2d_64p].conv2d.min_block_size = 40
+#metrics.image.[60_agent_img/03_conv2d_64p].conv2d.scale_factor = 1
+
+
+#metrics.image.[60_agent_img/22_conv2d_32t].type = Conv2d
+#metrics.image.[60_agent_img/22_conv2d_32t].interval = 100
+#metrics.image.[60_agent_img/22_conv2d_32t].conv2d.channels_per_row = 32
+#metrics.image.[60_agent_img/22_conv2d_32t].conv2d.network_key = target-net.conv2d
+#metrics.image.[60_agent_img/22_conv2d_32t].conv2d.min_block_size = 40
+
+
+metrics.image.[60_agent_img/11_conv2d_32p_jet].type = Conv2d
+metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 10
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.channels_per_row = 32
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.network_key = policy-net.conv2d
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.colormap = jet
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.min_block_size = 40
+
+#metrics.image.[60_agent_img/23_conv2d_32t_jet].type = Conv2d
+#metrics.image.[60_agent_img/23_conv2d_32t_jet].interval = 10
+#metrics.image.[60_agent_img/23_conv2d_32t_jet].conv2d.channels_per_row = 32
+#metrics.image.[60_agent_img/23_conv2d_32t_jet].conv2d.network_key = target-net.conv2d
+#metrics.image.[60_agent_img/23_conv2d_32t_jet].conv2d.colormap = jet
+#metrics.image.[60_agent_img/23_conv2d_32t_jet].conv2d.min_block_size = 40
+
+
+#metrics.image.[60_agent_img/12_conv2d_16p_hot].type = Conv2d
+#metrics.image.[60_agent_img/12_conv2d_16p_hot].interval = 100
+#metrics.image.[60_agent_img/12_conv2d_16p_hot].conv2d.channels_per_row = 16
+#metrics.image.[60_agent_img/12_conv2d_16p_hot].conv2d.network_key = policy-net.conv2d
+#metrics.image.[60_agent_img/12_conv2d_16p_hot].conv2d.colormap = hot
+#metrics.image.[60_agent_img/12_conv2d_16p_hot].conv2d.min_block_size = 40
+
+#colormap = gray
+#colormap = jet
+#colormap = hot
+
 
 # --- app
 
@@ -494,8 +578,9 @@ DropMergeEnv.drop_probs = 20.0 20.0 20.0 20.0 20.0                              
 
 metrics.image.interval = 100
 app.online.train_panel.fps = 30
+#app.batchrun.train_panel.fps = 30
 app.batchrun.train_panel.fps = 0.5
-app.batchrun.eval_panel.fps = 0.1
+#app.batchrun.eval_panel.fps = 0.1
 
 
 # --- Eval設定 ---

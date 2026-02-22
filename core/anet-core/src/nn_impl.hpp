@@ -98,6 +98,7 @@ namespace anet::nn {
         const std::vector<std::string>& GetInputTags() const { return input_tags_; }
         const std::string& GetOutputTag() const { return output_tag_; }
         std::shared_ptr<NetworkModule> GetModule() const { return module_; }
+        bool IsConv2dVisualizable() const { return module_ ? module_->IsConv2dVisualizable() : false; }
     private:
         std::string name_;
         std::shared_ptr<NetworkModule> module_;
@@ -115,6 +116,8 @@ namespace anet::nn {
 
         /// @brief ダミー入力による出力次元計測
         int64_t InferFeatureDim(const std::vector<int64_t>& input_shape);
+
+        anet::TensorDict GetConv2dOutputs(torch::Tensor input);
     private:
         std::vector<std::shared_ptr<NetworkBlock>> blocks_;
     };
@@ -138,6 +141,7 @@ namespace anet::nn {
 
         torch::Tensor Forward(torch::Tensor input) override;
         int64_t InferFeatureDim(const std::vector<int64_t>& input_shape);  ///< ダミー入力による出力次元計測
+        anet::TensorDict GetConv2dOutputs(torch::Tensor input);
     private:
         std::shared_ptr<NetworkStruct> graph_;
     };

@@ -7,6 +7,7 @@
 #include "anet/probe.hpp"
 #include "anet/rl.hpp" 
 #include "anet/image.hpp"
+#include "anet/nn.hpp"
 
 namespace anet::rl {
 
@@ -259,6 +260,35 @@ namespace anet::rl {
     private:
         Fn fn_;
         std::string name_;
+    };
+
+
+    // -----------------------------------------------------------------
+    // Conv2dVisualizationObserver
+    // -----------------------------------------------------------------
+
+    class Conv2dVisualizationObserver : public TaggedTrainObserver, public anet::rl::ImageProvider {
+    public:
+        Conv2dVisualizationObserver(
+            const std::string& tag,
+            int episode_interval,
+            anet::TensorDictFunction dict_func,
+            const Conv2dVisualizerConfig& vis_config
+        );
+
+        void OnTrain(const TrainEvent& event) override;
+        std::string GetClassName() const override { return "Conv2dVisualizationObserver"; }
+        ImageData GetImageData(int width = -1, int height = -1) override;
+    private:
+        const int episode_interval_;
+        const Conv2dVisualizer visualizer_;
+
+        bool is_recording_ = false;
+        bool is_first_record_ = true;
+        int local_episode_count_ = 0; // env[0]専用のエピソードカウンタ
+        anet::TensorDictFunction dict_func_;
+        mutable std::mutex image_mutex_;
+        ImageData last_image_;
     };
 
 

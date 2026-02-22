@@ -129,6 +129,7 @@ namespace anet::rl::dqn {
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences, std::shared_ptr<const anet::rl::Runner> runner) override;
     public:
         std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override;
+        std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;

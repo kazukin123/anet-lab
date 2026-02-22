@@ -622,7 +622,10 @@ namespace anet::rl {
         virtual ~Learner() = default;
     };
 
-    class Agent : public ActionPolicy, public Learner, public Module, public TensorFunctionProvider, public Serializable {
+    class Agent : public ActionPolicy, public Learner
+        , public Module
+        , public TensorFunctionProvider, public TensorDictFunctionProvider
+        , public Serializable {
     public:
         virtual int64_t Save(anet::OutputArchive& archive) const override { return 0;  }
         virtual int64_t Load(anet::InputArchive& archive) override { return 0; }

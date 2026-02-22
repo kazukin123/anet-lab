@@ -221,6 +221,9 @@ namespace anet::rl::dqn {
 
         /// メトリクス用：NN生出力
         std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device);
+
+        /// メトリクス用：TensorDict
+        std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key, const torch::Device& device);
     public:
         int64_t Save(OutputArchive& archive) const override;
         int64_t Load(InputArchive& archive) override;

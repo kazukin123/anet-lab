@@ -249,12 +249,15 @@ public:
 /// ReLU Module
 class ReLUModule : public NetworkModule {
 public:
+    bool IsConv2dVisualizable() const override { return true; }
+
     torch::Tensor forward(torch::Tensor x)
     {
         anet::ProfileRange r("ReLUModule::forward");
 
         return torch::relu(x);
     }
+
     torch::Tensor Forward(torch::Tensor input) override
     {
         return forward(input);
@@ -270,6 +273,9 @@ public:
         opts.approximate(approximate); // "none" or "tanh"
         impl_ = register_module("gelu", torch::nn::GELU(opts));
     }
+
+    bool IsConv2dVisualizable() const override { return true; }
+
     torch::Tensor Forward(torch::Tensor input) override
     {
         return impl_->forward(input);
@@ -285,6 +291,9 @@ public:
     {
         impl_ = register_module("silu", torch::nn::SiLU());
     }
+
+    bool IsConv2dVisualizable() const override { return true; }
+
     torch::Tensor Forward(torch::Tensor input) override
     {
         return impl_->forward(input);
@@ -300,6 +309,9 @@ public:
     {
         impl_ = register_module("mish", torch::nn::Mish());
     }
+
+    bool IsConv2dVisualizable() const override { return true; }
+
     torch::Tensor Forward(torch::Tensor input) override
     {
         return impl_->forward(input);
@@ -317,6 +329,9 @@ public:
         opts.negative_slope(negative_slope);
         impl_ = register_module("leaky_relu", torch::nn::LeakyReLU(opts));
     }
+
+    bool IsConv2dVisualizable() const override { return true; }
+
     torch::Tensor Forward(torch::Tensor input) override
     {
         return impl_->forward(input);
@@ -347,6 +362,8 @@ public:
         ANET_CHECK(config_.grid_height > 0);
         ANET_CHECK(config_.num_classes > 0);
     }
+
+    bool IsConv2dVisualizable() const override { return true; }
 
     torch::Tensor Forward(torch::Tensor input) override
     {
@@ -578,6 +595,8 @@ public:
             act_type_ = ActType::ReLU;
         }
     }
+
+    bool IsConv2dVisualizable() const override { return true; }
 
     torch::Tensor Forward(torch::Tensor input) override
     {

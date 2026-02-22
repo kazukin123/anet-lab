@@ -7,6 +7,7 @@
 #include <regex>
 #include <stdexcept>
 #include <algorithm>
+#include <format>
 #include "anet/log.hpp"
 #include "anet/tensor_util.hpp"
 #include "anet/profile.hpp"
@@ -346,6 +347,77 @@ int64_t NetworkStruct::InferFeatureDim(const std::vector<int64_t>& input_shape)
     return dummy_out.numel();
 }
 
+anet::TensorDict NetworkStruct::GetConv2dOutputs(torch::Tensor input)
+{
+    anet::ProfileRange r("NetworkStruct::GetConv2dOutputs");
+    anet::TensorDict outputs;
+
+    // 入力画像を "00_Input" として保存
+    outputs.Set("00_Input", input);
+
+    // Forwardと同じ実行時キャッシュと結線(Wiring)ロジックを利用
+    std::map<std::string, torch::Tensor> tensor_cache;
+    torch::Tensor last_output = input;
+    int index = 1;
+
+    for (const auto& block : blocks_) {
+        torch::Tensor block_input;
+        const auto& in_tags = block->GetInputTags();
+        ANET_LOG_DEBUG("block.GetName()=" << block->GetName());
+
+        // --- 入力解決 (Wiring) ---
+        if (in_tags.empty()) {
+            block_input = last_output;
+        } else {
+            std::vector<torch::Tensor> inputs;
+            for (const auto& tag : in_tags) {
+                if (tag == kReservedTagInput) {
+                    inputs.push_back(input);
+                } else if (tag == kReservedTagPrev) {
+                    inputs.push_back(last_output);
+                } else {
+                    if (tensor_cache.find(tag) == tensor_cache.end()) {
+                        throw std::runtime_error("Input tag not found in cache: " + tag);
+                    }
+                    inputs.push_back(tensor_cache.at(tag));
+                }
+            }
+            if (inputs.size() == 1) {
+                block_input = inputs[0];
+            } else {
+                block_input = torch::cat(inputs, 1);
+            }
+        }
+
+        // ---  実行 ---
+        torch::Tensor block_output = block->Forward(block_input);
+
+        // --- 出力キャッシュ (Tagging) ---
+        const auto& out_tag = block->GetOutputTag();
+        if (!out_tag.empty()) {
+            tensor_cache[out_tag] = block_output;
+        }
+
+        last_output = block_output;
+
+        // --- 抽出ロジック (可視化用) ---
+        if (block->IsConv2dVisualizable()) {
+            // 画像ぽい様式かチェック
+            if (block_output.dim() == 4 && block_output.size(2) >= 2 && block_output.size(3) >= 2 && block_output.is_floating_point()) {
+                ANET_LOG_DEBUG("Image bloc. GetName()=" << block->GetName());
+
+                // "01_Embed4064_0", "02_ConvInit32_0" のようなキーで保存
+                std::string name = block->GetName();
+                std::string key = std::format("{:02d}_{}", index++, name.c_str());
+                outputs.Set(key, block_output);
+            } else {
+                ANET_LOG_DEBUG("Not image block. GetName()=" << block->GetName());
+            }
+        }
+    }
+
+    return outputs;
+}
 
 // ===========================================================================
 // CompositeModule
@@ -378,6 +450,12 @@ int64_t NetworkBody::InferFeatureDim(const std::vector<int64_t>& input_shape) {
 
 torch::Tensor NetworkBody::Forward(torch::Tensor input) {
     return graph_->Forward(input);
+}
+
+anet::TensorDict NetworkBody::GetConv2dOutputs(torch::Tensor input)
+{
+    // グラフ(NetworkStruct)へ委譲
+    return graph_->GetConv2dOutputs(input);
 }
 
 
@@ -528,6 +606,14 @@ std::optional<anet::TensorFunction> Network::GetTensorFunction(const std::string
     return std::nullopt;
 }
 
+anet::TensorDict Network::GetConv2dOutputs(const torch::Tensor& input) const
+{
+    anet::ProfileRange r("Network::GetConv2dOutputs");
+    torch::NoGradGuard no_grad;
+
+    // Bodyへ委譲
+    return body_->GetConv2dOutputs(input);
+}
 
 // ===========================================================================
 // NetworkModuleRepository & Standard Factories

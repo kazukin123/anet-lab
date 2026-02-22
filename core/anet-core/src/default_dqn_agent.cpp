@@ -242,6 +242,40 @@ std::optional<anet::TensorFunction> DefaultDQNAgent::GetTensorFunction(const std
     return norm_fn;
 }
 
+std::optional<anet::TensorDictFunction> DefaultDQNAgent::GetTensorDictFunction(const std::string& key)
+{
+    // dqn::Network に委譲してベース関数を取得
+    auto fn = network_->GetTensorDictFunction(key, device_);
+    if (fn == std::nullopt) return std::nullopt;
+
+    auto self = shared_from_this();
+    auto network_fn = *fn;
+    bool use_stacker = config_.stucker.use_stacker;
+    int stack_count = config_.stucker.stack_count;
+
+    // ロックと前処理（正規化等）をラップした関数を作成
+    anet::TensorDictFunction norm_fn = [self, network_fn, use_stacker, stack_count](const torch::Tensor& obs) {
+
+        // 排他制御（他スレッドでのパラメータ更新と競合しないように）
+        std::shared_lock<std::shared_mutex> lock(*(self->mutex_));
+
+        torch::Tensor proc_obs = obs;
+
+        // Stacker有効なのに送られてきたデータが2次元(N, F)だった場合、時間方向に複製して3次元化する
+        if (use_stacker && proc_obs.dim() == 2) {
+            proc_obs = proc_obs.unsqueeze(1).expand({ -1, stack_count, -1 });
+        }
+
+        // Agentが持っている正規化器(ObservationNormalizer)を通す
+        auto obs_norm = self->obs_norm_->Normalize(proc_obs);
+
+        // ネットワーク(policy_net or target_net)から抽出して返す
+        return network_fn(obs_norm);
+        };
+
+    return norm_fn;
+}
+
 std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int64_t index) const
 {
     if (key == "epsilon") {

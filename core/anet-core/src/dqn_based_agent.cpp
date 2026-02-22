@@ -117,7 +117,6 @@ void Network::HardUpdate()
     }
 }
 
-/// メトリクス用：NN生出力
 std::optional<anet::TensorFunction> Network::GetTensorFunction(const std::string& key, const torch::Device& device)
 {
     static constexpr const char* POLICY_PREFIX = "policy-net.";
@@ -140,19 +139,41 @@ std::optional<anet::TensorFunction> Network::GetTensorFunction(const std::string
     return std::nullopt;
 }
 
+std::optional<anet::TensorDictFunction> anet::rl::dqn::Network::GetTensorDictFunction(const std::string& key, const torch::Device& device)
+{
+    // Keyの指定に応じて、対象のネットワークを切り替える
+    std::shared_ptr<anet::nn::Network> net = nullptr;
+
+    if (key == "policy-net.conv2d") {
+        net = policy_net_;
+    } else if (key == "target-net.conv2d") {
+        net = target_net_;
+    }
+
+    // 対象が見つからなければ nullopt
+    if (!net) {
+        return std::nullopt;
+    }
+
+    // デバイス転送と抽出処理をラップした関数を返す
+    return [net, device](const torch::Tensor& obs) {
+        return net->GetConv2dOutputs(obs.to(device));
+        };
+}
+
 int64_t Network::Save(OutputArchive& archive) const
 {
 	int64_t size = 0;
-    size += archive.WriteTorchObject(*policy_net_);
-    size += archive.WriteTorchObject(*target_net_);
+    size += archive.WriteTorchObject(policy_net_);
+    size += archive.WriteTorchObject(target_net_);
     return size;
 }
 
 int64_t Network::Load(InputArchive& archive)
 {
     int64_t size = 0;
-    size += archive.ReadTorchObject(*policy_net_);
-    size += archive.ReadTorchObject(*target_net_);
+    size += archive.ReadTorchObject(policy_net_);
+    size += archive.ReadTorchObject(target_net_);
     return size;
 }
 

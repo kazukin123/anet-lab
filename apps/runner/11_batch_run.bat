@@ -3,9 +3,11 @@ REM SET EXE="bin\RelWithDebInfo\AnetRLRunner.exe"
 SET EXE="bin\Release\AnetRLRunner.exe" app.$=app.batchrun
 REM SET EXE="bin\Release\AnetRLRunner.exe"
 
-call:run_exe app.run_name=run_{t}_r1 X.learner.replay_ratio=1.0
-call:run_exe app.run_name=run_{t}_r2 X.learner.replay_ratio=2.0
-call:run_exe app.run_name=run_{t}_r4 X.learner.replay_ratio=4.0
+call:run_exe app.run_name=run_{t}
+
+REM call:run_exe app.run_name=run_{t}_PER2-2
+REM call:run_exe app.run_name=run_{t}_PER3 R.learner.per_alpha=0.4 R.learner.per_beta_start=0.6
+REM call:run_exe app.run_name=run_{t}_PER4 R.learner.per_alpha=0.2 R.learner.per_beta_start=0.4
 
 
 REM call:run_exe app.run_name=run_{t}_b256 train.batch_size=256

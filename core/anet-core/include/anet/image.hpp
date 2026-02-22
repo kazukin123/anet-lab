@@ -180,6 +180,18 @@ namespace anet::rl {
     static constexpr const char* kImageType_HeatMap = "HeatMap";
     static constexpr const char* kImageType_StateSweepedHeatMap = "SweepStateHeatMap";
     static constexpr const char* kImageType_TimeHistgram = "TimeHistgram";
+    static constexpr const char* kImageType_Conv2d = "Conv2d";
+
+    struct Conv2dVisualizerConfig {
+        int margin_x = 4; ///< チャンネル(列)間の余白ピクセル
+        int margin_y = 2; ///< レイヤー(行)間の余白ピクセル
+        int channels_per_row = 16; ///< 1行に並べる最大チャンネル数
+        bool flip_vertical = true; ///< 画像の上下を反転して描画するか
+        std::string network_key = "policy-net.conv2d"; ///< 抽出対象のネットワーク
+        std::string colormap = "gray";	///< gray / jet / hot
+        int scale_factor = 4;
+        int min_block_size = 40;
+    };
 
     struct ImageProviderConfig : public anet::Config {
         std::string type;
@@ -191,6 +203,7 @@ namespace anet::rl {
         HeatMapConfig heatmap;
         SweepObservationHeatMapConfig sweep_obs;
         TimeHistgramConfig histgram;
+        Conv2dVisualizerConfig conv2d;
 
         ImageProviderConfig()
             : anet::Config("")
@@ -239,12 +252,34 @@ namespace anet::rl {
                 ANET_READ_CONFIG(config_data, histgram.probe.value.source);
                 ANET_READ_CONFIG(config_data, histgram.probe.value.key);
                 ANET_READ_CONFIG(config_data, histgram.probe.value.index);
+            } else if (type == kImageType_Conv2d) {
+                ANET_READ_CONFIG(config_data, conv2d.margin_x);
+                ANET_READ_CONFIG(config_data, conv2d.margin_y);
+                ANET_READ_CONFIG(config_data, conv2d.channels_per_row);
+                ANET_READ_CONFIG(config_data, conv2d.flip_vertical);
+                ANET_READ_CONFIG(config_data, conv2d.network_key);
+                ANET_READ_CONFIG(config_data, conv2d.colormap);
+                ANET_READ_CONFIG(config_data, conv2d.scale_factor);
+                ANET_READ_CONFIG(config_data, conv2d.min_block_size);
             }
 
             default_prefix_ = config_prefix;
         }
     };
 
+    // ============================================================
+    // Conv2dVisualizer
+    // ============================================================
+
+    class Conv2dVisualizer {
+    public:
+        explicit Conv2dVisualizer(const Conv2dVisualizerConfig& config = Conv2dVisualizerConfig{}) : config_(config) {}
+
+        // 画像とJSONのペアを返す
+        std::pair<wxImage, anet::json> Visualize(int64_t step, const anet::TensorDict& dict) const;
+    private:
+        Conv2dVisualizerConfig config_;
+    };
 
     // ============================================================
     // ImageProvider

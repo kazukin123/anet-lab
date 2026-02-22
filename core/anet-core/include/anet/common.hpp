@@ -9,6 +9,7 @@
 #include <nlohmann/json.hpp>
 #include <torch/torch.h>
 #include "anet/util.hpp"
+#include "anet/tensor_util.hpp"
 
 #if ANET_ENABLE_DEBUGINFO
 
@@ -82,12 +83,19 @@ namespace anet {
     json round_numbers(const json& j, int precision = 6);
 
     using TensorFunction = std::function<torch::Tensor(const torch::Tensor&)>;
+    using TensorDictFunction = std::function<anet::TensorDict(const torch::Tensor&)>;
 
     class TensorFunctionProvider {
     public:
         virtual std::optional<TensorFunction> GetTensorFunction(const std::string& key) = 0;
         virtual ~TensorFunctionProvider() = default;
 	};
+
+    class TensorDictFunctionProvider {
+    public:
+        virtual std::optional<TensorDictFunction> GetTensorDictFunction(const std::string& key) { return std::nullopt; }
+        virtual ~TensorDictFunctionProvider() = default;
+    };
 
     //class Module : public std::enable_shared_from_this<Module> {
     //public:

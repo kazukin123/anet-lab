@@ -156,7 +156,7 @@ bool RunnerApp::OnInit()
     frame_->Show();
 
     // Configをダンプ
-    LOG::info() << "RunnerApp config=" << *config_;
+    LOG::info() << "RunnerApp config=" << config_->ToString();
     anet::MetricsLogger::Instance()->Log(*config_);
 
     // RunManager生成

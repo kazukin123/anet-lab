@@ -322,6 +322,240 @@ static std::shared_ptr<TimeHistogramObserver> MakeTimeHistogramObserver(const st
 	//};
 }
 
+static std::shared_ptr<Conv2dVisualizationObserver> MakeConv2dVisualizationObserver(
+	const std::string& tag, const ImageProviderConfig& config, std::shared_ptr<Agent> agent)
+{
+	// Visualizerのレイアウト設定を構築
+	Conv2dVisualizerConfig vis_config(config.conv2d);
+
+	// Agentから、対象ネットワークの抽出関数(TensorDictFunction)をもらう
+	auto dict_func_opt = agent->GetTensorDictFunction(config.conv2d.network_key);
+	if (!dict_func_opt.has_value()) {
+		ANET_SYSTEM_ERROR("Failed to get TensorDictFunction for key: " << config.conv2d.network_key);
+		return nullptr;
+	}
+
+	// Observerを生成
+	// ※ config.interval はエピソード周期として渡す
+	auto obs = std::make_shared<Conv2dVisualizationObserver>(
+		tag, config.interval, *dict_func_opt, vis_config);
+
+	return obs;
+}
+
+// ============================================================
+// Conv2dVisualizer
+// ============================================================
+
+// モノクロ (グレースケール)
+void ValueToRGB_Gray(float norm, unsigned char& r, unsigned char& g, unsigned char& b) {
+	unsigned char p = static_cast<unsigned char>(std::clamp(norm, 0.0f, 1.0f) * 255.0f);
+	r = p; g = p; b = p;
+}
+
+// Jet (ただし 0 は黒)
+void ValueToRGB_JetBlack(float norm, unsigned char& r, unsigned char& g, unsigned char& b) {
+	// ReLUなどで完全に発火していない部分(0)を黒に落とす
+	if (norm <= 1e-5f) { r = 0; g = 0; b = 0; return;	}
+
+	norm = std::clamp(norm, 0.0f, 1.0f);
+	float rf = 0.0f, gf = 0.0f, bf = 0.0f;
+	if (norm < 0.125f) {
+		rf = 0.0f; gf = 0.0f; bf = 0.5f + norm * 4.0f;
+	} else if (norm < 0.375f) {
+		rf = 0.0f; gf = (norm - 0.125f) * 4.0f; bf = 1.0f;
+	} else if (norm < 0.625f) {
+		rf = (norm - 0.375f) * 4.0f; gf = 1.0f; bf = 1.0f - (norm - 0.375f) * 4.0f;
+	} else if (norm < 0.875f) {
+		rf = 1.0f; gf = 1.0f - (norm - 0.625f) * 4.0f; bf = 0.0f;
+	} else {
+		rf = 1.0f - (norm - 0.875f) * 4.0f; gf = 0.0f; bf = 0.0f;
+	}
+	r = static_cast<unsigned char>(rf * 255.0f);
+	g = static_cast<unsigned char>(gf * 255.0f);
+	b = static_cast<unsigned char>(bf * 255.0f);
+}
+
+// Hot (Infernoライク: 黒 -> 赤 -> 黄 -> 白)
+void ValueToRGB_Hot(float norm, unsigned char& r, unsigned char& g, unsigned char& b) {
+	norm = std::clamp(norm, 0.0f, 1.0f);
+	r = static_cast<unsigned char>(std::clamp(norm * 3.0f, 0.0f, 1.0f) * 255.0f);
+	g = static_cast<unsigned char>(std::clamp(norm * 3.0f - 1.0f, 0.0f, 1.0f) * 255.0f);
+	b = static_cast<unsigned char>(std::clamp(norm * 3.0f - 2.0f, 0.0f, 1.0f) * 255.0f);
+}
+
+std::pair<wxImage, anet::json> Conv2dVisualizer::Visualize(int64_t step, const anet::TensorDict& dict) const
+{
+	anet::json layout_json;
+	layout_json["step"] = step;
+	auto& layers_json = layout_json["layers"] = anet::json::array();
+
+	int total_width = 0;
+	int max_height = 0;
+
+	struct LayerInfo {
+		std::string name;
+		torch::Tensor data;
+		int c, h, w;
+		int offset_y;      // ブロックが始まるY座標
+		int draw_width;    // ブロックが占める全体の幅
+		int draw_height;   // ブロックが占める全体の高さ
+		int local_scale;
+	};
+	std::vector<LayerInfo> layers;
+
+	//  各テンソルのサイズ計測とレイアウト決定
+	for (const auto& kv : dict) {
+		torch::Tensor t = kv.second.squeeze(0).to(torch::kCPU).to(torch::kFloat32);
+
+		if (t.dim() != 3) continue;
+
+		LayerInfo info;
+		info.name = kv.first;
+		info.data = t;
+		info.c = t.size(0);
+		info.h = t.size(1);
+		info.w = t.size(2);
+		info.local_scale = std::max(1, config_.min_block_size / info.w);
+
+		int scaled_w = info.w * info.local_scale;
+		int scaled_h = info.h * info.local_scale;
+		int layer_cols = std::min(info.c, config_.channels_per_row);
+		int layer_rows = (info.c + config_.channels_per_row - 1) / config_.channels_per_row;
+
+		info.offset_y = max_height;
+		info.draw_width = layer_cols * (scaled_w + config_.margin_x);
+		info.draw_height = layer_rows * (scaled_h + config_.margin_y);
+
+		layers.push_back(info);
+		total_width = std::max(total_width, info.draw_width);
+		max_height += info.draw_height;
+	}
+
+	if (layers.empty() || total_width <= 0 || max_height <= 0) {
+		return { wxImage(), layout_json };
+	}
+
+	// 奇数サイズ回避
+	total_width = (total_width + 1) & ~1;
+	max_height = (max_height + 1) & ~1;
+
+	// キャンバス作成
+	wxImage image(total_width, max_height, false);
+	unsigned char* img_data = image.GetData();
+	std::fill(img_data, img_data + (total_width * max_height * 3), 32);
+
+	// カラーマップ関数を準備
+	using ColorMapFunc = void(*)(float, unsigned char&, unsigned char&, unsigned char&);
+	ColorMapFunc color_func = ValueToRGB_Gray; // デフォルト
+	if (config_.colormap == "jet") {
+		color_func = ValueToRGB_JetBlack;
+	} else if (config_.colormap == "hot") {
+		color_func = ValueToRGB_Hot;
+	}
+
+	//  ピクセル書き込みとJSON記録
+	for (const auto& info : layers) {
+		int scaled_w = info.w * info.local_scale;
+		int scaled_h = info.h * info.local_scale;
+
+		// ブロック区切りの横線
+		if (info.offset_y > 0) {
+			int line_y = info.offset_y - 1;	// 現在のブロックの始まるY座標の「1つ上」のラインを赤く塗る
+			for (int x = 0; x < total_width; ++x) {
+				int idx = (line_y * total_width + x) * 3;
+				img_data[idx] = 255;     // R (赤)
+				img_data[idx + 1] = 0;   // G
+				img_data[idx + 2] = 0;   // B
+			}
+		}
+
+		// レイヤーのJSON情報
+		anet::json l_json;
+		l_json["name"] = info.name;
+		l_json["channels"] = info.c;
+		l_json["height"] = info.h;
+		l_json["width"] = info.w;
+		l_json["offset_y"] = info.offset_y; // 配置座標を記録
+		l_json["margin_x"] = config_.margin_x;
+		l_json["margin_y"] = config_.margin_y;
+		layers_json.push_back(l_json);
+
+		auto data_cont = info.data.contiguous();
+		const float* ptr = data_cont.data_ptr<float>();
+
+		for (int c = 0; c < info.c; ++c) {
+			// チャンネルのグリッド位置を計算
+			int grid_x = c % config_.channels_per_row;
+			int grid_y = c / config_.channels_per_row;
+
+			int offset_x = grid_x * (scaled_w + config_.margin_x);
+			int offset_y = info.offset_y + grid_y * (scaled_h + config_.margin_y);
+
+			// チャンネル単位の Min-Max を計算
+			torch::Tensor channel_data = data_cont[c];
+			float ch_min = channel_data.min().item<float>();
+			float ch_max = channel_data.max().item<float>();
+			float ch_range = ch_max - ch_min;
+
+			// ハイブリッド判定
+			float base_min, scale;
+			if (ch_range > 1e-5f) {
+				base_min = ch_min;
+				scale = 255.0f / ch_range;
+			} else {
+				// スカラーチャンネルは 0.0 ～ 1.0 と割り切って固定
+				base_min = 0.0f;
+				scale = 255.0f;
+			}
+
+			for (int y = 0; y < info.h; ++y) {
+				// Y軸反転対応
+				int draw_y = config_.flip_vertical ? (info.h - 1 - y) : y;
+				int py = offset_y + draw_y;
+
+				for (int x = 0; x < info.w; ++x) {
+					float val = *ptr++;
+
+					// 0.0～1.0に正規化
+					float norm_val = 0.0f;
+					if (scale > 0.0f) {
+						norm_val = (val - base_min) / (255.0f / scale); // 0.0～1.0に丸める
+					} else {
+						norm_val = val; // スカラー等の場合はそのまま
+					}
+
+					//関数ポインタに渡してRGBの変換
+					unsigned char r, g, b;
+					color_func(norm_val, r, g, b);
+
+					// 1つの元ピクセルを local_scale x local_scale の面積で塗る
+					for (int sy = 0; sy < info.local_scale; ++sy) {
+						for (int sx = 0; sx < info.local_scale; ++sx) {
+							int px = offset_x + (x * info.local_scale) + sx;
+							int py = offset_y + (draw_y * info.local_scale) + sy;
+
+							int idx = (py * total_width + px) * 3;
+							img_data[idx] = r;
+							img_data[idx + 1] = g;
+							img_data[idx + 2] = b;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	layout_json["image_width"] = total_width;
+	layout_json["image_height"] = max_height;
+
+	// プレイヤー側でぼかされないように事前にスケーリング
+	if (config_.scale_factor > 1) {
+		image = image.Scale(total_width * config_.scale_factor, max_height * config_.scale_factor, wxIMAGE_QUALITY_NEAREST);
+	}
+	return { image, layout_json };
+}
+
 template<typename T>
 static ImageProviderBundle MakeBundle(std::shared_ptr<T> observer, std::shared_ptr<const Runner> runner)
 {
@@ -351,11 +585,14 @@ ImageProviderBundle ImageProviderFactory::CreateImageProvider(const std::string&
 		auto observer = MakeTimeHistogramObserver(tag, config, env_spec);
 		return MakeBundle<TimeHistogramObserver>(observer, runner);
 	}
+	if (config.type == kImageType_Conv2d) {
+		auto observer = MakeConv2dVisualizationObserver(tag, config, agent);
+		return MakeBundle<Conv2dVisualizationObserver>(observer, runner);
+	}
 
 	ANET_SYSTEM_ERROR("Unknown ImageProvider type: " << config.type << " config=" << config.ToString());
 	return {};
 }
-
 
 // ============================================================
 // ImageProviderManager

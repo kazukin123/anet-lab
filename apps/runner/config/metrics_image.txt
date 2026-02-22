@@ -82,6 +82,29 @@ image.shm.s01.sweep_obs.y_index = 1
 image.shm.s02.sweep_obs.x_index = 0
 image.shm.s02.sweep_obs.y_index = 2
 
+# ---- 
+
+image.conv2d.type = Conv2d
+image.conv2d.image_width = -1
+image.conv2d.image_height = -1
+image.conv2d.interval = 100         # ★
+image.conv2d.conv2d.channels_per_row = 16  # ★
+image.conv2d.conv2d.network_key = policy-net.conv2d
+image.conv2d.conv2d.flip_vertical = true
+image.conv2d.conv2d.mergin_x = 4
+image.conv2d.conv2d.mergin_y = 2
+image.conv2d.conv2d.colormap = gray  # gray hot jet
+image.conv2d.conv2d.scale_factor = 4
+image.conv2d.conv2d.min_block_size = 40
+
+# ---- 
+
+metrics.image.histgram.interval = 50
+metrics.image.histgram.frame_interval = 10
+
+image.test.interval = 1
+image.test.histgram.frame_interval = 10
+
 
 metrics.image.histgram.interval = 50
 metrics.image.histgram.frame_interval = 10
