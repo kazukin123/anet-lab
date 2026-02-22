@@ -29,12 +29,13 @@ TODO：実行手順を書く
 	* Observation Normalization
 * メトリクス
 	* MetricsViewer.java：フェーズ1.5(基本機能、差分ロード)
+	* ヒストグラムやヒートマップの時系列動画出力（ffmpeg利用）
+	* Conv2D動画可視化
 	* TensorBoard対応（ブリッジpyスクリプト経由）
 	* Ploty＋pythonによる独自グラフ出力
-	* ヒストグラムやヒートマップの時系列動画出力（ffmpeg利用）
 * AP機能
 	* CUDA対応
-	* N環境並列実行
+	* マルチスレッドによるN環境並列実行
 	* 設定によるNN定義
 	* 設定によるメトリクス定義
 * Env実装
@@ -45,16 +46,16 @@ TODO：実行手順を書く
 ### DOING
 
 * 学習アルゴリズム
-	* マルチエージェント対応
 * メトリクス
 * AP改善
-	* EvalRunnerのseed指定
+	* 学習セッションの保存と読込（Agent学習状況含む）
+	* Dict Observation Space
 
 ### TODO
 
 * 学習アルゴリズム
-	* LayerNorm
 	* ActionMasking
+	* マルチエージェント対応
 	* Ape-X Exploration(分散ε)
 	* Transformer
 	* MuZero
@@ -71,10 +72,10 @@ TODO：実行手順を書く
 	* TB:add_hparams対応
 * AP改善
 	* Envのメトリクス取得
+	* EvalRunnerのseed指定
 	* PolicyコピーによるEval性能向上
 	* EnvRunnerのスレッド化
 	* RB:NextStateのメモリ削減
-	* Dict Observation Space
 	* EvalPanelに自動アクション選択を追加
 	* NNパラメータの保存と読込
 	* 同じクラスでインスタンス別の設定キー
@@ -95,6 +96,7 @@ TODO：実行手順を書く
 	* seed値指定
 	* コマンドライン引数でRun名を指定
 	* 学習と推論の同時分離表示
+
 
 ### SUSPENDED
 * 学習アルゴリズム

@@ -188,7 +188,7 @@ namespace anet::rl {
         int channels_per_row = 16; ///< 1行に並べる最大チャンネル数
         bool flip_vertical = true; ///< 画像の上下を反転して描画するか
         std::string network_key = "policy-net.conv2d"; ///< 抽出対象のネットワーク
-        std::string colormap = "gray";	///< gray / jet / hot
+        std::string colormap = "jet";	///< gray / jet / hot
         int scale_factor = 4;
         int min_block_size = 40;
     };

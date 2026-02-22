@@ -30,6 +30,7 @@ protected:
     void OnKey(anet::rl::gui::ForwardedKeyEvent& event);
 
     void OnHeatMap(wxCommandEvent& event);
+    void OnConv2d(wxCommandEvent& event);
     void OnResetLayout(wxCommandEvent& event);
 private:
     void SetupMenuBar();
@@ -40,6 +41,8 @@ private:
     wxAuiPaneInfo PanelInfo(const wxString& name, const wxString& caption, const wxString& sub_caption = wxEmptyString);
 private:
     wxAuiManager aui_mgr_;
+
+    std::shared_ptr<anet::rl::EvalRunner> eval_runner_;
 
     ModuleBrowser* module_browser_ = nullptr;
     RunPanel* run_panel_ = nullptr;

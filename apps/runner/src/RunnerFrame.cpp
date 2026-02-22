@@ -5,6 +5,7 @@
 #include "LogPanel.hpp"
 #include "TrainPanel.hpp"
 #include "HeatMapPanel.hpp"
+#include "Conv2dPanel.hpp"
 
 namespace LOG = anet::log;
 
@@ -22,6 +23,7 @@ enum {
 	ID_EvalPanel,
 	ID_QValuePanel,
     ID_HeatMap,
+    ID_Conv2d,
     //ID_ModuleBrowser,
     //ID_RunView,
 };
@@ -76,6 +78,7 @@ void RunnerFrame::SetupMenuBar()
     view_menu->AppendCheckItem(ID_QValuePanel, "&Evaluation QValue View")->Check(true);
     view_menu->AppendSeparator();
     view_menu->Append(ID_HeatMap, "&HeatMap");
+    view_menu->Append(ID_Conv2d, "&Conv2d");
     menu_bar->Append(view_menu, "&View");
 
     // Help Menu
@@ -174,11 +177,11 @@ void RunnerFrame::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
 
     // EvalPanel初期化
     //auto eval_runner = run_manager->CreateEvalRunner("EvalPanel");
-    auto eval_runner = run_manager->CreateEvalRunner("EvalPanel", anet::rl::RunMode::Eval1);
-    eval_panel_->Initialize(run_manager, eval_runner);
+    eval_runner_ = run_manager->CreateEvalRunner("EvalPanel", anet::rl::RunMode::Eval1);
+    eval_panel_->Initialize(run_manager, eval_runner_);
 
     // QValuePanel初期化
-    q_value_panel_->Initialize(run_manager, eval_runner);
+    q_value_panel_->Initialize(run_manager, eval_runner_);
 }
 
 void RunnerFrame::SetupEvents()
@@ -198,6 +201,7 @@ void RunnerFrame::SetupEvents()
     Bind(wxEVT_MENU, &RunnerFrame::OnAbout, this, wxID_ABOUT);
     Bind(wxEVT_MENU, &RunnerFrame::OnResetLayout, this, ID_ResetLayout);
     Bind(wxEVT_MENU, &RunnerFrame::OnHeatMap, this, ID_HeatMap);
+    Bind(wxEVT_MENU, &RunnerFrame::OnConv2d, this, ID_Conv2d);
 
 	// パネル表示/非表示メニュー連動 (チェック状態に合わせてパネル表示切替)
     Bind(wxEVT_MENU, [this](wxCommandEvent& event) {
@@ -363,6 +367,31 @@ void RunnerFrame::OnHeatMap(wxCommandEvent& event)
         // レイアウト反映
         aui_mgr_.Update();
     }
+}
+void RunnerFrame::OnConv2d(wxCommandEvent& event)
+{
+    if (!eval_runner_) return;
+
+    //Conv2dPanel(wxWindow * parent, const wxString & title, std::shared_ptr<anet::rl::RunManager> run_manager, std::shared_ptr<anet::rl::Runner> runner);
+
+    // Conv2dPanelを生成
+    auto& run_manager = wxGetApp().GetRunManager();
+    auto conv2d_panel = new Conv2dPanel(this, "Conv2d", run_manager, eval_runner_);
+
+    // AuiManagerに登録
+    aui_mgr_.AddPane(conv2d_panel,
+        PanelInfo("Conv2dPanel", "EvalConv2d")        // name, caption, subcaption
+        .Right().Layer(20)          // Layer:大きいほど外側
+        .BestSize(400, 400)          // ドッキング時の推奨サイズ 
+        .FloatingSize(400, 400)     // 切り離したときのウィンドウサイズ
+        .MinSize(100, 100)          // これ以上小さくならないようにする
+        //.Float()
+        .Dock()
+        .CloseButton(true).MaximizeButton(true)
+    );
+
+    // レイアウト反映
+    aui_mgr_.Update();
 }
 
 void RunnerFrame::OnResetLayout(wxCommandEvent& WXUNUSED(event))
