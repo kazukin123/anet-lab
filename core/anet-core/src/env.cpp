@@ -220,9 +220,9 @@ std::shared_ptr<const BatchResetResult> VectorizedDiscreteBatchEnv::Reset(RunMod
         auto reset_result = envs_[i]->Reset(mode);
         ANET_ASSERT_DEVICE(reset_result->state.obs, device_);
         result->state.obs[i].copy_(reset_result->state.obs);
-        result->state.done[i] = reset_result->state.done;
-        result->state.truncated[i] = reset_result->state.truncated;
-        result->state.episode_start[i] = reset_result->state.episode_start;
+        result->state.done[i].fill_(reset_result->state.done);
+        result->state.truncated[i].fill_(reset_result->state.truncated);
+        result->state.episode_start[i].fill_(reset_result->state.episode_start);
         result->single_results[i] = reset_result;
     }
 
@@ -340,9 +340,9 @@ std::shared_ptr<const BatchResetResult>  ThreadPoolDiscreteEnv::Reset(RunMode mo
 
                 // 結果書き込み(i番目の行だけを書くので他 Worker と race しない)
                 result->state.obs.select(0, i).copy_(single_result->state.obs);
-                result->state.done[i] = single_result->state.done;
-                result->state.truncated[i] = single_result->state.truncated;
-                result->state.episode_start[i] = single_result->state.episode_start;
+                result->state.done[i].fill_(single_result->state.done);
+                result->state.truncated[i].fill_(single_result->state.truncated);
+                result->state.episode_start[i].fill_(single_result->state.episode_start);
             });
     }
 
@@ -386,9 +386,9 @@ std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(const BatchAc
 
                 // --- next_state ---
                 result->next_state.obs.select(0, i).copy_(r->next_state.obs);
-                result->next_state.done[i] = r->next_state.done;
-                result->next_state.truncated[i] = r->next_state.truncated;
-                result->next_state.episode_start[i] = r->next_state.episode_start;
+                result->next_state.done[i].fill_(r->next_state.done);
+                result->next_state.truncated[i].fill_(r->next_state.truncated);
+                result->next_state.episode_start[i].fill_(r->next_state.episode_start);
 
                 // --- reward ---
                 result->reward[i] = r->reward;
@@ -399,15 +399,15 @@ std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(const BatchAc
                     auto reset_result = envs_[i]->Reset(mode);
                     ANET_ASSERT_DEVICE(reset_result->state.obs, device_);
                     result->continue_state.obs.select(0, i).copy_(reset_result->state.obs);
-                    result->continue_state.done[i] = reset_result->state.done;
-                    result->continue_state.truncated[i] = reset_result->state.truncated;
-                    result->continue_state.episode_start[i] = reset_result->state.episode_start;
+                    result->continue_state.done[i].fill_(reset_result->state.done);
+                    result->continue_state.truncated[i].fill_(reset_result->state.truncated);
+                    result->continue_state.episode_start[i].fill_(reset_result->state.episode_start);
                 } else {
                     // Continue as-is
                     result->continue_state.obs.select(0, i).copy_(r->next_state.obs);
-                    result->continue_state.done[i] = false;
-                    result->continue_state.truncated[i] = false;
-                    result->continue_state.episode_start[i] = r->next_state.episode_start;
+                    result->continue_state.done[i].fill_(false);
+                    result->continue_state.truncated[i].fill_(false);
+                    result->continue_state.episode_start[i].fill_(r->next_state.episode_start);
                 }
             });
 
@@ -444,7 +444,7 @@ DefaultBatchEnvFactory::DefaultBatchEnvFactory(
     ANET_ASSERT(batch_size_ > 0);
 
     // ログ：パラメータ記録
-    LOG::info() << "DefaultBatchEnvFactory config=" << config_;
+    LOG::info() << "DefaultBatchEnvFactory config=" << config_.ToString();
     anet::MetricsLogger::Instance()->Log(config_);
 }
 
