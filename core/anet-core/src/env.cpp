@@ -175,9 +175,78 @@ std::shared_ptr<DiscreteBatchEnvBase::StepResult> DiscreteBatchEnvBase::getStepR
 
 std::optional<float> DiscreteBatchEnvBase::GetScalar(const std::string& key, int64_t index) const
 {
-    ANET_ASSERT(index >= 0 && index < envs_.size());
-    return envs_[index]->GetScalar(key, -1);
-    /// @todo vec対応
+    ANET_ASSERT(index < 0 || index < envs_.size());
+
+    // 特定の環境(index)が指定されている場合は、その環境の値を直接返す
+    if (index >= 0) {
+        ANET_ASSERT(index < envs_.size());
+        return envs_[index]->GetScalar(key, -1);
+    }
+
+    // バッチ全体(index == -1)の場合、プレフィックスを解析して集計
+    enum class AggType { None, Max, Mean, Min };
+    AggType agg_type = AggType::None;
+    std::string subkey = key;
+
+    if (key.rfind("max.", 0) == 0) {
+        agg_type = AggType::Max;
+        subkey = key.substr(4);
+    } else if (key.rfind("mean.", 0) == 0) {
+        agg_type = AggType::Mean;
+        subkey = key.substr(5);
+    } else if (key.rfind("min.", 0) == 0) {
+        agg_type = AggType::Min;
+        subkey = key.substr(4);
+    } else {
+        // プレフィックスが無い場合はデフォルトでMeanとして集計
+        LOG::warn() << "DiscreteBatchEnvBase::GetScalar() Unknown prefix. assuming mean. key=" << key;
+        agg_type = AggType::Mean;
+        subkey = key;
+    }
+
+    float agg_val = 0.0f;
+    if (agg_type == AggType::Max) agg_val = std::numeric_limits<float>::lowest();
+    if (agg_type == AggType::Min) agg_val = std::numeric_limits<float>::max();
+    float sum_val = 0.0f;
+    int valid_count = 0;
+
+    // 全ENVのデータを収集
+    for (const auto& env : envs_) {
+        auto val_opt = env->GetScalar(subkey, -1);
+
+        // 1つでも nullopt (未対応/未取得) があれば、直ちに nullopt を返す
+        if (!val_opt.has_value()) {
+            return std::nullopt;
+        }
+
+        // 取れた値
+        float val = val_opt.value();
+
+        // NaN は集計から除外
+        if (std::isnan(val)) continue;
+
+        // 集計
+        valid_count++;
+        if (agg_type == AggType::Max) {
+            agg_val = std::max(agg_val, val);
+        } else if (agg_type == AggType::Min) {
+            agg_val = std::min(agg_val, val);
+        } else if (agg_type == AggType::Mean) {
+            sum_val += val;
+        }
+    }
+
+    // 全ての環境が NaN だった場合 (有効な値が1つも無い)
+    if (valid_count == 0) {
+        return std::numeric_limits<float>::quiet_NaN();
+    }
+
+    // 集計結果を返す
+    if (agg_type == AggType::Mean) {
+        return sum_val / static_cast<float>(valid_count);
+    }
+
+    return agg_val;
 }
 
 std::optional<torch::Tensor> DiscreteBatchEnvBase::GetTensor(const std::string& key, int64_t index) const

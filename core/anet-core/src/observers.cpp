@@ -692,6 +692,9 @@ MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(const
     case anet::rl::EventField::RUNNER:
         target = event.runner.get();
         break;
+    case anet::rl::EventField::ENV:
+        target = event.runner->GetBatchEnv().get(); // Runner経由で取得
+        break;
     default:
         ANET_SYSTEM_ERROR("Unknown event field: " << static_cast<int>(event_field));
         break;
@@ -799,6 +802,12 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
                     auto data = GetMetricsData(event, anet::rl::EventField::RUNNER);
                     if (data.second.has_value()) {
                         ret.push_back(data);
+                    } else {
+                        // Env
+                        auto data = GetMetricsData(event, anet::rl::EventField::ENV);
+                        if (data.second.has_value()) {
+                            ret.push_back(data);
+                        }
                     }
                 }
             }
@@ -910,6 +919,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                     step_axis_opt = StepAxis::SIM;
                 } else if (v == "$agent") {
                     field_opt = EventField::AGENT;
+                } else if (v == "$env") {
+                    field_opt = EventField::ENV;
                 } else if (v == "$batch_experience" || v == "$exp") {
                     field_opt = EventField::EXPERIENCE;
                 } else if (v == "$batch_update_result" || v == "$update_result" || v == "$result") {
@@ -954,6 +965,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                         } else if (attr_key == "target") {
                             if (attr_val == "agent")
                                 field_opt = EventField::AGENT;
+                            else if (attr_val == "env")
+                                field_opt = EventField::ENV;
                             else if (attr_val == "batch_experience" || attr_val == "exp")
                                 field_opt = EventField::EXPERIENCE;
                             else if (attr_val == "batch_update_result" || attr_val == "update_result" || attr_val == "result")

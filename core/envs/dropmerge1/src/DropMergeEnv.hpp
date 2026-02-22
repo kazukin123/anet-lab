@@ -160,7 +160,7 @@ namespace anet::rl::env::drop_merge {
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
-
+        
     private:
         class Result;
         class ResetResult;
@@ -183,6 +183,22 @@ namespace anet::rl::env::drop_merge {
             b2Body* pending_body = nullptr; ///< 落下判定待ちの果物
         };
 
+        enum class TerminationReason {        ///< メトリクス集計用
+            None,
+            Timeout,
+            SpawnBlocked,
+            Overflow,
+            MaxStep
+        };
+
+        // 衝突コールバック
+        class ContactListener : public b2ContactListener {
+        public:
+            explicit ContactListener(DropMergeEnv& env) : env_(env) {}
+            void BeginContact(b2Contact* contact) override;
+        private:
+            DropMergeEnv& env_;
+        };
     private:
         void buildWorld();
         void destroyWorld();
@@ -204,36 +220,20 @@ namespace anet::rl::env::drop_merge {
         std::pair<float, float> calcReward();
         anet::rl::AuxData CreateAuxData(float reward, float raw_reward) const;
     private:
-        // 前回の成績保持用 (Resetで初期化しない)
-        float last_episode_score_ = -1.0f;
-        int last_episode_step_ = -1;
-            
-        // 報酬集計用
-        float episode_reward_ = 0.0f;           ///< エピソード累積報酬 (Penalty込み)
-        float last_episode_reward_ = 0.0f;      ///< 前回のエピソード累積報酬
-
-        // 衝突コールバック
-        class ContactListener : public b2ContactListener {
-        public:
-            explicit ContactListener(DropMergeEnv& env) : env_(env) {}
-            void BeginContact(b2Contact* contact) override;
-        private:
-            DropMergeEnv& env_;
-        };
-
-    private:
+        // 設定情報
         DropMergeEnvConfig config_;
-        torch::TensorOptions float_opt_;
-        torch::TensorOptions bool_opt_;
-
-        std::unique_ptr<b2World> world_;
-        std::unique_ptr<ContactListener> contact_listener_;
 
         // Seed管理
         SeedMode seed_mode_ = SeedMode::Normal;
         anet::seed_t initial_seed_ = 0;
 
-        // コンテナ
+        // 使いまわし
+        torch::TensorOptions float_opt_;
+        torch::TensorOptions bool_opt_;
+
+        // Box2d
+        std::unique_ptr<b2World> world_;
+        std::unique_ptr<ContactListener> contact_listener_;
         b2Body* ground_body_ = nullptr;
 
         // 状態管理
@@ -248,6 +248,18 @@ namespace anet::rl::env::drop_merge {
         std::set<b2Body*> bodies_to_destroy_;
         float current_step_merge_score_ = 0.0f; ///< ステップ内で発生した合体スコア
         float episode_score_ = 0.0f;            ///< エピソード累積スコア
+
+        // aux用 (Resetで初期化しない)
+        float last_episode_score_ = -1.0f;
+        int last_episode_step_ = -1;
+        float episode_reward_ = 0.0f;           ///< エピソード累積報酬 (Penalty込み)
+        float last_episode_reward_ = 0.0f;      ///< 前回のエピソード累積報酬
+
+        // メトリクス用
+        TerminationReason term_reason_ = TerminationReason::None;   ///< エピーソード終了要因
+        bool episode_just_ended_ = false; ///< GetScalarで値を返す判定用
+        int ep_max_rank_ = 0;             ///< エピソード中の最大ランク
+        int ep_end_fruit_count_ = 0;      ///< エピソード終了時のフルーツ数
 
         // デバッグ・観測用キャッシュ
         mutable std::vector<float> grid_cache_;

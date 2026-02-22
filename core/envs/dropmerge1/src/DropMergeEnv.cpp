@@ -452,9 +452,13 @@ void DropMergeEnv::processAction(int64_t action)
         // 置けない状態でDROPしたらGameOver
         if (!isSpawnAreaClear(actual_x, spawn_y, r_drop)) {
             game_over_ = true;
+            term_reason_ = TerminationReason::SpawnBlocked;
             LOG::info() << "Game Over: Spawn area blocked. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x ;
             return;
         }
+
+        // 落とした果物で最大ランクを更新
+        ep_max_rank_ = std::max(ep_max_rank_, dropper_.current_rank);
 
         // 新しい果物つくる
         dropper_.pending_body = spawnFruit(actual_x, spawn_y, dropper_.current_rank);
@@ -494,6 +498,9 @@ void DropMergeEnv::processMerges()
             // 新しい果物を生成 
             spawnFruit(req.center.x, req.center.y, req.next_rank);
 
+            // 合体後のランクで最大ランクを更新
+            ep_max_rank_ = std::max(ep_max_rank_, req.next_rank);
+
 			// スコア加算
             float s = config_.fruit_scores[req.next_rank - 1];
             current_step_merge_score_ += s;
@@ -508,6 +515,9 @@ void DropMergeEnv::processMerges()
             // 小爆発
             applyExplosion(req.center, config_.pop_force);
         } else {
+            // 最大ランクを更新
+            ep_max_rank_ = std::max(ep_max_rank_, req.next_rank);
+
             // スイカ同士が消えた場合はSpawnしない（Rank 12相当）
             LOG::info() << "Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_ << " current_step_merge_score_=" << current_step_merge_score_;
             wxBell();       /// @todo wxBell()はスレッドセーフじゃないのでwxSoundを使うべき
@@ -607,6 +617,7 @@ bool DropMergeEnv::checkGameOver()
 
     // 60step以上オーバーフローが続いたらゲームオーバー
     if (game_over_timer_ > config_.game_over_grace_step) {
+        term_reason_ = TerminationReason::Overflow;
         LOG::info() << "Game Over: overflow timeout. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
         return true;
     }
@@ -641,6 +652,16 @@ void DropMergeEnv::updateDropperStatus()
 std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t action, anet::rl::RunMode mode)
 {
     anet::ProfileRange r("DropMergeEnv::Step");
+
+    // エピーソード開始してる
+    episode_just_ended_ = false;
+
+    // 新しいエピソードの最初のステップでメトリクスをリセット
+    if (step_count_ == 0) {
+        ep_max_rank_ = 0;
+        ep_end_fruit_count_ = 0;
+        term_reason_ = TerminationReason::None;
+    }
 
     // エピソードstepインクリメント
     step_count_++;
@@ -710,10 +731,37 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     bool done = game_over_;
     bool truncated = (step_count_ >= config_.max_step);
 
+    // 最大ステップ数到達による打ち切りを終了理由としてセット
+    if (!done && truncated) {
+        term_reason_ = TerminationReason::MaxStep;
+    }
+
     // ショットクロック判定
     if (config_.no_drop_timeout_steps > 0 && steps_since_last_drop_ >= config_.no_drop_timeout_steps) {
         truncated = true;
         LOG::info() << "Episode truncated due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+    }
+
+    // エピソード終了時のフルーツ数カウント＆フラグ立て
+    if (done || truncated) {
+        // エピソード終了時情報を返せる状態、だよ
+        episode_just_ended_ = true;
+
+        // 果物の数を記録
+        ep_end_fruit_count_ = 0;
+        for (b2Body* b = world_->GetBodyList(); b; b = b->GetNext()) {
+            if (b->GetType() == b2_dynamicBody) {
+                auto data = DecodeUserData(b->GetUserData().pointer);
+                if (data.first == BodyType::Fruit) {
+                    ep_end_fruit_count_++;
+                }
+            }
+        }
+
+        // 前回エピソード情報を記録
+        last_episode_score_ = episode_score_;
+        last_episode_step_ = step_count_;
+        last_episode_reward_ = episode_reward_;
     }
 
     // State生成
@@ -727,14 +775,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
 
     // 累積報酬更新
     episode_reward_ += accumulated_reward;
-
-    // エピソード終了時の情報記録
-    if (done || truncated) {
-        last_episode_score_ = episode_score_;
-        last_episode_step_ = step_count_;
-        last_episode_reward_ = episode_reward_;
-    }
-
+     
     return std::make_shared<StepResult>(
         this->shared_from_this(), accumulated_reward, accumulated_raw_reward, std::move(state));
 }
@@ -999,6 +1040,36 @@ anet::rl::AuxData DropMergeEnv::CreateAuxData(float reward, float raw_reward) co
 
 std::optional<float> DropMergeEnv::GetScalar(const std::string& key, int64_t index) const
 {
+    float nan = std::numeric_limits<float>::quiet_NaN();
+
+    // --- 成果・盤面状態 ---
+    if (key == "ep_max_rank") {
+        if (!episode_just_ended_) return nan;
+        return static_cast<float>(ep_max_rank_);
+    }
+    if (key == "ep_end_fruit_count") {
+        if (!episode_just_ended_) return nan;
+        return static_cast<float>(ep_end_fruit_count_);
+    }
+
+    // --- 死因（One-hot表現） ---
+    if (key == "term_reason_timeout") {
+        if (!episode_just_ended_) return nan;
+        return (term_reason_ == TerminationReason::Timeout) ? 1.0f : 0.0f;
+    }
+    if (key == "term_reason_spawn_blocked") {
+        if (!episode_just_ended_) return nan;
+        return (term_reason_ == TerminationReason::SpawnBlocked) ? 1.0f : 0.0f;
+    }
+    if (key == "term_reason_overflow") {
+        if (!episode_just_ended_) return nan;
+        return (term_reason_ == TerminationReason::Overflow) ? 1.0f : 0.0f;
+    }
+    if (key == "term_reason_maxstep") {
+        if (!episode_just_ended_) return nan;
+        return (term_reason_ == TerminationReason::MaxStep) ? 1.0f : 0.0f;
+    }
+
     return std::nullopt;
 }
 

@@ -41,7 +41,7 @@ net.body.$ = net.body.SuikaResNet4064_10d     # ★
 # 実験
 # ==============================================================================
 
-#app.run_name = run_{t}
+app.run_name = run_{t}
 
 #R.learner.update_warmup_steps = 0
 
@@ -389,6 +389,35 @@ metrics.scalar.baseline.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn inter
 #metrics.scalar.[22_eval/02_test2_reward]     = $runner eval.[test2].eps_total_reward @learn clip:3000
 #metrics.scalar.[22_eval/03_test1_reward_ema] = $runner eval.[test1].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
 #metrics.scalar.[22_eval/04_test2_reward_ema] = $runner eval.[test2].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
+
+
+metrics.scalar.[42_env/01_ep_maxrank_max]  = $env max.ep_max_rank @train
+#metrics.scalar.[42_env/02_ep_frct_max]     = $env max.ep_end_fruit_count @train
+##metrics.scalar.[42_env/03_tr_timeout_max]  = $env max.term_reason_timeout @train
+##metrics.scalar.[42_env/04_tr_blocked_max]  = $env max.term_reason_spawn_blocked @train
+##metrics.scalar.[42_env/05_tr_overflow_max] = $env max.term_reason_overflow @train
+#metrics.scalar.[42_env/06_tr_maxstep_max]  = $env max.term_reason_maxstep @train
+
+#metrics.scalar.[42_env/11_ep_maxrank_mean]  = $env mean.ep_max_rank @train
+metrics.scalar.[42_env/12_ep_frct_mean]     = $env mean.ep_end_fruit_count @train
+metrics.scalar.[42_env/13_tr_timeout_mean]  = $env mean.term_reason_timeout @train
+metrics.scalar.[42_env/14_tr_blocked_mean]  = $env mean.term_reason_spawn_blocked @train
+metrics.scalar.[42_env/15_tr_overflow_mean] = $env mean.term_reason_overflow @train
+#metrics.scalar.[42_env/16_tr_maxstep_mean]  = $env mean.term_reason_maxstep @train
+
+#metrics.scalar.[42_env/51_ep_maxrank_max_ema]  = $env max.ep_max_rank @train $ema
+#metrics.scalar.[42_env/52_ep_frct_max_ema]     = $env max.ep_end_fruit_count @train $ema
+##metrics.scalar.[42_env/53_tr_timeout_max_ema]  = $env max.term_reason_timeout @train $ema ema_alpha:0.001
+##metrics.scalar.[42_env/54_tr_blocked_max_ema]  = $env max.term_reason_spawn_blocked @train $ema ema_alpha:0.001
+##metrics.scalar.[42_env/55_tr_overflow_max_ema] = $env max.term_reason_overflow @train $ema ema_alpha:0.001
+##metrics.scalar.[42_env/56_tr_maxstep_max_ema]  = $env max.term_reason_maxstep @train $ema ema_alpha:0.001
+
+metrics.scalar.[42_env/61_ep_maxrank_mean_ema]  = $env mean.ep_max_rank @train $ema
+metrics.scalar.[42_env/62_ep_frct_mean_ema]     = $env mean.ep_end_fruit_count @train $ema
+metrics.scalar.[42_env/63_tr_timeout_mean_ema]  = $env mean.term_reason_timeout @train $ema ema_alpha:0.005
+metrics.scalar.[42_env/64_tr_blocked_mean_ema]  = $env mean.term_reason_spawn_blocked @train $ema ema_alpha:0.005
+metrics.scalar.[42_env/65_tr_overflow_mean_ema] = $env mean.term_reason_overflow @train $ema ema_alpha:0.005
+#metrics.scalar.[42_env/66_tr_maxstep_mean_ema]  = $env mean.term_reason_maxstep @train $ema ema_alpha:0.005
 
 
 # ---- image metrics

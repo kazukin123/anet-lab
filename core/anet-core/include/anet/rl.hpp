@@ -702,7 +702,8 @@ namespace anet::rl {
     enum class EventField {
         EXPERIENCE,
         AGENT,
-		UPDATE_RESULT,
+        ENV,
+        UPDATE_RESULT,
         RUNNER
     };
 
