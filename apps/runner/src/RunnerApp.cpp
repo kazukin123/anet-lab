@@ -134,6 +134,10 @@ bool RunnerApp::OnInit()
     // RunnerApp設定生成
     config_ = std::make_unique<RunnerApp::Config>(config_data);
 
+    // MetricsLogger
+    anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetRunsPath(), config_->run_name);
+    anet::MetricsLogger::Instance()->Log("config_data", config_data.ToJson());
+
     // ライブラリ初期化
 	anet::rl::BackendConfig backend_config(config_data);
     anet::rl::InitRL(backend_config);
@@ -142,10 +146,6 @@ bool RunnerApp::OnInit()
     anet::rl::env::InitLunarLander();
     anet::rl::env::InitCartPole();
     anet::rl::env::InitDropMerge();
-
-    // MetricsLogger
-    anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetRunsPath(), config_->run_name);
-    anet::MetricsLogger::Instance()->Log("config_data", config_data.ToJson());
 
     // RunNameを記録
 	this->WriteLastRunName(anet::MetricsLogger::Instance()->GetRunName());

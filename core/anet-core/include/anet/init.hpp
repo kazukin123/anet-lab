@@ -9,7 +9,7 @@ namespace anet::rl {
 	struct BackendConfig : public anet::Config {
         bool use_tf32_cublas = true;
         bool use_tf32_cudnn = true;
-        bool cudnn_deterministic = false;
+        bool cudnn_deterministic = true;
         bool cudnn_benchmark = false;
 
         explicit BackendConfig(const ConfigData& config_data = EmptyConfigData, const std::string& prefix = "backend")

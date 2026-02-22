@@ -57,11 +57,15 @@ QValuePanel.hist_range_k = 5    # 1.0 2.5	描画範囲
 
 # --- backend
 
-backend.use_tf32_cublas = true;
-backend.use_tf32_cudnn = true;
-backend.cudnn_deterministic = false;
-backend.cudnn_benchmark = true;
+backend.use_tf32_cublas = true      # GPUが対応していれば、ほぼ劣化なしで高速化
+backend.use_tf32_cudnn = true       # GPUが対応していれば、ほぼ劣化なしで高速化
+backend.cudnn_deterministic = true  # false:非決定論的だが高速化　               true:決定論的だが遅い
+backend.cudnn_benchmark = false     # true:非決定論的だが高速化(する場合がある)　false:決定論的だが遅い
 
+#backend.use_tf32_cublas = true
+#backend.use_tf32_cudnn = true
+#backend.cudnn_deterministic = false
+#backend.cudnn_benchmark = true
 
 # --- app
 
