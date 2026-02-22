@@ -90,7 +90,7 @@ namespace anet {
 
         void Close();
     public:
-        VideoLogger(const std::string& path, int width, int height, int fps = 30, const std::string& codec = "mjpeg");
+        VideoLogger(const std::string& path, int width, int height, int fps = 30, const std::string& codec = "libx264");
         ~VideoLogger() { Close(); }
 
         void WriteFrame(const wxImage& img);
@@ -128,9 +128,10 @@ namespace anet {
         void Log(const anet::Config& config);
 
         void Log(const std::string& tag, const json& data);
+        void Log(const std::string& tag, anet::rl::step_t step, const json& data);
 
-        void Log(const std::string& tag, int step, const wxImage& image);
-        void Log(const std::string& tag, int step, const anet::ImageSource& src, int width = -1, int height = -1);
+        void Log(const std::string& tag, anet::rl::step_t step, const wxImage& image);
+        void Log(const std::string& tag, anet::rl::step_t step, const anet::ImageSource& src, int width = -1, int height = -1);
 
         inline std::string GetRunName() const { return run_name_; }
         inline std::string GetOutDir() const { return std::filesystem::relative(root_dir_ + "/" + run_name_).string(); }
@@ -152,10 +153,7 @@ namespace anet {
         static std::string sanitize_filename(const std::string& s);
 
         // 内部実装
-        void LogImage_subtyped(const std::string& tag,
-            int step,
-            const wxImage& image,
-            const std::string& subtype_or_empty);
+        void LogImage_subtyped(const std::string& tag, anet::rl::step_t step, const wxImage& image, const std::string& subtype_or_empty);
 
         // --- Singleton管理 ---
         static std::shared_ptr<MetricsLogger> instance_;

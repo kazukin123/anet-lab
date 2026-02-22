@@ -2,6 +2,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <iostream>
+#include <format>
 #include <wx/process.h>
 #include <wx/image.h>
 #include <wx/filename.h>
@@ -40,15 +41,31 @@ namespace anet {
     VideoLogger::VideoLogger(const std::string& path, int width, int height, int fps, const std::string& codec)
         : width_(width), height_(height), path_(path), fps_(fps), codec_(codec)
     {
+        ANET_CHECK_MSG(width <= 8192, "invalid Image size.");
+        ANET_CHECK_MSG(height <= 4320, "invalid Image size.");
+
         wxFileName fn(wxString::FromUTF8(path_));
         wxFileName::Mkdir(fn.GetPath(), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
 
+        // エンコード用の出力オプションをコーデックによって切り替え
+        wxString output_options;
+        if (codec_ == "libx264") {
+            // H.264用: 超高速(CPU負荷最小)、ロスレス、色差間引きなし
+            output_options = "-c:v libx264 -preset ultrafast -crf 0 -pix_fmt yuv444p -g 30 -keyint_min 30 -sc_threshold 0 -tune fastdecode ";
+        } else {
+            // MJPEG等: 従来の可変ビットレート品質指定 (2は最高品質クラス)
+            output_options = wxString::Format("-c:v %s -q:v 2", wxString::FromUTF8(codec_));
+        }
+
+        // コマンドライン
         wxString cmd = wxString::Format(
             "ffmpeg -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d "
-            "-i - -thread_queue_size 512 -f matroska -c:v %s -q:v 2 \"%s\"",
-            width_, height_, fps_, wxString::FromUTF8(codec_), wxString::FromUTF8(path_)
+            //"-report "
+            "-thread_queue_size 512 -i - -f matroska %s \"%s\"",
+            width_, height_, fps_, output_options, wxString::FromUTF8(path_)
         );
-
+        //LOG::info() << " cmd=" << cmd.c_str();
+        
         process_ = new wxProcess();
         process_->Redirect();  // 標準入出力をリダイレクト
 
@@ -75,7 +92,8 @@ namespace anet {
     void VideoLogger::WriteFrame(const wxImage& img)
     {
         ANET_CHECK(stream_ != nullptr);
-        if (!stream_ || !stream_->IsOk()) return;
+        if (!stream_ || !stream_->IsOk()) return; 
+
         const unsigned char* data = img.GetData();
         size_t nbytes = width_ * height_ * 3;
 
@@ -225,14 +243,33 @@ namespace anet {
         backend_->WriteJsonl(obj);
     }
 
-    void MetricsLogger::Log(const std::string& tag, int step, const wxImage& image)
+    void MetricsLogger::Log(const std::string& tag, anet::rl::step_t step, const json& data)
+    {
+        json rounded = round_numbers(data);
+        json obj = {
+            {"type", "json"},
+            {"tag", tag},
+            {"data", rounded}
+        };
+
+        std::string safe_tag = sanitize_filename(tag);
+        std::string full_dir = root_dir_ + "/" + run_name_ + "/json";
+        std::string full_path = root_dir_ + "/" + run_name_ + "/json/" + safe_tag + std::format("{}", step) + ".json";
+        std::filesystem::create_directories(full_dir);
+        std::ofstream ofs(full_path);  // ファイルを開く
+        ofs << obj.dump(4) << std::endl;     // インデント幅 4 で書出
+
+        obj["timestamp"] = current_time_str();
+        backend_->WriteJsonl(obj);
+    }
+    void MetricsLogger::Log(const std::string& tag, anet::rl::step_t step, const wxImage& image)
     {
         ProfileRange r("MetricsLogger::LogImage1");
 
         LogImage_subtyped(tag, step, image, "");
     }
 
-    void MetricsLogger::Log(const std::string& tag, int step, const anet::ImageSource& src, int width, int height)
+    void MetricsLogger::Log(const std::string& tag, anet::rl::step_t step, const anet::ImageSource& src, int width, int height)
     {
         ProfileRange r("MetricsLogger::LogImage2");
 
@@ -244,10 +281,7 @@ namespace anet {
     //----------------------------------------------
     // 画像・動画出力
     //----------------------------------------------
-    void MetricsLogger::LogImage_subtyped(const std::string& tag,
-        int step,
-        const wxImage& image,
-        const std::string& subtype_or_empty)
+    void MetricsLogger::LogImage_subtyped(const std::string& tag, anet::rl::step_t step, const wxImage& image, const std::string& subtype_or_empty)
     {
         ProfileRange r("MetricsLogger::LogImage_subtyped");
 
