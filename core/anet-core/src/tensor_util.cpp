@@ -3,6 +3,7 @@
 #include "anet/tensor_util.hpp"
 #include <functional>
 #include <iostream>
+#include "anet/common.hpp"
 
 namespace anet {
 

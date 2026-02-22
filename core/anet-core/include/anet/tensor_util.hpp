@@ -2,8 +2,6 @@
 #include <string>
 #include <sstream>
 #include <torch/torch.h>
-#include "anet/common.hpp"
-#include "anet/rl.hpp"
 
 namespace anet {
 
@@ -94,5 +92,118 @@ namespace anet {
     //    }
     //    return oss.str();
     //}
+
+
+    // =========================
+    // TensorDict
+    // =========================
+
+    class TensorDict {
+    public:
+
+        // ---------------------------------------------------------
+        // コンストラクタ
+        // ---------------------------------------------------------
+
+        TensorDict() = default;
+
+
+        // ---------------------------------------------------------
+        // 基本機能
+        // ---------------------------------------------------------
+
+        // テンソルの追加・上書き
+        void Set(const std::string& key, const torch::Tensor& tensor)
+        {
+            dict_[key] = tensor;
+        }
+
+        // テンソルの取得（存在しない場合は nullopt）
+        std::optional<torch::Tensor> Get(const std::string& key) const
+        {
+            auto it = dict_.find(key);
+            if (it != dict_.end()) {
+                return it->second;
+            }
+            return std::nullopt;
+        }
+
+        // テンソルの取得（存在しない場合は例外スロー。確実に存在する場合用）
+        torch::Tensor At(const std::string& key) const
+        {
+            return dict_.at(key); // std::out_of_range を投げる
+        }
+
+        // 存在チェック
+        bool Contains(const std::string& key) const
+        {
+            return dict_.find(key) != dict_.end();
+        }
+
+        bool Empty() const { return dict_.empty(); }
+        size_t Size() const { return dict_.size(); }
+
+        std::string ToString() const
+        {
+            std::stringstream ss;
+            ss << "------------\n";
+            for (const auto& kv : dict_) {
+                ss << kv.first << ": ";
+                ss << anet::ToString(kv.second) << "\n";
+            }
+            ss << "------------\n";
+            return ss.str();
+        }
+
+        std::string ToDefString() const
+        {
+            std::stringstream ss;
+            ss << "------------\n";
+            for (const auto& kv : dict_) {
+                ss << kv.first << ": ";
+                ss << anet::ToDefString(kv.second) << "\n";
+            }
+            ss << "------------\n";
+            return ss.str();
+        }
+
+        // ---------------------------------------------------------
+        // イテレータ (Range-based for用)
+        // ---------------------------------------------------------
+
+        auto begin() { return dict_.begin(); }
+        auto end() { return dict_.end(); }
+        auto begin() const { return dict_.begin(); }
+        auto end() const { return dict_.end(); }
+
+
+        // ---------------------------------------------------------
+        // TensorDictならではの便利機能
+        // ---------------------------------------------------------
+
+        // 全テンソルを一括で指定デバイスに転送して新しいTensorDictを返す
+        TensorDict To(torch::Device device, bool non_blocking = false) const
+        {
+            TensorDict res;
+            for (const auto& kv : dict_) {
+                res.Set(kv.first, kv.second.to(device, non_blocking));
+            }
+            return res;
+        }
+
+        // 全テンソルを一括でDetachして新しいTensorDictを返す
+        TensorDict Detach() const
+        {
+            TensorDict res;
+            for (const auto& kv : dict_) {
+                res.Set(kv.first, kv.second.detach());
+            }
+            return res;
+        }
+
+    private:
+        // ソート順を保証して描画順序を安定させるため std::map を採用
+        std::map<std::string, torch::Tensor> dict_;
+    };
 
 } // namespace anet::util
