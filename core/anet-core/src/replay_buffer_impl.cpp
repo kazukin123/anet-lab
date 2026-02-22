@@ -943,7 +943,7 @@ ReplayBufferFactory::Create(const EnvSpec& env_spec, torch::Device device, int b
     std::shared_ptr<ReplayExperienceStacker> stacker = nullptr;
     if (config_.use_stacker) {
         int stack_count = config_.stack_count;
-        ANET_CHECK_MSG(stack_count > 1, "stack_count must be greater than 1");
+        ANET_CHECK_MSG(stack_count > 0, "stack_count must be greater than 0");
         int num_envs = batch_size;
         const auto& state_shape = env_spec.state_spec.shape;
         stacker = std::make_shared<ReplayExperienceStateStacker>(stack_count, batch_size, state_shape, device);
