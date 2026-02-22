@@ -41,47 +41,47 @@ net.body.$ = net.body.SuikaResNet4064_10d     # ★
 # 実験
 # ==============================================================================
 
-app.run_name = run_{t}
+#app.run_name = run_{t}
 
 #R.learner.update_warmup_steps = 0
 
 #R.stucker.stack_count = 1
 
-R.learner.replay_capacity = 500,000
+#R.learner.replay_capacity = 500,000
 
 #R.learner.per_alpha = 0.4      # 0.6 マイルド
-R.learner.per_alpha = 0.2       # ノイズを気にしない
+#R.learner.per_alpha = 0.2       # ノイズを気にしない
 
-R.learner.per_beta_start = 0.4  # 0.6 
+#R.learner.per_beta_start = 0.4  # 0.6 
 
 #R.reward_scaler.constant_scale = 1.0         # ★
 #R.reward_scaler.constant_scale = 0.1         # ★
 #R.reward_scaler.constant_scale = 0.01         # ★
-R.reward_scaler.constant_scale = 0.001         # ★
+#R.reward_scaler.constant_scale = 0.001         # ★
 #R.reward_scaler.constant_scale = 0.0005         # ★
 #R.reward_scaler.constant_scale = 0.0001         # ★
 
 #E.game_over_penalty = -10.0
 #E.game_over_penalty = -5.0
 #E.game_over_penalty = -10.0
-E.game_over_penalty = 0.0
+##E.game_over_penalty = 0.0
 #E.game_over_penalty = -200.0
 #E.game_over_penalty = -500.0
 
-E.time_penalty = -0.0001    # NEET対策
+##E.time_penalty = -0.0001    # NEET対策
 #E.time_penalty = -0.001    # NEET対策
 #E.time_penalty = -0.01    # NEET対策
 #E.time_penalty = -0.1    # NEET対策
 #E.time_penalty = 0
 
 
-R.learner.grad_clip_tau = 0.5 # ★
+##R.learner.grad_clip_tau = 0.5 # ★
 #R.learner.grad_clip_tau = 1.0 # ★
 #R.learner.grad_clip_tau = 10.0 # ★
 #R.learner.grad_clip_tau = 30.0 # ★
 
 
-R.learner.replay_batch_size = 128   # 256
+##R.learner.replay_batch_size = 128   # 256
 #R.learner.replay_batch_size = 64   # 256
 
 #R.learner.replay_ratio = 2.0  # 1.0
@@ -101,11 +101,11 @@ R.learner.replay_batch_size = 128   # 256
 #R.action_policy.uqe_eps_min = 0.05
 #R.action_policy.uqe_eps_min = 0.0
 
-R.action_policy.uqe_tau_min = 0.75  # ビビリ対策
+#R.action_policy.uqe_tau_min = 0.75  # ビビリ対策
 
 #R.learner.alpha = 5e-6
 #R.learner.alpha = 1e-5
-R.learner.alpha = 5e-5
+#R.learner.alpha = 5e-5
 #R.learner.alpha = 5e-4
 #R.learner.alpha = 1e-4
 
@@ -128,7 +128,7 @@ R.learner.alpha = 5e-5
 #R.learner.per_beta_start = 0.6                    # 0.4
 #R.learner.per_prio_clip_value = 50                # 30 
 
-R.network.soft_update_tau = 0.005                 # 0.01
+##R.network.soft_update_tau = 0.005                 # 0.01
 #R.network.soft_update_tau = 0.001                 # 0.01
 
 #R.learner.per_prio_clip_value = 100.0  # 30 優先度の上限値
@@ -186,27 +186,29 @@ A.learner.per_beta_step = 10,000,000              # 10M
 
 A.action_policy.uqe_eps_max = 0.60
 A.action_policy.uqe_eps_min = 0.05
+A.action_policy.uqe_tau_min = 0.75           # ビビリ対策
 
-A.learner.alpha = 5e-6         # ★
-A.learner.gamma = 0.99          # ★
-#A.learner.n_step = 30           # ★
+A.learner.alpha = 5e-5         # ★
+A.learner.gamma = 0.99         # ★
 A.learner.n_step = 3           # ★
 A.learner.replay_ratio = 1.0
-A.learner.replay_capacity = 1,000,000
-A.learner.replay_batch_size = 256
-A.learner.grad_clip_tau = 30
+#A.learner.replay_capacity = 1,000,000
+A.learner.replay_capacity = 500,000          # 2セッション同時実行出来るよう
+A.learner.replay_batch_size = 128            # 256 学習が重めなのので少し下げる
+A.learner.grad_clip_tau = 0.5                # ★厳しめ（報酬値を変えたら要調整）
 A.learner.update_warmup_steps = 25,600       # 256(replay-sample) * 100step
-A.learner.per_beta_start = 0.6               # 0.4
+A.learner.per_alpha = 0.2                    # ノイズを気にしない
+A.learner.per_beta_start = 0.4  # 0.6        # 低め（序盤は優先度を学習にあまり反映させない）
 A.learner.per_prio_clip_value = 50           # 30 
 A.learner.use_per_prio_clip = true           # 優先度をクリッピングするか
 
 A.reward_scaler.use_dynamic_scaling = false
 A.reward_scaler.use_auto_post_scale = false
-A.reward_scaler.constant_scale = 0.01             # ★
+A.reward_scaler.constant_scale = 0.001       # ★（報酬値を変えたら要調整）
 A.reward_scaler.use_clipping = false
 A.reward_scaler.clip_range = 10.0
 
-A.network.soft_update_tau = 0.001                 # 0.01
+A.network.soft_update_tau = 0.005                 # 0.001 高め
 
 
 B.action_policy.policy_type = 0        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
@@ -515,13 +517,12 @@ DropMergeEnv.baseline.use_instant_drop = true
 
 #DropMergeEnv.baseline.restitution = 0.05      # 反発係数
 #DropMergeEnv.baseline.restitution = 0.10        # 反発係数
-DropMergeEnv.baseline.restitution = 0.05        # 反発係数
+DropMergeEnv.baseline.restitution = 0.05        # 反発係数 衝撃吸収
 
 #DropMergeEnv.baseline.friction = 0.3          # 摩擦
 DropMergeEnv.baseline.friction = 0.1          # 摩擦 ツルツル
 
 #DropMergeEnv.baseline.time_penalty = -0.0001    # 時間ペナルティ
-DropMergeEnv.baseline.time_penalty = -0.001     # 時間ペナルティ
 #DropMergeEnv.baseline.time_penalty = 0.0        # 時間ペナルティ
 
 #DropMergeEnv.baseline.game_over_penalty = -10.0   # GameOverペナルティ
@@ -561,7 +562,7 @@ DropMergeEnv.pop_force = 0.0            # 0.5 1.5 爆発力
 DropMergeEnv.restitution = 0.05         # 反発係数 衝撃吸収
 DropMergeEnv.friction = 0.1             # 摩擦 ツルツル
 DropMergeEnv.game_over_penalty = 0      # ★ -10.0  GameOverペナルティ
-DropMergeEnv.time_penalty = 0.0         # ★ 時間ペナルティ
+DropMergeEnv.time_penalty = -0.0001     # ★ 0.0 時間ペナルティ
 DropMergeEnv.noop_penalty = 0.0         # NOOPペナルティ
 DropMergeEnv.noop_override = false      # NOOPを中央方向移動に変換するか
 DropMergeEnv.game_over_grace_step = 5   # ゲームオーバー猶予ステップ数
