@@ -12,12 +12,16 @@
 #include "anet/observers.hpp"
 #include "anet/trainer.hpp"
 #include "anet/gui.hpp"
+#include "anet/config.hpp"
 
 class Conv2dPanel final : public anet::rl::gui::Panel
 {
 public:
     // observer: ヒートマップ生成ロジックを持つクラスの所有権を受け取る
-    Conv2dPanel(wxWindow* parent, const wxString& title, anet::rl::RunManager& run_manager, std::shared_ptr<anet::rl::Runner> runner);
+    Conv2dPanel(
+        wxWindow* parent, const wxString& title,
+        anet::rl::RunManager& run_manager, std::shared_ptr<anet::rl::Runner> runner,
+        const anet::ConfigData& config_data);
 
     virtual ~Conv2dPanel();
 private:
@@ -34,8 +38,12 @@ private:
 private:
     void CreateVisualizer(std::shared_ptr<anet::rl::Runner> runner);
     void CreateObserver(anet::rl::RunManager& run_manager, std::shared_ptr<anet::rl::Runner> runner);
-
 private:
+    class Config;
+private:
+    // 設定
+    std::unique_ptr<Config> config_;
+
     // UIコンポーネント
     wxGLCanvas* canvas_ = nullptr;
     wxGLContext* context_ = nullptr;

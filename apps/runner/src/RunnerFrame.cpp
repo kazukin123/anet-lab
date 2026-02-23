@@ -376,7 +376,8 @@ void RunnerFrame::OnConv2d(wxCommandEvent& event)
 
     // Conv2dPanelを生成
     auto& run_manager = wxGetApp().GetRunManager();
-    auto conv2d_panel = new Conv2dPanel(this, "Conv2d", run_manager, eval_runner_);
+    auto config_data = wxGetApp().GetConfigData();
+    auto conv2d_panel = new Conv2dPanel(this, "Conv2d", run_manager, eval_runner_, config_data);
 
     // AuiManagerに登録
     aui_mgr_.AddPane(conv2d_panel,

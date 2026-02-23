@@ -54,6 +54,15 @@ QValuePanel.hist_range_k = 5    # 1.0 2.5	描画範囲
 #QValuePanel.hist_range_k = 10    # 1.0 2.5
 #QValuePanel.hist_range_k = 20.5    # 1.0 2.5
 
+Conv2dPanel.conv2d.channels_per_row = 17
+Conv2dPanel.conv2d.network_key = policy-net.conv2d
+Conv2dPanel.conv2d.flip_vertical = true
+Conv2dPanel.conv2d.mergin_x = 2
+Conv2dPanel.conv2d.mergin_y = 2
+Conv2dPanel.conv2d.colormap = jet  # gray hot jet
+Conv2dPanel.conv2d.scale_factor = 1
+Conv2dPanel.conv2d.min_block_size = 40
+
 
 # --- backend
 
