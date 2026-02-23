@@ -50,8 +50,8 @@ namespace anet {
         // エンコード用の出力オプションをコーデックによって切り替え
         wxString output_options;
         if (codec_ == "libx264") {
-            // H.264用: 超高速(CPU負荷最小)、ロスレス、色差間引きなし
-            output_options = "-c:v libx264 -preset ultrafast -crf 0 -pix_fmt yuv444p -g 30 -keyint_min 30 -sc_threshold 0 -tune fastdecode ";
+            // H.264用: 超高速(CPU最小)、色差間引きなし
+            output_options = "-c:v libx264 -preset ultrafast -crf 15 -pix_fmt yuv444p -g 30 -keyint_min 30 -sc_threshold 0 -tune fastdecode ";
         } else {
             // MJPEG等: 従来の可変ビットレート品質指定 (2は最高品質クラス)
             output_options = wxString::Format("-c:v %s -q:v 2", wxString::FromUTF8(codec_));
@@ -59,7 +59,7 @@ namespace anet {
 
         // コマンドライン
         wxString cmd = wxString::Format(
-            "ffmpeg -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d "
+            "ffmpeg -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -threads 2 "
             //"-report "
             "-thread_queue_size 512 -i - -f matroska %s \"%s\"",
             width_, height_, fps_, output_options, wxString::FromUTF8(path_)
