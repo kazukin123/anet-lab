@@ -183,13 +183,13 @@ namespace anet::rl {
     static constexpr const char* kImageType_Conv2d = "Conv2d";
 
     struct Conv2dVisualizerConfig {
-        int margin_x = 4; ///< チャンネル(列)間の余白ピクセル
-        int margin_y = 2; ///< レイヤー(行)間の余白ピクセル
-        int channels_per_row = 16; ///< 1行に並べる最大チャンネル数
-        bool flip_vertical = true; ///< 画像の上下を反転して描画するか
+        int margin_x = 4;               ///< チャンネル(列)間の余白ピクセル
+        int margin_y = 4;               ///< レイヤー(行)間の余白ピクセル
+        int channels_per_row = 16;      ///< 1行に並べる最大チャンネル数
+        bool flip_vertical = true;      ///< 画像の上下を反転して描画するか
         std::string network_key = "policy-net.conv2d"; ///< 抽出対象のネットワーク
         std::string colormap = "jet";	///< gray / jet / hot
-        int scale_factor = 4;
+        int scale_factor = 2;           ///< 画像引き伸ばしスケール。動画プレイヤー側で下手なスケーリングされても耐えるように…
         int min_block_size = 40;
     };
 

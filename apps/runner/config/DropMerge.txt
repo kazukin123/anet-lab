@@ -41,7 +41,9 @@ net.body.$ = net.body.SuikaResNet4064_10d     # ★
 # 実験
 # ==============================================================================
 
-app.run_name = run_{t}
+app.run_name = run_{t}_g999
+
+#E.use_dropper_x_grid = true
 
 #R.learner.update_warmup_steps = 0
 
@@ -64,7 +66,7 @@ app.run_name = run_{t}
 #E.game_over_penalty = -10.0
 #E.game_over_penalty = -5.0
 #E.game_over_penalty = -10.0
-##E.game_over_penalty = 0.0
+E.game_over_penalty = 0.0
 #E.game_over_penalty = -200.0
 #E.game_over_penalty = -500.0
 
@@ -72,7 +74,7 @@ app.run_name = run_{t}
 #E.time_penalty = -0.001    # NEET対策
 #E.time_penalty = -0.01    # NEET対策
 #E.time_penalty = -0.1    # NEET対策
-#E.time_penalty = 0
+E.time_penalty = 0
 
 
 ##R.learner.grad_clip_tau = 0.5 # ★
@@ -109,6 +111,7 @@ app.run_name = run_{t}
 #R.learner.alpha = 5e-4
 #R.learner.alpha = 1e-4
 
+R.learner.gamma = 0.999 # ★ 長期戦略考慮
 #R.learner.gamma = 0.995 # ★ 長期戦略考慮
 #R.learner.gamma = 0.99   # ★
 #R.learner.gamma = 0.95   # ★
@@ -247,14 +250,16 @@ net.block.[Embed2032].type = SpatialEmbedder
 net.block.[Embed2032].embed.scalar_dim = 4
 net.block.[Embed2032].embed.grid_width = 20
 net.block.[Embed2032].embed.grid_height = 32
-net.block.[Embed2032].embed.num_classes = 12
+#net.block.[Embed2032].embed.num_classes = 12
+net.block.[Embed2032].embed.num_classes = 13
 
 # 入力: (B, Stack*16, 40, 64)
 net.block.[Embed4064].type = SpatialEmbedder
 net.block.[Embed4064].embed.scalar_dim = 4
 net.block.[Embed4064].embed.grid_width = 40
 net.block.[Embed4064].embed.grid_height = 64
-net.block.[Embed4064].embed.num_classes = 12
+#net.block.[Embed4064].embed.num_classes = 12
+net.block.[Embed4064].embed.num_classes = 13   # Dropper X
 
 # 出力前 全結合層
 net.block.[LinearOut].type = Linear
@@ -441,51 +446,48 @@ metrics.image.interval = 0   # 出力全無効
 #metrics.image.[60_agent_img/01_conv2d].$ = image.conv2d
 
 #metrics.image.[60_agent_img/01_conv2d_16p].type = Conv2d
-#metrics.image.[60_agent_img/01_conv2d_16p].interval = 100
-#metrics.image.[60_agent_img/01_conv2d_16p].conv2d.channels_per_row = 16
+#metrics.image.[60_agent_img/01_conv2d_16p].interval = 5
+#metrics.image.[60_agent_img/01_conv2d_16p].conv2d.channels_per_row = 17
 #metrics.image.[60_agent_img/01_conv2d_16p].conv2d.network_key = policy-net.conv2d
 #metrics.image.[60_agent_img/01_conv2d_16p].conv2d.min_block_size = 40
 
 metrics.image.[60_agent_img/02_conv2d_32p].type = Conv2d
-#metrics.image.[60_agent_img/02_conv2d_32p].interval = 100
-metrics.image.[60_agent_img/02_conv2d_32p].interval = 10
-metrics.image.[60_agent_img/02_conv2d_32p].conv2d.channels_per_row = 32
+metrics.image.[60_agent_img/02_conv2d_32p].interval = 5
+metrics.image.[60_agent_img/02_conv2d_32p].conv2d.channels_per_row = 34
 metrics.image.[60_agent_img/02_conv2d_32p].conv2d.network_key = policy-net.conv2d
 metrics.image.[60_agent_img/02_conv2d_32p].conv2d.min_block_size = 40
 
 #metrics.image.[60_agent_img/03_conv2d_64p].type = Conv2d
-#metrics.image.[60_agent_img/03_conv2d_64p].interval = 100
-#metrics.image.[60_agent_img/03_conv2d_64p].conv2d.channels_per_row = 64
+#metrics.image.[60_agent_img/03_conv2d_64p].interval = 5
+#metrics.image.[60_agent_img/03_conv2d_64p].conv2d.channels_per_row = 68
 #metrics.image.[60_agent_img/03_conv2d_64p].conv2d.network_key = policy-net.conv2d
 #metrics.image.[60_agent_img/03_conv2d_64p].conv2d.min_block_size = 40
 #metrics.image.[60_agent_img/03_conv2d_64p].conv2d.scale_factor = 1
 
-
 #metrics.image.[60_agent_img/22_conv2d_32t].type = Conv2d
-#metrics.image.[60_agent_img/22_conv2d_32t].interval = 100
-#metrics.image.[60_agent_img/22_conv2d_32t].conv2d.channels_per_row = 32
+#metrics.image.[60_agent_img/22_conv2d_32t].interval = 5
+#metrics.image.[60_agent_img/22_conv2d_32t].conv2d.channels_per_row = 34
 #metrics.image.[60_agent_img/22_conv2d_32t].conv2d.network_key = target-net.conv2d
 #metrics.image.[60_agent_img/22_conv2d_32t].conv2d.min_block_size = 40
 
-
 metrics.image.[60_agent_img/11_conv2d_32p_jet].type = Conv2d
-metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 10
-metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.channels_per_row = 32
+metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 5
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.channels_per_row = 34
 metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.network_key = policy-net.conv2d
 metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.colormap = jet
 metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.min_block_size = 40
 
 #metrics.image.[60_agent_img/23_conv2d_32t_jet].type = Conv2d
-#metrics.image.[60_agent_img/23_conv2d_32t_jet].interval = 10
-#metrics.image.[60_agent_img/23_conv2d_32t_jet].conv2d.channels_per_row = 32
+#metrics.image.[60_agent_img/23_conv2d_32t_jet].interval = 5
+#metrics.image.[60_agent_img/23_conv2d_32t_jet].conv2d.channels_per_row = 34
 #metrics.image.[60_agent_img/23_conv2d_32t_jet].conv2d.network_key = target-net.conv2d
 #metrics.image.[60_agent_img/23_conv2d_32t_jet].conv2d.colormap = jet
 #metrics.image.[60_agent_img/23_conv2d_32t_jet].conv2d.min_block_size = 40
 
 
 #metrics.image.[60_agent_img/12_conv2d_16p_hot].type = Conv2d
-#metrics.image.[60_agent_img/12_conv2d_16p_hot].interval = 100
-#metrics.image.[60_agent_img/12_conv2d_16p_hot].conv2d.channels_per_row = 16
+#metrics.image.[60_agent_img/12_conv2d_16p_hot].interval = 5
+#metrics.image.[60_agent_img/12_conv2d_16p_hot].conv2d.channels_per_row = 17
 #metrics.image.[60_agent_img/12_conv2d_16p_hot].conv2d.network_key = policy-net.conv2d
 #metrics.image.[60_agent_img/12_conv2d_16p_hot].conv2d.colormap = hot
 #metrics.image.[60_agent_img/12_conv2d_16p_hot].conv2d.min_block_size = 40
@@ -583,6 +585,7 @@ DropMergeEnv.max_step = 20000            # エピソード打ち切りステッ�
 DropMergeEnv.no_drop_timeout_steps = 200 # 500 DROPしないでいると強制エピソード打ち切り(truncated)とするステップ数
 DropMergeEnv.use_fast_move = false
 DropMergeEnv.use_instant_drop = false
+DropMergeEnv.use_dropper_x_grid = true
 DropMergeEnv.dropper_speed = 0.05
 DropMergeEnv.dropper_speed2 = 0.30
 DropMergeEnv.reload_min_steps = 20      # 物理判定が即座に終わっても、最低これだけは待つ（連打防止）。

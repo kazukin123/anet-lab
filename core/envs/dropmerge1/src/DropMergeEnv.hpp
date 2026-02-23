@@ -51,6 +51,7 @@ namespace anet::rl::env::drop_merge {
         // --- ゲームプレイパラメータ ---
 		bool use_fast_move = false;     ///< 高速移動モード
         bool use_instant_drop = false;  ///< 即時ドロップモード
+        bool use_dropper_x_grid = true; ///< DropperのX座標をGridの最上段に描画する
         float dropper_speed = 0.05f;    ///< 1ステップあたりのDropper移動量
         float dropper_speed2 = 0.30f;   ///< 1ステップあたりのDropper移動量(FAST)
         float pop_force = 1.0f;         ///< 合体時の弾き飛ばし力
@@ -91,6 +92,7 @@ namespace anet::rl::env::drop_merge {
             ANET_READ_CONFIG(config_data, grid_cols);
             ANET_READ_CONFIG(config_data, use_fast_move);
             ANET_READ_CONFIG(config_data, use_instant_drop);
+            ANET_READ_CONFIG(config_data, use_dropper_x_grid);
             ANET_READ_CONFIG(config_data, dropper_speed);
             ANET_READ_CONFIG(config_data, dropper_speed2);
             ANET_READ_CONFIG(config_data, pop_force);

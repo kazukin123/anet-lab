@@ -97,6 +97,7 @@ wxColour DropMergePanel::GetFruitColor(int rank) const
     case 9: return wxColour(255, 255, 0);    // Pineapple (Yellow)
     case 10: return wxColour(154, 250, 154); // Melon (Light Green)
     case 11: return wxColour(0, 128, 0);     // Watermelon (Dark Green)
+    case 12: return *wxWHITE;                // Dropper X (White)
     default: return *wxLIGHT_GREY;
     }
 }
@@ -250,13 +251,14 @@ void DropMergePanel::DrawGrid(wxDC& dc)
     wxPen gridLinePen(wxColour(100, 100, 100), 1);
 
     // ランクごとのBrushとStringのキャッシュ
-    std::vector<wxBrush> rankBrushes(kFruitTypeCount, *wxTRANSPARENT_BRUSH);
-    std::vector<wxString> rankStrings(kFruitTypeCount);
-    for (int i = 1; i < kFruitTypeCount; ++i) {
+    const int max_grid_val = kFruitTypeCount + 1;
+    std::vector<wxBrush> rankBrushes(max_grid_val + 1, *wxTRANSPARENT_BRUSH);
+    std::vector<wxString> rankStrings(max_grid_val + 1);
+    for (int i = 1; i <= max_grid_val; ++i) {
         rankStrings[i] = wxString::Format("%d", i);
     }
     if (grid_draw_mode_ != GRID_DRAW_MODE_DEFAULT) {
-        for (int i = 1; i < kFruitTypeCount; ++i) {
+        for (int i = 1; i <= max_grid_val; ++i) {
             rankBrushes[i] = wxBrush(GetFruitColor(i));
         }
     } else {
@@ -290,7 +292,7 @@ void DropMergePanel::DrawGrid(wxDC& dc)
                 dc.DrawRectangle(rect);         // 通常モード: ループ外でPen/Brush設定済みなのでDrawのみ
             } else {
                 // Grid Viewモード: 塗りつぶし
-                if (rank > 0 && rank < kFruitTypeCount) {
+                if (rank > 0 && rank <= max_grid_val) {
                     dc.SetBrush(rankBrushes[rank]); // キャッシュしたBrushを使用
                     dc.SetPen(*wxTRANSPARENT_PEN);
                     dc.DrawRectangle(rect);
@@ -303,7 +305,7 @@ void DropMergePanel::DrawGrid(wxDC& dc)
             }
 
             // ランク文字
-            if (rank > 0 && rank < kFruitTypeCount) {
+            if (rank > 0 && rank <= max_grid_val) { // ランク0は書かない
                 dc.DrawText(rankStrings[rank], p1.x + 2, p2.y + 2);
             }
         }
@@ -540,7 +542,8 @@ void DropMergePanel::DrawSidePanel(wxDC& dc)
         dc.SetFont(wxFont(9, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
         dc.SetPen(wxPen(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT), 1));
 
-        for (int rank = 1; rank <= kFruitTypeCount; ++rank) {
+        const int max_legend_rank = kFruitTypeCount + 1;
+        for (int rank = 1; rank <= max_legend_rank; ++rank) {
             int col = (rank - 1) % 6;
             int row = (rank - 1) / 6;
 

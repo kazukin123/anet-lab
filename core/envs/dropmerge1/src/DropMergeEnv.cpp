@@ -727,6 +727,18 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         } while (dropper_.is_busy);
     }
 
+    // --- ペナルティの計算（RL 1ステップにつき1回だけ） ---
+
+    // DROPアクション以外なら時間罰を与える
+    if (action != kActionDrop) {
+        accumulated_reward += config_.time_penalty;
+    }
+
+    //  ゲームオーバー罰
+    if (game_over_) {
+        accumulated_reward += config_.game_over_penalty;
+    }
+
     // エピソード完了判定
     bool done = game_over_;
     bool truncated = (step_count_ >= config_.max_step);
@@ -739,6 +751,9 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     // ショットクロック判定
     if (config_.no_drop_timeout_steps > 0 && steps_since_last_drop_ >= config_.no_drop_timeout_steps) {
         truncated = true;
+        if (!done) {
+            term_reason_ = TerminationReason::Timeout;
+        }
         LOG::info() << "Episode truncated due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
     }
 
@@ -925,6 +940,21 @@ anet::rl::SingleState DropMergeEnv::makeState() const
         }
     }
 
+    // Dropper X グリッド
+    if (config_.use_dropper_x_grid) {
+        // 現在のDropperのX座標から、対象の列(column)を計算
+        float cell_w_x = (max_x - min_x) / config_.grid_cols;
+        int target_c = static_cast<int>((dropper_.x - min_x) / cell_w_x);
+        target_c = std::clamp(target_c, 0, config_.grid_cols - 1);
+
+        // 一番上の行(row)を計算
+        int target_r = config_.grid_rows - 1;
+        int target_idx = target_r * config_.grid_cols + target_c;
+
+        // kFruitTypeCount + 1 (つまり 12.0) で上書き (果物と被っていても優先)
+        grid_obs[target_idx] = static_cast<float>(kFruitTypeCount + 1);
+    }
+
     // Tensor結合
     int total_dim = fixed_obs.size() + grid_obs.size();
     auto t = torch::empty({ total_dim }, float_opt_);
@@ -957,12 +987,12 @@ std::pair<float, float> DropMergeEnv::calcReward()
     }
 
     // 時間経過ペナルティ
-    reward += config_.time_penalty;
+    //reward += config_.time_penalty;
 
     //  ゲームオーバー罰
-    if (game_over_) {
-        reward += config_.game_over_penalty;
-    }
+    //if (game_over_) {
+        //reward += config_.game_over_penalty;
+    //}
 
     return { reward, raw_reward };
 }
