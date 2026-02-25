@@ -759,6 +759,9 @@ private:
             ANET_READ_CONFIG(config_data, res.dilation);
             ANET_READ_CONFIG(config_data, res.conv1_bias);
             ANET_READ_CONFIG(config_data, res.conv2_bias);
+            ANET_READ_CONFIG(config_data, res.activation);
+            ANET_READ_CONFIG(config_data, res.norm_type);
+            ANET_READ_CONFIG(config_data, res.group_norm_groups);
 
             ANET_READ_CONFIG(config_data, init1.mode);
             ANET_READ_CONFIG(config_data, init1.manual_gain);
