@@ -50,7 +50,7 @@ namespace anet::rl {
         int stack_count_;
         int batch_size_;
         torch::Device device_;
-        std::vector<std::deque<torch::Tensor>> buffers_;
+        torch::Tensor buffer_;
     };
 
 }

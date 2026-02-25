@@ -43,52 +43,62 @@ TensorFrameStacker::TensorFrameStacker(int stack_count, int batch_size, torch::D
 {
     ANET_ASSERT(stack_count_ > 0);
     ANET_ASSERT(batch_size_ > 0);
-    buffers_.resize(batch_size_);
+    //buffers_.resize(batch_size_);
 }
 
 torch::Tensor TensorFrameStacker::Stack(const torch::Tensor& data, const torch::Tensor& resets)
 {
-    // 入力チェック (不整合があれば即座に検知)
+    // 入力チェック
     if (data.size(0) != batch_size_ || resets.size(0) != batch_size_) {
         ANET_SYSTEM_ERROR("TensorFrameStacker dimension mismatch. Expected batch_size="
-            << batch_size_ << ", Got data="  << data.size(0));
+            << batch_size_ << ", Got data=" << data.size(0));
     }
 
-    // デバイス操作 (deque管理のためCPUへ)
-    auto data_cpu = data.to(torch::kCPU);
-    auto resets_cpu = resets.to(torch::kCPU);
-    auto resets_ptr = resets_cpu.data_ptr<bool>();
+    // 念のためCPUに確実にあるかチェック
+    auto data_cpu = data.device().is_cpu() ? data : data.to(torch::kCPU);
+    auto resets_cpu = resets.device().is_cpu() ? resets : resets.to(torch::kCPU);
 
-    std::vector<torch::Tensor> stacked_batch(batch_size_);
+    // 初回のみバッファをメモリ確保 (N, S, F...)
+    if (!buffer_.defined()) {
+        auto shape = data_cpu.sizes().vec();
+        shape.insert(shape.begin() + 1, stack_count_); // Stack次元を追加
+        buffer_ = torch::empty(shape, data_cpu.options());
 
-    for (int i = 0; i < batch_size_; ++i) {
-        torch::Tensor current_frame = data_cpu[i];
-        bool is_reset = resets_ptr[i];
-        auto& buffer = buffers_[i];
-
-        if (is_reset || buffer.empty()) {
-            // Reset or Init -> Padding
-            buffer.clear();
-            for (int k = 0; k < stack_count_; ++k) {
-                buffer.push_back(current_frame);
-            }
-        } else {
-            // Update -> Slide
-            buffer.pop_front();
-            buffer.push_back(current_frame);
+        // 初回は全てのスタックを現在のフレームで埋める
+        for (int k = 0; k < stack_count_; ++k) {
+            buffer_.select(/*dim=*/1, /*index=*/k).copy_(data_cpu);
         }
-
-        // Stack (S, F...)
-        std::vector<torch::Tensor> frame_vec(buffer.begin(), buffer.end());
-        stacked_batch[i] = torch::stack(frame_vec, 0);
+        return buffer_.clone().to(device_); // 外部からの破壊を防ぐためcloneして返す
     }
 
-    // Batch Stack (N, S, F...)
-    auto output = torch::stack(stacked_batch, 0);
-    return output.to(device_);
+    // 履歴をインプレースでスライド (左に1つ詰める)
+    if (stack_count_ > 1) {
+        buffer_.slice(/*dim=*/1, /*start=*/0, /*end=*/stack_count_ - 1)
+            .copy_(buffer_.slice(/*dim=*/1, /*start=*/1, /*end=*/stack_count_).clone());
+    }
+
+    // 最新フレームを末尾に挿入
+    buffer_.select(/*dim=*/1, /*index=*/-1).copy_(data_cpu);
+
+    // リセットされた環境の処理
+    auto resets_ptr = resets_cpu.data_ptr<bool>();
+    for (int i = 0; i < batch_size_; ++i) {
+        if (resets_ptr[i]) {
+            // リセット時は、過去のスタックもすべて最新フレーム(data_cpu[i])で上書き
+            // (末尾の stack_count_ - 1 番目は既に更新済みなのでループから省く)
+            for (int k = 0; k < stack_count_ - 1; ++k) {
+                buffer_[i][k].copy_(data_cpu[i]);
+            }
+        }
+    }
+
+    // 外部でのテンソル破壊を防ぐため clone を返す
+    //return buffer_.clone();
+    return buffer_.clone().to(device_);
 }
 
 void TensorFrameStacker::Reset()
 {
-    for (auto& buf : buffers_) buf.clear();
+    // バッファ破棄
+    buffer_ = torch::Tensor();
 }
