@@ -385,7 +385,7 @@ torch::Tensor RunningStdObservationNormalizer::NormalizeAndUpdateStats(const tor
                 this->last_outlier_ratio_ = is_outlier.to(torch::kFloat32).mean().item<float>();
 
                 // 全次元が正常な行だけを抽出
-                auto is_outlier_row = is_outlier.any(1); // [B] -> trueならその行に異常あり
+                auto is_outlier_row = is_outlier.view({ obs.size(0), -1 }).any(1); // [B] -> trueならその行に異常あり
                 auto valid_indices = (~is_outlier_row).nonzero().squeeze();
 
                 // DEBUG
