@@ -56,7 +56,7 @@ torch::Tensor TensorFrameStacker::Stack(const torch::Tensor& data, const torch::
 
     // 念のためCPUに確実にあるかチェック
     auto data_cpu = data.device().is_cpu() ? data : data.to(torch::kCPU);
-    auto resets_cpu = resets.device().is_cpu() ? resets : resets.to(torch::kCPU);
+    auto resets_cpu = resets.device().is_cpu() ? resets.contiguous() : resets.to(torch::kCPU).contiguous();
 
     // 初回のみバッファをメモリ確保 (N, S, F...)
     if (!buffer_.defined()) {
@@ -92,8 +92,8 @@ torch::Tensor TensorFrameStacker::Stack(const torch::Tensor& data, const torch::
         }
     }
 
-    // 外部でのテンソル破壊を防ぐため clone を返す
-    //return buffer_.clone();
+    // 外部でのテンソル破壊を防ぐため clone を返す。
+    //return (buffer_.dim() > 2 ? buffer_.flatten(1, 2) : buffer_).clone().to(device_);
     return buffer_.clone().to(device_);
 }
 
