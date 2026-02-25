@@ -374,7 +374,8 @@ namespace anet::rl {
         }
 
         /// obs を (N, state_dim) にフラット化
-        BatchState Flatten() const {
+        BatchState Flatten() const
+        {
             ANET_ASSERT_DTYPE(obs, torch::kFloat32);
             int64_t N = obs.size(0);
             int64_t flat_dim = obs.numel() / N;
@@ -382,7 +383,8 @@ namespace anet::rl {
             return { f, done, truncated, episode_start };
         }
 
-        BatchState To(torch::Device device, bool non_blocking = true) const {
+        BatchState To(torch::Device device, bool non_blocking = true) const
+        {
             ANET_ASSERT_SHAPE(obs, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
             ANET_ASSERT_SHAPE(done, { ANET_SHAPE_ANY });
             ANET_ASSERT_SHAPE(truncated, { ANET_SHAPE_ANY });
@@ -397,17 +399,20 @@ namespace anet::rl {
                 truncated.to(device,non_blocking), episode_start.to(device, non_blocking)
             };
         }
-        bool IsDone() const {
+        bool IsDone() const
+        {
             ANET_ASSERT_SHAPE(done, { ANET_SHAPE_ANY });
             ANET_ASSERT(done.size(0) >= 1);
             return done[0].item<bool>();
         }
-        bool IsTruncated() const {
-            ANET_ASSERT_SHAPE(done, { ANET_SHAPE_ANY });
-            ANET_ASSERT(done.size(0) >= 1);
+        bool IsTruncated() const
+        {
+            ANET_ASSERT_SHAPE(truncated, { ANET_SHAPE_ANY });
+            ANET_ASSERT(truncated.size(0) >= 1);
             return truncated[0].item<bool>();
         }
-        bool IsEpisodeStart() const {
+        bool IsEpisodeStart() const
+        {
             ANET_ASSERT_SHAPE(episode_start, { ANET_SHAPE_ANY });
             ANET_ASSERT(episode_start.size(0) >= 1);
             return episode_start[0].item<bool>();
@@ -474,7 +479,7 @@ namespace anet::rl {
 
     class BatchStepResult : virtual public BatchEnvResult {
     public:
-        BatchStepResult(torch::Tensor reward_in, BatchState next_state_in, BatchState continue_state_in, uint32_t n_transitions_in, uint32_t n_done_in);
+        BatchStepResult(torch::Tensor reward_in, BatchState next_state_in, BatchState continue_state_in, uint32_t n_transitions_in, uint32_t n_episode_end_in);
         std::string ToString() const;
 
         virtual ~BatchStepResult() = default;
@@ -483,7 +488,7 @@ namespace anet::rl {
         BatchState next_state;      ///< 遷移後の観測  (N, state_dim...)
         BatchState continue_state;  ///< 実行継続用（Reset 後の状態も含む）
         uint32_t n_transitions;     ///< 今回のStepにおける状態遷移カウント数
-        uint32_t n_done;            ///< 今回のStepにおけるエピソード終了カウント数
+        uint32_t n_episode_end;     ///< 今回のStepにおけるエピソード終了カウント数
     };
 
     using MetricsMap = std::unordered_map<std::string, float>;
@@ -782,6 +787,8 @@ namespace anet::rl {
         void Detach(std::shared_ptr<LearnObserver> observer);
         void Detach(const LearnObserver* observer);
         void Notify(const LearnEvent& event);
+
+        void Clear();
 
         void LogObservers() const;
     public:

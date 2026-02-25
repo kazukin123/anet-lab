@@ -80,13 +80,11 @@ bool StateSpec::MatchesShape(const torch::Tensor& obs) const
         obs.dim() == static_cast<int64_t>(shape.size() + 1),
         "StateSpec::MatchesShape: dimension mismatch.");
 
-    for (size_t i = 1; i < shape.size(); i++) {
-        int64_t e = shape[i];
-        int64_t a = obs.size(i);
+    for (size_t i = 0; i < shape.size(); i++) {
+        int64_t e = shape[i];           // Specにはバッチ次元を含まない
+        int64_t a = obs.size(i + 1);    // obsにはバッチ次元が含まれるので1次元ずらす
         if (e == ANET_SHAPE_ANY) continue;
-        ANET_ASSERT_MSG(
-            e == a,
-            "StateSpec::MatchesShape: shape mismatch.");
+        ANET_ASSERT_MSG(e == a, "StateSpec::MatchesShape: shape mismatch.");
     }
     return true;
 }
@@ -292,12 +290,12 @@ std::string BatchEnvSpec::ToString() const
 
 // -----------------------------------------
 
-BatchStepResult::BatchStepResult(torch::Tensor reward_in, BatchState next_state_in, BatchState continue_state_in, uint32_t n_transitions_in,uint32_t n_done_in)
+BatchStepResult::BatchStepResult(torch::Tensor reward_in, BatchState next_state_in, BatchState continue_state_in, uint32_t n_transitions_in,uint32_t n_episode_end_in)
     : reward(std::move(reward_in))
     , next_state(std::move(next_state_in))
     , continue_state(std::move(continue_state_in))
     , n_transitions(n_transitions_in)
-    , n_done(n_done_in)
+    , n_episode_end(n_episode_end_in)
 {
 }
 
@@ -369,7 +367,7 @@ std::string BatchStepResult::ToString() const
     oss << "  , next_state=" << next_state.ToString() << "\n";
     oss << "  , continue_state=" << continue_state.ToString() << "\n";
     oss << "  , n_transitions=" << n_transitions;
-    oss << "  , n_done=" << n_done;
+    oss << "  , n_episode_end=" << n_episode_end;
     oss << "  , auxs={";
     auto auxs = GetAuxDataList();
     for (auto aux : auxs) {
@@ -452,7 +450,7 @@ std::optional<torch::Tensor> BatchExperience::GetTensor(
         return state.done;
     if (key == STATE_TRUNCATED)
         return state.truncated;
-    if (key == NEXT_STATE_EPISODE_START)
+    if (key == STATE_EPISODE_START)
         return state.episode_start;
         
     if (key == NEXT_STATE_DONE)
@@ -609,10 +607,28 @@ std::vector<SingleExperience> BatchExperience::ToExperienceList() const
 
 ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking) const
 {
-    auto stream = at::cuda::getDefaultCUDAStream();
-    at::cuda::CUDAStreamGuard guard(stream);
+    // GPUデバイスへの転送時のみストリームガードを有効にする
+    if (device.is_cuda()) {
+        auto stream = at::cuda::getDefaultCUDAStream();
+        at::cuda::CUDAStreamGuard guard(stream);
 
-    return ExperienceSamples {
+        return ExperienceSamples{
+            obs.to(device, non_blocking),
+            actions.to(device, non_blocking),
+            target_values.to(device, non_blocking),
+            {
+                next_states.obs.to(device, non_blocking),
+                next_states.terminals.to(device, non_blocking),
+            },
+            n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,
+            indices.to(device, non_blocking),
+            sampling_prob.defined() ? sampling_prob.to(device, non_blocking) : sampling_prob,
+            is_weights.defined() ? is_weights.to(device, non_blocking) : is_weights,
+        };
+    }
+
+    // CPUの場合はそのまま転送
+    return ExperienceSamples{
         obs.to(device, non_blocking),
         actions.to(device, non_blocking),
         target_values.to(device, non_blocking),
@@ -789,6 +805,13 @@ void Notifier::Detach(const LearnObserver* observer)
         learn_observers_.end()
     );
 }
+
+void Notifier::Clear()
+{
+    train_observers_.clear();
+    learn_observers_.clear();
+}
+
 
 void Notifier::Notify(const TrainEvent& event)
 {
