@@ -223,7 +223,7 @@ namespace anet::rl {
     namespace { \
         struct FactoryType##AutoRegister { \
             FactoryType##AutoRegister() { \
-                anet::rl::RegistAgentFactory(std::make_shared<FactoryType>()); \
+                anet::rl::RegisterAgentFactory<FactoryType>(); \
             } \
         }; \
         static FactoryType##AutoRegister global_##FactoryType##_auto_register; \
