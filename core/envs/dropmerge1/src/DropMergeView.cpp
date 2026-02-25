@@ -222,93 +222,84 @@ void DropMergePanel::DrawGrid(wxDC& dc)
     float cell_w = world_w / cols;
     float cell_h = world_h / rows;
 
+    // グリッド背景の塗りつぶし
+    wxPoint p_tl = WorldToScreen(world_min_x_, world_max_y_); // 左上
+    wxPoint p_br = WorldToScreen(world_max_x_, world_min_y_); // 右下
+    wxRect boardRect(p_tl, p_br);
 
-    // グリッド塗りつぶし
-    {
-        wxPoint p_tl = WorldToScreen(world_min_x_, world_max_y_); // 左上
-        wxPoint p_br = WorldToScreen(world_max_x_, world_min_y_); // 右下
-        wxRect boardRect(p_tl, p_br);
+    wxColour bgColor = wxSystemSettings::GetColour(wxSYS_COLOUR_3DFACE);
+    dc.SetBrush(wxBrush(bgColor));
+    dc.SetPen(*wxTRANSPARENT_PEN);
+    dc.DrawRectangle(boardRect);
 
-        wxColour bgColor = wxSystemSettings::GetColour(wxSYS_COLOUR_3DFACE);
-        dc.SetBrush(wxBrush(bgColor));
-        dc.SetPen(*wxTRANSPARENT_PEN);
-        dc.DrawRectangle(boardRect);
+    // ---  座標の1次元事前計算 ---
+    std::vector<int> screen_x(cols + 1);
+    std::vector<int> screen_y(rows + 1);
+    for (int c = 0; c <= cols; ++c) {
+        screen_x[c] = WorldToScreen(world_min_x_ + c * cell_w, 0).x;
+    }
+    for (int r = 0; r <= rows; ++r) {
+        // Y軸はScreen座標では上が小さいため、World_yが小さい(底)ほどScreen_yは大きい
+        screen_y[r] = WorldToScreen(0, world_min_y_ + r * cell_h).y;
     }
 
-    dc.SetPen(wxPen(wxSystemSettings::GetColour(wxSYS_COLOUR_3DSHADOW), 1));
+    // フォントの準備
     dc.SetFont(wxFont(9, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
 
-    // ランク文字の色：Grid Viewなら黒、通常ならシステム色
-    if (grid_draw_mode_ == GRID_DRAW_MODE_DEFAULT) dc.SetTextForeground(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
-    else dc.SetTextForeground(*wxBLACK);
-
-    // テンソルアクセスの最適化 (PyTorch/LibTorchの場合)
-    // .item<float>() は遅いため、メモリアクセスが高速な accessor を使用
+    // 文字色とテンソルアクセサの準備
+    if (grid_draw_mode_ == GRID_DRAW_MODE_DEFAULT) {
+        dc.SetTextForeground(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
+    } else {
+        dc.SetTextForeground(*wxBLACK);
+    }
     auto t_accessor = t.accessor<float, 2>();
 
-    // GDIオブジェクト（Pen, Brush）の事前生成 (ループ外)
-    wxPen defaultGridPen(wxSystemSettings::GetColour(wxSYS_COLOUR_3DSHADOW), 1);
-    wxPen gridLinePen(wxColour(100, 100, 100), 1);
-
-    // ランクごとのBrushとStringのキャッシュ
+    // ブラシと文字列のキャッシュ
     const int max_grid_val = kFruitTypeCount + 1;
     std::vector<wxBrush> rankBrushes(max_grid_val + 1, *wxTRANSPARENT_BRUSH);
     std::vector<wxString> rankStrings(max_grid_val + 1);
     for (int i = 1; i <= max_grid_val; ++i) {
         rankStrings[i] = wxString::Format("%d", i);
-    }
-    if (grid_draw_mode_ != GRID_DRAW_MODE_DEFAULT) {
-        for (int i = 1; i <= max_grid_val; ++i) {
+        if (grid_draw_mode_ != GRID_DRAW_MODE_DEFAULT) {
             rankBrushes[i] = wxBrush(GetFruitColor(i));
         }
-    } else {
-        // デフォルトモードの場合は、ここで一度だけSetしておけばループ内で不要
-        dc.SetBrush(*wxTRANSPARENT_BRUSH);
-        dc.SetPen(defaultGridPen);
     }
 
-    // 描画ループ
+    // --- フルーツが入っているセルの中身（色塗り・テキスト）だけ描画 ---
+    dc.SetPen(*wxTRANSPARENT_PEN);
     for (int r = 0; r < rows; ++r) {
-        float base_wy = world_min_y_ + r * cell_h;
-
         for (int c = 0; c < cols; ++c) {
-            // セル枠線
-            float wx = world_min_x_ + c * cell_w;
-
-            // 座標変換
-            wxPoint p1 = WorldToScreen(wx, base_wy); // 左下
-            wxPoint p2 = WorldToScreen(wx + cell_w, base_wy + cell_h); // 右上 (Screen座標系ではYが小さい)
-
-            // ランク取得
             float val = t_accessor[r][c];
-            int rank = 0;
-            if (val > 0.001f) rank = (int)std::round(val);
+            if (val <= 0.001f) continue; // 空セルは即座にスキップ
 
-            // Grid矩形
-            wxRect rect(p1.x, p2.y, p2.x - p1.x, p1.y - p2.y);
+            int rank = (int)std::round(val);
+            if (rank > 0 && rank <= max_grid_val) {
+                // Rectの算出 (screen_y[r+1] が上端、screen_y[r] が下端)
+                wxRect rect(screen_x[c], screen_y[r + 1], screen_x[c + 1] - screen_x[c], screen_y[r] - screen_y[r + 1]);
 
-            // Grid描画
-            if (grid_draw_mode_ == GRID_DRAW_MODE_DEFAULT) {
-                dc.DrawRectangle(rect);         // 通常モード: ループ外でPen/Brush設定済みなのでDrawのみ
-            } else {
-                // Grid Viewモード: 塗りつぶし
-                if (rank > 0 && rank <= max_grid_val) {
-                    dc.SetBrush(rankBrushes[rank]); // キャッシュしたBrushを使用
-                    dc.SetPen(*wxTRANSPARENT_PEN);
+                // 色塗り (Grid Viewモード時のみ)
+                if (grid_draw_mode_ != GRID_DRAW_MODE_DEFAULT) {
+                    dc.SetBrush(rankBrushes[rank]);
                     dc.DrawRectangle(rect);
                 }
 
-                // グリッド線
-                dc.SetBrush(*wxTRANSPARENT_BRUSH);
-                dc.SetPen(defaultGridPen);
-                dc.DrawRectangle(rect);
-            }
-
-            // ランク文字
-            if (rank > 0 && rank <= max_grid_val) { // ランク0は書かない
-                dc.DrawText(rankStrings[rank], p1.x + 2, p2.y + 2);
+                // ランク文字
+                dc.DrawText(rankStrings[rank], rect.x + 2, rect.y + 2);
             }
         }
+    }
+
+    // --- グリッド線を DrawLine で描画 ---
+    wxPen defaultGridPen(wxSystemSettings::GetColour(wxSYS_COLOUR_3DSHADOW), 1);
+    dc.SetPen(defaultGridPen);
+
+    // 横線を描画 (rows + 1 本)
+    for (int r = 0; r <= rows; ++r) {
+        dc.DrawLine(screen_x[0], screen_y[r], screen_x[cols], screen_y[r]);
+    }
+    // 縦線を描画 (cols + 1 本)
+    for (int c = 0; c <= cols; ++c) {
+        dc.DrawLine(screen_x[c], screen_y[0], screen_x[c], screen_y[rows]);
     }
 }
 
