@@ -342,7 +342,9 @@ int64_t NetworkStruct::InferFeatureDim(const std::vector<int64_t>& input_shape)
     shape_with_batch.insert(shape_with_batch.end(), input_shape.begin(), input_shape.end());
 
     auto dummy_in = torch::zeros(shape_with_batch);
+    this->eval();   // ダミーデータによる統計汚染防止
     auto dummy_out = this->Forward(dummy_in);
+    this->train();  // 元に戻す
 
     return dummy_out.numel();
 }
