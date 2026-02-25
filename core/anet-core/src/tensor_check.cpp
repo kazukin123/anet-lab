@@ -3,15 +3,22 @@
 //----------------------------------------------
 // Device チェック実体
 //----------------------------------------------
-void _anet_check_device_impl(
-    const torch::Tensor& t, const torch::Device& expect,
-    const char* msg, const char* file, int line)
+void _anet_check_device_impl(const torch::Tensor& t, const torch::Device& expect, const char* msg, const char* file, int line)
 {
-    const bool expect_cpu = expect.is_cpu();
-    const bool actual_cpu = t.device().is_cpu();
-    if (expect_cpu != actual_cpu) {
+    // タイプ（CPUかCUDAか）のチェック
+    if (expect.type() != t.device().type()) {
         std::stringstream ss;
-        ss << "Device mismatch: " << msg
+        ss << "Device type mismatch: " << msg
+            << " | tensor=" << t.device()
+            << " | expected=" << expect
+            << " | File: " << file << ":" << line;
+        throw std::runtime_error(ss.str());
+    }
+
+    // CUDAの場合、要求側に明示的なIndexが指定されていればIndexもチェック
+    if (expect.has_index() && expect.index() >= 0 && t.device().index() != expect.index()) {
+        std::stringstream ss;
+        ss << "Device index mismatch: " << msg
             << " | tensor=" << t.device()
             << " | expected=" << expect
             << " | File: " << file << ":" << line;
@@ -56,20 +63,29 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
         if (t.sizes().size() == 0) return;
     } else {
         for (const auto& e : expects) {
-            if (actual.size() < e.size()) continue;
-
             bool ok = true;
+            bool has_endany = false;
 
             for (size_t i = 0; i < e.size(); ++i) {
-                if (e[i] == ANET_SHAPE_ENDANY) return;  // ここから先は全て許容
-                if (e[i] == ANET_SHAPE_ANY) continue;  // 任意次元
+                if (e[i] == ANET_SHAPE_ENDANY) {
+                    has_endany = true;
+                    break; // ENDANY以降はチェック不要
+                }
+                if (i >= actual.size()) {
+                    ok = false; // actualの方が短くてENDANYも無い
+                    break;
+                }
+                if (e[i] == ANET_SHAPE_ANY) continue;
                 if (actual[i] != e[i]) {
-                    ok = false;
+                    ok = false; // 次元サイズ不一致
                     break;
                 }
             }
 
-            if (ok) return;  // いずれかにマッチ
+            // すべての次元が一致し、かつ「余分な未チェック次元」が存在しないか確認
+            if (ok && (has_endany || actual.size() == e.size())) {
+                return; // 完全一致！
+            }
         }
     }
 
