@@ -231,12 +231,12 @@ void ReplayExperienceStorage::Push(const ReplayExperience& exp)
     // 現在のwrite_index_に書き込み
     states_[idx].copy_(exp.state.obs.to(device_));
     actions_[idx].copy_(exp.action.to(device_));
-    target_values_[idx] = exp.target_value;
     next_states_[idx].copy_(exp.next_state.obs.to(device_));
-    terminals_[idx] = exp.terminal;
-    n_steps_[idx] = exp.n_step;
-	episode_starts_[idx] = exp.state.episode_start;
-	
+    target_values_[idx].fill_(exp.target_value);
+    terminals_[idx].fill_(exp.terminal);
+    n_steps_[idx].fill_(exp.n_step);
+    episode_starts_[idx].fill_(exp.state.episode_start);
+
     // write_index_を更新
     write_index_ = (write_index_ + 1) % capacity_;
     bool overwrite = false;
@@ -623,6 +623,7 @@ ExperienceSamples ReplayExperienceStateStacker::SampleBatch(
 
             // インデックス計算
             int64_t target_idx = current_idx - (k * num_envs_);
+            target_idx %= capacity;
             if (target_idx < 0) {
 				target_idx += capacity; // リングバッファなので先頭まで行ったら末尾に戻る
             }
