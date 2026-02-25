@@ -187,7 +187,7 @@ StepCounts EvalRunner::DoStep(int64_t action)
     // カウント更新
     step_counts_.train_step++;
     step_counts_.exp_step += result->n_transitions;
-    step_counts_.episode_count += result->n_done;
+    step_counts_.episode_count += result->n_episode_end;
 
     anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
 
@@ -278,7 +278,7 @@ std::optional<float> TrainRunner::GetScalar(const std::string& key, int64_t inde
 void TrainRunner::Shutdown()
 {
     env_->Shutdown();
-    //env_.reset();
+    notifier_->Clear();
 }
 
 
@@ -360,7 +360,7 @@ StepCounts TrainRunner::DoStep()
     // カウント更新
     step_counts_.train_step++;
     step_counts_.exp_step += result->n_transitions;
-    step_counts_.episode_count += result->n_done;
+    step_counts_.episode_count += result->n_episode_end;
 
 
     // Agent更新
@@ -641,8 +641,11 @@ void RunnerThread::ThreadMain()
             exception_func_();
     }
 
+    // 終わる
     runner_->Shutdown();
-    //runner_.reset();
+
+    // 終わったフラグ
+    running_.store(false);
 
     ANET_LOG_DEBUG("END");
 }
