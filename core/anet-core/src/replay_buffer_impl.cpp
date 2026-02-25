@@ -784,6 +784,7 @@ void DefaultReplayBuffer::Push(const std::vector<SingleExperience>& exps)
 ExperienceSamples DefaultReplayBuffer::sampleInternal(int64_t minibatch_size, torch::Device device, float beta) const
 {
     anet::ProfileRange r1("DefaultReplayBuffer::sampleInternal");
+    torch::NoGradGuard ng;
 
     ANET_ASSERT(storage_->GetSize() > 0);
 
