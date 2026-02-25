@@ -30,12 +30,17 @@ public:
     {
         std::vector<AuxData> auxs;
         if (env_index >= 0) {
-            auto aux = single_results[env_index]->GetAuxData();
-            auxs.push_back(aux);
-        } else {
-            for (auto result : single_results) {
+            auto result = single_results[env_index];
+            if (result != nullptr) {
                 auto aux = result->GetAuxData();
                 auxs.push_back(aux);
+            }
+        } else {
+            for (auto result : single_results) {
+                if (result != nullptr) {
+                    auto aux = result->GetAuxData();
+                    auxs.push_back(aux);
+                }
             }
         }
 
@@ -320,10 +325,10 @@ std::shared_ptr<const BatchStepResult> VectorizedDiscreteBatchEnv::Step(const Ba
 
         result->single_results[i] = single_result;
 
-        result->next_state.obs.index_put_({ i }, single_result->next_state.obs);
-        result->next_state.done.index_put_({ i }, single_result->next_state.done);
-        result->next_state.truncated.index_put_({ i }, single_result->next_state.truncated);
-        result->next_state.episode_start.index_put_({ i }, single_result->next_state.episode_start);
+        result->next_state.obs.select(0, i).copy_(single_result->next_state.obs);
+        result->next_state.done[i].fill_(single_result->next_state.done);
+        result->next_state.truncated[i].fill_(single_result->next_state.truncated);
+        result->next_state.episode_start[i].fill_(single_result->next_state.episode_start);
 
         result->reward.select(0, i).fill_(single_result->reward);
 
@@ -331,18 +336,17 @@ std::shared_ptr<const BatchStepResult> VectorizedDiscreteBatchEnv::Step(const Ba
         if (single_result->next_state.done || single_result->next_state.truncated) {
             auto reset_result = envs_[i]->Reset(mode);
             ANET_ASSERT_DEVICE(reset_result->state.obs, device_);
-            result->continue_state.obs.index_put_({ i }, reset_result->state.obs);
-            result->continue_state.done.index_put_({ i }, reset_result->state.done);
-            result->continue_state.truncated.index_put_({ i }, reset_result->state.truncated);
-            result->continue_state.episode_start.index_put_({ i }, reset_result->state.episode_start);
 
-            if (single_result->next_state.done)
-                result->n_done++;
+            result->continue_state.obs.select(0, i).copy_(reset_result->state.obs);
+            result->continue_state.done[i].fill_(reset_result->state.done);
+            result->continue_state.truncated[i].fill_(reset_result->state.truncated);
+            result->continue_state.episode_start[i].fill_(reset_result->state.episode_start);
+            result->n_episode_end++;
         } else {
-            result->continue_state.obs.index_put_({ i }, single_result->next_state.obs);
-            result->continue_state.done.index_put_({ i }, false);
-            result->continue_state.truncated.index_put_({ i }, false);
-            result->continue_state.episode_start.index_put_({ i }, single_result->next_state.episode_start);
+            result->continue_state.obs.select(0, i).copy_(single_result->next_state.obs);
+            result->continue_state.done[i].fill_(false);
+            result->continue_state.truncated[i].fill_(false);
+            result->continue_state.episode_start[i].fill_(single_result->next_state.episode_start);
         }
     }
 
@@ -412,6 +416,9 @@ std::shared_ptr<const BatchResetResult>  ThreadPoolDiscreteEnv::Reset(RunMode mo
                 result->state.done[i].fill_(single_result->state.done);
                 result->state.truncated[i].fill_(single_result->state.truncated);
                 result->state.episode_start[i].fill_(single_result->state.episode_start);
+
+                // GetAuxDataList()向けにsingle_resultを詰める
+                result->single_results[i] = single_result;
             });
     }
 
@@ -460,7 +467,7 @@ std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(const BatchAc
                 result->next_state.episode_start[i].fill_(r->next_state.episode_start);
 
                 // --- reward ---
-                result->reward[i] = r->reward;
+                result->reward.select(0, i).fill_(r->reward);
 
                 // --- continue_state ---
                 if (r->next_state.done || r->next_state.truncated) {
@@ -487,10 +494,12 @@ std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(const BatchAc
 
     // カウント
     auto done = result->next_state.done;
-    if (done.device().is_cuda()) {
-        done = done.to(torch::kCPU);
+    auto truncated = result->next_state.truncated;
+    auto episode_end = done.logical_or(truncated);
+    if (episode_end.device().is_cuda()) {
+        episode_end = episode_end.to(torch::kCPU);
     }
-    result->n_done = done.sum().item<int>();
+    result->n_episode_end = episode_end.sum().item<int>();
     result->n_transitions = N;
 
     // 返す
