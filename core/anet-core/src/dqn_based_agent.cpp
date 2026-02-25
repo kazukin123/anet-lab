@@ -8,6 +8,7 @@
 #include "anet/tensor_util.hpp"
 #include "anet/str_util.hpp"
 #include "anet/replay_buffer.hpp"
+#include "anet/image.hpp"
 
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
@@ -372,9 +373,10 @@ torch::Tensor UQEActionPolicy::MakeVectorizedUQEAction(const torch::Tensor& tau_
     const int64_t n_quantiles = q_quantiles.size(2);
     auto device = q_quantiles.device();
 
-    // 1. インデックスの計算 (N, 1)
+    // インデックスの計算 (N, 1)
+
     // floor(tau * (n_q - 1))
-    auto tau_idx = (tau_tensor * (n_quantiles - 1)).to(torch::kLong);
+    auto tau_idx = (tau_tensor * n_quantiles).to(torch::kLong);
     tau_idx = tau_idx.clamp(0, n_quantiles - 1);
 
     torch::Tensor uqe_values;
@@ -730,6 +732,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     torch::Tensor loss;
     torch::Tensor td_error;
     torch::Tensor max_q;
+    torch::Tensor q_sa;
     torch::Tensor gap_abs;
     torch::Tensor gap_rel;
 
@@ -750,7 +753,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         ANET_ASSERT_SHAPE(idx_actions, { B, 1 });
         ANET_ASSERT_DTYPE(idx_actions, torch::kInt64);
 
-        auto q_sa = q_all.gather(1, idx_actions).squeeze(1);          // (B)
+        q_sa = q_all.gather(1, idx_actions).squeeze(1);          // (B)
         ANET_ASSERT_SHAPE(q_sa, { B });
         ANET_ASSERT_DTYPE(q_sa, torch::kFloat32);
 
@@ -924,6 +927,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         result->grad_clip_ratio = grad_clip_ratio;
         result->grad_clip_tau = config_.use_grad_clip ? config_.grad_clip_tau : std::numeric_limits<float>::infinity();
         result->max_q = max_q;
+        result->q_sa = q_sa.detach();       // 実際に行動したQ値
         result->q_gap = gap_abs;
         result->q_gap_rel = gap_rel;
         if (config_.use_per) {
@@ -944,16 +948,13 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
         // Inf/NaN チェック (Unscale後の生勾配を見る)
         bool found_inf = false;
-        // 簡易チェック: 全パラメータの勾配を見る (コスト削減のため一部でも可)
-        // ※ 本来は torch::isfinite(p.grad()).all().item<bool>() だが同期コストがかかる
-        //    ここでは簡易的にチェックするロジックを入れるか、scaler_.step() に任せるか。
-        //    ただし clip_grad_norm_ を呼ぶなら事前にチェックしたほうが安全。
-
-        //for (auto& p : network_.GetPolicyParameters()) {
-        //     if (p.grad().defined() && !torch::isfinite(p.grad()).all().item<bool>()) {
-        //         found_inf = true; break;
-        //     }
-        //}
+        // 簡易チェック: 全パラメータの勾配を見る
+        for (auto& p : network_.GetPolicyParameters()) {
+             if (p.grad().defined() && !torch::isfinite(p.grad()).all().item<bool>()) { /// @todo AMP：コスト削減のため一部チェックにする？
+                 found_inf = true;
+                 break;
+             }
+        }
 
         // Clip (Unscaled gradients)
         torch::Tensor grad_norm_tensor;
@@ -980,7 +981,8 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         result->grad_norm = grad_norm;
         result->grad_clip_ratio = grad_clip_ratio;
         result->grad_clip_tau = config_.use_grad_clip ? config_.grad_clip_tau : std::numeric_limits<float>::infinity();
-        result->max_q = max_q;
+        result->max_q = max_q;              // すべての行動の最大Q値
+        result->q_sa = q_sa.detach();       // 実際に行動したQ値（追加
         result->q_gap = gap_abs;
         result->q_gap_rel = gap_rel;
         if (config_.use_per) {
@@ -1034,7 +1036,8 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         result->grad_norm_tensor = grad_norm_tensor;
         result->grad_clip_ratio = grad_clip_ratio;
         result->grad_clip_tau = config_.use_grad_clip ? config_.grad_clip_tau : std::numeric_limits<float>::infinity();
-        result->max_q = max_q;
+        result->max_q = max_q;              // すべての行動の最大Q値
+        result->q_sa = q_sa.detach();       // 実際に行動したQ値（追加
         result->q_gap = gap_abs;
         result->q_gap_rel = gap_rel;
         if (config_.use_per) {
@@ -1143,6 +1146,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     torch::Tensor loss;
     torch::Tensor td_error_tensor;
     torch::Tensor max_q;
+    torch::Tensor q_sa_val;
     torch::Tensor std_q_tensor;
     torch::Tensor gap_abs;
     torch::Tensor gap_rel;
@@ -1178,7 +1182,8 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         ANET_ASSERT_NAN(current_dist);
 
         // メトリクス用: 平均値をmax_qとして報告
-        max_q = current_dist.mean(1).detach(); // (B)
+        q_sa_val = current_dist.mean(1).detach(); // 選ばれた行動のQ値
+        max_q = std::get<0>(current_dist_all.mean(2).max(1)).detach(); // 全行動の最大Q値
         ANET_ASSERT_SHAPE(max_q, { B });
 
         // メトリクス用: Q Std (分布の標準偏差)、 GPUTensor (Scalar) のまま保持
@@ -1209,7 +1214,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         {
             torch::NoGradGuard no_grad;
 
-        // 次状態のGreedy行動 a* = argmax E[Z(s', a')]
+            // 次状態のGreedy行動 a* = argmax E[Z(s', a')]
             torch::Tensor next_actions;
             if (config_.use_double_dqn) {
             auto next_q_policy = network_.Forward(next_obs, /*use_target=*/false); // (B, A)
@@ -1248,8 +1253,8 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // target_dist: (B, N) -> mean -> (B)
         auto target_mean = target_dist.mean(1).detach();
 
-        // current_dist.mean(1) は max_q (detach済み) と同じ。 TDLearner: q_sa - td_target に合わせる
-        td_error_tensor = max_q - target_mean;
+        // TD誤差
+        td_error_tensor = q_sa_val - target_mean;
 
         // ------------------------------------------------------------
         // Loss Calculation
@@ -1430,7 +1435,8 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     result->grad_norm_tensor = grad_norm_tensor;
     result->grad_clip_ratio = grad_clip_ratio;
     result->grad_clip_tau = config_.use_grad_clip ? config_.grad_clip_tau : std::numeric_limits<float>::infinity();
-    result->max_q = max_q;
+    result->max_q = max_q;              // すべての行動の最大Q値
+    result->q_sa = q_sa_val;            // 実際に行動したQ値（追加）
     result->q_std = std_q_tensor;
     result->q_gap = gap_abs;
     result->q_gap_rel = gap_rel;

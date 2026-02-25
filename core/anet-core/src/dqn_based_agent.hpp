@@ -45,6 +45,8 @@ namespace anet::rl::dqn {
 		// Q Value Metrics Source Tensors
         torch::Tensor max_q;
         mutable torch::Tensor max_q_cpu;
+        torch::Tensor q_sa;
+        mutable torch::Tensor q_sa_cpu;
         torch::Tensor q_gap;
         torch::Tensor q_gap_rel;
 
@@ -91,6 +93,10 @@ namespace anet::rl::dqn {
             if (key == "q_max_std") {
                 TransQToCpu();
                 return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.std(false).item<float>()) : std::nullopt;
+            }
+            if (key == "q_sa_mean") {
+                if (!q_sa_cpu.defined() && q_sa.defined()) q_sa_cpu = q_sa.cpu();
+                return q_sa_cpu.defined() ? std::optional<float>(q_sa_cpu.mean().item<float>()) : std::nullopt;
             }
             if (key == "q_std") {
                 if (q_std.defined()) return anet::ToFloat(q_std);
