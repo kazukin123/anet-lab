@@ -10,7 +10,7 @@ void anet::ThrowError(const char* file, int line, const char* prefix, const char
     if (cond != nullptr)
         ss << "  " << cond;
     ss << "\n  " << msg;
-    ss << "\n\n[" << __FILE__ << ":" << __LINE__ << "]";
+    ss << "\n\n[" << file << ":" << line << "]";
     throw anet::AnetException(ss.str());
 }
 
