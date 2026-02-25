@@ -74,6 +74,7 @@ namespace anet::rl::env::drop_merge {
         std::vector<float> drop_probs;      ///< ランクの出現重み
         float restitution = 0.1f;           ///< 反発係数
         float friction = 0.5f;              ///< 摩擦係数
+        float damping = 0.5f;               ///< 空気抵抗
 
         DropMergeEnvConfig(
             const anet::ConfigData& config_data = anet::EmptyConfigData,
@@ -107,6 +108,7 @@ namespace anet::rl::env::drop_merge {
             ANET_READ_CONFIG(config_data, game_over_penalty);
             ANET_READ_CONFIG(config_data, restitution);
             ANET_READ_CONFIG(config_data, friction);
+            ANET_READ_CONFIG(config_data, damping);
 
             // デフォルト値 (Configファイルがない場合用)を定義
             std::vector<float> def_radii = {
@@ -244,6 +246,8 @@ namespace anet::rl::env::drop_merge {
         bool game_over_ = false;
         int game_over_timer_ = 0;
         int steps_since_last_drop_ = 0;
+        torch::Tensor obs_buffer_;  ///< obsのバッファ
+        float* obs_ptr_ = nullptr;  ///< obsのバッファのポインタ
 
         // マージ処理用
         std::vector<MergeRequest> merge_requests_;

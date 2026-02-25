@@ -11,6 +11,8 @@
 using namespace anet::rl::env::drop_merge;
 namespace LOG = anet::log;
 
+constexpr int kNumScalarObsDim = 4;
+
 // -------------------------------------------------------------
 // Constants & UserData definition
 // -------------------------------------------------------------
@@ -147,6 +149,11 @@ DropMergeEnv::DropMergeEnv(
     float_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
     bool_opt_ = torch::TensorOptions().dtype(torch::kBool).device(device);
 
+    // Obsバッファ初期化
+    int total_dim = kNumScalarObsDim + config_.grid_rows * config_.grid_cols;
+    obs_buffer_ = torch::empty({ total_dim }, float_opt_);
+    obs_ptr_ = obs_buffer_.data_ptr<float>();
+
     buildWorld();
 }
 
@@ -165,11 +172,10 @@ anet::rl::EnvSpec DropMergeEnv::GetSpec() const
     // Grid Info (Variable size: rows * cols)
     //    [4...]: grid cell value (0.0=Empty, 0.1=Rank1 ... 1.0=Rank10)
 
-    int fixed_dim = 4;
     int grid_dim = config_.grid_rows * config_.grid_cols;
 
     anet::rl::StateSpec state_spec;
-    state_spec.shape = { static_cast<int64_t>(fixed_dim + grid_dim) };
+    state_spec.shape = { static_cast<int64_t>(kNumScalarObsDim + grid_dim) };
 
     state_spec.dims = {
         { {0}, -1.0f, 1.0f, "dropper_x", "Dropper X position" },
@@ -212,6 +218,8 @@ void DropMergeEnv::buildWorld()
 
     b2Vec2 gravity(0.0f, config_.gravity);
     world_ = std::make_unique<b2World>(gravity);
+    world_->SetContinuousPhysics(false);  // 性能確保のために連続衝突判定(CCD) をオフに（すり抜けが発生したらtrueにする）
+    world_->SetAllowSleeping(true);     // 動かなくなった果物の物理演算をスキップ(デフォルトで有効のはずだが念の為）
 
     contact_listener_ = std::make_unique<ContactListener>(*this);
     world_->SetContactListener(contact_listener_.get());
@@ -354,6 +362,8 @@ b2Body* DropMergeEnv::spawnFruit(float x, float y, int rank)
     b2BodyDef bd;
     bd.type = b2_dynamicBody;
     bd.position.Set(x, y);
+    bd.linearDamping = config_.damping;
+    bd.angularDamping = config_.damping;
     b2Body* body = world_->CreateBody(&bd);
 
     // UserData設定
@@ -367,6 +377,7 @@ b2Body* DropMergeEnv::spawnFruit(float x, float y, int rank)
     fd.density = config_.fruit_densities[rank - 1];
     fd.restitution = config_.restitution;
     fd.friction = config_.friction;
+    
 
     body->CreateFixture(&fd);
 
@@ -838,141 +849,98 @@ anet::rl::SingleState DropMergeEnv::makeState() const
 {
     anet::ProfileRange r("DropMergeEnv::makeState");
 
-    anet::rl::SingleState s;
+    // --- 定数・範囲の定義 ---
+    const float min_x = -config_.box_width * 0.5f;
+    const float max_x = config_.box_width * 0.5f;
+    const float min_y = config_.ground_y;
+    const float max_y = config_.ground_y + config_.box_height;
+    const float cell_w = (max_x - min_x) / config_.grid_cols;
+    const float cell_h = (max_y - min_y) / config_.grid_rows;
 
-    // Dropper Info (4 dims)
-    std::vector<float> fixed_obs;
-    fixed_obs.reserve(4);
+    // --- スカラー部を充填 ---
 
-    // -1.0 ～ 1.0 正規化X
-    float norm_x = dropper_.x / (config_.box_width * 0.5f);
-    fixed_obs.push_back(std::clamp(norm_x, -1.0f, 1.0f));
+    // Dropper X 正規化
+    obs_ptr_[0] = std::clamp(dropper_.x / (config_.box_width * 0.5f), -1.0f, 1.0f);
 
-    // Rank
-    float norm_scale = 1.0f / (float)kFruitTypeCount;
-    fixed_obs.push_back(dropper_.current_rank * norm_scale);
-    fixed_obs.push_back(dropper_.next_rank * norm_scale);
+    // Rank 正規化
+    const float norm_scale = 1.0f / (float)kFruitTypeCount;
+    obs_ptr_[1] = dropper_.current_rank * norm_scale;
+    obs_ptr_[2] = dropper_.next_rank * norm_scale;
 
-    // Busy
-	bool is_busy = (config_.use_instant_drop) ? false : dropper_.is_busy;  // instant_dropモード時は常に非Busy扱い(必ずis_busy=falseのはずだが念の為) 
-    fixed_obs.push_back(is_busy ? 1.0f : 0.0f);
+    // Busy フラグ (instant_dropモード時は常に0)
+    const bool is_busy = (config_.use_instant_drop) ? false : dropper_.is_busy;
+    obs_ptr_[3] = is_busy ? 1.0f : 0.0f;
 
-	/// @todo instant_dropモード時はis_busy次元を無くす（設定次第で次元数が変化するので簡単ではない）
+    // --- グリッド情報のクリア ---
+    const int grid_size = config_.grid_rows * config_.grid_cols;
+    std::fill(obs_ptr_ + kNumScalarObsDim, obs_ptr_ + kNumScalarObsDim + grid_size, 0.0f);
 
-    // ---- Grid Info ----
-
-    // GridのセルごとにQueryPointして一番手前の果物のRankを取得
-    // 毎回Queryするのは重い可能性があるため、全Bodyを走査してグリッドを埋める方式
-
-    std::vector<float> grid_obs(config_.grid_rows * config_.grid_cols, 0.0f);
-
-    // グリッド範囲定義
-    float min_x = -config_.box_width * 0.5f;
-    float max_x = config_.box_width * 0.5f;
-    float min_y = config_.ground_y;
-    float max_y = config_.ground_y + config_.box_height;
-
-    float cell_w = (max_x - min_x) / config_.grid_cols;
-    float cell_h = (max_y - min_y) / config_.grid_rows;
-
+    // --- グリッド充填 ---
     for (b2Body* b = world_->GetBodyList(); b; b = b->GetNext()) {
         if (b->GetType() != b2_dynamicBody) continue;
 
         auto data = DecodeUserData(b->GetUserData().pointer);
         if (data.first != BodyType::Fruit) continue;
 
-        b2Vec2 pos = b->GetPosition();
-        float r = config_.fruit_radii[data.second - 1];
-		//if (data.second == 1) r *= 2.0f; // 1.3さくらんぼハック:小さすぎて見えくなる対策（物理挙動には影響しない）
-        float val = data.second;
+        const b2Vec2 pos = b->GetPosition();
+        const float r_fruit = config_.fruit_radii[data.second - 1];
+        const float val = static_cast<float>(data.second);
 
-        // この果物がカバーするグリッド範囲を計算
-        // バウンディングボックスからインデックス範囲を割り出す
-        int c_min = static_cast<int>((pos.x - r - min_x) / cell_w);
-        int c_max = static_cast<int>((pos.x + r - min_x) / cell_w);
-        int r_min = static_cast<int>((pos.y - r - min_y) / cell_h);
-        int r_max = static_cast<int>((pos.y + r - min_y) / cell_h);
+        // バウンディングボックスからインデックス範囲を算出
+        int c_min = static_cast<int>((pos.x - r_fruit - min_x) / cell_w);
+        int c_max = static_cast<int>((pos.x + r_fruit - min_x) / cell_w);
+        int r_min = static_cast<int>((pos.y - r_fruit - min_y) / cell_h);
+        int r_max = static_cast<int>((pos.y + r_fruit - min_y) / cell_h);
 
         c_min = std::max(0, c_min);
         c_max = std::min(config_.grid_cols - 1, c_max);
         r_min = std::max(0, r_min);
         r_max = std::min(config_.grid_rows - 1, r_max);
 
-        // 判定用の半径の2乗を事前に計算
-        float r_sq = r * r;
+        const float r_sq = r_fruit * r_fruit;
 
-        // 円形判定
         for (int iy = r_min; iy <= r_max; ++iy) {
-            // Y方向の範囲
-            float cell_y1 = min_y + iy * cell_h;
-            float cell_y2 = cell_y1 + cell_h;
-
-            // Y軸に関する計算は ix に依存しないため、外側のループに出す
-            float closest_y = std::clamp(pos.y, cell_y1, cell_y2);
-            float dy = pos.y - closest_y;
-            float dy_sq = dy * dy; // 2乗もここで計算しておく
-
-            // 行のベースとなるインデックスを事前計算
-            int row_idx = iy * config_.grid_cols;
+            const float cell_y1 = min_y + iy * cell_h;
+            const float cell_y2 = cell_y1 + cell_h;
+            const float closest_y = std::clamp(pos.y, cell_y1, cell_y2);
+            const float dy_sq = (pos.y - closest_y) * (pos.y - closest_y);
+            const int row_offset = kNumScalarObsDim + (iy * config_.grid_cols);
 
             for (int ix = c_min; ix <= c_max; ++ix) {
-                // Circle-AABB Intersection
+                const float cell_x1 = min_x + ix * cell_w;
+                const float cell_x2 = cell_x1 + cell_w;
+                const float closest_x = std::clamp(pos.x, cell_x1, cell_x2);
+                const float dx = pos.x - closest_x;
 
-                // X方向の範囲
-                float cell_x1 = min_x + ix * cell_w;
-                float cell_x2 = cell_x1 + cell_w; // 乗算を削減し、加算に
-
-                // X軸の計算のみを行う
-                float closest_x = std::clamp(pos.x, cell_x1, cell_x2);
-                float dx = pos.x - closest_x;
-
-                // dx * dx と、外で計算済みの dy_sq を足すだけ
                 if (dx * dx + dy_sq <= r_sq) {
-                    // グリッド座標変換 (乗算を排除)
-                    int idx = row_idx + ix;
-
-                    // 重なっている場合はランクが低い方を優先
-                    if (grid_obs[idx] == 0.0f || val < grid_obs[idx]) {
-                        grid_obs[idx] = val;
+                    const int idx = row_offset + ix;
+                    // 重なっている場合はランクが低い（小さい）方を優先
+                    if (obs_ptr_[idx] == 0.0f || val < obs_ptr_[idx]) {
+                        obs_ptr_[idx] = val;
                     }
                 }
             }
         }
     }
 
-    // Dropper X グリッド
+    // --- Dropper X グリッドの描画---
     if (config_.use_dropper_x_grid) {
-        // 現在のDropperのX座標から、対象の列(column)を計算
-        float cell_w_x = (max_x - min_x) / config_.grid_cols;
-        int target_c = static_cast<int>((dropper_.x - min_x) / cell_w_x);
+        int target_c = static_cast<int>((dropper_.x - min_x) / cell_w);
         target_c = std::clamp(target_c, 0, config_.grid_cols - 1);
-
-        // 一番上の行(row)を計算
-        int target_r = config_.grid_rows - 1;
-        int target_idx = target_r * config_.grid_cols + target_c;
-
-        // kFruitTypeCount + 1 (つまり 12.0) で上書き (果物と被っていても優先)
-        grid_obs[target_idx] = static_cast<float>(kFruitTypeCount + 1);
+        const int target_idx = kNumScalarObsDim + ((config_.grid_rows - 1) * config_.grid_cols) + target_c;
+        obs_ptr_[target_idx] = static_cast<float>(kFruitTypeCount + 1);
     }
 
-    // Tensor結合
-    int total_dim = fixed_obs.size() + grid_obs.size();
-    auto t = torch::empty({ total_dim }, float_opt_);
+    // デバッグ表示用キャッシュ更新（vectorが必要な場合のみ）
+    grid_cache_.assign(obs_ptr_ + kNumScalarObsDim, obs_ptr_ + kNumScalarObsDim + grid_size);
 
-    // コピー
-    float* ptr = t.data_ptr<float>();
-    std::memcpy(ptr, fixed_obs.data(), fixed_obs.size() * sizeof(float));
-    std::memcpy(ptr + fixed_obs.size(), grid_obs.data(), grid_obs.size() * sizeof(float));
-
-    s.obs = t;
-    s.done = false;
-    s.truncated = false;
-    s.episode_start = false;
-
-    // デバッグ表示用にキャッシュしておく
-    grid_cache_ = grid_obs;
-
-    return s;
+    // --- 返却（Designated Initializers） ---
+    return anet::rl::SingleState {
+        .obs = obs_buffer_,       // バッファをそのまま渡す
+        .done = false,            // Step/Reset側で後ほど上書きされる
+        .truncated = false,
+        .episode_start = false
+    };
 }
 
 std::pair<float, float> DropMergeEnv::calcReward()
@@ -1071,6 +1039,13 @@ anet::rl::AuxData DropMergeEnv::CreateAuxData(float reward, float raw_reward) co
 std::optional<float> DropMergeEnv::GetScalar(const std::string& key, int64_t index) const
 {
     float nan = std::numeric_limits<float>::quiet_NaN();
+
+    // --- 基本情報 ---
+
+    if (key == "ep_step") {
+        if (!episode_just_ended_) return nan;
+        return static_cast<float>(last_episode_step_);
+    }
 
     // --- 成果・盤面状態 ---
     if (key == "ep_max_rank") {
