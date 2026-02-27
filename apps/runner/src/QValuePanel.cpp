@@ -272,13 +272,11 @@ void QValuePanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, 
 
 std::optional<QValueData> QValuePanel::CreateData(const anet::rl::TrainEvent& event)
 {
-    QValueData data;
     const auto& aux_data = event.action_info.GetAuxData();
-
     auto q_values_itr = aux_data.find("q_values");
     if (q_values_itr == aux_data.end()) return std::nullopt;
-    torch::Tensor q_values_plain = q_values_itr->second;
 
+    torch::Tensor q_values_plain = q_values_itr->second;
     auto q_quantiles_itr = aux_data.find("q_quantiles");
     torch::Tensor q_values = q_values_plain;
     if (q_quantiles_itr != aux_data.end() && q_quantiles_itr->second.defined()) q_values = q_quantiles_itr->second;
@@ -291,6 +289,9 @@ std::optional<QValueData> QValuePanel::CreateData(const anet::rl::TrainEvent& ev
     ANET_LOG_DEBUG("first_env_q=" << anet::ToString(first_env_q));
     ANET_CHECK(first_env_q.size(0) == action_names_.size());
     auto n_actions = first_env_q.size(0);
+
+    QValueData data;
+    data.selected_action = event.action_info.GetAction(torch::kCPU)[0].item<int64_t>();
 
     // 統計値生成
     data.stats.resize(n_actions);
@@ -381,18 +382,21 @@ void QValuePanel::Update()
     int new_rows = static_cast<int>(action_names_.size());
 
     // 最大のMeanを持つアクションを特定する
-    float max_mean_val = -std::numeric_limits<float>::infinity();
-    int max_mean_idx = -1;
+    //float max_mean_val = -std::numeric_limits<float>::infinity();
+    //int max_mean_idx = -1;
 
-    for (int i = 0; i < new_rows; ++i) {
-        // 統計データが揃っていない場合のガード
-        if (i < data.stats.size()) {
-            if (data.stats[i].mean > max_mean_val) {
-                max_mean_val = data.stats[i].mean;
-                max_mean_idx = i;
-            }
-        }
-    }
+    //for (int i = 0; i < new_rows; ++i) {
+    //    // 統計データが揃っていない場合のガード
+    //    if (i < data.stats.size()) {
+    //        if (data.stats[i].mean > max_mean_val) {
+    //            max_mean_val = data.stats[i].mean;
+    //            max_mean_idx = i;
+    //        }
+    //    }
+    //}
+
+    // 選択されたアクションを特定
+    int64_t selected_idx = data.selected_action;
 
     grid_->BeginBatch();
 
@@ -419,10 +423,11 @@ void QValuePanel::Update()
         grid_->SetCellValue(i, 3, wxString::Format("%.3f", data.stats[i].max - grid_offset));
         grid_->SetCellValue(i, 4, wxString::Format("%.3f", data.stats[i].min - grid_offset));
 
-        if (i == max_mean_idx) {
+        //if (i == max_mean_idx) {
+        if (i == selected_idx) {
             for (int col = 0; col < 5; ++col) {
                 grid_->SetCellBackgroundColour(i, col, kHighlightBg);
-                grid_->SetCellTextColour(i, col, kHighlightText); // 重要: 文字色も合わせる
+                grid_->SetCellTextColour(i, col, kHighlightText); // 文字色も合わせる
             }
         } else {
             for (int col = 0; col < 5; ++col) {

@@ -42,6 +42,9 @@ public:
     // 統計
     std::vector<Stats> stats;
 
+    // 実際に選択された行動
+    int64_t selected_action;
+
     // HeatMap
     int width;
     int height;
