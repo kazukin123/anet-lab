@@ -609,7 +609,7 @@ public:
             auto device = input.device();
             auto dtype = input.scalar_type();
             int64_t in_channels = input.size(1);
-            int padding = config_.padding < 0 ? (config_.dilation * config_.kernel_size / 2) : config_.padding;
+            int padding = config_.padding < 0 ? (config_.dilation * (config_.kernel_size - 1) / 2) : config_.padding;
 
             // ------------------------------------------------
             // Main Path (Conv1)
