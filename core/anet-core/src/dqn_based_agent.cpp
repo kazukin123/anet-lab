@@ -342,19 +342,22 @@ torch::Tensor UQEActionPolicy::MakeUQEAction(float tau, const torch::Tensor& q_q
     tau_idx = std::max<int64_t>(0, std::min<int64_t>(tau_idx, n_quantiles - 1));
     ANET_LOG_DEBUG("tau_idx=" << tau_idx);
 
+    // 最後の次元(分位点)を確実に昇順(小さい順)にソートする
+    torch::Tensor sorted_quantiles = std::get<0>(q_quantiles.sort(-1, /*descending=*/false));
+
     torch::Tensor uqe_values;
     if (config_.uqe_use_tail_mean) {
         // 上位分位点すべての平均を使う場合
 
         // tau_idx から 最後まで (N-1) の範囲を切り出す
-        auto tail_values = q_quantiles.slice(-1, tau_idx, n_quantiles);  // (B, A, N - tau_idx)
+        auto tail_values = sorted_quantiles.slice(-1, tau_idx, n_quantiles);  // (B, A, N - tau_idx)
         ANET_LOG_DEBUG("tail_values=" << anet::ToString(tail_values));
 
         // 切り出した範囲の平均をとる
         uqe_values = tail_values.mean(-1);
     } else {
         // 特定の分位点におけるQ値を取得
-        uqe_values = q_quantiles.select(-1, tau_idx);  // (B, A, N) -> (B, A)
+        uqe_values = sorted_quantiles.select(-1, tau_idx);  // (B, A, N) -> (B, A)
     }
     ANET_LOG_DEBUG("uqe_values=" << anet::ToString(uqe_values));
 
@@ -373,10 +376,11 @@ torch::Tensor UQEActionPolicy::MakeVectorizedUQEAction(const torch::Tensor& tau_
     const int64_t n_quantiles = q_quantiles.size(2);
     auto device = q_quantiles.device();
 
-    // インデックスの計算 (N, 1)
+    // 最後の次元(分位点)を確実に昇順(小さい順)にソートする
+    torch::Tensor sorted_quantiles = std::get<0>(q_quantiles.sort(-1, /*descending=*/false));
 
-    // floor(tau * (n_q - 1))
-    auto tau_idx = (tau_tensor * n_quantiles).to(torch::kLong);
+    // インデックスの計算 (N, 1)
+    auto tau_idx = (tau_tensor * (n_quantiles - 1)).to(torch::kLong);
     tau_idx = tau_idx.clamp(0, n_quantiles - 1);
 
     torch::Tensor uqe_values;
@@ -394,7 +398,7 @@ torch::Tensor UQEActionPolicy::MakeVectorizedUQEAction(const torch::Tensor& tau_
 
         // 平均計算: (sum(Q * mask) / sum(mask))
         // small_epsilon を足して 0除算防止
-        uqe_values = (q_quantiles * mask).sum(-1) / (mask.sum(-1) + 1e-6);
+        uqe_values = (sorted_quantiles * mask).sum(-1) / (mask.sum(-1) + 1e-6);
     } else {
         // tau_idx を (N, A, 1) に拡張
         // バッチ(N)ごとに違うインデックスだが、Action(A)に対しては同じインデックスを使う
@@ -402,7 +406,7 @@ torch::Tensor UQEActionPolicy::MakeVectorizedUQEAction(const torch::Tensor& tau_
 
         // gather: dim=-1 (quantiles次元) に沿って収集
         // output: (N, A, 1) -> squeeze -> (N, A)
-        uqe_values = q_quantiles.gather(-1, gather_idx).squeeze(-1);
+        uqe_values = sorted_quantiles.gather(-1, gather_idx).squeeze(-1);
     }
 
     return uqe_values.argmax(1);
@@ -1217,7 +1221,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             // 次状態のGreedy行動 a* = argmax E[Z(s', a')]
             torch::Tensor next_actions;
             if (config_.use_double_dqn) {
-            auto next_q_policy = network_.Forward(next_obs, /*use_target=*/false); // (B, A)
+                auto next_q_policy = network_.Forward(next_obs, /*use_target=*/false); // (B, A)
                 ANET_ASSERT_SHAPE(next_q_policy, { B, A });
                 next_actions = std::get<1>(next_q_policy.max(1)); // (B)
             } else {
