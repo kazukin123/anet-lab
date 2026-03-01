@@ -219,6 +219,7 @@ void DropMergeEnv::buildWorld()
     b2Vec2 gravity(0.0f, config_.gravity);
     world_ = std::make_unique<b2World>(gravity);
     world_->SetContinuousPhysics(false);  // 性能確保のために連続衝突判定(CCD) をオフに（すり抜けが発生したらtrueにする）
+//world_->SetContinuousPhysics(true);  // 性能確保のために連続衝突判定(CCD) をオフに（すり抜けが発生したらtrueにする）
     world_->SetAllowSleeping(true);     // 動かなくなった果物の物理演算をスキップ(デフォルトで有効のはずだが念の為）
 
     contact_listener_ = std::make_unique<ContactListener>(*this);
@@ -234,8 +235,8 @@ void DropMergeEnv::buildWorld()
 
         b2FixtureDef fd;
         fd.density = 0.0f;
-        fd.friction = config_.friction;
-        fd.restitution = 0.0f; // 床は弾まない
+        fd.friction = config_.box_friction < 0 ? config_.friction : config_.box_friction;  // 摩擦係数
+        fd.restitution = config_.box_restitution < 0 ? config_.restitution : config_.box_restitution; // 反発係数
 
         float half_w = config_.box_width * 0.5f;
         float h = config_.box_height;
@@ -399,11 +400,6 @@ void DropMergeEnv::processAction(int64_t action)
         }
     }
 
-    // Busyチェック
-    if (dropper_.is_busy) {
-        return;
-    }
-    
     // 移動範囲の計算準備
     float half_w = config_.box_width * 0.5f;
     int check_rank = (dropper_.current_rank > 0) ? dropper_.current_rank : dropper_.next_rank;
@@ -444,6 +440,11 @@ void DropMergeEnv::processAction(int64_t action)
     }
     // DROP処理 (Drop予約のみ)
     if (action == kActionDrop) {
+        // 落下中ならDROPだけ無視
+        if (dropper_.is_busy) {
+            return;
+        }
+
         // 果物生成
         float spawn_y = config_.ground_y + config_.box_height;
         float r_drop = config_.fruit_radii[dropper_.current_rank - 1];
@@ -936,7 +937,7 @@ anet::rl::SingleState DropMergeEnv::makeState() const
 
     // --- 返却（Designated Initializers） ---
     return anet::rl::SingleState {
-        .obs = obs_buffer_,       // バッファをそのまま渡す
+        .obs = obs_buffer_.clone(),  // バッファのクローンを渡す
         .done = false,            // Step/Reset側で後ほど上書きされる
         .truncated = false,
         .episode_start = false

@@ -64,8 +64,12 @@ namespace anet::rl::env::drop_merge {
 
         // --- 報酬調整用パラメータ ---
         float time_penalty = -0.0001f;     ///< 毎ステップ引かれる罰報酬
-        float noop_penalty = -0.001f;     ///< NOOPアクションを選ぶ事による罰報酬
+        float noop_penalty = -0.001f;      ///< NOOPアクションを選ぶ事による罰報酬
         float game_over_penalty = -5.0f;   ///< ゲームオーバー時の罰報酬
+
+        // 箱物性
+        float box_restitution = 0.0f;       /// 箱の反発係数。-1で果物と同じ
+        float box_friction = -1.0f;         /// 箱の摩擦。-1で果物と同じ
 
         // --- 果物パラメータ (Rank 1 -> 10) ---
 		std::vector<float> fruit_radii;     ///< ランクごとの半径

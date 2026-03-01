@@ -21,9 +21,10 @@ DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G20 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G2032 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > E
-#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > E
+#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.fun1 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > BF16.env > E
-DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.realistic > E
+DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > E
+#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.realistic > E
 
 
 #net.body.$ = net.body.MLP2
@@ -36,37 +37,54 @@ net.body.$ = net.body.SuikaResNet4064_10d     # ★
 #net.body.$ = net.body.SuikaResNet4064_18
 
 
-
 # ==============================================================================
 # 実験
 # ==============================================================================
 
+#app.run_name = run_{t}_DBG_eps
 #app.run_name = run_{t}_DBG_ddqn=0
-#app.run_name = run_{t}_eps_n10
+#app.run_name = run_{t}_DBG_up1
+#app.run_name = run_{t}_DBG_fast05
+#app.run_name = run_{t}_DBG_fast10
+#app.run_name = run_{t}_DBG_tall
+#app.run_name = run_{t}_DBG_fast05re
+#app.run_name = run_{t}_DBG_gma0995
+#app.run_name = run_{t}_DBG_N10
+app.run_name = run_{t}_heavy_base
 
-#R.num_quantiles = 101   # 51
+R.use_optimistic_target = true # Q値にtrain_policy（UQE）を反映させるならtrue
 
-#R.action_policy.policy_type = 0        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
-R.action_policy.policy_type = 1        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
+E.dropper_speed2 = 0.50 #0.30
+#E.dropper_speed2 = 1.00 #0.30
 
-#R.action_policy.uqe_use_tail_mean = true    # for UQE&TomsonSampling
+#E.box_height = 8.0      # 4.0
 
-#R.action_policy.eps_max = 1.00               # 指数減衰 for EpsilonGreedy  
-#R.action_policy.eps_min = 0.05               # 0.1f 0.05f for EpsilonGreedy
-#R.action_policy.eps_decay_step = 20,000,000  # 10M for EpsilonGreedy
+R.eval_policy.policy_type = UQE
+#R.eval_policy.uqe_tau_start = 0.65
 
 
-#R.action_policy.uqe_eval_tau = -1 # 0.75
-#R.action_policy.uqe_eval_tau = 0.75
-#R.action_policy.uqe_eval_tau = 0.99 # 攻めの姿勢
-R.action_policy.uqe_eval_tau = 1
+#R.train_policy.policy_type = EpsilonGreedy
+R.train_policy.policy_type = UQE
+#R.train_policy.policy_type = ThompsonSampling
+
+#R.train_policy.uqe_use_tail_mean = true    # for UQE&ThompsonSampling
+
+#R.train_policy.eps_start = 1.00               # 指数減衰 for EpsilonGreedy  
+#R.train_policy.eps_end = 0.05               # 0.1f 0.05f for EpsilonGreedy
+#R.train_policy.eps_decay_steps = 20,000,000  # 20M for EpsilonGreedy
+#R.train_policy.eps_decay_steps = 10,000,000  # 10M for EpsilonGreedy
+
+
+#R.eval_policy.policy_type = EpsilonGreedy
+#R.eval_policy.eps_start = 0.05
+#R.eval_policy.eps_end = 0.05
 
 
 E.no_drop_timeout_steps = 500 # 物性安定待ち挙動に対応
 #E.no_drop_timeout_steps = 300
 
-E.friction = 0.01              # 0.1 ツッルツル 重い果物が下に落ちやすい
-E.restitution = 0.1            # 0.05 反発係数  少しバウンドする事で衝撃による変動が起きやすい
+#E.friction = 0.01              # 0.1 ツッルツル 重い果物が下に落ちやすい
+#E.restitution = 0.1            # 0.05 反発係数  少しバウンドする事で衝撃による変動が起きやすい
 #E.drop_noise = 0.04           # 0.01 
 E.damping = 1.0                # 0.5 移動と回転の空気抵抗 0だとピクピクする場合がある
 
@@ -99,9 +117,9 @@ E.game_over_penalty = 0.0
 
 ##E.time_penalty = -0.0001    # NEET対策
 #E.time_penalty = -0.001    # NEET対策
-E.time_penalty = -0.01    # NEET対策
+#E.time_penalty = -0.01    # NEET対策
 #E.time_penalty = -0.1    # NEET対策
-#E.time_penalty = 0
+E.time_penalty = 0
 
 
 ##R.learner.grad_clip_tau = 0.5 # ★
@@ -124,15 +142,15 @@ E.time_penalty = -0.01    # NEET対策
 
 #A.learner.adam_eps = 1.5e-4
 
-#R.action_policy.uqe_eps_max = 1.00
-#R.action_policy.uqe_eps_max = 0.60
+#R.train_policy.uqe_eps_start = 1.00
 
-#R.action_policy.uqe_eps_min = 0.05
-#R.action_policy.uqe_eps_min = 0.0
+#R.train_policy.uqe_eps_end = 0.60
+#R.train_policy.uqe_eps_end = 0.05
+#R.train_policy.uqe_eps_end = 0.0
 
-#R.action_policy.uqe_tau_max = 0.75  # ビビリ対策
-R.action_policy.uqe_tau_max = 0.95  # 序盤は超楽観的（攻めの姿勢）
-R.action_policy.uqe_tau_min = 0.85  # 終盤でもかなり楽観的
+#R.train_policy.uqe_tau_start = 0.75  # ビビリ対策
+R.train_policy.uqe_tau_start = 0.95  # 序盤は超楽観的（攻めの姿勢）
+R.train_policy.uqe_tau_end = 0.85  # 終盤でもかなり楽観的
 
 #R.learner.alpha = 5e-6
 #R.learner.alpha = 1e-5
@@ -141,7 +159,7 @@ R.action_policy.uqe_tau_min = 0.85  # 終盤でもかなり楽観的
 #R.learner.alpha = 1e-4
 
 #R.learner.gamma = 0.999 # ★ 長期戦略考慮
-#R.learner.gamma = 0.995 # ★ 長期戦略考慮
+R.learner.gamma = 0.995 # ★ 長期戦略考慮
 #R.learner.gamma = 0.99   # ★
 #R.learner.gamma = 0.95   # ★
 #R.learner.gamma = 0.92   # ★
@@ -149,7 +167,7 @@ R.action_policy.uqe_tau_min = 0.85  # 終盤でもかなり楽観的
 
 #R.learner.n_step = 30   # ★長期戦略考慮
 #R.learner.n_step = 20
-#R.learner.n_step = 10
+R.learner.n_step = 10
 #R.learner.n_step = 3
 
 #R.learner.replay_capacity = 800,000
@@ -169,13 +187,21 @@ R.action_policy.uqe_tau_min = 0.85  # 終盤でもかなり楽観的
 #R.reward_scaler.use_dynamic_scaling = true
 #R.reward_scaler.use_auto_post_scale = true
 
+#R.learner.use_double_dqn = false # true
+
+#app.train_auto_start = false
+
 
 # ==============================================================================
 # BF16
 # ==============================================================================
 
-BF16.agent.action_policy.use_amp = false
-BF16.agent.action_policy.use_amp_bf16 = true
+BF16.agent.train_policy.use_amp = false
+BF16.agent.train_policy.use_amp_bf16 = true
+BF16.agent.eval_policy.use_amp = false
+BF16.agent.eval_policy.use_amp_bf16 = true
+BF16.agent.target_policy.use_amp = false
+BF16.agent.target_policy.use_amp_bf16 = true
 BF16.agent.learner.use_amp = true
 BF16.agent.learner.use_amp_bf16 = true
 BF16.agent.reward_scaler.constant_scale = 0.1
@@ -190,22 +216,22 @@ BF16.env.time_penalty = -0.01    # NEET対策
 
 #app.online.exp_pause_step  = 200,000,000    # 200M
 #app.online.exp_pause_step  = 100,000,000      # 100M
-#app.online.exp_pause_step  = 20,000,000      # 20M
-app.online.exp_pause_step  = 40,000,000      # 40M
+app.online.exp_pause_step  = 20,000,000      # 20M
+#app.online.exp_pause_step  = 40,000,000      # 40M
 #app.batchrun.exp_exit_step  = 40,000,000     # 40M
 app.batchrun.exp_exit_step  = 20,000,000     # 20M
 
-A.action_policy.uqe_eps_decay_step = 2,000,000      # 2M
-#A.action_policy.uqe_eps_decay_step = 10,000,000      # 10M
-#A.action_policy.uqe_eps_decay_step = 20,000,000      # 20M
+A.train_policy.uqe_eps_decay_steps = 2,000,000      # 2M
+#A.train_policy.uqe_eps_decay_steps = 10,000,000      # 10M
+#A.train_policy.uqe_eps_decay_steps = 20,000,000      # 20M
 
-#A.action_policy.uqe_tau_decay_step = 2,000,000   # 2M
-#A.action_policy.uqe_tau_decay_step = 10,000,000   # 10M
-A.action_policy.uqe_tau_decay_step = 20,000,000   # 20M
-#A.action_policy.uqe_tau_decay_step = 100,000,000 # 100M
+#A.train_policy.uqe_tau_decay_steps = 2,000,000   # 2M
+A.train_policy.uqe_tau_decay_steps = 10,000,000   # 10M
+#A.train_policy.uqe_tau_decay_steps = 20,000,000   # 20M
+#A.train_policy.uqe_tau_decay_steps = 100,000,000 # 100M
 
-#A.learner.per_beta_step = 10,000,000              # 10M
-A.learner.per_beta_step = 20,000,000              # 20M
+A.learner.per_beta_step = 10,000,000              # 10M
+#A.learner.per_beta_step = 20,000,000              # 20M
 #A.learner.per_beta_step = 100,000,000            # 100M
 
 
@@ -217,9 +243,9 @@ A.learner.per_beta_step = 20,000,000              # 20M
 #A.stucker.use_stacker = true
 #A.stucker.stack_count = 4
 
-A.action_policy.uqe_eps_max = 0.60
-A.action_policy.uqe_eps_min = 0.05
-A.action_policy.uqe_tau_min = 0.75           # ビビリ対策
+A.train_policy.uqe_eps_start = 0.60
+A.train_policy.uqe_eps_end = 0.05
+A.train_policy.uqe_tau_end = 0.75           # ビビリ対策
 
 A.learner.alpha = 5e-5         # ★
 A.learner.gamma = 0.99         # ★
@@ -244,9 +270,9 @@ A.reward_scaler.clip_range = 10.0
 A.network.soft_update_tau = 0.005                 # 0.001 高め
 
 
-B.action_policy.policy_type = 0        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
-B.action_policy.eps_max = 1.00
-B.action_policy.eps_min = 1.00
+B.train_policy.policy_type = EpsilonGreedy
+B.train_policy.eps_start = 1.00    # Random
+B.train_policy.eps_end = 1.00      # Random
 B.learner.replay_capacity = 256,000 
 B.learner.update_warmup_steps = 999999999
 B.learner.alpha = 0
@@ -551,6 +577,19 @@ DropMergeEnv.G4064.grid_rows = 64
 DropMergeEnv.G2032.grid_cols = 20
 DropMergeEnv.G2032.grid_rows = 32
 
+# --- DropMergeEnv fun1
+
+#DropMergeEnv.fun1.gravity = -2.0            # -10.0。フワッフワ
+DropMergeEnv.fun1.restitution = 0.95        # スーパーボール。壁や床で跳ねまくり
+DropMergeEnv.fun1.pop_force = 2.0           # 合体した瞬間に周囲の果物を豪快に吹き飛ばし
+DropMergeEnv.fun1.game_over_grace_step=9999 # 画面外にぶっ飛んでもゲームオーバーにならない
+DropMergeEnv.fun1.fruit_densities = 500.0, 10.0, 5.0, 2.0, 1.0, 0.5, 0.2, 0.1, 0.05, 0.01, 0.001  # さくらんぼがブラックホール
+DropMergeEnv.fun1.spin_noise = 200          # 果物がドリルのように超高速回転
+DropMergeEnv.fun1.friction = 1              # 高摩擦
+DropMergeEnv.fun1.box_friction = 1          # 箱の摩擦
+DropMergeEnv.fun1.damping = 0.0             # 一度回ったら永遠に止まらない
+DropMergeEnv.fun1.use_instant_drop = false
+
 
 # --- DropMergeEnv Realistic 現実に近い感じ スイカ作りやすい？
 
@@ -559,11 +598,13 @@ DropMergeEnv.realistic.restitution = 0.05  # 反発係数 弾みにくい
 # DropMergeEnv.realistic.fruit_densities = 3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0  3.0 　 # 全部同じ密度。面積が大きいほど重い。スイカはサクランボの約87倍の重さ
 DropMergeEnv.realistic.fruit_densities = 3.0  2.9  3.4  4.0  5.0  6.4  8.4  11.5  16.2  24.0  35.3  # 質量保存の法則 スイカはさくらんぼの1024倍重い！
 
+
 # --- DropMergeEnv Heavy ドバドバ落としても難しい物性
 
 DropMergeEnv.heavy.friction = 0.3      # 摩擦: 0.1(液体) -> 0.3(物体)  隙間に勝手に滑り込むのを防ぐ
-DropMergeEnv.heavy.restitution = 0.2   # 0.05(粘土) -> 0.2(ゴム)       適当に落とすと弾かれて計算が狂う
-DropMergeEnv.heavy.fruit_densities = 10.0  6.5  4.8  3.4  2.4  1.75  1.26  0.93  0.75  0.59  0.48  # ランクが上がるごとに少しずつ重くなる (スイカはさくらんぼの4倍重い）
+DropMergeEnv.heavy.restitution = 0.1   # 0.05(粘土) -> 0.2(ゴム)       適当に落とすと弾かれて計算が狂う
+#DropMergeEnv.heavy.fruit_densities = 10.0  6.5  4.8  3.4  2.4  1.75  1.26  0.93  0.75  0.59  0.48  # ランクが上がるごとに少しずつ重くなる (スイカはさくらんぼの4倍重い）
+DropMergeEnv.heavy.fruit_densities = 10.0 5.0 3.0 1.8 1.1 0.7 0.45 0.30 0.22 0.16 0.12           # 全部同じ重さ
 # DropMergeEnv.heavy.pop_force = 0.1   # 爆発で事故を少し誘発
 
 
@@ -639,6 +680,8 @@ DropMergeEnv.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.
 DropMergeEnv.fruit_radii = 0.09 0.13 0.17 0.22 0.28 0.35 0.43 0.52 0.62 0.72 0.84          # 果物半径
 DropMergeEnv.fruit_densities = 10.0 5.0 3.0 1.8 1.1 0.7 0.45 0.30 0.22 0.16 0.12           # 全部同じ重さ
 DropMergeEnv.drop_probs = 20.0 20.0 20.0 20.0 20.0                                         # ドロッパー出現率分布（ランク別）
+DropMergeEnv.box_restitution = 0        # 箱の反発係数。-1で果物と同じ
+DropMergeEnv.box_friction = -1          # 箱の摩擦。-1で果物と同じ
 
 
 
