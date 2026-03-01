@@ -281,6 +281,10 @@ std::optional<QValueData> QValuePanel::CreateData(const anet::rl::TrainEvent& ev
     torch::Tensor q_values = q_values_plain;
     if (q_quantiles_itr != aux_data.end() && q_quantiles_itr->second.defined()) q_values = q_quantiles_itr->second;
 
+    auto raw_actions_itr = aux_data.find("raw_actions");
+    torch::Tensor raw_actions;
+    if (raw_actions_itr != aux_data.end()) raw_actions = raw_actions_itr->second;
+
     //ANET_LOG_DEBUG("q_values=" << anet::ToString(q_values));
 
     ANET_CHECK(q_values.size(0) > 0);
@@ -291,7 +295,15 @@ std::optional<QValueData> QValuePanel::CreateData(const anet::rl::TrainEvent& ev
     auto n_actions = first_env_q.size(0);
 
     QValueData data;
-    data.selected_action = event.action_info.GetAction(torch::kCPU)[0].item<int64_t>();
+
+    // Action表示データ設定
+    if (raw_actions.defined()) {
+        // 人間が指示したかもしれない実際に実行したActionではなく、Agentが選択したActionを画面表示データに設定
+        data.selected_action = raw_actions[0].item<int64_t>();
+    } else {
+        // raw_actionが見れない場合は仕方ないので実際に実行したActionを画面表示データに設定
+        data.selected_action = event.action_info.GetAction(torch::kCPU)[0].item<int64_t>();
+    }
 
     // 統計値生成
     data.stats.resize(n_actions);
@@ -406,8 +418,8 @@ void QValuePanel::Update()
         grid_->DeleteRows(new_rows, current_rows - new_rows);
     }
 
-    // Grid表示用のオフセット値
-    float grid_offset = is_adv ? static_cast<float>(global_mean) : 0.0f;
+    // Grid表示用のオフセット値 ★混乱するので無効化
+    float grid_offset = 0.0f;// is_adv ? static_cast<float>(global_mean) : 0.0f;
 
     const wxColour kHighlightBg = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT);
     const wxColour kHighlightText = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHTTEXT);
