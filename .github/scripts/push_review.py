@@ -1,44 +1,68 @@
 import os
 import google.generativeai as genai
-from github import Github
+from github import Github, Auth
+
+# --- 設定エリア ---
+# レビュー対象にするディレクトリ（リポジトリルートからの相対パス）
+TARGET_PATHS = ["core/anet-core", "core/envs", "apps"] 
+
+# 除外したいディレクトリ名やファイル名の部分一致（Box2D、外部ライブラリなど）
+EXCLUDE_KEYWORDS = [ ]
+# ----------------
 
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel('gemini-2.0-flash') # または 1.5-pro
-g = Github(os.environ["GITHUB_TOKEN"])
+# クォータに余裕がある場合は 'gemini-1.5-pro'、速度重視なら 'gemini-1.5-flash'
+model = genai.GenerativeModel('gemini-1.5-flash') 
+
+auth = Auth.Token(os.environ["GITHUB_TOKEN"])
+g = Github(auth=auth)
 repo = g.get_repo(os.environ["GITHUB_REPOSITORY"])
 
-# 実行トリガーの判定
 event_name = os.environ.get("GITHUB_EVENT_NAME")
 sha = os.environ.get("GITHUB_SHA")
 
 code_content = ""
 
+def is_target_file(filepath):
+    # 1. 拡張子チェック
+    if not filepath.endswith(('.cpp', '.hpp', '.h')):
+        return False
+    # 2. 指定したターゲットパスに含まれているか
+    in_target = any(filepath.startswith(p) for p in TARGET_PATHS)
+    # 3. 除外キーワードが含まれていないか
+    is_excluded = any(k in filepath for k in EXCLUDE_KEYWORDS)
+    return in_target and not is_excluded
+
 if event_name == "push":
-    # Push時は「今回の差分」だけを見る
     commit = repo.get_commit(sha)
     for file in commit.files:
-        if file.filename.endswith(('.cpp', '.hpp', '.h')):
+        if is_target_file(file.filename):
             code_content += f"\n--- File: {file.filename} ---\n{file.patch}\n"
     mode_text = "今回の差分レビュー"
 else:
-    # 手動実行時は「主要なC++ファイル全体」を見る（一括レビュー）
-    # anet/ フォルダなどの主要ディレクトリを指定するとノイズが減ります
-    contents = repo.get_contents("")
-    while contents:
-        file_content = contents.pop(0)
-        if file_content.type == "dir":
-            contents.extend(repo.get_contents(file_content.path))
-        elif file_content.name.endswith(('.cpp', '.hpp', '.h')):
-            # 大容量コンテキストを活かしてファイル丸ごと読み込み
-            decoded = file_content.decoded_content.decode()
-            code_content += f"\n--- File: {file_content.path} ---\n{decoded}\n"
-    mode_text = "プロジェクト全体の一括レビュー"
+    # 手動実行：ターゲットパス配下を再帰的に取得
+    mode_text = "プロジェクト全体の特定パス一括レビュー"
+    for path in TARGET_PATHS:
+        try:
+            items = repo.get_contents(path)
+            while items:
+                item = items.pop(0)
+                if item.type == "dir":
+                    if not any(k in item.path for k in EXCLUDE_KEYWORDS):
+                        items.extend(repo.get_contents(item.path))
+                elif is_target_file(item.path):
+                    if item.size < 100000: # 100KB以上の巨大ファイルは避ける
+                        decoded = item.decoded_content.decode()
+                        code_content += f"\n--- File: {item.path} ---\n{decoded}\n"
+        except Exception as e:
+            print(f"Path not found or error: {path} ({e})")
 
 if not code_content:
-    print("Review target not found.")
+    print("レビュー対象のコードが見つかりませんでした。")
     exit(0)
 
-prompt = f"""
+# あなたのプロンプト（指示事項）
+prompt_text = f"""
 あなたはシニアC++エンジニア、および強化学習（RL）の実装エキスパートです。
 
 ## プロジェクトの前提
@@ -75,12 +99,16 @@ prompt = f"""
 {code_content}
 """
 
-response = model.generate_content(prompt)
+try:
+    response = model.generate_content(prompt_text)
+    
+    with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+        f.write(f"### 🤖 Gemini {mode_text}\n\n{response.text}")
 
-# 結果の出力（Summaryに表示）
-with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
-    f.write(f"### 🤖 Gemini {mode_text}\n\n{response.text}")
-
-# Push時のみコミットコメントも残す
-if event_name == "push":
-    repo.get_commit(sha).create_comment(f"### 🤖 Gemini Push Review\n\n{response.text}")
+    if event_name == "push":
+        repo.get_commit(sha).create_comment(f"### 🤖 Gemini Push Review\n\n{response.text}")
+except Exception as e:
+    error_msg = f"API制限（Quota Exceeded）またはエラーが発生しました。\n{e}"
+    with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+        f.write(f"### ❌ レビュー失敗\n{error_msg}")
+    print(error_msg)
