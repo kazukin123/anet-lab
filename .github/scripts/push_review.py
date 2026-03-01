@@ -1,5 +1,7 @@
 import os
-from google import genai # 新SDK
+import time
+import sys # 追加
+from google import genai
 from github import Github, Auth
 
 # --- 設定エリア ---
@@ -7,9 +9,7 @@ TARGET_PATHS = ["core/anet-core", "core/envs", "apps"]
 EXCLUDE_KEYWORDS = [] 
 # ----------------
 
-# 最新SDKでのクライアント初期化
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-
 auth = Auth.Token(os.environ["GITHUB_TOKEN"])
 g = Github(auth=auth)
 repo = g.get_repo(os.environ["GITHUB_REPOSITORY"])
@@ -17,42 +17,43 @@ repo = g.get_repo(os.environ["GITHUB_REPOSITORY"])
 event_name = os.environ.get("GITHUB_EVENT_NAME")
 sha = os.environ.get("GITHUB_SHA")
 
-code_content = ""
+review_targets = []
 
 def is_target_file(filepath):
-    if not filepath.endswith(('.cpp', '.hpp', '.h')):
-        return False
-    in_target = any(filepath.startswith(p) for p in TARGET_PATHS)
-    is_excluded = any(k in filepath for k in EXCLUDE_KEYWORDS)
-    return in_target and not is_excluded
+    if not filepath.endswith(('.cpp', '.hpp', '.h')): return False
+    return any(filepath.startswith(p) for p in TARGET_PATHS)
 
-# コード収集（ロジックは変更せずそのまま）
+# ファイル収集
 if event_name == "push":
     commit = repo.get_commit(sha)
-    for file in commit.files:
-        if is_target_file(file.filename):
-            code_content += f"\n--- File: {file.filename} ---\n{file.patch}\n"
+    for f in commit.files:
+        if is_target_file(f.filename):
+            review_targets.append({"path": f.filename, "content": f.patch})
     mode_text = "今回の差分レビュー"
 else:
-    mode_text = "プロジェクト全体の特定パス一括レビュー"
+    mode_text = "プロジェクト全体の一括レビュー"
     for path in TARGET_PATHS:
         try:
             contents = repo.get_contents(path)
             while contents:
-                file_content = contents.pop(0)
-                if file_content.type == "dir":
-                    contents.extend(repo.get_contents(file_content.path))
-                elif is_target_file(file_content.path):
-                    decoded = file_content.decoded_content.decode()
-                    code_content += f"\n--- File: {file_content.path} ---\n{decoded}\n"
-        except Exception as e:
-            print(f"Path not found: {path} ({e})")
+                item = contents.pop(0)
+                if item.type == "dir":
+                    contents.extend(repo.get_contents(item.path))
+                elif is_target_file(item.path):
+                    review_targets.append({"path": item.path, "content": item.decoded_content.decode()})
+        except: pass
 
-if not code_content:
-    print("レビュー対象のコードが見つかりませんでした。")
+if not review_targets:
+    print("対象コードなし。")
     exit(0)
 
-prompt_text = f"""
+full_results = ""
+error_occurred = False
+
+for target in review_targets:
+    print(f"Reviewing: {target['path']}...")
+    
+    prompt = f"""
 あなたはシニアC++エンジニア、および強化学習（RL）の実装エキスパートです。
 
 ## プロジェクトの前提
@@ -83,28 +84,36 @@ prompt_text = f"""
 ### 4. 性能改善（影響が大きい場合のみ）
 - 頻繁に呼ばれるループ内での不要なTensorコピー、不適切なメモリアロケーション。
 - CUDAカーネルを効率的に動かすためのデータ配置の懸念。
-
 ---
-以下のコードについて【{mode_text}】を行ってください。
-{code_content}
+以下のコードをレビューしてください。
+ファイル: {target['path']}
+内容:
+{target['content']}
 """
 
-try:
-    response = client.models.generate_content(
-        model='gemini-2.5-flash', 
-        contents=prompt_text
-    )
-    
-    review_result = response.text
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt
+        )
+        full_results += f"#### 📄 {target['path']}\n{response.text}\n\n"
+        
+        # 次のリクエストまで5秒待機
+        time.sleep(5) 
 
-    with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
-        f.write(f"### 🤖 Gemini {mode_text}\n\n{review_result}")
+    except Exception as e:
+        # エラーが起きたら情報を残して即座に終了する
+        error_msg = f"### ❌ APIエラーにより処理を中断しました\n原因: {e}\n"
+        with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+            f.write(error_msg)
+        print(error_msg)
+        
+        # 重要：sys.exit(1) でスクリプトとGitHub Actions全体を異常終了させる
+        sys.exit(1) 
 
-    if event_name == "push":
-        repo.get_commit(sha).create_comment(f"### 🤖 Gemini Push Review\n\n{review_result}")
-except Exception as e:
-    # 制限超過(429)などのエラー内容を詳細に出力
-    error_msg = f"APIエラーが発生しました: {e}"
-    with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
-        f.write(f"### ❌ レビュー失敗\n{error_msg}")
-    print(error_msg)
+# 正常に全件終わった場合のみここに来る
+with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+    f.write(f"### 🤖 Gemini {mode_text} (完了)\n\n{full_results}")
+
+if event_name == "push" and full_results:
+    repo.get_commit(sha).create_comment(f"### 🤖 Gemini Push Review\n\n{full_results}")
