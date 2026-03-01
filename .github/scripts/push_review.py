@@ -3,29 +3,43 @@ import google.generativeai as genai
 from github import Github
 
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel('gemini-2.0-flash')
+model = genai.GenerativeModel('gemini-2.0-flash') # または 1.5-pro
 g = Github(os.environ["GITHUB_TOKEN"])
 repo = g.get_repo(os.environ["GITHUB_REPOSITORY"])
 
-# 最新のコミットを取得
+# 実行トリガーの判定
+event_name = os.environ.get("GITHUB_EVENT_NAME")
 sha = os.environ.get("GITHUB_SHA")
-commit = repo.get_commit(sha)
 
-# 差分（Diff）の取得
-diff_text = ""
-for file in commit.files:
-    if file.filename.endswith(('.cpp', '.hpp', '.h')):
-        diff_text += f"\n--- File: {file.filename} ---\n{file.patch}\n"
+code_content = ""
 
-if not diff_text:
-    print("No C++ changes detected.")
+if event_name == "push":
+    # Push時は「今回の差分」だけを見る
+    commit = repo.get_commit(sha)
+    for file in commit.files:
+        if file.filename.endswith(('.cpp', '.hpp', '.h')):
+            code_content += f"\n--- File: {file.filename} ---\n{file.patch}\n"
+    mode_text = "今回の差分レビュー"
+else:
+    # 手動実行時は「主要なC++ファイル全体」を見る（一括レビュー）
+    # anet/ フォルダなどの主要ディレクトリを指定するとノイズが減ります
+    contents = repo.get_contents("")
+    while contents:
+        file_content = contents.pop(0)
+        if file_content.type == "dir":
+            contents.extend(repo.get_contents(file_content.path))
+        elif file_content.name.endswith(('.cpp', '.hpp', '.h')):
+            # 大容量コンテキストを活かしてファイル丸ごと読み込み
+            decoded = file_content.decoded_content.decode()
+            code_content += f"\n--- File: {file_content.path} ---\n{decoded}\n"
+    mode_text = "プロジェクト全体の一括レビュー"
+
+if not code_content:
+    print("Review target not found.")
     exit(0)
 
-# プロンプト
 prompt = f"""
-## 指示:
 あなたはシニアC++エンジニア、および強化学習（RL）の実装エキスパートです。
-以下のC++コードの差分（またはファイル全体）をレビューし、日本語でフィードバックしてください。
 
 ## プロジェクトの前提
 - 言語・ライブラリ: C++20, libtorch (PyTorch C++ API), wxWidgets
@@ -57,16 +71,16 @@ prompt = f"""
 - CUDAカーネルを効率的に動かすためのデータ配置の懸念。
 
 ---
-以下にレビュー対象のコードを提示します：
-
-{diff_text}
+以下のコードについて【{mode_text}】を行ってください。
+{code_content}
 """
 
 response = model.generate_content(prompt)
 
-# 結果をコミットコメントとして投稿
-commit.create_comment(f"### 🤖 Gemini Push Review\n\n{response.text}")
-
-# 同時にGitHubのAction Summaryにも表示（後で読み返しやすい）
+# 結果の出力（Summaryに表示）
 with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
-    f.write(f"### 🤖 Gemini Review for {sha[:7]}\n\n{response.text}")
+    f.write(f"### 🤖 Gemini {mode_text}\n\n{response.text}")
+
+# Push時のみコミットコメントも残す
+if event_name == "push":
+    repo.get_commit(sha).create_comment(f"### 🤖 Gemini Push Review\n\n{response.text}")
