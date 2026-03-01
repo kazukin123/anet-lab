@@ -1,18 +1,14 @@
 import os
-import google.generativeai as genai
+from google import genai # 新SDK
 from github import Github, Auth
 
 # --- 設定エリア ---
-# ご指定のパスを設定
 TARGET_PATHS = ["core/anet-core", "core/envs", "apps"] 
-# 除外キーワード（今回は空）
 EXCLUDE_KEYWORDS = [] 
 # ----------------
 
-# 旧SDKスタイルで初期化
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-# 404回避のため、最も標準的なモデル名指定を使用
-model = genai.GenerativeModel('gemini-1.5-flash')
+# 最新SDKでのクライアント初期化
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 auth = Auth.Token(os.environ["GITHUB_TOKEN"])
 g = Github(auth=auth)
@@ -26,13 +22,11 @@ code_content = ""
 def is_target_file(filepath):
     if not filepath.endswith(('.cpp', '.hpp', '.h')):
         return False
-    # 指定したパスのいずれかで始まっているかチェック
     in_target = any(filepath.startswith(p) for p in TARGET_PATHS)
-    # 除外ワードチェック（空リストなので基本スルー）
     is_excluded = any(k in filepath for k in EXCLUDE_KEYWORDS)
     return in_target and not is_excluded
 
-# コード収集
+# コード収集（ロジックは変更せずそのまま）
 if event_name == "push":
     commit = repo.get_commit(sha)
     for file in commit.files:
@@ -43,7 +37,6 @@ else:
     mode_text = "プロジェクト全体の特定パス一括レビュー"
     for path in TARGET_PATHS:
         try:
-            # 指定パス配下を再帰的に取得
             contents = repo.get_contents(path)
             while contents:
                 file_content = contents.pop(0)
@@ -59,7 +52,6 @@ if not code_content:
     print("レビュー対象のコードが見つかりませんでした。")
     exit(0)
 
-# あなたが作成したプロンプトをここに流し込む
 prompt_text = f"""
 あなたはシニアC++エンジニア、および強化学習（RL）の実装エキスパートです。
 
@@ -98,16 +90,21 @@ prompt_text = f"""
 """
 
 try:
-    response = model.generate_content(prompt_text)
+    response = client.models.generate_content(
+        model='gemini-2.0-flash', 
+        contents=prompt_text
+    )
     
+    review_result = response.text
+
     with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
-        f.write(f"### 🤖 Gemini {mode_text}\n\n{response.text}")
+        f.write(f"### 🤖 Gemini {mode_text}\n\n{review_result}")
 
     if event_name == "push":
-        repo.get_commit(sha).create_comment(f"### 🤖 Gemini Push Review\n\n{response.text}")
+        repo.get_commit(sha).create_comment(f"### 🤖 Gemini Push Review\n\n{review_result}")
 except Exception as e:
-    # 404等のエラーが出た場合、詳細を画面に出す
-    error_msg = f"API実行中にエラーが発生しました: {e}"
+    # 制限超過(429)などのエラー内容を詳細に出力
+    error_msg = f"APIエラーが発生しました: {e}"
     with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
         f.write(f"### ❌ レビュー失敗\n{error_msg}")
     print(error_msg)
