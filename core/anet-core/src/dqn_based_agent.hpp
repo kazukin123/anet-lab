@@ -21,8 +21,8 @@ namespace anet::rl::dqn {
 
     /// ランタイム変数
     struct anet::rl::dqn::RuntimeVars {
-        float epsilon = 1.0f;
-        float uqe_tau = 0.9f;
+        float epsilon = 1.0f;   // 互換性のために残す
+        float uqe_tau = 0.9f;   // 互換性のために残す
         anet::rl::step_t learn_step = 0;
         float per_beta = 0.0f;  ///< PER用beta
     };
@@ -250,13 +250,19 @@ namespace anet::rl::dqn {
     // ActionPolicy
     // ======================================================
 
-    class ActionPolicy : public anet::RandomHolder {
+    class ActionPolicy : public anet::RandomHolder, virtual public anet::ModuleBase {
     public:
-        ActionPolicy(const ActionPolicyConfig& config,
-            const anet::rl::dqn::Network& network, anet::rl::dqn::RuntimeVars& vars, anet::seed_t seed);
+        ActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network, anet::seed_t seed);
 
         virtual BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const = 0;
         virtual void OnLearn(const StepCounts& counts) { }
+
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
+        {
+            if (key == "epsilon") return current_epsilon_;
+            if (key == "uqe_tau") return current_uqe_tau_;
+            return std::nullopt;
+        }
 
         virtual ~ActionPolicy() = default;
     protected:
@@ -267,13 +273,13 @@ namespace anet::rl::dqn {
     protected:
         const ActionPolicyConfig config_;
         const anet::rl::dqn::Network& network_;
-        RuntimeVars& vars_;
+        float current_epsilon_ = 0.0f;
+        float current_uqe_tau_ = 0.0f;
     };
 
     class EpsilonGreedyActionPolicy final : public ActionPolicy {
     public:
-        EpsilonGreedyActionPolicy(const ActionPolicyConfig& config,
-            const anet::rl::dqn::Network& network, anet::rl::dqn::RuntimeVars& vars, anet::seed_t seed);
+        EpsilonGreedyActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network, anet::seed_t seed);
 
         BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const;
         void OnLearn(const StepCounts& counts) override;
@@ -289,8 +295,7 @@ namespace anet::rl::dqn {
      */
     class UQEActionPolicy : public ActionPolicy {
     public:
-        UQEActionPolicy(const ActionPolicyConfig& config,
-            const anet::rl::dqn::Network& network, anet::rl::dqn::RuntimeVars& vars, anet::seed_t seed);
+        UQEActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network, anet::seed_t seed);
 
         BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const;
         void OnLearn(const StepCounts& counts) override;
@@ -306,8 +311,7 @@ namespace anet::rl::dqn {
 
     class ThompsonSamplingActionPolicy final : public UQEActionPolicy {
     public:
-        ThompsonSamplingActionPolicy(const ActionPolicyConfig& config,
-            const anet::rl::dqn::Network& network, anet::rl::dqn::RuntimeVars& vars, anet::seed_t seed);
+        ThompsonSamplingActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network, anet::seed_t seed);
 
         BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const;
         void OnLearn(const StepCounts& counts) override;
@@ -322,6 +326,7 @@ namespace anet::rl::dqn {
         Learner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
             const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec,
             torch::Device device, anet::seed_t replay_seed,
+            std::shared_ptr<ActionPolicy> target_policy,
             std::optional<StuckerConfig> stucker_config = std::nullopt);
 
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences, std::shared_ptr<const anet::rl::Runner> runner) override;
@@ -353,6 +358,7 @@ namespace anet::rl::dqn {
         float earned_credit_;
         LearnerConfig config_;
         std::optional<StuckerConfig> stucker_config_;
+        std::shared_ptr<ActionPolicy> target_policy_;
         Network& network_;
         RuntimeVars& vars_;
         std::shared_ptr<ObservationNormalizer> obs_norm_;
@@ -367,6 +373,7 @@ namespace anet::rl::dqn {
     public:
         explicit TDLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
+            std::shared_ptr<ActionPolicy> target_policy,
             std::optional<StuckerConfig> stucker_config = std::nullopt);
 
         std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
@@ -377,6 +384,7 @@ namespace anet::rl::dqn {
     public:
         explicit QRLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
+            std::shared_ptr<ActionPolicy> target_policy,
             std::optional<StuckerConfig> stucker_config = std::nullopt);
 
         std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(

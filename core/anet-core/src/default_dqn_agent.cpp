@@ -57,7 +57,7 @@ DefaultDQNAgent::DefaultDQNAgent(
         }
     }
 
-    //seed
+    // seed
     anet::SeedMaker seed_maker(GetSeed());
     auto replay_seed = seed_maker.MakeNamedSeed("replaybuffer");
     auto action_policy_seed = seed_maker.MakeNamedSeed("action_policy");
@@ -70,13 +70,6 @@ DefaultDQNAgent::DefaultDQNAgent(
     if (is_distributional && config_.num_quantiles <= 1) {
         LOG::error() << "use_qr is true but num_quantiles <= 1. Treating as Scalar DQN.";
         ANET_SYSTEM_ERROR("use_qr is true but num_quantiles <= 1. Treating as Scalar DQN.");
-    }
-    if (!is_distributional) {
-        if (config_.action_policy.policy_type == kActionPolicyType_UQE || config_.action_policy.policy_type == kActionPolicyType_ThompsonSampling) {
-            // UQEbベースではQR必須
-            LOG::error() << "action_policy.policy_type is UQE but use_qr disabled.";
-            ANET_SYSTEM_ERROR("action_policy.policy_type is UQE but use_qr disabled.");
-        }
     }
 
     // RewardScaler生成
@@ -147,26 +140,52 @@ DefaultDQNAgent::DefaultDQNAgent(
     );
 
     // ActionPolicy生成
-    if (config_.action_policy.policy_type == kActionPolicyType_EpsilonGreedy) {
-        this->action_policy_ = std::make_unique<dqn::EpsilonGreedyActionPolicy>(config_.action_policy, *network_, *vars_, action_policy_seed);
-    } else if (config_.action_policy.policy_type == kActionPolicyType_UQE) {
-        this->action_policy_ = std::make_unique<dqn::UQEActionPolicy>(config_.action_policy, *network_, *vars_, action_policy_seed);
-    }  else if (config_.action_policy.policy_type == kActionPolicyType_ThompsonSampling) {
-        this->action_policy_ = std::make_unique<dqn::ThompsonSamplingActionPolicy>(config_.action_policy, *network_, *vars_, action_policy_seed);
-    } else {
-        ANET_SYSTEM_ERROR("Unknown action policy type. action_policy.policy_type=" << config_.action_policy.policy_type);
+    this->train_policy_ = CreateActionPolicy(config_.train_policy, action_policy_seed);
+    this->eval_policy_ = CreateActionPolicy(config_.eval_policy, action_policy_seed);
+    this->target_policy_ = CreateActionPolicy(config_.target_policy, action_policy_seed);
+
+    // Target Policyの妥当性チェック
+    if (config_.target_policy.policy_type == "EpsilonGreedy" && config_.target_policy.eps_start > 0.0f) {
+        // TargetActionPolicy（学習用）はUQE/ThompsonSamplingもしくはGreedyである必要がある(ランダム要素はNG)
+        ANET_SYSTEM_ERROR("target_policy cannot be EpsilonGreedy with eps > 0. It must be deterministic or optimistic.");
     }
 
     // Learner生成
     if (is_distributional) {
         this->learner_ = std::make_unique<dqn::QRLearner>(
-            config_.learner, *network_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, config_.stucker);
+            config_.learner, *network_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, target_policy_, config_.stucker);
         LOG::info() << "Initialized QRLearner (Quantiles=" << config_.num_quantiles << ")";
     } else {
         this->learner_ = std::make_unique<dqn::TDLearner>(
-            config_.learner, *network_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, config_.stucker);
+            config_.learner, *network_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, target_policy_, config_.stucker);
         LOG::info() << "Initialized TDLearner";
     }
+}
+
+std::shared_ptr<anet::rl::dqn::ActionPolicy> DefaultDQNAgent::CreateActionPolicy(const ActionPolicyConfig& config, anet::seed_t p_seed)
+{
+    if (config.policy_type == "EpsilonGreedy" || config.policy_type == "0") {
+        // ε-Greedy
+        return std::make_shared<dqn::EpsilonGreedyActionPolicy>(config, *network_, p_seed);
+    } else if (config.policy_type == "UQE" || config.policy_type == "1") {
+        // UQE
+        ANET_CHECK(config_.use_qr);
+        return std::make_shared<dqn::UQEActionPolicy>(config, *network_, p_seed);
+    } else if (config.policy_type == "ThompsonSampling" || config.policy_type == "2") {
+        //ThompsonSampling
+        ANET_CHECK(config_.use_qr);
+        return std::make_shared<dqn::ThompsonSamplingActionPolicy>(config, *network_, p_seed);
+    } else if (config.policy_type == "Greedy" || config.policy_type == "3") {
+        // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化
+        ActionPolicyConfig greedy_cfg = config;
+        greedy_cfg.eps_start = 0.0f;
+        greedy_cfg.eps_end = 0.0f;
+        return std::make_shared<dqn::EpsilonGreedyActionPolicy>(greedy_cfg, *network_, p_seed);
+    }
+
+    // 不明なtype
+    ANET_SYSTEM_ERROR("Unknown action policy type: " << config.policy_type);
+    return nullptr;
 }
 
 int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
@@ -278,13 +297,14 @@ std::optional<anet::TensorDictFunction> DefaultDQNAgent::GetTensorDictFunction(c
 
 std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int64_t index) const
 {
-    if (key == "epsilon") {
-        std::shared_lock<std::shared_mutex> lock(*mutex_);
-        return vars_->epsilon;
-    }
-    if (key == "uqe_tau") {
-        std::shared_lock<std::shared_mutex> lock(*mutex_);
-        return vars_->uqe_tau;
+    // プレフィックスで各 Policy インスタンスへ処理を委譲
+    if (anet::StartsWith(key, "train_policy.")) return train_policy_->GetScalar(anet::RemovePrefix(key, "train_policy."), index);
+    if (anet::StartsWith(key, "eval_policy.")) return eval_policy_->GetScalar(anet::RemovePrefix(key, "eval_policy."), index);
+    if (anet::StartsWith(key, "target_policy.")) return target_policy_->GetScalar(anet::RemovePrefix(key, "target_policy."), index);
+
+    //（後方互換）単なる "epsilon" などの指定は train_policy の情報を返す
+    if (key == "epsilon" || key == "uqe_tau") {
+        return train_policy_->GetScalar(key, index);
     }
     if (key == "per_beta") {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
@@ -362,13 +382,22 @@ anet::rl::BatchActionInfo DefaultDQNAgent::MakeAction(const StepCounts& step, co
     if (ctx) obs = ctx->PushObservation(state);
 
     // Normalize observations
-    auto obs_norm = this->obs_norm_->Normalize(obs);
+    auto obs_norm = obs_norm_->Normalize(obs);
 
     // 行動選択
-	auto run_mode = (ctx != nullptr) ? ctx->GetRunMode(): anet::rl::RunMode::Train;
-    auto greedy_only = anet::rl::IsEval(run_mode);
-    auto use_target = (run_mode == anet::rl::RunMode::Eval1);
-    auto act_info = this->action_policy_->SelectAction(obs_norm, greedy_only, use_target);
+    BatchActionInfo act_info;
+
+    // RunMode に応じて Policy を切り替える
+    auto run_mode = (ctx != nullptr) ? ctx->GetRunMode() : anet::rl::RunMode::Train;
+    if (anet::rl::IsEval(run_mode)) {
+        auto use_target = (run_mode == anet::rl::RunMode::Eval1);
+        act_info = eval_policy_->SelectAction(obs_norm, false, use_target);
+    } else {
+        act_info = train_policy_->SelectAction(obs_norm, false, false);
+    }
+
+    // スタック済み・正規化前の観測テンソルをAuxに詰める
+    act_info.GetAuxData()["raw_obs"] = obs;
 
     // ActionInfoを返す
     return act_info;
@@ -406,7 +435,9 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
         result_list = std::move(result);
 
         // Update後処理
-        action_policy_->OnLearn(counts);
+        train_policy_->OnLearn(counts);
+        eval_policy_->OnLearn(counts);
+        target_policy_->OnLearn(counts);
     }
 
     // LearnEvent通知（排他解除後でないとデッドロックになる）

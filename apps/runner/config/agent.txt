@@ -21,21 +21,32 @@ DefaultDQNAgent.baseline.head_init.mode = 1
 DefaultDQNAgent.baseline.network.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
 DefaultDQNAgent.baseline.stucker.use_stacker = true
 DefaultDQNAgent.baseline.stucker.stack_count = 4
-DefaultDQNAgent.baseline.action_policy.policy_type = 1        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
-DefaultDQNAgent.baseline.action_policy.eps_max = 1.00               # 指数減衰 for EpsilonGreedy  
-DefaultDQNAgent.baseline.action_policy.eps_min = 0.05               # 0.1f 0.05f for EpsilonGreedy
-DefaultDQNAgent.baseline.action_policy.eps_decay_step = 10,000,000  # 10M for EpsilonGreedy
-DefaultDQNAgent.baseline.action_policy.uqe_tau_max = 0.9            # for UQE
-DefaultDQNAgent.baseline.action_policy.uqe_tau_min = 0.5            # for UQE
-DefaultDQNAgent.baseline.action_policy.uqe_tau_decay_step = 10,000,000  # 10M for UQE
-DefaultDQNAgent.baseline.action_policy.uqe_eps_max = 0.05
-DefaultDQNAgent.baseline.action_policy.uqe_eps_min = 0.05
-DefaultDQNAgent.baseline.action_policy.uqe_eps_decay_step = 0       # 0=max固定
-DefaultDQNAgent.baseline.action_policy.uqe_use_tail_mean = false    # for UQE&TomsonSampling
-#DefaultDQNAgent.baseline.action_policy.uqe_eval_tau = 0.5 		    # for UQE eval時
-DefaultDQNAgent.baseline.action_policy.uqe_eval_tau = -1 		    # for UQE eval時 -1でUQE使わず平均Q値で選択
-DefaultDQNAgent.baseline.action_policy.use_amp = false
-DefaultDQNAgent.baseline.action_policy.use_amp_bf16 = false
+
+DefaultDQNAgent.baseline.use_optimistic_target = false           # Q値にtrain_policy（UQE）を反映させるならtrue
+
+DefaultDQNAgent.baseline.train_policy.policy_type = UQE         # EpsilonGreedy / UQE / ThompsonSampling / Greedy
+DefaultDQNAgent.baseline.train_policy.eps_start = 1.00          # for EpsilonGreedy
+DefaultDQNAgent.baseline.train_policy.eps_end = 0.05            # for EpsilonGreedy
+DefaultDQNAgent.baseline.train_policy.eps_decay_steps = 10,000,000 # for EpsilonGreedy
+DefaultDQNAgent.baseline.train_policy.uqe_tau_start = 0.9       # for UQE (探索の楽観度)
+DefaultDQNAgent.baseline.train_policy.uqe_tau_end = 0.5         # for UQE
+DefaultDQNAgent.baseline.train_policy.uqe_tau_decay_steps = 10,000,000 # for UQE
+DefaultDQNAgent.baseline.train_policy.uqe_eps_start = 0.05      # for UQEハイブリッド時のランダムノイズ
+DefaultDQNAgent.baseline.train_policy.uqe_eps_end = 0.05
+DefaultDQNAgent.baseline.train_policy.uqe_eps_decay_steps = 0    # 0=減衰なし固定
+DefaultDQNAgent.baseline.train_policy.uqe_use_tail_mean = false
+DefaultDQNAgent.baseline.train_policy.use_amp = false
+DefaultDQNAgent.baseline.train_policy.use_amp_bf16 = false
+
+DefaultDQNAgent.baseline.eval_policy.policy_type = Greedy       # 常に平均Q値最大を選択
+DefaultDQNAgent.baseline.eval_policy.use_amp = false
+DefaultDQNAgent.baseline.eval_policy.use_amp_bf16 = false
+
+#DefaultDQNAgent.baseline.target_policy.policy_type = Greedy     # Greedyが基本。長期戦略が必要な場合はUQEを検討
+#DefaultDQNAgent.baseline.target_policy.use_amp = false
+#DefaultDQNAgent.baseline.target_policy.use_amp_bf16 = false
+
+
 DefaultDQNAgent.baseline.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4 batch_sizeを上げたら少し上げて良い
 DefaultDQNAgent.baseline.learner.gamma = 0.99                 # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
 DefaultDQNAgent.baseline.learner.adam_eps = 1e-5              # 小さな勾配の変化に敏感になりすぎるのを防ぎ、学習をマイルドに
@@ -88,14 +99,44 @@ DefaultDQNAgent.baseline.use_dueling_net = true       #
 DefaultDQNAgent.baseline.num_quantiles = 51           # 分位数 N (デフォルト51)
 DefaultDQNAgent.baseline.use_qr = true                # QR-DQN 有効化フラグ
 
+# ==============================================================================
+# 【 Action Policy 設定ガイドライン 】
+# エージェントの「行動選択」と「価値計算」の基準を設定。
+# 
+# [1] train_policy (学習用のデータ収集・探索向け)
+#     - 役割: 未知の領域を効率よく開拓するための「行動方策 (Behavior Policy)」。
+#     - 推奨: UQE (不確実性による探索) または EpsilonGreedy。
+#     - 備考: uqe_tau_start(楽観度) や eps_start(ランダム度) を高く設定し、学習進行で減衰させる。
+#     - 備考: RunMode=TrainでのCreateActionContext/MakeAction呼出で適用される。
+#
+# [2] eval_policy (評価・本番推論向け)
+#     - 役割: 学習の真の実力を測るための「評価方策 (Eval Policy)」。
+#     - 推奨: Greedy (完全な平均Q値の最大化)。
+#     - 備考: 無駄な探索ノイズを排除するため、Greedy固定が鉄則。
+#     - 備考: RunMode=Eval/Eval1/Eval2でのCreateActionContext/MakeAction呼出で適用される。
+#
+# [3] target_policy と use_optimistic_target (TDターゲット計算・学習用) ★最重要
+#     - 役割: 「もし次状態で最善を尽くしたら価値はいくらか」を計算する基準。学習でTD誤差を算出する為に使用。
+#     - 戦略A (王道): use_optimistic_target = false の場合（デフォルト）：
+#         -> target_policy はデフォルトで Greedy。
+#         -> 客観的な期待値を厳格に学習。最も安定。
+#     - 戦略B (Deep Exploration): use_optimistic_target = true の場合：
+#         -> 長期戦略が必要な環境向け。
+#         -> train_policy の設定(UQE等)を自動継承し、探索の期待感をQ値に練り込む。
+#            UQEなら、過去の状態へ逆伝播させることで長期戦略を発見しやすくする効果が。
+#         -> target_policy.uqe_tau_start 等を個別に記述することで、
+#            「ベースはTrainと同じだが、Targetの楽観度だけ少し下げる」等の部分的な上書きが可能。
+#             ※注意: 環境のランダムな上振れを過信して学習が崩壊するリスクがあるため、安定感とのトレードオフ
+# ==============================================================================
+
 # ---- RainbowAgent
 
 RainbowAgent.baseline.head_init.manual_gain = 0.0
 RainbowAgent.baseline.head_init.mode = 1
 RainbowAgent.baseline.network.soft_update_tau = 0.001     # 1.0f 0.004f  0.01f 0.005f;
-RainbowAgent.baseline.action_policy.eps_max = 1.00              # 指数減衰  
-RainbowAgent.baseline.action_policy.eps_min = 0.05              # 0.1f 0.05f
-RainbowAgent.baseline.action_policy.eps_decay_step = 10,000,000    # 10M
+RainbowAgent.baseline.action_policy.eps_start = 1.00              # 指数減衰  
+RainbowAgent.baseline.action_policy.eps_end = 0.05              # 0.1f 0.05f
+RainbowAgent.baseline.action_policy.eps_decay_steps = 10,000,000    # 10M
 RainbowAgent.baseline.learner.alpha = 5e-4                # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
 RainbowAgent.baseline.learner.gamma = 0.99                # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
 RainbowAgent.baseline.learner.use_grad_clip = true        # ★

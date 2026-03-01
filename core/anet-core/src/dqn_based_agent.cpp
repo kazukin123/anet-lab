@@ -182,9 +182,8 @@ int64_t Network::Load(InputArchive& archive)
 // ActionPolicy 
 // ======================================================
 
-anet::rl::dqn::ActionPolicy::ActionPolicy(const ActionPolicyConfig& config,
-    const anet::rl::dqn::Network& network, RuntimeVars& vars, anet::seed_t seed)
-    : config_(config), anet::RandomHolder(seed), network_(network), vars_(vars)
+anet::rl::dqn::ActionPolicy::ActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network, anet::seed_t seed)
+    : config_(config), anet::RandomHolder(seed), network_(network)
 {
     // RandomHolderを継承しているが、基本GPU側で乱数生成しているので意味はない。ただ、マークとしてそのままにしておく。
 }
@@ -234,6 +233,7 @@ anet::rl::BatchActionInfo anet::rl::dqn::ActionPolicy::MakeActionInfo(const torc
     aux["max_q"] = max_q;
     aux["q_values"] = q_values;
     aux["q_quantiles"] = q_quantiles;
+    aux["raw_actions"] = action_values;
 
     return action_info;
 }
@@ -241,20 +241,20 @@ anet::rl::BatchActionInfo anet::rl::dqn::ActionPolicy::MakeActionInfo(const torc
 void anet::rl::dqn::ActionPolicy::UpdateEpsilon(step_t step, bool is_uqe)
 {
     if (is_uqe) {
-        if (config_.uqe_eps_decay_step <= 0) return;
-        if (step >= config_.uqe_eps_decay_step) {
-            vars_.epsilon = config_.uqe_eps_min;
+        if (config_.uqe_eps_decay_steps <= 0) return;
+        if (step >= config_.uqe_eps_decay_steps) {
+            current_epsilon_ = config_.uqe_eps_end;
         } else {
-            const float t = static_cast<float>(step) / static_cast<float>(config_.uqe_eps_decay_step);
-            vars_.epsilon = config_.uqe_eps_max + t * (config_.uqe_eps_min - config_.uqe_eps_max);
+            const float t = static_cast<float>(step) / static_cast<float>(config_.uqe_eps_decay_steps);
+            current_epsilon_ = config_.uqe_eps_start + t * (config_.uqe_eps_end - config_.uqe_eps_start);
         }
     } else {
-        if (config_.eps_decay_step <= 0) return;
-        if (step >= config_.eps_decay_step) {
-            vars_.epsilon = config_.eps_min;
+        if (config_.eps_decay_steps <= 0) return;
+        if (step >= config_.eps_decay_steps) {
+            current_epsilon_ = config_.eps_end;
         } else {
-            const float t = static_cast<float>(step) / static_cast<float>(config_.eps_decay_step);
-            vars_.epsilon = config_.eps_max + t * (config_.eps_min - config_.eps_max);
+            const float t = static_cast<float>(step) / static_cast<float>(config_.eps_decay_steps);
+            current_epsilon_ = config_.eps_start + t * (config_.eps_end - config_.eps_start);
         }
     }
 }
@@ -263,11 +263,10 @@ void anet::rl::dqn::ActionPolicy::UpdateEpsilon(step_t step, bool is_uqe)
 // EpsilonGreedyActionPolicy 
 // ======================================================
 
-anet::rl::dqn::EpsilonGreedyActionPolicy::EpsilonGreedyActionPolicy(const ActionPolicyConfig& config,
-    const anet::rl::dqn::Network& network, RuntimeVars& vars, anet::seed_t seed)
-    : ActionPolicy(config, network, vars, seed)
+anet::rl::dqn::EpsilonGreedyActionPolicy::EpsilonGreedyActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network, anet::seed_t seed)
+    : ActionPolicy(config, network, seed)
 {
-    vars_.epsilon = config_.eps_max;
+    current_epsilon_ = config_.eps_start;
 }
 
 void anet::rl::dqn::EpsilonGreedyActionPolicy::OnLearn(const StepCounts& counts)
@@ -294,7 +293,7 @@ anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const torch::T
     // EpsilonGreedy
     const int64_t N = q_values.sizes()[0];      // shape 読み取りは TensorOptions 経由で同期を回避
     const int64_t A = q_values.sizes()[1];
-    auto actions = MakeEpsilonGreedyAction(greedy_action, vars_.epsilon, N, A);
+    auto actions = MakeEpsilonGreedyAction(greedy_action, current_epsilon_, N, A);
     auto action_info = MakeActionInfo(actions, q_values, q_quantiles);
     return action_info;
 }
@@ -303,23 +302,22 @@ anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const torch::T
 // UQEActionPolicy
 // ======================================================
 
-anet::rl::dqn::UQEActionPolicy::UQEActionPolicy(const ActionPolicyConfig& config,
-    const anet::rl::dqn::Network& network, RuntimeVars& vars, anet::seed_t seed)
-    : ActionPolicy(config, network, vars, seed)
+anet::rl::dqn::UQEActionPolicy::UQEActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network, anet::seed_t seed)
+    : ActionPolicy(config, network, seed)
 {
-    vars_.epsilon = config_.uqe_eps_max;
-    vars_.uqe_tau = config_.uqe_tau_max;
+    current_epsilon_ = config_.uqe_eps_start;
+    current_uqe_tau_ = config_.uqe_tau_start;
 }
 
 void anet::rl::dqn::UQEActionPolicy::UpdateTau(step_t step)
 {
-    if (config_.uqe_tau_decay_step <= 0) return;
-    if (step >= config_.uqe_tau_decay_step) {
-        vars_.uqe_tau = config_.uqe_tau_min;
+    if (config_.uqe_tau_decay_steps <= 0) return;
+    if (step >= config_.uqe_tau_decay_steps) {
+        current_uqe_tau_ = config_.uqe_tau_end;
         return;
     }
-    const float t = static_cast<float>(step) / static_cast<float>(config_.uqe_tau_decay_step);
-    vars_.uqe_tau = config_.uqe_tau_max + t * (config_.uqe_tau_min - config_.uqe_tau_max);
+    const float t = static_cast<float>(step) / static_cast<float>(config_.uqe_tau_decay_steps);
+    current_uqe_tau_ = config_.uqe_tau_start + t * (config_.uqe_tau_end - config_.uqe_tau_start);
 }
 
 void anet::rl::dqn::UQEActionPolicy::OnLearn(const StepCounts& counts)
@@ -424,21 +422,14 @@ anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const to
     auto q_values = q_quantiles.mean(-1);
 
     // パラメータの決定 (Train vs Eval)
-    float effective_epsilon = vars_.epsilon;
+    float effective_epsilon = current_epsilon_;
     float effective_tau = tau;
     bool use_vectorized_tau = tau_tensor.defined();
 
-	// greedy_only (評価モード) の場合、固定パラメータを使った上でランダム性を排除
+    //greedy_onlyが指定された場合は、ランダムノイズ(ε)を強制的にゼロにする
+    // (Tauによる楽観的選択の基準は維持しつつ、デタラメな行動を防ぐ)
     if (greedy_only) {
-		if (config_.uqe_eval_tau >= 0) {    // Evalモード用のTauが指定されている場合
-            effective_epsilon = 0.0f;               // Eval時はGreedyのみ
-            effective_tau = config_.uqe_eval_tau;   // Eval用の固定Tauを使う
-            use_vectorized_tau = false;             // Eval時は固定スカラーTauを使うので、VectorizedモードはOFFにする
-        } else {
-			// 評価向けtauの指定がない場合はQ値（Quantile平均）に基づくGreedy選択
-            auto greedy_action = q_values.argmax(1, /*keepdim=*/false);
-            return MakeActionInfo(greedy_action, q_values, q_quantiles);
-        }
+        effective_epsilon = 0.0f;
     }
 
     // UQE (楽観的Q値) の計算
@@ -464,8 +455,7 @@ anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const to
 anet::rl::BatchActionInfo UQEActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const
 {
     ANET_ASSERT(network_.IsDistributional(use_target)); // 念の為チェック
-
-    return MakeUQEActionInfo(vars_.uqe_tau, torch::Tensor(), obs, greedy_only, use_target);
+    return MakeUQEActionInfo(current_uqe_tau_, torch::Tensor(), obs, greedy_only, use_target);
 }
 
 
@@ -473,9 +463,8 @@ anet::rl::BatchActionInfo UQEActionPolicy::SelectAction(const torch::Tensor& obs
 // ThompsonSamplingActionPolicy
 // ======================================================
 
-anet::rl::dqn::ThompsonSamplingActionPolicy::ThompsonSamplingActionPolicy(const ActionPolicyConfig& config,
-    const anet::rl::dqn::Network& network, RuntimeVars& vars, anet::seed_t seed)
-    : UQEActionPolicy(config, network, vars, seed)
+anet::rl::dqn::ThompsonSamplingActionPolicy::ThompsonSamplingActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network, anet::seed_t seed)
+    : UQEActionPolicy(config, network, seed)
 {
     ;
 }
@@ -505,11 +494,12 @@ anet::rl::BatchActionInfo ThompsonSamplingActionPolicy::SelectAction(const torch
 
 Learner::Learner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
-    std::optional<StuckerConfig> stucker_config)
+    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config)
     : config_(config), stucker_config_(stucker_config), network_(network), vars_(vars), obs_norm_(obs_norm)
     , batch_size_(batch_env_spec.batch_size)
     , n_actions_(env_spec.action_spec.GetNumActions()), state_dim_(env_spec.state_spec.CalcFlattenDim())
     , device_(std::move(device))
+    , target_policy_(target_policy)
 {
     // Credit計算
     if (config_.replay_ratio > 0) {
@@ -702,8 +692,9 @@ int64_t Learner::Load(InputArchive& archive)
 
 TDLearner::TDLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
+    std::shared_ptr<ActionPolicy> target_policy,
     std::optional<StuckerConfig> stucker_config)
-    : Learner(config, network, vars, obs_norm, batch_env_spec, env_spec, device, replay_seed, stucker_config)
+    : Learner(config, network, vars, obs_norm, batch_env_spec, env_spec, device, replay_seed, target_policy, stucker_config)
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
@@ -784,26 +775,24 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // max_a' Q(s', a')
         // ------------------------------------------------------------
         torch::Tensor max_next_q;
-
-        if (config_.use_double_dqn) {
+        {
             torch::NoGradGuard no_grad;
 
-        // Double DQN: policy_netで行動選択、target_netで価値計算
-            auto next_q_policy = network_.Forward(next_obs, /*use_target=*/false);
-            ANET_ASSERT_SHAPE(next_q_policy, { B, A });
-            auto next_actions = std::get<1>(next_q_policy.max(1));
-            ANET_ASSERT_SHAPE(next_actions, { B });
+            // Target Policyを使って行動 a' を決定する
+            // Double DQNの場合は use_target=false (PolicyNetで行動選択)
+            bool use_target_for_action = !config_.use_double_dqn;
 
-        // target_net で Q_target(s', argmax_a Q_online)
-            auto next_q_target = network_.Forward(next_obs, /*use_target=*/true);
+            // target_policy_ に行動を選ばせる
+            // ※ここで greedy_only=false にすることで、UQE設定時は楽観的に選ばれる
+            auto target_action_info = target_policy_->SelectAction(next_obs, /*greedy_only=*/true, use_target_for_action);
+            torch::Tensor next_actions = target_action_info.GetAction(device_);
+
+            // 選んだ行動の価値を TargetNet で評価する (価値評価は常に TargetNet)
+            auto next_q_target = network_.Forward(next_obs, /*use_target=*/true); // (B, A)
             ANET_ASSERT_SHAPE(next_q_target, { B, A });
-            torch::Tensor next_actions_b = next_actions.view({ B, 1 });             // (B,1)
+
+            torch::Tensor next_actions_b = next_actions.view({ B, 1 }); // (B,1)
             max_next_q = next_q_target.gather(1, next_actions_b).squeeze(1);
-        } else {
-            torch::NoGradGuard no_grad;
-            auto next_q_target = network_.Forward(next_obs, /*use_target=*/true);
-        ANET_ASSERT_SHAPE(next_q_target, { B, A });
-            max_next_q = std::get<0>(next_q_target.max(1));
         }
         ANET_ASSERT_SHAPE(max_next_q, { B });
         ANET_ASSERT_DTYPE(max_next_q, torch::kFloat32);
@@ -1061,8 +1050,8 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
 QRLearner::QRLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
-    std::optional<StuckerConfig> stucker_config)
-    : Learner(config, network, vars, obs_norm, batch_env_spec, env_spec, std::move(device), replay_seed, stucker_config)
+    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config)
+    : Learner(config, network, vars, obs_norm, batch_env_spec, env_spec, std::move(device), replay_seed, target_policy, stucker_config)
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
@@ -1218,17 +1207,10 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         {
             torch::NoGradGuard no_grad;
 
-            // 次状態のGreedy行動 a* = argmax E[Z(s', a')]
-            torch::Tensor next_actions;
-            if (config_.use_double_dqn) {
-                auto next_q_policy = network_.Forward(next_obs, /*use_target=*/false); // (B, A)
-                ANET_ASSERT_SHAPE(next_q_policy, { B, A });
-                next_actions = std::get<1>(next_q_policy.max(1)); // (B)
-            } else {
-                auto next_q_target = network_.Forward(next_obs, /*use_target=*/true); // (B, A)
-                ANET_ASSERT_SHAPE(next_q_target, { B, A });
-                next_actions = std::get<1>(next_q_target.max(1)); // (B)
-            }
+            // Target Policyを使って行動 a' を決定
+            bool use_target_for_action = !config_.use_double_dqn;
+            auto target_action_info = target_policy_->SelectAction(next_obs, /*greedy_only=*/true, use_target_for_action);
+            torch::Tensor next_actions = target_action_info.GetAction(device_);
             ANET_ASSERT_SHAPE(next_actions, { B });
 
             // 次状態のターゲット分布: Z_target(s', :)
@@ -1251,8 +1233,8 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             // (B, 1) + (B, 1) * (B, N) -> (B, N)
             target_dist = reward + config_.gamma * not_terminal * next_dist;
             ANET_ASSERT_SHAPE(target_dist, { B, N });
+            ANET_ASSERT_NAN(target_dist);
         }
-        ANET_ASSERT_NAN(target_dist); // 同期で重くなる
 
         // target_dist: (B, N) -> mean -> (B)
         auto target_mean = target_dist.mean(1).detach();

@@ -78,25 +78,36 @@ namespace anet::rl {
         static constexpr int kActionPolicyType_UQE = 1;
         static constexpr int kActionPolicyType_ThompsonSampling = 2;
 
+        static constexpr const char* kActionPolicyTypeStr_EpsilonGreedy = "EpsilonGreedy";
+        static constexpr const char* kActionPolicyTypeStr_UQE = "UQE";
+        static constexpr const char* kActionPolicyTypeStr_ThompsonSampling = "ThompsonSampling";
+
         struct ActionPolicyConfig {
-            int policy_type = 1;         ///< 0=EpsilonGreedy 1=UQE 2=TompsonSampling
+            // Poilcy選択
+            std::string policy_type = "EpsilonGreedy"; ///< "EpsilonGreedy", "UQE", "ThompsonSampling", "Greedy"
 
-            float eps_max = 1.00f;
-            float eps_min = 0.05f;       ///< 0.1f 0.05f
-            int eps_decay_step = 100000;
+            // ==========================================
+            // 純粋な EpsilonGreedy 用設定
+            // ==========================================
+            float eps_start = 1.0f;
+            float eps_end = 0.05f;
+            uint64_t eps_decay_steps = 100000;
 
-            float uqe_tau_max = 0.9f;
-            float uqe_tau_min = 0.5f;
-            int uqe_tau_decay_step = 100000;
+            // ==========================================
+            // UQE / ThompsonSampling 用設定
+            // ==========================================
+            float uqe_tau_start = 0.5f;
+            float uqe_tau_end = 0.5f;
+            uint64_t uqe_tau_decay_steps = 0;
+            bool uqe_use_tail_mean = true;
 
-            float uqe_eps_max = 0.05f;
-            float uqe_eps_min = 0.05f;       ///< 0.1f 0.05f
-            int uqe_eps_decay_step = 0;
+            float uqe_eps_start = 0.0f;
+            float uqe_eps_end = 0.0f;
+            uint64_t uqe_eps_decay_steps = 0;
 
-            bool uqe_use_tail_mean = false;
-
-            float uqe_eval_tau = -1;// 0.80f;   ///< policy_type=1かつEvalRun時向けのUQEτ値。-1の場合はUQEではなくGreedy選択。
-
+            // ==========================================
+            // 推論（Forward）時の精度設定
+            // ==========================================
             bool use_amp = false;
             bool use_amp_bf16 = false;
         };

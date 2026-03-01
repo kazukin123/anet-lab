@@ -30,9 +30,9 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, network.soft_update_tau);
             ANET_READ_CONFIG(config_data, network.hard_update_interval);
 
-            ANET_READ_CONFIG(config_data, action_policy.eps_max);
-            ANET_READ_CONFIG(config_data, action_policy.eps_min);
-            ANET_READ_CONFIG(config_data, action_policy.eps_decay_step);
+            ANET_READ_CONFIG(config_data, action_policy.eps_start);
+            ANET_READ_CONFIG(config_data, action_policy.eps_end);
+            ANET_READ_CONFIG(config_data, action_policy.eps_decay_steps);
 
             ANET_READ_CONFIG(config_data, learner.alpha);
             ANET_READ_CONFIG(config_data, learner.gamma);
@@ -90,6 +90,7 @@ namespace anet::rl::dqn {
         std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
         std::unique_ptr<anet::rl::dqn::Network> network_;
         std::shared_ptr<anet::rl::dqn::ActionPolicy> action_policy_;
+        std::shared_ptr<anet::rl::dqn::ActionPolicy> target_policy_;
         std::shared_ptr<anet::rl::dqn::Learner> learner_;
     };
 

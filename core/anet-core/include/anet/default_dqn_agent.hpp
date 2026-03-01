@@ -17,7 +17,9 @@ namespace anet::rl::dqn {
 
         NetworkConfig network;
         StuckerConfig stucker;
-        ActionPolicyConfig action_policy;
+        ActionPolicyConfig train_policy;
+        ActionPolicyConfig eval_policy;
+        ActionPolicyConfig target_policy;
         LearnerConfig learner;
         RewardScalerConfig reward_scaler;
         ObservationNormalizerConfig obs_norm;
@@ -26,6 +28,8 @@ namespace anet::rl::dqn {
         int num_quantiles = 51;
         bool use_dueling_net = true;
         bool use_qr = true;
+
+        bool use_optimistic_target = false;
 
         explicit DefaultDQNAgentConfig(const ConfigData& config_data = EmptyConfigData)
             : anet::Config(config_data, "DefaultDQNAgent")
@@ -39,21 +43,83 @@ namespace anet::rl::dqn {
 
             ANET_READ_CONFIG(config_data, network.soft_update_tau);
             ANET_READ_CONFIG(config_data, network.hard_update_interval);
+            
+            ANET_READ_CONFIG(config_data, use_optimistic_target);
 
-            ANET_READ_CONFIG(config_data, action_policy.policy_type);
-            ANET_READ_CONFIG(config_data, action_policy.eps_max);
-            ANET_READ_CONFIG(config_data, action_policy.eps_min);
-            ANET_READ_CONFIG(config_data, action_policy.eps_decay_step);
-            ANET_READ_CONFIG(config_data, action_policy.uqe_tau_max);
-            ANET_READ_CONFIG(config_data, action_policy.uqe_tau_min);
-            ANET_READ_CONFIG(config_data, action_policy.uqe_tau_decay_step);
-            ANET_READ_CONFIG(config_data, action_policy.uqe_eps_max);
-            ANET_READ_CONFIG(config_data, action_policy.uqe_eps_min);
-            ANET_READ_CONFIG(config_data, action_policy.uqe_eps_decay_step);
-            ANET_READ_CONFIG(config_data, action_policy.uqe_use_tail_mean);
-            ANET_READ_CONFIG(config_data, action_policy.uqe_eval_tau);
-            ANET_READ_CONFIG(config_data, action_policy.use_amp);
-            ANET_READ_CONFIG(config_data, action_policy.use_amp_bf16);
+            ANET_READ_CONFIG(config_data, train_policy.policy_type);
+            ANET_READ_CONFIG(config_data, train_policy.eps_start);
+            ANET_READ_CONFIG(config_data, train_policy.eps_end);
+            ANET_READ_CONFIG(config_data, train_policy.eps_decay_steps);
+            ANET_READ_CONFIG(config_data, train_policy.uqe_tau_start);
+            ANET_READ_CONFIG(config_data, train_policy.uqe_tau_end);
+            ANET_READ_CONFIG(config_data, train_policy.uqe_tau_decay_steps);
+            ANET_READ_CONFIG(config_data, train_policy.uqe_use_tail_mean);
+            ANET_READ_CONFIG(config_data, train_policy.uqe_eps_start);
+            ANET_READ_CONFIG(config_data, train_policy.uqe_eps_end);
+            ANET_READ_CONFIG(config_data, train_policy.uqe_eps_decay_steps);
+            ANET_READ_CONFIG(config_data, train_policy.use_amp);
+            ANET_READ_CONFIG(config_data, train_policy.use_amp_bf16);
+
+            eval_policy.policy_type = "Greedy";     // デフォルトでGreedy
+            eval_policy.eps_start = 0.0f;           // デフォルトでGreedy
+            eval_policy.eps_end = 0.0f;
+            eval_policy.eps_decay_steps = 0;       // Evalはデフォルトでアニーリングしないべき
+            eval_policy.uqe_tau_decay_steps = 0;
+            eval_policy.uqe_eps_decay_steps = 0;
+            eval_policy.uqe_tau_start = train_policy.uqe_tau_end;   // デフォルト値としてTrainの「最終到達点」をコピーしておく
+            eval_policy.uqe_tau_end = train_policy.uqe_tau_end;
+            eval_policy.eps_start = train_policy.eps_end;
+            eval_policy.eps_end = train_policy.eps_end;
+            eval_policy.uqe_eps_start = train_policy.uqe_eps_end;
+            eval_policy.uqe_eps_end = train_policy.uqe_eps_end;
+            ANET_READ_CONFIG(config_data, eval_policy.policy_type);
+            ANET_READ_CONFIG(config_data, eval_policy.eps_start);
+            ANET_READ_CONFIG(config_data, eval_policy.eps_end);
+            ANET_READ_CONFIG(config_data, eval_policy.eps_decay_steps);
+            ANET_READ_CONFIG(config_data, eval_policy.uqe_tau_start);
+            ANET_READ_CONFIG(config_data, eval_policy.uqe_tau_end);
+            ANET_READ_CONFIG(config_data, eval_policy.uqe_tau_decay_steps);
+            ANET_READ_CONFIG(config_data, eval_policy.uqe_use_tail_mean);
+            ANET_READ_CONFIG(config_data, eval_policy.uqe_eps_start);
+            ANET_READ_CONFIG(config_data, eval_policy.uqe_eps_end);
+            ANET_READ_CONFIG(config_data, eval_policy.uqe_eps_decay_steps);
+            ANET_READ_CONFIG(config_data, eval_policy.use_amp);
+            ANET_READ_CONFIG(config_data, eval_policy.use_amp_bf16);
+
+
+            target_policy.policy_type = "Greedy";     // デフォルトは安全なGreedy
+            target_policy.eps_start = 0.0f;
+            target_policy.eps_end = 0.0f;
+
+            if (use_optimistic_target) {        // 「use_optimistic_target = true」だった場合、target_policyのデフォルトはtrain_policyをベースとする
+                target_policy = train_policy;   // Trainの設定を丸ごとコピー
+                target_policy.eps_start = 0.0f; // ただしランダムノイズ(ε)はターゲット計算には絶対不要なので強制遮断
+                target_policy.eps_end = 0.0f;
+                target_policy.uqe_eps_start = 0.0f;
+                target_policy.uqe_eps_end = 0.0f;
+
+                // TrainがEpsilonGreedyだった場合は実質Greedyになるためタイプも変更
+                if (target_policy.policy_type == "EpsilonGreedy" || target_policy.policy_type == "0") {
+                    target_policy.policy_type = "Greedy";
+                }
+            } else {
+                target_policy.policy_type = "Greedy";   // デフォルトは安全なGreedy
+            }
+
+            // target_policy.*の設定があれば、継承したかもしれないデフォルト値から上書き反映
+            ANET_READ_CONFIG(config_data, target_policy.policy_type);
+            ANET_READ_CONFIG(config_data, target_policy.eps_start);
+            ANET_READ_CONFIG(config_data, target_policy.eps_end);
+            ANET_READ_CONFIG(config_data, target_policy.eps_decay_steps);
+            ANET_READ_CONFIG(config_data, target_policy.uqe_tau_start);
+            ANET_READ_CONFIG(config_data, target_policy.uqe_tau_end);
+            ANET_READ_CONFIG(config_data, target_policy.uqe_tau_decay_steps);
+            ANET_READ_CONFIG(config_data, target_policy.uqe_use_tail_mean);
+            ANET_READ_CONFIG(config_data, target_policy.uqe_eps_start);
+            ANET_READ_CONFIG(config_data, target_policy.uqe_eps_end);
+            ANET_READ_CONFIG(config_data, target_policy.uqe_eps_decay_steps);
+            ANET_READ_CONFIG(config_data, target_policy.use_amp);
+            ANET_READ_CONFIG(config_data, target_policy.use_amp_bf16);
 
             ANET_READ_CONFIG(config_data, learner.alpha);
             ANET_READ_CONFIG(config_data, learner.gamma);
@@ -138,12 +204,16 @@ namespace anet::rl::dqn {
 
         int64_t Save(anet::OutputArchive& archive) const override;
     private:
+        std::shared_ptr<anet::rl::dqn::ActionPolicy> CreateActionPolicy(const ActionPolicyConfig& p_cfg, anet::seed_t p_seed);
+    private:
         DefaultDQNAgentConfig config_;
         std::unique_ptr<anet::rl::RewardScaler> reward_scaler_;
         std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm_;
         std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
         std::unique_ptr<anet::rl::dqn::Network> network_;
-        std::shared_ptr<anet::rl::dqn::ActionPolicy> action_policy_;
+        std::shared_ptr<anet::rl::dqn::ActionPolicy> train_policy_;     ///< 探索用ポリシー(RunMode=Train)
+        std::shared_ptr<anet::rl::dqn::ActionPolicy> eval_policy_;      ///< 評価用ポリシー(RunMode=Eval/Eval1/Eval2)
+        std::shared_ptr<anet::rl::dqn::ActionPolicy> target_policy_;    ///< 学習時ターゲット用ポリシー
         std::shared_ptr<anet::rl::dqn::Learner> learner_;
     };
 

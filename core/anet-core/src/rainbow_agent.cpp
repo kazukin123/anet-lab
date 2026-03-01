@@ -47,7 +47,7 @@ RainbowAgent::RainbowAgent(
 
     // RuntimeVars生成
     this->vars_ = std::make_unique<dqn::RuntimeVars>();
-    this->vars_->epsilon = config_.action_policy.eps_max;
+    this->vars_->epsilon = config_.action_policy.eps_start;
 
     // QR-DQN設定確認 (use_qr フラグと num_quantiles の整合性)
     bool is_distributional = config_.use_qr;
@@ -110,14 +110,21 @@ RainbowAgent::RainbowAgent(
 
 
     // ActionPolicy生成
-    this->action_policy_ = std::make_unique<dqn::EpsilonGreedyActionPolicy>(config_.action_policy, *network_, *vars_, action_policy_seed);
+    this->action_policy_ = std::make_unique<dqn::EpsilonGreedyActionPolicy>(config_.action_policy, *network_, action_policy_seed);
+
+    // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化
+    ActionPolicyConfig greedy_cfg;
+    greedy_cfg.policy_type = "EpsilonGreedy";
+    greedy_cfg.eps_start = 0.0f;
+    greedy_cfg.eps_end = 0.0f;
+    this->target_policy_ = std::make_shared<dqn::EpsilonGreedyActionPolicy>(greedy_cfg, *network_, action_policy_seed);
 
     // Learner生成
     if (is_distributional) {
-        this->learner_ = std::make_unique<dqn::QRLearner>(config_.learner, *network_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed);
+        this->learner_ = std::make_unique<dqn::QRLearner>(config_.learner, *network_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed, target_policy_);
         LOG::info() << "Initialized QRLearner (Quantiles=" << config_.num_quantiles << ")";
     } else {
-        this->learner_ = std::make_unique<dqn::TDLearner>(config_.learner, *network_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed);
+        this->learner_ = std::make_unique<dqn::TDLearner>(config_.learner, *network_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed, target_policy_);
         LOG::info() << "Initialized TDLearner";
     }
 }
@@ -141,9 +148,8 @@ std::optional<anet::TensorFunction> RainbowAgent::GetTensorFunction(const std::s
 
 std::optional<float> RainbowAgent::GetScalar(const std::string& key, int64_t index) const
 {
-    if (key == "epsilon") {
-        std::shared_lock<std::shared_mutex> lock(*mutex_);
-        return vars_->epsilon;
+    if (key == "epsilon" || key == "uqe_tau") {
+        return action_policy_->GetScalar(key, index);
     }
     if (key == "per_beta") {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
