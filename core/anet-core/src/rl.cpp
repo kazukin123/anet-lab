@@ -319,26 +319,33 @@ torch::Tensor BatchActionInfo::GetAction(torch::Device device) const
     if (device.is_cpu()) {
         if (!action_cpu_.defined()) {
             if (!gpu_)
-                throw std::logic_error("BatchActionInfo: no tensor available to create CPU action");
+                ANET_SYSTEM_ERROR("BatchActionInfo: no tensor available to create CPU action");
             action_cpu_ = gpu_->second.to(torch::kCPU);
         }
         return action_cpu_;
     }
 
+
     // --- GPU requested ---
     if (!device.is_cuda()) {
-        throw std::logic_error("BatchActionInfo: unsupported device type");
+        ANET_SYSTEM_ERROR("BatchActionInfo: unsupported device type");
     }
+
+    // インデックスが指定されていない("cuda")場合、デフォルトで 0 を割り当てる("cuda:0" にする)
+    torch::Device req_dev = device;
+    if (!req_dev.has_index()) {
+        req_dev = torch::Device(torch::kCUDA, 0);
+    }
+
     if (!gpu_) {
         if (!action_cpu_.defined())
-            throw std::logic_error("BatchActionInfo: no tensor available to create GPU action");
-        gpu_ = std::make_pair(device, action_cpu_.to(device));
+            ANET_SYSTEM_ERROR("BatchActionInfo: no tensor available to create GPU action");
+        gpu_ = std::make_pair(device, action_cpu_.to(req_dev));
         return gpu_->second;
     }
-    if (gpu_->first != device) {
-        throw std::logic_error(
-            "BatchActionInfo: GPU device mismatch (cached="
-            + gpu_->first.str() + ", requested=" + device.str() + ")"
+    if (gpu_->first != req_dev) {
+        ANET_SYSTEM_ERROR(
+            "BatchActionInfo: GPU device mismatch (cached="<< gpu_->first.str() << ", requested=" << device.str() << ")"
         );
     }
 
