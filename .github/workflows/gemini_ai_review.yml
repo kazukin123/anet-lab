@@ -24,7 +24,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install google-generativeai PyGithub
+        run: pip install google-genai PyGithub
 
       - name: Run Review Script
         env:

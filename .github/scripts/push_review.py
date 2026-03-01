@@ -1,18 +1,15 @@
 import os
-import google.generativeai as genai
+from google import genai # 新しいライブラリ
 from github import Github, Auth
 
 # --- 設定エリア ---
-# レビュー対象にするディレクトリ（リポジトリルートからの相対パス）
 TARGET_PATHS = ["core/anet-core", "core/envs", "apps"] 
-
-# 除外したいディレクトリ名やファイル名の部分一致（Box2D、外部ライブラリなど）
 EXCLUDE_KEYWORDS = [ ]
+MAX_CHAR_LIMIT = 50000  # 無料枠制限(TPM)対策：一度に送る文字数を制限
 # ----------------
 
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-# クォータに余裕がある場合は 'gemini-1.5-pro'、速度重視なら 'gemini-1.5-flash'
-model = genai.GenerativeModel('gemini-1.5-flash') 
+# 最新のSDKでのクライアント初期化
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 auth = Auth.Token(os.environ["GITHUB_TOKEN"])
 g = Github(auth=auth)
@@ -24,12 +21,9 @@ sha = os.environ.get("GITHUB_SHA")
 code_content = ""
 
 def is_target_file(filepath):
-    # 1. 拡張子チェック
     if not filepath.endswith(('.cpp', '.hpp', '.h')):
         return False
-    # 2. 指定したターゲットパスに含まれているか
     in_target = any(filepath.startswith(p) for p in TARGET_PATHS)
-    # 3. 除外キーワードが含まれていないか
     is_excluded = any(k in filepath for k in EXCLUDE_KEYWORDS)
     return in_target and not is_excluded
 
@@ -40,7 +34,6 @@ if event_name == "push":
             code_content += f"\n--- File: {file.filename} ---\n{file.patch}\n"
     mode_text = "今回の差分レビュー"
 else:
-    # 手動実行：ターゲットパス配下を再帰的に取得
     mode_text = "プロジェクト全体の特定パス一括レビュー"
     for path in TARGET_PATHS:
         try:
@@ -51,17 +44,20 @@ else:
                     if not any(k in item.path for k in EXCLUDE_KEYWORDS):
                         items.extend(repo.get_contents(item.path))
                 elif is_target_file(item.path):
-                    if item.size < 100000: # 100KB以上の巨大ファイルは避ける
+                    if item.size < 100000:
                         decoded = item.decoded_content.decode()
                         code_content += f"\n--- File: {item.path} ---\n{decoded}\n"
         except Exception as e:
-            print(f"Path not found or error: {path} ({e})")
+            print(f"Path not found: {path}")
 
 if not code_content:
-    print("レビュー対象のコードが見つかりませんでした。")
+    print("対象コードなし。")
     exit(0)
 
-# あなたのプロンプト（指示事項）
+# クォータ（429）対策：文字数が多すぎる場合は後ろをカット
+if len(code_content) > MAX_CHAR_LIMIT:
+    code_content = code_content[:MAX_CHAR_LIMIT] + "\n...(文字数制限のため中略)..."
+
 prompt_text = f"""
 あなたはシニアC++エンジニア、および強化学習（RL）の実装エキスパートです。
 
@@ -100,15 +96,22 @@ prompt_text = f"""
 """
 
 try:
-    response = model.generate_content(prompt_text)
+    # 最新SDKでの呼び出し方 (model名の前に models/ は不要)
+    response = client.models.generate_content(
+        model='gemini-1.5-flash', 
+        contents=prompt_text
+    )
     
+    review_result = response.text
+
     with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
-        f.write(f"### 🤖 Gemini {mode_text}\n\n{response.text}")
+        f.write(f"### 🤖 Gemini {mode_text}\n\n{review_result}")
 
     if event_name == "push":
-        repo.get_commit(sha).create_comment(f"### 🤖 Gemini Push Review\n\n{response.text}")
+        repo.get_commit(sha).create_comment(f"### 🤖 Gemini Push Review\n\n{review_result}")
+
 except Exception as e:
-    error_msg = f"API制限（Quota Exceeded）またはエラーが発生しました。\n{e}"
+    error_msg = f"レビュー実行中にエラーが発生しました。\n{e}"
     with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
-        f.write(f"### ❌ レビュー失敗\n{error_msg}")
+        f.write(f"### ❌ エビュー失敗\n{error_msg}")
     print(error_msg)
