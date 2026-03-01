@@ -1,12 +1,14 @@
 import os
 import time
-import sys # 追加
+import sys
 from google import genai
 from github import Github, Auth
 
 # --- 設定エリア ---
-TARGET_PATHS = ["core/anet-core", "core/envs", "apps"] 
-EXCLUDE_KEYWORDS = [] 
+TARGET_PATHS = ["core/anet-core", "core/envs", "apps"]
+EXCLUDE_KEYWORDS = []
+# TPM制限(250k)を考慮した1リクエストあたりの文字数制限（安全圏）
+CHUNK_CHAR_LIMIT = 150000
 # ----------------
 
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
@@ -17,42 +19,65 @@ repo = g.get_repo(os.environ["GITHUB_REPOSITORY"])
 event_name = os.environ.get("GITHUB_EVENT_NAME")
 sha = os.environ.get("GITHUB_SHA")
 
-review_targets = []
-
 def is_target_file(filepath):
     if not filepath.endswith(('.cpp', '.hpp', '.h')): return False
     return any(filepath.startswith(p) for p in TARGET_PATHS)
 
-# ファイル収集
+# 1. ファイルの収集
+all_files = []
 if event_name == "push":
     commit = repo.get_commit(sha)
     for f in commit.files:
         if is_target_file(f.filename):
-            review_targets.append({"path": f.filename, "content": f.patch})
-    mode_text = "今回の差分レビュー"
+            all_files.append({"path": f.filename, "content": f.patch})
 else:
-    mode_text = "プロジェクト全体の一括レビュー"
     for path in TARGET_PATHS:
         try:
-            contents = repo.get_contents(path)
-            while contents:
-                item = contents.pop(0)
+            items = repo.get_contents(path)
+            while items:
+                item = items.pop(0)
                 if item.type == "dir":
-                    contents.extend(repo.get_contents(item.path))
+                    items.extend(repo.get_contents(item.path))
                 elif is_target_file(item.path):
-                    review_targets.append({"path": item.path, "content": item.decoded_content.decode()})
+                    all_files.append({"path": item.path, "content": item.decoded_content.decode()})
         except: pass
 
-if not review_targets:
-    print("対象コードなし。")
+if not all_files:
+    print("レビュー対象のファイルが見つかりませんでした。")
     exit(0)
 
-full_results = ""
-error_occurred = False
+# 2. 【追加機能】ファイルリストを先に Summary へ出力
+file_list_md = "\n".join([f"- `{f['path']}` ({len(f['content'])} chars)" for f in all_files])
+with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+    f.write(f"### 🔍 レビュー対象ファイル一覧\n{file_list_md}\n\n---\n")
 
-for target in review_targets:
-    print(f"Reviewing: {target['path']}...")
+print(f"Total files found: {len(all_files)}")
+
+# 3. CHUNK作成（TPM制限対策）
+chunks = []
+current_chunk = []
+current_chars = 0
+
+for f in all_files:
+    f_size = len(f['content'])
+    if current_chars + f_size > CHUNK_CHAR_LIMIT and current_chunk:
+        chunks.append(current_chunk)
+        current_chunk = []
+        current_chars = 0
+    current_chunk.append(f)
+    current_chars += f_size
+if current_chunk:
+    chunks.append(current_chunk)
+
+# 4. レビュー実行（RPD制限対策）
+full_results = ""
+for i, chunk in enumerate(chunks):
+    print(f"Reviewing chunk {i+1}/{len(chunks)}...")
     
+    combined_code = ""
+    for f in chunk:
+        combined_code += f"\n--- File: {f['path']} ---\n{f['content']}\n"
+
     prompt = f"""
 あなたはシニアC++エンジニア、および強化学習（RL）の実装エキスパートです。
 
@@ -86,9 +111,8 @@ for target in review_targets:
 - CUDAカーネルを効率的に動かすためのデータ配置の懸念。
 ---
 以下のコードをレビューしてください。
-ファイル: {target['path']}
-内容:
-{target['content']}
+---
+{combined_code}
 """
 
     try:
@@ -96,24 +120,20 @@ for target in review_targets:
             model='gemini-2.5-flash',
             contents=prompt
         )
-        full_results += f"#### 📄 {target['path']}\n{response.text}\n\n"
+        full_results += f"### 📦 チャンク {i+1} の指摘\n{response.text}\n\n"
         
-        # 次のリクエストまで5秒待機
-        time.sleep(5) 
+        # TPMリセットのため、チャンク間では60秒待機
+        if i < len(chunks) - 1:
+            print("TPMリセット待ち(60s)...")
+            time.sleep(60)
 
     except Exception as e:
-        # エラーが起きたら情報を残して即座に終了する
-        error_msg = f"### ❌ APIエラーにより処理を中断しました\n原因: {e}\n"
+        # エラー時は即座に停止して、無駄なリクエスト（課金リスク回避）を防ぐ
+        error_msg = f"\n### ❌ エラー中断\n{e}"
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
             f.write(error_msg)
-        print(error_msg)
-        
-        # 重要：sys.exit(1) でスクリプトとGitHub Actions全体を異常終了させる
-        sys.exit(1) 
+        sys.exit(1)
 
-# 正常に全件終わった場合のみここに来る
+# 5. 最終結果を出力
 with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
-    f.write(f"### 🤖 Gemini {mode_text} (完了)\n\n{full_results}")
-
-if event_name == "push" and full_results:
-    repo.get_commit(sha).create_comment(f"### 🤖 Gemini Push Review\n\n{full_results}")
+    f.write(f"### 🤖 Gemini レビュー結果\n\n{full_results}")
