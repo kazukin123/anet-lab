@@ -91,7 +91,7 @@ prompt_text = f"""
 
 try:
     response = client.models.generate_content(
-        model='gemini-3-flash', 
+        model='gemini-2.5-flash', 
         contents=prompt_text
     )
     
