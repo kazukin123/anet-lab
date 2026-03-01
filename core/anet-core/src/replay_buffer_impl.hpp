@@ -91,6 +91,7 @@ struct ReplayExperience {
     SingleState next_state;
     bool terminal;
     int n_step;           // この experience が何 step 分か
+    int env_index;
 };
 
 class ReplayExperienceBuilder {
@@ -132,13 +133,14 @@ class ReplayExperienceStorage : public anet::Module {
 public:
     using EventHandler = std::function<void(const StorageWriteEvent&)>;
 public:
-    ReplayExperienceStorage(const EnvSpec& env_spec, int64_t capacity, torch::Device device);
+    ReplayExperienceStorage(const EnvSpec& env_spec, int64_t capacity, int64_t num_envs, torch::Device device);
     void Push(const ReplayExperience& exp);
     ExperienceSamples Gather(const std::vector<int64_t>& indices, std::optional<torch::Device> out_device = std::nullopt) const;
 
     int64_t GetWriteIndex() const { return write_index_; }
     int64_t GetSize() const { return size_; }
     int64_t GetCapacity() const { return capacity_; }
+    torch::Tensor GetPrevIndices() const { return prev_indices_; }
 
     const torch::Tensor& GetStates() const { return states_; }
     const torch::Tensor& GetActions() const { return actions_; }
@@ -170,6 +172,8 @@ private:
     torch::Tensor terminals_;     // (N,) bool
     torch::Tensor n_steps_;       // (N,) int
     torch::Tensor episode_starts_;// (N,) bool
+    torch::Tensor prev_indices_;              ///< (capacity_) 各データの1つ前のインデックス
+    std::vector<int64_t> last_env_indices_;   ///< (num_envs_) 環境ごとの最新インデックス
 
     /// @todo state → obs
 };
@@ -264,7 +268,7 @@ public:
 
 class ReplayExperienceStateStacker final : public ReplayExperienceStacker {
 public:
-    ReplayExperienceStateStacker(int stack_count, int num_envs, const std::vector<int64_t>& state_shape, torch::Device device);
+    ReplayExperienceStateStacker(int stack_count, const std::vector<int64_t>& state_shape, torch::Device device);
 
     ExperienceSamples SampleBatch(
         const ReplayExperienceStorage& storage, const IndexSampleResult& index_result, int64_t minibatch_size, torch::Device target_device) override;
@@ -272,7 +276,6 @@ private:
     const torch::Device device_;
     torch::TensorOptions stacked_indices_opts_;
     const int stack_count_;
-    const int num_envs_;
     std::vector<int64_t> state_shape_;
 };
 
