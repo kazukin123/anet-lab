@@ -117,7 +117,7 @@ for i, chunk in enumerate(chunks):
 
     try:
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3-flash-preview',
             contents=prompt
         )
         full_results += f"### 📦 チャンク {i+1} の指摘\n{response.text}\n\n"
