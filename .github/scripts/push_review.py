@@ -7,8 +7,8 @@ from github import Github, Auth
 # --- 設定エリア ---
 TARGET_PATHS = ["core/anet-core", "core/envs", "apps"]
 EXCLUDE_KEYWORDS = []
-# TPM制限(250k)を考慮した1リクエストあたりの文字数制限（安全圏）
-CHUNK_CHAR_LIMIT = 150000
+# RPDとTPMの制限を考慮した1リクエストあたりの文字数制限
+CHUNK_CHAR_LIMIT = 600000
 # ----------------
 
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
@@ -122,10 +122,10 @@ for i, chunk in enumerate(chunks):
         )
         full_results += f"### 📦 チャンク {i+1} の指摘\n{response.text}\n\n"
         
-        # TPMリセットのため、チャンク間では60秒待機
+        # TPMリセットのため、チャンク間では70秒待機
         if i < len(chunks) - 1:
-            print("TPMリセット待ち(60s)...")
-            time.sleep(60)
+            print("TPMリセット待ち(70s)...")
+            time.sleep(70)
 
     except Exception as e:
         # エラー時は即座に停止して、無駄なリクエスト（課金リスク回避）を防ぐ
