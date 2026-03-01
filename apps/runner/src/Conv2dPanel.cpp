@@ -92,14 +92,26 @@ void Conv2dPanel::CreateObserver(anet::rl::RunManager& run_manager, std::shared_
             if (closed_) return;
 
             // State取得
-            const auto& state = event.experience.next_state;    // Action実施後の現在の状態で評価
-            if (!state.obs.defined() || state.obs.size(0) <= 0) {
+            // next_state ではなく、Aux経由で「Agentがスタックした実際のテンソル」を取得する
+            torch::Tensor obs_to_visualize;
+            const auto& aux = event.action_info.GetAuxData();
+            auto it = aux.find("raw_obs");
+            if (it != aux.end() && it->second.defined()) {
+                // Stackerによって過去フレームが結合された3次元テンソル
+                obs_to_visualize = it->second;
+            } else {
+                // フォールバック (Stacker無効時など)
+                obs_to_visualize = event.experience.state.obs;
+            }
+
+            // OBSチェック
+            if (!obs_to_visualize.defined() || obs_to_visualize.size(0) <= 0) {
                 LOG::warn() << "Conv2dPanel: failed to get observation.";
                 return;
             }
 
-            // TensorDict取得
-            torch::Tensor single_obs = state.obs.slice(0, 0, 1);
+            // TensorDict取得(バッチの先頭だけ切り出す)
+            torch::Tensor single_obs = obs_to_visualize.slice(0, 0, 1);
             auto dict = vis_dict_fn_(single_obs);
 
             // 画像生成
