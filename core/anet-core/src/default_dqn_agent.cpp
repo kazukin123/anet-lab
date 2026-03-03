@@ -277,6 +277,7 @@ std::optional<anet::TensorDictFunction> DefaultDQNAgent::GetTensorDictFunction(c
 
         // 排他制御（他スレッドでのパラメータ更新と競合しないように）
         std::shared_lock<std::shared_mutex> lock(*(self->mutex_));
+        torch::NoGradGuard grad_guard;
 
         torch::Tensor proc_obs = obs;
 
@@ -285,7 +286,7 @@ std::optional<anet::TensorDictFunction> DefaultDQNAgent::GetTensorDictFunction(c
             proc_obs = proc_obs.unsqueeze(1).expand({ -1, stack_count, -1 });
         }
 
-        // Agentが持っている正規化器(ObservationNormalizer)を通す
+        // Agentが持っているObservationNormalizerを通す
         auto obs_norm = self->obs_norm_->Normalize(proc_obs);
 
         // ネットワーク(policy_net or target_net)から抽出して返す

@@ -83,6 +83,8 @@ std::vector<torch::Tensor> Network::GetPolicyParameters() const
 
 void Network::UpdateTarget(step_t learn_step)
 {
+    torch::NoGradGuard grad_guard;
+
     if (config_.hard_update_interval > 0) {
         if (learn_step % config_.hard_update_interval == 0) {
             HardUpdate();
@@ -101,8 +103,7 @@ void Network::SoftUpdate()
     ANET_ASSERT(p_params.size() == t_params.size());
 
     for (size_t i = 0; i < p_params.size(); ++i) {
-        t_params[i].data().mul_(1.0f - config_.soft_update_tau);
-        t_params[i].data().add_(p_params[i].data(), config_.soft_update_tau);
+        t_params[i].lerp_(p_params[i], config_.soft_update_tau);
     }
 }
 
@@ -114,7 +115,7 @@ void Network::HardUpdate()
     ANET_ASSERT(p_params.size() == t_params.size());
 
     for (size_t i = 0; i < p_params.size(); ++i) {
-        t_params[i].data().copy_(p_params[i].data());
+        t_params[i].copy_(p_params[i]);
     }
 }
 
@@ -838,7 +839,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     torch::Tensor metric_per_is_weights;
 
     if (config_.use_per) {
-        torch::NoGradGuard no_grad;
+        torch::NoGradGuard grad_grad;
 
         // 優先度 = |td_error| + eps
         auto abs_td_error = td_error.abs().detach();
@@ -1205,7 +1206,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // ターゲット分布計算: r + gamma * Z(s', a*)
         // ------------------------------------------------------------
         {
-            torch::NoGradGuard no_grad;
+            torch::NoGradGuard grad_guard;
 
             // Target Policyを使って行動 a' を決定
             bool use_target_for_action = !config_.use_double_dqn;
@@ -1373,7 +1374,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     torch::Tensor metric_per_is_weights;
 
     if (config_.use_per) {
-        torch::NoGradGuard no_grad;
+        torch::NoGradGuard grad_guard;
 
         // Loss再計算はコストがかかるので、element_loss (Autocast内で計算済み) を再利用する
         // ただし、element_loss は float16 の可能性があるため float32 に戻す

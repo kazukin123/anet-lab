@@ -144,6 +144,7 @@ EvalRunner::EvalRunner(
 StepCounts EvalRunner::DoStep(int64_t action)
 {
     anet::ProfileRange r1("EvalRunner::DoStep");
+    torch::NoGradGuard grad_guard;
 
     if (!env_initialized_) {
         // 環境初期化
@@ -164,7 +165,7 @@ StepCounts EvalRunner::DoStep(int64_t action)
     // action_infoを生成
     anet::rl::BatchActionInfo action_info = {
         action < 0 ? action_info_raw.GetAction() : torch::tensor({ action }), // 指定のactionがあれば強制
-        action_info_raw.GetAuxData()
+        action_info_raw.GetAuxData()    // AuxはAgentが生成した内容
     };
 
     // 環境ステップ実行
@@ -319,7 +320,7 @@ StepCounts TrainRunner::DoStep()
     auto train_step = step_counts_.train_step;
 
     // Stateチェック
-    ANET_LOG_DEBUG("step=" << train_step << " state=" << state_.ToString());
+    ANET_LOG_DEBUG("step=" << train_step);// << " state=" << state_.ToString());
     ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
 //    ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
     const int N = state_.obs.size(0);
@@ -375,10 +376,14 @@ StepCounts TrainRunner::DoStep()
     step_counts_.learn_step += result_list.size();
 
     // 更新後処理
-    anet::ProfileRange r7("DefaultTrainer::DoUpdateFrame.notify", r6);
-    anet::rl::TrainEvent train_event{ exp, self, step_counts_, agent_, result_list, env_, result, action_info };
-    notifier_->Notify(train_event);
-    state_ = result->continue_state;
+    {
+        anet::ProfileRange r7("DefaultTrainer::DoUpdateFrame.notify", r6);
+        torch::NoGradGuard grad_guard;
+
+        anet::rl::TrainEvent train_event{ exp, self, step_counts_, agent_, result_list, env_, result, action_info };
+        notifier_->Notify(train_event);
+        state_ = result->continue_state;
+    }
 
     // メトリクス算出（処理性能系）
     auto trin_step = step_counts_.train_step;
