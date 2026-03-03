@@ -50,7 +50,21 @@ net.body.$ = net.body.SuikaResNet4064_10d     # ★
 #app.run_name = run_{t}_DBG_fast05re
 #app.run_name = run_{t}_DBG_gma0995
 #app.run_name = run_{t}_DBG_N10
-app.run_name = run_{t}_heavy_base
+#app.run_name = run_{t}_heavy_base
+#app.run_name = run_{t}_heavy_long
+#app.run_name = run_{t}_heavy_gp10
+#app.run_name = run_{t}_heavy_tail
+#app.run_name = run_{t}_heavy_tp005
+#app.run_name = run_{t}_heavy_Ttau085
+#app.run_name = run_{t}_heavy_tp1
+app.run_name = run_{t}_settle_N3
+
+
+E.use_settle_after_drop = true
+
+A.learner.replay_capacity = 524,288          # 262,144 524,288 1,048,576
+
+R.target_policy.uqe_tau_start = 0.85
 
 R.use_optimistic_target = true # Q値にtrain_policy（UQE）を反映させるならtrue
 
@@ -67,7 +81,8 @@ R.eval_policy.policy_type = UQE
 R.train_policy.policy_type = UQE
 #R.train_policy.policy_type = ThompsonSampling
 
-#R.train_policy.uqe_use_tail_mean = true    # for UQE&ThompsonSampling
+R.train_policy.uqe_use_tail_mean = true
+R.target.uqe_use_tail_mean = true
 
 #R.train_policy.eps_start = 1.00               # 指数減衰 for EpsilonGreedy  
 #R.train_policy.eps_end = 0.05               # 0.1f 0.05f for EpsilonGreedy
@@ -110,16 +125,18 @@ E.damping = 1.0                # 0.5 移動と回転の空気抵抗 0だとピ�
 
 #E.game_over_penalty = -10.0
 #E.game_over_penalty = -5.0
-#E.game_over_penalty = -10.0
-E.game_over_penalty = 0.0
+E.game_over_penalty = -10.0
+#E.game_over_penalty = 0.0
 #E.game_over_penalty = -200.0
 #E.game_over_penalty = -500.0
 
 ##E.time_penalty = -0.0001    # NEET対策
+E.time_penalty = -0.005    # NEET対策
 #E.time_penalty = -0.001    # NEET対策
 #E.time_penalty = -0.01    # NEET対策
+#E.time_penalty = -0.02    # NEET対策
 #E.time_penalty = -0.1    # NEET対策
-E.time_penalty = 0
+#E.time_penalty = 0
 
 
 ##R.learner.grad_clip_tau = 0.5 # ★
@@ -167,8 +184,8 @@ R.learner.gamma = 0.995 # ★ 長期戦略考慮
 
 #R.learner.n_step = 30   # ★長期戦略考慮
 #R.learner.n_step = 20
-R.learner.n_step = 10
-#R.learner.n_step = 3
+#R.learner.n_step = 10
+R.learner.n_step = 3
 
 #R.learner.replay_capacity = 800,000
 #R.learner.replay_capacity  =  500,000
@@ -216,10 +233,10 @@ BF16.env.time_penalty = -0.01    # NEET対策
 
 #app.online.exp_pause_step  = 200,000,000    # 200M
 #app.online.exp_pause_step  = 100,000,000      # 100M
-app.online.exp_pause_step  = 20,000,000      # 20M
-#app.online.exp_pause_step  = 40,000,000      # 40M
-#app.batchrun.exp_exit_step  = 40,000,000     # 40M
-app.batchrun.exp_exit_step  = 20,000,000     # 20M
+#app.online.exp_pause_step  = 20,000,000      # 20M
+app.online.exp_pause_step  = 40,000,000      # 40M
+app.batchrun.exp_exit_step  = 40,000,000     # 40M
+#app.batchrun.exp_exit_step  = 20,000,000     # 20M
 
 A.train_policy.uqe_eps_decay_steps = 2,000,000      # 2M
 #A.train_policy.uqe_eps_decay_steps = 10,000,000      # 10M
@@ -451,6 +468,7 @@ metrics.scalar.baseline.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn inter
 #metrics.scalar.[22_eval/03_test1_reward_ema] = $runner eval.[test1].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
 #metrics.scalar.[22_eval/04_test2_reward_ema] = $runner eval.[test2].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
 
+metrics.scalar.[32_agent_base/04_uqe_tau_target] = $agent target_policy.uqe_tau @learn $exp_step
 
 metrics.scalar.[42_env/01_ep_maxrank_max]  = $env max.ep_max_rank @train
 #metrics.scalar.[42_env/02_ep_frct_max]     = $env max.ep_end_fruit_count @train
@@ -458,6 +476,7 @@ metrics.scalar.[42_env/01_ep_maxrank_max]  = $env max.ep_max_rank @train
 ##metrics.scalar.[42_env/04_tr_blocked_max]  = $env max.term_reason_spawn_blocked @train
 ##metrics.scalar.[42_env/05_tr_overflow_max] = $env max.term_reason_overflow @train
 #metrics.scalar.[42_env/06_tr_maxstep_max]  = $env max.term_reason_maxstep @train
+metrics.scalar.[42_env/07_ep_max_settle_steps]  = $env max.ep_max_settle_steps @train
 
 #metrics.scalar.[42_env/11_ep_maxrank_mean]  = $env mean.ep_max_rank @train
 metrics.scalar.[42_env/12_ep_frct_mean]     = $env mean.ep_end_fruit_count @train
@@ -465,6 +484,7 @@ metrics.scalar.[42_env/13_tr_timeout_mean]  = $env mean.term_reason_timeout @tra
 metrics.scalar.[42_env/14_tr_blocked_mean]  = $env mean.term_reason_spawn_blocked @train
 metrics.scalar.[42_env/15_tr_overflow_mean] = $env mean.term_reason_overflow @train
 #metrics.scalar.[42_env/16_tr_maxstep_mean]  = $env mean.term_reason_maxstep @train
+metrics.scalar.[42_env/17_ep_mean_settle_steps] = $env mean.ep_mean_settle_steps @train
 
 #metrics.scalar.[42_env/51_ep_maxrank_max_ema]  = $env max.ep_max_rank @train $ema
 #metrics.scalar.[42_env/52_ep_frct_max_ema]     = $env max.ep_end_fruit_count @train $ema
@@ -472,6 +492,7 @@ metrics.scalar.[42_env/15_tr_overflow_mean] = $env mean.term_reason_overflow @tr
 ##metrics.scalar.[42_env/54_tr_blocked_max_ema]  = $env max.term_reason_spawn_blocked @train $ema ema_alpha:0.001
 ##metrics.scalar.[42_env/55_tr_overflow_max_ema] = $env max.term_reason_overflow @train $ema ema_alpha:0.001
 ##metrics.scalar.[42_env/56_tr_maxstep_max_ema]  = $env max.term_reason_maxstep @train $ema ema_alpha:0.001
+metrics.scalar.[42_env/68_ep_max_settle_steps_ema]  = $env max.ep_max_settle_steps @train $ema ema_alpha:0.005
 
 metrics.scalar.[42_env/61_ep_maxrank_mean_ema]  = $env mean.ep_max_rank @train $ema
 metrics.scalar.[42_env/62_ep_frct_mean_ema]     = $env mean.ep_end_fruit_count @train $ema
@@ -479,6 +500,8 @@ metrics.scalar.[42_env/63_tr_timeout_mean_ema]  = $env mean.term_reason_timeout 
 metrics.scalar.[42_env/64_tr_blocked_mean_ema]  = $env mean.term_reason_spawn_blocked @train $ema ema_alpha:0.005
 metrics.scalar.[42_env/65_tr_overflow_mean_ema] = $env mean.term_reason_overflow @train $ema ema_alpha:0.005
 #metrics.scalar.[42_env/66_tr_maxstep_mean_ema]  = $env mean.term_reason_maxstep @train $ema ema_alpha:0.005
+metrics.scalar.[42_env/67_ep_mean_settle_steps_ema] = $env mean.ep_mean_settle_steps @train $ema ema_alpha:0.005
+
 
 metrics.scalar.[42_env/00_ep_step_mean]  = $env mean.ep_step @train
 metrics.scalar.[42_env/00_ep_step_mean_ema]  = $env mean.ep_step @train $ema ema_alpha:0.001
@@ -676,6 +699,11 @@ DropMergeEnv.noop_override = false      # NOOPを中央方向移動に変換す�
 DropMergeEnv.game_over_grace_step = 5   # ゲームオーバー猶予ステップ数
 DropMergeEnv.drop_noise = 0.01f;        # Drop時のX座標ノイズ ゼロにするとAgentが局所解のタワー作りにハマってしまいがち
 DropMergeEnv.spin_noise = 0.0f;         # Drop時の初期角速度ノイズ(rad/s)
+DropMergeEnv.use_settle_after_drop = false   # 物理演算が安定するまで強制的に時間を進めるか
+DropMergeEnv.settle_velocity_threshold = 0.1 # 安定判定の線速度閾値 (m/s)
+DropMergeEnv.settle_angular_threshold = 0.1  # 安定判定の角速度閾値 (rad/s)
+DropMergeEnv.settle_max_steps = 500          # 安定待ちの最大物理ステップ数 (無限ループ防止用)
+
 DropMergeEnv.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0   # 本家ベースで「Rank N+1 のスコア ＞ Rank N のスコア × 2」になるよう調整
 DropMergeEnv.fruit_radii = 0.09 0.13 0.17 0.22 0.28 0.35 0.43 0.52 0.62 0.72 0.84          # 果物半径
 DropMergeEnv.fruit_densities = 10.0 5.0 3.0 1.8 1.1 0.7 0.45 0.30 0.22 0.16 0.12           # 全部同じ重さ

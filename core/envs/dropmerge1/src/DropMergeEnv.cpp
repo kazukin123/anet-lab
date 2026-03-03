@@ -661,6 +661,29 @@ void DropMergeEnv::updateDropperStatus()
     }
 }
 
+bool DropMergeEnv::isWorldSettled() const
+{
+    // マージ予約や削除予定のBodyが残っていればまだ安定していない
+    if (!merge_requests_.empty()) return false;
+    if (!bodies_to_destroy_.empty()) return false;
+
+    float v_sq_thresh = config_.settle_velocity_threshold * config_.settle_velocity_threshold;
+    float a_thresh = config_.settle_angular_threshold;
+
+    for (b2Body* b = world_->GetBodyList(); b; b = b->GetNext()) {
+        if (b->GetType() != b2_dynamicBody) continue;
+
+        // まだ落下中の果物は速度チェックから除外（dropper_.is_busyで別途ループ継続判定するため）
+        if (b == dropper_.pending_body) continue;
+
+        // 線速度または角速度が閾値を超えていたら「未安定」
+        if (b->GetLinearVelocity().LengthSquared() > v_sq_thresh) return false;
+        if (std::abs(b->GetAngularVelocity()) > a_thresh) return false;
+    }
+
+    return true; // 全て静止＆マージ完了
+}
+
 std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t action, anet::rl::RunMode mode)
 {
     anet::ProfileRange r("DropMergeEnv::Step");
@@ -673,6 +696,9 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         ep_max_rank_ = 0;
         ep_end_fruit_count_ = 0;
         term_reason_ = TerminationReason::None;
+        ep_settle_steps_sum_ = 0;
+        ep_settle_count_ = 0;
+        ep_settle_steps_max_ = 0;
     }
 
     // エピソードstepインクリメント
@@ -688,7 +714,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
 	// アクション処理
     processAction(action);
 
-    // 物理ステップ実行 (通常は1回、InstantDrop時はBusyが解けるまで回す)
+    // 物理ステップ実行 (通常は1回、InstantDropやSettleモード時は条件を満たすまで回す)
     float accumulated_reward = 0.0f;
     float accumulated_raw_reward = 0.0f;
 
@@ -697,9 +723,16 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         auto rewards = calcReward();
         accumulated_reward += rewards.first;
         accumulated_raw_reward += rewards.second;
+        last_step_sim_steps_ = 0; // 即死時は0
     } else {
         // 生存している場合、物理演算ループを回す
         int sim_steps = 0;
+
+        // 無限ループ防止用の最大ステップ数
+        int max_sim_steps = config_.reload_max_steps + 10;
+        if (config_.use_settle_after_drop) {
+            max_sim_steps = config_.settle_max_steps;
+        }
 
         // 最低1回は回す
         do {
@@ -726,17 +759,40 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
             // リロード判定ロジック
             updateDropperStatus();
 
-            // 即時モードでなければ1回で抜ける
-            if (!config_.use_instant_drop) break;
-
             // ゲームオーバーになったら即抜ける
             if (game_over_) break;
 
-            // Busy状態が続いている限り回し続ける
-            // ただし無限ループ防止のため、reload_max_steps + α で強制脱出
-            if (sim_steps > config_.reload_max_steps + 10) break;
+            bool keep_simulating = false;
 
-        } while (dropper_.is_busy);
+            if (config_.use_settle_after_drop) {
+                // 安定待ちモード: DROP中(落下中) または 物理的に未安定なら回し続ける
+                keep_simulating = dropper_.is_busy || !isWorldSettled();
+            } else if (config_.use_instant_drop) {
+                // 即時落下モード: DROP中(落下中) の間だけ回す
+                keep_simulating = dropper_.is_busy;
+            }
+
+            // 継続条件を満たさなければ抜ける（通常の1ステップ動作含む）
+            if (!keep_simulating) break;
+
+            // 無限ループ防止のため強制脱出
+            if (sim_steps >= max_sim_steps) {
+                if (config_.use_settle_after_drop) {
+                    LOG::warn() << "World did not settle within " << max_sim_steps << " steps. Forcing exit.";
+                }
+                break;
+            }
+        } while (true);
+
+        // 今STEPで物理スキップしたステップ数を記録
+        last_step_sim_steps_ = sim_steps;
+
+        // エピーソード統計用データを更新
+        if (action == kActionDrop) {
+            ep_settle_steps_sum_ += sim_steps;
+            ep_settle_count_++;
+            ep_settle_steps_max_ = std::max(ep_settle_steps_max_, sim_steps);
+        }
     }
 
     // --- ペナルティの計算（RL 1ステップにつき1回だけ） ---
@@ -789,6 +845,8 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         last_episode_score_ = episode_score_;
         last_episode_step_ = step_count_;
         last_episode_reward_ = episode_reward_;
+        last_ep_max_settle_steps_ = ep_settle_steps_max_;
+        last_ep_mean_settle_steps_ = (ep_settle_count_ > 0) ? (static_cast<float>(ep_settle_steps_sum_) / ep_settle_count_) : 0.0f;
     }
 
     // State生成
@@ -1026,8 +1084,11 @@ anet::rl::AuxData DropMergeEnv::CreateAuxData(float reward, float raw_reward) co
         last_episode_reward_
         }, float_opt_));
 
-    // ステップ
-    aux.emplace("step", torch::tensor({ (float)step_count_ }, float_opt_));
+    // ステップ数情報
+    aux.emplace("step", torch::tensor({
+        (float)step_count_,
+        (float)last_step_sim_steps_
+        }, float_opt_));
     aux.emplace("last_step", torch::tensor({ (float)last_episode_step_ }, float_opt_));
 
     // スコア
@@ -1056,6 +1117,16 @@ std::optional<float> DropMergeEnv::GetScalar(const std::string& key, int64_t ind
     if (key == "ep_end_fruit_count") {
         if (!episode_just_ended_) return nan;
         return static_cast<float>(ep_end_fruit_count_);
+    }
+
+    // --- Settle関連統計 ---
+    if (key == "ep_mean_settle_steps") {
+        if (!episode_just_ended_) return nan;
+        return last_ep_mean_settle_steps_;
+    }
+    if (key == "ep_max_settle_steps") {
+        if (!episode_just_ended_) return nan;
+        return static_cast<float>(last_ep_max_settle_steps_);
     }
 
     // --- 死因（One-hot表現） ---

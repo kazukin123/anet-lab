@@ -62,6 +62,11 @@ namespace anet::rl::env::drop_merge {
         float drop_noise = 0.01f;       ///< Drop時のX座標ノイズ 
         float spin_noise = 0.0f;        ///< Drop時の初期角速度ノイズ(rad/s)
 
+        bool use_settle_after_drop = false;     ///< 物理演算が安定(Settle)するまで強制的に時間を進めるか
+        float settle_velocity_threshold = 0.1f; ///< 安定判定の線速度閾値 (m/s)
+        float settle_angular_threshold = 0.1f;  ///< 安定判定の角速度閾値 (rad/s)
+        int settle_max_steps = 500;             ///< 安定待ちの最大物理ステップ数 (無限ループ防止用)
+
         // --- 報酬調整用パラメータ ---
         float time_penalty = -0.0001f;     ///< 毎ステップ引かれる罰報酬
         float noop_penalty = -0.001f;      ///< NOOPアクションを選ぶ事による罰報酬
@@ -107,6 +112,10 @@ namespace anet::rl::env::drop_merge {
             ANET_READ_CONFIG(config_data, game_over_grace_step);
             ANET_READ_CONFIG(config_data, drop_noise);
             ANET_READ_CONFIG(config_data, spin_noise);
+            ANET_READ_CONFIG(config_data, use_settle_after_drop);
+            ANET_READ_CONFIG(config_data, settle_velocity_threshold);
+            ANET_READ_CONFIG(config_data, settle_angular_threshold);
+            ANET_READ_CONFIG(config_data, settle_max_steps);
             ANET_READ_CONFIG(config_data, time_penalty);
             ANET_READ_CONFIG(config_data, noop_penalty);
             ANET_READ_CONFIG(config_data, game_over_penalty);
@@ -216,12 +225,12 @@ namespace anet::rl::env::drop_merge {
         // ゲームロジック
         void notifyContact(b2Body* body);
         void processAction(int64_t action);
-        //void updateDropper();
         b2Body* spawnFruit(float x, float y, int rank);
         void processMerges();
         void applyExplosion(const b2Vec2& center, float force);
         bool checkGameOver();
         int determineNextRank();
+        bool isWorldSettled() const;
 
         // 観測・報酬
         anet::rl::SingleState makeState() const;
@@ -270,6 +279,14 @@ namespace anet::rl::env::drop_merge {
         bool episode_just_ended_ = false; ///< GetScalarで値を返す判定用
         int ep_max_rank_ = 0;             ///< エピソード中の最大ランク
         int ep_end_fruit_count_ = 0;      ///< エピソード終了時のフルーツ数
+
+        // Settleステップ計測用
+        int ep_settle_steps_sum_ = 0;
+        int ep_settle_count_ = 0;
+        int ep_settle_steps_max_ = 0;
+        float last_ep_mean_settle_steps_ = 0.0f;
+        int last_ep_max_settle_steps_ = 0;
+        int last_step_sim_steps_ = 0;     ///< 直近のStepで回った物理ステップ数(UI用)
 
         // デバッグ・観測用キャッシュ
         mutable std::vector<float> grid_cache_;

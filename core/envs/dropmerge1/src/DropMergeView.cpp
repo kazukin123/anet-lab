@@ -450,8 +450,13 @@ void DropMergePanel::DrawSidePanel(wxDC& dc)
 
     // エピソード内ステップ数
     int ep_step = 0;
+    int sim_steps = 0;
     if (snapshot_.aux.count("step")) {
-        ep_step = (int)snapshot_.aux.at("step").item<float>();
+        auto t = snapshot_.aux.at("step");
+        ep_step = (int)t[0].item<float>();
+        if (t.size(0) > 1) {
+            sim_steps = (int)t[1].item<float>();
+        }
     }
     auto ep_step_str = anet::FormatWithCommas(ep_step);
     dc.SetFont(wxFont(14, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
@@ -473,6 +478,12 @@ void DropMergePanel::DrawSidePanel(wxDC& dc)
             dc.SetTextForeground(wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT));
         }
     }
+    y += line_h;
+
+    // --- Settle (Sim) Steps ---
+    dc.SetFont(wxFont(12, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
+    dc.SetTextForeground(wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT));
+    dc.DrawText(wxString::Format("Sim Steps: %d", sim_steps), r.x, y);
     y += line_h;
 
     // --- Details ---
