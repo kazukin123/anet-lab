@@ -400,6 +400,8 @@ SumTree::SumTree(int64_t capacity)
     ANET_ASSERT_MSG(capacity_ <= static_cast<int64_t>(std::numeric_limits<size_t>::max() / 2),
         "SumTree capacity is too large for size_t");
 
+    // サイズ 2Nの非再帰セグメント木を使用しているため、capacity が 2 のべき乗である必要はない
+
     const size_t tree_size = static_cast<size_t>(capacity_) * 2;
     ANET_ASSERT_MSG(tree_size <= tree_.max_size(),"SumTree capacity exceeds vector::max_size()");
  
