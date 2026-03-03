@@ -40,7 +40,8 @@ namespace anet::rl::dqn {
         float grad_clip_ratio = 0.0f;
         torch::Tensor loss;
         torch::Tensor td_error;
-		float grad_clip_tau;
+        mutable torch::Tensor td_error_abs_cpu;
+        float grad_clip_tau;
 
 		// Q Value Metrics Source Tensors
         torch::Tensor max_q;
@@ -68,7 +69,16 @@ namespace anet::rl::dqn {
 
             // loss/td/grad
             if (key == "loss") return loss.item<float>();
-            if (key == "td_mean") return td_error.abs().mean().item<float>();
+            if (key == "td_mean") {
+                if (!td_error_abs_cpu.defined())
+                    td_error_abs_cpu = td_error.abs().cpu();
+                return td_error_abs_cpu.mean().item<float>();
+            }
+            if (key == "td_std") {
+                if (!td_error_abs_cpu.defined())
+                    td_error_abs_cpu = td_error.abs().cpu();
+                return td_error_abs_cpu.std().item<float>();
+            }
             if (key == "grad_norm") {
                 if (grad_norm.has_value())
                     return *grad_norm;
@@ -188,7 +198,8 @@ namespace anet::rl::dqn {
             return std::nullopt;
         }
     private:
-        void TransQToCpu() const {
+        void TransQToCpu() const
+        {
             if (max_q_cpu.defined()) return;
             max_q_cpu = max_q.cpu();
         }
