@@ -663,6 +663,10 @@ void DropMergeEnv::updateDropperStatus()
 
 bool DropMergeEnv::isWorldSettled() const
 {
+    // 落下中であれば無条件で安定していないとみなす
+    if (dropper_.is_busy) return false;
+    if (dropper_.pending_body != nullptr) return false;
+
     // マージ予約や削除予定のBodyが残っていればまだ安定していない
     if (!merge_requests_.empty()) return false;
     if (!bodies_to_destroy_.empty()) return false;
@@ -673,8 +677,6 @@ bool DropMergeEnv::isWorldSettled() const
     for (b2Body* b = world_->GetBodyList(); b; b = b->GetNext()) {
         if (b->GetType() != b2_dynamicBody) continue;
 
-        // まだ落下中の果物は速度チェックから除外（dropper_.is_busyで別途ループ継続判定するため）
-        if (b == dropper_.pending_body) continue;
 
         // 線速度または角速度が閾値を超えていたら「未安定」
         if (b->GetLinearVelocity().LengthSquared() > v_sq_thresh) return false;
@@ -734,6 +736,12 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
             max_sim_steps = config_.settle_max_steps;
         }
 
+        // 連続静止フレームのカウンター
+        int settled_frames = 0;
+
+        // このステップ中に一度でも不安定になったか
+        bool was_unsettled_this_step = false;
+
         // 最低1回は回す
         do {
             // Box2D Step
@@ -762,13 +770,28 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
             // ゲームオーバーになったら即抜ける
             if (game_over_) break;
 
+            // 静止状態ならカウンターを増やし、動いていたらリセットする
+            bool currently_settled = isWorldSettled();
+            if (currently_settled) {
+                settled_frames++;
+            } else {
+                settled_frames = 0;
+                was_unsettled_this_step = true; // 一度でも不安定になったらフラグを立てる
+            }
+
             bool keep_simulating = false;
 
             if (config_.use_settle_after_drop) {
-                // 安定待ちモード: DROP中(落下中) または 物理的に未安定なら回し続ける
-                keep_simulating = dropper_.is_busy || !isWorldSettled();
+                // 安定待ちモード
+                if (was_unsettled_this_step || dropper_.is_busy) {
+                    // 不安定な状態を経験した、またはDROP中なら厳密に10フレーム待つ
+                    keep_simulating = dropper_.is_busy || (settled_frames < 10);
+                } else {
+                    // ずっと安定したまま（ただの移動やNOOP）なら、無駄に回さず1ステップで抜ける
+                    keep_simulating = false;
+                }
             } else if (config_.use_instant_drop) {
-                // 即時落下モード: DROP中(落下中) の間だけ回す
+                // 即時落下モード
                 keep_simulating = dropper_.is_busy;
             }
 

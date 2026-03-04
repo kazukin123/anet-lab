@@ -57,10 +57,19 @@ net.body.$ = net.body.SuikaResNet4064_10d     # ★
 #app.run_name = run_{t}_heavy_tp005
 #app.run_name = run_{t}_heavy_Ttau085
 #app.run_name = run_{t}_heavy_tp1
-app.run_name = run_{t}_settle_N3
+#app.run_name = run_{t}_settle_N3
+#app.run_name = run_{t}_settle_N3-2
 
+E.settle_max_steps = 1000   # 500
 
 E.use_settle_after_drop = true
+#E.settle_velocity_threshold = 0.05 # 0.1 安定判定の線速度閾値 (m/s)
+#E.settle_angular_threshold = 0.05  # 0.1 安定判定の角速度閾値 (rad/s)
+E.settle_velocity_threshold = 0.5 # 0.1 安定判定の線速度閾値 (m/s)
+#E.settle_angular_threshold = 0.5  # 0.1 安定判定の角速度閾値 (rad/s)
+#E.settle_velocity_threshold = 1.0 # 0.1 安定判定の線速度閾値 (m/s)
+#E.settle_angular_threshold = 1.0  # 0.1 安定判定の角速度閾値 (rad/s)
+
 
 A.learner.replay_capacity = 524,288          # 262,144 524,288 1,048,576
 
