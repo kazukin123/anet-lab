@@ -46,10 +46,15 @@ TODO：実行手順を書く
 ### DOING
 
 * 学習アルゴリズム
+	* ①MuZero試作
+	* TransformerModule
+* Env実装
+	* DropMergeEnv評価＆調整
 * メトリクス
 * AP改善
-	* 学習セッションの保存と読込（Agent学習状況含む）
-	* Dict Observation Space
+	* ②フレームワーク構成変更
+	* ③学習セッションの保存と読込（Agent学習状況含む）
+	* ④Dict Observation Space
 
 ### TODO
 

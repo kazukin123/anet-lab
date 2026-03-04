@@ -10,7 +10,6 @@ train.eval.[eval2].run_mode = eval2
 
 # --- agent
 
-#agent.class_id = DQNAgent
 #agent.class_id = RainbowAgent
 agent.class_id = DefaultDQNAgent
 

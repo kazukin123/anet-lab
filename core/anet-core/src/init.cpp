@@ -1,6 +1,5 @@
 ﻿#include "anet/init.hpp"
 #include "anet/metrics_logger.hpp"
-#include "anet/dqn_agent.hpp"
 #include "anet/rainbow_agent.hpp"
 #include "anet/default_dqn_agent.hpp"
 #include "nn_impl.hpp"
@@ -23,7 +22,6 @@ void anet::rl::InitRL(const BackendConfig& backend_config)
 	anet::nn::InitNN();
 
 	// Agent登録
-	RegisterAgentFactory<DQNAgentFactory>();
 	RegisterAgentFactory<anet::rl::dqn::RainbowAgentFactory>();
 	RegisterAgentFactory<anet::rl::dqn::DefaultDQNAgentFactory>();
 }

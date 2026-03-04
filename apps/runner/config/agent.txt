@@ -1,7 +1,6 @@
 ﻿
 DefaultDQNAgent.$ = DefaultDQNAgent.baseline
 RainbowAgent.$ = RainbowAgent.baseline
-DQNAgent.$ = DQNAgent.baseline
 
 # ---- DefaultDQNAgent
 
