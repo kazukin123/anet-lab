@@ -7,14 +7,17 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import com.esotericsoftware.kryo.Kryo;
@@ -44,6 +47,16 @@ public class MetricsRepository {
 	private final Map<String, MetricsSnapshot> runSnapshotMap = new ConcurrentHashMap<>(); // runId → MetricsSnapshot
 	private final Kryo kryo = new Kryo();
 
+	@Value("${metricsviewer.max-transfer-points-initial:15000}")
+	private int maxTransferPointsInitial;
+
+	@Value("${metricsviewer.max-transfer-points-delta:5000}")
+	private int maxTransferPointsDelta;
+
+	// 追加: 間引き処理のON/OFFフラグ（デフォルト true）
+	@Value("${metricsviewer.decimation.enabled:true}")
+	private boolean decimationEnabled;
+		
 	/** コンストラクタ */
 	public MetricsRepository() {
 		kryo.setRegistrationRequired(false);
@@ -77,60 +90,111 @@ public class MetricsRepository {
 
 	/**
 	 * 差分ロード用：Run×Tagごとに指定step以降のTagTraceを返す。
-	 * 
-	 * @param runTagMap runId → (tagKey → fromStep)
+	 * * @param runTagMap runId → (tagKey → fromStep)
 	 * @return 差分データ（TagTraceリスト）
 	 */
 	public List<TagTrace> findTagTraceDiff(Map<String, Map<String, Integer>> runTagMap) {
-	    final List<TagTrace> traces = new ArrayList<>();
+		final List<TagTrace> traces = new ArrayList<>();
 
-	    // requestのRunIdを回す
-	    for (Map.Entry<String, Map<String, Integer>> runEntry : runTagMap.entrySet()) {
-	        final String runId = runEntry.getKey();
-	        final MetricsSnapshot snapshot = runSnapshotMap.get(runId);
-	        if (snapshot == null) continue;
+		// requestのRunIdを回す
+		for (Map.Entry<String, Map<String, Integer>> runEntry : runTagMap.entrySet()) {
+			final String runId = runEntry.getKey();
+			final MetricsSnapshot snapshot = runSnapshotMap.get(runId);
+			if (snapshot == null) continue;
 
-	        // requestのTagKeyを回す（空の場合は全Tag対象）
-	        final Map<String, Integer> tagMap = runEntry.getValue();
-	        final boolean allTags = (tagMap == null || tagMap.isEmpty());
-	        final List<String> tagKeys = allTags ? snapshot.listTagKeys() : new ArrayList<>(tagMap.keySet());
+			// requestのTagKeyを回す（空の場合は全Tag対象）
+			final Map<String, Integer> tagMap = runEntry.getValue();
+			final boolean allTags = (tagMap == null || tagMap.isEmpty());
+			final List<String> tagKeys = allTags ? snapshot.listTagKeys() : new ArrayList<>(tagMap.keySet());
 
-	        for (String tagKey : tagKeys) {
-	            final int fromStep = allTags ? 0 : tagMap.getOrDefault(tagKey, 0);
+			for (String tagKey : tagKeys) {
+				final int fromStep = allTags ? 0 : tagMap.getOrDefault(tagKey, 0);
 
-	            // 差分抽出
-	            final List<Point> points = snapshot.getPointsSince(tagKey, fromStep);
-	            if (points == null || points.isEmpty()) continue; // データなしはスキップ
+				// 差分抽出
+				List<Point> points = snapshot.getPointsSince(tagKey, fromStep);
+				if (points == null || points.isEmpty()) continue; // データなしはスキップ
 
-	            // Trace元ネタを詰め直し
-	            final int size = points.size();
-	            final int[] steps = new int[size];
-	            final float[] values = new float[size];
-	            for (int i = 0; i < size; i++) {
-	                final Point p = points.get(i);
-	                steps[i] = p.getStep();
-	                values[i] = p.getValue();
-	            }
+				// --- サーバーサイド間引き ---
+				if (decimationEnabled) {
+					final int maxTransferPoints = (fromStep == 0) ? maxTransferPointsInitial : maxTransferPointsDelta;
+					if (points.size() > maxTransferPoints) {
+						points = decimatePoints(points, maxTransferPoints);
+					}
+				}
+				
+				// Trace元ネタを詰め直し
+				final int size = points.size();
+				final int[] steps = new int[size];
+				final float[] values = new float[size];
+				for (int i = 0; i < size; i++) {
+					final Point p = points.get(i);
+					steps[i] = p.getStep();
+					values[i] = p.getValue();
+				}
 
-	            final TagStats stats = snapshot.getTagStats(tagKey);
+				final TagStats stats = snapshot.getTagStats(tagKey);
 
-	            final TagTrace trace = TagTrace.builder()
-	                    .runId(runId)
-	                    .tagKey(tagKey)
-	                    .type("scalar")
-	                    .stats(stats)
-	                    .beginStep(fromStep)
-	                    .endStep(steps[size - 1])
-	                    .steps(steps)
-	                    .values(values)
-	                    .build();
-	            traces.add(trace);
-	        }
-	    }
+				final TagTrace trace = TagTrace.builder()
+						.runId(runId)
+						.tagKey(tagKey)
+						.type("scalar")
+						.stats(stats)
+						.beginStep(fromStep)
+						.endStep(steps[size - 1])
+						.steps(steps)
+						.values(values)
+						.build();
+				traces.add(trace);
+			}
+		}
 
-	    return traces;
+		return traces;
 	}
 
+	/**
+	 * Min-Max-Last方式によるダウンサンプリング。
+	 *
+	 * @param originalPoints 生データ
+	 * @param maxPoints      返却したい最大点数の目安
+	 * @return 間引かれたPointリスト
+	 */
+	private List<Point> decimatePoints(List<Point> originalPoints, int maxPoints) {
+		final int n = originalPoints.size();
+		if (n <= maxPoints) return originalPoints;
+
+		final int numChunks = maxPoints / 3;
+		if (numChunks < 1) return List.of(originalPoints.get(n - 1));
+
+		final double chunkSize = (double) n / numChunks;
+		final Set<Integer> selectedIndices = new LinkedHashSet<>();
+
+		for (int i = 0; i < numChunks; i++) {
+			final int start = (int) (i * chunkSize);
+			final int end = (int) Math.min(n, (i + 1) * chunkSize);
+			if (start >= end) continue;
+
+			int minIdx = start;
+			int maxIdx = start;
+
+			for (int j = start; j < end; j++) {
+				final float val = originalPoints.get(j).getValue();
+				if (val < originalPoints.get(minIdx).getValue()) minIdx = j;
+				if (val > originalPoints.get(maxIdx).getValue()) maxIdx = j;
+			}
+
+			selectedIndices.add(minIdx);
+			selectedIndices.add(maxIdx);
+			selectedIndices.add(end - 1);
+		}
+
+		selectedIndices.add(n - 1);
+
+		final List<Point> decimated = new ArrayList<>(selectedIndices.size());
+		for (Integer idx : selectedIndices) {
+			decimated.add(originalPoints.get(idx));
+		}
+		return decimated;
+	}
 
 	/**
 	 * Returns all tags known for the given run.
@@ -234,9 +298,7 @@ public class MetricsRepository {
 			kryo.writeObject(output, snapshot);
 
 			// 本体と入れ替え
-			Files.move(tmp, file,
-					StandardCopyOption.REPLACE_EXISTING,
-					StandardCopyOption.ATOMIC_MOVE);
+			Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
 
 			// ログ
 			log.info("Snapshot saved. run={} pos={} points={}",
