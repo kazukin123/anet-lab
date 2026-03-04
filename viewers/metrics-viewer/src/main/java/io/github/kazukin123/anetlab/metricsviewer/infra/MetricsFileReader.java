@@ -1,9 +1,6 @@
 package io.github.kazukin123.anetlab.metricsviewer.infra;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -129,60 +126,73 @@ public class MetricsFileReader {
 
 		log.debug("parse start file={} offset={} maxLines={}", jsonlFile, startOffset, maxLines);
 
-		try (InputStream in = Files.newInputStream(jsonlFile);
-				BufferedReader br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8),
-						BUFFER_SIZE)) {
-
-			// 指定位置までスキップ（RandomAccessFileで補正済み）
+		// バイト単位で読み込んで正確なオフセットを計算するため BufferedInputStream を使用
+		try (java.io.BufferedInputStream in = new java.io.BufferedInputStream(Files.newInputStream(jsonlFile), BUFFER_SIZE)) {
 			final long skipped = in.skip(startOffset);
 			if (skipped < startOffset) {
 				log.warn("Skipped {} < requested {} (file may have truncated) {}", skipped, startOffset, jsonlFile);
 			}
 
-			String line;
+			java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream(4096);
+			int b;
 			long lineCount = 0;
+			boolean eof = true;
 
-			while ((line = br.readLine()) != null) {
-				bytesRead += line.getBytes(StandardCharsets.UTF_8).length + 1;
-				lineCount++;
+			while ((b = in.read()) != -1) {
+				bytesRead++;
+				if (b == '\n') {
+					String line = buffer.toString(StandardCharsets.UTF_8.name());
+					buffer.reset();
 
-				try {
-					final MetricsFileLine obj = parseLine(line);
-					lines.add(obj);
-				} catch (JsonProcessingException e) {
-					final boolean looksTruncated = line.length() < 10 ||
-							!line.trim().startsWith("{") ||
-							!line.trim().endsWith("}");
-
-					if (looksTruncated) {
-						// ファイル途中 or 書きかけJSONは想定内
-						if (log.isDebugEnabled()) {
-							log.debug("Skip incomplete JSON fragment near offset {} (len={}): {}",
-									bytesRead, line.length(),
-									line.substring(0, Math.min(80, line.length())));
-						}
-						continue;
+					// \r\n の \r を除去
+					if (!line.isEmpty() && line.charAt(line.length() - 1) == '\r') {
+						line = line.substring(0, line.length() - 1);
 					}
 
-					// 構造が完結しているのに壊れている → エラー扱い
-					final String excerpt = line.length() > 160 ? line.substring(0, 160) + "..." : line;
-					log.error("JSON parse error (corrupted?) near offset {}: {} line={}",
-							bytesRead, e.getOriginalMessage(), excerpt);
-				}
+					if (line.isEmpty()) continue;
 
-				if (lineCount % PROGRESS_INTERVAL == 0 ||
-						System.currentTimeMillis() - lastLogTime >= PROGRESS_INTERVAL_MS) {
-					log.debug("reading {} lines={} offset={}MB", jsonlFile.getFileName(),
-							lineCount, bytesRead / 1_000_000);
-					lastLogTime = System.currentTimeMillis();
-				}
+					lineCount++;
 
-				if (maxLines > 0 && lineCount >= maxLines) {
-					break;
+					try {
+						final MetricsFileLine obj = parseLine(line);
+						if (obj != null) {
+							lines.add(obj);
+						}
+					} catch (JsonProcessingException e) {
+						final boolean looksTruncated = line.length() < 10 ||
+								!line.trim().startsWith("{") ||
+								!line.trim().endsWith("}");
+
+						if (looksTruncated) {
+							if (log.isDebugEnabled()) {
+								log.debug("Skip incomplete JSON fragment near offset {} (len={}): {}",
+										bytesRead, line.length(),
+										line.substring(0, Math.min(80, line.length())));
+							}
+							continue;
+						}
+
+						final String excerpt = line.length() > 160 ? line.substring(0, 160) + "..." : line;
+						log.error("JSON parse error (corrupted?) near offset {}: {} line={}",
+								bytesRead, e.getOriginalMessage(), excerpt);
+					}
+
+					if (lineCount % PROGRESS_INTERVAL == 0 ||
+							System.currentTimeMillis() - lastLogTime >= PROGRESS_INTERVAL_MS) {
+						log.debug("reading {} lines={} offset={}MB", jsonlFile.getFileName(),
+								lineCount, bytesRead / 1_000_000);
+						lastLogTime = System.currentTimeMillis();
+					}
+
+					if (maxLines > 0 && lineCount >= maxLines) {
+						eof = false;
+						break;
+					}
+				} else {
+					buffer.write(b);
 				}
 			}
 
-			final boolean eof = (br.readLine() == null);
 			final long tEnd = System.currentTimeMillis();
 
 			log.debug("parse done file={} lines={} readBytes={}MB duration={}ms eof={}",
