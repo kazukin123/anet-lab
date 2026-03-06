@@ -1056,6 +1056,11 @@ QRLearner::QRLearner(const LearnerConfig& config, Network& network, RuntimeVars&
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
+
+    // tau_iの事前計算
+    const int N = config_.num_quantiles;
+    tau_i_ = torch::arange(0.5f / N, 1.0f, 1.0f / N, device).view({ 1, N, 1 });
+    ANET_ASSERT_SHAPE(tau_i_, { 1, N, 1 });
 }
 
 torch::Tensor QRLearner::ComputeQuantileHuberLoss(
@@ -1084,8 +1089,8 @@ torch::Tensor QRLearner::ComputeQuantileHuberLoss(
     ANET_ASSERT_SHAPE(diff, { B, N, N });
 
     // 分位数 tau_i = (i + 0.5) / N
-    auto tau = torch::arange(0.5f / N, 1.0f, 1.0f / N, device).view({ 1, N, 1 });
-    ANET_ASSERT_SHAPE(tau, { 1, N, 1 });
+    //auto tau = torch::arange(0.5f / N, 1.0f, 1.0f / N, device).view({ 1, N, 1 });
+    //ANET_ASSERT_SHAPE(tau, { 1, N, 1 });
 
     // Huber Loss
     auto abs_diff = diff.abs();
@@ -1095,7 +1100,7 @@ torch::Tensor QRLearner::ComputeQuantileHuberLoss(
     // Quantile Regression Loss
     // rho_tau(u) = |tau - I(u<0)| * L_k(u)
     auto indicator = (diff.detach() < 0).to(torch::kFloat);
-    auto quantile_weight = torch::abs(tau - indicator);	 // Broadcasting Check: (1, N, 1) - (B, N, N) -> (B, N, N)
+    auto quantile_weight = torch::abs(tau_i_ - indicator);	 // Broadcasting Check: (1, N, 1) - (B, N, N) -> (B, N, N)
     ANET_ASSERT_SHAPE(quantile_weight, { B, N, N });
 
     auto loss_per_pair = quantile_weight * huber; // (B, N, N)

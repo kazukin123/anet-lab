@@ -403,6 +403,8 @@ namespace anet::rl::dqn {
     private:
         torch::Tensor ComputeQuantileHuberLoss(
             const torch::Tensor& current_dist, const torch::Tensor& target_dist) const;
+    private:
+        torch::Tensor tau_i_; // QuantileHuberLoss 算出用
     };
 
 
