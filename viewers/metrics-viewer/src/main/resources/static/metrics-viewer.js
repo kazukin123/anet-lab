@@ -8,6 +8,8 @@ const AUTO_RELOAD_INTERVAL_MS = 15000;	// AutoReload間隔
 //const MAX_POINTS = 6000;	// 4Kモニタ想定
 const MAX_POINTS = 10000000; // サーバーサイドでのダウンサンプリングに任せる為に大きくする
 const MAX_SCATTER_GL = 0;	// あまり大きくするとグラフがでなくなる
+const STORAGE_KEY_TAGS = "anet.metricsviewer.activeTags";
+const HOVER_SCROLL_DELAY_MS = 300;  // 0でOFF
 
 const Mode = Object.freeze({
 	UNINITIALIZED: "uninitialized",
@@ -383,6 +385,8 @@ class PlotlyController {
 			return false;
 		}
 		
+		const sortedRunIds = runIds.slice().sort((a, b) => a.localeCompare(b));
+		
 		let drawn = false;
 		let traceIndex = 0;
 		for (const tagKey of tagKeys) {
@@ -392,8 +396,10 @@ class PlotlyController {
 			area.append($b);
 			const traces = [];
 			const multi = (runIds.length > 1);
-			for (let i = 0; i < runIds.length; i++) {
-				const r = runIds[i];
+			
+			// 古い順にソートした sortedRunIds を回して描画用のtraceを作る
+			for (let i = 0; i < sortedRunIds.length; i++) {
+				const r = sortedRunIds[i];
 				const d = cache.get(r, tagKey);
 				if (!d) continue;
 				const trace = this._makeTrace(r, tagKey, d.steps, d.values, traceIndex, multi);
@@ -558,19 +564,79 @@ class UIController {
 
 	renderTagList(tagKeys, active) {
 		const $ul = $("#tag-list").empty();
-		active.clear();
 		tagKeys.sort();
 		tagKeys.forEach(k => {
 			const id = `tag-${k.replace(/[^\w-]/g, "_")}`;
-			$ul.append(`<li id="${id}">${k}</li>`);
-		});
+			// 状態に含まれていれば active クラスを付与
+			const activeClass = active.has(k) ? "active" : "";
+			const displayStyle = (this.app.isTagsLocked && !active.has(k)) ? 'style="display:none;"' : '';
+			$ul.append(`<li id="${id}" class="${activeClass}" ${displayStyle}>${k}</li>`);		});
 	}
 
 	bindTagListEvents(tagKeys, active) {
 		const $ul = $("#tag-list");
+		let hoverTimeout = null;
 
-		// 個別クリック
-		$ul.find("li").off("click").on("click", (e) => {
+		// 状態をチェックボックスに反映（リロード時など）
+		$("#chk-lock-tags").prop("checked", this.app.isTagsLocked);
+
+		// チェックボックス切り替え時のイベント
+		$("#chk-lock-tags").off("change").on("change", (e) => {
+			this.app.isTagsLocked = e.currentTarget.checked;
+			if (this.app.isTagsLocked) {
+				// Lock ON: アクティブでないタグを隠し、ボタンを無効化
+				$ul.find("li:not(.active)").hide();
+				$("#btn-select-all, #btn-clear-all").prop("disabled", true);
+			} else {
+				// Lock OFF: 全てのタグを表示し、ボタンを有効化
+				$ul.find("li").show();
+				$("#btn-select-all, #btn-clear-all").prop("disabled", false);
+			}
+		});
+				
+		// 再描画時のボタン状態反映
+		$("#btn-select-all, #btn-clear-all").prop("disabled", this.app.isTagsLocked);
+
+		const clearHoverTimer = () => {
+			if (hoverTimeout) {
+				clearTimeout(hoverTimeout);
+				hoverTimeout = null;
+			}
+		};
+
+		// --- スクロール発動用の共通関数 ---
+		const startHoverTimer = (li) => {
+			clearHoverTimer(); // 二重起動防止
+			if (HOVER_SCROLL_DELAY_MS <= 0) return;
+			if (!$(li).hasClass("active")) return; // アクティブじゃなければ何もしない
+
+			hoverTimeout = setTimeout(() => {
+				const tagKey = $(li).text();
+				const safe = tagKey.replace(/[^\w-]/g, "_");
+				const targetId = `graph-${safe}`;
+				const targetEl = document.getElementById(targetId);
+
+				if (targetEl) {
+					const blockEl = targetEl.closest('.graph-block');
+					if (blockEl) {
+						blockEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+						$(blockEl).css("transition", "background-color 0.4s ease-out")
+						          .css("background-color", "#334433"); 
+						setTimeout(() => {
+							$(blockEl).css("background-color", "");
+						}, 800);
+					}
+				}
+			}, HOVER_SCROLL_DELAY_MS);
+		};
+
+		// 個別クリック・ホバー
+		$ul.find("li").off("click mouseenter mouseleave")
+		.on("click", (e) => {
+
+			// Lock中はクリック操作（トグル）を無視して終了
+//			if (this.app.isTagsLocked) return;
+
 			const li = e.currentTarget;
 			$(li).toggleClass("active");
 
@@ -578,6 +644,21 @@ class UIController {
 			this.app.activeTags = new Set($("#tag-list li.active").map((_, el) => $(el).text()).get());
 
 			this.app.onTagSelectionChanged();
+
+			// クリックしてONになったら、そのままホバー判定を開始する
+			if ($(li).hasClass("active")) {
+				startHoverTimer(li);
+			} else {
+				clearHoverTimer(); // OFFにした場合はタイマーをキャンセル
+			}
+		})
+		.on("mouseenter", (e) => {
+			// マウスが入ってきた時もホバー判定を開始
+			startHoverTimer(e.currentTarget);
+		})
+		.on("mouseleave", () => {
+			// カーソルが離れたらキャンセル
+			clearHoverTimer();
 		});
 
 		// 全選択
@@ -588,7 +669,7 @@ class UIController {
 
 			this.app.onTagSelectionChanged();
 		});
-
+		
 		// 全解除
 		$("#btn-clear-all").off("click").on("click", () => {
 			$ul.find("li").removeClass("active");
@@ -636,6 +717,7 @@ class MetricsViewerClientApp {
 		this.autoReloadEnabled = false;
 		this.autoReloadTimer = null;
 		this.colors = getPlotlyColors();
+		this.isTagsLocked = false;
 		console.log("[INIT] MetricsViewerClientApp constructed");
 	}
 
@@ -656,6 +738,9 @@ class MetricsViewerClientApp {
 			console.log("[INIT] start");
 			this.setMode(Mode.META_LOADING);
 
+			// LocalStorageから復元
+			this._loadActiveTags();
+			
 			// Run情報(+タグ情報)を取得
 			const runsPayload = await this.fetcher.fetchRuns();
 			console.log("[INIT] fetchRuns OK");
@@ -682,8 +767,13 @@ class MetricsViewerClientApp {
 			// Tagsを描画
 			const latest = this.selectedRuns[this.selectedRuns.length - 1];
 			const tags = latest ? this.cache.getTagKeys(latest) : [];
-			if (tags.length) this._populateTags(tags, true);	// Tagがあったら表示
-			else this.ui.captureInitialTagList(this.activeTags);	// なかったら現在
+			if (tags.length) {
+				// 保存されたタグがあればそれを使う、なければ全選択
+				const hasSaved = this.activeTags.size > 0;
+				this._populateTags(tags, !hasSaved);
+			} else {
+				this.ui.captureInitialTagList(this.activeTags);
+			}
 
 			// メトリクス情報を取得
 			this.setMode(Mode.DATA_LOADING);
@@ -736,6 +826,7 @@ class MetricsViewerClientApp {
 			$("#tag-list li").addClass("active");
 		}
 		this.ui.bindTagListEvents(tagKeys, this.activeTags);
+		this._saveActiveTags();
 		console.log(`[TAG] populateTags → total=${tagKeys.length}, active=${this.activeTags.size}`);
 	}
 
@@ -745,25 +836,48 @@ class MetricsViewerClientApp {
 			for (const t of this.cache.getTagKeys(r) || []) set.add(t);
 		}
 		const keys = [...set].sort();
-		const keep = [...this.activeTags].filter(t => keys.includes(t));
+		// 選択中の中から、新しいRunセットに存在するタグだけを残す
+		this.activeTags = new Set([...this.activeTags].filter(t => keys.includes(t)));
 		this._populateTags(keys, false);
-		this.activeTags = new Set(keep);
-		$("#tag-list li").each((_, li) => {
-			if (this.activeTags.has($(li).text())) $(li).addClass("active");
-		});
 		console.log(`[INTERNAL] updateTagListByRuns → ${keys.length} tags (keep=${this.activeTags.size})`);
 	}
 
 	_renderCurrent() {
 		const t0 = performance.now();
+
+		// --- スクロール位置を保存 ---
+		const $main = $("#main-area");
+		const mainScroll = $main.scrollTop();
+		const winScroll = $(window).scrollTop(); // 画面全体スクロールの場合の保険
+		// ----------------------------
+
 		const t1 = performance.now();
 		this.ui.updateRunColorChips(this.runColorMap);
 		const t2 = performance.now();
 		this.plotly.renderBySelection("#main-area", this.selectedRuns.slice(), [...this.activeTags], this.cache);
 		const t3 = performance.now();
-//		this.plotly.resizeAll();
+
+		// --- スクロール位置を復元 ---
+		$main.scrollTop(mainScroll);
+		$(window).scrollTop(winScroll);
+
 		const t4 = performance.now();
 		console.log(`[DRAW] total=${(t4-t0).toFixed(1)}ms | ui=${(t2-t1).toFixed(1)}ms | plotly=${(t3-t2).toFixed(1)}ms | resize=${(t4-t3).toFixed(1)}ms`);
+	}
+
+		_saveActiveTags() {
+		localStorage.setItem(STORAGE_KEY_TAGS, JSON.stringify([...this.activeTags]));
+	}
+
+	_loadActiveTags() {
+		const saved = localStorage.getItem(STORAGE_KEY_TAGS);
+		if (saved) {
+			try {
+				this.activeTags = new Set(JSON.parse(saved));
+			} catch (e) {
+				console.error("Failed to load activeTags from storage", e);
+			}
+		}
 	}
 
 	/* ---------- イベントハンドラ群（onXXX統一） ---------- */
@@ -776,6 +890,7 @@ class MetricsViewerClientApp {
 
 	onTagSelectionChanged() {
 		console.log(`[TAG] selection changed → ${this.activeTags.size} tags`);
+		this._saveActiveTags();
 		this._renderCurrent();
 	}
 
@@ -869,11 +984,8 @@ class MetricsViewerClientApp {
 
 	        console.log("[RELOAD] fetchMetrics OK");
 
-	        // --- スクロール位置を保存・復元 ---
-			const $scrollTarget = $("#main-area");
-			const scrollTop = $scrollTarget.scrollTop();
+			// グラフ再描画
 			this._renderCurrent();
-			$scrollTarget.scrollTop(scrollTop);
 	        // -----------------------------------
 
 	        this.setMode(Mode.NORMAL);
@@ -883,7 +995,8 @@ class MetricsViewerClientApp {
 			Toast.show("Reload failed.");
 	    }
 	}
-}
+
+} // MetricsViewerClientApp
 
 /* ---------------- 起動 ---------------- */
 let app = null;

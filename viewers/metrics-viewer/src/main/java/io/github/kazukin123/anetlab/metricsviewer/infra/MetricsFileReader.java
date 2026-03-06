@@ -64,23 +64,23 @@ public class MetricsFileReader {
 			p.nextToken();
 
 			switch (field) {
-			case "type":
-				type = p.getValueAsString();
-				break;
-			case "tag":
-				tag = p.getValueAsString();
-				break;
-			case "step":
-				step = p.getIntValue();
-				break;
-			case "value":
-				value = p.getFloatValue();
-				break;
-			case "timestamp":
-				break;
-			default:
-				p.skipChildren();
-				break;
+				case "type":
+					type = p.getValueAsString();
+					break;
+				case "tag":
+					tag = p.getValueAsString();
+					break;
+				case "step":
+					step = p.getIntValue();
+					break;
+				case "value":
+					value = p.getFloatValue();
+					break;
+				case "timestamp":
+					break;
+				default:
+					p.skipChildren();
+					break;
 			}
 		}
 		return new MetricsFileLine(type, tag, step, value);

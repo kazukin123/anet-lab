@@ -126,7 +126,7 @@ public class LoadingThread extends Thread {
 
 				// 未セーブが一定量溜まったらファイル書き出し
 				final int dirtyCount = saveCounter.merge(runId, 1, Integer::sum);
-				if (dirtyCount >= SAVE_INTERVAL_BLOCKS) {// || block.isEOF()) {
+				if (dirtyCount >= SAVE_INTERVAL_BLOCKS) {
 					metricsRepository.saveCache(runDir, runId);
 					saveCounter.put(runId, 0);
 				}

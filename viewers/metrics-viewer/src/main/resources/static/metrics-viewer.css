@@ -16,6 +16,36 @@ html, body {
 	overflow: hidden;
 }
 
+/* チェックボックス */
+input[type="checkbox"] {
+	appearance: none;
+	width: 16px;
+	height: 16px;
+	margin: 0px 4px 0px 0px;
+	border: 1px solid #555;
+/*	border-radius: 3px;*/
+	background: #111;
+	cursor: pointer;
+	position: relative;
+	vertical-align: middle;
+}
+input[type="checkbox"]:hover { border-color: #777; }
+input[type="checkbox"]:checked {
+	background-color: #1e4d70;
+	border-color: #2a6b95;
+}
+input[type="checkbox"]:checked::after {
+	content: "";
+	position: absolute;
+	left: 3px;
+	top: 0px;
+	width: 6px;
+	height: 10px;
+	border: solid #ccc;
+	border-width: 0 2px 2px 0;
+	transform: rotate(45deg);
+}
+
 /* スピナーアイコン */
 .loading-spinner {
   position: relative;
@@ -175,34 +205,6 @@ html, body {
 	overflow-y: scroll;
 }
 
-#run-list input[type="checkbox"] {
-	appearance: none;
-	width: 16px;
-	height: 16px;
-	margin: 0px 4px 0px 0px;
-	border: 1px solid #555;
-/*	border-radius: 3px;*/
-	background: #111;
-	cursor: pointer;
-	position: relative;
-	vertical-align: middle;
-}
-#run-list input[type="checkbox"]:hover { border-color: #777; }
-#run-list input[type="checkbox"]:checked {
-	background-color: #1e4d70;
-	border-color: #2a6b95;
-}
-#run-list input[type="checkbox"]:checked::after {
-	content: "";
-	position: absolute;
-	left: 3px;
-	top: 0px;
-	width: 6px;
-	height: 10px;
-	border: solid #ccc;
-	border-width: 0 2px 2px 0;
-	transform: rotate(45deg);
-}
 .run-row {
 	font-size: 12px;
 	background-color: transparent;
