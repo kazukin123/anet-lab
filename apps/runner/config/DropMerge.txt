@@ -59,8 +59,21 @@ net.body.$ = net.body.SuikaResNet4064_10d     # ★
 #app.run_name = run_{t}_heavy_tp1
 #app.run_name = run_{t}_settle_N3
 #app.run_name = run_{t}_settle_N3-2
+#app.run_name = run_{t}_D_N3
+#app.run_name = run_{t}_D_N1
+#app.run_name = run_{t}_D_s0
+app.run_name = run_{t}_D_N1_re
 
-E.settle_max_steps = 1000   # 500
+
+#R.stucker.use_stacker = false
+
+#E.action_mode = direct      # move move_fast direct direct_noop
+E.action_mode = direct_noop  # move move_fast direct direct_noop
+
+QValuePanel.row_height = 24
+
+#E.settle_max_steps = 1000   # 500
+#E.settle_max_steps = 300   # 500
 
 E.use_settle_after_drop = true
 #E.settle_velocity_threshold = 0.05 # 0.1 安定判定の線速度閾値 (m/s)
@@ -95,8 +108,8 @@ R.target.uqe_use_tail_mean = true
 
 #R.train_policy.eps_start = 1.00               # 指数減衰 for EpsilonGreedy  
 #R.train_policy.eps_end = 0.05               # 0.1f 0.05f for EpsilonGreedy
-#R.train_policy.eps_decay_steps = 20,000,000  # 20M for EpsilonGreedy
 #R.train_policy.eps_decay_steps = 10,000,000  # 10M for EpsilonGreedy
+#R.train_policy.eps_decay_steps = 30,000,000  # 30M for EpsilonGreedy
 
 
 #R.eval_policy.policy_type = EpsilonGreedy
@@ -194,7 +207,8 @@ R.learner.gamma = 0.995 # ★ 長期戦略考慮
 #R.learner.n_step = 30   # ★長期戦略考慮
 #R.learner.n_step = 20
 #R.learner.n_step = 10
-R.learner.n_step = 3
+#R.learner.n_step = 3
+R.learner.n_step = 1
 
 #R.learner.replay_capacity = 800,000
 #R.learner.replay_capacity  =  500,000
@@ -247,13 +261,13 @@ app.online.exp_pause_step  = 40,000,000      # 40M
 app.batchrun.exp_exit_step  = 40,000,000     # 40M
 #app.batchrun.exp_exit_step  = 20,000,000     # 20M
 
-A.train_policy.uqe_eps_decay_steps = 2,000,000      # 2M
-#A.train_policy.uqe_eps_decay_steps = 10,000,000      # 10M
+#A.train_policy.uqe_eps_decay_steps = 2,000,000      # 2M
+A.train_policy.uqe_eps_decay_steps = 10,000,000      # 10M
 #A.train_policy.uqe_eps_decay_steps = 20,000,000      # 20M
 
 #A.train_policy.uqe_tau_decay_steps = 2,000,000   # 2M
-A.train_policy.uqe_tau_decay_steps = 10,000,000   # 10M
-#A.train_policy.uqe_tau_decay_steps = 20,000,000   # 20M
+#A.train_policy.uqe_tau_decay_steps = 10,000,000   # 10M
+A.train_policy.uqe_tau_decay_steps = 20,000,000   # 20M
 #A.train_policy.uqe_tau_decay_steps = 100,000,000 # 100M
 
 A.learner.per_beta_step = 10,000,000              # 10M
@@ -686,8 +700,10 @@ DropMergeEnv.seed_mode = normal
 DropMergeEnv.box_width = 3.0
 DropMergeEnv.box_height = 4.0
 DropMergeEnv.ground_y = 0.5
-DropMergeEnv.grid_rows = 40              # グリッド列数（横方向）
-DropMergeEnv.grid_cols = 64              # グリッド行数（高さ方向）
+DropMergeEnv.grid_cols = 40              # グリッド列数（横方向）
+DropMergeEnv.grid_rows = 64              # グリッド行数（縦方向）
+DropMergeEnv.action_mode = move_fast     # move move_fast direct direct_noop
+DropMergeEnv.drop_divisions = -1         # DROP座標の分割数（-1でgrid_colsと同じ）
 DropMergeEnv.max_step = 20000            # エピソード打ち切りステップ数 スイカ以上のためには10000以上推奨
 DropMergeEnv.no_drop_timeout_steps = 200 # 500 DROPしないでいると強制エピソード打ち切り(truncated)とするステップ数
 DropMergeEnv.use_fast_move = false

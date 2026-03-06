@@ -514,14 +514,31 @@ void DropMergePanel::DrawSidePanel(wxDC& dc)
         y += line_h;
     }
 
-    // Action
+    // ActionModeのIDを取得
+    int mode_id = 1; // Default: MoveFast
+    if (snapshot_.aux.count("action_mode")) {   // ActionMode取得
+        auto t_am = snapshot_.aux.at("action_mode");
+        mode_id = (int)t_am[0].item<float>();
+    }
+
+    // AcionMode毎にAction内容文字列を生成
     int action = (int)snapshot_.action;
-    wxString act_str = "NOOP";
-    if (action == kActionLeft) act_str = "LEFT";
-    if (action == kActionDrop) act_str = "DROP";
-    if (action == kActionRight) act_str = "RIGHT";
-    if (action == kActionFastLeft) act_str = "F_LEFT";
-    if (action == kActionFastRight) act_str = "F_RIGHT";
+    wxString act_str = "UNKNOWN";
+    if (mode_id == 0 || mode_id == 1) { // Move or MoveFast 
+        if (action == kActionNoop) act_str = "NOOP";
+        else if (action == kActionLeft) act_str = "LEFT";
+        else if (action == kActionDrop) act_str = "DROP";
+        else if (action == kActionRight) act_str = "RIGHT";
+        else if (action == kActionFastLeft) act_str = "F_LEFT";
+        else if (action == kActionFastRight) act_str = "F_RIGHT";
+    } else if (mode_id == 2) { // Direct
+        act_str = wxString::Format("DROP_%d", action);
+    } else if (mode_id == 3) { // DirectNoop
+        if (action == 0) act_str = "NOOP";
+        else act_str = wxString::Format("DROP_%d", action - 1);
+    }
+
+    // Action描画
     dc.DrawText(wxString::Format("Action: %s", act_str), r.x, y);
     y += line_h;
 

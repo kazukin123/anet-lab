@@ -154,6 +154,17 @@ DropMergeEnv::DropMergeEnv(
     obs_buffer_ = torch::empty({ total_dim }, float_opt_);
     obs_ptr_ = obs_buffer_.data_ptr<float>();
 
+    // ActionMode設定を解釈
+    std::string am = anet::ToLower(config_.action_mode);
+    if (am == "move") action_mode_ = ActionMode::Move;
+    else if (am == "direct") action_mode_ = ActionMode::Direct;
+    else if (am == "direct_noop") action_mode_ = ActionMode::DirectNoop;
+    else action_mode_ = ActionMode::MoveFast;
+
+    // DROP座標数を設定から生成
+    num_drop_actions_ = (config_.drop_divisions > 0) ? config_.drop_divisions : config_.grid_cols;
+
+    // 世界初期構築
     buildWorld();
 }
 
@@ -172,8 +183,8 @@ anet::rl::EnvSpec DropMergeEnv::GetSpec() const
     // Grid Info (Variable size: rows * cols)
     //    [4...]: grid cell value (0.0=Empty, 0.1=Rank1 ... 1.0=Rank10)
 
+    //状態空間定義
     int grid_dim = config_.grid_rows * config_.grid_cols;
-
     anet::rl::StateSpec state_spec;
     state_spec.shape = { static_cast<int64_t>(kNumScalarObsDim + grid_dim) };
 
@@ -185,12 +196,24 @@ anet::rl::EnvSpec DropMergeEnv::GetSpec() const
         /// @todo Grid部分は省略
     };
 
+    // 離散アクション
     anet::rl::ActionSpec action_spec;
     action_spec.is_discrete = true;
-    if (config_.use_fast_move) {
-        action_spec.value_labels = { "NOOP", "LEFT", "DROP", "RIGHT", "F_LEFT", "F_RIGHT" };
-    } else {
+
+    // モードに応じたアクションラベルの動的生成
+    if (action_mode_ == ActionMode::Move) {
         action_spec.value_labels = { "NOOP", "LEFT", "DROP", "RIGHT" };
+    } else if (action_mode_ == ActionMode::MoveFast) {
+        action_spec.value_labels = { "NOOP", "LEFT", "DROP", "RIGHT", "F_LEFT", "F_RIGHT" };
+    } else if (action_mode_ == ActionMode::Direct) {
+        for (int i = 0; i < num_drop_actions_; ++i) {
+            action_spec.value_labels.push_back("DROP_" + std::to_string(i));
+        }
+    } else if (action_mode_ == ActionMode::DirectNoop) {
+        action_spec.value_labels.push_back("NOOP");
+        for (int i = 0; i < num_drop_actions_; ++i) {
+            action_spec.value_labels.push_back("DROP_" + std::to_string(i));
+        }
     }
 
     anet::rl::EnvSpec env_spec;
@@ -391,69 +414,77 @@ b2Body* DropMergeEnv::spawnFruit(float x, float y, int rank)
 
 void DropMergeEnv::processAction(int64_t action)
 {
-    // NOOP時の自動移動オプション
-    if (config_.noop_override && action == kActionNoop) {
-        if (dropper_.x > 0.0f) {
-            action = kActionLeft;       // 画面中央(0.0)に向かって動く
-        } else {
-            action = kActionRight;      // 画面中央(0.0)に向かって動く
+    bool execute_drop = false;
+
+    if (action_mode_ == ActionMode::Direct || action_mode_ == ActionMode::DirectNoop) {
+        // --- 座標直接指定モード ---
+
+        int drop_col = -1;
+        if (action_mode_ == ActionMode::Direct) {
+            drop_col = action;
+        } else { // DirectNoop
+            if (action == 0) return; // NOOP
+            drop_col = action - 1;
+        }
+
+        if (drop_col >= 0 && drop_col < num_drop_actions_) {
+            if (dropper_.is_busy) return; // 落下中なら無視
+
+            // 箱の有効幅の中央へ座標をマッピング
+            float min_x = -config_.box_width * 0.5f;
+            float max_x = config_.box_width * 0.5f;
+            float cell_w = (max_x - min_x) / num_drop_actions_;
+            dropper_.x = min_x + (drop_col + 0.5f) * cell_w;
+
+            execute_drop = true;
+        }
+    } else {
+        // --- 移動モード ---
+
+        if (config_.noop_override && action == kActionNoop) {
+            if (dropper_.x > 0.0f) action = kActionLeft;
+            else action = kActionRight;
+        }
+
+        // 移動範囲の計算準備
+        float half_w = config_.box_width * 0.5f;
+        int check_rank = (dropper_.current_rank > 0) ? dropper_.current_rank : dropper_.next_rank;
+        if (check_rank < 1) check_rank = 1;
+        float r = config_.fruit_radii[check_rank - 1];
+        float margin = 0.05f;
+        float base_limit = half_w - r - margin; // 壁にめり込まない範囲
+
+        // 左の方が移動範囲が少し広い
+        float r_cherry = config_.fruit_radii[0]; // Rank 1 radius
+        float asymmetry_offset = r_cherry / 3.0f;
+        float limit_left = base_limit + asymmetry_offset;
+        float limit_right = base_limit;
+
+        // 移動処理
+        if (action == kActionLeft) dropper_.x -= config_.dropper_speed;
+        else if (action == kActionRight) dropper_.x += config_.dropper_speed;
+        else if (action == kActionFastLeft) dropper_.x -= config_.dropper_speed2;
+        else if (action == kActionFastRight) dropper_.x += config_.dropper_speed2;
+        else if (action == kActionDrop) execute_drop = true;
+
+        // 端ワープ (移動モードのみ)
+        float total_width = limit_right - (-limit_left);
+        if (dropper_.x > limit_right) {// 右にはみ出した場合
+            while (dropper_.x > limit_right) dropper_.x -= total_width; // 超えた分だけ、左端(-limit_left)から右に進める
+        } else if (dropper_.x < -limit_left) {  // 左にはみ出した場合
+            while (dropper_.x < -limit_left) dropper_.x += total_width; // 超えた分だけ、右端(limit_left)から左に進める
         }
     }
 
-    // 移動範囲の計算準備
-    float half_w = config_.box_width * 0.5f;
-    int check_rank = (dropper_.current_rank > 0) ? dropper_.current_rank : dropper_.next_rank;
-    if (check_rank < 1) check_rank = 1;
-    float r = config_.fruit_radii[check_rank - 1];
-    float margin = 0.05f;
-    float base_limit = half_w - r - margin; // 壁にめり込まない範囲
+    // --- 共通のDROP処理 ---
+    if (execute_drop) {
+        if (dropper_.is_busy) return;
 
-    // 左の方が移動範囲が少し広い
-    float r_cherry = config_.fruit_radii[0]; // Rank 1 radius
-    float asymmetry_offset = r_cherry / 3.0f;
-    float limit_left = base_limit + asymmetry_offset;
-    float limit_right = base_limit;
-
-    // 移動処理
-    if (action == kActionLeft) {
-        dropper_.x -= config_.dropper_speed;
-    } else if (action == kActionRight) {
-        dropper_.x += config_.dropper_speed;
-    } else if (action == kActionFastLeft) {
-        dropper_.x -= config_.dropper_speed2;
-    } else if (action == kActionFastRight) {
-        dropper_.x += config_.dropper_speed2;
-    }
-
-    // 端ワープ
-    float total_width = limit_right - (-limit_left);
-    if (dropper_.x > limit_right) {     // 右にはみ出した場合
-        // limit_right を超えた分だけ、左端(-limit_left)から右に進める
-        while (dropper_.x > limit_right) {
-            dropper_.x -= total_width;
-        }
-    } else if (dropper_.x < -limit_left) {  // 左にはみ出した場合
-        // -limit_left を超えた分だけ、右端(limit_right)から左に戻る
-        while (dropper_.x < -limit_left) {
-            dropper_.x += total_width;
-        }
-    }
-    // DROP処理 (Drop予約のみ)
-    if (action == kActionDrop) {
-        // 落下中ならDROPだけ無視
-        if (dropper_.is_busy) {
-            return;
-        }
-
-        // 果物生成
         float spawn_y = config_.ground_y + config_.box_height;
         float r_drop = config_.fruit_radii[dropper_.current_rank - 1];
 
         // ノイズ計算
-        float noise = 0.0f;
-        if (config_.drop_noise > 0.0f) {
-            noise = rnd_->Uniform(-config_.drop_noise, config_.drop_noise);
-        }
+        float noise = (config_.drop_noise > 0.0f) ? rnd_->Uniform(-config_.drop_noise, config_.drop_noise) : 0.0f;
         float actual_x = dropper_.x + noise;
 
         // 壁めり込み防止クランプ
@@ -706,14 +737,28 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     // エピソードstepインクリメント
     step_count_++;
 
-    // DROP無しカウント更新
-    if (action == kActionDrop) {
-        steps_since_last_drop_ = 0; // DROPしたらリセット
+    // アクションからDROP/NOOPを判定
+    bool is_drop_action = false;
+    bool is_noop_action = false;
+    if (action_mode_ == ActionMode::Direct) {
+        is_drop_action = true;
+        is_noop_action = false;
+    } else if (action_mode_ == ActionMode::DirectNoop) {
+        is_drop_action = (action > 0);
+        is_noop_action = (action == 0);
     } else {
-        steps_since_last_drop_++;   // それ以外（移動・NOOP）ならカウント
+        is_drop_action = (action == kActionDrop);
+        is_noop_action = (action == kActionNoop);
     }
 
-	// アクション処理
+    // DROP無しカウント更新
+    if (is_drop_action) {
+        steps_since_last_drop_ = 0; // DROPしたらリセット
+    } else {
+        steps_since_last_drop_++;   // それ以外ならカウント
+    }
+
+    // アクション処理
     processAction(action);
 
     // 物理ステップ実行 (通常は1回、InstantDropやSettleモード時は条件を満たすまで回す)
@@ -740,14 +785,14 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         int settled_frames = 0;
 
         // このステップ中に一度でも不安定になったか
-        bool was_unsettled_this_step = false;
+        bool was_unsettled_this_step = is_drop_action;
 
         // 最低1回は回す
         do {
             // Box2D Step
             float time_step = 1.0f / 60.0f;
-            int32 velocity_iterations = 6;
-            int32 position_iterations = 2;
+            int32 velocity_iterations = 3;  // 6;
+            int32 position_iterations = 1;  // 2;
             world_->Step(time_step, velocity_iterations, position_iterations);
             sim_steps++;
 
@@ -820,8 +865,8 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
 
     // --- ペナルティの計算（RL 1ステップにつき1回だけ） ---
 
-    // DROPアクション以外なら時間罰を与える
-    if (action != kActionDrop) {
+    // DROP以外なら時間罰を与える
+    if (!is_drop_action) {
         accumulated_reward += config_.time_penalty;
     }
 
@@ -876,6 +921,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     auto state = makeState();
     state.done = done;
     state.truncated = truncated;
+
     // NOOPペナルティ
     if (action == kActionNoop) {
         accumulated_reward += config_.noop_penalty;
@@ -942,7 +988,11 @@ anet::rl::SingleState DropMergeEnv::makeState() const
     // --- スカラー部を充填 ---
 
     // Dropper X 正規化
-    obs_ptr_[0] = std::clamp(dropper_.x / (config_.box_width * 0.5f), -1.0f, 1.0f);
+    if (action_mode_ == ActionMode::Direct || action_mode_ == ActionMode::DirectNoop) {
+        obs_ptr_[0] = 0.0f; // 座標指定モードの時は完全無効化（DropperX座標を使わないので）
+    } else {
+        obs_ptr_[0] = std::clamp(dropper_.x / (config_.box_width * 0.5f), -1.0f, 1.0f);
+    }
 
     // Rank 正規化
     const float norm_scale = 1.0f / (float)kFruitTypeCount;
@@ -1006,7 +1056,8 @@ anet::rl::SingleState DropMergeEnv::makeState() const
     }
 
     // --- Dropper X グリッドの描画---
-    if (config_.use_dropper_x_grid) {
+    bool draw_dropper = config_.use_dropper_x_grid && (action_mode_ != ActionMode::Direct) && (action_mode_ != ActionMode::DirectNoop);
+    if (draw_dropper) {
         int target_c = static_cast<int>((dropper_.x - min_x) / cell_w);
         target_c = std::clamp(target_c, 0, config_.grid_cols - 1);
         const int target_idx = kNumScalarObsDim + ((config_.grid_rows - 1) * config_.grid_cols) + target_c;
@@ -1117,6 +1168,10 @@ anet::rl::AuxData DropMergeEnv::CreateAuxData(float reward, float raw_reward) co
     // スコア
     aux.emplace("score", torch::tensor({ episode_score_ }, float_opt_));
     aux.emplace("last_score", torch::tensor({ last_episode_score_ }, float_opt_));
+
+    // AcionMode
+    float mode_id = static_cast<float>(action_mode_);
+    aux.emplace("action_mode", torch::tensor({ mode_id, (float)num_drop_actions_ }, float_opt_));
 
     return aux;
 }

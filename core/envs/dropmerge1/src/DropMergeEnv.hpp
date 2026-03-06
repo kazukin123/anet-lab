@@ -23,6 +23,13 @@ namespace anet::rl::env::drop_merge {
     constexpr int kFruitTypeCount = 11; // 11種類 (Rank 1..11)
 
 
+    enum class ActionMode {
+        Move = 0,           ///< 移動方式（4アクション）
+        MoveFast = 1,       ///< 高速移動方式（6アクション）
+        Direct = 2,         ///< 座標直接指定（Nアクション）
+        DirectNoop = 3      ///< 座標直接指定＋NOOP（N+1アクション）
+    };
+
     enum class SeedMode {
         Normal,         ///< 初期化時のみSeed指定（Factory由来）。Resetでは変更しない（現状通り）。
         Fixed,          ///< 初期化時のSeed（Factory由来）で、毎Reset時にRNGをリセットする。
@@ -47,6 +54,10 @@ namespace anet::rl::env::drop_merge {
         // --- グリッド観測パラメータ ---
         int grid_rows = 30;
         int grid_cols = 30;
+
+        // --- アクションモード
+        std::string action_mode = "move_fast"; ///< "move", "move_fast", "direct", "direct_noop"
+        int drop_divisions = -1;               ///< DROP座標の分割数 (-1でgrid_colsと同じ)
 
         // --- ゲームプレイパラメータ ---
 		bool use_fast_move = false;     ///< 高速移動モード
@@ -100,6 +111,8 @@ namespace anet::rl::env::drop_merge {
             ANET_READ_CONFIG(config_data, gravity);
             ANET_READ_CONFIG(config_data, grid_rows);
             ANET_READ_CONFIG(config_data, grid_cols);
+            ANET_READ_CONFIG(config_data, action_mode);
+            ANET_READ_CONFIG(config_data, drop_divisions);
             ANET_READ_CONFIG(config_data, use_fast_move);
             ANET_READ_CONFIG(config_data, use_instant_drop);
             ANET_READ_CONFIG(config_data, use_dropper_x_grid);
@@ -239,6 +252,8 @@ namespace anet::rl::env::drop_merge {
     private:
         // 設定情報
         DropMergeEnvConfig config_;
+        ActionMode action_mode_ = ActionMode::MoveFast;
+        int num_drop_actions_ = 10;
 
         // Seed管理
         SeedMode seed_mode_ = SeedMode::Normal;
