@@ -71,7 +71,7 @@ PlainExperienceQueueController::ProcessSingleExperience(
 NStepExperienceQueueController::NStepExperienceQueueController(size_t n_step)
     : n_step_(n_step)
 {
-    ANET_ASSERT(n_step_ > 1);
+    ANET_ASSERT(n_step_ >= 1);
 }
 
 std::vector<ExperienceSequence>
