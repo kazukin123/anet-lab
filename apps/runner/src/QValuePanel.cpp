@@ -218,11 +218,9 @@ void QValuePanel::SetupGrid()
     grid_->SetRowLabelSize(30);
     grid_->DisableDragRowSize(); // 高さ同期のため固定
     grid_->EnableEditing(false);
-    //grid_->SetSelectionMode(wxGrid::wxGridSelectNone);
-    //grid_->SetCellHighlightPenWidth(0);
-    //grid_->SetCellHighlightROPenWidth(0);
     grid_->SetColSize(0, kActionNameColWidth);
     grid_->SetColMinimalWidth(0, kActionNameColMinWidth);
+    grid_->ShowScrollbars(wxSHOW_SB_NEVER, wxSHOW_SB_DEFAULT);  // 横スクロールバーを強制非表示に
 
     grid_->SetDefaultCellAlignment(wxALIGN_LEFT, wxALIGN_CENTER);
     for (int i = 1; i < 5; ++i) {
@@ -451,8 +449,44 @@ void QValuePanel::Update()
     }
 
     grid_->EndBatch();
-    grid_->AutoSizeColumns(false);
-    grid_->InvalidateBestSize();
+
+    // アクション名の列(0列目)だけ文字幅にフィットさせる
+    grid_->AutoSizeColumn(0, false);
+
+    // 1～4列目(Mean, Std, Max, Min)は固定幅(kColWidth)を維持する
+    for (int i = 1; i < 5; ++i) {
+        grid_->SetColSize(i, kColWidth);
+    }
+
+    int total_width = grid_->GetRowLabelSize();
+    for (int i = 0; i < grid_->GetNumberCols(); ++i) {
+        total_width += grid_->GetColSize(i);
+    }
+
+    // Gridの中身の仮想高さを計算（列ヘッダー ＋ 全行の高さ）
+    int virtual_height = grid_->GetColLabelSize();
+    for (int i = 0; i < grid_->GetNumberRows(); ++i) {
+        virtual_height += grid_->GetRowSize(i);
+    }
+
+    // Gridの実際の描画高さを取得
+    int current_height = grid_->GetSize().GetHeight();
+    if (current_height < 50) {
+        // UI初期化直後でまだSizerが計算されていない場合は親パネルの高さを参照
+        current_height = GetClientSize().GetHeight() - 10;
+    }
+
+    // 中身が実際の高さを超えて「縦スクロールバーが出現する」場合のみ幅を加算
+    if (virtual_height > current_height) {
+        total_width += wxSystemSettings::GetMetric(wxSYS_VSCROLL_X);
+    }
+    total_width += 2; // 境界線のマージン（左右1px）
+
+    // Gridの横幅を厳密にロックする（縦方向はSizer任せで拡張させる）
+    grid_->SetMinSize(wxSize(total_width, -1));
+    grid_->SetMaxSize(wxSize(total_width, -1));
+
+    // Sizer再レイアウト
     Layout();
 
 
@@ -722,7 +756,7 @@ void QValuePanel::OnResetRangeClick(wxCommandEvent& event)
 
 void QValuePanel::OnSize(wxSizeEvent& event)
 {
-    Layout(); // Sizerの再計算
+    Layout();
     event.Skip();
 }
 

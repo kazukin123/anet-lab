@@ -164,7 +164,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         .Bottom().Layer(15)
         //.Left().Layer(20)
         .BestSize(900, 500)
-        .MinSize(700, 300)
+        .MinSize(700, 150)
         .CloseButton(false).MaximizeButton(true).MinimizeButton(true).PinButton(false)
         //.DestroyOnClose(false) // デフォルトで、✕ボタンPanelを消しても非表示になるだけ
     );
