@@ -791,8 +791,8 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         do {
             // Box2D Step
             float time_step = 1.0f / 60.0f;
-            int32 velocity_iterations = 3;  // 6;
-            int32 position_iterations = 1;  // 2;
+            int32 velocity_iterations = 3;  // 6 3
+            int32 position_iterations = 1;  // 2 1
             world_->Step(time_step, velocity_iterations, position_iterations);
             sim_steps++;
 
