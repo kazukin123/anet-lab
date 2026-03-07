@@ -1088,10 +1088,6 @@ torch::Tensor QRLearner::ComputeQuantileHuberLoss(
     auto diff = tgt - cur;
     ANET_ASSERT_SHAPE(diff, { B, N, N });
 
-    // 分位数 tau_i = (i + 0.5) / N
-    //auto tau = torch::arange(0.5f / N, 1.0f, 1.0f / N, device).view({ 1, N, 1 });
-    //ANET_ASSERT_SHAPE(tau, { 1, N, 1 });
-
     // Huber Loss
     auto abs_diff = diff.abs();
     auto huber = torch::where(abs_diff < kappa, 0.5f * diff.pow(2), kappa * (abs_diff - 0.5f * kappa));

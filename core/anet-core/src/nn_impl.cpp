@@ -379,7 +379,7 @@ anet::TensorDict NetworkStruct::GetConv2dOutputs(torch::Tensor input)
                     inputs.push_back(last_output);
                 } else {
                     if (tensor_cache.find(tag) == tensor_cache.end()) {
-                        throw std::runtime_error("Input tag not found in cache: " + tag);
+                        ANET_SYSTEM_ERROR("Input tag not found in cache: " << tag);
                     }
                     inputs.push_back(tensor_cache.at(tag));
                 }
