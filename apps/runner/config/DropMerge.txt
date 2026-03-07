@@ -62,49 +62,46 @@ net.body.$ = net.body.SuikaResNet4064_10d     # ★
 #app.run_name = run_{t}_D_N3
 #app.run_name = run_{t}_D_N1
 #app.run_name = run_{t}_D_s0
-app.run_name = run_{t}_D_N1_re
+#app.run_name = run_{t}_D_N1_re
 
 
 #R.stucker.use_stacker = false
 
 #E.action_mode = direct      # move move_fast direct direct_noop
-E.action_mode = direct_noop  # move move_fast direct direct_noop
-
-QValuePanel.row_height = 24
+#E.action_mode = direct_noop  # move move_fast direct direct_noop
 
 #E.settle_max_steps = 1000   # 500
 #E.settle_max_steps = 300   # 500
 
-E.use_settle_after_drop = true
+#E.use_settle_after_drop = true
 #E.settle_velocity_threshold = 0.05 # 0.1 安定判定の線速度閾値 (m/s)
 #E.settle_angular_threshold = 0.05  # 0.1 安定判定の角速度閾値 (rad/s)
-E.settle_velocity_threshold = 0.5 # 0.1 安定判定の線速度閾値 (m/s)
+#E.settle_velocity_threshold = 0.5 # 0.1 安定判定の線速度閾値 (m/s)
 #E.settle_angular_threshold = 0.5  # 0.1 安定判定の角速度閾値 (rad/s)
 #E.settle_velocity_threshold = 1.0 # 0.1 安定判定の線速度閾値 (m/s)
 #E.settle_angular_threshold = 1.0  # 0.1 安定判定の角速度閾値 (rad/s)
 
-
 A.learner.replay_capacity = 524,288          # 262,144 524,288 1,048,576
 
-R.target_policy.uqe_tau_start = 0.85
+#R.target_policy.uqe_tau_start = 0.85
 
-R.use_optimistic_target = true # Q値にtrain_policy（UQE）を反映させるならtrue
+#R.use_optimistic_target = true # Q値にtrain_policy（UQE）を反映させるならtrue
 
-E.dropper_speed2 = 0.50 #0.30
+#E.dropper_speed2 = 0.50 #0.30
 #E.dropper_speed2 = 1.00 #0.30
 
 #E.box_height = 8.0      # 4.0
 
-R.eval_policy.policy_type = UQE
+#R.eval_policy.policy_type = UQE
 #R.eval_policy.uqe_tau_start = 0.65
 
 
 #R.train_policy.policy_type = EpsilonGreedy
-R.train_policy.policy_type = UQE
+#R.train_policy.policy_type = UQE
 #R.train_policy.policy_type = ThompsonSampling
 
-R.train_policy.uqe_use_tail_mean = true
-R.target.uqe_use_tail_mean = true
+#R.train_policy.uqe_use_tail_mean = true
+#R.target.uqe_use_tail_mean = true
 
 #R.train_policy.eps_start = 1.00               # 指数減衰 for EpsilonGreedy  
 #R.train_policy.eps_end = 0.05               # 0.1f 0.05f for EpsilonGreedy
@@ -117,17 +114,16 @@ R.target.uqe_use_tail_mean = true
 #R.eval_policy.eps_end = 0.05
 
 
-E.no_drop_timeout_steps = 500 # 物性安定待ち挙動に対応
+#E.no_drop_timeout_steps = 500 # 物性安定待ち挙動に対応
 #E.no_drop_timeout_steps = 300
 
 #E.friction = 0.01              # 0.1 ツッルツル 重い果物が下に落ちやすい
 #E.restitution = 0.1            # 0.05 反発係数  少しバウンドする事で衝撃による変動が起きやすい
 #E.drop_noise = 0.04           # 0.01 
-E.damping = 1.0                # 0.5 移動と回転の空気抵抗 0だとピクピクする場合がある
+#E.damping = 1.0                # 0.5 移動と回転の空気抵抗 0だとピクピクする場合がある
 
 #E.use_dropper_x_grid = false  # true
 
-#R.learner.update_warmup_steps = 0
 
 #R.stucker.stack_count = 1    #4
 #R.stucker.stack_count = 12    #4
@@ -188,8 +184,8 @@ E.time_penalty = -0.005    # NEET対策
 #R.train_policy.uqe_eps_end = 0.0
 
 #R.train_policy.uqe_tau_start = 0.75  # ビビリ対策
-R.train_policy.uqe_tau_start = 0.95  # 序盤は超楽観的（攻めの姿勢）
-R.train_policy.uqe_tau_end = 0.85  # 終盤でもかなり楽観的
+#R.train_policy.uqe_tau_start = 0.95  # 序盤は超楽観的（攻めの姿勢）
+#R.train_policy.uqe_tau_end = 0.85  # 終盤でもかなり楽観的
 
 #R.learner.alpha = 5e-6
 #R.learner.alpha = 1e-5
@@ -231,6 +227,12 @@ R.learner.n_step = 1
 
 #app.train_auto_start = false
 
+
+# ==============================================================================
+# デバッグ用
+# ==============================================================================
+
+#R.learner.update_warmup_steps = 0
 
 # ==============================================================================
 # BF16
@@ -283,12 +285,22 @@ A.learner.per_beta_step = 10,000,000              # 10M
 #A.stucker.use_stacker = true
 #A.stucker.stack_count = 4
 
+A.use_optimistic_target = true         # Q値にtrain_policy（UQE）を反映させるならtrue
+
+A.train_policy.policy_type = UQE
 A.train_policy.uqe_eps_start = 0.60
 A.train_policy.uqe_eps_end = 0.05
-A.train_policy.uqe_tau_end = 0.75           # ビビリ対策
+A.train_policy.uqe_tau_start = 0.95  # 序盤は超楽観的（攻めの姿勢）
+A.train_policy.uqe_tau_end = 0.85    # 終盤でもかなり楽観的（攻めの姿勢）
+A.train_policy.uqe_use_tail_mean = true
+
+A.eval_policy.policy_type = UQE
+
+A.target_policy.uqe_tau_start = 0.85
+#A.target_policy.uqe_use_tail_mean = true
 
 A.learner.alpha = 5e-5         # ★
-A.learner.gamma = 0.99         # ★
+A.learner.gamma = 0.995        # ★
 A.learner.n_step = 3           # ★
 A.learner.replay_ratio = 1.0
 #A.learner.replay_capacity = 1,000,000
@@ -605,10 +617,12 @@ metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.min_block_size = 40
 
 # --- app
 
-app.online.eval_panel.step_per_frame = 5
+#app.online.eval_panel.step_per_frame = 5
 
 app.online.eval_panel.auto_start = false
 app.batchrun.eval_panel.auto_start = false
+
+QValuePanel.row_height = 24
 
 
 # --- env
@@ -675,14 +689,19 @@ DropMergeEnv.baseline.restitution = 0.05        # 反発係数 衝撃吸収
 DropMergeEnv.baseline.friction = 0.1          # 摩擦 ツルツル
 
 #DropMergeEnv.baseline.time_penalty = -0.0001    # 時間ペナルティ
+DropMergeEnv.baseline.time_penalty = -0.005      # NEET対策
 #DropMergeEnv.baseline.time_penalty = 0.0        # 時間ペナルティ
 
-#DropMergeEnv.baseline.game_over_penalty = -10.0   # GameOverペナルティ
+DropMergeEnv.baseline.game_over_penalty = -10.0   # GameOverペナルティ
 #DropMergeEnv.baseline.game_over_penalty = -5.0    # GameOverペナルティ
 #DropMergeEnv.baseline.game_over_penalty = -100.0  # GameOverペナルティ
 #DropMergeEnv.baseline.game_over_penalty = 0.0     # GameOverペナルティ 与えるとDROPしないNEETになってしまう場合が多い
 
-
+DropMergeEnv.baseline.action_mode = direct_noop  # move move_fast direct direct_noop
+DropMergeEnv.baseline.use_settle_after_drop = true
+DropMergeEnv.baseline.settle_velocity_threshold = 0.5 # 0.1 安定判定の線速度閾値 (m/s)
+DropMergeEnv.baseline.damping = 1.0                # 0.5 移動と回転の空気抵抗 0だとピクピクする場合がある
+DropMergeEnv.baseline.no_drop_timeout_steps = 500 # 物性安定待ち挙動に対応
 
 
 # --- DropMergeEnv 本家風
@@ -710,7 +729,7 @@ DropMergeEnv.use_fast_move = false
 DropMergeEnv.use_instant_drop = false
 DropMergeEnv.use_dropper_x_grid = true
 DropMergeEnv.dropper_speed = 0.05
-DropMergeEnv.dropper_speed2 = 0.30
+DropMergeEnv.dropper_speed2 = 0.50
 DropMergeEnv.reload_min_steps = 20      # 物理判定が即座に終わっても、最低これだけは待つ（連打防止）。
 DropMergeEnv.reload_max_steps = 300     # DROPしてから次RELOADまでの強制抑制解除ステップ数
 DropMergeEnv.pop_force = 0.0            # 0.5 1.5 爆発力
