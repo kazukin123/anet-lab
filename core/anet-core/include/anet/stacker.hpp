@@ -28,7 +28,7 @@ namespace anet::rl {
     /// AgentのCreateActionContextで生成され、Runnerに保持される
     class StackerActionContext : public ActionContext {
     public:
-        explicit StackerActionContext(RunMode run_mode, std::shared_ptr<FrameStacker> stacker);
+        explicit StackerActionContext(RunMode run_mode, std::shared_ptr<FrameStacker> stacker, std::optional<seed_t> seed = std::nullopt);
 
         torch::Tensor PushObservation(const BatchState& state) override;
         void Reset() override;

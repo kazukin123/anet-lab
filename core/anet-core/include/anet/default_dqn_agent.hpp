@@ -70,8 +70,10 @@ namespace anet::rl::dqn {
             eval_policy.uqe_tau_end = train_policy.uqe_tau_end;
             eval_policy.eps_start = train_policy.eps_end;
             eval_policy.eps_end = train_policy.eps_end;
-            eval_policy.uqe_eps_start = train_policy.uqe_eps_end;
-            eval_policy.uqe_eps_end = train_policy.uqe_eps_end;
+            eval_policy.uqe_eps_start = 0.0f; // デフォルトでGreedy
+            eval_policy.uqe_eps_end = 0.0f;   // デフォルトでGreedy
+            //eval_policy.uqe_eps_start = train_policy.uqe_eps_end;
+            //eval_policy.uqe_eps_end = train_policy.uqe_eps_end;
             ANET_READ_CONFIG(config_data, eval_policy.policy_type);
             ANET_READ_CONFIG(config_data, eval_policy.eps_start);
             ANET_READ_CONFIG(config_data, eval_policy.eps_end);
@@ -204,7 +206,7 @@ namespace anet::rl::dqn {
 
         int64_t Save(anet::OutputArchive& archive) const override;
     private:
-        std::shared_ptr<anet::rl::dqn::ActionPolicy> CreateActionPolicy(const ActionPolicyConfig& p_cfg, anet::seed_t p_seed);
+        std::shared_ptr<anet::rl::dqn::ActionPolicy> CreateActionPolicy(const ActionPolicyConfig& policy_config);
     private:
         DefaultDQNAgentConfig config_;
         std::unique_ptr<anet::rl::RewardScaler> reward_scaler_;
@@ -215,6 +217,10 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::rl::dqn::ActionPolicy> eval_policy_;      ///< 評価用ポリシー(RunMode=Eval/Eval1/Eval2)
         std::shared_ptr<anet::rl::dqn::ActionPolicy> target_policy_;    ///< 学習時ターゲット用ポリシー
         std::shared_ptr<anet::rl::dqn::Learner> learner_;
+    private:
+        mutable std::unordered_map<RunMode, std::shared_ptr<anet::RandomGenerator>> context_seed_rngs_;
+        mutable std::mutex rng_mutex_; // 初期化時の排他用
+        seed_t action_context_seed_;
     };
 
     class DefaultDQNAgentFactory : public anet::rl::AgentFactory {

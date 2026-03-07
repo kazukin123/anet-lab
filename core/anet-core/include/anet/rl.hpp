@@ -592,9 +592,13 @@ namespace anet::rl {
 
     class Runner;
 
-    class ActionContext {
+    class ActionContext : public anet::RandomHolder {
     public:
-		ActionContext(RunMode mode) : run_mode_(mode) {}
+		ActionContext(RunMode mode, std::optional<seed_t> seed = std::nullopt)
+            : RandomHolder(seed)
+            , run_mode_(mode)
+        {
+        }
 
         RunMode GetRunMode() const { return run_mode_; }
         

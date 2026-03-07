@@ -15,7 +15,7 @@ namespace anet::rl {
     // 加工を行わず、State内のobsをそのまま通過させるActionContext 
     class DefaultActionContext : public ActionContext {
     public:
-        DefaultActionContext(RunMode run_mode) : ActionContext(run_mode) { }
+        DefaultActionContext(RunMode run_mode, std::optional<seed_t> seed = std::nullopt) : ActionContext(run_mode, seed) { }
 
         torch::Tensor PushObservation(const BatchState& state) override { return state.obs; } ///< そのまま obs を返す
         void Reset() override { }

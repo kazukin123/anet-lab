@@ -183,13 +183,12 @@ int64_t Network::Load(InputArchive& archive)
 // ActionPolicy 
 // ======================================================
 
-anet::rl::dqn::ActionPolicy::ActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network, anet::seed_t seed)
-    : config_(config), anet::RandomHolder(seed), network_(network)
+anet::rl::dqn::ActionPolicy::ActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network)
+    : config_(config), network_(network)
 {
-    // RandomHolderを継承しているが、基本GPU側で乱数生成しているので意味はない。ただ、マークとしてそのままにしておく。
 }
 
-torch::Tensor anet::rl::dqn::ActionPolicy::MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t batch_size, int64_t n_actions) const
+torch::Tensor anet::rl::dqn::ActionPolicy::MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t batch_size, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const
 {
     ProfileRange  r("ActionPolicy::MakeEpsilonGreedyAction");
 
@@ -199,12 +198,13 @@ torch::Tensor anet::rl::dqn::ActionPolicy::MakeEpsilonGreedyAction(const torch::
     }
 
     auto device = greedy_action.device();
+    auto gen = rnd->GetTorchGenerator(device);
 
-    // mask: (N) bool, GPU上で生成
-    auto mask = torch::rand({ batch_size }, torch::TensorOptions().device(device)).lt(epsilon);    // GPUで完結
+    // ランダム選択するActionをマスクとして選択（εを使って）
+    auto mask = torch::rand({ batch_size }, gen, torch::TensorOptions().device(device)).lt(epsilon);    // mask: (N) bool, GPU上で生成
 
-    // random actions (N) int64
-    auto random_actions = torch::randint(/*low=*/0, /*high=*/n_actions, { batch_size },
+    // ランダム選択対象のアクションについて、乱数でアクション決定
+    auto random_actions = torch::randint(/*low=*/0, /*high=*/n_actions, { batch_size }, gen, // random actions(N) int64
         torch::TensorOptions().dtype(torch::kInt64).device(device));
 
     // actions: where(mask, random_actions, greedy)
@@ -260,12 +260,19 @@ void anet::rl::dqn::ActionPolicy::UpdateEpsilon(step_t step, bool is_uqe)
     }
 }
 
+std::optional<float> anet::rl::dqn::ActionPolicy::GetScalar(const std::string& key, int64_t index) const
+{
+    if (key == "epsilon") return current_epsilon_;
+    if (key == "uqe_tau") return current_uqe_tau_;
+    return std::nullopt;
+}
+
 // ======================================================
 // EpsilonGreedyActionPolicy 
 // ======================================================
 
-anet::rl::dqn::EpsilonGreedyActionPolicy::EpsilonGreedyActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network, anet::seed_t seed)
-    : ActionPolicy(config, network, seed)
+anet::rl::dqn::EpsilonGreedyActionPolicy::EpsilonGreedyActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network)
+    : ActionPolicy(config, network)
 {
     current_epsilon_ = config_.eps_start;
 }
@@ -275,7 +282,7 @@ void anet::rl::dqn::EpsilonGreedyActionPolicy::OnLearn(const StepCounts& counts)
     UpdateEpsilon(counts.exp_step);
 }
 
-anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const
+anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target, std::shared_ptr<anet::RandomGenerator> rnd) const
 {
     ProfileRange r("EpsilonGreedyActionPolicy::SelectAction");
 
@@ -294,7 +301,7 @@ anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const torch::T
     // EpsilonGreedy
     const int64_t N = q_values.sizes()[0];      // shape 読み取りは TensorOptions 経由で同期を回避
     const int64_t A = q_values.sizes()[1];
-    auto actions = MakeEpsilonGreedyAction(greedy_action, current_epsilon_, N, A);
+    auto actions = MakeEpsilonGreedyAction(greedy_action, current_epsilon_, N, A, rnd);
     auto action_info = MakeActionInfo(actions, q_values, q_quantiles);
     return action_info;
 }
@@ -303,8 +310,8 @@ anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const torch::T
 // UQEActionPolicy
 // ======================================================
 
-anet::rl::dqn::UQEActionPolicy::UQEActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network, anet::seed_t seed)
-    : ActionPolicy(config, network, seed)
+anet::rl::dqn::UQEActionPolicy::UQEActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network)
+    : ActionPolicy(config, network)
 {
     current_epsilon_ = config_.uqe_eps_start;
     current_uqe_tau_ = config_.uqe_tau_start;
@@ -411,7 +418,7 @@ torch::Tensor UQEActionPolicy::MakeVectorizedUQEAction(const torch::Tensor& tau_
     return uqe_values.argmax(1);
 }
 
-anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const torch::Tensor& obs, bool greedy_only, bool use_target) const
+anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const torch::Tensor& obs, bool greedy_only, bool use_target, std::shared_ptr<anet::RandomGenerator> rnd) const
 {
     ProfileRange r("UQEActionPolicy::MakeUQEActionInfo");
 
@@ -446,17 +453,17 @@ anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const to
     // EpsilonGreedy
     const int64_t N = q_values.sizes()[0];      // shape 読み取りは TensorOptions 経由で同期を回避
     const int64_t A = q_values.sizes()[1];
-    auto actions = MakeEpsilonGreedyAction(uqe_action_values, effective_epsilon, N, A);
+    auto actions = MakeEpsilonGreedyAction(uqe_action_values, effective_epsilon, N, A, rnd);
 
     // 情報詰め替え
     auto action_info = MakeActionInfo(actions, q_values, q_quantiles);
     return action_info;
 }
 
-anet::rl::BatchActionInfo UQEActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const
+anet::rl::BatchActionInfo UQEActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target, std::shared_ptr<anet::RandomGenerator> rnd) const
 {
     ANET_ASSERT(network_.IsDistributional(use_target)); // 念の為チェック
-    return MakeUQEActionInfo(current_uqe_tau_, torch::Tensor(), obs, greedy_only, use_target);
+    return MakeUQEActionInfo(current_uqe_tau_, torch::Tensor(), obs, greedy_only, use_target, rnd);
 }
 
 
@@ -464,8 +471,8 @@ anet::rl::BatchActionInfo UQEActionPolicy::SelectAction(const torch::Tensor& obs
 // ThompsonSamplingActionPolicy
 // ======================================================
 
-anet::rl::dqn::ThompsonSamplingActionPolicy::ThompsonSamplingActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network, anet::seed_t seed)
-    : UQEActionPolicy(config, network, seed)
+anet::rl::dqn::ThompsonSamplingActionPolicy::ThompsonSamplingActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network)
+    : UQEActionPolicy(config, network)
 {
     ;
 }
@@ -476,16 +483,18 @@ void anet::rl::dqn::ThompsonSamplingActionPolicy::OnLearn(const StepCounts& coun
     //UpdateTau(counts.exp_step);
 }
 
-anet::rl::BatchActionInfo ThompsonSamplingActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target) const
+anet::rl::BatchActionInfo ThompsonSamplingActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target, std::shared_ptr<anet::RandomGenerator> rnd) const
 {
     ANET_ASSERT(network_.IsDistributional(use_target)); // 念の為チェック
 
     // ランダムな Tau をバッチサイズ分生成 (N, 1)
     const int64_t N = obs.size(0);
-    auto tau_tensor = torch::rand({ N, 1 }, torch::TensorOptions().device(obs.device()));
+    auto device = obs.device();
+    auto gen = rnd->GetTorchGenerator(device);
+    auto tau_tensor = torch::rand({ N, 1 }, gen, torch::TensorOptions().device(device));
 
     // tau_tensor(ランダム)でUQE適用
-    return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, use_target);
+    return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, use_target, rnd);
 }
 
 
@@ -495,8 +504,8 @@ anet::rl::BatchActionInfo ThompsonSamplingActionPolicy::SelectAction(const torch
 
 Learner::Learner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
-    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config)
-    : config_(config), stucker_config_(stucker_config), network_(network), vars_(vars), obs_norm_(obs_norm)
+    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed)
+    : RandomHolder(target_seed), config_(config), stucker_config_(stucker_config), network_(network), vars_(vars), obs_norm_(obs_norm)
     , batch_size_(batch_env_spec.batch_size)
     , n_actions_(env_spec.action_spec.GetNumActions()), state_dim_(env_spec.state_spec.CalcFlattenDim())
     , device_(std::move(device))
@@ -693,9 +702,8 @@ int64_t Learner::Load(InputArchive& archive)
 
 TDLearner::TDLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
-    std::shared_ptr<ActionPolicy> target_policy,
-    std::optional<StuckerConfig> stucker_config)
-    : Learner(config, network, vars, obs_norm, batch_env_spec, env_spec, device, replay_seed, target_policy, stucker_config)
+    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed)
+    : Learner(config, network, vars, obs_norm, batch_env_spec, env_spec, device, replay_seed, target_policy, stucker_config, target_seed)
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
@@ -785,7 +793,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
             // target_policy_ に行動を選ばせる
             // ※ここで greedy_only=false にすることで、UQE設定時は楽観的に選ばれる
-            auto target_action_info = target_policy_->SelectAction(next_obs, /*greedy_only=*/true, use_target_for_action);
+            auto target_action_info = target_policy_->SelectAction(next_obs, /*greedy_only=*/true, use_target_for_action, this->GetRandomGenerator());
             torch::Tensor next_actions = target_action_info.GetAction(device_);
 
             // 選んだ行動の価値を TargetNet で評価する (価値評価は常に TargetNet)
@@ -1051,8 +1059,8 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
 QRLearner::QRLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
-    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config)
-    : Learner(config, network, vars, obs_norm, batch_env_spec, env_spec, std::move(device), replay_seed, target_policy, stucker_config)
+    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed)
+    : Learner(config, network, vars, obs_norm, batch_env_spec, env_spec, std::move(device), replay_seed, target_policy, stucker_config, target_seed)
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
@@ -1211,7 +1219,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
             // Target Policyを使って行動 a' を決定
             bool use_target_for_action = !config_.use_double_dqn;
-            auto target_action_info = target_policy_->SelectAction(next_obs, /*greedy_only=*/true, use_target_for_action);
+            auto target_action_info = target_policy_->SelectAction(next_obs, /*greedy_only=*/true, use_target_for_action, this->GetRandomGenerator());
             torch::Tensor next_actions = target_action_info.GetAction(device_);
             ANET_ASSERT_SHAPE(next_actions, { B });
 

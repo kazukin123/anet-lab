@@ -1,29 +1,14 @@
-﻿#include<torch/torch.h>
-#include "anet/random.hpp"
+﻿#include "anet/random.hpp"
 #include <limits>
 #include <optional>
+#include <torch/torch.h>
+#include <ATen/core/Generator.h>
+#include <ATen/CPUGeneratorImpl.h>
+#include <ATen/cuda/CUDAGeneratorImpl.h>
+#include "anet/common.hpp"
 
 namespace anet {
 
-    /// 初期値ホワイトニング用（seed整形用）再現性あり・高速・分布品質良好
-    inline uint64_t splitmix64(uint64_t x)
-    {
-        x += 0x9E3779B97F4A7C15ULL;
-        uint64_t z = x;
-        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
-        z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
-        return z ^ (z >> 31);
-    }
-
-    inline uint64_t hash64(uint64_t x)
-    {
-        x ^= x >> 33;
-        x *= 0xff51afd7ed558ccdULL;
-        x ^= x >> 33;
-        x *= 0xc4ceb9fe1a85ec53ULL;
-        x ^= x >> 33;
-        return x;
-    }
 
     inline uint64_t hash64(const char* s)
     {
@@ -66,6 +51,9 @@ namespace anet {
 
         seed_ = seed;
         engine_.seed(seed_);
+        for (auto& [device_str, gen] : torch_gens_) {
+            gen.set_current_seed(seed_);
+        }
     }
 
     seed_t RandomGenerator::RandUint64()
@@ -109,6 +97,25 @@ namespace anet {
 
         std::uniform_int_distribution<int> dist(low, high);
         return dist(engine_);
+    }
+
+    torch::Generator RandomGenerator::CreateTorchGenerator(torch::Device device, uint32_t key)
+    {
+        if (device.is_cpu()) {
+            auto gen = torch::make_generator<at::CPUGeneratorImpl>();
+            gen.set_current_seed(seed_);
+            torch_gens_[key] = gen;
+            return gen;
+        } else if (device.is_cuda()) {
+            int idx = (device.has_index() && device.index() >= 0) ? device.index() : 0;
+            auto gen = torch::make_generator<at::CUDAGeneratorImpl>(idx);
+            gen.set_current_seed(seed_);
+            torch_gens_[key] = gen;
+            return gen;
+        }
+
+        ANET_SYSTEM_ERROR("Unsupported device for Torch Generator: " << device.str());
+        throw std::invalid_argument("Unsupported device for Torch Generator");
     }
 
     std::shared_ptr<RandomGenerator> RandomGenerator::Default()

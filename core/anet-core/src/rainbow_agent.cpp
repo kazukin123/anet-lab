@@ -43,7 +43,7 @@ RainbowAgent::RainbowAgent(
     //seed
     anet::SeedMaker seed_maker(GetSeed());
     auto replay_seed = seed_maker.MakeNamedSeed("replaybuffer");
-    auto action_policy_seed = seed_maker.MakeNamedSeed("action_policy");
+    //auto action_policy_seed = seed_maker.MakeNamedSeed("action_policy");
 
     // RuntimeVars生成
     this->vars_ = std::make_unique<dqn::RuntimeVars>();
@@ -110,14 +110,14 @@ RainbowAgent::RainbowAgent(
 
 
     // ActionPolicy生成
-    this->action_policy_ = std::make_unique<dqn::EpsilonGreedyActionPolicy>(config_.action_policy, *network_, action_policy_seed);
+    this->action_policy_ = std::make_unique<dqn::EpsilonGreedyActionPolicy>(config_.action_policy, *network_);
 
     // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化
     ActionPolicyConfig greedy_cfg;
     greedy_cfg.policy_type = "EpsilonGreedy";
     greedy_cfg.eps_start = 0.0f;
     greedy_cfg.eps_end = 0.0f;
-    this->target_policy_ = std::make_shared<dqn::EpsilonGreedyActionPolicy>(greedy_cfg, *network_, action_policy_seed);
+    this->target_policy_ = std::make_shared<dqn::EpsilonGreedyActionPolicy>(greedy_cfg, *network_);
 
     // Learner生成
     if (is_distributional) {
@@ -199,7 +199,8 @@ anet::rl::BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const
     auto run_mode = ctx != nullptr ? ctx->GetRunMode() : anet::rl::RunMode::Train;
     auto greedy_only = anet::rl::IsEval(run_mode);
     auto use_target = (run_mode == anet::rl::RunMode::Eval1);
-    auto act_info = this->action_policy_->SelectAction(flat_obs, greedy_only, use_target);
+    auto rnd = ctx->GetRandomGenerator();
+    auto act_info = this->action_policy_->SelectAction(flat_obs, greedy_only, use_target, rnd);
 
     // ActionInfoを返す
     return act_info;

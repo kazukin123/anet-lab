@@ -11,8 +11,8 @@ using namespace anet::rl;
 // StackerActionContext
 // =============================================================
 
-StackerActionContext::StackerActionContext(RunMode run_mode, std::shared_ptr<FrameStacker> stacker)
-    : ActionContext(run_mode), stacker_(std::move(stacker))
+StackerActionContext::StackerActionContext(RunMode run_mode, std::shared_ptr<FrameStacker> stacker, std::optional<seed_t> seed)
+    : ActionContext(run_mode, seed), stacker_(std::move(stacker))
 {
     ;
 }
