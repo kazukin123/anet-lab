@@ -9,6 +9,43 @@
 
 namespace anet {
 
+
+    class ThreadBase {
+    public:
+        explicit ThreadBase(const std::string& name);
+        virtual ~ThreadBase();
+
+        // コピー不可
+        ThreadBase(const ThreadBase&) = delete;
+        ThreadBase& operator=(const ThreadBase&) = delete;
+
+        void Start();
+        void Stop();
+        void Pause() { paused_.store(true); }
+        void Resume() { paused_.store(false); }
+
+        bool IsRunning() const { return running_.load(); }
+        bool IsPaused() const { return paused_.load(); }
+
+    protected:
+        /// 1ステップ分の処理。trueで継続、falseでスレッド終了
+        virtual bool ProcessStep() = 0;
+
+        // スレッド実行前後のフック
+        virtual void OnStart() {}
+        virtual void OnStop() {}
+        virtual void OnException() {}
+
+    private:
+        void ThreadMain();
+    private:
+        std::string name_;
+        std::atomic<bool> running_{ false };
+        std::atomic<bool> paused_{ false };
+        std::thread worker_;
+    };
+
+
     class ThreadPool {
     public:
         using TaskFunction = std::function<void()>;

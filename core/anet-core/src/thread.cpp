@@ -4,8 +4,75 @@
 #include "anet/log.hpp"
 
 using namespace anet;
+namespace LOG = anet::log;
 
-// ---- PinnedThreadPool
+//----------------------------------------------
+// ThreadBase
+//----------------------------------------------
+
+ThreadBase::ThreadBase(const std::string& name)
+    : name_(name)
+{
+}
+
+ThreadBase::~ThreadBase()
+{
+    Stop();
+}
+
+void ThreadBase::Start()
+{
+    if (running_.load()) return;
+    running_.store(true);
+    paused_.store(false);
+
+    worker_ = std::thread([this]() { ThreadMain(); });
+}
+
+void ThreadBase::Stop()
+{
+    if (running_.load()) {
+        running_.store(false);
+    }
+
+    if (worker_.joinable()) {
+        worker_.join();
+    }
+}
+
+void ThreadBase::ThreadMain()
+{
+    anet::ProfileThreadName th(name_.c_str());
+    ANET_LOG_DEBUG("BEGIN name=" << name_);
+
+    try {
+        OnStart();
+
+        while (running_.load()) {
+            if (paused_.load()) {
+                std::this_thread::sleep_for(std::chrono::microseconds(10));
+                continue;
+            }
+
+            if (!ProcessStep()) {
+                break;
+            }
+        }
+    } catch (...) {
+        LOG::error() << "Thrad [" << name_ << "]: Exception caught.";
+        OnException();
+    }
+
+    OnStop();
+    running_.store(false);
+
+    ANET_LOG_DEBUG("END name=" << name_);
+}
+
+
+//----------------------------------------------
+// PinnedThreadPool
+//----------------------------------------------
 
 PinnedThreadPool::PinnedThreadPool(int worker_count)
     : worker_count_(worker_count)

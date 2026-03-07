@@ -189,6 +189,7 @@ bool RunnerApp::OnInit()
 
     // Trainerスレッド生成
     trainer_thread_ = std::make_unique<anet::rl::RunnerThread>(
+        "TrainThread",
         run_manager_->GetTrainRunner(),
         [this](const anet::rl::StepCounts& counts)   // pre_train_step_func
         {

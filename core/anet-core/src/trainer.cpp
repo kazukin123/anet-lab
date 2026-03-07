@@ -576,80 +576,45 @@ std::shared_ptr<EvalRunner> RunManager::CreateEvalRunner(const std::string& name
     return eval_runner;
 }
 
-// =========================
+// ======================================================
+// RunnerThread
+// ======================================================
 
-RunnerThread::RunnerThread(std::shared_ptr<anet::rl::Runner> runner,
-        anet::rl::Runner::ControlFunction pre_func,
-        anet::rl::Runner::ControlFunction post_func,
-        ExceptionFunction exception_func)
-        : runner_(runner), pre_func_(pre_func), post_func_(post_func), exception_func_(exception_func)
+RunnerThread::RunnerThread(
+    const std::string& name,
+    std::shared_ptr<anet::rl::Runner> runner,
+    anet::rl::Runner::ControlFunction pre_func,
+    anet::rl::Runner::ControlFunction post_func,
+    ExceptionFunction exception_func)
+    : anet::ThreadBase(name)
+    , runner_(runner)
+    , pre_func_(pre_func)
+    , post_func_(post_func)
+    , exception_func_(exception_func)
 {
 }
 
 RunnerThread::~RunnerThread()
 {
-    Stop();  // ensure join
+    Stop();
 }
 
-/// Start training thread (if not already running)
-void RunnerThread::Start()
+bool RunnerThread::ProcessStep()
 {
-    // 既に実行中なら何もしない
-    if (running_.load()) return;
-    running_.store(true);
+    // 1フレーム実行 (既存のコールバック機構をそのまま利用)
+    runner_->DoUpdateFrame(1, pre_func_, post_func_);
 
-    // Trainerスレッドループ
-    worker_ = std::thread([this]() { ThreadMain(); });
-}
-
-// Trainerスレッド停止＆停止待ち合わせ
-void RunnerThread::Stop()
-{
-    ANET_LOG_DEBUG("BEGIN");
-
-    // 実行中なら
-    if (running_.load()) {
-        // 実行中フラグを落とす
-        running_.store(false);
+    // 完了ステータスになったら false を返してスレッドループを抜ける
+    if (runner_->GetStatus() == anet::rl::RunnerStatus::COMPLETED) {
+        return false;
     }
-
-    // スレッド終了待ち合わせ
-    if (worker_.joinable())
-        worker_.join();
-
-    ANET_LOG_DEBUG("END");
+    return true;
 }
 
-void RunnerThread::ThreadMain()
+void RunnerThread::OnException()
 {
-    ANET_LOG_DEBUG("BEGIN");
-    anet::ProfileThreadName th("RunnerThread");
-
-    try {
-        // Trainループ
-        while (running_.load()) {
-            if (paused_.load()) {
-                std::this_thread::sleep_for(std::chrono::microseconds(10));
-                continue;
-            }
-
-            // フレーム実行
-            runner_->DoUpdateFrame(1, pre_func_, post_func_);
-
-            // 学習終わってたらスレッド終了
-            auto status = runner_->GetStatus();
-            if (status == anet::rl::RunnerStatus::COMPLETED) break;
-        }
-    } catch (...) {
-        if (exception_func_ != nullptr)
-            exception_func_();
+    if (exception_func_ != nullptr) {
+        exception_func_();
     }
-
-    // 終わる
-    runner_->Shutdown();
-
-    // 終わったフラグ
-    running_.store(false);
-
-    ANET_LOG_DEBUG("END");
 }
+

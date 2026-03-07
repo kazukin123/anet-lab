@@ -5,6 +5,7 @@
 #include <vector>
 #include <chrono>
 #include "anet/util.hpp"
+#include "anet/thread.hpp"
 #include "anet/env.hpp"
 #include "anet/rl.hpp"
 
@@ -155,34 +156,27 @@ namespace anet::rl {
         //std::unordered_map<std::string, float> eval_last_rewards_;
     };
 
-    class RunnerThread {
+
+    // ----------------------------------------------------------------------
+    // RunnerThread
+    // ----------------------------------------------------------------------
+
+    class RunnerThread : public anet::ThreadBase {
     public:
         using ExceptionFunction = std::function<void()>;
-        static void noop(void) { }
+        static void noop(void) {}
     public:
-        explicit RunnerThread(std::shared_ptr<anet::rl::Runner> runner,
-            anet::rl::Runner::ControlFunction pre_func = nullptr,
-            anet::rl::Runner::ControlFunction post_func = nullptr,
-            ExceptionFunction exception_func = nullptr);
-        ~RunnerThread();
+        explicit RunnerThread(
+            const std::string& name,std::shared_ptr<anet::rl::Runner> runner,
+            anet::rl::Runner::ControlFunction pre_func = nullptr, anet::rl::Runner::ControlFunction post_func = nullptr, ExceptionFunction exception_func = nullptr);
 
-        void Start();
+        ~RunnerThread() override;
+    protected:
+        bool ProcessStep() override;
+        void OnException() override;
 
-        /// Trainerスレッド停止＆停止待ち合わせ
-        void Stop();
-
-        // フラグ取得/設定
-        bool IsRunning() const { return running_.load(); }
-        bool IsPaused() const { return paused_.load(); }
-        void Pause() { paused_.store(true); }
-        void Resume() { paused_.store(false); }
     private:
-        void ThreadMain();
-    private:
-        std::atomic<bool> running_{ false }; ///< thread実行中フラグ
-        std::atomic<bool> paused_{ false }; ///< thread実行中フラグ
         std::shared_ptr<anet::rl::Runner> runner_;
-        std::thread worker_;
         anet::rl::Runner::ControlFunction pre_func_;
         anet::rl::Runner::ControlFunction post_func_;
         ExceptionFunction exception_func_;
