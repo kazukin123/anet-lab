@@ -572,7 +572,7 @@ struct ResBlockConfig {
     int padding = -1;
     int stride = 1;
     int dilation = 1;
-    std::string activation = "relu"; // "relu" (default) or "silu" / "swish"
+    std::string activation = "silu"; // "relu" (default) or "silu" / "swish"
     std::string norm_type = "none"; // "none", "batch", "group"
     int group_norm_groups = 32;
     bool conv1_bias = true;        // Norm無しならtrue必須。None有りならFalse推奨。
@@ -581,6 +581,7 @@ struct ResBlockConfig {
 
 /// @todo 全部設定でConv2dとかReLUとかを組み合わせて定義したResBlockを更に組み合わせる、がしたかったResBlockごとModule実装でいいのか…？？
 
+/// ResNet Basic Block
 class ResBlockModule : public NetworkModule {
 private:
     enum class ActType { ReLU, SiLU };
@@ -784,6 +785,392 @@ public:
     {
         Config config(config_data);
         return std::make_shared<ResBlockModule>(config.res, config.init1, config.init2, config.init_ds);
+    }
+};
+
+// ===========================================================================
+//  LayerNorm Module
+// ===========================================================================
+
+class LayerNormModule : public NetworkModule {
+public:
+    explicit LayerNormModule(int64_t normalized_shape)
+    {
+        torch::nn::LayerNormOptions opts({ normalized_shape });
+        ln_ = register_module("ln", torch::nn::LayerNorm(opts));
+    }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        anet::ProfileRange r("LayerNormModule::Forward");
+
+        // Lazy Init for device/dtype transfer
+        if (!initialized_) {
+            ln_->to(input.device(), input.scalar_type());
+            initialized_ = true;
+        }
+        return ln_->forward(input);
+    }
+private:
+    bool initialized_ = false;
+    torch::nn::LayerNorm ln_{ nullptr };
+};
+
+class LayerNormModuleFactory final : public NetworkModuleFactory {
+private:
+    struct Config : anet::Config {
+        int normalized_shape = 0;
+
+        Config(const anet::ConfigData& config_data) : anet::Config("") {
+            ANET_READ_CONFIG(config_data, normalized_shape);
+        }
+    };
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        Config config(config_data);
+        if (config.normalized_shape <= 0) {
+            ANET_SYSTEM_ERROR("LayerNormModule: 'normalized_shape' must be strictly positive.");
+        }
+        return std::make_shared<LayerNormModule>(config.normalized_shape);
+    }
+};
+
+// ===========================================================================
+//  SpatialPositionalEmbedding2D Module
+// ===========================================================================
+
+
+/// @brief CNNの2次元特徴マップに空間位置情報(Positional Embedding)を付与し、
+///        Transformer用の1次元シーケンスデータへ変換するブリッジモジュール。
+///
+/// 【入出力のテンソル形状】
+/// - Input : [Batch, Channels, Height, Width]  (CNNの出力)
+/// - Output: [Batch, SequenceLength, Channels] (Transformerの入力)
+///           ※ SequenceLength = Height * Width
+///
+/// 【使用上の注意点】
+/// 1. 直前の層（通常は 1x1 Conv 等）において、出力チャンネル数(Channels)を
+///    後続の TransformerEncoder の `d_model` と完全に一致させておく必要がある。
+///    (例: Transformerのd_modelが32なら、直前のConvのout_channelsも32にする)
+/// 2. 本モジュールは Lazy Initialization（遅延初期化）を採用しています。
+///    初回の順伝播時に入力テンソルの形状から Height, Width, Channels を自動取得し、
+///    必要なサイズのパラメータを自己構築するため、Configでの設定値は一切不要。
+///
+/// 【内部処理】
+/// X座標用とY座標用に独立した学習可能なベクトル(Embedding)を保持し、ブロードキャストに
+/// よって特徴マップの各ピクセルへ一括加算。その後、空間次元を平坦化(Flatten)し、
+/// 軸を入れ替える(Transpose)ことで、Transformerが読めるシーケンス配列を生成する。
+class SpatialPositionalEmbedding2DModule : public NetworkModule {
+public:
+    SpatialPositionalEmbedding2DModule() = default;
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        anet::ProfileRange r("SpatialPositionalEmbedding2DModule::Forward");
+
+        // 初回実行時のLazy Initialization
+        if (!initialized_) {
+            // 入力: [Batch, d_model(Channels), Height, Width]
+            int64_t d_model = input.size(1);
+            int64_t height = input.size(2);
+            int64_t width = input.size(3);
+
+            // X座標用とY座標用のEmbeddingを独立して学習可能なパラメータとして登録
+            y_embed_ = register_parameter("y_embed", torch::randn({ height, d_model }) * 0.02f);
+            x_embed_ = register_parameter("x_embed", torch::randn({ width, d_model }) * 0.02f);
+
+            // デバイス同期
+            this->to(input.device(), input.scalar_type());
+            initialized_ = true;
+
+            LOG::info() << "SpatialPositionalEmbedding2D initialized with Height:" << height
+                << " Width:" << width << " d_model:" << d_model;
+        }
+
+        // --- 位置情報の加算 ---
+        auto y_emb = y_embed_.transpose(0, 1).unsqueeze(0).unsqueeze(-1);
+        auto x_emb = x_embed_.transpose(0, 1).unsqueeze(0).unsqueeze(2);
+        auto out = input + y_emb + x_emb;
+
+        // --- Transformer用シーケンスへの変形 ---
+        // [Batch, C, H, W] -> [Batch, H*W, C]
+        return out.flatten(2).transpose(1, 2);
+    }
+private:
+    bool initialized_ = false;
+    torch::Tensor y_embed_;
+    torch::Tensor x_embed_;
+};
+
+class SpatialPositionalEmbedding2DFactory final : public NetworkModuleFactory {
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override {
+        // パラメータ不要のため即座に生成
+        return std::make_shared<SpatialPositionalEmbedding2DModule>();
+    }
+};
+
+
+// ===========================================================================
+//  TransformerEncoder Module
+// ===========================================================================
+
+/// libtorchの制約（Post-LN固定、[SeqLen, Batch, d_model] 形式の入力）を突破するためカスタムのTransformer層を用意
+class CustomTransformerEncoderLayer : public torch::nn::Module {
+public:
+    CustomTransformerEncoderLayer(int64_t d_model, int64_t nhead, int64_t dim_feedforward, bool norm_first, const std::string& activation)
+        : norm_first_(norm_first)
+    {
+        // Multihead Attention
+        torch::nn::MultiheadAttentionOptions mha_opts(d_model, nhead);
+        mha_ = register_module("self_attn", torch::nn::MultiheadAttention(mha_opts));
+
+        // Feed Forward Network (FFN)
+        linear1_ = register_module("linear1", torch::nn::Linear(d_model, dim_feedforward));
+        linear2_ = register_module("linear2", torch::nn::Linear(dim_feedforward, d_model));
+
+        // Layer Normalizations
+        norm1_ = register_module("norm1", torch::nn::LayerNorm(torch::nn::LayerNormOptions({ d_model })));
+        norm2_ = register_module("norm2", torch::nn::LayerNorm(torch::nn::LayerNormOptions({ d_model })));
+
+        //  Activation Function
+        std::string act_lower = activation;
+        std::transform(act_lower.begin(), act_lower.end(), act_lower.begin(), ::tolower);
+        use_gelu_ = (act_lower == "gelu");
+    }
+
+    torch::Tensor forward(torch::Tensor src)
+    {
+        // srcの期待形状: [Batch, SeqLen, d_model]
+        torch::Tensor x = src;
+
+        if (norm_first_) {
+            // ==========================================
+            // Pre-LN：強化学習では推奨（表現力が僅かに落ちるが学習が極めて安定。現代のデファクトスタンダード）
+            // ==========================================
+
+            // --- Attention Block ---
+            torch::Tensor x_norm = norm1_->forward(x);
+
+            // libtorchのMHAは [SeqLen, Batch, d_model] しか受け付けないため明示的に転置
+            torch::Tensor x_norm_t = x_norm.transpose(0, 1);
+
+            // MultiheadAttention (Query, Key, Value)
+            auto mha_out = std::get<0>(mha_->forward(x_norm_t, x_norm_t, x_norm_t));
+
+            // 転置して戻し、Skip Connection (Add)
+            x = x + mha_out.transpose(0, 1);
+
+            // --- FFN Block ---
+            x_norm = norm2_->forward(x);
+            torch::Tensor ffn_out = linear1_->forward(x_norm);
+            ffn_out = use_gelu_ ? torch::gelu(ffn_out) : torch::relu(ffn_out);
+            ffn_out = linear2_->forward(ffn_out);
+
+            // Skip Connection (Add)
+            x = x + ffn_out;
+        } else {
+            // ==========================================
+            // Post-LN：オリジナルTransformer相当（最終的な性能は高いが不安定）
+            // ==========================================
+
+            torch::Tensor x_t = x.transpose(0, 1);
+            auto mha_out = std::get<0>(mha_->forward(x_t, x_t, x_t));
+            x = norm1_->forward(x + mha_out.transpose(0, 1));
+
+            torch::Tensor ffn_out = linear1_->forward(x);
+            ffn_out = use_gelu_ ? torch::gelu(ffn_out) : torch::relu(ffn_out);
+            ffn_out = linear2_->forward(ffn_out);
+            x = norm2_->forward(x + ffn_out);
+        }
+
+        return x;
+    }
+
+private:
+    bool norm_first_;
+    bool use_gelu_;
+    torch::nn::MultiheadAttention mha_{ nullptr };
+    torch::nn::Linear linear1_{ nullptr };
+    torch::nn::Linear linear2_{ nullptr };
+    torch::nn::LayerNorm norm1_{ nullptr };
+    torch::nn::LayerNorm norm2_{ nullptr };
+};
+
+struct TransformerConfig {
+    int d_model = 32;
+    int nhead = 4;
+    int num_layers = 2;
+    int dim_feedforward = 128;
+    bool norm_first = true;             /// Pre-LN default
+    std::string activation = "gelu";    /// relu / gelu
+};
+
+// --- TransformerEncoderModule 本体 ---
+class TransformerEncoderModule : public NetworkModule {
+public:
+    TransformerEncoderModule(const TransformerConfig& config)
+        : config_(config)
+    {
+        ANET_CHECK_MSG(config_.d_model % config_.nhead == 0, "TransformerEncoder: d_model must be divisible by nhead.");
+
+        // カスタムレイヤーをループで生成・登録
+        for (int i = 0; i < config_.num_layers; ++i) {
+            auto layer = std::make_shared<CustomTransformerEncoderLayer>(
+                config_.d_model, config_.nhead, config_.dim_feedforward, config_.norm_first, config_.activation
+            );
+            layers_.push_back(register_module("layer_" + std::to_string(i), layer));
+        }
+
+        // Pre-LNの場合、ネットワークの最後を締める正規化
+        if (config_.norm_first) {
+            torch::nn::LayerNormOptions ln_opts({ config_.d_model });
+            norm_ = register_module("norm", torch::nn::LayerNorm(ln_opts));
+        }
+    }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        anet::ProfileRange r("TransformerEncoderModule::Forward");
+
+        if (!initialized_) {
+            // 初回の形状チェック
+            int64_t input_dim = input.size(2); // [B, SeqLen, d_model]
+            if (input_dim != config_.d_model) {
+                ANET_SYSTEM_ERROR("TransformerEncoder: Dimension mismatch! "
+                    << "Configured d_model is " << config_.d_model << ", but received input with dimension " << input_dim << ". "
+                    << "Please check the 'out_channels' of the preceding layer.");
+            }
+            this->to(input.device(), input.scalar_type());
+            initialized_ = true;
+        }
+
+        torch::Tensor out = input;
+
+        // レイヤーを順番に適用
+        for (auto& layer : layers_) {
+            out = layer->forward(out);
+        }
+
+        // 最終正規化
+        if (norm_) {
+            out = norm_->forward(out);
+        }
+
+        return out;
+    }
+private:
+    TransformerConfig config_;
+    bool initialized_ = false;
+    std::vector<std::shared_ptr<CustomTransformerEncoderLayer>> layers_;
+    torch::nn::LayerNorm norm_{ nullptr };
+};
+
+class TransformerEncoderModuleFactory final : public NetworkModuleFactory {
+private:
+    struct Config : anet::Config {
+        TransformerConfig tf;
+
+        Config(const anet::ConfigData& config_data) : anet::Config("") {
+            ANET_READ_CONFIG(config_data, tf.d_model);
+            ANET_READ_CONFIG(config_data, tf.nhead);
+            ANET_READ_CONFIG(config_data, tf.num_layers);
+            ANET_READ_CONFIG(config_data, tf.dim_feedforward);
+            ANET_READ_CONFIG(config_data, tf.norm_first);
+            ANET_READ_CONFIG(config_data, tf.activation);
+        }
+    };
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        Config config(config_data);
+        return std::make_shared<TransformerEncoderModule>(config.tf);
+    }
+};
+
+
+// ===========================================================================
+//  Global Average Pooling 1D Module (GAP1D)
+// ===========================================================================
+
+class GlobalAveragePooling1DModule : public NetworkModule {
+public:
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        anet::ProfileRange r("GlobalAveragePooling1DModule::Forward");
+        // [Batch, SeqLen, d_model] の SeqLen (dim=1) を平均して潰す
+        return input.mean(/*dim=*/1);
+    }
+};
+
+class GlobalAveragePooling1DFactory final : public NetworkModuleFactory {
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        return std::make_shared<GlobalAveragePooling1DModule>();
+    }
+};
+
+// ===========================================================================
+//  CLS Token Append Module
+// ===========================================================================
+
+class ClsTokenAppendModule : public NetworkModule {
+public:
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        anet::ProfileRange r("ClsTokenAppendModule::Forward");
+
+        int64_t batch_size = input.size(0);
+        int64_t d_model = input.size(2);
+
+        if (!initialized_) {
+            // ダミートークンを初期化
+            cls_token_ = register_parameter("cls_token", torch::randn({ 1, 1, d_model }) * 0.02f);
+            this->to(input.device(), input.scalar_type());
+            initialized_ = true;
+        }
+
+        // [1, 1, d_model] -> [Batch, 1, d_model] に拡張
+        auto cls_expanded = cls_token_.expand({ batch_size, -1, -1 });
+
+        // 先頭にくっつけて出力: [Batch, 1 + SeqLen, d_model]
+        return torch::cat({ cls_expanded, input }, /*dim=*/1);
+    }
+private:
+    bool initialized_ = false;
+    torch::Tensor cls_token_;
+};
+
+class ClsTokenAppendFactory final : public NetworkModuleFactory {
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        return std::make_shared<ClsTokenAppendModule>();
+    }
+};
+
+// ===========================================================================
+//  CLS Token Extract Module
+// ===========================================================================
+
+class ClsTokenExtractModule : public NetworkModule {
+public:
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        anet::ProfileRange r("ClsTokenExtractModule::Forward");
+
+        // [Batch, 1 + SeqLen, d_model] の 0番目 (先頭) を抽出する
+        return input.select(/*dim=*/1, /*index=*/0);
+    }
+};
+
+class ClsTokenExtractFactory final : public NetworkModuleFactory {
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        return std::make_shared<ClsTokenExtractModule>();
     }
 };
 
@@ -1024,14 +1411,26 @@ public:
     repo.Register("Mish", std::make_shared<MishModuleFactory>());
     repo.Register("LeakyReLU", std::make_shared<LeakyReLUModuleFactory>());
 
-	// その他モジュール登録
+    // 正規化・Pooling登録
+    repo.Register("GroupNorm", std::make_shared<GroupNormModuleFactory>());
+    repo.Register("LayerNorm", std::make_shared<LayerNormModuleFactory>());
+    repo.Register("BatchNorm2d", std::make_shared<BatchNorm2dModuleFactory>());
+    repo.Register("GAP1D", std::make_shared<GlobalAveragePooling1DFactory>());
+
+    // データ加工系モジュール登録
+    repo.Register("SpatialEmbedder", std::make_shared<SpatialEmbedderModuleFactory>());
+    repo.Register("SpatialPositionalEmbedding2D", std::make_shared<SpatialPositionalEmbedding2DFactory>());
+    
+    // レイヤー系モジュール登録
     repo.Register("Linear", std::make_shared<LinearModuleFactory>());
     repo.Register("Conv1d", std::make_shared<Conv1dModuleFactory>());
     repo.Register("Conv2d", std::make_shared<Conv2dModuleFactory>());
-    repo.Register("SpatialEmbedder", std::make_shared<SpatialEmbedderModuleFactory>());
-    repo.Register("BatchNorm2d", std::make_shared<BatchNorm2dModuleFactory>());
-    repo.Register("GroupNorm", std::make_shared<GroupNormModuleFactory>());
     repo.Register("ResBlock", std::make_shared<ResBlockModuleFactory>());
+    repo.Register("TransformerEncoder", std::make_shared<TransformerEncoderModuleFactory>());
+
+    // Tokenモジュール登録
+    repo.Register("ClsAppend", std::make_shared<ClsTokenAppendFactory>());
+    repo.Register("ClsExtract", std::make_shared<ClsTokenExtractFactory>());
 
     //RegisterNetworkModuleFactory<Module>("Linear");
  }

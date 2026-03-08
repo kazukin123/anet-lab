@@ -32,9 +32,12 @@ DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy
 #net.body.$ = net.body.SuikaNet4064
 #net.body.$ = net.body.SuikaResNet4064_06
 #net.body.$ = net.body.SuikaResNet4064_10
-net.body.$ = net.body.SuikaResNet4064_10d     # ★
 #net.body.$ = net.body.SuikaResNet4064_10d_64 # ★
 #net.body.$ = net.body.SuikaResNet4064_18
+#net.body.$ = net.body.SuikaResNet4064_10d     # ★
+
+net.body.$ = net.body.SuikaViT_Flatten
+#net.body.$ = net.body.SuikaHybrid_Flatten
 
 
 # ==============================================================================
@@ -234,6 +237,7 @@ R.learner.n_step = 1
 
 #R.learner.update_warmup_steps = 0
 
+
 # ==============================================================================
 # BF16
 # ==============================================================================
@@ -358,7 +362,6 @@ net.block.[Embed2032].type = SpatialEmbedder
 net.block.[Embed2032].embed.scalar_dim = 4
 net.block.[Embed2032].embed.grid_width = 20
 net.block.[Embed2032].embed.grid_height = 32
-#net.block.[Embed2032].embed.num_classes = 12
 net.block.[Embed2032].embed.num_classes = 13
 
 # 入力: (B, Stack*16, 40, 64)
@@ -366,7 +369,6 @@ net.block.[Embed4064].type = SpatialEmbedder
 net.block.[Embed4064].embed.scalar_dim = 4
 net.block.[Embed4064].embed.grid_width = 40
 net.block.[Embed4064].embed.grid_height = 64
-#net.block.[Embed4064].embed.num_classes = 12
 net.block.[Embed4064].embed.num_classes = 13   # Dropper X
 
 # 出力前 全結合層
@@ -487,6 +489,43 @@ net.body.SuikaResNet4064_10d.structure = Embed4064 > ConvInit32 > SiLU > ResBloc
 net.body.SuikaResNet4064_10.structure  = Embed4064 > ConvInit32 > SiLU > ResBlock32(*4) > ConvCompress > SiLU > Flatten > LinearOut
 net.body.SuikaResNet4064_18.structure  = Embed4064 > ConvInit32 > SiLU > ResBlock32(*8) > ConvCompress > SiLU > Flatten > LinearOut
 net.body.SuikaResNet4064_10d_64.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64 > ResBlock64d2 > ResBlock64d4 > ResBlock64 > ConvCompress > SiLU > Flatten > LinearOut
+
+# ==============================================================================
+# Transformer (SuikaViT) Blocks
+# ==============================================================================
+
+#  Patch Embedding (パッチ化と次元圧縮)
+# 64x40のグリッドをそのままTransformerに入れるとトークン数が2560個になり
+# Self-Attention (O(N^2)) の計算量が爆発するため、Stride 2 で 32x20 (=640トークン) に縮小
+net.block.[ViT_PatchConv].type = Conv2d
+net.block.[ViT_PatchConv].conv.out_channels = 64
+net.block.[ViT_PatchConv].conv.kernel_size = 3
+net.block.[ViT_PatchConv].conv.stride = 2
+net.block.[ViT_PatchConv].conv.padding = 1
+
+# d_model にチャンネル数を合わせるプロジェクション層
+net.block.[ViT_Proj32].type = Conv2d
+net.block.[ViT_Proj32].conv.out_channels = 32
+net.block.[ViT_Proj32].conv.kernel_size = 1
+net.block.[ViT_Proj32].conv.stride = 1
+net.block.[ViT_Proj32].conv.padding = 0
+
+# Transformer Encoder
+net.block.[TransEnc].type = TransformerEncoder
+net.block.[TransEnc].tf.d_model = 32
+net.block.[TransEnc].tf.nhead = 4
+net.block.[TransEnc].tf.num_layers = 2
+net.block.[TransEnc].tf.dim_feedforward = 128
+net.block.[TransEnc].tf.norm_first = true
+net.block.[TransEnc].tf.activation = gelu
+
+
+# [SuikaViT_Flatten]    空間埋め込み(Stack吸収) -> パッチ化 -> d_model圧縮 -> 位置情報付与 -> Transformer -> 平坦化
+net.body.SuikaViT_Flatten.structure = Embed4064 >  ViT_PatchConv > SiLU > ViT_Proj32 > SiLU > PosEmbed2D > TransEnc > Flatten
+
+# [SuikaHybrid_Flatten] ResNet + ViT
+net.body.SuikaHybrid_Flatten.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64 > ResBlock64 > ViT_Proj32 > SiLU > PosEmbed2D > TransEnc > Flatten
+
 
 
 # ---- scalar metrics

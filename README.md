@@ -27,12 +27,12 @@ TODO：実行手順を書く
 	* 1D-Conv/2D-Conv
 	* Reward Scaling
 	* Observation Normalization
+	* TransformerEncoder
 * メトリクス
-	* MetricsViewer.java：フェーズ1.5(基本機能、差分ロード)
+	* MetricsViewer.java(Scalarメトリクスのリアルタイム表示)
 	* ヒストグラムやヒートマップの時系列動画出力（ffmpeg利用）
 	* Conv2D動画可視化
-	* TensorBoard対応（ブリッジpyスクリプト経由）
-	* Ploty＋pythonによる独自グラフ出力
+	* TensorBoard連携（ブリッジpyスクリプト経由）
 * AP機能
 	* CUDA対応
 	* マルチスレッドによるN環境並列実行
@@ -46,15 +46,14 @@ TODO：実行手順を書く
 ### DOING
 
 * 学習アルゴリズム
-	* ①MuZero試作
-	* TransformerModule
+	* MuZero（まずは検討用に試作）
 * Env実装
 	* DropMergeEnv評価＆調整
 * メトリクス
 * AP改善
-	* ②フレームワーク構成変更
-	* ③学習セッションの保存と読込（Agent学習状況含む）
-	* ④Dict Observation Space
+	* ①フレームワーク構成変更
+	* ②学習セッション断面の保存と読込
+	* ③Dict Observation Space (Vector / Image / Token)
 
 ### TODO
 

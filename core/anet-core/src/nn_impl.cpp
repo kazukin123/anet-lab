@@ -8,9 +8,10 @@
 #include <stdexcept>
 #include <algorithm>
 #include <format>
+#include "anet/profile.hpp"
 #include "anet/log.hpp"
 #include "anet/tensor_util.hpp"
-#include "anet/profile.hpp"
+#include "anet/nn_util.hpp"
 
 
 using namespace anet::nn;
@@ -592,6 +593,15 @@ torch::Tensor Network::Forward(torch::Tensor input)
 	anet::ProfileRange r("Network::Forward");
 
     auto features = body_->Forward(input);
+
+    torch::Tensor output;
+    {
+        // Head部ではAMPを強制OFF（外側の設定を無効化）にする
+        anet::Autocast disable_amp(torch::kCUDA, false, torch::kFloat32);
+
+        // Bodyから出てきたBF16になっているかもしれないTensorを 明示的にFP32にキャストして引き継いでからHeadに流し込む
+        output = head_->Forward(features.to(torch::kFloat32));
+    }
     return head_->Forward(features);
 }
 

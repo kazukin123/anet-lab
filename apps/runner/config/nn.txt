@@ -4,6 +4,29 @@
 
 
 # ------------------------------------------------------------------------------
+#  Supported Module Types (サポートされている type 一覧)
+# ------------------------------------------------------------------------------
+# 【Base / Routing】
+#   Add, Flatten, Permute
+#
+# 【Activation】
+#   ReLU, GELU, SiLU, Mish, LeakyReLU
+#
+# 【Normalization & Pooling】
+#   GroupNorm, LayerNorm, BatchNorm2d, GAP1D
+#
+# 【Embedding / Bridge】
+#   SpatialEmbedder, SpatialPositionalEmbedding2D
+#
+# 【Layer (Core)】
+#   Linear, Conv1d, Conv2d, ResBlock, TransformerEncoder
+#
+# 【ViT / Token】
+#   ClsAppend, ClsExtract
+
+
+
+# ------------------------------------------------------------------------------
 # 1. Block Definitions (部品カタログ)
 # ------------------------------------------------------------------------------
 
@@ -77,30 +100,51 @@ net.block.[Conv2d_M].kernel_size = 4
 net.block.[Conv2d_M].stride = 2
 net.block.[Conv2d_M].padding = 1
 
-
-# --- Transformer Components(unsupported) ---
-
-#net.block.[PosEnc].type = PositionalEncoding
-
-#net.block.[TransEnc_Block].type = TransformerEncoder
-#net.block.[TransEnc_Block].d_model = 128
-#net.block.[TransEnc_Block].nhead = 4
-#net.block.[TransEnc_Block].dim_feedforward = 512
-#net.block.[TransEnc_Block].num_layers = 2
-#net.block.[TransEnc_Block].dropout = 0.1
+# --- Transformer Projection用 (1x1 Conv) ---
+# Transformerの入力次元(d_model)にチャンネル数を合わせるための調整層
+net.block.[ConvProj32].type = Conv2d
+net.block.[ConvProj32].conv.out_channels = 32
+net.block.[ConvProj32].conv.kernel_size = 1
+net.block.[ConvProj32].conv.stride = 1
+net.block.[ConvProj32].conv.padding = 0
 
 
-# --- ResBlock定義 (Bottleneck構造など)
 
-#net.block.[ResA].type = ResNetBottleneck
-#net.block.[ResA].in_channels = 64
-#net.block.[ResA].out_channels = 256
-# ... 他のパラメータ
-#net.block.[ResB].type = ResNetBottleneck
-# ...
-#net.block.[ResC].type = ResNetBottleneck
-# ...
-#net.block.[ResD].type = ResNetBottleneck
+# --- ResBlock定義
+
+net.block.[ResA].type = ResBlock
+net.block.[ResA].channels = 64
+net.block.[ResA].kernel_size = 3
+net.block.[ResA].activation = silu
+
+
+
+# --- Transformer / ViT Components ---
+
+## 架け橋モジュール (CNN -> Sequence)
+# 次元数、幅、高さは初回入力時に直前のテンソル形状から自動取得されるためパラメータ不要
+net.block.[PosEmbed2D].type = SpatialPositionalEmbedding2D
+
+##  Transformer Encoder本体
+net.block.[TransEnc].type = TransformerEncoder
+net.block.[TransEnc].tf.d_model = 32           # トークンの次元数 (★★直前のConvProjの出力と必ず合わせる)
+net.block.[TransEnc].tf.nhead = 4              # マルチヘッドアテンションのヘッド数 (★★d_modelを割り切れること)
+net.block.[TransEnc].tf.num_layers = 2         # Transformer層の繰り返し数
+net.block.[TransEnc].tf.dim_feedforward = 128  # FFNの中間次元数 (通常d_modelの2～4倍)
+net.block.[TransEnc].tf.norm_first = true      # Pre-LNの有効化 (強化学習ではtrue推奨) DEFAULT:true
+net.block.[TransEnc].tf.activation = gelu      # 内部の活性化関数 (gelu 推奨) DEFAULT:gelu 
+
+
+##  Pooling / Token (出力変換・次元削減)
+net.block.[GAP1D].type = GAP1D                 # シーケンス次元の平均化 (並行移動に強い・パラメータ小)
+net.block.[ClsAppend].type = ClsAppend         # [CLS]トークンを先頭に追加 (ViTの王道)
+net.block.[ClsExtract].type = ClsExtract       # 先頭の[CLS]トークンを抽出 (Transformer通過後に使用)
+
+
+##  単独LayerNorm (※TransformerEncoderには内包されているため、別用途で組む時のお守り用)
+net.block.[LayerNorm].type = LayerNorm
+net.block.[LayerNorm].normalized_shape = 32
+
 
 
 # ------------------------------------------------------------------------------
@@ -108,27 +152,42 @@ net.block.[Conv2d_M].padding = 1
 #    最終出力は必ず「1次元ベクトル」になるように定義
 # ------------------------------------------------------------------------------
 
+
 # [Pattern 1] Simple MLP
 # 入力 -> Flatten -> Dense -> Dense -> (Vector Output)
 net.body.MLP.structure = Flatten > Linear_120 > ReLU > Linear_84 > ReLU
+
 
 # [Pattern 2] 1D-CNN (Atari Style)
 # Conv -> Conv -> Flatten -> (Vector Output)
 net.body.Conv1D.structure = Conv1d_S > ReLU > Conv1d_M > ReLU > Flatten
 
+
 # [Pattern 3] 2D-CNN (Image Style)
 # Conv -> Conv -> Flatten -> (Vector Output)
 net.body.Conv2D.structure = Conv2d_S > ReLU > Conv2d_M > ReLU > Flatten
 
-# [Pattern 4] Transformer
-# Linear -> PosEnc -> Transformer -> Pooling -> (Vector Output)
-net.body.Transformer.structure = Linear_128 > ReLU > PosEnc > TransEnc_Block > GlobalPool
 
-# [Pattern 5] ResNet-like (Complex Graph)
+# [Pattern 4] ResNet-like (Complex Graph)
 net.body.ResNet.structure = Linear_128 > ReLU > Linear_128(=skip_val) > Linear_128 > ReLU > Linear_128(=proc_val) > Add(@skip_val @proc_val) > ReLU > Linear_512 > MyReLU
 
-# [Pattern 6] ResNet-152 (Many layers)
-net.body.ResNet152.structure = Conv1_Input > MaxPool > ResA(*3) > ResB(*8) > ResC(*36) > ResD(*3) > GlobalAvgPool
+
+
+# --- CNN + Transformer ハイブリッド (ViT Style) サンプル ---
+# CNNの特徴抽出をTransformerのシーケンスに変換し、1次元ベクトルに要約して出力する
+
+
+# [Pattern 5] Flatten方式 (位置に厳密だがパラメータ数が多い)
+net.body.ViT_Flatten.structure = Conv2d_S > ReLU > ConvProj32 > PosEmbed2D > TransEnc > Flatten
+
+
+# [Pattern 6] Global Average Pooling方式 (パラメータを節約し、大局的な判断を促す)
+net.body.ViT_GAP.structure = Conv2d_S > ReLU > ConvProj32 > PosEmbed2D > TransEnc > GAP1D
+
+
+# [Pattern 7] [CLS]トークン方式 (Transformer自身に盤面を要約させる最強アプローチ)
+net.body.ViT_CLS.structure = Conv2d_S > ReLU > ConvProj32 > PosEmbed2D > ClsAppend > TransEnc > ClsExtract
+
 
 
 # ------------------------------------------------------------------------------
@@ -141,6 +200,7 @@ net.block.[MLP_FC3].$ = net.block.[Linear_84] > net.block.FC3   # default: out_f
 
 net.body.MLP2.structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU
 net.body.MLP3.structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU > MLP_FC3 > ReLU
+
 
 
 # ------------------------------------------------------------------------------
