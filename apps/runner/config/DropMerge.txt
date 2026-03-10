@@ -14,8 +14,9 @@ train.batch_size = 256
 #train.batch_size = 1
 
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > BF16.agent >  R > X
-DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > B	 # Random Policy
+DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
+DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > BF16.agent > R > X
 
 
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G20 > E
@@ -23,8 +24,8 @@ DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.fun1 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > BF16.env > E
-DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.realistic > E
+DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > E
 
 
 #net.body.$ = net.body.MLP2
@@ -242,18 +243,18 @@ R.learner.n_step = 1
 # BF16
 # ==============================================================================
 
-BF16.agent.train_policy.use_amp = false
+BF16.agent.train_policy.use_amp = true
 BF16.agent.train_policy.use_amp_bf16 = true
-BF16.agent.eval_policy.use_amp = false
+BF16.agent.eval_policy.use_amp = true
 BF16.agent.eval_policy.use_amp_bf16 = true
-BF16.agent.target_policy.use_amp = false
+BF16.agent.target_policy.use_amp = true
 BF16.agent.target_policy.use_amp_bf16 = true
 BF16.agent.learner.use_amp = true
 BF16.agent.learner.use_amp_bf16 = true
-BF16.agent.reward_scaler.constant_scale = 0.1
+#BF16.agent.reward_scaler.constant_scale = 0.1
 BF16.agent.learner.adam_eps = 1e-4   # AMP有効時は大きめにする
 BF16.agent.learner.grad_clip_tau = 30.0
-BF16.env.time_penalty = -0.01    # NEET対策
+#BF16.env.time_penalty = -0.01    # NEET対策
 
 
 # ==============================================================================
@@ -505,19 +506,19 @@ net.block.[ViT_PatchConv].conv.padding = 1
 
 # d_model にチャンネル数を合わせるプロジェクション層
 net.block.[ViT_Proj32].type = Conv2d
-net.block.[ViT_Proj32].conv.out_channels = 32
+net.block.[ViT_Proj32].conv.out_channels = 128
 net.block.[ViT_Proj32].conv.kernel_size = 1
 net.block.[ViT_Proj32].conv.stride = 1
 net.block.[ViT_Proj32].conv.padding = 0
 
 # Transformer Encoder
 net.block.[TransEnc].type = TransformerEncoder
-net.block.[TransEnc].tf.d_model = 32
+net.block.[TransEnc].tf.d_model = 128
 net.block.[TransEnc].tf.nhead = 4
-net.block.[TransEnc].tf.num_layers = 2
-net.block.[TransEnc].tf.dim_feedforward = 128
-net.block.[TransEnc].tf.norm_first = true
+net.block.[TransEnc].tf.num_layers = 4
+net.block.[TransEnc].tf.dim_feedforward = 512
 net.block.[TransEnc].tf.activation = gelu
+#net.block.[TransEnc].tf.norm_first = true
 
 
 # [SuikaViT_Flatten]    空間埋め込み(Stack吸収) -> パッチ化 -> d_model圧縮 -> 位置情報付与 -> Transformer -> 平坦化
