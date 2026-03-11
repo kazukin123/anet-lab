@@ -810,7 +810,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // TD target & TD Error
         // ------------------------------------------------------------
         auto not_terminal = 1.0f - terminals.to(torch::kFloat32); // (B,)
-        auto td_target = target_values + not_terminal * config_.gamma * max_next_q.detach(); // (B,)
+        auto td_target = target_values.detach() + not_terminal * config_.gamma * max_next_q.detach(); // (B,)
         ANET_ASSERT_SHAPE(td_target, { B });
         ANET_ASSERT_DTYPE(td_target, torch::kFloat32);
         td_error = q_sa - td_target; // (B,)
@@ -1385,12 +1385,9 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     if (config_.use_per) {
         torch::NoGradGuard grad_guard;
 
-        // Loss再計算はコストがかかるので、element_loss (Autocast内で計算済み) を再利用する
-        // ただし、element_loss は float16 の可能性があるため float32 に戻す
-        auto loss_for_prio = element_loss.to(torch::kFloat32).detach();
-
-        // Priority (element_loss を N で割ってスケーリング)
-        auto new_priorities = (loss_for_prio / static_cast<float>(N)) + config_.per_eps;
+        // 分布の平均(Q値)のTD誤差の絶対値からPER優先度を算出
+        auto abs_td_error = td_error_tensor.to(torch::kFloat32).abs().detach();
+        auto new_priorities = abs_td_error + config_.per_eps;
         ANET_ASSERT_SHAPE(new_priorities, { B });
         ANET_ASSERT_NAN(new_priorities);
 

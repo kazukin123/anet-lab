@@ -16,7 +16,7 @@ train.batch_size = 256
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > BF16.agent >  R > X
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > B	 # Random Policy
 DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
-DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > BF16.agent > R > X
+#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > BF16.agent > R > X
 
 
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G20 > E
@@ -31,13 +31,14 @@ DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy
 #net.body.$ = net.body.MLP2
 #net.body.$ = net.body.SuikaNet2032
 #net.body.$ = net.body.SuikaNet4064
+
 #net.body.$ = net.body.SuikaResNet4064_06
 #net.body.$ = net.body.SuikaResNet4064_10
 #net.body.$ = net.body.SuikaResNet4064_10d_64 # ★
 #net.body.$ = net.body.SuikaResNet4064_18
-#net.body.$ = net.body.SuikaResNet4064_10d     # ★
+net.body.$ = net.body.SuikaResNet4064_10d     # ★
 
-net.body.$ = net.body.SuikaViT_Flatten
+#net.body.$ = net.body.SuikaViT_Flatten
 #net.body.$ = net.body.SuikaHybrid_Flatten
 
 
@@ -67,6 +68,7 @@ net.body.$ = net.body.SuikaViT_Flatten
 #app.run_name = run_{t}_D_N1
 #app.run_name = run_{t}_D_s0
 #app.run_name = run_{t}_D_N1_re
+#app.run_name = run_{t}_PER_c
 
 
 #R.stucker.use_stacker = false
@@ -134,9 +136,10 @@ A.learner.replay_capacity = 524,288          # 262,144 524,288 1,048,576
 
 #R.learner.replay_capacity = 500,000
 
-#R.learner.per_alpha = 0.4      # 0.2 0.6
+#R.learner.per_alpha = 0.4      # 0.6
+#R.learner.per_alpha = 0.2      # 0.6
 
-#R.learner.per_beta_start = 0.4  # 0.6 
+#R.learner.per_beta_start = 0.6
 
 #R.reward_scaler.constant_scale = 1.0         # ★
 #R.reward_scaler.constant_scale = 0.1         # ★
@@ -215,7 +218,6 @@ R.learner.n_step = 1
 #R.learner.replay_capacity  =  200,000
 #R.learner.replay_capacity =  100,000
 
-#R.learner.per_beta_start = 0.6                    # 0.4
 #R.learner.per_prio_clip_value = 50                # 30 
 
 ##R.network.soft_update_tau = 0.005                 # 0.01
@@ -309,12 +311,12 @@ A.learner.gamma = 0.995        # ★
 A.learner.n_step = 3           # ★
 A.learner.replay_ratio = 1.0
 #A.learner.replay_capacity = 1,000,000
-A.learner.replay_capacity = 500,000          # 2セッション同時実行出来るよう
+A.learner.replay_capacity = 524,288
 A.learner.replay_batch_size = 128            # 256 学習が重めなのので少し下げる
-A.learner.grad_clip_tau = 0.5                # ★厳しめ（報酬値を変えたら要調整）
+A.learner.grad_clip_tau = 0.5                # ★厳しめ（報酬を変えたら要調整）
 A.learner.update_warmup_steps = 25,600       # 256(replay-sample) * 100step
-A.learner.per_alpha = 0.2                    # ノイズを気にしない
-A.learner.per_beta_start = 0.4  # 0.6        # 低め（序盤は優先度を学習にあまり反映させない）
+#A.learner.per_alpha = 0.6                   # デフォルト 0.6
+#A.learner.per_beta_start = 0.4  # 0.6       # デフォルト 0.4
 A.learner.per_prio_clip_value = 50           # 30 
 A.learner.use_per_prio_clip = true           # 優先度をクリッピングするか
 
