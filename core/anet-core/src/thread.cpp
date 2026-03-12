@@ -74,8 +74,9 @@ void ThreadBase::ThreadMain()
 // PinnedThreadPool
 //----------------------------------------------
 
-PinnedThreadPool::PinnedThreadPool(int worker_count)
-    : worker_count_(worker_count)
+PinnedThreadPool::PinnedThreadPool(int worker_count, const std::string& name)
+    : name_(name)
+    , worker_count_(worker_count)
     , stop_flag_(false)
     , pending_tasks_(0)
 {
@@ -122,9 +123,8 @@ void PinnedThreadPool::WaitAll()
 
 void PinnedThreadPool::WorkerLoop(int wid)
 {
-    ProfileThreadName thr_name("PinnedThreadPool::Worker", wid);
-
-    ANET_LOG_DEBUG("BEGIN");
+    anet::ProfileThreadName th(name_.c_str(), wid);
+    ANET_LOG_DEBUG("BEGIN wid=" << wid);
 
     // 各スレッドのメインループ
     while (true) {
@@ -145,8 +145,7 @@ void PinnedThreadPool::WorkerLoop(int wid)
                 // キューからTaskを取り出す
                 task = std::move(queues_[wid].front());
                 queues_[wid].pop_front();
-            }
-            else if (stop_flag_.load(std::memory_order_acquire)) {
+            } else if (stop_flag_.load(std::memory_order_acquire)) {
                 // stop_flagがtrueの場合はループを抜けてスレッドを終了させる
                 break;
             }
@@ -161,7 +160,7 @@ void PinnedThreadPool::WorkerLoop(int wid)
         }
     }
 
-    ANET_LOG_DEBUG("END");
+    ANET_LOG_DEBUG("END wid=" << wid);
 }
 
 void PinnedThreadPool::Stop()

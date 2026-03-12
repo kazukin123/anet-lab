@@ -4,11 +4,14 @@
 
 #include <functional>
 #include <memory>
+#include <string>
 #include <mutex>
 #include <deque>
+#include <future>
+#include <type_traits>
+
 
 namespace anet {
-
 
     class ThreadBase {
     public:
@@ -60,7 +63,7 @@ namespace anet {
 
     class PinnedThreadPool final : public ThreadPool {
     public:
-        explicit PinnedThreadPool(int worker_count);
+        explicit PinnedThreadPool(int worker_count, const std::string& name = "PinnedThreadPool");
         ~PinnedThreadPool();
 
         int GetWorkerCount() const override { return worker_count_; }
@@ -68,12 +71,37 @@ namespace anet {
         void WaitAll() override;
         void Stop();
     public:
+        /// 任意の戻り値を持つ関数をキューに積み、futureを返す
+        template<class F, class... Args>
+        auto EnqueueFuture(int worker_id, F&& f, Args&&... args)
+            -> std::future<typename std::invoke_result_t<F, Args...>>
+        {
+            // 関数の戻り値の型を推論
+            using return_type = typename std::invoke_result_t<F, Args...>;
+
+            // タスクを std::packaged_task でラップし、shared_ptr で寿命管理する
+            auto task = std::make_shared<std::packaged_task<return_type()>>(
+                std::bind(std::forward<F>(f), std::forward<Args>(args)...)
+            );
+
+            // 呼び出し元に返す future を取得
+            std::future<return_type> res = task->get_future();
+
+            // 既存の Enqueue(std::function<void()>) にラップして投げる
+            this->Enqueue(worker_id, [task]() {
+                (*task)();
+                });
+
+            return res;
+        }
+    public:
         // コピー不可
         PinnedThreadPool(const PinnedThreadPool&) = delete;
         PinnedThreadPool(PinnedThreadPool&&) = delete;
         PinnedThreadPool& operator=(const PinnedThreadPool&) = delete;
         PinnedThreadPool& operator=(PinnedThreadPool&&) = delete;
     private:
+        std::string name_;
         int worker_count_;
         std::unique_ptr<std::thread[]> workers_;
 
