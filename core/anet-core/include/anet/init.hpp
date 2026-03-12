@@ -11,6 +11,7 @@ namespace anet::rl {
         bool use_tf32_cudnn = true;
         bool cudnn_deterministic = true;
         bool cudnn_benchmark = false;
+        int torch_num_threads = 1;
 
         explicit BackendConfig(const ConfigData& config_data = EmptyConfigData, const std::string& prefix = "backend")
             : anet::Config(config_data, prefix)
@@ -19,6 +20,7 @@ namespace anet::rl {
             ANET_READ_CONFIG(config_data, use_tf32_cudnn);
             ANET_READ_CONFIG(config_data, cudnn_deterministic);
             ANET_READ_CONFIG(config_data, cudnn_benchmark);
+            ANET_READ_CONFIG(config_data, torch_num_threads);
         }
 	};
 

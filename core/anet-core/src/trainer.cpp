@@ -281,10 +281,44 @@ void TrainRunner::Shutdown()
     notifier_->Clear();
 }
 
-
-StepCounts TrainRunner::DoStep()
+void TrainRunner::CalcPerformanceMetrics()
 {
-    anet::ProfileRange r("DefaultTrainer::DoStep");
+    // メトリクス算出（処理性能系）
+    auto train_step = step_counts_.train_step;
+    auto exp_step = step_counts_.exp_step;
+    auto train_step_delta = train_step - last_train_step_;
+    auto exp_step_delta = exp_step - last_exp_step_;
+    auto now = std::chrono::high_resolution_clock::now();
+    auto usec_diff = std::chrono::duration_cast<std::chrono::microseconds>(now - last_time_).count();
+    if (usec_diff <= 0) usec_diff = 1;
+
+    if (usec_diff >= 200000) { // 200msec 積算
+        last_train_step_per_sec_ = static_cast<float>(train_step_delta) * 1000000.0f / usec_diff;
+        last_exp_step_per_sec_ = static_cast<float>(exp_step_delta) * 1000000.0f / usec_diff;
+        acc_train_steps_ = 0;
+        acc_exp_steps_ = 0;
+        last_time_ = now;
+        last_train_step_ = train_step;
+        last_exp_step_ = exp_step;
+    }
+
+}
+
+
+// ------------------------------------------------------
+// SerialTrainRunner
+// ------------------------------------------------------
+
+SerialTrainRunner::SerialTrainRunner(
+    std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier)
+    : TrainRunner(env, agent, notifier)
+{
+    ;
+}
+
+StepCounts SerialTrainRunner::DoStep()
+{
+    anet::ProfileRange r("SerialTrainRunner::DoStep");
 
     ANET_ASSERT(status_ == anet::rl::RunnerStatus::RUNNING);
 
@@ -293,7 +327,7 @@ StepCounts TrainRunner::DoStep()
     auto batch_env_spec = env_->GetBatchSpec();
 
     if (!env_initialized_) {
-        anet::ProfileRange r1("DefaultTrainer::DoUpdateFrame.initialize");
+        anet::ProfileRange r1("SerialTrainRunner::DoStep.initialize");
 
         // 環境初期化
         auto reset_result = env_->Reset();
@@ -309,7 +343,7 @@ StepCounts TrainRunner::DoStep()
         last_time_ = start_time_;
     }
 
-    anet::ProfileRange r2("DefaultTrainer::DoUpdateFrame.makeAction");
+    anet::ProfileRange r2("SerialTrainRunner::DoStep.makeAction");
 
     // --- 学習ステップを回す ---
     float frame_total_reward = 0.0f;
@@ -329,7 +363,7 @@ StepCounts TrainRunner::DoStep()
     //ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info.ToString());
     ANET_ASSERT_SHAPE(action_info.GetAction(), {N});
 
-    anet::ProfileRange r3("DefaultTrainer::DoUpdateFrame.envStep", r2);
+    anet::ProfileRange r3("SerialTrainRunner::DoStep.envStep", r2);
 
     // 環境ステップ実行
     auto result = env_->Step(action_info);    // next_state, reward, done, truncated
@@ -352,7 +386,7 @@ StepCounts TrainRunner::DoStep()
     ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
 //    ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
 
-    anet::ProfileRange r4("DefaultTrainer::DoUpdateFrame.envStepPost", r3);
+    anet::ProfileRange r4("SerialTrainRunner::DoStep.envStepPost", r3);
 
     //メトリクス更新
     UpdateMetrics(result);
@@ -362,21 +396,20 @@ StepCounts TrainRunner::DoStep()
     step_counts_.exp_step += result->n_transitions;
     step_counts_.episode_count += result->n_episode_end;
 
-
     // Agent更新
-    anet::ProfileRange r5("DefaultTrainer::DoUpdateFrame.updateAgent", r4);
+    anet::ProfileRange r5("SerialTrainRunner::DoStep.updateAgent", r4);
     anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
     auto self = this->shared_from_this();
     auto result_list = agent_->UpdateFromBatch(step_counts_, exp, self);
 
     // カウント更新
-    anet::ProfileRange r6("DefaultTrainer::DoUpdateFrame.postUpdate", r5);
+    anet::ProfileRange r6("SerialTrainRunner::DoStep.postUpdate", r5);
     step_counts_.update_step++;
     step_counts_.learn_step += result_list.size();
 
     // 更新後処理
     {
-        anet::ProfileRange r7("DefaultTrainer::DoUpdateFrame.notify", r6);
+        anet::ProfileRange r7("SerialTrainRunner::DoStep.notify", r6);
         torch::NoGradGuard grad_guard;
 
         anet::rl::TrainEvent train_event{ exp, self, step_counts_, agent_, result_list, env_, result, action_info };
@@ -384,24 +417,8 @@ StepCounts TrainRunner::DoStep()
         state_ = result->continue_state;
     }
 
-    // メトリクス算出（処理性能系）
-    auto trin_step = step_counts_.train_step;
-    auto exp_step = step_counts_.exp_step;
-    auto train_step_delta = train_step - last_train_step_;
-    auto exp_step_delta = exp_step - last_exp_step_;
-    auto now = std::chrono::high_resolution_clock::now();
-    auto usec_diff = std::chrono::duration_cast<std::chrono::microseconds>(now - last_time_).count();
-    if (usec_diff <= 0) usec_diff = 1;
-
-    if (usec_diff >= 200000) { // 200msec 積算
-        last_train_step_per_sec_ = static_cast<float>(train_step_delta) * 1000000.0f / usec_diff;
-        last_exp_step_per_sec_ = static_cast<float>(exp_step_delta) * 1000000.0f / usec_diff;
-        acc_train_steps_ = 0;
-        acc_exp_steps_ = 0;
-        last_time_ = now;
-        last_train_step_ = train_step;
-        last_exp_step_ = exp_step;
-    }
+    // 性能関連メトリクスを更新
+    CalcPerformanceMetrics();
 
     // カウント更新
     /// @todo カウント位置検討
@@ -415,6 +432,126 @@ StepCounts TrainRunner::DoStep()
 }
 
 
+// ------------------------------------------------------
+// PipelineTrainRunner
+// ------------------------------------------------------
+
+PipelineTrainRunner::PipelineTrainRunner(
+    std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier)
+    : TrainRunner(env, agent, notifier)
+{
+    // 専用の学習用バックグラウンドスレッドを1つだけ生成
+    learn_pool_ = std::make_unique<anet::PinnedThreadPool>(1, "LearnThread");
+}
+
+void PipelineTrainRunner::Shutdown()
+{
+    if (learn_pool_) {
+        learn_pool_->WaitAll();
+        learn_pool_->Stop();
+    }
+    TrainRunner::Shutdown();
+}
+
+StepCounts PipelineTrainRunner::DoStep()
+{
+    anet::ProfileRange r("PipelineTrainRunner::DoStep");
+
+    // 初期化処理
+    if (!env_initialized_) {
+        anet::ProfileRange r1("PipelineTrainRunner::DoStep.initialize");
+
+        // EnvSpec取得
+        auto env_spec = env_->GetSpec();
+        auto batch_env_spec = env_->GetBatchSpec();
+
+        // 環境初期化
+        auto reset_result = env_->Reset();
+        state_ = reset_result->state;
+        env_initialized_ = true;
+        ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
+        ANET_ASSERT_DEVICE_CPU_MSG(state_.obs, "Initial state");
+        ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
+        ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
+
+        // 時間計測開始
+        start_time_ = std::chrono::high_resolution_clock::now();
+        last_time_ = start_time_;
+    }
+    // 直列フェーズ：推論 (常に最新の重みを使用)
+    auto action_info = agent_->MakeAction(step_counts_, state_, action_context_);
+
+    // 並列フェーズの開始
+    std::future<BatchUpdateResultList> learn_future;
+
+    // 【裏】前回のステップの経験を学習スレッドに投げる
+    if (has_prev_data_) {
+        auto agent = agent_;
+        auto exp = prev_exp_;
+        auto counts = prev_counts_;
+        auto self = this->shared_from_this(); // Notifierで使うため
+
+        learn_future = learn_pool_->EnqueueFuture(0, [agent, counts, exp, self]() {
+            return agent->UpdateFromBatch(counts, exp, self);
+            });
+    }
+
+    // 【表】今回の環境ステップを進める（裏の学習と完全に並列稼働）
+    auto result = env_->Step(action_info);
+
+    // 今回のメトリクス・カウント更新
+    UpdateMetrics(result);
+    step_counts_.train_step++;
+    step_counts_.exp_step += result->n_transitions;
+    step_counts_.episode_count += result->n_episode_end;
+
+    // 同期（待ち合わせ）フェーズ
+    if (has_prev_data_) {
+        auto result_list = learn_future.get(); // 裏の学習が終わるまで待つ
+
+        // 学習完了に基づくカウント更新
+        step_counts_.update_step++;
+        step_counts_.learn_step += result_list.size();
+
+        // 通知 (Notifier)
+        torch::NoGradGuard grad_guard;
+        anet::rl::TrainEvent train_event{
+            prev_exp_, shared_from_this(), prev_counts_, agent_, result_list, env_, prev_result_, prev_action_info_
+        };
+        notifier_->Notify(train_event);
+    }
+
+    // 今回のデータを「前回」として保存し、状態を更新
+    prev_exp_ = anet::rl::BatchExperience({ state_, action_info, result->reward, result->next_state });
+    prev_result_ = result;
+    prev_action_info_ = action_info;
+    prev_counts_ = step_counts_;
+    has_prev_data_ = true;
+
+    state_ = result->continue_state;
+
+    // 性能関連メトリクスを更新
+    CalcPerformanceMetrics();
+
+    return step_counts_;
+}
+
+
+// ------------------------------------------------------
+// RunnerFactory
+// ------------------------------------------------------
+std::shared_ptr<TrainRunner> RunnerFactory::CreateMainRunner(
+    const std::string& type, std::shared_ptr<anet::rl::BatchEnv> env,
+    std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier)
+{
+    if (anet::ToLower(type) == "pipeline") {
+        return std::make_shared<PipelineTrainRunner>(env, agent, notifier);
+    } else {
+        return std::make_shared<SerialTrainRunner>(env, agent, notifier);
+    }
+}
+
+
 // ======================================================
 // RunManager
 // ======================================================
@@ -424,6 +561,7 @@ struct RunManager::Config : public anet::Config
     uint64_t seed = 0;
     int batch_size = 1;
     int eval_interval = 50;
+    std::string main_runner_type = "serial";
 
     RunManager::Config(const anet::ConfigData& config_data, const std::string& config_prefix = "train") /// @todo config_prefixをrunに変更
         : anet::Config(config_data, config_prefix)
@@ -431,6 +569,7 @@ struct RunManager::Config : public anet::Config
         ANET_READ_CONFIG(config_data, seed);
         ANET_READ_CONFIG(config_data, batch_size);
         ANET_READ_CONFIG(config_data, eval_interval);
+        ANET_READ_CONFIG(config_data, main_runner_type);
     }
 };
 
@@ -499,7 +638,7 @@ RunManager::RunManager(const ConfigData& config_data)
     }
 
     // TrainRunner生成
-    train_runner_ = std::make_shared<TrainRunner>(env_, agent_, notifier_);
+    train_runner_ = anet::rl::RunnerFactory::CreateMainRunner(config_->main_runner_type, env_, agent_, notifier_);
 
     // 設定からObserverを生成して登録
     anet::rl::ObserverFactory factory(config_data);

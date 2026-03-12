@@ -7,6 +7,7 @@ train.eval.[eval1].run_mode = eval1
 train.eval.[eval2].interval = 100
 train.eval.[eval2].run_mode = eval2
 
+train.main_runner_type = pipeline;
 
 # --- agent
 
@@ -64,6 +65,9 @@ Conv2dPanel.conv2d.min_block_size = 40
 
 
 # --- backend
+
+#backend.torch_num_threads = -1     # -1:Auto(使えるだけ使う)
+backend.torch_num_threads = 1
 
 backend.use_tf32_cublas = true      # GPUが対応していれば、ほぼ劣化なしで高速化
 backend.use_tf32_cudnn = true       # GPUが対応していれば、ほぼ劣化なしで高速化

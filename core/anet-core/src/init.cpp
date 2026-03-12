@@ -8,6 +8,11 @@ using namespace anet::rl;
 
 void anet::rl::InitRL(const BackendConfig& backend_config)
 {
+	// CPUスレッド数設定
+	if (backend_config.torch_num_threads > 0) {
+		torch::set_num_threads(backend_config.torch_num_threads);
+	}
+
 	// バックエンド設定反映
 	torch::Context& ctx = torch::globalContext();
 	ctx.setAllowTF32CuBLAS(backend_config.use_tf32_cublas);

@@ -11,6 +11,11 @@
 
 namespace anet::rl {
 
+
+    // ======================================================
+    // RunnerBase
+    // ======================================================
+    
     class RunnerBase : public Runner {
     public:
         RunnerBase(
@@ -62,6 +67,10 @@ namespace anet::rl {
     };
 
 
+    // ======================================================
+    // EvalRunner (評価用Runner）
+    // ======================================================
+
     class EvalRunner final : public RunnerBase, public std::enable_shared_from_this<EvalRunner> {
     public:
         EvalRunner(
@@ -77,7 +86,12 @@ namespace anet::rl {
         StepCounts DoStep() override;
     };
 
-    class TrainRunner final : public RunnerBase, public std::enable_shared_from_this<TrainRunner> {
+
+    // ======================================================
+    // TrainRunner (Train系Runnerの基底クラス)
+    // ======================================================
+
+    class TrainRunner : public RunnerBase, public std::enable_shared_from_this<TrainRunner> {
     public:
         TrainRunner(
             std::shared_ptr<anet::rl::BatchEnv> env,
@@ -85,15 +99,18 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::Notifier> notifier);
 
         RunnerStatus Initialize(const ConfigData& config_data);
-        StepCounts DoStep() override;
+        //StepCounts DoStep() override;
+        virtual StepCounts DoStep() override = 0;
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::string GetEnvClassId() const { return env_class_id_; }
         void SetEvalLastReward(const std::string& name, float val);
 
         void Shutdown() override;
-    private:
-        // 乱数
-    private:
+
+        virtual ~TrainRunner() = default;
+    protected:
+        void CalcPerformanceMetrics();
+    protected:
         // Trainer情報
         std::string env_class_id_;
 
@@ -108,6 +125,57 @@ namespace anet::rl {
         anet::rl::step_t last_exp_step_ = 0;
         float last_train_step_per_sec_ = std::numeric_limits<float>::quiet_NaN();
         float last_exp_step_per_sec_ = std::numeric_limits<float>::quiet_NaN();
+    };
+
+
+    // ======================================================
+    // SerialTrainRunner (直列実行)
+    // ======================================================
+    class SerialTrainRunner final : public TrainRunner {
+    public:
+        SerialTrainRunner(
+            std::shared_ptr<anet::rl::BatchEnv> env,
+            std::shared_ptr<anet::rl::Agent> agent,
+            std::shared_ptr<anet::rl::Notifier> notifier);
+
+        StepCounts DoStep() override;
+    };
+
+
+    // ======================================================
+    // PipelineTrainRunner (並列実行)
+    // ======================================================
+    class PipelineTrainRunner final : public TrainRunner {
+    public:
+        PipelineTrainRunner(
+            std::shared_ptr<anet::rl::BatchEnv> env,
+            std::shared_ptr<anet::rl::Agent> agent,
+            std::shared_ptr<anet::rl::Notifier> notifier);
+
+        StepCounts DoStep() override;
+        void Shutdown() override;
+    private:
+        std::unique_ptr<anet::PinnedThreadPool> learn_pool_;
+
+        // 1ステップ遅れで学習を投げるための状態保持
+        bool has_prev_data_ = false;
+        anet::rl::BatchExperience prev_exp_;
+        std::shared_ptr<const BatchStepResult> prev_result_;
+        anet::rl::BatchActionInfo prev_action_info_;
+        anet::rl::StepCounts prev_counts_;
+    };
+
+
+    // ======================================================
+    // RunnerFactory
+    // ======================================================
+    class RunnerFactory {
+    public:
+        static std::shared_ptr<TrainRunner> CreateMainRunner(
+            const std::string& type,
+            std::shared_ptr<anet::rl::BatchEnv> env,
+            std::shared_ptr<anet::rl::Agent> agent,
+            std::shared_ptr<anet::rl::Notifier> notifier);
     };
 
 
