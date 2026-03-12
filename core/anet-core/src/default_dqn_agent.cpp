@@ -459,9 +459,11 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
 
     // LearnEvent通知（排他解除後でないとデッドロックになる）
     if (result_list.size() > 0 && notifier_ != nullptr) {
+        anet::rl::StepCounts current_counts = counts;   // ループ内でカウントを進めるためにコピー
         for (auto result : result_list) {
-            anet::rl::LearnEvent event{ batch_exp, runner, counts, shared_from_this(), result_list };
+            anet::rl::LearnEvent event{ batch_exp, runner, current_counts, shared_from_this(), result_list };
             notifier_->Notify(event);
+            current_counts.learn_step++;    // 次の通知のために learn_step をインクリメント
         }
     }
 

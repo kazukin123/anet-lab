@@ -1386,7 +1386,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         torch::NoGradGuard grad_guard;
 
         // 分布の平均(Q値)のTD誤差の絶対値からPER優先度を算出
-        auto abs_td_error = td_error_tensor.to(torch::kFloat32).abs().detach();
+        auto abs_td_error = td_error_tensor.abs().detach();
         auto new_priorities = abs_td_error + config_.per_eps;
         ANET_ASSERT_SHAPE(new_priorities, { B });
         ANET_ASSERT_NAN(new_priorities);
