@@ -810,10 +810,11 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // TD target & TD Error
         // ------------------------------------------------------------
         auto not_terminal = 1.0f - terminals.to(torch::kFloat32); // (B,)
-        auto td_target = target_values.detach() + not_terminal * config_.gamma * max_next_q.detach(); // (B,)
-        ANET_ASSERT_SHAPE(td_target, { B });
-        ANET_ASSERT_DTYPE(td_target, torch::kFloat32);
+        auto gamma_n = torch::pow(config_.gamma, samples.n_steps.to(torch::kFloat32)); // (B,)
+        auto td_target = target_values.detach() + not_terminal * gamma_n * max_next_q.detach(); // (B,)
         td_error = q_sa - td_target; // (B,)
+        ANET_ASSERT_SHAPE(td_error, { B });
+        ANET_ASSERT_DTYPE(td_error, torch::kFloat32);
 
         // ------------------------------------------------------------
         // Loss Calculation
@@ -1240,8 +1241,11 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             ANET_ASSERT_SHAPE(reward, { B, 1 });
             ANET_ASSERT_SHAPE(not_terminal, { B, 1 });
 
-            // (B, 1) + (B, 1) * (B, N) -> (B, N)
-            target_dist = reward + config_.gamma * not_terminal * next_dist;
+            // gammaの n_step 乗を計算し、ブロードキャスト用に shape(B, 1) に変形
+            auto gamma_n = torch::pow(config_.gamma, samples.n_steps.to(torch::kFloat32)).view({ B, 1 });
+
+            // (B, 1) + (B, 1) * (B, 1) * (B, N) -> (B, N)
+            target_dist = reward + gamma_n * not_terminal * next_dist;
             ANET_ASSERT_SHAPE(target_dist, { B, N });
             ANET_ASSERT_NAN(target_dist);
         }
