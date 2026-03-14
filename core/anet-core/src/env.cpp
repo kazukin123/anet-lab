@@ -17,7 +17,9 @@ using namespace anet::rl;
 namespace LOG = anet::log;
 
 
-// ---- DiscreteBatchEnvBase::Result
+//----------------------------------------------
+// DiscreteBatchEnvBase Result
+//----------------------------------------------
 
 class DiscreteBatchEnvBase::Result : virtual public BatchEnvResult {
 public:
@@ -71,7 +73,9 @@ public:
 };
 
 
-// ---- DiscreteBatchEnvBase
+//----------------------------------------------
+// DiscreteBatchEnvBase
+//----------------------------------------------
 
 DiscreteBatchEnvBase::DiscreteBatchEnvBase(
     const ConfigData& config_data,
@@ -268,7 +272,10 @@ std::optional<std::vector<torch::Tensor>> DiscreteBatchEnvBase::GetTensorVector(
     /// @todo vec対応
 }
 
-// ---- VectorizedDiscreteBatchEnv
+
+//----------------------------------------------
+// VectorizedDiscreteBatchEnv
+//----------------------------------------------
 
 VectorizedDiscreteBatchEnv::VectorizedDiscreteBatchEnv(
     const ConfigData& configData,
@@ -355,7 +362,10 @@ std::shared_ptr<const BatchStepResult> VectorizedDiscreteBatchEnv::Step(const Ba
     return result;
 }
 
-// ---- ThreadPoolDiscreteEnv
+
+//----------------------------------------------
+// ThreadPoolDiscreteEnv
+//----------------------------------------------
 
 ThreadPoolDiscreteEnv::ThreadPoolDiscreteEnv(
     const ConfigData& configData,
@@ -506,7 +516,10 @@ std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(const BatchAc
     return result;
 }
 
-// ---- DefaultBatchEnvFactory
+
+//----------------------------------------------
+// DefaultBatchEnvFactory
+//----------------------------------------------
 
 DefaultBatchEnvFactory::DefaultBatchEnvFactory(
     const DefaultBatchEnvFactoryConfig& config,
@@ -602,6 +615,11 @@ std::shared_ptr<SingleDiscreteEnvFactory> DefaultBatchEnvFactory::GetSingleFacto
         return nullptr;
     return factory;
 }
+
+
+//----------------------------------------------
+// EnvRepository
+//----------------------------------------------
 
 void EnvRepository::Regist(std::shared_ptr<SingleDiscreteEnvFactory> factory)
 {
