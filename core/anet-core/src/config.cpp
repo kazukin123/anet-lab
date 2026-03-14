@@ -71,7 +71,8 @@ namespace anet {
         return tags;
     }
 
-    std::string Properties::Trim(const std::string& s) {
+    std::string Properties::Trim(const std::string& s)
+    {
         const char* ws = " \t\r\n";
         size_t b = s.find_first_not_of(ws);
         if (b == std::string::npos) return "";
@@ -79,7 +80,8 @@ namespace anet {
         return s.substr(b, e - b + 1);
     }
 
-    void Properties::Load(const std::string& filename, int depth) {
+    void Properties::Load(const std::string& filename, int depth)
+    {
         if (depth >= 10) {
             throw std::runtime_error("ANET_SYSTEM_ERROR: Include depth limit exceeded (max 10).");
         }
@@ -233,9 +235,9 @@ namespace anet {
         std::ostringstream oss;
 
         auto json = round_numbers(my_config_json_);
-        for (auto kv : json.items()) {
-            auto key = kv.key();
-            auto value = kv.value();
+        for (auto kv : my_config_data_.Map()) {
+            auto key = kv.first;
+            auto value = json[key];
             if (value.is_array()) {
                 oss << default_prefix_ << "." << key << " =";
                 for (auto& v : value) {
