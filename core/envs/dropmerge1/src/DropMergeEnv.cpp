@@ -110,7 +110,7 @@ DropMergeEnv::DropMergeEnv(
     , config_(config)
 {
     // メトリクスログなど
-    anet::MetricsLogger::Instance()->Log("DropMergeEnv", config_.ToJson());
+    anet::MetricsLogger::Instance()->Log("DropMergeEnv", config_);
 
     // --- Seed Mode の解析 ---
     std::string mode_str = anet::ToLower(config_.seed_mode);

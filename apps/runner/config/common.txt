@@ -99,6 +99,12 @@ app.batchrun.train_panel.fps = 0.5
 app.batchrun.eval_panel.fps = 0.5
 app.batchrun.eval_panel.step_per_frame = 10
 
+app.metrics_logger.root_dir = runs
+#app.metrics_logger.video_codec = libx264
+app.metrics_logger.video_codec = h264_nvenc  # libx264
+#app.metrics_logger.video_fps = 30
+app.metrics_logger.video_fps = 15
+
 ## MEMO: smooth_radius
 # 計算式: Bins (510) ÷ Quantile数 (N) 程度が目安。
 #   もし N=51 なら、510 / 51 = 10 ビンくらいの隙間が空く可能性がある

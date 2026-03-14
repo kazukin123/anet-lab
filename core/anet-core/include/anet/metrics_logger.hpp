@@ -79,40 +79,42 @@ namespace anet {
     // VideoLogger (ffmpegパイプで動画出力)
     //----------------------------------------------
     class VideoLogger {
-    private:
-        wxProcess* process_ = nullptr;
-        wxOutputStream* stream_ = nullptr;
-        int width_ = 0, height_ = 0;
-        std::string path_;
-        int fps_;
-        int in_rate_;
-        std::string codec_;
-
-        void Close();
     public:
-        VideoLogger(const std::string& path, int width, int height, int fps = 30, const std::string& codec = "libx264");
+        VideoLogger(const std::string& path, int width, int height, const std::string& codec = "libx264", int fps = 30);
         ~VideoLogger() { Close(); }
 
         void WriteFrame(const wxImage& img);
+    private:
+        void Close();
+    private:
+        wxProcess* process_ = nullptr;
+        wxOutputStream* stream_ = nullptr;
+        int width_ = 0;
+        int height_ = 0;
+        std::string path_;
+        std::string codec_;
+        int fps_;
+        int in_rate_;
     };
 
     //----------------------------------------------
-    // MetricsLogger 本体
+    // MetricsLogger
     //----------------------------------------------
+
+    struct MetricsLoggerConfig {
+        std::string runs_dir = "runs";
+        std::string run_name_tmpl = "run_{t}";
+        std::string video_codec = "libx264";
+        int video_fps = 30;
+    };
+
     class MetricsLogger {
     public:
         explicit MetricsLogger(
-            std::unique_ptr<IBackend> backend, const std::string& root = "runs", const std::string& run_name_tmpl = "");
+        	std::unique_ptr<IBackend> backend, const MetricsLoggerConfig& config, const std::filesystem::path& root_dir);
 
         MetricsLogger(const MetricsLogger&) = delete;
         MetricsLogger& operator=(const MetricsLogger&) = delete;
-
-        // --- Singleton API ---
-        static std::shared_ptr<MetricsLogger> Instance();
-        static void Init(std::unique_ptr<IBackend> backend, const std::string& root = "runs", const std::string& run_name_tmpl = "run_{t}");
-        static void Reset();
-
-        static std::string GetRunName(const std::string& run_name_tmpl);
 
         inline void LogScalar(const std::string& tag, int64_t step, double value) {
             json obj = {
@@ -134,29 +136,36 @@ namespace anet {
         void Log(const std::string& tag, anet::rl::step_t step, const anet::ImageSource& src, int width = -1, int height = -1);
 
         inline std::string GetRunName() const { return run_name_; }
-        inline std::string GetOutDir() const { return std::filesystem::relative(root_dir_ + "/" + run_name_).string(); }
+        inline std::filesystem::path GetRunDir() const { return run_dir_; }
         inline void Flush() { backend_->Flush(); }
+    public:
+        // --- Singleton API ---
+        static std::shared_ptr<MetricsLogger> Instance();
+        static void Init(std::unique_ptr<IBackend> backend, const MetricsLoggerConfig& config, const std::filesystem::path& root_dir);
+        static void Reset();
     private:
         std::string CreateTimeStampStr() const;
         std::string CreateRunName(const std::string& run_name_tmpl) const;
+        void LogImage_subtyped(const std::string& tag, anet::rl::step_t step, const wxImage& image, const std::string& subtype_or_empty);
+    private:
+        static std::string GetRunName(const std::string& run_name_tmpl);
+        static std::string current_time_str();
+        static std::string sanitize_filename(const std::string& s);
     private:
         std::unique_ptr<IBackend> backend_;
-        std::string root_dir_;
+        MetricsLoggerConfig config_;
         std::string run_name_;
-        std::mutex config_mutex_;
+        std::filesystem::path run_dir_;
         
+        std::mutex config_mutex_;
+
         // 画像・動画用連番管理
         std::unordered_map<std::string, uint64_t> image_seq_;
         std::unordered_map<std::string, std::unique_ptr<VideoLogger>> video_loggers_;
-
-        static std::string current_time_str();
-        static std::string sanitize_filename(const std::string& s);
-
-        // 内部実装
-        void LogImage_subtyped(const std::string& tag, anet::rl::step_t step, const wxImage& image, const std::string& subtype_or_empty);
-
+    private:
         // --- Singleton管理 ---
         static std::shared_ptr<MetricsLogger> instance_;
         static std::mutex instance_mutex_;
     };
+
 }   // namespace anet

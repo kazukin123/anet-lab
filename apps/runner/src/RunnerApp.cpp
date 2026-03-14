@@ -38,6 +38,7 @@ struct RunnerApp::Config : public anet::Config {
     int exp_pause_step = -1;
     int exp_exit_step = -1;
 
+    anet::MetricsLoggerConfig metrics_logger;
     TrainPanelConfig train_panel;
     EvalPanelConfig eval_panel;
 
@@ -50,7 +51,13 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, exp_pause_step);
         ANET_READ_CONFIG(config_data, exp_exit_step);
 
+        ANET_READ_CONFIG(config_data, metrics_logger.runs_dir);
+        metrics_logger.run_name_tmpl = run_name;
+        ANET_READ_CONFIG(config_data, metrics_logger.video_codec);
+        ANET_READ_CONFIG(config_data, metrics_logger.video_fps);
+
         ANET_READ_CONFIG(config_data, train_panel.fps);
+
         ANET_READ_CONFIG(config_data, eval_panel.fps);
         ANET_READ_CONFIG(config_data, eval_panel.step_per_frame);
         ANET_READ_CONFIG(config_data, eval_panel.auto_start);
@@ -135,7 +142,7 @@ bool RunnerApp::OnInit()
     config_ = std::make_unique<RunnerApp::Config>(config_data);
 
     // MetricsLogger
-    anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), GetRunsPath(), config_->run_name);
+    anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), config_->metrics_logger, GetProjectRootDir());
     anet::MetricsLogger::Instance()->Log("config_data", config_data.ToJson());
 
     // ライブラリ初期化
