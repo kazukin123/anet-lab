@@ -1,4 +1,8 @@
 ﻿
+## ■ema_alpha デフォルト0.01
+# ema_alpha: 小 → 過去が強く残る（滑らか）
+# ema_alpha: 大 → 早く追従する（荒い）
+
 # ----- metrics
 
     # metrics.scalar.[tag] = key [&step]  [@event]  [$target]
