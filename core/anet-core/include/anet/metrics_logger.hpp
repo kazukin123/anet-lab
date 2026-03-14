@@ -21,7 +21,7 @@ namespace anet {
     class IBackend {
     public:
         virtual ~IBackend() = default;
-        virtual void Open(const std::string& root_dir, const std::string& run_name) = 0;
+        virtual void Open(const std::filesystem::path& runs_dir, const std::string& run_name) = 0;
         virtual void WriteJsonl(const json& obj) = 0;
         virtual void Flush() = 0;
     };
@@ -29,13 +29,14 @@ namespace anet {
     //----------------------------------------------
     // JSONLバックエンド
     //----------------------------------------------
-    class JsonlBackend : public IBackend {
-    private:
-        std::ofstream ofs;
+    class JsonlBackend final : public IBackend {
     public:
-        void Open(const std::string& root_dir, const std::string& run_name) override;
+        void Open(const std::filesystem::path& runs_dir, const std::string& run_name) override;
         void WriteJsonl(const json& obj) override;
         void Flush() override;
+    private:
+        std::ofstream ofs;
+        std::mutex mtx_;
     };
 
     //----------------------------------------------
@@ -89,6 +90,7 @@ namespace anet {
     private:
         wxProcess* process_ = nullptr;
         wxOutputStream* stream_ = nullptr;
+        std::mutex write_mutex_;
         int width_ = 0;
         int height_ = 0;
         std::string path_;
@@ -146,18 +148,19 @@ namespace anet {
     private:
         std::string CreateTimeStampStr() const;
         std::string CreateRunName(const std::string& run_name_tmpl) const;
+        void LogJsonInternal(const std::string& tag, const json& data);
         void LogImage_subtyped(const std::string& tag, anet::rl::step_t step, const wxImage& image, const std::string& subtype_or_empty);
     private:
-        static std::string GetRunName(const std::string& run_name_tmpl);
-        static std::string current_time_str();
-        static std::string sanitize_filename(const std::string& s);
+        static std::string GetCurrentTimeStr();
+        static std::string SanitizeFilename(const std::string& s);
     private:
         std::unique_ptr<IBackend> backend_;
         MetricsLoggerConfig config_;
         std::string run_name_;
         std::filesystem::path run_dir_;
         
-        std::mutex config_mutex_;
+        std::mutex log_mutex_;
+        std::mutex video_mutex_;
 
         // 画像・動画用連番管理
         std::unordered_map<std::string, uint64_t> image_seq_;

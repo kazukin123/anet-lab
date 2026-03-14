@@ -20,22 +20,25 @@ wxDEFINE_EVENT(wxEVT_APP_EXECUTE_START, wxThreadEvent);
 // JsonlBackend
 //----------------------------------------------
 
-void JsonlBackend::Open(const std::string& root_dir, const std::string& run_name)
+void JsonlBackend::Open(const std::filesystem::path& runs_dir, const std::string& run_name)
 {
-    std::filesystem::create_directories(root_dir + "/" + run_name);
-    auto path = root_dir + "/" + run_name + "/metrics.jsonl";
-    ofs.open(path, std::ios::app);
-    if (!ofs) throw std::runtime_error("Failed to open: " + path);
+    auto run_dir = runs_dir / run_name;
+    std::filesystem::create_directories(run_dir);
+    auto jsonl_path = run_dir / "metrics.jsonl";
+    ofs.open(jsonl_path, std::ios::app);
+    ANET_CHECK_MSG(ofs, "Failed to open: " << jsonl_path);
 }
 
 void JsonlBackend::WriteJsonl(const json& obj)
 {
-    ofs << obj.dump() << "\n";
-    //ofs.flush();
+    std::string line = obj.dump() + "\n";
+    std::lock_guard<std::mutex> lock(mtx_);
+    ofs << line;
 }
 
 void JsonlBackend::Flush()
 {
+    std::lock_guard<std::mutex> lock(mtx_);
     ofs.flush();
 }
 
@@ -104,6 +107,7 @@ VideoLogger::VideoLogger(const std::string& path, int width, int height, const s
 
 void VideoLogger::WriteFrame(const wxImage& img)
 {
+    std::lock_guard<std::mutex> lock(write_mutex_);
     ANET_CHECK(stream_ != nullptr);
     if (!stream_ || !stream_->IsOk()) return; 
 
@@ -139,7 +143,7 @@ void VideoLogger::Close()
 // MetricsLogger
 //----------------------------------------------
 
-std::string MetricsLogger::current_time_str()
+std::string MetricsLogger::GetCurrentTimeStr()
 {
     auto t = std::chrono::system_clock::now();
     std::time_t tt = std::chrono::system_clock::to_time_t(t);
@@ -154,7 +158,7 @@ std::string MetricsLogger::current_time_str()
     return buf;
 }
 
-std::string MetricsLogger::sanitize_filename(const std::string& s)
+std::string MetricsLogger::SanitizeFilename(const std::string& s)
 {
     std::string r = s;
     for (char& c : r) {
@@ -180,10 +184,11 @@ MetricsLogger::MetricsLogger(std::unique_ptr<IBackend> backend, const MetricsLog
     }
 
     auto runs_dir = root_dir / config_.runs_dir;
-    run_dir_ = root_dir / config_.runs_dir / run_name_;
-    backend_->Open(runs_dir.string(), run_name_);
-    json meta = { {"type","meta"}, {"event","start"}, {"timestamp", current_time_str()} };
+    backend_->Open(runs_dir, run_name_);
+    json meta = { {"type","meta"}, {"event","start"}, {"timestamp", GetCurrentTimeStr()} };
     backend_->WriteJsonl(meta);
+
+    run_dir_ = root_dir / config_.runs_dir / run_name_;
 }
 
 std::string MetricsLogger::CreateTimeStampStr() const
@@ -209,12 +214,39 @@ std::string MetricsLogger::CreateRunName(const std::string& run_name_tmpl) const
     return run_name;
 }
 
+void MetricsLogger::Log(const anet::Config& config)
+{
+    auto tag = config.GetConfigPrefix();
+    Log(tag, config);
+}
+
+void MetricsLogger::LogJsonInternal(const std::string& tag, const json& data)
+{
+    json rounded = round_numbers(data);
+    json obj = {
+        {"type", "json"},
+        {"tag", tag},
+        {"data", rounded}
+    };
+
+    std::string safe_tag = SanitizeFilename(tag);
+    auto json_dir = run_dir_ / "json";
+    std::filesystem::create_directories(json_dir);
+    auto json_path = json_dir / (safe_tag + ".json");
+    std::ofstream ofs(json_path);
+    ofs << obj.dump(4) << std::endl;
+
+    obj["timestamp"] = GetCurrentTimeStr();
+    backend_->WriteJsonl(obj);
+}
+
 void MetricsLogger::Log(const std::string& tag, const anet::Config& config)
 {
-    std::lock_guard<std::mutex> lock(config_mutex_);
+    std::lock_guard<std::mutex> lock(log_mutex_);
 
+    // JSONとして書き込み
     auto json_data = config.ToJson();
-    Log(tag, json_data);
+    LogJsonInternal(tag, json_data);
 
     auto config_prefix = config.GetConfigPrefix();
     auto config_str = config.ToConfigString();
@@ -227,7 +259,7 @@ void MetricsLogger::Log(const std::string& tag, const anet::Config& config)
     }
 
     // バラのファイルにダンプ
-    std::string safe_tag = sanitize_filename(tag);
+    std::string safe_tag = SanitizeFilename(tag);
     auto config_dir = this->run_dir_ / "config";
     std::filesystem::create_directories(config_dir);
     auto config_txt_path = config_dir / (safe_tag + ".txt");
@@ -235,43 +267,18 @@ void MetricsLogger::Log(const std::string& tag, const anet::Config& config)
         std::ofstream ofs(config_txt_path, std::ios_base::out);
         ofs << config_str;
     }
-
-    //auto map = config.GetConfigData().Map();
-    //for (auto kv : map) {
-    //    auto key = kv.first;
-    //    auto value = kv.second;
-    //    ofs << config_prefix << "." << key << " = " << value << std::endl;
-    //}
-}
-
-void MetricsLogger::Log(const anet::Config& config)
-{
-    auto tag = config.GetConfigPrefix();
-    Log(tag, config);
 }
 
 void MetricsLogger::Log(const std::string& tag, const json& data)
 {
-    json rounded = round_numbers(data);
-    json obj = {
-        {"type", "json"},
-        {"tag", tag},
-        {"data", rounded}
-    };
-
-    std::string safe_tag = sanitize_filename(tag);
-    auto json_dir = run_dir_ / "json";
-    std::filesystem::create_directories(json_dir);
-    auto json_path = json_dir / (safe_tag + ".json");
-    std::ofstream ofs(json_path);  // ファイルを開く
-    ofs << obj.dump(4) << std::endl;     // インデント幅 4 で書き出
-
-    obj["timestamp"] = current_time_str();
-    backend_->WriteJsonl(obj);
+    std::lock_guard<std::mutex> lock(log_mutex_);
+    LogJsonInternal(tag, data);
 }
 
 void MetricsLogger::Log(const std::string& tag, anet::rl::step_t step, const json& data)
 {
+    std::lock_guard<std::mutex> lock(log_mutex_);
+
     json rounded = round_numbers(data);
     json obj = {
         {"type", "json"},
@@ -279,7 +286,7 @@ void MetricsLogger::Log(const std::string& tag, anet::rl::step_t step, const jso
         {"data", rounded}
     };
 
-    std::string safe_tag = sanitize_filename(tag);
+    std::string safe_tag = SanitizeFilename(tag);
     auto json_dir = run_dir_ / "json";
     std::filesystem::create_directories(json_dir);
     auto full_path = json_dir / (safe_tag + std::format("_{}.json", step));
@@ -287,7 +294,7 @@ void MetricsLogger::Log(const std::string& tag, anet::rl::step_t step, const jso
     std::ofstream ofs(full_path);  // ファイルを開く
     ofs << obj.dump(4) << std::endl;     // インデント幅 4 で書出
 
-    obj["timestamp"] = current_time_str();
+    obj["timestamp"] = GetCurrentTimeStr();
     backend_->WriteJsonl(obj);
 }
 
@@ -314,7 +321,7 @@ void MetricsLogger::LogImage_subtyped(const std::string& tag, anet::rl::step_t s
     ProfileRange r1("MetricsLogger::::LogImage_subtyped.prepare");
 
     // タグを安全なファイル名に変換
-    std::string safe_tag = sanitize_filename(tag);
+    std::string safe_tag = SanitizeFilename(tag);
 
     // ---- 画像書き込み (個別PNG保存はデバッグ用) ----
     if (false) {
@@ -328,25 +335,52 @@ void MetricsLogger::LogImage_subtyped(const std::string& tag, anet::rl::step_t s
         image.SaveFile(image_path.string(), wxBITMAP_TYPE_PNG);
     }
 
-    // ---- 動画書き込み ----
-    auto vid_path = run_dir_ / "videos" / (safe_tag + ".mkv");
-    auto it = video_loggers_.find(tag);
-    if (it == video_loggers_.end()) {
-        ProfileRange r2("MetricsLogger::::LogImage_subtyped.make_VideoLogger");
+    VideoLogger* target_logger = nullptr;
+    {
+        // ロックを取って、既にロガーが存在するか確認
+        std::lock_guard<std::mutex> lock(video_mutex_);
+        auto it = video_loggers_.find(tag);
+        if (it != video_loggers_.end()) {
+            target_logger = it->second.get();
+        }
+    }
 
-        auto vlog = std::make_unique<VideoLogger>(vid_path.string(), image.GetWidth(), image.GetHeight(), config_.video_codec, config_.video_fps);
-        json vmeta = {
-            {"type", "video"},
-            {"tag", tag},
-            {"path", "videos/" + safe_tag + ".mkv"},
-            {"timestamp", current_time_str()}
-        };
-        backend_->WriteJsonl(vmeta);
-        it = video_loggers_.emplace(tag, std::move(vlog)).first;
+    // 一時退避用
+    std::unique_ptr<VideoLogger> temp_vlog;
+
+    // VideoLoggerが存在しない場合は作る
+    if (!target_logger) {
+        // VideoLogger を作る
+        auto vid_path = run_dir_ / "videos" / (safe_tag + ".mkv");
+        temp_vlog = std::make_unique<VideoLogger>(vid_path.string(), image.GetWidth(), image.GetHeight(), config_.video_codec, config_.video_fps);
+
+        // マップ登録用にロックを取る
+        std::lock_guard<std::mutex> lock(video_mutex_);
+
+        // 作っている間に、別のスレッドが同じタグのロガーを作ってしまったか再確認（Double-Checked Locking）
+        auto it = video_loggers_.find(tag);
+        if (it == video_loggers_.end()) {
+            // Mapに登録
+            ProfileRange r2("MetricsLogger::::LogImage_subtyped.make_VideoLogger");
+            target_logger = temp_vlog.get();
+            video_loggers_[tag] = std::move(temp_vlog);
+
+            // メタデータを一回だけ書き込み
+            json vmeta = {
+                {"type", "video"},
+                {"tag", tag},
+                {"path", "videos/" + safe_tag + ".mkv"},
+                {"timestamp", GetCurrentTimeStr()}
+            };
+            backend_->WriteJsonl(vmeta);
+        } else {
+            // もし別スレッドが先に作っていたら、そっちを使う（temp_vlog は自動で破棄される）
+            target_logger = it->second.get();
+        }
     }
 
     ProfileRange r3("MetricsLogger::::LogImage_subtyped.writeFrame", r1);
-    it->second->WriteFrame(image);
+    target_logger->WriteFrame(image);
 
     /// @todo 動画フレーム情報Metrics出力
 
