@@ -35,39 +35,10 @@ Network::Network(
     target_net_->eval();
 }
 
-torch::Tensor Network::Forward(const torch::Tensor& obs, bool use_target) const
+anet::TensorDict Network::Forward(const torch::Tensor& obs, bool use_target) const
 {
     const auto& net = use_target ? target_net_ : policy_net_;
-
-    // 生の出力:
-    //  Plain Head    -> (B, A)
-    //  Quantile Head -> (B, A*N)
-    auto output = net->Forward(obs);
-
-    if (num_quantiles_ > 1) {
-        // QR-DQNの場合: 分布の平均を取って Q(s,a) を返す
-        auto batch_size = output.size(0);
-        // Reshape: (B, A*N) -> (B, A, N)
-        auto reshaped = output.view({ batch_size, n_actions_, num_quantiles_ });
-        // Mean: (B, A, N) -> (B, A)
-        return reshaped.mean(2);
-    } else {
-        // DQNの場合: そのまま返す (B, A)
-        return output;
-    }
-}
-
-torch::Tensor Network::ForwardQuantiles(const torch::Tensor& obs, bool use_target) const
-{
-    // QR-DQNでない場合は呼んではいけない
-    ANET_ASSERT(num_quantiles_ > 1);
-
-    const auto& net = use_target ? target_net_ : policy_net_;
-    auto output = net->Forward(obs); // (B, A*N)
-
-    // Reshape: (B, A*N) -> (B, A, N)
-    auto batch_size = output.size(0);
-    return output.view({ batch_size, n_actions_, num_quantiles_ });
+    return net->Forward(obs);
 }
 
 bool Network::IsDistributional(bool use_target) const
@@ -213,14 +184,6 @@ torch::Tensor anet::rl::dqn::ActionPolicy::MakeEpsilonGreedyAction(const torch::
     return actions;
 }
 
-torch::Tensor anet::rl::dqn::ActionPolicy::GetQuantiles(const torch::Tensor& obs, bool use_target) const
-{
-    if (network_.IsDistributional(use_target)) {
-        return network_.ForwardQuantiles(obs, use_target);
-    }
-    return torch::Tensor();
-}
-
 anet::rl::BatchActionInfo anet::rl::dqn::ActionPolicy::MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const
 {
     ProfileRange  r("ActionPolicy::MakeActionInfo");
@@ -290,9 +253,15 @@ anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const torch::T
     torch::ScalarType amp_dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
     anet::Autocast cast_guard(torch::kCUDA, config_.use_amp, amp_dtype);
 
-    // Q値生成
-    auto q_quantiles = GetQuantiles(obs, use_target);
-    auto q_values = q_quantiles.defined() ? q_quantiles.mean(-1) : network_.Forward(obs, use_target);
+    // obsからQ値取得
+    auto out = network_.Forward(obs, use_target);
+    auto q_values = out.At("q");
+    torch::Tensor q_quantiles;
+    if (out.Contains("q_dist")) {
+        q_quantiles = out.At("q_dist");
+    }
+
+    // Q値GreedyなActionを生成
     auto greedy_action = q_values.argmax(1, /*keepdim=*/false);        // greedy = argmax(q_values, dim=1)
 
     // Greedy指定ならargmxを返す
@@ -426,8 +395,10 @@ anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const to
     torch::ScalarType amp_dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
     anet::Autocast cast_guard(torch::kCUDA, config_.use_amp, amp_dtype);
 
-    auto q_quantiles = GetQuantiles(obs, use_target);
-    auto q_values = q_quantiles.mean(-1);
+    // Q値を取得
+    auto out = network_.Forward(obs, use_target);
+    auto q_values = out.At("q");
+    auto q_quantiles = out.At("q_dist");
 
     // パラメータの決定 (Train vs Eval)
     float effective_epsilon = current_epsilon_;
@@ -750,7 +721,8 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // ------------------------------------------------------------
         // Q(s, a)
         // ------------------------------------------------------------
-        auto q_all = network_.Forward(obs, /*use_target=*/false);      // (B,A)
+        auto q_out = network_.Forward(obs, /*use_target=*/false);
+        auto q_all = q_out.At("q"); // (B,A)
         ANET_ASSERT_SHAPE(q_all, { B, A });
 
         torch::Tensor idx_actions = samples.actions.view({ B, 1 });   // (B,1)
@@ -797,7 +769,8 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             torch::Tensor next_actions = target_action_info.GetAction(device_);
 
             // 選んだ行動の価値を TargetNet で評価する (価値評価は常に TargetNet)
-            auto next_q_target = network_.Forward(next_obs, /*use_target=*/true); // (B, A)
+            auto next_q_out = network_.Forward(next_obs, /*use_target=*/true);
+            auto next_q_target = next_q_out.At("q"); // (B, A)
             ANET_ASSERT_SHAPE(next_q_target, { B, A });
 
             torch::Tensor next_actions_b = next_actions.view({ B, 1 }); // (B,1)
@@ -1172,7 +1145,8 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // ------------------------------------------------------------
 
         // 現在の分布計算: Z(s, a)、ForwardQuantiles は (B, A, N) を返す
-        auto current_dist_all = network_.ForwardQuantiles(obs, /*use_target=*/false);
+        auto current_out = network_.Forward(obs, /*use_target=*/false);
+        auto current_dist_all = current_out.At("q_dist"); // (B, A, N)
         ANET_ASSERT_SHAPE(current_dist_all, { B, A, N });
         ANET_ASSERT_NAN(current_dist_all);
 
@@ -1187,7 +1161,8 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
         // メトリクス用: 平均値をmax_qとして報告
         q_sa_val = current_dist.mean(1).detach(); // 選ばれた行動のQ値
-        max_q = std::get<0>(current_dist_all.mean(2).max(1)).detach(); // 全行動の最大Q値
+        auto q_values_mean = current_out.At("q"); // すでに計算済みの平均Q値 (B, A)
+        max_q = std::get<0>(q_values_mean.max(1)).detach(); // 全行動の最大Q値
         ANET_ASSERT_SHAPE(max_q, { B });
 
         // メトリクス用: Q Std (分布の標準偏差)、 GPUTensor (Scalar) のまま保持
@@ -1196,7 +1171,6 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
         // メトリクス用: トップActionと2位ActionのQ値Gap平均、 GPUTensor (Scalar) のまま保持
         if (n_actions_ >= 2) { // 念の為
-        auto q_values_mean = current_dist_all.mean(2);      // (B, A, N) -> (B, A)
         auto top2 = std::get<0>(q_values_mean.topk(2, 1));  //  (B, 2) 上位2つのQ値
         auto q_best = top2.select(1, 0);       // 1位 (B)
         auto q_second = top2.select(1, 1);     // 2位 (B)
@@ -1225,7 +1199,8 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             ANET_ASSERT_SHAPE(next_actions, { B });
 
             // 次状態のターゲット分布: Z_target(s', :)
-            auto next_dist_all = network_.ForwardQuantiles(next_obs, /*use_target=*/true); // (B, A, N)
+            auto next_out = network_.Forward(next_obs, /*use_target=*/true);
+            auto next_dist_all = next_out.At("q_dist"); // (B, A, N)
             ANET_ASSERT_SHAPE(next_dist_all, { B, A, N });
 
             // a* に対応する分布を選択: (B, A, N) -> (B, N)

@@ -221,14 +221,14 @@ namespace anet::rl::dqn {
 
         /// 行動選択・学習用：期待値Q (B, A) を返す
         /// QR-DQNの場合は分布の平均を計算して返す
-        torch::Tensor Forward(const torch::Tensor& obs, bool use_target) const;
+        anet::TensorDict Forward(const torch::Tensor& obs, bool use_target) const;
 
         /// QR判定
         bool IsDistributional(bool use_target) const;
 
         /// QR-DQN学習用：Quantile 出力 (B, A, N) を返す
         /// 内部で (B, A*N) -> (B, A, N) へのReshapeを行う
-        torch::Tensor ForwardQuantiles(const torch::Tensor& obs, bool use_target) const;
+        //torch::Tensor ForwardQuantiles(const torch::Tensor& obs, bool use_target) const;
 
         /// policy_netのパラメータ取得
         std::vector<torch::Tensor> GetPolicyParameters() const;
@@ -274,7 +274,7 @@ namespace anet::rl::dqn {
     protected:
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t batch_size, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         BatchActionInfo MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const;
-        torch::Tensor GetQuantiles(const torch::Tensor& obs, bool use_target) const;
+        //torch::Tensor GetQuantiles(const torch::Tensor& obs, bool use_target) const;
         void UpdateEpsilon(step_t step, bool is_uqe = false);
     protected:
         const ActionPolicyConfig config_;

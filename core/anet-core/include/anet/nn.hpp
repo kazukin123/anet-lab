@@ -77,8 +77,9 @@ namespace anet::nn {
     // NetworkHead
     // ===========================================================================
 
-    class NetworkHead : public NetworkModule, public anet::TensorFunctionProvider {
+    class NetworkHead : public torch::nn::Module, public anet::TensorFunctionProvider {
     public:
+        virtual anet::TensorDict Forward(torch::Tensor feature_vector) = 0;
         virtual ~NetworkHead() = default;
     };
 
@@ -100,7 +101,7 @@ namespace anet::nn {
         Network(std::shared_ptr<NetworkBody> body, std::shared_ptr<NetworkHead> head);
 
         std::optional<TensorFunction> GetTensorFunction(const std::string& key) override;
-        torch::Tensor Forward(torch::Tensor input); ///<  Input -> Body -> Feature -> Head -> Output
+        anet::TensorDict Forward(torch::Tensor input); ///<  Input -> Body -> Feature -> Head -> Output
         anet::TensorDict GetConv2dOutputs(const torch::Tensor& input) const;
     private:
         std::shared_ptr<NetworkBody> body_;

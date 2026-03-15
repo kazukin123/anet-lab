@@ -27,11 +27,13 @@ public:
         WeightInitializer::Initialize(linear_, init_config);
     }
 
-    torch::Tensor Forward(torch::Tensor feature_vector) override
+    anet::TensorDict Forward(torch::Tensor feature_vector) override
     {
         anet::ProfileRange r("LinearHead::Forward");
 
-        return linear_->forward(feature_vector);
+        anet::TensorDict out;
+        out.Set("q", linear_->forward(feature_vector)); // (B, A)
+        return out;
     }
 
     std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override
@@ -73,16 +75,22 @@ public:
         WeightInitializer::Initialize(adv_, init_config);
     }
 
-    torch::Tensor Forward(torch::Tensor x) override
+    anet::TensorDict Forward(torch::Tensor x) override
     {
         anet::ProfileRange r("DuelingHead::Forward");
 
+        // v,a,q を取得
         auto v = value_->forward(x); // (B, 1)
         auto a = adv_->forward(x);   // (B, A)
-
-        // Q = V + (A - mean(A))
         auto a_mean = a.mean(/*dim=*/1, /*keepdim=*/true);
-        return v + (a - a_mean);
+        auto q = v + (a - a_mean);
+
+        // 結果を返す
+        anet::TensorDict out;
+        out.Set("q", q);
+        out.Set("v", v);
+        out.Set("a", a);
+        return out;
     }
 
     std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override
@@ -91,7 +99,9 @@ public:
         if (key == "forward" || key == "forward.q" || key == "q_values") {
             return [this](const torch::Tensor& x) {
                 torch::NoGradGuard no_grad;
-                return this->Forward(x); // Q = V + (A - meanA)
+                auto v = value_->forward(x);
+                auto a = adv_->forward(x);
+                return v + (a - a.mean(1, true));
                 };
         }
         // Value (B, 1)
@@ -135,13 +145,25 @@ public:
         WeightInitializer::Initialize(linear_, init_config);
     }
 
-    torch::Tensor Forward(torch::Tensor x) override
+    anet::TensorDict Forward(torch::Tensor x) override
     {
         anet::ProfileRange r("QuantileHead::Forward");
 
-        // Return Flat Tensor (B, A * N)
-        // Note: Reshaping to (B, A, N) is handled by the Adapter (dqn::Network) or Learner
-        return linear_->forward(x);
+        // 生の出力（B, A*N)
+        auto flat = linear_->forward(x); // (B, A*N)
+
+        // 分布に変形
+        auto batch_size = flat.size(0);
+        auto q_dist = flat.view({ batch_size, action_dim_, num_quantiles_ });
+
+        // Q分布の平均としてQ値を算出
+        auto q = q_dist.mean(2);
+
+        // 結果を返す
+        anet::TensorDict out;
+        out.Set("q_dist", q_dist);  // (B, A, N)
+        out.Set("q", q);            // (B, A)
+        return out;
     }
 
     std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override
@@ -190,7 +212,7 @@ public:
         WeightInitializer::Initialize(adv_, init_config);
     }
 
-    torch::Tensor Forward(torch::Tensor x) override
+    anet::TensorDict Forward(torch::Tensor x) override
     {
         anet::ProfileRange r("QuantileDuelingHead::Forward");
 
@@ -208,8 +230,16 @@ public:
         // Q = V + (A - mean(A)) -> (B, A, N)
         auto q_dist = v + (a - a_mean);
 
-        // Return Flat: (B, A * N)
-        return q_dist.view({ batch_size, -1 });
+        // Q分布の平均としてQ値を算出
+        auto q = q_dist.mean(2); // (B, A)
+
+        // 結果を返す
+        anet::TensorDict out;
+        out.Set("q_dist", q_dist);
+        out.Set("q", q);
+        out.Set("v_dist", v);
+        out.Set("a_dist", a);
+        return out;
     }
 
     std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override
@@ -218,18 +248,21 @@ public:
         if (key == "forward" || key == "forward.q" || key == "q_values") {
             return [this](const torch::Tensor& x) {
                 torch::NoGradGuard no_grad;
-                // Forward内部で V + (A - meanA) 計算済み、ただしFlatで返ってくる
-                auto flat_q = this->Forward(x);
-                // (B, A*N) -> (B, A, N) -> mean -> (B, A)
-                return flat_q.view({ flat_q.size(0), action_dim_, num_quantiles_ }).mean(2);
+                auto batch_size = x.size(0);
+                auto v = value_->forward(x).view({ batch_size, 1, num_quantiles_ });
+                auto a = adv_->forward(x).view({ batch_size, action_dim_, num_quantiles_ });
+                auto q_dist = v + (a - a.mean(1, true));
+                return q_dist.mean(2);
                 };
         }
         // 分布 (B, A, N) - 最終的なQ分布
         if (key == "forward.dist" || key == "distributions") {
             return [this](const torch::Tensor& x) {
                 torch::NoGradGuard no_grad;
-                auto flat_q = this->Forward(x);
-                return flat_q.view({ flat_q.size(0), action_dim_, num_quantiles_ });
+                auto batch_size = x.size(0);
+                auto v = value_->forward(x).view({ batch_size, 1, num_quantiles_ });
+                auto a = adv_->forward(x).view({ batch_size, action_dim_, num_quantiles_ });
+                return v + (a - a.mean(1, true));
                 };
         }
         // Value分布 (B, 1, N)

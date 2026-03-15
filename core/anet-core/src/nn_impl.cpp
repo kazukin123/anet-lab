@@ -588,7 +588,7 @@ Network::Network(std::shared_ptr<NetworkBody> body, std::shared_ptr<NetworkHead>
     register_module("head", head_);
 }
 
-torch::Tensor Network::Forward(torch::Tensor input)
+anet::TensorDict Network::Forward(torch::Tensor input)
 {
 	anet::ProfileRange r("Network::Forward");
 
