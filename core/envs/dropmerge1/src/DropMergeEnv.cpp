@@ -1178,7 +1178,7 @@ anet::rl::AuxData DropMergeEnv::CreateAuxData(float reward, float raw_reward) co
 
 std::optional<float> DropMergeEnv::GetScalar(const std::string& key, int64_t index) const
 {
-    float nan = std::numeric_limits<float>::quiet_NaN();
+    const float nan = std::numeric_limits<float>::quiet_NaN();
 
     // --- 基本情報 ---
 
@@ -1239,8 +1239,9 @@ DropMergeEnv::GetTensorVector(const std::string& key, int64_t index) const
     return std::nullopt;
 }
 
+
 // -------------------------------------------------------------
-// Factory
+// DropMergeEnvFactory
 // -------------------------------------------------------------
 
 std::shared_ptr<anet::rl::SingleDiscreteEnv>
