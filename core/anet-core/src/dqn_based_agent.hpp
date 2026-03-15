@@ -226,10 +226,6 @@ namespace anet::rl::dqn {
         /// QR判定
         bool IsDistributional(bool use_target) const;
 
-        /// QR-DQN学習用：Quantile 出力 (B, A, N) を返す
-        /// 内部で (B, A*N) -> (B, A, N) へのReshapeを行う
-        //torch::Tensor ForwardQuantiles(const torch::Tensor& obs, bool use_target) const;
-
         /// policy_netのパラメータ取得
         std::vector<torch::Tensor> GetPolicyParameters() const;
 
