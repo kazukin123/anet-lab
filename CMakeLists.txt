@@ -169,9 +169,7 @@ add_subdirectory(core/anet-core)
 add_subdirectory(core/envs/lunarlander1)
 add_subdirectory(core/envs/cartpole2)
 add_subdirectory(core/envs/dropmerge1)
-#add_subdirectory(apps/cartpole1)
-#add_subdirectory(apps/cartpole2)
-#add_subdirectory(apps/lunarlander1)
+add_subdirectory(core/envs/gridmaze1)
 add_subdirectory(apps/runner)
 
 

@@ -18,6 +18,7 @@
 #include "anet/env/LunarLander.hpp"
 #include "anet/env/CartPole.hpp"
 #include "anet/env/DropMerge.hpp"
+#include "anet/env/GridMaze.hpp"
 #include "ErrorDialog.hpp"
 #include "RunnerFrame.hpp"
 #include "TrainPanel.hpp"
@@ -153,6 +154,7 @@ bool RunnerApp::OnInit()
     anet::rl::env::InitLunarLander();
     anet::rl::env::InitCartPole();
     anet::rl::env::InitDropMerge();
+    anet::rl::env::InitGridMaze();
 
     // RunNameを記録
 	this->WriteLastRunName(anet::MetricsLogger::Instance()->GetRunName());

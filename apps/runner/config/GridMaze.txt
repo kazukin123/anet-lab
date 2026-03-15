@@ -1,0 +1,226 @@
+﻿
+# ==============================================================================
+# 基本設定
+# ==============================================================================
+
+app.$ = app.online > P
+#app.$ = app.batchrun > P
+
+train.seed = 1
+
+train.batch_size = 256
+#train.batch_size = 128
+#train.batch_size = 10
+#train.batch_size = 1
+
+#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > BF16.agent >  R > X
+#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > B	 # Random Policy
+DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
+#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > BF16.agent > R > X
+
+
+#GridMazeEnv.$ = GridMazeEnv.baseline
+
+
+net.body.$ = net.body.MLP2
+
+
+
+# ==============================================================================
+# 実験
+# ==============================================================================
+
+#app.run_name = run_{t}
+
+
+# ==============================================================================
+# デバッグ用
+# ==============================================================================
+
+R.learner.update_warmup_steps = 0
+
+app.train_auto_start = false
+
+
+# ==============================================================================
+# ステップ数 依存設定
+# ==============================================================================
+
+app.online.exp_pause_step  = 400,000     # 400K
+app.batchrun.exp_exit_step = 400,000     # 400K
+
+A.train_policy.uqe_eps_decay_steps = 100,000 # 100K
+A.train_policy.uqe_tau_decay_steps = 200,000 # 200K
+A.learner.per_beta_step = 100,000            # 100K
+
+
+# ==============================================================================
+# Env依存設定
+# ==============================================================================
+
+
+#A.stucker.use_stacker = true
+A.stucker.stack_count = 1
+
+A.use_optimistic_target = true         # Q値にtrain_policy（UQE）を反映させるならtrue
+
+A.train_policy.policy_type = UQE
+A.train_policy.uqe_eps_start = 0.60
+A.train_policy.uqe_eps_end = 0.05
+A.train_policy.uqe_tau_start = 0.95  # 序盤は超楽観的（攻めの姿勢）
+A.train_policy.uqe_tau_end = 0.85    # 終盤でもかなり楽観的（攻めの姿勢）
+A.train_policy.uqe_use_tail_mean = true
+
+A.eval_policy.policy_type = UQE
+
+A.target_policy.uqe_tau_start = 0.85
+#A.target_policy.uqe_use_tail_mean = true
+
+A.learner.alpha = 5e-5         # ★
+A.learner.gamma = 0.995        # ★
+A.learner.n_step = 3           # ★
+A.learner.replay_ratio = 1.0
+A.learner.replay_capacity = 524,288
+A.learner.replay_batch_size = 128            # 256 学習が重めなのので少し下げる
+A.learner.grad_clip_tau = 0.5                # ★厳しめ（報酬を変えたら要調整）
+A.learner.update_warmup_steps = 2,560        # 256(replay-sample) * 10step
+#A.learner.per_alpha = 0.6                   # デフォルト 0.6
+#A.learner.per_beta_start = 0.4  # 0.6       # デフォルト 0.4
+A.learner.per_prio_clip_value = 50           # 30 
+A.learner.use_per_prio_clip = true           # 優先度をクリッピングするか
+
+A.reward_scaler.use_dynamic_scaling = true
+A.reward_scaler.use_auto_post_scale = true
+#A.reward_scaler.constant_scale = 0.001       # ★（報酬値を変えたら要調整）
+A.reward_scaler.use_clipping = false
+A.reward_scaler.clip_range = 10.0
+
+A.network.soft_update_tau = 0.005                 # 0.001 高め
+
+
+B.train_policy.policy_type = EpsilonGreedy
+B.train_policy.eps_start = 1.00    # Random
+B.train_policy.eps_end = 1.00      # Random
+B.learner.replay_capacity = 256,000 
+B.learner.update_warmup_steps = 999999999
+B.learner.alpha = 0
+
+
+
+# ==============================================================================
+# MLP
+# ==============================================================================
+
+#  904 (4 + 30x30) x 4stack ≒ 3600次元
+#  104 (4 + 10x10) x 4stack ＝  416次元
+
+net.block.FC1.linear.out_features = 1024
+net.block.FC2.linear.out_features = 512
+
+#net.block.FC1.linear.out_features = 2048
+#net.block.FC2.linear.out_features = 1024
+
+net.block.FC1.init.mode = 1
+net.block.FC2.init.mode = 1
+
+
+# ==============================================================================
+# scalar metrics
+# ==============================================================================
+
+metrics.scalar.$ = metrics.scalar.baseline > M
+
+#metrics.scalar.baseline.[21_eval/03_target_reward_ema] = $runner eval.[eval1].eps_total_reward @learn $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
+#metrics.scalar.baseline.[21_eval/04_policy_reward_ema] = $runner eval.[eval2].eps_total_reward @learn $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
+
+#metrics.scalar.baseline.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema clip:10.0 # 初期の変動をclip
+#metrics.scalar.[90_perf/82_exp_step] = exp_step @train $runner interval:100
+metrics.scalar.[32_agent_base/04_uqe_tau_target] = $agent target_policy.uqe_tau @learn $exp_step
+
+#metrics.scalar.[22_eval/01_test1_reward]     = $runner eval.[test1].eps_total_reward @learn clip:3000
+#metrics.scalar.[22_eval/02_test2_reward]     = $runner eval.[test2].eps_total_reward @learn clip:3000
+#metrics.scalar.[22_eval/03_test1_reward_ema] = $runner eval.[test1].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
+#metrics.scalar.[22_eval/04_test2_reward_ema] = $runner eval.[test2].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
+
+
+metrics.scalar.[42_env/51_wall_collisions_max]  = $env max.wall_collisions @train
+metrics.scalar.[42_env/61_is_success_mean]      = $env mean.is_success @train
+metrics.scalar.[42_env/62_is_hole_mean]         = $env mean.is_hole @train
+metrics.scalar.[42_env/63_wall_collisions_mean] = $env mean.wall_collisions @train
+
+metrics.scalar.[42_env/51_wall_collisions_max_ema]  = $env max.wall_collisions @train $ema ema_alpha:0.001
+metrics.scalar.[42_env/61_is_success_mean_ema]      = $env mean.is_success @train $ema ema_alpha:0.005
+metrics.scalar.[42_env/62_is_hole_mean_ema]         = $env mean.is_hole @train $ema ema_alpha:0.005
+metrics.scalar.[42_env/63_wall_collisions_mean_ema] = $env mean.wall_collisions @train $ema ema_alpha:0.001
+
+
+metrics.scalar.[42_env/00_ep_step_mean]  = $env mean.episode_len @train
+metrics.scalar.[42_env/00_ep_step_mean_ema]  = $env mean.episode_len @train $ema ema_alpha:0.001
+
+
+# ==============================================================================
+# image metrics
+# ==============================================================================
+
+metrics.image.interval = 0   # 出力全無効
+#metrics.image.interval = 1   # 毎ステップ出力（重い）
+#metrics.image.interval = 50   # 通常運用
+#metrics.image.interval = 500 # 重い場合
+
+
+
+# ==============================================================================
+# app
+# ==============================================================================
+
+#app.online.eval_panel.step_per_frame = 5
+
+app.online.eval_panel.auto_start = false
+app.batchrun.eval_panel.auto_start = false
+
+QValuePanel.row_height = 24
+
+app.online.train_panel.fps = 30
+
+
+# ==============================================================================
+# GridMazeEnv
+# ==============================================================================
+
+env.class_id = GridMazeEnv
+
+
+GridMazeEnv.width = 5
+GridMazeEnv.height = 5
+GridMazeEnv.seed = 6545537233705677626
+GridMazeEnv.randomize_seed = false
+
+GridMazeEnv.wall_density = 0.2
+GridMazeEnv.hole_density = 0.1
+
+GridMazeEnv.init_pos_x = 0
+GridMazeEnv.init_pos_y = 0
+GridMazeEnv.goal_pos_x = 4
+GridMazeEnv.goal_pos_y = 4
+
+GridMazeEnv.reward_goal = 1.0
+GridMazeEnv.reward_hole = -1.0
+GridMazeEnv.reward_wall = -0.1
+GridMazeEnv.reward_step = -0.01
+
+GridMazeEnv.max_steps = 100
+
+# --- Eval設定 ---
+
+#train.eval.[eval1].interval = 0
+#train.eval.[eval2].interval = 0
+#train.eval.[eval1].interval = 50
+#train.eval.[eval2].interval = 50
+train.eval.[eval1].interval = 10
+train.eval.[eval2].interval = 10
+
+#GridMazeEnv.test1.max_step = 1000
+#train.eval.[test1].interval = 5000
+#train.eval.[test1].run_mode = eval1
+#train.eval.[test1].env.$ = > GridMazeEnv.test1 > E1
+

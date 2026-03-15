@@ -51,6 +51,7 @@ target_link_libraries(AnetRLRunner PRIVATE
     LunarLanderEnv
     CartPoleEnv
     DropMergeEnv
+    GridMazeEnv
 )
 
 if (WIN32)

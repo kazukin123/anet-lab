@@ -8,6 +8,7 @@ $include <common.txt>
 
 #$include <CartPole.txt>
 #$include <LunarLander.txt>
-$include <DropMerge.txt>
+#$include <DropMerge.txt>
+$include <GridMaze.txt>
 
 
