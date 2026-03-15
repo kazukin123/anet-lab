@@ -22,10 +22,7 @@ ThreadBase::~ThreadBase()
 
 void ThreadBase::Start()
 {
-    if (running_.load()) return;
     running_.store(true);
-    paused_.store(false);
-
     worker_ = std::thread([this]() { ThreadMain(); });
 }
 
