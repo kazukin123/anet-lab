@@ -7,6 +7,8 @@
 #include <string_view>
 #include <string_view>
 #include <algorithm>
+#include <filesystem>
+#include <cstdio>
 #include <wx/log.h>
 #include <wx/debug.h>
 #include "anet/common.hpp"
@@ -35,7 +37,11 @@
 
 namespace anet::log {
 
-    // ====== Null Stream (無効ログ用) ======
+
+    // ============================================================
+    // Null Stream (無効ログ用)
+    // ============================================================
+
     class NullStream {
     public:
         using Manip = std::ostream& (*)(std::ostream&);
@@ -44,8 +50,14 @@ namespace anet::log {
         template<typename T>
         constexpr const NullStream& operator<<(const T&) const noexcept { return *this; }
     };
-    
-    // ====== wxLog ストリームラッパ ======
+
+    inline constexpr NullStream null_log_stream{};
+
+
+    // ============================================================
+    // WxLogStream
+    // ============================================================
+
     class WxLogStream {
     public:
         WxLogStream(wxLogLevel level,
@@ -145,18 +157,80 @@ namespace anet::log {
 
     static_assert(anet::log::ExtractSourceFileName("C:\\abc\\test.cpp") == "test.cpp");
 
-    // ====== NullStream インスタンス ======
 
-    inline constexpr NullStream null_log_stream{};
-
-    // ====== log ======
+    // ============================================================
+    // Log API
+    // ============================================================
 
     inline auto info() { return anet::log::WxLogStream(wxLOG_Message); }
     inline auto verbose() { return anet::log::WxLogStream(wxLOG_Info); }
     inline auto warn() { return anet::log::WxLogStream(wxLOG_Warning); }
     inline auto error() { return anet::log::WxLogStream(wxLOG_Error); }
 
-}
+
+    // ============================================================
+    // FileLogger
+    // ============================================================
+
+    /// UTF-8でファイルに書き込むためのシンプルなカスタムロガー
+    class FileLogger : public wxLog {
+    public:
+        FileLogger(FILE* file) : m_file(file) {}
+
+        ~FileLogger()
+        {
+            if (m_file) {
+                fclose(m_file);
+            }
+        }
+    protected:
+        void DoLogTextAtLevel(wxLogLevel level, const wxString& msg) override
+        {
+            if (!m_file) return;
+            wxString logStr = msg + wxT("\n");
+            const wxCharBuffer buf = logStr.utf8_str(); // UTF-8エンコーディングのバイト列に変換
+            fwrite(buf.data(), 1, buf.length(), m_file);
+
+            if (level <= wxLOG_Warning) {
+                fflush(m_file);
+            }
+        }
+    private:
+        FILE* m_file;
+    };
+
+
+    // ============================================================
+    // LogFormatter
+    // ============================================================
+
+    class LogFormatter : public wxLogFormatter {
+    public:
+        // Formatメソッドをオーバーライドして好みの文字列を生成する
+        wxString Format(wxLogLevel level, const wxString& msg, const wxLogRecordInfo& info) const override
+        {
+            const wxChar* level_str;
+            switch (level) {
+            case wxLOG_FatalError: level_str = wxT("[F] "); break;
+            case wxLOG_Error:      level_str = wxT("[E] "); break;
+            case wxLOG_Warning:    level_str = wxT("[W] "); break;
+            case wxLOG_Message:    level_str = wxT("[I] "); break;
+            case wxLOG_Info:       level_str = wxT("[V] "); break;
+            case wxLOG_Debug:      level_str = wxT("[D] "); break;
+            case wxLOG_Trace:      level_str = wxT("[T] "); break;
+            default:               level_str = wxT("[L] "); break;
+            }
+            wxString time_str = FormatTimeMS(info.timestampMS);
+            wxString result;
+            result.Alloc(30 + msg.length());
+            result.Append(time_str);
+            result.Append(level_str);
+            result.Append(msg);
+            return result;
+        }
+    };
+
+} // namespace anet::log
 
 // ====== マクロ ======
 

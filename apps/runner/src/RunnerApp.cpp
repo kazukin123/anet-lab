@@ -160,12 +160,17 @@ bool RunnerApp::OnInit()
     anet::rl::env::InitDropMerge();
     anet::rl::env::InitGridMaze();
 
-    // RunNameを記録
-	this->WriteLastRunName(anet::MetricsLogger::Instance()->GetRunName());
-
-    // RunnerFrame生成＆表示
+    // RunnerFrame生成
     wxString frame_title = anet::MetricsLogger::Instance()->GetRunName() + " - ANET RL Runner";
     frame_ = new RunnerFrame(frame_title, config_->train_panel, config_->eval_panel);
+
+    // ログ初期化
+    SetupLogging();
+
+    // RunNameを記録
+    this->WriteLastRunName(anet::MetricsLogger::Instance()->GetRunName());
+
+    // RunnerFrame表示
     frame_->Show();
 
     // Configをダンプ
@@ -255,10 +260,35 @@ bool RunnerApp::OnInit()
     return true;
 }
 
+std::filesystem::path RunnerApp::GetRunDir()
+{
+    return anet::MetricsLogger::Instance()->GetRunDir();
+}
+
 std::ofstream RunnerApp::GetOutputStream(const std::string& file_name)
 {
-    auto file = GetProjectRootDir() / file_name;
+    auto file = GetRunDir() / file_name;
     return std::ofstream(file);
+}
+
+void RunnerApp::SetupLogging()
+{
+    std::filesystem::path run_dir = GetRunDir();
+    auto run_name = anet::MetricsLogger::Instance()->GetRunName();
+    std::filesystem::create_directories(run_dir); // 念のためディレクトリ作成
+    std::filesystem::path log_file_path = run_dir / (run_name + ".log");
+
+    // ファイルを追記モードで開く（パス自体に日本語が含まれても安全なようにwstringを使用）
+    FILE* log_file = wxFopen(log_file_path.wstring(),"a");
+
+    if (log_file) {
+        // 標準の wxLogStderr ではなく、UTF-8専用ロガーを生成
+        wxLog* file_logger = new anet::log::FileLogger(log_file);
+        file_logger->SetFormatter(new anet::log::LogFormatter());
+
+        // 既存のUIロガー(LogPanel等)を維持したまま、ファイルロガーをチェーンに追加
+        new wxLogChain(file_logger);
+    }
 }
 
 int64_t RunnerApp::SaveAgent(const std::string& file_name)

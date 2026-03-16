@@ -89,6 +89,7 @@ void LogPanel::SetupLogTarget() {
 
     // フィルタリング機能付きのカスタムロガーを使用
     log_target_ = new FilteredLogTextCtrl(text_ctrl_);
+    log_target_->SetFormatter(new anet::log::LogFormatter());
 
     // ターゲットを切り替え、古いターゲットを保存しておく
     old_log_target_ = wxLog::SetActiveTarget(log_target_);

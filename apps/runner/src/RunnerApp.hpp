@@ -4,6 +4,7 @@
 
 #include <memory>
 #include <optional>
+#include <filesystem>
 #include <wx/app.h>
 #include "anet/config.hpp"
 #include "anet/trainer.hpp"
@@ -36,13 +37,15 @@ public:
     anet::rl::RunManager& GetRunManager() { return *run_manager_; }
     std::shared_ptr<anet::rl::gui::View> CreateExperinceView(wxWindow* parent);
 	wxFrame* GetMainFrame() { return frame_; }
-
+    
+    std::filesystem::path GetRunDir();
     std::ofstream GetOutputStream(const std::string& file_name);
     int64_t SaveAgent(const std::string& file_name);
 private:
     void InitTrainer();
     void showFatalError();
     bool WriteLastRunName(const std::string& run_name) const;
+    void SetupLogging();
 private:
     std::unique_ptr<anet::ConfigManager> config_mgr_;
     struct Config;
