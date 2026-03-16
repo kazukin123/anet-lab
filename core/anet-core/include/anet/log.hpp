@@ -12,6 +12,8 @@
 #include <wx/log.h>
 #include <wx/debug.h>
 #include "anet/common.hpp"
+#include "anet/profile.hpp"
+
 
 #if defined(_MSC_VER) && _MSC_VER < 1930
     // consteval が不完全な時
@@ -85,6 +87,8 @@ namespace anet::log {
 		}
         void flush()
         {
+            anet::ProfileRange r("WxLogStream::flush");
+
             const std::string body = stream_.str();
             if (body.empty()) return;
 
@@ -186,6 +190,8 @@ namespace anet::log {
     protected:
         void DoLogTextAtLevel(wxLogLevel level, const wxString& msg) override
         {
+            anet::ProfileRange r("FileLogger::DoLogTextAtLevel");
+
             if (!m_file) return;
             wxString logStr = msg + wxT("\n");
             const wxCharBuffer buf = logStr.utf8_str(); // UTF-8エンコーディングのバイト列に変換
@@ -209,6 +215,8 @@ namespace anet::log {
         // Formatメソッドをオーバーライドして好みの文字列を生成する
         wxString Format(wxLogLevel level, const wxString& msg, const wxLogRecordInfo& info) const override
         {
+            anet::ProfileRange r("LogFormatter::Format");
+
             const wxChar* level_str;
             switch (level) {
             case wxLOG_FatalError: level_str = wxT("[F] "); break;
@@ -232,10 +240,12 @@ namespace anet::log {
 
 } // namespace anet::log
 
-// ====== マクロ ======
+
+// ============================================================
+// マクロ 
+// ============================================================
 
 #define ANET_THIS_FILENAME anet::log::ExtractSourceFileName( __FILE__ )
-
 
 #if ANET_ENABLE_DEBUG_LOG
 #define ANET_LOG_DEBUG(expr)                                             \
