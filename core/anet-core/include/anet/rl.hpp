@@ -383,7 +383,7 @@ namespace anet::rl {
             return { f, done, truncated, episode_start };
         }
 
-        BatchState To(torch::Device device, bool non_blocking = true) const
+        BatchState To(torch::Device device, bool non_blocking = false) const
         {
             ANET_ASSERT_SHAPE(obs, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
             ANET_ASSERT_SHAPE(done, { ANET_SHAPE_ANY });
@@ -518,7 +518,7 @@ namespace anet::rl {
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
 
-        BatchExperience To(torch::Device d, bool non_blocking = true) const;
+        BatchExperience To(torch::Device d, bool non_blocking = false) const;
         std::vector<SingleExperience> ToExperienceList() const;
         std::string ToString() const;
     public:
