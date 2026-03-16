@@ -33,6 +33,7 @@ wxDEFINE_EVENT(wxEVT_APP_TRAINER_SHUTDOWN, wxThreadEvent);
 
 struct RunnerApp::Config : public anet::Config {
     std::string run_name = "run_{%t}";
+    std::string log_level = "info";
     bool train_auto_start = true;
     int train_pause_step = -1;
     int train_exit_step = -1; //110000;
@@ -46,6 +47,8 @@ struct RunnerApp::Config : public anet::Config {
     RunnerApp::Config(const anet::ConfigData& config_data) : anet::Config(config_data, "app")
     {
         ANET_READ_CONFIG(config_data, run_name);
+        ANET_READ_CONFIG(config_data, log_level);
+
         ANET_READ_CONFIG(config_data, train_auto_start);
         ANET_READ_CONFIG(config_data, train_pause_step);
         ANET_READ_CONFIG(config_data, train_exit_step);
@@ -58,7 +61,6 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, metrics_logger.video_fps);
 
         ANET_READ_CONFIG(config_data, train_panel.fps);
-
         ANET_READ_CONFIG(config_data, eval_panel.fps);
         ANET_READ_CONFIG(config_data, eval_panel.step_per_frame);
         ANET_READ_CONFIG(config_data, eval_panel.auto_start);
@@ -120,6 +122,8 @@ bool RunnerApp::OnInit()
     // 全体ログレベル設定
 #if ANET_ENABLE_DEBUGINFO
     wxLog::SetLogLevel(wxLOG_Debug);
+#else
+    wxLog::SetLogLevel(wxLOG_Info);
 #endif
 
     // メインスレッドでffmpeg実行する準備

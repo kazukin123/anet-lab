@@ -151,7 +151,8 @@ namespace anet::log {
 
     // ====== log ======
 
-    inline auto info() { return anet::log::WxLogStream(wxLOG_Message); }    /// @todo 本来はInfoがVerboseログでMessageが通常ログ
+    inline auto info() { return anet::log::WxLogStream(wxLOG_Message); }
+    inline auto verbose() { return anet::log::WxLogStream(wxLOG_Info); }
     inline auto warn() { return anet::log::WxLogStream(wxLOG_Warning); }
     inline auto error() { return anet::log::WxLogStream(wxLOG_Error); }
 

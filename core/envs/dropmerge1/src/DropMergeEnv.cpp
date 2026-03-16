@@ -496,7 +496,7 @@ void DropMergeEnv::processAction(int64_t action)
         if (!isSpawnAreaClear(actual_x, spawn_y, r_drop)) {
             game_over_ = true;
             term_reason_ = TerminationReason::SpawnBlocked;
-            LOG::info() << "Game Over: Spawn area blocked. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x ;
+            LOG::verbose() << "Game Over: Spawn area blocked. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x ;
             return;
         }
 
@@ -661,7 +661,7 @@ bool DropMergeEnv::checkGameOver()
     // 60step以上オーバーフローが続いたらゲームオーバー
     if (game_over_timer_ > config_.game_over_grace_step) {
         term_reason_ = TerminationReason::Overflow;
-        LOG::info() << "Game Over: overflow timeout. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+        LOG::verbose() << "Game Over: overflow timeout. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
         return true;
     }
 
@@ -846,7 +846,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
             // 無限ループ防止のため強制脱出
             if (sim_steps >= max_sim_steps) {
                 if (config_.use_settle_after_drop) {
-                    LOG::warn() << "World did not settle within " << max_sim_steps << " steps. Forcing exit.";
+                    LOG::verbose() << "World did not settle within " << max_sim_steps << " steps. Forcing exit.";
                 }
                 break;
             }

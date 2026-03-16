@@ -3,16 +3,54 @@
 #include <wx/font.h>
 
 
-LogPanel::LogPanel(wxWindow* parent)
+// ======================================================
+// FilteredLogTextCtrl
+// ======================================================
+
+class FilteredLogTextCtrl : public wxLogTextCtrl {
+public:
+    FilteredLogTextCtrl(wxTextCtrl* textctrl) : wxLogTextCtrl(textctrl), level_(wxLOG_Message) {}
+
+    void SetLogLevel(wxLogLevel level) { level_ = level; }
+
+protected:
+    void DoLogRecord(wxLogLevel level, const wxString& msg, const wxLogRecordInfo& info) override {
+        if (level <= level_) {
+            wxLogTextCtrl::DoLogRecord(level, msg, info);
+        }
+    }
+private:
+    wxLogLevel level_;
+};
+
+
+// ======================================================
+// LogPanel
+// ======================================================
+
+LogPanel::LogPanel(wxWindow* parent, const std::string& init_log_level)
     : wxPanel(parent)
 {
     SetupControls();
     SetupLogTarget();
+    SetLogLevel(init_log_level);
 }
 
 LogPanel::~LogPanel()
 {
     RestoreLogTarget();
+}
+
+void LogPanel::SetLogLevel(const std::string& level)
+{
+    if (!log_target_) return;
+
+    wxLogLevel log_level = wxLOG_Message; // default is info (Message)
+    if (level == "verbose") log_level = wxLOG_Info;
+    else if (level == "warn") log_level = wxLOG_Warning;
+    else if (level == "error") log_level = wxLOG_Error;
+
+    log_target_->SetLogLevel(log_level);
 }
 
 void LogPanel::SetupControls()
@@ -49,12 +87,11 @@ void LogPanel::SetupControls()
 void LogPanel::SetupLogTarget() {
     if (!text_ctrl_) return;
 
-    // wxWidgets標準の「TextCtrlへ流すロガー」を使用
-    // これにより wxLogMessage() 等が自動的にここに出るようになる
-    wxLogTextCtrl* log_target = new wxLogTextCtrl(text_ctrl_);
+    // フィルタリング機能付きのカスタムロガーを使用
+    log_target_ = new FilteredLogTextCtrl(text_ctrl_);
 
     // ターゲットを切り替え、古いターゲットを保存しておく
-    old_log_target_ = wxLog::SetActiveTarget(log_target);
+    old_log_target_ = wxLog::SetActiveTarget(log_target_);
 
     // タイムスタンプのフォーマット設定 (例: [12:34:56.789] Message)
     wxLog::SetTimestamp("%H:%M:%S.%l");

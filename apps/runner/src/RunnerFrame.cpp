@@ -19,6 +19,10 @@ class RunPanel : public wxPanel { public: using wxPanel::wxPanel; };
 enum {
     ID_ResetLayout = wxID_HIGHEST + 1,
     ID_LogView,
+    ID_LogLevelInfo,
+    ID_LogLevelVerbose,
+    ID_LogLevelWarn,
+    ID_LogLevelError,
     ID_TrainPanel,
 	ID_EvalPanel,
 	ID_QValuePanel,
@@ -49,6 +53,13 @@ RunnerFrame::RunnerFrame(const wxString& title, const TrainPanelConfig& train_pa
     // AUIレイアウトを反映
     aui_mgr_.Update();
 
+    // 初期ログレベルに合わせてメニューのチェック状態を更新
+    std::string init_log_level = wxGetApp().GetConfigData().Get("app.log_level", "info");
+    if (init_log_level == "verbose") GetMenuBar()->Check(ID_LogLevelVerbose, true);
+    else if (init_log_level == "warn") GetMenuBar()->Check(ID_LogLevelWarn, true);
+    else if (init_log_level == "error") GetMenuBar()->Check(ID_LogLevelError, true);
+    else GetMenuBar()->Check(ID_LogLevelInfo, true);
+
     // ウィンドウ表示
     Centre();
 }
@@ -72,6 +83,16 @@ void RunnerFrame::SetupMenuBar()
     //view_menu->Append(ID_ResetLayout, "&Reset Layout", "Reset to default layout");
     view_menu->AppendCheckItem(ID_LogView, "&Log View")->Check(true);
     view_menu->AppendSeparator();
+
+    // ログレベルメニューの追加
+    wxMenu* log_level_menu = new wxMenu;
+    log_level_menu->AppendRadioItem(ID_LogLevelError, "&Error");
+    log_level_menu->AppendRadioItem(ID_LogLevelWarn, "&Warn");
+    log_level_menu->AppendRadioItem(ID_LogLevelInfo, "&Info");
+    log_level_menu->AppendRadioItem(ID_LogLevelVerbose, "&Verbose");
+    view_menu->AppendSubMenu(log_level_menu, "L&og Level");
+
+    // その他Viewメニュー項目
     view_menu->AppendCheckItem(ID_TrainPanel, "&Train View")->Check(true);
     view_menu->AppendSeparator();
     //view_menu->AppendCheckItem(ID_EvalPanel, "&Evaluation View")->Check(true);
@@ -232,7 +253,11 @@ void RunnerFrame::SetupEvents()
             aui_mgr_.Update();
         }
         }, ID_QValuePanel);
-
+        
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { if (log_panel_) log_panel_->SetLogLevel("info"); }, ID_LogLevelInfo);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { if (log_panel_) log_panel_->SetLogLevel("verbose"); }, ID_LogLevelVerbose);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { if (log_panel_) log_panel_->SetLogLevel("warn"); }, ID_LogLevelWarn);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { if (log_panel_) log_panel_->SetLogLevel("error"); }, ID_LogLevelError);
 
 	// ✕ボタンによるパネルクローズ時のメニュー連動
     Bind(wxEVT_AUI_PANE_CLOSE, [this](wxAuiManagerEvent& event) {
