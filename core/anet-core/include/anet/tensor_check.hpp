@@ -23,7 +23,11 @@
 #endif
 
 #ifndef ANET_ENABLE_TENSOR_NAN_CHECK
+#ifdef DEBUG
 #define ANET_ENABLE_TENSOR_NAN_CHECK 1
+#else
+#define ANET_ENABLE_TENSOR_NAN_CHECK 0
+#endif
 #endif
 
 #else
