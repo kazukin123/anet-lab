@@ -39,7 +39,14 @@ DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy
 net.body.$ = net.body.SuikaResNet4064_10d     # ★
 
 #net.body.$ = net.body.SuikaViT_Flatten
+#net.body.$ = net.body.SuikaViT_Small
 #net.body.$ = net.body.SuikaHybrid_Flatten
+#net.body.$ = net.body.SuikaHybrid_Small
+
+#net.body.$ = net.body.SuikaResNetD_Control
+#net.body.$ = net.body.SuikaResNetD_ViT
+#net.body.$ = net.body.SuikaResNet_ViT
+
 
 
 # ==============================================================================
@@ -69,7 +76,14 @@ net.body.$ = net.body.SuikaResNet4064_10d     # ★
 #app.run_name = run_{t}_D_s0
 #app.run_name = run_{t}_D_N1_re
 #app.run_name = run_{t}_PER_c
-
+#app.run_name = run_{t}_ViTs_b
+#app.run_name = run_{t}_Hyb_b
+#app.run_name = run_{t}_rt_ResD
+#app.run_name = run_{t}_rt_ResDvit
+#app.run_name = run_{t}_rtf_ResVit
+#app.run_name = run_{t}_rtf_ResN3
+#app.run_name = run_{t}_rtf_ResN1
+#app.run_name = run_{t}_rtf_ResN3pCa01
 
 #R.stucker.use_stacker = false
 
@@ -87,7 +101,7 @@ net.body.$ = net.body.SuikaResNet4064_10d     # ★
 #E.settle_velocity_threshold = 1.0 # 0.1 安定判定の線速度閾値 (m/s)
 #E.settle_angular_threshold = 1.0  # 0.1 安定判定の角速度閾値 (rad/s)
 
-A.learner.replay_capacity = 524,288          # 262,144 524,288 1,048,576
+#A.learner.replay_capacity = 524,288          # 262,144 524,288 1,048,576
 
 #R.target_policy.uqe_tau_start = 0.85
 
@@ -130,7 +144,6 @@ A.learner.replay_capacity = 524,288          # 262,144 524,288 1,048,576
 
 #E.use_dropper_x_grid = false  # true
 
-
 #R.stucker.stack_count = 1    #4
 #R.stucker.stack_count = 12    #4
 
@@ -150,25 +163,23 @@ A.learner.replay_capacity = 524,288          # 262,144 524,288 1,048,576
 
 #E.game_over_penalty = -10.0
 #E.game_over_penalty = -5.0
-E.game_over_penalty = -10.0
+#E.game_over_penalty = -10.0
 #E.game_over_penalty = 0.0
 #E.game_over_penalty = -200.0
 #E.game_over_penalty = -500.0
 
 ##E.time_penalty = -0.0001    # NEET対策
-E.time_penalty = -0.005    # NEET対策
+#E.time_penalty = -0.005    # NEET対策
 #E.time_penalty = -0.001    # NEET対策
 #E.time_penalty = -0.01    # NEET対策
 #E.time_penalty = -0.02    # NEET対策
 #E.time_penalty = -0.1    # NEET対策
 #E.time_penalty = 0
 
-
 ##R.learner.grad_clip_tau = 0.5 # ★
 #R.learner.grad_clip_tau = 1.0 # ★
 #R.learner.grad_clip_tau = 10.0 # ★
 #R.learner.grad_clip_tau = 30.0 # ★
-
 
 ##R.learner.replay_batch_size = 128   # 256
 #R.learner.replay_batch_size = 64   # 256
@@ -200,8 +211,8 @@ E.time_penalty = -0.005    # NEET対策
 #R.learner.alpha = 5e-4
 #R.learner.alpha = 1e-4
 
-#R.learner.gamma = 0.999 # ★ 長期戦略考慮
-R.learner.gamma = 0.995 # ★ 長期戦略考慮
+#R.learner.gamma = 0.999  # ★ 長期戦略考慮
+#R.learner.gamma = 0.995   # ★ horizon=200 
 #R.learner.gamma = 0.99   # ★
 #R.learner.gamma = 0.95   # ★
 #R.learner.gamma = 0.92   # ★
@@ -210,8 +221,9 @@ R.learner.gamma = 0.995 # ★ 長期戦略考慮
 #R.learner.n_step = 30   # ★長期戦略考慮
 #R.learner.n_step = 20
 #R.learner.n_step = 10
+#R.learner.n_step = 5
 #R.learner.n_step = 3
-R.learner.n_step = 1
+#R.learner.n_step = 1
 
 #R.learner.replay_capacity = 800,000
 #R.learner.replay_capacity  =  500,000
@@ -229,16 +241,14 @@ R.learner.n_step = 1
 #R.reward_scaler.use_dynamic_scaling = true
 #R.reward_scaler.use_auto_post_scale = true
 
-#R.learner.use_double_dqn = false # true
-
-#app.train_auto_start = false
-
 
 # ==============================================================================
 # デバッグ用
 # ==============================================================================
 
 #R.learner.update_warmup_steps = 0
+
+#app.train_auto_start = false
 
 
 # ==============================================================================
@@ -264,9 +274,9 @@ BF16.agent.learner.grad_clip_tau = 30.0
 # ==============================================================================
 
 #app.online.exp_pause_step  = 200,000,000    # 200M
-#app.online.exp_pause_step  = 100,000,000      # 100M
+app.online.exp_pause_step  = 100,000,000      # 100M
 #app.online.exp_pause_step  = 20,000,000      # 20M
-app.online.exp_pause_step  = 40,000,000      # 40M
+#app.online.exp_pause_step  = 40,000,000      # 40M
 app.batchrun.exp_exit_step  = 40,000,000     # 40M
 #app.batchrun.exp_exit_step  = 20,000,000     # 20M
 
@@ -285,9 +295,8 @@ A.learner.per_beta_step = 10,000,000              # 10M
 
 
 # ==============================================================================
-# Env依存設定
+# Env依存 Agent設定
 # ==============================================================================
-
 
 #A.stucker.use_stacker = true
 #A.stucker.stack_count = 4
@@ -306,16 +315,16 @@ A.eval_policy.policy_type = UQE
 A.target_policy.uqe_tau_start = 0.85
 #A.target_policy.uqe_use_tail_mean = true
 
-A.learner.alpha = 5e-5         # ★
-A.learner.gamma = 0.995        # ★
-A.learner.n_step = 3           # ★
+A.learner.alpha = 1e-4         # ★
+A.learner.gamma = 0.995        # ★長期戦略必要
+A.learner.n_step = 1           # ノイズや結果分散が大きく、STEP毎の正確性が必要なため、N-STEPは使わない
 A.learner.replay_ratio = 1.0
 #A.learner.replay_capacity = 1,000,000
 A.learner.replay_capacity = 524,288
 A.learner.replay_batch_size = 128            # 256 学習が重めなのので少し下げる
 A.learner.grad_clip_tau = 0.5                # ★厳しめ（報酬を変えたら要調整）
 A.learner.update_warmup_steps = 25,600       # 256(replay-sample) * 100step
-#A.learner.per_alpha = 0.6                   # デフォルト 0.6
+A.learner.per_alpha = 0.2                    # ノイズや結果分散を考慮して低め
 #A.learner.per_beta_start = 0.4  # 0.6       # デフォルト 0.4
 A.learner.per_prio_clip_value = 50           # 30 
 A.learner.use_per_prio_clip = true           # 優先度をクリッピングするか
@@ -337,7 +346,6 @@ B.learner.update_warmup_steps = 999999999
 B.learner.alpha = 0
 
 
-
 # ==============================================================================
 # SuikaMLP
 # ==============================================================================
@@ -353,7 +361,6 @@ net.block.FC2.linear.out_features = 1024
 
 net.block.FC1.init.mode = 1
 net.block.FC2.init.mode = 1
-
 
 
 # ==============================================================================
@@ -493,8 +500,9 @@ net.body.SuikaResNet4064_10.structure  = Embed4064 > ConvInit32 > SiLU > ResBloc
 net.body.SuikaResNet4064_18.structure  = Embed4064 > ConvInit32 > SiLU > ResBlock32(*8) > ConvCompress > SiLU > Flatten > LinearOut
 net.body.SuikaResNet4064_10d_64.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64 > ResBlock64d2 > ResBlock64d4 > ResBlock64 > ConvCompress > SiLU > Flatten > LinearOut
 
+
 # ==============================================================================
-# Transformer (SuikaViT) Blocks
+# SuikaViT (Transformer)
 # ==============================================================================
 
 #  Patch Embedding (パッチ化と次元圧縮)
@@ -519,7 +527,7 @@ net.block.[TransEnc].tf.d_model = 128
 net.block.[TransEnc].tf.nhead = 4
 net.block.[TransEnc].tf.num_layers = 4
 net.block.[TransEnc].tf.dim_feedforward = 512
-net.block.[TransEnc].tf.activation = gelu
+#net.block.[TransEnc].tf.activation = gelu
 #net.block.[TransEnc].tf.norm_first = true
 
 
@@ -530,12 +538,77 @@ net.body.SuikaViT_Flatten.structure = Embed4064 >  ViT_PatchConv > SiLU > ViT_Pr
 net.body.SuikaHybrid_Flatten.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64 > ResBlock64 > ViT_Proj32 > SiLU > PosEmbed2D > TransEnc > Flatten
 
 
+# ==============================================================================
+# SuikaViT Small
+# ==============================================================================
 
-# ---- scalar metrics
+# 空間を一気に 1/4 (16x10 = 160トークン) にダウンサンプリング
+# stride=4で情報の取りこぼしを防ぐため、kernel_size=5で少し広めに視界を取る
+net.block.[ViT_PatchConv_S].type = Conv2d
+net.block.[ViT_PatchConv_S].conv.out_channels = 64  # ★
+net.block.[ViT_PatchConv_S].conv.kernel_size = 5
+net.block.[ViT_PatchConv_S].conv.stride = 4
+net.block.[ViT_PatchConv_S].conv.padding = 2
+
+# ResBlockが抽出した高解像度(20x32)な特徴を、
+# Transformerへ渡す直前に(10x16 = 160トークン)へと圧縮する橋渡しレイヤー
+net.block.[ConvDown64].type = Conv2d
+net.block.[ConvDown64].conv.out_channels = 64
+net.block.[ConvDown64].conv.kernel_size = 3
+net.block.[ConvDown64].conv.stride = 2
+net.block.[ConvDown64].conv.padding = 1
+
+# 次元圧縮 (d_model = 64)
+net.block.[ViT_Proj_S].type = Conv2d
+net.block.[ViT_Proj_S].conv.out_channels = 64    # ★
+net.block.[ViT_Proj_S].conv.kernel_size = 1
+
+# Transformer Encoder (軽量版)
+net.block.[TransEnc_S].type = TransformerEncoder
+net.block.[TransEnc_S].tf.d_model = 64           # ★
+net.block.[TransEnc_S].tf.nhead = 4
+net.block.[TransEnc_S].tf.num_layers = 2         # ★
+net.block.[TransEnc_S].tf.dim_feedforward = 256
+
+# SuikaViT_Small
+net.body.SuikaViT_Small.structure = Embed4064 > ViT_PatchConv_S > SiLU > ViT_Proj_S > SiLU > PosEmbed2D > TransEnc_S > Flatten
+
+# CNNの目(高解像度) ＋ 空間圧縮 ＋ ViTの脳(軽量)
+net.body.SuikaHybrid_Small.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64 > ResBlock64 > ConvDown64 > SiLU > ViT_Proj_S > SiLU > PosEmbed2D > TransEnc_S > Flatten
+
+
+# ==============================================================================
+# Ablation Study: Dilated ResNet vs Standard ResNet + ViT
+# ==============================================================================
+
+# Dilation(d=2, d=4)を使って、CNN単体で必死に盤面全体のコンテキストをかき集める
+#net.body.SuikaResNet_Control.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvCompress > SiLU > Flatten > LinearOut
+
+# CNNは目の前の局所特徴(エッジ)の抽出に専念(Dilation無し)。大局的な視野はViTに完全に任せる
+net.body.SuikaResNet_ViT.structure     = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64   > SiLU > ViT_Proj_S > SiLU > PosEmbed2D > TransEnc_S > Flatten
+
+
+# ==============================================================================
+# TRUE Ablation Study: ResNet 10d vs ResNet 10d + ViT
+# ==============================================================================
+
+# CNNの目（10d）のあと、1x1 Convで4chに圧縮して従来の全結合層（Flatten）へ
+net.body.SuikaResNetD_Control.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64 > ResBlock64d2 > ResBlock64d4 > ResBlock64 > ConvCompress > SiLU > Flatten > LinearOut
+
+# 全く同じCNNの目（10d）を通した後、ViT用の160トークンに圧縮（ConvDown64）してTransformerへ
+net.body.SuikaResNetD_ViT.structure     = Embed4064 > ConvInit64 > SiLU > ResBlock64 > ResBlock64d2 > ResBlock64d4 > ResBlock64 > ConvDown64   > SiLU > ViT_Proj_S > SiLU > PosEmbed2D > TransEnc_S > Flatten
+
+
+# ==============================================================================
+# scalar metrics
+# ==============================================================================
 
 metrics.scalar.$ = metrics.scalar.baseline > M
 #metrics.scalar.$ = metrics.scalar.min > M
 #metrics.scalar.$ = metrics.scalar.full > M
+
+metrics.scalar.baseline.[21_eval/03_target_reward_ema] = $runner eval.[eval1].eps_total_reward @learn $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
+metrics.scalar.baseline.[21_eval/04_policy_reward_ema] = $runner eval.[eval2].eps_total_reward @learn $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
 
 metrics.scalar.baseline.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema clip:10.0 # 初期の変動をclip
 #metrics.scalar.[90_perf/82_exp_step] = exp_step @train $runner interval:100
@@ -571,20 +644,21 @@ metrics.scalar.[42_env/17_ep_mean_settle_steps] = $env mean.ep_mean_settle_steps
 ##metrics.scalar.[42_env/56_tr_maxstep_max_ema]  = $env max.term_reason_maxstep @train $ema ema_alpha:0.001
 metrics.scalar.[42_env/68_ep_max_settle_steps_ema]  = $env max.ep_max_settle_steps @train $ema ema_alpha:0.005
 
-metrics.scalar.[42_env/61_ep_maxrank_mean_ema]  = $env mean.ep_max_rank @train $ema
-metrics.scalar.[42_env/62_ep_frct_mean_ema]     = $env mean.ep_end_fruit_count @train $ema
-metrics.scalar.[42_env/63_tr_timeout_mean_ema]  = $env mean.term_reason_timeout @train $ema ema_alpha:0.005
-metrics.scalar.[42_env/64_tr_blocked_mean_ema]  = $env mean.term_reason_spawn_blocked @train $ema ema_alpha:0.005
-metrics.scalar.[42_env/65_tr_overflow_mean_ema] = $env mean.term_reason_overflow @train $ema ema_alpha:0.005
-#metrics.scalar.[42_env/66_tr_maxstep_mean_ema]  = $env mean.term_reason_maxstep @train $ema ema_alpha:0.005
+metrics.scalar.[42_env/61_ep_maxrank_mean_ema]  = $env mean.ep_max_rank @train $ema ema_alpha:0.005
+metrics.scalar.[42_env/62_ep_frct_mean_ema]     = $env mean.ep_end_fruit_count @train $ema ema_alpha:0.005
+metrics.scalar.[42_env/63_tr_timeout_mean_ema]  = $env mean.term_reason_timeout @train $ema ema_alpha:0.001
+metrics.scalar.[42_env/64_tr_blocked_mean_ema]  = $env mean.term_reason_spawn_blocked @train $ema ema_alpha:0.001
+metrics.scalar.[42_env/65_tr_overflow_mean_ema] = $env mean.term_reason_overflow @train $ema ema_alpha:0.001
+#metrics.scalar.[42_env/66_tr_maxstep_mean_ema]  = $env mean.term_reason_maxstep @train $ema ema_alpha:0.001
 metrics.scalar.[42_env/67_ep_mean_settle_steps_ema] = $env mean.ep_mean_settle_steps @train $ema ema_alpha:0.005
-
 
 metrics.scalar.[42_env/00_ep_step_mean]  = $env mean.ep_step @train
 metrics.scalar.[42_env/00_ep_step_mean_ema]  = $env mean.ep_step @train $ema ema_alpha:0.001
 
 
-# ---- image metrics
+# ==============================================================================
+# image metrics
+# ==============================================================================
 
 metrics.image.interval = 0   # 出力全無効
 #metrics.image.interval = 1   # 毎ステップ出力（重い）
@@ -610,12 +684,12 @@ metrics.image.interval = 0   # 出力全無効
 #metrics.image.[60_agent_img/01_conv2d_16p].conv2d.network_key = policy-net.conv2d
 #metrics.image.[60_agent_img/01_conv2d_16p].conv2d.min_block_size = 40
 
-metrics.image.[60_agent_img/02_conv2d_32p].type = Conv2d
-metrics.image.[60_agent_img/02_conv2d_32p].interval = 5
-metrics.image.[60_agent_img/02_conv2d_32p].conv2d.channels_per_row = 34
-metrics.image.[60_agent_img/02_conv2d_32p].conv2d.network_key = policy-net.conv2d
-metrics.image.[60_agent_img/02_conv2d_32p].conv2d.colormap = gray
-metrics.image.[60_agent_img/02_conv2d_32p].conv2d.min_block_size = 40
+##metrics.image.[60_agent_img/02_conv2d_32p].type = Conv2d
+##metrics.image.[60_agent_img/02_conv2d_32p].interval = 5
+##metrics.image.[60_agent_img/02_conv2d_32p].conv2d.channels_per_row = 34
+##metrics.image.[60_agent_img/02_conv2d_32p].conv2d.network_key = policy-net.conv2d
+##metrics.image.[60_agent_img/02_conv2d_32p].conv2d.colormap = gray
+##metrics.image.[60_agent_img/02_conv2d_32p].conv2d.min_block_size = 40
 
 #metrics.image.[60_agent_img/03_conv2d_64p].type = Conv2d
 #metrics.image.[60_agent_img/03_conv2d_64p].interval = 5
@@ -657,7 +731,9 @@ metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.min_block_size = 40
 #colormap = hot
 
 
-# --- app
+# ==============================================================================
+# app
+# ==============================================================================
 
 #app.online.eval_panel.step_per_frame = 5
 
@@ -666,8 +742,12 @@ app.batchrun.eval_panel.auto_start = false
 
 QValuePanel.row_height = 24
 
+app.online.train_panel.fps = 30
 
-# --- env
+
+# ==============================================================================
+# DropMergeEnv
+# ==============================================================================
 
 env.class_id = DropMergeEnv
 
@@ -678,6 +758,7 @@ DropMergeEnv.G4064.grid_cols = 40
 DropMergeEnv.G4064.grid_rows = 64
 DropMergeEnv.G2032.grid_cols = 20
 DropMergeEnv.G2032.grid_rows = 32
+
 
 # --- DropMergeEnv fun1
 
@@ -730,9 +811,9 @@ DropMergeEnv.baseline.restitution = 0.05        # 反発係数 衝撃吸収
 #DropMergeEnv.baseline.friction = 0.3          # 摩擦
 DropMergeEnv.baseline.friction = 0.1          # 摩擦 ツルツル
 
-#DropMergeEnv.baseline.time_penalty = -0.0001    # 時間ペナルティ
-DropMergeEnv.baseline.time_penalty = -0.005      # NEET対策
-#DropMergeEnv.baseline.time_penalty = 0.0        # 時間ペナルティ
+#DropMergeEnv.baseline.time_penalty = -0.0001   # NEET対策
+#DropMergeEnv.baseline.time_penalty = -0.005    # NEET対策
+DropMergeEnv.baseline.time_penalty = 0.0        # 時間ペナルティ無し
 
 DropMergeEnv.baseline.game_over_penalty = -10.0   # GameOverペナルティ
 #DropMergeEnv.baseline.game_over_penalty = -5.0    # GameOverペナルティ
@@ -752,7 +833,6 @@ DropMergeEnv.orig.fruit_scores = 0.1 0.3 0.6 1.0 1.5 2.1 2.8 3.6 4.5 5.5 0.0    
 DropMergeEnv.orig.use_fast_move = false
 DropMergeEnv.orig.use_instant_drop = false
 DropMergeEnv.orig.game_over_grace_step = 1
-
 
 
 # --- DropMergeEnv デフォルト設定
@@ -789,23 +869,12 @@ DropMergeEnv.use_settle_after_drop = false   # 物理演算が安定するまで
 DropMergeEnv.settle_velocity_threshold = 0.1 # 安定判定の線速度閾値 (m/s)
 DropMergeEnv.settle_angular_threshold = 0.1  # 安定判定の角速度閾値 (rad/s)
 DropMergeEnv.settle_max_steps = 500          # 安定待ちの最大物理ステップ数 (無限ループ防止用)
-
 DropMergeEnv.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0   # 本家ベースで「Rank N+1 のスコア ＞ Rank N のスコア × 2」になるよう調整
 DropMergeEnv.fruit_radii = 0.09 0.13 0.17 0.22 0.28 0.35 0.43 0.52 0.62 0.72 0.84          # 果物半径
 DropMergeEnv.fruit_densities = 10.0 5.0 3.0 1.8 1.1 0.7 0.45 0.30 0.22 0.16 0.12           # 全部同じ重さ
 DropMergeEnv.drop_probs = 20.0 20.0 20.0 20.0 20.0                                         # ドロッパー出現率分布（ランク別）
 DropMergeEnv.box_restitution = 0        # 箱の反発係数。-1で果物と同じ
 DropMergeEnv.box_friction = -1          # 箱の摩擦。-1で果物と同じ
-
-
-
-# --- メトリクス・可視化 ---
-
-metrics.image.interval = 100
-app.online.train_panel.fps = 30
-#app.batchrun.train_panel.fps = 30
-app.batchrun.train_panel.fps = 0.5
-#app.batchrun.eval_panel.fps = 0.1
 
 
 # --- Eval設定 ---
