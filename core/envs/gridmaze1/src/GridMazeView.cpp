@@ -43,6 +43,7 @@ void GridMazePanel::OnPaint(wxPaintEvent& event)
 
     auto map_acc = data_.map_tensor.accessor<float, 2>();
 
+    // 盤面を描画
     for (int y = 0; y < rows; ++y) {
         for (int x = 0; x < cols; ++x) {
             int cell_type = static_cast<int>(map_acc[y][x]);
@@ -62,24 +63,56 @@ void GridMazePanel::OnPaint(wxPaintEvent& event)
         }
     }
 
-    wxRect agent_rect(offset_x + data_.pos_x * cell_size + 4,
-        offset_y + data_.pos_y * cell_size + 4,
-        cell_size - 8, cell_size - 8);
+    // 直近のアクションと報酬を取得
+    const int BATCH_POS = 0;
+    float reward = 0.0f;
+    int64_t action = 0; // デフォルトは 0 (Up)
+
+    if (data_.train_exp.reward.defined() && data_.train_exp.reward.numel() > 0) {
+        reward = data_.train_exp.reward[BATCH_POS].item<float>();
+    }
+    auto action_tensor = data_.train_exp.action.GetAction(torch::kCPU);
+    if (action_tensor.defined() && action_tensor.numel() > 0) {
+        action = action_tensor[BATCH_POS].item<int64_t>();
+    }
+
+    std::string act_str = (action == 0) ? "Up" : (action == 1) ? "Left" : (action == 2) ? "Down" : "Right";
+
+    // エージェントを描画 (Actionの向きに応じた三角形)
+    int cx = offset_x + data_.pos_x * cell_size + cell_size / 2;
+    int cy = offset_y + data_.pos_y * cell_size + cell_size / 2;
+    int r = (cell_size - 8) / 2; // 三角形を外接させる円の半径
+
+    wxPoint points[3];
+    if (action == 0) { // Up (上が尖る)
+        points[0] = wxPoint(cx, cy - r);
+        points[1] = wxPoint(cx - r, cy + r);
+        points[2] = wxPoint(cx + r, cy + r);
+    } else if (action == 1) { // Left (左が尖る)
+        points[0] = wxPoint(cx - r, cy);
+        points[1] = wxPoint(cx + r, cy - r);
+        points[2] = wxPoint(cx + r, cy + r);
+    } else if (action == 2) { // Down (下が尖る)
+        points[0] = wxPoint(cx, cy + r);
+        points[1] = wxPoint(cx - r, cy - r);
+        points[2] = wxPoint(cx + r, cy - r);
+    } else { // Right (右が尖る)
+        points[0] = wxPoint(cx + r, cy);
+        points[1] = wxPoint(cx - r, cy - r);
+        points[2] = wxPoint(cx - r, cy + r);
+    }
+
     dc.SetPen(*wxTRANSPARENT_PEN);
     dc.SetBrush(*wxBLUE_BRUSH);
-    dc.DrawEllipse(agent_rect);
+    dc.DrawPolygon(3, points); // 3頂点のポリゴンを描画
 
+    // サイドパネルを描画
     dc.SetPen(wxPen(wxColour(200, 200, 200), 1));
     dc.DrawLine(side_area_x, 0, side_area_x, height);
 
     int text_x = side_area_x + 10;
     int text_y = 10;
     int line_h = 20;
-
-    const int BATCH_POS = 0;
-    float reward = data_.train_exp.reward[BATCH_POS].item<float>();
-    int64_t action = data_.train_exp.action.GetAction(torch::kCPU)[BATCH_POS].item<int64_t>();
-    std::string act_str = (action == 0) ? "Up" : (action == 1) ? "Left" : (action == 2) ? "Down" : "Right";
 
     dc.DrawText("--- GridMaze ---", text_x, text_y); text_y += line_h * 2;
     dc.DrawText(wxString::Format("Step: %s", anet::FormatWithCommas(data_.counts.exp_step)), text_x, text_y); text_y += line_h;
