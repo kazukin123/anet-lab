@@ -243,8 +243,8 @@ void DropMergeEnv::buildWorld()
 
     b2Vec2 gravity(0.0f, config_.gravity);
     world_ = std::make_unique<b2World>(gravity);
-    world_->SetContinuousPhysics(false);  // 性能確保のために連続衝突判定(CCD) をオフに（すり抜けが発生したらtrueにする）
-//world_->SetContinuousPhysics(true);  // 性能確保のために連続衝突判定(CCD) をオフに（すり抜けが発生したらtrueにする）
+    //world_->SetContinuousPhysics(true); // 連続衝突判定(CCD)
+    world_->SetContinuousPhysics(false); // 連続衝突判定(CCD) → すり抜けが発生するのでtrueに
     world_->SetAllowSleeping(true);     // 動かなくなった果物の物理演算をスキップ(デフォルトで有効のはずだが念の為）
 
     contact_listener_ = std::make_unique<ContactListener>(*this);
@@ -646,7 +646,7 @@ bool DropMergeEnv::checkGameOver()
         b2Vec2 pos = b->GetWorldCenter();
 
         // 横にはみ出した（壁抜けバグ）
-        if (std::abs(pos.x) > config_.box_width * 0.6f) {
+        if (std::abs(pos.x) > config_.box_width * 1.0f) {
             auto data = DecodeUserData(b->GetUserData().pointer);
             LOG::error() << "Fruit out of bounds. x=" << pos.x << " rank=" << data.second;
             //ANET_SYSTEM_ERROR("Fruit out of bounds (x=" << pos.x << ")");
