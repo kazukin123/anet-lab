@@ -4,9 +4,14 @@
 #include <wx/clipbrd.h>
 #include <wx/artprov.h>
 #include <wx/richmsgdlg.h>
+#include "anet/log.hpp"
+
+namespace LOG = anet::log;
 
 void ShowErrorDialog(const wxString& message, const wxString& detail)
 {
+    LOG::error() << "System error: " << message << "\n" << detail;
+
     // ダイアログ作成 (リサイズ可能にする)
     wxDialog dlg(NULL, wxID_ANY, wxT("System Error"),
         wxDefaultPosition, wxSize(650, 450), // 横幅を少し広げました

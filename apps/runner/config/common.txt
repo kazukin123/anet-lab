@@ -107,6 +107,8 @@ app.metrics_logger.video_codec = h264_nvenc  # libx264
 #app.metrics_logger.video_fps = 30
 app.metrics_logger.video_fps = 15
 
+#app.metrics_logger.use_png_dump = true  # default:false 
+
 ## MEMO: smooth_radius
 # 計算式: Bins (510) ÷ Quantile数 (N) 程度が目安。
 #   もし N=51 なら、510 / 51 = 10 ビンくらいの隙間が空く可能性がある

@@ -170,6 +170,7 @@ namespace anet::log {
     inline auto verbose() { return anet::log::WxLogStream(wxLOG_Info); }
     inline auto warn() { return anet::log::WxLogStream(wxLOG_Warning); }
     inline auto error() { return anet::log::WxLogStream(wxLOG_Error); }
+    inline auto fatal() { return anet::log::WxLogStream(wxLOG_FatalError); }
 
 
     // ============================================================

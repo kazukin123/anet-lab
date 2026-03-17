@@ -324,14 +324,14 @@ void MetricsLogger::LogImage_subtyped(const std::string& tag, anet::rl::step_t s
     std::string safe_tag = SanitizeFilename(tag);
 
     // ---- 画像書き込み (個別PNG保存はデバッグ用) ----
-    if (false) {
+    if (config_.use_png_dump) {
         uint64_t seq = image_seq_[tag]++;
         char buf[32];
         std::snprintf(buf, sizeof(buf), "%06llu", static_cast<unsigned long long>(seq));
 
         auto images_dir = run_dir_ / "images" / safe_tag;
         std::filesystem::create_directories(images_dir);
-        auto image_path = images_dir / "/" / (safe_tag + "_" + buf + ".png");
+        auto image_path = images_dir / (safe_tag + "_" + buf + ".png");
         image.SaveFile(image_path.string(), wxBITMAP_TYPE_PNG);
     }
 

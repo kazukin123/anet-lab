@@ -59,6 +59,7 @@ struct RunnerApp::Config : public anet::Config {
         metrics_logger.run_name_tmpl = run_name;
         ANET_READ_CONFIG(config_data, metrics_logger.video_codec);
         ANET_READ_CONFIG(config_data, metrics_logger.video_fps);
+        ANET_READ_CONFIG(config_data, metrics_logger.use_png_dump);
 
         ANET_READ_CONFIG(config_data, train_panel.fps);
         ANET_READ_CONFIG(config_data, eval_panel.fps);
@@ -293,12 +294,17 @@ void RunnerApp::SetupLogging()
 
 int64_t RunnerApp::SaveAgent(const std::string& file_name)
 {
+    wxBeginBusyCursor();
+
     auto agent = GetRunManager().GetAgent();
     auto os = wxGetApp().GetOutputStream(file_name);
     anet::OutputArchive archive(os, file_name);
     auto size = agent->Save(archive);
     os.close();
-	return size;
+    
+    wxEndBusyCursor();
+
+    return size;
 }
 
 void RunnerApp::ToggleTraining()

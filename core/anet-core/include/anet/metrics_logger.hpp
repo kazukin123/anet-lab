@@ -108,6 +108,7 @@ namespace anet {
         std::string run_name_tmpl = "run_{t}";
         std::string video_codec = "libx264";
         int video_fps = 30;
+        bool use_png_dump = false;
     };
 
     class MetricsLogger {
