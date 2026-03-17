@@ -28,12 +28,7 @@ struct FruitUserData {
     int rank; // 1 to 10
 };
 
-// UserDataポインタを管理するための簡易プール等は省略し、
-// ここでは b2BodyUserData.pointer に直接キャストした値を埋め込む方式はとらず、
-// 各Bodyごとにnewして管理する。（削除時にdeleteが必要）
-// あるいは、rank情報は小さいので pointer 値そのものにエンコードする。
-// pointer = (type << 16) | rank 
-// type: 1=Fruit, rank: 1~10.  => Fruit(Rank N) = 0x10000 + N
+// UserDataポインタを管理するための簡易プール等は省略し b2BodyUserData.pointerに直接キャストした値を埋め込む
 
 static uintptr_t EncodeUserData(BodyType type, int rank = 0) {
     return (static_cast<uintptr_t>(type) << 16) | static_cast<uintptr_t>(rank);
@@ -173,6 +168,13 @@ DropMergeEnv::~DropMergeEnv()
     destroyWorld();
 }
 
+void DropMergeEnv::bell()
+{
+    anet::ProfileRange r("DropMergeEnv::bell");
+    /// @todo wxBell()はスレッドセーフじゃないのでwxSoundを使うべき
+    wxBell();
+}
+
 anet::rl::EnvSpec DropMergeEnv::GetSpec() const
 {
     // Dropper Info (Fixed size)
@@ -263,7 +265,7 @@ void DropMergeEnv::buildWorld()
 
         float half_w = config_.box_width * 0.5f;
         float h = config_.box_height;
-        float wall_thick = 0.2f;
+        float wall_thick = 50.0f;   // 壁抜け防止のため、壁を厚くする
 
         // 底
         b2PolygonShape shape_bottom;
@@ -388,6 +390,7 @@ b2Body* DropMergeEnv::spawnFruit(float x, float y, int rank)
     bd.position.Set(x, y);
     bd.linearDamping = config_.damping;
     bd.angularDamping = config_.damping;
+    bd.bullet = true;   // 高速移動によるすり抜け防止
     b2Body* body = world_->CreateBody(&bd);
 
     // UserData設定
@@ -538,8 +541,16 @@ void DropMergeEnv::processMerges()
         }
 
         if (req.next_rank <= kFruitTypeCount) {
+            // 壁抜け防止のためのスポーン座標クランプ
+            float new_radius = config_.fruit_radii[req.next_rank - 1]; // 新しい果物の半径
+            float half_w = config_.box_width * 0.5f;
+            float limit_x = half_w - new_radius - 0.001f;              // 壁にめり込まない限界X座標
+
+            // X座標を安全な範囲に強制クランプ
+            float safe_x = std::clamp(req.center.x, -limit_x, limit_x);
+
             // 新しい果物を生成 
-            spawnFruit(req.center.x, req.center.y, req.next_rank);
+            spawnFruit(safe_x, req.center.y, req.next_rank);
 
             // 合体後のランクで最大ランクを更新
             ep_max_rank_ = std::max(ep_max_rank_, req.next_rank);
@@ -552,7 +563,7 @@ void DropMergeEnv::processMerges()
             // ログ
             if (req.next_rank >= kFruitTypeCount) { // スイカが出来たらログ＆音
                 LOG::info() << "Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_ << " current_step_merge_score_=" << current_step_merge_score_;
-                wxBell();       /// @todo wxBell()はスレッドセーフじゃないのでwxSoundを使うべき
+                bell();
             }
 
             // 小爆発
@@ -563,7 +574,7 @@ void DropMergeEnv::processMerges()
 
             // スイカ同士が消えた場合はSpawnしない（Rank 12相当）
             LOG::info() << "Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_ << " current_step_merge_score_=" << current_step_merge_score_;
-            wxBell();       /// @todo wxBell()はスレッドセーフじゃないのでwxSoundを使うべき
+            bell();       /// @todo wxBell()はスレッドセーフじゃないのでwxSoundを使うべき
 
             // スコア加算
             float s = config_.fruit_scores[kFruitTypeCount - 1];
@@ -636,8 +647,10 @@ bool DropMergeEnv::checkGameOver()
 
         // 横にはみ出した（壁抜けバグ）
         if (std::abs(pos.x) > config_.box_width * 0.6f) {
-            LOG::warn() << "Fruit out of bounds (x=" << pos.x << ")";   // ログだけ
-            ANET_ASSERT_MSG(false, "Fruit out of bounds");
+            auto data = DecodeUserData(b->GetUserData().pointer);
+            LOG::error() << "Fruit out of bounds. x=" << pos.x << " rank=" << data.second;
+            //ANET_SYSTEM_ERROR("Fruit out of bounds (x=" << pos.x << ")");
+            return true;
         }
 
         if (pos.y > dead_line_y) {

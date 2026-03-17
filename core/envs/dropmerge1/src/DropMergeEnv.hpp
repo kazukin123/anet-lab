@@ -234,6 +234,7 @@ namespace anet::rl::env::drop_merge {
         void destroyWorld();
         bool isSpawnAreaClear(float x, float y, float r) const;
         void updateDropperStatus();
+        void bell();
 
         // ゲームロジック
         void notifyContact(b2Body* body);
