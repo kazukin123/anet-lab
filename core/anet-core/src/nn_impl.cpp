@@ -633,6 +633,8 @@ anet::TensorDict Network::GetConv2dOutputs(const torch::Tensor& input) const
 
 std::shared_ptr<Network> Network::Clone(std::optional<torch::Device> device) const
 {
+    anet::ProfileRange r("Network::Clone");
+
     // 保存した情報を使って新しいインスタンスを生成
     auto cloned_net = NetworkBuilder::BuildNetwork(config_, input_shape_, head_factory_);
 
@@ -655,6 +657,7 @@ std::shared_ptr<Network> Network::Clone(std::optional<torch::Device> device) con
 
 void Network::CopyTo(Network& target) const
 {
+    anet::ProfileRange r("Network::CopyTo");
     torch::NoGradGuard no_grad;
 
     // パラメータ (Weight, Bias等) のコピー
@@ -676,6 +679,7 @@ void Network::CopyTo(Network& target) const
 
 void Network::SoftCopyTo(Network& target, double tau) const
 {
+    anet::ProfileRange r("Network::SoftCopyTo");
     torch::NoGradGuard no_grad;
 
     // パラメータのブレンド: target = tau * src + (1 - tau) * target
