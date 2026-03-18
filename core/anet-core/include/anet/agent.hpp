@@ -40,7 +40,7 @@ namespace anet::rl {
         }
 
         std::shared_ptr<ActionContext> CreateActionContext(
-            const BatchEnvSpec& batch_env_spec, RunMode run_mode) const override
+            const BatchEnvSpec& batch_env_spec, RunMode run_mode, std::optional<torch::Device> device = std::nullopt) const override
         {
             return std::make_shared<DefaultActionContext>(run_mode);
         }
@@ -61,6 +61,7 @@ namespace anet::rl {
     // =============================================================
 
     namespace dqn {
+        class Actor;
         struct RuntimeVars;         ///< Agent内部変数
         class NetworkModel;              ///< NN
         class ActionPolicy;         ///< 行動選択アルゴリズム

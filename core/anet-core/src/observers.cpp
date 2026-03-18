@@ -475,48 +475,93 @@ EpisodeEvalObserver::EpisodeEvalObserver(
     ReportFunction report_function,
     std::shared_ptr<anet::rl::SingleDiscreteEnvFactory> eval_env_factory,
 	const ConfigData& config_data,
-    const torch::Device& device,
-    anet::rl::RunMode runmode, int log_interval, int eval_inerval,
+    torch::Device env_device, torch::Device actor_device,
+    anet::rl::RunMode runmode, int log_interval, int eval_inerval, bool use_background,
     std::optional<seed_t> seed,
     const std::string& config_prefix)
     : report_function_(std::move(report_function))
     , runmode_(runmode), log_interval_(log_interval), eval_interval_(eval_inerval)
+    , actor_device_(actor_device), use_background_(use_background)
 {
-    env_ = std::make_unique<VectorizedDiscreteBatchEnv>(config_data, eval_env_factory, 1, device, seed, config_prefix);
+    // 評価エピソードを回すためのENV生成
+    env_ = std::make_unique<VectorizedDiscreteBatchEnv>(config_data, eval_env_factory, 1, env_device, seed, config_prefix);
+
+    // バックグラウンド有効時のみスレッドプール生成
+    if (use_background_) {
+        eval_pool_ = std::make_unique<anet::PinnedThreadPool>(1, "EpisodeEvalObserver");
+    }
+}
+
+EpisodeEvalObserver::~EpisodeEvalObserver()
+{
+    // スレッドが動いていたら待つ
+    if (eval_future_.valid()) {
+        eval_future_.wait();
+    }
+
+    // スレッド終わり
+    if (eval_pool_) {
+        eval_pool_->Stop();
+    }
+}
+
+void EpisodeEvalObserver::RunEvaluationEpisode()
+{
+    StepCounts counts_local;
+    auto reset_result = env_->Reset(runmode_);
+    auto state = reset_result->state;
+    auto eps_total_reward = 0.0f;
+    bool done = false;
+    bool truncated = false;
+    do {
+        auto action = actor_->MakeAction(counts_local, state);
+        auto env_result = env_->Step(action.GetAction());
+        eps_total_reward += env_result->reward.mean().item<float>();
+        state = env_result->continue_state;
+        done = env_result->next_state.IsDone();
+        truncated = env_result->next_state.IsTruncated();
+
+        counts_local.train_step++;
+    } while (!done && !truncated);
+
+    this->report_function_(eps_total_reward);
 }
 
 void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
 {
-    anet::ProfileRange r("EpisodeEvalObserver::OnPostUpdate");
+    anet::ProfileRange r("EpisodeEvalObserver::OnLearn");
 
-    if (action_context_ == nullptr) {
-        action_context_ = event.agent->CreateActionContext(env_->GetBatchSpec(), runmode_);
-	}
+    // 初回にActorを生成
+    if (actor_ == nullptr) {
+        actor_ = event.agent->CreateActor(env_->GetBatchSpec(), runmode_, actor_device_, true);
+    }
 
-	/// @todo メトリクスのSTEP軸を指定できるようにする
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::LEARN);
 
     // 評価エピソードを終端まで回す
     if (eval_interval_ > 0 && step % eval_interval_ == 0) {
-		StepCounts counts_local;
-        step_t step = 0;
-        auto reset_result = env_->Reset(runmode_);
-        auto state = reset_result->state;
-        auto eps_total_reward = 0.0f;
-        bool done = false;
-        bool truncated = false;
-        do {
-            auto action = event.agent->MakeAction(counts_local, state, action_context_);
-            auto env_result = env_->Step(action.GetAction());
-            eps_total_reward += env_result->reward.mean().item<float>();
-            state = env_result->continue_state;
-            done = env_result->next_state.IsDone();
-            truncated = env_result->next_state.IsTruncated();
-                
-            counts_local.train_step++;
-        } while (!done && !truncated);
+        if (use_background_) {
+            // 前回の評価がまだ終わっていなければ、ここで完了までブロックして待つ
+            if (eval_future_.valid()) {
+                eval_future_.wait();
+            }
 
-        this->report_function_(eps_total_reward);
+            // NN同期 (スレッドに投げる前に呼元と同じスレッド上で安全に最新の重みを取る)
+            actor_->Sync();
+
+            // スレッドに評価エピソード実行処理を投げる
+            eval_future_ = eval_pool_->EnqueueFuture(0, [this]() {
+                try {
+                    this->RunEvaluationEpisode();
+                } catch (const std::exception& e) {
+                    LOG::error() << "EpisodeEvalObserver Error: " << e.what();
+                }
+                });
+        } else {
+            // フォアグラウンド実行
+            actor_->Sync();
+            RunEvaluationEpisode();
+        }
     }
 }
 

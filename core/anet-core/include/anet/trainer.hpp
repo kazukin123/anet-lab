@@ -118,6 +118,8 @@ namespace anet::rl {
         std::chrono::high_resolution_clock::time_point start_time_;
         std::chrono::high_resolution_clock::time_point last_time_;
 		std::unordered_map<std::string, float> eval_last_rewards_;
+        
+        mutable std::mutex eval_rewards_mutex_;
 
         step_t acc_train_steps_ = 0;
         step_t acc_exp_steps_ = 0;
@@ -188,8 +190,6 @@ namespace anet::rl {
         //RunManager(const ConfigData& config_data, const std::string& config_prefix = "train");
         RunManager(const ConfigData& config_data);
         ~RunManager();
-
-        bool Initialize(const ConfigData& config_data);
 
         std::shared_ptr<EvalRunner> CreateEvalRunner(const std::string& name, RunMode runmode = RunMode::Eval);
 

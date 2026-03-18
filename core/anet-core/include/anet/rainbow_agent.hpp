@@ -78,6 +78,8 @@ namespace anet::rl::dqn {
         anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const override;
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const anet::rl::BatchExperience& exprience, std::shared_ptr<const anet::rl::Runner> runner) override;
     public:
+        std::shared_ptr<anet::rl::Actor> CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, torch::Device device, bool clone_model) const override;
+    public:
         std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override;
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;

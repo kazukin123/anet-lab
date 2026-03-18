@@ -101,14 +101,14 @@ RainbowAgent::RainbowAgent(
     );
 
     // ActionPolicy生成
-    this->action_policy_ = std::make_unique<dqn::EpsilonGreedyActionPolicy>(config_.action_policy, *model_);
+    this->action_policy_ = std::make_unique<dqn::EpsilonGreedyActionPolicy>(config_.action_policy);
 
     // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化
     ActionPolicyConfig greedy_cfg;
     greedy_cfg.policy_type = "EpsilonGreedy";
     greedy_cfg.eps_start = 0.0f;
     greedy_cfg.eps_end = 0.0f;
-    this->target_policy_ = std::make_shared<dqn::EpsilonGreedyActionPolicy>(greedy_cfg, *model_);
+    this->target_policy_ = std::make_shared<dqn::EpsilonGreedyActionPolicy>(greedy_cfg);
 
     // Learner生成
     if (is_distributional) {
@@ -190,11 +190,38 @@ anet::rl::BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const
     auto run_mode = ctx != nullptr ? ctx->GetRunMode() : anet::rl::RunMode::Train;
     auto greedy_only = anet::rl::IsEval(run_mode);
     auto use_target = (run_mode == anet::rl::RunMode::Eval1);
+    auto network = use_target ? model_->GetTargetNetwork() : model_->GetMainNetwork();
     auto rnd = ctx->GetRandomGenerator();
-    auto act_info = this->action_policy_->SelectAction(flat_obs, greedy_only, use_target, rnd);
+    auto act_info = this->action_policy_->SelectAction(flat_obs, greedy_only, network, rnd);
 
     // ActionInfoを返す
     return act_info;
+}
+
+std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, torch::Device device, bool clone_model) const
+{
+    // Contextを生成
+    auto ctx = this->CreateActionContext(batch_env_spec, run_mode);
+
+    // モードに応じて適切な Policy と Network を選択
+    std::shared_ptr<anet::rl::dqn::ActionPolicy> policy;
+    std::shared_ptr<anet::nn::Network> src_network;
+
+    // 元ネタのPolicyとNetoworkを決定
+    if (anet::rl::IsEval(run_mode)) {
+        src_network = (run_mode == anet::rl::RunMode::Eval1) ? model_->GetTargetNetwork() : model_->GetMainNetwork();
+    } else {
+        src_network = model_->GetMainNetwork();
+    }
+
+    // 必要に応じてCloneしてActor向けネットワークとする
+    auto network = (clone_model) ? src_network->Clone(device) : src_network;
+
+    // Actor を生成
+    auto actor = std::make_shared<dqn::Actor>(action_policy_, nullptr, ctx, this->mutex_, network, src_network);
+
+    // 生成したActorを返す
+    return actor;
 }
 
 anet::rl::BatchUpdateResultList

@@ -13,6 +13,11 @@
 
 namespace anet::rl::dqn {
 
+
+    // ======================================================
+    // DefaultDQNAgentConfig
+    // ======================================================
+
     struct DefaultDQNAgentConfig : public anet::Config {
 
         NetworkModelConfig model;
@@ -182,6 +187,11 @@ namespace anet::rl::dqn {
         }
     };
 
+
+    // ======================================================
+    // DefaultDQNAgent
+    // ======================================================
+
     class DefaultDQNAgent: public anet::rl::AgentBase, public std::enable_shared_from_this<DefaultDQNAgent> {
     public:
         DefaultDQNAgent(
@@ -192,10 +202,12 @@ namespace anet::rl::dqn {
             std::optional<seed_t> seed = std::nullopt);
 
         std::shared_ptr<ActionContext> CreateActionContext(
-            const BatchEnvSpec& batch_env_spec, RunMode run_mode = RunMode::Train) const override;
+            const BatchEnvSpec& batch_env_spec, RunMode run_mode = RunMode::Train, std::optional<torch::Device> device = std::nullopt) const override;
         anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const override;
 
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences, std::shared_ptr<const anet::rl::Runner> runner) override;
+    public:
+        std::shared_ptr<anet::rl::Actor> CreateActor(const BatchEnvSpec& batch_env_spec, RunMode mode, torch::Device device, bool clone_model) const override;
     public:
         std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override;
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;

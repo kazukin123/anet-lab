@@ -586,11 +586,33 @@ namespace anet::rl {
         virtual ~BatchEnvFactory() = default;
     };
 
+
+    // =============================================================
+    // Policy APIs
+    // =============================================================
+
+    class Actor {
+    public:
+        virtual BatchActionInfo MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const = 0;
+        virtual void Sync() = 0;
+        virtual ~Actor() = default;
+    };
+
+    using BatchUpdateResultList = std::vector<std::shared_ptr<const anet::rl::BatchUpdateResult>>;
+
+    class Runner;
+
+    class Learner {
+    public:
+        virtual BatchUpdateResultList UpdateFromBatch(
+            const StepCounts& step, const BatchExperience& expriences, std::shared_ptr<const anet::rl::Runner> runner) = 0;
+        virtual ~Learner() = default;
+    };
+
+
     // =============================================================
     // Agent
     // =============================================================
-
-    class Runner;
 
     class ActionContext : public anet::RandomHolder {
     public:
@@ -611,35 +633,20 @@ namespace anet::rl {
         RunMode run_mode_;
     };
 
-    class ActionPolicy {
+    class Agent : public Learner, public Module, public TensorFunctionProvider, public TensorDictFunctionProvider , public Serializable {
+    public:
+        virtual std::shared_ptr<Actor> CreateActor(const BatchEnvSpec& batch_env_spec, RunMode run_mode, torch::Device device, bool clone_model) const = 0;
+        //virtual std::shared_ptr<Learner> CreateLearner() = 0;
     public:
         virtual std::shared_ptr<ActionContext> CreateActionContext(
-            const BatchEnvSpec& batch_env_spec, RunMode mode = RunMode::Train) const = 0;
-
+            const BatchEnvSpec& batch_env_spec, RunMode run_mode = RunMode::Train, std::optional<torch::Device> device = std::nullopt) const = 0;
         virtual BatchActionInfo MakeAction(
             const StepCounts& counts, const anet::rl::BatchState& state, std::shared_ptr<ActionContext> ctx) const = 0;
-
-        virtual ~ActionPolicy() = default;
-    };
-
-    using BatchUpdateResultList = std::vector<std::shared_ptr<const anet::rl::BatchUpdateResult>>;
-
-    class Learner {
-    public:
-        virtual BatchUpdateResultList UpdateFromBatch(
-            const StepCounts& step, const BatchExperience& expriences, std::shared_ptr<const anet::rl::Runner> runner) = 0;
-        virtual ~Learner() = default;
-    };
-
-    class Agent : public ActionPolicy, public Learner
-        , public Module
-        , public TensorFunctionProvider, public TensorDictFunctionProvider
-        , public Serializable {
-    public:
         virtual int64_t Save(anet::OutputArchive& archive) const override { return 0;  }
         virtual int64_t Load(anet::InputArchive& archive) override { return 0; }
         virtual ~Agent() = default;
     };
+
 
     // =============================================================
     // ReplayBuffer 

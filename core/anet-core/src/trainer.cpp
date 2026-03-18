@@ -220,6 +220,7 @@ TrainRunner::TrainRunner(
 
 void TrainRunner::SetEvalLastReward(const std::string& name, float val)
 {
+    std::lock_guard<std::mutex> lock(eval_rewards_mutex_);
     eval_last_rewards_[name] = val;
 }
 
@@ -256,6 +257,7 @@ std::optional<float> TrainRunner::GetScalar(const std::string& key, int64_t inde
 
 	//evalのlast_reward取得
     if (key.find("eval.[") == 0) {
+        std::lock_guard<std::mutex> lock(eval_rewards_mutex_);
         for (const auto& kv : eval_last_rewards_) {
             const auto& tag = kv.first;
 			const auto& reward = kv.second;
@@ -563,6 +565,9 @@ struct RunManager::Config : public anet::Config
     int eval_interval = 50;
     std::string main_runner_type = "serial";
 
+    std::string eval_device_type = "cpu";
+    int eval_device_index = 0;
+
     RunManager::Config(const anet::ConfigData& config_data, const std::string& config_prefix = "train") /// @todo config_prefixをrunに変更
         : anet::Config(config_data, config_prefix)
     {
@@ -570,6 +575,16 @@ struct RunManager::Config : public anet::Config
         ANET_READ_CONFIG(config_data, batch_size);
         ANET_READ_CONFIG(config_data, eval_interval);
         ANET_READ_CONFIG(config_data, main_runner_type);
+        ANET_READ_CONFIG(config_data, eval_device_type);
+        ANET_READ_CONFIG(config_data, eval_device_index);
+    }
+
+    torch::Device GetEvalDevice() const
+    {
+        if (anet::ToLower(eval_device_type) == "cuda") {
+            return torch::Device(torch::kCUDA, eval_device_index);
+        }
+        return torch::Device(torch::kCPU);
     }
 };
 
@@ -673,21 +688,27 @@ RunManager::RunManager(const ConfigData& config_data)
         int interval = 100;
         eval_config_data.Read("interval", interval, interval);
 
+        // バックグラウンド実行の切り替え (デフォルト true)
+        bool use_background = true;
+        eval_config_data.Read("use_background", use_background, use_background);
+
         // メトリクス初期化
         //eval_last_rewards_[tag] = std::numeric_limits<float>::quiet_NaN();
         train_runner_->SetEvalLastReward(tag, std::numeric_limits<float>::quiet_NaN());
 
         // EvalObserver生成&登録
         //auto config_prefix = "train.eval." + tag;
+        auto actor_device = config_->GetEvalDevice();
         notifier_->AttachScoped<anet::rl::EpisodeEvalObserver>(
             train_runner_,
             [this, tag](float total_reward) {   // report_function
                 ANET_LOG_DEBUG("EvalObserver: tag=" << tag << " total_reward=" << total_reward);
                 train_runner_->SetEvalLastReward(tag, total_reward);
             },
-            single_env_factory, config_data, env_device, run_mode,
+            single_env_factory, config_data, env_device, actor_device, run_mode,
             interval,   // log_interval
             interval,   // eval_interval
+            use_background,
             eval_obs_seed,
             config_prefix
         );

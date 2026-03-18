@@ -655,7 +655,7 @@ metrics.image.interval = 0   # 出力全無効
 #metrics.image.[60_agent_img/01_conv2d_16p].conv2d.min_block_size = 40
 
 ##metrics.image.[60_agent_img/02_conv2d_32p].type = Conv2d
-##metrics.image.[60_agent_img/02_conv2d_32p].interval = 5
+##metrics.image.[60_agent_img/02_conv2d_32p].interval = 10
 ##metrics.image.[60_agent_img/02_conv2d_32p].conv2d.channels_per_row = 34
 ##metrics.image.[60_agent_img/02_conv2d_32p].conv2d.network_key = policy-net.conv2d
 ##metrics.image.[60_agent_img/02_conv2d_32p].conv2d.colormap = gray
@@ -675,7 +675,7 @@ metrics.image.interval = 0   # 出力全無効
 #metrics.image.[60_agent_img/22_conv2d_32t].conv2d.min_block_size = 40
 
 metrics.image.[60_agent_img/11_conv2d_32p_jet].type = Conv2d
-metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 5
+metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 10
 metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.channels_per_row = 34
 metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.network_key = policy-net.conv2d
 metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.colormap = jet
@@ -848,6 +848,7 @@ DropMergeEnv.box_friction = -1          # 箱の摩擦。-1で果物と同じ
 
 
 # --- Eval設定 ---
+
 
 #train.eval.[eval1].interval = 0
 #train.eval.[eval2].interval = 0

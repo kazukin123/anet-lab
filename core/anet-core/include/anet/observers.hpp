@@ -2,12 +2,14 @@
 
 #pragma once
 
+#include "anet/thread.hpp"
 #include "anet/util.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/probe.hpp"
 #include "anet/rl.hpp" 
 #include "anet/image.hpp"
 #include "anet/nn.hpp"
+
 
 namespace anet::rl {
 
@@ -215,22 +217,32 @@ namespace anet::rl {
             ReportFunction report_function,
             std::shared_ptr<anet::rl::SingleDiscreteEnvFactory> eval_env_factory,
             const ConfigData& config_data,
-            const torch::Device& device,
+            torch::Device env_device, torch::Device actor_device,
             anet::rl::RunMode runmode_ = anet::rl::RunMode::Eval,
             int log_interval = 10, int eval_interval = 10,
+            bool use_background = true,
             std::optional<seed_t> seed = std::nullopt,
             const std::string& config_prefix = "");
 
         void OnLearn(const LearnEvent& event) override;
         std::string ToString() const override;
+
+        ~EpisodeEvalObserver() override;
     private:
-        ReportFunction report_function_;
+        void RunEvaluationEpisode();      ///< エピソード実行本体
+    private:
+        const ReportFunction report_function_;
+        const anet::rl::RunMode runmode_;
+        const torch::Device actor_device_;
+        const int log_interval_;
+        const int eval_interval_;
+        const bool use_background_;
         std::unique_ptr<anet::rl::BatchEnv> env_;
-        anet::rl::RunMode runmode_;
-        int log_interval_;
-        int eval_interval_;
-		std::shared_ptr<ActionContext> action_context_ = nullptr;
+        std::shared_ptr<Actor> actor_ = nullptr;
         //anet::EmaFilter<float> eval_total_reward_;
+
+        std::unique_ptr<anet::PinnedThreadPool> eval_pool_;
+        std::future<void> eval_future_;
     };
 
 

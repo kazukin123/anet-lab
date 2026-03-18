@@ -18,12 +18,9 @@ train.batch_size = 256
 DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > BF16.agent > R > X
 
-
 #GridMazeEnv.$ = GridMazeEnv.baseline
 
-
 net.body.$ = net.body.MLP2
-
 
 
 # ==============================================================================
@@ -31,6 +28,10 @@ net.body.$ = net.body.MLP2
 # ==============================================================================
 
 #app.run_name = run_{t}
+
+#R.use_qr = false  # true
+#R.train_policy.policy_type = EpsilonGreedy
+#R.eval_policy.policy_type = EpsilonGreedy
 
 
 # ==============================================================================
@@ -41,6 +42,8 @@ R.learner.update_warmup_steps = 0
 
 app.train_auto_start = false
 
+app.metrics_logger.video_codec = libx264  # h264_nvenc
+
 
 # ==============================================================================
 # ステップ数 依存設定
@@ -49,8 +52,9 @@ app.train_auto_start = false
 app.online.exp_pause_step  = 400,000     # 400K
 app.batchrun.exp_exit_step = 400,000     # 400K
 
-A.train_policy.uqe_eps_decay_steps = 100,000 # 100K
-A.train_policy.uqe_tau_decay_steps = 200,000 # 200K
+A.train_policy.eps_decay_steps     = 200,000 # 200K
+A.train_policy.uqe_eps_decay_steps = 200,000 # 200K
+A.train_policy.uqe_tau_decay_steps = 400,000 # 400K
 A.learner.per_beta_step = 100,000            # 100K
 
 
@@ -162,10 +166,15 @@ metrics.scalar.[42_env/00_ep_step_mean_ema]  = $env mean.episode_len @train $ema
 # image metrics
 # ==============================================================================
 
-metrics.image.interval = 0   # 出力全無効
-#metrics.image.interval = 1   # 毎ステップ出力（重い）
-#metrics.image.interval = 50   # 通常運用
-#metrics.image.interval = 500 # 重い場合
+#metrics.image.interval = 0   # 出力全無効
+#metrics.image.interval = 1   # 毎ステップ出力
+metrics.image.interval = 10   # 通常運用
+
+image.phm.per-prio.heatmap.width = 10
+image.phm.per-prio.heatmap.height = 10
+
+metrics.image.[43_agent_img/52_per_hm_prio_01].$ = image.phm.per-prio > image.phm.s01
+metrics.image.[45_agent_img/05_shm_01_maxq_01].$ = image.shm.qmax > image.shm.01
 
 
 

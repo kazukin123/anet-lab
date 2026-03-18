@@ -225,6 +225,10 @@ namespace anet::rl::dqn {
         /// QR-DQNの場合は分布の平均を計算して返す
         anet::TensorDict Forward(const torch::Tensor& obs, bool use_target) const;
 
+        // Network取得
+        std::shared_ptr<anet::nn::Network> GetMainNetwork() { return policy_net_; }
+        std::shared_ptr<anet::nn::Network> GetTargetNetwork() { return target_net_; }
+
         /// QR判定
         bool IsDistributional(bool use_target) const;
 
@@ -261,9 +265,9 @@ namespace anet::rl::dqn {
 
     class ActionPolicy : virtual public anet::ModuleBase {
     public:
-        ActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::NetworkModel& model);
+        ActionPolicy(const ActionPolicyConfig& config);
 
-        virtual BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target, std::shared_ptr<anet::RandomGenerator> rnd) const = 0;
+        virtual BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const = 0;
         virtual void OnLearn(const StepCounts& counts) { }
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
@@ -276,16 +280,15 @@ namespace anet::rl::dqn {
         void UpdateEpsilon(step_t step, bool is_uqe = false);
     protected:
         const ActionPolicyConfig config_;
-        const anet::rl::dqn::NetworkModel& model_;
         float current_epsilon_ = 0.0f;
         float current_uqe_tau_ = 0.0f;
     };
 
     class EpsilonGreedyActionPolicy final : public ActionPolicy {
     public:
-        EpsilonGreedyActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::NetworkModel& network);
+        EpsilonGreedyActionPolicy(const ActionPolicyConfig& config);
 
-        BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target, std::shared_ptr<anet::RandomGenerator> rnd) const;
+        BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const;
         void OnLearn(const StepCounts& counts) override;
     };
 
@@ -299,14 +302,15 @@ namespace anet::rl::dqn {
      */
     class UQEActionPolicy : public ActionPolicy {
     public:
-        UQEActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::NetworkModel& model);
+        UQEActionPolicy(const ActionPolicyConfig& config);
 
-        BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target, std::shared_ptr<anet::RandomGenerator> rnd) const;
+        BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const;
         void OnLearn(const StepCounts& counts) override;
 
         virtual ~UQEActionPolicy() = default;
     protected:
-        anet::rl::BatchActionInfo MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const torch::Tensor& obs, bool greedy_only, bool use_target, std::shared_ptr<anet::RandomGenerator> rnd) const;
+        anet::rl::BatchActionInfo MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const torch::Tensor& obs, bool greedy_only,
+            std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const;
         void UpdateTau(step_t step);
     private:
         torch::Tensor MakeUQEAction(float tau, const torch::Tensor& q_quantiles) const;
@@ -315,10 +319,34 @@ namespace anet::rl::dqn {
 
     class ThompsonSamplingActionPolicy final : public UQEActionPolicy {
     public:
-        ThompsonSamplingActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::NetworkModel& model);
+        ThompsonSamplingActionPolicy(const ActionPolicyConfig& config);
 
-        BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target, std::shared_ptr<anet::RandomGenerator> rnd) const;
+        BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const;
         void OnLearn(const StepCounts& counts) override;
+    };
+
+
+    // ======================================================
+    // Actor
+    // ======================================================
+
+    class Actor : public anet::rl::Actor {
+    public:
+        Actor(std::shared_ptr<ActionPolicy> policy,
+            std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm,
+            std::shared_ptr<ActionContext> context,
+            std::shared_ptr<std::shared_mutex> mutex,
+            std::shared_ptr<anet::nn::Network> network,
+            std::shared_ptr<anet::nn::Network> src_network);
+        BatchActionInfo MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const override;
+        void Sync() override;
+    private:
+        std::shared_ptr<ActionPolicy> policy_;
+        std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm_;
+        std::shared_ptr<ActionContext> context_;
+        std::shared_ptr<std::shared_mutex> mutex_;
+        std::shared_ptr<anet::nn::Network> network_;
+        std::shared_ptr<anet::nn::Network> src_network_;
     };
 
     // ======================================================

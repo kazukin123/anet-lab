@@ -23,7 +23,7 @@ namespace LOG = anet::log;
 
 
 // ======================================================
-// DefaultDQNAgent 本体
+// DefaultDQNAgent
 // ======================================================
 
 DefaultDQNAgent::DefaultDQNAgent(
@@ -156,21 +156,21 @@ std::shared_ptr<anet::rl::dqn::ActionPolicy> DefaultDQNAgent::CreateActionPolicy
 {
     if (policy_config.policy_type == "EpsilonGreedy" || policy_config.policy_type == "0") {
         // ε-Greedy
-        return std::make_shared<dqn::EpsilonGreedyActionPolicy>(policy_config, *model_);
+        return std::make_shared<dqn::EpsilonGreedyActionPolicy>(policy_config);
     } else if (policy_config.policy_type == "UQE" || policy_config.policy_type == "1") {
         // UQE
         ANET_CHECK(config_.use_qr);
-        return std::make_shared<dqn::UQEActionPolicy>(policy_config, *model_);
+        return std::make_shared<dqn::UQEActionPolicy>(policy_config);
     } else if (policy_config.policy_type == "ThompsonSampling" || policy_config.policy_type == "2") {
         //ThompsonSampling
         ANET_CHECK(config_.use_qr);
-        return std::make_shared<dqn::ThompsonSamplingActionPolicy>(policy_config, *model_);
+        return std::make_shared<dqn::ThompsonSamplingActionPolicy>(policy_config);
     } else if (policy_config.policy_type == "Greedy" || policy_config.policy_type == "3") {
         // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化
         ActionPolicyConfig greedy_cfg = policy_config;
         greedy_cfg.eps_start = 0.0f;
         greedy_cfg.eps_end = 0.0f;
-        return std::make_shared<dqn::EpsilonGreedyActionPolicy>(greedy_cfg, *model_);
+        return std::make_shared<dqn::EpsilonGreedyActionPolicy>(greedy_cfg);
     }
 
     // 不明なtype
@@ -345,7 +345,8 @@ std::optional<std::vector<torch::Tensor>> DefaultDQNAgent::GetTensorVector(const
     return std::nullopt;
 }
 
-std::shared_ptr<anet::rl::ActionContext> DefaultDQNAgent::CreateActionContext(const BatchEnvSpec& batch_env_spec, RunMode run_mode) const
+std::shared_ptr<anet::rl::ActionContext> DefaultDQNAgent::CreateActionContext(
+    const BatchEnvSpec& batch_env_spec, RunMode run_mode, std::optional<torch::Device> device) const
 {
     seed_t ctx_seed = 0;
     {
@@ -362,15 +363,29 @@ std::shared_ptr<anet::rl::ActionContext> DefaultDQNAgent::CreateActionContext(co
         ctx_seed = context_seed_rngs_[run_mode]->RandUint64();
     }
 
+    // ActionContext向けのDeviceを取得
+    auto target_device = device.value_or(this->device_);
+
     if (config_.stucker.use_stacker) {
         // Stackerを作成して包んで返す
         auto stacker = std::make_shared<TensorFrameStacker>(
-            config_.stucker.stack_count, batch_env_spec.batch_size, this->device_ );
+            config_.stucker.stack_count, batch_env_spec.batch_size, target_device);
         return std::make_shared<StackerActionContext>(run_mode, stacker, ctx_seed);
     }
 
     // Stacker無効ならデフォルト
     return std::make_shared<DefaultActionContext>(run_mode, ctx_seed);
+}
+
+static bool IsForTarget(anet::rl::RunMode run_mode)
+{
+    // Train
+    if (!anet::rl::IsEval(run_mode)) {
+        return false;
+    }
+
+    // Eval
+    return run_mode == anet::rl::RunMode::Eval1;
 }
 
 anet::rl::BatchActionInfo DefaultDQNAgent::MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const
@@ -387,7 +402,8 @@ anet::rl::BatchActionInfo DefaultDQNAgent::MakeAction(const StepCounts& step, co
     if (ctx) obs = ctx->PushObservation(state);
 
     // Normalize observations
-    auto obs_norm = obs_norm_->Normalize(obs);
+    auto norm_obs = obs_norm_->Normalize(obs);
+    ANET_LOG_DEBUG("norm_obs=" << anet::ToDefString(norm_obs));
 
     // 行動選択
     BatchActionInfo act_info;
@@ -396,17 +412,50 @@ anet::rl::BatchActionInfo DefaultDQNAgent::MakeAction(const StepCounts& step, co
     auto rnd = ctx->GetRandomGenerator();
     auto run_mode = (ctx != nullptr) ? ctx->GetRunMode() : anet::rl::RunMode::Train;
     if (anet::rl::IsEval(run_mode)) {
-        auto use_target = (run_mode == anet::rl::RunMode::Eval1);
-        act_info = eval_policy_->SelectAction(obs_norm, false, use_target, rnd);
+        auto use_target = IsForTarget(run_mode);
+        auto network = use_target ? model_->GetTargetNetwork() : model_->GetMainNetwork();
+        act_info = eval_policy_->SelectAction(norm_obs, false, network, rnd);
     } else {
-        act_info = train_policy_->SelectAction(obs_norm, false, false, rnd);
+        // Train向けでは train_policy_ と MainNetwork で固定
+        act_info = train_policy_->SelectAction(norm_obs, false, model_->GetMainNetwork(), rnd);
     }
 
-    // スタック済み・正規化前の観測テンソルをAuxに詰める
-    act_info.GetAuxData()["raw_obs"] = obs;
+    // ObservationをAuxに詰める
+    act_info.GetAuxData()["raw_obs"] = obs;     // スタック済・正規化前のObservation
+    if (obs_norm_ != nullptr) {
+        act_info.GetAuxData()["norm_obs"] = norm_obs;       // スタック済・正規化済のObservation
+    }
 
     // ActionInfoを返す
     return act_info;
+}
+
+std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, torch::Device device, bool clone_model) const
+{
+    // Contextを生成
+    auto ctx = this->CreateActionContext(batch_env_spec, run_mode, device);
+
+    // モードに応じて適切な Policy と Network を選択
+    std::shared_ptr<anet::rl::dqn::ActionPolicy> policy;
+    std::shared_ptr<anet::nn::Network> src_network;
+
+    // 元ネタのPolicyとNetoworkを決定
+    if (anet::rl::IsEval(run_mode)) {
+        policy = eval_policy_;
+        src_network = IsForTarget(run_mode) ? model_->GetTargetNetwork() : model_->GetMainNetwork();
+    } else {
+        policy = train_policy_;
+        src_network = model_->GetMainNetwork();
+    }
+
+    // 必要に応じてCloneしてActor向けネットワークとする
+    auto network = (clone_model) ? src_network->Clone(device) : src_network;
+
+    // Actor を生成
+    auto actor = std::make_shared<dqn::Actor>(policy, obs_norm_, ctx, this->mutex_, network, src_network);
+
+    // 生成したActorを返す
+    return actor;
 }
 
 anet::rl::BatchUpdateResultList
