@@ -895,15 +895,16 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     // 最大ステップ数到達による打ち切りを終了理由としてセット
     if (!done && truncated) {
         term_reason_ = TerminationReason::MaxStep;
+        LOG::verbose() << "Episode truncated. Maximum step count exceeded. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
     }
 
     // ショットクロック判定
     if (config_.no_drop_timeout_steps > 0 && steps_since_last_drop_ >= config_.no_drop_timeout_steps) {
         truncated = true;
-        if (!done) {
+        if (!done && term_reason_ != TerminationReason::MaxStep) {
             term_reason_ = TerminationReason::Timeout;
         }
-        LOG::info() << "Episode truncated due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+        LOG::verbose() << "Episode truncated due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
     }
 
     // エピソード終了時のフルーツ数カウント＆フラグ立て
