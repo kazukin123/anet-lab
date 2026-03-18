@@ -14,7 +14,7 @@ namespace anet::rl::dqn {
     struct RainbowAgentConfig : public anet::Config {
 
         anet::nn::WeightInitConfig head_init;
-        NetworkConfig network;
+        NetworkModelConfig model;
         ActionPolicyConfig action_policy;
         LearnerConfig learner;
 
@@ -27,8 +27,8 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, head_init.manual_gain);
             head_init.nonlinearity = "linear";
 
-            ANET_READ_CONFIG(config_data, network.soft_update_tau);
-            ANET_READ_CONFIG(config_data, network.hard_update_interval);
+            ANET_READ_CONFIG(config_data, model.soft_update_tau);
+            ANET_READ_CONFIG(config_data, model.hard_update_interval);
 
             ANET_READ_CONFIG(config_data, action_policy.eps_start);
             ANET_READ_CONFIG(config_data, action_policy.eps_end);
@@ -66,7 +66,7 @@ namespace anet::rl::dqn {
         }
     };
 
-    class RainbowAgent: public anet::rl::FlatStateAgent, public std::enable_shared_from_this<RainbowAgent> {
+    class RainbowAgent: public anet::rl::AgentBase, public std::enable_shared_from_this<RainbowAgent> {
     public:
         RainbowAgent(
             const RainbowAgentConfig& config,
@@ -88,7 +88,7 @@ namespace anet::rl::dqn {
     private:
         RainbowAgentConfig config_;
         std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
-        std::unique_ptr<anet::rl::dqn::Network> network_;
+        std::unique_ptr<anet::rl::dqn::NetworkModel> model_;
         std::shared_ptr<anet::rl::dqn::ActionPolicy> action_policy_;
         std::shared_ptr<anet::rl::dqn::ActionPolicy> target_policy_;
         std::shared_ptr<anet::rl::dqn::Learner> learner_;

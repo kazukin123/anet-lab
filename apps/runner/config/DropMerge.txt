@@ -24,8 +24,8 @@ DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.fun1 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > BF16.env > E
-#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.realistic > E
-DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > E
+DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.realistic > E
+#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > E
 
 
 #net.body.$ = net.body.MLP2
@@ -34,7 +34,7 @@ DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy
 
 #net.body.$ = net.body.SuikaResNet4064_06
 #net.body.$ = net.body.SuikaResNet4064_10
-#net.body.$ = net.body.SuikaResNet4064_10d_64 # ★
+#net.body.$ = net.body.SuikaResNet4064_10d_64  # ☆
 #net.body.$ = net.body.SuikaResNet4064_18
 net.body.$ = net.body.SuikaResNet4064_10d     # ★
 
@@ -45,7 +45,7 @@ net.body.$ = net.body.SuikaResNet4064_10d     # ★
 
 #net.body.$ = net.body.SuikaResNetD_Control
 #net.body.$ = net.body.SuikaResNetD_ViT
-#net.body.$ = net.body.SuikaResNet_ViT
+#net.body.$ = net.body.SuikaResNet_ViT    # ☆
 
 
 
@@ -53,37 +53,7 @@ net.body.$ = net.body.SuikaResNet4064_10d     # ★
 # 実験
 # ==============================================================================
 
-#app.run_name = run_{t}_DBG_eps
-#app.run_name = run_{t}_DBG_ddqn=0
-#app.run_name = run_{t}_DBG_up1
-#app.run_name = run_{t}_DBG_fast05
-#app.run_name = run_{t}_DBG_fast10
-#app.run_name = run_{t}_DBG_tall
-#app.run_name = run_{t}_DBG_fast05re
-#app.run_name = run_{t}_DBG_gma0995
-#app.run_name = run_{t}_DBG_N10
-#app.run_name = run_{t}_heavy_base
-#app.run_name = run_{t}_heavy_long
-#app.run_name = run_{t}_heavy_gp10
-#app.run_name = run_{t}_heavy_tail
-#app.run_name = run_{t}_heavy_tp005
-#app.run_name = run_{t}_heavy_Ttau085
-#app.run_name = run_{t}_heavy_tp1
-#app.run_name = run_{t}_settle_N3
-#app.run_name = run_{t}_settle_N3-2
-#app.run_name = run_{t}_D_N3
-#app.run_name = run_{t}_D_N1
-#app.run_name = run_{t}_D_s0
-#app.run_name = run_{t}_D_N1_re
-#app.run_name = run_{t}_PER_c
-#app.run_name = run_{t}_ViTs_b
-#app.run_name = run_{t}_Hyb_b
-#app.run_name = run_{t}_rt_ResD
-#app.run_name = run_{t}_rt_ResDvit
-#app.run_name = run_{t}_rtf_ResVit
-#app.run_name = run_{t}_rtf_ResN3
-#app.run_name = run_{t}_rtf_ResN1
-#app.run_name = run_{t}_rtf_ResN3pCa01
+#app.run_name = run_{t}_real_ViT
 
 #R.stucker.use_stacker = false
 
@@ -232,8 +202,8 @@ net.body.$ = net.body.SuikaResNet4064_10d     # ★
 
 #R.learner.per_prio_clip_value = 50                # 30 
 
-##R.network.soft_update_tau = 0.005                 # 0.01
-#R.network.soft_update_tau = 0.001                 # 0.01
+##R.model.soft_update_tau = 0.005                 # 0.01
+#R.model.soft_update_tau = 0.001                 # 0.01
 
 #R.learner.per_prio_clip_value = 100.0  # 30 優先度の上限値
 #R.learner.per_prio_clip_value = 60.0  # 30 優先度の上限値
@@ -335,7 +305,7 @@ A.reward_scaler.constant_scale = 0.001       # ★（報酬値を変えたら要
 A.reward_scaler.use_clipping = false
 A.reward_scaler.clip_range = 10.0
 
-A.network.soft_update_tau = 0.005                 # 0.001 高め
+A.model.soft_update_tau = 0.005                 # 0.001 高め
 
 
 B.train_policy.policy_type = EpsilonGreedy

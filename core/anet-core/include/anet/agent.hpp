@@ -24,9 +24,9 @@ namespace anet::rl {
     };
 
     // 環境のステップに同期して更新する Agent 基底クラス
-    class FlatStateAgent : public Agent, public anet::RandomHolder {
+    class AgentBase : public Agent, public anet::RandomHolder {
     public:
-        FlatStateAgent(torch::Device device,
+        AgentBase(torch::Device device,
             std::shared_ptr<anet::rl::Notifier> notifier,
             const BatchEnvSpec& batch_env_spec,
             const EnvSpec& env_spec,
@@ -44,7 +44,7 @@ namespace anet::rl {
         {
             return std::make_shared<DefaultActionContext>(run_mode);
         }
-        virtual ~FlatStateAgent() = default;
+        virtual ~AgentBase() = default;
     protected:
         std::shared_ptr<std::shared_mutex> mutex_;
         const torch::Device device_;
@@ -62,14 +62,14 @@ namespace anet::rl {
 
     namespace dqn {
         struct RuntimeVars;         ///< Agent内部変数
-        class Network;              ///< NN
+        class NetworkModel;              ///< NN
         class ActionPolicy;         ///< 行動選択アルゴリズム
         class Learner;              ///< 学習アルゴリズム
         class TDLearner;
         class QRLearner;
         class BatchUpdateResult;
 
-        struct NetworkConfig {
+        struct NetworkModelConfig {
             float soft_update_tau = 0.01f;
             int hard_update_interval = -1;
         };

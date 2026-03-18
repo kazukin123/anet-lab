@@ -581,14 +581,20 @@ std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
 // Network
 // ===========================================================================
 
-Network::Network(std::shared_ptr<NetworkBody> body, std::shared_ptr<NetworkHead> head)
-    : body_(std::move(body)), head_(std::move(head))
+Network::Network(
+    const NetworkConfig& config, const std::vector<int64_t>& input_shape, std::shared_ptr<NetworkHeadFactory> head_factory,
+    std::shared_ptr<NetworkBody> body, std::shared_ptr<NetworkHead> head)
+    : config_(config)
+    , input_shape_(input_shape)
+    , head_factory_(head_factory)
+    , body_(std::move(body))
+    , head_(std::move(head))
 {
     register_module("body", body_);
     register_module("head", head_);
 }
 
-anet::TensorDict Network::Forward(torch::Tensor input)
+anet::TensorDict Network::Forward(const torch::Tensor& input)
 {
 	anet::ProfileRange r("Network::Forward");
 
@@ -623,6 +629,75 @@ anet::TensorDict Network::GetConv2dOutputs(const torch::Tensor& input) const
 
     // Bodyへ委譲
     return body_->GetConv2dOutputs(input);
+}
+
+std::shared_ptr<Network> Network::Clone(std::optional<torch::Device> device) const
+{
+    // 保存した情報を使って新しいインスタンスを生成
+    auto cloned_net = NetworkBuilder::BuildNetwork(config_, input_shape_, head_factory_);
+
+    // デバイスを合わせる
+    if (device.has_value()) {
+        cloned_net->to(device.value());
+    } else {
+        // device指定が無い場合、既存と同じ(直接取れないのでnamed_parameters経由）
+        auto named_params = this->named_parameters(false); // false = 直下のパラメータのみ
+        if (!named_params.is_empty()) {
+            cloned_net->to(named_params.begin()->value().device());
+        }
+    }
+
+    // 自身(this)の重みをcloned_netへ完全上書き
+    this->CopyTo(*cloned_net);
+
+    return cloned_net;
+}
+
+void Network::CopyTo(Network& target) const
+{
+    torch::NoGradGuard no_grad;
+
+    // パラメータ (Weight, Bias等) のコピー
+    auto src_params = this->named_parameters(true);
+    auto dst_params = target.named_parameters(true);
+    ANET_ASSERT(src_params.size() == dst_params.size());
+    for (const auto& kv : src_params) {
+        dst_params[kv.key()].copy_(kv.value());
+    }
+
+    // バッファ (BatchNormの移動平均等) のコピー
+    auto src_buffers = this->named_buffers(true);
+    auto dst_buffers = target.named_buffers(true);
+    ANET_ASSERT(src_buffers.size() == dst_buffers.size());
+    for (const auto& kv : src_buffers) {
+        dst_buffers[kv.key()].copy_(kv.value());
+    }
+}
+
+void Network::SoftCopyTo(Network& target, double tau) const
+{
+    torch::NoGradGuard no_grad;
+
+    // パラメータのブレンド: target = tau * src + (1 - tau) * target
+    auto src_params = this->named_parameters(true);
+    auto dst_params = target.named_parameters(true);
+    ANET_ASSERT(src_params.size() == dst_params.size());
+    for (const auto& kv : src_params) {
+        dst_params[kv.key()].lerp_(kv.value(), tau);
+    }
+
+    // バッファのブレンド
+    auto src_buffers = this->named_buffers(true);
+    auto dst_buffers = target.named_buffers(true);
+    ANET_ASSERT(src_buffers.size() == dst_buffers.size());
+    for (const auto& kv : src_buffers) {
+        // float系のテンソル以外(intのカウンタ等)はlerpできないためそのままcopy_
+        if (kv.value().is_floating_point()) {
+            dst_buffers[kv.key()].lerp_(kv.value(), tau);
+        } else {
+            dst_buffers[kv.key()].copy_(kv.value());
+        }
+    }
 }
 
 // ===========================================================================
@@ -681,7 +756,7 @@ std::shared_ptr<Network> NetworkBuilder::BuildNetwork(
     // Head
     auto head = head_factory->CreateHead(feature_dim);
 
-    return std::make_shared<Network>(body, head);
+    // Networkを生成して返す
+    return std::make_shared<Network>(network_config, input_shape, head_factory, body, head);
 }
-
 

@@ -15,44 +15,46 @@ namespace LOG = anet::log;
 
 
 // ======================================================
-// Network
+// NetworkModel
 // ======================================================
 
-Network::Network(
-    const NetworkConfig& config, const torch::Device& device,
-    std::shared_ptr<anet::nn::Network> policy_net, std::shared_ptr<anet::nn::Network> target_net,
-    int64_t n_actions,int64_t num_quantiles)
-    : config_(config), policy_net_(std::move(policy_net)), target_net_(std::move(target_net))
+NetworkModel::NetworkModel(
+    const NetworkModelConfig& config, const torch::Device& device,
+    const anet::nn::NetworkConfig& network_config, const std::vector<int64_t>& input_shape, int64_t n_actions, std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory,
+    int64_t num_quantiles)
+    : config_(config)
     , n_actions_(n_actions)
     , num_quantiles_(num_quantiles)
 {
-    ANET_ASSERT(policy_net_);
-    ANET_ASSERT(target_net_);
     ANET_ASSERT(n_actions_ > 0);
 
-    policy_net_->to(device);    /// @todo Agent側で実行されるので削除？
-    target_net_->to(device);
+    // メインネットワークを作る
+    policy_net_ = anet::nn::NetworkBuilder::BuildNetwork(network_config, input_shape, head_factory);
+    policy_net_->to(device);
+
+    // メインネットワークをコピーしてターゲットネットワークを作る
+    target_net_ = policy_net_->Clone(device);
     target_net_->eval();
 }
 
-anet::TensorDict Network::Forward(const torch::Tensor& obs, bool use_target) const
+anet::TensorDict NetworkModel::Forward(const torch::Tensor& obs, bool use_target) const
 {
     const auto& net = use_target ? target_net_ : policy_net_;
     return net->Forward(obs);
 }
 
-bool Network::IsDistributional(bool use_target) const
+bool NetworkModel::IsDistributional(bool use_target) const
 {
     return (num_quantiles_ > 1);
 }
 
-std::vector<torch::Tensor> Network::GetPolicyParameters() const
+std::vector<torch::Tensor> NetworkModel::GetPolicyParameters() const
 {
     auto params = policy_net_->parameters();
     return params;
 }
 
-void Network::UpdateTarget(step_t learn_step)
+void NetworkModel::UpdateTarget(step_t learn_step)
 {
     torch::NoGradGuard grad_guard;
 
@@ -65,32 +67,17 @@ void Network::UpdateTarget(step_t learn_step)
     SoftUpdate();
 }
 
-void Network::SoftUpdate()
+void NetworkModel::SoftUpdate()
 {
-    // @todo optimizer 非依存での soft update 実装
-    auto p_params = policy_net_->parameters();
-    auto t_params = target_net_->parameters();
-
-    ANET_ASSERT(p_params.size() == t_params.size());
-
-    for (size_t i = 0; i < p_params.size(); ++i) {
-        t_params[i].lerp_(p_params[i], config_.soft_update_tau);
-    }
+    policy_net_->SoftCopyTo(*target_net_, config_.soft_update_tau);
 }
 
-void Network::HardUpdate()
+void NetworkModel::HardUpdate()
 {
-    auto p_params = policy_net_->parameters();
-    auto t_params = target_net_->parameters();
-
-    ANET_ASSERT(p_params.size() == t_params.size());
-
-    for (size_t i = 0; i < p_params.size(); ++i) {
-        t_params[i].copy_(p_params[i]);
-    }
+    policy_net_->CopyTo(*target_net_);
 }
 
-std::optional<anet::TensorFunction> Network::GetTensorFunction(const std::string& key, const torch::Device& device)
+std::optional<anet::TensorFunction> NetworkModel::GetTensorFunction(const std::string& key, const torch::Device& device)
 {
     static constexpr const char* POLICY_PREFIX = "policy-net.";
     static constexpr const char* TARGET_PREFIX = "target-net.";
@@ -112,7 +99,7 @@ std::optional<anet::TensorFunction> Network::GetTensorFunction(const std::string
     return std::nullopt;
 }
 
-std::optional<anet::TensorDictFunction> anet::rl::dqn::Network::GetTensorDictFunction(const std::string& key, const torch::Device& device)
+std::optional<anet::TensorDictFunction> NetworkModel::GetTensorDictFunction(const std::string& key, const torch::Device& device)
 {
     // Keyの指定に応じて、対象のネットワークを切り替える
     std::shared_ptr<anet::nn::Network> net = nullptr;
@@ -134,7 +121,7 @@ std::optional<anet::TensorDictFunction> anet::rl::dqn::Network::GetTensorDictFun
         };
 }
 
-int64_t Network::Save(OutputArchive& archive) const
+int64_t NetworkModel::Save(OutputArchive& archive) const
 {
 	int64_t size = 0;
     size += archive.WriteTorchObject(policy_net_);
@@ -142,7 +129,7 @@ int64_t Network::Save(OutputArchive& archive) const
     return size;
 }
 
-int64_t Network::Load(InputArchive& archive)
+int64_t NetworkModel::Load(InputArchive& archive)
 {
     int64_t size = 0;
     size += archive.ReadTorchObject(policy_net_);
@@ -150,12 +137,13 @@ int64_t Network::Load(InputArchive& archive)
     return size;
 }
 
+
 // ======================================================
 // ActionPolicy 
 // ======================================================
 
-anet::rl::dqn::ActionPolicy::ActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network)
-    : config_(config), network_(network)
+anet::rl::dqn::ActionPolicy::ActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::NetworkModel& model)
+    : config_(config), model_(model)
 {
 }
 
@@ -230,12 +218,13 @@ std::optional<float> anet::rl::dqn::ActionPolicy::GetScalar(const std::string& k
     return std::nullopt;
 }
 
+
 // ======================================================
 // EpsilonGreedyActionPolicy 
 // ======================================================
 
-anet::rl::dqn::EpsilonGreedyActionPolicy::EpsilonGreedyActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network)
-    : ActionPolicy(config, network)
+anet::rl::dqn::EpsilonGreedyActionPolicy::EpsilonGreedyActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::NetworkModel& model)
+    : ActionPolicy(config, model)
 {
     current_epsilon_ = config_.eps_start;
 }
@@ -254,7 +243,7 @@ anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const torch::T
     anet::Autocast cast_guard(torch::kCUDA, config_.use_amp, amp_dtype);
 
     // obsからQ値取得
-    auto out = network_.Forward(obs, use_target);
+    auto out = model_.Forward(obs, use_target);
     auto q_values = out.At("q");
     torch::Tensor q_quantiles;
     if (out.Contains("q_dist")) {
@@ -279,8 +268,8 @@ anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const torch::T
 // UQEActionPolicy
 // ======================================================
 
-anet::rl::dqn::UQEActionPolicy::UQEActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network)
-    : ActionPolicy(config, network)
+anet::rl::dqn::UQEActionPolicy::UQEActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::NetworkModel& model)
+    : ActionPolicy(config, model)
 {
     current_epsilon_ = config_.uqe_eps_start;
     current_uqe_tau_ = config_.uqe_tau_start;
@@ -396,7 +385,7 @@ anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const to
     anet::Autocast cast_guard(torch::kCUDA, config_.use_amp, amp_dtype);
 
     // Q値を取得
-    auto out = network_.Forward(obs, use_target);
+    auto out = model_.Forward(obs, use_target);
     auto q_values = out.At("q");
     auto q_quantiles = out.At("q_dist");
 
@@ -433,7 +422,7 @@ anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const to
 
 anet::rl::BatchActionInfo UQEActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target, std::shared_ptr<anet::RandomGenerator> rnd) const
 {
-    ANET_ASSERT(network_.IsDistributional(use_target)); // 念の為チェック
+    ANET_ASSERT(model_.IsDistributional(use_target)); // 念の為チェック
     return MakeUQEActionInfo(current_uqe_tau_, torch::Tensor(), obs, greedy_only, use_target, rnd);
 }
 
@@ -442,8 +431,8 @@ anet::rl::BatchActionInfo UQEActionPolicy::SelectAction(const torch::Tensor& obs
 // ThompsonSamplingActionPolicy
 // ======================================================
 
-anet::rl::dqn::ThompsonSamplingActionPolicy::ThompsonSamplingActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network)
-    : UQEActionPolicy(config, network)
+anet::rl::dqn::ThompsonSamplingActionPolicy::ThompsonSamplingActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::NetworkModel& model)
+    : UQEActionPolicy(config, model)
 {
     ;
 }
@@ -456,7 +445,7 @@ void anet::rl::dqn::ThompsonSamplingActionPolicy::OnLearn(const StepCounts& coun
 
 anet::rl::BatchActionInfo ThompsonSamplingActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target, std::shared_ptr<anet::RandomGenerator> rnd) const
 {
-    ANET_ASSERT(network_.IsDistributional(use_target)); // 念の為チェック
+    ANET_ASSERT(model_.IsDistributional(use_target)); // 念の為チェック
 
     // ランダムな Tau をバッチサイズ分生成 (N, 1)
     const int64_t N = obs.size(0);
@@ -473,10 +462,10 @@ anet::rl::BatchActionInfo ThompsonSamplingActionPolicy::SelectAction(const torch
 // Learner
 // ======================================================
 
-Learner::Learner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
     std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed)
-    : RandomHolder(target_seed), config_(config), stucker_config_(stucker_config), network_(network), vars_(vars), obs_norm_(obs_norm)
+    : RandomHolder(target_seed), config_(config), stucker_config_(stucker_config), model_(model), vars_(vars), obs_norm_(obs_norm)
     , batch_size_(batch_env_spec.batch_size)
     , n_actions_(env_spec.action_spec.GetNumActions()), state_dim_(env_spec.state_spec.CalcFlattenDim())
     , device_(std::move(device))
@@ -523,7 +512,7 @@ void Learner::SetupOptimizer()
 {
     auto params = torch::optim::AdamOptions(config_.alpha).eps(config_.adam_eps);
     ANET_LOG_DEBUG("lr=" << params.lr() << " eps=" << params.eps());
-    this->optimizer_ = std::make_unique<torch::optim::Adam>(network_.GetPolicyParameters(), params);
+    this->optimizer_ = std::make_unique<torch::optim::Adam>(model_.GetPolicyParameters(), params);
 }
 
 void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, seed_t seed)
@@ -554,7 +543,7 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
 void Learner::UpdateTargetNetwork(step_t step)
 {
     ProfileRange r("Learner::UpdateTargetNetwork");
-    network_.UpdateTarget(step);
+    model_.UpdateTarget(step);
 }
 
 void Learner::UpdatePerBeta(step_t step)
@@ -671,10 +660,10 @@ int64_t Learner::Load(InputArchive& archive)
 // ======================================================
 
 
-TDLearner::TDLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+TDLearner::TDLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
     std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed)
-    : Learner(config, network, vars, obs_norm, batch_env_spec, env_spec, device, replay_seed, target_policy, stucker_config, target_seed)
+    : Learner(config, model, vars, obs_norm, batch_env_spec, env_spec, device, replay_seed, target_policy, stucker_config, target_seed)
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
@@ -721,7 +710,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // ------------------------------------------------------------
         // Q(s, a)
         // ------------------------------------------------------------
-        auto q_out = network_.Forward(obs, /*use_target=*/false);
+        auto q_out = model_.Forward(obs, /*use_target=*/false);
         auto q_all = q_out.At("q"); // (B,A)
         ANET_ASSERT_SHAPE(q_all, { B, A });
 
@@ -769,7 +758,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             torch::Tensor next_actions = target_action_info.GetAction(device_);
 
             // 選んだ行動の価値を TargetNet で評価する (価値評価は常に TargetNet)
-            auto next_q_out = network_.Forward(next_obs, /*use_target=*/true);
+            auto next_q_out = model_.Forward(next_obs, /*use_target=*/true);
             auto next_q_target = next_q_out.At("q"); // (B, A)
             ANET_ASSERT_SHAPE(next_q_target, { B, A });
 
@@ -876,13 +865,13 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         std::optional<float> grad_norm;
         bool grad_clipped = false;
         if (config_.use_grad_clip) {
-            double grad_norm_val = torch::nn::utils::clip_grad_norm_(network_.GetPolicyParameters(), config_.grad_clip_tau);
+            double grad_norm_val = torch::nn::utils::clip_grad_norm_(model_.GetPolicyParameters(), config_.grad_clip_tau);
             grad_norm = static_cast<float>(grad_norm_val);
             grad_clipped = (grad_norm_val > config_.grad_clip_tau);
         } else {
             // クリップしない場合もノルム計算
             torch::Tensor total_sq = torch::zeros({ 1 }, loss.options());
-            for (auto& p : network_.GetPolicyParameters()) {
+            for (auto& p : model_.GetPolicyParameters()) {
                 if (p.grad().defined()) {
                     total_sq += p.grad().detach().pow(2).sum();
                 }
@@ -925,7 +914,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // Inf/NaN チェック (Unscale後の生勾配を見る)
         bool found_inf = false;
         // 簡易チェック: 全パラメータの勾配を見る
-        for (auto& p : network_.GetPolicyParameters()) {
+        for (auto& p : model_.GetPolicyParameters()) {
              if (p.grad().defined() && !torch::isfinite(p.grad()).all().item<bool>()) { /// @todo AMP：コスト削減のため一部チェックにする？
                  found_inf = true;
                  break;
@@ -938,7 +927,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         bool grad_clipped = false;
 
         if (!found_inf && config_.use_grad_clip) {
-            double grad_norm_val = torch::nn::utils::clip_grad_norm_(network_.GetPolicyParameters(), config_.grad_clip_tau);
+            double grad_norm_val = torch::nn::utils::clip_grad_norm_(model_.GetPolicyParameters(), config_.grad_clip_tau);
             grad_norm = static_cast<float>(grad_norm_val);
             grad_clipped = (grad_norm_val > config_.grad_clip_tau);
         }
@@ -982,12 +971,12 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         bool grad_clipped = false;
         if (config_.use_grad_clip) {
              // clip_grad_norm_ の戻り値は clip 前の全体ノルム
-            double grad_norm_val = torch::nn::utils::clip_grad_norm_(network_.GetPolicyParameters(), config_.grad_clip_tau);   // use_grad_clip=true では CPU同期は現状避けられない
+            double grad_norm_val = torch::nn::utils::clip_grad_norm_(model_.GetPolicyParameters(), config_.grad_clip_tau);   // use_grad_clip=true では CPU同期は現状避けられない
             grad_norm = static_cast<float>(grad_norm_val);
             grad_clipped = (grad_norm_val > config_.grad_clip_tau);
         } else {
             torch::Tensor total_sq = torch::zeros({ 1 }, loss.options());
-            auto params = network_.GetPolicyParameters();
+            auto params = model_.GetPolicyParameters();
             for (auto& p : params) {
                 if (!p.grad().defined()) continue;
                 total_sq += p.grad().detach().pow(2).sum();
@@ -1031,10 +1020,10 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 // QRLearner
 // ======================================================
 
-QRLearner::QRLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+QRLearner::QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
     std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed)
-    : Learner(config, network, vars, obs_norm, batch_env_spec, env_spec, std::move(device), replay_seed, target_policy, stucker_config, target_seed)
+    : Learner(config, model, vars, obs_norm, batch_env_spec, env_spec, std::move(device), replay_seed, target_policy, stucker_config, target_seed)
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
@@ -1145,7 +1134,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // ------------------------------------------------------------
 
         // 現在の分布計算: Z(s, a)、ForwardQuantiles は (B, A, N) を返す
-        auto current_out = network_.Forward(obs, /*use_target=*/false);
+        auto current_out = model_.Forward(obs, /*use_target=*/false);
         auto current_dist_all = current_out.At("q_dist"); // (B, A, N)
         ANET_ASSERT_SHAPE(current_dist_all, { B, A, N });
         ANET_ASSERT_NAN(current_dist_all);
@@ -1199,7 +1188,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             ANET_ASSERT_SHAPE(next_actions, { B });
 
             // 次状態のターゲット分布: Z_target(s', :)
-            auto next_out = network_.Forward(next_obs, /*use_target=*/true);
+            auto next_out = model_.Forward(next_obs, /*use_target=*/true);
             auto next_dist_all = next_out.At("q_dist"); // (B, A, N)
             ANET_ASSERT_SHAPE(next_dist_all, { B, A, N });
 
@@ -1267,12 +1256,12 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         bool grad_clipped = false;
 
         if (config_.use_grad_clip) {
-            double grad_norm_val = torch::nn::utils::clip_grad_norm_(network_.GetPolicyParameters(), config_.grad_clip_tau);
+            double grad_norm_val = torch::nn::utils::clip_grad_norm_(model_.GetPolicyParameters(), config_.grad_clip_tau);
             grad_norm = static_cast<float>(grad_norm_val);
             grad_clipped = (grad_norm_val > config_.grad_clip_tau);
         } else {
             torch::Tensor total_sq = torch::zeros({ 1 }, loss.options());
-            for (auto& p : network_.GetPolicyParameters()) {
+            for (auto& p : model_.GetPolicyParameters()) {
                 if (!p.grad().defined()) continue;
                 total_sq += p.grad().detach().pow(2).sum();
             }
@@ -1296,12 +1285,12 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         bool grad_clipped = false;
 
         if (config_.use_grad_clip) {
-            double grad_norm_val = torch::nn::utils::clip_grad_norm_(network_.GetPolicyParameters(), config_.grad_clip_tau);
+            double grad_norm_val = torch::nn::utils::clip_grad_norm_(model_.GetPolicyParameters(), config_.grad_clip_tau);
             grad_norm = static_cast<float>(grad_norm_val);
             grad_clipped = (grad_norm_val > config_.grad_clip_tau);
         } else {
             torch::Tensor total_sq = torch::zeros({ 1 }, loss.options());
-            for (auto& p : network_.GetPolicyParameters()) {
+            for (auto& p : model_.GetPolicyParameters()) {
                 if (!p.grad().defined()) continue;
                 total_sq += p.grad().detach().pow(2).sum();
             }
@@ -1319,7 +1308,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
         // 勾配NaNチェック
 #if ANET_ENABLE_TENSOR_NAN_CHECK
-        for (auto& param : network_.GetPolicyParameters()) {
+        for (auto& param : model_.GetPolicyParameters()) {
         if (param.grad().defined()) { // 勾配が存在する場合
                 ANET_ASSERT_NAN(param.grad());
             }
@@ -1328,7 +1317,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
         // 勾配ノルム計算とクリッピング (非同期)
         torch::Tensor total_sq = torch::zeros({ 1 }, loss.options());
-        auto params = network_.GetPolicyParameters();
+        auto params = model_.GetPolicyParameters();
         for (auto& p : params) {
             if (!p.grad().defined()) continue;
             total_sq += p.grad().detach().pow(2).sum();

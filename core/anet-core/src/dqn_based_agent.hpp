@@ -207,17 +207,19 @@ namespace anet::rl::dqn {
 
 
     // ======================================================
-    //  Network
+    //  NetworkModel
     // ======================================================
 
-    class Network : public anet::Serializable {
+    class NetworkModel : public anet::Serializable {
     public:
-        Network(
-            const NetworkConfig& config, const torch::Device& device,
-            std::shared_ptr<anet::nn::Network> policy_net,
-            std::shared_ptr<anet::nn::Network> target_net,
+        NetworkModel(
+            const NetworkModelConfig& config,
+            const torch::Device& device,
+            const anet::nn::NetworkConfig& network_config,
+            const std::vector<int64_t>& input_shape,
             int64_t n_actions,
-            int64_t num_quantiles = 1);
+            std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory,
+            int64_t num_quantiles);
 
         /// 行動選択・学習用：期待値Q (B, A) を返す
         /// QR-DQNの場合は分布の平均を計算して返す
@@ -244,7 +246,7 @@ namespace anet::rl::dqn {
         void SoftUpdate();
         void HardUpdate();
     private:
-        const NetworkConfig config_;
+        const anet::rl::dqn::NetworkModelConfig config_;
         std::shared_ptr<anet::nn::Network> policy_net_;
         std::shared_ptr<anet::nn::Network> target_net_;
 
@@ -259,7 +261,7 @@ namespace anet::rl::dqn {
 
     class ActionPolicy : virtual public anet::ModuleBase {
     public:
-        ActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network);
+        ActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::NetworkModel& model);
 
         virtual BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target, std::shared_ptr<anet::RandomGenerator> rnd) const = 0;
         virtual void OnLearn(const StepCounts& counts) { }
@@ -274,14 +276,14 @@ namespace anet::rl::dqn {
         void UpdateEpsilon(step_t step, bool is_uqe = false);
     protected:
         const ActionPolicyConfig config_;
-        const anet::rl::dqn::Network& network_;
+        const anet::rl::dqn::NetworkModel& model_;
         float current_epsilon_ = 0.0f;
         float current_uqe_tau_ = 0.0f;
     };
 
     class EpsilonGreedyActionPolicy final : public ActionPolicy {
     public:
-        EpsilonGreedyActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network);
+        EpsilonGreedyActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::NetworkModel& network);
 
         BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target, std::shared_ptr<anet::RandomGenerator> rnd) const;
         void OnLearn(const StepCounts& counts) override;
@@ -297,7 +299,7 @@ namespace anet::rl::dqn {
      */
     class UQEActionPolicy : public ActionPolicy {
     public:
-        UQEActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network);
+        UQEActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::NetworkModel& model);
 
         BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target, std::shared_ptr<anet::RandomGenerator> rnd) const;
         void OnLearn(const StepCounts& counts) override;
@@ -313,7 +315,7 @@ namespace anet::rl::dqn {
 
     class ThompsonSamplingActionPolicy final : public UQEActionPolicy {
     public:
-        ThompsonSamplingActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::Network& network);
+        ThompsonSamplingActionPolicy(const ActionPolicyConfig& config, const anet::rl::dqn::NetworkModel& model);
 
         BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, bool use_target, std::shared_ptr<anet::RandomGenerator> rnd) const;
         void OnLearn(const StepCounts& counts) override;
@@ -325,7 +327,7 @@ namespace anet::rl::dqn {
 
     class Learner : public anet::rl::Learner, public anet::Module, public anet::Serializable, public anet::RandomHolder {
     public:
-        Learner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+        Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
             const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec,
             torch::Device device, anet::seed_t replay_seed,
             std::shared_ptr<ActionPolicy> target_policy,
@@ -362,7 +364,7 @@ namespace anet::rl::dqn {
         LearnerConfig config_;
         std::optional<StuckerConfig> stucker_config_;
         std::shared_ptr<ActionPolicy> target_policy_;
-        Network& network_;
+        NetworkModel& model_;
         RuntimeVars& vars_;
         std::shared_ptr<ObservationNormalizer> obs_norm_;
         std::shared_ptr<anet::rl::ReplayBuffer> replay_buffer_;
@@ -374,7 +376,7 @@ namespace anet::rl::dqn {
 
     class TDLearner final : public anet::rl::dqn::Learner {
     public:
-        explicit TDLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+        explicit TDLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             std::optional<StuckerConfig> stucker_config = std::nullopt,
@@ -386,7 +388,7 @@ namespace anet::rl::dqn {
 
     class QRLearner final : public anet::rl::dqn::Learner {
     public:
-        explicit QRLearner(const LearnerConfig& config, Network& network, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+        explicit QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             std::optional<StuckerConfig> stucker_config = std::nullopt,

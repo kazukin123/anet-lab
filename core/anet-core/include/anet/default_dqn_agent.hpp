@@ -15,7 +15,7 @@ namespace anet::rl::dqn {
 
     struct DefaultDQNAgentConfig : public anet::Config {
 
-        NetworkConfig network;
+        NetworkModelConfig model;
         StuckerConfig stucker;
         ActionPolicyConfig train_policy;
         ActionPolicyConfig eval_policy;
@@ -41,8 +41,8 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, stucker.use_stacker);
             ANET_READ_CONFIG(config_data, stucker.stack_count);
 
-            ANET_READ_CONFIG(config_data, network.soft_update_tau);
-            ANET_READ_CONFIG(config_data, network.hard_update_interval);
+            ANET_READ_CONFIG(config_data, model.soft_update_tau);
+            ANET_READ_CONFIG(config_data, model.hard_update_interval);
             
             ANET_READ_CONFIG(config_data, use_optimistic_target);
 
@@ -182,7 +182,7 @@ namespace anet::rl::dqn {
         }
     };
 
-    class DefaultDQNAgent: public anet::rl::FlatStateAgent, public std::enable_shared_from_this<DefaultDQNAgent> {
+    class DefaultDQNAgent: public anet::rl::AgentBase, public std::enable_shared_from_this<DefaultDQNAgent> {
     public:
         DefaultDQNAgent(
             const DefaultDQNAgentConfig& config,
@@ -212,7 +212,7 @@ namespace anet::rl::dqn {
         std::unique_ptr<anet::rl::RewardScaler> reward_scaler_;
         std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm_;
         std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
-        std::unique_ptr<anet::rl::dqn::Network> network_;
+        std::unique_ptr<anet::rl::dqn::NetworkModel> model_;
         std::shared_ptr<anet::rl::dqn::ActionPolicy> train_policy_;     ///< 探索用ポリシー(RunMode=Train)
         std::shared_ptr<anet::rl::dqn::ActionPolicy> eval_policy_;      ///< 評価用ポリシー(RunMode=Eval/Eval1/Eval2)
         std::shared_ptr<anet::rl::dqn::ActionPolicy> target_policy_;    ///< 学習時ターゲット用ポリシー

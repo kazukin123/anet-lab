@@ -30,7 +30,7 @@ RainbowAgent::RainbowAgent(
     , const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, const torch::Device& device
     , std::shared_ptr<Notifier> notifier
     , std::optional<seed_t> seed)
-    : FlatStateAgent(device, notifier, batch_env_spec, env_spec, seed)
+    : AgentBase(device, notifier, batch_env_spec, env_spec, seed)
     , config_(config)
 {
     ANET_LOG_DEBUG("seed=" << GetSeed());
@@ -95,43 +95,34 @@ RainbowAgent::RainbowAgent(
     // 入力形状 (C, H, W) or (L,)
     auto input_shape = env_spec.state_spec.shape;
 
-    // Network構築
-    auto policy_net = anet::nn::NetworkBuilder::BuildNetwork(net_config, input_shape, head_factory);
-    auto target_net = anet::nn::NetworkBuilder::BuildNetwork(net_config, input_shape, head_factory);
-
-    // デバイス転送
-    policy_net->to(device_);
-    target_net->to(device_);
-
-    // 管理クラス (dqn::Network) に委譲
-    this->network_ = std::make_unique<dqn::Network>(
-        config_.network, device_, policy_net, target_net, n_actions_, config_.num_quantiles
+    // NetworkModel生成
+    this->model_ = std::make_unique<dqn::NetworkModel>(
+        config_.model, device_, net_config, input_shape, n_actions_, head_factory, config_.num_quantiles
     );
 
-
     // ActionPolicy生成
-    this->action_policy_ = std::make_unique<dqn::EpsilonGreedyActionPolicy>(config_.action_policy, *network_);
+    this->action_policy_ = std::make_unique<dqn::EpsilonGreedyActionPolicy>(config_.action_policy, *model_);
 
     // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化
     ActionPolicyConfig greedy_cfg;
     greedy_cfg.policy_type = "EpsilonGreedy";
     greedy_cfg.eps_start = 0.0f;
     greedy_cfg.eps_end = 0.0f;
-    this->target_policy_ = std::make_shared<dqn::EpsilonGreedyActionPolicy>(greedy_cfg, *network_);
+    this->target_policy_ = std::make_shared<dqn::EpsilonGreedyActionPolicy>(greedy_cfg, *model_);
 
     // Learner生成
     if (is_distributional) {
-        this->learner_ = std::make_unique<dqn::QRLearner>(config_.learner, *network_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed, target_policy_);
+        this->learner_ = std::make_unique<dqn::QRLearner>(config_.learner, *model_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed, target_policy_);
         LOG::info() << "Initialized QRLearner (Quantiles=" << config_.num_quantiles << ")";
     } else {
-        this->learner_ = std::make_unique<dqn::TDLearner>(config_.learner, *network_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed, target_policy_);
+        this->learner_ = std::make_unique<dqn::TDLearner>(config_.learner, *model_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed, target_policy_);
         LOG::info() << "Initialized TDLearner";
     }
 }
 
 std::optional<anet::TensorFunction> RainbowAgent::GetTensorFunction(const std::string& key)
 {
-    auto fn = network_->GetTensorFunction(key, device_);
+    auto fn = model_->GetTensorFunction(key, device_);
     if (fn == std::nullopt) return fn;
 
     auto self = shared_from_this();

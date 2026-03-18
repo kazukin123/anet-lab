@@ -32,7 +32,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     , const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, const torch::Device& device
     , std::shared_ptr<Notifier> notifier
     , std::optional<seed_t> seed)
-    : FlatStateAgent(device, notifier, batch_env_spec, env_spec, seed)
+    : AgentBase(device, notifier, batch_env_spec, env_spec, seed)
     , config_(config)
 {
     ANET_LOG_DEBUG("seed=" << GetSeed());
@@ -114,10 +114,6 @@ DefaultDQNAgent::DefaultDQNAgent(
         }
     }
 
-    // ------------------------------------------------------------
-    // Network構築 (Builder)
-    // ------------------------------------------------------------
-
     // 入力形状 (C, H, W) or (L,)
     auto input_shape = env_spec.state_spec.shape;
 
@@ -126,17 +122,10 @@ DefaultDQNAgent::DefaultDQNAgent(
         input_shape.insert(input_shape.begin(), config_.stucker.stack_count);
     }
 
-    // Network構築
-    auto policy_net = anet::nn::NetworkBuilder::BuildNetwork(net_config, input_shape, head_factory);
-    auto target_net = anet::nn::NetworkBuilder::BuildNetwork(net_config, input_shape, head_factory);
-
-    // デバイス転送
-    policy_net->to(device_);
-    target_net->to(device_);
-
-    // 管理クラス (dqn::Network) に委譲
-    this->network_ = std::make_unique<dqn::Network>(
-        config_.network, device_, policy_net, target_net, n_actions_,
+    // NetworkModel生成
+    this->model_ = std::make_unique<dqn::NetworkModel>(
+        config_.model, device_,
+        net_config, input_shape, n_actions_, head_factory,
         config_.use_qr ? config_.num_quantiles : 0
     );
 
@@ -154,11 +143,11 @@ DefaultDQNAgent::DefaultDQNAgent(
     // Learner生成
     if (is_distributional) {
         this->learner_ = std::make_unique<dqn::QRLearner>(
-            config_.learner, *network_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, target_policy_, config_.stucker, learner_seed);
+            config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, target_policy_, config_.stucker, learner_seed);
         LOG::info() << "Initialized QRLearner (Quantiles=" << config_.num_quantiles << ")";
     } else {
         this->learner_ = std::make_unique<dqn::TDLearner>(
-            config_.learner, *network_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, target_policy_, config_.stucker, learner_seed);
+            config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, target_policy_, config_.stucker, learner_seed);
         LOG::info() << "Initialized TDLearner";
     }
 }
@@ -167,21 +156,21 @@ std::shared_ptr<anet::rl::dqn::ActionPolicy> DefaultDQNAgent::CreateActionPolicy
 {
     if (policy_config.policy_type == "EpsilonGreedy" || policy_config.policy_type == "0") {
         // ε-Greedy
-        return std::make_shared<dqn::EpsilonGreedyActionPolicy>(policy_config, *network_);
+        return std::make_shared<dqn::EpsilonGreedyActionPolicy>(policy_config, *model_);
     } else if (policy_config.policy_type == "UQE" || policy_config.policy_type == "1") {
         // UQE
         ANET_CHECK(config_.use_qr);
-        return std::make_shared<dqn::UQEActionPolicy>(policy_config, *network_);
+        return std::make_shared<dqn::UQEActionPolicy>(policy_config, *model_);
     } else if (policy_config.policy_type == "ThompsonSampling" || policy_config.policy_type == "2") {
         //ThompsonSampling
         ANET_CHECK(config_.use_qr);
-        return std::make_shared<dqn::ThompsonSamplingActionPolicy>(policy_config, *network_);
+        return std::make_shared<dqn::ThompsonSamplingActionPolicy>(policy_config, *model_);
     } else if (policy_config.policy_type == "Greedy" || policy_config.policy_type == "3") {
         // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化
         ActionPolicyConfig greedy_cfg = policy_config;
         greedy_cfg.eps_start = 0.0f;
         greedy_cfg.eps_end = 0.0f;
-        return std::make_shared<dqn::EpsilonGreedyActionPolicy>(greedy_cfg, *network_);
+        return std::make_shared<dqn::EpsilonGreedyActionPolicy>(greedy_cfg, *model_);
     }
 
     // 不明なtype
@@ -210,8 +199,8 @@ int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
     /// @todo ObservationNormalizerの永続化対応
 
     // Network(policy_net/target_net)
-	auto network_size = network_->Save(archive);
-	total_size += network_size;
+	auto model_size = model_->Save(archive);
+	total_size += model_size;
 
     // Learner(Adam)
     auto adam_size = learner_->Save(archive);
@@ -221,14 +210,14 @@ int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
     LOG::info() << "DefaultDQNAgent Serialized. total_size=" << anet::FormatWithCommas(total_size)
         << " config_size=" << anet::FormatWithCommas(config_size)
         << " adam_size=" << anet::FormatWithCommas(adam_size)
-        << " network_size=" << network_size;
+        << " model_size=" << anet::FormatWithCommas(model_size);
 
     return total_size;
 }
 
 std::optional<anet::TensorFunction> DefaultDQNAgent::GetTensorFunction(const std::string& key)
 {
-    auto fn = network_->GetTensorFunction(key, device_);
+    auto fn = model_->GetTensorFunction(key, device_);
     if (fn == std::nullopt) return fn;
 
     auto self = shared_from_this();
@@ -265,7 +254,7 @@ std::optional<anet::TensorFunction> DefaultDQNAgent::GetTensorFunction(const std
 std::optional<anet::TensorDictFunction> DefaultDQNAgent::GetTensorDictFunction(const std::string& key)
 {
     // dqn::Network に委譲してベース関数を取得
-    auto fn = network_->GetTensorDictFunction(key, device_);
+    auto fn = model_->GetTensorDictFunction(key, device_);
     if (fn == std::nullopt) return std::nullopt;
 
     auto self = shared_from_this();

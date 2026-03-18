@@ -4,6 +4,7 @@
 
 #include <memory>
 #include <string>
+#include <optional>
 #include <vector>
 #include <functional>
 #include <memory>
@@ -98,14 +99,29 @@ namespace anet::nn {
 
     class Network : public torch::nn::Module, public anet::TensorFunctionProvider {
     public:
-        Network(std::shared_ptr<NetworkBody> body, std::shared_ptr<NetworkHead> head);
+        Network(
+            const NetworkConfig& config,
+            const std::vector<int64_t>& input_shape,
+            std::shared_ptr<NetworkHeadFactory> head_factory,
+            std::shared_ptr<NetworkBody> body,
+            std::shared_ptr<NetworkHead> head);
 
         std::optional<TensorFunction> GetTensorFunction(const std::string& key) override;
-        anet::TensorDict Forward(torch::Tensor input); ///<  Input -> Body -> Feature -> Head -> Output
+        anet::TensorDict Forward(const torch::Tensor& input); ///<  Input -> Body -> Feature -> Head -> Output
         anet::TensorDict GetConv2dOutputs(const torch::Tensor& input) const;
+
+        std::shared_ptr<Network> Clone(std::optional<torch::Device> device = std::nullopt) const;                 /// 自身の完全な複製(別インスタンス)を生成
+        void CopyTo(Network& target) const;                     /// ターゲットへ重みを完全上書き (Hard Update)
+        void SoftCopyTo(Network& target, double tau) const;     /// ターゲットへ重みをブレンド (Soft Update)
     private:
+        // 実行用の実体
         std::shared_ptr<NetworkBody> body_;
         std::shared_ptr<NetworkHead> head_;
+
+        // 構築情報(Clone用)
+        NetworkConfig config_;
+        std::vector<int64_t> input_shape_;
+        std::shared_ptr<NetworkHeadFactory> head_factory_;
     };
 
     class NetworkBuilder {
