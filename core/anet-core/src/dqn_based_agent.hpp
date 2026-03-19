@@ -362,7 +362,7 @@ namespace anet::rl::dqn {
             std::optional<StuckerConfig> stucker_config = std::nullopt,
             std::optional<anet::seed_t> target_seed = std::nullopt);
 
-        BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences, std::shared_ptr<const anet::rl::Runner> runner) override;
+        BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences) override;
 
         virtual ~Learner() = default;
     public:
@@ -380,7 +380,7 @@ namespace anet::rl::dqn {
         void SetupOptimizer();                  ///< 共通初期化処理（Optimizer生成など）
         void SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, anet::seed_t seed);
     private:
-        bool CanUpdate(step_t update_step, step_t exp_step) const;
+        bool CanUpdate(step_t exp_step) const;
         void UpdatePerBeta(step_t step);
         void UpdateTargetNetwork(step_t step);
     protected:

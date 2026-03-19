@@ -19,17 +19,17 @@ namespace LOG = anet::log;
 // ======================================================
 
 RunnerBase::RunnerBase(
-    std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier, RunMode runmode)
+    std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier, RunMode run_mode, bool clone_model, std::optional<torch::Device> device)
     : env_(env)
     , agent_(agent)
     , notifier_(notifier)
-    , runmode_(runmode)
+    , run_mode_(run_mode)
     , reward_ema_(0.001)
 {
     InitializeMetrics();
     status_ = anet::rl::RunnerStatus::RUNNING;
     auto batch_env_spec = env_->GetBatchSpec();
-    action_context_ = agent_->CreateActionContext(batch_env_spec, runmode_);
+    actor_ = agent_->CreateActor(batch_env_spec, run_mode_, clone_model, device);
 }
 
 void RunnerBase::InitializeMetrics()
@@ -135,9 +135,16 @@ EvalRunner::EvalRunner(
     std::shared_ptr<anet::rl::BatchEnv> env,
     std::shared_ptr<anet::rl::Agent> agent,
     std::shared_ptr<anet::rl::Notifier> notifier,
-    RunMode runmode)
-    : RunnerBase(env, agent, notifier, runmode)
+    RunMode run_mode,
+    bool clone_model,
+    std::optional<torch::Device> device)
+    : RunnerBase(env, agent, notifier, run_mode, clone_model, device)
 {
+}
+
+void EvalRunner::Sync()
+{
+    actor_->Sync();
 }
 
 StepCounts EvalRunner::DoStep(int64_t action)
@@ -147,7 +154,7 @@ StepCounts EvalRunner::DoStep(int64_t action)
 
     if (!env_initialized_) {
         // 環境初期化
-        auto reset_result = env_->Reset(runmode_);
+        auto reset_result = env_->Reset(run_mode_);
         state_ = reset_result->state;
         env_initialized_ = true;
         ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
@@ -158,7 +165,7 @@ StepCounts EvalRunner::DoStep(int64_t action)
     ANET_LOG_DEBUG("step=" << train_step << " state=" << state_.ToString());
 
     // 行動選択
-    auto action_info_raw = agent_->MakeAction(step_counts_, state_, action_context_);
+    auto action_info_raw = actor_->MakeAction(step_counts_, state_);
     ANET_LOG_DEBUG("step=" << train_step << " action_info_raw=" << action_info_raw.ToString());
 
     // action_infoを生成
@@ -168,7 +175,7 @@ StepCounts EvalRunner::DoStep(int64_t action)
     };
 
     // 環境ステップ実行
-    auto result = env_->Step(action_info, runmode_);    // next_state, reward, done, truncated
+    auto result = env_->Step(action_info, run_mode_);    // next_state, reward, done, truncated
     ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info.ToString());
     ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result->next_state.ToString());
     ANET_LOG_DEBUG("step=" << train_step << " continue_state=" << result->continue_state.ToString());
@@ -213,9 +220,9 @@ StepCounts EvalRunner::DoStep()
 TrainRunner::TrainRunner(
     //const ConfigData& config_data,
     std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier)
-    : RunnerBase(env, agent, notifier, anet::rl::RunMode::Train)
+    : RunnerBase(env, agent, notifier, anet::rl::RunMode::Train, false, std::nullopt)   // Trainでの推論は、Clone無し＆同deviceで実行
 {
-
+    this->learner_ = agent_->CreateLearner();
 }
 
 void TrainRunner::SetEvalLastReward(const std::string& name, float val)
@@ -361,7 +368,7 @@ StepCounts SerialTrainRunner::DoStep()
     const int N = state_.obs.size(0);
 
     // 行動選択
-    auto action_info = agent_->MakeAction(step_counts_, state_, action_context_);
+    auto action_info = actor_->MakeAction(step_counts_, state_);
     //ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info.ToString());
     ANET_ASSERT_SHAPE(action_info.GetAction(), {N});
 
@@ -393,42 +400,40 @@ StepCounts SerialTrainRunner::DoStep()
     //メトリクス更新
     UpdateMetrics(result);
 
-    // カウント更新
-    step_counts_.train_step++;
-    step_counts_.exp_step += result->n_transitions;
-    step_counts_.episode_count += result->n_episode_end;
-
     // Agent更新
     anet::ProfileRange r5("SerialTrainRunner::DoStep.updateAgent", r4);
     anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
     auto self = this->shared_from_this();
-    auto result_list = agent_->UpdateFromBatch(step_counts_, exp, self);
+    auto update_results = learner_->UpdateFromBatch(step_counts_, exp, self);
 
-    // カウント更新
-    anet::ProfileRange r6("SerialTrainRunner::DoStep.postUpdate", r5);
-    step_counts_.update_step++;
-    step_counts_.learn_step += result_list.size();
-
-    // 更新後処理
-    {
-        anet::ProfileRange r7("SerialTrainRunner::DoStep.notify", r6);
+    // LearnEvent
+    anet::ProfileRange r6("SerialTrainRunner::DoStep.learnEvent", r5);
+    if (!update_results.empty()) {
         torch::NoGradGuard grad_guard;
 
-        anet::rl::TrainEvent train_event{ exp, self, step_counts_, agent_, result_list, env_, result, action_info };
+        anet::rl::LearnEvent event{  exp, self, step_counts_, agent_, update_results };
+        notifier_->Notify(event);
+    }
+
+    // TrainEvent
+    anet::ProfileRange r8("SerialTrainRunner::DoStep.trainEvent", r6);
+    {
+        torch::NoGradGuard grad_guard;
+
+        anet::rl::TrainEvent train_event{ exp, self, step_counts_, agent_, update_results, env_, result, action_info };
         notifier_->Notify(train_event);
         state_ = result->continue_state;
     }
 
+    // カウント更新(通知した後に次のSTEPに備えて更新する、の方針）
+    step_counts_.train_step++;
+    step_counts_.update_step++;
+    step_counts_.learn_step += update_results.size();
+    step_counts_.exp_step += result->n_transitions;
+    step_counts_.episode_count += result->n_episode_end;
+
     // 性能関連メトリクスを更新
     CalcPerformanceMetrics();
-
-    // カウント更新
-    /// @todo カウント位置検討
-    //step_counts_.train_step++;
-    //step_counts_.exp_step += result->n_transitions;
-    //step_counts_.episode_count += result->n_done;
-    //step_counts_.update_step++;
-    //step_counts_.learn_step += update_result->GetLearnStepDiff();
 
     return step_counts_;
 }
@@ -459,13 +464,14 @@ StepCounts PipelineTrainRunner::DoStep()
 {
     anet::ProfileRange r("PipelineTrainRunner::DoStep");
 
+    // ==========================================================
     // 初期化処理
+    // ==========================================================
     if (!env_initialized_) {
         anet::ProfileRange r1("PipelineTrainRunner::DoStep.initialize");
 
         // EnvSpec取得
         auto env_spec = env_->GetSpec();
-        auto batch_env_spec = env_->GetBatchSpec();
 
         // 環境初期化
         auto reset_result = env_->Reset();
@@ -480,50 +486,65 @@ StepCounts PipelineTrainRunner::DoStep()
         start_time_ = std::chrono::high_resolution_clock::now();
         last_time_ = start_time_;
     }
-    // 直列フェーズ：推論 (常に最新の重みを使用)
-    auto action_info = agent_->MakeAction(step_counts_, state_, action_context_);
 
-    // 並列フェーズの開始
-    std::future<BatchUpdateResultList> learn_future;
+    // ==========================================================
+    // 待ち合わせ (前回の学習完了を確実に待つ)
+    // ==========================================================
+    if (learn_future_.valid()) {
+    	// Learn完了待ち＆結果取得
+        auto result_list = learn_future_.get();
 
-    // 【裏】前回のステップの経験を学習スレッドに投げる
+        // LearnEvent
+        if (!result_list.empty()) {
+            torch::NoGradGuard grad_guard;
+            anet::rl::LearnEvent learn_event{ prev_exp_, shared_from_this(), prev_counts_, agent_, result_list };
+            notifier_->Notify(learn_event);
+        }
+
+        // TrainEvent
+        {
+            torch::NoGradGuard grad_guard;
+            anet::rl::TrainEvent train_event{
+                prev_exp_, shared_from_this(), prev_counts_, agent_, result_list, env_, prev_result_, prev_action_info_
+            };
+            notifier_->Notify(train_event);
+        }
+
+        step_counts_.update_step++;
+        step_counts_.learn_step += result_list.size();
+    }
+
+    // ==========================================================
+    // 推論 (GPUが空なので最速で終わる)
+    // ==========================================================
+    actor_->Sync();
+    auto action_info = actor_->MakeAction(step_counts_, state_);
+
+    // ==========================================================
+    // 非同期学習の投入
+    // ==========================================================
     if (has_prev_data_) {
-        auto agent = agent_;
+        auto learner = learner_;
         auto exp = prev_exp_;
         auto counts = prev_counts_;
-        auto self = this->shared_from_this(); // Notifierで使うため
+        auto self = this->shared_from_this();
 
-        learn_future = learn_pool_->EnqueueFuture(0, [agent, counts, exp, self]() {
-            return agent->UpdateFromBatch(counts, exp, self);
+        learn_future_ = learn_pool_->EnqueueFuture(0, [learner, counts, exp, self]() {
+            return learner->UpdateFromBatch(counts, exp, self);
             });
     }
 
-    // 【表】今回の環境ステップを進める（裏の学習と完全に並列稼働）
+    // ==========================================================
+    // ENVを動かす(LearnerがGPUを全力で回している裏で重いEnv処理をCPUで回す)
+    // ==========================================================
     auto result = env_->Step(action_info);
-
-    // 今回のメトリクス・カウント更新
     UpdateMetrics(result);
-    step_counts_.train_step++;
-    step_counts_.exp_step += result->n_transitions;
-    step_counts_.episode_count += result->n_episode_end;
 
-    // 同期（待ち合わせ）フェーズ
-    if (has_prev_data_) {
-        auto result_list = learn_future.get(); // 裏の学習が終わるまで待つ
+    // ==========================================================
+    // 後片付け
+    // ==========================================================
 
-        // 学習完了に基づくカウント更新
-        step_counts_.update_step++;
-        step_counts_.learn_step += result_list.size();
-
-        // 通知 (Notifier)
-        torch::NoGradGuard grad_guard;
-        anet::rl::TrainEvent train_event{
-            prev_exp_, shared_from_this(), prev_counts_, agent_, result_list, env_, prev_result_, prev_action_info_
-        };
-        notifier_->Notify(train_event);
-    }
-
-    // 今回のデータを「前回」として保存し、状態を更新
+    // 次ステップ向けのデータ保存
     prev_exp_ = anet::rl::BatchExperience({
         state_.Clone(),
         action_info,                   // ActionはAgent内で新規アロケートされているため安全
@@ -535,7 +556,13 @@ StepCounts PipelineTrainRunner::DoStep()
     prev_counts_ = step_counts_;
     has_prev_data_ = true;
 
+	// 次ステップ向けにStepを更新
     state_ = result->continue_state;
+
+    // カウンタ更新
+    step_counts_.train_step++;
+    step_counts_.exp_step += result->n_transitions;
+    step_counts_.episode_count += result->n_episode_end;
 
     // 性能関連メトリクスを更新
     CalcPerformanceMetrics();
@@ -729,14 +756,14 @@ RunManager::~RunManager()
     this->agent_.reset();
 }
 
-std::shared_ptr<EvalRunner> RunManager::CreateEvalRunner(const std::string& name, RunMode runmode)
+std::shared_ptr<EvalRunner> RunManager::CreateEvalRunner(const std::string& name, RunMode run_mode, bool clone_model, std::optional<torch::Device> device)
 {
     /// @todo seed指定対応
 
     ANET_ASSERT(status_ == anet::rl::RunnerStatus::RUNNING);
 
     auto env = env_factory_->CreateBatchEnv(eval_env_seed_, 1); // batch_size = 1
-    auto eval_runner = std::make_shared<EvalRunner>(env, agent_, notifier_, runmode);
+    auto eval_runner = std::make_shared<EvalRunner>(env, agent_, notifier_, run_mode, clone_model, device);
     this->eval_runners[name] = eval_runner;
     return eval_runner;
 }

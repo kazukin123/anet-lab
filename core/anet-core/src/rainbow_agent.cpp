@@ -198,7 +198,7 @@ anet::rl::BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const
     return act_info;
 }
 
-std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, torch::Device device, bool clone_model) const
+std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, bool clone_model, std::optional<torch::Device> device) const
 {
     // Contextを生成
     auto ctx = this->CreateActionContext(batch_env_spec, run_mode);
@@ -222,6 +222,11 @@ std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const anet::rl::Batch
 
     // 生成したActorを返す
     return actor;
+}
+
+std::shared_ptr<anet::rl::Learner> RainbowAgent::CreateLearner()
+{
+    return this->shared_from_this();
 }
 
 anet::rl::BatchUpdateResultList

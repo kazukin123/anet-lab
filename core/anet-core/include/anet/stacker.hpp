@@ -5,6 +5,7 @@
 #include <deque>
 #include <torch/torch.h>
 #include "anet/rl.hpp"
+#include "anet/agent.hpp"
 
 
 namespace anet::rl {

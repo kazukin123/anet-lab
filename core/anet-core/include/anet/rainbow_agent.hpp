@@ -66,7 +66,7 @@ namespace anet::rl::dqn {
         }
     };
 
-    class RainbowAgent: public anet::rl::AgentBase, public std::enable_shared_from_this<RainbowAgent> {
+    class RainbowAgent: public anet::rl::AgentBase, public anet::rl::Learner, public std::enable_shared_from_this<RainbowAgent> {
     public:
         RainbowAgent(
             const RainbowAgentConfig& config,
@@ -75,10 +75,11 @@ namespace anet::rl::dqn {
             std::shared_ptr<anet::rl::Notifier> notifier = nullptr,
             std::optional<seed_t> seed = std::nullopt);
 
-        anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const override;
-        BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const anet::rl::BatchExperience& exprience, std::shared_ptr<const anet::rl::Runner> runner) override;
+        anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const;
+        BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const anet::rl::BatchExperience& exprience, std::shared_ptr<const anet::rl::Runner> runner);
     public:
-        std::shared_ptr<anet::rl::Actor> CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, torch::Device device, bool clone_model) const override;
+        std::shared_ptr<anet::rl::Actor> CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, bool clone_model, std::optional<torch::Device> device = std::nullopt) const override;
+        std::shared_ptr<anet::rl::Learner> CreateLearner() override;
     public:
         std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override;
 

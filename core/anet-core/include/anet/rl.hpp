@@ -139,7 +139,13 @@ namespace anet::rl {
     // RunMode
     // =============================================================
 
-    enum class RunMode { Train, Eval, Eval1, Eval2 };
+    enum class RunMode {
+        Train,
+        Eval,
+        Eval1,
+        Eval2,
+        //Collect
+    };
 
     inline bool IsTrain(RunMode mode) { return mode == RunMode::Train; }
     inline bool IsEval(RunMode mode) { return mode == RunMode::Eval || mode == RunMode::Eval1 || mode == RunMode::Eval2; }
@@ -604,8 +610,7 @@ namespace anet::rl {
 
     class Learner {
     public:
-        virtual BatchUpdateResultList UpdateFromBatch(
-            const StepCounts& step, const BatchExperience& expriences, std::shared_ptr<const anet::rl::Runner> runner) = 0;
+        virtual BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences) = 0;
         virtual ~Learner() = default;
     };
 
@@ -614,34 +619,11 @@ namespace anet::rl {
     // Agent
     // =============================================================
 
-    class ActionContext : public anet::RandomHolder {
+    class Agent : public Module, public TensorFunctionProvider, public TensorDictFunctionProvider , public Serializable {
     public:
-		ActionContext(RunMode mode, std::optional<seed_t> seed = std::nullopt)
-            : RandomHolder(seed)
-            , run_mode_(mode)
-        {
-        }
-
-        RunMode GetRunMode() const { return run_mode_; }
-        
-        /// @return 加工されたObservation
-        virtual torch::Tensor PushObservation(const anet::rl::BatchState& state) = 0;
-        virtual void Reset() = 0;
-
-        virtual ~ActionContext() = default;
-    private:
-        RunMode run_mode_;
-    };
-
-    class Agent : public Learner, public Module, public TensorFunctionProvider, public TensorDictFunctionProvider , public Serializable {
+        virtual std::shared_ptr<Actor> CreateActor(const BatchEnvSpec& batch_env_spec, RunMode run_mode, bool clone_model, std::optional<torch::Device> device = std::nullopt) const = 0;
+        virtual std::shared_ptr<Learner> CreateLearner() = 0;
     public:
-        virtual std::shared_ptr<Actor> CreateActor(const BatchEnvSpec& batch_env_spec, RunMode run_mode, torch::Device device, bool clone_model) const = 0;
-        //virtual std::shared_ptr<Learner> CreateLearner() = 0;
-    public:
-        virtual std::shared_ptr<ActionContext> CreateActionContext(
-            const BatchEnvSpec& batch_env_spec, RunMode run_mode = RunMode::Train, std::optional<torch::Device> device = std::nullopt) const = 0;
-        virtual BatchActionInfo MakeAction(
-            const StepCounts& counts, const anet::rl::BatchState& state, std::shared_ptr<ActionContext> ctx) const = 0;
         virtual int64_t Save(anet::OutputArchive& archive) const override { return 0;  }
         virtual int64_t Load(anet::InputArchive& archive) override { return 0; }
         virtual ~Agent() = default;

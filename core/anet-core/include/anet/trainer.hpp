@@ -22,7 +22,9 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::BatchEnv> env,
             std::shared_ptr<anet::rl::Agent> agent,
             std::shared_ptr<anet::rl::Notifier> notifier,
-            RunMode runmode);
+            RunMode run_mode,
+            bool clone_model,
+            std::optional<torch::Device> device = std::nullopt);
 
         virtual StepCounts DoStep() = 0;
 
@@ -54,8 +56,8 @@ namespace anet::rl {
         std::shared_ptr<anet::rl::Agent> agent_;
         std::shared_ptr<anet::rl::Notifier> notifier_;
         anet::rl::BatchState state_;
-        std::shared_ptr<ActionContext> action_context_ = nullptr;
-        RunMode runmode_;
+        std::shared_ptr<Actor> actor_ = nullptr;
+        RunMode run_mode_;
 
         // メトリクス
         //std::chrono::high_resolution_clock::time_point start_time_;
@@ -77,8 +79,11 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::BatchEnv> env,
             std::shared_ptr<anet::rl::Agent> agent,
             std::shared_ptr<anet::rl::Notifier> notifier,
-            RunMode runmode = RunMode::Eval);
+            RunMode run_mode = RunMode::Eval,
+            bool clone_model = false,
+            std::optional<torch::Device> device = std::nullopt);
 
+        void Sync();
         void Shutdown() override { }
 
         //RunnerStatus Initialize(const ConfigData& config_data);
@@ -98,8 +103,6 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::Agent> agent,
             std::shared_ptr<anet::rl::Notifier> notifier);
 
-        RunnerStatus Initialize(const ConfigData& config_data);
-        //StepCounts DoStep() override;
         virtual StepCounts DoStep() override = 0;
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::string GetEnvClassId() const { return env_class_id_; }
@@ -111,6 +114,9 @@ namespace anet::rl {
     protected:
         void CalcPerformanceMetrics();
     protected:
+        // Learner
+        std::shared_ptr<Learner> learner_ = nullptr;
+
         // Trainer情報
         std::string env_class_id_;
 
@@ -158,6 +164,7 @@ namespace anet::rl {
         void Shutdown() override;
     private:
         std::unique_ptr<anet::PinnedThreadPool> learn_pool_;
+        std::future<anet::rl::BatchUpdateResultList> learn_future_;
 
         // 1ステップ遅れで学習を投げるための状態保持
         bool has_prev_data_ = false;
@@ -191,7 +198,7 @@ namespace anet::rl {
         RunManager(const ConfigData& config_data);
         ~RunManager();
 
-        std::shared_ptr<EvalRunner> CreateEvalRunner(const std::string& name, RunMode runmode = RunMode::Eval);
+        std::shared_ptr<EvalRunner> CreateEvalRunner(const std::string& name, RunMode runmode = RunMode::Eval, bool clone_model = false, std::optional<torch::Device> device = std::nullopt);
 
         // アクセサ
         //std::shared_ptr<anet::rl::BatchEnv> GetBatchEnv() const { return env_; }  // EnvはRunnerインスタンス別なので隠蔽

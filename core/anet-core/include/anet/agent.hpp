@@ -9,10 +9,36 @@
 
 namespace anet::rl {
 
+
+    // ----------------------------------------------------------------------
+    // ActionContext
+    // ----------------------------------------------------------------------
+
+    class ActionContext : public anet::RandomHolder {
+    public:
+        ActionContext(RunMode mode, std::optional<seed_t> seed = std::nullopt)
+            : RandomHolder(seed)
+            , run_mode_(mode)
+        {
+        }
+
+        RunMode GetRunMode() const { return run_mode_; }
+
+        /// @return 加工されたObservation
+        virtual torch::Tensor PushObservation(const anet::rl::BatchState& state) = 0;
+        virtual void Reset() = 0;
+
+        virtual ~ActionContext() = default;
+    private:
+        RunMode run_mode_;
+    };
+
+
     // ----------------------------------------------------------------------
     // DefaultActionContext
     // ----------------------------------------------------------------------
-    // 加工を行わず、State内のobsをそのまま通過させるActionContext 
+
+    /// 加工を行わず、State内のobsをそのまま通過させるActionContext 
     class DefaultActionContext : public ActionContext {
     public:
         DefaultActionContext(RunMode run_mode, std::optional<seed_t> seed = std::nullopt) : ActionContext(run_mode, seed) { }
@@ -22,6 +48,11 @@ namespace anet::rl {
 
 		virtual ~DefaultActionContext() = default;
     };
+
+
+    // ----------------------------------------------------------------------
+    // AgentBase
+    // ----------------------------------------------------------------------
 
     // 環境のステップに同期して更新する Agent 基底クラス
     class AgentBase : public Agent, public anet::RandomHolder {
@@ -39,8 +70,8 @@ namespace anet::rl {
             mutex_ = std::make_shared<std::shared_mutex>();
         }
 
-        std::shared_ptr<ActionContext> CreateActionContext(
-            const BatchEnvSpec& batch_env_spec, RunMode run_mode, std::optional<torch::Device> device = std::nullopt) const override
+        virtual std::shared_ptr<ActionContext> CreateActionContext(
+            const BatchEnvSpec& batch_env_spec, RunMode run_mode, std::optional<torch::Device> device = std::nullopt) const
         {
             return std::make_shared<DefaultActionContext>(run_mode);
         }

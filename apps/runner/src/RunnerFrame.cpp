@@ -197,8 +197,7 @@ void RunnerFrame::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
     train_panel_->Initialize(run_manager);
 
     // EvalPanel初期化
-    //auto eval_runner = run_manager->CreateEvalRunner("EvalPanel");
-    eval_runner_ = run_manager->CreateEvalRunner("EvalPanel", anet::rl::RunMode::Eval1);
+    eval_runner_ = run_manager->CreateEvalRunner("EvalPanel", anet::rl::RunMode::Eval1, /*clone_model=*/false);
     eval_panel_->Initialize(run_manager, eval_runner_);
 
     // QValuePanel初期化

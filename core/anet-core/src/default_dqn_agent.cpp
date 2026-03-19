@@ -430,7 +430,7 @@ anet::rl::BatchActionInfo DefaultDQNAgent::MakeAction(const StepCounts& step, co
     return act_info;
 }
 
-std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, torch::Device device, bool clone_model) const
+std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, bool clone_model, std::optional<torch::Device> device) const
 {
     // Contextを生成
     auto ctx = this->CreateActionContext(batch_env_spec, run_mode, device);
@@ -458,15 +458,20 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const anet::rl::Ba
     return actor;
 }
 
+std::shared_ptr<anet::rl::Learner> DefaultDQNAgent::CreateLearner()
+{
+    return this->shared_from_this();
+}
+
 anet::rl::BatchUpdateResultList
-DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp, std::shared_ptr<const anet::rl::Runner> runner)
+DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp)
 {
     ProfileRange r1("DefaultDQNAgent::UpdateFromBatch");
 
     BatchUpdateResultList result_list;
 
-    if (true) {
-        // 排他ロック
+    {
+        // 排他ロック（Writeロック)
         std::unique_lock<std::shared_mutex> lock(*mutex_);
 
         // RewardScaler
@@ -486,23 +491,13 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
         };
 
         // Update実行
-        auto result = this->learner_->UpdateFromBatch(counts, exp, runner);
+        auto result = this->learner_->UpdateFromBatch(counts, exp);
         result_list = std::move(result);
 
         // Update後処理
         train_policy_->OnLearn(counts);
         eval_policy_->OnLearn(counts);
         target_policy_->OnLearn(counts);
-    }
-
-    // LearnEvent通知（排他解除後でないとデッドロックになる）
-    if (result_list.size() > 0 && notifier_ != nullptr) {
-        anet::rl::StepCounts current_counts = counts;   // ループ内でカウントを進めるためにコピー
-        for (auto result : result_list) {
-            anet::rl::LearnEvent event{ batch_exp, runner, current_counts, shared_from_this(), result_list };
-            notifier_->Notify(event);
-            current_counts.learn_step++;    // 次の通知のために learn_step をインクリメント
-        }
     }
 
     // BatchUpdateResultを返す

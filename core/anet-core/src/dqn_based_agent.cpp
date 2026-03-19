@@ -626,7 +626,7 @@ void Learner::UpdatePerBeta(step_t step)
     }
 }
 
-bool Learner::CanUpdate(step_t update_step, step_t exp_step) const
+bool Learner::CanUpdate(step_t exp_step) const
 {
     // warmup
     if (config_.update_warmup_steps > 0 && exp_step < config_.update_warmup_steps)
@@ -640,7 +640,7 @@ bool Learner::CanUpdate(step_t update_step, step_t exp_step) const
 }
 
 anet::rl::BatchUpdateResultList
-Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::BatchExperience& experiences, std::shared_ptr<const anet::rl::Runner> runner)
+Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::BatchExperience& experiences)
 {
     // ReplayBuffer へ push
     replay_buffer_->Push(experiences);
@@ -649,7 +649,7 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
     BatchUpdateResultList result_list;
 
     // Update不可なら空の結果を返す
-    if (!CanUpdate(counts.update_step, counts.exp_step)) {
+    if (!CanUpdate(counts.exp_step)) {
         return result_list;  // 空配列
     }
 
@@ -658,7 +658,7 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
 
     // update_credit が十分な間、学習ループを回す
     while (update_credit_ >= 1.0f) {
-        if (!CanUpdate(counts.update_step, counts.exp_step))
+        if (!CanUpdate(counts.exp_step))
             break;
             
         const int B = config_.replay_batch_size;

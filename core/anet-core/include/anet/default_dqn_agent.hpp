@@ -192,7 +192,7 @@ namespace anet::rl::dqn {
     // DefaultDQNAgent
     // ======================================================
 
-    class DefaultDQNAgent: public anet::rl::AgentBase, public std::enable_shared_from_this<DefaultDQNAgent> {
+    class DefaultDQNAgent: public anet::rl::AgentBase, public anet::rl::Learner, public std::enable_shared_from_this<DefaultDQNAgent> {
     public:
         DefaultDQNAgent(
             const DefaultDQNAgentConfig& config,
@@ -201,22 +201,21 @@ namespace anet::rl::dqn {
             std::shared_ptr<anet::rl::Notifier> notifier = nullptr,
             std::optional<seed_t> seed = std::nullopt);
 
-        std::shared_ptr<ActionContext> CreateActionContext(
-            const BatchEnvSpec& batch_env_spec, RunMode run_mode = RunMode::Train, std::optional<torch::Device> device = std::nullopt) const override;
-        anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const override;
-
-        BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences, std::shared_ptr<const anet::rl::Runner> runner) override;
-    public:
-        std::shared_ptr<anet::rl::Actor> CreateActor(const BatchEnvSpec& batch_env_spec, RunMode mode, torch::Device device, bool clone_model) const override;
+        std::shared_ptr<anet::rl::Actor> CreateActor(const BatchEnvSpec& batch_env_spec, RunMode mode, bool clone_model, std::optional<torch::Device> device = std::nullopt) const override;
+        std::shared_ptr<anet::rl::Learner> CreateLearner() override;
     public:
         std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override;
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
-
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
-
+    public:
         int64_t Save(anet::OutputArchive& archive) const override;
+    private:
+        std::shared_ptr<ActionContext> CreateActionContext(
+            const BatchEnvSpec& batch_env_spec, RunMode run_mode = RunMode::Train, std::optional<torch::Device> device = std::nullopt) const override;
+        anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const;
+        BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences);
     private:
         std::shared_ptr<anet::rl::dqn::ActionPolicy> CreateActionPolicy(const ActionPolicyConfig& policy_config);
     private:

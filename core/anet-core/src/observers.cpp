@@ -533,7 +533,7 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
 
     // 初回にActorを生成
     if (actor_ == nullptr) {
-        actor_ = event.agent->CreateActor(env_->GetBatchSpec(), runmode_, actor_device_, true);
+        actor_ = event.agent->CreateActor(env_->GetBatchSpec(), runmode_, true, actor_device_);
     }
 
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::LEARN);
