@@ -29,10 +29,10 @@ namespace LOG = anet::log;
 DefaultDQNAgent::DefaultDQNAgent(
     const DefaultDQNAgentConfig& config
     , const anet::nn::NetworkConfig& net_config
-    , const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, const torch::Device& device
+    , const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, const torch::Device device
     , std::shared_ptr<Notifier> notifier
     , std::optional<seed_t> seed)
-    : AgentBase(device, notifier, batch_env_spec, env_spec, seed)
+    : AgentBase(device, std::move(notifier), batch_env_spec, env_spec, seed)
     , config_(config)
 {
     ANET_LOG_DEBUG("seed=" << GetSeed());
@@ -129,16 +129,16 @@ DefaultDQNAgent::DefaultDQNAgent(
         config_.use_qr ? config_.num_quantiles : 0
     );
 
-    // ActionPolicy生成
-    this->train_policy_ = CreateActionPolicy(config_.train_policy);
-    this->eval_policy_ = CreateActionPolicy(config_.eval_policy);
-    this->target_policy_ = CreateActionPolicy(config_.target_policy);
-
     // Target Policyの妥当性チェック
     if (config_.target_policy.policy_type == "EpsilonGreedy" && config_.target_policy.eps_start > 0.0f) {
         // TargetActionPolicy（学習用）はUQE/ThompsonSamplingもしくはGreedyである必要がある(ランダム要素はNG)
         ANET_SYSTEM_ERROR("target_policy cannot be EpsilonGreedy with eps > 0. It must be deterministic or optimistic.");
     }
+
+    // ActionPolicy生成
+    this->train_policy_ = CreateActionPolicy(config_.train_policy);
+    this->eval_policy_ = CreateActionPolicy(config_.eval_policy);
+    this->target_policy_ = CreateActionPolicy(config_.target_policy);
 
     // Learner生成
     if (is_distributional) {
@@ -398,7 +398,7 @@ anet::rl::BatchActionInfo DefaultDQNAgent::MakeAction(const StepCounts& step, co
     torch::NoGradGuard ng;
 
     // obsを生成
-    torch::Tensor obs = state.obs;
+    torch::Tensor obs = state.obs.to(device_);
     if (ctx) obs = ctx->PushObservation(state);
 
     // Normalize observations

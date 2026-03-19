@@ -197,7 +197,7 @@ namespace anet::rl::dqn {
         DefaultDQNAgent(
             const DefaultDQNAgentConfig& config,
 			const anet::nn::NetworkConfig& net_config,
-            const anet::rl::BatchEnvSpec& batc_env_spec, const anet::rl::EnvSpec& env_spec, const torch::Device& device,
+            const anet::rl::BatchEnvSpec& batc_env_spec, const anet::rl::EnvSpec& env_spec, const torch::Device device,
             std::shared_ptr<anet::rl::Notifier> notifier = nullptr,
             std::optional<seed_t> seed = std::nullopt);
 

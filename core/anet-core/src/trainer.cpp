@@ -524,7 +524,12 @@ StepCounts PipelineTrainRunner::DoStep()
     }
 
     // 今回のデータを「前回」として保存し、状態を更新
-    prev_exp_ = anet::rl::BatchExperience({ state_, action_info, result->reward, result->next_state });
+    prev_exp_ = anet::rl::BatchExperience({
+        state_.Clone(),
+        action_info,                   // ActionはAgent内で新規アロケートされているため安全
+        result->reward.clone(),
+        result->next_state.Clone()
+        });
     prev_result_ = result;
     prev_action_info_ = action_info;
     prev_counts_ = step_counts_;
