@@ -8,6 +8,54 @@ using namespace anet::rl;
 
 
 // =============================================================
+// AgentBase
+// =============================================================
+
+AgentBase::AgentBase(torch::Device device,
+    std::shared_ptr<anet::rl::Notifier> notifier,
+    const BatchEnvSpec& batch_env_spec,
+    const EnvSpec& env_spec,
+    std::optional<seed_t> seed)
+    : RandomHolder(seed), notifier_(notifier), device_(device)
+    , state_dim_(env_spec.state_spec.CalcFlattenDim())
+    , n_actions_(env_spec.action_spec.GetNumActions())
+    , batch_size_(batch_env_spec.batch_size)
+{
+    mutex_ = std::make_shared<std::shared_mutex>();
+
+    //  Actor(ActionContext)群のための専用ドメインシードを生成
+    anet::SeedMaker seed_maker(this->GetSeed());
+    action_context_seed_ = seed_maker.MakeNamedSeed("action_context");
+}
+
+
+std::shared_ptr<ActionContext> AgentBase::CreateActionContext(
+    const BatchEnvSpec& batch_env_spec, RunMode run_mode, std::optional<torch::Device> device) const
+{
+    // 専用のRNGから1つシードを払い出してコンテキストに渡す
+    auto rng = GetRandomGenerator(run_mode);
+    seed_t ctx_seed = rng->RandUint64();
+    return std::make_shared<DefaultActionContext>(run_mode, ctx_seed);
+}
+
+std::shared_ptr<anet::RandomGenerator> AgentBase::GetRandomGenerator(RunMode mode) const
+{
+    std::lock_guard<std::mutex> lock(rng_mutex_);
+
+    auto it = run_mode_rngs_.find(mode);
+    if (it != run_mode_rngs_.end()) {
+        return it->second;
+    }
+
+    // ActionContext専用シードからRandomGeneratorを作る
+    seed_t mode_base_seed = anet::splitmix64(action_context_seed_ ^ static_cast<uint64_t>(mode));
+    auto new_rng = std::make_shared<anet::RandomGenerator>(mode_base_seed);
+    run_mode_rngs_[mode] = new_rng;
+    return new_rng;
+}
+
+
+// =============================================================
 // AgentRepository
 // =============================================================
 

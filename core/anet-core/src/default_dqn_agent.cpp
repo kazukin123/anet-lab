@@ -348,20 +348,9 @@ std::optional<std::vector<torch::Tensor>> DefaultDQNAgent::GetTensorVector(const
 std::shared_ptr<anet::rl::ActionContext> DefaultDQNAgent::CreateActionContext(
     const BatchEnvSpec& batch_env_spec, RunMode run_mode, std::optional<torch::Device> device) const
 {
-    seed_t ctx_seed = 0;
-    {
-        std::lock_guard<std::mutex> lock(rng_mutex_);
-
-        // RunMode別のRNGからシードを1つ引く
-        if (context_seed_rngs_.find(run_mode) == context_seed_rngs_.end()) {
-            // そのRunModeのRNGがまだ無ければ、AgentのベースシードとRunModeで初期化して作る
-            seed_t mode_base_seed = anet::splitmix64(this->action_context_seed_ ^ static_cast<uint64_t>(run_mode));
-            context_seed_rngs_[run_mode] = std::make_shared<anet::RandomGenerator>(mode_base_seed);
-        }
-
-        // 要求が来るたびに、そのRunMode専用のRNG内部状態が進み、新しいシードが払い出される
-        ctx_seed = context_seed_rngs_[run_mode]->RandUint64();
-    }
+    // Seed生成
+    auto rnd = GetRandomGenerator(run_mode);
+    auto ctx_seed = rnd->RandUint64();
 
     // ActionContext向けのDeviceを取得
     auto target_device = device.value_or(this->device_);

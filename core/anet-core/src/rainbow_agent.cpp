@@ -230,7 +230,7 @@ std::shared_ptr<anet::rl::Learner> RainbowAgent::CreateLearner()
 }
 
 anet::rl::BatchUpdateResultList
-RainbowAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp, std::shared_ptr<const anet::rl::Runner> runner)
+RainbowAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp)
 {
     ProfileRange r1("RainbowAgent::UpdateFromBatch");
 
@@ -240,19 +240,11 @@ RainbowAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExp
         std::unique_lock<std::shared_mutex> lock(*mutex_);
 
         // Update実行
-        auto result = this->learner_->UpdateFromBatch(counts, batch_exp, runner);
+        auto result = this->learner_->UpdateFromBatch(counts, batch_exp);
         result_list = std::move(result);
 
         // Update後処理
         action_policy_->OnLearn(counts);
-    }
-
-    // LearnEvent通知
-    if (notifier_ != nullptr) {
-        for (auto result : result_list) {
-            anet::rl::LearnEvent event{ batch_exp, runner, counts, shared_from_this(), result_list };
-            notifier_->Notify(event);
-        }
     }
 
     // BatchUpdateResultListを返す

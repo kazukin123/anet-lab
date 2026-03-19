@@ -220,8 +220,6 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::rl::dqn::ActionPolicy> CreateActionPolicy(const ActionPolicyConfig& policy_config);
     private:
         DefaultDQNAgentConfig config_;
-        std::unique_ptr<anet::rl::RewardScaler> reward_scaler_;
-        std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm_;
         std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
         std::unique_ptr<anet::rl::dqn::NetworkModel> model_;
         std::shared_ptr<anet::rl::dqn::ActionPolicy> train_policy_;     ///< 探索用ポリシー(RunMode=Train)
@@ -229,8 +227,6 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::rl::dqn::ActionPolicy> target_policy_;    ///< 学習時ターゲット用ポリシー
         std::shared_ptr<anet::rl::dqn::Learner> learner_;
     private:
-        mutable std::unordered_map<RunMode, std::shared_ptr<anet::RandomGenerator>> context_seed_rngs_;
-        mutable std::mutex rng_mutex_; // 初期化時の排他用
         seed_t action_context_seed_;
     };
 

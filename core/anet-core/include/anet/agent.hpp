@@ -6,6 +6,7 @@
 #include <mutex>
 #include "anet/rl.hpp"
 #include "anet/config.hpp"
+#include "anet/scaler.hpp"
 
 namespace anet::rl {
 
@@ -61,20 +62,13 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::Notifier> notifier,
             const BatchEnvSpec& batch_env_spec,
             const EnvSpec& env_spec,
-            std::optional<seed_t> seed = std::nullopt)
-            : RandomHolder(seed), notifier_(notifier),device_(device)
-            , state_dim_(env_spec.state_spec.CalcFlattenDim())
-            , n_actions_(env_spec.action_spec.GetNumActions())
-            , batch_size_(batch_env_spec.batch_size)
-        {
-            mutex_ = std::make_shared<std::shared_mutex>();
-        }
+            std::optional<seed_t> seed = std::nullopt);
 
         virtual std::shared_ptr<ActionContext> CreateActionContext(
-            const BatchEnvSpec& batch_env_spec, RunMode run_mode, std::optional<torch::Device> device = std::nullopt) const
-        {
-            return std::make_shared<DefaultActionContext>(run_mode);
-        }
+            const BatchEnvSpec& batch_env_spec, RunMode run_mode, std::optional<torch::Device> device = std::nullopt) const;
+
+        std::shared_ptr<anet::RandomGenerator> GetRandomGenerator(RunMode mode) const;
+
         virtual ~AgentBase() = default;
     protected:
         std::shared_ptr<std::shared_mutex> mutex_;
@@ -84,6 +78,12 @@ namespace anet::rl {
         int n_actions_;
         int batch_size_;
 
+        std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm_ = nullptr;   // 必要に応じて作る
+        std::unique_ptr<anet::rl::RewardScaler> reward_scaler_ = nullptr;       // 必要に応じて作る
+    private:
+        mutable std::unordered_map<RunMode, std::shared_ptr<anet::RandomGenerator>> run_mode_rngs_;
+        mutable std::mutex rng_mutex_;
+        seed_t action_context_seed_;
     };
 
 

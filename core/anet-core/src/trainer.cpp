@@ -404,7 +404,7 @@ StepCounts SerialTrainRunner::DoStep()
     anet::ProfileRange r5("SerialTrainRunner::DoStep.updateAgent", r4);
     anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
     auto self = this->shared_from_this();
-    auto update_results = learner_->UpdateFromBatch(step_counts_, exp, self);
+    auto update_results = learner_->UpdateFromBatch(step_counts_, exp);
 
     // LearnEvent
     anet::ProfileRange r6("SerialTrainRunner::DoStep.learnEvent", r5);
@@ -527,10 +527,9 @@ StepCounts PipelineTrainRunner::DoStep()
         auto learner = learner_;
         auto exp = prev_exp_;
         auto counts = prev_counts_;
-        auto self = this->shared_from_this();
 
-        learn_future_ = learn_pool_->EnqueueFuture(0, [learner, counts, exp, self]() {
-            return learner->UpdateFromBatch(counts, exp, self);
+        learn_future_ = learn_pool_->EnqueueFuture(0, [learner, counts, exp]() {
+            return learner->UpdateFromBatch(counts, exp);
             });
     }
 
