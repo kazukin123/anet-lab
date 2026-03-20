@@ -171,6 +171,7 @@ StepCounts EvalRunner::DoStep(int64_t action)
     // action_infoを生成
     anet::rl::BatchActionInfo action_info = {
         action < 0 ? action_info_raw.GetAction() : torch::tensor({ action }), // 指定のactionがあれば強制
+        action_info_raw.GetInfo(),
         action_info_raw.GetAuxData()    // AuxはAgentが生成した内容
     };
 
