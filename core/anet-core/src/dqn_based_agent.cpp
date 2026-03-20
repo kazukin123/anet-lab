@@ -19,7 +19,7 @@ namespace LOG = anet::log;
 // ======================================================
 
 NetworkModel::NetworkModel(
-    const NetworkModelConfig& config, const torch::Device& device,
+    const NetworkModelConfig& config, const torch::Device device,
     const anet::nn::NetworkConfig& network_config, const std::vector<int64_t>& input_shape, int64_t n_actions, std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory,
     int64_t num_quantiles)
     : config_(config)

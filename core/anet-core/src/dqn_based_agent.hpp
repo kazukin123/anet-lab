@@ -214,7 +214,7 @@ namespace anet::rl::dqn {
     public:
         NetworkModel(
             const NetworkModelConfig& config,
-            const torch::Device& device,
+            const torch::Device device,
             const anet::nn::NetworkConfig& network_config,
             const std::vector<int64_t>& input_shape,
             int64_t n_actions,

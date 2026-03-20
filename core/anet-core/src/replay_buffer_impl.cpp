@@ -451,6 +451,7 @@ int64_t SumTree::Sample(float value) const
     return std::clamp<int64_t>(data_idx, 0, capacity_ - 1);
 }
 
+
 // ======================================================
 // PrioritizedReplayExperienceSampler
 // ======================================================
@@ -916,7 +917,7 @@ ReplayBufferFactory::Create(const EnvSpec& env_spec, torch::Device device, int b
     ANET_ASSERT_MSG(batch_size > 0, "batch_size must be positive");
 
     // -------------------------------------------------------------
-    // ReplayExperienceBuilder
+    // ExperienceQueueControlle / ReplayExperienceBuilder
     // -------------------------------------------------------------
     std::unique_ptr<ExperienceQueueController> queue_controller;
     std::unique_ptr<ReplayExperienceBuilder> replay_exp_builder;
