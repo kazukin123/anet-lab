@@ -28,9 +28,8 @@ RainbowAgent::RainbowAgent(
     const RainbowAgentConfig& config
     , const anet::nn::NetworkConfig& net_config
     , const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, const torch::Device& device
-    , std::shared_ptr<Notifier> notifier
     , std::optional<seed_t> seed)
-    : AgentBase(device, notifier, batch_env_spec, env_spec, seed)
+    : AgentBase(device, batch_env_spec, env_spec, seed)
     , config_(config)
 {
     ANET_LOG_DEBUG("seed=" << GetSeed());
@@ -262,7 +261,7 @@ std::shared_ptr<anet::rl::Agent> RainbowAgentFactory::CreateAgent(
 {
     RainbowAgentConfig config(config_data);
     anet::nn::NetworkConfig net_config(config_data);
-    auto agent = std::make_shared<RainbowAgent>(config, net_config, batch_env_spec, env_spec, device, notifier, seed);
+    auto agent = std::make_shared<RainbowAgent>(config, net_config, batch_env_spec, env_spec, device, seed);
     return agent;
 
     /// @todo 引数の順番を統一

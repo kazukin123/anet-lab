@@ -59,7 +59,6 @@ namespace anet::rl {
     class AgentBase : public Agent, public anet::RandomHolder {
     public:
         AgentBase(torch::Device device,
-            std::shared_ptr<anet::rl::Notifier> notifier,
             const BatchEnvSpec& batch_env_spec,
             const EnvSpec& env_spec,
             std::optional<seed_t> seed = std::nullopt);
@@ -73,7 +72,6 @@ namespace anet::rl {
     protected:
         std::shared_ptr<std::shared_mutex> mutex_;
         const torch::Device device_;
-        const std::shared_ptr<anet::rl::Notifier> notifier_;
         int state_dim_;
         int n_actions_;
         int batch_size_;

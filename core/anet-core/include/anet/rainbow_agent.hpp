@@ -72,7 +72,6 @@ namespace anet::rl::dqn {
             const RainbowAgentConfig& config,
             const anet::nn::NetworkConfig& net_config,
             const anet::rl::BatchEnvSpec& batc_env_spec, const anet::rl::EnvSpec& env_spec, const torch::Device& device,
-            std::shared_ptr<anet::rl::Notifier> notifier = nullptr,
             std::optional<seed_t> seed = std::nullopt);
 
         anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const;
