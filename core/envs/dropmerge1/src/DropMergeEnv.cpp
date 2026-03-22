@@ -172,7 +172,7 @@ void DropMergeEnv::bell()
 {
     anet::ProfileRange r("DropMergeEnv::bell");
     /// @todo wxBell()はスレッドセーフじゃないのでwxSoundを使うべき
-    wxBell();
+    //wxBell();
 }
 
 anet::rl::EnvSpec DropMergeEnv::GetSpec() const
