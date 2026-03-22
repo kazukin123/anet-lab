@@ -43,6 +43,7 @@ namespace anet {
         float Uniform01();
         float Uniform(float low, float high);
         int RandInt(int low, int high);
+        float Gamma(float alpha, float beta = 1.0f);    ///< ガンマ分布からのサンプリング (Dirichletノイズ用)
 
         inline torch::Generator GetTorchGenerator(torch::Device device)
         {

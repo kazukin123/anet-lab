@@ -99,6 +99,12 @@ namespace anet {
         return dist(engine_);
     }
 
+    float RandomGenerator::Gamma(float alpha, float beta)
+    {
+        std::gamma_distribution<float> dist(alpha, beta);
+        return dist(engine_);
+    }
+
     torch::Generator RandomGenerator::CreateTorchGenerator(torch::Device device, uint32_t key)
     {
         if (device.is_cpu()) {
