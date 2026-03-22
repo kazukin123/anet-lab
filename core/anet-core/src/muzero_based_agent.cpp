@@ -351,6 +351,10 @@ anet::TensorDict MuZeroNetworkModel::RecurrentInference(const torch::Tensor& hid
     ANET_ASSERT_NAN(hidden_state);
     ANET_LOG_DEBUG("action=" << anet::ToDefString(action));
 
+    // MuZero特有の勾配スケーリング・トリック
+    // Forwardでは元の値をそのまま通し、Backwardの時だけ勾配を0.5倍にする
+    auto scaled_hidden_state = hidden_state * 0.5f + hidden_state.detach() * 0.5f;
+
     // アクションが [B, 1] などの2次元で渡された場合を考慮し、[B] に平坦化する
     auto flat_action = action.dim() > 1 ? action.squeeze(1) : action;
     ANET_ASSERT_SHAPE(flat_action, { ANET_SHAPE_ANY }); // Squeeze後は1D(Batch)になっているはず
@@ -361,7 +365,7 @@ anet::TensorDict MuZeroNetworkModel::RecurrentInference(const torch::Tensor& hid
     ANET_ASSERT_SHAPE(action_one_hot, { ANET_SHAPE_ANY, num_actions_ });
 
     // 隠れ状態とOne-Hot化されたアクションを結合
-    auto dyn_input = torch::cat({ hidden_state, action_one_hot }, /*dim=*/1);   // (B, hidden_state_dim + num_actions)
+    auto dyn_input = torch::cat({ scaled_hidden_state, action_one_hot }, /*dim=*/1);   // (B, hidden_state_dim + num_actions)
     ANET_ASSERT_SHAPE(dyn_input, { ANET_SHAPE_ANY, config_.hidden_state_dim + num_actions_ });   
 
     // Dynamics: 隠れ状態 + アクション -> 次の隠れ状態, 報酬
@@ -853,9 +857,12 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
         auto target_value = sample.target_values.select(1, k);
         auto target_policy = sample.target_policies.select(1, k);
         auto mask = sample.masks.select(1, k);
+        auto mask_sum = mask.sum() + 1e-8f; // ゼロ除算防止
+
         ANET_ASSERT_SHAPE(target_value, { B });
         ANET_ASSERT_SHAPE(target_policy, { B, num_actions });
         ANET_ASSERT_SHAPE(mask, { B });
+        ANET_ASSERT_SHAPE(mask_sum, { });
 
 
         // =================================================================
@@ -867,13 +874,12 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
         auto v_loss_raw = torch::nn::functional::mse_loss(
             value.squeeze(-1), target_value,
             torch::nn::functional::MSELossFuncOptions().reduction(torch::kNone));
-        auto v_loss = (v_loss_raw * mask).mean();
+        auto v_loss = (v_loss_raw * mask).sum() / mask_sum;
 
         // メトリクス：Value MAE & Target Value Mean
         auto v_diff = torch::abs(value.squeeze(-1) - target_value);
-        total_v_mae += (v_diff * mask).mean();
-        total_target_v += (target_value * mask).mean();
-
+        total_v_mae += (v_diff * mask).sum() / mask_sum;
+        total_target_v += (target_value * mask).sum() / mask_sum;
 
         // =================================================================
         // Policy Loss
@@ -881,13 +887,12 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
 
         auto log_probs = torch::log_softmax(policy_logits, /*dim=*/-1);
         auto p_loss_raw = -torch::sum(target_policy * log_probs, /*dim=*/-1);
-        auto p_loss = (p_loss_raw * mask).mean();
+        auto p_loss = (p_loss_raw * mask).sum() / mask_sum;
 
         // メトリクス: Policy Entropy (予測分布のエントロピー)
         auto probs = torch::exp(log_probs);
         auto entropy_raw = -torch::sum(probs * log_probs, /*dim=*/-1);
-        total_entropy += (entropy_raw * mask).mean();
-
+        total_entropy += (entropy_raw * mask).sum() / mask_sum;
 
         // =================================================================
         // Reward Loss
@@ -899,15 +904,16 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
             ANET_ASSERT_SHAPE(target_reward, { B });
 
             auto prev_mask = sample.masks.select(1, k - 1);
+            auto prev_mask_sum = prev_mask.sum() + 1e-8f;
+
             auto r_loss_raw = torch::nn::functional::mse_loss(
                 reward.squeeze(-1), target_reward,
                 torch::nn::functional::MSELossFuncOptions().reduction(torch::kNone));
-            //r_loss = (r_loss_raw * mask).mean();
-            r_loss = (r_loss_raw * prev_mask).mean();
+            r_loss = (r_loss_raw * prev_mask).sum() / prev_mask_sum;
 
             // メトリクス: Reward MAE
             auto r_diff = torch::abs(reward.squeeze(-1) - target_reward);
-            total_r_mae += (r_diff * mask).mean();
+            total_r_mae += (r_diff * prev_mask).sum() / prev_mask_sum;
         }
 
         // [ASSERT] 各LossのNaNチェック
