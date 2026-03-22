@@ -12,11 +12,10 @@ using namespace anet::rl;
 // =============================================================
 
 AgentBase::AgentBase(torch::Device device,
-    std::shared_ptr<anet::rl::Notifier> notifier,
     const BatchEnvSpec& batch_env_spec,
     const EnvSpec& env_spec,
     std::optional<seed_t> seed)
-    : RandomHolder(seed), notifier_(notifier), device_(device)
+    : RandomHolder(seed), device_(device)
     , state_dim_(env_spec.state_spec.CalcFlattenDim())
     , n_actions_(env_spec.action_spec.GetNumActions())
     , batch_size_(batch_env_spec.batch_size)
