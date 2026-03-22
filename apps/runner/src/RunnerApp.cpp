@@ -10,11 +10,8 @@
 #include "anet/init.hpp"
 #include "anet/log.hpp"
 #include "anet/observers.hpp"
-#include "anet/replay_buffer.hpp"
-#include "anet/rainbow_agent.hpp"
 #include "anet/scaler.hpp"
 #include "anet/exception.hpp"
-#include "anet/profile.hpp"
 #include "anet/env/LunarLander.hpp"
 #include "anet/env/CartPole.hpp"
 #include "anet/env/DropMerge.hpp"
@@ -169,7 +166,7 @@ bool RunnerApp::OnInit()
     SetupLogging();
 
     // RunNameを記録
-    this->WriteLastRunName(anet::MetricsLogger::Instance()->GetRunName());
+    //this->WriteLastRunName(anet::MetricsLogger::Instance()->GetRunName());
 
     // RunnerFrame表示
     frame_->Show();
@@ -377,8 +374,8 @@ void RunnerApp::InitTrainer()
                 auto eval_policy_reward = event.runner->GetScalar(anet::rl::Runner::POLICY_EVAL_REWARD);
                 if (!eval_target_reward.has_value() || !eval_policy_reward.has_value())  return;
                 LOG::info() << "train_step=" << train_step
-                    << " eval_target_reward_ema=" << *eval_target_reward
-                    << " eval_policy_reward_ema=" << *eval_policy_reward;
+                    << " eval_policy_reward_ema=" << *eval_policy_reward
+                    << " eval_target_reward_ema=" << *eval_target_reward;
             }
 
         }, "RunnerApp");
