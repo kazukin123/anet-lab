@@ -1,0 +1,193 @@
+﻿
+# ==============================================================================
+# 基本設定
+# ==============================================================================
+
+app.$ = app.online > P
+#app.$ = app.batchrun > P
+
+train.seed = 1
+
+#train.batch_size = 256
+#train.batch_size = 128
+#train.batch_size = 10
+train.batch_size = 4
+#train.batch_size = 1
+
+#GridMazeEnv.$ = GridMazeEnv.baseline
+
+MuZeroAgent.$ = MuZeroAgent.baseline > A
+
+
+# ==============================================================================
+# 実験
+# ==============================================================================
+
+#app.run_name = run_{t}
+
+
+#A.learner.batch_size = 128          # 128
+#A.mcts.num_simulations = 10         # 50
+A.mcts.num_simulations = 40          # 50
+A.buffer.unroll_steps = 3            # 5
+A.mcts.root_dirichlet_alpha = 2.5    # 0.25
+A.mcts.pb_c_init = 2.0               # 1.25 PUCT定数 (c_init)
+A.learner.reward_loss_weight = 10.0  # 1.0  Reward Lossの重み
+
+
+
+# ==============================================================================
+# デバッグ用
+# ==============================================================================
+
+#app.train_auto_start = false
+
+
+# ==============================================================================
+# ステップ数 依存設定
+# ==============================================================================
+
+app.online.exp_pause_step  = 40,000     # 40K
+app.batchrun.exp_exit_step = 40,000     # 40K
+
+A.actor.temp_decay_steps   =  20,000    # 20K Exp Step
+
+
+# ==============================================================================
+# Env依存設定
+# ==============================================================================
+
+
+
+# ==============================================================================
+# MuZeroAgent
+# ==============================================================================
+
+agent.device_type = 0    # 0=cpu 1=cuda
+agent.device_index = -1  # GPU index -1=current device
+
+
+
+#agent.class_id = DefaultDQNAgent
+agent.class_id = MuZeroAgent
+
+#backend.torch_num_threads = -1
+
+
+# ==============================================================================
+# NN
+# ==============================================================================
+
+
+
+# ==============================================================================
+# scalar metrics
+# ==============================================================================
+
+metrics.scalar.muzero.[20_eps/10_train_reward]     = $runner $episode_step train_episode_reward @train
+metrics.scalar.muzero.[20_eps/11_train_reward_ema] = $runner $episode_step train_episode_reward @train $ema ema_alpha:0.05 # clip:1000
+metrics.scalar.muzero.[21_eval/02_policy_reward] = $runner eval.[eval2].eps_total_reward @learn
+metrics.scalar.muzero.[21_eval/04_policy_reward_ema] = $runner eval.[eval2].eps_total_reward @learn $ema ema_alpha:0.05 #clip:3000
+
+metrics.scalar.muzero.[32_agent_base/06_tau] = $agent tau @train $exp_step
+
+metrics.scalar.muzero.[38_agent_loss/10_total] = loss.total @learn
+metrics.scalar.muzero.[38_agent_loss/11_value] = loss.value @learn
+metrics.scalar.muzero.[38_agent_loss/12_policy] = loss.policy @learn
+metrics.scalar.muzero.[38_agent_loss/13_reward] = loss.reward @learn
+
+metrics.scalar.muzero.[38_agent_loss/20_total_ema] = loss.total @learn $ema
+metrics.scalar.muzero.[38_agent_loss/21_value_ema] = loss.value @learn $ema
+metrics.scalar.muzero.[38_agent_loss/22_policy_ema] = loss.policy @learn $ema
+metrics.scalar.muzero.[38_agent_loss/23_reward_ema] = loss.reward @learn $ema
+
+# 価値(Value)と報酬(Reward)の絶対誤差。これが下がらないと環境を理解できていない。
+metrics.scalar.muzero.[37_agent_learn/01_value_mae] = metric.value_mae @learn
+metrics.scalar.muzero.[37_agent_learn/02_reward_mae] = metric.reward_mae @learn
+
+# ターゲット（正解データ）の価値の平均。0に張り付く場合はRBやMCTS周りのバグを疑う。
+metrics.scalar.muzero.[37_agent_learn/04_target_v_mean] = metric.target_value_mean @learn
+
+# 方策ネットワークのエントロピー（0に張り付いたら過学習/モード崩壊）
+metrics.scalar.muzero.[37_agent_learn/05_policy_entropy] = metric.policy_entropy @learn
+
+metrics.scalar.muzero.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
+metrics.scalar.muzero.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $runner interval:100
+metrics.scalar.muzero.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema ema_alpha:0.001 interval:100 
+metrics.scalar.muzero.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
+
+metrics.scalar.$ = metrics.scalar.muzero > M
+
+
+# ==============================================================================
+# image metrics
+# ==============================================================================
+
+#metrics.image.interval = 0   # 出力全無効
+#metrics.image.interval = 1   # 毎ステップ出力
+metrics.image.interval = 10   # 通常運用
+
+
+# ==============================================================================
+# app
+# ==============================================================================
+
+#app.online.eval_panel.step_per_frame = 5
+
+app.online.eval_panel.auto_start = false
+app.batchrun.eval_panel.auto_start = false
+
+app.online.train_panel.fps = 30
+
+app.metrics_logger.video_codec = libx264  # h264_nvenc
+
+
+# ==============================================================================
+# GridMazeEnv
+# ==============================================================================
+
+env.class_id = GridMazeEnv
+
+
+GridMazeEnv.width = 5
+GridMazeEnv.height = 5
+GridMazeEnv.seed = 6545537233705677626
+GridMazeEnv.randomize_seed = false
+
+GridMazeEnv.wall_density = 0.2
+GridMazeEnv.hole_density = 0.1
+
+GridMazeEnv.init_pos_x = 0
+GridMazeEnv.init_pos_y = 0
+GridMazeEnv.goal_pos_x = 4
+GridMazeEnv.goal_pos_y = 4
+
+GridMazeEnv.reward_goal = 1.0
+GridMazeEnv.reward_hole = -1.0
+GridMazeEnv.reward_wall = -0.1
+GridMazeEnv.reward_step = -0.01
+
+#GridMazeEnv.reward_goal = 10.0
+#GridMazeEnv.reward_hole = -10.0
+#GridMazeEnv.reward_wall = -0.1
+#GridMazeEnv.reward_step = -0.01
+
+GridMazeEnv.max_steps = 100
+
+
+# ==============================================================================
+# Eval設定
+# ==============================================================================
+
+train.eval.[eval1].interval = 0
+
+#train.eval.[eval2].interval = 0
+train.eval.[eval2].interval = 5
+#train.eval.[eval2].interval = 10
+#train.eval.[eval2].interval = 50
+
+#GridMazeEnv.test1.max_step = 1000
+#train.eval.[test1].interval = 5000
+#train.eval.[test1].run_mode = eval1
+#train.eval.[test1].env.$ = > GridMazeEnv.test1 > E1
+
