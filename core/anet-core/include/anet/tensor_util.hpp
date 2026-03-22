@@ -201,6 +201,15 @@ namespace anet {
             return res;
         }
 
+        // ---------------------------------------------------------
+        // Operator
+        // ---------------------------------------------------------
+
+        torch::Tensor& operator[](const std::string& key)
+        {
+            return dict_[key];
+        }
+
     private:
         // ソート順を保証して描画順序を安定させるため std::map を採用
         std::map<std::string, torch::Tensor> dict_;
