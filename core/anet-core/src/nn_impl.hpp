@@ -109,7 +109,7 @@ namespace anet::nn {
     /// @brief 複数のBlockを順次実行し、タグによるデータフローを解決する実行エンジン
     class NetworkStruct : public torch::nn::Module {
     public:
-        explicit NetworkStruct(std::vector<std::shared_ptr<NetworkBlock>> blocks);
+        explicit NetworkStruct(std::vector<std::shared_ptr<NetworkBlock>> blocks = {});
 
         /// @brief Graph全体への入力inputを受け取り、フローを実行して最終出力を返す
         torch::Tensor Forward(torch::Tensor input);

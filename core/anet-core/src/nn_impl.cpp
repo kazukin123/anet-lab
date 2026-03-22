@@ -157,9 +157,14 @@ static std::map<std::string, NetworkBlockConfig> ReadBlockConfig(const anet::Con
     return block_configs;
 }
 
-NetworkConfig::NetworkConfig(const anet::ConfigData& config_data)
+NetworkConfig::NetworkConfig(const anet::ConfigData& config_data, std::optional<std::string> structure_str_opt)
 {
-    config_data.Read(kNetBodyStructureConfigKey, structure_str, structure_str);
+    // structure_strを作る（structure_str_optの指定があればそれを、無ければConfigDataから引いて）
+    if (structure_str_opt.has_value()) {
+        structure_str = *structure_str_opt;
+    } else {
+        config_data.Read(kNetBodyStructureConfigKey, structure_str, structure_str);
+    }
     block_configs = ReadBlockConfig(config_data);
 }
 
@@ -182,7 +187,14 @@ anet::json NetworkConfig::ToJson() const
     // 初期状態: ルート構造をキューに入れる
     structure_queue.push_back(this->structure_str);
 
-    // 汎用Regex: カッコとその中身 (...) を全て除去する
+    // additional_structuresに含まれる構造定義も探索対象に入れる
+    for (const auto& [key, struct_str] : this->additional_structures) {
+        if (!struct_str.empty()) {
+            structure_queue.push_back(struct_str);
+        }
+    }
+
+    // 汎用Regex: カッコとその中身 (...) を全て除去
     std::regex re_options(R"(\([^)]*\))");
 
     // 幅優先探索で依存ブロックを収集
@@ -269,6 +281,11 @@ NetworkStruct::NetworkStruct(std::vector<std::shared_ptr<NetworkBlock>> blocks)
 torch::Tensor NetworkStruct::Forward(torch::Tensor input)
 {
     anet::ProfileRange r("NetworkStruct::Forward");
+
+    // ノードが一つも無ければ入力をそのまま返す（パススルー / Identity）
+    if (blocks_.empty()) {
+        return input;
+    }
 
     // 実行時キャッシュ (Tag -> Tensor)
     std::map<std::string, torch::Tensor> tensor_cache;
@@ -469,6 +486,11 @@ std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
     const NetworkConfig& root_config,
     const std::string& structure_str)
 {
+    // structure_strが空なら、空の（ノードを持たない）Structを返すだけ
+    if (structure_str.empty()) {
+        return std::make_shared<NetworkStruct>(); // 空のグラフ
+    }
+
     std::vector<std::shared_ptr<NetworkBlock>> blocks;
 
     auto tokens = SplitPipelineString(structure_str);
@@ -643,9 +665,9 @@ std::shared_ptr<Network> Network::Clone(std::optional<torch::Device> device) con
         cloned_net->to(device.value());
     } else {
         // device指定が無い場合、既存と同じ(直接取れないのでnamed_parameters経由）
-        auto named_params = this->named_parameters(false); // false = 直下のパラメータのみ
-        if (!named_params.is_empty()) {
-            cloned_net->to(named_params.begin()->value().device());
+        auto params = this->parameters(); // 全サブモジュールのパラメータをフラットに取得
+        if (!params.empty()) {
+            cloned_net->to(params[0].device());
         }
     }
 
@@ -750,6 +772,8 @@ std::shared_ptr<Network> NetworkBuilder::BuildNetwork(
     const std::vector<int64_t>& input_shape,
     std::shared_ptr<NetworkHeadFactory> head_factory)
 {
+    ANET_CHECK(head_factory != nullptr);
+
     // Body (Struct) の構築
     auto graph = NetworkStructBuilder::Build(network_config, network_config.structure_str);
     auto body = std::make_shared<NetworkBody>(graph);

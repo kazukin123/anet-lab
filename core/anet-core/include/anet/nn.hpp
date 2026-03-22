@@ -7,10 +7,7 @@
 #include <optional>
 #include <vector>
 #include <functional>
-#include <memory>
-#include <string>
 #include <map>
-#include <functional>
 #include <torch/torch.h>
 #include "anet/config.hpp"
 
@@ -23,7 +20,7 @@ namespace anet::nn {
 
     /// 予約タグ: 直前ブロックの出力テンソルを指す
     static constexpr const char* kReservedTagPrev = "prev";
-
+    
     /// モジュール生成時のコンテキスト情報（構造情報）
     struct ModuleContext {
         std::vector<std::string> input_tags;  ///< このモジュールへの入力として指定されたタグ一覧
@@ -41,10 +38,12 @@ namespace anet::nn {
 
     struct NetworkConfig {
         std::map<std::string, NetworkBlockConfig> block_configs;
-        std::string structure_str;      // Flatten > Linear_128 > ReLU > Linear_256 > ReLU
+        std::string structure_str;      // 空文字列でパススルー。 例：Flatten > Linear_128 > ReLU > Linear_256 > ReLU
+        std::map<std::string, std::string> additional_structures;   // Head等で任意で使うstructure_str
 
         NetworkConfig() = default;
-        NetworkConfig(const anet::ConfigData& config_data);
+        /// ConfigData指定のコンストラクタ。structure_str指定有りの場合はそれを優先
+        NetworkConfig(const anet::ConfigData& config_data, std::optional<std::string> structure_str = std::nullopt);
 		anet::json ToJson() const;
     };
 
@@ -133,4 +132,4 @@ namespace anet::nn {
         );
     };
 
-} // namepsacfe anet::nn
+} // namespace anet::nn
