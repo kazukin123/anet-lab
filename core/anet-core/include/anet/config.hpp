@@ -112,6 +112,15 @@ namespace anet {
             return true;
         }
 
+        bool Read(const std::string& key, int64_t& value, int64_t defaultValue) const
+        {
+            auto it = map_.find(key);
+            if (it == map_.end()) { value = defaultValue; return false; }
+            auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
+            try { value = std::stoll(str); } catch (...) { value = defaultValue; return false; }
+            return true;
+        }
+
         bool Read(const std::string& key, bool& value, bool defaultValue) const
         {
             auto it = map_.find(key);
