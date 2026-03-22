@@ -431,18 +431,13 @@ namespace anet::rl {
     public:
         BatchActionInfo() {}
 
-        BatchActionInfo(const torch::Tensor action, const anet::TensorDict& info, const AuxData& aux)
+        BatchActionInfo(const torch::Tensor action, const anet::TensorDict& info = {}, const AuxData& aux = {})
             : action_cpu_(action.device().is_cpu() ? std::move(action) : torch::Tensor())
             , info_(info)
             , aux_(aux)
         {
             if (action.device().is_cuda())
                 gpu_ = std::pair(action.device(), std::move(action));
-        }
-
-        BatchActionInfo(const torch::Tensor action)
-            : BatchActionInfo(action, anet::TensorDict{}, AuxData{})
-        {
         }
 
         torch::Tensor GetAction() const
