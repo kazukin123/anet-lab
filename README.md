@@ -46,14 +46,14 @@ TODO：実行手順を書く
 ### DOING
 
 * 学習アルゴリズム
-	* MuZero（まずは検討用に試作）
+	* ①MuZero試作(オリジナル版ベース、除外：Categorical分布、PER、Reanalyze、Batched MCTS）
 * Env実装
 	* DropMergeEnv評価＆調整
 * メトリクス
 * AP改善
-	* ①フレームワーク構成変更
-	* ②学習セッション断面の保存と読込
-	* ③Dict Observation Space (Vector / Image / Token)
+	* ②フレームワーク構成変更
+	* ③学習セッション断面の保存と読込
+	* ④Dict Observation Space (Vector / Image / Token)
 
 ### TODO
 

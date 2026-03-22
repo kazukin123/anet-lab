@@ -2,7 +2,62 @@
 DefaultDQNAgent.$ = DefaultDQNAgent.baseline
 RainbowAgent.$ = RainbowAgent.baseline
 
-# ---- DefaultDQNAgent
+
+# ==============================================================================
+# MuZeroAgent
+# ==============================================================================
+
+net.block.[MuZero_Linear256].type = Linear
+net.block.[MuZero_Linear256].linear.out_features = 256
+net.block.[MuZero_Linear256].init.mode = 1
+
+net.block.[MuZero_Linear128].type = Linear
+net.block.[MuZero_Linear128].linear.out_features = 128
+net.block.[MuZero_Linear128].init.mode = 1
+
+
+# --- Model (ネットワーク構造と表現) ---
+MuZeroAgent.baseline.model.hidden_state_dim = 256
+MuZeroAgent.baseline.model.structure.rep = Flatten > MuZero_Linear256 > ReLU > MuZero_Linear256 > ReLU
+MuZeroAgent.baseline.model.structure.dyn = MuZero_Linear256 > ReLU > MuZero_Linear256 > ReLU
+MuZeroAgent.baseline.model.structure.pred = MuZero_Linear256 > ReLU
+MuZeroAgent.baseline.model.structure.reward_branch = MuZero_Linear128 > ReLU
+MuZeroAgent.baseline.model.structure.value_branch  = MuZero_Linear128 > ReLU
+MuZeroAgent.baseline.model.structure.policy_branch = MuZero_Linear128 > ReLU
+
+
+# --- MCTS (モンテカルロ木探索) ---
+MuZeroAgent.baseline.mcts.num_simulations = 50            # 1手ごとの木探索回数
+MuZeroAgent.baseline.mcts.discount = 0.997                # 割引率 (Gamma)
+MuZeroAgent.baseline.mcts.pb_c_init = 1.25                # PUCT定数 (c_init)
+MuZeroAgent.baseline.mcts.pb_c_base = 19652.0             # PUCT定数 (c_base)
+MuZeroAgent.baseline.mcts.root_dirichlet_alpha = 0.25     # ルートノードのディリクレノイズα (ゲームによって要調整)
+MuZeroAgent.baseline.mcts.root_exploration_fraction = 0.25 # ノイズのブレンド割合
+
+# --- Actor (行動選択と温度アニーリング) ---
+MuZeroAgent.baseline.actor.temp_start = 1.0             # 探索初期の温度 (1.0 = 訪問回数に比例して確率的に選択)
+MuZeroAgent.baseline.actor.temp_end = 0.05                # 探索終盤の温度 (0.0に近いほどArgMaxに近づく)
+MuZeroAgent.baseline.actor.temp_decay_steps = 100000      # temp_minに到達するまでの学習ステップ数
+
+# --- Replay Buffer (経験の蓄積と抽出) ---
+MuZeroAgent.baseline.buffer.capacity = 100,000            # バッファの最大保存ステップ数
+MuZeroAgent.baseline.buffer.n_step = 5                    # N-StepブートストラップのN
+MuZeroAgent.baseline.buffer.gamma = 0.997                 # N-Step計算時の割引率 (mcts.discountと合わせるのが基本)
+MuZeroAgent.baseline.buffer.unroll_steps = 5              # BPTTで未来へ展開するステップ数 (K)
+
+# --- Learner (ネットワークの更新) ---
+MuZeroAgent.baseline.learner.learning_rate = 0.001        # AdamWの学習率
+MuZeroAgent.baseline.learner.weight_decay = 0.0001        # L2正則化(Weight Decay)の強さ
+MuZeroAgent.baseline.learner.max_grad_norm = 1.0          # 勾配クリッピングの閾値 (勾配爆発対策)
+MuZeroAgent.baseline.learner.batch_size = 128             # ミニバッチサイズ
+MuZeroAgent.baseline.learner.value_loss_weight = 1.0      # Value Lossの重み
+MuZeroAgent.baseline.learner.policy_loss_weight = 1.0     # Policy Lossの重み
+MuZeroAgent.baseline.learner.reward_loss_weight = 1.0     # Reward Lossの重み
+
+
+# ==============================================================================
+# DefaultDQNAgent
+# ==============================================================================
 
 
 ## MEMO
@@ -128,7 +183,20 @@ DefaultDQNAgent.baseline.use_qr = true                # QR-DQN 有効化フラ�
 #             ※注意: 環境のランダムな上振れを過信して学習が崩壊するリスクがあるため、安定感とのトレードオフ
 # ==============================================================================
 
-# ---- RainbowAgent
+
+# ■per_alpha
+#  α（0≦α≦1）はExperienceサンプリングのランダム度合い。
+#  α=0でランダムサンプリングと同一、α=1.0でGreedyに優先度を反映させる。
+# ■per_beta
+#  優先度に応じてサンプリングを行うと同じExperienceを何度も学習して学習安定性を損なう恐れがあるため、
+#  TD誤差に対してサンプリング確率に応じた補正を行う。（サンプリング優先度が高いほどQ値への反映度合いを抑える）
+#  学習初期はTD誤差が安定していないため、per_betaを小さくして上記補正を抑制する。
+# 　per_beta=0　→ 補正無し、 per_beta=1.0 →完全補正
+
+
+# ==============================================================================
+# RainbowAgent
+# ==============================================================================
 
 RainbowAgent.baseline.head_init.manual_gain = 0.0
 RainbowAgent.baseline.head_init.mode = 1
@@ -162,79 +230,3 @@ RainbowAgent.baseline.learner.use_per = true
 RainbowAgent.baseline.use_dueling_net = true       #  
 RainbowAgent.baseline.num_quantiles = 51           # 分位数 N (デフォルト51)
 RainbowAgent.baseline.use_qr = true                # QR-DQN 有効化フラグ
-
-# ---- DQNAgent
-
-DQNAgent.20251127-032759.nn_init_mode=0         # // 0=default、1=XavierUniform、2=HeNormal
-DQNAgent.20251127-032759.alpha=5e-4             # ★学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-DQNAgent.20251127-032759.gamma=0.99             # 0.99f; 0.995f      γが高いほど「長期安定」を目指す
-DQNAgent.20251127-032759.eps_max=1.00           # 指数減衰  
-DQNAgent.20251127-032759.eps_min=0.05           # 0.1f 0.05f
-DQNAgent.20251127-032759.eps_decay_step=100000  # 100K
-DQNAgent.20251127-032759.softupdate_tau=0.001   # 1.0f 0.004f  0.01f 0.005f;
-DQNAgent.20251127-032759.hardupdate_interval=-1 #  -1 5000; //200 500 1000
-DQNAgent.20251127-032759.use_grad_clip=true     #
-DQNAgent.20251127-032759.grad_clip_tau=25       # 10 25 40 1f 5f 10f
-DQNAgent.20251127-032759.use_td_clip=true       #
-DQNAgent.20251127-032759.td_clip_value=3.0      # 4.0
-DQNAgent.20251127-032759.eps_zero_step=-1       # 120000;
-DQNAgent.20251127-032759.use_double_dqn=true    # Double DQN 有効化フラグ（trueで有効）
-DQNAgent.20251127-032759.use_replay_buffer=true #
-DQNAgent.20251127-032759.replay_capacity=10000
-DQNAgent.20251127-032759.replay_batch_size=128
-DQNAgent.20251127-032759.replay_warmup_steps=10000     #
-DQNAgent.20251127-032759.replay_update_interval=10     #
-DQNAgent.20251127-032759.use_as_dqn = true             # Adaptive Stabilized DQN (AS-DQN)
-DQNAgent.20251127-032759.eps_gain = 0.5                # ■
-DQNAgent.20251127-032759.q_z_threshold = 2.6           # 2.0 1.5-2.0 3.0 z-score 崩壊判定閾値
-DQNAgent.20251127-032759.q_cv_threshold = 0.35         # 0.45 0.3 0.25-0.35 0.5 CV 崩壊判定閾値
-DQNAgent.20251127-032759.q_niqr_threshold = 0.8        # 0.65 0.5 0.4-0.5 0.6 NIQR 崩壊判定閾値
-DQNAgent.20251127-032759.eps_boost_max = 2.0           #ε ブースト上限倍率
-DQNAgent.20251127-032759.eps_boost_half_life_hit = 300 # 崩壊中、ε ブーストが2倍になるまでのstep数
-DQNAgent.20251127-032759.eps_boost_half_life_recover = 3000 # 安定後、ε ブーストが半減するまでのstep数
-DQNAgent.20251127-032759.eps_reheat_floor = 0.50       #  0.25 0.2 ε再加熱の最大値（崩壊時もこの値以上にはならない）
-DQNAgent.20251127-032759.eps_reheat_half_life = 2000   # ε再加熱の回復半減step数
-DQNAgent.20251127-032759.tau_max = 0.001               # τの上限
-DQNAgent.20251127-032759.tau_min = 0.0001              # 0.0003 τの下限
-DQNAgent.20251127-032759.tau_half_life_hit = 1200      # 300 崩壊中、τが半減するまでのstep数
-DQNAgent.20251127-032759.tau_half_life_recover = 2000  # 1000 安定後、τが2倍になるまでのstep数
-DQNAgent.20251127-032759.tau_recover_delay = 1000      # このステップ期間安定していたら回復開始
-DQNAgent.20251127-032759.act_bias_threshold = 0.35     # 行動偏り閾値 (|left_ratio - right_ratio| > act_bias_threshold → 崩壊)
-
-DQNAgent.baseline.nn_init_mode=1          # 0=default、1=XavierUniform、2=HeNormal
-DQNAgent.baseline.alpha=5e-4              # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-#DQNAgent.baseline.alpha=1e-3             # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-DQNAgent.baseline.gamma=0.99              # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
-DQNAgent.baseline.eps_max=1.00            # 指数減衰  
-DQNAgent.baseline.eps_min=0.05            # 0.1f 0.05f
-DQNAgent.baseline.eps_decay_step=20000    # 20K
-#DQNAgent.baseline.eps_sigmoid_step=20000 # 20K
-DQNAgent.baseline.softupdate_tau=0.001    # ★ 1.0f 0.004f  0.01f 0.005f;
-#DQNAgent.baseline.hardupdate_interval=5000 #  -1 5000; //200 500 1000
-DQNAgent.baseline.use_grad_clip=true      #
-DQNAgent.baseline.grad_clip_tau=25        # 10 25 40 1f 5f 10f
-DQNAgent.baseline.use_td_clip=true        #
-DQNAgent.baseline.td_clip_value=3.0       # 4.0
-DQNAgent.baseline.eps_zero_step=-1        # 120000;
-DQNAgent.baseline.use_double_dqn=true     # Double DQN 有効化フラグ（trueで有効）
-DQNAgent.baseline.use_replay_buffer=true  #
-DQNAgent.baseline.replay_capacity=10000   # ★
-DQNAgent.baseline.replay_batch_size=128   # ★
-DQNAgent.baseline.replay_warmup_steps=1000   #
-DQNAgent.baseline.replay_update_interval=5   #  ★
-DQNAgent.baseline.q_z_threshold = 2.6           # 2.0 1.5-2.0 3.0 z-score 崩壊判定閾値
-DQNAgent.baseline.q_cv_threshold = 0.35         # 0.45 0.3 0.25-0.35 0.5 CV 崩壊判定閾値
-DQNAgent.baseline.q_niqr_threshold = 0.8        # 0.65 0.5 0.4-0.5 0.6 NIQR 崩壊判定閾値
-DQNAgent.baseline.act_bias_threshold = 0.35     # 行動偏り閾値 (|left_ratio - right_ratio| > act_bias_threshold → 崩壊)
-DQNAgent.baseline.use_as_dqn = false            # Adaptive Stabilized DQN (AS-DQN)
-
-
-
-# ■per_alpha
-#  α（0≦α≦1）はExperienceサンプリングのランダム度合い。
-#  α=0でランダムサンプリングと同一、α=1.0でGreedyに優先度を反映させる。
-# ■per_beta
-#  優先度に応じてサンプリングを行うと同じExperienceを何度も学習して学習安定性を損なう恐れがあるため、
-#  TD誤差に対してサンプリング確率に応じた補正を行う。（サンプリング優先度が高いほどQ値への反映度合いを抑える）
-#  学習初期はTD誤差が安定していないため、per_betaを小さくして上記補正を抑制する。
-# 　per_beta=0　→ 補正無し、 per_beta=1.0 →完全補正
