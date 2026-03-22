@@ -24,8 +24,8 @@ DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.fun1 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > BF16.env > E
-DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.realistic > E
-#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > E
+#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.realistic > E
+DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > E
 
 
 #net.body.$ = net.body.MLP2
@@ -36,7 +36,7 @@ DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.reali
 #net.body.$ = net.body.SuikaResNet4064_10
 #net.body.$ = net.body.SuikaResNet4064_10d_64  # ☆
 #net.body.$ = net.body.SuikaResNet4064_18
-net.body.$ = net.body.SuikaResNet4064_10d     # ★
+#net.body.$ = net.body.SuikaResNet4064_10d     # ☆
 
 #net.body.$ = net.body.SuikaViT_Flatten
 #net.body.$ = net.body.SuikaViT_Small
@@ -45,7 +45,7 @@ net.body.$ = net.body.SuikaResNet4064_10d     # ★
 
 #net.body.$ = net.body.SuikaResNetD_Control
 #net.body.$ = net.body.SuikaResNetD_ViT
-#net.body.$ = net.body.SuikaResNet_ViT    # ☆
+net.body.$ = net.body.SuikaResNet_ViT    # ★
 
 
 
@@ -53,7 +53,14 @@ net.body.$ = net.body.SuikaResNet4064_10d     # ★
 # 実験
 # ==============================================================================
 
+#app.run_name = run_{t}_real_RR4
 #app.run_name = run_{t}_real_ViT
+#app.run_name = run_{t}_heavy_Res
+#app.run_name = run_{t}_heavy_ViT
+#app.run_name = run_{t}_heavy_ViT_BF16
+app.run_name = run_{t}_heavy_ViT_nh8
+
+#R.learner.replay_ratio = 4.0
 
 #R.stucker.use_stacker = false
 
@@ -63,7 +70,9 @@ net.body.$ = net.body.SuikaResNet4064_10d     # ★
 #E.settle_max_steps = 1000   # 500
 #E.settle_max_steps = 300   # 500
 
-#E.use_settle_after_drop = true
+#E.use_settle_after_drop = false
+#E.use_instant_drop = false
+
 #E.settle_velocity_threshold = 0.05 # 0.1 安定判定の線速度閾値 (m/s)
 #E.settle_angular_threshold = 0.05  # 0.1 安定判定の角速度閾値 (rad/s)
 #E.settle_velocity_threshold = 0.5 # 0.1 安定判定の線速度閾値 (m/s)
@@ -71,7 +80,7 @@ net.body.$ = net.body.SuikaResNet4064_10d     # ★
 #E.settle_velocity_threshold = 1.0 # 0.1 安定判定の線速度閾値 (m/s)
 #E.settle_angular_threshold = 1.0  # 0.1 安定判定の角速度閾値 (rad/s)
 
-#A.learner.replay_capacity = 524,288          # 262,144 524,288 1,048,576
+#R.learner.replay_capacity = 524,288          # 262,144 524,288 1,048,576
 
 #R.target_policy.uqe_tau_start = 0.85
 
@@ -235,7 +244,7 @@ BF16.agent.learner.use_amp = true
 BF16.agent.learner.use_amp_bf16 = true
 #BF16.agent.reward_scaler.constant_scale = 0.1
 BF16.agent.learner.adam_eps = 1e-4   # AMP有効時は大きめにする
-BF16.agent.learner.grad_clip_tau = 30.0
+#BF16.agent.learner.grad_clip_tau = 30.0
 #BF16.env.time_penalty = -0.01    # NEET対策
 
 
@@ -536,7 +545,8 @@ net.block.[ViT_Proj_S].conv.kernel_size = 1
 # Transformer Encoder (軽量版)
 net.block.[TransEnc_S].type = TransformerEncoder
 net.block.[TransEnc_S].tf.d_model = 64           # ★
-net.block.[TransEnc_S].tf.nhead = 4
+#net.block.[TransEnc_S].tf.nhead = 4
+net.block.[TransEnc_S].tf.nhead = 8
 net.block.[TransEnc_S].tf.num_layers = 2         # ★
 net.block.[TransEnc_S].tf.dim_feedforward = 256
 
