@@ -85,7 +85,7 @@ namespace anet::nn {
 
     class NetworkHeadFactory {
     public:
-		virtual std::shared_ptr<NetworkHead> CreateHead(int64_t feature_dim) const = 0;
+		virtual std::shared_ptr<NetworkHead> CreateHead(int64_t input_dim) const = 0;
         virtual ~NetworkHeadFactory() = default;
     };
 

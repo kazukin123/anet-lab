@@ -8,6 +8,123 @@ using namespace anet::nn;
 
 
 // ===========================================================================
+// PassThroughHead
+// ===========================================================================
+
+PassThroughHead::PassThroughHead(const std::string& output_key)
+    : output_key_(output_key)
+{
+    // 重みを持たないため register_module 等は不要
+}
+
+anet::TensorDict PassThroughHead::Forward(torch::Tensor feature_vector)
+{
+    anet::ProfileRange r("PassThroughHead::Forward");
+
+    anet::TensorDict out;
+    out.Set(output_key_, feature_vector);
+    return out;
+}
+
+std::optional<anet::TensorFunction> PassThroughHead::GetTensorFunction(const std::string& key)
+{
+    if (key == "forward" || key == output_key_) {
+        return [](const torch::Tensor& x) { return x; };
+    }
+    return std::nullopt;
+}
+
+
+// ===========================================================================
+// PassThroughHeadFactory
+// ===========================================================================
+
+PassThroughHeadFactory::PassThroughHeadFactory(const std::string& output_key, int64_t expected_input_dim)
+    : output_key_(output_key), expected_input_dim_(expected_input_dim)
+{
+}
+
+std::shared_ptr<NetworkHead> PassThroughHeadFactory::CreateHead(int64_t input_dim) const
+{
+    ANET_ASSERT_MSG(input_dim == expected_input_dim_,
+        "Head body's output dim does not match exptencted. expected=" << expected_input_dim_ << " actual=" << input_dim);
+
+    // 次元数に依存しないため、引数は無視してキー名だけ渡す
+    return std::make_shared<PassThroughHead>(output_key_);
+}
+
+// ===========================================================================
+// ConfigurableHead
+// ===========================================================================
+
+ConfigurableHead::ConfigurableHead(int64_t feature_dim, std::map<std::string, std::shared_ptr<NetworkStruct>> branches)
+    : branches_(std::move(branches))
+{
+    // 全てのブランチをサブモジュールとして登録（PyTorchにパラメータを管理させる）
+    // ※ パススルー（空のNetworkStruct）の場合、パラメータを持たないが無害なのでそのまま登録する
+    for (const auto& [key, branch] : branches_) {
+        register_module("branch_" + key, branch);
+    }
+}
+
+anet::TensorDict ConfigurableHead::Forward(torch::Tensor feature_vector)
+{
+    anet::ProfileRange r("ConfigurableHead::Forward");
+    anet::TensorDict out;
+
+    // すべてのブランチに特徴量を並行して流し込み、それぞれのキーでDictに詰める
+    for (const auto& [key, branch] : branches_) {
+        out.Set(key, branch->Forward(feature_vector));
+    }
+
+    return out;
+}
+
+std::optional<anet::TensorFunction> ConfigurableHead::GetTensorFunction(const std::string& key)
+{
+    auto it = branches_.find(key);
+    if (it != branches_.end()) {
+        // 特定のブランチだけを実行するラムダ関数を返す
+        auto branch = it->second; // shared_ptr をコピー
+        return [branch](const torch::Tensor& x) { return branch->Forward(x); }; 
+    }
+    return std::nullopt;
+}
+
+
+// ===========================================================================
+// ConfigurableHeadFactory
+// ===========================================================================
+
+ConfigurableHeadFactory::ConfigurableHeadFactory(
+    const NetworkConfig& config,
+    const std::map<std::string, std::string>& branch_mapping)
+    : config_(config), branch_mapping_(branch_mapping)
+{
+}
+
+std::shared_ptr<NetworkHead> ConfigurableHeadFactory::CreateHead(int64_t input_dim) const
+{
+    std::map<std::string, std::shared_ptr<NetworkStruct>> branches;
+
+    for (const auto& [out_key, conf_key] : branch_mapping_) {
+        // Configの additional_structures の中から、指定されたキーの文字列を探す
+        auto it = config_.additional_structures.find(conf_key);
+
+        // フェイルファスト: 要求された設定キーが存在しない場合は即座に落とす
+        ANET_ASSERT_MSG(it != config_.additional_structures.end(),
+            ("Branch structure not found in config.additional_structures: " + conf_key).c_str());
+
+        const std::string& struct_str = it->second;
+
+        // ブランチのビルド
+        branches[out_key] = NetworkStructBuilder::Build(config_, struct_str);
+    }
+
+    return std::make_shared<ConfigurableHead>(input_dim, branches);
+}
+
+// ===========================================================================
 // LinearHead (Standard Q-Network Head)
 // ===========================================================================
 // 構造: Feature -> Linear -> Output
@@ -300,9 +417,9 @@ LinearHeadFactory::LinearHeadFactory(int64_t action_dim, const WeightInitConfig&
 {
 }
 
-std::shared_ptr<NetworkHead> LinearHeadFactory::CreateHead(int64_t feature_dim) const
+std::shared_ptr<NetworkHead> LinearHeadFactory::CreateHead(int64_t input_dim) const
 {
-    return std::make_shared<LinearHead>(feature_dim, action_dim_, init_config_);
+    return std::make_shared<LinearHead>(input_dim, action_dim_, init_config_);
 }
 
 
@@ -311,9 +428,9 @@ DuelingHeadFactory::DuelingHeadFactory(int64_t action_dim, const WeightInitConfi
 {
 }
 
-std::shared_ptr<NetworkHead> DuelingHeadFactory::CreateHead(int64_t feature_dim) const
+std::shared_ptr<NetworkHead> DuelingHeadFactory::CreateHead(int64_t input_dim) const
 {
-    return std::make_shared<DuelingHead>(feature_dim, action_dim_, init_config_);
+    return std::make_shared<DuelingHead>(input_dim, action_dim_, init_config_);
 }
 
 QuantileHeadFactory::QuantileHeadFactory(int64_t action_dim, int64_t num_quantiles, const WeightInitConfig& init_config)
@@ -321,9 +438,9 @@ QuantileHeadFactory::QuantileHeadFactory(int64_t action_dim, int64_t num_quantil
 {
 }
 
-std::shared_ptr<NetworkHead> QuantileHeadFactory::CreateHead(int64_t feature_dim) const
+std::shared_ptr<NetworkHead> QuantileHeadFactory::CreateHead(int64_t input_dim) const
 {
-    return std::make_shared<QuantileHead>(feature_dim, action_dim_, num_quantiles_, init_config_);
+    return std::make_shared<QuantileHead>(input_dim, action_dim_, num_quantiles_, init_config_);
 }
 
 QuantileDuelingHeadFactory::QuantileDuelingHeadFactory(int64_t action_dim, int64_t num_quantiles, const WeightInitConfig& init_config)
@@ -331,7 +448,7 @@ QuantileDuelingHeadFactory::QuantileDuelingHeadFactory(int64_t action_dim, int64
 {
 }
 
-std::shared_ptr<NetworkHead> QuantileDuelingHeadFactory::CreateHead(int64_t feature_dim) const
+std::shared_ptr<NetworkHead> QuantileDuelingHeadFactory::CreateHead(int64_t input_dim) const
 {
-    return std::make_shared<QuantileDuelingHead>(feature_dim, action_dim_, num_quantiles_, init_config_);
+    return std::make_shared<QuantileDuelingHead>(input_dim, action_dim_, num_quantiles_, init_config_);
 }
