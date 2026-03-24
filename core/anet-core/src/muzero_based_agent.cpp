@@ -661,18 +661,12 @@ anet::rl::BatchActionInfo MuZeroActor::MakeAction(const anet::rl::StepCounts& st
     if (!anet::rl::IsEval(run_mode_)) {
         //float progress = static_cast<float>(step.train_step) / std::max<int64_t>(1, actor_config_.temp_decay_steps);
         float progress = static_cast<float>(step.exp_step) / static_cast<float>(std::max<int64_t>(1, actor_config_.temp_decay_steps));
-        ANET_LOG_DEBUG("0 0 " << static_cast<float>(step.exp_step));
-        ANET_LOG_DEBUG("0 1 " << static_cast<float>(std::max<int64_t>(1, actor_config_.temp_decay_steps)));
-        ANET_LOG_DEBUG("1 progress=" << progress);
         progress = std::clamp(progress, 0.0f, 1.0f);
-        ANET_LOG_DEBUG("2 progress=" << progress);
         temperature = actor_config_.temp_start - progress * (actor_config_.temp_start - actor_config_.temp_end);
         if (latest_tau_) {
             *latest_tau_ = temperature;
         }
     }
-    ANET_LOG_DEBUG("3 temperature=" << temperature);
-    ANET_LOG_DEBUG("4 *latest_tau_=" << *latest_tau_);
 
     // @todo MuZero試作制約：現在はMCTSがバッチ化されていないため、各環境(バッチ)ごとにループしてMCTSを回す
 

@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include <string>
 #include <sstream>
+#include <limits>
 #include <torch/torch.h>
 
 namespace anet {
@@ -72,17 +73,31 @@ namespace anet {
         return torch::full(ref.sizes(), val, ctx.BoolOpt());
     }
 
+    // =========================
     // デバッグ用：テンソルを文字列化
+    // =========================
+
     void printTensorAsNestedBrackets(const torch::Tensor& t, std::ostream& os);
     void printTensorAsRows(const torch::Tensor& t, std::ostream& os);
     std::string ToDefString(const torch::Tensor& t);
     std::string ToString(const torch::Tensor& t, int precision = 4);
 
-    inline float itemf(const at::Tensor& t) {
+    // =========================
+    // ツール小物
+    // =========================
+
+    inline float itemf(const at::Tensor& t)
+    {
         auto s = t.detach().to(torch::kCPU);
         TORCH_CHECK(s.numel() == 1, "itemf expects scalar, got numel=", s.numel(), " shape=", s.sizes());
         return s.item<float>();
     }
+
+    template<typename T>
+    T ItemOrNaN(const torch::Tensor& t)
+    {
+        return t.defined() ? t.item<T>() : std::numeric_limits<T>::quiet_NaN();
+    };
 
     //inline std::string ToString(const anet::rl::AuxData& aux_data)
     //{

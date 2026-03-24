@@ -202,19 +202,15 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
     public:
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
         {
-            auto get_val = [](const torch::Tensor& t) -> float {
-                return t.defined() ? t.item<float>() : std::numeric_limits<float>::quiet_NaN();
-                };
-
             // 既知のキーであれば、値の有無に関わらずラムダの結果(値 or NaN)を返す
-            if (key == "loss.total") return get_val(total_loss);
-            if (key == "loss.value") return get_val(value_loss);
-            if (key == "loss.policy") return get_val(policy_loss);
-            if (key == "loss.reward") return get_val(reward_loss);
-            if (key == "metric.value_mae") return get_val(value_mae);
-            if (key == "metric.reward_mae") return get_val(reward_mae);
-            if (key == "metric.policy_entropy") return get_val(policy_entropy);
-            if (key == "metric.target_value_mean") return get_val(target_value_mean);
+            if (key == "loss.total") return anet::ItemOrNaN<float>(total_loss);
+            if (key == "loss.value") return anet::ItemOrNaN<float>(value_loss);
+            if (key == "loss.policy") return anet::ItemOrNaN<float>(policy_loss);
+            if (key == "loss.reward") return anet::ItemOrNaN<float>(reward_loss);
+            if (key == "metric.value_mae") return anet::ItemOrNaN<float>(value_mae);
+            if (key == "metric.reward_mae") return anet::ItemOrNaN<float>(reward_mae);
+            if (key == "metric.policy_entropy") return anet::ItemOrNaN<float>(policy_entropy);
+            if (key == "metric.target_value_mean") return anet::ItemOrNaN<float>(target_value_mean);
 
             // 全く知らないキーの場合のみ nullopt を返す
             return std::nullopt;
