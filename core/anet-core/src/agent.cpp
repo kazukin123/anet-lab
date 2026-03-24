@@ -27,16 +27,6 @@ AgentBase::AgentBase(torch::Device device,
     action_context_seed_ = seed_maker.MakeNamedSeed("action_context");
 }
 
-
-std::shared_ptr<ActionContext> AgentBase::CreateActionContext(
-    const BatchEnvSpec& batch_env_spec, RunMode run_mode, std::optional<torch::Device> device) const
-{
-    // 専用のRNGから1つシードを払い出してコンテキストに渡す
-    auto rng = GetRandomGenerator(run_mode);
-    seed_t ctx_seed = rng->RandUint64();
-    return std::make_shared<DefaultActionContext>(run_mode, ctx_seed);
-}
-
 std::shared_ptr<anet::RandomGenerator> AgentBase::GetRandomGenerator(RunMode mode) const
 {
     std::lock_guard<std::mutex> lock(rng_mutex_);

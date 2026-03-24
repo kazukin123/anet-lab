@@ -212,7 +212,7 @@ namespace anet::rl::dqn {
         int64_t Save(anet::OutputArchive& archive) const override;
     private:
         std::shared_ptr<ActionContext> CreateActionContext(
-            const BatchEnvSpec& batch_env_spec, RunMode run_mode = RunMode::Train, std::optional<torch::Device> device = std::nullopt) const override;
+            const BatchEnvSpec& batch_env_spec, RunMode run_mode = RunMode::Train, std::optional<torch::Device> device = std::nullopt) const;
         anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const;
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences);
     private:
@@ -221,6 +221,8 @@ namespace anet::rl::dqn {
         DefaultDQNAgentConfig config_;
         std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
         std::unique_ptr<anet::rl::dqn::NetworkModel> model_;
+        std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm_ = nullptr;
+        std::unique_ptr<anet::rl::RewardScaler> reward_scaler_ = nullptr;
         std::shared_ptr<anet::rl::dqn::ActionPolicy> train_policy_;     ///< 探索用ポリシー(RunMode=Train)
         std::shared_ptr<anet::rl::dqn::ActionPolicy> eval_policy_;      ///< 評価用ポリシー(RunMode=Eval/Eval1/Eval2)
         std::shared_ptr<anet::rl::dqn::ActionPolicy> target_policy_;    ///< 学習時ターゲット用ポリシー

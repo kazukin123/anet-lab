@@ -56,28 +56,22 @@ namespace anet::rl {
     // ----------------------------------------------------------------------
 
     // 環境のステップに同期して更新する Agent 基底クラス
-    class AgentBase : public Agent, public anet::RandomHolder {
+    class AgentBase : public Agent, public ModuleBase, public anet::RandomHolder {
     public:
         AgentBase(torch::Device device,
             const BatchEnvSpec& batch_env_spec,
             const EnvSpec& env_spec,
             std::optional<seed_t> seed = std::nullopt);
 
-        virtual std::shared_ptr<ActionContext> CreateActionContext(
-            const BatchEnvSpec& batch_env_spec, RunMode run_mode, std::optional<torch::Device> device = std::nullopt) const;
-
-        std::shared_ptr<anet::RandomGenerator> GetRandomGenerator(RunMode mode) const;
-
         virtual ~AgentBase() = default;
+    protected:
+        std::shared_ptr<anet::RandomGenerator> GetRandomGenerator(RunMode mode) const;
     protected:
         std::shared_ptr<std::shared_mutex> mutex_;
         const torch::Device device_;
         int state_dim_;
         int n_actions_;
         int batch_size_;
-
-        std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm_ = nullptr;   // 必要に応じて作る
-        std::unique_ptr<anet::rl::RewardScaler> reward_scaler_ = nullptr;       // 必要に応じて作る
     private:
         mutable std::unordered_map<RunMode, std::shared_ptr<anet::RandomGenerator>> run_mode_rngs_;
         mutable std::mutex rng_mutex_;

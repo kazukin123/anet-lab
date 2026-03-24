@@ -86,7 +86,8 @@ namespace anet::rl::dqn {
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
     private:
-        //class BatchUpdateResult;
+        std::shared_ptr<anet::rl::ActionContext> CreateActionContext(
+            const BatchEnvSpec& batch_env_spec, RunMode run_mode, std::optional<torch::Device> device) const;
     private:
         RainbowAgentConfig config_;
         std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;

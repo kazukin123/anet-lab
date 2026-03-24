@@ -173,6 +173,15 @@ std::optional<std::vector<torch::Tensor>> RainbowAgent::GetTensorVector(const st
     return std::nullopt;
 }
 
+std::shared_ptr<anet::rl::ActionContext> RainbowAgent::CreateActionContext(
+    const BatchEnvSpec& batch_env_spec, RunMode run_mode, std::optional<torch::Device> device) const
+{
+    // 専用のRNGから1つシードを払い出してコンテキストに渡す
+    auto rng = GetRandomGenerator(run_mode);
+    seed_t ctx_seed = rng->RandUint64();
+    return std::make_shared<DefaultActionContext>(run_mode, ctx_seed);
+}
+
 anet::rl::BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const
 {
     ProfileRange r1("RainbowAgent::MakeAction");
@@ -200,7 +209,7 @@ anet::rl::BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const
 std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, bool clone_model, std::optional<torch::Device> device) const
 {
     // Contextを生成
-    auto ctx = this->CreateActionContext(batch_env_spec, run_mode);
+    auto ctx = this->CreateActionContext(batch_env_spec, run_mode, device_);
 
     // モードに応じて適切な Policy と Network を選択
     std::shared_ptr<anet::rl::dqn::ActionPolicy> policy;
