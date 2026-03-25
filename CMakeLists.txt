@@ -46,16 +46,17 @@ add_compile_definitions(WXINTL_NO_GETTEXT_MACRO) # N_()マクロ競合対策
 # コンパイルオプション
 # ---------------------------------------------------------------------
 if (MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")  # mtd
+
+    add_compile_options(/MP)
+    add_compile_options(/utf-8)
     #add_compile_definitions(_HAS_CONDITIONAL_EXPLICIT=0)
-    #add_compile_options(/MP8)
-    #add_link_options(/DEBUG:FULL)
-    #add_link_options(/DEBUG:FASTLINK)
-    add_link_options(/INCREMENTAL)
     #add_compile_options(/diagnostics:color)
     #add_compile_options(/wd4267)  # warning C4267を無効化
 
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")  # mtd
-    add_compile_options(/utf-8)
+    add_link_options(/INCREMENTAL)
+
+    add_definitions(-DWIN32_LEAN_AND_MEAN)
 endif()
 
 
