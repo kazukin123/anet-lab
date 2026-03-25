@@ -80,7 +80,7 @@ namespace anet::rl {
         virtual ~ThreadPoolDiscreteEnv();
 
         std::shared_ptr<const BatchResetResult> Reset(RunMode mode) override;
-        std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> actio_info, RunMode mode) override;
+        std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> action_info, RunMode mode) override;
         void Shutdown() override;
     private:
         std::shared_ptr<ThreadPool> pool_;
