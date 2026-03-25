@@ -170,7 +170,7 @@ namespace anet::graphviz {
 
     class GraphVizProvider {
     public:
-        virtual std::unique_ptr<GraphViz> CreateGraph(const std::string& key, int64_t index = -1) const { return nullptr; }
+        virtual std::unique_ptr<GraphViz> CreateGraph(const std::string& key, int64_t index) const { return nullptr; }
         virtual ~GraphVizProvider() = default;
     };
 
