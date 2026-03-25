@@ -222,22 +222,16 @@ MuZeroExperienceSamples MuZeroUniformSampler::Sample(const MuZeroReplayStorage& 
         for (int k = 0; k <= unroll_steps_; ++k) {
             int64_t t_current = t_start + k;
 
-            if (episode_ended) {
-                // エピソード終了済み
+            if (episode_ended || t_current >= env_size) {
+                // エピーソード終了後の遷移は学習不要だが無害。
+                // V=0 R=0を学習させても良いが、無駄な学習が発生して精度・速度が低下するのでマスクして学習対象外とする。
+                    
+                // エピソード終端を超えたらゼロパディング
                 seq_values[k] = 0.0f;
                 seq_policies.push_back(torch::zeros({ num_actions }, float_opts));
-                seq_masks[k] = 1.0f; // エピソード終了後のV=0 R=0を学習させる為にマスクしない
+                seq_masks[k] = 0.0f; // マスクを落とす
                 if (k < unroll_steps_) {
-                    seq_actions[k] = rnd_->RandIndex(num_actions); // ランダム行動
-                    seq_rewards[k] = 0.0f;
-                }
-            } else if (t_current >= env_size) {
-                // まだ終了していないが、バッファの終端に達した場合
-                seq_values[k] = 0.0f;
-                seq_policies.push_back(torch::zeros({ num_actions }, float_opts));
-                seq_masks[k] = 0.0f; // 未来の正解データがまだ集まっていないだけなのでマスクする
-                if (k < unroll_steps_) {
-                    seq_actions[k] = rnd_->RandIndex(num_actions);
+                    seq_actions[k] = rnd_->RandIndex(num_actions); // ランダムアクションで埋める
                     seq_rewards[k] = 0.0f;
                 }
             } else {
@@ -245,15 +239,14 @@ MuZeroExperienceSamples MuZeroUniformSampler::Sample(const MuZeroReplayStorage& 
                 const auto& rec = storage.GetRecord(env_idx, t_current);
                 seq_values[k] = rec.target_value;
                 seq_policies.push_back(rec.target_policy);
-                seq_masks[k] = 1.0f; // 通常データは学習
+                seq_masks[k] = 1.0f; // マスクしない
                 if (k < unroll_steps_) {
                     seq_actions[k] = rec.action;
                     seq_rewards[k] = rec.reward;
                 }
 
-                // このステップでエピソードが終了したらエピソード終了フラグを立てる
                 if (rec.done) {
-                    episode_ended = true;
+                    episode_ended = true; // このステップでエピソードが終了した
                 }
             }
         }
