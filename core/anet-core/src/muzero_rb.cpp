@@ -222,27 +222,38 @@ MuZeroExperienceSamples MuZeroUniformSampler::Sample(const MuZeroReplayStorage& 
         for (int k = 0; k <= unroll_steps_; ++k) {
             int64_t t_current = t_start + k;
 
-            if (episode_ended || t_current >= env_size) {
-                // エピソード終端を超えたらゼロパディング
+            if (episode_ended) {
+                // エピソード終了済み
                 seq_values[k] = 0.0f;
                 seq_policies.push_back(torch::zeros({ num_actions }, float_opts));
-                seq_masks[k] = 0.0f; // マスクを落とす
+                seq_masks[k] = 1.0f; // エピソード終了後のV=0 R=0を学習させる為にマスクしない
                 if (k < unroll_steps_) {
-                    seq_actions[k] = rnd_->RandIndex(num_actions); // ランダムアクションで埋める
+                    seq_actions[k] = rnd_->RandIndex(num_actions); // ランダム行動
+                    seq_rewards[k] = 0.0f;
+                }
+            } else if (t_current >= env_size) {
+                // まだ終了していないが、バッファの終端に達した場合
+                seq_values[k] = 0.0f;
+                seq_policies.push_back(torch::zeros({ num_actions }, float_opts));
+                seq_masks[k] = 0.0f; // 未来の正解データがまだ集まっていないだけなのでマスクする
+                if (k < unroll_steps_) {
+                    seq_actions[k] = rnd_->RandIndex(num_actions);
                     seq_rewards[k] = 0.0f;
                 }
             } else {
+                // 通常ステップ
                 const auto& rec = storage.GetRecord(env_idx, t_current);
                 seq_values[k] = rec.target_value;
                 seq_policies.push_back(rec.target_policy);
-
+                seq_masks[k] = 1.0f; // 通常データは学習
                 if (k < unroll_steps_) {
                     seq_actions[k] = rec.action;
                     seq_rewards[k] = rec.reward;
                 }
 
+                // このステップでエピソードが終了したらエピソード終了フラグを立てる
                 if (rec.done) {
-                    episode_ended = true; // このステップでエピソードが終了した
+                    episode_ended = true;
                 }
             }
         }
@@ -285,7 +296,7 @@ void MuZeroReplayBuffer::Push(const anet::rl::BatchExperience& batch_exp)
     anet::ProfileRange r("MuZeroReplayBuffer::Push");
 
     // Actorから渡された info ディクショナリを取り出す
-    const auto& info = batch_exp.action.GetInfo();
+    const auto& info = batch_exp.action->GetInfo();
     auto policy_tensor = info.At("target_policy");
     auto value_tensor = info.At("root_value");
 
@@ -293,7 +304,7 @@ void MuZeroReplayBuffer::Push(const anet::rl::BatchExperience& batch_exp)
         // 生のステップデータを構築
         MuZeroStepRecord step;
         step.obs = batch_exp.state.obs[b].cpu();
-        step.action = batch_exp.action.GetAction()[b].item<int64_t>();
+        step.action = batch_exp.action->GetAction()[b].item<int64_t>();
         step.reward = batch_exp.reward[b].item<float>();
         step.done = batch_exp.next_state.done[b].item<bool>();
         step.truncated = batch_exp.next_state.truncated[b].item<bool>();

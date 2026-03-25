@@ -434,6 +434,116 @@ MCTSTree::MCTSTree(const MCTSConfig& config)
     ;
 }
 
+std::unique_ptr<anet::graphviz::GraphViz> MCTSTree::CreateGraph(std::optional<int64_t> selected_action) const
+{
+    if (!root_) return nullptr;
+
+    auto tree = std::make_unique<anet::graphviz::Tree>("MCTS_Snapshot", anet::graphviz::LayoutDirection::TopToBottom);
+
+    // =======================================================
+    // 選択されたアクション用のカスタムスタイルを登録
+    // =======================================================
+    anet::graphviz::EdgeStyle selected_edge;
+    selected_edge.line_style = anet::graphviz::BorderStyle::Bold;
+    selected_edge.color = "#27AE60";   // 目立つ緑色
+    selected_edge.penwidth = 3.0f;     // 極太線
+    tree->RegisterEdgeStyle("selected", selected_edge);
+
+    anet::graphviz::NodeStyle selected_node;
+    selected_node.border_style = anet::graphviz::BorderStyle::Bold;
+    selected_node.color = "#27AE60";
+    tree->RegisterNodeStyle("selected", selected_node);
+
+    // =======================================================
+
+    constexpr int MAX_NODES = 300;
+    int node_count = 0;
+
+    // 表示用の連番カウンターとIDマッピング
+    int display_id_counter = 0;
+    std::unordered_map<std::string, int> display_ids;
+
+    std::queue<std::pair<std::shared_ptr<Node>, std::string>> q;
+
+    // ルートノードのID
+    std::string root_id = "node_root";
+    display_ids[root_id] = display_id_counter++; // ルートは #0
+
+    // ルートノードを柄
+    tree->AddNode(root_id, "highlight").label
+        .SetTitle("Root State")
+        .AddAttr("V", root_->value)
+        .AddAttr("N", root_->visit_count);
+    q.push({ root_, root_id });
+
+    while (!q.empty() && node_count < MAX_NODES) {
+        auto [curr_node, curr_id] = q.front();
+        q.pop();
+        node_count++;
+
+        for (const auto& edge : curr_node->edges) {
+            if (edge->visit_count == 0 && edge->prior_prob < 0.01f) continue;
+
+            std::string child_id = curr_id + "_" + std::to_string(edge->action);
+
+            // このエッジが「ルートからの手」であり、かつ「実際に選ばれたAction」か判定
+            bool is_selected = (curr_id == "node_root" && selected_action.has_value() && edge->action == *selected_action);
+
+            // スタイルの決定
+            std::string edge_style = "default";
+            if (is_selected) {
+                edge_style = "selected"; // 決定打は緑の極太線
+            } else if (edge->visit_count > curr_node->visit_count * 0.5f) {
+                edge_style = "highlight"; // 最有力候補(選ばれなかったが惜しかった手)は赤線
+            }
+
+            // Edge（Acion）を追加
+            auto& dot_edge = tree->AddEdge(curr_id, child_id, edge_style);
+            dot_edge.weight = std::max(1.0f, std::log10(static_cast<float>(edge->visit_count) + 1.0f));
+
+            // Edgeラベルのタイトル
+            if (is_selected) {
+                dot_edge.label.SetTitle("* Action: " + std::to_string(edge->action));
+            } else {
+                dot_edge.label.SetTitle("Action: " + std::to_string(edge->action));
+            }
+
+            // Edgeラベルの属性
+            dot_edge.label
+                .AddAttr("N", edge->visit_count)
+                .AddAttr("Q", edge->q_value)
+                .AddAttr("P", edge->prior_prob)
+                .AddAttr("R", edge->reward);
+
+            if (edge->child) {
+                std::string node_style = "default";
+                if (is_selected) {
+                    node_style = "selected"; // 選ばれた先のノードも緑の枠にする
+                } else if (edge->child->visit_count <= 5) {
+                    node_style = "muted";
+                }
+
+                // 表示用ノードID
+                int child_display_id = display_id_counter++;
+                display_ids[child_id] = child_display_id;
+
+                // 子ノードを追加
+                auto& dot_child = tree->AddNode(child_id, node_style);
+                dot_child.label
+                    .SetTitle("State (#" + std::to_string(child_display_id) + ")") // タイトルにノード番号を振る
+                    .AddAttr("V", edge->child->value)
+                    .AddAttr("N", edge->child->visit_count);
+
+                q.push({ edge->child, child_id });
+            } else {
+                tree->AddNode(child_id, "muted").label.SetTitle("Unexpanded");
+            }
+        }
+    }
+
+    return tree;
+}
+
 
 // ======================================================
 // MCTSEngine
@@ -541,6 +651,11 @@ void MCTSEngine::Backpropagate(const std::vector<std::shared_ptr<Edge>>& search_
         edge->q_value = (edge->visit_count * edge->q_value + current_value) / (edge->visit_count + 1);
         edge->visit_count += 1;
 
+        // 子ノード(State)の訪問回数も増やす
+        if (edge->child) {
+            edge->child->visit_count += 1;
+        }
+
         // MinMaxStatsの更新 (正規化用)
         min_max_stats.Update(edge->q_value);
     }
@@ -617,6 +732,50 @@ std::shared_ptr<MCTSTree> MCTSEngine::Search(
 
 
 // ======================================================
+// MuZeroActionInfo
+// ======================================================
+
+class MuZeroActionInfo : public anet::rl::BatchActionInfo {
+public:
+    MuZeroActionInfo(const torch::Tensor action, const anet::TensorDict& info, const anet::rl::AuxData& aux, std::vector<std::shared_ptr<MCTSTree>> mcts_trees)
+        : BatchActionInfo(action, info, aux), mcts_trees_(std::move(mcts_trees))
+    {
+    }
+
+    std::shared_ptr<BatchActionInfo> To(torch::Device device) const override
+    {
+        // 自分自身(MuZeroActionInfo)を make_shared で構築し直す。
+        // この時、基底の Tensor 類は device 転送しつつ、MCTSのポインタはそのまま引き継ぐ
+        auto cloned = std::make_shared<MuZeroActionInfo>(GetAction(device), info_, aux_, mcts_trees_);
+        cloned->GetInfo() = this->GetInfo().To(device);
+        cloned->GetAuxData() = this->GetAuxData();
+
+        // 基底クラスの shared_ptr<BatchActionInfo> として返却（暗黙のアップキャスト）
+        return cloned;
+    }
+
+    std::unique_ptr<anet::graphviz::GraphViz> CreateGraph(const std::string& key, int64_t index) const override
+    {
+        if (key != "mcts_tree" || mcts_trees_.empty()) return nullptr;
+
+        int64_t target_idx = (index >= 0 && index < static_cast<int64_t>(mcts_trees_.size())) ? index : 0;
+
+        // 自分が最終的に選択した行動(Action)をテンソルから取得する
+        auto action_tensor = GetAction();
+        std::optional<int64_t> selected_action = std::nullopt;
+        if (action_tensor.defined() && action_tensor.size(0) > target_idx) {
+            selected_action = action_tensor[target_idx].item<int64_t>();
+        }
+
+        // MCTSツリーに選択されたアクションを伝えて描画を依頼する
+        return mcts_trees_[target_idx]->CreateGraph(selected_action);
+    }
+private:
+    std::vector<std::shared_ptr<MCTSTree>> mcts_trees_;
+};
+
+
+// ======================================================
 // MuZeroActor
 // ======================================================
 
@@ -640,7 +799,7 @@ void MuZeroActor::Sync()
     /// @todo MuZero試作制約：Actor向けのModelのClone非対応  
 }
 
-anet::rl::BatchActionInfo MuZeroActor::MakeAction(const anet::rl::StepCounts& step, const anet::rl::BatchState& state) const
+std::shared_ptr<anet::rl::BatchActionInfo> MuZeroActor::MakeAction(const anet::rl::StepCounts& step, const anet::rl::BatchState& state) const
 {
     anet::ProfileRange r("MuZeroActor::MakeAction");
 
@@ -674,6 +833,7 @@ anet::rl::BatchActionInfo MuZeroActor::MakeAction(const anet::rl::StepCounts& st
 
     // 読込排他開始
     std::shared_lock<std::shared_mutex> lock(*mutex_);
+    std::vector<std::shared_ptr<MCTSTree>> out_trees(batch_size);
 
     for (int64_t b = 0; b < batch_size; ++b) {
 
@@ -692,6 +852,9 @@ anet::rl::BatchActionInfo MuZeroActor::MakeAction(const anet::rl::StepCounts& st
         // MCTSの実行
         auto tree = mcts_engine_->Search(hidden_state, policy_logits, value, !is_eval);
         auto root = tree->GetRoot();
+
+        // 可視化用にTreeを保存
+        out_trees[b] = tree;
 
         // 訪問回数 (visit_count) から Target Policy と 行動 を決定する
         std::vector<float> target_policy(num_actions_, 0.0f);
@@ -750,7 +913,7 @@ anet::rl::BatchActionInfo MuZeroActor::MakeAction(const anet::rl::StepCounts& st
     info["root_value"] = out_root_values;
 
     // BatchActionInfo を返却
-    return anet::rl::BatchActionInfo(out_actions, info);
+    return std::make_shared<MuZeroActionInfo>(out_actions, info, anet::rl::AuxData(), std::move(out_trees));
 }
 
 

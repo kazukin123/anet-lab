@@ -515,7 +515,7 @@ void EpisodeEvalObserver::RunEvaluationEpisode()
     bool truncated = false;
     do {
         auto action = actor_->MakeAction(counts_local, state);
-        auto env_result = env_->Step(action.GetAction());
+        auto env_result = env_->Step(action);
         eps_total_reward += env_result->reward.mean().item<float>();
         state = env_result->continue_state;
         done = env_result->next_state.IsDone();
@@ -908,12 +908,63 @@ void MetricsLogObserverBase::OnUpdate(const UpdateEvent& event)
     }
 }
 
+
+// ===========================================================================
+// GraphVizObserver
+// ===========================================================================
+
+GraphVizObserver::GraphVizObserver(
+    const std::string& tag, int interval, const std::string& provider_key,
+    std::optional<anet::rl::EventField> event_field)
+    : TaggedTrainObserver(tag), interval_(interval)
+    , provider_key_(provider_key), event_field_(event_field)
+{
+    ;
+}
+
+const anet::graphviz::GraphVizProvider* GraphVizObserver::FindProvider(const TrainEvent& event) const
+{
+    // event_field に応じて Provider を返す
+    if (event_field_.has_value() && *event_field_ == anet::rl::EventField::ACTION_INFO) {
+        if (event.experience.action) {
+            return event.experience.action.get();
+        }
+    }
+
+    // 今後 Agent 等から可視化情報を取る場合はここに追記
+    // if (*event_field_ == anet::rl::EventField::AGENT) { return event.agent.get(); }
+
+    return nullptr;
+}
+
+void GraphVizObserver::OnTrain(const TrainEvent& event)
+{
+    anet::ProfileRange r("GraphVizObserver::OnTrain");
+
+    auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);
+    if (interval_ <= 0 || step % interval_ != 0) return;
+
+    // Provider を探す
+    const auto* provider = FindProvider(event);
+    if (!provider) return;
+
+    // グラフの生成要求（MCTSのツリー構築などの重い処理が走る）
+    auto graph = provider->CreateGraph(provider_key_, 0);   // 最初のindexの結果を出力
+    if (!graph) return;
+
+    anet::MetricsLogger::Instance()->Log(tag_, step, *graph);
+}
+
+
 // ===========================================================================
 // ObserverFactory
 // ===========================================================================
 
 static constexpr const char* CONFIG_KEY_METRICS_SCALAR_PREFIX = "metrics.scalar.[";
 static constexpr const char* CONFIG_KEY_METRICS_SCALAR_SUFFIX = "]";
+
+static constexpr const char* CONFIG_KEY_METRICS_GRAPH_PREFIX = "metrics.graph.[";
+static constexpr const char* CONFIG_KEY_METRICS_GRAPH_SUFFIX = "]";
 
 ObserverFactory::ObserverFactory(const ConfigData& config_data)
 {
@@ -1078,7 +1129,82 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
             }
         }
  
+        // ===================================================================
+        // GraphVizObserver のパースと生成
+        // ===================================================================
+        auto graph_metrics_tag = anet::ExtractBetween(
+            config_key, CONFIG_KEY_METRICS_GRAPH_PREFIX, CONFIG_KEY_METRICS_GRAPH_SUFFIX);
+
+        if (!graph_metrics_tag.empty())
+        {
+            ANET_LOG_DEBUG("ObserverFactory: graph: key=" << graph_metrics_tag << " value=" << config_value);
+            auto values = anet::Split(config_value, { " " }, true);
+
+            std::optional<std::string> key_opt;
+            std::optional<anet::rl::EventField> field_opt;
+            int interval = 1;
+
+            for (auto v : values) {
+                //if (v == "$agent") {
+                //    field_opt = EventField::AGENT;
+                //} else if (v == "$env") {
+                //    field_opt = EventField::ENV;
+                //} else if (v == "$batch_experience" || v == "$exp") {
+                //    field_opt = EventField::EXPERIENCE;
+                //} else if (v == "$batch_update_result" || v == "$update_result" || v == "$result") {
+                //    field_opt = EventField::UPDATE_RESULT;
+                //} else if (v == "$runner") {
+                //    field_opt = EventField::RUNNER;
+                if (v == "$action" || v == "$action_info") {
+                    field_opt = EventField::ACTION_INFO;
+                } else {
+                    auto attr_kv = anet::Split(v, { ":" }, true);
+                    if (attr_kv.size() == 2) {
+                        auto attr_key = attr_kv[0];
+                        auto attr_val = attr_kv[1];
+
+                        if (attr_key == "key") {
+                            key_opt = attr_val;
+                        } else if (attr_key == "target") {
+                            //if (attr_val == "agent") field_opt = EventField::AGENT;
+                            //else if (attr_val == "env") field_opt = EventField::ENV;
+                            //else if (attr_val == "batch_experience" || attr_val == "exp") field_opt = EventField::EXPERIENCE;
+                            //else if (attr_val == "batch_update_result" || attr_val == "update_result" || attr_val == "result") field_opt = EventField::UPDATE_RESULT;
+                            //else if (attr_val == "runner") field_opt = EventField::RUNNER;
+                            if (attr_val == "action" || attr_val == "action_info") field_opt = EventField::ACTION_INFO;
+                            else {
+                                LOG::warn() << "Unknown target value for graph. attr_val=" << attr_val;
+                            }
+                        } else if (attr_key == "interval") {
+                            interval = std::stoi(attr_val);
+                        } else {
+                            LOG::warn() << "Unknown attribute key for graph. attr_key=" << attr_key;
+                        }
+                    } else {
+                        // "key:" などの指定がない場合は単独文字列を key として扱う
+                        // ただし既に @train などの特殊トークンではないことが前提
+                        if (v.rfind("@", 0) != 0 && v.rfind("$", 0) != 0) {
+                            key_opt = v;
+                        }
+                    }
+                }
+            }
+
+            if (!key_opt.has_value()) {
+                LOG::error() << "ObserverFactory: graph key not found. config_key=" << config_key << " config_value=" << config_value;
+                continue;
+            }
+
+            // GraphVizObserverのインスタンス化と登録 (TrainObserverとして登録)
+            auto graph_obs = std::make_shared<GraphVizObserver>(graph_metrics_tag, interval, *key_opt, field_opt);
+            train_observers_.push_back(graph_obs);
+
+            // 次のループへ（スカラー処理等との重複を避ける）
+            continue;
+        }
+
         /// @todo HeatMap系Observerに対応
+
 	}
 }
 

@@ -270,7 +270,7 @@ void QValuePanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, 
 
 std::optional<QValueData> QValuePanel::CreateData(const anet::rl::TrainEvent& event)
 {
-    const auto& aux_data = event.action_info.GetAuxData();
+    const auto& aux_data = event.action_info->GetAuxData();
     auto q_values_itr = aux_data.find("q_values");
     if (q_values_itr == aux_data.end()) return std::nullopt;
 
@@ -300,7 +300,7 @@ std::optional<QValueData> QValuePanel::CreateData(const anet::rl::TrainEvent& ev
         data.selected_action = raw_actions[0].item<int64_t>();
     } else {
         // raw_actionが見れない場合は仕方ないので実際に実行したActionを画面表示データに設定
-        data.selected_action = event.action_info.GetAction(torch::kCPU)[0].item<int64_t>();
+        data.selected_action = event.action_info->GetAction(torch::kCPU)[0].item<int64_t>();
     }
 
     // 統計値生成

@@ -58,9 +58,9 @@ namespace anet::rl {
         ANET_ASSERT_SHAPE(batch.state.truncated, { N });
         ANET_ASSERT_SHAPE(batch.state.episode_start, { N });
         if (is_discrete_) {
-            ANET_ASSERT_SHAPE(batch.action.GetAction(), {N});
+            ANET_ASSERT_SHAPE(batch.action->GetAction(), {N});
         } else {
-            ANET_ASSERT_SHAPE(batch.action.GetAction(), {N, ANET_SHAPE_ENDANY});
+            ANET_ASSERT_SHAPE(batch.action->GetAction(), {N, ANET_SHAPE_ENDANY});
         }
         ANET_ASSERT_SHAPE(batch.reward, { N });
         ANET_ASSERT_SHAPE(batch.next_state.obs, { N, state_dim_ });
@@ -72,7 +72,7 @@ namespace anet::rl {
         ANET_ASSERT_DTYPE(batch.state.done, torch::kBool);
         ANET_ASSERT_DTYPE(batch.state.truncated, torch::kBool);
         ANET_ASSERT_DTYPE(batch.state.episode_start, torch::kBool);
-        ANET_ASSERT_DTYPE(batch.action.GetAction(), is_discrete_ ? torch::kInt64 : torch::kFloat32);
+        ANET_ASSERT_DTYPE(batch.action->GetAction(), is_discrete_ ? torch::kInt64 : torch::kFloat32);
         ANET_ASSERT_DTYPE(batch.reward, torch::kFloat32);
         ANET_ASSERT_DTYPE(batch.next_state.obs, torch::kFloat32);
         ANET_ASSERT_DTYPE(batch.next_state.done, torch::kBool);

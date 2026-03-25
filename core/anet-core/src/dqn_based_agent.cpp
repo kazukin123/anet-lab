@@ -473,7 +473,7 @@ Actor::Actor(std::shared_ptr<ActionPolicy> policy,
     ;
 }
 
-anet::rl::BatchActionInfo Actor::MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const
+std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const
 {
     ProfileRange r1("Actor::MakeAction");
     torch::NoGradGuard ng;
@@ -511,7 +511,7 @@ anet::rl::BatchActionInfo Actor::MakeAction(const StepCounts& step, const anet::
         act_info.GetAuxData()["norm_obs"] = norm_obs;
     }
 
-    return act_info;
+    return std::make_shared<anet::rl::BatchActionInfo>(act_info);
 }
 
 void Actor::Sync()

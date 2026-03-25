@@ -170,7 +170,7 @@ namespace anet::rl {
         bool has_prev_data_ = false;
         anet::rl::BatchExperience prev_exp_;
         std::shared_ptr<const BatchStepResult> prev_result_;
-        anet::rl::BatchActionInfo prev_action_info_;
+        std::shared_ptr<const anet::rl::BatchActionInfo> prev_action_info_;
         anet::rl::StepCounts prev_counts_;
     };
 

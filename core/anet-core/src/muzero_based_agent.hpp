@@ -9,6 +9,7 @@
 #include "anet/tensor_util.hpp"
 #include "anet/random.hpp"
 #include "anet/rl.hpp"
+#include "anet/graphviz.hpp"
 #include "muzero_rb.hpp"
 #include "anet/muzero_proto_agent.hpp"
 
@@ -120,6 +121,8 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
         void SetRoot(std::shared_ptr<Node> root) { root_ = root; }
         std::shared_ptr<Node> GetRoot() const { return root_; }
         MinMaxStats& GetMinMaxStats() { return min_max_stats_; }
+
+        std::unique_ptr<anet::graphviz::GraphViz> CreateGraph(std::optional<int64_t> selected_action = std::nullopt) const;
     private:
         const MCTSConfig config_;
         std::shared_ptr<Node> root_;
@@ -167,7 +170,7 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
             std::shared_ptr<MuZeroNetworkModel> model, const anet::rl::ActionSpec& action_spec, anet::rl::RunMode run_mode, torch::Device device, std::optional<seed_t> seed);
 
         /// 現在の観測からMCTSを回し、行動と学習用情報を返す
-        anet::rl::BatchActionInfo MakeAction(const anet::rl::StepCounts& step, const anet::rl::BatchState& state) const override;
+        std::shared_ptr<anet::rl::BatchActionInfo> MakeAction(const anet::rl::StepCounts& step, const anet::rl::BatchState& state) const override;
 
         void Sync() override;
     private:

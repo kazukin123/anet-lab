@@ -338,7 +338,7 @@ namespace anet::rl::dqn {
             std::shared_ptr<std::shared_mutex> mutex,
             std::shared_ptr<anet::nn::Network> network,
             std::shared_ptr<anet::nn::Network> src_network);
-        BatchActionInfo MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const override;
+        std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const override;
         void Sync() override;
     private:
         std::shared_ptr<ActionPolicy> policy_;

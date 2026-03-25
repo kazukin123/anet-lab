@@ -1,4 +1,7 @@
-﻿#pragma once
+﻿// anet/rl.hpp
+
+#pragma once
+
 #include <memory>
 #include <vector>
 #include <string>
@@ -16,6 +19,7 @@
 #include "anet/log.hpp"
 #include "anet/tensor_util.hpp"
 #include "anet/serialize.hpp"
+#include "anet/graphviz.hpp"
 
 namespace anet::rl {
 
@@ -427,9 +431,10 @@ namespace anet::rl {
     };
 
     // 行動選択時の情報
-    struct BatchActionInfo {
+    class BatchActionInfo : public anet::graphviz::GraphVizProvider {
     public:
         BatchActionInfo() {}
+        virtual ~BatchActionInfo() = default;
 
         BatchActionInfo(const torch::Tensor action, const anet::TensorDict& info = {}, const AuxData& aux = {})
             : action_cpu_(action.device().is_cpu() ? std::move(action) : torch::Tensor())
@@ -450,8 +455,9 @@ namespace anet::rl {
         }
 
         torch::Tensor GetAction(torch::Device device) const;
-        BatchActionInfo To(torch::Device device) const {
-            return BatchActionInfo{ GetAction(device), info_.To(device), aux_ };
+        virtual std::shared_ptr<BatchActionInfo> To(torch::Device device) const
+        {
+            return std::make_shared<BatchActionInfo>(GetAction(device), info_.To(device), aux_ );
         }
         const AuxData& GetAuxData() const { return aux_; }
         AuxData& GetAuxData() { return aux_; }
@@ -459,7 +465,7 @@ namespace anet::rl {
         anet::TensorDict& GetInfo() { return info_; }
 
         std::string ToString() const;
-    private:
+    protected:
         mutable torch::Tensor action_cpu_;
         mutable std::optional<std::pair<torch::Device, torch::Tensor>> gpu_;
         anet::TensorDict info_;
@@ -507,14 +513,14 @@ namespace anet::rl {
 
     struct BatchExperience : public Module {
         BatchState state;
-        BatchActionInfo action;
+        std::shared_ptr<BatchActionInfo> action;
         torch::Tensor reward;
         BatchState next_state;
 
         BatchExperience() {}
         BatchExperience(
             const BatchState& state__,
-            const BatchActionInfo& action__,
+            std::shared_ptr<BatchActionInfo> action__,
             torch::Tensor reward__,
             const BatchState& next_state__
         ) : state(state__), action(action__), reward(std::move(reward__)), next_state(next_state__) { }
@@ -577,7 +583,7 @@ namespace anet::rl {
         virtual torch::Device GetDevice() const = 0;
 
         virtual std::shared_ptr<const BatchResetResult> Reset(RunMode mode = RunMode::Train) = 0;    ///< BatchStateは使い回されるので必要に応じてDeepCopy必須
-        virtual std::shared_ptr<const BatchStepResult> Step(const BatchActionInfo& action_info, RunMode mode = RunMode::Train) = 0; ///< BatchStepResultは使い回されるので必要に応じてDeepCopy必須
+        virtual std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> action_info, RunMode mode = RunMode::Train) = 0; ///< BatchStepResultは使い回されるので必要に応じてDeepCopy必須
         //virtual std::shared_ptr<BatchEnv> Clone() const = 0;
 
         virtual void Shutdown() { }
@@ -598,7 +604,7 @@ namespace anet::rl {
 
     class Actor {
     public:
-        virtual BatchActionInfo MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const = 0;
+        virtual std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const = 0;
         virtual void Sync() = 0;
         virtual ~Actor() = default;
     };
@@ -686,6 +692,7 @@ namespace anet::rl {
         static constexpr const char* PER_DIST = "replaybuffer.per.distribution";
     };
 
+
     // =============================================================
     // Observer
     // =============================================================
@@ -701,7 +708,8 @@ namespace anet::rl {
         AGENT,
         ENV,
         UPDATE_RESULT,
-        RUNNER
+        RUNNER,
+        ACTION_INFO,
     };
 
     struct UpdateEvent {
@@ -715,7 +723,7 @@ namespace anet::rl {
     struct TrainEvent : public UpdateEvent {
         const std::shared_ptr<const BatchEnv> env;
         const std::shared_ptr<const BatchStepResult> step_result;
-        const BatchActionInfo& action_info;
+        const std::shared_ptr<const BatchActionInfo> action_info;
     };
 
     struct LearnEvent : public UpdateEvent {

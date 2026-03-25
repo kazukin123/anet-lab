@@ -355,7 +355,34 @@ namespace anet::rl {
         virtual std::string ToString() const override { return ToStringInternal(); }
     };
 
-    // ===========================================================
+
+    // -----------------------------------------------------------------
+    // GraphVizObserver
+    // -----------------------------------------------------------------
+
+    class GraphVizObserver : public TaggedTrainObserver {
+    public:
+        GraphVizObserver(
+            const std::string& tag,
+            int interval,
+            const std::string& provider_key,
+            std::optional<anet::rl::EventField> event_field);
+
+        void OnTrain(const TrainEvent& event) override;
+        std::string GetClassName() const override { return "GraphVizObserver"; }
+
+    private:
+        int interval_;
+        std::string provider_key_;
+        std::optional<anet::rl::EventField> event_field_;
+
+        const anet::graphviz::GraphVizProvider* FindProvider(const TrainEvent& event) const;
+    };
+
+
+    // -----------------------------------------------------------------
+    // ObserverFactory
+    // -----------------------------------------------------------------
 
     class ObserverFactory {
     public:

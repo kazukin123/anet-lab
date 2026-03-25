@@ -71,7 +71,7 @@ void GridMazePanel::OnPaint(wxPaintEvent& event)
     if (data_.train_exp.reward.defined() && data_.train_exp.reward.numel() > 0) {
         reward = data_.train_exp.reward[BATCH_POS].item<float>();
     }
-    auto action_tensor = data_.train_exp.action.GetAction(torch::kCPU);
+    auto action_tensor = data_.train_exp.action->GetAction(torch::kCPU);
     if (action_tensor.defined() && action_tensor.numel() > 0) {
         action = action_tensor[BATCH_POS].item<int64_t>();
     }

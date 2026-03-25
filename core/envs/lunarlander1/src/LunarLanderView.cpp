@@ -32,7 +32,7 @@ LunarLanderData LunarLanderData::Create(anet::rl::TrainEvent event)
         event.step_result->next_state.truncated[ENV_INDEX].item<bool>(),
         event.step_result->next_state.episode_start[ENV_INDEX].item<bool>(),
     };
-    auto action = event.experience.action.GetAction(torch::kCPU)[ENV_INDEX].item<int64_t>();
+    auto action = event.experience.action->GetAction(torch::kCPU)[ENV_INDEX].item<int64_t>();
     auto reward = event.experience.reward[ENV_INDEX].item<float>();
 
     // aux情報

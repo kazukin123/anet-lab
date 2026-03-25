@@ -449,7 +449,7 @@ std::optional<torch::Tensor> BatchExperience::GetTensor(
     if (key == REWARD)
         return reward;
     if (key == ACTION_ACTION)
-        return action.GetAction();
+        return action->GetAction();
     if (key == STATE_OBS)
         return state.obs;
 
@@ -469,7 +469,7 @@ std::optional<torch::Tensor> BatchExperience::GetTensor(
 
     if (key.find("action.") == 0) {
         auto sub_key = anet::RemovePrefix(key, "action.");
-        auto aux = action.GetAuxData();
+        auto aux = action->GetAuxData();
         auto aux_itr = aux.find(sub_key);
         if (aux_itr == aux.end()) return std::nullopt;
         const auto& aux_tensor = aux_itr->second;
@@ -493,7 +493,7 @@ std::optional<std::vector<torch::Tensor>>
 BatchExperience BatchExperience::To(torch::Device d, bool non_blocking) const {
     BatchExperience out {
         state.To(d, non_blocking),
-        action.To(d),// GPU→CPUは明示的な同期が必要でバグの温床になるのでnon_blocking無しにしておく
+        action->To(d),// GPU→CPUは明示的な同期が必要でバグの温床になるのでnon_blocking無しにしておく
         reward.to(d, non_blocking),
         next_state.To(d, non_blocking)
     };
@@ -528,8 +528,8 @@ std::vector<SingleExperience> BatchExperience::ToExperienceList() const
         "MakeFromBatch: next_state.episode_start batch size mismatch.");
 
     // ---- actions の整合検査 ----
-    ANET_ASSERT_DTYPE(action.GetAction(), torch::kInt64);
-    ANET_ASSERT_MSG(action.GetAction().size(0) == N,
+    ANET_ASSERT_DTYPE(action->GetAction(), torch::kInt64);
+    ANET_ASSERT_MSG(action->GetAction().size(0) == N,
         "MakeFromBatch: action.action batch size mismatch.");
 
     // ---- rewards の shape チェック ----
@@ -559,7 +559,7 @@ std::vector<SingleExperience> BatchExperience::ToExperienceList() const
     auto next_obs_list = next_obs_cpu.unbind(0);
 
     // Action
-    auto action_cpu = action.GetAction().cpu();
+    auto action_cpu = action->GetAction().cpu();
     auto action_list = action_cpu.unbind(0);
 
     // Scalars (Done, Truncated, EpisodeStart, Reward)
@@ -691,7 +691,7 @@ std::string BatchExperience::ToString() const
     std::ostringstream oss;
     oss << "BatchExperience{\n";
     oss << "  state      = " << state.ToString() << "\n";
-    oss << "  action     = " << action.ToString() << "\n";
+    oss << "  action     = " << action->ToString() << "\n";
     oss << "  reward     = " << anet::ToString(reward) << "\n";
     oss << "  next_state = " << next_state.ToString() << "\n";
     oss << "}";

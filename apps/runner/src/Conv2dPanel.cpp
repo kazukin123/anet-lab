@@ -94,7 +94,7 @@ void Conv2dPanel::CreateObserver(anet::rl::RunManager& run_manager, std::shared_
             // State取得
             // next_state ではなく、Aux経由で「Agentがスタックした実際のテンソル」を取得する
             torch::Tensor obs_to_visualize;
-            const auto& aux = event.action_info.GetAuxData();
+            const auto& aux = event.action_info->GetAuxData();
             auto it = aux.find("raw_obs");
             if (it != aux.end() && it->second.defined()) {
                 // Stackerによって過去フレームが結合された3次元テンソル

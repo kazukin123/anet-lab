@@ -17,7 +17,7 @@ static BatchExperience MakeStep(float value, bool is_start, bool is_done)
     batch.state.obs = torch::tensor({ {value} }, torch::TensorOptions().dtype(torch::kFloat32).device(dev));
     batch.state.done = torch::tensor({ false }, torch::TensorOptions().dtype(torch::kBool).device(dev));
     batch.state.truncated = torch::tensor({ false }, torch::TensorOptions().dtype(torch::kBool).device(dev));
-    batch.action = torch::tensor({ 0 }, torch::TensorOptions().dtype(torch::kInt64).device(dev));
+    batch.action = std::make_shared<anet::rl::BatchActionInfo>(torch::tensor({ 0 }, torch::TensorOptions().dtype(torch::kInt64).device(dev)));
     batch.reward = torch::tensor({ 0.0f }, torch::TensorOptions().dtype(torch::kFloat32).device(dev));
     batch.next_state.obs = torch::tensor({ {value + 1.0f} }, torch::TensorOptions().dtype(torch::kFloat32).device(dev));
     batch.next_state.done = torch::tensor({ is_done }, torch::TensorOptions().dtype(torch::kBool).device(dev));
@@ -56,7 +56,7 @@ static BatchExperience MakeBatchStep(
     // Action, Reward, etc: (N) 
     // ※実際はActionなどは適切な値を入れる
     std::vector<int64_t> actions(n_envs, 0);
-    batch.action = ToTensor(actions, torch::kInt64, { n_envs });
+    batch.action = std::make_shared<anet::rl::BatchActionInfo>(ToTensor(actions, torch::kInt64, { n_envs }));
 
     std::vector<float> rewards(n_envs, 0.0f);
     batch.reward = ToTensor(rewards, torch::kFloat32, { n_envs });

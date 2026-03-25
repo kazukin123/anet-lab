@@ -24,7 +24,7 @@ DropMergeData DropMergeData::Create(anet::rl::TrainEvent event)
     auto exp_step = event.counts.exp_step;
     anet::rl::SingleState state = event.step_result->next_state.GetSingle(ENV_INDEX);
 
-    auto action = event.action_info.GetAction(torch::kCPU)[ENV_INDEX].item<int64_t>();
+    auto action = event.action_info->GetAction(torch::kCPU)[ENV_INDEX].item<int64_t>();
     auto reward = event.step_result->reward[ENV_INDEX].item<float>();
 
     // Aux情報

@@ -166,18 +166,18 @@ StepCounts EvalRunner::DoStep(int64_t action)
 
     // 行動選択
     auto action_info_raw = actor_->MakeAction(step_counts_, state_);
-    ANET_LOG_DEBUG("step=" << train_step << " action_info_raw=" << action_info_raw.ToString());
+    ANET_LOG_DEBUG("step=" << train_step << " action_info_raw=" << action_info_raw->ToString());
 
     // action_infoを生成
-    anet::rl::BatchActionInfo action_info = {
-        action < 0 ? action_info_raw.GetAction() : torch::tensor({ action }), // 指定のactionがあれば強制
-        action_info_raw.GetInfo(),
-        action_info_raw.GetAuxData()    // AuxはAgentが生成した内容
-    };
+    auto action_info = std::make_shared<anet::rl::BatchActionInfo>(
+        action < 0 ? action_info_raw->GetAction() : torch::tensor({ action }), // 指定のactionがあれば強制
+        action_info_raw->GetInfo(),
+        action_info_raw->GetAuxData()    // AuxはAgentが生成した内容
+    );
 
     // 環境ステップ実行
     auto result = env_->Step(action_info, run_mode_);    // next_state, reward, done, truncated
-    ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info.ToString());
+    ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info->ToString());
     ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result->next_state.ToString());
     ANET_LOG_DEBUG("step=" << train_step << " continue_state=" << result->continue_state.ToString());
     ANET_LOG_DEBUG("step=" << train_step << " reward=" << anet::ToString(result->reward));
@@ -371,7 +371,7 @@ StepCounts SerialTrainRunner::DoStep()
     // 行動選択
     auto action_info = actor_->MakeAction(step_counts_, state_);
     //ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info.ToString());
-    ANET_ASSERT_SHAPE(action_info.GetAction(), {N});
+    ANET_ASSERT_SHAPE(action_info->GetAction(), {N});
 
     anet::ProfileRange r3("SerialTrainRunner::DoStep.envStep", r2);
 

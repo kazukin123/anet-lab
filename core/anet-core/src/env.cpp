@@ -310,20 +310,20 @@ std::shared_ptr<const BatchResetResult> VectorizedDiscreteBatchEnv::Reset(RunMod
     return result;
 }
 
-std::shared_ptr<const BatchStepResult> VectorizedDiscreteBatchEnv::Step(const BatchActionInfo& batch_action, RunMode mode)
+std::shared_ptr<const BatchStepResult> VectorizedDiscreteBatchEnv::Step(std::shared_ptr<BatchActionInfo> action_info, RunMode mode)
 {
     ProfileRange r("VectorizedDiscreteBatchEnv::Step");
 
     const int64_t N = batch_spec_.batch_size;
 
-    ANET_ASSERT_DTYPE_MSG(batch_action.GetAction(), torch::kInt64,
+    ANET_ASSERT_DTYPE_MSG(action_info->GetAction(), torch::kInt64,
         "VectorizedDiscreteBatchEnv supports discrete action only. actions should be kInt64.");
-    ANET_ASSERT_SHAPE(batch_action.GetAction(), {N});
+    ANET_ASSERT_SHAPE(action_info->GetAction(), {N});
 
     // 戻りの枠生成
     auto result = getStepResult();
 
-    auto actions = batch_action.GetAction(device_);
+    auto actions = action_info->GetAction(device_);
     // ----- 環境を順次実行して埋める -----
     for (int i = 0; i < N; ++i) {
         auto a = actions[i].item<int64_t>();
@@ -438,22 +438,22 @@ std::shared_ptr<const BatchResetResult>  ThreadPoolDiscreteEnv::Reset(RunMode mo
     return result;
 }
 
-std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(const BatchActionInfo& batch_action, RunMode mode)
+std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(std::shared_ptr<BatchActionInfo> action_info, RunMode mode)
 {
     ProfileRange r("ThreadPoolDiscreteEnv::Step");
 
     const int N = batch_size_;
-    ANET_LOG_DEBUG("action=" << anet::ToString(batch_action.GetAction()));
-    ANET_ASSERT_DTYPE_MSG(batch_action.GetAction(), torch::kInt64,
+    ANET_LOG_DEBUG("action=" << anet::ToString(action_info->GetAction()));
+    ANET_ASSERT_DTYPE_MSG(action_info->GetAction(), torch::kInt64,
         "ThreadPoolDiscreteEnv supports discrete action only. actions should be kInt64.");
-    ANET_ASSERT_SHAPE(batch_action.GetAction(), {N});
+    ANET_ASSERT_SHAPE(action_info->GetAction(), {N});
     const int worker_count = pool_->GetWorkerCount();
     ANET_ASSERT(worker_count > 0);
 
     // --- 返却バッファ ---
     auto result = getStepResult();
 
-    auto actions = batch_action.GetAction(this->device_);
+    auto actions = action_info->GetAction(this->device_);
 
     // --- 並列に Step + 結果書き込み ---
     for (int i = 0; i < N; ++i) {
