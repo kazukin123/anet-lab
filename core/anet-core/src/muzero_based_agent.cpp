@@ -531,8 +531,8 @@ std::unique_ptr<anet::graphviz::GraphViz> MCTSTree::CreateGraph(std::optional<in
                 auto& dot_child = tree->AddNode(child_id, node_style);
                 dot_child.label
                     .SetTitle("State (#" + std::to_string(child_display_id) + ")") // タイトルにノード番号を振る
-                    .AddAttr("V", edge->child->value)
-                    .AddAttr("N", edge->child->visit_count);
+                    .AddAttr("N", edge->child->visit_count)
+                    .AddAttr("V", edge->child->value);
 
                 q.push({ edge->child, child_id });
             } else {

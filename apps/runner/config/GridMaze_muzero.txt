@@ -83,7 +83,9 @@ agent.class_id = MuZeroAgent
 # graph metrics
 # ==============================================================================
 
-metrics.graph.[01_mcts] = $action mcts_tree @train interval:100
+#metrics.graph.[01_mcts] = $action mcts_tree @train interval:100
+metrics.graph.[01_mcts] = $action mcts_tree episode_interval:50
+#metrics.graph.[01_mcts] = key:mcts_tree target:action interval:1000 episode_interval:50
 
 
 # ==============================================================================

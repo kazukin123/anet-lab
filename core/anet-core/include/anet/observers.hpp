@@ -364,19 +364,24 @@ namespace anet::rl {
     public:
         GraphVizObserver(
             const std::string& tag,
-            int interval,
+            int step_interval,           ///< 既存のステップ間隔 (-1で無効)
+            int episode_interval,        ///< 新規のエピソード間隔 (-1で無効)
             const std::string& provider_key,
             std::optional<anet::rl::EventField> event_field);
 
         void OnTrain(const TrainEvent& event) override;
         std::string GetClassName() const override { return "GraphVizObserver"; }
-
     private:
-        int interval_;
+        const anet::graphviz::GraphVizProvider* FindProvider(const TrainEvent& event) const;
+    private:
+        int step_interval_;
+        int episode_interval_;
         std::string provider_key_;
         std::optional<anet::rl::EventField> event_field_;
 
-        const anet::graphviz::GraphVizProvider* FindProvider(const TrainEvent& event) const;
+        // エピソードキャプチャ用の状態
+        bool is_recording_ = false;
+        int local_episode_count_ = 0;
     };
 
 

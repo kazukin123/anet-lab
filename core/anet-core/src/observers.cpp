@@ -914,12 +914,15 @@ void MetricsLogObserverBase::OnUpdate(const UpdateEvent& event)
 // ===========================================================================
 
 GraphVizObserver::GraphVizObserver(
-    const std::string& tag, int interval, const std::string& provider_key,
+    const std::string& tag, int step_interval, int episode_interval, const std::string& provider_key,
     std::optional<anet::rl::EventField> event_field)
-    : TaggedTrainObserver(tag), interval_(interval)
+    : TaggedTrainObserver(tag)
+    , step_interval_(step_interval), episode_interval_(episode_interval)
     , provider_key_(provider_key), event_field_(event_field)
 {
-    ;
+    LOG::info() << "GraphVizObserver() tag=" << tag
+        << " step_interval=" << step_interval_
+        << " episode_interval=" << episode_interval_;
 }
 
 const anet::graphviz::GraphVizProvider* GraphVizObserver::FindProvider(const TrainEvent& event) const
@@ -942,17 +945,52 @@ void GraphVizObserver::OnTrain(const TrainEvent& event)
     anet::ProfileRange r("GraphVizObserver::OnTrain");
 
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);
-    if (interval_ <= 0 || step % interval_ != 0) return;
+    const auto& state = event.experience.state;
+    const auto& next_state = event.experience.next_state;
 
-    // Provider を探す
+    // エピソード録画の開始・終了判定
+    if (episode_interval_ > 0) {
+        if (state.IsEpisodeStart()) {
+            if (is_recording_) {
+                LOG::warn() << "GraphVizObserver: force-ended due to unexpected episode_start.";
+                is_recording_ = false;
+            }
+            if (local_episode_count_ % episode_interval_ == 0) {
+                is_recording_ = true;
+                LOG::info() << "GraphVizObserver: Episode capture started. episode=" << local_episode_count_;
+            }
+            local_episode_count_++;
+        }
+    }
+
+    // 出力すべきタイミングかどうかの判定
+    bool should_output = false;
+
+    // パターンA: エピソード録画中
+    if (is_recording_) {
+        should_output = true;
+    }
+    // パターンB: 通常のステップインターバル
+    else if (step_interval_ > 0 && step % step_interval_ == 0) {
+        should_output = true;
+    }
+
+    if (!should_output) return;
+
+    // グラフの生成と出力
     const auto* provider = FindProvider(event);
     if (!provider) return;
-
-    // グラフの生成要求（MCTSのツリー構築などの重い処理が走る）
-    auto graph = provider->CreateGraph(provider_key_, 0);   // 最初のindexの結果を出力
+    auto graph = provider->CreateGraph(provider_key_, 0);
     if (!graph) return;
 
+    // グラフ出力
     anet::MetricsLogger::Instance()->Log(tag_, step, *graph);
+
+    // エピーソード録画終了判定
+    if (is_recording_ && (next_state.IsDone() || next_state.IsTruncated())) {
+        LOG::info() << "GraphVizObserver: Episode capture ended. step=" << step;
+        is_recording_ = false;
+    }
 }
 
 
@@ -1142,19 +1180,10 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
 
             std::optional<std::string> key_opt;
             std::optional<anet::rl::EventField> field_opt;
-            int interval = 1;
+            int step_interval = -1;    // デフォルト無効
+            int episode_interval = -1; // デフォルト無効
 
             for (auto v : values) {
-                //if (v == "$agent") {
-                //    field_opt = EventField::AGENT;
-                //} else if (v == "$env") {
-                //    field_opt = EventField::ENV;
-                //} else if (v == "$batch_experience" || v == "$exp") {
-                //    field_opt = EventField::EXPERIENCE;
-                //} else if (v == "$batch_update_result" || v == "$update_result" || v == "$result") {
-                //    field_opt = EventField::UPDATE_RESULT;
-                //} else if (v == "$runner") {
-                //    field_opt = EventField::RUNNER;
                 if (v == "$action" || v == "$action_info") {
                     field_opt = EventField::ACTION_INFO;
                 } else {
@@ -1166,23 +1195,18 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                         if (attr_key == "key") {
                             key_opt = attr_val;
                         } else if (attr_key == "target") {
-                            //if (attr_val == "agent") field_opt = EventField::AGENT;
-                            //else if (attr_val == "env") field_opt = EventField::ENV;
-                            //else if (attr_val == "batch_experience" || attr_val == "exp") field_opt = EventField::EXPERIENCE;
-                            //else if (attr_val == "batch_update_result" || attr_val == "update_result" || attr_val == "result") field_opt = EventField::UPDATE_RESULT;
-                            //else if (attr_val == "runner") field_opt = EventField::RUNNER;
                             if (attr_val == "action" || attr_val == "action_info") field_opt = EventField::ACTION_INFO;
                             else {
                                 LOG::warn() << "Unknown target value for graph. attr_val=" << attr_val;
                             }
-                        } else if (attr_key == "interval") {
-                            interval = std::stoi(attr_val);
+                        } else if (attr_key == "interval" || attr_key == "step_interval") {
+                            step_interval = std::stoi(attr_val);
+                        } else if (attr_key == "episode_interval" || attr_key == "eps_interval") {
+                            episode_interval = std::stoi(attr_val);
                         } else {
                             LOG::warn() << "Unknown attribute key for graph. attr_key=" << attr_key;
                         }
                     } else {
-                        // "key:" などの指定がない場合は単独文字列を key として扱う
-                        // ただし既に @train などの特殊トークンではないことが前提
                         if (v.rfind("@", 0) != 0 && v.rfind("$", 0) != 0) {
                             key_opt = v;
                         }
@@ -1195,8 +1219,14 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                 continue;
             }
 
-            // GraphVizObserverのインスタンス化と登録 (TrainObserverとして登録)
-            auto graph_obs = std::make_shared<GraphVizObserver>(graph_metrics_tag, interval, *key_opt, field_opt);
+            // 万が一どちらも指定されていなければ、安全のためstep_interval=1000にしておくなど適宜調整
+            if (step_interval <= 0 && episode_interval <= 0) {
+                step_interval = 1000;
+            }
+
+            // GraphVizObserverのインスタンス化と登録
+            auto graph_obs = std::make_shared<GraphVizObserver>(
+                graph_metrics_tag, step_interval, episode_interval, *key_opt, field_opt);
             train_observers_.push_back(graph_obs);
 
             // 次のループへ（スカラー処理等との重複を避ける）
