@@ -15,7 +15,8 @@ namespace LOG = anet::log;
 // ImageSource
 // ============================================================
 
-wxImage anet::ImageSource::Render(int width, int height) const {
+wxImage anet::ImageSource::Render(int width, int height) const
+{
 	ProfileRange r("ImageSource::Render");
 
 	wxImage src = RenderRaw();
@@ -30,7 +31,8 @@ wxImage anet::ImageSource::Render(int width, int height) const {
 	return src.Scale(width, height, wxIMAGE_QUALITY_NORMAL);
 }
 
-void anet::ImageSource::SavePng(const std::string& filename, int width, int height) const {
+void anet::ImageSource::SavePng(const std::string& filename, int width, int height) const
+{
 	std::filesystem::path path(filename);
 	if (!path.parent_path().empty()) std::filesystem::create_directories(path.parent_path());
 	wxImage img = Render(width, height);
@@ -343,18 +345,21 @@ static std::shared_ptr<Conv2dVisualizationObserver> MakeConv2dVisualizationObser
 	return obs;
 }
 
+
 // ============================================================
 // Conv2dVisualizer
 // ============================================================
 
 // モノクロ (グレースケール)
-void ValueToRGB_Gray(float norm, unsigned char& r, unsigned char& g, unsigned char& b) {
+void ValueToRGB_Gray(float norm, unsigned char& r, unsigned char& g, unsigned char& b)
+{
 	unsigned char p = static_cast<unsigned char>(std::clamp(norm, 0.0f, 1.0f) * 255.0f);
 	r = p; g = p; b = p;
 }
 
 // Jet (ただし 0 は黒)
-void ValueToRGB_JetBlack(float norm, unsigned char& r, unsigned char& g, unsigned char& b) {
+void ValueToRGB_JetBlack(float norm, unsigned char& r, unsigned char& g, unsigned char& b)
+{
 	// ReLUなどで完全に発火していない部分(0)を黒に落とす
 	if (norm <= 1e-5f) { r = 0; g = 0; b = 0; return;	}
 
@@ -377,7 +382,8 @@ void ValueToRGB_JetBlack(float norm, unsigned char& r, unsigned char& g, unsigne
 }
 
 // Hot (Infernoライク: 黒 -> 赤 -> 黄 -> 白)
-void ValueToRGB_Hot(float norm, unsigned char& r, unsigned char& g, unsigned char& b) {
+void ValueToRGB_Hot(float norm, unsigned char& r, unsigned char& g, unsigned char& b)
+{
 	norm = std::clamp(norm, 0.0f, 1.0f);
 	r = static_cast<unsigned char>(std::clamp(norm * 3.0f, 0.0f, 1.0f) * 255.0f);
 	g = static_cast<unsigned char>(std::clamp(norm * 3.0f - 1.0f, 0.0f, 1.0f) * 255.0f);
