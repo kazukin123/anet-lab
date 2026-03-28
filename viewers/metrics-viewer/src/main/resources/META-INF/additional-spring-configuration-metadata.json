@@ -1,0 +1,26 @@
+{"properties": [
+  {
+    "name": "metricsviewer.decimation.enabled",
+    "type": "java.lang.Boolean",
+    "description": "サーバーサイド間引きを行うか",
+    "defaultValue": true
+  },
+  {
+    "name": "metricsviewer.runs-dir",
+    "type": "java.lang.String",
+    "description": "Runsディレクトリ",
+    "defaultValue": "runs"
+  },
+  {
+    "name": "metricsviewer.max-transfer-points-initial",
+    "type": "java.lang.Integer",
+    "description": "サーバーサイド間引きの初回リクエストでの最大ポイント数",
+    "defaultValue": 30000
+  },
+  {
+    "name": "metricsviewer.max-transfer-points-delta",
+    "type": "java.lang.String",
+    "description": "サーバーサイド間引きの2回目以降のリクエストでの最大ポイント数",
+    "defaultValue": 10000
+  }
+]}

@@ -22,9 +22,9 @@ import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricsFileBlock;
 @Component
 public class LoadingThread extends Thread {
 
-	private static final int SLEEP_MS = 100;
-	private static final int MAX_LINES = 100000;
-	private static final int SAVE_INTERVAL_BLOCKS = 20;
+	private static final int SLEEP_MS = 1000;
+	private static final int MAX_LINES = 1000000;
+	private static final int SAVE_INTERVAL_BLOCKS = 100;
 
 	private static final Logger log = LoggerFactory.getLogger(LoadingThread.class);
 
@@ -127,6 +127,7 @@ public class LoadingThread extends Thread {
 				// 未セーブが一定量溜まったらファイル書き出し
 				final int dirtyCount = saveCounter.merge(runId, 1, Integer::sum);
 				if (dirtyCount >= SAVE_INTERVAL_BLOCKS) {
+					log.info("Saving cache. runId={} dirtyCount={}", runId, dirtyCount);
 					metricsRepository.saveCache(runDir, runId);
 					saveCounter.put(runId, 0);
 				}

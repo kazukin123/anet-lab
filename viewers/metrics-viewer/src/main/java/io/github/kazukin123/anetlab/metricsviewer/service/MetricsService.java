@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import io.github.kazukin123.anetlab.metricsviewer.infra.RunScanner;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetMetricsRequest;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetMetricsResponse;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetRunsResponse;
@@ -28,14 +29,18 @@ public class MetricsService {
 
 	private static final Logger log = LoggerFactory.getLogger(MetricsService.class);
 
+	private final RunScanner runScanner;
 	private final MetricsRepository metricsRepository;
 	private final LoadingThread loadingThread;
 
-	public MetricsService(MetricsRepository metricsRepository, LoadingThread loadingThread) {
+	public MetricsService(RunScanner runScanner,
+			MetricsRepository metricsRepository,
+			LoadingThread loadingThread) {
+		this.runScanner = runScanner;
 		this.metricsRepository = metricsRepository;
 		this.loadingThread = loadingThread;
 	}
-
+	
 	@PostConstruct
 	private void initialize() {
 		log.info("MetricsService initialized. Starting LoadingThread.");
@@ -52,7 +57,7 @@ public class MetricsService {
 	 * Returns run list with tags (used by /api/runs).
 	 */
 	public GetRunsResponse getRuns() {
-		final List<String> runIds = metricsRepository.listAllRunIds();
+		final List<String> runIds = runScanner.listRunId();
 
 		// Run情報を生成
 		final List<RunInfo> runs = new ArrayList<>();

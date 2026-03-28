@@ -47,7 +47,7 @@ public class MetricsRepository {
 	private final Map<String, MetricsSnapshot> runSnapshotMap = new ConcurrentHashMap<>(); // runId → MetricsSnapshot
 	private final Kryo kryo = new Kryo();
 
-	@Value("${metricsviewer.max-transfer-points-initial:15000}")
+	@Value("${metricsviewer.max-transfer-points-initial:30000}")
 	private int maxTransferPointsInitial;
 
 	@Value("${metricsviewer.max-transfer-points-delta:5000}")
