@@ -34,19 +34,25 @@ DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy
 
 #net.body.$ = net.body.SuikaResNet4064_06
 #net.body.$ = net.body.SuikaResNet4064_10
-#net.body.$ = net.body.SuikaResNet4064_10d_64  # ☆
+#net.body.$ = net.body.SuikaResNet4064_10d_64
 #net.body.$ = net.body.SuikaResNet4064_18
 #net.body.$ = net.body.SuikaResNet4064_10d     # ☆
 
-#net.body.$ = net.body.SuikaViT_Flatten
-#net.body.$ = net.body.SuikaViT_Small
-#net.body.$ = net.body.SuikaHybrid_Flatten
-#net.body.$ = net.body.SuikaHybrid_Small
-
 #net.body.$ = net.body.SuikaResNetD_Control
 #net.body.$ = net.body.SuikaResNetD_ViT
-net.body.$ = net.body.SuikaResNet_ViT    # ★
+#net.body.$ = net.body.SuikaResNet_ViT
 
+#net.body.$ = net.body.SuikaViT_Flatten
+#net.body.$ = net.body.SuikaViT_Small
+
+#net.body.$ = net.body.SuikaHybrid_Small
+#net.body.$ = net.body.SuikaHybrid_Flatten_128  # ★
+#net.body.$ = net.body.SuikaHybrid_Flatten_256
+#net.body.$ = net.body.SuikaHybrid_Flatten_128g8
+#net.body.$ = net.body.SuikaHybrid_CLS_128
+#net.body.$ = net.body.SuikaHybrid_CLS_256_LC
+#net.body.$ = net.body.SuikaHybrid_GAP_128
+net.body.$ = net.body.SuikaHybrid_Flatten_128HR
 
 
 # ==============================================================================
@@ -58,14 +64,23 @@ net.body.$ = net.body.SuikaResNet_ViT    # ★
 #app.run_name = run_{t}_heavy_Res
 #app.run_name = run_{t}_heavy_ViT
 #app.run_name = run_{t}_heavy_ViT_BF16
-app.run_name = run_{t}_heavy_ViT_nh8
+#app.run_name = run_{t}_heavy_ViT_nh8
+#app.run_name = run_{t}_heavy_ViT_large
+#app.run_name = run_{t}_heavy_ViT_256
+#app.run_name = run_{t}_heavy_ViT_128g8
+#app.run_name = run_{t}_heavy_ViT_128CLS
+#app.run_name = run_{t}_ViT_256CLS_LC
+#app.run_name = run_{t}_ViT_128GAP
+#app.run_name = run_{t}_ViT_128HR
+
+#R.learner.update_warmup_steps = 51,200
 
 #R.learner.replay_ratio = 4.0
 
 #R.stucker.use_stacker = false
 
 #E.action_mode = direct      # move move_fast direct direct_noop
-#E.action_mode = direct_noop  # move move_fast direct direct_noop
+#E.action_mode = direct_noop # move move_fast direct direct_noop
 
 #E.settle_max_steps = 1000   # 500
 #E.settle_max_steps = 300   # 500
@@ -81,6 +96,7 @@ app.run_name = run_{t}_heavy_ViT_nh8
 #E.settle_angular_threshold = 1.0  # 0.1 安定判定の角速度閾値 (rad/s)
 
 #R.learner.replay_capacity = 524,288          # 262,144 524,288 1,048,576
+#R.learner.replay_capacity =  1,048,576
 
 #R.target_policy.uqe_tau_start = 0.85
 
@@ -94,7 +110,6 @@ app.run_name = run_{t}_heavy_ViT_nh8
 #R.eval_policy.policy_type = UQE
 #R.eval_policy.uqe_tau_start = 0.65
 
-
 #R.train_policy.policy_type = EpsilonGreedy
 #R.train_policy.policy_type = UQE
 #R.train_policy.policy_type = ThompsonSampling
@@ -107,11 +122,9 @@ app.run_name = run_{t}_heavy_ViT_nh8
 #R.train_policy.eps_decay_steps = 10,000,000  # 10M for EpsilonGreedy
 #R.train_policy.eps_decay_steps = 30,000,000  # 30M for EpsilonGreedy
 
-
 #R.eval_policy.policy_type = EpsilonGreedy
 #R.eval_policy.eps_start = 0.05
 #R.eval_policy.eps_end = 0.05
-
 
 #E.no_drop_timeout_steps = 500 # 物性安定待ち挙動に対応
 #E.no_drop_timeout_steps = 300
@@ -172,7 +185,7 @@ app.run_name = run_{t}_heavy_ViT_nh8
 #E.use_fast_move = false
 #E.use_instant_drop = false
 
-#A.learner.adam_eps = 1.5e-4
+#R.learner.adam_eps = 1.5e-4
 
 #R.train_policy.uqe_eps_start = 1.00
 
@@ -253,10 +266,13 @@ BF16.agent.learner.adam_eps = 1e-4   # AMP有効時は大きめにする
 # ==============================================================================
 
 #app.online.exp_pause_step  = 200,000,000    # 200M
-app.online.exp_pause_step  = 100,000,000      # 100M
+app.online.exp_pause_step  = 160,000,000    # 160M
+#app.online.exp_pause_step  = 100,000,000      # 100M
 #app.online.exp_pause_step  = 20,000,000      # 20M
 #app.online.exp_pause_step  = 40,000,000      # 40M
-app.batchrun.exp_exit_step  = 40,000,000     # 40M
+
+app.batchrun.exp_exit_step  = 160,000,000     # 160M
+#app.batchrun.exp_exit_step  = 40,000,000     # 40M
 #app.batchrun.exp_exit_step  = 20,000,000     # 20M
 
 #A.train_policy.uqe_eps_decay_steps = 2,000,000      # 2M
@@ -266,10 +282,12 @@ A.train_policy.uqe_eps_decay_steps = 10,000,000      # 10M
 #A.train_policy.uqe_tau_decay_steps = 2,000,000   # 2M
 #A.train_policy.uqe_tau_decay_steps = 10,000,000   # 10M
 A.train_policy.uqe_tau_decay_steps = 20,000,000   # 20M
+#A.train_policy.uqe_tau_decay_steps = 40,000,000   # 40M
 #A.train_policy.uqe_tau_decay_steps = 100,000,000 # 100M
 
 A.learner.per_beta_step = 10,000,000              # 10M
 #A.learner.per_beta_step = 20,000,000              # 20M
+#A.learner.per_beta_step = 40,000,000              # 40M
 #A.learner.per_beta_step = 100,000,000            # 100M
 
 
@@ -445,11 +463,17 @@ net.block.[ResBlock32d4].res.kernel_size = 3
 net.block.[ResBlock32d4].res.activation = silu
 net.block.[ResBlock32d4].res.dilation = 4
 
-
 net.block.[ResBlock64].type = ResBlock
 net.block.[ResBlock64].res.channels = 64
 net.block.[ResBlock64].res.kernel_size = 3
 net.block.[ResBlock64].res.activation = silu
+
+net.block.[ResBlock64g8].type = ResBlock
+net.block.[ResBlock64g8].res.channels = 64
+net.block.[ResBlock64g8].res.kernel_size = 3
+net.block.[ResBlock64g8].res.activation = silu
+net.block.[ResBlock64g8].res.norm_type = group
+net.block.[ResBlock64g8].res.group_norm_groups = 8
 
 net.block.[ResBlock64d2].type = ResBlock
 net.block.[ResBlock64d2].res.channels = 64
@@ -493,28 +517,68 @@ net.block.[ViT_PatchConv].conv.kernel_size = 3
 net.block.[ViT_PatchConv].conv.stride = 2
 net.block.[ViT_PatchConv].conv.padding = 1
 
+# ResBlockが抽出した高解像度(20x32)な特徴を、
+# Transformerへ渡す直前に(10x16 = 160トークン)へと圧縮する橋渡しレイヤー
+net.block.[ConvDown64].type = Conv2d
+net.block.[ConvDown64].conv.out_channels = 64
+net.block.[ConvDown64].conv.kernel_size = 3
+net.block.[ConvDown64].conv.stride = 2
+net.block.[ConvDown64].conv.padding = 1
+
 # d_model にチャンネル数を合わせるプロジェクション層
-net.block.[ViT_Proj32].type = Conv2d
-net.block.[ViT_Proj32].conv.out_channels = 128
-net.block.[ViT_Proj32].conv.kernel_size = 1
-net.block.[ViT_Proj32].conv.stride = 1
-net.block.[ViT_Proj32].conv.padding = 0
+net.block.[ViT_Proj_128].type = Conv2d
+net.block.[ViT_Proj_128].conv.out_channels = 128
+net.block.[ViT_Proj_128].conv.kernel_size = 1
+net.block.[ViT_Proj_128].conv.stride = 1
+net.block.[ViT_Proj_128].conv.padding = 0
+
+net.block.[ViT_Proj_256].type = Conv2d
+net.block.[ViT_Proj_256].conv.out_channels = 256
+net.block.[ViT_Proj_256].conv.kernel_size = 1
+net.block.[ViT_Proj_256].conv.stride = 1
+net.block.[ViT_Proj_256].conv.padding = 0
 
 # Transformer Encoder
-net.block.[TransEnc].type = TransformerEncoder
-net.block.[TransEnc].tf.d_model = 128
-net.block.[TransEnc].tf.nhead = 4
-net.block.[TransEnc].tf.num_layers = 4
-net.block.[TransEnc].tf.dim_feedforward = 512
-#net.block.[TransEnc].tf.activation = gelu
-#net.block.[TransEnc].tf.norm_first = true
+net.block.[TransEnc_128].type = TransformerEncoder
+net.block.[TransEnc_128].tf.d_model = 128
+net.block.[TransEnc_128].tf.nhead = 8
+net.block.[TransEnc_128].tf.num_layers = 4
+net.block.[TransEnc_128].tf.dim_feedforward = 512
+
+
+net.block.[TransEnc_256].type = TransformerEncoder
+net.block.[TransEnc_256].tf.d_model = 256
+net.block.[TransEnc_256].tf.nhead = 8
+net.block.[TransEnc_256].tf.num_layers = 6
+net.block.[TransEnc_256].tf.dim_feedforward = 1024
+
+net.block.[GroupNorm_64g8].type = GroupNorm
+net.block.[GroupNorm_64g8].num_channels = 64
+net.block.[GroupNorm_64g8].num_groups = 8
+
+net.block.[GroupNorm_128g8].type = GroupNorm
+net.block.[GroupNorm_128g8].num_channels = 128
+net.block.[GroupNorm_128g8].num_groups = 8
 
 
 # [SuikaViT_Flatten]    空間埋め込み(Stack吸収) -> パッチ化 -> d_model圧縮 -> 位置情報付与 -> Transformer -> 平坦化
-net.body.SuikaViT_Flatten.structure = Embed4064 >  ViT_PatchConv > SiLU > ViT_Proj32 > SiLU > PosEmbed2D > TransEnc > Flatten
+net.body.SuikaViT_Flatten.structure = Embed4064 >  ViT_PatchConv > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc > Flatten
 
 # [SuikaHybrid_Flatten] ResNet + ViT
-net.body.SuikaHybrid_Flatten.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64 > ResBlock64 > ViT_Proj32 > SiLU > PosEmbed2D > TransEnc > Flatten
+net.body.SuikaHybrid_Flatten_128.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
+net.body.SuikaHybrid_Flatten_128g8.structure = Embed4064 > ConvInit64 > GroupNorm_64g8 > SiLU > ResBlock64g8(*4) > ConvDown64 > GroupNorm_64g8 > SiLU > ViT_Proj_128 > GroupNorm_128g8 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
+net.body.SuikaHybrid_Flatten_256.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_256 > SiLU > PosEmbed2D > TransEnc_256 > Flatten
+
+# [SuikaHybrid_CLS] ResNet + ViT + CLS
+net.body.SuikaHybrid_CLS_128.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > ClsAppend > TransEnc_128 > ClsExtract
+net.body.SuikaHybrid_CLS_256.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_256 > SiLU > PosEmbed2D > ClsAppend > TransEnc_256 > ClsExtract
+net.body.SuikaHybrid_CLS_256_LC.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*2) > ConvDown64 > SiLU > ViT_Proj_256 > SiLU > PosEmbed2D > ClsAppend > TransEnc_256 > ClsExtract
+
+net.body.SuikaHybrid_GAP_128.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > GAP1D
+net.body.SuikaHybrid_GAP_256.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_256 > SiLU > PosEmbed2D > TransEnc_256 > GAP1D
+
+net.body.SuikaHybrid_Flatten_128HR.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
+net.body.SuikaHybrid_Flatten_256HR.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ViT_Proj_256 > SiLU > PosEmbed2D > TransEnc_256 > Flatten
 
 
 # ==============================================================================
@@ -529,32 +593,26 @@ net.block.[ViT_PatchConv_S].conv.kernel_size = 5
 net.block.[ViT_PatchConv_S].conv.stride = 4
 net.block.[ViT_PatchConv_S].conv.padding = 2
 
-# ResBlockが抽出した高解像度(20x32)な特徴を、
-# Transformerへ渡す直前に(10x16 = 160トークン)へと圧縮する橋渡しレイヤー
-net.block.[ConvDown64].type = Conv2d
-net.block.[ConvDown64].conv.out_channels = 64
-net.block.[ConvDown64].conv.kernel_size = 3
-net.block.[ConvDown64].conv.stride = 2
-net.block.[ConvDown64].conv.padding = 1
+
 
 # 次元圧縮 (d_model = 64)
-net.block.[ViT_Proj_S].type = Conv2d
-net.block.[ViT_Proj_S].conv.out_channels = 64    # ★
-net.block.[ViT_Proj_S].conv.kernel_size = 1
+net.block.[ViT_Proj_64].type = Conv2d
+net.block.[ViT_Proj_64].conv.out_channels = 64    # ★
+net.block.[ViT_Proj_64].conv.kernel_size = 1
 
 # Transformer Encoder (軽量版)
-net.block.[TransEnc_S].type = TransformerEncoder
-net.block.[TransEnc_S].tf.d_model = 64           # ★
-#net.block.[TransEnc_S].tf.nhead = 4
-net.block.[TransEnc_S].tf.nhead = 8
-net.block.[TransEnc_S].tf.num_layers = 2         # ★
-net.block.[TransEnc_S].tf.dim_feedforward = 256
+net.block.[TransEnc_64].type = TransformerEncoder
+net.block.[TransEnc_64].tf.d_model = 64           # ★
+#net.block.[TransEnc_64].tf.nhead = 4
+net.block.[TransEnc_64].tf.nhead = 8
+net.block.[TransEnc_64].tf.num_layers = 2         # ★
+net.block.[TransEnc_64].tf.dim_feedforward = 256
 
 # SuikaViT_Small
-net.body.SuikaViT_Small.structure = Embed4064 > ViT_PatchConv_S > SiLU > ViT_Proj_S > SiLU > PosEmbed2D > TransEnc_S > Flatten
+net.body.SuikaViT_Small.structure = Embed4064 > ViT_PatchConv_S > SiLU > ViT_Proj_64 > SiLU > PosEmbed2D > TransEnc_64 > Flatten
 
 # CNNの目(高解像度) ＋ 空間圧縮 ＋ ViTの脳(軽量)
-net.body.SuikaHybrid_Small.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64 > ResBlock64 > ConvDown64 > SiLU > ViT_Proj_S > SiLU > PosEmbed2D > TransEnc_S > Flatten
+net.body.SuikaHybrid_Small.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64 > ResBlock64 > ConvDown64 > SiLU > ViT_Proj_64 > SiLU > PosEmbed2D > TransEnc_64 > Flatten
 
 
 # ==============================================================================
