@@ -48,7 +48,7 @@ anet::rl::EnvSpec LunarLanderEnv::GetSpec() const
         .type = anet::rl::SpaceType::Vector,
         .shape = { 8 },
         .dtype = torch::kFloat32,
-        .num_classes = 0,
+        .num_classes = 0,   // 連続値
         .labels = { "x", "y", "vx", "vy", "angle", "v_angle", "leg_l", "leg_r" },
         .min_values = { -1.5, -0.5, -5.0, -5.0, -3.14, -5.0, 0.0, 0.0 },
         .max_values = {  1.5,  2.0,  5.0,  5.0,  3.14,  5.0, 1.0, 1.0 }

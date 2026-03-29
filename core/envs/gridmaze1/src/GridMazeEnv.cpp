@@ -54,7 +54,7 @@ anet::rl::EnvSpec GridMazeEnv::GetSpec() const
         .type = anet::rl::SpaceType::Vector,
         .shape = { 2 },
         .dtype = torch::kFloat32,
-        .num_classes = 0,
+        .num_classes = 0,   // 連続値
         .labels = { "x", "y" },
         .min_values = { 0.0f, 0.0f },
         .max_values = { 1.0f, 1.0f }
