@@ -112,7 +112,7 @@ void RunningMeanStd::updateFromBatchStats(const torch::Tensor& batch_mean, const
 // ObservationNormalizer
 // =============================================================
 
-ConstantObservationNormalizer::ConstantObservationNormalizer(bool pass_through,
+ConstantSingleTensorNormalizer::ConstantSingleTensorNormalizer(bool pass_through,
     const std::vector<int64_t>& shape, const std::optional<float>& clip_range,
     const std::vector<float>& fixed_mean, const std::vector<float>& fixed_std)
     : pass_through_(pass_through), shape_(shape), clip_range_(clip_range)
@@ -132,15 +132,15 @@ ConstantObservationNormalizer::ConstantObservationNormalizer(bool pass_through,
     }
 }
 
-void ConstantObservationNormalizer::Reset()
+void ConstantSingleTensorNormalizer::Reset()
 {
     last_clip_ratio_ = 0.0f;
 }
 
 std::pair<torch::Tensor, float>
-ConstantObservationNormalizer::normalizeInternal(const torch::Tensor& obs) const
+ConstantSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs) const
 {
-    ProfileRange r("ConstantObservationNormalizer::Normalize");
+    ProfileRange r("ConstantSingleTensorNormalizer::Normalize");
     
     if (pass_through_) return { obs, 0.0f };
 
@@ -171,31 +171,31 @@ ConstantObservationNormalizer::normalizeInternal(const torch::Tensor& obs) const
     return { normalized, clipped };
 }
 
-torch::Tensor ConstantObservationNormalizer::Normalize(const torch::Tensor& obs) const
+torch::Tensor ConstantSingleTensorNormalizer::Normalize(const torch::Tensor& obs) const
 {
     auto result = normalizeInternal(obs);
     return result.first;
 }
 
-torch::Tensor ConstantObservationNormalizer::NormalizeAndUpdateStats(const torch::Tensor& obs)
+torch::Tensor ConstantSingleTensorNormalizer::NormalizeAndUpdateStats(const torch::Tensor& obs)
 {
     auto result = normalizeInternal(obs);
     this->last_clip_ratio_ = result.second;
     return result.first;
 }
 
-std::optional<float> ConstantObservationNormalizer::GetScalar(const std::string& key, int64_t index) const
+std::optional<float> ConstantSingleTensorNormalizer::GetScalar(const std::string& key, int64_t index) const
 {
-    if (key == kKeyCount) return std::numeric_limits<float>::quiet_NaN();
-    if (key == kKeyMeanMean) return std::numeric_limits<float>::quiet_NaN();
-    if (key == kKeyStdMean) return std::numeric_limits<float>::quiet_NaN();
-    if (key == kKeyClipRatio) return last_clip_ratio_;
-    if (key == kKeyRobustOutlierRatio) return std::numeric_limits<float>::quiet_NaN();
+    if (key == ObservationNormalizer::kKeyCount) return std::numeric_limits<float>::quiet_NaN();
+    if (key == ObservationNormalizer::kKeyMeanMean) return std::numeric_limits<float>::quiet_NaN();
+    if (key == ObservationNormalizer::kKeyStdMean) return std::numeric_limits<float>::quiet_NaN();
+    if (key == ObservationNormalizer::kKeyClipRatio) return last_clip_ratio_;
+    if (key == ObservationNormalizer::kKeyRobustOutlierRatio) return std::numeric_limits<float>::quiet_NaN();
 
     return std::nullopt;
 }
 
-std::optional<torch::Tensor> ConstantObservationNormalizer::GetTensor(const std::string& key, int64_t index) const
+std::optional<torch::Tensor> ConstantSingleTensorNormalizer::GetTensor(const std::string& key, int64_t index) const
 {
     //if (key == kKeyMean) return mean_;
     //if (key == kKeyStd) return std_;
@@ -204,10 +204,10 @@ std::optional<torch::Tensor> ConstantObservationNormalizer::GetTensor(const std:
 }
 
 // =============================================================
-// RunningStdObservationNormalizer
+// RunningStdSingleTensorNormalizer
 // =============================================================
 
-RunningStdObservationNormalizer::RunningStdObservationNormalizer(
+RunningStdSingleTensorNormalizer::RunningStdSingleTensorNormalizer(
     const std::optional<float>& clip_range,
     const std::vector<int64_t>& shape, float epsilon,
     bool use_robust_update, int robust_warmup_count, float robust_std_threshold,
@@ -224,7 +224,7 @@ RunningStdObservationNormalizer::RunningStdObservationNormalizer(
     LOG::info() << "ObservationNormalizer initialized with. shape=" << shape_;
 }
 
-void RunningStdObservationNormalizer::Reset()
+void RunningStdSingleTensorNormalizer::Reset()
 {
     stats_.Reset();
     last_clip_ratio_ = 0.0f;
@@ -232,9 +232,9 @@ void RunningStdObservationNormalizer::Reset()
 }
 
 std::pair<torch::Tensor, float>
-RunningStdObservationNormalizer::normalizeInternal(const torch::Tensor& obs) const
+RunningStdSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs) const
 {
-    ProfileRange r("RunningStdObservationNormalizer::Normalize");
+    ProfileRange r("RunningStdSingleTensorNormalizer::Normalize");
 
     // 型チェック
     ANET_ASSERT_DTYPE(obs, torch::kFloat32);
@@ -323,13 +323,13 @@ RunningStdObservationNormalizer::normalizeInternal(const torch::Tensor& obs) con
     return { normalized, clipped };
 }
 
-torch::Tensor RunningStdObservationNormalizer::Normalize(const torch::Tensor& obs) const
+torch::Tensor RunningStdSingleTensorNormalizer::Normalize(const torch::Tensor& obs) const
 {
     auto result = normalizeInternal(obs);
     return result.first;
 }
 
-torch::Tensor RunningStdObservationNormalizer::NormalizeAndUpdateStats(const torch::Tensor& obs)
+torch::Tensor RunningStdSingleTensorNormalizer::NormalizeAndUpdateStats(const torch::Tensor& obs)
 {
     // 統計更新の前に、入力値を常識的な範囲にクリップする
     // これにより、暴発値で統計（分散）が爆発するのを防ぐ
@@ -386,7 +386,7 @@ torch::Tensor RunningStdObservationNormalizer::NormalizeAndUpdateStats(const tor
 
                 // 全次元が正常な行だけを抽出
                 auto is_outlier_row = is_outlier.view({ obs.size(0), -1 }).any(1); // [B] -> trueならその行に異常あり
-                auto valid_indices = (~is_outlier_row).nonzero().squeeze();
+                auto valid_indices = (~is_outlier_row).nonzero().squeeze(1);
 
                 // DEBUG
                 if (is_outlier_row.any().item<bool>()) {
@@ -430,11 +430,7 @@ torch::Tensor RunningStdObservationNormalizer::NormalizeAndUpdateStats(const tor
 
                 // 全正常な行があればそれらで統計更新
                 if (valid_indices.numel() > 0) {
-                    if (valid_indices.ndimension() == 0) { // 1行だけの場合
-                        stats_.Update(obs.index_select(0, valid_indices.unsqueeze(0)));
-                    } else {
-                        stats_.Update(obs.index_select(0, valid_indices));
-                    }
+                    stats_.Update(obs.index_select(0, valid_indices));
                 }
 
                 // 全部異常なら更新スキップ
@@ -449,23 +445,99 @@ torch::Tensor RunningStdObservationNormalizer::NormalizeAndUpdateStats(const tor
     return result.first;
 } 
 
-std::optional<float> RunningStdObservationNormalizer::GetScalar(const std::string& key, int64_t index) const
+std::optional<float> RunningStdSingleTensorNormalizer::GetScalar(const std::string& key, int64_t index) const
 {
-    if (key == kKeyCount) return static_cast<float>(stats_.GetCount());
-    if (key == kKeyMeanMean) return static_cast<float>(stats_.GetMeanMean());
-    if (key == kKeyStdMean) return static_cast<float>(stats_.GetStdMean());
-    if (key == kKeyClipRatio) return last_clip_ratio_;
-    if (key == kKeyRobustOutlierRatio) return last_outlier_ratio_;
+    if (key == ObservationNormalizer::kKeyCount) return static_cast<float>(stats_.GetCount());
+    if (key == ObservationNormalizer::kKeyMeanMean) return static_cast<float>(stats_.GetMeanMean());
+    if (key == ObservationNormalizer::kKeyStdMean) return static_cast<float>(stats_.GetStdMean());
+    if (key == ObservationNormalizer::kKeyClipRatio) return last_clip_ratio_;
+    if (key == ObservationNormalizer::kKeyRobustOutlierRatio) return last_outlier_ratio_;
 
     return std::nullopt;
 }
 
-std::optional<torch::Tensor> RunningStdObservationNormalizer::GetTensor(const std::string& key, int64_t index) const
+std::optional<torch::Tensor> RunningStdSingleTensorNormalizer::GetTensor(const std::string& key, int64_t index) const
 {
-    if (key == kKeyMean) return stats_.GetMean();
-    if (key == kKeyStd) return stats_.GetStd();
+    if (key == ObservationNormalizer::kKeyMean) return stats_.GetMean();
+    if (key == ObservationNormalizer::kKeyStd) return stats_.GetStd();
 
     return std::nullopt;
+}
+
+
+// =============================================================
+// DictObservationNormalizer
+// =============================================================
+
+void DictObservationNormalizer::AddNormalizer(const std::string& key, std::shared_ptr<SingleTensorNormalizer> normalizer)
+{
+    normalizers_[key] = normalizer;
+}
+
+anet::TensorDict DictObservationNormalizer::Normalize(const anet::TensorDict& obs) const
+{
+    anet::TensorDict result;
+    for (const auto& kv : obs) {
+        auto it = normalizers_.find(kv.first);
+        if (it != normalizers_.end()) {
+            // Normalizerが登録されているKeyは処理
+            result.Set(kv.first, it->second->Normalize(kv.second));
+        } else {
+            // 登録されていないKey (画像やカテゴリIDなど) はそのままPass-through
+            result.Set(kv.first, kv.second);
+        }
+    }
+    return result;
+}
+
+anet::TensorDict DictObservationNormalizer::NormalizeAndUpdateStats(const anet::TensorDict& obs)
+{
+    anet::TensorDict result;
+    for (const auto& kv : obs) {
+        auto it = normalizers_.find(kv.first);
+        if (it != normalizers_.end()) {
+            result.Set(kv.first, it->second->NormalizeAndUpdateStats(kv.second));
+        } else {
+            result.Set(kv.first, kv.second);
+        }
+    }
+    return result;
+}
+
+void DictObservationNormalizer::Reset()
+{
+    for (auto& kv : normalizers_) {
+        kv.second->Reset();
+    }
+}
+
+std::optional<float> DictObservationNormalizer::GetScalar(const std::string& key, int64_t index) const
+{
+	/// @todo 異なる観測空間の統計値を強引に平均せず、max.やmean.で集計方法を指定可能とする
+
+    if (normalizers_.empty()) return std::nullopt;
+
+    float sum = 0.0f;
+    int count = 0;
+    for (const auto& kv : normalizers_) {
+        auto val = kv.second->GetScalar(key, index);
+
+        // 子のNormalizerが1つでも「知らないKey」と判定したら、全体も nullopt を返す
+        if (!val.has_value()) {
+            return std::nullopt;
+        }
+
+        // 統計更新
+        if (!std::isnan(*val)) {
+            sum += *val;
+            count++;
+        }
+    }
+
+    // 全てのNormalizerが値を返したが、すべてNaNだった場合のフェイルセーフ
+    if (count == 0) return 0.0f;
+
+    return sum / static_cast<float>(count);
 }
 
 
@@ -482,21 +554,35 @@ ObservationNormalizerFactory::ObservationNormalizerFactory(const ObservationNorm
 std::shared_ptr<ObservationNormalizer> ObservationNormalizerFactory::CreateObservationNormalizer(
     const StateSpec& state_spec) const
 {
-    auto shape = state_spec.shape;
+    // Keyごとに独立したコンテナを生成
+    auto dict_normalizer = std::make_shared<DictObservationNormalizer>();
 
-    // Clip
-    std::optional<float> clip;
-    if (config_.use_clipping)
-        clip = config_.clip_range;
+    for (const auto& kv : state_spec.obs_spec) {
+        const auto& key = kv.first;
+        const auto& t_spec = kv.second;
 
-    // Scaler生成
-    if (config_.pass_through || !config_.use_dynamic_scaling) {
-        return std::make_shared<ConstantObservationNormalizer>(config_.pass_through, shape, clip, config_.constant_mean, config_.constant_std);
-    } else {
-        return std::make_shared<RunningStdObservationNormalizer>(
-            clip, shape, config_.epsilon, config_.use_robust_update, config_.robust_warmup_count, config_.robust_std_threshold,
-            config_.post_process_type, config_.post_process_threshold, config_.use_centering);
+        // 離散値は正規化してはいけないため、Float系のみNormalizerを作る
+        if (!torch::isFloatingType(t_spec.dtype) || t_spec.num_classes > 0) {
+            continue;
+        }
+
+        std::optional<float> clip;
+        if (config_.use_clipping) clip = config_.clip_range;
+
+        std::shared_ptr<SingleTensorNormalizer> single_norm;
+        if (config_.pass_through || !config_.use_dynamic_scaling) {
+            single_norm = std::make_shared<ConstantSingleTensorNormalizer>(
+                config_.pass_through, t_spec.shape, clip, config_.constant_mean, config_.constant_std);
+        } else {
+            single_norm = std::make_shared<RunningStdSingleTensorNormalizer>(
+                clip, t_spec.shape, config_.epsilon, config_.use_robust_update, config_.robust_warmup_count,
+                config_.robust_std_threshold, config_.post_process_type, config_.post_process_threshold, config_.use_centering);
+        }
+
+        dict_normalizer->AddNormalizer(key, single_norm);
     }
+
+    return dict_normalizer;
 }
 
 // =============================================================
