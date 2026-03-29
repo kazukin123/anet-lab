@@ -4,6 +4,7 @@
 #include <vector>
 #include <deque>
 #include <torch/torch.h>
+#include "anet/tensor_util.hpp"
 #include "anet/rl.hpp"
 #include "anet/agent.hpp"
 
@@ -16,9 +17,27 @@ namespace anet::rl {
     // ----------------------------------------------------------------------
     class FrameStacker {
     public:
-        virtual torch::Tensor Stack(const torch::Tensor& data, const torch::Tensor& resets) = 0;
+        virtual anet::TensorDict Stack(const anet::TensorDict& data, const torch::Tensor& resets) = 0;
         virtual void Reset() = 0;
         virtual ~FrameStacker() = default;
+    };
+
+
+    // ----------------------------------------------------------------------
+    // DictFrameStacker
+    // ----------------------------------------------------------------------
+    class DictFrameStacker final : public FrameStacker {
+    public:
+        DictFrameStacker(int stack_count, int batch_size, std::optional<std::vector<std::string>> stack_keys, torch::Device device);
+
+        anet::TensorDict Stack(const anet::TensorDict& data, const torch::Tensor& resets) override;
+        void Reset() override;
+    private:
+        int stack_count_;
+        int batch_size_;
+        std::optional<std::vector<std::string>> stack_keys_;
+        torch::Device device_;
+        std::unordered_map<std::string, torch::Tensor> buffers_;    // Keyごとに履歴バッファを保持
     };
 
 
@@ -26,32 +45,15 @@ namespace anet::rl {
     // StackerActionContext
     // ----------------------------------------------------------------------
 
-    /// AgentのCreateActionContextで生成され、Runnerに保持される
-    class StackerActionContext : public ActionContext {
+    class StackerActionContext final : public ActionContext {
     public:
         explicit StackerActionContext(RunMode run_mode, std::shared_ptr<FrameStacker> stacker, std::optional<seed_t> seed = std::nullopt);
 
-        torch::Tensor PushObservation(const BatchState& state) override;
+        anet::TensorDict PushObservation(const BatchState& state) override;
         void Reset() override;
     private:
         std::shared_ptr<FrameStacker> stacker_;
     };
 
-
-    // ----------------------------------------------------------------------
-    // StateFrameStacker Implementation
-    // ----------------------------------------------------------------------
-    class TensorFrameStacker : public FrameStacker {
-    public:
-        TensorFrameStacker(int stack_count, int batch_size, torch::Device device);
-
-        torch::Tensor Stack(const torch::Tensor& data, const torch::Tensor& resets) override;
-        void Reset() override;
-    private:
-        int stack_count_;
-        int batch_size_;
-        torch::Device device_;
-        torch::Tensor buffer_;
-    };
 
 }

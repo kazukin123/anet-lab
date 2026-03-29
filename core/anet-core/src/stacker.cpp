@@ -8,16 +8,114 @@ using namespace anet::rl;
 
 
 // =============================================================
+// DictFrameStacker
+// =============================================================
+
+DictFrameStacker::DictFrameStacker(int stack_count, int batch_size, std::optional<std::vector<std::string>> stack_keys, torch::Device device)
+    : stack_count_(stack_count), batch_size_(batch_size), stack_keys_(stack_keys), device_(device)
+{
+    ANET_ASSERT(stack_count_ > 0);
+    ANET_ASSERT(batch_size_ > 0);
+}
+
+anet::TensorDict DictFrameStacker::Stack(const anet::TensorDict& data, const torch::Tensor& resets)
+{
+    anet::ProfileRange r("DictFrameStacker::Stack");
+
+    if (data.empty()) return data;
+
+    // 入力チェック (resetsのバッチサイズだけ確認)
+    if (resets.size(0) != batch_size_) {
+        ANET_SYSTEM_ERROR("DictFrameStacker dimension mismatch. Expected batch_size="
+            << batch_size_ << ", Got resets=" << resets.size(0));
+    }
+
+    anet::TensorDict result;
+
+    for (const auto& kv : data) {
+        const auto& key = kv.first;
+        const auto& tensor = kv.second;
+
+        // スタック対象判定 (nulloptなら全対象)
+		bool should_stack = !stack_keys_.has_value() || // Stack対象キーが指定されていないならスタック必要
+			std::find(stack_keys_->begin(), stack_keys_->end(), key) != stack_keys_->end(); // キーがStack対象に含まれている
+
+        // スタック対象外は Pass-through
+        if (!should_stack) {
+            result.Set(key, tensor.to(device_, /*non_blocking=*/true).clone());
+            continue;
+        }
+
+        // --- ここからスタック処理 ---
+
+        // ターゲットデバイス上でStack処理
+        auto data_dev = tensor.to(device_, /*non_blocking=*/true);
+
+        // バッファが未定義（初回）の場合
+        if (buffers_.find(key) == buffers_.end()) {
+            auto shape = data_dev.sizes().vec();
+            shape.insert(shape.begin() + 1, stack_count_);
+            buffers_[key] = torch::empty(shape, data_dev.options());
+
+            for (int k = 0; k < stack_count_; ++k) {
+                buffers_[key].select(1, k).copy_(data_dev);
+            }
+        } else {
+            auto& buffer = buffers_[key];
+
+            /// @todo [パフォーマンス改善] RingBuffer構造に変更
+
+            // 履歴をインプレースでスライド (デバイス上の高速なメモリブロック転送)
+            if (stack_count_ > 1) {
+                buffer.slice(1, 0, stack_count_ - 1)
+                    .copy_(buffer.slice(1, 1, stack_count_));
+            }
+
+            // 最新フレームを末尾に挿入
+            buffer.select(1, -1).copy_(data_dev);
+
+            // resets_dev の中で true (リセット発生) になっているバッチインデックスを取得
+            auto resets_dev = resets.to(device_, /*non_blocking=*/true).to(torch::kBool);
+            auto reset_indices = resets_dev.nonzero().squeeze(1);
+
+            if (reset_indices.numel() > 0) {
+                // リセットされた環境の最新フレームだけを抽出: [NumResets, C, H, W]
+                auto reset_data = data_dev.index_select(0, reset_indices);
+
+                for (int k = 0; k < stack_count_ - 1; ++k) {
+                    // index_copy_ を使って、該当インデックスの過去フレームをすべて最新フレームで塗りつぶす (データリーク防止)
+                    buffer.select(1, k).index_copy_(0, reset_indices, reset_data);
+                }
+            }
+        }
+
+        // バッファ自体が既に device_ 上にあるので clone() だけで済む
+        result.Set(key, buffers_[key].clone());   // 外部でのテンソル破壊を防ぐため clone
+    }
+
+    return result;
+}
+
+void DictFrameStacker::Reset()
+{
+    // 全キーのバッファを破棄
+    buffers_.clear();
+}
+
+
+// =============================================================
 // StackerActionContext
 // =============================================================
 
 StackerActionContext::StackerActionContext(RunMode run_mode, std::shared_ptr<FrameStacker> stacker, std::optional<seed_t> seed)
     : ActionContext(run_mode, seed), stacker_(std::move(stacker))
 {
-    ;
+    /// @todo 推論と学習における FrameStacker の重複解消と ActionContext 不要論
+    /// @todo ActionContext依存のStacking再考
+
 }
 
-torch::Tensor StackerActionContext::PushObservation(const BatchState& state)
+anet::TensorDict StackerActionContext::PushObservation(const BatchState& state)
 {
     if (stacker_) {
         // BatchState から obs と episode_start を抽出して委譲
@@ -29,76 +127,4 @@ torch::Tensor StackerActionContext::PushObservation(const BatchState& state)
 void StackerActionContext::Reset()
 {
     if (stacker_) stacker_->Reset();
-}
-
-
-// =============================================================
-// TensorFrameStacker
-// =============================================================
-
-TensorFrameStacker::TensorFrameStacker(int stack_count, int batch_size, torch::Device device)
-    : stack_count_(stack_count)
-    , batch_size_(batch_size)
-    , device_(device)
-{
-    ANET_ASSERT(stack_count_ > 0);
-    ANET_ASSERT(batch_size_ > 0);
-    //buffers_.resize(batch_size_);
-}
-
-torch::Tensor TensorFrameStacker::Stack(const torch::Tensor& data, const torch::Tensor& resets)
-{
-    // 入力チェック
-    if (data.size(0) != batch_size_ || resets.size(0) != batch_size_) {
-        ANET_SYSTEM_ERROR("TensorFrameStacker dimension mismatch. Expected batch_size="
-            << batch_size_ << ", Got data=" << data.size(0));
-    }
-
-    // 念のためCPUに確実にあるかチェック
-    auto data_cpu = data.device().is_cpu() ? data : data.to(torch::kCPU);
-    auto resets_cpu = resets.device().is_cpu() ? resets.contiguous() : resets.to(torch::kCPU).contiguous();
-
-    // 初回のみバッファをメモリ確保 (N, S, F...)
-    if (!buffer_.defined()) {
-        auto shape = data_cpu.sizes().vec();
-        shape.insert(shape.begin() + 1, stack_count_); // Stack次元を追加
-        buffer_ = torch::empty(shape, data_cpu.options());
-
-        // 初回は全てのスタックを現在のフレームで埋める
-        for (int k = 0; k < stack_count_; ++k) {
-            buffer_.select(/*dim=*/1, /*index=*/k).copy_(data_cpu);
-        }
-        return buffer_.clone().to(device_); // 外部からの破壊を防ぐためcloneして返す
-    }
-
-    // 履歴をインプレースでスライド (左に1つ詰める)
-    if (stack_count_ > 1) {
-        buffer_.slice(/*dim=*/1, /*start=*/0, /*end=*/stack_count_ - 1)
-            .copy_(buffer_.slice(/*dim=*/1, /*start=*/1, /*end=*/stack_count_).clone());
-    }
-
-    // 最新フレームを末尾に挿入
-    buffer_.select(/*dim=*/1, /*index=*/-1).copy_(data_cpu);
-
-    // リセットされた環境の処理
-    auto resets_ptr = resets_cpu.data_ptr<bool>();
-    for (int i = 0; i < batch_size_; ++i) {
-        if (resets_ptr[i]) {
-            // リセット時は、過去のスタックもすべて最新フレーム(data_cpu[i])で上書き
-            // (末尾の stack_count_ - 1 番目は既に更新済みなのでループから省く)
-            for (int k = 0; k < stack_count_ - 1; ++k) {
-                buffer_[i][k].copy_(data_cpu[i]);
-            }
-        }
-    }
-
-    // 外部でのテンソル破壊を防ぐため clone を返す。
-    //return (buffer_.dim() > 2 ? buffer_.flatten(1, 2) : buffer_).clone().to(device_);
-    return buffer_.clone().to(device_);
-}
-
-void TensorFrameStacker::Reset()
-{
-    // バッファ破棄
-    buffer_ = torch::Tensor();
 }
