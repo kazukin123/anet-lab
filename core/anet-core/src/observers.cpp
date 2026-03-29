@@ -638,7 +638,7 @@ void Conv2dVisualizationObserver::OnTrain(const TrainEvent& event)
         torch::Tensor single_obs = state.obs.slice(0, 0, 1);
         auto dict = dict_func_(single_obs);
 
-        if (!dict.Empty()) {
+        if (!dict.empty()) {
             auto vis_result = visualizer_.Visualize(step, dict);
             wxImage image = vis_result.first;
 
