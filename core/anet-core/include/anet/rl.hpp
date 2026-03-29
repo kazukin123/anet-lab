@@ -180,13 +180,90 @@ namespace anet::rl {
     // Environment 定義クラス
     // =============================================================
 
-    // 観測次元情報
-    struct StateDimInfo {
-        std::vector<std::int64_t> coords;  ///< 対象の位置情報。 例: {0}, {2}, {0,10,20} など
-        float min_value = std::numeric_limits<float>::lowest();  ///< 最小値
-        float max_value = std::numeric_limits<float>::max();     ///< 最大値
-        std::string name;             ///< 名前（任意）
-        std::string description;      ///< 説明（任意）
+    struct ObsKeys
+    {
+        // --- 汎用・単一データ用 ---
+        //static constexpr const char* kObs = "obs";
+        //static constexpr const char* kFeatures = "features";
+
+        // --- 空間トポロジによる使い分けデフォルトキー ---
+        static constexpr const char* kVector = "vector";
+        static constexpr const char* kImage = "image";
+        static constexpr const char* kGrid = "grid";
+
+        // --- メタデータ・特殊用途 ---
+        static constexpr const char* kActionMask = "action_mask";
+    };
+
+    // 空間トポロジー
+    enum class SpaceType {
+        Vector,     // 順序や空間関係を持たない1D配列 (通常はLinearで受ける)
+        Grid,       // 空間的な隣接関係を持つ配列 (通常はConvで受ける)
+        Sequence    // 時間的な順序を持つ系列 (通常はTransformer/RNNで受ける)
+    };
+
+    // 環境が提供する情報(Observation/ActionMask)の仕様情報
+    struct TensorSpec {
+        /// 空間トポロジー
+        SpaceType type = SpaceType::Vector;
+
+        /// Tensor形状
+        std::vector<std::int64_t> shape;
+
+        /// データ・タイプ
+        torch::Dtype dtype = torch::kFloat32;
+
+        /// 離散値向けのクラス数。連続値(Continuous)なら0、離散値(Discrete)なら1以上。
+        int64_t num_classes = 0; 
+
+        // Viewer表示用ラベル（Flatten要素数と同サイズ、または空）
+        std::vector<std::string> labels;
+
+        /// 最小値 (サイズ1なら全体適用(Broadcast)、要素数と同じなら要素別)
+        std::vector<double> min_values;
+
+        /// 最大値 (サイズ1なら全体適用(Broadcast)、要素数と同じなら要素別)
+        std::vector<double> max_values;
+
+        // --- ユーティリティメソッド ---
+
+        bool IsDiscrete() const { return num_classes > 0; }
+
+        bool HasValidLabels() const
+        {
+            if (labels.empty()) return true; // 省略(空)は常にOKとする
+
+            if (type == SpaceType::Vector) {
+                // Vectorなら、フラット化した全体の要素数と一致しているか
+                return labels.size() == CalcFlattenDim();
+            } else if (type == SpaceType::Grid || type == SpaceType::Sequence) {
+                // Grid/Sequenceなら、チャネル次元(shape[0])の数と一致しているか
+                return !shape.empty() && labels.size() == shape[0];
+            }
+            return false;
+        }
+
+        std::int64_t CalcFlattenDim() const
+        {
+            std::int64_t dim = 1;
+            for (auto s : shape) dim *= s;
+            return dim;
+        }
+
+        std::optional<double> GetMin(size_t index = 0) const
+        {
+            if (min_values.empty()) return std::nullopt;
+            if (min_values.size() == 1) return min_values[0];
+            if (index < min_values.size()) return min_values[index];
+            return std::nullopt;
+        }
+
+        std::optional<double> GetMax(size_t index = 0) const {
+            if (max_values.empty()) return std::nullopt;
+            if (max_values.size() == 1) return max_values[0];
+            if (index < max_values.size()) return max_values[index];
+            return std::nullopt;
+        }
 
         anet::json ToJson() const;
         std::string ToString() const;
@@ -194,16 +271,29 @@ namespace anet::rl {
 
     // 観測仕様
     struct StateSpec {
-        std::vector<std::int64_t> shape;        // 任意次元対応
-        std::vector<StateDimInfo> dims;    // 必要な位置だけ登録（配列）
+        std::unordered_map<std::string, TensorSpec> obs_spec;
         std::map<std::string, std::string> info;
 
-        std::int64_t CalcFlattenDim() const;
-        const StateDimInfo* FindDim(const std::vector<std::int64_t>& coords) const;
-        const StateDimInfo* FindDim(std::int64_t flatten_index) const;
-        bool MatchesShape(const torch::Tensor& obs) const;
-        bool MatchesRange(const torch::Tensor& obs) const;
-        bool MatchesRangeFlat(const torch::Tensor& flat_obs) const;
+        const TensorSpec& GetSpace(const std::string& key) const
+        {
+            return obs_spec.at(key);
+        }
+
+        std::vector<std::int64_t> GetShape(const std::string& key) const
+        {
+            return obs_spec.at(key).shape;
+        }
+         
+        // ---------------------------------------------------------
+        // 整合性検証 (Assert用)
+        // ---------------------------------------------------------
+
+        /// 観測データ(TensorDict)が仕様のShapeと一致しているか検証
+        bool MatchesShape(const anet::TensorDict& obs, bool is_batched = true) const;
+
+        /// 観測データ(TensorDict)が仕様の最小/最大値の範囲に収まっているか検証
+        bool MatchesRange(const anet::TensorDict& obs) const;
+
         anet::json ToJson() const;
         std::string ToString() const;
     };
@@ -262,25 +352,29 @@ namespace anet::rl {
         std::string ToString() const;
     };
 
+
+    // =============================================================
+    // 暫定
+    // =============================================================
+
+    torch::Tensor ToUnifiedObservation(const TensorDict& obs, bool is_batched = true);
+
+
     // =============================================================
     // Single系データ
     // =============================================================
 
     struct SingleState {
-        torch::Tensor obs;          // (state_dim,...)
+        TensorDict obs;
         bool done;                  ///< Gymnasiumのterminated相当。真の終了（ゲームオーバー、クリア）。未来の価値は 0。doneとtruncatedは独立。
 		bool truncated;             ///< Gymnasiumのtruncated相当。時間切れなどの人工終了。未来の価値は 0。doneとtruncatedは独立。
         bool episode_start;
 
-        /// 状態テンソルを 1D に変換する
-        torch::Tensor Flatten() const {
-            ANET_ASSERT_DTYPE(obs, torch::kFloat32);
-            return obs.reshape({ obs.numel() });
-        }
-        SingleState to(torch::Device device) const {
-            ANET_ASSERT_SHAPE(obs, { ANET_SHAPE_ANY });
-            ANET_ASSERT_DTYPE(obs, torch::kFloat32);
-            return { obs.to(device), done, truncated, episode_start };
+        SingleState To(torch::Device device) const
+        {
+            //ANET_ASSERT_SHAPE(obs, { ANET_SHAPE_ANY });
+            //ANET_ASSERT_DTYPE(obs, torch::kFloat32);
+            return { obs.To(device), done, truncated, episode_start };
         }
         std::string ToString() const;
     };
@@ -341,15 +435,17 @@ namespace anet::rl {
         float reward;
         SingleState next_state;
 
-        SingleExperience to(torch::Device device) const {
+        SingleExperience To(torch::Device device) const
+        {
             ANET_ASSERT_SHAPE(action, { });
             ANET_ASSERT(action.dtype() == torch::kInt64 || action.dtype() == torch::kFloat32);
             return {
-                state.to(device), action.to(device), reward, next_state.to(device)
+                state.To(device), action.to(device), reward, next_state.To(device)
             };
         }
         std::string ToString() const;
     };
+
 
     // =============================================================
     // Batch系データ
@@ -359,53 +455,53 @@ namespace anet::rl {
 
     // 状態
     struct BatchState {
-        torch::Tensor obs;              ///< 行動前の観測 (N,state_dim) kFloat32
+        TensorDict obs;              ///< 行動前の観測 (N,state_dim) kFloat32
         torch::Tensor done;             ///< (N) kBool Gymnasiumのterminated相当。真の終了（ゲームオーバー、クリア）。未来の価値は 0。doneとtruncatedは独立。
         torch::Tensor truncated;        ///< (N) kBool Gymnasiumのtruncated相当。時間切れなどの人工終了。未来の価値は 0。doneとtruncatedは独立。
         torch::Tensor episode_start;    ///< reset直後    (N) kBool
 
         BatchState() {}
 
-        BatchState(torch::Tensor o, torch::Tensor d, torch::Tensor t, torch::Tensor e)
+        BatchState(const TensorDict& o, torch::Tensor d, torch::Tensor t, torch::Tensor e)
             : obs(std::move(o)), done(std::move(d)), truncated(std::move(t)), episode_start(std::move(e)) { }
 
         BatchState Clone() const {
-            return { obs.clone(), done.clone(), truncated.clone(), episode_start.clone() };
+            return { obs.Clone(), done.clone(), truncated.clone(), episode_start.clone() };
         }
 
         SingleState GetSingle(int64_t index) const
         {
             return {
-                obs[index],
-                done[index].item<bool>(),
-                truncated[index].item<bool>(),
-                episode_start[index].item<bool>()
+                .obs = obs[index],
+                .done = done[index].item<bool>(),
+                .truncated = truncated[index].item<bool>(),
+                .episode_start = episode_start[index].item<bool>()
             };
         }
 
         /// obs を (N, state_dim) にフラット化
-        BatchState Flatten() const
-        {
-            ANET_ASSERT_DTYPE(obs, torch::kFloat32);
-            int64_t N = obs.size(0);
-            int64_t flat_dim = obs.numel() / N;
-            auto f = obs.reshape({ N, flat_dim });
-            return { f, done, truncated, episode_start };
-        }
+        //BatchState Flatten() const
+        //{
+        //    ANET_ASSERT_DTYPE(obs, torch::kFloat32);
+        //    int64_t N = obs.size(0);
+        //    int64_t flat_dim = obs.numel() / N;
+        //    auto f = obs.reshape({ N, flat_dim });
+        //    return { f, done, truncated, episode_start };
+        //}
 
         BatchState To(torch::Device device, bool non_blocking = false) const
         {
-            ANET_ASSERT_SHAPE(obs, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
+            //ANET_ASSERT_SHAPE(obs, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
             ANET_ASSERT_SHAPE(done, { ANET_SHAPE_ANY });
             ANET_ASSERT_SHAPE(truncated, { ANET_SHAPE_ANY });
             ANET_ASSERT_SHAPE(episode_start, { ANET_SHAPE_ANY });
-            ANET_ASSERT_DTYPE(obs, torch::kFloat32);
+            //ANET_ASSERT_DTYPE(obs, torch::kFloat32);
             ANET_ASSERT_DTYPE(done, torch::kBool);
             ANET_ASSERT_DTYPE(truncated, torch::kBool);
             ANET_ASSERT_DTYPE(episode_start, torch::kBool);
 
             return {
-                obs.to(device, non_blocking), done.to(device, non_blocking),
+                obs.To(device, non_blocking), done.to(device, non_blocking),
                 truncated.to(device,non_blocking), episode_start.to(device, non_blocking)
             };
         }

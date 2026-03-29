@@ -14,12 +14,12 @@ static BatchExperience MakeStep(float value, bool is_start, bool is_done)
     BatchExperience batch;
 
     // (1, 1) のState
-    batch.state.obs = torch::tensor({ {value} }, torch::TensorOptions().dtype(torch::kFloat32).device(dev));
+    batch.state.obs = { anet::rl::ObsKeys::kVector, torch::tensor({ {value} }, torch::TensorOptions().dtype(torch::kFloat32).device(dev)) };
     batch.state.done = torch::tensor({ false }, torch::TensorOptions().dtype(torch::kBool).device(dev));
     batch.state.truncated = torch::tensor({ false }, torch::TensorOptions().dtype(torch::kBool).device(dev));
     batch.action = std::make_shared<anet::rl::BatchActionInfo>(torch::tensor({ 0 }, torch::TensorOptions().dtype(torch::kInt64).device(dev)));
     batch.reward = torch::tensor({ 0.0f }, torch::TensorOptions().dtype(torch::kFloat32).device(dev));
-    batch.next_state.obs = torch::tensor({ {value + 1.0f} }, torch::TensorOptions().dtype(torch::kFloat32).device(dev));
+    batch.next_state.obs = { anet::rl::ObsKeys::kVector, torch::tensor({ {value + 1.0f} }, torch::TensorOptions().dtype(torch::kFloat32).device(dev)) };
     batch.next_state.done = torch::tensor({ is_done }, torch::TensorOptions().dtype(torch::kBool).device(dev));
     batch.next_state.truncated = torch::tensor({ false }, torch::TensorOptions().dtype(torch::kBool).device(dev));
     batch.next_state.episode_start = torch::tensor({ false }, torch::TensorOptions().dtype(torch::kBool).device(dev));
@@ -51,7 +51,7 @@ static BatchExperience MakeBatchStep(
     BatchExperience batch;
 
     // State: (N, 1)
-    batch.state.obs = ToTensor(values, torch::kFloat32, { n_envs, 1 });
+    batch.state.obs = { anet::rl::ObsKeys::kVector, ToTensor(values, torch::kFloat32, { n_envs, 1 }) };
 
     // Action, Reward, etc: (N) 
     // ※実際はActionなどは適切な値を入れる
@@ -77,7 +77,7 @@ static BatchExperience MakeBatchStep(
     // Next State: (N, 1) -> value + 1.0
     std::vector<float> next_values = values;
     for (auto& v : next_values) v += 1.0f;
-    batch.next_state.obs = ToTensor(next_values, torch::kFloat32, { n_envs, 1 });
+    batch.next_state.obs = { anet::rl::ObsKeys::kVector, ToTensor(next_values, torch::kFloat32, { n_envs, 1 }) };
 
     // Next flags
     batch.next_state.done = batch.state.done; // 簡易
@@ -100,7 +100,7 @@ static void TestStacking()
     config.sampler_type = ReplaySamplerType::UNIFORM;
 
     EnvSpec spec;
-    spec.state_spec.shape = { 1 }; // 1次元の数値だけ
+    //spec.state_spec.shape = { 1 }; // 1次元の数値だけ
     spec.action_spec.value_labels = { "action1" };
     spec.action_spec.is_discrete = true;
 
@@ -189,7 +189,7 @@ static void TestStackingMultiEnv()
     config.sampler_type = ReplaySamplerType::UNIFORM;
 
     EnvSpec spec;
-    spec.state_spec.shape = { 1 };
+    //spec.state_spec.shape = { 1 };
     spec.action_spec.value_labels = { "action1" };
     spec.action_spec.is_discrete = true;
 
