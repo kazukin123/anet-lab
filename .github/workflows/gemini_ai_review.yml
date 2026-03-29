@@ -1,8 +1,8 @@
-name: Gemini Push Review
+﻿name: Gemini Push Review
 
 on:
   push:
-    branches: [main]
+    branches: [ ]
   workflow_dispatch:
 
 jobs:
