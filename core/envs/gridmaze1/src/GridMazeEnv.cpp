@@ -32,13 +32,12 @@ private:
     anet::rl::AuxData aux_;
 };
 
+
 // ----------------------------------------------------
 // GridMazeEnv
 // ----------------------------------------------------
 
-GridMazeEnv::GridMazeEnv(
-    const GridMazeEnvConfig& config,
-    const torch::Device& device, std::optional<anet::seed_t> seed)
+GridMazeEnv::GridMazeEnv(const GridMazeEnvConfig& config,const torch::Device& device, std::optional<anet::seed_t> seed)
     : RandomHolder(seed), config_(config)
 {
     anet::MetricsLogger::Instance()->Log("GridMazeEnvConfig", config_.ToJson());
@@ -49,23 +48,37 @@ GridMazeEnv::GridMazeEnv(
 
 anet::rl::EnvSpec GridMazeEnv::GetSpec() const
 {
-    anet::rl::StateSpec state = {
-        {2}, // shape: [x, y]
-        {
-            { {0}, 0.0f, 1.0f, "x"},
-            { {1}, 0.0f, 1.0f, "y"}
+    // --- StateSpec ---
+    anet::rl::StateSpec state_spec;
+    state_spec.obs_spec[anet::rl::ObsKeys::kVector] = anet::rl::TensorSpec {
+        .type = anet::rl::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+        .num_classes = 0,
+        .labels = { "x", "y" },
+        .min_values = { 0.0f, 0.0f },
+        .max_values = { 1.0f, 1.0f }
+    };
+
+    // --- ActionSpec ---
+    anet::rl::ActionSpec action_spec {
+        .is_discrete = true,
+        .value_labels = { "Up", "Left", "Down", "Right" },
+        .dims = {
+            { 0, 3, "move" }
         }
     };
-    anet::rl::ActionSpec action = {
-        true, // is_discrete
-        { "Up", "Left", "Down", "Right" },
-        { { 0, 3, "move" } }
-    };
- 
+
+    // --- EnvSpec ---
     float min_r = std::min({ config_.reward_hole, config_.reward_wall, config_.reward_step });
     float max_r = config_.reward_goal;
+    anet::rl::EnvSpec env_spec {
+        .state_spec = state_spec,
+        .action_spec = action_spec,
+        .reward_range = { min_r, max_r }
+    };
 
-    return { state, action, { min_r, max_r } };
+    return env_spec;
 }
 
 std::vector<float> GridMazeEnv::GetObservation() const
@@ -170,7 +183,7 @@ std::shared_ptr<const anet::rl::SingleResetResult> GridMazeEnv::Reset(anet::rl::
     episode_start_ = true;
 
     anet::rl::SingleState state {
-        .obs = torch::tensor(GetObservation(), obs_opt_),
+        .obs = { anet::rl::ObsKeys::kVector, torch::tensor(GetObservation(), obs_opt_) },
         .done = done_,
         .truncated = truncated_,
         .episode_start = episode_start_
@@ -228,7 +241,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> GridMazeEnv::Step(int64_t acti
     }
 
     anet::rl::SingleState next_state {
-        .obs = torch::tensor(GetObservation(), obs_opt_),
+        .obs = { anet::rl::ObsKeys::kVector, torch::tensor(GetObservation(), obs_opt_) },
         .done = done_,
         .truncated = truncated_,
         .episode_start = episode_start_

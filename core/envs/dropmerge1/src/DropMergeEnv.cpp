@@ -30,11 +30,13 @@ struct FruitUserData {
 
 // UserDataポインタを管理するための簡易プール等は省略し b2BodyUserData.pointerに直接キャストした値を埋め込む
 
-static uintptr_t EncodeUserData(BodyType type, int rank = 0) {
+static uintptr_t EncodeUserData(BodyType type, int rank = 0)
+{
     return (static_cast<uintptr_t>(type) << 16) | static_cast<uintptr_t>(rank);
 }
 
-static std::pair<BodyType, int> DecodeUserData(uintptr_t val) {
+static std::pair<BodyType, int> DecodeUserData(uintptr_t val)
+{
     BodyType type = static_cast<BodyType>(val >> 16);
     int rank = static_cast<int>(val & 0xFFFF);
     return { type, rank };
@@ -55,6 +57,7 @@ public:
             has_cache_ = true;
         }
     }
+
     anet::rl::AuxData GetAuxData() const override
     {
         // キャッシュがあればそれを返す（Reset後でも大丈夫）
@@ -85,7 +88,6 @@ public:
 class DropMergeEnv::StepResult : public anet::rl::SingleStepResult, public DropMergeEnv::Result {
 public:
     StepResult(std::shared_ptr<const DropMergeEnv> env, float reward, float raw_reward, anet::rl::SingleState next_state)
-//		: Result(env, reward, raw_reward, next_state.done || next_state.truncated)  // エピソード終了時は断面キャプチャ
 		: Result(env, reward, raw_reward, false)
         , SingleStepResult(reward, std::move(next_state))
     {
@@ -98,9 +100,7 @@ public:
 // -------------------------------------------------------------
 
 DropMergeEnv::DropMergeEnv(
-    const DropMergeEnvConfig& config,
-    const torch::Device& device,
-    const std::optional<anet::seed_t> seed)
+    const DropMergeEnvConfig& config, const torch::Device& device, const std::optional<anet::seed_t> seed)
     : anet::RandomHolder(std::nullopt)
     , config_(config)
 {
@@ -185,22 +185,36 @@ anet::rl::EnvSpec DropMergeEnv::GetSpec() const
     // Grid Info (Variable size: rows * cols)
     //    [4...]: grid cell value (0.0=Empty, 0.1=Rank1 ... 1.0=Rank10)
 
-    //状態空間定義
-    int grid_dim = config_.grid_rows * config_.grid_cols;
     anet::rl::StateSpec state_spec;
-    state_spec.shape = { static_cast<int64_t>(kNumScalarObsDim + grid_dim) };
 
-    state_spec.dims = {
-        { {0}, -1.0f, 1.0f, "dropper_x", "Dropper X position" },
-        { {1},  0.0f, 1.0f, "current_rank", "Current fruit rank" },
-        { {2},  0.0f, 1.0f, "next_rank", "Next fruit rank" },
-        { {3},  0.0f, 1.0f, "is_busy", "Dropper busy flag" },
-        /// @todo Grid部分は省略
+    // --- Vector Info (Dropper) ---
+    state_spec.obs_spec[anet::rl::ObsKeys::kVector] = anet::rl::TensorSpec {
+        .type = anet::rl::SpaceType::Vector,
+        .shape = { kNumScalarObsDim },
+        .dtype = torch::kFloat32,
+        .num_classes = 0,
+        .labels = { "dropper_x", "current_rank", "next_rank", "is_busy" },
+        .min_values = { -1.0, 0.0, 0.0, 0.0 },
+        .max_values = {  1.0, 1.0, 1.0, 1.0 }
+    };
+
+
+    // --- Grid Info (Board) ---
+    auto num_classes = kFruitTypeCount + 1;
+    state_spec.obs_spec[anet::rl::ObsKeys::kGrid] = anet::rl::TensorSpec {
+        .type = anet::rl::SpaceType::Grid,
+        .shape = { 1, config_.grid_rows, config_.grid_cols }, // [C, H, W]
+        .dtype = torch::kFloat32,
+        .num_classes = num_classes, // Gridの値は果物のランクもしくはDropperを表す離散値
+        .labels = { "items" },
+        .min_values = { 0.0 },
+        .max_values = { static_cast<double>(kFruitTypeCount + 1) } // 最大値: スイカ + ドロッパー
     };
 
     // 離散アクション
-    anet::rl::ActionSpec action_spec;
-    action_spec.is_discrete = true;
+    anet::rl::ActionSpec action_spec {
+        .is_discrete = true
+    };
 
     // モードに応じたアクションラベルの動的生成
     if (action_mode_ == ActionMode::Move) {
@@ -218,10 +232,11 @@ anet::rl::EnvSpec DropMergeEnv::GetSpec() const
         }
     }
 
-    anet::rl::EnvSpec env_spec;
-    env_spec.state_spec = state_spec;
-    env_spec.action_spec = action_spec;
-    env_spec.reward_range = { 0.0f, 10000.0f }; /// @todo スコア青天井
+    anet::rl::EnvSpec env_spec {
+        .state_spec = state_spec,
+        .action_spec = action_spec,
+        .reward_range = { 0.0f, 10000.0f } /// @todo スコア青天井
+    };
 
     return env_spec;
 }
@@ -1081,9 +1096,17 @@ anet::rl::SingleState DropMergeEnv::makeState() const
     // デバッグ表示用キャッシュ更新（vectorが必要な場合のみ）
     grid_cache_.assign(obs_ptr_ + kNumScalarObsDim, obs_ptr_ + kNumScalarObsDim + grid_size);
 
-    // --- 返却（Designated Initializers） ---
+    // バッファをスライス＆Reshapeして切り分ける
+    auto vec_tensor = obs_buffer_.slice(0, 0, kNumScalarObsDim).clone();
+    auto grid_tensor = obs_buffer_.slice(0, kNumScalarObsDim, kNumScalarObsDim + grid_size)
+        .view({ 1, config_.grid_rows, config_.grid_cols }).clone();
+
+    // 返却
     return anet::rl::SingleState {
-        .obs = obs_buffer_.clone(),  // バッファのクローンを渡す
+        .obs = {
+            { anet::rl::ObsKeys::kVector, vec_tensor },
+            { anet::rl::ObsKeys::kGrid, grid_tensor }
+        },
         .done = false,            // Step/Reset側で後ほど上書きされる
         .truncated = false,
         .episode_start = false

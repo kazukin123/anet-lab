@@ -43,36 +43,37 @@ enum class GroundFixtureType : std::uintptr_t {
 
 anet::rl::EnvSpec LunarLanderEnv::GetSpec() const
 {
+    // obs_spec
+    anet::rl::TensorSpec obs_spec {
+        .type = anet::rl::SpaceType::Vector,
+        .shape = { 8 },
+        .dtype = torch::kFloat32,
+        .num_classes = 0,
+        .labels = { "x", "y", "vx", "vy", "angle", "v_angle", "leg_l", "leg_r" },
+        .min_values = { -1.5, -0.5, -5.0, -5.0, -3.14, -5.0, 0.0, 0.0 },
+        .max_values = {  1.5,  2.0,  5.0,  5.0,  3.14,  5.0, 1.0, 1.0 }
+    };
+
+    // StateSpec
     anet::rl::StateSpec state_spec;
-    state_spec.shape = { 8 };
+    state_spec.obs_spec[anet::rl::ObsKeys::kVector] = obs_spec;
 
-    // ざっくりしたレンジ指定。Gym と完全一致ではない。
-    state_spec.dims = {
-        { {0}, -1.5f, 1.5f, "x", "" },
-        { {1}, -0.5f, 2.0f, "y", "" },
-        { {2}, -10.0f, 10.0f, "vx", "" },
-        { {3}, -10.0f, 15.0f, "vy", "" },
-        { {4}, -3.14f, 3.14f, "angle", "" },
-        { {5}, -15.0f, 15.0f, "angular_velocity", "" },
-        { {6}, 0.0f, 1.0f, "left_leg_contact", "" },
-        { {7}, 0.0f, 1.0f, "right_leg_contact", "" }
+    // ActionSpec
+    anet::rl::ActionSpec action_spec {
+        .is_discrete = true,
+        .value_labels = { "do nothing", "fire left", "fire main", "fire right" },
+        .dims = {
+            { 0, 3, "engine" }  // [0] min, max, name
+        }
     };
 
-    anet::rl::ActionSpec action_spec;
-    action_spec.is_discrete = true;
-    action_spec.value_labels = {
-        "no_op",
-        "left_engine",
-        "main_engine",
-        "right_engine"
+    // EnvSpec
+    anet::rl::EnvSpec env_spec {
+        .state_spec = state_spec,
+        .action_spec = action_spec,
+        .reward_range = { -100.0f, 100.0f }
     };
 
-    anet::rl::EnvSpec env_spec;
-    env_spec.state_spec = state_spec;
-    env_spec.action_spec = action_spec;
-    env_spec.reward_range = { -100.0f, 100.0f };
-
-    /// @todo EnvSpec.info に LunarLander 固有情報を入れる。
     return env_spec;
 }
 
@@ -630,13 +631,14 @@ bool LunarLanderEnv::checkLanded() const
 
 anet::rl::SingleState LunarLanderEnv::makeState() const
 {
-    anet::rl::SingleState s;
 
     if (!lander_body_) {
-        s.obs = torch::zeros({ 8 }, float_opt_);
-        s.done = true;
-        s.truncated = false;
-        s.episode_start = false;
+        anet::rl::SingleState s {
+            .obs = anet::TensorDict(anet::rl::ObsKeys::kVector, torch::zeros({ 8 }, float_opt_)),
+            .done = true,
+            .truncated = false,
+            .episode_start = false
+        };
         return s;
     }
 
@@ -659,19 +661,19 @@ anet::rl::SingleState LunarLanderEnv::makeState() const
     float left_contact = left_leg_contact_ ? 1.0f : 0.0f;
     float right_contact = right_leg_contact_ ? 1.0f : 0.0f;
 
-    s.obs = torch::tensor({ x, y, vx, vy, angle, angular_vel, left_contact, right_contact },
-        float_opt_);
-    s.done = false;
-    s.truncated = false;
-    s.episode_start = false;
+    anet::rl::SingleState s {
+        .obs = { anet::rl::ObsKeys::kVector, torch::tensor({ x, y, vx, vy, angle, angular_vel, left_contact, right_contact }) },
+        .done = false,
+        .truncated = false,
+        .episode_start = false,
+    };
 
     return s;
 }
 
-float LunarLanderEnv::computeShaping(
-    const anet::rl::SingleState& state) const
+float LunarLanderEnv::computeShaping(const anet::rl::SingleState& state) const
 {
-    const auto obs = state.obs;
+    const auto obs = state.obs.At(anet::rl::ObsKeys::kVector);
 
     const float x = obs[0].item<float>();   // 正規化済み x
     const float y = obs[1].item<float>();   // 正規化済み y

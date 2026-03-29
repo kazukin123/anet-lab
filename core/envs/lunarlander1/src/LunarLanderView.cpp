@@ -27,10 +27,10 @@ LunarLanderData LunarLanderData::Create(anet::rl::TrainEvent event)
     // RL由来情報
     auto exp_step = event.counts.exp_step;
     anet::rl::SingleState state = {
-        event.step_result->next_state.obs[ENV_INDEX],
-        event.step_result->next_state.done[ENV_INDEX].item<bool>(),
-        event.step_result->next_state.truncated[ENV_INDEX].item<bool>(),
-        event.step_result->next_state.episode_start[ENV_INDEX].item<bool>(),
+        .obs = { anet::rl::ObsKeys::kVector, event.step_result->next_state.obs.At(anet::rl::ObsKeys::kVector)[ENV_INDEX] },
+        .done = event.step_result->next_state.done[ENV_INDEX].item<bool>(),
+        .truncated = event.step_result->next_state.truncated[ENV_INDEX].item<bool>(),
+        .episode_start = event.step_result->next_state.episode_start[ENV_INDEX].item<bool>(),
     };
     auto action = event.experience.action->GetAction(torch::kCPU)[ENV_INDEX].item<int64_t>();
     auto reward = event.experience.reward[ENV_INDEX].item<float>();
@@ -399,16 +399,17 @@ void LunarLanderPanel::DrawRL(wxDC& dc)
     dc.DrawText(wxString::Format("Action: %llu", snapshot_.action), 10, 50);
 
     // pos
-    if (snapshot_.state.obs.defined()) {
-        const float x = snapshot_.state.obs[0].item<float>();
-        const float y = snapshot_.state.obs[1].item<float>();
-        const float theta = snapshot_.state.obs[4].item<float>();
+    auto obs = snapshot_.state.obs.At(anet::rl::ObsKeys::kVector);
+    if (obs.defined()) {
+        const float x = obs[0].item<float>();
+        const float y = obs[1].item<float>();
+        const float theta = obs[4].item<float>();
         const float theta_deg = 180.0f / M_PI * theta;
-        const float contact_left = snapshot_.state.obs[6].item<float>();
-        const float contact_right = snapshot_.state.obs[7].item<float>();
-        const float x_dot = snapshot_.state.obs[2].item<float>();
-        const float y_dot = snapshot_.state.obs[3].item<float>();
-        const float theta_dot = snapshot_.state.obs[5].item<float>();
+        const float contact_left = obs[6].item<float>();
+        const float contact_right = obs[7].item<float>();
+        const float x_dot = obs[2].item<float>();
+        const float y_dot = obs[3].item<float>();
+        const float theta_dot = obs[5].item<float>();
 
         dc.DrawText(wxString::Format("(X Y theta): (%.2f %.2f %.2f[%.1f])", x, y, theta, theta_deg), 10, 70);
         dc.DrawText(wxString::Format("Contact: (%.2f %.2f)", contact_left, contact_right), 10, 90);
