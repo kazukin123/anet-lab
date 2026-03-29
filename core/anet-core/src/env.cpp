@@ -100,6 +100,7 @@ DiscreteBatchEnvBase::DiscreteBatchEnvBase(
 
     // EnvSpec取得
     spec_ = std::make_unique<EnvSpec>(envs_[0]->GetSpec());
+    spec_->state_spec.AssertSanity();
 
     // 初期化
     float_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);

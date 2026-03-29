@@ -262,7 +262,6 @@ namespace anet::rl::env::drop_merge {
 
         // 使いまわし
         torch::TensorOptions float_opt_;
-        torch::TensorOptions bool_opt_;
 
         // Box2d
         std::unique_ptr<b2World> world_;
@@ -275,8 +274,8 @@ namespace anet::rl::env::drop_merge {
         bool game_over_ = false;
         int game_over_timer_ = 0;
         int steps_since_last_drop_ = 0;
-        torch::Tensor obs_buffer_;  ///< obsのバッファ
-        float* obs_ptr_ = nullptr;  ///< obsのバッファのポインタ
+        torch::Tensor vec_buffer_;   ///< obsのバッファ
+        torch::Tensor grid_buffer_;  ///< obsのバッファ
 
         // マージ処理用
         std::vector<MergeRequest> merge_requests_;

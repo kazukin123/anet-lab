@@ -142,12 +142,12 @@ DropMergeEnv::DropMergeEnv(
 
 	// TensorOptionsの初期化
     float_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
-    bool_opt_ = torch::TensorOptions().dtype(torch::kBool).device(device);
 
     // Obsバッファ初期化
-    int total_dim = kNumScalarObsDim + config_.grid_rows * config_.grid_cols;
-    obs_buffer_ = torch::empty({ total_dim }, float_opt_);
-    obs_ptr_ = obs_buffer_.data_ptr<float>();
+    int grid_size = config_.grid_rows * config_.grid_cols;
+    auto grid_opt = torch::TensorOptions().dtype(torch::kInt8).device(device);
+    vec_buffer_ = torch::empty({ kNumScalarObsDim }, float_opt_);
+    grid_buffer_ = torch::empty({ grid_size }, grid_opt);
 
     // ActionMode設定を解釈
     std::string am = anet::ToLower(config_.action_mode);
@@ -192,7 +192,7 @@ anet::rl::EnvSpec DropMergeEnv::GetSpec() const
         .type = anet::rl::SpaceType::Vector,
         .shape = { kNumScalarObsDim },
         .dtype = torch::kFloat32,
-        .num_classes = 0,
+        .num_classes = 0,   // 連続値(正確にはrankやbusyは離散値だけど)
         .labels = { "dropper_x", "current_rank", "next_rank", "is_busy" },
         .min_values = { -1.0, 0.0, 0.0, 0.0 },
         .max_values = {  1.0, 1.0, 1.0, 1.0 }
@@ -200,13 +200,13 @@ anet::rl::EnvSpec DropMergeEnv::GetSpec() const
 
 
     // --- Grid Info (Board) ---
-    auto num_classes = kFruitTypeCount + 1;
+    auto num_classes = kFruitTypeCount + 2; // 空とDropperで2を足す
     state_spec.obs_spec[anet::rl::ObsKeys::kGrid] = anet::rl::TensorSpec {
         .type = anet::rl::SpaceType::Grid,
         .shape = { 1, config_.grid_rows, config_.grid_cols }, // [C, H, W]
-        .dtype = torch::kFloat32,
+        .dtype = torch::kInt8,
         .num_classes = num_classes, // Gridの値は果物のランクもしくはDropperを表す離散値
-        .labels = { "items" },
+        .labels = { "grid" },
         .min_values = { 0.0 },
         .max_values = { static_cast<double>(kFruitTypeCount + 1) } // 最大値: スイカ + ドロッパー
     };
@@ -1014,27 +1014,30 @@ anet::rl::SingleState DropMergeEnv::makeState() const
     const float cell_w = (max_x - min_x) / config_.grid_cols;
     const float cell_h = (max_y - min_y) / config_.grid_rows;
 
+    float* vec_ptr = vec_buffer_.data_ptr<float>();
+    int8_t* grid_ptr = grid_buffer_.data_ptr<int8_t>();
+
     // --- スカラー部を充填 ---
 
     // Dropper X 正規化
     if (action_mode_ == ActionMode::Direct || action_mode_ == ActionMode::DirectNoop) {
-        obs_ptr_[0] = 0.0f; // 座標指定モードの時は完全無効化（DropperX座標を使わないので）
+        vec_ptr[0] = 0.0f; // 座標指定モードの時は完全無効化（DropperX座標を使わないので）
     } else {
-        obs_ptr_[0] = std::clamp(dropper_.x / (config_.box_width * 0.5f), -1.0f, 1.0f);
+        vec_ptr[0] = std::clamp(dropper_.x / (config_.box_width * 0.5f), -1.0f, 1.0f);
     }
 
     // Rank 正規化
     const float norm_scale = 1.0f / (float)kFruitTypeCount;
-    obs_ptr_[1] = dropper_.current_rank * norm_scale;
-    obs_ptr_[2] = dropper_.next_rank * norm_scale;
+    vec_ptr[1] = dropper_.current_rank * norm_scale;
+    vec_ptr[2] = dropper_.next_rank * norm_scale;
 
     // Busy フラグ (instant_dropモード時は常に0)
     const bool is_busy = (config_.use_instant_drop) ? false : dropper_.is_busy;
-    obs_ptr_[3] = is_busy ? 1.0f : 0.0f;
+    vec_ptr[3] = is_busy ? 1.0f : 0.0f;
 
     // --- グリッド情報のクリア ---
     const int grid_size = config_.grid_rows * config_.grid_cols;
-    std::fill(obs_ptr_ + kNumScalarObsDim, obs_ptr_ + kNumScalarObsDim + grid_size, 0.0f);
+    std::fill(grid_ptr, grid_ptr + grid_size, 0);
 
     // --- グリッド充填 ---
     for (b2Body* b = world_->GetBodyList(); b; b = b->GetNext()) {
@@ -1045,7 +1048,7 @@ anet::rl::SingleState DropMergeEnv::makeState() const
 
         const b2Vec2 pos = b->GetPosition();
         const float r_fruit = config_.fruit_radii[data.second - 1];
-        const float val = static_cast<float>(data.second);
+        const int8_t val = static_cast<int8_t>(data.second);
 
         // バウンディングボックスからインデックス範囲を算出
         int c_min = static_cast<int>((pos.x - r_fruit - min_x) / cell_w);
@@ -1076,8 +1079,8 @@ anet::rl::SingleState DropMergeEnv::makeState() const
                 if (dx * dx + dy_sq <= r_sq) {
                     const int idx = row_offset + ix;
                     // 重なっている場合はランクが低い（小さい）方を優先
-                    if (obs_ptr_[idx] == 0.0f || val < obs_ptr_[idx]) {
-                        obs_ptr_[idx] = val;
+                    if (grid_ptr[idx] == 0 || val < grid_ptr[idx]) {
+                        grid_ptr[idx] = val;
                     }
                 }
             }
@@ -1090,16 +1093,15 @@ anet::rl::SingleState DropMergeEnv::makeState() const
         int target_c = static_cast<int>((dropper_.x - min_x) / cell_w);
         target_c = std::clamp(target_c, 0, config_.grid_cols - 1);
         const int target_idx = kNumScalarObsDim + ((config_.grid_rows - 1) * config_.grid_cols) + target_c;
-        obs_ptr_[target_idx] = static_cast<float>(kFruitTypeCount + 1);
+        grid_ptr[target_idx] = static_cast<int8_t>(kFruitTypeCount + 1);
     }
 
-    // デバッグ表示用キャッシュ更新（vectorが必要な場合のみ）
-    grid_cache_.assign(obs_ptr_ + kNumScalarObsDim, obs_ptr_ + kNumScalarObsDim + grid_size);
+    // デバッグ表示用キャッシュ更新
+    grid_cache_.assign(grid_ptr, grid_ptr + grid_size);
 
-    // バッファをスライス＆Reshapeして切り分ける
-    auto vec_tensor = obs_buffer_.slice(0, 0, kNumScalarObsDim).clone();
-    auto grid_tensor = obs_buffer_.slice(0, kNumScalarObsDim, kNumScalarObsDim + grid_size)
-        .view({ 1, config_.grid_rows, config_.grid_cols }).clone();
+    // それぞれのバッファからクローンを作成
+    auto vec_tensor = vec_buffer_.clone();
+    auto grid_tensor = grid_buffer_.view({ 1, config_.grid_rows, config_.grid_cols }).clone();
 
     // 返却
     return anet::rl::SingleState {

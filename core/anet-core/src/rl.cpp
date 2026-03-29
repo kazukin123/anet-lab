@@ -52,9 +52,37 @@ std::string TensorSpec::ToString() const
 // StateSpec
 // =============================================================
 
-bool StateSpec::MatchesShape(const anet::TensorDict& obs, bool is_batched) const
+void StateSpec::AssertSanity() const
 {
-    if (obs.empty() && !obs_spec.empty()) return false;
+    for (const auto& kv : obs_spec) {
+        const auto& key = kv.first;
+        const auto& spec = kv.second;
+
+        if (spec.IsDiscrete()) {
+            // 離散空間: float系は不可
+            ANET_CHECK_MSG(!torch::isFloatingType(spec.dtype),
+                "TensorSpec Sanity Error: [" << key << "] is discrete (num_classes > 0) but dtype is float.");
+        } else {
+            // 連続空間: float系が必須
+            ANET_CHECK_MSG(torch::isFloatingType(spec.dtype),
+                "TensorSpec Sanity Error: [" << key << "] is continuous (num_classes == 0) but dtype is not float.");
+        }
+
+        // トポロジーとShapeの整合性 (Vectorは1次元配列であること)
+        if (spec.type == SpaceType::Vector) {
+            ANET_CHECK_MSG(spec.shape.size() == 1,
+                "TensorSpec Sanity Error: [" << key << "] is Vector but shape is not 1D (size is " << spec.shape.size() << ").");
+        }
+    }
+}
+
+bool StateSpec::ValidateObservation(const anet::TensorDict & obs, bool is_batched) const
+{
+    if (obs.empty() && !obs_spec.empty()) {
+        ANET_SYSTEM_ERROR(
+            "ValidateObservation failed: TensorDict is empty but obs_spec is not.");
+        return false;
+    }
 
     for (const auto& kv : obs_spec) {
         const auto& key = kv.first;
@@ -62,50 +90,55 @@ bool StateSpec::MatchesShape(const anet::TensorDict& obs, bool is_batched) const
 
         // キーの存在チェック
         if (!obs.Contains(key)) {
-            return false; // 仕様にある観測が欠落している
-        }
-
-        const auto& tensor = obs.At(key);
-
-        // 次元数のチェック (バッチがある場合は +1 次元になる)
-        int expected_dims = spec.shape.size() + (is_batched ? 1 : 0);
-        if (tensor.dim() != expected_dims) {
+            ANET_SYSTEM_ERROR(
+                "ValidateObservation failed: Missing key in TensorDict: " << key);
             return false;
         }
 
-        // 各次元のサイズチェック
+        const auto& tensor = obs.At(key);
+
+        // Dtypeのチェック
+        if (tensor.dtype() != spec.dtype) {
+            ANET_SYSTEM_ERROR(
+                "ValidateObservation failed: Dtype mismatch for key: " << key
+                << " | Expected: " << spec.dtype << ", Actual: " << tensor.dtype());
+            return false;
+        }
+
+        // 次元数とShapeのチェック
+        int64_t expected_dims = spec.shape.size() + (is_batched ? 1 : 0);
+        if (tensor.dim() != expected_dims) {
+            ANET_SYSTEM_ERROR(
+                "ValidateObservation failed: Dimension mismatch for key: " << key
+                << " | Expected dims: " << expected_dims << ", Actual: " << tensor.dim());
+            return false;
+        }
+
         for (size_t i = 0; i < spec.shape.size(); ++i) {
-            int tensor_dim_idx = is_batched ? (i + 1) : i;
+            int64_t tensor_dim_idx = is_batched ? (static_cast<int64_t>(i) + 1) : static_cast<int64_t>(i);
             if (tensor.size(tensor_dim_idx) != spec.shape[i]) {
+                ANET_SYSTEM_ERROR(
+                    "ValidateObservation failed: Shape mismatch at dim " << i
+                    << " for key: " << key << " | Expected: " << spec.shape[i] << ", Actual: " << tensor.size(tensor_dim_idx));
                 return false;
             }
         }
-    }
-    return true;
-}
 
-bool StateSpec::MatchesRange(const anet::TensorDict& obs) const
-{
-    for (const auto& kv : obs_spec) {
-        const auto& key = kv.first;
-        const auto& spec = kv.second;
-
-        if (!obs.Contains(key)) continue; // HasチェックはMatchesShapeに任せる
-        const auto& tensor = obs.At(key);
-
-        // float型の連続値(Vector等)の場合のみ簡易範囲チェック
+        // Rangeのチェック (float型でmin/maxが定義されている場合のみ)
         if (tensor.is_floating_point() && !spec.min_values.empty() && !spec.max_values.empty()) {
-            // specの最小/最大値の「全体での最小/最大」をざっくり取得
             float spec_min = *std::min_element(spec.min_values.begin(), spec.min_values.end());
             float spec_max = *std::max_element(spec.max_values.begin(), spec.max_values.end());
 
             float t_min = tensor.min().item<float>();
             float t_max = tensor.max().item<float>();
 
-            // 許容誤差(epsilon)を少し持たせる
             const float eps = 1e-4f;
             if (t_min < spec_min - eps || t_max > spec_max + eps) {
-                return false; // 範囲外の異常値が含まれている
+                ANET_SYSTEM_ERROR(
+                    "ValidateObservation failed: Values out of range for key: " << key
+                    << " | Spec Range: [" << spec_min << ", " << spec_max
+                    << "], Actual Range: [" << t_min << ", " << t_max << "]");
+                return false;
             }
         }
     }
@@ -177,6 +210,11 @@ std::string ActionSpec::ToString() const
     return ToJson().dump(2);
 }
 
+
+// =============================================================
+// EnvSpec
+// =============================================================
+
 anet::json EnvSpec::ToJson() const
 {
     anet::json j;
@@ -202,6 +240,11 @@ std::string EnvSpec::ToString() const
     return ToJson().dump(2);
 }
 
+
+// =============================================================
+// BatchEnvSpec
+// =============================================================
+
 anet::json BatchEnvSpec::ToJson() const
 {
     anet::json j;
@@ -214,6 +257,9 @@ std::string BatchEnvSpec::ToString() const
 {
     return ToJson().dump(2);
 }
+
+
+// =============================================================
 
 torch::Tensor ToUnifiedObservation(const anet::TensorDict& obs, bool is_batched)
 {
@@ -245,9 +291,9 @@ torch::Tensor ToUnifiedObservation(const anet::TensorDict& obs, bool is_batched)
         bool is_vector_key = (key == ObsKeys::kVector);
         int effective_dims = is_batched ? (tensor.dim() - 1) : tensor.dim();
         if (is_vector_key || effective_dims <= 1) {
-            vector_bucket[key] = tensor.flatten(flatten_dim);
+            vector_bucket[key] = tensor.to(torch::kFloat32).flatten(flatten_dim);
         } else {
-            grid_bucket[key] = tensor.flatten(flatten_dim);
+            grid_bucket[key] = tensor.to(torch::kFloat32).flatten(flatten_dim);
         }
     }
 
