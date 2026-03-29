@@ -287,12 +287,12 @@ namespace anet::rl {
         // ---------------------------------------------------------
         // 整合性検証 (Assert用)
         // ---------------------------------------------------------
+ 
+        /// 定義されたTensorSpec自体に矛盾がないかを検証する
+        void AssertSanity() const;
 
-        /// 観測データ(TensorDict)が仕様のShapeと一致しているか検証
-        bool MatchesShape(const anet::TensorDict& obs, bool is_batched = true) const;
-
-        /// 観測データ(TensorDict)が仕様の最小/最大値の範囲に収まっているか検証
-        bool MatchesRange(const anet::TensorDict& obs) const;
+        /// 観測データ(TensorDict)が仕様(存在, Dtype, Shape, Range)を全て満たしているか一括検証する。
+        bool ValidateObservation(const anet::TensorDict& obs, bool is_batched = true) const;
 
         anet::json ToJson() const;
         std::string ToString() const;
