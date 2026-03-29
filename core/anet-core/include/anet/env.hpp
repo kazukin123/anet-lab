@@ -30,11 +30,13 @@ namespace anet::rl {
         class Result;
         class ResetResult;
         class StepResult;
+    protected:
         std::shared_ptr<DiscreteBatchEnvBase::ResetResult> createEmptyResetResult() const;
         std::shared_ptr<DiscreteBatchEnvBase::StepResult> createEmptyStepResult() const;
-    protected:
         std::shared_ptr<DiscreteBatchEnvBase::ResetResult> getResetResult() const;
         std::shared_ptr<DiscreteBatchEnvBase::StepResult> getStepResult() const;
+    private:
+        anet::TensorDict createEmptyObsDict() const;
     protected:
         int64_t batch_size_;
         std::vector<std::shared_ptr<SingleDiscreteEnv>> envs_;
@@ -42,7 +44,6 @@ namespace anet::rl {
         BatchEnvSpec batch_spec_;
         torch::Device device_;
 
-        std::vector<int64_t> obs_dims_;
         torch::TensorOptions float_opt_;
         torch::TensorOptions bool_opt_;
     protected:

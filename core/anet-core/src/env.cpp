@@ -101,11 +101,6 @@ DiscreteBatchEnvBase::DiscreteBatchEnvBase(
     // EnvSpec取得
     spec_ = std::make_unique<EnvSpec>(envs_[0]->GetSpec());
 
-    // EnvSpec からobsのshapeを取得
-    auto shape = spec_->state_spec.shape;  // 例: {4}
-    obs_dims_.push_back(batch_size_);
-    obs_dims_.insert(obs_dims_.end(), shape.begin(), shape.end());
-
     // 初期化
     float_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
     bool_opt_ = torch::TensorOptions().dtype(torch::kBool).device(device);
@@ -127,12 +122,32 @@ BatchEnvSpec DiscreteBatchEnvBase::GetBatchSpec() const
     return batch_spec_;
 }
 
+anet::TensorDict DiscreteBatchEnvBase::createEmptyObsDict() const
+{
+    anet::TensorDict dict;
+
+    // EnvSpec に定義された全てのobsについて、バッチ次元を付与した空テンソルを作る
+    for (const auto& kv : spec_->state_spec.obs_spec) {
+        const auto& key = kv.first;
+        const auto& t_spec = kv.second;
+
+        // [N, shape...] の次元を作成
+        std::vector<int64_t> dims = { batch_size_ };
+        dims.insert(dims.end(), t_spec.shape.begin(), t_spec.shape.end());
+
+        // Specに定義された dtype と、環境の device で確保
+        auto opt = torch::TensorOptions().dtype(t_spec.dtype).device(device_);
+        dict.Set(key, torch::empty(dims, opt));
+    }
+    return dict;
+}
+
 std::shared_ptr<DiscreteBatchEnvBase::ResetResult> DiscreteBatchEnvBase::createEmptyResetResult() const
 {
     auto result = std::make_shared<DiscreteBatchEnvBase::ResetResult>(
         batch_size_,
         anet::rl::BatchState {
-            torch::empty(obs_dims_, float_opt_),
+            createEmptyObsDict(),
             torch::empty({ batch_size_ }, bool_opt_),
             torch::empty({ batch_size_ }, bool_opt_),
             torch::empty({ batch_size_ }, bool_opt_)
@@ -147,13 +162,13 @@ std::shared_ptr<DiscreteBatchEnvBase::StepResult> DiscreteBatchEnvBase::createEm
 
         torch::empty({ batch_size_ }, float_opt_),       // reward        (N) kFloat32
         BatchState{    // next_state
-            torch::empty(obs_dims_, float_opt_),         // obs           (N, state_dim..) kFloat32
+            createEmptyObsDict(),
             torch::empty({ batch_size_ }, bool_opt_),    // done          (N) kBool
             torch::empty({ batch_size_ }, bool_opt_),    // truncated     (N) kBool
             torch::empty({ batch_size_ }, bool_opt_)     // episode_start (N) kBool
         },
         BatchState{    // continue_state
-            torch::empty(obs_dims_, float_opt_),         // obs           (N, state_dim..) kFloat32
+            createEmptyObsDict(),
             torch::empty({ batch_size_ }, bool_opt_),    // done          (N) kBool
             torch::empty({ batch_size_ }, bool_opt_),    // truncated     (N) kBool
             torch::empty({ batch_size_ }, bool_opt_)     // episode_start (N) kBool
@@ -300,7 +315,7 @@ std::shared_ptr<const BatchResetResult> VectorizedDiscreteBatchEnv::Reset(RunMod
     for (int i = 0; i < batch_size_; ++i) {
         auto reset_result = envs_[i]->Reset(mode);
         ANET_ASSERT_DEVICE(reset_result->state.obs, device_);
-        result->state.obs[i].copy_(reset_result->state.obs);
+        result->state.obs.CopyBatchItem(i, reset_result->state.obs);
         result->state.done[i].fill_(reset_result->state.done);
         result->state.truncated[i].fill_(reset_result->state.truncated);
         result->state.episode_start[i].fill_(reset_result->state.episode_start);
@@ -332,7 +347,7 @@ std::shared_ptr<const BatchStepResult> VectorizedDiscreteBatchEnv::Step(std::sha
 
         result->single_results[i] = single_result;
 
-        result->next_state.obs.select(0, i).copy_(single_result->next_state.obs);
+        result->next_state.obs.CopyBatchItem(i, single_result->next_state.obs);
         result->next_state.done[i].fill_(single_result->next_state.done);
         result->next_state.truncated[i].fill_(single_result->next_state.truncated);
         result->next_state.episode_start[i].fill_(single_result->next_state.episode_start);
@@ -344,13 +359,13 @@ std::shared_ptr<const BatchStepResult> VectorizedDiscreteBatchEnv::Step(std::sha
             auto reset_result = envs_[i]->Reset(mode);
             ANET_ASSERT_DEVICE(reset_result->state.obs, device_);
 
-            result->continue_state.obs.select(0, i).copy_(reset_result->state.obs);
+            result->continue_state.obs.CopyBatchItem(i, reset_result->state.obs);
             result->continue_state.done[i].fill_(reset_result->state.done);
             result->continue_state.truncated[i].fill_(reset_result->state.truncated);
             result->continue_state.episode_start[i].fill_(reset_result->state.episode_start);
             result->n_episode_end++;
         } else {
-            result->continue_state.obs.select(0, i).copy_(single_result->next_state.obs);
+            result->continue_state.obs.CopyBatchItem(i, single_result->next_state.obs);
             result->continue_state.done[i].fill_(false);
             result->continue_state.truncated[i].fill_(false);
             result->continue_state.episode_start[i].fill_(single_result->next_state.episode_start);
@@ -422,7 +437,7 @@ std::shared_ptr<const BatchResetResult>  ThreadPoolDiscreteEnv::Reset(RunMode mo
                 ANET_ASSERT_DEVICE(single_result->state.obs, device_);
 
                 // 結果書き込み(i番目の行だけを書くので他 Worker と race しない)
-                result->state.obs.select(0, i).copy_(single_result->state.obs);
+                result->state.obs.CopyBatchItem(i, single_result->state.obs);
                 result->state.done[i].fill_(single_result->state.done);
                 result->state.truncated[i].fill_(single_result->state.truncated);
                 result->state.episode_start[i].fill_(single_result->state.episode_start);
@@ -471,7 +486,7 @@ std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(std::shared_p
                 result->single_results[i] = r;
 
                 // --- next_state ---
-                result->next_state.obs.select(0, i).copy_(r->next_state.obs);
+                result->next_state.obs.CopyBatchItem(i, r->next_state.obs);
                 result->next_state.done[i].fill_(r->next_state.done);
                 result->next_state.truncated[i].fill_(r->next_state.truncated);
                 result->next_state.episode_start[i].fill_(r->next_state.episode_start);
@@ -484,13 +499,13 @@ std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(std::shared_p
                     // Reset_required
                     auto reset_result = envs_[i]->Reset(mode);
                     ANET_ASSERT_DEVICE(reset_result->state.obs, device_);
-                    result->continue_state.obs.select(0, i).copy_(reset_result->state.obs);
+                    result->continue_state.obs.CopyBatchItem(i, reset_result->state.obs);
                     result->continue_state.done[i].fill_(reset_result->state.done);
                     result->continue_state.truncated[i].fill_(reset_result->state.truncated);
                     result->continue_state.episode_start[i].fill_(reset_result->state.episode_start);
                 } else {
                     // Continue as-is
-                    result->continue_state.obs.select(0, i).copy_(r->next_state.obs);
+                    result->continue_state.obs.CopyBatchItem(i, r->next_state.obs);
                     result->continue_state.done[i].fill_(false);
                     result->continue_state.truncated[i].fill_(false);
                     result->continue_state.episode_start[i].fill_(r->next_state.episode_start);
