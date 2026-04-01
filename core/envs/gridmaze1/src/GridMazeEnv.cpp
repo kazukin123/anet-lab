@@ -50,8 +50,8 @@ anet::rl::EnvSpec GridMazeEnv::GetSpec() const
 {
     // --- StateSpec ---
     anet::rl::StateSpec state_spec;
-    state_spec.obs_spec[anet::rl::ObsKeys::kVector] = anet::rl::TensorSpec {
-        .type = anet::rl::SpaceType::Vector,
+    state_spec.obs_spec[anet::rl::ObsKeys::kVector] = anet::TensorSpec {
+        .type = anet::SpaceType::Vector,
         .shape = { 2 },
         .dtype = torch::kFloat32,
         .num_classes = 0,   // 連続値

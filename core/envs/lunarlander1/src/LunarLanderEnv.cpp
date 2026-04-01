@@ -44,8 +44,8 @@ enum class GroundFixtureType : std::uintptr_t {
 anet::rl::EnvSpec LunarLanderEnv::GetSpec() const
 {
     // obs_spec
-    anet::rl::TensorSpec obs_spec {
-        .type = anet::rl::SpaceType::Vector,
+    anet::TensorSpec obs_spec {
+        .type = anet::SpaceType::Vector,
         .shape = { 8 },
         .dtype = torch::kFloat32,
         .num_classes = 0,   // 連続値

@@ -47,8 +47,8 @@ CartPoleEnv::CartPoleEnv(const CartPoleEnvConfig& config, const torch::Device& d
 anet::rl::EnvSpec CartPoleEnv::GetSpec() const
 {
     // TensorSpec
-    anet::rl::TensorSpec vec_obs_spec {
-        .type = anet::rl::SpaceType::Vector,
+    anet::TensorSpec vec_obs_spec {
+        .type = anet::SpaceType::Vector,
         .shape = { 4 },
         .dtype = torch::kFloat32,
         .num_classes = 0,   // 連続値

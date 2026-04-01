@@ -188,8 +188,8 @@ anet::rl::EnvSpec DropMergeEnv::GetSpec() const
     anet::rl::StateSpec state_spec;
 
     // --- Vector Info (Dropper) ---
-    state_spec.obs_spec[anet::rl::ObsKeys::kVector] = anet::rl::TensorSpec {
-        .type = anet::rl::SpaceType::Vector,
+    state_spec.obs_spec[anet::rl::ObsKeys::kVector] = anet::TensorSpec {
+        .type = anet::SpaceType::Vector,
         .shape = { kNumScalarObsDim },
         .dtype = torch::kFloat32,
         .num_classes = 0,   // 連続値(正確にはrankやbusyは離散値だけど)
@@ -201,8 +201,8 @@ anet::rl::EnvSpec DropMergeEnv::GetSpec() const
 
     // --- Grid Info (Board) ---
     auto num_classes = kFruitTypeCount + 2; // 空とDropperで2を足す
-    state_spec.obs_spec[anet::rl::ObsKeys::kGrid] = anet::rl::TensorSpec {
-        .type = anet::rl::SpaceType::Grid,
+    state_spec.obs_spec[anet::rl::ObsKeys::kGrid] = anet::TensorSpec {
+        .type = anet::SpaceType::Grid,
         .shape = { 1, config_.grid_rows, config_.grid_cols }, // [C, H, W]
         .dtype = torch::kInt8,
         .num_classes = num_classes, // Gridの値は果物のランクもしくはDropperを表す離散値
