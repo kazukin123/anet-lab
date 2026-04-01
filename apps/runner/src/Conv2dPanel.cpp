@@ -15,7 +15,7 @@ namespace LOG = anet::log;
 struct Conv2dPanel::Config : public anet::Config {
     anet::rl::Conv2dVisualizerConfig conv2d;
 
-    Conv2dPanel::Config(const anet::ConfigData& config_data) : anet::Config("Conv2dPanel")
+    Config(const anet::ConfigData& config_data) : anet::Config("Conv2dPanel")
     {
         ANET_READ_CONFIG(config_data, conv2d.margin_x);
         ANET_READ_CONFIG(config_data, conv2d.margin_y);

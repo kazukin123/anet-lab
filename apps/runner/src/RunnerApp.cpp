@@ -41,7 +41,7 @@ struct RunnerApp::Config : public anet::Config {
     TrainPanelConfig train_panel;
     EvalPanelConfig eval_panel;
 
-    RunnerApp::Config(const anet::ConfigData& config_data) : anet::Config(config_data, "app")
+    Config(const anet::ConfigData& config_data) : anet::Config(config_data, "app")
     {
         ANET_READ_CONFIG(config_data, run_name);
         ANET_READ_CONFIG(config_data, log_level);

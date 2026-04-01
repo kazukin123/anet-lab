@@ -30,7 +30,7 @@ struct QValuePanel::Config : public anet::Config {
     int hist_bins = 510;
     float hist_range_k = 1.0;
 
-    QValuePanel::Config(const anet::ConfigData& config_data) : anet::Config("QValuePanel")
+    Config(const anet::ConfigData& config_data) : anet::Config("QValuePanel")
     {
         ANET_READ_CONFIG(config_data, row_height);
         ANET_READ_CONFIG(config_data, hist_bins);
