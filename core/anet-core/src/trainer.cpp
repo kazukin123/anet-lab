@@ -600,7 +600,7 @@ struct RunManager::Config : public anet::Config
     std::string eval_device_type = "cpu";
     int eval_device_index = 0;
 
-    RunManager::Config(const anet::ConfigData& config_data, const std::string& config_prefix = "train") /// @todo config_prefixをrunに変更
+    Config(const anet::ConfigData& config_data, const std::string& config_prefix = "train") /// @todo config_prefixをrunに変更
         : anet::Config(config_data, config_prefix)
     {
         ANET_READ_CONFIG(config_data, seed);
