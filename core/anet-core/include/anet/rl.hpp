@@ -188,93 +188,19 @@ namespace anet::rl {
 
         // --- 空間トポロジによる使い分けデフォルトキー ---
         static constexpr const char* kVector = "vector";
-        static constexpr const char* kImage = "image";
+        //static constexpr const char* kImage = "image";
         static constexpr const char* kGrid = "grid";
 
         // --- メタデータ・特殊用途 ---
         static constexpr const char* kActionMask = "action_mask";
     };
 
-    // 空間トポロジー
-    enum class SpaceType {
-        Vector,     // 順序や空間関係を持たない1D配列 (通常はLinearで受ける)
-        Grid,       // 空間的な隣接関係を持つ配列 (通常はConvで受ける)
-        Sequence    // 時間的な順序を持つ系列 (通常はTransformer/RNNで受ける)
-    };
-
-    // 環境が提供する情報(Observation/ActionMask)の仕様情報
-    struct TensorSpec {
-        /// 空間トポロジー
-        SpaceType type = SpaceType::Vector;
-
-        /// Tensor形状
-        std::vector<std::int64_t> shape;
-
-        /// データ・タイプ
-        torch::Dtype dtype = torch::kFloat32;
-
-        /// 離散値向けのクラス数。連続値(Continuous)なら0、離散値(Discrete)なら1以上。
-        int64_t num_classes = 0; 
-
-        // Viewer表示用ラベル（Flatten要素数と同サイズ、または空）
-        std::vector<std::string> labels;
-
-        /// 最小値 (サイズ1なら全体適用(Broadcast)、要素数と同じなら要素別)
-        std::vector<double> min_values;
-
-        /// 最大値 (サイズ1なら全体適用(Broadcast)、要素数と同じなら要素別)
-        std::vector<double> max_values;
-
-        // --- ユーティリティメソッド ---
-
-        bool IsDiscrete() const { return num_classes > 0; }
-
-        bool HasValidLabels() const
-        {
-            if (labels.empty()) return true; // 省略(空)は常にOKとする
-
-            if (type == SpaceType::Vector) {
-                // Vectorなら、フラット化した全体の要素数と一致しているか
-                return labels.size() == CalcFlattenDim();
-            } else if (type == SpaceType::Grid || type == SpaceType::Sequence) {
-                // Grid/Sequenceなら、チャネル次元(shape[0])の数と一致しているか
-                return !shape.empty() && labels.size() == shape[0];
-            }
-            return false;
-        }
-
-        std::int64_t CalcFlattenDim() const
-        {
-            std::int64_t dim = 1;
-            for (auto s : shape) dim *= s;
-            return dim;
-        }
-
-        std::optional<double> GetMin(size_t index = 0) const
-        {
-            if (min_values.empty()) return std::nullopt;
-            if (min_values.size() == 1) return min_values[0];
-            if (index < min_values.size()) return min_values[index];
-            return std::nullopt;
-        }
-
-        std::optional<double> GetMax(size_t index = 0) const {
-            if (max_values.empty()) return std::nullopt;
-            if (max_values.size() == 1) return max_values[0];
-            if (index < max_values.size()) return max_values[index];
-            return std::nullopt;
-        }
-
-        anet::json ToJson() const;
-        std::string ToString() const;
-    };
-
     // 観測仕様
     struct StateSpec {
-        std::unordered_map<std::string, TensorSpec> obs_spec;
+        anet::TensorSpecMap obs_spec;
         std::map<std::string, std::string> info;
 
-        const TensorSpec& GetSpace(const std::string& key) const
+        const anet::TensorSpec& GetSpace(const std::string& key) const
         {
             return obs_spec.at(key);
         }
