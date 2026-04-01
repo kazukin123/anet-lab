@@ -11,7 +11,7 @@ using namespace anet::rl;
 // DictFrameStacker
 // =============================================================
 
-DictFrameStacker::DictFrameStacker(int stack_count, int batch_size, std::optional<std::vector<std::string>> stack_keys, torch::Device device)
+DictFrameStacker::DictFrameStacker(int stack_count, int batch_size, torch::Device device, std::optional<std::vector<std::string>> stack_keys)
     : stack_count_(stack_count), batch_size_(batch_size), stack_keys_(stack_keys), device_(device)
 {
     ANET_ASSERT(stack_count_ > 0);
