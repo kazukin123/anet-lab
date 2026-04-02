@@ -33,7 +33,6 @@
 
 # --- Common Utilities ---
 
-net.block.[Add].type = Add
 net.block.[Flatten].type = Flatten
 
 
@@ -108,15 +107,20 @@ net.block.[ConvProj32].conv.kernel_size = 1
 net.block.[ConvProj32].conv.stride = 1
 net.block.[ConvProj32].conv.padding = 0
 
-
-
 # --- ResBlock定義
 
 net.block.[ResA].type = ResBlock
-net.block.[ResA].channels = 64
-net.block.[ResA].kernel_size = 3
-net.block.[ResA].activation = silu
-
+net.block.[ResA].res.channels = 64
+net.block.[ResA].res.kernel_size = 3
+net.block.[ResA].res.stride = 1
+net.block.[ResA].res.padding = 0
+net.block.[ResA].res.dilation = 1
+net.block.[ResA].res.conv1_bias = true
+net.block.[ResA].res.conv2_bias =  true
+net.block.[ResA].res.activation = silu  # silu relu swish
+net.block.[ResA].res.activation_mode = post  # pre
+net.block.[ResA].res.norm_type);
+net.block.[ResA].res.group_norm_groups);
 
 
 # --- Transformer / ViT Components ---

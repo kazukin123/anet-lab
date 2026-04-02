@@ -531,27 +531,35 @@ struct ResBlockConfig {
     int stride = 1;
     int dilation = 1;
     std::string activation = "silu"; // "relu" (default) or "silu" / "swish"
+    std::string activation_mode = "post"; // "post" (v1) or "pre" (v2)
     std::string norm_type = "none"; // "none", "batch", "group"
     int group_norm_groups = 32;
     bool conv1_bias = true;        // Norm無しならtrue必須。None有りならFalse推奨。
     bool conv2_bias = true;        // ZeroInitするならTrue推奨
 };
 
-/// @todo 全部設定でConv2dとかReLUとかを組み合わせて定義したResBlockを更に組み合わせる、がしたかったResBlockごとModule実装でいいのか…？？
-
 /// ResNet Basic Block
 class ResBlockModule : public NetworkModule {
 private:
     enum class ActType { ReLU, SiLU };
+    enum class ActMode { Post, Pre };
 public:
     ResBlockModule(const ResBlockConfig& config, const WeightInitConfig& init1_config, const WeightInitConfig& init2_config, const WeightInitConfig& init_ds_config)
         : config_(config), init1_config_(init1_config), init2_config_(init2_config), init_ds_config_(init_ds_config)
     {
+        // 活性化関数設定取得
         if (config_.activation == "SiLU" || config_.activation == "silu" ||
             config_.activation == "Swish" || config_.activation == "swish") {
             act_type_ = ActType::SiLU;
         } else {
             act_type_ = ActType::ReLU;
+        }
+
+        // モード設定取得
+        if (config_.activation_mode == "pre" || config_.activation_mode == "Pre") {
+            act_mode_ = ActMode::Pre;
+        } else {
+            act_mode_ = ActMode::Post;
         }
     }
 
@@ -617,41 +625,66 @@ public:
         }
 
         // --- Forwarding ---
+        if (act_mode_ == ActMode::Pre) {
 
-        /// @todo Pre-Activation対応
+            // ==================================================
+            // Pre-Activation (ResNet v2)
+            // ==================================================
+            anet::ProfileRange r3("ResBlockModule::Forward.pre_act");
 
-        // Post Activation (ResNet v1、今の実装)
-        //    Conv->BN->ReLU->Conv->BN->Add->ReLU
-        // Pre Activation(ResNet v2)
-        //    BN->ReLU->Conv->BN->ReLU->Conv->Add
-        // Postは最後にReLUがあるため、マイナス値を出力し辛い。Preは最後にActivationがないため、ResBlockの出力はマイナス値も問題無い。
-        // Preの方が勾配の流れが良いため、学習初期の不安定な時期を抜け出しやすい。
+            // 共通の Pre-Activation (Norm -> Act)
+            torch::Tensor pre_act = input;
+            if (norm1_) pre_act = norm1_->Forward(pre_act);
+            pre_act = Activate(pre_act);
 
-        // Block 1: Conv -> Norm -> Act
-        anet::ProfileRange r3("ResBlockModule::Forward.conv1");
-        torch::Tensor out = conv1_->forward(input);
-        if (norm1_) out = norm1_->Forward(out);
-        out = Activate(out);
+            // Shortcut Path
+            torch::Tensor residual = input;
+            if (downsample_conv_) {
+                // 次元が変わる場合、Pre-Actされた値から1x1 Convで射影する（v2の標準）
+                residual = downsample_conv_->forward(pre_act);
+                if (norm_ds_) residual = norm_ds_->Forward(residual);
+            }
 
-        // Block 2: Conv -> Norm
-        anet::ProfileRange r4("ResBlockModule::Forward.conv2", r3);
-        out = conv2_->forward(out);
-        if (norm2_) out = norm2_->Forward(out);
+            // Main Path
 
-        // Down-sample
-        anet::ProfileRange r5("ResBlockModule::Forward.downsample", r4);
-        torch::Tensor residual = input;
+            // Conv1
+            torch::Tensor out = conv1_->forward(pre_act);
+
+            // Norm2 -> Act -> Conv2
+            if (norm2_) out = norm2_->Forward(out);
+            out = Activate(out);
+            out = conv2_->forward(out);
+
+            // Add (最後のアクティベーション無し)
+            return out + residual;
+        } else {
+            // ==================================================
+            // Post-Activation (ResNet v1)
+            // ==================================================
+            anet::ProfileRange r3("ResBlockModule::Forward.post_act");
+
+            // Block 1: Conv -> Norm -> Act
+            torch::Tensor out = conv1_->forward(input);
+            if (norm1_) out = norm1_->Forward(out);
+            out = Activate(out);
+
+            // Block 2: Conv -> Norm
+            out = conv2_->forward(out);
+            if (norm2_) out = norm2_->Forward(out);
+
+            // Down-sample
+            torch::Tensor residual = input;
         if (downsample_conv_) { // 次元合わせが必要な場合の1x1Conv
-            residual = downsample_conv_->forward(residual);
-            if (norm_ds_) residual = norm_ds_->Forward(residual);
+                residual = downsample_conv_->forward(residual);
+                if (norm_ds_) residual = norm_ds_->Forward(residual);
+            }
+
+            // Add & Act
+            out += residual;
+            out = Activate(out);
+
+            return out;
         }
-
-        // Add & Act
-        anet::ProfileRange r6("ResBlockModule::Forward.fin", r5);
-        out += residual;
-        out = Activate(out);
-
-        return out;
     }
 private:
     std::shared_ptr<NetworkModule> CreateAndRegisterNorm(const std::string& name, int64_t channels)
@@ -670,6 +703,7 @@ private:
         }
         return mod;
     }
+
     inline torch::Tensor Activate(const torch::Tensor& x) const
     {
         if (act_type_ == ActType::SiLU) {
@@ -684,6 +718,7 @@ private:
     WeightInitConfig init_ds_config_;
 
     ActType act_type_ = ActType::ReLU;
+	ActMode act_mode_ = ActMode::Post;
 
     // Conv2d
     torch::nn::Conv2d conv1_{ nullptr };
@@ -719,6 +754,7 @@ private:
             ANET_READ_CONFIG(config_data, res.conv1_bias);
             ANET_READ_CONFIG(config_data, res.conv2_bias);
             ANET_READ_CONFIG(config_data, res.activation);
+            ANET_READ_CONFIG(config_data, res.activation_mode);
             ANET_READ_CONFIG(config_data, res.norm_type);
             ANET_READ_CONFIG(config_data, res.group_norm_groups);
 
