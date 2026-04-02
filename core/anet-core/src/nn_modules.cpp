@@ -164,48 +164,6 @@ private:
     int64_t dilation_;
 };
 
-/// ElementwiseAdd (For Skip Connection via Tags)
-class ElementwiseAddModule : public NetworkModule {
-public:
-    explicit ElementwiseAddModule(int split_count) : split_count_(split_count)
-    {
-        if (split_count_ < 2) {
-			LOG::warn() << "ElementwiseAddModule: split_count should be >= 2. Given: " << split_count_;
-        }
-    }
-
-    torch::Tensor forward(torch::Tensor x)
-    {
-        anet::ProfileRange r("ElementwiseAddModule::forward");
-
-        // 入力 x は (Batch, TotalChannels, ...) と結合されている前提
-        if (split_count_ <= 1) return x;
-
-        // split_count_ で等分割する。
-        // ※ 各要素のチャンネル数が同じであることが前提
-        auto chunks = x.chunk(split_count_, 1); // dim=1
-        if (chunks.size() != split_count_) {
-            ANET_SYSTEM_ERROR(
-                "ElementwiseAdd: Input channels cannot be split into "
-                << split_count_ <<  " equal parts. Total channels=" << x.size(1));
-        }
-
-        // 加算
-        torch::Tensor sum = chunks[0];
-        for (size_t i = 1; i < chunks.size(); ++i) {
-            sum = sum + chunks[i];
-        }
-        return sum;
-    }
-
-    torch::Tensor Forward(torch::Tensor input) override
-    {
-        return forward(input);
-    }
-private:
-    int split_count_;
-};
-
 /// Permute Module (Transpose axes)
 /// e.g. dims=[0, 2, 1] -> (Batch, Time, Feat) -> (Batch, Feat, Time)
 class PermuteModule : public NetworkModule {
@@ -1276,17 +1234,6 @@ public:
     }
 };
 
-class ElementwiseAddModuleFactory final : public NetworkModuleFactory {
-public:
-    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override 
-    {
-        ANET_CHECK_MSG(!context.input_tags.empty(), "ElementwiseAdd: input_tags should not be epmty.");
-		int split_count = (int)context.input_tags.size();   // 分割数として入力タグ数を取得
-
-        return std::make_shared<ElementwiseAddModule>(split_count);
-    }
-};
-
 class PermuteModuleFactory final : public NetworkModuleFactory {
 private:
     struct Config : anet::Config {
@@ -1400,7 +1347,6 @@ public:
     auto& repo = NetworkModuleRepository::Instance();
 
 	// 基本モジュール登録
-    repo.Register("Add", std::make_shared<ElementwiseAddModuleFactory>());
     repo.Register("Flatten", std::make_shared<FlattenModuleFactory>());
     repo.Register("Permute", std::make_shared<PermuteModuleFactory>());
 
