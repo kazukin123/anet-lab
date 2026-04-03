@@ -86,13 +86,18 @@ namespace anet {
 
     json round_numbers(const json& j, int precision = 6);
 
+    template <typename Container, typename T>
+    inline bool Contains(const Container& container, const T& value) {
+        return std::find(container.begin(), container.end(), value) != container.end();
+    }
+
 
     // ===========================================================================
 	// Tensor Function Providers
     // ===========================================================================
 
     using TensorFunction = std::function<torch::Tensor(const torch::Tensor&)>;
-    using TensorDictFunction = std::function<anet::TensorDict(const torch::Tensor&)>;
+    using TensorDictFunction = std::function<anet::TensorDict(const anet::TensorDict&)>;
 
     class TensorFunctionProvider {
     public:

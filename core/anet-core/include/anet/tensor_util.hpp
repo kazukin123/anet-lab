@@ -241,6 +241,16 @@ namespace anet {
             return result;
         }
 
+        /// 全テンソルを一括で型変換して新しいTensorDictを返す
+        TensorDict To(torch::ScalarType dtype) const
+        {
+            TensorDict result;
+            for (const auto& kv : dict_) {
+                result.Set(kv.first, kv.second.to(dtype));
+            }
+            return result;
+        }
+
         /// 内部テンソルの代表デバイスを取得する
         torch::Device device() const
         {

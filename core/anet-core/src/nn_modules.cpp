@@ -300,127 +300,6 @@ private:
 
 
 // ===========================================================================
-// SpatialEmbedderModule (For 2D Grid + Scalar Input)
-// ===========================================================================
-
-struct SpatialEmbedderConfig {
-    int scalar_dim = 0;
-    int grid_width = 0;
-    int grid_height = 0;
-    int num_classes = 0;
-};
-
-class SpatialEmbedderModule : public NetworkModule {
-public:
-    SpatialEmbedderModule(const SpatialEmbedderConfig& config)
-        : config_(config)
-    {
-        ANET_CHECK(config_.scalar_dim >= 0);
-        ANET_CHECK(config_.grid_width > 0);
-        ANET_CHECK(config_.grid_height > 0);
-        ANET_CHECK(config_.num_classes > 0);
-    }
-
-    bool IsConv2dVisualizable() const override { return true; }
-
-    torch::Tensor Forward(torch::Tensor input) override
-    {
-        anet::ProfileRange r("SpatialEmbedderModule::Forward");
-
-        // Input: (Batch, Stack, Features) or (Batch, Features)
-        // Features = scalar_dim + (grid_w * grid_h)
-
-        auto shape = input.sizes().vec();
-        const int64_t batch_size = shape[0];
-        const int64_t input_feature_dim = shape.back();
-
-        // 次元チェック
-        const int64_t expected_grid_dim = (int64_t)config_.grid_width * config_.grid_height;
-        const int64_t expected_total_dim = (int64_t)config_.scalar_dim + expected_grid_dim;
-
-        // ※Input次元が一致しない場合はエラーにする（あるいは柔軟に対応するかだが、基本は厳密に）
-        if (input_feature_dim != expected_total_dim) {
-            ANET_SYSTEM_ERROR("SpatialEmbedder: Input dimension mismatch. Expected "
-                << expected_total_dim << " (Scalar:" << config_.scalar_dim << " + Grid:" << expected_grid_dim << ")"
-                << " but got " << input_feature_dim);
-        }
-
-        // Stack次元の有無を確認
-        // dim=3なら (Batch, Stack, Feat)、dim=2なら (Batch, Feat)
-        bool has_stack = (input.dim() == 3);
-        int64_t stack_count = has_stack ? shape[1] : 1;
-
-        // 処理のために (TotalBatch, Feat) にFlattenする
-        // TotalBatch = Batch * Stack
-        torch::Tensor flat_input = input;
-        if (has_stack) {
-            flat_input = input.reshape({ -1, input_feature_dim });
-        }
-
-        // 1. Split (Scalar / Grid)
-        // scalar_part: (N, scalar_dim)
-        // grid_part:   (N, grid_dim)
-        std::vector<torch::Tensor> parts;
-        if (config_.scalar_dim > 0) {
-            parts = torch::split(flat_input, { (int64_t)config_.scalar_dim, expected_grid_dim }, /*dim=*/1);
-        } else {
-            // スカラーがない場合
-            parts = { torch::Tensor(), flat_input };
-        }
-        auto& scalar_part = parts[0];
-        auto& grid_part = parts[1];
-
-        // 2. Grid -> One-Hot Image
-        // (N, grid_dim) -> (N, H, W)
-        auto grid_2d = grid_part.view({ -1, config_.grid_height, config_.grid_width });
-
-        // float(ID) -> long -> one_hot
-        // ※ IDが num_classes 以上だとクラッシュするので注意（Env側の保証が必要）
-        auto grid_long = grid_2d.to(torch::kLong);
-        auto grid_onehot = torch::one_hot(grid_long, config_.num_classes); // (N, H, W, Classes)
-
-        // Permute: (N, H, W, C) -> (N, C, H, W)
-        auto grid_img = grid_onehot.permute({ 0, 3, 1, 2 }).to(torch::kFloat32);
-
-        // 3. Scalar -> Broadcast Image
-        torch::Tensor scalar_img;
-        if (config_.scalar_dim > 0) {
-            // (N, scalar_dim) -> (N, scalar_dim, 1, 1) -> (N, scalar_dim, H, W)
-            // expandはメモリコピーを行わないView操作なので高速
-            scalar_img = scalar_part.view({ -1, config_.scalar_dim, 1, 1 })
-                .expand({ -1, config_.scalar_dim, config_.grid_height, config_.grid_width });
-        }
-
-        // 4. Concat
-        torch::Tensor out_img;
-        if (config_.scalar_dim > 0) {
-            out_img = torch::cat({ grid_img, scalar_img }, /*dim=*/1);
-        } else {
-            out_img = grid_img;
-        }
-
-        // 5. Stack次元の統合 (Stack as Channel)
-        // 現在: (Batch*Stack, TotalChannels, H, W)
-        // 目標: (Batch, Stack*TotalChannels, H, W)
-        if (has_stack) {
-            int64_t total_channels = config_.num_classes + config_.scalar_dim;
-
-            // (B*S, C, H, W) -> (B, S, C, H, W)
-            out_img = out_img.view({ batch_size, stack_count, total_channels, config_.grid_height, config_.grid_width });
-
-            // (B, S, C, H, W) -> (B, S*C, H, W)
-            out_img = out_img.reshape({ batch_size, stack_count * total_channels, config_.grid_height, config_.grid_width });
-        }
-
-        return out_img;
-    }
-
-private:
-    SpatialEmbedderConfig config_;
-};
-
-
-// ===========================================================================
 //  BatchNorm2d Module
 // ===========================================================================
 
@@ -530,7 +409,7 @@ struct ResBlockConfig {
     int padding = -1;
     int stride = 1;
     int dilation = 1;
-    std::string activation = "silu"; // "relu" (default) or "silu" / "swish"
+    std::string activation = "silu"; // "relu" or "silu"(default)  / "swish"
     std::string activation_mode = "post"; // "post" (v1) or "pre" (v2)
     std::string norm_type = "none"; // "none", "batch", "group"
     int group_norm_groups = 32;
@@ -782,6 +661,7 @@ public:
     }
 };
 
+
 // ===========================================================================
 //  LayerNorm Module
 // ===========================================================================
@@ -903,6 +783,61 @@ public:
         // パラメータ不要のため即座に生成
         return std::make_shared<SpatialPositionalEmbedding2DModule>();
     }
+};
+
+
+// ===========================================================================
+// SpatialEmbedderModule (Vector to Spatial Image)
+// ===========================================================================
+
+struct SpatialEmbedderConfig {
+    int grid_width = 0;
+    int grid_height = 0;
+};
+
+class SpatialEmbedderModule : public NetworkModule {
+public:
+    SpatialEmbedderModule(const SpatialEmbedderConfig& config)
+        : config_(config)
+    {
+        ANET_CHECK(config_.grid_width > 0);
+        ANET_CHECK(config_.grid_height > 0);
+    }
+
+    bool IsConv2dVisualizable() const override { return true; }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        anet::ProfileRange r("SpatialEmbedderModule::Forward");
+
+        // Input: (Batch, Features) または FrameStack時 (Batch, Stack, Features)
+        auto shape = input.sizes().vec();
+        const int64_t batch_size = shape[0];
+        const int64_t input_feature_dim = shape.back();
+
+        bool has_stack = (input.dim() == 3);
+        int64_t stack_count = has_stack ? shape[1] : 1;
+
+        // 処理のために (TotalBatch, Feat) にFlatten
+        torch::Tensor flat_input = has_stack ? input.reshape({ -1, input_feature_dim }) : input;
+
+        // (N, Feat) -> (N, Feat, 1, 1) -> (N, Feat, H, W) へBroadcast
+        torch::Tensor out_img = flat_input.view({ -1, input_feature_dim, 1, 1 })
+            .expand({ -1, input_feature_dim, config_.grid_height, config_.grid_width });
+
+        // Stack次元の統合 (Stack as Channel)
+        if (has_stack) {
+            // (B*S, C, H, W) -> (B, S, C, H, W) -> (B, S*C, H, W)
+            out_img = out_img.view({ batch_size, stack_count, input_feature_dim, config_.grid_height, config_.grid_width });
+            out_img = out_img.reshape({ batch_size, stack_count * input_feature_dim, config_.grid_height, config_.grid_width });
+        }
+
+        // float32 キャストして返す
+        return out_img.to(torch::kFloat32);
+    }
+
+private:
+    SpatialEmbedderConfig config_;
 };
 
 
@@ -1294,10 +1229,8 @@ private:
     struct Config : anet::Config {
         SpatialEmbedderConfig embed;
         Config(const anet::ConfigData& config_data) : anet::Config("") {
-            ANET_READ_CONFIG(config_data, embed.scalar_dim);
             ANET_READ_CONFIG(config_data, embed.grid_width);
             ANET_READ_CONFIG(config_data, embed.grid_height);
-            ANET_READ_CONFIG(config_data, embed.num_classes);
         }
     };
 public:
