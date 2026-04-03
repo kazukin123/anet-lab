@@ -685,6 +685,7 @@ std::optional<anet::TensorDictFunction> Network::GetTensorDictFunction(const std
         anet::Autocast disable_amp(torch::kCUDA, false, torch::kFloat32);
 
         // 抽出された特徴量DictをHeadの関数に渡して結果を返す
+        torch::NoGradGuard grad_guard;
         return h_func(features);
         };
 }
@@ -820,11 +821,11 @@ std::shared_ptr<Network> NetworkBuilder::BuildNetwork(
     // 初回ダミー実行
     // これにより、Body内の全Lazy層(Linear等)が初期化され、Head構築用の出力Shapeが確定する
     anet::TensorDict dummy_feature;
-    //try {
+    {
+        torch::NoGradGuard grad_guard;
+
         dummy_feature = body->Forward(dummy_input);
-    //} catch (const std::exception& e) {
-    //    ANET_SYSTEM_ERROR("NetworkBuilder: Failed during dummy forward pass for shape inference. Check your DAG bindings and input shapes.\nDetails: " << e.what());
-    //}
+    }   // あえて例外キャッチしない
 
     // Headを構築 (Bodyの出力TensorDictをそのまま渡す)
     auto head = head_factory->CreateHead(dummy_feature);
