@@ -78,7 +78,7 @@ namespace anet::nn {
     public:
         Network(
             const NetworkConfig& config,
-            const std::map<std::string, TensorSpec>& input_specs,
+            const anet::TensorSpecMap& input_specs,
             std::shared_ptr<NetworkHeadFactory> head_factory,
             std::shared_ptr<NetworkBody> body,
             std::shared_ptr<NetworkHead> head);
@@ -99,7 +99,7 @@ namespace anet::nn {
 
         // 構築情報(Clone用)
         NetworkConfig config_;
-        std::map<std::string, TensorSpec> input_specs_;
+        anet::TensorSpecMap input_specs_;
         std::shared_ptr<NetworkHeadFactory> head_factory_;
     };
 
@@ -112,8 +112,9 @@ namespace anet::nn {
     public:
         static std::shared_ptr<Network> BuildNetwork(
             const NetworkConfig& network_config,
-            const std::map<std::string, TensorSpec>& input_specs,
-            std::shared_ptr<NetworkHeadFactory> head_factory);
+            const anet::TensorSpecMap& input_specs,
+            std::shared_ptr<NetworkHeadFactory> head_factory,
+            std::optional<torch::Device> device = std::nullopt);
     };
 
 } // namespace anet::nn

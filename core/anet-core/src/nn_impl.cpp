@@ -329,7 +329,7 @@ anet::TensorDict NetworkStruct::GetConv2dOutputs(torch::Tensor input)
 // ===========================================================================
 
 NetworkBoundaryPreprocessor::NetworkBoundaryPreprocessor(
-    const std::map<std::string, TensorSpec>& specs, const std::vector<std::string>& raw_keys)
+    const anet::TensorSpecMap& specs, const std::vector<std::string>& raw_keys)
     : specs_(specs), raw_keys_(raw_keys.begin(), raw_keys.end())
 {
 }
@@ -363,14 +363,28 @@ anet::TensorDict NetworkBoundaryPreprocessor::Format(const anet::TensorDict& raw
         if (spec.IsDiscrete()) {
             t = t.to(torch::kInt64);
             t = torch::one_hot(t, spec.num_classes).to(torch::kFloat32);
+            auto new_dim = t.dim();
 
-            // Shapeの補正: PyTorchのone_hotは末尾に次元を足す
-            if (spec.type == anet::SpaceType::Grid && t.dim() >= 4) {
-                // (B, 1, H, W) -> (B, 1, H, W, C) -> (B, C, H, W)
-                t = t.squeeze(1).permute({ 0, 3, 1, 2 });
-            } else if (spec.type == anet::SpaceType::Vector && t.dim() >= 2) {
-                // (B, 1) -> (B, 1, C) -> (B, C)
-                t = t.squeeze(1);
+            // Shapeの補正: PyTorchのone_hotは末尾に次元(クラス数)を足す
+            if (spec.type == anet::SpaceType::Grid) {
+                if (new_dim == 5 && t.size(1) == 1) {
+                    // 入力 [B, 1, H, W] -> one_hot -> [B, 1, H, W, C]
+                    // 余分な次元1を消して [B, H, W, C] にし、[B, C, H, W] に並び替え
+                    t = t.squeeze(1).permute({ 0, 3, 1, 2 });
+                } else if (new_dim == 4) {
+                    // 入力 [B, H, W] -> one_hot -> [B, H, W, C]
+                    // 並び替えるだけで [B, C, H, W] になる
+                    t = t.permute({ 0, 3, 1, 2 });
+                }
+            } else if (spec.type == anet::SpaceType::Vector) {
+                if (new_dim == 3 && t.size(1) == 1) {
+                    // 入力 [B, 1] -> one_hot -> [B, 1, C]
+                    // 余分な次元1を消して [B, C] にする
+                    t = t.squeeze(1);
+                } else if (new_dim == 2) {
+                    // 入力 [B] -> one_hot -> [B, C]
+                    // すでに期待するShapeなので何もしない
+                }
             }
         } else {
             // 連続値の正規化・キャスト
@@ -453,7 +467,7 @@ void NetworkBranch::ExtractConv2dOutputs(const anet::TensorDict& current_state, 
 
 NetworkBody::NetworkBody(
     std::vector<std::shared_ptr<NetworkBranch>> branches,
-    const std::map<std::string, TensorSpec>& specs,
+    const anet::TensorSpecMap& specs,
     const std::vector<std::string>& raw_keys,
     std::map<std::string, std::string> output_keys)
 	: branches_(std::move(branches))
@@ -560,7 +574,7 @@ std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
 // NetworkBodyBuilder
 // ===========================================================================
 
-std::shared_ptr<NetworkBody> NetworkBodyBuilder::Build(const NetworkConfig& config, const std::map<std::string, TensorSpec>& input_specs)
+std::shared_ptr<NetworkBody> NetworkBodyBuilder::Build(const NetworkConfig& config, const anet::TensorSpecMap& input_specs)
 {
     std::map<std::string, std::shared_ptr<NetworkBranch>> all_branches;
     std::map<std::string, int> in_degree;
@@ -628,7 +642,7 @@ std::shared_ptr<NetworkBody> NetworkBodyBuilder::Build(const NetworkConfig& conf
 // ===========================================================================
 
 Network::Network(
-    const NetworkConfig& config, const std::map<std::string, TensorSpec>& input_specs, std::shared_ptr<NetworkHeadFactory> head_factory,
+    const NetworkConfig& config, const anet::TensorSpecMap& input_specs, std::shared_ptr<NetworkHeadFactory> head_factory,
     std::shared_ptr<NetworkBody> body, std::shared_ptr<NetworkHead> head)
     : config_(config)
     , input_specs_(input_specs)
@@ -677,6 +691,7 @@ std::optional<anet::TensorDictFunction> Network::GetTensorDictFunction(const std
 
     //  Bodyの実行を内包したクロージャ(ラムダ)を返す
     return [this, h_func = *head_func](const anet::TensorDict& state_input) -> anet::TensorDict {
+        torch::NoGradGuard grad_guard;
 
         // Bodyを実行 (ここはAMPが有効ならFP16で高速処理される)
         anet::TensorDict features = this->body_->Forward(state_input);
@@ -685,7 +700,6 @@ std::optional<anet::TensorDictFunction> Network::GetTensorDictFunction(const std
         anet::Autocast disable_amp(torch::kCUDA, false, torch::kFloat32);
 
         // 抽出された特徴量DictをHeadの関数に渡して結果を返す
-        torch::NoGradGuard grad_guard;
         return h_func(features);
         };
 }
@@ -693,9 +707,6 @@ std::optional<anet::TensorDictFunction> Network::GetTensorDictFunction(const std
 std::shared_ptr<Network> Network::Clone(std::optional<torch::Device> device) const
 {
     anet::ProfileRange r("Network::Clone");
-
-    // config と input_specs を元に新しいインスタンスを再構築する
-    auto cloned_net = NetworkBuilder::BuildNetwork(config_, input_specs_, head_factory_);
 
     // デバイス指定がない場合は、自身のパラメータが乗っているデバイスに合わせる
     torch::Device target_device = torch::kCPU;
@@ -707,6 +718,11 @@ std::shared_ptr<Network> Network::Clone(std::optional<torch::Device> device) con
             target_device = params[0].device();
         }
     }
+
+    // config と input_specs を元に新しいインスタンスを再構築する
+    auto cloned_net = NetworkBuilder::BuildNetwork(config_, input_specs_, head_factory_, target_device);
+
+    // デバイス移動
     cloned_net->to(target_device);
 
     // 現在の重みとバッファを完全にコピー
@@ -797,9 +813,7 @@ std::shared_ptr<NetworkModuleFactory> NetworkModuleRepository::GetFactory(const 
 // ===========================================================================
 
 std::shared_ptr<Network> NetworkBuilder::BuildNetwork(
-    const NetworkConfig& network_config,
-    const std::map<std::string, TensorSpec>& input_specs,
-    std::shared_ptr<NetworkHeadFactory> head_factory)
+    const NetworkConfig& network_config, const anet::TensorSpecMap& input_specs, std::shared_ptr<NetworkHeadFactory> head_factory, std::optional<torch::Device> device)
 {
     ANET_CHECK(head_factory != nullptr);
 
@@ -814,7 +828,12 @@ std::shared_ptr<Network> NetworkBuilder::BuildNetwork(
 
         // Float型等のダミーテンソルを生成
         auto dtype = (spec.IsDiscrete() || spec.dtype == torch::kUInt8) ? torch::kInt64 : spec.dtype;
-        auto t = torch::zeros(shape, torch::TensorOptions().dtype(dtype));
+        auto options = torch::TensorOptions().dtype(dtype);
+        if (device.has_value()) {
+            options = options.device(*device);
+        }
+
+        auto t = torch::zeros(shape, options);
         dummy_input.Set(key, t);
     }
 

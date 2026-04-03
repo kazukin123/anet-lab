@@ -148,12 +148,12 @@ namespace anet::nn {
     class NetworkBoundaryPreprocessor {
     public:
         NetworkBoundaryPreprocessor(
-            const std::map<std::string, TensorSpec>& specs, const std::vector<std::string>& raw_keys);
+            const anet::TensorSpecMap& specs, const std::vector<std::string>& raw_keys);
 
         /// フォーマット済みのTensorDictを生成して返す
         anet::TensorDict Format(const anet::TensorDict& raw_input) const;
     private:
-        std::map<std::string, TensorSpec> specs_;
+        anet::TensorSpecMap specs_;
         std::set<std::string> raw_keys_; // 検索速度のため set に保持
     };
 
@@ -161,7 +161,7 @@ namespace anet::nn {
     public:
         NetworkBody(
             std::vector<std::shared_ptr<NetworkBranch>> branches,
-            const std::map<std::string, TensorSpec>& specs,
+            const anet::TensorSpecMap& specs,
             const std::vector<std::string>& raw_keys,
             std::map<std::string, std::string> output_keys);
 
@@ -181,7 +181,7 @@ namespace anet::nn {
     public:
         /// 設定とSpecからDAG全体を解析・トポロジカルソートし、NetworkBodyを構築する
         static std::shared_ptr<NetworkBody> Build(
-            const NetworkConfig& config, const std::map<std::string, TensorSpec>& input_specs);
+            const NetworkConfig& config, const anet::TensorSpecMap& input_specs);
     };
 
 
