@@ -39,7 +39,7 @@ anet::TensorDict PassThroughHead::Forward(const anet::TensorDict& feature_dict)
 {
     anet::ProfileRange r("PassThroughHead::Forward");
 
-    torch::Tensor x = GetFeature(feature_dict, kKeyFeature);
+    torch::Tensor x = feature_dict.At(anet::nn::kKey_DefaultOutput);
     anet::TensorDict out;
     out.Set(output_key_, x);
     return out;
@@ -49,7 +49,7 @@ std::optional<anet::TensorDictFunction> PassThroughHead::GetTensorDictFunction(c
 {
     if (key == "forward" || key == output_key_) {
         return [this](const anet::TensorDict& features) -> anet::TensorDict {
-            torch::Tensor x = GetFeature(features, kKeyFeature);
+            torch::Tensor x = anet::GetOrFail(features, anet::nn::kKey_DefaultOutput);
             anet::TensorDict out;
             out.Set(output_key_, x);
             return out;
@@ -78,7 +78,7 @@ public:
     {
         anet::ProfileRange r("LinearHead::Forward");
 
-        torch::Tensor x = GetFeature(feature_dict, kKeyFeature);
+        torch::Tensor x = feature_dict.At(anet::nn::kKey_DefaultOutput);
         anet::TensorDict out;
         out.Set("q", linear_->forward(x));
         return out;
@@ -89,7 +89,7 @@ public:
         if (key == "forward" || key == "forward.q" || key == "q_values") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                torch::Tensor x = GetFeature(features, kKeyFeature);
+                torch::Tensor x = anet::GetOrFail(features, anet::nn::kKey_DefaultOutput);
                 anet::TensorDict out;
                 out.Set("q", linear_->forward(x));
                 return out;
@@ -128,7 +128,7 @@ public:
     {
         anet::ProfileRange r("DuelingHead::Forward");
 
-        torch::Tensor x = GetFeature(feature_dict, kKeyFeature);
+        torch::Tensor x = feature_dict.At(anet::nn::kKey_DefaultOutput);
 
         auto v = value_->forward(x); // (B, 1)
         auto a = adv_->forward(x);   // (B, A)
@@ -147,7 +147,7 @@ public:
         if (key == "forward" || key == "forward.q" || key == "q_values") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                torch::Tensor x = GetFeature(features, kKeyFeature);
+                torch::Tensor x = anet::GetOrFail(features, anet::nn::kKey_DefaultOutput);
                 auto v = value_->forward(x);
                 auto a = adv_->forward(x);
                 anet::TensorDict out;
@@ -158,7 +158,7 @@ public:
         if (key == "forward.v" || key == "v_values") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                torch::Tensor x = GetFeature(features, kKeyFeature);
+                torch::Tensor x = GetFeature(features, anet::nn::kKey_DefaultOutput);
                 anet::TensorDict out;
                 out.Set("v", value_->forward(x));
                 return out;
@@ -167,7 +167,7 @@ public:
         if (key == "forward.a" || key == "a_values") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                torch::Tensor x = GetFeature(features, kKeyFeature);
+                torch::Tensor x = GetFeature(features, anet::nn::kKey_DefaultOutput);
                 anet::TensorDict out;
                 out.Set("a", adv_->forward(x));
                 return out;
@@ -203,7 +203,7 @@ public:
     anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
     {
         anet::ProfileRange r("QuantileHead::Forward");
-        torch::Tensor x = GetFeature(feature_dict, kKeyFeature);
+        torch::Tensor x = feature_dict.At(anet::nn::kKey_DefaultOutput);
 
         auto flat = linear_->forward(x); // (B, A*N)
         auto batch_size = flat.size(0);
@@ -221,7 +221,7 @@ public:
         if (key == "forward" || key == "forward.q" || key == "q_values") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                torch::Tensor x = GetFeature(features, kKeyFeature);
+                torch::Tensor x = anet::GetOrFail(features, anet::nn::kKey_DefaultOutput);
                 auto flat = linear_->forward(x);
                 anet::TensorDict out;
                 out.Set("q", flat.view({ flat.size(0), action_dim_, num_quantiles_ }).mean(2));
@@ -231,7 +231,7 @@ public:
         if (key == "forward.dist" || key == "distributions") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                torch::Tensor x = GetFeature(features, kKeyFeature);
+                torch::Tensor x = anet::GetOrFail(features, anet::nn::kKey_DefaultOutput);
                 auto flat = linear_->forward(x);
                 anet::TensorDict out;
                 out.Set("q_dist", flat.view({ flat.size(0), action_dim_, num_quantiles_ }));
@@ -266,7 +266,7 @@ public:
     anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
     {
         anet::ProfileRange r("QuantileDuelingHead::Forward");
-        torch::Tensor x = GetFeature(feature_dict, kKeyFeature);
+        torch::Tensor x = feature_dict.At(anet::nn::kKey_DefaultOutput);
 
         auto batch_size = x.size(0);
 
@@ -299,7 +299,7 @@ public:
         if (key == "forward" || key == "forward.q" || key == "q_values") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                torch::Tensor x = GetFeature(features, kKeyFeature);
+                torch::Tensor x = anet::GetOrFail(features, anet::nn::kKey_DefaultOutput);
                 auto batch_size = x.size(0);
                 auto v = value_->forward(x).view({ batch_size, 1, num_quantiles_ });
                 auto a = adv_->forward(x).view({ batch_size, action_dim_, num_quantiles_ });
@@ -312,7 +312,7 @@ public:
         if (key == "forward.dist" || key == "distributions") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                torch::Tensor x = GetFeature(features, kKeyFeature);
+                torch::Tensor x = anet::GetOrFail(features, anet::nn::kKey_DefaultOutput);
                 auto batch_size = x.size(0);
                 auto v = value_->forward(x).view({ batch_size, 1, num_quantiles_ });
                 auto a = adv_->forward(x).view({ batch_size, action_dim_, num_quantiles_ });
@@ -324,7 +324,7 @@ public:
         if (key == "forward.v" || key == "v_values") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                torch::Tensor x = GetFeature(features, kKeyFeature);
+                torch::Tensor x = anet::GetOrFail(features, anet::nn::kKey_DefaultOutput);
                 auto v = value_->forward(x);
                 anet::TensorDict out;
                 out.Set("v_dist", v.view({ v.size(0), 1, num_quantiles_ }));
@@ -334,7 +334,7 @@ public:
         if (key == "forward.a" || key == "a_values") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                torch::Tensor x = GetFeature(features, kKeyFeature);
+                torch::Tensor x = anet::GetOrFail(features, anet::nn::kKey_DefaultOutput);
                 auto a = adv_->forward(x);
                 anet::TensorDict out;
                 out.Set("a_dist", a.view({ a.size(0), action_dim_, num_quantiles_ }));
@@ -367,7 +367,7 @@ LinearHeadFactory::LinearHeadFactory(int64_t action_dim, const WeightInitConfig&
 
 std::shared_ptr<NetworkHead> LinearHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
 {
-    torch::Tensor t = GetFeature(dummy_features, kKeyFeature);
+    torch::Tensor t = GetFeature(dummy_features, anet::nn::kKey_DefaultOutput);
     int64_t input_dim = t.size(-1); // Flattenされている前提で最終次元を取得
     return std::make_shared<LinearHead>(input_dim, action_dim_, init_config_);
 }
@@ -379,7 +379,7 @@ DuelingHeadFactory::DuelingHeadFactory(int64_t action_dim, const WeightInitConfi
 
 std::shared_ptr<NetworkHead> DuelingHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
 {
-    torch::Tensor t = GetFeature(dummy_features, kKeyFeature);
+    torch::Tensor t = GetFeature(dummy_features, anet::nn::kKey_DefaultOutput);
     int64_t input_dim = t.size(-1);
     return std::make_shared<DuelingHead>(input_dim, action_dim_, init_config_);
 }
@@ -392,7 +392,7 @@ QuantileHeadFactory::QuantileHeadFactory(int64_t action_dim, int64_t num_quantil
 
 std::shared_ptr<NetworkHead> QuantileHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
 {
-    torch::Tensor t = GetFeature(dummy_features, kKeyFeature);
+    torch::Tensor t = GetFeature(dummy_features, anet::nn::kKey_DefaultOutput);
     int64_t input_dim = t.size(-1);
     return std::make_shared<QuantileHead>(input_dim, action_dim_, num_quantiles_, init_config_);
 }
@@ -405,7 +405,7 @@ QuantileDuelingHeadFactory::QuantileDuelingHeadFactory(int64_t action_dim, int64
 
 std::shared_ptr<NetworkHead> QuantileDuelingHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
 {
-    torch::Tensor t = GetFeature(dummy_features, kKeyFeature);
+    torch::Tensor t = GetFeature(dummy_features, anet::nn::kKey_DefaultOutput);
     int64_t input_dim = t.size(-1);
     return std::make_shared<QuantileDuelingHead>(input_dim, action_dim_, num_quantiles_, init_config_);
 }

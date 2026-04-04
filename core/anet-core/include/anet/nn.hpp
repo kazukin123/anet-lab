@@ -39,7 +39,7 @@ namespace anet::nn {
         std::map<std::string, std::string> output_keys;
 
         NetworkConfig() = default;
-        NetworkConfig(const anet::ConfigData& config_data);
+        NetworkConfig(const anet::ConfigData& config_data, const std::string& config_prefix = "net");
 		anet::json ToJson() const;
     };
 

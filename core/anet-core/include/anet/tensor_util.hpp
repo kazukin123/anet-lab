@@ -368,6 +368,25 @@ namespace anet {
             }
         }
 
+        /// 指定した次元(dim)にサイズ1の新しい次元を挿入した新しいTensorDictを返す
+        TensorDict Unsqueeze(int dim) const
+        {
+            TensorDict res;
+            for (const auto& kv : dict_) {
+                res.Set(kv.first, kv.second.unsqueeze(dim));
+            }
+            return res;
+        }
+
+        /// 特定の次元を削除
+        TensorDict Squeeze(int dim) const
+        {
+            TensorDict res;
+            for (const auto& kv : dict_) {
+                res.Set(kv.first, kv.second.squeeze(dim));
+            }
+            return res;
+        }
 
         // ---------------------------------------------------------
         // Operators
@@ -422,5 +441,9 @@ namespace anet {
         // ソート順を保証して描画順序を安定させるため std::map を採用
         std::map<std::string, torch::Tensor> dict_;
     };
+
+
+    // TensorDictから指定キーの特徴量を抽出。対象キーがない場合はエラー。
+    torch::Tensor GetOrFail(const anet::TensorDict& feature_dict, const std::string& key, const std::string& msg = "");
 
 } // namespace anet::util

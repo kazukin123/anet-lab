@@ -85,40 +85,47 @@ static int ParseInt(const std::string& s, const std::string& param_name)
 // NetworkConfig
 // ===========================================================================
 
-static std::map<std::string, NetworkBlockConfig> ReadBlockConfig(const anet::ConfigData& config_data)
+static std::map<std::string, NetworkBlockConfig> ReadBlockConfig(const anet::ConfigData& config_data, const std::string& config_prefix)
 {
     std::map<std::string, NetworkBlockConfig> block_configs;
-    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> tag_block_map;
+
+    // グローバルとローカルのタグ別設定を一時保持
+    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> global_tag_block_map;
+    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> local_tag_block_map;
+
+    // プレフィックスのピリオドを正規表現エスケープする ("net.dyn" -> "net\.dyn")
+    std::string escaped_prefix = std::regex_replace(config_prefix, std::regex(R"(\.)"), R"(\.)");
+
+    // グローバル(net) と ローカル(config_prefix) の正規表現
+    std::regex re_global(R"(net\.block\.\[([^\]]+)\]\.(.+))");
+    std::regex re_local(escaped_prefix + R"(\.block\.\[([^\]]+)\]\.(.+))");
 
     auto config_map = config_data.Map();
-    for (const auto& kv : config_map) {
-        const std::string& config_key = kv.first;
-        const std::string& config_value = kv.second;
-
-        // 設定Keyからtagを抽出
-        auto config_tag = anet::ExtractBetween(config_key, kNetBlockConfigKeyPrefix, kNetBlockConfigKeySuffix);
-        if (config_tag.empty()) continue;
-
-        // サブキーを抽出
-        auto pos = config_key.find(kNetBlockConfigKeySuffix);
-        auto size = config_key.size();
-        if ((pos + 2) >= config_key.size()) continue;
-        auto config_sub_key = config_key.substr(pos + 2);
-        if (config_sub_key.empty()) continue;
-
-        // 集約Mapに保存
-        tag_block_map[config_tag][config_sub_key] = config_value;
+    for (const auto& [key, value] : config_map) {
+        std::smatch m;
+        // まずローカルマッチを試す
+        if (std::regex_match(key, m, re_local)) {
+            local_tag_block_map[m[1].str()][m[2].str()] = value;
+            continue;
+        }
+        // 次にグローバルマッチを試す
+        if (std::regex_match(key, m, re_global)) {
+            global_tag_block_map[m[1].str()][m[2].str()] = value;
+        }
     }
 
-    for (const auto& kv : tag_block_map) {
-        const auto& tag = kv.first;
-        const auto& config_map = kv.second;
+    // グローバルとローカルをマージ (ローカルが優先上書きされる)
+    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> merged_tag_block_map = std::move(global_tag_block_map);
+    for (const auto& [tag, config_map] : local_tag_block_map) {
+        for (const auto& [sub_key, val] : config_map) {
+            merged_tag_block_map[tag][sub_key] = val;
+        }
+    }
 
+    for (const auto& [tag, config_map] : merged_tag_block_map) {
         // NetworkBlockConfig を作る
-        NetworkBlockConfig block_config;;
-        for (const auto& kv2 : config_map) {
-            const auto& config_sub_key = kv2.first;
-            const auto& config_value = kv2.second;
+        NetworkBlockConfig block_config;
+        for (const auto& [config_sub_key, config_value] : config_map) {
             if (config_sub_key == "type") {
                 block_config.type = config_value;
             } else {
@@ -132,17 +139,19 @@ static std::map<std::string, NetworkBlockConfig> ReadBlockConfig(const anet::Con
             ANET_SYSTEM_ERROR("Block type not specified for block: " + tag);
         }
 
-		// 作ったNetworkBlockConfigを保存
+        // 作ったNetworkBlockConfigを保存
         block_configs[tag] = std::move(block_config);
     }
 
     return block_configs;
 }
 
-static std::map<std::string, NetworkBranchConfig> ReadBranchConfig(const anet::ConfigData& config_data)
+static std::map<std::string, NetworkBranchConfig> ReadBranchConfig(const anet::ConfigData& config_data, const std::string& config_prefix)
 {
     std::map<std::string, NetworkBranchConfig> branches;
-    std::regex re_branch(R"(net\.branch\.\[([^\]]+)\]\.(bind|structure|auto_format))");
+
+    std::string escaped_prefix = std::regex_replace(config_prefix, std::regex(R"(\.)"), R"(\.)");
+    std::regex re_branch(escaped_prefix + R"(\.branch\.\[([^\]]+)\]\.(bind|structure|auto_format))");
     std::regex re_raw(R"(\(raw\))");
 
     for (const auto& [key, value] : config_data.Map()) {
@@ -179,7 +188,7 @@ static std::map<std::string, NetworkBranchConfig> ReadBranchConfig(const anet::C
         }
     }
 
-	// 「auto_format=false」の場合、全ての bind_keysを raw_keys を追加
+    // 「auto_format=false」の場合、全ての bind_keysを raw_keys を追加
     for (auto& [b_name, branch_cfg] : branches) {    // 全ブランチでチェック
         if (!branch_cfg.auto_format) {
             for (const auto& k : branch_cfg.bind_keys) {
@@ -193,21 +202,22 @@ static std::map<std::string, NetworkBranchConfig> ReadBranchConfig(const anet::C
     // ブランチ無しだとエラー
     if (branches.empty()) {
         ANET_SYSTEM_ERROR(
-            "No branches defined in NetworkConfig. "
-            "Please define at least one branch using 'net.branch.[name].bind' and 'net.branch.[name].structure'."
+            "No branches defined in NetworkConfig for prefix '" << config_prefix << "'. "
+            "Please define at least one branch using '" << config_prefix << ".branch.[name].bind' and 'structure'."
         );
     }
 
     return branches;
 }
 
-NetworkConfig::NetworkConfig(const anet::ConfigData& config_data)
+NetworkConfig::NetworkConfig(const anet::ConfigData& config_data, const std::string& config_prefix)
 {
-    block_configs = ReadBlockConfig(config_data);
-    branches = ReadBranchConfig(config_data);
+    block_configs = ReadBlockConfig(config_data, config_prefix);
+    branches = ReadBranchConfig(config_data, config_prefix);
 
-    // net.body.output.[Head期待キー] = Bodyブランチ名 を読み取る
-    std::regex re_output(R"(net\.body\.output\.\[([^\]]+)\])");
+    // [config_prefix].body.output.[Head期待キー] = Bodyブランチ名 を読み取る
+    std::string escaped_prefix = std::regex_replace(config_prefix, std::regex(R"(\.)"), R"(\.)");
+    std::regex re_output(escaped_prefix + R"(\.body\.output\.\[([^\]]+)\])");
     for (const auto& [key, value] : config_data.Map()) {
         std::smatch m;
         if (std::regex_match(key, m, re_output)) {

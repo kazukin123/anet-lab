@@ -133,3 +133,13 @@ namespace anet {
     }
 
 }
+
+torch::Tensor anet::GetOrFail(const anet::TensorDict& dict, const std::string& key, const std::string& msg)
+{
+    auto opt = dict.Get(key);
+    if (!opt.has_value()) {
+        ANET_SYSTEM_ERROR("expected key '" << key << "' in TensorDict, but it was not found. " << msg);
+        return torch::Tensor(); // 到達不可
+    }
+    return *opt;
+}

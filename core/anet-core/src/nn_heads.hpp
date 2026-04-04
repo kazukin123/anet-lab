@@ -9,7 +9,7 @@ namespace anet::nn {
 
     /// @todo RL固有実装はAgent個別実装に移動
 
-    static constexpr const char* kKeyFeature = "feature";
+    static constexpr const char* kKey_DefaultOutput = "features";
 
     // ===========================================================================
     // PassThroughHead
