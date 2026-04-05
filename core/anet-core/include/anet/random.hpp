@@ -31,7 +31,6 @@ namespace anet {
 
     class RandomGenerator {
     public:
-    public:
         RandomGenerator(std::optional<seed_t> seed = std::nullopt);
 
         seed_t AutoSeed();

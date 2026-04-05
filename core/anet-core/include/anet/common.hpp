@@ -173,7 +173,7 @@ namespace anet {
         /// 空間トポロジー
         SpaceType type = SpaceType::Vector;
 
-        /// Tensor形状
+		/// Tensor形状(バッチ次元を除く). 基本、Vectorなら[dim]、Gridなら[channel, height, width]、Sequenceなら[channel, length]
         std::vector<std::int64_t> shape;
 
         /// データ・タイプ
