@@ -3,9 +3,11 @@
 #include "replay_buffer_impl.hpp"
 #include <cmath>
 #include <algorithm>
+#include <vector>
 #include "anet/tensor_check.hpp"
 #include "anet/profile.hpp"
 #include "anet/log.hpp"
+#include "anet/random.hpp"
 
 using namespace anet::rl;
 namespace LOG = anet::log;
@@ -101,7 +103,7 @@ public:
     {
         ReplayExperience exp{};
         exp.actual_n_steps = static_cast<int>(sequence.size());
-        exp.terminal = sequence.back().done; // Truncated時はBootstrappingするため terminal=false 扱いになる設計を想定
+        exp.terminal = sequence.back().done; // Truncated時はBootstrappingするため terminal=false 扱い
         exp.target_return = 0.0f;
 
         // 割引報酬和の計算 (逆順)
@@ -128,21 +130,17 @@ ValidIndexManager::ValidIndexManager(int64_t num_envs, int64_t capacity_per_env)
 void ValidIndexManager::MarkWritten(int64_t env_idx, int64_t time_idx)
 {
     // 物理的な書き込みカーソルはStorageが管理するため、ここでは何もしない。
-    // （必要に応じて、未Validなインデックスのデバッグ追跡等に使用可能）
 }
 
 void ValidIndexManager::MarkValid(int64_t env_idx, int64_t time_idx)
 {
-    // V2では複雑なマスクではなく「ここまで安全にValid化された」という上限カーソルで管理する
-    // リングバッファのため、実際には 1D 配列化する際に [0, capacity) をマスク計算する
+    // N-Step計算が完了し、サンプリング可能になった上限をインクリメント
     valid_cursors_[env_idx]++;
 }
 
 torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_steps) const
 {
     std::vector<int64_t> valid_list;
-
-    // 概算の確保
     valid_list.reserve(num_envs_ * capacity_per_env_ / 2);
 
     for (int64_t env = 0; env < num_envs_; ++env) {
@@ -162,8 +160,7 @@ torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_s
                 // カーソル位置(write_head)から、未来(unroll)と過去(stack)の禁止領域を計算
                 int64_t dist_to_head = (write_head - i + capacity_per_env_) % capacity_per_env_;
 
-                // dist_to_head が unroll_steps 未満 ➔ 未来が未達
-                // (capacity - dist_to_head) が stack_count 未満 ➔ 過去が未達(上書き直後)
+                // 未来(unroll)と過去(stack)の禁止領域を計算
                 if (dist_to_head >= unroll_steps && (capacity_per_env_ - dist_to_head) >= stack_count) {
                     valid_list.push_back(env * capacity_per_env_ + i);
                 }
@@ -251,7 +248,6 @@ void ReplayExperienceStorage::Update(int64_t env_idx, int64_t time_idx, const Re
 {
     target_returns_[env_idx][time_idx] = exp.target_return;
     terminals_[env_idx][time_idx] = exp.terminal;
-    // Truncated は QueueController で既に解釈済みのため上書きしないか、必要なら引数に追加する
     actual_n_steps_[env_idx][time_idx] = exp.actual_n_steps;
 }
 
@@ -259,10 +255,10 @@ void ReplayExperienceStorage::PushTerminalDummy(int64_t env_idx, const anet::Ten
 {
     // 終端状態用のダミーステップ。Actionや報酬は無効値を入れる
     torch::Tensor dummy_action = torch::zeros_like(actions_[env_idx][0]);
-    anet::TensorDict dummy_info; // infoも空でOK
+    anet::TensorDict dummy_info; // infoも空
     int64_t t = Push(env_idx, terminal_obs, dummy_action, dummy_info);
 
-    // ダミーの即時 Valid 化（本来サンプリング起点にはならないが整合性のため）
+    // ダミーの即時 Valid 化用メタデータ
     target_returns_[env_idx][t] = 0.0f;
     terminals_[env_idx][t] = true;
     actual_n_steps_[env_idx][t] = 0;
@@ -390,6 +386,7 @@ public:
         auto rand_idx = torch::randint(0, valid_count, { batch_size }, gen_, opt_long_);
         auto indices = valid_indices_1d.index_select(0, rand_idx);
         auto ones = torch::ones({ batch_size }, opt_float_);
+
         return { indices, ones / valid_count, ones };
     }
 private:
@@ -545,7 +542,6 @@ DefaultReplayBuffer::DefaultReplayBuffer(
     , prio_controller_(prio_controller)
     , extractor_(extractor)
 {
-
     capacity_per_env_ = config_.capacity / num_envs_;
     queues_.resize(num_envs_);
 
