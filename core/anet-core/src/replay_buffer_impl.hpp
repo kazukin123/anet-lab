@@ -1,331 +1,237 @@
 ﻿// replay_buffer_impl.hpp
+
 #pragma once
 
-#include<vector>
-#include<memory>
-#include <cstddef>
-#include "anet/rl.hpp"
+#include "anet/replay_buffer.hpp"
+#include <vector>
+#include <memory>
+#include <deque>
+#include <torch/torch.h>
+#include "anet/tensor_util.hpp"
 
-using namespace anet::rl;
-
-
-//BatchExperience
-//  ↓（分解）
-//SingleExperience
-//  ↓ ExperienceQueueController
-//ExperienceSequence
-//  ↓ ReplayExperienceBuilder
-//ReplayExperience
-//  ↓
-//ReplayExperienceStorage::Push
-
-//ReplayExperienceStorage::Sample
-//  ↓
-//Sampler::SampleIndices
-//  ↓
-//ReplayExperienceStacker
-//  ↓
-//ReplayExperienceStorage::Gather/Get
-//  ↓
-//Learner
+namespace anet::rl {
 
 
-// ======================================================
-// ReplayBuffer ExperienceQueue 
-// ======================================================
+    // ======================================================
+    // Queue
+    // ======================================================
 
-class ExperienceQueue {
-public:
-    ExperienceQueue() = default;
-    void Push(const SingleExperience& exp);             ///< 末尾に 1 Experience を追加
-    void Pop(size_t k);                                 ///< 先頭から k 個を削除
-    std::vector<SingleExperience> Peek(size_t k) const; ///< 先頭から k 個を取得（コピー）
-    size_t Size() const { return buffer_.size(); }      ///< 現在の保持数
-    void Clear() { buffer_.clear(); }                             ///< 空にする
-private:
-    std::vector<SingleExperience> buffer_;
-};
+    /// Storage上の重いデータ（Obs等）とは分離された、N-Step計算用の軽量メタデータ
+    struct QueueRecord {
+        int64_t time_idx;       ///< Storage上のインデックス (Facadeが管理するためのKey)
+        float reward;           ///< 即時報酬
+        bool done;              ///< エピソード終了フラグ
+        bool truncated;         ///< タイムアップ等による打ち切りフラグ
+    };
 
-
-// ======================================================
-// ReplayBuffer ExperienceQueueController 
-// ======================================================
-
-using ExperienceSequence = std::vector<SingleExperience>;
-
-class ExperienceQueueController {
-public:
-    virtual std::vector<ExperienceSequence> 
-        ProcessSingleExperience(ExperienceQueue& queue, const SingleExperience& exp) = 0;
-    virtual ~ExperienceQueueController() = default;
-
-};
-
-class PlainExperienceQueueController final : public ExperienceQueueController {
-public:
-    PlainExperienceQueueController() = default;
-
-    std::vector<ExperienceSequence>
-        ProcessSingleExperience(ExperienceQueue& queue, const SingleExperience& exp) override;
-};
-
-class NStepExperienceQueueController final : public ExperienceQueueController {
-public:
-    explicit NStepExperienceQueueController(size_t n_step);
-
-    std::vector<ExperienceSequence>
-        ProcessSingleExperience(ExperienceQueue& queue, const SingleExperience& exp) override;
-private:
-    const size_t n_step_;
-};
+    /// 各環境(Env)ごとの未処理メタデータを一時保持するキュー
+    class ExperienceQueue {
+    public:
+        void Push(const QueueRecord& record);
+        void Pop(size_t k);
+        std::vector<QueueRecord> Peek(size_t k) const;
+        size_t Size() const;
+        void Clear();
+    private:
+        std::deque<QueueRecord> buffer_;
+    };
 
 
-// ======================================================
-// ReplayBuffer ReplayExperienceBuilder
-// ======================================================
+    // ======================================================
+    // Queue Controller & Builder
+    // ======================================================
 
-struct ReplayExperience {
-    SingleState state;
-    torch::Tensor action;
-    float target_value;      // r or G
-    SingleState next_state;
-    bool terminal;
-    int n_step;           // この experience が何 step 分か
-    int env_index;
-};
+    /// N-Step計算用に切り出された時系列レコード
+    using ExperienceSequence = std::vector<QueueRecord>;
 
-class ReplayExperienceBuilder {
-public:
-    virtual ReplayExperience Build(const ExperienceSequence& sequence) const = 0;;
-    virtual ~ReplayExperienceBuilder() = default;
-};
+    class ExperienceQueueController {
+    public:
+        /// Queueを操作し、計算準備が整った系列のリストを返す。使用済み要素はPopする。
+        virtual std::vector<ExperienceSequence> ExtractSequences(ExperienceQueue& queue) = 0;
+        virtual ~ExperienceQueueController() = default;
+    };
 
-class PlainReplayExperienceBuilder final : public ReplayExperienceBuilder {
-public:
-    PlainReplayExperienceBuilder() = default;
-    ReplayExperience Build(const ExperienceSequence& sequence) const override;
-};
+    /// Storageに後から上書き(Update)するための、構築済み経験データ
+    struct ReplayExperience {
+        float target_return;    ///< 計算された割引報酬和など (Value)
+        bool terminal;          ///< 最終的な終了フラグ
+        int actual_n_steps;     ///< 実際に進んだステップ数
+    };
 
-class NStepReplayExperienceBuilder final : public ReplayExperienceBuilder {
-public:
-    explicit NStepReplayExperienceBuilder(float gamma);
-    ReplayExperience Build(const ExperienceSequence& sequence) const override;
-private:
-    const float gamma_;
-};
+    class ReplayExperienceBuilder {
+    public:
+        /// 系列(Sequence)を受け取り、アルゴリズムに応じた ReplayExperience を構築する
+        virtual ReplayExperience Build(const ExperienceSequence& sequence) const = 0;
+        virtual ~ReplayExperienceBuilder() = default;
+    };
+   
 
+    // ======================================================
+    // Valid Index Manager
+    // ======================================================
 
-// ======================================================
-// ReplayBuffer ReplayExperienceStorage
-// ======================================================
+    /// Storageから安全にサンプリング可能なインデックス範囲を管理するクラス.
+    /// Storageには随時データを書き込むが、完全にサンプリング可能になるまでに遅延が存在する事から必要となる。
+    class ValidIndexManager {
+    public:
+        ValidIndexManager(int64_t num_envs, int64_t capacity_per_env);
 
-enum class StorageWriteEventCode {
-    Append,
-    Overwrite
-};
+        /// 指定位置にデータが書き込まれたことを通知 (この時点ではまだサンプリング封印状態)
+        void MarkWritten(int64_t env_idx, int64_t time_idx);
 
-struct StorageWriteEvent {
-    StorageWriteEventCode code;
-    int64_t index;
-};
+        /// N-Step等を経て「未来」が担保され、完全にサンプリング可能になったことを通知 (封印解除)
+        void MarkValid(int64_t env_idx, int64_t time_idx);
 
-class ReplayExperienceStorage : public anet::Module {
-public:
-    using EventHandler = std::function<void(const StorageWriteEvent&)>;
-public:
-    ReplayExperienceStorage(const EnvSpec& env_spec, int64_t capacity, int64_t num_envs, torch::Device device);
-    void Push(const ReplayExperience& exp);
-    ExperienceSamples Gather(const std::vector<int64_t>& indices, std::optional<torch::Device> out_device = std::nullopt) const;
+        /// Stack/Unroll 制約を考慮し、安全に引ける 1D インデックスのリストを返す
+        torch::Tensor GetValidIndices1D(int stack_count, int unroll_steps) const;
 
-    int64_t GetWriteIndex() const { return write_index_; }
-    int64_t GetSize() const { return size_; }
-    int64_t GetCapacity() const { return capacity_; }
-    torch::Tensor GetPrevIndices() const { return prev_indices_; }
-
-    const torch::Tensor& GetStates() const { return states_; }
-    const torch::Tensor& GetActions() const { return actions_; }
-    const torch::Tensor& GetTargetValues() const { return target_values_; }
-    const torch::Tensor& GetNextStates() const { return next_states_; }
-    const torch::Tensor& GetTerminals() const { return terminals_; }
-    const torch::Tensor& GetNSteps() const { return n_steps_; }
-    const torch::Tensor& GetEpisodeStarts() const { return episode_starts_; }
-public:
-    void AttachEventHandler(EventHandler handler);
-public:
-    std::optional<float> GetScalar(const std::string& key, int64_t index) const override;
-    std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index) const override;
-    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index) const override;
-private:
-    void Notify(const StorageWriteEvent& ev);
-private:
-    const int64_t capacity_;
-    const torch::Device device_;
-    const torch::TensorOptions int64_opt_;
-    std::vector<EventHandler> event_handlers_;
-private:
-    int64_t size_ = 0;
-    int64_t write_index_ = 0;
-    torch::Tensor states_;        // (N, state_dim)
-    torch::Tensor actions_;       // (N, action_dim)
-    torch::Tensor target_values_; // (N,)
-    torch::Tensor next_states_;   // (N, state_dim)
-    torch::Tensor terminals_;     // (N,) bool
-    torch::Tensor n_steps_;       // (N,) int
-    torch::Tensor episode_starts_;// (N,) bool
-    torch::Tensor prev_indices_;              ///< (capacity_) 各データの1つ前のインデックス
-    std::vector<int64_t> last_env_indices_;   ///< (num_envs_) 環境ごとの最新インデックス
-
-    /// @todo state → obs
-};
+        int64_t GetValidCount() const;
+    private:
+        int64_t num_envs_;
+        int64_t capacity_per_env_;
+        std::vector<int64_t> valid_cursors_;
+    };
 
 
-// ======================================================
-// ReplayBuffer ReplayExperienceSampler
-// ======================================================
+    // ======================================================
+    // Storage (CPU/GPU対応)
+    // ======================================================
 
-struct IndexSampleResult {
-    explicit IndexSampleResult(int64_t size)
-        : indices(size), sampling_prob(size), is_weights(size) { }
+    class ReplayExperienceStorage : public anet::Module {
+    public:
+        ReplayExperienceStorage(int64_t num_envs, int64_t capacity_per_env, const EnvSpec& spec, const ReplayBufferConfig& config, torch::Device device, bool pin_memory);
 
-    IndexSampleResult(
-        const std::vector<int64_t>& indices_in, const std::vector<float>& sampling_prob_in, const std::vector<float>& is_weights_in)
-        : indices(indices_in), sampling_prob(sampling_prob_in), is_weights(is_weights_in) { }
+        /// 重いデータ（Dict等）を即時追加し、書き込まれた time_idx を返す
+        int64_t Push(int64_t env_idx, const anet::TensorDict& obs, const torch::Tensor& action, const anet::TensorDict& info);
 
-    IndexSampleResult(const std::vector<int64_t>& indices_in)
-        : indices(indices_in) { }
+        /// Builderが構築したメタデータを、指定したインデックスに上書き(遅延反映)する
+        void Update(int64_t env_idx, int64_t time_idx, const ReplayExperience& exp);
 
-    std::vector<int64_t> indices;
-    std::vector<float> sampling_prob;
-    std::vector<float> is_weights;
-};
+        /// 終端到達時の「ダミーステップ」を書き込む（パラドックス回避用）
+        void PushTerminalDummy(int64_t env_idx, const anet::TensorDict& terminal_obs);
+    public:
+        // 読み取りインターフェース (Extractor用) 
+        const anet::TensorDict& GetObs() const { return obs_storage_; }
+        const anet::TensorDict& GetInfo() const { return info_storage_; }
+        const torch::Tensor& GetActions() const { return actions_; }
+        const torch::Tensor& GetTargetReturns() const { return target_returns_; }
+        const torch::Tensor& GetTerminals() const { return terminals_; }
+        const torch::Tensor& GetTruncates() const { return truncates_; }
+        const torch::Tensor& GetActualNSteps() const { return actual_n_steps_; }
+    public:
+        // 可視化用
+        std::optional<float> GetScalar(const std::string& key, int64_t index) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index) const override;
+    private:
+        int64_t num_envs_;
+        int64_t capacity_per_env_;
+        std::vector<int64_t> write_cursors_;
+        torch::Device device_;
 
-class ReplayExperienceSampler {
-public:
-    virtual IndexSampleResult SampleIndices(const ReplayExperienceStorage& storage, int64_t minibatch_size, float beta = -1) = 0;
-    virtual ~ReplayExperienceSampler() = default;
-};
+        // --- 物理テンソル群 ---
+        anet::TensorDict obs_storage_;
+        anet::TensorDict info_storage_;
+        torch::Tensor actions_;
+        torch::Tensor target_returns_;
+        torch::Tensor terminals_;
+        torch::Tensor truncates_;
+        torch::Tensor actual_n_steps_;
+    };
+    
 
-class UniformReplayExperienceSampler final : public ReplayExperienceSampler, public anet::RandomHolder {
-public:
-    explicit UniformReplayExperienceSampler(anet::seed_t seed);
-    IndexSampleResult SampleIndices(const ReplayExperienceStorage& storage, int64_t minibatch_size, float beta) override;
-private:
-    const torch::TensorOptions opts_;
-};
+    // ======================================================
+    // Sampler & Extractor (Controller)
+    // ======================================================
 
+    struct IndexSampleResult {
+        torch::Tensor indices;       ///< [B] 1D indices
+        torch::Tensor sampling_prob; ///< [B] probabilities
+        torch::Tensor is_weights;    ///< [B] importance sampling weights
+    };
 
-// ======================================================
-// SumTree
-// ======================================================
+    class ReplayExperienceSampler {
+    public:
+        virtual IndexSampleResult SampleIndices(int64_t batch_size, const torch::Tensor& valid_indices_1d, float beta) = 0;
+        virtual ~ReplayExperienceSampler() = default;
+    };
 
-/// @note This implementation is NOT thread-safe.
-class SumTree {
-public:
-    explicit SumTree(int64_t capacity);
-
-    void Update(int64_t index, float value);
-    float Get(int64_t index) const;
-    int64_t Sample(float value) const;
-    int64_t Capacity() const noexcept { return capacity_; }
-    float Total() const noexcept { return tree_[1]; }
-private:
-    int64_t capacity_;
-    std::vector<float> tree_; // size = 2 * capacity_
-};
-
-
-// ======================================================
-// ReplayPriorityController
-// ======================================================
-
-class PrioritizedReplayExperienceManager final
-    : public ReplayExperienceSampler, public ReplayPriorityController, public anet::RandomHolder {
-public:
-    PrioritizedReplayExperienceManager(int64_t capacity, float alpha, anet::seed_t seed);
-
-    IndexSampleResult SampleIndices(const ReplayExperienceStorage& storage, int64_t minibatch_size, float beta) override;
-    void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override;
-public:
-    std::optional<float> GetScalar(const std::string& key, int64_t index) const override;
-    std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index) const override;
-    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index) const override;
-private:
-    SumTree sum_tree_;
-    float alpha_;
-};
-
-
-// ======================================================
-// ReplayExperienceStacker
-// ======================================================
-
-class ReplayExperienceStacker {
-public:
-    virtual ExperienceSamples SampleBatch(
-        const ReplayExperienceStorage& storage, const IndexSampleResult& index_result, int64_t minibatch_size, torch::Device target_device) = 0;
-    virtual ~ReplayExperienceStacker() = default;
-};
-
-class ReplayExperienceStateStacker final : public ReplayExperienceStacker {
-public:
-    ReplayExperienceStateStacker(int stack_count, const std::vector<int64_t>& state_shape, torch::Device device);
-
-    ExperienceSamples SampleBatch(
-        const ReplayExperienceStorage& storage, const IndexSampleResult& index_result, int64_t minibatch_size, torch::Device target_device) override;
-private:
-    const torch::Device device_;
-    torch::TensorOptions stacked_indices_opts_;
-    const int stack_count_;
-    std::vector<int64_t> state_shape_;
-};
+    class ExperienceSampleExtractor {
+    public:
+        /// サンプリングされたインデックスに基づき、StorageからStack/Unrollを考慮したサンプルを抽出する
+        virtual void ExtractSamples(
+            ExperienceSamples& out_samples,
+            const ReplayExperienceStorage& storage,
+            const IndexSampleResult& idx_result,
+            int stack_count, int unroll_steps) const = 0;
+        virtual ~ExperienceSampleExtractor() = default;
+    };
 
 
-// ======================================================
-// DefaultReplayBuffer
-// ======================================================
+    // ======================================================
+    // SumTree (汎用部品)
+    // ======================================================
 
-class DefaultReplayBuffer final : public ReplayBuffer {
-public:
-    DefaultReplayBuffer(
-        const EnvSpec& env_spec, int64_t capacity, int64_t num_envs,
-        std::unique_ptr<ExperienceQueueController> queue_controller,
-        std::unique_ptr<ReplayExperienceBuilder> replay_exp_builder,
-        std::shared_ptr<ReplayExperienceSampler> sampler,
-        std::shared_ptr<ReplayPriorityController> prio_controller,
-        std::shared_ptr<ReplayExperienceStacker> stacker,
-        torch::Device device, float initial_priority = 1.0f, bool use_prefetch = false);
+    class SumTree {
+    public:
+        explicit SumTree(int64_t capacity);
+        void Update(int64_t index, float priority);
+        float TotalPriority() const;
+        int64_t Retrieve(float value) const;
+        float GetPriority(int64_t index) const;
+        int64_t Capacity() const { return capacity_; }
+    private:
+        int64_t capacity_;
+        std::vector<float> tree_;
+    };
 
-    void Push(const BatchExperience& batch_exp) override;
-    void Push(const std::vector<SingleExperience>& exps) override;
-    ExperienceSamples Sample(int64_t minibatch_size, torch::Device device, float beta) const override;
-    int64_t Size() const override;
 
-    void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override;
-public:
-    std::optional<float> GetScalar(const std::string& key, int64_t index) const override;
-    std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index) const override;
-    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index) const override;
-private:
-    ExperienceSamples sampleInternal(int64_t minibatch_size, torch::Device device, float beta) const;
-private:
-    // 設定
-    bool use_prefetch_;
-    float initial_priority_;
+    // ======================================================
+    // Facade (DefaultReplayBuffer)
+    // ======================================================
 
-    // N 環境分
-    const int64_t num_envs_;
-    std::vector<ExperienceQueue> queues_;
+    class DefaultReplayBuffer final : public ReplayBuffer {
+    public:
+        DefaultReplayBuffer(
+            const ReplayBufferConfig& config,
+            const EnvSpec& env_spec,
+            int64_t num_envs,
+            std::unique_ptr<ExperienceQueueController> queue_controller,
+            std::unique_ptr<ReplayExperienceBuilder> builder,
+            std::shared_ptr<ReplayExperienceSampler> sampler,
+            std::shared_ptr<ReplayPriorityController> prio_controller,
+            std::shared_ptr<ExperienceSampleExtractor> extractor,
+            torch::Device device,
+            bool pin_memory);
 
-    // 共通
-    std::unique_ptr<ExperienceQueueController> queue_controller_;
-    std::unique_ptr<ReplayExperienceBuilder> replay_exp_builder_;
-    std::unique_ptr<ReplayExperienceStorage> storage_;
-    std::shared_ptr<ReplayExperienceSampler> sampler_;
-    std::shared_ptr<ReplayPriorityController> prio_controller_;
-	std::shared_ptr<ReplayExperienceStacker> stacker_;
+        void Push(const BatchExperience& batch_exp) override;
+        void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const override;
+        int64_t Size() const override;
+        void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override;
+        //void UpdatePriorities(const torch::Tensor& indices, const torch::Tensor& priorities) override;
 
-    // Prefech
-    mutable bool prefetch_cached_ = false;
-    mutable ExperienceSamples prefetch_result_;
-};
+        std::optional<float> GetScalar(const std::string& key, int64_t index) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index) const override;
 
+    private:
+        void ProcessQueue(int64_t env_idx); // 内部パイプラインの駆動
+
+    private:
+        ReplayBufferConfig config_;
+        int64_t num_envs_;
+        int64_t capacity_per_env_;
+
+        std::unique_ptr<ReplayExperienceStorage> storage_;
+        std::unique_ptr<ValidIndexManager> index_manager_;
+
+        std::unique_ptr<ExperienceQueueController> queue_controller_;
+        std::unique_ptr<ReplayExperienceBuilder> builder_;
+        std::shared_ptr<ReplayExperienceSampler> sampler_;
+        std::shared_ptr<ReplayPriorityController> prio_controller_;
+        std::shared_ptr<ExperienceSampleExtractor> extractor_;
+
+        std::vector<ExperienceQueue> queues_;
+    };
+
+} // namespace anet::rl

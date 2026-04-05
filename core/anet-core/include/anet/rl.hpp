@@ -182,13 +182,8 @@ namespace anet::rl {
 
     struct ObsKeys
     {
-        // --- 汎用・単一データ用 ---
-        //static constexpr const char* kObs = "obs";
-        //static constexpr const char* kFeatures = "features";
-
         // --- 空間トポロジによる使い分けデフォルトキー ---
         static constexpr const char* kVector = "vector";
-        //static constexpr const char* kImage = "image";
         static constexpr const char* kGrid = "grid";
 
         // --- メタデータ・特殊用途 ---
@@ -242,7 +237,30 @@ namespace anet::rl {
         std::vector<ActionDimInfo> dims; // 連続アクションの場合のみ使用
         std::map<std::string, std::string> info;
 
-        int GetNumActions() const {
+        std::vector<int64_t> GetShape() const
+        {
+            if (is_discrete) {
+                return { }; // 離散アクションではスカラー
+            } else {
+                std::vector<int64_t> shape;
+                for (const auto& dim : dims) {
+                    shape.push_back(1); // 連続アクションは各次元がスカラーなので、shapeは(dims.size(),)となる
+                }
+                return shape;
+            }
+		}
+
+        torch::ScalarType GetDataType() const
+        {
+            if (is_discrete) {
+                return torch::kInt64;
+            } else {
+                return torch::kFloat32;
+            }
+        }
+
+        int GetNumActions() const
+        {
             if (is_discrete) {
                 return (int)value_labels.size();
             }
@@ -661,41 +679,47 @@ namespace anet::rl {
     // ReplayBuffer 
     // =============================================================
 
-    /// ReplayBufferから取り出したB個のサンプルデータ（「N環境」ではなく「Bサンプル」である事に注意）
+    /// サンプリングされた経験のミニバッチ（再利用可能オブジェクト）
     struct ExperienceSamples {
-		// B=ミニバッチ
-		// S=Stacked frame
+        // --- 観測データ ---
+        anet::TensorDict obs;           ///< [B, Stack, C, H, W] 等
 
-        torch::Tensor obs;            // (B, S, state_dim...)
-        torch::Tensor actions;        // (B, action_dim...)
-        torch::Tensor target_values;  // (B,)
+        // --- コア遷移データ ---
+        torch::Tensor actions;          ///< [B] または [B, Unroll]
+        torch::Tensor target_returns;   ///< [B] (N-Step割引累積報酬) または [B, Unroll]
+
         struct {
-            torch::Tensor obs;             // (B, S, state_dim...)
-            torch::Tensor terminals;       // (B,) bool
-        } next_states;
-        torch::Tensor n_steps;       // (B,) int
+            anet::TensorDict next_obs;      ///< [B, Stack, C, H, W] 等 (Rainbow等の N-Step 次状態)
+            torch::Tensor terminals;        ///< [B] (真の終了フラグ)
+            torch::Tensor truncates;        ///< [B] (タイムアップ等による打ち切りフラグ)
+        } next_state;
 
-        torch::Tensor indices;          // (B,) kInt64
-        torch::Tensor sampling_prob;    // (B,) kFloat32
-        torch::Tensor is_weights;       // (B,) kFloat32
+        // --- N-Step & PER メタデータ ---
+        torch::Tensor n_steps;          ///< [B] 実際に進んだステップ数 (終端到達でNより短くなるケース用)
+        torch::Tensor indices;          ///< [B] PER優先度更新用の1Dインデックス
+        torch::Tensor is_weights;       ///< [B] Importance Sampling の重み
 
-        ExperienceSamples FlattenStates() const;
-        ExperienceSamples To(torch::Device device, bool non_blocking) const;
+        // --- その他 ---
+        anet::TensorDict info;          ///< アルゴリズム固有データ (MuZeroの target_values 等)
+
+        // ユーティリティ
+        ExperienceSamples To(torch::Device device, bool non_blocking = true) const;
         std::string ToString() const;
     };
 
-    class ReplayPriorityController : public anet::Module {
+
+    class ReplayPriorityController {
     public:
         virtual void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) = 0;
-
+        //virtual void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override = 0;
+        //virtual void UpdatePriorities(const torch::Tensor& indices, const torch::Tensor& priorities) = 0;
         ~ReplayPriorityController() = default;
     };
 
-    class ReplayBuffer : public ReplayPriorityController {
+    class ReplayBuffer : public anet::Module, public ReplayPriorityController {
     public:
         virtual void Push(const BatchExperience& batch_exp) = 0;
-        virtual void Push(const std::vector<SingleExperience>& exps) = 0;
-        virtual ExperienceSamples Sample(int64_t minibatch_size, torch::Device device, float beta = -1) const = 0;
+        virtual void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const = 0;
         virtual int64_t Size() const = 0;
 
         virtual ~ReplayBuffer() = default;

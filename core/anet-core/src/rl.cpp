@@ -606,6 +606,8 @@ std::vector<SingleExperience> BatchExperience::ToExperienceList() const
 // ExperienceSamples
 // =============================================================
 
+//ExperienceSamples                    To(torch::Device device, bool non_blocking = true);
+
 ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking) const
 {
     // GPUデバイスへの転送時のみストリームガードを有効にする
@@ -613,70 +615,62 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
         auto stream = at::cuda::getDefaultCUDAStream();
         at::cuda::CUDAStreamGuard guard(stream);
 
-        return ExperienceSamples{
-            obs.to(device, non_blocking),
-            actions.to(device, non_blocking),
-            target_values.to(device, non_blocking),
-            {
-                next_states.obs.to(device, non_blocking),
-                next_states.terminals.to(device, non_blocking),
+        return {
+            .obs = obs.To(device, non_blocking),
+            .actions = actions.to(device, non_blocking),
+            .target_returns = target_returns.to(device, non_blocking),
+            .next_state = {
+                .next_obs = next_state.next_obs.To(device, non_blocking),
+                .terminals = next_state.terminals.to(device, non_blocking),
+				.truncates = next_state.truncates.to(device, non_blocking),
             },
-            n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,
-            indices.to(device, non_blocking),
-            sampling_prob.defined() ? sampling_prob.to(device, non_blocking) : sampling_prob,
-            is_weights.defined() ? is_weights.to(device, non_blocking) : is_weights,
+            .n_steps = n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,
+            .indices = indices.to(device, non_blocking),
+            .is_weights = is_weights.defined() ? is_weights.to(device, non_blocking) : is_weights,
+			.info = info.To(device, non_blocking)
         };
     }
 
     // CPUの場合はそのまま転送
-    return ExperienceSamples{
-        obs.to(device, non_blocking),
-        actions.to(device, non_blocking),
-        target_values.to(device, non_blocking),
-        {
-            next_states.obs.to(device, non_blocking),
-            next_states.terminals.to(device, non_blocking),
+    return {
+        .obs = obs.To(device, non_blocking),
+        .actions = actions.to(device, non_blocking),
+        .target_returns = target_returns.to(device, non_blocking),
+        .next_state = {
+            .next_obs = next_state.next_obs.To(device, non_blocking),
+            .terminals = next_state.terminals.to(device, non_blocking),
+            .truncates = next_state.truncates.to(device, non_blocking),
         },
-        n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,
-        indices.to(device, non_blocking),
-        sampling_prob.defined() ? sampling_prob.to(device, non_blocking) : sampling_prob,
-        is_weights.defined() ? is_weights.to(device, non_blocking) : is_weights,
+        .n_steps = n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,
+        .indices = indices.to(device, non_blocking),
+        .is_weights = is_weights.defined() ? is_weights.to(device, non_blocking) : is_weights,
+        .info = info.To(device, non_blocking)
     };
 }
 
-ExperienceSamples ExperienceSamples::FlattenStates() const
-{
-    return ExperienceSamples{
-        obs.flatten(1),
-        actions,
-        target_values,
-        {
-            next_states.obs.flatten(1),
-            next_states.terminals,
-        },
-        n_steps,
-        indices,
-        sampling_prob,
-        is_weights
-    };
-}
 
 std::string ExperienceSamples::ToString() const
 {
     std::ostringstream oss;
     oss << "ExperienceSamples{\n";
-    oss << "  obs     = " << anet::ToString(obs) << "\n";
+    oss << "  obs     = " << obs.ToString() << "\n";
     oss << "  action  = " << anet::ToString(actions) << "\n";
-    oss << "  target_values  = " << anet::ToString(target_values) << "\n";
-    oss << "  next_state.obs           = " << anet::ToString(next_states.obs) << "\n";
-    oss << "  next_state.terminals     = " << anet::ToString(next_states.terminals) << "\n";
+    oss << "  target_returns  = " << anet::ToString(target_returns) << "\n";
+    oss << "  next_state.next_obs      = " << next_state.next_obs.ToString() << "\n";
+    oss << "  next_state.terminals     = " << anet::ToString(next_state.terminals) << "\n";
+    oss << "  next_state.truncates     = " << anet::ToString(next_state.truncates) << "\n";
     oss << "  n_steps                  = " << anet::ToString(n_steps) << "\n";
     oss << "  indices                  = " << anet::ToString(indices) << "\n";
-    oss << "  sampling_prob            = " << anet::ToString(sampling_prob) << "\n";
     oss << "  is_weights               = " << anet::ToString(is_weights) << "\n";
+    oss << "  info = " << info.ToString() << "\n";
     oss << "}";
     return oss.str();
 }
+
+
+// -----------------------------------------------------------------
+// BatchExperience
+// -----------------------------------------------------------------
 
 std::string BatchExperience::ToString() const
 {
