@@ -197,7 +197,7 @@ ReplayExperienceStorage::ReplayExperienceStorage(int64_t num_envs, int64_t capac
 
     auto options = torch::TensorOptions().device(device_).pinned_memory(pin_memory && device_.is_cpu());
 
-    // Core配列の事前
+    // Core配列を事前確保
     auto act_shape = spec.action_spec.GetShape();
     act_shape.insert(act_shape.begin(), capacity_per_env_);
     act_shape.insert(act_shape.begin(), num_envs_);
@@ -403,7 +403,7 @@ public:
         : anet::RandomHolder(seed)
         , tree_(capacity)
         , alpha_(alpha)
-        , initial_prio_(initial_priority)
+        , max_prio_(initial_priority)
         , gen_(rnd_->GetTorchGenerator(torch::kCPU))
         , opt_long_(torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU))
         , opt_float_(torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU))
@@ -413,7 +413,7 @@ public:
     IndexSampleResult SampleIndices(int64_t batch_size, const torch::Tensor& valid_indices_1d, float beta) override
     {
         int64_t valid_count = valid_indices_1d.size(0);
-        auto valid_acc = valid_indices_1d.accessor<int64_t, 1>();
+        const int64_t* valid_ptr = valid_indices_1d.data_ptr<int64_t>();
 
         std::vector<int64_t> sampled_indices(batch_size);
         std::vector<float> sampled_probs(batch_size);
@@ -475,8 +475,8 @@ public:
             float p = priorities[i];
 
             if (p < 0.0f) {
-                // 特殊フラグ (-1.0f): 新規データの Valid 化に伴う「初期優先度」の割り当て
-                tree_.Update(indices[i], initial_prio_);
+                // 特殊フラグ (-1.0f): 新規データが必ず1回はサンプリングされるよう、現在の「最大優先度」を割り当てる
+                tree_.Update(indices[i], max_prio_);
             } else if (p == 0.0f) {
                 // 特殊フラグ (0.0f): 上書きに伴う無効化
                 tree_.Update(indices[i], 0.0f);
@@ -493,10 +493,10 @@ public:
 private:
     SumTree tree_;
     const float alpha_;
-    const float initial_prio_;
     const torch::Generator gen_;
     const torch::TensorOptions opt_long_;
     const torch::TensorOptions opt_float_;
+    float max_prio_;
 };
 
 
