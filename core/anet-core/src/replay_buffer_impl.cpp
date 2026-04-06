@@ -143,6 +143,8 @@ torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_s
     std::vector<int64_t> valid_list;
     valid_list.reserve(num_envs_ * capacity_per_env_ / 2);
 
+    // ここで作成される valid_list は strictly monotonically increasing (厳密な昇順) となるため、
+    // 後述の PER での std::binary_search を用いた O(log N) 高速判定が保証される
     for (int64_t env = 0; env < num_envs_; ++env) {
         int64_t valid_count = std::min(valid_cursors_[env], capacity_per_env_);
         int64_t write_head = valid_cursors_[env] % capacity_per_env_;
@@ -195,7 +197,7 @@ ReplayExperienceStorage::ReplayExperienceStorage(int64_t num_envs, int64_t capac
 
     auto options = torch::TensorOptions().device(device_).pinned_memory(pin_memory && device_.is_cpu());
 
-    // Core配列の事前確保 (ActionDimがスカラーかベクトルかで分岐)
+    // Core配列の事前
     auto act_shape = spec.action_spec.GetShape();
     act_shape.insert(act_shape.begin(), capacity_per_env_);
     act_shape.insert(act_shape.begin(), num_envs_);
@@ -206,7 +208,7 @@ ReplayExperienceStorage::ReplayExperienceStorage(int64_t num_envs, int64_t capac
     truncates_ = torch::empty({ num_envs_, capacity_per_env_ }, options.dtype(torch::kBool));
     actual_n_steps_ = torch::empty({ num_envs_, capacity_per_env_ }, options.dtype(torch::kInt64));
 
-    // obs_storage_ と info_storage_ は型の詳細が動的(Dict)なため、初回の Push 時に遅延確保(Lazy Init)する
+    // obs_storage_ と info_storage_ は型の詳細が動的(Dict)なため、初回の Push 時に遅延アロケーションする
 }
 
 int64_t ReplayExperienceStorage::Push(int64_t env_idx, const anet::TensorDict& obs, const torch::Tensor& action, const anet::TensorDict& info)
@@ -300,7 +302,7 @@ void SumTree::Update(int64_t index, float priority)
     }
 }
 
-float SumTree::TotalPriority() const
+float SumTree::GetTotalPriority() const
 {
     return tree_[0];
 }
@@ -403,6 +405,7 @@ public:
         , alpha_(alpha)
         , initial_prio_(initial_priority)
         , gen_(rnd_->GetTorchGenerator(torch::kCPU))
+        , opt_long_(torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU))
         , opt_float_(torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU))
     {
     }
@@ -412,32 +415,79 @@ public:
         int64_t valid_count = valid_indices_1d.size(0);
         auto valid_acc = valid_indices_1d.accessor<int64_t, 1>();
 
-        // 厳密にvalidなインデックスのみからサンプリングするため、SumTreeから該当要素の優先度を引く
-        std::vector<float> valid_priorities(valid_count);
-        float prio_sum = 0.0f;
-        for (int64_t i = 0; i < valid_count; ++i) {
-            float p = tree_.GetPriority(valid_acc[i]);
-            if (p <= 0.0f) p = initial_prio_; // 初期化前（新規追加直後）の要素は初期優先度を付与
-            valid_priorities[i] = p;
-            prio_sum += p;
+        std::vector<int64_t> sampled_indices(batch_size);
+        std::vector<float> sampled_probs(batch_size);
+        std::vector<float> sampled_weights(batch_size);
+
+        float total_prio = tree_.GetTotalPriority();
+
+        int64_t b = 0;
+        int max_attempts = batch_size * 10;
+        int attempts = 0;
+
+        // valid_indices_1d は昇順ソートが保証されているため、std::binary_search による O(1)~O(log V) 判定が可能
+        while (b < batch_size && attempts < max_attempts) {
+            attempts++;
+            float r = torch::rand({ 1 }, gen_, opt_float_).item<float>() * total_prio;
+            int64_t idx = tree_.Retrieve(r);
+
+            bool is_valid = std::binary_search(valid_ptr, valid_ptr + valid_count, idx);
+            if (is_valid) {
+                float p = tree_.GetPriority(idx);
+                if (p <= 0.0f) continue; // 安全装置
+
+                sampled_indices[b] = idx;
+                float prob = p / total_prio;
+                sampled_probs[b] = prob;
+
+                float weight = std::pow(valid_count * prob, -beta);
+                sampled_weights[b] = weight;
+                b++;
+            }
         }
 
-        auto prio_tensor = torch::tensor(valid_priorities, opt_float_);
-        auto rand_idx = torch::multinomial(prio_tensor, batch_size, true, gen_);
-        auto indices = valid_indices_1d.index_select(0, rand_idx);
+        // フェイルセーフ（滅多に起きないが、ツリーが空に近い極初期など）
+        if (b < batch_size) {
+            LOG::warn() << "PER Rejection Sampling failed to fill batch. Falling back to uniform.";
+            auto rand_idx = torch::randint(0, valid_count, { batch_size - b }, gen_, opt_long_);
+            auto rand_acc = rand_idx.accessor<int64_t, 1>();
+            for (int64_t i = 0; i < batch_size - b; ++i) {
+                int64_t idx = valid_ptr[rand_acc[i]];
+                sampled_indices[b + i] = idx;
+                sampled_probs[b + i] = 1.0f / valid_count;
+                sampled_weights[b + i] = 1.0f;
+            }
+        }
 
-        // Importance Sampling Weight の計算
-        auto probs = prio_tensor.index_select(0, rand_idx) / prio_sum;
-        auto weights = torch::pow(valid_count * probs, -beta);
-        weights /= weights.max();
+        auto idx_device = valid_indices_1d.device();
+        auto indices_t = torch::tensor(sampled_indices, opt_long_).to(idx_device);
+        auto probs_t = torch::tensor(sampled_probs, opt_float_).to(idx_device);
+        auto weights_t = torch::tensor(sampled_weights, opt_float_).to(idx_device);
 
-        return { indices, probs, weights };
+        weights_t /= weights_t.max(); // 正規化
+
+        return { indices_t, probs_t, weights_t };
     }
 
     void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override
     {
         for (size_t i = 0; i < indices.size(); ++i) {
-            tree_.Update(indices[i], std::pow(priorities[i], alpha_));
+            float p = priorities[i];
+
+            if (p < 0.0f) {
+                // 特殊フラグ (-1.0f): 新規データの Valid 化に伴う「初期優先度」の割り当て
+                tree_.Update(indices[i], initial_prio_);
+            } else if (p == 0.0f) {
+                // 特殊フラグ (0.0f): 上書きに伴う無効化
+                tree_.Update(indices[i], 0.0f);
+            } else {
+                // 通常の更新
+                float adjusted_p = std::pow(p, alpha_);
+                tree_.Update(indices[i], adjusted_p);
+                if (adjusted_p > 0.0f) {
+                    max_prio_ = std::max(max_prio_, adjusted_p);
+                }
+            }
         }
     }
 private:
@@ -445,6 +495,7 @@ private:
     const float alpha_;
     const float initial_prio_;
     const torch::Generator gen_;
+    const torch::TensorOptions opt_long_;
     const torch::TensorOptions opt_float_;
 };
 
@@ -493,16 +544,17 @@ public:
                 batch_info.push_back(RingSliceDict(storage.GetInfo(), env_idx, time_idx, unroll_len, cap, squeeze_unroll));
             }
 
-            // 過去方向 (Frame Stacking) のスライス抽出 ---
+            // 過去方向 (Frame Stacking) のスライス抽出
             int64_t obs_start = time_idx - stack_count + 1;
             batch_obs.push_back(RingSliceDict(storage.GetObs(), env_idx, obs_start, stack_count, cap, squeeze_stack));
 
-            // N-Step先 (NextState) のスライス抽出 ---
-            int64_t next_obs_start = time_idx + actual_n - stack_count + 1;
+            // N-Step先 (NextState) のスライス抽出
+            int64_t next_obs_end = time_idx + actual_n + 1;
+            int64_t next_obs_start = next_obs_end - stack_count;
             batch_next_obs.push_back(RingSliceDict(storage.GetObs(), env_idx, next_obs_start, stack_count, cap, squeeze_stack));
         }
 
-        // --- バッチ次元(dim=0)でのスタック構築 ---
+        // バッチスタック
         out.actions = torch::stack(batch_actions, 0);
         out.target_returns = torch::stack(batch_returns, 0);
         out.next_state.terminals = torch::stack(batch_terminals, 0);
@@ -564,11 +616,28 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
         int64_t time_idx = storage_->Push(b, single_obs, batch.action->GetAction()[b], single_info);
         index_manager_->MarkWritten(b, time_idx);
 
+        // 上書きされたインデックスの優先度をゼロ(0.0f)にしてサンプリング対象から除外
+        if (prio_controller_) {
+            prio_controller_->UpdatePriorities({ b * capacity_per_env_ + time_idx }, { 0.0f });
+        }
+
         // Truncatedのパラドックス対策 (ダミーステップの挿入)
         if (batch.next_state.truncated[b].item<bool>()) {
             anet::TensorDict terminal_obs = batch.next_state.obs[b];
             storage_->PushTerminalDummy(b, terminal_obs);
             index_manager_->MarkWritten(b, time_idx + 1);
+
+            if (prio_controller_) {
+                prio_controller_->UpdatePriorities({ b * capacity_per_env_ + time_idx + 1 }, { 0.0f });
+            }
+
+            // ダミーステップもQueueに入れることでカーソルの永遠のズレを防止
+            QueueRecord dummy_rec;
+            dummy_rec.time_idx = time_idx + 1;
+            dummy_rec.reward = 0.0f;
+            dummy_rec.done = true;
+            dummy_rec.truncated = false;
+            queues_[b].Push(dummy_rec);
         }
 
         // Step 2: Queue に軽量メタデータを Push
@@ -588,6 +657,9 @@ void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
 {
     auto sequences = queue_controller_->ExtractSequences(queues_[env_idx]);
 
+    std::vector<int64_t> newly_valid;
+    std::vector<float> init_prios;
+
     for (const auto& seq : sequences) {
         // Builderで割引報酬和を計算
         ReplayExperience exp = builder_->Build(seq);
@@ -598,6 +670,14 @@ void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
 
         // 完全にサンプリング可能になったので封印解除
         index_manager_->MarkValid(env_idx, time_idx);
+
+        newly_valid.push_back(env_idx * capacity_per_env_ + time_idx);
+        init_prios.push_back(-1.0f); // 初期優先度を割り当てるための特殊フラグ
+    }
+
+    //  N-Step計算が完了し、安全になったデータをTreeに登録（初期優先度付与）
+    if (prio_controller_ && !newly_valid.empty()) {
+        prio_controller_->UpdatePriorities(newly_valid, init_prios);
     }
 }
 

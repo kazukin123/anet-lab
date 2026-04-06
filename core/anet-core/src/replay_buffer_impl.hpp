@@ -176,7 +176,7 @@ namespace anet::rl {
     public:
         explicit SumTree(int64_t capacity);
         void Update(int64_t index, float priority);
-        float TotalPriority() const;
+        float GetTotalPriority() const;
         int64_t Retrieve(float value) const;
         float GetPriority(int64_t index) const;
         int64_t Capacity() const { return capacity_; }
