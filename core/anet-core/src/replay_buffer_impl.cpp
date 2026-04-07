@@ -508,6 +508,8 @@ class DefaultSampleExtractor : public ExperienceSampleExtractor {
 public:
     void ExtractSamples(ExperienceSamples& out, const ReplayExperienceStorage& storage, const IndexSampleResult& idx_result, int stack_count, int unroll_steps) const override
     {
+		anet::ProfileRange r("DefaultSampleExtractor::ExtractSamples");
+
         int64_t B = idx_result.indices.size(0);
         auto indices_acc = idx_result.indices.accessor<int64_t, 1>();
 
@@ -684,7 +686,7 @@ void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
 void DefaultReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const
 {
     auto valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps);
-    ANET_ASSERT_MSG(valid_1d.size(0) >= minibatch_size, "Not enough valid samples in ReplayBuffer.");
+    ANET_ASSERT_MSG(valid_1d.size(0) >= minibatch_size, "Not enough valid samples in ReplayBuffer. size=" << valid_1d.size(0) << " minibatch_size=" << minibatch_size);
 
     auto idx_result = sampler_->SampleIndices(minibatch_size, valid_1d, beta);
     extractor_->ExtractSamples(out_samples, *storage_, idx_result, config_.stack_count, config_.muzero.unroll_steps);

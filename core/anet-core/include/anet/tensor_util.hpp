@@ -95,11 +95,22 @@ namespace anet {
         return t.item<float>();
     }
 
+    inline torch::Tensor To(const torch::Tensor& t, torch::Device device)
+    {
+        return t.defined() ? t.to(device) : t;
+    }
+
+    inline torch::Tensor To(const torch::Tensor& t, torch::Device device, bool non_blocking)
+    {
+        return t.defined() ? t.to(device, non_blocking) : t;
+    }
+
     template<typename T>
     T ItemOrNaN(const torch::Tensor& t)
     {
         return t.defined() ? t.item<T>() : std::numeric_limits<T>::quiet_NaN();
     };
+
 
     //inline std::string ToString(const anet::rl::AuxData& aux_data)
     //{
@@ -205,7 +216,7 @@ namespace anet {
         std::string ToString() const
         {
             std::stringstream ss;
-            ss << "------------\n";
+            ss << "\n------------\n";
             for (const auto& kv : dict_) {
                 ss << kv.first << ": ";
                 ss << anet::ToString(kv.second) << "\n";
@@ -217,7 +228,7 @@ namespace anet {
         std::string ToDefString() const
         {
             std::stringstream ss;
-            ss << "------------\n";
+            ss << "\n------------\n";
             for (const auto& kv : dict_) {
                 ss << kv.first << ": ";
                 ss << anet::ToDefString(kv.second) << "\n";
@@ -236,7 +247,7 @@ namespace anet {
         {
             TensorDict result;
             for (const auto& kv : dict_) {
-                result.Set(kv.first, kv.second.to(device, non_blocking));
+                result.Set(kv.first, anet::To(kv.second, device, non_blocking));
             }
             return result;
         }

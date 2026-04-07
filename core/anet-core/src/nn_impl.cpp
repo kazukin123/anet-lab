@@ -346,6 +346,8 @@ NetworkBoundaryPreprocessor::NetworkBoundaryPreprocessor(
 
 anet::TensorDict NetworkBoundaryPreprocessor::Format(const anet::TensorDict& raw_input) const
 {
+	anet::ProfileRange r("NetworkBoundaryPreprocessor::Format");
+
     anet::TensorDict formatted;
 
     for (const auto& kv : raw_input) {
@@ -374,26 +376,35 @@ anet::TensorDict NetworkBoundaryPreprocessor::Format(const anet::TensorDict& raw
             t = t.to(torch::kInt64);
             t = torch::one_hot(t, spec.num_classes).to(torch::kFloat32);
             auto new_dim = t.dim();
+            // Shapeの補正: PyTorchのone_hotは末尾に次元(クラス数)を足すので余計なサイズ1次元を補正
 
-            // Shapeの補正: PyTorchのone_hotは末尾に次元(クラス数)を足す
             if (spec.type == anet::SpaceType::Grid) {
-                if (new_dim == 5 && t.size(1) == 1) {
-                    // 入力 [B, 1, H, W] -> one_hot -> [B, 1, H, W, C]
-                    // 余分な次元1を消して [B, H, W, C] にし、[B, C, H, W] に並び替え
-                    t = t.squeeze(1).permute({ 0, 3, 1, 2 });
+                // 入力が [B, S, 1, H, W] -> one_hot -> [B, S, 1, H, W, C] (6次元: FrameStackあり)
+                if (new_dim == 6 && t.size(2) == 1) {
+                    t = t.squeeze(2); // [B, S, H, W, C] にする
+                    new_dim = 5;
+                }
+                // 入力が [B, 1, H, W] -> one_hot -> [B, 1, H, W, C] (5次元: FrameStackなし)
+                else if (new_dim == 5 && t.size(1) == 1) {
+                    t = t.squeeze(1); // [B, H, W, C] にする
+                    new_dim = 4;
+                }
+
+                // この時点で t は必ず [B, S, H, W, C] (5次元) または [B, H, W, C] (4次元) になる
+                if (new_dim == 5) {
+                    // FrameStackあり: CとSをまとめてConv2dに食わせるため [B, S*C, H, W] (4次元) に平坦化する
+                    t = t.permute({ 0, 1, 4, 2, 3 }); // -> [B, S, C, H, W]
+                    t = t.reshape({ t.size(0), t.size(1) * t.size(2), t.size(3), t.size(4) });
                 } else if (new_dim == 4) {
-                    // 入力 [B, H, W] -> one_hot -> [B, H, W, C]
-                    // 並び替えるだけで [B, C, H, W] になる
+                    // FrameStackなし: そのまま並び替え -> [B, C, H, W] (4次元)
                     t = t.permute({ 0, 3, 1, 2 });
                 }
             } else if (spec.type == anet::SpaceType::Vector) {
-                if (new_dim == 3 && t.size(1) == 1) {
-                    // 入力 [B, 1] -> one_hot -> [B, 1, C]
-                    // 余分な次元1を消して [B, C] にする
-                    t = t.squeeze(1);
-                } else if (new_dim == 2) {
-                    // 入力 [B] -> one_hot -> [B, C]
-                    // すでに期待するShapeなので何もしない
+                // Vectorの場合も念のためFrameStack(6次元/4次元)をケアしておく
+                if (new_dim == 4 && t.size(2) == 1) { // [B, S, 1] -> one_hot -> [B, S, 1, C]
+                    t = t.squeeze(2); // -> [B, S, C]
+                } else if (new_dim == 3 && t.size(1) == 1) { // [B, 1] -> one_hot -> [B, 1, C]
+                    t = t.squeeze(1); // -> [B, C]
                 }
             }
         } else {
@@ -825,6 +836,7 @@ std::shared_ptr<NetworkModuleFactory> NetworkModuleRepository::GetFactory(const 
 std::shared_ptr<Network> NetworkBuilder::BuildNetwork(
     const NetworkConfig& network_config, const anet::TensorSpecMap& input_specs, std::shared_ptr<NetworkHeadFactory> head_factory, std::optional<torch::Device> device)
 {
+	ANET_LOG_DEBUG("network_config=" << network_config.ToJson().dump());
     ANET_CHECK(head_factory != nullptr);
 
     // Body (DAG) の構築

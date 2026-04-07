@@ -228,7 +228,7 @@ std::string BatchEnvSpec::ToString() const
 
 // =============================================================
 
-torch::Tensor ToUnifiedObservation(const anet::TensorDict& obs, bool is_batched)
+torch::Tensor anet::rl::ToUnifiedObservation(const anet::TensorDict& obs, bool is_batched)
 {
     if (obs.empty()) return torch::Tensor();
 
@@ -617,16 +617,16 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
 
         return {
             .obs = obs.To(device, non_blocking),
-            .actions = actions.to(device, non_blocking),
-            .target_returns = target_returns.to(device, non_blocking),
+            .actions = anet::To(actions, device, non_blocking),
+            .target_returns = anet::To(target_returns, device, non_blocking),
             .next_state = {
                 .next_obs = next_state.next_obs.To(device, non_blocking),
-                .terminals = next_state.terminals.to(device, non_blocking),
-				.truncates = next_state.truncates.to(device, non_blocking),
+                .terminals = anet::To(next_state.terminals, device, non_blocking),
+				.truncates = anet::To(next_state.truncates, device, non_blocking),
             },
-            .n_steps = n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,
-            .indices = indices.to(device, non_blocking),
-            .is_weights = is_weights.defined() ? is_weights.to(device, non_blocking) : is_weights,
+            .n_steps = anet::To(n_steps, device, non_blocking),
+            .indices = anet::To(indices, device, non_blocking),
+            .is_weights = anet::To(is_weights, device, non_blocking),
 			.info = info.To(device, non_blocking)
         };
     }
@@ -653,10 +653,10 @@ std::string ExperienceSamples::ToString() const
 {
     std::ostringstream oss;
     oss << "ExperienceSamples{\n";
-    oss << "  obs     = " << obs.ToString() << "\n";
+    oss << "  obs = " << obs.ToString() << "\n";
     oss << "  action  = " << anet::ToString(actions) << "\n";
     oss << "  target_returns  = " << anet::ToString(target_returns) << "\n";
-    oss << "  next_state.next_obs      = " << next_state.next_obs.ToString() << "\n";
+    oss << "  next_state.next_obs = " << next_state.next_obs.ToString() << "\n";
     oss << "  next_state.terminals     = " << anet::ToString(next_state.terminals) << "\n";
     oss << "  next_state.truncates     = " << anet::ToString(next_state.truncates) << "\n";
     oss << "  n_steps                  = " << anet::ToString(n_steps) << "\n";
