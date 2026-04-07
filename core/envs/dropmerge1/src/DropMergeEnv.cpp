@@ -1068,7 +1068,7 @@ anet::rl::SingleState DropMergeEnv::makeState() const
             const float cell_y2 = cell_y1 + cell_h;
             const float closest_y = std::clamp(pos.y, cell_y1, cell_y2);
             const float dy_sq = (pos.y - closest_y) * (pos.y - closest_y);
-            const int row_offset = kNumScalarObsDim + (iy * config_.grid_cols);
+            const int row_offset = iy * config_.grid_cols;
 
             for (int ix = c_min; ix <= c_max; ++ix) {
                 const float cell_x1 = min_x + ix * cell_w;
@@ -1092,7 +1092,7 @@ anet::rl::SingleState DropMergeEnv::makeState() const
     if (draw_dropper) {
         int target_c = static_cast<int>((dropper_.x - min_x) / cell_w);
         target_c = std::clamp(target_c, 0, config_.grid_cols - 1);
-        const int target_idx = kNumScalarObsDim + ((config_.grid_rows - 1) * config_.grid_cols) + target_c;
+        const int target_idx = ((config_.grid_rows - 1) * config_.grid_cols) + target_c;
         grid_ptr[target_idx] = static_cast<int8_t>(kFruitTypeCount + 1);
     }
 
