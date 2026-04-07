@@ -67,8 +67,9 @@ anet::TensorDict DictFrameStacker::Stack(const anet::TensorDict& data, const tor
 
             // 履歴をインプレースでスライド (デバイス上の高速なメモリブロック転送)
             if (stack_count_ > 1) {
+                // メモリ領域の重複による例外を防ぐため、コピー元を clone() で独立させる
                 buffer.slice(1, 0, stack_count_ - 1)
-                    .copy_(buffer.slice(1, 1, stack_count_));
+                    .copy_(buffer.slice(1, 1, stack_count_).clone());
             }
 
             // 最新フレームを末尾に挿入
