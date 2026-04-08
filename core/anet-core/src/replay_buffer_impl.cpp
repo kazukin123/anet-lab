@@ -360,12 +360,33 @@ namespace {
     }
 
     // TensorDict 版のリングバッファスライス
-    anet::TensorDict RingSliceDict(const anet::TensorDict& dict, int64_t env_idx, int64_t logical_start, int64_t length, int64_t capacity, bool squeeze_time)
+    anet::TensorDict RingSliceDict(const anet::TensorDict& dict, int64_t env_idx, int64_t logical_start, int64_t length, int64_t capacity,
+        bool squeeze_time, const std::vector<std::string>& stack_keys = {})
     {
         anet::TensorDict res;
         if (dict.empty()) return res;
+
         for (const auto& kv : dict) {
-            res.Set(kv.first, RingSlice(kv.second, env_idx, logical_start, length, capacity, squeeze_time));
+            // stack_keys が指定されている場合、対象外のKeyは「最新の1フレームのみ」にする
+            bool is_stacked = true;
+            if (!stack_keys.empty()) {
+                auto it = std::find(stack_keys.begin(), stack_keys.end(), kv.first);
+                is_stacked = (it != stack_keys.end());
+            }
+
+            int64_t extract_start = logical_start;
+            int64_t extract_len = length;
+            bool do_squeeze = squeeze_time;
+
+            // Stack対象外なら、一番未来（末尾）の1フレームだけを切り出す
+            if (!is_stacked) {
+                extract_start = logical_start + length - 1;
+                extract_len = 1;
+                do_squeeze = true; // 1フレームなので時間軸次元を潰す
+            }
+
+            //res.Set(kv.first, RingSlice(kv.second, env_idx, logical_start, length, capacity, squeeze_time));
+            res.Set(kv.first, RingSlice(kv.second, env_idx, extract_start, extract_len, capacity, do_squeeze));
         }
         return res;
     }
@@ -404,6 +425,7 @@ public:
         , tree_(capacity)
         , alpha_(alpha)
         , max_prio_(initial_priority)
+        , initial_priority_(initial_priority)
         , gen_(rnd_->GetTorchGenerator(torch::kCPU))
         , opt_long_(torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU))
         , opt_float_(torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU))
@@ -475,8 +497,8 @@ public:
             float p = priorities[i];
 
             if (p < 0.0f) {
-                // 特殊フラグ (-1.0f): 新規データが必ず1回はサンプリングされるよう、現在の「最大優先度」を割り当てる
-                tree_.Update(indices[i], max_prio_);
+                // 特殊フラグ (-1.0f): 初期優先度を設定
+                tree_.Update(indices[i], initial_priority_);	/// @todo 暫定でV1同様に固定値
             } else if (p == 0.0f) {
                 // 特殊フラグ (0.0f): 上書きに伴う無効化
                 tree_.Update(indices[i], 0.0f);
@@ -497,6 +519,7 @@ private:
     const torch::TensorOptions opt_long_;
     const torch::TensorOptions opt_float_;
     float max_prio_;
+    float initial_priority_;
 };
 
 
@@ -506,6 +529,11 @@ private:
 
 class DefaultSampleExtractor : public ExperienceSampleExtractor {
 public:
+    explicit DefaultSampleExtractor(const std::vector<std::string>& stack_keys)
+        : stack_keys_(stack_keys)
+    {
+    }
+
     void ExtractSamples(ExperienceSamples& out, const ReplayExperienceStorage& storage, const IndexSampleResult& idx_result, int stack_count, int unroll_steps) const override
     {
 		anet::ProfileRange r("DefaultSampleExtractor::ExtractSamples");
@@ -548,12 +576,12 @@ public:
 
             // 過去方向 (Frame Stacking) のスライス抽出
             int64_t obs_start = time_idx - stack_count + 1;
-            batch_obs.push_back(RingSliceDict(storage.GetObs(), env_idx, obs_start, stack_count, cap, squeeze_stack));
+            batch_obs.push_back(RingSliceDict(storage.GetObs(), env_idx, obs_start, stack_count, cap, squeeze_stack, stack_keys_));
 
             // N-Step先 (NextState) のスライス抽出
             int64_t next_obs_end = time_idx + actual_n + 1;
             int64_t next_obs_start = next_obs_end - stack_count;
-            batch_next_obs.push_back(RingSliceDict(storage.GetObs(), env_idx, next_obs_start, stack_count, cap, squeeze_stack));
+            batch_next_obs.push_back(RingSliceDict(storage.GetObs(), env_idx, next_obs_start, stack_count, cap, squeeze_stack, stack_keys_));
         }
 
         // バッチスタック
@@ -573,6 +601,8 @@ public:
         out.indices = idx_result.indices;
         out.is_weights = idx_result.is_weights;
     }
+private:
+    std::vector<std::string> stack_keys_;
 };
 
 
@@ -749,7 +779,7 @@ std::shared_ptr<ReplayBuffer> anet::rl::CreateReplayBuffer(
         prio = per;
     }
 
-    auto extractor = std::make_shared<DefaultSampleExtractor>();
+    auto extractor = std::make_shared<DefaultSampleExtractor>(config.stack_keys);
 
     return std::make_shared<DefaultReplayBuffer>(
         config, env_spec, num_envs, std::move(queue_controller), std::move(builder), sampler, prio, extractor, storage_device, pin_memory);
