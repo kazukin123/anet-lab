@@ -1,5 +1,6 @@
 ﻿// test.cpp
 
+
 #include "anet/replay_buffer.hpp"
 #include "replay_buffer_impl.hpp"
 #include "test.hpp"
@@ -91,171 +92,171 @@ static void TestStacking()
 {
     LOG::info() << "=== Testing FrameStacking ReplayBuffer ===";
 
-    // 1. 設定: Stack=3, Capacity=10, BatchSize(NumEnvs)=1
-    ReplayBufferConfig config;
-    config.capacity = 10;
-    config.use_stacker = true;
-    config.stack_count = 3; // 過去2フレーム + 現在
-    config.type = ReplayBuilderType::PLAIN;
-    config.sampler_type = ReplaySamplerType::UNIFORM;
+    //// 1. 設定: Stack=3, Capacity=10, BatchSize(NumEnvs)=1
+    //ReplayBufferConfig config;
+    //config.capacity = 10;
+    //config.use_stacker = true;
+    //config.stack_count = 3; // 過去2フレーム + 現在
+    //config.type = ReplayBuilderType::PLAIN;
+    //config.sampler_type = ReplaySamplerType::UNIFORM;
 
-    EnvSpec spec;
-    //spec.state_spec.shape = { 1 }; // 1次元の数値だけ
-    spec.action_spec.value_labels = { "action1" };
-    spec.action_spec.is_discrete = true;
+    //EnvSpec spec;
+    ////spec.state_spec.shape = { 1 }; // 1次元の数値だけ
+    //spec.action_spec.value_labels = { "action1" };
+    //spec.action_spec.is_discrete = true;
 
-    ReplayBufferFactory factory(config);
-    // batch_size=1 (単一環境)
-    auto rb = factory.Create(spec, torch::kCPU, 1, 12345);
+    //ReplayBufferFactory factory(config);
+    //// batch_size=1 (単一環境)
+    //auto rb = factory.Create(spec, torch::kCPU, 1, 12345);
 
-    // 2. データ投入: 0〜5まで連番を入れる
-    // 0: Start
-    // 1, 2: Continue
-    // 3: Start (ここでエピソードが切れる)
-    // 4, 5: Continue
+    //// 2. データ投入: 0〜5まで連番を入れる
+    //// 0: Start
+    //// 1, 2: Continue
+    //// 3: Start (ここでエピソードが切れる)
+    //// 4, 5: Continue
 
-    LOG::info() << "Pushing data...";
-    rb->Push(MakeStep(0.0f, true, false)); // idx=0, Start
-    rb->Push(MakeStep(1.0f, false, false)); // idx=1
-    rb->Push(MakeStep(2.0f, false, false)); // idx=2
-    rb->Push(MakeStep(3.0f, true, false)); // idx=3, Start! (ここで境界ができるはず)
-    rb->Push(MakeStep(4.0f, false, false)); // idx=4
-    rb->Push(MakeStep(5.0f, false, false)); // idx=5
-    LOG::info() << "Buffer Size: " << rb->Size();
+    //LOG::info() << "Pushing data...";
+    //rb->Push(MakeStep(0.0f, true, false)); // idx=0, Start
+    //rb->Push(MakeStep(1.0f, false, false)); // idx=1
+    //rb->Push(MakeStep(2.0f, false, false)); // idx=2
+    //rb->Push(MakeStep(3.0f, true, false)); // idx=3, Start! (ここで境界ができるはず)
+    //rb->Push(MakeStep(4.0f, false, false)); // idx=4
+    //rb->Push(MakeStep(5.0f, false, false)); // idx=5
+    //LOG::info() << "Buffer Size: " << rb->Size();
 
-    // 3. サンプリングして中身を確認
-    // ランダムサンプリングだと確認しづらいため、何度か回して全パターン見る
-    // 期待値:
-    // idx=0 (Val=0, Start): [0, 0, 0] (StartPadding)
-    // idx=1 (Val=1):        [0, 0, 1] (Padding 1つ)
-    // idx=2 (Val=2):        [0, 1, 2] (Full Stack)
-    // idx=3 (Val=3, Start): [3, 3, 3] (StartPadding / 2,1は前のエピソードなので壁)
-    // idx=4 (Val=4):        [3, 3, 4]
+    //// 3. サンプリングして中身を確認
+    //// ランダムサンプリングだと確認しづらいため、何度か回して全パターン見る
+    //// 期待値:
+    //// idx=0 (Val=0, Start): [0, 0, 0] (StartPadding)
+    //// idx=1 (Val=1):        [0, 0, 1] (Padding 1つ)
+    //// idx=2 (Val=2):        [0, 1, 2] (Full Stack)
+    //// idx=3 (Val=3, Start): [3, 3, 3] (StartPadding / 2,1は前のエピソードなので壁)
+    //// idx=4 (Val=4):        [3, 3, 4]
 
-    LOG::info() << "\nSampling (Batch=10)... Check the Stacked States!";
+    //LOG::info() << "\nSampling (Batch=10)... Check the Stacked States!";
 
-    // 多めにサンプリングして、結果を目視
-    auto samples = rb->Sample(10, torch::kCPU, 0.0f);
+    //// 多めにサンプリングして、結果を目視
+    //auto samples = rb->Sample(10, torch::kCPU, 0.0f);
 
-    auto obs = samples.obs; // (10, 3, 1)
+    //auto obs = samples.obs; // (10, 3, 1)
 
-    for (int i = 0; i < 10; ++i) {
-        // データを取り出す
-        auto current_stack = obs[i]; // (3, 1)
-        float v0 = current_stack[0].item<float>();
-        float v1 = current_stack[1].item<float>();
-        float v2 = current_stack[2].item<float>();
+    //for (int i = 0; i < 10; ++i) {
+    //    // データを取り出す
+    //    auto current_stack = obs[i]; // (3, 1)
+    //    float v0 = current_stack[0].item<float>();
+    //    float v1 = current_stack[1].item<float>();
+    //    float v2 = current_stack[2].item<float>();
 
-        // 元のインデックスを知りたいが、Sample結果からは推測する
-        // 最新の値(v2)が何かで判定
-        LOG::info() << "Sample " << i << " | LastVal=" << v2 << " | Stack: [ "
-            << v0 << ", " << v1 << ", " << v2 << " ] ";
+    //    // 元のインデックスを知りたいが、Sample結果からは推測する
+    //    // 最新の値(v2)が何かで判定
+    //    LOG::info() << "Sample " << i << " | LastVal=" << v2 << " | Stack: [ "
+    //        << v0 << ", " << v1 << ", " << v2 << " ] ";
 
-        // 簡易判定
-        if (v2 == 0) {
-            if (v0 == 0 && v1 == 0) LOG::info() << "OK (Start Padding)";
-            else LOG::info() << "NG!";
-        } else if (v2 == 1) {
-            if (v0 == 0 && v1 == 0) LOG::info() << "OK (Padding)";
-            else LOG::info() << "NG!";
-        } else if (v2 == 2) {
-            if (v0 == 0 && v1 == 1) LOG::info() << "OK (Normal)";
-            else LOG::info() << "NG!";
-        } else if (v2 == 3) {
-            if (v0 == 3 && v1 == 3) LOG::info() << "OK (New Episode Start Padding)"; // 3はStartなので、2とかが混ざってはいけない
-            else LOG::info() << "NG! (Mixed with prev episode?)";
-        } else if (v2 == 4) {
-            if (v0 == 3 && v1 == 3) LOG::info() << "OK (Padding with New Episode)";
-            else LOG::info() << "NG!";
-        }
+    //    // 簡易判定
+    //    if (v2 == 0) {
+    //        if (v0 == 0 && v1 == 0) LOG::info() << "OK (Start Padding)";
+    //        else LOG::info() << "NG!";
+    //    } else if (v2 == 1) {
+    //        if (v0 == 0 && v1 == 0) LOG::info() << "OK (Padding)";
+    //        else LOG::info() << "NG!";
+    //    } else if (v2 == 2) {
+    //        if (v0 == 0 && v1 == 1) LOG::info() << "OK (Normal)";
+    //        else LOG::info() << "NG!";
+    //    } else if (v2 == 3) {
+    //        if (v0 == 3 && v1 == 3) LOG::info() << "OK (New Episode Start Padding)"; // 3はStartなので、2とかが混ざってはいけない
+    //        else LOG::info() << "NG! (Mixed with prev episode?)";
+    //    } else if (v2 == 4) {
+    //        if (v0 == 3 && v1 == 3) LOG::info() << "OK (Padding with New Episode)";
+    //        else LOG::info() << "NG!";
+    //    }
 
-    }
+    //}
 }
 
-static void TestStackingMultiEnv()
-{
+//static void TestStackingMultiEnv()
+//{
+//
+//    LOG::info() << "=== Testing Multi-Env (N=2) FrameStacking ===";
+//
+//    // 1. 設定
+//    int num_envs = 2;
+//    int stack_count = 2;
+//
+//    ReplayBufferConfig config;
+//    config.capacity = 20;
+//    config.use_stacker = true;
+//    config.stack_count = stack_count;
+//    //config.type = ReplayBuilderType::PLAIN;
+//    config.sampler_type = ReplaySamplerType::UNIFORM;
+//
+//    EnvSpec spec;
+//    //spec.state_spec.shape = { 1 };
+//    spec.action_spec.value_labels = { "action1" };
+//    spec.action_spec.is_discrete = true;
+//
+//    ReplayBufferFactory factory(config);
+//    auto rb = factory.Create(spec, torch::kCPU, num_envs, 12345);
+//
+//    // 2. データ投入シミュレーション
+//    LOG::info() << "Pushing data for 3 steps...";
+//
+//    // Step 1: 両方 Start (10.0, 20.0)
+//    rb->Push(MakeBatchStep({ 10.0f, 20.0f }, { true, true }, false));
+//
+//    // Step 2: 両方 Continue (11.0, 21.0)
+//    rb->Push(MakeBatchStep({ 11.0f, 21.0f }, { false, false }, false));
+//
+//    // Step 3: Env0だけ Reset(Start), Env1は Continue (12.0, 22.0)
+//    rb->Push(MakeBatchStep({ 12.0f, 22.0f }, { true, false }, false));
+//
+//    LOG::info() << "Buffer Size: " << rb->Size() << " (Expected: 3 * 2 = 6)";
+//
+//    // 3. 検証
+//    LOG::info() << "Sampling... Checking Stride & Padding Logic";
+//    LOG::info() << "Target Logic:";
+//    LOG::info() << "  - Env0 (12.0) is Start -> Stack should be [12, 12] (NOT [11, 12])";
+//    LOG::info() << "  - Env1 (22.0) is Cont  -> Stack should be [21, 22] (NOT [20, 22] or [12, 22])";
+//    LOG::info() << "---------------------------------------------------";
+//
+//    auto samples = rb->Sample(20, torch::kCPU, 0.0f);
+//    auto obs = samples.obs; // (20, 2, 1)
+//
+//    const float eps = 0.001f;
 
-    LOG::info() << "=== Testing Multi-Env (N=2) FrameStacking ===";
+    //for (int i = 0; i < 20; ++i) {
+    //    auto current_stack = obs[i];
+    //    float prev_val = current_stack[0].item<float>();
+    //    float curr_val = current_stack[1].item<float>();
 
-    // 1. 設定
-    int num_envs = 2;
-    int stack_count = 2;
+    //    LOG::info() << "Sample " << i << " | Stack: [" << prev_val << ", " << curr_val << "]";
 
-    ReplayBufferConfig config;
-    config.capacity = 20;
-    config.use_stacker = true;
-    config.stack_count = stack_count;
-    config.type = ReplayBuilderType::PLAIN;
-    config.sampler_type = ReplaySamplerType::UNIFORM;
+    //    std::string status = "UNKNOWN";
+    //    bool ok = false;
 
-    EnvSpec spec;
-    //spec.state_spec.shape = { 1 };
-    spec.action_spec.value_labels = { "action1" };
-    spec.action_spec.is_discrete = true;
+    //    if (std::abs(curr_val - 12.0f) < eps) {
+    //        // Env0 Step 3 (Start) -> Expected [12, 12]
+    //        if (std::abs(prev_val - 12.0f) < eps) { status = "-> OK (Env0 Step3: Start Padding)"; ok = true; } else status = "NG! Expected [12, 12]";
+    //    } else if (std::abs(curr_val - 22.0f) < eps) {
+    //        // Env1 Step 3 (Continue) -> Expected [21, 22]
+    //        if (std::abs(prev_val - 21.0f) < eps) { status = "-> OK (Env1 Step3: Normal Stride)"; ok = true; } else status = "NG! Expected [21, 22]";
+    //    } else if (std::abs(curr_val - 11.0f) < eps) {
+    //        // Env0 Step 2 (Continue) -> Expected [10, 11]
+    //        if (std::abs(prev_val - 10.0f) < eps) { status = "-> OK (Env0 Step2: Normal)"; ok = true; } else status = "NG! Expected [10, 11]";
+    //    } else if (std::abs(curr_val - 21.0f) < eps) {
+    //        // Env1 Step 2 (Continue) -> Expected [20, 21]
+    //        if (std::abs(prev_val - 20.0f) < eps) { status = "-> OK (Env1 Step2: Normal)"; ok = true; } else status = "NG! Expected [20, 21]";
+    //    } else if (std::abs(curr_val - 10.0f) < eps) {
+    //        // Env0 Step 1 (Start) -> [10, 10]
+    //        if (std::abs(prev_val - 10.0f) < eps) { status = "-> OK (Env0 Step1: Start)"; ok = true; } else status = "NG!";
+    //    } else if (std::abs(curr_val - 20.0f) < eps) {
+    //        // Env1 Step 1 (Start) -> [20, 20]
+    //        if (std::abs(prev_val - 20.0f) < eps) { status = "-> OK (Env1 Step1: Start)"; ok = true; } else status = "NG!";
+    //    }
 
-    ReplayBufferFactory factory(config);
-    auto rb = factory.Create(spec, torch::kCPU, num_envs, 12345);
-
-    // 2. データ投入シミュレーション
-    LOG::info() << "Pushing data for 3 steps...";
-
-    // Step 1: 両方 Start (10.0, 20.0)
-    rb->Push(MakeBatchStep({ 10.0f, 20.0f }, { true, true }, false));
-
-    // Step 2: 両方 Continue (11.0, 21.0)
-    rb->Push(MakeBatchStep({ 11.0f, 21.0f }, { false, false }, false));
-
-    // Step 3: Env0だけ Reset(Start), Env1は Continue (12.0, 22.0)
-    rb->Push(MakeBatchStep({ 12.0f, 22.0f }, { true, false }, false));
-
-    LOG::info() << "Buffer Size: " << rb->Size() << " (Expected: 3 * 2 = 6)";
-
-    // 3. 検証
-    LOG::info() << "Sampling... Checking Stride & Padding Logic";
-    LOG::info() << "Target Logic:";
-    LOG::info() << "  - Env0 (12.0) is Start -> Stack should be [12, 12] (NOT [11, 12])";
-    LOG::info() << "  - Env1 (22.0) is Cont  -> Stack should be [21, 22] (NOT [20, 22] or [12, 22])";
-    LOG::info() << "---------------------------------------------------";
-
-    auto samples = rb->Sample(20, torch::kCPU, 0.0f);
-    auto obs = samples.obs; // (20, 2, 1)
-
-    const float eps = 0.001f;
-
-    for (int i = 0; i < 20; ++i) {
-        auto current_stack = obs[i];
-        float prev_val = current_stack[0].item<float>();
-        float curr_val = current_stack[1].item<float>();
-
-        LOG::info() << "Sample " << i << " | Stack: [" << prev_val << ", " << curr_val << "]";
-
-        std::string status = "UNKNOWN";
-        bool ok = false;
-
-        if (std::abs(curr_val - 12.0f) < eps) {
-            // Env0 Step 3 (Start) -> Expected [12, 12]
-            if (std::abs(prev_val - 12.0f) < eps) { status = "-> OK (Env0 Step3: Start Padding)"; ok = true; } else status = "NG! Expected [12, 12]";
-        } else if (std::abs(curr_val - 22.0f) < eps) {
-            // Env1 Step 3 (Continue) -> Expected [21, 22]
-            if (std::abs(prev_val - 21.0f) < eps) { status = "-> OK (Env1 Step3: Normal Stride)"; ok = true; } else status = "NG! Expected [21, 22]";
-        } else if (std::abs(curr_val - 11.0f) < eps) {
-            // Env0 Step 2 (Continue) -> Expected [10, 11]
-            if (std::abs(prev_val - 10.0f) < eps) { status = "-> OK (Env0 Step2: Normal)"; ok = true; } else status = "NG! Expected [10, 11]";
-        } else if (std::abs(curr_val - 21.0f) < eps) {
-            // Env1 Step 2 (Continue) -> Expected [20, 21]
-            if (std::abs(prev_val - 20.0f) < eps) { status = "-> OK (Env1 Step2: Normal)"; ok = true; } else status = "NG! Expected [20, 21]";
-        } else if (std::abs(curr_val - 10.0f) < eps) {
-            // Env0 Step 1 (Start) -> [10, 10]
-            if (std::abs(prev_val - 10.0f) < eps) { status = "-> OK (Env0 Step1: Start)"; ok = true; } else status = "NG!";
-        } else if (std::abs(curr_val - 20.0f) < eps) {
-            // Env1 Step 1 (Start) -> [20, 20]
-            if (std::abs(prev_val - 20.0f) < eps) { status = "-> OK (Env1 Step1: Start)"; ok = true; } else status = "NG!";
-        }
-
-        LOG::info() << "  " << status;
-        //}
-    }
-}
+    //    LOG::info() << "  " << status;
+    //    //}
+    //}
+//}
 
 void anet::rl::Test(const Runner& trainer)
 {

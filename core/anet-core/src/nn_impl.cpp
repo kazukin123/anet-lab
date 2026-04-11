@@ -192,7 +192,7 @@ static std::map<std::string, NetworkBranchConfig> ReadBranchConfig(const anet::C
     for (auto& [b_name, branch_cfg] : branches) {    // 全ブランチでチェック
         if (!branch_cfg.auto_format) {
             for (const auto& k : branch_cfg.bind_keys) {
-                if (anet::Contains(branch_cfg.raw_keys, k)) {
+                if (!anet::Contains(branch_cfg.raw_keys, k)) {
                     branch_cfg.raw_keys.push_back(k);
                 }
             }
@@ -721,7 +721,7 @@ std::optional<anet::TensorDictFunction> Network::GetTensorDictFunction(const std
         anet::Autocast disable_amp(torch::kCUDA, false, torch::kFloat32);
 
         // 抽出された特徴量DictをHeadの関数に渡して結果を返す
-        return h_func(features);
+        return h_func(features.To(torch::kFloat32));
         };
 }
 

@@ -22,6 +22,7 @@ namespace anet::rl {
         float reward;           ///< 即時報酬
         bool done;              ///< エピソード終了フラグ
         bool truncated;         ///< タイムアップ等による打ち切りフラグ
+        bool is_dummy = false;  ///< Truncated時の終端計算用ダミーフラグ
     };
 
     /// 各環境(Env)ごとの未処理メタデータを一時保持するキュー
@@ -86,6 +87,8 @@ namespace anet::rl {
         torch::Tensor GetValidIndices1D(int stack_count, int unroll_steps) const;
 
         int64_t GetValidCount() const;
+
+        int64_t GetSampleableCount(int stack_count, int unroll_steps) const;
     private:
         int64_t num_envs_;
         int64_t capacity_per_env_;
@@ -109,6 +112,9 @@ namespace anet::rl {
 
         /// 終端到達時の「ダミーステップ」を書き込む（パラドックス回避用）
         void PushTerminalDummy(int64_t env_idx, const anet::TensorDict& terminal_obs);
+
+        ///  最新ステップの未初期化メモリ防止用先行書き込み
+        void EagerWriteNextObs(int64_t env_idx, int64_t next_time_idx, const anet::TensorDict& next_obs);
     public:
         // 読み取りインターフェース (Extractor用) 
         const anet::TensorDict& GetObs() const { return obs_storage_; }

@@ -102,12 +102,25 @@ public:
     ReplayExperience Build(const ExperienceSequence& sequence) const override
     {
         ReplayExperience exp{};
-        exp.actual_n_steps = static_cast<int>(sequence.size());
-        exp.terminal = sequence.back().done; // Truncated時はBootstrappingするため terminal=false 扱い
         exp.target_return = 0.0f;
+        exp.terminal = false;
+
+        int n = static_cast<int>(sequence.size());
+
+        // シーケンスの末尾がダミーなら、それは実データではないので長さに含めない
+        if (sequence.back().is_dummy) {
+            n -= 1;
+            // ダミー起因（＝元のステップがTruncated）なので、ブートストラップを継続(terminal=false)
+            exp.terminal = false;
+        } else {
+            // 本当のゲームオーバー
+            exp.terminal = sequence.back().done;
+        }
+
+        exp.actual_n_steps = n;
 
         // 割引報酬和の計算 (逆順)
-        for (int i = exp.actual_n_steps - 1; i >= 0; --i) {
+        for (int i = n - 1; i >= 0; --i) {
             exp.target_return = sequence[i].reward + gamma_ * exp.target_return;
         }
         return exp;
@@ -181,6 +194,21 @@ int64_t ValidIndexManager::GetValidCount() const
     int64_t total = 0;
     for (auto c : valid_cursors_) {
         total += std::min(c, capacity_per_env_);
+    }
+    return total;
+}
+
+int64_t ValidIndexManager::GetSampleableCount(int stack_count, int unroll_steps) const
+{
+    int64_t total = 0;
+    for (int64_t env = 0; env < num_envs_; ++env) {
+        int64_t valid_count = std::min(valid_cursors_[env], capacity_per_env_);
+
+        // 有効なデータ数から、過去マージン(stack_count - 1)と未来マージン(unroll_steps)を引く
+        int64_t sampleable = valid_count - unroll_steps - stack_count + 1;
+        if (sampleable > 0) {
+            total += sampleable;
+        }
     }
     return total;
 }
@@ -264,6 +292,17 @@ void ReplayExperienceStorage::PushTerminalDummy(int64_t env_idx, const anet::Ten
     target_returns_[env_idx][t] = 0.0f;
     terminals_[env_idx][t] = true;
     actual_n_steps_[env_idx][t] = 0;
+}
+
+void ReplayExperienceStorage::EagerWriteNextObs(int64_t env_idx, int64_t next_time_idx, const anet::TensorDict& next_obs)
+{
+    // 初回Push前（遅延アロケーション前）なら何もしない
+    if (obs_storage_.empty()) return;
+
+    for (const auto& kv : next_obs) {
+        // 次のステップのインデックスに、あらかじめ観測データをコピーしておく
+        obs_storage_.At(kv.first)[env_idx][next_time_idx].copy_(kv.second);
+    }
 }
 
 std::optional<float> ReplayExperienceStorage::GetScalar(const std::string& key, int64_t index) const
@@ -360,8 +399,10 @@ namespace {
     }
 
     // TensorDict 版のリングバッファスライス
-    anet::TensorDict RingSliceDict(const anet::TensorDict& dict, int64_t env_idx, int64_t logical_start, int64_t length, int64_t capacity,
-        bool squeeze_time, const std::vector<std::string>& stack_keys = {})
+    anet::TensorDict RingSliceDict(
+        const anet::TensorDict& dict, int64_t env_idx,
+        int64_t valid_start, int64_t valid_len, int64_t pad_len,
+        int64_t capacity, bool squeeze_time, const std::vector<std::string>& stack_keys)
     {
         anet::TensorDict res;
         if (dict.empty()) return res;
@@ -374,19 +415,30 @@ namespace {
                 is_stacked = (it != stack_keys.end());
             }
 
-            int64_t extract_start = logical_start;
-            int64_t extract_len = length;
-            bool do_squeeze = squeeze_time;
-
-            // Stack対象外なら、一番未来（末尾）の1フレームだけを切り出す
             if (!is_stacked) {
-                extract_start = logical_start + length - 1;
-                extract_len = 1;
-                do_squeeze = true; // 1フレームなので時間軸次元を潰す
-            }
+                // Stack対象外: パディングは関係なく、常に一番未来の1フレームだけを取得
+                int64_t latest_idx = valid_start + valid_len - 1;
+                res.Set(kv.first, RingSlice(kv.second, env_idx, latest_idx, 1, capacity, true));
+            } else {
+                // Stack対象: まず安全な区間（valid_len）だけをスライス
+                auto valid_tensor = RingSlice(kv.second, env_idx, valid_start, valid_len, capacity, false);
 
-            //res.Set(kv.first, RingSlice(kv.second, env_idx, logical_start, length, capacity, squeeze_time));
-            res.Set(kv.first, RingSlice(kv.second, env_idx, extract_start, extract_len, capacity, do_squeeze));
+                // パディングが必要な場合、最古のフレーム(インデックス0)を複製して結合
+                if (pad_len > 0) {
+                    auto first_frame = valid_tensor[0].unsqueeze(0); // [1, C, H, W]
+                    auto sizes = first_frame.sizes().vec();
+                    sizes[0] = pad_len;
+                    auto pad_tensor = first_frame.expand(sizes);     // [pad_len, C, H, W] (メモリ追加割当なしで高速)
+
+                    // 過去方向(パディング) ＋ 現在方向(Valid) の順で結合
+                    valid_tensor = torch::cat({ pad_tensor, valid_tensor }, /*dim=*/0);
+                }
+
+                if (squeeze_time && valid_tensor.size(0) == 1) {
+                    valid_tensor = valid_tensor.squeeze(0);
+                }
+                res.Set(kv.first, valid_tensor);
+            }
         }
         return res;
     }
@@ -403,15 +455,46 @@ public:
     {
     }
 
+#if 1
     IndexSampleResult SampleIndices(int64_t batch_size, const torch::Tensor& valid_indices_1d, float beta) override
     {
         int64_t valid_count = valid_indices_1d.size(0);
         auto rand_idx = torch::randint(0, valid_count, { batch_size }, gen_, opt_long_);
         auto indices = valid_indices_1d.index_select(0, rand_idx);
         auto ones = torch::ones({ batch_size }, opt_float_);
-
         return { indices, ones / valid_count, ones };
     }
+#else
+    // V1互換
+    IndexSampleResult SampleIndices(int64_t batch_size, const torch::Tensor& valid_indices_1d, float beta) override
+    {
+        int64_t valid_count = valid_indices_1d.size(0);
+
+        std::vector<int64_t> cpp_rand_idx(batch_size);
+        for (int64_t i = 0; i < batch_size; ++i) {
+            // V1と同じ乱数生成器を使用する。
+            // ※V1で storage_size から引いていたのと同じ挙動にするため、
+            //   ここでは valid_count を上限として引きます。
+            cpp_rand_idx[i] = rnd_->RandIndex(valid_count);
+        }
+
+        // 生成したC++の配列を torch::Tensor に変換 (メモリをコピーして独立させる)
+        auto rand_idx_tensor = torch::from_blob(
+            cpp_rand_idx.data(),
+            { batch_size },
+            torch::TensorOptions().dtype(torch::kInt64)
+        ).clone();
+
+        // デバイスを合わせる（もし valid_indices_1d がGPU上にある場合のため）
+        rand_idx_tensor = rand_idx_tensor.to(valid_indices_1d.device());
+
+        // テンソルを使って物理インデックスを抽出
+        auto indices = valid_indices_1d.index_select(0, rand_idx_tensor);
+
+        auto ones = torch::ones({ batch_size }, opt_float_);
+        return { indices, ones / valid_count, ones };
+    }
+#endif
 private:
     torch::Generator gen_;
     torch::TensorOptions opt_long_;
@@ -498,7 +581,12 @@ public:
 
             if (p < 0.0f) {
                 // 特殊フラグ (-1.0f): 初期優先度を設定
-                tree_.Update(indices[i], initial_priority_);	/// @todo 暫定でV1同様に固定値
+                if (initial_priority_ < 0.0f) {
+					tree_.Update(indices[i], max_prio_);    // 最大優先度で初期化
+                } else {
+                    float adjusted_p = (initial_priority_ == 1.0) ? 1.0 : std::pow(initial_priority_, alpha_);
+                    tree_.Update(indices[i], adjusted_p);	// 固定値で初期化
+                }
             } else if (p == 0.0f) {
                 // 特殊フラグ (0.0f): 上書きに伴う無効化
                 tree_.Update(indices[i], 0.0f);
@@ -529,14 +617,14 @@ private:
 
 class DefaultSampleExtractor : public ExperienceSampleExtractor {
 public:
-    explicit DefaultSampleExtractor(const std::vector<std::string>& stack_keys)
-        : stack_keys_(stack_keys)
+    explicit DefaultSampleExtractor(std::vector<std::string> stack_keys)
+        : stack_keys_(std::move(stack_keys))
     {
     }
 
     void ExtractSamples(ExperienceSamples& out, const ReplayExperienceStorage& storage, const IndexSampleResult& idx_result, int stack_count, int unroll_steps) const override
     {
-		anet::ProfileRange r("DefaultSampleExtractor::ExtractSamples");
+        anet::ProfileRange r("DefaultSampleExtractor::ExtractSamples");
 
         int64_t B = idx_result.indices.size(0);
         auto indices_acc = idx_result.indices.accessor<int64_t, 1>();
@@ -551,6 +639,9 @@ public:
         // テンソル構築用の配列
         std::vector<torch::Tensor> batch_actions, batch_returns, batch_terminals, batch_truncates, batch_actual_n;
         std::vector<anet::TensorDict> batch_obs, batch_next_obs, batch_info;
+
+        // 境界チェック用に terminals (done) フラグを一括取得
+        auto terminals_tensor = storage.GetTerminals();
 
         /// @todo [Performance] 現在はバッチサイズ(B)回数分のループで C++ 側からスライスと torch::stack を行っている。
         /// GPU上でストレージを持つ場合、Pythonの `tensor[batch_indices, time_indices]` のように
@@ -571,17 +662,43 @@ public:
 
             // MuZero用などの固有情報 (存在する場合のみ)
             if (!storage.GetInfo().empty()) {
-                batch_info.push_back(RingSliceDict(storage.GetInfo(), env_idx, time_idx, unroll_len, cap, squeeze_unroll));
+                batch_info.push_back(RingSliceDict(storage.GetInfo(), env_idx, time_idx, unroll_len, 0, cap, squeeze_unroll, {}));
             }
 
-            // 過去方向 (Frame Stacking) のスライス抽出
+            // 過去方向 (Frame Stacking) のスライス抽出と境界パディング
             int64_t obs_start = time_idx - stack_count + 1;
-            batch_obs.push_back(RingSliceDict(storage.GetObs(), env_idx, obs_start, stack_count, cap, squeeze_stack, stack_keys_));
+            int64_t obs_valid_start = obs_start;
+            for (int64_t k = time_idx - 1; k >= obs_start; --k) {
+                if (k < 0) {
+                    obs_valid_start = k + 1;
+                    break;
+                }
+                if (terminals_tensor[env_idx][k % cap].item<bool>()) {
+                    obs_valid_start = k + 1;
+                    break;
+                }
+            }
+            int64_t obs_valid_len = time_idx - obs_valid_start + 1;
+            int64_t obs_pad_len = stack_count - obs_valid_len;
+            batch_obs.push_back(RingSliceDict(storage.GetObs(), env_idx, obs_valid_start, obs_valid_len, obs_pad_len, cap, squeeze_stack, stack_keys_));
 
-            // N-Step先 (NextState) のスライス抽出
+            // N-Step先 (NextState) のスライス抽出と境界パディング
             int64_t next_obs_end = time_idx + actual_n + 1;
             int64_t next_obs_start = next_obs_end - stack_count;
-            batch_next_obs.push_back(RingSliceDict(storage.GetObs(), env_idx, next_obs_start, stack_count, cap, squeeze_stack, stack_keys_));
+            int64_t next_obs_valid_start = next_obs_start;
+            for (int64_t k = next_obs_end - 2; k >= next_obs_start; --k) {
+                if (k < 0) {
+                    next_obs_valid_start = k + 1;
+                    break;
+                }
+                if (terminals_tensor[env_idx][k % cap].item<bool>()) {
+                    next_obs_valid_start = k + 1;
+                    break;
+                }
+            }
+            int64_t next_obs_valid_len = next_obs_end - next_obs_valid_start;
+            int64_t next_obs_pad_len = stack_count - next_obs_valid_len;
+            batch_next_obs.push_back(RingSliceDict(storage.GetObs(), env_idx, next_obs_valid_start, next_obs_valid_len, next_obs_pad_len, cap, squeeze_stack, stack_keys_));
         }
 
         // バッチスタック
@@ -648,6 +765,11 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
         int64_t time_idx = storage_->Push(b, single_obs, batch.action->GetAction()[b], single_info);
         index_manager_->MarkWritten(b, time_idx);
 
+        // NextObsの先行書き込み:最新ステップが即サンプリングされた際の未来ゴミ参照を防止
+        int64_t next_idx = (time_idx + 1) % capacity_per_env_;
+        anet::TensorDict single_next_obs = batch.next_state.obs[b];
+        storage_->EagerWriteNextObs(b, next_idx, single_next_obs);
+
         // 上書きされたインデックスの優先度をゼロ(0.0f)にしてサンプリング対象から除外
         if (prio_controller_) {
             prio_controller_->UpdatePriorities({ b * capacity_per_env_ + time_idx }, { 0.0f });
@@ -663,12 +785,13 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
                 prio_controller_->UpdatePriorities({ b * capacity_per_env_ + time_idx + 1 }, { 0.0f });
             }
 
-            // ダミーステップもQueueに入れることでカーソルの永遠のズレを防止
+            // ダミーステップもQueueに入れることでカーソルのズレを防止
             QueueRecord dummy_rec;
             dummy_rec.time_idx = time_idx + 1;
             dummy_rec.reward = 0.0f;
             dummy_rec.done = true;
             dummy_rec.truncated = false;
+            dummy_rec.is_dummy = true;
             queues_[b].Push(dummy_rec);
         }
 
@@ -693,6 +816,12 @@ void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
     std::vector<float> init_prios;
 
     for (const auto& seq : sequences) {
+        // 念のため空チェック
+        if (seq.empty()) continue;
+
+        //ダミーステップ自身が起点(state)となっているシーケンスは登録せず破棄
+        if (seq[0].is_dummy) continue;
+
         // Builderで割引報酬和を計算
         ReplayExperience exp = builder_->Build(seq);
 
@@ -724,7 +853,8 @@ void DefaultReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibat
 
 int64_t DefaultReplayBuffer::Size() const
 {
-    return index_manager_->GetValidCount();
+    // 生のカウントではなく、Stack/Unrollを考慮して安全なサンプリング可能な数を返す
+    return index_manager_->GetSampleableCount(config_.stack_count, config_.muzero.unroll_steps);
 }
 
 void DefaultReplayBuffer::UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities)
