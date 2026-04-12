@@ -30,14 +30,14 @@ namespace anet::rl {
         float per_alpha = 0.5f;
         float per_initial_priority = 1.0f;
 
-        // Stackeing
+        // Stacking
         int stack_count = 1;                    ///< 過去方向へのスライス数 (Frame Stacking)
 		std::vector<std::string> stack_keys;    ///< Stacking対象のDictキー。空の場合は全てのキーをスタッキングする
 
 		// MuZero系
         struct {
             int unroll_steps = 0;                   // 未来方向へのスライス数 (MuZero Unroll 等)
-        } muzero;
+        } muzero;   /// @todo MuZeroのキーワードは排除して「未来方向」で一般化？
     };
 
 

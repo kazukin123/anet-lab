@@ -553,7 +553,7 @@ public:
 
             // Down-sample
             torch::Tensor residual = input;
-        if (downsample_conv_) { // 次元合わせが必要な場合の1x1Conv
+            if (downsample_conv_) { // 次元合わせが必要な場合の1x1Conv
                 residual = downsample_conv_->forward(residual);
                 if (norm_ds_) residual = norm_ds_->Forward(residual);
             }
