@@ -13,6 +13,43 @@ using namespace anet::rl;
 namespace LOG = anet::log;
 
 
+/* ==============================================================================
+ * [設計仕様] 時間軸の方向とエピソード境界処理のメカニズム
+ * ==============================================================================
+ *
+ * ■ 1. 時間軸の方向と役割
+ * ------------------------------------------------------------------------------
+ * - Frame Stacking : 【過去方向 (Past)】
+ * 　エージェントに「動き」や「速度」を認識させるため、現在から過去へ遡って観測(Obs)を重ねる。
+ * - N-Step Return  : 【未来方向 (Future)】
+ *  TD誤差（Target Q）をより正確に計算するため、現在から未来へ進んで得られた報酬を累積する。
+ * - Unroll Steps   : 【未来方向 (Future)】
+ * 役割: MuZero(RNN)等の系列学習のために、現在から未来へ向かって連続するステップを展開・抽出する。
+ *
+ *
+ * ■ 2. エピソード境界の処理仕様
+ * ------------------------------------------------------------------------------
+ * 【エピソード開始時 (t=0 付近)】 -> 過去(Stack)の不足
+ * - 症状: 過去のフレームが存在しないため、Stacking が物理的に不可能。
+ * - 解決: Extractor サンプリング時に「一番古い利用可能なフレーム（t=0等）」を
+ * 必要な回数だけ複製（コピーパディング）して補完する。
+ *
+ * 【エピソード終了時 (Done / Truncated)】 -> 未来(N-Step)の不足
+ * - 症状: 未来のステップが存在しないため、N-Step分の報酬累積や未来状態の取得が不可能。
+ * - 解決 (3段構え):
+ * 1. 早期精算 (Flush) : N歩先を待たずに、キューに残留している未確定ステップを強制Valid化する。
+ * 2. ダミーステップ   : 終了状態の「次」にダミーステップ(is_dummy=true)を挿入し、参照エラーを防ぐ。
+ * 3. 未来価値の遮断   : ダミーには terminals=true フラグを立てる。
+ * Target Q = Reward + γ^N * Q(Next) * (1.0 - terminals)
+ * の数式により、終端を越えた未来の価値(Q)を数学的に完全にゼロにする。
+ *
+ * ■ 3. サンプリング有効判定 (Valid 条件) の大原則
+ * ------------------------------------------------------------------------------
+ * - 条件: 「未来方向 (N-Step / Unroll) が確定した瞬間」に Valid とする。
+ * - 禁忌: 「過去方向 (Stacking) の物理的データが揃うまで待つ」というロジックは入れてはならない。
+ * （これをやると、エピソード開始直後の重要な数ステップの経験が永遠にサンプリングされず消失する）
+ * ============================================================================== */
+
 // ===========================================================================
 // Queue
 // ===========================================================================
@@ -156,27 +193,29 @@ torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_s
     std::vector<int64_t> valid_list;
     valid_list.reserve(num_envs_ * capacity_per_env_ / 2);
 
-    // ここで作成される valid_list は strictly monotonically increasing (厳密な昇順) となるため、
-    // 後述の PER での std::binary_search を用いた O(log N) 高速判定が保証される
     for (int64_t env = 0; env < num_envs_; ++env) {
         int64_t valid_count = std::min(valid_cursors_[env], capacity_per_env_);
-        int64_t write_head = valid_cursors_[env] % capacity_per_env_;
 
-        // バッファが1周していない場合
+        // N-Step (unroll_steps) さえ確定していれば、ステップ0からすべてサンプリング可能とする。
+        // 過去の不足フレームは Extractor 側がパディングで補ってくれるため安全。
+
         if (valid_cursors_[env] < capacity_per_env_) {
-            for (int64_t i = stack_count - 1; i <= valid_count - unroll_steps - 1; ++i) {
+            // バッファが1周していない場合
+            // 0 ～ (確定済みの最新 - 未来マージン) までを許可
+            for (int64_t i = 0; i <= valid_count - unroll_steps - 1; ++i) {
                 valid_list.push_back(env * capacity_per_env_ + i);
             }
-        }
+        } else {
+            // バッファが1周以上している場合（書き込みヘッド付近のみ未来マージンとしてInvalid）
+            int64_t write_head = valid_cursors_[env] % capacity_per_env_;
 
-        // バッファが1周以上している場合（書き込みヘッド付近が Invalid）
-        else {
             for (int64_t i = 0; i < capacity_per_env_; ++i) {
-                // カーソル位置(write_head)から、未来(unroll)と過去(stack)の禁止領域を計算
+                // カーソル位置(write_head)から見て、どれくらい「過去」にあるかを計算
                 int64_t dist_to_head = (write_head - i + capacity_per_env_) % capacity_per_env_;
 
-                // 未来(unroll)と過去(stack)の禁止領域を計算
-                if (dist_to_head >= unroll_steps && (capacity_per_env_ - dist_to_head) >= stack_count) {
+                // 最新の書き込みヘッドから unroll_steps 分だけ遡った領域は「未来未確定」なので禁止。
+                // それ以外の領域（dist_to_head >= unroll_steps）はすべて許可。
+                if (dist_to_head >= unroll_steps) {
                     valid_list.push_back(env * capacity_per_env_ + i);
                 }
             }
@@ -203,9 +242,7 @@ int64_t ValidIndexManager::GetSampleableCount(int stack_count, int unroll_steps)
     int64_t total = 0;
     for (int64_t env = 0; env < num_envs_; ++env) {
         int64_t valid_count = std::min(valid_cursors_[env], capacity_per_env_);
-
-        // 有効なデータ数から、過去マージン(stack_count - 1)と未来マージン(unroll_steps)を引く
-        int64_t sampleable = valid_count - unroll_steps - stack_count + 1;
+        int64_t sampleable = valid_count - unroll_steps;
         if (sampleable > 0) {
             total += sampleable;
         }
@@ -474,7 +511,7 @@ public:
         for (int64_t i = 0; i < batch_size; ++i) {
             // V1と同じ乱数生成器を使用する。
             // ※V1で storage_size から引いていたのと同じ挙動にするため、
-            //   ここでは valid_count を上限として引きます。
+            //   ここでは valid_count を上限として引く
             cpp_rand_idx[i] = rnd_->RandIndex(valid_count);
         }
 
@@ -576,6 +613,9 @@ public:
 
     void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override
     {
+        ANET_LOG_DEBUG("UpdatePriorities() indices=" << indices << " priorities=" << priorities);
+        //LOG::info() << "UpdatePriorities() indices=" << indices << " priorities=" << priorities;
+
         for (size_t i = 0; i < indices.size(); ++i) {
             float p = priorities[i];
 
