@@ -81,7 +81,13 @@ namespace anet::rl {
         void MarkWritten(int64_t env_idx, int64_t time_idx);
 
         /// N-Step等を経て「未来」が担保され、完全にサンプリング可能になったことを通知 (封印解除)
-        void MarkValid(int64_t env_idx, int64_t time_idx);
+        void MarkValid(int64_t env_idx);
+
+        /// ダミーデータが書き込まれた事を通知
+        void MarkDummy(int64_t env_idx, int64_t time_idx);
+
+		/// 書き込みカーソルを進める
+        void AdvanceWriteCursor(int64_t env_idx);
 
         /// Stack/Unroll 制約を考慮し、安全に引ける 1D インデックスのリストを返す
         torch::Tensor GetValidIndices1D(int stack_count, int unroll_steps) const;
@@ -93,6 +99,8 @@ namespace anet::rl {
         int64_t num_envs_;
         int64_t capacity_per_env_;
         std::vector<int64_t> valid_cursors_;
+        std::vector<int64_t> write_cursors_;
+        std::vector<bool> is_dummy_;
     };
 
 
@@ -113,8 +121,8 @@ namespace anet::rl {
         /// 終端到達時の「ダミーステップ」を書き込む（パラドックス回避用）
         void PushTerminalDummy(int64_t env_idx, const anet::TensorDict& terminal_obs);
 
-        ///  最新ステップの未初期化メモリ防止用先行書き込み
-        void EagerWriteNextObs(int64_t env_idx, int64_t next_time_idx, const anet::TensorDict& next_obs);
+		/// デバッグ用: Storageの内容をログに出力する
+        void DumpToLog() const;
     public:
         // 読み取りインターフェース (Extractor用) 
         const anet::TensorDict& GetObs() const { return obs_storage_; }
@@ -214,15 +222,15 @@ namespace anet::rl {
         void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const override;
         int64_t Size() const override;
         void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override;
-        //void UpdatePriorities(const torch::Tensor& indices, const torch::Tensor& priorities) override;
 
         std::optional<float> GetScalar(const std::string& key, int64_t index) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index) const override;
 
+		/// デバッグ用: Storageの内容とValid Indexをログに出力する
+        void DumpToLog() const;
     private:
         void ProcessQueue(int64_t env_idx); // 内部パイプラインの駆動
-
     private:
         ReplayBufferConfig config_;
         int64_t num_envs_;

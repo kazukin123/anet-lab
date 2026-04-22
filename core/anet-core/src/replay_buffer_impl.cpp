@@ -4,6 +4,7 @@
 #include <cmath>
 #include <algorithm>
 #include <vector>
+#include "anet/metrics_logger.hpp"
 #include "anet/tensor_check.hpp"
 #include "anet/profile.hpp"
 #include "anet/log.hpp"
@@ -175,56 +176,74 @@ ValidIndexManager::ValidIndexManager(int64_t num_envs, int64_t capacity_per_env)
     : num_envs_(num_envs), capacity_per_env_(capacity_per_env)
 {
     valid_cursors_.assign(num_envs, 0);
+    write_cursors_.assign(num_envs, 0);
+    is_dummy_.assign(num_envs * capacity_per_env, false);
 }
 
 void ValidIndexManager::MarkWritten(int64_t env_idx, int64_t time_idx)
 {
-    // 物理的な書き込みカーソルはStorageが管理するため、ここでは何もしない。
+    is_dummy_[env_idx * capacity_per_env_ + time_idx] = false;
 }
 
-void ValidIndexManager::MarkValid(int64_t env_idx, int64_t time_idx)
+void ValidIndexManager::MarkValid(int64_t env_idx)
 {
     // N-Step計算が完了し、サンプリング可能になった上限をインクリメント
     valid_cursors_[env_idx]++;
 }
 
+void ValidIndexManager::MarkDummy(int64_t env_idx, int64_t time_idx)
+{
+    is_dummy_[env_idx * capacity_per_env_ + time_idx] = true; 
+}
+
+void ValidIndexManager::AdvanceWriteCursor(int64_t env_idx)
+{
+    write_cursors_[env_idx]++;
+}
+
 torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_steps) const
 {
     std::vector<int64_t> valid_list;
-    valid_list.reserve(num_envs_ * capacity_per_env_ / 2);
+    valid_list.reserve(num_envs_ * capacity_per_env_);
 
     for (int64_t env = 0; env < num_envs_; ++env) {
-        int64_t valid_count = std::min(valid_cursors_[env], capacity_per_env_);
+        int64_t w_cursor = write_cursors_[env];
+        int64_t v_cursor = valid_cursors_[env];
 
-        // N-Step (unroll_steps) さえ確定していれば、ステップ0からすべてサンプリング可能とする。
-        // 過去の不足フレームは Extractor 側がパディングで補ってくれるため安全。
+        int64_t logical_start = std::max((int64_t)0, w_cursor - capacity_per_env_);
+        int64_t max_safe_by_write = std::max((int64_t)-1, w_cursor - 2);
+        int64_t max_safe_by_valid = v_cursor - 1 - unroll_steps;
 
-        if (valid_cursors_[env] < capacity_per_env_) {
-            // バッファが1周していない場合
-            // 0 ～ (確定済みの最新 - 未来マージン) までを許可
-            for (int64_t i = 0; i <= valid_count - unroll_steps - 1; ++i) {
-                valid_list.push_back(env * capacity_per_env_ + i);
-            }
-        } else {
-            // バッファが1周以上している場合（書き込みヘッド付近のみ未来マージンとしてInvalid）
-            int64_t write_head = valid_cursors_[env] % capacity_per_env_;
+        int64_t logical_end = std::min(max_safe_by_write, max_safe_by_valid);
 
-            for (int64_t i = 0; i < capacity_per_env_; ++i) {
-                // カーソル位置(write_head)から見て、どれくらい「過去」にあるかを計算
-                int64_t dist_to_head = (write_head - i + capacity_per_env_) % capacity_per_env_;
+        if (logical_end < logical_start) continue;
 
-                // 最新の書き込みヘッドから unroll_steps 分だけ遡った領域は「未来未確定」なので禁止。
-                // それ以外の領域（dist_to_head >= unroll_steps）はすべて許可。
-                if (dist_to_head >= unroll_steps) {
-                    valid_list.push_back(env * capacity_per_env_ + i);
+        // 論理インデックスから物理インデックスの範囲を計算
+        int64_t start_phys = logical_start % capacity_per_env_;
+        int64_t end_phys = logical_end % capacity_per_env_;
+
+        // ヘルパーラムダ: 指定した物理インデックス区間を追加
+        auto add_range = [&](int64_t p_start, int64_t p_end) {
+            for (int64_t p = p_start; p <= p_end; ++p) {
+                if (!is_dummy_[env * capacity_per_env_ + p]) {
+                    valid_list.push_back(env * capacity_per_env_ + p);
                 }
             }
+            };
+
+        // 物理インデックスが常に昇順（ソート済み）になる順番で追加する
+        if (start_phys <= end_phys) {
+            // パターン1: 折り返しなし (例: 1, 2, 3, 4)
+            add_range(start_phys, end_phys);
+        } else {
+            // パターン2: 折り返しあり (例: 8, 9, 0, 1, 2)
+            // 昇順にするため、[0〜2] を先に追加し、その後で [8〜9] を追加する
+            add_range(0, end_phys);
+            add_range(start_phys, capacity_per_env_ - 1);
         }
     }
 
-    if (valid_list.empty()) {
-        return torch::empty({ 0 }, torch::kInt64);
-    }
+    if (valid_list.empty()) return torch::empty({ 0 }, torch::kInt64);
     return torch::tensor(valid_list, torch::kInt64);
 }
 
@@ -241,10 +260,16 @@ int64_t ValidIndexManager::GetSampleableCount(int stack_count, int unroll_steps)
 {
     int64_t total = 0;
     for (int64_t env = 0; env < num_envs_; ++env) {
-        int64_t valid_count = std::min(valid_cursors_[env], capacity_per_env_);
-        int64_t sampleable = valid_count - unroll_steps;
-        if (sampleable > 0) {
-            total += sampleable;
+        int64_t w_cursor = write_cursors_[env];
+        int64_t v_cursor = valid_cursors_[env];
+
+        int64_t logical_start = std::max((int64_t)0, w_cursor - capacity_per_env_);
+        int64_t max_safe_by_write = std::max((int64_t)-1, w_cursor - 2);
+        int64_t max_safe_by_valid = v_cursor - 1 - unroll_steps;
+        int64_t logical_end = std::min(max_safe_by_write, max_safe_by_valid);
+
+        if (logical_end >= logical_start) {
+            total += (logical_end - logical_start + 1);
         }
     }
     return total;
@@ -331,17 +356,6 @@ void ReplayExperienceStorage::PushTerminalDummy(int64_t env_idx, const anet::Ten
     actual_n_steps_[env_idx][t] = 0;
 }
 
-void ReplayExperienceStorage::EagerWriteNextObs(int64_t env_idx, int64_t next_time_idx, const anet::TensorDict& next_obs)
-{
-    // 初回Push前（遅延アロケーション前）なら何もしない
-    if (obs_storage_.empty()) return;
-
-    for (const auto& kv : next_obs) {
-        // 次のステップのインデックスに、あらかじめ観測データをコピーしておく
-        obs_storage_.At(kv.first)[env_idx][next_time_idx].copy_(kv.second);
-    }
-}
-
 std::optional<float> ReplayExperienceStorage::GetScalar(const std::string& key, int64_t index) const
 {
     return std::nullopt;
@@ -355,6 +369,39 @@ std::optional<torch::Tensor> ReplayExperienceStorage::GetTensor(const std::strin
 std::optional<std::vector<torch::Tensor>> ReplayExperienceStorage::GetTensorVector(const std::string& key, int64_t index) const
 {
     return std::nullopt;
+}
+
+void ReplayExperienceStorage::DumpToLog() const
+{
+    LOG::info() << "=== ReplayExperienceStorage Dump ===";
+    for (int64_t e = 0; e < num_envs_; ++e) {
+        LOG::info() << "Env " << e << " WriteCursor=" << write_cursors_[e];
+        for (int64_t t = 0; t < capacity_per_env_; ++t) {
+            float ret = target_returns_[e][t].item<float>();
+            bool term = terminals_[e][t].item<bool>();
+            bool trunc = truncates_[e][t].item<bool>();
+            int64_t n = actual_n_steps_[e][t].item<int64_t>();
+
+            std::string obs_str = "";
+            for (const auto& kv : obs_storage_) {
+                float val = -999.0f; // 未初期化時のダミー
+                if (kv.second.numel() > 0) {
+                    val = kv.second[e][t].contiguous().view({ -1 })[0].item<float>();
+                }
+                obs_str += kv.first + ":" + std::to_string(val) + " ";
+            }
+            std::string act_str;
+            if (actions_[e][t].dim() == 0)
+                act_str = std::to_string(actions_[e][t].item<float>());
+            else
+                anet::ToString(actions_[e][t]);
+
+            LOG::info() << "  [idx=" << t << "] ret=" << ret
+                << " term=" << term << " trunc=" << trunc << " n_steps=" << n
+                << " obs={" << obs_str << "}" 
+                << " act={" << act_str << "}";
+        }
+    }
 }
 
 
@@ -499,13 +546,37 @@ public:
         auto rand_idx = torch::randint(0, valid_count, { batch_size }, gen_, opt_long_);
         auto indices = valid_indices_1d.index_select(0, rand_idx);
         auto ones = torch::ones({ batch_size }, opt_float_);
+
+#if 0
+        {
+            // デバッグ用メトリクス計算
+            torch::NoGradGuard no_grad; // 勾配計算から切り離す
+
+            auto sorted_indices = std::get<0>(torch::sort(indices));
+            auto unique_indices = std::get<0>(torch::unique_consecutive(sorted_indices));
+            float unique_count = static_cast<float>(unique_indices.size(0));
+            float unique_ratio = unique_count / static_cast<float>(batch_size);
+
+            float std_val = indices.to(torch::kFloat32).std().item<float>();
+            float std_norm = std_val / static_cast<float>(valid_count);
+
+            static step_t log_step = 0;
+            anet::MetricsLogger::Instance()->LogScalar("99_debug/rb_unique_ratio", log_step, unique_ratio);
+            anet::MetricsLogger::Instance()->LogScalar("99_debug/rb_std_norm", log_step, std_norm);
+            log_step++;
+
+        }
+#endif
+
         return { indices, ones / valid_count, ones };
     }
 #else
     // V1互換
-    IndexSampleResult SampleIndices(int64_t batch_size, const torch::Tensor& valid_indices_1d, float beta) override
+    IndexSampleResult SampleIndices(int64_t batch_size, const torch::Tensor& valid_indices_1d_2, float beta) override
     {
-        int64_t valid_count = valid_indices_1d.size(0);
+        auto shuffled_valid_indices = valid_indices_1d_2.index_select(0, torch::randperm(valid_indices_1d_2.size(0), opt_long_));
+
+        int64_t valid_count = shuffled_valid_indices.size(0);
 
         std::vector<int64_t> cpp_rand_idx(batch_size);
         for (int64_t i = 0; i < batch_size; ++i) {
@@ -517,18 +588,35 @@ public:
 
         // 生成したC++の配列を torch::Tensor に変換 (メモリをコピーして独立させる)
         auto rand_idx_tensor = torch::from_blob(
-            cpp_rand_idx.data(),
-            { batch_size },
-            torch::TensorOptions().dtype(torch::kInt64)
+            cpp_rand_idx.data(), { batch_size }, torch::TensorOptions().dtype(torch::kInt64)
         ).clone();
 
-        // デバイスを合わせる（もし valid_indices_1d がGPU上にある場合のため）
-        rand_idx_tensor = rand_idx_tensor.to(valid_indices_1d.device());
+        // デバイスを合わせる（valid_indices_1d がGPU上にある場合のため）
+        rand_idx_tensor = rand_idx_tensor.to(shuffled_valid_indices.device());
 
         // テンソルを使って物理インデックスを抽出
-        auto indices = valid_indices_1d.index_select(0, rand_idx_tensor);
-
+        auto indices = shuffled_valid_indices.index_select(0, rand_idx_tensor);
         auto ones = torch::ones({ batch_size }, opt_float_);
+
+        {
+            // デバッグ用メトリクス計算
+            torch::NoGradGuard no_grad; // 勾配計算から切り離す
+
+            auto sorted_indices = std::get<0>(torch::sort(indices));
+            auto unique_indices = std::get<0>(torch::unique_consecutive(sorted_indices));
+            float unique_count = static_cast<float>(unique_indices.size(0));
+            float unique_ratio = unique_count / static_cast<float>(batch_size);
+
+            float std_val = indices.to(torch::kFloat32).std().item<float>();
+            float std_norm = std_val / static_cast<float>(valid_count);
+
+			static step_t log_step = 0;
+            anet::MetricsLogger::Instance()->LogScalar("99_debug/rb_unique_ratio", log_step, unique_ratio);
+			anet::MetricsLogger::Instance()->LogScalar("99_debug/rb_std_norm", log_step, std_norm);
+            log_step++;
+
+        }
+
         return { indices, ones / valid_count, ones };
     }
 #endif
@@ -552,6 +640,7 @@ public:
     {
     }
 
+#if 1
     IndexSampleResult SampleIndices(int64_t batch_size, const torch::Tensor& valid_indices_1d, float beta) override
     {
         int64_t valid_count = valid_indices_1d.size(0);
@@ -610,6 +699,69 @@ public:
 
         return { indices_t, probs_t, weights_t };
     }
+#else
+    // V1互換
+    IndexSampleResult SampleIndices(int64_t batch_size, const torch::Tensor& valid_indices_1d, float beta) override
+    {
+        int64_t valid_count = valid_indices_1d.size(0);
+        const int64_t* valid_ptr = valid_indices_1d.data_ptr<int64_t>();
+
+        std::vector<int64_t> sampled_indices(batch_size);
+        std::vector<float> sampled_probs(batch_size);
+        std::vector<float> sampled_weights(batch_size);
+
+        float total_prio = tree_.GetTotalPriority();
+
+        int64_t b = 0;
+        int max_attempts = batch_size * 10;
+        int attempts = 0;
+
+        // valid_indices_1d は昇順ソートが保証されているため、std::binary_search による O(1)~O(log V) 判定が可能
+        while (b < batch_size && attempts < max_attempts) {
+            attempts++;
+            float r = rnd_->Uniform(0.0f, total_prio);
+
+            int64_t idx = tree_.Retrieve(r);
+
+            bool is_valid = std::binary_search(valid_ptr, valid_ptr + valid_count, idx);
+            if (is_valid) {
+                float p = tree_.GetPriority(idx);
+                if (p <= 0.0f) continue; // 安全装置
+
+                sampled_indices[b] = idx;
+                float prob = p / total_prio;
+                sampled_probs[b] = prob;
+
+                float weight = std::pow(valid_count * prob, -beta);
+                sampled_weights[b] = weight;
+                b++;
+            }
+        }
+
+        // フェイルセーフ（滅多に起きないが、ツリーが空に近い極初期など）
+        if (b < batch_size) {
+            LOG::warn() << "PER Rejection Sampling failed to fill batch. Falling back to uniform.";
+            for (int64_t i = 0; i < batch_size - b; ++i) {
+                // ★ フェイルセーフ側もV1互換のRNGに統一
+                int64_t rand_valid_idx = rnd_->RandIndex(valid_count);
+                int64_t idx = valid_ptr[rand_valid_idx];
+
+                sampled_indices[b + i] = idx;
+                sampled_probs[b + i] = 1.0f / valid_count;
+                sampled_weights[b + i] = 1.0f;
+            }
+        }
+
+        auto idx_device = valid_indices_1d.device();
+        auto indices_t = torch::tensor(sampled_indices, opt_long_).to(idx_device);
+        auto probs_t = torch::tensor(sampled_probs, opt_float_).to(idx_device);
+        auto weights_t = torch::tensor(sampled_weights, opt_float_).to(idx_device);
+
+        weights_t /= weights_t.max(); // 正規化
+
+        return { indices_t, probs_t, weights_t };
+    }
+#endif
 
     void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override
     {
@@ -709,11 +861,8 @@ public:
             int64_t obs_start = time_idx - stack_count + 1;
             int64_t obs_valid_start = obs_start;
             for (int64_t k = time_idx - 1; k >= obs_start; --k) {
-                if (k < 0) {
-                    obs_valid_start = k + 1;
-                    break;
-                }
-                if (terminals_tensor[env_idx][k % cap].item<bool>()) {
+                int64_t phys_k = (k % cap + cap) % cap; // 負数を安全にリングバッファの末尾に折り返す
+                if (terminals_tensor[env_idx][phys_k].item<bool>()) {
                     obs_valid_start = k + 1;
                     break;
                 }
@@ -722,16 +871,14 @@ public:
             int64_t obs_pad_len = stack_count - obs_valid_len;
             batch_obs.push_back(RingSliceDict(storage.GetObs(), env_idx, obs_valid_start, obs_valid_len, obs_pad_len, cap, squeeze_stack, stack_keys_));
 
+#if 1
             // N-Step先 (NextState) のスライス抽出と境界パディング
             int64_t next_obs_end = time_idx + actual_n + 1;
             int64_t next_obs_start = next_obs_end - stack_count;
             int64_t next_obs_valid_start = next_obs_start;
             for (int64_t k = next_obs_end - 2; k >= next_obs_start; --k) {
-                if (k < 0) {
-                    next_obs_valid_start = k + 1;
-                    break;
-                }
-                if (terminals_tensor[env_idx][k % cap].item<bool>()) {
+                int64_t phys_k = (k % cap + cap) % cap; // 負数を安全にリングバッファの末尾に折り返す
+                if (terminals_tensor[env_idx][phys_k].item<bool>()) {
                     next_obs_valid_start = k + 1;
                     break;
                 }
@@ -739,6 +886,79 @@ public:
             int64_t next_obs_valid_len = next_obs_end - next_obs_valid_start;
             int64_t next_obs_pad_len = stack_count - next_obs_valid_len;
             batch_next_obs.push_back(RingSliceDict(storage.GetObs(), env_idx, next_obs_valid_start, next_obs_valid_len, next_obs_pad_len, cap, squeeze_stack, stack_keys_));
+#else
+            // -------------------------------------------------------------------------
+            // N-Step先 (NextState) のスライス抽出と境界パディング (★V1バグ再現パッチ 修正版)
+            // -------------------------------------------------------------------------
+
+            // 本来の next_obs の最新フレーム
+            int64_t next_obs_end = time_idx + actual_n + 1;
+
+            // ★ V1バグの再現: 
+            // V1は obs の抽出インデックスをそのまま next_obs のバッファ(next_states_)適用していた。
+            // つまり、抽出の開始位置(過去)は obs と全く同じになり、
+            // 抽出の終了位置(最新)も「1つ未来」ではなく「現在(obsと同じ)」になっていた。
+            // それを再現するため、開始位置を obs と同じにする。
+            int64_t bugged_start = time_idx - stack_count + 1;
+            int64_t bugged_valid_start = bugged_start;
+
+            for (int64_t k = time_idx - 1; k >= bugged_start; --k) {
+                if (k < 0) {
+                    bugged_valid_start = k + 1;
+                    break;
+                }
+                if (terminals_tensor[env_idx][k % cap].item<bool>()) {
+                    bugged_valid_start = k + 1;
+                    break;
+                }
+            }
+
+            // V1の抽出長は obs と同じ (= obs_valid_len)
+            int64_t bugged_valid_len = time_idx - bugged_valid_start + 1;
+
+            // ただし、一番最後（最新フレーム）だけは「Nextの画像」に差し替えるのが
+            // 強化学習の基本であり、V1でも末尾の結合等で実現されていた挙動。
+            // これをV2のDict構造で安全に再現するため、
+            // 1. まず [t-3, t-2, t-1] (過去3フレーム) を RingSliceDict で取る
+            // 2. 次に [t_next] (最新1フレーム) を RingSliceDict で取る
+            // 3. それらを concat する
+            // という手順を踏む。
+
+            // 1. 過去部分の抽出 (長さは stack_count - 1 になるように調整)
+            int64_t past_pad_len = stack_count - 1 - bugged_valid_len;
+            if (past_pad_len < 0) {
+                // パディング不要な場合（通常時）は、先頭を1つ削る
+                bugged_valid_start += 1;
+                bugged_valid_len -= 1;
+                past_pad_len = 0;
+            }
+
+            auto past_dict = RingSliceDict(storage.GetObs(), env_idx, bugged_valid_start, bugged_valid_len, past_pad_len, cap, false, stack_keys_);
+
+            // 2. 最新部分の抽出 (NextObs)
+            auto latest_dict = RingSliceDict(storage.GetObs(), env_idx, next_obs_end - 1, 1, 0, cap, false, stack_keys_);
+
+            // 3. 結合してバッチに追加
+            anet::TensorDict bugged_next_obs_dict;
+            for (const auto& kv : past_dict) {
+                auto past_tensor = kv.second;
+                auto latest_tensor = latest_dict.At(kv.first);
+
+                // Stack対象のキー（またはGridMazeのような全てStack）の場合のみ結合
+                if (past_tensor.dim() >= 2 && latest_tensor.dim() >= 2) {
+                    auto combined = torch::cat({ past_tensor, latest_tensor }, 0);
+                    if (squeeze_stack && combined.size(0) == 1) {
+                        combined = combined.squeeze(0);
+                    }
+                    bugged_next_obs_dict.Set(kv.first, combined);
+                } else {
+                    bugged_next_obs_dict.Set(kv.first, latest_tensor); // Stack非対象は最新のみ
+                }
+            }
+
+            batch_next_obs.push_back(bugged_next_obs_dict);
+            // -------------------------------------------------------------------------
+#endif
         }
 
         // バッチスタック
@@ -798,44 +1018,19 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
     for (int64_t b = 0; b < num_envs_; ++b) {
         // Step 1: Storage に重いデータを即時 Push (重複排除)
 
-        // TensorDict に追加した operator[]() を使って単一バッチ要素のDictを構築
+        // 単一バッチ要素のDictを構築
         anet::TensorDict single_obs = batch.state.obs[b];
         anet::TensorDict single_info = action_info.empty() ? anet::TensorDict() : action_info[b];
 
         int64_t time_idx = storage_->Push(b, single_obs, batch.action->GetAction()[b], single_info);
         index_manager_->MarkWritten(b, time_idx);
+        index_manager_->AdvanceWriteCursor(b); // カーソルを進める
 
-        // NextObsの先行書き込み:最新ステップが即サンプリングされた際の未来ゴミ参照を防止
-        int64_t next_idx = (time_idx + 1) % capacity_per_env_;
-        anet::TensorDict single_next_obs = batch.next_state.obs[b];
-        storage_->EagerWriteNextObs(b, next_idx, single_next_obs);
-
-        // 上書きされたインデックスの優先度をゼロ(0.0f)にしてサンプリング対象から除外
         if (prio_controller_) {
             prio_controller_->UpdatePriorities({ b * capacity_per_env_ + time_idx }, { 0.0f });
         }
 
-        // Truncatedのパラドックス対策 (ダミーステップの挿入)
-        if (batch.next_state.truncated[b].item<bool>()) {
-            anet::TensorDict terminal_obs = batch.next_state.obs[b];
-            storage_->PushTerminalDummy(b, terminal_obs);
-            index_manager_->MarkWritten(b, time_idx + 1);
-
-            if (prio_controller_) {
-                prio_controller_->UpdatePriorities({ b * capacity_per_env_ + time_idx + 1 }, { 0.0f });
-            }
-
-            // ダミーステップもQueueに入れることでカーソルのズレを防止
-            QueueRecord dummy_rec;
-            dummy_rec.time_idx = time_idx + 1;
-            dummy_rec.reward = 0.0f;
-            dummy_rec.done = true;
-            dummy_rec.truncated = false;
-            dummy_rec.is_dummy = true;
-            queues_[b].Push(dummy_rec);
-        }
-
-        // Step 2: Queue に軽量メタデータを Push
+        // 正常なステップを先に Queue に入れる (タイムトラベル防止)
         QueueRecord rec;
         rec.time_idx = time_idx;
         rec.reward = batch.reward[b].item<float>();
@@ -843,7 +1038,28 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
         rec.truncated = batch.next_state.truncated[b].item<bool>();
         queues_[b].Push(rec);
 
-        // Step 3: N-Step計算 と Valid 化の駆動
+        // Truncatedのパラドックス対策 (ダミーステップの挿入)
+        if (batch.next_state.truncated[b].item<bool>()) {
+            anet::TensorDict terminal_obs = batch.next_state.obs[b];
+            storage_->PushTerminalDummy(b, terminal_obs);
+
+            int64_t dummy_idx = (time_idx + 1) % capacity_per_env_;
+            index_manager_->MarkDummy(b, dummy_idx);
+            index_manager_->AdvanceWriteCursor(b); // ダミー書き込み分もカーソルを進める
+
+            if (prio_controller_) {
+                prio_controller_->UpdatePriorities({ b * capacity_per_env_ + dummy_idx }, { 0.0f });
+            }
+
+            QueueRecord dummy_rec;
+            dummy_rec.time_idx = dummy_idx;
+            dummy_rec.reward = 0.0f;
+            dummy_rec.done = true;
+            dummy_rec.truncated = false;
+            dummy_rec.is_dummy = true;
+            queues_[b].Push(dummy_rec);
+        }
+
         ProcessQueue(b);
     }
 }
@@ -859,8 +1075,11 @@ void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
         // 念のため空チェック
         if (seq.empty()) continue;
 
-        //ダミーステップ自身が起点(state)となっているシーケンスは登録せず破棄
-        if (seq[0].is_dummy) continue;
+        //ダミーステップ自身が起点(state)となっているシーケンスはStorageに登録しない
+        if (seq[0].is_dummy) {
+            index_manager_->MarkValid(env_idx);
+            continue;
+        }
 
         // Builderで割引報酬和を計算
         ReplayExperience exp = builder_->Build(seq);
@@ -870,7 +1089,7 @@ void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
         storage_->Update(env_idx, time_idx, exp);
 
         // 完全にサンプリング可能になったので封印解除
-        index_manager_->MarkValid(env_idx, time_idx);
+        index_manager_->MarkValid(env_idx);
 
         newly_valid.push_back(env_idx * capacity_per_env_ + time_idx);
         init_prios.push_back(-1.0f); // 初期優先度を割り当てるための特殊フラグ
@@ -919,6 +1138,28 @@ std::optional<std::vector<torch::Tensor>> DefaultReplayBuffer::GetTensorVector(c
     return std::nullopt;
 }
 
+void DefaultReplayBuffer::DumpToLog() const
+{
+    if (storage_) {
+        storage_->DumpToLog();
+    }
+    auto valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps);
+
+    // Valid Index を見やすく出力
+    std::string valid_str = "[ ";
+    if (valid_1d.numel() > 0) {
+        auto acc = valid_1d.accessor<int64_t, 1>();
+        for (int64_t i = 0; i < valid_1d.size(0); ++i) {
+            valid_str += std::to_string(acc[i]) + " ";
+        }
+    }
+    valid_str += "]";
+
+    LOG::info() << "=== Valid Indices (1D) ===";
+    LOG::info() << valid_str;
+    LOG::info() << "Total Valid Count: " << valid_1d.size(0);
+}
+
 
 // ===========================================================================
 // Factory
@@ -954,3 +1195,4 @@ std::shared_ptr<ReplayBuffer> anet::rl::CreateReplayBuffer(
     return std::make_shared<DefaultReplayBuffer>(
         config, env_spec, num_envs, std::move(queue_controller), std::move(builder), sampler, prio, extractor, storage_device, pin_memory);
 }
+
