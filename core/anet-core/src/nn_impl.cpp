@@ -292,6 +292,7 @@ torch::Tensor NetworkBlock::Forward(torch::Tensor input)
     return module_->Forward(input);
 }
 
+
 // ===========================================================================
 // NetworkStruct (Execution Engine)
 // ===========================================================================
@@ -409,7 +410,7 @@ anet::TensorDict NetworkBoundaryPreprocessor::Format(const anet::TensorDict& raw
             }
         } else {
             // 連続値の正規化・キャスト
-            if (t.scalar_type() == torch::kByte) { // uint8
+            if (t.scalar_type() == torch::kByte || t.scalar_type() == torch::kInt8 || t.scalar_type() == torch::kUInt8) {
                 t = t.to(torch::kFloat32) / 255.0f;
             } else if (t.scalar_type() != torch::kFloat32) {
                 t = t.to(torch::kFloat32);
@@ -672,7 +673,7 @@ Network::Network(
     , head_(std::move(head))
 {
     register_module("body", body_);
-    register_module("head", head_);
+    if (head_) register_module("head", head_);
 }
 
 anet::TensorDict Network::Forward(const anet::TensorDict& input)
@@ -683,12 +684,15 @@ anet::TensorDict Network::Forward(const anet::TensorDict& input)
     auto features = body_->Forward(input);
 
     // Head部を実行
-    {
+    if (head_) {
         // Head部ではAMPを強制OFF（外側の設定を無効化）にする
         anet::Autocast disable_amp(torch::kCUDA, false, torch::kFloat32);
 
         // Bodyから出てきたTensorはBF16になっているかもしれないのでキャストしてHeadに流し込む
         return head_->Forward(features.To(torch::kFloat32));
+    } else {
+		// Headが無い場合はBodyの出力をそのまま返す
+        return features;
     }
 }
 
@@ -705,6 +709,7 @@ anet::TensorDict Network::GetConv2dOutputs(const anet::TensorDict& input) const
 std::optional<anet::TensorDictFunction> Network::GetTensorDictFunction(const std::string& key)
 {
     // Headが指定されたキーの機能(関数)を持っているか確認
+	if (!head_) return std::nullopt;
     auto head_func = head_->GetTensorDictFunction(key);
     if (!head_func) {
         return std::nullopt;
@@ -837,7 +842,6 @@ std::shared_ptr<Network> NetworkBuilder::BuildNetwork(
     const NetworkConfig& network_config, const anet::TensorSpecMap& input_specs, std::shared_ptr<NetworkHeadFactory> head_factory, std::optional<torch::Device> device)
 {
 	ANET_LOG_DEBUG("network_config=" << network_config.ToJson().dump());
-    ANET_CHECK(head_factory != nullptr);
 
     // Body (DAG) の構築
     auto body = NetworkBodyBuilder::Build(network_config, input_specs);
@@ -858,6 +862,7 @@ std::shared_ptr<Network> NetworkBuilder::BuildNetwork(
         auto t = torch::zeros(shape, options);
         dummy_input.Set(key, t);
     }
+	LOG::info() << "NetworkBuilder: input_shape=" << dummy_input.ToDefString();
 
     // 初回ダミー実行
     // これにより、Body内の全Lazy層(Linear等)が初期化され、Head構築用の出力Shapeが確定する
@@ -869,7 +874,7 @@ std::shared_ptr<Network> NetworkBuilder::BuildNetwork(
     }   // あえて例外キャッチしない
 
     // Headを構築 (Bodyの出力TensorDictをそのまま渡す)
-    auto head = head_factory->CreateHead(dummy_feature);
+    std::shared_ptr<anet::nn::NetworkHead> head = head_factory ? head_factory->CreateHead(dummy_feature) : nullptr;
 
     // Network作って終わり
     return std::make_shared<Network>(network_config, input_specs, head_factory, body, head);
