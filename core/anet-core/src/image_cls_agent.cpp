@@ -1,0 +1,202 @@
+﻿// image_cls_agent.cpp
+
+#include "anet/image_cls_agent.hpp"
+#include "anet/log.hpp"
+#include "anet/profile.hpp"
+#include "anet/metrics_logger.hpp"
+
+using namespace anet::rl::img_cls;
+namespace LOG = anet::log;
+
+
+// ======================================================
+// Actor (データ運び屋 兼 GUI可視化用推論)
+// ======================================================
+
+ImageClsActor::ImageClsActor(
+    std::shared_ptr<std::shared_mutex> mutex,
+    std::shared_ptr<anet::nn::Network> network,
+    anet::rl::RunMode run_mode,
+    torch::Device device)
+    : mutex_(mutex), network_(network), run_mode_(run_mode), device_(device)
+{
+}
+
+std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
+    const anet::rl::StepCounts& step, const anet::rl::BatchState& state) const
+{
+    anet::ProfileRange r("ImageClsActor::MakeAction");
+    torch::NoGradGuard no_grad;
+
+    // 推論準備
+    bool is_eval = anet::rl::IsEval(run_mode_);
+    std::shared_lock lock(*mutex_);
+    if (is_eval) {
+        network_->eval();
+    } else {
+        network_->train();
+    }
+    
+    // Forward
+    auto obs = state.obs.To(device_);
+    auto outputs = network_->Forward(obs);
+
+    // 推論後処理
+    lock.unlock();
+    if (is_eval) {
+        network_->train();
+    }
+
+	// argmaxで推論結果を得る
+    auto logits = outputs.At("logits");
+    auto action = logits.argmax(1).to(torch::kCPU);
+    //ANET_LOG_DEBUG("action=" << anet::ToString(action));
+
+    // 可視化用に全クラスの確率分布を info に入れる
+    anet::TensorDict info;
+    info.Set("probs", torch::softmax(logits, 1).to(torch::kCPU));
+
+    // BatchActionInfo(action, info, aux) の形式で返却
+    return std::make_shared<anet::rl::BatchActionInfo>(action, info);
+}
+
+
+// ======================================================
+// Learner (純粋な教師あり学習のコア)
+// ======================================================
+
+ImageClsLearner::ImageClsLearner(
+    const ImageClsAgentConfig& config,
+    std::shared_ptr<std::shared_mutex> mutex,
+    std::shared_ptr<anet::nn::Network> network,
+    torch::Device device)
+    : config_(config), mutex_(mutex), network_(network), device_(device)
+{
+    // Optimizerを構築
+    auto opt_options = torch::optim::AdamWOptions(config_.learning_rate).weight_decay(config_.weight_decay);
+    optimizer_ = std::make_unique<torch::optim::AdamW>(network_->parameters(), opt_options);
+}
+
+anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
+    const anet::rl::StepCounts& step,
+    const anet::rl::BatchExperience& experiences)
+{
+    anet::ProfileRange r("ImageClsLearner::UpdateFromBatch");
+
+    // バッチデータの取得と前処理
+    // 環境からByte型(0-255)で送られてくる画像を Float32(0.0-1.0) に正規化
+    //auto grid = experiences.state.obs.At(anet::rl::ObsKeys::kGrid);
+    //auto images = grid.to(device_).to(torch::kFloat32).div(255.0);
+    //ANET_LOG_DEBUG("images=" << anet::ToString(images));
+
+    auto vector = experiences.state.obs.At(anet::rl::ObsKeys::kVector);
+    auto targets = vector.to(device_).squeeze(-1).to(torch::kInt64);
+    //ANET_LOG_DEBUG("targets=" << anet::ToString(targets));
+
+    // ネットワーク更新準備 (排他ロック)
+    std::unique_lock lock(*mutex_);
+    network_->train();
+    optimizer_->zero_grad();
+
+    // Forward推論
+    auto obs = experiences.state.obs.To(device_);
+    auto outputs = network_->Forward(obs);
+
+    // 出力ロジットの取得
+    auto logits = outputs.At("logits");
+
+    // Loss計算 (交差エントロピー + ラベルスムージング)
+    auto loss_opts = torch::nn::functional::CrossEntropyFuncOptions().label_smoothing(config_.label_smoothing);
+    auto loss = torch::nn::functional::cross_entropy(logits, targets, loss_opts);
+
+    // 誤差逆伝播
+    loss.backward();
+
+    // 勾配クリッピングを追加
+    torch::nn::utils::clip_grad_norm_(network_->parameters(), config_.grad_clip_max_norm);
+
+    // Optimizerステップ
+    optimizer_->step();
+
+    lock.unlock();
+
+    // メトリクス (Accuracy) の計算
+    // 確率が一番高いインデックスを予測クラスとして正解と比較
+    auto preds = logits.argmax(/*dim=*/1);
+    float accuracy = (preds == targets).to(torch::kFloat32).mean().item<float>();
+
+    // 結果の返却
+    auto result = std::make_shared<ImageClsUpdateResult>();
+    result->loss = loss.item<float>();
+    result->accuracy = accuracy;
+
+    return { result };
+}
+
+
+// ======================================================
+// Agent
+// ======================================================
+
+
+ImageClsAgent::ImageClsAgent(
+    const ImageClsAgentConfig& config,
+    const anet::nn::NetworkConfig& network_config,
+    const anet::rl::EnvSpec& env_spec,
+    const anet::rl::BatchEnvSpec& batch_env_spec,
+    torch::Device device, std::optional<seed_t> seed)
+    : anet::rl::AgentBase(device, batch_env_spec, env_spec, seed), config_(config)
+{
+    mutex_ = std::make_shared<std::shared_mutex>();
+
+    // ログ：パラメータ
+    LOG::info() << "ImageClsAgent config=" << config_.ToString();
+    anet::MetricsLogger::Instance()->Log(config_);
+
+    // NN構築
+    network_ = anet::nn::NetworkBuilder::BuildNetwork(network_config, env_spec.state_spec.obs_spec, nullptr, device_);
+	network_->to(device_);
+    anet::MetricsLogger::Instance()->Log("net.body", network_config.ToJson());
+
+    LOG::info() << "Number of Main Network parameters: " << network_->parameters().size();
+    LOG::info() << "========== MODEL SHAPE DUMP ==========";
+    for (const auto& pair : network_->named_parameters()) {
+        LOG::info() << pair.key() << " : " << pair.value().sizes();
+    }
+    LOG::info() << "======================================";
+    
+    // ログ記録
+    anet::MetricsLogger::Instance()->Log(config);
+    LOG::info() << "ImageClsAgent initialized. config=" << config_.ToString();
+}
+
+std::shared_ptr<anet::rl::Actor> ImageClsAgent::CreateActor(
+    const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, bool clone_model, std::optional<torch::Device> device) const
+{
+    // Actorの生成
+    return std::make_shared<ImageClsActor>(mutex_, network_, run_mode, device.value_or(device_));
+}
+
+std::shared_ptr<anet::rl::Learner> ImageClsAgent::CreateLearner()
+{
+    // Learnerの生成
+    return std::make_shared<ImageClsLearner>(config_, mutex_, network_, device_);
+}
+
+
+// ======================================================
+// Factory
+// ======================================================
+
+std::shared_ptr<anet::rl::Agent> anet::rl::img_cls::ImageClsAgentFactory::CreateAgent(
+    const anet::rl::EnvSpec& env_spec,
+    const anet::rl::BatchEnvSpec& batch_env_spec,
+    const torch::Device& device,
+    const anet::ConfigData& config_data,
+    std::shared_ptr<anet::rl::Notifier> notifier,
+    std::optional<anet::seed_t> seed) const
+{
+    ImageClsAgentConfig config(config_data);
+    anet::nn::NetworkConfig net_config(config_data);
+    return std::make_shared<ImageClsAgent>(config, net_config, env_spec, batch_env_spec, device, seed);
+}

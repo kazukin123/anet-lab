@@ -213,6 +213,11 @@ namespace anet::log {
 
     class LogFormatter : public wxLogFormatter {
     public:
+        LogFormatter(bool enable_timestamp = true)
+            : enable_timestamp_(enable_timestamp)
+        {
+        }
+
         // Formatメソッドをオーバーライドして好みの文字列を生成する
         wxString Format(wxLogLevel level, const wxString& msg, const wxLogRecordInfo& info) const override
         {
@@ -229,14 +234,18 @@ namespace anet::log {
             case wxLOG_Trace:      level_str = wxT("[T] "); break;
             default:               level_str = wxT("[L] "); break;
             }
-            wxString time_str = FormatTimeMS(info.timestampMS);
             wxString result;
             result.Alloc(30 + msg.length());
-            result.Append(time_str);
+            if (enable_timestamp_) {
+                wxString time_str = FormatTimeMS(info.timestampMS);
+                result.Append(time_str);
+            }
             result.Append(level_str);
             result.Append(msg);
             return result;
         }
+    private:
+        const bool enable_timestamp_;
     };
 
 } // namespace anet::log

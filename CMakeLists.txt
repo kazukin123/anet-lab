@@ -171,6 +171,7 @@ add_subdirectory(core/envs/lunarlander1)
 add_subdirectory(core/envs/cartpole2)
 add_subdirectory(core/envs/dropmerge1)
 add_subdirectory(core/envs/gridmaze1)
+add_subdirectory(core/envs/imagecls1)
 add_subdirectory(apps/runner)
 
 

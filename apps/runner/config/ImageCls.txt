@@ -1,0 +1,275 @@
+﻿
+# ==============================================================================
+# 基本設定
+# ==============================================================================
+
+app.$ = app.online > P
+#app.$ = app.batchrun > P
+
+train.seed = 1
+
+train.batch_size = 256
+#train.batch_size = 128
+#train.batch_size = 16
+#train.batch_size = 10
+#train.batch_size = 1
+
+ImageClsEnv.$ = ImageClsEnv.baseline
+
+#net.branch.[main_feature].$ = net.branch.SuikaResNet4064_10d
+#net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128
+
+
+# ==============================================================================
+# 実験
+# ==============================================================================
+
+app.run_name = run_{t}_imgcls
+
+
+# ==============================================================================
+# デバッグ用
+# ==============================================================================
+
+#app.train_auto_start = false
+
+
+# ==============================================================================
+# BF16
+# ==============================================================================
+
+BF16.agent.train_policy.use_amp = true
+BF16.agent.train_policy.use_amp_bf16 = true
+BF16.agent.eval_policy.use_amp = true
+BF16.agent.eval_policy.use_amp_bf16 = true
+BF16.agent.target_policy.use_amp = true
+BF16.agent.target_policy.use_amp_bf16 = true
+BF16.agent.learner.use_amp = true
+BF16.agent.learner.use_amp_bf16 = true
+#BF16.agent.reward_scaler.constant_scale = 0.1
+BF16.agent.learner.adam_eps = 1e-4   # AMP有効時は大きめにする
+#BF16.agent.learner.grad_clip_tau = 30.0
+
+
+# ==============================================================================
+# ステップ数 依存設定
+# ==============================================================================
+
+app.online.exp_pause_step  = 100,000,000      # 100M
+
+app.batchrun.exp_exit_step  = 160,000,000     # 160M
+
+
+# ==============================================================================
+# Env依存 Agent設定
+# ==============================================================================
+
+ImageClsAgent.learning_rate = 3e-3
+ImageClsAgent.weight_decay = 0.01
+ImageClsAgent.label_smoothing = 0.1
+ImageClsAgent.grad_clip_max_norm = 1.0
+
+
+# ==============================================================================
+# V2
+# ==============================================================================
+
+net.block.[BN32].type = BatchNorm2d
+net.block.[BN32].num_features = 32
+
+net.block.[BN64].type = BatchNorm2d
+net.block.[BN64].num_features = 64
+
+net.block.[BN128].type = BatchNorm2d
+net.block.[BN128].num_features = 128
+
+net.block.[Drop].type = Dropout
+net.block.[Drop].p = 0.5
+#net.block.[Drop].p = 0.0
+
+net.block.[ConvInit32].type = Conv2d
+net.block.[ConvInit32].conv.out_channels = 32
+net.block.[ConvInit32].conv.kernel_size = 3
+net.block.[ConvInit32].conv.padding = 1
+net.block.[ConvInit32].conv.stride = 2
+net.block.[ConvInit32].init.mode = 2
+
+net.block.[ConvDown64].type = Conv2d
+net.block.[ConvDown64].conv.out_channels = 64
+net.block.[ConvDown64].conv.kernel_size = 3
+net.block.[ConvDown64].conv.padding = 1
+net.block.[ConvDown64].conv.stride = 2 # 空間サイズを半分に
+net.block.[ConvDown64].init.mode = 2
+
+net.block.[ConvDown128].type = Conv2d
+net.block.[ConvDown128].conv.out_channels = 128
+net.block.[ConvDown128].conv.kernel_size = 3
+net.block.[ConvDown128].conv.padding = 1
+net.block.[ConvDown128].conv.stride = 2 # さらに空間サイズを半分に
+net.block.[ConvDown128].init.mode = 2
+
+net.block.[ResBlock32].type = ResBlock
+net.block.[ResBlock32].res.channels = 32
+net.block.[ResBlock32].res.kernel_size = 3
+net.block.[ResBlock32].res.activation = silu
+net.block.[ResBlock32].res.norm_type = batch
+
+net.block.[ResBlock64].type = ResBlock
+net.block.[ResBlock64].res.channels = 64
+net.block.[ResBlock64].res.kernel_size = 3
+net.block.[ResBlock64].res.activation = silu
+net.block.[ResBlock64].res.norm_type = batch
+
+net.block.[ResBlock128].type = ResBlock
+net.block.[ResBlock128].res.channels = 128
+net.block.[ResBlock128].res.kernel_size = 3
+net.block.[ResBlock128].res.activation = silu
+net.block.[ResBlock128].res.norm_type = batch
+
+net.block.[LinearOut].type = Linear
+net.block.[LinearOut].linear.out_features = 101
+net.block.[LinearOut].init.mode = 2
+
+net.block.[ConvCompress].type = Conv2d
+net.block.[ConvCompress].conv.out_channels = 4  # ここで圧縮
+net.block.[ConvCompress].conv.kernel_size = 1   # 1x1 Conv
+net.block.[ConvCompress].conv.stride = 1
+net.block.[ConvCompress].conv.padding = 0
+net.block.[ConvCompress].init.mode = 2
+
+net.block.[ViT_Proj_128].type = Conv2d
+net.block.[ViT_Proj_128].conv.out_channels = 128
+net.block.[ViT_Proj_128].conv.kernel_size = 1
+net.block.[ViT_Proj_128].conv.stride = 1
+net.block.[ViT_Proj_128].conv.padding = 0
+
+net.block.[TransEnc_128].type = TransformerEncoder
+net.block.[TransEnc_128].tf.d_model = 128
+net.block.[TransEnc_128].tf.nhead = 8
+net.block.[TransEnc_128].tf.num_layers = 4
+net.block.[TransEnc_128].tf.dim_feedforward = 512
+
+
+net.branch.FoodResNet13.bind = grid
+net.branch.FoodResNet13.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > Flatten > Drop > LinearOut
+
+#net.branch.SuikaHybrid_Flatten_128.bind = grid
+#net.branch.SuikaHybrid_Flatten_128.structure = ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
+
+net.branch.[main_feature].$ = net.branch.FoodResNet13
+#net.branch.[main_feature].$ = net.branch.SuikaResNet4064_10d
+#net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128
+
+net.body.output.[logits] = main_feature
+
+
+# ==============================================================================
+# scalar metrics
+# ==============================================================================
+
+#metrics.scalar.$ = metrics.scalar.baseline > M
+#metrics.scalar.$ = metrics.scalar.min > M
+#metrics.scalar.$ = metrics.scalar.full > M
+
+
+metrics.scalar.[20_eps/10_train_reward]     = $runner $episode_step train_episode_reward @train
+metrics.scalar.[20_eps/11_train_reward_ema] = $runner $episode_step train_episode_reward @train $ema ema_alpha:0.001
+
+metrics.scalar.[21_eval/01_test_reward] = $runner eval.[eval1].eps_total_reward @learn
+metrics.scalar.[21_eval/02_test_reward_ema] = $runner eval.[eval1].eps_total_reward $ema @learn
+
+metrics.scalar.[38_agent/01_loss] = loss @learn
+metrics.scalar.[38_agent/02_loss_ema] = loss $ema @learn
+
+metrics.scalar.[38_agent/03_accuracy] = accuracy @learn
+metrics.scalar.[38_agent/04_accuracy_ema] = accuracy $ema @learn
+
+metrics.scalar.[42_env/02_reward_sum_mean]  = $env mean.reward_sum @train
+metrics.scalar.[42_env/03_reward_sum_mean_ema]  = $env mean.reward_sum @train $ema ema_alpha:0.001
+
+metrics.scalar.[42_env/04_accuracy_mean]  = $env mean.accuracy @train
+metrics.scalar.[42_env/05_accuracy_mean_ema]  = $env mean.accuracy @train $ema ema_alpha:0.001
+
+metrics.scalar.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $runner interval:100
+metrics.scalar.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema ema_alpha:0.001 interval:100 
+metrics.scalar.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
+
+
+
+# ==============================================================================
+# image metrics
+# ==============================================================================
+
+metrics.image.interval = 0   # 出力全無効
+#metrics.image.interval = 1   # 毎ステップ出力（重い）
+#metrics.image.interval = 50   # 通常運用
+#metrics.image.interval = 500 # 重い場合
+
+#metrics.image.[60_agent_img/11_conv2d_32p_jet].type = Conv2d
+#metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 10
+##metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 20
+##metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 0
+#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.channels_per_row = 34
+#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.network_key = policy-net.conv2d
+#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.colormap = jet
+#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.min_block_size = 40
+
+#colormap = gray
+#colormap = jet
+#colormap = hot
+
+
+# ==============================================================================
+# app
+# ==============================================================================
+
+#app.online.eval_panel.step_per_frame = 5
+
+app.online.eval_panel.auto_start = false
+app.batchrun.eval_panel.auto_start = false
+
+QValuePanel.row_height = 24
+
+app.online.train_panel.fps = 30
+
+agent.class_id = ImageClsAgent
+
+
+# ==============================================================================
+# DropMergeEnv
+# ==============================================================================
+
+env.class_id = ImageClsEnv
+
+
+
+# --- Env 通常設定
+
+ImageClsEnv.baseline.root_dir = C:\dev\food-101\images
+ImageClsEnv.baseline.train_list_txt_path = C:\dev\food-101\meta\train.txt
+ImageClsEnv.baseline.eval_list_txt_path = C:\dev\food-101\meta\test.txt
+ImageClsEnv.baseline.classes_txt_path = C:\dev\food-101\meta\classes.txt
+ImageClsEnv.baseline.suffix = .jpg
+ImageClsEnv.baseline.image_width = 224
+ImageClsEnv.baseline.image_height = 224
+ImageClsEnv.baseline.max_steps = 100
+
+
+# --- Env デフォルト設定
+
+ImageClsEnv.root_dir = ./images/
+ImageClsEnv.train_list_txt_path = train.txt
+ImageClsEnv.eval_list_txt_path = test.txt
+ImageClsEnv.classes_txt_path = classes.txt
+ImageClsEnv.suffix = .jpg
+ImageClsEnv.image_width = -1
+ImageClsEnv.image_height = -1
+ImageClsEnv.max_steps = 100
+
+
+# --- Eval設定 ---
+
+
+train.eval.[eval1].interval = 10
+train.eval.[eval2].interval = 0
+

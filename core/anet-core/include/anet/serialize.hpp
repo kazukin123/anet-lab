@@ -11,6 +11,7 @@
 #include <string_view>
 #include <torch/torch.h>
 #include "anet/common.hpp"
+#include "anet/log.hpp"
 
 namespace anet {
 
@@ -70,12 +71,13 @@ namespace anet {
         {
             // 長さを先に書き込む (int64_t固定)
             int64_t size = static_cast<int64_t>(value.size());
-            Write(size);
+            int64_t written_bytes = Write(size);
             if (size > 0) {
                 stream_.write(value.data(), size);
                 CheckStream();
+                written_bytes += size; // データ本体のバイト数を加算
             }
-            return size;
+            return written_bytes;
         }
 
         // torch::Tensor
@@ -110,11 +112,13 @@ namespace anet {
 
             // サイズヘッダ + バイナリ本体 を書き込む
             int64_t size = view.size();
-            Write(size);
+            ANET_LOG_DEBUG("size=" << size);
+            int64_t written_bytes = Write(size); // 8バイトを書き込み
             stream_.write(view.data(), size);
             CheckStream();
+            written_bytes += size; // データ本体のバイト数を加算
 
-			return size;
+			return written_bytes;
         }
 
     private:
@@ -197,6 +201,7 @@ namespace anet {
             // サイズを読み取る
             int64_t size = 0;
             Read(size);
+            ANET_LOG_DEBUG("size=" << size);
             if (size < 0) {
                 ANET_SYSTEM_ERROR("InputArchive: Invalid Torch object size (negative).");
             }

@@ -52,6 +52,7 @@ target_link_libraries(AnetRLRunner PRIVATE
     CartPoleEnv
     DropMergeEnv
     GridMazeEnv
+    ImageClsEnv
 )
 
 if (WIN32)

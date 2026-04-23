@@ -16,6 +16,7 @@
 #include "anet/env/CartPole.hpp"
 #include "anet/env/DropMerge.hpp"
 #include "anet/env/GridMaze.hpp"
+#include "anet/env/ImageCls.hpp"
 #include "ErrorDialog.hpp"
 #include "RunnerFrame.hpp"
 #include "TrainPanel.hpp"
@@ -157,6 +158,7 @@ bool RunnerApp::OnInit()
     anet::rl::env::InitCartPole();
     anet::rl::env::InitDropMerge();
     anet::rl::env::InitGridMaze();
+    anet::rl::env::InitImageCls();
 
     // RunnerFrame生成
     wxString frame_title = anet::MetricsLogger::Instance()->GetRunName() + " - ANET RL Runner";
@@ -248,7 +250,7 @@ bool RunnerApp::OnInit()
     );
 
     // 永続化
-    SaveAgent("agent_init.anet");
+    //SaveAgent("agent_init.anet");
 
     // Train開始！
     if (!config_->train_auto_start)
@@ -266,7 +268,7 @@ std::filesystem::path RunnerApp::GetRunDir()
 std::ofstream RunnerApp::GetOutputStream(const std::string& file_name)
 {
     auto file = GetRunDir() / file_name;
-    return std::ofstream(file);
+    return std::ofstream(file, std::ios::binary);
 }
 
 void RunnerApp::SetupLogging()
@@ -282,7 +284,7 @@ void RunnerApp::SetupLogging()
     if (log_file) {
         // 標準の wxLogStderr ではなく、UTF-8専用ロガーを生成
         wxLog* file_logger = new anet::log::FileLogger(log_file);
-        file_logger->SetFormatter(new anet::log::LogFormatter());
+        file_logger->SetFormatter(new anet::log::LogFormatter(/*enable_timestamp=*/true));
 
         // 既存のUIロガー(LogPanel等)を維持したまま、ファイルロガーをチェーンに追加
         new wxLogChain(file_logger);

@@ -3,6 +3,7 @@
 #include "anet/rainbow_agent.hpp"
 #include "anet/default_dqn_agent.hpp"
 #include "anet/muzero_proto_agent.hpp"
+#include "anet/image_cls_agent.hpp"
 #include "nn_impl.hpp"
 
 using namespace anet::rl;
@@ -31,5 +32,6 @@ void anet::rl::InitRL(const BackendConfig& backend_config)
 	RegisterAgentFactory<anet::rl::dqn::RainbowAgentFactory>();
 	RegisterAgentFactory<anet::rl::dqn::DefaultDQNAgentFactory>();
 	RegisterAgentFactory<anet::rl::muzero_proto::MuZeroAgentFactory>();
+	RegisterAgentFactory<anet::rl::img_cls::ImageClsAgentFactory>();
 
 }
