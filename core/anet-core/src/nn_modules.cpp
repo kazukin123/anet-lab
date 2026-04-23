@@ -209,7 +209,6 @@ public:
 
     torch::Tensor forward(torch::Tensor x)
     {
-        ANET_LOG_DEBUG("x=" << anet::ToString(x));
 
         // 入力が5次元 [B, S, C, H, W] なら [B, S*C, H, W] に変換
         if (x.dim() == 5) {
@@ -219,9 +218,57 @@ public:
         return x.contiguous();
         //return x;
     }
+
     torch::Tensor Forward(torch::Tensor input) override
     {
         return forward(input);
+    }
+};
+
+class DropoutModule : public NetworkModule {
+public:
+    DropoutModule(double p)
+    {
+        if (p > 0.0) {
+            dropout_ = register_module("dropout", torch::nn::Dropout(torch::nn::DropoutOptions(p)));
+        }
+    }
+
+    torch::Tensor forward(torch::Tensor x)
+    {
+        if (dropout_) {
+            return dropout_->forward(x);
+        }
+        return x;
+    }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        return forward(input);
+    }
+private:
+    torch::nn::Dropout dropout_{ nullptr };
+};
+
+class DropoutModuleFactory : public NetworkModuleFactory {
+public:
+    struct Config : anet::Config {
+        double p = 0.0;
+        Config(const anet::ConfigData& config_data) : anet::Config("")
+        {
+            ANET_READ_CONFIG(config_data, p);
+        }
+    };
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        Config config(config_data);
+
+        // 念のため範囲チェック
+        if (config.p < 0.0 || config.p >= 1.0) {
+            ANET_SYSTEM_ERROR("Dropout p must be in [0.0, 1.0). Got: " << config.p);
+        }
+        return std::make_shared<DropoutModule>(config.p);
     }
 };
 
@@ -1490,6 +1537,7 @@ public:
     repo.Register("Flatten", std::make_shared<FlattenModuleFactory>());
     repo.Register("Permute", std::make_shared<PermuteModuleFactory>());
     repo.Register("StackMerge", std::make_shared<StackMergeModuleFactory>());
+    repo.Register("Dropout", std::make_shared<DropoutModuleFactory>());
 
 	// 活性化関数モジュール登録
     repo.Register("ReLU", std::make_shared<ReLUModuleFactory>());
