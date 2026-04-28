@@ -20,7 +20,8 @@ constexpr int kNumScalarObsDim = 4;
 // Box2DのUserDataに格納する情報の定義
 enum class BodyType : uintptr_t {
     Ground = 0,
-    Fruit = 1
+    Fruit = 1,
+    Wall = 2
 };
 
 struct FruitUserData {
@@ -267,38 +268,47 @@ void DropMergeEnv::buildWorld()
 
     // --- コンテナ（箱）の作成 ---
     {
+        float half_w = config_.box_width * 0.5f;
+        float h = config_.box_height;
+        float wall_thick = 50.0f;   // 壁抜け防止のため、壁を厚くする
+        
+		// 地面＆壁のFixture定義
+        b2FixtureDef fd;
+        fd.density = 0.0f;
+        fd.friction = config_.box_friction < 0 ? config_.friction : config_.box_friction;  // 摩擦係数
+        fd.restitution = config_.box_restitution < 0 ? config_.restitution : config_.box_restitution; // 反発係数
+
+        // 地面のBody
         b2BodyDef bd;
         bd.type = b2_staticBody;
         bd.position.Set(0.0f, config_.ground_y);
         ground_body_ = world_->CreateBody(&bd);
         ground_body_->GetUserData().pointer = EncodeUserData(BodyType::Ground);
 
-        b2FixtureDef fd;
-        fd.density = 0.0f;
-        fd.friction = config_.box_friction < 0 ? config_.friction : config_.box_friction;  // 摩擦係数
-        fd.restitution = config_.box_restitution < 0 ? config_.restitution : config_.box_restitution; // 反発係数
-
-        float half_w = config_.box_width * 0.5f;
-        float h = config_.box_height;
-        float wall_thick = 50.0f;   // 壁抜け防止のため、壁を厚くする
-
-        // 底
+        // 地面のFixture
         b2PolygonShape shape_bottom;
         shape_bottom.SetAsBox(half_w, wall_thick, b2Vec2(0.0f, -wall_thick), 0.0f);
         fd.shape = &shape_bottom;
         ground_body_->CreateFixture(&fd);
 
+        // 左右の壁 (Wall) のBody
+        b2BodyDef wall_bd;
+        wall_bd.type = b2_staticBody;
+        wall_bd.position.Set(0.0f, config_.ground_y);
+        b2Body* wall_body = world_->CreateBody(&wall_bd);
+        wall_body->GetUserData().pointer = EncodeUserData(BodyType::Wall); // Wallとして登録
+
         // 左壁
         b2PolygonShape shape_left;
         shape_left.SetAsBox(wall_thick, h, b2Vec2(-half_w - wall_thick, h), 0.0f);
         fd.shape = &shape_left;
-        ground_body_->CreateFixture(&fd);
+        wall_body->CreateFixture(&fd);
 
         // 右壁
         b2PolygonShape shape_right;
         shape_right.SetAsBox(wall_thick, h, b2Vec2(half_w + wall_thick, h), 0.0f);
         fd.shape = &shape_right;
-        ground_body_->CreateFixture(&fd);
+        wall_body->CreateFixture(&fd);
 
         // ゲームオーバー判定ラインより少し上(+2.0f)に蓋を設置して
         // 「一瞬跳ねただけ」ならセーフ、「積み上がって詰まった」ならアウトになる余地を作る
@@ -884,7 +894,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         last_step_sim_steps_ = sim_steps;
 
         // エピーソード統計用データを更新
-        if (action == kActionDrop) {
+        if (is_drop_action) {
             ep_settle_steps_sum_ += sim_steps;
             ep_settle_count_++;
             ep_settle_steps_max_ = std::max(ep_settle_steps_max_, sim_steps);
@@ -994,8 +1004,15 @@ void DropMergeEnv::ContactListener::BeginContact(b2Contact* contact)
         }
     }
 
-    env_.notifyContact(contact->GetFixtureA()->GetBody());
-    env_.notifyContact(contact->GetFixtureB()->GetBody());
+    // 着地判定（壁との接触は無視する）
+    b2Body* pending = env_.dropper_.pending_body;
+    if (pending != nullptr) {
+        if (fa->GetBody() == pending && dataB.first != BodyType::Wall) {
+            env_.notifyContact(pending);
+        } else if (fb->GetBody() == pending && dataA.first != BodyType::Wall) {
+            env_.notifyContact(pending);
+        }
+    }
 }
 
 // -------------------------------------------------------------
