@@ -34,6 +34,7 @@
 # --- Common Utilities ---
 
 net.block.[Flatten].type = Flatten
+net.block.[StackMerge].type = StackMerge
 
 
 # --- 活性化関数  ---

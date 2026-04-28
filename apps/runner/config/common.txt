@@ -1,15 +1,17 @@
 ﻿
 # --- trainer
 
-train.main_runner_type = pipeline;
+train.main_runner_type = pipeline
 
 train.eval.[eval1].interval = 100
 train.eval.[eval1].run_mode = eval1
-#train.eval.[eval1].use_background = false
+train.eval.[eval1].use_background = false
+#train.eval.[eval1].use_background = true
 
 train.eval.[eval2].interval = 100
 train.eval.[eval2].run_mode = eval2
-#train.eval.[eval2].use_background = false
+train.eval.[eval2].use_background = false
+#train.eval.[eval2].use_background = true
 
 train.eval_device_type = cuda  # default: cpu
 #train.eval_device_type = cpu
@@ -44,6 +46,7 @@ AS.heavy.learner.replay_ratio = 4
 # --- env
 
 env.worker_threads = -1	# -1=auto
+#env.worker_threads = 1	# -1=auto
 env.device_type = 0     # 0=cpu 1=cuda
 env.device_index = -1   # GPU index -1=current device
 env.worker_type = 0     # 0=AUTO 1=SINGLE_THEAD 2=THREAD_POOL

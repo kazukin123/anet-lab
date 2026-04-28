@@ -27,7 +27,7 @@ namespace anet {
         std::ostringstream oss;
         if (t.defined()) {
             oss.precision(precision);
-            oss << "(" << t.device() << " " << t.dtype() << ") " << t.sizes() << " -> ";
+            oss << "(" << t.device() << " " << t.dtype() << ") " << t.sizes() << " -> \n";
             printTensorAsNestedBrackets(t, oss); //oss << "\n";
             //printTensorAsRows(t, oss);
         } else {

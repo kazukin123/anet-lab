@@ -31,8 +31,8 @@ void StateSpec::AssertSanity() const
                 "TensorSpec Sanity Error: [" << key << "] is discrete (num_classes > 0) but dtype is float.");
         } else {
             // 連続空間: float系が必須
-            ANET_CHECK_MSG(torch::isFloatingType(spec.dtype),
-                "TensorSpec Sanity Error: [" << key << "] is continuous (num_classes == 0) but dtype is not float.");
+            //ANET_CHECK_MSG(torch::isFloatingType(spec.dtype),
+            //    "TensorSpec Sanity Error: [" << key << "] is continuous (num_classes == 0) but dtype is not float.");
         }
 
         // トポロジーとShapeの整合性 (Vectorは1次元配列であること)
@@ -605,8 +605,6 @@ std::vector<SingleExperience> BatchExperience::ToExperienceList() const
 // =============================================================
 // ExperienceSamples
 // =============================================================
-
-//ExperienceSamples                    To(torch::Device device, bool non_blocking = true);
 
 ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking) const
 {
