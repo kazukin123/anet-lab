@@ -98,7 +98,7 @@ namespace anet::img {
             }
 
 			// 画像のリサイズ（必要な場合）
-            if (target_w_ > 0 && target_w_ > 0 && image.GetWidth() != target_w_ || image.GetHeight() != target_h_) {
+            if (target_w_ > 0 && target_h_ > 0 && (image.GetWidth() != target_w_ || image.GetHeight() != target_h_)) {
                 image = image.Scale(target_w_, target_h_, wxIMAGE_QUALITY_BILINEAR);
             }
 
