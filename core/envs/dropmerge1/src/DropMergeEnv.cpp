@@ -579,11 +579,15 @@ void DropMergeEnv::processMerges()
 
             // 合体後のランクで最大ランクを更新
             ep_max_rank_ = std::max(ep_max_rank_, req.next_rank);
+            if (req.next_rank == kFruitTypeCount) {
+                ep_suika_created_++; // スイカ作成数をカウント
+            }
 
 			// スコア加算
             float s = config_.fruit_scores[req.next_rank - 1];
             current_step_merge_score_ += s;
             episode_score_ += s;
+
 
             // ログ
             if (req.next_rank >= kFruitTypeCount) { // スイカが出来たらログ＆音
@@ -596,6 +600,7 @@ void DropMergeEnv::processMerges()
         } else {
             // 最大ランクを更新
             ep_max_rank_ = std::max(ep_max_rank_, req.next_rank);
+            ep_double_suika_created_++; // ダブルスイカ作成数をカウント
 
             // スイカ同士が消えた場合はSpawnしない（Rank 12相当）
             LOG::info() << "Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_ << " current_step_merge_score_=" << current_step_merge_score_;
@@ -770,6 +775,8 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         ep_settle_steps_sum_ = 0;
         ep_settle_count_ = 0;
         ep_settle_steps_max_ = 0;
+        ep_suika_created_ = 0;
+        ep_double_suika_created_ = 0;
     }
 
     // エピソードstepインクリメント
@@ -1246,7 +1253,29 @@ std::optional<float> DropMergeEnv::GetScalar(const std::string& key, int64_t ind
     // --- 成果・盤面状態 ---
     if (key == "ep_max_rank") {
         if (!episode_just_ended_) return nan;
-        return static_cast<float>(ep_max_rank_);
+        float display_rank = static_cast<float>(ep_max_rank_);
+
+        // スイカ(Rank 11)以上が出来ている場合の特別計算
+        if (ep_max_rank_ >= 11) {
+            display_rank = 11.0f; // ベースを11に固定
+
+            // ダブルスイカ1つにつき +1.0 (12.0, 13.0, 14.0...)
+            display_rank += static_cast<float>(ep_double_suika_created_);
+
+            // マージされていない「余剰のスイカ」の数を計算
+            // (ダブルスイカ1つにつき、スイカを2つ消費しているため)
+            int extra_suikas = ep_suika_created_ - (ep_double_suika_created_ * 2);
+
+            // ダブルスイカが0個で、スイカが2個あるなら 11.5 (ダブルスイカリーチ状態)
+            if (ep_double_suika_created_ == 0 && extra_suikas >= 2) {
+                display_rank += 0.5f;
+            }
+            // ダブルスイカが1個以上で、余剰スイカが1個以上あるなら +0.5 (12.5, 13.5...)
+            else if (ep_double_suika_created_ > 0 && extra_suikas >= 1) {
+                display_rank += 0.5f;
+            }
+        }
+        return display_rank;
     }
     if (key == "ep_end_fruit_count") {
         if (!episode_just_ended_) return nan;

@@ -294,6 +294,8 @@ namespace anet::rl::env::drop_merge {
         bool episode_just_ended_ = false; ///< GetScalarで値を返す判定用
         int ep_max_rank_ = 0;             ///< エピソード中の最大ランク
         int ep_end_fruit_count_ = 0;      ///< エピソード終了時のフルーツ数
+        int ep_suika_created_ = 0;        ///< エピソード中に作成されたスイカの総数
+        int ep_double_suika_created_ = 0; ///< エピソード中に作成されたダブルスイカの総数
 
         // Settleステップ計測用
         int ep_settle_steps_sum_ = 0;
