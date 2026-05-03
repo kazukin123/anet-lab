@@ -691,7 +691,6 @@ namespace anet::rl {
         struct {
             anet::TensorDict next_obs;      ///< [B, Stack, C, H, W] 等 (Rainbow等の N-Step 次状態)
             torch::Tensor terminals;        ///< [B] (真の終了フラグ)
-            torch::Tensor truncates;        ///< [B] (タイムアップ等による打ち切りフラグ)
         } next_state;
 
         // --- N-Step & PER メタデータ ---

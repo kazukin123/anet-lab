@@ -63,3 +63,4 @@
 /dist
 /docs/*.lock
 /apps/runner/runname.txt
+/.claude/worktrees

@@ -201,46 +201,15 @@ void ValidIndexManager::AdvanceWriteCursor(int64_t env_idx)
     write_cursors_[env_idx]++;
 }
 
-torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_steps) const
+torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_steps, int n_step) const
 {
     std::vector<int64_t> valid_list;
     valid_list.reserve(num_envs_ * capacity_per_env_);
 
     for (int64_t env = 0; env < num_envs_; ++env) {
-        int64_t w_cursor = write_cursors_[env];
-        int64_t v_cursor = valid_cursors_[env];
-
-        int64_t logical_start = std::max((int64_t)0, w_cursor - capacity_per_env_);
-        int64_t max_safe_by_write = std::max((int64_t)-1, w_cursor - 2);
-        int64_t max_safe_by_valid = v_cursor - 1 - unroll_steps;
-
-        int64_t logical_end = std::min(max_safe_by_write, max_safe_by_valid);
-
-        if (logical_end < logical_start) continue;
-
-        // 論理インデックスから物理インデックスの範囲を計算
-        int64_t start_phys = logical_start % capacity_per_env_;
-        int64_t end_phys = logical_end % capacity_per_env_;
-
-        // ヘルパーラムダ: 指定した物理インデックス区間を追加
-        auto add_range = [&](int64_t p_start, int64_t p_end) {
-            for (int64_t p = p_start; p <= p_end; ++p) {
-                if (!is_dummy_[env * capacity_per_env_ + p]) {
-                    valid_list.push_back(env * capacity_per_env_ + p);
-                }
-            }
-            };
-
-        // 物理インデックスが常に昇順（ソート済み）になる順番で追加する
-        if (start_phys <= end_phys) {
-            // パターン1: 折り返しなし (例: 1, 2, 3, 4)
-            add_range(start_phys, end_phys);
-        } else {
-            // パターン2: 折り返しあり (例: 8, 9, 0, 1, 2)
-            // 昇順にするため、[0〜2] を先に追加し、その後で [8〜9] を追加する
-            add_range(0, end_phys);
-            add_range(start_phys, capacity_per_env_ - 1);
-        }
+        ForEachSampleableIndex(env, stack_count, unroll_steps, n_step, [&](int64_t idx1d) {
+            valid_list.push_back(idx1d);
+        });
     }
 
     if (valid_list.empty()) return torch::empty({ 0 }, torch::kInt64);
@@ -256,21 +225,13 @@ int64_t ValidIndexManager::GetValidCount() const
     return total;
 }
 
-int64_t ValidIndexManager::GetSampleableCount(int stack_count, int unroll_steps) const
+int64_t ValidIndexManager::GetSampleableCount(int stack_count, int unroll_steps, int n_step) const
 {
     int64_t total = 0;
     for (int64_t env = 0; env < num_envs_; ++env) {
-        int64_t w_cursor = write_cursors_[env];
-        int64_t v_cursor = valid_cursors_[env];
-
-        int64_t logical_start = std::max((int64_t)0, w_cursor - capacity_per_env_);
-        int64_t max_safe_by_write = std::max((int64_t)-1, w_cursor - 2);
-        int64_t max_safe_by_valid = v_cursor - 1 - unroll_steps;
-        int64_t logical_end = std::min(max_safe_by_write, max_safe_by_valid);
-
-        if (logical_end >= logical_start) {
-            total += (logical_end - logical_start + 1);
-        }
+        ForEachSampleableIndex(env, stack_count, unroll_steps, n_step, [&](int64_t) {
+            ++total;
+        });
     }
     return total;
 }
@@ -295,7 +256,6 @@ ReplayExperienceStorage::ReplayExperienceStorage(int64_t num_envs, int64_t capac
     actions_ = torch::empty(act_shape, options.dtype(spec.action_spec.GetDataType()));
     target_returns_ = torch::empty({ num_envs_, capacity_per_env_ }, options.dtype(torch::kFloat32));
     terminals_ = torch::empty({ num_envs_, capacity_per_env_ }, options.dtype(torch::kBool));
-    truncates_ = torch::empty({ num_envs_, capacity_per_env_ }, options.dtype(torch::kBool));
     actual_n_steps_ = torch::empty({ num_envs_, capacity_per_env_ }, options.dtype(torch::kInt64));
 
     // obs_storage_ と info_storage_ は型の詳細が動的(Dict)なため、初回の Push 時に遅延アロケーションする
@@ -379,7 +339,6 @@ void ReplayExperienceStorage::DumpToLog() const
         for (int64_t t = 0; t < capacity_per_env_; ++t) {
             float ret = target_returns_[e][t].item<float>();
             bool term = terminals_[e][t].item<bool>();
-            bool trunc = truncates_[e][t].item<bool>();
             int64_t n = actual_n_steps_[e][t].item<int64_t>();
 
             std::string obs_str = "";
@@ -397,8 +356,8 @@ void ReplayExperienceStorage::DumpToLog() const
                 anet::ToString(actions_[e][t]);
 
             LOG::info() << "  [idx=" << t << "] ret=" << ret
-                << " term=" << term << " trunc=" << trunc << " n_steps=" << n
-                << " obs={" << obs_str << "}" 
+                << " term=" << term << " n_steps=" << n
+                << " obs={" << obs_str << "}"
                 << " act={" << act_str << "}";
         }
     }
@@ -632,7 +591,7 @@ public:
         : anet::RandomHolder(seed)
         , tree_(capacity)
         , alpha_(alpha)
-        , max_prio_(initial_priority)
+        , max_prio_(initial_priority < 0.0f ? 1.0f : std::pow(initial_priority, alpha))
         , initial_priority_(initial_priority)
         , gen_(rnd_->GetTorchGenerator(torch::kCPU))
         , opt_long_(torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU))
@@ -829,7 +788,7 @@ public:
         bool squeeze_stack = (stack_count == 1);
 
         // テンソル構築用の配列
-        std::vector<torch::Tensor> batch_actions, batch_returns, batch_terminals, batch_truncates, batch_actual_n;
+        std::vector<torch::Tensor> batch_actions, batch_returns, batch_terminals, batch_actual_n;
         std::vector<anet::TensorDict> batch_obs, batch_next_obs, batch_info;
 
         // 境界チェック用に terminals (done) フラグを一括取得
@@ -849,7 +808,6 @@ public:
             batch_actions.push_back(RingSlice(storage.GetActions(), env_idx, time_idx, unroll_len, cap, squeeze_unroll));
             batch_returns.push_back(RingSlice(storage.GetTargetReturns(), env_idx, time_idx, unroll_len, cap, squeeze_unroll));
             batch_terminals.push_back(RingSlice(storage.GetTerminals(), env_idx, time_idx, unroll_len, cap, squeeze_unroll));
-            batch_truncates.push_back(RingSlice(storage.GetTruncates(), env_idx, time_idx, unroll_len, cap, squeeze_unroll));
             batch_actual_n.push_back(storage.GetActualNSteps()[env_idx][time_idx]);
 
             // MuZero用などの固有情報 (存在する場合のみ)
@@ -965,7 +923,6 @@ public:
         out.actions = torch::stack(batch_actions, 0);
         out.target_returns = torch::stack(batch_returns, 0);
         out.next_state.terminals = torch::stack(batch_terminals, 0);
-        out.next_state.truncates = torch::stack(batch_truncates, 0);
         out.n_steps = torch::stack(batch_actual_n, 0);
 
         out.obs = anet::TensorDict::Stack(batch_obs, 0);
@@ -1103,7 +1060,7 @@ void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
 
 void DefaultReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const
 {
-    auto valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps);
+    auto valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
     ANET_ASSERT_MSG(valid_1d.size(0) >= minibatch_size, "Not enough valid samples in ReplayBuffer. size=" << valid_1d.size(0) << " minibatch_size=" << minibatch_size);
 
     auto idx_result = sampler_->SampleIndices(minibatch_size, valid_1d, beta);
@@ -1113,7 +1070,7 @@ void DefaultReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibat
 int64_t DefaultReplayBuffer::Size() const
 {
     // 生のカウントではなく、Stack/Unrollを考慮して安全なサンプリング可能な数を返す
-    return index_manager_->GetSampleableCount(config_.stack_count, config_.muzero.unroll_steps);
+    return index_manager_->GetSampleableCount(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
 }
 
 void DefaultReplayBuffer::UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities)
@@ -1143,7 +1100,7 @@ void DefaultReplayBuffer::DumpToLog() const
     if (storage_) {
         storage_->DumpToLog();
     }
-    auto valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps);
+    auto valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
 
     // Valid Index を見やすく出力
     std::string valid_str = "[ ";

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "anet/replay_buffer.hpp"
+#include <algorithm>
 #include <vector>
 #include <memory>
 #include <deque>
@@ -90,12 +91,48 @@ namespace anet::rl {
         void AdvanceWriteCursor(int64_t env_idx);
 
         /// Stack/Unroll 制約を考慮し、安全に引ける 1D インデックスのリストを返す
-        torch::Tensor GetValidIndices1D(int stack_count, int unroll_steps) const;
+        torch::Tensor GetValidIndices1D(int stack_count, int unroll_steps, int n_step) const;
 
         int64_t GetValidCount() const;
 
-        int64_t GetSampleableCount(int stack_count, int unroll_steps) const;
+        int64_t GetSampleableCount(int stack_count, int unroll_steps, int n_step) const;
     private:
+        template <class Fn>
+        void ForEachSampleableIndex(int64_t env, int stack_count, int unroll_steps, int n_step, Fn&& fn) const
+        {
+            (void)stack_count;
+
+            int64_t w_cursor = write_cursors_[env];
+            int64_t v_cursor = valid_cursors_[env];
+            int64_t future_obs_lag = std::max<int64_t>(1, n_step);
+
+            int64_t logical_start = std::max<int64_t>(0, w_cursor - capacity_per_env_);
+            int64_t max_safe_by_write = std::max<int64_t>(-1, w_cursor - future_obs_lag - 1);
+            int64_t max_safe_by_valid = v_cursor - 1 - unroll_steps;
+            int64_t logical_end = std::min(max_safe_by_write, max_safe_by_valid);
+
+            if (logical_end < logical_start) return;
+
+            int64_t start_phys = logical_start % capacity_per_env_;
+            int64_t end_phys = logical_end % capacity_per_env_;
+
+            auto visit_range = [&](int64_t p_start, int64_t p_end) {
+                for (int64_t p = p_start; p <= p_end; ++p) {
+                    if (!is_dummy_[env * capacity_per_env_ + p]) {
+                        fn(env * capacity_per_env_ + p);
+                    }
+                }
+            };
+
+            // 物理インデックス昇順にして、PER側の binary_search 前提を保つ。
+            if (start_phys <= end_phys) {
+                visit_range(start_phys, end_phys);
+            } else {
+                visit_range(0, end_phys);
+                visit_range(start_phys, capacity_per_env_ - 1);
+            }
+        }
+
         int64_t num_envs_;
         int64_t capacity_per_env_;
         std::vector<int64_t> valid_cursors_;
@@ -130,7 +167,6 @@ namespace anet::rl {
         const torch::Tensor& GetActions() const { return actions_; }
         const torch::Tensor& GetTargetReturns() const { return target_returns_; }
         const torch::Tensor& GetTerminals() const { return terminals_; }
-        const torch::Tensor& GetTruncates() const { return truncates_; }
         const torch::Tensor& GetActualNSteps() const { return actual_n_steps_; }
     public:
         // 可視化用
@@ -149,7 +185,6 @@ namespace anet::rl {
         torch::Tensor actions_;
         torch::Tensor target_returns_;
         torch::Tensor terminals_;
-        torch::Tensor truncates_;
         torch::Tensor actual_n_steps_;
     };
     

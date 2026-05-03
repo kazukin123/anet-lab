@@ -620,7 +620,6 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
             .next_state = {
                 .next_obs = next_state.next_obs.To(device, non_blocking),
                 .terminals = anet::To(next_state.terminals, device, non_blocking),
-				.truncates = anet::To(next_state.truncates, device, non_blocking),
             },
             .n_steps = anet::To(n_steps, device, non_blocking),
             .indices = anet::To(indices, device, non_blocking),
@@ -637,7 +636,6 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
         .next_state = {
             .next_obs = next_state.next_obs.To(device, non_blocking),
             .terminals = next_state.terminals.to(device, non_blocking),
-            .truncates = next_state.truncates.to(device, non_blocking),
         },
         .n_steps = n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,
         .indices = indices.to(device, non_blocking),
@@ -656,7 +654,6 @@ std::string ExperienceSamples::ToString() const
     oss << "  target_returns  = " << anet::ToString(target_returns) << "\n";
     oss << "  next_state.next_obs = " << next_state.next_obs.ToString() << "\n";
     oss << "  next_state.terminals     = " << anet::ToString(next_state.terminals) << "\n";
-    oss << "  next_state.truncates     = " << anet::ToString(next_state.truncates) << "\n";
     oss << "  n_steps                  = " << anet::ToString(n_steps) << "\n";
     oss << "  indices                  = " << anet::ToString(indices) << "\n";
     oss << "  is_weights               = " << anet::ToString(is_weights) << "\n";
