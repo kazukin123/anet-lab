@@ -1,5 +1,24 @@
 # AGENT.md
 
+## Viewing UTF-8 Japanese Text in Codex on Windows
+
+This file is encoded as UTF-8. If Japanese text appears as mojibake in the Codex
+PowerShell terminal, the file is usually still correct; the terminal output
+encoding is the problem. Before reading or printing this file, switch the
+console/output encoding to UTF-8:
+
+```powershell
+chcp 65001
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new()
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$OutputEncoding = [Console]::OutputEncoding
+Get-Content -Encoding UTF8 AGENT.md
+```
+
+`git diff -- AGENT.md` may render Japanese correctly even when plain
+`Get-Content AGENT.md` does not, because Git and PowerShell use different
+output paths and encodings in this environment.
+
 このドキュメントは、anet-lab を編集する AI エージェントおよび開発支援ツール向けの作業規約です。
 人間が読む開発メモとしても使えるように、リポジトリ構成、ビルド手順、コーディング方針をまとめます。
 
@@ -135,3 +154,43 @@ cmake --build --preset x64-Debug --target doc
 - 変更したファイルを要約する。
 - 実行したビルド・検証コマンドを報告する。
 - 実行できなかった検証があれば理由を明記する。
+
+## Codex でのビルド注意事項 (Windows/MSVC)
+
+Codex の標準 PowerShell 環境では `cl.exe` が見えていても、MSVC 標準ヘッダの
+include パスが `INCLUDE` に入っていない場合があります。この状態で C++ ターゲットを
+ビルドすると、次のようなエラーで失敗します。
+
+```text
+fatal error C1083: Cannot open include file: 'type_traits': No such file or directory
+```
+
+Codex から確実にビルドする場合は、Visual Studio Developer Command Prompt の
+初期化バッチを経由して CMake ビルドを実行してください。
+
+```powershell
+cmd /s /c "`"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat`" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug --target anet-core-test"
+```
+
+他のターゲットをビルドする場合も同じ形式を使います。
+
+```powershell
+cmd /s /c "`"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat`" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug"
+```
+
+Codex の PowerShell から `Launch-VsDevShell.ps1` を使う方法には依存しないでください。
+PowerShell の実行ポリシーでブロックされることがあり、この環境では Visual Studio の
+インストール情報を解析する段階でも失敗しました。
+
+Codex からビルドする場合、MSVC、Windows SDK、CUDA、libtorch、vcpkg が
+ワークスペース外にあるため、サンドボックス外実行の承認が必要になることがあります。
+
+`anet-core-test` をビルドした後は、リポジトリルートから次のように実行します。
+
+```powershell
+core\anet-core\bin\Debug\anet-core-test.exe
+```
+
+テスト実行ファイルは意図的に `core/anet-core/bin/<Config>` 配下へ出力します。
+CMake の post-build 処理で libtorch の DLL を実行ファイルの隣へコピーし、
+runner アプリと同じ実行時配置に揃えています。
