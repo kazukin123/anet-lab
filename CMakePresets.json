@@ -57,15 +57,30 @@
   "buildPresets": [
     {
       "name": "x64-Debug",
-      "configurePreset": "x64-Debug"
+      "configurePreset": "x64-Debug",
+      "environment": {
+        "VSCMD_ARG_TGT_ARCH": "x64",
+        "VSLANG": "1033",
+        "DOTNET_CLI_UI_LANGUAGE": "en-US"
+      }
     },
     {
       "name": "x64-RelWithDebInfo",
-      "configurePreset": "x64-RelWithDebInfo"
+      "configurePreset": "x64-RelWithDebInfo",
+      "environment": {
+        "VSCMD_ARG_TGT_ARCH": "x64",
+        "VSLANG": "1033",
+        "DOTNET_CLI_UI_LANGUAGE": "en-US"
+      }
     },
     {
       "name": "x64-Release",
-      "configurePreset": "x64-Release"
+      "configurePreset": "x64-Release",
+      "environment": {
+        "VSCMD_ARG_TGT_ARCH": "x64",
+        "VSLANG": "1033",
+        "DOTNET_CLI_UI_LANGUAGE": "en-US"
+      }
     }
   ],
 

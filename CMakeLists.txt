@@ -7,6 +7,7 @@
 
 cmake_minimum_required(VERSION 3.20)
 project(anet-lab LANGUAGES CXX)
+enable_testing()
 
 
 # ---------------------------------------------------------------------
@@ -165,6 +166,7 @@ include_directories("${PROJECT_SOURCE_DIR}/third_party/nlohmann/include")
 # ---------------------------------------------------------------------
 add_subdirectory(third_party/box2d-2.4.2)
 add_subdirectory(third_party/tracy)
+add_subdirectory(third_party/catch2)
 
 add_subdirectory(core/anet-core)
 add_subdirectory(core/envs/lunarlander1)
