@@ -591,7 +591,7 @@ void DropMergeEnv::processMerges()
 
             // ログ
             if (req.next_rank >= kFruitTypeCount) { // スイカが出来たらログ＆音
-                LOG::info() << "Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_ << " current_step_merge_score_=" << current_step_merge_score_;
+                LOG::verbose() << "Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_ << " current_step_merge_score_=" << current_step_merge_score_;
                 bell();
             }
 
@@ -602,12 +602,14 @@ void DropMergeEnv::processMerges()
             ep_max_rank_ = std::max(ep_max_rank_, req.next_rank);
             ep_double_suika_created_++; // ダブルスイカ作成数をカウント
 
-            // スイカ同士が消えた場合はSpawnしない（Rank 12相当）
-            LOG::info() << "Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_ << " current_step_merge_score_=" << current_step_merge_score_;
+            // スイカ同士が消えた場合はSpawnしない（Rank 12相当、ダブルスイカ）
+            LOG::info() << "Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_
+                //<< " current_step_merge_score_=" << current_step_merge_score_
+                << " ep_double_suika_created=" << ep_double_suika_created_;
             bell();       /// @todo wxBell()はスレッドセーフじゃないのでwxSoundを使うべき
 
             // スコア加算
-            float s = config_.fruit_scores[kFruitTypeCount - 1];
+            float s = config_.fruit_scores[kFruitTypeCount];
             current_step_merge_score_ += s;
             episode_score_ += s;
 

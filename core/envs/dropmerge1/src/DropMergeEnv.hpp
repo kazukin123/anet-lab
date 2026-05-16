@@ -135,6 +135,8 @@ namespace anet::rl::env::drop_merge {
             ANET_READ_CONFIG(config_data, restitution);
             ANET_READ_CONFIG(config_data, friction);
             ANET_READ_CONFIG(config_data, damping);
+            ANET_READ_CONFIG(config_data, box_restitution);
+            ANET_READ_CONFIG(config_data, box_friction);
 
             // デフォルト値 (Configファイルがない場合用)を定義
             std::vector<float> def_radii = {
@@ -145,7 +147,7 @@ namespace anet::rl::env::drop_merge {
             std::vector<float> def_scores = {
                 0.1f, 0.3f, 0.6f, 1.0f, 1.5f,
                 2.1f, 2.8f, 3.6f, 4.5f, 5.5f,
-                6.6f
+				6.6f, 8.0f
             };
             std::vector<float> def_densities(11, 5.0f);
             std::vector<float> def_probs = { 20.0f, 20.0f, 20.0f, 20.0f, 20.0f };
@@ -165,7 +167,7 @@ namespace anet::rl::env::drop_merge {
             // サイズチェック
             if (fruit_radii.size() != kFruitTypeCount ||
                 fruit_densities.size() != kFruitTypeCount ||
-                fruit_scores.size() != kFruitTypeCount) {
+                fruit_scores.size() != (kFruitTypeCount + 1)) {
                 ANET_SYSTEM_ERROR("Invalid fruit config.");
             }
         }

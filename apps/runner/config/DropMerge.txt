@@ -25,7 +25,10 @@ DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.fun1 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > BF16.env > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.realistic > E
-DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > E
+#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy > E
+#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4050 > DropMergeEnv.heavy > E
+#DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G6444 > DropMergeEnv.heavy > E
+DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G5846 > DropMergeEnv.heavy > E
 
 
 #net.body.$ = net.body.MLP2
@@ -52,26 +55,132 @@ DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G4064 > DropMergeEnv.heavy
 #net.body.$ = net.body.SuikaHybrid_CLS_128
 #net.body.$ = net.body.SuikaHybrid_CLS_256_LC
 #net.body.$ = net.body.SuikaHybrid_GAP_128
-net.body.$ = net.body.SuikaHybrid_Flatten_128HR
+#net.body.$ = net.body.SuikaHybrid_Flatten_128HR
+#net.body.$ = net.body.SuikaHybrid_Flatten_64HR
+
+#net.branch.[vector_feature].structure = Embed4064_v2
+#net.branch.[vector_feature].structure = Embed4050_v2
+#net.branch.[vector_feature].structure = Embed6444_v2
+net.branch.[vector_feature].structure = Embed5846_v2
+
+#net.branch.[main_feature].$ = net.branch.SuikaResNet4064_10d
+#net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128
+net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre
 
 
 # ==============================================================================
 # 実験
 # ==============================================================================
 
-#app.run_name = run_{t}_real_RR4
-#app.run_name = run_{t}_real_ViT
-#app.run_name = run_{t}_heavy_Res
-#app.run_name = run_{t}_heavy_ViT
-#app.run_name = run_{t}_heavy_ViT_BF16
-#app.run_name = run_{t}_heavy_ViT_nh8
-#app.run_name = run_{t}_heavy_ViT_large
-#app.run_name = run_{t}_heavy_ViT_256
-#app.run_name = run_{t}_heavy_ViT_128g8
-#app.run_name = run_{t}_heavy_ViT_128CLS
-#app.run_name = run_{t}_ViT_256CLS_LC
-#app.run_name = run_{t}_ViT_128GAP
-#app.run_name = run_{t}_ViT_128HR
+#app.run_name = run_{t}_v2_rbf1_rs
+#app.run_name = run_{t}_v2_pre2
+#app.run_name = run_{t}_v2_s0
+#app.run_name = run_{t}_v2_res10d_noper
+#app.run_name = run_{t}_v2_dbg
+#app.run_name = run_{t}_v2_res10d_v1d
+#app.run_name = run_{t}_v2_rb_v1
+#app.run_name = run_{t}_v2_rb_v2
+#app.run_name = run_{t}_v2_rbv1_AV4e0
+#app.run_name = run_{t}_v2_nnp_st2
+#app.run_name = run_{t}_v2_nnp_st4
+#app.run_name = run_{t}_v2_grad_res10d_2
+#app.run_name = run_{t}_v2
+#app.run_name = run_{t}_v2_stl_cy2
+#app.run_name = run_{t}_v2_stl_cy4
+#app.run_name = run_{t}_admw_p1
+#app.run_name = run_{t}_admw_p2
+#app.run_name = run_{t}_admw_p3
+#app.run_name = run_{t}_admw_p4
+#app.run_name = run_{t}_admw_p5
+#app.run_name = run_{t}_admw_long
+#app.run_name = run_{t}_gs_6444
+#app.run_name = run_{t}_gs_5846
+#app.run_name = run_{t}_ns_3
+#app.run_name = run_{t}_gs_5846_cy7_rr25
+app.run_name = run_{t}_gs_5846_cy12_dsr2000
+
+
+#R.auto_load_file = ../../runs/DropMerge_SuikaHybrid_Flatten_128.anet
+#R.auto_load_file = ../../runs/run_20260424-175431_v2_stl.anet
+#R.auto_load_file = ../../runs/run_20260503-144213_gs_5846.anet
+#R.auto_load_file = ../../runs/run_20260505-231853_gs_5846_cy4/agent_close.anet
+#R.auto_load_file = ../../runs/run_20260507-015149_gs_5846_cy5/agent_close.anet
+#R.auto_load_file = ../../runs/run_20260508-040234_gs_5846_cy6/agent_close.anet
+#R.auto_load_file = ../../runs/run_20260509-101008_gs_5846_cy7_rr05/agent_close.anet
+#R.auto_load_file = ../../runs/run_20260510-130727_gs_5846_cy8/agent_close.anet
+#R.auto_load_file = ../../runs/run_20260511-081219_gs_5846_cy9/agent_close.anet
+#R.auto_load_file = ../../runs/run_20260512-012723_gs_5846_cy10/agent_close.anet
+R.auto_load_file = ../../runs/run_20260512-171248_gs_5846_cy11/agent_close.anet
+
+E.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 2000
+
+
+#E.damping = 0
+#E.friction = 0.0              # 本家相当？:摩擦無し
+#E.restitution = 0.1           # 本家相当？:果物同士の反発係数
+#E.box_restitution = 0         # 本家相当？:地面＆壁の反発無し
+
+R.learner.replay_ratio = 0.5
+
+#R.learner.n_step = 3
+
+#R.learner.replay_capacity = 1,000,000
+
+#R.learner.weight_decay = 1e-2 # p1 p2
+#R.learner.weight_decay = 1e-3 # p3
+#R.learner.weight_decay = 1e-1 # p4
+#R.learner.weight_decay = 0 # p5
+
+#R.learner.alpha = 3e-4
+
+#E.learner.alpha = 1e-4
+#E.learner.weight_decay = 1e-2
+
+#E.learner.adam_eps = 1e-5
+
+#E.game_over_grace_step = 60 # 5
+
+E.use_settle_after_drop = false
+
+R.stucker.stack_count = 4
+
+#R.stucker.stack_count = 1    #4
+
+#R.learner.use_grad_clip = false
+
+#R.learner.use_per = false
+
+#train.main_runner_type = serial
+
+#R.model.soft_update_tau = 0.0
+
+#R.learner.replay_batch_size = 1
+
+#R.learner.replay_capacity = 524,280
+
+R.train_policy.uqe_eps_end = 0.0
+
+#R.train_policy.uqe_tau_start = 0.95 # 0.95
+#R.train_policy.uqe_tau_end = 0.95   # 0.85
+
+R.learner.per_beta_start = 0.4  # 0.6  0.4→0.6
+R.learner.per_beta_end = 0.6    # 1.0  0.4→0.6
+
+#app.online.exp_pause_step  = 80,000,000      # 80M
+
+#R.train_policy.uqe_eps_decay_steps = 5,000,000   # 5M
+#R.train_policy.uqe_eps_decay_steps = 20,000,000  # 20M
+
+#R.train_policy.uqe_tau_decay_steps = 5,000,000   # 5M
+#R.train_policy.uqe_tau_decay_steps = 20,000,000  # 20M
+
+#R.learner.per_beta_step = 5,000,000              # 5M
+#R.learner.per_beta_step = 20,000,000             # 20M
+
+#R.num_quantiles = 101
+
+#R.learner.per_alpha = 0
+#R.learner.per_alpha = 0.4
 
 #R.learner.update_warmup_steps = 51,200
 
@@ -85,7 +194,6 @@ net.body.$ = net.body.SuikaHybrid_Flatten_128HR
 #E.settle_max_steps = 1000   # 500
 #E.settle_max_steps = 300   # 500
 
-#E.use_settle_after_drop = false
 #E.use_instant_drop = false
 
 #E.settle_velocity_threshold = 0.05 # 0.1 安定判定の線速度閾値 (m/s)
@@ -203,7 +311,7 @@ net.body.$ = net.body.SuikaHybrid_Flatten_128HR
 #R.learner.alpha = 5e-4
 #R.learner.alpha = 1e-4
 
-#R.learner.gamma = 0.999  # ★ 長期戦略考慮
+R.learner.gamma = 0.999  # ★ 長期戦略考慮
 #R.learner.gamma = 0.995   # ★ horizon=200 
 #R.learner.gamma = 0.99   # ★
 #R.learner.gamma = 0.95   # ★
@@ -238,6 +346,7 @@ net.body.$ = net.body.SuikaHybrid_Flatten_128HR
 # デバッグ用
 # ==============================================================================
 
+#R.learner.update_warmup_steps = 2560
 #R.learner.update_warmup_steps = 0
 
 #app.train_auto_start = false
@@ -267,16 +376,20 @@ BF16.agent.learner.adam_eps = 1e-4   # AMP有効時は大きめにする
 
 #app.online.exp_pause_step  = 200,000,000    # 200M
 app.online.exp_pause_step  = 160,000,000    # 160M
+#app.online.exp_pause_step  = 80,000,000    # 80M
 #app.online.exp_pause_step  = 100,000,000      # 100M
+#app.online.exp_pause_step  = 15,000,000      # 15M
 #app.online.exp_pause_step  = 20,000,000      # 20M
 #app.online.exp_pause_step  = 40,000,000      # 40M
+#app.online.exp_pause_step  = 60,000,000      # 60M
 
 app.batchrun.exp_exit_step  = 160,000,000     # 160M
 #app.batchrun.exp_exit_step  = 40,000,000     # 40M
 #app.batchrun.exp_exit_step  = 20,000,000     # 20M
 
 #A.train_policy.uqe_eps_decay_steps = 2,000,000      # 2M
-A.train_policy.uqe_eps_decay_steps = 10,000,000      # 10M
+A.train_policy.uqe_eps_decay_steps = 5,000,000      # 5M
+#A.train_policy.uqe_eps_decay_steps = 10,000,000      # 10M
 #A.train_policy.uqe_eps_decay_steps = 20,000,000      # 20M
 
 #A.train_policy.uqe_tau_decay_steps = 2,000,000   # 2M
@@ -285,8 +398,8 @@ A.train_policy.uqe_tau_decay_steps = 20,000,000   # 20M
 #A.train_policy.uqe_tau_decay_steps = 40,000,000   # 40M
 #A.train_policy.uqe_tau_decay_steps = 100,000,000 # 100M
 
-A.learner.per_beta_step = 10,000,000              # 10M
-#A.learner.per_beta_step = 20,000,000              # 20M
+#A.learner.per_beta_step = 10,000,000              # 10M
+A.learner.per_beta_step = 20,000,000              # 20M
 #A.learner.per_beta_step = 40,000,000              # 40M
 #A.learner.per_beta_step = 100,000,000            # 100M
 
@@ -296,7 +409,7 @@ A.learner.per_beta_step = 10,000,000              # 10M
 # ==============================================================================
 
 #A.stucker.use_stacker = true
-#A.stucker.stack_count = 4
+#A.stucker.stack_count = 1
 
 A.use_optimistic_target = true         # Q値にtrain_policy（UQE）を反映させるならtrue
 
@@ -313,6 +426,7 @@ A.target_policy.uqe_tau_start = 0.85
 #A.target_policy.uqe_use_tail_mean = true
 
 A.learner.alpha = 1e-4         # ★
+A.learner.weight_decay = 1e-3  # ★
 A.learner.gamma = 0.995        # ★長期戦略必要
 A.learner.n_step = 1           # ノイズや結果分散が大きく、STEP毎の正確性が必要なため、N-STEPは使わない
 A.learner.replay_ratio = 1.0
@@ -321,10 +435,12 @@ A.learner.replay_capacity = 524,288
 A.learner.replay_batch_size = 128            # 256 学習が重めなのので少し下げる
 A.learner.grad_clip_tau = 0.5                # ★厳しめ（報酬を変えたら要調整）
 A.learner.update_warmup_steps = 25,600       # 256(replay-sample) * 100step
+
 A.learner.per_alpha = 0.2                    # ノイズや結果分散を考慮して低め
 #A.learner.per_beta_start = 0.4  # 0.6       # デフォルト 0.4
 A.learner.per_prio_clip_value = 50           # 30 
-A.learner.use_per_prio_clip = true           # 優先度をクリッピングするか
+#A.learner.use_per_prio_clip = true           # 優先度をクリッピングするか
+
 
 A.reward_scaler.use_dynamic_scaling = false
 A.reward_scaler.use_auto_post_scale = false
@@ -333,6 +449,7 @@ A.reward_scaler.use_clipping = false
 A.reward_scaler.clip_range = 10.0
 
 A.model.soft_update_tau = 0.005                 # 0.001 高め
+
 
 
 B.train_policy.policy_type = EpsilonGreedy
@@ -365,18 +482,19 @@ net.block.FC2.init.mode = 1
 # ==============================================================================
 
 # 入力: (B, Stack*16, 20, 32)
-net.block.[Embed2032].type = SpatialEmbedder
+net.block.[Embed2032].type = HybridSpatialEmbedder
 net.block.[Embed2032].embed.scalar_dim = 4
 net.block.[Embed2032].embed.grid_width = 20
 net.block.[Embed2032].embed.grid_height = 32
 net.block.[Embed2032].embed.num_classes = 13
 
-# 入力: (B, Stack*16, 40, 64)
-net.block.[Embed4064].type = SpatialEmbedder
+# 入力: (B, Stack*17, 40, 64)
+net.block.[Embed4064].type = HybridSpatialEmbedder
 net.block.[Embed4064].embed.scalar_dim = 4
 net.block.[Embed4064].embed.grid_width = 40
 net.block.[Embed4064].embed.grid_height = 64
 net.block.[Embed4064].embed.num_classes = 13   # Dropper X
+
 
 # 出力前 全結合層
 net.block.[LinearOut].type = Linear
@@ -444,7 +562,6 @@ net.block.[ConvInit64].conv.kernel_size = 3
 net.block.[ConvInit64].conv.padding = 1
 net.block.[ConvInit64].conv.stride = 2
 net.block.[ConvInit64].init.mode = 2
-
 
 net.block.[ResBlock32].type = ResBlock
 net.block.[ResBlock32].res.channels = 32
@@ -525,7 +642,12 @@ net.block.[ConvDown64].conv.kernel_size = 3
 net.block.[ConvDown64].conv.stride = 2
 net.block.[ConvDown64].conv.padding = 1
 
-# d_model にチャンネル数を合わせるプロジェクション層
+net.block.[ViT_Proj_64].type = Conv2d
+net.block.[ViT_Proj_64].conv.out_channels = 64
+net.block.[ViT_Proj_64].conv.kernel_size = 1
+net.block.[ViT_Proj_64].conv.stride = 1
+net.block.[ViT_Proj_64].conv.padding = 0
+
 net.block.[ViT_Proj_128].type = Conv2d
 net.block.[ViT_Proj_128].conv.out_channels = 128
 net.block.[ViT_Proj_128].conv.kernel_size = 1
@@ -538,19 +660,26 @@ net.block.[ViT_Proj_256].conv.kernel_size = 1
 net.block.[ViT_Proj_256].conv.stride = 1
 net.block.[ViT_Proj_256].conv.padding = 0
 
-# Transformer Encoder
+net.block.[TransEnc_64].type = TransformerEncoder
+net.block.[TransEnc_64].tf.d_model = 64
+net.block.[TransEnc_64].tf.nhead = 8
+net.block.[TransEnc_64].tf.num_layers = 2
+#net.block.[TransEnc_64].tf.num_layers = 4
+net.block.[TransEnc_64].tf.dim_feedforward = 256
+#net.block.[TransEnc_64].tf.dim_feedforward = 512
+
 net.block.[TransEnc_128].type = TransformerEncoder
 net.block.[TransEnc_128].tf.d_model = 128
 net.block.[TransEnc_128].tf.nhead = 8
 net.block.[TransEnc_128].tf.num_layers = 4
 net.block.[TransEnc_128].tf.dim_feedforward = 512
 
-
 net.block.[TransEnc_256].type = TransformerEncoder
 net.block.[TransEnc_256].tf.d_model = 256
 net.block.[TransEnc_256].tf.nhead = 8
 net.block.[TransEnc_256].tf.num_layers = 6
 net.block.[TransEnc_256].tf.dim_feedforward = 1024
+
 
 net.block.[GroupNorm_64g8].type = GroupNorm
 net.block.[GroupNorm_64g8].num_channels = 64
@@ -569,6 +698,7 @@ net.body.SuikaHybrid_Flatten_128.structure = Embed4064 > ConvInit64 > SiLU > Res
 net.body.SuikaHybrid_Flatten_128g8.structure = Embed4064 > ConvInit64 > GroupNorm_64g8 > SiLU > ResBlock64g8(*4) > ConvDown64 > GroupNorm_64g8 > SiLU > ViT_Proj_128 > GroupNorm_128g8 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
 net.body.SuikaHybrid_Flatten_256.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_256 > SiLU > PosEmbed2D > TransEnc_256 > Flatten
 
+
 # [SuikaHybrid_CLS] ResNet + ViT + CLS
 net.body.SuikaHybrid_CLS_128.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > ClsAppend > TransEnc_128 > ClsExtract
 net.body.SuikaHybrid_CLS_256.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_256 > SiLU > PosEmbed2D > ClsAppend > TransEnc_256 > ClsExtract
@@ -577,64 +707,63 @@ net.body.SuikaHybrid_CLS_256_LC.structure = Embed4064 > ConvInit64 > SiLU > ResB
 net.body.SuikaHybrid_GAP_128.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > GAP1D
 net.body.SuikaHybrid_GAP_256.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_256 > SiLU > PosEmbed2D > TransEnc_256 > GAP1D
 
+net.body.SuikaHybrid_Flatten_64HR.structure  = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ViT_Proj_64  > SiLU > PosEmbed2D > TransEnc_64  > Flatten
 net.body.SuikaHybrid_Flatten_128HR.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
 net.body.SuikaHybrid_Flatten_256HR.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ViT_Proj_256 > SiLU > PosEmbed2D > TransEnc_256 > Flatten
 
 
 # ==============================================================================
-# SuikaViT Small
+# V2
 # ==============================================================================
 
-# 空間を一気に 1/4 (16x10 = 160トークン) にダウンサンプリング
-# stride=4で情報の取りこぼしを防ぐため、kernel_size=5で少し広めに視界を取る
-net.block.[ViT_PatchConv_S].type = Conv2d
-net.block.[ViT_PatchConv_S].conv.out_channels = 64  # ★
-net.block.[ViT_PatchConv_S].conv.kernel_size = 5
-net.block.[ViT_PatchConv_S].conv.stride = 4
-net.block.[ViT_PatchConv_S].conv.padding = 2
+net.block.[ResBlock64p].type = ResBlock
+net.block.[ResBlock64p].res.channels = 64
+net.block.[ResBlock64p].res.kernel_size = 3
+net.block.[ResBlock64p].res.activation = silu
+net.block.[ResBlock64p].res.activation_mode = pre
+
+net.block.[Embed4064_v2].type = SpatialEmbedder
+net.block.[Embed4064_v2].embed.grid_width = 40
+net.block.[Embed4064_v2].embed.grid_height = 64
+
+net.block.[Embed4050_v2].type = SpatialEmbedder
+net.block.[Embed4050_v2].embed.grid_width = 40
+net.block.[Embed4050_v2].embed.grid_height = 50
+
+net.block.[Embed6444_v2].type = SpatialEmbedder
+net.block.[Embed6444_v2].embed.grid_width = 64
+net.block.[Embed6444_v2].embed.grid_height = 44
+
+net.block.[Embed5846_v2].type = SpatialEmbedder
+net.block.[Embed5846_v2].embed.grid_width = 58
+net.block.[Embed5846_v2].embed.grid_height = 46
 
 
-
-# 次元圧縮 (d_model = 64)
-net.block.[ViT_Proj_64].type = Conv2d
-net.block.[ViT_Proj_64].conv.out_channels = 64    # ★
-net.block.[ViT_Proj_64].conv.kernel_size = 1
-
-# Transformer Encoder (軽量版)
-net.block.[TransEnc_64].type = TransformerEncoder
-net.block.[TransEnc_64].tf.d_model = 64           # ★
-#net.block.[TransEnc_64].tf.nhead = 4
-net.block.[TransEnc_64].tf.nhead = 8
-net.block.[TransEnc_64].tf.num_layers = 2         # ★
-net.block.[TransEnc_64].tf.dim_feedforward = 256
-
-# SuikaViT_Small
-net.body.SuikaViT_Small.structure = Embed4064 > ViT_PatchConv_S > SiLU > ViT_Proj_64 > SiLU > PosEmbed2D > TransEnc_64 > Flatten
-
-# CNNの目(高解像度) ＋ 空間圧縮 ＋ ViTの脳(軽量)
-net.body.SuikaHybrid_Small.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64 > ResBlock64 > ConvDown64 > SiLU > ViT_Proj_64 > SiLU > PosEmbed2D > TransEnc_64 > Flatten
+net.branch.[vector_feature].bind = vector
+net.body.output.[features] = main_feature
 
 
-# ==============================================================================
-# Ablation Study: Dilated ResNet vs Standard ResNet + ViT
-# ==============================================================================
+#net.branch.SuikaResNet4064_test.bind = grid, vector_feature
+#net.branch.SuikaResNet4064_test.structure = ConvInit32 > SiLU > ResBlock32 > ConvCompress > SiLU > Flatten
 
-# Dilation(d=2, d=4)を使って、CNN単体で必死に盤面全体のコンテキストをかき集める
-#net.body.SuikaResNet_Control.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvCompress > SiLU > Flatten > LinearOut
+#net.branch.SuikaResNet4064_10d_v1.bind = v1_flat_obs
+#net.branch.SuikaResNet4064_10d_v1.structure =  Embed4064 > ConvInit32 > SiLU > ResBlock32 > ResBlock32d2 > ResBlock32d4 > ResBlock32 > ConvCompress > SiLU > Flatten > LinearOut
+#net.branch.SuikaResNet4064_10d_v1.auto_format = false
 
-# CNNは目の前の局所特徴(エッジ)の抽出に専念(Dilation無し)。大局的な視野はViTに完全に任せる
-net.body.SuikaResNet_ViT.structure     = Embed4064 > ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64   > SiLU > ViT_Proj_S > SiLU > PosEmbed2D > TransEnc_S > Flatten
+#net.branch.SuikaHybrid_Flatten_128_v1.bind = v1_flat_obs
+#net.branch.SuikaHybrid_Flatten_128_v1.structure   = Embed4064 >ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
+#net.branch.SuikaHybrid_Flatten_128_v1.auto_format = false
 
 
-# ==============================================================================
-# TRUE Ablation Study: ResNet 10d vs ResNet 10d + ViT
-# ==============================================================================
+net.branch.SuikaResNet_10d.bind = grid, vector_feature
+net.branch.SuikaResNet_10d.structure =  ConvInit32 > SiLU > ResBlock32 > ResBlock32d2 > ResBlock32d4 > ResBlock32 > ConvCompress > SiLU > Flatten > LinearOut
 
-# CNNの目（10d）のあと、1x1 Convで4chに圧縮して従来の全結合層（Flatten）へ
-net.body.SuikaResNetD_Control.structure = Embed4064 > ConvInit64 > SiLU > ResBlock64 > ResBlock64d2 > ResBlock64d4 > ResBlock64 > ConvCompress > SiLU > Flatten > LinearOut
+net.branch.SuikaHybrid_Flatten_128.bind = grid, vector_feature
+net.branch.SuikaHybrid_Flatten_128.structure     = ConvInit64 > SiLU > ResBlock64(*4)  > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
 
-# 全く同じCNNの目（10d）を通した後、ViT用の160トークンに圧縮（ConvDown64）してTransformerへ
-net.body.SuikaResNetD_ViT.structure     = Embed4064 > ConvInit64 > SiLU > ResBlock64 > ResBlock64d2 > ResBlock64d4 > ResBlock64 > ConvDown64   > SiLU > ViT_Proj_S > SiLU > PosEmbed2D > TransEnc_S > Flatten
+net.branch.SuikaHybrid_Flatten_128_pre.bind = grid, vector_feature
+net.branch.SuikaHybrid_Flatten_128_pre.structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
+
 
 
 # ==============================================================================
@@ -657,6 +786,10 @@ metrics.scalar.baseline.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn inter
 #metrics.scalar.[22_eval/04_test2_reward_ema] = $runner eval.[test2].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
 
 metrics.scalar.[32_agent_base/04_uqe_tau_target] = $agent target_policy.uqe_tau @learn $exp_step
+
+M.[37_agent_qtd/03_td_mean_ema] = td_mean @learn $ema clip:0.02
+M.[37_agent_qtd/05_td_std_ema] = td_std @learn $ema clip:0.02
+M.[38_agent_loss/02_loss_ema] = loss @learn  $ema clip:0.005
 
 metrics.scalar.[42_env/01_ep_maxrank_max]  = $env max.ep_max_rank @train
 #metrics.scalar.[42_env/02_ep_frct_max]     = $env max.ep_end_fruit_count @train
@@ -722,12 +855,12 @@ metrics.image.interval = 0   # 出力全無効
 #metrics.image.[60_agent_img/01_conv2d_16p].conv2d.network_key = policy-net.conv2d
 #metrics.image.[60_agent_img/01_conv2d_16p].conv2d.min_block_size = 40
 
-##metrics.image.[60_agent_img/02_conv2d_32p].type = Conv2d
-##metrics.image.[60_agent_img/02_conv2d_32p].interval = 10
-##metrics.image.[60_agent_img/02_conv2d_32p].conv2d.channels_per_row = 34
-##metrics.image.[60_agent_img/02_conv2d_32p].conv2d.network_key = policy-net.conv2d
-##metrics.image.[60_agent_img/02_conv2d_32p].conv2d.colormap = gray
-##metrics.image.[60_agent_img/02_conv2d_32p].conv2d.min_block_size = 40
+#metrics.image.[60_agent_img/02_conv2d_32p].type = Conv2d
+#metrics.image.[60_agent_img/02_conv2d_32p].interval = 10
+#metrics.image.[60_agent_img/02_conv2d_32p].conv2d.channels_per_row = 34
+#metrics.image.[60_agent_img/02_conv2d_32p].conv2d.network_key = policy-net.conv2d
+#metrics.image.[60_agent_img/02_conv2d_32p].conv2d.colormap = gray
+#metrics.image.[60_agent_img/02_conv2d_32p].conv2d.min_block_size = 40
 
 #metrics.image.[60_agent_img/03_conv2d_64p].type = Conv2d
 #metrics.image.[60_agent_img/03_conv2d_64p].interval = 5
@@ -742,12 +875,14 @@ metrics.image.interval = 0   # 出力全無効
 #metrics.image.[60_agent_img/22_conv2d_32t].conv2d.network_key = target-net.conv2d
 #metrics.image.[60_agent_img/22_conv2d_32t].conv2d.min_block_size = 40
 
-metrics.image.[60_agent_img/11_conv2d_32p_jet].type = Conv2d
-metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 10
-metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.channels_per_row = 34
-metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.network_key = policy-net.conv2d
-metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.colormap = jet
-metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.min_block_size = 40
+##metrics.image.[60_agent_img/11_conv2d_32p_jet].type = Conv2d
+#metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 10
+##metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 20
+###metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 0
+#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.channels_per_row = 34
+#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.network_key = policy-net.conv2d
+#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.colormap = jet
+#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.min_block_size = 40
 
 #metrics.image.[60_agent_img/23_conv2d_32t_jet].type = Conv2d
 #metrics.image.[60_agent_img/23_conv2d_32t_jet].interval = 5
@@ -755,7 +890,6 @@ metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.min_block_size = 40
 #metrics.image.[60_agent_img/23_conv2d_32t_jet].conv2d.network_key = target-net.conv2d
 #metrics.image.[60_agent_img/23_conv2d_32t_jet].conv2d.colormap = jet
 #metrics.image.[60_agent_img/23_conv2d_32t_jet].conv2d.min_block_size = 40
-
 
 #metrics.image.[60_agent_img/12_conv2d_16p_hot].type = Conv2d
 #metrics.image.[60_agent_img/12_conv2d_16p_hot].interval = 5
@@ -792,10 +926,20 @@ env.class_id = DropMergeEnv
 
 # --- DropMergeEnv ---
 
-DropMergeEnv.G4064.grid_cols = 40
-DropMergeEnv.G4064.grid_rows = 64
 DropMergeEnv.G2032.grid_cols = 20
 DropMergeEnv.G2032.grid_rows = 32
+
+DropMergeEnv.G4064.grid_cols = 40
+DropMergeEnv.G4064.grid_rows = 64
+
+DropMergeEnv.G4050.grid_cols = 40
+DropMergeEnv.G4050.grid_rows = 50
+
+DropMergeEnv.G6444.grid_cols = 64
+DropMergeEnv.G6444.grid_rows = 44
+
+DropMergeEnv.G5846.grid_cols = 58
+DropMergeEnv.G5846.grid_rows = 46
 
 
 # --- DropMergeEnv fun1
@@ -837,7 +981,7 @@ DropMergeEnv.heavy.fruit_densities = 10.0 5.0 3.0 1.8 1.1 0.7 0.45 0.30 0.22 0.1
 #DropMergeEnv.baseline.fruit_scores = 0.01 0.02 0.05 0.1 0.2 0.5 1.5 4.0 10.0 30.0 100.0
 #DropMergeEnv.baseline.fruit_scores = 0.0001 0.0001 0.0001 0.0001 0.0001 0.0001 0.0001 1.0  4.0  10.0 100.0
 #DropMergeEnv.baseline.fruit_scores  = 0.001  0.002  0.005  0.01   0.05   0.15   0.50   1.50 4.00 10.0 100.0
-DropMergeEnv.baseline.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0   # 本家ベースで「Rank N+1 のスコア ＞ Rank N のスコア × 2」になるよう調整
+DropMergeEnv.baseline.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 820.0  # 本家ベースで「Rank N+1 のスコア ＞ Rank N のスコア × 2」になるよう調整
 
 DropMergeEnv.baseline.use_fast_move = true
 DropMergeEnv.baseline.use_instant_drop = true
@@ -877,7 +1021,8 @@ DropMergeEnv.orig.game_over_grace_step = 1
 
 DropMergeEnv.seed_mode = normal
 DropMergeEnv.box_width = 3.0
-DropMergeEnv.box_height = 4.0
+#DropMergeEnv.box_height = 4.0
+DropMergeEnv.box_height = 3.75           # 4.0
 DropMergeEnv.ground_y = 0.5
 DropMergeEnv.grid_cols = 40              # グリッド列数（横方向）
 DropMergeEnv.grid_rows = 64              # グリッド行数（縦方向）
@@ -907,8 +1052,9 @@ DropMergeEnv.use_settle_after_drop = false   # 物理演算が安定するまで
 DropMergeEnv.settle_velocity_threshold = 0.1 # 安定判定の線速度閾値 (m/s)
 DropMergeEnv.settle_angular_threshold = 0.1  # 安定判定の角速度閾値 (rad/s)
 DropMergeEnv.settle_max_steps = 500          # 安定待ちの最大物理ステップ数 (無限ループ防止用)
-DropMergeEnv.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0   # 本家ベースで「Rank N+1 のスコア ＞ Rank N のスコア × 2」になるよう調整
-DropMergeEnv.fruit_radii = 0.09 0.13 0.17 0.22 0.28 0.35 0.43 0.52 0.62 0.72 0.84          # 果物半径
+DropMergeEnv.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 820  # 本家ベースで「Rank N+1 のスコア ＞ Rank N のスコア × 2」になるよう調整
+#DropMergeEnv.fruit_radii = 0.09 0.13 0.17 0.22 0.28 0.35 0.43 0.52 0.62 0.72 0.84          # 果物半径
+DropMergeEnv.fruit_radii = 0.08 0.12 0.17 0.22 0.27 0.33 0.40 0.48 0.64 0.72 0.84          # 果物半径
 DropMergeEnv.fruit_densities = 10.0 5.0 3.0 1.8 1.1 0.7 0.45 0.30 0.22 0.16 0.12           # 全部同じ重さ
 DropMergeEnv.drop_probs = 20.0 20.0 20.0 20.0 20.0                                         # ドロッパー出現率分布（ランク別）
 DropMergeEnv.box_restitution = 0        # 箱の反発係数。-1で果物と同じ
@@ -921,7 +1067,7 @@ DropMergeEnv.box_friction = -1          # 箱の摩擦。-1で果物と同じ
 #train.eval.[eval1].interval = 0
 #train.eval.[eval2].interval = 0
 #train.eval.[eval1].interval = 1000
-#train.eval.[eval2].interval = 1000
+#train.eval.[eval2].interval = 10
 train.eval.[eval1].interval = 500
 train.eval.[eval2].interval = 500
 #train.eval.[eval1].interval = 200
