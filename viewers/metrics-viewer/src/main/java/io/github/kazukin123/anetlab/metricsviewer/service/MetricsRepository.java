@@ -7,11 +7,11 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
@@ -166,7 +166,7 @@ public class MetricsRepository {
 		if (numChunks < 1) return List.of(originalPoints.get(n - 1));
 
 		final double chunkSize = (double) n / numChunks;
-		final Set<Integer> selectedIndices = new LinkedHashSet<>();
+		final Set<Integer> selectedIndices = new TreeSet<>();
 
 		for (int i = 0; i < numChunks; i++) {
 			final int start = (int) (i * chunkSize);

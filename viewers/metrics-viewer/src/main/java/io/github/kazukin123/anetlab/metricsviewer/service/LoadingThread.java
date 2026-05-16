@@ -16,13 +16,12 @@ import io.github.kazukin123.anetlab.metricsviewer.infra.RunScanner;
 import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricsFileBlock;
 
 /**
- * Background thread that periodically scans runs directory
- * and updates metrics cache.
+ * Background thread that periodically scans runs directory and updates metrics cache.
  */
 @Component
 public class LoadingThread extends Thread {
 
-	private static final int SLEEP_MS = 1000;
+	private static final int SLEEP_MS = 10000;
 	private static final int MAX_LINES = 1000000;
 	private static final int SAVE_INTERVAL_BLOCKS = 100;
 
@@ -70,39 +69,53 @@ public class LoadingThread extends Thread {
 		this.interrupt();
 	}
 
+	public void terminateAndWait(long timeoutMs) {
+		terminate();
+		if (Thread.currentThread() == this) {
+			return;
+		}
+		try {
+			join(timeoutMs);
+			if (isAlive()) {
+				log.warn("LoadingThread did not stop within {}ms.", timeoutMs);
+			}
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			log.warn("Interrupted while waiting for LoadingThread to stop.");
+		}
+	}
+
 	@Override
 	public void run() {
-		// 最初に読めるだけ全部のキャッシュを読む
-		log.info("LoadingThread started. Loading cache.");
-		metricsRepository.loadCache(runScanner.getRunsDir());
-		log.info("Cache loading completed.");
+		try {
+			log.info("LoadingThread started. Loading cache.");
+			metricsRepository.loadCache(runScanner.getRunsDir());
+			log.info("Cache loading completed.");
 
-		// スレッドメインループ
-		while (running && !isInterrupted()) {
-			try {
-				// 新しいRunが見つかってるかもなのでキャッシュ読込みを試みる
-				final Path runsDir = this.runScanner.getRunsDir();
-				metricsRepository.loadCacheForRun(runsDir);
+			while (running && !isInterrupted()) {
+				try {
+					final Path runsDir = this.runScanner.getRunsDir();
+					metricsRepository.loadCacheForRun(runsDir);
 
-				// 優先リクエストがあれば先に処理
-				final Request req = requestRef.getAndSet(null);
-				if (req != null) {
-					log.debug("Processing request: runs={} tags={}", req.runIds, req.tagKeys);
-					processRuns(req.runIds);
-				} else {
-					// 定期スキャン
-					final List<String> runIds = runScanner.listRunId();
-					processRuns(runIds);
+					final Request req = requestRef.getAndSet(null);
+					if (req != null) {
+						log.debug("Processing request: runs={} tags={}", req.runIds, req.tagKeys);
+						processRuns(req.runIds);
+					} else {
+						final List<String> runIds = runScanner.listRunId();
+						processRuns(runIds);
+					}
+					Thread.sleep(SLEEP_MS);
+				} catch (InterruptedException e) {
+					break;
+				} catch (Exception e) {
+					log.warn("LoadingThread error: {}", e.getMessage());
 				}
-				// リラックス
-				Thread.sleep(SLEEP_MS);
-			} catch (InterruptedException e) {
-				break;
-			} catch (Exception e) {
-				log.warn("LoadingThread error: {}", e.getMessage());
 			}
+		} finally {
+			saveAllLoadedCaches();
+			log.info("LoadingThread stopped.");
 		}
-		log.info("LoadingThread stopped.");
 	}
 
 	/** Process each run sequentially and merge new metrics. */
@@ -110,21 +123,22 @@ public class LoadingThread extends Thread {
 		if (runIds == null || runIds.isEmpty()) return;
 
 		for (String runId : runIds) {
+			if (!running || isInterrupted()) return;
 			try {
-				// 対象Runのディレクトリ・ファイルを決定
+				// �Ώ�Run�̃f�B���N�g���E�t�@�C��������
 				final Path runDir = runScanner.resolveRunDir(runId);
 				final Path metricsFile = Path.of("runs", runId, "metrics.jsonl");
 				if (!Files.exists(metricsFile)) continue;
 
-				// 最後の位置からブロック読み込み
+				// �Ō�̈ʒu����u���b�N�ǂݍ���
 				final long lastPos = metricsRepository.getLastReadPosition(runId);
 				final MetricsFileBlock block = fileReader.parseDiff(metricsFile, lastPos, MAX_LINES);
 				if (block.getLines().isEmpty()) continue;
 
-				// メモリ上でマージ
+				// ��������Ń}�[�W
 				metricsRepository.mergeMetrics(runId, block);
 
-				// 未セーブが一定量溜まったらファイル書き出し
+				// ���Z�[�u�����ʗ��܂�����t�@�C�������o��
 				final int dirtyCount = saveCounter.merge(runId, 1, Integer::sum);
 				if (dirtyCount >= SAVE_INTERVAL_BLOCKS) {
 					log.info("Saving cache. runId={} dirtyCount={}", runId, dirtyCount);
@@ -136,6 +150,24 @@ public class LoadingThread extends Thread {
 						block.getLines().size(), runId, block.getEndOffset(), block.isEOF());
 			} catch (Exception e) {
 				log.warn("Failed to load metrics for run {}: {}", runId, e.getMessage());
+			}
+		}
+	}
+
+	private void saveAllLoadedCaches() {
+		final List<String> runIds = metricsRepository.listAllRunIds();
+		if (runIds.isEmpty()) {
+			log.info("No loaded cache to save.");
+			return;
+		}
+
+		log.info("Saving all loaded caches. runs={}", runIds.size());
+		for (String runId : runIds) {
+			try {
+				metricsRepository.saveCache(runScanner.resolveRunDir(runId), runId);
+				saveCounter.put(runId, 0);
+			} catch (Exception e) {
+				log.warn("Failed to save cache on shutdown. runId={} message={}", runId, e.getMessage());
 			}
 		}
 	}

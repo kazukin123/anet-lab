@@ -4,7 +4,7 @@
    ============================================================ */
 
 const API_BASE_URL = (false) ? "/dummy_api" : "/api";
-const AUTO_RELOAD_INTERVAL_MS = 20000;	// AutoReload間隔(msec)
+const AUTO_RELOAD_INTERVAL_MS = 30000;	// AutoReload間隔(msec)
 //const MAX_POINTS = 6000;	// 4Kモニタ想定
 const MAX_POINTS = 10000000; // サーバーサイドでのダウンサンプリングに任せる為に大きくする
 const MAX_SCATTER_GL = 0;	// あまり大きくするとグラフがでなくなる
