@@ -17,7 +17,7 @@ MuZeroExperienceSamples MuZeroExperienceSamples::To(torch::Device device) const
     anet::ProfileRange r("MuZeroExperienceSamples::To");
 
     return {
-        obs.to(device, /*non_blocking=*/true),
+        obs.To(device, /*non_blocking=*/true),
         actions.to(device, true),
         target_rewards.to(device, true),
         target_values.to(device, true),
@@ -174,7 +174,7 @@ MuZeroExperienceSamples MuZeroUniformSampler::Sample(const MuZeroReplayStorage& 
     ANET_ASSERT_MSG(storage.GetTotalSize() > 0, "Cannot sample from an empty ReplayBuffer.");
 
     // バッチ分のTensorを構築するための配列
-    std::vector<torch::Tensor> b_obs;
+    std::vector<anet::TensorDict> b_obs;
     std::vector<torch::Tensor> b_actions;
     std::vector<torch::Tensor> b_rewards;
     std::vector<torch::Tensor> b_values;
@@ -260,7 +260,7 @@ MuZeroExperienceSamples MuZeroUniformSampler::Sample(const MuZeroReplayStorage& 
 
     // テンソルをスタックしてバッチ次元 [B, ...] を作成
     return {
-        torch::stack(b_obs, 0),
+		anet::TensorDict::Stack(b_obs, 0),
         torch::stack(b_actions, 0),
         torch::stack(b_rewards, 0),
         torch::stack(b_values, 0),
@@ -296,7 +296,7 @@ void MuZeroReplayBuffer::Push(const anet::rl::BatchExperience& batch_exp)
     for (int64_t b = 0; b < num_envs_; ++b) {
         // 生のステップデータを構築
         MuZeroStepRecord step;
-        step.obs = batch_exp.state.obs[b].cpu();
+        step.obs = batch_exp.state.obs[b].Cpu();
         step.action = batch_exp.action->GetAction()[b].item<int64_t>();
         step.reward = batch_exp.reward[b].item<float>();
         step.done = batch_exp.next_state.done[b].item<bool>();
