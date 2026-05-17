@@ -38,9 +38,20 @@ net.body.$ = net.body.MLP2
 # デバッグ用
 # ==============================================================================
 
-R.learner.update_warmup_steps = 0
+#R.stucker.stack_count = 4
+R.stucker.stack_count = 1
 
-app.train_auto_start = false
+R.learner.use_per = true
+
+#R.learner.replay_batch_size = 2
+
+#train.main_runner_type = serial
+
+#R.learner.n_step = 1
+
+#R.learner.update_warmup_steps = 10
+
+#app.train_auto_start = false
 
 app.metrics_logger.video_codec = libx264  # h264_nvenc
 
@@ -110,7 +121,6 @@ B.learner.update_warmup_steps = 999999999
 B.learner.alpha = 0
 
 
-
 # ==============================================================================
 # MLP
 # ==============================================================================
@@ -126,6 +136,10 @@ net.block.FC2.linear.out_features = 512
 
 net.block.FC1.init.mode = 1
 net.block.FC2.init.mode = 1
+
+net.branch.[main_feature].bind = vector
+net.branch.[main_feature].structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU
+net.body.output.[features] = main_feature
 
 
 # ==============================================================================
@@ -166,15 +180,15 @@ metrics.scalar.[42_env/00_ep_step_mean_ema]  = $env mean.episode_len @train $ema
 # image metrics
 # ==============================================================================
 
-#metrics.image.interval = 0   # 出力全無効
+metrics.image.interval = 0   # 出力全無効
 #metrics.image.interval = 1   # 毎ステップ出力
-metrics.image.interval = 10   # 通常運用
+#metrics.image.interval = 10   # 通常運用
 
 image.phm.per-prio.heatmap.width = 10
 image.phm.per-prio.heatmap.height = 10
 
-metrics.image.[43_agent_img/52_per_hm_prio_01].$ = image.phm.per-prio > image.phm.s01
-metrics.image.[45_agent_img/05_shm_01_maxq_01].$ = image.shm.qmax > image.shm.01
+#metrics.image.[43_agent_img/52_per_hm_prio_01].$ = image.phm.per-prio > image.phm.s01
+#metrics.image.[45_agent_img/05_shm_01_maxq_01].$ = image.shm.qmax > image.shm.01
 
 
 
