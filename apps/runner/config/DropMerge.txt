@@ -97,7 +97,7 @@ net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre
 #app.run_name = run_{t}_gs_5846
 #app.run_name = run_{t}_ns_3
 #app.run_name = run_{t}_gs_5846_cy7_rr25
-app.run_name = run_{t}_gs_5846_cy12_dsr2000
+#app.run_name = run_{t}_gs_5846_cy12_dsr2000
 
 
 #R.auto_load_file = ../../runs/DropMerge_SuikaHybrid_Flatten_128.anet

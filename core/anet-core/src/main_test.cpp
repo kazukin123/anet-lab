@@ -23,9 +23,10 @@ class TestLogTargetGuard {
 public:
     TestLogTargetGuard()
     {
-        log_target_ = new wxLogStderr(stderr);
-        delete log_target_->SetFormatter(new anet::log::LogFormatter(/*enable_timestamp=*/false));
+        wxLog::DontCreateOnDemand();
+        log_target_ = new TestLogTarget(stderr);
         old_log_target_ = wxLog::SetActiveTarget(log_target_);
+        wxLog::EnableLogging(true);
 
 #if ANET_ENABLE_DEBUGINFO
         wxLog::SetLogLevel(wxLOG_Debug);
@@ -45,8 +46,32 @@ public:
     TestLogTargetGuard& operator=(const TestLogTargetGuard&) = delete;
 
 private:
+    class TestLogTarget final : public wxLog {
+    public:
+        explicit TestLogTarget(FILE* file)
+            : file_(file)
+        {
+        }
+
+    protected:
+        void DoLogRecord(wxLogLevel level, const wxString& msg, const wxLogRecordInfo& info) override
+        {
+            anet::log::LogFormatter formatter(/*enable_timestamp=*/false);
+            wxString formatted = formatter.Format(level, msg, info);
+            auto utf8 = formatted.ToUTF8();
+            if (utf8.data()) {
+                std::fputs(utf8.data(), file_);
+                std::fputc('\n', file_);
+                std::fflush(file_);
+            }
+        }
+
+    private:
+        FILE* file_;
+    };
+
     wxLog* old_log_target_ = nullptr;
-    wxLogStderr* log_target_ = nullptr;
+    TestLogTarget* log_target_ = nullptr;
 };
 
 } // namespace

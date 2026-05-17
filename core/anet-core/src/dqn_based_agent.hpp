@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <optional>
+#include <limits>
 #include "anet/agent.hpp"
 #include "anet/rl.hpp"
 #include "anet/scaler.hpp"
@@ -205,6 +206,33 @@ namespace anet::rl::dqn {
         }
     };
 
+    struct NormalizedSampleObservations {
+        anet::TensorDict obs;
+        anet::TensorDict next_obs;
+    };
+
+    struct OptimizerStepResult {
+        torch::Tensor grad_norm_tensor;
+        std::optional<float> grad_norm;
+        float grad_clip_ratio = 0.0f;
+        float grad_clip_tau = std::numeric_limits<float>::infinity();
+    };
+
+    struct PerPriorityUpdateInfo {
+        torch::Tensor per_clipped_count;
+        torch::Tensor per_priorities;
+        torch::Tensor per_is_weights;
+        long per_minibatch_size = 0;
+    };
+
+    struct QuantileMetrics {
+        torch::Tensor q_sa;
+        torch::Tensor max_q;
+        torch::Tensor q_std;
+        torch::Tensor q_gap;
+        torch::Tensor q_gap_rel;
+    };
+
 
     // ======================================================
     //  NetworkModel
@@ -220,6 +248,14 @@ namespace anet::rl::dqn {
             int64_t n_actions,
             std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory,
             int64_t num_quantiles);
+    protected:
+        NetworkModel(
+            const NetworkModelConfig& config,
+            std::shared_ptr<anet::nn::Network> policy_net,
+            std::shared_ptr<anet::nn::Network> target_net,
+            int64_t n_actions,
+            int64_t num_quantiles);
+    public:
 
         /// 行動選択・学習用：期待値Q (B, A) を返す
         /// QR-DQNの場合は分布の平均を計算して返す
@@ -276,6 +312,7 @@ namespace anet::rl::dqn {
 
         virtual ~ActionPolicy() = default;
     protected:
+        anet::TensorDict ForwardForAction(const anet::TensorDict& obs, std::shared_ptr<anet::nn::Network> network) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t batch_size, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         BatchActionInfo MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const;
         //torch::Tensor GetQuantiles(const torch::Tensor& obs, bool use_target) const;
@@ -381,6 +418,20 @@ namespace anet::rl::dqn {
     protected:
         void SetupOptimizer();                  ///< 共通初期化処理（Optimizer生成など）
         void SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, anet::seed_t seed);
+        NormalizedSampleObservations NormalizeSampleObservations(const anet::rl::ExperienceSamples& samples) const;
+        OptimizerStepResult Optimize(const torch::Tensor& loss);
+        PerPriorityUpdateInfo MakePerPriorityUpdateInfo(const anet::rl::ExperienceSamples& samples, const torch::Tensor& td_error) const;
+        PerPriorityUpdateInfo UpdatePerPriorities(const anet::rl::ExperienceSamples& samples, const torch::Tensor& td_error);
+        std::shared_ptr<anet::rl::dqn::BatchUpdateResult> BuildBatchUpdateResult(
+            const torch::Tensor& loss,
+            const torch::Tensor& td_error,
+            const OptimizerStepResult& opt_result,
+            const torch::Tensor& max_q,
+            const torch::Tensor& q_sa,
+            const PerPriorityUpdateInfo& per_info,
+            const torch::Tensor& q_std = torch::Tensor(),
+            const torch::Tensor& q_gap = torch::Tensor(),
+            const torch::Tensor& q_gap_rel = torch::Tensor()) const;
     private:
         bool CanUpdate(step_t exp_step) const;
         void UpdatePerBeta(step_t step);
@@ -403,6 +454,27 @@ namespace anet::rl::dqn {
         float update_credit_ = 0.0f;
     };
 
+    class QuantileLearnerBase : public anet::rl::dqn::Learner {
+    public:
+        explicit QuantileLearnerBase(
+        	const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+            const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
+            std::shared_ptr<ActionPolicy> target_policy,
+            std::optional<StuckerConfig> stucker_config = std::nullopt,
+            std::optional<anet::seed_t> target_seed = std::nullopt);
+
+        virtual ~QuantileLearnerBase() = default;
+    protected:
+        torch::Tensor GatherActionQuantiles(const torch::Tensor& quantiles, const torch::Tensor& actions) const;
+        torch::Tensor SelectTargetActions(const anet::TensorDict& next_obs);
+        torch::Tensor BuildTargetQuantiles(const anet::rl::ExperienceSamples& samples, const torch::Tensor& next_dist) const;
+        QuantileMetrics BuildQuantileMetrics(const torch::Tensor& current_dist, const torch::Tensor& q_values_mean) const;
+        torch::Tensor ComputeQuantileHuberLoss(
+        	const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& taus) const;
+        static torch::Tensor ComputeQuantileHuberLoss(
+            const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& taus, float kappa);
+    };
+
     class TDLearner final : public anet::rl::dqn::Learner {
     public:
         explicit TDLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
@@ -415,7 +487,7 @@ namespace anet::rl::dqn {
             const anet::rl::ExperienceSamples& samples) override;
     };
 
-    class QRLearner final : public anet::rl::dqn::Learner {
+    class QRLearner final : public anet::rl::dqn::QuantileLearnerBase {
     public:
         explicit QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
@@ -425,9 +497,6 @@ namespace anet::rl::dqn {
 
         std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
             const anet::rl::ExperienceSamples& samples) override;
-    private:
-        torch::Tensor ComputeQuantileHuberLoss(
-            const torch::Tensor& current_dist, const torch::Tensor& target_dist) const;
     private:
         torch::Tensor tau_i_; // QuantileHuberLoss 算出用
     };
