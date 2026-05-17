@@ -515,7 +515,7 @@ void EpisodeEvalObserver::RunEvaluationEpisode()
     bool truncated = false;
     do {
         auto action = actor_->MakeAction(counts_local, state);
-        auto env_result = env_->Step(action);
+        auto env_result = env_->Step(action, runmode_);
         eps_total_reward += env_result->reward.mean().item<float>();
         state = env_result->continue_state;
         done = env_result->next_state.IsDone();
@@ -634,8 +634,8 @@ void Conv2dVisualizationObserver::OnTrain(const TrainEvent& event)
     if (!is_recording_) return;
 
     // --- 画像化と保存 ---
-    if (state.obs.defined() && state.obs.size(0) > 0) {
-        torch::Tensor single_obs = state.obs.slice(0, 0, 1);
+    if (state.obs.Defined() && state.obs.Size(0) > 0) {
+        anet::TensorDict single_obs = state.obs[0].Unsqueeze(0);
         auto dict = dict_func_(single_obs);
 
         if (!dict.empty()) {

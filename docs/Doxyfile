@@ -298,7 +298,7 @@ ALIASES                =
 # members will be omitted, etc.
 # The default value is: NO.
 
-OPTIMIZE_OUTPUT_FOR_C  = YES
+OPTIMIZE_OUTPUT_FOR_C  = NO
 
 # Set the OPTIMIZE_OUTPUT_JAVA tag to YES if your project consists of Java or
 # Python sources only. Doxygen will then generate output that is more tailored
@@ -306,7 +306,7 @@ OPTIMIZE_OUTPUT_FOR_C  = YES
 # qualified scopes will look different, etc.
 # The default value is: NO.
 
-OPTIMIZE_OUTPUT_JAVA   = YES
+OPTIMIZE_OUTPUT_JAVA   = NO
 
 # Set the OPTIMIZE_FOR_FORTRAN tag to YES if your project consists of Fortran
 # sources. Doxygen will then generate output that is tailored for Fortran.
@@ -1290,7 +1290,7 @@ VERBATIM_HEADERS       = YES
 # generated with the -Duse_libclang=ON option for CMake.
 # The default value is: NO.
 
-CLANG_ASSISTED_PARSING = NO
+CLANG_ASSISTED_PARSING = YES
 
 # If the CLANG_ASSISTED_PARSING tag is set to YES and the CLANG_ADD_INC_PATHS
 # tag is set to YES then Doxygen will add the directory of each input to the
@@ -1306,7 +1306,14 @@ CLANG_ADD_INC_PATHS    = YES
 # specified with INPUT and INCLUDE_PATH.
 # This tag requires that the tag CLANG_ASSISTED_PARSING is set to YES.
 
-CLANG_OPTIONS          =
+CLANG_OPTIONS          = "-target x86_64-pc-windows-msvc" \
+                         -fms-compatibility \
+                         -fms-extensions \
+                         "-Xclang -fno-validate-pch" \
+                         -D_CRT_SECURE_NO_WARNINGS \
+                         -std=c++20 \
+                         -DWIN32 \
+                         -D_DEBUG
 
 # If clang assisted parsing is enabled you can provide the clang parser with the
 # path to the directory containing a file called compile_commands.json. This
@@ -1319,7 +1326,7 @@ CLANG_OPTIONS          =
 # Note: The availability of this option depends on whether or not Doxygen was
 # generated with the -Duse_libclang=ON option for CMake.
 
-CLANG_DATABASE_PATH    =
+CLANG_DATABASE_PATH    = ..\out\build\x64-Debug
 
 #---------------------------------------------------------------------------
 # Configuration options related to the alphabetical class index

@@ -9,6 +9,7 @@
 #include "anet/str_util.hpp"
 #include "anet/replay_buffer.hpp"
 #include "anet/image.hpp"
+#include "anet/metrics_logger.hpp"
 
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
@@ -20,7 +21,7 @@ namespace LOG = anet::log;
 
 NetworkModel::NetworkModel(
     const NetworkModelConfig& config, const torch::Device device,
-    const anet::nn::NetworkConfig& network_config, const std::vector<int64_t>& input_shape, int64_t n_actions, std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory,
+    const anet::nn::NetworkConfig& network_config, const anet::TensorSpecMap& obs_spec, int64_t n_actions, std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory,
     int64_t num_quantiles)
     : config_(config)
     , n_actions_(n_actions)
@@ -29,15 +30,80 @@ NetworkModel::NetworkModel(
     ANET_ASSERT(n_actions_ > 0);
 
     // メインネットワークを作る
-    policy_net_ = anet::nn::NetworkBuilder::BuildNetwork(network_config, input_shape, head_factory);
+    policy_net_ = anet::nn::NetworkBuilder::BuildNetwork(network_config, obs_spec, head_factory, device);
     policy_net_->to(device);
+
+#if 0
+    {
+        // ファイルからアーカイブを読み込む
+        torch::serialize::InputArchive archive;
+        bool file_loaded = false;
+        if (std::filesystem::exists("../../runs/model.dat")) {
+            try {
+                archive.load_from("../../runs/model.dat");
+                LOG::info() << "Loaded weight archive from model.dat";
+                file_loaded = true;
+            } catch (const c10::Error& e) {
+                LOG::error() << "Failed to load model.dat: " << e.msg();
+            }
+        } else {
+            LOG::info() << "model.dat not found. Initializing network with default weights.";
+        }
+
+        // V2のネットワークに重みを上書きしていく
+        if (file_loaded) {
+            torch::NoGradGuard no_grad; // 必須ガード
+            auto v2_params = policy_net_->named_parameters();
+
+            for (auto& pair : v2_params) {
+                std::string name = pair.key();
+                torch::Tensor loaded_tensor;
+
+                // archiveの中に該当する名前の重みがあるか試して、読み込む
+                if (archive.try_read(name, loaded_tensor)) {
+                    loaded_tensor = loaded_tensor.to(device); // デバイスを合わせる
+
+                    if (pair.value().sizes() == loaded_tensor.sizes()) {
+                        pair.value().data().copy_(loaded_tensor); // メモリを直接上書き
+                        LOG::info() << "[Load] Success: " << name;
+                    } else {
+                        ANET_SYSTEM_ERROR(
+                            "[Load Error] Shape mismatch for " << name
+                            << " (Expected " << pair.value().sizes() << ", got " << loaded_tensor.sizes() << ")"
+                        );
+                    }
+                } else {
+                    LOG::warn() << "[Load Warning] Weight not found in model.dat: " << name;
+                }
+            }
+        }
+    }
+#endif
+
+#if 0
+    {
+        torch::NoGradGuard no_grad;
+        for (auto& param : policy_net_->parameters()) {
+            torch::nn::init::constant_(param, 0.01f);
+        }
+    }
+#endif
 
     // メインネットワークをコピーしてターゲットネットワークを作る
     target_net_ = policy_net_->Clone(device);
     target_net_->eval();
+
+    LOG::info() << "========== MODEL SHAPE DUMP ==========";
+    for (const auto& pair : policy_net_->named_parameters()) {
+        LOG::info() << pair.key() << " : " << pair.value().sizes();
+    }
+    LOG::info() << "======================================";
+
+    LOG::info() << "Number of Main Network parameters: " << policy_net_->parameters().size();
+    LOG::info() << "Number of Target Network parameters: " << target_net_->parameters().size();
 }
 
-anet::TensorDict NetworkModel::Forward(const torch::Tensor& obs, bool use_target) const
+anet::TensorDict NetworkModel::Forward(const anet::TensorDict& obs, bool use_target) const
 {
     const auto& net = use_target ? target_net_ : policy_net_;
     return net->Forward(obs);
@@ -51,6 +117,12 @@ bool NetworkModel::IsDistributional(bool use_target) const
 std::vector<torch::Tensor> NetworkModel::GetPolicyParameters() const
 {
     auto params = policy_net_->parameters();
+    return params;
+}
+
+torch::OrderedDict<std::string, torch::Tensor> NetworkModel::GetPolicyNamedParameters() const
+{
+    auto params = policy_net_->named_parameters();
     return params;
 }
 
@@ -81,20 +153,22 @@ std::optional<anet::TensorFunction> NetworkModel::GetTensorFunction(const std::s
 {
     static constexpr const char* POLICY_PREFIX = "policy-net.";
     static constexpr const char* TARGET_PREFIX = "target-net.";
+    
+    /// @todo V2暫定：NetworkModel::GetTensorFunction()が未対応
 
     // policy net
-    if (anet::StartsWith(key, POLICY_PREFIX)) {
-        auto subkey = anet::RemovePrefix(key, POLICY_PREFIX);
-        auto fn = policy_net_->GetTensorFunction(subkey);
-        return fn;
-    }
+    //if (anet::StartsWith(key, POLICY_PREFIX)) {
+    //    auto subkey = anet::RemovePrefix(key, POLICY_PREFIX);
+    //    auto fn = policy_net_->GetTensorFunction(subkey);
+    //    return fn;
+    //}
 
     // target net
-    if (anet::StartsWith(key, TARGET_PREFIX)) {
-        auto subkey = anet::RemovePrefix(key, TARGET_PREFIX);
-        auto fn = target_net_->GetTensorFunction(subkey);
-        return fn;
-    }
+    //if (anet::StartsWith(key, TARGET_PREFIX)) {
+    //    auto subkey = anet::RemovePrefix(key, TARGET_PREFIX);
+    //    auto fn = target_net_->GetTensorFunction(subkey);
+    //    return fn;
+    //}
 
     return std::nullopt;
 }
@@ -116,8 +190,8 @@ std::optional<anet::TensorDictFunction> NetworkModel::GetTensorDictFunction(cons
     }
 
     // デバイス転送と抽出処理をラップした関数を返す
-    return [net, device](const torch::Tensor& obs) {
-        return net->GetConv2dOutputs(obs.to(device));
+    return [net, device](const anet::TensorDict& obs) {
+        return net->GetConv2dOutputs(obs.To(device));
         };
 }
 
@@ -234,7 +308,7 @@ void anet::rl::dqn::EpsilonGreedyActionPolicy::OnLearn(const StepCounts& counts)
     UpdateEpsilon(counts.exp_step);
 }
 
-anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const
+anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const
 {
     ProfileRange r("EpsilonGreedyActionPolicy::SelectAction");
 
@@ -316,7 +390,7 @@ torch::Tensor UQEActionPolicy::MakeUQEAction(float tau, const torch::Tensor& q_q
 
         // tau_idx から 最後まで (N-1) の範囲を切り出す
         auto tail_values = sorted_quantiles.slice(-1, tau_idx, n_quantiles);  // (B, A, N - tau_idx)
-        ANET_LOG_DEBUG("tail_values=" << anet::ToString(tail_values));
+        //ANET_LOG_DEBUG("tail_values=" << anet::ToString(tail_values));
 
         // 切り出した範囲の平均をとる
         uqe_values = tail_values.mean(-1);
@@ -324,7 +398,7 @@ torch::Tensor UQEActionPolicy::MakeUQEAction(float tau, const torch::Tensor& q_q
         // 特定の分位点におけるQ値を取得
         uqe_values = sorted_quantiles.select(-1, tau_idx);  // (B, A, N) -> (B, A)
     }
-    ANET_LOG_DEBUG("uqe_values=" << anet::ToString(uqe_values));
+    //ANET_LOG_DEBUG("uqe_values=" << anet::ToString(uqe_values));
 
     // UQE Actions: argmax(Q_tau)
     auto actions = uqe_values.argmax(1);
@@ -377,7 +451,7 @@ torch::Tensor UQEActionPolicy::MakeVectorizedUQEAction(const torch::Tensor& tau_
     return uqe_values.argmax(1);
 }
 
-anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const torch::Tensor& obs,
+anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs,
     bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const
 {
     ProfileRange r("UQEActionPolicy::MakeUQEActionInfo");
@@ -422,7 +496,7 @@ anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const to
     return action_info;
 }
 
-anet::rl::BatchActionInfo UQEActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const
+anet::rl::BatchActionInfo UQEActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const
 {
     return MakeUQEActionInfo(current_uqe_tau_, torch::Tensor(), obs, greedy_only, network, rnd);
 }
@@ -444,10 +518,10 @@ void anet::rl::dqn::ThompsonSamplingActionPolicy::OnLearn(const StepCounts& coun
     //UpdateTau(counts.exp_step);
 }
 
-anet::rl::BatchActionInfo ThompsonSamplingActionPolicy::SelectAction(const torch::Tensor& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const
+anet::rl::BatchActionInfo ThompsonSamplingActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const
 {
     // ランダムな Tau をバッチサイズ分生成 (N, 1)
-    const int64_t N = obs.size(0);
+    const int64_t N = obs.Size(0);
     auto device = obs.device();
     auto gen = rnd->GetTorchGenerator(device);
     auto tau_tensor = torch::rand({ N, 1 }, gen, torch::TensorOptions().device(device));
@@ -483,15 +557,17 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     if (context_ != nullptr) {
         obs = context_->PushObservation(state);
     }
-    ANET_LOG_DEBUG("obs=" << anet::ToDefString(obs));
+    ANET_LOG_DEBUG("obs=" << obs.ToDefString());
+    //ANET_LOG_DEBUG("obs=" << obs.ToString());
 
     // Observation正規化
-    torch::Tensor norm_obs = obs;
+    auto norm_obs = obs;
     if (obs_norm_ != nullptr) {
         norm_obs = obs_norm_->Normalize(obs);
     }
     //norm_obs = norm_obs.to(torch::kCPU);
-    ANET_LOG_DEBUG("norm_obs=" << anet::ToDefString(norm_obs));
+    ANET_LOG_DEBUG("norm_obs=" << norm_obs.ToDefString());
+    //ANET_LOG_DEBUG("norm_obs=" << norm_obs.ToString());
 
     // 行動選択
     auto rnd = context_->GetRandomGenerator();
@@ -506,9 +582,9 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     }
 
     // AuxData の詰め込み
-    act_info.GetAuxData()["raw_obs"] = obs;
+    act_info.GetAuxData()["raw_obs"] = anet::rl::ToUnifiedObservation(obs);
     if (obs_norm_ != nullptr) {
-        act_info.GetAuxData()["norm_obs"] = norm_obs;
+        act_info.GetAuxData()["norm_obs"] = anet::rl::ToUnifiedObservation(norm_obs);
     }
 
     return std::make_shared<anet::rl::BatchActionInfo>(act_info);
@@ -533,7 +609,7 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
     std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed)
     : RandomHolder(target_seed), config_(config), stucker_config_(stucker_config), model_(model), vars_(vars), obs_norm_(std::move(obs_norm))
     , batch_size_(batch_env_spec.batch_size)
-    , n_actions_(env_spec.action_spec.GetNumActions()), state_dim_(env_spec.state_spec.CalcFlattenDim())
+    , n_actions_(env_spec.action_spec.GetNumActions())//, state_dim_(env_spec.state_spec.CalcFlattenDim())
     , device_(std::move(device))
     , target_policy_(std::move(target_policy))
 {
@@ -545,6 +621,9 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
         // Intervalモード: U = 1.0 / Interval
         earned_credit_ = 1.0f / static_cast<float>(std::max(1, config_.update_interval));
     }
+
+    // RBサンプルバッファをdevice転送
+    //samples_.To(device);
     
     LOG::info() << "Learner: U = " << earned_credit_;
 }
@@ -576,9 +655,11 @@ std::optional<std::vector<torch::Tensor>> Learner::GetTensorVector(const std::st
 
 void Learner::SetupOptimizer()
 {
-    auto params = torch::optim::AdamOptions(config_.alpha).eps(config_.adam_eps);
-    ANET_LOG_DEBUG("lr=" << params.lr() << " eps=" << params.eps());
-    this->optimizer_ = std::make_unique<torch::optim::Adam>(model_.GetPolicyParameters(), params);
+    //auto opts = torch::optim::AdamOptions(config_.alpha).eps(config_.adam_eps);
+    auto opts = torch::optim::AdamWOptions(config_.alpha).weight_decay(config_.weight_decay).eps(config_.adam_eps);
+    LOG::verbose() << "Learner: lr=" << opts.lr() << " weight_decay=" << opts.weight_decay() << " eps=" << opts.eps();
+    this->optimizer_ = std::make_unique<torch::optim::AdamW>(model_.GetPolicyParameters(), opts);
+    //this->optimizer_ = std::make_unique<torch::optim::Adam>(model_.GetPolicyParameters(), opts);
 }
 
 void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, seed_t seed)
@@ -586,11 +667,10 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
     anet::rl::ReplayBufferConfig rep_config{};
     rep_config.capacity = config_.replay_capacity;
     rep_config.gamma = config_.gamma;
-    rep_config.n_step = config_.n_step;
-    rep_config.type = config_.use_n_step ? ReplayBuilderType::NSTEP : ReplayBuilderType::PLAIN;
+    rep_config.n_step = config_.use_n_step ? config_.n_step : 1;
 
     if (config_.use_per) {
-        rep_config.sampler_type = ReplaySamplerType::PRIOTIZED;
+        rep_config.sampler_type = anet::rl::ReplaySamplerType::PRIORITIZED;
         rep_config.per_alpha = config_.per_alpha;
         rep_config.per_initial_priority = config_.per_initial_priority;
         vars_.per_beta = config_.per_beta_start;
@@ -598,12 +678,18 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
         rep_config.sampler_type = ReplaySamplerType::UNIFORM;
     }
     if (stucker_config_.has_value()) {
-        rep_config.use_stacker = stucker_config_->use_stacker;
-        rep_config.stack_count = stucker_config_->stack_count;
-	}
+        //rep_config.use_stacker = stucker_config_->use_stacker;
+        rep_config.stack_count = stucker_config_->use_stacker ? stucker_config_->stack_count : 1;
+        rep_config.stack_keys = stucker_config_->stack_keys;
+    } else {
+        rep_config.stack_count = 1;
+    }
     
-    anet::rl::ReplayBufferFactory rep_factory(rep_config);
-    this->replay_buffer_ = rep_factory.Create(env_spec, torch::kCPU, batch_env_spec.batch_size, seed);
+    //const ReplayBufferConfig& config, const EnvSpec& env_spec, int64_t num_envs, torch::Device storage_device, bool pin_memory, std::optional<uint64_t> seed)
+
+    //this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.batch_size, device_, false, seed);
+    //this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.batch_size, device_, true, seed);
+    this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.batch_size, torch::kCPU, false, seed);
 }
 
 void Learner::UpdateTargetNetwork(step_t step)
@@ -642,6 +728,9 @@ bool Learner::CanUpdate(step_t exp_step) const
 anet::rl::BatchUpdateResultList
 Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::BatchExperience& experiences)
 {
+//LOG::verbose() << "Push() experiences.obs=" << anet::ToString(experiences.state.obs.At("v1_flat_obs"));
+//LOG::verbose() << "Push() experiences.next_obs=" << anet::ToString(experiences.next_state.obs.At("v1_flat_obs"));
+
     // ReplayBuffer へ push
     replay_buffer_->Push(experiences);
 
@@ -662,36 +751,48 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
             break;
             
         const int B = config_.replay_batch_size;
-        const int S = state_dim_;
+        //const int S = state_dim_;
 
         // Sample
         float current_beta = config_.use_per ? vars_.per_beta : 0.0f;
-        auto raw_samples = replay_buffer_->Sample(config_.replay_batch_size, device_, current_beta);
+        ExperienceSamples samples;
+        replay_buffer_->Sample(samples, config_.replay_batch_size, current_beta);
+//LOG::info() << "\n========\nUpdateFromBatch() exp_step=" << counts.exp_step << "\n========";
+//LOG::verbose() << "indexes=" << anet::ToString(samples.indices);
+//LOG::verbose() << "samples=" << samples.ToString();
+
         //ANET_LOG_DEBUG("raw_samples.obs=" << anet::ToDefString(raw_samples.obs));
         //ANET_LOG_DEBUG("raw_samples.next_states.obs=" << anet::ToDefString(raw_samples.next_states.obs));
+//LOG::info() << "[ " << counts.exp_step << "] samples=\n" << samples.ToString() << "\n[" << counts.exp_step << "] ---- END OF SAMPLES ----";
+//if (counts.exp_step > 120) {
+//    LOG::info() << "DEUBG";
+//}
+
+        // device転送
+        auto dev_samples = samples.To(device_);
 
         // Check shapes & dtypes
-        ANET_ASSERT_DEVICE(raw_samples.obs, device_);
-        ANET_ASSERT_DEVICE(raw_samples.actions, device_);
-        ANET_ASSERT_DEVICE(raw_samples.target_values, device_);
-        ANET_ASSERT_DEVICE(raw_samples.next_states.obs, device_);
-        ANET_ASSERT_DEVICE(raw_samples.next_states.terminals, device_);
-        ANET_ASSERT_DEVICE(raw_samples.n_steps, device_);
-        //ANET_ASSERT_SHAPE(raw_samples.obs, { B, S });
-        ANET_ASSERT_SHAPE(raw_samples.actions, { B });    // 離散アクション
-        ANET_ASSERT_SHAPE(raw_samples.target_values, { B });
-        //ANET_ASSERT_SHAPE(raw_samples.next_states.obs, { B, S });
-        ANET_ASSERT_SHAPE(raw_samples.next_states.terminals, { B });
-        ANET_ASSERT_SHAPE(raw_samples.n_steps, { B });
-        ANET_ASSERT_DTYPE(raw_samples.obs, torch::kFloat32);
-        ANET_ASSERT_DTYPE(raw_samples.actions, torch::kInt64);    // 離散アクション
-        ANET_ASSERT_DTYPE(raw_samples.target_values, torch::kFloat32);
-        ANET_ASSERT_DTYPE(raw_samples.next_states.terminals, torch::kBool);
-        ANET_ASSERT_DTYPE(raw_samples.n_steps, torch::kInt64);
+        ANET_ASSERT_DEVICE(dev_samples.obs, device_);
+        ANET_ASSERT_DEVICE(dev_samples.actions, device_);
+        ANET_ASSERT_DEVICE(dev_samples.target_returns, device_);
+        ANET_ASSERT_DEVICE(dev_samples.next_state.next_obs, device_);
+        ANET_ASSERT_DEVICE(dev_samples.next_state.terminals, device_);
+        ANET_ASSERT_DEVICE(dev_samples.n_steps, device_);
+        //ANET_ASSERT_SHAPE(dev_samples.obs, { B, S });
+        ANET_ASSERT_SHAPE(dev_samples.actions, { B });    // 離散アクション
+        ANET_ASSERT_SHAPE(dev_samples.target_returns, { B });
+        //ANET_ASSERT_SHAPE(dev_samples.next_states.obs, { B, S });
+        ANET_ASSERT_SHAPE(dev_samples.next_state.terminals, { B });
+        ANET_ASSERT_SHAPE(dev_samples.n_steps, { B });
+        //ANET_ASSERT_DTYPE(dev_samples.obs, torch::kFloat32);
+        ANET_ASSERT_DTYPE(dev_samples.actions, torch::kInt64);    // 離散アクション
+        ANET_ASSERT_DTYPE(dev_samples.target_returns, torch::kFloat32);
+        ANET_ASSERT_DTYPE(dev_samples.next_state.terminals, torch::kBool);
+        ANET_ASSERT_DTYPE(dev_samples.n_steps, torch::kInt64);
 
         // 固有処理呼び出し
         //auto samples = raw_samples.FlattenStates();
-        auto result = UpdateFromSamples(raw_samples);
+        auto result = UpdateFromSamples(dev_samples);
         result_list.push_back(result);
 
         // 更新後処理
@@ -743,19 +844,18 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     /// @todo コード整理
 
     const int B = config_.replay_batch_size;
-    const int S = state_dim_;
     const int A = n_actions_;
-    const auto& target_values = samples.target_values;
-    const auto& terminals = samples.next_states.terminals;
+    const auto& target_returns = samples.target_returns;
+    const auto& terminals = samples.next_state.terminals;
     torch::ScalarType amp_dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
 
     // Observation正規化
-    torch::Tensor obs = samples.obs;
-    torch::Tensor next_obs = samples.next_states.obs;
+    auto obs = samples.obs;
+    auto next_obs = samples.next_state.next_obs;
     if (obs_norm_) {
         // 統計更新は Agent 側の収集フェーズで行うためここでは適用のみ(false)
-        obs = obs_norm_->Normalize(samples.obs);
-        next_obs = obs_norm_->Normalize(samples.next_states.obs);
+        obs = obs_norm_->Normalize(obs);
+        next_obs = obs_norm_->Normalize(next_obs);
     }
 
     // 結果変数（スコープ外で宣言）
@@ -796,13 +896,13 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             auto q_best = top2.select(1, 0);       // 1位 (B)
             auto q_second = top2.select(1, 1);     // 2位 (B)
 
-        // 絶対値差分
+            // 絶対値差分
             auto gap_batch = q_best - q_second;
             gap_abs = gap_batch.mean().detach();
 
-        // Relative Gap (相対差分: Gap / (|MaxQ| + eps))
-        //   Q値は負になることもあるので abs() が必要
-        //   学習初期は 0 になるので 1e-6 で割るのを防ぐ
+            // Relative Gap (相対差分: Gap / (|MaxQ| + eps))
+            //   Q値は負になることもあるので abs() が必要
+            //   学習初期は 0 になるので 1e-6 で割るのを防ぐ
             auto denom = q_best.abs() + 1e-6f;
             gap_rel = (gap_batch / denom).mean().detach();
         }
@@ -839,7 +939,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // ------------------------------------------------------------
         auto not_terminal = 1.0f - terminals.to(torch::kFloat32); // (B,)
         auto gamma_n = torch::pow(config_.gamma, samples.n_steps.to(torch::kFloat32)); // (B,)
-        auto td_target = target_values.detach() + not_terminal * gamma_n * max_next_q.detach(); // (B,)
+        auto td_target = target_returns.detach() + not_terminal * gamma_n * max_next_q.detach(); // (B,)
         td_error = q_sa - td_target; // (B,)
         ANET_ASSERT_SHAPE(td_error, { B });
         ANET_ASSERT_DTYPE(td_error, torch::kFloat32);
@@ -1159,17 +1259,17 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
     // 入力チェック
     ANET_ASSERT_SHAPE(samples.actions, { B });
-    ANET_ASSERT_SHAPE(samples.target_values, { B });
-    ANET_ASSERT_SHAPE(samples.next_states.terminals, { B });
-    //ANET_LOG_DEBUG("obs=" << anet::ToDefString(samples.obs));
+    ANET_ASSERT_SHAPE(samples.target_returns, { B });
+    ANET_ASSERT_SHAPE(samples.next_state.terminals, { B });
+    //ANET_LOG_DEBUG("obs=" << samples.obs.ToString());
 
     // Observation正規化
-    torch::Tensor obs = samples.obs;
-    torch::Tensor next_obs = samples.next_states.obs;
+    auto obs = samples.obs;
+    auto next_obs = samples.next_state.next_obs;
     if (obs_norm_) {
         // 統計更新は Agent 側の収集フェーズで行うためここでは適用のみ(false)
-        obs = obs_norm_->Normalize(samples.obs);
-        next_obs = obs_norm_->Normalize(samples.next_states.obs);
+        obs = obs_norm_->Normalize(obs);
+        next_obs = obs_norm_->Normalize(next_obs);
     }
     ANET_ASSERT_NAN(obs);
     ANET_ASSERT_NAN(next_obs);
@@ -1266,16 +1366,16 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             ANET_ASSERT_SHAPE(next_dist, { B, N });
 
             // ベルマン作用素適用: T = r + gamma * Z(s', a*)
-            auto reward = samples.target_values.view({ B, 1 }); // (B, 1)
-            auto not_terminal = (1.0f - samples.next_states.terminals.to(torch::kFloat32)).view({ B, 1 }); // (B, 1)
-            ANET_ASSERT_SHAPE(reward, { B, 1 });
+            auto returns = samples.target_returns.view({ B, 1 }); // (B, 1)
+            auto not_terminal = (1.0f - samples.next_state.terminals.to(torch::kFloat32)).view({ B, 1 }); // (B, 1)
+            ANET_ASSERT_SHAPE(returns, { B, 1 });
             ANET_ASSERT_SHAPE(not_terminal, { B, 1 });
 
             // gammaの n_step 乗を計算し、ブロードキャスト用に shape(B, 1) に変形
             auto gamma_n = torch::pow(config_.gamma, samples.n_steps.to(torch::kFloat32)).view({ B, 1 });
 
             // (B, 1) + (B, 1) * (B, 1) * (B, N) -> (B, N)
-            target_dist = reward + gamma_n * not_terminal * next_dist;
+            target_dist = returns + gamma_n * not_terminal * next_dist;
             ANET_ASSERT_SHAPE(target_dist, { B, N });
             ANET_ASSERT_NAN(target_dist);
         }
@@ -1292,11 +1392,13 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
         // 要素ごとのLoss (B) を取得  ※ここで重い計算を一回だけ行う
         element_loss = ComputeQuantileHuberLoss(current_dist, target_dist); // (B)
+        ANET_LOG_DEBUG("element_loss=" << anet::ToString(element_loss));
         ANET_ASSERT_SHAPE(element_loss, { B });
         ANET_ASSERT_NAN(element_loss);
 
         // 最適化用Loss(Scalar) ※ PERの重み (IS Weights) を適用
         torch::Tensor weights = config_.use_per ? samples.is_weights : torch::ones({ B }, device_);
+        ANET_LOG_DEBUG("weights=" << anet::ToString(weights));
         ANET_ASSERT_NAN(weights);
         loss = (element_loss * weights).mean();
         ANET_ASSERT_SHAPE(loss, {});
@@ -1404,8 +1506,77 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             }
         }
 
+#if 0
+        // デバッグ: レイヤー別の grad_norm と「登録漏れ」のチェック
+        if (vars_.learn_step % 100 == 0) { // 100ステップに1回だけ実行（重いため）
+            torch::NoGradGuard grad_guard;
+
+            // ※ model_.GetPolicyNamedParameters() が実装されていない場合は、
+            // 内部のネットワーク本体 (例: policy_net_->named_parameters()) から取得してください。
+            auto named_params = model_.GetPolicyNamedParameters();
+
+            //LOG::info() << "=== Layer-wise Grad Norm (Step: " << vars_.learn_step << ") ===";
+            //LOG::info() << "Total Parameters Count: " << named_params.size();
+
+            for (const auto& item : named_params) {
+                const std::string& name = item.key();
+                const torch::Tensor& p = item.value();
+
+                if (!p.grad().defined()) {
+                    // 最重要検知: ネットワークには存在するが、勾配が計算されていない！
+                    // (Forwardの計算グラフから切断されている、または requires_grad=false)
+                    LOG::error() << "[GradNorm] " << name << " : UNDEFINED (No Gradient!)";
+                    continue;
+                }
+
+                // 勾配ノルムを計算し、CPUに同期させて値を取得
+                float norm_val = p.grad().detach().norm().item<float>();
+
+                // ログに出力
+                //LOG::info() << "[GradNorm] " << name << " : " << norm_val;
+                auto log_name = anet::RemovePrefix(name, "body.branch_main_feature.network_struct.");
+				anet::MetricsLogger::Instance()->LogScalar("98_grad/" + log_name, vars_.learn_step, norm_val);
+            }
+            //LOG::info() << "==========================================================";
+        }
+#endif
+
+#if 0
+        torch::Tensor target_weight;
+        float weight_sum_before;
+        {
+            float config_lr = static_cast<torch::optim::AdamOptions&>(optimizer_->param_groups()[0].options()).lr();
+            LOG::info() << "[Debug] Optimizer LR: " << config_lr << " (Config alpha: " << config_.alpha << ")";
+            LOG::info() << "[Debug] Config grad_clip_tau: " << config_.grad_clip_tau;
+
+            // 最初のConv層の重みをターゲットにして追跡
+            float grad_sum_before_step = 0.0f;
+            for (const auto& pair : model_.GetPolicyNamedParameters()) {
+                if (pair.key().find("ConvInit") != std::string::npos && pair.key().find("weight") != std::string::npos) {
+                    target_weight = pair.value();
+                    if (target_weight.grad().defined()) {
+                        grad_sum_before_step = target_weight.grad().sum().item<float>();
+                    }
+                    break;
+                }
+            }
+            weight_sum_before = target_weight.defined() ? target_weight.sum().item<float>() : 0.0f;
+            LOG::info() << "[Debug] Target Weight Sum (Before Step): " << weight_sum_before;
+            LOG::info() << "[Debug] Target Grad Sum (Clipped, Before Step): " << grad_sum_before_step;
+        }
+#endif
         // パラメータ更新
         optimizer_->step();
+#if 0
+        {
+            // ==========================================
+            // 【デバッグ用】Step直後の重み状態と更新量
+            // ==========================================
+            float weight_sum_after = target_weight.defined() ? target_weight.sum().item<float>() : 0.0f;
+            LOG::info() << "[Debug] Target Weight Sum (After Step): " << weight_sum_after;
+            LOG::info() << "[Debug] Actual Update Amount (After - Before): " << (weight_sum_after - weight_sum_before);
+        }
+#endif
     }
 
     // ------------------------------------------------------------
@@ -1450,6 +1621,48 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         }
     }
 
+#if 0
+    // バッチ抽出が一致しているか（サンプリングされたインデックスの合計）
+    float idx_sum = samples.indices.to(torch::kFloat32).sum().item<float>();
+
+    // メインネットワークが一致しているか（重みの合計値）
+    float policy_sum = 0.0f;
+    for (const auto& p : model_.GetMainNetwork()->parameters()) {
+        policy_sum += p.sum().item<float>();
+    }
+
+    // ターゲットネットワークが一致しているか（重みの合計値）
+    float target_sum = 0.0f;
+    for (const auto& p : model_.GetTargetNetwork()->parameters()) {
+        target_sum += p.sum().item<float>();
+    }
+
+    // Q値の計算が一致しているか
+    float q_sa_sum = q_sa_val.sum().item<float>();
+
+    // ロスが一致しているか
+    float loss_val = loss.item<float>();
+
+    LOG::verbose() << "[DMP] learn_step=" << vars_.learn_step
+        << " idx_sum=" << idx_sum
+        << " policy_sum=" << policy_sum << " target_sum=" << target_sum
+        << " q_sa_sum=" << q_sa_sum << " loss_val=" << loss_val;
+    //LOG::verbose() << "[DMP] learn_step=" << vars_.learn_step << " indices=" << anet::ToString(samples.indices);
+#endif
+
+#if 0
+    if (vars_.learn_step % 100 == 0) {
+        auto policy_net = model_.GetMainNetwork();
+        auto target_net = model_.GetTargetNetwork();
+
+        float total_diff = 0.0f;
+        for (size_t i = 0; i < policy_net->parameters().size(); ++i) {
+            total_diff += (policy_net->parameters()[i] - target_net->parameters()[i]).abs().mean().item<float>();
+        }
+        float avg_diff = total_diff / policy_net->parameters().size();
+        anet::MetricsLogger::Instance()->LogScalar("99_debug/targetnet_diff", vars_.learn_step, avg_diff);
+    }
+#endif
 
     // ------------------------------------------------------------
     // 結果生成

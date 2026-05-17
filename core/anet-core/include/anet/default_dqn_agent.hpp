@@ -29,11 +29,11 @@ namespace anet::rl::dqn {
         RewardScalerConfig reward_scaler;
         ObservationNormalizerConfig obs_norm;
         anet::nn::WeightInitConfig head_init;
+        std::string auto_load_file;
 
         int num_quantiles = 51;
         bool use_dueling_net = true;
         bool use_qr = true;
-
         bool use_optimistic_target = false;
 
         explicit DefaultDQNAgentConfig(const ConfigData& config_data = EmptyConfigData)
@@ -45,6 +45,7 @@ namespace anet::rl::dqn {
 
             ANET_READ_CONFIG(config_data, stucker.use_stacker);
             ANET_READ_CONFIG(config_data, stucker.stack_count);
+            ANET_READ_CONFIG(config_data, stucker.stack_keys);
 
             ANET_READ_CONFIG(config_data, model.soft_update_tau);
             ANET_READ_CONFIG(config_data, model.hard_update_interval);
@@ -129,8 +130,9 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, target_policy.use_amp_bf16);
 
             ANET_READ_CONFIG(config_data, learner.alpha);
-            ANET_READ_CONFIG(config_data, learner.gamma);
+            ANET_READ_CONFIG(config_data, learner.weight_decay);
             ANET_READ_CONFIG(config_data, learner.adam_eps);
+            ANET_READ_CONFIG(config_data, learner.gamma);
             ANET_READ_CONFIG(config_data, learner.use_grad_clip);
             ANET_READ_CONFIG(config_data, learner.grad_clip_tau);
             ANET_READ_CONFIG(config_data, learner.use_td_clip);
@@ -179,6 +181,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, obs_norm.post_process_type);
             ANET_READ_CONFIG(config_data, obs_norm.post_process_threshold);
 
+            ANET_READ_CONFIG(config_data, auto_load_file);
             ANET_READ_CONFIG(config_data, num_quantiles);
             ANET_READ_CONFIG(config_data, use_dueling_net);
             ANET_READ_CONFIG(config_data, use_qr);
@@ -217,6 +220,7 @@ namespace anet::rl::dqn {
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences);
     private:
         std::shared_ptr<anet::rl::dqn::ActionPolicy> CreateActionPolicy(const ActionPolicyConfig& policy_config);
+        void LoadNetwork(const std::string& filename);
     private:
         DefaultDQNAgentConfig config_;
         std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;

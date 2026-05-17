@@ -216,14 +216,14 @@ namespace anet::rl::dqn {
             const NetworkModelConfig& config,
             const torch::Device device,
             const anet::nn::NetworkConfig& network_config,
-            const std::vector<int64_t>& input_shape,
+            const anet::TensorSpecMap& obs_spec,
             int64_t n_actions,
             std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory,
             int64_t num_quantiles);
 
         /// 行動選択・学習用：期待値Q (B, A) を返す
         /// QR-DQNの場合は分布の平均を計算して返す
-        anet::TensorDict Forward(const torch::Tensor& obs, bool use_target) const;
+        anet::TensorDict Forward(const anet::TensorDict& obs, bool use_target) const;
 
         // Network取得
         std::shared_ptr<anet::nn::Network> GetMainNetwork() { return policy_net_; }
@@ -234,6 +234,8 @@ namespace anet::rl::dqn {
 
         /// policy_netのパラメータ取得
         std::vector<torch::Tensor> GetPolicyParameters() const;
+
+        torch::OrderedDict<std::string, torch::Tensor> GetPolicyNamedParameters() const;
 
         /// target network 同期
         void UpdateTarget(anet::rl::step_t learn_step);
@@ -267,7 +269,7 @@ namespace anet::rl::dqn {
     public:
         ActionPolicy(const ActionPolicyConfig& config);
 
-        virtual BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const = 0;
+        virtual BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const = 0;
         virtual void OnLearn(const StepCounts& counts) { }
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
@@ -288,7 +290,7 @@ namespace anet::rl::dqn {
     public:
         EpsilonGreedyActionPolicy(const ActionPolicyConfig& config);
 
-        BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const;
+        BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const;
         void OnLearn(const StepCounts& counts) override;
     };
 
@@ -304,12 +306,12 @@ namespace anet::rl::dqn {
     public:
         UQEActionPolicy(const ActionPolicyConfig& config);
 
-        BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const;
+        BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const;
         void OnLearn(const StepCounts& counts) override;
 
         virtual ~UQEActionPolicy() = default;
     protected:
-        anet::rl::BatchActionInfo MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const torch::Tensor& obs, bool greedy_only,
+        anet::rl::BatchActionInfo MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const;
         void UpdateTau(step_t step);
     private:
@@ -321,7 +323,7 @@ namespace anet::rl::dqn {
     public:
         ThompsonSamplingActionPolicy(const ActionPolicyConfig& config);
 
-        BatchActionInfo SelectAction(const torch::Tensor& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const;
+        BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const;
         void OnLearn(const StepCounts& counts) override;
     };
 
@@ -386,7 +388,6 @@ namespace anet::rl::dqn {
     protected:
         const torch::Device device_;
         int batch_size_;
-        int state_dim_;
         int n_actions_;
         float earned_credit_;
         LearnerConfig config_;
@@ -396,7 +397,7 @@ namespace anet::rl::dqn {
         RuntimeVars& vars_;
         std::shared_ptr<ObservationNormalizer> obs_norm_;
         std::shared_ptr<anet::rl::ReplayBuffer> replay_buffer_;
-        std::unique_ptr<torch::optim::Adam> optimizer_;
+        std::unique_ptr<torch::optim::Optimizer> optimizer_;
         anet::GradScaler grad_scaler_;
     protected:
         float update_credit_ = 0.0f;
