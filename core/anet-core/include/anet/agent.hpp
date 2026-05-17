@@ -26,7 +26,7 @@ namespace anet::rl {
         RunMode GetRunMode() const { return run_mode_; }
 
         /// @return 加工されたObservation
-        virtual torch::Tensor PushObservation(const anet::rl::BatchState& state) = 0;
+        virtual anet::TensorDict PushObservation(const anet::rl::BatchState& state) = 0;
         virtual void Reset() = 0;
 
         virtual ~ActionContext() = default;
@@ -42,12 +42,26 @@ namespace anet::rl {
     /// 加工を行わず、State内のobsをそのまま通過させるActionContext 
     class DefaultActionContext : public ActionContext {
     public:
-        DefaultActionContext(RunMode run_mode, std::optional<seed_t> seed = std::nullopt) : ActionContext(run_mode, seed) { }
+        DefaultActionContext(RunMode run_mode, std::optional<seed_t> seed = std::nullopt, std::optional<torch::Device> device = std::nullopt)
+            : ActionContext(run_mode, seed)
+            , device_(device)
+        {
+        }
 
-        torch::Tensor PushObservation(const BatchState& state) override { return state.obs; } ///< そのまま obs を返す
+        anet::TensorDict PushObservation(const BatchState& state) override
+        {
+            ///< そのまま obs を返す
+            if (device_.has_value()){
+                return state.obs.To(device_.value());
+            } else {
+                return state.obs;
+            }
+        }
         void Reset() override { }
 
 		virtual ~DefaultActionContext() = default;
+    private:
+        std::optional<torch::Device> device_;
     };
 
 
@@ -69,7 +83,6 @@ namespace anet::rl {
     protected:
         std::shared_ptr<std::shared_mutex> mutex_;
         const torch::Device device_;
-        int state_dim_;
         int n_actions_;
         int batch_size_;
     private:
@@ -139,13 +152,15 @@ namespace anet::rl {
         struct StuckerConfig {
             bool use_stacker = false;
             int stack_count = 4;
+			std::vector<std::string> stack_keys; // obs内のどのキーをスタックするか。空なら全てスタック
         };
 
         struct LearnerConfig {
-            float alpha = 1e-3f;         ///<  学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-            float gamma = 0.99f;         ///<  0.99f; 0.995f      γが高いほど「長期安定」を目指す
-
+            float alpha = 1e-3f;         ///< 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+            float weight_decay = 1e-2f;  ///< AdamWの重み減衰率
             float adam_eps = 1e-5;       ///< ゼロ除算防止項。LibTorchのデフォルトは1e-8。大きくすることで小さな勾配の変化に敏感になりすぎるのを防ぎ学習をマイルドに。
+
+            float gamma = 0.99f;         ///< 0.99f; 0.995f      γが高いほど「長期安定」を目指す
 
             bool use_grad_clip = true;
             float grad_clip_tau = 30.0f;

@@ -91,13 +91,9 @@ RainbowAgent::RainbowAgent(
     // Network構築 (Builder)
     // ------------------------------------------------------------
 
-    // 入力形状 (C, H, W) or (L,)
-    auto input_shape = env_spec.state_spec.shape;
-
     // NetworkModel生成
     this->model_ = std::make_unique<dqn::NetworkModel>(
-        config_.model, device_, net_config, input_shape, n_actions_, head_factory, config_.num_quantiles
-    );
+        config_.model, device_, net_config, env_spec.state_spec.obs_spec, n_actions_, head_factory, config_.num_quantiles);
 
     // ActionPolicy生成
     this->action_policy_ = std::make_unique<dqn::EpsilonGreedyActionPolicy>(config_.action_policy);
@@ -179,20 +175,19 @@ std::shared_ptr<anet::rl::ActionContext> RainbowAgent::CreateActionContext(
     // 専用のRNGから1つシードを払い出してコンテキストに渡す
     auto rng = GetRandomGenerator(run_mode);
     seed_t ctx_seed = rng->RandUint64();
-    return std::make_shared<DefaultActionContext>(run_mode, ctx_seed);
+    return std::make_shared<DefaultActionContext>(run_mode, ctx_seed, device_);
 }
 
 anet::rl::BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const
 {
     ProfileRange r1("RainbowAgent::MakeAction");
-    ANET_ASSERT_SHAPE(state.obs, { ANET_SHAPE_ANY, state_dim_ });
 
     // 共有ロック＆Grad抑止
     std::shared_lock<std::shared_mutex> lock(*mutex_);
     torch::NoGradGuard ng;
 
-    // Flatなobsを生成
-    auto flat_obs = state.To(device_).Flatten().obs;
+    // obsを準備
+    auto obs = state.obs.To(device_);
 
     // 行動選択
     auto run_mode = ctx != nullptr ? ctx->GetRunMode() : anet::rl::RunMode::Train;
@@ -200,7 +195,7 @@ anet::rl::BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const
     auto use_target = (run_mode == anet::rl::RunMode::Eval1);
     auto network = use_target ? model_->GetTargetNetwork() : model_->GetMainNetwork();
     auto rnd = ctx->GetRandomGenerator();
-    auto act_info = this->action_policy_->SelectAction(flat_obs, greedy_only, network, rnd);
+    auto act_info = this->action_policy_->SelectAction(obs, greedy_only, network, rnd);
 
     // ActionInfoを返す
     return act_info;

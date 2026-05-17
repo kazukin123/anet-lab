@@ -75,6 +75,7 @@ DefaultDQNAgent.baseline.head_init.mode = 1
 DefaultDQNAgent.baseline.model.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
 DefaultDQNAgent.baseline.stucker.use_stacker = true
 DefaultDQNAgent.baseline.stucker.stack_count = 4
+DefaultDQNAgent.baseline.stucker.stack_keys = 
 
 DefaultDQNAgent.baseline.use_optimistic_target = false           # Q値にtrain_policy（UQE）を反映させるならtrue
 
@@ -104,6 +105,7 @@ DefaultDQNAgent.baseline.eval_policy.use_amp_bf16 = false
 DefaultDQNAgent.baseline.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4 batch_sizeを上げたら少し上げて良い
 DefaultDQNAgent.baseline.learner.gamma = 0.99                 # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
 DefaultDQNAgent.baseline.learner.adam_eps = 1e-5              # 小さな勾配の変化に敏感になりすぎるのを防ぎ、学習をマイルドに
+DefaultDQNAgent.baseline.learner.weight_decay = 1e-2          # AdamWの重み減衰
 DefaultDQNAgent.baseline.learner.use_grad_clip = true         # ★
 DefaultDQNAgent.baseline.learner.grad_clip_tau = 5            # ★10 25 40 1f 5f 10f
 DefaultDQNAgent.baseline.learner.use_td_clip = false          # 

@@ -7,7 +7,6 @@
 #include "anet/log.hpp"
 #include "anet/env.hpp"
 #include "anet/agent.hpp"
-#include "test.hpp"
 
 
 using namespace anet::rl;
@@ -345,8 +344,7 @@ StepCounts SerialTrainRunner::DoStep()
         env_initialized_ = true;
         ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
         ANET_ASSERT_DEVICE_CPU_MSG(state_.obs, "Initial state");
-        ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
-        ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
+        ANET_ASSERT(env_spec.state_spec.ValidateObservation(state_.obs));
 
         // 時間計測開始
         start_time_ = std::chrono::high_resolution_clock::now();
@@ -364,13 +362,13 @@ StepCounts SerialTrainRunner::DoStep()
 
     // Stateチェック
     ANET_LOG_DEBUG("step=" << train_step);// << " state=" << state_.ToString());
-    ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
+    ANET_ASSERT_MSG(state_.obs.IsValid(), "state_.obs is invalid.");
 //    ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
-    const int N = state_.obs.size(0);
+    const int N = state_.obs.Size(0);
 
     // 行動選択
     auto action_info = actor_->MakeAction(step_counts_, state_);
-    //ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info.ToString());
+    //ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info->ToString());
     ANET_ASSERT_SHAPE(action_info->GetAction(), {N});
 
     anet::ProfileRange r3("SerialTrainRunner::DoStep.envStep", r2);
@@ -386,15 +384,11 @@ StepCounts SerialTrainRunner::DoStep()
     ANET_ASSERT_DEVICE(result->continue_state.obs, torch::kCPU);
     ANET_ASSERT_DEVICE(result->continue_state.done, torch::kCPU);
     ANET_ASSERT_DEVICE(result->continue_state.truncated, torch::kCPU);
-    ANET_ASSERT_SHAPE(result->next_state.obs, { N, ANET_SHAPE_ENDANY });
     ANET_ASSERT_SHAPE(result->next_state.done, { N });
     ANET_ASSERT_SHAPE(result->next_state.truncated, { N });
     ANET_ASSERT_SHAPE(result->reward, { N });
-    ANET_ASSERT_SHAPE(result->continue_state.obs, { N, ANET_SHAPE_ENDANY });
     ANET_ASSERT_SHAPE(result->continue_state.done, { N });
     ANET_ASSERT_SHAPE(result->continue_state.truncated, { N });
-    ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
-//    ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
 
     anet::ProfileRange r4("SerialTrainRunner::DoStep.envStepPost", r3);
 
@@ -478,10 +472,9 @@ StepCounts PipelineTrainRunner::DoStep()
         auto reset_result = env_->Reset();
         state_ = reset_result->state;
         env_initialized_ = true;
-        ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
+        //ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
         ANET_ASSERT_DEVICE_CPU_MSG(state_.obs, "Initial state");
-        ANET_ASSERT(env_spec.state_spec.MatchesShape(state_.obs));
-        ANET_ASSERT(env_spec.state_spec.MatchesRange(state_.obs));
+        ANET_ASSERT(env_spec.state_spec.ValidateObservation(state_.obs));
 
         // 時間計測開始
         start_time_ = std::chrono::high_resolution_clock::now();
