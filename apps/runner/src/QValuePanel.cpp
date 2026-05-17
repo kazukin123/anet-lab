@@ -2,6 +2,7 @@
 #include "QValuePanel.hpp"
 
 #include <algorithm>
+#include <utility>
 #include <wx/dcbuffer.h>
 #include "anet/config.hpp"
 #include "anet/observers.hpp"
@@ -50,6 +51,7 @@ QValueHeatMapPanel::QValueHeatMapPanel(wxWindow* parent)
 {
     // ちらつき防止: 背景スタイルを設定
     SetBackgroundStyle(wxBG_STYLE_PAINT);
+    SetBackgroundColour(wxColour(0, 0, 0));
 
     // Bind形式でのイベント設定
     Bind(wxEVT_PAINT, &QValueHeatMapPanel::OnPaint, this);
@@ -63,7 +65,17 @@ void QValueHeatMapPanel::UpdateHeatMap(const wxImage& heatmap_image, int y_offse
     y_offset_ = y_offset;
     target_height_ = target_height;
     guide_line_pos_ = guide_line_pos; // 位置を保存
-    Refresh(); // OnPaintをトリガー
+    Refresh(false); // OnPaintをトリガー
+}
+
+void QValueHeatMapPanel::SetScrollOffsetY(int scroll_y)
+{
+    scroll_y = std::max(0, scroll_y);
+    if (scroll_y_ == scroll_y) return;
+
+    scroll_y_ = scroll_y;
+    Refresh(false);
+    Update();
 }
 
 void QValueHeatMapPanel::OnEraseBackground(wxEraseEvent& event)
@@ -76,22 +88,27 @@ void QValueHeatMapPanel::OnEraseBackground(wxEraseEvent& event)
 void QValueHeatMapPanel::OnPaint(wxPaintEvent& event)
 {
     wxAutoBufferedPaintDC dc(this);
-    dc.Clear();
+    wxSize client_size = GetClientSize();
+
+    dc.SetPen(*wxTRANSPARENT_PEN);
+    dc.SetBrush(wxBrush(GetBackgroundColour()));
+    dc.DrawRectangle(0, 0, client_size.GetWidth(), client_size.GetHeight());
 
     if (!heatmap_image_.IsOk()) return;
 
     // パネルの現在のクライアント幅を取得
-    int width = GetClientSize().GetWidth();
+    int width = client_size.GetWidth();
 
     // 幅が0以下や画像がない場合は描画しない
-    if (width > 0) {
+    if (width > 0 && target_height_ > 0) {
         // ウィンドウ幅に合わせて画像をリサイズ
         //wxImage scaled_img = heatmap_image_.Scale(width, target_height_);
         //wxImage scaled_img = heatmap_image_.Scale(width, target_height_, wxIMAGE_QUALITY_HIGH);
         wxImage scaled_img = heatmap_image_.Scale(width, target_height_, wxIMAGE_QUALITY_NEAREST);
+        int draw_y = y_offset_ - scroll_y_;
 
         // 描画
-        dc.DrawBitmap(wxBitmap(scaled_img), 0, y_offset_, true);
+        dc.DrawBitmap(wxBitmap(scaled_img), 0, draw_y, false);
 
         // センターライン（ガイドライン）の描画
         if (guide_line_pos_ >= 0.0f && guide_line_pos_ <= 1.0f) {
@@ -102,7 +119,7 @@ void QValueHeatMapPanel::OnPaint(wxPaintEvent& event)
             dc.SetPen(pen);
 
             // 縦線を引く
-            dc.DrawLine(line_x, y_offset_, line_x, y_offset_ + target_height_);
+            dc.DrawLine(line_x, draw_y, line_x, draw_y + target_height_);
         }
     }
 }
@@ -237,10 +254,30 @@ void QValuePanel::SetupGrid()
             e.Veto();              // 現在セルにしない（枠も動かない）
             grid_->ClearSelection();
         });
+    grid_->Bind(wxEVT_GRID_CELL_LEFT_CLICK, &QValuePanel::OnGridActionClick, this);
+    grid_->Bind(wxEVT_GRID_LABEL_LEFT_CLICK, &QValuePanel::OnGridActionClick, this);
+
+    grid_->Bind(wxEVT_SCROLLWIN_TOP, &QValuePanel::OnGridScroll, this);
+    grid_->Bind(wxEVT_SCROLLWIN_BOTTOM, &QValuePanel::OnGridScroll, this);
+    grid_->Bind(wxEVT_SCROLLWIN_LINEUP, &QValuePanel::OnGridScroll, this);
+    grid_->Bind(wxEVT_SCROLLWIN_LINEDOWN, &QValuePanel::OnGridScroll, this);
+    grid_->Bind(wxEVT_SCROLLWIN_PAGEUP, &QValuePanel::OnGridScroll, this);
+    grid_->Bind(wxEVT_SCROLLWIN_PAGEDOWN, &QValuePanel::OnGridScroll, this);
+    grid_->Bind(wxEVT_SCROLLWIN_THUMBTRACK, &QValuePanel::OnGridScroll, this);
+    grid_->Bind(wxEVT_SCROLLWIN_THUMBRELEASE, &QValuePanel::OnGridScroll, this);
+    grid_->Bind(wxEVT_MOUSEWHEEL, &QValuePanel::OnGridMouseWheel, this);
+    grid_->Bind(wxEVT_KEY_UP, &QValuePanel::OnGridKeyUp, this);
+
+    if (auto* grid_window = grid_->GetGridWindow()) {
+        grid_window->Bind(wxEVT_MOUSEWHEEL, &QValuePanel::OnGridMouseWheel, this);
+        grid_window->Bind(wxEVT_KEY_UP, &QValuePanel::OnGridKeyUp, this);
+    }
 }
 
 void QValuePanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, std::shared_ptr<anet::rl::EvalRunner> runner)
 {
+    runner_ = runner;
+
     // アクション名
     auto action_spec = runner->GetBatchEnv()->GetSpec().action_spec;
     action_names_.insert(action_names_.begin(), action_spec.value_labels.begin(), action_spec.value_labels.end());
@@ -266,6 +303,11 @@ void QValuePanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, 
 
     // Detach用にNotifierを保持
     notifier_ = notifier;
+}
+
+void QValuePanel::SetActionHandler(std::function<void(int64_t)> action_handler)
+{
+    action_handler_ = std::move(action_handler);
 }
 
 std::optional<QValueData> QValuePanel::CreateData(const anet::rl::TrainEvent& event)
@@ -706,11 +748,31 @@ void QValuePanel::Update()
     int total_rows = static_cast<int>(action_names_.size());
     int target_height = total_rows * config_->row_height;
     heatmap_panel_->UpdateHeatMap(heatmap_image, 0, target_height, guide_line_ratio);
+    SyncHeatMapScroll(false);
 }
 
 void QValuePanel::ResetRange() {
     accumulated_min_ = std::numeric_limits<float>::max();
     accumulated_max_ = std::numeric_limits<float>::lowest();
+}
+
+void QValuePanel::SyncHeatMapScroll(bool refresh_grid)
+{
+    if (!grid_ || !heatmap_panel_) return;
+
+    int scroll_x = 0;
+    int scroll_y = 0;
+    grid_->CalcUnscrolledPosition(0, 0, &scroll_x, &scroll_y);
+    heatmap_panel_->SetScrollOffsetY(scroll_y);
+
+    if (refresh_grid) {
+        grid_->Refresh(false);
+        grid_->Update();
+        if (auto* grid_window = grid_->GetGridWindow()) {
+            grid_window->Refresh(false);
+            grid_window->Update();
+        }
+    }
 }
 
 bool QValuePanel::IsHistogram() const
@@ -754,9 +816,42 @@ void QValuePanel::OnResetRangeClick(wxCommandEvent& event)
     Update();
 }
 
+void QValuePanel::OnGridActionClick(wxGridEvent& event)
+{
+    int row = event.GetRow();
+    if (!runner_ || row < 0 || row >= static_cast<int>(action_names_.size())) return;
+
+    int64_t action = static_cast<int64_t>(row);
+    if (action_handler_) {
+        action_handler_(action);
+    } else {
+        runner_->DoStep(action);
+    }
+    grid_->ClearSelection();
+}
+
+void QValuePanel::OnGridScroll(wxScrollWinEvent& event)
+{
+    event.Skip();
+    CallAfter(&QValuePanel::SyncHeatMapScroll, true);
+}
+
+void QValuePanel::OnGridMouseWheel(wxMouseEvent& event)
+{
+    event.Skip();
+    CallAfter(&QValuePanel::SyncHeatMapScroll, true);
+}
+
+void QValuePanel::OnGridKeyUp(wxKeyEvent& event)
+{
+    event.Skip();
+    CallAfter(&QValuePanel::SyncHeatMapScroll, true);
+}
+
 void QValuePanel::OnSize(wxSizeEvent& event)
 {
     Layout();
+    CallAfter(&QValuePanel::SyncHeatMapScroll, true);
     event.Skip();
 }
 

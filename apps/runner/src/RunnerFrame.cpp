@@ -202,6 +202,10 @@ void RunnerFrame::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
 
     // QValuePanel初期化
     q_value_panel_->Initialize(run_manager, eval_runner_);
+    q_value_panel_->SetActionHandler([this](int64_t action) {
+        eval_panel_->DoStep(action);
+        eval_panel_->Refresh();
+    });
 }
 
 void RunnerFrame::SetupEvents()
