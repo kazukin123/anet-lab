@@ -1,0 +1,64 @@
+IQN対応改修仕様
+
+■NN
+・IQNHeadとIQNDuelingHeadを追加。
+・追加するHeadは最終的なQ値quantileの出力層のみ受け持つ。
+・bodyには既存のfeaturesブランチに加えてtausブランチとfusionブランチを設定ベースで追加。
+・tausブランチではtausを入力とし、追加実装するCosineEmbeddingモジュールを設定ベースで含める。
+・fusionブランチではfeaturesブランチとtausブランチを合流させ、Head入力前のMLPを構成する。
+・featuresとtau_embeddingの合流は標準IQNに合わせて要素積を基本とする。
+・ブランチの入力設定「bind」に演算子として「*」を追加対応。
+　　bind = a * b, c
+・bindの演算子*は「,」より優先。
+・bindの演算子*は、batch 次元を dim=0、feature 次元を最後の次元とみなす
+feature-last elementwise product とする。
+　つまり、rank が異なる場合、低 rank 側には batch 次元の直後へ singleton 次元を挿入して rank を揃える。その後、batch 次元以外は通常の broadcast 規則に従って要素積を行う。（IQNにそのまま適用可能) 
+・bindの演算子`,` は各 term を評価した後、設定キー「bind_concat_dim」の次元でtorch::catする。
+・bind_concat_dimのデフォルトは 1 とし既存挙動を維持する。shape から concat 次元は推測しない。
+・Q分位出力のshapeは[B, A, N] を維持する。
+・IQN有効の場合、input_specsに["taus"] を能動的に追加する。
+
+■Config
+・設定項目としてquantile_mode(string)をnone/qr/iqnで追加。
+・既存のQR用のnum_quantilesはqr.num_quantilesに移動。
+・τ生成ルールはstruct化し、分位数やrandom/fixed_midpointなどの配置方式を選択可能とする。
+・τ生成はtrain_policy/eval_policy/target_policyの各ActionPolicy、および
+　IQNLearner向けにloss用のcurrent_taus/target_tausで利用する。
+・ActionPolicyConfig に quantile_mode を持たせる。ただしこの設定値はAgent全体の設定を実装にて自動で引継ぐ形とし、個別設定は不要とする。
+
+■TauGenerator
+・IQN用tau生成ユーティリティを追加する。
+・TauGenerator によるtaus生成時はRandomGeneratorを都度引数として渡し、それを利用する。
+・GPU処理にフル対応(device指定に従う)
+・TauGeneratorはrandom/fixed_midpointなどのtau配置方式のみを担当する。
+・tau_min/tau_max/tau_num/sample_modeからtausを生成する。
+・tailというpolicy概念は持たせない。
+
+■NetworkModel
+・Forwardでτを入力可能にする。
+・メソッドシグニチャは変えず、taus用のTensorDictキーを固定で定義する。
+・iqn で taus が存在しない場合はエラーにする（tausは実装で生成するのでバグケースのみ）。
+
+■ActionPolicy
+・既存のtrain_policy/target_policy/eval_policyの3設定を維持する。
+・ActionPolicyのクラス構成は既存から増やさない。
+・既存Policy内でquantile_modeに応じてaction score計算を切り替える。
+・ActionPolicyConfigにIQN用のtau_rule(τ生成ルール設定struct)を追加する。
+    train_policy.tau_rule.num_taus
+    train_policy.tau_rule.sample_mode
+　 ※ tau_min/tau_max はUQE設定で生成するのでtau_ruleの設定としては用意しない
+・IQNの場合はPolicy設定に従ってTauGeneratorでtausを生成し、TensorDictに格納してforwardする。
+・UQEはQR/IQN両対応とする。
+・QRでもIQNでもuqe_tau_startは同じ意味。IQNではforward前にUQEのtail範囲を考慮してtausを生成する。
+・IQN + UQE では、uqe_tau による tail 範囲を tau 生成時に反映し、forward 後の q_dist は再tailせず mean のみ行う。
+・IQN + ThompsonSampling では、policy の tau_rule に従って random tau を生成し、その q_dist mean を action score とする。
+・UQE/ThompsonSamplingの有効条件はuse_qrからquantile_mode != noneに変更する。
+
+■Learner
+・IQNLearnerを追加する。
+・target_policyはDouble DQNのnext action選択だけを担当する（既存踏襲）。
+・IQNLearnerはActionPolicyとは別に、loss用のcurrent_taus/target_tausを生成する。
+・target_tausはtarget distribution生成用であり、target_policy設定とは分ける。
+
+■QValuePanel
+・変更不要。
