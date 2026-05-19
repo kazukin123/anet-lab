@@ -15,7 +15,7 @@
 #include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
 #include "anet/stacker.hpp"
-#include "nn_heads.hpp"
+#include "dqn_based_heads.hpp"
 #include "anet/serialize.hpp"
 
 using namespace anet::rl::dqn;
@@ -63,7 +63,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     this->action_context_seed_ = seed_maker.MakeNamedSeed("action_context");
 
     // RuntimeVars生成
-    this->vars_ = std::make_unique<dqn::RuntimeVars>();
+    this->vars_ = std::make_unique<RuntimeVars>();
 
     // QR-DQN設定確認 (use_qrとの整合性)
     bool is_distributional = config_.use_qr;
@@ -93,21 +93,21 @@ DefaultDQNAgent::DefaultDQNAgent(
     // アルゴリズムに応じてFactoryを切り替え
     if (is_distributional) {
         if (config_.use_dueling_net) {
-            head_factory = std::make_shared<anet::nn::QuantileDuelingHeadFactory>(
+            head_factory = std::make_shared<QuantileDuelingHeadFactory>(
                 n_actions_, config_.num_quantiles, head_init_config);
             LOG::info() << "Network Head: Quantile Dueling (N=" << config_.num_quantiles << ")";
         } else {
-            head_factory = std::make_shared<anet::nn::QuantileHeadFactory>(
+            head_factory = std::make_shared<QuantileHeadFactory>(
                 n_actions_, config_.num_quantiles, head_init_config);
             LOG::info() << "Network Head: Quantile Plain (N=" << config_.num_quantiles << ")";
         }
     } else {
         if (config_.use_dueling_net) {
-            head_factory = std::make_shared<anet::nn::DuelingHeadFactory>(
+            head_factory = std::make_shared<DuelingHeadFactory>(
                 n_actions_, head_init_config);
             LOG::info() << "Network Head: Dueling";
         } else {
-            head_factory = std::make_shared<anet::nn::LinearHeadFactory>(
+            head_factory = std::make_shared<LinearHeadFactory>(
                 n_actions_, head_init_config);
             LOG::info() << "Network Head: Plain Linear";
         }
@@ -135,7 +135,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     }
 
     // NetworkModel生成
-    this->model_ = std::make_unique<dqn::NetworkModel>(
+    this->model_ = std::make_unique<NetworkModel>(
         config_.model, device_,
         net_config, network_obs_spec, n_actions_, head_factory,
         config_.use_qr ? config_.num_quantiles : 0
@@ -154,11 +154,11 @@ DefaultDQNAgent::DefaultDQNAgent(
 
     // Learner生成
     if (is_distributional) {
-        this->learner_ = std::make_unique<dqn::QRLearner>(
+        this->learner_ = std::make_unique<QRLearner>(
             config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, target_policy_, config_.stucker, learner_seed);
         LOG::info() << "Initialized QRLearner (Quantiles=" << config_.num_quantiles << ")";
     } else {
-        this->learner_ = std::make_unique<dqn::TDLearner>(
+        this->learner_ = std::make_unique<TDLearner>(
             config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, target_policy_, config_.stucker, learner_seed);
         LOG::info() << "Initialized TDLearner";
     }
@@ -170,25 +170,25 @@ DefaultDQNAgent::DefaultDQNAgent(
 	}
 }
 
-std::shared_ptr<anet::rl::dqn::ActionPolicy> DefaultDQNAgent::CreateActionPolicy(const ActionPolicyConfig& policy_config)
+std::shared_ptr<ActionPolicy> DefaultDQNAgent::CreateActionPolicy(const ActionPolicyConfig& policy_config)
 {
     if (policy_config.policy_type == "EpsilonGreedy" || policy_config.policy_type == "0") {
         // ε-Greedy
-        return std::make_shared<dqn::EpsilonGreedyActionPolicy>(policy_config);
+        return std::make_shared<EpsilonGreedyActionPolicy>(policy_config);
     } else if (policy_config.policy_type == "UQE" || policy_config.policy_type == "1") {
         // UQE
         ANET_CHECK(config_.use_qr);
-        return std::make_shared<dqn::UQEActionPolicy>(policy_config);
+        return std::make_shared<UQEActionPolicy>(policy_config);
     } else if (policy_config.policy_type == "ThompsonSampling" || policy_config.policy_type == "2") {
         //ThompsonSampling
         ANET_CHECK(config_.use_qr);
-        return std::make_shared<dqn::ThompsonSamplingActionPolicy>(policy_config);
+        return std::make_shared<ThompsonSamplingActionPolicy>(policy_config);
     } else if (policy_config.policy_type == "Greedy" || policy_config.policy_type == "3") {
         // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化
         ActionPolicyConfig greedy_cfg = policy_config;
         greedy_cfg.eps_start = 0.0f;
         greedy_cfg.eps_end = 0.0f;
-        return std::make_shared<dqn::EpsilonGreedyActionPolicy>(greedy_cfg);
+        return std::make_shared<EpsilonGreedyActionPolicy>(greedy_cfg);
     }
 
     // 不明なtype
@@ -302,7 +302,7 @@ std::optional<anet::TensorFunction> DefaultDQNAgent::GetTensorFunction(const std
 
 std::optional<anet::TensorDictFunction> DefaultDQNAgent::GetTensorDictFunction(const std::string& key)
 {
-    // dqn::Network に委譲してベース関数を取得
+    // NetworkModel に委譲してベース関数を取得
     auto fn = model_->GetTensorDictFunction(key, device_);
     if (fn == std::nullopt) return std::nullopt;
 
@@ -493,7 +493,7 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const anet::rl::Ba
     auto ctx = this->CreateActionContext(batch_env_spec, run_mode, device);
 
     // モードに応じて適切な Policy と Network を選択
-    std::shared_ptr<anet::rl::dqn::ActionPolicy> policy;
+    std::shared_ptr<ActionPolicy> policy;
     std::shared_ptr<anet::nn::Network> src_network;
 
     // 元ネタのPolicyとNetoworkを決定
@@ -509,7 +509,7 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const anet::rl::Ba
     auto network = (clone_model) ? src_network->Clone(device) : src_network;
 
     // Actor を生成
-    auto actor = std::make_shared<dqn::Actor>(policy, obs_norm_, ctx, this->mutex_, network, src_network);
+    auto actor = std::make_shared<Actor>(policy, obs_norm_, ctx, this->mutex_, network, src_network);
 
     // 生成したActorを返す
     return actor;

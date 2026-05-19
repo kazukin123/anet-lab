@@ -885,7 +885,7 @@ PerPriorityUpdateInfo Learner::UpdatePerPriorities(const anet::rl::ExperienceSam
     return info;
 }
 
-std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::BuildBatchUpdateResult(
+std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::MakeBatchUpdateResult(
     const torch::Tensor& loss,
     const torch::Tensor& td_error,
     const OptimizerStepResult& opt_result,
@@ -1315,7 +1315,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
     auto opt_result = Optimize(loss);
     auto per_result = UpdatePerPriorities(samples, td_error);
-    return BuildBatchUpdateResult(loss, td_error, opt_result, max_q, q_sa.detach(), per_result, torch::Tensor(), gap_abs, gap_rel);
+    return MakeBatchUpdateResult(loss, td_error, opt_result, max_q, q_sa.detach(), per_result, torch::Tensor(), gap_abs, gap_rel);
 }
 
 
@@ -1437,7 +1437,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
     auto opt_result = Optimize(loss);
     auto per_result = UpdatePerPriorities(samples, td_error_tensor);
-    return BuildBatchUpdateResult(
+    return MakeBatchUpdateResult(
         loss, td_error_tensor, opt_result,
         metrics.max_q, metrics.q_sa, per_result,
         metrics.q_std, metrics.q_gap, metrics.q_gap_rel);

@@ -422,7 +422,7 @@ namespace anet::rl::dqn {
         OptimizerStepResult Optimize(const torch::Tensor& loss);
         PerPriorityUpdateInfo MakePerPriorityUpdateInfo(const anet::rl::ExperienceSamples& samples, const torch::Tensor& td_error) const;
         PerPriorityUpdateInfo UpdatePerPriorities(const anet::rl::ExperienceSamples& samples, const torch::Tensor& td_error);
-        std::shared_ptr<anet::rl::dqn::BatchUpdateResult> BuildBatchUpdateResult(
+        std::shared_ptr<anet::rl::dqn::BatchUpdateResult> MakeBatchUpdateResult(
             const torch::Tensor& loss,
             const torch::Tensor& td_error,
             const OptimizerStepResult& opt_result,
