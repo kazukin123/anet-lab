@@ -1079,7 +1079,7 @@ torch::Tensor QuantileLearnerBase::SelectTargetActions(const anet::TensorDict& n
     return target_action_info.GetAction(device_);
 }
 
-torch::Tensor QuantileLearnerBase::BuildTargetQuantiles(const anet::rl::ExperienceSamples& samples, const torch::Tensor& next_dist) const
+torch::Tensor QuantileLearnerBase::CalcTargetQuantiles(const anet::rl::ExperienceSamples& samples, const torch::Tensor& next_dist) const
 {
     const int64_t B = samples.target_returns.size(0);
     const int64_t N = next_dist.size(1);
@@ -1097,7 +1097,7 @@ torch::Tensor QuantileLearnerBase::BuildTargetQuantiles(const anet::rl::Experien
     return target_dist;
 }
 
-QuantileMetrics QuantileLearnerBase::BuildQuantileMetrics(const torch::Tensor& current_dist, const torch::Tensor& q_values_mean) const
+QuantileMetrics QuantileLearnerBase::MakeQuantileMetrics(const torch::Tensor& current_dist, const torch::Tensor& q_values_mean) const
 {
     QuantileMetrics metrics;
     const int64_t B = current_dist.size(0);
@@ -1387,7 +1387,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
         // メトリクス用: 平均値をmax_qとして報告
         auto q_values_mean = current_out.At("q"); // すでに計算済みの平均Q値 (B, A)
-        metrics = BuildQuantileMetrics(current_dist, q_values_mean);
+        metrics = MakeQuantileMetrics(current_dist, q_values_mean);
 
         // ------------------------------------------------------------
         // ターゲット分布計算: r + gamma * Z(s', a*)
@@ -1406,7 +1406,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             auto next_dist = GatherActionQuantiles(next_dist_all, next_actions);
             ANET_ASSERT_SHAPE(next_dist, { B, N });
 
-            target_dist = BuildTargetQuantiles(samples, next_dist);
+            target_dist = CalcTargetQuantiles(samples, next_dist);
         }
 
         // target_dist: (B, N) -> mean -> (B)

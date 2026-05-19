@@ -467,8 +467,8 @@ namespace anet::rl::dqn {
     protected:
         torch::Tensor GatherActionQuantiles(const torch::Tensor& quantiles, const torch::Tensor& actions) const;
         torch::Tensor SelectTargetActions(const anet::TensorDict& next_obs);
-        torch::Tensor BuildTargetQuantiles(const anet::rl::ExperienceSamples& samples, const torch::Tensor& next_dist) const;
-        QuantileMetrics BuildQuantileMetrics(const torch::Tensor& current_dist, const torch::Tensor& q_values_mean) const;
+        torch::Tensor CalcTargetQuantiles(const anet::rl::ExperienceSamples& samples, const torch::Tensor& next_dist) const;
+        QuantileMetrics MakeQuantileMetrics(const torch::Tensor& current_dist, const torch::Tensor& q_values_mean) const;
         torch::Tensor ComputeQuantileHuberLoss(
         	const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& taus) const;
         static torch::Tensor ComputeQuantileHuberLoss(
