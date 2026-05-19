@@ -1,4 +1,4 @@
-#include "catch.hpp"
+﻿#include "catch.hpp"
 
 #include "dqn_based_agent.hpp"
 #include "nn_impl.hpp"
@@ -106,7 +106,7 @@ public:
     }
 
     using dqn::Learner::MakePerPriorityUpdateInfo;
-    using dqn::Learner::OptimizeLoss;
+    using dqn::Learner::Optimize;
 
     void UseSgd(float lr)
     {
@@ -265,7 +265,7 @@ TEST_CASE("Optimizer helper keeps QR-DQN FP32 grad clip result contract", "[dqn]
     auto weight_before = model.GetPolicyParameters()[0].detach().clone().cpu();
     auto obs = anet::TensorDict{ { kVectorKey, torch::tensor({ { 3.0f, 4.0f } }) } };
     auto loss = model.GetMainNetwork()->Forward(obs).At("q").sum();
-    auto result = learner.OptimizeLoss(loss);
+    auto result = learner.Optimize(loss);
 
     CHECK_FALSE(result.grad_norm.has_value());
     REQUIRE(result.grad_norm_tensor.defined());
