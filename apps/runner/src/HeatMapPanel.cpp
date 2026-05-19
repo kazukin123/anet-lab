@@ -15,7 +15,11 @@ SweepHeatMapDialog::SweepHeatMapDialog(
         , wxDefaultPosition, wxSize(600, 300)
         , wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER) // リサイズ可
 {
-    auto state_dim = env_spec.state_spec.CalcFlattenDim();
+    /// @todo v2暫定: Vector次元をベースとする
+    int64_t state_dim = 1;
+    if (env_spec.state_spec.obs_spec.count(anet::rl::ObsKeys::kVector) > 0) {
+        state_dim = env_spec.state_spec.obs_spec.at(anet::rl::ObsKeys::kVector).CalcFlattenDim();
+    }
     auto n_actions = env_spec.action_spec.GetNumActions();
 
     wxArrayString network_choices {
@@ -297,7 +301,8 @@ void SweepHeatMapPanel::CreateObserver(const SweepHeatMapSettings& settings,
     );
 
     std::optional<anet::TensorFunction> policy_forward = agent->GetTensorFunction(settings.network_key.ToStdString());
-    ANET_ASSERT(policy_forward.has_value());
+    ANET_CHECK_MSG(policy_forward.has_value(),
+        "SweepHeatMapPanel requires TensorFunction. key=" << settings.network_key.ToStdString());
     this->observer_ = notifier->Attach<anet::rl::SweepedHeatMapObserver>(
         settings.tag.ToStdString() , q_sweep_obs_config, processor, *policy_forward, processor);
 }

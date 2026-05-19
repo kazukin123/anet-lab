@@ -44,17 +44,15 @@ BatchExperienceStateProbe::BatchExperienceStateProbe(
 
     std::optional<std::string> name_spec;
 
-    if (spec != nullptr) {
-        ANET_ASSERT(state_index < spec->CalcFlattenDim());
+    /// @todo v2暫定: デフォルトのVector観測から情報を取得
+    if (spec != nullptr && spec->obs_spec.count(anet::rl::ObsKeys::kVector) > 0) {
+        const auto& tspec = spec->obs_spec.at(anet::rl::ObsKeys::kVector);
+        ANET_ASSERT(state_index < tspec.CalcFlattenDim());
 
-        // 指定されたindexの定義情報を取得
-        const anet::rl::StateDimInfo* s = spec->FindDim(state_index);
-
-        // 定義情報を取得出来たらmin/maxをセット
-        if (s != nullptr) {
-            min_ = s->min_value;
-            max_ = s->max_value;
-            name_spec = s->name;
+        min_ = tspec.GetMin(state_index);
+        max_ = tspec.GetMax(state_index);
+        if (state_index < tspec.labels.size()) {
+            name_spec = tspec.labels[state_index];
         }
     }
 
@@ -156,20 +154,15 @@ BatchExperienceVectorProbe::BatchExperienceVectorProbe(
 {
     std::optional<std::string> name_spec;
 
-    // EnvSpec の state_spec から min/max を取得
-    if (state_spec != nullptr && index_ >= 0) {
-        ANET_ASSERT(index_ < (int)state_spec->CalcFlattenDim());
+    /// @todo v2暫定:EnvSpec の state_spec から min/max を取得 (暫定Vector指定)
+    if (state_spec != nullptr && index_ >= 0 && state_spec->obs_spec.count(anet::rl::ObsKeys::kVector) > 0) {
+        const auto& tspec = state_spec->obs_spec.at(anet::rl::ObsKeys::kVector);
+        ANET_ASSERT(index_ < (int)tspec.CalcFlattenDim());
 
-        // 指定されたindexの定義情報を取得
-        const anet::rl::StateDimInfo* s = state_spec->FindDim(index_);
-
-        // 定義情報を取得出来たらmin/maxをセット
-        if (s != nullptr) {
-            //if (auto_scale_mode == AutoScaleMode::DISABLE) {
-                min_ = s->min_value;
-                max_ = s->max_value;
-            //}
-            name_spec = s->name;
+        min_ = tspec.GetMin(index_);
+        max_ = tspec.GetMax(index_);
+        if (index_ < tspec.labels.size()) {
+            name_spec = tspec.labels[index_];
         }
     } else if (action_spec != nullptr) {
         //  ActionSpec では index_ は使わない（離散を想定）
@@ -398,20 +391,17 @@ AgentTensorVectorProbe::AgentTensorVectorProbe(
 {
     std::optional<std::string> name_spec;
 
-    // EnvSpec の state_spec から min/max を取得
-    if (state_spec != nullptr && index_ >= 0) {
-        ANET_ASSERT(index_ < (int)state_spec->CalcFlattenDim());
+    /// @todo v2暫定: EnvSpec の state_spec から min/max を取得 (暫定Vector指定)
+    if (state_spec != nullptr && index_ >= 0 && state_spec->obs_spec.count(anet::rl::ObsKeys::kVector) > 0) {
+        const auto& tspec = state_spec->obs_spec.at(anet::rl::ObsKeys::kVector);
+        ANET_ASSERT(index_ < (int)tspec.CalcFlattenDim());
 
-        // 指定されたindexの定義情報を取得
-        const anet::rl::StateDimInfo* s = state_spec->FindDim(index_);
-
-        // 定義情報を取得出来たらmin/maxをセット
-        if (s != nullptr) {
-            if (auto_scale_mode == AutoScaleMode::DISABLE) {
-                min_ = s->min_value;
-                max_ = s->max_value;
-            }
-            name_spec = s->name;
+        if (auto_scale_mode == AutoScaleMode::DISABLE) {
+            min_ = tspec.GetMin(index_);
+            max_ = tspec.GetMax(index_);
+        }
+        if (index_ < tspec.labels.size()) {
+            name_spec = tspec.labels[index_];
         }
     } else if (action_spec != nullptr) {
         //  ActionSpec では index_ は使わない（離散を想定）
@@ -574,7 +564,11 @@ StateSweepProcessor::StateSweepProcessor(
     , y_index_(y_index)
     , value_extract_fn_(value_extract_fn)
 {
-    int64_t flat_size = state_spec_.CalcFlattenDim();
+    /// @todo v2暫定: Vector次元をベースとする
+    int64_t flat_size = 1;
+    if (state_spec_.obs_spec.count(anet::rl::ObsKeys::kVector) > 0) {
+        flat_size = state_spec_.obs_spec.at(anet::rl::ObsKeys::kVector).CalcFlattenDim();
+    }
 
     if (base_state.has_value()) {
         base_flatten_ = base_state.value().clone();
@@ -582,14 +576,19 @@ StateSweepProcessor::StateSweepProcessor(
         base_flatten_ = torch::zeros({ flat_size }, torch::kFloat32);
     }
 
-    // min/max：StateSpec から
-    const auto* dx = state_spec_.FindDim(x_index_);
-    const auto* dy = state_spec_.FindDim(y_index_);
+    /// @todo v2暫定:min/max：StateSpec から
+    float xs_min = -1.0f;
+    float xs_max = 1.0f;
+    float ys_min = -1.0f;
+    float ys_max = 1.0f;
 
-    float xs_min = dx ? dx->min_value : -1.0f;
-    float xs_max = dx ? dx->max_value : 1.0f;
-    float ys_min = dy ? dy->min_value : -1.0f;
-    float ys_max = dy ? dy->max_value : 1.0f;
+    if (state_spec_.obs_spec.count(anet::rl::ObsKeys::kVector) > 0) {
+        const auto& tspec = state_spec_.obs_spec.at(anet::rl::ObsKeys::kVector);
+        xs_min = tspec.GetMin(x_index_).value_or(-1.0f);
+        xs_max = tspec.GetMax(x_index_).value_or(1.0f);
+        ys_min = tspec.GetMin(y_index_).value_or(-1.0f);
+        ys_max = tspec.GetMax(y_index_).value_or(1.0f);
+    }
 
     x_min_overridden_ = x_min_override.has_value();
     x_max_overridden_ = x_max_override.has_value();
