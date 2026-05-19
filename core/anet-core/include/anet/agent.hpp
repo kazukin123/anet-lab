@@ -84,7 +84,7 @@ namespace anet::rl {
         std::shared_ptr<std::shared_mutex> mutex_;
         const torch::Device device_;
         int n_actions_;
-        int batch_size_;
+        int num_envs_;
     private:
         mutable std::unordered_map<RunMode, std::shared_ptr<anet::RandomGenerator>> run_mode_rngs_;
         mutable std::mutex rng_mutex_;
@@ -171,7 +171,7 @@ namespace anet::rl {
             int replay_batch_size = 128;
             int update_warmup_steps = 1000;
             int update_interval = 2;         ///< 何ステップに1回Updateするか。replay_ratioが正なら使われない。
-            float replay_ratio = -1;         ///< 環境1ステップあたり平均何回の勾配更新を行うか。batch_sizeに依存しない。負数ではuppdate_intervalのみ使う
+            float replay_ratio = -1;         ///< 環境1ステップあたり平均何回の勾配更新を行うか。num_envsに依存しない。負数ではuppdate_intervalのみ使う
 
             int n_step = 3;
 

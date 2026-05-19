@@ -289,7 +289,7 @@ namespace anet::rl {
     };
 
     struct BatchEnvSpec {
-        int batch_size;
+        int num_envs;
         int num_threads;
 
         anet::json ToJson() const;
@@ -633,7 +633,7 @@ namespace anet::rl {
 
     class BatchEnvFactory {
     public:
-        virtual std::shared_ptr<BatchEnv> CreateBatchEnv(std::optional<seed_t> seed = std::nullopt, int batch_size = -1) = 0;	///< batch_size=-1でbatch_size自動
+        virtual std::shared_ptr<BatchEnv> CreateBatchEnv(std::optional<seed_t> seed = std::nullopt, int num_envs = -1) = 0;	///< num_envs=-1でnum_envs自動
         virtual ~BatchEnvFactory() = default;
     };
 

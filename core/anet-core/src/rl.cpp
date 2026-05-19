@@ -215,7 +215,7 @@ std::string EnvSpec::ToString() const
 anet::json BatchEnvSpec::ToJson() const
 {
     anet::json j;
-    j["batch_size"] = batch_size;
+    j["num_envs"] = num_envs;
     j["num_threads"] = num_threads;
     return j;
 }

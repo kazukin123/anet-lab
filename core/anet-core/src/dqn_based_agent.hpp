@@ -56,7 +56,7 @@ namespace anet::rl::dqn {
         torch::Tensor per_is_weights;      ///< IS Weights (B,)
         torch::Tensor per_priorities;      ///< Updated Priorities (B,)
         torch::Tensor per_clipped_count;   ///< Clipped Count (scalar tensor)
-        long per_minibatch_size = 0;       ///< Batch Size
+        long per_minibatch_size = 0;       ///< Minibatch Size
 
         // QR-DQN Metrics
         torch::Tensor q_std; // 分布の標準偏差
@@ -313,7 +313,7 @@ namespace anet::rl::dqn {
         virtual ~ActionPolicy() = default;
     protected:
         anet::TensorDict ForwardForAction(const anet::TensorDict& obs, std::shared_ptr<anet::nn::Network> network) const;
-        torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t batch_size, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
+        torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         BatchActionInfo MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const;
         //torch::Tensor GetQuantiles(const torch::Tensor& obs, bool use_target) const;
         void UpdateEpsilon(step_t step, bool is_uqe = false);
@@ -438,7 +438,7 @@ namespace anet::rl::dqn {
         void UpdateTargetNetwork(step_t step);
     protected:
         const torch::Device device_;
-        int batch_size_;
+        int num_envs_;
         int n_actions_;
         float earned_credit_;
         LearnerConfig config_;

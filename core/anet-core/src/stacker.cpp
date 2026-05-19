@@ -11,11 +11,11 @@ using namespace anet::rl;
 // DictFrameStacker
 // =============================================================
 
-DictFrameStacker::DictFrameStacker(int stack_count, int batch_size, torch::Device device, std::optional<std::vector<std::string>> stack_keys)
-    : stack_count_(stack_count), batch_size_(batch_size), stack_keys_(stack_keys), device_(device)
+DictFrameStacker::DictFrameStacker(int stack_count, int num_envs, torch::Device device, std::optional<std::vector<std::string>> stack_keys)
+    : stack_count_(stack_count), num_envs_(num_envs), stack_keys_(stack_keys), device_(device)
 {
     ANET_ASSERT(stack_count_ > 0);
-    ANET_ASSERT(batch_size_ > 0);
+    ANET_ASSERT(num_envs_ > 0);
 }
 
 anet::TensorDict DictFrameStacker::Stack(const anet::TensorDict& data, const torch::Tensor& resets)
@@ -24,10 +24,10 @@ anet::TensorDict DictFrameStacker::Stack(const anet::TensorDict& data, const tor
 
     if (data.empty()) return data;
 
-    // 入力チェック (resetsのバッチサイズだけ確認)
-    if (resets.size(0) != batch_size_) {
-        ANET_SYSTEM_ERROR("DictFrameStacker dimension mismatch. Expected batch_size="
-            << batch_size_ << ", Got resets=" << resets.size(0));
+    // 入力チェック (resetsの環境数だけ確認)
+    if (resets.size(0) != num_envs_) {
+        ANET_SYSTEM_ERROR("DictFrameStacker dimension mismatch. Expected num_envs="
+            << num_envs_ << ", Got resets=" << resets.size(0));
     }
 
     anet::TensorDict result;

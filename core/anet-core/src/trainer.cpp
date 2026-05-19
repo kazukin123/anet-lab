@@ -40,8 +40,8 @@ void RunnerBase::InitializeMetrics()
 
     // メトリクス初期化
     auto fopt = torch::TensorOptions().dtype(torch::kFloat32).device(env_device);
-    episode_total_reward_cur_ = torch::zeros({ batch_env_spec.batch_size }, fopt);
-    ANET_ASSERT_SHAPE(episode_total_reward_cur_, { batch_env_spec.batch_size });
+    episode_total_reward_cur_ = torch::zeros({ batch_env_spec.num_envs }, fopt);
+    ANET_ASSERT_SHAPE(episode_total_reward_cur_, { batch_env_spec.num_envs });
 }
 
 void RunnerBase::UpdateMetrics(std::shared_ptr<const BatchStepResult> result)
@@ -586,7 +586,7 @@ std::shared_ptr<TrainRunner> RunnerFactory::CreateMainRunner(
 struct RunManager::Config : public anet::Config
 {
     uint64_t seed = 0;
-    int batch_size = 1;
+    int num_envs = 1;
     int eval_interval = 50;
     std::string main_runner_type = "serial";
 
@@ -597,7 +597,7 @@ struct RunManager::Config : public anet::Config
         : anet::Config(config_data, config_prefix)
     {
         ANET_READ_CONFIG(config_data, seed);
-        ANET_READ_CONFIG(config_data, batch_size);
+        ANET_READ_CONFIG(config_data, num_envs);
         ANET_READ_CONFIG(config_data, eval_interval);
         ANET_READ_CONFIG(config_data, main_runner_type);
         ANET_READ_CONFIG(config_data, eval_device_type);
@@ -647,7 +647,7 @@ RunManager::RunManager(const ConfigData& config_data)
     // BatchEnv生成
     anet::rl::DefaultBatchEnvFactoryConfig env_config(config_data);
     LOG::info() << "env_config=" << env_config.ToString();
-    env_factory_ = std::make_unique<anet::rl::DefaultBatchEnvFactory>(env_config, config_data, config_->batch_size);
+    env_factory_ = std::make_unique<anet::rl::DefaultBatchEnvFactory>(env_config, config_data, config_->num_envs);
     env_class_id_ = env_config.class_id;
     auto env_device = env_factory_->GetDevice();
     auto single_env_factory = env_factory_->GetSingleFactory();
@@ -755,7 +755,7 @@ std::shared_ptr<EvalRunner> RunManager::CreateEvalRunner(const std::string& name
 
     ANET_ASSERT(status_ == anet::rl::RunnerStatus::RUNNING);
 
-    auto env = env_factory_->CreateBatchEnv(eval_env_seed_, 1); // batch_size = 1
+    auto env = env_factory_->CreateBatchEnv(eval_env_seed_, 1); // num_envs = 1
     auto eval_runner = std::make_shared<EvalRunner>(env, agent_, notifier_, run_mode, clone_model, device);
     this->eval_runners[name] = eval_runner;
     return eval_runner;

@@ -28,13 +28,13 @@ namespace anet::rl {
     // ----------------------------------------------------------------------
     class DictFrameStacker final : public FrameStacker {
     public:
-        DictFrameStacker(int stack_count, int batch_size, torch::Device device, std::optional<std::vector<std::string>> stack_keys = std::nullopt);
+        DictFrameStacker(int stack_count, int num_envs, torch::Device device, std::optional<std::vector<std::string>> stack_keys = std::nullopt);
 
         anet::TensorDict Stack(const anet::TensorDict& data, const torch::Tensor& resets) override;
         void Reset() override;
     private:
         int stack_count_;
-        int batch_size_;
+        int num_envs_;
         std::optional<std::vector<std::string>> stack_keys_;
         torch::Device device_;
         std::unordered_map<std::string, torch::Tensor> buffers_;    // Keyごとに履歴バッファを保持

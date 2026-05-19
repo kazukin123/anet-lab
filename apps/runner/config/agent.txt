@@ -102,7 +102,7 @@ DefaultDQNAgent.baseline.eval_policy.use_amp_bf16 = false
 #DefaultDQNAgent.baseline.target_policy.use_amp_bf16 = false
 
 
-DefaultDQNAgent.baseline.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4 batch_sizeを上げたら少し上げて良い
+DefaultDQNAgent.baseline.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4 num_envsを上げたら少し上げて良い
 DefaultDQNAgent.baseline.learner.gamma = 0.99                 # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
 DefaultDQNAgent.baseline.learner.adam_eps = 1e-5              # 小さな勾配の変化に敏感になりすぎるのを防ぎ、学習をマイルドに
 DefaultDQNAgent.baseline.learner.weight_decay = 1e-2          # AdamWの重み減衰
@@ -110,9 +110,9 @@ DefaultDQNAgent.baseline.learner.use_grad_clip = true         # ★
 DefaultDQNAgent.baseline.learner.grad_clip_tau = 5            # ★10 25 40 1f 5f 10f
 DefaultDQNAgent.baseline.learner.use_td_clip = false          # 
 DefaultDQNAgent.baseline.learner.td_clip_value = 30.0         # 4.0 20 30
-DefaultDQNAgent.baseline.learner.replay_capacity = 2560000    # batch_size=256向け。
+DefaultDQNAgent.baseline.learner.replay_capacity = 2560000    # num_envs=256向け。
 DefaultDQNAgent.baseline.learner.replay_batch_size = 1024     # 128 256 1024 大きいと実時間は早くなるが局所解に陥りやすくなる
-DefaultDQNAgent.baseline.learner.update_warmup_steps = 8192  # 1000　exp_step単位。replay_batch_size * 32 もしくは batch_size * エピソードの平均長、どちらか大きい方
+DefaultDQNAgent.baseline.learner.update_warmup_steps = 8192  # 1000　exp_step単位。replay_batch_size * 32 もしくは num_envs * エピソードの平均長、どちらか大きい方
 DefaultDQNAgent.baseline.learner.update_interval = 1         # 環境何ステップ毎にUpdateするか。replay_rationが正なら使われない
 DefaultDQNAgent.baseline.learner.replay_ratio = 4            # 環境1ステップあたり平均何回のUpdateするか。負数ではupdate_interval側を使う
 DefaultDQNAgent.baseline.learner.n_step = 3

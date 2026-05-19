@@ -8,9 +8,9 @@ app.$ = app.online > P
 #train.seed = 540080446186335311 # N-STEP評価用
 train.seed = 7508636947373324265 # 評価用
 
-train.batch_size = 256
-#train.batch_size = 10
-#train.batch_size = 1
+train.num_envs = 256
+#train.num_envs = 10
+#train.num_envs = 1
 
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.heavy > A
 DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A

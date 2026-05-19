@@ -245,7 +245,7 @@ anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForAction(
     return network->Forward(obs);
 }
 
-torch::Tensor anet::rl::dqn::ActionPolicy::MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t batch_size, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const
+torch::Tensor anet::rl::dqn::ActionPolicy::MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const
 {
     ProfileRange  r("ActionPolicy::MakeEpsilonGreedyAction");
 
@@ -258,10 +258,10 @@ torch::Tensor anet::rl::dqn::ActionPolicy::MakeEpsilonGreedyAction(const torch::
     auto gen = rnd->GetTorchGenerator(device);
 
     // ランダム選択するActionをマスクとして選択（εを使って）
-    auto mask = torch::rand({ batch_size }, gen, torch::TensorOptions().device(device)).lt(epsilon);    // mask: (N) bool, GPU上で生成
+    auto mask = torch::rand({ num_envs }, gen, torch::TensorOptions().device(device)).lt(epsilon);    // mask: (N) bool, GPU上で生成
 
     // ランダム選択対象のアクションについて、乱数でアクション決定
-    auto random_actions = torch::randint(/*low=*/0, /*high=*/n_actions, { batch_size }, gen, // random actions(N) int64
+    auto random_actions = torch::randint(/*low=*/0, /*high=*/n_actions, { num_envs }, gen, // random actions(N) int64
         torch::TensorOptions().dtype(torch::kInt64).device(device));
 
     // actions: where(mask, random_actions, greedy)
@@ -632,7 +632,7 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
     const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
     std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed)
     : RandomHolder(target_seed), config_(config), stucker_config_(stucker_config), model_(model), vars_(vars), obs_norm_(std::move(obs_norm))
-    , batch_size_(batch_env_spec.batch_size)
+    , num_envs_(batch_env_spec.num_envs)
     , n_actions_(env_spec.action_spec.GetNumActions())//, state_dim_(env_spec.state_spec.CalcFlattenDim())
     , device_(std::move(device))
     , target_policy_(std::move(target_policy))
@@ -640,7 +640,7 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
     // Credit計算
     if (config_.replay_ratio > 0) {
         // RRモード:  U = (N * RR) / B
-        earned_credit_ = static_cast<float>(batch_size_) * config_.replay_ratio / config_.replay_batch_size;
+        earned_credit_ = static_cast<float>(num_envs_) * config_.replay_ratio / config_.replay_batch_size;
     } else {
         // Intervalモード: U = 1.0 / Interval
         earned_credit_ = 1.0f / static_cast<float>(std::max(1, config_.update_interval));
@@ -711,9 +711,9 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
     
     //const ReplayBufferConfig& config, const EnvSpec& env_spec, int64_t num_envs, torch::Device storage_device, bool pin_memory, std::optional<uint64_t> seed)
 
-    //this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.batch_size, device_, false, seed);
-    //this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.batch_size, device_, true, seed);
-    this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.batch_size, torch::kCPU, false, seed);
+    //this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.num_envs, device_, false, seed);
+    //this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.num_envs, device_, true, seed);
+    this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.num_envs, torch::kCPU, false, seed);
 }
 
 NormalizedSampleObservations Learner::NormalizeSampleObservations(const anet::rl::ExperienceSamples& samples) const

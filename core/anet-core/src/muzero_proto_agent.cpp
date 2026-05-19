@@ -36,7 +36,7 @@ MuZeroAgent::MuZeroAgent(
 
     // ReplayBuffer生成
     replay_buffer_ = std::make_shared<MuZeroReplayBuffer>(
-        config_.buffer, batch_env_spec_.batch_size, env_spec_.action_spec.GetNumActions(), rb_seed);
+        config_.buffer, batch_env_spec_.num_envs, env_spec_.action_spec.GetNumActions(), rb_seed);
 
     // メトリクス
     latest_tau_ = std::make_shared<float>(config_.actor.temp_start);

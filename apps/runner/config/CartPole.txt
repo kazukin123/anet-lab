@@ -6,9 +6,9 @@ app.$ = app.online
 #train.seed = 10471613835926818675
 train.seed = 14209897399466557630
 
-train.batch_size = 256
-#train.batch_size = 10
-#train.batch_size = 1
+train.num_envs = 256
+#train.num_envs = 10
+#train.num_envs = 1
 
 
 #DefaultDQNAgent.$ = DefaultDQNAgent.trunk > A

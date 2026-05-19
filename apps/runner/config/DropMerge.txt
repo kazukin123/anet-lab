@@ -8,10 +8,10 @@ app.$ = app.online > P
 
 train.seed = 1
 
-train.batch_size = 256
-#train.batch_size = 128
-#train.batch_size = 10
-#train.batch_size = 1
+train.num_envs = 256
+#train.num_envs = 128
+#train.num_envs = 10
+#train.num_envs = 1
 
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > BF16.agent >  R > X
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > B	 # Random Policy
@@ -98,6 +98,7 @@ net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre
 #app.run_name = run_{t}_ns_3
 #app.run_name = run_{t}_gs_5846_cy7_rr25
 #app.run_name = run_{t}_gs_5846_cy12_dsr2000
+app.run_name = run_{t}_bt1
 
 
 #R.auto_load_file = ../../runs/DropMerge_SuikaHybrid_Flatten_128.anet

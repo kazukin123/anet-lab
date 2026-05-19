@@ -426,7 +426,7 @@ std::shared_ptr<anet::rl::ActionContext> DefaultDQNAgent::CreateActionContext(
         std::optional<std::vector<std::string>> stack_keys;
         if (!config_.stucker.stack_keys.empty()) stack_keys = config_.stucker.stack_keys;
         auto stacker = std::make_shared<DictFrameStacker>(
-			config_.stucker.stack_count, batch_env_spec.batch_size, target_device, stack_keys);
+			config_.stucker.stack_count, batch_env_spec.num_envs, target_device, stack_keys);
         return std::make_shared<StackerActionContext>(run_mode, stacker, ctx_seed);
     }
 

@@ -8,11 +8,11 @@ app.$ = app.online > P
 
 train.seed = 1
 
-#train.batch_size = 256
-#train.batch_size = 128
-#train.batch_size = 10
-train.batch_size = 4
-#train.batch_size = 1
+#train.num_envs = 256
+#train.num_envs = 128
+#train.num_envs = 10
+train.num_envs = 4
+#train.num_envs = 1
 
 #GridMazeEnv.$ = GridMazeEnv.baseline
 
