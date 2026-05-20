@@ -1,8 +1,10 @@
 ﻿#include "catch.hpp"
 
+#include "anet/default_dqn_agent.hpp"
 #include "dqn_based_agent.hpp"
 #include "nn_impl.hpp"
 
+#include <cmath>
 #include <map>
 #include <memory>
 #include <string>
@@ -16,6 +18,20 @@ namespace dqn = anet::rl::dqn;
 
 struct QuantileLearnerBaseAccess : public dqn::QuantileLearnerBase {
     using dqn::QuantileLearnerBase::ComputeQuantileHuberLoss;
+};
+
+struct ActionPolicyAccess : public dqn::ActionPolicy {
+    ActionPolicyAccess()
+        : dqn::ActionPolicy(dqn::ActionPolicyConfig{})
+    {
+    }
+
+    using dqn::ActionPolicy::CreateSpatialTensor;
+
+    anet::rl::BatchActionInfo SelectAction(const anet::TensorDict&, bool, std::shared_ptr<anet::nn::Network>, std::shared_ptr<anet::RandomGenerator>) const override
+    {
+        return anet::rl::BatchActionInfo{};
+    }
 };
 
 constexpr const char* kFeatureKey = "feature";
@@ -200,6 +216,26 @@ anet::TensorDict MakePolicyInput()
     };
 }
 
+anet::TensorDict MakeSpatialUQEInput()
+{
+    auto q_values = torch::zeros({ 2, 2 });
+    auto q_quantiles = torch::tensor({
+        {
+            { 5.0f, 5.0f },
+            { 0.0f, 100.0f },
+        },
+        {
+            { 0.0f, 0.0f },
+            { 10.0f, 10.0f },
+        },
+    });
+
+    return anet::TensorDict{
+        { "q", q_values },
+        { "q_dist", q_quantiles },
+    };
+}
+
 } // namespace
 
 TEST_CASE("Quantile huber loss matches known QR-DQN inputs", "[dqn][quantile]")
@@ -316,5 +352,124 @@ TEST_CASE("ActionPolicy variants preserve action info keys and shapes", "[dqn][a
         CHECK(torch::allclose(aux.at("q_values"), obs.At("q")));
         CHECK(torch::allclose(aux.at("q_quantiles"), obs.At("q_dist")));
         CHECK(torch::equal(aux.at("raw_actions").cpu(), expected_actions));
+    }
+}
+
+TEST_CASE("ActionPolicy spatial tensor generation handles supported scale types", "[dqn][action_policy][spatial]")
+{
+    auto device = torch::Device(torch::kCPU);
+
+    auto linear = ActionPolicyAccess::CreateSpatialTensor(3, 1.0f, 0.0f, "linear", device);
+    CHECK(ShapeOf(linear) == std::vector<int64_t>{ 3 });
+    CHECK(torch::allclose(linear, torch::tensor({ 1.0f, 0.5f, 0.0f })));
+
+    auto log = ActionPolicyAccess::CreateSpatialTensor(3, 1.0f, 0.01f, "log", device);
+    CHECK(torch::allclose(log, torch::tensor({ 1.0f, 0.1f, 0.01f }), 1.0e-5, 1.0e-5));
+
+    auto clamped = ActionPolicyAccess::CreateSpatialTensor(2, 0.0f, 0.0f, "log", device);
+    CHECK(torch::allclose(clamped, torch::tensor({ 1.0e-4f, 1.0e-4f })));
+
+    auto single = ActionPolicyAccess::CreateSpatialTensor(1, 0.25f, 0.75f, "linear", device);
+    CHECK(ShapeOf(single) == std::vector<int64_t>{ 1 });
+    CHECK(single[0].item<float>() == Catch::Approx(0.25f).margin(1.0e-6f));
+
+    CHECK_THROWS(ActionPolicyAccess::CreateSpatialTensor(2, 1.0f, 0.0f, "invalid", device));
+}
+
+TEST_CASE("DefaultDQNAgentConfig keeps spatial exploration train-only", "[dqn][config][spatial]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.train_policy.use_spatial_exploration", "true");
+    config_data.Set("DefaultDQNAgent.train_policy.spatial_scale_type", "linear");
+    config_data.Set("DefaultDQNAgent.eval_policy.use_spatial_exploration", "true");
+    config_data.Set("DefaultDQNAgent.target_policy.use_spatial_exploration", "true");
+
+    dqn::DefaultDQNAgentConfig config(config_data);
+
+    CHECK(config.train_policy.use_spatial_exploration);
+    CHECK_FALSE(config.eval_policy.use_spatial_exploration);
+    CHECK_FALSE(config.target_policy.use_spatial_exploration);
+}
+
+TEST_CASE("DefaultDQNAgentConfig clears optimistic target spatial exploration", "[dqn][config][spatial]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.use_optimistic_target", "true");
+    config_data.Set("DefaultDQNAgent.train_policy.policy_type", "UQE");
+    config_data.Set("DefaultDQNAgent.train_policy.use_spatial_exploration", "true");
+    config_data.Set("DefaultDQNAgent.train_policy.spatial_scale_type", "linear");
+
+    dqn::DefaultDQNAgentConfig config(config_data);
+
+    CHECK(config.train_policy.use_spatial_exploration);
+    CHECK_FALSE(config.target_policy.use_spatial_exploration);
+    CHECK(config.target_policy.uqe_eps_start == Catch::Approx(0.0f));
+    CHECK(config.target_policy.uqe_eps_end == Catch::Approx(0.0f));
+}
+
+TEST_CASE("DefaultDQNAgentConfig rejects invalid spatial scale type", "[dqn][config][spatial]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.train_policy.spatial_scale_type", "invalid");
+
+    CHECK_THROWS(dqn::DefaultDQNAgentConfig(config_data));
+}
+
+TEST_CASE("Spatial exploration keeps scalar metrics as NaN across policy updates", "[dqn][action_policy][spatial]")
+{
+    dqn::ActionPolicyConfig config;
+    config.use_spatial_exploration = true;
+    config.spatial_scale_type = "linear";
+    config.eps_start = 1.0f;
+    config.eps_end = 0.1f;
+    config.uqe_eps_start = 0.2f;
+    config.uqe_eps_end = 0.0f;
+    config.uqe_tau_start = 0.0f;
+    config.uqe_tau_end = 1.0f;
+
+    dqn::EpsilonGreedyActionPolicy eps_policy(config, true, 2, torch::Device(torch::kCPU));
+    dqn::UQEActionPolicy uqe_policy(config, true, 2, torch::Device(torch::kCPU));
+
+    rl::StepCounts counts;
+    counts.exp_step = 1000000;
+    eps_policy.OnLearn(counts);
+    uqe_policy.OnLearn(counts);
+
+    auto eps = eps_policy.GetScalar("epsilon");
+    auto uqe_eps = uqe_policy.GetScalar("epsilon");
+    auto uqe_tau = uqe_policy.GetScalar("uqe_tau");
+    REQUIRE(eps.has_value());
+    REQUIRE(uqe_eps.has_value());
+    REQUIRE(uqe_tau.has_value());
+    CHECK(std::isnan(*eps));
+    CHECK(std::isnan(*uqe_eps));
+    CHECK(std::isnan(*uqe_tau));
+}
+
+TEST_CASE("Spatial UQE policies use per-env tau tensor", "[dqn][action_policy][spatial]")
+{
+    auto network = MakePassthroughNetwork(2, 2);
+    auto obs = MakeSpatialUQEInput();
+
+    dqn::ActionPolicyConfig config;
+    config.use_spatial_exploration = true;
+    config.spatial_scale_type = "linear";
+    config.uqe_use_tail_mean = false;
+    config.uqe_eps_start = 0.0f;
+    config.uqe_eps_end = 0.0f;
+    config.uqe_tau_start = 0.0f;
+    config.uqe_tau_end = 1.0f;
+
+    auto expected_actions = torch::tensor({ 0, 1 }, torch::TensorOptions().dtype(torch::kInt64));
+
+    std::vector<std::pair<std::string, std::shared_ptr<dqn::ActionPolicy>>> policies;
+    policies.emplace_back("uqe", std::make_shared<dqn::UQEActionPolicy>(config, true, 2, torch::Device(torch::kCPU)));
+    policies.emplace_back("thompson-sampling", std::make_shared<dqn::ThompsonSamplingActionPolicy>(config, true, 2, torch::Device(torch::kCPU)));
+
+    for (const auto& [name, policy] : policies) {
+        INFO(name);
+        auto rnd = std::make_shared<anet::RandomGenerator>(123);
+        auto action_info = policy->SelectAction(obs, /*greedy_only=*/false, network, rnd);
+        CHECK(torch::equal(action_info.GetAction().cpu(), expected_actions));
     }
 }

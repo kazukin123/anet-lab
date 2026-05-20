@@ -303,7 +303,9 @@ namespace anet::rl::dqn {
 
     class ActionPolicy : virtual public anet::ModuleBase {
     public:
-        ActionPolicy(const ActionPolicyConfig& config);
+        ActionPolicy(const ActionPolicyConfig& config,
+        	bool enable_spatial_exploration = false, int64_t num_envs = 0,
+            const torch::Device& device = torch::Device(torch::kCPU));
 
         virtual BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const = 0;
         virtual void OnLearn(const StepCounts& counts) { }
@@ -314,18 +316,31 @@ namespace anet::rl::dqn {
     protected:
         anet::TensorDict ForwardForAction(const anet::TensorDict& obs, std::shared_ptr<anet::nn::Network> network) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
+        torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, const torch::Tensor& epsilon_tensor, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         BatchActionInfo MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const;
         //torch::Tensor GetQuantiles(const torch::Tensor& obs, bool use_target) const;
         void UpdateEpsilon(step_t step, bool is_uqe = false);
+        bool IsSpatialExplorationEnabled() const { return use_spatial_exploration_; }
+        static torch::Tensor CreateSpatialTensor(int64_t num_envs, float start_val, float end_val, const std::string& scale_type, const torch::Device& device);
+        torch::Tensor GetSpatialEpsilonTensor(int64_t num_envs, const torch::Device& device, bool is_uqe) const;
+        torch::Tensor GetSpatialTauTensor(int64_t num_envs, const torch::Device& device) const;
     protected:
         const ActionPolicyConfig config_;
+        bool use_spatial_exploration_ = false;
+        int64_t spatial_num_envs_ = 0;
+        torch::Tensor spatial_eps_tensor_;
+        torch::Tensor spatial_uqe_eps_tensor_;
+        torch::Tensor spatial_tau_tensor_;
         float current_epsilon_ = 0.0f;
         float current_uqe_tau_ = 0.0f;
     };
 
     class EpsilonGreedyActionPolicy final : public ActionPolicy {
     public:
-        EpsilonGreedyActionPolicy(const ActionPolicyConfig& config);
+        EpsilonGreedyActionPolicy(const ActionPolicyConfig& config,
+            bool enable_spatial_exploration = false,
+            int64_t num_envs = 0,
+            const torch::Device& device = torch::Device(torch::kCPU));
 
         BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const;
         void OnLearn(const StepCounts& counts) override;
@@ -341,7 +356,10 @@ namespace anet::rl::dqn {
      */
     class UQEActionPolicy : public ActionPolicy {
     public:
-        UQEActionPolicy(const ActionPolicyConfig& config);
+        UQEActionPolicy(const ActionPolicyConfig& config,
+            bool enable_spatial_exploration = false,
+            int64_t num_envs = 0,
+            const torch::Device& device = torch::Device(torch::kCPU));
 
         BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const;
         void OnLearn(const StepCounts& counts) override;
@@ -358,7 +376,10 @@ namespace anet::rl::dqn {
 
     class ThompsonSamplingActionPolicy final : public UQEActionPolicy {
     public:
-        ThompsonSamplingActionPolicy(const ActionPolicyConfig& config);
+        ThompsonSamplingActionPolicy(const ActionPolicyConfig& config,
+            bool enable_spatial_exploration = false,
+            int64_t num_envs = 0,
+            const torch::Device& device = torch::Device(torch::kCPU));
 
         BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const;
         void OnLearn(const StepCounts& counts) override;

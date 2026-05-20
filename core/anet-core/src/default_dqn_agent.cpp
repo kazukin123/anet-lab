@@ -142,15 +142,16 @@ DefaultDQNAgent::DefaultDQNAgent(
     );
 
     // Target Policyの妥当性チェック
-    if (config_.target_policy.policy_type == "EpsilonGreedy" && config_.target_policy.eps_start > 0.0f) {
+    if (config_.target_policy.policy_type == "EpsilonGreedy" &&
+        (config_.target_policy.eps_start > 0.0f || config_.target_policy.eps_end > 0.0f)) {
         // TargetActionPolicy（学習用）はUQE/ThompsonSamplingもしくはGreedyである必要がある(ランダム要素はNG)
         ANET_SYSTEM_ERROR("target_policy cannot be EpsilonGreedy with eps > 0. It must be deterministic or optimistic.");
     }
 
     // ActionPolicy生成
-    this->train_policy_ = CreateActionPolicy(config_.train_policy);
-    this->eval_policy_ = CreateActionPolicy(config_.eval_policy);
-    this->target_policy_ = CreateActionPolicy(config_.target_policy);
+    this->train_policy_ = CreateActionPolicy(config_.train_policy, config_.train_policy.use_spatial_exploration, num_envs_, device_);
+    this->eval_policy_ = CreateActionPolicy(config_.eval_policy, false, num_envs_, device_);
+    this->target_policy_ = CreateActionPolicy(config_.target_policy, false, num_envs_, device_);
 
     // Learner生成
     if (is_distributional) {
@@ -170,25 +171,27 @@ DefaultDQNAgent::DefaultDQNAgent(
 	}
 }
 
-std::shared_ptr<ActionPolicy> DefaultDQNAgent::CreateActionPolicy(const ActionPolicyConfig& policy_config)
+std::shared_ptr<ActionPolicy> DefaultDQNAgent::CreateActionPolicy(
+    const ActionPolicyConfig& policy_config, bool enable_spatial_exploration, int64_t num_envs, const torch::Device& device)
 {
     if (policy_config.policy_type == "EpsilonGreedy" || policy_config.policy_type == "0") {
         // ε-Greedy
-        return std::make_shared<EpsilonGreedyActionPolicy>(policy_config);
+        return std::make_shared<EpsilonGreedyActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
     } else if (policy_config.policy_type == "UQE" || policy_config.policy_type == "1") {
         // UQE
         ANET_CHECK(config_.use_qr);
-        return std::make_shared<UQEActionPolicy>(policy_config);
+        return std::make_shared<UQEActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
     } else if (policy_config.policy_type == "ThompsonSampling" || policy_config.policy_type == "2") {
         //ThompsonSampling
         ANET_CHECK(config_.use_qr);
-        return std::make_shared<ThompsonSamplingActionPolicy>(policy_config);
+        return std::make_shared<ThompsonSamplingActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
     } else if (policy_config.policy_type == "Greedy" || policy_config.policy_type == "3") {
         // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化
         ActionPolicyConfig greedy_cfg = policy_config;
         greedy_cfg.eps_start = 0.0f;
         greedy_cfg.eps_end = 0.0f;
-        return std::make_shared<EpsilonGreedyActionPolicy>(greedy_cfg);
+        greedy_cfg.use_spatial_exploration = false;
+        return std::make_shared<EpsilonGreedyActionPolicy>(greedy_cfg, false, num_envs, device);
     }
 
     // 不明なtype

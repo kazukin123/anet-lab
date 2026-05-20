@@ -129,6 +129,8 @@ namespace anet::rl {
             float eps_start = 1.0f;
             float eps_end = 0.05f;
             uint64_t eps_decay_steps = 100000;
+            bool use_spatial_exploration = false;
+            std::string spatial_scale_type = "log";
 
             // ==========================================
             // UQE / ThompsonSampling 用設定

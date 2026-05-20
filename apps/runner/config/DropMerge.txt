@@ -98,7 +98,13 @@ net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre
 #app.run_name = run_{t}_ns_3
 #app.run_name = run_{t}_gs_5846_cy7_rr25
 #app.run_name = run_{t}_gs_5846_cy12_dsr2000
-app.run_name = run_{t}_bt1
+#app.run_name = run_{t}_bt1
+#app.run_name = run_{t}_apx_ds
+app.run_name = run_{t}_apx_en1
+
+
+#R.train_policy.use_spatial_exploration = false
+R.train_policy.use_spatial_exploration = true
 
 
 #R.auto_load_file = ../../runs/DropMerge_SuikaHybrid_Flatten_128.anet
@@ -111,9 +117,9 @@ app.run_name = run_{t}_bt1
 #R.auto_load_file = ../../runs/run_20260510-130727_gs_5846_cy8/agent_close.anet
 #R.auto_load_file = ../../runs/run_20260511-081219_gs_5846_cy9/agent_close.anet
 #R.auto_load_file = ../../runs/run_20260512-012723_gs_5846_cy10/agent_close.anet
-R.auto_load_file = ../../runs/run_20260512-171248_gs_5846_cy11/agent_close.anet
+#R.auto_load_file = ../../runs/run_20260512-171248_gs_5846_cy11/agent_close.anet
 
-E.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 2000
+E.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 1000
 
 
 #E.damping = 0

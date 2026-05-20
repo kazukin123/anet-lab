@@ -1,7 +1,10 @@
 ﻿
 #include "dqn_based_agent.hpp"
+#include <algorithm>
 #include <tuple>
 #include <cmath>
+#include <limits>
+#include <mutex>
 #include "anet/log.hpp"
 #include "anet/profile.hpp"
 #include "anet/tensor_check.hpp"
@@ -233,9 +236,26 @@ int64_t NetworkModel::Load(InputArchive& archive)
 // ActionPolicy 
 // ======================================================
 
-anet::rl::dqn::ActionPolicy::ActionPolicy(const ActionPolicyConfig& config)
+anet::rl::dqn::ActionPolicy::ActionPolicy(
+    const ActionPolicyConfig& config, bool enable_spatial_exploration, int64_t num_envs, const torch::Device& device)
     : config_(config)
+    , use_spatial_exploration_(enable_spatial_exploration)
+    , spatial_num_envs_(enable_spatial_exploration ? num_envs : 0)
 {
+    if (!use_spatial_exploration_) return;
+
+    if (num_envs <= 0) {
+        ANET_SYSTEM_ERROR("ActionPolicy spatial exploration requires num_envs > 0. num_envs=" << num_envs);
+    }
+    if (config_.spatial_scale_type != "log" && config_.spatial_scale_type != "linear") {
+        ANET_SYSTEM_ERROR("Invalid spatial_scale_type: " << config_.spatial_scale_type);
+    }
+    if (num_envs < 32) {
+        LOG::warn() << "ActionPolicy spatial exploration is enabled with num_envs < 32. num_envs=" << num_envs;
+    }
+
+    current_epsilon_ = std::numeric_limits<float>::quiet_NaN();
+    current_uqe_tau_ = std::numeric_limits<float>::quiet_NaN();
 }
 
 anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForAction(
@@ -243,6 +263,75 @@ anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForAction(
     std::shared_ptr<anet::nn::Network> network) const
 {
     return network->Forward(obs);
+}
+
+torch::Tensor anet::rl::dqn::ActionPolicy::CreateSpatialTensor(
+    int64_t num_envs, float start_val, float end_val, const std::string& scale_type, const torch::Device& device)
+{
+    if (num_envs <= 0) {
+        ANET_SYSTEM_ERROR("CreateSpatialTensor requires num_envs > 0. num_envs=" << num_envs);
+    }
+    if (scale_type != "log" && scale_type != "linear") {
+        ANET_SYSTEM_ERROR("Invalid spatial_scale_type: " << scale_type);
+    }
+
+    auto options = torch::TensorOptions().dtype(torch::kFloat32).device(device);
+    if (num_envs == 1) {
+        return torch::full({ 1 }, start_val, options);
+    }
+
+    auto base = torch::linspace(0.0f, 1.0f, num_envs, options);
+    if (scale_type == "linear") {
+        return start_val + base * (end_val - start_val);
+    }
+
+    constexpr float kMinLogValue = 1.0e-4f;
+    float start_clamped = start_val;
+    float end_clamped = end_val;
+    if (start_clamped <= 0.0f || end_clamped <= 0.0f) {
+        static std::once_flag warn_once;
+        std::call_once(warn_once, []() {
+            LOG::warn() << "ActionPolicy spatial log scale received non-positive boundary value. "
+                << "Clamping to 1e-4 for log-space calculation.";
+        });
+        start_clamped = std::max(start_clamped, kMinLogValue);
+        end_clamped = std::max(end_clamped, kMinLogValue);
+    }
+
+    const float log_ratio = std::log(start_clamped / end_clamped);
+    return end_clamped * torch::exp((1.0f - base) * log_ratio);
+}
+
+static torch::Tensor PrepareSpatialTensorForAction(
+    const torch::Tensor& tensor, int64_t expected_num_envs, int64_t actual_num_envs, const torch::Device& device, const char* name)
+{
+    if (!tensor.defined()) {
+        ANET_SYSTEM_ERROR("Spatial exploration tensor is not initialized: " << name);
+    }
+    if (expected_num_envs != actual_num_envs) {
+        ANET_SYSTEM_ERROR("Spatial exploration batch size mismatch for " << name
+            << ". expected num_envs=" << expected_num_envs << " actual=" << actual_num_envs);
+    }
+    if (tensor.dim() != 1 || tensor.size(0) != actual_num_envs) {
+        ANET_SYSTEM_ERROR("Spatial exploration tensor shape mismatch for " << name
+            << ". expected=[" << actual_num_envs << "] actual=" << tensor.sizes());
+    }
+    return tensor.device() == device ? tensor : tensor.to(device);
+}
+
+torch::Tensor anet::rl::dqn::ActionPolicy::GetSpatialEpsilonTensor(int64_t num_envs, const torch::Device& device, bool is_uqe) const
+{
+    return PrepareSpatialTensorForAction(
+        is_uqe ? spatial_uqe_eps_tensor_ : spatial_eps_tensor_,
+        spatial_num_envs_,
+        num_envs,
+        device,
+        is_uqe ? "uqe_epsilon" : "epsilon");
+}
+
+torch::Tensor anet::rl::dqn::ActionPolicy::GetSpatialTauTensor(int64_t num_envs, const torch::Device& device) const
+{
+    return PrepareSpatialTensorForAction(spatial_tau_tensor_, spatial_num_envs_, num_envs, device, "uqe_tau");
 }
 
 torch::Tensor anet::rl::dqn::ActionPolicy::MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const
@@ -270,6 +359,25 @@ torch::Tensor anet::rl::dqn::ActionPolicy::MakeEpsilonGreedyAction(const torch::
     return actions;
 }
 
+torch::Tensor anet::rl::dqn::ActionPolicy::MakeEpsilonGreedyAction(
+    const torch::Tensor& greedy_action, const torch::Tensor& epsilon_tensor, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const
+{
+    ProfileRange r("ActionPolicy::MakeEpsilonGreedyAction.vectorized");
+
+    if (epsilon_tensor.dim() != 1 || epsilon_tensor.size(0) != num_envs) {
+        ANET_SYSTEM_ERROR("Vectorized epsilon shape mismatch. expected=[" << num_envs << "] actual=" << epsilon_tensor.sizes());
+    }
+
+    auto device = greedy_action.device();
+    auto gen = rnd->GetTorchGenerator(device);
+    auto epsilon = epsilon_tensor.device() == device ? epsilon_tensor : epsilon_tensor.to(device);
+
+    auto mask = torch::rand({ num_envs }, gen, torch::TensorOptions().device(device)).lt(epsilon);
+    auto random_actions = torch::randint(/*low=*/0, /*high=*/n_actions, { num_envs }, gen,
+        torch::TensorOptions().dtype(torch::kInt64).device(device));
+    return torch::where(mask, random_actions, greedy_action);
+}
+
 anet::rl::BatchActionInfo anet::rl::dqn::ActionPolicy::MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const
 {
     ProfileRange  r("ActionPolicy::MakeActionInfo");
@@ -290,6 +398,8 @@ anet::rl::BatchActionInfo anet::rl::dqn::ActionPolicy::MakeActionInfo(const torc
 
 void anet::rl::dqn::ActionPolicy::UpdateEpsilon(step_t step, bool is_uqe)
 {
+    if (IsSpatialExplorationEnabled()) return;
+
     if (is_uqe) {
         if (config_.uqe_eps_decay_steps <= 0) return;
         if (step >= config_.uqe_eps_decay_steps) {
@@ -321,14 +431,20 @@ std::optional<float> anet::rl::dqn::ActionPolicy::GetScalar(const std::string& k
 // EpsilonGreedyActionPolicy 
 // ======================================================
 
-anet::rl::dqn::EpsilonGreedyActionPolicy::EpsilonGreedyActionPolicy(const ActionPolicyConfig& config)
-    : ActionPolicy(config)
+anet::rl::dqn::EpsilonGreedyActionPolicy::EpsilonGreedyActionPolicy(
+    const ActionPolicyConfig& config, bool enable_spatial_exploration, int64_t num_envs, const torch::Device& device)
+    : ActionPolicy(config, enable_spatial_exploration, num_envs, device)
 {
+    if (IsSpatialExplorationEnabled()) {
+        spatial_eps_tensor_ = CreateSpatialTensor(num_envs, config_.eps_start, config_.eps_end, config_.spatial_scale_type, device);
+        return;
+    }
     current_epsilon_ = config_.eps_start;
 }
 
 void anet::rl::dqn::EpsilonGreedyActionPolicy::OnLearn(const StepCounts& counts)
 {
+    if (IsSpatialExplorationEnabled()) return;
     UpdateEpsilon(counts.exp_step);
 }
 
@@ -357,7 +473,12 @@ anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const anet::Te
     // EpsilonGreedy
     const int64_t N = q_values.sizes()[0];      // shape 読み取りは TensorOptions 経由で同期を回避
     const int64_t A = q_values.sizes()[1];
-    auto actions = MakeEpsilonGreedyAction(greedy_action, current_epsilon_, N, A, rnd);
+    torch::Tensor actions;
+    if (IsSpatialExplorationEnabled()) {
+        actions = MakeEpsilonGreedyAction(greedy_action, GetSpatialEpsilonTensor(N, q_values.device(), false), N, A, rnd);
+    } else {
+        actions = MakeEpsilonGreedyAction(greedy_action, current_epsilon_, N, A, rnd);
+    }
     auto action_info = MakeActionInfo(actions, q_values, q_quantiles);
     return action_info;
 }
@@ -367,15 +488,23 @@ anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const anet::Te
 // UQEActionPolicy
 // ======================================================
 
-anet::rl::dqn::UQEActionPolicy::UQEActionPolicy(const ActionPolicyConfig& config)
-    : ActionPolicy(config)
+anet::rl::dqn::UQEActionPolicy::UQEActionPolicy(
+    const ActionPolicyConfig& config, bool enable_spatial_exploration, int64_t num_envs, const torch::Device& device)
+    : ActionPolicy(config, enable_spatial_exploration, num_envs, device)
 {
+    if (IsSpatialExplorationEnabled()) {
+        spatial_uqe_eps_tensor_ = CreateSpatialTensor(num_envs, config_.uqe_eps_start, config_.uqe_eps_end, config_.spatial_scale_type, device);
+        spatial_tau_tensor_ = CreateSpatialTensor(num_envs, config_.uqe_tau_start, config_.uqe_tau_end, config_.spatial_scale_type, device);
+        return;
+    }
     current_epsilon_ = config_.uqe_eps_start;
     current_uqe_tau_ = config_.uqe_tau_start;
 }
 
 void anet::rl::dqn::UQEActionPolicy::UpdateTau(step_t step)
 {
+    if (IsSpatialExplorationEnabled()) return;
+
     if (config_.uqe_tau_decay_steps <= 0) return;
     if (step >= config_.uqe_tau_decay_steps) {
         current_uqe_tau_ = config_.uqe_tau_end;
@@ -387,6 +516,7 @@ void anet::rl::dqn::UQEActionPolicy::UpdateTau(step_t step)
 
 void anet::rl::dqn::UQEActionPolicy::OnLearn(const StepCounts& counts)
 {
+    if (IsSpatialExplorationEnabled()) return;
     UpdateEpsilon(counts.exp_step, true);
     UpdateTau(counts.exp_step);
 }
@@ -434,16 +564,32 @@ torch::Tensor UQEActionPolicy::MakeVectorizedUQEAction(const torch::Tensor& tau_
     // q_quantiles: (N, A, n_quantiles)
     // tau_tensor:  (N, 1)  (0.0 ~ 1.0)
 
+    if (q_quantiles.dim() != 3) {
+        ANET_SYSTEM_ERROR("UQEActionPolicy::MakeVectorizedUQEAction expected q_quantiles shape [N,A,Q], actual=" << q_quantiles.sizes());
+    }
+
     const int64_t N = q_quantiles.size(0);
     const int64_t A = q_quantiles.size(1);
     const int64_t n_quantiles = q_quantiles.size(2);
     auto device = q_quantiles.device();
 
+    if (!tau_tensor.defined()) {
+        ANET_SYSTEM_ERROR("UQEActionPolicy::MakeVectorizedUQEAction received undefined tau_tensor.");
+    }
+    if (tau_tensor.dim() != 2 || tau_tensor.size(0) != N || tau_tensor.size(1) != 1) {
+        ANET_SYSTEM_ERROR("UQEActionPolicy::MakeVectorizedUQEAction expected tau_tensor shape [" << N << ",1], actual="
+            << tau_tensor.sizes());
+    }
+    auto tau = tau_tensor.device() == device ? tau_tensor : tau_tensor.to(device);
+    if (tau.dtype() != q_quantiles.dtype()) {
+        tau = tau.to(q_quantiles.dtype());
+    }
+
     // 最後の次元(分位点)を確実に昇順(小さい順)にソートする
     torch::Tensor sorted_quantiles = std::get<0>(q_quantiles.sort(-1, /*descending=*/false));
 
     // インデックスの計算 (N, 1)
-    auto tau_idx = (tau_tensor * (n_quantiles - 1)).to(torch::kLong);
+    auto tau_idx = (tau * (n_quantiles - 1)).to(torch::kLong);
     tau_idx = tau_idx.clamp(0, n_quantiles - 1);
 
     torch::Tensor uqe_values;
@@ -513,7 +659,12 @@ anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const to
     // EpsilonGreedy
     const int64_t N = q_values.sizes()[0];      // shape 読み取りは TensorOptions 経由で同期を回避
     const int64_t A = q_values.sizes()[1];
-    auto actions = MakeEpsilonGreedyAction(uqe_action_values, effective_epsilon, N, A, rnd);
+    torch::Tensor actions;
+    if (IsSpatialExplorationEnabled() && !greedy_only) {
+        actions = MakeEpsilonGreedyAction(uqe_action_values, GetSpatialEpsilonTensor(N, q_values.device(), true), N, A, rnd);
+    } else {
+        actions = MakeEpsilonGreedyAction(uqe_action_values, effective_epsilon, N, A, rnd);
+    }
 
     // 情報詰め替え
     auto action_info = MakeActionInfo(actions, q_values, q_quantiles);
@@ -522,6 +673,11 @@ anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const to
 
 anet::rl::BatchActionInfo UQEActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const
 {
+    if (IsSpatialExplorationEnabled()) {
+        const int64_t N = obs.Size(0);
+        auto tau_tensor = GetSpatialTauTensor(N, obs.device()).view({ N, 1 });
+        return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, network, rnd);
+    }
     return MakeUQEActionInfo(current_uqe_tau_, torch::Tensor(), obs, greedy_only, network, rnd);
 }
 
@@ -530,14 +686,16 @@ anet::rl::BatchActionInfo UQEActionPolicy::SelectAction(const anet::TensorDict& 
 // ThompsonSamplingActionPolicy
 // ======================================================
 
-anet::rl::dqn::ThompsonSamplingActionPolicy::ThompsonSamplingActionPolicy(const ActionPolicyConfig& config)
-    : UQEActionPolicy(config)
+anet::rl::dqn::ThompsonSamplingActionPolicy::ThompsonSamplingActionPolicy(
+    const ActionPolicyConfig& config, bool enable_spatial_exploration, int64_t num_envs, const torch::Device& device)
+    : UQEActionPolicy(config, enable_spatial_exploration, num_envs, device)
 {
     ;
 }
 
 void anet::rl::dqn::ThompsonSamplingActionPolicy::OnLearn(const StepCounts& counts)
 {
+    if (IsSpatialExplorationEnabled()) return;
     UpdateEpsilon(counts.exp_step, true);
     //UpdateTau(counts.exp_step);
 }
@@ -547,6 +705,11 @@ anet::rl::BatchActionInfo ThompsonSamplingActionPolicy::SelectAction(const anet:
     // ランダムな Tau をバッチサイズ分生成 (N, 1)
     const int64_t N = obs.Size(0);
     auto device = obs.device();
+    if (IsSpatialExplorationEnabled()) {
+        auto tau_tensor = GetSpatialTauTensor(N, device).view({ N, 1 });
+        return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, network, rnd);
+    }
+
     auto gen = rnd->GetTorchGenerator(device);
     auto tau_tensor = torch::rand({ N, 1 }, gen, torch::TensorOptions().device(device));
 

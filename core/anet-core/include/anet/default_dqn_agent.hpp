@@ -56,6 +56,11 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, train_policy.eps_start);
             ANET_READ_CONFIG(config_data, train_policy.eps_end);
             ANET_READ_CONFIG(config_data, train_policy.eps_decay_steps);
+            ANET_READ_CONFIG(config_data, train_policy.use_spatial_exploration);
+            ANET_READ_CONFIG(config_data, train_policy.spatial_scale_type);
+            if (train_policy.spatial_scale_type != "log" && train_policy.spatial_scale_type != "linear") {
+                ANET_SYSTEM_ERROR("Invalid train_policy.spatial_scale_type: " << train_policy.spatial_scale_type);
+            }
             ANET_READ_CONFIG(config_data, train_policy.uqe_tau_start);
             ANET_READ_CONFIG(config_data, train_policy.uqe_tau_end);
             ANET_READ_CONFIG(config_data, train_policy.uqe_tau_decay_steps);
@@ -93,6 +98,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, eval_policy.uqe_eps_decay_steps);
             ANET_READ_CONFIG(config_data, eval_policy.use_amp);
             ANET_READ_CONFIG(config_data, eval_policy.use_amp_bf16);
+            eval_policy.use_spatial_exploration = false;
 
 
             target_policy.policy_type = "Greedy";     // デフォルトは安全なGreedy
@@ -128,6 +134,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, target_policy.uqe_eps_decay_steps);
             ANET_READ_CONFIG(config_data, target_policy.use_amp);
             ANET_READ_CONFIG(config_data, target_policy.use_amp_bf16);
+            target_policy.use_spatial_exploration = false;
 
             ANET_READ_CONFIG(config_data, learner.alpha);
             ANET_READ_CONFIG(config_data, learner.weight_decay);
@@ -219,7 +226,8 @@ namespace anet::rl::dqn {
         anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const;
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences);
     private:
-        std::shared_ptr<anet::rl::dqn::ActionPolicy> CreateActionPolicy(const ActionPolicyConfig& policy_config);
+        std::shared_ptr<anet::rl::dqn::ActionPolicy> CreateActionPolicy(
+            const ActionPolicyConfig& policy_config, bool enable_spatial_exploration, int64_t num_envs, const torch::Device& device);
         void LoadNetwork(const std::string& filename);
     private:
         DefaultDQNAgentConfig config_;

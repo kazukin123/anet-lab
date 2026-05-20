@@ -92,6 +92,8 @@ DefaultDQNAgent.baseline.train_policy.uqe_eps_decay_steps = 0    # 0=減衰な�
 DefaultDQNAgent.baseline.train_policy.uqe_use_tail_mean = false
 DefaultDQNAgent.baseline.train_policy.use_amp = false
 DefaultDQNAgent.baseline.train_policy.use_amp_bf16 = false
+DefaultDQNAgent.baseline.train_policy.use_spatial_exploration = false # ApeXのVectorized Explorationを有効にするか。 num_envs<32の場合は不安定化するのでfalse推奨。
+DefaultDQNAgent.baseline.train_policy.spatial_scale_type = log        # log or linear
 
 DefaultDQNAgent.baseline.eval_policy.policy_type = Greedy       # 常に平均Q値最大を選択
 DefaultDQNAgent.baseline.eval_policy.use_amp = false
