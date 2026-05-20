@@ -1,8 +1,8 @@
-// dqn_based_heads.cpp
+﻿// dqn_based_heads.cpp
 
 #include "dqn_based_heads.hpp"
-#include "nn_heads.hpp"
 #include "anet/profile.hpp"
+#include "nn_heads.hpp"
 
 
 using namespace anet::rl::dqn;

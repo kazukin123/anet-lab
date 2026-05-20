@@ -1,8 +1,8 @@
-// dqn_based_heads.hpp
+﻿// dqn_based_heads.hpp
 
 #pragma once
 
-#include "nn_impl.hpp"
+#include "anet/nn.hpp"
 
 namespace anet::rl::dqn {
 
