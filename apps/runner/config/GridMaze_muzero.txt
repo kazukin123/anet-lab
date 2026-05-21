@@ -1,4 +1,4 @@
-﻿
+
 # ==============================================================================
 # 基本設定
 # ==============================================================================
@@ -151,8 +151,8 @@ metrics.graph.[01_mcts] = $action mcts_tree episode_interval:50
 
 metrics.scalar.muzero.[20_eps/10_train_reward]     = $runner $episode_step train_episode_reward @train
 metrics.scalar.muzero.[20_eps/11_train_reward_ema] = $runner $episode_step train_episode_reward @train $ema ema_alpha:0.05 # clip:1000
-metrics.scalar.muzero.[21_eval/02_policy_reward] = $runner eval.[eval2].eps_total_reward @learn
-metrics.scalar.muzero.[21_eval/04_policy_reward_ema] = $runner eval.[eval2].eps_total_reward @learn $ema ema_alpha:0.05 #clip:3000
+metrics.scalar.muzero.[21_eval/02_policy_reward] = eps_total_reward $runner @episode_end $eval.[eval2]
+metrics.scalar.muzero.[21_eval/04_policy_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval2] $ema ema_alpha:0.05 #clip:3000
 
 metrics.scalar.muzero.[32_agent_base/06_tau] = $agent tau @train $exp_step
 

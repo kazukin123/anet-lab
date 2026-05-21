@@ -365,20 +365,9 @@ void RunnerApp::InitTrainer()
 {
     // TrainObserver
     run_manager_->GetNotifier()->Attach<anet::rl::FunctionTrainObserver>(
-        [this](const anet::rl::TrainEvent& event)
+        [](const anet::rl::TrainEvent&)
         {
             anet::ProfileRange r1("FunctionTrainObserver");
-            auto train_step = event.counts.train_step;
-
-            // Trainログ
-            if (event.counts.train_step % 100 == 0) {
-                auto eval_target_reward = event.runner->GetScalar(anet::rl::Runner::TARGET_EVAL_REWARD);
-                auto eval_policy_reward = event.runner->GetScalar(anet::rl::Runner::POLICY_EVAL_REWARD);
-                if (!eval_target_reward.has_value() || !eval_policy_reward.has_value())  return;
-                LOG::info() << "train_step=" << train_step
-                    << " eval_policy_reward_ema=" << *eval_policy_reward
-                    << " eval_target_reward_ema=" << *eval_target_reward;
-            }
 
         }, "RunnerApp");
 

@@ -6,6 +6,7 @@
 #include "anet/metrics_logger.hpp"
 #include "anet/log.hpp"
 #include "anet/env.hpp"
+#include "anet/trainer.hpp"
 
 
 using namespace anet::rl;
@@ -472,19 +473,14 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
 // -------------------------------------------------------------
 
 EpisodeEvalObserver::EpisodeEvalObserver(
-    ReportFunction report_function,
-    std::shared_ptr<anet::rl::SingleDiscreteEnvFactory> eval_env_factory,
-	const ConfigData& config_data,
-    torch::Device env_device, torch::Device actor_device,
-    anet::rl::RunMode runmode, int log_interval, int eval_inerval, bool use_background,
-    std::optional<seed_t> seed,
-    const std::string& config_prefix)
-    : report_function_(std::move(report_function))
-    , runmode_(runmode), log_interval_(log_interval), eval_interval_(eval_inerval)
-    , actor_device_(actor_device), use_background_(use_background)
+    std::shared_ptr<EvalRunner> eval_runner,
+    int eval_interval,
+    bool use_background)
+    : eval_runner_(std::move(eval_runner))
+    , eval_interval_(eval_interval)
+    , use_background_(use_background)
 {
-    // 評価エピソードを回すためのENV生成
-    env_ = std::make_unique<VectorizedDiscreteBatchEnv>(config_data, eval_env_factory, 1, env_device, seed, config_prefix);
+    ANET_CHECK(eval_runner_ != nullptr);
 
     // バックグラウンド有効時のみスレッドプール生成
     if (use_background_) {
@@ -505,36 +501,17 @@ EpisodeEvalObserver::~EpisodeEvalObserver()
     }
 }
 
-void EpisodeEvalObserver::RunEvaluationEpisode()
+void EpisodeEvalObserver::RunEvaluationEpisode(const StepCounts& event_counts)
 {
-    StepCounts counts_local;
-    auto reset_result = env_->Reset(runmode_);
-    auto state = reset_result->state;
-    auto eps_total_reward = 0.0f;
-    bool done = false;
-    bool truncated = false;
+    eval_runner_->Sync();
     do {
-        auto action = actor_->MakeAction(counts_local, state);
-        auto env_result = env_->Step(action, runmode_);
-        eps_total_reward += env_result->reward.mean().item<float>();
-        state = env_result->continue_state;
-        done = env_result->next_state.IsDone();
-        truncated = env_result->next_state.IsTruncated();
-
-        counts_local.train_step++;
-    } while (!done && !truncated);
-
-    this->report_function_(eps_total_reward);
+        eval_runner_->DoStep(event_counts);
+    } while (!eval_runner_->LastStepHadEpisodeEnd());
 }
 
 void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
 {
     anet::ProfileRange r("EpisodeEvalObserver::OnLearn");
-
-    // 初回にActorを生成
-    if (actor_ == nullptr) {
-        actor_ = event.agent->CreateActor(env_->GetBatchSpec(), runmode_, true, actor_device_);
-    }
 
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::LEARN);
 
@@ -546,29 +523,25 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
                 eval_future_.wait();
             }
 
-            // NN同期 (スレッドに投げる前に呼元と同じスレッド上で安全に最新の重みを取る)
-            actor_->Sync();
-
             // スレッドに評価エピソード実行処理を投げる
-            eval_future_ = eval_pool_->EnqueueFuture(0, [this]() {
+            const StepCounts event_counts = event.counts;
+            eval_future_ = eval_pool_->EnqueueFuture(0, [this, event_counts]() {
                 try {
-                    this->RunEvaluationEpisode();
+                    this->RunEvaluationEpisode(event_counts);
                 } catch (const std::exception& e) {
                     LOG::error() << "EpisodeEvalObserver Error: " << e.what();
                 }
                 });
         } else {
             // フォアグラウンド実行
-            actor_->Sync();
-            RunEvaluationEpisode();
+            RunEvaluationEpisode(event.counts);
         }
     }
 }
 
 std::string EpisodeEvalObserver::ToString() const
 {
-    auto mode_str = anet::rl::ToString(runmode_);
-    return std::string("EpisodeEvalObserver[") + mode_str + "]";
+    return "EpisodeEvalObserver[" + eval_runner_->GetName() + "]";
 }
 
 // -------------------------------------------------------------
@@ -718,8 +691,22 @@ MetricsLogLearnObserver::MetricsLogLearnObserver(const std::string& tag, const s
     ;
 }
 
+MetricsLogEpisodeEndObserver::MetricsLogEpisodeEndObserver(const std::string& tag, const std::string& key,
+    anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
+    int interval, bool is_ema, float ema_alpha, std::optional<float> clip)
+    : MetricsLogObserverBase(tag, key, step_axis, event_field, interval, is_ema, ema_alpha, clip)
+{
+    ;
+}
+
 /// BATCH_UPDATE_RESULT以外用のメトリクス情報取得処理
-MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(const UpdateEvent& event, EventField event_field)
+MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(
+    const StepCounts& counts,
+    std::shared_ptr<const Agent> agent,
+    std::shared_ptr<const Runner> runner,
+    std::shared_ptr<const BatchEnv> env,
+    const BatchExperience* experience,
+    EventField event_field)
 {
     ANET_CHECK(event_field != EventField::UPDATE_RESULT);
 
@@ -729,29 +716,33 @@ MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(const
     // 指定に従ってScalar取得対象を取得
     switch (event_field) {
     case anet::rl::EventField::EXPERIENCE:
-        target = &event.experience;
+        target = experience;
         break;
     case anet::rl::EventField::AGENT:
-        target = event.agent.get();
+        target = agent.get();
         break;
     case anet::rl::EventField::RUNNER:
-        target = event.runner.get();
+        target = runner.get();
         break;
     case anet::rl::EventField::ENV:
-        target = event.runner->GetBatchEnv().get(); // Runner経由で取得
+        if (env != nullptr) {
+            target = env.get();
+        } else if (runner != nullptr) {
+            target = runner->GetBatchEnv().get(); // Runner経由で取得
+        }
         break;
     default:
         ANET_SYSTEM_ERROR("Unknown event field: " << static_cast<int>(event_field));
         break;
     }
+    ANET_CHECK(target != nullptr);
 
     // step取得
-    auto step = event.counts.GetByAxis(this->step_axis_);
+    auto step = counts.GetByAxis(this->step_axis_);
 
     // 値取得
     std::optional<float> value;
-    if (target != nullptr)
-        value = target->GetScalar(this->key_);
+    value = target->GetScalar(this->key_);
 
     // 結果生成
     MetricsData ret{ step, value };
@@ -759,21 +750,22 @@ MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(const
 }
 
 /// BATCH_UPDATE_RESULT専用のメトリクス情報取得処理
-MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataListFromUpdateResultList(const UpdateEvent& event)
+MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataListFromUpdateResultList(
+    const StepCounts& counts,
+    const BatchUpdateResultList* update_result_list)
 {
     MetricsDataList ret;
 
     // 取得元のBatchUpdateResultList
-    auto learn_step = event.counts.learn_step;
-    const auto& update_result_list = event.update_result_list;
+    auto learn_step = counts.learn_step;
 
     // 空の場合は空
-    if (update_result_list.empty())
+    if (update_result_list == nullptr || update_result_list->empty())
         return ret;
     
     if (step_axis_ == StepAxis::LEARN) {
         // StepAxis::LEARNの場合、UpdateResultの一件毎にメトリクス情報
-        for (const auto& update_result : update_result_list) {
+        for (const auto& update_result : *update_result_list) {
             // メトリクス情報取得
             auto scaler = update_result->GetScalar(this->key_);
             MetricsData data{ learn_step, scaler };
@@ -787,7 +779,7 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
 
         float sum = 0.0f;
         int count = 0;
-        for (const auto& update_result : update_result_list) {
+        for (const auto& update_result : *update_result_list) {
             auto scaler = update_result->GetScalar(this->key_);
             if (!scaler.has_value()) continue;
             sum += *scaler;
@@ -795,7 +787,7 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
         }
         if (count > 0) {
             // step取得
-            auto step = event.counts.GetByAxis(this->step_axis_);
+            auto step = counts.GetByAxis(this->step_axis_);
 
             // 平均値として値算出
             float mean = sum / static_cast<float>(count);
@@ -809,7 +801,13 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
     return ret;
 }
 
-MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataList(const UpdateEvent& event)
+MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataList(
+    const StepCounts& counts,
+    std::shared_ptr<const Agent> agent,
+    std::shared_ptr<const Runner> runner,
+    std::shared_ptr<const BatchEnv> env,
+    const BatchExperience* experience,
+    const BatchUpdateResultList* update_result_list)
 {
     MetricsDataList ret;
 
@@ -818,41 +816,53 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
 
         if (*event_field_ == anet::rl::EventField::UPDATE_RESULT) {
             // UpdateResultList用メソッドでメトリクス情報を取得
-            auto data_list = GetMetricsDataListFromUpdateResultList(event);
+            auto data_list = GetMetricsDataListFromUpdateResultList(counts, update_result_list);
             ret = std::move(data_list);
         } else {
             // その他メソッドでメトリクス情報を取得
-            auto data = GetMetricsData(event, *event_field_);
+            auto data = GetMetricsData(counts, agent, runner, env, experience, *event_field_);
             ret.push_back(data);
         }
     } else {
         // 対象フィールドが指定されていない場合、順番に試す
 
         // BatchUpdateResultList
-        auto data_list = GetMetricsDataListFromUpdateResultList(event);
+        auto data_list = GetMetricsDataListFromUpdateResultList(counts, update_result_list);
         if (!data_list.empty()) {
             ret = std::move(data_list);
         } else {
             // Agent
-            auto data = GetMetricsData(event, anet::rl::EventField::AGENT);
+            auto data = GetMetricsData(counts, agent, runner, env, experience, anet::rl::EventField::AGENT);
             if (data.second.has_value()) {
                 ret.push_back(data);
-            } else {
+            } else if (experience != nullptr) {
                 // BatchExperience
-                auto data = GetMetricsData(event, anet::rl::EventField::EXPERIENCE);
+                auto data = GetMetricsData(counts, agent, runner, env, experience, anet::rl::EventField::EXPERIENCE);
                 if (data.second.has_value()) {
                     ret.push_back(data);
                 } else {
                     // Runner
-                    auto data = GetMetricsData(event, anet::rl::EventField::RUNNER);
+                    auto data = GetMetricsData(counts, agent, runner, env, experience, anet::rl::EventField::RUNNER);
                     if (data.second.has_value()) {
                         ret.push_back(data);
                     } else {
                         // Env
-                        auto data = GetMetricsData(event, anet::rl::EventField::ENV);
+                        auto data = GetMetricsData(counts, agent, runner, env, experience, anet::rl::EventField::ENV);
                         if (data.second.has_value()) {
                             ret.push_back(data);
                         }
+                    }
+                }
+            } else {
+                // Runner
+                auto data = GetMetricsData(counts, agent, runner, env, experience, anet::rl::EventField::RUNNER);
+                if (data.second.has_value()) {
+                    ret.push_back(data);
+                } else {
+                    // Env
+                    auto data = GetMetricsData(counts, agent, runner, env, experience, anet::rl::EventField::ENV);
+                    if (data.second.has_value()) {
+                        ret.push_back(data);
                     }
                 }
             }
@@ -864,8 +874,25 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
 
 void MetricsLogObserverBase::OnUpdate(const UpdateEvent& event)
 {
+    OnGenericUpdate(
+        event.counts,
+        event.agent,
+        event.runner,
+        event.runner != nullptr ? event.runner->GetBatchEnv() : nullptr,
+        &event.experience,
+        &event.update_result_list);
+}
+
+void MetricsLogObserverBase::OnGenericUpdate(
+    const StepCounts& counts,
+    std::shared_ptr<const Agent> agent,
+    std::shared_ptr<const Runner> runner,
+    std::shared_ptr<const BatchEnv> env,
+    const BatchExperience* experience,
+    const BatchUpdateResultList* update_result_list)
+{
     // メトリクスの出力データをリストとして取得
-    auto metrics_list = GetMetricsDataList(event);
+    auto metrics_list = GetMetricsDataList(counts, agent, runner, env, experience, update_result_list);
 
     // 取れたメトリクスを順に試す
     for (const auto& metrics : metrics_list) {
@@ -1027,6 +1054,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
             // メトリクス定義情報を取得
             std::optional<std::string> key_opt;
             std::optional<anet::rl::EventType> event_opt;
+            std::optional<anet::rl::RunnerScope> runner_scope_opt;
+            std::string eval_name;
             std::optional<anet::rl::StepAxis> step_axis_opt;
 			std::optional<anet::rl::EventField> field_opt;
             int interval = 1;
@@ -1039,6 +1068,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                     event_opt = EventType::TRAIN;
                 } else if (v == "@learn") {
                     event_opt = EventType::LEARN;   /// @todo TRAINとLEARN以外の EventType も対応
+                } else if (v == "@episode_end") {
+                    event_opt = EventType::EPISODE_END;
                 } else if (v == "$train_step") {
                     step_axis_opt = StepAxis::TRAIN;
                 } else if (v == "$learn_step") {
@@ -1061,6 +1092,16 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                     field_opt = EventField::UPDATE_RESULT;
                 } else if (v == "$runner") {
                     field_opt = EventField::RUNNER;
+                } else if (v == "$train") {
+                    runner_scope_opt = RunnerScope::TRAIN;
+                } else if (anet::StartsWith(v, "$eval.[")) {
+                    auto parsed_eval_name = anet::ExtractBetween(v, "$eval.[", "]");
+                    if (parsed_eval_name.empty()) {
+                        ANET_SYSTEM_ERROR("ObserverFactory: invalid eval runner scope. config_key=" << config_key
+                            << " config_value=" << config_value << " token=" << v);
+                    }
+                    runner_scope_opt = RunnerScope::EVAL;
+                    eval_name = parsed_eval_name;
                 } else if (v == "$ema") {
                     is_ema = true;
                 } else {
@@ -1075,6 +1116,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                                 event_opt = EventType::TRAIN;
                             else if (attr_val == "learn")
                                 event_opt = EventType::LEARN;
+                            else if (attr_val == "episode_end")
+                                event_opt = EventType::EPISODE_END;
                             else {
                                 LOG::warn() << "Unknown event value. config_key=" << config_key
                                     << " config_value=" << config_value << " attr_val=" << attr_val;
@@ -1140,13 +1183,29 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
 
             auto key = *key_opt;
             auto event = event_opt.value_or(EventType::TRAIN);
+            auto runner_scope = runner_scope_opt.value_or(RunnerScope::TRAIN);
+
+            if (runner_scope == RunnerScope::EVAL && event != EventType::EPISODE_END) {
+                ANET_SYSTEM_ERROR("ObserverFactory: $eval.[name] scope is only supported with @episode_end. "
+                    << "config_key=" << config_key << " config_value=" << config_value);
+            }
+            if (event == EventType::EPISODE_END && field_opt.has_value()
+                && (*field_opt == EventField::EXPERIENCE || *field_opt == EventField::UPDATE_RESULT)) {
+                ANET_SYSTEM_ERROR("ObserverFactory: @episode_end does not support $exp or $update_result. "
+                    << "config_key=" << config_key << " config_value=" << config_value);
+            }
+
             anet::rl::StepAxis step_axis;
             if (step_axis_opt.has_value()) {
                 step_axis = *step_axis_opt;
             } else {
                 // stepの指定がない場合はeventに合わせて決定。
                 //step_axis = (event == EventType::TRAIN) ? StepAxis::TRAIN : StepAxis::LEARN;
-                step_axis = (event == EventType::TRAIN) ? StepAxis::TRAIN : StepAxis::EXP; // LearnEventはEXPステップベースで比較
+                if (event == EventType::TRAIN) {// || event == EventType::EPISODE_END) {
+                    step_axis = StepAxis::TRAIN;
+                } else {
+                    step_axis = StepAxis::EXP; // LearnEventやEpisodeEndEventはデフォルトでEXPステップベース
+                }
             }
 
             switch (event) {
@@ -1154,14 +1213,21 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                 {
                     auto train_obs = std::make_shared<MetricsLogTrainObserver>(scalar_metrics_tag, key, step_axis, field_opt
                         ,interval, is_ema, ema_alpha, clip);
-                    train_observers_.push_back(train_obs);
+                    train_observers_.push_back({ runner_scope, eval_name, train_obs });
                 }
                 break;
             case EventType::LEARN:
                 {
                     auto learn_obs = std::make_shared<MetricsLogLearnObserver>(scalar_metrics_tag, key, step_axis, field_opt
                         , interval, is_ema, ema_alpha, clip);
-                    learn_observers_.push_back(learn_obs);
+                    learn_observers_.push_back({ runner_scope, eval_name, learn_obs });
+                }
+                break;
+            case EventType::EPISODE_END:
+                {
+                    auto episode_end_obs = std::make_shared<MetricsLogEpisodeEndObserver>(scalar_metrics_tag, key, step_axis, field_opt
+                        , interval, is_ema, ema_alpha, clip);
+                    episode_end_observers_.push_back({ runner_scope, eval_name, episode_end_obs });
                 }
                 break;
             }
@@ -1227,7 +1293,7 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
             // GraphVizObserverのインスタンス化と登録
             auto graph_obs = std::make_shared<GraphVizObserver>(
                 graph_metrics_tag, step_interval, episode_interval, *key_opt, field_opt);
-            train_observers_.push_back(graph_obs);
+            train_observers_.push_back({ RunnerScope::TRAIN, "", graph_obs });
 
             // 次のループへ（スカラー処理等との重複を避ける）
             continue;

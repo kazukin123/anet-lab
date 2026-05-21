@@ -681,6 +681,7 @@ std::string BatchExperience::ToString() const
     return oss.str();
 }
 
+
 // -----------------------------------------------------------------
 // RunnerScopedTrainObserver
 // -----------------------------------------------------------------
@@ -703,6 +704,7 @@ std::string RunnerScopedTrainObserver::ToString() const
     return "RunnerScopedTrainObserver(" + real_observer_->ToString() + ")";
 }
 
+
 // -----------------------------------------------------------------
 // RunnerScopedLearnObserver
 // -----------------------------------------------------------------
@@ -723,6 +725,29 @@ std::string RunnerScopedLearnObserver::ToString() const
     return "RunnerScopedLearnObserver(" + real_observer_->ToString() + ")";
 }
 
+
+// -----------------------------------------------------------------
+// RunnerScopedEpisodeEndObserver
+// -----------------------------------------------------------------
+RunnerScopedEpisodeEndObserver::RunnerScopedEpisodeEndObserver(std::shared_ptr<EpisodeEndObserver> real_observer, std::shared_ptr<const Runner> target_runner)
+    : real_observer_(real_observer), target_runner_(target_runner)
+{
+    ANET_CHECK(target_runner_ != nullptr);
+}
+
+void RunnerScopedEpisodeEndObserver::OnEpisodeEnd(const EpisodeEndEvent& event)
+{
+    if (event.runner == target_runner_) {
+        real_observer_->OnEpisodeEnd(event);
+    }
+}
+
+std::string RunnerScopedEpisodeEndObserver::ToString() const
+{
+    return "RunnerScopedEpisodeEndObserver(" + real_observer_->ToString() + ")";
+}
+
+
 // =============================================================
 // Notifier
 // =============================================================
@@ -741,6 +766,12 @@ std::shared_ptr<TrainObserver> Notifier::Attach(std::shared_ptr<TrainObserver> o
 std::shared_ptr<LearnObserver> Notifier::Attach(std::shared_ptr<LearnObserver> obs)
 {
     learn_observers_.push_back(obs);
+    return obs;
+}
+
+std::shared_ptr<EpisodeEndObserver> Notifier::Attach(std::shared_ptr<EpisodeEndObserver> obs)
+{
+    episode_end_observers_.push_back(obs);
     return obs;
 }
 
@@ -770,6 +801,19 @@ void Notifier::Detach(std::shared_ptr<LearnObserver> obs)
     );
 }
 
+void Notifier::Detach(std::shared_ptr<EpisodeEndObserver> obs)
+{
+    episode_end_observers_.erase(
+        std::remove_if(
+            episode_end_observers_.begin(), episode_end_observers_.end(),
+            [&](const std::shared_ptr<EpisodeEndObserver>& o) {
+                return o == obs;
+            }
+        ),
+        episode_end_observers_.end()
+    );
+}
+
 void Notifier::Detach(const TrainObserver* observer)
 {
     train_observers_.erase(
@@ -796,12 +840,25 @@ void Notifier::Detach(const LearnObserver* observer)
     );
 }
 
+void Notifier::Detach(const EpisodeEndObserver* observer)
+{
+    episode_end_observers_.erase(
+        std::remove_if(
+            episode_end_observers_.begin(), episode_end_observers_.end(),
+            [&](const std::shared_ptr<EpisodeEndObserver>& o) {
+                return o.get() == observer;
+            }
+        ),
+        episode_end_observers_.end()
+    );
+}
+
 void Notifier::Clear()
 {
     train_observers_.clear();
     learn_observers_.clear();
+    episode_end_observers_.clear();
 }
-
 
 void Notifier::Notify(const TrainEvent& event)
 {
@@ -811,12 +868,22 @@ void Notifier::Notify(const TrainEvent& event)
         obs->OnTrain(event);
     }
 }
+
 void Notifier::Notify(const LearnEvent& event)
 {
     anet::ProfileRange r("Notifier::Notify");
 
     for (auto obs : learn_observers_) {
         obs->OnLearn(event);
+    }
+}
+
+void Notifier::Notify(const EpisodeEndEvent& event)
+{
+    anet::ProfileRange r("Notifier::Notify");
+
+    for (auto obs : episode_end_observers_) {
+        obs->OnEpisodeEnd(event);
     }
 }
 
@@ -831,5 +898,10 @@ void Notifier::LogObservers() const
     for (auto obs : learn_observers_) {
         LOG::info() << "Notifier: LEARN [" << idx << "] " << obs->ToString();
        idx++;
+    }
+    idx = 0;
+    for (auto obs : episode_end_observers_) {
+        LOG::info() << "Notifier: EPISODE_END [" << idx << "] " << obs->ToString();
+        idx++;
     }
 }

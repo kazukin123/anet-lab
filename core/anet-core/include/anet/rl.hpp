@@ -744,8 +744,13 @@ namespace anet::rl {
 
     enum class EventType {
         TRAIN,
-        LEARN
-        /// @todo EPISODE_END（ENV由来）を追加
+        LEARN,
+        EPISODE_END
+    };
+
+    enum class RunnerScope {
+        TRAIN,
+        EVAL
     };
 
     enum class EventField {
@@ -774,6 +779,15 @@ namespace anet::rl {
     struct LearnEvent : public UpdateEvent {
     };
 
+    struct EpisodeEndEvent {
+        const std::shared_ptr<const Runner> runner;
+        const StepCounts counts;
+        const std::shared_ptr<const Agent> agent;
+        const std::shared_ptr<const BatchEnv> env;
+        int env_index;
+        float eps_total_reward;
+    };
+
     class TrainObserver {
     public:
         virtual void OnTrain(const TrainEvent& event) = 0;
@@ -786,6 +800,13 @@ namespace anet::rl {
         virtual void OnLearn(const LearnEvent& event) = 0;
         virtual std::string ToString() const = 0;
         virtual ~LearnObserver() = default;
+    };
+
+    class EpisodeEndObserver {
+    public:
+        virtual void OnEpisodeEnd(const EpisodeEndEvent& event) = 0;
+        virtual std::string ToString() const = 0;
+        virtual ~EpisodeEndObserver() = default;
     };
 
     // -----------------------------------------------------------------
@@ -815,6 +836,19 @@ namespace anet::rl {
         std::shared_ptr<const Runner> target_runner_;
     };
 
+    // -----------------------------------------------------------------
+    // RunnerScopedEpisodeEndObserver
+    // -----------------------------------------------------------------
+    class RunnerScopedEpisodeEndObserver : public EpisodeEndObserver {
+    public:
+        RunnerScopedEpisodeEndObserver(std::shared_ptr<EpisodeEndObserver> real_observer, std::shared_ptr<const Runner> target_runner);
+        void OnEpisodeEnd(const EpisodeEndEvent& event) override;
+        std::string ToString() const override;
+    private:
+        std::shared_ptr<EpisodeEndObserver> real_observer_;
+        std::shared_ptr<const Runner> target_runner_;
+    };
+
     // =============================================================
     // Notifier
     // =============================================================
@@ -832,6 +866,11 @@ namespace anet::rl {
         void Detach(std::shared_ptr<LearnObserver> observer);
         void Detach(const LearnObserver* observer);
         void Notify(const LearnEvent& event);
+
+        std::shared_ptr<EpisodeEndObserver> Attach(std::shared_ptr<EpisodeEndObserver> observer);
+        void Detach(std::shared_ptr<EpisodeEndObserver> observer);
+        void Detach(const EpisodeEndObserver* observer);
+        void Notify(const EpisodeEndEvent& event);
 
         void Clear();
 
@@ -856,6 +895,10 @@ namespace anet::rl {
                 auto wrapper = std::make_shared<RunnerScopedLearnObserver>(obs, target_runner);
                 this->Attach(wrapper);
             }
+            if constexpr (std::is_base_of_v<EpisodeEndObserver, T>) {
+                auto wrapper = std::make_shared<RunnerScopedEpisodeEndObserver>(obs, target_runner);
+                this->Attach(wrapper);
+            }
             return obs;
         }
         std::shared_ptr<TrainObserver> AttachScoped(std::shared_ptr<TrainObserver> observer, std::shared_ptr<const Runner> target_runner)
@@ -870,9 +913,16 @@ namespace anet::rl {
             this->Attach(wrapper);
             return observer;
         }
+        std::shared_ptr<EpisodeEndObserver> AttachScoped(std::shared_ptr<EpisodeEndObserver> observer, std::shared_ptr<const Runner> target_runner)
+        {
+            auto wrapper = std::make_shared<RunnerScopedEpisodeEndObserver>(observer, target_runner);
+            this->Attach(wrapper);
+            return observer;
+        }
     private:
         std::vector<std::shared_ptr<TrainObserver>> train_observers_;
         std::vector<std::shared_ptr<LearnObserver>> learn_observers_;
+        std::vector<std::shared_ptr<EpisodeEndObserver>> episode_end_observers_;
     };
 
     // =============================================================
@@ -904,6 +954,7 @@ namespace anet::rl {
         virtual void Shutdown() = 0;
     public:
         virtual StepCounts GetCounts() const = 0;
+        virtual const std::string& GetName() const = 0;
         virtual std::shared_ptr<anet::rl::BatchEnv> GetBatchEnv()const = 0;
         virtual std::shared_ptr<anet::rl::Agent> GetAgent() const = 0;
         virtual std::shared_ptr<anet::rl::Notifier> GetNotifier() const = 0;
@@ -913,8 +964,7 @@ namespace anet::rl {
         static constexpr const char* TRAIN_REWARD = "train_reward";
         static constexpr const char* TRAIN_REWARD_EMA = "train_reward_ema";
         static constexpr const char* TRAIN_EPISODE_REWARD = "train_episode_reward";
-        static constexpr const char* TARGET_EVAL_REWARD = "eval.[eval1].eps_total_reward";
-        static constexpr const char* POLICY_EVAL_REWARD = "eval.[eval2].eps_total_reward";
+        static constexpr const char* EPS_TOTAL_REWARD = "eps_total_reward";
         static constexpr const char* TRAIN_STEP = "train_step";
         static constexpr const char* EXP_STEP = "exp_step";
         static constexpr const char* LEARN_STEP = "learn_step";

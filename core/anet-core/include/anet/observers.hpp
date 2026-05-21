@@ -15,6 +15,8 @@ namespace anet::rl {
 
     // ==============================================================
 
+    class EvalRunner;
+
     class TaggedObserver {
     public:
 		TaggedObserver(const std::string& tag) : tag_(tag) {}
@@ -211,35 +213,21 @@ namespace anet::rl {
 
     class EpisodeEvalObserver : public anet::rl::LearnObserver {
     public:
-        using ReportFunction = std::function<void(float total_reward)>;
-    public:
         EpisodeEvalObserver(
-            ReportFunction report_function,
-            std::shared_ptr<anet::rl::SingleDiscreteEnvFactory> eval_env_factory,
-            const ConfigData& config_data,
-            torch::Device env_device, torch::Device actor_device,
-            anet::rl::RunMode runmode_ = anet::rl::RunMode::Eval,
-            int log_interval = 10, int eval_interval = 10,
-            bool use_background = true,
-            std::optional<seed_t> seed = std::nullopt,
-            const std::string& config_prefix = "");
+            std::shared_ptr<EvalRunner> eval_runner,
+            int eval_interval,
+            bool use_background);
 
         void OnLearn(const LearnEvent& event) override;
         std::string ToString() const override;
 
         ~EpisodeEvalObserver() override;
     private:
-        void RunEvaluationEpisode();      ///< エピソード実行本体
+        void RunEvaluationEpisode(const StepCounts& event_counts);      ///< EvalRunnerをエピソード終端まで駆動
     private:
-        const ReportFunction report_function_;
-        const anet::rl::RunMode runmode_;
-        const torch::Device actor_device_;
-        const int log_interval_;
+        std::shared_ptr<EvalRunner> eval_runner_;
         const int eval_interval_;
         const bool use_background_;
-        std::unique_ptr<anet::rl::BatchEnv> env_;
-        std::shared_ptr<Actor> actor_ = nullptr;
-        //anet::EmaFilter<float> eval_total_reward_;
 
         std::unique_ptr<anet::PinnedThreadPool> eval_pool_;
         std::future<void> eval_future_;
@@ -317,14 +305,35 @@ namespace anet::rl {
         virtual ~MetricsLogObserverBase() = default;
     protected:
         void OnUpdate(const UpdateEvent& event);
+        void OnGenericUpdate(
+            const StepCounts& counts,
+            std::shared_ptr<const Agent> agent,
+            std::shared_ptr<const Runner> runner,
+            std::shared_ptr<const BatchEnv> env,
+            const BatchExperience* experience,
+            const BatchUpdateResultList* update_result_list);
     private:
         using MetricsData = std::pair<step_t, std::optional<float>>;
         using MetricsDataList = std::vector<MetricsData>;
     private:
-        MetricsDataList GetMetricsDataList(const UpdateEvent& event);
+        MetricsDataList GetMetricsDataList(
+            const StepCounts& counts,
+            std::shared_ptr<const Agent> agent,
+            std::shared_ptr<const Runner> runner,
+            std::shared_ptr<const BatchEnv> env,
+            const BatchExperience* experience,
+            const BatchUpdateResultList* update_result_list);
 
-        MetricsData GetMetricsData(const UpdateEvent& event, EventField event_field);
-        MetricsDataList GetMetricsDataListFromUpdateResultList(const UpdateEvent& event);
+        MetricsData GetMetricsData(
+            const StepCounts& counts,
+            std::shared_ptr<const Agent> agent,
+            std::shared_ptr<const Runner> runner,
+            std::shared_ptr<const BatchEnv> env,
+            const BatchExperience* experience,
+            EventField event_field);
+        MetricsDataList GetMetricsDataListFromUpdateResultList(
+            const StepCounts& counts,
+            const BatchUpdateResultList* update_result_list);
     protected:
         std::string key_;
         anet::rl::StepAxis step_axis_;
@@ -340,6 +349,7 @@ namespace anet::rl {
         MetricsLogTrainObserver(const std::string& tag, const std::string& key,
             anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
             int interval, bool is_ema, float ema_alpha, std::optional<float> clip);
+            
         void OnTrain(const TrainEvent& event) override { OnUpdate(event); }
         std::string GetClassName() const override { return "MetricsLogTrainObserver"; }
         virtual std::string ToString() const override { return ToStringInternal(); }
@@ -350,8 +360,23 @@ namespace anet::rl {
         MetricsLogLearnObserver(const std::string& tag, const std::string& key,
             anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
             int interval, bool is_ema, float ema_alpha, std::optional<float> clip);
+            
         void OnLearn(const LearnEvent& event) override { OnUpdate(event); }
         std::string GetClassName() const override { return "MetricsLogLearnObserver"; }
+        virtual std::string ToString() const override { return ToStringInternal(); }
+    };
+
+    class MetricsLogEpisodeEndObserver : public MetricsLogObserverBase, public EpisodeEndObserver {
+    public:
+        MetricsLogEpisodeEndObserver(const std::string& tag, const std::string& key,
+            anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
+            int interval, bool is_ema, float ema_alpha, std::optional<float> clip);
+            
+        void OnEpisodeEnd(const EpisodeEndEvent& event) override
+        {
+            OnGenericUpdate(event.counts, event.agent, event.runner, event.env, nullptr, nullptr);
+        }
+        std::string GetClassName() const override { return "MetricsLogEpisodeEndObserver"; }
         virtual std::string ToString() const override { return ToStringInternal(); }
     };
 
@@ -391,13 +416,31 @@ namespace anet::rl {
 
     class ObserverFactory {
     public:
+        struct ParsedTrainObserver {
+            RunnerScope scope = RunnerScope::TRAIN;
+            std::string eval_name;
+            std::shared_ptr<anet::rl::TrainObserver> obs;
+        };
+        struct ParsedLearnObserver {
+            RunnerScope scope = RunnerScope::TRAIN;
+            std::string eval_name;
+            std::shared_ptr<anet::rl::LearnObserver> obs;
+        };
+        struct ParsedEpisodeEndObserver {
+            RunnerScope scope = RunnerScope::TRAIN;
+            std::string eval_name;
+            std::shared_ptr<anet::rl::EpisodeEndObserver> obs;
+        };
+    public:
         ObserverFactory(const ConfigData& config_data);
 
-        std::vector<std::shared_ptr<anet::rl::TrainObserver>> GetUpdateObservers() { return train_observers_; }
-        std::vector<std::shared_ptr<anet::rl::LearnObserver>> GetLearnObservers() { return learn_observers_; }
+        std::vector<ParsedTrainObserver> GetUpdateObservers() { return train_observers_; }
+        std::vector<ParsedLearnObserver> GetLearnObservers() { return learn_observers_; }
+        std::vector<ParsedEpisodeEndObserver> GetEpisodeEndObservers() { return episode_end_observers_; }
     private:
-        std::vector<std::shared_ptr<anet::rl::TrainObserver>> train_observers_;
-        std::vector<std::shared_ptr<anet::rl::LearnObserver>> learn_observers_;
+        std::vector<ParsedTrainObserver> train_observers_;
+        std::vector<ParsedLearnObserver> learn_observers_;
+        std::vector<ParsedEpisodeEndObserver> episode_end_observers_;
     };
 }
 

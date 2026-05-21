@@ -1,4 +1,4 @@
-﻿
+
 # --- 基本設定
 
 app.$ = app.online > P
@@ -53,10 +53,10 @@ train.eval.[test2].interval = 1000
 train.eval.[test2].run_mode = eval1
 train.eval.[test2].env.$ = LunarLanderEnv.test2
 
-metrics.scalar.[22_eval/01_test1_reward]     = $runner eval.[test1].eps_total_reward @learn clip:3000
-metrics.scalar.[22_eval/02_test2_reward]     = $runner eval.[test2].eps_total_reward @learn clip:3000
-metrics.scalar.[22_eval/03_test1_reward_ema] = $runner eval.[test1].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
-metrics.scalar.[22_eval/04_test2_reward_ema] = $runner eval.[test2].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
+metrics.scalar.[22_eval/01_test1_reward]     = eps_total_reward $runner @episode_end $eval.[test1] clip:3000
+metrics.scalar.[22_eval/02_test2_reward]     = eps_total_reward $runner @episode_end $eval.[test2] clip:3000
+metrics.scalar.[22_eval/03_test1_reward_ema] = eps_total_reward $runner @episode_end $eval.[test1] $ema ema_alpha:0.001 clip:1000
+metrics.scalar.[22_eval/04_test2_reward_ema] = eps_total_reward $runner @episode_end $eval.[test2] $ema ema_alpha:0.001 clip:1000
 
 
 #A.learner.gamma = 0.99

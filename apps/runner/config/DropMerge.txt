@@ -99,12 +99,14 @@ net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre
 #app.run_name = run_{t}_gs_5846_cy7_rr25
 #app.run_name = run_{t}_gs_5846_cy12_dsr2000
 #app.run_name = run_{t}_bt1
-#app.run_name = run_{t}_apx_ds
-app.run_name = run_{t}_apx_en1
+app.run_name = run_{t}_apx_ds
+#app.run_name = run_{t}_apx_en2
+
+R.train_policy.uqe_eps_start = 0.3
 
 
-#R.train_policy.use_spatial_exploration = false
-R.train_policy.use_spatial_exploration = true
+R.train_policy.use_spatial_exploration = false
+#R.train_policy.use_spatial_exploration = true
 
 
 #R.auto_load_file = ../../runs/DropMerge_SuikaHybrid_Flatten_128.anet
@@ -127,7 +129,7 @@ E.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 10
 #E.restitution = 0.1           # 本家相当？:果物同士の反発係数
 #E.box_restitution = 0         # 本家相当？:地面＆壁の反発無し
 
-R.learner.replay_ratio = 0.5
+#R.learner.replay_ratio = 0.5
 
 #R.learner.n_step = 3
 
@@ -382,9 +384,9 @@ BF16.agent.learner.adam_eps = 1e-4   # AMP有効時は大きめにする
 # ==============================================================================
 
 #app.online.exp_pause_step  = 200,000,000    # 200M
-app.online.exp_pause_step  = 160,000,000    # 160M
+#app.online.exp_pause_step  = 160,000,000    # 160M
 #app.online.exp_pause_step  = 80,000,000    # 80M
-#app.online.exp_pause_step  = 100,000,000      # 100M
+app.online.exp_pause_step  = 100,000,000      # 100M
 #app.online.exp_pause_step  = 15,000,000      # 15M
 #app.online.exp_pause_step  = 20,000,000      # 20M
 #app.online.exp_pause_step  = 40,000,000      # 40M
@@ -781,57 +783,74 @@ metrics.scalar.$ = metrics.scalar.baseline > M
 #metrics.scalar.$ = metrics.scalar.min > M
 #metrics.scalar.$ = metrics.scalar.full > M
 
-metrics.scalar.baseline.[21_eval/03_target_reward_ema] = $runner eval.[eval1].eps_total_reward @learn $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
-metrics.scalar.baseline.[21_eval/04_policy_reward_ema] = $runner eval.[eval2].eps_total_reward @learn $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
+M.[21_eval/03_target_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval1] $ema ema_alpha:0.01
+M.[21_eval/04_policy_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval2] $ema ema_alpha:0.01
 
-metrics.scalar.baseline.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema clip:10.0 # 初期の変動をclip
-#metrics.scalar.[90_perf/82_exp_step] = exp_step @train $runner interval:100
+M.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema clip:10.0 # 初期の変動をclip
+#M.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 
-#metrics.scalar.[22_eval/01_test1_reward]     = $runner eval.[test1].eps_total_reward @learn clip:3000
-#metrics.scalar.[22_eval/02_test2_reward]     = $runner eval.[test2].eps_total_reward @learn clip:3000
-#metrics.scalar.[22_eval/03_test1_reward_ema] = $runner eval.[test1].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
-#metrics.scalar.[22_eval/04_test2_reward_ema] = $runner eval.[test2].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
+#M.[22_eval/01_test1_reward]     = eps_total_reward $runner @episode_end $eval.[test1] clip:3000
+#M.[22_eval/02_test2_reward]     = eps_total_reward $runner @episode_end $eval.[test2] clip:3000
+#M.[22_eval/03_test1_reward_ema] = eps_total_reward $runner @episode_end $eval.[test1] $ema ema_alpha:0.001 clip:1000
+#M.[22_eval/04_test2_reward_ema] = eps_total_reward $runner @episode_end $eval.[test2] $ema ema_alpha:0.001 clip:1000
 
-metrics.scalar.[32_agent_base/04_uqe_tau_target] = $agent target_policy.uqe_tau @learn $exp_step
+M.[32_agent_base/04_uqe_tau_target] = $agent target_policy.uqe_tau @learn $exp_step
 
 M.[37_agent_qtd/03_td_mean_ema] = td_mean @learn $ema clip:0.02
 M.[37_agent_qtd/05_td_std_ema] = td_std @learn $ema clip:0.02
-M.[38_agent_loss/02_loss_ema] = loss @learn  $ema clip:0.005
+M.[38_agent_loss/02_loss_ema] = loss @learn  $ema clip:0.01
 
-metrics.scalar.[42_env/01_ep_maxrank_max]  = $env max.ep_max_rank @train
-#metrics.scalar.[42_env/02_ep_frct_max]     = $env max.ep_end_fruit_count @train
-##metrics.scalar.[42_env/03_tr_timeout_max]  = $env max.term_reason_timeout @train
-##metrics.scalar.[42_env/04_tr_blocked_max]  = $env max.term_reason_spawn_blocked @train
-##metrics.scalar.[42_env/05_tr_overflow_max] = $env max.term_reason_overflow @train
-#metrics.scalar.[42_env/06_tr_maxstep_max]  = $env max.term_reason_maxstep @train
-metrics.scalar.[42_env/07_ep_max_settle_steps]  = $env max.ep_max_settle_steps @train
+M.[42_env/01_ep_maxrank_max]  = $env max.ep_max_rank @train
+#M.[42_env/02_ep_frct_max]     = $env max.ep_end_fruit_count @train
+##M.[42_env/03_tr_timeout_max]  = $env max.term_reason_timeout @train
+##M.[42_env/04_tr_blocked_max]  = $env max.term_reason_spawn_blocked @train
+##M.[42_env/05_tr_overflow_max] = $env max.term_reason_overflow @train
+#M.[42_env/06_tr_maxstep_max]  = $env max.term_reason_maxstep @train
+M.[42_env/07_ep_max_settle_steps]  = $env max.ep_max_settle_steps @train
 
-#metrics.scalar.[42_env/11_ep_maxrank_mean]  = $env mean.ep_max_rank @train
-metrics.scalar.[42_env/12_ep_frct_mean]     = $env mean.ep_end_fruit_count @train
-metrics.scalar.[42_env/13_tr_timeout_mean]  = $env mean.term_reason_timeout @train
-metrics.scalar.[42_env/14_tr_blocked_mean]  = $env mean.term_reason_spawn_blocked @train
-metrics.scalar.[42_env/15_tr_overflow_mean] = $env mean.term_reason_overflow @train
-#metrics.scalar.[42_env/16_tr_maxstep_mean]  = $env mean.term_reason_maxstep @train
-metrics.scalar.[42_env/17_ep_mean_settle_steps] = $env mean.ep_mean_settle_steps @train
+#M.[42_env/11_ep_maxrank_mean]  = $env mean.ep_max_rank @train
+M.[42_env/12_ep_frct_mean]     = $env mean.ep_end_fruit_count @train
+M.[42_env/13_tr_timeout_mean]  = $env mean.term_reason_timeout @train
+M.[42_env/14_tr_blocked_mean]  = $env mean.term_reason_spawn_blocked @train
+M.[42_env/15_tr_overflow_mean] = $env mean.term_reason_overflow @train
+#M.[42_env/16_tr_maxstep_mean]  = $env mean.term_reason_maxstep @train
+M.[42_env/17_ep_mean_settle_steps] = $env mean.ep_mean_settle_steps @train
 
-#metrics.scalar.[42_env/51_ep_maxrank_max_ema]  = $env max.ep_max_rank @train $ema
-#metrics.scalar.[42_env/52_ep_frct_max_ema]     = $env max.ep_end_fruit_count @train $ema
-##metrics.scalar.[42_env/53_tr_timeout_max_ema]  = $env max.term_reason_timeout @train $ema ema_alpha:0.001
-##metrics.scalar.[42_env/54_tr_blocked_max_ema]  = $env max.term_reason_spawn_blocked @train $ema ema_alpha:0.001
-##metrics.scalar.[42_env/55_tr_overflow_max_ema] = $env max.term_reason_overflow @train $ema ema_alpha:0.001
-##metrics.scalar.[42_env/56_tr_maxstep_max_ema]  = $env max.term_reason_maxstep @train $ema ema_alpha:0.001
-metrics.scalar.[42_env/68_ep_max_settle_steps_ema]  = $env max.ep_max_settle_steps @train $ema ema_alpha:0.005
+#M.[42_env/51_ep_maxrank_max_ema]  = $env max.ep_max_rank @train $ema
+#M.[42_env/52_ep_frct_max_ema]     = $env max.ep_end_fruit_count @train $ema
+##M.[42_env/53_tr_timeout_max_ema]  = $env max.term_reason_timeout @train $ema ema_alpha:0.001
+##M.[42_env/54_tr_blocked_max_ema]  = $env max.term_reason_spawn_blocked @train $ema ema_alpha:0.001
+##M.[42_env/55_tr_overflow_max_ema] = $env max.term_reason_overflow @train $ema ema_alpha:0.001
+##M.[42_env/56_tr_maxstep_max_ema]  = $env max.term_reason_maxstep @train $ema ema_alpha:0.001
+M.[42_env/68_ep_max_settle_steps_ema]  = $env max.ep_max_settle_steps @train $ema ema_alpha:0.005
 
-metrics.scalar.[42_env/61_ep_maxrank_mean_ema]  = $env mean.ep_max_rank @train $ema ema_alpha:0.005
-metrics.scalar.[42_env/62_ep_frct_mean_ema]     = $env mean.ep_end_fruit_count @train $ema ema_alpha:0.005
-metrics.scalar.[42_env/63_tr_timeout_mean_ema]  = $env mean.term_reason_timeout @train $ema ema_alpha:0.001
-metrics.scalar.[42_env/64_tr_blocked_mean_ema]  = $env mean.term_reason_spawn_blocked @train $ema ema_alpha:0.001
-metrics.scalar.[42_env/65_tr_overflow_mean_ema] = $env mean.term_reason_overflow @train $ema ema_alpha:0.001
-#metrics.scalar.[42_env/66_tr_maxstep_mean_ema]  = $env mean.term_reason_maxstep @train $ema ema_alpha:0.001
-metrics.scalar.[42_env/67_ep_mean_settle_steps_ema] = $env mean.ep_mean_settle_steps @train $ema ema_alpha:0.005
+M.[42_env/61_ep_maxrank_mean_ema]  = $env mean.ep_max_rank @train $ema ema_alpha:0.005
+M.[42_env/62_ep_frct_mean_ema]     = $env mean.ep_end_fruit_count @train $ema ema_alpha:0.005
+M.[42_env/63_tr_timeout_mean_ema]  = $env mean.term_reason_timeout @train $ema ema_alpha:0.001
+M.[42_env/64_tr_blocked_mean_ema]  = $env mean.term_reason_spawn_blocked @train $ema ema_alpha:0.001
+M.[42_env/65_tr_overflow_mean_ema] = $env mean.term_reason_overflow @train $ema ema_alpha:0.001
+#M.[42_env/66_tr_maxstep_mean_ema]  = $env mean.term_reason_maxstep @train $ema ema_alpha:0.001
+M.[42_env/67_ep_mean_settle_steps_ema] = $env mean.ep_mean_settle_steps @train $ema ema_alpha:0.005
 
-metrics.scalar.[42_env/00_ep_step_mean]  = $env mean.ep_step @train
-metrics.scalar.[42_env/00_ep_step_mean_ema]  = $env mean.ep_step @train $ema ema_alpha:0.001
+M.[42_env/00_ep_step_mean]  = $env mean.ep_step @train
+M.[42_env/00_ep_step_mean_ema]  = $env mean.ep_step @train $ema ema_alpha:0.001
+
+
+M.[51_eval1/00_ep_step_mean]         = $env mean.ep_step            @episode_end $eval.[eval1]
+M.[51_eval1/00_ep_step_mean_ema]     = $env mean.ep_step            @episode_end $eval.[eval1] $ema ema_alpha:0.001
+M.[51_eval1/01_ep_maxrank_max]       = $env max.ep_max_rank         @episode_end $eval.[eval1]
+M.[51_eval1/61_ep_maxrank_mean_ema]  = $env mean.ep_max_rank        @episode_end $eval.[eval1] $ema ema_alpha:0.005
+M.[51_eval1/53_tr_timeout_max_ema]   = $env mean.term_reason_timeout @episode_end $eval.[eval1] $ema ema_alpha:0.001
+M.[51_eval1/62_ep_frct_mean_ema]     = $env mean.ep_end_fruit_count @episode_end $eval.[eval1] $ema ema_alpha:0.005
+M.[51_eval1/64_tr_blk_mean_ema]      = $env mean.term_reason_spawn_blocked @episode_end $eval.[eval1] $ema ema_alpha:0.001
+
+M.[52_eval2/00_ep_step_mean]         = $env mean.ep_step            @episode_end $eval.[eval2]
+M.[52_eval2/00_ep_step_mean_ema]     = $env mean.ep_step            @episode_end $eval.[eval2] $ema ema_alpha:0.001
+M.[52_eval2/01_ep_maxrank_max]       = $env max.ep_max_rank         @episode_end $eval.[eval2]
+M.[52_eval2/61_ep_maxrank_mean_ema]  = $env mean.ep_max_rank        @episode_end $eval.[eval2] $ema ema_alpha:0.005
+M.[52_eval2/53_tr_timeout_max_ema]   = $env mean.term_reason_timeout @episode_end $eval.[eval2] $ema ema_alpha:0.001
+M.[52_eval2/62_ep_frct_mean_ema]     = $env mean.ep_end_fruit_count @episode_end $eval.[eval2] $ema ema_alpha:0.005
+M.[52_eval2/64_tr_blk_mean_ema]      = $env mean.term_reason_spawn_blocked @episode_end $eval.[eval2] $ema ema_alpha:0.001
 
 
 # ==============================================================================
@@ -1053,8 +1072,8 @@ DropMergeEnv.time_penalty = -0.0001     # ★ 0.0 時間ペナルティ
 DropMergeEnv.noop_penalty = 0.0         # NOOPペナルティ
 DropMergeEnv.noop_override = false      # NOOPを中央方向移動に変換するか
 DropMergeEnv.game_over_grace_step = 5   # ゲームオーバー猶予ステップ数
-DropMergeEnv.drop_noise = 0.01f;        # Drop時のX座標ノイズ ゼロにするとAgentが局所解のタワー作りにハマってしまいがち
-DropMergeEnv.spin_noise = 0.0f;         # Drop時の初期角速度ノイズ(rad/s)
+DropMergeEnv.drop_noise = 0.01        # Drop時のX座標ノイズ ゼロにするとAgentが局所解のタワー作りにハマってしまいがち
+DropMergeEnv.spin_noise = 0.0         # Drop時の初期角速度ノイズ(rad/s)
 DropMergeEnv.use_settle_after_drop = false   # 物理演算が安定するまで強制的に時間を進めるか
 DropMergeEnv.settle_velocity_threshold = 0.1 # 安定判定の線速度閾値 (m/s)
 DropMergeEnv.settle_angular_threshold = 0.1  # 安定判定の角速度閾値 (rad/s)
@@ -1075,10 +1094,10 @@ DropMergeEnv.box_friction = -1          # 箱の摩擦。-1で果物と同じ
 #train.eval.[eval2].interval = 0
 #train.eval.[eval1].interval = 1000
 #train.eval.[eval2].interval = 10
-train.eval.[eval1].interval = 500
-train.eval.[eval2].interval = 500
-#train.eval.[eval1].interval = 200
-#train.eval.[eval2].interval = 200
+#train.eval.[eval1].interval = 500
+#train.eval.[eval2].interval = 500
+train.eval.[eval1].interval = 100
+train.eval.[eval2].interval = 100
 
 #DropMergeEnv.test1.max_step = 8000
 #train.eval.[test1].interval = 5000

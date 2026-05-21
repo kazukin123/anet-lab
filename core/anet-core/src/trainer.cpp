@@ -1,4 +1,4 @@
-﻿#include <limits>
+﻿0#include <limits>
 #include "anet/trainer.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
@@ -18,8 +18,9 @@ namespace LOG = anet::log;
 // ======================================================
 
 RunnerBase::RunnerBase(
-    std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier, RunMode run_mode, bool clone_model, std::optional<torch::Device> device)
-    : env_(env)
+    std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier, RunMode run_mode, bool clone_model, std::optional<torch::Device> device, std::string name)
+    : name_(std::move(name))
+    , env_(env)
     , agent_(agent)
     , notifier_(notifier)
     , run_mode_(run_mode)
@@ -42,6 +43,9 @@ void RunnerBase::InitializeMetrics()
     auto fopt = torch::TensorOptions().dtype(torch::kFloat32).device(env_device);
     episode_total_reward_cur_ = torch::zeros({ batch_env_spec.num_envs }, fopt);
     ANET_ASSERT_SHAPE(episode_total_reward_cur_, { batch_env_spec.num_envs });
+    eps_total_reward_per_env_.assign(static_cast<size_t>(batch_env_spec.num_envs), 0.0f);
+    last_episode_total_reward_ = std::numeric_limits<float>::quiet_NaN();
+    last_step_had_episode_end_ = false;
 }
 
 void RunnerBase::UpdateMetrics(std::shared_ptr<const BatchStepResult> result)
@@ -60,6 +64,52 @@ void RunnerBase::UpdateMetrics(std::shared_ptr<const BatchStepResult> result)
     //ANET_LOG_DEBUG("finished=" << anet::ToString(finished));
     //ANET_LOG_DEBUG("episode_total_reward_comp_=" << anet::ToString(episode_total_reward_comp_));
     //ANET_LOG_DEBUG("episode_total_reward_cur_=" << anet::ToString(episode_total_reward_cur_));
+}
+
+bool RunnerBase::AccumulateAndNotifyEpisodeEnd(
+    std::shared_ptr<const Runner> self, std::shared_ptr<const BatchStepResult> result, const StepCounts& event_counts)
+{
+    ANET_CHECK(self != nullptr);
+    ANET_CHECK(result != nullptr);
+
+    const auto batch_env_spec = env_->GetBatchSpec();
+    const int64_t num_envs = batch_env_spec.num_envs;
+    if (static_cast<int64_t>(eps_total_reward_per_env_.size()) != num_envs) {
+        eps_total_reward_per_env_.assign(static_cast<size_t>(num_envs), 0.0f);
+    }
+
+    auto rewards = result->reward.to(torch::kCPU);
+    auto finished = (result->next_state.done.to(torch::kBool) | result->next_state.truncated.to(torch::kBool)).to(torch::kCPU);
+    ANET_ASSERT_SHAPE(rewards, { num_envs });
+    ANET_ASSERT_SHAPE(finished, { num_envs });
+
+    last_step_had_episode_end_ = false;
+    float completed_total_reward_sum = 0.0f;
+    int completed_count = 0;
+
+    for (int64_t i = 0; i < num_envs; ++i) {
+        eps_total_reward_per_env_[static_cast<size_t>(i)] += rewards[i].item<float>();
+        if (!finished[i].item<bool>()) continue;
+
+        last_step_had_episode_end_ = true;
+        completed_total_reward_sum += eps_total_reward_per_env_[static_cast<size_t>(i)];
+        completed_count++;
+    }
+
+    if (completed_count > 0) {
+        last_episode_total_reward_ = completed_total_reward_sum / static_cast<float>(completed_count);
+    }
+
+    for (int64_t i = 0; i < num_envs; ++i) {
+        if (!finished[i].item<bool>()) continue;
+
+        const float eps_total_reward = eps_total_reward_per_env_[static_cast<size_t>(i)];
+        EpisodeEndEvent event{ self, event_counts, agent_, env_, static_cast<int>(i), eps_total_reward };
+        notifier_->Notify(event);
+        eps_total_reward_per_env_[static_cast<size_t>(i)] = 0.0f;
+    }
+
+    return last_step_had_episode_end_;
 }
 
 StepCounts RunnerBase::DoUpdateFrame(int max_steps, ControlFunction pre_step_func, ControlFunction post_step_func)
@@ -120,6 +170,7 @@ std::optional<float> RunnerBase::GetScalar(const std::string& key, int64_t index
 
     if (key == REWARD) return last_reward_;
     if (key == REWARD_EMA) return reward_ema_.Value();
+    if (key == EPS_TOTAL_REWARD) return last_episode_total_reward_;
 
 
     return std::nullopt;
@@ -136,8 +187,9 @@ EvalRunner::EvalRunner(
     std::shared_ptr<anet::rl::Notifier> notifier,
     RunMode run_mode,
     bool clone_model,
-    std::optional<torch::Device> device)
-    : RunnerBase(env, agent, notifier, run_mode, clone_model, device)
+    std::optional<torch::Device> device,
+    std::string name)
+    : RunnerBase(env, agent, notifier, run_mode, clone_model, device, std::move(name))
 {
 }
 
@@ -146,7 +198,7 @@ void EvalRunner::Sync()
     actor_->Sync();
 }
 
-StepCounts EvalRunner::DoStep(int64_t action)
+StepCounts EvalRunner::DoStep(int64_t action, const StepCounts& event_counts)
 {
     anet::ProfileRange r1("EvalRunner::DoStep");
     torch::NoGradGuard grad_guard;
@@ -202,9 +254,20 @@ StepCounts EvalRunner::DoStep(int64_t action)
     auto self = this->shared_from_this();
     anet::rl::TrainEvent event{ exp, self, step_counts_, agent_, BatchUpdateResultList(), env_, result, action_info };
     notifier_->Notify(event);
+    AccumulateAndNotifyEpisodeEnd(self, result, event_counts);
     state_ = result->continue_state;
 
     return step_counts_;
+}
+
+StepCounts EvalRunner::DoStep(int64_t action)
+{
+    return DoStep(action, step_counts_);
+}
+
+StepCounts EvalRunner::DoStep(const StepCounts& event_counts)
+{
+    return DoStep(-1, event_counts);
 }
 
 StepCounts EvalRunner::DoStep()
@@ -220,15 +283,9 @@ StepCounts EvalRunner::DoStep()
 TrainRunner::TrainRunner(
     //const ConfigData& config_data,
     std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier)
-    : RunnerBase(env, agent, notifier, anet::rl::RunMode::Train, false, std::nullopt)   // Trainでの推論は、Clone無し＆同deviceで実行
+    : RunnerBase(env, agent, notifier, anet::rl::RunMode::Train, false, std::nullopt, "train")   // Trainでの推論は、Clone無し＆同deviceで実行
 {
     this->learner_ = agent_->CreateLearner();
-}
-
-void TrainRunner::SetEvalLastReward(const std::string& name, float val)
-{
-    std::lock_guard<std::mutex> lock(eval_rewards_mutex_);
-    eval_last_rewards_[name] = val;
 }
 
 std::optional<float> TrainRunner::GetScalar(const std::string& key, int64_t index) const
@@ -261,25 +318,6 @@ std::optional<float> TrainRunner::GetScalar(const std::string& key, int64_t inde
         auto elapse_hour = elapse_msec / 1000.0f / 60.0f / 60.0f;
         return elapse_hour;
     }
-
-	//evalのlast_reward取得
-    if (key.find("eval.[") == 0) {
-        std::lock_guard<std::mutex> lock(eval_rewards_mutex_);
-        for (const auto& kv : eval_last_rewards_) {
-            const auto& tag = kv.first;
-			const auto& reward = kv.second;
-
-            //auto prefix_ema = "eval.[" + kv.first + "].eps_total_reward_ema";
-            //if (key.find(prefix_ema) == 0) {
-            //    this->eval_last_rewards[tag];
-            //}
-            auto prefix = "eval.[" + kv.first + "].eps_total_reward";
-            if (key.find(prefix) == 0) {
-                return reward;
-			}
-        }
-    }
-
 
     return RunnerBase::GetScalar(key, index);
 }
@@ -390,15 +428,17 @@ StepCounts SerialTrainRunner::DoStep()
     ANET_ASSERT_SHAPE(result->continue_state.done, { N });
     ANET_ASSERT_SHAPE(result->continue_state.truncated, { N });
 
+    auto self = this->shared_from_this();
+
     anet::ProfileRange r4("SerialTrainRunner::DoStep.envStepPost", r3);
 
     //メトリクス更新
     UpdateMetrics(result);
+    AccumulateAndNotifyEpisodeEnd(self, result, step_counts_);
 
     // Agent更新
     anet::ProfileRange r5("SerialTrainRunner::DoStep.updateAgent", r4);
     anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
-    auto self = this->shared_from_this();
     auto update_results = learner_->UpdateFromBatch(step_counts_, exp);
 
     // LearnEvent
@@ -532,6 +572,7 @@ StepCounts PipelineTrainRunner::DoStep()
     // ==========================================================
     auto result = env_->Step(action_info);
     UpdateMetrics(result);
+    AccumulateAndNotifyEpisodeEnd(shared_from_this(), result, step_counts_);
 
     // ==========================================================
     // 後片付け
@@ -682,16 +723,6 @@ RunManager::RunManager(const ConfigData& config_data)
 
     // 設定からObserverを生成して登録
     anet::rl::ObserverFactory factory(config_data);
-    auto train_obs = factory.GetUpdateObservers();
-    auto learn_obs = factory.GetLearnObservers();
-    for (auto obs : train_obs) {
-        auto scoped_obs = std::make_shared< RunnerScopedTrainObserver>(obs, train_runner_);
-        notifier_->Attach(scoped_obs);
-    }
-    for (auto obs : learn_obs) {
-        auto scoped_obs = std::make_shared< RunnerScopedLearnObserver>(obs, train_runner_);
-        notifier_->Attach(scoped_obs);
-    }
 
     // EpisodeEvalObserver
     auto eval_configs = config_data.MakeSubConfigData("train.eval");
@@ -717,27 +748,47 @@ RunManager::RunManager(const ConfigData& config_data)
         bool use_background = true;
         eval_config_data.Read("use_background", use_background, use_background);
 
-        // メトリクス初期化
-        //eval_last_rewards_[tag] = std::numeric_limits<float>::quiet_NaN();
-        train_runner_->SetEvalLastReward(tag, std::numeric_limits<float>::quiet_NaN());
+        // EvalRunner生成&登録
+        auto actor_device = config_->GetEvalDevice();
+        auto eval_env = std::make_shared<VectorizedDiscreteBatchEnv>(
+            config_data, single_env_factory, 1, env_device, eval_obs_seed, config_prefix);
+        auto eval_runner = std::make_shared<EvalRunner>(
+            eval_env, agent_, notifier_, run_mode, /*clone_model=*/true, actor_device, tag);
+        eval_runners[tag] = eval_runner;
 
         // EvalObserver生成&登録
-        //auto config_prefix = "train.eval." + tag;
-        auto actor_device = config_->GetEvalDevice();
         notifier_->AttachScoped<anet::rl::EpisodeEvalObserver>(
             train_runner_,
-            [this, tag](float total_reward) {   // report_function
-                ANET_LOG_DEBUG("EvalObserver: tag=" << tag << " total_reward=" << total_reward);
-                train_runner_->SetEvalLastReward(tag, total_reward);
-            },
-            single_env_factory, config_data, env_device, actor_device, run_mode,
-            interval,   // log_interval
-            interval,   // eval_interval
-            use_background,
-            eval_obs_seed,
-            config_prefix
+            eval_runner,
+            interval,
+            use_background
         );
     };
+
+    auto resolve_runner = [&](RunnerScope scope, const std::string& eval_name) -> std::shared_ptr<const Runner> {
+        if (scope == RunnerScope::TRAIN) return train_runner_;
+        auto it = eval_runners.find(eval_name);
+        if (it == eval_runners.end()) {
+            ANET_SYSTEM_ERROR("Unknown eval name '" << eval_name << "' in metrics.scalar config.");
+        }
+        return it->second;
+    };
+
+    auto train_obs = factory.GetUpdateObservers();
+    auto learn_obs = factory.GetLearnObservers();
+    auto episode_end_obs = factory.GetEpisodeEndObservers();
+    for (const auto& p : train_obs) {
+        auto scoped_obs = std::make_shared<RunnerScopedTrainObserver>(p.obs, resolve_runner(p.scope, p.eval_name));
+        notifier_->Attach(scoped_obs);
+    }
+    for (const auto& p : learn_obs) {
+        auto scoped_obs = std::make_shared<RunnerScopedLearnObserver>(p.obs, resolve_runner(p.scope, p.eval_name));
+        notifier_->Attach(scoped_obs);
+    }
+    for (const auto& p : episode_end_obs) {
+        auto scoped_obs = std::make_shared<RunnerScopedEpisodeEndObserver>(p.obs, resolve_runner(p.scope, p.eval_name));
+        notifier_->Attach(scoped_obs);
+    }
 
     // 成功！
     status_ = anet::rl::RunnerStatus::RUNNING;
@@ -756,7 +807,7 @@ std::shared_ptr<EvalRunner> RunManager::CreateEvalRunner(const std::string& name
     ANET_ASSERT(status_ == anet::rl::RunnerStatus::RUNNING);
 
     auto env = env_factory_->CreateBatchEnv(eval_env_seed_, 1); // num_envs = 1
-    auto eval_runner = std::make_shared<EvalRunner>(env, agent_, notifier_, run_mode, clone_model, device);
+    auto eval_runner = std::make_shared<EvalRunner>(env, agent_, notifier_, run_mode, clone_model, device, name);
     this->eval_runners[name] = eval_runner;
     return eval_runner;
 }

@@ -5,13 +5,13 @@ train.main_runner_type = pipeline
 
 train.eval.[eval1].interval = 100
 train.eval.[eval1].run_mode = eval1
-train.eval.[eval1].use_background = false
-#train.eval.[eval1].use_background = true
+#train.eval.[eval1].use_background = false
+train.eval.[eval1].use_background = true
 
 train.eval.[eval2].interval = 100
 train.eval.[eval2].run_mode = eval2
-train.eval.[eval2].use_background = false
-#train.eval.[eval2].use_background = true
+#train.eval.[eval2].use_background = false
+train.eval.[eval2].use_background = true
 
 train.eval_device_type = cuda  # default: cpu
 #train.eval_device_type = cpu
