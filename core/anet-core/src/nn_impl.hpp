@@ -82,6 +82,7 @@ namespace anet::nn {
         /// torch::nn::Module::forwardはテンプレートメソッドのため、多態性を持たせるために純粋仮想関数として再定義
         virtual torch::Tensor Forward(torch::Tensor input) = 0;
         virtual bool IsConv2dVisualizable() const { return false; }
+        virtual anet::ConfigData GetCurrentConfigData() const { return {}; }
         virtual ~NetworkModule() = default;
     };
 
@@ -107,6 +108,7 @@ namespace anet::nn {
 
         torch::Tensor Forward(torch::Tensor input);
         anet::TensorDict GetConv2dOutputs(torch::Tensor input);
+        const std::vector<std::shared_ptr<NetworkBlock>>& GetBlocks() const { return blocks_; }
     private:
         std::vector<std::shared_ptr<NetworkBlock>> blocks_;
     };
@@ -123,6 +125,7 @@ namespace anet::nn {
 
         const std::string& GetName() const { return name_; }
         const std::vector<std::string>& GetBindKeys() const { return bind_keys_; }
+        std::shared_ptr<NetworkStruct> GetNetworkStruct() const { return network_struct_; }
 
         /// 可視化用に内部のConv2d出力を抽出する
         void ExtractConv2dOutputs(const anet::TensorDict& current_state, anet::TensorDict& outputs) const;
@@ -170,6 +173,8 @@ namespace anet::nn {
 
         // DAG全体のConv2d可視化用出力取得
         anet::TensorDict GetConv2dOutputs(const anet::TensorDict& input) const;
+        const std::vector<std::shared_ptr<NetworkBranch>>& GetBranches() const { return branches_; }
+        const std::map<std::string, std::string>& GetOutputKeys() const { return output_keys_; }
 
     private:
         std::vector<std::shared_ptr<NetworkBranch>> branches_;

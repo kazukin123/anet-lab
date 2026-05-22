@@ -1,6 +1,7 @@
 ﻿// nn_module_impl.cpp
 
 #include <numeric>
+#include <sstream>
 #include "nn_impl.hpp"
 #include "anet/log.hpp"
 #include "anet/profile.hpp"
@@ -8,6 +9,23 @@
 
 using namespace anet::nn;
 namespace LOG = anet::log;
+
+static std::string ToConfigBool(bool value)
+{
+    return value ? "true" : "false";
+}
+
+static std::string FormatInt64Vector(const std::vector<int64_t>& values)
+{
+    std::ostringstream oss;
+    oss << "[";
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i > 0) oss << ", ";
+        oss << values[i];
+    }
+    oss << "]";
+    return oss.str();
+}
 
 
 torch::nn::init::NonlinearityType anet::nn::GetNonlinearityType(const std::string& name)
@@ -62,6 +80,17 @@ public:
     {
         return forward(input);
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("out_features", out_features_);
+        cd.Set("bias", ToConfigBool(with_bias_));
+        if (linear) {
+            cd.Set("in_features", linear->options.in_features());
+        }
+        return cd;
+    }
 private:
     WeightInitConfig init_config_;
     torch::nn::Linear linear{ nullptr };
@@ -107,6 +136,20 @@ public:
 
     torch::Tensor Forward(torch::Tensor input) override {
         return forward(input);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("out_channels", out_channels_);
+        cd.Set("kernel_size", kernel_size_);
+        cd.Set("stride", stride_);
+        cd.Set("padding", padding_);
+        cd.Set("dilation", dilation_);
+        if (conv) {
+            cd.Set("in_channels", conv->options.in_channels());
+        }
+        return cd;
     }
 private:
     WeightInitConfig init_config_;
@@ -156,6 +199,20 @@ public:
     torch::Tensor Forward(torch::Tensor input) override {
         return forward(input);
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("out_channels", out_channels_);
+        cd.Set("kernel_size", kernel_size_);
+        cd.Set("stride", stride_);
+        cd.Set("padding", padding_);
+        cd.Set("dilation", dilation_);
+        if (conv_) {
+            cd.Set("in_channels", conv_->options.in_channels());
+        }
+        return cd;
+    }
 private:
     WeightInitConfig init_config_;
     torch::nn::Conv2d conv_{ nullptr };
@@ -183,6 +240,13 @@ public:
     {
         return forward(input);
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("dims", FormatInt64Vector(dims_));
+        return cd;
+    }
 private:
     std::vector<int64_t> dims_;
 };
@@ -200,6 +264,13 @@ public:
     torch::Tensor Forward(torch::Tensor input) override
     {
         return forward(input);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("start_dim", 1);
+        return cd;
     }
 };
 
@@ -223,11 +294,19 @@ public:
     {
         return forward(input);
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("merge", "stack_channel");
+        return cd;
+    }
 };
 
 class DropoutModule : public NetworkModule {
 public:
     DropoutModule(double p)
+        : p_(p)
     {
         if (p > 0.0) {
             dropout_ = register_module("dropout", torch::nn::Dropout(torch::nn::DropoutOptions(p)));
@@ -246,7 +325,15 @@ public:
     {
         return forward(input);
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("p", p_);
+        return cd;
+    }
 private:
+    double p_ = 0.0;
     torch::nn::Dropout dropout_{ nullptr };
 };
 
@@ -299,6 +386,7 @@ public:
 class GELUModule : public NetworkModule {
 public:
     explicit GELUModule(const std::string& approximate)
+        : approximate_(approximate)
     {
         torch::nn::GELUOptions opts;
         opts.approximate(approximate); // "none" or "tanh"
@@ -311,7 +399,15 @@ public:
     {
         return impl_->forward(input);
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("approximate", approximate_);
+        return cd;
+    }
 private:
+    std::string approximate_;
     torch::nn::GELU impl_{ nullptr };
 };
 
@@ -355,6 +451,7 @@ private:
 class LeakyReLUModule : public NetworkModule {
 public:
     explicit LeakyReLUModule(double negative_slope)
+        : negative_slope_(negative_slope)
     {
         torch::nn::LeakyReLUOptions opts;
         opts.negative_slope(negative_slope);
@@ -367,7 +464,15 @@ public:
     {
         return impl_->forward(input);
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("negative_slope", negative_slope_);
+        return cd;
+    }
 private:
+    double negative_slope_ = 0.01;
     torch::nn::LeakyReLU impl_{ nullptr };
 };
 
@@ -393,6 +498,13 @@ public:
             bn_->to(input.device(), input.scalar_type());
         }
         return bn_->forward(input);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("num_features", num_features_);
+        return cd;
     }
 private:
     int64_t num_features_;
@@ -440,6 +552,14 @@ public:
             impl_->to(input.device(), input.scalar_type());
         }
         return impl_->forward(input);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("num_groups", num_groups_);
+        cd.Set("num_channels", num_channels_);
+        return cd;
     }
 private:
     int64_t num_groups_;
@@ -638,6 +758,26 @@ public:
             return out;
         }
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("channels", config_.channels);
+        cd.Set("kernel_size", config_.kernel_size);
+        cd.Set("stride", config_.stride);
+        cd.Set("padding", config_.padding);
+        cd.Set("dilation", config_.dilation);
+        cd.Set("activation", config_.activation);
+        cd.Set("activation_mode", config_.activation_mode);
+        cd.Set("norm_type", config_.norm_type);
+        cd.Set("group_norm_groups", config_.group_norm_groups);
+        cd.Set("conv1_bias", ToConfigBool(config_.conv1_bias));
+        cd.Set("conv2_bias", ToConfigBool(config_.conv2_bias));
+        if (conv1_) {
+            cd.Set("in_channels", conv1_->options.in_channels());
+        }
+        return cd;
+    }
 private:
     std::shared_ptr<NetworkModule> CreateAndRegisterNorm(const std::string& name, int64_t channels)
     {
@@ -742,6 +882,7 @@ public:
 class LayerNormModule : public NetworkModule {
 public:
     explicit LayerNormModule(int64_t normalized_shape)
+        : normalized_shape_(normalized_shape)
     {
         torch::nn::LayerNormOptions opts({ normalized_shape });
         ln_ = register_module("ln", torch::nn::LayerNorm(opts));
@@ -758,7 +899,15 @@ public:
         }
         return ln_->forward(input);
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("normalized_shape", normalized_shape_);
+        return cd;
+    }
 private:
+    int64_t normalized_shape_;
     bool initialized_ = false;
     torch::nn::LayerNorm ln_{ nullptr };
 };
@@ -843,6 +992,17 @@ public:
         // --- Transformer用シーケンスへの変形 ---
         // [Batch, C, H, W] -> [Batch, H*W, C]
         return out.flatten(2).transpose(1, 2);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        if (initialized_) {
+            cd.Set("height", y_embed_.size(0));
+            cd.Set("width", x_embed_.size(0));
+            cd.Set("d_model", y_embed_.size(1));
+        }
+        return cd;
     }
 private:
     bool initialized_ = false;
@@ -973,6 +1133,16 @@ public:
         return out_img;
     }
 
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("scalar_dim", config_.scalar_dim);
+        cd.Set("grid_width", config_.grid_width);
+        cd.Set("grid_height", config_.grid_height);
+        cd.Set("num_classes", config_.num_classes);
+        return cd;
+    }
+
 private:
     HybridSpatialEmbedderConfig config_;
 };
@@ -1026,6 +1196,14 @@ public:
 
         // float32 キャストして返す
         return out_img.to(torch::kFloat32);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("grid_width", config_.grid_width);
+        cd.Set("grid_height", config_.grid_height);
+        return cd;
     }
 
 private:
@@ -1181,6 +1359,18 @@ public:
 
         return out;
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("d_model", config_.d_model);
+        cd.Set("nhead", config_.nhead);
+        cd.Set("num_layers", config_.num_layers);
+        cd.Set("dim_feedforward", config_.dim_feedforward);
+        cd.Set("norm_first", ToConfigBool(config_.norm_first));
+        cd.Set("activation", config_.activation);
+        return cd;
+    }
 private:
     TransformerConfig config_;
     bool initialized_ = false;
@@ -1223,6 +1413,14 @@ public:
         // [Batch, SeqLen, d_model] の SeqLen (dim=1) を平均して潰す
         return input.mean(/*dim=*/1);
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("dim", 1);
+        cd.Set("op", "mean");
+        return cd;
+    }
 };
 
 class GlobalAveragePooling1DFactory final : public NetworkModuleFactory {
@@ -1259,6 +1457,16 @@ public:
         // 先頭にくっつけて出力: [Batch, 1 + SeqLen, d_model]
         return torch::cat({ cls_expanded, input }, /*dim=*/1);
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        if (initialized_) {
+            cd.Set("d_model", cls_token_.size(2));
+        }
+        cd.Set("append_dim", 1);
+        return cd;
+    }
 private:
     bool initialized_ = false;
     torch::Tensor cls_token_;
@@ -1284,6 +1492,14 @@ public:
 
         // [Batch, 1 + SeqLen, d_model] の 0番目 (先頭) を抽出する
         return input.select(/*dim=*/1, /*index=*/0);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("dim", 1);
+        cd.Set("index", 0);
+        return cd;
     }
 };
 

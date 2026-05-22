@@ -29,6 +29,7 @@ namespace anet::rl::dqn {
         RewardScalerConfig reward_scaler;
         ObservationNormalizerConfig obs_norm;
         anet::nn::WeightInitConfig head_init;
+        anet::nn::NetworkGraphVizConfig nn_viz;
         std::string auto_load_file;
 
         int num_quantiles = 51;
@@ -43,13 +44,23 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, head_init.manual_gain);
 			head_init.nonlinearity = "linear";
 
+            ANET_READ_CONFIG(config_data, nn_viz.show_param_shapes);
+            ANET_READ_CONFIG(config_data, nn_viz.show_param_count);
+            ANET_READ_CONFIG(config_data, nn_viz.show_tensor_specs);
+            ANET_READ_CONFIG(config_data, nn_viz.show_branch_config);
+            ANET_READ_CONFIG(config_data, nn_viz.show_head_info);
+            ANET_READ_CONFIG(config_data, nn_viz.layout);
+            ANET_READ_CONFIG(config_data, nn_viz.cluster_branches);
+            ANET_READ_CONFIG(config_data, nn_viz.float_precision);
+            anet::nn::ValidateNetworkGraphVizConfig(nn_viz, "DefaultDQNAgent.nn_viz");
+
             ANET_READ_CONFIG(config_data, stucker.use_stacker);
             ANET_READ_CONFIG(config_data, stucker.stack_count);
             ANET_READ_CONFIG(config_data, stucker.stack_keys);
 
             ANET_READ_CONFIG(config_data, model.soft_update_tau);
             ANET_READ_CONFIG(config_data, model.hard_update_interval);
-            
+
             ANET_READ_CONFIG(config_data, use_optimistic_target);
 
             ANET_READ_CONFIG(config_data, train_policy.policy_type);

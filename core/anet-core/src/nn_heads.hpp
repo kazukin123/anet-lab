@@ -18,6 +18,7 @@ namespace anet::nn {
         explicit PassThroughHead(const std::string& output_key);
         anet::TensorDict Forward(const anet::TensorDict& feature_dict) override;
         std::optional<TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
+        HeadGraphVizInfo GetGraphVizInfo() const override;
     private:
         std::string output_key_;
     };

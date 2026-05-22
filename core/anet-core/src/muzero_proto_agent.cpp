@@ -9,6 +9,18 @@
 using namespace anet::rl::muzero_proto;
 namespace LOG = anet::log;
 
+namespace {
+
+void LogNetworkGraphViz(const std::string& tag_prefix, const anet::nn::Network& network, const anet::nn::NetworkGraphVizConfig& config)
+{
+    auto structure_view = network.MakeGraphViz(anet::nn::NetworkGraphVizConfig{});
+    anet::MetricsLogger::Instance()->Log(tag_prefix + ".structure", *structure_view);
+    auto detail_view = network.MakeGraphViz(config);
+    anet::MetricsLogger::Instance()->Log(tag_prefix + ".detail", *detail_view);
+}
+
+} // namespace
+
 
 // ======================================================
 // MuZeroAgent
@@ -33,6 +45,12 @@ MuZeroAgent::MuZeroAgent(
     // MuZeroNetworkModel生成
     model_ = std::make_shared<MuZeroNetworkModel>(config_.model, config_data, env_spec_.state_spec, env_spec_.action_spec);
     model_->To(device_);
+    {
+        auto suite = model_->GetSuite();
+        LogNetworkGraphViz("net.rep", *suite->GetRepresentationNet(), config_.nn_viz);
+        LogNetworkGraphViz("net.dyn", *suite->GetDynamicsNet(), config_.nn_viz);
+        LogNetworkGraphViz("net.pred", *suite->GetPredictionNet(), config_.nn_viz);
+    }
 
     // ReplayBuffer生成
     replay_buffer_ = std::make_shared<MuZeroReplayBuffer>(

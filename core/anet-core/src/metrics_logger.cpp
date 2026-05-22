@@ -397,6 +397,19 @@ void MetricsLogger::LogImage_subtyped(const std::string& tag, anet::rl::step_t s
     //backend->write_jsonl(obj);
 }
 
+void MetricsLogger::Log(const std::string& tag, const anet::graphviz::GraphViz& viz)
+{
+    std::lock_guard<std::mutex> lock(log_mutex_);
+
+    std::string safe_tag = SanitizeFilename(tag);
+    auto dot_dir = run_dir_ / "dot";
+    std::filesystem::create_directories(dot_dir);
+    auto full_path = dot_dir / (safe_tag + ".dot");
+
+    std::ofstream ofs(full_path);
+    ofs << viz.ToDotString() << std::endl;
+}
+
 void MetricsLogger::Log(const std::string& tag, anet::rl::step_t step, const anet::graphviz::GraphViz& viz)
 {
     std::lock_guard<std::mutex> lock(log_mutex_);

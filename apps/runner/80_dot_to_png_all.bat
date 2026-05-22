@@ -1,71 +1,85 @@
 @echo off
 setlocal enabledelayedexpansion
 
+pushd "%~dp0" >nul || exit /b 1
+set "RUNS_DIR=%CD%\runs"
+
 echo ========================================
 echo Processing ALL runs for DOT to PNG conversion
 echo ========================================
 
-:: runs フォルダ配下のすべてのディレクトリを走査
-for /d %%R in (runs\*) do (
-    set "run_dir=%%R"
+if not exist "%RUNS_DIR%" (
+    echo [ERROR] No runs directory found: "%RUNS_DIR%"
+    popd >nul
+    pause
+    exit /b 1
+)
+
+for /d %%R in ("%RUNS_DIR%\*") do (
+    set "run_dir=%%~fR"
     echo.
     echo ----------------------------------------
-    echo RUN: !run_dir!
+    echo RUN: %%~nxR
     echo ----------------------------------------
-
-    :: dotフォルダが存在するか確認
-    if exist "!run_dir!\dot" (
-        
-        :: dotフォルダ内の各タグ(サブディレクトリ)を走査
-        for /d %%T in ("!run_dir!\dot\*") do (
-            set "tag_name=%%~nxT"
-            echo   Processing tag: !tag_name!
-
-            :: 出力先の dot_png/(tag) フォルダを作成
-            if not exist "!run_dir!\dot_png\!tag_name!" mkdir "!run_dir!\dot_png\!tag_name!"
-
-            :: タグフォルダ内の全ての .dot ファイルを走査
-            for %%F in ("%%T\*.dot") do (
-                call :to_png "%%F" "!tag_name!" "%%~nF" "!run_dir!"
-            )
-        )
-    ) else (
-        echo   [INFO] No 'dot' directory found, skipping.
-    )
+    call :convert_run "!run_dir!"
 )
 
 echo.
 echo ========================================
 echo ALL DONE.
 echo ========================================
+popd >nul
 pause
 exit /b
 
 
 :: ==========================================
-:: サブルーチン: DOTからPNGへの変換処理
+:: run配下のdotを階層に依存せずPNGへ変換
+:: ==========================================
+:convert_run
+set "run_dir=%~1"
+set "dot_dir=%run_dir%\dot"
+set "png_dir=%run_dir%\dot_png"
+
+if not exist "%dot_dir%" (
+    echo   [INFO] No 'dot' directory found, skipping.
+    exit /b 0
+)
+
+set "found_dot="
+for /r "%dot_dir%" %%F in (*.dot) do (
+    set "found_dot=1"
+    call :to_png "%%~fF" "%dot_dir%" "%png_dir%"
+)
+
+if not defined found_dot (
+    echo   [INFO] No .dot files found, skipping.
+)
+exit /b 0
+
+
+:: ==========================================
+:: DOTからPNGへの変換処理
 :: ==========================================
 :to_png
-:: %~1 = 入力ファイルパス (例: runs\run_name\dot\mcts_tree\file.dot)
-:: %~2 = タグ名 (例: mcts_tree)
-:: %~3 = ファイル名拡張子なし (例: file)
-:: %~4 = runディレクトリパス (例: runs\run_name)
+:: %~1 = 入力dotファイル
+:: %~2 = dotルートディレクトリ
+:: %~3 = pngルートディレクトリ
 
 set "in_file=%~1"
-set "out_file=%~4\dot_png\%~2\%~3.png"
+set "dot_root=%~2"
+set "png_root=%~3"
+set "file_dir=%~dp1"
+set "rel_dir=!file_dir:%dot_root%\=!"
+set "out_dir=%png_root%\!rel_dir!"
+set "out_file=!out_dir!%~n1.png"
 
-:: 既にPNGが存在する場合は変換をスキップ (差分更新用)
-if exist "%out_file%" (
-    rem echo     Skip: %~3.png already exists.
-    exit /b
+if not exist "!out_dir!" mkdir "!out_dir!"
+
+echo     Converting: !in_file:%dot_root%\=! -^> !out_file:%png_root%\=!
+dot -Tpng:cairo -Gdpi=192 "!in_file!" -o "!out_file!"
+
+if errorlevel 1 (
+    echo     [ERROR] Failed to convert "%in_file%"
 )
-
-echo     Converting: %~3.dot -^> %~3.png
-dot -Tpng "%in_file%" -o "%out_file%"
-
-:: 変換失敗時のエラーハンドリング
-if %ERRORLEVEL% neq 0 (
-    echo     [ERROR] Failed to convert %~3.dot
-)
-exit /b
-
+exit /b 0

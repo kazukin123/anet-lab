@@ -39,4 +39,12 @@ std::optional<anet::TensorDictFunction> PassThroughHead::GetTensorDictFunction(c
     return std::nullopt;
 }
 
+HeadGraphVizInfo PassThroughHead::GetGraphVizInfo() const
+{
+    HeadGraphVizInfo info;
+    info.type = "PassThroughHead";
+    info.outputs.push_back({ output_key_, {} });
+    return info;
+}
+
 } // namespace anet::nn

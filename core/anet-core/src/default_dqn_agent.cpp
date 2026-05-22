@@ -75,7 +75,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     // RewardScaler生成
     anet::rl::RewardScalerFactory reward_scaler_factory(config_.reward_scaler);
     this->reward_scaler_ = reward_scaler_factory.CreateRewardScaler(config_.learner.gamma);
-    
+
     // ObservationNormalizer生成
     anet::rl::ObservationNormalizerFactory obs_norm_factory(config_.obs_norm);
     this->obs_norm_ = obs_norm_factory.CreateObservationNormalizer(env_spec.state_spec);
@@ -140,6 +140,15 @@ DefaultDQNAgent::DefaultDQNAgent(
         net_config, network_obs_spec, n_actions_, head_factory,
         config_.use_qr ? config_.num_quantiles : 0
     );
+
+    // Network グラフ可視化
+    {
+        const auto& net = *model_->GetMainNetwork();
+        auto structure_view = net.MakeGraphViz(anet::nn::NetworkGraphVizConfig{});
+        anet::MetricsLogger::Instance()->Log("net.structure", *structure_view);
+        auto detail_view = net.MakeGraphViz(config_.nn_viz);
+        anet::MetricsLogger::Instance()->Log("net.detail", *detail_view);
+    }
 
     // Target Policyの妥当性チェック
     if (config_.target_policy.policy_type == "EpsilonGreedy" &&

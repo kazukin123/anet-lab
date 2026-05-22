@@ -28,6 +28,7 @@ static torch::Tensor GetFeature(const anet::TensorDict& feature_dict, const std:
 class LinearHead : public anet::nn::NetworkHead {
 public:
     LinearHead(int64_t in_features, int64_t out_features, const anet::nn::WeightInitConfig& init_config)
+        : out_features_(out_features)
     {
         torch::nn::LinearOptions opts(in_features, out_features);
         opts.bias(true);
@@ -60,8 +61,18 @@ public:
         return std::nullopt;
     }
 
+    anet::nn::HeadGraphVizInfo GetGraphVizInfo() const override
+    {
+        anet::nn::HeadGraphVizInfo info;
+        info.type = "LinearHead";
+        info.outputs.push_back({ "q", { out_features_ } });
+        info.details.push_back({ "action_dim", std::to_string(out_features_) });
+        return info;
+    }
+
 private:
     torch::nn::Linear linear_{ nullptr };
+    int64_t out_features_;
 };
 
 
@@ -137,6 +148,19 @@ public:
         }
         return std::nullopt;
     }
+
+    anet::nn::HeadGraphVizInfo GetGraphVizInfo() const override
+    {
+        anet::nn::HeadGraphVizInfo info;
+        info.type = "DuelingHead";
+        info.outputs.push_back({ "q", { action_dim_ } });
+        info.outputs.push_back({ "v", { 1 } });
+        info.outputs.push_back({ "a", { action_dim_ } });
+        info.details.push_back({ "action_dim", std::to_string(action_dim_) });
+        info.details.push_back({ "streams", "value, adv" });
+        return info;
+    }
+
 private:
     torch::nn::Linear value_{ nullptr };
     torch::nn::Linear adv_{ nullptr };
@@ -202,6 +226,18 @@ public:
         }
         return std::nullopt;
     }
+
+    anet::nn::HeadGraphVizInfo GetGraphVizInfo() const override
+    {
+        anet::nn::HeadGraphVizInfo info;
+        info.type = "QuantileHead";
+        info.outputs.push_back({ "q", { action_dim_ } });
+        info.outputs.push_back({ "q_dist", { action_dim_, num_quantiles_ } });
+        info.details.push_back({ "action_dim", std::to_string(action_dim_) });
+        info.details.push_back({ "num_quantiles", std::to_string(num_quantiles_) });
+        return info;
+    }
+
 private:
     torch::nn::Linear linear_{ nullptr };
     int64_t action_dim_;
@@ -305,6 +341,21 @@ public:
         }
         return std::nullopt;
     }
+
+    anet::nn::HeadGraphVizInfo GetGraphVizInfo() const override
+    {
+        anet::nn::HeadGraphVizInfo info;
+        info.type = "QuantileDuelingHead";
+        info.outputs.push_back({ "q", { action_dim_ } });
+        info.outputs.push_back({ "q_dist", { action_dim_, num_quantiles_ } });
+        info.outputs.push_back({ "v_dist", { 1, num_quantiles_ } });
+        info.outputs.push_back({ "a_dist", { action_dim_, num_quantiles_ } });
+        info.details.push_back({ "action_dim", std::to_string(action_dim_) });
+        info.details.push_back({ "num_quantiles", std::to_string(num_quantiles_) });
+        info.details.push_back({ "streams", "value, adv" });
+        return info;
+    }
+
 private:
     torch::nn::Linear value_{ nullptr };
     torch::nn::Linear adv_{ nullptr };

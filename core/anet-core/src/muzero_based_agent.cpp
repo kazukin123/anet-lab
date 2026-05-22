@@ -18,6 +18,7 @@ using namespace anet::rl::muzero_proto;
 class MuZeroDynamicsHead : public anet::nn::NetworkHead {
 public:
     MuZeroDynamicsHead(int64_t reward_feature_dim, const anet::nn::WeightInitConfig& reward_init_config)
+        : reward_feature_dim_(reward_feature_dim)
     {
         // Bodyが抽出してくれた特徴量をスカラー報酬に変換する最終層のみを構築
         reward_layer_ = register_module("reward_layer", torch::nn::Linear(reward_feature_dim, 1));
@@ -49,8 +50,20 @@ public:
     {
         return std::nullopt;
     }
+
+    anet::nn::HeadGraphVizInfo GetGraphVizInfo() const override
+    {
+        anet::nn::HeadGraphVizInfo info;
+        info.type = "MuZeroDynamicsHead";
+        info.outputs.push_back({ "hidden_state", {} });
+        info.outputs.push_back({ "reward", { 1 } });
+        info.details.push_back({ "reward_feature_dim", std::to_string(reward_feature_dim_) });
+        return info;
+    }
+
 private:
     torch::nn::Linear reward_layer_{ nullptr };
+    int64_t reward_feature_dim_;
 };
 
 class MuZeroDynamicsHeadFactory : public anet::nn::NetworkHeadFactory {
@@ -85,6 +98,7 @@ public:
         const anet::nn::WeightInitConfig& value_init_config,
         const anet::nn::WeightInitConfig& policy_init_config)
         : num_actions_(num_actions)
+        , value_feature_dim_(value_feature_dim), policy_feature_dim_(policy_feature_dim)
     {
         // Value Layer
         value_layer_ = register_module("value_layer", torch::nn::Linear(value_feature_dim, 1));
@@ -117,8 +131,23 @@ public:
     {
         return std::nullopt;
     }
+
+    anet::nn::HeadGraphVizInfo GetGraphVizInfo() const override
+    {
+        anet::nn::HeadGraphVizInfo info;
+        info.type = "MuZeroPredictionHead";
+        info.outputs.push_back({ "value", { 1 } });
+        info.outputs.push_back({ "policy_logits", { num_actions_ } });
+        info.details.push_back({ "value_feature_dim", std::to_string(value_feature_dim_) });
+        info.details.push_back({ "policy_feature_dim", std::to_string(policy_feature_dim_) });
+        info.details.push_back({ "num_actions", std::to_string(num_actions_) });
+        return info;
+    }
+
 private:
     const int64_t num_actions_;
+    const int64_t value_feature_dim_;
+    const int64_t policy_feature_dim_;
     torch::nn::Linear value_layer_{ nullptr };
     torch::nn::Linear policy_layer_{ nullptr };
 };
@@ -761,7 +790,7 @@ MuZeroActor::MuZeroActor(
 
 void MuZeroActor::Sync()
 {
-    /// @todo MuZero試作制約：Actor向けのModelのClone非対応  
+    /// @todo MuZero試作制約：Actor向けのModelのClone非対応
 }
 
 std::shared_ptr<anet::rl::BatchActionInfo> MuZeroActor::MakeAction(const anet::rl::StepCounts& step, const anet::rl::BatchState& state) const
@@ -948,7 +977,7 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
     // =================================================================
     // Initial Inference (t = 0)
     // =================================================================
-    
+
     auto initial_out = model_->InitialInference(sample.obs);
     torch::Tensor hidden_state = initial_out.At("hidden_state");
     torch::Tensor value = initial_out.At("value");

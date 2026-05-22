@@ -140,6 +140,7 @@ namespace anet {
         void Log(const std::string& tag, anet::rl::step_t step, const wxImage& image);
         void Log(const std::string& tag, anet::rl::step_t step, const anet::ImageSource& src, int width = -1, int height = -1);
 
+        void Log(const std::string& tag, const anet::graphviz::GraphViz& viz);
         void Log(const std::string& tag, anet::rl::step_t step, const anet::graphviz::GraphViz& viz);
 
         inline std::string GetRunName() const { return run_name_; }

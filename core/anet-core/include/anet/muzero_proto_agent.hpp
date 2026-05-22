@@ -68,7 +68,7 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
 
 
     // ======================================================
-    // MuZeroAgentConfig 
+    // MuZeroAgentConfig
     // ======================================================
 
     struct MuZeroAgentConfig : public anet::Config {
@@ -77,11 +77,22 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
         ActorConfig actor;
         ReplayBufferConfig buffer;
         LearnerConfig learner;
+        anet::nn::NetworkGraphVizConfig nn_viz;
 
         explicit MuZeroAgentConfig(const anet::ConfigData& config_data = anet::EmptyConfigData)
             : anet::Config(config_data, "MuZeroAgent")
         {
             // --- Model ---
+            ANET_READ_CONFIG(config_data, nn_viz.show_param_shapes);
+            ANET_READ_CONFIG(config_data, nn_viz.show_param_count);
+            ANET_READ_CONFIG(config_data, nn_viz.show_tensor_specs);
+            ANET_READ_CONFIG(config_data, nn_viz.show_branch_config);
+            ANET_READ_CONFIG(config_data, nn_viz.show_head_info);
+            ANET_READ_CONFIG(config_data, nn_viz.layout);
+            ANET_READ_CONFIG(config_data, nn_viz.cluster_branches);
+            ANET_READ_CONFIG(config_data, nn_viz.float_precision);
+            anet::nn::ValidateNetworkGraphVizConfig(nn_viz, "MuZeroAgent.nn_viz");
+
             ANET_READ_CONFIG(config_data, model.hidden_state_dim);
             ANET_READ_CONFIG(config_data, model.structure.rep);
             ANET_READ_CONFIG(config_data, model.structure.dyn);

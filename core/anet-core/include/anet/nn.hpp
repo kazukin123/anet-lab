@@ -8,13 +8,15 @@
 #include <vector>
 #include <functional>
 #include <map>
+#include <utility>
 #include <torch/torch.h>
 #include "anet/config.hpp"
 #include "anet/common.hpp"
+#include "anet/graphviz.hpp"
 
 
 namespace anet::nn {
-	
+
 
     // ===========================================================================
     // Config Structures
@@ -50,14 +52,39 @@ namespace anet::nn {
         double constant_val = 0.0;          ///< for Constant
     };
 
+    struct NetworkGraphVizConfig {
+        bool show_param_shapes = false;
+        bool show_param_count = false;
+        bool show_tensor_specs = false;
+        bool show_branch_config = false;
+        bool show_head_info = false;
+        std::string layout = "LR";
+        bool cluster_branches = true;
+        int float_precision = 3;
+    };
+
+    void ValidateNetworkGraphVizConfig(const NetworkGraphVizConfig& config, const std::string& owner);
+
 
     // ===========================================================================
     // NetworkHead
     // ===========================================================================
 
+    struct HeadGraphVizInfo {
+        struct OutputInfo {
+            std::string name;
+            std::vector<int64_t> shape;
+        };
+
+        std::string type;
+        std::vector<OutputInfo> outputs;
+        std::vector<std::pair<std::string, std::string>> details;
+    };
+
     class NetworkHead : public torch::nn::Module, public anet::TensorDictFunctionProvider {
     public:
         virtual anet::TensorDict Forward(const anet::TensorDict& feature_dict) = 0;
+        virtual HeadGraphVizInfo GetGraphVizInfo() const { return {}; }
         virtual ~NetworkHead() = default;
     };
 
@@ -92,6 +119,7 @@ namespace anet::nn {
     public: //可視化関連
         anet::TensorDict GetConv2dOutputs(const anet::TensorDict& input) const;
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
+        std::unique_ptr<anet::graphviz::GraphViz> MakeGraphViz(const NetworkGraphVizConfig& config) const;
     private:
         // 実行用の実体
         std::shared_ptr<NetworkBody> body_;

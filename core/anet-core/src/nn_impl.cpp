@@ -7,7 +7,9 @@
 #include <regex>
 #include <stdexcept>
 #include <algorithm>
+#include <cctype>
 #include <format>
+#include <unordered_map>
 #include "anet/profile.hpp"
 #include "anet/log.hpp"
 #include "anet/tensor_util.hpp"
@@ -77,6 +79,147 @@ static int ParseInt(const std::string& s, const std::string& param_name)
         return std::stoi(s);
     } catch (...) {
         throw std::runtime_error("Invalid integer parameter: " + param_name + " = " + s);
+    }
+}
+
+static std::string MakeDotNodeId(const std::string& prefix, const std::string& key)
+{
+    std::string id = prefix + "_";
+    id.reserve(prefix.size() + key.size() + 1);
+    for (unsigned char c : key) {
+        if (std::isalnum(c) || c == '_' || c == '-' || c == '.') {
+            id.push_back(static_cast<char>(c));
+        } else {
+            id.push_back('_');
+        }
+    }
+    return id;
+}
+
+static std::string FormatInt64Vector(const std::vector<int64_t>& values)
+{
+    std::ostringstream oss;
+    oss << "[";
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i > 0) oss << ", ";
+        oss << values[i];
+    }
+    oss << "]";
+    return oss.str();
+}
+
+static std::string FormatStringVector(const std::vector<std::string>& values)
+{
+    std::ostringstream oss;
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i > 0) oss << ", ";
+        oss << values[i];
+    }
+    return oss.str();
+}
+
+static bool LooksLikeFloatingLiteral(const std::string& value)
+{
+    return value.find_first_of(".eE") != std::string::npos;
+}
+
+static void AddConfigAttr(anet::graphviz::LabelData& label, const std::string& key, const std::string& value, int precision)
+{
+    if (LooksLikeFloatingLiteral(value)) {
+        try {
+            size_t pos = 0;
+            double number = std::stod(value, &pos);
+            if (pos == value.size()) {
+                label.AddAttr(key, number, precision);
+                return;
+            }
+        } catch (...) {
+        }
+    }
+
+    label.AddAttr(key, value);
+}
+
+static anet::graphviz::LayoutDirection ToGraphVizLayoutDirection(const NetworkGraphVizConfig& config)
+{
+    if (config.layout == "LR") return anet::graphviz::LayoutDirection::LeftToRight;
+    if (config.layout == "TB") return anet::graphviz::LayoutDirection::TopToBottom;
+
+    ANET_SYSTEM_ERROR("Invalid NetworkGraphVizConfig.layout: " << config.layout << ". Expected LR or TB.");
+    return anet::graphviz::LayoutDirection::LeftToRight;
+}
+
+static void RegisterNetworkGraphVizStyles(anet::graphviz::Tree& tree)
+{
+    anet::graphviz::NodeStyle input_style;
+    input_style.shape = anet::graphviz::NodeShape::Ellipse;
+    input_style.border_style = anet::graphviz::BorderStyle::Filled;
+    input_style.color = "#2E86AB";
+    input_style.fillcolor = "#E8F4FA";
+    tree.RegisterNodeStyle("input", input_style);
+
+    anet::graphviz::NodeStyle branch_style;
+    branch_style.shape = anet::graphviz::NodeShape::Box;
+    branch_style.border_style = anet::graphviz::BorderStyle::Filled;
+    branch_style.color = "#7D6608";
+    branch_style.fillcolor = "#FCF3CF";
+    tree.RegisterNodeStyle("branch", branch_style);
+
+    anet::graphviz::NodeStyle block_style;
+    block_style.shape = anet::graphviz::NodeShape::Plain;
+    tree.RegisterNodeStyle("block", block_style);
+
+    anet::graphviz::NodeStyle output_style;
+    output_style.shape = anet::graphviz::NodeShape::Ellipse;
+    output_style.border_style = anet::graphviz::BorderStyle::Filled;
+    output_style.color = "#1E8449";
+    output_style.fillcolor = "#E9F7EF";
+    tree.RegisterNodeStyle("output", output_style);
+
+    anet::graphviz::NodeStyle head_output_style;
+    head_output_style.shape = anet::graphviz::NodeShape::Ellipse;
+    head_output_style.border_style = anet::graphviz::BorderStyle::Filled;
+    head_output_style.color = "#C0392B";
+    head_output_style.fillcolor = "#FDEDEC";
+    tree.RegisterNodeStyle("head_output", head_output_style);
+
+    anet::graphviz::NodeStyle head_style;
+    head_style.shape = anet::graphviz::NodeShape::Diamond;
+    head_style.border_style = anet::graphviz::BorderStyle::Filled;
+    head_style.color = "#6C3483";
+    head_style.fillcolor = "#F4ECF7";
+    tree.RegisterNodeStyle("head", head_style);
+}
+
+static void AddTensorSpecAttrs(anet::graphviz::LabelData& label, const anet::TensorSpec& spec)
+{
+    label.AddAttr("shape", FormatInt64Vector(spec.shape));
+    label.AddAttr("dtype", std::string(c10::toString(spec.dtype)));
+    if (spec.num_classes > 0) {
+        label.AddAttr("num_classes", spec.num_classes);
+    }
+}
+
+static void AddHeadGraphVizInfo(anet::graphviz::LabelData& label, const HeadGraphVizInfo& info, const NetworkGraphVizConfig& config)
+{
+    if (!info.type.empty()) {
+        label.SetTitle(info.type);
+    }
+
+    if (!config.show_head_info) return;
+
+    for (const auto& [key, value] : info.details) {
+        label.AddAttr(key, value);
+    }
+}
+
+void anet::nn::ValidateNetworkGraphVizConfig(const NetworkGraphVizConfig& config, const std::string& owner)
+{
+    if (config.layout != "LR" && config.layout != "TB") {
+        ANET_SYSTEM_ERROR("Invalid " << owner << ".layout: " << config.layout << ". Expected LR or TB.");
+    }
+    if (config.float_precision < 0) {
+        ANET_SYSTEM_ERROR("Invalid " << owner << ".float_precision: " << config.float_precision << ". Expected non-negative integer.");
     }
 }
 
@@ -728,6 +871,133 @@ std::optional<anet::TensorDictFunction> Network::GetTensorDictFunction(const std
         // 抽出された特徴量DictをHeadの関数に渡して結果を返す
         return h_func(features.To(torch::kFloat32));
         };
+}
+
+std::unique_ptr<anet::graphviz::GraphViz> Network::MakeGraphViz(const NetworkGraphVizConfig& viz_config) const
+{
+    ValidateNetworkGraphVizConfig(viz_config, "NetworkGraphVizConfig");
+
+    auto tree = std::make_unique<anet::graphviz::Tree>("Network", ToGraphVizLayoutDirection(viz_config));
+    RegisterNetworkGraphVizStyles(*tree);
+
+    std::unordered_map<std::string, std::string> input_nodes;
+    for (const auto& [key, spec] : input_specs_) {
+        const std::string node_id = MakeDotNodeId("input", key);
+        auto& node = tree->AddNode(node_id, "input");
+        node.label.SetTitle("input: " + key);
+        if (viz_config.show_tensor_specs) {
+            AddTensorSpecAttrs(node.label, spec);
+        }
+        input_nodes[key] = node_id;
+    }
+
+    std::unordered_map<std::string, std::string> branch_output_nodes;
+    for (const auto& branch : body_->GetBranches()) {
+        const std::string branch_name = branch->GetName();
+        const std::string branch_id = MakeDotNodeId("branch", branch_name);
+        auto& branch_node = tree->AddNode(branch_id, viz_config.cluster_branches ? "branch" : "default");
+        branch_node.label.SetTitle("branch: " + branch_name);
+        if (viz_config.show_branch_config) {
+            auto branch_config_it = config_.branches.find(branch_name);
+            if (branch_config_it != config_.branches.end()) {
+                const auto& branch_config = branch_config_it->second;
+                branch_node.label.AddAttr("auto_format", branch_config.auto_format ? "true" : "false");
+                branch_node.label.AddAttr("raw_keys", FormatStringVector(branch_config.raw_keys));
+            }
+        }
+
+        for (const auto& bind_key : branch->GetBindKeys()) {
+            auto input_it = input_nodes.find(bind_key);
+            auto branch_it = branch_output_nodes.find(bind_key);
+            if (input_it != input_nodes.end()) {
+                auto& edge = tree->AddEdge(input_it->second, branch_id);
+                edge.label.SetText(bind_key);
+            } else if (branch_it != branch_output_nodes.end()) {
+                auto& edge = tree->AddEdge(branch_it->second, branch_id);
+                edge.label.SetText(bind_key);
+            }
+        }
+
+        std::string prev_id = branch_id;
+        if (auto network_struct = branch->GetNetworkStruct()) {
+            int block_index = 0;
+            for (const auto& block : network_struct->GetBlocks()) {
+                const std::string block_id = MakeDotNodeId(
+                    "block",
+                    branch_name + "." + block->GetName() + "." + std::to_string(block_index++));
+                auto& block_node = tree->AddNode(block_id, "block");
+                block_node.label.SetTitle(block->GetName());
+
+                if (viz_config.show_param_shapes) {
+                    if (auto module = block->GetModule()) {
+                        const auto current_config = module->GetCurrentConfigData();
+                        for (const auto& [key, value] : current_config.Map()) {
+                            AddConfigAttr(block_node.label, key, value, viz_config.float_precision);
+                        }
+                    }
+                }
+
+                if (viz_config.show_param_count) {
+                    int64_t param_count = 0;
+                    for (const auto& param : block->parameters(true)) {
+                        param_count += param.numel();
+                    }
+                    block_node.label.AddAttr("params", param_count);
+                }
+
+                tree->AddEdge(prev_id, block_id);
+                prev_id = block_id;
+            }
+        }
+        branch_output_nodes[branch_name] = prev_id;
+    }
+
+    std::vector<std::string> body_output_nodes;
+    for (const auto& [head_key, branch_key] : body_->GetOutputKeys()) {
+        const std::string output_id = MakeDotNodeId("output", head_key);
+        auto& output_node = tree->AddNode(output_id, "output");
+        output_node.label.SetTitle("body output: " + head_key);
+        output_node.label.AddAttr("from", branch_key);
+
+        auto branch_it = branch_output_nodes.find(branch_key);
+        auto input_it = input_nodes.find(branch_key);
+        if (branch_it != branch_output_nodes.end()) {
+            tree->AddEdge(branch_it->second, output_id);
+        } else if (input_it != input_nodes.end()) {
+            tree->AddEdge(input_it->second, output_id);
+        }
+        body_output_nodes.push_back(output_id);
+    }
+
+    if (head_) {
+        const std::string head_id = "head";
+        auto& head_node = tree->AddNode(head_id, "head");
+        head_node.label.SetTitle("Head");
+        const auto head_info = head_->GetGraphVizInfo();
+        AddHeadGraphVizInfo(head_node.label, head_info, viz_config);
+
+        if (!body_output_nodes.empty()) {
+            for (const auto& output_id : body_output_nodes) {
+                tree->AddEdge(output_id, head_id);
+            }
+        } else {
+            for (const auto& [_, branch_output_id] : branch_output_nodes) {
+                tree->AddEdge(branch_output_id, head_id);
+            }
+        }
+
+        for (const auto& output : head_info.outputs) {
+            const std::string output_id = MakeDotNodeId("head_output", output.name);
+            auto& output_node = tree->AddNode(output_id, "head_output");
+            output_node.label.SetTitle("output: " + output.name);
+            if (viz_config.show_head_info && !output.shape.empty()) {
+                output_node.label.AddAttr("shape", FormatInt64Vector(output.shape));
+            }
+            tree->AddEdge(head_id, output_id);
+        }
+    }
+
+    return tree;
 }
 
 std::shared_ptr<Network> Network::Clone(std::optional<torch::Device> device) const

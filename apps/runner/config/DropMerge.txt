@@ -99,14 +99,22 @@ net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre
 #app.run_name = run_{t}_gs_5846_cy7_rr25
 #app.run_name = run_{t}_gs_5846_cy12_dsr2000
 #app.run_name = run_{t}_bt1
-app.run_name = run_{t}_apx_ds
-#app.run_name = run_{t}_apx_en2
+#app.run_name = run_{t}_apx_ds
+#app.run_name = run_{t}_apx_en3o
+app.run_name = run_{t}_apx_en4s
+
+E.use_settle_after_drop = true
+
+#R.use_optimistic_target = false
+
+R.eval_policy.uqe_tau_start = 0.5
+R.eval_policy.uqe_tau_end = 0.5
 
 R.train_policy.uqe_eps_start = 0.3
 
 
-R.train_policy.use_spatial_exploration = false
-#R.train_policy.use_spatial_exploration = true
+#R.train_policy.use_spatial_exploration = false
+R.train_policy.use_spatial_exploration = true
 
 
 #R.auto_load_file = ../../runs/DropMerge_SuikaHybrid_Flatten_128.anet
@@ -148,8 +156,6 @@ E.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 10
 #E.learner.adam_eps = 1e-5
 
 #E.game_over_grace_step = 60 # 5
-
-E.use_settle_after_drop = false
 
 R.stucker.stack_count = 4
 
@@ -385,8 +391,8 @@ BF16.agent.learner.adam_eps = 1e-4   # AMP有効時は大きめにする
 
 #app.online.exp_pause_step  = 200,000,000    # 200M
 #app.online.exp_pause_step  = 160,000,000    # 160M
-#app.online.exp_pause_step  = 80,000,000    # 80M
-app.online.exp_pause_step  = 100,000,000      # 100M
+app.online.exp_pause_step  = 80,000,000    # 80M
+#app.online.exp_pause_step  = 100,000,000      # 100M
 #app.online.exp_pause_step  = 15,000,000      # 15M
 #app.online.exp_pause_step  = 20,000,000      # 20M
 #app.online.exp_pause_step  = 40,000,000      # 40M
@@ -938,7 +944,7 @@ metrics.image.interval = 0   # 出力全無効
 app.online.eval_panel.auto_start = false
 app.batchrun.eval_panel.auto_start = false
 
-QValuePanel.row_height = 24
+QValuePanel.row_height = 20
 
 app.online.train_panel.fps = 30
 
