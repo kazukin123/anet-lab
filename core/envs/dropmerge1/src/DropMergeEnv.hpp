@@ -220,7 +220,8 @@ namespace anet::rl::env::drop_merge {
             Timeout,
             SpawnBlocked,
             Overflow,
-            MaxStep
+            MaxStep,
+            NoLegalDrop
         };
 
         // 衝突コールバック
@@ -235,6 +236,9 @@ namespace anet::rl::env::drop_merge {
         void buildWorld();
         void destroyWorld();
         bool isSpawnAreaClear(float x, float y, float r) const;
+        bool isNoLegalDropState() const;
+        bool hasAnyLegalDropForCurrentFruit() const;
+        bool hasClearSpawnXInRange(float x_min, float x_max, float y, float r) const;
         void updateDropperStatus();
         void bell();
 

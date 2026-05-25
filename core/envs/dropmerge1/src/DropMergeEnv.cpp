@@ -12,6 +12,7 @@ using namespace anet::rl::env::drop_merge;
 namespace LOG = anet::log;
 
 constexpr int kNumScalarObsDim = 4;
+constexpr float kSpawnOverlapMargin = 0.95f;
 
 // -------------------------------------------------------------
 // Constants & UserData definition
@@ -380,8 +381,6 @@ std::shared_ptr<const anet::rl::SingleResetResult> DropMergeEnv::Reset(anet::rl:
 
 bool DropMergeEnv::isSpawnAreaClear(float x, float y, float r) const
 {
-    constexpr float kOverlapMargin = 0.95f;
-
     for (b2Body* b = world_->GetBodyList(); b; b = b->GetNext()) {
         if (b->GetType() != b2_dynamicBody) continue;
 
@@ -396,7 +395,7 @@ bool DropMergeEnv::isSpawnAreaClear(float x, float y, float r) const
 
         float r_other = config_.fruit_radii[data.second - 1];
         float dist_sq = (pos.x - x) * (pos.x - x) + (pos.y - y) * (pos.y - y);
-        float radius_sum = (r + r_other) * kOverlapMargin;
+        float radius_sum = (r + r_other) * kSpawnOverlapMargin;
 
         // 接触（重なり）判定
         if (dist_sq < radius_sum * radius_sum) {
@@ -404,6 +403,99 @@ bool DropMergeEnv::isSpawnAreaClear(float x, float y, float r) const
         }
     }
     return true;
+}
+
+bool DropMergeEnv::hasClearSpawnXInRange(float x_min, float x_max, float y, float r) const
+{
+    anet::ProfileRange pr("DropMergeEnv::hasClearSpawnXInRange");
+
+    if (x_min > x_max) std::swap(x_min, x_max);
+
+    // noise=0 などで実質1点の場合は既存の単点判定を使う。
+    if (std::abs(x_max - x_min) <= 1.0e-6f) {
+        return isSpawnAreaClear(x_min, y, r);
+    }
+
+    std::vector<std::pair<float, float>> blocked_intervals;
+
+    for (b2Body* b = world_->GetBodyList(); b; b = b->GetNext()) {
+        if (b->GetType() != b2_dynamicBody) continue;
+        if (b == dropper_.pending_body) continue;
+
+        auto data = DecodeUserData(b->GetUserData().pointer);
+        if (data.first != BodyType::Fruit) continue;
+
+        const b2Vec2 pos = b->GetPosition();
+        const float r_other = config_.fruit_radii[data.second - 1];
+        const float radius_sum = (r + r_other) * kSpawnOverlapMargin;
+        const float dy = pos.y - y;
+        const float rem = radius_sum * radius_sum - dy * dy;
+        if (rem <= 0.0f) continue;
+
+        const float dx = std::sqrt(rem);
+        const float left = std::max(x_min, pos.x - dx);
+        const float right = std::min(x_max, pos.x + dx);
+        if (left <= right) {
+            blocked_intervals.emplace_back(left, right);
+        }
+    }
+
+    if (blocked_intervals.empty()) {
+        return true;
+    }
+
+    std::sort(blocked_intervals.begin(), blocked_intervals.end(),
+        [](const auto& lhs, const auto& rhs) {
+            return lhs.first < rhs.first;
+        });
+
+    float covered_until = x_min;
+    for (const auto& interval : blocked_intervals) {
+        if (interval.first > covered_until) {
+            return true; // gap がある = clear な x がある
+        }
+
+        covered_until = std::max(covered_until, interval.second);
+        if (covered_until >= x_max) {
+            return false; // 範囲全体が塞がっている
+        }
+    }
+
+    return covered_until < x_max;
+}
+
+bool DropMergeEnv::hasAnyLegalDropForCurrentFruit() const
+{
+    anet::ProfileRange r("DropMergeEnv::hasAnyLegalDropForCurrentFruit");
+
+    if (dropper_.current_rank < 1 || dropper_.current_rank > kFruitTypeCount) {
+        return false;
+    }
+
+    const float spawn_y = config_.ground_y + config_.box_height;
+    const float r_drop = config_.fruit_radii[dropper_.current_rank - 1];
+
+    const float min_x = -config_.box_width * 0.5f;
+    const float max_x = config_.box_width * 0.5f;
+    const float cell_w = (max_x - min_x) / static_cast<float>(num_drop_actions_);
+
+    const float half_w = config_.box_width * 0.5f;
+    const float limit = half_w - r_drop - 0.01f;
+    const float noise = std::max(0.0f, config_.drop_noise);
+
+    for (int col = 0; col < num_drop_actions_; ++col) {
+        const float base_x = min_x + (static_cast<float>(col) + 0.5f) * cell_w;
+
+        float x_min = std::clamp(base_x - noise, -limit, limit);
+        float x_max = std::clamp(base_x + noise, -limit, limit);
+        if (x_min > x_max) std::swap(x_min, x_max);
+
+        if (hasClearSpawnXInRange(x_min, x_max, spawn_y, r_drop)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 b2Body* DropMergeEnv::spawnFruit(float x, float y, int rank)
@@ -762,6 +854,22 @@ bool DropMergeEnv::isWorldSettled() const
     return true; // 全て静止＆マージ完了
 }
 
+bool DropMergeEnv::isNoLegalDropState() const
+{
+    anet::ProfileRange r("DropMergeEnv::isNoLegalDropState");
+
+    if (action_mode_ != ActionMode::DirectNoop) return false;
+    if (game_over_) return false;
+    if (dropper_.is_busy) return false;
+    if (dropper_.pending_body != nullptr) return false;
+    if (dropper_.current_rank < 1 || dropper_.current_rank > kFruitTypeCount) return false;
+    if (!merge_requests_.empty()) return false;
+    if (!bodies_to_destroy_.empty()) return false;
+    if (!isWorldSettled()) return false;
+
+    return !hasAnyLegalDropForCurrentFruit();
+}
+
 std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t action, anet::rl::RunMode mode)
 {
     anet::ProfileRange r("DropMergeEnv::Step");
@@ -922,9 +1030,16 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         accumulated_reward += config_.game_over_penalty;
     }
 
+    // 盤面いっぱいでのNOOP判定
+    const bool no_legal_drop_terminal = !game_over_ && is_noop_action && isNoLegalDropState();
+    if (no_legal_drop_terminal) {
+        term_reason_ = TerminationReason::NoLegalDrop;
+        LOG::verbose() << "Episode done: no legal drop remains. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+    }
+
     // エピソード完了判定
-    bool done = game_over_;
-    bool truncated = (step_count_ >= config_.max_step);
+    const bool done = game_over_ || no_legal_drop_terminal;
+    bool truncated = (!done && step_count_ >= config_.max_step);
 
     // 最大ステップ数到達による打ち切りを終了理由としてセット
     if (!done && truncated) {
@@ -933,9 +1048,9 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     }
 
     // ショットクロック判定
-    if (config_.no_drop_timeout_steps > 0 && steps_since_last_drop_ >= config_.no_drop_timeout_steps) {
+    if (!done && config_.no_drop_timeout_steps > 0 && steps_since_last_drop_ >= config_.no_drop_timeout_steps) {
         truncated = true;
-        if (!done && term_reason_ != TerminationReason::MaxStep) {
+        if (term_reason_ != TerminationReason::MaxStep) {
             term_reason_ = TerminationReason::Timeout;
         }
         LOG::verbose() << "Episode truncated due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
@@ -1310,6 +1425,10 @@ std::optional<float> DropMergeEnv::GetScalar(const std::string& key, int64_t ind
     if (key == "term_reason_maxstep") {
         if (!episode_just_ended_) return nan;
         return (term_reason_ == TerminationReason::MaxStep) ? 1.0f : 0.0f;
+    }
+    if (key == "term_reason_no_legal_drop") {
+        if (!episode_just_ended_) return nan;
+        return (term_reason_ == TerminationReason::NoLegalDrop) ? 1.0f : 0.0f;
     }
 
     return std::nullopt;

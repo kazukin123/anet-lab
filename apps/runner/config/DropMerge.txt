@@ -101,21 +101,24 @@ net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre
 #app.run_name = run_{t}_bt1
 #app.run_name = run_{t}_apx_ds
 #app.run_name = run_{t}_apx_en3o
-app.run_name = run_{t}_apx_en4s
+#app.run_name = run_{t}_apx_en4s
+#app.run_name = run_{t}_apx_en5g7
+#app.run_name = run_{t}_apx_en6_pt05
 
-E.use_settle_after_drop = true
-
-#R.use_optimistic_target = false
+R.use_optimistic_target = false
+R.target_policy.policy_type = Greedy
+R.train_policy.uqe_tau_start = 0.5
+R.train_policy.uqe_tau_end = 0.5
+R.train_policy.uqe_eps_start = 0.3
 
 R.eval_policy.uqe_tau_start = 0.5
 R.eval_policy.uqe_tau_end = 0.5
 
-R.train_policy.uqe_eps_start = 0.3
+E.use_settle_after_drop = true
 
 
 #R.train_policy.use_spatial_exploration = false
 R.train_policy.use_spatial_exploration = true
-
 
 #R.auto_load_file = ../../runs/DropMerge_SuikaHybrid_Flatten_128.anet
 #R.auto_load_file = ../../runs/run_20260424-175431_v2_stl.anet
@@ -131,6 +134,7 @@ R.train_policy.use_spatial_exploration = true
 
 E.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 1000
 
+R.use_dueling_net = false
 
 #E.damping = 0
 #E.friction = 0.0              # 本家相当？:摩擦無し
@@ -279,7 +283,7 @@ R.learner.per_beta_end = 0.6    # 1.0  0.4→0.6
 #E.game_over_penalty = -10.0
 #E.game_over_penalty = -5.0
 #E.game_over_penalty = -10.0
-#E.game_over_penalty = 0.0
+E.game_over_penalty = 0.0
 #E.game_over_penalty = -200.0
 #E.game_over_penalty = -500.0
 
@@ -326,7 +330,8 @@ R.learner.per_beta_end = 0.6    # 1.0  0.4→0.6
 #R.learner.alpha = 5e-4
 #R.learner.alpha = 1e-4
 
-R.learner.gamma = 0.999  # ★ 長期戦略考慮
+#R.learner.gamma = 0.999  # ★ 長期戦略考慮
+R.learner.gamma = 0.997   # ★ horizon=333
 #R.learner.gamma = 0.995   # ★ horizon=200 
 #R.learner.gamma = 0.99   # ★
 #R.learner.gamma = 0.95   # ★
@@ -821,6 +826,7 @@ M.[42_env/14_tr_blocked_mean]  = $env mean.term_reason_spawn_blocked @train
 M.[42_env/15_tr_overflow_mean] = $env mean.term_reason_overflow @train
 #M.[42_env/16_tr_maxstep_mean]  = $env mean.term_reason_maxstep @train
 M.[42_env/17_ep_mean_settle_steps] = $env mean.ep_mean_settle_steps @train
+M.[42_env/18_tr_no_legal_mean] = $env mean.term_reason_no_legal_drop @train
 
 #M.[42_env/51_ep_maxrank_max_ema]  = $env max.ep_max_rank @train $ema
 #M.[42_env/52_ep_frct_max_ema]     = $env max.ep_end_fruit_count @train $ema
@@ -837,26 +843,37 @@ M.[42_env/64_tr_blocked_mean_ema]  = $env mean.term_reason_spawn_blocked @train 
 M.[42_env/65_tr_overflow_mean_ema] = $env mean.term_reason_overflow @train $ema ema_alpha:0.001
 #M.[42_env/66_tr_maxstep_mean_ema]  = $env mean.term_reason_maxstep @train $ema ema_alpha:0.001
 M.[42_env/67_ep_mean_settle_steps_ema] = $env mean.ep_mean_settle_steps @train $ema ema_alpha:0.005
+M.[42_env/69_tr_no_legal_mean_ema] = $env mean.term_reason_no_legal_drop @train $ema ema_alpha:0.001
 
 M.[42_env/00_ep_step_mean]  = $env mean.ep_step @train
 M.[42_env/00_ep_step_mean_ema]  = $env mean.ep_step @train $ema ema_alpha:0.001
 
 
-M.[51_eval1/00_ep_step_mean]         = $env mean.ep_step            @episode_end $eval.[eval1]
-M.[51_eval1/00_ep_step_mean_ema]     = $env mean.ep_step            @episode_end $eval.[eval1] $ema ema_alpha:0.001
-M.[51_eval1/01_ep_maxrank_max]       = $env max.ep_max_rank         @episode_end $eval.[eval1]
-M.[51_eval1/61_ep_maxrank_mean_ema]  = $env mean.ep_max_rank        @episode_end $eval.[eval1] $ema ema_alpha:0.005
-M.[51_eval1/53_tr_timeout_max_ema]   = $env mean.term_reason_timeout @episode_end $eval.[eval1] $ema ema_alpha:0.001
-M.[51_eval1/62_ep_frct_mean_ema]     = $env mean.ep_end_fruit_count @episode_end $eval.[eval1] $ema ema_alpha:0.005
-M.[51_eval1/64_tr_blk_mean_ema]      = $env mean.term_reason_spawn_blocked @episode_end $eval.[eval1] $ema ema_alpha:0.001
+M.[51_eval1/00_ep_step_mean]         = $eval.[eval1] @episode_end $env mean.ep_step            
+M.[51_eval1/00_ep_step_mean_ema]     = $eval.[eval1] @episode_end $env mean.ep_step                   $ema ema_alpha:0.01
+M.[51_eval1/01_ep_maxrank_max]       = $eval.[eval1] @episode_end $env max.ep_max_rank
+M.[51_eval1/12_ep_frct_mean]         = $eval.[eval1] @episode_end $env mean.ep_end_fruit_count 
+M.[51_eval1/61_ep_maxrank_mean_ema]  = $eval.[eval1] @episode_end $env mean.ep_max_rank               $ema ema_alpha:0.01
+M.[51_eval1/62_ep_frct_mean_ema]     = $eval.[eval1] @episode_end $env mean.ep_end_fruit_count        $ema ema_alpha:0.01
+M.[51_eval1/73_tr_blk_mean]          = $eval.[eval1] @episode_end $env mean.term_reason_spawn_blocked
+M.[51_eval1/74_tr_timeout_mean]      = $eval.[eval1] @episode_end $env mean.term_reason_timeout
+M.[51_eval1/75_tr_nolg_mean]         = $eval.[eval1] @episode_end $env mean.term_reason_no_legal_drop
+M.[51_eval1/83_tr_blk_mean_ema]      = $eval.[eval1] @episode_end $env mean.term_reason_spawn_blocked $ema ema_alpha:0.01
+M.[51_eval1/84_tr_timeout_max_ema]   = $eval.[eval1] @episode_end $env mean.term_reason_timeout       $ema ema_alpha:0.01
+M.[51_eval1/85_tr_nolg_mean_ema]     = $eval.[eval1] @episode_end $env mean.term_reason_no_legal_drop $ema ema_alpha:0.01
 
-M.[52_eval2/00_ep_step_mean]         = $env mean.ep_step            @episode_end $eval.[eval2]
-M.[52_eval2/00_ep_step_mean_ema]     = $env mean.ep_step            @episode_end $eval.[eval2] $ema ema_alpha:0.001
-M.[52_eval2/01_ep_maxrank_max]       = $env max.ep_max_rank         @episode_end $eval.[eval2]
-M.[52_eval2/61_ep_maxrank_mean_ema]  = $env mean.ep_max_rank        @episode_end $eval.[eval2] $ema ema_alpha:0.005
-M.[52_eval2/53_tr_timeout_max_ema]   = $env mean.term_reason_timeout @episode_end $eval.[eval2] $ema ema_alpha:0.001
-M.[52_eval2/62_ep_frct_mean_ema]     = $env mean.ep_end_fruit_count @episode_end $eval.[eval2] $ema ema_alpha:0.005
-M.[52_eval2/64_tr_blk_mean_ema]      = $env mean.term_reason_spawn_blocked @episode_end $eval.[eval2] $ema ema_alpha:0.001
+M.[52_eval2/00_ep_step_mean]         = $eval.[eval2] @episode_end $env mean.ep_step
+M.[52_eval2/00_ep_step_mean_ema]     = $eval.[eval2] @episode_end $env mean.ep_step                   $ema ema_alpha:0.05
+M.[52_eval2/01_ep_maxrank_max]       = $eval.[eval2] @episode_end $env max.ep_max_rank
+M.[52_eval2/12_ep_frct_mean]         = $eval.[eval2] @episode_end $env mean.ep_end_fruit_count
+M.[52_eval2/61_ep_maxrank_mean_ema]  = $eval.[eval2] @episode_end $env mean.ep_max_rank               $ema ema_alpha:0.05
+M.[52_eval2/62_ep_frct_mean_ema]     = $eval.[eval2] @episode_end $env mean.ep_end_fruit_count        $ema ema_alpha:0.05
+M.[52_eval2/73_tr_blk_mean]          = $eval.[eval2] @episode_end $env mean.term_reason_spawn_blocked
+M.[52_eval2/74_tr_timeout_mean]      = $eval.[eval2] @episode_end $env mean.term_reason_timeout
+M.[52_eval2/76_tr_nolg_mean]         = $eval.[eval2] @episode_end $env mean.term_reason_no_legal_drop
+M.[52_eval2/83_tr_blk_mean_ema]      = $eval.[eval2] @episode_end $env mean.term_reason_spawn_blocked $ema ema_alpha:0.05
+M.[52_eval2/84_tr_timeout_mean_ema]  = $eval.[eval2] @episode_end $env mean.term_reason_timeout       $ema ema_alpha:0.05
+M.[52_eval2/85_tr_nolg_mean_ema]     = $eval.[eval2] @episode_end $env mean.term_reason_no_legal_drop $ema ema_alpha:0.05
 
 
 # ==============================================================================
@@ -944,7 +961,7 @@ metrics.image.interval = 0   # 出力全無効
 app.online.eval_panel.auto_start = false
 app.batchrun.eval_panel.auto_start = false
 
-QValuePanel.row_height = 20
+QValuePanel.row_height = 19
 
 app.online.train_panel.fps = 30
 
