@@ -1,9 +1,9 @@
 ﻿# AGENT.md
 
-## Viewing UTF-8 Japanese Text in Codex on Windows
+## Viewing UTF-8 Japanese Text in AI Agent Terminals on Windows
 
-This file is encoded as UTF-8. If Japanese text appears as mojibake in the Codex
-PowerShell terminal, the file is usually still correct; the terminal output
+This file is encoded as UTF-8. If Japanese text appears as mojibake in an AI
+agent's PowerShell terminal, the file is usually still correct; the terminal output
 encoding is the problem. Before reading or printing this file, switch the
 console/output encoding to UTF-8:
 
@@ -20,6 +20,7 @@ Get-Content -Encoding UTF8 AGENT.md
 output paths and encodings in this environment.
 
 このドキュメントは、anet-lab を編集する AI エージェントおよび開発支援ツール向けの作業規約です。
+`CLAUDE.md` などから参照される場合もあるため、特定の AI エージェント実装に依存しない共通ルールとして扱います。
 人間が読む開発メモとしても使えるように、リポジトリ構成、ビルド手順、コーディング方針をまとめます。
 
 ## プロジェクト概要
@@ -82,6 +83,21 @@ C++ コードは Google C++ スタイルガイドを前提とします。
 - 実装中に設計上の懸念、未対応の分岐、将来修正が必要な点に気づき、その場で解決しない場合は Doxygen 形式の TODO コメントを残す。
 - TODO コメントは `/// @todo ...` または `///< @todo ...` の形式を使い、理由と残作業が追える短い内容にする。
 
+## 性能測定・ProfileRange ルール
+
+性能測定が必要な処理には `anet::ProfileRange` を埋め込み、後から実測できる状態を保ってください。
+
+特に以下の処理を追加・変更する場合は、計測範囲を入れることを優先してください。
+
+- 学習・評価・実行ループから頻繁に呼ばれる処理。
+- `Step`、`Reset`、`MakeAction`、`UpdateFromBatch`、`Forward`、`Sample`、`Push` など、実行時間の主要因になりやすい境界。
+- batch size、env 数、action 数、node 数、画像サイズ、ログ量などに応じて処理量が増える処理。
+- Tensor 変換、device 転送、同期、queue 処理、ReplayBuffer、NN forward、loss 計算、可視化、画像・動画・GraphViz 出力など、CPU/GPU/I/O の負荷が読みにくい処理。
+- 既存の計測済み処理を分割・共通化する場合の、分割後の主要フェーズ。
+
+計測名は既存コードに合わせて `ClassName::FunctionName` または `ClassName::FunctionName.phase` のように安定した名前にしてください。
+細かすぎる getter、単純な分岐、軽量な per-element 内側ループには原則として入れず、測定のノイズにならない意味のある処理境界を選んでください。
+
 ## Agent 系実装の所有権ルール
 
 Agent 関連の変数・オブジェクト追加時は、必ず以下の資料に従ってください。
@@ -103,7 +119,9 @@ Agent 関連の変数・オブジェクト追加時は、必ず以下の資料�
 ## ビルド
 
 主な想定環境は Windows x64 です。
-CMake Presets を使ってビルドします。
+MSVC 環境が初期化済みのシェルでは CMake Presets を使ってビルドします。
+AI エージェントの実行シェルや通常の PowerShell からビルドを試す場合は、後述の Windows/MSVC 注意事項に従い、
+必ず `VsDevCmd.bat` を `call` してから CMake を実行してください。
 
 ```powershell
 cmake --preset x64-Debug
@@ -178,11 +196,12 @@ cmake --build --preset x64-Debug --target doc
 
 - 変更したファイルを要約する。
 - 実行したビルド・検証コマンドを報告する。
+- ビルドを試す場合は、素の PowerShell から `cmake --build` せず、`VsDevCmd.bat` を `call` して MSVC 環境を初期化する。
 - 実行できなかった検証があれば理由を明記する。
 
-## Codex でのビルド注意事項 (Windows/MSVC)
+## AI エージェントでのビルド注意事項 (Windows/MSVC)
 
-Codex の標準 PowerShell 環境では `cl.exe` が見えていても、MSVC 標準ヘッダの
+AI エージェントの標準 PowerShell 環境では `cl.exe` が見えていても、MSVC 標準ヘッダの
 include パスが `INCLUDE` に入っていない場合があります。この状態で C++ ターゲットを
 ビルドすると、次のようなエラーで失敗します。
 
@@ -190,24 +209,27 @@ include パスが `INCLUDE` に入っていない場合があります。この�
 fatal error C1083: Cannot open include file: 'type_traits': No such file or directory
 ```
 
-Codex から確実にビルドする場合は、Visual Studio Developer Command Prompt の
-初期化バッチを経由して CMake ビルドを実行してください。
+AI エージェントから C++ ビルドを試す場合は、必ず `cmd /s /c` 内で
+`call "...\VsDevCmd.bat" -arch=x64 -host_arch=x64` を先に実行し、同じ `cmd`
+プロセスで CMake ビルドを実行してください。`cl.exe` だけが見えていても
+`INCLUDE`、`LIB`、Windows SDK などの環境が不足することがあるため、素の PowerShell から
+`cmake --build` を実行しないでください。
 
 ```powershell
-cmd /s /c "`"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat`" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug --target anet-core-test"
+cmd /s /c "call `"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat`" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug --target anet-core-test"
 ```
 
 他のターゲットをビルドする場合も同じ形式を使います。
 
 ```powershell
-cmd /s /c "`"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat`" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug"
+cmd /s /c "call `"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat`" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug"
 ```
 
-Codex の PowerShell から `Launch-VsDevShell.ps1` を使う方法には依存しないでください。
+AI エージェントの PowerShell から `Launch-VsDevShell.ps1` を使う方法には依存しないでください。
 PowerShell の実行ポリシーでブロックされることがあり、この環境では Visual Studio の
 インストール情報を解析する段階でも失敗しました。
 
-Codex からビルドする場合、MSVC、Windows SDK、CUDA、libtorch、vcpkg が
+AI エージェントからビルドする場合、MSVC、Windows SDK、CUDA、libtorch、vcpkg が
 ワークスペース外にあるため、サンドボックス外実行の承認が必要になることがあります。
 
 `anet-core-test` をビルドした後は、リポジトリルートから次のように実行します。
