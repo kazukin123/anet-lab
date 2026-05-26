@@ -133,6 +133,7 @@ namespace anet {
 
         void Log(const std::string& tag, const anet::Config& config);
         void Log(const anet::Config& config);
+        void Log(const std::string& tag, const anet::ConfigData& config_data);
 
         void Log(const std::string& tag, const json& data);
         void Log(const std::string& tag, anet::rl::step_t step, const json& data);

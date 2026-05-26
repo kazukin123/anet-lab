@@ -148,6 +148,7 @@ bool RunnerApp::OnInit()
     // MetricsLogger
     anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), config_->metrics_logger, GetProjectRootDir());
     anet::MetricsLogger::Instance()->Log("config_data", config_data.ToJson());
+    anet::MetricsLogger::Instance()->Log("config_data", config_data);
 
     // ライブラリ初期化
 	anet::rl::BackendConfig backend_config(config_data);

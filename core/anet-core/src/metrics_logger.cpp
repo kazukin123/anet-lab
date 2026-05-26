@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <iostream>
 #include <format>
+#include <sstream>
 #include <wx/process.h>
 #include <wx/image.h>
 #include <wx/filename.h>
@@ -14,6 +15,19 @@ using namespace anet;
 namespace LOG = anet::log;
 
 wxDEFINE_EVENT(wxEVT_APP_EXECUTE_START, wxThreadEvent);
+
+namespace {
+
+std::string ConfigDataToConfigString(const ConfigData& config_data)
+{
+    std::ostringstream oss;
+    for (const auto& kv : config_data.Map()) {
+        oss << kv.first << " = " << kv.second << std::endl;
+    }
+    return oss.str();
+}
+
+} // namespace
 
 
 //----------------------------------------------
@@ -259,6 +273,23 @@ void MetricsLogger::Log(const std::string& tag, const anet::Config& config)
     }
 
     // バラのファイルにダンプ
+    std::string safe_tag = SanitizeFilename(tag);
+    auto config_dir = this->run_dir_ / "config";
+    std::filesystem::create_directories(config_dir);
+    auto config_txt_path = config_dir / (safe_tag + ".txt");
+    {
+        std::ofstream ofs(config_txt_path, std::ios_base::out);
+        ofs << config_str;
+    }
+}
+
+void MetricsLogger::Log(const std::string& tag, const ConfigData& config_data)
+{
+    std::lock_guard<std::mutex> lock(log_mutex_);
+
+    auto config_str = ConfigDataToConfigString(config_data);
+
+    // Configと同じディレクトリにバラのファイルとしてダンプ
     std::string safe_tag = SanitizeFilename(tag);
     auto config_dir = this->run_dir_ / "config";
     std::filesystem::create_directories(config_dir);
