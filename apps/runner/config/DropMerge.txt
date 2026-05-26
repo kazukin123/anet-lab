@@ -104,12 +104,29 @@ net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre
 #app.run_name = run_{t}_apx_en4s
 #app.run_name = run_{t}_apx_en5g7
 #app.run_name = run_{t}_apx_en6_pt05
+#app.run_name = run_{t}_apx_linear2
+app.run_name = run_{t}_apx_envnod
+
+E.use_no_drop_timeout_gameover = true
+E.no_drop_timeout_gameover_penalty = -5.0
+
+
+#E.no_drop_timeout_steps = 50
+
+#R.reward_scaler.constant_scale = 0.005
+
+#E.noop_penalty = -1.0
+E.game_over_penalty = -1.0   #-10.0
+
+R.train_policy.spatial_scale_type = linear
+R.learner.weight_decay        = 0.0002
 
 R.use_optimistic_target = false
 R.target_policy.policy_type = Greedy
 R.train_policy.uqe_tau_start = 0.5
 R.train_policy.uqe_tau_end = 0.5
 R.train_policy.uqe_eps_start = 0.3
+R.train_policy.uqe_eps_end = 0.05
 
 R.eval_policy.uqe_tau_start = 0.5
 R.eval_policy.uqe_tau_end = 0.5
@@ -177,7 +194,7 @@ R.stucker.stack_count = 4
 
 #R.learner.replay_capacity = 524,280
 
-R.train_policy.uqe_eps_end = 0.0
+#R.train_policy.uqe_eps_end = 0.0
 
 #R.train_policy.uqe_tau_start = 0.95 # 0.95
 #R.train_policy.uqe_tau_end = 0.95   # 0.85
@@ -283,7 +300,7 @@ R.learner.per_beta_end = 0.6    # 1.0  0.4→0.6
 #E.game_over_penalty = -10.0
 #E.game_over_penalty = -5.0
 #E.game_over_penalty = -10.0
-E.game_over_penalty = 0.0
+#E.game_over_penalty = 0.0
 #E.game_over_penalty = -200.0
 #E.game_over_penalty = -500.0
 
@@ -821,7 +838,7 @@ M.[42_env/07_ep_max_settle_steps]  = $env max.ep_max_settle_steps @train
 
 #M.[42_env/11_ep_maxrank_mean]  = $env mean.ep_max_rank @train
 M.[42_env/12_ep_frct_mean]     = $env mean.ep_end_fruit_count @train
-M.[42_env/13_tr_timeout_mean]  = $env mean.term_reason_timeout @train
+M.[42_env/13_tr_timeout_mean]  = $env mean.term_reason_no_drop_timeout @train
 M.[42_env/14_tr_blocked_mean]  = $env mean.term_reason_spawn_blocked @train
 M.[42_env/15_tr_overflow_mean] = $env mean.term_reason_overflow @train
 #M.[42_env/16_tr_maxstep_mean]  = $env mean.term_reason_maxstep @train
@@ -838,7 +855,7 @@ M.[42_env/68_ep_max_settle_steps_ema]  = $env max.ep_max_settle_steps @train $em
 
 M.[42_env/61_ep_maxrank_mean_ema]  = $env mean.ep_max_rank @train $ema ema_alpha:0.005
 M.[42_env/62_ep_frct_mean_ema]     = $env mean.ep_end_fruit_count @train $ema ema_alpha:0.005
-M.[42_env/63_tr_timeout_mean_ema]  = $env mean.term_reason_timeout @train $ema ema_alpha:0.001
+M.[42_env/63_tr_timeout_mean_ema]  = $env mean.term_reason_no_drop_timeout @train $ema ema_alpha:0.001
 M.[42_env/64_tr_blocked_mean_ema]  = $env mean.term_reason_spawn_blocked @train $ema ema_alpha:0.001
 M.[42_env/65_tr_overflow_mean_ema] = $env mean.term_reason_overflow @train $ema ema_alpha:0.001
 #M.[42_env/66_tr_maxstep_mean_ema]  = $env mean.term_reason_maxstep @train $ema ema_alpha:0.001
@@ -856,10 +873,10 @@ M.[51_eval1/12_ep_frct_mean]         = $eval.[eval1] @episode_end $env mean.ep_e
 M.[51_eval1/61_ep_maxrank_mean_ema]  = $eval.[eval1] @episode_end $env mean.ep_max_rank               $ema ema_alpha:0.01
 M.[51_eval1/62_ep_frct_mean_ema]     = $eval.[eval1] @episode_end $env mean.ep_end_fruit_count        $ema ema_alpha:0.01
 M.[51_eval1/73_tr_blk_mean]          = $eval.[eval1] @episode_end $env mean.term_reason_spawn_blocked
-M.[51_eval1/74_tr_timeout_mean]      = $eval.[eval1] @episode_end $env mean.term_reason_timeout
+M.[51_eval1/74_tr_timeout_mean]      = $eval.[eval1] @episode_end $env mean.term_reason_no_drop_timeout
 M.[51_eval1/75_tr_nolg_mean]         = $eval.[eval1] @episode_end $env mean.term_reason_no_legal_drop
 M.[51_eval1/83_tr_blk_mean_ema]      = $eval.[eval1] @episode_end $env mean.term_reason_spawn_blocked $ema ema_alpha:0.01
-M.[51_eval1/84_tr_timeout_max_ema]   = $eval.[eval1] @episode_end $env mean.term_reason_timeout       $ema ema_alpha:0.01
+M.[51_eval1/84_tr_timeout_max_ema]   = $eval.[eval1] @episode_end $env mean.term_reason_no_drop_timeout $ema ema_alpha:0.01
 M.[51_eval1/85_tr_nolg_mean_ema]     = $eval.[eval1] @episode_end $env mean.term_reason_no_legal_drop $ema ema_alpha:0.01
 
 M.[52_eval2/00_ep_step_mean]         = $eval.[eval2] @episode_end $env mean.ep_step
@@ -869,10 +886,10 @@ M.[52_eval2/12_ep_frct_mean]         = $eval.[eval2] @episode_end $env mean.ep_e
 M.[52_eval2/61_ep_maxrank_mean_ema]  = $eval.[eval2] @episode_end $env mean.ep_max_rank               $ema ema_alpha:0.05
 M.[52_eval2/62_ep_frct_mean_ema]     = $eval.[eval2] @episode_end $env mean.ep_end_fruit_count        $ema ema_alpha:0.05
 M.[52_eval2/73_tr_blk_mean]          = $eval.[eval2] @episode_end $env mean.term_reason_spawn_blocked
-M.[52_eval2/74_tr_timeout_mean]      = $eval.[eval2] @episode_end $env mean.term_reason_timeout
+M.[52_eval2/74_tr_timeout_mean]      = $eval.[eval2] @episode_end $env mean.term_reason_no_drop_timeout
 M.[52_eval2/76_tr_nolg_mean]         = $eval.[eval2] @episode_end $env mean.term_reason_no_legal_drop
 M.[52_eval2/83_tr_blk_mean_ema]      = $eval.[eval2] @episode_end $env mean.term_reason_spawn_blocked $ema ema_alpha:0.05
-M.[52_eval2/84_tr_timeout_mean_ema]  = $eval.[eval2] @episode_end $env mean.term_reason_timeout       $ema ema_alpha:0.05
+M.[52_eval2/84_tr_timeout_mean_ema]  = $eval.[eval2] @episode_end $env mean.term_reason_no_drop_timeout $ema ema_alpha:0.05
 M.[52_eval2/85_tr_nolg_mean_ema]     = $eval.[eval2] @episode_end $env mean.term_reason_no_legal_drop $ema ema_alpha:0.05
 
 
@@ -1078,7 +1095,8 @@ DropMergeEnv.grid_rows = 64              # グリッド行数（縦方向）
 DropMergeEnv.action_mode = move_fast     # move move_fast direct direct_noop
 DropMergeEnv.drop_divisions = -1         # DROP座標の分割数（-1でgrid_colsと同じ）
 DropMergeEnv.max_step = 20000            # エピソード打ち切りステップ数 スイカ以上のためには10000以上推奨
-DropMergeEnv.no_drop_timeout_steps = 200 # 500 DROPしないでいると強制エピソード打ち切り(truncated)とするステップ数
+DropMergeEnv.no_drop_timeout_steps = 200 # 500 DROPしないでいると強制エピソード打ち切りとするステップ数
+DropMergeEnv.use_no_drop_timeout_gameover = false # no_drop_timeout時にtruncatedではなくdoneとして扱うか
 DropMergeEnv.use_fast_move = false
 DropMergeEnv.use_instant_drop = false
 DropMergeEnv.use_dropper_x_grid = true
@@ -1093,6 +1111,7 @@ DropMergeEnv.damping = 0.5              # 移動と回転の空気抵抗 0だと
 DropMergeEnv.game_over_penalty = 0      # ★ -10.0  GameOverペナルティ
 DropMergeEnv.time_penalty = -0.0001     # ★ 0.0 時間ペナルティ
 DropMergeEnv.noop_penalty = 0.0         # NOOPペナルティ
+DropMergeEnv.no_drop_timeout_gameover_penalty = 0.0 # no_drop_timeoutをdone扱いした時の罰報酬
 DropMergeEnv.noop_override = false      # NOOPを中央方向移動に変換するか
 DropMergeEnv.game_over_grace_step = 5   # ゲームオーバー猶予ステップ数
 DropMergeEnv.drop_noise = 0.01        # Drop時のX座標ノイズ ゼロにするとAgentが局所解のタワー作りにハマってしまいがち
@@ -1113,14 +1132,14 @@ DropMergeEnv.box_friction = -1          # 箱の摩擦。-1で果物と同じ
 # --- Eval設定 ---
 
 
-#train.eval.[eval1].interval = 0
-#train.eval.[eval2].interval = 0
+train.eval.[eval1].interval = 0
+train.eval.[eval2].interval = 0
 #train.eval.[eval1].interval = 1000
 #train.eval.[eval2].interval = 10
 #train.eval.[eval1].interval = 500
 #train.eval.[eval2].interval = 500
-train.eval.[eval1].interval = 100
-train.eval.[eval2].interval = 100
+#train.eval.[eval1].interval = 100
+#train.eval.[eval2].interval = 100
 
 #DropMergeEnv.test1.max_step = 8000
 #train.eval.[test1].interval = 5000

@@ -46,6 +46,7 @@ namespace anet::rl::env::drop_merge {
         // --- 環境パラメータ ---
         int max_step = 3000;
         int no_drop_timeout_steps = 200;
+        bool use_no_drop_timeout_gameover = false;
         float box_width = 3.0f;
         float box_height = 4.0f;
         float ground_y = 0.5f;     // 箱の底の高さ
@@ -82,6 +83,7 @@ namespace anet::rl::env::drop_merge {
         float time_penalty = -0.0001f;     ///< 毎ステップ引かれる罰報酬
         float noop_penalty = -0.001f;      ///< NOOPアクションを選ぶ事による罰報酬
         float game_over_penalty = -5.0f;   ///< ゲームオーバー時の罰報酬
+        float no_drop_timeout_gameover_penalty = 0.0f; ///< no_drop_timeoutを終端扱いした時の罰報酬
 
         // 箱物性
         float box_restitution = 0.0f;       /// 箱の反発係数。-1で果物と同じ
@@ -105,6 +107,7 @@ namespace anet::rl::env::drop_merge {
             ANET_READ_CONFIG(config_data, global_seed);
             ANET_READ_CONFIG(config_data, max_step);
             ANET_READ_CONFIG(config_data, no_drop_timeout_steps);
+            ANET_READ_CONFIG(config_data, use_no_drop_timeout_gameover);
             ANET_READ_CONFIG(config_data, box_width);
             ANET_READ_CONFIG(config_data, box_height);
             ANET_READ_CONFIG(config_data, ground_y);
@@ -132,6 +135,7 @@ namespace anet::rl::env::drop_merge {
             ANET_READ_CONFIG(config_data, time_penalty);
             ANET_READ_CONFIG(config_data, noop_penalty);
             ANET_READ_CONFIG(config_data, game_over_penalty);
+            ANET_READ_CONFIG(config_data, no_drop_timeout_gameover_penalty);
             ANET_READ_CONFIG(config_data, restitution);
             ANET_READ_CONFIG(config_data, friction);
             ANET_READ_CONFIG(config_data, damping);
@@ -217,10 +221,10 @@ namespace anet::rl::env::drop_merge {
 
         enum class TerminationReason {        ///< メトリクス集計用
             None,
-            Timeout,
             SpawnBlocked,
             Overflow,
             MaxStep,
+            NoDropTimeout,
             NoLegalDrop
         };
 

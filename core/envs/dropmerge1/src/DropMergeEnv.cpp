@@ -11,7 +11,8 @@
 using namespace anet::rl::env::drop_merge;
 namespace LOG = anet::log;
 
-constexpr int kNumScalarObsDim = 4;
+constexpr int kBaseScalarObsDim = 4;
+constexpr int kNoDropTimeoutScalarObsDim = 5;
 constexpr float kSpawnOverlapMargin = 0.95f;
 
 // -------------------------------------------------------------
@@ -148,7 +149,8 @@ DropMergeEnv::DropMergeEnv(
     // Obsバッファ初期化
     int grid_size = config_.grid_rows * config_.grid_cols;
     auto grid_opt = torch::TensorOptions().dtype(torch::kInt8).device(device);
-    vec_buffer_ = torch::empty({ kNumScalarObsDim }, float_opt_);
+    const int scalar_obs_dim = config_.use_no_drop_timeout_gameover ? kNoDropTimeoutScalarObsDim : kBaseScalarObsDim;
+    vec_buffer_ = torch::empty({ scalar_obs_dim }, float_opt_);
     grid_buffer_ = torch::empty({ grid_size }, grid_opt);
 
     // ActionMode設定を解釈
@@ -184,20 +186,30 @@ anet::rl::EnvSpec DropMergeEnv::GetSpec() const
     //    [1]: current_rank (normalized 0~1)
     //    [2]: next_rank (normalized 0~1)
     //    [3]: is_busy (0 or 1)
+    //    [4]: no_drop_timeout_ratio (optional, 0~1)
     // Grid Info (Variable size: rows * cols)
-    //    [4...]: grid cell value (0.0=Empty, 0.1=Rank1 ... 1.0=Rank10)
+    //    grid cell value (0.0=Empty, 0.1=Rank1 ... 1.0=Rank10)
 
     anet::rl::StateSpec state_spec;
 
     // --- Vector Info (Dropper) ---
+    const int scalar_obs_dim = config_.use_no_drop_timeout_gameover ? kNoDropTimeoutScalarObsDim : kBaseScalarObsDim;
+    std::vector<std::string> vector_labels = { "dropper_x", "current_rank", "next_rank", "is_busy" };
+    std::vector<double> vector_min_values = { -1.0, 0.0, 0.0, 0.0 };
+    std::vector<double> vector_max_values = { 1.0, 1.0, 1.0, 1.0 };
+    if (config_.use_no_drop_timeout_gameover) {
+        vector_labels.push_back("no_drop_timeout_ratio");
+        vector_min_values.push_back(0.0);
+        vector_max_values.push_back(1.0);
+    }
     state_spec.obs_spec[anet::rl::ObsKeys::kVector] = anet::TensorSpec {
         .type = anet::SpaceType::Vector,
-        .shape = { kNumScalarObsDim },
+        .shape = { scalar_obs_dim },
         .dtype = torch::kFloat32,
         .num_classes = 0,   // 連続値(正確にはrankやbusyは離散値だけど)
-        .labels = { "dropper_x", "current_rank", "next_rank", "is_busy" },
-        .min_values = { -1.0, 0.0, 0.0, 0.0 },
-        .max_values = {  1.0, 1.0, 1.0, 1.0 }
+        .labels = vector_labels,
+        .min_values = vector_min_values,
+        .max_values = vector_max_values
     };
 
 
@@ -1038,7 +1050,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     }
 
     // エピソード完了判定
-    const bool done = game_over_ || no_legal_drop_terminal;
+    bool done = game_over_ || no_legal_drop_terminal;
     bool truncated = (!done && step_count_ >= config_.max_step);
 
     // 最大ステップ数到達による打ち切りを終了理由としてセット
@@ -1048,12 +1060,16 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     }
 
     // ショットクロック判定
-    if (!done && config_.no_drop_timeout_steps > 0 && steps_since_last_drop_ >= config_.no_drop_timeout_steps) {
-        truncated = true;
-        if (term_reason_ != TerminationReason::MaxStep) {
-            term_reason_ = TerminationReason::Timeout;
+    if (!done && !truncated && config_.no_drop_timeout_steps > 0 && steps_since_last_drop_ >= config_.no_drop_timeout_steps) {
+        term_reason_ = TerminationReason::NoDropTimeout;
+        if (config_.use_no_drop_timeout_gameover) {
+            done = true;
+            accumulated_reward += config_.no_drop_timeout_gameover_penalty;
+            LOG::verbose() << "Episode done due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+        } else {
+            truncated = true;
+            LOG::verbose() << "Episode truncated due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
         }
-        LOG::verbose() << "Episode truncated due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
     }
 
     // エピソード終了時のフルーツ数カウント＆フラグ立て
@@ -1175,6 +1191,14 @@ anet::rl::SingleState DropMergeEnv::makeState() const
     // Busy フラグ (instant_dropモード時は常に0)
     const bool is_busy = (config_.use_instant_drop) ? false : dropper_.is_busy;
     vec_ptr[3] = is_busy ? 1.0f : 0.0f;
+
+    if (config_.use_no_drop_timeout_gameover) {
+        float no_drop_timeout_ratio = 0.0f;
+        if (config_.no_drop_timeout_steps > 0) {
+            no_drop_timeout_ratio = static_cast<float>(steps_since_last_drop_) / static_cast<float>(config_.no_drop_timeout_steps);
+        }
+        vec_ptr[4] = std::clamp(no_drop_timeout_ratio, 0.0f, 1.0f);
+    }
 
     // --- グリッド情報のクリア ---
     const int grid_size = config_.grid_rows * config_.grid_cols;
@@ -1410,10 +1434,6 @@ std::optional<float> DropMergeEnv::GetScalar(const std::string& key, int64_t ind
     }
 
     // --- 死因（One-hot表現） ---
-    if (key == "term_reason_timeout") {
-        if (!episode_just_ended_) return nan;
-        return (term_reason_ == TerminationReason::Timeout) ? 1.0f : 0.0f;
-    }
     if (key == "term_reason_spawn_blocked") {
         if (!episode_just_ended_) return nan;
         return (term_reason_ == TerminationReason::SpawnBlocked) ? 1.0f : 0.0f;
@@ -1425,6 +1445,10 @@ std::optional<float> DropMergeEnv::GetScalar(const std::string& key, int64_t ind
     if (key == "term_reason_maxstep") {
         if (!episode_just_ended_) return nan;
         return (term_reason_ == TerminationReason::MaxStep) ? 1.0f : 0.0f;
+    }
+    if (key == "term_reason_no_drop_timeout") {
+        if (!episode_just_ended_) return nan;
+        return (term_reason_ == TerminationReason::NoDropTimeout) ? 1.0f : 0.0f;
     }
     if (key == "term_reason_no_legal_drop") {
         if (!episode_just_ended_) return nan;
