@@ -21,16 +21,14 @@ const Mode = Object.freeze({
 });
 
 // パレット
-const RUN_COLORS_FALLBACK = [
-	"#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
-	"#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
-];
-function getPlotlyColors() {
-	try {
-		if (window.Plotly?.colors?.qualitative?.D3) return Plotly.colors.qualitative.D3;
-		if (window.Plotly?.colors?.qualitative?.Plotly) return Plotly.colors.qualitative.Plotly;
-	} catch (_) {}
-	return RUN_COLORS_FALLBACK;
+const RUN_COLORS = Object.freeze([
+	"#2F7DE1", "#F2C230", "#7A5CFF", "#008B8B", "#F05A28",
+	"#C678DD", "#FF9F1C", "#00A99D", "#A3C720", "#E23B4F",
+	"#2FBF71", "#E75A9B", "#D1D83B", "#B83280", "#00B36B",
+	"#A6761D", "#4656D9", "#C85A17", "#D83BD2", "#A65A2E"
+]);
+function getRunColors() {
+	return RUN_COLORS;
 }
 
 /**
@@ -360,7 +358,6 @@ console.log("data=", this.data);
 class PlotlyController {
 	constructor(app) {
 		this.app = app;
-		this.colors = getPlotlyColors();
 	}
 
 	_makeTrace(runId, tagKey, steps, values, index, multi) {
@@ -469,7 +466,7 @@ class UIController {
 	renderRunList(runs, selectedRunIds, runColorMap) {
 		const runIds = Object.keys(runs);
 		const $list = $("#run-list").empty();
-		const palette = getPlotlyColors();
+		const palette = getRunColors();
 
 		// --- まず古いRun→新しいRunの順で色割当（昇順） ---
 		runIds.sort(); // 昇順：古いRunから順に
@@ -716,7 +713,6 @@ class MetricsViewerClientApp {
 		this.runColorMap = new Map();
 		this.autoReloadEnabled = false;
 		this.autoReloadTimer = null;
-		this.colors = getPlotlyColors();
 		this.isTagsLocked = false;
 		console.log("[INIT] MetricsViewerClientApp constructed");
 	}
