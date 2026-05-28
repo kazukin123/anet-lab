@@ -105,34 +105,33 @@ net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre
 #app.run_name = run_{t}_apx_en5g7
 #app.run_name = run_{t}_apx_en6_pt05
 #app.run_name = run_{t}_apx_linear2
-app.run_name = run_{t}_apx_envnod
+#app.run_name = run_{t}_apx_envnod
 
 E.use_no_drop_timeout_gameover = true
-E.no_drop_timeout_gameover_penalty = -5.0
-
+E.no_drop_timeout_gameover_penalty = -10.0
 
 #E.no_drop_timeout_steps = 50
 
 #R.reward_scaler.constant_scale = 0.005
 
 #E.noop_penalty = -1.0
-E.game_over_penalty = -1.0   #-10.0
+#E.game_over_penalty = -1.0   #-10.0
 
-R.train_policy.spatial_scale_type = linear
-R.learner.weight_decay        = 0.0002
+#R.train_policy.spatial_scale_type = linear
+#R.learner.weight_decay        = 0.0002
 
-R.use_optimistic_target = false
-R.target_policy.policy_type = Greedy
-R.train_policy.uqe_tau_start = 0.5
-R.train_policy.uqe_tau_end = 0.5
-R.train_policy.uqe_eps_start = 0.3
-R.train_policy.uqe_eps_end = 0.05
+#R.use_optimistic_target = false
+#R.target_policy.policy_type = Greedy
+#R.train_policy.uqe_tau_start = 0.5
+#R.train_policy.uqe_tau_end = 0.5
+#R.train_policy.uqe_eps_start = 0.3
+#R.train_policy.uqe_eps_end = 0.05
 
-R.eval_policy.uqe_tau_start = 0.5
-R.eval_policy.uqe_tau_end = 0.5
+#R.eval_policy.uqe_tau_start = 0.5
+#R.eval_policy.uqe_tau_end = 0.5
 
-E.use_settle_after_drop = true
-
+#E.use_settle_after_drop = true
+E.use_settle_after_drop = false
 
 #R.train_policy.use_spatial_exploration = false
 R.train_policy.use_spatial_exploration = true
@@ -151,7 +150,7 @@ R.train_policy.use_spatial_exploration = true
 
 E.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 1000
 
-R.use_dueling_net = false
+#R.use_dueling_net = false
 
 #E.damping = 0
 #E.friction = 0.0              # 本家相当？:摩擦無し
@@ -194,7 +193,7 @@ R.stucker.stack_count = 4
 
 #R.learner.replay_capacity = 524,280
 
-#R.train_policy.uqe_eps_end = 0.0
+R.train_policy.uqe_eps_end = 0.0
 
 #R.train_policy.uqe_tau_start = 0.95 # 0.95
 #R.train_policy.uqe_tau_end = 0.95   # 0.85
@@ -1132,14 +1131,14 @@ DropMergeEnv.box_friction = -1          # 箱の摩擦。-1で果物と同じ
 # --- Eval設定 ---
 
 
-train.eval.[eval1].interval = 0
-train.eval.[eval2].interval = 0
+#train.eval.[eval1].interval = 0
+#train.eval.[eval2].interval = 0
 #train.eval.[eval1].interval = 1000
 #train.eval.[eval2].interval = 10
 #train.eval.[eval1].interval = 500
 #train.eval.[eval2].interval = 500
-#train.eval.[eval1].interval = 100
-#train.eval.[eval2].interval = 100
+train.eval.[eval1].interval = 100
+train.eval.[eval2].interval = 100
 
 #DropMergeEnv.test1.max_step = 8000
 #train.eval.[test1].interval = 5000

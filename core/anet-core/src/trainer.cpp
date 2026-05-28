@@ -69,6 +69,8 @@ void RunnerBase::UpdateMetrics(std::shared_ptr<const BatchStepResult> result)
 bool RunnerBase::AccumulateAndNotifyEpisodeEnd(
     std::shared_ptr<const Runner> self, std::shared_ptr<const BatchStepResult> result, const StepCounts& event_counts)
 {
+    anet::ProfileRange r("RunnerBase::AccumulateAndNotifyEpisodeEnd");
+
     ANET_CHECK(self != nullptr);
     ANET_CHECK(result != nullptr);
 
@@ -78,35 +80,45 @@ bool RunnerBase::AccumulateAndNotifyEpisodeEnd(
         eps_total_reward_per_env_.assign(static_cast<size_t>(num_envs), 0.0f);
     }
 
-    auto rewards = result->reward.to(torch::kCPU);
-    auto finished = (result->next_state.done.to(torch::kBool) | result->next_state.truncated.to(torch::kBool)).to(torch::kCPU);
-    ANET_ASSERT_SHAPE(rewards, { num_envs });
-    ANET_ASSERT_SHAPE(finished, { num_envs });
+    // CPUテンソルに揃え、accessor取得の前提として contiguous 化しておく
+    auto rewards_cpu = result->reward.to(torch::kCPU).contiguous();
+    auto finished_cpu = (result->next_state.done.to(torch::kBool) | result->next_state.truncated.to(torch::kBool))
+        .to(torch::kCPU).contiguous();
+    ANET_ASSERT_SHAPE(rewards_cpu, { num_envs });
+    ANET_ASSERT_SHAPE(finished_cpu, { num_envs });
+
+    // ループ外で1度だけaccessorを取得し、per-elementの Tensor::operator[] + item() を回避
+    auto rewards_acc = rewards_cpu.accessor<float, 1>();
+    auto finished_acc = finished_cpu.accessor<bool, 1>();
 
     last_step_had_episode_end_ = false;
     float completed_total_reward_sum = 0.0f;
-    int completed_count = 0;
 
+    // 終了したenvのindexを1パスで集める（2回目のループでfinishedを再評価しないため）
+    std::vector<int> finished_indices;
+    finished_indices.reserve(static_cast<size_t>(num_envs));
+
+    // 第1パス: 報酬を各envに累積し、終了したenvを集計
     for (int64_t i = 0; i < num_envs; ++i) {
-        eps_total_reward_per_env_[static_cast<size_t>(i)] += rewards[i].item<float>();
-        if (!finished[i].item<bool>()) continue;
+        eps_total_reward_per_env_[static_cast<size_t>(i)] += rewards_acc[i];
+        if (!finished_acc[i]) continue;
 
         last_step_had_episode_end_ = true;
         completed_total_reward_sum += eps_total_reward_per_env_[static_cast<size_t>(i)];
-        completed_count++;
+        finished_indices.push_back(static_cast<int>(i));
     }
 
-    if (completed_count > 0) {
-        last_episode_total_reward_ = completed_total_reward_sum / static_cast<float>(completed_count);
+    // 完了エピソードの平均total_rewardを更新
+    if (!finished_indices.empty()) {
+        last_episode_total_reward_ = completed_total_reward_sum / static_cast<float>(finished_indices.size());
     }
 
-    for (int64_t i = 0; i < num_envs; ++i) {
-        if (!finished[i].item<bool>()) continue;
-
-        const float eps_total_reward = eps_total_reward_per_env_[static_cast<size_t>(i)];
-        EpisodeEndEvent event{ self, event_counts, agent_, env_, static_cast<int>(i), eps_total_reward };
+    // 第2パス: 終了envについてEpisodeEndEvent通知＆累積リセット（昇順index順）
+    for (int idx : finished_indices) {
+        const float eps_total_reward = eps_total_reward_per_env_[static_cast<size_t>(idx)];
+        EpisodeEndEvent event{ self, event_counts, agent_, env_, idx, eps_total_reward };
         notifier_->Notify(event);
-        eps_total_reward_per_env_[static_cast<size_t>(i)] = 0.0f;
+        eps_total_reward_per_env_[static_cast<size_t>(idx)] = 0.0f;
     }
 
     return last_step_had_episode_end_;
