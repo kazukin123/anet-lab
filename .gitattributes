@@ -1,0 +1,12 @@
+.editorconfig text eol=lf
+.gitattributes text eol=lf
+
+/*.md text eol=lf
+
+apps/**/*.hpp text eol=lf
+apps/**/*.cpp text eol=lf
+core/**/*.hpp text eol=lf
+core/**/*.cpp text eol=lf
+docs/**/*.md text eol=lf
+viewers/**/*.java text eol=lf
+viewers/**/*.md text eol=lf

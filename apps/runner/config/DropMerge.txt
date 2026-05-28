@@ -133,8 +133,8 @@ E.no_drop_timeout_gameover_penalty = -10.0
 #E.use_settle_after_drop = true
 E.use_settle_after_drop = false
 
-#R.train_policy.use_spatial_exploration = false
-R.train_policy.use_spatial_exploration = true
+R.train_policy.use_spatial_exploration = false
+#R.train_policy.use_spatial_exploration = true
 
 #R.auto_load_file = ../../runs/DropMerge_SuikaHybrid_Flatten_128.anet
 #R.auto_load_file = ../../runs/run_20260424-175431_v2_stl.anet

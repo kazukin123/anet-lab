@@ -1,6 +1,14 @@
 root = true
 
 [*]
-end_of_line = crlf
 insert_final_newline = true
 trim_trailing_whitespace = true
+
+[*.{hpp,cpp,java,md}]
+end_of_line = lf
+
+[.editorconfig]
+end_of_line = lf
+
+[.gitattributes]
+end_of_line = lf

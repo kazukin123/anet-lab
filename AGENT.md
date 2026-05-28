@@ -71,7 +71,9 @@ C++ コードは Google C++ スタイルガイドを前提とします。
 - `const` を適切かつ積極的に使う。
 - 例外、安全性、境界条件を意識する。
 - 大規模な整形変更や無関係なリネームは避ける。
-- 改行コードはCRLFで統一。特に1つのファイル内に LF と CRLF を混在させない。
+- 改行コードは LF で統一。
+- `.hpp`、`.cpp`、`.java`、`.md`、`.editorconfig`、`.gitattributes` は `.editorconfig` と `.gitattributes` の LF 指定に従う。
+- `third_party/` 配下は外部依存として改行コード統一の一括対象から除外する。
 
 ## コメント・TODO ルール
 
