@@ -12,6 +12,7 @@
 #include <iterator>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -46,6 +47,16 @@ public:
 
 private:
     torch::Tensor weight_;
+};
+
+class TraceTestModule final : public anet::nn::NetworkModule {
+public:
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        return input + 1.0f;
+    }
+
+    bool IsConv2dVisualizable() const override { return true; }
 };
 
 class DotTestHead final : public anet::nn::NetworkHead {
@@ -102,11 +113,85 @@ std::shared_ptr<anet::nn::Network> MakeDotTestNetwork(
         head ? head : std::make_shared<DotTestHead>());
 }
 
+std::shared_ptr<anet::nn::Network> MakeBodyOnlyDotTestNetwork()
+{
+    anet::TensorSpec obs_spec;
+    obs_spec.type = anet::SpaceType::Vector;
+    obs_spec.shape = { 2 };
+    obs_spec.dtype = torch::kFloat32;
+
+    anet::TensorSpecMap input_specs;
+    input_specs["obs"] = obs_spec;
+
+    auto block = std::make_shared<anet::nn::NetworkBlock>(
+        "Scale_0",
+        std::make_shared<DotTestModule>());
+    auto network_struct = std::make_shared<anet::nn::NetworkStruct>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
+    auto branch = std::make_shared<anet::nn::NetworkBranch>(
+        "feature",
+        std::vector<std::string>{ "obs" },
+        network_struct);
+
+    anet::nn::NetworkConfig network_config;
+    network_config.output_keys["feature"] = "feature";
+
+    auto body = std::make_shared<anet::nn::NetworkBody>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{ branch },
+        input_specs,
+        std::vector<std::string>{},
+        network_config.output_keys);
+
+    return std::make_shared<anet::nn::Network>(
+        network_config,
+        input_specs,
+        nullptr,
+        body,
+        nullptr);
+}
+
 std::shared_ptr<anet::nn::NetworkHead> CreateDqnHead(const anet::nn::NetworkHeadFactory& factory)
 {
     anet::TensorDict dummy_features;
     dummy_features.Set(anet::nn::kKey_DefaultOutput, torch::zeros({ 1, 4 }));
     return factory.CreateHead(dummy_features);
+}
+
+std::shared_ptr<anet::nn::Network> MakeTraceTestNetwork()
+{
+    anet::TensorSpec obs_spec;
+    obs_spec.type = anet::SpaceType::Grid;
+    obs_spec.shape = { 1, 2, 2 };
+    obs_spec.dtype = torch::kFloat32;
+
+    anet::TensorSpecMap input_specs;
+    input_specs["obs"] = obs_spec;
+
+    auto block = std::make_shared<anet::nn::NetworkBlock>(
+        "Conv2d_0",
+        std::make_shared<TraceTestModule>());
+    auto network_struct = std::make_shared<anet::nn::NetworkStruct>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
+    auto branch = std::make_shared<anet::nn::NetworkBranch>(
+        "feature",
+        std::vector<std::string>{ "obs" },
+        network_struct);
+
+    anet::nn::NetworkConfig network_config;
+    network_config.output_keys["feature"] = "feature";
+
+    auto body = std::make_shared<anet::nn::NetworkBody>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{ branch },
+        input_specs,
+        std::vector<std::string>{ "obs" },
+        network_config.output_keys);
+
+    return std::make_shared<anet::nn::Network>(
+        network_config,
+        input_specs,
+        nullptr,
+        body,
+        std::make_shared<DotTestHead>());
 }
 
 class CapturingBackend final : public anet::IBackend {
@@ -147,6 +232,42 @@ TEST_CASE("LabelData SetText emits plain quoted label", "[graphviz][label]")
     CHECK(dot_label == "\"vector_feature\"");
     CHECK_FALSE(Contains(dot_label, "TABLE"));
     CHECK_FALSE(Contains(dot_label, "TD"));
+}
+
+TEST_CASE("Network forward trace captures branch-prefixed visual layers", "[nn][trace]")
+{
+    auto network = MakeTraceTestNetwork();
+    auto input_tensor = torch::arange(8, torch::kFloat32).view({ 2, 1, 2, 2 });
+    anet::TensorDict input{ { "obs", input_tensor } };
+    anet::TensorDict trace;
+
+    auto out = network->Forward(input, [&trace](std::string_view key, const torch::Tensor& tensor) {
+        trace.Set(std::string(key), tensor.detach().clone());
+    });
+
+    REQUIRE(out.Contains("feature"));
+    REQUIRE(trace.Contains("feature/00_Input"));
+    REQUIRE(trace.Contains("feature/01_Conv2d_0"));
+    CHECK(torch::equal(trace.At("feature/00_Input"), input_tensor));
+    CHECK(torch::equal(trace.At("feature/01_Conv2d_0"), input_tensor + 1.0f));
+}
+
+TEST_CASE("Body-only Network exposes forward TensorDictFunction", "[nn][function]")
+{
+    auto network = MakeBodyOnlyDotTestNetwork();
+    auto input_tensor = torch::tensor({ { 1.0f, 2.0f }, { 3.0f, 4.0f } });
+    anet::TensorDict input{ { "obs", input_tensor } };
+
+    auto forward_func = network->GetTensorDictFunction("forward");
+    REQUIRE(forward_func.has_value());
+    CHECK_FALSE(network->GetTensorDictFunction("feature").has_value());
+
+    auto direct_out = network->Forward(input);
+    auto func_out = (*forward_func)(input);
+
+    REQUIRE(direct_out.Contains("feature"));
+    REQUIRE(func_out.Contains("feature"));
+    CHECK(torch::equal(func_out.At("feature"), direct_out.At("feature")));
 }
 
 TEST_CASE("Network dot view emits structure by default and configurable details", "[nn][dot]")
