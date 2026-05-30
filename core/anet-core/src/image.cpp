@@ -330,17 +330,9 @@ static std::shared_ptr<Conv2dVisualizationObserver> MakeConv2dVisualizationObser
 	// Visualizerのレイアウト設定を構築
 	Conv2dVisualizerConfig vis_config(config.conv2d);
 
-	// Agentから、対象ネットワークの抽出関数(TensorDictFunction)をもらう
-	auto dict_func_opt = agent->GetTensorDictFunction(config.conv2d.network_key);
-	if (!dict_func_opt.has_value()) {
-		ANET_SYSTEM_ERROR("Failed to get TensorDictFunction for key: " << config.conv2d.network_key);
-		return nullptr;
-	}
-
 	// Observerを生成
 	// ※ config.interval はエピソード周期として渡す
-	auto obs = std::make_shared<Conv2dVisualizationObserver>(
-		tag, config.interval, *dict_func_opt, vis_config);
+	auto obs = std::make_shared<Conv2dVisualizationObserver>(tag, config.interval, vis_config);
 
 	return obs;
 }
@@ -729,4 +721,3 @@ std::vector<ImageProviderManager::Entry> ImageProviderManager::List() const
 	}
 	return list;
 }
-

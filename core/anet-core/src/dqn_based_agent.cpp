@@ -209,10 +209,8 @@ std::optional<anet::TensorDictFunction> NetworkModel::GetTensorDictFunction(cons
         return std::nullopt;
     }
 
-    // デバイス転送と抽出処理をラップした関数を返す
-    return [net, device](const anet::TensorDict& obs) {
-        return net->GetConv2dOutputs(obs.To(device));
-        };
+    // 汎用 head ベース抽出へ委譲
+    return net->GetTensorDictFunction(key);
 }
 
 int64_t NetworkModel::Save(OutputArchive& archive) const
@@ -259,10 +257,9 @@ anet::rl::dqn::ActionPolicy::ActionPolicy(
 }
 
 anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForAction(
-    const anet::TensorDict& obs,
-    std::shared_ptr<anet::nn::Network> network) const
+    const anet::TensorDict& obs, std::shared_ptr<anet::nn::Network> network, const anet::TraceSink& sink) const
 {
-    return network->Forward(obs);
+    return network->Forward(obs, sink);
 }
 
 torch::Tensor anet::rl::dqn::ActionPolicy::CreateSpatialTensor(
@@ -448,7 +445,8 @@ void anet::rl::dqn::EpsilonGreedyActionPolicy::OnLearn(const StepCounts& counts)
     UpdateEpsilon(counts.exp_step);
 }
 
-anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const
+anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
+    std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink) const
 {
     ProfileRange r("EpsilonGreedyActionPolicy::SelectAction");
 
@@ -457,7 +455,7 @@ anet::rl::BatchActionInfo EpsilonGreedyActionPolicy::SelectAction(const anet::Te
     anet::Autocast cast_guard(torch::kCUDA, config_.use_amp, amp_dtype);
 
     // obsからQ値取得
-    auto out = ForwardForAction(obs, network);
+    auto out = ForwardForAction(obs, network, sink);
     auto q_values = out.At("q");
     torch::Tensor q_quantiles;
     if (out.Contains("q_dist")) {
@@ -622,7 +620,7 @@ torch::Tensor UQEActionPolicy::MakeVectorizedUQEAction(const torch::Tensor& tau_
 }
 
 anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs,
-    bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const
+    bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink) const
 {
     ProfileRange r("UQEActionPolicy::MakeUQEActionInfo");
 
@@ -631,7 +629,7 @@ anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const to
     anet::Autocast cast_guard(torch::kCUDA, config_.use_amp, amp_dtype);
 
     // Q値を取得
-    auto out = ForwardForAction(obs, network);
+    auto out = ForwardForAction(obs, network, sink);
     auto q_values = out.At("q");
     auto q_quantiles = out.At("q_dist");
 
@@ -671,14 +669,15 @@ anet::rl::BatchActionInfo UQEActionPolicy::MakeUQEActionInfo(float tau, const to
     return action_info;
 }
 
-anet::rl::BatchActionInfo UQEActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const
+anet::rl::BatchActionInfo UQEActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
+    std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink) const
 {
     if (IsSpatialExplorationEnabled()) {
         const int64_t N = obs.Size(0);
         auto tau_tensor = GetSpatialTauTensor(N, obs.device()).view({ N, 1 });
-        return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, network, rnd);
+        return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, network, rnd, sink);
     }
-    return MakeUQEActionInfo(current_uqe_tau_, torch::Tensor(), obs, greedy_only, network, rnd);
+    return MakeUQEActionInfo(current_uqe_tau_, torch::Tensor(), obs, greedy_only, network, rnd, sink);
 }
 
 
@@ -700,21 +699,22 @@ void anet::rl::dqn::ThompsonSamplingActionPolicy::OnLearn(const StepCounts& coun
     //UpdateTau(counts.exp_step);
 }
 
-anet::rl::BatchActionInfo ThompsonSamplingActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const
+anet::rl::BatchActionInfo ThompsonSamplingActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
+    std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink) const
 {
     // ランダムな Tau をバッチサイズ分生成 (N, 1)
     const int64_t N = obs.Size(0);
     auto device = obs.device();
     if (IsSpatialExplorationEnabled()) {
         auto tau_tensor = GetSpatialTauTensor(N, device).view({ N, 1 });
-        return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, network, rnd);
+        return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, network, rnd, sink);
     }
 
     auto gen = rnd->GetTorchGenerator(device);
     auto tau_tensor = torch::rand({ N, 1 }, gen, torch::TensorOptions().device(device));
 
     // tau_tensor(ランダム)でUQE適用
-    return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, network, rnd);
+    return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, network, rnd, sink);
 }
 
 
@@ -758,14 +758,16 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
 
     // 行動選択
     auto rnd = context_->GetRandomGenerator();
+    anet::TensorDict trace;
+    anet::TraceSink sink = anet::rl::MakeActionTraceSink(trace);
     anet::rl::BatchActionInfo act_info;
     if (network_ != src_network_) {
         // Clone済み: 自分専用のネットワークなので排他不要
-        act_info = policy_->SelectAction(norm_obs, false, network_, rnd);
+        act_info = policy_->SelectAction(norm_obs, false, network_, rnd, sink);
     } else {
         // Clone無し（直列モード）: Learnerの更新と競合しないようSharedLock
         std::shared_lock<std::shared_mutex> lock(*mutex_);
-        act_info = policy_->SelectAction(norm_obs, false, network_, rnd);
+        act_info = policy_->SelectAction(norm_obs, false, network_, rnd, sink);
     }
 
     // AuxData の詰め込み
@@ -773,6 +775,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     if (obs_norm_ != nullptr) {
         act_info.GetAuxData()["norm_obs"] = anet::rl::ToUnifiedObservation(norm_obs);
     }
+    anet::rl::AppendTraceAux(act_info.GetAuxData(), trace);
 
     return std::make_shared<anet::rl::BatchActionInfo>(act_info);
 }
@@ -1605,4 +1608,3 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         metrics.max_q, metrics.q_sa, per_result,
         metrics.q_std, metrics.q_gap, metrics.q_gap_rel);
 }
-

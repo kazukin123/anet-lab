@@ -448,33 +448,21 @@ NetworkStruct::NetworkStruct(std::vector<std::shared_ptr<NetworkBlock>> blocks)
     }
 }
 
-torch::Tensor NetworkStruct::Forward(torch::Tensor input)
+torch::Tensor NetworkStruct::Forward(torch::Tensor input, const anet::TraceSink& sink)
 {
     anet::ProfileRange r("NetworkStruct::Forward");
 
-    torch::Tensor x = input;
-    for (const auto& block : blocks_) {
-        x = block->Forward(x);
-    }
-    return x;
-}
-
-anet::TensorDict NetworkStruct::GetConv2dOutputs(torch::Tensor input)
-{
-    anet::ProfileRange r("NetworkStruct::GetConv2dOutputs");
-    anet::TensorDict outputs;
-    outputs.Set("00_Input", input);
+    if (sink) sink("00_Input", input);
 
     torch::Tensor x = input;
     int index = 1;
     for (const auto& block : blocks_) {
         x = block->Forward(x);
-        if (block->IsConv2dVisualizable() && x.dim() == 4 && x.size(2) >= 2 && x.size(3) >= 2 && x.is_floating_point()) {
-            std::string key = std::format("{:02d}_{}", index++, block->GetName().c_str());
-            outputs.Set(key, x);
+        if (sink && block->IsConv2dVisualizable() && x.dim() == 4 && x.size(2) >= 2 && x.size(3) >= 2 && x.is_floating_point()) {
+            sink(std::format("{:02d}_{}", index++, block->GetName().c_str()), x);
         }
     }
-    return outputs;
+    return x;
 }
 
 
@@ -575,7 +563,7 @@ NetworkBranch::NetworkBranch(std::string name, std::vector<std::string> bind_key
     register_module("network_struct", network_struct_);
 }
 
-void NetworkBranch::Execute(anet::TensorDict& current_state)
+void NetworkBranch::Execute(anet::TensorDict& current_state, const anet::TraceSink& sink)
 {
     torch::Tensor block_input;
 
@@ -593,36 +581,16 @@ void NetworkBranch::Execute(anet::TensorDict& current_state)
         block_input = (inputs.size() == 1) ? inputs[0] : torch::cat(inputs, 1);
     }
 
-    torch::Tensor output = network_struct_->Forward(block_input);
+    anet::TraceSink branch_sink;
+    if (sink) {
+        const std::string prefix = name_ + "/";
+        branch_sink = [&sink, prefix](std::string_view key, const torch::Tensor& tensor) {
+            sink(prefix + std::string(key), tensor);
+        };
+    }
+
+    torch::Tensor output = network_struct_->Forward(block_input, branch_sink);
     current_state.Set(name_, output);
-}
-
-void NetworkBranch::ExtractConv2dOutputs(const anet::TensorDict& current_state, anet::TensorDict& outputs) const
-{
-    torch::Tensor block_input;
-
-    // Executeと同じロジックで入力を結合
-    if (bind_keys_.empty()) {
-        block_input = torch::empty({ 0 }, current_state.device());
-    } else {
-        std::vector<torch::Tensor> inputs;
-        for (const auto& key : bind_keys_) {
-            auto t_opt = current_state.Get(key);
-            if (t_opt.has_value()) {
-                inputs.push_back(*t_opt);
-            }
-        }
-        if (inputs.empty()) return;
-        block_input = (inputs.size() == 1) ? inputs[0] : torch::cat(inputs, 1);
-    }
-
-    // 直列エンジンの Conv2d出力を取得
-    anet::TensorDict engine_outs = network_struct_->GetConv2dOutputs(block_input);
-
-    // ブランチ名をプレフィックスとして付けて全体出力にマージ
-    for (const auto& [key, tensor] : engine_outs) {
-        outputs.Set(name_ + "/" + key, tensor);
-    }
 }
 
 
@@ -644,7 +612,7 @@ NetworkBody::NetworkBody(
     }
 }
 
-anet::TensorDict NetworkBody::Forward(const anet::TensorDict& input)
+anet::TensorDict NetworkBody::Forward(const anet::TensorDict& input, const anet::TraceSink& sink)
 {
     anet::ProfileRange r("NetworkBody::Forward");
 
@@ -653,7 +621,7 @@ anet::TensorDict NetworkBody::Forward(const anet::TensorDict& input)
 
     // 入力順ソートされた順序でブランチ群を実行
     for (const auto& branch : branches_) {
-        branch->Execute(state);
+        branch->Execute(state, sink);
     }
 
     // 指定されたマッピングに従って Head用の TensorDict を構築
@@ -666,24 +634,6 @@ anet::TensorDict NetworkBody::Forward(const anet::TensorDict& input)
         }
     }
     return out;
-}
-
-anet::TensorDict NetworkBody::GetConv2dOutputs(const anet::TensorDict& input) const
-{
-    anet::TensorDict visual_outputs;
-
-    // フォーマット（Forward時と同じく関所を通す）
-    auto state = preprocessor_.Format(input);
-
-    // DAGを順に実行しつつ、各ブランチの出力を記録
-    for (const auto& branch : branches_) {
-        branch->ExtractConv2dOutputs(state, visual_outputs);
-        // 次のブランチの入力のために、通常のForwardも行ってstateを更新する必要がある
-        // ※GetConv2dOutputs は本番で毎ステップ呼ばれるものではないため、再計算のコストは許容する
-        branch->Execute(state);
-    }
-
-    return visual_outputs;
 }
 
 
@@ -819,12 +769,12 @@ Network::Network(
     if (head_) register_module("head", head_);
 }
 
-anet::TensorDict Network::Forward(const anet::TensorDict& input)
+anet::TensorDict Network::Forward(const anet::TensorDict& input, const anet::TraceSink& sink)
 {
     anet::ProfileRange r("Network::Forward");
 
     //  Body部を実行 (ここはAMPが有効ならFP16で高速処理される)
-    auto features = body_->Forward(input);
+    auto features = body_->Forward(input, sink);
 
     // Head部を実行
     if (head_) {
@@ -839,20 +789,21 @@ anet::TensorDict Network::Forward(const anet::TensorDict& input)
     }
 }
 
-anet::TensorDict Network::GetConv2dOutputs(const anet::TensorDict& input) const
-{
-    anet::ProfileRange r("Network::GetConv2dOutputs");
-
-    torch::NoGradGuard no_grad;
-
-    // Bodyへ委譲
-    return body_->GetConv2dOutputs(input);
-}
-
 std::optional<anet::TensorDictFunction> Network::GetTensorDictFunction(const std::string& key)
 {
-    // Headが指定されたキーの機能(関数)を持っているか確認
-	if (!head_) return std::nullopt;
+    // Headが無い Network では Function key として forward だけを公開する
+    if (!head_) {
+        if (key != "forward") return std::nullopt;
+
+        return [this](const anet::TensorDict& state_input) -> anet::TensorDict {
+            torch::NoGradGuard grad_guard;
+
+            // Bodyのみ実行し、Network::Forward の Headなし経路と同じ出力を返す
+            return this->body_->Forward(state_input);
+        };
+    }
+
+    // Headが指定されたキーの機能(関数)を持ってい無ければ無し
     auto head_func = head_->GetTensorDictFunction(key);
     if (!head_func) {
         return std::nullopt;

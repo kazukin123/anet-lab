@@ -307,14 +307,16 @@ namespace anet::rl::dqn {
         	bool enable_spatial_exploration = false, int64_t num_envs = 0,
             const torch::Device& device = torch::Device(torch::kCPU));
 
-        virtual BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const = 0;
+        virtual BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only,
+            std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
+            const anet::TraceSink& sink = {}) const = 0;
         virtual void OnLearn(const StepCounts& counts) { }
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
 
         virtual ~ActionPolicy() = default;
     protected:
-        anet::TensorDict ForwardForAction(const anet::TensorDict& obs, std::shared_ptr<anet::nn::Network> network) const;
+        anet::TensorDict ForwardForAction(const anet::TensorDict& obs, std::shared_ptr<anet::nn::Network> network, const anet::TraceSink& sink) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, const torch::Tensor& epsilon_tensor, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         BatchActionInfo MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const;
@@ -342,7 +344,9 @@ namespace anet::rl::dqn {
             int64_t num_envs = 0,
             const torch::Device& device = torch::Device(torch::kCPU));
 
-        BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const;
+        BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only,
+            std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
+            const anet::TraceSink& sink) const;
         void OnLearn(const StepCounts& counts) override;
     };
 
@@ -361,13 +365,15 @@ namespace anet::rl::dqn {
             int64_t num_envs = 0,
             const torch::Device& device = torch::Device(torch::kCPU));
 
-        BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const;
+        BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only,
+            std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
+            const anet::TraceSink& sink) const;
         void OnLearn(const StepCounts& counts) override;
 
         virtual ~UQEActionPolicy() = default;
     protected:
         anet::rl::BatchActionInfo MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs, bool greedy_only,
-            std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const;
+            std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink) const;
         void UpdateTau(step_t step);
     private:
         torch::Tensor MakeUQEAction(float tau, const torch::Tensor& q_quantiles) const;
@@ -381,7 +387,9 @@ namespace anet::rl::dqn {
             int64_t num_envs = 0,
             const torch::Device& device = torch::Device(torch::kCPU));
 
-        BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd) const;
+        BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only,
+            std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
+            const anet::TraceSink& sink) const;
         void OnLearn(const StepCounts& counts) override;
     };
 

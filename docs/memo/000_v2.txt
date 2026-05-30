@@ -1,5 +1,4 @@
 ■V2対応残件
-・Conv2dVisのPanelとObservatonを実際のObservatonから実行するようにする。
 ・auto_load_fileをagentからtrainerに移動。
 ・ReplayBufferの可視化対応
 ・DQNAgent：GetTensorFunctionを正しく実装。

@@ -9,10 +9,6 @@ IQN 対応や MuZero 本格実装で作業範囲が広がる前に、V2 の既�
   - run / checkpoint の lifecycle 判断は Trainer が持つべき。
   - checkpoint 互換性チェックを追加する。
     - load 前に action count、observation spec、network config、quantile count、scaler 設定などの不一致を検出できる metadata を保存する。
-- `DefaultDQNAgent::GetTensorDictFunction` の stack 入力処理を見直す。
-  - 現状の stack 入力は暫定。
-  - 1 フレームを複製して作った疑似 stack ではなく、Agent が実際に使った stack 状態を conv2d 可視化に渡す。
-  - 環境から来た raw `BatchState` を元に可視化入力を作り直すのではなく、`BatchActionInfo::AuxData["raw_obs"]` などに保持した実際の stack 済み observation を正として扱う。
 
 ## 可視化
 
@@ -27,6 +23,7 @@ IQN 対応や MuZero 本格実装で作業範囲が広がる前に、V2 の既�
   - storage レベルの表示と sampled batch の表示は、必要なら別 view として扱う。
 - metrics / image observer 経路の HeatMap 系 Observer 対応を追加する。
   - `observers.cpp` に残っている HeatMap 対応 TODO を処理する。
+- `DefaultDQNAgent::GetTensorDictFunction`を見直す。
 - `SweepHeatMapDialog::SweepHeatMapDialog()` を更新。
   - 現状の次元選択は暫定で、`ObsKeys::kVector` 前提になっている。
   - `StateSpec::obs_spec` から observation key と有効な次元を選べるようにする。

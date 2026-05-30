@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <string_view>
 #include <map>
 #include <unordered_map>
 #include <stdexcept>
@@ -333,6 +334,11 @@ namespace anet::rl {
     };
 
     using AuxData = std::unordered_map<std::string, torch::Tensor>; ///< 任意の追加情報（UI描画用の非可観測情報を含む）
+
+    inline constexpr std::string_view kNnTracePrefix = "nn_trace/";
+    anet::TraceSink MakeActionTraceSink(anet::TensorDict& trace);
+    void AppendTraceAux(AuxData& aux, const anet::TensorDict& trace);
+    anet::TensorDict ExtractNnTrace(const AuxData& aux);
 
 
     class SingleEnvResult {

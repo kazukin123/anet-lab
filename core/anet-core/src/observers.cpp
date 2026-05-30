@@ -1,4 +1,6 @@
-﻿#include "anet/observers.hpp"
+﻿// observers.cpp
+
+#include "anet/observers.hpp"
 #include <wx/log.h>
 #include "anet/profile.hpp"
 #include "anet/str_util.hpp"
@@ -564,12 +566,11 @@ FunctionLearnObserver::FunctionLearnObserver(Fn fn, std::optional<std::string> n
 // ===========================================================================
 
 Conv2dVisualizationObserver::Conv2dVisualizationObserver(
-    const std::string& tag, int episode_interval, anet::TensorDictFunction dict_func, const Conv2dVisualizerConfig& vis_config)
+    const std::string& tag, int episode_interval, const Conv2dVisualizerConfig& vis_config)
     : TaggedTrainObserver(tag)
     , episode_interval_(episode_interval)
-    , is_recording_(false)
-    , dict_func_(std::move(dict_func))
     , visualizer_(vis_config)
+    , is_recording_(false)
 {
     LOG::info() << "Conv2dVisualizationObserver() tag=" << tag << " channels_per_row=" << vis_config.channels_per_row;
 }
@@ -607,9 +608,8 @@ void Conv2dVisualizationObserver::OnTrain(const TrainEvent& event)
     if (!is_recording_) return;
 
     // --- 画像化と保存 ---
-    if (state.obs.Defined() && state.obs.Size(0) > 0) {
-        anet::TensorDict single_obs = state.obs[0].Unsqueeze(0);
-        auto dict = dict_func_(single_obs);
+    if (event.action_info) {
+        auto dict = anet::rl::ExtractNnTrace(event.action_info->GetAuxData());
 
         if (!dict.empty()) {
             auto vis_result = visualizer_.Visualize(step, dict);

@@ -2,7 +2,9 @@
 #include <memory>
 #include <optional>
 #include <type_traits>
+#include <functional>
 #include <string>
+#include <string_view>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
@@ -98,6 +100,7 @@ namespace anet {
 
     using TensorFunction = std::function<torch::Tensor(const torch::Tensor&)>;
     using TensorDictFunction = std::function<anet::TensorDict(const anet::TensorDict&)>;
+    using TraceSink = std::function<void(std::string_view, const torch::Tensor&)>;
 
     class TensorFunctionProvider {
     public:

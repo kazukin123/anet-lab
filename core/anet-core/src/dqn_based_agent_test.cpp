@@ -28,7 +28,8 @@ struct ActionPolicyAccess : public dqn::ActionPolicy {
 
     using dqn::ActionPolicy::CreateSpatialTensor;
 
-    anet::rl::BatchActionInfo SelectAction(const anet::TensorDict&, bool, std::shared_ptr<anet::nn::Network>, std::shared_ptr<anet::RandomGenerator>) const override
+    anet::rl::BatchActionInfo SelectAction(const anet::TensorDict&, bool, std::shared_ptr<anet::nn::Network>,
+        std::shared_ptr<anet::RandomGenerator>, const anet::TraceSink&) const override
     {
         return anet::rl::BatchActionInfo{};
     }

@@ -480,13 +480,15 @@ anet::rl::BatchActionInfo DefaultDQNAgent::MakeAction(const StepCounts& step, co
     // RunMode に応じて Policy を切り替える
     auto rnd = ctx->GetRandomGenerator();
     auto run_mode = (ctx != nullptr) ? ctx->GetRunMode() : anet::rl::RunMode::Train;
+    anet::TensorDict trace;
+    anet::TraceSink sink = anet::rl::MakeActionTraceSink(trace);
     if (anet::rl::IsEval(run_mode)) {
         auto use_target = IsForTarget(run_mode);
         auto network = use_target ? model_->GetTargetNetwork() : model_->GetMainNetwork();
-        act_info = eval_policy_->SelectAction(norm_obs, false, network, rnd);
+        act_info = eval_policy_->SelectAction(norm_obs, false, network, rnd, sink);
     } else {
         // Train向けでは train_policy_ と MainNetwork で固定
-        act_info = train_policy_->SelectAction(norm_obs, false, model_->GetMainNetwork(), rnd);
+        act_info = train_policy_->SelectAction(norm_obs, false, model_->GetMainNetwork(), rnd, sink);
     }
 
     // ObservationをAuxに詰める
@@ -494,6 +496,7 @@ anet::rl::BatchActionInfo DefaultDQNAgent::MakeAction(const StepCounts& step, co
     if (obs_norm_ != nullptr) {
         act_info.GetAuxData()["norm_obs"] = anet::rl::ToUnifiedObservation(norm_obs);       // スタック済・正規化済のObservation
     }
+    anet::rl::AppendTraceAux(act_info.GetAuxData(), trace);
 
     // ActionInfoを返す
     return act_info;

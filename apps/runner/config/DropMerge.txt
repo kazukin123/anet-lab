@@ -106,11 +106,12 @@ net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre
 #app.run_name = run_{t}_apx_en6_pt05
 #app.run_name = run_{t}_apx_linear2
 #app.run_name = run_{t}_apx_envnod
+#app.run_name = run_{t}_apx_s100
 
 E.use_no_drop_timeout_gameover = true
 E.no_drop_timeout_gameover_penalty = -10.0
 
-#E.no_drop_timeout_steps = 50
+E.no_drop_timeout_steps = 100
 
 #R.reward_scaler.constant_scale = 0.005
 
@@ -133,8 +134,8 @@ E.no_drop_timeout_gameover_penalty = -10.0
 #E.use_settle_after_drop = true
 E.use_settle_after_drop = false
 
-R.train_policy.use_spatial_exploration = false
-#R.train_policy.use_spatial_exploration = true
+#R.train_policy.use_spatial_exploration = false
+R.train_policy.use_spatial_exploration = true
 
 #R.auto_load_file = ../../runs/DropMerge_SuikaHybrid_Flatten_128.anet
 #R.auto_load_file = ../../runs/run_20260424-175431_v2_stl.anet
@@ -896,9 +897,9 @@ M.[52_eval2/85_tr_nolg_mean_ema]     = $eval.[eval2] @episode_end $env mean.term
 # image metrics
 # ==============================================================================
 
-metrics.image.interval = 0   # 出力全無効
+#metrics.image.interval = 0   # 出力全無効
 #metrics.image.interval = 1   # 毎ステップ出力（重い）
-#metrics.image.interval = 50   # 通常運用
+metrics.image.interval = 50   # 通常運用
 #metrics.image.interval = 500 # 重い場合
 
 #metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.per-prio > image.phm.s01
@@ -940,14 +941,15 @@ metrics.image.interval = 0   # 出力全無効
 #metrics.image.[60_agent_img/22_conv2d_32t].conv2d.network_key = target-net.conv2d
 #metrics.image.[60_agent_img/22_conv2d_32t].conv2d.min_block_size = 40
 
-##metrics.image.[60_agent_img/11_conv2d_32p_jet].type = Conv2d
+metrics.image.[60_agent_img/11_conv2d_32p_jet].type = Conv2d
 #metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 10
-##metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 20
+metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 20
 ###metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 0
-#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.channels_per_row = 34
-#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.network_key = policy-net.conv2d
-#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.colormap = jet
-#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.min_block_size = 40
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.channels_per_row = 26
+#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.channels_per_row = 17
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.network_key = policy-net.conv2d
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.colormap = jet
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.min_block_size = 58
 
 #metrics.image.[60_agent_img/23_conv2d_32t_jet].type = Conv2d
 #metrics.image.[60_agent_img/23_conv2d_32t_jet].interval = 5

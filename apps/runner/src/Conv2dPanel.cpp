@@ -59,25 +59,15 @@ Conv2dPanel::Conv2dPanel(
     Centre();
 
     // Vsualizer生成
-    CreateVisualizer(runner);
+    CreateVisualizer();
 
     // Observer生成&登録
     CreateObserver(run_manager, runner);
 
 }
 
-void Conv2dPanel::CreateVisualizer(std::shared_ptr<anet::rl::Runner> runner)
+void Conv2dPanel::CreateVisualizer()
 {
-    auto agent = runner->GetAgent();
-    auto notifier = runner->GetNotifier();
-    auto env_spec = runner->GetBatchEnv()->GetSpec();
-
-    // TensorDictFnを取得
-    auto dict_fn = agent->GetTensorDictFunction(config_->conv2d.network_key);
-    ANET_CHECK_MSG(dict_fn.has_value(),
-        "Conv2dPanel requires TensorDictFunction. key=" << config_->conv2d.network_key);
-    vis_dict_fn_ = *dict_fn;
-
     // Observer生成＆登録
     this->visualizer_ = std::make_unique<anet::rl::Conv2dVisualizer>(config_->conv2d);
 }
@@ -92,15 +82,14 @@ void Conv2dPanel::CreateObserver(anet::rl::RunManager& run_manager, std::shared_
         {
             if (closed_) return;
 
-            const auto& state = event.experience.state;
-            if (!state.obs.Defined() || state.obs.Size(0) <= 0) {
-                LOG::warn() << "Conv2dPanel: failed to get observation.";
+            if (!event.action_info) {
                 return;
             }
 
-            // TensorDict取得(バッチの先頭だけ切り出す)
-            anet::TensorDict single_obs = state.obs[0].Unsqueeze(0);
-            auto dict = vis_dict_fn_(single_obs);
+            auto dict = anet::rl::ExtractNnTrace(event.action_info->GetAuxData());
+            if (dict.empty()) {
+                return;
+            }
 
             // 画像生成
             auto vis_result = visualizer_->Visualize(event.counts.train_step, dict);

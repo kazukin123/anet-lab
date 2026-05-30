@@ -272,7 +272,6 @@ namespace anet::rl {
         Conv2dVisualizationObserver(
             const std::string& tag,
             int episode_interval,
-            anet::TensorDictFunction dict_func,
             const Conv2dVisualizerConfig& vis_config
         );
 
@@ -286,7 +285,6 @@ namespace anet::rl {
         bool is_recording_ = false;
         bool is_first_record_ = true;
         int local_episode_count_ = 0; // env[0]専用のエピソードカウンタ
-        anet::TensorDictFunction dict_func_;
         mutable std::mutex image_mutex_;
         ImageData last_image_;
     };
@@ -443,4 +441,3 @@ namespace anet::rl {
         std::vector<ParsedEpisodeEndObserver> episode_end_observers_;
     };
 }
-

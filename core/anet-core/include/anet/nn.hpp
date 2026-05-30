@@ -110,14 +110,13 @@ namespace anet::nn {
             std::shared_ptr<NetworkBody> body,
             std::shared_ptr<NetworkHead> head);
 
-        anet::TensorDict Forward(const anet::TensorDict& input);
+        anet::TensorDict Forward(const anet::TensorDict& input, const anet::TraceSink& sink = {});
 
         std::shared_ptr<Network> Clone(std::optional<torch::Device> device = std::nullopt) const;                 /// 自身の完全な複製(別インスタンス)を生成
         void CopyTo(Network& target) const;                     /// ターゲットへ重みを完全上書き (Hard Update)
         void SoftCopyTo(Network& target, double tau) const;     /// ターゲットへ重みをブレンド (Soft Update)
 
     public: //可視化関連
-        anet::TensorDict GetConv2dOutputs(const anet::TensorDict& input) const;
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
         std::unique_ptr<anet::graphviz::GraphViz> MakeGraphViz(const NetworkGraphVizConfig& config) const;
     private:

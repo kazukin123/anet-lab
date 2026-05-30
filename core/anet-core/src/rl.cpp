@@ -14,6 +14,35 @@
 using namespace anet::rl;
 namespace LOG = anet::log;
 
+namespace anet::rl {
+
+anet::TraceSink MakeActionTraceSink(anet::TensorDict& trace)
+{
+    return [&trace](std::string_view key, const torch::Tensor& activation) {
+        trace.Set(std::string(key), activation.slice(0, 0, 1).detach().to(torch::kFloat32).clone());
+    };
+}
+
+void AppendTraceAux(AuxData& aux, const anet::TensorDict& trace)
+{
+    for (const auto& [key, tensor] : trace) {
+        aux[std::string(kNnTracePrefix) + key] = tensor;
+    }
+}
+
+anet::TensorDict ExtractNnTrace(const AuxData& aux)
+{
+    anet::TensorDict dict;
+    for (const auto& [key, tensor] : aux) {
+        if (key.starts_with(kNnTracePrefix)) {
+            dict.Set(key.substr(kNnTracePrefix.size()), tensor);
+        }
+    }
+    return dict;
+}
+
+} // namespace anet::rl
+
 
 // =============================================================
 // StateSpec

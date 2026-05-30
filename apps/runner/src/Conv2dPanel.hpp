@@ -36,7 +36,7 @@ private:
     // UI更新処理 (タイマー間隔の変更)
     void UpdateRefreshRate();
 private:
-    void CreateVisualizer(std::shared_ptr<anet::rl::Runner> runner);
+    void CreateVisualizer();
     void CreateObserver(anet::rl::RunManager& run_manager, std::shared_ptr<anet::rl::Runner> runner);
 private:
     class Config;
@@ -57,6 +57,5 @@ private:
     std::unique_ptr<anet::rl::Conv2dVisualizer> visualizer_;
     std::shared_ptr<anet::rl::TrainObserver> observer_;
     std::shared_ptr<anet::rl::Notifier> notifier_;
-    anet::TensorDictFunction vis_dict_fn_;
 
 };
