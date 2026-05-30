@@ -258,6 +258,10 @@ ReplayExperienceStorage::ReplayExperienceStorage(int64_t num_envs, int64_t capac
     terminals_ = torch::empty({ num_envs_, capacity_per_env_ }, options.dtype(torch::kBool));
     actual_n_steps_ = torch::empty({ num_envs_, capacity_per_env_ }, options.dtype(torch::kInt64));
 
+    target_returns_.fill_(0.0f);
+    terminals_.fill_(true);
+    actual_n_steps_.fill_(0);
+
     // obs_storage_ と info_storage_ は型の詳細が動的(Dict)なため、初回の Push 時に遅延アロケーションする
 }
 
@@ -724,7 +728,7 @@ public:
 
     void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override
     {
-        ANET_LOG_DEBUG("UpdatePriorities() indices=" << indices << " priorities=" << priorities);
+        //ANET_LOG_DEBUG("UpdatePriorities() indices=" << indices << " priorities=" << priorities);
         //LOG::info() << "UpdatePriorities() indices=" << indices << " priorities=" << priorities;
 
         for (size_t i = 0; i < indices.size(); ++i) {

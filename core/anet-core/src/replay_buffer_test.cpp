@@ -1,6 +1,7 @@
 #include "catch.hpp"
 
 #include "anet/replay_buffer.hpp"
+#include "replay_buffer_impl.hpp"
 
 #include <numeric>
 #include <vector>
@@ -381,6 +382,29 @@ TEST_CASE("ReplayBuffer samples one-step transitions for each env", "[replay_buf
     RequireOneStepSample(SampleOnlyIndex(buffer, IndexOf(buffer, 1, 0)), buffer, 1, 0);
 }
 
+TEST_CASE("ReplayExperienceStorage initializes unwritten slots as episode boundaries", "[replay_buffer][storage][frame_stack]")
+{
+    constexpr int64_t num_envs = 2;
+    constexpr int64_t capacity_per_env = 5;
+
+    auto config = MakeConfig(num_envs * capacity_per_env, 1, 0.99f, 3);
+    rl::ReplayExperienceStorage storage(
+        num_envs,
+        capacity_per_env,
+        MakeEnvSpec(),
+        config,
+        torch::kCPU,
+        false);
+
+    RequireShape(storage.GetTargetReturns(), { num_envs, capacity_per_env });
+    RequireShape(storage.GetTerminals(), { num_envs, capacity_per_env });
+    RequireShape(storage.GetActualNSteps(), { num_envs, capacity_per_env });
+
+    REQUIRE(storage.GetTargetReturns().eq(0.0f).all().item<bool>());
+    REQUIRE(storage.GetTerminals().all().item<bool>());
+    REQUIRE(storage.GetActualNSteps().eq(0).all().item<bool>());
+}
+
 TEST_CASE("ReplayBuffer computes n-step returns independently for each env", "[replay_buffer][n_step][multi_env]")
 {
     constexpr int64_t num_envs = 2;
@@ -484,6 +508,23 @@ TEST_CASE("ReplayBuffer frame stacking pads the beginning of an episode", "[repl
     RequireSampleMeta(samples, IndexOf(buffer, 0, 0), RewardValue(0, 0), false, 1);
     RequireFlatApprox(samples.obs.At(kVectorKey)[0], { StateValue(0, 0), StateValue(0, 0), StateValue(0, 0) });
     RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], { StateValue(0, 0), StateValue(0, 0), StateValue(0, 1) });
+}
+
+TEST_CASE("ReplayBuffer frame stacking pads the initial sample for nonzero env values", "[replay_buffer][frame_stack][episode_boundary][multi_env]")
+{
+    constexpr int64_t num_envs = 2;
+
+    auto buffer = MakeBuffer(MakeConfig(40, 1, 0.99f, 3), num_envs);
+
+    PushTime(buffer, 0, {}, {}, BoolValues(num_envs, true));
+    PushTime(buffer, 1);
+
+    REQUIRE(buffer.rb->Size() == num_envs);
+
+    auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 1, 0));
+    RequireSampleMeta(samples, IndexOf(buffer, 1, 0), RewardValue(1, 0), false, 1);
+    RequireFlatApprox(samples.obs.At(kVectorKey)[0], { StateValue(1, 0), StateValue(1, 0), StateValue(1, 0) });
+    RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], { StateValue(1, 0), StateValue(1, 0), StateValue(1, 1) });
 }
 
 TEST_CASE("ReplayBuffer frame stacking does not cross done boundaries per env", "[replay_buffer][frame_stack][done][multi_env]")
