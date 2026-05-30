@@ -236,7 +236,7 @@ metrics.scalar.[42_eval/03_eval_eps]    = eval_policy.epsilon $agent @eval.[eval
 4. **複数 Eval の独立性**
    - `eval1` / `eval2` 並走時、`@eval.[eval1]` と `@eval.[eval2]` のメトリクスが混ざらないこと
 5. **エラー系**
-   - 存在しないタグ（`@eval.[nonexistent]`）指定時に起動時エラーで弾く（AGENT.md「設定値の扱い」の方針に従う）
+   - 存在しないタグ（`@eval.[nonexistent]`）指定時に起動時エラーで弾く（AGENTS.md「設定値の扱い」の方針に従う）
 
 ---
 

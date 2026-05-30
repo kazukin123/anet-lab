@@ -293,7 +293,7 @@ struct ParsedEpisodeEndObserver  { RunnerScope scope; std::string eval_name; std
   - `ObserverFactory::GetUpdateObservers()` → `std::vector<ParsedTrainObserver>`
   - `ObserverFactory::GetLearnObservers()` → `std::vector<ParsedLearnObserver>`
   - `ObserverFactory::GetEpisodeEndObservers()` → `std::vector<ParsedEpisodeEndObserver>`（新規）
-- 不正な eval_name は **起動時エラー**（AGENT.md「設定値の扱い」方針）。`RunManager` 側で `eval_runners_` map と突き合わせる。
+- 不正な eval_name は **起動時エラー**（AGENTS.md「設定値の扱い」方針）。`RunManager` 側で `eval_runners_` map と突き合わせる。
 
 #### 例
 
