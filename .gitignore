@@ -64,3 +64,4 @@
 /docs/*.lock
 /apps/runner/runname.txt
 /.claude/worktrees
+/.claude/settings.local.json

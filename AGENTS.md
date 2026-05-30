@@ -1,4 +1,4 @@
-﻿# AGENT.md
+﻿# AGENTS.md
 
 ## Viewing UTF-8 Japanese Text in AI Agent Terminals on Windows
 
@@ -12,11 +12,11 @@ chcp 65001
 [Console]::InputEncoding = [System.Text.UTF8Encoding]::new()
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 $OutputEncoding = [Console]::OutputEncoding
-Get-Content -Encoding UTF8 AGENT.md
+Get-Content -Encoding UTF8 AGENTS.md
 ```
 
-`git diff -- AGENT.md` may render Japanese correctly even when plain
-`Get-Content AGENT.md` does not, because Git and PowerShell use different
+`git diff -- AGENTS.md` may render Japanese correctly even when plain
+`Get-Content AGENTS.md` does not, because Git and PowerShell use different
 output paths and encodings in this environment.
 
 このドキュメントは、anet-lab を編集する AI エージェントおよび開発支援ツール向けの作業規約です。
@@ -243,3 +243,20 @@ core\anet-core\bin\Debug\anet-core-test.exe
 テスト実行ファイルは意図的に `core/anet-core/bin/<Config>` 配下へ出力します。
 CMake の post-build 処理で libtorch の DLL を実行ファイルの隣へコピーし、
 runner アプリと同じ実行時配置に揃えています。
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in the GitHub repo `kazukin123/anet-lab`. Use the `gh` CLI.
+See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Canonical roles map 1:1 to label strings (no overrides).
+See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` and `docs/adr/` at the repo root.
+See `docs/agents/domain.md`.
