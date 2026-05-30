@@ -41,6 +41,7 @@ public:
     {
         anet::ConfigData cd;
         cd.Set("scale", 1.23456);
+        cd.Set("activation_mode", "pre");
         cd.Set("mode", "test");
         return cd;
     }
@@ -306,6 +307,8 @@ TEST_CASE("Network dot view emits structure by default and configurable details"
     CHECK(Contains(detail_dot, "dtype"));
     CHECK(Contains(detail_dot, "scale"));
     CHECK(Contains(detail_dot, "1.23"));
+    CHECK(Contains(detail_dot, "activation_mode"));
+    CHECK(Contains(detail_dot, ">pre</TD>"));
     CHECK(Contains(detail_dot, "params"));
     CHECK(Contains(detail_dot, "6"));
     CHECK_FALSE(Contains(detail_dot, "auto_format"));

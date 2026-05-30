@@ -2,6 +2,7 @@
 
 #include "nn_impl.hpp"
 
+#include <charconv>
 #include <iostream>
 #include <sstream>
 #include <regex>
@@ -9,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <format>
+#include <optional>
 #include <unordered_map>
 #include "anet/profile.hpp"
 #include "anet/log.hpp"
@@ -118,23 +120,28 @@ static std::string FormatStringVector(const std::vector<std::string>& values)
     return oss.str();
 }
 
-static bool LooksLikeFloatingLiteral(const std::string& value)
+static std::optional<double> TryParseFloatingLiteral(const std::string& value)
 {
-    return value.find_first_of(".eE") != std::string::npos;
+    if (value.find_first_of(".eE") == std::string::npos) {
+        return std::nullopt;
+    }
+
+    double number = 0.0;
+    const char* first = value.data();
+    const char* last = first + value.size();
+    const auto [ptr, ec] = std::from_chars(first, last, number, std::chars_format::general);
+    if (ec == std::errc{} && ptr == last) {
+        return number;
+    }
+
+    return std::nullopt;
 }
 
 static void AddConfigAttr(anet::graphviz::LabelData& label, const std::string& key, const std::string& value, int precision)
 {
-    if (LooksLikeFloatingLiteral(value)) {
-        try {
-            size_t pos = 0;
-            double number = std::stod(value, &pos);
-            if (pos == value.size()) {
-                label.AddAttr(key, number, precision);
-                return;
-            }
-        } catch (...) {
-        }
+    if (const auto number = TryParseFloatingLiteral(value)) {
+        label.AddAttr(key, *number, precision);
+        return;
     }
 
     label.AddAttr(key, value);
