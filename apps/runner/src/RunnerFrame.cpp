@@ -155,7 +155,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         .Right().Layer(10).Row(0).Position(0)
         .BestSize(main_pane_width, 400)
         .MinSize(200, 200)
-        .CloseButton(false).MaximizeButton(true).MinimizeButton(true).PinButton(false)
+        .CloseButton(true).MaximizeButton(true).MinimizeButton(true).PinButton(false)
     );
 
     // QValuePanel
@@ -166,7 +166,7 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
         .Right().Layer(10).Row(0).Position(1)
         .BestSize(main_pane_width, 800)
         .MinSize(300, 150)
-        .CloseButton(false).MaximizeButton(true).MinimizeButton(true).PinButton(false)
+        .CloseButton(true).MaximizeButton(true).MinimizeButton(true).PinButton(false)
         //.DestroyOnClose(false) // デフォルトで、✕ボタンPanelを消しても非表示になるだけ
     );
 }
