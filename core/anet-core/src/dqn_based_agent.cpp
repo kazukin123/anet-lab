@@ -102,8 +102,8 @@ NetworkModel::NetworkModel(
     }
     LOG::info() << "======================================";
 
-    LOG::info() << "Number of Main Network parameters: " << policy_net_->parameters().size();
-    LOG::info() << "Number of Target Network parameters: " << target_net_->parameters().size();
+    LOG::info() << "Number of main network parameter tensors: " << policy_net_->parameters().size();
+    LOG::info() << "Number of target network parameter tensors: " << target_net_->parameters().size();
 }
 
 NetworkModel::NetworkModel(
