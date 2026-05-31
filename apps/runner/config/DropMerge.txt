@@ -72,46 +72,18 @@ net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre
 # 実験
 # ==============================================================================
 
-#app.run_name = run_{t}_v2_rbf1_rs
-#app.run_name = run_{t}_v2_pre2
-#app.run_name = run_{t}_v2_s0
-#app.run_name = run_{t}_v2_res10d_noper
-#app.run_name = run_{t}_v2_dbg
-#app.run_name = run_{t}_v2_res10d_v1d
-#app.run_name = run_{t}_v2_rb_v1
-#app.run_name = run_{t}_v2_rb_v2
-#app.run_name = run_{t}_v2_rbv1_AV4e0
-#app.run_name = run_{t}_v2_nnp_st2
-#app.run_name = run_{t}_v2_nnp_st4
-#app.run_name = run_{t}_v2_grad_res10d_2
-#app.run_name = run_{t}_v2
-#app.run_name = run_{t}_v2_stl_cy2
-#app.run_name = run_{t}_v2_stl_cy4
-#app.run_name = run_{t}_admw_p1
-#app.run_name = run_{t}_admw_p2
-#app.run_name = run_{t}_admw_p3
-#app.run_name = run_{t}_admw_p4
-#app.run_name = run_{t}_admw_p5
-#app.run_name = run_{t}_admw_long
-#app.run_name = run_{t}_gs_6444
-#app.run_name = run_{t}_gs_5846
-#app.run_name = run_{t}_ns_3
-#app.run_name = run_{t}_gs_5846_cy7_rr25
-#app.run_name = run_{t}_gs_5846_cy12_dsr2000
-#app.run_name = run_{t}_bt1
-#app.run_name = run_{t}_apx_ds
-#app.run_name = run_{t}_apx_en3o
-#app.run_name = run_{t}_apx_en4s
-#app.run_name = run_{t}_apx_en5g7
-#app.run_name = run_{t}_apx_en6_pt05
-#app.run_name = run_{t}_apx_linear2
-#app.run_name = run_{t}_apx_envnod
-#app.run_name = run_{t}_apx_s100
+#app.run_name = run_{t}_gs_5846_cy12_apx1
 
-E.use_no_drop_timeout_gameover = true
-E.no_drop_timeout_gameover_penalty = -10.0
 
-E.no_drop_timeout_steps = 100
+R.train_policy.use_spatial_exploration = true
+#R.train_policy.use_spatial_exploration = false
+
+
+#E.use_no_drop_timeout_gameover = true
+#E.use_no_drop_timeout_gameover = false
+#E.no_drop_timeout_gameover_penalty = -10.0
+
+#E.no_drop_timeout_steps = 100
 
 #R.reward_scaler.constant_scale = 0.005
 
@@ -131,11 +103,8 @@ E.no_drop_timeout_steps = 100
 #R.eval_policy.uqe_tau_start = 0.5
 #R.eval_policy.uqe_tau_end = 0.5
 
-#E.use_settle_after_drop = true
-E.use_settle_after_drop = false
-
-#R.train_policy.use_spatial_exploration = false
-R.train_policy.use_spatial_exploration = true
+#E.use_settle_after_drop = true   # false
+#E.use_settle_after_drop = false  # false
 
 #R.auto_load_file = ../../runs/DropMerge_SuikaHybrid_Flatten_128.anet
 #R.auto_load_file = ../../runs/run_20260424-175431_v2_stl.anet
@@ -149,7 +118,7 @@ R.train_policy.use_spatial_exploration = true
 #R.auto_load_file = ../../runs/run_20260512-012723_gs_5846_cy10/agent_close.anet
 #R.auto_load_file = ../../runs/run_20260512-171248_gs_5846_cy11/agent_close.anet
 
-E.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 1000
+#E.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 1000
 
 #R.use_dueling_net = false
 
@@ -178,7 +147,7 @@ E.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 10
 
 #E.game_over_grace_step = 60 # 5
 
-R.stucker.stack_count = 4
+#R.stucker.stack_count = 4
 
 #R.stucker.stack_count = 1    #4
 
@@ -194,13 +163,13 @@ R.stucker.stack_count = 4
 
 #R.learner.replay_capacity = 524,280
 
-R.train_policy.uqe_eps_end = 0.0
+#R.train_policy.uqe_eps_end = 0.0
 
 #R.train_policy.uqe_tau_start = 0.95 # 0.95
 #R.train_policy.uqe_tau_end = 0.95   # 0.85
 
-R.learner.per_beta_start = 0.4  # 0.6  0.4→0.6
-R.learner.per_beta_end = 0.6    # 1.0  0.4→0.6
+#R.learner.per_beta_start = 0.4  # 0.6  0.4→0.6
+#R.learner.per_beta_end = 0.6    # 1.0  0.4→0.6
 
 #app.online.exp_pause_step  = 80,000,000      # 80M
 
@@ -262,7 +231,7 @@ R.learner.per_beta_end = 0.6    # 1.0  0.4→0.6
 #R.target.uqe_use_tail_mean = true
 
 #R.train_policy.eps_start = 1.00               # 指数減衰 for EpsilonGreedy  
-#R.train_policy.eps_end = 0.05               # 0.1f 0.05f for EpsilonGreedy
+#R.train_policy.eps_end = 0.05               # 0.1 0.05 for EpsilonGreedy
 #R.train_policy.eps_decay_steps = 10,000,000  # 10M for EpsilonGreedy
 #R.train_policy.eps_decay_steps = 30,000,000  # 30M for EpsilonGreedy
 
@@ -287,8 +256,6 @@ R.learner.per_beta_end = 0.6    # 1.0  0.4→0.6
 
 #R.learner.per_alpha = 0.4      # 0.6
 #R.learner.per_alpha = 0.2      # 0.6
-
-#R.learner.per_beta_start = 0.6
 
 #R.reward_scaler.constant_scale = 1.0         # ★
 #R.reward_scaler.constant_scale = 0.1         # ★
@@ -348,7 +315,7 @@ R.learner.per_beta_end = 0.6    # 1.0  0.4→0.6
 #R.learner.alpha = 1e-4
 
 #R.learner.gamma = 0.999  # ★ 長期戦略考慮
-R.learner.gamma = 0.997   # ★ horizon=333
+#R.learner.gamma = 0.997   # ★ horizon=333
 #R.learner.gamma = 0.995   # ★ horizon=200 
 #R.learner.gamma = 0.99   # ★
 #R.learner.gamma = 0.95   # ★
@@ -445,14 +412,14 @@ A.learner.per_beta_step = 20,000,000              # 20M
 # Env依存 Agent設定
 # ==============================================================================
 
-#A.stucker.use_stacker = true
-#A.stucker.stack_count = 1
+A.stucker.use_stacker = true
+A.stucker.stack_count = 4
 
 A.use_optimistic_target = true         # Q値にtrain_policy（UQE）を反映させるならtrue
 
 A.train_policy.policy_type = UQE
 A.train_policy.uqe_eps_start = 0.60
-A.train_policy.uqe_eps_end = 0.05
+A.train_policy.uqe_eps_end = 0.0     # 0.05 0.0
 A.train_policy.uqe_tau_start = 0.95  # 序盤は超楽観的（攻めの姿勢）
 A.train_policy.uqe_tau_end = 0.85    # 終盤でもかなり楽観的（攻めの姿勢）
 A.train_policy.uqe_use_tail_mean = true
@@ -464,7 +431,7 @@ A.target_policy.uqe_tau_start = 0.85
 
 A.learner.alpha = 1e-4         # ★
 A.learner.weight_decay = 1e-3  # ★
-A.learner.gamma = 0.995        # ★長期戦略必要
+A.learner.gamma = 0.997        # ★長期戦略必要
 A.learner.n_step = 1           # ノイズや結果分散が大きく、STEP毎の正確性が必要なため、N-STEPは使わない
 A.learner.replay_ratio = 1.0
 #A.learner.replay_capacity = 1,000,000
@@ -474,10 +441,10 @@ A.learner.grad_clip_tau = 0.5                # ★厳しめ（報酬を変えた
 A.learner.update_warmup_steps = 25,600       # 256(replay-sample) * 100step
 
 A.learner.per_alpha = 0.2                    # ノイズや結果分散を考慮して低め
-#A.learner.per_beta_start = 0.4  # 0.6       # デフォルト 0.4
+A.learner.per_beta_start = 0.4               # デフォルト 0.4
+A.learner.per_beta_end = 0.6                 # デフォルト 1.0
 A.learner.per_prio_clip_value = 50           # 30 
-#A.learner.use_per_prio_clip = true           # 優先度をクリッピングするか
-
+#A.learner.use_per_prio_clip = true           #  true 優先度をクリッピングするか
 
 A.reward_scaler.use_dynamic_scaling = false
 A.reward_scaler.use_auto_post_scale = false
@@ -485,7 +452,7 @@ A.reward_scaler.constant_scale = 0.001       # ★（報酬値を変えたら要
 A.reward_scaler.use_clipping = false
 A.reward_scaler.clip_range = 10.0
 
-A.model.soft_update_tau = 0.005                 # 0.001 高め
+A.model.soft_update_tau = 0.005              # 0.001 高め
 
 
 
@@ -780,18 +747,6 @@ net.branch.[vector_feature].bind = vector
 net.body.output.[features] = main_feature
 
 
-#net.branch.SuikaResNet4064_test.bind = grid, vector_feature
-#net.branch.SuikaResNet4064_test.structure = ConvInit32 > SiLU > ResBlock32 > ConvCompress > SiLU > Flatten
-
-#net.branch.SuikaResNet4064_10d_v1.bind = v1_flat_obs
-#net.branch.SuikaResNet4064_10d_v1.structure =  Embed4064 > ConvInit32 > SiLU > ResBlock32 > ResBlock32d2 > ResBlock32d4 > ResBlock32 > ConvCompress > SiLU > Flatten > LinearOut
-#net.branch.SuikaResNet4064_10d_v1.auto_format = false
-
-#net.branch.SuikaHybrid_Flatten_128_v1.bind = v1_flat_obs
-#net.branch.SuikaHybrid_Flatten_128_v1.structure   = Embed4064 >ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
-#net.branch.SuikaHybrid_Flatten_128_v1.auto_format = false
-
-
 net.branch.SuikaResNet_10d.bind = grid, vector_feature
 net.branch.SuikaResNet_10d.structure =  ConvInit32 > SiLU > ResBlock32 > ResBlock32d2 > ResBlock32d4 > ResBlock32 > ConvCompress > SiLU > Flatten > LinearOut
 
@@ -825,7 +780,7 @@ M.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema clip:10.0 
 M.[32_agent_base/04_uqe_tau_target] = $agent target_policy.uqe_tau @learn $exp_step
 
 M.[37_agent_qtd/03_td_mean_ema] = td_mean @learn $ema clip:0.02
-M.[37_agent_qtd/05_td_std_ema] = td_std @learn $ema clip:0.02
+M.[37_agent_qtd/05_td_std_ema] = td_std @learn $ema clip:0.05
 M.[38_agent_loss/02_loss_ema] = loss @learn  $ema clip:0.01
 
 M.[42_env/01_ep_maxrank_max]  = $env max.ep_max_rank @train
@@ -979,9 +934,9 @@ metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.min_block_size = 58
 app.online.eval_panel.auto_start = false
 app.batchrun.eval_panel.auto_start = false
 
-QValuePanel.row_height = 19
+QValuePanel.row_height = 17
 
-app.online.train_panel.fps = 30
+app.online.train_panel.fps = 15
 
 
 # ==============================================================================
@@ -1048,7 +1003,7 @@ DropMergeEnv.heavy.fruit_densities = 10.0 5.0 3.0 1.8 1.1 0.7 0.45 0.30 0.22 0.1
 #DropMergeEnv.baseline.fruit_scores = 0.01 0.02 0.05 0.1 0.2 0.5 1.5 4.0 10.0 30.0 100.0
 #DropMergeEnv.baseline.fruit_scores = 0.0001 0.0001 0.0001 0.0001 0.0001 0.0001 0.0001 1.0  4.0  10.0 100.0
 #DropMergeEnv.baseline.fruit_scores  = 0.001  0.002  0.005  0.01   0.05   0.15   0.50   1.50 4.00 10.0 100.0
-DropMergeEnv.baseline.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 820.0  # 本家ベースで「Rank N+1 のスコア ＞ Rank N のスコア × 2」になるよう調整
+DropMergeEnv.baseline.fruit_scores = 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102.3  205.0 1000.0  # 本家ベースで「Rank N+1 のスコア ＞ Rank N のスコア × 2」になるよう調整
 
 DropMergeEnv.baseline.use_fast_move = true
 DropMergeEnv.baseline.use_instant_drop = true
@@ -1070,10 +1025,10 @@ DropMergeEnv.baseline.game_over_penalty = -10.0   # GameOverペナルティ
 #DropMergeEnv.baseline.game_over_penalty = 0.0     # GameOverペナルティ 与えるとDROPしないNEETになってしまう場合が多い
 
 DropMergeEnv.baseline.action_mode = direct_noop  # move move_fast direct direct_noop
-DropMergeEnv.baseline.use_settle_after_drop = true
+DropMergeEnv.baseline.use_settle_after_drop = false
 DropMergeEnv.baseline.settle_velocity_threshold = 0.5 # 0.1 安定判定の線速度閾値 (m/s)
 DropMergeEnv.baseline.damping = 1.0                # 0.5 移動と回転の空気抵抗 0だとピクピクする場合がある
-DropMergeEnv.baseline.no_drop_timeout_steps = 500 # 物性安定待ち挙動に対応
+DropMergeEnv.baseline.no_drop_timeout_steps = 100  # 物性安定待ち挙動に対応
 
 
 # --- DropMergeEnv 本家風
@@ -1097,7 +1052,7 @@ DropMergeEnv.action_mode = move_fast     # move move_fast direct direct_noop
 DropMergeEnv.drop_divisions = -1         # DROP座標の分割数（-1でgrid_colsと同じ）
 DropMergeEnv.max_step = 20000            # エピソード打ち切りステップ数 スイカ以上のためには10000以上推奨
 DropMergeEnv.no_drop_timeout_steps = 200 # 500 DROPしないでいると強制エピソード打ち切りとするステップ数
-DropMergeEnv.use_no_drop_timeout_gameover = false # no_drop_timeout時にtruncatedではなくdoneとして扱うか
+DropMergeEnv.use_no_drop_timeout_gameover = true # no_drop_timeout時にtruncatedではなくdoneとして扱うか
 DropMergeEnv.use_fast_move = false
 DropMergeEnv.use_instant_drop = false
 DropMergeEnv.use_dropper_x_grid = true
@@ -1112,7 +1067,7 @@ DropMergeEnv.damping = 0.5              # 移動と回転の空気抵抗 0だと
 DropMergeEnv.game_over_penalty = 0      # ★ -10.0  GameOverペナルティ
 DropMergeEnv.time_penalty = -0.0001     # ★ 0.0 時間ペナルティ
 DropMergeEnv.noop_penalty = 0.0         # NOOPペナルティ
-DropMergeEnv.no_drop_timeout_gameover_penalty = 0.0 # no_drop_timeoutをdone扱いした時の罰報酬
+DropMergeEnv.no_drop_timeout_gameover_penalty = -10.0 # use_no_drop_timeout_gameover = true時のGameOver罰報酬
 DropMergeEnv.noop_override = false      # NOOPを中央方向移動に変換するか
 DropMergeEnv.game_over_grace_step = 5   # ゲームオーバー猶予ステップ数
 DropMergeEnv.drop_noise = 0.01        # Drop時のX座標ノイズ ゼロにするとAgentが局所解のタワー作りにハマってしまいがち

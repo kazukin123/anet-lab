@@ -118,10 +118,10 @@ net.block.[ResA].res.padding = 0
 net.block.[ResA].res.dilation = 1
 net.block.[ResA].res.conv1_bias = true
 net.block.[ResA].res.conv2_bias =  true
-net.block.[ResA].res.activation = silu  # silu relu swish
-net.block.[ResA].res.activation_mode = post  # pre
-net.block.[ResA].res.norm_type);
-net.block.[ResA].res.group_norm_groups);
+net.block.[ResA].res.activation = silu      # silu relu swish
+net.block.[ResA].res.activation_mode = post # pre
+net.block.[ResA].res.norm_type = group      # none(default), batch, group
+net.block.[ResA].res.group_norm_groups = 4  # for norm_type=group
 
 
 # --- Transformer / ViT Components ---
