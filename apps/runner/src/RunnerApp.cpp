@@ -1,5 +1,6 @@
 ﻿// RunnerApp.cpp
 #include "RunnerApp.hpp"
+#include <exception>
 #include <filesystem>
 #include <wx/stdpaths.h>
 #include <wx/cmdline.h>
@@ -294,16 +295,38 @@ void RunnerApp::SetupLogging()
 
 int64_t RunnerApp::SaveAgent(const std::string& file_name)
 {
+    const auto file_path = GetRunDir() / file_name;
+    auto log_file_path = file_path.lexically_relative(GetProjectRootDir());
+    if (log_file_path.empty()) {
+        log_file_path = file_name;
+    }
+    const auto log_file_path_str = log_file_path.string();
+
+    LOG::info() << "Started saving agent: file=" << log_file_path_str;
+    wxLog::FlushActive();
+
     wxBeginBusyCursor();
 
-    auto agent = GetRunManager().GetAgent();
-    auto os = wxGetApp().GetOutputStream(file_name);
-    anet::OutputArchive archive(os, file_name);
-    auto size = agent->Save(archive);
-    os.close();
-    
+    int64_t size = 0;
+    try {
+        auto agent = GetRunManager().GetAgent();
+        auto os = wxGetApp().GetOutputStream(file_name);
+        anet::OutputArchive archive(os, file_name);
+        size = agent->Save(archive);
+        os.close();
+    } catch (const std::exception& e) {
+        wxEndBusyCursor();
+        LOG::error() << "Failed to save agent: file=" << log_file_path_str << " error=" << e.what();
+        throw;
+    } catch (...) {
+        wxEndBusyCursor();
+        LOG::error() << "Failed to save agent: file=" << log_file_path_str;
+        throw;
+    }
+
     wxEndBusyCursor();
 
+    LOG::info() << "Finished saving agent: file=" << log_file_path_str << " size=" << size << " bytes";
     return size;
 }
 
@@ -456,4 +479,3 @@ bool RunnerApp::WriteLastRunName(const std::string& run_name) const
 }
 
 wxIMPLEMENT_APP(RunnerApp);
-
