@@ -162,7 +162,7 @@ void QValuePanel::InitLayout()
     // ====================================================================
     grid_ = new wxGrid(this, wxID_ANY);
     SetupGrid();
-    main_sizer->Add(grid_, 0, wxEXPAND | wxALL, 5);
+    main_sizer->Add(grid_, 0, wxEXPAND, 0);
 
     // ====================================================================
     // 右側: 縦並び (ヘッダーエリア + ヒートマップエリア)
@@ -172,53 +172,57 @@ void QValuePanel::InitLayout()
     // --------------------------------------------------
     // 右上: ヘッダーエリア (チェックボックス配置)
     // --------------------------------------------------
-    auto* header_panel = new wxPanel(this, wxID_ANY);
-    header_panel->SetMinSize(wxSize(-1, config_->row_height));
-    header_panel->SetMaxSize(wxSize(-1, config_->row_height));
+    header_panel_ = new wxPanel(this, wxID_ANY);
 
     auto* header_sizer = new wxBoxSizer(wxHORIZONTAL);
 
     // Hist CheckBox
-    hist_check_ = new wxCheckBox(header_panel, wxID_ANY, "Hist");
+    hist_check_ = new wxCheckBox(header_panel_, wxID_ANY, "Hist");
     hist_check_->SetValue(kHistDefaultCheck);
     hist_check_->Bind(wxEVT_CHECKBOX, &QValuePanel::OnCheck, this);
     header_sizer->Add(hist_check_, 0, wxALIGN_CENTER_VERTICAL | wxALL, 0);
 
     // Advantage CheckBox
-    adv_check_ = new wxCheckBox(header_panel, wxID_ANY, "Advantage");
+    adv_check_ = new wxCheckBox(header_panel_, wxID_ANY, "Advantage");
     adv_check_->SetValue(kAdvDefaultCheck);
     adv_check_->Bind(wxEVT_CHECKBOX, &QValuePanel::OnCheck, this);
     header_sizer->Add(adv_check_, 0, wxALIGN_CENTER_VERTICAL | wxALL, 0);
 
     // Log Scale CheckBox
-    log_scale_check_ = new wxCheckBox(header_panel, wxID_ANY, "Log Scale");
+    log_scale_check_ = new wxCheckBox(header_panel_, wxID_ANY, "Log Scale");
     log_scale_check_->SetValue(kLogScaleDefaultCheck);
     log_scale_check_->Bind(wxEVT_CHECKBOX, &QValuePanel::OnCheck, this);
     header_sizer->Add(log_scale_check_, 0, wxALIGN_CENTER_VERTICAL | wxALL, 0);
 
     // Auto Range CheckBox
-    auto_range_check_ = new wxCheckBox(header_panel, wxID_ANY, "Auto Range");
+    auto_range_check_ = new wxCheckBox(header_panel_, wxID_ANY, "Auto Range");
     auto_range_check_->SetValue(kAutoRangeDefaultCheck);
     auto_range_check_->Bind(wxEVT_CHECKBOX, &QValuePanel::OnCheck, this);
     header_sizer->Add(auto_range_check_, 0, wxALIGN_CENTER_VERTICAL | wxALL, 0);
 
 	// Reset Range Button
-    reset_range_button_ = new wxButton(header_panel, wxID_ANY, "Reset Range", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+    reset_range_button_ = new wxButton(header_panel_, wxID_ANY, "Reset Range", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
     reset_range_button_->Bind(wxEVT_BUTTON, &QValuePanel::OnResetRangeClick, this);
     header_sizer->Add(reset_range_button_, 0, wxALIGN_CENTER_VERTICAL | wxALL, 0);
 
     // ヘッダパネルを追加
-    header_panel->SetSizer(header_sizer);
-    right_sizer->Add(header_panel, 0, wxEXPAND | wxTOP | wxRIGHT, 5);
+    header_panel_->SetSizer(header_sizer);
+    const int header_height = std::max(config_->row_height, header_sizer->CalcMin().GetHeight());
+    header_panel_->SetMinSize(wxSize(-1, header_height));
+    header_panel_->SetMaxSize(wxSize(-1, header_height));
+    grid_->SetColLabelSize(header_height);
+    right_sizer->Add(header_panel_, 0, wxEXPAND, 0);
 
     // --------------------------------------------------
     // 右下: HeatMapパネル
     // --------------------------------------------------
     heatmap_panel_ = new QValueHeatMapPanel(this);
-    right_sizer->Add(heatmap_panel_, 1, wxEXPAND | wxBOTTOM | wxRIGHT, 5);
+    right_sizer->Add(heatmap_panel_, 1, wxEXPAND, 0);
 
     main_sizer->Add(right_sizer, 1, wxEXPAND, 0);
     SetSizer(main_sizer);
+    Layout();
+    RefreshLayoutChildren();
 }
 
 void QValuePanel::SetupGrid()
@@ -515,7 +519,7 @@ void QValuePanel::Update()
     int current_height = grid_->GetSize().GetHeight();
     if (current_height < 50) {
         // UI初期化直後でまだSizerが計算されていない場合は親パネルの高さを参照
-        current_height = GetClientSize().GetHeight() - 10;
+        current_height = GetClientSize().GetHeight();
     }
 
     // 中身が実際の高さを超えて「縦スクロールバーが出現する」場合のみ幅を加算
@@ -530,7 +534,7 @@ void QValuePanel::Update()
 
     // Sizer再レイアウト
     Layout();
-
+    RefreshLayoutChildren();
 
     // --------------------------------------------------------
     // HeatMapデータ加工プロセス
@@ -775,6 +779,42 @@ void QValuePanel::SyncHeatMapScroll(bool refresh_grid)
     }
 }
 
+void QValuePanel::RefreshLayoutChildren()
+{
+    // wxGrid とネイティブコントロールはレイアウト直後に古い描画が残ることがあるため、
+    // QValuePanel 内の子ウィンドウへ背景消去付きの再描画を明示的に要求する。
+    Refresh(true);
+    if (header_panel_) header_panel_->Refresh(true);
+    if (hist_check_) hist_check_->Refresh(true);
+    if (adv_check_) adv_check_->Refresh(true);
+    if (log_scale_check_) log_scale_check_->Refresh(true);
+    if (auto_range_check_) auto_range_check_->Refresh(true);
+    if (reset_range_button_) reset_range_button_->Refresh(true);
+
+    if (grid_) {
+        grid_->Refresh(true);
+        if (auto* grid_window = grid_->GetGridWindow()) {
+            grid_window->Refresh(true);
+        }
+    }
+    if (heatmap_panel_) heatmap_panel_->Refresh(true);
+
+    wxPanel::Update();
+    if (header_panel_) header_panel_->Update();
+    if (hist_check_) hist_check_->Update();
+    if (adv_check_) adv_check_->Update();
+    if (log_scale_check_) log_scale_check_->Update();
+    if (auto_range_check_) auto_range_check_->Update();
+    if (reset_range_button_) reset_range_button_->Update();
+    if (grid_) {
+        grid_->Update();
+        if (auto* grid_window = grid_->GetGridWindow()) {
+            grid_window->Update();
+        }
+    }
+    if (heatmap_panel_) heatmap_panel_->Update();
+}
+
 bool QValuePanel::IsHistogram() const
 {
     return hist_check_->GetValue();
@@ -851,6 +891,7 @@ void QValuePanel::OnGridKeyUp(wxKeyEvent& event)
 void QValuePanel::OnSize(wxSizeEvent& event)
 {
     Layout();
+    RefreshLayoutChildren();
     CallAfter(&QValuePanel::SyncHeatMapScroll, true);
     event.Skip();
 }
@@ -861,4 +902,3 @@ void QValuePanel::OnCloseWindow(wxCloseEvent& event)
         notifier_->Detach(observer_);
     }
 }
-

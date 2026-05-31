@@ -77,6 +77,7 @@ private:
     std::optional<QValueData> CreateData(const anet::rl::TrainEvent& event);
     void ResetRange();
     void SyncHeatMapScroll(bool refresh_grid);
+    void RefreshLayoutChildren();
 private:
     void OnSize(wxSizeEvent& event);
     void OnCloseWindow(wxCloseEvent& event);
@@ -95,6 +96,7 @@ private:
     wxCheckBox* log_scale_check_;
     wxCheckBox* auto_range_check_;
     wxButton* reset_range_button_;
+    wxPanel* header_panel_;
     QValueHeatMapPanel* heatmap_panel_;
 
     std::unique_ptr<Config> config_;
