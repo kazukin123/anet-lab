@@ -457,51 +457,6 @@ static bool IsForTarget(anet::rl::RunMode run_mode)
     return run_mode == anet::rl::RunMode::Eval1;
 }
 
-anet::rl::BatchActionInfo DefaultDQNAgent::MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const
-{
-    ProfileRange r1("DefaultDQNAgent::MakeAction");
-    //ANET_ASSERT_SHAPE(state.obs, { ANET_SHAPE_ANY, state_dim_ });
-
-    // 共有ロック＆Grad抑止
-    std::shared_lock<std::shared_mutex> lock(*mutex_);
-    torch::NoGradGuard ng;
-
-    // obsを生成
-    auto obs = state.obs.To(device_);
-    if (ctx) obs = ctx->PushObservation(state);
-
-    // Normalize observations
-    auto norm_obs = obs_norm_->Normalize(obs);
-    //ANET_LOG_DEBUG("norm_obs=" << norm_obs.ToDefString());
-
-    // 行動選択
-    BatchActionInfo act_info;
-
-    // RunMode に応じて Policy を切り替える
-    auto rnd = ctx->GetRandomGenerator();
-    auto run_mode = (ctx != nullptr) ? ctx->GetRunMode() : anet::rl::RunMode::Train;
-    anet::TensorDict trace;
-    anet::TraceSink sink = anet::rl::MakeActionTraceSink(trace);
-    if (anet::rl::IsEval(run_mode)) {
-        auto use_target = IsForTarget(run_mode);
-        auto network = use_target ? model_->GetTargetNetwork() : model_->GetMainNetwork();
-        act_info = eval_policy_->SelectAction(norm_obs, false, network, rnd, sink);
-    } else {
-        // Train向けでは train_policy_ と MainNetwork で固定
-        act_info = train_policy_->SelectAction(norm_obs, false, model_->GetMainNetwork(), rnd, sink);
-    }
-
-    // ObservationをAuxに詰める
-    act_info.GetAuxData()["raw_obs"] = anet::rl::ToUnifiedObservation(obs);     // スタック済・正規化前のObservation
-    if (obs_norm_ != nullptr) {
-        act_info.GetAuxData()["norm_obs"] = anet::rl::ToUnifiedObservation(norm_obs);       // スタック済・正規化済のObservation
-    }
-    anet::rl::AppendTraceAux(act_info.GetAuxData(), trace);
-
-    // ActionInfoを返す
-    return act_info;
-}
-
 std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, bool clone_model, std::optional<torch::Device> device) const
 {
     // Contextを生成

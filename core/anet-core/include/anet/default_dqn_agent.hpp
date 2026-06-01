@@ -234,7 +234,6 @@ namespace anet::rl::dqn {
     private:
         std::shared_ptr<ActionContext> CreateActionContext(
             const BatchEnvSpec& batch_env_spec, RunMode run_mode = RunMode::Train, std::optional<torch::Device> device = std::nullopt) const;
-        anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const;
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences);
     private:
         std::shared_ptr<anet::rl::dqn::ActionPolicy> CreateActionPolicy(
