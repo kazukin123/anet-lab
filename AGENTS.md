@@ -122,8 +122,9 @@ Agent 関連の変数・オブジェクト追加時は、必ず以下の資料�
 
 主な想定環境は Windows x64 です。
 MSVC 環境が初期化済みのシェルでは CMake Presets を使ってビルドします。
-AI エージェントの実行シェルや通常の PowerShell からビルドを試す場合は、後述の Windows/MSVC 注意事項に従い、
-必ず `VsDevCmd.bat` を `call` してから CMake を実行してください。
+AI エージェントの実行シェルや通常の PowerShell からビルドを試す場合は、素の
+`cmake --build` を一度試すのではなく、後述の Windows/MSVC 注意事項に従い、最初から
+`VsDevCmd.bat` を `call` してから CMake を実行してください。
 
 ```powershell
 cmake --preset x64-Debug
@@ -152,6 +153,8 @@ libtorch のパスは以下の環境変数で指定できます。
 ## 検証
 
 コード変更後は、可能な限り少なくとも Debug ビルドを実行してください。
+AI エージェントが検証する場合は、素の PowerShell から次の `cmake --build` を直接実行せず、
+Windows/MSVC 注意事項の `VsDevCmd.bat` 経由コマンドを使ってください。
 
 ```powershell
 cmake --build --preset x64-Debug
@@ -198,7 +201,7 @@ cmake --build --preset x64-Debug --target doc
 
 - 変更したファイルを要約する。
 - 実行したビルド・検証コマンドを報告する。
-- ビルドを試す場合は、素の PowerShell から `cmake --build` せず、`VsDevCmd.bat` を `call` して MSVC 環境を初期化する。
+- ビルドを試す場合は、素の PowerShell から `cmake --build` せず、PowerShell-safe な `cmd /s /c 'call "...VsDevCmd.bat" ... && cmake --build ...'` 形式で MSVC 環境を初期化する。
 - 実行できなかった検証があれば理由を明記する。
 
 ## AI エージェントでのビルド注意事項 (Windows/MSVC)
@@ -211,20 +214,27 @@ include パスが `INCLUDE` に入っていない場合があります。この�
 fatal error C1083: Cannot open include file: 'type_traits': No such file or directory
 ```
 
-AI エージェントから C++ ビルドを試す場合は、必ず `cmd /s /c` 内で
-`call "...\VsDevCmd.bat" -arch=x64 -host_arch=x64` を先に実行し、同じ `cmd`
-プロセスで CMake ビルドを実行してください。`cl.exe` だけが見えていても
+AI エージェントから C++ ビルドを試す場合は、PowerShell では外側を単一引用符にし、必ず
+`cmd /s /c 'call "...\VsDevCmd.bat" -arch=x64 -host_arch=x64 && ...'` の形で実行してください。
+`VsDevCmd.bat` のパスは内側の二重引用符で囲み、MSVC 初期化と CMake ビルドを同じ `cmd`
+プロセスで実行してください。`cl.exe` だけが見えていても
 `INCLUDE`、`LIB`、Windows SDK などの環境が不足することがあるため、素の PowerShell から
 `cmake --build` を実行しないでください。
 
 ```powershell
-cmd /s /c "call `"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat`" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug --target anet-core-test"
+cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug --target anet-core-test'
 ```
 
 他のターゲットをビルドする場合も同じ形式を使います。
 
 ```powershell
-cmd /s /c "call `"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat`" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug"
+cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug'
+```
+
+次のように外側と内側の二重引用符が衝突する形は使わないでください。
+
+```powershell
+cmd /s /c "call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug"
 ```
 
 AI エージェントの PowerShell から `Launch-VsDevShell.ps1` を使う方法には依存しないでください。
