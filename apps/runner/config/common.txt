@@ -82,6 +82,8 @@ backend.use_tf32_cublas = true      # GPUが対応していれば、ほぼ劣化
 backend.use_tf32_cudnn = true       # GPUが対応していれば、ほぼ劣化なしで高速化
 backend.cudnn_deterministic = true  # false:非決定論的だが高速化　               true:決定論的だが遅い
 backend.cudnn_benchmark = false     # true:非決定論的だが高速化(する場合がある)　false:決定論的だが遅い
+backend.cuda_launch_blocking = inherit # on:性能を犠牲にしてCUDA呼び出しを同期化してデバッグしやすくする inhert:環境変数 CUDA_LAUNCH_BLOCKING=1を引き継ぐ
+#backend.cuda_launch_blocking = on
 
 #backend.use_tf32_cublas = true
 #backend.use_tf32_cudnn = true
