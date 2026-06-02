@@ -9,6 +9,16 @@ namespace LOG = anet::log;
 
 namespace anet {
 
+    namespace {
+
+    void LogReadFailure(const std::string& key, const std::string& value, const char* expected_type)
+    {
+        LOG::warn() << "ConfigData::Read failed. key=" << key
+            << " value=\"" << value << "\" expected=" << expected_type;
+    }
+
+    } // namespace
+
     // train.eval.[greedy].interval = 100
     // train.eval.[greedy].run_mode = 1
     // train.eval.[greedy].env.init.x_range = 0.0
@@ -18,6 +28,149 @@ namespace anet {
     //   tag = greedy
 	//   sub_key = interval, run_mode, env.init.x_range
 	//   value = 100, 1, 0.0
+
+    bool ConfigData::Read(const std::string& key, std::string& value, const std::string& defaultValue) const
+    {
+        auto it = map_.find(key);
+        if (it == map_.end()) { value = defaultValue; return false; }
+        value = (*it).second;
+        return true;
+    }
+
+    bool ConfigData::Read(const std::string& key, int& value, int defaultValue) const
+    {
+        auto it = map_.find(key);
+        if (it == map_.end()) { value = defaultValue; return false; }
+        auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
+        try { value = std::stoi(str.c_str()); }
+        catch (...) {
+            LogReadFailure(key, (*it).second, "int");
+            value = defaultValue;
+            return false;
+        }
+        return true;
+    }
+
+    bool ConfigData::Read(const std::string& key, float& value, float defaultValue) const
+    {
+        auto it = map_.find(key);
+        if (it == map_.end()) { value = defaultValue; return false; }
+        auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
+        try { value = std::stof(str.c_str()); }
+        catch (...) {
+            LogReadFailure(key, (*it).second, "float");
+            value = defaultValue;
+            return false;
+        }
+        return true;
+    }
+
+    bool ConfigData::Read(const std::string& key, double& value, double defaultValue) const
+    {
+        auto it = map_.find(key);
+        if (it == map_.end()) { value = defaultValue; return false; }
+        auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
+        try { value = std::stod(str.c_str()); }
+        catch (...) {
+            LogReadFailure(key, (*it).second, "double");
+            value = defaultValue;
+            return false;
+        }
+        return true;
+    }
+
+    bool ConfigData::Read(const std::string& key, uint64_t& value, uint64_t defaultValue) const
+    {
+        auto it = map_.find(key);
+        if (it == map_.end()) { value = defaultValue; return false; }
+        auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
+        try { value = std::stoull(str); }
+        catch (...) {
+            LogReadFailure(key, (*it).second, "uint64_t");
+            value = defaultValue;
+            return false;
+        }
+        return true;
+    }
+
+    bool ConfigData::Read(const std::string& key, int64_t& value, int64_t defaultValue) const
+    {
+        auto it = map_.find(key);
+        if (it == map_.end()) { value = defaultValue; return false; }
+        auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
+        try { value = std::stoll(str); } catch (...) {
+            LogReadFailure(key, (*it).second, "int64_t");
+            value = defaultValue;
+            return false;
+        }
+        return true;
+    }
+
+    bool ConfigData::Read(const std::string& key, bool& value, bool defaultValue) const
+    {
+        auto it = map_.find(key);
+        if (it == map_.end()) { value = defaultValue; return false; }
+        const auto& v = (*it).second;
+        if (v == "true" || v == "TRUE" || v == "1" || v == "yes" || v == "on") { value = true; return true; }
+        if (v == "false" || v == "FALSE" || v == "0" || v == "no" || v == "off") { value = false; return true; }
+        LogReadFailure(key, v, "bool");
+        value = defaultValue;
+        return false;
+    }
+
+    bool ConfigData::Read(const std::string& key, std::vector<float>& value, std::vector<float> defaultValue) const
+    {
+        auto it = map_.find(key);
+        if (it == map_.end()) { value = defaultValue; return false; }
+        try {
+            auto str_vec = anet::Split((*it).second, { " ", "　" }, true);
+            value.resize(str_vec.size());
+            for (int i = 0; i < value.size(); i++) {
+                value[i] = std::stof(str_vec[i]);
+            }
+        } catch (...) {
+            LogReadFailure(key, (*it).second, "float vector");
+            value = defaultValue;
+            return false;
+        }
+        return true;
+    }
+
+    bool ConfigData::Read(const std::string& key, std::vector<int64_t>& value, std::vector<int64_t> defaultValue) const
+    {
+        auto it = map_.find(key);
+        if (it == map_.end()) { value = defaultValue; return false; }
+        try {
+            auto str_vec = anet::Split((*it).second, { " ", "　" }, true);
+            value.resize(str_vec.size());
+            for (int i = 0; i < value.size(); i++) {
+                value[i] = std::stoull(str_vec[i]);
+            }
+        } catch (...) {
+            LogReadFailure(key, (*it).second, "int64_t vector");
+            value = defaultValue;
+            return false;
+        }
+        return true;
+    }
+
+    bool ConfigData::Read(const std::string& key, std::vector<std::string>& value, std::vector<std::string> defaultValue) const
+    {
+        auto it = map_.find(key);
+        if (it == map_.end()) { value = defaultValue; return false; }
+        try {
+            auto str_vec = anet::Split((*it).second, { " ", "　" }, true);
+            value.resize(str_vec.size());
+            for (int i = 0; i < value.size(); i++) {
+                value[i] = str_vec[i];
+            }
+        } catch (...) {
+            LogReadFailure(key, (*it).second, "string vector");
+            value = defaultValue;
+            return false;
+        }
+        return true;
+    }
 
     std::unordered_map<std::string, ConfigData> ConfigData::MakeSubConfigData(const std::string& prefix) const
     {
