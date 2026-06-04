@@ -450,7 +450,7 @@ torch::Tensor anet::rl::dqn::ActionPolicy::GetSpatialTauTensor(int64_t num_envs,
 
 torch::Tensor anet::rl::dqn::ActionPolicy::MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const
 {
-    ProfileRange  r("ActionPolicy::MakeEpsilonGreedyAction");
+    ProfileRange r("ActionPolicy::MakeEpsilonGreedyAction");
 
     // epsilongがゼロ(十分小さい)場合はGreedy（乱数生成影響を排除）
     if (epsilon <= std::numeric_limits<float>::epsilon()) {
@@ -494,7 +494,7 @@ torch::Tensor anet::rl::dqn::ActionPolicy::MakeEpsilonGreedyAction(
 
 std::shared_ptr<anet::rl::BatchActionInfo> anet::rl::dqn::ActionPolicy::MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const
 {
-    ProfileRange  r("ActionPolicy::MakeActionInfo");
+    ProfileRange r("ActionPolicy::MakeActionInfo");
 
     auto action_info = std::make_shared<DQNActionInfo>(action_values);
     auto& aux = action_info->GetAuxData();
@@ -1181,11 +1181,10 @@ PerPriorityUpdateInfo Learner::MakePerPriorityUpdateInfo(const anet::rl::Experie
 
 PerPriorityUpdateInfo Learner::UpdatePerPriorities(const anet::rl::ExperienceSamples& samples, const torch::Tensor& td_error)
 {
-    PerPriorityUpdateInfo info;
-    {
-        ANET_PROFILE_RANGE(r_make_info, "Learner::UpdatePerPriorities.makeInfo");
-        info = MakePerPriorityUpdateInfo(samples, td_error);
-    }
+    ANET_PROFILE_RANGE(r_make_info, "Learner::UpdatePerPriorities.makeInfo");
+    PerPriorityUpdateInfo info = MakePerPriorityUpdateInfo(samples, td_error);
+    r_make_info.End();
+
     if (!config_.use_per) {
         return info;
     }
@@ -1193,26 +1192,24 @@ PerPriorityUpdateInfo Learner::UpdatePerPriorities(const anet::rl::ExperienceSam
     const int64_t batch_size = info.per_minibatch_size;
 
     // ReplayBufferのSumTreeはCPU側で更新するため、ここがPER更新の同期境界になる
-    std::vector<int64_t> indices_vec;
-    {
-        ANET_PROFILE_RANGE(r_indices_cpu, "Learner::UpdatePerPriorities.indicesCpu");
+    ANET_PROFILE_RANGE_PREV(r_indices_cpu, "Learner::UpdatePerPriorities.indicesCpu", r_make_info);
+    const std::vector<int64_t> indices_vec = [&samples, batch_size]() {
         auto indices_cpu = samples.indices.cpu();   /// @todo PERの優先度更新にはCPU値が必要なので、ここで同期が発生する
         auto indices_ptr = indices_cpu.data_ptr<int64_t>();
-        indices_vec.assign(indices_ptr, indices_ptr + batch_size);
-    }
+        return std::vector<int64_t>(indices_ptr, indices_ptr + batch_size);
+    }();
 
-    std::vector<float> priorities_vec;
-    {
-        ANET_PROFILE_RANGE(r_priorities_cpu, "Learner::UpdatePerPriorities.prioritiesCpu");
+    ANET_PROFILE_RANGE_PREV(r_priorities_cpu, "Learner::UpdatePerPriorities.prioritiesCpu", r_indices_cpu);
+    const std::vector<float> priorities_vec = [&info, batch_size]() {
         auto prios_cpu = info.per_priorities.cpu();
         auto prios_ptr = prios_cpu.data_ptr<float>();
-        priorities_vec.assign(prios_ptr, prios_ptr + batch_size);
-    }
+        return std::vector<float>(prios_ptr, prios_ptr + batch_size);
+    }();
 
-    {
-        ANET_PROFILE_RANGE(r_update_tree, "Learner::UpdatePerPriorities.updateTree");
-        replay_buffer_->UpdatePriorities(indices_vec, priorities_vec);
-    }
+    ANET_PROFILE_RANGE_PREV(r_update_tree, "Learner::UpdatePerPriorities.updateTree", r_priorities_cpu);
+    replay_buffer_->UpdatePriorities(indices_vec, priorities_vec);
+    r_update_tree.End();
+
     return info;
 }
 
