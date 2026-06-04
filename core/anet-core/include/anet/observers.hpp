@@ -303,13 +303,15 @@ namespace anet::rl {
         virtual ~MetricsLogObserverBase() = default;
     protected:
         void OnUpdate(const UpdateEvent& event);
+        void OnTrainUpdate(const TrainEvent& event);
         void OnGenericUpdate(
             const StepCounts& counts,
             std::shared_ptr<const Agent> agent,
             std::shared_ptr<const Runner> runner,
             std::shared_ptr<const BatchEnv> env,
             const BatchExperience* experience,
-            const BatchUpdateResultList* update_result_list);
+            const BatchUpdateResultList* update_result_list,
+            std::shared_ptr<const BatchActionInfo> action_info = nullptr);
     private:
         using MetricsData = std::pair<step_t, std::optional<float>>;
         using MetricsDataList = std::vector<MetricsData>;
@@ -320,7 +322,8 @@ namespace anet::rl {
             std::shared_ptr<const Runner> runner,
             std::shared_ptr<const BatchEnv> env,
             const BatchExperience* experience,
-            const BatchUpdateResultList* update_result_list);
+            const BatchUpdateResultList* update_result_list,
+            std::shared_ptr<const BatchActionInfo> action_info);
 
         MetricsData GetMetricsData(
             const StepCounts& counts,
@@ -328,6 +331,7 @@ namespace anet::rl {
             std::shared_ptr<const Runner> runner,
             std::shared_ptr<const BatchEnv> env,
             const BatchExperience* experience,
+            std::shared_ptr<const BatchActionInfo> action_info,
             EventField event_field);
         MetricsDataList GetMetricsDataListFromUpdateResultList(
             const StepCounts& counts,
@@ -348,7 +352,7 @@ namespace anet::rl {
             anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
             int interval, bool is_ema, float ema_alpha, std::optional<float> clip);
             
-        void OnTrain(const TrainEvent& event) override { OnUpdate(event); }
+        void OnTrain(const TrainEvent& event) override { OnTrainUpdate(event); }
         std::string GetClassName() const override { return "MetricsLogTrainObserver"; }
         virtual std::string ToString() const override { return ToStringInternal(); }
     };

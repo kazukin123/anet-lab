@@ -301,13 +301,22 @@ namespace anet::rl::dqn {
     // ActionPolicy
     // ======================================================
 
+    class DQNActionInfo final : public anet::rl::BatchActionInfo, public anet::ModuleBase {
+    public:
+        using anet::rl::BatchActionInfo::BatchActionInfo;
+
+        std::shared_ptr<anet::rl::BatchActionInfo> To(torch::Device device) const override;
+        std::shared_ptr<anet::rl::BatchActionInfo> WithAction(torch::Tensor action) const override;
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+    };
+
     class ActionPolicy : virtual public anet::ModuleBase {
     public:
         ActionPolicy(const ActionPolicyConfig& config,
         	bool enable_spatial_exploration = false, int64_t num_envs = 0,
             const torch::Device& device = torch::Device(torch::kCPU));
 
-        virtual BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only,
+        virtual std::shared_ptr<BatchActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
             const anet::TraceSink& sink = {}) const = 0;
         virtual void OnLearn(const StepCounts& counts) { }
@@ -319,7 +328,7 @@ namespace anet::rl::dqn {
         anet::TensorDict ForwardForAction(const anet::TensorDict& obs, std::shared_ptr<anet::nn::Network> network, const anet::TraceSink& sink) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, const torch::Tensor& epsilon_tensor, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
-        BatchActionInfo MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const;
+        std::shared_ptr<BatchActionInfo> MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const;
         //torch::Tensor GetQuantiles(const torch::Tensor& obs, bool use_target) const;
         void UpdateEpsilon(step_t step, bool is_uqe = false);
         bool IsSpatialExplorationEnabled() const { return use_spatial_exploration_; }
@@ -344,7 +353,7 @@ namespace anet::rl::dqn {
             int64_t num_envs = 0,
             const torch::Device& device = torch::Device(torch::kCPU));
 
-        BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only,
+        std::shared_ptr<BatchActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
             const anet::TraceSink& sink) const;
         void OnLearn(const StepCounts& counts) override;
@@ -365,19 +374,19 @@ namespace anet::rl::dqn {
             int64_t num_envs = 0,
             const torch::Device& device = torch::Device(torch::kCPU));
 
-        BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only,
+        std::shared_ptr<BatchActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
             const anet::TraceSink& sink) const;
         void OnLearn(const StepCounts& counts) override;
 
         virtual ~UQEActionPolicy() = default;
     protected:
-        anet::rl::BatchActionInfo MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs, bool greedy_only,
+        std::shared_ptr<anet::rl::BatchActionInfo> MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink) const;
         void UpdateTau(step_t step);
     private:
-        torch::Tensor MakeUQEAction(float tau, const torch::Tensor& q_quantiles) const;
-        torch::Tensor MakeVectorizedUQEAction(const torch::Tensor& tau_tensor, const torch::Tensor& q_quantiles) const;
+        torch::Tensor MakeUQEValues(float tau, const torch::Tensor& q_quantiles) const;
+        torch::Tensor MakeVectorizedUQEValues(const torch::Tensor& tau_tensor, const torch::Tensor& q_quantiles) const;
     };
 
     class ThompsonSamplingActionPolicy final : public UQEActionPolicy {
@@ -387,7 +396,7 @@ namespace anet::rl::dqn {
             int64_t num_envs = 0,
             const torch::Device& device = torch::Device(torch::kCPU));
 
-        BatchActionInfo SelectAction(const anet::TensorDict& obs, bool greedy_only,
+        std::shared_ptr<BatchActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
             const anet::TraceSink& sink) const;
         void OnLearn(const StepCounts& counts) override;

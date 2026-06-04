@@ -133,13 +133,16 @@ public:
         return std::make_shared<TestResetResult>(batch_spec_.num_envs);
     }
 
-    std::shared_ptr<const rl::BatchStepResult> Step(std::shared_ptr<rl::BatchActionInfo>, rl::RunMode = rl::RunMode::Train) override
+    std::shared_ptr<const rl::BatchStepResult> Step(std::shared_ptr<rl::BatchActionInfo> action_info, rl::RunMode = rl::RunMode::Train) override
     {
+        last_action_ = action_info->GetAction().clone();
         return std::make_shared<TestStepResult>(
             std::vector<float>(static_cast<size_t>(batch_spec_.num_envs), 0.0f),
             std::vector<bool>(static_cast<size_t>(batch_spec_.num_envs), false),
             std::vector<bool>(static_cast<size_t>(batch_spec_.num_envs), false));
     }
+
+    torch::Tensor GetLastAction() const { return last_action_; }
 
     std::optional<float> GetScalar(const std::string& key, int64_t = -1) const override
     {
@@ -152,24 +155,56 @@ public:
 private:
     rl::BatchEnvSpec batch_spec_;
     float env_score_ = 0.0f;
+    torch::Tensor last_action_;
+};
+
+class TestActionInfo final : public rl::BatchActionInfo, public anet::ModuleBase {
+public:
+    TestActionInfo(torch::Tensor action, const anet::TensorDict& info, const rl::AuxData& aux, float score)
+        : rl::BatchActionInfo(std::move(action), info, aux)
+        , score_(score)
+    {
+    }
+
+    std::shared_ptr<rl::BatchActionInfo> WithAction(torch::Tensor action) const override
+    {
+        return std::make_shared<TestActionInfo>(std::move(action), info_, aux_, score_);
+    }
+
+    std::optional<float> GetScalar(const std::string& key, int64_t = -1) const override
+    {
+        if (key == "action_info_score") return score_;
+        return std::nullopt;
+    }
+
+private:
+    float score_ = 0.0f;
 };
 
 class TestActor final : public rl::Actor {
 public:
-    explicit TestActor(int64_t num_envs)
+    explicit TestActor(int64_t num_envs, bool use_action_info_scalar = false, float action_info_score = 0.0f)
         : num_envs_(num_envs)
+        , use_action_info_scalar_(use_action_info_scalar)
+        , action_info_score_(action_info_score)
     {
     }
 
     std::shared_ptr<rl::BatchActionInfo> MakeAction(const rl::StepCounts&, const rl::BatchState&) const override
     {
-        return std::make_shared<rl::BatchActionInfo>(torch::zeros({ num_envs_ }, torch::kInt64));
+        auto action = torch::zeros({ num_envs_ }, torch::kInt64);
+        if (use_action_info_scalar_) {
+            return std::make_shared<TestActionInfo>(action, anet::TensorDict{}, rl::AuxData{}, action_info_score_);
+        }
+        return std::make_shared<rl::BatchActionInfo>(action);
     }
 
     void Sync() override {}
 
 private:
     int64_t num_envs_ = 1;
+    bool use_action_info_scalar_ = false;
+    float action_info_score_ = 0.0f;
 };
 
 class TestLearner final : public rl::Learner {
@@ -182,8 +217,10 @@ public:
 
 class TestAgent final : public rl::Agent {
 public:
-    explicit TestAgent(float agent_score = 0.0f)
+    explicit TestAgent(float agent_score = 0.0f, bool use_action_info_scalar = false, float action_info_score = 0.0f)
         : agent_score_(agent_score)
+        , use_action_info_scalar_(use_action_info_scalar)
+        , action_info_score_(action_info_score)
     {
     }
 
@@ -193,7 +230,7 @@ public:
         bool,
         std::optional<torch::Device> = std::nullopt) const override
     {
-        return std::make_shared<TestActor>(batch_env_spec.num_envs);
+        return std::make_shared<TestActor>(batch_env_spec.num_envs, use_action_info_scalar_, action_info_score_);
     }
 
     std::shared_ptr<rl::Learner> CreateLearner() override
@@ -212,6 +249,8 @@ public:
 
 private:
     float agent_score_ = 0.0f;
+    bool use_action_info_scalar_ = false;
+    float action_info_score_ = 0.0f;
 };
 
 class TestRunner final : public rl::RunnerBase, public std::enable_shared_from_this<TestRunner> {
@@ -267,6 +306,16 @@ bool HasScalarRecord(const CapturingBackend& backend, const std::string& tag, in
         if (record["tag"] != tag) continue;
         if (record["step"] != step) continue;
         if (std::abs(record["value"].get<double>() - value) > 1e-5) continue;
+        return true;
+    }
+    return false;
+}
+
+bool HasScalarTag(const CapturingBackend& backend, const std::string& tag)
+{
+    for (const auto& record : backend.records) {
+        if (!record.contains("type") || record["type"] != "scalar") continue;
+        if (record["tag"] != tag) continue;
         return true;
     }
     return false;
@@ -381,11 +430,93 @@ TEST_CASE("MetricsLogEpisodeEndObserver logs runner and env scalars", "[episode_
     anet::MetricsLogger::Reset();
 }
 
+TEST_CASE("MetricsLogTrainObserver skips undefined action-info scalar", "[metrics][action_info]")
+{
+    anet::MetricsLogger::Reset();
+    auto backend = std::make_unique<CapturingBackend>();
+    auto* backend_raw = backend.get();
+    anet::MetricsLoggerConfig logger_config;
+    logger_config.run_name_tmpl = "action_info_metrics_test";
+    anet::MetricsLogger::Init(std::move(backend), logger_config, "C:/tmp");
+
+    auto notifier = std::make_shared<rl::Notifier>();
+    auto agent = std::make_shared<TestAgent>();
+    auto env = std::make_shared<TestBatchEnv>(1);
+    auto runner = std::make_shared<TestRunner>(env, agent, notifier);
+    auto observer = std::make_shared<rl::MetricsLogTrainObserver>(
+        "noop_uqe_win_rate",
+        "action_uqe_win_rate.[0]",
+        rl::StepAxis::TRAIN,
+        rl::EventField::ACTION_INFO,
+        1,
+        false,
+        0.01f,
+        std::nullopt);
+
+    rl::StepCounts counts;
+    counts.train_step = 7;
+    auto action_info = std::make_shared<rl::BatchActionInfo>(
+        torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kInt64)));
+    auto state = MakeState({ false }, { false });
+    auto result = std::make_shared<TestStepResult>(
+        std::vector<float>{ 0.0f },
+        std::vector<bool>{ false },
+        std::vector<bool>{ false });
+    rl::BatchExperience exp(state, action_info, FloatTensor({ 0.0f }), state);
+    rl::TrainEvent event{ exp, runner, counts, agent, rl::BatchUpdateResultList(), env, result, action_info };
+
+    observer->OnTrain(event);
+
+    CHECK_FALSE(HasScalarTag(*backend_raw, "noop_uqe_win_rate"));
+    anet::MetricsLogger::Reset();
+}
+
+TEST_CASE("EvalRunner forced action keeps derived action-info scalars", "[metrics][action_info][eval_runner]")
+{
+    anet::MetricsLogger::Reset();
+    auto backend = std::make_unique<CapturingBackend>();
+    auto* backend_raw = backend.get();
+    anet::MetricsLoggerConfig logger_config;
+    logger_config.run_name_tmpl = "forced_action_info_test";
+    anet::MetricsLogger::Init(std::move(backend), logger_config, "C:/tmp");
+
+    auto notifier = std::make_shared<rl::Notifier>();
+    auto agent = std::make_shared<TestAgent>(0.0f, true, 12.5f);
+    auto env = std::make_shared<TestBatchEnv>(1);
+    auto runner = std::make_shared<rl::EvalRunner>(
+        env,
+        agent,
+        notifier,
+        rl::RunMode::Eval,
+        false,
+        std::nullopt,
+        "eval1");
+    notifier->Attach(std::make_shared<rl::MetricsLogTrainObserver>(
+        "action_info_score",
+        "action_info_score",
+        rl::StepAxis::TRAIN,
+        rl::EventField::ACTION_INFO,
+        1,
+        false,
+        0.01f,
+        std::nullopt));
+
+    rl::StepCounts event_counts;
+    runner->DoStep(5, event_counts);
+
+    REQUIRE(env->GetLastAction().defined());
+    REQUIRE(torch::equal(env->GetLastAction(), torch::tensor({ 5 }, torch::TensorOptions().dtype(torch::kInt64))));
+    REQUIRE(HasScalarRecord(*backend_raw, "action_info_score", 1, 12.5));
+    anet::MetricsLogger::Reset();
+}
+
 TEST_CASE("ObserverFactory parses episode-end scopes and rejects unsupported combinations", "[episode_end][observer_factory]")
 {
     anet::ConfigData valid_config;
     valid_config.Set("metrics.scalar.[train_eps]", "eps_total_reward $runner @episode_end $train");
     valid_config.Set("metrics.scalar.[eval_eps]", "eps_total_reward $runner @episode_end $eval.[eval1]");
+    valid_config.Set("metrics.scalar.[eval_action]", "action_uqe_win_rate.[0] $action_info @train $eval.[eval1]");
+    valid_config.Set("metrics.scalar.[eval_action_margin]", "action_uqe_margin.[0] $action_info @train $eval.[eval1]");
 
     rl::ObserverFactory factory(valid_config);
     auto episode_end_obs = factory.GetEpisodeEndObservers();
@@ -393,9 +524,19 @@ TEST_CASE("ObserverFactory parses episode-end scopes and rejects unsupported com
     CHECK(episode_end_obs[0].scope == rl::RunnerScope::TRAIN);
     CHECK(episode_end_obs[1].scope == rl::RunnerScope::EVAL);
     CHECK(episode_end_obs[1].eval_name == "eval1");
+    auto train_obs = factory.GetUpdateObservers();
+    REQUIRE(train_obs.size() == 2);
+    CHECK(train_obs[0].scope == rl::RunnerScope::EVAL);
+    CHECK(train_obs[0].eval_name == "eval1");
+    CHECK(train_obs[1].scope == rl::RunnerScope::EVAL);
+    CHECK(train_obs[1].eval_name == "eval1");
 
     CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("eps_total_reward $runner @train $eval.[eval1]")));
     CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("eps_total_reward $runner @learn $eval.[eval1]")));
+    CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("action_uqe_win_rate.[0] $action_info @learn $train")));
+    CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("action_uqe_win_rate.[0] $action_info @episode_end $train")));
+    CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("action_uqe_margin.[0] $action_info @learn $train")));
+    CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("action_uqe_margin.[0] $action_info @episode_end $train")));
     CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("eps_total_reward $exp @episode_end $train")));
     CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("eps_total_reward $update_result @episode_end $train")));
 }

@@ -505,6 +505,10 @@ namespace anet::rl {
         {
             return std::make_shared<BatchActionInfo>(GetAction(device), info_.To(device), aux_ );
         }
+        virtual std::shared_ptr<BatchActionInfo> WithAction(torch::Tensor action) const
+        {
+            return std::make_shared<BatchActionInfo>(std::move(action), info_, aux_);
+        }
         const AuxData& GetAuxData() const { return aux_; }
         AuxData& GetAuxData() { return aux_; }
         const anet::TensorDict& GetInfo() const { return info_; }

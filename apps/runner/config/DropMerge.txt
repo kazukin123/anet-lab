@@ -7,6 +7,7 @@ app.$ = app.online > P
 #app.$ = app.batchrun > P
 
 train.seed = 1
+#train.seed = 2
 
 train.num_envs = 256
 #train.num_envs = 128
@@ -65,7 +66,7 @@ net.branch.[vector_feature].structure = Embed5846_v2
 
 #net.branch.[main_feature].$ = net.branch.SuikaResNet4064_10d
 #net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128
-net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre
+net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2
 
 
 # ==============================================================================
@@ -73,7 +74,14 @@ net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre
 # ==============================================================================
 
 #app.run_name = run_{t}_gs_5846_cy12_apx1
+#app.run_name = run_{t}_gs_apx1_L1024_p1
+#app.run_name = run_{t}_gs_apx1_L1024_p1_bf16
+#app.run_name = run_{t}_apx_L2048_ort
+#app.run_name = run_{t}_apx_L2048_ortg1
 
+#backend.cuda_launch_blocking = on
+
+E.noop_penalty = -0.05
 
 R.train_policy.use_spatial_exploration = true
 #R.train_policy.use_spatial_exploration = false
@@ -87,7 +95,6 @@ R.train_policy.use_spatial_exploration = true
 
 #R.reward_scaler.constant_scale = 0.005
 
-#E.noop_penalty = -1.0
 #E.game_over_penalty = -1.0   #-10.0
 
 #R.train_policy.spatial_scale_type = linear
@@ -742,6 +749,18 @@ net.block.[Embed5846_v2].type = SpatialEmbedder
 net.block.[Embed5846_v2].embed.grid_width = 58
 net.block.[Embed5846_v2].embed.grid_height = 46
 
+net.block.[Linear_1024].type = Linear
+net.block.[Linear_1024].linear.out_features = 1024
+net.block.[Linear_1024].linear.bias = true
+net.block.[Linear_1024].init.mode = 1
+
+net.block.[Linear_2048].type = Linear
+net.block.[Linear_2048].linear.out_features = 2048
+net.block.[Linear_2048].linear.bias = true
+#net.block.[Linear_2048].init.mode = 1 # Xavier Uniform
+net.block.[Linear_2048].init.mode = 3 # Orthogonal
+net.block.[Linear_2048].init.manual_gain=1.0
+
 
 net.branch.[vector_feature].bind = vector
 net.body.output.[features] = main_feature
@@ -756,6 +775,9 @@ net.branch.SuikaHybrid_Flatten_128.structure     = ConvInit64 > SiLU > ResBlock6
 net.branch.SuikaHybrid_Flatten_128_pre.bind = grid, vector_feature
 net.branch.SuikaHybrid_Flatten_128_pre.structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
 
+net.branch.SuikaHybrid_Flatten_128_pre2.bind = grid, vector_feature
+#net.branch.SuikaHybrid_Flatten_128_pre2.structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_1024 > SiLU
+net.branch.SuikaHybrid_Flatten_128_pre2.structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_2048 > SiLU
 
 
 # ==============================================================================
@@ -825,19 +847,27 @@ M.[51_eval1/00_ep_step_mean]         = $eval.[eval1] @episode_end $env mean.ep_s
 M.[51_eval1/00_ep_step_mean_ema]     = $eval.[eval1] @episode_end $env mean.ep_step                   $ema ema_alpha:0.01
 M.[51_eval1/01_ep_maxrank_max]       = $eval.[eval1] @episode_end $env max.ep_max_rank
 M.[51_eval1/12_ep_frct_mean]         = $eval.[eval1] @episode_end $env mean.ep_end_fruit_count 
+M.[51_eval1/41_noop_uqe_win_rate]    = $eval.[eval1] @train action_uqe_win_rate.[0] $action_info
+M.[51_eval1/42_noop_uqe_margin]      = $eval.[eval1] @train action_uqe_margin.[0] $action_info
+M.[51_eval1/51_noop_uqe_win_rate_ema] = $eval.[eval1] @train action_uqe_win_rate.[0] $action_info $ema ema_alpha:0.001
+M.[51_eval1/52_noop_uqe_margin_ema]  = $eval.[eval1] @train action_uqe_margin.[0] $action_info $ema ema_alpha:0.01
 M.[51_eval1/61_ep_maxrank_mean_ema]  = $eval.[eval1] @episode_end $env mean.ep_max_rank               $ema ema_alpha:0.01
 M.[51_eval1/62_ep_frct_mean_ema]     = $eval.[eval1] @episode_end $env mean.ep_end_fruit_count        $ema ema_alpha:0.01
 M.[51_eval1/73_tr_blk_mean]          = $eval.[eval1] @episode_end $env mean.term_reason_spawn_blocked
 M.[51_eval1/74_tr_timeout_mean]      = $eval.[eval1] @episode_end $env mean.term_reason_no_drop_timeout
 M.[51_eval1/75_tr_nolg_mean]         = $eval.[eval1] @episode_end $env mean.term_reason_no_legal_drop
 M.[51_eval1/83_tr_blk_mean_ema]      = $eval.[eval1] @episode_end $env mean.term_reason_spawn_blocked $ema ema_alpha:0.01
-M.[51_eval1/84_tr_timeout_max_ema]   = $eval.[eval1] @episode_end $env mean.term_reason_no_drop_timeout $ema ema_alpha:0.01
+M.[51_eval1/84_tr_timeout_max_ema]   = $eval.[eval1] @episode_end $env mean.term_reason_no_drop_timeout $ema ema_alpha:0.01  # TODO max -> min
 M.[51_eval1/85_tr_nolg_mean_ema]     = $eval.[eval1] @episode_end $env mean.term_reason_no_legal_drop $ema ema_alpha:0.01
 
 M.[52_eval2/00_ep_step_mean]         = $eval.[eval2] @episode_end $env mean.ep_step
 M.[52_eval2/00_ep_step_mean_ema]     = $eval.[eval2] @episode_end $env mean.ep_step                   $ema ema_alpha:0.05
 M.[52_eval2/01_ep_maxrank_max]       = $eval.[eval2] @episode_end $env max.ep_max_rank
 M.[52_eval2/12_ep_frct_mean]         = $eval.[eval2] @episode_end $env mean.ep_end_fruit_count
+M.[52_eval2/41_noop_uqe_win_rate]    = $eval.[eval2] @train action_uqe_win_rate.[0] $action_info
+M.[52_eval2/42_noop_uqe_margin]      = $eval.[eval2] @train action_uqe_margin.[0] $action_info
+M.[52_eval2/51_noop_uqe_win_rate_ema] = $eval.[eval2] @train action_uqe_win_rate.[0] $action_info $ema ema_alpha:0.001
+M.[52_eval2/52_noop_uqe_margin_ema]  = $eval.[eval2] @train action_uqe_margin.[0] $action_info $ema ema_alpha:0.01
 M.[52_eval2/61_ep_maxrank_mean_ema]  = $eval.[eval2] @episode_end $env mean.ep_max_rank               $ema ema_alpha:0.05
 M.[52_eval2/62_ep_frct_mean_ema]     = $eval.[eval2] @episode_end $env mean.ep_end_fruit_count        $ema ema_alpha:0.05
 M.[52_eval2/73_tr_blk_mean]          = $eval.[eval2] @episode_end $env mean.term_reason_spawn_blocked
@@ -846,7 +876,6 @@ M.[52_eval2/76_tr_nolg_mean]         = $eval.[eval2] @episode_end $env mean.term
 M.[52_eval2/83_tr_blk_mean_ema]      = $eval.[eval2] @episode_end $env mean.term_reason_spawn_blocked $ema ema_alpha:0.05
 M.[52_eval2/84_tr_timeout_mean_ema]  = $eval.[eval2] @episode_end $env mean.term_reason_no_drop_timeout $ema ema_alpha:0.05
 M.[52_eval2/85_tr_nolg_mean_ema]     = $eval.[eval2] @episode_end $env mean.term_reason_no_legal_drop $ema ema_alpha:0.05
-
 
 # ==============================================================================
 # image metrics
@@ -898,8 +927,8 @@ metrics.image.interval = 50   # 通常運用
 
 metrics.image.[60_agent_img/11_conv2d_32p_jet].type = Conv2d
 #metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 10
-metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 20
-###metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 0
+#metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 20
+metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 0
 metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.channels_per_row = 26
 #metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.channels_per_row = 17
 metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.network_key = policy-net.conv2d

@@ -748,6 +748,11 @@ public:
         return cloned;
     }
 
+    std::shared_ptr<BatchActionInfo> WithAction(torch::Tensor action) const override
+    {
+        return std::make_shared<MuZeroActionInfo>(std::move(action), info_, aux_, mcts_trees_);
+    }
+
     std::unique_ptr<anet::graphviz::GraphViz> CreateGraph(const std::string& key, int64_t index) const override
     {
         if (key != "mcts_tree" || mcts_trees_.empty()) return nullptr;

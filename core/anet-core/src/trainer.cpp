@@ -232,11 +232,12 @@ StepCounts EvalRunner::DoStep(int64_t action, const StepCounts& event_counts)
     ANET_LOG_DEBUG("step=" << train_step << " action_info_raw=" << action_info_raw->ToString());
 
     // action_infoを生成
-    auto action_info = std::make_shared<anet::rl::BatchActionInfo>(
-        action < 0 ? action_info_raw->GetAction() : torch::tensor({ action }), // 指定のactionがあれば強制
-        action_info_raw->GetInfo(),
-        action_info_raw->GetAuxData()    // AuxはAgentが生成した内容
-    );
+    std::shared_ptr<anet::rl::BatchActionInfo> action_info = action_info_raw;
+    if (action >= 0) {
+        action_info = action_info_raw->WithAction(torch::tensor(
+            { action },
+            torch::TensorOptions().dtype(torch::kInt64))); // 指定のactionがあれば強制
+    }
 
     // 環境ステップ実行
     auto result = env_->Step(action_info, run_mode_);    // next_state, reward, done, truncated
@@ -865,4 +866,3 @@ void RunnerThread::OnException()
         exception_func_();
     }
 }
-

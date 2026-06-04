@@ -1,4 +1,4 @@
-
+﻿
 ## ■ema_alpha デフォルト0.01
 # ema_alpha: 小 → 過去が強く残る（滑らか）
 # ema_alpha: 大 → 早く追従する（荒い）
@@ -32,9 +32,9 @@ metrics.scalar.baseline.[37_agent_qtd/12_q_max_max] = q_max_max @learn
 metrics.scalar.baseline.[37_agent_qtd/13_q_max_std] = q_max_std @learn
 metrics.scalar.baseline.[37_agent_qtd/14_q_sa_mean] = q_sa_mean @learn
 metrics.scalar.baseline.[37_agent_qtd/16_q_std] = q_std @learn
-#metrics.scalar.baseline.[37_agent_qtd/17_q_gap] = q_gap @learn
-#metrics.scalar.baseline.[37_agent_qtd/18_q_gap_rel] = q_gap_rel @learn
-#metrics.scalar.baseline.[37_agent_qtd/19_q_gap_rel_ema] = q_gap_rel @learn $ema
+metrics.scalar.baseline.[37_agent_qtd/17_q_gap] = q_gap @learn
+metrics.scalar.baseline.[37_agent_qtd/18_q_gap_rel] = q_gap_rel @learn
+metrics.scalar.baseline.[37_agent_qtd/19_q_gap_rel_ema] = q_gap_rel @learn $ema
 metrics.scalar.baseline.[37_agent_qtd/21_grad_norm] = grad_norm @learn interval:10
 metrics.scalar.baseline.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema
 metrics.scalar.baseline.[37_agent_qtd/24_grad_clip_ratio] = grad_clip_ratio @learn interval:10

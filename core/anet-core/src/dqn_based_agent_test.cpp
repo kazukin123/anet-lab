@@ -28,10 +28,10 @@ struct ActionPolicyAccess : public dqn::ActionPolicy {
 
     using dqn::ActionPolicy::CreateSpatialTensor;
 
-    anet::rl::BatchActionInfo SelectAction(const anet::TensorDict&, bool, std::shared_ptr<anet::nn::Network>,
+    std::shared_ptr<anet::rl::BatchActionInfo> SelectAction(const anet::TensorDict&, bool, std::shared_ptr<anet::nn::Network>,
         std::shared_ptr<anet::RandomGenerator>, const anet::TraceSink&) const override
     {
-        return anet::rl::BatchActionInfo{};
+        return std::make_shared<anet::rl::BatchActionInfo>();
     }
 };
 
@@ -334,11 +334,11 @@ TEST_CASE("ActionPolicy variants preserve action info keys and shapes", "[dqn][a
         auto rnd = std::make_shared<anet::RandomGenerator>(123);
         auto action_info = policy->SelectAction(obs, /*greedy_only=*/true, network, rnd);
 
-        auto action = action_info.GetAction();
+        auto action = action_info->GetAction();
         REQUIRE(ShapeOf(action) == std::vector<int64_t>{ 2 });
         CHECK(torch::equal(action.cpu(), expected_actions));
 
-        const auto& aux = action_info.GetAuxData();
+        const auto& aux = action_info->GetAuxData();
         REQUIRE(aux.count("max_q") == 1);
         REQUIRE(aux.count("q_values") == 1);
         REQUIRE(aux.count("q_quantiles") == 1);
@@ -353,7 +353,91 @@ TEST_CASE("ActionPolicy variants preserve action info keys and shapes", "[dqn][a
         CHECK(torch::allclose(aux.at("q_values"), obs.At("q")));
         CHECK(torch::allclose(aux.at("q_quantiles"), obs.At("q_dist")));
         CHECK(torch::equal(aux.at("raw_actions").cpu(), expected_actions));
+
+        auto scalar_target = dynamic_cast<const anet::Module*>(action_info.get());
+        REQUIRE(scalar_target != nullptr);
+        auto uqe_win_rate = scalar_target->GetScalar("action_uqe_win_rate.[0]");
+        auto uqe_margin = scalar_target->GetScalar("action_uqe_margin.[0]");
+        REQUIRE(uqe_win_rate.has_value());
+        REQUIRE(uqe_margin.has_value());
+        if (name == "epsilon-greedy") {
+            CHECK(std::isnan(*uqe_win_rate));
+            CHECK(std::isnan(*uqe_margin));
+        } else {
+            REQUIRE(aux.count("uqe_values") == 1);
+            CHECK((ShapeOf(aux.at("uqe_values")) == std::vector<int64_t>{ 2, 3 }));
+            CHECK(torch::allclose(aux.at("uqe_values"), obs.At("q")));
+            CHECK(*uqe_win_rate == Catch::Approx(0.0f));
+            CHECK(*uqe_margin == Catch::Approx(-7.0f));
+        }
     }
+}
+
+TEST_CASE("DQNActionInfo exposes action UQE scalar metrics", "[dqn][action_policy][metrics]")
+{
+    auto make_info = [](const torch::Tensor& uqe_values) {
+        rl::AuxData aux;
+        aux["uqe_values"] = uqe_values;
+        return dqn::DQNActionInfo(
+            torch::zeros({ uqe_values.size(0) }, torch::TensorOptions().dtype(torch::kInt64)),
+            anet::TensorDict{},
+            aux);
+    };
+
+    auto win_info = make_info(torch::tensor({
+        { 5.0f, 1.0f, 0.0f },
+        { 7.0f, 6.0f, 5.0f },
+    }));
+    auto win = win_info.GetScalar("action_uqe_win_rate.[0]");
+    REQUIRE(win.has_value());
+    CHECK(*win == Catch::Approx(1.0f));
+    auto win_margin = win_info.GetScalar("action_uqe_margin.[0]");
+    REQUIRE(win_margin.has_value());
+    CHECK(*win_margin == Catch::Approx(2.5f));
+
+    auto loss = win_info.GetScalar("action_uqe_win_rate.[1]");
+    REQUIRE(loss.has_value());
+    CHECK(*loss == Catch::Approx(0.0f));
+    auto loss_margin = win_info.GetScalar("action_uqe_margin.[1]");
+    REQUIRE(loss_margin.has_value());
+    CHECK(*loss_margin == Catch::Approx(-2.5f));
+
+    auto tie_info = make_info(torch::tensor({
+        { 5.0f, 5.0f, 0.0f },
+        { 1.0f, 1.0f, 0.0f },
+    }));
+    auto tie = tie_info.GetScalar("action_uqe_win_rate.[0]");
+    REQUIRE(tie.has_value());
+    CHECK(*tie == Catch::Approx(1.0f));
+    auto tie_margin = tie_info.GetScalar("action_uqe_margin.[0]");
+    REQUIRE(tie_margin.has_value());
+    CHECK(*tie_margin == Catch::Approx(0.0f));
+
+    dqn::DQNActionInfo non_uqe(torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kInt64)));
+    auto undefined = non_uqe.GetScalar("action_uqe_win_rate.[0]");
+    REQUIRE(undefined.has_value());
+    CHECK(std::isnan(*undefined));
+    auto undefined_margin = non_uqe.GetScalar("action_uqe_margin.[0]");
+    REQUIRE(undefined_margin.has_value());
+    CHECK(std::isnan(*undefined_margin));
+
+    auto replaced = win_info.WithAction(torch::tensor({ 2, 1 }, torch::TensorOptions().dtype(torch::kInt64)));
+    CHECK(torch::equal(replaced->GetAction(), torch::tensor({ 2, 1 }, torch::TensorOptions().dtype(torch::kInt64))));
+    auto scalar_target = dynamic_cast<const anet::Module*>(replaced.get());
+    REQUIRE(scalar_target != nullptr);
+    auto replaced_win = scalar_target->GetScalar("action_uqe_win_rate.[0]");
+    REQUIRE(replaced_win.has_value());
+    CHECK(*replaced_win == Catch::Approx(1.0f));
+    auto replaced_margin = scalar_target->GetScalar("action_uqe_margin.[0]");
+    REQUIRE(replaced_margin.has_value());
+    CHECK(*replaced_margin == Catch::Approx(2.5f));
+
+    CHECK_THROWS(non_uqe.GetScalar("action_uqe_win_rate"));
+    CHECK_THROWS(non_uqe.GetScalar("action_uqe_win_rate.[x]"));
+    CHECK_THROWS(win_info.GetScalar("action_uqe_win_rate.[3]"));
+    CHECK_THROWS(non_uqe.GetScalar("action_uqe_margin"));
+    CHECK_THROWS(non_uqe.GetScalar("action_uqe_margin.[x]"));
+    CHECK_THROWS(win_info.GetScalar("action_uqe_margin.[3]"));
 }
 
 TEST_CASE("ActionPolicy spatial tensor generation handles supported scale types", "[dqn][action_policy][spatial]")
@@ -471,6 +555,6 @@ TEST_CASE("Spatial UQE policies use per-env tau tensor", "[dqn][action_policy][s
         INFO(name);
         auto rnd = std::make_shared<anet::RandomGenerator>(123);
         auto action_info = policy->SelectAction(obs, /*greedy_only=*/false, network, rnd);
-        CHECK(torch::equal(action_info.GetAction().cpu(), expected_actions));
+        CHECK(torch::equal(action_info->GetAction().cpu(), expected_actions));
     }
 }

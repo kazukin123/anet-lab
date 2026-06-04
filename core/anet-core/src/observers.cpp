@@ -1,6 +1,7 @@
 ﻿// observers.cpp
 
 #include "anet/observers.hpp"
+#include <limits>
 #include <wx/log.h>
 #include "anet/profile.hpp"
 #include "anet/str_util.hpp"
@@ -706,6 +707,7 @@ MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(
     std::shared_ptr<const Runner> runner,
     std::shared_ptr<const BatchEnv> env,
     const BatchExperience* experience,
+    std::shared_ptr<const BatchActionInfo> action_info,
     EventField event_field)
 {
     ANET_CHECK(event_field != EventField::UPDATE_RESULT);
@@ -729,6 +731,16 @@ MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(
             target = env.get();
         } else if (runner != nullptr) {
             target = runner->GetBatchEnv().get(); // Runner経由で取得
+        }
+        break;
+    case anet::rl::EventField::ACTION_INFO:
+        if (action_info == nullptr) {
+            ANET_SYSTEM_ERROR("MetricsLogObserverBase: $action_info is only available for TrainEvent.");
+        }
+        target = dynamic_cast<const anet::Module*>(action_info.get());
+        if (target == nullptr) {
+            auto step = counts.GetByAxis(this->step_axis_);
+            return MetricsData{ step, std::numeric_limits<float>::quiet_NaN() };
         }
         break;
     default:
@@ -807,7 +819,8 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
     std::shared_ptr<const Runner> runner,
     std::shared_ptr<const BatchEnv> env,
     const BatchExperience* experience,
-    const BatchUpdateResultList* update_result_list)
+    const BatchUpdateResultList* update_result_list,
+    std::shared_ptr<const BatchActionInfo> action_info)
 {
     MetricsDataList ret;
 
@@ -820,7 +833,7 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
             ret = std::move(data_list);
         } else {
             // その他メソッドでメトリクス情報を取得
-            auto data = GetMetricsData(counts, agent, runner, env, experience, *event_field_);
+            auto data = GetMetricsData(counts, agent, runner, env, experience, action_info, *event_field_);
             ret.push_back(data);
         }
     } else {
@@ -832,22 +845,22 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
             ret = std::move(data_list);
         } else {
             // Agent
-            auto data = GetMetricsData(counts, agent, runner, env, experience, anet::rl::EventField::AGENT);
+            auto data = GetMetricsData(counts, agent, runner, env, experience, action_info, anet::rl::EventField::AGENT);
             if (data.second.has_value()) {
                 ret.push_back(data);
             } else if (experience != nullptr) {
                 // BatchExperience
-                auto data = GetMetricsData(counts, agent, runner, env, experience, anet::rl::EventField::EXPERIENCE);
+                auto data = GetMetricsData(counts, agent, runner, env, experience, action_info, anet::rl::EventField::EXPERIENCE);
                 if (data.second.has_value()) {
                     ret.push_back(data);
                 } else {
                     // Runner
-                    auto data = GetMetricsData(counts, agent, runner, env, experience, anet::rl::EventField::RUNNER);
+                    auto data = GetMetricsData(counts, agent, runner, env, experience, action_info, anet::rl::EventField::RUNNER);
                     if (data.second.has_value()) {
                         ret.push_back(data);
                     } else {
                         // Env
-                        auto data = GetMetricsData(counts, agent, runner, env, experience, anet::rl::EventField::ENV);
+                        auto data = GetMetricsData(counts, agent, runner, env, experience, action_info, anet::rl::EventField::ENV);
                         if (data.second.has_value()) {
                             ret.push_back(data);
                         }
@@ -855,12 +868,12 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
                 }
             } else {
                 // Runner
-                auto data = GetMetricsData(counts, agent, runner, env, experience, anet::rl::EventField::RUNNER);
+                auto data = GetMetricsData(counts, agent, runner, env, experience, action_info, anet::rl::EventField::RUNNER);
                 if (data.second.has_value()) {
                     ret.push_back(data);
                 } else {
                     // Env
-                    auto data = GetMetricsData(counts, agent, runner, env, experience, anet::rl::EventField::ENV);
+                    auto data = GetMetricsData(counts, agent, runner, env, experience, action_info, anet::rl::EventField::ENV);
                     if (data.second.has_value()) {
                         ret.push_back(data);
                     }
@@ -883,16 +896,29 @@ void MetricsLogObserverBase::OnUpdate(const UpdateEvent& event)
         &event.update_result_list);
 }
 
+void MetricsLogObserverBase::OnTrainUpdate(const TrainEvent& event)
+{
+    OnGenericUpdate(
+        event.counts,
+        event.agent,
+        event.runner,
+        event.runner != nullptr ? event.runner->GetBatchEnv() : event.env,
+        &event.experience,
+        &event.update_result_list,
+        event.action_info);
+}
+
 void MetricsLogObserverBase::OnGenericUpdate(
     const StepCounts& counts,
     std::shared_ptr<const Agent> agent,
     std::shared_ptr<const Runner> runner,
     std::shared_ptr<const BatchEnv> env,
     const BatchExperience* experience,
-    const BatchUpdateResultList* update_result_list)
+    const BatchUpdateResultList* update_result_list,
+    std::shared_ptr<const BatchActionInfo> action_info)
 {
     // メトリクスの出力データをリストとして取得
-    auto metrics_list = GetMetricsDataList(counts, agent, runner, env, experience, update_result_list);
+    auto metrics_list = GetMetricsDataList(counts, agent, runner, env, experience, update_result_list, action_info);
 
     // 取れたメトリクスを順に試す
     for (const auto& metrics : metrics_list) {
@@ -1037,8 +1063,6 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
     
     // metrics.scalar.[tag] = <expr>  <$axis>  <@EventType>  <EventField>
 
-    /// @todo BatchActionInfoからのメトリクス抽出対応
-
     for (const auto& kv : config_map) {
         const std::string& config_key = kv.first;
         const std::string& config_value = kv.second;
@@ -1092,6 +1116,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                     field_opt = EventField::UPDATE_RESULT;
                 } else if (v == "$runner") {
                     field_opt = EventField::RUNNER;
+                } else if (v == "$action" || v == "$action_info") {
+                    field_opt = EventField::ACTION_INFO;
                 } else if (v == "$train") {
                     runner_scope_opt = RunnerScope::TRAIN;
                 } else if (anet::StartsWith(v, "$eval.[")) {
@@ -1150,6 +1176,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                                 field_opt = EventField::UPDATE_RESULT;
                             else if (attr_val == "runner")
                                 field_opt = EventField::RUNNER;
+                            else if (attr_val == "action" || attr_val == "action_info")
+                                field_opt = EventField::ACTION_INFO;
                             else {
                                 LOG::warn() << "Unknown target value. config_key=" << config_key
                                     << " config_value=" << config_value << " attr_val = " << attr_val;
@@ -1185,8 +1213,14 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
             auto event = event_opt.value_or(EventType::TRAIN);
             auto runner_scope = runner_scope_opt.value_or(RunnerScope::TRAIN);
 
-            if (runner_scope == RunnerScope::EVAL && event != EventType::EPISODE_END) {
-                ANET_SYSTEM_ERROR("ObserverFactory: $eval.[name] scope is only supported with @episode_end. "
+            const bool is_eval_action_info_train =
+                runner_scope == RunnerScope::EVAL && event == EventType::TRAIN && field_opt == EventField::ACTION_INFO;
+            if (runner_scope == RunnerScope::EVAL && event != EventType::EPISODE_END && !is_eval_action_info_train) {
+                ANET_SYSTEM_ERROR("ObserverFactory: $eval.[name] scope is only supported with @episode_end or @train $action_info. "
+                    << "config_key=" << config_key << " config_value=" << config_value);
+            }
+            if (field_opt == EventField::ACTION_INFO && event != EventType::TRAIN) {
+                ANET_SYSTEM_ERROR("ObserverFactory: $action_info scalar metrics are only supported with @train. "
                     << "config_key=" << config_key << " config_value=" << config_value);
             }
             if (event == EventType::EPISODE_END && field_opt.has_value()
