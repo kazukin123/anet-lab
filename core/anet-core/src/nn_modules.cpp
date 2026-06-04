@@ -1302,8 +1302,8 @@ struct TransformerConfig {
     int nhead = 4;
     int num_layers = 2;
     int dim_feedforward = 128;
-    bool norm_first = true;             /// Pre-LN default
-    std::string activation = "gelu";    /// relu / gelu
+    bool norm_first = true;             ///< Pre-LN default
+    std::string activation = "gelu";    ///< relu / gelu
 };
 
 // --- TransformerEncoderModule 本体 ---
@@ -1347,15 +1347,15 @@ public:
 
         torch::Tensor out = input;
 
-        // レイヤーを順番に適用
-        for (auto& layer : layers_) {
-            out = layer->forward(out);
-        }
+            // レイヤーを順番に適用
+            for (auto& layer : layers_) {
+                out = layer->forward(out);
+            }
 
-        // 最終正規化
-        if (norm_) {
-            out = norm_->forward(out);
-        }
+            // 最終正規化
+            if (norm_) {
+                out = norm_->forward(out);
+            }
 
         return out;
     }

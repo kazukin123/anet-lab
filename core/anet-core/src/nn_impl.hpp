@@ -46,7 +46,7 @@ namespace anet::nn {
                         auto nonlinearity_mode = GetNonlinearityType(config.nonlinearity);
                         gain = torch::nn::init::calculate_gain(nonlinearity_mode);
                     } catch (...) {
-                        ANET_SYSTEM_ERROR("Unknown nonlinearity: " << config.nonlinearity << ". Using gain=1.0");
+                        ANET_SYSTEM_ERROR("Unknown nonlinearity: " << config.nonlinearity);
                     }
                 }
 
