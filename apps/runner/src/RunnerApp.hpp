@@ -41,6 +41,7 @@ public:
     std::filesystem::path GetRunDir();
     std::ofstream GetOutputStream(const std::string& file_name);
     int64_t SaveAgent(const std::string& file_name);
+    void FlushRunOutputs();
 private:
     void InitTrainer();
     void showFatalError();

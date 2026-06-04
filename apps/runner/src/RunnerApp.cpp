@@ -232,6 +232,7 @@ bool RunnerApp::OnInit()
                 trainer_thread_->Pause();
                 LOG::info() << "Auto pause.";
                 wxGetApp().GetMainFrame()->SetStatusText("Auto pause.");
+                wxGetApp().FlushRunOutputs();
                 return anet::rl::ControlSignal::BREAK;
             }
             if ((config_->exp_pause_step > 0) && (exp_step >= config_->exp_pause_step) && !auto_pause_done_) {
@@ -239,6 +240,7 @@ bool RunnerApp::OnInit()
                 trainer_thread_->Pause();
                 LOG::info() << "Auto pause.";
                 wxGetApp().GetMainFrame()->SetStatusText("Auto pause.");
+                wxGetApp().FlushRunOutputs();
                 return anet::rl::ControlSignal::BREAK;
             }
 
@@ -255,8 +257,10 @@ bool RunnerApp::OnInit()
     //SaveAgent("agent_init.anet");
 
     // Train開始！
-    if (!config_->train_auto_start)
+    if (!config_->train_auto_start) {
         trainer_thread_->Pause();
+        FlushRunOutputs();
+    }
     trainer_thread_->Start();
 
     return true;
@@ -291,6 +295,20 @@ void RunnerApp::SetupLogging()
         // 既存のUIロガー(LogPanel等)を維持したまま、ファイルロガーをチェーンに追加
         new wxLogChain(file_logger);
     }
+}
+
+void RunnerApp::FlushRunOutputs()
+{
+    anet::MetricsLogger::Instance()->Flush();
+
+    if (wxThread::IsMain()) {
+        wxLog::FlushActive();
+        return;
+    }
+
+    CallAfter([] {
+        wxLog::FlushActive();
+    });
 }
 
 int64_t RunnerApp::SaveAgent(const std::string& file_name)
@@ -343,6 +361,7 @@ void RunnerApp::ToggleTraining()
     }
     LOG::info() << log_str;
     wxGetApp().GetMainFrame()->SetStatusText(log_str);
+    FlushRunOutputs();
 }
 
 void RunnerApp::StopTraining()

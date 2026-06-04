@@ -90,6 +90,7 @@ void EvalPanel::TogglePause()
 	auto log_str = std::string("Eval ") + (is_pause_ ? "paused." : "resumed.");
 	LOG::info() << log_str;
 	wxGetApp().GetMainFrame()->SetStatusText(log_str);
+	wxGetApp().FlushRunOutputs();
 }
 
 void EvalPanel::OnTimer(wxTimerEvent& event)
