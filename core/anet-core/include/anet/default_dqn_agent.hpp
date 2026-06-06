@@ -120,8 +120,10 @@ namespace anet::rl::dqn {
                 target_policy = train_policy;   // Trainの設定を丸ごとコピー
                 target_policy.eps_start = 0.0f; // ただしランダムノイズ(ε)はターゲット計算には絶対不要なので強制遮断
                 target_policy.eps_end = 0.0f;
+				target_policy.eps_decay_steps = 0;
                 target_policy.uqe_eps_start = 0.0f;
                 target_policy.uqe_eps_end = 0.0f;
+				target_policy.uqe_eps_decay_steps = 0;
 
                 // TrainがEpsilonGreedyだった場合は実質Greedyになるためタイプも変更
                 if (target_policy.policy_type == "EpsilonGreedy" || target_policy.policy_type == "0") {

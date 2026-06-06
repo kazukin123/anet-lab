@@ -1529,17 +1529,15 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 {
     ANET_PROFILE_FUNC();
 
-    /// @todo コード整理
-
     const int B = config_.replay_batch_size;
     const int A = n_actions_;
     const auto& target_returns = samples.target_returns;
     const auto& terminals = samples.next_state.terminals;
-    torch::ScalarType amp_dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
+    const torch::ScalarType amp_dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
 
     auto norm_samples = NormalizeSampleObservations(samples);
-    auto obs = norm_samples.obs;
-    auto next_obs = norm_samples.next_obs;
+    const auto& obs = norm_samples.obs;
+    const auto& next_obs = norm_samples.next_obs;
 
     // 結果変数（スコープ外で宣言）
     torch::Tensor loss;
@@ -1681,7 +1679,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     const int B = config_.replay_batch_size;
     const int A = n_actions_;
     const int N = config_.num_quantiles;
-    torch::ScalarType amp_dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
+    const torch::ScalarType amp_dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
 
     // 入力チェック
     ANET_ASSERT_SHAPE(samples.actions, { B });
@@ -1689,13 +1687,10 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     ANET_ASSERT_SHAPE(samples.next_state.terminals, { B });
     //ANET_LOG_DEBUG("obs=" << samples.obs.ToString());
 
-    NormalizedSampleObservations norm_samples;
-    {
-        ANET_PROFILE_SCOPE(normalize);
-        norm_samples = NormalizeSampleObservations(samples);
-    }
-    auto obs = norm_samples.obs;
-    auto next_obs = norm_samples.next_obs;
+    ANET_PROFILE_SCOPE(normalize);
+    auto norm_samples = NormalizeSampleObservations(samples);
+    const auto& obs = norm_samples.obs;
+    const auto& next_obs = norm_samples.next_obs;
     ANET_ASSERT_NAN(obs);
     ANET_ASSERT_NAN(next_obs);
 
@@ -1717,21 +1712,19 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // 分布計算
         // ------------------------------------------------------------
 
-        {
-            ANET_PROFILE_SCOPE(forward_current);
+        ANET_PROFILE_SCOPE_NEXT(forward_current, normalize);
 
-            // 現在の分布計算: Z(s, a)、ForwardQuantiles は (B, A, N) を返す
-            auto current_out = model_.Forward(obs, /*use_target=*/false);
-            auto current_dist_all = current_out.At("q_dist"); // (B, A, N)
-            ANET_ASSERT_SHAPE(current_dist_all, { B, A, N });
-            ANET_ASSERT_NAN(current_dist_all);
+        // 現在の分布計算: Z(s, a)、ForwardQuantiles は (B, A, N) を返す
+        auto current_out = model_.Forward(obs, /*use_target=*/false);
+        auto current_dist_all = current_out.At("q_dist"); // (B, A, N)
+        ANET_ASSERT_SHAPE(current_dist_all, { B, A, N });
+        ANET_ASSERT_NAN(current_dist_all);
 
-            current_dist = GatherActionQuantiles(current_dist_all, samples.actions);
+        current_dist = GatherActionQuantiles(current_dist_all, samples.actions);
 
-            // メトリクス用: 平均値をmax_qとして報告
-            auto q_values_mean = current_out.At("q"); // すでに計算済みの平均Q値 (B, A)
-            metrics = MakeQuantileMetrics(current_dist, q_values_mean);
-        }
+        // メトリクス用: 平均値をmax_qとして報告
+        auto q_values_mean = current_out.At("q"); // すでに計算済みの平均Q値 (B, A)
+        metrics = MakeQuantileMetrics(current_dist, q_values_mean);
 
         // ------------------------------------------------------------
         // ターゲット分布計算: r + gamma * Z(s', a*)
@@ -1740,73 +1733,59 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             torch::NoGradGuard grad_guard;
 
             torch::Tensor next_actions;
-            {
-                ANET_PROFILE_SCOPE(select_target_action);
-                next_actions = SelectTargetActions(next_obs);
-                ANET_ASSERT_SHAPE(next_actions, { B });
-            }
+            ANET_PROFILE_SCOPE_NEXT(select_target_action, forward_current);
+            next_actions = SelectTargetActions(next_obs);
+            ANET_ASSERT_SHAPE(next_actions, { B });
 
-            {
-                ANET_PROFILE_SCOPE(forward_target);
+            ANET_PROFILE_SCOPE_NEXT(forward_target, select_target_action);
 
-                // 次状態のターゲット分布: Z_target(s', :)
-                auto next_out = model_.Forward(next_obs, /*use_target=*/true);
-                auto next_dist_all = next_out.At("q_dist"); // (B, A, N)
-                ANET_ASSERT_SHAPE(next_dist_all, { B, A, N });
+            // 次状態のターゲット分布: Z_target(s', :)
+            auto next_out = model_.Forward(next_obs, /*use_target=*/true);
+            auto next_dist_all = next_out.At("q_dist"); // (B, A, N)
+            ANET_ASSERT_SHAPE(next_dist_all, { B, A, N });
 
-                auto next_dist = GatherActionQuantiles(next_dist_all, next_actions);
-                ANET_ASSERT_SHAPE(next_dist, { B, N });
+            auto next_dist = GatherActionQuantiles(next_dist_all, next_actions);
+            ANET_ASSERT_SHAPE(next_dist, { B, N });
 
-                target_dist = CalcTargetQuantiles(samples, next_dist);
-            }
+            target_dist = CalcTargetQuantiles(samples, next_dist);
         }
 
         // ------------------------------------------------------------
         // Loss Calculation
         // ------------------------------------------------------------
-        {
-            ANET_PROFILE_SCOPE(loss);
+        ANET_PROFILE_SCOPE(loss);
 
-            // target_dist: (B, N) -> mean -> (B)
-            auto target_mean = target_dist.mean(1).detach();
+        // target_dist: (B, N) -> mean -> (B)
+        auto target_mean = target_dist.mean(1).detach();
 
-            // TD誤差
-            td_error_tensor = metrics.q_sa - target_mean;
+        // TD誤差
+        td_error_tensor = metrics.q_sa - target_mean;
 
-            // 要素ごとのLoss (B) を取得  ※ここで重い計算を一回だけ行う
-            element_loss = ComputeQuantileHuberLoss(current_dist, target_dist, tau_i_); // (B)
-            ANET_LOG_DEBUG("element_loss=" << anet::ToString(element_loss));
-            ANET_ASSERT_SHAPE(element_loss, { B });
-            ANET_ASSERT_NAN(element_loss);
+        // 要素ごとのLoss (B) を取得  ※ここで重い計算を一回だけ行う
+        element_loss = ComputeQuantileHuberLoss(current_dist, target_dist, tau_i_); // (B)
+        ANET_LOG_DEBUG("element_loss=" << anet::ToString(element_loss));
+        ANET_ASSERT_SHAPE(element_loss, { B });
+        ANET_ASSERT_NAN(element_loss);
 
-            // 最適化用Loss(Scalar) ※ PERの重み (IS Weights) を適用
-            torch::Tensor weights = config_.use_per ? samples.is_weights : torch::ones({ B }, device_);
-            ANET_LOG_DEBUG("weights=" << anet::ToString(weights));
-            ANET_ASSERT_NAN(weights);
-            loss = (element_loss * weights).mean();
-            ANET_ASSERT_SHAPE(loss, {});
-            ANET_ASSERT_NAN(loss);
-        }
+        // 最適化用Loss(Scalar) ※ PERの重み (IS Weights) を適用
+        torch::Tensor weights = config_.use_per ? samples.is_weights : torch::ones({ B }, device_);
+        ANET_LOG_DEBUG("weights=" << anet::ToString(weights));
+        ANET_ASSERT_NAN(weights);
+        loss = (element_loss * weights).mean();
+        ANET_ASSERT_SHAPE(loss, {});
+        ANET_ASSERT_NAN(loss);
 
     } // End of Autocast Scope
 
-    OptimizerStepResult opt_result;
-    {
-        ANET_PROFILE_SCOPE(optimize);
-        opt_result = Optimize(loss);
-    }
+    ANET_PROFILE_SCOPE(optimize);
+    auto opt_result = Optimize(loss);
 
-    PerPriorityUpdateInfo per_result;
-    {
-        ANET_PROFILE_SCOPE(update_per);
-        per_result = UpdatePerPriorities(samples, td_error_tensor);
-    }
+    ANET_PROFILE_SCOPE_NEXT(update_per, optimize);
+    auto per_result = UpdatePerPriorities(samples, td_error_tensor);
 
-    {
-        ANET_PROFILE_SCOPE(make_result);
-        return MakeBatchUpdateResult(
-            loss, td_error_tensor, opt_result,
-            metrics.max_q, metrics.q_sa, per_result,
-            metrics.q_std, metrics.q_gap, metrics.q_gap_rel);
-    }
+    ANET_PROFILE_SCOPE_NEXT(make_result, update_per);
+    return MakeBatchUpdateResult(
+        loss, td_error_tensor, opt_result,
+        metrics.max_q, metrics.q_sa, per_result,
+        metrics.q_std, metrics.q_gap, metrics.q_gap_rel);
 }
