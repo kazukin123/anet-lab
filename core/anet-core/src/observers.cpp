@@ -1,4 +1,4 @@
-﻿// observers.cpp
+// observers.cpp
 
 #include "anet/observers.hpp"
 #include <limits>
@@ -90,14 +90,14 @@ void HeatMapVectorObserver::OnTrain(const TrainEvent& event)
     }
 
     // データ追加
-    ANET_PROFILE_SCOPE_NEXT(add_data_batch, get_vector);
+    ANET_PROFILE_SCOPE_NEXT(add_data_batch);
     heatmap_->Reset();  // 毎回バッファクリア（最新のRB内容だけ描画）
     heatmap_->AddDataBatch(*xv, *yv, *vv);
 
     captured_step_ = step;
 
     // 画像保存
-    ANET_PROFILE_SCOPE_NEXT(log_image, get_vector); // 親スコープをget_vectorに変更(add_data_batchはif内なので)
+    ANET_PROFILE_SCOPE_NEXT(log_image);
     MetricsLogger::Instance()->Log(
         tag_,
         step,
@@ -154,7 +154,7 @@ void TimeHistogramObserver::OnLearn(const LearnEvent& event)
         // A. ログ頻度がフレームより高い (log < frame) → 毎回出す（間引きようがないため）
         // B. ログ頻度が低い (log >= frame) → ステップがログ間隔と合う時だけ出す
         if (config_.log_interval <= config_.frame_interval || step % config_.log_interval == 0) {
-            ANET_PROFILE_SCOPE_NEXT(log_image, get_vector);
+            ANET_PROFILE_SCOPE_NEXT(log_image);
             captured_step_ = step;
             MetricsLogger::Instance()->Log(tag_, step, *histogram_, config_.image_width, config_.image_height);
         }
@@ -259,7 +259,7 @@ void MultiPairHeatMapObserver::OnTrain(const TrainEvent& event)
     if (batch_y.capacity() < estimated_size) batch_y.reserve(estimated_size);
     if (batch_v.capacity() < estimated_size) batch_v.reserve(estimated_size);
 
-    ANET_PROFILE_SCOPE_NEXT(process_pairs, get_vector);
+    ANET_PROFILE_SCOPE_NEXT(process_pairs);
 
     // --- 全プローブペア i < j をスキャン ---
     for (size_t i = 0; i < m; i++) {
@@ -317,7 +317,7 @@ void MultiPairHeatMapObserver::OnTrain(const TrainEvent& event)
     }
 
     // --- 画像保存 ---
-    ANET_PROFILE_SCOPE_NEXT(log_image, process_pairs);
+    ANET_PROFILE_SCOPE_NEXT(log_image);
     if (config_.log_interval > 0 && step % config_.log_interval == 0) {
         MetricsLogger::Instance()->Log(
             tag_, step,
@@ -404,7 +404,7 @@ void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
     ANET_LOG_DEBUG("LogImage() done. tag=" << tag_);
 
     // Scalarログ出力
-    ANET_PROFILE_SCOPE_NEXT(log_scalar, render);
+    ANET_PROFILE_SCOPE_NEXT(log_scalar);
     for (int i = 0; i < extract_result.labels.size(); i++) {
         auto result_label = extract_result.labels[i];
         auto tag_itr = scalar_label_tag_map_.find(result_label);
@@ -434,7 +434,7 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
     ANET_LOG_DEBUG("batch_in=" << anet::ToDefString(batch_in));
 
     // NN 適用（GPU 上）
-    ANET_PROFILE_SCOPE_NEXT(nn, build);
+    ANET_PROFILE_SCOPE_NEXT(nn);
     torch::Tensor batch_out = tensor_fn_(batch_in);
     ANET_ASSERT_SHAPE(batch_out, { grid_num, ANET_SHAPE_ENDANY });
     ANET_LOG_DEBUG("batch_out=" << anet::ToDefString(batch_out));
@@ -448,7 +448,7 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
     }
 
     // 出力から値抽出（GPU 上, [W*H]）
-    ANET_PROFILE_SCOPE_NEXT(extract, nn);
+    ANET_PROFILE_SCOPE_NEXT(extract);
     ExtractResult extract_result = output_ext_->Extract(batch_out, req_label_set);
     ANET_LOG_DEBUG("grid_values=" << anet::ToDefString(extract_result.grid) << " tag=" << tag_);
     ANET_ASSERT_SHAPE(extract_result.grid, { grid_num });
@@ -456,7 +456,7 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
     ANET_ASSERT(extract_result.labels.size() == extract_result.scalars.size());
 
     // CPU へ一括転送
-    ANET_PROFILE_SCOPE_NEXT(transfer, extract);
+    ANET_PROFILE_SCOPE_NEXT(transfer);
     torch::Tensor grid_cpu = extract_result.grid.to(torch::kCPU);
     ANET_ASSERT_SHAPE(grid_cpu, { grid_num });
     ANET_ASSERT_DTYPE(grid_cpu, torch::kFloat32);
@@ -466,7 +466,7 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
     ANET_LOG_DEBUG("Extract done.");
 
     // HeatMapデータ設定
-    ANET_PROFILE_SCOPE_NEXT(log_image, transfer);
+    ANET_PROFILE_SCOPE_NEXT(log_image);
     heatmap_->SetGridValues(data, grid_w_, grid_h_);
     ANET_LOG_DEBUG("SetGridValues() done.");
 

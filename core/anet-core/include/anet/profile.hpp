@@ -3,6 +3,7 @@
 #pragma once
 
 #include <array>
+#include <cassert>
 #include <cstdint>
 #include <source_location>
 #include <string_view>
@@ -180,6 +181,60 @@ namespace anet {
     #endif
     };
 
+    namespace profile_detail {
+
+        class ProfileScopeCurrentGuard {
+        public:
+            ProfileScopeCurrentGuard(ProfileRange& scope, ProfileScopeCurrentGuard*& current)
+                : scope_(scope), current_(current), previous_(current)
+            {
+                current_ = this;
+            }
+
+            ProfileScopeCurrentGuard(const ProfileScopeCurrentGuard&) = delete;
+            ProfileScopeCurrentGuard& operator=(const ProfileScopeCurrentGuard&) = delete;
+
+            ~ProfileScopeCurrentGuard()
+            {
+                if (current_ == this) {
+                    current_ = previous_;
+                }
+            }
+
+            ProfileRange& scope()
+            {
+                return scope_;
+            }
+
+            void End()
+            {
+                scope_.End();
+                if (current_ == this) {
+                    current_ = previous_;
+                }
+            }
+
+        private:
+            ProfileRange& scope_;
+            ProfileScopeCurrentGuard*& current_;
+            ProfileScopeCurrentGuard* previous_;
+        };
+
+        template <FixedString Signature>
+        inline ProfileScopeCurrentGuard*& CurrentProfileScopeGuard()
+        {
+            thread_local ProfileScopeCurrentGuard* current = nullptr;
+            return current;
+        }
+
+        inline ProfileRange& RequireCurrentProfileScope(ProfileScopeCurrentGuard* current)
+        {
+            assert(current != nullptr);
+            return current->scope();
+        }
+
+    } // namespace profile_detail
+
     class ProfileThreadName {
     public:
         explicit ProfileThreadName(const char* name);
@@ -193,12 +248,16 @@ namespace anet {
 #define ANET_PROFILE_CONCAT_IMPL(x, y) x##y
 #define ANET_PROFILE_CONCAT(x, y) ANET_PROFILE_CONCAT_IMPL(x, y)
 #define ANET_PROFILE_SCOPE_VAR(phase) ANET_PROFILE_CONCAT(anet_profile_scope_, phase)
+#define ANET_PROFILE_SCOPE_GUARD_VAR(var_name) ANET_PROFILE_CONCAT(var_name, _guard)
 
 #ifdef _MSC_VER
 #define ANET_PROFILE_FUNCTION_SIGNATURE __FUNCSIG__
 #else
 #define ANET_PROFILE_FUNCTION_SIGNATURE __PRETTY_FUNCTION__
 #endif
+
+#define ANET_PROFILE_CURRENT_SCOPE_GUARD() \
+    anet::profile_detail::CurrentProfileScopeGuard<ANET_PROFILE_FUNCTION_SIGNATURE>()
 
 #ifdef ANET_ENABLE_PROFILE
 
@@ -232,10 +291,50 @@ namespace anet {
         anet::profile_detail::ProfileRangeTag{}, \
         ANET_PROFILE_CONCAT(__anet_profile_phase_name_, __LINE__).data(), \
         &ANET_PROFILE_CONCAT(__anet_profile_sl_, __LINE__) \
+    }; \
+    anet::profile_detail::ProfileScopeCurrentGuard ANET_PROFILE_SCOPE_GUARD_VAR(var_name) { \
+        var_name, ANET_PROFILE_CURRENT_SCOPE_GUARD() \
     }
 
-#define ANET_PROFILE_SCOPE_NEXT(phase, prev_phase) \
-    ANET_PROFILE_SCOPE_NEXT_NAMED(ANET_PROFILE_SCOPE_VAR(phase), ANET_PROFILE_SCOPE_VAR(prev_phase), #phase)
+#define ANET_PROFILE_SCOPE_NEXT(phase) \
+    ANET_PROFILE_SCOPE_NEXT_CURRENT(phase, #phase)
+
+#define ANET_PROFILE_SCOPE_NEXT_FROM(phase, prev_phase) \
+    ANET_PROFILE_SCOPE_NEXT_EXPLICIT(phase, prev_phase, #phase)
+
+#define ANET_PROFILE_SCOPE_NEXT_CURRENT(phase, phase_literal) \
+    static constexpr auto ANET_PROFILE_CONCAT(__anet_profile_func_name_, __LINE__) = \
+        anet::profile_detail::MakeProfileFunctionName<ANET_PROFILE_FUNCTION_SIGNATURE>(); \
+    static constexpr auto ANET_PROFILE_CONCAT(__anet_profile_phase_name_, __LINE__) = \
+        anet::profile_detail::MakeProfilePhaseName(ANET_PROFILE_CONCAT(__anet_profile_func_name_, __LINE__), phase_literal); \
+    ANET_PROFILE_MAKE_SOURCE_LOCATION(ANET_PROFILE_CONCAT(__anet_profile_sl_, __LINE__), \
+        ANET_PROFILE_CONCAT(__anet_profile_phase_name_, __LINE__).data()); \
+    anet::ProfileRange ANET_PROFILE_SCOPE_VAR(phase) { \
+        anet::profile_detail::ProfileRangeTag{}, \
+        ANET_PROFILE_CONCAT(__anet_profile_phase_name_, __LINE__).data(), \
+        anet::profile_detail::RequireCurrentProfileScope(ANET_PROFILE_CURRENT_SCOPE_GUARD()), \
+        &ANET_PROFILE_CONCAT(__anet_profile_sl_, __LINE__) \
+    }; \
+    anet::profile_detail::ProfileScopeCurrentGuard ANET_PROFILE_SCOPE_GUARD_VAR(ANET_PROFILE_SCOPE_VAR(phase)) { \
+        ANET_PROFILE_SCOPE_VAR(phase), ANET_PROFILE_CURRENT_SCOPE_GUARD() \
+    }
+
+#define ANET_PROFILE_SCOPE_NEXT_EXPLICIT(phase, prev_phase, phase_literal) \
+    static constexpr auto ANET_PROFILE_CONCAT(__anet_profile_func_name_, __LINE__) = \
+        anet::profile_detail::MakeProfileFunctionName<ANET_PROFILE_FUNCTION_SIGNATURE>(); \
+    static constexpr auto ANET_PROFILE_CONCAT(__anet_profile_phase_name_, __LINE__) = \
+        anet::profile_detail::MakeProfilePhaseName(ANET_PROFILE_CONCAT(__anet_profile_func_name_, __LINE__), phase_literal); \
+    ANET_PROFILE_MAKE_SOURCE_LOCATION(ANET_PROFILE_CONCAT(__anet_profile_sl_, __LINE__), \
+        ANET_PROFILE_CONCAT(__anet_profile_phase_name_, __LINE__).data()); \
+    anet::ProfileRange ANET_PROFILE_SCOPE_VAR(phase) { \
+        anet::profile_detail::ProfileRangeTag{}, \
+        ANET_PROFILE_CONCAT(__anet_profile_phase_name_, __LINE__).data(), \
+        ANET_PROFILE_SCOPE_VAR(prev_phase), \
+        &ANET_PROFILE_CONCAT(__anet_profile_sl_, __LINE__) \
+    }; \
+    anet::profile_detail::ProfileScopeCurrentGuard ANET_PROFILE_SCOPE_GUARD_VAR(ANET_PROFILE_SCOPE_VAR(phase)) { \
+        ANET_PROFILE_SCOPE_VAR(phase), ANET_PROFILE_CURRENT_SCOPE_GUARD() \
+    }
 
 #define ANET_PROFILE_SCOPE_NEXT_NAMED(var_name, prev_var, phase_literal) \
     static constexpr auto ANET_PROFILE_CONCAT(__anet_profile_func_name_, __LINE__) = \
@@ -249,13 +348,16 @@ namespace anet {
         ANET_PROFILE_CONCAT(__anet_profile_phase_name_, __LINE__).data(), \
         prev_var, \
         &ANET_PROFILE_CONCAT(__anet_profile_sl_, __LINE__) \
+    }; \
+    anet::profile_detail::ProfileScopeCurrentGuard ANET_PROFILE_SCOPE_GUARD_VAR(var_name) { \
+        var_name, ANET_PROFILE_CURRENT_SCOPE_GUARD() \
     }
 
 #define ANET_PROFILE_SCOPE_END(phase) \
-    ANET_PROFILE_SCOPE_VAR(phase).End()
+    ANET_PROFILE_SCOPE_GUARD_VAR(ANET_PROFILE_SCOPE_VAR(phase)).End()
 
 #define ANET_PROFILE_SCOPE_END_NAMED(var_name) \
-    var_name.End()
+    ANET_PROFILE_SCOPE_GUARD_VAR(var_name).End()
 
 #define ANET_PROFILE_SCOPE_FULL(var_name, full_name_literal) \
     static constexpr auto ANET_PROFILE_CONCAT(__anet_profile_func_name_, __LINE__) = \
@@ -265,6 +367,9 @@ namespace anet {
         anet::profile_detail::ProfileRangeTag{}, \
         full_name_literal, \
         &ANET_PROFILE_CONCAT(__anet_profile_sl_, __LINE__) \
+    }; \
+    anet::profile_detail::ProfileScopeCurrentGuard ANET_PROFILE_SCOPE_GUARD_VAR(var_name) { \
+        var_name, ANET_PROFILE_CURRENT_SCOPE_GUARD() \
     }
 
 #define ANET_PROFILE_RANGE(var_name, name_literal) \
@@ -279,6 +384,9 @@ namespace anet {
         base_name_literal, \
         idx, \
         &ANET_PROFILE_CONCAT(__anet_profile_sl_, __LINE__) \
+    }; \
+    anet::profile_detail::ProfileScopeCurrentGuard ANET_PROFILE_SCOPE_GUARD_VAR(var_name) { \
+        var_name, ANET_PROFILE_CURRENT_SCOPE_GUARD() \
     }
 
 #define ANET_PROFILE_RANGE_PREV(var_name, name_literal, prev_var) \
@@ -301,10 +409,38 @@ namespace anet {
         anet::profile_detail::ProfileRangeTag{}, \
         nullptr, \
         static_cast<const anet::profile_detail::SourceLocationData*>(nullptr) \
+    }; \
+    anet::profile_detail::ProfileScopeCurrentGuard ANET_PROFILE_SCOPE_GUARD_VAR(var_name) { \
+        var_name, ANET_PROFILE_CURRENT_SCOPE_GUARD() \
     }
 
-#define ANET_PROFILE_SCOPE_NEXT(phase, prev_phase) \
-    ANET_PROFILE_SCOPE_NEXT_NAMED(ANET_PROFILE_SCOPE_VAR(phase), ANET_PROFILE_SCOPE_VAR(prev_phase), #phase)
+#define ANET_PROFILE_SCOPE_NEXT(phase) \
+    ANET_PROFILE_SCOPE_NEXT_CURRENT(phase, #phase)
+
+#define ANET_PROFILE_SCOPE_NEXT_FROM(phase, prev_phase) \
+    ANET_PROFILE_SCOPE_NEXT_EXPLICIT(phase, prev_phase, #phase)
+
+#define ANET_PROFILE_SCOPE_NEXT_CURRENT(phase, phase_literal) \
+    anet::ProfileRange ANET_PROFILE_SCOPE_VAR(phase) { \
+        anet::profile_detail::ProfileRangeTag{}, \
+        nullptr, \
+        anet::profile_detail::RequireCurrentProfileScope(ANET_PROFILE_CURRENT_SCOPE_GUARD()), \
+        static_cast<const anet::profile_detail::SourceLocationData*>(nullptr) \
+    }; \
+    anet::profile_detail::ProfileScopeCurrentGuard ANET_PROFILE_SCOPE_GUARD_VAR(ANET_PROFILE_SCOPE_VAR(phase)) { \
+        ANET_PROFILE_SCOPE_VAR(phase), ANET_PROFILE_CURRENT_SCOPE_GUARD() \
+    }
+
+#define ANET_PROFILE_SCOPE_NEXT_EXPLICIT(phase, prev_phase, phase_literal) \
+    anet::ProfileRange ANET_PROFILE_SCOPE_VAR(phase) { \
+        anet::profile_detail::ProfileRangeTag{}, \
+        nullptr, \
+        ANET_PROFILE_SCOPE_VAR(prev_phase), \
+        static_cast<const anet::profile_detail::SourceLocationData*>(nullptr) \
+    }; \
+    anet::profile_detail::ProfileScopeCurrentGuard ANET_PROFILE_SCOPE_GUARD_VAR(ANET_PROFILE_SCOPE_VAR(phase)) { \
+        ANET_PROFILE_SCOPE_VAR(phase), ANET_PROFILE_CURRENT_SCOPE_GUARD() \
+    }
 
 #define ANET_PROFILE_SCOPE_NEXT_NAMED(var_name, prev_var, phase_literal) \
     anet::ProfileRange var_name { \
@@ -312,13 +448,16 @@ namespace anet {
         nullptr, \
         prev_var, \
         static_cast<const anet::profile_detail::SourceLocationData*>(nullptr) \
+    }; \
+    anet::profile_detail::ProfileScopeCurrentGuard ANET_PROFILE_SCOPE_GUARD_VAR(var_name) { \
+        var_name, ANET_PROFILE_CURRENT_SCOPE_GUARD() \
     }
 
 #define ANET_PROFILE_SCOPE_END(phase) \
-    ANET_PROFILE_SCOPE_VAR(phase).End()
+    ANET_PROFILE_SCOPE_GUARD_VAR(ANET_PROFILE_SCOPE_VAR(phase)).End()
 
 #define ANET_PROFILE_SCOPE_END_NAMED(var_name) \
-    var_name.End()
+    ANET_PROFILE_SCOPE_GUARD_VAR(var_name).End()
 
 #define ANET_PROFILE_SCOPE_FULL(var_name, full_name_literal) \
     ANET_PROFILE_SCOPE_NAMED(var_name, full_name_literal)

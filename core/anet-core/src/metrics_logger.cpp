@@ -1,4 +1,4 @@
-﻿#include "anet/metrics_logger.hpp"
+#include "anet/metrics_logger.hpp"
 #include <stdexcept>
 #include <algorithm>
 #include <iostream>
@@ -410,7 +410,7 @@ void MetricsLogger::LogImage_subtyped(const std::string& tag, anet::rl::step_t s
         }
     }
 
-    ANET_PROFILE_SCOPE_NEXT(write_frame, prepare);
+    ANET_PROFILE_SCOPE_NEXT(write_frame);
     target_logger->WriteFrame(image);
 
     /// @todo 動画フレーム情報Metrics出力

@@ -1,4 +1,4 @@
-﻿#include "anet/heat_map.hpp"
+#include "anet/heat_map.hpp"
 #include <cmath>
 #include <algorithm>
 #include <filesystem>
@@ -240,7 +240,7 @@ wxImage HeatMap::RenderRaw() const
 		};
 
 	// --- 値レンジ決定 ---
-	ANET_PROFILE_SCOPE_NEXT(auto_norm_value, prepare);
+	ANET_PROFILE_SCOPE_NEXT(auto_norm_value);
 	float vmin = value_min_;
 	float vmax = value_max_;
 
@@ -263,7 +263,7 @@ wxImage HeatMap::RenderRaw() const
 	}
 
 	// --- サンプル配置 ---
-	ANET_PROFILE_SCOPE_NEXT(normalize, auto_norm_value);
+	ANET_PROFILE_SCOPE_NEXT(normalize);
 
 	float* p_buf = work_buf_.data();
 	int* p_cnt = work_cnt_.data();
@@ -313,7 +313,7 @@ wxImage HeatMap::RenderRaw() const
 	}
 
 	// --- 画像生成 (ポインタアクセスによる高速化) ---
-	ANET_PROFILE_SCOPE_NEXT(draw, normalize);
+	ANET_PROFILE_SCOPE_NEXT(draw);
 	wxImage img(W, H);
 	unsigned char* data = (unsigned char*)malloc(W * H * 3);
 	img.SetData(data);

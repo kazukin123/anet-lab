@@ -1,4 +1,4 @@
-﻿#include <limits>
+#include <limits>
 #include "anet/trainer.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
@@ -422,7 +422,7 @@ StepCounts SerialTrainRunner::DoStep()
     //ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info->ToString());
     ANET_ASSERT_SHAPE(action_info->GetAction(), {N});
 
-    ANET_PROFILE_SCOPE_NEXT(env_step, make_action);
+    ANET_PROFILE_SCOPE_NEXT(env_step);
 
     // 環境ステップ実行
     auto result = env_->Step(action_info);    // next_state, reward, done, truncated
@@ -443,19 +443,19 @@ StepCounts SerialTrainRunner::DoStep()
 
     auto self = this->shared_from_this();
 
-    ANET_PROFILE_SCOPE_NEXT(env_step_post, env_step);
+    ANET_PROFILE_SCOPE_NEXT(env_step_post);
 
     //メトリクス更新
     UpdateMetrics(result);
     AccumulateAndNotifyEpisodeEnd(self, result, step_counts_);
 
     // Agent更新
-    ANET_PROFILE_SCOPE_NEXT(update_agent, env_step_post);
+    ANET_PROFILE_SCOPE_NEXT(update_agent);
     anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
     auto update_results = learner_->UpdateFromBatch(step_counts_, exp);
 
     // LearnEvent
-    ANET_PROFILE_SCOPE_NEXT(learn_event, update_agent);
+    ANET_PROFILE_SCOPE_NEXT(learn_event);
     if (!update_results.empty()) {
         torch::NoGradGuard grad_guard;
 
@@ -464,7 +464,7 @@ StepCounts SerialTrainRunner::DoStep()
     }
 
     // TrainEvent
-    ANET_PROFILE_SCOPE_NEXT(train_event, learn_event);
+    ANET_PROFILE_SCOPE_NEXT(train_event);
     {
         torch::NoGradGuard grad_guard;
 

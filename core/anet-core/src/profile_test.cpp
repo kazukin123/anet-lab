@@ -29,8 +29,16 @@ void RunProfileMacroSmoke()
 {
     ANET_PROFILE_FUNC();
     ANET_PROFILE_SCOPE(load);
-    ANET_PROFILE_SCOPE_NEXT(update, load);
+    ANET_PROFILE_SCOPE_NEXT(update);
     ANET_PROFILE_SCOPE_END(update);
+    ANET_PROFILE_SCOPE_NEXT_FROM(explicit_prev, load);
+    ANET_PROFILE_SCOPE_END(explicit_prev);
+    ANET_PROFILE_SCOPE(outer);
+    {
+        ANET_PROFILE_SCOPE(inner);
+    }
+    ANET_PROFILE_SCOPE_NEXT(after_inner);
+    ANET_PROFILE_SCOPE_END(after_inner);
     ANET_PROFILE_SCOPE_NAMED(named_load, "namedLoad");
     ANET_PROFILE_SCOPE_NEXT_NAMED(named_update, named_load, "namedUpdate");
     ANET_PROFILE_SCOPE_END_NAMED(named_update);

@@ -1,4 +1,4 @@
-﻿
+
 #include "dqn_based_agent.hpp"
 #include <algorithm>
 #include <tuple>
@@ -1027,22 +1027,22 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss)
     // AMP + BF16: scalerを使わず、旧QRLearnerと同じ順序で更新する
     // ------------------------------------------------------------
     if (config_.use_amp && config_.use_amp_bf16) {
-        ANET_PROFILE_SCOPE_NEXT(backward, zero_grad);
+        ANET_PROFILE_SCOPE_NEXT(backward);
         loss.backward();
 
         bool grad_clipped = false;
         if (config_.use_grad_clip) {
-            ANET_PROFILE_SCOPE_NEXT(grad_clip, backward);
+            ANET_PROFILE_SCOPE_NEXT(grad_clip);
             double grad_norm_val = torch::nn::utils::clip_grad_norm_(parameters, config_.grad_clip_tau);
             result.grad_norm = static_cast<float>(grad_norm_val);
             grad_clipped = (grad_norm_val > config_.grad_clip_tau);
             result.grad_clip_ratio = grad_clipped ? 1.0f : 0.0f;
 
-            ANET_PROFILE_SCOPE_NEXT(optimizer_step, grad_clip);
+            ANET_PROFILE_SCOPE_NEXT(optimizer_step);
             optimizer_->step();
             return result;
         } else {
-            ANET_PROFILE_SCOPE_NEXT(grad_norm, backward);
+            ANET_PROFILE_SCOPE_NEXT(grad_norm);
             torch::Tensor total_sq = torch::zeros({ 1 }, loss.options());
             for (auto& p : parameters) {
                 if (!p.grad().defined()) continue;
@@ -1051,7 +1051,7 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss)
             result.grad_norm_tensor = total_sq.sqrt();
             result.grad_clip_ratio = grad_clipped ? 1.0f : 0.0f;
 
-            ANET_PROFILE_SCOPE_NEXT(optimizer_step, grad_norm);
+            ANET_PROFILE_SCOPE_NEXT(optimizer_step);
             optimizer_->step();
             return result;
         }
@@ -1061,33 +1061,33 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss)
     // AMP + FP16: scale -> backward -> unscale -> clip/norm -> step/update
     // ------------------------------------------------------------
     if (config_.use_amp) {
-        ANET_PROFILE_SCOPE_NEXT(backward, zero_grad);
+        ANET_PROFILE_SCOPE_NEXT(backward);
         grad_scaler_.Scale(loss).backward();
 
         bool found_inf = false; // 現行QRLearnerの簡易実装を維持
         bool grad_clipped = false;
 
         if (config_.use_grad_clip) {
-            ANET_PROFILE_SCOPE_NEXT(unscale, backward);
+            ANET_PROFILE_SCOPE_NEXT(unscale);
             grad_scaler_.Unscale_(*optimizer_);
 
-            ANET_PROFILE_SCOPE_NEXT(grad_clip, unscale);
+            ANET_PROFILE_SCOPE_NEXT(grad_clip);
             double grad_norm_val = torch::nn::utils::clip_grad_norm_(parameters, config_.grad_clip_tau);
             result.grad_norm = static_cast<float>(grad_norm_val);
             grad_clipped = (grad_norm_val > config_.grad_clip_tau);
             result.grad_clip_ratio = grad_clipped ? 1.0f : 0.0f;
 
-            ANET_PROFILE_SCOPE_NEXT(scaler_step, grad_clip);
+            ANET_PROFILE_SCOPE_NEXT(scaler_step);
             grad_scaler_.Step(*optimizer_, found_inf);
 
-            ANET_PROFILE_SCOPE_NEXT(scaler_update, scaler_step);
+            ANET_PROFILE_SCOPE_NEXT(scaler_update);
             grad_scaler_.Update();
             return result;
         } else {
-            ANET_PROFILE_SCOPE_NEXT(unscale, backward);
+            ANET_PROFILE_SCOPE_NEXT(unscale);
             grad_scaler_.Unscale_(*optimizer_);
 
-            ANET_PROFILE_SCOPE_NEXT(grad_norm, unscale);
+            ANET_PROFILE_SCOPE_NEXT(grad_norm);
             torch::Tensor total_sq = torch::zeros({ 1 }, loss.options());
             for (auto& p : parameters) {
                 if (!p.grad().defined()) continue;
@@ -1096,10 +1096,10 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss)
             result.grad_norm_tensor = total_sq.sqrt();
             result.grad_clip_ratio = grad_clipped ? 1.0f : 0.0f;
 
-            ANET_PROFILE_SCOPE_NEXT(scaler_step, grad_norm);
+            ANET_PROFILE_SCOPE_NEXT(scaler_step);
             grad_scaler_.Step(*optimizer_, found_inf);
 
-            ANET_PROFILE_SCOPE_NEXT(scaler_update, scaler_step);
+            ANET_PROFILE_SCOPE_NEXT(scaler_update);
             grad_scaler_.Update();
             return result;
         }
@@ -1108,19 +1108,19 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss)
     // ------------------------------------------------------------
     // FP32: grad_norm_tensorをTensorのまま保持し、CPU同期を避けて手動clipする
     // ------------------------------------------------------------
-    ANET_PROFILE_SCOPE_NEXT(backward, zero_grad);
+    ANET_PROFILE_SCOPE_NEXT(backward);
     loss.backward();
 
 #if ANET_ENABLE_TENSOR_NAN_CHECK
-    ANET_PROFILE_SCOPE_NEXT(nan_check, backward);
+    ANET_PROFILE_SCOPE_NEXT(nan_check);
     for (auto& param : parameters) {
         if (param.grad().defined()) {
             ANET_ASSERT_NAN(param.grad());
         }
     }
-    ANET_PROFILE_SCOPE_NEXT(grad_norm, nan_check);
+    ANET_PROFILE_SCOPE_NEXT(grad_norm);
 #else
-    ANET_PROFILE_SCOPE_NEXT(grad_norm, backward);
+    ANET_PROFILE_SCOPE_NEXT(grad_norm);
 #endif
 
     torch::Tensor total_sq = torch::zeros({ 1 }, loss.options());
@@ -1134,7 +1134,7 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss)
     result.grad_norm_tensor = total_sq.sqrt();
 
     if (config_.use_grad_clip) {
-        ANET_PROFILE_SCOPE_NEXT(grad_clip, grad_norm);
+        ANET_PROFILE_SCOPE_NEXT(grad_clip);
 
         // clip_grad_norm_のCPU同期を避けるため、Tensor演算のままスケールを適用する
         torch::Tensor tau_tensor = torch::full({ 1 }, config_.grad_clip_tau, loss.options());
@@ -1145,12 +1145,12 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss)
             p.grad().detach().mul_(scale);
         }
 
-        ANET_PROFILE_SCOPE_NEXT(optimizer_step, grad_clip);
+        ANET_PROFILE_SCOPE_NEXT(optimizer_step);
         optimizer_->step();
         return result;
     }
 
-    ANET_PROFILE_SCOPE_NEXT(optimizer_step, grad_norm);
+    ANET_PROFILE_SCOPE_NEXT(optimizer_step);
     optimizer_->step();
     return result;
 }
@@ -1201,21 +1201,21 @@ PerPriorityUpdateInfo Learner::UpdatePerPriorities(const anet::rl::ExperienceSam
     const int64_t batch_size = info.per_minibatch_size;
 
     // ReplayBufferのSumTreeはCPU側で更新するため、ここがPER更新の同期境界になる
-    ANET_PROFILE_SCOPE_NEXT(indices_cpu, make_info);
+    ANET_PROFILE_SCOPE_NEXT(indices_cpu);
     const std::vector<int64_t> indices_vec = [&samples, batch_size]() {
         auto indices_cpu = samples.indices.cpu();   /// @todo PERの優先度更新にはCPU値が必要なので、ここで同期が発生する
         auto indices_ptr = indices_cpu.data_ptr<int64_t>();
         return std::vector<int64_t>(indices_ptr, indices_ptr + batch_size);
     }();
 
-    ANET_PROFILE_SCOPE_NEXT(priorities_cpu, indices_cpu);
+    ANET_PROFILE_SCOPE_NEXT(priorities_cpu);
     const std::vector<float> priorities_vec = [&info, batch_size]() {
         auto prios_cpu = info.per_priorities.cpu();
         auto prios_ptr = prios_cpu.data_ptr<float>();
         return std::vector<float>(prios_ptr, prios_ptr + batch_size);
     }();
 
-    ANET_PROFILE_SCOPE_NEXT(update_tree, priorities_cpu);
+    ANET_PROFILE_SCOPE_NEXT(update_tree);
     replay_buffer_->UpdatePriorities(indices_vec, priorities_vec);
 
     return info;
@@ -1712,7 +1712,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // 分布計算
         // ------------------------------------------------------------
 
-        ANET_PROFILE_SCOPE_NEXT(forward_current, normalize);
+        ANET_PROFILE_SCOPE_NEXT(forward_current);
 
         // 現在の分布計算: Z(s, a)、ForwardQuantiles は (B, A, N) を返す
         auto current_out = model_.Forward(obs, /*use_target=*/false);
@@ -1733,11 +1733,11 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             torch::NoGradGuard grad_guard;
 
             torch::Tensor next_actions;
-            ANET_PROFILE_SCOPE_NEXT(select_target_action, forward_current);
+            ANET_PROFILE_SCOPE_NEXT(select_target_action);
             next_actions = SelectTargetActions(next_obs);
             ANET_ASSERT_SHAPE(next_actions, { B });
 
-            ANET_PROFILE_SCOPE_NEXT(forward_target, select_target_action);
+            ANET_PROFILE_SCOPE_NEXT(forward_target);
 
             // 次状態のターゲット分布: Z_target(s', :)
             auto next_out = model_.Forward(next_obs, /*use_target=*/true);
@@ -1780,10 +1780,10 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     ANET_PROFILE_SCOPE(optimize);
     auto opt_result = Optimize(loss);
 
-    ANET_PROFILE_SCOPE_NEXT(update_per, optimize);
+    ANET_PROFILE_SCOPE_NEXT(update_per);
     auto per_result = UpdatePerPriorities(samples, td_error_tensor);
 
-    ANET_PROFILE_SCOPE_NEXT(make_result, update_per);
+    ANET_PROFILE_SCOPE_NEXT(make_result);
     return MakeBatchUpdateResult(
         loss, td_error_tensor, opt_result,
         metrics.max_q, metrics.q_sa, per_result,

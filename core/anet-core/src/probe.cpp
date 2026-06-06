@@ -1,4 +1,4 @@
-﻿// image_log.cpp （抜粋）
+// image_log.cpp （抜粋）
 
 #include "anet/probe.hpp"
 #include <sstream>
@@ -216,7 +216,7 @@ std::optional<std::vector<float>> BatchExperienceVectorProbe::GetVector(const Up
         return std::nullopt;
     }
 
-    ANET_PROFILE_SCOPE_NEXT(dump, get_tensor_vector);
+    ANET_PROFILE_SCOPE_NEXT(dump);
     const auto& tvec = opt_vec.value();
     std::vector<float> out;
 
@@ -252,7 +252,7 @@ std::optional<std::vector<float>> BatchExperienceVectorProbe::GetVector(const Up
         return out;
     }
 
-    ANET_PROFILE_SCOPE_NEXT(extract, dump);
+    ANET_PROFILE_SCOPE_NEXT(extract);
     out.reserve(1024); // optional
     for (const auto& t : tvec) {
         ANET_LOG_DEBUG("t=" << anet::ToDefString(t));
@@ -453,7 +453,7 @@ std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const Update
         return std::nullopt;
     }
 
-    ANET_PROFILE_SCOPE_NEXT(dump, get_tensor_vector);
+    ANET_PROFILE_SCOPE_NEXT(dump);
     const auto& tvec = opt_vec.value();
     std::vector<float> out;
     // ---- index 指定なし：flatten して全て連結 ----
@@ -488,7 +488,7 @@ std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const Update
         return out;
     }
 
-    ANET_PROFILE_SCOPE_NEXT(extract, dump);
+    ANET_PROFILE_SCOPE_NEXT(extract);
     out.reserve(1024); // optional
     for (const auto& t : tvec) {
         ANET_LOG_DEBUG("t=" << anet::ToDefString(t));
