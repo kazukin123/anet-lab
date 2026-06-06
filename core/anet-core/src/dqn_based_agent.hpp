@@ -47,8 +47,12 @@ namespace anet::rl::dqn {
 		// Q Value Metrics Source Tensors
         torch::Tensor max_q;
         mutable torch::Tensor max_q_cpu;
+        torch::Tensor max_q_real;
+        mutable torch::Tensor max_q_real_cpu;
         torch::Tensor q_sa;
         mutable torch::Tensor q_sa_cpu;
+        torch::Tensor q_sa_real;
+        mutable torch::Tensor q_sa_real_cpu;
         torch::Tensor q_gap;
         torch::Tensor q_gap_rel;
 
@@ -108,6 +112,22 @@ namespace anet::rl::dqn {
             if (key == "q_sa_mean") {
                 if (!q_sa_cpu.defined() && q_sa.defined()) q_sa_cpu = q_sa.cpu();
                 return q_sa_cpu.defined() ? std::optional<float>(q_sa_cpu.mean().item<float>()) : std::nullopt;
+            }
+            if (key == "q_max_real_max") {
+                TransRealQToCpu();
+                return max_q_real_cpu.defined() ? std::optional<float>(max_q_real_cpu.max().item<float>()) : std::nullopt;
+            }
+            if (key == "q_max_real_mean") {
+                TransRealQToCpu();
+                return max_q_real_cpu.defined() ? std::optional<float>(max_q_real_cpu.mean().item<float>()) : std::nullopt;
+            }
+            if (key == "q_max_real_std") {
+                TransRealQToCpu();
+                return max_q_real_cpu.defined() ? std::optional<float>(max_q_real_cpu.std(false).item<float>()) : std::nullopt;
+            }
+            if (key == "q_sa_real_mean") {
+                if (!q_sa_real_cpu.defined() && q_sa_real.defined()) q_sa_real_cpu = q_sa_real.cpu();
+                return q_sa_real_cpu.defined() ? std::optional<float>(q_sa_real_cpu.mean().item<float>()) : std::nullopt;
             }
             if (key == "q_std") {
                 if (q_std.defined()) return anet::ToFloat(q_std);
@@ -203,6 +223,11 @@ namespace anet::rl::dqn {
         {
             if (max_q_cpu.defined()) return;
             max_q_cpu = max_q.cpu();
+        }
+        void TransRealQToCpu() const
+        {
+            if (max_q_real_cpu.defined()) return;
+            if (max_q_real.defined()) max_q_real_cpu = max_q_real.cpu();
         }
     };
 
@@ -460,6 +485,8 @@ namespace anet::rl::dqn {
         OptimizerStepResult Optimize(const torch::Tensor& loss);
         PerPriorityUpdateInfo MakePerPriorityUpdateInfo(const anet::rl::ExperienceSamples& samples, const torch::Tensor& td_error) const;
         PerPriorityUpdateInfo UpdatePerPriorities(const anet::rl::ExperienceSamples& samples, const torch::Tensor& td_error);
+        torch::Tensor TransformH(const torch::Tensor& x) const;
+        torch::Tensor TransformHInv(const torch::Tensor& x) const;
         std::shared_ptr<anet::rl::dqn::BatchUpdateResult> MakeBatchUpdateResult(
             const torch::Tensor& loss,
             const torch::Tensor& td_error,

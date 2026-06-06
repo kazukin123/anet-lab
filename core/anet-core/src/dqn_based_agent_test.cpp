@@ -1,10 +1,13 @@
 ﻿#include "catch.hpp"
 
 #include "anet/default_dqn_agent.hpp"
+#include "anet/rainbow_agent.hpp"
+#include "anet/test_util.hpp"
 #include "dqn_based_agent.hpp"
 #include "nn_impl.hpp"
 
 #include <cmath>
+#include <limits>
 #include <map>
 #include <memory>
 #include <string>
@@ -122,8 +125,11 @@ public:
     {
     }
 
+    using dqn::Learner::MakeBatchUpdateResult;
     using dqn::Learner::MakePerPriorityUpdateInfo;
     using dqn::Learner::Optimize;
+    using dqn::Learner::TransformH;
+    using dqn::Learner::TransformHInv;
 
     void UseSgd(float lr)
     {
@@ -253,6 +259,85 @@ TEST_CASE("Quantile huber loss matches known QR-DQN inputs", "[dqn][quantile]")
 
     REQUIRE(ShapeOf(loss) == std::vector<int64_t>{ 1 });
     REQUIRE(loss.item<float>() == Catch::Approx(0.625f).margin(1.0e-6f));
+}
+
+TEST_CASE("TBO transform is monotonic and invertible on representative values", "[dqn][tbo]")
+{
+    auto env_spec = MakeLearnerEnvSpec();
+    TestNetworkModel model;
+    dqn::RuntimeVars vars;
+    rl::BatchEnvSpec batch_env_spec{ 1, 1 };
+
+    for (float epsilon : { 1.0e-2f, 1.0e-3f }) {
+        INFO(epsilon);
+        dqn::LearnerConfig config;
+        config.tbo_epsilon = epsilon;
+        TestLearner learner(config, model, vars, batch_env_spec, env_spec);
+
+        auto values = torch::tensor({ -1000.0f, -10.0f, -1.0f, 0.0f, 1.0f, 10.0f, 1000.0f });
+        auto transformed = learner.TransformH(values);
+        auto restored_from_values = learner.TransformHInv(transformed);
+        auto restored_from_transformed = learner.TransformH(learner.TransformHInv(values));
+
+        CHECK(torch::allclose(restored_from_values, values, 1.0e-4, 1.0e-4));
+        CHECK(torch::allclose(restored_from_transformed, values, 1.0e-4, 1.0e-4));
+
+        auto diffs = transformed.slice(0, 1) - transformed.slice(0, 0, -1);
+        CHECK(torch::all(diffs.gt(0)).item<bool>());
+    }
+}
+
+TEST_CASE("TBO real-space q scalars are exposed from batch update result", "[dqn][tbo][metrics]")
+{
+    dqn::LearnerConfig config;
+    config.use_tbo = true;
+    config.tbo_epsilon = 1.0e-2f;
+
+    auto env_spec = MakeLearnerEnvSpec();
+    TestNetworkModel model;
+    dqn::RuntimeVars vars;
+    rl::BatchEnvSpec batch_env_spec{ 1, 1 };
+    TestLearner learner(config, model, vars, batch_env_spec, env_spec);
+
+    auto raw_max_q = torch::tensor({ -10.0f, 0.0f, 100.0f });
+    auto raw_q_sa = torch::tensor({ -1.0f, 10.0f, 1000.0f });
+    auto max_q = learner.TransformH(raw_max_q);
+    auto q_sa = learner.TransformH(raw_q_sa);
+
+    dqn::OptimizerStepResult opt_result;
+    dqn::PerPriorityUpdateInfo per_info;
+    auto result = learner.MakeBatchUpdateResult(
+        torch::tensor(0.0f),
+        torch::zeros({ 3 }),
+        opt_result,
+        max_q,
+        q_sa,
+        per_info);
+
+    auto max_mean = result->GetScalar("q_max_real_mean", -1);
+    auto max_max = result->GetScalar("q_max_real_max", -1);
+    auto max_std = result->GetScalar("q_max_real_std", -1);
+    auto sa_mean = result->GetScalar("q_sa_real_mean", -1);
+    REQUIRE(max_mean.has_value());
+    REQUIRE(max_max.has_value());
+    REQUIRE(max_std.has_value());
+    REQUIRE(sa_mean.has_value());
+    CHECK(*max_mean == Catch::Approx(raw_max_q.mean().item<float>()).margin(1.0e-4f));
+    CHECK(*max_max == Catch::Approx(raw_max_q.max().item<float>()).margin(1.0e-4f));
+    CHECK(*max_std == Catch::Approx(raw_max_q.std(false).item<float>()).margin(1.0e-4f));
+    CHECK(*sa_mean == Catch::Approx(raw_q_sa.mean().item<float>()).margin(1.0e-4f));
+
+    dqn::LearnerConfig off_config;
+    TestLearner off_learner(off_config, model, vars, batch_env_spec, env_spec);
+    auto off_result = off_learner.MakeBatchUpdateResult(
+        torch::tensor(0.0f),
+        torch::zeros({ 3 }),
+        opt_result,
+        raw_max_q,
+        raw_q_sa,
+        per_info);
+    CHECK_FALSE(off_result->GetScalar("q_max_real_mean", -1).has_value());
+    CHECK_FALSE(off_result->GetScalar("q_sa_real_mean", -1).has_value());
 }
 
 TEST_CASE("PER priority helper applies epsilon and clipping", "[dqn][per]")
@@ -498,6 +583,65 @@ TEST_CASE("DefaultDQNAgentConfig rejects invalid spatial scale type", "[dqn][con
     config_data.Set("DefaultDQNAgent.train_policy.spatial_scale_type", "invalid");
 
     CHECK_THROWS(dqn::DefaultDQNAgentConfig(config_data));
+}
+
+TEST_CASE("DefaultDQNAgentConfig reads and validates TBO settings", "[dqn][config][tbo]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.learner.use_tbo", "true");
+    config_data.Set("DefaultDQNAgent.learner.tbo_epsilon", "0.02");
+    config_data.Set("DefaultDQNAgent.reward_scaler.use_dynamic_scaling", "false");
+    config_data.Set("DefaultDQNAgent.reward_scaler.use_auto_post_scale", "false");
+
+    dqn::DefaultDQNAgentConfig config(config_data);
+
+    CHECK(config.learner.use_tbo);
+    CHECK(config.learner.tbo_epsilon == Catch::Approx(0.02f));
+}
+
+TEST_CASE("DefaultDQNAgentConfig rejects invalid TBO epsilon", "[dqn][config][tbo]")
+{
+    for (const auto& value : { "0", "-0.01", "nan", "inf" }) {
+        INFO(value);
+        anet::ConfigData config_data;
+        config_data.Set("DefaultDQNAgent.learner.tbo_epsilon", value);
+        CHECK_THROWS(dqn::DefaultDQNAgentConfig(config_data));
+    }
+}
+
+TEST_CASE("RainbowAgentConfig keeps TBO disabled", "[dqn][config][tbo]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("RainbowAgent.learner.use_tbo", "true");
+
+    dqn::RainbowAgentConfig config(config_data);
+
+    CHECK_FALSE(config.learner.use_tbo);
+}
+
+TEST_CASE("DefaultDQNAgentConfig warns when TBO shares reward compression", "[dqn][config][tbo]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.learner.use_tbo", "true");
+    config_data.Set("DefaultDQNAgent.reward_scaler.use_dynamic_scaling", "true");
+    config_data.Set("DefaultDQNAgent.reward_scaler.use_auto_post_scale", "false");
+
+    anet::test::LogCaptureGuard logs;
+    dqn::DefaultDQNAgentConfig config(config_data);
+    logs.Flush();
+
+    CHECK(config.learner.use_tbo);
+    CHECK(config.reward_scaler.use_dynamic_scaling);
+    CHECK_FALSE(config.reward_scaler.use_auto_post_scale);
+    bool found_warning = false;
+    for (const auto& record : logs.Records()) {
+        if (record.message.find("learner.use_tbo") != std::string::npos
+            && record.message.find("reward_scaler.use_dynamic_scaling") != std::string::npos
+            && record.message.find("double-compressed") != std::string::npos) {
+            found_warning = true;
+        }
+    }
+    CHECK(found_warning);
 }
 
 TEST_CASE("Spatial exploration keeps scalar metrics as NaN across policy updates", "[dqn][action_policy][spatial]")

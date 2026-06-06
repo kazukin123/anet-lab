@@ -1,10 +1,12 @@
 ﻿// anet/default_dqn_agent.hpp
 #pragma once
 
+#include <cmath>
 #include <memory>
 #include <torch/torch.h>
 
 #include "anet/config.hpp"
+#include "anet/log.hpp"
 #include "anet/replay_buffer.hpp"
 #include "anet/rl.hpp"
 #include "anet/agent.hpp"
@@ -175,8 +177,15 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.use_double_dqn);
             ANET_READ_CONFIG(config_data, learner.use_n_step);
             ANET_READ_CONFIG(config_data, learner.use_per);
+            ANET_READ_CONFIG(config_data, learner.use_tbo);
+            ANET_READ_CONFIG(config_data, learner.tbo_epsilon);
             ANET_READ_CONFIG(config_data, learner.use_amp);
             ANET_READ_CONFIG(config_data, learner.use_amp_bf16);
+            if (!std::isfinite(learner.tbo_epsilon) || learner.tbo_epsilon <= 0.0f) {
+                ANET_SYSTEM_ERROR(
+                    "Invalid DefaultDQNAgent.learner.tbo_epsilon: value=" << learner.tbo_epsilon
+                    << " expected finite positive float");
+            }
 
             ANET_READ_CONFIG(config_data, reward_scaler.use_clipping);
             ANET_READ_CONFIG(config_data, reward_scaler.clip_range);
@@ -186,6 +195,11 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, reward_scaler.use_auto_post_scale);
             ANET_READ_CONFIG(config_data, reward_scaler.reference_q_std);
             ANET_READ_CONFIG(config_data, reward_scaler.manual_post_scale);
+            if (learner.use_tbo && (reward_scaler.use_dynamic_scaling || reward_scaler.use_auto_post_scale)) {
+                anet::log::warn()
+                    << "learner.use_tbo is enabled together with reward_scaler.use_dynamic_scaling or "
+                    << "reward_scaler.use_auto_post_scale; targets may be double-compressed.";
+            }
 
             ANET_READ_CONFIG(config_data, obs_norm.pass_through);
             ANET_READ_CONFIG(config_data, obs_norm.use_clipping);

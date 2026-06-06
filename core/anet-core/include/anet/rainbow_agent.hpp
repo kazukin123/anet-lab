@@ -63,6 +63,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, use_qr);
 
             learner.num_quantiles = num_quantiles;
+            learner.use_tbo = false;
         }
     };
 

@@ -190,6 +190,9 @@ namespace anet::rl {
             bool use_n_step = true;       ///< N-STEPを使用するか
             bool use_per = true;          ///< PERを使用するか
 
+            bool use_tbo = false;         ///< Transformed Bellman Operatorを使用するか
+            float tbo_epsilon = 1e-2f;    ///< TBO変換関数hの正則化項
+
             int num_quantiles = 51;         ///< 分位数 N (デフォルト51)
             float quantile_huber_kappa = 1.0f;///< Huber Loss の閾値 kappa
 

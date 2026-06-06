@@ -1221,6 +1221,22 @@ PerPriorityUpdateInfo Learner::UpdatePerPriorities(const anet::rl::ExperienceSam
     return info;
 }
 
+torch::Tensor Learner::TransformH(const torch::Tensor& x) const
+{
+    // h 空間へ圧縮し、大きなBellmanターゲットの影響を抑える。
+    const float eps = config_.tbo_epsilon;
+    return x.sign() * (torch::sqrt(x.abs() + 1.0f) - 1.0f) + eps * x;
+}
+
+torch::Tensor Learner::TransformHInv(const torch::Tensor& x) const
+{
+    // h 空間の値を、報酬と足し合わせる前に実空間へ戻す。
+    const float eps = config_.tbo_epsilon;
+    auto abs_x = x.abs();
+    auto inner = (torch::sqrt(1.0f + 4.0f * eps * (abs_x + 1.0f + eps)) - 1.0f) / (2.0f * eps);
+    return x.sign() * (inner * inner - 1.0f);
+}
+
 std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::MakeBatchUpdateResult(
     const torch::Tensor& loss,
     const torch::Tensor& td_error,
@@ -1241,6 +1257,10 @@ std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::MakeBatchUpdateResult
     result->grad_clip_tau = opt_result.grad_clip_tau;
     result->max_q = max_q;
     result->q_sa = q_sa;
+    if (config_.use_tbo) {
+        result->max_q_real = TransformHInv(max_q);
+        result->q_sa_real = TransformHInv(q_sa);
+    }
     result->q_std = q_std;
     result->q_gap = q_gap;
     result->q_gap_rel = q_gap_rel;
@@ -1427,7 +1447,9 @@ torch::Tensor QuantileLearnerBase::CalcTargetQuantiles(const anet::rl::Experienc
 
     // N-step target: r^(n) + gamma^n * (1 - done) * Z_target(s', a*)
     auto gamma_n = torch::pow(config_.gamma, samples.n_steps.to(torch::kFloat32)).view({ B, 1 });
-    auto target_dist = returns + gamma_n * not_terminal * next_dist;
+    auto next = config_.use_tbo ? TransformHInv(next_dist) : next_dist;
+    auto raw_target_dist = returns + gamma_n * not_terminal * next;
+    auto target_dist = config_.use_tbo ? TransformH(raw_target_dist) : raw_target_dist;
     ANET_ASSERT_SHAPE(target_dist, { B, N });
     ANET_ASSERT_NAN(target_dist);
     return target_dist;
@@ -1620,7 +1642,9 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // ------------------------------------------------------------
         auto not_terminal = 1.0f - terminals.to(torch::kFloat32); // (B,)
         auto gamma_n = torch::pow(config_.gamma, samples.n_steps.to(torch::kFloat32)); // (B,)
-        auto td_target = target_returns.detach() + not_terminal * gamma_n * max_next_q.detach(); // (B,)
+        auto bootstrap = config_.use_tbo ? TransformHInv(max_next_q.detach()) : max_next_q.detach();
+        auto raw_td_target = target_returns.detach() + not_terminal * gamma_n * bootstrap; // (B,)
+        auto td_target = config_.use_tbo ? TransformH(raw_td_target) : raw_td_target;
         td_error = q_sa - td_target; // (B,)
         ANET_ASSERT_SHAPE(td_error, { B });
         ANET_ASSERT_DTYPE(td_error, torch::kFloat32);
