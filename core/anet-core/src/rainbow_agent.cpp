@@ -212,7 +212,7 @@ std::shared_ptr<anet::rl::Learner> RainbowAgent::CreateLearner()
 anet::rl::BatchUpdateResultList
 RainbowAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp)
 {
-    ProfileRange r1("RainbowAgent::UpdateFromBatch");
+    ANET_PROFILE_FUNC();
 
     anet::rl::BatchUpdateResultList result_list;
     {

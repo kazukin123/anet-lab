@@ -174,7 +174,7 @@ DropMergeEnv::~DropMergeEnv()
 
 void DropMergeEnv::bell()
 {
-    anet::ProfileRange r("DropMergeEnv::bell");
+    ANET_PROFILE_FUNC();
     /// @todo wxBell()はスレッドセーフじゃないのでwxSoundを使うべき
     //wxBell();
 }
@@ -360,7 +360,7 @@ int DropMergeEnv::determineNextRank()
 
 std::shared_ptr<const anet::rl::SingleResetResult> DropMergeEnv::Reset(anet::rl::RunMode mode)
 {
-    anet::ProfileRange r("DropMergeEnv::Reset");
+    ANET_PROFILE_FUNC();
 
     // --- Seed Reset Logic ---
     // Normal: 何もしない (継続性維持)
@@ -419,7 +419,7 @@ bool DropMergeEnv::isSpawnAreaClear(float x, float y, float r) const
 
 bool DropMergeEnv::hasClearSpawnXInRange(float x_min, float x_max, float y, float r) const
 {
-    anet::ProfileRange pr("DropMergeEnv::hasClearSpawnXInRange");
+    ANET_PROFILE_FUNC();
 
     if (x_min > x_max) std::swap(x_min, x_max);
 
@@ -478,7 +478,7 @@ bool DropMergeEnv::hasClearSpawnXInRange(float x_min, float x_max, float y, floa
 
 bool DropMergeEnv::hasAnyLegalDropForCurrentFruit() const
 {
-    anet::ProfileRange r("DropMergeEnv::hasAnyLegalDropForCurrentFruit");
+    ANET_PROFILE_FUNC();
 
     if (dropper_.current_rank < 1 || dropper_.current_rank > kFruitTypeCount) {
         return false;
@@ -868,7 +868,7 @@ bool DropMergeEnv::isWorldSettled() const
 
 bool DropMergeEnv::isNoLegalDropState() const
 {
-    anet::ProfileRange r("DropMergeEnv::isNoLegalDropState");
+    ANET_PROFILE_FUNC();
 
     if (action_mode_ != ActionMode::DirectNoop) return false;
     if (game_over_) return false;
@@ -884,7 +884,7 @@ bool DropMergeEnv::isNoLegalDropState() const
 
 std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t action, anet::rl::RunMode mode)
 {
-    anet::ProfileRange r("DropMergeEnv::Step");
+    ANET_PROFILE_FUNC();
 
     // エピーソード開始してる
     episode_just_ended_ = false;
@@ -1161,7 +1161,7 @@ void DropMergeEnv::ContactListener::BeginContact(b2Contact* contact)
 
 anet::rl::SingleState DropMergeEnv::makeState() const
 {
-    anet::ProfileRange r("DropMergeEnv::makeState");
+    ANET_PROFILE_FUNC();
 
     // --- 定数・範囲の定義 ---
     const float min_x = -config_.box_width * 0.5f;
@@ -1304,7 +1304,7 @@ std::pair<float, float> DropMergeEnv::calcReward()
 
 anet::rl::AuxData DropMergeEnv::CreateAuxData(float reward, float raw_reward) const
 {
-	anet::ProfileRange r("DropMergeEnv::CreateAuxData");
+	ANET_PROFILE_FUNC();
 
     anet::rl::AuxData aux;
 

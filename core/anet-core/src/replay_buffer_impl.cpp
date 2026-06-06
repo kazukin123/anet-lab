@@ -779,7 +779,7 @@ public:
 
     void ExtractSamples(ExperienceSamples& out, const ReplayExperienceStorage& storage, const IndexSampleResult& idx_result, int stack_count, int unroll_steps) const override
     {
-        anet::ProfileRange r("DefaultSampleExtractor::ExtractSamples");
+        ANET_PROFILE_FUNC();
 
         int64_t B = idx_result.indices.size(0);
         auto indices_acc = idx_result.indices.accessor<int64_t, 1>();

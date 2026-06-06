@@ -52,7 +52,7 @@ public:
 
     torch::Tensor forward(torch::Tensor x)
     {
-        anet::ProfileRange r("LinearModule::forward");
+        ANET_PROFILE_FUNC();
 
         if (!linear) {
             // 初回実行時に入力次元数を自動取得
@@ -109,7 +109,7 @@ public:
 
     torch::Tensor forward(torch::Tensor x)
     {
-        anet::ProfileRange r("Conv1dModule::forward");
+        ANET_PROFILE_FUNC();
 
         if (!conv) {
             // 初回実行時に入力チャンネル数(in_channels)を自動取得
@@ -170,7 +170,7 @@ public:
 
     torch::Tensor forward(torch::Tensor x)
     {
-        anet::ProfileRange r("Conv2dModule::forward");
+        ANET_PROFILE_FUNC();
 
  //       ANET_LOG_DEBUG("x=" << anet::ToString(x));
 
@@ -233,7 +233,7 @@ public:
 
     torch::Tensor forward(torch::Tensor x)
     {
-        anet::ProfileRange r("PermuteModule::forward");
+        ANET_PROFILE_FUNC();
         return x.permute(dims_);
     }
     torch::Tensor Forward(torch::Tensor input) override
@@ -256,7 +256,7 @@ class FlattenModule : public NetworkModule {
 public:
     torch::Tensor forward(torch::Tensor x)
     {
-        anet::ProfileRange r("FlattenModule::forward");
+        ANET_PROFILE_FUNC();
 
         return x.flatten(1);
     }
@@ -371,7 +371,7 @@ public:
 
     torch::Tensor forward(torch::Tensor x)
     {
-        anet::ProfileRange r("ReLUModule::forward");
+        ANET_PROFILE_FUNC();
 
         return torch::relu(x);
     }
@@ -639,11 +639,11 @@ public:
 
     torch::Tensor Forward(torch::Tensor input) override
     {
-        anet::ProfileRange r("ResBlockModule::Forward");
+        ANET_PROFILE_FUNC();
 
         // Lazy Initialization
         if (!conv1_) {
-            anet::ProfileRange r2("ResBlockModule::Forward.init");
+            ANET_PROFILE_SCOPE(init);
 
             auto device = input.device();
             auto dtype = input.scalar_type();
@@ -702,7 +702,7 @@ public:
             // ==================================================
             // Pre-Activation (ResNet v2)
             // ==================================================
-            anet::ProfileRange r3("ResBlockModule::Forward.pre_act");
+            ANET_PROFILE_SCOPE(pre_act);
 
             // 共通の Pre-Activation (Norm -> Act)
             torch::Tensor pre_act = input;
@@ -733,7 +733,7 @@ public:
             // ==================================================
             // Post-Activation (ResNet v1)
             // ==================================================
-            anet::ProfileRange r3("ResBlockModule::Forward.post_act");
+            ANET_PROFILE_SCOPE(post_act);
 
             // Block 1: Conv -> Norm -> Act
             torch::Tensor out = conv1_->forward(input);
@@ -890,7 +890,7 @@ public:
 
     torch::Tensor Forward(torch::Tensor input) override
     {
-        anet::ProfileRange r("LayerNormModule::Forward");
+        ANET_PROFILE_FUNC();
 
         // Lazy Init for device/dtype transfer
         if (!initialized_) {
@@ -963,7 +963,7 @@ public:
 
     torch::Tensor Forward(torch::Tensor input) override
     {
-        anet::ProfileRange r("SpatialPositionalEmbedding2DModule::Forward");
+        ANET_PROFILE_FUNC();
 
         // 初回実行時のLazy Initialization
         if (!initialized_) {
@@ -1045,7 +1045,7 @@ public:
 
     torch::Tensor Forward(torch::Tensor input) override
     {
-        anet::ProfileRange r("SpatialEmbedderModule::Forward");
+        ANET_PROFILE_FUNC();
 
         // Input: (Batch, Stack, Features) or (Batch, Features)
         // Features = scalar_dim + (grid_w * grid_h)
@@ -1170,7 +1170,7 @@ public:
 
     torch::Tensor Forward(torch::Tensor input) override
     {
-        anet::ProfileRange r("SpatialEmbedderModule::Forward");
+        ANET_PROFILE_FUNC();
 
         // Input: (Batch, Features) または FrameStack時 (Batch, Stack, Features)
         auto shape = input.sizes().vec();
@@ -1331,7 +1331,7 @@ public:
 
     torch::Tensor Forward(torch::Tensor input) override
     {
-        anet::ProfileRange r("TransformerEncoderModule::Forward");
+        ANET_PROFILE_FUNC();
 
         if (!initialized_) {
             // 初回の形状チェック
@@ -1409,7 +1409,7 @@ class GlobalAveragePooling1DModule : public NetworkModule {
 public:
     torch::Tensor Forward(torch::Tensor input) override
     {
-        anet::ProfileRange r("GlobalAveragePooling1DModule::Forward");
+        ANET_PROFILE_FUNC();
         // [Batch, SeqLen, d_model] の SeqLen (dim=1) を平均して潰す
         return input.mean(/*dim=*/1);
     }
@@ -1439,7 +1439,7 @@ class ClsTokenAppendModule : public NetworkModule {
 public:
     torch::Tensor Forward(torch::Tensor input) override
     {
-        anet::ProfileRange r("ClsTokenAppendModule::Forward");
+        ANET_PROFILE_FUNC();
 
         int64_t batch_size = input.size(0);
         int64_t d_model = input.size(2);
@@ -1488,7 +1488,7 @@ class ClsTokenExtractModule : public NetworkModule {
 public:
     torch::Tensor Forward(torch::Tensor input) override
     {
-        anet::ProfileRange r("ClsTokenExtractModule::Forward");
+        ANET_PROFILE_FUNC();
 
         // [Batch, 1 + SeqLen, d_model] の 0番目 (先頭) を抽出する
         return input.select(/*dim=*/1, /*index=*/0);

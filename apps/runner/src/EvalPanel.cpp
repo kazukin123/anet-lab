@@ -95,13 +95,13 @@ void EvalPanel::TogglePause()
 
 void EvalPanel::OnTimer(wxTimerEvent& event)
 {
-	anet::ProfileRange r("EvalPanel::OnTimer");
+	ANET_PROFILE_FUNC();
 
 	if (is_pause_) return;
 
 	// 評価エピソードを回す（Observer経由でeval_canvas更新)
 	if (config_.step_per_frame > 0) {
-		anet::ProfileRange r("LunarLanderFrame::OnEvalTimer.DoUpdateFrame");
+		ANET_PROFILE_SCOPE_FULL(eval_update_frame, "LunarLanderFrame::OnEvalTimer.DoUpdateFrame");
 		runner_->DoUpdateFrame(config_.step_per_frame);
 	}
 

@@ -307,7 +307,7 @@ VectorizedDiscreteBatchEnv::VectorizedDiscreteBatchEnv(
 
 std::shared_ptr<const BatchResetResult> VectorizedDiscreteBatchEnv::Reset(RunMode mode)
 {
-    ProfileRange r("VectorizedDiscreteBatchEnv::Reset");
+    ANET_PROFILE_FUNC();
 
     // 戻りの枠生成
     auto result = getResetResult();
@@ -328,7 +328,7 @@ std::shared_ptr<const BatchResetResult> VectorizedDiscreteBatchEnv::Reset(RunMod
 
 std::shared_ptr<const BatchStepResult> VectorizedDiscreteBatchEnv::Step(std::shared_ptr<BatchActionInfo> action_info, RunMode mode)
 {
-    ProfileRange r("VectorizedDiscreteBatchEnv::Step");
+    ANET_PROFILE_FUNC();
 
     const int64_t N = batch_spec_.num_envs;
 
@@ -416,7 +416,7 @@ ThreadPoolDiscreteEnv::~ThreadPoolDiscreteEnv()
 
 std::shared_ptr<const BatchResetResult>  ThreadPoolDiscreteEnv::Reset(RunMode mode)
 {
-    ProfileRange r("ThreadPoolDiscreteEnv::Reset");
+    ANET_PROFILE_FUNC();
 
     ANET_ASSERT(pool_ != nullptr);
     const int worker_count = pool_->GetWorkerCount();
@@ -456,7 +456,7 @@ std::shared_ptr<const BatchResetResult>  ThreadPoolDiscreteEnv::Reset(RunMode mo
 
 std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(std::shared_ptr<BatchActionInfo> action_info, RunMode mode)
 {
-    ProfileRange r("ThreadPoolDiscreteEnv::Step");
+    ANET_PROFILE_FUNC();
 
     const int N = num_envs_;
     ANET_LOG_DEBUG("action=" << anet::ToString(action_info->GetAction()));

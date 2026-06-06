@@ -165,7 +165,7 @@ void GridMazeEnv::GenerateGridMap()
 
 std::shared_ptr<const anet::rl::SingleResetResult> GridMazeEnv::Reset(anet::rl::RunMode mode)
 {
-    anet::ProfileRange r("GridMazeEnv::Reset");
+    ANET_PROFILE_FUNC();
 
     if (config_.randomize_seed) {
         current_seed_ = anet::SeedMaker::MakeAutoSeed();
@@ -194,7 +194,7 @@ std::shared_ptr<const anet::rl::SingleResetResult> GridMazeEnv::Reset(anet::rl::
 
 std::shared_ptr<const anet::rl::SingleStepResult> GridMazeEnv::Step(int64_t action, anet::rl::RunMode mode)
 {
-    anet::ProfileRange r("GridMazeEnv::Step");
+    ANET_PROFILE_FUNC();
     episode_start_ = false;
     step_count_++;
     episode_just_ended_ = false;

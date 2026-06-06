@@ -62,14 +62,14 @@ HeatMapVectorObserver::HeatMapVectorObserver(
 
 void HeatMapVectorObserver::OnTrain(const TrainEvent& event)
 {
-    anet::ProfileRange r("HeatMapVectorObserver::OnTrain");
+    ANET_PROFILE_FUNC();
 
     // 実行判定
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);
     if (config_.log_interval <= 0) return;
     if (step % config_.log_interval != 0) return;
 
-    anet::ProfileRange r1("HeatMapVectorObserver::OnTrain.getVector");
+    ANET_PROFILE_SCOPE(get_vector);
     std::unique_lock<std::shared_mutex> lock(mutex_);
 
     // 生成： xv, yv, vv
@@ -90,14 +90,14 @@ void HeatMapVectorObserver::OnTrain(const TrainEvent& event)
     }
 
     // データ追加
-    anet::ProfileRange r2("HeatMapVectorObserver::OnTrain.addDataBatch", r1);
+    ANET_PROFILE_SCOPE_NEXT(add_data_batch, get_vector);
     heatmap_->Reset();  // 毎回バッファクリア（最新のRB内容だけ描画）
     heatmap_->AddDataBatch(*xv, *yv, *vv);
 
     captured_step_ = step;
 
     // 画像保存
-    anet::ProfileRange r3("HeatMapVectorObserver::OnTrain.logImage", r1); // 親スコープをr1に変更(r2はif内なので)
+    ANET_PROFILE_SCOPE_NEXT(log_image, get_vector); // 親スコープをget_vectorに変更(add_data_batchはif内なので)
     MetricsLogger::Instance()->Log(
         tag_,
         step,
@@ -128,7 +128,7 @@ TimeHistogramObserver::TimeHistogramObserver(
 
 void TimeHistogramObserver::OnLearn(const LearnEvent& event)
 {
-    anet::ProfileRange r("TimeHistogramObserver::OnTrain");
+    ANET_PROFILE_FUNC();
 
     /// @todo メトリクスのSTEP軸を指定できるようにする
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::LEARN);
@@ -136,7 +136,7 @@ void TimeHistogramObserver::OnLearn(const LearnEvent& event)
     std::unique_lock<std::shared_mutex> lock(mutex_);
 
     // Probeで vectorを取得
-    anet::ProfileRange r1("TimeHistogramObserver::OnTrain.getVector");
+    ANET_PROFILE_SCOPE(get_vector);
     auto values = probe_->GetVector(event);
     if (values.has_value()) {
         histogram_->AddBatch(*values);
@@ -154,7 +154,7 @@ void TimeHistogramObserver::OnLearn(const LearnEvent& event)
         // A. ログ頻度がフレームより高い (log < frame) → 毎回出す（間引きようがないため）
         // B. ログ頻度が低い (log >= frame) → ステップがログ間隔と合う時だけ出す
         if (config_.log_interval <= config_.frame_interval || step % config_.log_interval == 0) {
-            anet::ProfileRange r2("TimeHistogramObserver::OnTrain.logImage", r1);
+            ANET_PROFILE_SCOPE_NEXT(log_image, get_vector);
             captured_step_ = step;
             MetricsLogger::Instance()->Log(tag_, step, *histogram_, config_.image_width, config_.image_height);
         }
@@ -235,12 +235,12 @@ inline float Normalize01(
 
 void MultiPairHeatMapObserver::OnTrain(const TrainEvent& event)
 {
-    anet::ProfileRange r("MultiPairHeatMapObserver::OnTrain");
+    ANET_PROFILE_FUNC();
 
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);
 
     // --- 値ベクトル取得 ---
-    anet::ProfileRange r1("MultiPairHeatMapObserver::OnTrain.getVector");
+    ANET_PROFILE_SCOPE(get_vector);
     
     auto vv = value_probe_->GetVector(event);
     if (!vv || vv->empty()) return;
@@ -259,7 +259,7 @@ void MultiPairHeatMapObserver::OnTrain(const TrainEvent& event)
     if (batch_y.capacity() < estimated_size) batch_y.reserve(estimated_size);
     if (batch_v.capacity() < estimated_size) batch_v.reserve(estimated_size);
 
-    anet::ProfileRange r2("MultiPairHeatMapObserver::OnTrain.processPairs", r1);
+    ANET_PROFILE_SCOPE_NEXT(process_pairs, get_vector);
 
     // --- 全プローブペア i < j をスキャン ---
     for (size_t i = 0; i < m; i++) {
@@ -317,7 +317,7 @@ void MultiPairHeatMapObserver::OnTrain(const TrainEvent& event)
     }
 
     // --- 画像保存 ---
-    anet::ProfileRange r3("MultiPairHeatMapObserver::OnTrain.logImage", r2);
+    ANET_PROFILE_SCOPE_NEXT(log_image, process_pairs);
     if (config_.log_interval > 0 && step % config_.log_interval == 0) {
         MetricsLogger::Instance()->Log(
             tag_, step,
@@ -376,7 +376,7 @@ SweepedHeatMapObserver::SweepedHeatMapObserver(
 
 void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
 {
-    anet::ProfileRange r("SweepedHeatMapObserver::OnLearn");
+    ANET_PROFILE_FUNC();
 
     /// @todo メトリクスのSTEP軸を指定できるようにする？
 
@@ -385,7 +385,7 @@ void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
     if (config_.log_interval <= 0) return;
     if (step % config_.log_interval != 0) return;
 
-    anet::ProfileRange r1("SweepedHeatMapObserver::OnTrain.render");
+    ANET_PROFILE_SCOPE(render);
     std::unique_lock<std::shared_mutex> lock(mutex_);
 
     // データ採取
@@ -404,7 +404,7 @@ void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
     ANET_LOG_DEBUG("LogImage() done. tag=" << tag_);
 
     // Scalarログ出力
-    anet::ProfileRange r6("SweepedHeatMapObserver::OnTrain.logScalar", r1);
+    ANET_PROFILE_SCOPE_NEXT(log_scalar, render);
     for (int i = 0; i < extract_result.labels.size(); i++) {
         auto result_label = extract_result.labels[i];
         auto tag_itr = scalar_label_tag_map_.find(result_label);
@@ -428,13 +428,13 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
     const int64_t grid_num = static_cast<int64_t>(grid_w_) * static_cast<int64_t>(grid_h_);
 
     // 入力バッチ生成（GPU 上）
-    anet::ProfileRange r1("SweepedHeatMapObserver::Render.build");
+    ANET_PROFILE_SCOPE(build);
     torch::Tensor batch_in = input_gen_->BuildInputTensor();
     ANET_ASSERT_SHAPE(batch_in, { grid_num, ANET_SHAPE_ENDANY });
     ANET_LOG_DEBUG("batch_in=" << anet::ToDefString(batch_in));
 
     // NN 適用（GPU 上）
-    anet::ProfileRange r2("SweepedHeatMapObserver::Render.nn", r1);
+    ANET_PROFILE_SCOPE_NEXT(nn, build);
     torch::Tensor batch_out = tensor_fn_(batch_in);
     ANET_ASSERT_SHAPE(batch_out, { grid_num, ANET_SHAPE_ENDANY });
     ANET_LOG_DEBUG("batch_out=" << anet::ToDefString(batch_out));
@@ -448,7 +448,7 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
     }
 
     // 出力から値抽出（GPU 上, [W*H]）
-    anet::ProfileRange r3("SweepedHeatMapObserver::Render.extract", r2);
+    ANET_PROFILE_SCOPE_NEXT(extract, nn);
     ExtractResult extract_result = output_ext_->Extract(batch_out, req_label_set);
     ANET_LOG_DEBUG("grid_values=" << anet::ToDefString(extract_result.grid) << " tag=" << tag_);
     ANET_ASSERT_SHAPE(extract_result.grid, { grid_num });
@@ -456,7 +456,7 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
     ANET_ASSERT(extract_result.labels.size() == extract_result.scalars.size());
 
     // CPU へ一括転送
-    anet::ProfileRange r4("SweepedHeatMapObserver::Render.transfer", r3);
+    ANET_PROFILE_SCOPE_NEXT(transfer, extract);
     torch::Tensor grid_cpu = extract_result.grid.to(torch::kCPU);
     ANET_ASSERT_SHAPE(grid_cpu, { grid_num });
     ANET_ASSERT_DTYPE(grid_cpu, torch::kFloat32);
@@ -466,7 +466,7 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
     ANET_LOG_DEBUG("Extract done.");
 
     // HeatMapデータ設定
-    anet::ProfileRange r5("SweepedHeatMapObserver::Render.logImage", r4);
+    ANET_PROFILE_SCOPE_NEXT(log_image, transfer);
     heatmap_->SetGridValues(data, grid_w_, grid_h_);
     ANET_LOG_DEBUG("SetGridValues() done.");
 
@@ -514,7 +514,7 @@ void EpisodeEvalObserver::RunEvaluationEpisode(const StepCounts& event_counts)
 
 void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
 {
-    anet::ProfileRange r("EpisodeEvalObserver::OnLearn");
+    ANET_PROFILE_FUNC();
 
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::LEARN);
 
@@ -578,7 +578,7 @@ Conv2dVisualizationObserver::Conv2dVisualizationObserver(
 
 void Conv2dVisualizationObserver::OnTrain(const TrainEvent& event)
 {
-    anet::ProfileRange r("Conv2dVisualizationObserver::OnTrain");
+    ANET_PROFILE_FUNC();
 
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);
     const auto& state = event.experience.state;
@@ -995,7 +995,7 @@ const anet::graphviz::GraphVizProvider* GraphVizObserver::FindProvider(const Tra
 
 void GraphVizObserver::OnTrain(const TrainEvent& event)
 {
-    anet::ProfileRange r("GraphVizObserver::OnTrain");
+    ANET_PROFILE_FUNC();
 
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);
     const auto& state = event.experience.state;
@@ -1337,4 +1337,3 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
 
 	}
 }
-

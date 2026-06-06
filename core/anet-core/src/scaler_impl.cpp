@@ -140,7 +140,7 @@ void ConstantSingleTensorNormalizer::Reset()
 std::pair<torch::Tensor, float>
 ConstantSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs) const
 {
-    ProfileRange r("ConstantSingleTensorNormalizer::Normalize");
+    ANET_PROFILE_FUNC();
     
     if (pass_through_) return { obs, 0.0f };
 
@@ -234,7 +234,7 @@ void RunningStdSingleTensorNormalizer::Reset()
 std::pair<torch::Tensor, float>
 RunningStdSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs) const
 {
-    ProfileRange r("RunningStdSingleTensorNormalizer::Normalize");
+    ANET_PROFILE_FUNC();
 
     // 型チェック
     ANET_ASSERT_DTYPE(obs, torch::kFloat32);
@@ -642,7 +642,7 @@ void RunningStdRewardScaler::Reset()
 
 torch::Tensor RunningStdRewardScaler::Scale(const torch::Tensor& reward)
 {
-    ProfileRange r("RunningStdScaler::Scale");
+    ANET_PROFILE_FUNC();
 
     ANET_ASSERT_SHAPE(reward, { ANET_SHAPE_ANY });
     ANET_ASSERT_DTYPE(reward, torch::kFloat32);

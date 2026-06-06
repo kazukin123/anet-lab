@@ -410,7 +410,7 @@ void RunnerApp::InitTrainer()
     run_manager_->GetNotifier()->Attach<anet::rl::FunctionTrainObserver>(
         [](const anet::rl::TrainEvent&)
         {
-            anet::ProfileRange r1("FunctionTrainObserver");
+            ANET_PROFILE_SCOPE_FULL(function_train_observer, "FunctionTrainObserver");
 
         }, "RunnerApp");
 

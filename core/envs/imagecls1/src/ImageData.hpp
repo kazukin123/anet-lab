@@ -87,7 +87,7 @@ namespace anet::img {
         // データ抽出処理(LibTorchのDataLoaderから呼ばれる)
         torch::data::Example<> get(size_t index) override
         {
-			anet::ProfileRange r("ImageDataSource::get");
+			ANET_PROFILE_FUNC();
 
             const std::string& path = image_paths_[index];
 

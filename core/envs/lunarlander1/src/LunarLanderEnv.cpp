@@ -485,7 +485,7 @@ void LunarLanderEnv::buildWorld(float init_x, float init_y, float init_angle)
 
 std::shared_ptr<const anet::rl::SingleResetResult> LunarLanderEnv::Reset(anet::rl::RunMode mode)
 {
-    anet::ProfileRange range("LunarLanderEnv::Reset");
+    ANET_PROFILE_FUNC();
 
     // ランダム初期値生成
     float dx = rnd_->Uniform(-config_.init.x_range, config_.init.x_range);
@@ -746,7 +746,7 @@ std::pair<float, float> LunarLanderEnv::calcReward(const anet::rl::SingleState& 
 
 std::shared_ptr<const anet::rl::SingleStepResult> LunarLanderEnv::Step(int64_t action, anet::rl::RunMode runmode)
 {
-    anet::ProfileRange r1("LunarLanderEnv::Step");
+    ANET_PROFILE_FUNC();
 
     step_count_++;
     
@@ -866,7 +866,7 @@ LunarLanderEnv::GetTensorVector(const std::string& key, int64_t index) const
 
 anet::rl::AuxData LunarLanderEnv::CreateAuxData(float reward, float raw_reward) const
 {
-    anet::ProfileRange r1("LunarLanderEnv::CreateAux");
+    ANET_PROFILE_FUNC();
 
     anet::rl::AuxData aux;
 

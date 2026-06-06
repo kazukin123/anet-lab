@@ -199,6 +199,7 @@ std::shared_ptr<ActionPolicy> DefaultDQNAgent::CreateActionPolicy(
         ActionPolicyConfig greedy_cfg = policy_config;
         greedy_cfg.eps_start = 0.0f;
         greedy_cfg.eps_end = 0.0f;
+		greedy_cfg.eps_decay_steps = 0;
         greedy_cfg.use_spatial_exploration = false;
         return std::make_shared<EpsilonGreedyActionPolicy>(greedy_cfg, false, num_envs, device);
     }
@@ -210,7 +211,7 @@ std::shared_ptr<ActionPolicy> DefaultDQNAgent::CreateActionPolicy(
 
 int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
 {
-    ProfileRange r1("DefaultDQNAgent::Save");
+    ANET_PROFILE_FUNC();
 
 	int64_t total_size = 0;
 
@@ -493,7 +494,7 @@ std::shared_ptr<anet::rl::Learner> DefaultDQNAgent::CreateLearner()
 anet::rl::BatchUpdateResultList
 DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp)
 {
-    ProfileRange r1("DefaultDQNAgent::UpdateFromBatch");
+    ANET_PROFILE_FUNC();
 
     BatchUpdateResultList result_list;
 

@@ -18,7 +18,7 @@ PassThroughHead::PassThroughHead(const std::string& output_key)
 
 anet::TensorDict PassThroughHead::Forward(const anet::TensorDict& feature_dict)
 {
-    anet::ProfileRange r("PassThroughHead::Forward");
+    ANET_PROFILE_FUNC();
 
     torch::Tensor x = feature_dict.At(anet::nn::kKey_DefaultOutput);
     anet::TensorDict out;

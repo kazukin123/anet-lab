@@ -331,14 +331,14 @@ void MetricsLogger::Log(const std::string& tag, anet::rl::step_t step, const jso
 
 void MetricsLogger::Log(const std::string& tag, anet::rl::step_t step, const wxImage& image)
 {
-    ProfileRange r("MetricsLogger::LogImage1");
+    ANET_PROFILE_FUNC();
 
     LogImage_subtyped(tag, step, image, "");
 }
 
 void MetricsLogger::Log(const std::string& tag, anet::rl::step_t step, const anet::ImageSource& src, int width, int height)
 {
-    ProfileRange r("MetricsLogger::LogImage2");
+    ANET_PROFILE_FUNC();
 
     auto image = src.Render(width, height);
     auto subtype = src.GetImageSubType();
@@ -347,9 +347,9 @@ void MetricsLogger::Log(const std::string& tag, anet::rl::step_t step, const ane
 
 void MetricsLogger::LogImage_subtyped(const std::string& tag, anet::rl::step_t step, const wxImage& image, const std::string& subtype_or_empty)
 {
-    ProfileRange r("MetricsLogger::LogImage_subtyped");
+    ANET_PROFILE_FUNC();
 
-    ProfileRange r1("MetricsLogger::::LogImage_subtyped.prepare");
+    ANET_PROFILE_SCOPE(prepare);
 
     // タグを安全なファイル名に変換
     std::string safe_tag = SanitizeFilename(tag);
@@ -392,7 +392,7 @@ void MetricsLogger::LogImage_subtyped(const std::string& tag, anet::rl::step_t s
         auto it = video_loggers_.find(tag);
         if (it == video_loggers_.end()) {
             // Mapに登録
-            ProfileRange r2("MetricsLogger::::LogImage_subtyped.make_VideoLogger");
+            ANET_PROFILE_SCOPE(make_video_logger);
             target_logger = temp_vlog.get();
             video_loggers_[tag] = std::move(temp_vlog);
 
@@ -410,7 +410,7 @@ void MetricsLogger::LogImage_subtyped(const std::string& tag, anet::rl::step_t s
         }
     }
 
-    ProfileRange r3("MetricsLogger::::LogImage_subtyped.writeFrame", r1);
+    ANET_PROFILE_SCOPE_NEXT(write_frame, prepare);
     target_logger->WriteFrame(image);
 
     /// @todo 動画フレーム情報Metrics出力

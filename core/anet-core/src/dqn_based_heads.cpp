@@ -39,7 +39,7 @@ public:
 
     anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
     {
-        anet::ProfileRange r("LinearHead::Forward");
+        ANET_PROFILE_FUNC();
 
         torch::Tensor x = feature_dict.At(anet::nn::kKey_DefaultOutput);
         anet::TensorDict out;
@@ -99,7 +99,7 @@ public:
 
     anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
     {
-        anet::ProfileRange r("DuelingHead::Forward");
+        ANET_PROFILE_FUNC();
 
         torch::Tensor x = feature_dict.At(anet::nn::kKey_DefaultOutput);
 
@@ -188,7 +188,7 @@ public:
 
     anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
     {
-        anet::ProfileRange r("QuantileHead::Forward");
+        ANET_PROFILE_FUNC();
         torch::Tensor x = feature_dict.At(anet::nn::kKey_DefaultOutput);
 
         auto flat = linear_->forward(x); // (B, A*N)
@@ -263,7 +263,7 @@ public:
 
     anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
     {
-        anet::ProfileRange r("QuantileDuelingHead::Forward");
+        ANET_PROFILE_FUNC();
         torch::Tensor x = feature_dict.At(anet::nn::kKey_DefaultOutput);
 
         auto batch_size = x.size(0);

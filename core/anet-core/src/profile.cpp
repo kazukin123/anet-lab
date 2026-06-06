@@ -1,42 +1,101 @@
-﻿#include "anet/profile.hpp"
-#include <cstdint>
-#include <nvtx3/nvtx3.hpp>
+#include "anet/profile.hpp"
 
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+
+#ifdef ANET_ENABLE_NVTX
+#include <nvtx3/nvtx3.hpp>
+#endif
 
 using namespace anet;
 
+namespace {
+
+constexpr bool HasProfileBackend()
+{
+#if defined(ANET_ENABLE_TRACY) || defined(ANET_ENABLE_NVTX)
+    return true;
+#else
+    return false;
+#endif
+}
+
+void PushNvtxRange(const char* name)
+{
+#ifdef ANET_ENABLE_NVTX
+    nvtxRangePushA(name);
+#else
+    (void)name;
+#endif
+}
+
+void PopNvtxRange()
+{
+#ifdef ANET_ENABLE_NVTX
+    nvtxRangePop();
+#endif
+}
+
+void NameNvtxThread(uint32_t tid, const char* name)
+{
+#ifdef ANET_ENABLE_NVTX
+    nvtxNameOsThreadA(tid, name);
+#else
+    (void)tid;
+    (void)name;
+#endif
+}
+
+#ifdef _WIN32
+#include <windows.h>
+uint32_t GetOsThreadId()
+{
+    return ::GetCurrentThreadId();
+}
+#else
+#include <sys/syscall.h>
+#include <unistd.h>
+uint32_t GetOsThreadId()
+{
+    return static_cast<uint32_t>(::syscall(SYS_gettid));
+}
+#endif
+
+} // namespace
 
 // ============================================================
 // ProfileRange
 // ============================================================
 
 ProfileRange::ProfileRange(const char* name, const std::source_location& loc)
-    : active_(true)
+    : active_(HasProfileBackend())
 {
-    nvtxRangePushA(name);
+    PushNvtxRange(name);
 #ifdef ANET_ENABLE_TRACY
-    // Tracyの動的ソースロケーション登録APIを使用
-    uint64_t srcloc = ___tracy_alloc_srcloc_name(
+    // 直接コンストラクタは互換用。新規コードは静的 source-location マクロを使う。
+    const uint64_t srcloc = ___tracy_alloc_srcloc_name(
         loc.line(),
         loc.file_name(), strlen(loc.file_name()),
         loc.function_name(), strlen(loc.function_name()),
         name, strlen(name),
         0
     );
-    // 割り当てたIDを使ってゾーン開始
     tracy_ctx_ = ___tracy_emit_zone_begin_alloc(srcloc, 1);
+#else
+    (void)loc;
 #endif
 }
 
 ProfileRange::ProfileRange(const char* name, int idx, const std::source_location& loc)
-    : active_(true)
+    : active_(HasProfileBackend())
 {
     char buf[128];
     snprintf(buf, sizeof(buf), "%s[%d]", name, idx);
-    nvtxRangePushA(buf);
+    PushNvtxRange(buf);
 
 #ifdef ANET_ENABLE_TRACY
-    uint64_t srcloc = ___tracy_alloc_srcloc_name(
+    const uint64_t srcloc = ___tracy_alloc_srcloc_name(
         loc.line(),
         loc.file_name(), strlen(loc.file_name()),
         loc.function_name(), strlen(loc.function_name()),
@@ -44,17 +103,19 @@ ProfileRange::ProfileRange(const char* name, int idx, const std::source_location
         0
     );
     tracy_ctx_ = ___tracy_emit_zone_begin_alloc(srcloc, 1);
+#else
+    (void)loc;
 #endif
 }
 
 ProfileRange::ProfileRange(const char* name, ProfileRange& previous, const std::source_location& loc)
-    : active_(true)
+    : active_(HasProfileBackend())
 {
     previous.End();
-    nvtxRangePushA(name);
+    PushNvtxRange(name);
 
 #ifdef ANET_ENABLE_TRACY
-    uint64_t srcloc = ___tracy_alloc_srcloc_name(
+    const uint64_t srcloc = ___tracy_alloc_srcloc_name(
         loc.line(),
         loc.file_name(), strlen(loc.file_name()),
         loc.function_name(), strlen(loc.function_name()),
@@ -62,20 +123,22 @@ ProfileRange::ProfileRange(const char* name, ProfileRange& previous, const std::
         0
     );
     tracy_ctx_ = ___tracy_emit_zone_begin_alloc(srcloc, 1);
+#else
+    (void)loc;
 #endif
 }
 
 ProfileRange::ProfileRange(const char* name, int idx, ProfileRange& previous, const std::source_location& loc)
-    : active_(true)
+    : active_(HasProfileBackend())
 {
     previous.End();
 
     char buf[128];
     snprintf(buf, sizeof(buf), "%s[%d]", name, idx);
-    nvtxRangePushA(buf);
+    PushNvtxRange(buf);
 
 #ifdef ANET_ENABLE_TRACY
-    uint64_t srcloc = ___tracy_alloc_srcloc_name(
+    const uint64_t srcloc = ___tracy_alloc_srcloc_name(
         loc.line(),
         loc.file_name(), strlen(loc.file_name()),
         loc.function_name(), strlen(loc.function_name()),
@@ -83,39 +146,59 @@ ProfileRange::ProfileRange(const char* name, int idx, ProfileRange& previous, co
         0
     );
     tracy_ctx_ = ___tracy_emit_zone_begin_alloc(srcloc, 1);
+#else
+    (void)loc;
 #endif
 }
 
-#ifdef ANET_ENABLE_TRACY
-
-ProfileRange::ProfileRange(const char* name, const ___tracy_source_location_data* srcloc)
-    : active_(true)
+ProfileRange::ProfileRange(
+    profile_detail::ProfileRangeTag,
+    const char* nvtx_name,
+    const profile_detail::SourceLocationData* srcloc)
+    : active_(HasProfileBackend())
 {
-    nvtxRangePushA(name);
+    PushNvtxRange(nvtx_name);
+#ifdef ANET_ENABLE_TRACY
     tracy_ctx_ = ___tracy_emit_zone_begin(srcloc, 1);
+#else
+    (void)srcloc;
+#endif
 }
 
-ProfileRange::ProfileRange(const char* name, int idx, const ___tracy_source_location_data* srcloc)
-    : active_(true)
+ProfileRange::ProfileRange(
+    profile_detail::ProfileRangeTag,
+    const char* nvtx_name,
+    int idx,
+    const profile_detail::SourceLocationData* srcloc)
+    : active_(HasProfileBackend())
 {
     char buf[128];
-    snprintf(buf, sizeof(buf), "%s[%d]", name, idx);
-    nvtxRangePushA(buf);
+    snprintf(buf, sizeof(buf), "%s[%d]", nvtx_name, idx);
+    PushNvtxRange(buf);
 
-    // ベースとなる静的情報は最速で登録し、名前だけ後から動的に上書きする
+#ifdef ANET_ENABLE_TRACY
     tracy_ctx_ = ___tracy_emit_zone_begin(srcloc, 1);
     ___tracy_emit_zone_name(tracy_ctx_, buf, strlen(buf));
+#else
+    (void)srcloc;
+#endif
 }
 
-ProfileRange::ProfileRange(const char* name, ProfileRange& previous, const ___tracy_source_location_data* srcloc)
-    : active_(true)
+ProfileRange::ProfileRange(
+    profile_detail::ProfileRangeTag,
+    const char* nvtx_name,
+    ProfileRange& previous,
+    const profile_detail::SourceLocationData* srcloc)
+    : active_(HasProfileBackend())
 {
     previous.End();
-    nvtxRangePushA(name);
+    PushNvtxRange(nvtx_name);
+#ifdef ANET_ENABLE_TRACY
     tracy_ctx_ = ___tracy_emit_zone_begin(srcloc, 1);
+#else
+    (void)srcloc;
+#endif
 }
-
-#endif // ANET_ENABLE_TRACY
 
 ProfileRange::ProfileRange(ProfileRange&& other) noexcept
     : active_(other.active_)
@@ -142,7 +225,7 @@ ProfileRange& ProfileRange::operator=(ProfileRange&& other) noexcept
 void ProfileRange::End()
 {
     if (active_) {
-        nvtxRangePop();
+        PopNvtxRange();
 #ifdef ANET_ENABLE_TRACY
         ___tracy_emit_zone_end(tracy_ctx_);
 #endif
@@ -155,30 +238,15 @@ ProfileRange::~ProfileRange()
     End();
 }
 
-// --------------
-
-#ifdef _WIN32
-#include <windows.h>
-static inline uint32_t GetOsThreadId() {
-    return ::GetCurrentThreadId();
-}
-#else
-#include <sys/syscall.h>
-#include <unistd.h>
-static inline uint32_t GetOsThreadId() {
-    return static_cast<uint32_t>(::syscall(SYS_gettid));
-}
-#endif
-
 // ============================================================
 // ProfileThreadName
 // ============================================================
 
 ProfileThreadName::ProfileThreadName(const char* name)
 {
-    uint32_t tid = GetOsThreadId();
+    const uint32_t tid = GetOsThreadId();
     snprintf(buf_, sizeof(buf_), "%s", name);
-    nvtxNameOsThreadA(tid, buf_);
+    NameNvtxThread(tid, buf_);
 #ifdef ANET_ENABLE_TRACY
     ___tracy_set_thread_name(name);
 #endif
@@ -186,15 +254,10 @@ ProfileThreadName::ProfileThreadName(const char* name)
 
 ProfileThreadName::ProfileThreadName(const char* base, int idx)
 {
-    uint32_t tid = GetOsThreadId();
-
-    // base + "_" + idx を stack で構築
+    const uint32_t tid = GetOsThreadId();
     snprintf(buf_, sizeof(buf_), "%s_%d", base, idx);
-
-    nvtxNameOsThreadA(tid, buf_);
-
+    NameNvtxThread(tid, buf_);
 #ifdef ANET_ENABLE_TRACY
     ___tracy_set_thread_name(buf_);
 #endif
 }
-

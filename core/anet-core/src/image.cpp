@@ -17,7 +17,7 @@ namespace LOG = anet::log;
 
 wxImage anet::ImageSource::Render(int width, int height) const
 {
-	ProfileRange r("ImageSource::Render");
+	ANET_PROFILE_FUNC();
 
 	wxImage src = RenderRaw();
 	if (width < 0 && height < 0) return src;
@@ -26,7 +26,7 @@ wxImage anet::ImageSource::Render(int width, int height) const
 	if (width == src.GetWidth() && height == src.GetHeight())
 		return src;
 
-	ProfileRange r1("ImageSource::Render.Scale");
+	ANET_PROFILE_SCOPE(scale);
 	//return src.Scale(width, height, wxIMAGE_QUALITY_HIGH);
 	return src.Scale(width, height, wxIMAGE_QUALITY_NORMAL);
 }

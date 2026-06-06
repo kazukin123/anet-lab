@@ -891,7 +891,7 @@ void Notifier::Clear()
 
 void Notifier::Notify(const TrainEvent& event)
 {
-    anet::ProfileRange r("Notifier::Notify");
+    ANET_PROFILE_FUNC();
 
     for (auto obs : train_observers_) {
         obs->OnTrain(event);
@@ -900,7 +900,7 @@ void Notifier::Notify(const TrainEvent& event)
 
 void Notifier::Notify(const LearnEvent& event)
 {
-    anet::ProfileRange r("Notifier::Notify");
+    ANET_PROFILE_FUNC();
 
     for (auto obs : learn_observers_) {
         obs->OnLearn(event);
@@ -909,7 +909,7 @@ void Notifier::Notify(const LearnEvent& event)
 
 void Notifier::Notify(const EpisodeEndEvent& event)
 {
-    anet::ProfileRange r("Notifier::Notify");
+    ANET_PROFILE_FUNC();
 
     for (auto obs : episode_end_observers_) {
         obs->OnEpisodeEnd(event);

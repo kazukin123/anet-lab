@@ -82,7 +82,7 @@ anet::rl::EnvSpec CartPoleEnv::GetSpec() const
 
 std::shared_ptr<const anet::rl::SingleResetResult> CartPoleEnv::Reset(anet::rl::RunMode mode)
 {
-    anet::ProfileRange r("CartPoleEnv::Reset");
+    ANET_PROFILE_FUNC();
 
     if (anet::rl::IsTrain(mode)) {
         const float d = 0.05f;
@@ -121,7 +121,7 @@ std::shared_ptr<const anet::rl::SingleResetResult> CartPoleEnv::Reset(anet::rl::
 
 std::shared_ptr<const anet::rl::SingleStepResult> CartPoleEnv::Step(int64_t action, anet::rl::RunMode mode)
 {
-    anet::ProfileRange r("CartPoleEnv::Step");
+    ANET_PROFILE_FUNC();
 
     episode_start_ = false;
 

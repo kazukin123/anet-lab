@@ -20,7 +20,7 @@ DictFrameStacker::DictFrameStacker(int stack_count, int num_envs, torch::Device 
 
 anet::TensorDict DictFrameStacker::Stack(const anet::TensorDict& data, const torch::Tensor& resets)
 {
-    anet::ProfileRange r("DictFrameStacker::Stack");
+    ANET_PROFILE_FUNC();
 
     if (data.empty()) return data;
 

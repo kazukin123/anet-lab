@@ -27,7 +27,7 @@ public:
 
     anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
     {
-        anet::ProfileRange r("MuZeroDynamicsHead::Forward");
+        ANET_PROFILE_FUNC();
 
         // Bodyから2つの特徴量を受け取る
         torch::Tensor hidden_state = feature_dict.At("hidden_state");
@@ -111,7 +111,7 @@ public:
 
     anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
     {
-        anet::ProfileRange r("MuZeroPredictionHead::Forward");
+        ANET_PROFILE_FUNC();
 
         // Bodyから特徴量を受け取る
         torch::Tensor value_feature = feature_dict.At("value_feature");
@@ -279,7 +279,7 @@ namespace {
     /// バッチごとに状態ベクトルの値を [0, 1] の範囲にスケールします。
     torch::Tensor ScaleHiddenState(const torch::Tensor& hidden_state)
     {
-        anet::ProfileRange r("ScaleHiddenState");
+        ANET_PROFILE_FUNC();
 
         ANET_ASSERT_NAN(hidden_state);
 
@@ -303,7 +303,7 @@ namespace {
 
 anet::TensorDict MuZeroNetworkModel::InitialInference(const anet::TensorDict& obs) const
 {
-    anet::ProfileRange r("MuZeroNetworkModel::InitialInference");
+    ANET_PROFILE_FUNC();
 
     // obsの形状は環境に依存するため、バッチ次元があることのみを確認 (末尾ANYを許容)
     ANET_LOG_DEBUG("obs=" << obs.ToDefString());
@@ -335,7 +335,7 @@ anet::TensorDict MuZeroNetworkModel::InitialInference(const anet::TensorDict& ob
 
 anet::TensorDict MuZeroNetworkModel::RecurrentInference(const torch::Tensor& hidden_state, const torch::Tensor& action) const
 {
-    anet::ProfileRange r("MuZeroNetworkModel::RecurrentInference");
+    ANET_PROFILE_FUNC();
 
     ANET_LOG_DEBUG("hidden_state=" << anet::ToDefString(hidden_state));
     ANET_ASSERT_SHAPE(hidden_state, { ANET_SHAPE_ANY, config_.hidden_state_dim });
@@ -553,7 +553,7 @@ MCTSEngine::MCTSEngine(const MCTSConfig& config, std::shared_ptr<MuZeroNetworkMo
 
 void MCTSEngine::ExpandNode(std::shared_ptr<Node> node, const torch::Tensor& policy_logits)
 {
-    anet::ProfileRange r("MCTSEngine::ExpandNode");
+    ANET_PROFILE_FUNC();
 
     // ロジットをソフトマックスで確率分布に変換
     torch::NoGradGuard no_grad;
@@ -570,7 +570,7 @@ void MCTSEngine::ExpandNode(std::shared_ptr<Node> node, const torch::Tensor& pol
 
 void MCTSEngine::AddExplorationNoise(std::shared_ptr<Node> node)
 {
-    anet::ProfileRange r("MCTSEngine::AddExplorationNoise");
+    ANET_PROFILE_FUNC();
 
     // ディリクレノイズの生成
     /// @todo 試作版では std::gamma_distribution を用いてシンプルなディリクレノイズを生成
@@ -592,7 +592,7 @@ void MCTSEngine::AddExplorationNoise(std::shared_ptr<Node> node)
 
 int64_t MCTSEngine::SelectAction(std::shared_ptr<Node> node, const MinMaxStats& min_max_stats)
 {
-    anet::ProfileRange r("MCTSEngine::SelectAction");
+    ANET_PROFILE_FUNC();
 
     int64_t best_action = -1;
     float best_ucb = std::numeric_limits<float>::lowest();
@@ -629,7 +629,7 @@ float MCTSEngine::CalculateUCBScore(std::shared_ptr<Node> parent, std::shared_pt
 
 void MCTSEngine::Backpropagate(const std::vector<std::shared_ptr<Edge>>& search_path, float value, MinMaxStats& min_max_stats)
 {
-    anet::ProfileRange r("MCTSEngine::Backpropagate");
+    ANET_PROFILE_FUNC();
 
     // 割引報酬和を計算しながら木を遡る
     // 本来は value = r + gamma * v だが、経路を下から遡るために逆順で更新する
@@ -658,7 +658,7 @@ void MCTSEngine::Backpropagate(const std::vector<std::shared_ptr<Edge>>& search_
 std::shared_ptr<MCTSTree> MCTSEngine::Search(
     const torch::Tensor& initial_hidden_state, const torch::Tensor& initial_policy_logits, float initial_value, bool add_noise)
 {
-    anet::ProfileRange r("MCTSEngine::Search");
+    ANET_PROFILE_FUNC();
 
     /// @todo MuZero試作制約：現在は1スレッド/1状態の探索。将来的にBatched MCTSへの対応が必要
 
@@ -702,10 +702,10 @@ std::shared_ptr<MCTSTree> MCTSEngine::Search(
 
         /// @todo MuZero試作制約：カテゴリカル分布予測から期待値への変換を省略し、直接スカラー値を使用している
         auto infer_out = model_->RecurrentInference(parent_node->hidden_state, action_tensor);
-        anet::ProfileRange r_sync("MCTSEngine::Search.sync");
+        ANET_PROFILE_SCOPE(sync);
         float reward = infer_out.At("reward").item<float>();    // GPU同期
         float value = infer_out.At("value").item<float>();      // GPU同期
-        r_sync.End();
+        ANET_PROFILE_SCOPE_END(sync);
 
         // 新しい子ノードを構築してエッジに接続
         auto child_node = std::make_shared<Node>();
@@ -800,7 +800,7 @@ void MuZeroActor::Sync()
 
 std::shared_ptr<anet::rl::BatchActionInfo> MuZeroActor::MakeAction(const anet::rl::StepCounts& step, const anet::rl::BatchState& state) const
 {
-    anet::ProfileRange r("MuZeroActor::MakeAction");
+    ANET_PROFILE_FUNC();
 
     torch::NoGradGuard grad_guard;
 
@@ -844,7 +844,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> MuZeroActor::MakeAction(const anet::r
 
         float value = 0.0f;
         {
-            anet::ProfileRange r_sync("MuZeroActor::MakeAction.syncInitialValue");
+            ANET_PROFILE_SCOPE(sync_initial_value);
             value = infer_out.At("value").item<float>();       // GPU同期
         }
 
@@ -941,7 +941,7 @@ MuZeroLearner::MuZeroLearner(
 anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
     const anet::rl::StepCounts& step, const anet::rl::BatchExperience& experiences)
 {
-    anet::ProfileRange r("MuZeroLearner::UpdateFromBatch");
+    ANET_PROFILE_FUNC();
 
     // Runnerから渡された最新の経験をReplayBufferに蓄積する
     replay_buffer_->Push(experiences);
@@ -1117,12 +1117,12 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
 
     ANET_ASSERT_NAN(total_loss); // Backward直前の最終確認
     {
-        anet::ProfileRange r_back("MuZeroLearner::Backward");
+        ANET_PROFILE_SCOPE(backward);
         total_loss.backward();
     }
     torch::nn::utils::clip_grad_norm_(model_->GetSuite()->parameters(), config_.max_grad_norm);
     {
-        anet::ProfileRange r_opt("MuZeroLearner::OptimizerStep");
+        ANET_PROFILE_SCOPE(optimizer_step);
         optimizer_->step();
     }
 

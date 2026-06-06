@@ -14,7 +14,7 @@ using namespace anet::rl::muzero_proto;
 
 MuZeroExperienceSamples MuZeroExperienceSamples::To(torch::Device device) const
 {
-    anet::ProfileRange r("MuZeroExperienceSamples::To");
+    ANET_PROFILE_FUNC();
 
     return {
         obs.To(device, /*non_blocking=*/true),
@@ -65,7 +65,7 @@ MuZeroReplayBuilder::MuZeroReplayBuilder(int n_step, float gamma)
 
 std::vector<MuZeroReplayRecord> MuZeroReplayBuilder::ProcessQueue(MuZeroExperienceQueue& queue)
 {
-    anet::ProfileRange r("MuZeroReplayBuilder::ProcessQueue");
+    ANET_PROFILE_FUNC();
 
     std::vector<MuZeroReplayRecord> out_records;
 
@@ -169,7 +169,7 @@ MuZeroUniformSampler::MuZeroUniformSampler(int unroll_steps, std::optional<anet:
 
 MuZeroExperienceSamples MuZeroUniformSampler::Sample(const MuZeroReplayStorage& storage, int64_t batch_size)
 {
-    anet::ProfileRange r("MuZeroUniformSampler::Sample");
+    ANET_PROFILE_FUNC();
 
     ANET_ASSERT_MSG(storage.GetTotalSize() > 0, "Cannot sample from an empty ReplayBuffer.");
 
@@ -286,7 +286,7 @@ MuZeroReplayBuffer::MuZeroReplayBuffer(
 
 void MuZeroReplayBuffer::Push(const anet::rl::BatchExperience& batch_exp)
 {
-    anet::ProfileRange r("MuZeroReplayBuffer::Push");
+    ANET_PROFILE_FUNC();
 
     // Actorから渡された info ディクショナリを取り出す
     const auto& info = batch_exp.action->GetInfo();
@@ -326,7 +326,7 @@ int64_t MuZeroReplayBuffer::Size() const
 
 MuZeroExperienceSamples MuZeroReplayBuffer::Sample(int64_t batch_size, torch::Device device) const
 {
-    anet::ProfileRange r("MuZeroReplayBuffer::SampleMuZero");
+    ANET_PROFILE_FUNC();
     
     auto samples = sampler_->Sample(*storage_, batch_size);
     return samples.To(device); // GPU等のターゲットデバイスへ一括転送

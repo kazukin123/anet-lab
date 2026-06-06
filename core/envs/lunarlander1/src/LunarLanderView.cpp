@@ -18,7 +18,7 @@ using anet::ToFloat;
 
 LunarLanderData LunarLanderData::Create(anet::rl::TrainEvent event)
 {
-    anet::ProfileRange r1("LunarLanderData::Create");
+    ANET_PROFILE_FUNC();
 
     //ANET_LOG_DEBUG("step_result=" << event.step_result->ToString());
 

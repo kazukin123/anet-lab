@@ -457,7 +457,7 @@ NetworkStruct::NetworkStruct(std::vector<std::shared_ptr<NetworkBlock>> blocks)
 
 torch::Tensor NetworkStruct::Forward(torch::Tensor input, const anet::TraceSink& sink)
 {
-    anet::ProfileRange r("NetworkStruct::Forward");
+    ANET_PROFILE_FUNC();
 
     if (sink) sink("00_Input", input);
 
@@ -485,7 +485,7 @@ NetworkBoundaryPreprocessor::NetworkBoundaryPreprocessor(
 
 anet::TensorDict NetworkBoundaryPreprocessor::Format(const anet::TensorDict& raw_input) const
 {
-	anet::ProfileRange r("NetworkBoundaryPreprocessor::Format");
+	ANET_PROFILE_FUNC();
 
     anet::TensorDict formatted;
 
@@ -621,7 +621,7 @@ NetworkBody::NetworkBody(
 
 anet::TensorDict NetworkBody::Forward(const anet::TensorDict& input, const anet::TraceSink& sink)
 {
-    anet::ProfileRange r("NetworkBody::Forward");
+    ANET_PROFILE_FUNC();
 
     // 境界プレプロセッサで生データをフォーマット
     auto state = preprocessor_.Format(input);
@@ -778,7 +778,7 @@ Network::Network(
 
 anet::TensorDict Network::Forward(const anet::TensorDict& input, const anet::TraceSink& sink)
 {
-    anet::ProfileRange r("Network::Forward");
+    ANET_PROFILE_FUNC();
 
     //  Body部を実行 (ここはAMPが有効ならFP16で高速処理される)
     auto features = body_->Forward(input, sink);
@@ -960,7 +960,7 @@ std::unique_ptr<anet::graphviz::GraphViz> Network::MakeGraphViz(const NetworkGra
 
 std::shared_ptr<Network> Network::Clone(std::optional<torch::Device> device) const
 {
-    anet::ProfileRange r("Network::Clone");
+    ANET_PROFILE_FUNC();
 
     // デバイス指定がない場合は、自身のパラメータが乗っているデバイスに合わせる
     torch::Device target_device = torch::kCPU;
@@ -986,7 +986,7 @@ std::shared_ptr<Network> Network::Clone(std::optional<torch::Device> device) con
 
 void Network::CopyTo(Network& target) const
 {
-    anet::ProfileRange r("Network::CopyTo");
+    ANET_PROFILE_FUNC();
     torch::NoGradGuard no_grad;
 
     // パラメータ (Weight, Bias等) のコピー
@@ -1008,7 +1008,7 @@ void Network::CopyTo(Network& target) const
 
 void Network::SoftCopyTo(Network& target, double tau) const
 {
-    anet::ProfileRange r("Network::SoftCopyTo");
+    ANET_PROFILE_FUNC();
     torch::NoGradGuard no_grad;
 
     // パラメータのブレンド: target = tau * src + (1 - tau) * target

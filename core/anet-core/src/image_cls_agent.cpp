@@ -25,7 +25,7 @@ ImageClsActor::ImageClsActor(
 std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
     const anet::rl::StepCounts& step, const anet::rl::BatchState& state) const
 {
-    anet::ProfileRange r("ImageClsActor::MakeAction");
+    ANET_PROFILE_FUNC();
     torch::NoGradGuard no_grad;
 
     // 推論準備
@@ -81,7 +81,7 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
     const anet::rl::StepCounts& step,
     const anet::rl::BatchExperience& experiences)
 {
-    anet::ProfileRange r("ImageClsLearner::UpdateFromBatch");
+    ANET_PROFILE_FUNC();
 
     // バッチデータの取得と前処理
     // 環境からByte型(0-255)で送られてくる画像を Float32(0.0-1.0) に正規化

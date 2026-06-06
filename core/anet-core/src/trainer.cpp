@@ -69,7 +69,7 @@ void RunnerBase::UpdateMetrics(std::shared_ptr<const BatchStepResult> result)
 bool RunnerBase::AccumulateAndNotifyEpisodeEnd(
     std::shared_ptr<const Runner> self, std::shared_ptr<const BatchStepResult> result, const StepCounts& event_counts)
 {
-    anet::ProfileRange r("RunnerBase::AccumulateAndNotifyEpisodeEnd");
+    ANET_PROFILE_FUNC();
 
     ANET_CHECK(self != nullptr);
     ANET_CHECK(result != nullptr);
@@ -126,14 +126,14 @@ bool RunnerBase::AccumulateAndNotifyEpisodeEnd(
 
 StepCounts RunnerBase::DoUpdateFrame(int max_steps, ControlFunction pre_step_func, ControlFunction post_step_func)
 {
-    anet::ProfileRange r("RunnerBase::DoUpdateFrame");
+    ANET_PROFILE_FUNC();
 
     int frame_step = 0;
     //StepCounts step_counts_;
 
     // --- 学習ステップを複数回回す ---
     while (max_steps < 0 || frame_step < max_steps) {
-        anet::ProfileRange r1("RunnerBase::DoUpdateFrame.step");
+        ANET_PROFILE_SCOPE(step);
 
         // ステップ前制御
         if (pre_step_func != nullptr) {
@@ -212,7 +212,7 @@ void EvalRunner::Sync()
 
 StepCounts EvalRunner::DoStep(int64_t action, const StepCounts& event_counts)
 {
-    anet::ProfileRange r1("EvalRunner::DoStep");
+    ANET_PROFILE_FUNC();
     torch::NoGradGuard grad_guard;
 
     if (!env_initialized_) {
@@ -378,7 +378,7 @@ SerialTrainRunner::SerialTrainRunner(
 
 StepCounts SerialTrainRunner::DoStep()
 {
-    anet::ProfileRange r("SerialTrainRunner::DoStep");
+    ANET_PROFILE_FUNC();
 
     ANET_ASSERT(status_ == anet::rl::RunnerStatus::RUNNING);
 
@@ -387,7 +387,7 @@ StepCounts SerialTrainRunner::DoStep()
     auto batch_env_spec = env_->GetBatchSpec();
 
     if (!env_initialized_) {
-        anet::ProfileRange r1("SerialTrainRunner::DoStep.initialize");
+        ANET_PROFILE_SCOPE(initialize);
 
         // 環境初期化
         auto reset_result = env_->Reset();
@@ -402,7 +402,7 @@ StepCounts SerialTrainRunner::DoStep()
         last_time_ = start_time_;
     }
 
-    anet::ProfileRange r2("SerialTrainRunner::DoStep.makeAction");
+    ANET_PROFILE_SCOPE(make_action);
 
     // --- 学習ステップを回す ---
     float frame_total_reward = 0.0f;
@@ -422,7 +422,7 @@ StepCounts SerialTrainRunner::DoStep()
     //ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info->ToString());
     ANET_ASSERT_SHAPE(action_info->GetAction(), {N});
 
-    anet::ProfileRange r3("SerialTrainRunner::DoStep.envStep", r2);
+    ANET_PROFILE_SCOPE_NEXT(env_step, make_action);
 
     // 環境ステップ実行
     auto result = env_->Step(action_info);    // next_state, reward, done, truncated
@@ -443,19 +443,19 @@ StepCounts SerialTrainRunner::DoStep()
 
     auto self = this->shared_from_this();
 
-    anet::ProfileRange r4("SerialTrainRunner::DoStep.envStepPost", r3);
+    ANET_PROFILE_SCOPE_NEXT(env_step_post, env_step);
 
     //メトリクス更新
     UpdateMetrics(result);
     AccumulateAndNotifyEpisodeEnd(self, result, step_counts_);
 
     // Agent更新
-    anet::ProfileRange r5("SerialTrainRunner::DoStep.updateAgent", r4);
+    ANET_PROFILE_SCOPE_NEXT(update_agent, env_step_post);
     anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
     auto update_results = learner_->UpdateFromBatch(step_counts_, exp);
 
     // LearnEvent
-    anet::ProfileRange r6("SerialTrainRunner::DoStep.learnEvent", r5);
+    ANET_PROFILE_SCOPE_NEXT(learn_event, update_agent);
     if (!update_results.empty()) {
         torch::NoGradGuard grad_guard;
 
@@ -464,7 +464,7 @@ StepCounts SerialTrainRunner::DoStep()
     }
 
     // TrainEvent
-    anet::ProfileRange r8("SerialTrainRunner::DoStep.trainEvent", r6);
+    ANET_PROFILE_SCOPE_NEXT(train_event, learn_event);
     {
         torch::NoGradGuard grad_guard;
 
@@ -510,13 +510,13 @@ void PipelineTrainRunner::Shutdown()
 
 StepCounts PipelineTrainRunner::DoStep()
 {
-    anet::ProfileRange r("PipelineTrainRunner::DoStep");
+    ANET_PROFILE_FUNC();
 
     // ==========================================================
     // 初期化処理
     // ==========================================================
     if (!env_initialized_) {
-        anet::ProfileRange r1("PipelineTrainRunner::DoStep.initialize");
+        ANET_PROFILE_SCOPE(initialize);
 
         // EnvSpec取得
         auto env_spec = env_->GetSpec();

@@ -87,7 +87,7 @@ namespace anet::log {
 		}
         void flush()
         {
-            anet::ProfileRange r("WxLogStream::flush");
+            ANET_PROFILE_FUNC();
 
             const std::string body = stream_.str();
             if (body.empty()) return;
@@ -191,7 +191,7 @@ namespace anet::log {
     protected:
         void DoLogTextAtLevel(wxLogLevel level, const wxString& msg) override
         {
-            anet::ProfileRange r("FileLogger::DoLogTextAtLevel");
+            ANET_PROFILE_FUNC();
 
             if (!m_file) return;
             wxString logStr = msg + wxT("\n");
@@ -221,7 +221,7 @@ namespace anet::log {
         // Formatメソッドをオーバーライドして好みの文字列を生成する
         wxString Format(wxLogLevel level, const wxString& msg, const wxLogRecordInfo& info) const override
         {
-            anet::ProfileRange r("LogFormatter::Format");
+            ANET_PROFILE_FUNC();
 
             const wxChar* level_str;
             switch (level) {

@@ -72,7 +72,7 @@ BatchExperienceStateProbe::BatchExperienceStateProbe(
 
 std::optional<std::vector<float>> BatchExperienceStateProbe::GetVector(const UpdateEvent& event) const
 {
-    ProfileRange r("BatchExperienceStateProbe::GetVector");
+    ANET_PROFILE_FUNC();
 
     // 対象obs（現状態 or next_state）
     auto obs = (for_next_state_) ?
@@ -204,9 +204,9 @@ BatchExperienceVectorProbe::BatchExperienceVectorProbe(
 
 std::optional<std::vector<float>> BatchExperienceVectorProbe::GetVector(const UpdateEvent& event) const
 {
-    ProfileRange r("BatchExperienceVectorProbe::GetVector");
+    ANET_PROFILE_FUNC();
 
-    ProfileRange r1("BatchExperienceVectorProbe::GetVector.getTensorVector");
+    ANET_PROFILE_SCOPE(get_tensor_vector);
 
     auto opt_vec = event.experience.GetTensorVector(key_);
 
@@ -216,7 +216,7 @@ std::optional<std::vector<float>> BatchExperienceVectorProbe::GetVector(const Up
         return std::nullopt;
     }
 
-    ProfileRange r2("BatchExperienceVectorProbe::GetVector.dump", r1);
+    ANET_PROFILE_SCOPE_NEXT(dump, get_tensor_vector);
     const auto& tvec = opt_vec.value();
     std::vector<float> out;
 
@@ -252,7 +252,7 @@ std::optional<std::vector<float>> BatchExperienceVectorProbe::GetVector(const Up
         return out;
     }
 
-    ProfileRange r3("BatchExperienceVectorProbe::GetVector.extract", r2);
+    ANET_PROFILE_SCOPE_NEXT(extract, dump);
     out.reserve(1024); // optional
     for (const auto& t : tvec) {
         ANET_LOG_DEBUG("t=" << anet::ToDefString(t));
@@ -443,9 +443,9 @@ AgentTensorVectorProbe::AgentTensorVectorProbe(
 
 std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const UpdateEvent& event) const
 {
-    ProfileRange r("AgentTensorVectorProbe::GetVector");
+    ANET_PROFILE_FUNC();
 
-    ProfileRange r1("AgentTensorVectorProbe::GetVector.getTensorVector");
+    ANET_PROFILE_SCOPE(get_tensor_vector);
     auto opt_vec = event.agent->GetTensorVector(key_);
     //ANET_ASSERT(opt_vec.has_value());
     if (!opt_vec.has_value()) {
@@ -453,7 +453,7 @@ std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const Update
         return std::nullopt;
     }
 
-    ProfileRange r2("AgentTensorVectorProbe::GetVector.dump", r1);
+    ANET_PROFILE_SCOPE_NEXT(dump, get_tensor_vector);
     const auto& tvec = opt_vec.value();
     std::vector<float> out;
     // ---- index 指定なし：flatten して全て連結 ----
@@ -488,7 +488,7 @@ std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const Update
         return out;
     }
 
-    ProfileRange r3("AgentTensorVectorProbe::GetVector.extract", r2);
+    ANET_PROFILE_SCOPE_NEXT(extract, dump);
     out.reserve(1024); // optional
     for (const auto& t : tvec) {
         ANET_LOG_DEBUG("t=" << anet::ToDefString(t));
