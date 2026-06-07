@@ -389,7 +389,18 @@ class PlotlyController {
 		for (const tagKey of tagKeys) {
 			const safe = tagKey.replace(/[^\w-]/g, "_");
 			const id = `graph-${safe}`;
-			const $b = $(`<div class="graph-block"><div class="graph-title">${tagKey}</div><div id="${id}"></div></div>`);
+			const isLogScale = this.app.logScaleTags.has(tagKey);
+			const logActiveClass = isLogScale ? " active" : "";
+			const logPressed = isLogScale ? "true" : "false";
+			const $b = $(`
+				<div class="graph-block">
+					<div class="graph-header">
+						<div class="graph-title">${tagKey}</div>
+						<button type="button" class="graph-log-toggle${logActiveClass}" aria-pressed="${logPressed}" title="Toggle log scale">Log</button>
+					</div>
+					<div id="${id}"></div>
+				</div>
+			`);
 			area.append($b);
 			const traces = [];
 			const multi = (runIds.length > 1);
@@ -410,7 +421,7 @@ class PlotlyController {
 			const layout = 	{
 					margin: { t: 30, b: 20, l: 50, r: 10 }, height: 300, width: area.width(), autosize:false,
 					plot_bgcolor: "#111", paper_bgcolor: "#111", font: { color: "#ccc" },
-					xaxis: { gridcolor: "#444" }, yaxis: { gridcolor: "#444" },
+					xaxis: { gridcolor: "#444" }, yaxis: { gridcolor: "#444", type: isLogScale ? "log" : "linear" },
 					showlegend: (runIds.length > 1)
 				};
 			Plotly.newPlot(id, reducedTraces, layout,
@@ -418,6 +429,19 @@ class PlotlyController {
 
 			// --- ズーム追従処理 ---
 			const plotDiv = document.getElementById(id);
+			$b.find(".graph-log-toggle").off("click").on("click", (e) => {
+				e.stopPropagation();
+				const enabled = !this.app.logScaleTags.has(tagKey);
+				if (enabled) {
+					this.app.logScaleTags.add(tagKey);
+				} else {
+					this.app.logScaleTags.delete(tagKey);
+				}
+				const button = e.currentTarget;
+				button.classList.toggle("active", enabled);
+				button.setAttribute("aria-pressed", enabled ? "true" : "false");
+				Plotly.relayout(plotDiv, { "yaxis.type": enabled ? "log" : "linear" });
+			});
 			plotDiv.on('plotly_relayout', (e) => {
 				if (!e['xaxis.range[0]'] || !e['xaxis.range[1]']) return;
 				const xmin = e['xaxis.range[0]'], xmax = e['xaxis.range[1]'];
@@ -710,6 +734,7 @@ class MetricsViewerClientApp {
 		this.mode = Mode.UNINITIALIZED;
 		this.selectedRuns = [];
 		this.activeTags = new Set();
+		this.logScaleTags = new Set();
 		this.runColorMap = new Map();
 		this.autoReloadEnabled = false;
 		this.autoReloadTimer = null;

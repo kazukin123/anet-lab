@@ -100,6 +100,59 @@ class PalettePlaywrightTest {
 		}
 	}
 
+	@Test
+	void logScaleTogglePersistsAcrossReloadsButNotPageRefresh() {
+		final String baseUrl = "http://127.0.0.1:" + port;
+
+		assumeTrue(isMicrosoftEdgeInstalled(), "Microsoft Edge is not installed.");
+
+		try (Playwright playwright = Playwright.create()) {
+			final Browser browser = launchMicrosoftEdge(playwright);
+			try {
+				final BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+						.setViewportSize(1280, 720));
+				try {
+					final Page page = context.newPage();
+					page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+					page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+					page.navigate(baseUrl + "/?logScaleTest=" + System.nanoTime(),
+							new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					waitForGraph(page);
+
+					assertEquals("linear", readYAxisType(page));
+
+					page.click(".graph-log-toggle");
+					page.waitForFunction("document.querySelector('.js-plotly-plot')._fullLayout.yaxis.type === 'log'",
+							null, new Page.WaitForFunctionOptions().setTimeout(30000));
+					assertEquals("log", readYAxisType(page));
+
+					page.click("#btn-reload");
+					waitForGraph(page);
+					page.waitForFunction("document.querySelector('.js-plotly-plot')._fullLayout.yaxis.type === 'log'",
+							null, new Page.WaitForFunctionOptions().setTimeout(30000));
+					assertEquals("log", readYAxisType(page));
+
+					page.click("#btn-auto-reload");
+					page.evaluate("app.onReload()");
+					waitForGraph(page);
+					page.waitForFunction("document.querySelector('.js-plotly-plot')._fullLayout.yaxis.type === 'log'",
+							null, new Page.WaitForFunctionOptions().setTimeout(30000));
+					assertEquals("log", readYAxisType(page));
+
+					page.reload(new Page.ReloadOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					waitForGraph(page);
+					assertEquals("linear", readYAxisType(page));
+					assertEquals("false", page.getAttribute(".graph-log-toggle", "aria-pressed"));
+				} finally {
+					context.close();
+				}
+			} finally {
+				browser.close();
+			}
+		}
+	}
+
 	private void assertServedPaletteScript(String baseUrl) throws IOException, InterruptedException {
 		final HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/metrics-viewer.js"))
 				.GET()
@@ -138,6 +191,11 @@ class PalettePlaywrightTest {
 				.setStatus(200)
 				.setContentType("application/json")
 				.setBody(body));
+	}
+
+	private static void waitForGraph(Page page) {
+		page.waitForFunction("document.querySelectorAll('.js-plotly-plot path.js-line').length > 0",
+				null, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
 	private static String runsJson() {
@@ -200,6 +258,15 @@ class PalettePlaywrightTest {
 				(() => {
 					const line = document.querySelector('.js-plotly-plot path.js-line');
 					return line ? (line.getAttribute('stroke') || getComputedStyle(line).stroke) : '';
+				})()
+				""");
+	}
+
+	private static String readYAxisType(Page page) {
+		return (String) page.evaluate("""
+				(() => {
+					const plot = document.querySelector('.js-plotly-plot');
+					return plot ? (plot._fullLayout?.yaxis?.type || plot.layout?.yaxis?.type || 'linear') : '';
 				})()
 				""");
 	}
