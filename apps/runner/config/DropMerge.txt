@@ -6,8 +6,8 @@
 app.$ = app.online > P
 #app.$ = app.batchrun > P
 
-train.seed = 1
-#train.seed = 2
+#train.seed = 1
+train.seed = 2
 
 train.num_envs = 256
 #train.num_envs = 128
@@ -76,8 +76,22 @@ net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2
 #app.run_name = run_{t}_gs_5846_cy12_apx1
 #app.run_name = run_{t}_gs_apx1_L1024_p1
 #app.run_name = run_{t}_gs_apx1_L1024_p1_bf16
-#app.run_name = run_{t}_apx_L2048_ort
-#app.run_name = run_{t}_apx_L2048_ortg1
+#app.run_name = run_{t}_apx_L2048_orts2
+#app.run_name = run_{t}_apx_L2048_ortg1o
+#app.run_name = run_{t}_apx_L2048_tbo
+#app.run_name = run_{t}_apx_tbo_rs001
+
+R.learner.grad_clip_tau = 5
+
+#R.learner.use_td_clip = true
+R.learner.use_td_clip = false
+R.learner.td_clip_value = 10.0
+
+R.reward_scaler.constant_scale = 0.01
+
+R.learner.use_tbo = true
+
+R.use_optimistic_target = false
 
 #backend.cuda_launch_blocking = on
 
@@ -93,14 +107,12 @@ R.train_policy.use_spatial_exploration = true
 
 #E.no_drop_timeout_steps = 100
 
-#R.reward_scaler.constant_scale = 0.005
 
 #E.game_over_penalty = -1.0   #-10.0
 
 #R.train_policy.spatial_scale_type = linear
 #R.learner.weight_decay        = 0.0002
 
-#R.use_optimistic_target = false
 #R.target_policy.policy_type = Greedy
 #R.train_policy.uqe_tau_start = 0.5
 #R.train_policy.uqe_tau_end = 0.5
@@ -765,6 +777,19 @@ net.block.[Linear_2048].init.manual_gain=1.0
 net.branch.[vector_feature].bind = vector
 net.body.output.[features] = main_feature
 
+# Dueling head 用の任意 V/A ストリーム。
+# 有効化する場合はまとめてコメント解除し、最終 V/A 射影は head 側に残したまま
+# DuelingHead / QuantileDuelingHead に独立した隠れ特徴を読ませる。
+#net.block.[HeadFC512].type = Linear
+#net.block.[HeadFC512].linear.out_features = 512
+#net.block.[HeadFC512].init.mode = 1
+#net.branch.[value_stream].bind = main_feature
+#net.branch.[value_stream].structure = HeadFC512 > SiLU
+#net.branch.[adv_stream].bind = main_feature
+#net.branch.[adv_stream].structure = HeadFC512 > SiLU
+#net.body.output.[value_feature] = value_stream
+#net.body.output.[adv_feature] = adv_stream
+
 
 net.branch.SuikaResNet_10d.bind = grid, vector_feature
 net.branch.SuikaResNet_10d.structure =  ConvInit32 > SiLU > ResBlock32 > ResBlock32d2 > ResBlock32d4 > ResBlock32 > ConvCompress > SiLU > Flatten > LinearOut
@@ -791,19 +816,19 @@ metrics.scalar.$ = metrics.scalar.baseline > M
 M.[21_eval/03_target_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval1] $ema ema_alpha:0.01
 M.[21_eval/04_policy_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval2] $ema ema_alpha:0.01
 
-M.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema clip:10.0 # 初期の変動をclip
+M.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema
 #M.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 
-#M.[22_eval/01_test1_reward]     = eps_total_reward $runner @episode_end $eval.[test1] clip:3000
-#M.[22_eval/02_test2_reward]     = eps_total_reward $runner @episode_end $eval.[test2] clip:3000
-#M.[22_eval/03_test1_reward_ema] = eps_total_reward $runner @episode_end $eval.[test1] $ema ema_alpha:0.001 clip:1000
-#M.[22_eval/04_test2_reward_ema] = eps_total_reward $runner @episode_end $eval.[test2] $ema ema_alpha:0.001 clip:1000
+#M.[22_eval/01_test1_reward]     = eps_total_reward $runner @episode_end $eval.[test1]
+#M.[22_eval/02_test2_reward]     = eps_total_reward $runner @episode_end $eval.[test2]
+#M.[22_eval/03_test1_reward_ema] = eps_total_reward $runner @episode_end $eval.[test1] $ema ema_alpha:0.001
+#M.[22_eval/04_test2_reward_ema] = eps_total_reward $runner @episode_end $eval.[test2] $ema ema_alpha:0.001
 
 M.[32_agent_base/04_uqe_tau_target] = $agent target_policy.uqe_tau @learn $exp_step
 
-M.[37_agent_qtd/03_td_mean_ema] = td_mean @learn $ema clip:0.02
-M.[37_agent_qtd/05_td_std_ema] = td_std @learn $ema clip:0.05
-M.[38_agent_loss/02_loss_ema] = loss @learn  $ema clip:0.01
+M.[37_agent_qtd/03_td_mean_ema] = td_mean @learn $ema
+M.[37_agent_qtd/05_td_std_ema] = td_std @learn $ema
+M.[38_agent_loss/02_loss_ema] = loss @learn  $ema
 
 M.[42_env/01_ep_maxrank_max]  = $env max.ep_max_rank @train
 #M.[42_env/02_ep_frct_max]     = $env max.ep_end_fruit_count @train

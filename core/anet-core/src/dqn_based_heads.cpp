@@ -4,8 +4,14 @@
 #include "anet/profile.hpp"
 #include "nn_heads.hpp"
 
+#include <string>
+#include <utility>
+
 
 using namespace anet::rl::dqn;
+
+static constexpr const char* kKey_ValueFeature = "value_feature";
+static constexpr const char* kKey_AdvFeature = "adv_feature";
 
 // Bodyから渡されたTensorDictから、指定キーの特徴量を抽出する安全なヘルパー
 static torch::Tensor GetFeature(const anet::TensorDict& feature_dict, const std::string& key)
@@ -82,14 +88,22 @@ private:
 
 class DuelingHead : public anet::nn::NetworkHead {
 public:
-    DuelingHead(int64_t in_features, int64_t action_dim, const anet::nn::WeightInitConfig& init_config)
+    DuelingHead(
+        int64_t value_in_features,
+        int64_t adv_in_features,
+        int64_t action_dim,
+        std::string value_key,
+        std::string adv_key,
+        const anet::nn::WeightInitConfig& init_config)
         : action_dim_(action_dim)
+        , value_key_(std::move(value_key))
+        , adv_key_(std::move(adv_key))
     {
-        torch::nn::LinearOptions v_opts(in_features, 1);
+        torch::nn::LinearOptions v_opts(value_in_features, 1);
         v_opts.bias(true);
         value_ = register_module("value", torch::nn::Linear(v_opts));
 
-        torch::nn::LinearOptions a_opts(in_features, action_dim);
+        torch::nn::LinearOptions a_opts(adv_in_features, action_dim);
         a_opts.bias(true);
         adv_ = register_module("adv", torch::nn::Linear(a_opts));
 
@@ -101,10 +115,11 @@ public:
     {
         ANET_PROFILE_FUNC();
 
-        torch::Tensor x = feature_dict.At(anet::nn::kKey_DefaultOutput);
+        torch::Tensor value_x = feature_dict.At(value_key_);
+        torch::Tensor adv_x = feature_dict.At(adv_key_);
 
-        auto v = value_->forward(x); // (B, 1)
-        auto a = adv_->forward(x);   // (B, A)
+        auto v = value_->forward(value_x); // (B, 1)
+        auto a = adv_->forward(adv_x);     // (B, A)
         auto a_mean = a.mean(/*dim=*/1, /*keepdim=*/true);
         auto q = v + (a - a_mean);
 
@@ -120,9 +135,10 @@ public:
         if (key == "forward" || key == "forward.q" || key == "q_values") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                torch::Tensor x = anet::GetOrFail(features, anet::nn::kKey_DefaultOutput);
-                auto v = value_->forward(x);
-                auto a = adv_->forward(x);
+                torch::Tensor value_x = GetFeature(features, value_key_);
+                torch::Tensor adv_x = GetFeature(features, adv_key_);
+                auto v = value_->forward(value_x);
+                auto a = adv_->forward(adv_x);
                 anet::TensorDict out;
                 out.Set("q", v + (a - a.mean(1, true)));
                 return out;
@@ -131,7 +147,7 @@ public:
         if (key == "forward.v" || key == "v_values") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                torch::Tensor x = GetFeature(features, anet::nn::kKey_DefaultOutput);
+                torch::Tensor x = GetFeature(features, value_key_);
                 anet::TensorDict out;
                 out.Set("v", value_->forward(x));
                 return out;
@@ -140,7 +156,7 @@ public:
         if (key == "forward.a" || key == "a_values") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                torch::Tensor x = GetFeature(features, anet::nn::kKey_DefaultOutput);
+                torch::Tensor x = GetFeature(features, adv_key_);
                 anet::TensorDict out;
                 out.Set("a", adv_->forward(x));
                 return out;
@@ -158,6 +174,9 @@ public:
         info.outputs.push_back({ "a", { action_dim_ } });
         info.details.push_back({ "action_dim", std::to_string(action_dim_) });
         info.details.push_back({ "streams", "value, adv" });
+        info.details.push_back({ "mode", value_key_ == adv_key_ ? "shared" : "branched" });
+        info.details.push_back({ "value_input_key", value_key_ });
+        info.details.push_back({ "adv_input_key", adv_key_ });
         return info;
     }
 
@@ -165,6 +184,8 @@ private:
     torch::nn::Linear value_{ nullptr };
     torch::nn::Linear adv_{ nullptr };
     int64_t action_dim_;
+    std::string value_key_;
+    std::string adv_key_;
 };
 
 
@@ -251,11 +272,21 @@ private:
 
 class QuantileDuelingHead : public anet::nn::NetworkHead {
 public:
-    QuantileDuelingHead(int64_t in_features, int64_t action_dim, int64_t num_quantiles, const anet::nn::WeightInitConfig& init_config)
-        : action_dim_(action_dim), num_quantiles_(num_quantiles)
+    QuantileDuelingHead(
+        int64_t value_in_features,
+        int64_t adv_in_features,
+        int64_t action_dim,
+        int64_t num_quantiles,
+        std::string value_key,
+        std::string adv_key,
+        const anet::nn::WeightInitConfig& init_config)
+        : action_dim_(action_dim)
+        , num_quantiles_(num_quantiles)
+        , value_key_(std::move(value_key))
+        , adv_key_(std::move(adv_key))
     {
-        value_ = register_module("value", torch::nn::Linear(in_features, num_quantiles));
-        adv_ = register_module("adv", torch::nn::Linear(in_features, action_dim * num_quantiles));
+        value_ = register_module("value", torch::nn::Linear(value_in_features, num_quantiles));
+        adv_ = register_module("adv", torch::nn::Linear(adv_in_features, action_dim * num_quantiles));
 
         anet::nn::WeightInitializer::Initialize(value_, init_config);
         anet::nn::WeightInitializer::Initialize(adv_, init_config);
@@ -264,15 +295,16 @@ public:
     anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
     {
         ANET_PROFILE_FUNC();
-        torch::Tensor x = feature_dict.At(anet::nn::kKey_DefaultOutput);
+        torch::Tensor value_x = feature_dict.At(value_key_);
+        torch::Tensor adv_x = feature_dict.At(adv_key_);
 
-        auto batch_size = x.size(0);
+        auto batch_size = value_x.size(0);
 
         // V: (B, N) -> (B, 1, N)
-        auto v = value_->forward(x).view({ batch_size, 1, num_quantiles_ });
+        auto v = value_->forward(value_x).view({ batch_size, 1, num_quantiles_ });
 
         // A: (B, A*N) -> (B, A, N)
-        auto a = adv_->forward(x).view({ batch_size, action_dim_, num_quantiles_ });
+        auto a = adv_->forward(adv_x).view({ adv_x.size(0), action_dim_, num_quantiles_ });
 
         // Mean A over actions: (B, 1, N)
         auto a_mean = a.mean(1, true);
@@ -297,10 +329,10 @@ public:
         if (key == "forward" || key == "forward.q" || key == "q_values") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                torch::Tensor x = anet::GetOrFail(features, anet::nn::kKey_DefaultOutput);
-                auto batch_size = x.size(0);
-                auto v = value_->forward(x).view({ batch_size, 1, num_quantiles_ });
-                auto a = adv_->forward(x).view({ batch_size, action_dim_, num_quantiles_ });
+                torch::Tensor value_x = GetFeature(features, value_key_);
+                torch::Tensor adv_x = GetFeature(features, adv_key_);
+                auto v = value_->forward(value_x).view({ value_x.size(0), 1, num_quantiles_ });
+                auto a = adv_->forward(adv_x).view({ adv_x.size(0), action_dim_, num_quantiles_ });
                 auto q_dist = v + (a - a.mean(1, true));
                 anet::TensorDict out;
                 out.Set("q", q_dist.mean(2));
@@ -310,10 +342,10 @@ public:
         if (key == "forward.dist" || key == "distributions") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                torch::Tensor x = anet::GetOrFail(features, anet::nn::kKey_DefaultOutput);
-                auto batch_size = x.size(0);
-                auto v = value_->forward(x).view({ batch_size, 1, num_quantiles_ });
-                auto a = adv_->forward(x).view({ batch_size, action_dim_, num_quantiles_ });
+                torch::Tensor value_x = GetFeature(features, value_key_);
+                torch::Tensor adv_x = GetFeature(features, adv_key_);
+                auto v = value_->forward(value_x).view({ value_x.size(0), 1, num_quantiles_ });
+                auto a = adv_->forward(adv_x).view({ adv_x.size(0), action_dim_, num_quantiles_ });
                 anet::TensorDict out;
                 out.Set("q_dist", v + (a - a.mean(1, true)));
                 return out;
@@ -322,7 +354,7 @@ public:
         if (key == "forward.v" || key == "v_values") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                torch::Tensor x = anet::GetOrFail(features, anet::nn::kKey_DefaultOutput);
+                torch::Tensor x = GetFeature(features, value_key_);
                 auto v = value_->forward(x);
                 anet::TensorDict out;
                 out.Set("v_dist", v.view({ v.size(0), 1, num_quantiles_ }));
@@ -332,7 +364,7 @@ public:
         if (key == "forward.a" || key == "a_values") {
             return [this](const anet::TensorDict& features) -> anet::TensorDict {
                 torch::NoGradGuard no_grad;
-                torch::Tensor x = anet::GetOrFail(features, anet::nn::kKey_DefaultOutput);
+                torch::Tensor x = GetFeature(features, adv_key_);
                 auto a = adv_->forward(x);
                 anet::TensorDict out;
                 out.Set("a_dist", a.view({ a.size(0), action_dim_, num_quantiles_ }));
@@ -353,6 +385,9 @@ public:
         info.details.push_back({ "action_dim", std::to_string(action_dim_) });
         info.details.push_back({ "num_quantiles", std::to_string(num_quantiles_) });
         info.details.push_back({ "streams", "value, adv" });
+        info.details.push_back({ "mode", value_key_ == adv_key_ ? "shared" : "branched" });
+        info.details.push_back({ "value_input_key", value_key_ });
+        info.details.push_back({ "adv_input_key", adv_key_ });
         return info;
     }
 
@@ -361,6 +396,8 @@ private:
     torch::nn::Linear adv_{ nullptr };
     int64_t action_dim_;
     int64_t num_quantiles_;
+    std::string value_key_;
+    std::string adv_key_;
 };
 
 // ===========================================================================
@@ -391,9 +428,21 @@ DuelingHeadFactory::DuelingHeadFactory(int64_t action_dim, const anet::nn::Weigh
 
 std::shared_ptr<anet::nn::NetworkHead> DuelingHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
 {
+    auto value_feature = dummy_features.Get(kKey_ValueFeature);
+    auto adv_feature = dummy_features.Get(kKey_AdvFeature);
+    if (value_feature && adv_feature) {
+        return std::make_shared<DuelingHead>(
+            value_feature->size(-1), adv_feature->size(-1), action_dim_, kKey_ValueFeature, kKey_AdvFeature, init_config_);
+    }
+    if (value_feature || adv_feature) {
+        ANET_SYSTEM_ERROR("DuelingHead requires both 'value_feature' and 'adv_feature', or neither. "
+            "Please configure both 'net.body.output.[value_feature]' and 'net.body.output.[adv_feature]'.");
+    }
+
     torch::Tensor t = GetFeature(dummy_features, anet::nn::kKey_DefaultOutput);
     int64_t input_dim = t.size(-1);
-    return std::make_shared<DuelingHead>(input_dim, action_dim_, init_config_);
+    return std::make_shared<DuelingHead>(
+        input_dim, input_dim, action_dim_, anet::nn::kKey_DefaultOutput, anet::nn::kKey_DefaultOutput, init_config_);
 }
 
 QuantileHeadFactory::QuantileHeadFactory(int64_t action_dim, int64_t num_quantiles, const anet::nn::WeightInitConfig& init_config)
@@ -417,7 +466,21 @@ QuantileDuelingHeadFactory::QuantileDuelingHeadFactory(int64_t action_dim, int64
 
 std::shared_ptr<anet::nn::NetworkHead> QuantileDuelingHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
 {
+    auto value_feature = dummy_features.Get(kKey_ValueFeature);
+    auto adv_feature = dummy_features.Get(kKey_AdvFeature);
+    if (value_feature && adv_feature) {
+        return std::make_shared<QuantileDuelingHead>(
+            value_feature->size(-1), adv_feature->size(-1),
+            action_dim_, num_quantiles_, kKey_ValueFeature, kKey_AdvFeature, init_config_);
+    }
+    if (value_feature || adv_feature) {
+        ANET_SYSTEM_ERROR("QuantileDuelingHead requires both 'value_feature' and 'adv_feature', or neither. "
+            "Please configure both 'net.body.output.[value_feature]' and 'net.body.output.[adv_feature]'.");
+    }
+
     torch::Tensor t = GetFeature(dummy_features, anet::nn::kKey_DefaultOutput);
     int64_t input_dim = t.size(-1);
-    return std::make_shared<QuantileDuelingHead>(input_dim, action_dim_, num_quantiles_, init_config_);
+    return std::make_shared<QuantileDuelingHead>(
+        input_dim, input_dim, action_dim_, num_quantiles_,
+        anet::nn::kKey_DefaultOutput, anet::nn::kKey_DefaultOutput, init_config_);
 }
