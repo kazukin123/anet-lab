@@ -37,6 +37,9 @@ import com.microsoft.playwright.options.WaitUntilState;
 class PalettePlaywrightTest {
 
 	private static final String TAG_KEY = "palette/test";
+	private static final String TAG_A = "tag/a";
+	private static final String TAG_B = "tag/b";
+	private static final String TAG_C = "tag/c";
 	private static final Path TEST_RUNS_DIR = Path.of("target/playwright-test-empty-runs");
 
 	private static final List<String> RUN_COLORS = List.of(
@@ -153,6 +156,62 @@ class PalettePlaywrightTest {
 		}
 	}
 
+	@Test
+	void hiddenTagSelectionRestoresWhenRunContainsTagAgain() {
+		final String baseUrl = "http://127.0.0.1:" + port;
+
+		assumeTrue(isMicrosoftEdgeInstalled(), "Microsoft Edge is not installed.");
+
+		try (Playwright playwright = Playwright.create()) {
+			final Browser browser = launchMicrosoftEdge(playwright);
+			try {
+				final BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+						.setViewportSize(1280, 720));
+				try {
+					final Page page = context.newPage();
+					page.route("**/api/runs.json", route -> fulfillJson(route, splitTagRunsJson()));
+					page.route("**/api/metrics.json", route -> fulfillJson(route, splitTagMetricsJson()));
+
+					page.navigate(baseUrl + "/?tagRestoreTest=" + System.nanoTime(),
+							new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					waitForTag(page, TAG_B);
+
+					selectSingleRun(page, "run_a");
+					waitForTag(page, TAG_A);
+					assertFalse(isTagActive(page, TAG_A));
+					assertEquals(List.of(TAG_A, TAG_C), readTagList(page));
+
+					clickTag(page, TAG_A);
+					clickTag(page, TAG_C);
+					assertTrue(isTagActive(page, TAG_A));
+					assertTrue(isTagActive(page, TAG_C));
+					waitForGraphTitle(page, TAG_A);
+					assertEquals(List.of(TAG_A, TAG_C), readGraphTitles(page));
+
+					selectSingleRun(page, "run_b");
+					waitForTag(page, TAG_B);
+					assertFalse(isTagVisible(page, TAG_A));
+					assertFalse(isGraphTitleVisible(page, TAG_A));
+
+					page.click("#btn-clear-all");
+					assertFalse(isTagActive(page, TAG_B));
+
+					selectSingleRun(page, "run_a");
+					waitForTag(page, TAG_A);
+					assertTrue(isTagActive(page, TAG_A));
+					assertTrue(isTagActive(page, TAG_C));
+					waitForGraphTitle(page, TAG_A);
+					assertEquals(List.of(TAG_A, TAG_C), readTagList(page));
+					assertEquals(List.of(TAG_A, TAG_C), readGraphTitles(page));
+				} finally {
+					context.close();
+				}
+			} finally {
+				browser.close();
+			}
+		}
+	}
+
 	private void assertServedPaletteScript(String baseUrl) throws IOException, InterruptedException {
 		final HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/metrics-viewer.js"))
 				.GET()
@@ -231,6 +290,31 @@ class PalettePlaywrightTest {
 		return sb.toString();
 	}
 
+	private static String splitTagRunsJson() {
+		return """
+				{"runs":[
+					{"id":"run_a","stats":{"maxStep":2},"tags":[
+						{"key":"tag/c","type":"scalar"},
+						{"key":"tag/a","type":"scalar"}
+					]},
+					{"id":"run_b","stats":{"maxStep":2},"tags":[{"key":"tag/b","type":"scalar"}]}
+				]}
+				""";
+	}
+
+	private static String splitTagMetricsJson() {
+		return """
+				{"data":[
+					{"runId":"run_a","tagKey":"tag/a","type":"scalar","beginStep":0,"endStep":2,
+						"steps":[0,1,2],"values":[1,2,3]},
+					{"runId":"run_a","tagKey":"tag/c","type":"scalar","beginStep":0,"endStep":2,
+						"steps":[0,1,2],"values":[7,8,9]},
+					{"runId":"run_b","tagKey":"tag/b","type":"scalar","beginStep":0,"endStep":2,
+						"steps":[0,1,2],"values":[4,5,6]}
+				]}
+				""";
+	}
+
 	private static List<Map<String, String>> expectedDisplayedChips() {
 		final List<Map<String, String>> expected = new ArrayList<>();
 		for (int i = 0; i < RUN_IDS.size(); i++) {
@@ -269,6 +353,80 @@ class PalettePlaywrightTest {
 					return plot ? (plot._fullLayout?.yaxis?.type || plot.layout?.yaxis?.type || 'linear') : '';
 				})()
 				""");
+	}
+
+	@SuppressWarnings("unchecked")
+	private static List<String> readTagList(Page page) {
+		return (List<String>) page.evaluate("""
+				Array.from(document.querySelectorAll('#tag-list li')).map(el => el.textContent)
+				""");
+	}
+
+	@SuppressWarnings("unchecked")
+	private static List<String> readGraphTitles(Page page) {
+		return (List<String>) page.evaluate("""
+				Array.from(document.querySelectorAll('.graph-title')).map(el => el.textContent)
+				""");
+	}
+
+	private static void selectSingleRun(Page page, String runId) {
+		page.evaluate("""
+				runId => {
+					const row = Array.from(document.querySelectorAll('#run-list .run-row'))
+						.find(el => el.textContent.includes(runId));
+					if (!row) throw new Error('run not found: ' + runId);
+					row.click();
+				}
+				""", runId);
+	}
+
+	private static void clickTag(Page page, String tagKey) {
+		page.evaluate("""
+				tagKey => {
+					const tag = Array.from(document.querySelectorAll('#tag-list li'))
+						.find(el => el.textContent === tagKey);
+					if (!tag) throw new Error('tag not found: ' + tagKey);
+					tag.click();
+				}
+				""", tagKey);
+	}
+
+	private static void waitForTag(Page page, String tagKey) {
+		page.waitForFunction("""
+				tagKey => Array.from(document.querySelectorAll('#tag-list li'))
+					.some(el => el.textContent === tagKey)
+				""", tagKey, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	private static void waitForGraphTitle(Page page, String tagKey) {
+		page.waitForFunction("""
+				tagKey => Array.from(document.querySelectorAll('.graph-title'))
+					.some(el => el.textContent === tagKey)
+				""", tagKey, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	private static boolean isTagVisible(Page page, String tagKey) {
+		return Boolean.TRUE.equals(page.evaluate("""
+				tagKey => Array.from(document.querySelectorAll('#tag-list li'))
+					.some(el => el.textContent === tagKey)
+				""", tagKey));
+	}
+
+	private static boolean isTagActive(Page page, String tagKey) {
+		return Boolean.TRUE.equals(page.evaluate("""
+				tagKey => {
+					const tag = Array.from(document.querySelectorAll('#tag-list li'))
+						.find(el => el.textContent === tagKey);
+					return !!tag && tag.classList.contains('active');
+				}
+				""", tagKey));
+	}
+
+	private static boolean isGraphTitleVisible(Page page, String tagKey) {
+		return Boolean.TRUE.equals(page.evaluate("""
+				tagKey => Array.from(document.querySelectorAll('.graph-title'))
+					.some(el => el.textContent === tagKey)
+				""", tagKey));
 	}
 
 	private static String hexToRgb(String hex) {

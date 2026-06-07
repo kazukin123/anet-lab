@@ -661,8 +661,12 @@ class UIController {
 			const li = e.currentTarget;
 			$(li).toggleClass("active");
 
-			// DOMの状態を最新のtruth sourceとして反映
-			this.app.activeTags = new Set($("#tag-list li.active").map((_, el) => $(el).text()).get());
+			const tagKey = $(li).text();
+			if ($(li).hasClass("active")) {
+				this.app.activeTags.add(tagKey);
+			} else {
+				this.app.activeTags.delete(tagKey);
+			}
 
 			this.app.onTagSelectionChanged();
 
@@ -686,7 +690,7 @@ class UIController {
 		$("#btn-select-all").off("click").on("click", () => {
 			$ul.find("li").addClass("active");
 
-			this.app.activeTags = new Set($("#tag-list li.active").map((_, el) => $(el).text()).get());
+			$ul.find("li").each((_, el) => this.app.activeTags.add($(el).text()));
 
 			this.app.onTagSelectionChanged();
 		});
@@ -695,7 +699,7 @@ class UIController {
 		$("#btn-clear-all").off("click").on("click", () => {
 			$ul.find("li").removeClass("active");
 
-			this.app.activeTags = new Set(); // DOMから取得でも良いが空集合確定なので即代入
+			$ul.find("li").each((_, el) => this.app.activeTags.delete($(el).text()));
 
 			this.app.onTagSelectionChanged();
 		});
@@ -703,7 +707,6 @@ class UIController {
 		// 並べ替え
 		if ($("#tag-list").data("ui-sortable")) {
 			$("#tag-list").sortable("option", "update", () => {
-				this.app.activeTags = new Set($("#tag-list li.active").map((_, el) => $(el).text()).get());
 				this.app.onTagSelectionChanged();
 			});
 		}
@@ -857,10 +860,16 @@ class MetricsViewerClientApp {
 			for (const t of this.cache.getTagKeys(r) || []) set.add(t);
 		}
 		const keys = [...set].sort();
-		// 選択中の中から、新しいRunセットに存在するタグだけを残す
-		this.activeTags = new Set([...this.activeTags].filter(t => keys.includes(t)));
 		this._populateTags(keys, false);
 		console.log(`[INTERNAL] updateTagListByRuns → ${keys.length} tags (keep=${this.activeTags.size})`);
+	}
+
+	_getVisibleSelectedTags() {
+		const visibleTags = new Set();
+		for (const r of this.selectedRuns) {
+			for (const t of this.cache.getTagKeys(r) || []) visibleTags.add(t);
+		}
+		return [...this.activeTags].filter(t => visibleTags.has(t)).sort();
 	}
 
 	_renderCurrent() {
@@ -875,7 +884,7 @@ class MetricsViewerClientApp {
 		const t1 = performance.now();
 		this.ui.updateRunColorChips(this.runColorMap);
 		const t2 = performance.now();
-		this.plotly.renderBySelection("#main-area", this.selectedRuns.slice(), [...this.activeTags], this.cache);
+		this.plotly.renderBySelection("#main-area", this.selectedRuns.slice(), this._getVisibleSelectedTags(), this.cache);
 		const t3 = performance.now();
 
 		// --- スクロール位置を復元 ---

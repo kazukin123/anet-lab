@@ -91,7 +91,7 @@ input[type="checkbox"]:checked::after {
 
 /* --- Side Panel --- */
 #side-panel {
-	width: 300px;
+	width: 350px;
 	min-width: 280px;
 	background: #181818;
 	border-right: 1px solid #333;
