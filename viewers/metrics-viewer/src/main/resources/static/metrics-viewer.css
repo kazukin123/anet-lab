@@ -264,7 +264,8 @@ input[type="checkbox"]:checked::after {
 	list-style: none;
 	margin: 4px 0 0 0;
 	padding: 0;
-	touch-action: none;
+	touch-action: pan-y;
+	-webkit-overflow-scrolling: touch;
 	-webkit-user-select: none;
 	user-select: none;
 	flex: 1;

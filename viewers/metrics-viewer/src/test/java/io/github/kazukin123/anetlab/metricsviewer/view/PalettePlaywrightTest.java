@@ -212,6 +212,45 @@ class PalettePlaywrightTest {
 		}
 	}
 
+	@Test
+	void tagListAllowsVerticalTouchScrollingOnMobile() {
+		final String baseUrl = "http://127.0.0.1:" + port;
+
+		assumeTrue(isMicrosoftEdgeInstalled(), "Microsoft Edge is not installed.");
+
+		try (Playwright playwright = Playwright.create()) {
+			final Browser browser = launchMicrosoftEdge(playwright);
+			try {
+				final BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+						.setViewportSize(390, 640)
+						.setIsMobile(true)
+						.setHasTouch(true));
+				try {
+					final Page page = context.newPage();
+					page.route("**/api/runs.json", route -> fulfillJson(route, manyTagRunsJson(60)));
+					page.route("**/api/metrics.json", route -> fulfillJson(route, "{\"data\":[]}"));
+
+					page.navigate(baseUrl + "/?mobileTagScrollTest=" + System.nanoTime(),
+							new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					page.waitForFunction("document.querySelectorAll('#tag-list li').length === 60",
+							null, new Page.WaitForFunctionOptions().setTimeout(30000));
+
+					assertTrue(isTagListScrollable(page));
+					assertTrue(canScrollTagList(page));
+
+					final String touchAction = readTagListTouchAction(page);
+					assertFalse("none".equals(touchAction));
+					assertTrue(touchAction.contains("pan-y") || "auto".equals(touchAction)
+							|| "manipulation".equals(touchAction));
+				} finally {
+					context.close();
+				}
+			} finally {
+				browser.close();
+			}
+		}
+	}
+
 	private void assertServedPaletteScript(String baseUrl) throws IOException, InterruptedException {
 		final HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/metrics-viewer.js"))
 				.GET()
@@ -267,6 +306,17 @@ class PalettePlaywrightTest {
 					.append("\"tags\":[{\"key\":\"").append(TAG_KEY).append("\",\"type\":\"scalar\"}]}");
 		}
 		sb.append("]}");
+		return sb.toString();
+	}
+
+	private static String manyTagRunsJson(int tagCount) {
+		final StringBuilder sb = new StringBuilder();
+		sb.append("{\"runs\":[{\"id\":\"run_mobile\",\"stats\":{\"maxStep\":2},\"tags\":[");
+		for (int i = 0; i < tagCount; i++) {
+			if (i > 0) sb.append(',');
+			sb.append("{\"key\":\"mobile/tag_").append(String.format("%02d", i)).append("\",\"type\":\"scalar\"}");
+		}
+		sb.append("]}]}");
 		return sb.toString();
 	}
 
@@ -366,6 +416,36 @@ class PalettePlaywrightTest {
 	private static List<String> readGraphTitles(Page page) {
 		return (List<String>) page.evaluate("""
 				Array.from(document.querySelectorAll('.graph-title')).map(el => el.textContent)
+				""");
+	}
+
+	private static boolean isTagListScrollable(Page page) {
+		return Boolean.TRUE.equals(page.evaluate("""
+				() => {
+					const el = document.querySelector('#tag-list');
+					return !!el && el.scrollHeight > el.clientHeight;
+				}
+				"""));
+	}
+
+	private static boolean canScrollTagList(Page page) {
+		return Boolean.TRUE.equals(page.evaluate("""
+				() => {
+					const el = document.querySelector('#tag-list');
+					if (!el) return false;
+					el.scrollTop = 0;
+					el.scrollBy(0, 120);
+					return el.scrollTop > 0;
+				}
+				"""));
+	}
+
+	private static String readTagListTouchAction(Page page) {
+		return (String) page.evaluate("""
+				() => {
+					const el = document.querySelector('#tag-list');
+					return el ? getComputedStyle(el).touchAction : '';
+				}
 				""");
 	}
 
