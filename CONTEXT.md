@@ -5,6 +5,8 @@ anet-lab は libtorch を基盤とした強化学習実験プロジェクトで�
 
 ## Language
 
+### DQN・価値表現
+
 **DQN系エージェント**:
 行動価値を推定する Q ネットワークを中心に学習する Agent 群。DefaultDQN、QR-DQN、Rainbow のような DQN 派生手法を指す。
 _Avoid_: Q Agent, value agent
@@ -40,3 +42,21 @@ _Avoid_: reward normalizer, reward transform
 **Transformed Bellman Operator**:
 Bellman ターゲットを可逆な変換関数 h で圧縮し、大きな Q 値に対する学習を安定させる手法。anet-lab では TBO と略す。
 _Avoid_: value transform, Bellman transform
+
+### 観測と可視化
+
+**Observation**:
+環境がエージェントへ渡す観測。anet-lab では複数の観測キー（`vector` / `grid` / `action_mask`）を持つ `TensorDict`。
+_Avoid_: obs tensor, state input
+
+**観測キー**:
+Observation `TensorDict` の各エントリを識別する文字列キー。`vector`（低次元ベクトル観測）、`grid`（画像・格子観測）、`action_mask`（合法手マスク。学習入力には含めない）。
+_Avoid_: obs field, channel, feature key
+
+**probe**:
+可視化のために experience / agent / network いずれかの source から、キーと index を指定して数値列を取り出すデータ抽出子。
+_Avoid_: accessor, getter, sampler
+
+**状態スイープ**:
+観測の2成分（既定では `vector` の2次元）を格子状に走査し、各点を Q ネットワークに通して値をヒートマップ化する可視化手法。
+_Avoid_: sweep heatmap, state grid scan
