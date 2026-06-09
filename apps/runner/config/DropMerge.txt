@@ -6,8 +6,8 @@
 app.$ = app.online > P
 #app.$ = app.batchrun > P
 
-#train.seed = 1
-train.seed = 2
+train.seed = 1
+#train.seed = 2
 
 train.num_envs = 256
 #train.num_envs = 128
@@ -80,6 +80,14 @@ net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2
 #app.run_name = run_{t}_apx_L2048_ortg1o
 #app.run_name = run_{t}_apx_L2048_tbo
 #app.run_name = run_{t}_apx_tbo_rs001
+#app.run_name = run_{t}_apx_tbo_rs001_va1024
+#app.run_name = run_{t}_apx_tbo_rs001_va1024p
+#app.run_name = run_{t}_apx_tbo_rs001_va1024_ot2
+#app.run_name = run_{t}_apx_tbo_va1024_ot2np
+
+
+R.use_optimistic_target = true
+R.target_policy.uqe_use_tail_mean = false   # TBO整合: h単調は単一分位点でargmax不変、tail_mean(上側平均)は対象外
 
 R.learner.grad_clip_tau = 5
 
@@ -91,11 +99,7 @@ R.reward_scaler.constant_scale = 0.01
 
 R.learner.use_tbo = true
 
-R.use_optimistic_target = false
-
 #backend.cuda_launch_blocking = on
-
-E.noop_penalty = -0.05
 
 R.train_policy.use_spatial_exploration = true
 #R.train_policy.use_spatial_exploration = false
@@ -773,22 +777,23 @@ net.block.[Linear_2048].linear.bias = true
 net.block.[Linear_2048].init.mode = 3 # Orthogonal
 net.block.[Linear_2048].init.manual_gain=1.0
 
+net.block.[HeadFC1024].type = Linear
+net.block.[HeadFC1024].linear.out_features = 1024
+net.block.[HeadFC1024].init.mode = 1
 
 net.branch.[vector_feature].bind = vector
-net.body.output.[features] = main_feature
+#net.body.output.[features] = main_feature
 
-# Dueling head 用の任意 V/A ストリーム。
-# 有効化する場合はまとめてコメント解除し、最終 V/A 射影は head 側に残したまま
-# DuelingHead / QuantileDuelingHead に独立した隠れ特徴を読ませる。
-#net.block.[HeadFC512].type = Linear
-#net.block.[HeadFC512].linear.out_features = 512
-#net.block.[HeadFC512].init.mode = 1
-#net.branch.[value_stream].bind = main_feature
-#net.branch.[value_stream].structure = HeadFC512 > SiLU
-#net.branch.[adv_stream].bind = main_feature
-#net.branch.[adv_stream].structure = HeadFC512 > SiLU
-#net.body.output.[value_feature] = value_stream
-#net.body.output.[adv_feature] = adv_stream
+# Dueling head 用の任意 V/A ストリーム。有効化する場合はまとめてコメント解除
+
+net.branch.[value_stream].bind = main_feature
+net.branch.[value_stream].structure = HeadFC1024 > SiLU
+
+net.branch.[adv_stream].bind = main_feature
+net.branch.[adv_stream].structure = HeadFC1024 > SiLU
+
+net.body.output.[value_feature] = value_stream
+net.body.output.[adv_feature] = adv_stream
 
 
 net.branch.SuikaResNet_10d.bind = grid, vector_feature
@@ -801,6 +806,7 @@ net.branch.SuikaHybrid_Flatten_128_pre.bind = grid, vector_feature
 net.branch.SuikaHybrid_Flatten_128_pre.structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
 
 net.branch.SuikaHybrid_Flatten_128_pre2.bind = grid, vector_feature
+#net.branch.SuikaHybrid_Flatten_128_pre2.structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
 #net.branch.SuikaHybrid_Flatten_128_pre2.structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_1024 > SiLU
 net.branch.SuikaHybrid_Flatten_128_pre2.structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_2048 > SiLU
 
