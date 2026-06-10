@@ -8,9 +8,13 @@
 
 
 TrainPanel::TrainPanel(wxWindow* parent, const TrainPanelConfig& config)
-	: anet::rl::gui::Panel(parent), config_(config), update_timer_(this, wxID_ANY)
+	: anet::rl::gui::Panel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+		wxTAB_TRAVERSAL | wxFULL_REPAINT_ON_RESIZE),
+	config_(config), update_timer_(this, wxID_ANY)
 {
-
+	SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_BACKGROUND));
+	SetDoubleBuffered(true);
+	Bind(wxEVT_SIZE, &TrainPanel::OnSize, this);
 }
 
 void TrainPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
@@ -56,7 +60,7 @@ void TrainPanel::OnTimer(wxTimerEvent& event)
 	view_->CaptureViewData();
 
 	// 表示反映（リクエスト）
-	Refresh();
+	RefreshViewSurface();
 }
 
 void TrainPanel::OnClose(wxCloseEvent& event)
@@ -64,4 +68,18 @@ void TrainPanel::OnClose(wxCloseEvent& event)
 	update_timer_.Stop();
 	auto notifier = wxGetApp().GetRunManager().GetNotifier();
 	notifier->Detach(this->observer_);
+}
+
+void TrainPanel::OnSize(wxSizeEvent& event)
+{
+	RefreshViewSurface();
+	event.Skip();
+}
+
+void TrainPanel::RefreshViewSurface()
+{
+	Refresh(true);
+	if (view_window_) {
+		view_window_->Refresh(false);
+	}
 }
