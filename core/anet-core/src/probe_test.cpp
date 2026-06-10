@@ -1,0 +1,131 @@
+#include "catch.hpp"
+
+#include "anet/probe.hpp"
+
+#include <string>
+#include <vector>
+
+namespace {
+
+namespace rl = anet::rl;
+
+constexpr const char* kVectorKey = rl::ObsKeys::kVector;
+constexpr const char* kGridKey = rl::ObsKeys::kGrid;
+
+torch::Tensor FloatTensor(const std::vector<float>& values, const std::vector<int64_t>& shape)
+{
+    return torch::tensor(values, torch::TensorOptions().dtype(torch::kFloat32)).reshape(shape);
+}
+
+torch::Tensor BoolVector(int64_t size, bool value = false)
+{
+    return torch::full({ size }, value, torch::TensorOptions().dtype(torch::kBool));
+}
+
+void RequireFlatApprox(const torch::Tensor& tensor, const std::vector<float>& expected)
+{
+    auto flat = tensor.detach().cpu().reshape({ -1 }).contiguous();
+    REQUIRE(flat.numel() == static_cast<int64_t>(expected.size()));
+    auto acc = flat.accessor<float, 1>();
+    for (int64_t i = 0; i < static_cast<int64_t>(expected.size()); ++i) {
+        REQUIRE(acc[i] == Catch::Approx(expected[static_cast<size_t>(i)]).margin(1.0e-5f));
+    }
+}
+
+void RequireVectorApprox(const std::vector<float>& actual, const std::vector<float>& expected)
+{
+    REQUIRE(actual.size() == expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        REQUIRE(actual[i] == Catch::Approx(expected[i]).margin(1.0e-5f));
+    }
+}
+
+anet::TensorDict MakeObs(
+    const std::vector<float>& vector_values,
+    const std::vector<float>& grid_values)
+{
+    anet::TensorDict obs;
+    obs.Set(kVectorKey, FloatTensor(vector_values, { 2, 2 }));
+    obs.Set(kGridKey, FloatTensor(grid_values, { 2, 1, 2 }));
+    return obs;
+}
+
+rl::BatchExperience MakeExperience()
+{
+    rl::BatchState state(
+        MakeObs({ -1.0f, -2.0f, -3.0f, -4.0f }, { -10.0f, -11.0f, -12.0f, -13.0f }),
+        BoolVector(2),
+        BoolVector(2),
+        BoolVector(2));
+
+    rl::BatchState next_state(
+        MakeObs({ 1.0f, 2.0f, 3.0f, 4.0f }, { 10.0f, 11.0f, 12.0f, 13.0f }),
+        BoolVector(2),
+        BoolVector(2),
+        BoolVector(2));
+
+    rl::AuxData aux;
+    aux["max_q"] = FloatTensor({ 10.0f, 20.0f }, { 2 });
+
+    auto actions = torch::tensor({ 0, 1 }, torch::TensorOptions().dtype(torch::kInt64));
+    auto action_info = std::make_shared<rl::BatchActionInfo>(actions, anet::TensorDict{}, aux);
+    auto rewards = FloatTensor({ 0.5f, 1.5f }, { 2 });
+
+    return rl::BatchExperience(state, action_info, rewards, next_state);
+}
+
+} // namespace
+
+TEST_CASE("BatchExperience observation keys expose unified and subkey tensors", "[probe][experience]")
+{
+    auto experience = MakeExperience();
+
+    auto unified = experience.GetTensor(rl::BatchExperience::NEXT_STATE_OBS);
+    REQUIRE(unified.has_value());
+    REQUIRE(unified->sizes().vec() == std::vector<int64_t>{ 2, 4 });
+    RequireFlatApprox(*unified, { 1.0f, 2.0f, 10.0f, 11.0f, 3.0f, 4.0f, 12.0f, 13.0f });
+
+    auto vector = experience.GetTensor(std::string(rl::BatchExperience::NEXT_STATE_OBS) + ".vector");
+    REQUIRE(vector.has_value());
+    REQUIRE(vector->sizes().vec() == std::vector<int64_t>{ 2, 2 });
+    RequireFlatApprox(*vector, { 1.0f, 2.0f, 3.0f, 4.0f });
+
+    auto max_q = experience.GetTensor("action.max_q");
+    REQUIRE(max_q.has_value());
+    REQUIRE(max_q->sizes().vec() == std::vector<int64_t>{ 2 });
+    RequireFlatApprox(*max_q, { 10.0f, 20.0f });
+
+    CHECK_THROWS(experience.GetTensor(std::string(rl::BatchExperience::NEXT_STATE_OBS) + ".unknown"));
+}
+
+TEST_CASE("BatchExperienceVectorProbe extracts observation columns and action aux tensors", "[probe][experience]")
+{
+    auto experience = MakeExperience();
+    rl::UpdateEvent event{
+        experience,
+        nullptr,
+        rl::StepCounts{},
+        nullptr,
+        rl::BatchUpdateResultList{}
+    };
+
+    rl::BatchExperienceVectorProbe x_probe(rl::BatchExperience::NEXT_STATE_OBS, 0);
+    auto x_values = x_probe.GetVector(event);
+    REQUIRE(x_values.has_value());
+    RequireVectorApprox(*x_values, { 1.0f, 3.0f });
+
+    rl::BatchExperienceVectorProbe y_probe(rl::BatchExperience::NEXT_STATE_OBS, 1);
+    auto y_values = y_probe.GetVector(event);
+    REQUIRE(y_values.has_value());
+    RequireVectorApprox(*y_values, { 2.0f, 4.0f });
+
+    rl::BatchExperienceVectorProbe vector_y_probe(std::string(rl::BatchExperience::NEXT_STATE_OBS) + ".vector", 1);
+    auto vector_y_values = vector_y_probe.GetVector(event);
+    REQUIRE(vector_y_values.has_value());
+    RequireVectorApprox(*vector_y_values, { 2.0f, 4.0f });
+
+    rl::BatchExperienceVectorProbe max_q_probe("action.max_q", -1);
+    auto max_q_values = max_q_probe.GetVector(event);
+    REQUIRE(max_q_values.has_value());
+    RequireVectorApprox(*max_q_values, { 10.0f, 20.0f });
+}

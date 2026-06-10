@@ -96,7 +96,9 @@ static std::shared_ptr<VectorProbe> MakeExperienceProbe(const ProbeConfig& probe
 	// spec準備
 	const anet::rl::StateSpec* state_spec = nullptr;
 	const anet::rl::ActionSpec* action_spec = nullptr;
-	if (key == BatchExperience::STATE_OBS || key == BatchExperience::NEXT_STATE_OBS)
+	if (key == BatchExperience::STATE_OBS || key == BatchExperience::NEXT_STATE_OBS ||
+		anet::StartsWith(key, std::string(BatchExperience::STATE_OBS) + ".") ||
+		anet::StartsWith(key, std::string(BatchExperience::NEXT_STATE_OBS) + "."))
 		state_spec = &env_spec.state_spec;
 	if (key == BatchExperience::ACTION_ACTION)
 		action_spec = &env_spec.action_spec;

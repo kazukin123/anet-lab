@@ -6,6 +6,7 @@
 #include <wx/log.h>
 #include "anet/common.hpp"
 #include "anet/profile.hpp"
+#include "anet/str_util.hpp"
 #include "anet/util.hpp"
 #include "anet/tensor_util.hpp"
 #include "anet/tensor_check.hpp"
@@ -42,6 +43,32 @@ anet::TensorDict ExtractNnTrace(const AuxData& aux)
 }
 
 } // namespace anet::rl
+
+static std::optional<torch::Tensor> GetObservationTensor(
+    const anet::TensorDict& obs, const std::string& key, const char* base_key)
+{
+    if (key == base_key) {
+        return anet::rl::ToUnifiedObservation(obs);
+    }
+
+    const std::string prefix = std::string(base_key) + ".";
+    if (!anet::StartsWith(key, prefix)) {
+        return std::nullopt;
+    }
+
+    const std::string sub_key = anet::RemovePrefix(key, prefix);
+    if (sub_key.empty()) {
+        ANET_SYSTEM_ERROR("BatchExperience::GetTensor: empty observation subkey. key=" << key);
+    }
+
+    auto tensor = obs.Get(sub_key);
+    if (!tensor.has_value()) {
+        ANET_SYSTEM_ERROR(
+            "BatchExperience::GetTensor: unknown observation subkey. key=" << key
+            << " subkey=" << sub_key);
+    }
+    return *tensor;
+}
 
 
 // =============================================================
@@ -460,14 +487,15 @@ std::optional<torch::Tensor> BatchExperience::GetTensor(const std::string& key, 
 {
     /// @todo index指定対応
 
-    if (key == NEXT_STATE_OBS)
-        return anet::rl::ToUnifiedObservation(next_state.obs);
+    if (auto obs = GetObservationTensor(next_state.obs, key, NEXT_STATE_OBS); obs.has_value())
+        return obs;
+    if (auto obs = GetObservationTensor(state.obs, key, STATE_OBS); obs.has_value())
+        return obs;
+
     if (key == REWARD)
         return reward;
     if (key == ACTION_ACTION)
         return action->GetAction();
-    if (key == STATE_OBS)
-        return anet::rl::ToUnifiedObservation(state.obs);
 
     if (key == STATE_DONE)
         return state.done;

@@ -4,9 +4,30 @@
 #include <sstream>
 #include "anet/log.hpp"
 #include "anet/profile.hpp"
+#include "anet/str_util.hpp"
 
 using namespace anet::rl;
 namespace LOG = anet::log;
+
+static std::optional<std::string> GetObservationSpecKey(const std::string& key)
+{
+    if (key == BatchExperience::STATE_OBS || key == BatchExperience::NEXT_STATE_OBS) {
+        // 無接尾 obs は ToUnifiedObservation の vector 先頭互換に合わせて vector の範囲を使う。
+        return std::string(anet::rl::ObsKeys::kVector);
+    }
+
+    const std::string state_prefix = std::string(BatchExperience::STATE_OBS) + ".";
+    if (anet::StartsWith(key, state_prefix)) {
+        return anet::RemovePrefix(key, state_prefix);
+    }
+
+    const std::string next_state_prefix = std::string(BatchExperience::NEXT_STATE_OBS) + ".";
+    if (anet::StartsWith(key, next_state_prefix)) {
+        return anet::RemovePrefix(key, next_state_prefix);
+    }
+
+    return std::nullopt;
+}
 
 
 //std::optional<float> MetricsScalarProbe::GetFloat(const TrainEvent& event) const
@@ -44,7 +65,7 @@ BatchExperienceStateProbe::BatchExperienceStateProbe(
 
     std::optional<std::string> name_spec;
 
-    /// @todo v2暫定: デフォルトのVector観測から情報を取得
+    // 無接尾 obs は GetTensor() が返す unified observation から抽出する。
     if (spec != nullptr && spec->obs_spec.count(anet::rl::ObsKeys::kVector) > 0) {
         const auto& tspec = spec->obs_spec.at(anet::rl::ObsKeys::kVector);
         ANET_ASSERT(state_index < tspec.CalcFlattenDim());
@@ -154,9 +175,9 @@ BatchExperienceVectorProbe::BatchExperienceVectorProbe(
 {
     std::optional<std::string> name_spec;
 
-    /// @todo v2暫定:EnvSpec の state_spec から min/max を取得 (暫定Vector指定)
-    if (state_spec != nullptr && index_ >= 0 && state_spec->obs_spec.count(anet::rl::ObsKeys::kVector) > 0) {
-        const auto& tspec = state_spec->obs_spec.at(anet::rl::ObsKeys::kVector);
+    const auto obs_spec_key = GetObservationSpecKey(key_);
+    if (state_spec != nullptr && index_ >= 0 && obs_spec_key.has_value() && state_spec->obs_spec.count(*obs_spec_key) > 0) {
+        const auto& tspec = state_spec->obs_spec.at(*obs_spec_key);
         ANET_ASSERT(index_ < (int)tspec.CalcFlattenDim());
 
         min_ = tspec.GetMin(index_);
