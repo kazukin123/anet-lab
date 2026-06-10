@@ -336,8 +336,8 @@ TEST_CASE("TBO real-space q scalars are exposed from batch update result", "[dqn
         raw_max_q,
         raw_q_sa,
         per_info);
-    CHECK_FALSE(off_result->GetScalar("q_max_real_mean", -1).has_value());
-    CHECK_FALSE(off_result->GetScalar("q_sa_real_mean", -1).has_value());
+    CHECK(off_result->GetScalar("q_max_real_mean", -1).has_value());
+    CHECK(off_result->GetScalar("q_sa_real_mean", -1).has_value());
 }
 
 TEST_CASE("PER priority helper applies epsilon and clipping", "[dqn][per]")
