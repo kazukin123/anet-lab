@@ -136,7 +136,9 @@ static std::shared_ptr<VectorProbe> MakeAgentProbe(const ProbeConfig& probe_conf
 	// spec準備
 	const anet::rl::StateSpec* state_spec = nullptr;
 	const anet::rl::ActionSpec* action_spec = nullptr;
-	if (key == ReplayBuffer::STATE_OBS || key == ReplayBuffer::NEXT_STATE_OBS)
+	if (key == ReplayBuffer::STATE_OBS || key == ReplayBuffer::NEXT_STATE_OBS ||
+		anet::StartsWith(key, std::string(ReplayBuffer::STATE_OBS) + ".") ||
+		anet::StartsWith(key, std::string(ReplayBuffer::NEXT_STATE_OBS) + "."))
 		state_spec = &env_spec.state_spec;
 	if (key == ReplayBuffer::ACTION)
 		action_spec = &env_spec.action_spec;

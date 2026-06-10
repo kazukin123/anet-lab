@@ -464,6 +464,70 @@ TEST_CASE("ReplayBuffer visualization accessors expose V1-compatible storage key
     });
 }
 
+TEST_CASE("ReplayBuffer visualization accessors expose single frames when samples use frame stack", "[replay_buffer][visualization][frame_stack]")
+{
+    constexpr int64_t num_envs = 1;
+    constexpr int stack_count = 4;
+
+    auto buffer = MakeBuffer(MakeConfig(20, 1, 0.99f, stack_count), num_envs);
+
+    for (int64_t t = 0; t <= 4; ++t) {
+        PushTime(buffer, t, {}, {}, t == 0 ? BoolValues(num_envs, true) : BoolValues(num_envs, false));
+    }
+
+    REQUIRE(buffer.rb->Size() == 4);
+
+    auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 3));
+    RequireFlatApprox(samples.obs.At(kVectorKey)[0], {
+        StateValue(0, 0),
+        StateValue(0, 1),
+        StateValue(0, 2),
+        StateValue(0, 3)
+    });
+
+    auto state = RequireSingleTensorVector(buffer.rb->GetTensorVector(rl::ReplayBuffer::STATE_OBS));
+    RequireShape(state, { 4, 1 });
+    RequireFlatApprox(state, {
+        StateValue(0, 0),
+        StateValue(0, 1),
+        StateValue(0, 2),
+        StateValue(0, 3)
+    });
+
+    auto next_state = RequireSingleTensorVector(buffer.rb->GetTensorVector(rl::ReplayBuffer::NEXT_STATE_OBS));
+    RequireShape(next_state, { 4, 1 });
+    RequireFlatApprox(next_state, {
+        StateValue(0, 1),
+        StateValue(0, 2),
+        StateValue(0, 3),
+        StateValue(0, 4)
+    });
+}
+
+TEST_CASE("ReplayBuffer visualization accessors expose observation subkeys", "[replay_buffer][visualization]")
+{
+    constexpr int64_t num_envs = 1;
+    auto buffer = MakeBuffer(MakeConfig(20), num_envs, true);
+
+    PushTime(buffer, 0, {}, {}, BoolValues(num_envs, true), {}, true);
+    PushTime(buffer, 1, {}, {}, {}, {}, true);
+
+    REQUIRE(buffer.rb->Size() == 1);
+
+    const std::string next_vector_key = std::string(rl::ReplayBuffer::NEXT_STATE_OBS) + ".vector";
+    auto next_vector = RequireSingleTensorVector(buffer.rb->GetTensorVector(next_vector_key));
+    RequireShape(next_vector, { 1, 1 });
+    RequireFlatApprox(next_vector, { StateValue(0, 1) });
+
+    const std::string next_mask_key = std::string(rl::ReplayBuffer::NEXT_STATE_OBS) + ".action_mask";
+    auto next_mask = RequireSingleTensorVector(buffer.rb->GetTensorVector(next_mask_key));
+    RequireShape(next_mask, { 1, 2 });
+    RequireFlatApprox(next_mask, { StateValue(0, 1), StateValue(0, 1) + 0.25f });
+
+    const std::string missing_key = std::string(rl::ReplayBuffer::NEXT_STATE_OBS) + ".missing";
+    REQUIRE_THROWS(buffer.rb->GetTensorVector(missing_key));
+}
+
 TEST_CASE("ReplayBuffer visualization accessors expose PER priorities", "[replay_buffer][visualization][per]")
 {
     constexpr int64_t num_envs = 2;

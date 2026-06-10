@@ -7,6 +7,7 @@
 #include <vector>
 #include <memory>
 #include <deque>
+#include <mutex>
 #include <torch/torch.h>
 #include "anet/tensor_util.hpp"
 
@@ -266,6 +267,18 @@ namespace anet::rl {
         void DumpToLog() const;
     private:
         void ProcessQueue(int64_t env_idx); // 内部パイプラインの駆動
+        void InvalidateAccessorCacheForStorage();
+        void InvalidateAccessorCacheForPriority();
+        std::optional<std::vector<torch::Tensor>> TryGetCachedTensorVector(const std::string& key, int64_t index) const;
+        void StoreTensorVectorCache(const std::string& key, int64_t index, std::vector<torch::Tensor> value) const;
+    private:
+        struct TensorVectorCacheEntry {
+            std::string key;
+            int64_t index = -1;
+            uint64_t storage_version = 0;
+            uint64_t priority_version = 0;
+            std::vector<torch::Tensor> value;
+        };
     private:
         ReplayBufferConfig config_;
         int64_t num_envs_;
@@ -281,6 +294,11 @@ namespace anet::rl {
         std::shared_ptr<ExperienceSampleExtractor> extractor_;
 
         std::vector<ExperienceQueue> queues_;
+
+        mutable std::mutex accessor_cache_mutex_;
+        uint64_t accessor_storage_version_ = 0;
+        uint64_t accessor_priority_version_ = 0;
+        mutable std::vector<TensorVectorCacheEntry> tensor_vector_cache_;
     };
 
 } // namespace anet::rl

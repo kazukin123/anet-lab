@@ -74,6 +74,21 @@ rl::BatchExperience MakeExperience()
     return rl::BatchExperience(state, action_info, rewards, next_state);
 }
 
+rl::StateSpec MakeLunarLikeStateSpec()
+{
+    anet::TensorSpec vector_spec;
+    vector_spec.type = anet::SpaceType::Vector;
+    vector_spec.shape = { 8 };
+    vector_spec.dtype = torch::kFloat32;
+    vector_spec.labels = { "x", "y", "vx", "vy", "angle", "v_angle", "leg_l", "leg_r" };
+    vector_spec.min_values = { -1.5, -0.5, -5.0, -5.0, -3.14, -5.0, 0.0, 0.0 };
+    vector_spec.max_values = { 1.5, 2.0, 5.0, 5.0, 3.14, 5.0, 1.0, 1.0 };
+
+    rl::StateSpec state_spec;
+    state_spec.obs_spec[kVectorKey] = vector_spec;
+    return state_spec;
+}
+
 } // namespace
 
 TEST_CASE("BatchExperience observation keys expose unified and subkey tensors", "[probe][experience]")
@@ -128,4 +143,38 @@ TEST_CASE("BatchExperienceVectorProbe extracts observation columns and action au
     auto max_q_values = max_q_probe.GetVector(event);
     REQUIRE(max_q_values.has_value());
     RequireVectorApprox(*max_q_values, { 10.0f, 20.0f });
+}
+
+TEST_CASE("AgentTensorVectorProbe resolves ReplayBuffer observation subkey specs", "[probe][agent]")
+{
+    auto state_spec = MakeLunarLikeStateSpec();
+
+    rl::AgentTensorVectorProbe next_x_probe(
+        std::string(rl::ReplayBuffer::NEXT_STATE_OBS) + ".vector",
+        0,
+        &state_spec);
+    REQUIRE(next_x_probe.GetMin().has_value());
+    REQUIRE(next_x_probe.GetMax().has_value());
+    REQUIRE(*next_x_probe.GetMin() == Catch::Approx(-1.5f));
+    REQUIRE(*next_x_probe.GetMax() == Catch::Approx(1.5f));
+    REQUIRE(next_x_probe.GetName().find("(x)") != std::string::npos);
+
+    rl::AgentTensorVectorProbe next_y_probe(
+        std::string(rl::ReplayBuffer::NEXT_STATE_OBS) + ".vector",
+        1,
+        &state_spec);
+    REQUIRE(next_y_probe.GetMin().has_value());
+    REQUIRE(next_y_probe.GetMax().has_value());
+    REQUIRE(*next_y_probe.GetMin() == Catch::Approx(-0.5f));
+    REQUIRE(*next_y_probe.GetMax() == Catch::Approx(2.0f));
+    REQUIRE(next_y_probe.GetName().find("(y)") != std::string::npos);
+
+    rl::AgentTensorVectorProbe unified_x_probe(
+        rl::ReplayBuffer::NEXT_STATE_OBS,
+        0,
+        &state_spec);
+    REQUIRE(unified_x_probe.GetMin().has_value());
+    REQUIRE(unified_x_probe.GetMax().has_value());
+    REQUIRE(*unified_x_probe.GetMin() == Catch::Approx(-1.5f));
+    REQUIRE(*unified_x_probe.GetMax() == Catch::Approx(1.5f));
 }

@@ -510,6 +510,120 @@ namespace {
         if (tensor.size(0) <= index) return torch::Tensor();
         return tensor[index];
     }
+
+    struct StorageTensorVectorKey {
+        enum class Kind {
+            kStateObs,
+            kAction,
+            kReward,
+            kNextStateObs,
+            kNextStateTerminal,
+            kNStep,
+        };
+
+        Kind kind;
+        std::string obs_subkey;
+    };
+
+    std::optional<std::string> ParseObservationSubKey(const std::string& key, const char* base_key)
+    {
+        const std::string base(base_key);
+        if (key == base) return std::string();
+
+        const std::string prefix = base + ".";
+        if (key.rfind(prefix, 0) != 0) return std::nullopt;
+
+        auto subkey = key.substr(prefix.size());
+        if (subkey.empty()) {
+            ANET_SYSTEM_ERROR("ReplayBuffer observation key requires a subkey after '" << prefix << "'.");
+        }
+        return subkey;
+    }
+
+    std::optional<StorageTensorVectorKey> ParseStorageTensorVectorKey(const std::string& key)
+    {
+        if (auto subkey = ParseObservationSubKey(key, ReplayBuffer::STATE_OBS)) {
+            return StorageTensorVectorKey{ StorageTensorVectorKey::Kind::kStateObs, *subkey };
+        }
+        if (auto subkey = ParseObservationSubKey(key, ReplayBuffer::NEXT_STATE_OBS)) {
+            return StorageTensorVectorKey{ StorageTensorVectorKey::Kind::kNextStateObs, *subkey };
+        }
+        if (key == ReplayBuffer::ACTION) {
+            return StorageTensorVectorKey{ StorageTensorVectorKey::Kind::kAction, std::string() };
+        }
+        if (key == ReplayBuffer::REWARD) {
+            return StorageTensorVectorKey{ StorageTensorVectorKey::Kind::kReward, std::string() };
+        }
+        if (key == ReplayBuffer::NEXT_STATE_TERMINAL) {
+            return StorageTensorVectorKey{ StorageTensorVectorKey::Kind::kNextStateTerminal, std::string() };
+        }
+        if (key == ReplayBuffer::N_STEP) {
+            return StorageTensorVectorKey{ StorageTensorVectorKey::Kind::kNStep, std::string() };
+        }
+        return std::nullopt;
+    }
+
+    torch::Tensor GatherFlatRowsRaw(const torch::Tensor& storage, const torch::Tensor& indices)
+    {
+        if (!storage.defined()) return torch::Tensor();
+        if (indices.numel() == 0) return torch::Tensor();
+        ANET_ASSERT_MSG(storage.dim() >= 2, "ReplayBuffer storage tensor must have [env, time, ...] layout: " << anet::ToDefString(storage));
+
+        std::vector<int64_t> flat_shape;
+        flat_shape.reserve(static_cast<size_t>(storage.dim() - 1));
+        flat_shape.push_back(storage.size(0) * storage.size(1));
+        for (int64_t dim = 2; dim < storage.dim(); ++dim) {
+            flat_shape.push_back(storage.size(dim));
+        }
+
+        auto gather_indices = indices.to(
+            torch::TensorOptions().dtype(torch::kInt64).device(storage.device()),
+            /*non_blocking=*/true);
+        return storage.reshape(flat_shape).index_select(0, gather_indices);
+    }
+
+    torch::Tensor GatherFlatRows(const torch::Tensor& storage, const torch::Tensor& indices)
+    {
+        return FlattenRows(GatherFlatRowsRaw(storage, indices));
+    }
+
+    torch::Tensor GatherObservationRows(
+    	const anet::TensorDict& obs_storage, const torch::Tensor& indices, const std::string& obs_subkey)
+    {
+        if (obs_storage.empty()) return torch::Tensor();
+
+        if (!obs_subkey.empty()) {
+            auto opt_tensor = obs_storage.Get(obs_subkey);
+            if (!opt_tensor.has_value()) {
+                ANET_SYSTEM_ERROR("ReplayBuffer observation storage key '" << obs_subkey << "' was not found.");
+            }
+            return FlattenRows(GatherFlatRowsRaw(*opt_tensor, indices).to(torch::kFloat32));
+        }
+
+        anet::TensorDict obs_rows;
+        for (const auto& kv : obs_storage) {
+            obs_rows.Set(kv.first, GatherFlatRowsRaw(kv.second, indices));
+        }
+        return ToUnifiedRows(obs_rows);
+    }
+
+    torch::Tensor MakeNextFlatIndices(const torch::Tensor& indices, const torch::Tensor& actual_n_steps, int64_t capacity_per_env)
+    {
+        auto actual_rows = GatherFlatRowsRaw(actual_n_steps, indices).to(torch::kCPU).contiguous();
+        auto indices_cpu = indices.to(torch::kCPU).contiguous();
+        auto actual_acc = actual_rows.accessor<int64_t, 1>();
+        auto index_acc = indices_cpu.accessor<int64_t, 1>();
+
+        std::vector<int64_t> next_indices(static_cast<size_t>(indices_cpu.size(0)));
+        for (int64_t i = 0; i < indices_cpu.size(0); ++i) {
+            const int64_t flat_index = index_acc[i];
+            const int64_t env_idx = flat_index / capacity_per_env;
+            const int64_t time_idx = flat_index % capacity_per_env;
+            next_indices[static_cast<size_t>(i)] = env_idx * capacity_per_env + ((time_idx + actual_acc[i]) % capacity_per_env);
+        }
+
+        return torch::tensor(next_indices, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
+    }
 } // namespace
 
 
@@ -1066,6 +1180,8 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
 
         ProcessQueue(b);
     }
+
+    InvalidateAccessorCacheForStorage();
 }
 
 void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
@@ -1124,7 +1240,64 @@ void DefaultReplayBuffer::UpdatePriorities(const std::vector<int64_t>& indices, 
 {
     if (prio_controller_) {
         prio_controller_->UpdatePriorities(indices, priorities);
+        InvalidateAccessorCacheForPriority();
     }
+}
+
+void DefaultReplayBuffer::InvalidateAccessorCacheForStorage()
+{
+    std::lock_guard<std::mutex> lock(accessor_cache_mutex_);
+    ++accessor_storage_version_;
+    ++accessor_priority_version_;
+    tensor_vector_cache_.clear();
+}
+
+void DefaultReplayBuffer::InvalidateAccessorCacheForPriority()
+{
+    std::lock_guard<std::mutex> lock(accessor_cache_mutex_);
+    ++accessor_priority_version_;
+    tensor_vector_cache_.clear();
+}
+
+std::optional<std::vector<torch::Tensor>> DefaultReplayBuffer::TryGetCachedTensorVector(const std::string& key, int64_t index) const
+{
+    std::lock_guard<std::mutex> lock(accessor_cache_mutex_);
+    for (const auto& entry : tensor_vector_cache_) {
+        if (entry.key == key &&
+            entry.index == index &&
+            entry.storage_version == accessor_storage_version_ &&
+            entry.priority_version == accessor_priority_version_) {
+            return entry.value;
+        }
+    }
+    return std::nullopt;
+}
+
+void DefaultReplayBuffer::StoreTensorVectorCache(const std::string& key, int64_t index, std::vector<torch::Tensor> value) const
+{
+    constexpr size_t kMaxCacheEntries = 8;
+
+    std::lock_guard<std::mutex> lock(accessor_cache_mutex_);
+    for (auto& entry : tensor_vector_cache_) {
+        if (entry.key == key && entry.index == index) {
+            entry.storage_version = accessor_storage_version_;
+            entry.priority_version = accessor_priority_version_;
+            entry.value = std::move(value);
+            return;
+        }
+    }
+
+    if (tensor_vector_cache_.size() >= kMaxCacheEntries) {
+        tensor_vector_cache_.erase(tensor_vector_cache_.begin());
+    }
+
+    tensor_vector_cache_.push_back(TensorVectorCacheEntry{
+        key,
+        index,
+        accessor_storage_version_,
+        accessor_priority_version_,
+        std::move(value)
+    });
 }
 
 std::optional<float> DefaultReplayBuffer::GetScalar(const std::string& key, int64_t index) const
@@ -1161,55 +1334,67 @@ std::optional<std::vector<torch::Tensor>> DefaultReplayBuffer::GetTensorVector(c
 {
     ANET_PROFILE_FUNC();
 
-    const bool is_storage_key =
-        key == STATE_OBS ||
-        key == ACTION ||
-        key == REWARD ||
-        key == NEXT_STATE_OBS ||
-        key == NEXT_STATE_TERMINAL ||
-        key == N_STEP;
-
+    auto storage_key = ParseStorageTensorVectorKey(key);
     const bool is_per_vector_key = key == PER_VALUES || key == PER_DIST;
-    if (!is_storage_key && !is_per_vector_key) return std::nullopt;
+    if (!storage_key.has_value() && !is_per_vector_key) return std::nullopt;
 
-    auto valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
-    if (valid_1d.numel() == 0) return std::vector<torch::Tensor>{};
-
-    if (is_per_vector_key) {
-        auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
-        if (!prioritized) return std::nullopt;
-        auto tensor = SelectRowIfRequested(prioritized->GatherPriorityRows(valid_1d), index);
-        if (!tensor.defined()) return std::nullopt;
-        return std::vector<torch::Tensor>{ tensor };
+    ANET_PROFILE_SCOPE(cache_lookup);
+    if (auto cached = TryGetCachedTensorVector(key, index)) {
+        ANET_PROFILE_SCOPE_NEXT(cache_hit);
+        return cached;
     }
 
-    ExperienceSamples samples;
-    IndexSampleResult idx_result {
-        valid_1d,
-        torch::Tensor(),
-        torch::ones({ valid_1d.size(0) }, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU))
-    };
-    extractor_->ExtractSamples(samples, *storage_, idx_result, config_.stack_count, config_.muzero.unroll_steps);
+    ANET_PROFILE_SCOPE_NEXT(cache_miss);
+    ANET_PROFILE_SCOPE_NEXT(valid_indices);
+    auto valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
+    if (valid_1d.numel() == 0) {
+        std::vector<torch::Tensor> result;
+        StoreTensorVectorCache(key, index, result);
+        return result;
+    }
 
     torch::Tensor tensor;
-    if (key == STATE_OBS) {
-        tensor = ToUnifiedRows(samples.obs);
-    } else if (key == ACTION) {
-        tensor = FlattenRows(samples.actions);
-    } else if (key == REWARD) {
-        // V1 互換: key 名は reward だが、N-step 計算後の target return を返す。
-        tensor = FlattenRows(samples.target_returns);
-    } else if (key == NEXT_STATE_OBS) {
-        tensor = ToUnifiedRows(samples.next_state.next_obs);
-    } else if (key == NEXT_STATE_TERMINAL) {
-        tensor = FlattenRows(samples.next_state.terminals);
-    } else if (key == N_STEP) {
-        tensor = FlattenRows(samples.n_steps);
+
+    if (is_per_vector_key) {
+        ANET_PROFILE_SCOPE_NEXT(gather_per);
+        auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
+        if (!prioritized) return std::nullopt;
+        tensor = prioritized->GatherPriorityRows(valid_1d);
+    } else {
+        ANET_PROFILE_SCOPE_NEXT(direct_gather);
+
+        switch (storage_key->kind) {
+        case StorageTensorVectorKey::Kind::kStateObs:
+            tensor = GatherObservationRows(storage_->GetObs(), valid_1d, storage_key->obs_subkey);
+            break;
+        case StorageTensorVectorKey::Kind::kAction:
+            tensor = GatherFlatRows(storage_->GetActions(), valid_1d);
+            break;
+        case StorageTensorVectorKey::Kind::kReward:
+            // V1 互換: key 名は reward だが、N-step 計算後の target return を返す。
+            tensor = GatherFlatRows(storage_->GetTargetReturns(), valid_1d);
+            break;
+        case StorageTensorVectorKey::Kind::kNextStateObs:
+            tensor = GatherObservationRows(
+                storage_->GetObs(),
+                MakeNextFlatIndices(valid_1d, storage_->GetActualNSteps(), capacity_per_env_),
+                storage_key->obs_subkey);
+            break;
+        case StorageTensorVectorKey::Kind::kNextStateTerminal:
+            tensor = GatherFlatRows(storage_->GetTerminals(), valid_1d);
+            break;
+        case StorageTensorVectorKey::Kind::kNStep:
+            tensor = GatherFlatRows(storage_->GetActualNSteps(), valid_1d);
+            break;
+        }
     }
 
     tensor = SelectRowIfRequested(tensor, index);
     if (!tensor.defined()) return std::nullopt;
-    return std::vector<torch::Tensor>{ tensor };
+
+    std::vector<torch::Tensor> result{ tensor };
+    StoreTensorVectorCache(key, index, result);
+    return result;
 }
 
 void DefaultReplayBuffer::DumpToLog() const

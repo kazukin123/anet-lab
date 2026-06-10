@@ -44,11 +44,11 @@ image.phm.per-prio.heatmap.width = 512
 image.phm.per-prio.heatmap.height = 512
 image.phm.per-prio.heatmap.max_points = 2560000 # 100000
 image.phm.per-prio.heatmap.probe.x.source = agent
-image.phm.per-prio.heatmap.probe.x.key = replaybuffer.storage.next_state
+image.phm.per-prio.heatmap.probe.x.key = replaybuffer.storage.next_state.vector
 image.phm.per-prio.heatmap.probe.x.index = 0
 image.phm.per-prio.heatmap.probe.x.auto_scale_mode = 0 # 0=none 1=PerStep 2=Global
 image.phm.per-prio.heatmap.probe.y.source = agent
-image.phm.per-prio.heatmap.probe.y.key = replaybuffer.storage.next_state
+image.phm.per-prio.heatmap.probe.y.key = replaybuffer.storage.next_state.vector
 image.phm.per-prio.heatmap.probe.y.index = 1
 image.phm.per-prio.heatmap.probe.y.auto_scale_mode = 0 # 0=none 1=PerStep 2=Global
 image.phm.per-prio.heatmap.probe.value.source = agent
