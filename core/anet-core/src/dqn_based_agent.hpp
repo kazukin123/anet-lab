@@ -99,35 +99,35 @@ namespace anet::rl::dqn {
 			// Q Values
             if (key == "q_max_max") {
                 TransQToCpu();
-                return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.max().item<float>()) : std::nullopt;
+                return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.max().item<float>()) : std::numeric_limits<float>::quiet_NaN();
             }
             if (key == "q_max_mean") {
                 TransQToCpu();
-                return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.mean().item<float>()) : std::nullopt;
+                return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.mean().item<float>()) : std::numeric_limits<float>::quiet_NaN();
             }
             if (key == "q_max_std") {
                 TransQToCpu();
-                return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.std(false).item<float>()) : std::nullopt;
+                return max_q_cpu.defined() ? std::optional<float>(max_q_cpu.std(false).item<float>()) : std::numeric_limits<float>::quiet_NaN();
             }
             if (key == "q_sa_mean") {
                 if (!q_sa_cpu.defined() && q_sa.defined()) q_sa_cpu = q_sa.cpu();
-                return q_sa_cpu.defined() ? std::optional<float>(q_sa_cpu.mean().item<float>()) : std::nullopt;
+                return q_sa_cpu.defined() ? std::optional<float>(q_sa_cpu.mean().item<float>()) : std::numeric_limits<float>::quiet_NaN();
             }
             if (key == "q_max_real_max") {
                 TransRealQToCpu();
-                return max_q_real_cpu.defined() ? std::optional<float>(max_q_real_cpu.max().item<float>()) : std::nullopt;
+                return max_q_real_cpu.defined() ? std::optional<float>(max_q_real_cpu.max().item<float>()) : std::numeric_limits<float>::quiet_NaN();
             }
             if (key == "q_max_real_mean") {
                 TransRealQToCpu();
-                return max_q_real_cpu.defined() ? std::optional<float>(max_q_real_cpu.mean().item<float>()) : std::nullopt;
+                return max_q_real_cpu.defined() ? std::optional<float>(max_q_real_cpu.mean().item<float>()) : std::numeric_limits<float>::quiet_NaN();
             }
             if (key == "q_max_real_std") {
                 TransRealQToCpu();
-                return max_q_real_cpu.defined() ? std::optional<float>(max_q_real_cpu.std(false).item<float>()) : std::nullopt;
+                return max_q_real_cpu.defined() ? std::optional<float>(max_q_real_cpu.std(false).item<float>()) : std::numeric_limits<float>::quiet_NaN();
             }
             if (key == "q_sa_real_mean") {
                 if (!q_sa_real_cpu.defined() && q_sa_real.defined()) q_sa_real_cpu = q_sa_real.cpu();
-                return q_sa_real_cpu.defined() ? std::optional<float>(q_sa_real_cpu.mean().item<float>()) : std::nullopt;
+                return q_sa_real_cpu.defined() ? std::optional<float>(q_sa_real_cpu.mean().item<float>()) : std::numeric_limits<float>::quiet_NaN();
             }
             if (key == "q_std") {
                 if (q_std.defined()) return anet::ToFloat(q_std);
@@ -146,27 +146,27 @@ namespace anet::rl::dqn {
             if (key == "per_td_error_abs_max") {
                 if (td_error.defined())
                     return td_error.abs().max().item<float>();
-                return std::nullopt;
+                return std::numeric_limits<float>::quiet_NaN();
             }
             if (key == "per_prio_clip_ratio") {
                 if (per_clipped_count.defined() && per_minibatch_size > 0)
                     return per_clipped_count.item<float>() / static_cast<float>(per_minibatch_size);
-                return std::nullopt;
+                return std::numeric_limits<float>::quiet_NaN();
             }
             if (key == "per_prio_max") {
                 if (per_priorities.defined())
                     return per_priorities.max().item<float>();
-                return std::nullopt;
+                return std::numeric_limits<float>::quiet_NaN();
             }
             if (key == "per_batch_prio_mean") {
                 if (per_priorities.defined())
                     return per_priorities.mean().item<float>();
-                return std::nullopt;
+                return std::numeric_limits<float>::quiet_NaN();
             }
             if (key == "per_is_weight_mean") {
                 if (per_is_weights.defined())
                     return per_is_weights.mean().item<float>();
-                return std::nullopt;
+                return std::numeric_limits<float>::quiet_NaN();
             }
             // CV = 標準偏差 / 平均
             //  高: 特定の経験に優先度が集中しており、PERが「選別」を強く行っている状態。
@@ -178,7 +178,7 @@ namespace anet::rl::dqn {
                     auto std = per_priorities.std();
                     return (std / (mean + 1e-9)).item<float>();
                 }
-                return std::nullopt;
+                return std::numeric_limits<float>::quiet_NaN();
             }
             // 勾配更新の偏り(IS Weightsベース)
             if (key == "per_is_ess_ratio") {
@@ -189,7 +189,7 @@ namespace anet::rl::dqn {
                     // ESS = (Σw)^2 / (Σw^2) / B
                     return ((sum_w * sum_w) / (static_cast<float>(per_minibatch_size) * sum_w2 + 1e-9)).item<float>();
                 }
-                return std::nullopt;
+                return std::numeric_limits<float>::quiet_NaN();
             }
             // 有効サンプルサイズ比率 (ESS Ratio) 実質的にバッチ内の何割のデータが学習に寄与しているか (0.0 ~ 1.0) 公式: (Σp)^2 / (B * Σp^2)
             //   1.0に近い: バッチ内のデータが均等に重要。
@@ -203,7 +203,7 @@ namespace anet::rl::dqn {
                     auto ess = (sum_p * sum_p) / (static_cast<float>(per_minibatch_size) * sum_p2 + 1e-9);
                     return ess.item<float>();
                 }
-                return std::nullopt;
+                return std::numeric_limits<float>::quiet_NaN();
             }
             return std::nullopt;
         }
