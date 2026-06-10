@@ -1,5 +1,7 @@
-
-# --- 基本設定
+﻿
+# ==============================================================================
+# 基本設定
+# ==============================================================================
 
 app.$ = app.online > P
 #app.$ = app.batchrun > P
@@ -12,28 +14,68 @@ train.num_envs = 256
 #train.num_envs = 10
 #train.num_envs = 1
 
-#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.heavy > A
-DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A
+#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.heavy > A > R
+DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R
 
 
-# --- NN設定
+# ==============================================================================
+# 実験
+# ==============================================================================
 
-net.body.$ = net.body.MLP2
-#net.body.$ = net.body.Conv1D
+app.run_name = run_{t}_ll_notbo
 
+R.learner.use_tbo = false
+
+#R.learner.alpha = 5e-3
+
+#A.action_policy.policy_type = 0        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
+#A.action_policy.policy_type = 1        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
+#A.action_policy.policy_type = 2        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
+
+
+# ==============================================================================
+# NN設定
+# ==============================================================================
+
+# --- ブロックパラメータ上書き（nn.txt の MLP_FC1/MLP_FC2 を流用）
 net.block.FC1.linear.out_features = 256
 net.block.FC2.linear.out_features = 128
 net.block.FC1.init.mode = 1
 net.block.FC2.init.mode = 1
 
+# --- Body 本体ブランチ（vector 観測 -> MLP）
+net.branch.[main_feature].bind = vector
+net.branch.[main_feature].structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU
+#net.branch.[main_feature].structure = Conv1D_Permute > Conv1D_Conv1d > ReLU > Flatten > Conv1D_Linear > ReLU  # 旧 net.body.Conv1D 相当（未検証）
+
+# --- Dueling V/A: [デフォルト] 単一 features を Head が内部で V/A 分割（V1 と同一挙動）
+#net.body.output.[features] = main_feature
+
+# --- Dueling V/A: [代替] 明示的な V/A ストリーム
+#   切替時は上の output.[features] をコメントアウトし、下の6行を有効化する
+net.block.[HeadFC128].type = Linear
+net.block.[HeadFC128].linear.out_features = 128
+net.block.[HeadFC128].init.mode = 1
+net.branch.[value_stream].bind = main_feature
+net.branch.[value_stream].structure = HeadFC128 > SiLU
+net.branch.[adv_stream].bind = main_feature
+net.branch.[adv_stream].structure = HeadFC128 > SiLU
+net.body.output.[value_feature] = value_stream
+net.body.output.[adv_feature] = adv_stream
+
 A.head_init.mode = 1
 A.head_init.manual_gain = 0.0
 
 
-# --- 環境依存Agent設定
+# ==============================================================================
+# 環境依存Agent設定
+# ==============================================================================
 
 A.stucker.use_stacker = true
 A.stucker.stack_count = 4
+
+A.learner.use_tbo = true
+
 
 A.action_policy.eps_decay_step = 10,000,000      # 10M
 A.action_policy.uqe_tau_decay_step = 10,000,000  # 10M
@@ -63,7 +105,9 @@ metrics.scalar.[22_eval/04_test2_reward_ema] = eps_total_reward $runner @episode
 #A.reward_scaler.reference_q_std = 10.0
 
 
-# --- 実験・デバッグ
+# ==============================================================================
+# デバッグ
+# ==============================================================================
 
 #A.learner.update_warmup_steps = 0           # exp_step単位。256(B) * 300step = 76800
 
@@ -71,18 +115,12 @@ metrics.scalar.[22_eval/04_test2_reward_ema] = eps_total_reward $runner @episode
 #app.online.train_panel.fps = 30
 #app.online.eval_panel.fps = 0
 
-#A.learner.alpha = 5e-3
-
-#A.use_qr = false
-
-#A.action_policy.policy_type = 0        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
-#A.action_policy.policy_type = 1        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
-#A.action_policy.policy_type = 2        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
-
 #app.train_auto_start = false
 
 
-# ---- image metrics
+# ==============================================================================
+# image metrics
+# ==============================================================================
 
 #metrics.image.interval = 0   # 出力全無効
 #metrics.image.interval = 1   # 毎ステップ出力（重い）
@@ -90,18 +128,20 @@ metrics.image.interval = 50   # 通常運用
 #metrics.image.interval = 500 # 重い場合
 
 metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.per-prio > image.phm.s01
-#metrics.image.[43_agent_img/02_hm_visit_03_maxq].$     = image.phm.visit-maxq
+metrics.image.[43_agent_img/02_hm_visit_03_maxq].$     = image.phm.visit-maxq
 #metrics.image.[44_agent_img/52_per_thg_prio].$         = image.thg.per-prio
 #metrics.image.[45_agent_img/05_shm_01_qma01].$   = image.shm.qmax > image.shm.s01
 #metrics.image.[45_agent_img/05_shm_01_qma02].$   = image.shm.qmax > image.shm.s02
-metrics.image.[45_agent_img/05_shm_01_maxq_01].$        = image.shm.qmax > image.shm.01
+##metrics.image.[45_agent_img/05_shm_01_maxq_01].$        = image.shm.qmax > image.shm.01
 #metrics.image.[45_agent_img/05_shm_01_maxq_01].interval = 100
 
 #metrics.image.[53_agent_img/52_per_hm_prio_01_test].$   = image.phm.per-prio > image.phm.s01 > image.test
 #metrics.image.[55_agent_img/05_shm_01_maxq_01_test].$   = image.shm.qmax > image.shm.01 > image.test
 
 
-# ---- scalar metrics
+# ==============================================================================
+# scalar metrics
+# ==============================================================================
 
 metrics.scalar.$ = metrics.scalar.baseline > M
 #metrics.scalar.$ = metrics.scalar.min > M
@@ -110,12 +150,11 @@ metrics.scalar.$ = metrics.scalar.baseline > M
 metrics.scalar.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 
 
-# ---- env
+# ==============================================================================
+# app
+# ==============================================================================
 
 env.class_id = LunarLanderEnv
-
-
-# ---- app
 
 #app.online.exp_pause_step  = -1
 #app.online.exp_pause_step  = 50,000
@@ -123,7 +162,9 @@ app.online.exp_pause_step  = 25,600,000   # 256 * 100K
 app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
 
 
-# ---- LunarLanderEnv
+# ==============================================================================
+# LunarLanderEnv
+# ==============================================================================
 
 #LunarLanderEnv.$ = LunarLanderEnv.normal
 #LunarLanderEnv.$ = LunarLanderEnv.easy

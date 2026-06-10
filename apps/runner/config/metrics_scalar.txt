@@ -17,8 +17,8 @@ metrics.scalar.baseline.[20_eps/11_train_reward_ema] = $runner $episode_step tra
 
 metrics.scalar.baseline.[21_eval/01_target_reward] = eps_total_reward $runner @episode_end $eval.[eval1]
 metrics.scalar.baseline.[21_eval/02_policy_reward] = eps_total_reward $runner @episode_end $eval.[eval2]
-metrics.scalar.baseline.[21_eval/03_target_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval1] $ema ema_alpha:0.001 #clip:3000
-metrics.scalar.baseline.[21_eval/04_policy_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval2] $ema ema_alpha:0.001 #clip:3000
+metrics.scalar.baseline.[21_eval/03_target_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval1] $ema ema_alpha:0.1 #clip:3000
+metrics.scalar.baseline.[21_eval/04_policy_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval2] $ema ema_alpha:0.1 #clip:3000
 
 metrics.scalar.baseline.[32_agent_base/04_uqe_tau] = $agent uqe_tau @learn $exp_step
 metrics.scalar.baseline.[32_agent_base/05_epsilon_learn] = $agent epsilon @learn $exp_step
