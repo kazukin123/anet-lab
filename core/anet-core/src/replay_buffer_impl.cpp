@@ -489,6 +489,27 @@ namespace {
         }
         return res;
     }
+
+    torch::Tensor FlattenRows(torch::Tensor tensor)
+    {
+        if (!tensor.defined()) return tensor;
+        if (tensor.dim() == 0) return tensor.reshape({ 1, 1 });
+        if (tensor.dim() == 1) return tensor.reshape({ tensor.size(0), 1 });
+        if (tensor.dim() > 2) return tensor.flatten(1);
+        return tensor;
+    }
+
+    torch::Tensor ToUnifiedRows(const anet::TensorDict& obs)
+    {
+        return FlattenRows(anet::rl::ToUnifiedObservation(obs));
+    }
+
+    torch::Tensor SelectRowIfRequested(torch::Tensor tensor, int64_t index)
+    {
+        if (index < 0 || !tensor.defined()) return tensor;
+        if (tensor.size(0) <= index) return torch::Tensor();
+        return tensor[index];
+    }
 } // namespace
 
 
@@ -754,6 +775,28 @@ public:
                 }
             }
         }
+    }
+
+    float GetTotalPriority() const
+    {
+        return tree_.GetTotalPriority();
+    }
+
+    std::optional<torch::Tensor> GetPriorityTensor(int64_t index) const
+    {
+        if (index < 0 || index >= tree_.Capacity()) return std::nullopt;
+        return torch::tensor(tree_.GetPriority(index), opt_float_);
+    }
+
+    torch::Tensor GatherPriorityRows(const torch::Tensor& indices) const
+    {
+        auto indices_cpu = indices.to(torch::kCPU).contiguous();
+        auto acc = indices_cpu.accessor<int64_t, 1>();
+        std::vector<float> priorities(static_cast<size_t>(indices_cpu.size(0)));
+        for (int64_t i = 0; i < indices_cpu.size(0); ++i) {
+            priorities[static_cast<size_t>(i)] = tree_.GetPriority(acc[i]);
+        }
+        return torch::tensor(priorities, opt_float_).reshape({ indices_cpu.size(0), 1 });
     }
 private:
     SumTree tree_;
@@ -1086,17 +1129,87 @@ void DefaultReplayBuffer::UpdatePriorities(const std::vector<int64_t>& indices, 
 
 std::optional<float> DefaultReplayBuffer::GetScalar(const std::string& key, int64_t index) const
 {
+    if (key == PER_TOTAL) {
+        auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
+        if (!prioritized) return std::nullopt;
+        return prioritized->GetTotalPriority();
+    }
     return std::nullopt;
 }
 
 std::optional<torch::Tensor> DefaultReplayBuffer::GetTensor(const std::string& key, int64_t index) const
 {
-    return std::nullopt;
+    if (key == PER_VALUES) {
+        auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
+        if (!prioritized) return std::nullopt;
+        return prioritized->GetPriorityTensor(index);
+    }
+
+    auto opt_vec = GetTensorVector(key, -1);
+    if (!opt_vec.has_value() || opt_vec->empty()) return std::nullopt;
+
+    auto tensor = (*opt_vec)[0];
+    if (!tensor.defined()) return std::nullopt;
+    if (index >= 0) {
+        tensor = SelectRowIfRequested(tensor, index);
+        if (!tensor.defined()) return std::nullopt;
+    }
+    return tensor;
 }
 
 std::optional<std::vector<torch::Tensor>> DefaultReplayBuffer::GetTensorVector(const std::string& key, int64_t index) const
 {
-    return std::nullopt;
+    ANET_PROFILE_FUNC();
+
+    const bool is_storage_key =
+        key == STATE_OBS ||
+        key == ACTION ||
+        key == REWARD ||
+        key == NEXT_STATE_OBS ||
+        key == NEXT_STATE_TERMINAL ||
+        key == N_STEP;
+
+    const bool is_per_vector_key = key == PER_VALUES || key == PER_DIST;
+    if (!is_storage_key && !is_per_vector_key) return std::nullopt;
+
+    auto valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
+    if (valid_1d.numel() == 0) return std::vector<torch::Tensor>{};
+
+    if (is_per_vector_key) {
+        auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
+        if (!prioritized) return std::nullopt;
+        auto tensor = SelectRowIfRequested(prioritized->GatherPriorityRows(valid_1d), index);
+        if (!tensor.defined()) return std::nullopt;
+        return std::vector<torch::Tensor>{ tensor };
+    }
+
+    ExperienceSamples samples;
+    IndexSampleResult idx_result {
+        valid_1d,
+        torch::Tensor(),
+        torch::ones({ valid_1d.size(0) }, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU))
+    };
+    extractor_->ExtractSamples(samples, *storage_, idx_result, config_.stack_count, config_.muzero.unroll_steps);
+
+    torch::Tensor tensor;
+    if (key == STATE_OBS) {
+        tensor = ToUnifiedRows(samples.obs);
+    } else if (key == ACTION) {
+        tensor = FlattenRows(samples.actions);
+    } else if (key == REWARD) {
+        // V1 互換: key 名は reward だが、N-step 計算後の target return を返す。
+        tensor = FlattenRows(samples.target_returns);
+    } else if (key == NEXT_STATE_OBS) {
+        tensor = ToUnifiedRows(samples.next_state.next_obs);
+    } else if (key == NEXT_STATE_TERMINAL) {
+        tensor = FlattenRows(samples.next_state.terminals);
+    } else if (key == N_STEP) {
+        tensor = FlattenRows(samples.n_steps);
+    }
+
+    tensor = SelectRowIfRequested(tensor, index);
+    if (!tensor.defined()) return std::nullopt;
+    return std::vector<torch::Tensor>{ tensor };
 }
 
 void DefaultReplayBuffer::DumpToLog() const

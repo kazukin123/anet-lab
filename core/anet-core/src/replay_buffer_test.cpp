@@ -3,6 +3,7 @@
 #include "anet/replay_buffer.hpp"
 #include "replay_buffer_impl.hpp"
 
+#include <cmath>
 #include <numeric>
 #include <vector>
 
@@ -239,12 +240,20 @@ void RequireShape(const torch::Tensor& tensor, const std::vector<int64_t>& expec
 
 void RequireFlatApprox(const torch::Tensor& tensor, const std::vector<float>& expected)
 {
-    auto flat = tensor.detach().cpu().reshape({ -1 }).contiguous();
+    auto flat = tensor.detach().cpu().to(torch::kFloat32).reshape({ -1 }).contiguous();
     REQUIRE(flat.numel() == static_cast<int64_t>(expected.size()));
     auto acc = flat.accessor<float, 1>();
     for (int64_t i = 0; i < static_cast<int64_t>(expected.size()); ++i) {
         REQUIRE(acc[i] == Catch::Approx(expected[static_cast<size_t>(i)]).margin(1.0e-5));
     }
+}
+
+torch::Tensor RequireSingleTensorVector(const std::optional<std::vector<torch::Tensor>>& opt_vec)
+{
+    REQUIRE(opt_vec.has_value());
+    REQUIRE(opt_vec->size() == 1);
+    REQUIRE((*opt_vec)[0].defined());
+    return (*opt_vec)[0];
 }
 
 void RequireSampleIndex(const rl::ExperienceSamples& samples, int64_t expected_index)
@@ -403,6 +412,105 @@ TEST_CASE("ReplayExperienceStorage initializes unwritten slots as episode bounda
     REQUIRE(storage.GetTargetReturns().eq(0.0f).all().item<bool>());
     REQUIRE(storage.GetTerminals().all().item<bool>());
     REQUIRE(storage.GetActualNSteps().eq(0).all().item<bool>());
+}
+
+TEST_CASE("ReplayBuffer visualization accessors expose V1-compatible storage keys", "[replay_buffer][visualization]")
+{
+    constexpr int64_t num_envs = 2;
+    constexpr int n_step = 3;
+    constexpr float gamma = 0.5f;
+
+    auto buffer = MakeBuffer(MakeConfig(40, n_step, gamma), num_envs);
+
+    for (int64_t t = 0; t <= 3; ++t) {
+        PushTime(buffer, t, {}, {}, t == 0 ? BoolValues(num_envs, true) : BoolValues(num_envs, false));
+    }
+
+    REQUIRE(buffer.rb->Size() == num_envs);
+
+    auto state = RequireSingleTensorVector(buffer.rb->GetTensorVector(rl::ReplayBuffer::STATE_OBS));
+    RequireShape(state, { num_envs, 1 });
+    RequireFlatApprox(state, { StateValue(0, 0), StateValue(1, 0) });
+
+    auto next_state = RequireSingleTensorVector(buffer.rb->GetTensorVector(rl::ReplayBuffer::NEXT_STATE_OBS));
+    RequireShape(next_state, { num_envs, 1 });
+    RequireFlatApprox(next_state, { StateValue(0, 3), StateValue(1, 3) });
+
+    auto action = RequireSingleTensorVector(buffer.rb->GetTensorVector(rl::ReplayBuffer::ACTION));
+    RequireShape(action, { num_envs, 1 });
+    RequireFlatApprox(action, { 0.0f, 0.0f });
+
+    auto reward = RequireSingleTensorVector(buffer.rb->GetTensorVector(rl::ReplayBuffer::REWARD));
+    RequireShape(reward, { num_envs, 1 });
+    RequireFlatApprox(reward, {
+        DiscountedReturn(0, 0, n_step, gamma),
+        DiscountedReturn(1, 0, n_step, gamma)
+    });
+
+    auto terminal = RequireSingleTensorVector(buffer.rb->GetTensorVector(rl::ReplayBuffer::NEXT_STATE_TERMINAL));
+    RequireShape(terminal, { num_envs, 1 });
+    RequireFlatApprox(terminal, { 0.0f, 0.0f });
+
+    auto n_steps = RequireSingleTensorVector(buffer.rb->GetTensorVector(rl::ReplayBuffer::N_STEP));
+    RequireShape(n_steps, { num_envs, 1 });
+    RequireFlatApprox(n_steps, { static_cast<float>(n_step), static_cast<float>(n_step) });
+
+    auto reward_tensor = buffer.rb->GetTensor(rl::ReplayBuffer::REWARD);
+    REQUIRE(reward_tensor.has_value());
+    RequireShape(*reward_tensor, { num_envs, 1 });
+    RequireFlatApprox(*reward_tensor, {
+        DiscountedReturn(0, 0, n_step, gamma),
+        DiscountedReturn(1, 0, n_step, gamma)
+    });
+}
+
+TEST_CASE("ReplayBuffer visualization accessors expose PER priorities", "[replay_buffer][visualization][per]")
+{
+    constexpr int64_t num_envs = 2;
+    auto buffer = MakeBuffer(MakeConfig(40), num_envs);
+
+    PushTime(buffer, 0, {}, {}, BoolValues(num_envs, true));
+    PushTime(buffer, 1);
+
+    REQUIRE(buffer.rb->Size() == num_envs);
+
+    const int64_t env0_index = IndexOf(buffer, 0, 0);
+    const int64_t env1_index = IndexOf(buffer, 1, 0);
+    buffer.rb->UpdatePriorities({ env0_index, env1_index }, { 4.0f, 9.0f });
+
+    const float env0_priority = std::sqrt(4.0f);
+    const float env1_priority = std::sqrt(9.0f);
+
+    auto total = buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL);
+    REQUIRE(total.has_value());
+    REQUIRE(*total == Catch::Approx(env0_priority + env1_priority + 2.0f).margin(1.0e-5));
+
+    auto values = RequireSingleTensorVector(buffer.rb->GetTensorVector(rl::ReplayBuffer::PER_VALUES));
+    RequireShape(values, { num_envs, 1 });
+    RequireFlatApprox(values, { env0_priority, env1_priority });
+
+    // V1 互換: PER_DIST は正規化済み確率ではなく priority 値列を返す。
+    auto distribution = RequireSingleTensorVector(buffer.rb->GetTensorVector(rl::ReplayBuffer::PER_DIST));
+    RequireShape(distribution, { num_envs, 1 });
+    RequireFlatApprox(distribution, { env0_priority, env1_priority });
+
+    auto env0_value = buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, env0_index);
+    REQUIRE(env0_value.has_value());
+    RequireFlatApprox(*env0_value, { env0_priority });
+}
+
+TEST_CASE("ReplayBuffer PER visualization keys are unavailable for uniform sampling", "[replay_buffer][visualization][per]")
+{
+    auto buffer = MakeBuffer(MakeConfig(20, 1, 0.99f, 1, rl::ReplaySamplerType::UNIFORM), 1);
+
+    PushTime(buffer, 0, {}, {}, BoolValues(1, true));
+    PushTime(buffer, 1);
+
+    REQUIRE(buffer.rb->Size() == 1);
+    REQUIRE_FALSE(buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL).has_value());
+    REQUIRE_FALSE(buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, 0).has_value());
+    REQUIRE_FALSE(buffer.rb->GetTensorVector(rl::ReplayBuffer::PER_VALUES).has_value());
+    REQUIRE_FALSE(buffer.rb->GetTensorVector(rl::ReplayBuffer::PER_DIST).has_value());
 }
 
 TEST_CASE("ReplayBuffer computes n-step returns independently for each env", "[replay_buffer][n_step][multi_env]")
