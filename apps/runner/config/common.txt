@@ -99,6 +99,8 @@ app.log_level = info
 #app.train_auto_start = false
 app.train_auto_start = true
 
+app.eval_panel.auto_start = false
+
 app.online.exp_pause_step  = 25,600,000   # 256 * 100K
 app.online.train_panel.fps = 30
 #app.online.eval_panel.fps = 15

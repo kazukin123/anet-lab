@@ -14,17 +14,17 @@ train.num_envs = 256
 #train.num_envs = 10
 #train.num_envs = 1
 
-#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.heavy > A > R
-DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R
+DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.heavy > A > R
+#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R
 
 
 # ==============================================================================
 # 実験
 # ==============================================================================
 
-app.run_name = run_{t}_ll_notbo
+#app.run_name = run_{t}_ll_notbo
 
-R.learner.use_tbo = false
+#R.learner.use_tbo = false
 
 #R.learner.alpha = 5e-3
 
