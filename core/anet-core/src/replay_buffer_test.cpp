@@ -440,7 +440,7 @@ TEST_CASE("ReplayBuffer visualization accessors expose V1-compatible storage key
     RequireShape(action, { num_envs, 1 });
     RequireFlatApprox(action, { 0.0f, 0.0f });
 
-    auto reward = RequireSingleTensorVector(buffer.rb->GetTensorVector(rl::ReplayBuffer::REWARD));
+    auto reward = RequireSingleTensorVector(buffer.rb->GetTensorVector(rl::ReplayBuffer::TARGET_RETURN));
     RequireShape(reward, { num_envs, 1 });
     RequireFlatApprox(reward, {
         DiscountedReturn(0, 0, n_step, gamma),
@@ -455,7 +455,7 @@ TEST_CASE("ReplayBuffer visualization accessors expose V1-compatible storage key
     RequireShape(n_steps, { num_envs, 1 });
     RequireFlatApprox(n_steps, { static_cast<float>(n_step), static_cast<float>(n_step) });
 
-    auto reward_tensor = buffer.rb->GetTensor(rl::ReplayBuffer::REWARD);
+    auto reward_tensor = buffer.rb->GetTensor(rl::ReplayBuffer::TARGET_RETURN);
     REQUIRE(reward_tensor.has_value());
     RequireShape(*reward_tensor, { num_envs, 1 });
     RequireFlatApprox(*reward_tensor, {
@@ -553,10 +553,11 @@ TEST_CASE("ReplayBuffer visualization accessors expose PER priorities", "[replay
     RequireShape(values, { num_envs, 1 });
     RequireFlatApprox(values, { env0_priority, env1_priority });
 
-    // V1 互換: PER_DIST は正規化済み確率ではなく priority 値列を返す。
+    // PER_DIST は正規化サンプリング確率 p/total を返す。
+    const float per_total = env0_priority + env1_priority + 2.0f;
     auto distribution = RequireSingleTensorVector(buffer.rb->GetTensorVector(rl::ReplayBuffer::PER_DIST));
     RequireShape(distribution, { num_envs, 1 });
-    RequireFlatApprox(distribution, { env0_priority, env1_priority });
+    RequireFlatApprox(distribution, { env0_priority / per_total, env1_priority / per_total });
 
     auto env0_value = buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, env0_index);
     REQUIRE(env0_value.has_value());

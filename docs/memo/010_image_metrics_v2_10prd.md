@@ -71,8 +71,8 @@ V2 対応として Observation を `torch::Tensor` から `anet::TensorDict`（�
 
 **作業**:
 1. `DefaultReplayBuffer::GetTensorVector()`（`core/anet-core/src/replay_buffer_impl.cpp:1097-1100`）を実装する。必要に応じ `GetScalar` / `GetTensor`（同 1087-1095）も。
-   - `replaybuffer.storage.state` / `.next_state` → `obs_storage_`（`replay_buffer_impl.hpp:148-189`、TensorDict）を `ToUnifiedObservation` で flatten し `std::vector<torch::Tensor>` で返す。
-   - `replaybuffer.per.distribution` / `.values` / `.total` → PER priority 列を返す。
+   - `replaybuffer.storage.state` / `.next_state`（および `.target_return` / `.action` / `.terminal` / `.n_step`）→ storage を直接 gather して `[N, D]` で返す（`storage.reward` は実態が N-step target return のため `storage.target_return` に改称）。
+   - `replaybuffer.per.values` / `.total` → 生 PER priority。`replaybuffer.per.distribution` → 正規化サンプリング確率 `p/total`。
    - キー定数は `ReplayBuffer`（`core/anet-core/include/anet/rl.hpp:736-748`）に既存。それを参照する。
 2. 委譲経路は `Learner::GetTensorVector`（`core/anet-core/src/dqn_based_agent.cpp`、`replaybuffer.` プレフィックスで ReplayBuffer へ委譲。grep で位置確認）→ `AgentTensorVectorProbe`（`probe.cpp`）。既存ディスパッチを使う。
 3. スコープは **storage-level のみ**。sampled-batch view は実装しない。

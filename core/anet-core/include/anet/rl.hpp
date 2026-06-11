@@ -737,7 +737,7 @@ namespace anet::rl {
 
         static constexpr const char* STATE_OBS = "replaybuffer.storage.state";
         static constexpr const char* ACTION = "replaybuffer.storage.action";
-        static constexpr const char* REWARD = "replaybuffer.storage.reward";
+        static constexpr const char* TARGET_RETURN = "replaybuffer.storage.target_return";
         static constexpr const char* NEXT_STATE_OBS = "replaybuffer.storage.next_state";
         static constexpr const char* NEXT_STATE_TERMINAL = "replaybuffer.storage.terminal";
         static constexpr const char* N_STEP = "replaybuffer.storage.n_step";

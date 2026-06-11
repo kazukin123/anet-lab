@@ -515,7 +515,7 @@ namespace {
         enum class Kind {
             kStateObs,
             kAction,
-            kReward,
+            kTargetReturn,
             kNextStateObs,
             kNextStateTerminal,
             kNStep,
@@ -551,8 +551,8 @@ namespace {
         if (key == ReplayBuffer::ACTION) {
             return StorageTensorVectorKey{ StorageTensorVectorKey::Kind::kAction, std::string() };
         }
-        if (key == ReplayBuffer::REWARD) {
-            return StorageTensorVectorKey{ StorageTensorVectorKey::Kind::kReward, std::string() };
+        if (key == ReplayBuffer::TARGET_RETURN) {
+            return StorageTensorVectorKey{ StorageTensorVectorKey::Kind::kTargetReturn, std::string() };
         }
         if (key == ReplayBuffer::NEXT_STATE_TERMINAL) {
             return StorageTensorVectorKey{ StorageTensorVectorKey::Kind::kNextStateTerminal, std::string() };
@@ -1360,6 +1360,11 @@ std::optional<std::vector<torch::Tensor>> DefaultReplayBuffer::GetTensorVector(c
         auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
         if (!prioritized) return std::nullopt;
         tensor = prioritized->GatherPriorityRows(valid_1d);
+        if (key == PER_DIST) {
+            // PER_DIST は正規化サンプリング確率 p/total を返す（SampleIndices の prob=p/total と同義）。
+            const float total = prioritized->GetTotalPriority();
+            if (total > 0.0f) tensor = tensor / total;  // total<=0（極初期）はゼロのまま
+        }
     } else {
         ANET_PROFILE_SCOPE_NEXT(direct_gather);
 
@@ -1370,8 +1375,8 @@ std::optional<std::vector<torch::Tensor>> DefaultReplayBuffer::GetTensorVector(c
         case StorageTensorVectorKey::Kind::kAction:
             tensor = GatherFlatRows(storage_->GetActions(), valid_1d);
             break;
-        case StorageTensorVectorKey::Kind::kReward:
-            // V1 互換: key 名は reward だが、N-step 計算後の target return を返す。
+        case StorageTensorVectorKey::Kind::kTargetReturn:
+            // target return（N-step 割引報酬和、bootstrap 前）を返す。
             tensor = GatherFlatRows(storage_->GetTargetReturns(), valid_1d);
             break;
         case StorageTensorVectorKey::Kind::kNextStateObs:

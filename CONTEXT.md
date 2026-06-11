@@ -23,6 +23,10 @@ _Avoid_: A branch, advantage branch
 報酬と次状態のブートストラップ価値から作る、現在の Q 値が近づくべき教師値。
 _Avoid_: target Q, TD target
 
+**target return**:
+実報酬の N-step 割引和。ReplayBuffer に保持される値で、bootstrap 価値は含まない（学習時に次状態のブートストラップ価値が加算されて Bellmanターゲットになる）。
+_Avoid_: n-step reward, stored return
+
 **Q空間**:
 学習器が Q 値として扱う値の表現空間。TBO 有効時は圧縮済みの h 空間を、TBO 無効時は実空間を指す。
 _Avoid_: value scale, output scale
