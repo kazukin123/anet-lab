@@ -251,6 +251,38 @@ private:
     std::vector<int64_t> dims_;
 };
 
+/// Reshape Module (Batch次元を除いた目標形状を指定)
+/// e.g. dims=[4, 8] -> (Batch, 32) -> (Batch, 4, 8)
+class ReshapeModule : public NetworkModule {
+public:
+    explicit ReshapeModule(std::vector<int64_t> dims) : dims_(std::move(dims))
+    {
+    }
+
+    torch::Tensor forward(torch::Tensor x)
+    {
+        ANET_PROFILE_FUNC();
+        std::vector<int64_t> shape;
+        shape.reserve(dims_.size() + 1);
+        shape.push_back(x.size(0));
+        shape.insert(shape.end(), dims_.begin(), dims_.end());
+        return x.reshape(shape);
+    }
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        return forward(input);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("dims", FormatInt64Vector(dims_));
+        return cd;
+    }
+private:
+    std::vector<int64_t> dims_;
+};
+
 /// Flatten Module
 class FlattenModule : public NetworkModule {
 public:
@@ -1533,6 +1565,9 @@ struct PermuteConfig {
     std::vector<int64_t> dims;
 };
 
+struct ReshapeConfig {
+    std::vector<int64_t> dims;
+};
 
 class LinearModuleFactory final : public NetworkModuleFactory {
 private:
@@ -1629,6 +1664,25 @@ public:
             ANET_SYSTEM_ERROR("PermuteModule: 'dims' is empty.");
         }
         return std::make_shared<PermuteModule>(config.permute.dims);
+    }
+};
+
+class ReshapeModuleFactory final : public NetworkModuleFactory {
+private:
+    struct Config : anet::Config {
+        ReshapeConfig reshape;
+        Config(const anet::ConfigData& config_data) : anet::Config("") {
+            ANET_READ_CONFIG(config_data, reshape.dims);
+        }
+    };
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        Config config(config_data);
+        if (config.reshape.dims.empty()) {
+            ANET_SYSTEM_ERROR("ReshapeModule: 'dims' is empty.");
+        }
+        return std::make_shared<ReshapeModule>(config.reshape.dims);
     }
 };
 
@@ -1752,6 +1806,7 @@ public:
 	// 基本モジュール登録
     repo.Register("Flatten", std::make_shared<FlattenModuleFactory>());
     repo.Register("Permute", std::make_shared<PermuteModuleFactory>());
+    repo.Register("Reshape", std::make_shared<ReshapeModuleFactory>());
     repo.Register("StackMerge", std::make_shared<StackMergeModuleFactory>());
     repo.Register("Dropout", std::make_shared<DropoutModuleFactory>());
 
