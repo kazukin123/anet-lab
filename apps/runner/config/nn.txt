@@ -2,6 +2,15 @@
 # Neural Network Configuration (Backbone Only)
 # ==============================================================================
 
+#init.mode = 1 # Xavier Uniform
+
+#init.mode = 2 # He Normal (Kaiming)
+#init.nonlinearity = relu  # linear tanh leaky_relu
+
+#init.mode = 3  # Orthogonal
+#init.manual_gain = 1.0
+
+
 
 # ------------------------------------------------------------------------------
 #  Supported Module Types (サポートされている type 一覧)
@@ -35,6 +44,9 @@
 
 net.block.[Flatten].type = Flatten
 net.block.[StackMerge].type = StackMerge
+
+net.block.[ReS4].type = Reshape
+net.block.[ReS4].reshape.dims = 4 -1      # (N,32) -> (N,4,8)  ※4=stack_count、残り8次元は-1で追従
 
 
 # --- 活性化関数  ---
