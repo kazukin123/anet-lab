@@ -38,6 +38,7 @@ namespace anet::rl {
         std::optional<std::vector<std::string>> stack_keys_;
         torch::Device device_;
         std::unordered_map<std::string, torch::Tensor> buffers_;    // Keyごとに履歴バッファを保持
+        int head_ = 0;    ///< リングバッファの最古スロット位置=次回上書き位置 (全キーは同時にStackされるため共通)
     };
 
 

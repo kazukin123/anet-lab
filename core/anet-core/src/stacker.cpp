@@ -30,6 +30,22 @@ anet::TensorDict DictFrameStacker::Stack(const anet::TensorDict& data, const tor
             << num_envs_ << ", Got resets=" << resets.size(0));
     }
 
+    // ----------------------------------------------------------------
+    // リセット情報はキー間で共通なのでループ外で1回だけ処理する。
+    // resets は通常CPUテンソルなので any() の判定にGPU同期は発生しない
+    // (CUDAで来た場合も同期はこの1回で、キーごとに nonzero() で同期するより軽い)
+    // ----------------------------------------------------------------
+    const bool has_reset = resets.any().item<bool>();
+    torch::Tensor reset_indices;   // device_上 (リセット発生時のみ作る)
+    if (has_reset && stack_count_ > 1) {
+        reset_indices = resets.to(torch::kBool).nonzero().squeeze(1).to(device_);
+    }
+
+    // リングバッファの書き込み位置 (全キー共通)
+    // head_ は最古フレームのスロット。ここを最新フレームで上書きすると (head_+1)%S が最古になる
+    const int write_pos = head_;
+    const int oldest = (head_ + 1) % stack_count_;
+
     anet::TensorDict result;
 
     for (const auto& kv : data) {
@@ -42,7 +58,8 @@ anet::TensorDict DictFrameStacker::Stack(const anet::TensorDict& data, const tor
 
         // スタック対象外は Pass-through
         if (!should_stack) {
-            result.Set(key, tensor.to(device_, /*non_blocking=*/true).clone());
+            // copy=true で同一デバイスでも必ず新規テンソルになるため、to().clone() の二重コピーを避けられる
+            result.Set(key, tensor.to(device_, /*non_blocking=*/true, /*copy=*/true));
             continue;
         }
 
@@ -51,48 +68,44 @@ anet::TensorDict DictFrameStacker::Stack(const anet::TensorDict& data, const tor
         // ターゲットデバイス上でStack処理
         auto data_dev = tensor.to(device_, /*non_blocking=*/true);
 
-        // バッファが未定義（初回）の場合
-        if (buffers_.find(key) == buffers_.end()) {
+        auto buffer_itr = buffers_.find(key);
+        if (buffer_itr == buffers_.end()) {
+            // バッファが未定義（初回）の場合: 全スロットを初期フレームで充填 (ブロードキャストコピー1回)
+            // 全スロット同値なので head_ がどこを指していても時系列順は崩れない
             auto shape = data_dev.sizes().vec();
             shape.insert(shape.begin() + 1, stack_count_);
-            buffers_[key] = torch::empty(shape, data_dev.options());
-
-            for (int k = 0; k < stack_count_; ++k) {
-                buffers_[key].select(1, k).copy_(data_dev);
-            }
+            auto buffer = torch::empty(shape, data_dev.options());
+            buffer.copy_(data_dev.unsqueeze(1).expand(shape));
+            buffer_itr = buffers_.emplace(key, std::move(buffer)).first;
         } else {
-            auto& buffer = buffers_[key];
+            auto& buffer = buffer_itr->second;
 
-            /// @todo [パフォーマンス改善] RingBuffer構造に変更
+            // リングバッファ: 最古スロットを最新フレームで上書きするだけ (毎ステップの履歴シフトを排除)
+            buffer.select(1, write_pos).copy_(data_dev);
 
-            // 履歴をインプレースでスライド (デバイス上の高速なメモリブロック転送)
-            if (stack_count_ > 1) {
-                // メモリ領域の重複による例外を防ぐため、コピー元を clone() で独立させる
-                buffer.slice(1, 0, stack_count_ - 1)
-                    .copy_(buffer.slice(1, 1, stack_count_).clone());
-            }
-
-            // 最新フレームを末尾に挿入
-            buffer.select(1, -1).copy_(data_dev);
-
-            // resets_dev の中で true (リセット発生) になっているバッチインデックスを取得
-            auto resets_dev = resets.to(device_, /*non_blocking=*/true).to(torch::kBool);
-            auto reset_indices = resets_dev.nonzero().squeeze(1);
-
-            if (reset_indices.numel() > 0) {
-                // リセットされた環境の最新フレームだけを抽出: [NumResets, C, H, W]
-                auto reset_data = data_dev.index_select(0, reset_indices);
-
-                for (int k = 0; k < stack_count_ - 1; ++k) {
-                    // index_copy_ を使って、該当インデックスの過去フレームをすべて最新フレームで塗りつぶす (データリーク防止)
-                    buffer.select(1, k).index_copy_(0, reset_indices, reset_data);
-                }
+            // リセットされた環境は全スロットを最新フレームで塗りつぶす (過去フレームのデータリーク防止)
+            if (has_reset && stack_count_ > 1) {
+                // dim0 の index_copy_ 1回で全スロットをまとめて書き換える
+                auto src = data_dev.index_select(0, reset_indices).unsqueeze(1);   // (R, 1, ...)
+                auto expand_shape = src.sizes().vec();
+                expand_shape[1] = stack_count_;
+                buffer.index_copy_(0, reset_indices, src.expand(expand_shape).contiguous());
             }
         }
 
-        // バッファ自体が既に device_ 上にあるので clone() だけで済む
-        result.Set(key, buffers_[key].clone());   // 外部でのテンソル破壊を防ぐため clone
+        // 出力は時系列順 [最古..最新] に並べ替えた新規テンソル
+        // (cat が新規テンソルを返すため、外部でのテンソル破壊を防ぐ clone を兼ねる)
+        const auto& buffer = buffer_itr->second;
+        if (oldest == 0) {
+            result.Set(key, buffer.clone());
+        } else {
+            result.Set(key, torch::cat({ buffer.slice(1, oldest, stack_count_),
+                                         buffer.slice(1, 0, oldest) }, 1));
+        }
     }
+
+    // 書き込み位置を進める (キー間で共通なのでループ後に1回)
+    head_ = oldest;
 
     return result;
 }
@@ -101,6 +114,7 @@ void DictFrameStacker::Reset()
 {
     // 全キーのバッファを破棄
     buffers_.clear();
+    head_ = 0;
 }
 
 
