@@ -67,6 +67,7 @@ net.branch.[vector_feature].structure = Embed5846_v2
 #net.branch.[main_feature].$ = net.branch.SuikaResNet4064_10d
 #net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128
 net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2
+#net.branch.[main_feature].$ = net.branch.SuikaViT_Flatten_128_pre
 
 
 # ==============================================================================
@@ -84,7 +85,11 @@ net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2
 #app.run_name = run_{t}_apx_tbo_rs001_va1024p
 #app.run_name = run_{t}_apx_tbo_rs001_va1024_ot2
 #app.run_name = run_{t}_apx_tbo_va1024_ot2np
+#app.run_name = run_{t}_apx_tbo_va1024_ot2npa2e4
+#app.run_name = run_{t}_apx_tbo_va1024_ndp0
+#app.run_name = run_{t}_apx_tbo_va1024_vit
 
+E.no_drop_timeout_gameover_penalty = 0
 
 R.use_optimistic_target = true
 R.target_policy.uqe_use_tail_mean = false   # TBO整合: h単調は単一分位点でargmax不変、tail_mean(上側平均)は対象外
@@ -373,7 +378,9 @@ R.train_policy.use_spatial_exploration = true
 # デバッグ用
 # ==============================================================================
 
-#R.learner.update_warmup_steps = 2560
+#app.online.exp_exit_step  = 100,000
+
+#R.learner.update_warmup_steps = 2,560
 #R.learner.update_warmup_steps = 0
 
 #app.train_auto_start = false
@@ -809,6 +816,10 @@ net.branch.SuikaHybrid_Flatten_128_pre2.bind = grid, vector_feature
 #net.branch.SuikaHybrid_Flatten_128_pre2.structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
 #net.branch.SuikaHybrid_Flatten_128_pre2.structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_1024 > SiLU
 net.branch.SuikaHybrid_Flatten_128_pre2.structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_2048 > SiLU
+
+# ViT単体（ResBlock抜き、Conv2層をpatch embeddingに、特徴抽出はTransEncが主役。層数据え置き=ResBlockの寄与を1軸差で見る）
+net.branch.SuikaViT_Flatten_128_pre.bind = grid, vector_feature
+net.branch.SuikaViT_Flatten_128_pre.structure = ConvInit64 > SiLU > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_2048 > SiLU
 
 
 # ==============================================================================
