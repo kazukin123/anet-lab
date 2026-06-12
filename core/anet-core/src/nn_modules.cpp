@@ -1273,6 +1273,8 @@ public:
 
     torch::Tensor forward(torch::Tensor src)
     {
+        ANET_PROFILE_FUNC();
+
         // srcの期待形状: [Batch, SeqLen, d_model]
         torch::Tensor x = src;
 
@@ -1282,37 +1284,51 @@ public:
             // ==========================================
 
             // --- Attention Block ---
+            ANET_PROFILE_SCOPE(attn_norm);
             torch::Tensor x_norm = norm1_->forward(x);
 
             // libtorchのMHAは [SeqLen, Batch, d_model] しか受け付けないため明示的に転置
+            ANET_PROFILE_SCOPE_NEXT(self_attn);
             torch::Tensor x_norm_t = x_norm.transpose(0, 1);
 
             // MultiheadAttention (Query, Key, Value)
             auto mha_out = std::get<0>(mha_->forward(x_norm_t, x_norm_t, x_norm_t));
 
             // 転置して戻し、Skip Connection (Add)
+            ANET_PROFILE_SCOPE_NEXT(attn_residual);
             x = x + mha_out.transpose(0, 1);
 
             // --- FFN Block ---
+            ANET_PROFILE_SCOPE_NEXT(ffn_norm);
             x_norm = norm2_->forward(x);
+            ANET_PROFILE_SCOPE_NEXT(ffn_linear1);
             torch::Tensor ffn_out = linear1_->forward(x_norm);
+            ANET_PROFILE_SCOPE_NEXT(ffn_activation);
             ffn_out = use_gelu_ ? torch::gelu(ffn_out) : torch::relu(ffn_out);
+            ANET_PROFILE_SCOPE_NEXT(ffn_linear2);
             ffn_out = linear2_->forward(ffn_out);
 
             // Skip Connection (Add)
+            ANET_PROFILE_SCOPE_NEXT(ffn_residual);
             x = x + ffn_out;
         } else {
             // ==========================================
             // Post-LN：オリジナルTransformer相当（最終的な性能は高いが不安定）
             // ==========================================
 
+            ANET_PROFILE_SCOPE(self_attn);
             torch::Tensor x_t = x.transpose(0, 1);
             auto mha_out = std::get<0>(mha_->forward(x_t, x_t, x_t));
+            ANET_PROFILE_SCOPE_NEXT(attn_residual_norm);
             x = norm1_->forward(x + mha_out.transpose(0, 1));
 
+            ANET_PROFILE_SCOPE_NEXT(ffn_linear1);
             torch::Tensor ffn_out = linear1_->forward(x);
+            ANET_PROFILE_SCOPE_NEXT(ffn_activation);
             ffn_out = use_gelu_ ? torch::gelu(ffn_out) : torch::relu(ffn_out);
+            ANET_PROFILE_SCOPE_NEXT(ffn_linear2);
             ffn_out = linear2_->forward(ffn_out);
+            ANET_PROFILE_SCOPE_NEXT(ffn_residual_norm);
             x = norm2_->forward(x + ffn_out);
         }
 
@@ -1366,6 +1382,8 @@ public:
         ANET_PROFILE_FUNC();
 
         if (!initialized_) {
+            ANET_PROFILE_SCOPE(init);
+
             // 初回の形状チェック
             int64_t input_dim = input.size(2); // [B, SeqLen, d_model]
             if (input_dim != config_.d_model) {
@@ -1379,15 +1397,20 @@ public:
 
         torch::Tensor out = input;
 
+        {
+            ANET_PROFILE_SCOPE(layers);
+
             // レイヤーを順番に適用
             for (auto& layer : layers_) {
                 out = layer->forward(out);
             }
+        }
 
-            // 最終正規化
-            if (norm_) {
-                out = norm_->forward(out);
-            }
+        // 最終正規化
+        if (norm_) {
+            ANET_PROFILE_SCOPE(final_norm);
+            out = norm_->forward(out);
+        }
 
         return out;
     }
@@ -1841,4 +1864,3 @@ public:
 
     //RegisterNetworkModuleFactory<Module>("Linear");
  }
-
