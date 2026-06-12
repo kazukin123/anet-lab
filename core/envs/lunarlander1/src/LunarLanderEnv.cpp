@@ -23,11 +23,15 @@ constexpr float kLanderDensity = 5.0f;
 constexpr float kLegDensity = 1.0f;
 
 // 脚の定義
-constexpr float kLegLength = 0.35f;
-constexpr float kLegOffsetX = 0.40f;
+constexpr float kLegLength = 0.30f;
+constexpr float kLegOffsetX = 0.30f;
+constexpr float kPadHalfWidth = 0.60f;
 //constexpr float kLegAttachAngle = 0.5236f; // 30°
 constexpr float kLegAttachAngle = 0.7854f; // 45°
 constexpr float kLegWidth = 0.1f;
+constexpr float kLegRestAngle = 0.60f;         ///< 空中で自然に開く脚の目標角度
+constexpr float kLegWeldFrequencyHz = 8.0f;    ///< 脚を目標角へ戻す角度バネの周波数。大きいほど固いバネ。
+constexpr float kLegWeldDampingRatio = 1.0f;   ///< 脚の角度バネの減衰比。大きいほどビヨンビヨンしない。1.0で揺れずに目標角度に収束
 
 // 報酬関連の定数
 constexpr float kStepPenality = -0.01f;
@@ -40,6 +44,11 @@ enum class GroundFixtureType : std::uintptr_t {
     Pad = 1
 };
 
+static bool IsPadFixture(const b2Fixture* fixture)
+{
+    return fixture->GetUserData().pointer ==
+        static_cast<std::uintptr_t>(GroundFixtureType::Pad);
+}
 
 anet::rl::EnvSpec LunarLanderEnv::GetSpec() const
 {
@@ -86,11 +95,6 @@ void LunarLanderEnv::ContactListener::BeginContact(b2Contact* contact)
     b2Body* body_a = fixture_a->GetBody();
     b2Body* body_b = fixture_b->GetBody();
 
-    auto is_pad = [](b2Fixture* f) {
-        return f->GetUserData().pointer ==
-            static_cast<std::uintptr_t>(GroundFixtureType::Pad);
-        };
-
     auto is_left_leg = [&](b2Fixture* f) {
         return f->GetBody() == env_.left_leg_body_;
         };
@@ -99,20 +103,35 @@ void LunarLanderEnv::ContactListener::BeginContact(b2Contact* contact)
         return f->GetBody() == env_.right_leg_body_;
         };
 
+    auto is_contact_target = [&](b2Fixture* f) {
+        if (env_.config_.contact_mode == "ground") {
+            return f->GetBody() == env_.ground_body_;
+        }
+        if (env_.config_.contact_mode == "pad") {
+            return IsPadFixture(f);
+        }
+        ANET_SYSTEM_ERROR("Invalid LunarLanderEnv.contact_mode: "
+            << env_.config_.contact_mode << ". Expected ground or pad.");
+        return false;
+        };
+
     // Lander本体
     if (body_a == env_.lander_body_ || body_b == env_.lander_body_) {
         env_.body_contact_ = true;
     }
-    // 左脚 × pad
-    if ((is_left_leg(fixture_a) && is_pad(fixture_b)) ||
-        (is_left_leg(fixture_b) && is_pad(fixture_a))) {
-        env_.left_leg_contact_ = true;
+
+    // 左脚 × contact target
+    if ((is_left_leg(fixture_a) && is_contact_target(fixture_b)) ||
+        (is_left_leg(fixture_b) && is_contact_target(fixture_a))) {
+        env_.left_leg_contact_count_++;
+        env_.left_leg_contact_ = env_.left_leg_contact_count_ > 0;
     }
 
-    // 右脚 × pad
-    if ((is_right_leg(fixture_a) && is_pad(fixture_b)) ||
-        (is_right_leg(fixture_b) && is_pad(fixture_a))) {
-        env_.right_leg_contact_ = true;
+    // 右脚 × contact target
+    if ((is_right_leg(fixture_a) && is_contact_target(fixture_b)) ||
+        (is_right_leg(fixture_b) && is_contact_target(fixture_a))) {
+        env_.right_leg_contact_count_++;
+        env_.right_leg_contact_ = env_.right_leg_contact_count_ > 0;
     }
 }
 
@@ -121,19 +140,28 @@ void LunarLanderEnv::ContactListener::EndContact(b2Contact* contact)
     b2Fixture* fa = contact->GetFixtureA();
     b2Fixture* fb = contact->GetFixtureB();
 
-    auto is_pad = [](b2Fixture* f) {
-        return f->GetUserData().pointer ==
-            static_cast<std::uintptr_t>(GroundFixtureType::Pad);
+    auto is_contact_target = [&](b2Fixture* f) {
+        if (env_.config_.contact_mode == "ground") {
+            return f->GetBody() == env_.ground_body_;
+        }
+        if (env_.config_.contact_mode == "pad") {
+            return IsPadFixture(f);
+        }
+        ANET_SYSTEM_ERROR("Invalid LunarLanderEnv.contact_mode: "
+            << env_.config_.contact_mode << ". Expected ground or pad.");
+        return false;
         };
 
-    if ((fa->GetBody() == env_.left_leg_body_ && is_pad(fb)) ||
-        (fb->GetBody() == env_.left_leg_body_ && is_pad(fa))) {
-        env_.left_leg_contact_ = false;
+    if ((fa->GetBody() == env_.left_leg_body_ && is_contact_target(fb)) ||
+        (fb->GetBody() == env_.left_leg_body_ && is_contact_target(fa))) {
+        env_.left_leg_contact_count_ = std::max(0, env_.left_leg_contact_count_ - 1);
+        env_.left_leg_contact_ = env_.left_leg_contact_count_ > 0;
     }
 
-    if ((fa->GetBody() == env_.right_leg_body_ && is_pad(fb)) ||
-        (fb->GetBody() == env_.right_leg_body_ && is_pad(fa))) {
-        env_.right_leg_contact_ = false;
+    if ((fa->GetBody() == env_.right_leg_body_ && is_contact_target(fb)) ||
+        (fb->GetBody() == env_.right_leg_body_ && is_contact_target(fa))) {
+        env_.right_leg_contact_count_ = std::max(0, env_.right_leg_contact_count_ - 1);
+        env_.right_leg_contact_ = env_.right_leg_contact_count_ > 0;
     }
 }
 
@@ -202,8 +230,8 @@ void LunarLanderEnv::buildGround()
     const float ground_y = config_.ground_y;
 
     // --- Pad 定義 ---
-    pad_info_.x1 = -kLegOffsetX * 1.5f;
-    pad_info_.x2 = +kLegOffsetX * 1.5f;
+    pad_info_.x1 = -kPadHalfWidth;
+    pad_info_.x2 = +kPadHalfWidth;
     pad_info_.y = ground_y;
 
     const float min_x = -half_w;
@@ -260,9 +288,13 @@ void LunarLanderEnv::buildGround()
         const b2Vec2& p0 = terrain_points_[i];
         const b2Vec2& p1 = terrain_points_[i + 1];
 
-        // Pad 区間は terrain fixture を作らない
-        if ((p0.x >= pad_info_.x1 && p0.x <= pad_info_.x2) &&
-            (p1.x >= pad_info_.x1 && p1.x <= pad_info_.x2)) {
+        // Pad 上面は独立した pad fixture に任せる。垂直段差は terrain fixture として残す。
+        const bool is_pad_top =
+            p0.y == pad_info_.y &&
+            p1.y == pad_info_.y &&
+            p0.x >= pad_info_.x1 &&
+            p1.x <= pad_info_.x2;
+        if (is_pad_top) {
             continue;
         }
 
@@ -395,25 +427,36 @@ void LunarLanderEnv::buildLander(float init_x, float init_y, float init_angle)
     }
 
     // --------------------
-    // ジョイント（固定）
+    // ジョイント（弱い角度バネ付き）
     // --------------------
-    b2RevoluteJointDef joint_def;
-    joint_def.enableLimit = true;
-    joint_def.lowerAngle = -0.2f;   // 約-11°
-    joint_def.upperAngle = 0.2f;    // 約+11°
-    joint_def.referenceAngle = 0.0f;
-    joint_def.bodyA = lander_body_;
-    joint_def.localAnchorB.Set(0.0f, 0.0f);   // ★脚の原点＝付け根
+    auto create_leg_joint = [&](b2Body* leg_body, const b2Vec2& local_anchor_a, float reference_angle) {
+        b2WeldJointDef joint_def;
+        joint_def.bodyA = lander_body_;
+        joint_def.bodyB = leg_body;
+        joint_def.localAnchorA = local_anchor_a;
+        joint_def.localAnchorB.Set(0.0f, 0.0f);   // ★脚の原点＝付け根
+        joint_def.referenceAngle = reference_angle;
+        b2AngularStiffness(
+            joint_def.stiffness,
+            joint_def.damping,
+            kLegWeldFrequencyHz,
+            kLegWeldDampingRatio,
+            lander_body_,
+            leg_body);
+        return static_cast<b2WeldJoint*>(world_->CreateJoint(&joint_def));
+        };
 
     // 左脚ジョイント
-    joint_def.bodyB = left_leg_body_;
-    joint_def.localAnchorA.Set(-kLegOffsetX, -kLanderRadius);
-    left_leg_joint_ = static_cast<b2RevoluteJoint*>(world_->CreateJoint(&joint_def));
+    left_leg_joint_ = create_leg_joint(
+        left_leg_body_,
+        b2Vec2(-kLegOffsetX, -kLanderRadius),
+        -kLegRestAngle);
 
     // 右脚ジョイント
-    joint_def.bodyB = right_leg_body_;
-    joint_def.localAnchorA.Set(+kLegOffsetX, -kLanderRadius);
-    right_leg_joint_ = static_cast<b2RevoluteJoint*>(world_->CreateJoint(&joint_def));
+    right_leg_joint_ = create_leg_joint(
+        right_leg_body_,
+        b2Vec2(+kLegOffsetX, -kLanderRadius),
+        kLegRestAngle);
 }
 
 void LunarLanderEnv::applyWind()
@@ -422,6 +465,12 @@ void LunarLanderEnv::applyWind()
         return;
     }
     if (!lander_body_) {
+        return;
+    }
+
+    if (shouldStopWind()) {
+        last_wind_x_ = 0.0f;
+        last_wind_torque_ = 0.0f;
         return;
     }
 
@@ -450,6 +499,83 @@ void LunarLanderEnv::applyWind()
     // 記録用 (GetScalar等で使用)
     last_wind_x_ = wind_mag;
     last_wind_torque_ = torque_mag;
+}
+
+bool LunarLanderEnv::shouldStopWind() const
+{
+    if (config_.wind_stop_mode == "none") {
+        return false;
+    }
+
+    if (config_.wind_stop_mode == "ground") {
+        return legTouchesGround(left_leg_body_) || legTouchesGround(right_leg_body_);
+    }
+
+    if (config_.wind_stop_mode == "pad") {
+        return legTouchesPad(left_leg_body_) || legTouchesPad(right_leg_body_);
+    }
+
+    ANET_SYSTEM_ERROR("Invalid LunarLanderEnv.wind_stop_mode: "
+        << config_.wind_stop_mode << ". Expected none, ground, or pad.");
+    return false;
+}
+
+bool LunarLanderEnv::legTouchesGround(const b2Body* leg_body) const
+{
+    if (!leg_body || !ground_body_) {
+        return false;
+    }
+
+    for (const b2ContactEdge* edge = leg_body->GetContactList(); edge; edge = edge->next) {
+        b2Contact* contact = edge->contact;
+        if (!contact || !contact->IsTouching()) {
+            continue;
+        }
+
+        const b2Fixture* fixture_a = contact->GetFixtureA();
+        const b2Fixture* fixture_b = contact->GetFixtureB();
+        const b2Fixture* other_fixture = nullptr;
+        if (fixture_a->GetBody() == leg_body) {
+            other_fixture = fixture_b;
+        } else if (fixture_b->GetBody() == leg_body) {
+            other_fixture = fixture_a;
+        }
+
+        if (other_fixture && other_fixture->GetBody() == ground_body_) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool LunarLanderEnv::legTouchesPad(const b2Body* leg_body) const
+{
+    if (!leg_body) {
+        return false;
+    }
+
+    for (const b2ContactEdge* edge = leg_body->GetContactList(); edge; edge = edge->next) {
+        b2Contact* contact = edge->contact;
+        if (!contact || !contact->IsTouching()) {
+            continue;
+        }
+
+        const b2Fixture* fixture_a = contact->GetFixtureA();
+        const b2Fixture* fixture_b = contact->GetFixtureB();
+        const b2Fixture* other_fixture = nullptr;
+        if (fixture_a->GetBody() == leg_body) {
+            other_fixture = fixture_b;
+        } else if (fixture_b->GetBody() == leg_body) {
+            other_fixture = fixture_a;
+        }
+
+        if (other_fixture && IsPadFixture(other_fixture)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void LunarLanderEnv::destroyWorld()
@@ -507,6 +633,8 @@ std::shared_ptr<const anet::rl::SingleResetResult> LunarLanderEnv::Reset(anet::r
     body_contact_ = false;
     left_leg_contact_ = false;
     right_leg_contact_ = false;
+    left_leg_contact_count_ = 0;
+    right_leg_contact_count_ = 0;
     has_prev_shaping_ = false;
     last_shaping_ = 0.0f;
 
@@ -605,10 +733,20 @@ bool LunarLanderEnv::checkLanded() const
     if (!lander_body_) {
         return false;
     }
-    
-    // 両足が付いたら着陸
-    const bool legs_contact = left_leg_contact_ && right_leg_contact_;
-    return (legs_contact);
+
+    if (config_.landing_detection_mode == "contact") {
+        // 両足が付いたら着陸
+        const bool legs_contact = left_leg_contact_ && right_leg_contact_;
+        return legs_contact;
+    }
+
+    if (config_.landing_detection_mode == "not_awake") {
+        return !lander_body_->IsAwake();
+    }
+
+    ANET_SYSTEM_ERROR("Invalid LunarLanderEnv.landing_detection_mode: "
+        << config_.landing_detection_mode << ". Expected contact or not_awake.");
+    return false;
 
     //const b2Vec2 pos = lander_body_->GetPosition();
     //const b2Vec2 vel = lander_body_->GetLinearVelocity();
@@ -954,13 +1092,13 @@ anet::rl::AuxData LunarLanderEnv::CreateAuxData(float reward, float raw_reward) 
     }
 
     // --- joint 情報 ---
-    if (left_leg_joint_ && right_leg_joint_) {
+    if (lander_body_ && left_leg_body_ && right_leg_body_) {
         aux.emplace(
             "joint_angle",
             torch::tensor(
                 {
-                    left_leg_joint_->GetJointAngle(),
-                    right_leg_joint_->GetJointAngle()
+                    left_leg_body_->GetAngle() - lander_body_->GetAngle(),
+                    right_leg_body_->GetAngle() - lander_body_->GetAngle()
                 },
                 float_opt_));
     }

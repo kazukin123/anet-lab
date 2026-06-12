@@ -8,7 +8,8 @@ app.$ = app.online > P
 
 #train.seed = 5542346184581256364  # 
 #train.seed = 540080446186335311 # N-STEP評価用
-train.seed = 7508636947373324265 # 評価用
+#train.seed = 7508636947373324265 # 評価用
+train.seed = 1
 
 train.num_envs = 256
 #train.num_envs = 10
@@ -17,6 +18,8 @@ train.num_envs = 256
 DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.heavy > A > R
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R
 
+agent.device_type = 0    # 0=cpu 1=cuda   NNが小さいのでCPUのほうが早い
+
 
 # ==============================================================================
 # 実験
@@ -24,7 +27,50 @@ DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.heavy > A > R
 
 #app.run_name = run_{t}_ll_notbo
 
-#R.learner.use_tbo = false
+#R.train_policy.uqe_tau_start = 0.95 #0.9
+#R.train_policy.uqe_tau_end = 0.5  # 0.5
+
+
+R.eval_policy.policy_type = UQE          # Greedy だと uqe_* が無視されるため必須
+R.eval_policy.uqe_use_tail_mean = false  # 単一分位 = リスク回避の鍵(true は上側=楽観で逆効果)
+R.eval_policy.uqe_tau_start = 0.25       # 下げるほど保守的 → 風によるPOMDPを考慮して保守的に設定
+R.eval_policy.uqe_tau_end   = 0.25       # eval は減衰しないので start=end
+R.eval_policy.uqe_eps_start = 0.0        # ランダム無し(現状0)
+R.eval_policy.uqe_eps_end   = 0.0
+
+
+#E.contact_mode = pad           # ground pad
+
+
+E.landing_detection_mode = not_awake
+
+R.head_init.mode = 3
+R.head_init.manual_gain = 0.01
+
+R.learner.use_tbo = false
+
+R.learner.n_step = 5
+
+R.learner.weight_decay = 1e-4
+
+R.learner.replay_capacity = 512,000
+
+R.model.soft_update_tau = 0.005
+
+R.num_quantiles = 32
+
+R.learner.per_beta_step = 500,000              # 1M
+
+#R.learner.alpha = 1e-3  # 5e-4
+
+R.train_policy.use_spatial_exploration = true
+
+app.exp_pause_step  = 2,000,000
+
+R.train_policy.uqe_eps_start = 0.3
+R.train_policy.uqe_eps_end = 0.0  #0.01
+
+#E.enable_wind = false
 
 #R.learner.alpha = 5e-3
 
@@ -37,16 +83,42 @@ DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.heavy > A > R
 # NN設定
 # ==============================================================================
 
+# --- ブロック定義
+
+net.block.[LN256].type = LayerNorm
+net.block.[LN256].normalized_shape = 256
+
+net.block.[LN128].type = LayerNorm
+net.block.[LN128].normalized_shape = 128
+
+net.block.[TConv64].type = Conv1d
+net.block.[TConv64].conv.out_channels = 64
+net.block.[TConv64].conv.kernel_size = 2
+net.block.[TConv64].conv.stride = 1
+net.block.[TConv64].conv.padding = 0
+net.block.[TConv64].init.mode = 1
+
+net.block.[ReS4F8].type = Reshape
+net.block.[ReS4F8].reshape.dims = 4 -1      # (N,32) -> (N,4,8)
+
+
 # --- ブロックパラメータ上書き（nn.txt の MLP_FC1/MLP_FC2 を流用）
 net.block.FC1.linear.out_features = 256
 net.block.FC2.linear.out_features = 128
 net.block.FC1.init.mode = 1
 net.block.FC2.init.mode = 1
 
+
 # --- Body 本体ブランチ（vector 観測 -> MLP）
 net.branch.[main_feature].bind = vector
-net.branch.[main_feature].structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU
-#net.branch.[main_feature].structure = Conv1D_Permute > Conv1D_Conv1d > ReLU > Flatten > Conv1D_Linear > ReLU  # 旧 net.body.Conv1D 相当（未検証）
+
+#net.branch.[main_feature].structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU
+#net.branch.[main_feature].structure = Flatten > MLP_FC1 > SiLU > MLP_FC2 > SiLU
+net.branch.[main_feature].structure = Flatten > MLP_FC1 > LN256 > SiLU > MLP_FC2 > LN128 > SiLU
+#net.branch.[main_feature].structure = Conv1D_Permute > TConv64 > SiLU > Flatten > MLP_FC1 > SiLU > MLP_FC2 > SiLU
+#net.branch.[main_feature].structure = Conv1D_Permute > TConv64 > SiLU > Flatten > MLP_FC1 > LN256 > SiLU > MLP_FC2 > LN128 > SiLU
+#net.branch.[main_feature].structure = Flatten > ReS4F8 > Conv1D_Permute > TConv64 > SiLU > Flatten > MLP_FC1 > LN256 > SiLU > MLP_FC2 > LN128 > SiLU
+
 
 # --- Dueling V/A: [デフォルト] 単一 features を Head が内部で V/A 分割（V1 と同一挙動）
 #net.body.output.[features] = main_feature
@@ -56,6 +128,7 @@ net.branch.[main_feature].structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU
 net.block.[HeadFC128].type = Linear
 net.block.[HeadFC128].linear.out_features = 128
 net.block.[HeadFC128].init.mode = 1
+
 net.branch.[value_stream].bind = main_feature
 net.branch.[value_stream].structure = HeadFC128 > SiLU
 net.branch.[adv_stream].bind = main_feature
@@ -68,6 +141,26 @@ A.head_init.manual_gain = 0.0
 
 
 # ==============================================================================
+# ステップ数 依存設定
+# ==============================================================================
+
+#A.action_policy.eps_decay_step = 10,000,000      # 10M
+#A.learner.per_beta_step = 10,000,000             # 10M betaを収束値まで線形変化させるexpステップ数（初期は当てにならないので補正を弱める）
+
+A.train_policy.uqe_eps_decay_steps = 1,000,000
+A.train_policy.uqe_tau_decay_steps = 1,000,000  # 10M
+A.learner.per_beta_step = 1,000,000              # 1M
+
+#app.online.exp_pause_step  = -1
+#app.online.exp_pause_step  = 50,000
+#app.online.exp_pause_step  = 25,600,000   # 256 * 100K
+#app.online.exp_pause_step  = 10,000,000   # 10M
+#app.online.exp_pause_step  = 4,000,000   # 4M
+app.online.exp_pause_step  = 2,000,000   # 2M
+app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
+
+
+# ==============================================================================
 # 環境依存Agent設定
 # ==============================================================================
 
@@ -76,29 +169,24 @@ A.stucker.stack_count = 4
 
 A.learner.use_tbo = true
 
-
-A.action_policy.eps_decay_step = 10,000,000      # 10M
-A.action_policy.uqe_tau_decay_step = 10,000,000  # 10M
 A.learner.update_warmup_steps = 76,800           # exp_step単位。256(B) * 300step = 76800
-A.learner.per_beta_step = 10,000,000             # 10M betaを収束値まで線形変化させるexpステップ数（初期は当てにならないので補正を弱める）
-
 
 #train.eval.[test1].interval = 100
-#train.eval.[test1].interval = 0
-train.eval.[test1].interval = 1000
+train.eval.[test1].interval = 0
+#train.eval.[test1].interval = 1000
 train.eval.[test1].run_mode = eval1
 train.eval.[test1].env.$ = LunarLanderEnv.test1
 
 #train.eval.[test2].interval = 100
-#train.eval.[test2].interval = 0
-train.eval.[test2].interval = 1000
+train.eval.[test2].interval = 0
+#train.eval.[test2].interval = 1000
 train.eval.[test2].run_mode = eval1
 train.eval.[test2].env.$ = LunarLanderEnv.test2
 
-metrics.scalar.[22_eval/01_test1_reward]     = eps_total_reward $runner @episode_end $eval.[test1] clip:3000
-metrics.scalar.[22_eval/02_test2_reward]     = eps_total_reward $runner @episode_end $eval.[test2] clip:3000
-metrics.scalar.[22_eval/03_test1_reward_ema] = eps_total_reward $runner @episode_end $eval.[test1] $ema ema_alpha:0.001 clip:1000
-metrics.scalar.[22_eval/04_test2_reward_ema] = eps_total_reward $runner @episode_end $eval.[test2] $ema ema_alpha:0.001 clip:1000
+#metrics.scalar.[22_eval/01_test1_reward]     = eps_total_reward $runner @episode_end $eval.[test1] clip:3000
+#metrics.scalar.[22_eval/02_test2_reward]     = eps_total_reward $runner @episode_end $eval.[test2] clip:3000
+#metrics.scalar.[22_eval/03_test1_reward_ema] = eps_total_reward $runner @episode_end $eval.[test1] $ema ema_alpha:0.001 clip:1000
+#metrics.scalar.[22_eval/04_test2_reward_ema] = eps_total_reward $runner @episode_end $eval.[test2] $ema ema_alpha:0.001 clip:1000
 
 
 #A.learner.gamma = 0.99
@@ -115,7 +203,7 @@ metrics.scalar.[22_eval/04_test2_reward_ema] = eps_total_reward $runner @episode
 #app.online.train_panel.fps = 30
 #app.online.eval_panel.fps = 0
 
-#app.train_auto_start = false
+app.train_auto_start = false
 
 
 # ==============================================================================
@@ -128,7 +216,8 @@ metrics.image.interval = 50   # 通常運用
 #metrics.image.interval = 500 # 重い場合
 
 metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.per-prio > image.phm.s01
-metrics.image.[43_agent_img/02_hm_visit_03_maxq].$     = image.phm.visit-maxq
+#metrics.image.[43_agent_img/02_hm_visit_03_maxq].$     = image.phm.visit-maxq
+
 #metrics.image.[44_agent_img/52_per_thg_prio].$         = image.thg.per-prio
 #metrics.image.[45_agent_img/05_shm_01_qma01].$   = image.shm.qmax > image.shm.s01
 #metrics.image.[45_agent_img/05_shm_01_qma02].$   = image.shm.qmax > image.shm.s02
@@ -147,7 +236,8 @@ metrics.scalar.$ = metrics.scalar.baseline > M
 #metrics.scalar.$ = metrics.scalar.min > M
 #metrics.scalar.$ = metrics.scalar.full > M
 
-metrics.scalar.[90_perf/82_exp_step] = exp_step @train $runner interval:100
+M.[20_eps/11_train_reward_ema] = $runner $episode_step train_episode_reward @train $ema ema_alpha:0.01
+M.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 
 
 # ==============================================================================
@@ -156,19 +246,15 @@ metrics.scalar.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 
 env.class_id = LunarLanderEnv
 
-#app.online.exp_pause_step  = -1
-#app.online.exp_pause_step  = 50,000
-app.online.exp_pause_step  = 25,600,000   # 256 * 100K
-app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
 
 
 # ==============================================================================
 # LunarLanderEnv
 # ==============================================================================
 
-#LunarLanderEnv.$ = LunarLanderEnv.normal
-#LunarLanderEnv.$ = LunarLanderEnv.easy
-LunarLanderEnv.$ = LunarLanderEnv.trunk
+#LunarLanderEnv.$ = LunarLanderEnv.normal > E
+#LunarLanderEnv.$ = LunarLanderEnv.easy > E
+LunarLanderEnv.$ = LunarLanderEnv.trunk > E
 
 
 LunarLanderEnv.test1.limit_step = 400
@@ -215,6 +301,9 @@ LunarLanderEnv.normal.terrain_point_count = 11 #21
 LunarLanderEnv.normal.terrain_noise_height = 1.0
 
 LunarLanderEnv.limit_step = 1000
+LunarLanderEnv.contact_mode = ground           # ground pad
+LunarLanderEnv.landing_detection_mode = contact # contact not_awake
+LunarLanderEnv.wind_stop_mode = ground          # none ground pad
 LunarLanderEnv.world_half_width = 2.5 # 2.5 10
 #LunarLanderEnv.world_height = 2.0 #2.0
 LunarLanderEnv.world_height = 4.0 #2.0

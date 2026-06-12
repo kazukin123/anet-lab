@@ -2,6 +2,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 #include <vector>
 #include <optional>
 #include <box2d/box2d.h> 
@@ -33,9 +34,12 @@ namespace anet::rl::env {
         bool enable_wind = false;
         float wind_power = 15.0f;       ///< Gym の WIND_POWER 相当
         float turbulence_power = 1.5f;  ///< Gym の TURBULENCE_POWER 相当
+        std::string wind_stop_mode = "ground";
 
         int terrain_point_count = 21;   ///< 地形 polyline の頂点数（少なくとも 2）
         float terrain_noise_height = 0.3f; ///< 地形高さノイズの上限
+        std::string contact_mode = "ground";
+        std::string landing_detection_mode = "contact";
 
         struct {
             float x_range = 1.0;
@@ -61,8 +65,11 @@ namespace anet::rl::env {
             ANET_READ_CONFIG(config_data, enable_wind);
             ANET_READ_CONFIG(config_data, wind_power);
             ANET_READ_CONFIG(config_data, turbulence_power);
+            ANET_READ_CONFIG(config_data, wind_stop_mode);
             ANET_READ_CONFIG(config_data, terrain_point_count);
             ANET_READ_CONFIG(config_data, terrain_noise_height);
+            ANET_READ_CONFIG(config_data, contact_mode);
+            ANET_READ_CONFIG(config_data, landing_detection_mode);
             ANET_READ_CONFIG(config_data, init.x_range);
             ANET_READ_CONFIG(config_data, init.y_range);
             ANET_READ_CONFIG(config_data, init.x_velocity_range);
@@ -72,6 +79,18 @@ namespace anet::rl::env {
 
 
             ANET_ASSERT(terrain_point_count >= 2);
+            if (wind_stop_mode != "none" && wind_stop_mode != "ground" && wind_stop_mode != "pad") {
+                ANET_SYSTEM_ERROR("Invalid LunarLanderEnv.wind_stop_mode: "
+                    << wind_stop_mode << ". Expected none, ground, or pad.");
+            }
+            if (contact_mode != "ground" && contact_mode != "pad") {
+                ANET_SYSTEM_ERROR("Invalid LunarLanderEnv.contact_mode: "
+                    << contact_mode << ". Expected ground or pad.");
+            }
+            if (landing_detection_mode != "contact" && landing_detection_mode != "not_awake") {
+                ANET_SYSTEM_ERROR("Invalid LunarLanderEnv.landing_detection_mode: "
+                    << landing_detection_mode << ". Expected contact or not_awake.");
+            }
         }
     };
 
@@ -106,6 +125,9 @@ namespace anet::rl::env {
         void buildLander(float init_x, float init_y, float init_angle);
 
         void applyWind();
+        bool shouldStopWind() const;
+        bool legTouchesGround(const b2Body* leg_body) const;
+        bool legTouchesPad(const b2Body* leg_body) const;
         void applyActionForce(int64_t action);
 
         anet::rl::SingleState makeState() const;
@@ -132,8 +154,8 @@ namespace anet::rl::env {
         b2Body* lander_body_ = nullptr;
         b2Body* left_leg_body_ = nullptr;
         b2Body* right_leg_body_ = nullptr;
-        b2RevoluteJoint* left_leg_joint_ = nullptr;
-        b2RevoluteJoint* right_leg_joint_ = nullptr;
+        b2WeldJoint* left_leg_joint_ = nullptr;
+        b2WeldJoint* right_leg_joint_ = nullptr;
 
         std::vector<b2Vec2> terrain_points_;
         PadInfo pad_info_;
@@ -141,6 +163,8 @@ namespace anet::rl::env {
         bool body_contact_ = false;
         bool left_leg_contact_ = false;
         bool right_leg_contact_ = false;
+        int left_leg_contact_count_ = 0;
+        int right_leg_contact_count_ = 0;
 
         int step_count_ = 0;
         float last_wind_x_ = 0.0f;
