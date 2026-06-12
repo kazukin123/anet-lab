@@ -177,7 +177,8 @@ void RunnerFrame::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
     train_panel_->Initialize(run_manager);
 
     // EvalPanel初期化
-    eval_runner_ = run_manager->CreateEvalRunner("EvalPanel", anet::rl::RunMode::Eval1, /*clone_model=*/false);
+    eval_runner_ = run_manager->CreateEvalRunner(
+        "EvalPanel", anet::rl::RunMode::Eval1, eval_panel_->GetConfig().model_sync.UsesClonedModel());
     eval_panel_->Initialize(run_manager, eval_runner_);
 
     // QValuePanel初期化
@@ -247,15 +248,15 @@ void RunnerFrame::SetupEvents()
         if (event.GetPane()->window == log_panel_) {
             if (GetMenuBar()) {
                 GetMenuBar()->Check(ID_LogView, false);
-            }
         }
-        event.Skip();
+    }
+    event.Skip();
         });
     Bind(wxEVT_AUI_PANE_CLOSE, [this](wxAuiManagerEvent& event) {
         if (event.GetPane()->window == train_panel_) {
             if (GetMenuBar()) {
                 GetMenuBar()->Check(ID_TrainPanel, false);
-            }
+    }
         }
         event.Skip();
         });
@@ -263,7 +264,7 @@ void RunnerFrame::SetupEvents()
         if (event.GetPane()->window == eval_panel_) {
             if (GetMenuBar()) {
                 GetMenuBar()->Check(ID_EvalPanel, false);
-            }
+        }
         }
         event.Skip();
         });
@@ -271,10 +272,10 @@ void RunnerFrame::SetupEvents()
         if (event.GetPane()->window == q_value_panel_) {
             if (GetMenuBar()) {
                 GetMenuBar()->Check(ID_QValuePanel, false);
-            }
         }
-        event.Skip();
-        });
+    }
+    event.Skip();
+    });
 
     // きーまう
     Bind(anet::rl::gui::EVT_FORWARDED_MOUSE, &RunnerFrame::OnMouse, this);
