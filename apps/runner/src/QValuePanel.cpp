@@ -292,15 +292,13 @@ void QValuePanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, 
         runner,
         [this](const anet::rl::TrainEvent& event)
         {
-            /// @todo Eval想定で毎Step反映固定なのを再検討
-
             // データ作る
             auto data = CreateData(event);
 
             // データがなかったら反映しない
             if (!data.has_value()) return;
 
-            // データ反映
+            // データ反映 (保存は毎Step、画面更新はApplyData内でフレーム1回に集約される)
             ApplyData(*data);
         },
         "QValuePanel");
@@ -316,6 +314,8 @@ void QValuePanel::SetActionHandler(std::function<void(int64_t)> action_handler)
 
 std::optional<QValueData> QValuePanel::CreateData(const anet::rl::TrainEvent& event)
 {
+    ANET_PROFILE_FUNC();
+
     const auto& aux_data = event.action_info->GetAuxData();
     auto q_values_itr = aux_data.find("q_values");
     if (q_values_itr == aux_data.end()) return std::nullopt;
@@ -333,10 +333,16 @@ std::optional<QValueData> QValuePanel::CreateData(const anet::rl::TrainEvent& ev
 
     ANET_CHECK(q_values.size(0) > 0);
     //ANET_ASSERT_SHAPE(q_values, { ANET_SHAPE_ANY, static_cast<int64_t>(action_names_.size()), ANET_SHAPE_ENDANY });
-    auto first_env_q = q_values[0]; // (N, A)
-    ANET_LOG_DEBUG("first_env_q=" << anet::ToString(first_env_q));
+    // 要素ごとの .item<float>() は毎回GPU→CPU同期が走り非常に重いため、
+    // 先頭env分だけ一括でCPUへ転送し、以降は生ポインタで読む(同期は実質この1回)
+    const torch::Tensor first_env_q =
+        q_values[0].detach().to(torch::kCPU, torch::kFloat).contiguous(); // PlainQ:(A,) / QR:(A,W)
     ANET_CHECK(first_env_q.size(0) == action_names_.size());
-    auto n_actions = first_env_q.size(0);
+    const auto n_actions = first_env_q.size(0);
+
+    // PlainQ(A,) と QR(A,W) を幅widthの行列として統一的に扱う
+    const int width = (first_env_q.dim() == 2) ? static_cast<int>(first_env_q.size(1)) : 1;
+    const float* q_ptr = first_env_q.data_ptr<float>();
 
     QValueData data;
 
@@ -349,49 +355,32 @@ std::optional<QValueData> QValuePanel::CreateData(const anet::rl::TrainEvent& ev
         data.selected_action = event.action_info->GetAction(torch::kCPU)[0].item<int64_t>();
     }
 
-    // 統計値生成
+    // 統計値生成 (Tensor reduction + .item() の繰り返しはGPU同期が多発するため、CPU上で1パス集計)
     data.stats.resize(n_actions);
     for (int i = 0; i < n_actions; i++) {
-        data.stats[i].mean = first_env_q[i].mean().item<float>();
-        data.stats[i].std_dev = first_env_q[i].std().item<float>();
-        data.stats[i].max = first_env_q[i].max().item<float>();
-        data.stats[i].min = first_env_q[i].min().item<float>();
+        const float* row = q_ptr + static_cast<size_t>(i) * width;
+        double sum = 0.0;
+        double sq_sum = 0.0;
+        float min_val = row[0];
+        float max_val = row[0];
+        for (int x = 0; x < width; x++) {
+            const float v = row[x];
+            sum += v;
+            sq_sum += static_cast<double>(v) * v;
+            min_val = std::min(min_val, v);
+            max_val = std::max(max_val, v);
+        }
+        const double mean = sum / width;
+        // torch::Tensor::std() に合わせた不偏分散(N-1)。width=1 のときは 0 扱い
+        const double var = (width > 1) ? std::max(0.0, (sq_sum - width * mean * mean) / (width - 1)) : 0.0;
+        data.stats[i].mean = static_cast<float>(mean);
+        data.stats[i].std_dev = static_cast<float>(std::sqrt(var));
+        data.stats[i].max = max_val;
+        data.stats[i].min = min_val;
     }
 
-    int width = 0;
-    if (first_env_q.sizes().size() == 1) { // PlainQ
-        width = 1;
-        data.xv.resize(n_actions);
-        data.yv.resize(n_actions);
-        data.vv.resize(n_actions);
-    } else if (first_env_q.sizes().size() == 2) { // QR
-        width = first_env_q.size(1);
-        auto data_size = n_actions * width;
-        data.xv.resize(data_size);
-        data.yv.resize(data_size);
-        data.vv.resize(data_size);
-    }
-
-    // HeatMap用データ生成
-    if (first_env_q.sizes().size() == 1) { // PlainQ
-        for (int y = 0; y < n_actions; y++) {
-            auto val = first_env_q[y].item<float>();
-            data.xv[y] = 0;
-            data.yv[y] = y;
-            data.vv[y] = val;
-        }
-    } else if (first_env_q.sizes().size() == 2) { // QR
-        int i = 0;
-        for (int y = 0; y < n_actions; y++) {
-            for (int x = 0; x < width; x++) {
-                auto val = first_env_q[y][x].item<float>();
-                data.xv[i] = x;
-                data.yv[i] = y;
-                data.vv[i] = val;
-                i++;
-            }
-        }
-    }
+    // HeatMap用データ生成 (PlainQ/QRとも行優先の格子値として一括コピー)
+    data.vv.assign(q_ptr, q_ptr + static_cast<size_t>(n_actions) * width);
 
     // データ設定
     data.width = width;
@@ -402,12 +391,25 @@ std::optional<QValueData> QValuePanel::CreateData(const anet::rl::TrainEvent& ev
 
 void QValuePanel::ApplyData(const QValueData& data)
 {
+    ANET_PROFILE_FUNC();
+
+    // 最新断面を保存
     data_store_.Update(data);
-    Update();
+
+    // 画面更新はイベントループへ1回だけ予約する
+    // (タイマーハンドラ内で毎Step呼ばれても、Update()の実行はフレームあたり1回に集約される)
+    if (!update_pending_.exchange(true)) {
+        CallAfter([this] {
+            update_pending_.store(false);
+            Update();
+        });
+    }
 }
 
 void QValuePanel::Update()
 {
+    ANET_PROFILE_FUNC();
+
     auto data_opt = data_store_.Get();
     if (!data_opt.has_value()) return;
 
@@ -436,6 +438,7 @@ void QValuePanel::Update()
     // --------------------------------------------------------
     int current_rows = grid_->GetNumberRows();
     int new_rows = static_cast<int>(action_names_.size());
+    const bool rows_changed = (new_rows != current_rows);
 
     // 最大のMeanを持つアクションを特定する
     //float max_mean_val = -std::numeric_limits<float>::infinity();
@@ -456,85 +459,100 @@ void QValuePanel::Update()
 
     grid_->BeginBatch();
 
-    if (new_rows > current_rows) {
-        grid_->AppendRows(new_rows - current_rows);
-    } else if (new_rows < current_rows) {
-        grid_->DeleteRows(new_rows, current_rows - new_rows);
+    // 行構成・アクション名は不変なので、行数が変わったとき(実質初回)だけ構築する
+    if (rows_changed) {
+        if (new_rows > current_rows) {
+            grid_->AppendRows(new_rows - current_rows);
+        } else {
+            grid_->DeleteRows(new_rows, current_rows - new_rows);
+        }
+        for (int i = 0; i < new_rows; ++i) {
+            grid_->SetRowLabelValue(i, wxString::Format("%d", i));
+            grid_->SetCellValue(i, 0, action_names_[i]);
+        }
+        // 行再構築後のセルattrはデフォルト状態なので、ハイライトは付け直す
+        last_selected_row_ = -1;
     }
 
     // Grid表示用のオフセット値 ★混乱するので無効化
     float grid_offset = 0.0f;// is_adv ? static_cast<float>(global_mean) : 0.0f;
 
-    const wxColour kHighlightBg = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT);
-    const wxColour kHighlightText = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHTTEXT);
-
+    // 数値セル(1～4列)のみ毎回更新する
     for (int i = 0; i < new_rows; ++i) {
-        grid_->SetRowLabelValue(i, wxString::Format("%d", i));
-        grid_->SetCellValue(i, 0, action_names_[i]);
-
         // AdvantageONなら、平均値を引いた値を表示して確認できるようにする
         // Std(ばらつき)はシフトしても変わらないのでそのまま
         grid_->SetCellValue(i, 1, wxString::Format("%.3f", data.stats[i].mean - grid_offset));
         grid_->SetCellValue(i, 2, wxString::Format("%.3f", data.stats[i].std_dev));
         grid_->SetCellValue(i, 3, wxString::Format("%.3f", data.stats[i].max - grid_offset));
         grid_->SetCellValue(i, 4, wxString::Format("%.3f", data.stats[i].min - grid_offset));
+    }
 
-        //if (i == max_mean_idx) {
-        if (i == selected_idx) {
-            for (int col = 0; col < 5; ++col) {
-                grid_->SetCellBackgroundColour(i, col, kHighlightBg);
-                grid_->SetCellTextColour(i, col, kHighlightText); // 文字色も合わせる
-            }
-        } else {
+    // 選択行ハイライト (毎回全行を塗り直すとattr更新が支配的になるため、変化した行だけ差分更新)
+    const int selected_row = static_cast<int>(selected_idx);
+    if (selected_row != last_selected_row_) {
+        if (last_selected_row_ >= 0 && last_selected_row_ < new_rows) {
             for (int col = 0; col < 5; ++col) {
                 // wxNullColourでリセット（システムデフォルトに戻る）
-                grid_->SetCellBackgroundColour(i, col, wxNullColour);
-                grid_->SetCellTextColour(i, col, wxNullColour);
+                grid_->SetCellBackgroundColour(last_selected_row_, col, wxNullColour);
+                grid_->SetCellTextColour(last_selected_row_, col, wxNullColour);
             }
         }
+        if (selected_row >= 0 && selected_row < new_rows) {
+            const wxColour kHighlightBg = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT);
+            const wxColour kHighlightText = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHTTEXT);
+            for (int col = 0; col < 5; ++col) {
+                grid_->SetCellBackgroundColour(selected_row, col, kHighlightBg);
+                grid_->SetCellTextColour(selected_row, col, kHighlightText); // 文字色も合わせる
+            }
+        }
+        last_selected_row_ = selected_row;
     }
 
     grid_->EndBatch();
 
-    // アクション名の列(0列目)だけ文字幅にフィットさせる
-    grid_->AutoSizeColumn(0, false);
+    // 列幅・パネル幅・レイアウトの再計算は行構成が変わったときだけ行う
+    // (毎Step実行すると AutoSizeColumn のテキスト測定や全子ウィンドウの同期再描画が支配的コストになる)
+    if (rows_changed) {
+        // アクション名の列(0列目)だけ文字幅にフィットさせる
+        grid_->AutoSizeColumn(0, false);
 
-    // 1～4列目(Mean, Std, Max, Min)は固定幅(kColWidth)を維持する
-    for (int i = 1; i < 5; ++i) {
-        grid_->SetColSize(i, kColWidth);
+        // 1～4列目(Mean, Std, Max, Min)は固定幅(kColWidth)を維持する
+        for (int i = 1; i < 5; ++i) {
+            grid_->SetColSize(i, kColWidth);
+        }
+
+        int total_width = grid_->GetRowLabelSize();
+        for (int i = 0; i < grid_->GetNumberCols(); ++i) {
+            total_width += grid_->GetColSize(i);
+        }
+
+        // Gridの中身の仮想高さを計算（列ヘッダー ＋ 全行の高さ）
+        int virtual_height = grid_->GetColLabelSize();
+        for (int i = 0; i < grid_->GetNumberRows(); ++i) {
+            virtual_height += grid_->GetRowSize(i);
+        }
+
+        // Gridの実際の描画高さを取得
+        int current_height = grid_->GetSize().GetHeight();
+        if (current_height < 50) {
+            // UI初期化直後でまだSizerが計算されていない場合は親パネルの高さを参照
+            current_height = GetClientSize().GetHeight();
+        }
+
+        // 中身が実際の高さを超えて「縦スクロールバーが出現する」場合のみ幅を加算
+        if (virtual_height > current_height) {
+            total_width += wxSystemSettings::GetMetric(wxSYS_VSCROLL_X);
+        }
+        total_width += 2; // 境界線のマージン（左右1px）
+
+        // Gridの横幅を厳密にロックする（縦方向はSizer任せで拡張させる）
+        grid_->SetMinSize(wxSize(total_width, -1));
+        grid_->SetMaxSize(wxSize(total_width, -1));
+
+        // Sizer再レイアウト
+        Layout();
+        RefreshLayoutChildren();
     }
-
-    int total_width = grid_->GetRowLabelSize();
-    for (int i = 0; i < grid_->GetNumberCols(); ++i) {
-        total_width += grid_->GetColSize(i);
-    }
-
-    // Gridの中身の仮想高さを計算（列ヘッダー ＋ 全行の高さ）
-    int virtual_height = grid_->GetColLabelSize();
-    for (int i = 0; i < grid_->GetNumberRows(); ++i) {
-        virtual_height += grid_->GetRowSize(i);
-    }
-
-    // Gridの実際の描画高さを取得
-    int current_height = grid_->GetSize().GetHeight();
-    if (current_height < 50) {
-        // UI初期化直後でまだSizerが計算されていない場合は親パネルの高さを参照
-        current_height = GetClientSize().GetHeight();
-    }
-
-    // 中身が実際の高さを超えて「縦スクロールバーが出現する」場合のみ幅を加算
-    if (virtual_height > current_height) {
-        total_width += wxSystemSettings::GetMetric(wxSYS_VSCROLL_X);
-    }
-    total_width += 2; // 境界線のマージン（左右1px）
-
-    // Gridの横幅を厳密にロックする（縦方向はSizer任せで拡張させる）
-    grid_->SetMinSize(wxSize(total_width, -1));
-    grid_->SetMaxSize(wxSize(total_width, -1));
-
-    // Sizer再レイアウト
-    Layout();
-    RefreshLayoutChildren();
 
     // --------------------------------------------------------
     // HeatMapデータ加工プロセス
@@ -625,16 +643,14 @@ void QValuePanel::Update()
         // ----------------------------------------------------
         int n_actions = data.height;
 
-        std::vector<float> new_xv, new_yv, new_vv;
+        std::vector<float> new_vv;
         int total_points = n_actions * n_bins;
-        new_xv.reserve(total_points);
-        new_yv.reserve(total_points);
         new_vv.assign(total_points, 0.0f);
 
         float inv_range = 1.0f / (hist_max - hist_min);
 
         for (size_t i = 0; i < data.vv.size(); ++i) {
-            int action_idx = static_cast<int>(data.yv[i]);
+            int action_idx = static_cast<int>(i / data.width); // vvは行優先格子なので行番号=Action
             float val = data.vv[i];
 
             float norm = (val - hist_min) * inv_range;
@@ -664,16 +680,7 @@ void QValuePanel::Update()
             }
         }
 
-        // 座標データ生成
-        for (int y = 0; y < n_actions; ++y) {
-            for (int x = 0; x < n_bins; ++x) {
-                new_xv.push_back(static_cast<float>(x));
-                new_yv.push_back(static_cast<float>(y));
-            }
-        }
-        data.xv = new_xv;
-        data.yv = new_yv;
-        data.vv = new_vv;
+        data.vv = std::move(new_vv);
         data.width = n_bins;
     }
 
@@ -743,10 +750,10 @@ void QValuePanel::Update()
         std::fill(data.vv.begin(), data.vv.end(), 0.5f);
     }
 
-    // 描画
+    // 描画 (vvは行優先格子なのでSetGridValuesの一括設定パスを使う)
     uint32_t flags = anet::HeatMapFlags::HM_SumMode | anet::HeatMapFlags::HM_FlipY;
     anet::HeatMap heat_map(data.width, data.height, 0, data.width, 0, data.height, 0, flags);
-    heat_map.AddDataBatch(data.xv, data.yv, data.vv);
+    heat_map.SetGridValues(data.vv.data(), data.width, data.height);
     auto heatmap_image = heat_map.Render();
 
     int total_rows = static_cast<int>(action_names_.size());
@@ -758,6 +765,26 @@ void QValuePanel::Update()
 void QValuePanel::ResetRange() {
     accumulated_min_ = std::numeric_limits<float>::max();
     accumulated_max_ = std::numeric_limits<float>::lowest();
+}
+
+int QValuePanel::GetPreferredDockWidth() const
+{
+    static constexpr int kPreferredHeatMapWidth = 180;
+
+    if (!grid_) {
+        return 640;
+    }
+
+    int grid_width = grid_->GetMinSize().GetWidth();
+    if (grid_width <= 0) {
+        grid_width = grid_->GetRowLabelSize();
+        for (int i = 0; i < grid_->GetNumberCols(); ++i) {
+            grid_width += grid_->GetColSize(i);
+        }
+        grid_width += wxSystemSettings::GetMetric(wxSYS_VSCROLL_X) + 2;
+    }
+
+    return grid_width + kPreferredHeatMapWidth;
 }
 
 void QValuePanel::SyncHeatMapScroll(bool refresh_grid)

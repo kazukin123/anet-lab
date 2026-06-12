@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <vector>
 #include <optional>
@@ -48,11 +49,9 @@ public:
     // 実際に選択された行動
     int64_t selected_action;
 
-    // HeatMap
+    // HeatMap (行優先 width×height の格子値)
     int width;
     int height;
-    std::vector<float> xv;
-    std::vector<float> yv;
     std::vector<float> vv;
     //wxImage heatmap_image;
 };
@@ -67,6 +66,8 @@ public:
 
     void ApplyData(const QValueData& data);
     void Update();
+
+    int GetPreferredDockWidth() const;
 
     bool IsHistogram() const;
     bool IsAdvantage() const;
@@ -107,6 +108,8 @@ private:
     std::shared_ptr<anet::rl::TrainObserver> observer_ = nullptr;
     anet::rl::gui::UIDataStore<QValueData> data_store_;
     std::vector<float> hist_weights_;
+    std::atomic<bool> update_pending_{ false };  ///< Update()のCallAfter予約中フラグ(多重予約防止)
+    int last_selected_row_ = -1;                 ///< 前回ハイライト表示した行(差分更新用)
 
     //  範囲記憶用
     float accumulated_min_ = std::numeric_limits<float>::max();
