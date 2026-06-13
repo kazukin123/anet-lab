@@ -476,6 +476,8 @@ void DictObservationNormalizer::AddNormalizer(const std::string& key, std::share
 
 anet::TensorDict DictObservationNormalizer::Normalize(const anet::TensorDict& obs) const
 {
+    ANET_PROFILE_FUNC();
+
     anet::TensorDict result;
     for (const auto& kv : obs) {
         auto it = normalizers_.find(kv.first);
@@ -492,6 +494,8 @@ anet::TensorDict DictObservationNormalizer::Normalize(const anet::TensorDict& ob
 
 anet::TensorDict DictObservationNormalizer::NormalizeAndUpdateStats(const anet::TensorDict& obs)
 {
+    ANET_PROFILE_FUNC();
+
     anet::TensorDict result;
     for (const auto& kv : obs) {
         auto it = normalizers_.find(kv.first);
@@ -506,6 +510,8 @@ anet::TensorDict DictObservationNormalizer::NormalizeAndUpdateStats(const anet::
 
 void DictObservationNormalizer::Reset()
 {
+    ANET_PROFILE_FUNC();
+
     for (auto& kv : normalizers_) {
         kv.second->Reset();
     }
@@ -597,6 +603,8 @@ ConstantRewardScaler::ConstantRewardScaler(float scale_factor, const std::option
 
 torch::Tensor ConstantRewardScaler::Scale(const torch::Tensor& reward)
 {
+    ANET_PROFILE_FUNC();
+
     // スケーリング
     auto scaled = reward * scale_factor_;
 

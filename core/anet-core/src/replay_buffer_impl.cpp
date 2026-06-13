@@ -203,6 +203,8 @@ void ValidIndexManager::AdvanceWriteCursor(int64_t env_idx)
 
 torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_steps, int n_step) const
 {
+    ANET_PROFILE_FUNC();
+
     std::vector<int64_t> valid_list;
     valid_list.reserve(num_envs_ * capacity_per_env_);
 
@@ -227,6 +229,8 @@ int64_t ValidIndexManager::GetValidCount() const
 
 int64_t ValidIndexManager::GetSampleableCount(int stack_count, int unroll_steps, int n_step) const
 {
+    ANET_PROFILE_FUNC();
+
     int64_t total = 0;
     for (int64_t env = 0; env < num_envs_; ++env) {
         ForEachSampleableIndex(env, stack_count, unroll_steps, n_step, [&](int64_t) {
@@ -640,6 +644,8 @@ public:
 #if 1
     IndexSampleResult SampleIndices(int64_t batch_size, const torch::Tensor& valid_indices_1d, float beta) override
     {
+        ANET_PROFILE_FUNC();
+
         int64_t valid_count = valid_indices_1d.size(0);
         auto rand_idx = torch::randint(0, valid_count, { batch_size }, gen_, opt_long_);
         auto indices = valid_indices_1d.index_select(0, rand_idx);
@@ -741,6 +747,8 @@ public:
 #if 1
     IndexSampleResult SampleIndices(int64_t batch_size, const torch::Tensor& valid_indices_1d, float beta) override
     {
+        ANET_PROFILE_FUNC();
+
         int64_t valid_count = valid_indices_1d.size(0);
         const int64_t* valid_ptr = valid_indices_1d.data_ptr<int64_t>();
 
@@ -863,6 +871,8 @@ public:
 
     void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override
     {
+        ANET_PROFILE_FUNC();
+
         //ANET_LOG_DEBUG("UpdatePriorities() indices=" << indices << " priorities=" << priorities);
         //LOG::info() << "UpdatePriorities() indices=" << indices << " priorities=" << priorities;
 
@@ -904,6 +914,8 @@ public:
 
     torch::Tensor GatherPriorityRows(const torch::Tensor& indices) const
     {
+        ANET_PROFILE_FUNC();
+
         auto indices_cpu = indices.to(torch::kCPU).contiguous();
         auto acc = indices_cpu.accessor<int64_t, 1>();
         std::vector<float> priorities(static_cast<size_t>(indices_cpu.size(0)));
@@ -938,6 +950,8 @@ public:
     {
         ANET_PROFILE_FUNC();
 
+        ANET_PROFILE_SCOPE(prepare);
+
         int64_t B = idx_result.indices.size(0);
         auto indices_acc = idx_result.indices.accessor<int64_t, 1>();
 
@@ -959,6 +973,7 @@ public:
         /// GPU上でストレージを持つ場合、Pythonの `tensor[batch_indices, time_indices]` のように
         /// 高度なインデックス演算 (Advanced Indexing) を用いてベクトル化された一括抽出にリファクタリングすることで更なる学習FPSの向上が見込める
 
+        ANET_PROFILE_SCOPE_NEXT(extract);
         for (int64_t b = 0; b < B; ++b) {
             int64_t idx1d = indices_acc[b];
             int64_t env_idx = idx1d / cap;
@@ -1080,6 +1095,7 @@ public:
 #endif
         }
 
+        ANET_PROFILE_SCOPE_NEXT(stack);
         // バッチスタック
         out.actions = torch::stack(batch_actions, 0);
         out.target_returns = torch::stack(batch_returns, 0);
@@ -1130,6 +1146,8 @@ DefaultReplayBuffer::DefaultReplayBuffer(
 
 void DefaultReplayBuffer::Push(const BatchExperience& batch)
 {
+    ANET_PROFILE_FUNC();
+
     // 事前に action の info を取得しておく
     anet::TensorDict action_info = batch.action->GetInfo();
 
@@ -1186,6 +1204,8 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
 
 void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
 {
+    ANET_PROFILE_FUNC();
+
     auto sequences = queue_controller_->ExtractSequences(queues_[env_idx]);
 
     std::vector<int64_t> newly_valid;
@@ -1223,6 +1243,8 @@ void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
 
 void DefaultReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const
 {
+	ANET_PROFILE_FUNC();
+
     auto valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
     ANET_ASSERT_MSG(valid_1d.size(0) >= minibatch_size, "Not enough valid samples in ReplayBuffer. size=" << valid_1d.size(0) << " minibatch_size=" << minibatch_size);
 

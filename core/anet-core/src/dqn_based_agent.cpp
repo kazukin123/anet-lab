@@ -1284,6 +1284,8 @@ bool Learner::CanUpdate(step_t exp_step) const
 anet::rl::BatchUpdateResultList
 Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::BatchExperience& experiences)
 {
+    ANET_PROFILE_FUNC();
+
     // ReplayBuffer へ push
     replay_buffer_->Push(experiences);
 

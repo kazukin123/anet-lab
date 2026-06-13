@@ -665,6 +665,8 @@ std::vector<SingleExperience> BatchExperience::ToExperienceList() const
 
 ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking) const
 {
+    ANET_PROFILE_FUNC();
+
     // GPUデバイスへの転送時のみストリームガードを有効にする
     if (device.is_cuda()) {
         auto stream = at::cuda::getDefaultCUDAStream();
