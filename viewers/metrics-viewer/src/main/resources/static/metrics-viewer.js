@@ -31,13 +31,26 @@ function getRunColors() {
 	return RUN_COLORS;
 }
 
+function sliceTraceField(field, startIdx, endIdx) {
+	if (!field) return field;
+	if (typeof field.subarray === "function") return field.subarray(startIdx, endIdx);
+	if (typeof field.slice === "function") return field.slice(startIdx, endIdx);
+	return field;
+}
+
+function makeTraceFieldBuffer(field, length) {
+	if (!field) return null;
+	if (ArrayBuffer.isView(field) && field.constructor) return new field.constructor(length);
+	return new Array(length);
+}
+
 /**
  * TypedArray対応の高速デシメーション
  * O(N/log N)程度のキャッシュ効率で動作
- * @param {{x: Int32Array|Float32Array, y: Float32Array}} trace 
+ * @param {{x: Int32Array|Float32Array, y: Float32Array, customdata?: Array|TypedArray}} trace
  * @param {number} maxPoints 最大プロット点数
  * @param {[number, number]|null} range 表示範囲 [xmin, xmax]
- * @returns {{x: Int32Array|Float32Array, y: Float32Array}}
+ * @returns {{x: Int32Array|Float32Array, y: Float32Array, customdata?: Array|TypedArray}}
  */
 function decimateTrace(trace, maxPoints = 8000, range = null) {
   if (!trace.x || trace.x.length <= maxPoints) return trace;
@@ -66,7 +79,12 @@ function decimateTrace(trace, maxPoints = 8000, range = null) {
 
   const visibleCount = endIdx - startIdx;
   if (visibleCount <= maxPoints) {
-    return { ...trace, x: x.subarray(startIdx, endIdx), y: y.subarray(startIdx, endIdx) };
+    return {
+      ...trace,
+      x: x.subarray(startIdx, endIdx),
+      y: y.subarray(startIdx, endIdx),
+      customdata: sliceTraceField(trace.customdata, startIdx, endIdx)
+    };
   }
 
   const step = Math.ceil(visibleCount / maxPoints);
@@ -74,16 +92,19 @@ function decimateTrace(trace, maxPoints = 8000, range = null) {
 
   const outX = new (x.constructor)(outLen);
   const outY = new (y.constructor)(outLen);
+  const outCustomData = makeTraceFieldBuffer(trace.customdata, outLen);
   for (let i = 0, j = startIdx; j < endIdx && i < outLen; j += step, i++) {
     outX[i] = x[j];
     outY[i] = y[j];
+    if (outCustomData) outCustomData[i] = trace.customdata[j];
   }
 
   // traceをクローンしてメタ情報維持
   return {
     ...trace,
     x: outX,
-    y: outY
+    y: outY,
+    customdata: outCustomData ?? trace.customdata
   };
 }
 
@@ -373,6 +394,190 @@ class PlotlyController {
 		opacity: multi ? 0.8 : 1.0
 	  };
 	}
+
+	static _signedLogValue(value) {
+		if (value === 0 || !Number.isFinite(value)) return value;
+		return Math.sign(value) * Math.log10(1 + Math.abs(value));
+	}
+
+	static _signedLogRawValue(value) {
+		if (value === 0 || !Number.isFinite(value)) return value;
+		return Math.sign(value) * (Math.pow(10, Math.abs(value)) - 1);
+	}
+
+	_toSignedLogValues(values) {
+		const transformed = new Float32Array(values.length);
+		for (let i = 0; i < values.length; i++) {
+			transformed[i] = PlotlyController._signedLogValue(Number(values[i]));
+		}
+		return transformed;
+	}
+
+	_toDisplayTrace(trace, signedLogScale) {
+		if (!signedLogScale) return { ...trace };
+		return {
+			...trace,
+			y: this._toSignedLogValues(trace.y),
+			customdata: trace.y,
+			hovertemplate: "run=%{fullData.name}<br>step=%{x}<br>value=%{customdata:.6g}<extra></extra>"
+		};
+	}
+
+	_toDisplayTraces(traces, signedLogScale, range = null) {
+		return traces
+			.map(trace => this._toDisplayTrace(trace, signedLogScale))
+			.map(trace => decimateTrace(trace, MAX_POINTS, range));
+	}
+
+	_makeLayout(width, showLegend, signedLogScale, traces, ranges = {}) {
+		const layout = {
+			margin: { t: 30, b: 20, l: 50, r: 10 }, height: 300, width, autosize:false,
+			plot_bgcolor: "#111", paper_bgcolor: "#111", font: { color: "#ccc" },
+			xaxis: this._makeXAxis(ranges.xRange), yaxis: this._makeYAxis(signedLogScale, traces, ranges),
+			showlegend: showLegend
+		};
+		if (ranges.dragMode) {
+			layout.dragmode = ranges.dragMode;
+		}
+		return layout;
+	}
+
+	_makeXAxis(xRange) {
+		const xaxis = { gridcolor: "#444" };
+		if (Array.isArray(xRange) && xRange.length === 2) {
+			xaxis.range = xRange.slice();
+		}
+		return xaxis;
+	}
+
+	_makeYAxis(signedLogScale, traces, ranges = {}) {
+		const yaxis = { gridcolor: "#444", type: "linear" };
+		if (Array.isArray(ranges.yRange) && ranges.yRange.length === 2) {
+			yaxis.range = ranges.yRange.slice();
+		}
+		if (!signedLogScale) return yaxis;
+
+		const ticks = this._makeSignedLogTicks(traces, ranges);
+		return {
+			...yaxis,
+			zeroline: true,
+			zerolinecolor: "#666",
+			tickmode: "array",
+			tickvals: ticks.map(value => PlotlyController._signedLogValue(value)),
+			ticktext: ticks.map(value => this._formatTickValue(value))
+		};
+	}
+
+	_makeSignedLogTicks(traces, ranges = {}) {
+		const rawRange = this._makeSignedLogRawRange(traces, ranges);
+		if (!rawRange) return [0];
+		let { min, max } = rawRange;
+		if (min > max) {
+			const temp = min;
+			min = max;
+			max = temp;
+		}
+		if (min === 0 && max === 0) return [0];
+
+		const ticks = new Set();
+		if (min <= 0 && 0 <= max) ticks.add(0);
+
+		const maxAbs = Math.max(Math.abs(min), Math.abs(max));
+		const minPower = Math.min(0, Math.floor(Math.log10(maxAbs)));
+		const maxPower = Math.max(0, Math.floor(Math.log10(maxAbs)));
+		for (let power = minPower; power <= maxPower; power++) {
+			const value = Math.pow(10, power);
+			if (min <= -value && -value <= max) ticks.add(-value);
+			if (min <= value && value <= max) ticks.add(value);
+		}
+
+		if (ticks.size < 2) {
+			ticks.add(min);
+			ticks.add(max);
+		}
+		return Array.from(ticks).sort((a, b) => a - b);
+	}
+
+	_makeSignedLogRawRange(traces, ranges = {}) {
+		if (Array.isArray(ranges.yRange) && ranges.yRange.length === 2) {
+			const y0 = PlotlyController._signedLogRawValue(Number(ranges.yRange[0]));
+			const y1 = PlotlyController._signedLogRawValue(Number(ranges.yRange[1]));
+			if (Number.isFinite(y0) && Number.isFinite(y1)) {
+				return { min: Math.min(y0, y1), max: Math.max(y0, y1) };
+			}
+		}
+		const xRange = Array.isArray(ranges.xRange) && ranges.xRange.length === 2 ? ranges.xRange : null;
+		let min = Infinity;
+		let max = -Infinity;
+		for (const trace of traces) {
+			for (let i = 0; i < trace.y.length; i++) {
+				if (xRange) {
+					const x = Number(trace.x[i]);
+					if (!Number.isFinite(x) || x < xRange[0] || x > xRange[1]) continue;
+				}
+				const value = Number(trace.y[i]);
+				if (!Number.isFinite(value)) continue;
+				min = Math.min(min, value);
+				max = Math.max(max, value);
+			}
+		}
+		if (Number.isFinite(min) && Number.isFinite(max)) return { min, max };
+		if (!xRange) return null;
+		return this._makeSignedLogRawRange(traces, {});
+	}
+
+	_readAxisRange(axisLayout, axisName, event) {
+		const range = event?.[`${axisName}.range`];
+		if (Array.isArray(range) && range.length === 2) return range.slice();
+
+		const range0 = event?.[`${axisName}.range[0]`];
+		const range1 = event?.[`${axisName}.range[1]`];
+		if (range0 != null && range1 != null) return [range0, range1];
+
+		if (event?.[`${axisName}.autorange`]) return null;
+		if (Array.isArray(axisLayout?.range) && axisLayout.range.length === 2) return axisLayout.range.slice();
+		return null;
+	}
+
+	_hasAxisRangeEvent(event) {
+		return event && Object.keys(event).some(key =>
+			key === "xaxis.range" ||
+			key === "yaxis.range" ||
+			key === "xaxis.range[0]" ||
+			key === "xaxis.range[1]" ||
+			key === "yaxis.range[0]" ||
+			key === "yaxis.range[1]" ||
+			key === "xaxis.autorange" ||
+			key === "yaxis.autorange");
+	}
+
+	_readAxisRanges(plotDiv, event) {
+		return {
+			xRange: this._readAxisRange(plotDiv.layout?.xaxis, "xaxis", event),
+			yRange: this._readAxisRange(plotDiv.layout?.yaxis, "yaxis", event),
+			dragMode: plotDiv.layout?.dragmode ?? plotDiv._fullLayout?.dragmode
+		};
+	}
+
+	_reactPlot(plotDiv, traces, layout) {
+		plotDiv.__mvUpdatingPlot = true;
+		try {
+			Promise.resolve(Plotly.react(plotDiv, traces, layout)).finally(() => {
+				plotDiv.__mvUpdatingPlot = false;
+			});
+		} catch (e) {
+			plotDiv.__mvUpdatingPlot = false;
+			throw e;
+		}
+	}
+
+	_formatTickValue(value) {
+		if (value === 0) return "0";
+		const abs = Math.abs(value);
+		if (abs >= 10000 || abs < 0.001) return value.toExponential(0).replace("e+", "e");
+		if (Number.isInteger(value)) return String(value);
+		return String(Number(value.toPrecision(6)));
+	}
 	
 	renderBySelection(containerSel, runIds, tagKeys, cache) {
 		const area = $(containerSel).empty();
@@ -396,7 +601,7 @@ class PlotlyController {
 				<div class="graph-block">
 					<div class="graph-header">
 						<div class="graph-title">${tagKey}</div>
-						<button type="button" class="graph-log-toggle${logActiveClass}" aria-pressed="${logPressed}" title="Toggle log scale">Log</button>
+						<button type="button" class="graph-log-toggle${logActiveClass}" aria-pressed="${logPressed}" title="Toggle signed log scale">Log</button>
 					</div>
 					<div id="${id}"></div>
 				</div>
@@ -416,14 +621,9 @@ class PlotlyController {
 			}
 			if (!traces.length) continue;
 			// 画面幅ピクセル数前提でデータ間引き処理（最大点数を超える場合に実行）
-			const reducedTraces = traces.map(t => decimateTrace(t, MAX_POINTS));
+			const reducedTraces = this._toDisplayTraces(traces, isLogScale);
 			//グラフ作成
-			const layout = 	{
-					margin: { t: 30, b: 20, l: 50, r: 10 }, height: 300, width: area.width(), autosize:false,
-					plot_bgcolor: "#111", paper_bgcolor: "#111", font: { color: "#ccc" },
-					xaxis: { gridcolor: "#444" }, yaxis: { gridcolor: "#444", type: isLogScale ? "log" : "linear" },
-					showlegend: (runIds.length > 1)
-				};
+			const layout = this._makeLayout(area.width(), runIds.length > 1, isLogScale, traces);
 			Plotly.newPlot(id, reducedTraces, layout,
 				{ displayModeBar:'hover', responsive: false, useResizeHandler: false });
 
@@ -440,13 +640,24 @@ class PlotlyController {
 				const button = e.currentTarget;
 				button.classList.toggle("active", enabled);
 				button.setAttribute("aria-pressed", enabled ? "true" : "false");
-				Plotly.relayout(plotDiv, { "yaxis.type": enabled ? "log" : "linear" });
+				const nextLayout = this._makeLayout(area.width(), runIds.length > 1, enabled, traces, {
+					dragMode: plotDiv.layout?.dragmode ?? plotDiv._fullLayout?.dragmode
+				});
+				const currentRange = plotDiv.layout?.xaxis?.range;
+				if (Array.isArray(currentRange) && currentRange.length === 2) {
+					nextLayout.xaxis.range = currentRange.slice();
+				}
+				this._reactPlot(plotDiv, this._toDisplayTraces(traces, enabled, nextLayout.xaxis.range), nextLayout);
 			});
 			plotDiv.on('plotly_relayout', (e) => {
-				if (!e['xaxis.range[0]'] || !e['xaxis.range[1]']) return;
-				const xmin = e['xaxis.range[0]'], xmax = e['xaxis.range[1]'];
-				const zoomedTraces = traces.map(t => decimateTrace(t, MAX_POINTS, [xmin, xmax]));
-				Plotly.react(plotDiv, zoomedTraces, plotDiv.layout);
+				if (plotDiv.__mvUpdatingPlot) return;
+				if (!this._hasAxisRangeEvent(e)) return;
+				const ranges = this._readAxisRanges(plotDiv, e);
+				if (!ranges.xRange && !ranges.yRange) return;
+				const signedLogScale = this.app.logScaleTags.has(tagKey);
+				const zoomedTraces = this._toDisplayTraces(traces, signedLogScale, ranges.xRange);
+				const nextLayout = this._makeLayout(area.width(), runIds.length > 1, signedLogScale, traces, ranges);
+				this._reactPlot(plotDiv, zoomedTraces, nextLayout);
 			});
 			drawn = true;
 		}

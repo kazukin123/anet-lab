@@ -40,6 +40,7 @@ class PalettePlaywrightTest {
 	private static final String TAG_A = "tag/a";
 	private static final String TAG_B = "tag/b";
 	private static final String TAG_C = "tag/c";
+	private static final String SIGNED_LOG_TAG = "signed/log";
 	private static final Path TEST_RUNS_DIR = Path.of("target/playwright-test-empty-runs");
 
 	private static final List<String> RUN_COLORS = List.of(
@@ -124,29 +125,129 @@ class PalettePlaywrightTest {
 					waitForGraph(page);
 
 					assertEquals("linear", readYAxisType(page));
+					assertEquals("Toggle signed log scale", page.getAttribute(".graph-log-toggle", "title"));
 
 					page.click(".graph-log-toggle");
-					page.waitForFunction("document.querySelector('.js-plotly-plot')._fullLayout.yaxis.type === 'log'",
-							null, new Page.WaitForFunctionOptions().setTimeout(30000));
-					assertEquals("log", readYAxisType(page));
+					waitForSignedLogTrace(page);
+					assertEquals("linear", readYAxisType(page));
 
 					page.click("#btn-reload");
 					waitForGraph(page);
-					page.waitForFunction("document.querySelector('.js-plotly-plot')._fullLayout.yaxis.type === 'log'",
-							null, new Page.WaitForFunctionOptions().setTimeout(30000));
-					assertEquals("log", readYAxisType(page));
+					waitForSignedLogTrace(page);
+					assertEquals("linear", readYAxisType(page));
 
 					page.click("#btn-auto-reload");
 					page.evaluate("app.onReload()");
 					waitForGraph(page);
-					page.waitForFunction("document.querySelector('.js-plotly-plot')._fullLayout.yaxis.type === 'log'",
-							null, new Page.WaitForFunctionOptions().setTimeout(30000));
-					assertEquals("log", readYAxisType(page));
+					waitForSignedLogTrace(page);
+					assertEquals("linear", readYAxisType(page));
 
 					page.reload(new Page.ReloadOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
 					waitForGraph(page);
 					assertEquals("linear", readYAxisType(page));
 					assertEquals("false", page.getAttribute(".graph-log-toggle", "aria-pressed"));
+				} finally {
+					context.close();
+				}
+			} finally {
+				browser.close();
+			}
+		}
+	}
+
+	@Test
+	void signedLogScaleKeepsNegativeZeroAndPositiveValues() {
+		final String baseUrl = "http://127.0.0.1:" + port;
+
+		assumeTrue(isMicrosoftEdgeInstalled(), "Microsoft Edge is not installed.");
+
+		try (Playwright playwright = Playwright.create()) {
+			final Browser browser = launchMicrosoftEdge(playwright);
+			try {
+				final BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+						.setViewportSize(1280, 720));
+				try {
+					final Page page = context.newPage();
+					page.route("**/api/runs.json", route -> fulfillJson(route, signedLogRunsJson()));
+					page.route("**/api/metrics.json", route -> fulfillJson(route, signedLogMetricsJson()));
+
+					page.navigate(baseUrl + "/?signedLogScaleTest=" + System.nanoTime(),
+							new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					waitForGraph(page);
+
+					page.click(".graph-log-toggle");
+					waitForSignedLogMixedSignTrace(page);
+					assertEquals("linear", readYAxisType(page));
+				} finally {
+					context.close();
+				}
+			} finally {
+				browser.close();
+			}
+		}
+	}
+
+	@Test
+	void signedLogZoomKeepsYAxisTickLabelsVisible() {
+		final String baseUrl = "http://127.0.0.1:" + port;
+
+		assumeTrue(isMicrosoftEdgeInstalled(), "Microsoft Edge is not installed.");
+
+		try (Playwright playwright = Playwright.create()) {
+			final Browser browser = launchMicrosoftEdge(playwright);
+			try {
+				final BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+						.setViewportSize(1280, 720));
+				try {
+					final Page page = context.newPage();
+					page.route("**/api/runs.json", route -> fulfillJson(route, signedLogRunsJson()));
+					page.route("**/api/metrics.json", route -> fulfillJson(route, signedLogZoomMetricsJson()));
+
+					page.navigate(baseUrl + "/?signedLogZoomTickTest=" + System.nanoTime(),
+							new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					waitForGraph(page);
+
+					page.click(".graph-log-toggle");
+					waitForSignedLogZoomSourceTrace(page);
+					zoomToSignedLogRange(page, 1, 3, 20, 30);
+					waitForSignedLogZoomTicks(page);
+				} finally {
+					context.close();
+				}
+			} finally {
+				browser.close();
+			}
+		}
+	}
+
+	@Test
+	void signedLogZoomDoesNotResetPlotlyPanMode() {
+		final String baseUrl = "http://127.0.0.1:" + port;
+
+		assumeTrue(isMicrosoftEdgeInstalled(), "Microsoft Edge is not installed.");
+
+		try (Playwright playwright = Playwright.create()) {
+			final Browser browser = launchMicrosoftEdge(playwright);
+			try {
+				final BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+						.setViewportSize(1280, 720));
+				try {
+					final Page page = context.newPage();
+					page.route("**/api/runs.json", route -> fulfillJson(route, signedLogRunsJson()));
+					page.route("**/api/metrics.json", route -> fulfillJson(route, signedLogZoomMetricsJson()));
+
+					page.navigate(baseUrl + "/?signedLogPanModeTest=" + System.nanoTime(),
+							new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					waitForGraph(page);
+
+					page.click(".graph-log-toggle");
+					waitForSignedLogZoomSourceTrace(page);
+					zoomToSignedLogRange(page, 1, 3, 20, 30);
+					waitForSignedLogZoomTicks(page);
+					setPlotlyPanMode(page);
+					waitForPlotlyDragMode(page, "pan");
+					zoomToSignedLogRange(page, 1, 4, 20, 100);
+					waitForPlotlyDragMode(page, "pan");
 				} finally {
 					context.close();
 				}
@@ -395,6 +496,33 @@ class PalettePlaywrightTest {
 		return sb.toString();
 	}
 
+	private static String signedLogRunsJson() {
+		return """
+				{"runs":[
+					{"id":"run_signed","stats":{"maxStep":4},
+						"tags":[{"key":"%s","type":"scalar"}]}
+				]}
+				""".formatted(SIGNED_LOG_TAG);
+	}
+
+	private static String signedLogMetricsJson() {
+		return """
+				{"data":[
+					{"runId":"run_signed","tagKey":"%s","type":"scalar","beginStep":0,"endStep":4,
+						"steps":[0,1,2,3,4],"values":[-100,-9,0,9,100]}
+				]}
+				""".formatted(SIGNED_LOG_TAG);
+	}
+
+	private static String signedLogZoomMetricsJson() {
+		return """
+				{"data":[
+					{"runId":"run_signed","tagKey":"%s","type":"scalar","beginStep":0,"endStep":4,
+						"steps":[0,1,2,3,4],"values":[-100,20,25,30,100]}
+				]}
+				""".formatted(SIGNED_LOG_TAG);
+	}
+
 	private static String splitTagRunsJson() {
 		return """
 				{"runs":[
@@ -458,6 +586,130 @@ class PalettePlaywrightTest {
 					return plot ? (plot._fullLayout?.yaxis?.type || plot.layout?.yaxis?.type || 'linear') : '';
 				})()
 				""");
+	}
+
+	private static void waitForSignedLogTrace(Page page) {
+		page.waitForFunction("""
+				() => {
+					const plot = document.querySelector('.js-plotly-plot');
+					const button = document.querySelector('.graph-log-toggle');
+					if (!plot || !button || button.getAttribute('aria-pressed') !== 'true') return false;
+					if ((plot._fullLayout?.yaxis?.type || plot.layout?.yaxis?.type) !== 'linear') return false;
+
+					const y = Array.from(plot.data?.[0]?.y ?? []);
+					const customdata = Array.from(plot.data?.[0]?.customdata ?? []);
+					const ticktext = Array.from(plot._fullLayout?.yaxis?.ticktext ?? plot.layout?.yaxis?.ticktext ?? []);
+					return y.length === 3
+						&& customdata.length === 3
+						&& customdata.every((raw, index) => {
+							const value = Number(raw);
+							const expectedY = value === 0 ? 0 : Math.sign(value) * Math.log10(1 + Math.abs(value));
+							return Number.isFinite(value)
+								&& Number.isFinite(Number(y[index]))
+								&& Math.abs(Number(y[index]) - expectedY) < 0.00001;
+						})
+						&& ticktext.length > 0;
+				}
+				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	private static void waitForSignedLogMixedSignTrace(Page page) {
+		page.waitForFunction("""
+				() => {
+					const plot = document.querySelector('.js-plotly-plot');
+					const button = document.querySelector('.graph-log-toggle');
+					if (!plot || !button || button.getAttribute('aria-pressed') !== 'true') return false;
+					if ((plot._fullLayout?.yaxis?.type || plot.layout?.yaxis?.type) !== 'linear') return false;
+
+					const expectedRaw = [-100, -9, 0, 9, 100];
+					const y = Array.from(plot.data?.[0]?.y ?? []);
+					const customdata = Array.from(plot.data?.[0]?.customdata ?? []);
+					const ticktext = Array.from(plot._fullLayout?.yaxis?.ticktext ?? plot.layout?.yaxis?.ticktext ?? []);
+					const requiredTicks = ['-100', '-10', '-1', '0', '1', '10', '100'];
+					return y.length === expectedRaw.length
+						&& customdata.length === expectedRaw.length
+						&& expectedRaw.every((raw, index) => {
+							const expectedY = raw === 0 ? 0 : Math.sign(raw) * Math.log10(1 + Math.abs(raw));
+							return Number(customdata[index]) === raw
+								&& Number.isFinite(Number(y[index]))
+								&& Math.abs(Number(y[index]) - expectedY) < 0.00001;
+						})
+						&& requiredTicks.every(tick => ticktext.includes(tick));
+				}
+				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	private static void waitForSignedLogZoomSourceTrace(Page page) {
+		page.waitForFunction("""
+				() => {
+					const plot = document.querySelector('.js-plotly-plot');
+					const button = document.querySelector('.graph-log-toggle');
+					if (!plot || !button || button.getAttribute('aria-pressed') !== 'true') return false;
+
+					const expectedRaw = [-100, 20, 25, 30, 100];
+					const customdata = Array.from(plot.data?.[0]?.customdata ?? []);
+					return expectedRaw.length === customdata.length
+						&& expectedRaw.every((raw, index) => Number(customdata[index]) === raw);
+				}
+				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	private static void zoomToSignedLogRange(Page page, int minStep, int maxStep, double minValue, double maxValue) {
+		page.evaluate("""
+				({ minStep, maxStep, minValue, maxValue }) => {
+					const plot = document.querySelector('.js-plotly-plot');
+					const signedLog = value => Math.sign(value) * Math.log10(1 + Math.abs(value));
+					return Plotly.relayout(plot, {
+						'xaxis.range[0]': minStep,
+						'xaxis.range[1]': maxStep,
+						'yaxis.range[0]': signedLog(minValue),
+						'yaxis.range[1]': signedLog(maxValue)
+					});
+				}
+				""", Map.of(
+				"minStep", minStep,
+				"maxStep", maxStep,
+				"minValue", minValue,
+				"maxValue", maxValue));
+	}
+
+	private static void waitForSignedLogZoomTicks(Page page) {
+		page.waitForFunction("""
+				() => {
+					const plot = document.querySelector('.js-plotly-plot');
+					const yaxis = plot?._fullLayout?.yaxis ?? plot?.layout?.yaxis;
+					const tickvals = Array.from(yaxis?.tickvals ?? []);
+					const ticktext = Array.from(yaxis?.ticktext ?? []);
+					const range = Array.from(yaxis?.range ?? []);
+					if (range.length !== 2 || tickvals.length !== ticktext.length) return false;
+
+					const visibleTicktext = ticktext.filter((_, index) => {
+						const value = Number(tickvals[index]);
+						return Number.isFinite(value)
+							&& range[0] - 0.000001 <= value
+							&& value <= range[1] + 0.000001;
+					});
+					return visibleTicktext.includes('20') && visibleTicktext.includes('30');
+				}
+				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	private static void setPlotlyPanMode(Page page) {
+		page.evaluate("""
+				() => {
+					const plot = document.querySelector('.js-plotly-plot');
+					return Plotly.relayout(plot, { dragmode: 'pan' });
+				}
+				""");
+	}
+
+	private static void waitForPlotlyDragMode(Page page, String dragMode) {
+		page.waitForFunction("""
+				dragMode => {
+					const plot = document.querySelector('.js-plotly-plot');
+					return (plot?._fullLayout?.dragmode ?? plot?.layout?.dragmode) === dragMode;
+				}
+				""", dragMode, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
 	@SuppressWarnings("unchecked")
