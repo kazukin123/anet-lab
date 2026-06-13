@@ -149,6 +149,7 @@ net.block.[TransEnc].tf.nhead = 4              # マルチヘッドアテンシ�
 net.block.[TransEnc].tf.num_layers = 2         # Transformer層の繰り返し数
 net.block.[TransEnc].tf.dim_feedforward = 128  # FFNの中間次元数 (通常d_modelの2～4倍)
 net.block.[TransEnc].tf.norm_first = true      # Pre-LNの有効化 (強化学習ではtrue推奨) DEFAULT:true
+net.block.[TransEnc].tf.use_sdpa = true        # SDPA/FlashAttention経路を使用。falseで従来MHA経路
 net.block.[TransEnc].tf.activation = gelu      # 内部の活性化関数 (gelu 推奨) DEFAULT:gelu 
 
 

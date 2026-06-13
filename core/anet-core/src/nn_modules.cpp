@@ -1247,11 +1247,60 @@ private:
 //  TransformerEncoder Module
 // ===========================================================================
 
+torch::Tensor anet::nn::SdpaSelfAttention(const torch::nn::MultiheadAttention& mha, const torch::Tensor& x)
+{
+    namespace F = torch::nn::functional;
+
+    ANET_CHECK_MSG(x.dim() == 3, "SdpaSelfAttention: input must have shape [B, S, E]. actual_dim=" << x.dim());
+    ANET_CHECK_MSG(mha->_qkv_same_embed_dim, "SdpaSelfAttention: separate q/k/v projection is not supported.");
+    ANET_CHECK_MSG(!mha->bias_k.defined() && !mha->bias_v.defined(), "SdpaSelfAttention: add_bias_kv is not supported.");
+    ANET_CHECK_MSG(mha->in_proj_weight.defined(), "SdpaSelfAttention: in_proj_weight is undefined.");
+    ANET_CHECK_MSG(mha->out_proj, "SdpaSelfAttention: out_proj is undefined.");
+
+    const int64_t batch_size = x.size(0);
+    const int64_t seq_len = x.size(1);
+    const int64_t embed_dim = x.size(2);
+    const int64_t expected_embed_dim = mha->in_proj_weight.size(1);
+    const int64_t num_heads = mha->options.num_heads();
+    const int64_t head_dim = mha->head_dim;
+
+    ANET_CHECK_MSG(embed_dim == expected_embed_dim,
+        "SdpaSelfAttention: input embed_dim mismatch. expected=" << expected_embed_dim << " actual=" << embed_dim);
+    ANET_CHECK_MSG(mha->in_proj_weight.size(0) == 3 * expected_embed_dim,
+        "SdpaSelfAttention: in_proj_weight must have shape [3E, E]. actual=" << mha->in_proj_weight.sizes());
+    ANET_CHECK_MSG(num_heads > 0, "SdpaSelfAttention: num_heads must be positive. actual=" << num_heads);
+    ANET_CHECK_MSG(head_dim > 0 && embed_dim == num_heads * head_dim,
+        "SdpaSelfAttention: invalid head layout. embed_dim=" << embed_dim
+        << " num_heads=" << num_heads << " head_dim=" << head_dim);
+
+    // QKVをまとめて射影し、最後の次元を [Q, K, V] に分割する。
+    torch::Tensor qkv = F::linear(x, mha->in_proj_weight, mha->in_proj_bias);
+    std::vector<torch::Tensor> chunks = qkv.chunk(3, /*dim=*/-1);
+
+    auto to_heads = [&](const torch::Tensor& t) {
+        return t.reshape({ batch_size, seq_len, num_heads, head_dim }).transpose(1, 2);
+    };
+
+    torch::Tensor q = to_heads(chunks[0]);
+    torch::Tensor k = to_heads(chunks[1]);
+    torch::Tensor v = to_heads(chunks[2]);
+
+    const double dropout_p = mha->is_training() ? mha->options.dropout() : 0.0;
+    torch::Tensor attn = at::scaled_dot_product_attention(
+        q, k, v, /*attn_mask=*/{}, dropout_p, /*is_causal=*/false);
+
+    attn = attn.transpose(1, 2).reshape({ batch_size, seq_len, embed_dim });
+    return F::linear(attn, mha->out_proj->weight, mha->out_proj->bias);
+}
+
 /// libtorchの制約（Post-LN固定、[SeqLen, Batch, d_model] 形式の入力）を突破するためカスタムのTransformer層を用意
 class CustomTransformerEncoderLayer : public torch::nn::Module {
 public:
-    CustomTransformerEncoderLayer(int64_t d_model, int64_t nhead, int64_t dim_feedforward, bool norm_first, const std::string& activation)
+    CustomTransformerEncoderLayer(
+        int64_t d_model, int64_t nhead, int64_t dim_feedforward,
+        bool norm_first, const std::string& activation, bool use_sdpa)
         : norm_first_(norm_first)
+        , use_sdpa_(use_sdpa)
     {
         // Multihead Attention
         torch::nn::MultiheadAttentionOptions mha_opts(d_model, nhead);
@@ -1287,16 +1336,18 @@ public:
             ANET_PROFILE_SCOPE(attn_norm);
             torch::Tensor x_norm = norm1_->forward(x);
 
-            // libtorchのMHAは [SeqLen, Batch, d_model] しか受け付けないため明示的に転置
             ANET_PROFILE_SCOPE_NEXT(self_attn);
-            torch::Tensor x_norm_t = x_norm.transpose(0, 1);
+            torch::Tensor attn_out;
+            if (use_sdpa_) {
+                attn_out = anet::nn::SdpaSelfAttention(mha_, x_norm);
+            } else {
+                // libtorchのMHAは [SeqLen, Batch, d_model] 形式なので旧経路だけ転置する。
+                torch::Tensor x_norm_t = x_norm.transpose(0, 1);
+                attn_out = std::get<0>(mha_->forward(x_norm_t, x_norm_t, x_norm_t)).transpose(0, 1);
+            }
 
-            // MultiheadAttention (Query, Key, Value)
-            auto mha_out = std::get<0>(mha_->forward(x_norm_t, x_norm_t, x_norm_t));
-
-            // 転置して戻し、Skip Connection (Add)
             ANET_PROFILE_SCOPE_NEXT(attn_residual);
-            x = x + mha_out.transpose(0, 1);
+            x = x + attn_out;
 
             // --- FFN Block ---
             ANET_PROFILE_SCOPE_NEXT(ffn_norm);
@@ -1317,10 +1368,16 @@ public:
             // ==========================================
 
             ANET_PROFILE_SCOPE(self_attn);
-            torch::Tensor x_t = x.transpose(0, 1);
-            auto mha_out = std::get<0>(mha_->forward(x_t, x_t, x_t));
+            torch::Tensor attn_out;
+            if (use_sdpa_) {
+                attn_out = anet::nn::SdpaSelfAttention(mha_, x);
+            } else {
+                // libtorchのMHAは [SeqLen, Batch, d_model] 形式なので旧経路だけ転置する。
+                torch::Tensor x_t = x.transpose(0, 1);
+                attn_out = std::get<0>(mha_->forward(x_t, x_t, x_t)).transpose(0, 1);
+            }
             ANET_PROFILE_SCOPE_NEXT(attn_residual_norm);
-            x = norm1_->forward(x + mha_out.transpose(0, 1));
+            x = norm1_->forward(x + attn_out);
 
             ANET_PROFILE_SCOPE_NEXT(ffn_linear1);
             torch::Tensor ffn_out = linear1_->forward(x);
@@ -1337,6 +1394,7 @@ public:
 
 private:
     bool norm_first_;
+    bool use_sdpa_;
     bool use_gelu_;
     torch::nn::MultiheadAttention mha_{ nullptr };
     torch::nn::Linear linear1_{ nullptr };
@@ -1351,6 +1409,7 @@ struct TransformerConfig {
     int num_layers = 2;
     int dim_feedforward = 128;
     bool norm_first = true;             ///< Pre-LN default
+    bool use_sdpa = true;               ///< SDPA/FlashAttention経路を使う
     std::string activation = "gelu";    ///< relu / gelu
 };
 
@@ -1365,7 +1424,8 @@ public:
         // カスタムレイヤーをループで生成・登録
         for (int i = 0; i < config_.num_layers; ++i) {
             auto layer = std::make_shared<CustomTransformerEncoderLayer>(
-                config_.d_model, config_.nhead, config_.dim_feedforward, config_.norm_first, config_.activation
+                config_.d_model, config_.nhead, config_.dim_feedforward,
+                config_.norm_first, config_.activation, config_.use_sdpa
             );
             layers_.push_back(register_module("layer_" + std::to_string(i), layer));
         }
@@ -1423,6 +1483,7 @@ public:
         cd.Set("num_layers", config_.num_layers);
         cd.Set("dim_feedforward", config_.dim_feedforward);
         cd.Set("norm_first", ToConfigBool(config_.norm_first));
+        cd.Set("use_sdpa", ToConfigBool(config_.use_sdpa));
         cd.Set("activation", config_.activation);
         return cd;
     }
@@ -1444,6 +1505,7 @@ private:
             ANET_READ_CONFIG(config_data, tf.num_layers);
             ANET_READ_CONFIG(config_data, tf.dim_feedforward);
             ANET_READ_CONFIG(config_data, tf.norm_first);
+            ANET_READ_CONFIG(config_data, tf.use_sdpa);
             ANET_READ_CONFIG(config_data, tf.activation);
         }
     };
