@@ -1,0 +1,5 @@
+[bugtraq]
+url = https://github.com/kazukin123/anet-lab/issues/%BUGID%
+message = #%BUGID%
+logregex = "(?i)(?:fixes|closes|resolves|refs|issues?)\\s*(?:#\\d+(?:,\\s*#\\d+)*)"
+logregex = "#(\\d+)"
