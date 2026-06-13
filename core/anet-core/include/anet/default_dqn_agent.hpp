@@ -154,6 +154,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.alpha);
             ANET_READ_CONFIG(config_data, learner.weight_decay);
             ANET_READ_CONFIG(config_data, learner.adam_eps);
+            ANET_READ_CONFIG(config_data, learner.use_fused_optimizer);
             ANET_READ_CONFIG(config_data, learner.gamma);
             ANET_READ_CONFIG(config_data, learner.use_grad_clip);
             ANET_READ_CONFIG(config_data, learner.grad_clip_tau);

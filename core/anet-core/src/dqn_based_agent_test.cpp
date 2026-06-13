@@ -599,6 +599,17 @@ TEST_CASE("DefaultDQNAgentConfig reads and validates TBO settings", "[dqn][confi
     CHECK(config.learner.tbo_epsilon == Catch::Approx(0.02f));
 }
 
+TEST_CASE("DefaultDQNAgentConfig reads fused optimizer setting", "[dqn][config][optimizer]")
+{
+    dqn::DefaultDQNAgentConfig default_config(anet::ConfigData{});
+    CHECK(default_config.learner.use_fused_optimizer);
+
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.learner.use_fused_optimizer", "false");
+    dqn::DefaultDQNAgentConfig config(config_data);
+    CHECK_FALSE(config.learner.use_fused_optimizer);
+}
+
 TEST_CASE("DefaultDQNAgentConfig rejects invalid TBO epsilon", "[dqn][config][tbo]")
 {
     for (const auto& value : { "0", "-0.01", "nan", "inf" }) {
@@ -617,6 +628,16 @@ TEST_CASE("RainbowAgentConfig keeps TBO disabled", "[dqn][config][tbo]")
     dqn::RainbowAgentConfig config(config_data);
 
     CHECK_FALSE(config.learner.use_tbo);
+}
+
+TEST_CASE("RainbowAgentConfig keeps fused optimizer disabled", "[dqn][config][optimizer]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("RainbowAgent.learner.use_fused_optimizer", "true");
+
+    dqn::RainbowAgentConfig config(config_data);
+
+    CHECK_FALSE(config.learner.use_fused_optimizer);
 }
 
 TEST_CASE("DefaultDQNAgentConfig warns when TBO shares reward compression", "[dqn][config][tbo]")

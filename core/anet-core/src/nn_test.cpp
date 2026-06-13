@@ -3,6 +3,7 @@
 #include "anet/default_dqn_agent.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/muzero_proto_agent.hpp"
+#include "anet/nn_util.hpp"
 #include "dqn_based_heads.hpp"
 #include "nn_impl.hpp"
 #include "nn_heads.hpp"
@@ -10,7 +11,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -23,6 +26,78 @@ namespace muzero = anet::rl::muzero_proto;
 bool Contains(const std::string& text, const std::string& pattern)
 {
     return text.find(pattern) != std::string::npos;
+}
+
+std::vector<torch::Tensor> MakeAdamWTestParams(const torch::Device& device)
+{
+    auto options = torch::TensorOptions().dtype(torch::kFloat32).device(device);
+    auto p0 = (torch::arange(0, 6, options).reshape({ 2, 3 }) * 0.1f + 0.5f).clone();
+    auto p1 = (torch::arange(0, 4, options).reshape({ 4 }) * -0.2f + 0.3f).clone();
+    p0.requires_grad_(true);
+    p1.requires_grad_(true);
+    return { p0, p1 };
+}
+
+std::vector<torch::Tensor> CloneAdamWTestParams(const std::vector<torch::Tensor>& params)
+{
+    std::vector<torch::Tensor> cloned;
+    cloned.reserve(params.size());
+    for (const auto& param : params) {
+        auto copy = param.detach().clone();
+        copy.requires_grad_(true);
+        cloned.push_back(copy);
+    }
+    return cloned;
+}
+
+torch::Tensor MakeAdamWTestGrad(const torch::Tensor& param, int step, size_t index)
+{
+    auto options = torch::TensorOptions().dtype(param.scalar_type()).device(param.device());
+    auto values = torch::arange(0, param.numel(), options).reshape(param.sizes());
+    const float offset = static_cast<float>((step + 1) * (index + 1)) * 0.13f;
+    return torch::sin(values * 0.17f + offset);
+}
+
+void RunAdamWTestStep(torch::optim::Optimizer& optimizer, const std::vector<torch::Tensor>& params, int step)
+{
+    optimizer.zero_grad();
+    auto loss = torch::zeros({}, torch::TensorOptions().dtype(torch::kFloat32).device(params.front().device()));
+    for (size_t i = 0; i < params.size(); ++i) {
+        loss = loss + (params[i] * MakeAdamWTestGrad(params[i], step, i)).sum();
+    }
+    loss.backward();
+    optimizer.step();
+}
+
+const torch::optim::AdamWParamState& GetAdamWState(
+    const torch::optim::Optimizer& optimizer,
+    const torch::Tensor& param)
+{
+    const auto& state = optimizer.state();
+    auto it = state.find(param.unsafeGetTensorImpl());
+    REQUIRE(it != state.end());
+    return static_cast<const torch::optim::AdamWParamState&>(*it->second);
+}
+
+void CheckAdamWParamsAndStateClose(
+    const std::vector<torch::Tensor>& expected_params,
+    const torch::optim::Optimizer& expected_optimizer,
+    const std::vector<torch::Tensor>& actual_params,
+    const torch::optim::Optimizer& actual_optimizer,
+    double rtol = 1.0e-5,
+    double atol = 1.0e-7)
+{
+    REQUIRE(expected_params.size() == actual_params.size());
+    for (size_t i = 0; i < expected_params.size(); ++i) {
+        INFO("param index=" << i);
+        CHECK(torch::allclose(expected_params[i].detach().cpu(), actual_params[i].detach().cpu(), rtol, atol));
+
+        const auto& expected_state = GetAdamWState(expected_optimizer, expected_params[i]);
+        const auto& actual_state = GetAdamWState(actual_optimizer, actual_params[i]);
+        CHECK(expected_state.step() == actual_state.step());
+        CHECK(torch::allclose(expected_state.exp_avg().detach().cpu(), actual_state.exp_avg().detach().cpu(), rtol, atol));
+        CHECK(torch::allclose(expected_state.exp_avg_sq().detach().cpu(), actual_state.exp_avg_sq().detach().cpu(), rtol, atol));
+    }
 }
 
 class DotTestModule final : public anet::nn::NetworkModule {
@@ -391,6 +466,135 @@ TEST_CASE("Agent configs read nn_viz keys, ignore old keys, and reject invalid l
     anet::ConfigData invalid_data;
     invalid_data.Set("DefaultDQNAgent.nn_viz.layout", "BT");
     CHECK_THROWS(dqn::DefaultDQNAgentConfig(invalid_data));
+}
+
+TEST_CASE("FusedAdamW matches AdamW on deterministic gradients", "[nn][optimizer]")
+{
+    std::vector<torch::Device> devices{ torch::Device(torch::kCPU) };
+    if (torch::cuda::is_available()) {
+        devices.emplace_back(torch::Device(torch::kCUDA, 0));
+    }
+
+    for (const auto& device : devices) {
+        for (double weight_decay : { 0.0, 1.0e-2 }) {
+            INFO("device=" << device.str() << " weight_decay=" << weight_decay);
+            auto adam_params = MakeAdamWTestParams(device);
+            auto fused_params = CloneAdamWTestParams(adam_params);
+
+            auto options = torch::optim::AdamWOptions(1.0e-2).weight_decay(weight_decay).eps(1.0e-8);
+            torch::optim::AdamW adam(adam_params, options);
+            anet::FusedAdamW fused(fused_params, options);
+
+            for (int step = 0; step < 10; ++step) {
+                RunAdamWTestStep(adam, adam_params, step);
+                RunAdamWTestStep(fused, fused_params, step);
+            }
+
+            CheckAdamWParamsAndStateClose(adam_params, adam, fused_params, fused);
+        }
+    }
+}
+
+TEST_CASE("FusedAdamW checkpoint round-trip rebuilds device step tensors", "[nn][optimizer][serialize]")
+{
+    auto device = torch::Device(torch::kCPU);
+    auto continuous_params = MakeAdamWTestParams(device);
+    auto save_params = CloneAdamWTestParams(continuous_params);
+    auto options = torch::optim::AdamWOptions(1.0e-2).weight_decay(1.0e-2).eps(1.0e-8);
+    anet::FusedAdamW continuous_optimizer(continuous_params, options);
+    anet::FusedAdamW save_optimizer(save_params, options);
+
+    for (int step = 0; step < 3; ++step) {
+        RunAdamWTestStep(continuous_optimizer, continuous_params, step);
+        RunAdamWTestStep(save_optimizer, save_params, step);
+    }
+
+    std::stringstream buffer(std::ios::in | std::ios::out | std::ios::binary);
+    torch::optim::Optimizer& save_base = save_optimizer;
+    torch::save(save_base, buffer);
+
+    auto loaded_params = CloneAdamWTestParams(save_params);
+    anet::FusedAdamW loaded_optimizer(loaded_params, options);
+    buffer.seekg(0);
+    torch::optim::Optimizer& loaded_base = loaded_optimizer;
+    torch::load(loaded_base, buffer);
+
+    for (int step = 3; step < 8; ++step) {
+        RunAdamWTestStep(continuous_optimizer, continuous_params, step);
+        RunAdamWTestStep(loaded_optimizer, loaded_params, step);
+    }
+
+    CheckAdamWParamsAndStateClose(continuous_params, continuous_optimizer, loaded_params, loaded_optimizer);
+}
+
+TEST_CASE("FusedAdamW loads AdamW checkpoint and continues updates", "[nn][optimizer][serialize]")
+{
+    auto device = torch::Device(torch::kCPU);
+    auto continuous_params = MakeAdamWTestParams(device);
+    auto save_params = CloneAdamWTestParams(continuous_params);
+    auto options = torch::optim::AdamWOptions(1.0e-2).weight_decay(1.0e-2).eps(1.0e-8);
+    torch::optim::AdamW continuous_optimizer(continuous_params, options);
+    torch::optim::AdamW save_optimizer(save_params, options);
+
+    for (int step = 0; step < 3; ++step) {
+        RunAdamWTestStep(continuous_optimizer, continuous_params, step);
+        RunAdamWTestStep(save_optimizer, save_params, step);
+    }
+
+    std::stringstream buffer(std::ios::in | std::ios::out | std::ios::binary);
+    torch::optim::Optimizer& save_base = save_optimizer;
+    torch::save(save_base, buffer);
+
+    auto fused_params = CloneAdamWTestParams(save_params);
+    anet::FusedAdamW fused_optimizer(fused_params, options);
+    buffer.seekg(0);
+    torch::optim::Optimizer& fused_base = fused_optimizer;
+    torch::load(fused_base, buffer);
+
+    for (int step = 3; step < 8; ++step) {
+        RunAdamWTestStep(continuous_optimizer, continuous_params, step);
+        RunAdamWTestStep(fused_optimizer, fused_params, step);
+    }
+
+    CheckAdamWParamsAndStateClose(continuous_params, continuous_optimizer, fused_params, fused_optimizer);
+}
+
+TEST_CASE("GradScaler skips step and backs off scale when unscale finds inf", "[nn][optimizer][amp]")
+{
+    auto param = torch::ones({ 2 }, torch::TensorOptions().dtype(torch::kFloat32));
+    param.requires_grad_(true);
+    torch::optim::SGD optimizer({ param }, torch::optim::SGDOptions(0.1));
+    anet::GradScaler scaler(8.0, 2.0, 0.5, 2);
+
+    auto inf = torch::full_like(param, std::numeric_limits<float>::infinity());
+    auto loss = (param * inf).sum();
+    scaler.Scale(loss).backward();
+
+    scaler.Unscale_(optimizer);
+    auto before = param.detach().clone();
+    scaler.Step(optimizer);
+    CHECK(torch::allclose(param.detach(), before));
+
+    scaler.Update();
+    CHECK(scaler.Scale(torch::ones({})).item<float>() == Catch::Approx(4.0f));
+}
+
+TEST_CASE("Foreach gradient helpers match manual norm and clipping", "[nn][optimizer]")
+{
+    auto grad0 = torch::tensor({ 3.0f, 4.0f });
+    auto grad1 = torch::tensor({ 1.0f, 2.0f, 2.0f });
+    std::vector<torch::Tensor> grads{ grad0.clone(), grad1.clone() };
+
+    auto expected_norm = (grad0.pow(2).sum() + grad1.pow(2).sum()).sqrt();
+    auto actual_norm = anet::ForeachGradNorm(grads);
+    CHECK(torch::allclose(actual_norm, expected_norm));
+
+    const float tau = 5.0f;
+    auto scale = (torch::full({}, tau) / (expected_norm + 1e-6)).clamp_max(1.0);
+    anet::ForeachClipGradNorm_(grads, actual_norm, tau);
+
+    CHECK(torch::allclose(grads[0], grad0 * scale));
+    CHECK(torch::allclose(grads[1], grad1 * scale));
 }
 
 TEST_CASE("MetricsLogger writes step-less GraphViz dot file", "[metrics][dot]")

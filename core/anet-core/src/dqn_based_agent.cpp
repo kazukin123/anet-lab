@@ -1,5 +1,4 @@
-
-#include "dqn_based_agent.hpp"
+﻿#include "dqn_based_agent.hpp"
 #include <algorithm>
 #include <tuple>
 #include <cmath>
@@ -964,8 +963,13 @@ void Learner::SetupOptimizer()
 {
     //auto opts = torch::optim::AdamOptions(config_.alpha).eps(config_.adam_eps);
     auto opts = torch::optim::AdamWOptions(config_.alpha).weight_decay(config_.weight_decay).eps(config_.adam_eps);
-    LOG::verbose() << "Learner: lr=" << opts.lr() << " weight_decay=" << opts.weight_decay() << " eps=" << opts.eps();
-    this->optimizer_ = std::make_unique<torch::optim::AdamW>(model_.GetPolicyParameters(), opts);
+    LOG::verbose() << "Learner: lr=" << opts.lr() << " weight_decay=" << opts.weight_decay()
+        << " eps=" << opts.eps() << " fused=" << config_.use_fused_optimizer;
+    if (config_.use_fused_optimizer) {
+        this->optimizer_ = std::make_unique<anet::FusedAdamW>(model_.GetPolicyParameters(), opts);
+    } else {
+        this->optimizer_ = std::make_unique<torch::optim::AdamW>(model_.GetPolicyParameters(), opts);
+    }
     //this->optimizer_ = std::make_unique<torch::optim::Adam>(model_.GetPolicyParameters(), opts);
 }
 
@@ -1030,27 +1034,20 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss)
         ANET_PROFILE_SCOPE_NEXT(backward);
         loss.backward();
 
-        bool grad_clipped = false;
+        // 勾配ノルムとclipをforeach化し、CPU同期をoptimizer step後まで遅延する
+        ANET_PROFILE_SCOPE_NEXT(grad_norm);
+        auto grads = anet::CollectDefinedGrads(parameters);
+        result.grad_norm = std::nullopt;
+        result.grad_norm_tensor = anet::ForeachGradNorm(grads);
+
         if (config_.use_grad_clip) {
             ANET_PROFILE_SCOPE_NEXT(grad_clip);
-            double grad_norm_val = torch::nn::utils::clip_grad_norm_(parameters, config_.grad_clip_tau);
-            result.grad_norm = static_cast<float>(grad_norm_val);
-            grad_clipped = (grad_norm_val > config_.grad_clip_tau);
-            result.grad_clip_ratio = grad_clipped ? 1.0f : 0.0f;
+            anet::ForeachClipGradNorm_(grads, result.grad_norm_tensor, config_.grad_clip_tau);
 
             ANET_PROFILE_SCOPE_NEXT(optimizer_step);
             optimizer_->step();
             return result;
         } else {
-            ANET_PROFILE_SCOPE_NEXT(grad_norm);
-            torch::Tensor total_sq = torch::zeros({ 1 }, loss.options());
-            for (auto& p : parameters) {
-                if (!p.grad().defined()) continue;
-                total_sq += p.grad().detach().pow(2).sum();
-            }
-            result.grad_norm_tensor = total_sq.sqrt();
-            result.grad_clip_ratio = grad_clipped ? 1.0f : 0.0f;
-
             ANET_PROFILE_SCOPE_NEXT(optimizer_step);
             optimizer_->step();
             return result;
@@ -1064,40 +1061,28 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss)
         ANET_PROFILE_SCOPE_NEXT(backward);
         grad_scaler_.Scale(loss).backward();
 
-        bool found_inf = false; // 現行QRLearnerの簡易実装を維持
-        bool grad_clipped = false;
+        ANET_PROFILE_SCOPE_NEXT(unscale);
+        grad_scaler_.Unscale_(*optimizer_);
+
+        // Unscale後の勾配に対してノルム計算とclipを行う
+        auto grads = anet::CollectDefinedGrads(parameters);
+        ANET_PROFILE_SCOPE_NEXT(grad_norm);
+        result.grad_norm = std::nullopt;
+        result.grad_norm_tensor = anet::ForeachGradNorm(grads);
 
         if (config_.use_grad_clip) {
-            ANET_PROFILE_SCOPE_NEXT(unscale);
-            grad_scaler_.Unscale_(*optimizer_);
-
             ANET_PROFILE_SCOPE_NEXT(grad_clip);
-            double grad_norm_val = torch::nn::utils::clip_grad_norm_(parameters, config_.grad_clip_tau);
-            result.grad_norm = static_cast<float>(grad_norm_val);
-            grad_clipped = (grad_norm_val > config_.grad_clip_tau);
-            result.grad_clip_ratio = grad_clipped ? 1.0f : 0.0f;
+            anet::ForeachClipGradNorm_(grads, result.grad_norm_tensor, config_.grad_clip_tau);
 
             ANET_PROFILE_SCOPE_NEXT(scaler_step);
-            grad_scaler_.Step(*optimizer_, found_inf);
+            grad_scaler_.Step(*optimizer_);
 
             ANET_PROFILE_SCOPE_NEXT(scaler_update);
             grad_scaler_.Update();
             return result;
         } else {
-            ANET_PROFILE_SCOPE_NEXT(unscale);
-            grad_scaler_.Unscale_(*optimizer_);
-
-            ANET_PROFILE_SCOPE_NEXT(grad_norm);
-            torch::Tensor total_sq = torch::zeros({ 1 }, loss.options());
-            for (auto& p : parameters) {
-                if (!p.grad().defined()) continue;
-                total_sq += p.grad().detach().pow(2).sum();
-            }
-            result.grad_norm_tensor = total_sq.sqrt();
-            result.grad_clip_ratio = grad_clipped ? 1.0f : 0.0f;
-
             ANET_PROFILE_SCOPE_NEXT(scaler_step);
-            grad_scaler_.Step(*optimizer_, found_inf);
+            grad_scaler_.Step(*optimizer_);
 
             ANET_PROFILE_SCOPE_NEXT(scaler_update);
             grad_scaler_.Update();
@@ -1123,27 +1108,17 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss)
     ANET_PROFILE_SCOPE_NEXT(grad_norm);
 #endif
 
-    torch::Tensor total_sq = torch::zeros({ 1 }, loss.options());
-    for (auto& p : parameters) {
-        if (!p.grad().defined()) continue;
-        total_sq += p.grad().detach().pow(2).sum();
-    }
+    auto grads = anet::CollectDefinedGrads(parameters);
 
     // BatchUpdateResult側でgrad_norm_tensorへフォールバックさせるため、FP32ではgrad_normを値化しない
     result.grad_norm = std::nullopt;
-    result.grad_norm_tensor = total_sq.sqrt();
+    result.grad_norm_tensor = anet::ForeachGradNorm(grads);
 
     if (config_.use_grad_clip) {
         ANET_PROFILE_SCOPE_NEXT(grad_clip);
 
-        // clip_grad_norm_のCPU同期を避けるため、Tensor演算のままスケールを適用する
-        torch::Tensor tau_tensor = torch::full({ 1 }, config_.grad_clip_tau, loss.options());
-        torch::Tensor scale = (tau_tensor / (result.grad_norm_tensor + 1e-6)).clamp_max(1.0);
-
-        for (auto& p : parameters) {
-            if (!p.grad().defined()) continue;
-            p.grad().detach().mul_(scale);
-        }
+        // clip_grad_norm_のCPU同期を避けるため、foreach演算のままスケールを適用する
+        anet::ForeachClipGradNorm_(grads, result.grad_norm_tensor, config_.grad_clip_tau);
 
         ANET_PROFILE_SCOPE_NEXT(optimizer_step);
         optimizer_->step();

@@ -64,6 +64,7 @@ namespace anet::rl::dqn {
 
             learner.num_quantiles = num_quantiles;
             learner.use_tbo = false;
+            learner.use_fused_optimizer = false;
         }
     };
 

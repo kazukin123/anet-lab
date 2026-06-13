@@ -116,6 +116,7 @@ DefaultDQNAgent.baseline.eval_policy.use_amp_bf16 = false
 DefaultDQNAgent.baseline.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4 num_envsを上げたら少し上げて良い
 DefaultDQNAgent.baseline.learner.gamma = 0.99                 # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
 DefaultDQNAgent.baseline.learner.adam_eps = 1e-5              # 小さな勾配の変化に敏感になりすぎるのを防ぎ、学習をマイルドに
+DefaultDQNAgent.baseline.learner.use_fused_optimizer = true   # ATen fused AdamWでoptimizer stepのカーネル起動数を減らす。falseで従来AdamW
 DefaultDQNAgent.baseline.learner.weight_decay = 1e-2          # AdamWの重み減衰
 DefaultDQNAgent.baseline.learner.use_grad_clip = true         # ★
 DefaultDQNAgent.baseline.learner.grad_clip_tau = 5            # ★10 25 40 1 5 10

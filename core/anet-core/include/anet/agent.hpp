@@ -161,6 +161,7 @@ namespace anet::rl {
             float alpha = 1e-3f;         ///< 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
             float weight_decay = 1e-2f;  ///< AdamWの重み減衰率
             float adam_eps = 1e-5;       ///< ゼロ除算防止項。LibTorchのデフォルトは1e-8。大きくすることで小さな勾配の変化に敏感になりすぎるのを防ぎ学習をマイルドに。
+            bool use_fused_optimizer = true; ///< ATen fused AdamWを使うか。falseで従来AdamWへ戻す。
 
             float gamma = 0.99f;         ///< 0.99f; 0.995f      γが高いほど「長期安定」を目指す
 
