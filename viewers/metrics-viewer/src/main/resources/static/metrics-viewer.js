@@ -723,6 +723,19 @@ class UIController {
 		$("#btn-auto-reload").off("click").on("click", () => this.app.onToggleAutoReload());
 		$("#btn-screenshot").off("click").on("click", () => this.app.onToggleScreenshot());
 		$("#btn-screenshot-toggle").off("click").on("click", () => this.app.onToggleScreenshot());
+		const mainArea = document.getElementById("main-area");
+		if (mainArea) {
+			if (mainArea.__mvGraphDblClickReloadHandler) {
+				mainArea.removeEventListener("click", mainArea.__mvGraphDblClickReloadHandler, true);
+			}
+			mainArea.__mvGraphDblClickReloadHandler = (e) => {
+				if (e.detail !== 2) return;
+				const target = e.target instanceof Element ? e.target : null;
+				if (!target || target.closest(".graph-log-toggle") || !target.closest(".graph-block")) return;
+				this.app.onReload();
+			};
+			mainArea.addEventListener("click", mainArea.__mvGraphDblClickReloadHandler, true);
+		}
 		$(window).off("resize.mv").on("resize.mv", () => this.app.plotly.resizeAll());
 	}
 }

@@ -157,6 +157,61 @@ class PalettePlaywrightTest {
 	}
 
 	@Test
+	void doubleClickingGraphAreaReloads() {
+		final String baseUrl = "http://127.0.0.1:" + port;
+
+		assumeTrue(isMicrosoftEdgeInstalled(), "Microsoft Edge is not installed.");
+
+		try (Playwright playwright = Playwright.create()) {
+			final Browser browser = launchMicrosoftEdge(playwright);
+			try {
+				final BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+						.setViewportSize(1280, 720));
+				try {
+					final Page page = context.newPage();
+					page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+					page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+					page.navigate(baseUrl + "/?graphDoubleClickReloadTest=" + System.nanoTime(),
+							new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					waitForGraph(page);
+					page.waitForFunction("""
+							() => app?.mode === 'normal'
+								&& !!document.getElementById('main-area')?.__mvGraphDblClickReloadHandler
+							""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
+
+					page.evaluate("""
+							() => {
+								const original = app.onReload.bind(app);
+								window.__graphDblClickReloadCalls = 0;
+								window.__graphDblClickReloadSettled = 0;
+								app.onReload = async () => {
+									window.__graphDblClickReloadCalls += 1;
+									try {
+										return await original();
+									} finally {
+										window.__graphDblClickReloadSettled += 1;
+									}
+								};
+							}
+							""");
+
+					page.dblclick(".js-plotly-plot");
+					page.waitForFunction("""
+							() => window.__graphDblClickReloadCalls === 1
+								&& window.__graphDblClickReloadSettled === 1
+							""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
+					assertEquals(1, ((Number) page.evaluate("() => window.__graphDblClickReloadCalls")).intValue());
+				} finally {
+					context.close();
+				}
+			} finally {
+				browser.close();
+			}
+		}
+	}
+
+	@Test
 	void hiddenTagSelectionRestoresWhenRunContainsTagAgain() {
 		final String baseUrl = "http://127.0.0.1:" + port;
 
