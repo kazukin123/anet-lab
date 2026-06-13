@@ -1224,8 +1224,8 @@ std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::MakeBatchUpdateResult
     const torch::Tensor& q_gap_rel) const
 {
     auto result = std::make_shared<BatchUpdateResult>();
-    result->loss = loss;
-    result->td_error = td_error;
+    result->loss = loss.detach();
+    result->td_error = td_error.detach();
     result->grad_norm = opt_result.grad_norm;
     result->grad_norm_tensor = opt_result.grad_norm_tensor;
     result->grad_clip_ratio = opt_result.grad_clip_ratio;
@@ -1434,26 +1434,28 @@ QuantileMetrics QuantileLearnerBase::MakeQuantileMetrics(const torch::Tensor& cu
 {
     QuantileMetrics metrics;
     const int64_t B = current_dist.size(0);
+    auto current_dist_metrics = current_dist.detach();
+    auto q_values_metrics = q_values_mean.detach();
 
     // 実際に選択された行動の期待値Qと、全行動中の最大期待値Qを記録する
-    metrics.q_sa = current_dist.mean(1).detach();
-    metrics.max_q = std::get<0>(q_values_mean.max(1)).detach();
+    metrics.q_sa = current_dist_metrics.mean(1);
+    metrics.max_q = std::get<0>(q_values_metrics.max(1));
     ANET_ASSERT_SHAPE(metrics.max_q, { B });
 
     // 分布の広がりをQ stdとして保持する
-    metrics.q_std = current_dist.std(1).mean().detach();
+    metrics.q_std = current_dist_metrics.std(1).mean();
     ANET_ASSERT_SHAPE(metrics.q_std, {});
 
     if (n_actions_ >= 2) {
         // top-1/top-2の差を、絶対値と相対値の両方で監視する
-        auto top2 = std::get<0>(q_values_mean.topk(2, 1));
+        auto top2 = std::get<0>(q_values_metrics.topk(2, 1));
         auto q_best = top2.select(1, 0);
         auto q_second = top2.select(1, 1);
         auto gap_batch = q_best - q_second;
-        metrics.q_gap = gap_batch.mean().detach();
+        metrics.q_gap = gap_batch.mean();
 
         auto denom = q_best.abs() + 1e-6f;
-        metrics.q_gap_rel = (gap_batch / denom).mean().detach();
+        metrics.q_gap_rel = (gap_batch / denom).mean();
     }
 
     return metrics;
@@ -1566,23 +1568,24 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         ANET_ASSERT_SHAPE(q_sa, { B });
         ANET_ASSERT_DTYPE(q_sa, torch::kFloat32);
 
-        max_q = std::get<0>(q_all.max(1)).detach();     // (B)
+        auto q_metrics = q_all.detach();
+        max_q = std::get<0>(q_metrics.max(1));     // (B)
 
         // Gap Metrics
         if (n_actions_ >= 2) {  // 念の為
-            auto top2 = std::get<0>(q_all.topk(2, 1));  //  (B, 2) 上位2つのQ値
+            auto top2 = std::get<0>(q_metrics.topk(2, 1));  //  (B, 2) 上位2つのQ値
             auto q_best = top2.select(1, 0);       // 1位 (B)
             auto q_second = top2.select(1, 1);     // 2位 (B)
 
             // 絶対値差分
             auto gap_batch = q_best - q_second;
-            gap_abs = gap_batch.mean().detach();
+            gap_abs = gap_batch.mean();
 
             // Relative Gap (相対差分: Gap / (|MaxQ| + eps))
             //   Q値は負になることもあるので abs() が必要
             //   学習初期は 0 になるので 1e-6 で割るのを防ぐ
             auto denom = q_best.abs() + 1e-6f;
-            gap_rel = (gap_batch / denom).mean().detach();
+            gap_rel = (gap_batch / denom).mean();
         }
 
         // ------------------------------------------------------------
@@ -1695,9 +1698,6 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
     torch::Tensor loss;
     torch::Tensor td_error_tensor;
-    torch::Tensor current_dist; // (B, N)
-    torch::Tensor target_dist;  // (B, N)
-    torch::Tensor element_loss; // (B)
     QuantileMetrics metrics;
 
     // ============================================================
@@ -1719,7 +1719,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         ANET_ASSERT_SHAPE(current_dist_all, { B, A, N });
         ANET_ASSERT_NAN(current_dist_all);
 
-        current_dist = GatherActionQuantiles(current_dist_all, samples.actions);
+        auto current_dist = GatherActionQuantiles(current_dist_all, samples.actions);
 
         // メトリクス用: 平均値をmax_qとして報告
         auto q_values_mean = current_out.At("q"); // すでに計算済みの平均Q値 (B, A)
@@ -1728,6 +1728,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // ------------------------------------------------------------
         // ターゲット分布計算: r + gamma * Z(s', a*)
         // ------------------------------------------------------------
+        torch::Tensor target_dist;  // (B, N)
         {
             torch::NoGradGuard grad_guard;
 
@@ -1761,7 +1762,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         td_error_tensor = metrics.q_sa - target_mean;
 
         // 要素ごとのLoss (B) を取得  ※ここで重い計算を一回だけ行う
-        element_loss = ComputeQuantileHuberLoss(current_dist, target_dist, tau_i_); // (B)
+        auto element_loss = ComputeQuantileHuberLoss(current_dist, target_dist, tau_i_); // (B)
         ANET_LOG_DEBUG("element_loss=" << anet::ToString(element_loss));
         ANET_ASSERT_SHAPE(element_loss, { B });
         ANET_ASSERT_NAN(element_loss);

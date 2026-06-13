@@ -1019,6 +1019,9 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
         ANET_ASSERT_SHAPE(mask, { B });
         ANET_ASSERT_SHAPE(mask_sum, { });
 
+        auto target_value_metrics = target_value.detach();
+        auto mask_metrics = mask.detach();
+        auto mask_sum_metrics = mask_sum.detach();
 
         // =================================================================
         // Value Loss
@@ -1032,9 +1035,10 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
         auto v_loss = (v_loss_raw * mask).sum() / mask_sum;
 
         // メトリクス：Value MAE & Target Value Mean
-        auto v_diff = torch::abs(value.squeeze(-1) - target_value);
-        total_v_mae += (v_diff * mask).sum() / mask_sum;
-        total_target_v += (target_value * mask).sum() / mask_sum;
+        auto value_metrics = value.detach().squeeze(-1);
+        auto v_diff = torch::abs(value_metrics - target_value_metrics);
+        total_v_mae += (v_diff * mask_metrics).sum() / mask_sum_metrics;
+        total_target_v += (target_value_metrics * mask_metrics).sum() / mask_sum_metrics;
 
         // =================================================================
         // Policy Loss
@@ -1045,9 +1049,10 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
         auto p_loss = (p_loss_raw * mask).sum() / mask_sum;
 
         // メトリクス: Policy Entropy (予測分布のエントロピー)
-        auto probs = torch::exp(log_probs);
-        auto entropy_raw = -torch::sum(probs * log_probs, /*dim=*/-1);
-        total_entropy += (entropy_raw * mask).sum() / mask_sum;
+        auto log_probs_metrics = log_probs.detach();
+        auto probs = torch::exp(log_probs_metrics);
+        auto entropy_raw = -torch::sum(probs * log_probs_metrics, /*dim=*/-1);
+        total_entropy += (entropy_raw * mask_metrics).sum() / mask_sum_metrics;
 
         // =================================================================
         // Reward Loss
@@ -1067,8 +1072,12 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
             r_loss = (r_loss_raw * prev_mask).sum() / prev_mask_sum;
 
             // メトリクス: Reward MAE
-            auto r_diff = torch::abs(reward.squeeze(-1) - target_reward);
-            total_r_mae += (r_diff * prev_mask).sum() / prev_mask_sum;
+            auto reward_metrics = reward.detach().squeeze(-1);
+            auto target_reward_metrics = target_reward.detach();
+            auto prev_mask_metrics = prev_mask.detach();
+            auto prev_mask_sum_metrics = prev_mask_sum.detach();
+            auto r_diff = torch::abs(reward_metrics - target_reward_metrics);
+            total_r_mae += (r_diff * prev_mask_metrics).sum() / prev_mask_sum_metrics;
         }
 
         // [ASSERT] 各LossのNaNチェック
@@ -1129,10 +1138,10 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
     /// @todo MuZero試作制約: PER (Prioritized Experience Replay) を実装した場合、ここで計算した誤差をPriorityとして返却する必要がある
 
     auto result = std::make_shared<MuZeroUpdateResult>();
-    result->total_loss = total_loss;
-    result->value_loss = total_v_loss * gradient_scale;
-    result->policy_loss = total_p_loss * gradient_scale;
-    result->reward_loss = total_r_loss * gradient_scale;
+    result->total_loss = total_loss.detach();
+    result->value_loss = (total_v_loss * gradient_scale).detach();
+    result->policy_loss = (total_p_loss * gradient_scale).detach();
+    result->reward_loss = (total_r_loss * gradient_scale).detach();
     result->value_mae = total_v_mae * gradient_scale;
     result->reward_mae = total_r_mae * gradient_scale;
     result->policy_entropy = total_entropy * gradient_scale;
