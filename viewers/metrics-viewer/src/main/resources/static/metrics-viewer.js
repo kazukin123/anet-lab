@@ -31,6 +31,15 @@ function getRunColors() {
 	return RUN_COLORS;
 }
 
+function encodePlotlyTraceUidPart(value) {
+	const bytes = new TextEncoder().encode(String(value));
+	return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function makePlotlyTraceUid(runId, tagKey) {
+	return `mv_${encodePlotlyTraceUidPart(runId)}_${encodePlotlyTraceUidPart(tagKey)}`;
+}
+
 function sliceTraceField(field, startIdx, endIdx) {
 	if (!field) return field;
 	if (typeof field.subarray === "function") return field.subarray(startIdx, endIdx);
@@ -390,7 +399,7 @@ class PlotlyController {
 		name: `${runId}`,
 	    mode: 'lines',
 		line: { width: 1.5, color: this.app.runColorMap.get(runId) },
-	    uid: `${runId}_${tagKey}`,
+	    uid: makePlotlyTraceUid(runId, tagKey),
 		opacity: multi ? 0.8 : 1.0
 	  };
 	}

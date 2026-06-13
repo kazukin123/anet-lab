@@ -105,6 +105,41 @@ class PalettePlaywrightTest {
 	}
 
 	@Test
+	void plotlyPngDownloadWorksForSlashTagKeys() {
+		final String baseUrl = "http://127.0.0.1:" + port;
+
+		assumeTrue(isMicrosoftEdgeInstalled(), "Microsoft Edge is not installed.");
+
+		try (Playwright playwright = Playwright.create()) {
+			final Browser browser = launchMicrosoftEdge(playwright);
+			try {
+				final BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+						.setViewportSize(1280, 720));
+				try {
+					final Page page = context.newPage();
+					page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+					page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+					page.navigate(baseUrl + "/?plotlyPngDownloadTest=" + System.nanoTime(),
+							new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					waitForGraph(page);
+
+					final String traceUid = readFirstTraceUid(page);
+					assertTrue(traceUid.startsWith("mv_"));
+					assertFalse(traceUid.contains("/"));
+
+					final String imagePrefix = renderFirstPlotPngPrefix(page);
+					assertEquals("data:image/png;base64,", imagePrefix);
+				} finally {
+					context.close();
+				}
+			} finally {
+				browser.close();
+			}
+		}
+	}
+
+	@Test
 	void logScaleTogglePersistsAcrossReloadsButNotPageRefresh() {
 		final String baseUrl = "http://127.0.0.1:" + port;
 
@@ -576,6 +611,29 @@ class PalettePlaywrightTest {
 					const line = document.querySelector('.js-plotly-plot path.js-line');
 					return line ? (line.getAttribute('stroke') || getComputedStyle(line).stroke) : '';
 				})()
+				""");
+	}
+
+	private static String readFirstTraceUid(Page page) {
+		return (String) page.evaluate("""
+				(() => {
+					const plot = document.querySelector('.js-plotly-plot');
+					return plot?.data?.[0]?.uid ?? '';
+				})()
+				""");
+	}
+
+	private static String renderFirstPlotPngPrefix(Page page) {
+		return (String) page.evaluate("""
+				async () => {
+					const plot = document.querySelector('.js-plotly-plot');
+					const imageUrl = await Plotly.toImage(plot, {
+						format: 'png',
+						width: plot._fullLayout.width,
+						height: plot._fullLayout.height
+					});
+					return imageUrl.slice(0, 'data:image/png;base64,'.length);
+				}
 				""");
 	}
 
