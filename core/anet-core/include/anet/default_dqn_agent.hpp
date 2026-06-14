@@ -165,6 +165,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.update_warmup_steps);
             ANET_READ_CONFIG(config_data, learner.update_interval);
             ANET_READ_CONFIG(config_data, learner.replay_ratio);
+            ANET_READ_CONFIG(config_data, learner.use_rb_prefetch);
             ANET_READ_CONFIG(config_data, learner.n_step);
             ANET_READ_CONFIG(config_data, learner.per_alpha);
             ANET_READ_CONFIG(config_data, learner.per_beta_start);

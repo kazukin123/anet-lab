@@ -466,7 +466,7 @@ namespace anet::rl::dqn {
 
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences) override;
 
-        virtual ~Learner() = default;
+        virtual ~Learner();
     public:
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
@@ -498,9 +498,18 @@ namespace anet::rl::dqn {
             const torch::Tensor& q_gap = torch::Tensor(),
             const torch::Tensor& q_gap_rel = torch::Tensor()) const;
     private:
+        struct SamplePrefetchState;
+
         bool CanUpdate(step_t exp_step) const;
         void UpdatePerBeta(step_t step);
         void UpdateTargetNetwork(step_t step);
+        anet::rl::ExperienceSamples SampleAndTransferSynchronously(int64_t batch_size, float beta) const;
+        anet::rl::ExperienceSamples ConsumePrefetchedSamplesOrSample(int64_t batch_size, float beta);
+        void ValidateDeviceSamples(const anet::rl::ExperienceSamples& samples, int64_t batch_size) const;
+        void EnsureSamplePrefetchState();
+        void ArmSamplePrefetch(int64_t batch_size, float beta);
+        void MaybeLaunchSamplePrefetch();
+        void StopSamplePrefetch();
     protected:
         const torch::Device device_;
         int num_envs_;
@@ -515,6 +524,7 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::rl::ReplayBuffer> replay_buffer_;
         std::unique_ptr<torch::optim::Optimizer> optimizer_;
         anet::GradScaler grad_scaler_;
+        std::unique_ptr<SamplePrefetchState> sample_prefetch_;
     protected:
         float update_credit_ = 0.0f;
     };

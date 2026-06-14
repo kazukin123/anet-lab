@@ -610,6 +610,36 @@ TEST_CASE("DefaultDQNAgentConfig reads fused optimizer setting", "[dqn][config][
     CHECK_FALSE(config.learner.use_fused_optimizer);
 }
 
+TEST_CASE("DQN configs read sample prefetch setting", "[dqn][config][prefetch]")
+{
+    dqn::DefaultDQNAgentConfig default_config(anet::ConfigData{});
+    CHECK_FALSE(default_config.learner.use_rb_prefetch);
+
+    anet::ConfigData default_dqn_data;
+    default_dqn_data.Set("DefaultDQNAgent.learner.use_rb_prefetch", "true");
+    dqn::DefaultDQNAgentConfig default_dqn_config(default_dqn_data);
+    CHECK(default_dqn_config.learner.use_rb_prefetch);
+
+    anet::ConfigData rainbow_data;
+    rainbow_data.Set("RainbowAgent.learner.use_rb_prefetch", "true");
+    dqn::RainbowAgentConfig rainbow_config(rainbow_data);
+    CHECK_FALSE(rainbow_config.learner.use_rb_prefetch);
+}
+
+TEST_CASE("Learner rejects sample prefetch on non CUDA device", "[dqn][prefetch]")
+{
+    dqn::LearnerConfig config;
+    config.use_rb_prefetch = true;
+    config.replay_batch_size = 1;
+
+    TestNetworkModel model;
+    dqn::RuntimeVars vars;
+    auto env_spec = MakeLearnerEnvSpec();
+    rl::BatchEnvSpec batch_env_spec{ 1, 1 };
+
+    CHECK_THROWS(TestLearner(config, model, vars, batch_env_spec, env_spec));
+}
+
 TEST_CASE("DefaultDQNAgentConfig rejects invalid TBO epsilon", "[dqn][config][tbo]")
 {
     for (const auto& value : { "0", "-0.01", "nan", "inf" }) {

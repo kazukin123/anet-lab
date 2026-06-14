@@ -1148,6 +1148,8 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
 {
     ANET_PROFILE_FUNC();
 
+    std::unique_lock<std::shared_mutex> storage_lock(storage_mutex_);
+
     // 事前に action の info を取得しておく
     anet::TensorDict action_info = batch.action->GetInfo();
 
@@ -1159,11 +1161,14 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
         anet::TensorDict single_info = action_info.empty() ? anet::TensorDict() : action_info[b];
 
         int64_t time_idx = storage_->Push(b, single_obs, batch.action->GetAction()[b], single_info);
-        index_manager_->MarkWritten(b, time_idx);
-        index_manager_->AdvanceWriteCursor(b); // カーソルを進める
+        {
+            std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+            index_manager_->MarkWritten(b, time_idx);
+            index_manager_->AdvanceWriteCursor(b); // カーソルを進める
 
-        if (prio_controller_) {
-            prio_controller_->UpdatePriorities({ b * capacity_per_env_ + time_idx }, { 0.0f });
+            if (prio_controller_) {
+                prio_controller_->UpdatePriorities({ b * capacity_per_env_ + time_idx }, { 0.0f });
+            }
         }
 
         // 正常なステップを先に Queue に入れる (タイムトラベル防止)
@@ -1180,11 +1185,14 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
             storage_->PushTerminalDummy(b, terminal_obs);
 
             int64_t dummy_idx = (time_idx + 1) % capacity_per_env_;
-            index_manager_->MarkDummy(b, dummy_idx);
-            index_manager_->AdvanceWriteCursor(b); // ダミー書き込み分もカーソルを進める
+            {
+                std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+                index_manager_->MarkDummy(b, dummy_idx);
+                index_manager_->AdvanceWriteCursor(b); // ダミー書き込み分もカーソルを進める
 
-            if (prio_controller_) {
-                prio_controller_->UpdatePriorities({ b * capacity_per_env_ + dummy_idx }, { 0.0f });
+                if (prio_controller_) {
+                    prio_controller_->UpdatePriorities({ b * capacity_per_env_ + dummy_idx }, { 0.0f });
+                }
             }
 
             QueueRecord dummy_rec;
@@ -1208,6 +1216,7 @@ void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
 
     auto sequences = queue_controller_->ExtractSequences(queues_[env_idx]);
 
+    std::vector<int64_t> valid_envs;
     std::vector<int64_t> newly_valid;
     std::vector<float> init_prios;
 
@@ -1217,7 +1226,7 @@ void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
 
         //ダミーステップ自身が起点(state)となっているシーケンスはStorageに登録しない
         if (seq[0].is_dummy) {
-            index_manager_->MarkValid(env_idx);
+            valid_envs.push_back(env_idx);
             continue;
         }
 
@@ -1229,15 +1238,21 @@ void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
         storage_->Update(env_idx, time_idx, exp);
 
         // 完全にサンプリング可能になったので封印解除
-        index_manager_->MarkValid(env_idx);
+        valid_envs.push_back(env_idx);
 
         newly_valid.push_back(env_idx * capacity_per_env_ + time_idx);
         init_prios.push_back(-1.0f); // 初期優先度を割り当てるための特殊フラグ
     }
 
     //  N-Step計算が完了し、安全になったデータをTreeに登録（初期優先度付与）
-    if (prio_controller_ && !newly_valid.empty()) {
-        prio_controller_->UpdatePriorities(newly_valid, init_prios);
+    if (!valid_envs.empty() || (prio_controller_ && !newly_valid.empty())) {
+        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+        for (int64_t valid_env : valid_envs) {
+            index_manager_->MarkValid(valid_env);
+        }
+        if (prio_controller_ && !newly_valid.empty()) {
+            prio_controller_->UpdatePriorities(newly_valid, init_prios);
+        }
     }
 }
 
@@ -1245,23 +1260,35 @@ void DefaultReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibat
 {
 	ANET_PROFILE_FUNC();
 
-    auto valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
-    ANET_ASSERT_MSG(valid_1d.size(0) >= minibatch_size, "Not enough valid samples in ReplayBuffer. size=" << valid_1d.size(0) << " minibatch_size=" << minibatch_size);
+    std::shared_lock<std::shared_mutex> storage_lock(storage_mutex_);
 
-    auto idx_result = sampler_->SampleIndices(minibatch_size, valid_1d, beta);
+    IndexSampleResult idx_result;
+    {
+        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+        auto valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
+        ANET_ASSERT_MSG(valid_1d.size(0) >= minibatch_size, "Not enough valid samples in ReplayBuffer. size=" << valid_1d.size(0) << " minibatch_size=" << minibatch_size);
+
+        idx_result = sampler_->SampleIndices(minibatch_size, valid_1d, beta);
+    }
     extractor_->ExtractSamples(out_samples, *storage_, idx_result, config_.stack_count, config_.muzero.unroll_steps);
 }
 
 int64_t DefaultReplayBuffer::Size() const
 {
+    ANET_PROFILE_FUNC();
+
     // 生のカウントではなく、Stack/Unrollを考慮して安全なサンプリング可能な数を返す
+    std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
     return index_manager_->GetSampleableCount(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
 }
 
 void DefaultReplayBuffer::UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities)
 {
     if (prio_controller_) {
-        prio_controller_->UpdatePriorities(indices, priorities);
+        {
+            std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+            prio_controller_->UpdatePriorities(indices, priorities);
+        }
         InvalidateAccessorCacheForPriority();
     }
 }
@@ -1325,6 +1352,7 @@ void DefaultReplayBuffer::StoreTensorVectorCache(const std::string& key, int64_t
 std::optional<float> DefaultReplayBuffer::GetScalar(const std::string& key, int64_t index) const
 {
     if (key == PER_TOTAL) {
+        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
         auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
         if (!prioritized) return std::nullopt;
         return prioritized->GetTotalPriority();
@@ -1335,6 +1363,7 @@ std::optional<float> DefaultReplayBuffer::GetScalar(const std::string& key, int6
 std::optional<torch::Tensor> DefaultReplayBuffer::GetTensor(const std::string& key, int64_t index) const
 {
     if (key == PER_VALUES) {
+        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
         auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
         if (!prioritized) return std::nullopt;
         return prioritized->GetPriorityTensor(index);
@@ -1367,8 +1396,14 @@ std::optional<std::vector<torch::Tensor>> DefaultReplayBuffer::GetTensorVector(c
     }
 
     ANET_PROFILE_SCOPE_NEXT(cache_miss);
+    std::shared_lock<std::shared_mutex> storage_lock(storage_mutex_);
+
     ANET_PROFILE_SCOPE_NEXT(valid_indices);
-    auto valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
+    torch::Tensor valid_1d;
+    {
+        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+        valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
+    }
     if (valid_1d.numel() == 0) {
         std::vector<torch::Tensor> result;
         StoreTensorVectorCache(key, index, result);
@@ -1379,13 +1414,16 @@ std::optional<std::vector<torch::Tensor>> DefaultReplayBuffer::GetTensorVector(c
 
     if (is_per_vector_key) {
         ANET_PROFILE_SCOPE_NEXT(gather_per);
-        auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
-        if (!prioritized) return std::nullopt;
-        tensor = prioritized->GatherPriorityRows(valid_1d);
-        if (key == PER_DIST) {
-            // PER_DIST は正規化サンプリング確率 p/total を返す（SampleIndices の prob=p/total と同義）。
-            const float total = prioritized->GetTotalPriority();
-            if (total > 0.0f) tensor = tensor / total;  // total<=0（極初期）はゼロのまま
+        {
+            std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+            auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
+            if (!prioritized) return std::nullopt;
+            tensor = prioritized->GatherPriorityRows(valid_1d);
+            if (key == PER_DIST) {
+                // PER_DIST は正規化サンプリング確率 p/total を返す（SampleIndices の prob=p/total と同義）。
+                const float total = prioritized->GetTotalPriority();
+                if (total > 0.0f) tensor = tensor / total;  // total<=0（極初期）はゼロのまま
+            }
         }
     } else {
         ANET_PROFILE_SCOPE_NEXT(direct_gather);
@@ -1426,10 +1464,16 @@ std::optional<std::vector<torch::Tensor>> DefaultReplayBuffer::GetTensorVector(c
 
 void DefaultReplayBuffer::DumpToLog() const
 {
+    std::shared_lock<std::shared_mutex> storage_lock(storage_mutex_);
+
     if (storage_) {
         storage_->DumpToLog();
     }
-    auto valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
+    torch::Tensor valid_1d;
+    {
+        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+        valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
+    }
 
     // Valid Index を見やすく出力
     std::string valid_str = "[ ";

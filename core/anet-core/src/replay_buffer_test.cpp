@@ -4,7 +4,10 @@
 #include "replay_buffer_impl.hpp"
 
 #include <cmath>
+#include <exception>
 #include <numeric>
+#include <stdexcept>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -576,6 +579,54 @@ TEST_CASE("ReplayBuffer PER visualization keys are unavailable for uniform sampl
     REQUIRE_FALSE(buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, 0).has_value());
     REQUIRE_FALSE(buffer.rb->GetTensorVector(rl::ReplayBuffer::PER_VALUES).has_value());
     REQUIRE_FALSE(buffer.rb->GetTensorVector(rl::ReplayBuffer::PER_DIST).has_value());
+}
+
+TEST_CASE("ReplayBuffer samples while push and priority update run concurrently", "[replay_buffer][thread]")
+{
+    auto buffer = MakeBuffer(MakeConfig(32, 1, 0.99f, 1, rl::ReplaySamplerType::PRIORITIZED), 2);
+
+    for (int64_t t = 0; t < 10; ++t) {
+        PushTime(buffer, t);
+    }
+
+    std::exception_ptr worker_error;
+    std::thread worker([&]() {
+        try {
+            for (int i = 0; i < 100; ++i) {
+                rl::ExperienceSamples samples;
+                buffer.rb->Sample(samples, 4, 0.4f);
+
+                if (samples.indices.sizes().vec() != std::vector<int64_t>{ 4 }) {
+                    throw std::runtime_error("Unexpected sample index shape.");
+                }
+                if (samples.actions.sizes().vec() != std::vector<int64_t>{ 4 }) {
+                    throw std::runtime_error("Unexpected sample action shape.");
+                }
+
+                auto indices_cpu = samples.indices.cpu().contiguous();
+                auto indices_ptr = indices_cpu.data_ptr<int64_t>();
+                std::vector<int64_t> indices(indices_ptr, indices_ptr + indices_cpu.size(0));
+                std::vector<float> priorities(indices.size(), 1.0f + static_cast<float>(i % 7));
+                buffer.rb->UpdatePriorities(indices, priorities);
+            }
+        } catch (...) {
+            worker_error = std::current_exception();
+        }
+    });
+
+    for (int64_t t = 10; t < 80; ++t) {
+        PushTime(buffer, t);
+    }
+
+    worker.join();
+    if (worker_error) {
+        std::rethrow_exception(worker_error);
+    }
+
+    rl::ExperienceSamples samples;
+    buffer.rb->Sample(samples, 4, 0.4f);
+    RequireShape(samples.indices, { 4 });
+    RequireShape(samples.actions, { 4 });
 }
 
 TEST_CASE("ReplayBuffer computes n-step returns independently for each env", "[replay_buffer][n_step][multi_env]")

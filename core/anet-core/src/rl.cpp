@@ -669,7 +669,7 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
 
     // GPUデバイスへの転送時のみストリームガードを有効にする
     if (device.is_cuda()) {
-        auto stream = at::cuda::getDefaultCUDAStream();
+        auto stream = at::cuda::getCurrentCUDAStream();
         at::cuda::CUDAStreamGuard guard(stream);
 
         return {

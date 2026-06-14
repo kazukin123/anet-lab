@@ -8,6 +8,7 @@
 #include <memory>
 #include <deque>
 #include <mutex>
+#include <shared_mutex>
 #include <torch/torch.h>
 #include "anet/tensor_util.hpp"
 
@@ -295,6 +296,8 @@ namespace anet::rl {
 
         std::vector<ExperienceQueue> queues_;
 
+        mutable std::shared_mutex storage_mutex_;
+        mutable std::mutex metadata_mutex_;
         mutable std::mutex accessor_cache_mutex_;
         uint64_t accessor_storage_version_ = 0;
         uint64_t accessor_priority_version_ = 0;
