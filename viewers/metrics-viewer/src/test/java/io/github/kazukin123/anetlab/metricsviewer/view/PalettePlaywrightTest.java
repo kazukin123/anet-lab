@@ -140,6 +140,48 @@ class PalettePlaywrightTest {
 	}
 
 	@Test
+	void autoReloadButtonReflectsToggleState() {
+		final String baseUrl = "http://127.0.0.1:" + port;
+
+		assumeTrue(isMicrosoftEdgeInstalled(), "Microsoft Edge is not installed.");
+
+		try (Playwright playwright = Playwright.create()) {
+			final Browser browser = launchMicrosoftEdge(playwright);
+			try {
+				final BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+						.setViewportSize(1280, 720));
+				try {
+					final Page page = context.newPage();
+					page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+					page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+					page.navigate(baseUrl + "/?autoReloadButtonTest=" + System.nanoTime(),
+							new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					waitForGraph(page);
+
+					assertEquals("Auto Reload: OFF", page.textContent("#btn-auto-reload"));
+					assertEquals("false", page.getAttribute("#btn-auto-reload", "aria-pressed"));
+					assertFalse(isAutoReloadButtonActive(page));
+
+					page.click("#btn-auto-reload");
+					assertEquals("Auto Reload: ON", page.textContent("#btn-auto-reload"));
+					assertEquals("true", page.getAttribute("#btn-auto-reload", "aria-pressed"));
+					assertTrue(isAutoReloadButtonActive(page));
+
+					page.click("#btn-auto-reload");
+					assertEquals("Auto Reload: OFF", page.textContent("#btn-auto-reload"));
+					assertEquals("false", page.getAttribute("#btn-auto-reload", "aria-pressed"));
+					assertFalse(isAutoReloadButtonActive(page));
+				} finally {
+					context.close();
+				}
+			} finally {
+				browser.close();
+			}
+		}
+	}
+
+	@Test
 	void logScaleTogglePersistsAcrossReloadsButNotPageRefresh() {
 		final String baseUrl = "http://127.0.0.1:" + port;
 
@@ -485,6 +527,12 @@ class PalettePlaywrightTest {
 	private static void waitForGraph(Page page) {
 		page.waitForFunction("document.querySelectorAll('.js-plotly-plot path.js-line').length > 0",
 				null, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	private static boolean isAutoReloadButtonActive(Page page) {
+		return Boolean.TRUE.equals(page.evaluate("""
+				() => document.getElementById('btn-auto-reload').classList.contains('active')
+				"""));
 	}
 
 	private static String runsJson() {

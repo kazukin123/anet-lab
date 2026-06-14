@@ -159,6 +159,16 @@ input[type="checkbox"]:checked::after {
 	background: #333;
 	color: #eee;
 }
+#btn-auto-reload.active {
+	color: #e8f7ff;
+	border-color: #2a6b95;
+	background: #1e4d70;
+}
+#btn-auto-reload.active:hover {
+	color: #f5fbff;
+	border-color: #3d88bb;
+	background: #255c84;
+}
 
 /* --- Section --- */
 .section {

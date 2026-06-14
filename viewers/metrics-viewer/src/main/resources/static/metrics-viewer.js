@@ -1159,17 +1159,18 @@ class MetricsViewerClientApp {
 
 	onToggleAutoReload() {
 		this.autoReloadEnabled = !this.autoReloadEnabled;
+		const button = $("#btn-auto-reload");
 		if (this.autoReloadEnabled) {
 			this.autoReloadTimer = setInterval(() => {
 				this.onReload();
 			}, AUTO_RELOAD_INTERVAL_MS);
-			$("#btn-auto-reload").text("Auto Reload: ON");
+			button.text("Auto Reload: ON").addClass("active").attr("aria-pressed", "true");
 			Toast.show("Auto-reload enabled.");
 			console.log("[AUTO] toggled → ON");
 		} else {
 			clearInterval(this.autoReloadTimer);
 			this.autoReloadTimer = null;
-			$("#btn-auto-reload").text("Auto Reload: OFF");
+			button.text("Auto Reload: OFF").removeClass("active").attr("aria-pressed", "false");
 			Toast.show("Auto-reload disabled.");
 			console.log("[AUTO] toggled → OFF");
 		}
