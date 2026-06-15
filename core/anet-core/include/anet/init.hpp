@@ -14,6 +14,12 @@ namespace anet::rl {
         bool use_tf32_cudnn = true;
         bool cudnn_deterministic = true;
         bool cudnn_benchmark = false;
+        /// 全 ATen op を決定化して同 seed 再現性を確保する（cuDNN 外＝SDPA 等の非決定もカバー）。
+        /// 決定版が無い op に当たると warn_only に従い throw/警告する。既定 true（cudnn_deterministic と同方針）。
+        bool deterministic_algorithms = true;
+        /// true: 決定版が無い op を例外でなく警告で素通りさせる（再現性は保証されない／throw 退避・診断用）。
+        /// deterministic_algorithms=false のときは無視される。既定 false。
+        bool deterministic_warn_only = false;
         int torch_num_threads = 1;
         std::string cuda_launch_blocking = "inherit";
 
@@ -24,6 +30,8 @@ namespace anet::rl {
             ANET_READ_CONFIG(config_data, use_tf32_cudnn);
             ANET_READ_CONFIG(config_data, cudnn_deterministic);
             ANET_READ_CONFIG(config_data, cudnn_benchmark);
+            ANET_READ_CONFIG(config_data, deterministic_algorithms);
+            ANET_READ_CONFIG(config_data, deterministic_warn_only);
             ANET_READ_CONFIG(config_data, torch_num_threads);
             ANET_READ_CONFIG(config_data, cuda_launch_blocking);
 
