@@ -372,26 +372,6 @@ namespace anet {
         var_name, ANET_PROFILE_CURRENT_SCOPE_GUARD() \
     }
 
-#define ANET_PROFILE_RANGE(var_name, name_literal) \
-    ANET_PROFILE_SCOPE_FULL(var_name, name_literal)
-
-#define ANET_PROFILE_RANGE_IDX(var_name, base_name_literal, idx) \
-    static constexpr auto ANET_PROFILE_CONCAT(__anet_profile_func_name_, __LINE__) = \
-        anet::profile_detail::MakeProfileFunctionName<ANET_PROFILE_FUNCTION_SIGNATURE>(); \
-    ANET_PROFILE_MAKE_SOURCE_LOCATION(ANET_PROFILE_CONCAT(__anet_profile_sl_, __LINE__), base_name_literal); \
-    anet::ProfileRange var_name { \
-        anet::profile_detail::ProfileRangeTag{}, \
-        base_name_literal, \
-        idx, \
-        &ANET_PROFILE_CONCAT(__anet_profile_sl_, __LINE__) \
-    }; \
-    anet::profile_detail::ProfileScopeCurrentGuard ANET_PROFILE_SCOPE_GUARD_VAR(var_name) { \
-        var_name, ANET_PROFILE_CURRENT_SCOPE_GUARD() \
-    }
-
-#define ANET_PROFILE_RANGE_PREV(var_name, name_literal, prev_var) \
-    ANET_PROFILE_SCOPE_NEXT_NAMED(var_name, prev_var, name_literal)
-
 #else
 
 #define ANET_PROFILE_FUNC() \
@@ -461,14 +441,5 @@ namespace anet {
 
 #define ANET_PROFILE_SCOPE_FULL(var_name, full_name_literal) \
     ANET_PROFILE_SCOPE_NAMED(var_name, full_name_literal)
-
-#define ANET_PROFILE_RANGE(var_name, name_literal) \
-    ANET_PROFILE_SCOPE_FULL(var_name, name_literal)
-
-#define ANET_PROFILE_RANGE_IDX(var_name, name_literal, idx) \
-    ANET_PROFILE_SCOPE_NAMED(var_name, name_literal)
-
-#define ANET_PROFILE_RANGE_PREV(var_name, name_literal, prev_var) \
-    ANET_PROFILE_SCOPE_NEXT_NAMED(var_name, prev_var, name_literal)
 
 #endif
