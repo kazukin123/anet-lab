@@ -2,13 +2,9 @@
 #include <algorithm>
 #include <tuple>
 #include <cmath>
-#include <future>
 #include <limits>
-#include <mutex>
 #include <optional>
 #include <utility>
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/CUDAEvent.h>
 #include "anet/log.hpp"
 #include "anet/profile.hpp"
 #include "anet/tensor_check.hpp"
@@ -17,80 +13,9 @@
 #include "anet/replay_buffer.hpp"
 #include "anet/image.hpp"
 #include "anet/metrics_logger.hpp"
-#include "anet/thread.hpp"
 
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
-
-namespace {
-
-torch::Tensor PinCpuTensor(const torch::Tensor& tensor)
-{
-    if (!tensor.defined()) return tensor;
-
-    torch::Tensor cpu_tensor = tensor.device().is_cpu() ? tensor : tensor.to(torch::kCPU);
-    if (cpu_tensor.is_pinned()) return cpu_tensor;
-
-    auto options = cpu_tensor.options().device(torch::kCPU).pinned_memory(true);
-    auto pinned = torch::empty_strided(cpu_tensor.sizes(), cpu_tensor.strides(), options);
-    pinned.copy_(cpu_tensor);
-    return pinned;
-}
-
-anet::TensorDict PinCpuTensorDict(const anet::TensorDict& dict)
-{
-    anet::TensorDict pinned;
-    for (const auto& kv : dict) {
-        pinned.Set(kv.first, PinCpuTensor(kv.second));
-    }
-    return pinned;
-}
-
-anet::rl::ExperienceSamples PinCpuSamples(const anet::rl::ExperienceSamples& samples)
-{
-    anet::rl::ExperienceSamples pinned;
-    pinned.obs = PinCpuTensorDict(samples.obs);
-    pinned.actions = PinCpuTensor(samples.actions);
-    pinned.target_returns = PinCpuTensor(samples.target_returns);
-    pinned.next_state.next_obs = PinCpuTensorDict(samples.next_state.next_obs);
-    pinned.next_state.terminals = PinCpuTensor(samples.next_state.terminals);
-    pinned.n_steps = PinCpuTensor(samples.n_steps);
-    pinned.indices = PinCpuTensor(samples.indices);
-    pinned.is_weights = PinCpuTensor(samples.is_weights);
-    pinned.info = PinCpuTensorDict(samples.info);
-    return pinned;
-}
-
-} // namespace
-
-namespace anet::rl::dqn {
-
-struct Learner::SamplePrefetchState {
-    struct Request {
-        int64_t batch_size = 0;
-        float beta = 0.0f;
-    };
-
-    struct PrefetchedBatch {
-        ExperienceSamples pinned_cpu_samples;
-        ExperienceSamples dev_samples;
-        at::cuda::CUDAEvent ready_event;
-    };
-
-    SamplePrefetchState()
-        : pool(std::make_unique<anet::PinnedThreadPool>(1, "SamplePrefetchThread"))
-        , copy_stream(at::cuda::getStreamFromPool(false))
-    {
-    }
-
-    std::unique_ptr<anet::PinnedThreadPool> pool;
-    at::cuda::CUDAStream copy_stream;
-    std::future<PrefetchedBatch> future;
-    std::optional<Request> pending_request;
-};
-
-} // namespace anet::rl::dqn
-
 
 // ======================================================
 // NetworkModel
@@ -1003,19 +928,7 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
         earned_credit_ = 1.0f / static_cast<float>(std::max(1, config_.update_interval));
     }
 
-    if (config_.use_rb_prefetch) {
-        if (!device_.is_cuda()) {
-            ANET_SYSTEM_ERROR("learner.use_rb_prefetch requires a CUDA learner device. device=" << device_);
-        }
-        EnsureSamplePrefetchState();
-    }
-    
     LOG::info() << "Learner: U = " << earned_credit_;
-}
-
-Learner::~Learner()
-{
-    StopSamplePrefetch();
 }
 
 std::optional<float> Learner::GetScalar(const std::string& key, int64_t index) const
@@ -1085,6 +998,9 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
     //this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.num_envs, device_, false, seed);
     //this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.num_envs, device_, true, seed);
     this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.num_envs, torch::kCPU, false, seed);
+    if (config_.use_rb_prefetch) {
+        this->replay_buffer_ = std::make_shared<anet::rl::PrefetchingReplayBuffer>(this->replay_buffer_, device_);
+    }
 }
 
 NormalizedSampleObservations Learner::NormalizeSampleObservations(const anet::rl::ExperienceSamples& samples) const
@@ -1253,8 +1169,6 @@ PerPriorityUpdateInfo Learner::UpdatePerPriorities(const anet::rl::ExperienceSam
     ANET_PROFILE_SCOPE(make_info);
     PerPriorityUpdateInfo info = MakePerPriorityUpdateInfo(samples, td_error);
 
-    MaybeLaunchSamplePrefetch();
-
     if (!config_.use_per) {
         return info;
     }
@@ -1367,30 +1281,6 @@ bool Learner::CanUpdate(step_t exp_step) const
     return true;
 }
 
-anet::rl::ExperienceSamples Learner::SampleAndTransferSynchronously(int64_t batch_size, float beta) const
-{
-    ANET_PROFILE_FUNC();
-
-    ExperienceSamples samples;
-    replay_buffer_->Sample(samples, batch_size, beta);
-    return samples.To(device_);
-}
-
-anet::rl::ExperienceSamples Learner::ConsumePrefetchedSamplesOrSample(int64_t batch_size, float beta)
-{
-    ANET_PROFILE_FUNC();
-
-    EnsureSamplePrefetchState();
-
-    if (!sample_prefetch_->future.valid()) {
-        return SampleAndTransferSynchronously(batch_size, beta);
-    }
-
-    auto batch = sample_prefetch_->future.get();
-    batch.ready_event.block(at::cuda::getCurrentCUDAStream());
-    return std::move(batch.dev_samples);
-}
-
 void Learner::ValidateDeviceSamples(const anet::rl::ExperienceSamples& samples, int64_t batch_size) const
 {
     ANET_ASSERT_DEVICE(samples.obs, device_);
@@ -1407,67 +1297,6 @@ void Learner::ValidateDeviceSamples(const anet::rl::ExperienceSamples& samples, 
     ANET_ASSERT_DTYPE(samples.target_returns, torch::kFloat32);
     ANET_ASSERT_DTYPE(samples.next_state.terminals, torch::kBool);
     ANET_ASSERT_DTYPE(samples.n_steps, torch::kInt64);
-}
-
-void Learner::EnsureSamplePrefetchState()
-{
-    if (!sample_prefetch_) {
-        sample_prefetch_ = std::make_unique<SamplePrefetchState>();
-    }
-}
-
-void Learner::ArmSamplePrefetch(int64_t batch_size, float beta)
-{
-    if (!config_.use_rb_prefetch) return;
-
-    EnsureSamplePrefetchState();
-    sample_prefetch_->pending_request = SamplePrefetchState::Request{ batch_size, beta };
-}
-
-void Learner::MaybeLaunchSamplePrefetch()
-{
-    if (!config_.use_rb_prefetch || !sample_prefetch_ || !sample_prefetch_->pending_request.has_value()) return;
-    if (sample_prefetch_->future.valid()) return;
-
-    ANET_PROFILE_FUNC();
-
-    const auto request = *sample_prefetch_->pending_request;
-    sample_prefetch_->pending_request.reset();
-    const auto copy_stream = sample_prefetch_->copy_stream;
-
-    sample_prefetch_->future = sample_prefetch_->pool->EnqueueFuture(0, [this, request, copy_stream]() {
-        ANET_PROFILE_FUNC();
-
-        ExperienceSamples cpu_samples;
-        replay_buffer_->Sample(cpu_samples, request.batch_size, request.beta);
-
-        auto pinned_samples = PinCpuSamples(cpu_samples);
-
-        at::cuda::CUDAStreamGuard guard(copy_stream);
-        auto dev_samples = pinned_samples.To(device_, /*non_blocking=*/true);
-
-        at::cuda::CUDAEvent ready_event;
-        ready_event.record(copy_stream);
-
-        return SamplePrefetchState::PrefetchedBatch{
-            std::move(pinned_samples),
-            std::move(dev_samples),
-            std::move(ready_event)
-        };
-    });
-}
-
-void Learner::StopSamplePrefetch()
-{
-    if (!sample_prefetch_) return;
-
-    if (sample_prefetch_->future.valid()) {
-        sample_prefetch_->future.wait();
-    }
-    if (sample_prefetch_->pool) {
-        sample_prefetch_->pool->WaitAll();
-        sample_prefetch_->pool->Stop();
-    }
 }
 
 anet::rl::BatchUpdateResultList
@@ -1499,9 +1328,9 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
 
         // Sample
         float current_beta = config_.use_per ? vars_.per_beta : 0.0f;
-        ExperienceSamples dev_samples = config_.use_rb_prefetch
-            ? ConsumePrefetchedSamplesOrSample(B, current_beta)
-            : SampleAndTransferSynchronously(B, current_beta);
+        ExperienceSamples samples;
+        replay_buffer_->Sample(samples, B, current_beta);
+        ExperienceSamples dev_samples = samples.To(device_);
 //LOG::info() << "\n========\nUpdateFromBatch() exp_step=" << counts.exp_step << "\n========";
 //LOG::verbose() << "indexes=" << anet::ToString(samples.indices);
 //LOG::verbose() << "samples=" << samples.ToString();
@@ -1515,8 +1344,6 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
 
         // Check shapes & dtypes
         ValidateDeviceSamples(dev_samples, B);
-        ArmSamplePrefetch(B, current_beta);
-        MaybeLaunchSamplePrefetch();
 
         // 固有処理呼び出し
         //auto samples = raw_samples.FlattenStates();

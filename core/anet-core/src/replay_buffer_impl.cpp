@@ -3,12 +3,18 @@
 #include "replay_buffer_impl.hpp"
 #include <cmath>
 #include <algorithm>
+#include <future>
+#include <optional>
+#include <utility>
 #include <vector>
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/CUDAEvent.h>
 #include "anet/metrics_logger.hpp"
 #include "anet/tensor_check.hpp"
 #include "anet/profile.hpp"
 #include "anet/log.hpp"
 #include "anet/random.hpp"
+#include "anet/thread.hpp"
 
 using namespace anet::rl;
 namespace LOG = anet::log;
@@ -1492,6 +1498,237 @@ void DefaultReplayBuffer::DumpToLog() const
 
 
 // ===========================================================================
+// Prefetching ReplayBuffer
+// ===========================================================================
+
+static torch::Tensor PrefetchPinCpuTensor(const torch::Tensor& tensor)
+{
+    if (!tensor.defined()) return tensor;
+
+    torch::Tensor cpu_tensor = tensor.device().is_cpu() ? tensor : tensor.to(torch::kCPU);
+    if (cpu_tensor.is_pinned()) return cpu_tensor;
+
+    auto options = cpu_tensor.options().device(torch::kCPU).pinned_memory(true);
+    auto pinned = torch::empty_strided(cpu_tensor.sizes(), cpu_tensor.strides(), options);
+    pinned.copy_(cpu_tensor);
+    return pinned;
+}
+
+static anet::TensorDict PrefetchPinCpuTensorDict(const anet::TensorDict& dict)
+{
+    anet::TensorDict pinned;
+    for (const auto& kv : dict) {
+        pinned.Set(kv.first, PrefetchPinCpuTensor(kv.second));
+    }
+    return pinned;
+}
+
+static ExperienceSamples PrefetchPinCpuSamples(const ExperienceSamples& samples)
+{
+    return ExperienceSamples{
+        .obs = PrefetchPinCpuTensorDict(samples.obs),
+        .actions = PrefetchPinCpuTensor(samples.actions),
+        .target_returns = PrefetchPinCpuTensor(samples.target_returns),
+        .next_state = {
+            PrefetchPinCpuTensorDict(samples.next_state.next_obs),
+            PrefetchPinCpuTensor(samples.next_state.terminals)
+        },
+        .n_steps = PrefetchPinCpuTensor(samples.n_steps),
+        .indices = PrefetchPinCpuTensor(samples.indices),
+        .is_weights = PrefetchPinCpuTensor(samples.is_weights),
+        .info = PrefetchPinCpuTensorDict(samples.info)
+    };
+}
+
+struct PrefetchingReplayBuffer::PrefetchedBatch {
+    ExperienceSamples pinned_cpu_samples;
+    ExperienceSamples samples;
+    std::unique_ptr<at::cuda::CUDAEvent> ready_event;
+};
+
+struct PrefetchingReplayBuffer::State {
+    explicit State(torch::Device target_device)
+        : pool(std::make_unique<anet::PinnedThreadPool>(1, "ReplayBufferPrefetch"))
+    {
+        if (target_device.is_cuda()) {
+            copy_stream = at::cuda::getStreamFromPool(false);
+        }
+    }
+
+    mutable std::mutex mutex;
+    std::unique_ptr<anet::PinnedThreadPool> pool;
+    std::optional<at::cuda::CUDAStream> copy_stream;
+    std::future<PrefetchedBatch> future;
+};
+
+PrefetchingReplayBuffer::PrefetchingReplayBuffer(std::shared_ptr<ReplayBuffer> inner, torch::Device target_device)
+    : inner_(std::move(inner))
+    , target_device_(std::move(target_device))
+    , state_(std::make_unique<State>(target_device_))
+{
+    ANET_ASSERT_MSG(inner_ != nullptr, "PrefetchingReplayBuffer requires a non-null inner ReplayBuffer.");
+}
+
+PrefetchingReplayBuffer::~PrefetchingReplayBuffer()
+{
+    StopPrefetch();
+}
+
+void PrefetchingReplayBuffer::Push(const BatchExperience& batch_exp)
+{
+    ANET_PROFILE_FUNC();
+
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    if (state_->future.valid()) {
+        ANET_PROFILE_SCOPE(wait_prefetch);
+
+        // Pushはstorageを書き換えるため、background Sample が終わってからinnerへ進める。
+        WaitForPrefetchLocked();
+    }
+    inner_->Push(batch_exp);
+}
+
+void PrefetchingReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const
+{
+    ANET_PROFILE_FUNC();
+
+    PrefetchedBatch batch;
+    {
+        std::unique_lock<std::mutex> lock(state_->mutex);
+        if (state_->future.valid()) {
+            ANET_PROFILE_SCOPE(consume_wait);
+
+            // 前回起動した1-deep prefetchをここで消費し、同じ排他区間で次のprefetchを起動する。
+            // futureの有無をこの順序で更新することで、二重起動せず常に最大1件だけ先読みする。
+            batch = state_->future.get();
+            LaunchPrefetchLocked(minibatch_size, beta);
+        } else {
+            ANET_PROFILE_SCOPE(cold_fetch);
+
+            // 初回はfutureが無いため、state mutex内で同期Sampleし、Push/UpdatePrioritiesとの順序を固定する。
+            batch = Fetch(minibatch_size, beta);
+            LaunchPrefetchLocked(minibatch_size, beta);
+        }
+    }
+
+    if (batch.ready_event) {
+        ANET_PROFILE_SCOPE(event_wait);
+
+        // CUDA転送はcopy streamで済ませるため、利用側のcurrent streamからevent待ちしてから返す。
+        batch.ready_event->block(at::cuda::getCurrentCUDAStream());
+    }
+    out_samples = std::move(batch.samples);
+}
+
+int64_t PrefetchingReplayBuffer::Size() const
+{
+    return inner_->Size();
+}
+
+void PrefetchingReplayBuffer::UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities)
+{
+    ANET_PROFILE_FUNC();
+
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    if (state_->future.valid()) {
+        ANET_PROFILE_SCOPE(wait_prefetch);
+
+        // background Sample と priority 更新の順序を固定する。
+        WaitForPrefetchLocked();
+    }
+    inner_->UpdatePriorities(indices, priorities);
+}
+
+std::optional<float> PrefetchingReplayBuffer::GetScalar(const std::string& key, int64_t index) const
+{
+    return inner_->GetScalar(key, index);
+}
+
+std::optional<torch::Tensor> PrefetchingReplayBuffer::GetTensor(const std::string& key, int64_t index) const
+{
+    return inner_->GetTensor(key, index);
+}
+
+std::optional<std::vector<torch::Tensor>> PrefetchingReplayBuffer::GetTensorVector(const std::string& key, int64_t index) const
+{
+    return inner_->GetTensorVector(key, index);
+}
+
+PrefetchingReplayBuffer::PrefetchedBatch PrefetchingReplayBuffer::Fetch(int64_t minibatch_size, float beta) const
+{
+    ANET_PROFILE_SCOPE(sample);
+    ExperienceSamples cpu_samples;
+    inner_->Sample(cpu_samples, minibatch_size, beta);
+
+    return TransferSamples(std::move(cpu_samples));
+}
+
+PrefetchingReplayBuffer::PrefetchedBatch PrefetchingReplayBuffer::TransferSamples(ExperienceSamples cpu_samples) const
+{
+    if (!target_device_.is_cuda()) {
+        ANET_PROFILE_SCOPE_FULL(to, "PrefetchingReplayBuffer::Fetch.to");
+
+        // CPU learnerではCUDA用のpin/stream/eventを使わず、抽出済みsampleだけをCPUへそろえる。
+        return PrefetchedBatch{
+            .pinned_cpu_samples = ExperienceSamples{},
+            .samples = cpu_samples.To(target_device_),
+            .ready_event = nullptr
+        };
+    }
+
+    ANET_PROFILE_SCOPE_FULL(to, "PrefetchingReplayBuffer::Fetch.to");
+
+    // CUDA learnerではworker側でCPU tensorをpinned化し、copy streamへH2D転送を積む。
+    // pinned_cpu_samplesはevent待ちが終わるまで転送元の寿命を保つためbatchに保持する。
+    auto pinned_samples = PrefetchPinCpuSamples(cpu_samples);
+
+    const auto& copy_stream = state_->copy_stream.value();
+    at::cuda::CUDAStreamGuard guard(copy_stream);
+    auto dev_samples = pinned_samples.To(target_device_, /*non_blocking=*/true);
+
+    auto ready_event = std::make_unique<at::cuda::CUDAEvent>();
+    ready_event->record(copy_stream);
+
+    return PrefetchedBatch{
+        .pinned_cpu_samples = std::move(pinned_samples),
+        .samples = std::move(dev_samples),
+        .ready_event = std::move(ready_event)
+    };
+}
+
+void PrefetchingReplayBuffer::WaitForPrefetchLocked() const
+{
+    if (state_->future.valid()) {
+        state_->future.wait();
+    }
+}
+
+void PrefetchingReplayBuffer::LaunchPrefetchLocked(int64_t minibatch_size, float beta) const
+{
+    if (state_->future.valid()) return;
+
+    state_->future = state_->pool->EnqueueFuture(0, [this, minibatch_size, beta]() {
+        return Fetch(minibatch_size, beta);
+    });
+}
+
+void PrefetchingReplayBuffer::StopPrefetch() const
+{
+    if (!state_) return;
+
+    {
+        std::lock_guard<std::mutex> lock(state_->mutex);
+        WaitForPrefetchLocked();
+    }
+
+    if (state_->pool) {
+        state_->pool->WaitAll();
+        state_->pool->Stop();
+    }
+}
+
+
+// ===========================================================================
 // Factory
 // ===========================================================================
 
@@ -1525,4 +1762,3 @@ std::shared_ptr<ReplayBuffer> anet::rl::CreateReplayBuffer(
     return std::make_shared<DefaultReplayBuffer>(
         config, env_spec, num_envs, std::move(queue_controller), std::move(builder), sampler, prio, extractor, storage_device, pin_memory);
 }
-

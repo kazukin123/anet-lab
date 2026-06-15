@@ -1,16 +1,27 @@
 ﻿#include "catch.hpp"
 
 #include "anet/default_dqn_agent.hpp"
+#include "anet/metrics_logger.hpp"
 #include "anet/rainbow_agent.hpp"
 #include "anet/test_util.hpp"
+#include "anet/trainer.hpp"
 #include "dqn_based_agent.hpp"
 #include "nn_impl.hpp"
 
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <random>
+#include <sstream>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -163,6 +174,602 @@ rl::EnvSpec MakeLearnerEnvSpec()
     spec.action_spec.value_labels = { "a0" };
     spec.reward_range = { -1000.0f, 1000.0f };
     return spec;
+}
+
+enum class DeterminismJitterPhase {
+    BeforeUpdateFromBatch = 0,
+    BeforeUpdateFromSamples,
+    BeforePerUpdate,
+    AfterPerUpdate,
+    EnvStep,
+    Count,
+};
+
+constexpr size_t kDeterminismJitterPhaseCount = static_cast<size_t>(DeterminismJitterPhase::Count);
+
+class DeterminismJitterSchedule {
+public:
+    DeterminismJitterSchedule(uint64_t seed, int max_sleep_us, size_t entries_per_phase, size_t sleep_stride)
+        : sleep_stride_(std::max<size_t>(1, sleep_stride))
+    {
+        const int max_delay = std::max(0, max_sleep_us);
+        for (size_t phase = 0; phase < kDeterminismJitterPhaseCount; ++phase) {
+            counters_[phase].store(0, std::memory_order_relaxed);
+            delays_[phase].reserve(entries_per_phase);
+            std::mt19937_64 rng(seed ^ (0x9e3779b97f4a7c15ull + phase * 0xbf58476d1ce4e5b9ull));
+            std::uniform_int_distribution<int> dist(0, max_delay);
+            for (size_t i = 0; i < entries_per_phase; ++i) {
+                delays_[phase].push_back(dist(rng));
+            }
+        }
+    }
+
+    void Sleep(DeterminismJitterPhase phase) const
+    {
+        const auto phase_idx = static_cast<size_t>(phase);
+        const auto& delays = delays_[phase_idx];
+        if (delays.empty()) return;
+
+        const size_t counter = counters_[phase_idx].fetch_add(1, std::memory_order_relaxed);
+        const int delay_us = delays[counter % delays.size()];
+        if ((counter % sleep_stride_) != 0) return;
+        if (delay_us <= 0) return;
+
+        std::this_thread::sleep_for(std::chrono::microseconds(delay_us));
+    }
+
+private:
+    std::array<std::vector<int>, kDeterminismJitterPhaseCount> delays_;
+    mutable std::array<std::atomic<size_t>, kDeterminismJitterPhaseCount> counters_;
+    size_t sleep_stride_;
+};
+
+struct DeterminismTraceEntry {
+    std::vector<int64_t> indices;
+    std::vector<int64_t> n_steps;
+    std::vector<float> target_returns;
+    std::vector<float> is_weights;
+    std::vector<float> priorities;
+
+    bool operator==(const DeterminismTraceEntry&) const = default;
+};
+
+class NoopMetricsBackend final : public anet::IBackend {
+public:
+    void Open(const std::filesystem::path&, const std::string&) override {}
+    void WriteJsonl(const anet::json&) override {}
+    void Flush() override {}
+};
+
+std::vector<int64_t> TensorToInt64Vector(const torch::Tensor& tensor)
+{
+    if (!tensor.defined()) return {};
+    auto cpu = tensor.detach().to(torch::kCPU).to(torch::kInt64).contiguous();
+    const auto* ptr = cpu.data_ptr<int64_t>();
+    return std::vector<int64_t>(ptr, ptr + cpu.numel());
+}
+
+std::vector<float> TensorToFloatVector(const torch::Tensor& tensor)
+{
+    if (!tensor.defined()) return {};
+    auto cpu = tensor.detach().to(torch::kCPU).to(torch::kFloat32).contiguous();
+    const auto* ptr = cpu.data_ptr<float>();
+    return std::vector<float>(ptr, ptr + cpu.numel());
+}
+
+torch::Tensor DeterminismBoolTensor(const std::vector<bool>& values)
+{
+    auto tensor = torch::empty({ static_cast<int64_t>(values.size()) }, torch::TensorOptions().dtype(torch::kBool));
+    auto acc = tensor.accessor<bool, 1>();
+    for (int64_t i = 0; i < static_cast<int64_t>(values.size()); ++i) {
+        acc[i] = values[static_cast<size_t>(i)];
+    }
+    return tensor;
+}
+
+std::vector<bool> DeterminismBoolValues(int64_t num_envs, bool value)
+{
+    return std::vector<bool>(static_cast<size_t>(num_envs), value);
+}
+
+anet::TensorDict MakeDeterminismObs(int64_t step, int64_t num_envs)
+{
+    auto obs = torch::empty({ num_envs, 2 }, torch::TensorOptions().dtype(torch::kFloat32));
+    auto acc = obs.accessor<float, 2>();
+    for (int64_t env = 0; env < num_envs; ++env) {
+        acc[env][0] = static_cast<float>(step);
+        acc[env][1] = static_cast<float>(env);
+    }
+    return anet::TensorDict{ { kVectorKey, obs } };
+}
+
+std::vector<bool> MakeDeterminismDoneFlags(int64_t step, int64_t num_envs)
+{
+    std::vector<bool> flags(static_cast<size_t>(num_envs), false);
+    for (int64_t env = 0; env < num_envs; ++env) {
+        flags[static_cast<size_t>(env)] = ((step + env * 3 + 5) % 17) == 0;
+    }
+    return flags;
+}
+
+std::vector<bool> MakeDeterminismTruncatedFlags(
+    int64_t step,
+    int64_t num_envs,
+    const std::vector<bool>& done)
+{
+    std::vector<bool> flags(static_cast<size_t>(num_envs), false);
+    for (int64_t env = 0; env < num_envs; ++env) {
+        flags[static_cast<size_t>(env)] = !done[static_cast<size_t>(env)]
+            && ((step + env * 5 + 7) % 23) == 0;
+    }
+    return flags;
+}
+
+std::vector<bool> MakeDeterminismEpisodeStartFlags(int64_t step, int64_t num_envs)
+{
+    if (step <= 0) return DeterminismBoolValues(num_envs, true);
+
+    auto prev_done = MakeDeterminismDoneFlags(step - 1, num_envs);
+    auto prev_truncated = MakeDeterminismTruncatedFlags(step - 1, num_envs, prev_done);
+
+    std::vector<bool> flags(static_cast<size_t>(num_envs), false);
+    for (int64_t env = 0; env < num_envs; ++env) {
+        flags[static_cast<size_t>(env)] =
+            prev_done[static_cast<size_t>(env)] || prev_truncated[static_cast<size_t>(env)];
+    }
+    return flags;
+}
+
+rl::BatchState MakeDeterminismState(
+    int64_t step,
+    int64_t num_envs,
+    const std::vector<bool>& done,
+    const std::vector<bool>& truncated,
+    const std::vector<bool>& episode_start)
+{
+    return rl::BatchState{
+        MakeDeterminismObs(step, num_envs),
+        DeterminismBoolTensor(done),
+        DeterminismBoolTensor(truncated),
+        DeterminismBoolTensor(episode_start),
+    };
+}
+
+torch::Tensor MakeDeterminismRewards(int64_t step, int64_t num_envs)
+{
+    auto rewards = torch::empty({ num_envs }, torch::TensorOptions().dtype(torch::kFloat32));
+    auto acc = rewards.accessor<float, 1>();
+    for (int64_t env = 0; env < num_envs; ++env) {
+        const int64_t centered = ((step + env * 2) % 13) - 6;
+        acc[env] = static_cast<float>(centered) * 0.25f + static_cast<float>(env) * 0.05f;
+    }
+    return rewards;
+}
+
+rl::BatchExperience MakeDeterminismExperience(int64_t step, int64_t num_envs)
+{
+    const auto state_done = DeterminismBoolValues(num_envs, false);
+    const auto state_truncated = DeterminismBoolValues(num_envs, false);
+    const auto state_start = MakeDeterminismEpisodeStartFlags(step, num_envs);
+    auto next_done = MakeDeterminismDoneFlags(step, num_envs);
+    auto next_truncated = MakeDeterminismTruncatedFlags(step, num_envs, next_done);
+
+    auto action = torch::zeros({ num_envs }, torch::TensorOptions().dtype(torch::kInt64));
+    return rl::BatchExperience(
+        MakeDeterminismState(step, num_envs, state_done, state_truncated, state_start),
+        std::make_shared<rl::BatchActionInfo>(action),
+        MakeDeterminismRewards(step, num_envs),
+        MakeDeterminismState(
+            step + 1,
+            num_envs,
+            next_done,
+            next_truncated,
+            DeterminismBoolValues(num_envs, false)));
+}
+
+dqn::LearnerConfig MakeDeterminismLearnerConfig()
+{
+    dqn::LearnerConfig config;
+    config.use_rb_prefetch = true;
+    config.use_per = true;
+    config.use_n_step = true;
+    config.n_step = 3;
+    config.replay_batch_size = 8;
+    config.replay_capacity = 64;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = -1.0f;
+    config.per_beta_start = 0.4f;
+    config.per_beta_end = 1.0f;
+    config.per_beta_step = 128;
+    config.use_per_prio_clip = true;
+    config.per_prio_clip_value = 10.0f;
+    return config;
+}
+
+class CapturingLearner final : public dqn::Learner {
+public:
+    CapturingLearner(
+        const dqn::LearnerConfig& config,
+        dqn::NetworkModel& model,
+        dqn::RuntimeVars& vars,
+        const rl::BatchEnvSpec& batch_env_spec,
+        const rl::EnvSpec& env_spec,
+        anet::seed_t replay_seed,
+        std::shared_ptr<DeterminismJitterSchedule> jitter)
+        : dqn::Learner(
+            config,
+            model,
+            vars,
+            nullptr,
+            batch_env_spec,
+            env_spec,
+            torch::Device(torch::kCPU),
+            replay_seed,
+            std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{}),
+            std::nullopt,
+            replay_seed + 1)
+        , jitter_(std::move(jitter))
+    {
+        SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
+    }
+
+    rl::BatchUpdateResultList UpdateFromBatch(
+        const rl::StepCounts& step,
+        const rl::BatchExperience& experiences) override
+    {
+        if (jitter_) jitter_->Sleep(DeterminismJitterPhase::BeforeUpdateFromBatch);
+        return dqn::Learner::UpdateFromBatch(step, experiences);
+    }
+
+    std::vector<DeterminismTraceEntry> Trace() const
+    {
+        std::lock_guard<std::mutex> lock(trace_mutex_);
+        return trace_;
+    }
+
+protected:
+    std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
+        const anet::rl::ExperienceSamples& samples) override
+    {
+        torch::NoGradGuard no_grad;
+
+        if (jitter_) jitter_->Sleep(DeterminismJitterPhase::BeforeUpdateFromSamples);
+
+        auto td_error = samples.target_returns.detach().to(torch::kFloat32) * 0.125f
+            + samples.n_steps.to(torch::kFloat32) * 0.05f
+            + samples.indices.to(torch::kFloat32) * 0.001f
+            + 0.01f;
+
+        if (jitter_) jitter_->Sleep(DeterminismJitterPhase::BeforePerUpdate);
+        auto per_info = UpdatePerPriorities(samples, td_error);
+        if (jitter_) jitter_->Sleep(DeterminismJitterPhase::AfterPerUpdate);
+
+        DeterminismTraceEntry entry{
+            .indices = TensorToInt64Vector(samples.indices),
+            .n_steps = TensorToInt64Vector(samples.n_steps),
+            .target_returns = TensorToFloatVector(samples.target_returns),
+            .is_weights = TensorToFloatVector(samples.is_weights),
+            .priorities = TensorToFloatVector(per_info.per_priorities),
+        };
+        {
+            std::lock_guard<std::mutex> lock(trace_mutex_);
+            trace_.push_back(std::move(entry));
+        }
+
+        return std::make_shared<dqn::BatchUpdateResult>();
+    }
+
+private:
+    std::shared_ptr<DeterminismJitterSchedule> jitter_;
+    mutable std::mutex trace_mutex_;
+    std::vector<DeterminismTraceEntry> trace_;
+};
+
+std::vector<DeterminismTraceEntry> RunLearnerDeterminismTrial(
+    anet::seed_t replay_seed,
+    uint64_t jitter_seed,
+    int64_t num_steps,
+    int max_sleep_us,
+    size_t sleep_stride)
+{
+    constexpr int64_t kNumEnv = 4;
+    const size_t jitter_entries = static_cast<size_t>(num_steps) * 8 + 1024;
+    auto jitter = std::make_shared<DeterminismJitterSchedule>(
+        jitter_seed,
+        max_sleep_us,
+        jitter_entries,
+        sleep_stride);
+
+    auto config = MakeDeterminismLearnerConfig();
+    TestNetworkModel model;
+    dqn::RuntimeVars vars;
+    auto env_spec = MakeLearnerEnvSpec();
+    rl::BatchEnvSpec batch_env_spec{ kNumEnv, 1 };
+    CapturingLearner learner(config, model, vars, batch_env_spec, env_spec, replay_seed, jitter);
+
+    for (int64_t step = 0; step < num_steps; ++step) {
+        rl::StepCounts counts;
+        counts.train_step = step;
+        counts.exp_step = step * kNumEnv;
+        counts.learn_step = vars.learn_step;
+        learner.UpdateFromBatch(counts, MakeDeterminismExperience(step, kNumEnv));
+    }
+
+    return learner.Trace();
+}
+
+bool DeterminismTracesEqual(
+    const std::vector<DeterminismTraceEntry>& lhs,
+    const std::vector<DeterminismTraceEntry>& rhs)
+{
+    return lhs == rhs;
+}
+
+bool CurrentCatchFilterMentionsStress()
+{
+    const auto* config = Catch::getCurrentContext().getConfig();
+    if (config == nullptr) return false;
+
+    std::ostringstream oss;
+    oss << config->testSpec();
+    return oss.str().find("stress") != std::string::npos;
+}
+
+void RequireLearnerDeterminismPairs(int trial_pairs, int64_t num_steps, int max_sleep_us, size_t sleep_stride)
+{
+    for (int trial = 0; trial < trial_pairs; ++trial) {
+        const auto replay_seed = static_cast<anet::seed_t>(10000 + trial * 37);
+        const auto jitter_seed = static_cast<uint64_t>(20000 + trial * 101);
+        INFO("trial=" << trial << " replay_seed=" << replay_seed << " jitter_seed=" << jitter_seed);
+
+        auto first = RunLearnerDeterminismTrial(replay_seed, jitter_seed, num_steps, max_sleep_us, sleep_stride);
+        auto second = RunLearnerDeterminismTrial(replay_seed, jitter_seed, num_steps, max_sleep_us, sleep_stride);
+
+        REQUIRE_FALSE(first.empty());
+        REQUIRE(DeterminismTracesEqual(first, second));
+    }
+}
+
+class DeterminismResetResult final : public rl::BatchResetResult {
+public:
+    explicit DeterminismResetResult(int64_t num_envs)
+        : rl::BatchResetResult(MakeDeterminismState(
+            0,
+            num_envs,
+            DeterminismBoolValues(num_envs, false),
+            DeterminismBoolValues(num_envs, false),
+            DeterminismBoolValues(num_envs, true)))
+        , num_envs_(num_envs)
+    {
+    }
+
+    std::vector<rl::AuxData> GetAuxDataList(int env_index = -1) const override
+    {
+        if (env_index >= 0) return { rl::AuxData{} };
+        return std::vector<rl::AuxData>(static_cast<size_t>(num_envs_));
+    }
+
+private:
+    int64_t num_envs_;
+};
+
+uint32_t CountDeterminismEpisodeEnds(const rl::BatchState& state)
+{
+    auto done = state.done.to(torch::kCPU).contiguous();
+    auto truncated = state.truncated.to(torch::kCPU).contiguous();
+    auto done_acc = done.accessor<bool, 1>();
+    auto truncated_acc = truncated.accessor<bool, 1>();
+
+    uint32_t count = 0;
+    for (int64_t i = 0; i < done.size(0); ++i) {
+        if (done_acc[i] || truncated_acc[i]) ++count;
+    }
+    return count;
+}
+
+class DeterminismStepResult final : public rl::BatchStepResult {
+public:
+    DeterminismStepResult(
+        torch::Tensor reward,
+        rl::BatchState next_state,
+        rl::BatchState continue_state,
+        int64_t num_envs,
+        uint32_t episode_end_count)
+        : rl::BatchStepResult(
+            std::move(reward),
+            std::move(next_state),
+            std::move(continue_state),
+            static_cast<uint32_t>(num_envs),
+            episode_end_count)
+        , num_envs_(num_envs)
+    {
+    }
+
+    std::vector<rl::AuxData> GetAuxDataList(int env_index = -1) const override
+    {
+        if (env_index >= 0) return { rl::AuxData{} };
+        return std::vector<rl::AuxData>(static_cast<size_t>(num_envs_));
+    }
+
+private:
+    int64_t num_envs_;
+};
+
+class JitterBatchEnv final : public rl::BatchEnv {
+public:
+    JitterBatchEnv(int64_t num_envs, std::shared_ptr<DeterminismJitterSchedule> jitter)
+        : batch_spec_{ static_cast<int>(num_envs), 1 }
+        , jitter_(std::move(jitter))
+    {
+    }
+
+    rl::EnvSpec GetSpec() const override { return MakeLearnerEnvSpec(); }
+    rl::BatchEnvSpec GetBatchSpec() const override { return batch_spec_; }
+    torch::Device GetDevice() const override { return torch::Device(torch::kCPU); }
+
+    std::shared_ptr<const rl::BatchResetResult> Reset(rl::RunMode = rl::RunMode::Train) override
+    {
+        step_ = 0;
+        return std::make_shared<DeterminismResetResult>(batch_spec_.num_envs);
+    }
+
+    std::shared_ptr<const rl::BatchStepResult> Step(
+        std::shared_ptr<rl::BatchActionInfo>,
+        rl::RunMode = rl::RunMode::Train) override
+    {
+        if (jitter_) jitter_->Sleep(DeterminismJitterPhase::EnvStep);
+
+        const int64_t num_envs = batch_spec_.num_envs;
+        auto next_done = MakeDeterminismDoneFlags(step_, num_envs);
+        auto next_truncated = MakeDeterminismTruncatedFlags(step_, num_envs, next_done);
+        auto next_state = MakeDeterminismState(
+            step_ + 1,
+            num_envs,
+            next_done,
+            next_truncated,
+            DeterminismBoolValues(num_envs, false));
+        auto continue_state = MakeDeterminismState(
+            step_ + 1,
+            num_envs,
+            DeterminismBoolValues(num_envs, false),
+            DeterminismBoolValues(num_envs, false),
+            MakeDeterminismEpisodeStartFlags(step_ + 1, num_envs));
+        auto reward = MakeDeterminismRewards(step_, num_envs);
+        const uint32_t episode_end_count = CountDeterminismEpisodeEnds(next_state);
+        ++step_;
+
+        return std::make_shared<DeterminismStepResult>(
+            std::move(reward),
+            std::move(next_state),
+            std::move(continue_state),
+            num_envs,
+            episode_end_count);
+    }
+
+    std::optional<float> GetScalar(const std::string&, int64_t = -1) const override { return std::nullopt; }
+    std::optional<torch::Tensor> GetTensor(const std::string&, int64_t = -1) const override { return std::nullopt; }
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string&, int64_t = -1) const override { return std::nullopt; }
+
+private:
+    rl::BatchEnvSpec batch_spec_;
+    std::shared_ptr<DeterminismJitterSchedule> jitter_;
+    int64_t step_ = 0;
+};
+
+class TraceActor final : public rl::Actor {
+public:
+    explicit TraceActor(int64_t num_envs)
+        : num_envs_(num_envs)
+    {
+    }
+
+    std::shared_ptr<rl::BatchActionInfo> MakeAction(const rl::StepCounts&, const rl::BatchState&) const override
+    {
+        return std::make_shared<rl::BatchActionInfo>(
+            torch::zeros({ num_envs_ }, torch::TensorOptions().dtype(torch::kInt64)));
+    }
+
+    void Sync() override {}
+
+private:
+    int64_t num_envs_;
+};
+
+class TraceAgent final : public rl::Agent {
+public:
+    TraceAgent(
+        const dqn::LearnerConfig& config,
+        const rl::BatchEnvSpec& batch_env_spec,
+        const rl::EnvSpec& env_spec,
+        anet::seed_t replay_seed,
+        std::shared_ptr<DeterminismJitterSchedule> jitter)
+        : model_(std::make_shared<TestNetworkModel>())
+        , vars_(std::make_shared<dqn::RuntimeVars>())
+        , learner_(std::make_shared<CapturingLearner>(
+            config,
+            *model_,
+            *vars_,
+            batch_env_spec,
+            env_spec,
+            replay_seed,
+            std::move(jitter)))
+    {
+    }
+
+    std::shared_ptr<rl::Actor> CreateActor(
+        const rl::BatchEnvSpec& batch_env_spec,
+        rl::RunMode,
+        bool,
+        std::optional<torch::Device> = std::nullopt) const override
+    {
+        return std::make_shared<TraceActor>(batch_env_spec.num_envs);
+    }
+
+    std::shared_ptr<rl::Learner> CreateLearner() override
+    {
+        return learner_;
+    }
+
+    std::vector<DeterminismTraceEntry> Trace() const
+    {
+        return learner_->Trace();
+    }
+
+    std::optional<float> GetScalar(const std::string&, int64_t = -1) const override { return std::nullopt; }
+    std::optional<torch::Tensor> GetTensor(const std::string&, int64_t = -1) const override { return std::nullopt; }
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string&, int64_t = -1) const override { return std::nullopt; }
+    std::optional<anet::TensorFunction> GetTensorFunction(const std::string&) override { return std::nullopt; }
+
+private:
+    std::shared_ptr<TestNetworkModel> model_;
+    std::shared_ptr<dqn::RuntimeVars> vars_;
+    std::shared_ptr<CapturingLearner> learner_;
+};
+
+struct RunnerDeterminismTrace {
+    rl::StepCounts counts;
+    std::vector<DeterminismTraceEntry> learner_trace;
+};
+
+RunnerDeterminismTrace RunPipelineDeterminismTrial(
+    anet::seed_t replay_seed,
+    uint64_t jitter_seed,
+    int64_t num_steps,
+    int max_sleep_us,
+    size_t sleep_stride)
+{
+    constexpr int64_t kNumEnv = 4;
+    anet::MetricsLogger::Reset();
+    anet::MetricsLoggerConfig logger_config;
+    logger_config.run_name_tmpl = "dqn_prefetch_determinism_test";
+    anet::MetricsLogger::Init(std::make_unique<NoopMetricsBackend>(), logger_config, "C:/tmp");
+
+    const size_t jitter_entries = static_cast<size_t>(num_steps) * 8 + 1024;
+    auto jitter = std::make_shared<DeterminismJitterSchedule>(
+        jitter_seed,
+        max_sleep_us,
+        jitter_entries,
+        sleep_stride);
+    auto env = std::make_shared<JitterBatchEnv>(kNumEnv, jitter);
+    auto agent = std::make_shared<TraceAgent>(
+        MakeDeterminismLearnerConfig(),
+        env->GetBatchSpec(),
+        env->GetSpec(),
+        replay_seed,
+        jitter);
+    auto notifier = std::make_shared<rl::Notifier>();
+    std::shared_ptr<rl::TrainRunner> runner = std::make_shared<rl::PipelineTrainRunner>(env, agent, notifier);
+
+    auto counts = runner->DoUpdateFrame(static_cast<int>(num_steps));
+    runner->Shutdown();
+    auto trace = agent->Trace();
+    anet::MetricsLogger::Reset();
+
+    return RunnerDeterminismTrace{
+        .counts = counts,
+        .learner_trace = std::move(trace),
+    };
 }
 
 std::shared_ptr<anet::nn::Network> MakePassthroughNetwork(int64_t n_actions, int64_t n_quantiles)
@@ -626,7 +1233,7 @@ TEST_CASE("DQN configs read sample prefetch setting", "[dqn][config][prefetch]")
     CHECK_FALSE(rainbow_config.learner.use_rb_prefetch);
 }
 
-TEST_CASE("Learner rejects sample prefetch on non CUDA device", "[dqn][prefetch]")
+TEST_CASE("Learner allows sample prefetch on CPU device", "[dqn][prefetch]")
 {
     dqn::LearnerConfig config;
     config.use_rb_prefetch = true;
@@ -637,7 +1244,54 @@ TEST_CASE("Learner rejects sample prefetch on non CUDA device", "[dqn][prefetch]
     auto env_spec = MakeLearnerEnvSpec();
     rl::BatchEnvSpec batch_env_spec{ 1, 1 };
 
-    CHECK_THROWS(TestLearner(config, model, vars, batch_env_spec, env_spec));
+    CHECK_NOTHROW(TestLearner(config, model, vars, batch_env_spec, env_spec));
+}
+
+TEST_CASE("DQN learner prefetch path is deterministic under fixed jitter", "[dqn][prefetch][determinism]")
+{
+    constexpr int kTrialPairs = 48;
+    constexpr int64_t kNumSteps = 256;
+    constexpr int kMaxSleepUs = 300;
+    constexpr size_t kSleepStride = 64;
+    RequireLearnerDeterminismPairs(kTrialPairs, kNumSteps, kMaxSleepUs, kSleepStride);
+}
+
+TEST_CASE("PipelineTrainRunner prefetch path is deterministic under fixed jitter", "[dqn][prefetch][determinism][runner]")
+{
+    constexpr int kTrialPairs = 12;
+    constexpr int64_t kNumSteps = 256;
+    constexpr int kMaxSleepUs = 300;
+    constexpr size_t kSleepStride = 64;
+
+    for (int trial = 0; trial < kTrialPairs; ++trial) {
+        const auto replay_seed = static_cast<anet::seed_t>(30000 + trial * 43);
+        const auto jitter_seed = static_cast<uint64_t>(40000 + trial * 109);
+        INFO("trial=" << trial << " replay_seed=" << replay_seed << " jitter_seed=" << jitter_seed);
+
+        auto first = RunPipelineDeterminismTrial(replay_seed, jitter_seed, kNumSteps, kMaxSleepUs, kSleepStride);
+        auto second = RunPipelineDeterminismTrial(replay_seed, jitter_seed, kNumSteps, kMaxSleepUs, kSleepStride);
+
+        REQUIRE_FALSE(first.learner_trace.empty());
+        REQUIRE(first.counts.train_step == second.counts.train_step);
+        REQUIRE(first.counts.exp_step == second.counts.exp_step);
+        REQUIRE(first.counts.learn_step == second.counts.learn_step);
+        REQUIRE(first.learner_trace.size() == second.learner_trace.size());
+        REQUIRE(DeterminismTracesEqual(first.learner_trace, second.learner_trace));
+    }
+}
+
+TEST_CASE("DQN learner prefetch path is deterministic under extended jitter stress", "[.][dqn][prefetch][determinism][stress]")
+{
+    if (!CurrentCatchFilterMentionsStress()) {
+        SUCCEED("Skipping extended stress unless [stress] is explicitly selected.");
+        return;
+    }
+
+    constexpr int kTrialPairs = 200;
+    constexpr int64_t kNumSteps = 512;
+    constexpr int kMaxSleepUs = 1000;
+    constexpr size_t kSleepStride = 64;
+    RequireLearnerDeterminismPairs(kTrialPairs, kNumSteps, kMaxSleepUs, kSleepStride);
 }
 
 TEST_CASE("DefaultDQNAgentConfig rejects invalid TBO epsilon", "[dqn][config][tbo]")

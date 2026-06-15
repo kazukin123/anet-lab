@@ -1,4 +1,10 @@
-﻿#pragma once
+﻿//anet/replay_buffer.hpp
+
+#pragma once
+
+#include <memory>
+#include <optional>
+#include <string>
 #include <vector>
 #include <random>
 #include <torch/torch.h>
@@ -53,5 +59,46 @@ namespace anet::rl {
         bool pin_memory = true,
         std::optional<uint64_t> seed = std::nullopt
     );
+
+    /// ReplayBuffer を 1-deep で先読みする decorator。
+    ///
+    /// `Sample()` は cold start では同期 `Fetch()` を返し、その同じ排他区間で次の
+    /// background `Fetch()` を起動する。以後は前回 future を `get()` で消費してから
+    /// 次 future を起動するため、同時に in-flight になる prefetch は最大 1 本。
+    ///
+    /// `Push()` と `UpdatePriorities()` は in-flight future があれば完了まで `wait()` して
+    /// から inner へ mutation を委譲する。この順序保証は、storage / priority を変更する
+    /// 経路がこの wrapper を必ず通ることを前提にする。`wait()` は future を消費しないため、
+    /// prefetch worker の例外は次回 `Sample()` が future を `get()` するときに表面化する。
+    ///
+    /// CPU path は background `Sample()+To(CPU)` のみを行う。CUDA path は CPU sample を
+    /// pinned 化し、copy stream の non-blocking H2D と CUDAEvent 待ちで転送完了を保証する。
+    class PrefetchingReplayBuffer final : public ReplayBuffer {
+    public:
+        PrefetchingReplayBuffer(std::shared_ptr<ReplayBuffer> inner, torch::Device target_device);
+        ~PrefetchingReplayBuffer() override;
+
+        void Push(const BatchExperience& batch_exp) override;
+        void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const override;
+        int64_t Size() const override;
+        void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override;
+
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
+    private:
+        struct State;
+        struct PrefetchedBatch;
+
+        PrefetchedBatch Fetch(int64_t minibatch_size, float beta) const;
+        PrefetchedBatch TransferSamples(ExperienceSamples cpu_samples) const;
+        void WaitForPrefetchLocked() const;
+        void LaunchPrefetchLocked(int64_t minibatch_size, float beta) const;
+        void StopPrefetch() const;
+    private:
+        std::shared_ptr<ReplayBuffer> inner_;
+        torch::Device target_device_;
+        mutable std::unique_ptr<State> state_;
+    };
 
 } // namespace anet

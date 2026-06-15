@@ -3,8 +3,11 @@
 #include "anet/replay_buffer.hpp"
 #include "replay_buffer_impl.hpp"
 
+#include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <exception>
+#include <mutex>
 #include <numeric>
 #include <stdexcept>
 #include <thread>
@@ -198,6 +201,174 @@ TestBuffer MakeBuffer(
     out.rb = rl::CreateReplayBuffer(config, MakeEnvSpec(include_mask), num_envs, torch::kCPU, false, seed);
     return out;
 }
+
+std::vector<int64_t> TensorToInt64Vector(const torch::Tensor& tensor)
+{
+    auto cpu = tensor.cpu().contiguous();
+    auto ptr = cpu.data_ptr<int64_t>();
+    return std::vector<int64_t>(ptr, ptr + cpu.numel());
+}
+
+class BlockingReplayBuffer final : public rl::ReplayBuffer {
+public:
+    explicit BlockingReplayBuffer(bool block_first_sample = false, bool block_second_sample = true)
+        : block_first_sample(block_first_sample)
+        , block_second_sample(block_second_sample)
+    {
+    }
+
+    void Push(const rl::BatchExperience&) override
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        push_called_before_first_sample_finished = first_sample_started && !first_sample_finished;
+        push_called_before_second_sample_finished = second_sample_started && !second_sample_finished;
+        ++push_count;
+        cv.notify_all();
+    }
+
+    void Sample(rl::ExperienceSamples& out_samples, int64_t minibatch_size, float) const override
+    {
+        int call_index = 0;
+        {
+            std::unique_lock<std::mutex> lock(mutex);
+            call_index = ++sample_count;
+            if (call_index == 1 && block_first_sample) {
+                first_sample_started = true;
+                cv.notify_all();
+                cv.wait(lock, [&] { return release_first_sample; });
+                first_sample_finished = true;
+                cv.notify_all();
+            }
+            if (call_index == 2 && block_second_sample) {
+                second_sample_started = true;
+                cv.notify_all();
+                cv.wait(lock, [&] { return release_second_sample; });
+                second_sample_finished = true;
+                cv.notify_all();
+            }
+        }
+
+        anet::TensorDict obs;
+        obs.Set(kVectorKey, torch::zeros({ minibatch_size, 1 }, torch::TensorOptions().dtype(torch::kFloat32)));
+        out_samples.obs = obs;
+        out_samples.actions = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kInt64));
+        out_samples.target_returns = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kFloat32));
+        out_samples.next_state.next_obs = obs;
+        out_samples.next_state.terminals = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kBool));
+        out_samples.n_steps = torch::ones({ minibatch_size }, torch::TensorOptions().dtype(torch::kInt64));
+        out_samples.indices = torch::full({ minibatch_size }, call_index, torch::TensorOptions().dtype(torch::kInt64));
+        out_samples.is_weights = torch::ones({ minibatch_size }, torch::TensorOptions().dtype(torch::kFloat32));
+    }
+
+    int64_t Size() const override
+    {
+        return size_value;
+    }
+
+    void UpdatePriorities(const std::vector<int64_t>&, const std::vector<float>&) override
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        update_called_before_second_sample_finished = second_sample_started && !second_sample_finished;
+        ++update_count;
+        cv.notify_all();
+    }
+
+    std::optional<float> GetScalar(const std::string& key, int64_t) const override
+    {
+        if (key == rl::ReplayBuffer::PER_TOTAL) return scalar_value;
+        return std::nullopt;
+    }
+
+    std::optional<torch::Tensor> GetTensor(const std::string&, int64_t) const override
+    {
+        return tensor_value;
+    }
+
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string&, int64_t) const override
+    {
+        return std::vector<torch::Tensor>{ tensor_value };
+    }
+
+    void WaitForFirstSampleStarted() const
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        cv.wait(lock, [&] { return first_sample_started; });
+    }
+
+    void WaitForSecondSampleStarted() const
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        cv.wait(lock, [&] { return second_sample_started; });
+    }
+
+    void ReleaseFirstSample() const
+    {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            release_first_sample = true;
+        }
+        cv.notify_all();
+    }
+
+    void ReleaseSecondSample() const
+    {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            release_second_sample = true;
+        }
+        cv.notify_all();
+    }
+
+    int UpdateCount() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return update_count;
+    }
+
+    int PushCount() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return push_count;
+    }
+
+    bool UpdateWasCalledBeforeSecondSampleFinished() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return update_called_before_second_sample_finished;
+    }
+
+    bool PushWasCalledBeforeFirstSampleFinished() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return push_called_before_first_sample_finished;
+    }
+
+    bool PushWasCalledBeforeSecondSampleFinished() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return push_called_before_second_sample_finished;
+    }
+
+    bool block_first_sample = false;
+    bool block_second_sample = true;
+    mutable std::mutex mutex;
+    mutable std::condition_variable cv;
+    mutable int sample_count = 0;
+    mutable bool first_sample_started = false;
+    mutable bool release_first_sample = false;
+    mutable bool first_sample_finished = false;
+    mutable bool second_sample_started = false;
+    mutable bool release_second_sample = false;
+    mutable bool second_sample_finished = false;
+    mutable int update_count = 0;
+    mutable bool update_called_before_second_sample_finished = false;
+    mutable int push_count = 0;
+    mutable bool push_called_before_first_sample_finished = false;
+    mutable bool push_called_before_second_sample_finished = false;
+    int64_t size_value = 7;
+    float scalar_value = 3.5f;
+    torch::Tensor tensor_value = torch::tensor({ 2.0f }, torch::TensorOptions().dtype(torch::kFloat32));
+};
 
 void PushTime(
     const TestBuffer& buffer,
@@ -627,6 +798,141 @@ TEST_CASE("ReplayBuffer samples while push and priority update run concurrently"
     buffer.rb->Sample(samples, 4, 0.4f);
     RequireShape(samples.indices, { 4 });
     RequireShape(samples.actions, { 4 });
+}
+
+TEST_CASE("PrefetchingReplayBuffer samples deterministically on CPU", "[replay_buffer][prefetch]")
+{
+    auto MakePrefetchingBuffer = [] {
+        auto buffer = MakeBuffer(MakeConfig(32, 1, 0.99f, 1, rl::ReplaySamplerType::PRIORITIZED), 2, false, 777);
+        for (int64_t t = 0; t < 10; ++t) {
+            PushTime(buffer, t, {}, {}, t == 0 ? BoolValues(buffer.num_envs, true) : BoolValues(buffer.num_envs, false));
+        }
+        return std::make_shared<rl::PrefetchingReplayBuffer>(buffer.rb, torch::kCPU);
+    };
+
+    auto CollectIndices = [](const std::shared_ptr<rl::ReplayBuffer>& rb) {
+        std::vector<int64_t> out;
+        for (int i = 0; i < 4; ++i) {
+            rl::ExperienceSamples samples;
+            rb->Sample(samples, 4, 0.4f);
+            RequireShape(samples.indices, { 4 });
+            RequireShape(samples.actions, { 4 });
+            CHECK(samples.actions.device().is_cpu());
+
+            auto indices = TensorToInt64Vector(samples.indices);
+            out.insert(out.end(), indices.begin(), indices.end());
+            rb->UpdatePriorities(indices, std::vector<float>(indices.size(), 1.0f + static_cast<float>(i)));
+        }
+        return out;
+    };
+
+    auto lhs = CollectIndices(MakePrefetchingBuffer());
+    auto rhs = CollectIndices(MakePrefetchingBuffer());
+
+    CHECK(lhs == rhs);
+}
+
+TEST_CASE("PrefetchingReplayBuffer forwards ReplayBuffer accessors on CPU", "[replay_buffer][prefetch]")
+{
+    auto inner_state = std::make_shared<BlockingReplayBuffer>();
+    rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
+
+    rb.Push(rl::BatchExperience{});
+    CHECK(inner_state->PushCount() == 1);
+    CHECK(rb.Size() == inner_state->size_value);
+
+    auto scalar = rb.GetScalar(rl::ReplayBuffer::PER_TOTAL);
+    REQUIRE(scalar.has_value());
+    CHECK(*scalar == Catch::Approx(inner_state->scalar_value));
+
+    auto tensor = rb.GetTensor(rl::ReplayBuffer::PER_VALUES);
+    REQUIRE(tensor.has_value());
+    RequireFlatApprox(*tensor, { 2.0f });
+
+    auto tensor_vector = rb.GetTensorVector(rl::ReplayBuffer::PER_VALUES);
+    REQUIRE(tensor_vector.has_value());
+    REQUIRE(tensor_vector->size() == 1);
+    RequireFlatApprox((*tensor_vector)[0], { 2.0f });
+}
+
+TEST_CASE("PrefetchingReplayBuffer waits for in-flight sample before priority update", "[replay_buffer][prefetch][thread]")
+{
+    auto inner_state = std::make_shared<BlockingReplayBuffer>();
+    rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
+
+    rl::ExperienceSamples samples;
+    rb.Sample(samples, 1, 0.0f);
+    CHECK(TensorToInt64Vector(samples.indices) == std::vector<int64_t>{ 1 });
+
+    inner_state->WaitForSecondSampleStarted();
+
+    std::thread updater([&] {
+        rb.UpdatePriorities({ 0 }, { 1.0f });
+    });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    CHECK(inner_state->UpdateCount() == 0);
+
+    inner_state->ReleaseSecondSample();
+    updater.join();
+
+    CHECK(inner_state->UpdateCount() == 1);
+    CHECK_FALSE(inner_state->UpdateWasCalledBeforeSecondSampleFinished());
+}
+
+TEST_CASE("PrefetchingReplayBuffer waits for cold sample before push", "[replay_buffer][prefetch][thread]")
+{
+    const bool block_first_sample = true;
+    const bool block_second_sample = false;
+    auto inner_state = std::make_shared<BlockingReplayBuffer>(block_first_sample, block_second_sample);
+    rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
+
+    rl::ExperienceSamples samples;
+    std::thread sampler([&] {
+        rb.Sample(samples, 1, 0.0f);
+    });
+
+    inner_state->WaitForFirstSampleStarted();
+
+    std::thread pusher([&] {
+        rb.Push(rl::BatchExperience{});
+    });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    CHECK(inner_state->PushCount() == 0);
+
+    inner_state->ReleaseFirstSample();
+    sampler.join();
+    pusher.join();
+
+    CHECK(TensorToInt64Vector(samples.indices) == std::vector<int64_t>{ 1 });
+    CHECK(inner_state->PushCount() == 1);
+    CHECK_FALSE(inner_state->PushWasCalledBeforeFirstSampleFinished());
+}
+
+TEST_CASE("PrefetchingReplayBuffer waits for in-flight sample before push", "[replay_buffer][prefetch][thread]")
+{
+    auto inner_state = std::make_shared<BlockingReplayBuffer>();
+    rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
+
+    rl::ExperienceSamples samples;
+    rb.Sample(samples, 1, 0.0f);
+    CHECK(TensorToInt64Vector(samples.indices) == std::vector<int64_t>{ 1 });
+
+    inner_state->WaitForSecondSampleStarted();
+
+    std::thread pusher([&] {
+        rb.Push(rl::BatchExperience{});
+    });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    CHECK(inner_state->PushCount() == 0);
+
+    inner_state->ReleaseSecondSample();
+    pusher.join();
+
+    CHECK(inner_state->PushCount() == 1);
+    CHECK_FALSE(inner_state->PushWasCalledBeforeSecondSampleFinished());
 }
 
 TEST_CASE("ReplayBuffer computes n-step returns independently for each env", "[replay_buffer][n_step][multi_env]")
