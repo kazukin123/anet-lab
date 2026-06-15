@@ -62,15 +62,21 @@ anet-lab は libtorch を基盤とした C++20 の強化学習実験プロジェ
 C++ コードは Google C++ スタイルガイドを前提とします。
 ただし、既存コードに明確なローカル規約がある場合は、無理に一括変更せず、周辺コードとの一貫性を優先してください。
 
-特に以下を意識してください。
+個別の指示・合意が無い限りにおいて、以下を意識してください。
 
 - C++20 を前提とする。
+- 性能影響に対しては妥協しない姿勢を基本とし、可読性・保守性との折り合いを付ける。
 - 読みやすく、責務が明確な実装にする。
+- ANET では、原則として 1 クラス 1 ファイルではなく、機能グループ単位で `.hpp` / `.cpp` を作る。
+  例: `dqn_based_agent.*` は DQN 系の Policy、Actor、Learner をまとめ、`nn_modules.*` は NN module 群をまとめ、`observers.*` は Observer 群をまとめる。
+- 新しいクラスを追加する場合も、まず既存の機能グループに属するかを確認し、独立したサブシステムとして分ける理由がある場合だけ新規ファイルを作る。
+- C++20 の指示付き初期化（Designated Initializers）は原則使用し、可読性が極端に低下する場合のみ通常のコンストラクタ呼び出しや段階的な代入を優先する。
 - include は必要最小限にする。
 - C++ の `.hpp` 側では `using namespace` を使用しない。
 - C++ の `.cpp` 側では、`namespace ... {}` で全体を囲むのではなく `using namespace ...;` を使用。
 - 同じ名前空間で省略可能な名前空間修飾は省略する。
 - `const` を適切かつ積極的に使う。
+- `dynamic_cast` はテストコード内に限定し、production code では使用しない。型ごとの分岐が必要な場合は、仮想関数、明示的な interface、既存 API の拡張、または型情報を持つデータ構造で表現する。
 - 例外、安全性、境界条件を意識する。
 - 大規模な整形変更や無関係なリネームは避ける。
 - 改行コードは LF で統一。
@@ -89,7 +95,7 @@ C++ コードは Google C++ スタイルガイドを前提とします。
 
 ## 性能測定・ProfileRange ルール
 
-性能測定が必要な処理には `anet::ProfileRange` を埋め込み、後から実測できる状態を保ってください。
+性能測定が必要な処理には `ANET_PROFILE_SCOPE` 系のマクロを入れ、後から実測できる状態を保ってください。
 
 特に以下の処理を追加・変更する場合は、計測範囲を入れることを優先してください。
 
@@ -101,6 +107,33 @@ C++ コードは Google C++ スタイルガイドを前提とします。
 
 計測名は既存コードに合わせて `ClassName::FunctionName` または `ClassName::FunctionName.phase` のように安定した名前にしてください。
 細かすぎる getter、単純な分岐、軽量な per-element 内側ループには原則として入れず、測定のノイズにならない意味のある処理境界を選んでください。
+計測用のブロックを作ってスコープを不自然に狭めないでください。
+フェーズ全体を測る場合は、原則として `ANET_PROFILE_SCOPE(phase)` を対象フェーズの先頭に置き、そのフェーズで使うローカル変数の構築・初期化も測定対象に含めてください。
+測定対象から意図的に外したい重い初期化がある場合だけ、別スコープへ分けてください。
+連続フェーズを測る場合は、同じ可視 lifetime 内で `ANET_PROFILE_SCOPE_NEXT(phase)` または `ANET_PROFILE_SCOPE_NEXT_FROM(phase, prev_phase)` を使ってください。
+
+`ANET_PROFILE_SCOPE_FULL(var_name, full_name_literal)` は例外用途です。
+lambda / callback / timer / async worker / prefetch など、自動生成される `ClassName::FunctionName.phase` が profiler 上の論理処理名として不適切な場合、または既存の計測名を維持して before/after 比較を可能にしたい場合だけ使ってください。
+`full_name_literal` は `ClassName::FunctionName.phase` またはそれに準じる stable な完全名にしてください。
+通常のメンバ関数・自由関数内のフェーズ計測では `ANET_PROFILE_SCOPE(phase)` を優先し、単に任意の名前を付けたいという理由では `ANET_PROFILE_SCOPE_FULL` を使わないでください。
+
+推奨:
+
+```cpp
+ANET_PROFILE_SCOPE(sample);
+ExperienceSamples cpu_samples;
+inner_->Sample(cpu_samples, minibatch_size, beta);
+```
+
+避ける例:
+
+```cpp
+ExperienceSamples cpu_samples;
+{
+    ANET_PROFILE_SCOPE(sample);
+    inner_->Sample(cpu_samples, minibatch_size, beta);
+}
+```
 
 ## Agent 系実装の所有権ルール
 
