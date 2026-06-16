@@ -11,6 +11,7 @@
 #include "anet/gui.hpp"
 #include "anet/image.hpp"
 
+#include "anet/app_util.hpp"
 #include "RunnerFrame.hpp"
 
 
@@ -56,6 +57,7 @@ private:
     std::unique_ptr<anet::rl::RunnerThread> trainer_thread_;
     std::unique_ptr<anet::rl::gui::DefaultViewFactory> view_factory_;
     std::unique_ptr<anet::rl::ImageProviderManager> img_prov_mgr_;
+    anet::StandardStreamLogger standard_stream_logger_;
     bool auto_pause_done_ = false;
     RunnerFrame* frame_;
 };

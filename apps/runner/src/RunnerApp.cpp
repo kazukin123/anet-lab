@@ -153,6 +153,7 @@ bool RunnerApp::OnInit()
 
     // MetricsLogger
     anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), config_->metrics_logger, GetProjectRootDir());
+    standard_stream_logger_.Start(GetRunDir());
     anet::MetricsLogger::Instance()->Log("config_data", config_data.ToJson());
     anet::MetricsLogger::Instance()->Log("config_data", config_data);
 
@@ -173,6 +174,7 @@ bool RunnerApp::OnInit()
 
     // ログ初期化
     SetupLogging();
+    standard_stream_logger_.LogStatus();
 
     // RunNameを記録
     //this->WriteLastRunName(anet::MetricsLogger::Instance()->GetRunName());
@@ -304,6 +306,7 @@ void RunnerApp::SetupLogging()
 
 void RunnerApp::FlushRunOutputs()
 {
+    standard_stream_logger_.Flush();
     anet::MetricsLogger::Instance()->Flush();
 
     if (wxThread::IsMain()) {
@@ -377,6 +380,8 @@ void RunnerApp::StopTraining()
 int RunnerApp::OnExit()
 {
     trainer_thread_->Stop();
+    standard_stream_logger_.Flush();
+    standard_stream_logger_.Stop();
     anet::MetricsLogger::Reset();
     return 0;
 }
