@@ -6,7 +6,7 @@
 
 `backend.cudnn_deterministic=true`（既定 ON、`init.cpp:101`）は **cuDNN 畳み込み専用**で、ATen の flash/mem-efficient カーネルである SDPA には効かない、という穴だった。
 
-実機で **`ctx.setDeterministicAlgorithms(true, /*warn_only=*/false)` の 1 行追加だけで再現性が復帰**することを確認済み（mem-efficient は決定的 backward 変種を持ち、このフラグで atomic 回避経路に切替わる）。`CUBLAS_WORKSPACE_CONFIG` は当該環境では不要だった（throw せず再現）。SDPA 化は実時間ほぼ不変＝attention は実時間ボトルネックでないため、決定モードの低速化は無視できる。
+実機で **`ctx.setDeterministicAlgorithms(true, /*warn_only=*/false)` の 1 行追加だけで再現性が復帰**することを確認済み（mem-efficient は決定的 backward 変種を持ち、このフラグで atomic 回避経路に切替わる）。`CUBLAS_WORKSPACE_CONFIG` は当該環境では不要だった（throw せず再現）。SDPA 化自体は forward 実時間ほぼ不変（attention forward は非ボトルネック）。一方 **`deterministic_algorithms=true` のコストは実測で約 11〜13%**（SDPA backward 限定でなく scatter/index_add/reduction 等の決定版を全 op に強制する広域コスト）で無視できない。通常の構成比較は seed 違い複数 Run のブレ幅基準で bit 再現を要さないため、既定は決定論方針で true としつつ、速度が要る局面は false 運用も妥当。
 
 この 1 行 fix を、既存 backend フラグ（`cudnn_deterministic` 等）と同じ作法で **config フラグ化**する。`cudnn_deterministic=true` が既定である＝本プロジェクトは「決定論的を既定」方針なので、SDPA の穴を塞ぐ本フラグも **既定 true** とする。将来「決定版が無い op」を踏んで throw した場合の退避用に `deterministic_warn_only`（既定 false）も公開する。
 
@@ -103,8 +103,10 @@ ANET_READ_CONFIG(config_data, deterministic_warn_only);
 //   失敗モードは silent ではなく throw。本環境では不要だった（throw せず再現）。将来 CUDA/cuBLAS/
 //   形状変更で要求 throw が出たら、CUDA 初期化前に env を設定する（ApplyCudaLaunchBlockingConfig と同じ枠）。
 //
-// コスト：決定 backward は atomic 回避で遅いが attention は本 Run のボトルネックでない（SDPA 前後で
-//   実時間ほぼ不変）ため無視可。他 op の決定版も僅かに遅くなる場合がある。
+// コスト：実測で deterministic=false 比 約 11〜13% 遅い。SDPA backward 限定でなく scatter/index_add/
+//   reduction 等の決定版を全 op に強制する広域コストの aggregate。通常の構成比較は seed 違い複数 Run の
+//   ブレ幅基準で bit 再現は不要なので、速度が要る局面は deterministic_algorithms=false を選んでよい
+//   （再現が要る時＝デバッグ/正確な再走/回帰だけ true）。
 ctx.setDeterministicAlgorithms(backend_config.deterministic_algorithms,
                                backend_config.deterministic_warn_only);
 ```

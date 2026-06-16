@@ -126,8 +126,10 @@ void anet::rl::InitRL(const BackendConfig& backend_config)
 	//   失敗モードは silent ではなく throw。本環境では不要だった（throw せず再現）。将来 CUDA/cuBLAS/
 	//   形状変更で要求 throw が出たら、CUDA 初期化前に env を設定する（ApplyCudaLaunchBlockingConfig と同じ枠）。
 	//
-	// コスト：決定 backward は atomic 回避で遅いが attention は本 Run のボトルネックでない（SDPA 前後で
-	//   実時間ほぼ不変）ため無視可。他 op の決定版も僅かに遅くなる場合がある。
+	// コスト：実測で deterministic=false 比 約 11〜13% 遅い。SDPA backward 限定でなく scatter/index_add/
+	//   reduction 等の決定版を全 op に強制する広域コストの aggregate。通常の構成比較は seed 違い複数 Run の
+	//   ブレ幅基準で bit 再現は不要なので、速度が要る局面は deterministic_algorithms=false を選んでよい
+	//   （再現が要る時＝デバッグ/正確な再走/回帰だけ true）。
 	ctx.setDeterministicAlgorithms(backend_config.deterministic_algorithms,
 	                               backend_config.deterministic_warn_only);
 

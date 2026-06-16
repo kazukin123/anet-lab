@@ -18,5 +18,5 @@
 - **backend グローバル設定なので全 Run（DQN/QR/Rainbow/MuZero 問わず）に効く**。`InitRL` 一箇所で適用。メトリクス（`Log(backend_config)`）に 2 フラグが自動で載る。
 - **throw リスク**: 決定版が無い op を踏むと `warn_only=false` では op 名付きで throw（既定 true なので Run が落ちる）。これは silent 非決定より望ましい失敗（loud failure）。落ちた場合は `deterministic_warn_only=true` で再ビルド無しに非決定運転へ退避できる（**ただし再現性は失う**、診断・暫定運転用）。
 - **`CUBLAS_WORKSPACE_CONFIG`**: 決定モードで cuBLAS GEMM がこの env（`:4096:8` 等）を要求する場合がある。**失敗モードは silent でなく throw**。当該環境では不要だった（throw せず再現）。将来 CUDA/cuBLAS/形状変更で要求 throw が出たら、CUDA 初期化前に env を設定する（`ApplyCudaLaunchBlockingConfig` と同じ枠）。
-- **コスト**: 決定 backward は atomic 回避で遅いが、attention は本 Run の実時間ボトルネックでない（SDPA 前後で実時間ほぼ不変）ため無視可。決定版を持つ他 op も僅かに遅くなる場合がある。
+- **コスト**: 実測で `deterministic_algorithms=false` 比 **約 11〜13% 遅い**（Codex 実装後の計測）。SDPA backward 限定でなく scatter/index_add/reduction 等の決定版を全 op に強制する広域スイッチのためコストは aggregate。当初「attention 非ボトルネックゆえ無視可」と見積もったのは誤りだった。通常の構成比較は seed 違い複数 Run のブレ幅基準（bit 再現は不要）なので、速度が要る局面は `false` を選んでよい（再現が要る時＝デバッグ/正確な再走/回帰だけ `true`）。既定 `true` は決定論方針で据え置き。
 - **将来**: attention が実時間を食う構成（長系列・大 head 等）になったら、cuDNN attention の決定経路や flash の決定 backward を「速い決定経路」として再検討する余地がある（`setSDPUse*` / `setSDPPriorityOrder`、版差は `ATen/Context.h` 確認）。
