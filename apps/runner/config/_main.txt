@@ -1,10 +1,10 @@
 ﻿
+$include <common.txt>
+
 $include <metrics_scalar.txt>
 $include <metrics_image.txt>
 $include <agent.txt>
 $include <nn.txt>
-
-$include <common.txt>
 
 #$include <CartPole.txt>
 #$include <LunarLander.txt>

@@ -26,6 +26,9 @@ agent.device_type = 0    # 0=cpu 1=cuda   NNが小さいのでCPUのほうが早
 # ==============================================================================
 
 #app.run_name = run_{t}_ll_notbo
+app.run_name = run_{t}_ll
+
+R.learner.use_rb_prefetch = true
 
 #R.train_policy.uqe_tau_start = 0.95 #0.9
 #R.train_policy.uqe_tau_end = 0.5  # 0.5
