@@ -52,3 +52,23 @@ TEST_CASE("MetricsLogger writes ConfigData text file", "[metrics][config]")
     anet::MetricsLogger::Reset();
     std::filesystem::remove_all(root);
 }
+
+TEST_CASE("MetricsLogger uses configured runs directory", "[metrics][config]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "anet-core-custom-runs-dir-test";
+    std::filesystem::remove_all(root);
+
+    anet::MetricsLogger::Reset();
+    auto backend = std::make_unique<anet::JsonlBackend>();
+    anet::MetricsLoggerConfig logger_config;
+    logger_config.runs_dir = "custom-runs";
+    logger_config.run_name_tmpl = "custom_runs_dir_test";
+    anet::MetricsLogger::Init(std::move(backend), logger_config, root);
+
+    const auto run_dir = root / "custom-runs" / "custom_runs_dir_test";
+    CHECK(anet::MetricsLogger::Instance()->GetRunDir() == run_dir);
+    CHECK(std::filesystem::exists(run_dir / "metrics.jsonl"));
+
+    anet::MetricsLogger::Reset();
+    std::filesystem::remove_all(root);
+}

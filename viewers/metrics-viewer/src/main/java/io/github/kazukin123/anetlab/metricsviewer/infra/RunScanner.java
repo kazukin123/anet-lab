@@ -31,6 +31,10 @@ public class RunScanner {
 		return runsDir.resolve(runId);
 	}
 
+	private boolean hasMetricsFile(Path runDir) {
+		return Files.isRegularFile(runDir.resolve("metrics.jsonl"));
+	}
+
 	private List<String> scanRunsDir() {
 		final List<String> runs = new ArrayList<>();
 		if (!Files.exists(runsDir)) {
@@ -40,6 +44,7 @@ public class RunScanner {
 
 		try (Stream<Path> dirs = Files.list(runsDir)) {
 			dirs.filter(Files::isDirectory)
+					.filter(this::hasMetricsFile)
 					.sorted()
 					.forEach(dir -> {
 						final String runId = dir.getFileName().toString();

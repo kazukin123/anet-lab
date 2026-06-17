@@ -127,7 +127,7 @@ public class LoadingThread extends Thread {
 			try {
 				// 対象Runのディレクトリ・ファイルを決定
 				final Path runDir = runScanner.resolveRunDir(runId);
-				final Path metricsFile = Path.of("runs", runId, "metrics.jsonl");
+				final Path metricsFile = runDir.resolve("metrics.jsonl");
 				if (!Files.exists(metricsFile)) continue;
 
 				// 最後の位置からブロック読み込み

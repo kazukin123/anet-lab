@@ -123,7 +123,7 @@ app.batchrun.train_panel.fps = 0.5
 app.batchrun.eval_panel.fps = 0.5
 app.batchrun.eval_panel.step_per_frame = 10
 
-app.metrics_logger.root_dir = runs
+app.runs_dir = runs
 #app.metrics_logger.video_codec = libx264
 app.metrics_logger.video_codec = h264_nvenc  # libx264
 #app.metrics_logger.video_fps = 30

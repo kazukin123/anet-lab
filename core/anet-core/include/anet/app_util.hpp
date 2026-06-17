@@ -7,6 +7,11 @@
 
 namespace anet {
 
+std::filesystem::path GetExecutablePath();
+std::filesystem::path GetExecutableDir();
+std::filesystem::path GetExecutableRootDir();
+std::filesystem::path GetExecutableConfigDir();
+
 class StandardStreamLogger final {
 public:
     StandardStreamLogger();

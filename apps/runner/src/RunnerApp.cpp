@@ -1,8 +1,9 @@
 ﻿// RunnerApp.cpp
 #include "RunnerApp.hpp"
+#include <array>
 #include <exception>
 #include <filesystem>
-#include <wx/stdpaths.h>
+#include <vector>
 #include <wx/cmdline.h>
 #include <wx/filename.h>
 #include <wx/snglinst.h>
@@ -32,6 +33,7 @@ wxDEFINE_EVENT(wxEVT_APP_TRAINER_SHUTDOWN, wxThreadEvent);
 
 struct RunnerApp::Config : public anet::Config {
     std::string run_name = "run_{%t}";
+    std::string runs_dir = "runs";
     std::string log_level = "info";
     bool train_auto_start = true;
     int train_pause_step = -1;
@@ -42,10 +44,12 @@ struct RunnerApp::Config : public anet::Config {
     anet::MetricsLoggerConfig metrics_logger;
     TrainPanelConfig train_panel;
     EvalPanelConfig eval_panel;
+    std::vector<std::string> warnings;
 
     Config(const anet::ConfigData& config_data) : anet::Config(config_data, "app")
     {
         ANET_READ_CONFIG(config_data, run_name);
+        ANET_READ_CONFIG(config_data, runs_dir);
         ANET_READ_CONFIG(config_data, log_level);
 
         ANET_READ_CONFIG(config_data, train_auto_start);
@@ -54,7 +58,9 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, exp_pause_step);
         ANET_READ_CONFIG(config_data, exp_exit_step);
 
-        ANET_READ_CONFIG(config_data, metrics_logger.runs_dir);
+        WarnDeprecatedRunsDirConfig(config_data);
+        ValidateRunsDir();
+        metrics_logger.runs_dir = runs_dir;
         metrics_logger.run_name_tmpl = run_name;
         ANET_READ_CONFIG(config_data, metrics_logger.video_codec);
         ANET_READ_CONFIG(config_data, metrics_logger.video_fps);
@@ -70,36 +76,70 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, eval_panel.model_sync.episode_interval);
         eval_panel.model_sync.Validate();
     }
+
+private:
+    void WarnDeprecatedRunsDirConfig(const anet::ConfigData& config_data)
+    {
+        for (const char* key : std::array{
+            "app.metrics_logger.runs_dir",
+            "app.metrics_logger.root_dir",
+        }) {
+            if (!config_data.Has(key)) {
+                continue;
+            }
+
+            const auto value = config_data.Get(key);
+            warnings.push_back(
+                "Config key " + std::string(key) + " is deprecated and ignored. value=\""
+                + value + "\". Use app.runs_dir instead.");
+        }
+    }
+
+    void ValidateRunsDir() const
+    {
+        if (runs_dir.empty()) {
+            ANET_SYSTEM_ERROR("Invalid config key app.runs_dir: value must not be empty.");
+        }
+    }
 };
-
-wxString GetExeDir()
-{
-    wxStandardPaths& sp = wxStandardPaths::Get();
-    wxString exe_path = sp.GetExecutablePath();      // フルパス (C:\proj\bin\myapp.exe 等)
-    wxFileName fn(exe_path);
-    return fn.GetPath();                            // ディレクトリ部分を返す
-}
-
-std::filesystem::path GetProjectRootDir()
-{
-    std::filesystem::path exePath = GetExeDir().ToStdString();  // 既存の GetExeDir を利用
-    return exePath.parent_path().parent_path();    // exe の親ディレクトリを返す
-}
 
 std::string GetConfigFilePath()
 {
-    return (GetProjectRootDir() / "config" / "_main.txt").string();  // パスを結合
+    return (anet::GetExecutableConfigDir() / "_main.txt").string();
+}
+
+std::string GetConfigFilePath(const wxCmdLineParser& cmdline)
+{
+    wxString config_path_arg;
+    if (!cmdline.Found("config", &config_path_arg)) {
+        return GetConfigFilePath();
+    }
+
+    std::filesystem::path config_path(config_path_arg.ToStdWstring());
+    if (config_path.empty()) {
+        ANET_SYSTEM_ERROR("Invalid command line option --config: value must not be empty.");
+    }
+
+    return config_path.string();
 }
 
 std::string GetRunsPath()
 {
-    return (GetProjectRootDir() / "runs").string();
+    return (anet::GetExecutableRootDir() / "runs").string();
 }
 
 static wxCmdLineEntryDesc desc[] = {
     // kind,              short-name, long-name, usage,      type,                  flags
     //{ wxCMD_LINE_SWITCH, "v",         "verbose", "エラー表示を饒舌に" }, // wxCMD_LINE_SWITCH:A boolean argument of the program;    e.g. -v to enable verbose mode.
     //{ wxCMD_LINE_OPTION, "f",         "file",    "設定ファイルのパス" }, // wxCMD_LINE_OPTION:An argument with an associated value; e.g. -o filename
+    {
+        wxCMD_LINE_OPTION,
+        "c",
+        "config",
+        "main config file path",
+        wxCMD_LINE_VAL_STRING,
+        0
+    },
 
     {
         wxCMD_LINE_PARAM,              // 種別：位置パラメータ
@@ -145,14 +185,14 @@ bool RunnerApp::OnInit()
     }
 
     // ConfigManager
-    config_mgr_ = std::make_unique<anet::ConfigManager>(GetConfigFilePath(), &cmdline);
+    config_mgr_ = std::make_unique<anet::ConfigManager>(GetConfigFilePath(cmdline), &cmdline);
     auto config_data = config_mgr_->GetConfigData();
 
     // RunnerApp設定生成
     config_ = std::make_unique<RunnerApp::Config>(config_data);
 
     // MetricsLogger
-    anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), config_->metrics_logger, GetProjectRootDir());
+    anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), config_->metrics_logger, anet::GetExecutableRootDir());
     standard_stream_logger_.Start(GetRunDir());
     anet::MetricsLogger::Instance()->Log("config_data", config_data.ToJson());
     anet::MetricsLogger::Instance()->Log("config_data", config_data);
@@ -175,6 +215,9 @@ bool RunnerApp::OnInit()
     // ログ初期化
     SetupLogging();
     standard_stream_logger_.LogStatus();
+    for (const auto& warning : config_->warnings) {
+        LOG::warn() << warning;
+    }
 
     // RunNameを記録
     //this->WriteLastRunName(anet::MetricsLogger::Instance()->GetRunName());
@@ -322,7 +365,7 @@ void RunnerApp::FlushRunOutputs()
 int64_t RunnerApp::SaveAgent(const std::string& file_name)
 {
     const auto file_path = GetRunDir() / file_name;
-    auto log_file_path = file_path.lexically_relative(GetProjectRootDir());
+    auto log_file_path = file_path.lexically_relative(anet::GetExecutableRootDir());
     if (log_file_path.empty()) {
         log_file_path = file_name;
     }
@@ -465,7 +508,7 @@ std::shared_ptr<anet::rl::gui::View> RunnerApp::CreateExperinceView(wxWindow* pa
 bool RunnerApp::WriteLastRunName(const std::string& run_name) const
 {
     // 保存先ディレクトリ（var）のパスを作成・取得
-    //wxFileName dir(GetProjectRootDir().string(), "");
+    //wxFileName dir(anet::GetExecutableRootDir().string(), "");
     //LOG::info() << "fn1=" << fn.GetFullPath().c_str();
     //fn.AppendDir("var");
     //LOG::info() << "dir=" << dir.GetFullPath().c_str();
@@ -476,7 +519,7 @@ bool RunnerApp::WriteLastRunName(const std::string& run_name) const
     //}
 
     // ファイル名を設定
-    wxFileName fn(GetProjectRootDir().string(), "runname.txt");
+    wxFileName fn(anet::GetExecutableRootDir().string(), "runname.txt");
     wxString file_path = fn.GetFullPath();
     //LOG::info() << "file_path=" << file_path;
 

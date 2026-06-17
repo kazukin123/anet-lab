@@ -1,5 +1,7 @@
 ﻿#pragma once
 
+#include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 #include <sstream>
@@ -105,10 +107,16 @@ namespace anet {
 
 	const ConfigData EmptyConfigData;
 
+    struct ConfigManagerOptions {
+        std::optional<std::vector<std::filesystem::path>> config_search_dirs;
+    };
+
     /// Properties類似形式の設定ファイル操作クラス
     class Properties {
     public:
-        explicit Properties(const std::string& filename) {
+        explicit Properties(const std::string& filename, ConfigManagerOptions options = {})
+            : options_(options)
+        {
             Load(filename);
         }
         ConfigData ToConfigData() const {
@@ -116,9 +124,10 @@ namespace anet {
         }
     private:
         ConfigData configData;
+        ConfigManagerOptions options_;
 
         static std::string Trim(const std::string& s);
-        void Load(const std::string& filename, int depth = 0);
+        void Load(const std::filesystem::path& filename, int depth = 0);
     };
 
     /// モジュール別Configクラス実装用の基底クラス
@@ -163,7 +172,10 @@ namespace anet {
     /// 設定マネージャー。コマンドラインオプションとPropertiesファイルを元にConfigDataを生成。
     class ConfigManager {
     public:
-        ConfigManager(const std::string& filePath, const wxCmdLineParser* cmdLine = nullptr);
+        ConfigManager(
+            const std::string& filePath,
+            const wxCmdLineParser* cmdLine = nullptr,
+            ConfigManagerOptions options = {});
 
         ConfigData GetConfigData() const { return { map_ }; }
     private:
@@ -171,6 +183,7 @@ namespace anet {
         void ApplyCmdLineOverrides(const wxCmdLineParser& cmdLine);
         void AutoMerge();
     private:
+        ConfigManagerOptions options_;
         ConfigData::MapType map_;
     };
 

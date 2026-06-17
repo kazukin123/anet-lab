@@ -5,11 +5,18 @@
 #include <array>
 #include <cstdio>
 #include <iostream>
+#include <stdexcept>
+#include <string>
 #include <thread>
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <cstring>
+#else
+#include <unistd.h>
 #endif
 
 #include "anet/log.hpp"
@@ -38,6 +45,56 @@ bool RedirectStandardStreamFallback(FILE* stream, const std::filesystem::path& p
 } // namespace
 
 namespace anet {
+
+std::filesystem::path GetExecutablePath()
+{
+#ifdef _WIN32
+    std::wstring buffer(32768, L'\0');
+    const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (length == 0) {
+        throw std::runtime_error("GetExecutablePath: GetModuleFileNameW failed. error=" + std::to_string(GetLastError()));
+    }
+    if (length >= buffer.size()) {
+        throw std::runtime_error("GetExecutablePath: executable path is too long.");
+    }
+    buffer.resize(length);
+    return std::filesystem::path(buffer);
+#elif defined(__APPLE__)
+    uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::string buffer(size, '\0');
+    if (_NSGetExecutablePath(buffer.data(), &size) != 0) {
+        throw std::runtime_error("GetExecutablePath: _NSGetExecutablePath failed.");
+    }
+    buffer.resize(std::strlen(buffer.c_str()));
+    return std::filesystem::path(buffer);
+#else
+    std::array<char, 4096> buffer{};
+    const ssize_t length = readlink("/proc/self/exe", buffer.data(), buffer.size());
+    if (length < 0) {
+        throw std::runtime_error("GetExecutablePath: readlink(/proc/self/exe) failed.");
+    }
+    if (static_cast<size_t>(length) >= buffer.size()) {
+        throw std::runtime_error("GetExecutablePath: executable path is too long.");
+    }
+    return std::filesystem::path(std::string(buffer.data(), static_cast<size_t>(length)));
+#endif
+}
+
+std::filesystem::path GetExecutableDir()
+{
+    return GetExecutablePath().parent_path();
+}
+
+std::filesystem::path GetExecutableRootDir()
+{
+    return GetExecutableDir().parent_path().parent_path();
+}
+
+std::filesystem::path GetExecutableConfigDir()
+{
+    return GetExecutableRootDir() / "config";
+}
 
 struct StandardStreamLogger::Impl {
     ~Impl()

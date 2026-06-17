@@ -1,7 +1,10 @@
 ﻿#include "anet/config.hpp"
+#include <algorithm>
 #include <sstream>
 #include <fstream>
 #include <wx/string.h>
+#include "anet/app_util.hpp"
+#include "anet/common.hpp"
 #include "anet/str_util.hpp"
 #include "anet/log.hpp"
 
@@ -15,6 +18,145 @@ namespace anet {
     {
         LOG::warn() << "ConfigData::Read failed. key=" << key
             << " value=\"" << value << "\" expected=" << expected_type;
+    }
+
+    bool PathExists(const std::filesystem::path& path)
+    {
+        std::error_code ec;
+        return std::filesystem::exists(path, ec);
+    }
+
+    std::filesystem::path NormalizeAbsolutePath(const std::filesystem::path& path)
+    {
+        std::error_code ec;
+        auto absolute_path = path.is_absolute()
+            ? path
+            : std::filesystem::absolute(path, ec);
+        if (ec) {
+            absolute_path = path;
+        }
+
+        const auto canonical_path = std::filesystem::weakly_canonical(absolute_path, ec);
+        if (!ec) {
+            return canonical_path.lexically_normal();
+        }
+        return absolute_path.lexically_normal();
+    }
+
+    bool IsPathUnderDirectory(const std::filesystem::path& path, const std::filesystem::path& directory)
+    {
+        const auto normalized_path = NormalizeAbsolutePath(path);
+        const auto normalized_directory = NormalizeAbsolutePath(directory);
+
+        auto path_it = normalized_path.begin();
+        for (auto dir_it = normalized_directory.begin(); dir_it != normalized_directory.end(); ++dir_it, ++path_it) {
+            if (path_it == normalized_path.end() || *path_it != *dir_it) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    std::vector<std::filesystem::path> GetConfigSearchDirs(const ConfigManagerOptions& options)
+    {
+        if (options.config_search_dirs.has_value()) {
+            return *options.config_search_dirs;
+        }
+        return { GetExecutableConfigDir() };
+    }
+
+    std::string FormatPathList(const std::vector<std::filesystem::path>& paths)
+    {
+        std::ostringstream oss;
+        oss << "[";
+        bool first = true;
+        for (const auto& path : paths) {
+            if (!first) {
+                oss << ", ";
+            }
+            oss << path.string();
+            first = false;
+        }
+        oss << "]";
+        return oss.str();
+    }
+
+    std::optional<std::filesystem::path> ResolveFromConfigSearchDirs(
+        const std::filesystem::path& relative_path,
+        const ConfigManagerOptions& options)
+    {
+        if (relative_path.empty() || !relative_path.is_relative()) {
+            return std::nullopt;
+        }
+
+        for (const auto& config_dir : GetConfigSearchDirs(options)) {
+            if (config_dir.empty()) {
+                continue;
+            }
+
+            const auto candidate = (config_dir / relative_path).lexically_normal();
+            if (!IsPathUnderDirectory(candidate, config_dir)) {
+                continue;
+            }
+            if (PathExists(candidate)) {
+                return candidate;
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    std::optional<std::filesystem::path> ResolveIncludePath(
+        const std::filesystem::path& include_path,
+        const std::filesystem::path& parent_dir,
+        const ConfigManagerOptions& options)
+    {
+        if (include_path.empty()) {
+            return std::nullopt;
+        }
+        if (include_path.is_absolute()) {
+            return PathExists(include_path) ? std::optional<std::filesystem::path>(include_path) : std::nullopt;
+        }
+
+        const auto parent_candidate = (parent_dir / include_path).lexically_normal();
+        if (PathExists(parent_candidate)) {
+            return parent_candidate;
+        }
+
+        return ResolveFromConfigSearchDirs(include_path, options);
+    }
+
+    std::filesystem::path ResolveMainConfigPath(
+        const std::filesystem::path& file_path,
+        const ConfigManagerOptions& options)
+    {
+        if (file_path.empty()) {
+            ANET_SYSTEM_ERROR("ConfigManager: config file path must not be empty.");
+            return {};
+        }
+
+        if (file_path.is_absolute()) {
+            if (PathExists(file_path)) {
+                return file_path;
+            }
+            ANET_SYSTEM_ERROR("ConfigManager: config file not found. path=" << file_path.string());
+            return {};
+        }
+
+        const auto cwd_candidate = NormalizeAbsolutePath(file_path);
+        if (PathExists(cwd_candidate)) {
+            return cwd_candidate;
+        }
+
+        if (const auto resolved_path = ResolveFromConfigSearchDirs(file_path, options)) {
+            return *resolved_path;
+        }
+
+        ANET_SYSTEM_ERROR(
+            "ConfigManager: config file not found. path=" << file_path.string()
+            << " cwd_candidate=" << cwd_candidate.string()
+            << " config_search_dirs=" << FormatPathList(GetConfigSearchDirs(options)));
+        return {};
     }
 
     } // namespace
@@ -233,16 +375,16 @@ namespace anet {
         return s.substr(b, e - b + 1);
     }
 
-    void Properties::Load(const std::string& filename, int depth)
+    void Properties::Load(const std::filesystem::path& filename, int depth)
     {
         if (depth >= 10) {
-            throw std::runtime_error("ANET_SYSTEM_ERROR: Include depth limit exceeded (max 10).");
+            ANET_SYSTEM_ERROR("Properties: include depth limit exceeded. max=10");
         }
 
         std::ifstream ifs(filename);
         if (!ifs) {
             // ファイルが見つからない場合は警告のみで続行
-            LOG::warn() << "Properties: Failed to open file: " << filename;
+            LOG::warn() << "Properties: Failed to open file: " << filename.string();
             return;
         }
 
@@ -255,8 +397,7 @@ namespace anet {
         }
 
         // カレントファイルのディレクトリを取得（相対パス解決用）
-        std::filesystem::path current_path(filename);
-        std::filesystem::path parent_dir = current_path.parent_path();
+        std::filesystem::path parent_dir = filename.parent_path();
 
         std::string line;
         while (std::getline(ifs, line)) {
@@ -293,7 +434,7 @@ namespace anet {
                             path_part = Trim(path_part); // 前後の空白除去
 
                             if (path_part.empty()) {
-                                LOG::error() << "Properties: Empty include path in " << filename;
+                                LOG::error() << "Properties: Empty include path in " << filename.string();
                                 continue;
                             }
 
@@ -314,24 +455,28 @@ namespace anet {
                                     path_part = Trim(path_part); // 中身もトリム
                                 } else {
                                     // 囲み文字が閉じられていない場合はエラー
-                                    LOG::error() << "Properties: Mismatched include brackets in " << filename << ": " << line;
+                                    LOG::error() << "Properties: Mismatched include brackets in " << filename.string() << ": " << line;
                                     continue;
                                 }
                             }
 
                             if (path_part.empty()) {
-                                LOG::error() << "Properties: Empty filename after parsing include in " << filename;
+                                LOG::error() << "Properties: Empty filename after parsing include in " << filename.string();
                                 continue;
                             }
 
-                            // パス結合（親ファイル基準）
-                            std::filesystem::path include_path = path_part;
-                            if (include_path.is_relative()) {
-                                include_path = parent_dir / include_path;
+                            // include元ファイル基準を優先し、見つからない場合だけconfig search dirを試す。
+                            const std::filesystem::path include_path = path_part;
+                            const auto resolved_include_path = ResolveIncludePath(include_path, parent_dir, options_);
+                            if (!resolved_include_path.has_value()) {
+                                LOG::warn() << "Properties: Failed to open include file. path=" << include_path.string()
+                                    << " from=" << filename.string()
+                                    << " config_search_dirs=" << FormatPathList(GetConfigSearchDirs(options_));
+                                continue;
                             }
 
                             // 再帰読み込み
-                            Load(include_path.string(), depth + 1);
+                            Load(*resolved_include_path, depth + 1);
                             continue; // 次の行へ
                         }
                     }
@@ -416,7 +561,11 @@ namespace anet {
 
     // ---- ConfigManager ----
 
-    ConfigManager::ConfigManager(const std::string& filePath, const wxCmdLineParser* cmdLine)
+    ConfigManager::ConfigManager(
+        const std::string& filePath,
+        const wxCmdLineParser* cmdLine,
+        ConfigManagerOptions options)
+        : options_(options)
     {
         // ベース読み込み
         LoadFromFile(filePath);
@@ -437,7 +586,8 @@ namespace anet {
 
     void ConfigManager::LoadFromFile(const std::string& filePath)
     {
-        Properties props(filePath);
+        const auto resolved_path = ResolveMainConfigPath(filePath, options_);
+        Properties props(resolved_path.string(), options_);
         map_ = props.ToConfigData().Map();
     }
 
