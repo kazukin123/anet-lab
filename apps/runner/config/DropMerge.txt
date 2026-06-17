@@ -839,9 +839,9 @@ net.branch.SuikaViT_Flatten_128_pre.structure = ConvInit64 > SiLU > ConvDown64 >
 # scalar metrics
 # ==============================================================================
 
-metrics.scalar.$ = metrics.scalar.baseline > M
-#metrics.scalar.$ = metrics.scalar.min > M
-#metrics.scalar.$ = metrics.scalar.full > M
+metrics.scalar.$ = metrics.scalar.baseline > M > O
+#metrics.scalar.$ = metrics.scalar.min > M > O
+#metrics.scalar.$ = metrics.scalar.full > M > O
 
 M.[21_eval/03_target_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval1] $ema ema_alpha:0.01
 M.[21_eval/04_policy_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval2] $ema ema_alpha:0.01
