@@ -114,6 +114,12 @@ BUDGETS = {
 TRIAL_NAME_PATTERN = re.compile(r"^t(\d{5})$")
 SCORE_AGGREGATES = ("mean", "median", "mean-minus-std", "min")
 DUPLICATE_PARAMS_POLICIES = ("allow", "prune", "reseed")
+OPTUNA_ARTIFACT_FILENAMES = (
+    "manifest.json",
+    "multiseed_summary.json",
+    "multiseed_summary.csv",
+    "seed_runs.json",
+)
 
 _ACTIVE_RUNNER_LOCK = threading.Lock()
 _ACTIVE_RUNNERS: set[subprocess.Popen] = set()
@@ -179,6 +185,13 @@ class DuplicateParamsInfo:
     duplicate_matched_trials: list[int]
     pruned_by_duplicate: bool
     prune_reason: str | None
+
+
+@dataclass(frozen=True)
+class OptunaArtifactContext:
+    base_path: Path
+    artifact_store: object
+    upload_artifact: object
 
 
 def repo_root_from_script() -> Path:
@@ -457,6 +470,53 @@ def create_optuna_storage(optuna, storage_url: str, storage_timeout_sec: float):
     return storage_url
 
 
+def resolve_optuna_artifact_dir(args: argparse.Namespace) -> Path:
+    return resolve_runner_relative_path(Path(args.repo_root).resolve(), str(args.optuna_artifact_dir))
+
+
+def create_optuna_artifact_context(args: argparse.Namespace) -> OptunaArtifactContext | None:
+    try:
+        from optuna.artifacts import FileSystemArtifactStore
+        from optuna.artifacts import upload_artifact
+    except Exception as e:
+        print(f"[WARN] Optuna artifacts are unavailable: {e}", file=sys.stderr)
+        return None
+
+    try:
+        base_path = resolve_optuna_artifact_dir(args)
+        base_path.mkdir(parents=True, exist_ok=True)
+        return OptunaArtifactContext(
+            base_path=base_path,
+            artifact_store=FileSystemArtifactStore(base_path=str(base_path)),
+            upload_artifact=upload_artifact,
+        )
+    except Exception as e:
+        print(f"[WARN] Failed to initialize Optuna artifact store: {e}", file=sys.stderr)
+        return None
+
+
+def register_optuna_trial_artifacts(
+    optuna_trial,
+    artifact_context: OptunaArtifactContext | None,
+    artifact_dir: Path,
+) -> None:
+    if optuna_trial is None or artifact_context is None:
+        return
+
+    for filename in OPTUNA_ARTIFACT_FILENAMES:
+        path = artifact_dir / filename
+        if not path.is_file():
+            continue
+        try:
+            artifact_context.upload_artifact(
+                artifact_store=artifact_context.artifact_store,
+                file_path=str(path),
+                study_or_trial=optuna_trial,
+            )
+        except Exception as e:
+            print(f"[WARN] Failed to upload Optuna artifact: path={path} error={e}", file=sys.stderr)
+
+
 def parse_seed_list(seed_text: str) -> list[int]:
     seeds: list[int] = []
     seen: set[int] = set()
@@ -697,17 +757,21 @@ def aggregate_score_stats(scores: list[float], mode: str) -> dict[str, float | i
             "score_median": None,
             "score_min": None,
             "score_max": None,
+            "score_range": None,
             "score_mean_minus_std": None,
             "aggregate_score": None,
         }
     score_mean = float(mean(scores))
     score_std = float(pstdev(scores)) if len(scores) > 1 else 0.0
+    score_min = float(min(scores))
+    score_max = float(max(scores))
     stats = {
         "score_mean": score_mean,
         "score_std": score_std,
         "score_median": float(median(scores)),
-        "score_min": float(min(scores)),
-        "score_max": float(max(scores)),
+        "score_min": score_min,
+        "score_max": score_max,
+        "score_range": score_max - score_min,
         "score_mean_minus_std": score_mean - score_std,
         "aggregate_score": None,
     }
@@ -987,15 +1051,21 @@ def write_multiseed_summary_files(summary: dict, artifact_dir: Path) -> None:
         encoding="utf-8",
         newline="\n",
     )
+    (artifact_dir / "seed_runs.json").write_text(
+        json.dumps(build_seed_runs_document(summary), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     with (artifact_dir / "multiseed_summary.csv").open("w", encoding="utf-8", newline="") as stream:
         writer = csv.writer(stream)
-        writer.writerow(["kind", "seed", "status", "score", "run_name", "metrics_summary_path", "error"])
+        writer.writerow(["kind", "seed", "status", "score", "score_range", "run_name", "metrics_summary_path", "error"])
         aggregate_status = "complete" if summary["score"] is not None else "failed"
         writer.writerow([
             "aggregate",
             "",
             aggregate_status,
             summary["score"],
+            summary["score_range"],
             summary["context"]["run_name"],
             "",
             summary.get("error"),
@@ -1006,10 +1076,35 @@ def write_multiseed_summary_files(summary: dict, artifact_dir: Path) -> None:
                 run.get("seed"),
                 run.get("status"),
                 run.get("score"),
+                "",
                 run.get("run_name"),
                 run.get("metrics_summary_path"),
                 run.get("error"),
             ])
+
+
+def build_seed_runs_document(summary: dict) -> dict:
+    return {
+        "params": summary["params"],
+        "context": summary["context"],
+        "score": {
+            "aggregate": summary["score_aggregate"],
+            "value": summary["score"],
+            "mean": summary["score_mean"],
+            "std": summary["score_std"],
+            "median": summary["score_median"],
+            "min": summary["score_min"],
+            "max": summary["score_max"],
+            "range": summary["score_range"],
+            "mean_minus_std": summary["score_mean_minus_std"],
+        },
+        "seed_count": summary["seed_count"],
+        "seed_success_count": summary["seed_success_count"],
+        "seed_failure_count": summary["seed_failure_count"],
+        "seeds": summary["seeds"],
+        "runs": summary["runs"],
+        "error": summary.get("error"),
+    }
 
 
 def make_seed_run_record(
@@ -1069,6 +1164,7 @@ def build_multiseed_summary(
         "score_median": stats["score_median"],
         "score_min": stats["score_min"],
         "score_max": stats["score_max"],
+        "score_range": stats["score_range"],
         "score_mean_minus_std": stats["score_mean_minus_std"],
         "seed_count": len(seeds),
         "seed_success_count": len(scores),
@@ -1332,10 +1428,9 @@ def set_multiseed_trial_attrs(trial, summary: dict) -> None:
     trial.set_user_attr("score_aggregate", summary["score_aggregate"])
     trial.set_user_attr("score_mean", summary["score_mean"])
     trial.set_user_attr("score_std", summary["score_std"])
-    trial.set_user_attr("score_median", summary["score_median"])
     trial.set_user_attr("score_min", summary["score_min"])
     trial.set_user_attr("score_max", summary["score_max"])
-    trial.set_user_attr("score_mean_minus_std", summary["score_mean_minus_std"])
+    trial.set_user_attr("score_range", summary["score_range"])
     trial.set_user_attr("seed_count", summary["seed_count"])
     trial.set_user_attr("seed_success_count", summary["seed_success_count"])
     trial.set_user_attr("seed_failure_count", summary["seed_failure_count"])
@@ -1347,8 +1442,6 @@ def set_multiseed_trial_attrs(trial, summary: dict) -> None:
     trial.set_user_attr("base_seeds", summary["base_seeds"])
     trial.set_user_attr("effective_seeds", summary["effective_seeds"])
     trial.set_user_attr("duplicate_matched_trials", summary["duplicate_matched_trials"])
-    trial.set_user_attr("seed_scores", summary["seed_scores"])
-    trial.set_user_attr("seed_run_names", summary["seed_run_names"])
 
 
 def execute_trial(
@@ -1399,6 +1492,7 @@ def execute_study_trial(
     trial_number: int,
     study=None,
     optuna_trial=None,
+    optuna_artifact_context: OptunaArtifactContext | None = None,
 ) -> TrialExecutionResult:
     base_seeds = parse_seed_list(args.seeds)
     duplicate_info = resolve_duplicate_params_info(args, params, study, trial_number, base_seeds)
@@ -1420,6 +1514,7 @@ def execute_study_trial(
         write_multiseed_summary_files(summary, Path(ctx.artifact_dir))
         if optuna_trial is not None:
             set_multiseed_trial_attrs(optuna_trial, summary)
+            register_optuna_trial_artifacts(optuna_trial, optuna_artifact_context, Path(ctx.artifact_dir))
         raise TrialPrunedError(error)
 
     if ctx.cost_tf > ctx.cost_budget:
@@ -1428,6 +1523,7 @@ def execute_study_trial(
         write_multiseed_summary_files(summary, Path(ctx.artifact_dir))
         if optuna_trial is not None:
             set_multiseed_trial_attrs(optuna_trial, summary)
+            register_optuna_trial_artifacts(optuna_trial, optuna_artifact_context, Path(ctx.artifact_dir))
         raise TrialPrunedError(error)
 
     for seed in seeds:
@@ -1443,6 +1539,7 @@ def execute_study_trial(
             write_multiseed_summary_files(summary, Path(ctx.artifact_dir))
             if optuna_trial is not None:
                 set_multiseed_trial_attrs(optuna_trial, summary)
+                register_optuna_trial_artifacts(optuna_trial, optuna_artifact_context, Path(ctx.artifact_dir))
             if isinstance(e, (TrialPrunedError, TrialFailedError)):
                 raise
             raise TrialFailedError(str(e)) from e
@@ -1452,17 +1549,30 @@ def execute_study_trial(
     write_multiseed_summary_files(summary, Path(ctx.artifact_dir))
     if optuna_trial is not None:
         set_multiseed_trial_attrs(optuna_trial, summary)
+        register_optuna_trial_artifacts(optuna_trial, optuna_artifact_context, Path(ctx.artifact_dir))
     if summary["score"] is None:
         raise TrialFailedError("aggregate score is unavailable")
     return TrialExecutionResult(ctx=ctx, summary=summary)
 
 
-def objective(trial, args: argparse.Namespace, study) -> float:
+def objective(
+    trial,
+    args: argparse.Namespace,
+    study,
+    optuna_artifact_context: OptunaArtifactContext | None,
+) -> float:
     import optuna
 
     params = suggest_params(trial)
     try:
-        return execute_study_trial(args, params, trial.number, study=study, optuna_trial=trial).score
+        return execute_study_trial(
+            args,
+            params,
+            trial.number,
+            study=study,
+            optuna_trial=trial,
+            optuna_artifact_context=optuna_artifact_context,
+        ).score
     except TrialPrunedError as e:
         # cost / duplicate は探索制約として PRUNED、runner / metrics / score 欠落は FAIL として扱う。
         raise optuna.TrialPruned(str(e)) from e
@@ -1495,6 +1605,7 @@ def command_run_study(args: argparse.Namespace) -> int:
     )
     storage_url = storage_url_from_arg(args)
     storage = create_optuna_storage(optuna, storage_url, args.storage_timeout_sec)
+    optuna_artifact_context = create_optuna_artifact_context(args)
     study = optuna.create_study(
         study_name=args.study_name,
         storage=storage,
@@ -1505,7 +1616,7 @@ def command_run_study(args: argparse.Namespace) -> int:
     set_study_user_attrs(study, build_study_user_attrs(args, storage_url))
     try:
         study.optimize(
-            lambda trial: objective(trial, args, study),
+            lambda trial: objective(trial, args, study, optuna_artifact_context),
             n_trials=args.n_trials,
             n_jobs=args.n_jobs,
             catch=(TrialFailedError,),
@@ -1731,6 +1842,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=120.0,
         help="SQLite storage の lock 待ち timeout 秒。",
+    )
+    run_study.add_argument(
+        "--optuna-artifact-dir",
+        default="runs_optuna/artifacts",
+        help="Optuna Dashboard 用 artifact store の base path。相対時は runner project root 基準。",
     )
     run_study.add_argument("--n-trials", type=int, default=10, help="この実行で追加する trial 数。")
     run_study.add_argument("--n-jobs", type=int, default=1, help="Optuna の並列 worker 数。")

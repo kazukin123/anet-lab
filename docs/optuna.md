@@ -41,11 +41,13 @@ v1 の対象は DropMerge 専用、`Flatten` 固定、探索対象は NN 構成�
 ```text
 apps/runner/runs_optuna/
   optuna.db
+  artifacts/                            # Optuna Dashboard 用 artifact store。内部構造には依存しない。
   <study_name>_<trial_name>/          # run-study の代表フォルダ。metrics.jsonl は持たない。
     trial/
       manifest.json
       multiseed_summary.json
       multiseed_summary.csv
+      seed_runs.json
   <study_name>_<trial_name>_s<seed>/  # seed run。metrics-viewer の run になる。
     metrics.jsonl
     config.txt
@@ -83,6 +85,11 @@ trial artifact には、主に次のファイルを保存する。
 - `process.json`: runner の exit code、duration、timeout / interrupt 有無など。
 - `metrics_summary.json`, `metrics_summary.csv`: seed run の score と補助指標の集計結果。JSON には raw window、実効 window、`exp_exit_step` も残す。
 - `multiseed_summary.json`, `multiseed_summary.csv`: `run-study` の代表フォルダに置く seed 集約結果。
+- `seed_runs.json`: `run-study` の代表フォルダに置く seed run 別の詳細。seed、run 名、status、score、path、error などを残す。
+
+`runs_optuna/<run_name>/trial` は人間と harness が直接読む artifact 置き場である。
+一方、`runs_optuna/artifacts` は Optuna の `FileSystemArtifactStore` が管理する Dashboard 用 artifact store であり、階層やファイル名に依存しない。
+Dashboard で `Show Artifacts` を有効にするには、`run-study` が `upload_artifact()` で trial に artifact metadata を登録し、optuna-dashboard を `--artifact-dir artifacts` 付きで起動する必要がある。
 
 metrics-viewer で Optuna run を横断表示する場合は、viewer の runs dir に
 `apps/runner/runs_optuna` を指定する。
@@ -171,6 +178,7 @@ trial 名は Optuna trial number から `t00000`, `t00001`, ... と自動生成�
 - `--study-name`: Optuna study 名。
 - `--storage`: Optuna SQLite DB URL または path。既定は `sqlite:///runs_optuna/optuna.db`。相対時は runner project root 基準。
 - `--storage-timeout-sec`: SQLite storage の lock 待ち timeout 秒。既定は `120.0`。
+- `--optuna-artifact-dir`: Optuna Dashboard 用 artifact store の base path。既定は `runs_optuna/artifacts`。相対時は runner project root 基準。
 - `--n-trials`: この実行で追加する trial 数。
 - `--n-jobs`: Optuna の並列 worker 数。
 - `--study-note`: Study User Attributes の `note` に保存する任意メモ。未指定時は既存 `note` を変更しない。
@@ -190,7 +198,8 @@ trial 名は Optuna trial number から `t00000`, `t00001`, ... と自動生成�
 
 `cost_tf > cost_budget` と duplicate max 超過は study 内では `PRUNED` として扱う。
 runner failure、metrics missing、primary score unavailable、seed run の一部失敗は `FAIL` として扱い、TPE の通常学習材料に入れない。
-Trial User Attributes には `score_mean`、`score_std`、`score_median`、`score_min`、`score_max`、`score_mean_minus_std`、`seed_count`、`seed_success_count`、`seed_failure_count`、`seed_scores`、`seed_run_names` を保存する。
+Trial User Attributes の multi-seed 統計は `score_mean`、`score_std`、`score_min`、`score_max`、`score_range`、`seed_count`、`seed_success_count`、`seed_failure_count` に絞る。
+seed run 別の詳細は `seed_runs.json` と Optuna artifact を参照する。
 Study User Attributes には `last_*` として最後の `run-study` 起動条件を保存する。これは Dashboard 用のメモであり、study 全体の固定契約ではない。
 optuna-dashboard では aggregate score が trial value として表示される。
 
@@ -298,15 +307,12 @@ Optuna Dashboard では Study User Attributes と Trial User Attributes が見�
 | `score_aggregate` | aggregate 確定時 | `score` の集約方法。`mean` / `median` / `mean-minus-std` / `min`。 |
 | `score_mean` | aggregate 確定時 | seed 別 score の平均。 |
 | `score_std` | aggregate 確定時 | seed 別 score の population standard deviation。 |
-| `score_median` | aggregate 確定時 | seed 別 score の median。 |
 | `score_min` | aggregate 確定時 | seed 別 score の最小値。 |
 | `score_max` | aggregate 確定時 | seed 別 score の最大値。 |
-| `score_mean_minus_std` | aggregate 確定時 | `score_mean - score_std`。 |
+| `score_range` | aggregate 確定時 | `score_max - score_min`。score が無い場合は `null`、1 seed の場合は `0.0`。 |
 | `seed_count` | aggregate 確定時 | 実行予定だった effective seed 数。 |
 | `seed_success_count` | aggregate 確定時 | 完了した seed run 数。 |
 | `seed_failure_count` | aggregate 確定時 | 失敗した seed run 数。 |
-| `seed_scores` | aggregate 確定時 | seed ごとの score。失敗 seed は score を持たない。 |
-| `seed_run_names` | aggregate 確定時 | seed run の run folder 名一覧。 |
 | `duplicate_params_policy` | aggregate 確定時 | この trial に適用した duplicate policy。 |
 | `duplicate_count_before` | aggregate 確定時 | この trial 開始前に見つかった同一 NN params の `COMPLETE` / `RUNNING` trial 数。 |
 | `duplicate_index` | aggregate 確定時 | 同一 NN params の実行 index。`0` が初回。 |
@@ -318,6 +324,7 @@ Optuna Dashboard では Study User Attributes と Trial User Attributes が見�
 
 `run-study` の trial value は `score` と同じ aggregate score である。
 `score_mean` などは seed 別 score から計算した補助値で、どれを trial value に使うかは `score_aggregate` で分かる。
+`score_median`、`score_mean_minus_std`、seed 別 score / run 名などの詳細は Trial User Attributes には入れず、`multiseed_summary.json` と `seed_runs.json` を正として読む。
 
 `run-trial` に Optuna trial を渡す内部経路では、単発 run の補助 attr として次も保存する。
 通常の `run-trial` CLI は Optuna DB に登録しないため、主に実装上の共通経路用である。
@@ -338,8 +345,9 @@ Dashboard 上で同じ NN params の再評価を見分けたい場合は、ま�
 - `duplicate_matched_trials`: duplicate 判定で一致した過去 trial number。
 - `base_seeds`: CLI の `--seeds` で指定した元 seed。
 - `effective_seeds`: 実際に使った seed。`--duplicate-params-policy reseed` では `duplicate_index * duplicate_seed_stride` だけずれる。
-- `seed_scores`: seed ごとの score。
-- `seed_run_names`: seed run の run folder 名。
+- `score_std` / `score_range`: seed 違いのばらつき。
+
+seed ごとの score、run folder 名、path、error は Trial User Attributes ではなく、代表フォルダの `trial/seed_runs.json` または Dashboard の Artifacts から確認する。
 
 CSV で見る場合は、Optuna の `trials_dataframe()` を使うと `params_*` と `user_attrs_*` の列が生成される。
 
@@ -384,10 +392,10 @@ score = mean(
 `run-study` では、上記の単発 score を seed ごとに計算したうえで、`--score-aggregate` に従って trial value を決める。
 
 ```text
-mean           = average(seed_scores)
-median         = median(seed_scores)
-mean-minus-std = average(seed_scores) - population_stddev(seed_scores)
-min            = min(seed_scores)
+mean           = average(seed score list)
+median         = median(seed score list)
+mean-minus-std = average(seed score list) - population_stddev(seed score list)
+min            = min(seed score list)
 ```
 
 seed の一部が失敗した場合、その Optuna trial は aggregate score を採用せず `FAIL` にする。

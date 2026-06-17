@@ -10,6 +10,10 @@ if not exist "%RUNS_OPTUNA%" (
     mkdir "%RUNS_OPTUNA%"
 )
 
+if not exist "%RUNS_OPTUNA%\artifacts" (
+    mkdir "%RUNS_OPTUNA%\artifacts"
+)
+
 cd /d "%RUNS_OPTUNA%"
 
 if not exist "optuna.db" (
@@ -21,10 +25,11 @@ if not exist "optuna.db" (
 echo.
 echo Starting Optuna Dashboard...
 echo DB:  %RUNS_OPTUNA%\optuna.db
+echo Artifacts: %RUNS_OPTUNA%\artifacts
 echo URL: http://127.0.0.1:%DASHBOARD_PORT%
 echo.
 
-start "OptunaDashboard" cmd /k "optuna-dashboard sqlite:///optuna.db --port %DASHBOARD_PORT% --host %DASHBOARD_HOST% --allow-unsafe"
+start "OptunaDashboard" cmd /k "optuna-dashboard sqlite:///optuna.db --port %DASHBOARD_PORT% --host %DASHBOARD_HOST% --allow-unsafe --artifact-dir artifacts"
 
 timeout /t 3 /nobreak >nul
 start "" "http://127.0.0.1:%DASHBOARD_PORT%"
