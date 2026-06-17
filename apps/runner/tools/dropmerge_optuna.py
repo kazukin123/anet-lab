@@ -11,11 +11,14 @@ import argparse
 import csv
 import json
 import math
+import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
 import time
+import traceback
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -120,6 +123,7 @@ OPTUNA_ARTIFACT_FILENAMES = (
     "multiseed_summary.csv",
     "seed_runs.json",
 )
+HARNESS_LOG_MAX_BYTES = 5 * 1024 * 1024
 
 _ACTIVE_RUNNER_LOCK = threading.Lock()
 _ACTIVE_RUNNERS: set[subprocess.Popen] = set()
@@ -192,6 +196,68 @@ class OptunaArtifactContext:
     base_path: Path
     artifact_store: object
     upload_artifact: object
+
+
+class HarnessLogger:
+    def __init__(self, path: Path, max_bytes: int = HARNESS_LOG_MAX_BYTES):
+        self.path = path
+        self.max_bytes = max_bytes
+        self._lock = threading.Lock()
+
+    def log(self, level: str, event: str, *, console: bool = False, **fields: object) -> None:
+        timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        suffix = " ".join(f"{key}={format_log_value(value)}" for key, value in fields.items())
+        line = f"{timestamp} [{level.upper()}] {event}"
+        if suffix:
+            line = f"{line} {suffix}"
+        self._write_lines([line])
+        if console:
+            print(line, file=sys.stderr if level.upper() in ("WARN", "ERROR") else sys.stdout, flush=True)
+
+    def exception(self, event: str, exc: BaseException, *, console: bool = False, **fields: object) -> None:
+        timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        suffix = " ".join(f"{key}={format_log_value(value)}" for key, value in fields.items())
+        header = f"{timestamp} [ERROR] {event} error={format_log_value(str(exc))}"
+        if suffix:
+            header = f"{header} {suffix}"
+        lines = [header, traceback.format_exc().rstrip()]
+        self._write_lines(lines)
+        if console:
+            print(header, file=sys.stderr, flush=True)
+
+    def _write_lines(self, lines: list[str]) -> None:
+        with self._lock:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self._rotate_if_needed()
+            with self.path.open("a", encoding="utf-8", newline="\n") as stream:
+                for line in lines:
+                    stream.write(line)
+                    stream.write("\n")
+
+    def _rotate_if_needed(self) -> None:
+        if not self.path.exists() or self.path.stat().st_size < self.max_bytes:
+            return
+        oldest = self.path.with_name(f"{self.path.name}.2")
+        middle = self.path.with_name(f"{self.path.name}.1")
+        if oldest.exists():
+            oldest.unlink()
+        if middle.exists():
+            shutil.move(str(middle), str(oldest))
+        shutil.move(str(self.path), str(middle))
+
+
+def format_log_value(value: object) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, Path):
+        return json.dumps(str(value), ensure_ascii=False)
+    if isinstance(value, (dict, list, tuple)):
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    return json.dumps(str(value), ensure_ascii=False)
 
 
 def repo_root_from_script() -> Path:
@@ -443,6 +509,54 @@ def make_trial_context(
     )
 
 
+def resolve_runs_root(args: argparse.Namespace) -> Path:
+    repo_root = Path(args.repo_root).resolve()
+    budget_name, _ = resolve_budget(args)
+    runs_dir = args.runs_dir.format(study=args.study_name, budget=budget_name, trial="", run="")
+    return resolve_runner_relative_path(repo_root, runs_dir)
+
+
+def attach_harness_logger(args: argparse.Namespace) -> HarnessLogger:
+    existing = getattr(args, "_harness_logger", None)
+    if existing is not None:
+        return existing
+    logger = HarnessLogger(resolve_runs_root(args) / "harness.log")
+    setattr(args, "_harness_logger", logger)
+    return logger
+
+
+def harness_logger(args: argparse.Namespace) -> HarnessLogger | None:
+    return getattr(args, "_harness_logger", None)
+
+
+def log_harness(args: argparse.Namespace, level: str, event: str, *, console: bool = False, **fields: object) -> None:
+    logger = harness_logger(args)
+    if logger is not None:
+        logger.log(level, event, console=console, **fields)
+    elif console:
+        timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        suffix = " ".join(f"{key}={format_log_value(value)}" for key, value in fields.items())
+        line = f"{timestamp} [{level.upper()}] {event}"
+        if suffix:
+            line = f"{line} {suffix}"
+        print(line, file=sys.stderr if level.upper() in ("WARN", "ERROR") else sys.stdout, flush=True)
+
+
+def log_harness_exception(
+    args: argparse.Namespace,
+    event: str,
+    exc: BaseException,
+    *,
+    console: bool = False,
+    **fields: object,
+) -> None:
+    logger = harness_logger(args)
+    if logger is not None:
+        logger.exception(event, exc, console=console, **fields)
+    elif console:
+        print(f"[ERROR] {event}: {exc}", file=sys.stderr, flush=True)
+
+
 def storage_url_from_arg(args: argparse.Namespace) -> str:
     storage_text = str(args.storage)
     sqlite_prefix = "sqlite:///"
@@ -457,8 +571,18 @@ def storage_url_from_arg(args: argparse.Namespace) -> str:
     return f"{sqlite_prefix}{storage_path.as_posix()}"
 
 
-def create_optuna_storage(optuna, storage_url: str, storage_timeout_sec: float):
+def create_optuna_storage(
+    optuna,
+    storage_url: str,
+    storage_timeout_sec: float,
+    heartbeat_interval_sec: int | None = None,
+    heartbeat_grace_period_sec: int | None = None,
+):
     if storage_url.startswith("sqlite:///"):
+        heartbeat_kwargs = {}
+        if heartbeat_interval_sec is not None and heartbeat_interval_sec > 0:
+            heartbeat_kwargs["heartbeat_interval"] = heartbeat_interval_sec
+            heartbeat_kwargs["grace_period"] = heartbeat_grace_period_sec
         return optuna.storages.RDBStorage(
             url=storage_url,
             engine_kwargs={
@@ -466,6 +590,7 @@ def create_optuna_storage(optuna, storage_url: str, storage_timeout_sec: float):
                     "timeout": storage_timeout_sec,
                 },
             },
+            **heartbeat_kwargs,
         )
     return storage_url
 
@@ -539,18 +664,100 @@ def parse_seed_list(seed_text: str) -> list[int]:
     return seeds
 
 
+def append_cli_arg(parts: list[str], option_name: str, value: object) -> None:
+    if value is None:
+        return
+    parts.extend([option_name, str(value)])
+
+
+def quote_windows_cli_arg(value: object) -> str:
+    text = str(value)
+    if text == "":
+        return '""'
+    if not any(ch.isspace() or ch in '"&|<>^()%!' for ch in text):
+        return text
+
+    result = '"'
+    backslashes = 0
+    for ch in text:
+        if ch == "\\":
+            backslashes += 1
+            continue
+        if ch == '"':
+            result += "\\" * (backslashes * 2 + 1)
+            result += '"'
+            backslashes = 0
+            continue
+        result += "\\" * backslashes
+        result += ch
+        backslashes = 0
+    result += "\\" * (backslashes * 2)
+    result += '"'
+    return result
+
+
+def format_cli_args(parts: list[str]) -> str:
+    return " ".join(quote_windows_cli_arg(part) for part in parts)
+
+
+def build_run_study_copy_args(args: argparse.Namespace, storage_url: str) -> str:
+    # Dashboard からそのまま貼れるよう、run-study の再開に必要な実効値を明示する。
+    timeout_sec = getattr(args, "timeout_sec", 0)
+    if timeout_sec is None:
+        timeout_sec = 0
+
+    parts = ["run-study"]
+    append_cli_arg(parts, "--study-name", args.study_name)
+    append_cli_arg(parts, "--storage", storage_url)
+    append_cli_arg(parts, "--runs-dir", args.runs_dir)
+    append_cli_arg(parts, "--budget", args.budget)
+    if args.cost_budget is not None:
+        append_cli_arg(parts, "--cost-budget", args.cost_budget)
+    append_cli_arg(parts, "--cost-k", args.cost_k)
+    append_cli_arg(parts, "--base-config", args.base_config)
+    append_cli_arg(parts, "--extra-config", args.extra_config)
+    append_cli_arg(parts, "--runner-exe", args.runner_exe)
+    append_cli_arg(parts, "--timeout-sec", timeout_sec)
+    append_cli_arg(parts, "--exp-exit-step", args.exp_exit_step)
+    append_cli_arg(parts, "--window-start", args.window_start)
+    append_cli_arg(parts, "--window-end", args.window_end)
+    append_cli_arg(parts, "--nhead", args.nhead)
+    append_cli_arg(parts, "--seeds", args.seeds)
+    append_cli_arg(parts, "--score-aggregate", args.score_aggregate)
+    if args.sampler_seed is not None:
+        append_cli_arg(parts, "--sampler-seed", args.sampler_seed)
+    append_cli_arg(parts, "--n-startup-trials", args.n_startup_trials)
+    if args.constant_liar:
+        parts.append("--constant-liar")
+    append_cli_arg(parts, "--duplicate-params-policy", args.duplicate_params_policy)
+    append_cli_arg(parts, "--duplicate-params-max-runs", args.duplicate_params_max_runs)
+    append_cli_arg(parts, "--duplicate-seed-stride", args.duplicate_seed_stride)
+    append_cli_arg(parts, "--heartbeat-interval-sec", args.heartbeat_interval_sec)
+    append_cli_arg(parts, "--heartbeat-grace-period-sec", args.heartbeat_grace_period_sec)
+    append_cli_arg(parts, "--storage-timeout-sec", args.storage_timeout_sec)
+    append_cli_arg(parts, "--optuna-artifact-dir", args.optuna_artifact_dir)
+    append_cli_arg(parts, "--n-trials", args.n_trials)
+    append_cli_arg(parts, "--n-jobs", args.n_jobs)
+    if args.study_note is not None:
+        append_cli_arg(parts, "--study-note", args.study_note)
+    return format_cli_args(parts)
+
+
 def build_study_user_attrs(args: argparse.Namespace, storage_url: str) -> dict:
     budget_name, cost_budget = resolve_budget(args)
     window = resolve_score_window(args)
     seeds = parse_seed_list(args.seeds)
     storage_timeout_sec = getattr(args, "storage_timeout_sec", 120.0)
     attrs = {
+        "00_last_run_study_args": build_run_study_copy_args(args, storage_url),
         "last_launch_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "last_harness": "dropmerge_optuna",
         "last_command": "run-study",
         "last_study_name": args.study_name,
         "last_storage": storage_url,
         "last_storage_timeout_sec": storage_timeout_sec,
+        "last_heartbeat_interval_sec": getattr(args, "heartbeat_interval_sec", None),
+        "last_heartbeat_grace_period_sec": getattr(args, "heartbeat_grace_period_sec", None),
         "last_runs_dir": args.runs_dir,
         "last_budget": budget_name,
         "last_cost_budget": cost_budget,
@@ -619,6 +826,18 @@ def running_trials(study) -> list:
     return [trial for trial in study_trials(study) if trial_state_name(trial) == "RUNNING"]
 
 
+def set_trial_failure_attrs(trial, exc: BaseException, traceback_text: str | None = None) -> None:
+    if trial is None:
+        return
+    try:
+        trial.set_user_attr("failure_type", type(exc).__name__)
+        trial.set_user_attr("failure_message", str(exc))
+        if traceback_text:
+            trial.set_user_attr("failure_traceback", traceback_text[-12000:])
+    except Exception:
+        pass
+
+
 def mark_trial_failed(study, optuna, trial) -> None:
     fail_state = optuna.trial.TrialState.FAIL
     try:
@@ -669,6 +888,49 @@ def cleanup_running_trials(study, optuna, dry_run: bool = False) -> dict:
         "target_running_trials": target_numbers,
         "cleaned_running_trials": cleaned,
         "errors": errors,
+    }
+
+
+def heartbeat_enabled(args: argparse.Namespace) -> bool:
+    return int(getattr(args, "heartbeat_interval_sec", 0) or 0) > 0
+
+
+def fail_stale_trials_if_enabled(args: argparse.Namespace, optuna, study, phase: str) -> dict:
+    if not heartbeat_enabled(args):
+        return {"enabled": False, "phase": phase}
+
+    before = [int(trial.number) for trial in running_trials(study)]
+    try:
+        fail_stale_trials = getattr(optuna.storages, "fail_stale_trials", None)
+        if fail_stale_trials is None:
+            log_harness(args, "WARN", "stale-trials-unsupported", console=True, phase=phase)
+            return {
+                "enabled": True,
+                "phase": phase,
+                "before": before,
+                "after": before,
+                "error": "optuna.storages.fail_stale_trials is unavailable",
+            }
+        fail_stale_trials(study)
+    except Exception as e:
+        log_harness_exception(args, "stale-trials-check-failed", e, console=True, phase=phase)
+        return {
+            "enabled": True,
+            "phase": phase,
+            "before": before,
+            "after": [int(trial.number) for trial in running_trials(study)],
+            "error": str(e),
+        }
+
+    after = [int(trial.number) for trial in running_trials(study)]
+    log_harness(args, "INFO", "stale-trials-checked", phase=phase, before=before, after=after)
+    if after:
+        log_harness(args, "WARN", "running-trials-remain", console=True, phase=phase, trials=after)
+    return {
+        "enabled": True,
+        "phase": phase,
+        "before": before,
+        "after": after,
     }
 
 
@@ -1236,10 +1498,15 @@ def command_cleanup_running(args: argparse.Namespace) -> int:
 
 def command_run_trial(args: argparse.Namespace) -> int:
     _INTERRUPTING.clear()
+    attach_harness_logger(args)
     params = params_from_args(args)
     try:
         result = execute_trial(args, params, args.trial_number, getattr(args, "trial_name", None))
+    except TrialPrunedError as e:
+        print(str(e), file=sys.stderr)
+        return 2
     except TrialExecutionError as e:
+        log_harness(args, "ERROR", "trial-failed", console=True, study=args.study_name, error=str(e))
         print(str(e), file=sys.stderr)
         return 2
     print(json.dumps(
@@ -1288,33 +1555,51 @@ def terminate_active_runners() -> list[int]:
     return terminated
 
 
-def write_runner_process_files(
+def utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def write_runner_process_file(
     artifact_dir: Path,
-    command: list[str],
-    stdout: str | None,
-    stderr: str | None,
-    returncode: int | None,
-    elapsed_sec: float,
-    interrupted: bool = False,
-    timed_out: bool = False,
+    data: dict,
 ) -> None:
-    (artifact_dir / "stdout.log").write_text(stdout or "", encoding="utf-8", newline="\n")
-    (artifact_dir / "stderr.log").write_text(stderr or "", encoding="utf-8", newline="\n")
     (artifact_dir / "process.json").write_text(
-        json.dumps(
-            {
-                "command": command,
-                "returncode": returncode,
-                "elapsed_sec": elapsed_sec,
-                "interrupted": interrupted,
-                "timed_out": timed_out,
-            },
-            ensure_ascii=False,
-            indent=2,
-        ) + "\n",
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
         newline="\n",
     )
+
+
+def runner_process_data(
+    status: str,
+    command: list[str],
+    ctx: TrialContext,
+    start_monotonic: float,
+    *,
+    runner_pid: int | None = None,
+    returncode: int | None = None,
+    started_at: str,
+    finished_at: str | None = None,
+    interrupted: bool = False,
+    timed_out: bool = False,
+    error: str | None = None,
+) -> dict:
+    data = {
+        "status": status,
+        "command": command,
+        "config_path": ctx.config_path,
+        "harness_pid": os.getpid(),
+        "runner_pid": runner_pid,
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "returncode": returncode,
+        "elapsed_sec": time.monotonic() - start_monotonic,
+        "interrupted": interrupted,
+        "timed_out": timed_out,
+    }
+    if error is not None:
+        data["error"] = error
+    return data
 
 
 def run_runner(args: argparse.Namespace, ctx: TrialContext) -> int:
@@ -1331,84 +1616,131 @@ def run_runner(args: argparse.Namespace, ctx: TrialContext) -> int:
         ctx.config_path,
     ]
     start = time.monotonic()
+    started_at = utc_timestamp()
+    stdout_path = artifact_dir / "stdout.log"
+    stderr_path = artifact_dir / "stderr.log"
+    proc: subprocess.Popen | None = None
+    stdout_stream = None
+    stderr_stream = None
     try:
-        proc = subprocess.Popen(
-            command,
-            cwd=str(runner_root(Path(args.repo_root).resolve())),
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-    except OSError as e:
-        write_runner_process_files(
-            artifact_dir,
-            command,
-            "",
-            str(e),
-            None,
-            time.monotonic() - start,
-        )
-        raise TrialFailedError(f"runner failed to start: {e}") from e
-    register_active_runner(proc)
-    process_files_written = False
-    try:
+        stdout_stream = stdout_path.open("w", encoding="utf-8", newline="\n")
+        stderr_stream = stderr_path.open("w", encoding="utf-8", newline="\n")
         try:
-            stdout, stderr = proc.communicate(timeout=args.timeout_sec)
+            proc = subprocess.Popen(
+                command,
+                cwd=str(runner_root(Path(args.repo_root).resolve())),
+                text=True,
+                stdout=stdout_stream,
+                stderr=stderr_stream,
+            )
+        except OSError as e:
+            stderr_stream.write(str(e))
+            stderr_stream.write("\n")
+            stderr_stream.flush()
+            write_runner_process_file(
+                artifact_dir,
+                runner_process_data(
+                    "failed",
+                    command,
+                    ctx,
+                    start,
+                    started_at=started_at,
+                    finished_at=utc_timestamp(),
+                    error=str(e),
+                ),
+            )
+            log_harness(args, "ERROR", "runner-start-failed", console=True, run=ctx.run_name, error=str(e))
+            raise TrialFailedError(f"runner failed to start: {e}") from e
+
+        register_active_runner(proc)
+        write_runner_process_file(
+            artifact_dir,
+            runner_process_data(
+                "running",
+                command,
+                ctx,
+                start,
+                runner_pid=proc.pid,
+                started_at=started_at,
+            ),
+        )
+        log_harness(args, "INFO", "runner-start", console=True, run=ctx.run_name, pid=proc.pid, config=ctx.config_path)
+
+        try:
+            proc.wait(timeout=args.timeout_sec)
         except subprocess.TimeoutExpired as e:
             proc.kill()
-            stdout, stderr = proc.communicate()
-            elapsed_sec = time.monotonic() - start
-            write_runner_process_files(
+            proc.wait()
+            write_runner_process_file(
                 artifact_dir,
-                command,
-                stdout,
-                stderr,
-                proc.returncode,
-                elapsed_sec,
-                timed_out=True,
+                runner_process_data(
+                    "timed_out",
+                    command,
+                    ctx,
+                    start,
+                    runner_pid=proc.pid,
+                    returncode=proc.returncode,
+                    started_at=started_at,
+                    finished_at=utc_timestamp(),
+                    timed_out=True,
+                ),
             )
-            process_files_written = True
+            log_harness(args, "ERROR", "runner-timeout", console=True, run=ctx.run_name, pid=proc.pid, returncode=proc.returncode)
             raise TrialFailedError(f"runner timed out: timeout_sec={args.timeout_sec}") from e
-        elapsed_sec = time.monotonic() - start
+
         interrupted = _INTERRUPTING.is_set()
-        write_runner_process_files(
+        status = "complete" if proc.returncode == 0 and not interrupted else "failed"
+        write_runner_process_file(
             artifact_dir,
-            command,
-            stdout,
-            stderr,
-            proc.returncode,
-            elapsed_sec,
-            interrupted=interrupted,
+            runner_process_data(
+                status,
+                command,
+                ctx,
+                start,
+                runner_pid=proc.pid,
+                returncode=proc.returncode,
+                started_at=started_at,
+                finished_at=utc_timestamp(),
+                interrupted=interrupted,
+            ),
         )
-        process_files_written = True
+        log_harness(args, "INFO" if proc.returncode == 0 else "ERROR", "runner-exit", console=True, run=ctx.run_name, pid=proc.pid, returncode=proc.returncode)
         if interrupted:
             raise KeyboardInterrupt()
         return int(proc.returncode)
     except KeyboardInterrupt:
         _INTERRUPTING.set()
-        if proc.poll() is None:
+        if proc is not None and proc.poll() is None:
             proc.terminate()
             try:
-                stdout, stderr = proc.communicate(timeout=10.0)
+                proc.wait(timeout=10.0)
             except subprocess.TimeoutExpired:
                 proc.kill()
-                stdout, stderr = proc.communicate()
-        else:
-            stdout, stderr = "", ""
-        if not process_files_written:
-            elapsed_sec = time.monotonic() - start
-            write_runner_process_files(
+                proc.wait()
+        if proc is not None:
+            write_runner_process_file(
                 artifact_dir,
-                command,
-                stdout,
-                stderr,
-                proc.returncode,
-                elapsed_sec,
-                interrupted=True,
+                runner_process_data(
+                    "interrupted",
+                    command,
+                    ctx,
+                    start,
+                    runner_pid=proc.pid,
+                    returncode=proc.returncode,
+                    started_at=started_at,
+                    finished_at=utc_timestamp(),
+                    interrupted=True,
+                ),
             )
+            log_harness(args, "WARN", "runner-interrupted", console=True, run=ctx.run_name, pid=proc.pid, returncode=proc.returncode)
         raise
     finally:
-        unregister_active_runner(proc)
+        if proc is not None:
+            unregister_active_runner(proc)
+        if stdout_stream is not None:
+            stdout_stream.close()
+        if stderr_stream is not None:
+            stderr_stream.close()
 
 
 def set_optuna_trial_attrs(trial, params: TrialParams, ctx: TrialContext) -> None:
@@ -1459,7 +1791,30 @@ def execute_trial(
     if optuna_trial is not None:
         set_optuna_trial_attrs(optuna_trial, params, ctx)
 
+    if not getattr(args, "_suppress_trial_start_log", False):
+        log_harness(
+            args,
+            "INFO",
+            "trial-start",
+            console=True,
+            study=ctx.study_name,
+            trial=ctx.trial_number,
+            run=ctx.run_name,
+            cost_tf=ctx.cost_tf,
+            cost_budget=ctx.cost_budget,
+        )
+
     if ctx.cost_tf > ctx.cost_budget:
+        log_harness(
+            args,
+            "WARN",
+            "trial-pruned",
+            console=True,
+            study=ctx.study_name,
+            trial=ctx.trial_number,
+            run=ctx.run_name,
+            reason=f"cost_tf={ctx.cost_tf} > cost_budget={ctx.cost_budget}",
+        )
         raise TrialPrunedError(f"cost_tf={ctx.cost_tf} > cost_budget={ctx.cost_budget}")
 
     write_trial_files(args, params, ctx)
@@ -1483,6 +1838,17 @@ def execute_trial(
         raise TrialFailedError("primary score is unavailable in the selected window")
     if optuna_trial is not None:
         optuna_trial.set_user_attr("score", summary["score"])
+    if not getattr(args, "_suppress_trial_start_log", False):
+        log_harness(
+            args,
+            "INFO",
+            "trial-complete",
+            console=True,
+            study=ctx.study_name,
+            trial=ctx.trial_number,
+            run=ctx.run_name,
+            score=summary["score"],
+        )
     return TrialExecutionResult(ctx=ctx, summary=summary)
 
 
@@ -1506,6 +1872,20 @@ def execute_study_trial(
     if optuna_trial is not None:
         set_optuna_trial_attrs(optuna_trial, params, ctx)
 
+    log_harness(
+        args,
+        "INFO",
+        "trial-start",
+        console=True,
+        study=ctx.study_name,
+        trial=trial_number,
+        run=ctx.run_name,
+        cost_tf=ctx.cost_tf,
+        cost_budget=ctx.cost_budget,
+        duplicate_count=duplicate_info.duplicate_count_before,
+        seeds=seeds,
+    )
+
     write_representative_trial_files(study_args, params, ctx, seeds, duplicate_info)
     seed_runs: list[dict] = []
     if duplicate_info.pruned_by_duplicate:
@@ -1515,6 +1895,16 @@ def execute_study_trial(
         if optuna_trial is not None:
             set_multiseed_trial_attrs(optuna_trial, summary)
             register_optuna_trial_artifacts(optuna_trial, optuna_artifact_context, Path(ctx.artifact_dir))
+        log_harness(
+            args,
+            "WARN",
+            "trial-pruned",
+            console=True,
+            study=ctx.study_name,
+            trial=trial_number,
+            run=ctx.run_name,
+            reason=error,
+        )
         raise TrialPrunedError(error)
 
     if ctx.cost_tf > ctx.cost_budget:
@@ -1524,12 +1914,33 @@ def execute_study_trial(
         if optuna_trial is not None:
             set_multiseed_trial_attrs(optuna_trial, summary)
             register_optuna_trial_artifacts(optuna_trial, optuna_artifact_context, Path(ctx.artifact_dir))
+        log_harness(
+            args,
+            "WARN",
+            "trial-pruned",
+            console=True,
+            study=ctx.study_name,
+            trial=trial_number,
+            run=ctx.run_name,
+            reason=error,
+        )
         raise TrialPrunedError(error)
 
     for seed in seeds:
         seed_trial = seed_trial_name(ctx.trial_name, seed)
         seed_args = args_with_seed(study_args, seed)
+        seed_args._suppress_trial_start_log = True
         seed_ctx = make_trial_context(seed_args, params, trial_number, seed_trial)
+        log_harness(
+            args,
+            "INFO",
+            "seed-start",
+            console=True,
+            study=ctx.study_name,
+            trial=trial_number,
+            seed=seed,
+            run=seed_ctx.run_name,
+        )
         try:
             result = execute_trial(seed_args, params, trial_number, seed_trial)
         except (TrialPrunedError, TrialFailedError, ValueError) as e:
@@ -1540,10 +1951,32 @@ def execute_study_trial(
             if optuna_trial is not None:
                 set_multiseed_trial_attrs(optuna_trial, summary)
                 register_optuna_trial_artifacts(optuna_trial, optuna_artifact_context, Path(ctx.artifact_dir))
+            log_harness(
+                args,
+                "ERROR",
+                "seed-failed",
+                console=True,
+                study=ctx.study_name,
+                trial=trial_number,
+                seed=seed,
+                run=seed_ctx.run_name,
+                error=str(e),
+            )
             if isinstance(e, (TrialPrunedError, TrialFailedError)):
                 raise
             raise TrialFailedError(str(e)) from e
         seed_runs.append(make_seed_run_record(seed, result.ctx, "complete", score=result.score))
+        log_harness(
+            args,
+            "INFO",
+            "seed-complete",
+            console=True,
+            study=ctx.study_name,
+            trial=trial_number,
+            seed=seed,
+            run=result.ctx.run_name,
+            score=result.score,
+        )
 
     summary = build_multiseed_summary(study_args, params, ctx, seeds, seed_runs, duplicate_info)
     write_multiseed_summary_files(summary, Path(ctx.artifact_dir))
@@ -1552,6 +1985,16 @@ def execute_study_trial(
         register_optuna_trial_artifacts(optuna_trial, optuna_artifact_context, Path(ctx.artifact_dir))
     if summary["score"] is None:
         raise TrialFailedError("aggregate score is unavailable")
+    log_harness(
+        args,
+        "INFO",
+        "trial-complete",
+        console=True,
+        study=ctx.study_name,
+        trial=trial_number,
+        run=ctx.run_name,
+        score=summary["score"],
+    )
     return TrialExecutionResult(ctx=ctx, summary=summary)
 
 
@@ -1576,10 +2019,23 @@ def objective(
     except TrialPrunedError as e:
         # cost / duplicate は探索制約として PRUNED、runner / metrics / score 欠落は FAIL として扱う。
         raise optuna.TrialPruned(str(e)) from e
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except TrialFailedError as e:
+        traceback_text = traceback.format_exc()
+        set_trial_failure_attrs(trial, e, traceback_text)
+        log_harness_exception(args, "trial-failed", e, console=True, study=args.study_name, trial=trial.number)
+        raise
+    except Exception as e:
+        traceback_text = traceback.format_exc()
+        set_trial_failure_attrs(trial, e, traceback_text)
+        log_harness_exception(args, "trial-unexpected-error", e, console=True, study=args.study_name, trial=trial.number)
+        raise TrialFailedError(str(e)) from e
 
 
 def command_run_study(args: argparse.Namespace) -> int:
     _INTERRUPTING.clear()
+    attach_harness_logger(args)
     resolve_score_window(args)
     parse_seed_list(args.seeds)
     if args.duplicate_params_max_runs < 0:
@@ -1591,12 +2047,29 @@ def command_run_study(args: argparse.Namespace) -> int:
     if args.storage_timeout_sec < 0:
         print("storage-timeout-sec must be >= 0.", file=sys.stderr)
         return 2
+    if args.heartbeat_interval_sec < 0:
+        print("heartbeat-interval-sec must be >= 0.", file=sys.stderr)
+        return 2
+    if args.heartbeat_interval_sec > 0 and args.heartbeat_grace_period_sec <= 0:
+        print("heartbeat-grace-period-sec must be > 0 when heartbeat is enabled.", file=sys.stderr)
+        return 2
     try:
         import optuna
     except ImportError:
         print("Optuna is required for run-study. Install optuna in the Python environment.", file=sys.stderr)
         return 2
 
+    log_harness(
+        args,
+        "INFO",
+        "study-start",
+        console=True,
+        study=args.study_name,
+        n_trials=args.n_trials,
+        n_jobs=args.n_jobs,
+        heartbeat_interval_sec=args.heartbeat_interval_sec,
+        heartbeat_grace_period_sec=args.heartbeat_grace_period_sec,
+    )
     # Optuna 既定も TPE だが、探索系列の再現性と初期ランダム件数を CLI から明示制御する。
     sampler = optuna.samplers.TPESampler(
         seed=args.sampler_seed,
@@ -1604,7 +2077,13 @@ def command_run_study(args: argparse.Namespace) -> int:
         constant_liar=args.constant_liar,
     )
     storage_url = storage_url_from_arg(args)
-    storage = create_optuna_storage(optuna, storage_url, args.storage_timeout_sec)
+    storage = create_optuna_storage(
+        optuna,
+        storage_url,
+        args.storage_timeout_sec,
+        args.heartbeat_interval_sec,
+        args.heartbeat_grace_period_sec,
+    )
     optuna_artifact_context = create_optuna_artifact_context(args)
     study = optuna.create_study(
         study_name=args.study_name,
@@ -1614,6 +2093,7 @@ def command_run_study(args: argparse.Namespace) -> int:
         load_if_exists=True,
     )
     set_study_user_attrs(study, build_study_user_attrs(args, storage_url))
+    fail_stale_trials_if_enabled(args, optuna, study, "before-optimize")
     try:
         study.optimize(
             lambda trial: objective(trial, args, study, optuna_artifact_context),
@@ -1629,6 +2109,15 @@ def command_run_study(args: argparse.Namespace) -> int:
         except Exception:
             pass
         cleanup_result = cleanup_running_trials(study, optuna, dry_run=False)
+        log_harness(
+            args,
+            "WARN",
+            "study-interrupted",
+            console=True,
+            study=args.study_name,
+            terminated_runner_pids=terminated_pids,
+            cleanup=cleanup_result,
+        )
         print(json.dumps(
             {
                 "interrupted": True,
@@ -1639,6 +2128,30 @@ def command_run_study(args: argparse.Namespace) -> int:
             indent=2,
         ), file=sys.stderr)
         return 130
+    except Exception as e:
+        terminated_pids = terminate_active_runners()
+        cleanup_result = cleanup_running_trials(study, optuna, dry_run=False)
+        log_harness_exception(
+            args,
+            "study-failed",
+            e,
+            console=True,
+            study=args.study_name,
+            terminated_runner_pids=terminated_pids,
+            cleanup=cleanup_result,
+        )
+        print(json.dumps(
+            {
+                "failed": True,
+                "error": str(e),
+                "terminated_runner_pids": terminated_pids,
+                "cleanup": cleanup_result,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ), file=sys.stderr)
+        return 1
+    fail_stale_trials_if_enabled(args, optuna, study, "after-optimize")
     complete_trials = [
         trial
         for trial in study.trials
@@ -1648,6 +2161,7 @@ def command_run_study(args: argparse.Namespace) -> int:
         print(f"best_value={study.best_value} best_trial={study.best_trial.number}")
     else:
         print("best_value unavailable: no completed trials")
+    log_harness(args, "INFO", "study-complete", console=True, study=args.study_name, complete_trials=len(complete_trials))
     return 0
 
 
@@ -1842,6 +2356,18 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=120.0,
         help="SQLite storage の lock 待ち timeout 秒。",
+    )
+    run_study.add_argument(
+        "--heartbeat-interval-sec",
+        type=int,
+        default=60,
+        help="Optuna RDBStorage heartbeat interval 秒。0 は heartbeat を無効化する。",
+    )
+    run_study.add_argument(
+        "--heartbeat-grace-period-sec",
+        type=int,
+        default=600,
+        help="heartbeat が途絶えた RUNNING trial を stale とみなす猶予秒。",
     )
     run_study.add_argument(
         "--optuna-artifact-dir",

@@ -41,6 +41,7 @@ v1 の対象は DropMerge 専用、`Flatten` 固定、探索対象は NN 構成�
 ```text
 apps/runner/runs_optuna/
   optuna.db
+  harness.log                           # harness 共通デバッグログ。容量ベースで harness.log.1/.2 へ rotate。
   artifacts/                            # Optuna Dashboard 用 artifact store。内部構造には依存しない。
   <study_name>_<trial_name>/          # run-study の代表フォルダ。metrics.jsonl は持たない。
     trial/
@@ -82,10 +83,15 @@ trial artifact には、主に次のファイルを保存する。
 - `config.txt`: runner に渡した trial config。
 - `manifest.json`: study / trial / run 名、params、cost、出力 path など。
 - `stdout.log`, `stderr.log`: runner process の標準出力と標準エラー。
-- `process.json`: runner の exit code、duration、timeout / interrupt 有無など。
+- `process.json`: runner process の開始/終了状態。開始直後に `status="running"` で作成し、終了時に `complete` / `failed` / `timed_out` / `interrupted` へ更新する。
 - `metrics_summary.json`, `metrics_summary.csv`: seed run の score と補助指標の集計結果。JSON には raw window、実効 window、`exp_exit_step` も残す。
 - `multiseed_summary.json`, `multiseed_summary.csv`: `run-study` の代表フォルダに置く seed 集約結果。
 - `seed_runs.json`: `run-study` の代表フォルダに置く seed run 別の詳細。seed、run 名、status、score、path、error などを残す。
+
+`runs_optuna/harness.log` は study/trial artifact ではなく、harness 自体の診断用ログである。
+`trial-start`、`seed-start`、`runner-start pid=...`、`runner-exit returncode=...`、`trial-complete`、`trial-pruned`、`trial-failed` などの進行ログを 1 行 text で追記する。
+既定では `harness.log` が 5 MiB 以上になった次の書き込み前に `harness.log.1` へ rotate し、既存 `.1` は `.2` へ送る。
+`.2` より古いログは保持しない。
 
 `runs_optuna/<run_name>/trial` は人間と harness が直接読む artifact 置き場である。
 一方、`runs_optuna/artifacts` は Optuna の `FileSystemArtifactStore` が管理する Dashboard 用 artifact store であり、階層やファイル名に依存しない。
@@ -178,6 +184,8 @@ trial 名は Optuna trial number から `t00000`, `t00001`, ... と自動生成�
 - `--study-name`: Optuna study 名。
 - `--storage`: Optuna SQLite DB URL または path。既定は `sqlite:///runs_optuna/optuna.db`。相対時は runner project root 基準。
 - `--storage-timeout-sec`: SQLite storage の lock 待ち timeout 秒。既定は `120.0`。
+- `--heartbeat-interval-sec`: Optuna RDBStorage heartbeat interval 秒。既定は `60`。`0` で heartbeat を無効にする。
+- `--heartbeat-grace-period-sec`: heartbeat が途絶えた `RUNNING` trial を stale とみなす猶予秒。既定は `600`。
 - `--optuna-artifact-dir`: Optuna Dashboard 用 artifact store の base path。既定は `runs_optuna/artifacts`。相対時は runner project root 基準。
 - `--n-trials`: この実行で追加する trial 数。
 - `--n-jobs`: Optuna の並列 worker 数。
@@ -202,6 +210,10 @@ Trial User Attributes の multi-seed 統計は `score_mean`、`score_std`、`sco
 seed run 別の詳細は `seed_runs.json` と Optuna artifact を参照する。
 Study User Attributes には `last_*` として最後の `run-study` 起動条件を保存する。これは Dashboard 用のメモであり、study 全体の固定契約ではない。
 optuna-dashboard では aggregate score が trial value として表示される。
+
+heartbeat 有効時は `run-study` 開始時と終了時に `optuna.storages.fail_stale_trials(study)` を呼び、親 Python が OS kill や crash で落ちた後に残った stale `RUNNING` trial を `FAIL` へ寄せる。
+ただし、プロセスが死んだ瞬間に即時 `FAIL` へ変わるわけではない。
+次回 `run-study` 起動時の stale check、または `cleanup-running` で復旧する前提で読む。
 
 duplicate 判定は同一 study の `COMPLETE` / `RUNNING` trial の NN params だけを見る。`PRUNED` / `FAIL` trial は数えない。
 `allow` は現状互換で同じ seed list のまま実行する。
@@ -249,17 +261,25 @@ Optuna Dashboard では Study User Attributes と Trial User Attributes が見�
 
 ### Study User Attributes
 
-`run-study` 起動時に、次の `last_*` を毎回上書きする。
+`run-study` 起動時に、次の `00_*` / `last_*` を毎回上書きする。
 これは dashboard で直近の起動条件を見るためのメモであり、study 全体の固定契約ではない。
+Dashboard の `00_last_run_study_args` は、次回再開時に次のように貼り付けて使う。
+
+```powershell
+python apps\runner\tools\dropmerge_optuna.py <00_last_run_study_args の値>
+```
 
 | Attribute | 更新契機 | 意味 |
 | --- | --- | --- |
+| `00_last_run_study_args` | `run-study` | Dashboard 上で上に出しやすい copy-paste 用 args。`run-study ...` から始まり、Python executable と script path は含めない。 |
 | `last_launch_at` | `run-study` | 最後に `run-study` を起動した UTC 時刻。 |
 | `last_harness` | `run-study` | harness 名。現在は `dropmerge_optuna`。 |
 | `last_command` | `run-study` | 起動コマンド種別。現在は `run-study`。 |
 | `last_study_name` | `run-study` | 起動時に指定した study 名。 |
 | `last_storage` | `run-study` | 起動時に使った Optuna storage URL。 |
 | `last_storage_timeout_sec` | `run-study` | SQLite storage lock 待ち timeout 秒。 |
+| `last_heartbeat_interval_sec` | `run-study` | RDBStorage heartbeat interval 秒。`0` は無効。 |
+| `last_heartbeat_grace_period_sec` | `run-study` | stale `RUNNING` trial とみなす heartbeat 猶予秒。 |
 | `last_runs_dir` | `run-study` | runner 出力先として使った `runs_dir`。 |
 | `last_budget` | `run-study` | `small` / `medium` などの budget preset 名。 |
 | `last_cost_budget` | `run-study` | 実効 `cost_budget`。 |
@@ -494,12 +514,17 @@ python apps\runner\tools\dropmerge_optuna.py run-study --study-name dropmergeFix
 探索を中断するときは、まず `Ctrl+C` を 1 回だけ押す。
 通常は harness が実行中 runner を止め、同一 study の `RUNNING` trial を `FAIL` に変更する。
 `Ctrl+C` 連打、ターミナルごと終了、OS kill では cleanup が走らない場合がある。
-その場合は次の手順で後処理する。
+その場合でも heartbeat 有効な `run-study` では、次回起動時に stale `RUNNING` を `FAIL` へ寄せる。
+既存の heartbeat 無し `RUNNING` や、すぐ手動確認したい場合は次の手順で後処理する。
 
 ```powershell
 python apps\runner\tools\dropmerge_optuna.py cleanup-running --study-name dropmergeSmall --dry-run
 python apps\runner\tools\dropmerge_optuna.py cleanup-running --study-name dropmergeSmall
 ```
+
+実行中のどの段階で止まったかは、まず `apps/runner/runs_optuna/harness.log` を見る。
+seed run が runner 起動まで進んでいれば、`runs_optuna/<run_name>/trial/process.json` が `status="running"` で先に作られる。
+親 Python が落ちた場合は `process.json` が `running` のまま残ることがあり、その場合は `runner_pid`、`started_at`、`command`、`config_path` が調査の手掛かりになる。
 
 ### 6. metrics-viewer で見る
 
