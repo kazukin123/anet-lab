@@ -203,6 +203,28 @@ cmake --build --preset x64-Debug --target doc
 
 テストが追加された場合は、このドキュメントに標準のテスト実行手順を追記してください。
 
+## Python 補助ツールの実行
+
+AI エージェントがリポジトリ内の Python 補助ツールを実行する場合は、素の `python` ではなく
+リポジトリルートの `.\.venv\Scripts\python.exe` を優先してください。
+user site やグローバル Python に入っているパッケージは、AI エージェントのサンドボックスから
+見えない場合があるため、前提にしないでください。
+
+`.venv` が存在しない場合は、リポジトリルートで次のように作成してください。
+
+```powershell
+C:\Python314\python.exe -m venv .venv
+```
+
+依存パッケージは、必ず `.venv` 側の Python に対してインストールしてください。
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install ...
+```
+
+Python 補助ツールの検証も、同じ `.venv` の Python で行ってください。
+`.venv` はローカル実行環境として扱い、Git 管理対象にしないでください。
+
 ## 編集しない・慎重に扱う領域
 
 以下は生成物、ローカル環境、または外部依存として扱います。

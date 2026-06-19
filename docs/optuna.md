@@ -27,6 +27,8 @@ v1 の対象は DropMerge 専用、`Flatten` 固定、探索対象は NN 構成�
 - run: runner の 1 実行出力。`run-trial` では `1 trial = 1 run`、`run-study` では `1 trial = 複数 seed run`。
 - multiseed summary: `run-study` の Optuna objective。seed run の score を集約した JSON/CSV。
 - trial artifact: harness が残す再現用ファイル。config、manifest、stdout/stderr、summary など。
+- params group: 同一 `TrialParams` 8 項目を持つ source trial 群。`summarize-study` では 1 params group を summary study の 1 trial にする。
+- summary study: source study を Dashboard 閲覧用に再構成した multi-objective study。objective は group seed score 分布の mean / range / std。
 
 プロセス構造:
 
@@ -84,9 +86,9 @@ trial artifact には、主に次のファイルを保存する。
 - `manifest.json`: study / trial / run 名、params、cost、出力 path など。
 - `stdout.log`, `stderr.log`: runner process の標準出力と標準エラー。
 - `process.json`: runner process の開始/終了状態。開始直後に `status="running"` で作成し、終了時に `complete` / `failed` / `timed_out` / `interrupted` へ更新する。
-- `metrics_summary.json`, `metrics_summary.csv`: seed run の score と補助指標の集計結果。JSON には raw window、実効 window、`exp_exit_step` も残す。
-- `multiseed_summary.json`, `multiseed_summary.csv`: `run-study` の代表フォルダに置く seed 集約結果。
-- `seed_runs.json`: `run-study` の代表フォルダに置く seed run 別の詳細。seed、run 名、status、score、path、error などを残す。
+- `metrics_summary.json`, `metrics_summary.csv`: seed run の score と補助指標の集計結果。JSON には raw window、実効 window、`exp_exit_step`、late window 指標も残す。
+- `multiseed_summary.json`, `multiseed_summary.csv`: `run-study` の代表フォルダに置く seed 集約結果。seed 別 score に加えて late window 指標の平均とばらつきも保存する。
+- `seed_runs.json`: `run-study` の代表フォルダに置く seed run 別の詳細。seed、run 名、status、score、late window 指標、path、error などを残す。
 
 `runs_optuna/harness.log` は study/trial artifact ではなく、harness 自体の診断用ログである。
 `trial-start`、`seed-start`、`runner-start pid=...`、`runner-exit returncode=...`、`trial-complete`、`trial-pruned`、`trial-failed` などの進行ログを 1 行 text で追記する。
@@ -96,6 +98,7 @@ trial artifact には、主に次のファイルを保存する。
 `runs_optuna/<run_name>/trial` は人間と harness が直接読む artifact 置き場である。
 一方、`runs_optuna/artifacts` は Optuna の `FileSystemArtifactStore` が管理する Dashboard 用 artifact store であり、階層やファイル名に依存しない。
 Dashboard で `Show Artifacts` を有効にするには、`run-study` が `upload_artifact()` で trial に artifact metadata を登録し、optuna-dashboard を `--artifact-dir artifacts` 付きで起動する必要がある。
+`summarize-study` が作る summary study では、target trial の詳細を `group_summary.json` として同じ artifact store に登録する。
 
 metrics-viewer で Optuna run を横断表示する場合は、viewer の runs dir に
 `apps/runner/runs_optuna` を指定する。
@@ -206,7 +209,7 @@ trial 名は Optuna trial number から `t00000`, `t00001`, ... と自動生成�
 
 `cost_tf > cost_budget` と duplicate max 超過は study 内では `PRUNED` として扱う。
 runner failure、metrics missing、primary score unavailable、seed run の一部失敗は `FAIL` として扱い、TPE の通常学習材料に入れない。
-Trial User Attributes の multi-seed 統計は `score_mean`、`score_std`、`score_min`、`score_max`、`score_range`、`seed_count`、`seed_success_count`、`seed_failure_count` に絞る。
+Trial User Attributes の multi-seed 統計は `score_mean`、`score_std`、`score_min`、`score_max`、`score_range`、late window 指標、`seed_count`、`seed_success_count`、`seed_failure_count` に絞る。
 seed run 別の詳細は `seed_runs.json` と Optuna artifact を参照する。
 Study User Attributes には `last_*` として最後の `run-study` 起動条件を保存する。これは Dashboard 用のメモであり、study 全体の固定契約ではない。
 optuna-dashboard では aggregate score が trial value として表示される。
@@ -252,6 +255,44 @@ artifact は削除せず、DB state だけを直す。
 
 `RUNNING` trial が残ると、`--constant-liar` や duplicate 判定で「まだ実行中の trial」として扱われる。
 `Ctrl+C` 後に dashboard で `RUNNING` が残っている場合は、再開前に `cleanup-running --dry-run` で対象を確認し、問題なければ本実行する。
+
+### `summarize-study`
+
+既存 source study の同一 params group をまとめ、Dashboard 閲覧用の summary study を生成する。
+source study は変更しない。
+target study は multi-objective study で、1 params group を 1 target trial として保存する。
+
+主な引数:
+
+- `--source-study-name`: 集約元の Optuna study 名。必須。
+- `--target-study-name`: 集約先の Optuna study 名。未指定時は `<source-study-name>_summary`。
+- `--source-storage`: 集約元 Optuna SQLite DB URL または path。既定は `sqlite:///runs_optuna/optuna.db`。
+- `--target-storage`: 集約先 Optuna SQLite DB URL または path。未指定時は source と同じ。
+- `--source-artifact-dir`: 集約元 Dashboard artifact store。既定は `runs_optuna/artifacts`。
+- `--target-artifact-dir`: 集約先 Dashboard artifact store。既定は `runs_optuna/artifacts`。
+- `--overwrite-target-study`: 既存 target study を削除して作り直す。未指定時に target study が存在する場合はエラー。
+
+group key は `TrialParams` の 8 項目完全一致である。
+`cnn_channels`、`res_blocks`、`token_mode`、`d_model`、`transformer_layers`、`ff_mult`、`trunk_width`、`head_width` がすべて同じ source trial だけを 1 group にする。
+
+objective 集約対象は source の `COMPLETE` trial だけである。
+`FAIL` / `PRUNED` / `RUNNING` は objective に混ぜず、summary trial の `source_state_counts` にだけ残す。
+seed score 分布は source trial に紐づく Dashboard artifact の `seed_runs.json` を正とする。
+`seed_runs.json` が欠けている古い study は、誤った分布で代用せず、対象 source trial number を出してエラーにする。
+
+summary study の objective は次の 3 つである。
+
+| Objective | Direction | 意味 |
+| --- | --- | --- |
+| `mean` | maximize | group 内の全 complete seed score の平均。主指標として読む。 |
+| `range` | minimize | group 内の全 complete seed score の `max - min`。小さいほど seed ばらつきが狭い。 |
+| `std` | minimize | group 内の全 complete seed score の population standard deviation。 |
+
+Dashboard 上では multi-objective study として表示されるため、single-objective の `best_trial` / `best_value` ではなく、Pareto front と objective columns を読む。
+運用上は `mean` を主指標にし、`range` / `std` で上振れ候補や不安定候補を見分ける。
+
+同じ params group 内で source trial の採点条件が混ざっていても、`summarize-study` は停止しない。
+その場合は WARN を出し、target trial attrs の `source_context_mixed=true` と `group_summary.json` の `source_score_contexts` に根拠を残す。
 
 ## Optuna Attributes 一覧
 
@@ -330,6 +371,10 @@ python apps\runner\tools\dropmerge_optuna.py <00_last_run_study_args の値>
 | `score_min` | aggregate 確定時 | seed 別 score の最小値。 |
 | `score_max` | aggregate 確定時 | seed 別 score の最大値。 |
 | `score_range` | aggregate 確定時 | `score_max - score_min`。score が無い場合は `null`、1 seed の場合は `0.0`。 |
+| `score_60_80_mean` | aggregate 確定時 | seed 別 `score_60_80` の平均。primary window とは別の補助分析値。 |
+| `score_80_100_mean` | aggregate 確定時 | seed 別 `score_80_100` の平均。 |
+| `late_slope_mean` | aggregate 確定時 | seed 別 `late_slope = score_80_100 - score_60_80` の平均。後半で伸びているかを見る補助値。 |
+| `late_slope_std` | aggregate 確定時 | seed 別 `late_slope` の population standard deviation。 |
 | `seed_count` | aggregate 確定時 | 実行予定だった effective seed 数。 |
 | `seed_success_count` | aggregate 確定時 | 完了した seed run 数。 |
 | `seed_failure_count` | aggregate 確定時 | 失敗した seed run 数。 |
@@ -345,6 +390,7 @@ python apps\runner\tools\dropmerge_optuna.py <00_last_run_study_args の値>
 `run-study` の trial value は `score` と同じ aggregate score である。
 `score_mean` などは seed 別 score から計算した補助値で、どれを trial value に使うかは `score_aggregate` で分かる。
 `score_median`、`score_mean_minus_std`、seed 別 score / run 名などの詳細は Trial User Attributes には入れず、`multiseed_summary.json` と `seed_runs.json` を正として読む。
+late window 指標の seed 別値も `seed_runs.json` を正とする。
 
 `run-trial` に Optuna trial を渡す内部経路では、単発 run の補助 attr として次も保存する。
 通常の `run-trial` CLI は Optuna DB に登録しないため、主に実装上の共通経路用である。
@@ -354,6 +400,45 @@ python apps\runner\tools\dropmerge_optuna.py <00_last_run_study_args の値>
 | `returncode` | runner 終了時 | runner process の exit code。 |
 | `metric:<tag>:mean` | metrics 集計時 | 指定 window 内の scalar tag 平均。 |
 | `metric:<tag>:last` | metrics 集計時 | 指定 window 内の scalar tag 最終値。 |
+
+### Summary Study / Trial Attributes
+
+`summarize-study` が作る summary study では、Study User Attributes に生成条件と件数を保存する。
+
+| Attribute | 意味 |
+| --- | --- |
+| `summary_created_at` | summary study を生成した UTC 時刻。 |
+| `summary_harness` | 生成した harness 名。現在は `dropmerge_optuna`。 |
+| `summary_command` | 生成コマンド。現在は `summarize-study`。 |
+| `source_study_name` / `source_storage` | 集約元 study 名と storage URL。 |
+| `source_artifact_dir` | 集約元 Dashboard artifact store。 |
+| `target_study_name` / `target_storage` | 集約先 study 名と storage URL。 |
+| `target_artifact_dir` | 集約先 Dashboard artifact store。 |
+| `summary_objective_names` | `["mean", "range", "std"]`。 |
+| `summary_objective_directions` | `["maximize", "minimize", "minimize"]`。 |
+| `summary_group_count` | 生成した target trial 数。 |
+| `summary_source_complete_trial_count` | objective 集約に使った source `COMPLETE` trial 数。 |
+| `summary_source_seed_count` | objective 集約に使った complete seed score 数。 |
+| `summary_source_state_counts` | source study 全体の trial state 件数。 |
+| `summary_mixed_context_group_count` | 採点条件混在を検出した params group 数。 |
+
+summary trial の Trial User Attributes は、Dashboard table で読むための要約に絞る。
+
+| Attribute | 意味 |
+| --- | --- |
+| `group_id` | `g00000` 形式の summary group id。 |
+| `params` | group key になった `TrialParams` 一式。 |
+| `source_trial_numbers` | この group に含めた source `COMPLETE` trial number。 |
+| `source_trial_count` | この group に含めた source `COMPLETE` trial 数。 |
+| `source_seed_count` | この group に含めた complete seed score 数。 |
+| `group_score_mean` / `group_score_range` / `group_score_std` | target objective と同じ値。 |
+| `group_score_min` / `group_score_max` / `group_score_median` / `group_score_mean_minus_std` | group seed score 分布の補助統計。 |
+| `group_score_60_80_mean` / `group_score_80_100_mean` / `group_late_slope_mean` / `group_late_slope_std` | group seed score から計算した late window 補助統計。summary objective には使わない。 |
+| `source_trial_score_mean` / `source_trial_score_range` / `source_trial_score_std` | source trial aggregate value の分布。seed score 分布とは別に読む。 |
+| `source_context_mixed` | source trial の採点条件が group 内で混在している場合に `true`。 |
+| `source_state_counts` | 同じ params group に属する source trial state 件数。objective に使わない state も含む。 |
+
+seed 別 score、source trial 別 score、effective seeds、run name、path、採点条件の詳細は Trial User Attributes ではなく、target trial artifact の `group_summary.json` を正として読む。
 
 ### 同じ params の見分け方
 
@@ -366,8 +451,12 @@ Dashboard 上で同じ NN params の再評価を見分けたい場合は、ま�
 - `base_seeds`: CLI の `--seeds` で指定した元 seed。
 - `effective_seeds`: 実際に使った seed。`--duplicate-params-policy reseed` では `duplicate_index * duplicate_seed_stride` だけずれる。
 - `score_std` / `score_range`: seed 違いのばらつき。
+- `late_slope_mean`: 後半 80%〜100% が 60%〜80% より伸びているか。正なら後半も伸びている候補、0 以下なら頭打ちまたは失速候補として暫定的に読む。
 
-seed ごとの score、run folder 名、path、error は Trial User Attributes ではなく、代表フォルダの `trial/seed_runs.json` または Dashboard の Artifacts から確認する。
+seed ごとの score、late window 指標、run folder 名、path、error は Trial User Attributes ではなく、代表フォルダの `trial/seed_runs.json` または Dashboard の Artifacts から確認する。
+
+同じ params group を Dashboard 上で直接比較したい場合は、`summarize-study` で summary study を作る。
+summary study では 1 params group が 1 trial になり、`mean` / `range` / `std` の multi-objective として表示される。
 
 CSV で見る場合は、Optuna の `trials_dataframe()` を使うと `params_*` と `user_attrs_*` の列が生成される。
 
@@ -405,6 +494,18 @@ score = mean(
 
 どちらかの primary tag が window 内に存在しない、または finite な値を持たない場合、`score` は `null` になる。
 `run-trial` では非 0 終了、`run-study` では `FAIL` として扱う。
+
+late window 指標は、primary score と同じ 2 tag を固定 window で再集計した補助値である。
+
+```text
+score_60_80  = score over [round(exp_exit_step * 0.60), round(exp_exit_step * 0.80)]
+score_80_100 = score over [round(exp_exit_step * 0.80), exp_exit_step]
+late_slope   = score_80_100 - score_60_80
+```
+
+これらは trial value には使わない。
+`late_slope > 0` は後半で伸びている候補、`late_slope <= 0` は頭打ちまたは失速候補として読む。
+ただし、seed ぶれや評価 window 内のイベント密度に影響されるため、最終性能の代替ではなく分析用の補助指標として扱う。
 
 補助 tag、duration、step/sec、終端理由、`max_rank`、`fruit_count` は summary には保存するが、v1 の score には入れない。
 また、primary tag の `last` ではなく window 内の `mean` を使うため、短い window ではログ間隔や評価回数の影響を受けやすい。
@@ -526,7 +627,25 @@ python apps\runner\tools\dropmerge_optuna.py cleanup-running --study-name dropme
 seed run が runner 起動まで進んでいれば、`runs_optuna/<run_name>/trial/process.json` が `status="running"` で先に作られる。
 親 Python が落ちた場合は `process.json` が `running` のまま残ることがあり、その場合は `runner_pid`、`started_at`、`command`、`config_path` が調査の手掛かりになる。
 
-### 6. metrics-viewer で見る
+### 6. summary study を作る
+
+同じ params の reseed 結果を 1 trial として Dashboard で見る場合は、source study から summary study を作る。
+
+```powershell
+python apps\runner\tools\dropmerge_optuna.py summarize-study --source-study-name dropmergeSmall
+```
+
+既定では `dropmergeSmall_summary` が同じ `runs_optuna/optuna.db` 内に作られる。
+optuna-dashboard の study list で source study と summary study を切り替えて見る。
+
+target study が既にある場合は、誤って手作業メモや既存 summary を消さないように停止する。
+作り直す場合だけ明示する。
+
+```powershell
+python apps\runner\tools\dropmerge_optuna.py summarize-study --source-study-name dropmergeSmall --overwrite-target-study
+```
+
+### 7. metrics-viewer で見る
 
 metrics-viewer の runs dir に次を指定する。
 
@@ -537,8 +656,9 @@ apps/runner/runs_optuna
 viewer 側では、この直下の `<run_name>/metrics.jsonl` が run として扱われる。
 `run-study` の代表フォルダ `<study_name>_<trial_name>` は `metrics.jsonl` を持たないため表示対象外になり、`<study_name>_<trial_name>_s<seed>` の seed run だけが表示される。
 study をまたいだ比較をしたい場合も、`dropmergeSmall_t00000`、`dropmergeMedium_t00000` のように同じ viewer root で横断表示する。
+summary study は Dashboard 閲覧用であり、metrics-viewer の run にはならない。
 
-### 7. 既存 metrics を再集計する
+### 8. 既存 metrics を再集計する
 
 ```powershell
 python apps\runner\tools\dropmerge_optuna.py summarize apps/runner/runs_optuna/dropmergeSmall_t00000/metrics.jsonl --window-start 80% --window-end 100% --output-dir apps/runner/runs_optuna/dropmergeSmall_t00000/trial
@@ -600,6 +720,7 @@ cost_tf = L * (N^2 * M + k * N * M^2)
 - `run-study` は `TPESampler` を明示的に使う。最初の `--n-startup-trials` 件は random sampling、その後は過去の完了 trial に基づいて候補を寄せる。
 - `--constant-liar` は RUNNING trial 近傍の再提案を避ける補助策。完了済み duplicate params の扱いは `--duplicate-params-policy` で制御する。
 - `run-study` の探索単位は seed run ではなく multi-seed aggregate。DB や optuna-dashboard で見る trial value は aggregate score。
+- `summarize-study` の target study は閲覧専用。source study は変更せず、同一 params group の全 complete seed score 分布を multi-objective trial にする。
 - 中断時はまず `Ctrl+C` を 1 回だけ押す。`RUNNING` が残った場合は `cleanup-running --dry-run` で確認してから cleanup する。
 - Study User Attributes の `last_*` は最後の `run-study` 起動条件を表す。異なる前提の trial が同一 study に混ざることは許容し、各 trial の正確な条件は Trial User Attributes、manifest、summary を正として読む。
 - 既定では duplicate params は `reseed` され、最大 3 回まで seed を変えて再評価される。

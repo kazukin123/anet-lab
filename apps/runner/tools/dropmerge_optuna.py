@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -117,6 +118,23 @@ BUDGETS = {
 TRIAL_NAME_PATTERN = re.compile(r"^t(\d{5})$")
 SCORE_AGGREGATES = ("mean", "median", "mean-minus-std", "min")
 DUPLICATE_PARAMS_POLICIES = ("allow", "prune", "reseed")
+TRIAL_PARAM_CHOICES = {
+    "cnn_channels": [48, 64],
+    "res_blocks": [2, 4],
+    "token_mode": ["current", "stronger"],
+    "d_model": [96, 128, 192],
+    "transformer_layers": [2, 4],
+    "ff_mult": [2, 4],
+    "trunk_width": [1024, 2048],
+    "head_width": [512, 1024],
+}
+SUMMARY_OBJECTIVE_NAMES = ("mean", "range", "std")
+SUMMARY_OBJECTIVE_DIRECTIONS = ("maximize", "minimize", "minimize")
+GROUP_SUMMARY_ARTIFACT_FILENAME = "group_summary.json"
+LATE_SCORE_WINDOWS = (
+    ("score_60_80", "60%", "80%"),
+    ("score_80_100", "80%", "100%"),
+)
 OPTUNA_ARTIFACT_FILENAMES = (
     "manifest.json",
     "multiseed_summary.json",
@@ -196,6 +214,8 @@ class OptunaArtifactContext:
     base_path: Path
     artifact_store: object
     upload_artifact: object
+    get_all_artifact_meta: object | None = None
+    download_artifact: object | None = None
 
 
 class HarnessLogger:
@@ -315,15 +335,57 @@ def cost_tf(params: TrialParams, k: float) -> float:
 
 def suggest_params(trial) -> TrialParams:
     return TrialParams(
-        cnn_channels=trial.suggest_categorical("cnn_channels", [48, 64]),
-        res_blocks=trial.suggest_categorical("res_blocks", [2, 4]),
-        token_mode=trial.suggest_categorical("token_mode", ["current", "stronger"]),
-        d_model=trial.suggest_categorical("d_model", [96, 128, 192]),
-        transformer_layers=trial.suggest_categorical("transformer_layers", [2, 4]),
-        ff_mult=trial.suggest_categorical("ff_mult", [2, 4]),
-        trunk_width=trial.suggest_categorical("trunk_width", [1024, 2048]),
-        head_width=trial.suggest_categorical("head_width", [512, 1024]),
+        cnn_channels=trial.suggest_categorical("cnn_channels", TRIAL_PARAM_CHOICES["cnn_channels"]),
+        res_blocks=trial.suggest_categorical("res_blocks", TRIAL_PARAM_CHOICES["res_blocks"]),
+        token_mode=trial.suggest_categorical("token_mode", TRIAL_PARAM_CHOICES["token_mode"]),
+        d_model=trial.suggest_categorical("d_model", TRIAL_PARAM_CHOICES["d_model"]),
+        transformer_layers=trial.suggest_categorical("transformer_layers", TRIAL_PARAM_CHOICES["transformer_layers"]),
+        ff_mult=trial.suggest_categorical("ff_mult", TRIAL_PARAM_CHOICES["ff_mult"]),
+        trunk_width=trial.suggest_categorical("trunk_width", TRIAL_PARAM_CHOICES["trunk_width"]),
+        head_width=trial.suggest_categorical("head_width", TRIAL_PARAM_CHOICES["head_width"]),
     )
+
+
+def trial_params_from_mapping(mapping: dict, *, source: str = "params") -> TrialParams:
+    missing = [
+        name
+        for name in TrialParams.__dataclass_fields__
+        if mapping.get(name) is None
+    ]
+    if missing:
+        raise ValueError(f"Invalid {source}: missing TrialParams fields. missing={missing}")
+
+    try:
+        return TrialParams(
+            cnn_channels=int(mapping["cnn_channels"]),
+            res_blocks=int(mapping["res_blocks"]),
+            token_mode=str(mapping["token_mode"]),
+            d_model=int(mapping["d_model"]),
+            transformer_layers=int(mapping["transformer_layers"]),
+            ff_mult=int(mapping["ff_mult"]),
+            trunk_width=int(mapping["trunk_width"]),
+            head_width=int(mapping["head_width"]),
+        )
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"Invalid {source}: TrialParams fields have invalid values. params={mapping}") from e
+
+
+def trial_param_distributions(optuna) -> dict:
+    return {
+        name: optuna.distributions.CategoricalDistribution(choices)
+        for name, choices in TRIAL_PARAM_CHOICES.items()
+    }
+
+
+def validate_trial_params_in_search_space(params: TrialParams) -> None:
+    values = asdict(params)
+    invalid = {
+        name: value
+        for name, value in values.items()
+        if value not in TRIAL_PARAM_CHOICES[name]
+    }
+    if invalid:
+        raise ValueError(f"Source trial params are outside current Optuna search space: {invalid}")
 
 
 def params_from_args(args: argparse.Namespace) -> TrialParams:
@@ -472,6 +534,26 @@ def resolve_score_window(args: argparse.Namespace) -> ScoreWindow:
     )
 
 
+def resolve_score_window_from_raw(raw_start: object, raw_end: object, exp_exit_step: int, label: str) -> ScoreWindow:
+    raw_start_value = parse_window_raw_value(raw_start, f"{label}.window-start")
+    raw_end_value = parse_window_raw_value(raw_end, f"{label}.window-end")
+    window_start = resolve_window_value(raw_start_value, exp_exit_step)
+    window_end = resolve_window_value(raw_end_value, exp_exit_step)
+    if window_start < 0:
+        raise ValueError(f"Invalid {label} window_start: resolved value must be >= 0. value={window_start}")
+    if window_end < 0:
+        raise ValueError(f"Invalid {label} window_end: resolved value must be >= 0. value={window_end}")
+    if window_start > window_end:
+        raise ValueError(f"Invalid {label} score window: window_start={window_start} > window_end={window_end}")
+    return ScoreWindow(
+        start=window_start,
+        end=window_end,
+        raw_start=raw_start_value,
+        raw_end=raw_end_value,
+        exp_exit_step=exp_exit_step,
+    )
+
+
 def make_trial_context(
     args: argparse.Namespace,
     params: TrialParams,
@@ -557,8 +639,7 @@ def log_harness_exception(
         print(f"[ERROR] {event}: {exc}", file=sys.stderr, flush=True)
 
 
-def storage_url_from_arg(args: argparse.Namespace) -> str:
-    storage_text = str(args.storage)
+def storage_url_from_text(repo_root: Path, storage_text: str) -> str:
     sqlite_prefix = "sqlite:///"
     if storage_text.startswith(sqlite_prefix):
         storage_path = Path(storage_text[len(sqlite_prefix):])
@@ -566,9 +647,13 @@ def storage_url_from_arg(args: argparse.Namespace) -> str:
         storage_path = Path(storage_text)
 
     if not storage_path.is_absolute():
-        storage_path = runner_root(Path(args.repo_root).resolve()) / storage_path
+        storage_path = runner_root(repo_root) / storage_path
     storage_path.parent.mkdir(parents=True, exist_ok=True)
     return f"{sqlite_prefix}{storage_path.as_posix()}"
+
+
+def storage_url_from_arg(args: argparse.Namespace) -> str:
+    return storage_url_from_text(Path(args.repo_root).resolve(), str(args.storage))
 
 
 def create_optuna_storage(
@@ -599,6 +684,10 @@ def resolve_optuna_artifact_dir(args: argparse.Namespace) -> Path:
     return resolve_runner_relative_path(Path(args.repo_root).resolve(), str(args.optuna_artifact_dir))
 
 
+def resolve_artifact_dir_from_text(args: argparse.Namespace, path_text: str) -> Path:
+    return resolve_runner_relative_path(Path(args.repo_root).resolve(), path_text)
+
+
 def create_optuna_artifact_context(args: argparse.Namespace) -> OptunaArtifactContext | None:
     try:
         from optuna.artifacts import FileSystemArtifactStore
@@ -618,6 +707,28 @@ def create_optuna_artifact_context(args: argparse.Namespace) -> OptunaArtifactCo
     except Exception as e:
         print(f"[WARN] Failed to initialize Optuna artifact store: {e}", file=sys.stderr)
         return None
+
+
+def create_required_filesystem_artifact_context(optuna, base_path: Path, label: str) -> OptunaArtifactContext:
+    try:
+        from optuna.artifacts import FileSystemArtifactStore
+        from optuna.artifacts import download_artifact
+        from optuna.artifacts import get_all_artifact_meta
+        from optuna.artifacts import upload_artifact
+    except Exception as e:
+        raise TrialExecutionError(f"Optuna artifacts are required for {label}: {e}") from e
+
+    try:
+        base_path.mkdir(parents=True, exist_ok=True)
+        return OptunaArtifactContext(
+            base_path=base_path,
+            artifact_store=FileSystemArtifactStore(base_path=str(base_path)),
+            upload_artifact=upload_artifact,
+            get_all_artifact_meta=get_all_artifact_meta,
+            download_artifact=download_artifact,
+        )
+    except Exception as e:
+        raise TrialExecutionError(f"Failed to initialize {label} artifact store: path={base_path} error={e}") from e
 
 
 def register_optuna_trial_artifacts(
@@ -1050,6 +1161,18 @@ def aggregate_score_stats(scores: list[float], mode: str) -> dict[str, float | i
     return stats
 
 
+def completed_run_values(seed_runs: list[dict], field: str) -> list[float]:
+    values: list[float] = []
+    for run in seed_runs:
+        if run.get("status") != "complete":
+            continue
+        value = run.get(field)
+        if value is None:
+            continue
+        values.append(float(value))
+    return values
+
+
 def generated_structure(params: TrialParams) -> str:
     # Flatten family 固定。token_mode に応じて ConvDown の回数だけを変える。
     blocks = [
@@ -1236,7 +1359,7 @@ def scalar_records(metrics_path: Path) -> Iterable[dict]:
                 yield record
 
 
-def summarize_metrics(metrics_path: Path, window: ScoreWindow) -> dict:
+def summarize_metrics_window(metrics_path: Path, window: ScoreWindow) -> tuple[dict[str, dict[str, float | int]], float | None]:
     # 指定 exp_step window 内の scalar record だけを集計する。
     values: dict[str, list[tuple[int, float]]] = {}
     for record in scalar_records(metrics_path):
@@ -1273,6 +1396,30 @@ def summarize_metrics(metrics_path: Path, window: ScoreWindow) -> dict:
         if tag in tag_summary
     ]
     score = mean(primary_means) if len(primary_means) == len(PRIMARY_TAGS) else None
+    return tag_summary, score
+
+
+def summarize_metrics(metrics_path: Path, window: ScoreWindow) -> dict:
+    tag_summary, score = summarize_metrics_window(metrics_path, window)
+    analysis_windows: dict[str, dict[str, object]] = {}
+    for name, raw_start, raw_end in LATE_SCORE_WINDOWS:
+        late_window = resolve_score_window_from_raw(raw_start, raw_end, window.exp_exit_step, name)
+        _, late_score = summarize_metrics_window(metrics_path, late_window)
+        analysis_windows[name] = {
+            "window_start": late_window.start,
+            "window_end": late_window.end,
+            "window_start_raw": late_window.raw_start,
+            "window_end_raw": late_window.raw_end,
+            "exp_exit_step": late_window.exp_exit_step,
+            "score": late_score,
+        }
+
+    score_60_80 = analysis_windows["score_60_80"]["score"]
+    score_80_100 = analysis_windows["score_80_100"]["score"]
+    late_slope = None
+    if score_60_80 is not None and score_80_100 is not None:
+        late_slope = float(score_80_100) - float(score_60_80)
+
     return {
         "metrics_path": str(metrics_path),
         "window_start": window.start,
@@ -1281,6 +1428,10 @@ def summarize_metrics(metrics_path: Path, window: ScoreWindow) -> dict:
         "window_end_raw": window.raw_end,
         "exp_exit_step": window.exp_exit_step,
         "score": score,
+        "score_60_80": score_60_80,
+        "score_80_100": score_80_100,
+        "late_slope": late_slope,
+        "analysis_windows": analysis_windows,
         "tags": tag_summary,
     }
 
@@ -1320,7 +1471,20 @@ def write_multiseed_summary_files(summary: dict, artifact_dir: Path) -> None:
     )
     with (artifact_dir / "multiseed_summary.csv").open("w", encoding="utf-8", newline="") as stream:
         writer = csv.writer(stream)
-        writer.writerow(["kind", "seed", "status", "score", "score_range", "run_name", "metrics_summary_path", "error"])
+        writer.writerow([
+            "kind",
+            "seed",
+            "status",
+            "score",
+            "score_range",
+            "score_60_80",
+            "score_80_100",
+            "late_slope",
+            "late_slope_std",
+            "run_name",
+            "metrics_summary_path",
+            "error",
+        ])
         aggregate_status = "complete" if summary["score"] is not None else "failed"
         writer.writerow([
             "aggregate",
@@ -1328,6 +1492,10 @@ def write_multiseed_summary_files(summary: dict, artifact_dir: Path) -> None:
             aggregate_status,
             summary["score"],
             summary["score_range"],
+            summary["score_60_80_mean"],
+            summary["score_80_100_mean"],
+            summary["late_slope_mean"],
+            summary["late_slope_std"],
             summary["context"]["run_name"],
             "",
             summary.get("error"),
@@ -1338,6 +1506,10 @@ def write_multiseed_summary_files(summary: dict, artifact_dir: Path) -> None:
                 run.get("seed"),
                 run.get("status"),
                 run.get("score"),
+                "",
+                run.get("score_60_80"),
+                run.get("score_80_100"),
+                run.get("late_slope"),
                 "",
                 run.get("run_name"),
                 run.get("metrics_summary_path"),
@@ -1360,6 +1532,12 @@ def build_seed_runs_document(summary: dict) -> dict:
             "range": summary["score_range"],
             "mean_minus_std": summary["score_mean_minus_std"],
         },
+        "late_window_score": {
+            "score_60_80_mean": summary["score_60_80_mean"],
+            "score_80_100_mean": summary["score_80_100_mean"],
+            "late_slope_mean": summary["late_slope_mean"],
+            "late_slope_std": summary["late_slope_std"],
+        },
         "seed_count": summary["seed_count"],
         "seed_success_count": summary["seed_success_count"],
         "seed_failure_count": summary["seed_failure_count"],
@@ -1374,12 +1552,16 @@ def make_seed_run_record(
     ctx: TrialContext,
     status: str,
     score: float | None = None,
+    summary: dict | None = None,
     error: str | None = None,
 ) -> dict:
     return {
         "seed": seed,
         "status": status,
         "score": score,
+        "score_60_80": None if summary is None else summary.get("score_60_80"),
+        "score_80_100": None if summary is None else summary.get("score_80_100"),
+        "late_slope": None if summary is None else summary.get("late_slope"),
         "trial_name": ctx.trial_name,
         "run_name": ctx.run_name,
         "run_dir": ctx.run_dir,
@@ -1406,6 +1588,9 @@ def build_multiseed_summary(
         if run.get("status") == "complete" and run.get("score") is not None
     ]
     stats = aggregate_score_stats(scores, args.score_aggregate)
+    score_60_80_stats = aggregate_score_stats(completed_run_values(seed_runs, "score_60_80"), "mean")
+    score_80_100_stats = aggregate_score_stats(completed_run_values(seed_runs, "score_80_100"), "mean")
+    late_slope_stats = aggregate_score_stats(completed_run_values(seed_runs, "late_slope"), "mean")
     seed_scores = {
         str(run["seed"]): run.get("score")
         for run in seed_runs
@@ -1428,6 +1613,10 @@ def build_multiseed_summary(
         "score_max": stats["score_max"],
         "score_range": stats["score_range"],
         "score_mean_minus_std": stats["score_mean_minus_std"],
+        "score_60_80_mean": score_60_80_stats["score_mean"],
+        "score_80_100_mean": score_80_100_stats["score_mean"],
+        "late_slope_mean": late_slope_stats["score_mean"],
+        "late_slope_std": late_slope_stats["score_std"],
         "seed_count": len(seeds),
         "seed_success_count": len(scores),
         "seed_failure_count": seed_failure_count,
@@ -1471,6 +1660,540 @@ def command_summarize(args: argparse.Namespace) -> int:
         write_summary_files(summary, Path(args.output_dir))
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0 if summary["score"] is not None else 2
+
+
+def optuna_study_exists(optuna, study_name: str, storage) -> bool:
+    get_all_study_names = getattr(optuna.study, "get_all_study_names", None)
+    if get_all_study_names is None:
+        get_all_study_names = getattr(optuna, "get_all_study_names")
+    return study_name in get_all_study_names(storage=storage)
+
+
+def delete_optuna_study(optuna, study_name: str, storage) -> None:
+    delete_study = getattr(optuna.study, "delete_study", None)
+    if delete_study is None:
+        delete_study = getattr(optuna, "delete_study")
+    delete_study(study_name=study_name, storage=storage)
+
+
+def load_trial_json_artifact(
+    artifact_context: OptunaArtifactContext,
+    storage,
+    trial,
+    filename: str,
+    *,
+    required: bool,
+) -> dict | None:
+    if artifact_context.get_all_artifact_meta is None or artifact_context.download_artifact is None:
+        raise TrialExecutionError("Optuna artifact download API is unavailable.")
+
+    artifact_metas = artifact_context.get_all_artifact_meta(trial, storage=storage)
+    matches = [
+        meta
+        for meta in artifact_metas
+        if Path(str(getattr(meta, "filename", ""))).name == filename
+    ]
+    if not matches:
+        if not required:
+            return None
+        raise TrialExecutionError(
+            f"Required source artifact is missing: trial={trial.number} filename={filename}"
+        )
+
+    artifact_meta = matches[-1]
+    with tempfile.TemporaryDirectory(prefix="anet-optuna-artifact-") as temp_dir:
+        download_path = Path(temp_dir) / filename
+        artifact_context.download_artifact(
+            artifact_store=artifact_context.artifact_store,
+            artifact_id=artifact_meta.artifact_id,
+            file_path=str(download_path),
+        )
+        return json.loads(download_path.read_text(encoding="utf-8-sig"))
+
+
+def upload_json_trial_artifact(
+    artifact_context: OptunaArtifactContext,
+    storage,
+    trial,
+    filename: str,
+    payload: dict,
+) -> None:
+    with tempfile.TemporaryDirectory(prefix="anet-optuna-summary-") as temp_dir:
+        artifact_path = Path(temp_dir) / filename
+        artifact_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        artifact_context.upload_artifact(
+            artifact_store=artifact_context.artifact_store,
+            file_path=str(artifact_path),
+            study_or_trial=trial,
+            storage=storage,
+        )
+
+
+def source_trial_score(trial) -> float:
+    value = getattr(trial, "value", None)
+    if value is None:
+        value = getattr(trial, "user_attrs", {}).get("score")
+    if value is None:
+        raise TrialExecutionError(f"Source COMPLETE trial has no objective score: trial={trial.number}")
+    return float(value)
+
+
+def source_score_context(trial, seed_runs_doc: dict, manifest_doc: dict | None) -> dict:
+    user_attrs = getattr(trial, "user_attrs", {})
+    score_stats = seed_runs_doc.get("score_stats") or {}
+    return {
+        "trial_number": int(trial.number),
+        "score_aggregate": user_attrs.get("score_aggregate") or score_stats.get("aggregate"),
+        "seed_count": user_attrs.get("seed_count") or seed_runs_doc.get("seed_count"),
+        "cost_budget": user_attrs.get("cost_budget"),
+        "exp_exit_step": None if manifest_doc is None else manifest_doc.get("exp_exit_step"),
+        "primary_tags": None if manifest_doc is None else manifest_doc.get("primary_tags"),
+        "base_config": None if manifest_doc is None else manifest_doc.get("base_config"),
+        "extra_config": None if manifest_doc is None else manifest_doc.get("extra_config"),
+    }
+
+
+def score_context_fingerprint(context: dict) -> str:
+    comparable = {
+        key: value
+        for key, value in context.items()
+        if key != "trial_number"
+    }
+    return json.dumps(comparable, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def increment_count(counts: dict[str, int], key: str) -> None:
+    counts[key] = counts.get(key, 0) + 1
+
+
+def collect_source_trial_groups(source_study) -> tuple[dict, dict, dict[str, int], list[dict]]:
+    complete_groups: dict[tuple[tuple[str, object], ...], dict] = {}
+    state_counts_by_key: dict[tuple[tuple[str, object], ...], dict[str, int]] = {}
+    global_state_counts: dict[str, int] = {}
+    skipped_trials: list[dict] = []
+
+    for trial in study_trials(source_study):
+        state_name = trial_state_name(trial)
+        increment_count(global_state_counts, state_name)
+        try:
+            params = trial_params_from_mapping(getattr(trial, "params", {}), source=f"trial={trial.number} params")
+            validate_trial_params_in_search_space(params)
+        except ValueError as e:
+            skipped_trials.append({
+                "trial_number": int(getattr(trial, "number", -1)),
+                "state": state_name,
+                "error": str(e),
+            })
+            continue
+
+        key = trial_params_key(params)
+        state_counts = state_counts_by_key.setdefault(key, {})
+        increment_count(state_counts, state_name)
+        if state_name != "COMPLETE":
+            continue
+
+        group = complete_groups.setdefault(key, {
+            "params": params,
+            "trials": [],
+        })
+        group["trials"].append(trial)
+
+    return complete_groups, state_counts_by_key, global_state_counts, skipped_trials
+
+
+def build_summary_group_document(
+    group_id: str,
+    params: TrialParams,
+    source_trials: list,
+    source_state_counts: dict[str, int],
+    source_artifact_context: OptunaArtifactContext,
+    source_storage,
+) -> tuple[dict, dict, list[float]]:
+    seed_scores: list[float] = []
+    seed_score_60_80: list[float] = []
+    seed_score_80_100: list[float] = []
+    seed_late_slopes: list[float] = []
+    seed_records: list[dict] = []
+    source_trial_scores: list[float] = []
+    source_trial_records: list[dict] = []
+    source_contexts: list[dict] = []
+
+    for trial in sorted(source_trials, key=lambda item: int(item.number)):
+        seed_runs_doc = load_trial_json_artifact(
+            source_artifact_context,
+            source_storage,
+            trial,
+            "seed_runs.json",
+            required=True,
+        )
+        manifest_doc = load_trial_json_artifact(
+            source_artifact_context,
+            source_storage,
+            trial,
+            "manifest.json",
+            required=False,
+        )
+        runs = seed_runs_doc.get("runs")
+        if not isinstance(runs, list):
+            raise TrialExecutionError(f"Invalid seed_runs.json: missing runs list. trial={trial.number}")
+
+        trial_seed_scores: list[float] = []
+        trial_score_60_80: list[float] = []
+        trial_score_80_100: list[float] = []
+        trial_late_slopes: list[float] = []
+        for run in runs:
+            if run.get("status") != "complete":
+                continue
+            if run.get("score") is None:
+                raise TrialExecutionError(
+                    f"Invalid seed_runs.json: complete seed run has no score. "
+                    f"trial={trial.number} seed={run.get('seed')}"
+                )
+            score = float(run["score"])
+            score_60_80 = None if run.get("score_60_80") is None else float(run["score_60_80"])
+            score_80_100 = None if run.get("score_80_100") is None else float(run["score_80_100"])
+            late_slope = None if run.get("late_slope") is None else float(run["late_slope"])
+            trial_seed_scores.append(score)
+            seed_scores.append(score)
+            if score_60_80 is not None:
+                trial_score_60_80.append(score_60_80)
+                seed_score_60_80.append(score_60_80)
+            if score_80_100 is not None:
+                trial_score_80_100.append(score_80_100)
+                seed_score_80_100.append(score_80_100)
+            if late_slope is not None:
+                trial_late_slopes.append(late_slope)
+                seed_late_slopes.append(late_slope)
+            seed_records.append({
+                "source_trial_number": int(trial.number),
+                "duplicate_index": getattr(trial, "user_attrs", {}).get("duplicate_index"),
+                "seed": run.get("seed"),
+                "score": score,
+                "score_60_80": score_60_80,
+                "score_80_100": score_80_100,
+                "late_slope": late_slope,
+                "run_name": run.get("run_name"),
+                "trial_name": run.get("trial_name"),
+                "run_dir": run.get("run_dir"),
+                "artifact_dir": run.get("artifact_dir"),
+                "metrics_path": run.get("metrics_path"),
+                "metrics_summary_path": run.get("metrics_summary_path"),
+            })
+
+        if not trial_seed_scores:
+            raise TrialExecutionError(f"Source COMPLETE trial has no complete seed scores: trial={trial.number}")
+
+        trial_score = source_trial_score(trial)
+        trial_score_60_80_stats = aggregate_score_stats(trial_score_60_80, "mean")
+        trial_score_80_100_stats = aggregate_score_stats(trial_score_80_100, "mean")
+        trial_late_slope_stats = aggregate_score_stats(trial_late_slopes, "mean")
+        source_trial_scores.append(trial_score)
+        context = source_score_context(trial, seed_runs_doc, manifest_doc)
+        source_contexts.append(context)
+        source_trial_records.append({
+            "trial_number": int(trial.number),
+            "trial_value": trial_score,
+            "seed_count": len(trial_seed_scores),
+            "seed_score_mean": float(mean(trial_seed_scores)),
+            "seed_score_range": float(max(trial_seed_scores) - min(trial_seed_scores)),
+            "seed_score_std": float(pstdev(trial_seed_scores)) if len(trial_seed_scores) > 1 else 0.0,
+            "seed_score_60_80_mean": trial_score_60_80_stats["score_mean"],
+            "seed_score_80_100_mean": trial_score_80_100_stats["score_mean"],
+            "seed_late_slope_mean": trial_late_slope_stats["score_mean"],
+            "seed_late_slope_std": trial_late_slope_stats["score_std"],
+            "duplicate_index": getattr(trial, "user_attrs", {}).get("duplicate_index"),
+            "effective_seeds": getattr(trial, "user_attrs", {}).get("effective_seeds"),
+            "seed_run_names": [
+                run.get("run_name")
+                for run in runs
+                if run.get("status") == "complete" and run.get("run_name") is not None
+            ],
+            "score_context": context,
+        })
+
+    group_stats = aggregate_score_stats(seed_scores, "mean")
+    group_score_60_80_stats = aggregate_score_stats(seed_score_60_80, "mean")
+    group_score_80_100_stats = aggregate_score_stats(seed_score_80_100, "mean")
+    group_late_slope_stats = aggregate_score_stats(seed_late_slopes, "mean")
+    source_trial_stats = aggregate_score_stats(source_trial_scores, "mean")
+    source_context_mixed = len({score_context_fingerprint(context) for context in source_contexts}) > 1
+
+    user_attrs = {
+        "group_id": group_id,
+        "params": asdict(params),
+        "source_trial_numbers": [record["trial_number"] for record in source_trial_records],
+        "source_trial_count": len(source_trial_records),
+        "source_seed_count": len(seed_scores),
+        "group_score_mean": group_stats["score_mean"],
+        "group_score_range": group_stats["score_range"],
+        "group_score_std": group_stats["score_std"],
+        "group_score_min": group_stats["score_min"],
+        "group_score_max": group_stats["score_max"],
+        "group_score_median": group_stats["score_median"],
+        "group_score_mean_minus_std": group_stats["score_mean_minus_std"],
+        "group_score_60_80_mean": group_score_60_80_stats["score_mean"],
+        "group_score_80_100_mean": group_score_80_100_stats["score_mean"],
+        "group_late_slope_mean": group_late_slope_stats["score_mean"],
+        "group_late_slope_std": group_late_slope_stats["score_std"],
+        "source_trial_score_mean": source_trial_stats["score_mean"],
+        "source_trial_score_range": source_trial_stats["score_range"],
+        "source_trial_score_std": source_trial_stats["score_std"],
+        "source_context_mixed": source_context_mixed,
+        "source_state_counts": dict(sorted(source_state_counts.items())),
+    }
+    document = {
+        "group_id": group_id,
+        "params": asdict(params),
+        "objectives": {
+            "names": list(SUMMARY_OBJECTIVE_NAMES),
+            "directions": list(SUMMARY_OBJECTIVE_DIRECTIONS),
+            "values": [
+                group_stats["score_mean"],
+                group_stats["score_range"],
+                group_stats["score_std"],
+            ],
+        },
+        "group_score_stats": {
+            "mean": group_stats["score_mean"],
+            "range": group_stats["score_range"],
+            "std": group_stats["score_std"],
+            "min": group_stats["score_min"],
+            "max": group_stats["score_max"],
+            "median": group_stats["score_median"],
+            "mean_minus_std": group_stats["score_mean_minus_std"],
+        },
+        "group_late_window_score_stats": {
+            "score_60_80": {
+                "mean": group_score_60_80_stats["score_mean"],
+                "range": group_score_60_80_stats["score_range"],
+                "std": group_score_60_80_stats["score_std"],
+                "min": group_score_60_80_stats["score_min"],
+                "max": group_score_60_80_stats["score_max"],
+                "median": group_score_60_80_stats["score_median"],
+            },
+            "score_80_100": {
+                "mean": group_score_80_100_stats["score_mean"],
+                "range": group_score_80_100_stats["score_range"],
+                "std": group_score_80_100_stats["score_std"],
+                "min": group_score_80_100_stats["score_min"],
+                "max": group_score_80_100_stats["score_max"],
+                "median": group_score_80_100_stats["score_median"],
+            },
+            "late_slope": {
+                "mean": group_late_slope_stats["score_mean"],
+                "range": group_late_slope_stats["score_range"],
+                "std": group_late_slope_stats["score_std"],
+                "min": group_late_slope_stats["score_min"],
+                "max": group_late_slope_stats["score_max"],
+                "median": group_late_slope_stats["score_median"],
+            },
+        },
+        "source_trial_score_stats": {
+            "mean": source_trial_stats["score_mean"],
+            "range": source_trial_stats["score_range"],
+            "std": source_trial_stats["score_std"],
+            "min": source_trial_stats["score_min"],
+            "max": source_trial_stats["score_max"],
+            "median": source_trial_stats["score_median"],
+            "mean_minus_std": source_trial_stats["score_mean_minus_std"],
+        },
+        "source_state_counts": dict(sorted(source_state_counts.items())),
+        "source_context_mixed": source_context_mixed,
+        "source_score_contexts": source_contexts,
+        "source_trials": source_trial_records,
+        "seed_scores": seed_records,
+    }
+    return document, user_attrs, [
+        float(group_stats["score_mean"]),
+        float(group_stats["score_range"]),
+        float(group_stats["score_std"]),
+    ]
+
+
+def command_summarize_study(args: argparse.Namespace) -> int:
+    if args.storage_timeout_sec < 0:
+        print("storage-timeout-sec must be >= 0.", file=sys.stderr)
+        return 2
+    if args.target_study_name is None:
+        args.target_study_name = f"{args.source_study_name}_summary"
+    validate_name_part(args.source_study_name, "--source-study-name")
+    validate_name_part(args.target_study_name, "--target-study-name")
+
+    try:
+        import optuna
+    except ImportError:
+        print("Optuna is required for summarize-study. Install optuna in the Python environment.", file=sys.stderr)
+        return 2
+
+    repo_root = Path(args.repo_root).resolve()
+    source_storage_url = storage_url_from_text(repo_root, args.source_storage)
+    target_storage_url = storage_url_from_text(repo_root, args.target_storage or args.source_storage)
+    if source_storage_url == target_storage_url and args.source_study_name == args.target_study_name:
+        print(
+            "target study must not be the same as source study in the same storage.",
+            file=sys.stderr,
+        )
+        return 2
+
+    source_storage = create_optuna_storage(optuna, source_storage_url, args.storage_timeout_sec)
+    source_artifact_context = create_required_filesystem_artifact_context(
+        optuna,
+        resolve_artifact_dir_from_text(args, args.source_artifact_dir),
+        "source",
+    )
+
+    source_study = optuna.load_study(
+        study_name=args.source_study_name,
+        storage=source_storage,
+    )
+    complete_groups, state_counts_by_key, global_state_counts, skipped_trials = collect_source_trial_groups(source_study)
+    if not complete_groups:
+        print("source study has no COMPLETE TrialParams groups to summarize.", file=sys.stderr)
+        return 1
+
+    summary_groups: list[dict] = []
+    mixed_context_group_count = 0
+    source_complete_trial_count = 0
+    source_seed_count = 0
+
+    for index, (key, group) in enumerate(sorted(complete_groups.items(), key=lambda item: item[0])):
+        params = group["params"]
+        source_trials = group["trials"]
+        source_state_counts = state_counts_by_key.get(key, {})
+        group_id = f"g{index:05d}"
+        document, user_attrs, objective_values = build_summary_group_document(
+            group_id,
+            params,
+            source_trials,
+            source_state_counts,
+            source_artifact_context,
+            source_storage,
+        )
+        if user_attrs["source_context_mixed"]:
+            mixed_context_group_count += 1
+            print(
+                "[WARN] source score context is mixed: "
+                f"group_id={group_id} source_trials={user_attrs['source_trial_numbers']}",
+                file=sys.stderr,
+            )
+
+        summary_groups.append({
+            "params": params,
+            "source_trials": source_trials,
+            "document": document,
+            "user_attrs": user_attrs,
+            "objective_values": objective_values,
+        })
+        source_complete_trial_count += len(source_trials)
+        source_seed_count += int(user_attrs["source_seed_count"])
+
+    target_storage = (
+        source_storage
+        if target_storage_url == source_storage_url
+        else create_optuna_storage(optuna, target_storage_url, args.storage_timeout_sec)
+    )
+    target_artifact_context = create_required_filesystem_artifact_context(
+        optuna,
+        resolve_artifact_dir_from_text(args, args.target_artifact_dir),
+        "target",
+    )
+
+    if optuna_study_exists(optuna, args.target_study_name, target_storage):
+        if not args.overwrite_target_study:
+            print(
+                "target study already exists. "
+                "Use --overwrite-target-study to delete and recreate it. "
+                f"target_study_name={args.target_study_name}",
+                file=sys.stderr,
+            )
+            return 2
+        delete_optuna_study(optuna, args.target_study_name, target_storage)
+
+    target_study = optuna.create_study(
+        study_name=args.target_study_name,
+        storage=target_storage,
+        directions=list(SUMMARY_OBJECTIVE_DIRECTIONS),
+    )
+    try:
+        target_study.set_metric_names(list(SUMMARY_OBJECTIVE_NAMES))
+    except Exception as e:
+        print(f"[WARN] Failed to set target study metric names: {e}", file=sys.stderr)
+
+    target_distributions = trial_param_distributions(optuna)
+    created_trial_numbers: list[int] = []
+
+    for summary_group in summary_groups:
+        params = summary_group["params"]
+        document = summary_group["document"]
+        user_attrs = summary_group["user_attrs"]
+        objective_values = summary_group["objective_values"]
+        target_study.enqueue_trial(asdict(params), user_attrs=user_attrs, skip_if_exists=False)
+        target_trial = target_study.ask(fixed_distributions=target_distributions)
+        if target_trial.params != asdict(params):
+            raise TrialExecutionError(
+                "Target summary trial params did not match the requested group params: "
+                f"group_id={user_attrs['group_id']} requested={asdict(params)} actual={target_trial.params}"
+            )
+        try:
+            document["target_trial_number"] = int(target_trial.number)
+            upload_json_trial_artifact(
+                target_artifact_context,
+                target_storage,
+                target_trial,
+                GROUP_SUMMARY_ARTIFACT_FILENAME,
+                document,
+            )
+            target_study.tell(target_trial, objective_values)
+        except Exception:
+            try:
+                target_study.tell(target_trial, state=optuna.trial.TrialState.FAIL, skip_if_finished=True)
+            except Exception:
+                pass
+            raise
+
+        created_trial_numbers.append(int(target_trial.number))
+
+    summary_attrs = {
+        "summary_created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "summary_harness": "dropmerge_optuna",
+        "summary_command": "summarize-study",
+        "source_study_name": args.source_study_name,
+        "source_storage": source_storage_url,
+        "source_artifact_dir": str(source_artifact_context.base_path),
+        "target_study_name": args.target_study_name,
+        "target_storage": target_storage_url,
+        "target_artifact_dir": str(target_artifact_context.base_path),
+        "summary_objective_names": list(SUMMARY_OBJECTIVE_NAMES),
+        "summary_objective_directions": list(SUMMARY_OBJECTIVE_DIRECTIONS),
+        "summary_group_count": len(summary_groups),
+        "summary_source_complete_trial_count": source_complete_trial_count,
+        "summary_source_seed_count": source_seed_count,
+        "summary_source_state_counts": dict(sorted(global_state_counts.items())),
+        "summary_mixed_context_group_count": mixed_context_group_count,
+        "summary_skipped_paramless_trial_count": len(skipped_trials),
+    }
+    if skipped_trials:
+        summary_attrs["summary_skipped_paramless_trials"] = skipped_trials
+    set_study_user_attrs(target_study, summary_attrs)
+
+    result = {
+        "source_study_name": args.source_study_name,
+        "target_study_name": args.target_study_name,
+        "source_storage": source_storage_url,
+        "target_storage": target_storage_url,
+        "group_count": len(summary_groups),
+        "source_complete_trial_count": source_complete_trial_count,
+        "source_seed_count": source_seed_count,
+        "mixed_context_group_count": mixed_context_group_count,
+        "created_target_trial_numbers": created_trial_numbers,
+        "skipped_paramless_trials": skipped_trials,
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
 
 
 def command_cleanup_running(args: argparse.Namespace) -> int:
@@ -1763,6 +2486,10 @@ def set_multiseed_trial_attrs(trial, summary: dict) -> None:
     trial.set_user_attr("score_min", summary["score_min"])
     trial.set_user_attr("score_max", summary["score_max"])
     trial.set_user_attr("score_range", summary["score_range"])
+    trial.set_user_attr("score_60_80_mean", summary["score_60_80_mean"])
+    trial.set_user_attr("score_80_100_mean", summary["score_80_100_mean"])
+    trial.set_user_attr("late_slope_mean", summary["late_slope_mean"])
+    trial.set_user_attr("late_slope_std", summary["late_slope_std"])
     trial.set_user_attr("seed_count", summary["seed_count"])
     trial.set_user_attr("seed_success_count", summary["seed_success_count"])
     trial.set_user_attr("seed_failure_count", summary["seed_failure_count"])
@@ -1965,7 +2692,7 @@ def execute_study_trial(
             if isinstance(e, (TrialPrunedError, TrialFailedError)):
                 raise
             raise TrialFailedError(str(e)) from e
-        seed_runs.append(make_seed_run_record(seed, result.ctx, "complete", score=result.score))
+        seed_runs.append(make_seed_run_record(seed, result.ctx, "complete", score=result.score, summary=result.summary))
         log_harness(
             args,
             "INFO",
@@ -2245,6 +2972,7 @@ def build_parser() -> argparse.ArgumentParser:
         "  %(prog)s dry-run --budget small\n"
         "  %(prog)s run-trial --study-name dropmergeSmall --trial-name t00001\n"
         "  %(prog)s summarize apps/runner/runs_optuna/dropmergeSmall_t00001/metrics.jsonl --window-start 80%% --window-end 100%%\n"
+        "  %(prog)s summarize-study --source-study-name dropmergeSmall\n"
         "  %(prog)s cleanup-running --study-name dropmergeSmall --dry-run\n"
         "  %(prog)s run-study --budget small --n-trials 10 --seeds 12345,23456"
     )
@@ -2294,6 +3022,57 @@ def build_parser() -> argparse.ArgumentParser:
     add_score_window_args(summarize, primary_score=False)
     summarize.add_argument("--output-dir", help="metrics_summary.json/csv の出力先。")
     summarize.set_defaults(func=command_summarize)
+
+    summarize_study = subparsers.add_parser(
+        "summarize-study",
+        help="同一 params group を Dashboard 用 Study に集約する",
+        description=(
+            "既存 Optuna study の同一 TrialParams を group 化し、"
+            "mean/range/std の multi-objective summary study を生成します。"
+        ),
+        formatter_class=JapaneseHelpFormatter,
+        add_help=False,
+    )
+    localize_parser(summarize_study)
+    repo_root = repo_root_from_script()
+    summarize_study.add_argument("--repo-root", default=str(repo_root), help="anet-lab のリポジトリルート。")
+    summarize_study.add_argument("--source-study-name", required=True, help="集約元の Optuna study 名。")
+    summarize_study.add_argument(
+        "--target-study-name",
+        help="集約先の Optuna study 名。未指定時は <source-study-name>_summary。",
+    )
+    summarize_study.add_argument(
+        "--source-storage",
+        default="sqlite:///runs_optuna/optuna.db",
+        help="集約元 Optuna SQLite DB の URL またはパス。相対時は runner project root 基準。",
+    )
+    summarize_study.add_argument(
+        "--target-storage",
+        help="集約先 Optuna SQLite DB の URL またはパス。未指定時は source-storage と同じ。",
+    )
+    summarize_study.add_argument(
+        "--source-artifact-dir",
+        default="runs_optuna/artifacts",
+        help="集約元 Optuna Dashboard artifact store。相対時は runner project root 基準。",
+    )
+    summarize_study.add_argument(
+        "--target-artifact-dir",
+        default="runs_optuna/artifacts",
+        help="集約先 Optuna Dashboard artifact store。相対時は runner project root 基準。",
+    )
+    summarize_study.add_argument(
+        "--storage-timeout-sec",
+        type=float,
+        default=120.0,
+        help="SQLite storage の lock 待ち timeout 秒。",
+    )
+    summarize_study.add_argument(
+        "--overwrite-target-study",
+        action="store_true",
+        default=False,
+        help="既存 target study を削除して作り直す。同一 storage の source study 自体は指定できない。",
+    )
+    summarize_study.set_defaults(func=command_summarize_study)
 
     cleanup = subparsers.add_parser(
         "cleanup-running",
@@ -2431,6 +3210,9 @@ def main(argv: list[str]) -> int:
         if getattr(args, "trial_name", None):
             validate_name_part(args.trial_name, "--trial-name")
         return args.func(args)
+    except TrialExecutionError as e:
+        print(str(e), file=sys.stderr)
+        return 2
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 2
