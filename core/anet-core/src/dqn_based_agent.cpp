@@ -1320,9 +1320,6 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
 
     // update_credit が十分な間、学習ループを回す
     while (update_credit_ >= 1.0f) {
-        if (!CanUpdate(counts.exp_step))
-            break;
-            
         const int64_t B = config_.replay_batch_size;
         //const int S = state_dim_;
 
