@@ -11,145 +11,69 @@ import argparse
 import csv
 import json
 import math
-import os
 import re
-import shutil
-import subprocess
 import sys
 import tempfile
-import threading
-import time
 import traceback
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from statistics import mean, median, pstdev
-from typing import Iterable
+from statistics import mean, pstdev
 
-
-class JapaneseArgumentParser(argparse.ArgumentParser):
-    def format_usage(self) -> str:
-        return super().format_usage().replace("usage:", "使い方:", 1)
-
-    def format_help(self) -> str:
-        return super().format_help().replace("usage:", "使い方:", 1)
-
-
-class JapaneseHelpFormatter(argparse.RawTextHelpFormatter):
-    def _get_help_string(self, action: argparse.Action) -> str:
-        help_text = super()._get_help_string(action)
-        if isinstance(action, argparse._HelpAction):
-            return help_text
-
-        notes: list[str] = []
-        if self._is_required(action):
-            notes.append("必須")
-        if self._has_visible_default(action):
-            notes.append(f"初期値: {self._format_default(action.default)}".replace("%", "%%"))
-
-        if not notes:
-            return help_text
-        note_text = f"（{'、'.join(notes)}）"
-        if not help_text:
-            return note_text
-        return f"{help_text}{note_text}"
-
-    @staticmethod
-    def _is_required(action: argparse.Action) -> bool:
-        if action.__class__.__name__ == "_ChoicesPseudoAction":
-            return False
-        if getattr(action, "required", False):
-            return True
-        if action.option_strings:
-            return False
-        return action.nargs not in (argparse.OPTIONAL, argparse.ZERO_OR_MORE)
-
-    @staticmethod
-    def _has_visible_default(action: argparse.Action) -> bool:
-        default = action.default
-        return default is not None and default is not argparse.SUPPRESS
-
-    @staticmethod
-    def _format_default(value: object) -> str:
-        if isinstance(value, bool):
-            return "true" if value else "false"
-        return str(value)
-
-
-class TrialExecutionError(Exception):
-    pass
-
-
-class TrialPrunedError(TrialExecutionError):
-    pass
-
-
-class TrialFailedError(TrialExecutionError):
-    pass
-
-
-PRIMARY_TAGS = (
-    "21_eval/03_target_reward_ema",
-    "21_eval/04_policy_reward_ema",
+from optuna_common import (
+    ArtifactStore,
+    DuplicateParamsInfo,
+    HarnessLogger,
+    JapaneseArgumentParser,
+    JapaneseHelpFormatter,
+    MetricsSpec,
+    MetricsSummarizer as CommonMetricsSummarizer,
+    OptunaArtifactContext,
+    RunnerProcessManager,
+    ScoreWindow,
+    TrialContext,
+    TrialExecutionError,
+    TrialExecutionResult,
+    TrialFailedError,
+    TrialPrunedError,
+    add_runner_args,
+    add_score_window_args,
+    aggregate_score_stats,
+    append_cli_arg,
+    apply_duplicate_info_to_args,
+    args_with_seed,
+    clear_interrupt_flag,
+    cleanup_running_trials,
+    completed_run_values,
+    create_optuna_storage,
+    default_main_config,
+    fail_stale_trials_if_enabled,
+    format_cli_args,
+    localize_parser,
+    log_harness,
+    log_harness_exception,
+    parse_seed_list,
+    resolve_artifact_dir_from_text,
+    resolve_runner_relative_path as common_resolve_runner_relative_path,
+    resolve_score_window,
+    resolve_score_window_from_raw,
+    runner_root as common_runner_root,
+    seed_trial_name,
+    set_study_user_attrs,
+    set_interrupt_flag,
+    set_trial_failure_attrs,
+    shifted_seeds,
+    storage_url_from_arg,
+    storage_url_from_text,
+    study_trials,
+    trial_state_name,
 )
-
-# primary score には入れず、trial の解釈や後段分析のために保存する補助指標。
-SUPPLEMENTAL_TAGS = (
-    "51_eval1/61_ep_maxrank_mean_ema",
-    "52_eval2/61_ep_maxrank_mean_ema",
-    "51_eval1/62_ep_frct_mean_ema",
-    "52_eval2/62_ep_frct_mean_ema",
-    "51_eval1/83_tr_blk_mean_ema",
-    "52_eval2/83_tr_blk_mean_ema",
-    "51_eval1/84_tr_timeout_max_ema",
-    "52_eval2/84_tr_timeout_mean_ema",
-    "51_eval1/85_tr_nolg_mean_ema",
-    "52_eval2/85_tr_nolg_mean_ema",
-    "90_perf/12_exp_step_per_sec",
-    "90_perf/22_exp_step_per_sec_ema",
-    "90_perf/90_elapse_hour",
-)
-
-BUDGETS = {
-    "small": 35_000_000.0,
-    "medium": 70_000_000.0,
-}
-
-TRIAL_NAME_PATTERN = re.compile(r"^t(\d{5})$")
-SCORE_AGGREGATES = ("mean", "median", "mean-minus-std", "min")
-DUPLICATE_PARAMS_POLICIES = ("allow", "prune", "reseed")
-TRIAL_PARAM_CHOICES = {
-    "cnn_channels": [48, 64],
-    "res_blocks": [2, 4],
-    "token_mode": ["current", "stronger"],
-    "d_model": [96, 128, 192],
-    "transformer_layers": [2, 4],
-    "ff_mult": [2, 4],
-    "trunk_width": [1024, 2048],
-    "head_width": [512, 1024],
-}
-SUMMARY_OBJECTIVE_NAMES = ("mean", "range", "std")
-SUMMARY_OBJECTIVE_DIRECTIONS = ("maximize", "minimize", "minimize")
-GROUP_SUMMARY_ARTIFACT_FILENAME = "group_summary.json"
-LATE_SCORE_WINDOWS = (
-    ("score_60_80", "60%", "80%"),
-    ("score_80_100", "80%", "100%"),
-)
-OPTUNA_ARTIFACT_FILENAMES = (
-    "manifest.json",
-    "multiseed_summary.json",
-    "multiseed_summary.csv",
-    "seed_runs.json",
-)
-HARNESS_LOG_MAX_BYTES = 5 * 1024 * 1024
-
-_ACTIVE_RUNNER_LOCK = threading.Lock()
-_ACTIVE_RUNNERS: set[subprocess.Popen] = set()
-_INTERRUPTING = threading.Event()
 
 
 @dataclass(frozen=True)
 class TrialParams:
+    """DropMerge NN 構成探索で Optuna が直接扱うパラメータ。"""
+
     cnn_channels: int
     res_blocks: int
     token_mode: str
@@ -160,245 +84,472 @@ class TrialParams:
     head_width: int
 
 
-@dataclass(frozen=True)
-class TrialContext:
-    study_name: str
-    trial_number: int
-    trial_name: str
-    budget_name: str
-    cost_budget: float
-    cost_tf: float
-    token_count: int
-    run_name: str
-    runs_dir: str
-    artifact_dir: str
-    run_dir: str
-    config_path: str
+class DropMergeDomain:
+    """DropMerge 固有の探索空間、cost proxy、trial config 生成を担当する。"""
+
+    HELP_SUMMARY = (
+        "DropMerge domain: NN 構成探索を対象にし、Flatten 固定の branch config を生成します。"
+    )
+    DRY_RUN_DESCRIPTION = (
+        "DropMerge domain params を指定して trial config / manifest を生成し、"
+        "cost_budget 判定を表示します。"
+    )
+    RUN_TRIAL_DESCRIPTION = (
+        "CLI で指定した DropMerge NN 構成を runner で 1 件実行し、metrics.jsonl を採点します。"
+    )
+    RUN_STUDY_DESCRIPTION = (
+        "Optuna study を作成/再開し、Optuna が生成した DropMerge NN 構成 trial を順次 runner で実行します。"
+    )
+    SUMMARIZE_STUDY_DESCRIPTION = (
+        "既存 Optuna study の同一 DropMerge TrialParams を group 化し、"
+        "mean/range/std の multi-objective summary study を生成します。"
+    )
+
+    PRIMARY_TAGS = (
+        "21_eval/03_target_reward_ema",
+        "21_eval/04_policy_reward_ema",
+    )
+
+    # primary score には入れず、trial の解釈や後段分析のために保存する補助指標。
+    SUPPLEMENTAL_TAGS = (
+        "51_eval1/61_ep_maxrank_mean_ema",
+        "52_eval2/61_ep_maxrank_mean_ema",
+        "51_eval1/62_ep_frct_mean_ema",
+        "52_eval2/62_ep_frct_mean_ema",
+        "51_eval1/83_tr_blk_mean_ema",
+        "52_eval2/83_tr_blk_mean_ema",
+        "51_eval1/84_tr_timeout_max_ema",
+        "52_eval2/84_tr_timeout_mean_ema",
+        "51_eval1/85_tr_nolg_mean_ema",
+        "52_eval2/85_tr_nolg_mean_ema",
+        "90_perf/12_exp_step_per_sec",
+        "90_perf/22_exp_step_per_sec_ema",
+        "90_perf/90_elapse_hour",
+    )
+
+    TRIAL_PARAM_CHOICES = {
+        "cnn_channels": [48, 64],
+        "res_blocks": [2, 4],
+        "token_mode": ["current", "stronger"],
+        "d_model": [96, 128, 192],
+        "transformer_layers": [2, 4],
+        "ff_mult": [2, 4],
+        "trunk_width": [1024, 2048],
+        "head_width": [512, 1024],
+    }
+
+    LATE_SCORE_WINDOWS = (
+        ("score_60_80", "60%", "80%"),
+        ("score_80_100", "80%", "100%"),
+    )
+
+    @classmethod
+    def add_param_args(cls, parser) -> None:
+        """DropMerge 固有の固定 NN params 引数を CLI parser に追加する。"""
+        parser.add_argument(
+            "--cnn-channels",
+            type=int,
+            choices=cls.TRIAL_PARAM_CHOICES["cnn_channels"],
+            default=64,
+            help="CNN/ResBlock の channel 数 C。",
+        )
+        parser.add_argument(
+            "--res-blocks",
+            type=int,
+            choices=cls.TRIAL_PARAM_CHOICES["res_blocks"],
+            default=4,
+            help="ResBlock の繰り返し数 D。",
+        )
+        parser.add_argument(
+            "--token-mode",
+            choices=cls.TRIAL_PARAM_CHOICES["token_mode"],
+            default="current",
+            help="token 解像度 N のモード。",
+        )
+        parser.add_argument(
+            "--d-model",
+            type=int,
+            choices=cls.TRIAL_PARAM_CHOICES["d_model"],
+            default=96,
+            help="Transformer の d_model M。",
+        )
+        parser.add_argument(
+            "--transformer-layers",
+            type=int,
+            choices=cls.TRIAL_PARAM_CHOICES["transformer_layers"],
+            default=2,
+            help="Transformer 層数 L。",
+        )
+        parser.add_argument(
+            "--ff-mult",
+            type=int,
+            choices=cls.TRIAL_PARAM_CHOICES["ff_mult"],
+            default=2,
+            help="dim_feedforward = d_model * ff_mult。",
+        )
+        parser.add_argument(
+            "--trunk-width",
+            type=int,
+            choices=cls.TRIAL_PARAM_CHOICES["trunk_width"],
+            default=1024,
+            help="Flatten 後 trunk Linear 幅 H。",
+        )
+        parser.add_argument(
+            "--head-width",
+            type=int,
+            choices=cls.TRIAL_PARAM_CHOICES["head_width"],
+            default=512,
+            help="value/adv stream の head Linear 幅。",
+        )
+
+    @classmethod
+    def suggest_params(cls, trial) -> TrialParams:
+        """Optuna trial から DropMerge NN 構成を suggest する。"""
+        return TrialParams(
+            cnn_channels=trial.suggest_categorical("cnn_channels", cls.TRIAL_PARAM_CHOICES["cnn_channels"]),
+            res_blocks=trial.suggest_categorical("res_blocks", cls.TRIAL_PARAM_CHOICES["res_blocks"]),
+            token_mode=trial.suggest_categorical("token_mode", cls.TRIAL_PARAM_CHOICES["token_mode"]),
+            d_model=trial.suggest_categorical("d_model", cls.TRIAL_PARAM_CHOICES["d_model"]),
+            transformer_layers=trial.suggest_categorical(
+                "transformer_layers",
+                cls.TRIAL_PARAM_CHOICES["transformer_layers"],
+            ),
+            ff_mult=trial.suggest_categorical("ff_mult", cls.TRIAL_PARAM_CHOICES["ff_mult"]),
+            trunk_width=trial.suggest_categorical("trunk_width", cls.TRIAL_PARAM_CHOICES["trunk_width"]),
+            head_width=trial.suggest_categorical("head_width", cls.TRIAL_PARAM_CHOICES["head_width"]),
+        )
+
+    @classmethod
+    def params_from_mapping(cls, mapping: dict, *, source: str = "params") -> TrialParams:
+        """Optuna params/user input の dict を型付き TrialParams に変換する。"""
+        missing = [
+            name
+            for name in TrialParams.__dataclass_fields__
+            if mapping.get(name) is None
+        ]
+        if missing:
+            raise ValueError(f"Invalid {source}: missing TrialParams fields. missing={missing}")
+
+        try:
+            return TrialParams(
+                cnn_channels=int(mapping["cnn_channels"]),
+                res_blocks=int(mapping["res_blocks"]),
+                token_mode=str(mapping["token_mode"]),
+                d_model=int(mapping["d_model"]),
+                transformer_layers=int(mapping["transformer_layers"]),
+                ff_mult=int(mapping["ff_mult"]),
+                trunk_width=int(mapping["trunk_width"]),
+                head_width=int(mapping["head_width"]),
+            )
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"Invalid {source}: TrialParams fields have invalid values. params={mapping}") from e
+
+    @classmethod
+    def params_from_args(cls, args) -> TrialParams:
+        """run-trial/dry-run の固定 CLI 引数を TrialParams に変換する。"""
+        return TrialParams(
+            cnn_channels=args.cnn_channels,
+            res_blocks=args.res_blocks,
+            token_mode=args.token_mode,
+            d_model=args.d_model,
+            transformer_layers=args.transformer_layers,
+            ff_mult=args.ff_mult,
+            trunk_width=args.trunk_width,
+            head_width=args.head_width,
+        )
+
+    @classmethod
+    def param_distributions(cls, optuna) -> dict:
+        """summary study の fixed distribution 作成に使う探索分布を返す。"""
+        return {
+            name: optuna.distributions.CategoricalDistribution(choices)
+            for name, choices in cls.TRIAL_PARAM_CHOICES.items()
+        }
+
+    @classmethod
+    def validate_params_in_search_space(cls, params: TrialParams) -> None:
+        """既存 study の params が現在の DropMerge 探索空間内か確認する。"""
+        values = asdict(params)
+        invalid = {
+            name: value
+            for name, value in values.items()
+            if value not in cls.TRIAL_PARAM_CHOICES[name]
+        }
+        if invalid:
+            raise ValueError(f"Source trial params are outside current Optuna search space: {invalid}")
+
+    @staticmethod
+    def params_key(params: TrialParams) -> tuple[tuple[str, object], ...]:
+        """同一 NN 構成を判定するための安定 key を作る。"""
+        return tuple(asdict(params).items())
+
+    @staticmethod
+    def params_key_from_mapping(mapping: dict) -> tuple[tuple[str, object], ...]:
+        """Optuna trial.params から同一 NN 構成判定用 key を作る。"""
+        return tuple((name, mapping.get(name)) for name in TrialParams.__dataclass_fields__)
+
+    @staticmethod
+    def conv_out(size: int, stride: int = 2, kernel: int = 3, padding: int = 1, dilation: int = 1) -> int:
+        """DropMerge の stride 2 convolution 後の token 解像度を概算する。"""
+        return math.floor((size + 2 * padding - dilation * (kernel - 1) - 1) / stride + 1)
+
+    @classmethod
+    def token_dims(cls, token_mode: str, grid_width: int = 58, grid_height: int = 46) -> tuple[int, int]:
+        """DropMerge G5846 grid から token_mode 別の token 幅/高さを求める。"""
+        width = cls.conv_out(grid_width)
+        height = cls.conv_out(grid_height)
+        if token_mode == "hr":
+            return width, height
+        width = cls.conv_out(width)
+        height = cls.conv_out(height)
+        if token_mode == "current":
+            return width, height
+        if token_mode == "stronger":
+            return cls.conv_out(width), cls.conv_out(height)
+        raise ValueError(f"unknown token_mode: {token_mode}")
+
+    @classmethod
+    def token_count(cls, token_mode: str) -> int:
+        """Transformer cost proxy で使う token 数 N を返す。"""
+        width, height = cls.token_dims(token_mode)
+        return width * height
+
+    @classmethod
+    def cost_tf(cls, params: TrialParams, k: float) -> float:
+        """Transformer の N/M/L 支配項を見るための事前 cost proxy。"""
+        n = cls.token_count(params.token_mode)
+        m = params.d_model
+        l = params.transformer_layers
+        return float(l * ((n * n * m) + (k * n * m * m)))
+
+    @staticmethod
+    def config_include_line(path_text: str) -> str:
+        """runner config DSL の include 行を生成する。"""
+        path = Path(path_text)
+        if path.is_absolute():
+            return f"$include \"{path.resolve().as_posix()}\""
+        normalized = path_text.replace("\\", "/")
+        return f"$include <{normalized}>"
+
+    @staticmethod
+    def generated_structure(params: TrialParams) -> str:
+        """DropMerge Optuna branch の block 接続を TrialParams から生成する。"""
+        blocks = [
+            "OptConvInit",
+            f"OptResBlock(*{params.res_blocks})",
+        ]
+        if params.token_mode in ("current", "stronger"):
+            blocks.extend(["OptConvDown", "SiLU"])
+        if params.token_mode == "stronger":
+            blocks.extend(["OptConvDown2", "SiLU"])
+        blocks.extend([
+            "OptViTProj",
+            "SiLU",
+            "PosEmbed2D",
+            "OptTransEnc",
+            "Flatten",
+            "OptLinear",
+            "SiLU",
+        ])
+        return " > ".join(blocks)
+
+    @classmethod
+    def render_config(cls, params: TrialParams, ctx, args) -> str:
+        """DropMerge trial 用 config を生成する唯一の入口。"""
+        ff_dim = params.d_model * params.ff_mult
+        nhead = args.nhead
+        if params.d_model % nhead != 0:
+            raise ValueError(f"d_model must be divisible by nhead: d_model={params.d_model} nhead={nhead}")
+
+        lines = [
+            "# Generated by apps/runner/tools/dropmerge_optuna.py",
+            f"# study={ctx.study_name} budget={ctx.budget_name} trial={ctx.trial_number}",
+            cls.config_include_line(args.base_config),
+            cls.config_include_line(args.extra_config),
+            "",
+            "app.$ = app.batchrun > P",
+            f"app.run_name = {ctx.run_name}",
+            f"app.runs_dir = {ctx.runs_dir}",
+            f"app.batchrun.exp_exit_step = {args.exp_exit_step}",
+            f"train.seed = {args.seed}",
+            "",
+            "net.block.[OptConvInit].type = Conv2d",
+            f"net.block.[OptConvInit].conv.out_channels = {params.cnn_channels}",
+            "net.block.[OptConvInit].conv.kernel_size = 3",
+            "net.block.[OptConvInit].conv.padding = 1",
+            "net.block.[OptConvInit].conv.stride = 2",
+            "net.block.[OptConvInit].init.mode = 2",
+            "",
+            "net.block.[OptResBlock].type = ResBlock",
+            f"net.block.[OptResBlock].res.channels = {params.cnn_channels}",
+            "net.block.[OptResBlock].res.kernel_size = 3",
+            "net.block.[OptResBlock].res.activation = silu",
+            "net.block.[OptResBlock].res.activation_mode = pre",
+            "",
+            "net.block.[OptConvDown].type = Conv2d",
+            f"net.block.[OptConvDown].conv.out_channels = {params.cnn_channels}",
+            "net.block.[OptConvDown].conv.kernel_size = 3",
+            "net.block.[OptConvDown].conv.stride = 2",
+            "net.block.[OptConvDown].conv.padding = 1",
+            "",
+            "net.block.[OptConvDown2].type = Conv2d",
+            f"net.block.[OptConvDown2].conv.out_channels = {params.cnn_channels}",
+            "net.block.[OptConvDown2].conv.kernel_size = 3",
+            "net.block.[OptConvDown2].conv.stride = 2",
+            "net.block.[OptConvDown2].conv.padding = 1",
+            "",
+            "net.block.[OptViTProj].type = Conv2d",
+            f"net.block.[OptViTProj].conv.out_channels = {params.d_model}",
+            "net.block.[OptViTProj].conv.kernel_size = 1",
+            "net.block.[OptViTProj].conv.stride = 1",
+            "net.block.[OptViTProj].conv.padding = 0",
+            "",
+            "net.block.[OptTransEnc].type = TransformerEncoder",
+            f"net.block.[OptTransEnc].tf.d_model = {params.d_model}",
+            f"net.block.[OptTransEnc].tf.nhead = {nhead}",
+            f"net.block.[OptTransEnc].tf.num_layers = {params.transformer_layers}",
+            f"net.block.[OptTransEnc].tf.dim_feedforward = {ff_dim}",
+            "net.block.[OptTransEnc].tf.norm_first = true",
+            "net.block.[OptTransEnc].tf.use_sdpa = true",
+            "net.block.[OptTransEnc].tf.activation = gelu",
+            "",
+            "net.block.[OptLinear].type = Linear",
+            f"net.block.[OptLinear].linear.out_features = {params.trunk_width}",
+            "net.block.[OptLinear].linear.bias = true",
+            "net.block.[OptLinear].init.mode = 3",
+            "net.block.[OptLinear].init.manual_gain = 1.0",
+            "",
+            "net.block.[OptHeadFC].type = Linear",
+            f"net.block.[OptHeadFC].linear.out_features = {params.head_width}",
+            "net.block.[OptHeadFC].init.mode = 1",
+            "",
+            "net.branch.[main_feature].$ = net.branch.OptunaDropMerge",
+            "net.branch.OptunaDropMerge.bind = grid, vector_feature",
+            f"net.branch.OptunaDropMerge.structure = {cls.generated_structure(params)}",
+            "net.branch.[value_stream].structure = OptHeadFC > SiLU",
+            "net.branch.[adv_stream].structure = OptHeadFC > SiLU",
+            "",
+        ]
+        return "\n".join(lines)
 
 
-@dataclass(frozen=True)
-class TrialExecutionResult:
-    ctx: TrialContext
-    summary: dict
-
-    @property
-    def score(self) -> float:
-        return float(self.summary["score"])
 
 
-@dataclass(frozen=True)
-class ScoreWindow:
-    start: int
-    end: int
-    raw_start: int | str
-    raw_end: int | str | None
-    exp_exit_step: int
 
 
-@dataclass(frozen=True)
-class DuplicateParamsInfo:
-    policy: str
-    duplicate_count_before: int
-    duplicate_index: int
-    duplicate_params_max_runs: int
-    duplicate_seed_stride: int
-    base_seeds: list[int]
-    effective_seeds: list[int]
-    duplicate_matched_trials: list[int]
-    pruned_by_duplicate: bool
-    prune_reason: str | None
+# DropMerge 固有の探索定義はこの entrypoint 内に集約する。
+DOMAIN = DropMergeDomain
+PRIMARY_TAGS = DOMAIN.PRIMARY_TAGS
+SUPPLEMENTAL_TAGS = DOMAIN.SUPPLEMENTAL_TAGS
+TRIAL_PARAM_CHOICES = DOMAIN.TRIAL_PARAM_CHOICES
+LATE_SCORE_WINDOWS = DOMAIN.LATE_SCORE_WINDOWS
+METRICS_SPEC = MetricsSpec(PRIMARY_TAGS, SUPPLEMENTAL_TAGS, LATE_SCORE_WINDOWS)
 
+BUDGETS = {
+    "small": 35_000_000.0,
+    "medium": 70_000_000.0,
+}
 
-@dataclass(frozen=True)
-class OptunaArtifactContext:
-    base_path: Path
-    artifact_store: object
-    upload_artifact: object
-    get_all_artifact_meta: object | None = None
-    download_artifact: object | None = None
-
-
-class HarnessLogger:
-    def __init__(self, path: Path, max_bytes: int = HARNESS_LOG_MAX_BYTES):
-        self.path = path
-        self.max_bytes = max_bytes
-        self._lock = threading.Lock()
-
-    def log(self, level: str, event: str, *, console: bool = False, **fields: object) -> None:
-        timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-        suffix = " ".join(f"{key}={format_log_value(value)}" for key, value in fields.items())
-        line = f"{timestamp} [{level.upper()}] {event}"
-        if suffix:
-            line = f"{line} {suffix}"
-        self._write_lines([line])
-        if console:
-            print(line, file=sys.stderr if level.upper() in ("WARN", "ERROR") else sys.stdout, flush=True)
-
-    def exception(self, event: str, exc: BaseException, *, console: bool = False, **fields: object) -> None:
-        timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-        suffix = " ".join(f"{key}={format_log_value(value)}" for key, value in fields.items())
-        header = f"{timestamp} [ERROR] {event} error={format_log_value(str(exc))}"
-        if suffix:
-            header = f"{header} {suffix}"
-        lines = [header, traceback.format_exc().rstrip()]
-        self._write_lines(lines)
-        if console:
-            print(header, file=sys.stderr, flush=True)
-
-    def _write_lines(self, lines: list[str]) -> None:
-        with self._lock:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            self._rotate_if_needed()
-            with self.path.open("a", encoding="utf-8", newline="\n") as stream:
-                for line in lines:
-                    stream.write(line)
-                    stream.write("\n")
-
-    def _rotate_if_needed(self) -> None:
-        if not self.path.exists() or self.path.stat().st_size < self.max_bytes:
-            return
-        oldest = self.path.with_name(f"{self.path.name}.2")
-        middle = self.path.with_name(f"{self.path.name}.1")
-        if oldest.exists():
-            oldest.unlink()
-        if middle.exists():
-            shutil.move(str(middle), str(oldest))
-        shutil.move(str(self.path), str(middle))
-
-
-def format_log_value(value: object) -> str:
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
-    if isinstance(value, Path):
-        return json.dumps(str(value), ensure_ascii=False)
-    if isinstance(value, (dict, list, tuple)):
-        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-    return json.dumps(str(value), ensure_ascii=False)
+TRIAL_NAME_PATTERN = re.compile(r"^t(\d{5})$")
+SCORE_AGGREGATES = ("mean", "median", "mean-minus-std", "min")
+DUPLICATE_PARAMS_POLICIES = ("allow", "prune", "reseed")
+SUMMARY_OBJECTIVE_NAMES = ("mean", "range", "std")
+SUMMARY_OBJECTIVE_DIRECTIONS = ("maximize", "minimize", "minimize")
+GROUP_SUMMARY_ARTIFACT_FILENAME = "group_summary.json"
 
 
 def repo_root_from_script() -> Path:
-    # apps/runner/tools/dropmerge_optuna.py から repo root へ戻る。
-    return Path(__file__).resolve().parents[3]
+    return RunLayout.repo_root_from_script()
 
 
-def runner_root(repo_root: Path) -> Path:
-    return repo_root / "apps" / "runner"
+class RunLayout:
+    """DropMerge trial identity と run/trial artifact path の解決を担当する。"""
 
+    @staticmethod
+    def repo_root_from_script() -> Path:
+        """この harness の配置から repo root を解決する。"""
+        return Path(__file__).resolve().parents[3]
 
-def default_main_config(repo_root: Path) -> str:
-    return "_main.txt"
+    @staticmethod
+    def make_trial_context(
+        args: argparse.Namespace,
+        params: TrialParams,
+        trial_number: int | None,
+        trial_name_override: str | None = None,
+    ) -> TrialContext:
+        """trial identity と run/trial artifact path を確定し、TrialContext を作る。"""
+        repo_root = Path(args.repo_root).resolve()
+        run_root = common_runner_root(repo_root)
+        budget_name, budget_value = resolve_budget(args)
+        cost = cost_tf(params, args.cost_k)
+        n = token_count(params.token_mode)
+        validate_name_part(args.study_name, "--study-name")
+        trial_number, trial_name = resolve_trial_identity(args, budget_name, trial_number, trial_name_override)
+        validate_name_part(trial_name, "--trial-name")
+        run_name = f"{args.study_name}_{trial_name}"
+        # viewer と手動掃除の単位を揃えるため、Optuna run は runs_optuna 直下へフラットに集める。
+        runs_dir = args.runs_dir.format(study=args.study_name, budget=budget_name, trial=trial_name, run=run_name)
+        run_dir = run_root / runs_dir / run_name
+        # runner 自身が run root に config.txt/stdout.log/stderr.log を作るため、harness artifact は隔離する。
+        artifact_dir = run_dir / "trial"
+        config_path = artifact_dir / "config.txt"
+        return TrialContext(
+            study_name=args.study_name,
+            trial_number=trial_number,
+            trial_name=trial_name,
+            budget_name=budget_name,
+            cost_budget=budget_value,
+            cost_tf=cost,
+            token_count=n,
+            run_name=run_name,
+            runs_dir=runs_dir.replace("\\", "/"),
+            artifact_dir=str(artifact_dir),
+            run_dir=str(run_dir),
+            config_path=str(config_path),
+        )
 
-
-def config_include_line(path_text: str) -> str:
-    path = Path(path_text)
-    if path.is_absolute():
-        return f"$include \"{path.resolve().as_posix()}\""
-    normalized = path_text.replace("\\", "/")
-    return f"$include <{normalized}>"
-
-
-def conv_out(size: int, stride: int = 2, kernel: int = 3, padding: int = 1, dilation: int = 1) -> int:
-    return math.floor((size + 2 * padding - dilation * (kernel - 1) - 1) / stride + 1)
-
-
-def token_dims(token_mode: str, grid_width: int = 58, grid_height: int = 46) -> tuple[int, int]:
-    # DropMerge G5846 の既定 grid から、trial の stride 構成に応じた token 解像度を概算する。
-    width = conv_out(grid_width)
-    height = conv_out(grid_height)
-    if token_mode == "hr":
-        return width, height
-    width = conv_out(width)
-    height = conv_out(height)
-    if token_mode == "current":
-        return width, height
-    if token_mode == "stronger":
-        return conv_out(width), conv_out(height)
-    raise ValueError(f"unknown token_mode: {token_mode}")
+    @staticmethod
+    def resolve_runs_root(args: argparse.Namespace) -> Path:
+        """harness log と Optuna run が置かれる runs root を解決する。"""
+        repo_root = Path(args.repo_root).resolve()
+        budget_name, _ = resolve_budget(args)
+        runs_dir = args.runs_dir.format(study=args.study_name, budget=budget_name, trial="", run="")
+        return common_resolve_runner_relative_path(repo_root, runs_dir)
 
 
 def token_count(token_mode: str) -> int:
-    width, height = token_dims(token_mode)
-    return width * height
+    """DropMerge domain の token 数計算へ委譲する互換入口。"""
+    return DOMAIN.token_count(token_mode)
 
 
 def cost_tf(params: TrialParams, k: float) -> float:
-    # 実時間そのものではなく、Transformer の N/M/L 支配項を見るための事前 proxy。
-    n = token_count(params.token_mode)
-    m = params.d_model
-    l = params.transformer_layers
-    return float(l * ((n * n * m) + (k * n * m * m)))
+    """DropMerge domain の Transformer cost proxy へ委譲する互換入口。"""
+    return DOMAIN.cost_tf(params, k)
 
 
 def suggest_params(trial) -> TrialParams:
-    return TrialParams(
-        cnn_channels=trial.suggest_categorical("cnn_channels", TRIAL_PARAM_CHOICES["cnn_channels"]),
-        res_blocks=trial.suggest_categorical("res_blocks", TRIAL_PARAM_CHOICES["res_blocks"]),
-        token_mode=trial.suggest_categorical("token_mode", TRIAL_PARAM_CHOICES["token_mode"]),
-        d_model=trial.suggest_categorical("d_model", TRIAL_PARAM_CHOICES["d_model"]),
-        transformer_layers=trial.suggest_categorical("transformer_layers", TRIAL_PARAM_CHOICES["transformer_layers"]),
-        ff_mult=trial.suggest_categorical("ff_mult", TRIAL_PARAM_CHOICES["ff_mult"]),
-        trunk_width=trial.suggest_categorical("trunk_width", TRIAL_PARAM_CHOICES["trunk_width"]),
-        head_width=trial.suggest_categorical("head_width", TRIAL_PARAM_CHOICES["head_width"]),
-    )
+    """Optuna trial から DropMerge domain の探索パラメータを生成する。"""
+    return DOMAIN.suggest_params(trial)
 
 
 def trial_params_from_mapping(mapping: dict, *, source: str = "params") -> TrialParams:
-    missing = [
-        name
-        for name in TrialParams.__dataclass_fields__
-        if mapping.get(name) is None
-    ]
-    if missing:
-        raise ValueError(f"Invalid {source}: missing TrialParams fields. missing={missing}")
-
-    try:
-        return TrialParams(
-            cnn_channels=int(mapping["cnn_channels"]),
-            res_blocks=int(mapping["res_blocks"]),
-            token_mode=str(mapping["token_mode"]),
-            d_model=int(mapping["d_model"]),
-            transformer_layers=int(mapping["transformer_layers"]),
-            ff_mult=int(mapping["ff_mult"]),
-            trunk_width=int(mapping["trunk_width"]),
-            head_width=int(mapping["head_width"]),
-        )
-    except (TypeError, ValueError) as e:
-        raise ValueError(f"Invalid {source}: TrialParams fields have invalid values. params={mapping}") from e
+    """dict から DropMerge TrialParams への変換を domain に集約する。"""
+    return DOMAIN.params_from_mapping(mapping, source=source)
 
 
 def trial_param_distributions(optuna) -> dict:
-    return {
-        name: optuna.distributions.CategoricalDistribution(choices)
-        for name, choices in TRIAL_PARAM_CHOICES.items()
-    }
+    """summary study 登録用の fixed distributions を domain から取得する。"""
+    return DOMAIN.param_distributions(optuna)
 
 
 def validate_trial_params_in_search_space(params: TrialParams) -> None:
-    values = asdict(params)
-    invalid = {
-        name: value
-        for name, value in values.items()
-        if value not in TRIAL_PARAM_CHOICES[name]
-    }
-    if invalid:
-        raise ValueError(f"Source trial params are outside current Optuna search space: {invalid}")
+    """source study の params が現在の DropMerge 探索空間に含まれるか確認する。"""
+    DOMAIN.validate_params_in_search_space(params)
 
 
 def params_from_args(args: argparse.Namespace) -> TrialParams:
-    return TrialParams(
-        cnn_channels=args.cnn_channels,
-        res_blocks=args.res_blocks,
-        token_mode=args.token_mode,
-        d_model=args.d_model,
-        transformer_layers=args.transformer_layers,
-        ff_mult=args.ff_mult,
-        trunk_width=args.trunk_width,
-        head_width=args.head_width,
-    )
+    """dry-run/run-trial の固定 CLI 引数を DropMerge TrialParams に変換する。"""
+    return DOMAIN.params_from_args(args)
 
 
 def resolve_budget(args: argparse.Namespace) -> tuple[str, float]:
@@ -418,10 +569,7 @@ def trial_number_from_name(trial_name: str) -> int | None:
 
 
 def resolve_runner_relative_path(repo_root: Path, path_text: str) -> Path:
-    path = Path(path_text)
-    if path.is_absolute():
-        return path
-    return runner_root(repo_root) / path
+    return common_resolve_runner_relative_path(repo_root, path_text)
 
 
 def scan_existing_trial_numbers(args: argparse.Namespace, budget_name: str) -> list[int]:
@@ -472,86 +620,6 @@ def resolve_trial_identity(
     return number, f"t{number:05d}"
 
 
-def parse_window_raw_value(raw_value: object, option_name: str) -> int | str:
-    if isinstance(raw_value, int):
-        return raw_value
-    if raw_value is None:
-        raise ValueError(f"Invalid {option_name}: value is required.")
-
-    value = str(raw_value).strip()
-    if not value:
-        raise ValueError(f"Invalid {option_name}: value must not be empty.")
-
-    if value.endswith("%"):
-        percent_text = value[:-1]
-        if not percent_text or "%" in percent_text:
-            raise ValueError(f"Invalid {option_name}: percent form must be like 80%. value={raw_value}")
-        try:
-            percent = float(percent_text)
-        except ValueError as exc:
-            raise ValueError(f"Invalid {option_name}: percent value must be numeric. value={raw_value}") from exc
-        if percent < 0.0 or percent > 100.0:
-            raise ValueError(f"Invalid {option_name}: percent must be between 0 and 100. value={raw_value}")
-        return value
-
-    if "%" in value:
-        raise ValueError(f"Invalid {option_name}: percent marker is only allowed at the end. value={raw_value}")
-
-    try:
-        return int(value)
-    except ValueError as exc:
-        raise ValueError(f"Invalid {option_name}: value must be step integer or percent. value={raw_value}") from exc
-
-
-def resolve_window_value(raw_value: int | str, exp_exit_step: int) -> int:
-    if isinstance(raw_value, str):
-        percent = float(raw_value[:-1])
-        return round(exp_exit_step * percent / 100.0)
-    return exp_exit_step + raw_value if raw_value < 0 else raw_value
-
-
-def resolve_score_window(args: argparse.Namespace) -> ScoreWindow:
-    raw_start = parse_window_raw_value(args.window_start, "--window-start")
-    raw_end = getattr(args, "window_end", None)
-    exp_exit_step = int(args.exp_exit_step)
-    raw_end_value = None if raw_end is None else parse_window_raw_value(raw_end, "--window-end")
-    window_start = resolve_window_value(raw_start, exp_exit_step)
-    window_end = exp_exit_step if raw_end_value is None else resolve_window_value(raw_end_value, exp_exit_step)
-
-    if window_start < 0:
-        raise ValueError(f"Invalid window_start: resolved value must be >= 0. value={window_start}")
-    if window_end < 0:
-        raise ValueError(f"Invalid window_end: resolved value must be >= 0. value={window_end}")
-    if window_start > window_end:
-        raise ValueError(f"Invalid score window: window_start={window_start} > window_end={window_end}")
-
-    return ScoreWindow(
-        start=window_start,
-        end=window_end,
-        raw_start=raw_start,
-        raw_end=raw_end_value,
-        exp_exit_step=exp_exit_step,
-    )
-
-
-def resolve_score_window_from_raw(raw_start: object, raw_end: object, exp_exit_step: int, label: str) -> ScoreWindow:
-    raw_start_value = parse_window_raw_value(raw_start, f"{label}.window-start")
-    raw_end_value = parse_window_raw_value(raw_end, f"{label}.window-end")
-    window_start = resolve_window_value(raw_start_value, exp_exit_step)
-    window_end = resolve_window_value(raw_end_value, exp_exit_step)
-    if window_start < 0:
-        raise ValueError(f"Invalid {label} window_start: resolved value must be >= 0. value={window_start}")
-    if window_end < 0:
-        raise ValueError(f"Invalid {label} window_end: resolved value must be >= 0. value={window_end}")
-    if window_start > window_end:
-        raise ValueError(f"Invalid {label} score window: window_start={window_start} > window_end={window_end}")
-    return ScoreWindow(
-        start=window_start,
-        end=window_end,
-        raw_start=raw_start_value,
-        raw_end=raw_end_value,
-        exp_exit_step=exp_exit_step,
-    )
 
 
 def make_trial_context(
@@ -560,42 +628,11 @@ def make_trial_context(
     trial_number: int | None,
     trial_name_override: str | None = None,
 ) -> TrialContext:
-    repo_root = Path(args.repo_root).resolve()
-    run_root = runner_root(repo_root)
-    budget_name, budget_value = resolve_budget(args)
-    cost = cost_tf(params, args.cost_k)
-    n = token_count(params.token_mode)
-    validate_name_part(args.study_name, "--study-name")
-    trial_number, trial_name = resolve_trial_identity(args, budget_name, trial_number, trial_name_override)
-    validate_name_part(trial_name, "--trial-name")
-    run_name = f"{args.study_name}_{trial_name}"
-    # viewer と手動掃除の単位を揃えるため、Optuna run は runs_optuna 直下へフラットに集める。
-    runs_dir = args.runs_dir.format(study=args.study_name, budget=budget_name, trial=trial_name, run=run_name)
-    run_dir = run_root / runs_dir / run_name
-    # runner 自身が run root に config.txt/stdout.log/stderr.log を作るため、harness artifact は隔離する。
-    artifact_dir = run_dir / "trial"
-    config_path = artifact_dir / "config.txt"
-    return TrialContext(
-        study_name=args.study_name,
-        trial_number=trial_number,
-        trial_name=trial_name,
-        budget_name=budget_name,
-        cost_budget=budget_value,
-        cost_tf=cost,
-        token_count=n,
-        run_name=run_name,
-        runs_dir=runs_dir.replace("\\", "/"),
-        artifact_dir=str(artifact_dir),
-        run_dir=str(run_dir),
-        config_path=str(config_path),
-    )
+    return RunLayout.make_trial_context(args, params, trial_number, trial_name_override)
 
 
 def resolve_runs_root(args: argparse.Namespace) -> Path:
-    repo_root = Path(args.repo_root).resolve()
-    budget_name, _ = resolve_budget(args)
-    runs_dir = args.runs_dir.format(study=args.study_name, budget=budget_name, trial="", run="")
-    return resolve_runner_relative_path(repo_root, runs_dir)
+    return RunLayout.resolve_runs_root(args)
 
 
 def attach_harness_logger(args: argparse.Namespace) -> HarnessLogger:
@@ -607,208 +644,10 @@ def attach_harness_logger(args: argparse.Namespace) -> HarnessLogger:
     return logger
 
 
-def harness_logger(args: argparse.Namespace) -> HarnessLogger | None:
-    return getattr(args, "_harness_logger", None)
 
 
-def log_harness(args: argparse.Namespace, level: str, event: str, *, console: bool = False, **fields: object) -> None:
-    logger = harness_logger(args)
-    if logger is not None:
-        logger.log(level, event, console=console, **fields)
-    elif console:
-        timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-        suffix = " ".join(f"{key}={format_log_value(value)}" for key, value in fields.items())
-        line = f"{timestamp} [{level.upper()}] {event}"
-        if suffix:
-            line = f"{line} {suffix}"
-        print(line, file=sys.stderr if level.upper() in ("WARN", "ERROR") else sys.stdout, flush=True)
 
 
-def log_harness_exception(
-    args: argparse.Namespace,
-    event: str,
-    exc: BaseException,
-    *,
-    console: bool = False,
-    **fields: object,
-) -> None:
-    logger = harness_logger(args)
-    if logger is not None:
-        logger.exception(event, exc, console=console, **fields)
-    elif console:
-        print(f"[ERROR] {event}: {exc}", file=sys.stderr, flush=True)
-
-
-def storage_url_from_text(repo_root: Path, storage_text: str) -> str:
-    sqlite_prefix = "sqlite:///"
-    if storage_text.startswith(sqlite_prefix):
-        storage_path = Path(storage_text[len(sqlite_prefix):])
-    else:
-        storage_path = Path(storage_text)
-
-    if not storage_path.is_absolute():
-        storage_path = runner_root(repo_root) / storage_path
-    storage_path.parent.mkdir(parents=True, exist_ok=True)
-    return f"{sqlite_prefix}{storage_path.as_posix()}"
-
-
-def storage_url_from_arg(args: argparse.Namespace) -> str:
-    return storage_url_from_text(Path(args.repo_root).resolve(), str(args.storage))
-
-
-def create_optuna_storage(
-    optuna,
-    storage_url: str,
-    storage_timeout_sec: float,
-    heartbeat_interval_sec: int | None = None,
-    heartbeat_grace_period_sec: int | None = None,
-):
-    if storage_url.startswith("sqlite:///"):
-        heartbeat_kwargs = {}
-        if heartbeat_interval_sec is not None and heartbeat_interval_sec > 0:
-            heartbeat_kwargs["heartbeat_interval"] = heartbeat_interval_sec
-            heartbeat_kwargs["grace_period"] = heartbeat_grace_period_sec
-        return optuna.storages.RDBStorage(
-            url=storage_url,
-            engine_kwargs={
-                "connect_args": {
-                    "timeout": storage_timeout_sec,
-                },
-            },
-            **heartbeat_kwargs,
-        )
-    return storage_url
-
-
-def resolve_optuna_artifact_dir(args: argparse.Namespace) -> Path:
-    return resolve_runner_relative_path(Path(args.repo_root).resolve(), str(args.optuna_artifact_dir))
-
-
-def resolve_artifact_dir_from_text(args: argparse.Namespace, path_text: str) -> Path:
-    return resolve_runner_relative_path(Path(args.repo_root).resolve(), path_text)
-
-
-def create_optuna_artifact_context(args: argparse.Namespace) -> OptunaArtifactContext | None:
-    try:
-        from optuna.artifacts import FileSystemArtifactStore
-        from optuna.artifacts import upload_artifact
-    except Exception as e:
-        print(f"[WARN] Optuna artifacts are unavailable: {e}", file=sys.stderr)
-        return None
-
-    try:
-        base_path = resolve_optuna_artifact_dir(args)
-        base_path.mkdir(parents=True, exist_ok=True)
-        return OptunaArtifactContext(
-            base_path=base_path,
-            artifact_store=FileSystemArtifactStore(base_path=str(base_path)),
-            upload_artifact=upload_artifact,
-        )
-    except Exception as e:
-        print(f"[WARN] Failed to initialize Optuna artifact store: {e}", file=sys.stderr)
-        return None
-
-
-def create_required_filesystem_artifact_context(optuna, base_path: Path, label: str) -> OptunaArtifactContext:
-    try:
-        from optuna.artifacts import FileSystemArtifactStore
-        from optuna.artifacts import download_artifact
-        from optuna.artifacts import get_all_artifact_meta
-        from optuna.artifacts import upload_artifact
-    except Exception as e:
-        raise TrialExecutionError(f"Optuna artifacts are required for {label}: {e}") from e
-
-    try:
-        base_path.mkdir(parents=True, exist_ok=True)
-        return OptunaArtifactContext(
-            base_path=base_path,
-            artifact_store=FileSystemArtifactStore(base_path=str(base_path)),
-            upload_artifact=upload_artifact,
-            get_all_artifact_meta=get_all_artifact_meta,
-            download_artifact=download_artifact,
-        )
-    except Exception as e:
-        raise TrialExecutionError(f"Failed to initialize {label} artifact store: path={base_path} error={e}") from e
-
-
-def register_optuna_trial_artifacts(
-    optuna_trial,
-    artifact_context: OptunaArtifactContext | None,
-    artifact_dir: Path,
-) -> None:
-    if optuna_trial is None or artifact_context is None:
-        return
-
-    for filename in OPTUNA_ARTIFACT_FILENAMES:
-        path = artifact_dir / filename
-        if not path.is_file():
-            continue
-        try:
-            artifact_context.upload_artifact(
-                artifact_store=artifact_context.artifact_store,
-                file_path=str(path),
-                study_or_trial=optuna_trial,
-            )
-        except Exception as e:
-            print(f"[WARN] Failed to upload Optuna artifact: path={path} error={e}", file=sys.stderr)
-
-
-def parse_seed_list(seed_text: str) -> list[int]:
-    seeds: list[int] = []
-    seen: set[int] = set()
-    for raw_part in seed_text.split(","):
-        part = raw_part.strip()
-        if not part:
-            continue
-        try:
-            seed = int(part)
-        except ValueError as e:
-            raise ValueError(f"Invalid --seeds: seed must be an integer. value={part}") from e
-        if seed < 0:
-            raise ValueError(f"Invalid --seeds: seed must be >= 0. value={seed}")
-        if seed in seen:
-            raise ValueError(f"Invalid --seeds: duplicate seed is not allowed. value={seed}")
-        seeds.append(seed)
-        seen.add(seed)
-    if not seeds:
-        raise ValueError("Invalid --seeds: at least one seed is required.")
-    return seeds
-
-
-def append_cli_arg(parts: list[str], option_name: str, value: object) -> None:
-    if value is None:
-        return
-    parts.extend([option_name, str(value)])
-
-
-def quote_windows_cli_arg(value: object) -> str:
-    text = str(value)
-    if text == "":
-        return '""'
-    if not any(ch.isspace() or ch in '"&|<>^()%!' for ch in text):
-        return text
-
-    result = '"'
-    backslashes = 0
-    for ch in text:
-        if ch == "\\":
-            backslashes += 1
-            continue
-        if ch == '"':
-            result += "\\" * (backslashes * 2 + 1)
-            result += '"'
-            backslashes = 0
-            continue
-        result += "\\" * backslashes
-        result += ch
-        backslashes = 0
-    result += "\\" * (backslashes * 2)
-    result += '"'
-    return result
-
-
-def format_cli_args(parts: list[str]) -> str:
-    return " ".join(quote_windows_cli_arg(part) for part in parts)
 
 
 def build_run_study_copy_args(args: argparse.Namespace, storage_url: str) -> str:
@@ -899,150 +738,18 @@ def build_study_user_attrs(args: argparse.Namespace, storage_url: str) -> dict:
     return attrs
 
 
-def set_study_user_attrs(study, attrs: dict) -> None:
-    for key, value in attrs.items():
-        study.set_user_attr(key, value)
-
-
-def seed_trial_name(trial_name: str, seed: int) -> str:
-    return f"{trial_name}_s{seed}"
-
-
-def args_with_seed(args: argparse.Namespace, seed: int) -> argparse.Namespace:
-    seed_args = argparse.Namespace(**vars(args))
-    seed_args.seed = seed
-    return seed_args
 
 
 def trial_params_key(params: TrialParams) -> tuple[tuple[str, object], ...]:
-    return tuple(asdict(params).items())
+    """duplicate 判定用 key を DropMerge domain の定義で作る。"""
+    return DOMAIN.params_key(params)
 
 
 def trial_params_key_from_mapping(mapping: dict) -> tuple[tuple[str, object], ...]:
-    return tuple((name, mapping.get(name)) for name in TrialParams.__dataclass_fields__)
+    """trial.params 由来の duplicate 判定用 key を DropMerge domain の定義で作る。"""
+    return DOMAIN.params_key_from_mapping(mapping)
 
 
-def trial_state_name(trial) -> str:
-    return str(getattr(getattr(trial, "state", None), "name", getattr(trial, "state", "")))
-
-
-def study_trials(study) -> list:
-    get_trials = getattr(study, "get_trials", None)
-    if get_trials is not None:
-        return list(get_trials(deepcopy=False))
-    return list(getattr(study, "trials", []))
-
-
-def running_trials(study) -> list:
-    return [trial for trial in study_trials(study) if trial_state_name(trial) == "RUNNING"]
-
-
-def set_trial_failure_attrs(trial, exc: BaseException, traceback_text: str | None = None) -> None:
-    if trial is None:
-        return
-    try:
-        trial.set_user_attr("failure_type", type(exc).__name__)
-        trial.set_user_attr("failure_message", str(exc))
-        if traceback_text:
-            trial.set_user_attr("failure_traceback", traceback_text[-12000:])
-    except Exception:
-        pass
-
-
-def mark_trial_failed(study, optuna, trial) -> None:
-    fail_state = optuna.trial.TrialState.FAIL
-    try:
-        try:
-            study.tell(trial.number, state=fail_state, skip_if_finished=True)
-        except TypeError:
-            study.tell(trial.number, state=fail_state)
-        return
-    except Exception as tell_error:
-        storage = getattr(study, "_storage", None)
-        trial_id = getattr(trial, "_trial_id", None)
-        if storage is not None and trial_id is not None and hasattr(storage, "set_trial_state_values"):
-            storage.set_trial_state_values(trial_id, fail_state, None)
-            return
-        raise tell_error
-
-
-def cleanup_running_trials(study, optuna, dry_run: bool = False) -> dict:
-    targets = running_trials(study)
-    target_numbers = [int(trial.number) for trial in targets]
-    cleaned: list[int] = []
-    errors: list[dict] = []
-
-    if not dry_run:
-        for trial in targets:
-            try:
-                mark_trial_failed(study, optuna, trial)
-                cleaned.append(int(trial.number))
-            except Exception as e:
-                errors.append({
-                    "trial_number": int(trial.number),
-                    "error": str(e),
-                })
-
-        try:
-            set_study_user_attrs(study, {
-                "cleaned_running_trials": cleaned,
-                "cleaned_running_trials_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            })
-        except Exception as e:
-            errors.append({
-                "trial_number": None,
-                "error": f"failed to save cleanup study attrs: {e}",
-            })
-
-    return {
-        "dry_run": dry_run,
-        "target_running_trials": target_numbers,
-        "cleaned_running_trials": cleaned,
-        "errors": errors,
-    }
-
-
-def heartbeat_enabled(args: argparse.Namespace) -> bool:
-    return int(getattr(args, "heartbeat_interval_sec", 0) or 0) > 0
-
-
-def fail_stale_trials_if_enabled(args: argparse.Namespace, optuna, study, phase: str) -> dict:
-    if not heartbeat_enabled(args):
-        return {"enabled": False, "phase": phase}
-
-    before = [int(trial.number) for trial in running_trials(study)]
-    try:
-        fail_stale_trials = getattr(optuna.storages, "fail_stale_trials", None)
-        if fail_stale_trials is None:
-            log_harness(args, "WARN", "stale-trials-unsupported", console=True, phase=phase)
-            return {
-                "enabled": True,
-                "phase": phase,
-                "before": before,
-                "after": before,
-                "error": "optuna.storages.fail_stale_trials is unavailable",
-            }
-        fail_stale_trials(study)
-    except Exception as e:
-        log_harness_exception(args, "stale-trials-check-failed", e, console=True, phase=phase)
-        return {
-            "enabled": True,
-            "phase": phase,
-            "before": before,
-            "after": [int(trial.number) for trial in running_trials(study)],
-            "error": str(e),
-        }
-
-    after = [int(trial.number) for trial in running_trials(study)]
-    log_harness(args, "INFO", "stale-trials-checked", phase=phase, before=before, after=after)
-    if after:
-        log_harness(args, "WARN", "running-trials-remain", console=True, phase=phase, trials=after)
-    return {
-        "enabled": True,
-        "phase": phase,
-        "before": before,
-        "after": after,
-    }
 
 
 def duplicate_relevant_trial_numbers(study, params: TrialParams, current_trial_number: int) -> list[int]:
@@ -1061,9 +768,6 @@ def duplicate_relevant_trial_numbers(study, params: TrialParams, current_trial_n
     return matched
 
 
-def shifted_seeds(seeds: list[int], duplicate_index: int, stride: int) -> list[int]:
-    offset = duplicate_index * stride
-    return [seed + offset for seed in seeds]
 
 
 def resolve_duplicate_params_info(
@@ -1112,165 +816,12 @@ def resolve_duplicate_params_info(
     )
 
 
-def apply_duplicate_info_to_args(args: argparse.Namespace, duplicate_info: DuplicateParamsInfo) -> argparse.Namespace:
-    info_args = argparse.Namespace(**vars(args))
-    info_args.duplicate_count_before = duplicate_info.duplicate_count_before
-    info_args.duplicate_index = duplicate_info.duplicate_index
-    info_args.base_seeds = duplicate_info.base_seeds
-    info_args.effective_seeds = duplicate_info.effective_seeds
-    info_args.duplicate_matched_trials = duplicate_info.duplicate_matched_trials
-    return info_args
-
-
-def aggregate_score_stats(scores: list[float], mode: str) -> dict[str, float | int | None]:
-    if not scores:
-        return {
-            "score_mean": None,
-            "score_std": None,
-            "score_median": None,
-            "score_min": None,
-            "score_max": None,
-            "score_range": None,
-            "score_mean_minus_std": None,
-            "aggregate_score": None,
-        }
-    score_mean = float(mean(scores))
-    score_std = float(pstdev(scores)) if len(scores) > 1 else 0.0
-    score_min = float(min(scores))
-    score_max = float(max(scores))
-    stats = {
-        "score_mean": score_mean,
-        "score_std": score_std,
-        "score_median": float(median(scores)),
-        "score_min": score_min,
-        "score_max": score_max,
-        "score_range": score_max - score_min,
-        "score_mean_minus_std": score_mean - score_std,
-        "aggregate_score": None,
-    }
-    if mode == "mean":
-        stats["aggregate_score"] = stats["score_mean"]
-    elif mode == "median":
-        stats["aggregate_score"] = stats["score_median"]
-    elif mode == "mean-minus-std":
-        stats["aggregate_score"] = stats["score_mean_minus_std"]
-    elif mode == "min":
-        stats["aggregate_score"] = stats["score_min"]
-    else:
-        raise ValueError(f"Invalid --score-aggregate: unknown mode. value={mode}")
-    return stats
-
-
-def completed_run_values(seed_runs: list[dict], field: str) -> list[float]:
-    values: list[float] = []
-    for run in seed_runs:
-        if run.get("status") != "complete":
-            continue
-        value = run.get(field)
-        if value is None:
-            continue
-        values.append(float(value))
-    return values
-
-
-def generated_structure(params: TrialParams) -> str:
-    # Flatten family 固定。token_mode に応じて ConvDown の回数だけを変える。
-    blocks = [
-        "OptConvInit",
-        f"OptResBlock(*{params.res_blocks})",
-    ]
-    if params.token_mode in ("current", "stronger"):
-        blocks.extend(["OptConvDown", "SiLU"])
-    if params.token_mode == "stronger":
-        blocks.extend(["OptConvDown2", "SiLU"])
-    blocks.extend([
-        "OptViTProj",
-        "SiLU",
-        "PosEmbed2D",
-        "OptTransEnc",
-        "Flatten",
-        "OptLinear",
-        "SiLU",
-    ])
-    return " > ".join(blocks)
 
 
 def render_config(repo_root: Path, params: TrialParams, ctx: TrialContext, args: argparse.Namespace) -> str:
-    ff_dim = params.d_model * params.ff_mult
-    nhead = args.nhead
-    if params.d_model % nhead != 0:
-        raise ValueError(f"d_model must be divisible by nhead: d_model={params.d_model} nhead={nhead}")
-
-    lines = [
-        "# Generated by apps/runner/tools/dropmerge_optuna.py",
-        f"# study={ctx.study_name} budget={ctx.budget_name} trial={ctx.trial_number}",
-        config_include_line(args.base_config),
-        config_include_line(args.extra_config),
-        "",
-        "app.$ = app.batchrun > P",
-        f"app.run_name = {ctx.run_name}",
-        f"app.runs_dir = {ctx.runs_dir}",
-        f"app.batchrun.exp_exit_step = {args.exp_exit_step}",
-        f"train.seed = {args.seed}",
-        "",
-        "net.block.[OptConvInit].type = Conv2d",
-        f"net.block.[OptConvInit].conv.out_channels = {params.cnn_channels}",
-        "net.block.[OptConvInit].conv.kernel_size = 3",
-        "net.block.[OptConvInit].conv.padding = 1",
-        "net.block.[OptConvInit].conv.stride = 2",
-        "net.block.[OptConvInit].init.mode = 2",
-        "",
-        "net.block.[OptResBlock].type = ResBlock",
-        f"net.block.[OptResBlock].res.channels = {params.cnn_channels}",
-        "net.block.[OptResBlock].res.kernel_size = 3",
-        "net.block.[OptResBlock].res.activation = silu",
-        "net.block.[OptResBlock].res.activation_mode = pre",
-        "",
-        "net.block.[OptConvDown].type = Conv2d",
-        f"net.block.[OptConvDown].conv.out_channels = {params.cnn_channels}",
-        "net.block.[OptConvDown].conv.kernel_size = 3",
-        "net.block.[OptConvDown].conv.stride = 2",
-        "net.block.[OptConvDown].conv.padding = 1",
-        "",
-        "net.block.[OptConvDown2].type = Conv2d",
-        f"net.block.[OptConvDown2].conv.out_channels = {params.cnn_channels}",
-        "net.block.[OptConvDown2].conv.kernel_size = 3",
-        "net.block.[OptConvDown2].conv.stride = 2",
-        "net.block.[OptConvDown2].conv.padding = 1",
-        "",
-        "net.block.[OptViTProj].type = Conv2d",
-        f"net.block.[OptViTProj].conv.out_channels = {params.d_model}",
-        "net.block.[OptViTProj].conv.kernel_size = 1",
-        "net.block.[OptViTProj].conv.stride = 1",
-        "net.block.[OptViTProj].conv.padding = 0",
-        "",
-        "net.block.[OptTransEnc].type = TransformerEncoder",
-        f"net.block.[OptTransEnc].tf.d_model = {params.d_model}",
-        f"net.block.[OptTransEnc].tf.nhead = {nhead}",
-        f"net.block.[OptTransEnc].tf.num_layers = {params.transformer_layers}",
-        f"net.block.[OptTransEnc].tf.dim_feedforward = {ff_dim}",
-        "net.block.[OptTransEnc].tf.norm_first = true",
-        "net.block.[OptTransEnc].tf.use_sdpa = true",
-        "net.block.[OptTransEnc].tf.activation = gelu",
-        "",
-        "net.block.[OptLinear].type = Linear",
-        f"net.block.[OptLinear].linear.out_features = {params.trunk_width}",
-        "net.block.[OptLinear].linear.bias = true",
-        "net.block.[OptLinear].init.mode = 3",
-        "net.block.[OptLinear].init.manual_gain = 1.0",
-        "",
-        "net.block.[OptHeadFC].type = Linear",
-        f"net.block.[OptHeadFC].linear.out_features = {params.head_width}",
-        "net.block.[OptHeadFC].init.mode = 1",
-        "",
-        "net.branch.[main_feature].$ = net.branch.OptunaDropMerge",
-        "net.branch.OptunaDropMerge.bind = grid, vector_feature",
-        f"net.branch.OptunaDropMerge.structure = {generated_structure(params)}",
-        "net.branch.[value_stream].structure = OptHeadFC > SiLU",
-        "net.branch.[adv_stream].structure = OptHeadFC > SiLU",
-        "",
-    ]
-    return "\n".join(lines)
+    """既存 call site 互換の config 生成入口。実体は DropMerge domain に集約する。"""
+    del repo_root
+    return DOMAIN.render_config(params, ctx, args)
 
 
 def make_manifest(args: argparse.Namespace, params: TrialParams, ctx: TrialContext, extra: dict | None = None) -> dict:
@@ -1345,116 +896,6 @@ def write_representative_trial_files(
     write_manifest_file(manifest, artifact_dir)
 
 
-def scalar_records(metrics_path: Path) -> Iterable[dict]:
-    with metrics_path.open("r", encoding="utf-8-sig") as stream:
-        for line in stream:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if record.get("type") == "scalar":
-                yield record
-
-
-def summarize_metrics_window(metrics_path: Path, window: ScoreWindow) -> tuple[dict[str, dict[str, float | int]], float | None]:
-    # 指定 exp_step window 内の scalar record だけを集計する。
-    values: dict[str, list[tuple[int, float]]] = {}
-    for record in scalar_records(metrics_path):
-        tag = record.get("tag")
-        step = record.get("step")
-        value = record.get("value")
-        if tag is None or step is None or value is None:
-            continue
-        try:
-            step_int = int(step)
-            value_float = float(value)
-        except (TypeError, ValueError):
-            continue
-        if step_int < window.start or step_int > window.end:
-            continue
-        values.setdefault(str(tag), []).append((step_int, value_float))
-
-    tag_summary: dict[str, dict[str, float | int]] = {}
-    for tag, points in values.items():
-        point_values = [value for _, value in points if math.isfinite(value)]
-        if not point_values:
-            continue
-        tag_summary[tag] = {
-            "count": len(point_values),
-            "mean": mean(point_values),
-            "last": point_values[-1],
-            "min_step": min(step for step, _ in points),
-            "max_step": max(step for step, _ in points),
-        }
-
-    primary_means = [
-        float(tag_summary[tag]["mean"])
-        for tag in PRIMARY_TAGS
-        if tag in tag_summary
-    ]
-    score = mean(primary_means) if len(primary_means) == len(PRIMARY_TAGS) else None
-    return tag_summary, score
-
-
-def summarize_metrics(metrics_path: Path, window: ScoreWindow) -> dict:
-    tag_summary, score = summarize_metrics_window(metrics_path, window)
-    analysis_windows: dict[str, dict[str, object]] = {}
-    for name, raw_start, raw_end in LATE_SCORE_WINDOWS:
-        late_window = resolve_score_window_from_raw(raw_start, raw_end, window.exp_exit_step, name)
-        _, late_score = summarize_metrics_window(metrics_path, late_window)
-        analysis_windows[name] = {
-            "window_start": late_window.start,
-            "window_end": late_window.end,
-            "window_start_raw": late_window.raw_start,
-            "window_end_raw": late_window.raw_end,
-            "exp_exit_step": late_window.exp_exit_step,
-            "score": late_score,
-        }
-
-    score_60_80 = analysis_windows["score_60_80"]["score"]
-    score_80_100 = analysis_windows["score_80_100"]["score"]
-    late_slope = None
-    if score_60_80 is not None and score_80_100 is not None:
-        late_slope = float(score_80_100) - float(score_60_80)
-
-    return {
-        "metrics_path": str(metrics_path),
-        "window_start": window.start,
-        "window_end": window.end,
-        "window_start_raw": window.raw_start,
-        "window_end_raw": window.raw_end,
-        "exp_exit_step": window.exp_exit_step,
-        "score": score,
-        "score_60_80": score_60_80,
-        "score_80_100": score_80_100,
-        "late_slope": late_slope,
-        "analysis_windows": analysis_windows,
-        "tags": tag_summary,
-    }
-
-
-def write_summary_files(summary: dict, artifact_dir: Path) -> None:
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-    (artifact_dir / "metrics_summary.json").write_text(
-        json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
-    with (artifact_dir / "metrics_summary.csv").open("w", encoding="utf-8", newline="") as stream:
-        writer = csv.writer(stream)
-        writer.writerow(["tag", "count", "mean", "last", "min_step", "max_step"])
-        for tag, data in sorted(summary["tags"].items()):
-            writer.writerow([
-                tag,
-                data.get("count"),
-                data.get("mean"),
-                data.get("last"),
-                data.get("min_step"),
-                data.get("max_step"),
-            ])
 
 
 def write_multiseed_summary_files(summary: dict, artifact_dir: Path) -> None:
@@ -1515,6 +956,27 @@ def write_multiseed_summary_files(summary: dict, artifact_dir: Path) -> None:
                 run.get("metrics_summary_path"),
                 run.get("error"),
             ])
+
+
+
+
+class MetricsSummarizer:
+    """DropMerge の MetricsSpec を共通 summarizer に渡す薄い adapter。"""
+
+    @staticmethod
+    def summarize(metrics_path: Path, window: ScoreWindow) -> dict:
+        """primary score と late window 補助指標をまとめて算出する。"""
+        return CommonMetricsSummarizer.summarize(metrics_path, window, METRICS_SPEC)
+
+    @staticmethod
+    def write_single_seed_summary(summary: dict, artifact_dir: Path) -> None:
+        """seed run 1件分の metrics_summary.json/csv を保存する。"""
+        CommonMetricsSummarizer.write_single_seed_summary(summary, artifact_dir)
+
+    @staticmethod
+    def write_multi_seed_summary(summary: dict, artifact_dir: Path) -> None:
+        """Optuna trial 代表の multiseed summary と seed_runs を保存する。"""
+        write_multiseed_summary_files(summary, artifact_dir)
 
 
 def build_seed_runs_document(summary: dict) -> dict:
@@ -1655,9 +1117,9 @@ def command_dry_run(args: argparse.Namespace) -> int:
 
 
 def command_summarize(args: argparse.Namespace) -> int:
-    summary = summarize_metrics(Path(args.metrics_jsonl), resolve_score_window(args))
+    summary = MetricsSummarizer.summarize(Path(args.metrics_jsonl), resolve_score_window(args))
     if args.output_dir:
-        write_summary_files(summary, Path(args.output_dir))
+        MetricsSummarizer.write_single_seed_summary(summary, Path(args.output_dir))
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0 if summary["score"] is not None else 2
 
@@ -2040,7 +1502,7 @@ def command_summarize_study(args: argparse.Namespace) -> int:
         return 2
 
     source_storage = create_optuna_storage(optuna, source_storage_url, args.storage_timeout_sec)
-    source_artifact_context = create_required_filesystem_artifact_context(
+    source_artifact_context = ArtifactStore.create_required_context(
         optuna,
         resolve_artifact_dir_from_text(args, args.source_artifact_dir),
         "source",
@@ -2096,7 +1558,7 @@ def command_summarize_study(args: argparse.Namespace) -> int:
         if target_storage_url == source_storage_url
         else create_optuna_storage(optuna, target_storage_url, args.storage_timeout_sec)
     )
-    target_artifact_context = create_required_filesystem_artifact_context(
+    target_artifact_context = ArtifactStore.create_required_context(
         optuna,
         resolve_artifact_dir_from_text(args, args.target_artifact_dir),
         "target",
@@ -2196,6 +1658,15 @@ def command_summarize_study(args: argparse.Namespace) -> int:
     return 0
 
 
+class SummaryStudyBuilder:
+    """同一 params group を集約した summary study 生成を担当する。"""
+
+    @staticmethod
+    def run(args: argparse.Namespace) -> int:
+        """source study を読み、group summary trial を target study に作る。"""
+        return command_summarize_study(args)
+
+
 def command_cleanup_running(args: argparse.Namespace) -> int:
     if args.storage_timeout_sec < 0:
         print("storage-timeout-sec must be >= 0.", file=sys.stderr)
@@ -2220,11 +1691,11 @@ def command_cleanup_running(args: argparse.Namespace) -> int:
 
 
 def command_run_trial(args: argparse.Namespace) -> int:
-    _INTERRUPTING.clear()
+    clear_interrupt_flag()
     attach_harness_logger(args)
     params = params_from_args(args)
     try:
-        result = execute_trial(args, params, args.trial_number, getattr(args, "trial_name", None))
+        result = StudyExecutor.execute_single(args, params, args.trial_number, getattr(args, "trial_name", None))
     except TrialPrunedError as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2245,225 +1716,6 @@ def command_run_trial(args: argparse.Namespace) -> int:
     return 0
 
 
-def register_active_runner(proc: subprocess.Popen) -> None:
-    with _ACTIVE_RUNNER_LOCK:
-        _ACTIVE_RUNNERS.add(proc)
-
-
-def unregister_active_runner(proc: subprocess.Popen) -> None:
-    with _ACTIVE_RUNNER_LOCK:
-        _ACTIVE_RUNNERS.discard(proc)
-
-
-def terminate_active_runners() -> list[int]:
-    _INTERRUPTING.set()
-    with _ACTIVE_RUNNER_LOCK:
-        procs = list(_ACTIVE_RUNNERS)
-
-    terminated: list[int] = []
-    for proc in procs:
-        if proc.poll() is None:
-            proc.terminate()
-            terminated.append(proc.pid)
-
-    deadline = time.monotonic() + 10.0
-    for proc in procs:
-        remaining = max(0.0, deadline - time.monotonic())
-        try:
-            proc.wait(timeout=remaining)
-        except subprocess.TimeoutExpired:
-            if proc.poll() is None:
-                proc.kill()
-                terminated.append(proc.pid)
-    return terminated
-
-
-def utc_timestamp() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-
-
-def write_runner_process_file(
-    artifact_dir: Path,
-    data: dict,
-) -> None:
-    (artifact_dir / "process.json").write_text(
-        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
-
-
-def runner_process_data(
-    status: str,
-    command: list[str],
-    ctx: TrialContext,
-    start_monotonic: float,
-    *,
-    runner_pid: int | None = None,
-    returncode: int | None = None,
-    started_at: str,
-    finished_at: str | None = None,
-    interrupted: bool = False,
-    timed_out: bool = False,
-    error: str | None = None,
-) -> dict:
-    data = {
-        "status": status,
-        "command": command,
-        "config_path": ctx.config_path,
-        "harness_pid": os.getpid(),
-        "runner_pid": runner_pid,
-        "started_at": started_at,
-        "finished_at": finished_at,
-        "returncode": returncode,
-        "elapsed_sec": time.monotonic() - start_monotonic,
-        "interrupted": interrupted,
-        "timed_out": timed_out,
-    }
-    if error is not None:
-        data["error"] = error
-    return data
-
-
-def run_runner(args: argparse.Namespace, ctx: TrialContext) -> int:
-    # runner 本体には Optuna を入れず、生成済み config path だけを渡す。
-    artifact_dir = Path(ctx.artifact_dir)
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-    runner_exe = Path(args.runner_exe)
-    if not runner_exe.is_absolute():
-        # Python harness は repo root から呼ぶことが多いため、相対 runner path は repo root 基準で解決する。
-        runner_exe = Path(args.repo_root).resolve() / runner_exe
-    command = [
-        str(runner_exe),
-        "--config",
-        ctx.config_path,
-    ]
-    start = time.monotonic()
-    started_at = utc_timestamp()
-    stdout_path = artifact_dir / "stdout.log"
-    stderr_path = artifact_dir / "stderr.log"
-    proc: subprocess.Popen | None = None
-    stdout_stream = None
-    stderr_stream = None
-    try:
-        stdout_stream = stdout_path.open("w", encoding="utf-8", newline="\n")
-        stderr_stream = stderr_path.open("w", encoding="utf-8", newline="\n")
-        try:
-            proc = subprocess.Popen(
-                command,
-                cwd=str(runner_root(Path(args.repo_root).resolve())),
-                text=True,
-                stdout=stdout_stream,
-                stderr=stderr_stream,
-            )
-        except OSError as e:
-            stderr_stream.write(str(e))
-            stderr_stream.write("\n")
-            stderr_stream.flush()
-            write_runner_process_file(
-                artifact_dir,
-                runner_process_data(
-                    "failed",
-                    command,
-                    ctx,
-                    start,
-                    started_at=started_at,
-                    finished_at=utc_timestamp(),
-                    error=str(e),
-                ),
-            )
-            log_harness(args, "ERROR", "runner-start-failed", console=True, run=ctx.run_name, error=str(e))
-            raise TrialFailedError(f"runner failed to start: {e}") from e
-
-        register_active_runner(proc)
-        write_runner_process_file(
-            artifact_dir,
-            runner_process_data(
-                "running",
-                command,
-                ctx,
-                start,
-                runner_pid=proc.pid,
-                started_at=started_at,
-            ),
-        )
-        log_harness(args, "INFO", "runner-start", console=True, run=ctx.run_name, pid=proc.pid, config=ctx.config_path)
-
-        try:
-            proc.wait(timeout=args.timeout_sec)
-        except subprocess.TimeoutExpired as e:
-            proc.kill()
-            proc.wait()
-            write_runner_process_file(
-                artifact_dir,
-                runner_process_data(
-                    "timed_out",
-                    command,
-                    ctx,
-                    start,
-                    runner_pid=proc.pid,
-                    returncode=proc.returncode,
-                    started_at=started_at,
-                    finished_at=utc_timestamp(),
-                    timed_out=True,
-                ),
-            )
-            log_harness(args, "ERROR", "runner-timeout", console=True, run=ctx.run_name, pid=proc.pid, returncode=proc.returncode)
-            raise TrialFailedError(f"runner timed out: timeout_sec={args.timeout_sec}") from e
-
-        interrupted = _INTERRUPTING.is_set()
-        status = "complete" if proc.returncode == 0 and not interrupted else "failed"
-        write_runner_process_file(
-            artifact_dir,
-            runner_process_data(
-                status,
-                command,
-                ctx,
-                start,
-                runner_pid=proc.pid,
-                returncode=proc.returncode,
-                started_at=started_at,
-                finished_at=utc_timestamp(),
-                interrupted=interrupted,
-            ),
-        )
-        log_harness(args, "INFO" if proc.returncode == 0 else "ERROR", "runner-exit", console=True, run=ctx.run_name, pid=proc.pid, returncode=proc.returncode)
-        if interrupted:
-            raise KeyboardInterrupt()
-        return int(proc.returncode)
-    except KeyboardInterrupt:
-        _INTERRUPTING.set()
-        if proc is not None and proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=10.0)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-        if proc is not None:
-            write_runner_process_file(
-                artifact_dir,
-                runner_process_data(
-                    "interrupted",
-                    command,
-                    ctx,
-                    start,
-                    runner_pid=proc.pid,
-                    returncode=proc.returncode,
-                    started_at=started_at,
-                    finished_at=utc_timestamp(),
-                    interrupted=True,
-                ),
-            )
-            log_harness(args, "WARN", "runner-interrupted", console=True, run=ctx.run_name, pid=proc.pid, returncode=proc.returncode)
-        raise
-    finally:
-        if proc is not None:
-            unregister_active_runner(proc)
-        if stdout_stream is not None:
-            stdout_stream.close()
-        if stderr_stream is not None:
-            stderr_stream.close()
 
 
 def set_optuna_trial_attrs(trial, params: TrialParams, ctx: TrialContext) -> None:
@@ -2545,7 +1797,7 @@ def execute_trial(
         raise TrialPrunedError(f"cost_tf={ctx.cost_tf} > cost_budget={ctx.cost_budget}")
 
     write_trial_files(args, params, ctx)
-    returncode = run_runner(args, ctx)
+    returncode = RunnerProcessManager.run(args, ctx)
     if optuna_trial is not None:
         optuna_trial.set_user_attr("returncode", returncode)
     if returncode != 0:
@@ -2555,8 +1807,8 @@ def execute_trial(
     if not metrics_path.exists():
         raise TrialFailedError(f"metrics.jsonl not found: {metrics_path}")
 
-    summary = summarize_metrics(metrics_path, score_window)
-    write_summary_files(summary, Path(ctx.artifact_dir))
+    summary = MetricsSummarizer.summarize(metrics_path, score_window)
+    MetricsSummarizer.write_single_seed_summary(summary, Path(ctx.artifact_dir))
     if optuna_trial is not None:
         for tag, data in summary["tags"].items():
             optuna_trial.set_user_attr(f"metric:{tag}:mean", data["mean"])
@@ -2618,10 +1870,10 @@ def execute_study_trial(
     if duplicate_info.pruned_by_duplicate:
         error = duplicate_info.prune_reason or "duplicate params"
         summary = build_multiseed_summary(study_args, params, ctx, seeds, seed_runs, duplicate_info, error)
-        write_multiseed_summary_files(summary, Path(ctx.artifact_dir))
+        MetricsSummarizer.write_multi_seed_summary(summary, Path(ctx.artifact_dir))
         if optuna_trial is not None:
             set_multiseed_trial_attrs(optuna_trial, summary)
-            register_optuna_trial_artifacts(optuna_trial, optuna_artifact_context, Path(ctx.artifact_dir))
+            ArtifactStore.register_trial_artifacts(optuna_trial, optuna_artifact_context, Path(ctx.artifact_dir))
         log_harness(
             args,
             "WARN",
@@ -2637,10 +1889,10 @@ def execute_study_trial(
     if ctx.cost_tf > ctx.cost_budget:
         error = f"cost_tf={ctx.cost_tf} > cost_budget={ctx.cost_budget}"
         summary = build_multiseed_summary(study_args, params, ctx, seeds, seed_runs, duplicate_info, error)
-        write_multiseed_summary_files(summary, Path(ctx.artifact_dir))
+        MetricsSummarizer.write_multi_seed_summary(summary, Path(ctx.artifact_dir))
         if optuna_trial is not None:
             set_multiseed_trial_attrs(optuna_trial, summary)
-            register_optuna_trial_artifacts(optuna_trial, optuna_artifact_context, Path(ctx.artifact_dir))
+            ArtifactStore.register_trial_artifacts(optuna_trial, optuna_artifact_context, Path(ctx.artifact_dir))
         log_harness(
             args,
             "WARN",
@@ -2669,15 +1921,15 @@ def execute_study_trial(
             run=seed_ctx.run_name,
         )
         try:
-            result = execute_trial(seed_args, params, trial_number, seed_trial)
+            result = StudyExecutor.execute_single(seed_args, params, trial_number, seed_trial)
         except (TrialPrunedError, TrialFailedError, ValueError) as e:
             # 失敗 seed が混じった aggregate は比較対象として偏るため、原因別の trial state へ送る。
             seed_runs.append(make_seed_run_record(seed, seed_ctx, "failed", error=str(e)))
             summary = build_multiseed_summary(study_args, params, ctx, seeds, seed_runs, duplicate_info, str(e))
-            write_multiseed_summary_files(summary, Path(ctx.artifact_dir))
+            MetricsSummarizer.write_multi_seed_summary(summary, Path(ctx.artifact_dir))
             if optuna_trial is not None:
                 set_multiseed_trial_attrs(optuna_trial, summary)
-                register_optuna_trial_artifacts(optuna_trial, optuna_artifact_context, Path(ctx.artifact_dir))
+                ArtifactStore.register_trial_artifacts(optuna_trial, optuna_artifact_context, Path(ctx.artifact_dir))
             log_harness(
                 args,
                 "ERROR",
@@ -2706,10 +1958,10 @@ def execute_study_trial(
         )
 
     summary = build_multiseed_summary(study_args, params, ctx, seeds, seed_runs, duplicate_info)
-    write_multiseed_summary_files(summary, Path(ctx.artifact_dir))
+    MetricsSummarizer.write_multi_seed_summary(summary, Path(ctx.artifact_dir))
     if optuna_trial is not None:
         set_multiseed_trial_attrs(optuna_trial, summary)
-        register_optuna_trial_artifacts(optuna_trial, optuna_artifact_context, Path(ctx.artifact_dir))
+        ArtifactStore.register_trial_artifacts(optuna_trial, optuna_artifact_context, Path(ctx.artifact_dir))
     if summary["score"] is None:
         raise TrialFailedError("aggregate score is unavailable")
     log_harness(
@@ -2725,6 +1977,33 @@ def execute_study_trial(
     return TrialExecutionResult(ctx=ctx, summary=summary)
 
 
+class StudyExecutor:
+    """Optuna trial の単発評価、multi-seed 評価、objective 接続を担当する。"""
+
+    @staticmethod
+    def execute_single(
+        args: argparse.Namespace,
+        params: TrialParams,
+        trial_number: int | None,
+        trial_name: str | None = None,
+        optuna_trial=None,
+    ) -> TrialExecutionResult:
+        """run-trial と seed run の 1 runner 実行を行う。"""
+        return execute_trial(args, params, trial_number, trial_name, optuna_trial)
+
+    @staticmethod
+    def execute_multi_seed(
+        args: argparse.Namespace,
+        params: TrialParams,
+        trial_number: int,
+        study=None,
+        optuna_trial=None,
+        optuna_artifact_context: OptunaArtifactContext | None = None,
+    ) -> TrialExecutionResult:
+        """run-study の 1 Optuna trial を multi-seed aggregate として実行する。"""
+        return execute_study_trial(args, params, trial_number, study, optuna_trial, optuna_artifact_context)
+
+
 def objective(
     trial,
     args: argparse.Namespace,
@@ -2735,7 +2014,7 @@ def objective(
 
     params = suggest_params(trial)
     try:
-        return execute_study_trial(
+        return StudyExecutor.execute_multi_seed(
             args,
             params,
             trial.number,
@@ -2761,7 +2040,7 @@ def objective(
 
 
 def command_run_study(args: argparse.Namespace) -> int:
-    _INTERRUPTING.clear()
+    clear_interrupt_flag()
     attach_harness_logger(args)
     resolve_score_window(args)
     parse_seed_list(args.seeds)
@@ -2811,7 +2090,7 @@ def command_run_study(args: argparse.Namespace) -> int:
         args.heartbeat_interval_sec,
         args.heartbeat_grace_period_sec,
     )
-    optuna_artifact_context = create_optuna_artifact_context(args)
+    optuna_artifact_context = ArtifactStore.create_optional_context(args)
     study = optuna.create_study(
         study_name=args.study_name,
         storage=storage,
@@ -2829,8 +2108,8 @@ def command_run_study(args: argparse.Namespace) -> int:
             catch=(TrialFailedError,),
         )
     except KeyboardInterrupt:
-        _INTERRUPTING.set()
-        terminated_pids = terminate_active_runners()
+        set_interrupt_flag()
+        terminated_pids = RunnerProcessManager.terminate_active()
         try:
             study.stop()
         except Exception:
@@ -2856,7 +2135,7 @@ def command_run_study(args: argparse.Namespace) -> int:
         ), file=sys.stderr)
         return 130
     except Exception as e:
-        terminated_pids = terminate_active_runners()
+        terminated_pids = RunnerProcessManager.terminate_active()
         cleanup_result = cleanup_running_trials(study, optuna, dry_run=False)
         log_harness_exception(
             args,
@@ -2922,47 +2201,9 @@ def add_common_args(parser: argparse.ArgumentParser, include_seed: bool = True) 
 
 def add_trial_identity_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--trial-name", help="trial 名。未指定時は既存出力から t00000 形式で自動採番する。")
-
-
-def add_param_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--trial-number", type=int, help="trial_name 未指定時に使う trial 番号。未指定時は既存出力から自動採番する。")
-    parser.add_argument("--cnn-channels", type=int, choices=[48, 64], default=64, help="CNN/ResBlock の channel 数 C。")
-    parser.add_argument("--res-blocks", type=int, choices=[2, 4], default=4, help="ResBlock の繰り返し数 D。")
-    parser.add_argument("--token-mode", choices=["current", "stronger"], default="current", help="token 解像度 N のモード。")
-    parser.add_argument("--d-model", type=int, choices=[96, 128, 192], default=96, help="Transformer の d_model M。")
-    parser.add_argument("--transformer-layers", type=int, choices=[2, 4], default=2, help="Transformer 層数 L。")
-    parser.add_argument("--ff-mult", type=int, choices=[2, 4], default=2, help="dim_feedforward = d_model * ff_mult。")
-    parser.add_argument("--trunk-width", type=int, choices=[1024, 2048], default=1024, help="Flatten 後 trunk Linear 幅 H。")
-    parser.add_argument("--head-width", type=int, choices=[512, 1024], default=512, help="value/adv stream の head Linear 幅。")
 
 
-def add_runner_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--runner-exe",
-        default="apps/runner/bin/Release/AnetRLRunner.exe",
-        help="AnetRLRunner.exe のパス。相対時は repo root 基準。未指定時は Release runner。",
-    )
-    parser.add_argument("--timeout-sec", type=int, default=0, help="runner 1 trial の timeout 秒。0 は timeout なし。")
-
-
-def add_score_window_args(parser: argparse.ArgumentParser, primary_score: bool = True) -> None:
-    description_prefix = "primary score 集計 window" if primary_score else "集計 window"
-    parser.add_argument(
-        "--window-start",
-        default="80%",
-        help=f"{description_prefix} の開始。絶対 step、負数相対 step、exp_exit_step 比率の %% 指定を使える。",
-    )
-    parser.add_argument(
-        "--window-end",
-        default="100%",
-        help=f"{description_prefix} の終了。絶対 step、負数相対 step、exp_exit_step 比率の %% 指定を使える。",
-    )
-
-
-def localize_parser(parser: argparse.ArgumentParser, positionals_title: str = "引数") -> None:
-    parser.add_argument("-h", "--help", action="help", help="このヘルプを表示して終了する。")
-    parser._positionals.title = positionals_title
-    parser._optionals.title = "オプション"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -2979,8 +2220,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = JapaneseArgumentParser(
         usage=usage,
         description=(
-            "DropMerge の NN 構成探索用 harness。\n"
-            "trial config を生成し、runner を --config で起動し、metrics.jsonl を採点します。"
+            "Optuna harness: trial config 生成、runner --config 起動、metrics.jsonl 採点を担当します。\n"
+            f"{DOMAIN.HELP_SUMMARY}"
         ),
         formatter_class=JapaneseHelpFormatter,
         add_help=False,
@@ -2998,14 +2239,14 @@ def build_parser() -> argparse.ArgumentParser:
     dry_run = subparsers.add_parser(
         "dry-run",
         help="trial config と manifest だけ生成する",
-        description="指定パラメータで trial config / manifest を生成し、cost_budget 判定を表示します。",
+        description=DOMAIN.DRY_RUN_DESCRIPTION,
         formatter_class=JapaneseHelpFormatter,
         add_help=False,
     )
     localize_parser(dry_run)
     add_common_args(dry_run)
     add_trial_identity_args(dry_run)
-    add_param_args(dry_run)
+    DOMAIN.add_param_args(dry_run)
     add_score_window_args(dry_run)
     dry_run.set_defaults(func=command_dry_run)
 
@@ -3026,10 +2267,7 @@ def build_parser() -> argparse.ArgumentParser:
     summarize_study = subparsers.add_parser(
         "summarize-study",
         help="同一 params group を Dashboard 用 Study に集約する",
-        description=(
-            "既存 Optuna study の同一 TrialParams を group 化し、"
-            "mean/range/std の multi-objective summary study を生成します。"
-        ),
+        description=DOMAIN.SUMMARIZE_STUDY_DESCRIPTION,
         formatter_class=JapaneseHelpFormatter,
         add_help=False,
     )
@@ -3072,7 +2310,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="既存 target study を削除して作り直す。同一 storage の source study 自体は指定できない。",
     )
-    summarize_study.set_defaults(func=command_summarize_study)
+    summarize_study.set_defaults(func=SummaryStudyBuilder.run)
 
     cleanup = subparsers.add_parser(
         "cleanup-running",
@@ -3102,14 +2340,14 @@ def build_parser() -> argparse.ArgumentParser:
     run_trial = subparsers.add_parser(
         "run-trial",
         help="固定 params の trial を 1 件実行する",
-        description="CLI で指定した NN 構成を runner で 1 件実行し、metrics.jsonl を採点します。",
+        description=DOMAIN.RUN_TRIAL_DESCRIPTION,
         formatter_class=JapaneseHelpFormatter,
         add_help=False,
     )
     localize_parser(run_trial)
     add_common_args(run_trial)
     add_trial_identity_args(run_trial)
-    add_param_args(run_trial)
+    DOMAIN.add_param_args(run_trial)
     add_runner_args(run_trial)
     add_score_window_args(run_trial)
     run_trial.set_defaults(func=command_run_trial)
@@ -3117,7 +2355,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_study = subparsers.add_parser(
         "run-study",
         help="Optuna study を実行する",
-        description="Optuna study を作成/再開し、Optuna が生成した trial を順次 runner で実行します。",
+        description=DOMAIN.RUN_STUDY_DESCRIPTION,
         formatter_class=JapaneseHelpFormatter,
         add_help=False,
     )

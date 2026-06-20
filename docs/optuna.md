@@ -13,11 +13,15 @@ runner project root の `config/` 配下を基準に解決する。
 trial config 内の相対 `$include` は、まず include 元ファイルのディレクトリ基準で解決し、
 見つからない場合だけ runner project root の `config/` 配下を試す。
 Optuna harness が生成する trial config は、`--base-config` で指定した main config と
-`--extra-config` で指定した Optuna 専用 config を順に `$include` し、その後ろに trial override を書く。
-既定では `$include <_main.txt>` の直後に `$include <DropMerge_optuna.txt>` を置く。
+`--extra-config` で指定した domain 専用 config を順に `$include` し、その後ろに trial override を書く。
 
-v1 の対象は DropMerge 専用、`Flatten` 固定、探索対象は NN 構成のみ。
-学習系ハイパラは baseline 固定とする。
+この文書では、runner 起動、Optuna storage、artifact、multi-seed、summary study などを
+「Harness 共通仕様」として扱い、DropMerge の探索対象、generated config、score tag、cost proxy を
+「DropMerge Domain 仕様」として分けて説明する。
+
+DropMerge domain v1 は `Flatten` 固定、探索対象は NN 構成のみ。
+既定では `$include <_main.txt>` の直後に `$include <DropMerge_optuna.txt>` を置く。
+学習系ハイパラは baseline または `DropMerge_optuna.txt` 側で固定する。
 
 用語の対応:
 
@@ -36,7 +40,7 @@ v1 の対象は DropMerge 専用、`Flatten` 固定、探索対象は NN 構成�
 - trial ごとに別プロセス化されるのは runner だけ。
 - `run-study` が `run-trial` を子プロセス起動する構成ではない。
 
-## 出力レイアウト
+## Harness 共通仕様: 出力レイアウト
 
 既定の出力先は `apps/runner/runs_optuna/`。
 
@@ -107,21 +111,27 @@ metrics-viewer は直下フォルダに `metrics.jsonl` があるものだけを
 `<run_name>` フォルダを削除しても `optuna.db` 内の trial レコードは消えない。
 DB には params、score、user_attrs、保存済み path が残るため、削除後は `run_dir` や `artifact_dir` が stale path になる。
 
-## コマンド概要
+## Harness 共通仕様: コマンド概要
 
 ### 共通引数
 
 `dry-run`、`run-trial`、`run-study` は次の共通引数を持つ。
+Harness 共通の引数と DropMerge domain 固有の引数が同じ command に並ぶが、CLI 名と意味は従来どおりである。
+
+Harness 共通:
 
 - `--repo-root`: `anet-lab` のリポジトリルート。path 解決の基準。
 - `--base-config`: trial config が最初に `$include` する main config。既定は `_main.txt`。
-- `--extra-config`: base config の後に `$include` する Optuna 専用 config。既定は `DropMerge_optuna.txt`。
 - `--study-name`: study 名。`run_name` の prefix になる。
+- `--runs-dir`: runner の `app.runs_dir` に渡す出力先。既定は `runs_optuna`。
+- `--exp-exit-step`: proxy trial の `app.batchrun.exp_exit_step`。負数相対 window と `%` window の基準にもなる。
+
+DropMerge domain 固有:
+
+- `--extra-config`: base config の後に `$include` する DropMerge Optuna 専用 config。既定は `DropMerge_optuna.txt`。
 - `--budget`: `small` / `medium` の `cost_budget` preset。
 - `--cost-budget`: preset を使わず `cost_budget` を直接指定する。
 - `--cost-k`: `cost_tf` の `N*M^2` 項に掛ける係数。
-- `--runs-dir`: runner の `app.runs_dir` に渡す出力先。既定は `runs_optuna`。
-- `--exp-exit-step`: proxy trial の `app.batchrun.exp_exit_step`。負数相対 window と `%` window の基準にもなる。
 - `--nhead`: Transformer の attention head 数。
 
 `dry-run` と `run-trial` は trial 1 件を固定 params で扱うため、
@@ -294,7 +304,7 @@ Dashboard 上では multi-objective study として表示されるため、singl
 同じ params group 内で source trial の採点条件が混ざっていても、`summarize-study` は停止しない。
 その場合は WARN を出し、target trial attrs の `source_context_mixed=true` と `group_summary.json` の `source_score_contexts` に根拠を残す。
 
-## Optuna Attributes 一覧
+## Harness 共通仕様: Optuna Attributes 一覧
 
 Optuna Dashboard では Study User Attributes と Trial User Attributes が見える。
 ただし attr は多くなりやすいため、Study attrs は「最後に起動した条件のメモ」、Trial attrs は「個々の trial の実体」として読む。
@@ -474,7 +484,7 @@ df.to_csv("optuna_trials.csv", index=False)
 
 同じ params の再評価だけを追いたい場合は、`params_*` 列を同一キーとして group 化し、`user_attrs_duplicate_index`、`user_attrs_effective_seeds`、`user_attrs_score` を並べると分かりやすい。
 
-## Score 算出基準
+## DropMerge Domain 仕様: Score 算出基準
 
 score は `metrics.jsonl` の scalar record から次の手順で算出する。
 
@@ -521,7 +531,7 @@ min            = min(seed score list)
 
 seed の一部が失敗した場合、その Optuna trial は aggregate score を採用せず `FAIL` にする。
 
-## 利用手順
+## Harness 共通仕様: 利用手順
 
 ### 1. runner をビルドする
 
@@ -670,7 +680,21 @@ python apps\runner\tools\dropmerge_optuna.py summarize apps/runner/runs_optuna/d
 python apps\runner\tools\dropmerge_optuna.py summarize apps/runner/runs_optuna/dropmergeSmall_t00000/metrics.jsonl --exp-exit-step 1000000 --window-start -200000 --output-dir apps/runner/runs_optuna/dropmergeSmall_t00000/trial
 ```
 
-## 探索対象と制約
+## DropMerge Domain 仕様: 探索対象と制約
+
+この節は `dropmerge_optuna.py` 内の `DropMergeDomain` が持つ仕様に対応する。
+共通 harness 部品は `optuna_common.py` に分離している。
+DropMerge domain は、固定 NN params 引数、Optuna suggest の探索空間、`TrialParams` group key、
+token 数計算、`cost_tf`、primary/supplemental score tag、late window、generated config をまとめて定義する。
+
+generated config は次の順で構成する。
+
+1. `$include <_main.txt>` または `--base-config`。
+2. `$include <DropMerge_optuna.txt>` または `--extra-config`。
+3. trial 固有 override。`app.run_name`、`app.runs_dir`、`app.batchrun.exp_exit_step`、`train.seed`、DropMerge NN block / branch 設定を書く。
+
+DropMerge domain v1 の generated branch は `net.branch.OptunaDropMerge` で、入力 bind は `grid, vector_feature`。
+`P=Flatten` は固定し、`token_mode` に応じて `ConvDown` / `ConvDown2` の有無だけを変える。
 
 探索対象:
 
@@ -712,7 +736,7 @@ cost_tf = L * (N^2 * M + k * N * M^2)
 - `small`: `35,000,000`
 - `medium`: `70,000,000`
 
-## 運用メモ
+## Harness 共通仕様: 運用メモ
 
 - `run-study` は探索用、`run-trial` は固定候補の smoke / 再評価用。
 - `run-trial` は Optuna DB に登録しない。
