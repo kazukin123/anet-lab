@@ -268,9 +268,6 @@ namespace anet::rl {
         void DumpToLog() const;
     private:
         void ProcessQueue(int64_t env_idx); // 内部パイプラインの駆動
-        void PreparePendingPriorityUpdates();
-        void AddPendingPriorityUpdate(int64_t index, float priority);
-        void FlushPendingPriorityUpdates();
         void InvalidateAccessorCacheForStorage();
         void InvalidateAccessorCacheForPriority();
         std::optional<std::vector<torch::Tensor>> TryGetCachedTensorVector(const std::string& key, int64_t index) const;
@@ -298,8 +295,6 @@ namespace anet::rl {
         std::shared_ptr<ExperienceSampleExtractor> extractor_;
 
         std::vector<ExperienceQueue> queues_;
-        std::vector<int64_t> pending_prio_indices_;
-        std::vector<float> pending_prio_values_;
 
         mutable std::shared_mutex storage_mutex_;
         mutable std::mutex metadata_mutex_;

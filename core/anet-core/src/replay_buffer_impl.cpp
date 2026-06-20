@@ -389,8 +389,6 @@ SumTree::SumTree(int64_t capacity) : capacity_(capacity)
 
 void SumTree::Update(int64_t index, float priority)
 {
-    //ANET_PROFILE_FUNC();
-
     int64_t tree_idx = index + capacity_ - 1;
     float change = priority - tree_[tree_idx];
     tree_[tree_idx] = priority;
@@ -407,8 +405,6 @@ float SumTree::GetTotalPriority() const
 
 int64_t SumTree::Retrieve(float value) const
 {
-    //ANET_PROFILE_FUNC();
-
     int64_t tree_idx = 0;
     while (tree_idx < capacity_ - 1) {
         int64_t left = 2 * tree_idx + 1;
@@ -637,25 +633,6 @@ namespace {
         }
 
         return torch::tensor(next_indices, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
-    }
-
-    bool HasSameKeys(const anet::TensorDict& lhs, const anet::TensorDict& rhs)
-    {
-        if (lhs.size() != rhs.size()) return false;
-        for (const auto& kv : rhs) {
-            if (!lhs.Contains(kv.first)) return false;
-        }
-        return true;
-    }
-
-    void SetTensorDictBatchItem(anet::TensorDict& scratch, const anet::TensorDict& batch_dict, int64_t batch_index)
-    {
-        if (!HasSameKeys(scratch, batch_dict)) {
-            scratch = anet::TensorDict();
-        }
-        for (const auto& kv : batch_dict) {
-            scratch.Set(kv.first, kv.second[batch_index]);
-        }
     }
 } // namespace
 
@@ -1178,49 +1155,39 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
     ANET_PROFILE_FUNC();
 
     std::unique_lock<std::shared_mutex> storage_lock(storage_mutex_);
-    PreparePendingPriorityUpdates();
 
     // 事前に action の info を取得しておく
-    const anet::TensorDict& action_info = batch.action->GetInfo();
-    const torch::Tensor actions = batch.action->GetAction();
-    const anet::TensorDict empty_info;
-    anet::TensorDict single_obs;
-    anet::TensorDict single_info;
-    anet::TensorDict terminal_obs;
+    anet::TensorDict action_info = batch.action->GetInfo();
 
     for (int64_t b = 0; b < num_envs_; ++b) {
         // Step 1: Storage に重いデータを即時 Push (重複排除)
 
-        // 単一バッチ要素のDictは scratch に view を上書きして再利用する
-        SetTensorDictBatchItem(single_obs, batch.state.obs, b);
-        const anet::TensorDict* single_info_ptr = &empty_info;
-        if (!action_info.empty()) {
-            SetTensorDictBatchItem(single_info, action_info, b);
-            single_info_ptr = &single_info;
-        }
+        // 単一バッチ要素のDictを構築
+        anet::TensorDict single_obs = batch.state.obs[b];
+        anet::TensorDict single_info = action_info.empty() ? anet::TensorDict() : action_info[b];
 
-        int64_t time_idx = storage_->Push(b, single_obs, actions[b], *single_info_ptr);
+        int64_t time_idx = storage_->Push(b, single_obs, batch.action->GetAction()[b], single_info);
         {
             std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
             index_manager_->MarkWritten(b, time_idx);
             index_manager_->AdvanceWriteCursor(b); // カーソルを進める
 
-            AddPendingPriorityUpdate(b * capacity_per_env_ + time_idx, 0.0f);
+            if (prio_controller_) {
+                prio_controller_->UpdatePriorities({ b * capacity_per_env_ + time_idx }, { 0.0f });
+            }
         }
 
         // 正常なステップを先に Queue に入れる (タイムトラベル防止)
         QueueRecord rec;
         rec.time_idx = time_idx;
         rec.reward = batch.reward[b].item<float>();
-        const bool next_done = batch.next_state.done[b].item<bool>();
-        const bool next_truncated = batch.next_state.truncated[b].item<bool>();
-        rec.done = next_done;
-        rec.truncated = next_truncated;
+        rec.done = batch.next_state.done[b].item<bool>();
+        rec.truncated = batch.next_state.truncated[b].item<bool>();
         queues_[b].Push(rec);
 
         // Truncatedのパラドックス対策 (ダミーステップの挿入)
-        if (next_truncated) {
-            SetTensorDictBatchItem(terminal_obs, batch.next_state.obs, b);
+        if (batch.next_state.truncated[b].item<bool>()) {
+            anet::TensorDict terminal_obs = batch.next_state.obs[b];
             storage_->PushTerminalDummy(b, terminal_obs);
 
             int64_t dummy_idx = (time_idx + 1) % capacity_per_env_;
@@ -1229,7 +1196,9 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
                 index_manager_->MarkDummy(b, dummy_idx);
                 index_manager_->AdvanceWriteCursor(b); // ダミー書き込み分もカーソルを進める
 
-                AddPendingPriorityUpdate(b * capacity_per_env_ + dummy_idx, 0.0f);
+                if (prio_controller_) {
+                    prio_controller_->UpdatePriorities({ b * capacity_per_env_ + dummy_idx }, { 0.0f });
+                }
             }
 
             QueueRecord dummy_rec;
@@ -1244,39 +1213,7 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
         ProcessQueue(b);
     }
 
-    FlushPendingPriorityUpdates();
     InvalidateAccessorCacheForStorage();
-}
-
-void DefaultReplayBuffer::PreparePendingPriorityUpdates()
-{
-    pending_prio_indices_.clear();
-    pending_prio_values_.clear();
-
-    if (!prio_controller_) return;
-
-    const auto expected_updates = static_cast<size_t>(
-        num_envs_ * (std::max<int>(1, config_.n_step) + 2));
-    if (pending_prio_indices_.capacity() < expected_updates) {
-        pending_prio_indices_.reserve(expected_updates);
-        pending_prio_values_.reserve(expected_updates);
-    }
-}
-
-void DefaultReplayBuffer::AddPendingPriorityUpdate(int64_t index, float priority)
-{
-    if (!prio_controller_) return;
-
-    pending_prio_indices_.push_back(index);
-    pending_prio_values_.push_back(priority);
-}
-
-void DefaultReplayBuffer::FlushPendingPriorityUpdates()
-{
-    if (!prio_controller_ || pending_prio_indices_.empty()) return;
-
-    std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
-    prio_controller_->UpdatePriorities(pending_prio_indices_, pending_prio_values_);
 }
 
 void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
@@ -1286,7 +1223,8 @@ void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
     auto sequences = queue_controller_->ExtractSequences(queues_[env_idx]);
 
     std::vector<int64_t> valid_envs;
-    valid_envs.reserve(sequences.size());
+    std::vector<int64_t> newly_valid;
+    std::vector<float> init_prios;
 
     for (const auto& seq : sequences) {
         // 念のため空チェック
@@ -1308,14 +1246,18 @@ void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
         // 完全にサンプリング可能になったので封印解除
         valid_envs.push_back(env_idx);
 
-        AddPendingPriorityUpdate(env_idx * capacity_per_env_ + time_idx, -1.0f); // 初期優先度を割り当てるための特殊フラグ
+        newly_valid.push_back(env_idx * capacity_per_env_ + time_idx);
+        init_prios.push_back(-1.0f); // 初期優先度を割り当てるための特殊フラグ
     }
 
-    // N-Step計算が完了し、安全になったデータをサンプリング対象へ移す
-    if (!valid_envs.empty()) {
+    //  N-Step計算が完了し、安全になったデータをTreeに登録（初期優先度付与）
+    if (!valid_envs.empty() || (prio_controller_ && !newly_valid.empty())) {
         std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
         for (int64_t valid_env : valid_envs) {
             index_manager_->MarkValid(valid_env);
+        }
+        if (prio_controller_ && !newly_valid.empty()) {
+            prio_controller_->UpdatePriorities(newly_valid, init_prios);
         }
     }
 }

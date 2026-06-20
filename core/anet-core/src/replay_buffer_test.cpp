@@ -9,7 +9,6 @@
 #include <exception>
 #include <mutex>
 #include <numeric>
-#include <sstream>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -20,7 +19,6 @@ namespace rl = anet::rl;
 
 constexpr const char* kVectorKey = rl::ObsKeys::kVector;
 constexpr const char* kMaskKey = rl::ObsKeys::kActionMask;
-constexpr const char* kActionInfoKey = "test_action_info";
 
 struct TestBuffer {
     std::shared_ptr<rl::ReplayBuffer> rb;
@@ -151,8 +149,7 @@ rl::BatchExperience MakeBatch(
     const std::vector<bool>& next_done,
     const std::vector<bool>& next_truncated,
     const std::vector<bool>& episode_start,
-    bool include_mask = false,
-    bool include_action_info = false)
+    bool include_mask = false)
 {
     const int64_t num_envs = static_cast<int64_t>(state_values.size());
 
@@ -169,11 +166,7 @@ rl::BatchExperience MakeBatch(
         BoolTensor(BoolValues(num_envs, false)));
 
     auto actions = torch::zeros({ num_envs }, torch::TensorOptions().dtype(torch::kInt64));
-    anet::TensorDict action_info_dict;
-    if (include_action_info) {
-        action_info_dict.Set(kActionInfoKey, FloatColumn(state_values));
-    }
-    auto action_info = std::make_shared<rl::BatchActionInfo>(actions, action_info_dict);
+    auto action_info = std::make_shared<rl::BatchActionInfo>(actions);
 
     return rl::BatchExperience(state, action_info, FloatVector(rewards), next_state);
 }
@@ -214,18 +207,6 @@ std::vector<int64_t> TensorToInt64Vector(const torch::Tensor& tensor)
     auto cpu = tensor.cpu().contiguous();
     auto ptr = cpu.data_ptr<int64_t>();
     return std::vector<int64_t>(ptr, ptr + cpu.numel());
-}
-
-std::string FormatInt64Vector(const std::vector<int64_t>& values)
-{
-    std::ostringstream oss;
-    oss << "{ ";
-    for (size_t i = 0; i < values.size(); ++i) {
-        if (i > 0) oss << ", ";
-        oss << values[i];
-    }
-    oss << " }";
-    return oss.str();
 }
 
 class BlockingReplayBuffer final : public rl::ReplayBuffer {
@@ -396,8 +377,7 @@ void PushTime(
     std::vector<bool> next_truncated = {},
     std::vector<bool> episode_start = {},
     std::vector<float> next_values = {},
-    bool include_mask = false,
-    bool include_action_info = false)
+    bool include_mask = false)
 {
     if (next_done.empty()) {
         next_done = BoolValues(buffer.num_envs, false);
@@ -419,8 +399,7 @@ void PushTime(
         next_done,
         next_truncated,
         episode_start,
-        include_mask,
-        include_action_info));
+        include_mask));
 }
 
 int64_t IndexOf(const TestBuffer& buffer, int64_t env_idx, int64_t physical_time_idx)
@@ -431,61 +410,6 @@ int64_t IndexOf(const TestBuffer& buffer, int64_t env_idx, int64_t physical_time
 void RequireShape(const torch::Tensor& tensor, const std::vector<int64_t>& expected)
 {
     REQUIRE(tensor.sizes().vec() == expected);
-}
-
-std::vector<int64_t> CollectReplayPushAllocSampleIndices(rl::ReplaySamplerType sampler_type)
-{
-    constexpr int64_t num_envs = 3;
-    auto config = MakeConfig(60, 3, 0.95f, 2, sampler_type);
-    config.muzero.unroll_steps = 1;
-
-    auto buffer = MakeBuffer(config, num_envs, true, 20260618);
-
-    auto PushPattern = [&](int64_t time_idx) {
-        auto done = BoolValues(num_envs, false);
-        auto truncated = BoolValues(num_envs, false);
-        auto episode_start = BoolValues(num_envs, time_idx == 0);
-
-        if (time_idx == 4) done[1] = true;
-        if (time_idx == 7) truncated[2] = true;
-        if (time_idx == 10) done[0] = true;
-        if (time_idx == 13) truncated[1] = true;
-
-        PushTime(buffer, time_idx, done, truncated, episode_start, {}, true, true);
-    };
-
-    for (int64_t time_idx = 0; time_idx < 9; ++time_idx) {
-        PushPattern(time_idx);
-    }
-
-    std::vector<int64_t> out;
-    auto SampleAndUpdate = [&](int round) {
-        rl::ExperienceSamples samples;
-        buffer.rb->Sample(samples, 5, 0.4f);
-        RequireShape(samples.indices, { 5 });
-        auto indices = TensorToInt64Vector(samples.indices);
-        out.insert(out.end(), indices.begin(), indices.end());
-
-        std::vector<float> priorities;
-        priorities.reserve(indices.size());
-        for (size_t i = 0; i < indices.size(); ++i) {
-            priorities.push_back(1.25f + static_cast<float>(round) + static_cast<float>(i) * 0.125f);
-        }
-        buffer.rb->UpdatePriorities(indices, priorities);
-    };
-
-    SampleAndUpdate(0);
-    PushPattern(9);
-    PushPattern(10);
-    SampleAndUpdate(1);
-    PushPattern(11);
-    PushPattern(12);
-    SampleAndUpdate(2);
-    PushPattern(13);
-    PushPattern(14);
-    SampleAndUpdate(3);
-
-    return out;
 }
 
 void RequireFlatApprox(const torch::Tensor& tensor, const std::vector<float>& expected)
@@ -874,27 +798,6 @@ TEST_CASE("ReplayBuffer samples while push and priority update run concurrently"
     buffer.rb->Sample(samples, 4, 0.4f);
     RequireShape(samples.indices, { 4 });
     RequireShape(samples.actions, { 4 });
-}
-
-TEST_CASE("ReplayBuffer push allocation optimization preserves sampled indices", "[replay_buffer][determinism]")
-{
-    auto uniform = CollectReplayPushAllocSampleIndices(rl::ReplaySamplerType::UNIFORM);
-    auto prioritized = CollectReplayPushAllocSampleIndices(rl::ReplaySamplerType::PRIORITIZED);
-
-    const std::vector<int64_t> expected_uniform{
-        5, 3, 44, 24, 1, 44, 20, 27, 23, 22,
-        0, 23, 3, 1, 25, 31, 31, 4, 46, 9
-    };
-    const std::vector<int64_t> expected_prioritized{
-        24, 25, 1, 43, 22, 21, 1, 27, 42, 43,
-        50, 20, 50, 47, 7, 49, 31, 5, 20, 1
-    };
-
-    INFO("uniform=" << FormatInt64Vector(uniform));
-    CHECK(uniform == expected_uniform);
-
-    INFO("prioritized=" << FormatInt64Vector(prioritized));
-    CHECK(prioritized == expected_prioritized);
 }
 
 TEST_CASE("PrefetchingReplayBuffer samples deterministically on CPU", "[replay_buffer][prefetch]")
