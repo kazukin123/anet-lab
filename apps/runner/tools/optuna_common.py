@@ -1321,6 +1321,10 @@ class OptunaHarnessRuntime:
         append_cli_arg(parts, "--window-end", args.window_end)
         if hasattr(args, "nhead"):
             append_cli_arg(parts, "--nhead", args.nhead)
+        fixed_param_cli_args = getattr(self.domain, "fixed_param_cli_args", None)
+        if fixed_param_cli_args is not None:
+            for option_name, value in fixed_param_cli_args(args):
+                append_cli_arg(parts, option_name, value)
         append_cli_arg(parts, "--seeds", args.seeds)
         append_cli_arg(parts, "--score-aggregate", args.score_aggregate)
         if args.sampler_seed is not None:
@@ -2621,7 +2625,7 @@ class OptunaHarnessRuntime:
         """Optuna objective。prune/fail の意味づけをここで Optuna state に接続する。"""
         import optuna
 
-        params = self.domain.suggest_params(trial)
+        params = self.domain.suggest_params(trial, args)
         try:
             return self.execute_multi_seed(
                 args,
@@ -2689,6 +2693,11 @@ class OptunaHarnessRuntime:
             n_startup_trials=args.n_startup_trials,
             constant_liar=args.constant_liar,
         )
+        fixed_params_for_sampler = getattr(self.domain, "fixed_params_for_sampler", None)
+        if fixed_params_for_sampler is not None:
+            fixed_params = fixed_params_for_sampler(args)
+            if fixed_params:
+                sampler = optuna.samplers.PartialFixedSampler(fixed_params, sampler)
         storage_url = storage_url_from_arg(args)
         storage = create_optuna_storage(
             optuna,

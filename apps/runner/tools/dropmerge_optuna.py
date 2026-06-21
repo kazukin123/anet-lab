@@ -100,67 +100,69 @@ class DropMergeDomain:
     )
 
     @classmethod
-    def add_param_args(cls, parser) -> None:
-        """DropMerge 固有の固定 NN params 引数を CLI parser に追加する。"""
+    def add_param_args(cls, parser, *, default_values: bool = True) -> None:
+        """DropMerge 固有の NN params 引数を CLI parser に追加する。"""
+        default_note = "" if default_values else "未指定時は全候補を探索し、指定時はその値に固定する。"
         parser.add_argument(
             "--cnn-channels",
             type=int,
             choices=cls.TRIAL_PARAM_CHOICES["cnn_channels"],
-            default=64,
-            help="CNN/ResBlock の channel 数 C。",
+            default=64 if default_values else None,
+            help=f"CNN/ResBlock の channel 数 C。{default_note}",
         )
         parser.add_argument(
             "--res-blocks",
             type=int,
             choices=cls.TRIAL_PARAM_CHOICES["res_blocks"],
-            default=4,
-            help="ResBlock の繰り返し数 D。",
+            default=4 if default_values else None,
+            help=f"ResBlock の繰り返し数 D。{default_note}",
         )
         parser.add_argument(
             "--token-mode",
             choices=cls.TRIAL_PARAM_CHOICES["token_mode"],
-            default="current",
-            help="token 解像度 N のモード。",
+            default="current" if default_values else None,
+            help=f"token 解像度 N のモード。{default_note}",
         )
         parser.add_argument(
             "--d-model",
             type=int,
             choices=cls.TRIAL_PARAM_CHOICES["d_model"],
-            default=96,
-            help="Transformer の d_model M。",
+            default=96 if default_values else None,
+            help=f"Transformer の d_model M。{default_note}",
         )
         parser.add_argument(
             "--transformer-layers",
             type=int,
             choices=cls.TRIAL_PARAM_CHOICES["transformer_layers"],
-            default=2,
-            help="Transformer 層数 L。",
+            default=2 if default_values else None,
+            help=f"Transformer 層数 L。{default_note}",
         )
         parser.add_argument(
             "--ff-mult",
             type=int,
             choices=cls.TRIAL_PARAM_CHOICES["ff_mult"],
-            default=2,
-            help="dim_feedforward = d_model * ff_mult。",
+            default=2 if default_values else None,
+            help=f"dim_feedforward = d_model * ff_mult。{default_note}",
         )
         parser.add_argument(
             "--trunk-width",
             type=int,
             choices=cls.TRIAL_PARAM_CHOICES["trunk_width"],
-            default=1024,
-            help="Flatten 後 trunk Linear 幅 H。",
+            default=1024 if default_values else None,
+            help=f"Flatten 後 trunk Linear 幅 H。{default_note}",
         )
         parser.add_argument(
             "--head-width",
             type=int,
             choices=cls.TRIAL_PARAM_CHOICES["head_width"],
-            default=512,
-            help="value/adv stream の head Linear 幅。",
+            default=512 if default_values else None,
+            help=f"value/adv stream の head Linear 幅。{default_note}",
         )
 
     @classmethod
-    def suggest_params(cls, trial) -> TrialParams:
+    def suggest_params(cls, trial, args=None) -> TrialParams:
         """Optuna trial から DropMerge NN 構成を suggest する。"""
+        del args
         return TrialParams(
             cnn_channels=trial.suggest_categorical("cnn_channels", cls.TRIAL_PARAM_CHOICES["cnn_channels"]),
             res_blocks=trial.suggest_categorical("res_blocks", cls.TRIAL_PARAM_CHOICES["res_blocks"]),
@@ -174,6 +176,29 @@ class DropMergeDomain:
             trunk_width=trial.suggest_categorical("trunk_width", cls.TRIAL_PARAM_CHOICES["trunk_width"]),
             head_width=trial.suggest_categorical("head_width", cls.TRIAL_PARAM_CHOICES["head_width"]),
         )
+
+    @classmethod
+    def fixed_params_from_args(cls, args) -> dict[str, object]:
+        """run-study で固定指定された探索 params だけを取り出す。"""
+        result: dict[str, object] = {}
+        for name in TrialParams.__dataclass_fields__:
+            value = getattr(args, name, None)
+            if value is not None:
+                result[name] = value
+        return result
+
+    @classmethod
+    def fixed_param_cli_args(cls, args) -> list[tuple[str, object]]:
+        """run-study 再開用 args に含める固定探索 params だけを返す。"""
+        result: list[tuple[str, object]] = []
+        for name, value in cls.fixed_params_from_args(args).items():
+            result.append((f"--{name.replace('_', '-')}", value))
+        return result
+
+    @classmethod
+    def fixed_params_for_sampler(cls, args) -> dict[str, object]:
+        """Optuna PartialFixedSampler へ渡す固定探索 params を返す。"""
+        return cls.fixed_params_from_args(args)
 
     @classmethod
     def params_from_mapping(cls, mapping: dict, *, source: str = "params") -> TrialParams:
@@ -624,6 +649,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     localize_parser(run_study)
     add_common_args(run_study, include_seed=False)
+    DOMAIN.add_param_args(run_study, default_values=False)
     add_runner_args(run_study)
     add_score_window_args(run_study)
     run_study.add_argument(
