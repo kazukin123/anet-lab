@@ -136,7 +136,9 @@ DropMerge domain 固有:
 
 `dry-run` と `run-trial` は trial 1 件を固定 params で扱うため、
 `--trial-name`、`--trial-number`、`--seed`、固定 NN params を持つ。
-`run-study` は Optuna が trial を生成するため、これらの trial 固有引数を持たない。
+`run-study` は Optuna が trial を生成するため、`--trial-name`、`--trial-number`、`--seed` は持たない。
+ただし固定 NN params は探索空間の制限として指定できる。
+未指定の NN params は既定探索候補のまま残り、指定した NN params だけその値に固定される。
 
 `dry-run` / `run-trial` で `--trial-name` と `--trial-number` をどちらも省略した場合、
 `runs_optuna` 直下の `<study_name>_tNNNNN` を見て次番号を決める。
@@ -189,8 +191,11 @@ Optuna study を作成または再開し、Optuna が suggest した params で 
 1 Optuna trial は 1 NN params 候補を表し、`--seeds` で指定した seed ごとに runner を逐次起動する。
 Optuna の trial value には seed 別 score ではなく、`multiseed_summary.json` の aggregate score を返す。
 
-`run-study` は study 全体のコマンドなので、`--trial-name` と固定 NN params は持たない。
+`run-study` は study 全体のコマンドなので、`--trial-name` は持たない。
 trial 名は Optuna trial number から `t00000`, `t00001`, ... と自動生成される。
+固定 NN params は trial 固有値ではなく、探索空間の制限として指定できる。
+例えば `--token-mode stronger --d-model 128` を指定すると、`token_mode` と `d_model` はその値だけを候補にし、他の NN params は通常どおり探索する。
+内部的には Optuna の `PartialFixedSampler` で固定するため、固定 params 指定時は Optuna の experimental warning が表示される場合がある。
 
 主な引数:
 
@@ -214,6 +219,7 @@ trial 名は Optuna trial number から `t00000`, `t00001`, ... と自動生成�
 - `--runner-exe`: `AnetRLRunner.exe` の path。既定は `apps/runner/bin/Release/AnetRLRunner.exe`。
 - `--budget`, `--cost-budget`, `--cost-k`: cost 制約。
 - `--exp-exit-step`, `--nhead`: trial config に入る共通設定。
+- `--cnn-channels`, `--res-blocks`, `--token-mode`, `--d-model`, `--transformer-layers`, `--ff-mult`, `--trunk-width`, `--head-width`: 指定した param だけ探索候補を 1 値に制限する。未指定 param は既定探索候補を使う。
 - backend deterministic や DropMergeEnv の `seed_mode` / `global_seed` は、生成 config ではなく `--extra-config` 側で管理する。
 - `--window-start`, `--window-end`: primary score 集計 window。絶対 step、負数相対 step、`80%` のような `exp_exit_step` 比率を指定できる。既定は `80%` から `100%`。
 
@@ -600,6 +606,14 @@ medium study:
 python apps\runner\tools\dropmerge_optuna.py run-study --study-name dropmergeMedium --budget medium --n-trials 20 --n-jobs 1 --seeds 12345,23456,34567 --score-aggregate mean-minus-std --exp-exit-step 1000000
 ```
 
+一部の NN params を固定して探索する場合:
+
+```powershell
+python apps\runner\tools\dropmerge_optuna.py run-study --study-name dropmergeStrong128 --budget medium --n-trials 20 --seeds 12345,23456,34567 --token-mode stronger --d-model 128
+```
+
+この例では `token_mode=stronger` と `d_model=128` だけを固定し、`cnn_channels`、`res_blocks`、`transformer_layers`、`ff_mult`、`trunk_width`、`head_width` は通常どおり探索する。
+
 `--n-jobs > 1` は同一 GPU 上で runner が並列起動する。duration や step/sec は干渉を受けるため、score には使わず補助指標として読む。
 multi-seed は 1 Optuna trial の内部で seed を逐次実行する。`--n-jobs > 1` の場合は、複数 params 候補が並列に進む。
 SQLite storage で `--n-jobs > 1` を使うと、Optuna の trial / user attrs 書き込みが競合し `database is locked` になることがある。
@@ -707,6 +721,10 @@ DropMerge domain v1 の generated branch は `net.branch.OptunaDropMerge` で、
 - `L`: `--transformer-layers`。Transformer 層数。既定探索では `2` / `4`。
 - `ff_mult`: `--ff-mult`。`dim_feedforward = d_model * ff_mult`。既定探索では `2` / `4`。
 - `H`: `--trunk-width`, `--head-width`。Flatten 後 trunk と value/adv stream の Linear 幅。既定探索では trunk `1024` / `2048`、head `512` / `1024`。
+
+`run-study` では上記 option を個別に指定すると、その param だけ探索候補が指定値 1 つに制限される。
+未指定 param は既定探索候補を使う。
+固定指定した param も Optuna trial params には通常どおり保存されるため、duplicate 判定や summary-study の group key は従来と同じ 8 params 全体で扱う。
 
 `P=Flatten` は固定し、`GAP1D` / `CLS` / pooling family は v1 では探索しない。
 学習系ハイパラ、環境設定、報酬スケーラ、TBO、PER、UQE、replay ratio、batch size は baseline または `DropMerge_optuna.txt` 側で固定する。
