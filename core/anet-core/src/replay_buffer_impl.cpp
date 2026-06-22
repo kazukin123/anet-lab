@@ -1514,27 +1514,46 @@ void DefaultReplayBuffer::DumpToLog() const
 // Prefetching ReplayBuffer
 // ===========================================================================
 
-struct PrefetchingReplayBuffer::PrefetchedBatch : anet::transfer::DeviceTransfer<ExperienceSamples> {
-    using Base = anet::transfer::DeviceTransfer<ExperienceSamples>;
-    using Base::Base;
-
-    PrefetchedBatch() = default;
-    PrefetchedBatch(PrefetchedBatch&&) = default;
-    PrefetchedBatch& operator=(PrefetchedBatch&&) = default;
-    PrefetchedBatch(const PrefetchedBatch&) = delete;
-    PrefetchedBatch& operator=(const PrefetchedBatch&) = delete;
-};
-
 struct PrefetchingReplayBuffer::State {
-    explicit State(torch::Device target_device)
-        : pool(std::make_unique<anet::PinnedThreadPool>(1, "ReplayBufferPrefetch"))
+    using PrefetchedBatch = anet::transfer::DeviceTransfer<ExperienceSamples>;
+
+    State(ReplayBuffer& inner, torch::Device target_device)
+        : inner(inner)
+        , target_device(std::move(target_device))
+        , pool(std::make_unique<anet::PinnedThreadPool>(1, "ReplayBufferPrefetch"))
     {
-        if (target_device.is_cuda()) {
+        if (this->target_device.is_cuda()) {
             copy_stream = at::cuda::getStreamFromPool(false);
         }
     }
 
-    mutable std::mutex mutex;
+    /// inner からサンプルし transfer まで行って PrefetchedBatch を作る（prefetch worker 本体）。
+    PrefetchedBatch Fetch(int64_t minibatch_size, float beta);
+
+    /// CPU サンプルを pin→H2D→event record して DeviceTransfer 化する（CPU device 時は同期 To のみ）。
+    PrefetchedBatch TransferSamples(ExperienceSamples cpu_samples);
+
+    /// future 未起動なら次の 1-deep prefetch を worker に投入する（mutex 保持前提）。
+    void LaunchPrefetchLocked(int64_t minibatch_size, float beta);
+
+    /// in-flight prefetch future の完了を待つ（消費はしない。mutex 保持前提）。
+    void WaitForPrefetchLocked();
+
+    /// armed 後の Push を worker FIFO に write-behind 投入する（mutex 保持前提）。
+    void EnqueueDelayedPushLocked(BatchExperience batch_exp);
+
+    /// 完了済み delayed push を非ブロッキングで回収する（mutex 保持前提）。
+    void PruneCompletedPushesLocked();
+
+    /// 残る delayed push を全て完了待ちする（mutex 保持前提）。
+    void WaitForQueuedPushesLocked();
+
+    /// shutdown: prefetch/push 完了待ち→event_recycler.Drain→pool 停止まで行う（内部で lock）。
+    void StopPrefetch();
+
+    ReplayBuffer& inner;
+    torch::Device target_device;
+    std::mutex mutex;
     std::unique_ptr<anet::PinnedThreadPool> pool;
     std::optional<at::cuda::CUDAStream> copy_stream;
     anet::transfer::EventRecycler<ExperienceSamples> event_recycler;
@@ -1542,17 +1561,105 @@ struct PrefetchingReplayBuffer::State {
     std::deque<std::future<void>> push_futures;
 };
 
+PrefetchingReplayBuffer::State::PrefetchedBatch PrefetchingReplayBuffer::State::Fetch(int64_t minibatch_size, float beta)
+{
+    ANET_PROFILE_SCOPE(sample);
+    ExperienceSamples cpu_samples;
+    inner.Sample(cpu_samples, minibatch_size, beta);
+
+    return TransferSamples(std::move(cpu_samples));
+}
+
+PrefetchingReplayBuffer::State::PrefetchedBatch PrefetchingReplayBuffer::State::TransferSamples(ExperienceSamples cpu_samples)
+{
+    if (!target_device.is_cuda()) {
+        ANET_PROFILE_SCOPE_FULL(to, "PrefetchingReplayBuffer::Fetch.to");
+
+        // CPU learnerではCUDA用のpin/stream/eventを使わず、抽出済みsampleだけをCPUへそろえる。
+        return PrefetchedBatch(std::move(cpu_samples), target_device);
+    }
+
+    ANET_PROFILE_SCOPE_FULL(to, "PrefetchingReplayBuffer::Fetch.to");
+
+    // CUDA learnerではworker側でCPU tensorをpinned化し、copy streamへH2D転送を積む。
+    // 転送元とeventはSample側でevent_recyclerへ渡し、完了後にまとめて回収・再利用する。
+    return PrefetchedBatch(
+        std::move(cpu_samples),
+        target_device,
+        copy_stream.value(),
+        event_recycler);
+}
+
+void PrefetchingReplayBuffer::State::LaunchPrefetchLocked(int64_t minibatch_size, float beta)
+{
+    if (future.valid()) return;
+
+    future = pool->EnqueueFuture(0, [this, minibatch_size, beta]() {
+        return Fetch(minibatch_size, beta);
+    });
+}
+
+void PrefetchingReplayBuffer::State::WaitForPrefetchLocked()
+{
+    if (future.valid()) {
+        future.wait();
+    }
+}
+
+void PrefetchingReplayBuffer::State::EnqueueDelayedPushLocked(BatchExperience batch_exp)
+{
+    push_futures.push_back(pool->EnqueueFuture(0, [this, batch_exp = std::move(batch_exp)]() mutable {
+        ANET_PROFILE_SCOPE_FULL(push_worker, "PrefetchingReplayBuffer::Push.push_worker");
+        inner.Push(batch_exp);
+    }));
+}
+
+void PrefetchingReplayBuffer::State::PruneCompletedPushesLocked()
+{
+    while (!push_futures.empty()) {
+        auto& front = push_futures.front();
+        if (front.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        front.get();
+        push_futures.pop_front();
+    }
+}
+
+void PrefetchingReplayBuffer::State::WaitForQueuedPushesLocked()
+{
+    while (!push_futures.empty()) {
+        push_futures.front().get();
+        push_futures.pop_front();
+    }
+}
+
+void PrefetchingReplayBuffer::State::StopPrefetch()
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        WaitForPrefetchLocked();
+        WaitForQueuedPushesLocked();
+        event_recycler.Drain();
+    }
+
+    if (pool) {
+        pool->WaitAll();
+        pool->Stop();
+    }
+}
+
 PrefetchingReplayBuffer::PrefetchingReplayBuffer(std::shared_ptr<ReplayBuffer> inner, torch::Device target_device)
     : inner_(std::move(inner))
     , target_device_(std::move(target_device))
-    , state_(std::make_unique<State>(target_device_))
 {
     ANET_ASSERT_MSG(inner_ != nullptr, "PrefetchingReplayBuffer requires a non-null inner ReplayBuffer.");
+    state_ = std::make_unique<State>(*inner_, target_device_);
 }
 
 PrefetchingReplayBuffer::~PrefetchingReplayBuffer()
 {
-    StopPrefetch();
+    if (state_) {
+        state_->StopPrefetch();
+    }
 }
 
 void PrefetchingReplayBuffer::Push(const BatchExperience& batch_exp)
@@ -1571,7 +1678,7 @@ void PrefetchingReplayBuffer::Push(const BatchExperience& batch_exp)
     BatchExperience snapshot = batch_exp;
     {
         ANET_PROFILE_SCOPE_NEXT(enqueue_push);
-        EnqueueDelayedPushLocked(std::move(snapshot));
+        state_->EnqueueDelayedPushLocked(std::move(snapshot));
     }
 }
 
@@ -1579,7 +1686,7 @@ void PrefetchingReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t min
 {
     ANET_PROFILE_FUNC();
 
-    PrefetchedBatch batch;
+    State::PrefetchedBatch batch;
     {
         std::unique_lock<std::mutex> lock(state_->mutex);
         if (state_->future.valid()) {
@@ -1588,14 +1695,14 @@ void PrefetchingReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t min
             // 前回起動した1-deep prefetchをここで消費し、同じ排他区間で次のprefetchを起動する。
             // futureの有無をこの順序で更新することで、二重起動せず常に最大1件だけ先読みする。
             batch = state_->future.get();
-            PruneCompletedPushesLocked();
-            LaunchPrefetchLocked(minibatch_size, beta);
+            state_->PruneCompletedPushesLocked();
+            state_->LaunchPrefetchLocked(minibatch_size, beta);
         } else {
             ANET_PROFILE_SCOPE(cold_fetch);
 
             // 初回はfutureが無いため、state mutex内で同期Sampleし、Push/UpdatePrioritiesとの順序を固定する。
-            batch = Fetch(minibatch_size, beta);
-            LaunchPrefetchLocked(minibatch_size, beta);
+            batch = state_->Fetch(minibatch_size, beta);
+            state_->LaunchPrefetchLocked(minibatch_size, beta);
         }
     }
 
@@ -1624,7 +1731,7 @@ void PrefetchingReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t min
 int64_t PrefetchingReplayBuffer::Size() const
 {
     std::lock_guard<std::mutex> lock(state_->mutex);
-    PruneCompletedPushesLocked();
+    state_->PruneCompletedPushesLocked();
     return inner_->Size();
 }
 
@@ -1637,8 +1744,8 @@ void PrefetchingReplayBuffer::UpdatePriorities(const std::vector<int64_t>& indic
         ANET_PROFILE_SCOPE(wait_prefetch);
 
         // background Sample と priority 更新の順序を固定する。
-        WaitForPrefetchLocked();
-        WaitForQueuedPushesLocked();
+        state_->WaitForPrefetchLocked();
+        state_->WaitForQueuedPushesLocked();
     }
     inner_->UpdatePriorities(indices, priorities);
 }
@@ -1656,94 +1763,6 @@ std::optional<torch::Tensor> PrefetchingReplayBuffer::GetTensor(const std::strin
 std::optional<std::vector<torch::Tensor>> PrefetchingReplayBuffer::GetTensorVector(const std::string& key, int64_t index) const
 {
     return inner_->GetTensorVector(key, index);
-}
-
-PrefetchingReplayBuffer::PrefetchedBatch PrefetchingReplayBuffer::Fetch(int64_t minibatch_size, float beta) const
-{
-    ANET_PROFILE_SCOPE(sample);
-    ExperienceSamples cpu_samples;
-    inner_->Sample(cpu_samples, minibatch_size, beta);
-
-    return TransferSamples(std::move(cpu_samples));
-}
-
-PrefetchingReplayBuffer::PrefetchedBatch PrefetchingReplayBuffer::TransferSamples(ExperienceSamples cpu_samples) const
-{
-    if (!target_device_.is_cuda()) {
-        ANET_PROFILE_SCOPE_FULL(to, "PrefetchingReplayBuffer::Fetch.to");
-
-        // CPU learnerではCUDA用のpin/stream/eventを使わず、抽出済みsampleだけをCPUへそろえる。
-        return PrefetchedBatch(std::move(cpu_samples), target_device_);
-    }
-
-    ANET_PROFILE_SCOPE_FULL(to, "PrefetchingReplayBuffer::Fetch.to");
-
-    // CUDA learnerではworker側でCPU tensorをpinned化し、copy streamへH2D転送を積む。
-    // 転送元とeventはSample側でevent_recyclerへ渡し、完了後にまとめて回収・再利用する。
-    return PrefetchedBatch(
-        std::move(cpu_samples),
-        target_device_,
-        state_->copy_stream.value(),
-        state_->event_recycler);
-}
-
-void PrefetchingReplayBuffer::EnqueueDelayedPushLocked(BatchExperience batch_exp) const
-{
-    state_->push_futures.push_back(state_->pool->EnqueueFuture(0, [this, batch_exp = std::move(batch_exp)]() mutable {
-        ANET_PROFILE_SCOPE_FULL(push_worker, "PrefetchingReplayBuffer::Push.push_worker");
-        inner_->Push(batch_exp);
-    }));
-}
-
-void PrefetchingReplayBuffer::PruneCompletedPushesLocked() const
-{
-    while (!state_->push_futures.empty()) {
-        auto& front = state_->push_futures.front();
-        if (front.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
-        front.get();
-        state_->push_futures.pop_front();
-    }
-}
-
-void PrefetchingReplayBuffer::WaitForQueuedPushesLocked() const
-{
-    while (!state_->push_futures.empty()) {
-        state_->push_futures.front().get();
-        state_->push_futures.pop_front();
-    }
-}
-
-void PrefetchingReplayBuffer::WaitForPrefetchLocked() const
-{
-    if (state_->future.valid()) {
-        state_->future.wait();
-    }
-}
-
-void PrefetchingReplayBuffer::LaunchPrefetchLocked(int64_t minibatch_size, float beta) const
-{
-    if (state_->future.valid()) return;
-
-    state_->future = state_->pool->EnqueueFuture(0, [this, minibatch_size, beta]() {
-        return Fetch(minibatch_size, beta);
-    });
-}
-
-void PrefetchingReplayBuffer::StopPrefetch() const
-{
-    if (!state_) return;
-
-    {
-        std::lock_guard<std::mutex> lock(state_->mutex);
-        WaitForPrefetchLocked();
-        WaitForQueuedPushesLocked();
-        state_->event_recycler.Drain();
-    }
-
-    if (state_->pool) {
-        state_->pool->WaitAll();
-        state_->pool->Stop();
-    }
 }
 
 

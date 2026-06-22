@@ -93,20 +93,10 @@ namespace anet::rl {
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
     private:
         struct State;
-        struct PrefetchedBatch;
 
-        PrefetchedBatch Fetch(int64_t minibatch_size, float beta) const;
-        PrefetchedBatch TransferSamples(ExperienceSamples cpu_samples) const;
-        void EnqueueDelayedPushLocked(BatchExperience batch_exp) const;
-        void PruneCompletedPushesLocked() const;
-        void WaitForQueuedPushesLocked() const;
-        void WaitForPrefetchLocked() const;
-        void LaunchPrefetchLocked(int64_t minibatch_size, float beta) const;
-        void StopPrefetch() const;
-    private:
         std::shared_ptr<ReplayBuffer> inner_;
         torch::Device target_device_;
-        mutable std::unique_ptr<State> state_;
+        std::unique_ptr<State> state_;
     };
 
 } // namespace anet
