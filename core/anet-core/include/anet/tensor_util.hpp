@@ -252,6 +252,17 @@ namespace anet {
             return result;
         }
 
+        /// 定義済みテンソルを可変訪問する
+        template <class F>
+        void ForEachTensor(F&& fn)
+        {
+            for (auto& kv : dict_) {
+                if (kv.second.defined()) {
+                    fn(kv.second);
+                }
+            }
+        }
+
         /// 全テンソルを一括で型変換して新しいTensorDictを返す
         TensorDict To(torch::ScalarType dtype) const
         {

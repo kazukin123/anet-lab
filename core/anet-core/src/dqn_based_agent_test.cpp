@@ -137,8 +137,9 @@ public:
     }
 
     using dqn::Learner::MakeBatchUpdateResult;
-    using dqn::Learner::MakePerPriorityUpdateInfo;
     using dqn::Learner::Optimize;
+    using dqn::Learner::ApplyPerPriorityUpdate;
+    using dqn::Learner::PreparePerPriorityUpdate;
     using dqn::Learner::TransformH;
     using dqn::Learner::TransformHInv;
 
@@ -149,11 +150,58 @@ public:
             torch::optim::SGDOptions(lr));
     }
 
+    void UseReplayBuffer(std::shared_ptr<rl::ReplayBuffer> replay_buffer)
+    {
+        replay_buffer_ = std::move(replay_buffer);
+    }
+
     std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
         const anet::rl::ExperienceSamples& samples) override
     {
         return nullptr;
     }
+};
+
+class RecordingReplayBuffer final : public rl::ReplayBuffer {
+public:
+    void Push(const rl::BatchExperience&) override
+    {
+    }
+
+    void Sample(rl::ExperienceSamples&, int64_t, float) const override
+    {
+    }
+
+    int64_t Size() const override
+    {
+        return 0;
+    }
+
+    void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override
+    {
+        last_indices = indices;
+        last_priorities = priorities;
+        ++update_count;
+    }
+
+    std::optional<float> GetScalar(const std::string&, int64_t = -1) const override
+    {
+        return std::nullopt;
+    }
+
+    std::optional<torch::Tensor> GetTensor(const std::string&, int64_t = -1) const override
+    {
+        return std::nullopt;
+    }
+
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string&, int64_t = -1) const override
+    {
+        return std::nullopt;
+    }
+
+    std::vector<int64_t> last_indices;
+    std::vector<float> last_priorities;
+    int update_count = 0;
 };
 
 std::vector<int64_t> ShapeOf(const torch::Tensor& tensor)
@@ -947,7 +995,7 @@ TEST_CASE("TBO real-space q scalars are exposed from batch update result", "[dqn
     CHECK(off_result->GetScalar("q_sa_real_mean", -1).has_value());
 }
 
-TEST_CASE("PER priority helper applies epsilon and clipping", "[dqn][per]")
+TEST_CASE("PER priority prepare/apply updates replay buffer from CPU materialized priorities", "[dqn][per]")
 {
     dqn::LearnerConfig config;
     config.use_per = true;
@@ -960,16 +1008,33 @@ TEST_CASE("PER priority helper applies epsilon and clipping", "[dqn][per]")
     dqn::RuntimeVars vars;
     rl::BatchEnvSpec batch_env_spec{ 1, 1 };
     TestLearner learner(config, model, vars, batch_env_spec, env_spec);
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    learner.UseReplayBuffer(replay_buffer);
 
     rl::ExperienceSamples samples;
+    samples.indices = torch::tensor({ 3, 5 }, torch::TensorOptions().dtype(torch::kInt64));
     samples.is_weights = torch::tensor({ 0.25f, 0.75f });
 
     auto td_error = torch::tensor({ -0.2f, 2.0f });
-    auto result = learner.MakePerPriorityUpdateInfo(samples, td_error);
+    auto pending = learner.PreparePerPriorityUpdate(samples, td_error);
+
+    REQUIRE(pending.enabled);
+    const auto expected_indices = std::vector<int64_t>{ 3, 5 };
+    CHECK(pending.indices == expected_indices);
+
+    auto result = learner.ApplyPerPriorityUpdate(std::move(pending));
+
+    CHECK(replay_buffer->update_count == 1);
+    CHECK(replay_buffer->last_indices == expected_indices);
+    REQUIRE(replay_buffer->last_priorities.size() == 2);
+    CHECK(replay_buffer->last_priorities[0] == Catch::Approx(0.3f).margin(1.0e-6f));
+    CHECK(replay_buffer->last_priorities[1] == Catch::Approx(1.0f).margin(1.0e-6f));
 
     REQUIRE(result.per_priorities.defined());
+    CHECK(result.per_priorities.device().is_cpu());
     CHECK(torch::allclose(result.per_priorities, torch::tensor({ 0.3f, 1.0f })));
     REQUIRE(result.per_clipped_count.defined());
+    CHECK(result.per_clipped_count.device().is_cpu());
     CHECK(result.per_clipped_count.item<int64_t>() == 1);
     CHECK(result.per_minibatch_size == 2);
     REQUIRE(result.per_is_weights.defined());

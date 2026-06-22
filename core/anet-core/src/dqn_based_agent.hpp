@@ -8,6 +8,7 @@
 #include "anet/scaler.hpp"
 #include "anet/nn.hpp"
 #include "anet/nn_util.hpp"
+#include "anet/transfer.hpp"
 
 
 namespace anet::rl::dqn {
@@ -250,6 +251,14 @@ namespace anet::rl::dqn {
         long per_minibatch_size = 0;
     };
 
+    struct PerPriorityUpdatePending {
+        std::vector<int64_t> indices;
+        anet::transfer::HostReadback priority_readback;
+        torch::Tensor per_is_weights;
+        long per_minibatch_size = 0;
+        bool enabled = false;
+    };
+
     struct QuantileMetrics {
         torch::Tensor q_sa;
         torch::Tensor max_q;
@@ -483,8 +492,11 @@ namespace anet::rl::dqn {
         void SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, anet::seed_t seed);
         NormalizedSampleObservations NormalizeSampleObservations(const anet::rl::ExperienceSamples& samples) const;
         OptimizerStepResult Optimize(const torch::Tensor& loss);
-        PerPriorityUpdateInfo MakePerPriorityUpdateInfo(const anet::rl::ExperienceSamples& samples, const torch::Tensor& td_error) const;
+    protected:
+        PerPriorityUpdatePending PreparePerPriorityUpdate(const anet::rl::ExperienceSamples& samples, const torch::Tensor& td_error);
+        PerPriorityUpdateInfo ApplyPerPriorityUpdate(PerPriorityUpdatePending pending);
         PerPriorityUpdateInfo UpdatePerPriorities(const anet::rl::ExperienceSamples& samples, const torch::Tensor& td_error);
+    protected:
         torch::Tensor TransformH(const torch::Tensor& x) const;
         torch::Tensor TransformHInv(const torch::Tensor& x) const;
         std::shared_ptr<anet::rl::dqn::BatchUpdateResult> MakeBatchUpdateResult(
@@ -516,6 +528,8 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::rl::ReplayBuffer> replay_buffer_;
         std::unique_ptr<torch::optim::Optimizer> optimizer_;
         anet::GradScaler grad_scaler_;
+        std::optional<at::cuda::CUDAStream> per_priority_copy_stream_;
+        anet::transfer::EventRecycler<torch::Tensor> per_priority_event_recycler_;
     protected:
         float update_credit_ = 0.0f;
     };

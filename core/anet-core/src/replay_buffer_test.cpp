@@ -1,8 +1,12 @@
 #include "catch.hpp"
 
 #include "anet/replay_buffer.hpp"
+#include "anet/transfer.hpp"
 #include "replay_buffer_impl.hpp"
 
+#include <torch/cuda.h>
+
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -209,6 +213,15 @@ std::vector<int64_t> TensorToInt64Vector(const torch::Tensor& tensor)
     return std::vector<int64_t>(ptr, ptr + cpu.numel());
 }
 
+bool WaitForFlag(const std::atomic<bool>& flag, std::chrono::milliseconds timeout)
+{
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (!flag.load() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return flag.load();
+}
+
 class BlockingReplayBuffer final : public rl::ReplayBuffer {
 public:
     explicit BlockingReplayBuffer(bool block_first_sample = false, bool block_second_sample = true)
@@ -217,11 +230,15 @@ public:
     {
     }
 
-    void Push(const rl::BatchExperience&) override
+    void Push(const rl::BatchExperience& batch_exp) override
     {
         std::lock_guard<std::mutex> lock(mutex);
         push_called_before_first_sample_finished = first_sample_started && !first_sample_finished;
         push_called_before_second_sample_finished = second_sample_started && !second_sample_finished;
+        last_pushed_reward = batch_exp.reward.defined() ? batch_exp.reward.clone() : torch::Tensor();
+        last_pushed_state_obs = batch_exp.state.obs.Contains(kVectorKey)
+            ? batch_exp.state.obs.At(kVectorKey).clone()
+            : torch::Tensor();
         ++push_count;
         cv.notify_all();
     }
@@ -232,6 +249,8 @@ public:
         {
             std::unique_lock<std::mutex> lock(mutex);
             call_index = ++sample_count;
+            push_count_at_sample_start.push_back(push_count);
+            cv.notify_all();
             if (call_index == 1 && block_first_sample) {
                 first_sample_started = true;
                 cv.notify_all();
@@ -301,6 +320,24 @@ public:
         cv.wait(lock, [&] { return second_sample_started; });
     }
 
+    void WaitForSampleCount(int expected_count) const
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        cv.wait(lock, [&] { return sample_count >= expected_count; });
+    }
+
+    void WaitForPushCount(int expected_count) const
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        cv.wait(lock, [&] { return push_count >= expected_count; });
+    }
+
+    bool WaitForPushCount(int expected_count, std::chrono::milliseconds timeout) const
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        return cv.wait_for(lock, timeout, [&] { return push_count >= expected_count; });
+    }
+
     void ReleaseFirstSample() const
     {
         {
@@ -331,6 +368,27 @@ public:
         return push_count;
     }
 
+    int PushCountAtSampleStart(int sample_index) const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (sample_index <= 0 || sample_index > static_cast<int>(push_count_at_sample_start.size())) {
+            return -1;
+        }
+        return push_count_at_sample_start[static_cast<size_t>(sample_index - 1)];
+    }
+
+    torch::Tensor LastPushedReward() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return last_pushed_reward.defined() ? last_pushed_reward.clone() : torch::Tensor();
+    }
+
+    torch::Tensor LastPushedStateObs() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return last_pushed_state_obs.defined() ? last_pushed_state_obs.clone() : torch::Tensor();
+    }
+
     bool UpdateWasCalledBeforeSecondSampleFinished() const
     {
         std::lock_guard<std::mutex> lock(mutex);
@@ -354,6 +412,7 @@ public:
     mutable std::mutex mutex;
     mutable std::condition_variable cv;
     mutable int sample_count = 0;
+    mutable std::vector<int> push_count_at_sample_start;
     mutable bool first_sample_started = false;
     mutable bool release_first_sample = false;
     mutable bool first_sample_finished = false;
@@ -365,6 +424,8 @@ public:
     mutable int push_count = 0;
     mutable bool push_called_before_first_sample_finished = false;
     mutable bool push_called_before_second_sample_finished = false;
+    torch::Tensor last_pushed_reward;
+    torch::Tensor last_pushed_state_obs;
     int64_t size_value = 7;
     float scalar_value = 3.5f;
     torch::Tensor tensor_value = torch::tensor({ 2.0f }, torch::TensorOptions().dtype(torch::kFloat32));
@@ -402,6 +463,23 @@ void PushTime(
         include_mask));
 }
 
+rl::ExperienceSamples MakeTransferSamples()
+{
+    return rl::ExperienceSamples{
+        .obs = MakeObs({ 1.0f, 2.0f }),
+        .actions = torch::tensor({ 1, 2 }, torch::TensorOptions().dtype(torch::kInt64)),
+        .target_returns = FloatVector({ 3.0f, 4.0f }),
+        .next_state = {
+            .next_obs = MakeObs({ 5.0f, 6.0f }),
+            .terminals = BoolTensor({ false, true }),
+        },
+        .n_steps = torch::tensor({ 1, 2 }, torch::TensorOptions().dtype(torch::kInt64)),
+        .indices = torch::tensor({ 7, 8 }, torch::TensorOptions().dtype(torch::kInt64)),
+        .is_weights = FloatVector({ 0.5f, 0.25f }),
+        .info = anet::TensorDict("info", FloatVector({ 9.0f, 10.0f }))
+    };
+}
+
 int64_t IndexOf(const TestBuffer& buffer, int64_t env_idx, int64_t physical_time_idx)
 {
     return env_idx * buffer.capacity_per_env + physical_time_idx;
@@ -420,6 +498,175 @@ void RequireFlatApprox(const torch::Tensor& tensor, const std::vector<float>& ex
     for (int64_t i = 0; i < static_cast<int64_t>(expected.size()); ++i) {
         REQUIRE(acc[i] == Catch::Approx(expected[static_cast<size_t>(i)]).margin(1.0e-5));
     }
+}
+
+TEST_CASE("ExperienceSamples ForEachTensor visits defined tensors", "[transfer]")
+{
+    auto samples = MakeTransferSamples();
+    samples.info.Set("undefined", torch::Tensor());
+
+    int visit_count = 0;
+    samples.ForEachTensor([&](torch::Tensor& tensor) {
+        ++visit_count;
+        if (tensor.dtype() == torch::kFloat32) {
+            tensor = tensor + 1.0f;
+        }
+    });
+
+    CHECK(visit_count == 9);
+    RequireFlatApprox(samples.obs.At(kVectorKey), { 2.0f, 3.0f });
+    RequireFlatApprox(samples.target_returns, { 4.0f, 5.0f });
+    RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey), { 6.0f, 7.0f });
+    RequireFlatApprox(samples.is_weights, { 1.5f, 1.25f });
+    RequireFlatApprox(samples.info.At("info"), { 10.0f, 11.0f });
+    CHECK_FALSE(samples.info.At("undefined").defined());
+}
+
+TEST_CASE("DeviceTransfer CPU constructor keeps transfer synchronous", "[transfer]")
+{
+    anet::transfer::DeviceTransfer<rl::ExperienceSamples> transfer(MakeTransferSamples(), torch::kCPU);
+
+    CHECK_FALSE(transfer.ready_event.has_value());
+    CHECK(transfer.device_samples.actions.device().is_cpu());
+    CHECK(transfer.device_samples.indices.device().is_cpu());
+    CHECK_FALSE(transfer.retained_source.actions.defined());
+    RequireFlatApprox(transfer.device_samples.target_returns, { 3.0f, 4.0f });
+}
+
+TEST_CASE("HostReadback CPU constructor keeps tensor immediately readable", "[transfer]")
+{
+    anet::transfer::HostReadback readback(FloatVector({ 1.5f, 2.5f }));
+
+    CHECK_FALSE(readback.source_ready_event.has_value());
+    CHECK_FALSE(readback.ready_event.has_value());
+    CHECK(readback.pinned_result.device().is_cpu());
+    RequireFlatApprox(readback.pinned_result, { 1.5f, 2.5f });
+}
+
+TEST_CASE("EventRecycler reuses completed unrecorded events", "[transfer]")
+{
+    anet::transfer::EventRecycler<torch::Tensor> event_recycler;
+
+    auto event = event_recycler.Acquire();
+    CHECK(event_recycler.PendingCount() == 0);
+    CHECK(event_recycler.FreeCount() == 0);
+
+    event_recycler.Retire(std::move(event), torch::ones({ 1 }, torch::TensorOptions().dtype(torch::kFloat32)));
+    CHECK(event_recycler.PendingCount() == 1);
+    CHECK(event_recycler.FreeCount() == 0);
+
+    event_recycler.Poll();
+    CHECK(event_recycler.PendingCount() == 0);
+    CHECK(event_recycler.FreeCount() == 1);
+
+    auto reused_event = event_recycler.Acquire();
+    CHECK(event_recycler.PendingCount() == 0);
+    CHECK(event_recycler.FreeCount() == 0);
+
+    event_recycler.Retire(std::move(reused_event), torch::ones({ 1 }, torch::TensorOptions().dtype(torch::kFloat32)));
+    event_recycler.Drain();
+    CHECK(event_recycler.PendingCount() == 0);
+    CHECK(event_recycler.FreeCount() == 1);
+}
+
+TEST_CASE("DeviceTransfer CUDA constructor copies and records stream when available", "[transfer][cuda]")
+{
+    if (!torch::cuda::is_available()) {
+        SUCCEED("CUDA is not available.");
+        return;
+    }
+
+    auto samples = MakeTransferSamples();
+    auto strided = torch::arange(12, torch::TensorOptions().dtype(torch::kFloat32)).reshape({ 3, 4 }).transpose(0, 1);
+    const auto strided_sizes = strided.sizes().vec();
+    const auto strided_strides = strided.strides().vec();
+    samples.info.Set("strided", strided);
+
+    anet::transfer::EventRecycler<rl::ExperienceSamples> event_recycler;
+    auto copy_stream = at::cuda::getStreamFromPool(false);
+    anet::transfer::DeviceTransfer<rl::ExperienceSamples> transfer(
+        std::move(samples),
+        torch::Device(torch::kCUDA),
+        copy_stream,
+        event_recycler);
+
+    REQUIRE(transfer.ready_event.has_value());
+    auto consumer_stream = at::cuda::getCurrentCUDAStream();
+    transfer.ready_event->block(consumer_stream);
+    anet::transfer::RecordStreamOn(transfer.device_samples, consumer_stream);
+
+    CHECK(transfer.device_samples.actions.is_cuda());
+    CHECK(transfer.device_samples.obs.At(kVectorKey).is_cuda());
+    CHECK(transfer.device_samples.indices.device().is_cpu());
+    const auto expected_indices = std::vector<int64_t>{ 7, 8 };
+    CHECK(TensorToInt64Vector(transfer.device_samples.indices) == expected_indices);
+    RequireFlatApprox(transfer.device_samples.target_returns, { 3.0f, 4.0f });
+
+    const auto& retained_strided = transfer.retained_source.info.At("strided");
+    CHECK(retained_strided.is_pinned());
+    CHECK(retained_strided.sizes().vec() == strided_sizes);
+    CHECK(retained_strided.strides().vec() == strided_strides);
+    CHECK_FALSE(retained_strided.is_contiguous());
+
+    const auto& device_strided = transfer.device_samples.info.At("strided");
+    CHECK(device_strided.is_cuda());
+    CHECK(device_strided.sizes().vec() == strided_sizes);
+    CHECK(device_strided.strides().vec() == strided_strides);
+    RequireFlatApprox(device_strided, { 0.0f, 4.0f, 8.0f, 1.0f, 5.0f, 9.0f, 2.0f, 6.0f, 10.0f, 3.0f, 7.0f, 11.0f });
+
+    event_recycler.Retire(std::move(*transfer.ready_event), std::move(transfer.retained_source));
+    event_recycler.Drain();
+    CHECK(event_recycler.PendingCount() == 0);
+    CHECK(event_recycler.FreeCount() == 1);
+}
+
+TEST_CASE("ExperienceSamples To CUDA keeps sampled indices on CPU", "[transfer][cuda]")
+{
+    if (!torch::cuda::is_available()) {
+        SUCCEED("CUDA is not available.");
+        return;
+    }
+
+    auto samples = MakeTransferSamples();
+    auto device_samples = samples.To(torch::Device(torch::kCUDA));
+
+    CHECK(device_samples.actions.is_cuda());
+    CHECK(device_samples.obs.At(kVectorKey).is_cuda());
+    CHECK(device_samples.target_returns.is_cuda());
+    CHECK(device_samples.next_state.terminals.is_cuda());
+    CHECK(device_samples.n_steps.is_cuda());
+    CHECK(device_samples.is_weights.is_cuda());
+    CHECK(device_samples.info.At("info").is_cuda());
+    CHECK(device_samples.indices.device().is_cpu());
+    const auto expected_indices = std::vector<int64_t>{ 7, 8 };
+    CHECK(TensorToInt64Vector(device_samples.indices) == expected_indices);
+}
+
+TEST_CASE("HostReadback CUDA constructor copies device tensor to pinned CPU", "[transfer][cuda]")
+{
+    if (!torch::cuda::is_available()) {
+        SUCCEED("CUDA is not available.");
+        return;
+    }
+
+    anet::transfer::EventRecycler<torch::Tensor> event_recycler;
+    auto copy_stream = at::cuda::getStreamFromPool(false);
+    auto producer_stream = at::cuda::getCurrentCUDAStream();
+    auto source = torch::tensor({ 4.0f, 5.0f }, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+
+    anet::transfer::HostReadback readback(source, copy_stream, producer_stream, event_recycler);
+    REQUIRE(readback.source_ready_event.has_value());
+    REQUIRE(readback.ready_event.has_value());
+
+    readback.Wait();
+    CHECK(readback.pinned_result.device().is_cpu());
+    CHECK(readback.pinned_result.is_pinned());
+    RequireFlatApprox(readback.pinned_result, { 4.0f, 5.0f });
+
+    readback.RetireEvents(event_recycler);
+    event_recycler.Drain();
+    CHECK(event_recycler.PendingCount() == 0);
+    CHECK(event_recycler.FreeCount() == 2);
 }
 
 torch::Tensor RequireSingleTensorVector(const std::optional<std::vector<torch::Tensor>>& opt_vec)
@@ -906,11 +1153,12 @@ TEST_CASE("PrefetchingReplayBuffer waits for cold sample before push", "[replay_
     pusher.join();
 
     CHECK(TensorToInt64Vector(samples.indices) == std::vector<int64_t>{ 1 });
+    REQUIRE(inner_state->WaitForPushCount(1, std::chrono::milliseconds(1000)));
     CHECK(inner_state->PushCount() == 1);
     CHECK_FALSE(inner_state->PushWasCalledBeforeFirstSampleFinished());
 }
 
-TEST_CASE("PrefetchingReplayBuffer waits for in-flight sample before push", "[replay_buffer][prefetch][thread]")
+TEST_CASE("PrefetchingReplayBuffer delays armed push on worker FIFO", "[replay_buffer][prefetch][thread]")
 {
     auto inner_state = std::make_shared<BlockingReplayBuffer>();
     rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
@@ -921,18 +1169,74 @@ TEST_CASE("PrefetchingReplayBuffer waits for in-flight sample before push", "[re
 
     inner_state->WaitForSecondSampleStarted();
 
+    std::atomic<bool> push_returned = false;
     std::thread pusher([&] {
         rb.Push(rl::BatchExperience{});
+        push_returned = true;
     });
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    const bool returned_before_release = WaitForFlag(push_returned, std::chrono::milliseconds(1000));
+    if (!returned_before_release) {
+        inner_state->ReleaseSecondSample();
+    }
+    pusher.join();
+    REQUIRE(returned_before_release);
     CHECK(inner_state->PushCount() == 0);
 
     inner_state->ReleaseSecondSample();
-    pusher.join();
+
+    rl::ExperienceSamples second_samples;
+    rb.Sample(second_samples, 1, 0.0f);
+    CHECK(TensorToInt64Vector(second_samples.indices) == std::vector<int64_t>{ 2 });
+    inner_state->WaitForSampleCount(3);
 
     CHECK(inner_state->PushCount() == 1);
     CHECK_FALSE(inner_state->PushWasCalledBeforeSecondSampleFinished());
+    CHECK(inner_state->PushCountAtSampleStart(3) == 1);
+}
+
+TEST_CASE("PrefetchingReplayBuffer keeps shallow armed push alive after caller scope", "[replay_buffer][prefetch][thread]")
+{
+    auto inner_state = std::make_shared<BlockingReplayBuffer>();
+    rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
+
+    rl::ExperienceSamples samples;
+    rb.Sample(samples, 1, 0.0f);
+    CHECK(TensorToInt64Vector(samples.indices) == std::vector<int64_t>{ 1 });
+
+    inner_state->WaitForSecondSampleStarted();
+
+    std::atomic<bool> push_returned = false;
+    {
+        auto batch = MakeBatch(
+            { 1.0f },
+            { 2.0f },
+            { 3.0f },
+            { false },
+            { false },
+            { false });
+
+        std::thread pusher([&] {
+            rb.Push(batch);
+            push_returned = true;
+        });
+
+        const bool returned_before_release = WaitForFlag(push_returned, std::chrono::milliseconds(1000));
+        if (!returned_before_release) {
+            inner_state->ReleaseSecondSample();
+        }
+        pusher.join();
+        REQUIRE(returned_before_release);
+    }
+
+    CHECK(inner_state->PushCount() == 0);
+
+    inner_state->ReleaseSecondSample();
+    rb.UpdatePriorities({}, {});
+    inner_state->WaitForPushCount(1);
+
+    RequireFlatApprox(inner_state->LastPushedReward(), { 3.0f });
+    RequireFlatApprox(inner_state->LastPushedStateObs(), { 1.0f });
 }
 
 TEST_CASE("ReplayBuffer computes n-step returns independently for each env", "[replay_buffer][n_step][multi_env]")
@@ -1023,6 +1327,41 @@ TEST_CASE("ReplayBuffer treats truncated transitions as bootstrapable n-step bou
         RequireSampleMeta(truncated, IndexOf(buffer, env, 1), RewardValue(env, 1), false, 1);
         RequireFlatApprox(truncated.next_state.next_obs.At(kVectorKey)[0], { TerminalStateValue(env, 1) });
     }
+}
+
+TEST_CASE("ReplayBuffer frame-stacked truncated next_obs keeps the truncation frame", "[replay_buffer][frame_stack][truncated]")
+{
+    constexpr int64_t num_envs = 1;
+    constexpr int stack_count = 4;
+
+    auto buffer = MakeBuffer(MakeConfig(20, 1, 0.99f, stack_count), num_envs);
+
+    PushTime(buffer, 0, {}, {}, BoolValues(num_envs, true));
+    PushTime(
+        buffer,
+        1,
+        BoolValues(num_envs, false),
+        BoolValues(num_envs, true),
+        BoolValues(num_envs, false),
+        TerminalStateValues(num_envs, 1));
+    PushTime(buffer, 2, {}, {}, BoolValues(num_envs, true));
+
+    REQUIRE(buffer.rb->Size() == 2);
+
+    auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 1));
+    RequireSampleMeta(samples, IndexOf(buffer, 0, 1), RewardValue(0, 1), false, 1);
+    RequireFlatApprox(samples.obs.At(kVectorKey)[0], {
+        StateValue(0, 0),
+        StateValue(0, 0),
+        StateValue(0, 0),
+        StateValue(0, 1)
+    });
+    RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], {
+        StateValue(0, 0),
+        StateValue(0, 0),
+        StateValue(0, 1),
+        TerminalStateValue(0, 1)
+    });
 }
 
 TEST_CASE("ReplayBuffer frame stacking pads the beginning of an episode", "[replay_buffer][frame_stack][episode_boundary]")

@@ -681,7 +681,8 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
                 .terminals = anet::To(next_state.terminals, device, non_blocking),
             },
             .n_steps = anet::To(n_steps, device, non_blocking),
-            .indices = anet::To(indices, device, non_blocking),
+            // sampled index は ReplayBuffer の CPU metadata なので learner device へは送らない。
+            .indices = indices.device().is_cpu() ? indices : indices.to(torch::kCPU),
             .is_weights = anet::To(is_weights, device, non_blocking),
 			.info = info.To(device, non_blocking)
         };

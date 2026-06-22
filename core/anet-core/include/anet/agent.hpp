@@ -175,7 +175,7 @@ namespace anet::rl {
             int update_warmup_steps = 1000;
             int update_interval = 2;         ///< 何ステップに1回Updateするか。replay_ratioが正なら使われない。
             float replay_ratio = -1;         ///< 環境1ステップあたり平均何回の勾配更新を行うか。num_envsに依存しない。負数ではuppdate_intervalのみ使う
-            bool use_rb_prefetch = false;    ///< ReplayBuffer Sample + H2Dを1バッチ先読みするか
+            bool use_rb_prefetch = false;    ///< ReplayBuffer Sample + H2Dを1バッチ先読みし、armed後のPushを遅延投入するか
 
             int n_step = 3;
 

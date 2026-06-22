@@ -929,6 +929,10 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
     }
 
     LOG::info() << "Learner: U = " << earned_credit_;
+
+    if (device_.is_cuda()) {
+        per_priority_copy_stream_ = at::cuda::getStreamFromPool(false);
+    }
 }
 
 std::optional<float> Learner::GetScalar(const std::string& key, int64_t index) const
@@ -1130,70 +1134,108 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss)
     return result;
 }
 
-PerPriorityUpdateInfo Learner::MakePerPriorityUpdateInfo(const anet::rl::ExperienceSamples& samples, const torch::Tensor& td_error) const
+PerPriorityUpdatePending Learner::PreparePerPriorityUpdate(const anet::rl::ExperienceSamples& samples, const torch::Tensor& td_error)
 {
-    PerPriorityUpdateInfo info;
+    PerPriorityUpdatePending pending;
+
     if (!config_.use_per) {
-        return info;
+        return pending;
     }
 
     torch::NoGradGuard grad_guard;
-
     const int64_t batch_size = td_error.size(0);
-
-    // 優先度 = |TD error| + eps。ReplayBuffer更新とメトリクス表示の両方で同じ値を使う
-    auto abs_td_error = td_error.abs().detach();
-    auto new_priorities = abs_td_error + config_.per_eps;
-    ANET_ASSERT_SHAPE(new_priorities, { batch_size });
-    ANET_ASSERT_NAN(new_priorities);
-
-    // Priority clipping。clip件数はPERの偏り監視用メトリクスとして保持する
-    if (config_.use_per_prio_clip) {
-        info.per_clipped_count = (new_priorities > config_.per_prio_clip_value).sum();
-        new_priorities = torch::clamp(new_priorities, 0.0f, config_.per_prio_clip_value);
-    } else {
-        info.per_clipped_count = torch::zeros({}, new_priorities.options());
-    }
-
-    // メトリクス出力用のsource tensorを保持する。ReplayBufferへの反映はUpdatePerPriorities側で行う
-    info.per_priorities = new_priorities;
-    info.per_minibatch_size = batch_size;
+    pending.enabled = true;
+    pending.per_minibatch_size = batch_size;
     if (samples.is_weights.defined()) {
-        info.per_is_weights = samples.is_weights;
+        pending.per_is_weights = samples.is_weights;
     }
+
+    {
+        ANET_PROFILE_SCOPE_FULL(indices_cpu, "Learner::UpdatePerPriorities.indices_cpu");
+
+        if (!samples.indices.device().is_cpu()) {
+            ANET_SYSTEM_ERROR("Learner::PreparePerPriorityUpdate expected samples.indices on CPU, actual="
+                << samples.indices.device());
+        }
+        ANET_ASSERT_DEVICE_CPU(samples.indices);
+        ANET_ASSERT_SHAPE(samples.indices, { batch_size });
+        ANET_ASSERT_DTYPE(samples.indices, torch::kInt64);
+        auto indices_tensor_cpu = samples.indices.contiguous();
+        auto indices_ptr = indices_tensor_cpu.data_ptr<int64_t>();
+        pending.indices.assign(indices_ptr, indices_ptr + batch_size);
+    }
+
+    // TD error 由来の priority は GPU 上で確定し、CPU SumTree 更新まで D2H wait を遅延する。
+    auto raw_priorities = (td_error.abs().detach() + config_.per_eps).contiguous();
+    ANET_ASSERT_SHAPE(raw_priorities, { batch_size });
+    ANET_ASSERT_NAN(raw_priorities);
+
+    if (raw_priorities.is_cuda() && per_priority_copy_stream_.has_value()) {
+        ANET_PROFILE_SCOPE_FULL(launch, "Learner::PerPriorityD2H.launch");
+        const auto producer_stream = at::cuda::getCurrentCUDAStream();
+        pending.priority_readback = anet::transfer::HostReadback(
+            std::move(raw_priorities),
+            per_priority_copy_stream_.value(),
+            producer_stream,
+            per_priority_event_recycler_);
+    } else {
+        pending.priority_readback = anet::transfer::HostReadback(
+            raw_priorities.device().is_cpu() ? std::move(raw_priorities) : raw_priorities.cpu());
+    }
+
+    return pending;
+}
+
+PerPriorityUpdateInfo Learner::ApplyPerPriorityUpdate(PerPriorityUpdatePending pending)
+{
+    PerPriorityUpdateInfo info;
+    if (!pending.enabled) {
+        return info;
+    }
+
+    const int64_t batch_size = pending.per_minibatch_size;
+    info.per_minibatch_size = batch_size;
+    info.per_is_weights = pending.per_is_weights;
+
+    {
+        ANET_PROFILE_SCOPE_FULL(wait, "Learner::PerPriorityD2H.wait");
+        pending.priority_readback.Wait();
+    }
+
+    std::vector<float> priorities_vec;
+    {
+        ANET_PROFILE_SCOPE_FULL(vector_copy, "Learner::PerPriorityD2H.vector_copy");
+
+        auto priorities_cpu = pending.priority_readback.pinned_result.to(torch::kFloat32).contiguous();
+        ANET_ASSERT_DEVICE_CPU(priorities_cpu);
+        ANET_ASSERT_SHAPE(priorities_cpu, { batch_size });
+
+        if (config_.use_per_prio_clip) {
+            info.per_clipped_count = (priorities_cpu > config_.per_prio_clip_value).sum();
+            priorities_cpu = torch::clamp(priorities_cpu, 0.0f, config_.per_prio_clip_value);
+        } else {
+            info.per_clipped_count = torch::zeros({}, priorities_cpu.options());
+        }
+
+        info.per_priorities = priorities_cpu;
+        auto priorities_ptr = priorities_cpu.data_ptr<float>();
+        priorities_vec.assign(priorities_ptr, priorities_ptr + batch_size);
+    }
+
+    pending.priority_readback.RetireEvents(per_priority_event_recycler_);
+
+    {
+        ANET_PROFILE_SCOPE_FULL(update_tree, "Learner::UpdatePerPriorities.update_tree");
+        replay_buffer_->UpdatePriorities(pending.indices, priorities_vec);
+    }
+
     return info;
 }
 
 PerPriorityUpdateInfo Learner::UpdatePerPriorities(const anet::rl::ExperienceSamples& samples, const torch::Tensor& td_error)
 {
-    ANET_PROFILE_SCOPE(make_info);
-    PerPriorityUpdateInfo info = MakePerPriorityUpdateInfo(samples, td_error);
-
-    if (!config_.use_per) {
-        return info;
-    }
-
-    const int64_t batch_size = info.per_minibatch_size;
-
-    // ReplayBufferのSumTreeはCPU側で更新するため、ここがPER更新の同期境界になる
-    ANET_PROFILE_SCOPE_NEXT(indices_cpu);
-    const std::vector<int64_t> indices_vec = [&samples, batch_size]() {
-        auto indices_cpu = samples.indices.cpu();   /// @todo PERの優先度更新にはCPU値が必要なので、ここで同期が発生する
-        auto indices_ptr = indices_cpu.data_ptr<int64_t>();
-        return std::vector<int64_t>(indices_ptr, indices_ptr + batch_size);
-    }();
-
-    ANET_PROFILE_SCOPE_NEXT(priorities_cpu);
-    const std::vector<float> priorities_vec = [&info, batch_size]() {
-        auto prios_cpu = info.per_priorities.cpu();
-        auto prios_ptr = prios_cpu.data_ptr<float>();
-        return std::vector<float>(prios_ptr, prios_ptr + batch_size);
-    }();
-
-    ANET_PROFILE_SCOPE_NEXT(update_tree);
-    replay_buffer_->UpdatePriorities(indices_vec, priorities_vec);
-
-    return info;
+    auto pending = PreparePerPriorityUpdate(samples, td_error);
+    return ApplyPerPriorityUpdate(std::move(pending));
 }
 
 torch::Tensor Learner::TransformH(const torch::Tensor& x) const
@@ -1289,14 +1331,17 @@ void Learner::ValidateDeviceSamples(const anet::rl::ExperienceSamples& samples, 
     ANET_ASSERT_DEVICE(samples.next_state.next_obs, device_);
     ANET_ASSERT_DEVICE(samples.next_state.terminals, device_);
     ANET_ASSERT_DEVICE(samples.n_steps, device_);
+    ANET_ASSERT_DEVICE_CPU(samples.indices);
     ANET_ASSERT_SHAPE(samples.actions, { batch_size });    // 離散アクション
     ANET_ASSERT_SHAPE(samples.target_returns, { batch_size });
     ANET_ASSERT_SHAPE(samples.next_state.terminals, { batch_size });
     ANET_ASSERT_SHAPE(samples.n_steps, { batch_size });
+    ANET_ASSERT_SHAPE(samples.indices, { batch_size });
     ANET_ASSERT_DTYPE(samples.actions, torch::kInt64);    // 離散アクション
     ANET_ASSERT_DTYPE(samples.target_returns, torch::kFloat32);
     ANET_ASSERT_DTYPE(samples.next_state.terminals, torch::kBool);
     ANET_ASSERT_DTYPE(samples.n_steps, torch::kInt64);
+    ANET_ASSERT_DTYPE(samples.indices, torch::kInt64);
 }
 
 anet::rl::BatchUpdateResultList
@@ -1648,8 +1693,16 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         }
     } // End of Autocast Scope
 
+    ANET_PROFILE_SCOPE(prepare_per);
+    auto per_pending = PreparePerPriorityUpdate(samples, td_error);
+
+    ANET_PROFILE_SCOPE_NEXT(optimize);
     auto opt_result = Optimize(loss);
-    auto per_result = UpdatePerPriorities(samples, td_error);
+
+    ANET_PROFILE_SCOPE_NEXT(update_per);
+    auto per_result = ApplyPerPriorityUpdate(std::move(per_pending));
+
+    ANET_PROFILE_SCOPE_NEXT(make_result);
     return MakeBatchUpdateResult(loss, td_error, opt_result, max_q, q_sa.detach(), per_result, torch::Tensor(), gap_abs, gap_rel);
 }
 
@@ -1776,11 +1829,14 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
     } // End of Autocast Scope
 
-    ANET_PROFILE_SCOPE(optimize);
+    ANET_PROFILE_SCOPE(prepare_per);
+    auto per_pending = PreparePerPriorityUpdate(samples, td_error_tensor);
+
+    ANET_PROFILE_SCOPE_NEXT(optimize);
     auto opt_result = Optimize(loss);
 
     ANET_PROFILE_SCOPE_NEXT(update_per);
-    auto per_result = UpdatePerPriorities(samples, td_error_tensor);
+    auto per_result = ApplyPerPriorityUpdate(std::move(per_pending));
 
     ANET_PROFILE_SCOPE_NEXT(make_result);
     return MakeBatchUpdateResult(

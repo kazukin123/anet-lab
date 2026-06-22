@@ -66,10 +66,15 @@ namespace anet::rl {
     /// background `Fetch()` を起動する。以後は前回 future を `get()` で消費してから
     /// 次 future を起動するため、同時に in-flight になる prefetch は最大 1 本。
     ///
-    /// `Push()` と `UpdatePriorities()` は in-flight future があれば完了まで `wait()` して
-    /// から inner へ mutation を委譲する。この順序保証は、storage / priority を変更する
-    /// 経路がこの wrapper を必ず通ることを前提にする。`wait()` は future を消費しないため、
-    /// prefetch worker の例外は次回 `Sample()` が future を `get()` するときに表面化する。
+    /// `Push()` は future 未起動の cold/warmup 区間では同期的に inner へ委譲する。future が
+    /// 起動済みなら caller 側で stable 化済みの BatchExperience を浅く保持し、同じ worker
+    /// FIFO へ write-behind task として積む。queued Push は現在 consume する prefetched batch
+    /// には反映されず、次の `Fetch()` より前に実行されるため、次以降の prefetched batch から見える。
+    ///
+    /// `UpdatePriorities()` は従来通り in-flight future を `wait()` してから inner へ mutation を
+    /// 委譲する。これにより `Push -> next SampleIndices -> UpdatePriorities` の順序を固定する。
+    /// `wait()` は future を消費しないため、prefetch worker の例外は次回 `Sample()` が future を
+    /// `get()` するときに表面化する。write-behind Push の例外は次の同期境界で回収する。
     ///
     /// CPU path は background `Sample()+To(CPU)` のみを行う。CUDA path は CPU sample を
     /// pinned 化し、copy stream の non-blocking H2D と CUDAEvent 待ちで転送完了を保証する。
@@ -92,6 +97,9 @@ namespace anet::rl {
 
         PrefetchedBatch Fetch(int64_t minibatch_size, float beta) const;
         PrefetchedBatch TransferSamples(ExperienceSamples cpu_samples) const;
+        void EnqueueDelayedPushLocked(BatchExperience batch_exp) const;
+        void PruneCompletedPushesLocked() const;
+        void WaitForQueuedPushesLocked() const;
         void WaitForPrefetchLocked() const;
         void LaunchPrefetchLocked(int64_t minibatch_size, float beta) const;
         void StopPrefetch() const;

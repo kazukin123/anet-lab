@@ -451,7 +451,12 @@ StepCounts SerialTrainRunner::DoStep()
 
     // Agent更新
     ANET_PROFILE_SCOPE_NEXT(update_agent);
-    anet::rl::BatchExperience exp({ state_, action_info, result->reward, result->next_state });
+    anet::rl::BatchExperience exp({
+        state_.Clone(),
+        action_info,                   // ActionはAgent内で新規アロケートされているため安全
+        result->reward.clone(),
+        result->next_state.Clone()
+        });
     auto update_results = learner_->UpdateFromBatch(step_counts_, exp);
 
     // LearnEvent

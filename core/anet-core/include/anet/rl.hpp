@@ -713,6 +713,25 @@ namespace anet::rl {
 
         // ユーティリティ
         ExperienceSamples To(torch::Device device, bool non_blocking = true) const;
+        template <class F>
+        void ForEachTensor(F&& fn)
+        {
+            auto visit = [&fn](torch::Tensor& tensor) {
+                if (tensor.defined()) {
+                    fn(tensor);
+                }
+            };
+
+            obs.ForEachTensor(visit);
+            visit(actions);
+            visit(target_returns);
+            next_state.next_obs.ForEachTensor(visit);
+            visit(next_state.terminals);
+            visit(n_steps);
+            visit(indices);
+            visit(is_weights);
+            info.ForEachTensor(visit);
+        }
         std::string ToString() const;
     };
 
