@@ -26,10 +26,10 @@ DropMerge domain v1 は `Flatten` 固定、探索対象は NN 構成のみ。
 用語の対応:
 
 - study: Optuna が管理する探索単位。`study_name`、storage、trial 履歴を持つ。
-- trial: study 内の 1 params 候補。`run-study` では Optuna が params を suggest し、multi-seed aggregate を trial value にする。
-- seed run: `run-study` の 1 seed 分の runner 実行出力。`train.seed` だけを seed ごとに変える。
-- run: runner の 1 実行出力。`run-trial` では `1 trial = 1 run`、`run-study` では `1 trial = 複数 seed run`。
-- multiseed summary: `run-study` の Optuna objective。seed run の score を集約した JSON/CSV。
+- trial: study 内の 1 params 候補。`run-study` では Optuna が params を suggest し、`run-trial` では CLI 固定 params を使う。どちらも multi-seed aggregate を trial value にする。
+- seed run: 1 seed 分の runner 実行出力。`train.seed` だけを seed ごとに変える。
+- run: runner の 1 実行出力。multi-seed trial では 1 trial が複数 seed run を持つ。
+- multiseed summary: Optuna objective。seed run の score を集約した JSON/CSV。
 - trial artifact: harness が残す再現用ファイル。config、manifest、stdout/stderr、summary など。
 - params group: 同一 `TrialParams` 8 項目を持つ source trial 群。`summarize-study` では 1 params group を summary study の 1 trial にする。
 - summary study: source study を Dashboard 閲覧用に再構成した multi-objective study。objective は group seed score 分布の mean / range / std。
@@ -49,7 +49,7 @@ apps/runner/runs_optuna/
   optuna.db
   harness.log                           # harness 共通デバッグログ。容量ベースで harness.log.1/.2 へ rotate。
   artifacts/                            # Optuna Dashboard 用 artifact store。内部構造には依存しない。
-  <study_name>_<trial_name>/          # run-study の代表フォルダ。metrics.jsonl は持たない。
+  <study_name>_<trial_name>/          # multi-seed trial の代表フォルダ。metrics.jsonl は持たない。
     trial/
       manifest.json
       multiseed_summary.json
@@ -71,10 +71,9 @@ apps/runner/runs_optuna/
 ```
 
 `trial_name` は `t00000` 形式を基本にする。
-`run-study` では Optuna trial number から生成し、`dry-run` / `run-trial` では既存の同一 study 出力から最大番号+1で自動採番する。
-`run-study` の代表 `run_name` は `<study_name>_<trial_name>`。
+`run-study` / `run-trial` では Optuna trial number から生成し、`dry-run` では既存の同一 study 出力から最大番号+1で自動採番する。
+代表 `run_name` は `<study_name>_<trial_name>`。
 seed run の `run_name` は `<study_name>_<trial_name>_s<seed>`。
-`run-trial` は単発実行なので `<study_name>_<trial_name>` のまま。
 
 例:
 
@@ -91,8 +90,8 @@ trial artifact には、主に次のファイルを保存する。
 - `stdout.log`, `stderr.log`: runner process の標準出力と標準エラー。
 - `process.json`: runner process の開始/終了状態。開始直後に `status="running"` で作成し、終了時に `complete` / `failed` / `timed_out` / `interrupted` へ更新する。
 - `metrics_summary.json`, `metrics_summary.csv`: seed run の score と補助指標の集計結果。JSON には raw window、実効 window、`exp_exit_step`、late window 指標も残す。
-- `multiseed_summary.json`, `multiseed_summary.csv`: `run-study` の代表フォルダに置く seed 集約結果。seed 別 score に加えて late window 指標の平均とばらつきも保存する。
-- `seed_runs.json`: `run-study` の代表フォルダに置く seed run 別の詳細。seed、run 名、status、score、late window 指標、path、error などを残す。
+- `multiseed_summary.json`, `multiseed_summary.csv`: 代表フォルダに置く seed 集約結果。seed 別 score に加えて late window 指標の平均とばらつきも保存する。
+- `seed_runs.json`: 代表フォルダに置く seed run 別の詳細。seed、run 名、status、score、late window 指標、path、error などを残す。
 
 `runs_optuna/harness.log` は study/trial artifact ではなく、harness 自体の診断用ログである。
 `trial-start`、`seed-start`、`runner-start pid=...`、`runner-exit returncode=...`、`trial-complete`、`trial-pruned`、`trial-failed` などの進行ログを 1 行 text で追記する。
@@ -101,12 +100,12 @@ trial artifact には、主に次のファイルを保存する。
 
 `runs_optuna/<run_name>/trial` は人間と harness が直接読む artifact 置き場である。
 一方、`runs_optuna/artifacts` は Optuna の `FileSystemArtifactStore` が管理する Dashboard 用 artifact store であり、階層やファイル名に依存しない。
-Dashboard で `Show Artifacts` を有効にするには、`run-study` が `upload_artifact()` で trial に artifact metadata を登録し、optuna-dashboard を `--artifact-dir artifacts` 付きで起動する必要がある。
+Dashboard で `Show Artifacts` を有効にするには、`run-study` / `run-trial` が `upload_artifact()` で trial に artifact metadata を登録し、optuna-dashboard を `--artifact-dir artifacts` 付きで起動する必要がある。
 `summarize-study` が作る summary study では、target trial の詳細を `group_summary.json` として同じ artifact store に登録する。
 
 metrics-viewer で Optuna run を横断表示する場合は、viewer の runs dir に
 `apps/runner/runs_optuna` を指定する。
-metrics-viewer は直下フォルダに `metrics.jsonl` があるものだけを run として認識するため、`run-study` の代表フォルダは表示されず、seed run だけが表示される。
+metrics-viewer は直下フォルダに `metrics.jsonl` があるものだけを run として認識するため、multi-seed 代表フォルダは表示されず、seed run だけが表示される。
 
 `<run_name>` フォルダを削除しても `optuna.db` 内の trial レコードは消えない。
 DB には params、score、user_attrs、保存済み path が残るため、削除後は `run_dir` や `artifact_dir` が stale path になる。
@@ -122,7 +121,7 @@ Harness 共通:
 
 - `--repo-root`: `anet-lab` のリポジトリルート。path 解決の基準。
 - `--base-config`: trial config が最初に `$include` する main config。既定は `_main.txt`。
-- `--study-name`: study 名。`run_name` の prefix になる。
+- `--study-name`: study 名。`run_name` の prefix になり、`dry-run` / `run-trial` / `run-study` / `cleanup-running` では必須。
 - `--runs-dir`: runner の `app.runs_dir` に渡す出力先。既定は `runs_optuna`。
 - `--exp-exit-step`: proxy trial の `app.batchrun.exp_exit_step`。負数相対 window と `%` window の基準にもなる。
 
@@ -134,13 +133,14 @@ DropMerge domain 固有:
 - `--cost-k`: `cost_tf` の `N*M^2` 項に掛ける係数。
 - `--nhead`: Transformer の attention head 数。
 
-`dry-run` と `run-trial` は trial 1 件を固定 params で扱うため、
-`--trial-name`、`--trial-number`、`--seed`、固定 NN params を持つ。
+`dry-run` と `run-trial` は trial 1 件を固定 params で扱うため、固定 NN params を持つ。
+`dry-run` は `--trial-name`、`--trial-number`、`--seed` を持つ。
+`run-trial` は Optuna DB に trial 登録するため、`--trial-name` は任意の run 名 override として扱い、trial number は Optuna が割り当てる。seed は `--seeds` で指定する。
 `run-study` は Optuna が trial を生成するため、`--trial-name`、`--trial-number`、`--seed` は持たない。
 ただし固定 NN params は探索空間の制限として指定できる。
 未指定の NN params は既定探索候補のまま残り、指定した NN params だけその値に固定される。
 
-`dry-run` / `run-trial` で `--trial-name` と `--trial-number` をどちらも省略した場合、
+`dry-run` で `--trial-name` と `--trial-number` をどちらも省略した場合、
 `runs_optuna` 直下の `<study_name>_tNNNNN` を見て次番号を決める。
 既存番号の穴埋めはせず、最大番号+1を使う。
 
@@ -167,8 +167,8 @@ runner は起動しない。
 
 ### `run-trial`
 
-CLI で固定指定した NN params を 1 件だけ runner で実行し、`metrics.jsonl` を採点する。
-Optuna DB には登録しない。
+CLI で固定指定した NN params を 1 Optuna trial として multi-seed 実行し、`metrics.jsonl` を採点する。
+`run-study` の 1 trial と同じく、DB state、Trial User Attributes、Optuna artifact、`multiseed_summary.*`、`seed_runs.json` を残す。
 
 主な用途:
 
@@ -180,10 +180,13 @@ Optuna DB には登録しない。
 
 - `--runner-exe`: `AnetRLRunner.exe` の path。相対 path は repo root 基準。既定は `apps/runner/bin/Release/AnetRLRunner.exe`。
 - `--timeout-sec`: runner 1 trial の timeout 秒。`0` は timeout なし。
-- `--seed`: `train.seed` に使う seed。
+- `--seeds`: 同一 params を評価する `train.seed` の comma-separated list。既定は `12345`。
+- `--score-aggregate`: seed 別 score を trial value に集約する方法。
+- `--storage`, `--storage-timeout-sec`, `--optuna-artifact-dir`: DB 登録と Dashboard artifact 用の設定。
 - `--window-start`, `--window-end`: primary score を集計する `exp_step` window。絶対 step、負数相対 step、`80%` のような `exp_exit_step` 比率を指定できる。既定は `80%` から `100%`。
 
-`cost_tf > cost_budget` の場合、runner は起動せず exit code `2` で終了する。
+`cost_tf > cost_budget` の場合、runner は起動せず Optuna trial は `PRUNED`、CLI は exit code `2` で終了する。
+runner failure、metrics missing、primary score unavailable は `FAIL` として登録し、CLI は exit code `2` で終了する。
 
 ### `run-study`
 
@@ -196,6 +199,9 @@ trial 名は Optuna trial number から `t00000`, `t00001`, ... と自動生成�
 固定 NN params は trial 固有値ではなく、探索空間の制限として指定できる。
 例えば `--token-mode stronger --d-model 128` を指定すると、`token_mode` と `d_model` はその値だけを候補にし、他の NN params は通常どおり探索する。
 内部的には Optuna の `PartialFixedSampler` で固定するため、固定 params 指定時は Optuna の experimental warning が表示される場合がある。
+`--search-mode grid` では固定指定を反映した grid search space を作り、未実行 combo だけを事前 enqueue して実行する。
+grid の処理済み判定は `params + seed batch` 単位で行うため、同じ NN params でも `--seeds 1,2,3` と `--seeds 4,5,6` は別 combo として扱う。
+grid mode は同一 params の duplicate PRUNED を作らないが、`cost_tf > cost_budget` の combo は `PRUNED` として残す。
 
 主な引数:
 
@@ -205,10 +211,11 @@ trial 名は Optuna trial number から `t00000`, `t00001`, ... と自動生成�
 - `--heartbeat-interval-sec`: Optuna RDBStorage heartbeat interval 秒。既定は `60`。`0` で heartbeat を無効にする。
 - `--heartbeat-grace-period-sec`: heartbeat が途絶えた `RUNNING` trial を stale とみなす猶予秒。既定は `600`。
 - `--optuna-artifact-dir`: Optuna Dashboard 用 artifact store の base path。既定は `runs_optuna/artifacts`。相対時は runner project root 基準。
-- `--n-trials`: この実行で追加する trial 数。
+- `--n-trials`: この実行で追加する trial 数。`tpe` 未指定時は `10`、`grid` 未指定時は未実行 combo 全件。
 - `--n-jobs`: Optuna の並列 worker 数。
 - `--study-note`: Study User Attributes の `note` に保存する任意メモ。未指定時は既存 `note` を変更しない。
-- `--sampler-seed`: Optuna sampler の乱数 seed。未指定時は Optuna 既定で、探索候補列は固定されない。
+- `--search-mode`: 探索方法。`tpe` は従来の TPE、`grid` は固定指定を反映した全組み合わせ探索。既定は `tpe`。
+- `--sampler-seed`: TPE sampler の乱数 seed。grid では combo 列挙順の shuffle seed。未指定時は TPE は Optuna 既定、grid は通常順。
 - `--n-startup-trials`: TPE に切り替える前に random sampling する完了 trial 数。既定は `10`。
 - `--constant-liar`: `TPESampler` の `constant_liar` を有効にする。RUNNING trial 近傍の再提案を避ける補助策であり、完了済み duplicate の完全禁止ではない。
 - `--seeds`: 同一 params を評価する `train.seed` の comma-separated list。既定は `12345`。
@@ -229,6 +236,18 @@ Trial User Attributes の multi-seed 統計は `score_mean`、`score_std`、`sco
 seed run 別の詳細は `seed_runs.json` と Optuna artifact を参照する。
 Study User Attributes には `last_*` として最後の `run-study` 起動条件を保存する。これは Dashboard 用のメモであり、study 全体の固定契約ではない。
 optuna-dashboard では aggregate score が trial value として表示される。
+
+`search-mode=tpe` では、`--n-startup-trials` 件までは random sampling し、その後 TPE が過去 trial から候補を寄せる。
+固定 params は `PartialFixedSampler` で強制する。
+
+`search-mode=grid` では、DropMerge の探索候補と CLI 固定 params から harness 側で grid search space を作る。
+Optuna の `GridSampler` ではなく、harness が combo を列挙して `enqueue_trial()` へ積む。
+grid identity は `params + seed batch` なので、同じ params でも seed batch が違えば別 combo として再評価できる。
+既存 `COMPLETE` / cost 超過 `PRUNED` / `RUNNING` / `WAITING` combo は処理済みとして再 enqueue しない。
+duplicate max 超過など cost 超過ではない `PRUNED` combo は処理済みにしない。
+既存 `FAIL` combo は事故扱いとして未実行に戻し、再 enqueue 対象にする。
+`--sampler-seed` は grid combo の列挙順 shuffle seed として使う。
+`--n-startup-trials` と `--constant-liar` は TPE 用 option であり、grid mode の探索ロジックには影響しない。
 
 heartbeat 有効時は `run-study` 開始時と終了時に `optuna.storages.fail_stale_trials(study)` を呼び、親 Python が OS kill や crash で落ちた後に残った stale `RUNNING` trial を `FAIL` へ寄せる。
 ただし、プロセスが死んだ瞬間に即時 `FAIL` へ変わるわけではない。
@@ -349,9 +368,11 @@ python apps\runner\tools\dropmerge_optuna.py <00_last_run_study_args の値>
 | `last_seeds` | `run-study` | 起動時の base seed list。duplicate reseed 前の値。 |
 | `last_seed_count` | `run-study` | 起動時の base seed 数。 |
 | `last_score_aggregate` | `run-study` | seed 別 score から trial value を作る集約方法。 |
-| `last_sampler_seed` | `run-study` | Optuna sampler seed。未指定時は `null`。 |
+| `last_search_mode` | `run-study` | `tpe` / `grid` の探索 mode。 |
+| `last_sampler_seed` | `run-study` | TPE sampler seed。grid では combo 列挙順の shuffle seed。未指定時は `null`。 |
 | `last_n_startup_trials` | `run-study` | TPE 前に random sampling する完了 trial 数。 |
 | `last_constant_liar` | `run-study` | `TPESampler(constant_liar=...)` の指定値。 |
+| `last_fixed_params` | `run-study` | CLI で固定指定した NN params。未指定 param は含まれない。 |
 | `last_duplicate_params_policy` | `run-study` | duplicate params の扱い。`allow` / `prune` / `reseed`。 |
 | `last_duplicate_params_max_runs` | `run-study` | 同一 NN params を実行する最大回数。`0` は制限なし。 |
 | `last_duplicate_seed_stride` | `run-study` | `reseed` 時に duplicate index ごとに seed へ足す値。 |
@@ -361,13 +382,22 @@ python apps\runner\tools\dropmerge_optuna.py <00_last_run_study_args の値>
 | `last_runner_exe` | `run-study` | 起動時に使った runner executable path。 |
 | `last_base_config` | `run-study` | 生成 config が最初に `$include` した base config。 |
 | `last_extra_config` | `run-study` | 生成 config が base config の次に `$include` した Optuna 専用 config。 |
+| `last_grid_seed_batch_key` | `run-study --search-mode grid` | grid identity に含めた seed batch key。例: `1,2,3`。 |
+| `last_grid_seeds` | `run-study --search-mode grid` | grid identity に含めた seed list。 |
+| `last_grid_total_count` | `run-study --search-mode grid` | 固定指定と seed batch を反映した grid combo 総数。 |
+| `last_grid_already_handled_count` | `run-study --search-mode grid` | 起動時点で `COMPLETE` / cost 超過 `PRUNED` / `RUNNING` / `WAITING` として処理済みだった combo 数。 |
+| `last_grid_missing_count` | `run-study --search-mode grid` | 起動時点で未実行扱いだった combo 数。`FAIL` のみ、または cost 超過ではない `PRUNED` の combo はここに戻る。 |
+| `last_grid_waiting_count` | `run-study --search-mode grid` | 起動時点で既に `WAITING` だった grid combo 数。 |
+| `last_grid_scheduled_count` | `run-study --search-mode grid` | 今回新たに enqueue した combo 数。 |
+| `last_grid_optimize_n_trials` | `run-study --search-mode grid` | 今回 `study.optimize()` に渡した実効 trial 数。既存 `WAITING` と新規 enqueue の合計。 |
+| `last_grid_cost_over_budget_count` | `run-study --search-mode grid` | grid combo 全体のうち `cost_tf > cost_budget` になる候補数。 |
 | `note` | `run-study --study-note` | 人間向けメモ。未指定時は既存値を変更しない。空文字指定時は空文字で上書きする。 |
 | `cleaned_running_trials` | `cleanup-running` | `FAIL` に変更した `RUNNING` trial number の一覧。 |
 | `cleaned_running_trials_at` | `cleanup-running` | cleanup 実行 UTC 時刻。 |
 
 ### Trial User Attributes
 
-`run-study` の各 Optuna trial には、候補 params、cost、出力 path、multi-seed 集約、duplicate 判定の情報を保存する。
+`run-study` / `run-trial` の各 Optuna trial には、候補 params、cost、出力 path、multi-seed 集約、duplicate 判定の情報を保存する。
 
 | Attribute | 更新契機 | 意味 |
 | --- | --- | --- |
@@ -402,14 +432,16 @@ python apps\runner\tools\dropmerge_optuna.py <00_last_run_study_args の値>
 | `base_seeds` | aggregate 確定時 | CLI の `--seeds` で指定した元 seed list。 |
 | `effective_seeds` | aggregate 確定時 | 実際に使った seed list。`reseed` では duplicate index に応じてずれる。 |
 | `duplicate_matched_trials` | aggregate 確定時 | duplicate 判定で一致した過去 trial number。 |
+| `grid_seed_batch_key` | grid trial enqueue / aggregate 確定時 | grid identity に含めた seed batch key。grid mode 以外では通常未設定。 |
+| `grid_seeds` | grid trial enqueue / aggregate 確定時 | grid identity に含めた seed list。grid mode 以外では通常未設定。 |
 
 `run-study` の trial value は `score` と同じ aggregate score である。
 `score_mean` などは seed 別 score から計算した補助値で、どれを trial value に使うかは `score_aggregate` で分かる。
 `score_median`、`score_mean_minus_std`、seed 別 score / run 名などの詳細は Trial User Attributes には入れず、`multiseed_summary.json` と `seed_runs.json` を正として読む。
 late window 指標の seed 別値も `seed_runs.json` を正とする。
 
-`run-trial` に Optuna trial を渡す内部経路では、単発 run の補助 attr として次も保存する。
-通常の `run-trial` CLI は Optuna DB に登録しないため、主に実装上の共通経路用である。
+単発 seed run を直接 Optuna trial に渡す内部経路では、補助 attr として次も保存できる。
+通常の CLI では multi-seed trial の summary と artifact を正として読む。
 
 | Attribute | 更新契機 | 意味 |
 | --- | --- | --- |
@@ -526,7 +558,7 @@ late_slope   = score_80_100 - score_60_80
 補助 tag、duration、step/sec、終端理由、`max_rank`、`fruit_count` は summary には保存するが、v1 の score には入れない。
 また、primary tag の `last` ではなく window 内の `mean` を使うため、短い window ではログ間隔や評価回数の影響を受けやすい。
 
-`run-study` では、上記の単発 score を seed ごとに計算したうえで、`--score-aggregate` に従って trial value を決める。
+`run-trial` / `run-study` では、上記の単発 score を seed ごとに計算したうえで、`--score-aggregate` に従って trial value を決める。
 
 ```text
 mean           = average(seed score list)
@@ -580,9 +612,10 @@ python apps\runner\tools\dropmerge_optuna.py run-trial --study-name dropmergeSmo
 
 確認点:
 
-- `apps/runner/runs_optuna/dropmergeSmoke_t00000/metrics.jsonl` がある。
+- `apps/runner/runs_optuna/dropmergeSmoke_t00000_s12345/metrics.jsonl` がある。
 - `apps/runner/runs_optuna/dropmergeSmoke_t00000/trial/manifest.json` がある。
-- `apps/runner/runs_optuna/dropmergeSmoke_t00000/trial/metrics_summary.json` の `score` が `null` ではない。
+- `apps/runner/runs_optuna/dropmergeSmoke_t00000/trial/multiseed_summary.json` の `score` が `null` ではない。
+- Optuna DB の `dropmergeSmoke` study に `COMPLETE` trial が登録される。
 
 cost prune だけ確認する場合:
 
@@ -591,6 +624,7 @@ python apps\runner\tools\dropmerge_optuna.py run-trial --study-name dropmergeSmo
 ```
 
 この場合 runner は起動せず、exit code `2` になる。
+Optuna DB には `PRUNED` trial として残る。
 
 ### 5. run-study で探索する
 
@@ -613,6 +647,19 @@ python apps\runner\tools\dropmerge_optuna.py run-study --study-name dropmergeStr
 ```
 
 この例では `token_mode=stronger` と `d_model=128` だけを固定し、`cnn_channels`、`res_blocks`、`transformer_layers`、`ff_mult`、`trunk_width`、`head_width` は通常どおり探索する。
+
+固定済み params の残り組み合わせを重複なしで総当たりする場合:
+
+```powershell
+python apps\runner\tools\dropmerge_optuna.py run-study --study-name dropmergeGridD96 --budget medium --search-mode grid --n-jobs 2 --seeds 1,2,3 --cnn-channels 64 --token-mode current --d-model 96 --trunk-width 2048 --head-width 1024
+```
+
+この例では残りが `res_blocks x transformer_layers x ff_mult = 8` combo になる。
+`--n-trials` を省略すると未実行 combo を全件 schedule する。
+`--n-trials 3` のように指定すると、未実行 combo のうち最大 3 件だけを schedule する。
+grid の再開判定は `params + seed batch` 単位なので、同じ study に `--seeds 4,5,6` で再実行すると、`--seeds 1,2,3` で完了済みの params も別 combo として実行できる。
+同じ seed batch の既存 `COMPLETE` / cost 超過 `PRUNED` / `RUNNING` / `WAITING` combo は再実行せず、既存 `FAIL` combo は再実行対象に戻す。
+cost 超過 combo は `PRUNED` として残るため、どの組み合わせが cost 制約外だったかを後から確認できる。
 
 `--n-jobs > 1` は同一 GPU 上で runner が並列起動する。duration や step/sec は干渉を受けるため、score には使わず補助指標として読む。
 multi-seed は 1 Optuna trial の内部で seed を逐次実行する。`--n-jobs > 1` の場合は、複数 params 候補が並列に進む。
@@ -757,16 +804,17 @@ cost_tf = L * (N^2 * M + k * N * M^2)
 ## Harness 共通仕様: 運用メモ
 
 - `run-study` は探索用、`run-trial` は固定候補の smoke / 再評価用。
-- `run-trial` は Optuna DB に登録しない。
-- `run-study` では trial 名を明示指定しない。Optuna trial number から自動生成し、同一 trial 内の seed run は `_s<seed>` suffix を付ける。
-- `run-study` は `TPESampler` を明示的に使う。最初の `--n-startup-trials` 件は random sampling、その後は過去の完了 trial に基づいて候補を寄せる。
+- `run-trial` も Optuna DB に登録し、`run-study` の 1 trial と同じ multi-seed aggregate として扱う。
+- `run-study` では trial 名を明示指定しない。`run-trial` では任意で `--trial-name` を指定できる。未指定時は Optuna trial number から自動生成し、同一 trial 内の seed run は `_s<seed>` suffix を付ける。
+- `run-study --search-mode tpe` は `TPESampler` を使う。最初の `--n-startup-trials` 件は random sampling、その後は過去の完了 trial に基づいて候補を寄せる。
+- `run-study --search-mode grid` は固定指定と seed batch を反映した grid combo を harness 側で列挙し、未実行 combo だけを実行する。duplicate params による prune は作らず、cost 超過は `PRUNED` として残す。
 - `--constant-liar` は RUNNING trial 近傍の再提案を避ける補助策。完了済み duplicate params の扱いは `--duplicate-params-policy` で制御する。
-- `run-study` の探索単位は seed run ではなく multi-seed aggregate。DB や optuna-dashboard で見る trial value は aggregate score。
+- `run-study` / `run-trial` の探索・評価単位は seed run ではなく multi-seed aggregate。DB や optuna-dashboard で見る trial value は aggregate score。
 - `summarize-study` の target study は閲覧専用。source study は変更せず、同一 params group の全 complete seed score 分布を multi-objective trial にする。
 - 中断時はまず `Ctrl+C` を 1 回だけ押す。`RUNNING` が残った場合は `cleanup-running --dry-run` で確認してから cleanup する。
 - Study User Attributes の `last_*` は最後の `run-study` 起動条件を表す。異なる前提の trial が同一 study に混ざることは許容し、各 trial の正確な条件は Trial User Attributes、manifest、summary を正として読む。
 - 既定では duplicate params は `reseed` され、最大 3 回まで seed を変えて再評価される。
-- 手動の `dry-run` / `run-trial` では、`--trial-name` 未指定時に既存出力から最大番号+1で採番する。並列手動実行で衝突が困る場合は `--trial-name` か `--trial-number` を明示する。
+- 手動の `dry-run` では、`--trial-name` 未指定時に既存出力から最大番号+1で採番する。`run-trial` は Optuna trial number を使う。
 - `study_name` と `trial_name` に path separator は使えない。
 - 既存の `runs/` とは混ぜない。Optuna 関連は `apps/runner/runs_optuna/` 配下へ集約する。
 - 既存 `runs_optina/` 生成物の migration はしない。

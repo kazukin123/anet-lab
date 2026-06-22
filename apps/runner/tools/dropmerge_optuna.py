@@ -51,7 +51,8 @@ class DropMergeDomain:
         "cost_budget 判定を表示します。"
     )
     RUN_TRIAL_DESCRIPTION = (
-        "CLI で指定した DropMerge NN 構成を runner で 1 件実行し、metrics.jsonl を採点します。"
+        "CLI で指定した DropMerge NN 構成を Optuna trial として multi-seed 実行し、"
+        "metrics.jsonl を採点して DB / artifact に登録します。"
     )
     RUN_STUDY_DESCRIPTION = (
         "Optuna study を作成/再開し、Optuna が生成した DropMerge NN 構成 trial を順次 runner で実行します。"
@@ -199,6 +200,15 @@ class DropMergeDomain:
     def fixed_params_for_sampler(cls, args) -> dict[str, object]:
         """Optuna PartialFixedSampler へ渡す固定探索 params を返す。"""
         return cls.fixed_params_from_args(args)
+
+    @classmethod
+    def search_space_from_args(cls, args) -> dict[str, list[object]]:
+        """run-study grid mode 用に固定指定を反映した探索空間を返す。"""
+        fixed_params = cls.fixed_params_from_args(args)
+        return {
+            name: [fixed_params[name]] if name in fixed_params else list(choices)
+            for name, choices in cls.TRIAL_PARAM_CHOICES.items()
+        }
 
     @classmethod
     def params_from_mapping(cls, mapping: dict, *, source: str = "params") -> TrialParams:
@@ -472,7 +482,7 @@ def add_common_args(parser: argparse.ArgumentParser, include_seed: bool = True) 
         default="DropMerge_optuna.txt",
         help="生成 trial config が base config の後に $include する Optuna 専用 config。",
     )
-    parser.add_argument("--study-name", default="dropmergeOptuna", help="Optuna study 名。")
+    parser.add_argument("--study-name", required=True, help="Optuna study 名。")
     parser.add_argument("--budget", choices=sorted(BUDGETS), default="small", help="使う cost_budget プリセット。")
     parser.add_argument("--cost-budget", type=float, help="cost_budget を明示指定する。指定時は --budget の値を上書きする。")
     parser.add_argument("--cost-k", type=float, default=4.0, help="cost_tf の N*M^2 項に掛ける係数。")
@@ -487,9 +497,37 @@ def add_common_args(parser: argparse.ArgumentParser, include_seed: bool = True) 
     parser.add_argument("--nhead", type=int, default=8, help="Transformer の attention head 数。")
 
 
-def add_trial_identity_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--trial-name", help="trial 名。未指定時は既存出力から t00000 形式で自動採番する。")
-    parser.add_argument("--trial-number", type=int, help="trial_name 未指定時に使う trial 番号。未指定時は既存出力から自動採番する。")
+def add_trial_identity_args(parser: argparse.ArgumentParser, *, include_trial_number: bool = True) -> None:
+    trial_name_help = (
+        "trial 名。未指定時は既存出力から t00000 形式で自動採番する。"
+        if include_trial_number
+        else "trial 名。未指定時は Optuna trial number から tNNNNN 形式で決める。"
+    )
+    parser.add_argument("--trial-name", help=trial_name_help)
+    if include_trial_number:
+        parser.add_argument("--trial-number", type=int, help="trial_name 未指定時に使う trial 番号。未指定時は既存出力から自動採番する。")
+
+
+def add_optuna_storage_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--storage",
+        default="sqlite:///runs_optuna/optuna.db",
+        help="Optuna SQLite DB の URL またはパス。相対時は runner project root 基準。",
+    )
+    parser.add_argument(
+        "--storage-timeout-sec",
+        type=float,
+        default=120.0,
+        help="SQLite storage の lock 待ち timeout 秒。",
+    )
+
+
+def add_optuna_artifact_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--optuna-artifact-dir",
+        default="runs_optuna/artifacts",
+        help="Optuna Dashboard 用 artifact store の base path。相対時は runner project root 基準。",
+    )
 
 
 
@@ -498,12 +536,12 @@ def build_parser() -> argparse.ArgumentParser:
     usage = (
         "%(prog)s <command> [options]\n\n"
         "例:\n"
-        "  %(prog)s dry-run --budget small\n"
+        "  %(prog)s dry-run --study-name dropmergeSmall --budget small\n"
         "  %(prog)s run-trial --study-name dropmergeSmall --trial-name t00001\n"
         "  %(prog)s summarize apps/runner/runs_optuna/dropmergeSmall_t00001/metrics.jsonl --window-start 80%% --window-end 100%%\n"
         "  %(prog)s summarize-study --source-study-name dropmergeSmall\n"
         "  %(prog)s cleanup-running --study-name dropmergeSmall --dry-run\n"
-        "  %(prog)s run-study --budget small --n-trials 10 --seeds 12345,23456"
+        "  %(prog)s run-study --study-name dropmergeSmall --budget small --n-trials 10 --seeds 12345,23456"
     )
     parser = JapaneseArgumentParser(
         usage=usage,
@@ -610,34 +648,33 @@ def build_parser() -> argparse.ArgumentParser:
     localize_parser(cleanup)
     repo_root = repo_root_from_script()
     cleanup.add_argument("--repo-root", default=str(repo_root), help="anet-lab のリポジトリルート。")
-    cleanup.add_argument("--study-name", default="dropmergeOptuna", help="Optuna study 名。")
-    cleanup.add_argument(
-        "--storage",
-        default="sqlite:///runs_optuna/optuna.db",
-        help="Optuna SQLite DB の URL またはパス。相対時は runner project root 基準。",
-    )
-    cleanup.add_argument(
-        "--storage-timeout-sec",
-        type=float,
-        default=120.0,
-        help="SQLite storage の lock 待ち timeout 秒。",
-    )
+    cleanup.add_argument("--study-name", required=True, help="Optuna study 名。")
+    add_optuna_storage_args(cleanup)
     cleanup.add_argument("--dry-run", action="store_true", default=False, help="対象 RUNNING trial を表示するだけで DB を変更しない。")
     cleanup.set_defaults(func=RUNTIME.command_cleanup_running)
 
     run_trial = subparsers.add_parser(
         "run-trial",
-        help="固定 params の trial を 1 件実行する",
+        help="固定 params の Optuna trial を 1 件実行する",
         description=DOMAIN.RUN_TRIAL_DESCRIPTION,
         formatter_class=JapaneseHelpFormatter,
         add_help=False,
     )
     localize_parser(run_trial)
-    add_common_args(run_trial)
-    add_trial_identity_args(run_trial)
+    add_common_args(run_trial, include_seed=False)
+    add_trial_identity_args(run_trial, include_trial_number=False)
     DOMAIN.add_param_args(run_trial)
     add_runner_args(run_trial)
     add_score_window_args(run_trial)
+    add_optuna_storage_args(run_trial)
+    add_optuna_artifact_args(run_trial)
+    run_trial.add_argument("--seeds", default="12345", help="同一 params を評価する train.seed の comma-separated list。")
+    run_trial.add_argument(
+        "--score-aggregate",
+        choices=SCORE_AGGREGATES,
+        default="mean",
+        help="multi-seed score を Optuna trial value に集約する方法。",
+    )
     run_trial.set_defaults(func=RUNTIME.command_run_trial)
 
     run_study = subparsers.add_parser(
@@ -652,17 +689,7 @@ def build_parser() -> argparse.ArgumentParser:
     DOMAIN.add_param_args(run_study, default_values=False)
     add_runner_args(run_study)
     add_score_window_args(run_study)
-    run_study.add_argument(
-        "--storage",
-        default="sqlite:///runs_optuna/optuna.db",
-        help="Optuna SQLite DB の URL またはパス。相対時は runner project root 基準。",
-    )
-    run_study.add_argument(
-        "--storage-timeout-sec",
-        type=float,
-        default=120.0,
-        help="SQLite storage の lock 待ち timeout 秒。",
-    )
+    add_optuna_storage_args(run_study)
     run_study.add_argument(
         "--heartbeat-interval-sec",
         type=int,
@@ -675,12 +702,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=600,
         help="heartbeat が途絶えた RUNNING trial を stale とみなす猶予秒。",
     )
+    add_optuna_artifact_args(run_study)
     run_study.add_argument(
-        "--optuna-artifact-dir",
-        default="runs_optuna/artifacts",
-        help="Optuna Dashboard 用 artifact store の base path。相対時は runner project root 基準。",
+        "--n-trials",
+        type=int,
+        help="この実行で追加する trial 数。tpe 未指定時は 10、grid 未指定時は未実行 combo 全件。",
     )
-    run_study.add_argument("--n-trials", type=int, default=10, help="この実行で追加する trial 数。")
     run_study.add_argument("--n-jobs", type=int, default=1, help="Optuna の並列 worker 数。")
     run_study.add_argument("--study-note", help="Study User Attributes の note に保存する任意メモ。未指定時は既存 note を変更しない。")
     run_study.add_argument("--seeds", default="12345", help="同一 params を評価する train.seed の comma-separated list。")
@@ -690,7 +717,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="mean",
         help="multi-seed score を Optuna trial value に集約する方法。",
     )
-    run_study.add_argument("--sampler-seed", type=int, help="Optuna sampler の乱数 seed。未指定時は Optuna 既定。")
+    run_study.add_argument(
+        "--search-mode",
+        choices=("tpe", "grid"),
+        default="tpe",
+        help="探索方法。tpe は従来の TPE、grid は固定指定を反映した全組み合わせ探索。",
+    )
+    run_study.add_argument("--sampler-seed", type=int, help="TPE sampler の乱数 seed。grid では combo 列挙順の shuffle seed。未指定時は Optuna/通常順。")
     run_study.add_argument(
         "--constant-liar",
         action="store_true",

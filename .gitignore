@@ -68,3 +68,4 @@
 /core/anet-core/bin/Debug/out
 /core/anet-core/bin/Release/out
 /core/anet-core/bin/RelWithDebInfo/out
+/apps/runner/tools/__pycache__

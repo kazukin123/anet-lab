@@ -1,5 +1,6 @@
 ﻿
-A.learner.per_beta_step = 500,000              # 0.5M
+#A.learner.per_beta_step = 500,000              # 0.5M
+A.learner.per_beta_step = 2,000,000             # 2.0M
 
 M.[21_eval/03_target_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval1] $ema ema_alpha:0.07
 M.[21_eval/04_policy_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval2] $ema ema_alpha:0.07

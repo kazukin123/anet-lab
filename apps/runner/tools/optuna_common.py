@@ -8,10 +8,13 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import csv
+import itertools
 import json
 import math
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -167,6 +170,24 @@ class OptunaArtifactContext:
     upload_artifact: object
     get_all_artifact_meta: object | None = None
     download_artifact: object | None = None
+
+
+@dataclass(frozen=True)
+class GridSearchPlan:
+    """grid mode の事前列挙結果と今回 optimize する件数を保持する。"""
+
+    search_space: dict[str, list[object]]
+    fixed_params: dict[str, object]
+    seed_batch_key: str
+    seeds: list[int]
+    total_count: int
+    already_handled_count: int
+    missing_count: int
+    waiting_count: int
+    scheduled_count: int
+    optimize_n_trials: int
+    cost_over_budget_count: int
+    scheduled_combos: list[dict[str, object]]
 
 
 class HarnessLogger:
@@ -530,6 +551,31 @@ def parse_seed_list(seed_text: str) -> list[int]:
     if not seeds:
         raise ValueError("Invalid --seeds: at least one seed is required.")
     return seeds
+
+
+def seeds_to_csv(seeds: Iterable[int]) -> str:
+    """seed list を CLI と artifact で共通利用する安定した文字列へ変換する。"""
+    return ",".join(str(int(seed)) for seed in seeds)
+
+
+def seed_batch_key_from_seeds(seeds: Iterable[int]) -> str:
+    """grid 再開判定に使う seed batch key を作る。"""
+    return seeds_to_csv(seeds)
+
+
+def seed_batch_key_from_attrs(attrs: dict) -> str | None:
+    """既存 trial attrs から seed batch key を復元する。"""
+    key = attrs.get("grid_seed_batch_key")
+    if key is not None:
+        return str(key)
+    for name in ("effective_seeds", "base_seeds", "grid_seeds"):
+        value = attrs.get(name)
+        if isinstance(value, list):
+            try:
+                return seed_batch_key_from_seeds(int(seed) for seed in value)
+            except (TypeError, ValueError):
+                return None
+    return None
 
 
 def append_cli_arg(parts: list[str], option_name: str, value: object) -> None:
@@ -1327,6 +1373,7 @@ class OptunaHarnessRuntime:
                 append_cli_arg(parts, option_name, value)
         append_cli_arg(parts, "--seeds", args.seeds)
         append_cli_arg(parts, "--score-aggregate", args.score_aggregate)
+        append_cli_arg(parts, "--search-mode", getattr(args, "search_mode", "tpe"))
         if args.sampler_seed is not None:
             append_cli_arg(parts, "--sampler-seed", args.sampler_seed)
         append_cli_arg(parts, "--n-startup-trials", args.n_startup_trials)
@@ -1373,6 +1420,7 @@ class OptunaHarnessRuntime:
             "last_seeds": seeds,
             "last_seed_count": len(seeds),
             "last_score_aggregate": args.score_aggregate,
+            "last_search_mode": getattr(args, "search_mode", "tpe"),
             "last_sampler_seed": args.sampler_seed,
             "last_n_startup_trials": args.n_startup_trials,
             "last_constant_liar": args.constant_liar,
@@ -1386,6 +1434,22 @@ class OptunaHarnessRuntime:
             "last_base_config": args.base_config,
             "last_extra_config": args.extra_config,
         }
+        fixed_params_from_args = getattr(self.domain, "fixed_params_from_args", None)
+        if fixed_params_from_args is not None:
+            attrs["last_fixed_params"] = fixed_params_from_args(args)
+        grid_plan = getattr(args, "_grid_plan", None)
+        if grid_plan is not None:
+            attrs.update({
+                "last_grid_seed_batch_key": grid_plan.seed_batch_key,
+                "last_grid_seeds": grid_plan.seeds,
+                "last_grid_total_count": grid_plan.total_count,
+                "last_grid_already_handled_count": grid_plan.already_handled_count,
+                "last_grid_missing_count": grid_plan.missing_count,
+                "last_grid_waiting_count": grid_plan.waiting_count,
+                "last_grid_scheduled_count": grid_plan.scheduled_count,
+                "last_grid_optimize_n_trials": grid_plan.optimize_n_trials,
+                "last_grid_cost_over_budget_count": grid_plan.cost_over_budget_count,
+            })
         if args.study_note is not None:
             attrs["note"] = args.study_note
         return attrs
@@ -1453,6 +1517,147 @@ class OptunaHarnessRuntime:
             prune_reason=prune_reason,
         )
 
+    def grid_search_space_from_args(self, args: argparse.Namespace) -> dict[str, list[object]]:
+        """domain の探索候補と run-study 固定 params から grid search space を作る。"""
+        search_space_from_args = getattr(self.domain, "search_space_from_args", None)
+        if search_space_from_args is not None:
+            return {
+                name: list(values)
+                for name, values in search_space_from_args(args).items()
+            }
+
+        choices = getattr(self.domain, "TRIAL_PARAM_CHOICES")
+        fixed_params_from_args = getattr(self.domain, "fixed_params_from_args", None)
+        fixed_params = fixed_params_from_args(args) if fixed_params_from_args is not None else {}
+        return {
+            name: [fixed_params[name]] if name in fixed_params else list(values)
+            for name, values in choices.items()
+        }
+
+    @staticmethod
+    def ordered_grid_combos(search_space: dict[str, list[object]], sampler_seed: int | None) -> list[dict[str, object]]:
+        """harness 側 grid scheduler 用に params combo を列挙する。"""
+        param_names = list(search_space)
+        combos = [
+            dict(zip(param_names, grid_values))
+            for grid_values in itertools.product(*(search_space[name] for name in param_names))
+        ]
+        if sampler_seed is not None:
+            random.Random(sampler_seed).shuffle(combos)
+        return combos
+
+    def grid_identity_key_from_mapping(
+        self,
+        mapping: dict,
+        seed_batch_key: str,
+    ) -> tuple[tuple[str, object], ...]:
+        """grid の処理済み判定用に params と seed batch を結合した key を作る。"""
+        return tuple(self.domain.params_key_from_mapping(mapping)) + (("__seed_batch__", seed_batch_key),)
+
+    def grid_existing_state_names_by_key(
+        self,
+        study,
+        grid_keys: set[tuple[tuple[str, object], ...]],
+    ) -> dict:
+        """同一 params + seed batch の既存 Optuna state を key ごとに集める。"""
+        states_by_key: dict[tuple[tuple[str, object], ...], list[str]] = {}
+        for trial in study_trials(study):
+            raw_params = getattr(trial, "params", None) or getattr(trial, "system_attrs", {}).get("fixed_params", {})
+            if not raw_params:
+                continue
+            seed_batch_key = seed_batch_key_from_attrs(getattr(trial, "user_attrs", {}))
+            if seed_batch_key is None:
+                continue
+            try:
+                key = self.grid_identity_key_from_mapping(raw_params, seed_batch_key)
+            except Exception:
+                continue
+            if key not in grid_keys:
+                continue
+            state_name = trial_state_name(trial)
+            if state_name == "PRUNED":
+                try:
+                    cost_tf = float(getattr(trial, "user_attrs", {}).get("cost_tf"))
+                    cost_budget = float(getattr(trial, "user_attrs", {}).get("cost_budget"))
+                except (TypeError, ValueError):
+                    continue
+                if cost_tf <= cost_budget:
+                    continue
+            states_by_key.setdefault(key, []).append(state_name)
+        return states_by_key
+
+    def prepare_grid_search(self, args: argparse.Namespace, optuna, study) -> GridSearchPlan:
+        """params + seed batch を事前列挙し、未実行分だけ WAITING trial として enqueue する。"""
+        del optuna
+        search_space = self.grid_search_space_from_args(args)
+        fixed_params_from_args = getattr(self.domain, "fixed_params_from_args", None)
+        fixed_params = fixed_params_from_args(args) if fixed_params_from_args is not None else {}
+        seeds = parse_seed_list(args.seeds)
+        seed_batch_key = seed_batch_key_from_seeds(seeds)
+        combos = self.ordered_grid_combos(search_space, getattr(args, "sampler_seed", None))
+        keys_by_combo = {
+            self.grid_identity_key_from_mapping(combo, seed_batch_key): combo
+            for combo in combos
+        }
+        existing_states = self.grid_existing_state_names_by_key(study, set(keys_by_combo))
+        handled_states = {"COMPLETE", "PRUNED", "RUNNING", "WAITING"}
+        handled_keys = {
+            key
+            for key, states in existing_states.items()
+            if any(state in handled_states for state in states)
+        }
+        waiting_count = sum(
+            1
+            for states in existing_states.values()
+            if any(state == "WAITING" for state in states)
+        )
+        missing_combos = [
+            combo
+            for combo in combos
+            if self.grid_identity_key_from_mapping(combo, seed_batch_key) not in handled_keys
+        ]
+
+        requested_n_trials = getattr(args, "n_trials", None)
+        if requested_n_trials is None:
+            scheduled_combos = missing_combos
+        else:
+            scheduled_combos = missing_combos[:max(0, int(requested_n_trials))]
+        for combo in scheduled_combos:
+            # FAIL trial を再実行対象にするため skip_if_exists は使わない。
+            study.enqueue_trial(
+                combo,
+                user_attrs={
+                    "grid_enqueued_by": self.harness_name,
+                    "grid_seed_batch_key": seed_batch_key,
+                    "grid_seeds": list(seeds),
+                    "grid_seeds_raw": seeds_to_csv(seeds),
+                },
+                skip_if_exists=False,
+            )
+
+        budget_name, cost_budget = self.resolve_budget(args)
+        del budget_name
+        cost_over_budget_count = 0
+        for combo in combos:
+            params = self.domain.params_from_mapping(combo, source="grid search space")
+            if float(self.domain.cost_tf(params, args.cost_k)) > cost_budget:
+                cost_over_budget_count += 1
+
+        return GridSearchPlan(
+            search_space=search_space,
+            fixed_params=fixed_params,
+            seed_batch_key=seed_batch_key,
+            seeds=seeds,
+            total_count=len(combos),
+            already_handled_count=len(handled_keys),
+            missing_count=len(missing_combos),
+            waiting_count=waiting_count,
+            scheduled_count=len(scheduled_combos),
+            optimize_n_trials=waiting_count + len(scheduled_combos),
+            cost_over_budget_count=cost_over_budget_count,
+            scheduled_combos=scheduled_combos,
+        )
+
     def make_manifest(self, args: argparse.Namespace, params, ctx: TrialContext, extra: dict | None = None) -> dict:
         """trial 再現に必要な domain params と harness 条件を manifest にまとめる。"""
         manifest = {
@@ -1474,6 +1679,9 @@ class OptunaHarnessRuntime:
             "base_seeds": getattr(args, "base_seeds", None),
             "effective_seeds": getattr(args, "effective_seeds", None),
             "duplicate_matched_trials": getattr(args, "duplicate_matched_trials", None),
+            "search_mode": getattr(args, "search_mode", None),
+            "grid_seed_batch_key": getattr(args, "grid_seed_batch_key", None),
+            "grid_seeds": getattr(args, "grid_seeds", None),
             "primary_tags": list(self.metrics_spec.primary_tags),
             "supplemental_tags": list(self.metrics_spec.supplemental_tags),
         }
@@ -1551,6 +1759,8 @@ class OptunaHarnessRuntime:
             "seed_success_count": summary["seed_success_count"],
             "seed_failure_count": summary["seed_failure_count"],
             "seeds": summary["seeds"],
+            "grid_seed_batch_key": summary.get("grid_seed_batch_key"),
+            "grid_seeds": summary.get("grid_seeds"),
             "runs": summary["runs"],
             "error": summary.get("error"),
         }
@@ -1700,6 +1910,8 @@ class OptunaHarnessRuntime:
             "base_seeds": duplicate_info.base_seeds,
             "effective_seeds": duplicate_info.effective_seeds,
             "duplicate_matched_trials": duplicate_info.duplicate_matched_trials,
+            "grid_seed_batch_key": getattr(args, "grid_seed_batch_key", None),
+            "grid_seeds": getattr(args, "grid_seeds", None),
             "seed_scores": seed_scores,
             "seed_run_names": seed_run_names,
             "runs": seed_runs,
@@ -2306,25 +2518,84 @@ class OptunaHarnessRuntime:
         return 0 if not result["errors"] else 2
 
     def command_run_trial(self, args: argparse.Namespace) -> int:
-        """CLI 固定 params を runner で 1 回だけ評価する。"""
+        """CLI 固定 params を Optuna trial として multi-seed 評価する。"""
         clear_interrupt_flag()
         self.attach_harness_logger(args)
-        params = self.domain.params_from_args(args)
+        resolve_score_window(args)
+        parse_seed_list(args.seeds)
+        if args.storage_timeout_sec < 0:
+            print("storage-timeout-sec must be >= 0.", file=sys.stderr)
+            return 2
         try:
-            result = self.execute_single(args, params, args.trial_number, getattr(args, "trial_name", None))
+            import optuna
+        except ImportError:
+            print("Optuna is required for run-trial. Install optuna in the Python environment.", file=sys.stderr)
+            return 2
+
+        fixed_params = self.params_to_dict(self.domain.params_from_args(args))
+        sampler = optuna.samplers.PartialFixedSampler(
+            fixed_params,
+            optuna.samplers.RandomSampler(),
+        )
+        storage_url = storage_url_from_arg(args)
+        storage = create_optuna_storage(optuna, storage_url, args.storage_timeout_sec)
+        optuna_artifact_context = ArtifactStore.create_optional_context(args)
+        study = optuna.create_study(
+            study_name=args.study_name,
+            storage=storage,
+            sampler=sampler,
+            direction="maximize",
+            load_if_exists=True,
+        )
+        trial = study.ask()
+        params = self.domain.suggest_params(trial, args)
+        if self.params_to_dict(params) != fixed_params:
+            error = TrialFailedError(f"fixed params were not applied to Optuna trial. expected={fixed_params} actual={self.params_to_dict(params)}")
+            set_trial_failure_attrs(trial, error)
+            study.tell(trial, state=optuna.trial.TrialState.FAIL)
+            print(str(error), file=sys.stderr)
+            return 2
+
+        trial_args = argparse.Namespace(**vars(args))
+        trial_args.duplicate_params_policy = "allow"
+        trial_args.duplicate_params_max_runs = 0
+        trial_args.duplicate_seed_stride = 0
+        trial_args.sampler_seed = None
+        trial_args.n_startup_trials = None
+        trial_args.constant_liar = False
+        try:
+            result = self.execute_multi_seed(
+                trial_args,
+                params,
+                trial.number,
+                study=study,
+                optuna_trial=trial,
+                optuna_artifact_context=optuna_artifact_context,
+            )
         except TrialPrunedError as e:
+            try:
+                study.tell(trial, state=optuna.trial.TrialState.PRUNED)
+            except Exception:
+                pass
             print(str(e), file=sys.stderr)
             return 2
         except TrialExecutionError as e:
-            log_harness(args, "ERROR", "trial-failed", console=True, study=args.study_name, error=str(e))
+            set_trial_failure_attrs(trial, e, traceback.format_exc())
+            try:
+                study.tell(trial, state=optuna.trial.TrialState.FAIL)
+            except Exception:
+                pass
+            log_harness(args, "ERROR", "trial-failed", console=True, study=args.study_name, trial=trial.number, error=str(e))
             print(str(e), file=sys.stderr)
             return 2
+        study.tell(trial, result.score)
         print(json.dumps(
             {
                 "params": self.params_to_dict(params),
                 "context": asdict(result.ctx),
                 "score": result.summary["score"],
-                "metrics_summary_path": str(Path(result.ctx.artifact_dir) / "metrics_summary.json"),
+                "multiseed_summary_path": str(Path(result.ctx.artifact_dir) / "multiseed_summary.json"),
+                "optuna_trial_number": trial.number,
             },
             ensure_ascii=False,
             indent=2,
@@ -2368,6 +2639,10 @@ class OptunaHarnessRuntime:
         trial.set_user_attr("base_seeds", summary["base_seeds"])
         trial.set_user_attr("effective_seeds", summary["effective_seeds"])
         trial.set_user_attr("duplicate_matched_trials", summary["duplicate_matched_trials"])
+        if summary.get("grid_seed_batch_key") is not None:
+            trial.set_user_attr("grid_seed_batch_key", summary["grid_seed_batch_key"])
+        if summary.get("grid_seeds") is not None:
+            trial.set_user_attr("grid_seeds", summary["grid_seeds"])
 
     def execute_trial(
         self,
@@ -2456,6 +2731,14 @@ class OptunaHarnessRuntime:
         optuna_artifact_context: OptunaArtifactContext | None = None,
     ) -> TrialExecutionResult:
         """run-study の 1 Optuna trial を multi-seed aggregate として評価する。"""
+        if getattr(args, "search_mode", None) == "grid":
+            args = argparse.Namespace(**vars(args))
+            seeds = parse_seed_list(args.seeds)
+            args.grid_seed_batch_key = seed_batch_key_from_seeds(seeds)
+            args.grid_seeds = list(seeds)
+            args.duplicate_params_policy = "allow"
+            args.duplicate_params_max_runs = 0
+            args.duplicate_seed_stride = 0
         base_seeds = parse_seed_list(args.seeds)
         duplicate_info = self.resolve_duplicate_params_info(args, params, study, trial_number, base_seeds)
         seeds = duplicate_info.effective_seeds
@@ -2467,6 +2750,9 @@ class OptunaHarnessRuntime:
             raise TrialExecutionError(str(e)) from e
         if optuna_trial is not None:
             self.set_optuna_trial_attrs(optuna_trial, params, ctx)
+            if getattr(args, "search_mode", None) == "grid":
+                optuna_trial.set_user_attr("grid_seed_batch_key", args.grid_seed_batch_key)
+                optuna_trial.set_user_attr("grid_seeds", args.grid_seeds)
 
         log_harness(
             args,
@@ -2625,10 +2911,23 @@ class OptunaHarnessRuntime:
         """Optuna objective。prune/fail の意味づけをここで Optuna state に接続する。"""
         import optuna
 
-        params = self.domain.suggest_params(trial, args)
+        trial_args = args
+        if getattr(args, "search_mode", None) == "grid":
+            trial_args = argparse.Namespace(**vars(args))
+            user_attrs = getattr(trial, "user_attrs", {})
+            queued_seeds = user_attrs.get("grid_seeds")
+            queued_seed_text = user_attrs.get("grid_seeds_raw")
+            if isinstance(queued_seeds, list):
+                trial_args.seeds = seeds_to_csv(int(seed) for seed in queued_seeds)
+            elif queued_seed_text:
+                trial_args.seeds = str(queued_seed_text)
+            seeds = parse_seed_list(trial_args.seeds)
+            trial_args.grid_seed_batch_key = seed_batch_key_from_seeds(seeds)
+            trial_args.grid_seeds = list(seeds)
+        params = self.domain.suggest_params(trial, trial_args)
         try:
             return self.execute_multi_seed(
-                args,
+                trial_args,
                 params,
                 trial.number,
                 study=study,
@@ -2650,12 +2949,68 @@ class OptunaHarnessRuntime:
             log_harness_exception(args, "trial-unexpected-error", e, console=True, study=args.study_name, trial=trial.number)
             raise TrialFailedError(str(e)) from e
 
+    def execute_asked_trial(
+        self,
+        args: argparse.Namespace,
+        study,
+        optuna,
+        optuna_artifact_context: OptunaArtifactContext | None,
+        trial,
+    ) -> None:
+        """main thread で ask 済みの Optuna trial を実行し、state を tell で確定する。"""
+        try:
+            value = self.objective(trial, args, study, optuna_artifact_context)
+        except optuna.TrialPruned:
+            study.tell(trial, state=optuna.trial.TrialState.PRUNED)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except TrialFailedError:
+            study.tell(trial, state=optuna.trial.TrialState.FAIL)
+        except Exception as e:
+            set_trial_failure_attrs(trial, e, traceback.format_exc())
+            log_harness_exception(args, "trial-unexpected-error", e, console=True, study=args.study_name, trial=trial.number)
+            study.tell(trial, state=optuna.trial.TrialState.FAIL)
+        else:
+            study.tell(trial, value)
+
+    def run_grid_asked_trials(
+        self,
+        args: argparse.Namespace,
+        optuna,
+        study,
+        optuna_artifact_context: OptunaArtifactContext | None,
+    ) -> None:
+        """grid mode では ask を main thread で先に行い、同じ WAITING trial の二重取得を避ける。"""
+        if args.n_trials <= 0:
+            return
+
+        trials = [study.ask() for _ in range(args.n_trials)]
+        log_harness(
+            args,
+            "INFO",
+            "grid-trials-claimed",
+            console=True,
+            study=args.study_name,
+            trials=[trial.number for trial in trials],
+        )
+        max_workers = max(1, int(args.n_jobs))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(self.execute_asked_trial, args, study, optuna, optuna_artifact_context, trial)
+                for trial in trials
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                future.result()
+
     def command_run_study(self, args: argparse.Namespace) -> int:
         """Optuna study 全体を実行し、trial ごとに runner を別 process で起動する。"""
         clear_interrupt_flag()
         self.attach_harness_logger(args)
         resolve_score_window(args)
         parse_seed_list(args.seeds)
+        if args.n_trials is not None and args.n_trials < 0:
+            print("n-trials must be >= 0.", file=sys.stderr)
+            return 2
         if args.duplicate_params_max_runs < 0:
             print("duplicate-params-max-runs must be >= 0.", file=sys.stderr)
             return 2
@@ -2677,27 +3032,23 @@ class OptunaHarnessRuntime:
             print("Optuna is required for run-study. Install optuna in the Python environment.", file=sys.stderr)
             return 2
 
-        log_harness(
-            args,
-            "INFO",
-            "study-start",
-            console=True,
-            study=args.study_name,
-            n_trials=args.n_trials,
-            n_jobs=args.n_jobs,
-            heartbeat_interval_sec=args.heartbeat_interval_sec,
-            heartbeat_grace_period_sec=args.heartbeat_grace_period_sec,
-        )
-        sampler = optuna.samplers.TPESampler(
-            seed=args.sampler_seed,
-            n_startup_trials=args.n_startup_trials,
-            constant_liar=args.constant_liar,
-        )
-        fixed_params_for_sampler = getattr(self.domain, "fixed_params_for_sampler", None)
-        if fixed_params_for_sampler is not None:
-            fixed_params = fixed_params_for_sampler(args)
-            if fixed_params:
-                sampler = optuna.samplers.PartialFixedSampler(fixed_params, sampler)
+        if args.search_mode == "grid":
+            # grid mode は harness 側で params + seed batch を enqueue 管理する。
+            # sampler は enqueue trial 消化用の最小限のものに留める。
+            sampler = optuna.samplers.RandomSampler(seed=args.sampler_seed)
+        else:
+            if args.n_trials is None:
+                args.n_trials = 10
+            sampler = optuna.samplers.TPESampler(
+                seed=args.sampler_seed,
+                n_startup_trials=args.n_startup_trials,
+                constant_liar=args.constant_liar,
+            )
+            fixed_params_for_sampler = getattr(self.domain, "fixed_params_for_sampler", None)
+            if fixed_params_for_sampler is not None:
+                fixed_params = fixed_params_for_sampler(args)
+                if fixed_params:
+                    sampler = optuna.samplers.PartialFixedSampler(fixed_params, sampler)
         storage_url = storage_url_from_arg(args)
         storage = create_optuna_storage(
             optuna,
@@ -2714,15 +3065,52 @@ class OptunaHarnessRuntime:
             direction="maximize",
             load_if_exists=True,
         )
-        set_study_user_attrs(study, self.build_study_user_attrs(args, storage_url))
         fail_stale_trials_if_enabled(args, optuna, study, "before-optimize")
-        try:
-            study.optimize(
-                lambda trial: self.objective(trial, args, study, optuna_artifact_context),
-                n_trials=args.n_trials,
-                n_jobs=args.n_jobs,
-                catch=(TrialFailedError,),
+        if args.search_mode == "grid":
+            grid_plan = self.prepare_grid_search(args, optuna, study)
+            args._grid_plan = grid_plan
+            args.n_trials = grid_plan.optimize_n_trials
+            log_harness(
+                args,
+                "INFO",
+                "grid-plan",
+                console=True,
+                study=args.study_name,
+                total_count=grid_plan.total_count,
+                already_handled_count=grid_plan.already_handled_count,
+                missing_count=grid_plan.missing_count,
+                waiting_count=grid_plan.waiting_count,
+                scheduled_count=grid_plan.scheduled_count,
+                optimize_n_trials=grid_plan.optimize_n_trials,
+                cost_over_budget_count=grid_plan.cost_over_budget_count,
+                seed_batch=grid_plan.seed_batch_key,
+                fixed_params=grid_plan.fixed_params,
             )
+
+        set_study_user_attrs(study, self.build_study_user_attrs(args, storage_url))
+        log_harness(
+            args,
+            "INFO",
+            "study-start",
+            console=True,
+            study=args.study_name,
+            search_mode=args.search_mode,
+            n_trials=args.n_trials,
+            n_jobs=args.n_jobs,
+            heartbeat_interval_sec=args.heartbeat_interval_sec,
+            heartbeat_grace_period_sec=args.heartbeat_grace_period_sec,
+        )
+        try:
+            if args.n_trials > 0:
+                if args.search_mode == "grid":
+                    self.run_grid_asked_trials(args, optuna, study, optuna_artifact_context)
+                else:
+                    study.optimize(
+                        lambda trial: self.objective(trial, args, study, optuna_artifact_context),
+                        n_trials=args.n_trials,
+                        n_jobs=args.n_jobs,
+                        catch=(TrialFailedError,),
+                    )
         except KeyboardInterrupt:
             set_interrupt_flag()
             terminated_pids = RunnerProcessManager.terminate_active()
