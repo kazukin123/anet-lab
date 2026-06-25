@@ -1,4 +1,4 @@
-
+﻿
 # ==============================================================================
 # 基本設定
 # ==============================================================================
@@ -55,7 +55,8 @@ BF16.agent.learner.adam_eps = 1e-4   # AMP有効時は大きめにする
 # ステップ数 依存設定
 # ==============================================================================
 
-app.online.exp_pause_step  = 100,000,000      # 100M
+app.online.exp_pause_step  = 10,000,000      # 10M
+#app.online.exp_pause_step  = 100,000,000      # 100M
 
 app.batchrun.exp_exit_step  = 160,000,000     # 160M
 
@@ -64,10 +65,19 @@ app.batchrun.exp_exit_step  = 160,000,000     # 160M
 # Env依存 Agent設定
 # ==============================================================================
 
-ImageClsAgent.learning_rate = 3e-3
-ImageClsAgent.weight_decay = 0.01
+ImageClsAgent.learning_rate = 1e-3
+ImageClsAgent.weight_decay = 0.05
+#ImageClsAgent.weight_decay = 0.01
 ImageClsAgent.label_smoothing = 0.1
 ImageClsAgent.grad_clip_max_norm = 1.0
+
+ImageClsAgent.nn_viz.show_param_shapes = true
+ImageClsAgent.nn_viz.show_param_count = true
+ImageClsAgent.nn_viz.show_tensor_specs = true
+ImageClsAgent.nn_viz.show_head_info = true
+ImageClsAgent.nn_viz.layout = LR  # TB LR
+ImageClsAgent.nn_viz.cluster_branches = true
+ImageClsAgent.nn_viz.float_precision = 3
 
 
 # ==============================================================================
@@ -85,6 +95,7 @@ net.block.[BN128].num_features = 128
 
 net.block.[Drop].type = Dropout
 net.block.[Drop].p = 0.5
+#net.block.[Drop].p = 0.2
 #net.block.[Drop].p = 0.0
 
 net.block.[ConvInit32].type = Conv2d
@@ -190,10 +201,12 @@ metrics.scalar.[42_env/03_reward_sum_mean_ema]  = $env mean.reward_sum @train $e
 metrics.scalar.[42_env/04_accuracy_mean]  = $env mean.accuracy @train
 metrics.scalar.[42_env/05_accuracy_mean_ema]  = $env mean.accuracy @train $ema ema_alpha:0.001
 
+metrics.scalar.[51_eval1/03_accuracy]         = $eval.[eval1] @episode_end $env mean.accuracy
+metrics.scalar.[51_eval1/04_accuracy_ema]     = $eval.[eval1] @episode_end $env mean.accuracy $ema ema_alpha:0.01
+
 metrics.scalar.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $runner interval:100
 metrics.scalar.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema ema_alpha:0.001 interval:100 
 metrics.scalar.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
-
 
 
 # ==============================================================================
@@ -223,25 +236,19 @@ metrics.image.interval = 0   # 出力全無効
 # app
 # ==============================================================================
 
-#app.online.eval_panel.step_per_frame = 5
-
 app.online.eval_panel.auto_start = false
 app.batchrun.eval_panel.auto_start = false
 
-QValuePanel.row_height = 24
-
-app.online.train_panel.fps = 30
+app.online.train_panel.fps = 3
+app.online.eval_panel.fps = 3
 
 agent.class_id = ImageClsAgent
+env.class_id = ImageClsEnv
 
 
 # ==============================================================================
 # DropMergeEnv
 # ==============================================================================
-
-env.class_id = ImageClsEnv
-
-
 
 # --- Env 通常設定
 
@@ -253,6 +260,12 @@ ImageClsEnv.baseline.suffix = .jpg
 ImageClsEnv.baseline.image_width = 224
 ImageClsEnv.baseline.image_height = 224
 ImageClsEnv.baseline.max_steps = 100
+ImageClsEnv.baseline.augment.enabled = true             # train画像データ拡張（crop/flip）を有効化
+ImageClsEnv.baseline.augment.hflip_p = 0.5              # 水平フリップ確率
+ImageClsEnv.baseline.augment.rrc_scale_min = 0.7        # RandomResizedCrop の面積比下限
+ImageClsEnv.baseline.augment.rrc_scale_max = 1.0        # RandomResizedCrop の面積比上限
+ImageClsEnv.baseline.augment.rrc_ratio_min = 0.75       # crop アスペクト比下限
+ImageClsEnv.baseline.augment.rrc_ratio_max = 1.3333333  # crop アスペクト比上限
 
 
 # --- Env デフォルト設定
@@ -265,11 +278,41 @@ ImageClsEnv.suffix = .jpg
 ImageClsEnv.image_width = -1
 ImageClsEnv.image_height = -1
 ImageClsEnv.max_steps = 100
+ImageClsEnv.augment.enabled = false             # train画像データ拡張（crop/flip） defaultで無効
+ImageClsEnv.augment.hflip_p = 0.5               # 水平フリップ確率
+ImageClsEnv.augment.rrc_scale_min = 0.7         # RandomResizedCrop の面積比下限
+ImageClsEnv.augment.rrc_scale_max = 1.0         # RandomResizedCrop の面積比上限
+ImageClsEnv.augment.rrc_ratio_min = 0.75        # crop アスペクト比下限
+ImageClsEnv.augment.rrc_ratio_max = 1.3333333   # crop アスペクト比上限
 
 
 # --- Eval設定 ---
 
-
 train.eval.[eval1].interval = 10
 train.eval.[eval2].interval = 0
+
+
+# --- ImageCls augment 仕様 ---
+# augment は train mode の画像取得時だけに適用するデータ拡張。
+#
+# ・eval mode では augment.enabled=true でも適用しない（評価画像は無加工）。
+# ・ImageDataSource が読み込み・224x224 resize した [3,H,W] uint8 画像に対して処理する。
+# ・変換順は RandomResizedCrop -> horizontal flip。
+# ・乱数は env の seed 由来なので、同一 seed・同一実行系列なら再現可能。
+#
+# RandomResizedCrop は「画像のどの範囲を見るか」を毎回ランダムに変える処理。
+# 元画像から、設定された crop 面積比（rrc_scale_*）と crop 矩形の幅/高さ比（rrc_ratio_*）の範囲内で
+# ランダムな矩形を選び、その矩形を切り抜いて image_width/image_height へ resize する。
+# つまり、元画像全体をそのまま縮小するのではなく、料理の見える位置・大きさ・周辺の切れ方を揺らす。
+#
+# RandomResizedCrop仕様:
+# ・ rrc_scale_min/max は crop 面積比。元画像面積に対して [min,max] の範囲から乱数で選ぶ。
+# ・ rrc_ratio_min/max は crop 矩形の幅/高さ比。比率は log 空間で乱数選択する。
+# ・ 選んだ面積比と幅/高さ比から crop_w/crop_h を計算し、画像内に収まる矩形を最大10回試す。
+# ・ 有効な矩形が取れたら top/left を乱数で選び、その部分を切り出す。
+# ・ 10回失敗した場合は、ratio 範囲に収まる中央 crop に fallback する。
+# ・ crop 後の画像は bilinear resize で image_width/image_height に戻す。
+#
+# horizontal flip仕様:
+# ・ hflip_p は crop 後画像を左右反転する確率。0.0=無効、1.0=常に反転。
 

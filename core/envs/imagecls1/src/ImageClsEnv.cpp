@@ -1,6 +1,10 @@
 ﻿// ImageClsEnv.cpp
 
 #include "ImageClsEnv.hpp"
+
+#include <algorithm>
+#include <cmath>
+
 #include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
 #include "anet/env.hpp"
@@ -84,7 +88,8 @@ anet::rl::EnvSpec ImageClsEnv::GetSpec() const
 anet::rl::SingleState ImageClsEnv::FetchRandomImageState(anet::rl::RunMode mode)
 {
     // モードに応じてデータソースを切り替え
-    auto* source = anet::rl::IsEval(mode) ? eval_data_source_.get() : train_data_source_.get();
+    const bool is_eval = anet::rl::IsEval(mode);
+    auto* source = is_eval ? eval_data_source_.get() : train_data_source_.get();
 
     // ランダムサンプリング
     size_t data_size = source->size().value();
@@ -92,13 +97,14 @@ anet::rl::SingleState ImageClsEnv::FetchRandomImageState(anet::rl::RunMode mode)
     auto example = source->get(rand_idx);
     current_true_label_ = example.target.item<int64_t>();
 
-	//torch::TensorOptions opt = torch::TensorOptions().dtype(torch::kUInt8);
- //   auto ones = torch::ones({ 3, 16, 16 }, opt);
+    auto image = example.data;
+    if (!is_eval && config_.augment.enabled) {
+        image = ApplyTrainAugment(image);
+    }
 
     // Observationを生成
     anet::TensorDict obs;
-    //obs.Set(anet::rl::ObsKeys::kGrid, ones);
-    obs.Set(anet::rl::ObsKeys::kGrid, example.data);
+    obs.Set(anet::rl::ObsKeys::kGrid, image);
     obs.Set(anet::rl::ObsKeys::kVector, example.target.clone());
 
     anet::rl::SingleState state {
@@ -107,6 +113,88 @@ anet::rl::SingleState ImageClsEnv::FetchRandomImageState(anet::rl::RunMode mode)
     //ANET_LOG_DEBUG("state=" << state.ToString());
 
     return state;
+}
+
+torch::Tensor ImageClsEnv::ApplyTrainAugment(const torch::Tensor& image)
+{
+    ANET_PROFILE_SCOPE(augment);
+
+    auto result = ApplyRandomResizedCrop(image);
+    if (config_.augment.hflip_p > 0.0 && rnd_->Uniform01() < config_.augment.hflip_p) {
+        result = result.flip({ 2 });
+    }
+    return result.contiguous();
+}
+
+torch::Tensor ImageClsEnv::ApplyRandomResizedCrop(const torch::Tensor& image)
+{
+    const int64_t in_h = image.size(1);
+    const int64_t in_w = image.size(2);
+    const int64_t out_h = config_.image_height;
+    const int64_t out_w = config_.image_width;
+    const double area = static_cast<double>(in_h * in_w);
+    const double log_ratio_min = std::log(config_.augment.rrc_ratio_min);
+    const double log_ratio_max = std::log(config_.augment.rrc_ratio_max);
+
+    int64_t crop_h = in_h;
+    int64_t crop_w = in_w;
+    int64_t top = 0;
+    int64_t left = 0;
+    bool sampled = false;
+
+    // torchvision の RandomResizedCrop と同じく、指定範囲から妥当な crop 矩形を複数回試す。
+    for (int attempt = 0; attempt < 10; ++attempt) {
+        const double target_area = area * rnd_->Uniform(
+            static_cast<float>(config_.augment.rrc_scale_min),
+            static_cast<float>(config_.augment.rrc_scale_max));
+        const double aspect_ratio = std::exp(rnd_->Uniform(
+            static_cast<float>(log_ratio_min),
+            static_cast<float>(log_ratio_max)));
+        const int64_t candidate_w = static_cast<int64_t>(std::round(std::sqrt(target_area * aspect_ratio)));
+        const int64_t candidate_h = static_cast<int64_t>(std::round(std::sqrt(target_area / aspect_ratio)));
+
+        if (candidate_w > 0 && candidate_w <= in_w && candidate_h > 0 && candidate_h <= in_h) {
+            crop_w = candidate_w;
+            crop_h = candidate_h;
+            top = rnd_->RandInt(0, static_cast<int>(in_h - crop_h));
+            left = rnd_->RandInt(0, static_cast<int>(in_w - crop_w));
+            sampled = true;
+            break;
+        }
+    }
+
+    if (!sampled) {
+        const double in_ratio = static_cast<double>(in_w) / static_cast<double>(in_h);
+        if (in_ratio < config_.augment.rrc_ratio_min) {
+            crop_w = in_w;
+            crop_h = static_cast<int64_t>(std::round(static_cast<double>(crop_w) / config_.augment.rrc_ratio_min));
+        } else if (in_ratio > config_.augment.rrc_ratio_max) {
+            crop_h = in_h;
+            crop_w = static_cast<int64_t>(std::round(static_cast<double>(crop_h) * config_.augment.rrc_ratio_max));
+        }
+        crop_w = std::min(crop_w, in_w);
+        crop_h = std::min(crop_h, in_h);
+        top = (in_h - crop_h) / 2;
+        left = (in_w - crop_w) / 2;
+    }
+
+    auto cropped = image.index({
+        torch::indexing::Slice(),
+        torch::indexing::Slice(top, top + crop_h),
+        torch::indexing::Slice(left, left + crop_w)
+    });
+
+    if (crop_h == out_h && crop_w == out_w) {
+        return cropped.contiguous();
+    }
+
+    auto resized = torch::nn::functional::interpolate(
+        cropped.unsqueeze(0).to(torch::kFloat32),
+        torch::nn::functional::InterpolateFuncOptions()
+            .size(std::vector<int64_t>{ out_h, out_w })
+            .mode(torch::kBilinear)
+            .align_corners(false));
+    return resized.squeeze(0).round().clamp(0, 255).to(torch::kUInt8).contiguous();
 }
 
 anet::rl::AuxData ImageClsEnv::MakeAuxData() const

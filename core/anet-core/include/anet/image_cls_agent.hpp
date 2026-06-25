@@ -21,6 +21,8 @@ namespace anet::rl::img_cls {
         double label_smoothing = 0.1;
         double grad_clip_max_norm = 1.0;
 
+        anet::nn::NetworkGraphVizConfig nn_viz;
+
         ImageClsAgentConfig(const anet::ConfigData& config_data = anet::EmptyConfigData, const std::string& config_prefix = "")
             : anet::Config(config_data, "ImageClsAgent", config_prefix)
         {
@@ -28,6 +30,16 @@ namespace anet::rl::img_cls {
             ANET_READ_CONFIG(config_data, weight_decay);
             ANET_READ_CONFIG(config_data, label_smoothing);
             ANET_READ_CONFIG(config_data, grad_clip_max_norm);
+
+            ANET_READ_CONFIG(config_data, nn_viz.show_param_shapes);
+            ANET_READ_CONFIG(config_data, nn_viz.show_param_count);
+            ANET_READ_CONFIG(config_data, nn_viz.show_tensor_specs);
+            ANET_READ_CONFIG(config_data, nn_viz.show_branch_config);
+            ANET_READ_CONFIG(config_data, nn_viz.show_head_info);
+            ANET_READ_CONFIG(config_data, nn_viz.layout);
+            ANET_READ_CONFIG(config_data, nn_viz.cluster_branches);
+            ANET_READ_CONFIG(config_data, nn_viz.float_precision);
+
         }
     };
 

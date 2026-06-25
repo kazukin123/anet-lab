@@ -23,6 +23,15 @@ namespace anet::rl::env {
 
         int max_steps = 100; // 1エピソードあたりの分類回数（画像枚数）
 
+        struct {
+            bool enabled = false;
+            double hflip_p = 0.5;
+            double rrc_scale_min = 0.7;
+            double rrc_scale_max = 1.0;
+            double rrc_ratio_min = 0.75;
+            double rrc_ratio_max = 1.3333333;
+        } augment;
+
         ImageClsEnvConfig(const anet::ConfigData& config_data = anet::EmptyConfigData, const std::string& config_prefix = "")
             : anet::Config(config_data, "ImageClsEnv", config_prefix)
         {
@@ -34,6 +43,33 @@ namespace anet::rl::env {
 			ANET_READ_CONFIG(config_data, image_height);
             ANET_READ_CONFIG(config_data, suffix);
             ANET_READ_CONFIG(config_data, max_steps);
+            ANET_READ_CONFIG(config_data, augment.enabled);
+            ANET_READ_CONFIG(config_data, augment.hflip_p);
+            ANET_READ_CONFIG(config_data, augment.rrc_scale_min);
+            ANET_READ_CONFIG(config_data, augment.rrc_scale_max);
+            ANET_READ_CONFIG(config_data, augment.rrc_ratio_min);
+            ANET_READ_CONFIG(config_data, augment.rrc_ratio_max);
+
+            if (augment.hflip_p < 0.0 || augment.hflip_p > 1.0) {
+                ANET_SYSTEM_ERROR("Invalid ImageClsEnv.augment.hflip_p: "
+                    << augment.hflip_p << ". Expected range is [0.0, 1.0].");
+            }
+            if (augment.rrc_scale_min <= 0.0 || augment.rrc_scale_min > augment.rrc_scale_max
+                || augment.rrc_scale_max > 1.0) {
+                ANET_SYSTEM_ERROR("Invalid ImageClsEnv.augment.rrc_scale range: min="
+                    << augment.rrc_scale_min << ", max=" << augment.rrc_scale_max
+                    << ". Expected 0.0 < min <= max <= 1.0.");
+            }
+            if (augment.rrc_ratio_min <= 0.0 || augment.rrc_ratio_min > augment.rrc_ratio_max) {
+                ANET_SYSTEM_ERROR("Invalid ImageClsEnv.augment.rrc_ratio range: min="
+                    << augment.rrc_ratio_min << ", max=" << augment.rrc_ratio_max
+                    << ". Expected 0.0 < min <= max.");
+            }
+            if (augment.enabled && (image_width <= 0 || image_height <= 0)) {
+                ANET_SYSTEM_ERROR("Invalid ImageClsEnv image size for augmentation: width="
+                    << image_width << ", height=" << image_height
+                    << ". Expected image_width > 0 and image_height > 0 when augment.enabled is true.");
+            }
         }
     };
 
@@ -52,6 +88,8 @@ namespace anet::rl::env {
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const { return std::nullopt; }
     private:
         anet::rl::SingleState FetchRandomImageState(anet::rl::RunMode mode);
+        torch::Tensor ApplyTrainAugment(const torch::Tensor& image);
+        torch::Tensor ApplyRandomResizedCrop(const torch::Tensor& image);
         anet::rl::AuxData MakeAuxData() const;
 
     private:

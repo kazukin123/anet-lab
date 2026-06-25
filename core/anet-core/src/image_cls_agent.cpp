@@ -164,7 +164,15 @@ ImageClsAgent::ImageClsAgent(
         LOG::info() << pair.key() << " : " << pair.value().sizes();
     }
     LOG::info() << "======================================";
-    
+
+    // Network グラフ可視化
+    {
+        auto structure_view = network_->MakeGraphViz(anet::nn::NetworkGraphVizConfig{});
+        anet::MetricsLogger::Instance()->Log("net.structure", *structure_view);
+        auto detail_view = network_->MakeGraphViz(config_.nn_viz);
+        anet::MetricsLogger::Instance()->Log("net.detail", *detail_view);
+    }
+
     // ログ記録
     anet::MetricsLogger::Instance()->Log(config);
     LOG::info() << "ImageClsAgent initialized. config=" << config_.ToString();
