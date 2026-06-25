@@ -130,8 +130,19 @@ public class LoadingThread extends Thread {
 				final Path metricsFile = runDir.resolve("metrics.jsonl");
 				if (!Files.exists(metricsFile)) continue;
 
-				// 最後の位置からブロック読み込み
+				// ファイルサイズチェック
 				final long lastPos = metricsRepository.getLastReadPosition(runId);
+				final long fileSize = Files.size(metricsFile);
+				if (fileSize < lastPos) {
+					log.warn("Metrics file is smaller than cached offset. runId={} size={} lastPos={}",
+							runId, fileSize, lastPos);
+					continue;
+				}
+				
+				// ファイル追記がない場合はスキップ
+				if (fileSize == lastPos) continue;
+
+				// 前回からの追記差分を読む
 				final MetricsFileBlock block = fileReader.parseDiff(metricsFile, lastPos, MAX_LINES);
 				if (block.getLines().isEmpty()) continue;
 
