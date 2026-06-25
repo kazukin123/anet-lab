@@ -12,6 +12,7 @@
 #include <format>
 #include <optional>
 #include <unordered_map>
+#include <ATen/ops/_foreach_lerp.h>
 #include "anet/profile.hpp"
 #include "anet/log.hpp"
 #include "anet/tensor_util.hpp"
@@ -24,6 +25,16 @@ namespace LOG = anet::log;
 
 static constexpr const char* kNetBlockConfigKeyPrefix = "net.block.[";
 static constexpr const char* kNetBlockConfigKeySuffix = "]";
+
+static torch::Tensor EnsureChannelsLast4D(torch::Tensor tensor)
+{
+    if (tensor.defined()
+        && tensor.dim() == 4
+        && !tensor.is_contiguous(c10::MemoryFormat::ChannelsLast)) {
+        return tensor.contiguous(c10::MemoryFormat::ChannelsLast);
+    }
+    return tensor;
+}
 
 
 // ===========================================================================
@@ -554,6 +565,11 @@ anet::TensorDict NetworkBoundaryPreprocessor::Format(const anet::TensorDict& raw
                 t = t.to(torch::kFloat32);
             }
         }
+#if 0
+        if (spec.type == anet::SpaceType::Grid && t.dim() == 4) {
+            t = EnsureChannelsLast4D(t);
+        }
+#endif
         formatted.Set(key, t);
     }
     return formatted;
@@ -586,6 +602,11 @@ void NetworkBranch::Execute(anet::TensorDict& current_state, const anet::TraceSi
             inputs.push_back(*t_opt);
         }
         block_input = (inputs.size() == 1) ? inputs[0] : torch::cat(inputs, 1);
+#if 0
+        if (inputs.size() > 1) {
+            block_input = EnsureChannelsLast4D(block_input);
+        }
+#endif
     }
 
     anet::TraceSink branch_sink;
@@ -1015,21 +1036,37 @@ void Network::SoftCopyTo(Network& target, double tau) const
     auto src_params = this->named_parameters(true);
     auto dst_params = target.named_parameters(true);
     ANET_ASSERT(src_params.size() == dst_params.size());
+    std::vector<torch::Tensor> src_param_tensors;
+    std::vector<torch::Tensor> dst_param_tensors;
+    src_param_tensors.reserve(src_params.size());
+    dst_param_tensors.reserve(dst_params.size());
     for (const auto& kv : src_params) {
-        dst_params[kv.key()].lerp_(kv.value(), tau);
+        src_param_tensors.push_back(kv.value());
+        dst_param_tensors.push_back(dst_params[kv.key()]);
+    }
+    if (!dst_param_tensors.empty()) {
+        torch::_foreach_lerp_(dst_param_tensors, src_param_tensors, tau);
     }
 
     // バッファのブレンド
     auto src_buffers = this->named_buffers(true);
     auto dst_buffers = target.named_buffers(true);
     ANET_ASSERT(src_buffers.size() == dst_buffers.size());
+    std::vector<torch::Tensor> src_float_buffers;
+    std::vector<torch::Tensor> dst_float_buffers;
+    src_float_buffers.reserve(src_buffers.size());
+    dst_float_buffers.reserve(dst_buffers.size());
     for (const auto& kv : src_buffers) {
         // float系のテンソル以外(intのカウンタ等)はlerpできないためそのままcopy_
         if (kv.value().is_floating_point()) {
-            dst_buffers[kv.key()].lerp_(kv.value(), tau);
+            src_float_buffers.push_back(kv.value());
+            dst_float_buffers.push_back(dst_buffers[kv.key()]);
         } else {
             dst_buffers[kv.key()].copy_(kv.value());
         }
+    }
+    if (!dst_float_buffers.empty()) {
+        torch::_foreach_lerp_(dst_float_buffers, src_float_buffers, tau);
     }
 }
 

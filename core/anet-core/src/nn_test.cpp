@@ -13,6 +13,7 @@
 #include <fstream>
 #include <iterator>
 #include <limits>
+#include <map>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -267,6 +268,32 @@ private:
     torch::Tensor weight_;
 };
 
+class SoftCopyTestModule final : public anet::nn::NetworkModule {
+public:
+    SoftCopyTestModule(float base, int64_t counter)
+    {
+        auto float_options = torch::TensorOptions().dtype(torch::kFloat32);
+        param0_ = register_parameter("param0", torch::tensor({ base, base + 1.0f }, float_options));
+        param1_ = register_parameter("param1", torch::tensor({
+            { base + 2.0f, base + 3.0f },
+            { base + 4.0f, base + 5.0f },
+        }, float_options));
+        float_buffer_ = register_buffer("float_buffer", torch::tensor({ base + 6.0f, base + 7.0f }, float_options));
+        int_buffer_ = register_buffer("int_buffer", torch::tensor({ counter }, torch::TensorOptions().dtype(torch::kInt64)));
+    }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        return input;
+    }
+
+private:
+    torch::Tensor param0_;
+    torch::Tensor param1_;
+    torch::Tensor float_buffer_;
+    torch::Tensor int_buffer_;
+};
+
 class TraceTestModule final : public anet::nn::NetworkModule {
 public:
     torch::Tensor Forward(torch::Tensor input) override
@@ -329,6 +356,43 @@ std::shared_ptr<anet::nn::Network> MakeDotTestNetwork(
         nullptr,
         body,
         head ? head : std::make_shared<DotTestHead>());
+}
+
+std::shared_ptr<anet::nn::Network> MakeSoftCopyTestNetwork(float base, int64_t counter)
+{
+    anet::TensorSpec obs_spec;
+    obs_spec.type = anet::SpaceType::Vector;
+    obs_spec.shape = { 2 };
+    obs_spec.dtype = torch::kFloat32;
+
+    anet::TensorSpecMap input_specs;
+    input_specs["obs"] = obs_spec;
+
+    auto block = std::make_shared<anet::nn::NetworkBlock>(
+        "SoftCopy_0",
+        std::make_shared<SoftCopyTestModule>(base, counter));
+    auto network_struct = std::make_shared<anet::nn::NetworkStruct>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
+    auto branch = std::make_shared<anet::nn::NetworkBranch>(
+        "feature",
+        std::vector<std::string>{ "obs" },
+        network_struct);
+
+    anet::nn::NetworkConfig network_config;
+    network_config.output_keys["feature"] = "feature";
+
+    auto body = std::make_shared<anet::nn::NetworkBody>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{ branch },
+        input_specs,
+        std::vector<std::string>{},
+        network_config.output_keys);
+
+    return std::make_shared<anet::nn::Network>(
+        network_config,
+        input_specs,
+        nullptr,
+        body,
+        std::make_shared<DotTestHead>());
 }
 
 std::shared_ptr<anet::nn::Network> MakeBodyOnlyDotTestNetwork()
@@ -450,6 +514,48 @@ TEST_CASE("LabelData SetText emits plain quoted label", "[graphviz][label]")
     CHECK(dot_label == "\"vector_feature\"");
     CHECK_FALSE(Contains(dot_label, "TABLE"));
     CHECK_FALSE(Contains(dot_label, "TD"));
+}
+
+TEST_CASE("Network SoftCopyTo blends parameters and floating buffers", "[nn][soft-copy]")
+{
+    auto source = MakeSoftCopyTestNetwork(/*base=*/10.0f, /*counter=*/42);
+    auto target = MakeSoftCopyTestNetwork(/*base=*/2.0f, /*counter=*/7);
+    const double tau = 0.25;
+
+    std::map<std::string, torch::Tensor> before_params;
+    std::map<std::string, torch::Tensor> before_buffers;
+    for (const auto& kv : target->named_parameters(true)) {
+        before_params.emplace(kv.key(), kv.value().detach().clone());
+    }
+    for (const auto& kv : target->named_buffers(true)) {
+        before_buffers.emplace(kv.key(), kv.value().detach().clone());
+    }
+
+    source->SoftCopyTo(*target, tau);
+
+    auto src_params = source->named_parameters(true);
+    auto dst_params = target->named_parameters(true);
+    REQUIRE(src_params.size() == dst_params.size());
+    for (const auto& kv : src_params) {
+        INFO("param name=" << kv.key());
+        const auto& before = before_params.at(kv.key());
+        auto expected = before + (kv.value().detach() - before) * tau;
+        CHECK(torch::equal(dst_params[kv.key()].detach(), expected));
+    }
+
+    auto src_buffers = source->named_buffers(true);
+    auto dst_buffers = target->named_buffers(true);
+    REQUIRE(src_buffers.size() == dst_buffers.size());
+    for (const auto& kv : src_buffers) {
+        INFO("buffer name=" << kv.key());
+        if (kv.value().is_floating_point()) {
+            const auto& before = before_buffers.at(kv.key());
+            auto expected = before + (kv.value().detach() - before) * tau;
+            CHECK(torch::equal(dst_buffers[kv.key()].detach(), expected));
+        } else {
+            CHECK(torch::equal(dst_buffers[kv.key()].detach(), kv.value().detach()));
+        }
+    }
 }
 
 TEST_CASE("Network forward trace captures branch-prefixed visual layers", "[nn][trace]")
