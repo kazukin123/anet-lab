@@ -26,16 +26,6 @@ namespace LOG = anet::log;
 static constexpr const char* kNetBlockConfigKeyPrefix = "net.block.[";
 static constexpr const char* kNetBlockConfigKeySuffix = "]";
 
-static torch::Tensor EnsureChannelsLast4D(torch::Tensor tensor)
-{
-    if (tensor.defined()
-        && tensor.dim() == 4
-        && !tensor.is_contiguous(c10::MemoryFormat::ChannelsLast)) {
-        return tensor.contiguous(c10::MemoryFormat::ChannelsLast);
-    }
-    return tensor;
-}
-
 
 // ===========================================================================
 // Helper Functions (Internal)
@@ -565,11 +555,6 @@ anet::TensorDict NetworkBoundaryPreprocessor::Format(const anet::TensorDict& raw
                 t = t.to(torch::kFloat32);
             }
         }
-#if 0
-        if (spec.type == anet::SpaceType::Grid && t.dim() == 4) {
-            t = EnsureChannelsLast4D(t);
-        }
-#endif
         formatted.Set(key, t);
     }
     return formatted;
@@ -602,11 +587,6 @@ void NetworkBranch::Execute(anet::TensorDict& current_state, const anet::TraceSi
             inputs.push_back(*t_opt);
         }
         block_input = (inputs.size() == 1) ? inputs[0] : torch::cat(inputs, 1);
-#if 0
-        if (inputs.size() > 1) {
-            block_input = EnsureChannelsLast4D(block_input);
-        }
-#endif
     }
 
     anet::TraceSink branch_sink;

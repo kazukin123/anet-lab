@@ -27,16 +27,6 @@ static std::string FormatInt64Vector(const std::vector<int64_t>& values)
     return oss.str();
 }
 
-static torch::Tensor EnsureChannelsLast4D(torch::Tensor tensor)
-{
-    if (tensor.defined()
-        && tensor.dim() == 4
-        && !tensor.is_contiguous(c10::MemoryFormat::ChannelsLast)) {
-        return tensor.contiguous(c10::MemoryFormat::ChannelsLast);
-    }
-    return tensor;
-}
-
 
 torch::nn::init::NonlinearityType anet::nn::GetNonlinearityType(const std::string& name)
 {
@@ -181,9 +171,6 @@ public:
     torch::Tensor forward(torch::Tensor x)
     {
         ANET_PROFILE_FUNC();
-#if 0
-        x = EnsureChannelsLast4D(x);
-#endif
 
  //       ANET_LOG_DEBUG("x=" << anet::ToString(x));
 
@@ -325,24 +312,13 @@ public:
 
     torch::Tensor forward(torch::Tensor x)
     {
-
         // 入力が5次元 [B, S, C, H, W] なら [B, S*C, H, W] に変換
         if (x.dim() == 5) {
-#if 0
-            return x.view({ x.size(0), x.size(1) * x.size(2), x.size(3), x.size(4) })
-                .contiguous(c10::MemoryFormat::ChannelsLast);
-        }
-        // 4次元ならConv2d用の論理NCHW shapeを保ったままchannels_lastに寄せる
-        if (x.dim() == 4) {
-            return EnsureChannelsLast4D(x);
-        }
-#else
             return x.view({ x.size(0), x.size(1) * x.size(2), x.size(3), x.size(4) }).contiguous();
         }
-#endif
+
         // 4次元ならそのまま通す
         return x.contiguous();
-        //return x;
     }
 
     torch::Tensor Forward(torch::Tensor input) override
@@ -695,9 +671,6 @@ public:
     torch::Tensor Forward(torch::Tensor input) override
     {
         ANET_PROFILE_FUNC();
-#if 0
-        input = EnsureChannelsLast4D(input);
-#endif
 
         // Lazy Initialization
         if (!conv1_) {
@@ -1048,13 +1021,8 @@ public:
         auto out = input + y_emb + x_emb;
 
         // --- Transformer用シーケンスへの変形 ---
-#if 0
-        // [Batch, C, H, W] -> [Batch, H, W, C] -> [Batch, H*W, C]
-        return out.permute({ 0, 2, 3, 1 }).flatten(1, 2);
-#else
         // [Batch, C, H, W] -> [Batch, H*W, C]
         return out.flatten(2).transpose(1, 2);
-#endif
     }
 
     anet::ConfigData GetCurrentConfigData() const override
@@ -1193,11 +1161,7 @@ public:
             out_img = out_img.reshape({ batch_size, stack_count * total_channels, config_.grid_height, config_.grid_width });
         }
 
-#if 0
-        return EnsureChannelsLast4D(out_img.to(torch::kFloat32));
-#else
         return out_img;
-#endif
     }
 
     anet::ConfigData GetCurrentConfigData() const override
@@ -1262,11 +1226,7 @@ public:
         }
 
         // float32 キャストして返す
-#if 0
-        return EnsureChannelsLast4D(out_img.to(torch::kFloat32));
-#else
         return out_img.to(torch::kFloat32);
-#endif
     }
 
     anet::ConfigData GetCurrentConfigData() const override
