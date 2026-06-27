@@ -516,6 +516,25 @@ TEST_CASE("LabelData SetText emits plain quoted label", "[graphviz][label]")
     CHECK_FALSE(Contains(dot_label, "TD"));
 }
 
+TEST_CASE("GAP2D averages spatial dimensions", "[nn]")
+{
+    static const bool initialized = [] {
+        anet::nn::InitNN();
+        return true;
+    }();
+    (void)initialized;
+
+    auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("GAP2D");
+    auto module = factory->CreateModule(anet::ConfigData{}, anet::nn::ModuleContext{});
+
+    auto input = torch::arange(0, 48, torch::kFloat32).reshape({ 2, 3, 2, 4 });
+    auto output = module->Forward(input);
+    auto expected = input.mean(/*dims=*/{ 2, 3 }, /*keepdim=*/false);
+
+    CHECK(output.sizes() == torch::IntArrayRef({ 2, 3 }));
+    CHECK(torch::allclose(output, expected));
+}
+
 TEST_CASE("Network SoftCopyTo blends parameters and floating buffers", "[nn][soft-copy]")
 {
     auto source = MakeSoftCopyTestNetwork(/*base=*/10.0f, /*counter=*/42);
