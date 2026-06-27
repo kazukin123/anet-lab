@@ -75,20 +75,28 @@ Conv2dPanel.conv2d.min_block_size = 40
 
 # --- backend
 
-#backend.torch_num_threads = -1     # -1:Auto(使えるだけ使う)
-backend.torch_num_threads = 1
-
-backend.use_tf32_cublas = true      # GPUが対応していれば、ほぼ劣化なしで高速化
-backend.use_tf32_cudnn = true       # GPUが対応していれば、ほぼ劣化なしで高速化
-backend.cudnn_deterministic = true  # false:非決定論的だが高速化(する場合がある) true:決定論的だが遅い
-backend.cudnn_benchmark = false     # true:非決定論的だが高速化(する場合がある)　false:決定論的だが遅い
-
-backend.deterministic_algorithms = true   # ★ true:SDPA等の非決定opも決定化し同seed再現性を確保(やや遅い) false:高速だが非決定論的
-
-backend.deterministic_warn_only = false   # true:非決定opを例外でなく警告で素通り(再現性は保証されない/将来op追加でthrowした時の一時退避)
-
 backend.cuda_launch_blocking = inherit # ★  on:性能を犠牲にしてCUDA呼び出しを同期化してデバッグしやすくする inhert:環境変数 CUDA_LAUNCH_BLOCKING=1を引き継ぐ
 #backend.cuda_launch_blocking = on      # ★ 
+
+#backend.torch_num_threads = -1     # -1:Auto(使えるだけ使う)
+backend.torch_num_threads = 1       # 1スレッドに制限
+
+backend.use_tf32_cublas = true      # TF32: GPUが対応していれば、ほぼ劣化なしで高速化
+backend.use_tf32_cudnn = true       # TF32: GPUが対応していれば、ほぼ劣化なしで高速化
+backend.cudnn_benchmark = true
+
+# デフォルトは決定論的モード
+backend.cudnn_deterministic = true  # false:非決定論的だが高速化(する場合がある) true:決定論的だが遅い
+backend.deterministic_algorithms = true   # ★ true:SDPA等の非決定opも決定化し同seed再現性を確保(やや遅い) false:高速だが非決定論的
+backend.deterministic_warn_only = false   # true:非決定opを例外でなく警告で素通り(再現性は保証されない/将来op追加でthrowした時の一時退避)
+
+
+backend.deterministic.cudnn_deterministic = true
+backend.deterministic.deterministic_algorithms = true
+
+backend.non-deterministic.cudnn_deterministic = false
+backend.non-deterministic.deterministic_algorithms = false
+
 
 
 # --- app
