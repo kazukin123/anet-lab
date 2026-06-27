@@ -155,6 +155,7 @@ net.block.[TransEnc].tf.activation = gelu      # 内部の活性化関数 (gelu 
 
 ##  Pooling / Token (出力変換・次元削減)
 net.block.[GAP1D].type = GAP1D                 # シーケンス次元の平均化 (並行移動に強い・パラメータ小)
+net.block.[GAP2D].type = GAP2D                 # シーケンス次元の平均化 (並行移動に強い・パラメータ小)
 net.block.[ClsAppend].type = ClsAppend         # [CLS]トークンを先頭に追加 (ViTの王道)
 net.block.[ClsExtract].type = ClsExtract       # 先頭の[CLS]トークンを抽出 (Transformer通過後に使用)
 

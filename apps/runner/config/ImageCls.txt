@@ -14,18 +14,26 @@ train.num_envs = 256
 #train.num_envs = 10
 #train.num_envs = 1
 
-ImageClsEnv.$ = ImageClsEnv.baseline
+ImageClsEnv.$ = ImageClsEnv.baseline > E
 
-#net.branch.[main_feature].$ = net.branch.SuikaResNet4064_10d
-#net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128
+#net.branch.[main_feature].$ = net.branch.FoodResNet13
+#net.branch.[main_feature].$ = net.branch.FoodResNet13_GAP  # ★
+net.branch.[main_feature].$ = net.branch.ResNet18ish   # ★
+#net.branch.[main_feature].$ = net.branch.Hybrid_CLS
+#net.branch.[main_feature].$ = net.branch.Hybrid_GAP
+#net.branch.[main_feature].$ = net.branch.ViT_S16_CLS
+#net.branch.[main_feature].$ = net.branch.ViT_S16_GAP
 
 
 # ==============================================================================
 # 実験
 # ==============================================================================
 
-app.run_name = run_{t}_imgcls
+app.run_name = run_{t}_imgcls_Res18
+#app.run_name = run_{t}_imgcls_Hybrid
+#app.run_name = run_{t}_imgcls_Hybrid_
 
+#E.augment.rrc_scale_min = 0.5        # RandomResizedCrop の面積比下限
 
 # ==============================================================================
 # デバッグ用
@@ -65,9 +73,11 @@ app.batchrun.exp_exit_step  = 160,000,000     # 160M
 # Env依存 Agent設定
 # ==============================================================================
 
+#ImageClsAgent.learning_rate = 5e-4
 ImageClsAgent.learning_rate = 1e-3
 ImageClsAgent.weight_decay = 0.05
-#ImageClsAgent.weight_decay = 0.01
+#ImageClsAgent.weight_decay = 0.1
+
 ImageClsAgent.label_smoothing = 0.1
 ImageClsAgent.grad_clip_max_norm = 1.0
 
@@ -84,6 +94,16 @@ ImageClsAgent.nn_viz.float_precision = 3
 # V2
 # ==============================================================================
 
+net.block.[LinearOut].type = Linear
+net.block.[LinearOut].linear.out_features = 101
+net.block.[LinearOut].init.mode = 2
+
+net.block.[Drop].type = Dropout
+net.block.[Drop].p = 0.5
+#net.block.[Drop].p = 0.2
+#net.block.[Drop].p = 0.0
+
+
 net.block.[BN32].type = BatchNorm2d
 net.block.[BN32].num_features = 32
 
@@ -93,10 +113,12 @@ net.block.[BN64].num_features = 64
 net.block.[BN128].type = BatchNorm2d
 net.block.[BN128].num_features = 128
 
-net.block.[Drop].type = Dropout
-net.block.[Drop].p = 0.5
-#net.block.[Drop].p = 0.2
-#net.block.[Drop].p = 0.0
+net.block.[BN256].type = BatchNorm2d
+net.block.[BN256].num_features = 256
+
+net.block.[BN512].type = BatchNorm2d
+net.block.[BN512].num_features = 512
+
 
 net.block.[ConvInit32].type = Conv2d
 net.block.[ConvInit32].conv.out_channels = 32
@@ -104,6 +126,14 @@ net.block.[ConvInit32].conv.kernel_size = 3
 net.block.[ConvInit32].conv.padding = 1
 net.block.[ConvInit32].conv.stride = 2
 net.block.[ConvInit32].init.mode = 2
+
+net.block.[ConvInit64].type = Conv2d
+net.block.[ConvInit64].conv.out_channels = 64
+net.block.[ConvInit64].conv.kernel_size = 3
+net.block.[ConvInit64].conv.stride = 2
+net.block.[ConvInit64].conv.padding = 1
+net.block.[ConvInit64].init.mode = 2
+
 
 net.block.[ConvDown64].type = Conv2d
 net.block.[ConvDown64].conv.out_channels = 64
@@ -116,8 +146,23 @@ net.block.[ConvDown128].type = Conv2d
 net.block.[ConvDown128].conv.out_channels = 128
 net.block.[ConvDown128].conv.kernel_size = 3
 net.block.[ConvDown128].conv.padding = 1
-net.block.[ConvDown128].conv.stride = 2 # さらに空間サイズを半分に
+net.block.[ConvDown128].conv.stride = 2 # 空間サイズを半分に
 net.block.[ConvDown128].init.mode = 2
+
+net.block.[ConvDown256].type = Conv2d
+net.block.[ConvDown256].conv.out_channels = 256
+net.block.[ConvDown256].conv.kernel_size = 3
+net.block.[ConvDown256].conv.stride = 2
+net.block.[ConvDown256].conv.padding = 1
+net.block.[ConvDown256].init.mode = 2
+
+net.block.[ConvDown512].type = Conv2d
+net.block.[ConvDown512].conv.out_channels = 512
+net.block.[ConvDown512].conv.kernel_size = 3
+net.block.[ConvDown512].conv.stride = 2 # 空間サイズを半分に
+net.block.[ConvDown512].conv.padding = 1
+net.block.[ConvDown512].init.mode = 2
+
 
 net.block.[ResBlock32].type = ResBlock
 net.block.[ResBlock32].res.channels = 32
@@ -137,39 +182,66 @@ net.block.[ResBlock128].res.kernel_size = 3
 net.block.[ResBlock128].res.activation = silu
 net.block.[ResBlock128].res.norm_type = batch
 
-net.block.[LinearOut].type = Linear
-net.block.[LinearOut].linear.out_features = 101
-net.block.[LinearOut].init.mode = 2
+net.block.[ResBlock256].type = ResBlock
+net.block.[ResBlock256].res.channels = 256
+net.block.[ResBlock256].res.kernel_size = 3
+net.block.[ResBlock256].res.activation = silu
+net.block.[ResBlock256].res.norm_type = batch
 
-net.block.[ConvCompress].type = Conv2d
-net.block.[ConvCompress].conv.out_channels = 4  # ここで圧縮
-net.block.[ConvCompress].conv.kernel_size = 1   # 1x1 Conv
-net.block.[ConvCompress].conv.stride = 1
-net.block.[ConvCompress].conv.padding = 0
-net.block.[ConvCompress].init.mode = 2
+net.block.[ResBlock512].type = ResBlock
+net.block.[ResBlock512].res.channels = 512
+net.block.[ResBlock512].res.kernel_size = 3
+net.block.[ResBlock512].res.activation = silu
+net.block.[ResBlock512].res.norm_type = batch
 
-net.block.[ViT_Proj_128].type = Conv2d
-net.block.[ViT_Proj_128].conv.out_channels = 128
-net.block.[ViT_Proj_128].conv.kernel_size = 1
-net.block.[ViT_Proj_128].conv.stride = 1
-net.block.[ViT_Proj_128].conv.padding = 0
 
-net.block.[TransEnc_128].type = TransformerEncoder
-net.block.[TransEnc_128].tf.d_model = 128
-net.block.[TransEnc_128].tf.nhead = 8
-net.block.[TransEnc_128].tf.num_layers = 4
-net.block.[TransEnc_128].tf.dim_feedforward = 512
+net.block.[PatchEmbed16].type = Conv2d
+net.block.[PatchEmbed16].conv.out_channels = 192
+net.block.[PatchEmbed16].conv.kernel_size = 16
+net.block.[PatchEmbed16].conv.stride = 16
+net.block.[PatchEmbed16].conv.padding = 0
+net.block.[PatchEmbed16].init.mode = 2
+
+
+net.block.[TransEnc_ViT].type = TransformerEncoder
+net.block.[TransEnc_ViT].tf.d_model = 192
+net.block.[TransEnc_ViT].tf.nhead = 6
+net.block.[TransEnc_ViT].tf.num_layers = 6
+net.block.[TransEnc_ViT].tf.dim_feedforward = 768
+net.block.[TransEnc_ViT].tf.norm_first = true
+net.block.[TransEnc_ViT].tf.use_sdpa = true
+
+net.block.[TransEnc_H256].type = TransformerEncoder
+net.block.[TransEnc_H256].tf.d_model = 256
+net.block.[TransEnc_H256].tf.nhead = 8
+net.block.[TransEnc_H256].tf.num_layers = 4
+net.block.[TransEnc_H256].tf.dim_feedforward = 1024
+net.block.[TransEnc_H256].tf.norm_first = true
+net.block.[TransEnc_H256].tf.use_sdpa = true
+
 
 
 net.branch.FoodResNet13.bind = grid
 net.branch.FoodResNet13.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > Flatten > Drop > LinearOut
 
-#net.branch.SuikaHybrid_Flatten_128.bind = grid
-#net.branch.SuikaHybrid_Flatten_128.structure = ConvInit64 > SiLU > ResBlock64(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
+net.branch.FoodResNet13_GAP.bind = grid
+net.branch.FoodResNet13_GAP.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > GAP2D > Drop > LinearOut
 
-net.branch.[main_feature].$ = net.branch.FoodResNet13
-#net.branch.[main_feature].$ = net.branch.SuikaResNet4064_10d
-#net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128
+net.branch.ResNet18ish.bind = grid
+net.branch.ResNet18ish.structure = ConvInit64 > BN64 > SiLU > ResBlock64(*2) > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > ConvDown512 > BN512 > SiLU > ResBlock512(*2) > GAP2D > LinearOut
+
+net.branch.Hybrid_CLS.bind = grid
+net.branch.Hybrid_CLS.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > PosEmbed2D > ClsAppend > TransEnc_H256 > ClsExtract > LinearOut
+
+net.branch.Hybrid_GAP.bind = grid
+net.branch.Hybrid_GAP.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > PosEmbed2D > TransEnc_H256 > GAP1D > LinearOut
+
+net.branch.ViT_S16_CLS.bind = grid
+net.branch.ViT_S16_CLS.structure = PatchEmbed16 > PosEmbed2D > ClsAppend > TransEnc_ViT > ClsExtract > LinearOut
+
+net.branch.ViT_S16_GAP.bind = grid
+net.branch.ViT_S16_GAP.structure   = PatchEmbed16 > PosEmbed2D > TransEnc_ViT > GAP1D > LinearOut
+
 
 net.body.output.[logits] = main_feature
 

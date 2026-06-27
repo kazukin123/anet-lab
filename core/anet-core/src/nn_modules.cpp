@@ -1548,6 +1548,36 @@ public:
 };
 
 // ===========================================================================
+//  Global Average Pooling 2D Module (GAP2D)
+// ===========================================================================
+
+class GlobalAveragePooling2DModule : public NetworkModule {
+public:
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        ANET_PROFILE_FUNC();
+        // [Batch, Channel, Height, Width] の空間次元を平均して潰す
+        return input.mean(/*dims=*/{ 2, 3 }, /*keepdim=*/false);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("dims", "[2, 3]");
+        cd.Set("op", "mean");
+        return cd;
+    }
+};
+
+class GlobalAveragePooling2DFactory final : public NetworkModuleFactory {
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        return std::make_shared<GlobalAveragePooling2DModule>();
+    }
+};
+
+// ===========================================================================
 //  CLS Token Append Module
 // ===========================================================================
 
@@ -1906,6 +1936,7 @@ public:
     repo.Register("LayerNorm", std::make_shared<LayerNormModuleFactory>());
     repo.Register("BatchNorm2d", std::make_shared<BatchNorm2dModuleFactory>());
     repo.Register("GAP1D", std::make_shared<GlobalAveragePooling1DFactory>());
+    repo.Register("GAP2D", std::make_shared<GlobalAveragePooling2DFactory>());
 
     // データ加工系モジュール登録
     repo.Register("HybridSpatialEmbedder", std::make_shared<HybridSpatialEmbedderModuleFactory>());
