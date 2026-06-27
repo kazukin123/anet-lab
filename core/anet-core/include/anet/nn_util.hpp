@@ -42,21 +42,59 @@ namespace anet {
         }
     }
 
+    std::vector<torch::Tensor> CollectDefinedGrads(const std::vector<torch::Tensor>& parameters);
+
+    torch::Tensor ForeachGradNorm(const std::vector<torch::Tensor>& grads);
+
+    void ForeachClipGradNorm_(const std::vector<torch::Tensor>& grads, const torch::Tensor& total_norm, float tau);
+
+
+    // ======================================================
+    // Autocast
+    // ======================================================
+
     class Autocast {
     public:
         Autocast(torch::DeviceType device_type, bool enabled, torch::ScalarType dtype = torch::kHalf);
         ~Autocast();
-
     private:
-        torch::DeviceType device_type_;
-        bool prev_enabled_;
-        torch::ScalarType prev_dtype_;
+        const torch::DeviceType device_type_;
+        const bool prev_enabled_;
+        const torch::ScalarType prev_dtype_;
     };
 
 
-    std::vector<torch::Tensor> CollectDefinedGrads(const std::vector<torch::Tensor>& parameters);
-    torch::Tensor ForeachGradNorm(const std::vector<torch::Tensor>& grads);
-    void ForeachClipGradNorm_(const std::vector<torch::Tensor>& grads, const torch::Tensor& total_norm, float tau);
+    // ======================================================
+    // TrainingModeGuard
+    // ======================================================
+
+    class TrainingModeGuard {
+    public:
+        TrainingModeGuard(torch::nn::Module& module, bool training)
+            : module_(module)
+            , was_training_(module.is_training())
+        {
+            module_.train(training);
+        }
+
+        ~TrainingModeGuard()
+        {
+            module_.train(was_training_);
+        }
+
+        TrainingModeGuard(const TrainingModeGuard&) = delete;
+        TrainingModeGuard& operator=(const TrainingModeGuard&) = delete;
+        TrainingModeGuard(TrainingModeGuard&&) = delete;
+        TrainingModeGuard& operator=(TrainingModeGuard&&) = delete;
+    private:
+        torch::nn::Module& module_;
+        const bool was_training_;
+    };
+
+
+    // ======================================================
+    // FusedAdamW
+    // ======================================================
 
     class FusedAdamW : public torch::optim::AdamW {
     public:
@@ -64,18 +102,20 @@ namespace anet {
 
         torch::Tensor step(LossClosure closure = nullptr) override;
         void load(torch::serialize::InputArchive& archive) override;
-
+    private:
+        struct FusedAdamWStepGroup;
     private:
         std::unordered_map<void*, torch::Tensor> step_tensors_;
     };
 
 
+    // ======================================================
+    // GradScaler
+    // ======================================================
+
     class GradScaler {
     public:
-        GradScaler(double init_scale = 65536.0, double growth_factor = 2.0, double backoff_factor = 0.5, int64_t growth_interval = 2000)
-            : scale_(init_scale), growth_factor_(growth_factor), backoff_factor_(backoff_factor), growth_interval_(growth_interval)
-        {
-        }
+        GradScaler(double init_scale = 65536.0, double growth_factor = 2.0, double backoff_factor = 0.5, int64_t growth_interval = 2000);
 
         // Lossをスケール
         torch::Tensor Scale(const torch::Tensor& loss)
@@ -95,12 +135,11 @@ namespace anet {
 
         // 手動Unscale (勾配の非有限値検出とscale除算をforeachで行う)
         void Unscale_(torch::optim::Optimizer& optimizer);
-
     private:
         double scale_;
-        double growth_factor_;
-        double backoff_factor_;
-        int64_t growth_interval_;
+        const double growth_factor_;
+        const double backoff_factor_;
+        const int64_t growth_interval_;
         int64_t growth_tracker_ = 0;
         bool found_inf_ = false;
         torch::Tensor found_inf_tensor_;

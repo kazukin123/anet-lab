@@ -1,4 +1,4 @@
-#include "anet/nn_util.hpp"
+﻿#include "anet/nn_util.hpp"
 
 #include <ATen/autocast_mode.h>
 #include <ATen/ops/_amp_foreach_non_finite_check_and_unscale.h>
@@ -16,41 +16,10 @@
 
 using namespace anet;
 
-namespace anet {
 
-struct FusedAdamWStepGroup {
-    std::vector<torch::Tensor> params;
-    std::vector<torch::Tensor> grads;
-    std::vector<torch::Tensor> exp_avgs;
-    std::vector<torch::Tensor> exp_avg_sqs;
-    std::vector<torch::Tensor> max_exp_avg_sqs;
-    std::vector<torch::Tensor> state_steps;
-};
-
-std::string MakeFusedAdamWStepGroupKey(const torch::Tensor& tensor)
-{
-    return tensor.device().str() + ":" + std::to_string(static_cast<int>(tensor.scalar_type()));
-}
-
-} // namespace anet
-
-anet::Autocast::Autocast(torch::DeviceType device_type, bool enabled, torch::ScalarType dtype)
-    : device_type_(device_type)
-{
-    // 現在の状態を保存
-    prev_enabled_ = at::autocast::is_autocast_enabled(device_type_);
-    prev_dtype_ = at::autocast::get_autocast_dtype(device_type_);
-
-    // 新しい状態を設定
-    at::autocast::set_autocast_dtype(device_type_, dtype);
-    at::autocast::set_autocast_enabled(device_type_, enabled);
-}
-
-anet::Autocast::~Autocast()
-{
-    at::autocast::set_autocast_enabled(device_type_, prev_enabled_);    // 元に戻す
-    at::autocast::set_autocast_dtype(device_type_, prev_dtype_);        // 元に戻す
-}
+// ======================================================
+// Gradient Utilities
+// ======================================================
 
 std::vector<torch::Tensor> anet::CollectDefinedGrads(const std::vector<torch::Tensor>& parameters)
 {
@@ -84,6 +53,46 @@ void anet::ForeachClipGradNorm_(const std::vector<torch::Tensor>& grads, const t
     auto tau_tensor = torch::full({}, tau, total_norm.options());
     auto scale = (tau_tensor / (total_norm + 1e-6)).clamp_max(1.0);
     at::_foreach_mul_(grads, scale);
+}
+
+
+// ======================================================
+// Autocast
+// ======================================================
+
+anet::Autocast::Autocast(torch::DeviceType device_type, bool enabled, torch::ScalarType dtype)
+    : device_type_(device_type)
+    , prev_enabled_(at::autocast::is_autocast_enabled(device_type_))
+    , prev_dtype_(at::autocast::get_autocast_dtype(device_type_))
+{
+    // 新しい状態を設定
+    at::autocast::set_autocast_dtype(device_type_, dtype);
+    at::autocast::set_autocast_enabled(device_type_, enabled);
+}
+
+anet::Autocast::~Autocast()
+{
+    at::autocast::set_autocast_enabled(device_type_, prev_enabled_);    // 元に戻す
+    at::autocast::set_autocast_dtype(device_type_, prev_dtype_);        // 元に戻す
+}
+
+
+// ======================================================
+// FusedAdamW
+// ======================================================
+
+struct anet::FusedAdamW::FusedAdamWStepGroup {
+    std::vector<torch::Tensor> params;
+    std::vector<torch::Tensor> grads;
+    std::vector<torch::Tensor> exp_avgs;
+    std::vector<torch::Tensor> exp_avg_sqs;
+    std::vector<torch::Tensor> max_exp_avg_sqs;
+    std::vector<torch::Tensor> state_steps;
+};
+
+static std::string MakeFusedAdamWStepGroupKey(const torch::Tensor& tensor)
+{
+    return tensor.device().str() + ":" + std::to_string(static_cast<int>(tensor.scalar_type()));
 }
 
 torch::Tensor anet::FusedAdamW::step(LossClosure closure)
@@ -183,6 +192,19 @@ void anet::FusedAdamW::load(torch::serialize::InputArchive& archive)
 
     // 親loadで復元されたint64 stepを正本とし、デバイスstep tensorは次回stepで再構築する。
     step_tensors_.clear();
+}
+
+
+// ======================================================
+// GradScaler
+// ======================================================
+
+GradScaler::GradScaler(double init_scale, double growth_factor, double backoff_factor, int64_t growth_interval)
+    : scale_(init_scale)
+    , growth_factor_(growth_factor)
+    , backoff_factor_(backoff_factor)
+    , growth_interval_(growth_interval)
+{
 }
 
 void anet::GradScaler::Step(torch::optim::Optimizer& optimizer)
