@@ -19,6 +19,7 @@
 #include <memory>
 #include <mutex>
 #include <random>
+#include <shared_mutex>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -100,15 +101,16 @@ std::shared_ptr<anet::nn::Network> MakeLinearNetwork()
 
 class TestNetworkModel final : public dqn::NetworkModel {
 public:
-    TestNetworkModel()
+    explicit TestNetworkModel(int64_t num_quantiles = 1)
         : dqn::NetworkModel(
             dqn::NetworkModelConfig{},
             MakeLinearNetwork(),
             MakeLinearNetwork(),
             1,
-            1)
+            num_quantiles)
     {
-        GetMainNetwork()->CopyTo(*GetTargetNetwork());
+        GetOnlineNetwork()->CopyTo(*GetTargetNetwork());
+        GetOnlineNetwork()->eval();
         GetTargetNetwork()->eval();
     }
 };
@@ -146,7 +148,7 @@ public:
     void UseSgd(float lr)
     {
         optimizer_ = std::make_unique<torch::optim::SGD>(
-            model_.GetPolicyParameters(),
+            model_.GetOnlineParameters(),
             torch::optim::SGDOptions(lr));
     }
 
@@ -1056,9 +1058,9 @@ TEST_CASE("Optimizer helper keeps QR-DQN FP32 grad clip result contract", "[dqn]
     TestLearner learner(config, model, vars, batch_env_spec, env_spec);
     learner.UseSgd(0.1f);
 
-    auto weight_before = model.GetPolicyParameters()[0].detach().clone().cpu();
+    auto weight_before = model.GetOnlineParameters()[0].detach().clone().cpu();
     auto obs = anet::TensorDict{ { kVectorKey, torch::tensor({ { 3.0f, 4.0f } }) } };
-    auto loss = model.GetMainNetwork()->Forward(obs).At("q").sum();
+    auto loss = model.GetOnlineNetwork()->Forward(obs).At("q").sum();
     auto result = learner.Optimize(loss);
 
     CHECK_FALSE(result.grad_norm.has_value());
@@ -1067,9 +1069,60 @@ TEST_CASE("Optimizer helper keeps QR-DQN FP32 grad clip result contract", "[dqn]
     CHECK(result.grad_clip_tau == Catch::Approx(0.5f).margin(1.0e-6f));
     CHECK(result.grad_clip_ratio == Catch::Approx(0.0f).margin(1.0e-6f));
 
-    auto weight_delta = model.GetPolicyParameters()[0].detach().cpu() - weight_before;
+    auto weight_delta = model.GetOnlineParameters()[0].detach().cpu() - weight_before;
     CHECK(weight_delta[0][0].item<float>() == Catch::Approx(-0.03f).margin(1.0e-5f));
     CHECK(weight_delta[0][1].item<float>() == Catch::Approx(-0.04f).margin(1.0e-5f));
+}
+
+TEST_CASE("NetworkModel mode-specific forwards preserve training modes", "[dqn][network_model]")
+{
+    TestNetworkModel model;
+    auto obs = anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } };
+
+    REQUIRE_FALSE(model.GetOnlineNetwork()->is_training());
+    REQUIRE_FALSE(model.GetTargetNetwork()->is_training());
+
+    model.ForwardOnline(obs);
+    CHECK_FALSE(model.GetOnlineNetwork()->is_training());
+    CHECK_FALSE(model.GetTargetNetwork()->is_training());
+
+    model.ForwardTarget(obs);
+    CHECK_FALSE(model.GetOnlineNetwork()->is_training());
+    CHECK_FALSE(model.GetTargetNetwork()->is_training());
+
+    model.ForwardOnlineWithTrain(obs);
+    CHECK_FALSE(model.GetOnlineNetwork()->is_training());
+    CHECK_FALSE(model.GetTargetNetwork()->is_training());
+
+    model.GetOnlineNetwork()->train();
+    model.ForwardOnlineWithTrain(obs);
+    CHECK(model.GetOnlineNetwork()->is_training());
+    CHECK_FALSE(model.GetTargetNetwork()->is_training());
+}
+
+TEST_CASE("NetworkModel distributionality depends only on quantile count", "[dqn][network_model]")
+{
+    TestNetworkModel dqn_model(1);
+    TestNetworkModel qr_model(8);
+
+    CHECK_FALSE(dqn_model.IsDistributional());
+    CHECK(qr_model.IsDistributional());
+}
+
+TEST_CASE("Actor sync leaves cloned network in eval mode", "[dqn][actor]")
+{
+    auto src_network = MakeLinearNetwork();
+    auto clone_network = MakeLinearNetwork();
+    auto mutex = std::make_shared<std::shared_mutex>();
+    dqn::Actor actor(nullptr, nullptr, nullptr, mutex, clone_network, src_network);
+
+    src_network->eval();
+    clone_network->train();
+
+    actor.Sync();
+
+    CHECK_FALSE(src_network->is_training());
+    CHECK_FALSE(clone_network->is_training());
 }
 
 TEST_CASE("ActionPolicy variants preserve action info keys and shapes", "[dqn][action_policy]")

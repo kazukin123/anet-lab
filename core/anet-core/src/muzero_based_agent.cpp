@@ -6,6 +6,7 @@
 #include "anet/profile.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/tensor_check.hpp"
+#include "anet/nn_util.hpp"
 #include "nn_heads.hpp"
 
 using namespace anet::rl::muzero_proto;
@@ -273,32 +274,29 @@ MuZeroNetworkModel::MuZeroNetworkModel(
     suite_ = std::make_shared<MuZeroNetworkSuite>(rep_net, dyn_net, pred_net);
 }
 
-namespace {
+/// @brief 隠れ状態のMin-Max正規化ヘルパー (MuZero特有の安定化処理)
+/// バッチごとに状態ベクトルの値を [0, 1] の範囲にスケールします。
+static torch::Tensor ScaleHiddenState(const torch::Tensor& hidden_state)
+{
+    ANET_PROFILE_FUNC();
 
-    /// @brief 隠れ状態のMin-Max正規化ヘルパー (MuZero特有の安定化処理)
-    /// バッチごとに状態ベクトルの値を [0, 1] の範囲にスケールします。
-    torch::Tensor ScaleHiddenState(const torch::Tensor& hidden_state)
-    {
-        ANET_PROFILE_FUNC();
+    ANET_ASSERT_NAN(hidden_state);
 
-        ANET_ASSERT_NAN(hidden_state);
+    // (B, D) または (B, C, H, W) の場合を考慮し、バッチ次元(dim=0)以外をflattenして最大/最小を計算
+    auto flat_h = hidden_state.view({ hidden_state.size(0), -1 });
 
-        // (B, D) または (B, C, H, W) の場合を考慮し、バッチ次元(dim=0)以外をflattenして最大/最小を計算
-        auto flat_h = hidden_state.view({ hidden_state.size(0), -1 });
+    auto max_val = std::get<0>(flat_h.max(/*dim=*/1, /*keepdim=*/true));
+    auto min_val = std::get<0>(flat_h.min(/*dim=*/1, /*keepdim=*/true));
 
-        auto max_val = std::get<0>(flat_h.max(/*dim=*/1, /*keepdim=*/true));
-        auto min_val = std::get<0>(flat_h.min(/*dim=*/1, /*keepdim=*/true));
+    // 元の形状にbroadcastできるようにview (例: 2Dなら [B, 1, 1, 1] に戻す)
+    auto view_shape = std::vector<int64_t>(hidden_state.dim(), 1);
+    view_shape[0] = hidden_state.size(0);
 
-        // 元の形状にbroadcastできるようにview (例: 2Dなら [B, 1, 1, 1] に戻す)
-        auto view_shape = std::vector<int64_t>(hidden_state.dim(), 1);
-        view_shape[0] = hidden_state.size(0);
+    max_val = max_val.view(view_shape);
+    min_val = min_val.view(view_shape);
 
-        max_val = max_val.view(view_shape);
-        min_val = min_val.view(view_shape);
-
-        // ゼロ除算回避のイプシロン(1e-5)を加算
-        return (hidden_state - min_val) / (max_val - min_val + 1e-5f);
-    }
+    // ゼロ除算回避のイプシロン(1e-5)を加算
+    return (hidden_state - min_val) / (max_val - min_val + 1e-5f);
 }
 
 anet::TensorDict MuZeroNetworkModel::InitialInference(const anet::TensorDict& obs) const
@@ -969,7 +967,7 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
     std::unique_lock<std::shared_mutex> lock(*mutex_);
 
     // 更新準備
-    model_->GetSuite()->train();
+    anet::TrainingModeGuard train_guard(*model_->GetSuite(), true);
     optimizer_->zero_grad();
 
     // loss値計算用

@@ -285,7 +285,7 @@ namespace anet::rl::dqn {
     protected:
         NetworkModel(
             const NetworkModelConfig& config,
-            std::shared_ptr<anet::nn::Network> policy_net,
+            std::shared_ptr<anet::nn::Network> online_net,
             std::shared_ptr<anet::nn::Network> target_net,
             int64_t n_actions,
             int64_t num_quantiles);
@@ -293,19 +293,21 @@ namespace anet::rl::dqn {
 
         /// 行動選択・学習用：期待値Q (B, A) を返す
         /// QR-DQNの場合は分布の平均を計算して返す
-        anet::TensorDict Forward(const anet::TensorDict& obs, bool use_target) const;
+        anet::TensorDict ForwardOnline(const anet::TensorDict& obs) const;
+        anet::TensorDict ForwardOnlineWithTrain(const anet::TensorDict& obs) const;
+        anet::TensorDict ForwardTarget(const anet::TensorDict& obs) const;
 
         // Network取得
-        std::shared_ptr<anet::nn::Network> GetMainNetwork() { return policy_net_; }
+        std::shared_ptr<anet::nn::Network> GetOnlineNetwork() { return online_net_; }
         std::shared_ptr<anet::nn::Network> GetTargetNetwork() { return target_net_; }
 
         /// QR判定
-        bool IsDistributional(bool use_target) const;
+        bool IsDistributional() const;
 
-        /// policy_netのパラメータ取得
-        std::vector<torch::Tensor> GetPolicyParameters() const;
+        /// online_netのパラメータ取得
+        std::vector<torch::Tensor> GetOnlineParameters() const;
 
-        torch::OrderedDict<std::string, torch::Tensor> GetPolicyNamedParameters() const;
+        torch::OrderedDict<std::string, torch::Tensor> GetOnlineNamedParameters() const;
 
         /// target network 同期
         void UpdateTarget(anet::rl::step_t learn_step);
@@ -323,7 +325,7 @@ namespace anet::rl::dqn {
         void HardUpdate();
     private:
         const anet::rl::dqn::NetworkModelConfig config_;
-        std::shared_ptr<anet::nn::Network> policy_net_;
+        std::shared_ptr<anet::nn::Network> online_net_;
         std::shared_ptr<anet::nn::Network> target_net_;
 
         int64_t n_actions_;

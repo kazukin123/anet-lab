@@ -32,8 +32,9 @@ NetworkModel::NetworkModel(
     ANET_ASSERT(n_actions_ > 0);
 
     // メインネットワークを作る
-    policy_net_ = anet::nn::NetworkBuilder::BuildNetwork(network_config, obs_spec, head_factory, device);
-    policy_net_->to(device);
+    online_net_ = anet::nn::NetworkBuilder::BuildNetwork(network_config, obs_spec, head_factory, device);
+    online_net_->to(device);
+    online_net_->eval();
 
 #if 0
     {
@@ -55,7 +56,7 @@ NetworkModel::NetworkModel(
         // V2のネットワークに重みを上書きしていく
         if (file_loaded) {
             torch::NoGradGuard no_grad; // 必須ガード
-            auto v2_params = policy_net_->named_parameters();
+            auto v2_params = online_net_->named_parameters();
 
             for (auto& pair : v2_params) {
                 std::string name = pair.key();
@@ -85,64 +86,74 @@ NetworkModel::NetworkModel(
 #if 0
     {
         torch::NoGradGuard no_grad;
-        for (auto& param : policy_net_->parameters()) {
+        for (auto& param : online_net_->parameters()) {
             torch::nn::init::constant_(param, 0.01f);
         }
     }
 #endif
 
     // メインネットワークをコピーしてターゲットネットワークを作る
-    target_net_ = policy_net_->Clone(device);
+    target_net_ = online_net_->Clone(device);
     target_net_->eval();
 
     LOG::info() << "========== MODEL SHAPE DUMP ==========";
-    for (const auto& pair : policy_net_->named_parameters()) {
+    for (const auto& pair : online_net_->named_parameters()) {
         LOG::info() << pair.key() << " : " << pair.value().sizes();
     }
     LOG::info() << "======================================";
 
-    LOG::info() << "Number of main network parameter tensors: " << policy_net_->parameters().size();
+    LOG::info() << "Number of online network parameter tensors: " << online_net_->parameters().size();
     LOG::info() << "Number of target network parameter tensors: " << target_net_->parameters().size();
 }
 
 NetworkModel::NetworkModel(
     const NetworkModelConfig& config,
-    std::shared_ptr<anet::nn::Network> policy_net,
+    std::shared_ptr<anet::nn::Network> online_net,
     std::shared_ptr<anet::nn::Network> target_net,
     int64_t n_actions,
     int64_t num_quantiles)
     : config_(config)
-    , policy_net_(std::move(policy_net))
+    , online_net_(std::move(online_net))
     , target_net_(std::move(target_net))
     , n_actions_(n_actions)
     , num_quantiles_(num_quantiles)
 {
     ANET_ASSERT(n_actions_ > 0);
-    ANET_ASSERT(policy_net_ != nullptr);
+    ANET_ASSERT(online_net_ != nullptr);
     ANET_ASSERT(target_net_ != nullptr);
+    online_net_->eval();
+    target_net_->eval();
 }
 
-anet::TensorDict NetworkModel::Forward(const anet::TensorDict& obs, bool use_target) const
+anet::TensorDict NetworkModel::ForwardOnline(const anet::TensorDict& obs) const
 {
-    const auto& net = use_target ? target_net_ : policy_net_;
-    return net->Forward(obs);
+    return online_net_->Forward(obs);
 }
 
-bool NetworkModel::IsDistributional(bool use_target) const
+anet::TensorDict NetworkModel::ForwardOnlineWithTrain(const anet::TensorDict& obs) const
+{
+    anet::TrainingModeGuard guard(*online_net_, true);
+    return online_net_->Forward(obs);
+}
+
+anet::TensorDict NetworkModel::ForwardTarget(const anet::TensorDict& obs) const
+{
+    return target_net_->Forward(obs);
+}
+
+bool NetworkModel::IsDistributional() const
 {
     return (num_quantiles_ > 1);
 }
 
-std::vector<torch::Tensor> NetworkModel::GetPolicyParameters() const
+std::vector<torch::Tensor> NetworkModel::GetOnlineParameters() const
 {
-    auto params = policy_net_->parameters();
-    return params;
+    return online_net_->parameters();
 }
 
-torch::OrderedDict<std::string, torch::Tensor> NetworkModel::GetPolicyNamedParameters() const
+torch::OrderedDict<std::string, torch::Tensor> NetworkModel::GetOnlineNamedParameters() const
 {
-    auto params = policy_net_->named_parameters();
-    return params;
+    return online_net_->named_parameters();
 }
 
 void NetworkModel::UpdateTarget(step_t learn_step)
@@ -160,12 +171,12 @@ void NetworkModel::UpdateTarget(step_t learn_step)
 
 void NetworkModel::SoftUpdate()
 {
-    policy_net_->SoftCopyTo(*target_net_, config_.soft_update_tau);
+    online_net_->SoftCopyTo(*target_net_, config_.soft_update_tau);
 }
 
 void NetworkModel::HardUpdate()
 {
-    policy_net_->CopyTo(*target_net_);
+    online_net_->CopyTo(*target_net_);
 }
 
 std::optional<anet::TensorFunction> NetworkModel::GetTensorFunction(const std::string& key, const torch::Device& device)
@@ -178,7 +189,7 @@ std::optional<anet::TensorFunction> NetworkModel::GetTensorFunction(const std::s
     // policy net
     //if (anet::StartsWith(key, POLICY_PREFIX)) {
     //    auto subkey = anet::RemovePrefix(key, POLICY_PREFIX);
-    //    auto fn = policy_net_->GetTensorFunction(subkey);
+    //    auto fn = online_net_->GetTensorFunction(subkey);
     //    return fn;
     //}
 
@@ -198,7 +209,7 @@ std::optional<anet::TensorDictFunction> NetworkModel::GetTensorDictFunction(cons
     std::shared_ptr<anet::nn::Network> net = nullptr;
 
     if (key == "policy-net.conv2d") {
-        net = policy_net_;
+        net = online_net_;
     } else if (key == "target-net.conv2d") {
         net = target_net_;
     }
@@ -215,7 +226,7 @@ std::optional<anet::TensorDictFunction> NetworkModel::GetTensorDictFunction(cons
 int64_t NetworkModel::Save(OutputArchive& archive) const
 {
 	int64_t size = 0;
-    size += archive.WriteTorchObject(policy_net_);
+    size += archive.WriteTorchObject(online_net_);
     size += archive.WriteTorchObject(target_net_);
     return size;
 }
@@ -223,8 +234,10 @@ int64_t NetworkModel::Save(OutputArchive& archive) const
 int64_t NetworkModel::Load(InputArchive& archive)
 {
     int64_t size = 0;
-    size += archive.ReadTorchObject(policy_net_);
+    size += archive.ReadTorchObject(online_net_);
     size += archive.ReadTorchObject(target_net_);
+    online_net_->eval();
+    target_net_->eval();
     return size;
 }
 
@@ -902,6 +915,7 @@ void Actor::Sync()
         // Clone中は排他が必要
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         src_network_->CopyTo(*network_);
+        network_->eval();
     }
 }
 
@@ -967,11 +981,10 @@ void Learner::SetupOptimizer()
     LOG::verbose() << "Learner: lr=" << opts.lr() << " weight_decay=" << opts.weight_decay()
         << " eps=" << opts.eps() << " fused=" << config_.use_fused_optimizer;
     if (config_.use_fused_optimizer) {
-        this->optimizer_ = std::make_unique<anet::FusedAdamW>(model_.GetPolicyParameters(), opts);
+        this->optimizer_ = std::make_unique<anet::FusedAdamW>(model_.GetOnlineParameters(), opts);
     } else {
-        this->optimizer_ = std::make_unique<torch::optim::AdamW>(model_.GetPolicyParameters(), opts);
+        this->optimizer_ = std::make_unique<torch::optim::AdamW>(model_.GetOnlineParameters(), opts);
     }
-    //this->optimizer_ = std::make_unique<torch::optim::Adam>(model_.GetPolicyParameters(), opts);
 }
 
 void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, seed_t seed)
@@ -1023,7 +1036,7 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss)
 {
 	ANET_PROFILE_FUNC();
 	
-    auto parameters = model_.GetPolicyParameters();
+    auto parameters = model_.GetOnlineParameters();
 
     OptimizerStepResult result;
     result.grad_clip_tau = config_.use_grad_clip ? config_.grad_clip_tau : std::numeric_limits<float>::infinity();
@@ -1449,7 +1462,7 @@ torch::Tensor QuantileLearnerBase::GatherActionQuantiles(const torch::Tensor& qu
 torch::Tensor QuantileLearnerBase::SelectTargetActions(const anet::TensorDict& next_obs)
 {
     // Double DQN有効時はPolicyNetで行動選択し、価値評価は呼び出し側でTargetNetを使う
-    auto network = (config_.use_double_dqn) ? model_.GetMainNetwork() : model_.GetTargetNetwork();
+    auto network = (config_.use_double_dqn) ? model_.GetOnlineNetwork() : model_.GetTargetNetwork();
     auto target_action_info = target_policy_->SelectAction(next_obs, /*greedy_only=*/true, network, this->GetRandomGenerator());
     return target_action_info->GetAction(device_);
 }
@@ -1600,7 +1613,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // ------------------------------------------------------------
         // Q(s, a)
         // ------------------------------------------------------------
-        auto q_out = model_.Forward(obs, /*use_target=*/false);
+        auto q_out = model_.ForwardOnlineWithTrain(obs);
         auto q_all = q_out.At("q"); // (B,A)
         ANET_ASSERT_SHAPE(q_all, { B, A });
 
@@ -1641,7 +1654,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
             // 行動 a' を決定
             // DDQN有効の場合は PolicyNetで行動選択、DDQN無効の場合はTargetNetで行動選択
-            auto network = (config_.use_double_dqn) ? model_.GetMainNetwork() : model_.GetTargetNetwork();
+            auto network = (config_.use_double_dqn) ? model_.GetOnlineNetwork() : model_.GetTargetNetwork();
 
             // target_policy_ に行動を選ばせる
             // ※ここで greedy_only=false にすることで、UQE設定時は楽観的に選ばれる
@@ -1649,7 +1662,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             torch::Tensor next_actions = target_action_info->GetAction(device_);
 
             // 選んだ行動の価値を TargetNet で評価する (価値評価は常に TargetNet)
-            auto next_q_out = model_.Forward(next_obs, /*use_target=*/true);
+            auto next_q_out = model_.ForwardTarget(next_obs);
             auto next_q_target = next_q_out.At("q"); // (B, A)
             ANET_ASSERT_SHAPE(next_q_target, { B, A });
 
@@ -1766,7 +1779,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         ANET_PROFILE_SCOPE_NEXT(forward_current);
 
         // 現在の分布計算: Z(s, a)、ForwardQuantiles は (B, A, N) を返す
-        auto current_out = model_.Forward(obs, /*use_target=*/false);
+        auto current_out = model_.ForwardOnlineWithTrain(obs);
         auto current_dist_all = current_out.At("q_dist"); // (B, A, N)
         ANET_ASSERT_SHAPE(current_dist_all, { B, A, N });
         ANET_ASSERT_NAN(current_dist_all);
@@ -1792,7 +1805,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             ANET_PROFILE_SCOPE_NEXT(forward_target);
 
             // 次状態のターゲット分布: Z_target(s', :)
-            auto next_out = model_.Forward(next_obs, /*use_target=*/true);
+            auto next_out = model_.ForwardTarget(next_obs);
             auto next_dist_all = next_out.At("q_dist"); // (B, A, N)
             ANET_ASSERT_SHAPE(next_dist_all, { B, A, N });
 

@@ -4,6 +4,7 @@
 #include "anet/log.hpp"
 #include "anet/profile.hpp"
 #include "anet/metrics_logger.hpp"
+#include "anet/nn_util.hpp"
 
 using namespace anet::rl::img_cls;
 namespace LOG = anet::log;
@@ -29,13 +30,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
     torch::NoGradGuard no_grad;
 
     // 推論準備
-    bool is_eval = anet::rl::IsEval(run_mode_);
     std::shared_lock lock(*mutex_);
-    if (is_eval) {
-        network_->eval();
-    } else {
-        network_->train();
-    }
     
     // Forward
     auto obs = state.obs.To(device_);
@@ -43,9 +38,6 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
 
     // 推論後処理
     lock.unlock();
-    if (is_eval) {
-        network_->train();
-    }
 
 	// argmaxで推論結果を得る
     auto logits = outputs.At("logits");
@@ -93,32 +85,35 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
     auto targets = vector.to(device_).squeeze(-1).to(torch::kInt64);
     //ANET_LOG_DEBUG("targets=" << anet::ToString(targets));
 
-    // ネットワーク更新準備 (排他ロック)
-    std::unique_lock lock(*mutex_);
-    network_->train();
-    optimizer_->zero_grad();
+    torch::Tensor logits;
+    torch::Tensor loss;
 
-    // Forward推論
-    auto obs = experiences.state.obs.To(device_);
-    auto outputs = network_->Forward(obs);
+    {
+        // ネットワーク更新準備 (排他ロック)
+        std::unique_lock lock(*mutex_);
+        anet::TrainingModeGuard train_guard(*network_, true);
+        optimizer_->zero_grad();
 
-    // 出力ロジットの取得
-    auto logits = outputs.At("logits");
+        // Forward推論
+        auto obs = experiences.state.obs.To(device_);
+        auto outputs = network_->Forward(obs);
 
-    // Loss計算 (交差エントロピー + ラベルスムージング)
-    auto loss_opts = torch::nn::functional::CrossEntropyFuncOptions().label_smoothing(config_.label_smoothing);
-    auto loss = torch::nn::functional::cross_entropy(logits, targets, loss_opts);
+        // 出力ロジットの取得
+        logits = outputs.At("logits");
 
-    // 誤差逆伝播
-    loss.backward();
+        // Loss計算 (交差エントロピー + ラベルスムージング)
+        auto loss_opts = torch::nn::functional::CrossEntropyFuncOptions().label_smoothing(config_.label_smoothing);
+        loss = torch::nn::functional::cross_entropy(logits, targets, loss_opts);
 
-    // 勾配クリッピングを追加
-    torch::nn::utils::clip_grad_norm_(network_->parameters(), config_.grad_clip_max_norm);
+        // 誤差逆伝播
+        loss.backward();
 
-    // Optimizerステップ
-    optimizer_->step();
+        // 勾配クリッピングを追加
+        torch::nn::utils::clip_grad_norm_(network_->parameters(), config_.grad_clip_max_norm);
 
-    lock.unlock();
+        // Optimizerステップ
+        optimizer_->step();
+    }
 
     // メトリクス (Accuracy) の計算
     // 確率が一番高いインデックスを予測クラスとして正解と比較
@@ -156,6 +151,7 @@ ImageClsAgent::ImageClsAgent(
     // NN構築
     network_ = anet::nn::NetworkBuilder::BuildNetwork(network_config, env_spec.state_spec.obs_spec, nullptr, device_);
 	network_->to(device_);
+    network_->eval();
     anet::MetricsLogger::Instance()->Log("net.body", network_config.ToJson());
 
     LOG::info() << "Number of Main Network parameters: " << network_->parameters().size();

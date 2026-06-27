@@ -189,13 +189,16 @@ std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const anet::rl::Batch
 
     // 元ネタのPolicyとNetoworkを決定
     if (anet::rl::IsEval(run_mode)) {
-        src_network = (run_mode == anet::rl::RunMode::Eval1) ? model_->GetTargetNetwork() : model_->GetMainNetwork();
+        src_network = (run_mode == anet::rl::RunMode::Eval1) ? model_->GetTargetNetwork() : model_->GetOnlineNetwork();
     } else {
-        src_network = model_->GetMainNetwork();
+        src_network = model_->GetOnlineNetwork();
     }
 
     // 必要に応じてCloneしてActor向けネットワークとする
     auto network = (clone_model) ? src_network->Clone(device) : src_network;
+    if (clone_model) {
+        network->eval();
+    }
 
     // Actor を生成
     auto actor = std::make_shared<Actor>(action_policy_, nullptr, ctx, this->mutex_, network, src_network);

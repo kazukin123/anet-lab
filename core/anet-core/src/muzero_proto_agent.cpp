@@ -45,6 +45,7 @@ MuZeroAgent::MuZeroAgent(
     // MuZeroNetworkModel生成
     model_ = std::make_shared<MuZeroNetworkModel>(config_.model, config_data, env_spec_.state_spec, env_spec_.action_spec);
     model_->To(device_);
+    model_->GetSuite()->eval();
     {
         auto suite = model_->GetSuite();
         LogNetworkGraphViz("net.rep", *suite->GetRepresentationNet(), config_.nn_viz);

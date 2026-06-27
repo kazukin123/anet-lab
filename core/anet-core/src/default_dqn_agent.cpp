@@ -143,7 +143,7 @@ DefaultDQNAgent::DefaultDQNAgent(
 
     // Network グラフ可視化
     {
-        const auto& net = *model_->GetMainNetwork();
+        const auto& net = *model_->GetOnlineNetwork();
         auto structure_view = net.MakeGraphViz(anet::nn::NetworkGraphVizConfig{});
         anet::MetricsLogger::Instance()->Log("net.structure", *structure_view);
         auto detail_view = net.MakeGraphViz(config_.nn_viz);
@@ -470,14 +470,17 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const anet::rl::Ba
     // 元ネタのPolicyとNetoworkを決定
     if (anet::rl::IsEval(run_mode)) {
         policy = eval_policy_;
-        src_network = IsForTarget(run_mode) ? model_->GetTargetNetwork() : model_->GetMainNetwork();
+        src_network = IsForTarget(run_mode) ? model_->GetTargetNetwork() : model_->GetOnlineNetwork();
     } else {
         policy = train_policy_;
-        src_network = model_->GetMainNetwork();
+        src_network = model_->GetOnlineNetwork();
     }
 
     // 必要に応じてCloneしてActor向けネットワークとする
     auto network = (clone_model) ? src_network->Clone(device) : src_network;
+    if (clone_model) {
+        network->eval();
+    }
 
     // Actor を生成
     auto actor = std::make_shared<Actor>(policy, obs_norm_, ctx, this->mutex_, network, src_network);
