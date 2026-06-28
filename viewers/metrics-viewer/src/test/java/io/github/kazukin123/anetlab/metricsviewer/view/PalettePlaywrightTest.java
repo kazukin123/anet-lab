@@ -140,6 +140,38 @@ class PalettePlaywrightTest {
 	}
 
 	@Test
+	void plotlyModeBarHidesAutoscaleButKeepsResetAxes() {
+		final String baseUrl = "http://127.0.0.1:" + port;
+
+		assumeTrue(isMicrosoftEdgeInstalled(), "Microsoft Edge is not installed.");
+
+		try (Playwright playwright = Playwright.create()) {
+			final Browser browser = launchMicrosoftEdge(playwright);
+			try {
+				final BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+						.setViewportSize(1280, 720));
+				try {
+					final Page page = context.newPage();
+					page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+					page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+					page.navigate(baseUrl + "/?plotlyModeBarTest=" + System.nanoTime(),
+							new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					waitForGraph(page);
+
+					final List<String> buttonTitles = readModeBarButtonTitles(page);
+					assertFalse(buttonTitles.contains("Autoscale"));
+					assertTrue(buttonTitles.contains("Reset axes"));
+				} finally {
+					context.close();
+				}
+			} finally {
+				browser.close();
+			}
+		}
+	}
+
+	@Test
 	void autoReloadButtonReflectsToggleState() {
 		final String baseUrl = "http://127.0.0.1:" + port;
 
@@ -682,6 +714,14 @@ class PalettePlaywrightTest {
 					});
 					return imageUrl.slice(0, 'data:image/png;base64,'.length);
 				}
+				""");
+	}
+
+	@SuppressWarnings("unchecked")
+	private static List<String> readModeBarButtonTitles(Page page) {
+		return (List<String>) page.evaluate("""
+				Array.from(document.querySelectorAll('.modebar-btn[data-title]'))
+					.map(el => el.getAttribute('data-title'))
 				""");
 	}
 

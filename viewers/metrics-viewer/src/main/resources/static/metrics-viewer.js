@@ -633,8 +633,12 @@ class PlotlyController {
 			const reducedTraces = this._toDisplayTraces(traces, isLogScale);
 			//グラフ作成
 			const layout = this._makeLayout(area.width(), runIds.length > 1, isLogScale, traces);
-			Plotly.newPlot(id, reducedTraces, layout,
-				{ displayModeBar:'hover', responsive: false, useResizeHandler: false });
+			Plotly.newPlot(id, reducedTraces, layout, {
+				displayModeBar: 'hover',
+				responsive: false,
+				useResizeHandler: false,
+				modeBarButtonsToRemove: ['autoScale2d']
+			});
 
 			// --- ズーム追従処理 ---
 			const plotDiv = document.getElementById(id);
