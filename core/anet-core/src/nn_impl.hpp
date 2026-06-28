@@ -13,6 +13,7 @@ namespace anet::nn {
 
     torch::nn::init::NonlinearityType GetNonlinearityType(const std::string& name);
     torch::Tensor SdpaSelfAttention(const torch::nn::MultiheadAttention& mha, const torch::Tensor& x);
+    torch::Tensor DropPath(const torch::Tensor& x, double drop_prob, bool training);
 
     class WeightInitializer {
     public:

@@ -16,24 +16,24 @@ train.num_envs = 256
 
 ImageClsEnv.$ = ImageClsEnv.baseline > E
 
-#net.branch.[main_feature].$ = net.branch.FoodResNet13
-#net.branch.[main_feature].$ = net.branch.FoodResNet13_GAP  # ★
-net.branch.[main_feature].$ = net.branch.ResNet18ish   # ★
-#net.branch.[main_feature].$ = net.branch.Hybrid_CLS
-#net.branch.[main_feature].$ = net.branch.Hybrid_GAP
-#net.branch.[main_feature].$ = net.branch.ViT_S16_CLS
-#net.branch.[main_feature].$ = net.branch.ViT_S16_GAP
+#net.branch.[main_feature].$ = net.branch.FoodResNet13      # 44%
+#net.branch.[main_feature].$ = net.branch.FoodResNet13_GAP  # 61% 1.3h
+net.branch.[main_feature].$ = net.branch.ResNet18ish        # 77% 2.5h ★
+#net.branch.[main_feature].$ = net.branch.Hybrid_CLS        # 60% 2.0h
+#net.branch.[main_feature].$ = net.branch.Hybrid_GAP        # 56%
+#net.branch.[main_feature].$ = net.branch.ViT_S16_CLS       # 37%
+#net.branch.[main_feature].$ = net.branch.ViT_S16_GAP       # 43%
 
 
 # ==============================================================================
 # 実験
 # ==============================================================================
 
-app.run_name = run_{t}_imgcls_Res18
 #app.run_name = run_{t}_imgcls_Hybrid
-#app.run_name = run_{t}_imgcls_Hybrid_
+app.run_name = run_{t}_imgcls_Res18_dp1
 
 #E.augment.rrc_scale_min = 0.5        # RandomResizedCrop の面積比下限
+
 
 # ==============================================================================
 # デバッグ用
@@ -91,17 +91,21 @@ ImageClsAgent.nn_viz.float_precision = 3
 
 
 # ==============================================================================
-# V2
+# NN
 # ==============================================================================
 
 net.block.[LinearOut].type = Linear
 net.block.[LinearOut].linear.out_features = 101
 net.block.[LinearOut].init.mode = 2
 
+
 net.block.[Drop].type = Dropout
-net.block.[Drop].p = 0.5
-#net.block.[Drop].p = 0.2
-#net.block.[Drop].p = 0.0
+net.block.[Drop].dropout_rate = 0.5
+#net.block.[Drop].dropout_rate = 0.2
+#net.block.[Drop].dropout_rate = 0.0
+
+net.block.[DropHead].type = Dropout
+net.block.[DropHead].dropout_rate = 0.2
 
 
 net.block.[BN32].type = BatchNorm2d
@@ -187,12 +191,16 @@ net.block.[ResBlock256].res.channels = 256
 net.block.[ResBlock256].res.kernel_size = 3
 net.block.[ResBlock256].res.activation = silu
 net.block.[ResBlock256].res.norm_type = batch
+net.block.[ResBlock256].res.droppath_rate = 0.1
+net.block.[ResBlock256].res.dropout_rate = 0
 
 net.block.[ResBlock512].type = ResBlock
 net.block.[ResBlock512].res.channels = 512
 net.block.[ResBlock512].res.kernel_size = 3
 net.block.[ResBlock512].res.activation = silu
 net.block.[ResBlock512].res.norm_type = batch
+net.block.[ResBlock512].res.droppath_rate = 0.15
+net.block.[ResBlock512].res.dropout_rate = 0
 
 
 net.block.[PatchEmbed16].type = Conv2d
@@ -210,6 +218,9 @@ net.block.[TransEnc_ViT].tf.num_layers = 6
 net.block.[TransEnc_ViT].tf.dim_feedforward = 768
 net.block.[TransEnc_ViT].tf.norm_first = true
 net.block.[TransEnc_ViT].tf.use_sdpa = true
+net.block.[TransEnc_ViT].tf.hidden_dropout_rate = 0.1
+net.block.[TransEnc_ViT].tf.attn_dropout_rate = 0.0
+net.block.[TransEnc_ViT].tf.droppath_rate = 0.1
 
 net.block.[TransEnc_H256].type = TransformerEncoder
 net.block.[TransEnc_H256].tf.d_model = 256
@@ -218,7 +229,9 @@ net.block.[TransEnc_H256].tf.num_layers = 4
 net.block.[TransEnc_H256].tf.dim_feedforward = 1024
 net.block.[TransEnc_H256].tf.norm_first = true
 net.block.[TransEnc_H256].tf.use_sdpa = true
-
+net.block.[TransEnc_H256].tf.hidden_dropout_rate = 0.1
+net.block.[TransEnc_H256].tf.attn_dropout_rate = 0.0
+net.block.[TransEnc_H256].tf.droppath_rate = 0.1
 
 
 net.branch.FoodResNet13.bind = grid
@@ -228,7 +241,8 @@ net.branch.FoodResNet13_GAP.bind = grid
 net.branch.FoodResNet13_GAP.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > GAP2D > Drop > LinearOut
 
 net.branch.ResNet18ish.bind = grid
-net.branch.ResNet18ish.structure = ConvInit64 > BN64 > SiLU > ResBlock64(*2) > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > ConvDown512 > BN512 > SiLU > ResBlock512(*2) > GAP2D > LinearOut
+#net.branch.ResNet18ish.structure = ConvInit64 > BN64 > SiLU > ResBlock64(*2) > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > ConvDown512 > BN512 > SiLU > ResBlock512(*2) > GAP2D > LinearOut
+net.branch.ResNet18ish.structure = ConvInit64 > BN64 > SiLU > ResBlock64(*2) > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > ConvDown512 > BN512 > SiLU > ResBlock512(*2) > GAP2D > DropHead > LinearOut
 
 net.branch.Hybrid_CLS.bind = grid
 net.branch.Hybrid_CLS.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > PosEmbed2D > ClsAppend > TransEnc_H256 > ClsExtract > LinearOut

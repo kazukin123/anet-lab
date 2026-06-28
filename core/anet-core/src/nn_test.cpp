@@ -4,6 +4,7 @@
 #include "anet/metrics_logger.hpp"
 #include "anet/muzero_proto_agent.hpp"
 #include "anet/nn_util.hpp"
+#include "anet/test_util.hpp"
 #include "dqn_based_heads.hpp"
 #include "nn_impl.hpp"
 #include "nn_heads.hpp"
@@ -28,6 +29,15 @@ namespace muzero = anet::rl::muzero_proto;
 bool Contains(const std::string& text, const std::string& pattern)
 {
     return text.find(pattern) != std::string::npos;
+}
+
+void EnsureNNInitialized()
+{
+    static const bool initialized = [] {
+        anet::nn::InitNN();
+        return true;
+    }();
+    (void)initialized;
 }
 
 std::vector<torch::Tensor> MakeAdamWTestParams(const torch::Device& device)
@@ -195,13 +205,52 @@ bool HasKey(const Dict& dict, const std::string& key)
     return false;
 }
 
-std::shared_ptr<anet::nn::NetworkModule> MakeTransformerTestModule(bool use_sdpa, bool norm_first)
+std::shared_ptr<anet::nn::NetworkModule> MakeDropoutTestModule(double dropout_rate, bool set_old_p = false)
 {
-    static const bool initialized = [] {
-        anet::nn::InitNN();
-        return true;
-    }();
-    (void)initialized;
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    if (set_old_p) {
+        config_data.Set("p", dropout_rate);
+    } else {
+        config_data.Set("dropout_rate", dropout_rate);
+    }
+
+    auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("Dropout");
+    return factory->CreateModule(config_data, anet::nn::ModuleContext{});
+}
+
+std::shared_ptr<anet::nn::NetworkModule> MakeResBlockTestModule(
+    double droppath_rate,
+    double dropout_rate,
+    const std::string& norm_type = "none",
+    const std::string& activation_mode = "pre")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("res.channels", 3);
+    config_data.Set("res.kernel_size", 3);
+    config_data.Set("res.padding", 1);
+    config_data.Set("res.activation", "relu");
+    config_data.Set("res.activation_mode", activation_mode);
+    config_data.Set("res.norm_type", norm_type);
+    config_data.Set("res.droppath_rate", droppath_rate);
+    config_data.Set("res.dropout_rate", dropout_rate);
+    config_data.Set("init2.mode", 2);
+
+    auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("ResBlock");
+    return factory->CreateModule(config_data, anet::nn::ModuleContext{});
+}
+
+std::shared_ptr<anet::nn::NetworkModule> MakeTransformerTestModule(
+    bool use_sdpa,
+    bool norm_first,
+    double hidden_dropout_rate = 0.0,
+    double attn_dropout_rate = 0.0,
+    double droppath_rate = 0.0)
+{
+    EnsureNNInitialized();
 
     anet::ConfigData config_data;
     config_data.Set("tf.d_model", 16);
@@ -211,6 +260,9 @@ std::shared_ptr<anet::nn::NetworkModule> MakeTransformerTestModule(bool use_sdpa
     config_data.Set("tf.norm_first", norm_first ? "true" : "false");
     config_data.Set("tf.use_sdpa", use_sdpa ? "true" : "false");
     config_data.Set("tf.activation", "gelu");
+    config_data.Set("tf.hidden_dropout_rate", hidden_dropout_rate);
+    config_data.Set("tf.attn_dropout_rate", attn_dropout_rate);
+    config_data.Set("tf.droppath_rate", droppath_rate);
 
     auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("TransformerEncoder");
     return factory->CreateModule(config_data, anet::nn::ModuleContext{});
@@ -733,6 +785,185 @@ TEST_CASE("Agent configs read nn_viz keys, ignore old keys, and reject invalid l
     anet::ConfigData invalid_data;
     invalid_data.Set("DefaultDQNAgent.nn_viz.layout", "BT");
     CHECK_THROWS(dqn::DefaultDQNAgentConfig(invalid_data));
+}
+
+TEST_CASE("DropPath applies sample-wise stochastic depth", "[nn][droppath]")
+{
+    torch::Tensor input = torch::ones({ 8, 3, 2, 2 }, torch::kFloat32);
+
+    CHECK(torch::equal(anet::nn::DropPath(input, 0.5, /*training=*/false), input));
+    CHECK(torch::equal(anet::nn::DropPath(input, 0.0, /*training=*/true), input));
+
+    torch::Tensor output;
+    bool found_mixed_mask = false;
+    for (int seed = 1200; seed < 1230; ++seed) {
+        torch::manual_seed(seed);
+        output = anet::nn::DropPath(input, 0.5, /*training=*/true);
+
+        bool saw_dropped = false;
+        bool saw_kept = false;
+        for (int64_t n = 0; n < output.size(0); ++n) {
+            torch::Tensor sample = output[n];
+            saw_dropped = saw_dropped || sample.eq(0.0).all().item<bool>();
+            saw_kept = saw_kept || torch::allclose(sample, torch::full_like(sample, 2.0));
+        }
+        if (saw_dropped && saw_kept) {
+            found_mixed_mask = true;
+            break;
+        }
+    }
+
+    REQUIRE(found_mixed_mask);
+    CHECK(output.sizes() == input.sizes());
+    for (int64_t n = 0; n < output.size(0); ++n) {
+        torch::Tensor sample = output[n];
+        const bool dropped = sample.eq(0.0).all().item<bool>();
+        const bool kept = torch::allclose(sample, torch::full_like(sample, 2.0));
+        CHECK((dropped || kept));
+    }
+}
+
+TEST_CASE("DropoutModule uses dropout_rate config only", "[nn][dropout]")
+{
+    auto module = MakeDropoutTestModule(0.5);
+    CHECK(module->GetCurrentConfigData().Get("dropout_rate") == "0.5");
+
+    torch::Tensor input = torch::ones({ 64 }, torch::kFloat32);
+    module->eval();
+    CHECK(torch::equal(module->Forward(input), input));
+
+    module->train();
+    torch::Tensor output;
+    bool saw_dropout = false;
+    for (int seed = 1300; seed < 1310; ++seed) {
+        torch::manual_seed(seed);
+        output = module->Forward(input);
+        if (!torch::equal(output, input)) {
+            saw_dropout = true;
+            break;
+        }
+    }
+    CHECK(saw_dropout);
+    CHECK(output.eq(0.0).any().item<bool>());
+
+    auto old_key_module = MakeDropoutTestModule(0.9, /*set_old_p=*/true);
+    old_key_module->train();
+    torch::manual_seed(1301);
+    CHECK(torch::equal(old_key_module->Forward(input), input));
+    CHECK(old_key_module->GetCurrentConfigData().Get("dropout_rate") == "0");
+
+    CHECK_THROWS(MakeDropoutTestModule(1.0));
+}
+
+TEST_CASE("ResBlock exposes dropout config and validates rates", "[nn][resblock][dropout]")
+{
+    auto module = MakeResBlockTestModule(/*droppath_rate=*/0.25, /*dropout_rate=*/0.125);
+    anet::ConfigData cd = module->GetCurrentConfigData();
+    CHECK(cd.Get("droppath_rate") == "0.25");
+    CHECK(cd.Get("dropout_rate") == "0.125");
+
+    CHECK_THROWS(MakeResBlockTestModule(/*droppath_rate=*/1.0, /*dropout_rate=*/0.0));
+    CHECK_THROWS(MakeResBlockTestModule(/*droppath_rate=*/0.0, /*dropout_rate=*/-0.1));
+
+    anet::test::LogCaptureGuard logs;
+    auto warn_module = MakeResBlockTestModule(/*droppath_rate=*/0.0, /*dropout_rate=*/0.1, "batch");
+    (void)warn_module;
+    logs.Flush();
+    CHECK(anet::test::HasRecordContaining(
+        logs.Records(),
+        wxLOG_Warning,
+        { "ResBlock dropout_rate", "key=res.dropout_rate", "value=0.1", "BatchNorm", "droppath_rate" }));
+}
+
+TEST_CASE("ResBlock DropPath and Dropout2d affect training only", "[nn][resblock][dropout]")
+{
+    auto baseline = MakeResBlockTestModule(/*droppath_rate=*/0.0, /*dropout_rate=*/0.0);
+    auto droppath = MakeResBlockTestModule(/*droppath_rate=*/0.5, /*dropout_rate=*/0.0);
+
+    torch::Tensor input = torch::rand({ 2, 3, 8, 8 }, torch::kFloat32) + 0.1;
+    baseline->eval();
+    droppath->eval();
+    (void)baseline->Forward(input);
+    (void)droppath->Forward(input);
+    CopyModuleState(*baseline, *droppath);
+
+    torch::Tensor expected = baseline->Forward(input);
+    torch::Tensor actual = droppath->Forward(input);
+    CheckTensorClose(expected, actual);
+
+    auto shortcut_only = MakeResBlockTestModule(/*droppath_rate=*/0.999999, /*dropout_rate=*/0.0);
+    shortcut_only->train();
+    (void)shortcut_only->Forward(input);
+    torch::manual_seed(1401);
+    torch::Tensor shortcut_output = shortcut_only->Forward(input);
+    CheckTensorClose(input, shortcut_output);
+
+    auto dropout2d_module = MakeResBlockTestModule(/*droppath_rate=*/0.0, /*dropout_rate=*/0.95);
+    dropout2d_module->eval();
+    torch::Tensor eval_output = dropout2d_module->Forward(input).detach();
+    dropout2d_module->train();
+
+    bool saw_train_difference = false;
+    for (int seed = 1402; seed < 1412; ++seed) {
+        torch::manual_seed(seed);
+        torch::Tensor train_output = dropout2d_module->Forward(input).detach();
+        if (!torch::allclose(eval_output, train_output)) {
+            saw_train_difference = true;
+            break;
+        }
+    }
+    CHECK(saw_train_difference);
+}
+
+TEST_CASE("TransformerEncoder dropout config is eval no-op", "[nn][transformer][dropout]")
+{
+    torch::Tensor input = torch::randn({ 2, 5, 16 }, torch::kFloat32);
+
+    for (bool use_sdpa : { true, false }) {
+        for (bool norm_first : { true, false }) {
+            INFO("use_sdpa=" << use_sdpa << " norm_first=" << norm_first);
+            auto baseline = MakeTransformerTestModule(use_sdpa, norm_first);
+            auto dropout = MakeTransformerTestModule(
+                use_sdpa,
+                norm_first,
+                /*hidden_dropout_rate=*/0.5,
+                /*attn_dropout_rate=*/0.4,
+                /*droppath_rate=*/0.5);
+            CopyModuleState(*baseline, *dropout);
+            baseline->eval();
+            dropout->eval();
+
+            CheckTensorClose(baseline->Forward(input), dropout->Forward(input));
+
+            anet::ConfigData cd = dropout->GetCurrentConfigData();
+            CHECK(cd.Get("hidden_dropout_rate") == "0.5");
+            CHECK(cd.Get("attn_dropout_rate") == "0.4");
+            CHECK(cd.Get("droppath_rate") == "0.5");
+        }
+    }
+}
+
+TEST_CASE("TransformerEncoder dropout changes train output", "[nn][transformer][dropout]")
+{
+    torch::Tensor input = torch::randn({ 2, 5, 16 }, torch::kFloat32);
+
+    for (bool use_sdpa : { true, false }) {
+        for (bool norm_first : { true, false }) {
+            INFO("use_sdpa=" << use_sdpa << " norm_first=" << norm_first);
+            auto module = MakeTransformerTestModule(
+                use_sdpa,
+                norm_first,
+                /*hidden_dropout_rate=*/0.6,
+                /*attn_dropout_rate=*/0.0,
+                /*droppath_rate=*/0.5);
+            module->train();
+
+            torch::manual_seed(1501);
+            torch::Tensor first = module->Forward(input).detach();
+            torch::Tensor second = module->Forward(input).detach();
+            CHECK_FALSE(torch::allclose(first, second));
+        }
+    }
 }
 
 TEST_CASE("SdpaSelfAttention matches legacy MHA and manual reference", "[nn][transformer][sdpa]")

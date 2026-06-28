@@ -15,6 +15,14 @@ static std::string ToConfigBool(bool value)
     return value ? "true" : "false";
 }
 
+static void ValidateDropRate(const std::string& key, double value)
+{
+    if (value < 0.0 || value >= 1.0) {
+        ANET_SYSTEM_ERROR("Invalid dropout rate. key=" << key
+            << " value=" << value << " expected=[0.0, 1.0)");
+    }
+}
+
 static std::string FormatInt64Vector(const std::vector<int64_t>& values)
 {
     std::ostringstream oss;
@@ -35,6 +43,22 @@ torch::nn::init::NonlinearityType anet::nn::GetNonlinearityType(const std::strin
     if (name == "tanh") return torch::kTanh;
     if (name == "leaky_relu") return torch::kLeakyReLU;
     return torch::kReLU;
+}
+
+torch::Tensor anet::nn::DropPath(const torch::Tensor& x, double drop_prob, bool training)
+{
+    if (!training || drop_prob <= 0.0) {
+        return x;
+    }
+
+    ANET_CHECK_MSG(drop_prob < 1.0, "DropPath: drop_prob must be less than 1.0. actual=" << drop_prob);
+    ANET_CHECK_MSG(x.dim() > 0, "DropPath: input must have a batch dimension.");
+
+    const double keep_prob = 1.0 - drop_prob;
+    std::vector<int64_t> shape(static_cast<size_t>(x.dim()), 1);
+    shape[0] = x.size(0);
+    torch::Tensor mask = torch::empty(shape, x.options()).bernoulli_(keep_prob);
+    return x / keep_prob * mask;
 }
 
 
@@ -336,11 +360,11 @@ public:
 
 class DropoutModule : public NetworkModule {
 public:
-    DropoutModule(double p)
-        : p_(p)
+    explicit DropoutModule(double dropout_rate)
+        : dropout_rate_(dropout_rate)
     {
-        if (p > 0.0) {
-            dropout_ = register_module("dropout", torch::nn::Dropout(torch::nn::DropoutOptions(p)));
+        if (dropout_rate > 0.0) {
+            dropout_ = register_module("dropout", torch::nn::Dropout(torch::nn::DropoutOptions(dropout_rate)));
         }
     }
 
@@ -360,21 +384,21 @@ public:
     anet::ConfigData GetCurrentConfigData() const override
     {
         anet::ConfigData cd;
-        cd.Set("p", p_);
+        cd.Set("dropout_rate", dropout_rate_);
         return cd;
     }
 private:
-    double p_ = 0.0;
+    double dropout_rate_ = 0.0;
     torch::nn::Dropout dropout_{ nullptr };
 };
 
 class DropoutModuleFactory : public NetworkModuleFactory {
 public:
     struct Config : anet::Config {
-        double p = 0.0;
+        double dropout_rate = 0.0;
         Config(const anet::ConfigData& config_data) : anet::Config("")
         {
-            ANET_READ_CONFIG(config_data, p);
+            ANET_READ_CONFIG(config_data, dropout_rate);
         }
     };
 public:
@@ -382,11 +406,8 @@ public:
     {
         Config config(config_data);
 
-        // 念のため範囲チェック
-        if (config.p < 0.0 || config.p >= 1.0) {
-            ANET_SYSTEM_ERROR("Dropout p must be in [0.0, 1.0). Got: " << config.p);
-        }
-        return std::make_shared<DropoutModule>(config.p);
+        ValidateDropRate("dropout_rate", config.dropout_rate);
+        return std::make_shared<DropoutModule>(config.dropout_rate);
     }
 };
 
@@ -639,6 +660,8 @@ struct ResBlockConfig {
     int group_norm_groups = 32;
     bool conv1_bias = true;        // Norm無しならtrue必須。None有りならFalse推奨。
     bool conv2_bias = true;        // ZeroInitするならTrue推奨
+    double droppath_rate = 0.0;     ///< 残差枝の Stochastic Depth ドロップ確率
+    double dropout_rate = 0.0;      ///< conv1->conv2 間 Dropout2d の channel dropout 確率
 };
 
 /// ResNet Basic Block
@@ -708,6 +731,11 @@ public:
 
             WeightInitializer::Initialize(conv2_, init2_config_);
 
+            if (config_.dropout_rate > 0.0) {
+                dropout2d_ = register_module("dropout2d",
+                    torch::nn::Dropout2d(torch::nn::Dropout2dOptions(config_.dropout_rate)));
+            }
+
             norm2_ = CreateAndRegisterNorm("norm2", config_.channels);
 
             // ------------------------------------------------
@@ -756,10 +784,11 @@ public:
             // Norm2 -> Act -> Conv2
             if (norm2_) out = norm2_->Forward(out);
             out = Activate(out);
+            if (dropout2d_) out = dropout2d_->forward(out);
             out = conv2_->forward(out);
 
-            // Add (最後のアクティベーション無し)
-            return out + residual;
+            // DropPath は残差枝だけを落とし、shortcut/downsample は落とさない。
+            return DropPath(out, config_.droppath_rate, is_training()) + residual;
         } else {
             // ==================================================
             // Post-Activation (ResNet v1)
@@ -770,6 +799,7 @@ public:
             torch::Tensor out = conv1_->forward(input);
             if (norm1_) out = norm1_->Forward(out);
             out = Activate(out);
+            if (dropout2d_) out = dropout2d_->forward(out);
 
             // Block 2: Conv -> Norm
             out = conv2_->forward(out);
@@ -783,6 +813,8 @@ public:
             }
 
             // Add & Act
+            // DropPath は残差枝だけを落とし、shortcut/downsample は落とさない。
+            out = DropPath(out, config_.droppath_rate, is_training());
             out += residual;
             out = Activate(out);
 
@@ -804,6 +836,8 @@ public:
         cd.Set("group_norm_groups", config_.group_norm_groups);
         cd.Set("conv1_bias", ToConfigBool(config_.conv1_bias));
         cd.Set("conv2_bias", ToConfigBool(config_.conv2_bias));
+        cd.Set("droppath_rate", config_.droppath_rate);
+        cd.Set("dropout_rate", config_.dropout_rate);
         if (conv1_) {
             cd.Set("in_channels", conv1_->options.in_channels());
         }
@@ -847,6 +881,7 @@ private:
     torch::nn::Conv2d conv1_{ nullptr };
     torch::nn::Conv2d conv2_{ nullptr };
     torch::nn::Conv2d downsample_conv_{ nullptr };
+    torch::nn::Dropout2d dropout2d_{ nullptr };
 
     // Normalization Layers
     std::shared_ptr<NetworkModule> norm1_{ nullptr };
@@ -880,6 +915,8 @@ private:
             ANET_READ_CONFIG(config_data, res.activation_mode);
             ANET_READ_CONFIG(config_data, res.norm_type);
             ANET_READ_CONFIG(config_data, res.group_norm_groups);
+            ANET_READ_CONFIG(config_data, res.droppath_rate);
+            ANET_READ_CONFIG(config_data, res.dropout_rate);
 
             ANET_READ_CONFIG(config_data, init1.mode);
             ANET_READ_CONFIG(config_data, init1.manual_gain);
@@ -901,6 +938,14 @@ public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
     {
         Config config(config_data);
+        ValidateDropRate("res.droppath_rate", config.res.droppath_rate);
+        ValidateDropRate("res.dropout_rate", config.res.dropout_rate);
+        if (config.res.dropout_rate > 0.0 && config.res.norm_type == "batch") {
+            LOG::warn() << "ResBlock dropout_rate is enabled with BatchNorm. "
+                << "key=res.dropout_rate value=" << config.res.dropout_rate
+                << " reason=channel dropout can shift BatchNorm statistics"
+                << " recommended=use res.droppath_rate or set res.norm_type to group/none.";
+        }
         return std::make_shared<ResBlockModule>(config.res, config.init1, config.init2, config.init_ds);
     }
 };
@@ -1297,26 +1342,30 @@ class CustomTransformerEncoderLayer : public torch::nn::Module {
 public:
     CustomTransformerEncoderLayer(
         int64_t d_model, int64_t nhead, int64_t dim_feedforward,
-        bool norm_first, const std::string& activation, bool use_sdpa)
+        bool norm_first, const std::string& activation, bool use_sdpa,
+        double hidden_dropout_rate, double attn_dropout_rate, double droppath_rate)
         : norm_first_(norm_first)
         , use_sdpa_(use_sdpa)
+        , droppath_rate_(droppath_rate)
+        , use_gelu_(anet::ToLower(activation) == "gelu")
     {
         // Multihead Attention
         torch::nn::MultiheadAttentionOptions mha_opts(d_model, nhead);
+        mha_opts.dropout(attn_dropout_rate);
         mha_ = register_module("self_attn", torch::nn::MultiheadAttention(mha_opts));
 
         // Feed Forward Network (FFN)
         linear1_ = register_module("linear1", torch::nn::Linear(d_model, dim_feedforward));
         linear2_ = register_module("linear2", torch::nn::Linear(dim_feedforward, d_model));
 
+        // Transformer の hidden_dropout_rate は attention/FFN の要素 dropout。
+        if (hidden_dropout_rate > 0.0) {
+            dropout_ = register_module("dropout", torch::nn::Dropout(torch::nn::DropoutOptions(hidden_dropout_rate)));
+        }
+
         // Layer Normalizations
         norm1_ = register_module("norm1", torch::nn::LayerNorm(torch::nn::LayerNormOptions({ d_model })));
         norm2_ = register_module("norm2", torch::nn::LayerNorm(torch::nn::LayerNormOptions({ d_model })));
-
-        //  Activation Function
-        std::string act_lower = activation;
-        std::transform(act_lower.begin(), act_lower.end(), act_lower.begin(), ::tolower);
-        use_gelu_ = (act_lower == "gelu");
     }
 
     torch::Tensor forward(torch::Tensor src)
@@ -1346,7 +1395,8 @@ public:
             }
 
             ANET_PROFILE_SCOPE_NEXT(attn_residual);
-            x = x + attn_out;
+            attn_out = ApplyDropout(attn_out);
+            x = x + DropPath(attn_out, droppath_rate_, is_training());
 
             // --- FFN Block ---
             ANET_PROFILE_SCOPE_NEXT(ffn_norm);
@@ -1355,12 +1405,14 @@ public:
             torch::Tensor ffn_out = linear1_->forward(x_norm);
             ANET_PROFILE_SCOPE_NEXT(ffn_activation);
             ffn_out = use_gelu_ ? torch::gelu(ffn_out) : torch::relu(ffn_out);
+            ffn_out = ApplyDropout(ffn_out);
             ANET_PROFILE_SCOPE_NEXT(ffn_linear2);
             ffn_out = linear2_->forward(ffn_out);
 
             // Skip Connection (Add)
             ANET_PROFILE_SCOPE_NEXT(ffn_residual);
-            x = x + ffn_out;
+            ffn_out = ApplyDropout(ffn_out);
+            x = x + DropPath(ffn_out, droppath_rate_, is_training());
         } else {
             // ==========================================
             // Post-LN：オリジナルTransformer相当（最終的な性能は高いが不安定）
@@ -1376,30 +1428,43 @@ public:
                 attn_out = std::get<0>(mha_->forward(x_t, x_t, x_t)).transpose(0, 1);
             }
             ANET_PROFILE_SCOPE_NEXT(attn_residual_norm);
-            x = norm1_->forward(x + attn_out);
+            attn_out = ApplyDropout(attn_out);
+            x = norm1_->forward(x + DropPath(attn_out, droppath_rate_, is_training()));
 
             ANET_PROFILE_SCOPE_NEXT(ffn_linear1);
             torch::Tensor ffn_out = linear1_->forward(x);
             ANET_PROFILE_SCOPE_NEXT(ffn_activation);
             ffn_out = use_gelu_ ? torch::gelu(ffn_out) : torch::relu(ffn_out);
+            ffn_out = ApplyDropout(ffn_out);
             ANET_PROFILE_SCOPE_NEXT(ffn_linear2);
             ffn_out = linear2_->forward(ffn_out);
             ANET_PROFILE_SCOPE_NEXT(ffn_residual_norm);
-            x = norm2_->forward(x + ffn_out);
+            ffn_out = ApplyDropout(ffn_out);
+            x = norm2_->forward(x + DropPath(ffn_out, droppath_rate_, is_training()));
         }
 
         return x;
     }
 
 private:
-    bool norm_first_;
-    bool use_sdpa_;
+    torch::Tensor ApplyDropout(torch::Tensor x)
+    {
+        if (dropout_) {
+            return dropout_->forward(x);
+        }
+        return x;
+    }
+
+    const bool norm_first_;
+    const bool use_sdpa_;
     bool use_gelu_;
+    const double droppath_rate_;
     torch::nn::MultiheadAttention mha_{ nullptr };
     torch::nn::Linear linear1_{ nullptr };
     torch::nn::Linear linear2_{ nullptr };
     torch::nn::LayerNorm norm1_{ nullptr };
     torch::nn::LayerNorm norm2_{ nullptr };
+    torch::nn::Dropout dropout_{ nullptr };
 };
 
 struct TransformerConfig {
@@ -1410,6 +1475,9 @@ struct TransformerConfig {
     bool norm_first = true;             ///< Pre-LN default
     bool use_sdpa = true;               ///< SDPA/FlashAttention経路を使う
     std::string activation = "gelu";    ///< relu / gelu
+    double hidden_dropout_rate = 0.0;    ///< hidden activations/residual branch の要素 dropout 確率
+    double attn_dropout_rate = 0.0;      ///< attention weights dropout 確率
+    double droppath_rate = 0.0;          ///< residual branch の Stochastic Depth 確率
 };
 
 // --- TransformerEncoderModule 本体 ---
@@ -1424,7 +1492,8 @@ public:
         for (int i = 0; i < config_.num_layers; ++i) {
             auto layer = std::make_shared<CustomTransformerEncoderLayer>(
                 config_.d_model, config_.nhead, config_.dim_feedforward,
-                config_.norm_first, config_.activation, config_.use_sdpa
+                config_.norm_first, config_.activation, config_.use_sdpa,
+                config_.hidden_dropout_rate, config_.attn_dropout_rate, config_.droppath_rate
             );
             layers_.push_back(register_module("layer_" + std::to_string(i), layer));
         }
@@ -1484,6 +1553,9 @@ public:
         cd.Set("norm_first", ToConfigBool(config_.norm_first));
         cd.Set("use_sdpa", ToConfigBool(config_.use_sdpa));
         cd.Set("activation", config_.activation);
+        cd.Set("hidden_dropout_rate", config_.hidden_dropout_rate);
+        cd.Set("attn_dropout_rate", config_.attn_dropout_rate);
+        cd.Set("droppath_rate", config_.droppath_rate);
         return cd;
     }
 private:
@@ -1506,12 +1578,18 @@ private:
             ANET_READ_CONFIG(config_data, tf.norm_first);
             ANET_READ_CONFIG(config_data, tf.use_sdpa);
             ANET_READ_CONFIG(config_data, tf.activation);
+            ANET_READ_CONFIG(config_data, tf.hidden_dropout_rate);
+            ANET_READ_CONFIG(config_data, tf.attn_dropout_rate);
+            ANET_READ_CONFIG(config_data, tf.droppath_rate);
         }
     };
 public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
     {
         Config config(config_data);
+        ValidateDropRate("tf.hidden_dropout_rate", config.tf.hidden_dropout_rate);
+        ValidateDropRate("tf.attn_dropout_rate", config.tf.attn_dropout_rate);
+        ValidateDropRate("tf.droppath_rate", config.tf.droppath_rate);
         return std::make_shared<TransformerEncoderModule>(config.tf);
     }
 };
