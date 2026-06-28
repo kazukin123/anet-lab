@@ -1,4 +1,4 @@
-// observers.cpp
+﻿// observers.cpp
 
 #include "anet/observers.hpp"
 #include <limits>
@@ -1213,8 +1213,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
             auto event = event_opt.value_or(EventType::TRAIN);
             auto runner_scope = runner_scope_opt.value_or(RunnerScope::TRAIN);
 
-            const bool is_eval_action_info_train =
-                runner_scope == RunnerScope::EVAL && event == EventType::TRAIN && field_opt == EventField::ACTION_INFO;
+            // 不整合チェック
+            const bool is_eval_action_info_train =runner_scope == RunnerScope::EVAL && event == EventType::TRAIN && field_opt == EventField::ACTION_INFO;
             if (runner_scope == RunnerScope::EVAL && event != EventType::EPISODE_END && !is_eval_action_info_train) {
                 ANET_SYSTEM_ERROR("ObserverFactory: $eval.[name] scope is only supported with @episode_end or @train $action_info. "
                     << "config_key=" << config_key << " config_value=" << config_value);
@@ -1229,6 +1229,7 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                     << "config_key=" << config_key << " config_value=" << config_value);
             }
 
+			// step_axisの決定
             anet::rl::StepAxis step_axis;
             if (step_axis_opt.has_value()) {
                 step_axis = *step_axis_opt;
