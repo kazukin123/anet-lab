@@ -184,7 +184,8 @@ namespace anet::rl {
 
     struct Conv2dVisualizerConfig {
         int margin_x = 4;               ///< チャンネル(列)間の余白ピクセル
-        int margin_y = 4;               ///< レイヤー(行)間の余白ピクセル
+        int margin_y = 4;               ///< 同一レイヤー内のチャンネル行間ピクセル
+        int layer_margin_y = -1;        ///< レイヤー間の余白ピクセル。-1 の場合は margin_y を使う
         int channels_per_row = 16;      ///< 1行に並べる最大チャンネル数
         bool flip_vertical = true;      ///< 画像の上下を反転して描画するか
         std::string network_key = "policy-net.conv2d"; ///< 抽出対象のネットワーク
@@ -255,6 +256,7 @@ namespace anet::rl {
             } else if (type == kImageType_Conv2d) {
                 ANET_READ_CONFIG(config_data, conv2d.margin_x);
                 ANET_READ_CONFIG(config_data, conv2d.margin_y);
+                ANET_READ_CONFIG(config_data, conv2d.layer_margin_y);
                 ANET_READ_CONFIG(config_data, conv2d.channels_per_row);
                 ANET_READ_CONFIG(config_data, conv2d.flip_vertical);
                 ANET_READ_CONFIG(config_data, conv2d.network_key);

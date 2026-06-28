@@ -34,7 +34,9 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
     
     // Forward
     auto obs = state.obs.To(device_);
-    auto outputs = network_->Forward(obs);
+    anet::TensorDict trace;
+    anet::TraceSink sink = anet::rl::MakeActionTraceSink(trace);
+    auto outputs = network_->Forward(obs, sink);
 
     // 推論後処理
     lock.unlock();
@@ -49,7 +51,9 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
     info.Set("probs", torch::softmax(logits, 1).to(torch::kCPU));
 
     // BatchActionInfo(action, info, aux) の形式で返却
-    return std::make_shared<anet::rl::BatchActionInfo>(action, info);
+    auto action_info = std::make_shared<anet::rl::BatchActionInfo>(action, info);
+    anet::rl::AppendTraceAux(action_info->GetAuxData(), trace);
+    return action_info;
 }
 
 

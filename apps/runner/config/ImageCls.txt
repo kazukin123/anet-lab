@@ -18,7 +18,7 @@ ImageClsEnv.$ = ImageClsEnv.baseline > E
 
 #net.branch.[main_feature].$ = net.branch.FoodResNet13      # 44%
 #net.branch.[main_feature].$ = net.branch.FoodResNet13_GAP  # 61% 1.3h
-net.branch.[main_feature].$ = net.branch.ResNet18ish        # 77% 2.5h ★
+net.branch.[main_feature].$ = net.branch.ResNet18ish       # 77% 2.5h ★
 #net.branch.[main_feature].$ = net.branch.Hybrid_CLS        # 60% 2.0h
 #net.branch.[main_feature].$ = net.branch.Hybrid_GAP        # 56%
 #net.branch.[main_feature].$ = net.branch.ViT_S16_CLS       # 37%
@@ -30,7 +30,7 @@ net.branch.[main_feature].$ = net.branch.ResNet18ish        # 77% 2.5h ★
 # ==============================================================================
 
 #app.run_name = run_{t}_imgcls_Hybrid
-app.run_name = run_{t}_imgcls_Res18_dp1
+#app.run_name = run_{t}_imgcls_Res18
 
 #E.augment.rrc_scale_min = 0.5        # RandomResizedCrop の面積比下限
 
@@ -299,7 +299,7 @@ metrics.scalar.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:10
 # image metrics
 # ==============================================================================
 
-metrics.image.interval = 0   # 出力全無効
+#metrics.image.interval = 0   # 出力全無効
 #metrics.image.interval = 1   # 毎ステップ出力（重い）
 #metrics.image.interval = 50   # 通常運用
 #metrics.image.interval = 500 # 重い場合
@@ -312,10 +312,6 @@ metrics.image.interval = 0   # 出力全無効
 #metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.network_key = policy-net.conv2d
 #metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.colormap = jet
 #metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.min_block_size = 40
-
-#colormap = gray
-#colormap = jet
-#colormap = hot
 
 
 # ==============================================================================
@@ -330,6 +326,16 @@ app.online.eval_panel.fps = 3
 
 agent.class_id = ImageClsAgent
 env.class_id = ImageClsEnv
+
+Conv2dPanel.conv2d.channels_per_row = 16
+Conv2dPanel.conv2d.network_key = policy-net.conv2d
+Conv2dPanel.conv2d.flip_vertical = false
+Conv2dPanel.conv2d.margin_x = 3
+Conv2dPanel.conv2d.margin_y = 3
+Conv2dPanel.conv2d.layer_margin_y = 32
+Conv2dPanel.conv2d.colormap = jet  # gray hot jet
+Conv2dPanel.conv2d.scale_factor = 1
+Conv2dPanel.conv2d.min_block_size = 112
 
 
 # ==============================================================================

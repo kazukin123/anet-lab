@@ -19,6 +19,7 @@ struct Conv2dPanel::Config : public anet::Config {
     {
         ANET_READ_CONFIG(config_data, conv2d.margin_x);
         ANET_READ_CONFIG(config_data, conv2d.margin_y);
+        ANET_READ_CONFIG(config_data, conv2d.layer_margin_y);
         ANET_READ_CONFIG(config_data, conv2d.channels_per_row);
         ANET_READ_CONFIG(config_data, conv2d.flip_vertical);
         ANET_READ_CONFIG(config_data, conv2d.network_key);

@@ -386,11 +386,58 @@ void ValueToRGB_Hot(float norm, unsigned char& r, unsigned char& g, unsigned cha
 	b = static_cast<unsigned char>(std::clamp(norm * 3.0f - 2.0f, 0.0f, 1.0f) * 255.0f);
 }
 
+static int EffectiveLayerMarginY(const Conv2dVisualizerConfig& config)
+{
+	return (config.layer_margin_y >= 0) ? config.layer_margin_y : config.margin_y;
+}
+
+static constexpr unsigned char kConv2dBackground = 32;
+static constexpr unsigned char kConv2dLayerGap = 56;
+static constexpr unsigned char kConv2dLayerGapEdge = 96;
+static constexpr unsigned char kConv2dLayerGapLine = 180;
+static constexpr int kConv2dLayerGapLineWidth = 3;
+
+static void FillRgbRect(unsigned char* img_data, int image_width, int x0, int y0, int width, int height,
+	unsigned char r, unsigned char g, unsigned char b)
+{
+	if (width <= 0 || height <= 0) return;
+	for (int y = y0; y < y0 + height; ++y) {
+		for (int x = x0; x < x0 + width; ++x) {
+			int idx = (y * image_width + x) * 3;
+			img_data[idx] = r;
+			img_data[idx + 1] = g;
+			img_data[idx + 2] = b;
+		}
+	}
+}
+
+static void ValidateConv2dVisualizerConfig(const Conv2dVisualizerConfig& config)
+{
+	if (config.margin_x < 0) {
+		ANET_SYSTEM_ERROR("Invalid Conv2dVisualizerConfig.margin_x: " << config.margin_x << " expected >= 0");
+	}
+	if (config.margin_y < 0) {
+		ANET_SYSTEM_ERROR("Invalid Conv2dVisualizerConfig.margin_y: " << config.margin_y << " expected >= 0");
+	}
+	if (config.layer_margin_y < -1) {
+		ANET_SYSTEM_ERROR("Invalid Conv2dVisualizerConfig.layer_margin_y: " << config.layer_margin_y << " expected >= -1");
+	}
+	if (config.channels_per_row <= 0) {
+		ANET_SYSTEM_ERROR("Invalid Conv2dVisualizerConfig.channels_per_row: " << config.channels_per_row << " expected > 0");
+	}
+	if (config.min_block_size <= 0) {
+		ANET_SYSTEM_ERROR("Invalid Conv2dVisualizerConfig.min_block_size: " << config.min_block_size << " expected > 0");
+	}
+}
+
 std::pair<wxImage, anet::json> Conv2dVisualizer::Visualize(int64_t step, const anet::TensorDict& dict) const
 {
+	ValidateConv2dVisualizerConfig(config_);
+
 	anet::json layout_json;
 	layout_json["step"] = step;
 	auto& layers_json = layout_json["layers"] = anet::json::array();
+	const int layer_margin_y = EffectiveLayerMarginY(config_);
 
 	int total_width = 0;
 	int max_height = 0;
@@ -403,6 +450,7 @@ std::pair<wxImage, anet::json> Conv2dVisualizer::Visualize(int64_t step, const a
 		int draw_width;    // ブロックが占める全体の幅
 		int draw_height;   // ブロックが占める全体の高さ
 		int local_scale;
+		int layer_margin_y;
 	};
 	std::vector<LayerInfo> layers;
 
@@ -424,10 +472,12 @@ std::pair<wxImage, anet::json> Conv2dVisualizer::Visualize(int64_t step, const a
 		int scaled_h = info.h * info.local_scale;
 		int layer_cols = std::min(info.c, config_.channels_per_row);
 		int layer_rows = (info.c + config_.channels_per_row - 1) / config_.channels_per_row;
+		int channel_rows_height = layer_rows * scaled_h + std::max(0, layer_rows - 1) * config_.margin_y;
 
 		info.offset_y = max_height;
 		info.draw_width = layer_cols * (scaled_w + config_.margin_x);
-		info.draw_height = layer_rows * (scaled_h + config_.margin_y);
+		info.draw_height = channel_rows_height + layer_margin_y;
+		info.layer_margin_y = layer_margin_y;
 
 		layers.push_back(info);
 		total_width = std::max(total_width, info.draw_width);
@@ -445,7 +495,7 @@ std::pair<wxImage, anet::json> Conv2dVisualizer::Visualize(int64_t step, const a
 	// キャンバス作成
 	wxImage image(total_width, max_height, false);
 	unsigned char* img_data = image.GetData();
-	std::fill(img_data, img_data + (total_width * max_height * 3), 32);
+	std::fill(img_data, img_data + (total_width * max_height * 3), kConv2dBackground);
 
 	// カラーマップ関数を準備
 	using ColorMapFunc = void(*)(float, unsigned char&, unsigned char&, unsigned char&);
@@ -461,15 +511,19 @@ std::pair<wxImage, anet::json> Conv2dVisualizer::Visualize(int64_t step, const a
 		int scaled_w = info.w * info.local_scale;
 		int scaled_h = info.h * info.local_scale;
 
-		// ブロック区切りの横線
-		if (info.offset_y > 0) {
-			int line_y = info.offset_y - 1;	// 現在のブロックの始まるY座標の「1つ上」のラインを赤く塗る
-			for (int x = 0; x < total_width; ++x) {
-				int idx = (line_y * total_width + x) * 3;
-				img_data[idx] = 255;     // R (赤)
-				img_data[idx + 1] = 0;   // G
-				img_data[idx + 2] = 0;   // B
-			}
+		// レイヤー区切りの余白は暗い帯と細い明線で、特徴マップ本体と役割を分けて見せる。
+		if (info.offset_y > 0 && info.layer_margin_y > 0) {
+			int start_y = std::max(0, info.offset_y - info.layer_margin_y);
+			FillRgbRect(img_data, total_width, 0, start_y, total_width, info.layer_margin_y,
+				kConv2dLayerGap, kConv2dLayerGap, kConv2dLayerGap);
+			FillRgbRect(img_data, total_width, 0, start_y, total_width, 1,
+				kConv2dLayerGapEdge, kConv2dLayerGapEdge, kConv2dLayerGapEdge);
+			FillRgbRect(img_data, total_width, 0, info.offset_y - 1, total_width, 1,
+				kConv2dLayerGapEdge, kConv2dLayerGapEdge, kConv2dLayerGapEdge);
+			const int line_height = std::min(kConv2dLayerGapLineWidth, info.layer_margin_y);
+			const int line_y = start_y + (info.layer_margin_y - line_height) / 2;
+			FillRgbRect(img_data, total_width, 0, line_y, total_width, line_height,
+				kConv2dLayerGapLine, kConv2dLayerGapLine, kConv2dLayerGapLine);
 		}
 
 		// レイヤーのJSON情報
@@ -481,6 +535,7 @@ std::pair<wxImage, anet::json> Conv2dVisualizer::Visualize(int64_t step, const a
 		l_json["offset_y"] = info.offset_y; // 配置座標を記録
 		l_json["margin_x"] = config_.margin_x;
 		l_json["margin_y"] = config_.margin_y;
+		l_json["layer_margin_y"] = info.layer_margin_y;
 		layers_json.push_back(l_json);
 
 		auto data_cont = info.data.contiguous();
