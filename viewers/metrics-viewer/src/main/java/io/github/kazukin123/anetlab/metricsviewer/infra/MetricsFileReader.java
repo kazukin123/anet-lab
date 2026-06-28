@@ -26,6 +26,8 @@ public class MetricsFileReader {
 	private static final Logger log = LoggerFactory.getLogger(MetricsFileReader.class);
 	private static final int BUFFER_SIZE = 1 << 16; // 64KB
 	private static final int PROGRESS_INTERVAL = 100_000;
+	private static final int DEFAULT_LINE_CAPACITY = 4096;
+	private static final int ESTIMATED_BYTES_PER_LINE = 128;
 	private static final long PROGRESS_INTERVAL_MS = 2000;
 	private static final JsonFactory JSON_FACTORY = new JsonFactory();
 
@@ -41,6 +43,15 @@ public class MetricsFileReader {
 	 */
 	public MetricsFileBlock parseDiff(Path jsonlFile, long startOffset, int maxLines) throws IOException {
 		return readInternal(jsonlFile, startOffset, maxLines);
+	}
+
+	static int estimateInitialLineCapacity(long readableBytes, int maxLines) {
+		if (maxLines <= 0) return DEFAULT_LINE_CAPACITY;
+
+		final long estimatedLines = readableBytes / ESTIMATED_BYTES_PER_LINE
+				+ (readableBytes % ESTIMATED_BYTES_PER_LINE == 0 ? 0 : 1);
+		final long capacity = Math.max(DEFAULT_LINE_CAPACITY, estimatedLines);
+		return (int) Math.min(maxLines, capacity);
 	}
 
 	/**
@@ -117,8 +128,10 @@ public class MetricsFileReader {
 			}
 		}
 
+		final long fileSize = Files.size(jsonlFile);
 		final long fileLastModified = Files.getLastModifiedTime(jsonlFile).toMillis();
-		final List<MetricsFileLine> lines = new ArrayList<>(maxLines > 0 ? maxLines : 4096);
+		final long readableBytes = Math.max(0L, fileSize - startOffset);
+		final List<MetricsFileLine> lines = new ArrayList<>(estimateInitialLineCapacity(readableBytes, maxLines));
 
 		long bytesRead = startOffset;
 		long lastLogTime = System.currentTimeMillis();
