@@ -476,6 +476,7 @@ rl::ExperienceSamples MakeTransferSamples()
         .n_steps = torch::tensor({ 1, 2 }, torch::TensorOptions().dtype(torch::kInt64)),
         .indices = torch::tensor({ 7, 8 }, torch::TensorOptions().dtype(torch::kInt64)),
         .is_weights = FloatVector({ 0.5f, 0.25f }),
+        .per_is_initial_priority = BoolTensor({ true, false }),
         .info = anet::TensorDict("info", FloatVector({ 9.0f, 10.0f }))
     };
 }
@@ -513,11 +514,12 @@ TEST_CASE("ExperienceSamples ForEachTensor visits defined tensors", "[transfer]"
         }
     });
 
-    CHECK(visit_count == 9);
+    CHECK(visit_count == 10);
     RequireFlatApprox(samples.obs.At(kVectorKey), { 2.0f, 3.0f });
     RequireFlatApprox(samples.target_returns, { 4.0f, 5.0f });
     RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey), { 6.0f, 7.0f });
     RequireFlatApprox(samples.is_weights, { 1.5f, 1.25f });
+    RequireFlatApprox(samples.per_is_initial_priority, { 1.0f, 0.0f });
     RequireFlatApprox(samples.info.At("info"), { 10.0f, 11.0f });
     CHECK_FALSE(samples.info.At("undefined").defined());
 }
@@ -529,6 +531,7 @@ TEST_CASE("DeviceTransfer CPU constructor keeps transfer synchronous", "[transfe
     CHECK_FALSE(transfer.ready_event.has_value());
     CHECK(transfer.device_samples.actions.device().is_cpu());
     CHECK(transfer.device_samples.indices.device().is_cpu());
+    CHECK(transfer.device_samples.per_is_initial_priority.device().is_cpu());
     CHECK_FALSE(transfer.retained_source.actions.defined());
     RequireFlatApprox(transfer.device_samples.target_returns, { 3.0f, 4.0f });
 }
@@ -598,6 +601,8 @@ TEST_CASE("DeviceTransfer CUDA constructor copies and records stream when availa
     CHECK(transfer.device_samples.actions.is_cuda());
     CHECK(transfer.device_samples.obs.At(kVectorKey).is_cuda());
     CHECK(transfer.device_samples.indices.device().is_cpu());
+    CHECK(transfer.device_samples.per_is_initial_priority.device().is_cpu());
+    RequireFlatApprox(transfer.device_samples.per_is_initial_priority, { 1.0f, 0.0f });
     const auto expected_indices = std::vector<int64_t>{ 7, 8 };
     CHECK(TensorToInt64Vector(transfer.device_samples.indices) == expected_indices);
     RequireFlatApprox(transfer.device_samples.target_returns, { 3.0f, 4.0f });
@@ -959,6 +964,10 @@ TEST_CASE("ReplayBuffer visualization accessors expose PER priorities", "[replay
 
     REQUIRE(buffer.rb->Size() == num_envs);
 
+    auto initial_ratio_before = buffer.rb->GetScalar(rl::ReplayBuffer::PER_INITIAL_MASS_RATIO);
+    REQUIRE(initial_ratio_before.has_value());
+    CHECK(*initial_ratio_before == Catch::Approx(1.0f).margin(1.0e-5));
+
     const int64_t env0_index = IndexOf(buffer, 0, 0);
     const int64_t env1_index = IndexOf(buffer, 1, 0);
     buffer.rb->UpdatePriorities({ env0_index, env1_index }, { 4.0f, 9.0f });
@@ -969,6 +978,10 @@ TEST_CASE("ReplayBuffer visualization accessors expose PER priorities", "[replay
     auto total = buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL);
     REQUIRE(total.has_value());
     REQUIRE(*total == Catch::Approx(env0_priority + env1_priority + 2.0f).margin(1.0e-5));
+
+    auto initial_ratio = buffer.rb->GetScalar(rl::ReplayBuffer::PER_INITIAL_MASS_RATIO);
+    REQUIRE(initial_ratio.has_value());
+    CHECK(*initial_ratio == Catch::Approx(2.0f / *total).margin(1.0e-5));
 
     auto values = RequireSingleTensorVector(buffer.rb->GetTensorVector(rl::ReplayBuffer::PER_VALUES));
     RequireShape(values, { num_envs, 1 });
@@ -985,6 +998,55 @@ TEST_CASE("ReplayBuffer visualization accessors expose PER priorities", "[replay
     RequireFlatApprox(*env0_value, { env0_priority });
 }
 
+TEST_CASE("ReplayBuffer PER samples expose initial-priority flags", "[replay_buffer][per]")
+{
+    auto buffer = MakeBuffer(MakeConfig(20), 1, false, 777);
+
+    PushTime(buffer, 0, {}, {}, BoolValues(1, true));
+    PushTime(buffer, 1);
+
+    REQUIRE(buffer.rb->Size() == 1);
+
+    rl::ExperienceSamples first;
+    buffer.rb->Sample(first, 1, 0.4f);
+    RequireShape(first.per_is_initial_priority, { 1 });
+    CHECK(first.per_is_initial_priority[0].item<bool>());
+
+    auto sampled_indices = TensorToInt64Vector(first.indices);
+    buffer.rb->UpdatePriorities(sampled_indices, { 2.0f });
+
+    rl::ExperienceSamples second;
+    buffer.rb->Sample(second, 1, 0.4f);
+    RequireShape(second.per_is_initial_priority, { 1 });
+    CHECK_FALSE(second.per_is_initial_priority[0].item<bool>());
+}
+
+TEST_CASE("ReplayBuffer PER tracks last evicted sampleable slots that were never sampled", "[replay_buffer][per]")
+{
+    auto buffer = MakeBuffer(MakeConfig(4), 1);
+
+    PushTime(buffer, 0, {}, {}, BoolValues(1, true));
+    PushTime(buffer, 1);
+    PushTime(buffer, 2);
+    PushTime(buffer, 3);
+
+    auto ratio_before_overwrite = buffer.rb->GetScalar(rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO);
+    REQUIRE(ratio_before_overwrite.has_value());
+    CHECK(std::isnan(*ratio_before_overwrite));
+
+    SampleOnlyIndex(buffer, IndexOf(buffer, 0, 0));
+
+    PushTime(buffer, 4);
+    auto sampled_eviction_ratio = buffer.rb->GetScalar(rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO);
+    REQUIRE(sampled_eviction_ratio.has_value());
+    CHECK(*sampled_eviction_ratio == Catch::Approx(0.0f).margin(1.0e-5));
+
+    PushTime(buffer, 5);
+    auto never_sampled_eviction_ratio = buffer.rb->GetScalar(rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO);
+    REQUIRE(never_sampled_eviction_ratio.has_value());
+    CHECK(*never_sampled_eviction_ratio == Catch::Approx(1.0f).margin(1.0e-5));
+}
+
 TEST_CASE("ReplayBuffer PER visualization keys are unavailable for uniform sampling", "[replay_buffer][visualization][per]")
 {
     auto buffer = MakeBuffer(MakeConfig(20, 1, 0.99f, 1, rl::ReplaySamplerType::UNIFORM), 1);
@@ -994,6 +1056,8 @@ TEST_CASE("ReplayBuffer PER visualization keys are unavailable for uniform sampl
 
     REQUIRE(buffer.rb->Size() == 1);
     REQUIRE_FALSE(buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL).has_value());
+    REQUIRE_FALSE(buffer.rb->GetScalar(rl::ReplayBuffer::PER_INITIAL_MASS_RATIO).has_value());
+    REQUIRE_FALSE(buffer.rb->GetScalar(rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO).has_value());
     REQUIRE_FALSE(buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, 0).has_value());
     REQUIRE_FALSE(buffer.rb->GetTensorVector(rl::ReplayBuffer::PER_VALUES).has_value());
     REQUIRE_FALSE(buffer.rb->GetTensorVector(rl::ReplayBuffer::PER_DIST).has_value());

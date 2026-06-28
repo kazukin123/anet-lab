@@ -54,6 +54,9 @@ metrics.scalar.baseline.[39_agent_per/05_per_is_weight_mean] = per_is_weight_mea
 metrics.scalar.baseline.[39_agent_per/06_per_prio_cv] = per_prio_cv @learn
 metrics.scalar.baseline.[39_agent_per/07_per_prio_ess_ratio] = per_prio_ess_ratio @learn
 metrics.scalar.baseline.[39_agent_per/08_per_is_rss_ratio] = per_is_ess_ratio @learn
+metrics.scalar.baseline.[39_agent_per/09_per_sample_initial_ratio] = per_sample_initial_ratio @learn
+metrics.scalar.baseline.[39_agent_per/10_per_initial_mass_ratio] = replaybuffer.per.initial_mass_ratio @learn $agent
+metrics.scalar.baseline.[39_agent_per/19_per_evicted_never_sampled_ratio] = replaybuffer.per.last_evicted_never_sampled_ratio @learn $agent
 
 metrics.scalar.baseline.[39_agent_per/11_per_td_error_abs_max_ema] = per_td_error_abs_max @learn $ema
 metrics.scalar.baseline.[39_agent_per/12_per_prio_max_ema] = per_prio_max @learn $ema
@@ -63,6 +66,9 @@ metrics.scalar.baseline.[39_agent_per/15_per_is_weight_mean_ema] = per_is_weight
 metrics.scalar.baseline.[39_agent_per/16_per_prio_cv_ema] = per_prio_cv @learn $ema
 metrics.scalar.baseline.[39_agent_per/17_per_prio_ess_ratio_ema] = per_prio_ess_ratio @learn $ema
 metrics.scalar.baseline.[39_agent_per/18_per_is_ess_ratio_ema] = per_is_ess_ratio @learn $ema
+metrics.scalar.baseline.[39_agent_per/21_per_sample_initial_ratio_ema] = per_sample_initial_ratio @learn $ema
+metrics.scalar.baseline.[39_agent_per/22_per_initial_mass_ratio_ema] = replaybuffer.per.initial_mass_ratio @learn $agent $ema
+metrics.scalar.baseline.[39_agent_per/23_per_evicted_never_sampled_ratio_ema] = replaybuffer.per.last_evicted_never_sampled_ratio @learn $agent $ema
 
 metrics.scalar.baseline.[40_agent_rs/01_scale] = $agent reward_scaler.scale @learn
 metrics.scalar.baseline.[40_agent_rs/02_clip_ratio] = $agent reward_scaler.clip_ratio @learn

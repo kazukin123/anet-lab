@@ -4,6 +4,7 @@
 
 #include "anet/replay_buffer.hpp"
 #include <algorithm>
+#include <limits>
 #include <vector>
 #include <memory>
 #include <deque>
@@ -98,6 +99,8 @@ namespace anet::rl {
         int64_t GetValidCount() const;
 
         int64_t GetSampleableCount(int stack_count, int unroll_steps, int n_step) const;
+
+        bool IsOverwritingSampleable(int64_t env_idx, int64_t time_idx, int stack_count, int unroll_steps, int n_step) const;
     private:
         template <class Fn>
         void ForEachSampleableIndex(int64_t env, int stack_count, int unroll_steps, int n_step, Fn&& fn) const
@@ -199,6 +202,7 @@ namespace anet::rl {
         torch::Tensor indices;       ///< [B] 1D indices
         torch::Tensor sampling_prob; ///< [B] probabilities
         torch::Tensor is_weights;    ///< [B] importance sampling weights
+        torch::Tensor per_is_initial_priority; ///< [B] サンプル時点で初期PER優先度のままかどうか
     };
 
     class ReplayExperienceSampler {
@@ -272,6 +276,13 @@ namespace anet::rl {
         void InvalidateAccessorCacheForPriority();
         std::optional<std::vector<torch::Tensor>> TryGetCachedTensorVector(const std::string& key, int64_t index) const;
         void StoreTensorVectorCache(const std::string& key, int64_t index, std::vector<torch::Tensor> value) const;
+        void MarkSampledOnce(const torch::Tensor& indices) const;
+        void RecordEvictionIfSampleable(
+            int64_t env_idx,
+            int64_t time_idx,
+            int64_t* evicted_sampleable_count,
+            int64_t* evicted_never_sampled_count);
+        void StoreLastEvictionStats(int64_t evicted_sampleable_count, int64_t evicted_never_sampled_count);
     private:
         struct TensorVectorCacheEntry {
             std::string key;
@@ -299,6 +310,10 @@ namespace anet::rl {
         mutable std::shared_mutex storage_mutex_;
         mutable std::mutex metadata_mutex_;
         mutable std::mutex accessor_cache_mutex_;
+        mutable std::vector<uint8_t> sampled_once_;
+        int64_t last_evicted_sampleable_count_ = 0;
+        int64_t last_evicted_never_sampled_count_ = 0;
+        float last_evicted_never_sampled_ratio_ = std::numeric_limits<float>::quiet_NaN();
         uint64_t accessor_storage_version_ = 0;
         uint64_t accessor_priority_version_ = 0;
         mutable std::vector<TensorVectorCacheEntry> tensor_vector_cache_;

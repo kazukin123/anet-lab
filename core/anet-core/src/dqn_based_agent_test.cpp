@@ -1016,6 +1016,7 @@ TEST_CASE("PER priority prepare/apply updates replay buffer from CPU materialize
     rl::ExperienceSamples samples;
     samples.indices = torch::tensor({ 3, 5 }, torch::TensorOptions().dtype(torch::kInt64));
     samples.is_weights = torch::tensor({ 0.25f, 0.75f });
+    samples.per_is_initial_priority = DeterminismBoolTensor({ true, false });
 
     auto td_error = torch::tensor({ -0.2f, 2.0f });
     auto pending = learner.PreparePerPriorityUpdate(samples, td_error);
@@ -1023,6 +1024,8 @@ TEST_CASE("PER priority prepare/apply updates replay buffer from CPU materialize
     REQUIRE(pending.enabled);
     const auto expected_indices = std::vector<int64_t>{ 3, 5 };
     CHECK(pending.indices == expected_indices);
+    REQUIRE(pending.per_sample_initial_count.defined());
+    CHECK(pending.per_sample_initial_count.item<float>() == Catch::Approx(1.0f).margin(1.0e-6f));
 
     auto result = learner.ApplyPerPriorityUpdate(std::move(pending));
 
@@ -1041,6 +1044,20 @@ TEST_CASE("PER priority prepare/apply updates replay buffer from CPU materialize
     CHECK(result.per_minibatch_size == 2);
     REQUIRE(result.per_is_weights.defined());
     CHECK(torch::allclose(result.per_is_weights, samples.is_weights));
+    REQUIRE(result.per_sample_initial_count.defined());
+    CHECK(result.per_sample_initial_count.item<float>() == Catch::Approx(1.0f).margin(1.0e-6f));
+
+    dqn::OptimizerStepResult opt_result;
+    auto batch_result = learner.MakeBatchUpdateResult(
+        torch::tensor(0.0f),
+        td_error,
+        opt_result,
+        torch::zeros({ 2 }),
+        torch::zeros({ 2 }),
+        result);
+    auto sample_initial_ratio = batch_result->GetScalar("per_sample_initial_ratio", -1);
+    REQUIRE(sample_initial_ratio.has_value());
+    CHECK(*sample_initial_ratio == Catch::Approx(0.5f).margin(1.0e-6f));
 }
 
 TEST_CASE("Optimizer helper keeps QR-DQN FP32 grad clip result contract", "[dqn][optimizer]")

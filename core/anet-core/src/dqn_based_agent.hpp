@@ -61,6 +61,7 @@ namespace anet::rl::dqn {
         torch::Tensor per_is_weights;      ///< IS Weights (B,)
         torch::Tensor per_priorities;      ///< Updated Priorities (B,)
         torch::Tensor per_clipped_count;   ///< Clipped Count (scalar tensor)
+        torch::Tensor per_sample_initial_count; ///< 初期優先度のままサンプルされた件数
         long per_minibatch_size = 0;       ///< Minibatch Size
 
         // QR-DQN Metrics
@@ -152,6 +153,11 @@ namespace anet::rl::dqn {
             if (key == "per_prio_clip_ratio") {
                 if (per_clipped_count.defined() && per_minibatch_size > 0)
                     return per_clipped_count.item<float>() / static_cast<float>(per_minibatch_size);
+                return std::numeric_limits<float>::quiet_NaN();
+            }
+            if (key == "per_sample_initial_ratio") {
+                if (per_sample_initial_count.defined() && per_minibatch_size > 0)
+                    return per_sample_initial_count.item<float>() / static_cast<float>(per_minibatch_size);
                 return std::numeric_limits<float>::quiet_NaN();
             }
             if (key == "per_prio_max") {
@@ -248,6 +254,7 @@ namespace anet::rl::dqn {
         torch::Tensor per_clipped_count;
         torch::Tensor per_priorities;
         torch::Tensor per_is_weights;
+        torch::Tensor per_sample_initial_count;
         long per_minibatch_size = 0;
     };
 
@@ -255,6 +262,7 @@ namespace anet::rl::dqn {
         std::vector<int64_t> indices;
         anet::transfer::HostReadback priority_readback;
         torch::Tensor per_is_weights;
+        torch::Tensor per_sample_initial_count;
         long per_minibatch_size = 0;
         bool enabled = false;
     };

@@ -682,8 +682,11 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
             },
             .n_steps = anet::To(n_steps, device, non_blocking),
             // sampled index は ReplayBuffer の CPU metadata なので learner device へは送らない。
-            .indices = indices.device().is_cpu() ? indices : indices.to(torch::kCPU),
+            .indices = indices.defined() ? (indices.device().is_cpu() ? indices : indices.to(torch::kCPU)) : indices,
             .is_weights = anet::To(is_weights, device, non_blocking),
+            .per_is_initial_priority = per_is_initial_priority.defined()
+                ? (per_is_initial_priority.device().is_cpu() ? per_is_initial_priority : per_is_initial_priority.to(torch::kCPU))
+                : per_is_initial_priority,
 			.info = info.To(device, non_blocking)
         };
     }
@@ -698,8 +701,11 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
             .terminals = next_state.terminals.to(device, non_blocking),
         },
         .n_steps = n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,
-        .indices = indices.to(device, non_blocking),
+        .indices = indices.defined() ? indices.to(device, non_blocking) : indices,
         .is_weights = is_weights.defined() ? is_weights.to(device, non_blocking) : is_weights,
+        .per_is_initial_priority = per_is_initial_priority.defined()
+            ? per_is_initial_priority.to(device, non_blocking)
+            : per_is_initial_priority,
         .info = info.To(device, non_blocking)
     };
 }
@@ -717,6 +723,7 @@ std::string ExperienceSamples::ToString() const
     oss << "  n_steps                  = " << anet::ToString(n_steps) << "\n";
     oss << "  indices                  = " << anet::ToString(indices) << "\n";
     oss << "  is_weights               = " << anet::ToString(is_weights) << "\n";
+    oss << "  per_is_initial_priority  = " << anet::ToString(per_is_initial_priority) << "\n";
     oss << "  info = " << info.ToString() << "\n";
     oss << "}";
     return oss.str();

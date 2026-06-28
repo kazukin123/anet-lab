@@ -1162,6 +1162,11 @@ PerPriorityUpdatePending Learner::PreparePerPriorityUpdate(const anet::rl::Exper
     if (samples.is_weights.defined()) {
         pending.per_is_weights = samples.is_weights;
     }
+    if (samples.per_is_initial_priority.defined()) {
+        auto initial_flags = samples.per_is_initial_priority.to(torch::kBool).to(torch::kCPU).contiguous();
+        ANET_ASSERT_SHAPE(initial_flags, { batch_size });
+        pending.per_sample_initial_count = initial_flags.to(torch::kFloat32).sum();
+    }
 
     {
         ANET_PROFILE_SCOPE_FULL(indices_cpu, "Learner::UpdatePerPriorities.indices_cpu");
@@ -1209,6 +1214,7 @@ PerPriorityUpdateInfo Learner::ApplyPerPriorityUpdate(PerPriorityUpdatePending p
     const int64_t batch_size = pending.per_minibatch_size;
     info.per_minibatch_size = batch_size;
     info.per_is_weights = pending.per_is_weights;
+    info.per_sample_initial_count = pending.per_sample_initial_count;
 
     {
         ANET_PROFILE_SCOPE_FULL(wait, "Learner::PerPriorityD2H.wait");
@@ -1299,6 +1305,7 @@ std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::MakeBatchUpdateResult
         result->per_clipped_count = per_info.per_clipped_count;
         result->per_priorities = per_info.per_priorities;
         result->per_is_weights = per_info.per_is_weights;
+        result->per_sample_initial_count = per_info.per_sample_initial_count;
     }
     return result;
 }

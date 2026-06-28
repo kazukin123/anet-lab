@@ -247,6 +247,26 @@ int64_t ValidIndexManager::GetSampleableCount(int stack_count, int unroll_steps,
     return total;
 }
 
+bool ValidIndexManager::IsOverwritingSampleable(int64_t env_idx, int64_t time_idx, int stack_count, int unroll_steps, int n_step) const
+{
+    (void)stack_count;
+
+    const int64_t w_cursor = write_cursors_[env_idx];
+    if (w_cursor < capacity_per_env_) return false;
+    if (time_idx != w_cursor % capacity_per_env_) return false;
+
+    const int64_t flat_idx = env_idx * capacity_per_env_ + time_idx;
+    if (is_dummy_[flat_idx]) return false;
+
+    const int64_t future_obs_lag = std::max<int64_t>(1, n_step);
+    const int64_t evicted_logical = w_cursor - capacity_per_env_;
+    const int64_t max_safe_by_write = std::max<int64_t>(-1, w_cursor - future_obs_lag - 1);
+    const int64_t max_safe_by_valid = valid_cursors_[env_idx] - 1 - unroll_steps;
+    const int64_t logical_end = std::min(max_safe_by_write, max_safe_by_valid);
+
+    return evicted_logical <= logical_end;
+}
+
 
 // ===========================================================================
 // ReplayExperienceStorage
@@ -679,7 +699,7 @@ public:
         }
 #endif
 
-        return { indices, ones / valid_count, ones };
+        return { indices, ones / valid_count, ones, torch::Tensor() };
     }
 #else
     // V1互換
@@ -728,7 +748,7 @@ public:
 
         }
 
-        return { indices, ones / valid_count, ones };
+        return { indices, ones / valid_count, ones, torch::Tensor() };
     }
 #endif
 private:
@@ -742,12 +762,13 @@ public:
     PrioritizedSampler(int64_t capacity, float alpha, float initial_priority, std::optional<anet::seed_t> seed)
         : anet::RandomHolder(seed)
         , tree_(capacity)
+        , is_initial_priority_(static_cast<size_t>(capacity), 0)
         , alpha_(alpha)
-        , max_prio_(initial_priority < 0.0f ? 1.0f : std::pow(initial_priority, alpha))
-        , initial_priority_(initial_priority)
         , gen_(rnd_->GetTorchGenerator(torch::kCPU))
         , opt_long_(torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU))
         , opt_float_(torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU))
+        , max_prio_(initial_priority < 0.0f ? 1.0f : std::pow(initial_priority, alpha))
+        , initial_priority_(initial_priority)
     {
     }
 
@@ -762,6 +783,7 @@ public:
         std::vector<int64_t> sampled_indices(batch_size);
         std::vector<float> sampled_probs(batch_size);
         std::vector<float> sampled_weights(batch_size);
+        std::vector<int64_t> sampled_initial(batch_size);
 
         float total_prio = tree_.GetTotalPriority();
 
@@ -786,6 +808,7 @@ public:
 
                 float weight = std::pow(valid_count * prob, -beta);
                 sampled_weights[b] = weight;
+                sampled_initial[b] = is_initial_priority_[static_cast<size_t>(idx)] ? 1 : 0;
                 b++;
             }
         }
@@ -800,6 +823,7 @@ public:
                 sampled_indices[b + i] = idx;
                 sampled_probs[b + i] = 1.0f / valid_count;
                 sampled_weights[b + i] = 1.0f;
+                sampled_initial[b + i] = is_initial_priority_[static_cast<size_t>(idx)] ? 1 : 0;
             }
         }
 
@@ -807,10 +831,11 @@ public:
         auto indices_t = torch::tensor(sampled_indices, opt_long_).to(idx_device);
         auto probs_t = torch::tensor(sampled_probs, opt_float_).to(idx_device);
         auto weights_t = torch::tensor(sampled_weights, opt_float_).to(idx_device);
+        auto initial_t = torch::tensor(sampled_initial, opt_long_).to(torch::kBool);
 
         weights_t /= weights_t.max(); // 正規化
 
-        return { indices_t, probs_t, weights_t };
+        return { indices_t, probs_t, weights_t, initial_t };
     }
 #else
     // V1互換
@@ -822,6 +847,7 @@ public:
         std::vector<int64_t> sampled_indices(batch_size);
         std::vector<float> sampled_probs(batch_size);
         std::vector<float> sampled_weights(batch_size);
+        std::vector<int64_t> sampled_initial(batch_size);
 
         float total_prio = tree_.GetTotalPriority();
 
@@ -847,6 +873,7 @@ public:
 
                 float weight = std::pow(valid_count * prob, -beta);
                 sampled_weights[b] = weight;
+                sampled_initial[b] = is_initial_priority_[static_cast<size_t>(idx)] ? 1 : 0;
                 b++;
             }
         }
@@ -862,6 +889,7 @@ public:
                 sampled_indices[b + i] = idx;
                 sampled_probs[b + i] = 1.0f / valid_count;
                 sampled_weights[b + i] = 1.0f;
+                sampled_initial[b + i] = is_initial_priority_[static_cast<size_t>(idx)] ? 1 : 0;
             }
         }
 
@@ -869,10 +897,11 @@ public:
         auto indices_t = torch::tensor(sampled_indices, opt_long_).to(idx_device);
         auto probs_t = torch::tensor(sampled_probs, opt_float_).to(idx_device);
         auto weights_t = torch::tensor(sampled_weights, opt_float_).to(idx_device);
+        auto initial_t = torch::tensor(sampled_initial, opt_long_).to(torch::kBool);
 
         weights_t /= weights_t.max(); // 正規化
 
-        return { indices_t, probs_t, weights_t };
+        return { indices_t, probs_t, weights_t, initial_t };
     }
 #endif
 
@@ -885,22 +914,24 @@ public:
 
         for (size_t i = 0; i < indices.size(); ++i) {
             float p = priorities[i];
+            const int64_t index = indices[i];
 
             if (p < 0.0f) {
                 // 特殊フラグ (-1.0f): 初期優先度を設定
+                float adjusted_p = 0.0f;
                 if (initial_priority_ < 0.0f) {
-					tree_.Update(indices[i], max_prio_);    // 最大優先度で初期化
+					adjusted_p = max_prio_;    // 最大優先度で初期化
                 } else {
-                    float adjusted_p = (initial_priority_ == 1.0) ? 1.0 : std::pow(initial_priority_, alpha_);
-                    tree_.Update(indices[i], adjusted_p);	// 固定値で初期化
+                    adjusted_p = (initial_priority_ == 1.0) ? 1.0f : std::pow(initial_priority_, alpha_);
                 }
+                UpdateTreePriority(index, adjusted_p, true);
             } else if (p == 0.0f) {
                 // 特殊フラグ (0.0f): 上書きに伴う無効化
-                tree_.Update(indices[i], 0.0f);
+                UpdateTreePriority(index, 0.0f, false);
             } else {
                 // 通常の更新
                 float adjusted_p = std::pow(p, alpha_);
-                tree_.Update(indices[i], adjusted_p);
+                UpdateTreePriority(index, adjusted_p, false);
                 if (adjusted_p > 0.0f) {
                     max_prio_ = std::max(max_prio_, adjusted_p);
                 }
@@ -911,6 +942,15 @@ public:
     float GetTotalPriority() const
     {
         return tree_.GetTotalPriority();
+    }
+
+    float GetInitialMassRatio() const
+    {
+        const float total = tree_.GetTotalPriority();
+        if (total <= 0.0f) {
+            return std::numeric_limits<float>::quiet_NaN();
+        }
+        return std::min(total, std::max(0.0f, initial_priority_mass_)) / total;
     }
 
     std::optional<torch::Tensor> GetPriorityTensor(int64_t index) const
@@ -932,13 +972,31 @@ public:
         return torch::tensor(priorities, opt_float_).reshape({ indices_cpu.size(0), 1 });
     }
 private:
+    void UpdateTreePriority(int64_t index, float adjusted_priority, bool is_initial)
+    {
+        const size_t slot = static_cast<size_t>(index);
+        const float old_priority = tree_.GetPriority(index);
+        if (is_initial_priority_[slot]) {
+            initial_priority_mass_ -= old_priority;
+        }
+
+        tree_.Update(index, adjusted_priority);
+
+        is_initial_priority_[slot] = (is_initial && adjusted_priority > 0.0f) ? 1 : 0;
+        if (is_initial_priority_[slot]) {
+            initial_priority_mass_ += adjusted_priority;
+        }
+    }
+
     SumTree tree_;
+    std::vector<uint8_t> is_initial_priority_;
     const float alpha_;
     const torch::Generator gen_;
     const torch::TensorOptions opt_long_;
     const torch::TensorOptions opt_float_;
     float max_prio_;
     float initial_priority_;
+    float initial_priority_mass_ = 0.0f;
 };
 
 
@@ -1118,6 +1176,7 @@ public:
         // --- PER等のメタデータ引き継ぎ ---
         out.indices = idx_result.indices;
         out.is_weights = idx_result.is_weights;
+        out.per_is_initial_priority = idx_result.per_is_initial_priority;
     }
 private:
     std::vector<std::string> stack_keys_;
@@ -1149,6 +1208,7 @@ DefaultReplayBuffer::DefaultReplayBuffer(
 
     storage_ = std::make_unique<ReplayExperienceStorage>(num_envs_, capacity_per_env_, env_spec, config_, device, pin_memory);
     index_manager_ = std::make_unique<ValidIndexManager>(num_envs_, capacity_per_env_);
+    sampled_once_.assign(static_cast<size_t>(num_envs_ * capacity_per_env_), 0);
 }
 
 void DefaultReplayBuffer::Push(const BatchExperience& batch)
@@ -1160,6 +1220,9 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
     // 事前に action の info を取得しておく
     anet::TensorDict action_info = batch.action->GetInfo();
 
+    int64_t evicted_sampleable_count = 0;
+    int64_t evicted_never_sampled_count = 0;
+
     for (int64_t b = 0; b < num_envs_; ++b) {
         // Step 1: Storage に重いデータを即時 Push (重複排除)
 
@@ -1170,6 +1233,8 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
         int64_t time_idx = storage_->Push(b, single_obs, batch.action->GetAction()[b], single_info);
         {
             std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+            RecordEvictionIfSampleable(b, time_idx, &evicted_sampleable_count, &evicted_never_sampled_count);
+            sampled_once_[static_cast<size_t>(b * capacity_per_env_ + time_idx)] = 0;
             index_manager_->MarkWritten(b, time_idx);
             index_manager_->AdvanceWriteCursor(b); // カーソルを進める
 
@@ -1194,6 +1259,8 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
             int64_t dummy_idx = (time_idx + 1) % capacity_per_env_;
             {
                 std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+                RecordEvictionIfSampleable(b, dummy_idx, &evicted_sampleable_count, &evicted_never_sampled_count);
+                sampled_once_[static_cast<size_t>(b * capacity_per_env_ + dummy_idx)] = 0;
                 index_manager_->MarkDummy(b, dummy_idx);
                 index_manager_->AdvanceWriteCursor(b); // ダミー書き込み分もカーソルを進める
 
@@ -1214,7 +1281,49 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
         ProcessQueue(b);
     }
 
+    StoreLastEvictionStats(evicted_sampleable_count, evicted_never_sampled_count);
     InvalidateAccessorCacheForStorage();
+}
+
+void DefaultReplayBuffer::MarkSampledOnce(const torch::Tensor& indices) const
+{
+    if (!indices.defined()) return;
+
+    auto indices_cpu = indices.device().is_cpu() ? indices.contiguous() : indices.to(torch::kCPU).contiguous();
+    auto acc = indices_cpu.accessor<int64_t, 1>();
+    for (int64_t i = 0; i < indices_cpu.size(0); ++i) {
+        const int64_t flat_idx = acc[i];
+        if (flat_idx >= 0 && flat_idx < static_cast<int64_t>(sampled_once_.size())) {
+            sampled_once_[static_cast<size_t>(flat_idx)] = 1;
+        }
+    }
+}
+
+void DefaultReplayBuffer::RecordEvictionIfSampleable(
+    int64_t env_idx,
+    int64_t time_idx,
+    int64_t* evicted_sampleable_count,
+    int64_t* evicted_never_sampled_count)
+{
+    if (!index_manager_->IsOverwritingSampleable(env_idx, time_idx, config_.stack_count, config_.muzero.unroll_steps, config_.n_step)) {
+        return;
+    }
+
+    const int64_t flat_idx = env_idx * capacity_per_env_ + time_idx;
+    ++(*evicted_sampleable_count);
+    if (!sampled_once_[static_cast<size_t>(flat_idx)]) {
+        ++(*evicted_never_sampled_count);
+    }
+}
+
+void DefaultReplayBuffer::StoreLastEvictionStats(int64_t evicted_sampleable_count, int64_t evicted_never_sampled_count)
+{
+    std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+    last_evicted_sampleable_count_ = evicted_sampleable_count;
+    last_evicted_never_sampled_count_ = evicted_never_sampled_count;
+    last_evicted_never_sampled_ratio_ = evicted_sampleable_count > 0
+        ? static_cast<float>(evicted_never_sampled_count) / static_cast<float>(evicted_sampleable_count)
+        : std::numeric_limits<float>::quiet_NaN();
 }
 
 void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
@@ -1285,6 +1394,7 @@ void DefaultReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibat
     ANET_PROFILE_SCOPE(sample_indices);
     idx_result = sampler_->SampleIndices(minibatch_size, valid_1d, beta);
     ANET_PROFILE_SCOPE_END(sample_indices);
+    MarkSampledOnce(idx_result.indices);
     metadata_lock.unlock();
 
     ANET_PROFILE_SCOPE(extract);
@@ -1375,6 +1485,18 @@ std::optional<float> DefaultReplayBuffer::GetScalar(const std::string& key, int6
         auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
         if (!prioritized) return std::nullopt;
         return prioritized->GetTotalPriority();
+    }
+    if (key == PER_INITIAL_MASS_RATIO) {
+        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+        auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
+        if (!prioritized) return std::nullopt;
+        return prioritized->GetInitialMassRatio();
+    }
+    if (key == PER_LAST_EVICTED_NEVER_SAMPLED_RATIO) {
+        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+        auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
+        if (!prioritized) return std::nullopt;
+        return last_evicted_never_sampled_ratio_;
     }
     return std::nullopt;
 }

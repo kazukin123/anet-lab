@@ -707,6 +707,7 @@ namespace anet::rl {
         torch::Tensor n_steps;          ///< [B] 実際に進んだステップ数 (終端到達でNより短くなるケース用)
         torch::Tensor indices;          ///< [B] PER優先度更新用の1Dインデックス
         torch::Tensor is_weights;       ///< [B] Importance Sampling の重み
+        torch::Tensor per_is_initial_priority; ///< [B] サンプル時点で初期優先度のままかどうか
 
         // --- その他 ---
         anet::TensorDict info;          ///< アルゴリズム固有データ (MuZeroの target_values 等)
@@ -730,6 +731,7 @@ namespace anet::rl {
             visit(n_steps);
             visit(indices);
             visit(is_weights);
+            visit(per_is_initial_priority);
             info.ForEachTensor(visit);
         }
         std::string ToString() const;
@@ -764,6 +766,8 @@ namespace anet::rl {
         static constexpr const char* PER_TOTAL = "replaybuffer.per.total";
         static constexpr const char* PER_VALUES = "replaybuffer.per.values";
         static constexpr const char* PER_DIST = "replaybuffer.per.distribution";
+        static constexpr const char* PER_INITIAL_MASS_RATIO = "replaybuffer.per.initial_mass_ratio";
+        static constexpr const char* PER_LAST_EVICTED_NEVER_SAMPLED_RATIO = "replaybuffer.per.last_evicted_never_sampled_ratio";
     };
 
 
