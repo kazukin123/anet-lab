@@ -1,7 +1,6 @@
 package io.github.kazukin123.anetlab.metricsviewer.infra;
 
 import java.io.IOException;
-import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -106,34 +105,13 @@ public class MetricsFileReader {
 			return new MetricsFileBlock(0, 0, List.of(), 0L, true);
 		}
 
-		// --- 行単位にオフセットを補正する ---
-		if (startOffset > 0) {
-			try (RandomAccessFile raf = new RandomAccessFile(jsonlFile.toFile(), "r")) {
-				raf.seek(startOffset);
-				int b;
-				boolean skipped = false;
-				while ((b = raf.read()) != -1) {
-					if (b == '\n') {
-						skipped = true;
-						break;
-					}
-				}
-				if (skipped) {
-					final long newPos = raf.getFilePointer();
-					if (newPos > startOffset) {
-						log.debug("Offset adjusted from {} → {}", startOffset, newPos);
-						startOffset = newPos;
-					}
-				}
-			}
-		}
-
 		final long fileSize = Files.size(jsonlFile);
 		final long fileLastModified = Files.getLastModifiedTime(jsonlFile).toMillis();
 		final long readableBytes = Math.max(0L, fileSize - startOffset);
 		final List<MetricsFileLine> lines = new ArrayList<>(estimateInitialLineCapacity(readableBytes, maxLines));
 
 		long bytesRead = startOffset;
+		long committedOffset = startOffset;
 		long lastLogTime = System.currentTimeMillis();
 		final long tStart = System.currentTimeMillis();
 
@@ -154,8 +132,10 @@ public class MetricsFileReader {
 			while ((b = in.read()) != -1) {
 				bytesRead++;
 				if (b == '\n') {
+					final long lineEndOffset = bytesRead;
 					String line = buffer.toString(StandardCharsets.UTF_8.name());
 					buffer.reset();
+					committedOffset = lineEndOffset;
 
 					// \r\n の \r を除去
 					if (!line.isEmpty() && line.charAt(line.length() - 1) == '\r') {
@@ -213,7 +193,7 @@ public class MetricsFileReader {
 					lineCount, bytesRead / 1_000_000,
 					(tEnd - tStart), eof);
 
-			return new MetricsFileBlock(startOffset, bytesRead, lines, fileLastModified, eof);
+			return new MetricsFileBlock(startOffset, committedOffset, lines, fileLastModified, eof);
 
 		} catch (IOException e) {
 			log.error("Error reading metrics file {}: {}", jsonlFile, e.getMessage());
