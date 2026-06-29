@@ -108,7 +108,10 @@ anet::rl::SingleState ImageClsEnv::FetchRandomImageState(anet::rl::RunMode mode)
     obs.Set(anet::rl::ObsKeys::kVector, example.target.clone());
 
     anet::rl::SingleState state {
-        .obs = std::move(obs)
+        .obs = std::move(obs),
+        .done = done_,
+        .truncated = truncated_,
+        .episode_start = episode_start_,
     };
     //ANET_LOG_DEBUG("state=" << state.ToString());
 
