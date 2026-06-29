@@ -607,8 +607,8 @@ std::pair<wxImage, anet::json> Conv2dVisualizer::Visualize(int64_t step, const a
 	layout_json["image_height"] = max_height;
 
 	// プレイヤー側でぼかされないように事前にスケーリング
-	if (config_.scale_factor > 1) {
-		image = image.Scale(total_width * config_.scale_factor, max_height * config_.scale_factor, wxIMAGE_QUALITY_NEAREST);
+	if (config_.scale_factor != 1.0f) {
+		image = image.Scale(static_cast<int>(total_width * config_.scale_factor), static_cast<int>(max_height * config_.scale_factor), wxIMAGE_QUALITY_NEAREST);
 	}
 	return { image, layout_json };
 }

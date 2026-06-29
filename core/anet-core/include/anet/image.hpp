@@ -190,7 +190,7 @@ namespace anet::rl {
         bool flip_vertical = true;      ///< 画像の上下を反転して描画するか
         std::string network_key = "policy-net.conv2d"; ///< 抽出対象のネットワーク
         std::string colormap = "jet";	///< gray / jet / hot
-        int scale_factor = 2;           ///< 画像引き伸ばしスケール。動画プレイヤー側で下手なスケーリングされても耐えるように…
+        float scale_factor = 2.0f;           ///< 画像引き伸ばしスケール。動画プレイヤー側で下手なスケーリングされても耐えるように…
         int min_block_size = 40;
     };
 
