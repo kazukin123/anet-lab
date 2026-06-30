@@ -587,6 +587,64 @@ TEST_CASE("GAP2D averages spatial dimensions", "[nn]")
     CHECK(torch::allclose(output, expected));
 }
 
+TEST_CASE("MaxPool2d pools spatial dimensions from config", "[nn][pool]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("pool.kernel_size", 2);
+    config_data.Set("pool.stride", 2);
+    config_data.Set("pool.padding", 0);
+
+    auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("MaxPool2d");
+    auto module = factory->CreateModule(config_data, anet::nn::ModuleContext{});
+
+    auto input = torch::arange(0, 16, torch::kFloat32).reshape({ 1, 1, 4, 4 });
+    auto output = module->Forward(input);
+    auto expected = torch::tensor({ 5.0f, 7.0f, 13.0f, 15.0f }).reshape({ 1, 1, 2, 2 });
+    CHECK(torch::equal(output, expected));
+
+    auto default_module = factory->CreateModule(anet::ConfigData{}, anet::nn::ModuleContext{});
+    anet::ConfigData current = default_module->GetCurrentConfigData();
+    CHECK(current.Get("kernel_size") == "3");
+    CHECK(current.Get("stride") == "2");
+    CHECK(current.Get("padding") == "1");
+    CHECK(current.Get("dilation") == "1");
+    CHECK(current.Get("ceil_mode") == "false");
+}
+
+TEST_CASE("NetworkBuilder builds MaxPool2d and GAP2D pipeline", "[nn][pool]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Pool].type", "MaxPool2d");
+    config_data.Set("net.block.[Pool].pool.kernel_size", 2);
+    config_data.Set("net.block.[Pool].pool.stride", 2);
+    config_data.Set("net.block.[Pool].pool.padding", 0);
+    config_data.Set("net.block.[GAP].type", "GAP2D");
+    config_data.Set("net.branch.[feature].bind", "obs");
+    config_data.Set("net.branch.[feature].structure", "Pool > GAP");
+    config_data.Set("net.body.output.[feature]", "feature");
+
+    anet::TensorSpec obs_spec;
+    obs_spec.type = anet::SpaceType::Grid;
+    obs_spec.shape = { 1, 4, 4 };
+    obs_spec.dtype = torch::kFloat32;
+
+    anet::TensorSpecMap input_specs;
+    input_specs["obs"] = obs_spec;
+
+    auto network_config = anet::nn::NetworkConfig(config_data);
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(network_config, input_specs, nullptr, torch::Device(torch::kCPU));
+
+    anet::TensorDict input;
+    input.Set("obs", torch::arange(0, 16, torch::kFloat32).reshape({ 1, 1, 4, 4 }));
+    auto output = network->Forward(input);
+    auto expected = torch::tensor({ 10.0f }).reshape({ 1, 1 });
+    CHECK(torch::equal(output.At("feature"), expected));
+}
+
 TEST_CASE("Network SoftCopyTo blends parameters and floating buffers", "[nn][soft-copy]")
 {
     auto source = MakeSoftCopyTestNetwork(/*base=*/10.0f, /*counter=*/42);

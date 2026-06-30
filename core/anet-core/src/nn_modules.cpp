@@ -1656,6 +1656,97 @@ public:
 };
 
 // ===========================================================================
+//  Max Pooling 2D Module
+// ===========================================================================
+
+class MaxPool2dModule : public NetworkModule {
+public:
+    MaxPool2dModule(int64_t kernel_size, int64_t stride, int64_t padding, int64_t dilation, bool ceil_mode)
+        : kernel_size_(kernel_size)
+        , stride_(stride)
+        , padding_(padding)
+        , dilation_(dilation)
+        , ceil_mode_(ceil_mode)
+        , pool_(torch::nn::MaxPool2dOptions(kernel_size)
+            .stride(stride)
+            .padding(padding)
+            .dilation(dilation)
+            .ceil_mode(ceil_mode))
+    {
+        register_module("maxpool2d", pool_);
+    }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        ANET_PROFILE_FUNC();
+        return pool_->forward(input);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("kernel_size", kernel_size_);
+        cd.Set("stride", stride_);
+        cd.Set("padding", padding_);
+        cd.Set("dilation", dilation_);
+        cd.Set("ceil_mode", ToConfigBool(ceil_mode_));
+        return cd;
+    }
+private:
+    int64_t kernel_size_;
+    int64_t stride_;
+    int64_t padding_;
+    int64_t dilation_;
+    bool ceil_mode_;
+    torch::nn::MaxPool2d pool_{ nullptr };
+};
+
+class MaxPool2dFactory final : public NetworkModuleFactory {
+private:
+    struct Config : anet::Config {
+        struct {
+            int kernel_size = 3;
+            int stride = 2;
+            int padding = 1;
+            int dilation = 1;
+            bool ceil_mode = false;
+        } pool;
+
+        Config(const anet::ConfigData& config_data) : anet::Config("")
+        {
+            ANET_READ_CONFIG(config_data, pool.kernel_size);
+            ANET_READ_CONFIG(config_data, pool.stride);
+            ANET_READ_CONFIG(config_data, pool.padding);
+            ANET_READ_CONFIG(config_data, pool.dilation);
+            ANET_READ_CONFIG(config_data, pool.ceil_mode);
+        }
+    };
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        Config config(config_data);
+        if (config.pool.kernel_size <= 0) {
+            ANET_SYSTEM_ERROR("MaxPool2dModule: pool.kernel_size must be positive. actual=" << config.pool.kernel_size);
+        }
+        if (config.pool.stride <= 0) {
+            ANET_SYSTEM_ERROR("MaxPool2dModule: pool.stride must be positive. actual=" << config.pool.stride);
+        }
+        if (config.pool.padding < 0) {
+            ANET_SYSTEM_ERROR("MaxPool2dModule: pool.padding must be non-negative. actual=" << config.pool.padding);
+        }
+        if (config.pool.dilation <= 0) {
+            ANET_SYSTEM_ERROR("MaxPool2dModule: pool.dilation must be positive. actual=" << config.pool.dilation);
+        }
+        return std::make_shared<MaxPool2dModule>(
+            config.pool.kernel_size,
+            config.pool.stride,
+            config.pool.padding,
+            config.pool.dilation,
+            config.pool.ceil_mode);
+    }
+};
+
+// ===========================================================================
 //  CLS Token Append Module
 // ===========================================================================
 
@@ -2015,6 +2106,7 @@ public:
     repo.Register("BatchNorm2d", std::make_shared<BatchNorm2dModuleFactory>());
     repo.Register("GAP1D", std::make_shared<GlobalAveragePooling1DFactory>());
     repo.Register("GAP2D", std::make_shared<GlobalAveragePooling2DFactory>());
+    repo.Register("MaxPool2d", std::make_shared<MaxPool2dFactory>());
 
     // データ加工系モジュール登録
     repo.Register("HybridSpatialEmbedder", std::make_shared<HybridSpatialEmbedderModuleFactory>());
