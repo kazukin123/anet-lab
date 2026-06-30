@@ -18,7 +18,11 @@ ImageClsEnv.$ = ImageClsEnv.baseline > E
 
 #net.branch.[main_feature].$ = net.branch.FoodResNet13      # 44%
 #net.branch.[main_feature].$ = net.branch.FoodResNet13_GAP  # 61% 1.3h
-net.branch.[main_feature].$ = net.branch.ResNet18ish       # 77% 2.5h ★
+#net.branch.[main_feature].$ = net.branch.ResNet18          # 71% 1.5h
+net.branch.[main_feature].$ = net.branch.ResNet18ish_hr     # 77% 2.5h
+#net.branch.[main_feature].$ = net.branch.ResNet18ish_mr    # 73% 1.5h
+#net.branch.[main_feature].$ = net.branch.ResNet18ish_MaxPool
+#net.branch.[main_feature].$ = net.branch.ResNet18ish_std
 #net.branch.[main_feature].$ = net.branch.Hybrid_CLS        # 60% 2.0h
 #net.branch.[main_feature].$ = net.branch.Hybrid_GAP        # 56%
 #net.branch.[main_feature].$ = net.branch.ViT_S16_CLS       # 37%
@@ -29,8 +33,8 @@ net.branch.[main_feature].$ = net.branch.ResNet18ish       # 77% 2.5h ★
 # 実験
 # ==============================================================================
 
-#app.run_name = run_{t}_imgcls_Hybrid
-#app.run_name = run_{t}_imgcls_Res18
+app.run_name = run_{t}_imgcls
+#app.run_name = run_{t}_imgcls_ResNet18ish_hr
 
 #E.augment.rrc_scale_min = 0.5        # RandomResizedCrop の面積比下限
 
@@ -43,20 +47,9 @@ net.branch.[main_feature].$ = net.branch.ResNet18ish       # 77% 2.5h ★
 
 
 # ==============================================================================
-# BF16
+# BF16 ★未対応
 # ==============================================================================
 
-BF16.agent.train_policy.use_amp = true
-BF16.agent.train_policy.use_amp_bf16 = true
-BF16.agent.eval_policy.use_amp = true
-BF16.agent.eval_policy.use_amp_bf16 = true
-BF16.agent.target_policy.use_amp = true
-BF16.agent.target_policy.use_amp_bf16 = true
-BF16.agent.learner.use_amp = true
-BF16.agent.learner.use_amp_bf16 = true
-#BF16.agent.reward_scaler.constant_scale = 0.1
-BF16.agent.learner.adam_eps = 1e-4   # AMP有効時は大きめにする
-#BF16.agent.learner.grad_clip_tau = 30.0
 
 
 # ==============================================================================
@@ -98,7 +91,6 @@ net.block.[LinearOut].type = Linear
 net.block.[LinearOut].linear.out_features = 101
 net.block.[LinearOut].init.mode = 2
 
-
 net.block.[Drop].type = Dropout
 net.block.[Drop].dropout_rate = 0.5
 #net.block.[Drop].dropout_rate = 0.2
@@ -137,6 +129,20 @@ net.block.[ConvInit64].conv.kernel_size = 3
 net.block.[ConvInit64].conv.stride = 2
 net.block.[ConvInit64].conv.padding = 1
 net.block.[ConvInit64].init.mode = 2
+
+net.block.[ConvInit64_7x7].type = Conv2d
+net.block.[ConvInit64_7x7].conv.out_channels = 64
+net.block.[ConvInit64_7x7].conv.kernel_size = 7
+net.block.[ConvInit64_7x7].conv.stride = 2
+net.block.[ConvInit64_7x7].conv.padding = 3
+net.block.[ConvInit64_7x7].init.mode = 2
+
+net.block.[MaxPool3x3s2].type = MaxPool2d
+net.block.[MaxPool3x3s2].pool.kernel_size = 3
+net.block.[MaxPool3x3s2].pool.stride = 2
+net.block.[MaxPool3x3s2].pool.padding = 1
+net.block.[MaxPool3x3s2].pool.dilation = 1
+net.block.[MaxPool3x3s2].pool.ceil_mode = false
 
 
 net.block.[ConvDown64].type = Conv2d
@@ -202,6 +208,105 @@ net.block.[ResBlock512].res.norm_type = batch
 net.block.[ResBlock512].res.droppath_rate = 0.15
 net.block.[ResBlock512].res.dropout_rate = 0
 
+net.block.[ResBlock128s2].type = ResBlock
+net.block.[ResBlock128s2].res.channels = 128
+net.block.[ResBlock128s2].res.kernel_size = 3
+net.block.[ResBlock128s2].res.stride = 2
+net.block.[ResBlock128s2].res.activation = silu
+net.block.[ResBlock128s2].res.norm_type = batch
+
+net.block.[ResBlock256s2].type = ResBlock
+net.block.[ResBlock256s2].res.channels = 256
+net.block.[ResBlock256s2].res.kernel_size = 3
+net.block.[ResBlock256s2].res.stride = 2
+net.block.[ResBlock256s2].res.activation = silu
+net.block.[ResBlock256s2].res.norm_type = batch
+net.block.[ResBlock256s2].res.droppath_rate = 0.1
+net.block.[ResBlock256s2].res.dropout_rate = 0
+
+net.block.[ResBlock512s2].type = ResBlock
+net.block.[ResBlock512s2].res.channels = 512
+net.block.[ResBlock512s2].res.kernel_size = 3
+net.block.[ResBlock512s2].res.stride = 2
+net.block.[ResBlock512s2].res.activation = silu
+net.block.[ResBlock512s2].res.norm_type = batch
+net.block.[ResBlock512s2].res.droppath_rate = 0.15
+net.block.[ResBlock512s2].res.dropout_rate = 0
+
+net.block.[ResNet18Block64].type = ResBlock
+net.block.[ResNet18Block64].res.channels = 64
+net.block.[ResNet18Block64].res.kernel_size = 3
+net.block.[ResNet18Block64].res.activation = relu
+net.block.[ResNet18Block64].res.norm_type = batch
+net.block.[ResNet18Block64].res.conv1_bias = false
+net.block.[ResNet18Block64].res.conv2_bias = false
+net.block.[ResNet18Block64].res.droppath_rate = 0
+net.block.[ResNet18Block64].res.dropout_rate = 0
+
+net.block.[ResNet18Block128].type = ResBlock
+net.block.[ResNet18Block128].res.channels = 128
+net.block.[ResNet18Block128].res.kernel_size = 3
+net.block.[ResNet18Block128].res.activation = relu
+net.block.[ResNet18Block128].res.norm_type = batch
+net.block.[ResNet18Block128].res.conv1_bias = false
+net.block.[ResNet18Block128].res.conv2_bias = false
+net.block.[ResNet18Block128].res.droppath_rate = 0
+net.block.[ResNet18Block128].res.dropout_rate = 0
+
+net.block.[ResNet18Block128s2].type = ResBlock
+net.block.[ResNet18Block128s2].res.channels = 128
+net.block.[ResNet18Block128s2].res.kernel_size = 3
+net.block.[ResNet18Block128s2].res.stride = 2
+net.block.[ResNet18Block128s2].res.activation = relu
+net.block.[ResNet18Block128s2].res.norm_type = batch
+net.block.[ResNet18Block128s2].res.conv1_bias = false
+net.block.[ResNet18Block128s2].res.conv2_bias = false
+net.block.[ResNet18Block128s2].res.droppath_rate = 0
+net.block.[ResNet18Block128s2].res.dropout_rate = 0
+
+net.block.[ResNet18Block256].type = ResBlock
+net.block.[ResNet18Block256].res.channels = 256
+net.block.[ResNet18Block256].res.kernel_size = 3
+net.block.[ResNet18Block256].res.activation = relu
+net.block.[ResNet18Block256].res.norm_type = batch
+net.block.[ResNet18Block256].res.conv1_bias = false
+net.block.[ResNet18Block256].res.conv2_bias = false
+net.block.[ResNet18Block256].res.droppath_rate = 0
+net.block.[ResNet18Block256].res.dropout_rate = 0
+
+net.block.[ResNet18Block256s2].type = ResBlock
+net.block.[ResNet18Block256s2].res.channels = 256
+net.block.[ResNet18Block256s2].res.kernel_size = 3
+net.block.[ResNet18Block256s2].res.stride = 2
+net.block.[ResNet18Block256s2].res.activation = relu
+net.block.[ResNet18Block256s2].res.norm_type = batch
+net.block.[ResNet18Block256s2].res.conv1_bias = false
+net.block.[ResNet18Block256s2].res.conv2_bias = false
+net.block.[ResNet18Block256s2].res.droppath_rate = 0
+net.block.[ResNet18Block256s2].res.dropout_rate = 0
+
+net.block.[ResNet18Block512].type = ResBlock
+net.block.[ResNet18Block512].res.channels = 512
+net.block.[ResNet18Block512].res.kernel_size = 3
+net.block.[ResNet18Block512].res.activation = relu
+net.block.[ResNet18Block512].res.norm_type = batch
+net.block.[ResNet18Block512].res.conv1_bias = false
+net.block.[ResNet18Block512].res.conv2_bias = false
+net.block.[ResNet18Block512].res.droppath_rate = 0
+net.block.[ResNet18Block512].res.dropout_rate = 0
+
+net.block.[ResNet18Block512s2].type = ResBlock
+net.block.[ResNet18Block512s2].res.channels = 512
+net.block.[ResNet18Block512s2].res.kernel_size = 3
+net.block.[ResNet18Block512s2].res.stride = 2
+net.block.[ResNet18Block512s2].res.activation = relu
+net.block.[ResNet18Block512s2].res.norm_type = batch
+net.block.[ResNet18Block512s2].res.conv1_bias = false
+net.block.[ResNet18Block512s2].res.conv2_bias = false
+net.block.[ResNet18Block512s2].res.droppath_rate = 0
+net.block.[ResNet18Block512s2].res.dropout_rate = 0
+
+
 
 net.block.[PatchEmbed16].type = Conv2d
 net.block.[PatchEmbed16].conv.out_channels = 192
@@ -240,9 +345,21 @@ net.branch.FoodResNet13.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > Conv
 net.branch.FoodResNet13_GAP.bind = grid
 net.branch.FoodResNet13_GAP.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > GAP2D > Drop > LinearOut
 
-net.branch.ResNet18ish.bind = grid
-#net.branch.ResNet18ish.structure = ConvInit64 > BN64 > SiLU > ResBlock64(*2) > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > ConvDown512 > BN512 > SiLU > ResBlock512(*2) > GAP2D > LinearOut
-net.branch.ResNet18ish.structure = ConvInit64 > BN64 > SiLU > ResBlock64(*2) > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > ConvDown512 > BN512 > SiLU > ResBlock512(*2) > GAP2D > DropHead > LinearOut
+net.branch.ResNet18.bind = grid
+net.branch.ResNet18.structure = ConvInit64_7x7 > BN64 > ReLU > MaxPool3x3s2 > ResNet18Block64(*2) > ResNet18Block128s2 > ResNet18Block128 > ResNet18Block256s2 > ResNet18Block256 > ResNet18Block512s2 > ResNet18Block512 > GAP2D > LinearOut
+
+net.branch.ResNet18ish_MaxPool.bind = grid
+net.branch.ResNet18ish_MaxPool.structure = ConvInit64_7x7 > BN64 > SiLU > MaxPool3x3s2 > ResBlock64(*2) > ResBlock128s2 > ResBlock128 > ResBlock256s2 > ResBlock256 > ResBlock512s2 > ResBlock512 > GAP2D > DropHead > LinearOut
+
+net.branch.ResNet18ish_std.bind = grid
+net.branch.ResNet18ish_std.structure   = ConvInit64 > BN64 > SiLU > ConvDown64 > BN64 > SiLU > ResBlock64(*2) > ResBlock128s2 > ResBlock128 > ResBlock256s2 > ResBlock256 > ResBlock512s2 > ResBlock512 > GAP2D > DropHead > LinearOut
+
+net.branch.ResNet18ish_hr.bind = grid
+#net.branch.ResNet18ish_hr.structure = ConvInit64 > BN64 > SiLU > ResBlock64(*2) > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > ConvDown512 > BN512 > SiLU > ResBlock512(*2) > GAP2D > LinearOut
+net.branch.ResNet18ish_hr.structure = ConvInit64 > BN64 > SiLU > ResBlock64(*2) > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > ConvDown512 > BN512 > SiLU > ResBlock512(*2) > GAP2D > DropHead > LinearOut
+
+net.branch.ResNet18ish_mr.bind = grid
+net.branch.ResNet18ish_mr.structure = ConvInit32 > BN32 > SiLU > ResBlock32(*2) > ConvDown64  > BN64  > SiLU > ResBlock64(*2)  > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > GAP2D > DropHead > LinearOut
 
 net.branch.Hybrid_CLS.bind = grid
 net.branch.Hybrid_CLS.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > PosEmbed2D > ClsAppend > TransEnc_H256 > ClsExtract > LinearOut
@@ -301,17 +418,22 @@ metrics.scalar.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:10
 
 #metrics.image.interval = 0   # 出力全無効
 #metrics.image.interval = 1   # 毎ステップ出力（重い）
-#metrics.image.interval = 50   # 通常運用
+metrics.image.interval = 50   # 通常運用
 #metrics.image.interval = 500 # 重い場合
 
-#metrics.image.[60_agent_img/11_conv2d_32p_jet].type = Conv2d
-#metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 10
-##metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 20
-##metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 0
-#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.channels_per_row = 34
-#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.network_key = policy-net.conv2d
-#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.colormap = jet
-#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.min_block_size = 40
+metrics.image.[60_agent_img/11_conv2d_32p_jet].type = Conv2d
+#metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 20
+metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 0
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.channels_per_row = 64
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.margin_x = 3
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.margin_y = 3
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.layer_margin_y = 10
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.network_key = policy-net.conv2d
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.colormap = jet
+#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.min_block_size = 56
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.min_block_size = 112
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.scale_factor = 0.50
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.flip_vertical = false
 
 
 # ==============================================================================
@@ -326,6 +448,8 @@ app.online.eval_panel.fps = 3
 
 agent.class_id = ImageClsAgent
 env.class_id = ImageClsEnv
+
+app.metrics_logger.video_codec = libx264
 
 Conv2dPanel.conv2d.channels_per_row = 16
 Conv2dPanel.conv2d.network_key = policy-net.conv2d
