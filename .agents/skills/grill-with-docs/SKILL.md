@@ -11,6 +11,12 @@ Ask the questions one at a time, waiting for feedback on each question before co
 
 If a question can be answered by exploring the codebase, explore the codebase instead.
 
+At the end of the grilling session, do not automatically request plan approval or start implementation.
+
+If the current collaboration mode is Plan Mode, ask one final YES/NO question asking whether to request approval for the agreed plan. Only if the user selects or answers YES, present the plan for approval in a `<proposed_plan>` block. If the user selects or answers NO, gives an ambiguous answer, or does not answer, do not request plan approval.
+
+If the current collaboration mode is not Plan Mode, ask one final YES/NO question asking whether to execute the agreed plan. Only if the user selects or answers YES, start implementation. If the user selects or answers NO, gives an ambiguous answer, or does not answer, do not edit files or run implementation commands.
+
 </what-to-do>
 
 <supporting-info>
