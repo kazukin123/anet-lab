@@ -1,4 +1,4 @@
-#include "anet/metrics_logger.hpp"
+﻿#include "anet/metrics_logger.hpp"
 #include <stdexcept>
 #include <algorithm>
 #include <iostream>
@@ -64,8 +64,8 @@ void JsonlBackend::Flush()
 VideoLogger::VideoLogger(const std::string& path, int width, int height, const std::string& codec, int fps)
     : width_(width), height_(height), path_(path), codec_(codec), fps_(fps)
 {
-    ANET_CHECK_MSG(width <= 8192, "invalid Image size.");
-    ANET_CHECK_MSG(height <= 4320, "invalid Image size.");
+    ANET_CHECK_MSG(width <= 8192, "invalid Image size. width=" << width);
+    ANET_CHECK_MSG(height <= 4320, "invalid Image size  height=" << height);
 
     wxFileName fn(wxString::FromUTF8(path_));
     wxFileName::Mkdir(fn.GetPath(), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
@@ -88,9 +88,10 @@ VideoLogger::VideoLogger(const std::string& path, int width, int height, const s
 
     // コマンドライン
     wxString cmd = wxString::Format(
-        "ffmpeg -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -threads 2 "
+        "ffmpeg -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -threads 2"
         //"-report "
-        "-thread_queue_size 512 -i - -f matroska %s \"%s\"",
+        " -hide_banner -loglevel error -nostats"
+        " -thread_queue_size 512 -i - -f matroska %s \"%s\"",
         width_, height_, fps_, output_options, wxString::FromUTF8(path_)
     );
     //ANET_LOG_DEBUG("cmd=" << cmd.c_str());
@@ -108,7 +109,7 @@ VideoLogger::VideoLogger(const std::string& path, int width, int height, const s
     } else {
         long pid = wxExecute(cmd, wxEXEC_ASYNC | wxEXEC_HIDE_CONSOLE, process_);
         if (pid == 0)
-            throw std::runtime_error("Failed to launch ffmpeg process");
+            ANET_SYSTEM_ERROR("Failed to launch ffmpeg process");
         ANET_LOG_DEBUG("ffmpeg started from main thread. pid=" << pid);
         LOG::info() << "ffmpeg started from main thread. pid=" << pid;
     }
@@ -116,7 +117,9 @@ VideoLogger::VideoLogger(const std::string& path, int width, int height, const s
     // 書き込みストリーム取得
     stream_ = process_->GetOutputStream();
     if (!stream_)
-        throw std::runtime_error("Failed to get ffmpeg stdin stream");
+        ANET_SYSTEM_ERROR("Failed to get ffmpeg stdin stream. nullptr");
+    if (!stream_->IsOk())
+        ANET_SYSTEM_ERROR("Failed to get ffmpeg stdin stream. Is not OK.");
 }
 
 void VideoLogger::WriteFrame(const wxImage& img)
@@ -478,6 +481,9 @@ void MetricsLogger::Init(std::unique_ptr<IBackend> backend, const MetricsLoggerC
 
 void MetricsLogger::Reset() {
     std::lock_guard<std::mutex> lock(instance_mutex_);
+//    if (instance_) {
+//        instance_->Flush();
+//	}
     instance_.reset();
 }
 
