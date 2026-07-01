@@ -835,35 +835,6 @@ void SweepedHeatMap::Reset() {
 	value_min_ = 0.0f; value_max_ = 1.0f;
 }
 
-SweepedHeatMap SweepedHeatMap::EvaluateTensorFunction(
-	int width, int height, float x_min, float x_max, float y_min, float y_max,
-	const torch::Device& device,
-	const std::function<torch::Tensor(const torch::Tensor&)>& forward,
-	const std::function<torch::Tensor(const torch::Tensor&)>& value_extractor) {
-
-	SweepedHeatMap map(width, height, x_min, x_max, y_min, y_max);
-	torch::NoGradGuard ng;
-	auto xs = torch::linspace(x_min, x_max, width, device);
-	auto ys = torch::linspace(y_min, y_max, height, device);
-
-	map.value_min_ = std::numeric_limits<float>::max();
-	map.value_max_ = -std::numeric_limits<float>::max();
-
-	for (int j = 0; j < height; ++j) {
-		float yv = ys[j].item<float>();
-		auto grid = torch::stack({ xs, torch::full_like(xs, yv) }, 1); // (W,2)
-		auto out = forward(grid);                                     // 任意形状
-		auto val = value_extractor(out).to(torch::kCPU).contiguous(); // (W,)
-		for (int i = 0; i < width; ++i) {
-			float v = val[i].item<float>();
-			map.values_[j * width + i] = v;
-			map.value_min_ = std::min(map.value_min_, v);
-			map.value_max_ = std::max(map.value_max_, v);
-		}
-	}
-	return map;
-}
-
 void SweepedHeatMap::SetValues(const torch::Tensor& values) {
 	// grid shape = (H, W)
 	ANET_ASSERT(values.dim() == 2);

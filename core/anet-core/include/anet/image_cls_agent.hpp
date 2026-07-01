@@ -136,8 +136,7 @@ namespace anet::rl::img_cls {
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
 
-        std::optional<TensorFunction> GetTensorFunction(const std::string& key) override { return std::nullopt; }
-        std::optional<TensorDictFunction> GetTensorDictFunction(const std::string& key) { return std::nullopt; }
+        std::optional<TensorDictFunction> GetTensorDictFunction(const std::string& key) override { return std::nullopt; }
     private:
         const ImageClsAgentConfig config_;
         std::shared_ptr<std::shared_mutex> mutex_;

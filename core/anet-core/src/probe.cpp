@@ -2,6 +2,7 @@
 
 #include "anet/probe.hpp"
 #include <sstream>
+#include <utility>
 #include "anet/log.hpp"
 #include "anet/profile.hpp"
 #include "anet/str_util.hpp"
@@ -584,46 +585,91 @@ std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const Update
 // StateSweepProcessor
 // ============================================================
 
+static const anet::TensorSpec& RequireSweepObservationSpec(
+    const anet::rl::StateSpec& state_spec, const std::string& obs_key)
+{
+    const auto it = state_spec.obs_spec.find(obs_key);
+    if (it == state_spec.obs_spec.end()) {
+        ANET_SYSTEM_ERROR("StateSweepProcessor: unknown sweep obs_key. obs_key=" << obs_key);
+    }
+
+    const auto& spec = it->second;
+    if (spec.type != anet::SpaceType::Vector) {
+        ANET_SYSTEM_ERROR("StateSweepProcessor: sweep obs_key must be SpaceType::Vector. obs_key=" << obs_key);
+    }
+
+    const auto flat_dim = spec.CalcFlattenDim();
+    if (flat_dim < 1) {
+        ANET_SYSTEM_ERROR("StateSweepProcessor: sweep obs_key has empty flatten dimension. obs_key=" << obs_key);
+    }
+
+    return spec;
+}
+
+static void ValidateSweepIndex(const std::string& axis, const std::string& obs_key, int index, int64_t flat_dim)
+{
+    if (index < 0 || static_cast<int64_t>(index) >= flat_dim) {
+        ANET_SYSTEM_ERROR(
+            "StateSweepProcessor: sweep index out of range. axis=" << axis
+            << " obs_key=" << obs_key
+            << " index=" << index
+            << " expected=[0," << (flat_dim - 1) << "]");
+    }
+}
+
+static std::vector<int64_t> MakeBatchedShape(int64_t batch_size, const anet::TensorSpec& spec)
+{
+    std::vector<int64_t> shape;
+    shape.reserve(spec.shape.size() + 1);
+    shape.push_back(batch_size);
+    shape.insert(shape.end(), spec.shape.begin(), spec.shape.end());
+    return shape;
+}
+
 StateSweepProcessor::StateSweepProcessor(
     const anet::rl::StateSpec& state_spec,
     int x_index,
     int y_index,
     ValueExtractFunction value_extract_fn,
+    std::string obs_key,
     const torch::Device& device,
     std::optional<torch::Tensor> base_state,
     std::optional<float> x_min_override, std::optional<float> x_max_override,
     std::optional<float> y_min_override, std::optional<float> y_max_override)
     : state_spec_(state_spec)
     , device_(device)
+    , obs_key_(std::move(obs_key))
     , x_index_(x_index)
     , y_index_(y_index)
     , value_extract_fn_(value_extract_fn)
 {
-    /// @todo v2暫定: Vector次元をベースとする
-    int64_t flat_size = 1;
-    if (state_spec_.obs_spec.count(anet::rl::ObsKeys::kVector) > 0) {
-        flat_size = state_spec_.obs_spec.at(anet::rl::ObsKeys::kVector).CalcFlattenDim();
-    }
+    const auto& sweep_spec = RequireSweepObservationSpec(state_spec_, obs_key_);
+    const int64_t flat_size = sweep_spec.CalcFlattenDim();
+    ValidateSweepIndex("x", obs_key_, x_index_, flat_size);
+    ValidateSweepIndex("y", obs_key_, y_index_, flat_size);
 
     if (base_state.has_value()) {
-        base_flatten_ = base_state.value().clone();
+        auto base = base_state.value().flatten();
+        if (base.numel() != flat_size) {
+            ANET_SYSTEM_ERROR(
+                "StateSweepProcessor: base_state flatten size mismatch. obs_key=" << obs_key_
+                << " actual=" << base.numel()
+                << " expected=" << flat_size);
+        }
+        base_flatten_ = base.to(torch::kFloat32).clone();
     } else {
         base_flatten_ = torch::zeros({ flat_size }, torch::kFloat32);
     }
 
-    /// @todo v2暫定:min/max：StateSpec から
     float xs_min = -1.0f;
     float xs_max = 1.0f;
     float ys_min = -1.0f;
     float ys_max = 1.0f;
 
-    if (state_spec_.obs_spec.count(anet::rl::ObsKeys::kVector) > 0) {
-        const auto& tspec = state_spec_.obs_spec.at(anet::rl::ObsKeys::kVector);
-        xs_min = tspec.GetMin(x_index_).value_or(-1.0f);
-        xs_max = tspec.GetMax(x_index_).value_or(1.0f);
-        ys_min = tspec.GetMin(y_index_).value_or(-1.0f);
-        ys_max = tspec.GetMax(y_index_).value_or(1.0f);
-    }
+    xs_min = sweep_spec.GetMin(x_index_).value_or(-1.0f);
+    xs_max = sweep_spec.GetMax(x_index_).value_or(1.0f);
+    ys_min = sweep_spec.GetMin(y_index_).value_or(-1.0f);
+    ys_max = sweep_spec.GetMax(y_index_).value_or(1.0f);
 
     x_min_overridden_ = x_min_override.has_value();
     x_max_overridden_ = x_max_override.has_value();
@@ -651,7 +697,7 @@ std::pair<int, int> StateSweepProcessor::GetGridSize() const
     return { grid_w_, grid_h_ };
 }
 
-torch::Tensor StateSweepProcessor::BuildInputTensor()
+anet::TensorDict StateSweepProcessor::BuildInputTensor()
 {
     ANET_ASSERT(grid_w_ > 0);
     ANET_ASSERT(grid_h_ > 0);
@@ -697,7 +743,21 @@ torch::Tensor StateSweepProcessor::BuildInputTensor()
     // Shape 検証
     ANET_ASSERT_SHAPE(batch, { grid_num, flat_size });
 
-    return batch;  // [W*H, flat_size] on device_
+    anet::TensorDict out;
+    for (const auto& kv : state_spec_.obs_spec) {
+        const auto& key = kv.first;
+        const auto& spec = kv.second;
+        const auto shape = MakeBatchedShape(grid_num, spec);
+
+        if (key == obs_key_) {
+            // sweep対象 key だけ格子値を流し、それ以外は固定値として zeros にする。
+            out.Set(key, batch.reshape(shape));
+        } else {
+            out.Set(key, torch::zeros(shape, torch::TensorOptions().dtype(spec.dtype).device(device_)));
+        }
+    }
+
+    return out;
 }
 
 int64_t StateSweepProcessor::GetFlattenSize() const

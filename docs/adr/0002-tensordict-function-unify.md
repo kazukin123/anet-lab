@@ -5,7 +5,7 @@ V2 で Observation を multi-key `TensorDict` 化したのに伴い、可視化�
 ## Considered Options
 
 - **GetTensorFunction を adapter 実装**: `Tensor → {"vector": t} → TensorDictFunction` に委譲する薄い層で延命。sweep 経路は無改修で最小だが、Tensor 専用 API が残り multi-key を運べず、将来結局統一が必要になる（拡張の door が閉じる）。
-- **TensorDictFunction に一本化（採用）**: sweep が `TensorDict{"vector": 格子}`（将来 grid 等を足せる拡張点）を組み立てて呼ぶ。触るファイルは多いが機械的で、API が一本化され multi-key sweep の自然な拡張口になる。
+- **TensorDictFunction に一本化（採用）**: sweep が選択された vector-type 観測キーの格子と、その他観測キーの固定値を含む `TensorDict` を組み立てて呼ぶ。触るファイルは多いが機械的で、API が一本化され multi-key sweep の自然な拡張口になる。
 
 ## Consequences
 

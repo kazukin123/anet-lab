@@ -242,7 +242,6 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::rl::Actor> CreateActor(const BatchEnvSpec& batch_env_spec, RunMode mode, bool clone_model, std::optional<torch::Device> device = std::nullopt) const override;
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
     public:
-        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override;
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;

@@ -333,7 +333,7 @@ SweepedHeatMapObserver::SweepedHeatMapObserver(
     const std::string& tag,
     const SweepedHeatMapObserverConfig& config,
     std::shared_ptr<ISweepInputGenerator> input_gen,
-    TensorFunction tensor_fn,
+    TensorDictFunction tensor_fn,
     std::shared_ptr<ISweepOutputExtractor> output_ext,
     const std::unordered_map<std::string, std::string>& scalar_tag_label_map
     )
@@ -429,15 +429,21 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
 
     // 入力バッチ生成（GPU 上）
     ANET_PROFILE_SCOPE(build);
-    torch::Tensor batch_in = input_gen_->BuildInputTensor();
-    ANET_ASSERT_SHAPE(batch_in, { grid_num, ANET_SHAPE_ENDANY });
-    ANET_LOG_DEBUG("batch_in=" << anet::ToDefString(batch_in));
+    anet::TensorDict batch_in = input_gen_->BuildInputTensor();
+    ANET_LOG_DEBUG("batch_in=" << batch_in.ToDefString());
 
     // NN 適用（GPU 上）
     ANET_PROFILE_SCOPE_NEXT(nn);
-    torch::Tensor batch_out = tensor_fn_(batch_in);
+    anet::TensorDict batch_out_dict = tensor_fn_(batch_in);
+    const auto batch_out_opt = batch_out_dict.Get(config_.output_key);
+    if (!batch_out_opt.has_value()) {
+        ANET_SYSTEM_ERROR(
+            "SweepedHeatMapObserver: output_key not found. tag=" << tag_
+            << " output_key=" << config_.output_key);
+    }
+    torch::Tensor batch_out = *batch_out_opt;
     ANET_ASSERT_SHAPE(batch_out, { grid_num, ANET_SHAPE_ENDANY });
-    ANET_LOG_DEBUG("batch_out=" << anet::ToDefString(batch_out));
+    ANET_LOG_DEBUG("batch_out[" << config_.output_key << "]=" << anet::ToDefString(batch_out));
 
     // リクエストするLabelをscalar_tag_label_map_からsetに詰める
     std::unordered_set<std::string> req_label_set(scalar_label_tag_map_.size());

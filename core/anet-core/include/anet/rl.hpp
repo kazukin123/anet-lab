@@ -674,10 +674,11 @@ namespace anet::rl {
     // Agent
     // =============================================================
 
-    class Agent : public Module, public TensorFunctionProvider, public TensorDictFunctionProvider , public Serializable {
+    class Agent : public Module, public TensorDictFunctionProvider , public Serializable {
     public:
         virtual std::shared_ptr<Actor> CreateActor(const BatchEnvSpec& batch_env_spec, RunMode run_mode, bool clone_model, std::optional<torch::Device> device = std::nullopt) const = 0;
         virtual std::shared_ptr<Learner> CreateLearner() = 0;
+        virtual torch::Device GetDevice() const = 0;
     public:
         virtual int64_t Save(anet::OutputArchive& archive) const override { return 0;  }
         virtual int64_t Load(anet::InputArchive& archive) override { return 0; }

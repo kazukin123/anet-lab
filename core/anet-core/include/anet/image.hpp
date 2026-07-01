@@ -155,9 +155,11 @@ namespace anet::rl {
     struct SweepObservationHeatMapConfig {
         int width = 256;
         int height = 256;
+        std::string obs_key = anet::rl::ObsKeys::kVector;
         int x_index = 0;
         int y_index = 1;
-        std::string network_key = "policy-net.forward.q";
+        std::string network_key = "policy-net.forward";
+        std::string output_key = "q";
         std::string extractor_name = "mean";
         int extractor_index = -1;
     };
@@ -239,9 +241,11 @@ namespace anet::rl {
             } else if (type == kImageType_StateSweepedHeatMap) {
                 ANET_READ_CONFIG(config_data, sweep_obs.width);
                 ANET_READ_CONFIG(config_data, sweep_obs.height);
+                ANET_READ_CONFIG(config_data, sweep_obs.obs_key);
                 ANET_READ_CONFIG(config_data, sweep_obs.x_index);
                 ANET_READ_CONFIG(config_data, sweep_obs.y_index);
                 ANET_READ_CONFIG(config_data, sweep_obs.network_key);
+                ANET_READ_CONFIG(config_data, sweep_obs.output_key);
                 ANET_READ_CONFIG(config_data, sweep_obs.extractor_name);
                 ANET_READ_CONFIG(config_data, sweep_obs.extractor_index);
             } else if (type == kImageType_TimeHistgram) {

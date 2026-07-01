@@ -1,8 +1,11 @@
 #include "catch.hpp"
 
+#include "anet/metrics_logger.hpp"
+#include "anet/observers.hpp"
 #include "anet/probe.hpp"
 
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -11,6 +14,74 @@ namespace rl = anet::rl;
 
 constexpr const char* kVectorKey = rl::ObsKeys::kVector;
 constexpr const char* kGridKey = rl::ObsKeys::kGrid;
+
+class NoopMetricsBackend final : public anet::IBackend {
+public:
+    void Open(const std::filesystem::path&, const std::string&) override {}
+    void WriteJsonl(const anet::json&) override {}
+    void Flush() override {}
+};
+
+class FixedSweepInputGenerator final : public rl::ISweepInputGenerator {
+public:
+    void ApplyGridSize(int width, int height) override
+    {
+        grid_w_ = width;
+        grid_h_ = height;
+    }
+
+    std::pair<int, int> GetGridSize() const override
+    {
+        return { grid_w_, grid_h_ };
+    }
+
+    anet::TensorDict BuildInputTensor() override
+    {
+        anet::TensorDict input;
+        input.Set(kVectorKey, torch::zeros({ grid_w_ * grid_h_, 2 }, torch::kFloat32));
+        return input;
+    }
+
+    int64_t GetFlattenSize() const override
+    {
+        return 2;
+    }
+
+private:
+    int grid_w_ = 2;
+    int grid_h_ = 2;
+};
+
+class RecordingSweepOutputExtractor final : public rl::ISweepOutputExtractor {
+public:
+    void ApplyGridSize(int width, int height) override
+    {
+        grid_w_ = width;
+        grid_h_ = height;
+    }
+
+    std::pair<int, int> GetGridSize() const override
+    {
+        return { grid_w_, grid_h_ };
+    }
+
+    rl::ExtractResult Extract(
+        const torch::Tensor& output,
+        const std::unordered_set<std::string>&) override
+    {
+        last_output = output.detach().cpu().clone();
+
+        rl::ExtractResult result;
+        result.grid = output.reshape({ -1 }).to(torch::kFloat32);
+        return result;
+    }
+
+    torch::Tensor last_output;
+
+private:
+    int grid_w_ = 2;
+    int grid_h_ = 2;
+};
 
 torch::Tensor FloatTensor(const std::vector<float>& values, const std::vector<int64_t>& shape)
 {
@@ -87,6 +158,41 @@ rl::StateSpec MakeLunarLikeStateSpec()
     rl::StateSpec state_spec;
     state_spec.obs_spec[kVectorKey] = vector_spec;
     return state_spec;
+}
+
+rl::StateSpec MakeMultiKeyStateSpec()
+{
+    anet::TensorSpec vector_spec;
+    vector_spec.type = anet::SpaceType::Vector;
+    vector_spec.shape = { 3 };
+    vector_spec.dtype = torch::kFloat32;
+    vector_spec.min_values = { -1.0 };
+    vector_spec.max_values = { 1.0 };
+
+    anet::TensorSpec aux_vector_spec;
+    aux_vector_spec.type = anet::SpaceType::Vector;
+    aux_vector_spec.shape = { 2 };
+    aux_vector_spec.dtype = torch::kFloat32;
+    aux_vector_spec.min_values = { -10.0, -20.0 };
+    aux_vector_spec.max_values = { 10.0, 20.0 };
+
+    anet::TensorSpec grid_spec;
+    grid_spec.type = anet::SpaceType::Grid;
+    grid_spec.shape = { 1, 2, 2 };
+    grid_spec.dtype = torch::kFloat32;
+
+    rl::StateSpec state_spec;
+    state_spec.obs_spec[kVectorKey] = vector_spec;
+    state_spec.obs_spec["aux_vector"] = aux_vector_spec;
+    state_spec.obs_spec[kGridKey] = grid_spec;
+    return state_spec;
+}
+
+rl::ValueExtractFunction MakeSweepExtractor()
+{
+    return [](const torch::Tensor& t, const std::unordered_set<std::string>& req) {
+        return rl::extractor::MeanIdxExtractor(t, req, -1);
+    };
 }
 
 } // namespace
@@ -177,4 +283,150 @@ TEST_CASE("AgentTensorVectorProbe resolves ReplayBuffer observation subkey specs
     REQUIRE(unified_x_probe.GetMax().has_value());
     REQUIRE(*unified_x_probe.GetMin() == Catch::Approx(-1.5f));
     REQUIRE(*unified_x_probe.GetMax() == Catch::Approx(1.5f));
+}
+
+TEST_CASE("StateSweepProcessor sweeps selected vector observation and zero-fills other keys", "[probe][sweep]")
+{
+    auto state_spec = MakeMultiKeyStateSpec();
+    rl::StateSweepProcessor processor(
+        state_spec,
+        0,
+        1,
+        MakeSweepExtractor(),
+        "aux_vector",
+        torch::kCPU);
+    processor.ApplyGridSize(2, 2);
+
+    auto input = processor.BuildInputTensor();
+    auto aux = input.At("aux_vector");
+    REQUIRE(aux.sizes().vec() == std::vector<int64_t>{ 4, 2 });
+    RequireFlatApprox(aux, {
+        -10.0f, -20.0f,
+        10.0f, -20.0f,
+        -10.0f, 20.0f,
+        10.0f, 20.0f,
+    });
+
+    auto vector = input.At(kVectorKey);
+    REQUIRE(vector.sizes().vec() == std::vector<int64_t>{ 4, 3 });
+    RequireFlatApprox(vector, std::vector<float>(12, 0.0f));
+
+    auto grid = input.At(kGridKey);
+    REQUIRE(grid.sizes().vec() == std::vector<int64_t>{ 4, 1, 2, 2 });
+    RequireFlatApprox(grid, std::vector<float>(16, 0.0f));
+}
+
+TEST_CASE("StateSweepProcessor allows same X/Y index and keeps Y overwrite order", "[probe][sweep]")
+{
+    auto state_spec = MakeMultiKeyStateSpec();
+    rl::StateSweepProcessor processor(
+        state_spec,
+        0,
+        0,
+        MakeSweepExtractor(),
+        "aux_vector",
+        torch::kCPU);
+    processor.ApplyGridSize(2, 2);
+
+    auto aux = processor.BuildInputTensor().At("aux_vector");
+    REQUIRE(aux.sizes().vec() == std::vector<int64_t>{ 4, 2 });
+    RequireFlatApprox(aux, {
+        -10.0f, 0.0f,
+        -10.0f, 0.0f,
+        10.0f, 0.0f,
+        10.0f, 0.0f,
+    });
+}
+
+TEST_CASE("StateSweepProcessor rejects invalid sweep observation settings", "[probe][sweep]")
+{
+    auto state_spec = MakeMultiKeyStateSpec();
+
+    CHECK_THROWS(([&] {
+        rl::StateSweepProcessor processor(
+            state_spec,
+            0,
+            1,
+            MakeSweepExtractor(),
+            "missing",
+            torch::kCPU);
+    }()));
+
+    CHECK_THROWS(([&] {
+        rl::StateSweepProcessor processor(
+            state_spec,
+            0,
+            1,
+            MakeSweepExtractor(),
+            kGridKey,
+            torch::kCPU);
+    }()));
+
+    CHECK_THROWS(([&] {
+        rl::StateSweepProcessor processor(
+            state_spec,
+            2,
+            0,
+            MakeSweepExtractor(),
+            "aux_vector",
+            torch::kCPU);
+    }()));
+}
+
+TEST_CASE("SweepedHeatMapObserver passes configured output_key tensor to extractor", "[probe][sweep]")
+{
+    anet::MetricsLogger::Reset();
+    anet::MetricsLoggerConfig logger_config;
+    logger_config.run_name_tmpl = "sweep_output_key_test";
+    anet::MetricsLogger::Init(std::make_unique<NoopMetricsBackend>(), logger_config, "out/test-tmp");
+
+    rl::SweepedHeatMapObserverConfig config;
+    config.log_interval = 1;
+    config.grid_width = 2;
+    config.grid_height = 2;
+    config.output_key = "score";
+
+    auto input_gen = std::make_shared<FixedSweepInputGenerator>();
+    auto output_ext = std::make_shared<RecordingSweepOutputExtractor>();
+    anet::TensorDictFunction tensor_fn = [](const anet::TensorDict&) {
+        anet::TensorDict output;
+        output.Set("q", torch::zeros({ 4, 1 }, torch::kFloat32));
+        output.Set("score", FloatTensor({ 1.0f, 2.0f, 3.0f, 4.0f }, { 4, 1 }));
+        return output;
+    };
+
+    rl::SweepedHeatMapObserver observer("test.sweep", config, input_gen, tensor_fn, output_ext);
+    rl::BatchExperience experience;
+    rl::StepCounts counts;
+    counts.learn_step = 1;
+    rl::LearnEvent event{ experience, nullptr, counts, nullptr, rl::BatchUpdateResultList{} };
+    observer.OnLearn(event);
+
+    RequireFlatApprox(output_ext->last_output, { 1.0f, 2.0f, 3.0f, 4.0f });
+    anet::MetricsLogger::Reset();
+}
+
+TEST_CASE("SweepedHeatMapObserver rejects missing output_key", "[probe][sweep]")
+{
+    rl::SweepedHeatMapObserverConfig config;
+    config.log_interval = 1;
+    config.grid_width = 2;
+    config.grid_height = 2;
+    config.output_key = "missing";
+
+    auto input_gen = std::make_shared<FixedSweepInputGenerator>();
+    auto output_ext = std::make_shared<RecordingSweepOutputExtractor>();
+    anet::TensorDictFunction tensor_fn = [](const anet::TensorDict&) {
+        anet::TensorDict output;
+        output.Set("q", torch::zeros({ 4, 1 }, torch::kFloat32));
+        return output;
+    };
+
+    rl::SweepedHeatMapObserver observer("test.sweep", config, input_gen, tensor_fn, output_ext);
+    rl::BatchExperience experience;
+    rl::StepCounts counts;
+    counts.learn_step = 1;
+    rl::LearnEvent event{ experience, nullptr, counts, nullptr, rl::BatchUpdateResultList{} };
+
+    CHECK_THROWS(observer.OnLearn(event));
 }

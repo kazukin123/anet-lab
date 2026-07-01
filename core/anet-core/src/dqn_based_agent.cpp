@@ -179,39 +179,24 @@ void NetworkModel::HardUpdate()
     online_net_->CopyTo(*target_net_);
 }
 
-std::optional<anet::TensorFunction> NetworkModel::GetTensorFunction(const std::string& key, const torch::Device& device)
-{
-    static constexpr const char* POLICY_PREFIX = "policy-net.";
-    static constexpr const char* TARGET_PREFIX = "target-net.";
-    
-    /// @todo V2暫定：NetworkModel::GetTensorFunction()が未対応
-
-    // policy net
-    //if (anet::StartsWith(key, POLICY_PREFIX)) {
-    //    auto subkey = anet::RemovePrefix(key, POLICY_PREFIX);
-    //    auto fn = online_net_->GetTensorFunction(subkey);
-    //    return fn;
-    //}
-
-    // target net
-    //if (anet::StartsWith(key, TARGET_PREFIX)) {
-    //    auto subkey = anet::RemovePrefix(key, TARGET_PREFIX);
-    //    auto fn = target_net_->GetTensorFunction(subkey);
-    //    return fn;
-    //}
-
-    return std::nullopt;
-}
-
 std::optional<anet::TensorDictFunction> NetworkModel::GetTensorDictFunction(const std::string& key, const torch::Device& device)
 {
+    // 入力 TensorDict の device 正規化は Agent wrapper の責務。
+    // ここでは key routing だけを行い、network 本体の関数を返す。
+    (void)device;
+    static constexpr const char* POLICY_PREFIX = "policy-net.";
+    static constexpr const char* TARGET_PREFIX = "target-net.";
+
     // Keyの指定に応じて、対象のネットワークを切り替える
     std::shared_ptr<anet::nn::Network> net = nullptr;
+    std::string subkey;
 
-    if (key == "policy-net.conv2d") {
+    if (anet::StartsWith(key, POLICY_PREFIX)) {
         net = online_net_;
-    } else if (key == "target-net.conv2d") {
+        subkey = anet::RemovePrefix(key, POLICY_PREFIX);
+    } else if (anet::StartsWith(key, TARGET_PREFIX)) {
         net = target_net_;
+        subkey = anet::RemovePrefix(key, TARGET_PREFIX);
     }
 
     // 対象が見つからなければ nullopt
@@ -220,7 +205,7 @@ std::optional<anet::TensorDictFunction> NetworkModel::GetTensorDictFunction(cons
     }
 
     // 汎用 head ベース抽出へ委譲
-    return net->GetTensorDictFunction(key);
+    return net->GetTensorDictFunction(subkey);
 }
 
 int64_t NetworkModel::Save(OutputArchive& archive) const

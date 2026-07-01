@@ -77,6 +77,7 @@ namespace anet::rl {
             const EnvSpec& env_spec,
             std::optional<seed_t> seed = std::nullopt);
 
+        torch::Device GetDevice() const override { return device_; }
         virtual ~AgentBase() = default;
     protected:
         std::shared_ptr<anet::RandomGenerator> GetRandomGenerator(RunMode mode) const;

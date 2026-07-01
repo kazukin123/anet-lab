@@ -275,44 +275,6 @@ void DefaultDQNAgent::LoadNetwork(const std::string& filename)
     LOG::info() << "LoadNetwork: learner_size=" << learner_size;
 }
 
-std::optional<anet::TensorFunction> DefaultDQNAgent::GetTensorFunction(const std::string& key)
-{
-    auto fn = model_->GetTensorFunction(key, device_);
-    if (fn == std::nullopt) return fn;
-
-    return std::nullopt;
-
-  //  auto self = shared_from_this();
-  //  auto network_fn = *fn;
-  //  bool use_stacker = config_.stucker.use_stacker;
-  //  int stack_count = config_.stucker.stack_count;
-
-  //  anet::TensorFunction norm_fn = [self, network_fn, use_stacker, stack_count](const torch::Tensor& obs) {
-
-  //      std::shared_lock<std::shared_mutex> lock(*(self->mutex_));
-
-  //      //ANET_LOG_DEBUG("obs=" << anet::ToDefString(obs));
-  //      torch::Tensor proc_obs = obs;
-
-  //      // Stacker有効なのに送られてきたデータが2次元(N, F)だった場合、時間方向に複製して3次元化する
-  //      if (use_stacker && proc_obs.dim() == 2) {
-  //          // (N, F) -> (N, 1, F) -> (N, Stack, F)
-  //          proc_obs = proc_obs.unsqueeze(1).expand({ -1, stack_count, -1 });
-  //      }
-  //      //ANET_LOG_DEBUG("proc_obs=" << anet::ToDefString(proc_obs));
-
-  //      // 正規化
-  //      auto obs_norm = self->obs_norm_->Normalize(proc_obs);
-  //      //ANET_LOG_DEBUG("obs_norm=" << anet::ToDefString(obs_norm));
-
-		//// ネットワーク実行 (stack有効の場合は(N, S, F)、無効の場合は(N, F)
-  //      auto out = network_fn(obs_norm);
-  //      return out;
-  //      };
-
-  //  return norm_fn;
-}
-
 std::optional<anet::TensorDictFunction> DefaultDQNAgent::GetTensorDictFunction(const std::string& key)
 {
     // NetworkModel に委譲してベース関数を取得
@@ -332,8 +294,9 @@ std::optional<anet::TensorDictFunction> DefaultDQNAgent::GetTensorDictFunction(c
         torch::NoGradGuard grad_guard;
 
         anet::TensorDict proc_obs;
+        anet::TensorDict device_obs = obs.To(self->device_);
 
-        for (const auto& kv : obs) {
+        for (const auto& kv : device_obs) {
             auto k = kv.first;
             auto t = kv.second;
 
@@ -343,7 +306,8 @@ std::optional<anet::TensorDictFunction> DefaultDQNAgent::GetTensorDictFunction(c
                 is_stacked_target = (it != self->config_.stucker.stack_keys.end());
             }
 
-            // Observerから来る生データ(1フレーム)を、Stack次元を追加して複製(Expand)する
+            // 状態スイープは実フレーム履歴を持たない合成1フレーム入力なので、
+            // stacker 有効時は同じフレームを stack 全域へ複製して通常の network 入力形状に合わせる。
             if (use_stacker && is_stacked_target) {
                 // (B, C, H, W) -> (B, 1, C, H, W)
                 t = t.unsqueeze(1);

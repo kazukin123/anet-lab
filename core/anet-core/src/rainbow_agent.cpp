@@ -115,21 +115,22 @@ RainbowAgent::RainbowAgent(
     }
 }
 
-std::optional<anet::TensorFunction> RainbowAgent::GetTensorFunction(const std::string& key)
+std::optional<anet::TensorDictFunction> RainbowAgent::GetTensorDictFunction(const std::string& key)
 {
-    auto fn = model_->GetTensorFunction(key, device_);
-    if (fn == std::nullopt) return fn;
+    auto fn = model_->GetTensorDictFunction(key, device_);
+    if (fn == std::nullopt) return std::nullopt;
 
     auto self = shared_from_this();
     auto network_fn = *fn;
 
-    anet::TensorFunction norm_fn = [self, network_fn](const torch::Tensor& obs) {
+    anet::TensorDictFunction wrapped_fn = [self, network_fn](const anet::TensorDict& obs) {
         std::shared_lock<std::shared_mutex> lock(*(self->mutex_));
-        auto out = network_fn(obs);
+        torch::NoGradGuard grad_guard;
+        auto out = network_fn(obs.To(self->device_));
         return out;
         };
 
-    return norm_fn;
+    return wrapped_fn;
 }
 
 std::optional<float> RainbowAgent::GetScalar(const std::string& key, int64_t index) const

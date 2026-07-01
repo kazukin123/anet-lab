@@ -38,10 +38,11 @@ V2 対応として Observation を `torch::Tensor` から `anet::TensorDict`（�
 ## 2. 確定方針（決定事項）
 
 - **D1（sweep API）**: NN 呼び出しを **`TensorDictFunction` に一本化**する。旧 `TensorFunction(torch::Tensor)` 系（`TensorFunctionProvider`、各 Agent の `GetTensorFunction` オーバーライド、`NetworkModel::GetTensorFunction`）を**撤去**する。→ ADR-0002。
-- **D2（観測キーのスコープ）**: **vector 優先で復旧**する。`ToUnifiedObservation` を互換ブリッジに使い、既存 `index` 指定の挙動を維持。probe のキー解決だけ `obs.<subkey>` をパースできる**拡張可能な形**にしておく（実配線は `vector` のみ）。grid チャネル等の本対応は延期。
+- **D2（観測キーのスコープ）**: `SweepStateHeatMap` は `sweep_obs.obs_key` で指定された `SpaceType::Vector` の観測キーを sweep 対象にする。未指定時だけ後方互換として `vector` を使う。grid / image sweep は延期するが、複数の vector-type 観測キーを持つ env でも対象を明示できる形にする。
 - **probe 文法**: ドット接尾 `experience.next_state.obs.<subkey>`。無接尾時は unified（vector 先頭）。**既存パーサを流用、設定スキーマは変えない**。
 - **ReplayBuffer**: storage-level のみ復旧。sampled-batch view は別 view として延期。
-- **multi-key sweep**: 非 vector キー（grid 等）は zeros 埋めで「動く」状態にする（DropMerge も crash させない）。意味的限界はコメント／ドキュメントに明記。
+- **multi-key sweep**: sweep 対象以外の観測キー（grid 等）は `StateSpec` の shape / dtype に合わせた zeros 埋めで同梱する（DropMerge も crash させない）。意味的限界はコメント／ドキュメントに明記。
+- **sweep 出力選択**: `sweep_obs.network_key` は `policy-net.` / `target-net.` と `Network::GetTensorDictFunction()` の key を表す。`sweep_obs.output_key` は戻り `TensorDict` から描画対象 tensor を選ぶ key とする。未指定時は `q`。
 
 ---
 
@@ -81,47 +82,41 @@ V2 対応として Observation を `torch::Tensor` から `anet::TensorDict`（�
 
 **検証**: run → `image.phm.per-prio`（heatmap）と `image.thg.per-prio`（time-histgram）が出ること。
 
-### Phase 3 — network sweep 基盤 + SweepStateHeatMap observer（file 出力）
+### Phase 3-4 — network sweep 基盤 + SweepStateHeatMap observer / UI 復旧
 
-**目的**: API を `TensorDictFunction` に一本化し、`SweepStateHeatMap qmax`（file 出力）を復旧する。
+**目的**: API を `TensorDictFunction` に一本化し、`SweepStateHeatMap qmax`（file 出力）と runner の対話 Sweep HeatMap パネルを同時に復旧する。
 
 **作業**:
 1. **旧 API 撤去 [D1]**:
-   - `Agent` の基底から `TensorFunctionProvider` を外す（`core/anet-core/include/anet/rl.hpp:677`）。
-   - `TensorFunction` typedef / `TensorFunctionProvider`（`core/anet-core/include/anet/common.hpp:101-108`）を撤去。
-   - 各 `GetTensorFunction` 宣言・定義を削除: `default_dqn_agent.{hpp:243, cpp:278-314}`、`dqn_based_agent.cpp:172-194`（NetworkModel）、`rainbow_agent.{hpp:83, cpp:118}`、`image_cls_agent.hpp:127`、`muzero_proto_agent.hpp:159`、`episode_end_test.cpp:248`。`grep -rn "GetTensorFunction\|TensorFunctionProvider"` で残骸ゼロを確認。
-2. **NetworkModel head routing**: `NetworkModel::GetTensorDictFunction`（`dqn_based_agent.cpp:196-214`、現状 `*.conv2d` のみ）を拡張し、`policy-net.` / `target-net.` プレフィックスを対象 net に振り分けてから `net->GetTensorDictFunction(key)`（head ベース汎用版、`nn_impl.cpp` 内。`006` 5.4 参照）へ委譲する。`policy-net.forward(.q/.dist/.v/.a)` 等が解決できること。
+    - `Agent` の基底から `TensorFunctionProvider` を外す（`core/anet-core/include/anet/rl.hpp:677`）。
+    - `TensorFunction` typedef / `TensorFunctionProvider`（`core/anet-core/include/anet/common.hpp:101-108`）を撤去。
+    - 各 `GetTensorFunction` 宣言・定義を削除: `default_dqn_agent.{hpp:243, cpp:278-314}`、`dqn_based_agent.cpp:172-194`（NetworkModel）、`rainbow_agent.{hpp:83, cpp:118}`、`image_cls_agent.hpp:127`、`muzero_proto_agent.hpp:159`、`episode_end_test.cpp:248`。`grep -rn "GetTensorFunction\|TensorFunctionProvider"` で残骸ゼロを確認。
+2. **NetworkModel head routing**: `NetworkModel::GetTensorDictFunction`（`dqn_based_agent.cpp:196-214`、現状 `*.conv2d` のみ）を拡張し、`policy-net.` / `target-net.` プレフィックスを対象 net に振り分けてから、プレフィックスを外した key を `net->GetTensorDictFunction(key)`（head ベース汎用版、`nn_impl.cpp` 内。`006` 5.4 参照）へ委譲する。`policy-net.forward` / `policy-net.forward.q` / `policy-net.forward.dist` / `target-net.forward.*` 等が解決できること。
 3. **sweep 経路を dict 化**:
-   - `SweepedHeatMap::EvaluateTensorFunction`（`core/anet-core/src/heat_map.cpp:838`、宣言 `heat_map.hpp:216`）の引数を `TensorDictFunction` に。
-   - `SweepedHeatMapObserver`（`observers.hpp:164-212`、`tensor_fn_` は :187,203、impl `observers.cpp:332-474`、ctor :336）の `tensor_fn_` を `TensorDictFunction` に。
-   - `MakeSweepedHeatMapObserver`（`image.cpp:192-266`、特に `image.cpp:257` の `agent->GetTensorFunction(...)`）を `GetTensorDictFunction` に。
-4. **StateSweepProcessor**: `BuildInputTensor`（`probe.cpp:619-665`、ctor :552-602、宣言 `probe.hpp:388-449`）の出力を `TensorDict` に。`{"vector": 格子}` を基本とし、env の `obs_spec` にある**他キーは zeros 埋め**で同梱する（multi-key env で network forward が落ちないように）。linspace / index_put の flat-vector 計算（`base_flatten_` は `vector` ベース）は**内部に維持**する。
-5. **`DefaultDQNAgent::GetTensorDictFunction` の見直し**（`default_dqn_agent.cpp:316-366`、`v2_remaining` / `006` で本作業へ先送りされた項目）: sweep 入力は実フレーム履歴でない合成 state なので、stacker 有効時の偽スタック `expand`（:346-353、1 フレーム → stack_count 複製）が sweep でも妥当かを確認する。問題があれば sweep 用に「合成 state を stack 全域へ複製」する意味づけをコメントで明記、または分岐を整理する。**挙動を壊さない範囲の最小整理**に留める。
+    - `SweepedHeatMap::EvaluateTensorFunction`（`core/anet-core/src/heat_map.cpp:838`、宣言 `heat_map.hpp:216`）の引数を `TensorDictFunction` に。
+    - `SweepedHeatMapObserver`（`observers.hpp:164-212`、`tensor_fn_` は :187,203、impl `observers.cpp:332-474`、ctor :336）の `tensor_fn_` を `TensorDictFunction` に。
+    - `MakeSweepedHeatMapObserver`（`image.cpp:192-266`、特に `image.cpp:257` の `agent->GetTensorFunction(...)`）を `GetTensorDictFunction` に。
+4. **StateSweepProcessor**: `BuildInputTensor`（`probe.cpp:619-665`、ctor :552-602、宣言 `probe.hpp:388-449`）の出力を `TensorDict` に。`sweep_obs.obs_key` の flat-vector 計算（linspace / index_put）は内部に維持し、env の `obs_spec` にある**他キーは zeros 埋め**で同梱する（multi-key env で network forward が落ちないように）。`x_index == y_index` は許容し、現行順序に近い Y 値上書きとする。
+5. **出力 tensor 選択**: `SweepedHeatMapObserver` は `TensorDictFunction` の戻り `TensorDict` から `sweep_obs.output_key` の tensor を取得し、既存 extractor に渡す。missing output key は明示エラーにする。
+6. **`DefaultDQNAgent::GetTensorDictFunction` / `RainbowAgent::GetTensorDictFunction` の見直し**: sweep 入力は実フレーム履歴でない合成 state なので、stacker 有効時の偽スタック `expand`（1 フレーム → stack_count 複製）の意味づけをコメントで明記する。**挙動を壊さない範囲の最小整理**に留める。
+7. **HeatMapPanel UI 復旧**:
+   - `apps/runner/src/HeatMapPanel.cpp:303-305` の `agent->GetTensorFunction(...)` を `GetTensorDictFunction` に変更する。
+   - `SweepHeatMapDialog` は obs key、network side（policy-net / target-net）、function key（forward / forward.q / forward.dist / forward.v / forward.a）、output key、extractor、X/Y index を分離表示する。
+   - `obs_key` は `StateSpec::obs_spec` の `SpaceType::Vector` のみ候補にする。候補が 0 件なら OK を無効化し、理由を表示する。
+   - function key 変更時は output key を `forward` / `forward.q` → `q`、`forward.dist` → `q_dist`、`forward.v` → `v`、`forward.a` → `a` に初期化する。
+   - `CreateObserver()`（`HeatMapPanel.cpp:236-308`）の `StateSweepProcessor` 構築を dict 経路に合わせる。
 
-**変更ファイル**: `rl.hpp`、`common.hpp`、`default_dqn_agent.{hpp,cpp}`、`dqn_based_agent.cpp`、`rainbow_agent.{hpp,cpp}`、`image_cls_agent.hpp`、`muzero_proto_agent.hpp`、`episode_end_test.cpp`、`heat_map.{hpp,cpp}`、`observers.{hpp,cpp}`、`image.cpp`、`probe.{hpp,cpp}`。
+**変更ファイル**: `rl.hpp`、`common.hpp`、`default_dqn_agent.{hpp,cpp}`、`dqn_based_agent.{hpp,cpp}`、`rainbow_agent.{hpp,cpp}`、`image_cls_agent.hpp`、`muzero_proto_agent.hpp`、`episode_end_test.cpp`、`heat_map.{hpp,cpp}`、`observers.{hpp,cpp}`、`image.{hpp,cpp}`、`probe.{hpp,cpp}`、`apps/runner/src/HeatMapPanel.{hpp,cpp}`、`apps/runner/config/metrics_image.txt`。
 
-**検証**: LunarLander で `image.shm.qmax` の sweep heatmap PNG が出ること。DropMerge（vector+grid）でも起動し crash しない（grid=zeros）こと。
-
-### Phase 4 — HeatMapPanel UI 復旧（対話 sweep）
-
-**目的**: runner アプリ内の対話 Sweep HeatMap パネルを復旧する。
-
-**作業**:
-1. `apps/runner/src/HeatMapPanel.cpp:303-305` の `agent->GetTensorFunction(...)` を `GetTensorDictFunction` に変更。`SweepHeatMapPanel` が `TensorDict` を渡す経路に合わせる（Phase 3 で dict 化した `SweepedHeatMapObserver` を使う）。
-2. `SweepHeatMapDialog`（`HeatMapPanel.cpp:12-164`、v2 暫定の state_dim 取得 :18-22）: X/Y 次元レンジを `StateSpec::obs_spec` 連動にする（現状 `ObsKeys::kVector` ハードコード）。**obs-key picker は将来の multi-key 用に枠だけ用意**し、実選択は `vector`。`vector` キーが無い env では明示的に無効化／エラー表示。
-3. `CreateObserver()`（`HeatMapPanel.cpp:236-308`）の `StateSweepProcessor` 構築を dict 経路に合わせる。
-
-**変更ファイル**: `apps/runner/src/HeatMapPanel.cpp`（必要なら `.hpp:42-79`）。
-
-**検証**: runner GUI を起動 → Sweep HeatMap パネルを開く → sweep 実行 → GL 描画されること。
+**検証**: LunarLander で `image.shm.qmax` の sweep heatmap PNG が出ること。DropMerge（vector+grid）でも起動し crash しない（grid=zeros）こと。runner GUI で Sweep HeatMap パネルを開き、obs key 選択と OK 無効化が機能すること。
 
 ---
 
 ## 4. 後方互換・エッジケース
 
-- **既存 metrics_image.txt は無改修**で動くことが目標。`index = 0/1` は vector 先頭レイアウト（`ToUnifiedObservation`）を指す。multi-key env でも vector 部分を指すので互換。
-- **`vector` キーが無い env**（純 grid 等）での sweep / index probe は意味を成さない。zeros 埋めで「落ちない」が、`SweepHeatMapDialog` 等では `vector` 不在を検知してユーザに分かる失敗（無効化・WARN）にする。暗黙の既定値フォールバックはしない（`AGENTS.md` の設定値ポリシー）。
-- **multi-key sweep の意味的限界**: 非 vector キーを zeros 固定で sweep するため、grid を主観測とする env（DropMerge 等）の sweep 結果は「grid=blank 時の vector 感度」に限られる。コメントで明記。
+- **既存 metrics_image.txt は新仕様へ更新**する。旧 `sweep_obs.network_key = policy-net.forward` は `sweep_obs.output_key = q` の既定でも動くが、tracked config には `obs_key` / `output_key` を明示する。外部旧 config 互換パースは入れない。
+- **`obs_key` 未指定時は `vector`** を使う。`vector` が無くても他の vector-type key を推定しない。metrics 側は `ANET_SYSTEM_ERROR`、UI 側は dialog の OK 無効化でユーザーに分かる失敗にする。
+- **multi-key sweep の意味的限界**: sweep 対象以外の観測キーを zeros 固定にするため、grid を主観測とする env（DropMerge 等）の sweep 結果は「grid=blank 時の選択 vector 感度」に限られる。コメントで明記。
 - **学習回帰なし**: 旧 `GetTensorFunction` 撤去は sweep 経路のみに影響。learner / target 選択 / rollout には波及しない（利用箇所限定を確認済み）。
 - `ProfileRange`: 新規に重い処理（ReplayBuffer flatten、sweep の forward）を足す境界には `anet::ProfileRange` を入れる（`AGENTS.md`）。
 
@@ -145,7 +140,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 
 ## 6. スコープ外 / 延期
 
-- multi-key サブキー**本対応**（probe `obs.<subkey>` の実配線、Panel の obs-key picker 実選択、grid チャネル sweep）。Phase 1 で**パース対応の枠だけ**用意し、配線は将来。
+- grid / image key の sweep。`obs_key` は今回 `SpaceType::Vector` のみを対象にする。
 - ReplayBuffer の sampled-batch view（storage-level と別 view）。
 - `observers.cpp:1336` の `@todo HeatMap系Observerに対応`（`metrics.[tag]` 別経路。既存 `image.*` 復旧には非クリティカル。余力があれば Phase 3-4 末で対応、なければ後回し）。
 - `#if 0` デバッグ断片の整理（mainline 戻し前に削除／正式化）。

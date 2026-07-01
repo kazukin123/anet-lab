@@ -100,12 +100,17 @@ TEST_CASE("Quantile dueling heads use shared or branched body outputs", "[dqn][h
     CHECK(branched_out.At("v_dist").sizes() == torch::IntArrayRef({ 2, 1, 5 }));
     CHECK(branched_out.At("a_dist").sizes() == torch::IntArrayRef({ 2, 3, 5 }));
 
+    auto forward_q = branched_head->GetTensorDictFunction("forward");
     auto forward_dist = branched_head->GetTensorDictFunction("forward.dist");
     auto forward_v = branched_head->GetTensorDictFunction("forward.v");
     auto forward_a = branched_head->GetTensorDictFunction("forward.a");
+    REQUIRE(forward_q.has_value());
     REQUIRE(forward_dist.has_value());
     REQUIRE(forward_v.has_value());
     REQUIRE(forward_a.has_value());
+    auto q_only = (*forward_q)(branched_features);
+    CHECK(q_only.At("q").sizes() == torch::IntArrayRef({ 2, 3 }));
+    CHECK_FALSE(q_only.Get("q_dist").has_value());
     CHECK((*forward_dist)(branched_features).At("q_dist").sizes() == torch::IntArrayRef({ 2, 3, 5 }));
     CHECK((*forward_v)(branched_features).At("v_dist").sizes() == torch::IntArrayRef({ 2, 1, 5 }));
     CHECK((*forward_a)(branched_features).At("a_dist").sizes() == torch::IntArrayRef({ 2, 3, 5 }));

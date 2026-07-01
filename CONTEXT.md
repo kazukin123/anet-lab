@@ -62,5 +62,5 @@ _Avoid_: obs field, channel, feature key
 _Avoid_: accessor, getter, sampler
 
 **状態スイープ**:
-観測の2成分（既定では `vector` の2次元）を格子状に走査し、各点を Q ネットワークに通して値をヒートマップ化する可視化手法。
+選択された vector-type の観測キーから2成分を選び、格子状に走査して各点を Q ネットワークに通し、値をヒートマップ化する可視化手法。
 _Avoid_: sweep heatmap, state grid scan

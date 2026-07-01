@@ -1,4 +1,4 @@
-// app_util.cpp
+﻿// app_util.cpp
 #include "anet/app_util.hpp"
 
 #include <atomic>
@@ -240,6 +240,12 @@ private:
                 return false;
             }
             _close(pipe_fd);
+
+            // 子プロセス(ffmpeg 等。wxExecute は bInheritHandles=TRUE で起動)にこのwriteハンドルが継承されると、
+            // Stop() 時に read 側が EOF に達せず ReadLoop/join がハングするので継承を切る
+            HANDLE dup_h = reinterpret_cast<HANDLE>(_get_osfhandle(target_fd_));
+            if (dup_h != INVALID_HANDLE_VALUE) SetHandleInformation(dup_h, HANDLE_FLAG_INHERIT, 0);
+            SetHandleInformation(write_pipe_, HANDLE_FLAG_INHERIT, 0);  // 念のため両方
 
             if (stream_ == stderr) {
                 std::setvbuf(stderr, nullptr, _IONBF, 0);

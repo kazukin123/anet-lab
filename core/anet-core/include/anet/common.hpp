@@ -98,15 +98,8 @@ namespace anet {
 	// Tensor Function Providers
     // ===========================================================================
 
-    using TensorFunction = std::function<torch::Tensor(const torch::Tensor&)>;
     using TensorDictFunction = std::function<anet::TensorDict(const anet::TensorDict&)>;
     using TraceSink = std::function<void(std::string_view, const torch::Tensor&)>;
-
-    class TensorFunctionProvider {
-    public:
-        virtual std::optional<TensorFunction> GetTensorFunction(const std::string& key) = 0;
-        virtual ~TensorFunctionProvider() = default;
-	};
 
     class TensorDictFunctionProvider {
     public:
@@ -130,7 +123,6 @@ namespace anet {
 
     //    virtual std::optional<std::string> GetParam(const std::string& key) = 0;
     //    virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string key) = 0;
-    //    virtual TensorFunction GetTensorFunction(const std::string& key) const = 0;
     //public:
     //    virtual void Load(std::istream& stream) const = 0;
     //    virtual void Save(std::ostream& stream) const = 0;

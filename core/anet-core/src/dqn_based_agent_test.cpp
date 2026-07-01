@@ -7,6 +7,7 @@
 #include "anet/trainer.hpp"
 #include "dqn_based_agent.hpp"
 #include "nn_impl.hpp"
+#include "nn_heads.hpp"
 
 #include <algorithm>
 #include <array>
@@ -65,6 +66,16 @@ public:
     anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
     {
         return anet::TensorDict{ { "q", linear_->forward(feature_dict.At(kFeatureKey)) } };
+    }
+
+    std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override
+    {
+        if (key != "forward" && key != "forward.q") return std::nullopt;
+
+        return [this](const anet::TensorDict& feature_dict) {
+            torch::NoGradGuard no_grad;
+            return Forward(feature_dict);
+        };
     }
 
 private:
@@ -226,6 +237,63 @@ rl::EnvSpec MakeLearnerEnvSpec()
     return spec;
 }
 
+anet::nn::NetworkConfig MakeAgentForwardNetworkConfig()
+{
+    anet::nn::NetworkConfig config;
+    config.output_keys[anet::nn::kKey_DefaultOutput] = kVectorKey;
+    return config;
+}
+
+dqn::DefaultDQNAgentConfig MakeDeviceForwardDefaultDqnConfig()
+{
+    dqn::DefaultDQNAgentConfig config;
+    config.use_qr = false;
+    config.use_dueling_net = false;
+    config.stucker.use_stacker = false;
+    config.obs_norm.pass_through = true;
+    config.learner.replay_capacity = 16;
+    config.learner.replay_batch_size = 2;
+    config.learner.use_fused_optimizer = false;
+    return config;
+}
+
+dqn::RainbowAgentConfig MakeDeviceForwardRainbowConfig()
+{
+    dqn::RainbowAgentConfig config;
+    config.use_qr = false;
+    config.use_dueling_net = false;
+    config.learner.replay_capacity = 16;
+    config.learner.replay_batch_size = 2;
+    config.learner.use_fused_optimizer = false;
+    return config;
+}
+
+class DeviceOnlyAgent final : public rl::AgentBase {
+public:
+    explicit DeviceOnlyAgent(torch::Device device)
+        : rl::AgentBase(device, rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec(), 123)
+    {
+    }
+
+    std::shared_ptr<rl::Actor> CreateActor(
+        const rl::BatchEnvSpec&,
+        rl::RunMode,
+        bool,
+        std::optional<torch::Device> = std::nullopt) const override
+    {
+        return nullptr;
+    }
+
+    std::shared_ptr<rl::Learner> CreateLearner() override
+    {
+        return nullptr;
+    }
+
+    std::optional<float> GetScalar(const std::string&, int64_t = -1) const override { return std::nullopt; }
+    std::optional<torch::Tensor> GetTensor(const std::string&, int64_t = -1) const override { return std::nullopt; }
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string&, int64_t = -1) const override { return std::nullopt; }
+};
+
 enum class DeterminismJitterPhase {
     BeforeUpdateFromBatch = 0,
     BeforeUpdateFromSamples,
@@ -289,6 +357,22 @@ public:
     void Open(const std::filesystem::path&, const std::string&) override {}
     void WriteJsonl(const anet::json&) override {}
     void Flush() override {}
+};
+
+class ScopedNoopMetricsLogger final {
+public:
+    ScopedNoopMetricsLogger()
+    {
+        anet::MetricsLogger::Reset();
+        anet::MetricsLoggerConfig logger_config;
+        logger_config.run_name_tmpl = "dqn_agent_device_test";
+        anet::MetricsLogger::Init(std::make_unique<NoopMetricsBackend>(), logger_config, "out/test-tmp");
+    }
+
+    ~ScopedNoopMetricsLogger()
+    {
+        anet::MetricsLogger::Reset();
+    }
 };
 
 std::vector<int64_t> TensorToInt64Vector(const torch::Tensor& tensor)
@@ -761,6 +845,8 @@ public:
         return learner_;
     }
 
+    torch::Device GetDevice() const override { return torch::Device(torch::kCPU); }
+
     std::vector<DeterminismTraceEntry> Trace() const
     {
         return learner_->Trace();
@@ -769,7 +855,6 @@ public:
     std::optional<float> GetScalar(const std::string&, int64_t = -1) const override { return std::nullopt; }
     std::optional<torch::Tensor> GetTensor(const std::string&, int64_t = -1) const override { return std::nullopt; }
     std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string&, int64_t = -1) const override { return std::nullopt; }
-    std::optional<anet::TensorFunction> GetTensorFunction(const std::string&) override { return std::nullopt; }
 
 private:
     std::shared_ptr<TestNetworkModel> model_;
@@ -1115,6 +1200,92 @@ TEST_CASE("NetworkModel mode-specific forwards preserve training modes", "[dqn][
     model.ForwardOnlineWithTrain(obs);
     CHECK(model.GetOnlineNetwork()->is_training());
     CHECK_FALSE(model.GetTargetNetwork()->is_training());
+}
+
+TEST_CASE("AgentBase exposes configured device", "[agent][device]")
+{
+    DeviceOnlyAgent agent{ torch::Device(torch::kCPU) };
+
+    CHECK(agent.GetDevice().is_cpu());
+}
+
+TEST_CASE("DefaultDQNAgent TensorDictFunction accepts CPU input on CUDA agent", "[dqn][network_model][device]")
+{
+    if (!torch::cuda::is_available()) return;
+
+    ScopedNoopMetricsLogger metrics_logger;
+    const torch::Device device(torch::kCUDA, 0);
+    auto env_spec = MakeLearnerEnvSpec();
+    auto agent = std::make_shared<dqn::DefaultDQNAgent>(
+        MakeDeviceForwardDefaultDqnConfig(),
+        MakeAgentForwardNetworkConfig(),
+        rl::BatchEnvSpec{ 1, 1 },
+        env_spec,
+        device,
+        123);
+
+    auto forward = agent->GetTensorDictFunction("policy-net.forward");
+    REQUIRE(forward.has_value());
+
+    auto obs = anet::TensorDict{
+        { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU)) },
+    };
+    auto out = (*forward)(obs);
+
+    REQUIRE(out.Get("q").has_value());
+    CHECK(out.At("q").device().type() == torch::kCUDA);
+}
+
+TEST_CASE("RainbowAgent TensorDictFunction accepts CPU input on CUDA agent", "[dqn][network_model][device]")
+{
+    if (!torch::cuda::is_available()) return;
+
+    ScopedNoopMetricsLogger metrics_logger;
+    const torch::Device device(torch::kCUDA, 0);
+    auto env_spec = MakeLearnerEnvSpec();
+    auto agent = std::make_shared<dqn::RainbowAgent>(
+        MakeDeviceForwardRainbowConfig(),
+        MakeAgentForwardNetworkConfig(),
+        rl::BatchEnvSpec{ 1, 1 },
+        env_spec,
+        device,
+        123);
+
+    auto forward = agent->GetTensorDictFunction("policy-net.forward");
+    REQUIRE(forward.has_value());
+
+    auto obs = anet::TensorDict{
+        { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU)) },
+    };
+    auto out = (*forward)(obs);
+
+    REQUIRE(out.Get("q").has_value());
+    CHECK(out.At("q").device().type() == torch::kCUDA);
+}
+
+TEST_CASE("NetworkModel routes TensorDictFunction by network side and function key", "[dqn][network_model]")
+{
+    TestNetworkModel model;
+    {
+        torch::NoGradGuard no_grad;
+        model.GetOnlineNetwork()->parameters()[0].fill_(1.0f);
+        model.GetTargetNetwork()->parameters()[0].fill_(2.0f);
+    }
+    auto obs = anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } };
+
+    auto policy_forward = model.GetTensorDictFunction("policy-net.forward", torch::kCPU);
+    auto policy_forward_q = model.GetTensorDictFunction("policy-net.forward.q", torch::kCPU);
+    auto target_forward = model.GetTensorDictFunction("target-net.forward", torch::kCPU);
+    REQUIRE(policy_forward.has_value());
+    REQUIRE(policy_forward_q.has_value());
+    REQUIRE(target_forward.has_value());
+
+    CHECK(TensorToFloatVector((*policy_forward)(obs).At("q")) == std::vector<float>{ 3.0f });
+    CHECK(TensorToFloatVector((*policy_forward_q)(obs).At("q")) == std::vector<float>{ 3.0f });
+    CHECK(TensorToFloatVector((*target_forward)(obs).At("q")) == std::vector<float>{ 6.0f });
+
+    CHECK_FALSE(model.GetTensorDictFunction("policy-net.forward.dist", torch::kCPU).has_value());
+    CHECK_FALSE(model.GetTensorDictFunction("unknown-net.forward", torch::kCPU).has_value());
 }
 
 TEST_CASE("NetworkModel distributionality depends only on quantile count", "[dqn][network_model]")

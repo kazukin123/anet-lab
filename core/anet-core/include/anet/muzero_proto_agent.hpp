@@ -156,7 +156,6 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
     public:
 
-        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override { return std::nullopt; }
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override { return std::nullopt; }
     public:
         int64_t Save(anet::OutputArchive& archive) const override { return 0; }

@@ -320,9 +320,6 @@ namespace anet::rl::dqn {
         /// target network 同期
         void UpdateTarget(anet::rl::step_t learn_step);
 
-        /// メトリクス用：NN生出力
-        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key, const torch::Device& device);
-
         /// メトリクス用：TensorDict
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key, const torch::Device& device);
     public:

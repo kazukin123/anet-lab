@@ -70,9 +70,11 @@ image.shm.qmax.flags = AutoScaleAxis AutoNormValue AutoScaleAxis SumMode
 #image.shm.qmax.interval = 1   # ★ 100
 image.shm.qmax.sweep_obs.width = 1024
 image.shm.qmax.sweep_obs.height = 1024
+image.shm.qmax.sweep_obs.obs_key = vector
 image.shm.qmax.sweep_obs.x_index = 0
 image.shm.qmax.sweep_obs.y_index = 1
 image.shm.qmax.sweep_obs.network_key = policy-net.forward
+image.shm.qmax.sweep_obs.output_key = q
 image.shm.qmax.sweep_obs.extractor_name = max
 image.shm.qmax.sweep_obs.extractor_index = -1
 
@@ -111,4 +113,3 @@ metrics.image.histgram.frame_interval = 10
 
 image.test.interval = 1
 image.test.histgram.frame_interval = 10
-

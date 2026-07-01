@@ -168,6 +168,7 @@ namespace anet::rl {
         int grid_height = -1;   ///< 内部で生成するGridの高さ。-1で指定なし(自動)
         int image_width = -1;   ///< 出力する画像の幅。-1で指定なし(自動)
         int image_height = -1;  ///< 出力する画像の高さ。-1で指定なし(自動)
+        std::string output_key = "q"; ///< NN出力TensorDictから描画対象Tensorを選ぶkey
     };
 
     /**
@@ -184,7 +185,7 @@ namespace anet::rl {
             const std::string& tag,
             const SweepedHeatMapObserverConfig& config,
             std::shared_ptr<ISweepInputGenerator> input_gen,
-            TensorFunction tensor_fn_,
+            TensorDictFunction tensor_fn_,
             std::shared_ptr<ISweepOutputExtractor> output_ext,
             const std::unordered_map<std::string, std::string>& scalar_tag_label_map = {}
             );
@@ -200,7 +201,7 @@ namespace anet::rl {
         std::unordered_map<std::string, std::string> scalar_label_tag_map_;
 
         std::shared_ptr<ISweepInputGenerator> input_gen_;
-        TensorFunction tensor_fn_;
+        TensorDictFunction tensor_fn_;
         std::shared_ptr<ISweepOutputExtractor> output_ext_;
 
         int grid_w_ = 0;

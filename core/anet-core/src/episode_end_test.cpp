@@ -238,6 +238,8 @@ public:
         return std::make_shared<TestLearner>();
     }
 
+    torch::Device GetDevice() const override { return torch::Device(torch::kCPU); }
+
     std::optional<float> GetScalar(const std::string& key, int64_t = -1) const override
     {
         if (key == "agent_score") return agent_score_;
@@ -245,7 +247,6 @@ public:
     }
     std::optional<torch::Tensor> GetTensor(const std::string&, int64_t = -1) const override { return std::nullopt; }
     std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string&, int64_t = -1) const override { return std::nullopt; }
-    std::optional<anet::TensorFunction> GetTensorFunction(const std::string&) override { return std::nullopt; }
 
 private:
     float agent_score_ = 0.0f;

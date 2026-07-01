@@ -206,7 +206,8 @@ static std::shared_ptr<SweepedHeatMapObserver> MakeSweepedHeatMapObserver(
 		config.sweep_obs.width,		// grid_width
 		config.sweep_obs.height,	// gird_height
 		config.image_width,
-		config.image_height
+		config.image_height,
+		config.sweep_obs.output_key
 	};
 
 	// extractor
@@ -254,13 +255,15 @@ static std::shared_ptr<SweepedHeatMapObserver> MakeSweepedHeatMapObserver(
 		env_spec.state_spec,
 		config.sweep_obs.x_index,  // x_index = x
 		config.sweep_obs.y_index,  // y_index = y
-		extractor
+		extractor,
+		config.sweep_obs.obs_key,
+		agent->GetDevice()
 	);
 
-	// TensorFunction
-	std::optional<anet::TensorFunction> forward_func = agent->GetTensorFunction(config.sweep_obs.network_key);
+	// TensorDictFunction
+	std::optional<anet::TensorDictFunction> forward_func = agent->GetTensorDictFunction(config.sweep_obs.network_key);
 	if (!forward_func.has_value()) {
-		ANET_SYSTEM_ERROR("Failed to get TensorFunction: " << config.sweep_obs.network_key);
+		ANET_SYSTEM_ERROR("Failed to get TensorDictFunction: " << config.sweep_obs.network_key);
 		return nullptr;
 	}
 

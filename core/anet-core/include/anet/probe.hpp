@@ -290,8 +290,8 @@ namespace anet::rl {
         /// @brief Generator が最終決定した Gridサイズ
         virtual std::pair<int, int> GetGridSize() const = 0;
 
-        /// @return Tensor: [W*H, state_dim], Flatten済み、device上
-        virtual torch::Tensor BuildInputTensor() = 0;
+        /// @return TensorDict: 各Tensorは [W*H, ...obs_shape]、device上
+        virtual anet::TensorDict BuildInputTensor() = 0;
 
         /**
          * @brief flatten された state のサイズを返す
@@ -403,6 +403,7 @@ namespace anet::rl {
             int x_index,
             int y_index,
             ValueExtractFunction value_extract_fn,
+            std::string obs_key = anet::rl::ObsKeys::kVector,
             const torch::Device& device = torch::kCUDA,
             std::optional<torch::Tensor> base_state = std::nullopt,
             std::optional<float> x_min_override = std::nullopt,
@@ -415,13 +416,14 @@ namespace anet::rl {
     public:
         void ApplyGridSize(int width, int height) override;
         std::pair<int, int> GetGridSize() const override;
-        torch::Tensor BuildInputTensor() override;
+        anet::TensorDict BuildInputTensor() override;
         int64_t GetFlattenSize() const override;
         ExtractResult Extract(const torch::Tensor& batched_out,
             const std::unordered_set<std::string>& required_labels) override;
     private:
         const anet::rl::StateSpec state_spec_;
         const torch::Device device_;
+        const std::string obs_key_;
 
         int x_index_;
         int y_index_;
