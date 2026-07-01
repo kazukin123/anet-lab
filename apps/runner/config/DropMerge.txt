@@ -67,8 +67,8 @@ net.branch.[vector_feature].structure = Embed5846_v2
 #net.branch.[main_feature].$ = net.branch.SuikaResNet4064_10d
 #net.branch.[main_feature].$ = net.branch.SuikaViT_Flatten_128_pre
 #net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128
-net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2
-
+#net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2
+net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2_dp
 
 # ==============================================================================
 # 実験
@@ -92,18 +92,17 @@ net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2
 #app.run_name = run_{t}_bf16-2
 #app.run_name = run_{t}_rb_prefetch
 #app.run_name = run_{t}_apx_cy01
+#app.run_name = run_{t}_apx_deton-2off
+#app.run_name = run_{t}_apx_deton-2off
+#app.run_name = run_{t}_apx_cy01-dp03mix
+#app.run_name = run_{t}_apx_cy01-dp08
+
 
 backend.deterministic_algorithms = false   # ★★ false:高速だが非決定論的
+backend.cudnn_deterministic = false  # false:非決定論的だが高速化(する場合がある) true:決定論的だが遅い
+
 
 R.learner.use_rb_prefetch = true
-#R.learner.use_rb_prefetch = false
-
-E.no_drop_timeout_gameover_penalty = 0
-
-R.use_optimistic_target = true
-R.target_policy.uqe_use_tail_mean = false   # TBO整合: h単調は単一分位点でargmax不変、tail_mean(上側平均)は対象外
-
-R.learner.grad_clip_tau = 5
 
 #R.learner.use_td_clip = true
 R.learner.use_td_clip = false
@@ -114,6 +113,14 @@ R.reward_scaler.constant_scale = 0.01
 R.learner.use_tbo = true
 
 #backend.cuda_launch_blocking = on
+#R.learner.use_rb_prefetch = false
+
+E.no_drop_timeout_gameover_penalty = 0
+
+R.use_optimistic_target = true
+R.target_policy.uqe_use_tail_mean = false   # TBO整合: h単調は単一分位点でargmax不変、tail_mean(上側平均)は対象外
+
+R.learner.grad_clip_tau = 5
 
 R.train_policy.use_spatial_exploration = true
 #R.train_policy.use_spatial_exploration = false
@@ -387,7 +394,7 @@ R.train_policy.use_spatial_exploration = true
 # デバッグ用
 # ==============================================================================
 
-#app.online.exp_exit_step  = 100,000
+#app.online.exp_exit_step  = 200,000
 
 #R.learner.update_warmup_steps = 2,560
 #R.learner.update_warmup_steps = 0
@@ -425,6 +432,7 @@ app.online.exp_pause_step  = 100,000,000      # 100M
 #app.online.exp_pause_step  = 20,000,000      # 20M
 #app.online.exp_pause_step  = 40,000,000      # 40M
 #app.online.exp_pause_step  = 60,000,000      # 60M
+#app.online.exp_pause_step  = 9,000,000    # 9M
 
 app.batchrun.exp_exit_step  = 160,000,000     # 160M
 #app.batchrun.exp_exit_step  = 40,000,000     # 40M
@@ -720,6 +728,18 @@ net.block.[TransEnc_128].tf.num_layers = 4
 net.block.[TransEnc_128].tf.dim_feedforward = 512
 net.block.[TransEnc_128].tf.use_sdpa = true
 
+net.block.[TransEnc_128_dp].type = TransformerEncoder
+net.block.[TransEnc_128_dp].tf.d_model = 128
+net.block.[TransEnc_128_dp].tf.nhead = 8
+net.block.[TransEnc_128_dp].tf.num_layers = 4
+net.block.[TransEnc_128_dp].tf.dim_feedforward = 512
+net.block.[TransEnc_128_dp].tf.norm_first = true
+net.block.[TransEnc_128_dp].tf.use_sdpa = true
+net.block.[TransEnc_128_dp].tf.activation = gelu
+#net.block.[TransEnc_128_dp].tf.hidden_dropout_rate = 0.03
+#net.block.[TransEnc_128_dp].tf.attn_dropout_rate = 0.0
+#net.block.[TransEnc_128_dp].tf.droppath_rate = 0.02
+
 net.block.[TransEnc_256].type = TransformerEncoder
 net.block.[TransEnc_256].tf.d_model = 256
 net.block.[TransEnc_256].tf.nhead = 8
@@ -767,6 +787,14 @@ net.block.[ResBlock64p].res.channels = 64
 net.block.[ResBlock64p].res.kernel_size = 3
 net.block.[ResBlock64p].res.activation = silu
 net.block.[ResBlock64p].res.activation_mode = pre
+
+net.block.[ResBlock64p_dp].type = ResBlock
+net.block.[ResBlock64p_dp].res.channels = 64
+net.block.[ResBlock64p_dp].res.kernel_size = 3
+net.block.[ResBlock64p_dp].res.activation = silu
+net.block.[ResBlock64p_dp].res.activation_mode = pre
+net.block.[ResBlock64p_dp].res.droppath_rate = 0.03
+#net.block.[ResBlock64p_dp].res.droppath_rate = 0.08
 
 net.block.[Embed4064_v2].type = SpatialEmbedder
 net.block.[Embed4064_v2].embed.grid_width = 40
@@ -818,6 +846,9 @@ net.body.output.[adv_feature] = adv_stream
 net.branch.SuikaResNet_10d.bind = grid, vector_feature
 net.branch.SuikaResNet_10d.structure =  ConvInit32 > SiLU > ResBlock32 > ResBlock32d2 > ResBlock32d4 > ResBlock32 > ConvCompress > SiLU > Flatten > LinearOut
 
+net.branch.SuikaViT_Flatten_128_pre.bind = grid, vector_feature
+net.branch.SuikaViT_Flatten_128_pre.structure = ConvInit64 > SiLU > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_2048 > SiLU
+
 net.branch.SuikaHybrid_Flatten_128.bind = grid, vector_feature
 net.branch.SuikaHybrid_Flatten_128.structure     = ConvInit64 > SiLU > ResBlock64(*4)  > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten
 
@@ -830,9 +861,8 @@ net.branch.SuikaHybrid_Flatten_128_pre2.bind = grid, vector_feature
 #net.branch.SuikaHybrid_Flatten_128_pre2.structure = ConvInit64 >        ResBlock64p(*2) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_2048 > SiLU
 net.branch.SuikaHybrid_Flatten_128_pre2.structure = ConvInit64 >        ResBlock64p(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_2048 > SiLU
 
-# ViT単体（ResBlock抜き、Conv2層をpatch embeddingに、特徴抽出はTransEncが主役。層数据え置き=ResBlockの寄与を1軸差で見る）
-net.branch.SuikaViT_Flatten_128_pre.bind = grid, vector_feature
-net.branch.SuikaViT_Flatten_128_pre.structure = ConvInit64 > SiLU > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128 > Flatten > Linear_2048 > SiLU
+net.branch.SuikaHybrid_Flatten_128_pre2_dp.bind = grid, vector_feature
+net.branch.SuikaHybrid_Flatten_128_pre2_dp.structure = ConvInit64 > ResBlock64p_dp(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128_dp > Flatten > Linear_2048 > SiLU
 
 
 # ==============================================================================
