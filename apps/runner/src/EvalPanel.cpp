@@ -12,9 +12,44 @@
 namespace LOG = anet::log;
 
 
+EvalPanelModelSyncMode EvalPanelModelSyncConfig::GetMode() const
+{
+	const auto normalized = anet::ToLower(anet::TrimCopy(mode));
+	if (normalized == "shared") return EvalPanelModelSyncMode::Shared;
+	if (normalized == "frame") return EvalPanelModelSyncMode::Frame;
+	if (normalized == "time") return EvalPanelModelSyncMode::Time;
+	if (normalized == "episode") return EvalPanelModelSyncMode::Episode;
+	ANET_SYSTEM_ERROR("Invalid app.eval_panel.model_sync.mode: " << mode
+		<< " (expected: shared, frame, time, episode)");
+	return EvalPanelModelSyncMode::Shared;
+}
+
+bool EvalPanelModelSyncConfig::UsesClonedModel() const
+{
+	return GetMode() != EvalPanelModelSyncMode::Shared;
+}
+
+void EvalPanelModelSyncConfig::Validate() const
+{
+	const auto sync_mode = GetMode();
+	if (sync_mode == EvalPanelModelSyncMode::Frame && frame_interval <= 0) {
+		ANET_SYSTEM_ERROR("Invalid app.eval_panel.model_sync.frame_interval: " << frame_interval
+			<< " (expected: positive integer)");
+	}
+	if (sync_mode == EvalPanelModelSyncMode::Time && time_interval_ms <= 0) {
+		ANET_SYSTEM_ERROR("Invalid app.eval_panel.model_sync.time_interval_ms: " << time_interval_ms
+			<< " (expected: positive integer)");
+	}
+	if (sync_mode == EvalPanelModelSyncMode::Episode && episode_interval <= 0) {
+		ANET_SYSTEM_ERROR("Invalid app.eval_panel.model_sync.episode_interval: " << episode_interval
+			<< " (expected: positive integer)");
+	}
+}
+
 EvalPanel::EvalPanel(wxWindow* parent, const EvalPanelConfig& config)
 	: wxPanel(parent), config_(config), update_timer_(this, wxID_ANY)
 {
+	config_.model_sync.Validate();
 	is_pause_ = config_.auto_start ? false : true;
 }
 
@@ -72,14 +107,18 @@ void EvalPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, st
 
 void EvalPanel::DoStep()
 {
+	SyncBeforeManualStep();
 	runner_->DoStep();
+	SyncAfterStep(runner_->GetCounts());
 	view_->CaptureViewData();
 	Refresh();
 }
 
 void EvalPanel::DoStep(int64_t action)
 {
+	SyncBeforeManualStep();
 	runner_->DoStep(action);
+	SyncAfterStep(runner_->GetCounts());
 	view_->CaptureViewData();
 	Refresh();
 }
@@ -87,21 +126,95 @@ void EvalPanel::DoStep(int64_t action)
 void EvalPanel::TogglePause()
 {
 	is_pause_ = !is_pause_;
+	if (!is_pause_ && UsesClonedModel()) {
+		SyncModel();
+	}
 	auto log_str = std::string("Eval ") + (is_pause_ ? "paused." : "resumed.");
 	LOG::info() << log_str;
 	wxGetApp().GetMainFrame()->SetStatusText(log_str);
+	wxGetApp().FlushRunOutputs();
+}
+
+bool EvalPanel::UsesClonedModel() const
+{
+	return config_.model_sync.UsesClonedModel();
+}
+
+void EvalPanel::SyncModel()
+{
+	ANET_PROFILE_FUNC();
+
+	if (!UsesClonedModel() || runner_ == nullptr) return;
+
+	runner_->Sync();
+	frames_since_model_sync_ = 0;
+	episodes_since_model_sync_ = 0;
+	last_model_sync_time_ = std::chrono::steady_clock::now();
+}
+
+void EvalPanel::SyncBeforeFrame()
+{
+	if (!UsesClonedModel()) return;
+
+	const auto sync_mode = config_.model_sync.GetMode();
+	if (sync_mode == EvalPanelModelSyncMode::Frame) {
+		++frames_since_model_sync_;
+		if (frames_since_model_sync_ >= config_.model_sync.frame_interval) {
+			SyncModel();
+		}
+	} else if (sync_mode == EvalPanelModelSyncMode::Time) {
+		const auto now = std::chrono::steady_clock::now();
+		const auto interval = std::chrono::milliseconds(config_.model_sync.time_interval_ms);
+		if (last_model_sync_time_ == std::chrono::steady_clock::time_point{}
+			|| now - last_model_sync_time_ >= interval) {
+			SyncModel();
+		}
+	}
+}
+
+void EvalPanel::SyncBeforeManualStep()
+{
+	if (!UsesClonedModel()) return;
+
+	const auto sync_mode = config_.model_sync.GetMode();
+	if (sync_mode == EvalPanelModelSyncMode::Frame || sync_mode == EvalPanelModelSyncMode::Time) {
+		SyncBeforeFrame();
+	}
+}
+
+anet::rl::ControlSignal EvalPanel::SyncAfterStep(const anet::rl::StepCounts&)
+{
+	ANET_PROFILE_FUNC();
+
+	if (UsesClonedModel()
+		&& config_.model_sync.GetMode() == EvalPanelModelSyncMode::Episode
+		&& runner_ != nullptr
+		&& runner_->LastStepHadEpisodeEnd()) {
+		++episodes_since_model_sync_;
+		if (episodes_since_model_sync_ >= config_.model_sync.episode_interval) {
+			SyncModel();
+		}
+	}
+	return anet::rl::ControlSignal::CONTINUE;
 }
 
 void EvalPanel::OnTimer(wxTimerEvent& event)
 {
-	anet::ProfileRange r("EvalPanel::OnTimer");
+	ANET_PROFILE_FUNC();
 
 	if (is_pause_) return;
 
 	// 評価エピソードを回す（Observer経由でeval_canvas更新)
 	if (config_.step_per_frame > 0) {
-		anet::ProfileRange r("LunarLanderFrame::OnEvalTimer.DoUpdateFrame");
-		runner_->DoUpdateFrame(config_.step_per_frame);
+		ANET_PROFILE_SCOPE_FULL(eval_update_frame, "EvalPanel::OnEvalTimer.DoUpdateFrame");
+		SyncBeforeFrame();
+		runner_->DoUpdateFrame(
+			config_.step_per_frame,
+			nullptr,
+			[this](const anet::rl::StepCounts& counts)
+			{
+				return SyncAfterStep(counts);
+			});
 	}
 
 	// データ断面をキャプチャ

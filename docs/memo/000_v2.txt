@@ -1,0 +1,2 @@
+■V2対応残件
+・auto_load_fileをagentからtrainerに移動。

@@ -1,10 +1,12 @@
 ﻿// anet/default_dqn_agent.hpp
 #pragma once
 
+#include <cmath>
 #include <memory>
 #include <torch/torch.h>
 
 #include "anet/config.hpp"
+#include "anet/log.hpp"
 #include "anet/replay_buffer.hpp"
 #include "anet/rl.hpp"
 #include "anet/agent.hpp"
@@ -29,11 +31,12 @@ namespace anet::rl::dqn {
         RewardScalerConfig reward_scaler;
         ObservationNormalizerConfig obs_norm;
         anet::nn::WeightInitConfig head_init;
+        anet::nn::NetworkGraphVizConfig nn_viz;
+        std::string auto_load_file;
 
         int num_quantiles = 51;
         bool use_dueling_net = true;
         bool use_qr = true;
-
         bool use_optimistic_target = false;
 
         explicit DefaultDQNAgentConfig(const ConfigData& config_data = EmptyConfigData)
@@ -43,18 +46,34 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, head_init.manual_gain);
 			head_init.nonlinearity = "linear";
 
+            ANET_READ_CONFIG(config_data, nn_viz.show_param_shapes);
+            ANET_READ_CONFIG(config_data, nn_viz.show_param_count);
+            ANET_READ_CONFIG(config_data, nn_viz.show_tensor_specs);
+            ANET_READ_CONFIG(config_data, nn_viz.show_branch_config);
+            ANET_READ_CONFIG(config_data, nn_viz.show_head_info);
+            ANET_READ_CONFIG(config_data, nn_viz.layout);
+            ANET_READ_CONFIG(config_data, nn_viz.cluster_branches);
+            ANET_READ_CONFIG(config_data, nn_viz.float_precision);
+            anet::nn::ValidateNetworkGraphVizConfig(nn_viz, "DefaultDQNAgent.nn_viz");
+
             ANET_READ_CONFIG(config_data, stucker.use_stacker);
             ANET_READ_CONFIG(config_data, stucker.stack_count);
+            ANET_READ_CONFIG(config_data, stucker.stack_keys);
 
             ANET_READ_CONFIG(config_data, model.soft_update_tau);
             ANET_READ_CONFIG(config_data, model.hard_update_interval);
-            
+
             ANET_READ_CONFIG(config_data, use_optimistic_target);
 
             ANET_READ_CONFIG(config_data, train_policy.policy_type);
             ANET_READ_CONFIG(config_data, train_policy.eps_start);
             ANET_READ_CONFIG(config_data, train_policy.eps_end);
             ANET_READ_CONFIG(config_data, train_policy.eps_decay_steps);
+            ANET_READ_CONFIG(config_data, train_policy.use_spatial_exploration);
+            ANET_READ_CONFIG(config_data, train_policy.spatial_scale_type);
+            if (train_policy.spatial_scale_type != "log" && train_policy.spatial_scale_type != "linear") {
+                ANET_SYSTEM_ERROR("Invalid train_policy.spatial_scale_type: " << train_policy.spatial_scale_type);
+            }
             ANET_READ_CONFIG(config_data, train_policy.uqe_tau_start);
             ANET_READ_CONFIG(config_data, train_policy.uqe_tau_end);
             ANET_READ_CONFIG(config_data, train_policy.uqe_tau_decay_steps);
@@ -92,6 +111,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, eval_policy.uqe_eps_decay_steps);
             ANET_READ_CONFIG(config_data, eval_policy.use_amp);
             ANET_READ_CONFIG(config_data, eval_policy.use_amp_bf16);
+            eval_policy.use_spatial_exploration = false;
 
 
             target_policy.policy_type = "Greedy";     // デフォルトは安全なGreedy
@@ -102,8 +122,10 @@ namespace anet::rl::dqn {
                 target_policy = train_policy;   // Trainの設定を丸ごとコピー
                 target_policy.eps_start = 0.0f; // ただしランダムノイズ(ε)はターゲット計算には絶対不要なので強制遮断
                 target_policy.eps_end = 0.0f;
+				target_policy.eps_decay_steps = 0;
                 target_policy.uqe_eps_start = 0.0f;
                 target_policy.uqe_eps_end = 0.0f;
+				target_policy.uqe_eps_decay_steps = 0;
 
                 // TrainがEpsilonGreedyだった場合は実質Greedyになるためタイプも変更
                 if (target_policy.policy_type == "EpsilonGreedy" || target_policy.policy_type == "0") {
@@ -127,10 +149,13 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, target_policy.uqe_eps_decay_steps);
             ANET_READ_CONFIG(config_data, target_policy.use_amp);
             ANET_READ_CONFIG(config_data, target_policy.use_amp_bf16);
+            target_policy.use_spatial_exploration = false;
 
             ANET_READ_CONFIG(config_data, learner.alpha);
-            ANET_READ_CONFIG(config_data, learner.gamma);
+            ANET_READ_CONFIG(config_data, learner.weight_decay);
             ANET_READ_CONFIG(config_data, learner.adam_eps);
+            ANET_READ_CONFIG(config_data, learner.use_fused_optimizer);
+            ANET_READ_CONFIG(config_data, learner.gamma);
             ANET_READ_CONFIG(config_data, learner.use_grad_clip);
             ANET_READ_CONFIG(config_data, learner.grad_clip_tau);
             ANET_READ_CONFIG(config_data, learner.use_td_clip);
@@ -140,6 +165,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.update_warmup_steps);
             ANET_READ_CONFIG(config_data, learner.update_interval);
             ANET_READ_CONFIG(config_data, learner.replay_ratio);
+            ANET_READ_CONFIG(config_data, learner.use_rb_prefetch);
             ANET_READ_CONFIG(config_data, learner.n_step);
             ANET_READ_CONFIG(config_data, learner.per_alpha);
             ANET_READ_CONFIG(config_data, learner.per_beta_start);
@@ -153,8 +179,15 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.use_double_dqn);
             ANET_READ_CONFIG(config_data, learner.use_n_step);
             ANET_READ_CONFIG(config_data, learner.use_per);
+            ANET_READ_CONFIG(config_data, learner.use_tbo);
+            ANET_READ_CONFIG(config_data, learner.tbo_epsilon);
             ANET_READ_CONFIG(config_data, learner.use_amp);
             ANET_READ_CONFIG(config_data, learner.use_amp_bf16);
+            if (!std::isfinite(learner.tbo_epsilon) || learner.tbo_epsilon <= 0.0f) {
+                ANET_SYSTEM_ERROR(
+                    "Invalid DefaultDQNAgent.learner.tbo_epsilon: value=" << learner.tbo_epsilon
+                    << " expected finite positive float");
+            }
 
             ANET_READ_CONFIG(config_data, reward_scaler.use_clipping);
             ANET_READ_CONFIG(config_data, reward_scaler.clip_range);
@@ -164,6 +197,11 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, reward_scaler.use_auto_post_scale);
             ANET_READ_CONFIG(config_data, reward_scaler.reference_q_std);
             ANET_READ_CONFIG(config_data, reward_scaler.manual_post_scale);
+            if (learner.use_tbo && (reward_scaler.use_dynamic_scaling || reward_scaler.use_auto_post_scale)) {
+                anet::log::warn()
+                    << "learner.use_tbo is enabled together with reward_scaler.use_dynamic_scaling or "
+                    << "reward_scaler.use_auto_post_scale; targets may be double-compressed.";
+            }
 
             ANET_READ_CONFIG(config_data, obs_norm.pass_through);
             ANET_READ_CONFIG(config_data, obs_norm.use_clipping);
@@ -179,6 +217,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, obs_norm.post_process_type);
             ANET_READ_CONFIG(config_data, obs_norm.post_process_threshold);
 
+            ANET_READ_CONFIG(config_data, auto_load_file);
             ANET_READ_CONFIG(config_data, num_quantiles);
             ANET_READ_CONFIG(config_data, use_dueling_net);
             ANET_READ_CONFIG(config_data, use_qr);
@@ -203,7 +242,6 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::rl::Actor> CreateActor(const BatchEnvSpec& batch_env_spec, RunMode mode, bool clone_model, std::optional<torch::Device> device = std::nullopt) const override;
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
     public:
-        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override;
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
@@ -213,10 +251,11 @@ namespace anet::rl::dqn {
     private:
         std::shared_ptr<ActionContext> CreateActionContext(
             const BatchEnvSpec& batch_env_spec, RunMode run_mode = RunMode::Train, std::optional<torch::Device> device = std::nullopt) const;
-        anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const;
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences);
     private:
-        std::shared_ptr<anet::rl::dqn::ActionPolicy> CreateActionPolicy(const ActionPolicyConfig& policy_config);
+        std::shared_ptr<anet::rl::dqn::ActionPolicy> CreateActionPolicy(
+            const ActionPolicyConfig& policy_config, bool enable_spatial_exploration, int64_t num_envs, const torch::Device& device);
+        void LoadNetwork(const std::string& filename);
     private:
         DefaultDQNAgentConfig config_;
         std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;

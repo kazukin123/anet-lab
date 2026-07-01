@@ -8,24 +8,15 @@
 #include <vector>
 #include <functional>
 #include <map>
+#include <utility>
 #include <torch/torch.h>
 #include "anet/config.hpp"
+#include "anet/common.hpp"
+#include "anet/graphviz.hpp"
 
 
 namespace anet::nn {
-	
 
-    /// 予約タグ: Graphへの入力テンソルを指す
-    static constexpr const char* kReservedTagInput = "input";
-
-    /// 予約タグ: 直前ブロックの出力テンソルを指す
-    static constexpr const char* kReservedTagPrev = "prev";
-    
-    /// モジュール生成時のコンテキスト情報（構造情報）
-    struct ModuleContext {
-        std::vector<std::string> input_tags;  ///< このモジュールへの入力として指定されたタグ一覧
-        std::vector<int64_t> input_shape;     ///< 入力テンソルの形状
-    };
 
     // ===========================================================================
     // Config Structures
@@ -36,14 +27,21 @@ namespace anet::nn {
         anet::ConfigData config_data; // Specific config data for the block. "kernel_size"=3 etc.
     };
 
+    struct NetworkBranchConfig {
+        std::string name;                      ///< ブランチ名（＝出力キー）
+        std::vector<std::string> bind_keys;    ///< 入力として要求するキーのリスト
+        std::vector<std::string> raw_keys;     ///< bind_keys のうち、"(raw)" が指定されたキーのリスト
+        bool auto_format = true;               ///< ブランチ全体での自動フォーマット有効/無効
+        std::string structure_str;             ///< ブランチ内部の直列パイプライン構造
+    };
+
     struct NetworkConfig {
         std::map<std::string, NetworkBlockConfig> block_configs;
-        std::string structure_str;      // 空文字列でパススルー。 例：Flatten > Linear_128 > ReLU > Linear_256 > ReLU
-        std::map<std::string, std::string> additional_structures;   // Head等で任意で使うstructure_str
+        std::map<std::string, NetworkBranchConfig> branches;
+        std::map<std::string, std::string> output_keys;
 
         NetworkConfig() = default;
-        /// ConfigData指定のコンストラクタ。structure_str指定有りの場合はそれを優先
-        NetworkConfig(const anet::ConfigData& config_data, std::optional<std::string> structure_str = std::nullopt);
+        NetworkConfig(const anet::ConfigData& config_data, const std::string& config_prefix = "net");
 		anet::json ToJson() const;
     };
 
@@ -54,38 +52,45 @@ namespace anet::nn {
         double constant_val = 0.0;          ///< for Constant
     };
 
-
-    // ===========================================================================
-    // Network Module Interface (Base Marker)
-    // ===========================================================================
-
-    /// @brief anet管理下のニューラルネットモジュール基底クラス
-    class NetworkModule : public torch::nn::Module {
-    public:
-        /// @brief Forward実行
-        ///        torch::nn::Module::forwardはテンプレートメソッドのため、
-        ///        多態性を持たせるために純粋仮想関数として再定義する。
-        virtual torch::Tensor Forward(torch::Tensor input) = 0;
-
-        virtual bool IsConv2dVisualizable() const { return false; }
-
-        virtual ~NetworkModule() = default;
+    struct NetworkGraphVizConfig {
+        bool show_param_shapes = false;
+        bool show_param_count = false;
+        bool show_tensor_specs = false;
+        bool show_branch_config = false;
+        bool show_head_info = false;
+        std::string layout = "LR";
+        bool cluster_branches = true;
+        int float_precision = 3;
     };
+
+    void ValidateNetworkGraphVizConfig(const NetworkGraphVizConfig& config, const std::string& owner);
 
 
     // ===========================================================================
     // NetworkHead
     // ===========================================================================
 
-    class NetworkHead : public torch::nn::Module, public anet::TensorFunctionProvider {
+    struct HeadGraphVizInfo {
+        struct OutputInfo {
+            std::string name;
+            std::vector<int64_t> shape;
+        };
+
+        std::string type;
+        std::vector<OutputInfo> outputs;
+        std::vector<std::pair<std::string, std::string>> details;
+    };
+
+    class NetworkHead : public torch::nn::Module, public anet::TensorDictFunctionProvider {
     public:
-        virtual anet::TensorDict Forward(torch::Tensor feature_vector) = 0;
+        virtual anet::TensorDict Forward(const anet::TensorDict& feature_dict) = 0;
+        virtual HeadGraphVizInfo GetGraphVizInfo() const { return {}; }
         virtual ~NetworkHead() = default;
     };
 
     class NetworkHeadFactory {
     public:
-		virtual std::shared_ptr<NetworkHead> CreateHead(int64_t input_dim) const = 0;
+        virtual std::shared_ptr<NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const = 0;
         virtual ~NetworkHeadFactory() = default;
     };
 
@@ -96,22 +101,24 @@ namespace anet::nn {
 
     class NetworkBody;
 
-    class Network : public torch::nn::Module, public anet::TensorFunctionProvider {
+    class Network : public torch::nn::Module, public anet::TensorDictFunctionProvider {
     public:
         Network(
             const NetworkConfig& config,
-            const std::vector<int64_t>& input_shape,
+            const anet::TensorSpecMap& input_specs,
             std::shared_ptr<NetworkHeadFactory> head_factory,
             std::shared_ptr<NetworkBody> body,
             std::shared_ptr<NetworkHead> head);
 
-        std::optional<TensorFunction> GetTensorFunction(const std::string& key) override;
-        anet::TensorDict Forward(const torch::Tensor& input); ///<  Input -> Body -> Feature -> Head -> Output
-        anet::TensorDict GetConv2dOutputs(const torch::Tensor& input) const;
+        anet::TensorDict Forward(const anet::TensorDict& input, const anet::TraceSink& sink = {});
 
         std::shared_ptr<Network> Clone(std::optional<torch::Device> device = std::nullopt) const;                 /// 自身の完全な複製(別インスタンス)を生成
         void CopyTo(Network& target) const;                     /// ターゲットへ重みを完全上書き (Hard Update)
         void SoftCopyTo(Network& target, double tau) const;     /// ターゲットへ重みをブレンド (Soft Update)
+
+    public: //可視化関連
+        std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
+        std::unique_ptr<anet::graphviz::GraphViz> MakeGraphViz(const NetworkGraphVizConfig& config) const;
     private:
         // 実行用の実体
         std::shared_ptr<NetworkBody> body_;
@@ -119,17 +126,22 @@ namespace anet::nn {
 
         // 構築情報(Clone用)
         NetworkConfig config_;
-        std::vector<int64_t> input_shape_;
+        anet::TensorSpecMap input_specs_;
         std::shared_ptr<NetworkHeadFactory> head_factory_;
     };
+
+
+    // ===========================================================================
+    // NetworkBuilder
+    // ===========================================================================
 
     class NetworkBuilder {
     public:
         static std::shared_ptr<Network> BuildNetwork(
             const NetworkConfig& network_config,
-            const std::vector<int64_t>& input_shape,   ///< InputのTensor形状 (例: {Channels, Height, Width} or {Channels, Length})
-            std::shared_ptr<NetworkHeadFactory> head_factory
-        );
+            const anet::TensorSpecMap& input_specs,
+            std::shared_ptr<NetworkHeadFactory> head_factory,
+            std::optional<torch::Device> device = std::nullopt);
     };
 
 } // namespace anet::nn

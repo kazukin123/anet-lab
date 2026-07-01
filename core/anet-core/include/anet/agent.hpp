@@ -26,7 +26,7 @@ namespace anet::rl {
         RunMode GetRunMode() const { return run_mode_; }
 
         /// @return 加工されたObservation
-        virtual torch::Tensor PushObservation(const anet::rl::BatchState& state) = 0;
+        virtual anet::TensorDict PushObservation(const anet::rl::BatchState& state) = 0;
         virtual void Reset() = 0;
 
         virtual ~ActionContext() = default;
@@ -42,12 +42,26 @@ namespace anet::rl {
     /// 加工を行わず、State内のobsをそのまま通過させるActionContext 
     class DefaultActionContext : public ActionContext {
     public:
-        DefaultActionContext(RunMode run_mode, std::optional<seed_t> seed = std::nullopt) : ActionContext(run_mode, seed) { }
+        DefaultActionContext(RunMode run_mode, std::optional<seed_t> seed = std::nullopt, std::optional<torch::Device> device = std::nullopt)
+            : ActionContext(run_mode, seed)
+            , device_(device)
+        {
+        }
 
-        torch::Tensor PushObservation(const BatchState& state) override { return state.obs; } ///< そのまま obs を返す
+        anet::TensorDict PushObservation(const BatchState& state) override
+        {
+            ///< そのまま obs を返す
+            if (device_.has_value()){
+                return state.obs.To(device_.value());
+            } else {
+                return state.obs;
+            }
+        }
         void Reset() override { }
 
 		virtual ~DefaultActionContext() = default;
+    private:
+        std::optional<torch::Device> device_;
     };
 
 
@@ -63,15 +77,15 @@ namespace anet::rl {
             const EnvSpec& env_spec,
             std::optional<seed_t> seed = std::nullopt);
 
+        torch::Device GetDevice() const override { return device_; }
         virtual ~AgentBase() = default;
     protected:
         std::shared_ptr<anet::RandomGenerator> GetRandomGenerator(RunMode mode) const;
     protected:
         std::shared_ptr<std::shared_mutex> mutex_;
         const torch::Device device_;
-        int state_dim_;
         int n_actions_;
-        int batch_size_;
+        int num_envs_;
     private:
         mutable std::unordered_map<RunMode, std::shared_ptr<anet::RandomGenerator>> run_mode_rngs_;
         mutable std::mutex rng_mutex_;
@@ -116,6 +130,8 @@ namespace anet::rl {
             float eps_start = 1.0f;
             float eps_end = 0.05f;
             uint64_t eps_decay_steps = 100000;
+            bool use_spatial_exploration = false;
+            std::string spatial_scale_type = "log";
 
             // ==========================================
             // UQE / ThompsonSampling 用設定
@@ -139,13 +155,16 @@ namespace anet::rl {
         struct StuckerConfig {
             bool use_stacker = false;
             int stack_count = 4;
+			std::vector<std::string> stack_keys; // obs内のどのキーをスタックするか。空なら全てスタック
         };
 
         struct LearnerConfig {
-            float alpha = 1e-3f;         ///<  学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
-            float gamma = 0.99f;         ///<  0.99f; 0.995f      γが高いほど「長期安定」を目指す
-
+            float alpha = 1e-3f;         ///< 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
+            float weight_decay = 1e-2f;  ///< AdamWの重み減衰率
             float adam_eps = 1e-5;       ///< ゼロ除算防止項。LibTorchのデフォルトは1e-8。大きくすることで小さな勾配の変化に敏感になりすぎるのを防ぎ学習をマイルドに。
+            bool use_fused_optimizer = true; ///< ATen fused AdamWを使うか。falseで従来AdamWへ戻す。
+
+            float gamma = 0.99f;         ///< 0.99f; 0.995f      γが高いほど「長期安定」を目指す
 
             bool use_grad_clip = true;
             float grad_clip_tau = 30.0f;
@@ -156,7 +175,8 @@ namespace anet::rl {
             int replay_batch_size = 128;
             int update_warmup_steps = 1000;
             int update_interval = 2;         ///< 何ステップに1回Updateするか。replay_ratioが正なら使われない。
-            float replay_ratio = -1;         ///< 環境1ステップあたり平均何回の勾配更新を行うか。batch_sizeに依存しない。負数ではuppdate_intervalのみ使う
+            float replay_ratio = -1;         ///< 環境1ステップあたり平均何回の勾配更新を行うか。num_envsに依存しない。負数ではuppdate_intervalのみ使う
+            bool use_rb_prefetch = false;    ///< ReplayBuffer Sample + H2Dを1バッチ先読みし、armed後のPushを遅延投入するか
 
             int n_step = 3;
 
@@ -172,6 +192,9 @@ namespace anet::rl {
             bool use_double_dqn = true;   ///< Double DQN 有効化フラグ
             bool use_n_step = true;       ///< N-STEPを使用するか
             bool use_per = true;          ///< PERを使用するか
+
+            bool use_tbo = false;         ///< Transformed Bellman Operatorを使用するか
+            float tbo_epsilon = 1e-2f;    ///< TBO変換関数hの正則化項
 
             int num_quantiles = 51;         ///< 分位数 N (デフォルト51)
             float quantile_huber_kappa = 1.0f;///< Huber Loss の閾値 kappa

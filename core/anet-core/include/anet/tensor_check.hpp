@@ -61,6 +61,12 @@ void _anet_check_device_impl(const torch::Tensor& t,
     const char* file,
     int line);
 
+void _anet_check_device_impl(const anet::TensorDict& t,
+    const torch::Device& expect,
+    const char* msg,
+    const char* file,
+    int line);
+
 void _anet_check_shape_impl(const torch::Tensor& t,
     const std::vector<int64_t>& expect,
     const char* msg, const char* file, int line);
@@ -70,6 +76,8 @@ void _anet_check_shape_or_impl(const torch::Tensor& t,
     const char* msg, const char* file, int line);
 
 void _anet_check_nan_impl(const torch::Tensor& t, const char* msg, const char* file, int line);
+
+void _anet_check_nan_impl(const anet::TensorDict& t, const char* msg, const char* file, int line);
 
 #endif
 

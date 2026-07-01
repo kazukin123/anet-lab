@@ -7,6 +7,7 @@
 #include <wx/log.h>
 #include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
+#include "anet/tensor_util.hpp"
 #include "anet/env.hpp"
 
 // 定数
@@ -31,9 +32,7 @@ const float tau = 0.02f;    //0.02f 0.01f
 
 const float deg = (float)M_PI / 180.0f;
 
-CartPoleEnv::CartPoleEnv(
-    const CartPoleEnvConfig& config,
-    const torch::Device& device, std::optional<anet::seed_t> seed)
+CartPoleEnv::CartPoleEnv(const CartPoleEnvConfig& config, const torch::Device& device, std::optional<anet::seed_t> seed)
     : RandomHolder(seed), config_(config)
 {
     // パラメータ記録
@@ -47,26 +46,35 @@ CartPoleEnv::CartPoleEnv(
 
 anet::rl::EnvSpec CartPoleEnv::GetSpec() const
 {
-    anet::rl::StateSpec state = {
-        {4},   // shape
-        {      //dims
-            { {0}, -limit_x - limit_x_dot * tau, limit_x + limit_x_dot * tau,     "x"},         // dims[0] coords, min, max, name, desc
-            { {1}, -limit_x_dot, limit_x_dot,           "x_dot"},     // dims[1] coords, min, max, name, desc
-            { {2}, -limit_theta * deg - limit_theta_dot * tau, limit_theta * deg + limit_theta_dot * tau, "theta"}, // dims[2] coords, min, max, name, desc
-            { {3}, -limit_theta_dot, limit_theta_dot,           "theta_dot"}  // dims[3] coords, min, max, name, desc
-        }
+    // TensorSpec
+    anet::TensorSpec vec_obs_spec {
+        .type = anet::SpaceType::Vector,
+        .shape = { 4 },
+        .dtype = torch::kFloat32,
+        .num_classes = 0,   // 連続値
+        .labels = { "x", "x_dot", "theta", "theta_dot" },
+        .min_values = { -limit_x, -limit_x_dot, -limit_theta, -limit_theta_dot },
+        .max_values = { limit_x,  limit_x_dot,  limit_theta,  limit_theta_dot }
     };
-    anet::rl::ActionSpec action = {
-        true,   // is_discreate
-        { "right", "left"}, // value_labels
-        { // dims
+
+    // StateSpec
+    anet::rl::StateSpec state_spec;
+    state_spec.obs_spec[anet::rl::ObsKeys::kVector] = vec_obs_spec;
+
+    // ActionSpec
+    anet::rl::ActionSpec action_spec {
+        .is_discrete = true,   // is_discreate
+        .value_labels = { "right", "left"}, // value_labels
+        .dims = { // dims
             { 0, 1, "force" }  // min, max, name
         }
     };
-    anet::rl::EnvSpec env_spec = {
-        state,
-        action,
-        { -1, 1 }   //reward_range: min, max
+
+    // EnvSpec
+    anet::rl::EnvSpec env_spec {
+        .state_spec = state_spec,
+        .action_spec = action_spec,
+        .reward_range = { -1.0f, 1.0f }   // min, max
     };
 
     return env_spec;
@@ -74,7 +82,7 @@ anet::rl::EnvSpec CartPoleEnv::GetSpec() const
 
 std::shared_ptr<const anet::rl::SingleResetResult> CartPoleEnv::Reset(anet::rl::RunMode mode)
 {
-    anet::ProfileRange r("CartPoleEnv::Reset");
+    ANET_PROFILE_FUNC();
 
     if (anet::rl::IsTrain(mode)) {
         const float d = 0.05f;
@@ -102,10 +110,10 @@ std::shared_ptr<const anet::rl::SingleResetResult> CartPoleEnv::Reset(anet::rl::
 
     auto result = std::make_shared<anet::rl::SingleResetResult>(
         anet::rl::SingleState {
-            torch::tensor({ x_, x_dot_, theta_, theta_dot_ }, obs_opt_), // (4)
-            done_,
-            truncated_,
-            episode_start_
+            .obs = { anet::rl::ObsKeys::kVector, torch::tensor({ x_, x_dot_, theta_, theta_dot_ }, obs_opt_) },
+            .done = done_,
+            .truncated = truncated_,
+            .episode_start = episode_start_
         }
     );
     return result;
@@ -113,7 +121,7 @@ std::shared_ptr<const anet::rl::SingleResetResult> CartPoleEnv::Reset(anet::rl::
 
 std::shared_ptr<const anet::rl::SingleStepResult> CartPoleEnv::Step(int64_t action, anet::rl::RunMode mode)
 {
-    anet::ProfileRange r("CartPoleEnv::Step");
+    ANET_PROFILE_FUNC();
 
     episode_start_ = false;
 
@@ -211,13 +219,13 @@ std::shared_ptr<const anet::rl::SingleStepResult> CartPoleEnv::Step(int64_t acti
         truncated_ = true;
     }
 
-    auto result = std::make_shared<anet::rl::DefaultSingleStepResult>(
+    auto result = std::make_shared<anet::rl::SingleStepResult>(
         reward,
         anet::rl::SingleState {
-            torch::tensor({ x_, x_dot_, theta_, theta_dot_ }, obs_opt_), // obs (4)
-            done_,
-            truncated_,
-            episode_start_
+            .obs = { anet::rl::ObsKeys::kVector, torch::tensor({ x_, x_dot_, theta_, theta_dot_ }, obs_opt_) },
+            .done = done_,
+            .truncated = truncated_,
+            .episode_start = episode_start_
         });
 
     return result;

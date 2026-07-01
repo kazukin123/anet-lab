@@ -63,6 +63,9 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, use_qr);
 
             learner.num_quantiles = num_quantiles;
+            learner.use_rb_prefetch = false;
+            learner.use_tbo = false;
+            learner.use_fused_optimizer = false;
         }
     };
 
@@ -74,13 +77,12 @@ namespace anet::rl::dqn {
             const anet::rl::BatchEnvSpec& batc_env_spec, const anet::rl::EnvSpec& env_spec, const torch::Device& device,
             std::optional<seed_t> seed = std::nullopt);
 
-        anet::rl::BatchActionInfo MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const;
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const anet::rl::BatchExperience& exprience);
     public:
         std::shared_ptr<anet::rl::Actor> CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, bool clone_model, std::optional<torch::Device> device = std::nullopt) const override;
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
     public:
-        std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override;
+        std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;

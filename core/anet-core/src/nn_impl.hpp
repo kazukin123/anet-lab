@@ -8,17 +8,12 @@ namespace anet::nn {
 
 
     // ===========================================================================
-    // Helper Functions (Internal)
-    // ===========================================================================
-
-    int ParseInt(const std::string& s, const std::string& param_name);
-
-
-    // ===========================================================================
     //  WeightInitializer
     // ===========================================================================
 
     torch::nn::init::NonlinearityType GetNonlinearityType(const std::string& name);
+    torch::Tensor SdpaSelfAttention(const torch::nn::MultiheadAttention& mha, const torch::Tensor& x);
+    torch::Tensor DropPath(const torch::Tensor& x, double drop_prob, bool training);
 
     class WeightInitializer {
     public:
@@ -53,7 +48,7 @@ namespace anet::nn {
                         auto nonlinearity_mode = GetNonlinearityType(config.nonlinearity);
                         gain = torch::nn::init::calculate_gain(nonlinearity_mode);
                     } catch (...) {
-                        ANET_SYSTEM_ERROR("Unknown nonlinearity: " << config.nonlinearity << ". Using gain=1.0");
+                        ANET_SYSTEM_ERROR("Unknown nonlinearity: " << config.nonlinearity);
                     }
                 }
 
@@ -79,92 +74,132 @@ namespace anet::nn {
 
 
     // ===========================================================================
-    // Internal Components (Block & Body)
+    // Network Internal Components
     // ===========================================================================
 
-    /// @brief 単一のモジュールをラップし、入出力タグ情報を保持するブロック
+    /// anet管理下のニューラルネットモジュール基底クラス
+    class NetworkModule : public torch::nn::Module {
+    public:
+        /// Forward実行.
+        /// torch::nn::Module::forwardはテンプレートメソッドのため、多態性を持たせるために純粋仮想関数として再定義
+        virtual torch::Tensor Forward(torch::Tensor input) = 0;
+        virtual bool IsConv2dVisualizable() const { return false; }
+        virtual anet::ConfigData GetCurrentConfigData() const { return {}; }
+        virtual ~NetworkModule() = default;
+    };
+
+    /// 単一のモジュールをラップし、入出力タグ情報を保持するブロック
     class NetworkBlock : public torch::nn::Module {
     public:
-        NetworkBlock(
-            std::string name,
-            std::shared_ptr<NetworkModule> module,
-            std::vector<std::string> input_tagss,
-            std::string output_tag
-        );
+        NetworkBlock(std::string name, std::shared_ptr<NetworkModule> module);
 
         torch::Tensor Forward(torch::Tensor input);
 
         const std::string& GetName() const { return name_; }
-        const std::vector<std::string>& GetInputTags() const { return input_tags_; }
-        const std::string& GetOutputTag() const { return output_tag_; }
         std::shared_ptr<NetworkModule> GetModule() const { return module_; }
         bool IsConv2dVisualizable() const { return module_ ? module_->IsConv2dVisualizable() : false; }
     private:
         std::string name_;
         std::shared_ptr<NetworkModule> module_;
-        std::vector<std::string> input_tags_;
-        std::string output_tag_;
     };
 
-    /// @brief 複数のBlockを順次実行し、タグによるデータフローを解決する実行エンジン
+    /// 複数のBlockを順次実行し、タグによるデータフローを解決する実行エンジン
     class NetworkStruct : public torch::nn::Module {
     public:
         explicit NetworkStruct(std::vector<std::shared_ptr<NetworkBlock>> blocks = {});
 
-        /// @brief Graph全体への入力inputを受け取り、フローを実行して最終出力を返す
-        torch::Tensor Forward(torch::Tensor input);
-
-        /// @brief ダミー入力による出力次元計測
-        int64_t InferFeatureDim(const std::vector<int64_t>& input_shape);
-
-        anet::TensorDict GetConv2dOutputs(torch::Tensor input);
+        torch::Tensor Forward(torch::Tensor input, const anet::TraceSink& sink = {});
+        const std::vector<std::shared_ptr<NetworkBlock>>& GetBlocks() const { return blocks_; }
     private:
         std::vector<std::shared_ptr<NetworkBlock>> blocks_;
     };
 
-    /// @brief NetworkStructを持つサブブロック用モジュール (CompositeModule)
-    class CompositeModule : public NetworkModule {
+    /// DAGを構成する一本のノード.
+    /// 入力を結合し、内部の直列パイプラインに流す。
+    class NetworkBranch : public torch::nn::Module {
     public:
-        explicit CompositeModule(std::shared_ptr<NetworkStruct> graph);
+        NetworkBranch(
+            std::string name, std::vector<std::string> bind_keys, std::shared_ptr<NetworkStruct> network_struct);
 
-        torch::Tensor Forward(torch::Tensor input) override;
+        /// 現在のTensorDictから必要な入力(bind)を拾って結合し、処理を実行して結果をDictに書き戻す
+        void Execute(anet::TensorDict& current_state, const anet::TraceSink& sink = {});
 
-        /// @todo nn_modules.cppに移す？
+        const std::string& GetName() const { return name_; }
+        const std::vector<std::string>& GetBindKeys() const { return bind_keys_; }
+        std::shared_ptr<NetworkStruct> GetNetworkStruct() const { return network_struct_; }
+
     private:
-        std::shared_ptr<NetworkStruct> graph_;
+        std::string name_;
+        std::vector<std::string> bind_keys_;
+        std::shared_ptr<NetworkStruct> network_struct_;
     };
-
-    /// @brief NetworkStructを持つルートオブジェクト (NetworkBody)
-    class NetworkBody : public NetworkModule {
-    public:
-        explicit NetworkBody(std::shared_ptr<NetworkStruct> graph);
-
-        torch::Tensor Forward(torch::Tensor input) override;
-        int64_t InferFeatureDim(const std::vector<int64_t>& input_shape);  ///< ダミー入力による出力次元計測
-        anet::TensorDict GetConv2dOutputs(torch::Tensor input);
-    private:
-        std::shared_ptr<NetworkStruct> graph_;
-    };
-
-
-    // ===========================================================================
-    // Internal Factories & Repository
-    // ===========================================================================
 
     class NetworkStructBuilder {
     public:
         /// @brief Config全体と、パース対象の構造文字列を受け取り、NetworkStructを構築する
         static std::shared_ptr<NetworkStruct> Build(
-            const NetworkConfig& root_config,
-            const std::string& structure_str
-        );
+            const NetworkConfig& root_config, const std::string& structure_str);
+    };
+
+
+    // ===========================================================================
+	// NetworkBody related classes
+    // ===========================================================================
+
+    /// 環境からの生TensorDictを、NN入力用に最初に受け取ってチェック・変換する関所（NetworkBody内部クラス）
+    class NetworkBoundaryPreprocessor {
+    public:
+        NetworkBoundaryPreprocessor(
+            const anet::TensorSpecMap& specs, const std::vector<std::string>& raw_keys);
+
+        /// フォーマット済みのTensorDictを生成して返す
+        anet::TensorDict Format(const anet::TensorDict& raw_input) const;
+    private:
+        anet::TensorSpecMap specs_;
+        std::set<std::string> raw_keys_; // 検索速度のため set に保持
+    };
+
+    class NetworkBody : public torch::nn::Module {
+    public:
+        NetworkBody(
+            std::vector<std::shared_ptr<NetworkBranch>> branches,
+            const anet::TensorSpecMap& specs,
+            const std::vector<std::string>& raw_keys,
+            std::map<std::string, std::string> output_keys);
+
+        // DAG全体のForward実行
+        anet::TensorDict Forward(const anet::TensorDict& input, const anet::TraceSink& sink = {});
+        const std::vector<std::shared_ptr<NetworkBranch>>& GetBranches() const { return branches_; }
+        const std::map<std::string, std::string>& GetOutputKeys() const { return output_keys_; }
+
+    private:
+        std::vector<std::shared_ptr<NetworkBranch>> branches_;
+        NetworkBoundaryPreprocessor preprocessor_;
+        std::map<std::string, std::string> output_keys_;
+    };
+
+    class NetworkBodyBuilder {
+    public:
+        /// 設定とSpecからDAG全体を解析・トポロジカルソートし、NetworkBodyを構築する
+        static std::shared_ptr<NetworkBody> Build(
+            const NetworkConfig& config, const anet::TensorSpecMap& input_specs);
+    };
+
+
+    // ===========================================================================
+    // NetworkModule Factories & Repository
+    // ===========================================================================
+
+    /// モジュール生成時のコンテキスト情報（構造情報）
+    struct ModuleContext {
+    	// メンバ無し（今後の拡張用）
     };
 
     class NetworkModuleFactory {
     public:
         /// @brief Context (タグ情報等) を受け取り、適切なモジュールを生成する
         virtual std::shared_ptr<NetworkModule> CreateModule(
-            const ConfigData& config_data,const ModuleContext& context) const = 0;
+            const ConfigData& config_data, const ModuleContext& context) const = 0;
         virtual ~NetworkModuleFactory() = default;
     };
 
@@ -188,7 +223,12 @@ namespace anet::nn {
         NetworkModuleRepository::Instance().Register(type_name, factory);
     }
 
-	void InitNN();
+
+    // ===========================================================================
+	// Global Initialization
+    // ===========================================================================
+
+    void InitNN();
 
 
 } // namespace anet:nn

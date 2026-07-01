@@ -1,4 +1,7 @@
-﻿#include "anet/observers.hpp"
+﻿// observers.cpp
+
+#include "anet/observers.hpp"
+#include <limits>
 #include <wx/log.h>
 #include "anet/profile.hpp"
 #include "anet/str_util.hpp"
@@ -6,6 +9,7 @@
 #include "anet/metrics_logger.hpp"
 #include "anet/log.hpp"
 #include "anet/env.hpp"
+#include "anet/trainer.hpp"
 
 
 using namespace anet::rl;
@@ -58,14 +62,14 @@ HeatMapVectorObserver::HeatMapVectorObserver(
 
 void HeatMapVectorObserver::OnTrain(const TrainEvent& event)
 {
-    anet::ProfileRange r("HeatMapVectorObserver::OnTrain");
+    ANET_PROFILE_FUNC();
 
     // 実行判定
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);
     if (config_.log_interval <= 0) return;
     if (step % config_.log_interval != 0) return;
 
-    anet::ProfileRange r1("HeatMapVectorObserver::OnTrain.getVector");
+    ANET_PROFILE_SCOPE(get_vector);
     std::unique_lock<std::shared_mutex> lock(mutex_);
 
     // 生成： xv, yv, vv
@@ -86,14 +90,14 @@ void HeatMapVectorObserver::OnTrain(const TrainEvent& event)
     }
 
     // データ追加
-    anet::ProfileRange r2("HeatMapVectorObserver::OnTrain.addDataBatch", r1);
+    ANET_PROFILE_SCOPE_NEXT(add_data_batch);
     heatmap_->Reset();  // 毎回バッファクリア（最新のRB内容だけ描画）
     heatmap_->AddDataBatch(*xv, *yv, *vv);
 
     captured_step_ = step;
 
     // 画像保存
-    anet::ProfileRange r3("HeatMapVectorObserver::OnTrain.logImage", r1); // 親スコープをr1に変更(r2はif内なので)
+    ANET_PROFILE_SCOPE_NEXT(log_image);
     MetricsLogger::Instance()->Log(
         tag_,
         step,
@@ -124,7 +128,7 @@ TimeHistogramObserver::TimeHistogramObserver(
 
 void TimeHistogramObserver::OnLearn(const LearnEvent& event)
 {
-    anet::ProfileRange r("TimeHistogramObserver::OnTrain");
+    ANET_PROFILE_FUNC();
 
     /// @todo メトリクスのSTEP軸を指定できるようにする
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::LEARN);
@@ -132,7 +136,7 @@ void TimeHistogramObserver::OnLearn(const LearnEvent& event)
     std::unique_lock<std::shared_mutex> lock(mutex_);
 
     // Probeで vectorを取得
-    anet::ProfileRange r1("TimeHistogramObserver::OnTrain.getVector");
+    ANET_PROFILE_SCOPE(get_vector);
     auto values = probe_->GetVector(event);
     if (values.has_value()) {
         histogram_->AddBatch(*values);
@@ -150,7 +154,7 @@ void TimeHistogramObserver::OnLearn(const LearnEvent& event)
         // A. ログ頻度がフレームより高い (log < frame) → 毎回出す（間引きようがないため）
         // B. ログ頻度が低い (log >= frame) → ステップがログ間隔と合う時だけ出す
         if (config_.log_interval <= config_.frame_interval || step % config_.log_interval == 0) {
-            anet::ProfileRange r2("TimeHistogramObserver::OnTrain.logImage", r1);
+            ANET_PROFILE_SCOPE_NEXT(log_image);
             captured_step_ = step;
             MetricsLogger::Instance()->Log(tag_, step, *histogram_, config_.image_width, config_.image_height);
         }
@@ -231,12 +235,12 @@ inline float Normalize01(
 
 void MultiPairHeatMapObserver::OnTrain(const TrainEvent& event)
 {
-    anet::ProfileRange r("MultiPairHeatMapObserver::OnTrain");
+    ANET_PROFILE_FUNC();
 
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);
 
     // --- 値ベクトル取得 ---
-    anet::ProfileRange r1("MultiPairHeatMapObserver::OnTrain.getVector");
+    ANET_PROFILE_SCOPE(get_vector);
     
     auto vv = value_probe_->GetVector(event);
     if (!vv || vv->empty()) return;
@@ -255,7 +259,7 @@ void MultiPairHeatMapObserver::OnTrain(const TrainEvent& event)
     if (batch_y.capacity() < estimated_size) batch_y.reserve(estimated_size);
     if (batch_v.capacity() < estimated_size) batch_v.reserve(estimated_size);
 
-    anet::ProfileRange r2("MultiPairHeatMapObserver::OnTrain.processPairs", r1);
+    ANET_PROFILE_SCOPE_NEXT(process_pairs);
 
     // --- 全プローブペア i < j をスキャン ---
     for (size_t i = 0; i < m; i++) {
@@ -313,7 +317,7 @@ void MultiPairHeatMapObserver::OnTrain(const TrainEvent& event)
     }
 
     // --- 画像保存 ---
-    anet::ProfileRange r3("MultiPairHeatMapObserver::OnTrain.logImage", r2);
+    ANET_PROFILE_SCOPE_NEXT(log_image);
     if (config_.log_interval > 0 && step % config_.log_interval == 0) {
         MetricsLogger::Instance()->Log(
             tag_, step,
@@ -329,7 +333,7 @@ SweepedHeatMapObserver::SweepedHeatMapObserver(
     const std::string& tag,
     const SweepedHeatMapObserverConfig& config,
     std::shared_ptr<ISweepInputGenerator> input_gen,
-    TensorFunction tensor_fn,
+    TensorDictFunction tensor_fn,
     std::shared_ptr<ISweepOutputExtractor> output_ext,
     const std::unordered_map<std::string, std::string>& scalar_tag_label_map
     )
@@ -372,7 +376,7 @@ SweepedHeatMapObserver::SweepedHeatMapObserver(
 
 void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
 {
-    anet::ProfileRange r("SweepedHeatMapObserver::OnLearn");
+    ANET_PROFILE_FUNC();
 
     /// @todo メトリクスのSTEP軸を指定できるようにする？
 
@@ -381,7 +385,7 @@ void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
     if (config_.log_interval <= 0) return;
     if (step % config_.log_interval != 0) return;
 
-    anet::ProfileRange r1("SweepedHeatMapObserver::OnTrain.render");
+    ANET_PROFILE_SCOPE(render);
     std::unique_lock<std::shared_mutex> lock(mutex_);
 
     // データ採取
@@ -400,7 +404,7 @@ void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
     ANET_LOG_DEBUG("LogImage() done. tag=" << tag_);
 
     // Scalarログ出力
-    anet::ProfileRange r6("SweepedHeatMapObserver::OnTrain.logScalar", r1);
+    ANET_PROFILE_SCOPE_NEXT(log_scalar);
     for (int i = 0; i < extract_result.labels.size(); i++) {
         auto result_label = extract_result.labels[i];
         auto tag_itr = scalar_label_tag_map_.find(result_label);
@@ -424,16 +428,22 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
     const int64_t grid_num = static_cast<int64_t>(grid_w_) * static_cast<int64_t>(grid_h_);
 
     // 入力バッチ生成（GPU 上）
-    anet::ProfileRange r1("SweepedHeatMapObserver::Render.build");
-    torch::Tensor batch_in = input_gen_->BuildInputTensor();
-    ANET_ASSERT_SHAPE(batch_in, { grid_num, ANET_SHAPE_ENDANY });
-    ANET_LOG_DEBUG("batch_in=" << anet::ToDefString(batch_in));
+    ANET_PROFILE_SCOPE(build);
+    anet::TensorDict batch_in = input_gen_->BuildInputTensor();
+    ANET_LOG_DEBUG("batch_in=" << batch_in.ToDefString());
 
     // NN 適用（GPU 上）
-    anet::ProfileRange r2("SweepedHeatMapObserver::Render.nn", r1);
-    torch::Tensor batch_out = tensor_fn_(batch_in);
+    ANET_PROFILE_SCOPE_NEXT(nn);
+    anet::TensorDict batch_out_dict = tensor_fn_(batch_in);
+    const auto batch_out_opt = batch_out_dict.Get(config_.output_key);
+    if (!batch_out_opt.has_value()) {
+        ANET_SYSTEM_ERROR(
+            "SweepedHeatMapObserver: output_key not found. tag=" << tag_
+            << " output_key=" << config_.output_key);
+    }
+    torch::Tensor batch_out = *batch_out_opt;
     ANET_ASSERT_SHAPE(batch_out, { grid_num, ANET_SHAPE_ENDANY });
-    ANET_LOG_DEBUG("batch_out=" << anet::ToDefString(batch_out));
+    ANET_LOG_DEBUG("batch_out[" << config_.output_key << "]=" << anet::ToDefString(batch_out));
 
     // リクエストするLabelをscalar_tag_label_map_からsetに詰める
     std::unordered_set<std::string> req_label_set(scalar_label_tag_map_.size());
@@ -444,7 +454,7 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
     }
 
     // 出力から値抽出（GPU 上, [W*H]）
-    anet::ProfileRange r3("SweepedHeatMapObserver::Render.extract", r2);
+    ANET_PROFILE_SCOPE_NEXT(extract);
     ExtractResult extract_result = output_ext_->Extract(batch_out, req_label_set);
     ANET_LOG_DEBUG("grid_values=" << anet::ToDefString(extract_result.grid) << " tag=" << tag_);
     ANET_ASSERT_SHAPE(extract_result.grid, { grid_num });
@@ -452,7 +462,7 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
     ANET_ASSERT(extract_result.labels.size() == extract_result.scalars.size());
 
     // CPU へ一括転送
-    anet::ProfileRange r4("SweepedHeatMapObserver::Render.transfer", r3);
+    ANET_PROFILE_SCOPE_NEXT(transfer);
     torch::Tensor grid_cpu = extract_result.grid.to(torch::kCPU);
     ANET_ASSERT_SHAPE(grid_cpu, { grid_num });
     ANET_ASSERT_DTYPE(grid_cpu, torch::kFloat32);
@@ -462,7 +472,7 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
     ANET_LOG_DEBUG("Extract done.");
 
     // HeatMapデータ設定
-    anet::ProfileRange r5("SweepedHeatMapObserver::Render.logImage", r4);
+    ANET_PROFILE_SCOPE_NEXT(log_image);
     heatmap_->SetGridValues(data, grid_w_, grid_h_);
     ANET_LOG_DEBUG("SetGridValues() done.");
 
@@ -472,19 +482,14 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
 // -------------------------------------------------------------
 
 EpisodeEvalObserver::EpisodeEvalObserver(
-    ReportFunction report_function,
-    std::shared_ptr<anet::rl::SingleDiscreteEnvFactory> eval_env_factory,
-	const ConfigData& config_data,
-    torch::Device env_device, torch::Device actor_device,
-    anet::rl::RunMode runmode, int log_interval, int eval_inerval, bool use_background,
-    std::optional<seed_t> seed,
-    const std::string& config_prefix)
-    : report_function_(std::move(report_function))
-    , runmode_(runmode), log_interval_(log_interval), eval_interval_(eval_inerval)
-    , actor_device_(actor_device), use_background_(use_background)
+    std::shared_ptr<EvalRunner> eval_runner,
+    int eval_interval,
+    bool use_background)
+    : eval_runner_(std::move(eval_runner))
+    , eval_interval_(eval_interval)
+    , use_background_(use_background)
 {
-    // 評価エピソードを回すためのENV生成
-    env_ = std::make_unique<VectorizedDiscreteBatchEnv>(config_data, eval_env_factory, 1, env_device, seed, config_prefix);
+    ANET_CHECK(eval_runner_ != nullptr);
 
     // バックグラウンド有効時のみスレッドプール生成
     if (use_background_) {
@@ -505,36 +510,17 @@ EpisodeEvalObserver::~EpisodeEvalObserver()
     }
 }
 
-void EpisodeEvalObserver::RunEvaluationEpisode()
+void EpisodeEvalObserver::RunEvaluationEpisode(const StepCounts& event_counts)
 {
-    StepCounts counts_local;
-    auto reset_result = env_->Reset(runmode_);
-    auto state = reset_result->state;
-    auto eps_total_reward = 0.0f;
-    bool done = false;
-    bool truncated = false;
+    eval_runner_->Sync();
     do {
-        auto action = actor_->MakeAction(counts_local, state);
-        auto env_result = env_->Step(action);
-        eps_total_reward += env_result->reward.mean().item<float>();
-        state = env_result->continue_state;
-        done = env_result->next_state.IsDone();
-        truncated = env_result->next_state.IsTruncated();
-
-        counts_local.train_step++;
-    } while (!done && !truncated);
-
-    this->report_function_(eps_total_reward);
+        eval_runner_->DoStep(event_counts);
+    } while (!eval_runner_->LastStepHadEpisodeEnd());
 }
 
 void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
 {
-    anet::ProfileRange r("EpisodeEvalObserver::OnLearn");
-
-    // 初回にActorを生成
-    if (actor_ == nullptr) {
-        actor_ = event.agent->CreateActor(env_->GetBatchSpec(), runmode_, true, actor_device_);
-    }
+    ANET_PROFILE_FUNC();
 
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::LEARN);
 
@@ -546,29 +532,25 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
                 eval_future_.wait();
             }
 
-            // NN同期 (スレッドに投げる前に呼元と同じスレッド上で安全に最新の重みを取る)
-            actor_->Sync();
-
             // スレッドに評価エピソード実行処理を投げる
-            eval_future_ = eval_pool_->EnqueueFuture(0, [this]() {
+            const StepCounts event_counts = event.counts;
+            eval_future_ = eval_pool_->EnqueueFuture(0, [this, event_counts]() {
                 try {
-                    this->RunEvaluationEpisode();
+                    this->RunEvaluationEpisode(event_counts);
                 } catch (const std::exception& e) {
                     LOG::error() << "EpisodeEvalObserver Error: " << e.what();
                 }
                 });
         } else {
             // フォアグラウンド実行
-            actor_->Sync();
-            RunEvaluationEpisode();
+            RunEvaluationEpisode(event.counts);
         }
     }
 }
 
 std::string EpisodeEvalObserver::ToString() const
 {
-    auto mode_str = anet::rl::ToString(runmode_);
-    return std::string("EpisodeEvalObserver[") + mode_str + "]";
+    return "EpisodeEvalObserver[" + eval_runner_->GetName() + "]";
 }
 
 // -------------------------------------------------------------
@@ -591,19 +573,18 @@ FunctionLearnObserver::FunctionLearnObserver(Fn fn, std::optional<std::string> n
 // ===========================================================================
 
 Conv2dVisualizationObserver::Conv2dVisualizationObserver(
-    const std::string& tag, int episode_interval, anet::TensorDictFunction dict_func, const Conv2dVisualizerConfig& vis_config)
+    const std::string& tag, int episode_interval, const Conv2dVisualizerConfig& vis_config)
     : TaggedTrainObserver(tag)
     , episode_interval_(episode_interval)
-    , is_recording_(false)
-    , dict_func_(std::move(dict_func))
     , visualizer_(vis_config)
+    , is_recording_(false)
 {
     LOG::info() << "Conv2dVisualizationObserver() tag=" << tag << " channels_per_row=" << vis_config.channels_per_row;
 }
 
 void Conv2dVisualizationObserver::OnTrain(const TrainEvent& event)
 {
-    anet::ProfileRange r("Conv2dVisualizationObserver::OnTrain");
+    ANET_PROFILE_FUNC();
 
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);
     const auto& state = event.experience.state;
@@ -634,11 +615,10 @@ void Conv2dVisualizationObserver::OnTrain(const TrainEvent& event)
     if (!is_recording_) return;
 
     // --- 画像化と保存 ---
-    if (state.obs.defined() && state.obs.size(0) > 0) {
-        torch::Tensor single_obs = state.obs.slice(0, 0, 1);
-        auto dict = dict_func_(single_obs);
+    if (event.action_info) {
+        auto dict = anet::rl::ExtractNnTrace(event.action_info->GetAuxData());
 
-        if (!dict.Empty()) {
+        if (!dict.empty()) {
             auto vis_result = visualizer_.Visualize(step, dict);
             wxImage image = vis_result.first;
 
@@ -718,8 +698,23 @@ MetricsLogLearnObserver::MetricsLogLearnObserver(const std::string& tag, const s
     ;
 }
 
+MetricsLogEpisodeEndObserver::MetricsLogEpisodeEndObserver(const std::string& tag, const std::string& key,
+    anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
+    int interval, bool is_ema, float ema_alpha, std::optional<float> clip)
+    : MetricsLogObserverBase(tag, key, step_axis, event_field, interval, is_ema, ema_alpha, clip)
+{
+    ;
+}
+
 /// BATCH_UPDATE_RESULT以外用のメトリクス情報取得処理
-MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(const UpdateEvent& event, EventField event_field)
+MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(
+    const StepCounts& counts,
+    std::shared_ptr<const Agent> agent,
+    std::shared_ptr<const Runner> runner,
+    std::shared_ptr<const BatchEnv> env,
+    const BatchExperience* experience,
+    std::shared_ptr<const BatchActionInfo> action_info,
+    EventField event_field)
 {
     ANET_CHECK(event_field != EventField::UPDATE_RESULT);
 
@@ -729,29 +724,43 @@ MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(const
     // 指定に従ってScalar取得対象を取得
     switch (event_field) {
     case anet::rl::EventField::EXPERIENCE:
-        target = &event.experience;
+        target = experience;
         break;
     case anet::rl::EventField::AGENT:
-        target = event.agent.get();
+        target = agent.get();
         break;
     case anet::rl::EventField::RUNNER:
-        target = event.runner.get();
+        target = runner.get();
         break;
     case anet::rl::EventField::ENV:
-        target = event.runner->GetBatchEnv().get(); // Runner経由で取得
+        if (env != nullptr) {
+            target = env.get();
+        } else if (runner != nullptr) {
+            target = runner->GetBatchEnv().get(); // Runner経由で取得
+        }
+        break;
+    case anet::rl::EventField::ACTION_INFO:
+        if (action_info == nullptr) {
+            ANET_SYSTEM_ERROR("MetricsLogObserverBase: $action_info is only available for TrainEvent.");
+        }
+        target = dynamic_cast<const anet::Module*>(action_info.get());
+        if (target == nullptr) {
+            auto step = counts.GetByAxis(this->step_axis_);
+            return MetricsData{ step, std::numeric_limits<float>::quiet_NaN() };
+        }
         break;
     default:
         ANET_SYSTEM_ERROR("Unknown event field: " << static_cast<int>(event_field));
         break;
     }
+    ANET_CHECK(target != nullptr);
 
     // step取得
-    auto step = event.counts.GetByAxis(this->step_axis_);
+    auto step = counts.GetByAxis(this->step_axis_);
 
     // 値取得
     std::optional<float> value;
-    if (target != nullptr)
-        value = target->GetScalar(this->key_);
+    value = target->GetScalar(this->key_);
 
     // 結果生成
     MetricsData ret{ step, value };
@@ -759,21 +768,22 @@ MetricsLogObserverBase::MetricsData MetricsLogObserverBase::GetMetricsData(const
 }
 
 /// BATCH_UPDATE_RESULT専用のメトリクス情報取得処理
-MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataListFromUpdateResultList(const UpdateEvent& event)
+MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataListFromUpdateResultList(
+    const StepCounts& counts,
+    const BatchUpdateResultList* update_result_list)
 {
     MetricsDataList ret;
 
     // 取得元のBatchUpdateResultList
-    auto learn_step = event.counts.learn_step;
-    const auto& update_result_list = event.update_result_list;
+    auto learn_step = counts.learn_step;
 
     // 空の場合は空
-    if (update_result_list.empty())
+    if (update_result_list == nullptr || update_result_list->empty())
         return ret;
     
     if (step_axis_ == StepAxis::LEARN) {
         // StepAxis::LEARNの場合、UpdateResultの一件毎にメトリクス情報
-        for (const auto& update_result : update_result_list) {
+        for (const auto& update_result : *update_result_list) {
             // メトリクス情報取得
             auto scaler = update_result->GetScalar(this->key_);
             MetricsData data{ learn_step, scaler };
@@ -787,7 +797,7 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
 
         float sum = 0.0f;
         int count = 0;
-        for (const auto& update_result : update_result_list) {
+        for (const auto& update_result : *update_result_list) {
             auto scaler = update_result->GetScalar(this->key_);
             if (!scaler.has_value()) continue;
             sum += *scaler;
@@ -795,7 +805,7 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
         }
         if (count > 0) {
             // step取得
-            auto step = event.counts.GetByAxis(this->step_axis_);
+            auto step = counts.GetByAxis(this->step_axis_);
 
             // 平均値として値算出
             float mean = sum / static_cast<float>(count);
@@ -809,7 +819,14 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
     return ret;
 }
 
-MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataList(const UpdateEvent& event)
+MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataList(
+    const StepCounts& counts,
+    std::shared_ptr<const Agent> agent,
+    std::shared_ptr<const Runner> runner,
+    std::shared_ptr<const BatchEnv> env,
+    const BatchExperience* experience,
+    const BatchUpdateResultList* update_result_list,
+    std::shared_ptr<const BatchActionInfo> action_info)
 {
     MetricsDataList ret;
 
@@ -818,41 +835,53 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
 
         if (*event_field_ == anet::rl::EventField::UPDATE_RESULT) {
             // UpdateResultList用メソッドでメトリクス情報を取得
-            auto data_list = GetMetricsDataListFromUpdateResultList(event);
+            auto data_list = GetMetricsDataListFromUpdateResultList(counts, update_result_list);
             ret = std::move(data_list);
         } else {
             // その他メソッドでメトリクス情報を取得
-            auto data = GetMetricsData(event, *event_field_);
+            auto data = GetMetricsData(counts, agent, runner, env, experience, action_info, *event_field_);
             ret.push_back(data);
         }
     } else {
         // 対象フィールドが指定されていない場合、順番に試す
 
         // BatchUpdateResultList
-        auto data_list = GetMetricsDataListFromUpdateResultList(event);
+        auto data_list = GetMetricsDataListFromUpdateResultList(counts, update_result_list);
         if (!data_list.empty()) {
             ret = std::move(data_list);
         } else {
             // Agent
-            auto data = GetMetricsData(event, anet::rl::EventField::AGENT);
+            auto data = GetMetricsData(counts, agent, runner, env, experience, action_info, anet::rl::EventField::AGENT);
             if (data.second.has_value()) {
                 ret.push_back(data);
-            } else {
+            } else if (experience != nullptr) {
                 // BatchExperience
-                auto data = GetMetricsData(event, anet::rl::EventField::EXPERIENCE);
+                auto data = GetMetricsData(counts, agent, runner, env, experience, action_info, anet::rl::EventField::EXPERIENCE);
                 if (data.second.has_value()) {
                     ret.push_back(data);
                 } else {
                     // Runner
-                    auto data = GetMetricsData(event, anet::rl::EventField::RUNNER);
+                    auto data = GetMetricsData(counts, agent, runner, env, experience, action_info, anet::rl::EventField::RUNNER);
                     if (data.second.has_value()) {
                         ret.push_back(data);
                     } else {
                         // Env
-                        auto data = GetMetricsData(event, anet::rl::EventField::ENV);
+                        auto data = GetMetricsData(counts, agent, runner, env, experience, action_info, anet::rl::EventField::ENV);
                         if (data.second.has_value()) {
                             ret.push_back(data);
                         }
+                    }
+                }
+            } else {
+                // Runner
+                auto data = GetMetricsData(counts, agent, runner, env, experience, action_info, anet::rl::EventField::RUNNER);
+                if (data.second.has_value()) {
+                    ret.push_back(data);
+                } else {
+                    // Env
+                    auto data = GetMetricsData(counts, agent, runner, env, experience, action_info, anet::rl::EventField::ENV);
+                    if (data.second.has_value()) {
+                        ret.push_back(data);
                     }
                 }
             }
@@ -864,8 +893,38 @@ MetricsLogObserverBase::MetricsDataList MetricsLogObserverBase::GetMetricsDataLi
 
 void MetricsLogObserverBase::OnUpdate(const UpdateEvent& event)
 {
+    OnGenericUpdate(
+        event.counts,
+        event.agent,
+        event.runner,
+        event.runner != nullptr ? event.runner->GetBatchEnv() : nullptr,
+        &event.experience,
+        &event.update_result_list);
+}
+
+void MetricsLogObserverBase::OnTrainUpdate(const TrainEvent& event)
+{
+    OnGenericUpdate(
+        event.counts,
+        event.agent,
+        event.runner,
+        event.runner != nullptr ? event.runner->GetBatchEnv() : event.env,
+        &event.experience,
+        &event.update_result_list,
+        event.action_info);
+}
+
+void MetricsLogObserverBase::OnGenericUpdate(
+    const StepCounts& counts,
+    std::shared_ptr<const Agent> agent,
+    std::shared_ptr<const Runner> runner,
+    std::shared_ptr<const BatchEnv> env,
+    const BatchExperience* experience,
+    const BatchUpdateResultList* update_result_list,
+    std::shared_ptr<const BatchActionInfo> action_info)
+{
     // メトリクスの出力データをリストとして取得
-    auto metrics_list = GetMetricsDataList(event);
+    auto metrics_list = GetMetricsDataList(counts, agent, runner, env, experience, update_result_list, action_info);
 
     // 取れたメトリクスを順に試す
     for (const auto& metrics : metrics_list) {
@@ -942,7 +1001,7 @@ const anet::graphviz::GraphVizProvider* GraphVizObserver::FindProvider(const Tra
 
 void GraphVizObserver::OnTrain(const TrainEvent& event)
 {
-    anet::ProfileRange r("GraphVizObserver::OnTrain");
+    ANET_PROFILE_FUNC();
 
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::TRAIN);
     const auto& state = event.experience.state;
@@ -1010,8 +1069,6 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
     
     // metrics.scalar.[tag] = <expr>  <$axis>  <@EventType>  <EventField>
 
-    /// @todo BatchActionInfoからのメトリクス抽出対応
-
     for (const auto& kv : config_map) {
         const std::string& config_key = kv.first;
         const std::string& config_value = kv.second;
@@ -1027,6 +1084,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
             // メトリクス定義情報を取得
             std::optional<std::string> key_opt;
             std::optional<anet::rl::EventType> event_opt;
+            std::optional<anet::rl::RunnerScope> runner_scope_opt;
+            std::string eval_name;
             std::optional<anet::rl::StepAxis> step_axis_opt;
 			std::optional<anet::rl::EventField> field_opt;
             int interval = 1;
@@ -1039,6 +1098,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                     event_opt = EventType::TRAIN;
                 } else if (v == "@learn") {
                     event_opt = EventType::LEARN;   /// @todo TRAINとLEARN以外の EventType も対応
+                } else if (v == "@episode_end") {
+                    event_opt = EventType::EPISODE_END;
                 } else if (v == "$train_step") {
                     step_axis_opt = StepAxis::TRAIN;
                 } else if (v == "$learn_step") {
@@ -1061,6 +1122,18 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                     field_opt = EventField::UPDATE_RESULT;
                 } else if (v == "$runner") {
                     field_opt = EventField::RUNNER;
+                } else if (v == "$action" || v == "$action_info") {
+                    field_opt = EventField::ACTION_INFO;
+                } else if (v == "$train") {
+                    runner_scope_opt = RunnerScope::TRAIN;
+                } else if (anet::StartsWith(v, "$eval.[")) {
+                    auto parsed_eval_name = anet::ExtractBetween(v, "$eval.[", "]");
+                    if (parsed_eval_name.empty()) {
+                        ANET_SYSTEM_ERROR("ObserverFactory: invalid eval runner scope. config_key=" << config_key
+                            << " config_value=" << config_value << " token=" << v);
+                    }
+                    runner_scope_opt = RunnerScope::EVAL;
+                    eval_name = parsed_eval_name;
                 } else if (v == "$ema") {
                     is_ema = true;
                 } else {
@@ -1075,6 +1148,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                                 event_opt = EventType::TRAIN;
                             else if (attr_val == "learn")
                                 event_opt = EventType::LEARN;
+                            else if (attr_val == "episode_end")
+                                event_opt = EventType::EPISODE_END;
                             else {
                                 LOG::warn() << "Unknown event value. config_key=" << config_key
                                     << " config_value=" << config_value << " attr_val=" << attr_val;
@@ -1107,6 +1182,8 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                                 field_opt = EventField::UPDATE_RESULT;
                             else if (attr_val == "runner")
                                 field_opt = EventField::RUNNER;
+                            else if (attr_val == "action" || attr_val == "action_info")
+                                field_opt = EventField::ACTION_INFO;
                             else {
                                 LOG::warn() << "Unknown target value. config_key=" << config_key
                                     << " config_value=" << config_value << " attr_val = " << attr_val;
@@ -1140,13 +1217,36 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
 
             auto key = *key_opt;
             auto event = event_opt.value_or(EventType::TRAIN);
+            auto runner_scope = runner_scope_opt.value_or(RunnerScope::TRAIN);
+
+            // 不整合チェック
+            const bool is_eval_action_info_train =runner_scope == RunnerScope::EVAL && event == EventType::TRAIN && field_opt == EventField::ACTION_INFO;
+            if (runner_scope == RunnerScope::EVAL && event != EventType::EPISODE_END && !is_eval_action_info_train) {
+                ANET_SYSTEM_ERROR("ObserverFactory: $eval.[name] scope is only supported with @episode_end or @train $action_info. "
+                    << "config_key=" << config_key << " config_value=" << config_value);
+            }
+            if (field_opt == EventField::ACTION_INFO && event != EventType::TRAIN) {
+                ANET_SYSTEM_ERROR("ObserverFactory: $action_info scalar metrics are only supported with @train. "
+                    << "config_key=" << config_key << " config_value=" << config_value);
+            }
+            if (event == EventType::EPISODE_END && field_opt.has_value()
+                && (*field_opt == EventField::EXPERIENCE || *field_opt == EventField::UPDATE_RESULT)) {
+                ANET_SYSTEM_ERROR("ObserverFactory: @episode_end does not support $exp or $update_result. "
+                    << "config_key=" << config_key << " config_value=" << config_value);
+            }
+
+			// step_axisの決定
             anet::rl::StepAxis step_axis;
             if (step_axis_opt.has_value()) {
                 step_axis = *step_axis_opt;
             } else {
                 // stepの指定がない場合はeventに合わせて決定。
                 //step_axis = (event == EventType::TRAIN) ? StepAxis::TRAIN : StepAxis::LEARN;
-                step_axis = (event == EventType::TRAIN) ? StepAxis::TRAIN : StepAxis::EXP; // LearnEventはEXPステップベースで比較
+                if (event == EventType::TRAIN) {// || event == EventType::EPISODE_END) {
+                    step_axis = StepAxis::TRAIN;
+                } else {
+                    step_axis = StepAxis::EXP; // LearnEventやEpisodeEndEventはデフォルトでEXPステップベース
+                }
             }
 
             switch (event) {
@@ -1154,14 +1254,21 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                 {
                     auto train_obs = std::make_shared<MetricsLogTrainObserver>(scalar_metrics_tag, key, step_axis, field_opt
                         ,interval, is_ema, ema_alpha, clip);
-                    train_observers_.push_back(train_obs);
+                    train_observers_.push_back({ runner_scope, eval_name, train_obs });
                 }
                 break;
             case EventType::LEARN:
                 {
                     auto learn_obs = std::make_shared<MetricsLogLearnObserver>(scalar_metrics_tag, key, step_axis, field_opt
                         , interval, is_ema, ema_alpha, clip);
-                    learn_observers_.push_back(learn_obs);
+                    learn_observers_.push_back({ runner_scope, eval_name, learn_obs });
+                }
+                break;
+            case EventType::EPISODE_END:
+                {
+                    auto episode_end_obs = std::make_shared<MetricsLogEpisodeEndObserver>(scalar_metrics_tag, key, step_axis, field_opt
+                        , interval, is_ema, ema_alpha, clip);
+                    episode_end_observers_.push_back({ runner_scope, eval_name, episode_end_obs });
                 }
                 break;
             }
@@ -1227,14 +1334,10 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
             // GraphVizObserverのインスタンス化と登録
             auto graph_obs = std::make_shared<GraphVizObserver>(
                 graph_metrics_tag, step_interval, episode_interval, *key_opt, field_opt);
-            train_observers_.push_back(graph_obs);
+            train_observers_.push_back({ RunnerScope::TRAIN, "", graph_obs });
 
             // 次のループへ（スカラー処理等との重複を避ける）
             continue;
         }
-
-        /// @todo HeatMap系Observerに対応
-
 	}
 }
-

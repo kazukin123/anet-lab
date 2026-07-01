@@ -16,13 +16,12 @@ import io.github.kazukin123.anetlab.metricsviewer.infra.RunScanner;
 import io.github.kazukin123.anetlab.metricsviewer.infra.model.MetricsFileBlock;
 
 /**
- * Background thread that periodically scans runs directory
- * and updates metrics cache.
+ * Background thread that periodically scans runs directory and updates metrics cache.
  */
 @Component
 public class LoadingThread extends Thread {
 
-	private static final int SLEEP_MS = 1000;
+	private static final int SLEEP_MS = 10000;
 	private static final int MAX_LINES = 1000000;
 	private static final int SAVE_INTERVAL_BLOCKS = 100;
 
@@ -70,39 +69,53 @@ public class LoadingThread extends Thread {
 		this.interrupt();
 	}
 
+	public void terminateAndWait(long timeoutMs) {
+		terminate();
+		if (Thread.currentThread() == this) {
+			return;
+		}
+		try {
+			join(timeoutMs);
+			if (isAlive()) {
+				log.warn("LoadingThread did not stop within {}ms.", timeoutMs);
+			}
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			log.warn("Interrupted while waiting for LoadingThread to stop.");
+		}
+	}
+
 	@Override
 	public void run() {
-		// æœ€åˆã«èª­ã‚ã‚‹ã ã‘å…¨éƒ¨ã®ã‚­ãƒ£ãƒƒã‚·ãƒ¥ã‚’èª­ã‚€
-		log.info("LoadingThread started. Loading cache.");
-		metricsRepository.loadCache(runScanner.getRunsDir());
-		log.info("Cache loading completed.");
+		try {
+			log.info("LoadingThread started. Loading cache.");
+			metricsRepository.loadCache(runScanner.getRunsDir());
+			log.info("Cache loading completed.");
 
-		// ã‚¹ãƒ¬ãƒƒãƒ‰ãƒ¡ã‚¤ãƒ³ãƒ«ãƒ¼ãƒ—
-		while (running && !isInterrupted()) {
-			try {
-				// æ–°ã—ã„RunãŒè¦‹ã¤ã‹ã£ã¦ã‚‹ã‹ã‚‚ãªã®ã§ã‚­ãƒ£ãƒƒã‚·ãƒ¥èª­è¾¼ã¿ã‚’è©¦ã¿ã‚‹
-				final Path runsDir = this.runScanner.getRunsDir();
-				metricsRepository.loadCacheForRun(runsDir);
+			while (running && !isInterrupted()) {
+				try {
+					final Path runsDir = this.runScanner.getRunsDir();
+					metricsRepository.loadCacheForRun(runsDir);
 
-				// å„ªå…ˆãƒªã‚¯ã‚¨ã‚¹ãƒˆãŒã‚ã‚Œã°å…ˆã«å‡¦ç†
-				final Request req = requestRef.getAndSet(null);
-				if (req != null) {
-					log.debug("Processing request: runs={} tags={}", req.runIds, req.tagKeys);
-					processRuns(req.runIds);
-				} else {
-					// å®šæœŸã‚¹ã‚­ãƒ£ãƒ³
-					final List<String> runIds = runScanner.listRunId();
-					processRuns(runIds);
+					final Request req = requestRef.getAndSet(null);
+					if (req != null) {
+						log.debug("Processing request: runs={} tags={}", req.runIds, req.tagKeys);
+						processRuns(req.runIds);
+					} else {
+						final List<String> runIds = runScanner.listRunId();
+						processRuns(runIds);
+					}
+					Thread.sleep(SLEEP_MS);
+				} catch (InterruptedException e) {
+					break;
+				} catch (Exception e) {
+					log.warn("LoadingThread error: {}", e.getMessage());
 				}
-				// ãƒªãƒ©ãƒƒã‚¯ã‚¹
-				Thread.sleep(SLEEP_MS);
-			} catch (InterruptedException e) {
-				break;
-			} catch (Exception e) {
-				log.warn("LoadingThread error: {}", e.getMessage());
 			}
+		} finally {
+			saveAllLoadedCaches();
+			log.info("LoadingThread stopped.");
 		}
-		log.info("LoadingThread stopped.");
 	}
 
 	/** Process each run sequentially and merge new metrics. */
@@ -110,21 +123,33 @@ public class LoadingThread extends Thread {
 		if (runIds == null || runIds.isEmpty()) return;
 
 		for (String runId : runIds) {
+			if (!running || isInterrupted()) return;
 			try {
-				// å¯¾è±¡Runã®ãƒ‡ã‚£ãƒ¬ã‚¯ãƒˆãƒªãƒ»ãƒ•ã‚¡ã‚¤ãƒ«ã‚’æ±ºå®š
+				// ‘ÎÛRun‚ÌƒfƒBƒŒƒNƒgƒŠEƒtƒ@ƒCƒ‹‚ğŒˆ’è
 				final Path runDir = runScanner.resolveRunDir(runId);
-				final Path metricsFile = Path.of("runs", runId, "metrics.jsonl");
+				final Path metricsFile = runDir.resolve("metrics.jsonl");
 				if (!Files.exists(metricsFile)) continue;
 
-				// æœ€å¾Œã®ä½ç½®ã‹ã‚‰ãƒ–ãƒ­ãƒƒã‚¯èª­ã¿è¾¼ã¿
+				// ƒtƒ@ƒCƒ‹ƒTƒCƒYƒ`ƒFƒbƒN
 				final long lastPos = metricsRepository.getLastReadPosition(runId);
+				final long fileSize = Files.size(metricsFile);
+				if (fileSize < lastPos) {
+					log.warn("Metrics file is smaller than cached offset. runId={} size={} lastPos={}",
+							runId, fileSize, lastPos);
+					continue;
+				}
+				
+				// ƒtƒ@ƒCƒ‹’Ç‹L‚ª‚È‚¢ê‡‚ÍƒXƒLƒbƒv
+				if (fileSize == lastPos) continue;
+
+				// ‘O‰ñ‚©‚ç‚Ì’Ç‹L·•ª‚ğ“Ç‚Ş
 				final MetricsFileBlock block = fileReader.parseDiff(metricsFile, lastPos, MAX_LINES);
 				if (block.getLines().isEmpty()) continue;
 
-				// ãƒ¡ãƒ¢ãƒªä¸Šã§ãƒãƒ¼ã‚¸
+				// ƒƒ‚ƒŠã‚Åƒ}[ƒW
 				metricsRepository.mergeMetrics(runId, block);
 
-				// æœªã‚»ãƒ¼ãƒ–ãŒä¸€å®šé‡æºœã¾ã£ãŸã‚‰ãƒ•ã‚¡ã‚¤ãƒ«æ›¸ãå‡ºã—
+				// –¢ƒZ[ƒu‚ªˆê’è—Ê—­‚Ü‚Á‚½‚çƒtƒ@ƒCƒ‹‘‚«o‚µ
 				final int dirtyCount = saveCounter.merge(runId, 1, Integer::sum);
 				if (dirtyCount >= SAVE_INTERVAL_BLOCKS) {
 					log.info("Saving cache. runId={} dirtyCount={}", runId, dirtyCount);
@@ -136,6 +161,24 @@ public class LoadingThread extends Thread {
 						block.getLines().size(), runId, block.getEndOffset(), block.isEOF());
 			} catch (Exception e) {
 				log.warn("Failed to load metrics for run {}: {}", runId, e.getMessage());
+			}
+		}
+	}
+
+	private void saveAllLoadedCaches() {
+		final List<String> runIds = metricsRepository.listAllRunIds();
+		if (runIds.isEmpty()) {
+			log.info("No loaded cache to save.");
+			return;
+		}
+
+		log.info("Saving all loaded caches. runs={}", runIds.size());
+		for (String runId : runIds) {
+			try {
+				metricsRepository.saveCache(runScanner.resolveRunDir(runId), runId);
+				saveCounter.put(runId, 0);
+			} catch (Exception e) {
+				log.warn("Failed to save cache on shutdown. runId={} message={}", runId, e.getMessage());
 			}
 		}
 	}

@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <string_view>
 #include <map>
 #include <unordered_map>
 #include <stdexcept>
@@ -180,30 +181,41 @@ namespace anet::rl {
     // Environment 定義クラス
     // =============================================================
 
-    // 観測次元情報
-    struct StateDimInfo {
-        std::vector<std::int64_t> coords;  ///< 対象の位置情報。 例: {0}, {2}, {0,10,20} など
-        float min_value = std::numeric_limits<float>::lowest();  ///< 最小値
-        float max_value = std::numeric_limits<float>::max();     ///< 最大値
-        std::string name;             ///< 名前（任意）
-        std::string description;      ///< 説明（任意）
+    struct ObsKeys
+    {
+        // --- 空間トポロジによる使い分けデフォルトキー ---
+        static constexpr const char* kVector = "vector";
+        static constexpr const char* kGrid = "grid";
 
-        anet::json ToJson() const;
-        std::string ToString() const;
+        // --- メタデータ・特殊用途 ---
+        static constexpr const char* kActionMask = "action_mask";
     };
 
     // 観測仕様
     struct StateSpec {
-        std::vector<std::int64_t> shape;        // 任意次元対応
-        std::vector<StateDimInfo> dims;    // 必要な位置だけ登録（配列）
+        anet::TensorSpecMap obs_spec;
         std::map<std::string, std::string> info;
 
-        std::int64_t CalcFlattenDim() const;
-        const StateDimInfo* FindDim(const std::vector<std::int64_t>& coords) const;
-        const StateDimInfo* FindDim(std::int64_t flatten_index) const;
-        bool MatchesShape(const torch::Tensor& obs) const;
-        bool MatchesRange(const torch::Tensor& obs) const;
-        bool MatchesRangeFlat(const torch::Tensor& flat_obs) const;
+        const anet::TensorSpec& GetSpace(const std::string& key) const
+        {
+            return obs_spec.at(key);
+        }
+
+        std::vector<std::int64_t> GetShape(const std::string& key) const
+        {
+            return obs_spec.at(key).shape;
+        }
+         
+        // ---------------------------------------------------------
+        // 整合性検証 (Assert用)
+        // ---------------------------------------------------------
+ 
+        /// 定義されたTensorSpec自体に矛盾がないかを検証する
+        void AssertSanity() const;
+
+        /// 観測データ(TensorDict)が仕様(存在, Dtype, Shape, Range)を全て満たしているか一括検証する。
+        bool ValidateObservation(const anet::TensorDict& obs, bool is_batched = true) const;
+
         anet::json ToJson() const;
         std::string ToString() const;
     };
@@ -226,7 +238,30 @@ namespace anet::rl {
         std::vector<ActionDimInfo> dims; // 連続アクションの場合のみ使用
         std::map<std::string, std::string> info;
 
-        int GetNumActions() const {
+        std::vector<int64_t> GetShape() const
+        {
+            if (is_discrete) {
+                return { }; // 離散アクションではスカラー
+            } else {
+                std::vector<int64_t> shape;
+                for (const auto& dim : dims) {
+                    shape.push_back(1); // 連続アクションは各次元がスカラーなので、shapeは(dims.size(),)となる
+                }
+                return shape;
+            }
+		}
+
+        torch::ScalarType GetDataType() const
+        {
+            if (is_discrete) {
+                return torch::kInt64;
+            } else {
+                return torch::kFloat32;
+            }
+        }
+
+        int GetNumActions() const
+        {
             if (is_discrete) {
                 return (int)value_labels.size();
             }
@@ -255,32 +290,36 @@ namespace anet::rl {
     };
 
     struct BatchEnvSpec {
-        int batch_size;
+        int num_envs;
         int num_threads;
 
         anet::json ToJson() const;
         std::string ToString() const;
     };
 
+
+    // =============================================================
+    // 暫定
+    // =============================================================
+
+    torch::Tensor ToUnifiedObservation(const TensorDict& obs, bool is_batched = true);
+
+
     // =============================================================
     // Single系データ
     // =============================================================
 
     struct SingleState {
-        torch::Tensor obs;          // (state_dim,...)
+        TensorDict obs;
         bool done;                  ///< Gymnasiumのterminated相当。真の終了（ゲームオーバー、クリア）。未来の価値は 0。doneとtruncatedは独立。
 		bool truncated;             ///< Gymnasiumのtruncated相当。時間切れなどの人工終了。未来の価値は 0。doneとtruncatedは独立。
         bool episode_start;
 
-        /// 状態テンソルを 1D に変換する
-        torch::Tensor Flatten() const {
-            ANET_ASSERT_DTYPE(obs, torch::kFloat32);
-            return obs.reshape({ obs.numel() });
-        }
-        SingleState to(torch::Device device) const {
-            ANET_ASSERT_SHAPE(obs, { ANET_SHAPE_ANY });
-            ANET_ASSERT_DTYPE(obs, torch::kFloat32);
-            return { obs.to(device), done, truncated, episode_start };
+        SingleState To(torch::Device device) const
+        {
+            //ANET_ASSERT_SHAPE(obs, { ANET_SHAPE_ANY });
+            //ANET_ASSERT_DTYPE(obs, torch::kFloat32);
+            return { obs.To(device), done, truncated, episode_start };
         }
         std::string ToString() const;
     };
@@ -295,6 +334,11 @@ namespace anet::rl {
     };
 
     using AuxData = std::unordered_map<std::string, torch::Tensor>; ///< 任意の追加情報（UI描画用の非可観測情報を含む）
+
+    inline constexpr std::string_view kNnTracePrefix = "nn_trace/";
+    anet::TraceSink MakeActionTraceSink(anet::TensorDict& trace);
+    void AppendTraceAux(AuxData& aux, const anet::TensorDict& trace);
+    anet::TensorDict ExtractNnTrace(const AuxData& aux);
 
 
     class SingleEnvResult {
@@ -341,15 +385,17 @@ namespace anet::rl {
         float reward;
         SingleState next_state;
 
-        SingleExperience to(torch::Device device) const {
+        SingleExperience To(torch::Device device) const
+        {
             ANET_ASSERT_SHAPE(action, { });
             ANET_ASSERT(action.dtype() == torch::kInt64 || action.dtype() == torch::kFloat32);
             return {
-                state.to(device), action.to(device), reward, next_state.to(device)
+                state.To(device), action.to(device), reward, next_state.To(device)
             };
         }
         std::string ToString() const;
     };
+
 
     // =============================================================
     // Batch系データ
@@ -359,53 +405,53 @@ namespace anet::rl {
 
     // 状態
     struct BatchState {
-        torch::Tensor obs;              ///< 行動前の観測 (N,state_dim) kFloat32
+        TensorDict obs;              ///< 行動前の観測 (N,state_dim) kFloat32
         torch::Tensor done;             ///< (N) kBool Gymnasiumのterminated相当。真の終了（ゲームオーバー、クリア）。未来の価値は 0。doneとtruncatedは独立。
         torch::Tensor truncated;        ///< (N) kBool Gymnasiumのtruncated相当。時間切れなどの人工終了。未来の価値は 0。doneとtruncatedは独立。
         torch::Tensor episode_start;    ///< reset直後    (N) kBool
 
         BatchState() {}
 
-        BatchState(torch::Tensor o, torch::Tensor d, torch::Tensor t, torch::Tensor e)
+        BatchState(const TensorDict& o, torch::Tensor d, torch::Tensor t, torch::Tensor e)
             : obs(std::move(o)), done(std::move(d)), truncated(std::move(t)), episode_start(std::move(e)) { }
 
         BatchState Clone() const {
-            return { obs.clone(), done.clone(), truncated.clone(), episode_start.clone() };
+            return { obs.Clone(), done.clone(), truncated.clone(), episode_start.clone() };
         }
 
         SingleState GetSingle(int64_t index) const
         {
             return {
-                obs[index],
-                done[index].item<bool>(),
-                truncated[index].item<bool>(),
-                episode_start[index].item<bool>()
+                .obs = obs[index],
+                .done = done[index].item<bool>(),
+                .truncated = truncated[index].item<bool>(),
+                .episode_start = episode_start[index].item<bool>()
             };
         }
 
         /// obs を (N, state_dim) にフラット化
-        BatchState Flatten() const
-        {
-            ANET_ASSERT_DTYPE(obs, torch::kFloat32);
-            int64_t N = obs.size(0);
-            int64_t flat_dim = obs.numel() / N;
-            auto f = obs.reshape({ N, flat_dim });
-            return { f, done, truncated, episode_start };
-        }
+        //BatchState Flatten() const
+        //{
+        //    ANET_ASSERT_DTYPE(obs, torch::kFloat32);
+        //    int64_t N = obs.size(0);
+        //    int64_t flat_dim = obs.numel() / N;
+        //    auto f = obs.reshape({ N, flat_dim });
+        //    return { f, done, truncated, episode_start };
+        //}
 
         BatchState To(torch::Device device, bool non_blocking = false) const
         {
-            ANET_ASSERT_SHAPE(obs, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
+            //ANET_ASSERT_SHAPE(obs, { ANET_SHAPE_ANY, ANET_SHAPE_ANY });
             ANET_ASSERT_SHAPE(done, { ANET_SHAPE_ANY });
             ANET_ASSERT_SHAPE(truncated, { ANET_SHAPE_ANY });
             ANET_ASSERT_SHAPE(episode_start, { ANET_SHAPE_ANY });
-            ANET_ASSERT_DTYPE(obs, torch::kFloat32);
+            //ANET_ASSERT_DTYPE(obs, torch::kFloat32);
             ANET_ASSERT_DTYPE(done, torch::kBool);
             ANET_ASSERT_DTYPE(truncated, torch::kBool);
             ANET_ASSERT_DTYPE(episode_start, torch::kBool);
 
             return {
-                obs.to(device, non_blocking), done.to(device, non_blocking),
+                obs.To(device, non_blocking), done.to(device, non_blocking),
                 truncated.to(device,non_blocking), episode_start.to(device, non_blocking)
             };
         }
@@ -458,6 +504,10 @@ namespace anet::rl {
         virtual std::shared_ptr<BatchActionInfo> To(torch::Device device) const
         {
             return std::make_shared<BatchActionInfo>(GetAction(device), info_.To(device), aux_ );
+        }
+        virtual std::shared_ptr<BatchActionInfo> WithAction(torch::Tensor action) const
+        {
+            return std::make_shared<BatchActionInfo>(std::move(action), info_, aux_);
         }
         const AuxData& GetAuxData() const { return aux_; }
         AuxData& GetAuxData() { return aux_; }
@@ -593,7 +643,7 @@ namespace anet::rl {
 
     class BatchEnvFactory {
     public:
-        virtual std::shared_ptr<BatchEnv> CreateBatchEnv(std::optional<seed_t> seed = std::nullopt, int batch_size = -1) = 0;	///< batch_size=-1でbatch_size自動
+        virtual std::shared_ptr<BatchEnv> CreateBatchEnv(std::optional<seed_t> seed = std::nullopt, int num_envs = -1) = 0;	///< num_envs=-1でnum_envs自動
         virtual ~BatchEnvFactory() = default;
     };
 
@@ -624,10 +674,11 @@ namespace anet::rl {
     // Agent
     // =============================================================
 
-    class Agent : public Module, public TensorFunctionProvider, public TensorDictFunctionProvider , public Serializable {
+    class Agent : public Module, public TensorDictFunctionProvider , public Serializable {
     public:
         virtual std::shared_ptr<Actor> CreateActor(const BatchEnvSpec& batch_env_spec, RunMode run_mode, bool clone_model, std::optional<torch::Device> device = std::nullopt) const = 0;
         virtual std::shared_ptr<Learner> CreateLearner() = 0;
+        virtual torch::Device GetDevice() const = 0;
     public:
         virtual int64_t Save(anet::OutputArchive& archive) const override { return 0;  }
         virtual int64_t Load(anet::InputArchive& archive) override { return 0; }
@@ -639,41 +690,67 @@ namespace anet::rl {
     // ReplayBuffer 
     // =============================================================
 
-    /// ReplayBufferから取り出したB個のサンプルデータ（「N環境」ではなく「Bサンプル」である事に注意）
+    /// サンプリングされた経験のミニバッチ（再利用可能オブジェクト）
     struct ExperienceSamples {
-		// B=ミニバッチ
-		// S=Stacked frame
+        // --- 観測データ ---
+        anet::TensorDict obs;           ///< [B, Stack, C, H, W] 等
 
-        torch::Tensor obs;            // (B, S, state_dim...)
-        torch::Tensor actions;        // (B, action_dim...)
-        torch::Tensor target_values;  // (B,)
+        // --- コア遷移データ ---
+        torch::Tensor actions;          ///< [B] または [B, Unroll]
+        torch::Tensor target_returns;   ///< [B] (N-Step割引累積報酬) または [B, Unroll]
+
         struct {
-            torch::Tensor obs;             // (B, S, state_dim...)
-            torch::Tensor terminals;       // (B,) bool
-        } next_states;
-        torch::Tensor n_steps;       // (B,) int
+            anet::TensorDict next_obs;      ///< [B, Stack, C, H, W] 等 (Rainbow等の N-Step 次状態)
+            torch::Tensor terminals;        ///< [B] (真の終了フラグ)
+        } next_state;
 
-        torch::Tensor indices;          // (B,) kInt64
-        torch::Tensor sampling_prob;    // (B,) kFloat32
-        torch::Tensor is_weights;       // (B,) kFloat32
+        // --- N-Step & PER メタデータ ---
+        torch::Tensor n_steps;          ///< [B] 実際に進んだステップ数 (終端到達でNより短くなるケース用)
+        torch::Tensor indices;          ///< [B] PER優先度更新用の1Dインデックス
+        torch::Tensor is_weights;       ///< [B] Importance Sampling の重み
+        torch::Tensor per_is_initial_priority; ///< [B] サンプル時点で初期優先度のままかどうか
 
-        ExperienceSamples FlattenStates() const;
-        ExperienceSamples To(torch::Device device, bool non_blocking) const;
+        // --- その他 ---
+        anet::TensorDict info;          ///< アルゴリズム固有データ (MuZeroの target_values 等)
+
+        // ユーティリティ
+        ExperienceSamples To(torch::Device device, bool non_blocking = true) const;
+        template <class F>
+        void ForEachTensor(F&& fn)
+        {
+            auto visit = [&fn](torch::Tensor& tensor) {
+                if (tensor.defined()) {
+                    fn(tensor);
+                }
+            };
+
+            obs.ForEachTensor(visit);
+            visit(actions);
+            visit(target_returns);
+            next_state.next_obs.ForEachTensor(visit);
+            visit(next_state.terminals);
+            visit(n_steps);
+            visit(indices);
+            visit(is_weights);
+            visit(per_is_initial_priority);
+            info.ForEachTensor(visit);
+        }
         std::string ToString() const;
     };
 
-    class ReplayPriorityController : public anet::Module {
+
+    class ReplayPriorityController {
     public:
         virtual void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) = 0;
-
+        //virtual void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override = 0;
+        //virtual void UpdatePriorities(const torch::Tensor& indices, const torch::Tensor& priorities) = 0;
         ~ReplayPriorityController() = default;
     };
 
-    class ReplayBuffer : public ReplayPriorityController {
+    class ReplayBuffer : public anet::Module, public ReplayPriorityController {
     public:
         virtual void Push(const BatchExperience& batch_exp) = 0;
-        virtual void Push(const std::vector<SingleExperience>& exps) = 0;
-        virtual ExperienceSamples Sample(int64_t minibatch_size, torch::Device device, float beta = -1) const = 0;
+        virtual void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const = 0;
         virtual int64_t Size() const = 0;
 
         virtual ~ReplayBuffer() = default;
@@ -682,7 +759,7 @@ namespace anet::rl {
 
         static constexpr const char* STATE_OBS = "replaybuffer.storage.state";
         static constexpr const char* ACTION = "replaybuffer.storage.action";
-        static constexpr const char* REWARD = "replaybuffer.storage.reward";
+        static constexpr const char* TARGET_RETURN = "replaybuffer.storage.target_return";
         static constexpr const char* NEXT_STATE_OBS = "replaybuffer.storage.next_state";
         static constexpr const char* NEXT_STATE_TERMINAL = "replaybuffer.storage.terminal";
         static constexpr const char* N_STEP = "replaybuffer.storage.n_step";
@@ -690,6 +767,8 @@ namespace anet::rl {
         static constexpr const char* PER_TOTAL = "replaybuffer.per.total";
         static constexpr const char* PER_VALUES = "replaybuffer.per.values";
         static constexpr const char* PER_DIST = "replaybuffer.per.distribution";
+        static constexpr const char* PER_INITIAL_MASS_RATIO = "replaybuffer.per.initial_mass_ratio";
+        static constexpr const char* PER_LAST_EVICTED_NEVER_SAMPLED_RATIO = "replaybuffer.per.last_evicted_never_sampled_ratio";
     };
 
 
@@ -699,8 +778,13 @@ namespace anet::rl {
 
     enum class EventType {
         TRAIN,
-        LEARN
-        /// @todo EPISODE_END（ENV由来）を追加
+        LEARN,
+        EPISODE_END
+    };
+
+    enum class RunnerScope {
+        TRAIN,
+        EVAL
     };
 
     enum class EventField {
@@ -729,6 +813,15 @@ namespace anet::rl {
     struct LearnEvent : public UpdateEvent {
     };
 
+    struct EpisodeEndEvent {
+        const std::shared_ptr<const Runner> runner;
+        const StepCounts counts;
+        const std::shared_ptr<const Agent> agent;
+        const std::shared_ptr<const BatchEnv> env;
+        int env_index;
+        float eps_total_reward;
+    };
+
     class TrainObserver {
     public:
         virtual void OnTrain(const TrainEvent& event) = 0;
@@ -741,6 +834,13 @@ namespace anet::rl {
         virtual void OnLearn(const LearnEvent& event) = 0;
         virtual std::string ToString() const = 0;
         virtual ~LearnObserver() = default;
+    };
+
+    class EpisodeEndObserver {
+    public:
+        virtual void OnEpisodeEnd(const EpisodeEndEvent& event) = 0;
+        virtual std::string ToString() const = 0;
+        virtual ~EpisodeEndObserver() = default;
     };
 
     // -----------------------------------------------------------------
@@ -770,6 +870,19 @@ namespace anet::rl {
         std::shared_ptr<const Runner> target_runner_;
     };
 
+    // -----------------------------------------------------------------
+    // RunnerScopedEpisodeEndObserver
+    // -----------------------------------------------------------------
+    class RunnerScopedEpisodeEndObserver : public EpisodeEndObserver {
+    public:
+        RunnerScopedEpisodeEndObserver(std::shared_ptr<EpisodeEndObserver> real_observer, std::shared_ptr<const Runner> target_runner);
+        void OnEpisodeEnd(const EpisodeEndEvent& event) override;
+        std::string ToString() const override;
+    private:
+        std::shared_ptr<EpisodeEndObserver> real_observer_;
+        std::shared_ptr<const Runner> target_runner_;
+    };
+
     // =============================================================
     // Notifier
     // =============================================================
@@ -787,6 +900,11 @@ namespace anet::rl {
         void Detach(std::shared_ptr<LearnObserver> observer);
         void Detach(const LearnObserver* observer);
         void Notify(const LearnEvent& event);
+
+        std::shared_ptr<EpisodeEndObserver> Attach(std::shared_ptr<EpisodeEndObserver> observer);
+        void Detach(std::shared_ptr<EpisodeEndObserver> observer);
+        void Detach(const EpisodeEndObserver* observer);
+        void Notify(const EpisodeEndEvent& event);
 
         void Clear();
 
@@ -811,6 +929,10 @@ namespace anet::rl {
                 auto wrapper = std::make_shared<RunnerScopedLearnObserver>(obs, target_runner);
                 this->Attach(wrapper);
             }
+            if constexpr (std::is_base_of_v<EpisodeEndObserver, T>) {
+                auto wrapper = std::make_shared<RunnerScopedEpisodeEndObserver>(obs, target_runner);
+                this->Attach(wrapper);
+            }
             return obs;
         }
         std::shared_ptr<TrainObserver> AttachScoped(std::shared_ptr<TrainObserver> observer, std::shared_ptr<const Runner> target_runner)
@@ -825,9 +947,16 @@ namespace anet::rl {
             this->Attach(wrapper);
             return observer;
         }
+        std::shared_ptr<EpisodeEndObserver> AttachScoped(std::shared_ptr<EpisodeEndObserver> observer, std::shared_ptr<const Runner> target_runner)
+        {
+            auto wrapper = std::make_shared<RunnerScopedEpisodeEndObserver>(observer, target_runner);
+            this->Attach(wrapper);
+            return observer;
+        }
     private:
         std::vector<std::shared_ptr<TrainObserver>> train_observers_;
         std::vector<std::shared_ptr<LearnObserver>> learn_observers_;
+        std::vector<std::shared_ptr<EpisodeEndObserver>> episode_end_observers_;
     };
 
     // =============================================================
@@ -859,6 +988,7 @@ namespace anet::rl {
         virtual void Shutdown() = 0;
     public:
         virtual StepCounts GetCounts() const = 0;
+        virtual const std::string& GetName() const = 0;
         virtual std::shared_ptr<anet::rl::BatchEnv> GetBatchEnv()const = 0;
         virtual std::shared_ptr<anet::rl::Agent> GetAgent() const = 0;
         virtual std::shared_ptr<anet::rl::Notifier> GetNotifier() const = 0;
@@ -868,8 +998,7 @@ namespace anet::rl {
         static constexpr const char* TRAIN_REWARD = "train_reward";
         static constexpr const char* TRAIN_REWARD_EMA = "train_reward_ema";
         static constexpr const char* TRAIN_EPISODE_REWARD = "train_episode_reward";
-        static constexpr const char* TARGET_EVAL_REWARD = "eval.[eval1].eps_total_reward";
-        static constexpr const char* POLICY_EVAL_REWARD = "eval.[eval2].eps_total_reward";
+        static constexpr const char* EPS_TOTAL_REWARD = "eps_total_reward";
         static constexpr const char* TRAIN_STEP = "train_step";
         static constexpr const char* EXP_STEP = "exp_step";
         static constexpr const char* LEARN_STEP = "learn_step";

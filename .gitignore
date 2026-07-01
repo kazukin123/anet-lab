@@ -63,3 +63,9 @@
 /dist
 /docs/*.lock
 /apps/runner/runname.txt
+/.claude/worktrees
+/.claude/settings.local.json
+/core/anet-core/bin/Debug/out
+/core/anet-core/bin/Release/out
+/core/anet-core/bin/RelWithDebInfo/out
+/apps/runner/tools/__pycache__

@@ -2,12 +2,17 @@
 
 #include "nn_impl.hpp"
 
+#include <charconv>
 #include <iostream>
 #include <sstream>
 #include <regex>
 #include <stdexcept>
 #include <algorithm>
+#include <cctype>
 #include <format>
+#include <optional>
+#include <unordered_map>
+#include <ATen/ops/_foreach_lerp.h>
 #include "anet/profile.hpp"
 #include "anet/log.hpp"
 #include "anet/tensor_util.hpp"
@@ -20,7 +25,6 @@ namespace LOG = anet::log;
 
 static constexpr const char* kNetBlockConfigKeyPrefix = "net.block.[";
 static constexpr const char* kNetBlockConfigKeySuffix = "]";
-static constexpr const char* kNetBodyStructureConfigKey = "net.body.structure";
 
 
 // ===========================================================================
@@ -28,21 +32,17 @@ static constexpr const char* kNetBodyStructureConfigKey = "net.body.structure";
 // ===========================================================================
 
 // 文字列のトリム
-std::string Trim(const std::string& s)
+static std::string Trim(const std::string& s)
 {
     auto start = s.begin();
-    while (start != s.end() && std::isspace(*start)) {
-        start++;
-    }
+    while (start != s.end() && std::isspace(*start)) start++;
     auto end = s.end();
-    do {
-        end--;
-    } while (std::distance(start, end) > 0 && std::isspace(*end));
+    do { end--; } while (std::distance(start, end) > 0 && std::isspace(*end));
     return std::string(start, end + 1);
 }
 
 // パイプライン文字列の分割 (カッコ内のスペースは無視する)
-std::vector<std::string> SplitPipelineString(const std::string& s)
+static std::vector<std::string> SplitPipelineString(const std::string& s)
 {
     std::string normalized = s;
     // '>' をスペースに置換
@@ -75,20 +75,8 @@ std::vector<std::string> SplitPipelineString(const std::string& s)
     return tokens;
 }
 
-// 簡易的な文字列分割 (スペース区切り)
-static std::vector<std::string> SplitSpace(const std::string& s)
-{
-    std::vector<std::string> result;
-    std::stringstream ss(s);
-    std::string item;
-    while (ss >> item) {
-        if (!item.empty()) result.push_back(item);
-    }
-    return result;
-}
-
 // 文字列から整数への変換
-int anet::nn::ParseInt(const std::string& s, const std::string& param_name)
+static int ParseInt(const std::string& s, const std::string& param_name)
 {
     try {
         return std::stoi(s);
@@ -97,47 +85,198 @@ int anet::nn::ParseInt(const std::string& s, const std::string& param_name)
     }
 }
 
+static std::string MakeDotNodeId(const std::string& prefix, const std::string& key)
+{
+    std::string id = prefix + "_";
+    id.reserve(prefix.size() + key.size() + 1);
+    for (unsigned char c : key) {
+        if (std::isalnum(c) || c == '_' || c == '-' || c == '.') {
+            id.push_back(static_cast<char>(c));
+        } else {
+            id.push_back('_');
+        }
+    }
+    return id;
+}
+
+static std::string FormatInt64Vector(const std::vector<int64_t>& values)
+{
+    std::ostringstream oss;
+    oss << "[";
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i > 0) oss << ", ";
+        oss << values[i];
+    }
+    oss << "]";
+    return oss.str();
+}
+
+static std::string FormatStringVector(const std::vector<std::string>& values)
+{
+    std::ostringstream oss;
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i > 0) oss << ", ";
+        oss << values[i];
+    }
+    return oss.str();
+}
+
+static std::optional<double> TryParseFloatingLiteral(const std::string& value)
+{
+    if (value.find_first_of(".eE") == std::string::npos) {
+        return std::nullopt;
+    }
+
+    double number = 0.0;
+    const char* first = value.data();
+    const char* last = first + value.size();
+    const auto [ptr, ec] = std::from_chars(first, last, number, std::chars_format::general);
+    if (ec == std::errc{} && ptr == last) {
+        return number;
+    }
+
+    return std::nullopt;
+}
+
+static void AddConfigAttr(anet::graphviz::LabelData& label, const std::string& key, const std::string& value, int precision)
+{
+    if (const auto number = TryParseFloatingLiteral(value)) {
+        label.AddAttr(key, *number, precision);
+        return;
+    }
+
+    label.AddAttr(key, value);
+}
+
+static anet::graphviz::LayoutDirection ToGraphVizLayoutDirection(const NetworkGraphVizConfig& config)
+{
+    if (config.layout == "LR") return anet::graphviz::LayoutDirection::LeftToRight;
+    if (config.layout == "TB") return anet::graphviz::LayoutDirection::TopToBottom;
+
+    ANET_SYSTEM_ERROR("Invalid NetworkGraphVizConfig.layout: " << config.layout << ". Expected LR or TB.");
+    return anet::graphviz::LayoutDirection::LeftToRight;
+}
+
+static void RegisterNetworkGraphVizStyles(anet::graphviz::Tree& tree)
+{
+    anet::graphviz::NodeStyle input_style;
+    input_style.shape = anet::graphviz::NodeShape::Ellipse;
+    input_style.border_style = anet::graphviz::BorderStyle::Filled;
+    input_style.color = "#2E86AB";
+    input_style.fillcolor = "#E8F4FA";
+    tree.RegisterNodeStyle("input", input_style);
+
+    anet::graphviz::NodeStyle branch_style;
+    branch_style.shape = anet::graphviz::NodeShape::Box;
+    branch_style.border_style = anet::graphviz::BorderStyle::Filled;
+    branch_style.color = "#7D6608";
+    branch_style.fillcolor = "#FCF3CF";
+    tree.RegisterNodeStyle("branch", branch_style);
+
+    anet::graphviz::NodeStyle block_style;
+    block_style.shape = anet::graphviz::NodeShape::Plain;
+    tree.RegisterNodeStyle("block", block_style);
+
+    anet::graphviz::NodeStyle output_style;
+    output_style.shape = anet::graphviz::NodeShape::Ellipse;
+    output_style.border_style = anet::graphviz::BorderStyle::Filled;
+    output_style.color = "#1E8449";
+    output_style.fillcolor = "#E9F7EF";
+    tree.RegisterNodeStyle("output", output_style);
+
+    anet::graphviz::NodeStyle head_output_style;
+    head_output_style.shape = anet::graphviz::NodeShape::Ellipse;
+    head_output_style.border_style = anet::graphviz::BorderStyle::Filled;
+    head_output_style.color = "#C0392B";
+    head_output_style.fillcolor = "#FDEDEC";
+    tree.RegisterNodeStyle("head_output", head_output_style);
+
+    anet::graphviz::NodeStyle head_style;
+    head_style.shape = anet::graphviz::NodeShape::Diamond;
+    head_style.border_style = anet::graphviz::BorderStyle::Filled;
+    head_style.color = "#6C3483";
+    head_style.fillcolor = "#F4ECF7";
+    tree.RegisterNodeStyle("head", head_style);
+}
+
+static void AddTensorSpecAttrs(anet::graphviz::LabelData& label, const anet::TensorSpec& spec)
+{
+    label.AddAttr("shape", FormatInt64Vector(spec.shape));
+    label.AddAttr("dtype", std::string(c10::toString(spec.dtype)));
+    if (spec.num_classes > 0) {
+        label.AddAttr("num_classes", spec.num_classes);
+    }
+}
+
+static void AddHeadGraphVizInfo(anet::graphviz::LabelData& label, const HeadGraphVizInfo& info, const NetworkGraphVizConfig& config)
+{
+    if (!info.type.empty()) {
+        label.SetTitle(info.type);
+    }
+
+    if (!config.show_head_info) return;
+
+    for (const auto& [key, value] : info.details) {
+        label.AddAttr(key, value);
+    }
+}
+
+void anet::nn::ValidateNetworkGraphVizConfig(const NetworkGraphVizConfig& config, const std::string& owner)
+{
+    if (config.layout != "LR" && config.layout != "TB") {
+        ANET_SYSTEM_ERROR("Invalid " << owner << ".layout: " << config.layout << ". Expected LR or TB.");
+    }
+    if (config.float_precision < 0) {
+        ANET_SYSTEM_ERROR("Invalid " << owner << ".float_precision: " << config.float_precision << ". Expected non-negative integer.");
+    }
+}
+
 
 // ===========================================================================
 // NetworkConfig
 // ===========================================================================
 
-static std::map<std::string, NetworkBlockConfig> ReadBlockConfig(const anet::ConfigData& config_data)
+static std::map<std::string, NetworkBlockConfig> ReadBlockConfig(const anet::ConfigData& config_data, const std::string& config_prefix)
 {
     std::map<std::string, NetworkBlockConfig> block_configs;
 
-    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> tag_block_map;
-    auto config_map = config_data.Map();
-    for (const auto& kv : config_map) {
-        const std::string& config_key = kv.first;
-        const std::string& config_value = kv.second;
+    // グローバルとローカルのタグ別設定を一時保持
+    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> global_tag_block_map;
+    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> local_tag_block_map;
 
-        // 設定Keyからtagを抽出
-        auto config_tag = anet::ExtractBetween(config_key, kNetBlockConfigKeyPrefix, kNetBlockConfigKeySuffix);
-        if (config_tag.empty()) {
+    // プレフィックスのピリオドを正規表現エスケープする ("net.dyn" -> "net\.dyn")
+    std::string escaped_prefix = std::regex_replace(config_prefix, std::regex(R"(\.)"), R"(\.)");
+
+    // グローバル(net) と ローカル(config_prefix) の正規表現
+    std::regex re_global(R"(net\.block\.\[([^\]]+)\]\.(.+))");
+    std::regex re_local(escaped_prefix + R"(\.block\.\[([^\]]+)\]\.(.+))");
+
+    auto config_map = config_data.Map();
+    for (const auto& [key, value] : config_map) {
+        std::smatch m;
+        // まずローカルマッチを試す
+        if (std::regex_match(key, m, re_local)) {
+            local_tag_block_map[m[1].str()][m[2].str()] = value;
             continue;
         }
-
-        // サブキーを抽出
-        auto pos = config_key.find(kNetBlockConfigKeySuffix);
-        auto size = config_key.size();
-        if ((pos + 2) >= config_key.size()) continue;
-        auto config_sub_key = config_key.substr(pos + 2);
-        if (config_sub_key.empty()) continue;
-
-        // 集約Mapに保存
-        tag_block_map[config_tag][config_sub_key] = config_value;
+        // 次にグローバルマッチを試す
+        if (std::regex_match(key, m, re_global)) {
+            global_tag_block_map[m[1].str()][m[2].str()] = value;
+        }
     }
 
-    for (const auto& kv : tag_block_map) {
-        const auto& tag = kv.first;
-        const auto& config_map = kv.second;
+    // グローバルとローカルをマージ (ローカルが優先上書きされる)
+    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> merged_tag_block_map = std::move(global_tag_block_map);
+    for (const auto& [tag, config_map] : local_tag_block_map) {
+        for (const auto& [sub_key, val] : config_map) {
+            merged_tag_block_map[tag][sub_key] = val;
+        }
+    }
 
+    for (const auto& [tag, config_map] : merged_tag_block_map) {
         // NetworkBlockConfig を作る
-        NetworkBlockConfig block_config;;
-        for (const auto& kv2 : config_map) {
-            const auto& config_sub_key = kv2.first;
-            const auto& config_value = kv2.second;
+        NetworkBlockConfig block_config;
+        for (const auto& [config_sub_key, config_value] : config_map) {
             if (config_sub_key == "type") {
                 block_config.type = config_value;
             } else {
@@ -151,94 +290,138 @@ static std::map<std::string, NetworkBlockConfig> ReadBlockConfig(const anet::Con
             ANET_SYSTEM_ERROR("Block type not specified for block: " + tag);
         }
 
+        // 作ったNetworkBlockConfigを保存
         block_configs[tag] = std::move(block_config);
     }
 
     return block_configs;
 }
 
-NetworkConfig::NetworkConfig(const anet::ConfigData& config_data, std::optional<std::string> structure_str_opt)
+static std::map<std::string, NetworkBranchConfig> ReadBranchConfig(const anet::ConfigData& config_data, const std::string& config_prefix)
 {
-    // structure_strを作る（structure_str_optの指定があればそれを、無ければConfigDataから引いて）
-    if (structure_str_opt.has_value()) {
-        structure_str = *structure_str_opt;
-    } else {
-        config_data.Read(kNetBodyStructureConfigKey, structure_str, structure_str);
+    std::map<std::string, NetworkBranchConfig> branches;
+
+    std::string escaped_prefix = std::regex_replace(config_prefix, std::regex(R"(\.)"), R"(\.)");
+    std::regex re_branch(escaped_prefix + R"(\.branch\.\[([^\]]+)\]\.(bind|structure|auto_format))");
+    std::regex re_raw(R"(\(raw\))");
+
+    for (const auto& [key, value] : config_data.Map()) {
+        std::smatch m;
+        if (std::regex_match(key, m, re_branch)) {
+            std::string b_name = m[1].str();
+            std::string b_prop = m[2].str();
+
+            branches[b_name].name = b_name;
+
+            if (b_prop == "bind") {
+                std::stringstream ss(value);
+                std::string item;
+                while (std::getline(ss, item, ',')) {
+                    item = Trim(item);
+                    if (item.empty()) continue;
+
+                    bool is_raw = false;
+                    if (std::regex_search(item, re_raw)) {
+                        is_raw = true;
+                        item = std::regex_replace(item, re_raw, "");
+                        item = Trim(item);
+                    }
+                    branches[b_name].bind_keys.push_back(item);
+                    if (is_raw) {
+                        branches[b_name].raw_keys.push_back(item);
+                    }
+                }
+            } else if (b_prop == "structure") {
+                branches[b_name].structure_str = value;
+            } else if (b_prop == "auto_format") {
+                branches[b_name].auto_format = (anet::ToLower(value) == "true" || value == "1");
+            }
+        }
     }
-    block_configs = ReadBlockConfig(config_data);
+
+    // 「auto_format=false」の場合、全ての bind_keysを raw_keys を追加
+    for (auto& [b_name, branch_cfg] : branches) {    // 全ブランチでチェック
+        if (!branch_cfg.auto_format) {
+            for (const auto& k : branch_cfg.bind_keys) {
+                if (!anet::Contains(branch_cfg.raw_keys, k)) {
+                    branch_cfg.raw_keys.push_back(k);
+                }
+            }
+        }
+    }
+
+    // ブランチ無しだとエラー
+    if (branches.empty()) {
+        ANET_SYSTEM_ERROR(
+            "No branches defined in NetworkConfig for prefix '" << config_prefix << "'. "
+            "Please define at least one branch using '" << config_prefix << ".branch.[name].bind' and 'structure'."
+        );
+    }
+
+    return branches;
+}
+
+NetworkConfig::NetworkConfig(const anet::ConfigData& config_data, const std::string& config_prefix)
+{
+    block_configs = ReadBlockConfig(config_data, config_prefix);
+    branches = ReadBranchConfig(config_data, config_prefix);
+
+    // [config_prefix].body.output.[Head期待キー] = Bodyブランチ名 を読み取る
+    std::string escaped_prefix = std::regex_replace(config_prefix, std::regex(R"(\.)"), R"(\.)");
+    std::regex re_output(escaped_prefix + R"(\.body\.output\.\[([^\]]+)\])");
+    for (const auto& [key, value] : config_data.Map()) {
+        std::smatch m;
+        if (std::regex_match(key, m, re_output)) {
+            output_keys[m[1].str()] = value;
+        }
+    }
 }
 
 anet::json NetworkConfig::ToJson() const
 {
-	/// @todo 設定ではなく実際に適用されている構造を出力するようにする
-
     anet::json j;
-
-    // ルート構造文字列を保存
-    j["structure"] = this->structure_str;
-
-    // ブロック定義を格納するオブジェクトを用意
     j["blocks"] = anet::json::object();
+    j["branches"] = anet::json::object();
 
-    // 使用されているブロック名を収集するためのキューとセット
-    std::vector<std::string> structure_queue;
-    std::set<std::string> processed_blocks;
+    // 各ブランチのstructure_strをパースし、使用されているブロック名を抽出
+    std::set<std::string> used_blocks;
+    std::regex re_rep(R"(\(\*(\d+)\))");
 
-    // 初期状態: ルート構造をキューに入れる
-    structure_queue.push_back(this->structure_str);
+    for (const auto& [b_name, b_cfg] : branches) {
+        // nn_impl.cpp上部で定義されている SplitPipelineString と Trim を利用
+        auto tokens = SplitPipelineString(b_cfg.structure_str);
 
-    // additional_structuresに含まれる構造定義も探索対象に入れる
-    for (const auto& [key, struct_str] : this->additional_structures) {
-        if (!struct_str.empty()) {
-            structure_queue.push_back(struct_str);
+        for (const auto& token_raw : tokens) {
+            std::string current_token = token_raw;
+
+            // "ResBlock(*4)" のようなリピート指定部分を削ぎ落とす
+            std::smatch m_rep;
+            if (std::regex_search(current_token, m_rep, re_rep)) {
+                current_token = std::regex_replace(current_token, re_rep, "");
+            }
+
+            std::string block_def_name = Trim(current_token);
+            if (!block_def_name.empty()) {
+                used_blocks.insert(block_def_name);
+            }
         }
     }
 
-    // 汎用Regex: カッコとその中身 (...) を全て除去
-    std::regex re_options(R"(\([^)]*\))");
-
-    // 幅優先探索で依存ブロックを収集
-    size_t head = 0;
-    while (head < structure_queue.size()) {
-        std::string current_structure = structure_queue[head++];
-
-        auto pipeline_tokens = SplitPipelineString(current_structure);
-
-        for (const auto& token_raw : pipeline_tokens) {
-            std::string temp_token = token_raw;
-
-            // (...) を全て除去して純粋なブロック名にする
-            temp_token = std::regex_replace(temp_token, re_options, "");
-
-            // トリム
-            std::string block_name = Trim(temp_token);
-            if (block_name.empty()) continue;
-
-            // 既に処理済みならスキップ
-            if (processed_blocks.count(block_name) > 0) continue;
-
-            // 未処理ブロックとして登録
-            processed_blocks.insert(block_name);
-
-            // Config検索 & JSON追加
-            auto it = this->block_configs.find(block_name);
-            if (it != this->block_configs.end()) {
-                const auto& block_config = it->second;
-
-                anet::json block_j;
-                block_j["type"] = block_config.type;
-                block_j["config"] = block_config.config_data.ToJson();
-                j["blocks"][block_name] = block_j;
-
-                // Compositeの場合、その内部構造も探索対象に追加
-                if (block_config.type == "Composite") {
-                    std::string sub_structure = block_config.config_data.Get("structure", "");
-                    if (!sub_structure.empty()) {
-                        structure_queue.push_back(sub_structure);
-                    }
-                }
-            }
+    // 使用されているブロックのみをJSONに出力
+    for (const auto& [k, v] : block_configs) {
+        if (used_blocks.find(k) != used_blocks.end()) {
+            j["blocks"][k] = { {"type", v.type}, {"config", v.config_data.ToJson()} };
         }
+    }
+
+    // ブランチ情報はすべて出力
+    for (const auto& [k, v] : branches) {
+        j["branches"][k] = { {"bind_keys", v.bind_keys}, {"structure", v.structure_str}, {"raw_keys", v.raw_keys} };
+    }
+
+    // 出力のマッピング情報を出力
+    for (const auto& [head_key, branch_key] : output_keys) {
+        j["output_keys"][head_key] = branch_key;
     }
 
     return j;
@@ -249,15 +432,9 @@ anet::json NetworkConfig::ToJson() const
 // NetworkBlock (Runtime Node)
 // ===========================================================================
 
-NetworkBlock::NetworkBlock(
-    std::string name, std::shared_ptr<NetworkModule> module,
-    std::vector<std::string> input_tags, std::string output_tag)
-    : name_(std::move(name))
-    , module_(std::move(module))
-    , input_tags_(std::move(input_tags))
-    , output_tag_(std::move(output_tag))
+NetworkBlock::NetworkBlock(std::string name, std::shared_ptr<NetworkModule> module)
+    : name_(std::move(name)), module_(std::move(module))
 {
-    // Torchのサブモジュールとして登録
     register_module("inner", module_);
 }
 
@@ -265,6 +442,7 @@ torch::Tensor NetworkBlock::Forward(torch::Tensor input)
 {
     return module_->Forward(input);
 }
+
 
 // ===========================================================================
 // NetworkStruct (Execution Engine)
@@ -278,179 +456,149 @@ NetworkStruct::NetworkStruct(std::vector<std::shared_ptr<NetworkBlock>> blocks)
     }
 }
 
-torch::Tensor NetworkStruct::Forward(torch::Tensor input)
+torch::Tensor NetworkStruct::Forward(torch::Tensor input, const anet::TraceSink& sink)
 {
-    anet::ProfileRange r("NetworkStruct::Forward");
+    ANET_PROFILE_FUNC();
 
-    // ノードが一つも無ければ入力をそのまま返す（パススルー / Identity）
-    if (blocks_.empty()) {
-        return input;
-    }
+    if (sink) sink("00_Input", input);
 
-    // 実行時キャッシュ (Tag -> Tensor)
-    std::map<std::string, torch::Tensor> tensor_cache;
-
-    // 直前のブロックの出力 (デフォルト入力)
-    torch::Tensor last_output = input;
-
-    for (const auto& block : blocks_) {
-        anet::ProfileRange r1("NetworkStruct::Forward.block");
-
-        torch::Tensor block_input;
-        const auto& in_tags = block->GetInputTags();
-
-        // --- 1. 入力解決 (Wiring) ---
-        anet::ProfileRange r2("NetworkStruct::Forward.wireing");
-        if (in_tags.empty()) {
-            // 指定なし: 直前の出力を使う (Sequential動作)
-            block_input = last_output;
-        } else {
-            // 指定あり: タグ解決
-            std::vector<torch::Tensor> inputs;
-
-            for (const auto& tag : in_tags) {
-                if (tag == kReservedTagInput) {
-                    // @input : Graph全体への入力
-                    inputs.push_back(input);
-                } else if (tag == kReservedTagPrev) {
-                    // @prev : 直前の出力
-                    inputs.push_back(last_output);
-                } else {
-                    // 通常タグ : キャッシュから検索
-                    if (tensor_cache.find(tag) == tensor_cache.end()) {
-                        throw std::runtime_error("Input tag not found in cache: " + tag + " (at block " + block->GetName() + ")");
-                    }
-                    inputs.push_back(tensor_cache.at(tag));
-                }
-            }
-
-            if (inputs.size() == 1) {
-                block_input = inputs[0];
-            } else {
-                // Dim=1 (Channel) で結合
-                block_input = torch::cat(inputs, 1);
-            }
-        }
-
-        // --- 2. 実行 ---
-        anet::ProfileRange r3("NetworkStruct::Forward.execute", r2);
-        torch::Tensor block_output = block->Forward(block_input);
-
-        // --- 3. 出力キャッシュ (Tagging) ---
-        anet::ProfileRange r4("NetworkStruct::Forward.tagging",r3);
-        const auto& out_tag = block->GetOutputTag();
-        if (!out_tag.empty()) {
-            if (out_tag == kReservedTagInput || out_tag == kReservedTagPrev) {
-                throw std::runtime_error("Cannot use reserved tag name for output: " + out_tag);
-            }
-            tensor_cache[out_tag] = block_output;
-        }
-
-        last_output = block_output;
-    }
-
-    return last_output;
-}
-
-int64_t NetworkStruct::InferFeatureDim(const std::vector<int64_t>& input_shape)
-{
-    torch::NoGradGuard no_grad;
-    // Batch次元(1)を追加してダミー作成: [1, C, H, W]
-    std::vector<int64_t> shape_with_batch = { 1 };
-    shape_with_batch.insert(shape_with_batch.end(), input_shape.begin(), input_shape.end());
-
-    auto dummy_in = torch::zeros(shape_with_batch);
-    this->eval();   // ダミーデータによる統計汚染防止
-    auto dummy_out = this->Forward(dummy_in);
-    this->train();  // 元に戻す
-
-    return dummy_out.numel();
-}
-
-anet::TensorDict NetworkStruct::GetConv2dOutputs(torch::Tensor input)
-{
-    anet::ProfileRange r("NetworkStruct::GetConv2dOutputs");
-    anet::TensorDict outputs;
-
-    // 入力画像を "00_Input" として保存
-    outputs.Set("00_Input", input);
-
-    // Forwardと同じ実行時キャッシュと結線(Wiring)ロジックを利用
-    std::map<std::string, torch::Tensor> tensor_cache;
-    torch::Tensor last_output = input;
+    torch::Tensor x = input;
     int index = 1;
-
     for (const auto& block : blocks_) {
-        torch::Tensor block_input;
-        const auto& in_tags = block->GetInputTags();
-        ANET_LOG_DEBUG("block.GetName()=" << block->GetName());
-
-        // --- 入力解決 (Wiring) ---
-        if (in_tags.empty()) {
-            block_input = last_output;
-        } else {
-            std::vector<torch::Tensor> inputs;
-            for (const auto& tag : in_tags) {
-                if (tag == kReservedTagInput) {
-                    inputs.push_back(input);
-                } else if (tag == kReservedTagPrev) {
-                    inputs.push_back(last_output);
-                } else {
-                    if (tensor_cache.find(tag) == tensor_cache.end()) {
-                        ANET_SYSTEM_ERROR("Input tag not found in cache: " << tag);
-                    }
-                    inputs.push_back(tensor_cache.at(tag));
-                }
-            }
-            if (inputs.size() == 1) {
-                block_input = inputs[0];
-            } else {
-                block_input = torch::cat(inputs, 1);
-            }
-        }
-
-        // ---  実行 ---
-        torch::Tensor block_output = block->Forward(block_input);
-
-        // --- 出力キャッシュ (Tagging) ---
-        const auto& out_tag = block->GetOutputTag();
-        if (!out_tag.empty()) {
-            tensor_cache[out_tag] = block_output;
-        }
-
-        last_output = block_output;
-
-        // --- 抽出ロジック (可視化用) ---
-        if (block->IsConv2dVisualizable()) {
-            // 画像ぽい様式かチェック
-            if (block_output.dim() == 4 && block_output.size(2) >= 2 && block_output.size(3) >= 2 && block_output.is_floating_point()) {
-                ANET_LOG_DEBUG("Image bloc. GetName()=" << block->GetName());
-
-                // "01_Embed4064_0", "02_ConvInit32_0" のようなキーで保存
-                std::string name = block->GetName();
-                std::string key = std::format("{:02d}_{}", index++, name.c_str());
-                outputs.Set(key, block_output);
-            } else {
-                ANET_LOG_DEBUG("Not image block. GetName()=" << block->GetName());
-            }
+        x = block->Forward(x);
+        if (sink && block->IsConv2dVisualizable() && x.dim() == 4 && x.size(2) >= 2 && x.size(3) >= 2 && x.is_floating_point()) {
+            sink(std::format("{:02d}_{}", index++, block->GetName().c_str()), x);
         }
     }
-
-    return outputs;
+    return x;
 }
 
+
 // ===========================================================================
-// CompositeModule
+// NetworkBoundaryPreprocessor
 // ===========================================================================
 
-CompositeModule::CompositeModule(std::shared_ptr<NetworkStruct> graph)
-    : graph_(std::move(graph))
+NetworkBoundaryPreprocessor::NetworkBoundaryPreprocessor(
+    const anet::TensorSpecMap& specs, const std::vector<std::string>& raw_keys)
+    : specs_(specs), raw_keys_(raw_keys.begin(), raw_keys.end())
 {
-    register_module("composite_graph", graph_);
 }
 
-torch::Tensor CompositeModule::Forward(torch::Tensor input) {
-    return graph_->Forward(input);
+anet::TensorDict NetworkBoundaryPreprocessor::Format(const anet::TensorDict& raw_input) const
+{
+	ANET_PROFILE_FUNC();
+
+    anet::TensorDict formatted;
+
+    for (const auto& kv : raw_input) {
+        const std::string& key = kv.first;
+        const torch::Tensor& tensor = kv.second;
+        if (!tensor.defined()) continue;
+
+        // (raw) 指定されている場合はそのまま通す
+        if (raw_keys_.count(key) > 0) {
+            formatted.Set(key, tensor);
+            continue;
+        }
+
+        // Specが無いもの（Agent独自のテンソル等）はそのまま通す
+        auto it = specs_.find(key);
+        if (it == specs_.end()) {
+            formatted.Set(key, tensor);
+            continue;
+        }
+
+        const TensorSpec& spec = it->second;
+        torch::Tensor t = tensor;
+
+        // 離散値は One-Hot 化する
+        if (spec.IsDiscrete()) {
+            t = t.to(torch::kInt64);
+            t = torch::one_hot(t, spec.num_classes).to(torch::kFloat32);
+            auto new_dim = t.dim();
+            // Shapeの補正: PyTorchのone_hotは末尾に次元(クラス数)を足すので余計なサイズ1次元を補正
+
+            if (spec.type == anet::SpaceType::Grid) {
+                // 入力が [B, S, 1, H, W] -> one_hot -> [B, S, 1, H, W, C] (6次元: FrameStackあり)
+                if (new_dim == 6 && t.size(2) == 1) {
+                    t = t.squeeze(2); // [B, S, H, W, C] にする
+                    new_dim = 5;
+                }
+                // 入力が [B, 1, H, W] -> one_hot -> [B, 1, H, W, C] (5次元: FrameStackなし)
+                else if (new_dim == 5 && t.size(1) == 1) {
+                    t = t.squeeze(1); // [B, H, W, C] にする
+                    new_dim = 4;
+                }
+
+                // この時点で t は必ず [B, S, H, W, C] (5次元) または [B, H, W, C] (4次元) になる
+                if (new_dim == 5) {
+                    // FrameStackあり: CとSをまとめてConv2dに食わせるため [B, S*C, H, W] (4次元) に平坦化する
+                    t = t.permute({ 0, 1, 4, 2, 3 }); // -> [B, S, C, H, W]
+                    t = t.reshape({ t.size(0), t.size(1) * t.size(2), t.size(3), t.size(4) });
+                } else if (new_dim == 4) {
+                    // FrameStackなし: そのまま並び替え -> [B, C, H, W] (4次元)
+                    t = t.permute({ 0, 3, 1, 2 });
+                }
+            } else if (spec.type == anet::SpaceType::Vector) {
+                // Vectorの場合も念のためFrameStack(6次元/4次元)をケアしておく
+                if (new_dim == 4 && t.size(2) == 1) { // [B, S, 1] -> one_hot -> [B, S, 1, C]
+                    t = t.squeeze(2); // -> [B, S, C]
+                } else if (new_dim == 3 && t.size(1) == 1) { // [B, 1] -> one_hot -> [B, 1, C]
+                    t = t.squeeze(1); // -> [B, C]
+                }
+            }
+        } else {
+            // 連続値の正規化・キャスト
+            if (t.scalar_type() == torch::kByte || t.scalar_type() == torch::kInt8 || t.scalar_type() == torch::kUInt8) {
+                t = t.to(torch::kFloat32) / 255.0f;
+            } else if (t.scalar_type() != torch::kFloat32) {
+                t = t.to(torch::kFloat32);
+            }
+        }
+        formatted.Set(key, t);
+    }
+    return formatted;
+}
+
+
+// ===========================================================================
+// NetworkBranch
+// ===========================================================================
+
+NetworkBranch::NetworkBranch(std::string name, std::vector<std::string> bind_keys, std::shared_ptr<NetworkStruct> network_struct)
+    : name_(std::move(name)), bind_keys_(std::move(bind_keys)), network_struct_(std::move(network_struct))
+{
+    register_module("network_struct", network_struct_);
+}
+
+void NetworkBranch::Execute(anet::TensorDict& current_state, const anet::TraceSink& sink)
+{
+    torch::Tensor block_input;
+
+    if (bind_keys_.empty()) {
+        block_input = torch::empty({ 0 }, current_state.device());
+    } else {
+        std::vector<torch::Tensor> inputs;
+        for (const auto& key : bind_keys_) {
+            auto t_opt = current_state.Get(key);
+            if (!t_opt.has_value()) {
+                ANET_SYSTEM_ERROR("NetworkBranch '" << name_ << "' failed to execute: Input key '" << key << "' not found in TensorDict.");
+            }
+            inputs.push_back(*t_opt);
+        }
+        block_input = (inputs.size() == 1) ? inputs[0] : torch::cat(inputs, 1);
+    }
+
+    anet::TraceSink branch_sink;
+    if (sink) {
+        const std::string prefix = name_ + "/";
+        branch_sink = [&sink, prefix](std::string_view key, const torch::Tensor& tensor) {
+            sink(prefix + std::string(key), tensor);
+        };
+    }
+
+    torch::Tensor output = network_struct_->Forward(block_input, branch_sink);
+    current_state.Set(name_, output);
 }
 
 
@@ -458,55 +606,63 @@ torch::Tensor CompositeModule::Forward(torch::Tensor input) {
 // NetworkBody / CompositeModule
 // ===========================================================================
 
-NetworkBody::NetworkBody(std::shared_ptr<NetworkStruct> graph)
-    : graph_(std::move(graph))
+NetworkBody::NetworkBody(
+    std::vector<std::shared_ptr<NetworkBranch>> branches,
+    const anet::TensorSpecMap& specs,
+    const std::vector<std::string>& raw_keys,
+    std::map<std::string, std::string> output_keys)
+	: branches_(std::move(branches))
+    , preprocessor_(specs, raw_keys)
+    , output_keys_(std::move(output_keys))
 {
-    register_module("graph", graph_);
+    for (const auto& branch : branches_) {
+        register_module("branch_" + branch->GetName(), branch);
+    }
 }
 
-int64_t NetworkBody::InferFeatureDim(const std::vector<int64_t>& input_shape) {
-    return graph_->InferFeatureDim(input_shape);
-}
-
-torch::Tensor NetworkBody::Forward(torch::Tensor input) {
-    return graph_->Forward(input);
-}
-
-anet::TensorDict NetworkBody::GetConv2dOutputs(torch::Tensor input)
+anet::TensorDict NetworkBody::Forward(const anet::TensorDict& input, const anet::TraceSink& sink)
 {
-    // グラフ(NetworkStruct)へ委譲
-    return graph_->GetConv2dOutputs(input);
-}
+    ANET_PROFILE_FUNC();
 
+    // 境界プレプロセッサで生データをフォーマット
+    auto state = preprocessor_.Format(input);
 
-// ===========================================================================
-// NetworkStructBuilder (Recursive Logic)
-// ===========================================================================
-std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
-    const NetworkConfig& root_config,
-    const std::string& structure_str)
-{
-    // structure_strが空なら、空の（ノードを持たない）Structを返すだけ
-    if (structure_str.empty()) {
-        return std::make_shared<NetworkStruct>(); // 空のグラフ
+    // 入力順ソートされた順序でブランチ群を実行
+    for (const auto& branch : branches_) {
+        branch->Execute(state, sink);
     }
 
-    std::vector<std::shared_ptr<NetworkBlock>> blocks;
+    // 指定されたマッピングに従って Head用の TensorDict を構築
+    anet::TensorDict out;
+    for (const auto& [head_key, branch_key] : output_keys_) {
+        if (auto t = state.Get(branch_key)) {
+            out.Set(head_key, *t);
+        } else {
+            ANET_SYSTEM_ERROR("NetworkBody output mapping failed: branch '" << branch_key << "' not found in DAG state.");
+        }
+    }
+    return out;
+}
 
+
+// ===========================================================================
+// NetworkStructBuilder
+// ===========================================================================
+
+std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
+    const NetworkConfig& root_config, const std::string& structure_str)
+{
+    if (structure_str.empty()) return std::make_shared<NetworkStruct>();
+
+    std::vector<std::shared_ptr<NetworkBlock>> blocks;
     auto tokens = SplitPipelineString(structure_str);
 
-    // 正規表現
-    std::regex re_rep(R"(\(\*(\d+)\))");      // (*3)
-    std::regex re_tag(R"(\(=([^)]+)\))");     // (=tag) - Output
-    std::regex re_src(R"(\(@([^)]+)\))");     // (@tag) - Input
-
-    // 同一Type内での連番用カウンタ
+    std::regex re_rep(R"(\(\*(\d+)\))");
     std::map<std::string, int> type_counters;
 
     for (const auto& token_raw : tokens) {
         std::string current_token = token_raw;
 
-        // A. 繰り返し (*N) の検出
         int repeat_count = 1;
         std::smatch m_rep;
         if (std::regex_search(current_token, m_rep, re_rep)) {
@@ -514,88 +670,93 @@ std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
             current_token = std::regex_replace(current_token, re_rep, "");
         }
 
-        // B. 繰り返し展開
         for (int r = 0; r < repeat_count; ++r) {
-            std::string temp_token = current_token;
-            std::string output_tag = "";
-            std::vector<std::string> input_tags;
-
-            // B-1. Output Tag (=tag)
-            std::smatch m_tag;
-            if (std::regex_search(temp_token, m_tag, re_tag)) {
-                output_tag = m_tag[1].str();
-                temp_token = std::regex_replace(temp_token, re_tag, "");
-            }
-
-            // B-2. Input Tags (@tag)
-            std::smatch m_src;
-            while (std::regex_search(temp_token, m_src, re_src)) {
-                std::string content = m_src[1].str();
-                // スペースで分割して複数タグに対応
-                auto split_tags = SplitSpace(content);
-
-                for (auto& raw_tag : split_tags) {
-                    // 先頭の '@' を除去 ("@tag" -> "tag")
-                    if (!raw_tag.empty() && raw_tag[0] == '@') {
-                        raw_tag = raw_tag.substr(1);
-                    }
-                    if (!raw_tag.empty()) {
-                        input_tags.push_back(raw_tag);
-                    }
-                }
-
-                temp_token = std::regex_replace(temp_token, re_src, "", std::regex_constants::format_first_only);
-            }
-
-            // B-3. BlockDef名
-            std::string block_def_name = Trim(temp_token);
+            std::string block_def_name = Trim(current_token);
             if (block_def_name.empty()) continue;
 
-            // 定義取得
             if (root_config.block_configs.find(block_def_name) == root_config.block_configs.end()) {
                 throw std::runtime_error("Block definition not found: " + block_def_name);
             }
             const auto& block_cfg = root_config.block_configs.at(block_def_name);
 
-            // モジュール生成
-            std::shared_ptr<NetworkModule> inner_module;
+            auto factory = NetworkModuleRepository::Instance().GetFactory(block_cfg.type);
+            ModuleContext ctx;
+            auto inner_module = factory->CreateModule(block_cfg.config_data, ctx);
 
-            if (block_cfg.type == "Composite") {
-                // === Composite Block (Recursive) ===
-                std::string sub_structure = block_cfg.config_data.Get("structure", "");
-                if (sub_structure.empty()) {
-                    throw std::runtime_error("Composite block requires 'structure' config: " + block_def_name);
-                }
-
-                auto sub_graph = NetworkStructBuilder::Build(root_config, sub_structure);
-                inner_module = std::make_shared<CompositeModule>(sub_graph);
-
-            } else {
-                // === Leaf Block (Factory) ===
-                auto factory = NetworkModuleRepository::Instance().GetFactory(block_cfg.type);
-
-                ModuleContext ctx;
-                ctx.input_tags = input_tags;
-
-                inner_module = factory->CreateModule(block_cfg.config_data, ctx);
-            }
-
-            // C. 名前生成 (Name): BlockDef_N
             int idx = type_counters[block_def_name]++;
             std::string instance_name = block_def_name + "_" + std::to_string(idx);
 
-            // D. Block生成
-            auto block = std::make_shared<NetworkBlock>(
-                instance_name,
-                inner_module,
-                input_tags,
-                output_tag
-            );
-            blocks.push_back(block);
+            blocks.push_back(std::make_shared<NetworkBlock>(instance_name, inner_module));
+        }
+    }
+    return std::make_shared<NetworkStruct>(std::move(blocks));
+}
+
+
+// ===========================================================================
+// NetworkBodyBuilder
+// ===========================================================================
+
+std::shared_ptr<NetworkBody> NetworkBodyBuilder::Build(const NetworkConfig& config, const anet::TensorSpecMap& input_specs)
+{
+    std::map<std::string, std::shared_ptr<NetworkBranch>> all_branches;
+    std::map<std::string, int> in_degree;
+    std::map<std::string, std::vector<std::string>> adj;
+    std::vector<std::string> all_raw_keys;
+
+    // 各ブランチの生成と初期化
+    for (const auto& [b_name, b_cfg] : config.branches) {
+        auto engine = NetworkStructBuilder::Build(config, b_cfg.structure_str);
+        all_branches[b_name] = std::make_shared<NetworkBranch>(b_name, b_cfg.bind_keys, engine);
+        in_degree[b_name] = 0;
+
+        for (const auto& rk : b_cfg.raw_keys) {
+            all_raw_keys.push_back(rk);
         }
     }
 
-    return std::make_shared<NetworkStruct>(std::move(blocks));
+    // 依存関係（エッジ）の構築
+    for (const auto& [b_name, b_cfg] : config.branches) {
+        for (const auto& bind_key : b_cfg.bind_keys) {
+            if (input_specs.find(bind_key) != input_specs.end()) {
+                // Envからの入力（依存なし）
+                continue;
+            } else if (all_branches.find(bind_key) != all_branches.end()) {
+                // 他のブランチからの入力（依存あり）
+                adj[bind_key].push_back(b_name);
+                in_degree[b_name]++;
+            } else {
+                ANET_SYSTEM_ERROR("NetworkBodyBuilder: Branch '" << b_name << "' requires unknown input key '" << bind_key << "'. Check your 'bind' configuration.");
+            }
+        }
+    }
+
+    // トポロジカルソート (Kahn's algorithm)
+    std::queue<std::string> q;
+    for (const auto& [b_name, deg] : in_degree) {
+        if (deg == 0) q.push(b_name);
+    }
+
+    std::vector<std::shared_ptr<NetworkBranch>> sorted_branches;
+    while (!q.empty()) {
+        std::string u = q.front();
+        q.pop();
+        sorted_branches.push_back(all_branches[u]);
+
+        for (const auto& v : adj[u]) {
+            in_degree[v]--;
+            if (in_degree[v] == 0) {
+                q.push(v);
+            }
+        }
+    }
+
+    // 循環参照のチェック
+    if (sorted_branches.size() != all_branches.size()) {
+        ANET_SYSTEM_ERROR("NetworkBodyBuilder: Cycle detected in branch bindings! Check for circular dependencies in configuration.");
+    }
+
+    return std::make_shared<NetworkBody>(sorted_branches, input_specs, all_raw_keys, config.output_keys);
 }
 
 
@@ -604,82 +765,229 @@ std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
 // ===========================================================================
 
 Network::Network(
-    const NetworkConfig& config, const std::vector<int64_t>& input_shape, std::shared_ptr<NetworkHeadFactory> head_factory,
+    const NetworkConfig& config, const anet::TensorSpecMap& input_specs, std::shared_ptr<NetworkHeadFactory> head_factory,
     std::shared_ptr<NetworkBody> body, std::shared_ptr<NetworkHead> head)
     : config_(config)
-    , input_shape_(input_shape)
+    , input_specs_(input_specs)
     , head_factory_(head_factory)
     , body_(std::move(body))
     , head_(std::move(head))
 {
     register_module("body", body_);
-    register_module("head", head_);
+    if (head_) register_module("head", head_);
 }
 
-anet::TensorDict Network::Forward(const torch::Tensor& input)
+anet::TensorDict Network::Forward(const anet::TensorDict& input, const anet::TraceSink& sink)
 {
-	anet::ProfileRange r("Network::Forward");
+    ANET_PROFILE_FUNC();
 
-    auto features = body_->Forward(input);
+    //  Body部を実行 (ここはAMPが有効ならFP16で高速処理される)
+    auto features = body_->Forward(input, sink);
 
-    {
+    // Head部を実行
+    if (head_) {
         // Head部ではAMPを強制OFF（外側の設定を無効化）にする
         anet::Autocast disable_amp(torch::kCUDA, false, torch::kFloat32);
 
         // Bodyから出てきたTensorはBF16になっているかもしれないのでキャストしてHeadに流し込む
-        return head_->Forward(features.to(torch::kFloat32));
+        return head_->Forward(features.To(torch::kFloat32));
+    } else {
+		// Headが無い場合はBodyの出力をそのまま返す
+        return features;
     }
 }
 
-std::optional<anet::TensorFunction> Network::GetTensorFunction(const std::string& key)
+std::optional<anet::TensorDictFunction> Network::GetTensorDictFunction(const std::string& key)
 {
-    // Head優先
-    auto head_func = head_->GetTensorFunction(key);
-    if (head_func) {
-        return [this, func = *head_func](const torch::Tensor& input) {
-            auto features = body_->Forward(input);
-            return func(features);
-            };
+    // Headが無い Network では Function key として forward だけを公開する
+    if (!head_) {
+        if (key != "forward") return std::nullopt;
+
+        return [this](const anet::TensorDict& state_input) -> anet::TensorDict {
+            torch::NoGradGuard grad_guard;
+
+            // Bodyのみ実行し、Network::Forward の Headなし経路と同じ出力を返す
+            return this->body_->Forward(state_input);
+        };
     }
-    return std::nullopt;
+
+    // Headが指定されたキーの機能(関数)を持ってい無ければ無し
+    auto head_func = head_->GetTensorDictFunction(key);
+    if (!head_func) {
+        return std::nullopt;
+    }
+
+    //  Bodyの実行を内包したクロージャ(ラムダ)を返す
+    return [this, h_func = *head_func](const anet::TensorDict& state_input) -> anet::TensorDict {
+        torch::NoGradGuard grad_guard;
+
+        // Bodyを実行 (ここはAMPが有効ならFP16で高速処理される)
+        anet::TensorDict features = this->body_->Forward(state_input);
+
+        // 関数実行時もHead扱いの処理なので、確実にAMPを切る
+        anet::Autocast disable_amp(torch::kCUDA, false, torch::kFloat32);
+
+        // 抽出された特徴量DictをHeadの関数に渡して結果を返す
+        return h_func(features.To(torch::kFloat32));
+        };
 }
 
-anet::TensorDict Network::GetConv2dOutputs(const torch::Tensor& input) const
+std::unique_ptr<anet::graphviz::GraphViz> Network::MakeGraphViz(const NetworkGraphVizConfig& viz_config) const
 {
-    anet::ProfileRange r("Network::GetConv2dOutputs");
-    torch::NoGradGuard no_grad;
+    ValidateNetworkGraphVizConfig(viz_config, "NetworkGraphVizConfig");
 
-    // Bodyへ委譲
-    return body_->GetConv2dOutputs(input);
+    auto tree = std::make_unique<anet::graphviz::Tree>("Network", ToGraphVizLayoutDirection(viz_config));
+    RegisterNetworkGraphVizStyles(*tree);
+
+    std::unordered_map<std::string, std::string> input_nodes;
+    for (const auto& [key, spec] : input_specs_) {
+        const std::string node_id = MakeDotNodeId("input", key);
+        auto& node = tree->AddNode(node_id, "input");
+        node.label.SetTitle("input: " + key);
+        if (viz_config.show_tensor_specs) {
+            AddTensorSpecAttrs(node.label, spec);
+        }
+        input_nodes[key] = node_id;
+    }
+
+    std::unordered_map<std::string, std::string> branch_output_nodes;
+    for (const auto& branch : body_->GetBranches()) {
+        const std::string branch_name = branch->GetName();
+        const std::string branch_id = MakeDotNodeId("branch", branch_name);
+        auto& branch_node = tree->AddNode(branch_id, viz_config.cluster_branches ? "branch" : "default");
+        branch_node.label.SetTitle("branch: " + branch_name);
+        if (viz_config.show_branch_config) {
+            auto branch_config_it = config_.branches.find(branch_name);
+            if (branch_config_it != config_.branches.end()) {
+                const auto& branch_config = branch_config_it->second;
+                branch_node.label.AddAttr("auto_format", branch_config.auto_format ? "true" : "false");
+                branch_node.label.AddAttr("raw_keys", FormatStringVector(branch_config.raw_keys));
+            }
+        }
+
+        for (const auto& bind_key : branch->GetBindKeys()) {
+            auto input_it = input_nodes.find(bind_key);
+            auto branch_it = branch_output_nodes.find(bind_key);
+            if (input_it != input_nodes.end()) {
+                auto& edge = tree->AddEdge(input_it->second, branch_id);
+                edge.label.SetText(bind_key);
+            } else if (branch_it != branch_output_nodes.end()) {
+                auto& edge = tree->AddEdge(branch_it->second, branch_id);
+                edge.label.SetText(bind_key);
+            }
+        }
+
+        std::string prev_id = branch_id;
+        if (auto network_struct = branch->GetNetworkStruct()) {
+            int block_index = 0;
+            for (const auto& block : network_struct->GetBlocks()) {
+                const std::string block_id = MakeDotNodeId(
+                    "block",
+                    branch_name + "." + block->GetName() + "." + std::to_string(block_index++));
+                auto& block_node = tree->AddNode(block_id, "block");
+                block_node.label.SetTitle(block->GetName());
+
+                if (viz_config.show_param_shapes) {
+                    if (auto module = block->GetModule()) {
+                        const auto current_config = module->GetCurrentConfigData();
+                        for (const auto& [key, value] : current_config.Map()) {
+                            AddConfigAttr(block_node.label, key, value, viz_config.float_precision);
+                        }
+                    }
+                }
+
+                if (viz_config.show_param_count) {
+                    int64_t param_count = 0;
+                    for (const auto& param : block->parameters(true)) {
+                        param_count += param.numel();
+                    }
+                    block_node.label.AddAttr("params", param_count);
+                }
+
+                tree->AddEdge(prev_id, block_id);
+                prev_id = block_id;
+            }
+        }
+        branch_output_nodes[branch_name] = prev_id;
+    }
+
+    std::vector<std::string> body_output_nodes;
+    for (const auto& [head_key, branch_key] : body_->GetOutputKeys()) {
+        const std::string output_id = MakeDotNodeId("output", head_key);
+        auto& output_node = tree->AddNode(output_id, "output");
+        output_node.label.SetTitle("body output: " + head_key);
+        output_node.label.AddAttr("from", branch_key);
+
+        auto branch_it = branch_output_nodes.find(branch_key);
+        auto input_it = input_nodes.find(branch_key);
+        if (branch_it != branch_output_nodes.end()) {
+            tree->AddEdge(branch_it->second, output_id);
+        } else if (input_it != input_nodes.end()) {
+            tree->AddEdge(input_it->second, output_id);
+        }
+        body_output_nodes.push_back(output_id);
+    }
+
+    if (head_) {
+        const std::string head_id = "head";
+        auto& head_node = tree->AddNode(head_id, "head");
+        head_node.label.SetTitle("Head");
+        const auto head_info = head_->GetGraphVizInfo();
+        AddHeadGraphVizInfo(head_node.label, head_info, viz_config);
+
+        if (!body_output_nodes.empty()) {
+            for (const auto& output_id : body_output_nodes) {
+                tree->AddEdge(output_id, head_id);
+            }
+        } else {
+            for (const auto& [_, branch_output_id] : branch_output_nodes) {
+                tree->AddEdge(branch_output_id, head_id);
+            }
+        }
+
+        for (const auto& output : head_info.outputs) {
+            const std::string output_id = MakeDotNodeId("head_output", output.name);
+            auto& output_node = tree->AddNode(output_id, "head_output");
+            output_node.label.SetTitle("output: " + output.name);
+            if (viz_config.show_head_info && !output.shape.empty()) {
+                output_node.label.AddAttr("shape", FormatInt64Vector(output.shape));
+            }
+            tree->AddEdge(head_id, output_id);
+        }
+    }
+
+    return tree;
 }
 
 std::shared_ptr<Network> Network::Clone(std::optional<torch::Device> device) const
 {
-    anet::ProfileRange r("Network::Clone");
+    ANET_PROFILE_FUNC();
 
-    // 保存した情報を使って新しいインスタンスを生成
-    auto cloned_net = NetworkBuilder::BuildNetwork(config_, input_shape_, head_factory_);
-
-    // デバイスを合わせる
+    // デバイス指定がない場合は、自身のパラメータが乗っているデバイスに合わせる
+    torch::Device target_device = torch::kCPU;
     if (device.has_value()) {
-        cloned_net->to(device.value());
+        target_device = *device;
     } else {
-        // device指定が無い場合、既存と同じ(直接取れないのでnamed_parameters経由）
-        auto params = this->parameters(); // 全サブモジュールのパラメータをフラットに取得
+        auto params = this->parameters();
         if (!params.empty()) {
-            cloned_net->to(params[0].device());
+            target_device = params[0].device();
         }
     }
 
-    // 自身(this)の重みをcloned_netへ完全上書き
-    this->CopyTo(*cloned_net);
+    // config と input_specs を元に新しいインスタンスを再構築する
+    auto cloned_net = NetworkBuilder::BuildNetwork(config_, input_specs_, head_factory_, target_device);
 
+    // デバイス移動
+    cloned_net->to(target_device);
+
+    // 現在の重みとバッファを完全にコピー
+    this->CopyTo(*cloned_net);
     return cloned_net;
 }
 
 void Network::CopyTo(Network& target) const
 {
-    anet::ProfileRange r("Network::CopyTo");
+    ANET_PROFILE_FUNC();
     torch::NoGradGuard no_grad;
 
     // パラメータ (Weight, Bias等) のコピー
@@ -701,28 +1009,44 @@ void Network::CopyTo(Network& target) const
 
 void Network::SoftCopyTo(Network& target, double tau) const
 {
-    anet::ProfileRange r("Network::SoftCopyTo");
+    ANET_PROFILE_FUNC();
     torch::NoGradGuard no_grad;
 
     // パラメータのブレンド: target = tau * src + (1 - tau) * target
     auto src_params = this->named_parameters(true);
     auto dst_params = target.named_parameters(true);
     ANET_ASSERT(src_params.size() == dst_params.size());
+    std::vector<torch::Tensor> src_param_tensors;
+    std::vector<torch::Tensor> dst_param_tensors;
+    src_param_tensors.reserve(src_params.size());
+    dst_param_tensors.reserve(dst_params.size());
     for (const auto& kv : src_params) {
-        dst_params[kv.key()].lerp_(kv.value(), tau);
+        src_param_tensors.push_back(kv.value());
+        dst_param_tensors.push_back(dst_params[kv.key()]);
+    }
+    if (!dst_param_tensors.empty()) {
+        torch::_foreach_lerp_(dst_param_tensors, src_param_tensors, tau);
     }
 
     // バッファのブレンド
     auto src_buffers = this->named_buffers(true);
     auto dst_buffers = target.named_buffers(true);
     ANET_ASSERT(src_buffers.size() == dst_buffers.size());
+    std::vector<torch::Tensor> src_float_buffers;
+    std::vector<torch::Tensor> dst_float_buffers;
+    src_float_buffers.reserve(src_buffers.size());
+    dst_float_buffers.reserve(dst_buffers.size());
     for (const auto& kv : src_buffers) {
         // float系のテンソル以外(intのカウンタ等)はlerpできないためそのままcopy_
         if (kv.value().is_floating_point()) {
-            dst_buffers[kv.key()].lerp_(kv.value(), tau);
+            src_float_buffers.push_back(kv.value());
+            dst_float_buffers.push_back(dst_buffers[kv.key()]);
         } else {
             dst_buffers[kv.key()].copy_(kv.value());
         }
+    }
+    if (!dst_float_buffers.empty()) {
+        torch::_foreach_lerp_(dst_float_buffers, src_float_buffers, tau);
     }
 }
 
@@ -756,35 +1080,47 @@ std::shared_ptr<NetworkModuleFactory> NetworkModuleRepository::GetFactory(const 
 
 
 // ===========================================================================
-// NetworkBuilder (Facade)
+// NetworkBuilder
 // ===========================================================================
 
-// net.block.[Conv1d_S].type = Conv1d
-// net.block.[Conv1d_S].out_channels = 32
-// net.block.[Conv1d_S].kernel_size = 8
-// net.block.[Conv1d_S].stride = 4
-// net.block.[Conv1d_S].padding = 0
-//
-// net.body.structure = Conv1d_S > ReLU > Conv1d_M > ReLU > Flatten
-
 std::shared_ptr<Network> NetworkBuilder::BuildNetwork(
-    const NetworkConfig& network_config,
-    const std::vector<int64_t>& input_shape,
-    std::shared_ptr<NetworkHeadFactory> head_factory)
+    const NetworkConfig& network_config, const anet::TensorSpecMap& input_specs, std::shared_ptr<NetworkHeadFactory> head_factory, std::optional<torch::Device> device)
 {
-    ANET_CHECK(head_factory != nullptr);
+	ANET_LOG_DEBUG("network_config=" << network_config.ToJson().dump());
 
-    // Body (Struct) の構築
-    auto graph = NetworkStructBuilder::Build(network_config, network_config.structure_str);
-    auto body = std::make_shared<NetworkBody>(graph);
+    // Body (DAG) の構築
+    auto body = NetworkBodyBuilder::Build(network_config, input_specs);
 
-    // Shape Inference
-    int64_t feature_dim = body->InferFeatureDim(input_shape);
+    // ダミー入力を作成 (Lazyモジュールの初期化 兼 Shape推論用)
+    anet::TensorDict dummy_input;
+    for (const auto& [key, spec] : input_specs) {
+        auto shape = spec.shape;
+        shape.insert(shape.begin(), 1); // Batch次元(1)を先頭に追加
 
-    // Head
-    auto head = head_factory->CreateHead(feature_dim);
+        // Float型等のダミーテンソルを生成
+        auto dtype = (spec.IsDiscrete() || spec.dtype == torch::kUInt8) ? torch::kInt64 : spec.dtype;
+        auto options = torch::TensorOptions().dtype(dtype);
+        if (device.has_value()) {
+            options = options.device(*device);
+        }
 
-    // Networkを生成して返す
-    return std::make_shared<Network>(network_config, input_shape, head_factory, body, head);
+        auto t = torch::zeros(shape, options);
+        dummy_input.Set(key, t);
+    }
+	LOG::info() << "NetworkBuilder: input_shape=" << dummy_input.ToDefString();
+
+    // 初回ダミー実行
+    // これにより、Body内の全Lazy層(Linear等)が初期化され、Head構築用の出力Shapeが確定する
+    anet::TensorDict dummy_feature;
+    {
+        torch::NoGradGuard grad_guard;
+
+        dummy_feature = body->Forward(dummy_input);
+    }   // あえて例外キャッチしない
+
+    // Headを構築 (Bodyの出力TensorDictをそのまま渡す)
+    std::shared_ptr<anet::nn::NetworkHead> head = head_factory ? head_factory->CreateHead(dummy_feature) : nullptr;
+
+    // Network作って終わり
+    return std::make_shared<Network>(network_config, input_specs, head_factory, body, head);
 }
-

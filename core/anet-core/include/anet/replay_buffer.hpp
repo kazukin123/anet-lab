@@ -1,4 +1,10 @@
-﻿#pragma once
+﻿//anet/replay_buffer.hpp
+
+#pragma once
+
+#include <memory>
+#include <optional>
+#include <string>
 #include <vector>
 #include <random>
 #include <torch/torch.h>
@@ -8,60 +14,19 @@
 namespace anet::rl {
 
 
-    class PlainReplayBuffer final : public ReplayBuffer, public RandomHolder {
-    public:
-        explicit PlainReplayBuffer(const EnvSpec& env_spec, size_t capacity = 10000, std::optional<seed_t> seed = std::nullopt);
-
-        void Push(const BatchExperience& batch) override;
-        void Push(const std::vector<SingleExperience>& exps) override;
-        ExperienceSamples Sample(int64_t b, torch::Device device, float beta) const override;
-        int64_t Size() const  override { return size_; }
-        void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) { }
-
-        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
-        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
-        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
-    private:
-        void InitFromSpec(const EnvSpec& spec);
-
-        size_t capacity_;
-        int64_t state_dim_;  ///< state_dim_ は StateSpec.shape の総積（flatten 後次元）
-        int64_t n_actions_;
-
-        int64_t index_ = 0;
-        size_t size_ = 0;
-        int64_t write_index_ = 0;
-        bool is_discrete_ = true;
-        torch::Device device_ = torch::kCPU;
-
-        torch::Tensor states_;          ///< cpu (capacity, state_count) kFloat32
-        torch::Tensor actions_;         ///< cpu (capacity, n_actions_) kInt64 or kFloat32
-        torch::Tensor next_states_;     ///< cpu (capacity, state_count) kFloat32
-        torch::Tensor rewards_;         ///< cpu (capacity) kFloat32
-        torch::Tensor terminals_;       ///< cpu (capacity) kBool
-    };
-
-
     // ======================================================
-    // ReplayBufferFactory
+    // Config & Data Structures
     // ======================================================
-
-    enum class ReplayBuilderType {
-        PLAIN = 0,  ///< 1-step, uniform
-        NSTEP,      ///< N-step, uniform
-    };
 
     enum class ReplaySamplerType {
         UNIFORM = 0,
-        PRIOTIZED   ///<! PER
+        PRIORITIZED   // PER
     };
 
     struct ReplayBufferConfig {
-        // 基本設定
-        ReplayBuilderType type = ReplayBuilderType::PLAIN;
-        ReplaySamplerType sampler_type = ReplaySamplerType::UNIFORM;
 
-        int64_t capacity = 10000;   // 10K
+        int64_t capacity = 100000;              // ENV毎の容量ではなく、全ENVの総容量(1Dツリーサイズ)
+        ReplaySamplerType sampler_type = ReplaySamplerType::UNIFORM;
 
         // N-step 用
         int n_step = 1;
@@ -71,17 +36,67 @@ namespace anet::rl {
         float per_alpha = 0.5f;
         float per_initial_priority = 1.0f;
 
-        // Stacker
-		bool use_stacker = false;
-		int stack_count = 4;
+        // Stacking
+        int stack_count = 1;                    ///< 過去方向へのスライス数 (Frame Stacking)
+		std::vector<std::string> stack_keys;    ///< Stacking対象のDictキー。空の場合は全てのキーをスタッキングする
+
+		// MuZero系
+        struct {
+            int unroll_steps = 0;                   // 未来方向へのスライス数 (MuZero Unroll 等)
+        } muzero;   /// @todo MuZeroのキーワードは排除して「未来方向」で一般化？
     };
 
-    class ReplayBufferFactory {
+
+    // ======================================================
+    // Factory
+    // ======================================================
+
+    std::shared_ptr<ReplayBuffer> CreateReplayBuffer(
+        const ReplayBufferConfig& config,
+        const EnvSpec& env_spec,
+        int64_t num_envs,
+        torch::Device storage_device,
+        bool pin_memory = true,
+        std::optional<uint64_t> seed = std::nullopt
+    );
+
+    /// ReplayBuffer を 1-deep で先読みする decorator。
+    ///
+    /// `Sample()` は cold start では同期 `Fetch()` を返し、その同じ排他区間で次の
+    /// background `Fetch()` を起動する。以後は前回 future を `get()` で消費してから
+    /// 次 future を起動するため、同時に in-flight になる prefetch は最大 1 本。
+    ///
+    /// `Push()` は future 未起動の cold/warmup 区間では同期的に inner へ委譲する。future が
+    /// 起動済みなら caller 側で stable 化済みの BatchExperience を浅く保持し、同じ worker
+    /// FIFO へ write-behind task として積む。queued Push は現在 consume する prefetched batch
+    /// には反映されず、次の `Fetch()` より前に実行されるため、次以降の prefetched batch から見える。
+    ///
+    /// `UpdatePriorities()` は従来通り in-flight future を `wait()` してから inner へ mutation を
+    /// 委譲する。これにより `Push -> next SampleIndices -> UpdatePriorities` の順序を固定する。
+    /// `wait()` は future を消費しないため、prefetch worker の例外は次回 `Sample()` が future を
+    /// `get()` するときに表面化する。write-behind Push の例外は次の同期境界で回収する。
+    ///
+    /// CPU path は background `Sample()+To(CPU)` のみを行う。CUDA path は CPU sample を
+    /// pinned 化し、copy stream の non-blocking H2D と CUDAEvent 待ちで転送完了を保証する。
+    class PrefetchingReplayBuffer final : public ReplayBuffer {
     public:
-        ReplayBufferFactory(const ReplayBufferConfig& config);
-        std::shared_ptr<ReplayBuffer> Create(const EnvSpec& env_spec, torch::Device device, int batch_size, seed_t seed);
+        PrefetchingReplayBuffer(std::shared_ptr<ReplayBuffer> inner, torch::Device target_device);
+        ~PrefetchingReplayBuffer() override;
+
+        void Push(const BatchExperience& batch_exp) override;
+        void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const override;
+        int64_t Size() const override;
+        void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override;
+
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
     private:
-        ReplayBufferConfig config_;
+        struct State;
+
+        std::shared_ptr<ReplayBuffer> inner_;
+        torch::Device target_device_;
+        std::unique_ptr<State> state_;
     };
 
 } // namespace anet

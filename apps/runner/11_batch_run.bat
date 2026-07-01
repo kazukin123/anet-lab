@@ -10,9 +10,9 @@ REM call:run_exe app.run_name=run_{t}_PER3 R.learner.per_alpha=0.4 R.learner.per
 REM call:run_exe app.run_name=run_{t}_PER4 R.learner.per_alpha=0.2 R.learner.per_beta_start=0.4
 
 
-REM call:run_exe app.run_name=run_{t}_b256 train.batch_size=256
+REM call:run_exe app.run_name=run_{t}_b256 train.num_envs=256
 REM call:run_exe app.run_name=run_{t}_b256_4064 net.body.$=net.body.SuikaNet4064 "DropMergeEnv.$=DropMergeEnv.baseline > DropMergeEnv.G4064 > E"
-REM call:run_exe app.run_name=run_{t}_b512 train.batch_size=512
+REM call:run_exe app.run_name=run_{t}_b512 train.num_envs=512
 
 
 REM call:run_exe app.run_name=run_{t}_seed train.seed=7508636947373324265 
@@ -38,13 +38,13 @@ REM call:run_exe app.run_name=run_{t}-A_5e-5 A.learner.alpha=5e-5
 REM call:run_exe app.run_name=run_{t}-A_5e-3 A.learner.alpha=5e-3
 
 
-REM call:run_exe app.run_name=run_{t}_B-16 train.batch_size=16 
-REM call:run_exe app.run_name=run_{t}_B-32 train.batch_size=32
-REM call:run_exe app.run_name=run_{t}_B-64 train.batch_size=64
-REM call:run_exe app.run_name=run_{t}_B-128 train.batch_size=128
-REM call:run_exe app.run_name=run_{t}_B-256 train.batch_size=256
-REM call:run_exe app.run_name=run_{t}_B-512 train.batch_size=512
-REM call:run_exe app.run_name=run_{t}_B-1024 train.batch_size=1024
+REM call:run_exe app.run_name=run_{t}_B-16 train.num_envs=16 
+REM call:run_exe app.run_name=run_{t}_B-32 train.num_envs=32
+REM call:run_exe app.run_name=run_{t}_B-64 train.num_envs=64
+REM call:run_exe app.run_name=run_{t}_B-128 train.num_envs=128
+REM call:run_exe app.run_name=run_{t}_B-256 train.num_envs=256
+REM call:run_exe app.run_name=run_{t}_B-512 train.num_envs=512
+REM call:run_exe app.run_name=run_{t}_B-1024 train.num_envs=1024
 
 REM call:run_exe app.run_name=run_{t}_s8      "A.stucker.stack_count=8"
 REM call:run_exe app.run_name=run_{t}_s16     "A.stucker.stack_count=16"

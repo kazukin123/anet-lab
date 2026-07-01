@@ -71,29 +71,40 @@ namespace anet::graphviz {
 
     class LabelData {
     public:
+        LabelData& SetText(const std::string& text)
+        {
+            text_ = text;
+            title_.clear();
+            attributes_.clear();
+            return *this;
+        }
+
         LabelData& SetTitle(const std::string& title)
         {
+            text_.clear();
             title_ = title;
             return *this;
         }
 
         template<typename T>
-        LabelData& AddAttr(const std::string& key, const T& value)
+        LabelData& AddAttr(const std::string& key, const T& value, int precision = 3)
         {
             std::ostringstream oss;
             // 浮動小数点は見やすさのために桁数を丸める
             if constexpr (std::is_floating_point_v<T>) {
-                oss << std::fixed << std::setprecision(3) << value;
+                oss << std::fixed << std::setprecision(precision) << value;
             } else {
                 oss << value;
             }
+            text_.clear();
             attributes_.push_back({ key, oss.str() });
             return *this;
         }
 
-        bool IsEmpty() const { return title_.empty() && attributes_.empty(); }
+        bool IsEmpty() const { return text_.empty() && title_.empty() && attributes_.empty(); }
         std::string ToGraphvizLabel() const;
     private:
+        std::string text_;
         std::string title_;
         std::vector<std::pair<std::string, std::string>> attributes_;
     };

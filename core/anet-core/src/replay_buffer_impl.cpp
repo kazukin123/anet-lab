@@ -1,990 +1,1712 @@
 ﻿// replay_buffer_impl.cpp
 
 #include "replay_buffer_impl.hpp"
-#include "anet/replay_buffer.hpp"
+#include <chrono>
+#include <cmath>
+#include <algorithm>
+#include <deque>
+#include <future>
+#include <optional>
+#include <utility>
+#include <vector>
+#include "anet/metrics_logger.hpp"
+#include "anet/tensor_check.hpp"
 #include "anet/profile.hpp"
+#include "anet/log.hpp"
+#include "anet/random.hpp"
+#include "anet/thread.hpp"
+#include "anet/transfer.hpp"
 
-// ======================================================
-// ReplayBuffer ExperienceQueue 
-// ======================================================
+using namespace anet::rl;
+namespace LOG = anet::log;
 
-void ExperienceQueue::Push(const SingleExperience& exp)
+
+/* ==============================================================================
+ * [設計仕様] 時間軸の方向とエピソード境界処理のメカニズム
+ * ==============================================================================
+ *
+ * ■ 1. 時間軸の方向と役割
+ * ------------------------------------------------------------------------------
+ * - Frame Stacking : 【過去方向 (Past)】
+ * 　エージェントに「動き」や「速度」を認識させるため、現在から過去へ遡って観測(Obs)を重ねる。
+ * - N-Step Return  : 【未来方向 (Future)】
+ *  TD誤差（Target Q）をより正確に計算するため、現在から未来へ進んで得られた報酬を累積する。
+ * - Unroll Steps   : 【未来方向 (Future)】
+ * 役割: MuZero(RNN)等の系列学習のために、現在から未来へ向かって連続するステップを展開・抽出する。
+ *
+ *
+ * ■ 2. エピソード境界の処理仕様
+ * ------------------------------------------------------------------------------
+ * 【エピソード開始時 (t=0 付近)】 -> 過去(Stack)の不足
+ * - 症状: 過去のフレームが存在しないため、Stacking が物理的に不可能。
+ * - 解決: Extractor サンプリング時に「一番古い利用可能なフレーム（t=0等）」を
+ * 必要な回数だけ複製（コピーパディング）して補完する。
+ *
+ * 【エピソード終了時 (Done / Truncated)】 -> 未来(N-Step)の不足
+ * - 症状: 未来のステップが存在しないため、N-Step分の報酬累積や未来状態の取得が不可能。
+ * - 解決 (3段構え):
+ * 1. 早期精算 (Flush) : N歩先を待たずに、キューに残留している未確定ステップを強制Valid化する。
+ * 2. ダミーステップ   : 終了状態の「次」にダミーステップ(is_dummy=true)を挿入し、参照エラーを防ぐ。
+ * 3. 未来価値の遮断   : ダミーには terminals=true フラグを立てる。
+ * Target Q = Reward + γ^N * Q(Next) * (1.0 - terminals)
+ * の数式により、終端を越えた未来の価値(Q)を数学的に完全にゼロにする。
+ *
+ * ■ 3. サンプリング有効判定 (Valid 条件) の大原則
+ * ------------------------------------------------------------------------------
+ * - 条件: 「未来方向 (N-Step / Unroll) が確定した瞬間」に Valid とする。
+ * - 禁忌: 「過去方向 (Stacking) の物理的データが揃うまで待つ」というロジックは入れてはならない。
+ * （これをやると、エピソード開始直後の重要な数ステップの経験が永遠にサンプリングされず消失する）
+ * ============================================================================== */
+
+// ===========================================================================
+// Queue
+// ===========================================================================
+
+void ExperienceQueue::Push(const QueueRecord& record)
 {
-    buffer_.push_back(exp);
+    buffer_.push_back(record);
 }
 
 void ExperienceQueue::Pop(size_t k)
 {
-    if (k == 0 || buffer_.empty()) {
-        return;
-    }
-
     if (k >= buffer_.size()) {
         buffer_.clear();
+    } else {
+        buffer_.erase(buffer_.begin(), buffer_.begin() + k);
+    }
+}
+
+std::vector<QueueRecord> ExperienceQueue::Peek(size_t k) const
+{
+    size_t count = std::min(k, buffer_.size());
+    return std::vector<QueueRecord>(buffer_.begin(), buffer_.begin() + count);
+}
+
+size_t ExperienceQueue::Size() const
+{
+    return buffer_.size();
+}
+
+void ExperienceQueue::Clear()
+{
+    buffer_.clear();
+}
+
+
+// ===========================================================================
+// Concrete Controller & Builder
+// ===========================================================================
+
+class NStepQueueController : public ExperienceQueueController {
+public:
+    explicit NStepQueueController(int n_step) : n_step_(n_step)
+    {
+    }
+
+    std::vector<ExperienceSequence> ExtractSequences(ExperienceQueue& queue) override
+    {
+        std::vector<ExperienceSequence> sequences;
+        while (queue.Size() > 0) {
+            auto peeked = queue.Peek(n_step_);
+            bool has_terminal = false;
+            size_t term_idx = 0;
+
+            // 系列内に終端(done/truncated)があるかチェック
+            for (size_t i = 0; i < peeked.size(); ++i) {
+                if (peeked[i].done || peeked[i].truncated) {
+                    has_terminal = true;
+                    term_idx = i;
+                    break;
+                }
+            }
+
+            if (has_terminal) {
+                // 終端までで系列を確定し、先頭1要素分だけ進める(Pop1)
+                ExperienceSequence seq(peeked.begin(), peeked.begin() + term_idx + 1);
+                sequences.push_back(seq);
+                queue.Pop(1);
+            } else if (peeked.size() == static_cast<size_t>(n_step_)) {
+                // N-Step揃ったので確定
+                sequences.push_back(peeked);
+                queue.Pop(1);
+            } else {
+                // まだ未来が揃っていないので待機
+                break;
+            }
+        }
+        return sequences;
+    }
+private:
+    int n_step_;
+};
+
+class DefaultExperienceBuilder : public ReplayExperienceBuilder {
+public:
+    DefaultExperienceBuilder(float gamma) : gamma_(gamma) {}
+
+    ReplayExperience Build(const ExperienceSequence& sequence) const override
+    {
+        ReplayExperience exp{};
+        exp.target_return = 0.0f;
+        exp.terminal = false;
+
+        int n = static_cast<int>(sequence.size());
+
+        // シーケンスの末尾がダミーなら、それは実データではないので長さに含めない
+        if (sequence.back().is_dummy) {
+            n -= 1;
+            // ダミー起因（＝元のステップがTruncated）なので、ブートストラップを継続(terminal=false)
+            exp.terminal = false;
+        } else {
+            // 本当のゲームオーバー
+            exp.terminal = sequence.back().done;
+        }
+
+        exp.actual_n_steps = n;
+
+        // 割引報酬和の計算 (逆順)
+        for (int i = n - 1; i >= 0; --i) {
+            exp.target_return = sequence[i].reward + gamma_ * exp.target_return;
+        }
+        return exp;
+    }
+private:
+    float gamma_;
+};
+
+
+// ===========================================================================
+// Valid Index Manager
+// ===========================================================================
+
+ValidIndexManager::ValidIndexManager(int64_t num_envs, int64_t capacity_per_env)
+    : num_envs_(num_envs), capacity_per_env_(capacity_per_env)
+{
+    valid_cursors_.assign(num_envs, 0);
+    write_cursors_.assign(num_envs, 0);
+    is_dummy_.assign(num_envs * capacity_per_env, false);
+}
+
+void ValidIndexManager::MarkWritten(int64_t env_idx, int64_t time_idx)
+{
+    is_dummy_[env_idx * capacity_per_env_ + time_idx] = false;
+}
+
+void ValidIndexManager::MarkValid(int64_t env_idx)
+{
+    // N-Step計算が完了し、サンプリング可能になった上限をインクリメント
+    valid_cursors_[env_idx]++;
+}
+
+void ValidIndexManager::MarkDummy(int64_t env_idx, int64_t time_idx)
+{
+    is_dummy_[env_idx * capacity_per_env_ + time_idx] = true; 
+}
+
+void ValidIndexManager::AdvanceWriteCursor(int64_t env_idx)
+{
+    write_cursors_[env_idx]++;
+}
+
+torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_steps, int n_step) const
+{
+    ANET_PROFILE_FUNC();
+
+    std::vector<int64_t> valid_list;
+    valid_list.reserve(num_envs_ * capacity_per_env_);
+
+    for (int64_t env = 0; env < num_envs_; ++env) {
+        ForEachSampleableIndex(env, stack_count, unroll_steps, n_step, [&](int64_t idx1d) {
+            valid_list.push_back(idx1d);
+        });
+    }
+
+    if (valid_list.empty()) return torch::empty({ 0 }, torch::kInt64);
+    return torch::tensor(valid_list, torch::kInt64);
+}
+
+int64_t ValidIndexManager::GetValidCount() const
+{
+    int64_t total = 0;
+    for (auto c : valid_cursors_) {
+        total += std::min(c, capacity_per_env_);
+    }
+    return total;
+}
+
+int64_t ValidIndexManager::GetSampleableCount(int stack_count, int unroll_steps, int n_step) const
+{
+    ANET_PROFILE_FUNC();
+
+    int64_t total = 0;
+    for (int64_t env = 0; env < num_envs_; ++env) {
+        ForEachSampleableIndex(env, stack_count, unroll_steps, n_step, [&](int64_t) {
+            ++total;
+        });
+    }
+    return total;
+}
+
+bool ValidIndexManager::IsOverwritingSampleable(int64_t env_idx, int64_t time_idx, int stack_count, int unroll_steps, int n_step) const
+{
+    (void)stack_count;
+
+    const int64_t w_cursor = write_cursors_[env_idx];
+    if (w_cursor < capacity_per_env_) return false;
+    if (time_idx != w_cursor % capacity_per_env_) return false;
+
+    const int64_t flat_idx = env_idx * capacity_per_env_ + time_idx;
+    if (is_dummy_[flat_idx]) return false;
+
+    const int64_t future_obs_lag = std::max<int64_t>(1, n_step);
+    const int64_t evicted_logical = w_cursor - capacity_per_env_;
+    const int64_t max_safe_by_write = std::max<int64_t>(-1, w_cursor - future_obs_lag - 1);
+    const int64_t max_safe_by_valid = valid_cursors_[env_idx] - 1 - unroll_steps;
+    const int64_t logical_end = std::min(max_safe_by_write, max_safe_by_valid);
+
+    return evicted_logical <= logical_end;
+}
+
+
+// ===========================================================================
+// ReplayExperienceStorage
+// ===========================================================================
+
+ReplayExperienceStorage::ReplayExperienceStorage(int64_t num_envs, int64_t capacity_per_env, const EnvSpec& spec, const ReplayBufferConfig& config, torch::Device device, bool pin_memory)
+    : num_envs_(num_envs), capacity_per_env_(capacity_per_env), device_(device)
+{
+    write_cursors_.assign(num_envs, 0);
+
+    auto options = torch::TensorOptions().device(device_).pinned_memory(pin_memory && device_.is_cpu());
+
+    // Core配列を事前確保
+    auto act_shape = spec.action_spec.GetShape();
+    act_shape.insert(act_shape.begin(), capacity_per_env_);
+    act_shape.insert(act_shape.begin(), num_envs_);
+
+    actions_ = torch::empty(act_shape, options.dtype(spec.action_spec.GetDataType()));
+    target_returns_ = torch::empty({ num_envs_, capacity_per_env_ }, options.dtype(torch::kFloat32));
+    terminals_ = torch::empty({ num_envs_, capacity_per_env_ }, options.dtype(torch::kBool));
+    actual_n_steps_ = torch::empty({ num_envs_, capacity_per_env_ }, options.dtype(torch::kInt64));
+
+    target_returns_.fill_(0.0f);
+    terminals_.fill_(true);
+    actual_n_steps_.fill_(0);
+
+    // obs_storage_ と info_storage_ は型の詳細が動的(Dict)なため、初回の Push 時に遅延アロケーションする
+}
+
+int64_t ReplayExperienceStorage::Push(int64_t env_idx, const anet::TensorDict& obs, const torch::Tensor& action, const anet::TensorDict& info)
+{
+    int64_t t = write_cursors_[env_idx] % capacity_per_env_;
+
+    // 遅延アロケーション (初回のみ)
+    if (obs_storage_.empty()) {
+        for (const auto& kv : obs) {
+            auto shape = kv.second.sizes().vec();
+            shape.insert(shape.begin(), capacity_per_env_);
+            shape.insert(shape.begin(), num_envs_);
+            obs_storage_.Set(kv.first, torch::empty(shape, torch::TensorOptions().dtype(kv.second.dtype()).device(device_)));
+        }
+    }
+    if (!info.empty() && info_storage_.empty()) {
+        for (const auto& kv : info) {
+            auto shape = kv.second.sizes().vec();
+            shape.insert(shape.begin(), capacity_per_env_);
+            shape.insert(shape.begin(), num_envs_);
+            info_storage_.Set(kv.first, torch::empty(shape, torch::TensorOptions().dtype(kv.second.dtype()).device(device_)));
+        }
+    }
+
+    // 重いテンソルの即時コピー
+    for (const auto& kv : obs) {
+        obs_storage_.At(kv.first)[env_idx][t].copy_(kv.second);
+    }
+    for (const auto& kv : info) {
+        info_storage_.At(kv.first)[env_idx][t].copy_(kv.second);
+    }
+    actions_[env_idx][t].copy_(action);
+
+    write_cursors_[env_idx]++;
+    return t;
+}
+
+void ReplayExperienceStorage::Update(int64_t env_idx, int64_t time_idx, const ReplayExperience& exp)
+{
+    target_returns_[env_idx][time_idx] = exp.target_return;
+    terminals_[env_idx][time_idx] = exp.terminal;
+    actual_n_steps_[env_idx][time_idx] = exp.actual_n_steps;
+}
+
+void ReplayExperienceStorage::PushTerminalDummy(int64_t env_idx, const anet::TensorDict& terminal_obs)
+{
+    // 終端状態用のダミーステップ。Actionや報酬は無効値を入れる
+    torch::Tensor dummy_action = torch::zeros_like(actions_[env_idx][0]);
+    anet::TensorDict dummy_info; // infoも空
+    int64_t t = Push(env_idx, terminal_obs, dummy_action, dummy_info);
+
+    // ダミーの即時 Valid 化用メタデータ
+    target_returns_[env_idx][t] = 0.0f;
+    terminals_[env_idx][t] = true;
+    actual_n_steps_[env_idx][t] = 0;
+}
+
+std::optional<float> ReplayExperienceStorage::GetScalar(const std::string& key, int64_t index) const
+{
+    return std::nullopt;
+}
+
+std::optional<torch::Tensor> ReplayExperienceStorage::GetTensor(const std::string& key, int64_t index) const
+{
+    return std::nullopt;
+}
+
+std::optional<std::vector<torch::Tensor>> ReplayExperienceStorage::GetTensorVector(const std::string& key, int64_t index) const
+{
+    return std::nullopt;
+}
+
+void ReplayExperienceStorage::DumpToLog() const
+{
+    LOG::info() << "=== ReplayExperienceStorage Dump ===";
+    for (int64_t e = 0; e < num_envs_; ++e) {
+        LOG::info() << "Env " << e << " WriteCursor=" << write_cursors_[e];
+        for (int64_t t = 0; t < capacity_per_env_; ++t) {
+            float ret = target_returns_[e][t].item<float>();
+            bool term = terminals_[e][t].item<bool>();
+            int64_t n = actual_n_steps_[e][t].item<int64_t>();
+
+            std::string obs_str = "";
+            for (const auto& kv : obs_storage_) {
+                float val = -999.0f; // 未初期化時のダミー
+                if (kv.second.numel() > 0) {
+                    val = kv.second[e][t].contiguous().view({ -1 })[0].item<float>();
+                }
+                obs_str += kv.first + ":" + std::to_string(val) + " ";
+            }
+            std::string act_str;
+            if (actions_[e][t].dim() == 0)
+                act_str = std::to_string(actions_[e][t].item<float>());
+            else
+                anet::ToString(actions_[e][t]);
+
+            LOG::info() << "  [idx=" << t << "] ret=" << ret
+                << " term=" << term << " n_steps=" << n
+                << " obs={" << obs_str << "}"
+                << " act={" << act_str << "}";
+        }
+    }
+}
+
+
+// ===========================================================================
+// SumTree
+// ===========================================================================
+
+SumTree::SumTree(int64_t capacity) : capacity_(capacity)
+{
+    tree_.assign(2 * capacity_ - 1, 0.0f);
+}
+
+void SumTree::Update(int64_t index, float priority)
+{
+    int64_t tree_idx = index + capacity_ - 1;
+    float change = priority - tree_[tree_idx];
+    tree_[tree_idx] = priority;
+    while (tree_idx != 0) {
+        tree_idx = (tree_idx - 1) / 2;
+        tree_[tree_idx] += change;
+    }
+}
+
+float SumTree::GetTotalPriority() const
+{
+    return tree_[0];
+}
+
+int64_t SumTree::Retrieve(float value) const
+{
+    int64_t tree_idx = 0;
+    while (tree_idx < capacity_ - 1) {
+        int64_t left = 2 * tree_idx + 1;
+        int64_t right = left + 1;
+        if (value <= tree_[left]) {
+            tree_idx = left;
+        } else {
+            value -= tree_[left];
+            tree_idx = right;
+        }
+    }
+    return tree_idx - capacity_ + 1;
+}
+
+float SumTree::GetPriority(int64_t index) const
+{
+    return tree_[index + capacity_ - 1];
+}
+
+
+// ===========================================================================
+// Sampler (具象クラス)
+// ===========================================================================
+
+namespace {
+    // --- 内部ヘルパー関数 ---
+    // リングバッファの物理境界を考慮して、安全にスライス(時間軸)を切り出す関数
+    torch::Tensor RingSlice(const torch::Tensor& t, int64_t env_idx, int64_t logical_start, int64_t length, int64_t capacity, bool squeeze_time)
+    {
+        // C++の負数の剰余算を安全に行う
+        int64_t start = (logical_start % capacity + capacity) % capacity;
+        int64_t end = start + length;
+
+        torch::Tensor res;
+        if (end <= capacity) {
+            // バッファ境界をまたがない場合（通常スライス）
+            res = t[env_idx].slice(0, start, end);
+        } else {
+            // バッファ境界をまたぐ場合（末尾と先頭を結合）
+            int64_t over = end - capacity;
+            res = torch::cat({ t[env_idx].slice(0, start, capacity), t[env_idx].slice(0, 0, over) }, 0);
+        }
+
+        // stack_count=1 や unroll_steps=0 の場合、時間軸次元を消して [B, C, H, W] のようにする
+        if (squeeze_time) {
+            res = res.squeeze(0);
+        }
+        return res;
+    }
+
+    // TensorDict 版のリングバッファスライス
+    anet::TensorDict RingSliceDict(
+        const anet::TensorDict& dict, int64_t env_idx,
+        int64_t valid_start, int64_t valid_len, int64_t pad_len,
+        int64_t capacity, bool squeeze_time, const std::vector<std::string>& stack_keys)
+    {
+        anet::TensorDict res;
+        if (dict.empty()) return res;
+
+        for (const auto& kv : dict) {
+            // stack_keys が指定されている場合、対象外のKeyは「最新の1フレームのみ」にする
+            bool is_stacked = true;
+            if (!stack_keys.empty()) {
+                auto it = std::find(stack_keys.begin(), stack_keys.end(), kv.first);
+                is_stacked = (it != stack_keys.end());
+            }
+
+            if (!is_stacked) {
+                // Stack対象外: パディングは関係なく、常に一番未来の1フレームだけを取得
+                int64_t latest_idx = valid_start + valid_len - 1;
+                res.Set(kv.first, RingSlice(kv.second, env_idx, latest_idx, 1, capacity, true));
+            } else {
+                // Stack対象: まず安全な区間（valid_len）だけをスライス
+                auto valid_tensor = RingSlice(kv.second, env_idx, valid_start, valid_len, capacity, false);
+
+                // パディングが必要な場合、最古のフレーム(インデックス0)を複製して結合
+                if (pad_len > 0) {
+                    auto first_frame = valid_tensor[0].unsqueeze(0); // [1, C, H, W]
+                    auto sizes = first_frame.sizes().vec();
+                    sizes[0] = pad_len;
+                    auto pad_tensor = first_frame.expand(sizes);     // [pad_len, C, H, W] (メモリ追加割当なしで高速)
+
+                    // 過去方向(パディング) ＋ 現在方向(Valid) の順で結合
+                    valid_tensor = torch::cat({ pad_tensor, valid_tensor }, /*dim=*/0);
+                }
+
+                if (squeeze_time && valid_tensor.size(0) == 1) {
+                    valid_tensor = valid_tensor.squeeze(0);
+                }
+                res.Set(kv.first, valid_tensor);
+            }
+        }
+        return res;
+    }
+
+    torch::Tensor FlattenRows(torch::Tensor tensor)
+    {
+        if (!tensor.defined()) return tensor;
+        if (tensor.dim() == 0) return tensor.reshape({ 1, 1 });
+        if (tensor.dim() == 1) return tensor.reshape({ tensor.size(0), 1 });
+        if (tensor.dim() > 2) return tensor.flatten(1);
+        return tensor;
+    }
+
+    torch::Tensor ToUnifiedRows(const anet::TensorDict& obs)
+    {
+        return FlattenRows(anet::rl::ToUnifiedObservation(obs));
+    }
+
+    torch::Tensor SelectRowIfRequested(torch::Tensor tensor, int64_t index)
+    {
+        if (index < 0 || !tensor.defined()) return tensor;
+        if (tensor.size(0) <= index) return torch::Tensor();
+        return tensor[index];
+    }
+
+    struct StorageTensorVectorKey {
+        enum class Kind {
+            kStateObs,
+            kAction,
+            kTargetReturn,
+            kNextStateObs,
+            kNextStateTerminal,
+            kNStep,
+        };
+
+        Kind kind;
+        std::string obs_subkey;
+    };
+
+    std::optional<std::string> ParseObservationSubKey(const std::string& key, const char* base_key)
+    {
+        const std::string base(base_key);
+        if (key == base) return std::string();
+
+        const std::string prefix = base + ".";
+        if (key.rfind(prefix, 0) != 0) return std::nullopt;
+
+        auto subkey = key.substr(prefix.size());
+        if (subkey.empty()) {
+            ANET_SYSTEM_ERROR("ReplayBuffer observation key requires a subkey after '" << prefix << "'.");
+        }
+        return subkey;
+    }
+
+    std::optional<StorageTensorVectorKey> ParseStorageTensorVectorKey(const std::string& key)
+    {
+        if (auto subkey = ParseObservationSubKey(key, ReplayBuffer::STATE_OBS)) {
+            return StorageTensorVectorKey{ StorageTensorVectorKey::Kind::kStateObs, *subkey };
+        }
+        if (auto subkey = ParseObservationSubKey(key, ReplayBuffer::NEXT_STATE_OBS)) {
+            return StorageTensorVectorKey{ StorageTensorVectorKey::Kind::kNextStateObs, *subkey };
+        }
+        if (key == ReplayBuffer::ACTION) {
+            return StorageTensorVectorKey{ StorageTensorVectorKey::Kind::kAction, std::string() };
+        }
+        if (key == ReplayBuffer::TARGET_RETURN) {
+            return StorageTensorVectorKey{ StorageTensorVectorKey::Kind::kTargetReturn, std::string() };
+        }
+        if (key == ReplayBuffer::NEXT_STATE_TERMINAL) {
+            return StorageTensorVectorKey{ StorageTensorVectorKey::Kind::kNextStateTerminal, std::string() };
+        }
+        if (key == ReplayBuffer::N_STEP) {
+            return StorageTensorVectorKey{ StorageTensorVectorKey::Kind::kNStep, std::string() };
+        }
+        return std::nullopt;
+    }
+
+    torch::Tensor GatherFlatRowsRaw(const torch::Tensor& storage, const torch::Tensor& indices)
+    {
+        if (!storage.defined()) return torch::Tensor();
+        if (indices.numel() == 0) return torch::Tensor();
+        ANET_ASSERT_MSG(storage.dim() >= 2, "ReplayBuffer storage tensor must have [env, time, ...] layout: " << anet::ToDefString(storage));
+
+        std::vector<int64_t> flat_shape;
+        flat_shape.reserve(static_cast<size_t>(storage.dim() - 1));
+        flat_shape.push_back(storage.size(0) * storage.size(1));
+        for (int64_t dim = 2; dim < storage.dim(); ++dim) {
+            flat_shape.push_back(storage.size(dim));
+        }
+
+        auto gather_indices = indices.to(
+            torch::TensorOptions().dtype(torch::kInt64).device(storage.device()),
+            /*non_blocking=*/true);
+        return storage.reshape(flat_shape).index_select(0, gather_indices);
+    }
+
+    torch::Tensor GatherFlatRows(const torch::Tensor& storage, const torch::Tensor& indices)
+    {
+        return FlattenRows(GatherFlatRowsRaw(storage, indices));
+    }
+
+    torch::Tensor GatherObservationRows(
+    	const anet::TensorDict& obs_storage, const torch::Tensor& indices, const std::string& obs_subkey)
+    {
+        if (obs_storage.empty()) return torch::Tensor();
+
+        if (!obs_subkey.empty()) {
+            auto opt_tensor = obs_storage.Get(obs_subkey);
+            if (!opt_tensor.has_value()) {
+                ANET_SYSTEM_ERROR("ReplayBuffer observation storage key '" << obs_subkey << "' was not found.");
+            }
+            return FlattenRows(GatherFlatRowsRaw(*opt_tensor, indices).to(torch::kFloat32));
+        }
+
+        anet::TensorDict obs_rows;
+        for (const auto& kv : obs_storage) {
+            obs_rows.Set(kv.first, GatherFlatRowsRaw(kv.second, indices));
+        }
+        return ToUnifiedRows(obs_rows);
+    }
+
+    torch::Tensor MakeNextFlatIndices(const torch::Tensor& indices, const torch::Tensor& actual_n_steps, int64_t capacity_per_env)
+    {
+        auto actual_rows = GatherFlatRowsRaw(actual_n_steps, indices).to(torch::kCPU).contiguous();
+        auto indices_cpu = indices.to(torch::kCPU).contiguous();
+        auto actual_acc = actual_rows.accessor<int64_t, 1>();
+        auto index_acc = indices_cpu.accessor<int64_t, 1>();
+
+        std::vector<int64_t> next_indices(static_cast<size_t>(indices_cpu.size(0)));
+        for (int64_t i = 0; i < indices_cpu.size(0); ++i) {
+            const int64_t flat_index = index_acc[i];
+            const int64_t env_idx = flat_index / capacity_per_env;
+            const int64_t time_idx = flat_index % capacity_per_env;
+            next_indices[static_cast<size_t>(i)] = env_idx * capacity_per_env + ((time_idx + actual_acc[i]) % capacity_per_env);
+        }
+
+        return torch::tensor(next_indices, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
+    }
+} // namespace
+
+
+class UniformSampler : public ReplayExperienceSampler, public anet::RandomHolder {
+public:
+    UniformSampler(std::optional<anet::seed_t> seed)
+        : anet::RandomHolder(seed)
+        , gen_(rnd_->GetTorchGenerator(torch::kCPU))
+        , opt_long_(torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU))    // idxはCPU固定
+        , opt_float_(torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU)) // idxはCPU固定
+    {
+    }
+
+    IndexSampleResult SampleIndices(int64_t batch_size, const torch::Tensor& valid_indices_1d, float beta) override
+    {
+        ANET_PROFILE_FUNC();
+
+        int64_t valid_count = valid_indices_1d.size(0);
+        auto rand_idx = torch::randint(0, valid_count, { batch_size }, gen_, opt_long_);
+        auto indices = valid_indices_1d.index_select(0, rand_idx);
+        auto ones = torch::ones({ batch_size }, opt_float_);
+
+
+
+        return { indices, ones / valid_count, ones, torch::Tensor() };
+    }
+private:
+    torch::Generator gen_;
+    torch::TensorOptions opt_long_;
+    torch::TensorOptions opt_float_;
+};
+
+class PrioritizedSampler : public ReplayExperienceSampler, public ReplayPriorityController, public anet::RandomHolder {
+public:
+    PrioritizedSampler(int64_t capacity, float alpha, float initial_priority, std::optional<anet::seed_t> seed)
+        : anet::RandomHolder(seed)
+        , tree_(capacity)
+        , is_initial_priority_(static_cast<size_t>(capacity), 0)
+        , alpha_(alpha)
+        , gen_(rnd_->GetTorchGenerator(torch::kCPU))
+        , opt_long_(torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU))
+        , opt_float_(torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU))
+        , max_prio_(initial_priority < 0.0f ? 1.0f : std::pow(initial_priority, alpha))
+        , initial_priority_(initial_priority)
+    {
+    }
+
+    IndexSampleResult SampleIndices(int64_t batch_size, const torch::Tensor& valid_indices_1d, float beta) override
+    {
+        ANET_PROFILE_FUNC();
+
+        int64_t valid_count = valid_indices_1d.size(0);
+        const int64_t* valid_ptr = valid_indices_1d.data_ptr<int64_t>();
+
+        std::vector<int64_t> sampled_indices(batch_size);
+        std::vector<float> sampled_probs(batch_size);
+        std::vector<float> sampled_weights(batch_size);
+        std::vector<int64_t> sampled_initial(batch_size);
+
+        float total_prio = tree_.GetTotalPriority();
+
+        int64_t b = 0;
+        int max_attempts = batch_size * 10;
+        int attempts = 0;
+
+        // valid_indices_1d は昇順ソートが保証されているため、std::binary_search による O(1)~O(log V) 判定が可能
+        while (b < batch_size && attempts < max_attempts) {
+            attempts++;
+            float r = torch::rand({ 1 }, gen_, opt_float_).item<float>() * total_prio;
+            int64_t idx = tree_.Retrieve(r);
+
+            bool is_valid = std::binary_search(valid_ptr, valid_ptr + valid_count, idx);
+            if (is_valid) {
+                float p = tree_.GetPriority(idx);
+                if (p <= 0.0f) continue; // 安全装置
+
+                sampled_indices[b] = idx;
+                float prob = p / total_prio;
+                sampled_probs[b] = prob;
+
+                float weight = std::pow(valid_count * prob, -beta);
+                sampled_weights[b] = weight;
+                sampled_initial[b] = is_initial_priority_[static_cast<size_t>(idx)] ? 1 : 0;
+                b++;
+            }
+        }
+
+        // フェイルセーフ（滅多に起きないが、ツリーが空に近い極初期など）
+        if (b < batch_size) {
+            LOG::warn() << "PER Rejection Sampling failed to fill batch. Falling back to uniform.";
+            auto rand_idx = torch::randint(0, valid_count, { batch_size - b }, gen_, opt_long_);
+            auto rand_acc = rand_idx.accessor<int64_t, 1>();
+            for (int64_t i = 0; i < batch_size - b; ++i) {
+                int64_t idx = valid_ptr[rand_acc[i]];
+                sampled_indices[b + i] = idx;
+                sampled_probs[b + i] = 1.0f / valid_count;
+                sampled_weights[b + i] = 1.0f;
+                sampled_initial[b + i] = is_initial_priority_[static_cast<size_t>(idx)] ? 1 : 0;
+            }
+        }
+
+        auto idx_device = valid_indices_1d.device();
+        auto indices_t = torch::tensor(sampled_indices, opt_long_).to(idx_device);
+        auto probs_t = torch::tensor(sampled_probs, opt_float_).to(idx_device);
+        auto weights_t = torch::tensor(sampled_weights, opt_float_).to(idx_device);
+        auto initial_t = torch::tensor(sampled_initial, opt_long_).to(torch::kBool);
+
+        weights_t /= weights_t.max(); // 正規化
+
+        return { indices_t, probs_t, weights_t, initial_t };
+    }
+
+    void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override
+    {
+        ANET_PROFILE_FUNC();
+
+        //ANET_LOG_DEBUG("UpdatePriorities() indices=" << indices << " priorities=" << priorities);
+        //LOG::info() << "UpdatePriorities() indices=" << indices << " priorities=" << priorities;
+
+        for (size_t i = 0; i < indices.size(); ++i) {
+            float p = priorities[i];
+            const int64_t index = indices[i];
+
+            if (p < 0.0f) {
+                // 特殊フラグ (-1.0f): 初期優先度を設定
+                float adjusted_p = 0.0f;
+                if (initial_priority_ < 0.0f) {
+					adjusted_p = max_prio_;    // 最大優先度で初期化
+                } else {
+                    adjusted_p = (initial_priority_ == 1.0) ? 1.0f : std::pow(initial_priority_, alpha_);
+                }
+                UpdateTreePriority(index, adjusted_p, true);
+            } else if (p == 0.0f) {
+                // 特殊フラグ (0.0f): 上書きに伴う無効化
+                UpdateTreePriority(index, 0.0f, false);
+            } else {
+                // 通常の更新
+                float adjusted_p = std::pow(p, alpha_);
+                UpdateTreePriority(index, adjusted_p, false);
+                if (adjusted_p > 0.0f) {
+                    max_prio_ = std::max(max_prio_, adjusted_p);
+                }
+            }
+        }
+    }
+
+    float GetTotalPriority() const
+    {
+        return tree_.GetTotalPriority();
+    }
+
+    float GetInitialMassRatio() const
+    {
+        const float total = tree_.GetTotalPriority();
+        if (total <= 0.0f) {
+            return std::numeric_limits<float>::quiet_NaN();
+        }
+        return std::min(total, std::max(0.0f, initial_priority_mass_)) / total;
+    }
+
+    std::optional<torch::Tensor> GetPriorityTensor(int64_t index) const
+    {
+        if (index < 0 || index >= tree_.Capacity()) return std::nullopt;
+        return torch::tensor(tree_.GetPriority(index), opt_float_);
+    }
+
+    torch::Tensor GatherPriorityRows(const torch::Tensor& indices) const
+    {
+        ANET_PROFILE_FUNC();
+
+        auto indices_cpu = indices.to(torch::kCPU).contiguous();
+        auto acc = indices_cpu.accessor<int64_t, 1>();
+        std::vector<float> priorities(static_cast<size_t>(indices_cpu.size(0)));
+        for (int64_t i = 0; i < indices_cpu.size(0); ++i) {
+            priorities[static_cast<size_t>(i)] = tree_.GetPriority(acc[i]);
+        }
+        return torch::tensor(priorities, opt_float_).reshape({ indices_cpu.size(0), 1 });
+    }
+private:
+    void UpdateTreePriority(int64_t index, float adjusted_priority, bool is_initial)
+    {
+        const size_t slot = static_cast<size_t>(index);
+        const float old_priority = tree_.GetPriority(index);
+        if (is_initial_priority_[slot]) {
+            initial_priority_mass_ -= old_priority;
+        }
+
+        tree_.Update(index, adjusted_priority);
+
+        is_initial_priority_[slot] = (is_initial && adjusted_priority > 0.0f) ? 1 : 0;
+        if (is_initial_priority_[slot]) {
+            initial_priority_mass_ += adjusted_priority;
+        }
+    }
+
+    SumTree tree_;
+    std::vector<uint8_t> is_initial_priority_;
+    const float alpha_;
+    const torch::Generator gen_;
+    const torch::TensorOptions opt_long_;
+    const torch::TensorOptions opt_float_;
+    float max_prio_;
+    float initial_priority_;
+    float initial_priority_mass_ = 0.0f;
+};
+
+
+// ===========================================================================
+// Extractor (具象クラス)
+// ===========================================================================
+
+class DefaultSampleExtractor : public ExperienceSampleExtractor {
+public:
+    explicit DefaultSampleExtractor(std::vector<std::string> stack_keys)
+        : stack_keys_(std::move(stack_keys))
+    {
+    }
+
+    void ExtractSamples(ExperienceSamples& out, const ReplayExperienceStorage& storage, const IndexSampleResult& idx_result, int stack_count, int unroll_steps) const override
+    {
+        ANET_PROFILE_FUNC();
+
+        ANET_PROFILE_SCOPE(prepare);
+
+        int64_t B = idx_result.indices.size(0);
+        auto indices_acc = idx_result.indices.accessor<int64_t, 1>();
+
+        int64_t cap = storage.GetTargetReturns().size(1); // capacity_per_env
+
+        // 次元スカラー化のフラグ (DQNのような1ステップ構成の場合は時間次元をSqueezeする)
+        int unroll_len = (unroll_steps > 0) ? unroll_steps : 1;
+        bool squeeze_unroll = (unroll_steps == 0);
+        bool squeeze_stack = (stack_count == 1);
+
+        // テンソル構築用の配列
+        std::vector<torch::Tensor> batch_actions, batch_returns, batch_terminals, batch_actual_n;
+        std::vector<anet::TensorDict> batch_obs, batch_next_obs, batch_info;
+
+        // 境界チェック用に terminals (done) フラグを一括取得
+        auto terminals_tensor = storage.GetTerminals();
+
+        /// @todo [Performance] 現在はバッチサイズ(B)回数分のループで C++ 側からスライスと torch::stack を行っている。
+        /// GPU上でストレージを持つ場合、Pythonの `tensor[batch_indices, time_indices]` のように
+        /// 高度なインデックス演算 (Advanced Indexing) を用いてベクトル化された一括抽出にリファクタリングすることで更なる学習FPSの向上が見込める
+
+        ANET_PROFILE_SCOPE_NEXT(extract);
+        for (int64_t b = 0; b < B; ++b) {
+            int64_t idx1d = indices_acc[b];
+            int64_t env_idx = idx1d / cap;
+            int64_t time_idx = idx1d % cap;
+            int64_t actual_n = storage.GetActualNSteps()[env_idx][time_idx].item<int64_t>();
+
+            // 未来方向 (Unroll) のスライス抽出 ---
+            batch_actions.push_back(RingSlice(storage.GetActions(), env_idx, time_idx, unroll_len, cap, squeeze_unroll));
+            batch_returns.push_back(RingSlice(storage.GetTargetReturns(), env_idx, time_idx, unroll_len, cap, squeeze_unroll));
+            batch_terminals.push_back(RingSlice(storage.GetTerminals(), env_idx, time_idx, unroll_len, cap, squeeze_unroll));
+            batch_actual_n.push_back(storage.GetActualNSteps()[env_idx][time_idx]);
+
+            // MuZero用などの固有情報 (存在する場合のみ)
+            if (!storage.GetInfo().empty()) {
+                batch_info.push_back(RingSliceDict(storage.GetInfo(), env_idx, time_idx, unroll_len, 0, cap, squeeze_unroll, {}));
+            }
+
+            // 過去方向 (Frame Stacking) のスライス抽出と境界パディング
+            int64_t obs_start = time_idx - stack_count + 1;
+            int64_t obs_valid_start = obs_start;
+            for (int64_t k = time_idx - 1; k >= obs_start; --k) {
+                int64_t phys_k = (k % cap + cap) % cap; // 負数を安全にリングバッファの末尾に折り返す
+                if (terminals_tensor[env_idx][phys_k].item<bool>()) {
+                    obs_valid_start = k + 1;
+                    break;
+                }
+            }
+            int64_t obs_valid_len = time_idx - obs_valid_start + 1;
+            int64_t obs_pad_len = stack_count - obs_valid_len;
+            batch_obs.push_back(RingSliceDict(storage.GetObs(), env_idx, obs_valid_start, obs_valid_len, obs_pad_len, cap, squeeze_stack, stack_keys_));
+
+            // N-Step先 (NextState) のスライス抽出と境界パディング
+            int64_t next_obs_end = time_idx + actual_n + 1;
+            int64_t next_obs_start = next_obs_end - stack_count;
+            int64_t next_obs_valid_start = next_obs_start;
+            for (int64_t k = next_obs_end - 2; k >= next_obs_start; --k) {
+                int64_t phys_k = (k % cap + cap) % cap; // 負数を安全にリングバッファの末尾に折り返す
+                if (terminals_tensor[env_idx][phys_k].item<bool>()) {
+                    next_obs_valid_start = k + 1;
+                    break;
+                }
+            }
+            int64_t next_obs_valid_len = next_obs_end - next_obs_valid_start;
+            int64_t next_obs_pad_len = stack_count - next_obs_valid_len;
+            batch_next_obs.push_back(RingSliceDict(storage.GetObs(), env_idx, next_obs_valid_start, next_obs_valid_len, next_obs_pad_len, cap, squeeze_stack, stack_keys_));
+        }
+
+        ANET_PROFILE_SCOPE_NEXT(stack);
+        // バッチスタック
+        out.actions = torch::stack(batch_actions, 0);
+        out.target_returns = torch::stack(batch_returns, 0);
+        out.next_state.terminals = torch::stack(batch_terminals, 0);
+        out.n_steps = torch::stack(batch_actual_n, 0);
+
+        out.obs = anet::TensorDict::Stack(batch_obs, 0);
+        out.next_state.next_obs = anet::TensorDict::Stack(batch_next_obs, 0);
+        if (!batch_info.empty()) {
+            out.info = anet::TensorDict::Stack(batch_info, 0);
+        }
+
+        // --- PER等のメタデータ引き継ぎ ---
+        out.indices = idx_result.indices;
+        out.is_weights = idx_result.is_weights;
+        out.per_is_initial_priority = idx_result.per_is_initial_priority;
+    }
+private:
+    std::vector<std::string> stack_keys_;
+};
+
+
+// ===========================================================================
+// DefaultReplayBuffer ( Facade )
+// ===========================================================================
+
+DefaultReplayBuffer::DefaultReplayBuffer(
+    const ReplayBufferConfig& config, const EnvSpec& env_spec, int64_t num_envs,
+    std::unique_ptr<ExperienceQueueController> queue_controller,
+    std::unique_ptr<ReplayExperienceBuilder> builder,
+    std::shared_ptr<ReplayExperienceSampler> sampler,
+    std::shared_ptr<ReplayPriorityController> prio_controller,
+    std::shared_ptr<ExperienceSampleExtractor> extractor,
+    torch::Device device, bool pin_memory)
+    : config_(config)
+    , num_envs_(num_envs)
+    , queue_controller_(std::move(queue_controller))
+    , builder_(std::move(builder))
+    , sampler_(sampler)
+    , prio_controller_(prio_controller)
+    , extractor_(extractor)
+{
+    capacity_per_env_ = config_.capacity / num_envs_;
+    queues_.resize(num_envs_);
+
+    storage_ = std::make_unique<ReplayExperienceStorage>(num_envs_, capacity_per_env_, env_spec, config_, device, pin_memory);
+    index_manager_ = std::make_unique<ValidIndexManager>(num_envs_, capacity_per_env_);
+    sampled_once_.assign(static_cast<size_t>(num_envs_ * capacity_per_env_), 0);
+}
+
+void DefaultReplayBuffer::Push(const BatchExperience& batch)
+{
+    ANET_PROFILE_FUNC();
+
+    std::unique_lock<std::shared_mutex> storage_lock(storage_mutex_);
+
+    // 事前に action の info を取得しておく
+    anet::TensorDict action_info = batch.action->GetInfo();
+
+    int64_t evicted_sampleable_count = 0;
+    int64_t evicted_never_sampled_count = 0;
+
+    for (int64_t b = 0; b < num_envs_; ++b) {
+        // Step 1: Storage に重いデータを即時 Push (重複排除)
+
+        // 単一バッチ要素のDictを構築
+        anet::TensorDict single_obs = batch.state.obs[b];
+        anet::TensorDict single_info = action_info.empty() ? anet::TensorDict() : action_info[b];
+
+        int64_t time_idx = storage_->Push(b, single_obs, batch.action->GetAction()[b], single_info);
+        {
+            std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+            RecordEvictionIfSampleable(b, time_idx, &evicted_sampleable_count, &evicted_never_sampled_count);
+            sampled_once_[static_cast<size_t>(b * capacity_per_env_ + time_idx)] = 0;
+            index_manager_->MarkWritten(b, time_idx);
+            index_manager_->AdvanceWriteCursor(b); // カーソルを進める
+
+            if (prio_controller_) {
+                prio_controller_->UpdatePriorities({ b * capacity_per_env_ + time_idx }, { 0.0f });
+            }
+        }
+
+        // 正常なステップを先に Queue に入れる (タイムトラベル防止)
+        QueueRecord rec;
+        rec.time_idx = time_idx;
+        rec.reward = batch.reward[b].item<float>();
+        rec.done = batch.next_state.done[b].item<bool>();
+        rec.truncated = batch.next_state.truncated[b].item<bool>();
+        queues_[b].Push(rec);
+
+        // Truncatedのパラドックス対策 (ダミーステップの挿入)
+        if (batch.next_state.truncated[b].item<bool>()) {
+            anet::TensorDict terminal_obs = batch.next_state.obs[b];
+            storage_->PushTerminalDummy(b, terminal_obs);
+
+            int64_t dummy_idx = (time_idx + 1) % capacity_per_env_;
+            {
+                std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+                RecordEvictionIfSampleable(b, dummy_idx, &evicted_sampleable_count, &evicted_never_sampled_count);
+                sampled_once_[static_cast<size_t>(b * capacity_per_env_ + dummy_idx)] = 0;
+                index_manager_->MarkDummy(b, dummy_idx);
+                index_manager_->AdvanceWriteCursor(b); // ダミー書き込み分もカーソルを進める
+
+                if (prio_controller_) {
+                    prio_controller_->UpdatePriorities({ b * capacity_per_env_ + dummy_idx }, { 0.0f });
+                }
+            }
+
+            QueueRecord dummy_rec;
+            dummy_rec.time_idx = dummy_idx;
+            dummy_rec.reward = 0.0f;
+            dummy_rec.done = true;
+            dummy_rec.truncated = false;
+            dummy_rec.is_dummy = true;
+            queues_[b].Push(dummy_rec);
+        }
+
+        ProcessQueue(b);
+    }
+
+    StoreLastEvictionStats(evicted_sampleable_count, evicted_never_sampled_count);
+    InvalidateAccessorCacheForStorage();
+}
+
+void DefaultReplayBuffer::MarkSampledOnce(const torch::Tensor& indices) const
+{
+    if (!indices.defined()) return;
+
+    auto indices_cpu = indices.device().is_cpu() ? indices.contiguous() : indices.to(torch::kCPU).contiguous();
+    auto acc = indices_cpu.accessor<int64_t, 1>();
+    for (int64_t i = 0; i < indices_cpu.size(0); ++i) {
+        const int64_t flat_idx = acc[i];
+        if (flat_idx >= 0 && flat_idx < static_cast<int64_t>(sampled_once_.size())) {
+            sampled_once_[static_cast<size_t>(flat_idx)] = 1;
+        }
+    }
+}
+
+void DefaultReplayBuffer::RecordEvictionIfSampleable(
+    int64_t env_idx,
+    int64_t time_idx,
+    int64_t* evicted_sampleable_count,
+    int64_t* evicted_never_sampled_count)
+{
+    if (!index_manager_->IsOverwritingSampleable(env_idx, time_idx, config_.stack_count, config_.muzero.unroll_steps, config_.n_step)) {
         return;
     }
 
-    buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(k));
-}
-
-std::vector<SingleExperience> ExperienceQueue::Peek(size_t k) const
-{
-    if (buffer_.empty() || k == 0) {
-        return {};
+    const int64_t flat_idx = env_idx * capacity_per_env_ + time_idx;
+    ++(*evicted_sampleable_count);
+    if (!sampled_once_[static_cast<size_t>(flat_idx)]) {
+        ++(*evicted_never_sampled_count);
     }
-
-    if (k >= buffer_.size()) {
-        return buffer_;
-    }
-
-    return std::vector<SingleExperience>(
-        buffer_.begin(),
-        buffer_.begin() + static_cast<std::ptrdiff_t>(k)
-    );
 }
 
-
-// ======================================================
-// PlainExperienceQueueController
-// ======================================================
-
-std::vector<ExperienceSequence>
-PlainExperienceQueueController::ProcessSingleExperience(
-    ExperienceQueue& queue,
-    const SingleExperience& exp)
+void DefaultReplayBuffer::StoreLastEvictionStats(int64_t evicted_sampleable_count, int64_t evicted_never_sampled_count)
 {
-    anet::ProfileRange r1("PlainExperienceQueueController::ProcessSingleExperience");
-
-    // 単一 Experience をそのまま 1 sequence にする
-    ExperienceSequence seq;
-    seq.reserve(1);
-    seq.push_back(exp);
-
-    return { std::move(seq) };
+    std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+    last_evicted_sampleable_count_ = evicted_sampleable_count;
+    last_evicted_never_sampled_count_ = evicted_never_sampled_count;
+    last_evicted_never_sampled_ratio_ = evicted_sampleable_count > 0
+        ? static_cast<float>(evicted_never_sampled_count) / static_cast<float>(evicted_sampleable_count)
+        : std::numeric_limits<float>::quiet_NaN();
 }
 
-
-// ======================================================
-// NStepExperienceQueueController
-// ======================================================
-
-NStepExperienceQueueController::NStepExperienceQueueController(size_t n_step)
-    : n_step_(n_step)
+void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
 {
-    ANET_ASSERT(n_step_ >= 1);
-}
+    ANET_PROFILE_FUNC();
 
-std::vector<ExperienceSequence>
-NStepExperienceQueueController::ProcessSingleExperience(ExperienceQueue& queue, const SingleExperience& exp)
-{
-    anet::ProfileRange r1("NStepExperienceQueueController::ProcessSingleExperience");
+    auto sequences = queue_controller_->ExtractSequences(queues_[env_idx]);
 
-    std::vector<ExperienceSequence> out_seq;
+    std::vector<int64_t> valid_envs;
+    std::vector<int64_t> newly_valid;
+    std::vector<float> init_prios;
 
-    // 新しい experience を queue に追加
-    queue.Push(exp);
+    for (const auto& seq : sequences) {
+        // 念のため空チェック
+        if (seq.empty()) continue;
 
-    // 通常ケース：n_step 分たまったら 1 sequence 吐く
-    if (queue.Size() >= n_step_) {
-        ExperienceSequence seq = queue.Peek(n_step_);
-        out_seq.push_back(std::move(seq));
-        queue.Pop(1);
-    }
-
-    // エピソード終端処理（done / truncated）
-    if (exp.next_state.done || exp.next_state.truncated) {
-        // 残っている要素をすべて flush
-        while (queue.Size() > 0) {
-            size_t k = queue.Size();
-            ExperienceSequence seq = queue.Peek(k); // k個のSingleExperience列から一つのReplayExperienceを作る
-            out_seq.push_back(std::move(seq));
-            queue.Pop(1);    // 1個のExperienceSequenceから1個のReplayExperienceを作る
+        //ダミーステップ自身が起点(state)となっているシーケンスはStorageに登録しない
+        if (seq[0].is_dummy) {
+            valid_envs.push_back(env_idx);
+            continue;
         }
+
+        // Builderで割引報酬和を計算
+        ReplayExperience exp = builder_->Build(seq);
+
+        // 先頭の time_idx を取り出し、Storageを上書き(Update)
+        int64_t time_idx = seq.front().time_idx;
+        storage_->Update(env_idx, time_idx, exp);
+
+        // 完全にサンプリング可能になったので封印解除
+        valid_envs.push_back(env_idx);
+
+        newly_valid.push_back(env_idx * capacity_per_env_ + time_idx);
+        init_prios.push_back(-1.0f); // 初期優先度を割り当てるための特殊フラグ
     }
 
-    return out_seq;
-}
-
-
-// ======================================================
-// PlainReplayExperienceBuilder
-// ======================================================
-
-ReplayExperience PlainReplayExperienceBuilder::Build(const ExperienceSequence& sequence) const
-{
-    anet::ProfileRange r1("PlainReplayExperienceBuilder::Build");
-
-    ANET_ASSERT(sequence.size() == 1);
-
-    const auto& exp = sequence[0];
-
-    return ReplayExperience {
-        exp.state,
-        exp.action,
-        exp.reward,
-        exp.next_state,
-        exp.next_state.done,
-        1,
-        0
-    };
-}
-
-
-// ======================================================
-// NStepReplayExperienceBuilder
-// ======================================================
-
-NStepReplayExperienceBuilder::NStepReplayExperienceBuilder(float gamma)
-    : gamma_(gamma)
-{
-    ANET_ASSERT(gamma_ > 0.0f && gamma_ <= 1.0f);
-}
-
-ReplayExperience NStepReplayExperienceBuilder::Build(const ExperienceSequence& sequence) const
-{
-    anet::ProfileRange r1("NStepReplayExperienceBuilder::Build");
-
-    ANET_ASSERT(!sequence.empty());
-
-    const size_t n = sequence.size();
-
-    float G = 0.0f;
-    float gamma_pow = 1.0f;
-    bool terminal = false;
-
-	// N-STEP TARGET VALUE 計算ループ
-    for (size_t i = 0; i < n; ++i) {
-        const auto& exp = sequence[i];
-
-        G += gamma_pow * exp.reward;
-        gamma_pow *= gamma_;
-
-        if (exp.next_state.done) {
-            terminal = true; // エピソード終了
-            break;
+    //  N-Step計算が完了し、安全になったデータをTreeに登録（初期優先度付与）
+    if (!valid_envs.empty() || (prio_controller_ && !newly_valid.empty())) {
+        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+        for (int64_t valid_env : valid_envs) {
+            index_manager_->MarkValid(valid_env);
         }
-        if (exp.next_state.truncated) {
-            terminal = false; // 時間切れはterminalじゃない
-            break; // でもループ（N-step）はここで打ち切る
-        }
-        //if (exp.next_state.done || exp.next_state.truncated) {
-        //    terminal = true;
-        //    break;
-        //}
-    }
-
-    const SingleExperience& first = sequence.front();
-    const SingleExperience& last = sequence[n - 1];
-
-    return ReplayExperience {
-        first.state,        // state
-        first.action,       // action
-        G,                  // target_value
-        last.next_state,    // next_state   TDのブートストラップ状態
-        terminal,           // terminal
-        static_cast<int>(n), // n_step
-        0
-    };
-}
-
-
-// ======================================================
-// ReplayExperienceStorage
-// ======================================================
-
-ReplayExperienceStorage::ReplayExperienceStorage(const EnvSpec& env_spec, int64_t capacity, int64_t num_envs, torch::Device device)
-    : device_(device), capacity_(capacity)
-    , int64_opt_(torch::TensorOptions().dtype(torch::kInt64).device(device_))
-{
-    auto state_dim = env_spec.state_spec.CalcFlattenDim();
-    auto action_dim = env_spec.action_spec.GetNumActions();
-    ANET_ASSERT(state_dim > 0);
-    ANET_ASSERT(action_dim > 0);
-    ANET_ASSERT(capacity_ > 0);
-
-    //auto f32 = torch::TensorOptions().dtype(torch::kFloat32).device(device_).pinned_memory(true);
-    //auto i64 = torch::TensorOptions().dtype(torch::kInt64).device(device_).pinned_memory(true);
-    //auto b = torch::TensorOptions().dtype(torch::kBool).device(device_).pinned_memory(true);
-    auto f32 = torch::TensorOptions().dtype(torch::kFloat32).device(device_).pinned_memory(false);
-    auto i64 = torch::TensorOptions().dtype(torch::kInt64).device(device_).pinned_memory(false);
-    auto b = torch::TensorOptions().dtype(torch::kBool).device(device_).pinned_memory(false);
-
-    /// @todo 複数環境のデータを分離して2Dバッファ化
-
-    states_ = torch::zeros({ capacity_, state_dim }, f32);
-    target_values_ = torch::zeros({ capacity_ }, f32);
-    next_states_ = torch::zeros({ capacity_, state_dim }, f32);
-    terminals_ = torch::zeros({ capacity_ }, b);
-    n_steps_ = torch::zeros({ capacity_ }, i64);
-    episode_starts_ = torch::zeros({ capacity_ }, b);
-
-    prev_indices_ = torch::full({ capacity_ }, -1, i64);
-    last_env_indices_.resize(num_envs, -1);
-
-    if (env_spec.action_spec.is_discrete) {
-        actions_ = torch::zeros({ capacity_ }, i64); // 離散アクションでは1次元かつint64固定
-    } else {
-        actions_ = torch::zeros({ capacity_, action_dim }, f32);
-    }
-}
-
-void ReplayExperienceStorage::Push(const ReplayExperience& exp)
-{
-    anet::ProfileRange r1("ReplayExperienceStorage::Push");
-
-    const int64_t idx = write_index_;
-
-    // 現在のwrite_index_に書き込み
-    states_[idx].copy_(exp.state.obs.to(device_));
-    actions_[idx].copy_(exp.action.to(device_));
-    next_states_[idx].copy_(exp.next_state.obs.to(device_));
-    target_values_[idx].fill_(exp.target_value);
-    terminals_[idx].fill_(exp.terminal);
-    n_steps_[idx].fill_(exp.n_step);
-    episode_starts_[idx].fill_(exp.state.episode_start);
-
-    // リンクリストの構築：このデータの1つ前は、同じ環境の直近の書き込みインデックス
-    prev_indices_[idx] = last_env_indices_[exp.env_index];
-
-    // 最新のインデックスを更新
-    last_env_indices_[exp.env_index] = idx;
-
-    // write_index_を更新
-    write_index_ = (write_index_ + 1) % capacity_;
-    bool overwrite = false;
-    if (size_ < capacity_) size_++;
-    else overwrite = true;
-
-    // イベント通知
-    StorageWriteEvent ev {
-        overwrite ? StorageWriteEventCode::Overwrite : StorageWriteEventCode::Append, idx,
-    };
-    Notify(ev);
-}
-
-ExperienceSamples ReplayExperienceStorage::Gather(
-    const std::vector<int64_t>& indices, std::optional<torch::Device> out_device) const
-{
-    anet::ProfileRange r1("ReplayExperienceStorage::Gather");
-
-    // vector→Tensor変換
-    auto index_tensor = torch::from_blob(
-        const_cast<int64_t*>(indices.data()),{ static_cast<int64_t>(indices.size()) }, int64_opt_).clone();
-    ANET_ASSERT_DTYPE(index_tensor, torch::kInt64);
-
-    // gather
-    auto idx = index_tensor.to(device_);
-    ExperienceSamples out {
-        states_.index_select(0, idx),           // obs
-        actions_.index_select(0, idx),          // actions
-        target_values_.index_select(0, idx),    // target_values
-        next_states_.index_select(0, idx),      // next_states.obs
-        terminals_.index_select(0, idx),        // next_states.terminals
-        n_steps_.index_select(0, idx),          // n_steps
-        idx,                // indices (優先度更新用)
-        torch::Tensor(),    // sampling_prob (Placeholder: 呼び出し元で設定)
-        torch::Tensor(),    // is_weights (Placeholder: 呼び出し元で設定)
-    };
-
-    // 必要に応じてdevice転送
-    auto dst_device = out_device.value_or(device_);
-    if (dst_device != device_) {
-        out = out.To(dst_device, true);   // FlattenStates 後段想定
-    }
-
-    return out;
-}
-
-void ReplayExperienceStorage::AttachEventHandler(EventHandler handler)
-{
-    event_handlers_.push_back(std::move(handler));
-}
-
-void ReplayExperienceStorage::Notify(const StorageWriteEvent& ev)
-{
-    for (const auto& handler : event_handlers_) {
-        handler(ev);
-    }
-}
-
-static std::vector<torch::Tensor> ring_view(
-    const torch::Tensor& t, int64_t size, int64_t capacity, int64_t write_index)
-{
-    using Slice = torch::indexing::Slice;
-    std::vector<torch::Tensor> out;
-    if (size == 0) return out;
-
-    int64_t head = write_index;
-    int64_t tail = (head + capacity - size) % capacity;
-
-    int64_t first_len = std::min(size, capacity - tail);
-    if (first_len > 0)
-        out.push_back(t.index({ Slice(tail, (tail + first_len)) }));
-
-    int64_t second_len = size - first_len;
-    if (second_len > 0)
-        out.push_back(t.index({ Slice(0, second_len) }));
-    return out;
-}
-
-std::optional<std::vector<torch::Tensor>>
-ReplayExperienceStorage::GetTensorVector(const std::string& key, int64_t index) const
-{
-    anet::ProfileRange r1("ReplayExperienceStorage::GetTensorVector");
-
-    if (key == ReplayBuffer::STATE_OBS)
-        return ring_view(states_, size_, capacity_, write_index_);
-    if (key == ReplayBuffer::ACTION)
-        return ring_view(actions_, size_, capacity_, write_index_);
-    if (key == ReplayBuffer::REWARD)
-        return ring_view(target_values_, size_, capacity_, write_index_);
-    if (key == ReplayBuffer::NEXT_STATE_OBS)
-        return ring_view(next_states_, size_, capacity_, write_index_);
-    if (key == ReplayBuffer::NEXT_STATE_TERMINAL)
-        return ring_view(terminals_, size_, capacity_, write_index_);
-    if (key == ReplayBuffer::N_STEP)
-        return ring_view(n_steps_, size_, capacity_, write_index_);
-    return std::nullopt;
-}
-
-std::optional<float>
-ReplayExperienceStorage::GetScalar(const std::string& key, int64_t index) const
-{
-    return std::nullopt;
-}
-
-std::optional<torch::Tensor>
-ReplayExperienceStorage::GetTensor(const std::string& key, int64_t index) const
-{
-    return std::nullopt;
-}
-
-
-// ======================================================
-// UniformReplayExperienceSampler
-// ======================================================
-
-UniformReplayExperienceSampler::UniformReplayExperienceSampler(anet::seed_t seed)
-    : RandomHolder(seed)
-    , opts_(torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU))
-{
-}
-
-IndexSampleResult UniformReplayExperienceSampler::SampleIndices(
-    const ReplayExperienceStorage& storage, int64_t minibatch_size, float beta)
-{
-    anet::ProfileRange r1("UniformReplayExperienceSampler::SampleIndices");
-
-    const int64_t storaget_size = storage.GetSize();
-    ANET_ASSERT(storaget_size > 0);
-    ANET_ASSERT(minibatch_size > 0);
-
-    // ---- RNG を使って n 個のインデックスを取得 ----
-    std::vector<int64_t> indices(minibatch_size);
-    for (int64_t i = 0; i < minibatch_size; ++i)
-        indices[i] = rnd_->RandIndex(storaget_size);
-    //auto indices = torch::from_blob(buf.data(), { minibatch_size }, opts_).clone();
-
-    return { indices };
-}
-
-
-// ======================================================
-// SumTree
-// ======================================================
-
-SumTree::SumTree(int64_t capacity)
-    : capacity_(capacity)
-{
-    ANET_ASSERT_MSG(capacity_ > 0, "SumTree capacity must be positive");
-    ANET_ASSERT_MSG(capacity_ <= static_cast<int64_t>(std::numeric_limits<size_t>::max() / 2),
-        "SumTree capacity is too large for size_t");
-
-    // サイズ 2Nの非再帰セグメント木を使用しているため、capacity が 2 のべき乗である必要はない
-
-    const size_t tree_size = static_cast<size_t>(capacity_) * 2;
-    ANET_ASSERT_MSG(tree_size <= tree_.max_size(),"SumTree capacity exceeds vector::max_size()");
- 
-    tree_.assign(tree_size, 0.0f);
-}
-
-void SumTree::Update(int64_t index, float value)
-{
-    ANET_ASSERT_MSG(index >= 0 && index < capacity_, "SumTree::Update index out of range");
-
-    // 対応する葉ノードに値を書き込む
-    size_t node = static_cast<size_t>(index + capacity_);
-    tree_[node] = value;
-
-    // 親ノード方向へ累積和を更新する
-    node >>= 1;
-    while (node >= 1) {
-        tree_[node] = tree_[node << 1] + tree_[(node << 1) | 1];
-        node >>= 1;
-    }
-}
-
-float SumTree::Get(int64_t index) const
-{
-    ANET_ASSERT_MSG(index >= 0 && index < capacity_, "SumTree::Get index out of range");
-
-    // 対応する葉ノードの値を取得する
-    return tree_[static_cast<size_t>(index + capacity_)];
-}
-
-int64_t SumTree::Sample(float value) const
-{
-    /// @todo 分散低減のための区間分割サンプリング（stratified sampling）を検討
-
-    int64_t node = 1;
-
-    while (node < capacity_) {
-        int64_t left = node << 1;
-        float left_sum = tree_[static_cast<size_t>(left)];
-
-        bool go_right = (value > left_sum);
-        value -= go_right ? left_sum : 0.0f;
-        node = left | static_cast<int64_t>(go_right);
-    }
-
-    int64_t data_idx = node - capacity_;
-    return std::clamp<int64_t>(data_idx, 0, capacity_ - 1);
-}
-
-
-// ======================================================
-// PrioritizedReplayExperienceSampler
-// ======================================================
-
-PrioritizedReplayExperienceManager::PrioritizedReplayExperienceManager(int64_t capacity,float alpha, anet::seed_t seed)
-    : RandomHolder(seed), sum_tree_(capacity), alpha_(alpha)
-{
-    ANET_ASSERT_MSG(alpha_ >= 0.0f, "alpha must be non-negative");
-}
-
-IndexSampleResult PrioritizedReplayExperienceManager::SampleIndices(
-    const ReplayExperienceStorage& storage, int64_t minibatch_size, float beta)
-{
-    ANET_ASSERT_MSG(minibatch_size > 0, "minibatch_size must be positive");
-    ANET_ASSERT_MSG(beta >= 0.0f && beta <= 1.0f, "beta must be in [0, 1]");
-
-    IndexSampleResult result{ minibatch_size };
-
-    // 優先度の総和（サンプリング空間の上限値）を取得
-    const float total_priority = sum_tree_.Total();
-    ANET_ASSERT_MSG(total_priority > 0.0f, "SumTree total priority must be positive");
-
-    // 有効な experience 数（IS weight 計算に使用）
-    const int64_t valid_size = storage.GetSize();
-    ANET_ASSERT_MSG(valid_size > 0, "ReplayExperienceStorage is empty");
-
-    float max_weight = 0.0f;
-    // minibatch_size分回す
-    for (int64_t i = 0; i < minibatch_size; ++i) {
-        // @todo 分散低減のための区間分割サンプリング（stratified sampling）を検討
-
-        // [0, total_priority) 上で一様乱数を生成し、累積和探索で index を選択
-        const float u = rnd_->Uniform(0.0f, total_priority);
-        const int64_t index = sum_tree_.Sample(u);
-
-        // サンプリングされた論理インデックスを記録
-        result.indices[i] = index;
-
-        // 当該 index が選択される確率 P(i) を計算
-        const float priority_val = sum_tree_.Get(index);
-        const float p = (total_priority > 0.0f) ? (priority_val / total_priority) : 0.0f;   //total_priority が 0 の場合のガード
-
-        // Importance Sampling weight を計算（選択確率の偏り補正）
-        const float safe_p = std::max(p, 1e-10f);
-        const float w = std::pow(1.0f / (static_cast<float>(valid_size) * safe_p), beta);
-        ANET_ASSERT(!std::isinf(w));
-        result.is_weights[i] = w;
-        max_weight = std::max(max_weight, w);
-    }
-
-    // 勾配スケールの過大化を防ぐため、IS weight を最大値で正規化
-    if (max_weight > 0.0f) {
-        for (float& w : result.is_weights) {
-            w /= max_weight;
-        }
-    }
-
-    return result;
-}
-
-void PrioritizedReplayExperienceManager::UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities)
-{
-    ANET_ASSERT_MSG(indices.size() == priorities.size(),
-        "indices and priorities size mismatch");
-
-    const int64_t n = static_cast<int64_t>(indices.size());
-
-    for (int64_t i = 0; i < n; ++i) {
-        const int64_t index = indices[i];
-        const float priority = priorities[i];
-
-        ANET_ASSERT_MSG(priority > 0.0f, "priority must be positive");
-
-        // α を適用した priority を SumTree に反映する
-        // （ReplayStorage の論理 index と 1:1 に対応）
-        sum_tree_.Update(index, std::pow(priority, alpha_));
-    }
-}
-
-std::optional<float> PrioritizedReplayExperienceManager::GetScalar(const std::string& key, int64_t index) const
-{
-    // priority/total : 全体のみ
-    if (key == ReplayBuffer::PER_TOTAL) {
-        return sum_tree_.Total();
-    }
-
-    return std::nullopt;
-}
-
-std::optional<torch::Tensor> PrioritizedReplayExperienceManager::GetTensor(const std::string& key, int64_t index) const
-{
-    if (key == ReplayBuffer::PER_VALUES) {
-        if (index < 0 || index >= sum_tree_.Capacity())
-            return std::nullopt;
-        auto opts = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
-        return torch::tensor(sum_tree_.Get(index), opts);
-    }
-
-    return std::nullopt;
-}
-
-std::optional<std::vector<torch::Tensor>> PrioritizedReplayExperienceManager::GetTensorVector(
-    const std::string& key, int64_t index) const
-{
-    if (key == ReplayBuffer::PER_DIST) {
-        const int64_t size = index;   /// @todo 無理やりindexをsize想定に
-	    const auto opts = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
-
-        std::vector<float> buf;
-        buf.resize(size);
-        for (int64_t i = 0; i < size; ++i) {
-            auto prio = sum_tree_.Get(i);
-            buf[i] = prio;
-        }
-        auto t = torch::from_blob(buf.data(), { static_cast<int64_t>(buf.size()), 1 }, opts).clone();
-        return std::vector<torch::Tensor>{ std::move(t) };
-    }
-
-    return std::nullopt;
-}
-
-
-// ======================================================
-// ReplayExperienceStateStacker
-// ======================================================
-
-ReplayExperienceStateStacker::ReplayExperienceStateStacker(int stack_count, const std::vector<int64_t>& state_shape, torch::Device device)
-    : stack_count_(stack_count)
-    , state_shape_(state_shape)
-    , device_(device)
-{
-    stacked_indices_opts_ = torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU);
-}
-
-ExperienceSamples ReplayExperienceStateStacker::SampleBatch(
-        const ReplayExperienceStorage& storage, const IndexSampleResult& index_result,
-        int64_t minibatch_size, torch::Device target_device)
-{
-    anet::ProfileRange r("ReplayExperienceStateStacker::SampleBatch");
-
-    // -----------------------------------------------------------------------
-    // 準備
-    // -----------------------------------------------------------------------
-    anet::ProfileRange r1("ReplayExperienceStateStacker::SampleBatch.prepare");
-    const std::vector<int64_t>& indices_vec = index_result.indices;
-    const int64_t* indices_ptr = indices_vec.data();
-
-    // Storage情報取得
-    const int64_t write_idx = storage.GetWriteIndex();
-    const int64_t capacity = storage.GetCapacity();
-    const int64_t size = storage.GetSize();
-
-    // EpisodeStarts (CPU Tensor) のポインタ取得
-    const auto ep_tensor = storage.GetEpisodeStarts();
-    const bool* ep_ptr = ep_tensor.data_ptr<bool>();
-
-    // PrevIndices (CPU Tensor) のポインタ取得
-    const auto prev_indices_tensor = storage.GetPrevIndices();
-    const int64_t* prev_ptr = prev_indices_tensor.data_ptr<int64_t>();
-
-    // 結果格納用インデックス (Flatten: B * S)
-    torch::Tensor stacked_indices = torch::empty({ minibatch_size * stack_count_ }, stacked_indices_opts_);
-    int64_t* out_ptr = stacked_indices.data_ptr<int64_t>();
-
-    // -----------------------------------------------------------------------
-    // 時系列を過去に遡りながら境界判定してstacked_indicesを埋める
-    // -----------------------------------------------------------------------
-    anet::ProfileRange r2("ReplayExperienceStateStacker::SampleBatch.idx", r1);
-    for (int64_t b = 0; b < minibatch_size; ++b) {
-        int64_t current_idx = indices_ptr[b];
-
-        // 書き込み先頭ポインタ [t-(S-1), ..., t]
-        int64_t* batch_head_ptr = out_ptr + (b * stack_count_);
-
-        bool hit_boundary = false;
-        int64_t padding_idx = -1;
-        int64_t target_idx = current_idx; // k=0 の初期値
-
-        // 最新 (k=0、Samplingされたidx) から 過去 (k=S-1) へ
-        for (int k = 0; k < stack_count_; ++k) {
-            int write_pos = stack_count_ - 1 - k;
-
-            // エピソード開始に到達済みの場合、そのidxでパディングして終わり
-            if (hit_boundary) {
-                batch_head_ptr[write_pos] = padding_idx;
-                continue;
-            }
-
-            // 過去フレームへ遡る (k=0の時はcurrent_idxをそのまま使う)
-            if (k > 0) {
-                int64_t old_target = target_idx; // 遡る前のインデックスを保持
-                target_idx = prev_ptr[target_idx];
-
-                bool is_valid_range = false;
-                if (target_idx != -1) {
-                    // write_idx から見た「データの古さ（age）」を計算
-                    int64_t age_old = (write_idx - 1 - old_target + capacity) % capacity;
-                    int64_t age_new = (write_idx - 1 - target_idx + capacity) % capacity;
-
-                    // 過去のデータは、必ず現在のデータより古くなければならない (age_new > age_old)
-                    // もし age_new が小さい場合、それはリングバッファを周回して上書きされた「新しいデータ」を意味する
-                    is_valid_range = (age_new < size) && (age_new > age_old);
-                }
-
-                // 有効範囲外（まだデータがない、または周回して消えた、あるいは記録の始点）
-                if (!is_valid_range) {
-                    hit_boundary = true;
-                    // padding_idx は更新せず、前回の有効値(または初期値-1)を使う
-                    if (padding_idx == -1) padding_idx = current_idx; // 念のためのフォールバック
-                    batch_head_ptr[write_pos] = padding_idx;
-                    continue;
-                }
-            }
-
-            // エピソード開始判定
-            if (ep_ptr[target_idx]) {
-                // エピソード開始に到達した場合、以降同じidxでパディングするためにidx保存
-                hit_boundary = true;
-                padding_idx = target_idx;
-                batch_head_ptr[write_pos] = target_idx;
-            } else {
-                batch_head_ptr[write_pos] = target_idx;
-            }
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // データ取得 (Gather) & Reshape
-    // -----------------------------------------------------------------------
-    anet::ProfileRange r3("ReplayExperienceStateStacker::SampleBatch.gather", r2);
-
-    // Stacked Indices をデバイスへ転送
-    auto stacked_indices_dev = stacked_indices.to(device_);
-
-    // State (Stacked) : (B * S, state_dim...)
-    auto flat_states = storage.GetStates().index_select(0, stacked_indices_dev);
-
-    // Next State (Stacked) : (B * S, state_dim...)
-    auto flat_next_states = storage.GetNextStates().index_select(0, stacked_indices_dev);
-
-    // State出力用の出力形状情報を生成
-    std::vector<int64_t> out_shape;
-    out_shape.push_back(minibatch_size);
-    out_shape.push_back(stack_count_);
-    for (auto d : state_shape_) out_shape.push_back(d);
-
-    // Reshape： (B * S, state_dim...) -> (B, S, state_dim...)
-    const auto stacked_states = flat_states.view(out_shape);
-    const auto stacked_next_obs = flat_next_states.view(out_shape);
-
-    // その他 (Actions, TargetValues, Terminals)はindices (vector) を Tensor化してデバイス転送
-    const auto indices_dev = torch::tensor(indices_vec, torch::TensorOptions().dtype(torch::kInt64)).to(device_);
-    const auto actions = storage.GetActions().index_select(0, indices_dev);
-    const auto target_values = storage.GetTargetValues().index_select(0, indices_dev);
-    const auto terminals = storage.GetTerminals().index_select(0, indices_dev);
-    const auto n_steps = storage.GetNSteps().index_select(0, indices_dev);
-
-    // 結果を生成
-    anet::ProfileRange r4("ReplayExperienceStateStacker::SampleBatch.result", r3);
-    ExperienceSamples samples {
-        stacked_states,    // obs
-        actions,           // actions
-        target_values,     // target_values
-        {                  // next_states
-            stacked_next_obs, // next_states.obs
-            terminals,        // next_states.terminals   
-        },
-        n_steps,           // n_steps
-        indices_dev,       // indices
-        (!index_result.sampling_prob.empty()) ? // sampling_prob
-            torch::tensor(index_result.sampling_prob, torch::TensorOptions().dtype(torch::kFloat32)).to(device_) : torch::Tensor(),
-        (!index_result.is_weights.empty()) ?    // is_weights
-            torch::tensor(index_result.is_weights, torch::TensorOptions().dtype(torch::kFloat32)).to(device_) : torch::Tensor(),
-    };
-
-    // device転送
-    samples = samples.To(target_device, true);
-
-    return samples;
-}
-
-
-// ======================================================
-// DefaultReplayBuffer
-// ======================================================
-
-DefaultReplayBuffer::DefaultReplayBuffer(
-    const EnvSpec& env_spec, int64_t capacity, int64_t num_envs,
-    std::unique_ptr<ExperienceQueueController> queue_controller,
-    std::unique_ptr<ReplayExperienceBuilder> replay_exp_builder,
-    std::shared_ptr<ReplayExperienceSampler> sampler,
-    std::shared_ptr<ReplayPriorityController> prio_controller,
-    std::shared_ptr<ReplayExperienceStacker> stacker,
-    torch::Device device, float initial_priority, bool use_prefetch)
-    : num_envs_(num_envs)
-    , queues_(num_envs)
-    , queue_controller_(std::move(queue_controller))
-    , replay_exp_builder_(std::move(replay_exp_builder))
-    , sampler_(sampler)
-    , prio_controller_(prio_controller)
-	, stacker_(stacker)
-    , use_prefetch_(use_prefetch)
-    , initial_priority_(initial_priority)
-{
-    ANET_ASSERT(num_envs_ > 0);
-
-    // Storage生成
-    storage_ = std::make_unique<ReplayExperienceStorage>(env_spec, capacity, num_envs, device);
-
-    // Storage→prio_controllerの同期用イベント登録
-    if (prio_controller_ != nullptr) {
-        storage_->AttachEventHandler(
-            [this](const StorageWriteEvent& ev)
-            {
-                prio_controller_->UpdatePriorities({ ev.index }, { initial_priority_ });
-            }
-        );
-    }
-}
-
-void DefaultReplayBuffer::Push(const BatchExperience& batch_exp)
-{
-    anet::ProfileRange r("DefaultReplayBuffer::Push1");
-
-    anet::ProfileRange r1("DefaultReplayBuffer::Push1.expand");
-    auto exps = batch_exp.ToExperienceList();
-    const int64_t N = exps.size();
-    ANET_ASSERT(N == num_envs_);
-
-    anet::ProfileRange r2("DefaultReplayBuffer::Push1.loop", r1);
-    Push(exps);
-}
-
-void DefaultReplayBuffer::Push(const std::vector<SingleExperience>& exps)
-{
-    anet::ProfileRange r1("DefaultReplayBuffer::Push2");
-
-    ANET_ASSERT(static_cast<int64_t>(exps.size()) == num_envs_);
-
-    for (int64_t i = 0; i < num_envs_; ++i) {
-        auto& q = queues_[i];
-        auto sequences = queue_controller_->ProcessSingleExperience(q, exps[i]);
-
-        for (const auto& seq : sequences) {
-            ReplayExperience re = replay_exp_builder_->Build(seq);
-            re.env_index = i;
-            storage_->Push(re);
+        if (prio_controller_ && !newly_valid.empty()) {
+            prio_controller_->UpdatePriorities(newly_valid, init_prios);
         }
     }
 }
 
-ExperienceSamples DefaultReplayBuffer::sampleInternal(int64_t minibatch_size, torch::Device device, float beta) const
+void DefaultReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const
 {
-    anet::ProfileRange r1("DefaultReplayBuffer::sampleInternal");
-    torch::NoGradGuard ng;
+    ANET_PROFILE_FUNC();
 
-    ANET_ASSERT(storage_->GetSize() > 0);
+    ANET_PROFILE_SCOPE(storage_lock_wait);
+    std::shared_lock<std::shared_mutex> storage_lock(storage_mutex_);
+    ANET_PROFILE_SCOPE_END(storage_lock_wait);
 
-    // Samplerからインデックスと重みを取得
-    auto indices_result = sampler_->SampleIndices(*storage_, minibatch_size, beta);
+    IndexSampleResult idx_result;
 
-    ExperienceSamples samples;
+    ANET_PROFILE_SCOPE(metadata_lock_wait);
+    std::unique_lock<std::mutex> metadata_lock(metadata_mutex_);
+    ANET_PROFILE_SCOPE_END(metadata_lock_wait);
 
-    if (stacker_ == nullptr) {
-        // Storageからデータを収集 (この時点では prob, weights は空)
-        samples = storage_->Gather(indices_result.indices, device);
+    ANET_PROFILE_SCOPE(valid_indices);
+    auto valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
+    ANET_PROFILE_SCOPE_END(valid_indices);
+    ANET_ASSERT_MSG(valid_1d.size(0) >= minibatch_size, "Not enough valid samples in ReplayBuffer. size=" << valid_1d.size(0) << " minibatch_size=" << minibatch_size);
 
-        // Samplerが計算した prob, weights を Tensor化してセット
-        if (!indices_result.sampling_prob.empty()) {
-            auto opts = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
+    ANET_PROFILE_SCOPE(sample_indices);
+    idx_result = sampler_->SampleIndices(minibatch_size, valid_1d, beta);
+    ANET_PROFILE_SCOPE_END(sample_indices);
+    MarkSampledOnce(idx_result.indices);
+    metadata_lock.unlock();
 
-            // vector -> Tensor
-            auto prob_tensor = torch::from_blob(
-                const_cast<float*>(indices_result.sampling_prob.data()),
-                { minibatch_size }, opts).clone();
-
-            auto weights_tensor = torch::from_blob(
-                const_cast<float*>(indices_result.is_weights.data()),
-                { minibatch_size }, opts).clone();
-
-            /// @todo StorageではなくExperienceSamplesでpinned_memory出来るようにする（Storage全体をpinnedすると容量次第でマシン負荷に繋がる）
-
-            // データのデバイスに合わせて転送
-            samples.sampling_prob = prob_tensor.to(device);
-            samples.is_weights = weights_tensor.to(device);
-        }
-    } else {
-		// Stackerでスタッキング
-		samples = stacker_->SampleBatch(*storage_, indices_result, minibatch_size, device);
-    }
-
-    return samples;
-}
-
-ExperienceSamples DefaultReplayBuffer::Sample(int64_t minibatch_size, torch::Device device, float beta) const
-{
-    anet::ProfileRange r1("DefaultReplayBuffer::Sample");
-
-    ANET_ASSERT(storage_->GetSize() > 0);
-
-    if (use_prefetch_) {
-        if (!prefetch_cached_) {
-            prefetch_result_ = sampleInternal(minibatch_size, device, beta);
-            prefetch_cached_ = true;
-            return sampleInternal(minibatch_size, device, beta);
-        }
-        auto result = prefetch_result_;
-        prefetch_result_ = sampleInternal(minibatch_size, device, beta);
-        return result;
-    }
-
-    return sampleInternal(minibatch_size, device, beta);
+    ANET_PROFILE_SCOPE(extract);
+    extractor_->ExtractSamples(out_samples, *storage_, idx_result, config_.stack_count, config_.muzero.unroll_steps);
+    ANET_PROFILE_SCOPE_END(extract);
 }
 
 int64_t DefaultReplayBuffer::Size() const
 {
-    return storage_->GetSize();
+    ANET_PROFILE_FUNC();
+
+    // 生のカウントではなく、Stack/Unrollを考慮して安全なサンプリング可能な数を返す
+    std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+    return index_manager_->GetSampleableCount(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
 }
 
 void DefaultReplayBuffer::UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities)
 {
-    if (prio_controller_ != nullptr)
-        prio_controller_->UpdatePriorities(indices, priorities);
+    if (prio_controller_) {
+        {
+            std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+            prio_controller_->UpdatePriorities(indices, priorities);
+        }
+        InvalidateAccessorCacheForPriority();
+    }
+}
+
+void DefaultReplayBuffer::InvalidateAccessorCacheForStorage()
+{
+    std::lock_guard<std::mutex> lock(accessor_cache_mutex_);
+    ++accessor_storage_version_;
+    ++accessor_priority_version_;
+    tensor_vector_cache_.clear();
+}
+
+void DefaultReplayBuffer::InvalidateAccessorCacheForPriority()
+{
+    std::lock_guard<std::mutex> lock(accessor_cache_mutex_);
+    ++accessor_priority_version_;
+    tensor_vector_cache_.clear();
+}
+
+std::optional<std::vector<torch::Tensor>> DefaultReplayBuffer::TryGetCachedTensorVector(const std::string& key, int64_t index) const
+{
+    std::lock_guard<std::mutex> lock(accessor_cache_mutex_);
+    for (const auto& entry : tensor_vector_cache_) {
+        if (entry.key == key &&
+            entry.index == index &&
+            entry.storage_version == accessor_storage_version_ &&
+            entry.priority_version == accessor_priority_version_) {
+            return entry.value;
+        }
+    }
+    return std::nullopt;
+}
+
+void DefaultReplayBuffer::StoreTensorVectorCache(const std::string& key, int64_t index, std::vector<torch::Tensor> value) const
+{
+    constexpr size_t kMaxCacheEntries = 8;
+
+    std::lock_guard<std::mutex> lock(accessor_cache_mutex_);
+    for (auto& entry : tensor_vector_cache_) {
+        if (entry.key == key && entry.index == index) {
+            entry.storage_version = accessor_storage_version_;
+            entry.priority_version = accessor_priority_version_;
+            entry.value = std::move(value);
+            return;
+        }
+    }
+
+    if (tensor_vector_cache_.size() >= kMaxCacheEntries) {
+        tensor_vector_cache_.erase(tensor_vector_cache_.begin());
+    }
+
+    tensor_vector_cache_.push_back(TensorVectorCacheEntry{
+        key,
+        index,
+        accessor_storage_version_,
+        accessor_priority_version_,
+        std::move(value)
+    });
 }
 
 std::optional<float> DefaultReplayBuffer::GetScalar(const std::string& key, int64_t index) const
 {
-    auto storage_ret = storage_->GetScalar(key, index);
-    if (storage_ret.has_value()) return *storage_ret;
-    if (prio_controller_ != nullptr) return prio_controller_->GetScalar(key, index);
+    if (key == PER_TOTAL) {
+        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+        auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
+        if (!prioritized) return std::nullopt;
+        return prioritized->GetTotalPriority();
+    }
+    if (key == PER_INITIAL_MASS_RATIO) {
+        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+        auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
+        if (!prioritized) return std::nullopt;
+        return prioritized->GetInitialMassRatio();
+    }
+    if (key == PER_LAST_EVICTED_NEVER_SAMPLED_RATIO) {
+        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+        auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
+        if (!prioritized) return std::nullopt;
+        return last_evicted_never_sampled_ratio_;
+    }
     return std::nullopt;
 }
 
 std::optional<torch::Tensor> DefaultReplayBuffer::GetTensor(const std::string& key, int64_t index) const
 {
-    auto storage_ret = storage_->GetTensor(key, index);
-    if (storage_ret.has_value()) return *storage_ret;
-    if (prio_controller_ != nullptr) return prio_controller_->GetTensor(key, index);
-    return std::nullopt;
-}
-
-std::optional<std::vector<torch::Tensor>>
-DefaultReplayBuffer::GetTensorVector(const std::string& key, int64_t index) const
-{
-    auto storage_ret = storage_->GetTensorVector(key, index);
-    if (storage_ret.has_value()) return *storage_ret;
-    if (prio_controller_ != nullptr) return prio_controller_->GetTensorVector(key, storage_->GetSize());   // 無理やり
-    return std::nullopt;
-}
-
-// ======================================================
-
-ReplayBufferFactory::ReplayBufferFactory(const ReplayBufferConfig& config)
-    : config_(config)
-{
-    ;
-}
-
-std::shared_ptr<ReplayBuffer>
-ReplayBufferFactory::Create(const EnvSpec& env_spec, torch::Device device, int batch_size, seed_t seed)
-{
-    ANET_ASSERT_MSG(config_.capacity > 0, "ReplayBuffer capacity must be positive");
-    ANET_ASSERT_MSG(batch_size > 0, "batch_size must be positive");
-
-    // -------------------------------------------------------------
-    // ExperienceQueueControlle / ReplayExperienceBuilder
-    // -------------------------------------------------------------
-    std::unique_ptr<ExperienceQueueController> queue_controller;
-    std::unique_ptr<ReplayExperienceBuilder> replay_exp_builder;
-
-    switch (config_.type) {
-    case ReplayBuilderType::PLAIN:
-        queue_controller = std::make_unique<PlainExperienceQueueController>();
-        replay_exp_builder = std::make_unique<PlainReplayExperienceBuilder>();
-        break;
-    case ReplayBuilderType::NSTEP:
-        ANET_ASSERT_MSG(config_.n_step > 0, "n_step must be positive");
-        queue_controller = std::make_unique<NStepExperienceQueueController>(config_.n_step);
-        replay_exp_builder = std::make_unique<NStepReplayExperienceBuilder>(config_.gamma);
-        break;
-    default:
-        ANET_ASSERT_MSG(false, "Unknown ReplayBuilderType");
-        break;
+    if (key == PER_VALUES) {
+        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+        auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
+        if (!prioritized) return std::nullopt;
+        return prioritized->GetPriorityTensor(index);
     }
 
-    // -------------------------------------------------------------
-    // Sampler / PriorityController
-    // -------------------------------------------------------------
-    std::shared_ptr<ReplayExperienceSampler> sampler;
-    std::shared_ptr<ReplayPriorityController> prio_controller;
+    auto opt_vec = GetTensorVector(key, -1);
+    if (!opt_vec.has_value() || opt_vec->empty()) return std::nullopt;
 
-    switch (config_.sampler_type) {
-    case ReplaySamplerType::UNIFORM:
-        sampler = std::make_shared<UniformReplayExperienceSampler>(seed);
-        prio_controller = nullptr;
-        break;
-    case ReplaySamplerType::PRIOTIZED:
+    auto tensor = (*opt_vec)[0];
+    if (!tensor.defined()) return std::nullopt;
+    if (index >= 0) {
+        tensor = SelectRowIfRequested(tensor, index);
+        if (!tensor.defined()) return std::nullopt;
+    }
+    return tensor;
+}
+
+std::optional<std::vector<torch::Tensor>> DefaultReplayBuffer::GetTensorVector(const std::string& key, int64_t index) const
+{
+    ANET_PROFILE_FUNC();
+
+    auto storage_key = ParseStorageTensorVectorKey(key);
+    const bool is_per_vector_key = key == PER_VALUES || key == PER_DIST;
+    if (!storage_key.has_value() && !is_per_vector_key) return std::nullopt;
+
+    ANET_PROFILE_SCOPE(cache_lookup);
+    if (auto cached = TryGetCachedTensorVector(key, index)) {
+        ANET_PROFILE_SCOPE_NEXT(cache_hit);
+        return cached;
+    }
+
+    ANET_PROFILE_SCOPE_NEXT(cache_miss);
+    std::shared_lock<std::shared_mutex> storage_lock(storage_mutex_);
+
+    ANET_PROFILE_SCOPE_NEXT(valid_indices);
+    torch::Tensor valid_1d;
     {
-        auto per_sampler = std::make_shared<PrioritizedReplayExperienceManager>(config_.capacity, config_.per_alpha, seed);
-        sampler = per_sampler;
-        prio_controller = per_sampler;
-        break;
+        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+        valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
     }
-    default:
-        ANET_ASSERT_MSG(false, "Unknown ReplaySamplerType");
-        break;
+    if (valid_1d.numel() == 0) {
+        std::vector<torch::Tensor> result;
+        StoreTensorVectorCache(key, index, result);
+        return result;
     }
 
-    // -------------------------------------------------------------
-    // Stacker
-    // -------------------------------------------------------------
-    std::shared_ptr<ReplayExperienceStacker> stacker = nullptr;
-    if (config_.use_stacker) {
-        int stack_count = config_.stack_count;
-        ANET_CHECK_MSG(stack_count > 0, "stack_count must be greater than 0");
-        const auto& state_shape = env_spec.state_spec.shape;
-        stacker = std::make_shared<ReplayExperienceStateStacker>(stack_count, state_shape, device);
-	}
+    torch::Tensor tensor;
 
-    // -------------------------------------------------------------
-    // ReplayBuffer 本体生成
-    // -------------------------------------------------------------
-    auto buffer = std::make_shared<DefaultReplayBuffer>(
-        env_spec,
-        config_.capacity,
-        batch_size,
-        std::move(queue_controller),
-        std::move(replay_exp_builder),
-        sampler,
-        prio_controller,
-        stacker,
-        device,
-        config_.per_initial_priority);
+    if (is_per_vector_key) {
+        ANET_PROFILE_SCOPE_NEXT(gather_per);
+        {
+            std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+            auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
+            if (!prioritized) return std::nullopt;
+            tensor = prioritized->GatherPriorityRows(valid_1d);
+            if (key == PER_DIST) {
+                // PER_DIST は正規化サンプリング確率 p/total を返す（SampleIndices の prob=p/total と同義）。
+                const float total = prioritized->GetTotalPriority();
+                if (total > 0.0f) tensor = tensor / total;  // total<=0（極初期）はゼロのまま
+            }
+        }
+    } else {
+        ANET_PROFILE_SCOPE_NEXT(direct_gather);
 
-    return buffer;
+        switch (storage_key->kind) {
+        case StorageTensorVectorKey::Kind::kStateObs:
+            tensor = GatherObservationRows(storage_->GetObs(), valid_1d, storage_key->obs_subkey);
+            break;
+        case StorageTensorVectorKey::Kind::kAction:
+            tensor = GatherFlatRows(storage_->GetActions(), valid_1d);
+            break;
+        case StorageTensorVectorKey::Kind::kTargetReturn:
+            // target return（N-step 割引報酬和、bootstrap 前）を返す。
+            tensor = GatherFlatRows(storage_->GetTargetReturns(), valid_1d);
+            break;
+        case StorageTensorVectorKey::Kind::kNextStateObs:
+            tensor = GatherObservationRows(
+                storage_->GetObs(),
+                MakeNextFlatIndices(valid_1d, storage_->GetActualNSteps(), capacity_per_env_),
+                storage_key->obs_subkey);
+            break;
+        case StorageTensorVectorKey::Kind::kNextStateTerminal:
+            tensor = GatherFlatRows(storage_->GetTerminals(), valid_1d);
+            break;
+        case StorageTensorVectorKey::Kind::kNStep:
+            tensor = GatherFlatRows(storage_->GetActualNSteps(), valid_1d);
+            break;
+        }
+    }
+
+    tensor = SelectRowIfRequested(tensor, index);
+    if (!tensor.defined()) return std::nullopt;
+
+    std::vector<torch::Tensor> result{ tensor };
+    StoreTensorVectorCache(key, index, result);
+    return result;
+}
+
+void DefaultReplayBuffer::DumpToLog() const
+{
+    std::shared_lock<std::shared_mutex> storage_lock(storage_mutex_);
+
+    if (storage_) {
+        storage_->DumpToLog();
+    }
+    torch::Tensor valid_1d;
+    {
+        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+        valid_1d = index_manager_->GetValidIndices1D(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
+    }
+
+    // Valid Index を見やすく出力
+    std::string valid_str = "[ ";
+    if (valid_1d.numel() > 0) {
+        auto acc = valid_1d.accessor<int64_t, 1>();
+        for (int64_t i = 0; i < valid_1d.size(0); ++i) {
+            valid_str += std::to_string(acc[i]) + " ";
+        }
+    }
+    valid_str += "]";
+
+    LOG::info() << "=== Valid Indices (1D) ===";
+    LOG::info() << valid_str;
+    LOG::info() << "Total Valid Count: " << valid_1d.size(0);
+}
+
+
+// ===========================================================================
+// Prefetching ReplayBuffer
+// ===========================================================================
+
+struct PrefetchingReplayBuffer::State {
+    using PrefetchedBatch = anet::transfer::DeviceTransfer<ExperienceSamples>;
+
+    State(ReplayBuffer& inner, torch::Device target_device)
+        : inner(inner)
+        , target_device(std::move(target_device))
+        , pool(std::make_unique<anet::PinnedThreadPool>(1, "ReplayBufferPrefetch"))
+    {
+        if (this->target_device.is_cuda()) {
+            copy_stream = at::cuda::getStreamFromPool(false);
+        }
+    }
+
+    /// inner からサンプルし transfer まで行って PrefetchedBatch を作る（prefetch worker 本体）。
+    PrefetchedBatch Fetch(int64_t minibatch_size, float beta);
+
+    /// CPU サンプルを pin→H2D→event record して DeviceTransfer 化する（CPU device 時は同期 To のみ）。
+    PrefetchedBatch TransferSamples(ExperienceSamples cpu_samples);
+
+    /// future 未起動なら次の 1-deep prefetch を worker に投入する（mutex 保持前提）。
+    void LaunchPrefetchLocked(int64_t minibatch_size, float beta);
+
+    /// in-flight prefetch future の完了を待つ（消費はしない。mutex 保持前提）。
+    void WaitForPrefetchLocked();
+
+    /// armed 後の Push を worker FIFO に write-behind 投入する（mutex 保持前提）。
+    void EnqueueDelayedPushLocked(BatchExperience batch_exp);
+
+    /// 完了済み delayed push を非ブロッキングで回収する（mutex 保持前提）。
+    void PruneCompletedPushesLocked();
+
+    /// 残る delayed push を全て完了待ちする（mutex 保持前提）。
+    void WaitForQueuedPushesLocked();
+
+    /// shutdown: prefetch/push 完了待ち→event_recycler.Drain→pool 停止まで行う（内部で lock）。
+    void StopPrefetch();
+
+    ReplayBuffer& inner;
+    torch::Device target_device;
+    std::mutex mutex;
+    std::unique_ptr<anet::PinnedThreadPool> pool;
+    std::optional<at::cuda::CUDAStream> copy_stream;
+    anet::transfer::EventRecycler<ExperienceSamples> event_recycler;
+    std::future<PrefetchedBatch> future;
+    std::deque<std::future<void>> push_futures;
+};
+
+PrefetchingReplayBuffer::State::PrefetchedBatch PrefetchingReplayBuffer::State::Fetch(int64_t minibatch_size, float beta)
+{
+    ANET_PROFILE_SCOPE(sample);
+    ExperienceSamples cpu_samples;
+    inner.Sample(cpu_samples, minibatch_size, beta);
+
+    return TransferSamples(std::move(cpu_samples));
+}
+
+PrefetchingReplayBuffer::State::PrefetchedBatch PrefetchingReplayBuffer::State::TransferSamples(ExperienceSamples cpu_samples)
+{
+    if (!target_device.is_cuda()) {
+        ANET_PROFILE_SCOPE_FULL(to, "PrefetchingReplayBuffer::Fetch.to");
+
+        // CPU learnerではCUDA用のpin/stream/eventを使わず、抽出済みsampleだけをCPUへそろえる。
+        return PrefetchedBatch(std::move(cpu_samples), target_device);
+    }
+
+    ANET_PROFILE_SCOPE_FULL(to, "PrefetchingReplayBuffer::Fetch.to");
+
+    // CUDA learnerではworker側でCPU tensorをpinned化し、copy streamへH2D転送を積む。
+    // 転送元とeventはSample側でevent_recyclerへ渡し、完了後にまとめて回収・再利用する。
+    return PrefetchedBatch(
+        std::move(cpu_samples),
+        target_device,
+        copy_stream.value(),
+        event_recycler);
+}
+
+void PrefetchingReplayBuffer::State::LaunchPrefetchLocked(int64_t minibatch_size, float beta)
+{
+    if (future.valid()) return;
+
+    future = pool->EnqueueFuture(0, [this, minibatch_size, beta]() {
+        return Fetch(minibatch_size, beta);
+    });
+}
+
+void PrefetchingReplayBuffer::State::WaitForPrefetchLocked()
+{
+    if (future.valid()) {
+        future.wait();
+    }
+}
+
+void PrefetchingReplayBuffer::State::EnqueueDelayedPushLocked(BatchExperience batch_exp)
+{
+    push_futures.push_back(pool->EnqueueFuture(0, [this, batch_exp = std::move(batch_exp)]() mutable {
+        ANET_PROFILE_SCOPE_FULL(push_worker, "PrefetchingReplayBuffer::Push.push_worker");
+        inner.Push(batch_exp);
+    }));
+}
+
+void PrefetchingReplayBuffer::State::PruneCompletedPushesLocked()
+{
+    while (!push_futures.empty()) {
+        auto& front = push_futures.front();
+        if (front.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        front.get();
+        push_futures.pop_front();
+    }
+}
+
+void PrefetchingReplayBuffer::State::WaitForQueuedPushesLocked()
+{
+    while (!push_futures.empty()) {
+        push_futures.front().get();
+        push_futures.pop_front();
+    }
+}
+
+void PrefetchingReplayBuffer::State::StopPrefetch()
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        WaitForPrefetchLocked();
+        WaitForQueuedPushesLocked();
+        event_recycler.Drain();
+    }
+
+    if (pool) {
+        pool->WaitAll();
+        pool->Stop();
+    }
+}
+
+PrefetchingReplayBuffer::PrefetchingReplayBuffer(std::shared_ptr<ReplayBuffer> inner, torch::Device target_device)
+    : inner_(std::move(inner))
+    , target_device_(std::move(target_device))
+{
+    ANET_ASSERT_MSG(inner_ != nullptr, "PrefetchingReplayBuffer requires a non-null inner ReplayBuffer.");
+    state_ = std::make_unique<State>(*inner_, target_device_);
+}
+
+PrefetchingReplayBuffer::~PrefetchingReplayBuffer()
+{
+    if (state_) {
+        state_->StopPrefetch();
+    }
+}
+
+void PrefetchingReplayBuffer::Push(const BatchExperience& batch_exp)
+{
+    ANET_PROFILE_FUNC();
+
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    if (!state_->future.valid()) {
+        inner_->Push(batch_exp);
+        return;
+    }
+
+    ANET_PROFILE_SCOPE(snapshot);
+    // prefetch armed 後は現在のfutureの後、次のFetchの前にPushをFIFO投入する。
+    // runner側でstable化済みのBatchExperienceを浅く保持し、Tensor storageの寿命だけ延ばす。
+    BatchExperience snapshot = batch_exp;
+    {
+        ANET_PROFILE_SCOPE_NEXT(enqueue_push);
+        state_->EnqueueDelayedPushLocked(std::move(snapshot));
+    }
+}
+
+void PrefetchingReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const
+{
+    ANET_PROFILE_FUNC();
+
+    State::PrefetchedBatch batch;
+    {
+        std::unique_lock<std::mutex> lock(state_->mutex);
+        if (state_->future.valid()) {
+            ANET_PROFILE_SCOPE(consume_wait);
+
+            // 前回起動した1-deep prefetchをここで消費し、同じ排他区間で次のprefetchを起動する。
+            // futureの有無をこの順序で更新することで、二重起動せず常に最大1件だけ先読みする。
+            batch = state_->future.get();
+            state_->PruneCompletedPushesLocked();
+            state_->LaunchPrefetchLocked(minibatch_size, beta);
+        } else {
+            ANET_PROFILE_SCOPE(cold_fetch);
+
+            // 初回はfutureが無いため、state mutex内で同期Sampleし、Push/UpdatePrioritiesとの順序を固定する。
+            batch = state_->Fetch(minibatch_size, beta);
+            state_->LaunchPrefetchLocked(minibatch_size, beta);
+        }
+    }
+
+    if (!batch.ready_event) {
+        out_samples = std::move(batch.device_samples);
+        return;
+    }
+
+    {
+        ANET_PROFILE_SCOPE(event_wait);
+
+        // CUDA転送はcopy streamで済ませるため、利用側のcurrent streamからevent待ちしてから返す。
+        auto current_stream = at::cuda::getCurrentCUDAStream();
+        batch.ready_event->block(current_stream);
+        anet::transfer::RecordStreamOn(batch.device_samples, current_stream);
+    }
+    out_samples = std::move(batch.device_samples);
+
+    {
+        ANET_PROFILE_SCOPE(retire_ready_event);
+
+        state_->event_recycler.Retire(std::move(*batch.ready_event), std::move(batch.retained_source));
+    }
+}
+
+int64_t PrefetchingReplayBuffer::Size() const
+{
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    state_->PruneCompletedPushesLocked();
+    return inner_->Size();
+}
+
+void PrefetchingReplayBuffer::UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities)
+{
+    ANET_PROFILE_FUNC();
+
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    if (state_->future.valid()) {
+        ANET_PROFILE_SCOPE(wait_prefetch);
+
+        // background Sample と priority 更新の順序を固定する。
+        state_->WaitForPrefetchLocked();
+        state_->WaitForQueuedPushesLocked();
+    }
+    inner_->UpdatePriorities(indices, priorities);
+}
+
+std::optional<float> PrefetchingReplayBuffer::GetScalar(const std::string& key, int64_t index) const
+{
+    return inner_->GetScalar(key, index);
+}
+
+std::optional<torch::Tensor> PrefetchingReplayBuffer::GetTensor(const std::string& key, int64_t index) const
+{
+    return inner_->GetTensor(key, index);
+}
+
+std::optional<std::vector<torch::Tensor>> PrefetchingReplayBuffer::GetTensorVector(const std::string& key, int64_t index) const
+{
+    return inner_->GetTensorVector(key, index);
+}
+
+
+// ===========================================================================
+// Factory
+// ===========================================================================
+
+std::shared_ptr<ReplayBuffer> anet::rl::CreateReplayBuffer(
+    const ReplayBufferConfig& config, const EnvSpec& env_spec, int64_t num_envs, torch::Device storage_device, bool pin_memory, std::optional<uint64_t> seed)
+{
+    // capacity の割り切れ補正
+    int64_t capacity_per_env = config.capacity / num_envs;
+    if (capacity_per_env * num_envs != config.capacity) {
+        LOG::info() << "ReplayBuffer capacity adjusted to be divisible by num_envs."
+            << " config.capacity=" << config.capacity << " actual_capacity=" << capacity_per_env * num_envs;
+    }
+
+    // 内部コンポーネントの構築
+    auto queue_controller = std::make_unique<NStepQueueController>(config.n_step);
+    auto builder = std::make_unique<DefaultExperienceBuilder>(config.gamma);
+
+    std::shared_ptr<ReplayExperienceSampler> sampler;
+    std::shared_ptr<ReplayPriorityController> prio;
+    if (config.sampler_type == ReplaySamplerType::UNIFORM) {
+        sampler = std::make_shared<UniformSampler>(seed);
+        prio = nullptr;
+    } else {
+        auto per = std::make_shared<PrioritizedSampler>(config.capacity, config.per_alpha, config.per_initial_priority, seed);
+        sampler = per;
+        prio = per;
+    }
+
+    auto extractor = std::make_shared<DefaultSampleExtractor>(config.stack_keys);
+
+    return std::make_shared<DefaultReplayBuffer>(
+        config, env_spec, num_envs, std::move(queue_controller), std::move(builder), sampler, prio, extractor, storage_device, pin_memory);
 }

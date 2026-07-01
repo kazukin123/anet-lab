@@ -8,10 +8,10 @@ app.$ = app.online > P
 
 train.seed = 1
 
-train.batch_size = 256
-#train.batch_size = 128
-#train.batch_size = 10
-#train.batch_size = 1
+train.num_envs = 256
+#train.num_envs = 128
+#train.num_envs = 10
+#train.num_envs = 1
 
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > BF16.agent >  R > X
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > B	 # Random Policy
@@ -29,6 +29,8 @@ net.body.$ = net.body.MLP2
 
 #app.run_name = run_{t}
 
+R.learner.use_rb_prefetch = true
+
 #R.use_qr = false  # true
 #R.train_policy.policy_type = EpsilonGreedy
 #R.eval_policy.policy_type = EpsilonGreedy
@@ -38,9 +40,20 @@ net.body.$ = net.body.MLP2
 # デバッグ用
 # ==============================================================================
 
-R.learner.update_warmup_steps = 0
+#R.stucker.stack_count = 4
+R.stucker.stack_count = 1
 
-app.train_auto_start = false
+R.learner.use_per = true
+
+#R.learner.replay_batch_size = 2
+
+#train.main_runner_type = serial
+
+#R.learner.n_step = 1
+
+#R.learner.update_warmup_steps = 10
+
+#app.train_auto_start = false
 
 app.metrics_logger.video_codec = libx264  # h264_nvenc
 
@@ -110,7 +123,6 @@ B.learner.update_warmup_steps = 999999999
 B.learner.alpha = 0
 
 
-
 # ==============================================================================
 # MLP
 # ==============================================================================
@@ -127,6 +139,10 @@ net.block.FC2.linear.out_features = 512
 net.block.FC1.init.mode = 1
 net.block.FC2.init.mode = 1
 
+net.branch.[main_feature].bind = vector
+net.branch.[main_feature].structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU
+net.body.output.[features] = main_feature
+
 
 # ==============================================================================
 # scalar metrics
@@ -134,17 +150,17 @@ net.block.FC2.init.mode = 1
 
 metrics.scalar.$ = metrics.scalar.baseline > M
 
-#metrics.scalar.baseline.[21_eval/03_target_reward_ema] = $runner eval.[eval1].eps_total_reward @learn $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
-#metrics.scalar.baseline.[21_eval/04_policy_reward_ema] = $runner eval.[eval2].eps_total_reward @learn $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
+#metrics.scalar.baseline.[21_eval/03_target_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval1] $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
+#metrics.scalar.baseline.[21_eval/04_policy_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval2] $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
 
 #metrics.scalar.baseline.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema clip:10.0 # 初期の変動をclip
 #metrics.scalar.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 metrics.scalar.[32_agent_base/04_uqe_tau_target] = $agent target_policy.uqe_tau @learn $exp_step
 
-#metrics.scalar.[22_eval/01_test1_reward]     = $runner eval.[test1].eps_total_reward @learn clip:3000
-#metrics.scalar.[22_eval/02_test2_reward]     = $runner eval.[test2].eps_total_reward @learn clip:3000
-#metrics.scalar.[22_eval/03_test1_reward_ema] = $runner eval.[test1].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
-#metrics.scalar.[22_eval/04_test2_reward_ema] = $runner eval.[test2].eps_total_reward @learn $ema ema_alpha:0.001 clip:1000
+#metrics.scalar.[22_eval/01_test1_reward]     = eps_total_reward $runner @episode_end $eval.[test1] clip:3000
+#metrics.scalar.[22_eval/02_test2_reward]     = eps_total_reward $runner @episode_end $eval.[test2] clip:3000
+#metrics.scalar.[22_eval/03_test1_reward_ema] = eps_total_reward $runner @episode_end $eval.[test1] $ema ema_alpha:0.001 clip:1000
+#metrics.scalar.[22_eval/04_test2_reward_ema] = eps_total_reward $runner @episode_end $eval.[test2] $ema ema_alpha:0.001 clip:1000
 
 
 metrics.scalar.[42_env/51_wall_collisions_max]  = $env max.wall_collisions @train
@@ -166,15 +182,15 @@ metrics.scalar.[42_env/00_ep_step_mean_ema]  = $env mean.episode_len @train $ema
 # image metrics
 # ==============================================================================
 
-#metrics.image.interval = 0   # 出力全無効
+metrics.image.interval = 0   # 出力全無効
 #metrics.image.interval = 1   # 毎ステップ出力
-metrics.image.interval = 10   # 通常運用
+#metrics.image.interval = 10   # 通常運用
 
 image.phm.per-prio.heatmap.width = 10
 image.phm.per-prio.heatmap.height = 10
 
-metrics.image.[43_agent_img/52_per_hm_prio_01].$ = image.phm.per-prio > image.phm.s01
-metrics.image.[45_agent_img/05_shm_01_maxq_01].$ = image.shm.qmax > image.shm.01
+#metrics.image.[43_agent_img/52_per_hm_prio_01].$ = image.phm.per-prio > image.phm.s01
+#metrics.image.[45_agent_img/05_shm_01_maxq_01].$ = image.shm.qmax > image.shm.01
 
 
 

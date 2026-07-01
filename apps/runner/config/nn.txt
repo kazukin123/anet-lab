@@ -2,6 +2,15 @@
 # Neural Network Configuration (Backbone Only)
 # ==============================================================================
 
+#init.mode = 1 # Xavier Uniform
+
+#init.mode = 2 # He Normal (Kaiming)
+#init.nonlinearity = relu  # linear tanh leaky_relu
+
+#init.mode = 3  # Orthogonal
+#init.manual_gain = 1.0
+
+
 
 # ------------------------------------------------------------------------------
 #  Supported Module Types (サポートされている type 一覧)
@@ -33,8 +42,11 @@
 
 # --- Common Utilities ---
 
-net.block.[Add].type = Add
 net.block.[Flatten].type = Flatten
+net.block.[StackMerge].type = StackMerge
+
+net.block.[ReS4].type = Reshape
+net.block.[ReS4].reshape.dims = 4 -1      # (N,32) -> (N,4,8)  ※4=stack_count、残り8次元は-1で追従
 
 
 # --- 活性化関数  ---
@@ -108,15 +120,22 @@ net.block.[ConvProj32].conv.kernel_size = 1
 net.block.[ConvProj32].conv.stride = 1
 net.block.[ConvProj32].conv.padding = 0
 
-
-
 # --- ResBlock定義
 
 net.block.[ResA].type = ResBlock
-net.block.[ResA].channels = 64
-net.block.[ResA].kernel_size = 3
-net.block.[ResA].activation = silu
-
+net.block.[ResA].res.channels = 64
+net.block.[ResA].res.kernel_size = 3
+net.block.[ResA].res.stride = 1
+net.block.[ResA].res.padding = 0
+net.block.[ResA].res.dilation = 1
+net.block.[ResA].res.conv1_bias = true
+net.block.[ResA].res.conv2_bias =  true
+net.block.[ResA].res.activation = silu      # silu relu swish
+net.block.[ResA].res.activation_mode = post # pre
+net.block.[ResA].res.norm_type = group      # none(default), batch, group
+net.block.[ResA].res.group_norm_groups = 4  # for norm_type=group
+net.block.[ResA].res.droppath_rate = 0.0    # default=0.0 残差枝だけをサンプル単位で落とすDropPath率 (0で無効)
+net.block.[ResA].res.dropout_rate = 0.0     # default=0.0 conv1->conv2間の channel dropout 確率 (0で無効)
 
 
 # --- Transformer / ViT Components ---
@@ -132,11 +151,16 @@ net.block.[TransEnc].tf.nhead = 4              # マルチヘッドアテンシ�
 net.block.[TransEnc].tf.num_layers = 2         # Transformer層の繰り返し数
 net.block.[TransEnc].tf.dim_feedforward = 128  # FFNの中間次元数 (通常d_modelの2～4倍)
 net.block.[TransEnc].tf.norm_first = true      # Pre-LNの有効化 (強化学習ではtrue推奨) DEFAULT:true
+net.block.[TransEnc].tf.use_sdpa = true        # SDPA/FlashAttention経路を使用。falseで従来MHA経路
 net.block.[TransEnc].tf.activation = gelu      # 内部の活性化関数 (gelu 推奨) DEFAULT:gelu 
+net.block.[TransEnc].tf.hidden_dropout_rate = 0.1  # default=0.0 attention/FFNのhidden/residual用の要素dropout率
+net.block.[TransEnc].tf.attn_dropout_rate = 0.0    # default=0.0 attention重みのdropout率 (0で無効)
+net.block.[TransEnc].tf.droppath_rate = 0.1        # default=0.0 residual branchだけをサンプル単位で落とすDropPath率
 
 
 ##  Pooling / Token (出力変換・次元削減)
 net.block.[GAP1D].type = GAP1D                 # シーケンス次元の平均化 (並行移動に強い・パラメータ小)
+net.block.[GAP2D].type = GAP2D                 # シーケンス次元の平均化 (並行移動に強い・パラメータ小)
 net.block.[ClsAppend].type = ClsAppend         # [CLS]トークンを先頭に追加 (ViTの王道)
 net.block.[ClsExtract].type = ClsExtract       # 先頭の[CLS]トークンを抽出 (Transformer通過後に使用)
 

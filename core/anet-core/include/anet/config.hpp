@@ -1,5 +1,7 @@
 ﻿#pragma once
 
+#include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 #include <sstream>
@@ -64,124 +66,16 @@ namespace anet {
             return v;
         }
     public:
-        bool Read(const std::string& key, std::string& value, const std::string& defaultValue) const
-        {
-            auto it = map_.find(key);
-            if (it == map_.end()) { value = defaultValue; return false; }
-            value = (*it).second;
-            return true;
-        }
-
-        bool Read(const std::string& key, int& value, int defaultValue) const
-        {
-            auto it = map_.find(key);
-            if (it == map_.end()) { value = defaultValue; return false; }
-            auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
-            try { value = std::stoi(str.c_str()); }
-            catch (...) { value = defaultValue; return false; }
-            return true;
-        }
-
-        bool Read(const std::string& key, float& value, float defaultValue) const
-        {
-            auto it = map_.find(key);
-            if (it == map_.end()) { value = defaultValue; return false; }
-            auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
-            try { value = std::stof(str.c_str()); }
-            catch (...) { value = defaultValue; return false; }
-            return true;
-        }
-
-        bool Read(const std::string& key, double& value, double defaultValue) const
-        {
-            auto it = map_.find(key);
-            if (it == map_.end()) { value = defaultValue; return false; }
-            auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
-            try { value = std::stod(str.c_str()); }
-            catch (...) { value = defaultValue; return false; }
-            return true;
-        }
-
-        bool Read(const std::string& key, uint64_t& value, uint64_t defaultValue) const
-        {
-            auto it = map_.find(key);
-            if (it == map_.end()) { value = defaultValue; return false; }
-            auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
-            try { value = std::stoull(str); }
-            catch (...) { value = defaultValue; return false; }
-            return true;
-        }
-
-        bool Read(const std::string& key, int64_t& value, int64_t defaultValue) const
-        {
-            auto it = map_.find(key);
-            if (it == map_.end()) { value = defaultValue; return false; }
-            auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
-            try { value = std::stoll(str); } catch (...) { value = defaultValue; return false; }
-            return true;
-        }
-
-        bool Read(const std::string& key, bool& value, bool defaultValue) const
-        {
-            auto it = map_.find(key);
-            if (it == map_.end()) { value = defaultValue; return false; }
-            const auto& v = (*it).second;
-            if (v == "true" || v == "TRUE" || v == "1" || v == "yes" || v == "on") { value = true; return true; }
-            if (v == "false" || v == "FALSE" || v == "0" || v == "no" || v == "off") { value = false; return true; }
-            value = defaultValue;
-            return false;
-        }
-
-        bool Read(const std::string& key, std::vector<float>& value, std::vector<float> defaultValue) const
-        {
-            auto it = map_.find(key);
-            if (it == map_.end()) { value = defaultValue; return false; }
-            try {
-                auto str_vec = anet::Split((*it).second, { " ", "　" }, true);
-                value.resize(str_vec.size());
-                for (int i = 0; i < value.size(); i++) {
-                    value[i] = std::stof(str_vec[i]);
-                }
-            } catch (...) {
-                value = defaultValue;
-                return false;
-            }
-            return true;
-        }
-
-        bool Read(const std::string& key, std::vector<int64_t>& value, std::vector<int64_t> defaultValue) const
-        {
-            auto it = map_.find(key);
-            if (it == map_.end()) { value = defaultValue; return false; }
-            try {
-                auto str_vec = anet::Split((*it).second, { " ", "　" }, true);
-                value.resize(str_vec.size());
-                for (int i = 0; i < value.size(); i++) {
-                    value[i] = std::stoull(str_vec[i]);
-                }
-            } catch (...) {
-                value = defaultValue;
-                return false;
-            }
-            return true;
-        }
-
-        bool Read(const std::string& key, std::vector<std::string>& value, std::vector<std::string> defaultValue) const
-        {
-            auto it = map_.find(key);
-            if (it == map_.end()) { value = defaultValue; return false; }
-            try {
-                auto str_vec = anet::Split((*it).second, { " ", "　" }, true);
-                value.resize(str_vec.size());
-                for (int i = 0; i < value.size(); i++) {
-                    value[i] = str_vec[i];
-                }
-            } catch (...) {
-                value = defaultValue;
-                return false;
-            }
-            return true;
-        }
+        bool Read(const std::string& key, std::string& value, const std::string& defaultValue) const;
+        bool Read(const std::string& key, int& value, int defaultValue) const;
+        bool Read(const std::string& key, float& value, float defaultValue) const;
+        bool Read(const std::string& key, double& value, double defaultValue) const;
+        bool Read(const std::string& key, uint64_t& value, uint64_t defaultValue) const;
+        bool Read(const std::string& key, int64_t& value, int64_t defaultValue) const;
+        bool Read(const std::string& key, bool& value, bool defaultValue) const;
+        bool Read(const std::string& key, std::vector<float>& value, std::vector<float> defaultValue) const;
+        bool Read(const std::string& key, std::vector<int64_t>& value, std::vector<int64_t> defaultValue) const;
+        bool Read(const std::string& key, std::vector<std::string>& value, std::vector<std::string> defaultValue) const;
 
         anet::json ToJson() const
         {
@@ -213,10 +107,16 @@ namespace anet {
 
 	const ConfigData EmptyConfigData;
 
+    struct ConfigManagerOptions {
+        std::optional<std::vector<std::filesystem::path>> config_search_dirs;
+    };
+
     /// Properties類似形式の設定ファイル操作クラス
     class Properties {
     public:
-        explicit Properties(const std::string& filename) {
+        explicit Properties(const std::string& filename, ConfigManagerOptions options = {})
+            : options_(options)
+        {
             Load(filename);
         }
         ConfigData ToConfigData() const {
@@ -224,9 +124,10 @@ namespace anet {
         }
     private:
         ConfigData configData;
+        ConfigManagerOptions options_;
 
         static std::string Trim(const std::string& s);
-        void Load(const std::string& filename, int depth = 0);
+        void Load(const std::filesystem::path& filename, int depth = 0);
     };
 
     /// モジュール別Configクラス実装用の基底クラス
@@ -271,7 +172,10 @@ namespace anet {
     /// 設定マネージャー。コマンドラインオプションとPropertiesファイルを元にConfigDataを生成。
     class ConfigManager {
     public:
-        ConfigManager(const std::string& filePath, const wxCmdLineParser* cmdLine = nullptr);
+        ConfigManager(
+            const std::string& filePath,
+            const wxCmdLineParser* cmdLine = nullptr,
+            ConfigManagerOptions options = {});
 
         ConfigData GetConfigData() const { return { map_ }; }
     private:
@@ -279,6 +183,7 @@ namespace anet {
         void ApplyCmdLineOverrides(const wxCmdLineParser& cmdLine);
         void AutoMerge();
     private:
+        ConfigManagerOptions options_;
         ConfigData::MapType map_;
     };
 

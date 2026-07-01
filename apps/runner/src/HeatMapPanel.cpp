@@ -1,6 +1,7 @@
 ﻿// HeatMapPanel.cpp
 
 #include "HeatMapPanel.hpp"
+#include <algorithm>
 #include <wx/numformatter.h>
 #include "anet/heat_map.hpp"
 
@@ -9,25 +10,91 @@
 #define GL_CLAMP_TO_EDGE 0x812F
 #endif
 
+namespace {
+
+wxString DefaultOutputKeyForFunction(const wxString& function_key)
+{
+    if (function_key == "forward.dist") return "q_dist";
+    if (function_key == "forward.v") return "v_dist";
+    if (function_key == "forward.a") return "a_dist";
+    return "q";
+}
+
+wxArrayString OutputKeyChoicesForFunction(const wxString& function_key)
+{
+    wxArrayString choices;
+    if (function_key == "forward.dist") {
+        choices.Add("q_dist");
+    } else if (function_key == "forward.v") {
+        choices.Add("v_dist");
+        choices.Add("v");
+    } else if (function_key == "forward.a") {
+        choices.Add("a_dist");
+        choices.Add("a");
+    } else {
+        choices.Add("q");
+    }
+    return choices;
+}
+
+bool ContainsChoice(const wxArrayString& choices, const wxString& value)
+{
+    return choices.Index(value) != wxNOT_FOUND;
+}
+
+bool IsOutputKeyCompatibleWithFunction(const wxString& function_key, const wxString& output_key)
+{
+    return ContainsChoice(OutputKeyChoicesForFunction(function_key), output_key);
+}
+
+int ClampInt(int value, int min_value, int max_value)
+{
+    return std::max(min_value, std::min(value, max_value));
+}
+
+} // namespace
+
 SweepHeatMapDialog::SweepHeatMapDialog(
     wxWindow* parent, const anet::rl::EnvSpec& env_spec,int default_x, int default_y)
     : wxDialog(parent, wxID_ANY, "Sweep HeatMap Settings"
-        , wxDefaultPosition, wxSize(600, 300)
+        , wxDefaultPosition, wxSize(620, 430)
         , wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER) // リサイズ可
 {
-    auto state_dim = env_spec.state_spec.CalcFlattenDim();
+    for (const auto& kv : env_spec.state_spec.obs_spec) {
+        const auto& key = kv.first;
+        const auto& spec = kv.second;
+        if (spec.type != anet::SpaceType::Vector) continue;
+
+        const int64_t flatten_dim = spec.CalcFlattenDim();
+        if (flatten_dim < 1) continue;
+        vector_obs_choices_.push_back({
+            wxString::FromUTF8(key.c_str()),
+            flatten_dim,
+        });
+    }
+    std::sort(vector_obs_choices_.begin(), vector_obs_choices_.end(),
+        [](const VectorObsChoice& lhs, const VectorObsChoice& rhs) {
+            if (lhs.key == anet::rl::ObsKeys::kVector) return true;
+            if (rhs.key == anet::rl::ObsKeys::kVector) return false;
+            return lhs.key < rhs.key;
+        });
+
     auto n_actions = env_spec.action_spec.GetNumActions();
 
-    wxArrayString network_choices {
-        "policy-net.forward.q",
-        "policy-net.forward.dist",
-        "policy-net.forward.v",
-        "policy-net.forward.a",
-
-        "target-net.forward.q",
-        "target-net.forward.dist",
-        "target-net.forward.va",
-        "target-net.forward.a",
+    wxArrayString obs_key_choices;
+    for (const auto& choice : vector_obs_choices_) {
+        obs_key_choices.Add(choice.key);
+    }
+    wxArrayString network_side_choices {
+        "policy-net",
+        "target-net",
+    };
+    wxArrayString function_choices {
+        "forward",
+        "forward.q",
+        "forward.dist",
+        "forward.v",
+        "forward.a",
     };
     wxArrayString extractor_choices{
         "mean",
@@ -50,25 +117,41 @@ SweepHeatMapDialog::SweepHeatMapDialog(
     // 2列目（入力欄）が横幅いっぱいに広がるように設定 (Column index 1)
     grid_sizer->AddGrowableCol(1, 1);
 
+    // --- ObsKey (ComboBox) ---
+    grid_sizer->Add(new wxStaticText(this, wxID_ANY, "Obs key:"), 0, wxALIGN_CENTER_VERTICAL);
+    obs_key_combo_ = new wxComboBox(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, obs_key_choices, wxCB_READONLY);
+    if (!vector_obs_choices_.empty()) {
+        obs_key_combo_->SetSelection(0);
+    }
+    grid_sizer->Add(obs_key_combo_, 1, wxEXPAND);
+
     // --- X (0 ~ max_x) ---
     grid_sizer->Add(new wxStaticText(this, wxID_ANY, "X:"), 0, wxALIGN_CENTER_VERTICAL);
     spin_x_ = new wxSpinCtrl(this, wxID_ANY);
-    spin_x_->SetRange(0, state_dim - 1);
-    spin_x_->SetValue(default_x);
     grid_sizer->Add(spin_x_, 1, wxEXPAND);
 
     // --- Y (0 ~ max_y) ---
     grid_sizer->Add(new wxStaticText(this, wxID_ANY, "Y:"), 0, wxALIGN_CENTER_VERTICAL);
     spin_y_ = new wxSpinCtrl(this, wxID_ANY);
-    spin_y_->SetRange(0, state_dim - 1);
-    spin_y_->SetValue(default_y);
     grid_sizer->Add(spin_y_, 1, wxEXPAND);
 
-    // --- Value (ComboBox) ---
-    grid_sizer->Add(new wxStaticText(this, wxID_ANY, "Value:"), 0, wxALIGN_CENTER_VERTICAL);
-    network_combo_ = new wxComboBox(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, network_choices, wxCB_READONLY);
-    network_combo_->SetSelection(0); // デフォルトで先頭を選択
-    grid_sizer->Add(network_combo_, 1, wxEXPAND);
+    // --- Network side (ComboBox) ---
+    grid_sizer->Add(new wxStaticText(this, wxID_ANY, "Network:"), 0, wxALIGN_CENTER_VERTICAL);
+    network_side_combo_ = new wxComboBox(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, network_side_choices, wxCB_READONLY);
+    network_side_combo_->SetSelection(0);
+    grid_sizer->Add(network_side_combo_, 1, wxEXPAND);
+
+    // --- Function key (ComboBox) ---
+    grid_sizer->Add(new wxStaticText(this, wxID_ANY, "Function:"), 0, wxALIGN_CENTER_VERTICAL);
+    function_combo_ = new wxComboBox(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, function_choices, wxCB_READONLY);
+    function_combo_->SetSelection(0);
+    grid_sizer->Add(function_combo_, 1, wxEXPAND);
+
+    // --- Output key (ComboBox) ---
+    grid_sizer->Add(new wxStaticText(this, wxID_ANY, "Output key:"), 0, wxALIGN_CENTER_VERTICAL);
+    output_key_combo_ = new wxComboBox(this, wxID_ANY, DefaultOutputKeyForFunction(function_combo_->GetValue()),
+        wxDefaultPosition, wxDefaultSize, OutputKeyChoicesForFunction(function_combo_->GetValue()), wxCB_READONLY);
+    grid_sizer->Add(output_key_combo_, 1, wxEXPAND);
 
     // --- ValueIndex (数値入力) ---
     grid_sizer->Add(new wxStaticText(this, wxID_ANY, "Extractor:"), 0, wxALIGN_CENTER_VERTICAL);
@@ -79,7 +162,7 @@ SweepHeatMapDialog::SweepHeatMapDialog(
     // --- ValueIndex (数値入力) ---
     grid_sizer->Add(new wxStaticText(this, wxID_ANY, "Extractor index:"), 0, wxALIGN_CENTER_VERTICAL);
     extractor_idx_ = new wxSpinCtrl(this, wxID_ANY);
-    extractor_idx_->SetRange(-1, n_actions - 1);
+    extractor_idx_->SetRange(-1, std::max<int64_t>(-1, n_actions - 1));
     extractor_idx_->SetValue(-1);
     grid_sizer->Add(extractor_idx_, 1, wxEXPAND);
 
@@ -90,6 +173,9 @@ SweepHeatMapDialog::SweepHeatMapDialog(
 
     // グリッドサイザーをメインサイザーに追加 (余白を持たせる)
     main_sizer->Add(grid_sizer, 1, wxEXPAND | wxALL, 15);
+
+    validation_text_ = new wxStaticText(this, wxID_ANY, "");
+    main_sizer->Add(validation_text_, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 15);
 
     // --- 最下部: OK / Cancel ボタン ---
     wxSizer* button_sizer = CreateButtonSizer(wxOK | wxCANCEL);
@@ -102,6 +188,11 @@ SweepHeatMapDialog::SweepHeatMapDialog(
     // 最小サイズを現在のサイズに設定（これ以上小さく潰れないようにする）
     SetMinSize(GetSize());
 
+    UpdateAxisRange();
+    spin_x_->SetValue(ClampInt(default_x, 0, std::max(0, static_cast<int>(GetSelectedObsDim()) - 1)));
+    spin_y_->SetValue(ClampInt(default_y, 0, std::max(0, static_cast<int>(GetSelectedObsDim()) - 1)));
+    UpdateControlsEnabled();
+
     // デフォルトtag生成
     UpdateTag();
 
@@ -110,13 +201,27 @@ SweepHeatMapDialog::SweepHeatMapDialog(
         this->UpdateTag();
          event.Skip();
         };
+    auto update_obs_func = [this](wxEvent& event) {
+        this->UpdateAxisRange();
+        this->UpdateTag();
+        event.Skip();
+        };
+    auto update_function_func = [this](wxEvent& event) {
+        this->UpdateOutputKeyFromFunction();
+        this->UpdateTag();
+        event.Skip();
+        };
     
     // 入力値変更で随時タグ再生成、Bind
+    obs_key_combo_->Bind(wxEVT_COMBOBOX, update_obs_func);
     spin_x_->Bind(wxEVT_SPINCTRL, update_tag_func); // SpinCtrlは「矢印クリック(SPINCTRL)」と「手入力(TEXT)」の両方に反応させる
     spin_x_->Bind(wxEVT_TEXT, update_tag_func);
     spin_y_->Bind(wxEVT_SPINCTRL, update_tag_func);
     spin_y_->Bind(wxEVT_TEXT, update_tag_func);
-    network_combo_->Bind(wxEVT_COMBOBOX, update_tag_func);
+    network_side_combo_->Bind(wxEVT_COMBOBOX, update_tag_func);
+    function_combo_->Bind(wxEVT_COMBOBOX, update_function_func);
+    output_key_combo_->Bind(wxEVT_COMBOBOX, update_tag_func);
+    output_key_combo_->Bind(wxEVT_TEXT, update_tag_func);
     extractor_combo_->Bind(wxEVT_COMBOBOX, update_tag_func);
     extractor_idx_->Bind(wxEVT_SPINCTRL, update_tag_func);
     extractor_idx_->Bind(wxEVT_TEXT, update_tag_func);
@@ -125,12 +230,78 @@ SweepHeatMapDialog::SweepHeatMapDialog(
     Centre();
 }
 
+int64_t SweepHeatMapDialog::GetSelectedObsDim() const
+{
+    if (!obs_key_combo_) return 0;
+    const int selection = obs_key_combo_->GetSelection();
+    if (selection == wxNOT_FOUND) return 0;
+    if (selection < 0 || static_cast<size_t>(selection) >= vector_obs_choices_.size()) return 0;
+    return vector_obs_choices_[static_cast<size_t>(selection)].flatten_dim;
+}
+
+wxString SweepHeatMapDialog::BuildNetworkKey() const
+{
+    return wxString::Format("%s.%s", network_side_combo_->GetValue(), function_combo_->GetValue());
+}
+
+void SweepHeatMapDialog::UpdateAxisRange()
+{
+    const int64_t dim = GetSelectedObsDim();
+    const int max_index = std::max(0, static_cast<int>(dim) - 1);
+
+    spin_x_->SetRange(0, max_index);
+    spin_y_->SetRange(0, max_index);
+    spin_x_->SetValue(ClampInt(spin_x_->GetValue(), 0, max_index));
+    spin_y_->SetValue(ClampInt(spin_y_->GetValue(), 0, max_index));
+}
+
+void SweepHeatMapDialog::UpdateOutputKeyFromFunction()
+{
+    const wxString current_output_key = output_key_combo_->GetValue();
+    const wxArrayString choices = OutputKeyChoicesForFunction(function_combo_->GetValue());
+
+    output_key_combo_->Clear();
+    for (const auto& choice : choices) {
+        output_key_combo_->Append(choice);
+    }
+
+    const wxString output_key = ContainsChoice(choices, current_output_key)
+        ? current_output_key
+        : DefaultOutputKeyForFunction(function_combo_->GetValue());
+    output_key_combo_->SetStringSelection(output_key);
+}
+
+void SweepHeatMapDialog::UpdateControlsEnabled()
+{
+    const bool has_vector_obs = !vector_obs_choices_.empty();
+    obs_key_combo_->Enable(has_vector_obs);
+    spin_x_->Enable(has_vector_obs);
+    spin_y_->Enable(has_vector_obs);
+    network_side_combo_->Enable(has_vector_obs);
+    function_combo_->Enable(has_vector_obs);
+    output_key_combo_->Enable(has_vector_obs);
+    extractor_combo_->Enable(has_vector_obs);
+    extractor_idx_->Enable(has_vector_obs);
+    tag_text_->Enable(has_vector_obs);
+
+    wxWindow* ok_button = FindWindow(wxID_OK);
+    if (ok_button) {
+        ok_button->Enable(has_vector_obs);
+    }
+
+    validation_text_->SetLabel(has_vector_obs
+        ? ""
+        : "No vector-type observation key is available for state sweep.");
+}
+
 void SweepHeatMapDialog::UpdateTag()
 {
     // 各コントロールから現在の値を取得
+    wxString obs_key = obs_key_combo_->GetValue();
     int x = spin_x_->GetValue();
     int y = spin_y_->GetValue();
-    wxString network_name = network_combo_->GetValue();
+    wxString network_name = BuildNetworkKey();
+    wxString output_key = output_key_combo_->GetValue();
     wxString extractor_name = extractor_combo_->GetValue();
     int extractor_idx = extractor_idx_->GetValue();
 
@@ -139,8 +310,8 @@ void SweepHeatMapDialog::UpdateTag()
     if (extractor_idx != -1) {
         tagIndexStr = wxString::Format("_%d", extractor_idx);
     }
-    wxString newTag = wxString::Format("%s_%s_%d-%d%s",
-        network_name, extractor_name, x, y, tagIndexStr);
+    wxString newTag = wxString::Format("%s_%s_%s_%s_%d-%d%s",
+        obs_key, network_name, output_key, extractor_name, x, y, tagIndexStr);
 
     // テキストボックスを更新
     tag_text_->SetValue(newTag);
@@ -151,7 +322,11 @@ SweepHeatMapSettings SweepHeatMapDialog::GetSettings() const
     SweepHeatMapSettings settings;
     settings.x = spin_x_->GetValue();
     settings.y = spin_y_->GetValue();
-    settings.network_key = network_combo_->GetValue();
+    settings.obs_key = obs_key_combo_->GetValue();
+    settings.network_side = network_side_combo_->GetValue();
+    settings.function_key = function_combo_->GetValue();
+    settings.network_key = BuildNetworkKey();
+    settings.output_key = output_key_combo_->GetValue();
     settings.extractor_name = extractor_combo_->GetValue();
     settings.extractor_index = extractor_idx_->GetValue();
     settings.tag = tag_text_->GetValue();
@@ -249,6 +424,7 @@ void SweepHeatMapPanel::CreateObserver(const SweepHeatMapSettings& settings,
         128,    // grid_height
         -1,     // image_width
         -1,     // image_height
+        settings.output_key.ToStdString(),  // output_key
     };
 
     anet::rl::ValueExtractFunction extractor;
@@ -293,11 +469,18 @@ void SweepHeatMapPanel::CreateObserver(const SweepHeatMapSettings& settings,
         env_spec.state_spec,
         settings.x,  // x_index = x
         settings.y,  // y_index = y
-        extractor
+        extractor,
+        settings.obs_key.ToStdString(),
+        agent->GetDevice()
     );
 
-    std::optional<anet::TensorFunction> policy_forward = agent->GetTensorFunction(settings.network_key.ToStdString());
-    ANET_ASSERT(policy_forward.has_value());
+    ANET_CHECK_MSG(IsOutputKeyCompatibleWithFunction(settings.function_key, settings.output_key),
+        "SweepHeatMapPanel incompatible function/output_key. function_key=" << settings.function_key.ToStdString()
+        << " output_key=" << settings.output_key.ToStdString());
+
+    std::optional<anet::TensorDictFunction> policy_forward = agent->GetTensorDictFunction(settings.network_key.ToStdString());
+    ANET_CHECK_MSG(policy_forward.has_value(),
+        "SweepHeatMapPanel requires TensorDictFunction. key=" << settings.network_key.ToStdString());
     this->observer_ = notifier->Attach<anet::rl::SweepedHeatMapObserver>(
         settings.tag.ToStdString() , q_sweep_obs_config, processor, *policy_forward, processor);
 }

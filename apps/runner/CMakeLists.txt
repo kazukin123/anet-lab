@@ -13,7 +13,7 @@ project(AnetRLRunner)
 # ファイル収集
 # ---------------------------------------------------------------------
 
-file(GLOB_RECURSE ANET_PRIVATE_SOURCES "src/*.cpp" "src/*.hpp")
+file(GLOB_RECURSE ANET_PRIVATE_SOURCES CONFIGURE_DEPENDS "src/*.cpp" "src/*.hpp")
 file(GLOB ANET_CONFIGS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/config/*.txt")
 
 if(WIN32)
@@ -52,6 +52,7 @@ target_link_libraries(AnetRLRunner PRIVATE
     CartPoleEnv
     DropMergeEnv
     GridMazeEnv
+    ImageClsEnv
 )
 
 if (WIN32)

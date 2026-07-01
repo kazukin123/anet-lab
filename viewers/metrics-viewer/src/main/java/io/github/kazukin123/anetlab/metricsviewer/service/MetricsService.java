@@ -27,6 +27,8 @@ import io.github.kazukin123.anetlab.metricsviewer.view.model.TagTrace;
 @Service
 public class MetricsService {
 
+	private static final long SHUTDOWN_WAIT_TIMEOUT_MS = 30000;
+
 	private static final Logger log = LoggerFactory.getLogger(MetricsService.class);
 
 	private final RunScanner runScanner;
@@ -50,7 +52,7 @@ public class MetricsService {
 	@PreDestroy
 	private void shutdown() {
 		log.info("Stopping LoadingThread.");
-		loadingThread.terminate();
+		loadingThread.terminateAndWait(SHUTDOWN_WAIT_TIMEOUT_MS);
 	}
 
 	/**

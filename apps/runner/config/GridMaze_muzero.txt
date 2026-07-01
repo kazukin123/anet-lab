@@ -1,4 +1,4 @@
-﻿
+
 # ==============================================================================
 # 基本設定
 # ==============================================================================
@@ -8,11 +8,11 @@ app.$ = app.online > P
 
 train.seed = 1
 
-#train.batch_size = 256
-#train.batch_size = 128
-#train.batch_size = 10
-train.batch_size = 4
-#train.batch_size = 1
+#train.num_envs = 256
+#train.num_envs = 128
+#train.num_envs = 10
+train.num_envs = 4
+#train.num_envs = 1
 
 #GridMazeEnv.$ = GridMazeEnv.baseline
 
@@ -78,6 +78,63 @@ agent.class_id = MuZeroAgent
 # NN
 # ==============================================================================
 
+# ---- Representation Network
+# 入力: vector [B, 2] (x, y)
+# 出力: hidden_state [B, H]
+
+net.rep.branch.[main_branch].bind = vector
+net.rep.branch.[main_branch].structure = MuZero_Linear256 > ReLU > MuZero_Linear256 > ReLU
+
+net.rep.body.output.[features] = main_branch
+
+
+# ---- Dynamics Network
+# 入力: hidden_state [B, H], action_one_hot [B, 4] (Up, Down, Left, Right)
+# 出力: hidden_state [B, H]
+# 出力: reward_feature [B, 128] (reward hidden)
+
+net.dyn.branch.[main_feature].bind = hidden_state, action_one_hot
+net.dyn.branch.[main_feature].structure = MuZero_Linear256 > ReLU > MuZero_Linear256 > ReLU
+
+net.dyn.branch.[reward_branch].bind = main_feature
+net.dyn.branch.[reward_branch].structure = MuZero_Linear128 > ReLU
+
+net.dyn.body.output.[hidden_state] = main_feature
+net.dyn.body.output.[reward_feature] = reward_branch
+
+
+## MEMO: 複合入力の場合はブランチを分ける
+#net.dyn.branch.[hidden_state_feature].bind = hidden_state
+#net.dyn.branch.[hidden_state_feature].structure = 
+#net.dyn.branch.[action_feature].bind = action_one_hot
+#net.dyn.branch.[action_feature].structure = Embed4064_v2
+
+
+# ---- Prediction Network
+# 入力: hidden_state [B, 64]
+# 出力: value_feature [B, 128] (value hidden)
+# 出力: policy_feature [B, 128] (policy hidden)
+
+net.pred.branch.[main_feature].bind = hidden_state
+net.pred.branch.[main_feature].structure = MuZero_Linear256 > ReLU
+
+net.pred.branch.[value_branch].bind = main_feature
+net.pred.branch.[value_branch].structure = MuZero_Linear128 > ReLU
+
+net.pred.branch.[policy_branch].bind = main_feature
+net.pred.branch.[policy_branch].structure = MuZero_Linear128 > ReLU
+
+net.pred.body.output.[value_feature] = value_branch
+net.pred.body.output.[policy_feature] = policy_branch
+
+
+#MuZeroAgent.baseline.model.structure.rep = Flatten > MuZero_Linear256 > ReLU > MuZero_Linear256 > ReLU
+#MuZeroAgent.baseline.model.structure.dyn = MuZero_Linear256 > ReLU > MuZero_Linear256 > ReLU
+#MuZeroAgent.baseline.model.structure.pred = MuZero_Linear256 > ReLU
+#MuZeroAgent.baseline.model.structure.reward_branch = MuZero_Linear128 > ReLU
+#MuZeroAgent.baseline.model.structure.value_branch  = MuZero_Linear128 > ReLU
+#MuZeroAgent.baseline.model.structure.policy_branch = MuZero_Linear128 > ReLU
+
 
 # ==============================================================================
 # graph metrics
@@ -94,8 +151,8 @@ metrics.graph.[01_mcts] = $action mcts_tree episode_interval:50
 
 metrics.scalar.muzero.[20_eps/10_train_reward]     = $runner $episode_step train_episode_reward @train
 metrics.scalar.muzero.[20_eps/11_train_reward_ema] = $runner $episode_step train_episode_reward @train $ema ema_alpha:0.05 # clip:1000
-metrics.scalar.muzero.[21_eval/02_policy_reward] = $runner eval.[eval2].eps_total_reward @learn
-metrics.scalar.muzero.[21_eval/04_policy_reward_ema] = $runner eval.[eval2].eps_total_reward @learn $ema ema_alpha:0.05 #clip:3000
+metrics.scalar.muzero.[21_eval/02_policy_reward] = eps_total_reward $runner @episode_end $eval.[eval2]
+metrics.scalar.muzero.[21_eval/04_policy_reward_ema] = eps_total_reward $runner @episode_end $eval.[eval2] $ema ema_alpha:0.05 #clip:3000
 
 metrics.scalar.muzero.[32_agent_base/06_tau] = $agent tau @train $exp_step
 

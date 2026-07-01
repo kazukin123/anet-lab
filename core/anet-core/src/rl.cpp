@@ -6,6 +6,7 @@
 #include <wx/log.h>
 #include "anet/common.hpp"
 #include "anet/profile.hpp"
+#include "anet/str_util.hpp"
 #include "anet/util.hpp"
 #include "anet/tensor_util.hpp"
 #include "anet/tensor_check.hpp"
@@ -14,171 +15,154 @@
 using namespace anet::rl;
 namespace LOG = anet::log;
 
-anet::json StateDimInfo::ToJson() const {
-    anet::json j;
-    j["coords"] = coords;
-    j["min_value"] = min_value;
-    j["max_value"] = max_value;
-    j["name"] = name;
-    j["description"] = description;
-    return j;
-}
+namespace anet::rl {
 
-std::string StateDimInfo::ToString() const {
-    return ToJson().dump(2); // 2-space indent for pretty print
-}
-
-int64_t StateSpec::CalcFlattenDim() const
+anet::TraceSink MakeActionTraceSink(anet::TensorDict& trace)
 {
-    ANET_ASSERT_MSG(!shape.empty(),
-        "StateSpec::CalcFlattenDim: shape must not be empty.");
+    return [&trace](std::string_view key, const torch::Tensor& activation) {
+        trace.Set(std::string(key), activation.slice(0, 0, 1).detach().to(torch::kFloat32).clone());
+    };
+}
 
-    int64_t dim = 1;
-    for (auto v : shape) {
-        ANET_ASSERT_MSG(v > 0,
-            "StateSpec::CalcFlattenDim: shape elements must be > 0.");
-        dim *= v;
+void AppendTraceAux(AuxData& aux, const anet::TensorDict& trace)
+{
+    for (const auto& [key, tensor] : trace) {
+        aux[std::string(kNnTracePrefix) + key] = tensor;
     }
-    return dim;
 }
 
-const StateDimInfo* StateSpec::FindDim(const std::vector<int64_t>& coords) const {
-    for (auto& d : dims)
-        if (d.coords == coords)
-            return &d;
-    return nullptr;
-}
-
-const StateDimInfo* StateSpec::FindDim(int64_t flatten_index) const
+anet::TensorDict ExtractNnTrace(const AuxData& aux)
 {
-    // shape が空なら対応不可
-    if (shape.empty()) return nullptr;
-
-    // flatten size 超えは無効
-    const int64_t flat_dim = CalcFlattenDim();
-    if (flatten_index < 0 || flatten_index >= flat_dim)
-        return nullptr;
-
-    // flatten_index → coords（多次元インデクス）へ逆変換
-    std::vector<int64_t> coords(shape.size(), 0);
-
-    int64_t idx = flatten_index;
-    for (int i = (int)shape.size() - 1; i >= 0; i--) {
-        int64_t dim = shape[i];
-        coords[i] = idx % dim;
-        idx /= dim;
-    }
-
-    // coords に一致する StateDimInfo を検索
-    return FindDim(coords);
-}
-
-bool StateSpec::MatchesShape(const torch::Tensor& obs) const
-{
-    //wxLogDebug("dim=%d size=%d", static_cast<int>(obs.dim()), static_cast<int>(shape.size()));
-    ANET_ASSERT_MSG(
-        obs.dim() == static_cast<int64_t>(shape.size() + 1),
-        "StateSpec::MatchesShape: dimension mismatch.");
-
-    for (size_t i = 0; i < shape.size(); i++) {
-        int64_t e = shape[i];           // Specにはバッチ次元を含まない
-        int64_t a = obs.size(i + 1);    // obsにはバッチ次元が含まれるので1次元ずらす
-        if (e == ANET_SHAPE_ANY) continue;
-        ANET_ASSERT_MSG(e == a, "StateSpec::MatchesShape: shape mismatch.");
-    }
-    return true;
-}
-
-bool StateSpec::MatchesRange(const torch::Tensor& obs) const
-{
-    ANET_ASSERT_DTYPE(obs, torch::kFloat32);
-
-    if (dims.empty()) return true;
-
-    const int64_t N = obs.size(0);  // 0次元目 = 環境数
-
-    for (const auto& d : dims) {
-        float mn = d.min_value;
-        float mx = d.max_value;
-
-        for (int64_t n = 0; n < N; n++) {
-            torch::Tensor env = obs[n];  // [D1, D2, ...]
-
-            if (d.coords.empty()) {
-                auto flat = env.flatten();
-                const int64_t M = flat.size(0);
-                for (int64_t i = 0; i < M; i++) {
-                    float v = flat[i].item<float>();
-                    ANET_ASSERT_MSG(
-                        v >= mn && v <= mx,
-                        "StateSpec::MatchesRange: value out of range.");
-                }
-                continue;
-            }
-
-            // coords を env に適用
-            torch::Tensor cur = env;
-
-            for (size_t k = 0; k < d.coords.size(); k++) {
-                int64_t idx = d.coords[k];
-
-                ANET_ASSERT_MSG(
-                    idx >= 0 && idx < cur.size(0),
-                    "StateSpec::MatchesRange: coords index OOB.");
-
-                cur = cur.select(0, idx);
-            }
-
-            ANET_ASSERT_MSG(
-                cur.dim() == 0,
-                "StateSpec::MatchesRange: coords did not resolve to scalar.");
-
-            float v = cur.item<float>();
-            ANET_ASSERT_MSG(
-                v >= mn && v <= mx,
-                "StateSpec::MatchesRange: coord value out of range.");
+    anet::TensorDict dict;
+    for (const auto& [key, tensor] : aux) {
+        if (key.starts_with(kNnTracePrefix)) {
+            dict.Set(key.substr(kNnTracePrefix.size()), tensor);
         }
     }
-    return true;
+    return dict;
+}
+
+} // namespace anet::rl
+
+static std::optional<torch::Tensor> GetObservationTensor(
+    const anet::TensorDict& obs, const std::string& key, const char* base_key)
+{
+    if (key == base_key) {
+        return anet::rl::ToUnifiedObservation(obs);
+    }
+
+    const std::string prefix = std::string(base_key) + ".";
+    if (!anet::StartsWith(key, prefix)) {
+        return std::nullopt;
+    }
+
+    const std::string sub_key = anet::RemovePrefix(key, prefix);
+    if (sub_key.empty()) {
+        ANET_SYSTEM_ERROR("BatchExperience::GetTensor: empty observation subkey. key=" << key);
+    }
+
+    auto tensor = obs.Get(sub_key);
+    if (!tensor.has_value()) {
+        ANET_SYSTEM_ERROR(
+            "BatchExperience::GetTensor: unknown observation subkey. key=" << key
+            << " subkey=" << sub_key);
+    }
+    return *tensor;
 }
 
 
-bool StateSpec::MatchesRangeFlat(const torch::Tensor& flat_obs) const
+// =============================================================
+// StateSpec
+// =============================================================
+
+void StateSpec::AssertSanity() const
 {
-    ANET_ASSERT_DTYPE(flat_obs, torch::kFloat32);
-    ANET_ASSERT_MSG(
-        flat_obs.dim() == 1,
-        "StateSpec::MatchesRangeFlat: expected 1D tensor.");
+    for (const auto& kv : obs_spec) {
+        const auto& key = kv.first;
+        const auto& spec = kv.second;
 
-    auto data = flat_obs;
-    const int64_t total = data.size(0);
-
-    if (dims.empty()) return true;
-
-    for (const auto& d : dims) {
-        float mn = d.min_value;
-        float mx = d.max_value;
-
-        // coords 指定なし → 全要素検査
-        if (d.coords.empty()) {
-            for (int64_t i = 0; i < total; i++) {
-                float v = data[i].item<float>();
-                ANET_ASSERT_MSG(
-                    v >= mn && v <= mx,
-                    "StateSpec::MatchesRangeFlat: value out of range.");
-            }
-            continue;
+        if (spec.IsDiscrete()) {
+            // 離散空間: float系は不可
+            ANET_CHECK_MSG(!torch::isFloatingType(spec.dtype),
+                "TensorSpec Sanity Error: [" << key << "] is discrete (num_classes > 0) but dtype is float.");
+        } else {
+            // 連続空間: float系が必須
+            //ANET_CHECK_MSG(torch::isFloatingType(spec.dtype),
+            //    "TensorSpec Sanity Error: [" << key << "] is continuous (num_classes == 0) but dtype is not float.");
         }
 
-        // coords 指定あり → 1D として扱う
-        for (auto idx : d.coords) {
-            ANET_ASSERT_MSG(
-                idx >= 0 && idx < total,
-                "StateSpec::MatchesRangeFlat: coords index OOB.");
-            float v = data[idx].item<float>();
-            ANET_ASSERT_MSG(
-                v >= mn && v <= mx,
-                "StateSpec::MatchesRangeFlat: coord value out of range.");
+        // トポロジーとShapeの整合性 (Vectorは1次元配列であること)
+        if (spec.type == SpaceType::Vector) {
+            ANET_CHECK_MSG(spec.shape.size() == 1,
+                "TensorSpec Sanity Error: [" << key << "] is Vector but shape is not 1D (size is " << spec.shape.size() << ").");
+        }
+    }
+}
+
+bool StateSpec::ValidateObservation(const anet::TensorDict & obs, bool is_batched) const
+{
+    if (obs.empty() && !obs_spec.empty()) {
+        ANET_SYSTEM_ERROR(
+            "ValidateObservation failed: TensorDict is empty but obs_spec is not.");
+        return false;
+    }
+
+    for (const auto& kv : obs_spec) {
+        const auto& key = kv.first;
+        const auto& spec = kv.second;
+
+        // キーの存在チェック
+        if (!obs.Contains(key)) {
+            ANET_SYSTEM_ERROR(
+                "ValidateObservation failed: Missing key in TensorDict: " << key);
+            return false;
+        }
+
+        const auto& tensor = obs.At(key);
+
+        // Dtypeのチェック
+        if (tensor.dtype() != spec.dtype) {
+            ANET_SYSTEM_ERROR(
+                "ValidateObservation failed: Dtype mismatch for key: " << key
+                << " | Expected: " << spec.dtype << ", Actual: " << tensor.dtype());
+            return false;
+        }
+
+        // 次元数とShapeのチェック
+        int64_t expected_dims = spec.shape.size() + (is_batched ? 1 : 0);
+        if (tensor.dim() != expected_dims) {
+            ANET_SYSTEM_ERROR(
+                "ValidateObservation failed: Dimension mismatch for key: " << key
+                << " | Expected dims: " << expected_dims << ", Actual: " << tensor.dim());
+            return false;
+        }
+
+        for (size_t i = 0; i < spec.shape.size(); ++i) {
+            int64_t tensor_dim_idx = is_batched ? (static_cast<int64_t>(i) + 1) : static_cast<int64_t>(i);
+            if (tensor.size(tensor_dim_idx) != spec.shape[i]) {
+                ANET_SYSTEM_ERROR(
+                    "ValidateObservation failed: Shape mismatch at dim " << i
+                    << " for key: " << key << " | Expected: " << spec.shape[i] << ", Actual: " << tensor.size(tensor_dim_idx));
+                return false;
+            }
+        }
+
+        // Rangeのチェック (float型でmin/maxが定義されている場合のみ)
+        if (tensor.is_floating_point() && !spec.min_values.empty() && !spec.max_values.empty()) {
+            float spec_min = *std::min_element(spec.min_values.begin(), spec.min_values.end());
+            float spec_max = *std::max_element(spec.max_values.begin(), spec.max_values.end());
+
+            float t_min = tensor.min().item<float>();
+            float t_max = tensor.max().item<float>();
+
+            const float eps = 1e-4f;
+            if (t_min < spec_min - eps || t_max > spec_max + eps) {
+                ANET_SYSTEM_ERROR(
+                    "ValidateObservation failed: Values out of range for key: " << key
+                    << " | Spec Range: [" << spec_min << ", " << spec_max
+                    << "], Actual Range: [" << t_min << ", " << t_max << "]");
+                return false;
+            }
         }
     }
     return true;
@@ -187,25 +171,24 @@ bool StateSpec::MatchesRangeFlat(const torch::Tensor& flat_obs) const
 anet::json StateSpec::ToJson() const
 {
     anet::json j;
-    j["shape"] = shape;
-
-    j["dims"] = anet::json::array();
-    for (const auto& d : dims) {
-        j["dims"].push_back(d.ToJson());
+    anet::json dict_j;
+    for (const auto& [key, spec] : obs_spec) {
+        dict_j[key] = spec.ToJson();
     }
-
-    j["info"] = anet::json::object();
-    for (const auto& kv : info) {
-        j["info"][kv.first] = kv.second;
-    }
-
+    j["obs_spec"] = dict_j;
+    j["info"] = info;
     return j;
 }
 
 std::string StateSpec::ToString() const
 {
-    return ToJson().dump(2); // pretty JSON
+    return ToJson().dump(2);
 }
+
+
+// =============================================================
+// ActionDimInfo
+// =============================================================
 
 anet::json ActionDimInfo::ToJson() const
 {
@@ -250,6 +233,11 @@ std::string ActionSpec::ToString() const
     return ToJson().dump(2);
 }
 
+
+// =============================================================
+// EnvSpec
+// =============================================================
+
 anet::json EnvSpec::ToJson() const
 {
     anet::json j;
@@ -275,10 +263,15 @@ std::string EnvSpec::ToString() const
     return ToJson().dump(2);
 }
 
+
+// =============================================================
+// BatchEnvSpec
+// =============================================================
+
 anet::json BatchEnvSpec::ToJson() const
 {
     anet::json j;
-    j["batch_size"] = batch_size;
+    j["num_envs"] = num_envs;
     j["num_threads"] = num_threads;
     return j;
 }
@@ -286,6 +279,54 @@ anet::json BatchEnvSpec::ToJson() const
 std::string BatchEnvSpec::ToString() const
 {
     return ToJson().dump(2);
+}
+
+
+// =============================================================
+
+torch::Tensor anet::rl::ToUnifiedObservation(const anet::TensorDict& obs, bool is_batched)
+{
+    if (obs.empty()) return torch::Tensor();
+
+    // 要素が1つだけの場合
+    if (obs.size() == 1) {
+        const auto& key = obs.begin()->first;
+        // 唯一の要素がActionMaskなら、空を返す（学習データがない状態）
+        if (key == ObsKeys::kActionMask) return torch::Tensor();
+        return obs.begin()->second;
+    }
+
+    // 複数要素の場合
+    int flatten_dim = is_batched ? 1 : 0;
+
+    // 辞書順ソートを維持しつつ、性質で分けるバケット
+    std::map<std::string, torch::Tensor> vector_bucket;
+    std::map<std::string, torch::Tensor> grid_bucket;
+
+    for (auto it = obs.begin(); it != obs.end(); ++it) {
+        const auto& key = it->first;
+        const auto& tensor = it->second;
+
+        // ActionMask は 入力（Legacy Tensor）には含めない
+        if (key == ObsKeys::kActionMask) continue;
+
+        // Keyが"vector" か次元数が 1 (バッチ含め 2) なら Vector 扱い
+        bool is_vector_key = (key == ObsKeys::kVector);
+        int effective_dims = is_batched ? (tensor.dim() - 1) : tensor.dim();
+        if (is_vector_key || effective_dims <= 1) {
+            vector_bucket[key] = tensor.to(torch::kFloat32).flatten(flatten_dim);
+        } else {
+            grid_bucket[key] = tensor.to(torch::kFloat32).flatten(flatten_dim);
+        }
+    }
+
+    // Vector系(辞書順) -> Grid系(辞書順) の順で結合して、旧仕様のメモリレイアウトを模倣
+    std::vector<torch::Tensor> concat_list;
+    for (auto& kv : vector_bucket) concat_list.push_back(kv.second);
+    for (auto& kv : grid_bucket)   concat_list.push_back(kv.second);
+    if (concat_list.empty()) return torch::Tensor();
+
+    return torch::cat(concat_list, flatten_dim);
 }
 
 // -----------------------------------------
@@ -303,7 +344,7 @@ std::string BatchState::ToString() const
 {
     std::ostringstream oss;
     oss << "BatchState{";
-    oss << "obs=" << anet::ToString(obs);
+    oss << "obs=" << obs.ToString();
     oss << ", done=" << anet::ToString(done);
     oss << ", truncated=" << anet::ToString(truncated);
     oss << ", episode_start=" << anet::ToString(episode_start);
@@ -392,7 +433,7 @@ std::string SingleState::ToString() const
 {
     std::ostringstream oss;
     oss << "SingleState{";
-    oss << "obs=" << anet::ToString(obs);
+    oss << "obs=" << obs.ToString();
     oss << ", done=" << done;
     oss << ", truncated=" << truncated;
     oss << ", episode_start=" << episode_start;
@@ -437,21 +478,24 @@ std::string SingleExperience::ToString() const
     return oss.str();
 }
 
-// -----------------------------------------
 
-std::optional<torch::Tensor> BatchExperience::GetTensor(
-    const std::string& key, int64_t index) const
+// =============================================================
+// BatchExperience
+// =============================================================
+
+std::optional<torch::Tensor> BatchExperience::GetTensor(const std::string& key, int64_t index) const
 {
     /// @todo index指定対応
 
-    if (key == NEXT_STATE_OBS)
-        return next_state.obs;
+    if (auto obs = GetObservationTensor(next_state.obs, key, NEXT_STATE_OBS); obs.has_value())
+        return obs;
+    if (auto obs = GetObservationTensor(state.obs, key, STATE_OBS); obs.has_value())
+        return obs;
+
     if (key == REWARD)
         return reward;
     if (key == ACTION_ACTION)
         return action->GetAction();
-    if (key == STATE_OBS)
-        return state.obs;
 
     if (key == STATE_DONE)
         return state.done;
@@ -502,17 +546,21 @@ BatchExperience BatchExperience::To(torch::Device d, bool non_blocking) const {
 
 std::vector<SingleExperience> BatchExperience::ToExperienceList() const
 {
+    // TensorDictの不整合チェック ----
+    ANET_ASSERT_MSG(state.obs.IsValid(), "state.obs tensors have is not valid.");
+    ANET_ASSERT_MSG(next_state.obs.IsValid(), "next_state.obs tensors is not valid.");
+
     // ---- N (batch 次元) の取得 ----
-    ANET_ASSERT_DTYPE(state.obs, torch::kFloat32);
-    ANET_ASSERT_DTYPE(next_state.obs, torch::kFloat32);
+    //ANET_ASSERT_DTYPE(state.obs, torch::kFloat32);
+    //ANET_ASSERT_DTYPE(next_state.obs, torch::kFloat32);
     ANET_ASSERT_SHAPE(state.done, { ANET_SHAPE_ANY });
     ANET_ASSERT_SHAPE(state.truncated, { ANET_SHAPE_ANY });
     ANET_ASSERT_SHAPE(state.episode_start, { ANET_SHAPE_ANY });
 
-    const int64_t N = state.obs.size(0);
+    const int64_t N = state.obs.Size(0);
 
     // ---- batch 次元の整合検査 ----
-    ANET_ASSERT_MSG(next_state.obs.size(0) == N,
+    ANET_ASSERT_MSG(next_state.obs.Size(0) == N,
         "MakeFromBatch: state.obs and next_states.obs batch size mismatch.");
     ANET_ASSERT_MSG(state.done.size(0) == N,
         "MakeFromBatch: state.done batch size mismatch.");
@@ -529,34 +577,32 @@ std::vector<SingleExperience> BatchExperience::ToExperienceList() const
 
     // ---- actions の整合検査 ----
     ANET_ASSERT_DTYPE(action->GetAction(), torch::kInt64);
-    ANET_ASSERT_MSG(action->GetAction().size(0) == N,
-        "MakeFromBatch: action.action batch size mismatch.");
+    ANET_ASSERT_MSG(action->GetAction().size(0) == N, "MakeFromBatch: action.action batch size mismatch.");
 
     // ---- rewards の shape チェック ----
     ANET_ASSERT_DTYPE(reward, torch::kFloat32);
-    ANET_ASSERT_MSG(reward.size(0) == N,
-        "MakeFromBatch: reward batch size mismatch.");
+    ANET_ASSERT_MSG(reward.size(0) == N, "MakeFromBatch: reward batch size mismatch.");
 
     // ---- obs の最低限の次元検査 ----
-    ANET_ASSERT_MSG(state.obs.dim() >= 2,
-        "MakeFromBatch: state.obs must have at least 2 dims (N, ...).");
-    ANET_ASSERT_MSG(next_state.obs.dim() >= 2,
-        "MakeFromBatch: next_state.obs must have at least 2 dims (N, ...).");
+    //ANET_ASSERT_MSG(state.obs.dim() >= 2,
+    //    "MakeFromBatch: state.obs must have at least 2 dims (N, ...).");
+    //ANET_ASSERT_MSG(next_state.obs.dim() >= 2,
+    //    "MakeFromBatch: next_state.obs must have at least 2 dims (N, ...).");
 
     // ---- flatten 前の要素数チェック（破損検出）----
-    ANET_ASSERT_MSG(state.obs.numel() % N == 0,
-        "MakeFromBatch: state.obs total elements not divisible by batch size.");
-    ANET_ASSERT_MSG(next_state.obs.numel() % N == 0,
-        "MakeFromBatch: next_state.obs total elements not divisible by batch size.");
+    //ANET_ASSERT_MSG(state.obs.numel() % N == 0,
+    //    "MakeFromBatch: state.obs total elements not divisible by batch size.");
+    //ANET_ASSERT_MSG(next_state.obs.numel() % N == 0,
+    //    "MakeFromBatch: next_state.obs total elements not divisible by batch size.");
 
     // ReplayBufferがCPU前提なので、ここで一括してCPUに移す (GPU->CPU転送コストを1回に集約)
     // unbind(0) で N個の Tensor (view または copy) のリストに分解しておく
 
     // Observation / NextObservation
-    auto state_obs_cpu = state.obs.cpu();
-    auto state_obs_list = state_obs_cpu.unbind(0);
-    auto next_obs_cpu = next_state.obs.cpu();
-    auto next_obs_list = next_obs_cpu.unbind(0);
+    auto state_obs_cpu = state.obs.Cpu();
+    auto state_obs_list = state_obs_cpu.Unbind(0);
+    auto next_obs_cpu = next_state.obs.Cpu();
+    auto next_obs_list = next_obs_cpu.Unbind(0);
 
     // Action
     auto action_cpu = action->GetAction().cpu();
@@ -612,77 +658,81 @@ std::vector<SingleExperience> BatchExperience::ToExperienceList() const
     return out;
 }
 
+
+// =============================================================
+// ExperienceSamples
+// =============================================================
+
 ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking) const
 {
+    ANET_PROFILE_FUNC();
+
     // GPUデバイスへの転送時のみストリームガードを有効にする
     if (device.is_cuda()) {
-        auto stream = at::cuda::getDefaultCUDAStream();
+        auto stream = at::cuda::getCurrentCUDAStream();
         at::cuda::CUDAStreamGuard guard(stream);
 
-        return ExperienceSamples{
-            obs.to(device, non_blocking),
-            actions.to(device, non_blocking),
-            target_values.to(device, non_blocking),
-            {
-                next_states.obs.to(device, non_blocking),
-                next_states.terminals.to(device, non_blocking),
+        return {
+            .obs = obs.To(device, non_blocking),
+            .actions = anet::To(actions, device, non_blocking),
+            .target_returns = anet::To(target_returns, device, non_blocking),
+            .next_state = {
+                .next_obs = next_state.next_obs.To(device, non_blocking),
+                .terminals = anet::To(next_state.terminals, device, non_blocking),
             },
-            n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,
-            indices.to(device, non_blocking),
-            sampling_prob.defined() ? sampling_prob.to(device, non_blocking) : sampling_prob,
-            is_weights.defined() ? is_weights.to(device, non_blocking) : is_weights,
+            .n_steps = anet::To(n_steps, device, non_blocking),
+            // sampled index は ReplayBuffer の CPU metadata なので learner device へは送らない。
+            .indices = indices.defined() ? (indices.device().is_cpu() ? indices : indices.to(torch::kCPU)) : indices,
+            .is_weights = anet::To(is_weights, device, non_blocking),
+            .per_is_initial_priority = per_is_initial_priority.defined()
+                ? (per_is_initial_priority.device().is_cpu() ? per_is_initial_priority : per_is_initial_priority.to(torch::kCPU))
+                : per_is_initial_priority,
+			.info = info.To(device, non_blocking)
         };
     }
 
     // CPUの場合はそのまま転送
-    return ExperienceSamples{
-        obs.to(device, non_blocking),
-        actions.to(device, non_blocking),
-        target_values.to(device, non_blocking),
-        {
-            next_states.obs.to(device, non_blocking),
-            next_states.terminals.to(device, non_blocking),
+    return {
+        .obs = obs.To(device, non_blocking),
+        .actions = actions.to(device, non_blocking),
+        .target_returns = target_returns.to(device, non_blocking),
+        .next_state = {
+            .next_obs = next_state.next_obs.To(device, non_blocking),
+            .terminals = next_state.terminals.to(device, non_blocking),
         },
-        n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,
-        indices.to(device, non_blocking),
-        sampling_prob.defined() ? sampling_prob.to(device, non_blocking) : sampling_prob,
-        is_weights.defined() ? is_weights.to(device, non_blocking) : is_weights,
+        .n_steps = n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,
+        .indices = indices.defined() ? indices.to(device, non_blocking) : indices,
+        .is_weights = is_weights.defined() ? is_weights.to(device, non_blocking) : is_weights,
+        .per_is_initial_priority = per_is_initial_priority.defined()
+            ? per_is_initial_priority.to(device, non_blocking)
+            : per_is_initial_priority,
+        .info = info.To(device, non_blocking)
     };
 }
 
-ExperienceSamples ExperienceSamples::FlattenStates() const
-{
-    return ExperienceSamples{
-        obs.flatten(1),
-        actions,
-        target_values,
-        {
-            next_states.obs.flatten(1),
-            next_states.terminals,
-        },
-        n_steps,
-        indices,
-        sampling_prob,
-        is_weights
-    };
-}
 
 std::string ExperienceSamples::ToString() const
 {
     std::ostringstream oss;
     oss << "ExperienceSamples{\n";
-    oss << "  obs     = " << anet::ToString(obs) << "\n";
+    oss << "  obs = " << obs.ToString() << "\n";
     oss << "  action  = " << anet::ToString(actions) << "\n";
-    oss << "  target_values  = " << anet::ToString(target_values) << "\n";
-    oss << "  next_state.obs           = " << anet::ToString(next_states.obs) << "\n";
-    oss << "  next_state.terminals     = " << anet::ToString(next_states.terminals) << "\n";
+    oss << "  target_returns  = " << anet::ToString(target_returns) << "\n";
+    oss << "  next_state.next_obs = " << next_state.next_obs.ToString() << "\n";
+    oss << "  next_state.terminals     = " << anet::ToString(next_state.terminals) << "\n";
     oss << "  n_steps                  = " << anet::ToString(n_steps) << "\n";
     oss << "  indices                  = " << anet::ToString(indices) << "\n";
-    oss << "  sampling_prob            = " << anet::ToString(sampling_prob) << "\n";
     oss << "  is_weights               = " << anet::ToString(is_weights) << "\n";
+    oss << "  per_is_initial_priority  = " << anet::ToString(per_is_initial_priority) << "\n";
+    oss << "  info = " << info.ToString() << "\n";
     oss << "}";
     return oss.str();
 }
+
+
+// -----------------------------------------------------------------
+// BatchExperience
+// -----------------------------------------------------------------
 
 std::string BatchExperience::ToString() const
 {
@@ -697,6 +747,7 @@ std::string BatchExperience::ToString() const
     oss << "}";
     return oss.str();
 }
+
 
 // -----------------------------------------------------------------
 // RunnerScopedTrainObserver
@@ -720,6 +771,7 @@ std::string RunnerScopedTrainObserver::ToString() const
     return "RunnerScopedTrainObserver(" + real_observer_->ToString() + ")";
 }
 
+
 // -----------------------------------------------------------------
 // RunnerScopedLearnObserver
 // -----------------------------------------------------------------
@@ -740,6 +792,29 @@ std::string RunnerScopedLearnObserver::ToString() const
     return "RunnerScopedLearnObserver(" + real_observer_->ToString() + ")";
 }
 
+
+// -----------------------------------------------------------------
+// RunnerScopedEpisodeEndObserver
+// -----------------------------------------------------------------
+RunnerScopedEpisodeEndObserver::RunnerScopedEpisodeEndObserver(std::shared_ptr<EpisodeEndObserver> real_observer, std::shared_ptr<const Runner> target_runner)
+    : real_observer_(real_observer), target_runner_(target_runner)
+{
+    ANET_CHECK(target_runner_ != nullptr);
+}
+
+void RunnerScopedEpisodeEndObserver::OnEpisodeEnd(const EpisodeEndEvent& event)
+{
+    if (event.runner == target_runner_) {
+        real_observer_->OnEpisodeEnd(event);
+    }
+}
+
+std::string RunnerScopedEpisodeEndObserver::ToString() const
+{
+    return "RunnerScopedEpisodeEndObserver(" + real_observer_->ToString() + ")";
+}
+
+
 // =============================================================
 // Notifier
 // =============================================================
@@ -758,6 +833,12 @@ std::shared_ptr<TrainObserver> Notifier::Attach(std::shared_ptr<TrainObserver> o
 std::shared_ptr<LearnObserver> Notifier::Attach(std::shared_ptr<LearnObserver> obs)
 {
     learn_observers_.push_back(obs);
+    return obs;
+}
+
+std::shared_ptr<EpisodeEndObserver> Notifier::Attach(std::shared_ptr<EpisodeEndObserver> obs)
+{
+    episode_end_observers_.push_back(obs);
     return obs;
 }
 
@@ -787,6 +868,19 @@ void Notifier::Detach(std::shared_ptr<LearnObserver> obs)
     );
 }
 
+void Notifier::Detach(std::shared_ptr<EpisodeEndObserver> obs)
+{
+    episode_end_observers_.erase(
+        std::remove_if(
+            episode_end_observers_.begin(), episode_end_observers_.end(),
+            [&](const std::shared_ptr<EpisodeEndObserver>& o) {
+                return o == obs;
+            }
+        ),
+        episode_end_observers_.end()
+    );
+}
+
 void Notifier::Detach(const TrainObserver* observer)
 {
     train_observers_.erase(
@@ -813,27 +907,50 @@ void Notifier::Detach(const LearnObserver* observer)
     );
 }
 
+void Notifier::Detach(const EpisodeEndObserver* observer)
+{
+    episode_end_observers_.erase(
+        std::remove_if(
+            episode_end_observers_.begin(), episode_end_observers_.end(),
+            [&](const std::shared_ptr<EpisodeEndObserver>& o) {
+                return o.get() == observer;
+            }
+        ),
+        episode_end_observers_.end()
+    );
+}
+
 void Notifier::Clear()
 {
     train_observers_.clear();
     learn_observers_.clear();
+    episode_end_observers_.clear();
 }
-
 
 void Notifier::Notify(const TrainEvent& event)
 {
-    anet::ProfileRange r("Notifier::Notify");
+    ANET_PROFILE_FUNC();
 
     for (auto obs : train_observers_) {
         obs->OnTrain(event);
     }
 }
+
 void Notifier::Notify(const LearnEvent& event)
 {
-    anet::ProfileRange r("Notifier::Notify");
+    ANET_PROFILE_FUNC();
 
     for (auto obs : learn_observers_) {
         obs->OnLearn(event);
+    }
+}
+
+void Notifier::Notify(const EpisodeEndEvent& event)
+{
+    ANET_PROFILE_FUNC();
+
+    for (auto obs : episode_end_observers_) {
+        obs->OnEpisodeEnd(event);
     }
 }
 
@@ -848,5 +965,10 @@ void Notifier::LogObservers() const
     for (auto obs : learn_observers_) {
         LOG::info() << "Notifier: LEARN [" << idx << "] " << obs->ToString();
        idx++;
+    }
+    idx = 0;
+    for (auto obs : episode_end_observers_) {
+        LOG::info() << "Notifier: EPISODE_END [" << idx << "] " << obs->ToString();
+        idx++;
     }
 }

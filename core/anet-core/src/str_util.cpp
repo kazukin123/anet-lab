@@ -1,4 +1,8 @@
-﻿#include "anet/str_util.hpp"
+﻿// str_util.cpp
+
+#include "anet/str_util.hpp"
+#include <locale>
+#include <sstream>
 
 using namespace anet;
 

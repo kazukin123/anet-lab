@@ -1,6 +1,7 @@
 ﻿// nn_module_impl.cpp
 
 #include <numeric>
+#include <sstream>
 #include "nn_impl.hpp"
 #include "anet/log.hpp"
 #include "anet/profile.hpp"
@@ -8,6 +9,31 @@
 
 using namespace anet::nn;
 namespace LOG = anet::log;
+
+static std::string ToConfigBool(bool value)
+{
+    return value ? "true" : "false";
+}
+
+static void ValidateDropRate(const std::string& key, double value)
+{
+    if (value < 0.0 || value >= 1.0) {
+        ANET_SYSTEM_ERROR("Invalid dropout rate. key=" << key
+            << " value=" << value << " expected=[0.0, 1.0)");
+    }
+}
+
+static std::string FormatInt64Vector(const std::vector<int64_t>& values)
+{
+    std::ostringstream oss;
+    oss << "[";
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i > 0) oss << ", ";
+        oss << values[i];
+    }
+    oss << "]";
+    return oss.str();
+}
 
 
 torch::nn::init::NonlinearityType anet::nn::GetNonlinearityType(const std::string& name)
@@ -17,6 +43,22 @@ torch::nn::init::NonlinearityType anet::nn::GetNonlinearityType(const std::strin
     if (name == "tanh") return torch::kTanh;
     if (name == "leaky_relu") return torch::kLeakyReLU;
     return torch::kReLU;
+}
+
+torch::Tensor anet::nn::DropPath(const torch::Tensor& x, double drop_prob, bool training)
+{
+    if (!training || drop_prob <= 0.0) {
+        return x;
+    }
+
+    ANET_CHECK_MSG(drop_prob < 1.0, "DropPath: drop_prob must be less than 1.0. actual=" << drop_prob);
+    ANET_CHECK_MSG(x.dim() > 0, "DropPath: input must have a batch dimension.");
+
+    const double keep_prob = 1.0 - drop_prob;
+    std::vector<int64_t> shape(static_cast<size_t>(x.dim()), 1);
+    shape[0] = x.size(0);
+    torch::Tensor mask = torch::empty(shape, x.options()).bernoulli_(keep_prob);
+    return x / keep_prob * mask;
 }
 
 
@@ -34,7 +76,7 @@ public:
 
     torch::Tensor forward(torch::Tensor x)
     {
-        anet::ProfileRange r("LinearModule::forward");
+        ANET_PROFILE_FUNC();
 
         if (!linear) {
             // 初回実行時に入力次元数を自動取得
@@ -62,6 +104,17 @@ public:
     {
         return forward(input);
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("out_features", out_features_);
+        cd.Set("bias", ToConfigBool(with_bias_));
+        if (linear) {
+            cd.Set("in_features", linear->options.in_features());
+        }
+        return cd;
+    }
 private:
     WeightInitConfig init_config_;
     torch::nn::Linear linear{ nullptr };
@@ -80,7 +133,7 @@ public:
 
     torch::Tensor forward(torch::Tensor x)
     {
-        anet::ProfileRange r("Conv1dModule::forward");
+        ANET_PROFILE_FUNC();
 
         if (!conv) {
             // 初回実行時に入力チャンネル数(in_channels)を自動取得
@@ -108,6 +161,20 @@ public:
     torch::Tensor Forward(torch::Tensor input) override {
         return forward(input);
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("out_channels", out_channels_);
+        cd.Set("kernel_size", kernel_size_);
+        cd.Set("stride", stride_);
+        cd.Set("padding", padding_);
+        cd.Set("dilation", dilation_);
+        if (conv) {
+            cd.Set("in_channels", conv->options.in_channels());
+        }
+        return cd;
+    }
 private:
     WeightInitConfig init_config_;
     torch::nn::Conv1d conv{ nullptr };
@@ -127,7 +194,9 @@ public:
 
     torch::Tensor forward(torch::Tensor x)
     {
-        anet::ProfileRange r("Conv2dModule::forward");
+        ANET_PROFILE_FUNC();
+
+ //       ANET_LOG_DEBUG("x=" << anet::ToString(x));
 
         if (!conv_) {
             // 初回の処理で入力チャンネル数(in_channels)を自動取得
@@ -154,6 +223,20 @@ public:
     torch::Tensor Forward(torch::Tensor input) override {
         return forward(input);
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("out_channels", out_channels_);
+        cd.Set("kernel_size", kernel_size_);
+        cd.Set("stride", stride_);
+        cd.Set("padding", padding_);
+        cd.Set("dilation", dilation_);
+        if (conv_) {
+            cd.Set("in_channels", conv_->options.in_channels());
+        }
+        return cd;
+    }
 private:
     WeightInitConfig init_config_;
     torch::nn::Conv2d conv_{ nullptr };
@@ -162,48 +245,6 @@ private:
     int64_t stride_;
     int64_t padding_;
     int64_t dilation_;
-};
-
-/// ElementwiseAdd (For Skip Connection via Tags)
-class ElementwiseAddModule : public NetworkModule {
-public:
-    explicit ElementwiseAddModule(int split_count) : split_count_(split_count)
-    {
-        if (split_count_ < 2) {
-			LOG::warn() << "ElementwiseAddModule: split_count should be >= 2. Given: " << split_count_;
-        }
-    }
-
-    torch::Tensor forward(torch::Tensor x)
-    {
-        anet::ProfileRange r("ElementwiseAddModule::forward");
-
-        // 入力 x は (Batch, TotalChannels, ...) と結合されている前提
-        if (split_count_ <= 1) return x;
-
-        // split_count_ で等分割する。
-        // ※ 各要素のチャンネル数が同じであることが前提
-        auto chunks = x.chunk(split_count_, 1); // dim=1
-        if (chunks.size() != split_count_) {
-            ANET_SYSTEM_ERROR(
-                "ElementwiseAdd: Input channels cannot be split into "
-                << split_count_ <<  " equal parts. Total channels=" << x.size(1));
-        }
-
-        // 加算
-        torch::Tensor sum = chunks[0];
-        for (size_t i = 1; i < chunks.size(); ++i) {
-            sum = sum + chunks[i];
-        }
-        return sum;
-    }
-
-    torch::Tensor Forward(torch::Tensor input) override
-    {
-        return forward(input);
-    }
-private:
-    int split_count_;
 };
 
 /// Permute Module (Transpose axes)
@@ -216,12 +257,51 @@ public:
 
     torch::Tensor forward(torch::Tensor x)
     {
-        anet::ProfileRange r("PermuteModule::forward");
+        ANET_PROFILE_FUNC();
         return x.permute(dims_);
     }
     torch::Tensor Forward(torch::Tensor input) override
     {
         return forward(input);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("dims", FormatInt64Vector(dims_));
+        return cd;
+    }
+private:
+    std::vector<int64_t> dims_;
+};
+
+/// Reshape Module (Batch次元を除いた目標形状を指定)
+/// e.g. dims=[4, 8] -> (Batch, 32) -> (Batch, 4, 8)
+class ReshapeModule : public NetworkModule {
+public:
+    explicit ReshapeModule(std::vector<int64_t> dims) : dims_(std::move(dims))
+    {
+    }
+
+    torch::Tensor forward(torch::Tensor x)
+    {
+        ANET_PROFILE_FUNC();
+        std::vector<int64_t> shape;
+        shape.reserve(dims_.size() + 1);
+        shape.push_back(x.size(0));
+        shape.insert(shape.end(), dims_.begin(), dims_.end());
+        return x.reshape(shape);
+    }
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        return forward(input);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("dims", FormatInt64Vector(dims_));
+        return cd;
     }
 private:
     std::vector<int64_t> dims_;
@@ -232,15 +312,105 @@ class FlattenModule : public NetworkModule {
 public:
     torch::Tensor forward(torch::Tensor x)
     {
-        anet::ProfileRange r("FlattenModule::forward");
+        ANET_PROFILE_FUNC();
 
         return x.flatten(1);
     }
+
     torch::Tensor Forward(torch::Tensor input) override
     {
         return forward(input);
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("start_dim", 1);
+        return cd;
+    }
 };
+
+class StackMergeModule : public NetworkModule {
+public:
+    StackMergeModule() {}
+
+    torch::Tensor forward(torch::Tensor x)
+    {
+        // 入力が5次元 [B, S, C, H, W] なら [B, S*C, H, W] に変換
+        if (x.dim() == 5) {
+            return x.view({ x.size(0), x.size(1) * x.size(2), x.size(3), x.size(4) }).contiguous();
+        }
+
+        // 4次元ならそのまま通す
+        return x.contiguous();
+    }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        return forward(input);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("merge", "stack_channel");
+        return cd;
+    }
+};
+
+class DropoutModule : public NetworkModule {
+public:
+    explicit DropoutModule(double dropout_rate)
+        : dropout_rate_(dropout_rate)
+    {
+        if (dropout_rate > 0.0) {
+            dropout_ = register_module("dropout", torch::nn::Dropout(torch::nn::DropoutOptions(dropout_rate)));
+        }
+    }
+
+    torch::Tensor forward(torch::Tensor x)
+    {
+        if (dropout_) {
+            return dropout_->forward(x);
+        }
+        return x;
+    }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        return forward(input);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("dropout_rate", dropout_rate_);
+        return cd;
+    }
+private:
+    double dropout_rate_ = 0.0;
+    torch::nn::Dropout dropout_{ nullptr };
+};
+
+class DropoutModuleFactory : public NetworkModuleFactory {
+public:
+    struct Config : anet::Config {
+        double dropout_rate = 0.0;
+        Config(const anet::ConfigData& config_data) : anet::Config("")
+        {
+            ANET_READ_CONFIG(config_data, dropout_rate);
+        }
+    };
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        Config config(config_data);
+
+        ValidateDropRate("dropout_rate", config.dropout_rate);
+        return std::make_shared<DropoutModule>(config.dropout_rate);
+    }
+};
+
 
 // ===========================================================================
 // 活性化関数Modules
@@ -253,7 +423,7 @@ public:
 
     torch::Tensor forward(torch::Tensor x)
     {
-        anet::ProfileRange r("ReLUModule::forward");
+        ANET_PROFILE_FUNC();
 
         return torch::relu(x);
     }
@@ -268,6 +438,7 @@ public:
 class GELUModule : public NetworkModule {
 public:
     explicit GELUModule(const std::string& approximate)
+        : approximate_(approximate)
     {
         torch::nn::GELUOptions opts;
         opts.approximate(approximate); // "none" or "tanh"
@@ -280,7 +451,15 @@ public:
     {
         return impl_->forward(input);
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("approximate", approximate_);
+        return cd;
+    }
 private:
+    std::string approximate_;
     torch::nn::GELU impl_{ nullptr };
 };
 
@@ -324,6 +503,7 @@ private:
 class LeakyReLUModule : public NetworkModule {
 public:
     explicit LeakyReLUModule(double negative_slope)
+        : negative_slope_(negative_slope)
     {
         torch::nn::LeakyReLUOptions opts;
         opts.negative_slope(negative_slope);
@@ -336,8 +516,582 @@ public:
     {
         return impl_->forward(input);
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("negative_slope", negative_slope_);
+        return cd;
+    }
 private:
+    double negative_slope_ = 0.01;
     torch::nn::LeakyReLU impl_{ nullptr };
+};
+
+
+// ===========================================================================
+//  BatchNorm2d Module
+// ===========================================================================
+
+// BatchNorm2d Module
+class BatchNorm2dModule : public NetworkModule {
+public:
+    explicit BatchNorm2dModule(int64_t num_features)
+        : num_features_(num_features)
+    {
+    }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        // Lazy Init
+        if (!bn_) {
+            torch::nn::BatchNorm2dOptions opts(num_features_);
+            bn_ = register_module("bn", torch::nn::BatchNorm2d(opts));
+            bn_->to(input.device(), input.scalar_type());
+        }
+        return bn_->forward(input);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("num_features", num_features_);
+        return cd;
+    }
+private:
+    int64_t num_features_;
+    torch::nn::BatchNorm2d bn_{ nullptr };
+};
+
+// Factory
+class BatchNorm2dModuleFactory final : public NetworkModuleFactory {
+private:
+    struct Config : anet::Config {
+        int num_features = 0;
+        Config(const anet::ConfigData& config_data) : anet::Config("")
+        {
+            ANET_READ_CONFIG(config_data, num_features);
+        }
+    };
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        Config config(config_data);
+        return std::make_shared<BatchNorm2dModule>(config.num_features);
+    }
+};
+
+
+// ===========================================================================
+//  GroupNormModule Module
+// ===========================================================================
+
+class GroupNormModule : public NetworkModule {
+public:
+    GroupNormModule(int64_t num_groups, int64_t num_channels)
+        : num_groups_(num_groups), num_channels_(num_channels)
+    {
+    }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        // Lazy Init
+        if (!impl_) {
+            torch::nn::GroupNormOptions opts(num_groups_, num_channels_);
+            // GroupNormは学習可能パラメータ(Affine)を持つのがデフォルト
+            opts.affine(true);
+            impl_ = register_module("gn", torch::nn::GroupNorm(opts));
+            impl_->to(input.device(), input.scalar_type());
+        }
+        return impl_->forward(input);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("num_groups", num_groups_);
+        cd.Set("num_channels", num_channels_);
+        return cd;
+    }
+private:
+    int64_t num_groups_;
+    int64_t num_channels_;
+    torch::nn::GroupNorm impl_{ nullptr };
+};
+
+class GroupNormModuleFactory final : public NetworkModuleFactory {
+private:
+    struct Config : anet::Config {
+        int num_groups = 32;
+        int num_channels = 0;
+
+        Config(const anet::ConfigData& config_data) : anet::Config("")
+        {
+            ANET_READ_CONFIG(config_data, num_groups);
+            ANET_READ_CONFIG(config_data, num_channels);
+        }
+    };
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        Config config(config_data);
+        if (config.num_channels <= 0) {
+            // GroupNormはチャンネル数がグループ数で割り切れる必要がある。明示指定を必須とする
+            ANET_SYSTEM_ERROR("GroupNormModule: num_channels is 0.");
+        }
+        return std::make_shared<GroupNormModule>(config.num_groups, config.num_channels);
+    }
+};
+
+
+// ===========================================================================
+//  ResBlock Module
+// ===========================================================================
+
+struct ResBlockConfig {
+    int channels = 64;
+    int kernel_size = 3;
+    int padding = -1;
+    int stride = 1;
+    int dilation = 1;
+    std::string activation = "silu"; // "relu" or "silu"(default)  / "swish"
+    std::string activation_mode = "post"; // "post" (v1) or "pre" (v2)
+    std::string norm_type = "none"; // "none", "batch", "group"
+    int group_norm_groups = 32;
+    bool conv1_bias = true;        // Norm無しならtrue必須。None有りならFalse推奨。
+    bool conv2_bias = true;        // ZeroInitするならTrue推奨
+    double droppath_rate = 0.0;     ///< 残差枝の Stochastic Depth ドロップ確率
+    double dropout_rate = 0.0;      ///< conv1->conv2 間 Dropout2d の channel dropout 確率
+};
+
+/// ResNet Basic Block
+class ResBlockModule : public NetworkModule {
+private:
+    enum class ActType { ReLU, SiLU };
+    enum class ActMode { Post, Pre };
+public:
+    ResBlockModule(const ResBlockConfig& config, const WeightInitConfig& init1_config, const WeightInitConfig& init2_config, const WeightInitConfig& init_ds_config)
+        : config_(config), init1_config_(init1_config), init2_config_(init2_config), init_ds_config_(init_ds_config)
+    {
+        // 活性化関数設定取得
+        if (config_.activation == "SiLU" || config_.activation == "silu" ||
+            config_.activation == "Swish" || config_.activation == "swish") {
+            act_type_ = ActType::SiLU;
+        } else {
+            act_type_ = ActType::ReLU;
+        }
+
+        // モード設定取得
+        if (config_.activation_mode == "pre" || config_.activation_mode == "Pre") {
+            act_mode_ = ActMode::Pre;
+        } else {
+            act_mode_ = ActMode::Post;
+        }
+    }
+
+    bool IsConv2dVisualizable() const override { return true; }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        ANET_PROFILE_FUNC();
+
+        // Lazy Initialization
+        if (!conv1_) {
+            ANET_PROFILE_SCOPE(init);
+
+            auto device = input.device();
+            auto dtype = input.scalar_type();
+            int64_t in_channels = input.size(1);
+            int padding = config_.padding < 0 ? (config_.dilation * (config_.kernel_size - 1) / 2) : config_.padding;
+
+            // ------------------------------------------------
+            // Main Path (Conv1)
+            // ------------------------------------------------
+            torch::nn::Conv2dOptions conv1_opts(in_channels, config_.channels, config_.kernel_size);
+            conv1_opts.stride(config_.stride);
+            conv1_opts.padding(padding);
+            conv1_opts.dilation(config_.dilation);
+            conv1_opts.bias(config_.conv1_bias);
+            conv1_ = register_module("conv1", torch::nn::Conv2d(conv1_opts));
+            conv1_->to(device, dtype);
+            WeightInitializer::Initialize(conv1_, init1_config_);
+
+            norm1_ = CreateAndRegisterNorm("norm1", config_.channels);
+
+            // ------------------------------------------------
+            // Main Path (Conv2)
+            // ------------------------------------------------
+            torch::nn::Conv2dOptions conv2_opts(config_.channels, config_.channels, config_.kernel_size);
+            conv2_opts.stride(1);
+            conv2_opts.padding(padding);
+            conv2_opts.dilation(config_.dilation);
+            conv2_opts.bias(config_.conv2_bias);
+            conv2_ = register_module("conv2", torch::nn::Conv2d(conv2_opts));
+            conv2_->to(device, dtype);
+
+            WeightInitializer::Initialize(conv2_, init2_config_);
+
+            if (config_.dropout_rate > 0.0) {
+                dropout2d_ = register_module("dropout2d",
+                    torch::nn::Dropout2d(torch::nn::Dropout2dOptions(config_.dropout_rate)));
+            }
+
+            norm2_ = CreateAndRegisterNorm("norm2", config_.channels);
+
+            // ------------------------------------------------
+            // Shortcut Path
+            // ------------------------------------------------
+            if (config_.stride > 1 || in_channels != config_.channels) {
+                torch::nn::Conv2dOptions ds_opts(in_channels, config_.channels, 1);
+                ds_opts.stride(config_.stride);
+                ds_opts.padding(0);
+                ds_opts.bias(false); // Shortcutは通常Biasなし(直後にAddされるため)
+                downsample_conv_ = register_module("ds_conv", torch::nn::Conv2d(ds_opts));
+                downsample_conv_->to(device, dtype);
+                WeightInitializer::Initialize(downsample_conv_, init_ds_config_);
+
+                // Shortcut Norm (Conv1x1 -> Norm)
+                norm_ds_ = CreateAndRegisterNorm("ds_norm", config_.channels);
+            }
+        }
+
+        // --- Forwarding ---
+        if (act_mode_ == ActMode::Pre) {
+
+            // ==================================================
+            // Pre-Activation (ResNet v2)
+            // ==================================================
+            ANET_PROFILE_SCOPE(pre_act);
+
+            // 共通の Pre-Activation (Norm -> Act)
+            torch::Tensor pre_act = input;
+            if (norm1_) pre_act = norm1_->Forward(pre_act);
+            pre_act = Activate(pre_act);
+
+            // Shortcut Path
+            torch::Tensor residual = input;
+            if (downsample_conv_) {
+                // 次元が変わる場合、Pre-Actされた値から1x1 Convで射影する（v2の標準）
+                residual = downsample_conv_->forward(pre_act);
+                if (norm_ds_) residual = norm_ds_->Forward(residual);
+            }
+
+            // Main Path
+
+            // Conv1
+            torch::Tensor out = conv1_->forward(pre_act);
+
+            // Norm2 -> Act -> Conv2
+            if (norm2_) out = norm2_->Forward(out);
+            out = Activate(out);
+            if (dropout2d_) out = dropout2d_->forward(out);
+            out = conv2_->forward(out);
+
+            // DropPath は残差枝だけを落とし、shortcut/downsample は落とさない。
+            return DropPath(out, config_.droppath_rate, is_training()) + residual;
+        } else {
+            // ==================================================
+            // Post-Activation (ResNet v1)
+            // ==================================================
+            ANET_PROFILE_SCOPE(post_act);
+
+            // Block 1: Conv -> Norm -> Act
+            torch::Tensor out = conv1_->forward(input);
+            if (norm1_) out = norm1_->Forward(out);
+            out = Activate(out);
+            if (dropout2d_) out = dropout2d_->forward(out);
+
+            // Block 2: Conv -> Norm
+            out = conv2_->forward(out);
+            if (norm2_) out = norm2_->Forward(out);
+
+            // Down-sample
+            torch::Tensor residual = input;
+            if (downsample_conv_) { // 次元合わせが必要な場合の1x1Conv
+                residual = downsample_conv_->forward(residual);
+                if (norm_ds_) residual = norm_ds_->Forward(residual);
+            }
+
+            // Add & Act
+            // DropPath は残差枝だけを落とし、shortcut/downsample は落とさない。
+            out = DropPath(out, config_.droppath_rate, is_training());
+            out += residual;
+            out = Activate(out);
+
+            return out;
+        }
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("channels", config_.channels);
+        cd.Set("kernel_size", config_.kernel_size);
+        cd.Set("stride", config_.stride);
+        cd.Set("padding", config_.padding);
+        cd.Set("dilation", config_.dilation);
+        cd.Set("activation", config_.activation);
+        cd.Set("activation_mode", config_.activation_mode);
+        cd.Set("norm_type", config_.norm_type);
+        cd.Set("group_norm_groups", config_.group_norm_groups);
+        cd.Set("conv1_bias", ToConfigBool(config_.conv1_bias));
+        cd.Set("conv2_bias", ToConfigBool(config_.conv2_bias));
+        cd.Set("droppath_rate", config_.droppath_rate);
+        cd.Set("dropout_rate", config_.dropout_rate);
+        if (conv1_) {
+            cd.Set("in_channels", conv1_->options.in_channels());
+        }
+        return cd;
+    }
+private:
+    std::shared_ptr<NetworkModule> CreateAndRegisterNorm(const std::string& name, int64_t channels)
+    {
+        std::shared_ptr<NetworkModule> mod = nullptr;
+
+        if (config_.norm_type == "batch") {
+            mod = std::make_shared<BatchNorm2dModule>(channels);
+        } else if (config_.norm_type == "group") {
+            mod = std::make_shared<GroupNormModule>(config_.group_norm_groups, channels);
+        }
+
+        if (mod) {
+            // パラメータ登録のため register_module を経由させる
+            register_module(name, mod);
+        }
+        return mod;
+    }
+
+    inline torch::Tensor Activate(const torch::Tensor& x) const
+    {
+        if (act_type_ == ActType::SiLU) {
+            return torch::silu(x);
+        }
+        return torch::relu(x);
+    }
+private:
+    ResBlockConfig config_;
+    WeightInitConfig init1_config_;
+    WeightInitConfig init2_config_;
+    WeightInitConfig init_ds_config_;
+
+    ActType act_type_ = ActType::ReLU;
+	ActMode act_mode_ = ActMode::Post;
+
+    // Conv2d
+    torch::nn::Conv2d conv1_{ nullptr };
+    torch::nn::Conv2d conv2_{ nullptr };
+    torch::nn::Conv2d downsample_conv_{ nullptr };
+    torch::nn::Dropout2d dropout2d_{ nullptr };
+
+    // Normalization Layers
+    std::shared_ptr<NetworkModule> norm1_{ nullptr };
+    std::shared_ptr<NetworkModule> norm2_{ nullptr };
+    std::shared_ptr<NetworkModule> norm_ds_{ nullptr };
+};
+
+// ResBlockModuleFactory
+class ResBlockModuleFactory final : public NetworkModuleFactory {
+private:
+    struct Config : anet::Config {
+        ResBlockConfig res;
+        WeightInitConfig init1;
+        WeightInitConfig init2;
+        WeightInitConfig init_ds;
+
+        Config(const anet::ConfigData& config_data) : anet::Config("")
+        {
+            init1.mode = 2;			    // Default: He       
+            init2.mode = 4;             // Default: ZeroInit
+            init_ds.mode = 2;			// Default: He       
+
+            ANET_READ_CONFIG(config_data, res.channels);
+            ANET_READ_CONFIG(config_data, res.kernel_size);
+            ANET_READ_CONFIG(config_data, res.stride);
+            ANET_READ_CONFIG(config_data, res.padding);
+            ANET_READ_CONFIG(config_data, res.dilation);
+            ANET_READ_CONFIG(config_data, res.conv1_bias);
+            ANET_READ_CONFIG(config_data, res.conv2_bias);
+            ANET_READ_CONFIG(config_data, res.activation);
+            ANET_READ_CONFIG(config_data, res.activation_mode);
+            ANET_READ_CONFIG(config_data, res.norm_type);
+            ANET_READ_CONFIG(config_data, res.group_norm_groups);
+            ANET_READ_CONFIG(config_data, res.droppath_rate);
+            ANET_READ_CONFIG(config_data, res.dropout_rate);
+
+            ANET_READ_CONFIG(config_data, init1.mode);
+            ANET_READ_CONFIG(config_data, init1.manual_gain);
+            ANET_READ_CONFIG(config_data, init1.nonlinearity);
+            ANET_READ_CONFIG(config_data, init1.constant_val);
+
+            ANET_READ_CONFIG(config_data, init2.mode);
+            ANET_READ_CONFIG(config_data, init2.manual_gain);
+            ANET_READ_CONFIG(config_data, init2.nonlinearity);
+            ANET_READ_CONFIG(config_data, init2.constant_val);
+
+            ANET_READ_CONFIG(config_data, init_ds.mode);
+            ANET_READ_CONFIG(config_data, init_ds.manual_gain);
+            ANET_READ_CONFIG(config_data, init_ds.nonlinearity);
+            ANET_READ_CONFIG(config_data, init_ds.constant_val);
+        }
+    };
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        Config config(config_data);
+        ValidateDropRate("res.droppath_rate", config.res.droppath_rate);
+        ValidateDropRate("res.dropout_rate", config.res.dropout_rate);
+        if (config.res.dropout_rate > 0.0 && config.res.norm_type == "batch") {
+            LOG::warn() << "ResBlock dropout_rate is enabled with BatchNorm. "
+                << "key=res.dropout_rate value=" << config.res.dropout_rate
+                << " reason=channel dropout can shift BatchNorm statistics"
+                << " recommended=use res.droppath_rate or set res.norm_type to group/none.";
+        }
+        return std::make_shared<ResBlockModule>(config.res, config.init1, config.init2, config.init_ds);
+    }
+};
+
+
+// ===========================================================================
+//  LayerNorm Module
+// ===========================================================================
+
+class LayerNormModule : public NetworkModule {
+public:
+    explicit LayerNormModule(int64_t normalized_shape)
+        : normalized_shape_(normalized_shape)
+    {
+        torch::nn::LayerNormOptions opts({ normalized_shape });
+        ln_ = register_module("ln", torch::nn::LayerNorm(opts));
+    }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        ANET_PROFILE_FUNC();
+
+        // Lazy Init for device/dtype transfer
+        if (!initialized_) {
+            ln_->to(input.device(), input.scalar_type());
+            initialized_ = true;
+        }
+        return ln_->forward(input);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("normalized_shape", normalized_shape_);
+        return cd;
+    }
+private:
+    int64_t normalized_shape_;
+    bool initialized_ = false;
+    torch::nn::LayerNorm ln_{ nullptr };
+};
+
+class LayerNormModuleFactory final : public NetworkModuleFactory {
+private:
+    struct Config : anet::Config {
+        int normalized_shape = 0;
+
+        Config(const anet::ConfigData& config_data) : anet::Config("") {
+            ANET_READ_CONFIG(config_data, normalized_shape);
+        }
+    };
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        Config config(config_data);
+        if (config.normalized_shape <= 0) {
+            ANET_SYSTEM_ERROR("LayerNormModule: 'normalized_shape' must be strictly positive.");
+        }
+        return std::make_shared<LayerNormModule>(config.normalized_shape);
+    }
+};
+
+// ===========================================================================
+//  SpatialPositionalEmbedding2D Module
+// ===========================================================================
+
+
+/// @brief CNNの2次元特徴マップに空間位置情報(Positional Embedding)を付与し、
+///        Transformer用の1次元シーケンスデータへ変換するブリッジモジュール。
+///
+/// 【入出力のテンソル形状】
+/// - Input : [Batch, Channels, Height, Width]  (CNNの出力)
+/// - Output: [Batch, SequenceLength, Channels] (Transformerの入力)
+///           ※ SequenceLength = Height * Width
+///
+/// 【使用上の注意点】
+/// 1. 直前の層（通常は 1x1 Conv 等）において、出力チャンネル数(Channels)を
+///    後続の TransformerEncoder の `d_model` と完全に一致させておく必要がある。
+///    (例: Transformerのd_modelが32なら、直前のConvのout_channelsも32にする)
+/// 2. 本モジュールは Lazy Initialization（遅延初期化）を採用しています。
+///    初回の順伝播時に入力テンソルの形状から Height, Width, Channels を自動取得し、
+///    必要なサイズのパラメータを自己構築するため、Configでの設定値は一切不要。
+///
+/// 【内部処理】
+/// X座標用とY座標用に独立した学習可能なベクトル(Embedding)を保持し、ブロードキャストに
+/// よって特徴マップの各ピクセルへ一括加算。その後、空間次元を平坦化(Flatten)し、
+/// 軸を入れ替える(Transpose)ことで、Transformerが読めるシーケンス配列を生成する。
+class SpatialPositionalEmbedding2DModule : public NetworkModule {
+public:
+    SpatialPositionalEmbedding2DModule() = default;
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        ANET_PROFILE_FUNC();
+
+        // 初回実行時のLazy Initialization
+        if (!initialized_) {
+            // 入力: [Batch, d_model(Channels), Height, Width]
+            int64_t d_model = input.size(1);
+            int64_t height = input.size(2);
+            int64_t width = input.size(3);
+
+            // X座標用とY座標用のEmbeddingを独立して学習可能なパラメータとして登録
+            y_embed_ = register_parameter("y_embed", torch::randn({ height, d_model }) * 0.02f);
+            x_embed_ = register_parameter("x_embed", torch::randn({ width, d_model }) * 0.02f);
+
+            // デバイス同期
+            this->to(input.device(), input.scalar_type());
+            initialized_ = true;
+
+            LOG::info() << "SpatialPositionalEmbedding2D initialized with Height:" << height
+                << " Width:" << width << " d_model:" << d_model;
+        }
+
+        // --- 位置情報の加算 ---
+        auto y_emb = y_embed_.transpose(0, 1).unsqueeze(0).unsqueeze(-1);
+        auto x_emb = x_embed_.transpose(0, 1).unsqueeze(0).unsqueeze(2);
+        auto out = input + y_emb + x_emb;
+
+        // --- Transformer用シーケンスへの変形 ---
+        // [Batch, C, H, W] -> [Batch, H*W, C]
+        return out.flatten(2).transpose(1, 2);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        if (initialized_) {
+            cd.Set("height", y_embed_.size(0));
+            cd.Set("width", x_embed_.size(0));
+            cd.Set("d_model", y_embed_.size(1));
+        }
+        return cd;
+    }
+private:
+    bool initialized_ = false;
+    torch::Tensor y_embed_;
+    torch::Tensor x_embed_;
+};
+
+class SpatialPositionalEmbedding2DFactory final : public NetworkModuleFactory {
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override {
+        // パラメータ不要のため即座に生成
+        return std::make_shared<SpatialPositionalEmbedding2DModule>();
+    }
 };
 
 
@@ -345,16 +1099,16 @@ private:
 // SpatialEmbedderModule (For 2D Grid + Scalar Input)
 // ===========================================================================
 
-struct SpatialEmbedderConfig {
+struct HybridSpatialEmbedderConfig {
     int scalar_dim = 0;
     int grid_width = 0;
     int grid_height = 0;
     int num_classes = 0;
 };
 
-class SpatialEmbedderModule : public NetworkModule {
+class HybridSpatialEmbedderModule : public NetworkModule {
 public:
-    SpatialEmbedderModule(const SpatialEmbedderConfig& config)
+    HybridSpatialEmbedderModule(const HybridSpatialEmbedderConfig& config)
         : config_(config)
     {
         ANET_CHECK(config_.scalar_dim >= 0);
@@ -367,7 +1121,7 @@ public:
 
     torch::Tensor Forward(torch::Tensor input) override
     {
-        anet::ProfileRange r("SpatialEmbedderModule::Forward");
+        ANET_PROFILE_FUNC();
 
         // Input: (Batch, Stack, Features) or (Batch, Features)
         // Features = scalar_dim + (grid_w * grid_h)
@@ -375,17 +1129,6 @@ public:
         auto shape = input.sizes().vec();
         const int64_t batch_size = shape[0];
         const int64_t input_feature_dim = shape.back();
-
-        // 次元チェック
-        const int64_t expected_grid_dim = (int64_t)config_.grid_width * config_.grid_height;
-        const int64_t expected_total_dim = (int64_t)config_.scalar_dim + expected_grid_dim;
-
-        // ※Input次元が一致しない場合はエラーにする（あるいは柔軟に対応するかだが、基本は厳密に）
-        if (input_feature_dim != expected_total_dim) {
-            ANET_SYSTEM_ERROR("SpatialEmbedder: Input dimension mismatch. Expected "
-                << expected_total_dim << " (Scalar:" << config_.scalar_dim << " + Grid:" << expected_grid_dim << ")"
-                << " but got " << input_feature_dim);
-        }
 
         // Stack次元の有無を確認
         // dim=3なら (Batch, Stack, Feat)、dim=2なら (Batch, Feat)
@@ -397,6 +1140,15 @@ public:
         torch::Tensor flat_input = input;
         if (has_stack) {
             flat_input = input.reshape({ -1, input_feature_dim });
+        }
+
+        // 次元チェック
+        const int64_t expected_grid_dim = (int64_t)config_.grid_width * config_.grid_height;
+        const int64_t expected_total_dim = ((int64_t)config_.scalar_dim + expected_grid_dim) * stack_count;
+        if (input_feature_dim != expected_total_dim) {
+            ANET_SYSTEM_ERROR("SpatialEmbedder: Input dimension mismatch. Expected "
+                << expected_total_dim << " (Scalar:" << config_.scalar_dim << " + Grid:" << expected_grid_dim << ")"
+                << " but got " << input_feature_dim);
         }
 
         // 1. Split (Scalar / Grid)
@@ -457,458 +1209,81 @@ public:
         return out_img;
     }
 
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("scalar_dim", config_.scalar_dim);
+        cd.Set("grid_width", config_.grid_width);
+        cd.Set("grid_height", config_.grid_height);
+        cd.Set("num_classes", config_.num_classes);
+        return cd;
+    }
+
 private:
-    SpatialEmbedderConfig config_;
+    HybridSpatialEmbedderConfig config_;
 };
 
 
 // ===========================================================================
-//  BatchNorm2d Module
+// SpatialEmbedderModule (Vector to Spatial Image)
 // ===========================================================================
 
-// BatchNorm2d Module
-class BatchNorm2dModule : public NetworkModule {
+struct SpatialEmbedderConfig {
+    int grid_width = 0;
+    int grid_height = 0;
+};
+
+class SpatialEmbedderModule : public NetworkModule {
 public:
-    explicit BatchNorm2dModule(int64_t num_features)
-        : num_features_(num_features)
+    SpatialEmbedderModule(const SpatialEmbedderConfig& config)
+        : config_(config)
     {
-    }
-
-    torch::Tensor Forward(torch::Tensor input) override
-    {
-        // Lazy Init
-        if (!bn_) {
-            torch::nn::BatchNorm2dOptions opts(num_features_);
-            bn_ = register_module("bn", torch::nn::BatchNorm2d(opts));
-            bn_->to(input.device(), input.scalar_type());
-        }
-        return bn_->forward(input);
-    }
-private:
-    int64_t num_features_;
-    torch::nn::BatchNorm2d bn_{ nullptr };
-};
-
-// Factory
-class BatchNorm2dModuleFactory final : public NetworkModuleFactory {
-private:
-    struct Config : anet::Config {
-        int num_features = 0;
-        Config(const anet::ConfigData& config_data) : anet::Config("")
-        {
-            ANET_READ_CONFIG(config_data, num_features);
-        }
-    };
-public:
-    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
-    {
-        Config config(config_data);
-        return std::make_shared<BatchNorm2dModule>(config.num_features);
-    }
-};
-
-
-// ===========================================================================
-//  GroupNormModule Module
-// ===========================================================================
-
-class GroupNormModule : public NetworkModule {
-public:
-    GroupNormModule(int64_t num_groups, int64_t num_channels)
-        : num_groups_(num_groups), num_channels_(num_channels)
-    {
-    }
-
-    torch::Tensor Forward(torch::Tensor input) override
-    {
-        // Lazy Init
-        if (!impl_) {
-            torch::nn::GroupNormOptions opts(num_groups_, num_channels_);
-            // GroupNormは学習可能パラメータ(Affine)を持つのがデフォルト
-            opts.affine(true);
-            impl_ = register_module("gn", torch::nn::GroupNorm(opts));
-            impl_->to(input.device(), input.scalar_type());
-        }
-        return impl_->forward(input);
-    }
-private:
-    int64_t num_groups_;
-    int64_t num_channels_;
-    torch::nn::GroupNorm impl_{ nullptr };
-};
-
-class GroupNormModuleFactory final : public NetworkModuleFactory {
-private:
-    struct Config : anet::Config {
-        int num_groups = 32;
-        int num_channels = 0;
-
-        Config(const anet::ConfigData& config_data) : anet::Config("")
-        {
-            ANET_READ_CONFIG(config_data, num_groups);
-            ANET_READ_CONFIG(config_data, num_channels);
-        }
-    };
-public:
-    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
-    {
-        Config config(config_data);
-        if (config.num_channels <= 0) {
-            // GroupNormはチャンネル数がグループ数で割り切れる必要がある。明示指定を必須とする
-            ANET_SYSTEM_ERROR("GroupNormModule: num_channels is 0.");
-        }
-        return std::make_shared<GroupNormModule>(config.num_groups, config.num_channels);
-    }
-};
-
-
-// ===========================================================================
-//  ResBlock Module
-// ===========================================================================
-
-struct ResBlockConfig {
-    int channels = 64;
-    int kernel_size = 3;
-    int padding = -1;
-    int stride = 1;
-    int dilation = 1;
-    std::string activation = "silu"; // "relu" (default) or "silu" / "swish"
-    std::string norm_type = "none"; // "none", "batch", "group"
-    int group_norm_groups = 32;
-    bool conv1_bias = true;        // Norm無しならtrue必須。None有りならFalse推奨。
-    bool conv2_bias = true;        // ZeroInitするならTrue推奨
-};
-
-/// @todo 全部設定でConv2dとかReLUとかを組み合わせて定義したResBlockを更に組み合わせる、がしたかったResBlockごとModule実装でいいのか…？？
-
-/// ResNet Basic Block
-class ResBlockModule : public NetworkModule {
-private:
-    enum class ActType { ReLU, SiLU };
-public:
-    ResBlockModule(const ResBlockConfig& config, const WeightInitConfig& init1_config, const WeightInitConfig& init2_config, const WeightInitConfig& init_ds_config)
-        : config_(config), init1_config_(init1_config), init2_config_(init2_config), init_ds_config_(init_ds_config)
-    {
-        if (config_.activation == "SiLU" || config_.activation == "silu" ||
-            config_.activation == "Swish" || config_.activation == "swish") {
-            act_type_ = ActType::SiLU;
-        } else {
-            act_type_ = ActType::ReLU;
-        }
+        ANET_CHECK(config_.grid_width > 0);
+        ANET_CHECK(config_.grid_height > 0);
     }
 
     bool IsConv2dVisualizable() const override { return true; }
 
     torch::Tensor Forward(torch::Tensor input) override
     {
-        anet::ProfileRange r("ResBlockModule::Forward");
+        ANET_PROFILE_FUNC();
 
-        // Lazy Initialization
-        if (!conv1_) {
-            anet::ProfileRange r2("ResBlockModule::Forward.init");
+        // Input: (Batch, Features) または FrameStack時 (Batch, Stack, Features)
+        auto shape = input.sizes().vec();
+        const int64_t batch_size = shape[0];
+        const int64_t input_feature_dim = shape.back();
 
-            auto device = input.device();
-            auto dtype = input.scalar_type();
-            int64_t in_channels = input.size(1);
-            int padding = config_.padding < 0 ? (config_.dilation * (config_.kernel_size - 1) / 2) : config_.padding;
+        bool has_stack = (input.dim() == 3);
+        int64_t stack_count = has_stack ? shape[1] : 1;
 
-            // ------------------------------------------------
-            // Main Path (Conv1)
-            // ------------------------------------------------
-            torch::nn::Conv2dOptions conv1_opts(in_channels, config_.channels, config_.kernel_size);
-            conv1_opts.stride(config_.stride);
-            conv1_opts.padding(padding);
-            conv1_opts.dilation(config_.dilation);
-            conv1_opts.bias(config_.conv1_bias);
-            conv1_ = register_module("conv1", torch::nn::Conv2d(conv1_opts));
-            conv1_->to(device, dtype);
-            WeightInitializer::Initialize(conv1_, init1_config_);
+        // 処理のために (TotalBatch, Feat) にFlatten
+        torch::Tensor flat_input = has_stack ? input.reshape({ -1, input_feature_dim }) : input;
 
-            norm1_ = CreateAndRegisterNorm("norm1", config_.channels);
+        // (N, Feat) -> (N, Feat, 1, 1) -> (N, Feat, H, W) へBroadcast
+        torch::Tensor out_img = flat_input.view({ -1, input_feature_dim, 1, 1 })
+            .expand({ -1, input_feature_dim, config_.grid_height, config_.grid_width });
 
-            // ------------------------------------------------
-            // Main Path (Conv2)
-            // ------------------------------------------------
-            torch::nn::Conv2dOptions conv2_opts(config_.channels, config_.channels, config_.kernel_size);
-            conv2_opts.stride(1);
-            conv2_opts.padding(padding);
-            conv2_opts.dilation(config_.dilation);
-            conv2_opts.bias(config_.conv2_bias);
-            conv2_ = register_module("conv2", torch::nn::Conv2d(conv2_opts));
-            conv2_->to(device, dtype);
-
-            WeightInitializer::Initialize(conv2_, init2_config_);
-
-            norm2_ = CreateAndRegisterNorm("norm2", config_.channels);
-
-            // ------------------------------------------------
-            // Shortcut Path
-            // ------------------------------------------------
-            if (config_.stride > 1 || in_channels != config_.channels) {
-                torch::nn::Conv2dOptions ds_opts(in_channels, config_.channels, 1);
-                ds_opts.stride(config_.stride);
-                ds_opts.padding(0);
-                ds_opts.bias(false); // Shortcutは通常Biasなし(直後にAddされるため)
-                downsample_conv_ = register_module("ds_conv", torch::nn::Conv2d(ds_opts));
-                downsample_conv_->to(device, dtype);
-                WeightInitializer::Initialize(downsample_conv_, init_ds_config_);
-
-                // Shortcut Norm (Conv1x1 -> Norm)
-                norm_ds_ = CreateAndRegisterNorm("ds_norm", config_.channels);
-            }
+        // Stack次元の統合 (Stack as Channel)
+        if (has_stack) {
+            // (B*S, C, H, W) -> (B, S, C, H, W) -> (B, S*C, H, W)
+            out_img = out_img.view({ batch_size, stack_count, input_feature_dim, config_.grid_height, config_.grid_width });
+            out_img = out_img.reshape({ batch_size, stack_count * input_feature_dim, config_.grid_height, config_.grid_width });
         }
 
-        // --- Forwarding ---
-
-        /// @todo Pre-Activation対応
-
-        // Post Activation (ResNet v1、今の実装)
-        //    Conv->BN->ReLU->Conv->BN->Add->ReLU
-        // Pre Activation(ResNet v2)
-        //    BN->ReLU->Conv->BN->ReLU->Conv->Add
-        // Postは最後にReLUがあるため、マイナス値を出力し辛い。Preは最後にActivationがないため、ResBlockの出力はマイナス値も問題無い。
-        // Preの方が勾配の流れが良いため、学習初期の不安定な時期を抜け出しやすい。
-
-        // Block 1: Conv -> Norm -> Act
-        anet::ProfileRange r3("ResBlockModule::Forward.conv1");
-        torch::Tensor out = conv1_->forward(input);
-        if (norm1_) out = norm1_->Forward(out);
-        out = Activate(out);
-
-        // Block 2: Conv -> Norm
-        anet::ProfileRange r4("ResBlockModule::Forward.conv2", r3);
-        out = conv2_->forward(out);
-        if (norm2_) out = norm2_->Forward(out);
-
-        // Down-sample
-        anet::ProfileRange r5("ResBlockModule::Forward.downsample", r4);
-        torch::Tensor residual = input;
-        if (downsample_conv_) { // 次元合わせが必要な場合の1x1Conv
-            residual = downsample_conv_->forward(residual);
-            if (norm_ds_) residual = norm_ds_->Forward(residual);
-        }
-
-        // Add & Act
-        anet::ProfileRange r6("ResBlockModule::Forward.fin", r5);
-        out += residual;
-        out = Activate(out);
-
-        return out;
+        // float32 キャストして返す
+        return out_img.to(torch::kFloat32);
     }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("grid_width", config_.grid_width);
+        cd.Set("grid_height", config_.grid_height);
+        return cd;
+    }
+
 private:
-    std::shared_ptr<NetworkModule> CreateAndRegisterNorm(const std::string& name, int64_t channels)
-    {
-        std::shared_ptr<NetworkModule> mod = nullptr;
-
-        if (config_.norm_type == "batch") {
-            mod = std::make_shared<BatchNorm2dModule>(channels);
-        } else if (config_.norm_type == "group") {
-            mod = std::make_shared<GroupNormModule>(config_.group_norm_groups, channels);
-        }
-
-        if (mod) {
-            // パラメータ登録のため register_module を経由させる
-            register_module(name, mod);
-        }
-        return mod;
-    }
-    inline torch::Tensor Activate(const torch::Tensor& x) const
-    {
-        if (act_type_ == ActType::SiLU) {
-            return torch::silu(x);
-        }
-        return torch::relu(x);
-    }
-private:
-    ResBlockConfig config_;
-    WeightInitConfig init1_config_;
-    WeightInitConfig init2_config_;
-    WeightInitConfig init_ds_config_;
-
-    ActType act_type_ = ActType::ReLU;
-
-    // Conv2d
-    torch::nn::Conv2d conv1_{ nullptr };
-    torch::nn::Conv2d conv2_{ nullptr };
-    torch::nn::Conv2d downsample_conv_{ nullptr };
-
-    // Normalization Layers
-    std::shared_ptr<NetworkModule> norm1_{ nullptr };
-    std::shared_ptr<NetworkModule> norm2_{ nullptr };
-    std::shared_ptr<NetworkModule> norm_ds_{ nullptr };
-};
-
-// ResBlockModuleFactory
-class ResBlockModuleFactory final : public NetworkModuleFactory {
-private:
-    struct Config : anet::Config {
-        ResBlockConfig res;
-        WeightInitConfig init1;
-        WeightInitConfig init2;
-        WeightInitConfig init_ds;
-
-        Config(const anet::ConfigData& config_data) : anet::Config("")
-        {
-            init1.mode = 2;			    // Default: He       
-            init2.mode = 4;             // Default: ZeroInit
-            init_ds.mode = 2;			// Default: He       
-
-            ANET_READ_CONFIG(config_data, res.channels);
-            ANET_READ_CONFIG(config_data, res.kernel_size);
-            ANET_READ_CONFIG(config_data, res.stride);
-            ANET_READ_CONFIG(config_data, res.padding);
-            ANET_READ_CONFIG(config_data, res.dilation);
-            ANET_READ_CONFIG(config_data, res.conv1_bias);
-            ANET_READ_CONFIG(config_data, res.conv2_bias);
-            ANET_READ_CONFIG(config_data, res.activation);
-            ANET_READ_CONFIG(config_data, res.norm_type);
-            ANET_READ_CONFIG(config_data, res.group_norm_groups);
-
-            ANET_READ_CONFIG(config_data, init1.mode);
-            ANET_READ_CONFIG(config_data, init1.manual_gain);
-            ANET_READ_CONFIG(config_data, init1.nonlinearity);
-            ANET_READ_CONFIG(config_data, init1.constant_val);
-
-            ANET_READ_CONFIG(config_data, init2.mode);
-            ANET_READ_CONFIG(config_data, init2.manual_gain);
-            ANET_READ_CONFIG(config_data, init2.nonlinearity);
-            ANET_READ_CONFIG(config_data, init2.constant_val);
-
-            ANET_READ_CONFIG(config_data, init_ds.mode);
-            ANET_READ_CONFIG(config_data, init_ds.manual_gain);
-            ANET_READ_CONFIG(config_data, init_ds.nonlinearity);
-            ANET_READ_CONFIG(config_data, init_ds.constant_val);
-        }
-    };
-public:
-    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
-    {
-        Config config(config_data);
-        return std::make_shared<ResBlockModule>(config.res, config.init1, config.init2, config.init_ds);
-    }
-};
-
-// ===========================================================================
-//  LayerNorm Module
-// ===========================================================================
-
-class LayerNormModule : public NetworkModule {
-public:
-    explicit LayerNormModule(int64_t normalized_shape)
-    {
-        torch::nn::LayerNormOptions opts({ normalized_shape });
-        ln_ = register_module("ln", torch::nn::LayerNorm(opts));
-    }
-
-    torch::Tensor Forward(torch::Tensor input) override
-    {
-        anet::ProfileRange r("LayerNormModule::Forward");
-
-        // Lazy Init for device/dtype transfer
-        if (!initialized_) {
-            ln_->to(input.device(), input.scalar_type());
-            initialized_ = true;
-        }
-        return ln_->forward(input);
-    }
-private:
-    bool initialized_ = false;
-    torch::nn::LayerNorm ln_{ nullptr };
-};
-
-class LayerNormModuleFactory final : public NetworkModuleFactory {
-private:
-    struct Config : anet::Config {
-        int normalized_shape = 0;
-
-        Config(const anet::ConfigData& config_data) : anet::Config("") {
-            ANET_READ_CONFIG(config_data, normalized_shape);
-        }
-    };
-public:
-    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
-    {
-        Config config(config_data);
-        if (config.normalized_shape <= 0) {
-            ANET_SYSTEM_ERROR("LayerNormModule: 'normalized_shape' must be strictly positive.");
-        }
-        return std::make_shared<LayerNormModule>(config.normalized_shape);
-    }
-};
-
-// ===========================================================================
-//  SpatialPositionalEmbedding2D Module
-// ===========================================================================
-
-
-/// @brief CNNの2次元特徴マップに空間位置情報(Positional Embedding)を付与し、
-///        Transformer用の1次元シーケンスデータへ変換するブリッジモジュール。
-///
-/// 【入出力のテンソル形状】
-/// - Input : [Batch, Channels, Height, Width]  (CNNの出力)
-/// - Output: [Batch, SequenceLength, Channels] (Transformerの入力)
-///           ※ SequenceLength = Height * Width
-///
-/// 【使用上の注意点】
-/// 1. 直前の層（通常は 1x1 Conv 等）において、出力チャンネル数(Channels)を
-///    後続の TransformerEncoder の `d_model` と完全に一致させておく必要がある。
-///    (例: Transformerのd_modelが32なら、直前のConvのout_channelsも32にする)
-/// 2. 本モジュールは Lazy Initialization（遅延初期化）を採用しています。
-///    初回の順伝播時に入力テンソルの形状から Height, Width, Channels を自動取得し、
-///    必要なサイズのパラメータを自己構築するため、Configでの設定値は一切不要。
-///
-/// 【内部処理】
-/// X座標用とY座標用に独立した学習可能なベクトル(Embedding)を保持し、ブロードキャストに
-/// よって特徴マップの各ピクセルへ一括加算。その後、空間次元を平坦化(Flatten)し、
-/// 軸を入れ替える(Transpose)ことで、Transformerが読めるシーケンス配列を生成する。
-class SpatialPositionalEmbedding2DModule : public NetworkModule {
-public:
-    SpatialPositionalEmbedding2DModule() = default;
-
-    torch::Tensor Forward(torch::Tensor input) override
-    {
-        anet::ProfileRange r("SpatialPositionalEmbedding2DModule::Forward");
-
-        // 初回実行時のLazy Initialization
-        if (!initialized_) {
-            // 入力: [Batch, d_model(Channels), Height, Width]
-            int64_t d_model = input.size(1);
-            int64_t height = input.size(2);
-            int64_t width = input.size(3);
-
-            // X座標用とY座標用のEmbeddingを独立して学習可能なパラメータとして登録
-            y_embed_ = register_parameter("y_embed", torch::randn({ height, d_model }) * 0.02f);
-            x_embed_ = register_parameter("x_embed", torch::randn({ width, d_model }) * 0.02f);
-
-            // デバイス同期
-            this->to(input.device(), input.scalar_type());
-            initialized_ = true;
-
-            LOG::info() << "SpatialPositionalEmbedding2D initialized with Height:" << height
-                << " Width:" << width << " d_model:" << d_model;
-        }
-
-        // --- 位置情報の加算 ---
-        auto y_emb = y_embed_.transpose(0, 1).unsqueeze(0).unsqueeze(-1);
-        auto x_emb = x_embed_.transpose(0, 1).unsqueeze(0).unsqueeze(2);
-        auto out = input + y_emb + x_emb;
-
-        // --- Transformer用シーケンスへの変形 ---
-        // [Batch, C, H, W] -> [Batch, H*W, C]
-        return out.flatten(2).transpose(1, 2);
-    }
-private:
-    bool initialized_ = false;
-    torch::Tensor y_embed_;
-    torch::Tensor x_embed_;
-};
-
-class SpatialPositionalEmbedding2DFactory final : public NetworkModuleFactory {
-public:
-    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override {
-        // パラメータ不要のため即座に生成
-        return std::make_shared<SpatialPositionalEmbedding2DModule>();
-    }
+    SpatialEmbedderConfig config_;
 };
 
 
@@ -916,32 +1291,87 @@ public:
 //  TransformerEncoder Module
 // ===========================================================================
 
+torch::Tensor anet::nn::SdpaSelfAttention(const torch::nn::MultiheadAttention& mha, const torch::Tensor& x)
+{
+    namespace F = torch::nn::functional;
+
+    ANET_CHECK_MSG(x.dim() == 3, "SdpaSelfAttention: input must have shape [B, S, E]. actual_dim=" << x.dim());
+    ANET_CHECK_MSG(mha->_qkv_same_embed_dim, "SdpaSelfAttention: separate q/k/v projection is not supported.");
+    ANET_CHECK_MSG(!mha->bias_k.defined() && !mha->bias_v.defined(), "SdpaSelfAttention: add_bias_kv is not supported.");
+    ANET_CHECK_MSG(mha->in_proj_weight.defined(), "SdpaSelfAttention: in_proj_weight is undefined.");
+    ANET_CHECK_MSG(mha->out_proj, "SdpaSelfAttention: out_proj is undefined.");
+
+    const int64_t batch_size = x.size(0);
+    const int64_t seq_len = x.size(1);
+    const int64_t embed_dim = x.size(2);
+    const int64_t expected_embed_dim = mha->in_proj_weight.size(1);
+    const int64_t num_heads = mha->options.num_heads();
+    const int64_t head_dim = mha->head_dim;
+
+    ANET_CHECK_MSG(embed_dim == expected_embed_dim,
+        "SdpaSelfAttention: input embed_dim mismatch. expected=" << expected_embed_dim << " actual=" << embed_dim);
+    ANET_CHECK_MSG(mha->in_proj_weight.size(0) == 3 * expected_embed_dim,
+        "SdpaSelfAttention: in_proj_weight must have shape [3E, E]. actual=" << mha->in_proj_weight.sizes());
+    ANET_CHECK_MSG(num_heads > 0, "SdpaSelfAttention: num_heads must be positive. actual=" << num_heads);
+    ANET_CHECK_MSG(head_dim > 0 && embed_dim == num_heads * head_dim,
+        "SdpaSelfAttention: invalid head layout. embed_dim=" << embed_dim
+        << " num_heads=" << num_heads << " head_dim=" << head_dim);
+
+    // QKVをまとめて射影し、最後の次元を [Q, K, V] に分割する。
+    torch::Tensor qkv = F::linear(x, mha->in_proj_weight, mha->in_proj_bias);
+    std::vector<torch::Tensor> chunks = qkv.chunk(3, /*dim=*/-1);
+
+    auto to_heads = [&](const torch::Tensor& t) {
+        return t.reshape({ batch_size, seq_len, num_heads, head_dim }).transpose(1, 2);
+    };
+
+    torch::Tensor q = to_heads(chunks[0]);
+    torch::Tensor k = to_heads(chunks[1]);
+    torch::Tensor v = to_heads(chunks[2]);
+
+    const double dropout_p = mha->is_training() ? mha->options.dropout() : 0.0;
+    torch::Tensor attn = at::scaled_dot_product_attention(
+        q, k, v, /*attn_mask=*/{}, dropout_p, /*is_causal=*/false);
+
+    attn = attn.transpose(1, 2).reshape({ batch_size, seq_len, embed_dim });
+    return F::linear(attn, mha->out_proj->weight, mha->out_proj->bias);
+}
+
 /// libtorchの制約（Post-LN固定、[SeqLen, Batch, d_model] 形式の入力）を突破するためカスタムのTransformer層を用意
 class CustomTransformerEncoderLayer : public torch::nn::Module {
 public:
-    CustomTransformerEncoderLayer(int64_t d_model, int64_t nhead, int64_t dim_feedforward, bool norm_first, const std::string& activation)
+    CustomTransformerEncoderLayer(
+        int64_t d_model, int64_t nhead, int64_t dim_feedforward,
+        bool norm_first, const std::string& activation, bool use_sdpa,
+        double hidden_dropout_rate, double attn_dropout_rate, double droppath_rate)
         : norm_first_(norm_first)
+        , use_sdpa_(use_sdpa)
+        , droppath_rate_(droppath_rate)
+        , use_gelu_(anet::ToLower(activation) == "gelu")
     {
         // Multihead Attention
         torch::nn::MultiheadAttentionOptions mha_opts(d_model, nhead);
+        mha_opts.dropout(attn_dropout_rate);
         mha_ = register_module("self_attn", torch::nn::MultiheadAttention(mha_opts));
 
         // Feed Forward Network (FFN)
         linear1_ = register_module("linear1", torch::nn::Linear(d_model, dim_feedforward));
         linear2_ = register_module("linear2", torch::nn::Linear(dim_feedforward, d_model));
 
+        // Transformer の hidden_dropout_rate は attention/FFN の要素 dropout。
+        if (hidden_dropout_rate > 0.0) {
+            dropout_ = register_module("dropout", torch::nn::Dropout(torch::nn::DropoutOptions(hidden_dropout_rate)));
+        }
+
         // Layer Normalizations
         norm1_ = register_module("norm1", torch::nn::LayerNorm(torch::nn::LayerNormOptions({ d_model })));
         norm2_ = register_module("norm2", torch::nn::LayerNorm(torch::nn::LayerNormOptions({ d_model })));
-
-        //  Activation Function
-        std::string act_lower = activation;
-        std::transform(act_lower.begin(), act_lower.end(), act_lower.begin(), ::tolower);
-        use_gelu_ = (act_lower == "gelu");
     }
 
     torch::Tensor forward(torch::Tensor src)
     {
+        ANET_PROFILE_FUNC();
+
         // srcの期待形状: [Batch, SeqLen, d_model]
         torch::Tensor x = src;
 
@@ -951,51 +1381,90 @@ public:
             // ==========================================
 
             // --- Attention Block ---
+            ANET_PROFILE_SCOPE(attn_norm);
             torch::Tensor x_norm = norm1_->forward(x);
 
-            // libtorchのMHAは [SeqLen, Batch, d_model] しか受け付けないため明示的に転置
-            torch::Tensor x_norm_t = x_norm.transpose(0, 1);
+            ANET_PROFILE_SCOPE_NEXT(self_attn);
+            torch::Tensor attn_out;
+            if (use_sdpa_) {
+                attn_out = anet::nn::SdpaSelfAttention(mha_, x_norm);
+            } else {
+                // libtorchのMHAは [SeqLen, Batch, d_model] 形式なので旧経路だけ転置する。
+                torch::Tensor x_norm_t = x_norm.transpose(0, 1);
+                attn_out = std::get<0>(mha_->forward(x_norm_t, x_norm_t, x_norm_t)).transpose(0, 1);
+            }
 
-            // MultiheadAttention (Query, Key, Value)
-            auto mha_out = std::get<0>(mha_->forward(x_norm_t, x_norm_t, x_norm_t));
-
-            // 転置して戻し、Skip Connection (Add)
-            x = x + mha_out.transpose(0, 1);
+            ANET_PROFILE_SCOPE_NEXT(attn_residual);
+            attn_out = ApplyDropout(attn_out);
+            x = x + DropPath(attn_out, droppath_rate_, is_training());
 
             // --- FFN Block ---
+            ANET_PROFILE_SCOPE_NEXT(ffn_norm);
             x_norm = norm2_->forward(x);
+            ANET_PROFILE_SCOPE_NEXT(ffn_linear1);
             torch::Tensor ffn_out = linear1_->forward(x_norm);
+            ANET_PROFILE_SCOPE_NEXT(ffn_activation);
             ffn_out = use_gelu_ ? torch::gelu(ffn_out) : torch::relu(ffn_out);
+            ffn_out = ApplyDropout(ffn_out);
+            ANET_PROFILE_SCOPE_NEXT(ffn_linear2);
             ffn_out = linear2_->forward(ffn_out);
 
             // Skip Connection (Add)
-            x = x + ffn_out;
+            ANET_PROFILE_SCOPE_NEXT(ffn_residual);
+            ffn_out = ApplyDropout(ffn_out);
+            x = x + DropPath(ffn_out, droppath_rate_, is_training());
         } else {
             // ==========================================
             // Post-LN：オリジナルTransformer相当（最終的な性能は高いが不安定）
             // ==========================================
 
-            torch::Tensor x_t = x.transpose(0, 1);
-            auto mha_out = std::get<0>(mha_->forward(x_t, x_t, x_t));
-            x = norm1_->forward(x + mha_out.transpose(0, 1));
+            ANET_PROFILE_SCOPE(self_attn);
+            torch::Tensor attn_out;
+            if (use_sdpa_) {
+                attn_out = anet::nn::SdpaSelfAttention(mha_, x);
+            } else {
+                // libtorchのMHAは [SeqLen, Batch, d_model] 形式なので旧経路だけ転置する。
+                torch::Tensor x_t = x.transpose(0, 1);
+                attn_out = std::get<0>(mha_->forward(x_t, x_t, x_t)).transpose(0, 1);
+            }
+            ANET_PROFILE_SCOPE_NEXT(attn_residual_norm);
+            attn_out = ApplyDropout(attn_out);
+            x = norm1_->forward(x + DropPath(attn_out, droppath_rate_, is_training()));
 
+            ANET_PROFILE_SCOPE_NEXT(ffn_linear1);
             torch::Tensor ffn_out = linear1_->forward(x);
+            ANET_PROFILE_SCOPE_NEXT(ffn_activation);
             ffn_out = use_gelu_ ? torch::gelu(ffn_out) : torch::relu(ffn_out);
+            ffn_out = ApplyDropout(ffn_out);
+            ANET_PROFILE_SCOPE_NEXT(ffn_linear2);
             ffn_out = linear2_->forward(ffn_out);
-            x = norm2_->forward(x + ffn_out);
+            ANET_PROFILE_SCOPE_NEXT(ffn_residual_norm);
+            ffn_out = ApplyDropout(ffn_out);
+            x = norm2_->forward(x + DropPath(ffn_out, droppath_rate_, is_training()));
         }
 
         return x;
     }
 
 private:
-    bool norm_first_;
+    torch::Tensor ApplyDropout(torch::Tensor x)
+    {
+        if (dropout_) {
+            return dropout_->forward(x);
+        }
+        return x;
+    }
+
+    const bool norm_first_;
+    const bool use_sdpa_;
     bool use_gelu_;
+    const double droppath_rate_;
     torch::nn::MultiheadAttention mha_{ nullptr };
     torch::nn::Linear linear1_{ nullptr };
     torch::nn::Linear linear2_{ nullptr };
     torch::nn::LayerNorm norm1_{ nullptr };
     torch::nn::LayerNorm norm2_{ nullptr };
+    torch::nn::Dropout dropout_{ nullptr };
 };
 
 struct TransformerConfig {
@@ -1003,8 +1472,12 @@ struct TransformerConfig {
     int nhead = 4;
     int num_layers = 2;
     int dim_feedforward = 128;
-    bool norm_first = true;             /// Pre-LN default
-    std::string activation = "gelu";    /// relu / gelu
+    bool norm_first = true;             ///< Pre-LN default
+    bool use_sdpa = true;               ///< SDPA/FlashAttention経路を使う
+    std::string activation = "gelu";    ///< relu / gelu
+    double hidden_dropout_rate = 0.0;    ///< hidden activations/residual branch の要素 dropout 確率
+    double attn_dropout_rate = 0.0;      ///< attention weights dropout 確率
+    double droppath_rate = 0.0;          ///< residual branch の Stochastic Depth 確率
 };
 
 // --- TransformerEncoderModule 本体 ---
@@ -1018,7 +1491,9 @@ public:
         // カスタムレイヤーをループで生成・登録
         for (int i = 0; i < config_.num_layers; ++i) {
             auto layer = std::make_shared<CustomTransformerEncoderLayer>(
-                config_.d_model, config_.nhead, config_.dim_feedforward, config_.norm_first, config_.activation
+                config_.d_model, config_.nhead, config_.dim_feedforward,
+                config_.norm_first, config_.activation, config_.use_sdpa,
+                config_.hidden_dropout_rate, config_.attn_dropout_rate, config_.droppath_rate
             );
             layers_.push_back(register_module("layer_" + std::to_string(i), layer));
         }
@@ -1032,9 +1507,11 @@ public:
 
     torch::Tensor Forward(torch::Tensor input) override
     {
-        anet::ProfileRange r("TransformerEncoderModule::Forward");
+        ANET_PROFILE_FUNC();
 
         if (!initialized_) {
+            ANET_PROFILE_SCOPE(init);
+
             // 初回の形状チェック
             int64_t input_dim = input.size(2); // [B, SeqLen, d_model]
             if (input_dim != config_.d_model) {
@@ -1048,17 +1525,38 @@ public:
 
         torch::Tensor out = input;
 
-        // レイヤーを順番に適用
-        for (auto& layer : layers_) {
-            out = layer->forward(out);
+        {
+            ANET_PROFILE_SCOPE(layers);
+
+            // レイヤーを順番に適用
+            for (auto& layer : layers_) {
+                out = layer->forward(out);
+            }
         }
 
         // 最終正規化
         if (norm_) {
+            ANET_PROFILE_SCOPE(final_norm);
             out = norm_->forward(out);
         }
 
         return out;
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("d_model", config_.d_model);
+        cd.Set("nhead", config_.nhead);
+        cd.Set("num_layers", config_.num_layers);
+        cd.Set("dim_feedforward", config_.dim_feedforward);
+        cd.Set("norm_first", ToConfigBool(config_.norm_first));
+        cd.Set("use_sdpa", ToConfigBool(config_.use_sdpa));
+        cd.Set("activation", config_.activation);
+        cd.Set("hidden_dropout_rate", config_.hidden_dropout_rate);
+        cd.Set("attn_dropout_rate", config_.attn_dropout_rate);
+        cd.Set("droppath_rate", config_.droppath_rate);
+        return cd;
     }
 private:
     TransformerConfig config_;
@@ -1078,13 +1576,20 @@ private:
             ANET_READ_CONFIG(config_data, tf.num_layers);
             ANET_READ_CONFIG(config_data, tf.dim_feedforward);
             ANET_READ_CONFIG(config_data, tf.norm_first);
+            ANET_READ_CONFIG(config_data, tf.use_sdpa);
             ANET_READ_CONFIG(config_data, tf.activation);
+            ANET_READ_CONFIG(config_data, tf.hidden_dropout_rate);
+            ANET_READ_CONFIG(config_data, tf.attn_dropout_rate);
+            ANET_READ_CONFIG(config_data, tf.droppath_rate);
         }
     };
 public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
     {
         Config config(config_data);
+        ValidateDropRate("tf.hidden_dropout_rate", config.tf.hidden_dropout_rate);
+        ValidateDropRate("tf.attn_dropout_rate", config.tf.attn_dropout_rate);
+        ValidateDropRate("tf.droppath_rate", config.tf.droppath_rate);
         return std::make_shared<TransformerEncoderModule>(config.tf);
     }
 };
@@ -1098,9 +1603,17 @@ class GlobalAveragePooling1DModule : public NetworkModule {
 public:
     torch::Tensor Forward(torch::Tensor input) override
     {
-        anet::ProfileRange r("GlobalAveragePooling1DModule::Forward");
+        ANET_PROFILE_FUNC();
         // [Batch, SeqLen, d_model] の SeqLen (dim=1) を平均して潰す
         return input.mean(/*dim=*/1);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("dim", 1);
+        cd.Set("op", "mean");
+        return cd;
     }
 };
 
@@ -1113,6 +1626,127 @@ public:
 };
 
 // ===========================================================================
+//  Global Average Pooling 2D Module (GAP2D)
+// ===========================================================================
+
+class GlobalAveragePooling2DModule : public NetworkModule {
+public:
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        ANET_PROFILE_FUNC();
+        // [Batch, Channel, Height, Width] の空間次元を平均して潰す
+        return input.mean(/*dims=*/{ 2, 3 }, /*keepdim=*/false);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("dims", "[2, 3]");
+        cd.Set("op", "mean");
+        return cd;
+    }
+};
+
+class GlobalAveragePooling2DFactory final : public NetworkModuleFactory {
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        return std::make_shared<GlobalAveragePooling2DModule>();
+    }
+};
+
+// ===========================================================================
+//  Max Pooling 2D Module
+// ===========================================================================
+
+class MaxPool2dModule : public NetworkModule {
+public:
+    MaxPool2dModule(int64_t kernel_size, int64_t stride, int64_t padding, int64_t dilation, bool ceil_mode)
+        : kernel_size_(kernel_size)
+        , stride_(stride)
+        , padding_(padding)
+        , dilation_(dilation)
+        , ceil_mode_(ceil_mode)
+        , pool_(torch::nn::MaxPool2dOptions(kernel_size)
+            .stride(stride)
+            .padding(padding)
+            .dilation(dilation)
+            .ceil_mode(ceil_mode))
+    {
+        register_module("maxpool2d", pool_);
+    }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        ANET_PROFILE_FUNC();
+        return pool_->forward(input);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("kernel_size", kernel_size_);
+        cd.Set("stride", stride_);
+        cd.Set("padding", padding_);
+        cd.Set("dilation", dilation_);
+        cd.Set("ceil_mode", ToConfigBool(ceil_mode_));
+        return cd;
+    }
+private:
+    int64_t kernel_size_;
+    int64_t stride_;
+    int64_t padding_;
+    int64_t dilation_;
+    bool ceil_mode_;
+    torch::nn::MaxPool2d pool_{ nullptr };
+};
+
+class MaxPool2dFactory final : public NetworkModuleFactory {
+private:
+    struct Config : anet::Config {
+        struct {
+            int kernel_size = 3;
+            int stride = 2;
+            int padding = 1;
+            int dilation = 1;
+            bool ceil_mode = false;
+        } pool;
+
+        Config(const anet::ConfigData& config_data) : anet::Config("")
+        {
+            ANET_READ_CONFIG(config_data, pool.kernel_size);
+            ANET_READ_CONFIG(config_data, pool.stride);
+            ANET_READ_CONFIG(config_data, pool.padding);
+            ANET_READ_CONFIG(config_data, pool.dilation);
+            ANET_READ_CONFIG(config_data, pool.ceil_mode);
+        }
+    };
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        Config config(config_data);
+        if (config.pool.kernel_size <= 0) {
+            ANET_SYSTEM_ERROR("MaxPool2dModule: pool.kernel_size must be positive. actual=" << config.pool.kernel_size);
+        }
+        if (config.pool.stride <= 0) {
+            ANET_SYSTEM_ERROR("MaxPool2dModule: pool.stride must be positive. actual=" << config.pool.stride);
+        }
+        if (config.pool.padding < 0) {
+            ANET_SYSTEM_ERROR("MaxPool2dModule: pool.padding must be non-negative. actual=" << config.pool.padding);
+        }
+        if (config.pool.dilation <= 0) {
+            ANET_SYSTEM_ERROR("MaxPool2dModule: pool.dilation must be positive. actual=" << config.pool.dilation);
+        }
+        return std::make_shared<MaxPool2dModule>(
+            config.pool.kernel_size,
+            config.pool.stride,
+            config.pool.padding,
+            config.pool.dilation,
+            config.pool.ceil_mode);
+    }
+};
+
+// ===========================================================================
 //  CLS Token Append Module
 // ===========================================================================
 
@@ -1120,7 +1754,7 @@ class ClsTokenAppendModule : public NetworkModule {
 public:
     torch::Tensor Forward(torch::Tensor input) override
     {
-        anet::ProfileRange r("ClsTokenAppendModule::Forward");
+        ANET_PROFILE_FUNC();
 
         int64_t batch_size = input.size(0);
         int64_t d_model = input.size(2);
@@ -1137,6 +1771,16 @@ public:
 
         // 先頭にくっつけて出力: [Batch, 1 + SeqLen, d_model]
         return torch::cat({ cls_expanded, input }, /*dim=*/1);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        if (initialized_) {
+            cd.Set("d_model", cls_token_.size(2));
+        }
+        cd.Set("append_dim", 1);
+        return cd;
     }
 private:
     bool initialized_ = false;
@@ -1159,10 +1803,18 @@ class ClsTokenExtractModule : public NetworkModule {
 public:
     torch::Tensor Forward(torch::Tensor input) override
     {
-        anet::ProfileRange r("ClsTokenExtractModule::Forward");
+        ANET_PROFILE_FUNC();
 
         // [Batch, 1 + SeqLen, d_model] の 0番目 (先頭) を抽出する
         return input.select(/*dim=*/1, /*index=*/0);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("dim", 1);
+        cd.Set("index", 0);
+        return cd;
     }
 };
 
@@ -1196,6 +1848,9 @@ struct PermuteConfig {
     std::vector<int64_t> dims;
 };
 
+struct ReshapeConfig {
+    std::vector<int64_t> dims;
+};
 
 class LinearModuleFactory final : public NetworkModuleFactory {
 private:
@@ -1276,17 +1931,6 @@ public:
     }
 };
 
-class ElementwiseAddModuleFactory final : public NetworkModuleFactory {
-public:
-    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override 
-    {
-        ANET_CHECK_MSG(!context.input_tags.empty(), "ElementwiseAdd: input_tags should not be epmty.");
-		int split_count = (int)context.input_tags.size();   // 分割数として入力タグ数を取得
-
-        return std::make_shared<ElementwiseAddModule>(split_count);
-    }
-};
-
 class PermuteModuleFactory final : public NetworkModuleFactory {
 private:
     struct Config : anet::Config {
@@ -1306,15 +1950,58 @@ public:
     }
 };
 
-class SpatialEmbedderModuleFactory final : public NetworkModuleFactory {
+class ReshapeModuleFactory final : public NetworkModuleFactory {
 private:
     struct Config : anet::Config {
-        SpatialEmbedderConfig embed;
+        ReshapeConfig reshape;
+        Config(const anet::ConfigData& config_data) : anet::Config("") {
+            ANET_READ_CONFIG(config_data, reshape.dims);
+        }
+    };
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        Config config(config_data);
+        if (config.reshape.dims.empty()) {
+            ANET_SYSTEM_ERROR("ReshapeModule: 'dims' is empty.");
+        }
+        return std::make_shared<ReshapeModule>(config.reshape.dims);
+    }
+};
+
+class StackMergeModuleFactory final : public NetworkModuleFactory {
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        return std::make_shared<StackMergeModule>();
+    }
+};
+
+class HybridSpatialEmbedderModuleFactory final : public NetworkModuleFactory {
+private:
+    struct Config : anet::Config {
+        HybridSpatialEmbedderConfig embed;
         Config(const anet::ConfigData& config_data) : anet::Config("") {
             ANET_READ_CONFIG(config_data, embed.scalar_dim);
             ANET_READ_CONFIG(config_data, embed.grid_width);
             ANET_READ_CONFIG(config_data, embed.grid_height);
             ANET_READ_CONFIG(config_data, embed.num_classes);
+        }
+    };
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        Config config(config_data);
+        return std::make_shared<HybridSpatialEmbedderModule>(config.embed);
+    }
+};
+class SpatialEmbedderModuleFactory final : public NetworkModuleFactory {
+private:
+    struct Config : anet::Config {
+        SpatialEmbedderConfig embed;
+        Config(const anet::ConfigData& config_data) : anet::Config("") {
+            ANET_READ_CONFIG(config_data, embed.grid_width);
+            ANET_READ_CONFIG(config_data, embed.grid_height);
         }
     };
 public:
@@ -1400,9 +2087,11 @@ public:
     auto& repo = NetworkModuleRepository::Instance();
 
 	// 基本モジュール登録
-    repo.Register("Add", std::make_shared<ElementwiseAddModuleFactory>());
     repo.Register("Flatten", std::make_shared<FlattenModuleFactory>());
     repo.Register("Permute", std::make_shared<PermuteModuleFactory>());
+    repo.Register("Reshape", std::make_shared<ReshapeModuleFactory>());
+    repo.Register("StackMerge", std::make_shared<StackMergeModuleFactory>());
+    repo.Register("Dropout", std::make_shared<DropoutModuleFactory>());
 
 	// 活性化関数モジュール登録
     repo.Register("ReLU", std::make_shared<ReLUModuleFactory>());
@@ -1416,11 +2105,14 @@ public:
     repo.Register("LayerNorm", std::make_shared<LayerNormModuleFactory>());
     repo.Register("BatchNorm2d", std::make_shared<BatchNorm2dModuleFactory>());
     repo.Register("GAP1D", std::make_shared<GlobalAveragePooling1DFactory>());
+    repo.Register("GAP2D", std::make_shared<GlobalAveragePooling2DFactory>());
+    repo.Register("MaxPool2d", std::make_shared<MaxPool2dFactory>());
 
     // データ加工系モジュール登録
+    repo.Register("HybridSpatialEmbedder", std::make_shared<HybridSpatialEmbedderModuleFactory>());
     repo.Register("SpatialEmbedder", std::make_shared<SpatialEmbedderModuleFactory>());
     repo.Register("SpatialPositionalEmbedding2D", std::make_shared<SpatialPositionalEmbedding2DFactory>());
-    
+
     // レイヤー系モジュール登録
     repo.Register("Linear", std::make_shared<LinearModuleFactory>());
     repo.Register("Conv1d", std::make_shared<Conv1dModuleFactory>());
@@ -1434,4 +2126,3 @@ public:
 
     //RegisterNetworkModuleFactory<Module>("Linear");
  }
-

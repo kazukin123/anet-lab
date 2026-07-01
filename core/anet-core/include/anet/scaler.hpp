@@ -18,8 +18,8 @@ namespace anet::rl {
 
     class ObservationNormalizer : virtual public Module {
     public:
-        virtual torch::Tensor Normalize(const torch::Tensor& obs) const = 0;
-        virtual torch::Tensor NormalizeAndUpdateStats(const torch::Tensor& obs) = 0;
+        virtual anet::TensorDict Normalize(const anet::TensorDict& obs) const = 0;
+        virtual anet::TensorDict NormalizeAndUpdateStats(const anet::TensorDict& obs) = 0;
         virtual void Reset() = 0;
 
         virtual ~ObservationNormalizer() = default;

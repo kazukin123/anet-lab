@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include <atomic>
+#include <functional>
 #include <vector>
 #include <optional>
 #include <limits>
@@ -20,6 +22,7 @@ public:
     // y_offset: 左側のGridのヘッダー高さに合わせるためのオフセット
     //void UpdateHeatMap(const wxImage& heatmap_image, int y_offset, int target_height);
     void UpdateHeatMap(const wxImage& heatmap_image, int y_offset, int target_height, float guide_line_pos = -1.0f);
+    void SetScrollOffsetY(int scroll_y);
 private:
     void OnPaint(wxPaintEvent& event);
     void OnEraseBackground(wxEraseEvent& event);
@@ -27,6 +30,7 @@ private:
     wxImage heatmap_image_;
     int y_offset_ = 0;
     int target_height_ = 0;
+    int scroll_y_ = 0;
     float guide_line_pos_ = -1.0f; // 追加: 線のX座標割合
 };
 
@@ -45,11 +49,9 @@ public:
     // 実際に選択された行動
     int64_t selected_action;
 
-    // HeatMap
+    // HeatMap (行優先 width×height の格子値)
     int width;
     int height;
-    std::vector<float> xv;
-    std::vector<float> yv;
     std::vector<float> vv;
     //wxImage heatmap_image;
 };
@@ -60,8 +62,12 @@ public:
     void Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, std::shared_ptr<anet::rl::EvalRunner> runner);
     ~QValuePanel() noexcept override  = default;
 
+    void SetActionHandler(std::function<void(int64_t)> action_handler);
+
     void ApplyData(const QValueData& data);
     void Update();
+
+    int GetPreferredDockWidth() const;
 
     bool IsHistogram() const;
     bool IsAdvantage() const;
@@ -71,11 +77,17 @@ private:
     void SetupGrid();
     std::optional<QValueData> CreateData(const anet::rl::TrainEvent& event);
     void ResetRange();
+    void SyncHeatMapScroll(bool refresh_grid);
+    void RefreshLayoutChildren();
 private:
     void OnSize(wxSizeEvent& event);
     void OnCloseWindow(wxCloseEvent& event);
     void OnCheck(wxCommandEvent& event); // 共通のチェックイベントハンドラ
     void OnResetRangeClick(wxCommandEvent& event);
+    void OnGridActionClick(wxGridEvent& event);
+    void OnGridScroll(wxScrollWinEvent& event);
+    void OnGridMouseWheel(wxMouseEvent& event);
+    void OnGridKeyUp(wxKeyEvent& event);
 private:
     class Config;
 private:
@@ -85,14 +97,19 @@ private:
     wxCheckBox* log_scale_check_;
     wxCheckBox* auto_range_check_;
     wxButton* reset_range_button_;
+    wxPanel* header_panel_;
     QValueHeatMapPanel* heatmap_panel_;
 
     std::unique_ptr<Config> config_;
     std::vector<std::string> action_names_;
+    std::shared_ptr<anet::rl::EvalRunner> runner_ = nullptr;
+    std::function<void(int64_t)> action_handler_;
     std::shared_ptr<anet::rl::Notifier> notifier_ = nullptr;
     std::shared_ptr<anet::rl::TrainObserver> observer_ = nullptr;
     anet::rl::gui::UIDataStore<QValueData> data_store_;
     std::vector<float> hist_weights_;
+    std::atomic<bool> update_pending_{ false };  ///< Update()のCallAfter予約中フラグ(多重予約防止)
+    int last_selected_row_ = -1;                 ///< 前回ハイライト表示した行(差分更新用)
 
     //  範囲記憶用
     float accumulated_min_ = std::numeric_limits<float>::max();

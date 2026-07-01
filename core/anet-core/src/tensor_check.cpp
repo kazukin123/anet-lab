@@ -7,24 +7,54 @@ void _anet_check_device_impl(const torch::Tensor& t, const torch::Device& expect
 {
     // タイプ（CPUかCUDAか）のチェック
     if (expect.type() != t.device().type()) {
-        std::stringstream ss;
-        ss << "Device type mismatch: " << msg
+        ANET_SYSTEM_ERROR(
+            "Device type mismatch: " << msg
             << " | tensor=" << t.device()
             << " | expected=" << expect
-            << " | File: " << file << ":" << line;
-        throw std::runtime_error(ss.str());
+            << " | File: " << file << ":" << line
+        );
     }
 
     // CUDAの場合、要求側に明示的なIndexが指定されていればIndexもチェック
     if (expect.has_index() && expect.index() >= 0 && t.device().index() != expect.index()) {
-        std::stringstream ss;
-        ss << "Device index mismatch: " << msg
+        ANET_SYSTEM_ERROR(
+            "Device index mismatch: " << msg
             << " | tensor=" << t.device()
             << " | expected=" << expect
             << " | File: " << file << ":" << line;
-        throw std::runtime_error(ss.str());
+            );
     }
 }
+
+void _anet_check_device_impl(const anet::TensorDict& t, const torch::Device& expect, const char* msg, const char* file, int line)
+{
+    // 空の場合はチェックをスキップ
+    if (t.empty()) return;
+
+    // IsValid() によって内部のデバイスは全て統一されている前提なので、代表を取得
+    torch::Device t_device = t.device();
+
+    // タイプ（CPUかCUDAか）のチェック
+    if (expect.type() != t_device.type()) {
+        ANET_SYSTEM_ERROR(
+            "Device type mismatch: " << msg
+            << " | TensorDict=" << t_device
+            << " | expected=" << expect
+            << " | File: " << file << ":" << line
+            );
+    }
+
+    // CUDAの場合、要求側に明示的なIndexが指定されていればIndexもチェック
+    if (expect.has_index() && expect.index() >= 0 && t_device.index() != expect.index()) {
+        ANET_SYSTEM_ERROR(
+            "Device index mismatch: " << msg
+            << " | TensorDict=" << t_device
+            << " | expected=" << expect
+            << " | File: " << file << ":" << line
+        );
+    }
+}
+
 
 //----------------------------------------------
 // Shape（単一）チェック実体
@@ -113,5 +143,16 @@ void _anet_check_nan_impl(const torch::Tensor& t, const char* msg, const char* f
             << " | File: " << file << ":" << line;
 
         throw std::runtime_error(ss.str());
+    }
+}
+
+void _anet_check_nan_impl(const anet::TensorDict& t, const char* msg, const char* file, int line)
+{
+    if (t.empty()) return;
+
+    // TensorDictの中身のテンソルを順番に既存の check_nan_impl に投げる
+    for (const auto& kv : t) {
+        std::string new_msg = std::string(msg) + "['" + kv.first + "']";
+        _anet_check_nan_impl(kv.second, new_msg.c_str(), file, line);
     }
 }

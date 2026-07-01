@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <iostream>
 #include <format>
+#include <sstream>
 #include <wx/process.h>
 #include <wx/image.h>
 #include <wx/filename.h>
@@ -14,6 +15,19 @@ using namespace anet;
 namespace LOG = anet::log;
 
 wxDEFINE_EVENT(wxEVT_APP_EXECUTE_START, wxThreadEvent);
+
+namespace {
+
+std::string ConfigDataToConfigString(const ConfigData& config_data)
+{
+    std::ostringstream oss;
+    for (const auto& kv : config_data.Map()) {
+        oss << kv.first << " = " << kv.second << std::endl;
+    }
+    return oss.str();
+}
+
+} // namespace
 
 
 //----------------------------------------------
@@ -50,8 +64,8 @@ void JsonlBackend::Flush()
 VideoLogger::VideoLogger(const std::string& path, int width, int height, const std::string& codec, int fps)
     : width_(width), height_(height), path_(path), codec_(codec), fps_(fps)
 {
-    ANET_CHECK_MSG(width <= 8192, "invalid Image size.");
-    ANET_CHECK_MSG(height <= 4320, "invalid Image size.");
+    ANET_CHECK_MSG(width <= 8192, "invalid Image size. width=" << width);
+    ANET_CHECK_MSG(height <= 4320, "invalid Image size  height=" << height);
 
     wxFileName fn(wxString::FromUTF8(path_));
     wxFileName::Mkdir(fn.GetPath(), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
@@ -74,9 +88,10 @@ VideoLogger::VideoLogger(const std::string& path, int width, int height, const s
 
     // コマンドライン
     wxString cmd = wxString::Format(
-        "ffmpeg -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -threads 2 "
+        "ffmpeg -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -threads 2"
         //"-report "
-        "-thread_queue_size 512 -i - -f matroska %s \"%s\"",
+        " -hide_banner -loglevel error -nostats"
+        " -thread_queue_size 512 -i - -f matroska %s \"%s\"",
         width_, height_, fps_, output_options, wxString::FromUTF8(path_)
     );
     //ANET_LOG_DEBUG("cmd=" << cmd.c_str());
@@ -94,7 +109,7 @@ VideoLogger::VideoLogger(const std::string& path, int width, int height, const s
     } else {
         long pid = wxExecute(cmd, wxEXEC_ASYNC | wxEXEC_HIDE_CONSOLE, process_);
         if (pid == 0)
-            throw std::runtime_error("Failed to launch ffmpeg process");
+            ANET_SYSTEM_ERROR("Failed to launch ffmpeg process");
         ANET_LOG_DEBUG("ffmpeg started from main thread. pid=" << pid);
         LOG::info() << "ffmpeg started from main thread. pid=" << pid;
     }
@@ -102,7 +117,9 @@ VideoLogger::VideoLogger(const std::string& path, int width, int height, const s
     // 書き込みストリーム取得
     stream_ = process_->GetOutputStream();
     if (!stream_)
-        throw std::runtime_error("Failed to get ffmpeg stdin stream");
+        ANET_SYSTEM_ERROR("Failed to get ffmpeg stdin stream. nullptr");
+    if (!stream_->IsOk())
+        ANET_SYSTEM_ERROR("Failed to get ffmpeg stdin stream. Is not OK.");
 }
 
 void VideoLogger::WriteFrame(const wxImage& img)
@@ -269,6 +286,23 @@ void MetricsLogger::Log(const std::string& tag, const anet::Config& config)
     }
 }
 
+void MetricsLogger::Log(const std::string& tag, const ConfigData& config_data)
+{
+    std::lock_guard<std::mutex> lock(log_mutex_);
+
+    auto config_str = ConfigDataToConfigString(config_data);
+
+    // Configと同じディレクトリにバラのファイルとしてダンプ
+    std::string safe_tag = SanitizeFilename(tag);
+    auto config_dir = this->run_dir_ / "config";
+    std::filesystem::create_directories(config_dir);
+    auto config_txt_path = config_dir / (safe_tag + ".txt");
+    {
+        std::ofstream ofs(config_txt_path, std::ios_base::out);
+        ofs << config_str;
+    }
+}
+
 void MetricsLogger::Log(const std::string& tag, const json& data)
 {
     std::lock_guard<std::mutex> lock(log_mutex_);
@@ -300,14 +334,14 @@ void MetricsLogger::Log(const std::string& tag, anet::rl::step_t step, const jso
 
 void MetricsLogger::Log(const std::string& tag, anet::rl::step_t step, const wxImage& image)
 {
-    ProfileRange r("MetricsLogger::LogImage1");
+    ANET_PROFILE_FUNC();
 
     LogImage_subtyped(tag, step, image, "");
 }
 
 void MetricsLogger::Log(const std::string& tag, anet::rl::step_t step, const anet::ImageSource& src, int width, int height)
 {
-    ProfileRange r("MetricsLogger::LogImage2");
+    ANET_PROFILE_FUNC();
 
     auto image = src.Render(width, height);
     auto subtype = src.GetImageSubType();
@@ -316,9 +350,9 @@ void MetricsLogger::Log(const std::string& tag, anet::rl::step_t step, const ane
 
 void MetricsLogger::LogImage_subtyped(const std::string& tag, anet::rl::step_t step, const wxImage& image, const std::string& subtype_or_empty)
 {
-    ProfileRange r("MetricsLogger::LogImage_subtyped");
+    ANET_PROFILE_FUNC();
 
-    ProfileRange r1("MetricsLogger::::LogImage_subtyped.prepare");
+    ANET_PROFILE_SCOPE(prepare);
 
     // タグを安全なファイル名に変換
     std::string safe_tag = SanitizeFilename(tag);
@@ -361,7 +395,7 @@ void MetricsLogger::LogImage_subtyped(const std::string& tag, anet::rl::step_t s
         auto it = video_loggers_.find(tag);
         if (it == video_loggers_.end()) {
             // Mapに登録
-            ProfileRange r2("MetricsLogger::::LogImage_subtyped.make_VideoLogger");
+            ANET_PROFILE_SCOPE(make_video_logger);
             target_logger = temp_vlog.get();
             video_loggers_[tag] = std::move(temp_vlog);
 
@@ -379,7 +413,7 @@ void MetricsLogger::LogImage_subtyped(const std::string& tag, anet::rl::step_t s
         }
     }
 
-    ProfileRange r3("MetricsLogger::::LogImage_subtyped.writeFrame", r1);
+    ANET_PROFILE_SCOPE_NEXT(write_frame);
     target_logger->WriteFrame(image);
 
     /// @todo 動画フレーム情報Metrics出力
@@ -395,6 +429,19 @@ void MetricsLogger::LogImage_subtyped(const std::string& tag, anet::rl::step_t s
     //};
     //if (!subtype_or_empty.empty()) obj["subtype"] = subtype_or_empty;
     //backend->write_jsonl(obj);
+}
+
+void MetricsLogger::Log(const std::string& tag, const anet::graphviz::GraphViz& viz)
+{
+    std::lock_guard<std::mutex> lock(log_mutex_);
+
+    std::string safe_tag = SanitizeFilename(tag);
+    auto dot_dir = run_dir_ / "dot";
+    std::filesystem::create_directories(dot_dir);
+    auto full_path = dot_dir / (safe_tag + ".dot");
+
+    std::ofstream ofs(full_path);
+    ofs << viz.ToDotString() << std::endl;
 }
 
 void MetricsLogger::Log(const std::string& tag, anet::rl::step_t step, const anet::graphviz::GraphViz& viz)
@@ -434,6 +481,9 @@ void MetricsLogger::Init(std::unique_ptr<IBackend> backend, const MetricsLoggerC
 
 void MetricsLogger::Reset() {
     std::lock_guard<std::mutex> lock(instance_mutex_);
+//    if (instance_) {
+//        instance_->Flush();
+//	}
     instance_.reset();
 }
 

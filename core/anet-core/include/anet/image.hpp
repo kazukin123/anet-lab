@@ -155,9 +155,11 @@ namespace anet::rl {
     struct SweepObservationHeatMapConfig {
         int width = 256;
         int height = 256;
+        std::string obs_key = anet::rl::ObsKeys::kVector;
         int x_index = 0;
         int y_index = 1;
-        std::string network_key = "policy-net.forward.q";
+        std::string network_key = "policy-net.forward";
+        std::string output_key = "q";
         std::string extractor_name = "mean";
         int extractor_index = -1;
     };
@@ -184,12 +186,13 @@ namespace anet::rl {
 
     struct Conv2dVisualizerConfig {
         int margin_x = 4;               ///< チャンネル(列)間の余白ピクセル
-        int margin_y = 4;               ///< レイヤー(行)間の余白ピクセル
+        int margin_y = 4;               ///< 同一レイヤー内のチャンネル行間ピクセル
+        int layer_margin_y = -1;        ///< レイヤー間の余白ピクセル。-1 の場合は margin_y を使う
         int channels_per_row = 16;      ///< 1行に並べる最大チャンネル数
         bool flip_vertical = true;      ///< 画像の上下を反転して描画するか
         std::string network_key = "policy-net.conv2d"; ///< 抽出対象のネットワーク
         std::string colormap = "jet";	///< gray / jet / hot
-        int scale_factor = 2;           ///< 画像引き伸ばしスケール。動画プレイヤー側で下手なスケーリングされても耐えるように…
+        float scale_factor = 2.0f;           ///< 画像引き伸ばしスケール。動画プレイヤー側で下手なスケーリングされても耐えるように…
         int min_block_size = 40;
     };
 
@@ -238,9 +241,11 @@ namespace anet::rl {
             } else if (type == kImageType_StateSweepedHeatMap) {
                 ANET_READ_CONFIG(config_data, sweep_obs.width);
                 ANET_READ_CONFIG(config_data, sweep_obs.height);
+                ANET_READ_CONFIG(config_data, sweep_obs.obs_key);
                 ANET_READ_CONFIG(config_data, sweep_obs.x_index);
                 ANET_READ_CONFIG(config_data, sweep_obs.y_index);
                 ANET_READ_CONFIG(config_data, sweep_obs.network_key);
+                ANET_READ_CONFIG(config_data, sweep_obs.output_key);
                 ANET_READ_CONFIG(config_data, sweep_obs.extractor_name);
                 ANET_READ_CONFIG(config_data, sweep_obs.extractor_index);
             } else if (type == kImageType_TimeHistgram) {
@@ -255,6 +260,7 @@ namespace anet::rl {
             } else if (type == kImageType_Conv2d) {
                 ANET_READ_CONFIG(config_data, conv2d.margin_x);
                 ANET_READ_CONFIG(config_data, conv2d.margin_y);
+                ANET_READ_CONFIG(config_data, conv2d.layer_margin_y);
                 ANET_READ_CONFIG(config_data, conv2d.channels_per_row);
                 ANET_READ_CONFIG(config_data, conv2d.flip_vertical);
                 ANET_READ_CONFIG(config_data, conv2d.network_key);

@@ -16,9 +16,8 @@ AgentBase::AgentBase(torch::Device device,
     const EnvSpec& env_spec,
     std::optional<seed_t> seed)
     : RandomHolder(seed), device_(device)
-    , state_dim_(env_spec.state_spec.CalcFlattenDim())
     , n_actions_(env_spec.action_spec.GetNumActions())
-    , batch_size_(batch_env_spec.batch_size)
+    , num_envs_(batch_env_spec.num_envs)
 {
     mutex_ = std::make_shared<std::shared_mutex>();
 

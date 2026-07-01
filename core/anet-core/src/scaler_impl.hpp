@@ -59,17 +59,30 @@ namespace anet::rl {
 
 
     // =============================================================
-    // ObservationNormalizer
+    // SingleTensorNormalizer (内部用インターフェース)
     // =============================================================
 
-    class ConstantObservationNormalizer : public ObservationNormalizer, virtual public ModuleBase {
+    class SingleTensorNormalizer : virtual public ModuleBase {
     public:
-        ConstantObservationNormalizer(bool pass_through,
+        virtual torch::Tensor Normalize(const torch::Tensor& obs) const = 0;
+        virtual torch::Tensor NormalizeAndUpdateStats(const torch::Tensor& obs) = 0;
+        virtual void Reset() = 0;
+        virtual ~SingleTensorNormalizer() = default;
+    };
+
+
+    // =============================================================
+    // ConstantSingleTensorNormalizer（内部用）
+    // =============================================================
+
+    class ConstantSingleTensorNormalizer : public SingleTensorNormalizer {
+    public:
+        ConstantSingleTensorNormalizer(bool pass_through,
             const std::vector<int64_t>& shape, const std::optional<float>& clip_range,
             const std::vector<float>& fixed_mean = {}, // 空なら 0.0
             const std::vector<float>& fixed_std = {}   // 空なら 1.0
         );
-        virtual ~ConstantObservationNormalizer() = default;
+        virtual ~ConstantSingleTensorNormalizer() = default;
 
         torch::Tensor Normalize(const torch::Tensor& obs) const override;
         torch::Tensor NormalizeAndUpdateStats(const torch::Tensor& obs) override;
@@ -91,15 +104,20 @@ namespace anet::rl {
         float last_clip_ratio_ = 0.0f;  ///< 直近のNormalizeでのクリップ率（メトリクス用）
     };
 
-    class RunningStdObservationNormalizer : public ObservationNormalizer, virtual public ModuleBase {
+
+    // =============================================================
+    // RunningStdSingleTensorNormalizer（内部用）
+    // =============================================================
+
+    class RunningStdSingleTensorNormalizer : public SingleTensorNormalizer {
     public:
-        RunningStdObservationNormalizer(
+        RunningStdSingleTensorNormalizer(
             const std::optional<float>& clip_range,
             const std::vector<int64_t>& shape, float epsilon,
             bool use_robust_update, int robust_warmup_count, float robust_std_threshold,
             int post_process_type, float post_process_threshold,
             bool use_centering);
-        virtual ~RunningStdObservationNormalizer() = default;
+        virtual ~RunningStdSingleTensorNormalizer() = default;
 
         torch::Tensor Normalize(const torch::Tensor& obs) const override;
         torch::Tensor NormalizeAndUpdateStats(const torch::Tensor& obs) override;
@@ -125,6 +143,28 @@ namespace anet::rl {
         float last_clip_ratio_ = 0.0f;    ///< 最後のNormalizeでのクリップ率（メトリクス用）
         float last_outlier_ratio_ = 0.0f; ///< 最後のNormalizeでの異常値判定率（メトリクス用）
     };
+
+
+    // =============================================================
+    // DictObservationNormalizer (公開クラス)
+    // =============================================================
+
+    class DictObservationNormalizer : public ObservationNormalizer, virtual public ModuleBase {
+    public:
+        DictObservationNormalizer() = default;
+
+        // 初期化時にKeyごとのNormalizerを登録する
+        void AddNormalizer(const std::string& key, std::shared_ptr<SingleTensorNormalizer> normalizer);
+
+        anet::TensorDict Normalize(const anet::TensorDict& obs) const override;
+        anet::TensorDict NormalizeAndUpdateStats(const anet::TensorDict& obs) override;
+        void Reset() override;
+
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+    private:
+        std::unordered_map<std::string, std::shared_ptr<SingleTensorNormalizer>> normalizers_;
+    };
+
 
     // =============================================================
     // RewardScaler

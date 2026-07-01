@@ -15,10 +15,11 @@ namespace LOG = anet::log;
 struct Conv2dPanel::Config : public anet::Config {
     anet::rl::Conv2dVisualizerConfig conv2d;
 
-    Conv2dPanel::Config(const anet::ConfigData& config_data) : anet::Config("Conv2dPanel")
+    Config(const anet::ConfigData& config_data) : anet::Config("Conv2dPanel")
     {
         ANET_READ_CONFIG(config_data, conv2d.margin_x);
         ANET_READ_CONFIG(config_data, conv2d.margin_y);
+        ANET_READ_CONFIG(config_data, conv2d.layer_margin_y);
         ANET_READ_CONFIG(config_data, conv2d.channels_per_row);
         ANET_READ_CONFIG(config_data, conv2d.flip_vertical);
         ANET_READ_CONFIG(config_data, conv2d.network_key);
@@ -59,24 +60,15 @@ Conv2dPanel::Conv2dPanel(
     Centre();
 
     // Vsualizer生成
-    CreateVisualizer(runner);
+    CreateVisualizer();
 
     // Observer生成&登録
     CreateObserver(run_manager, runner);
 
 }
 
-void Conv2dPanel::CreateVisualizer(std::shared_ptr<anet::rl::Runner> runner)
+void Conv2dPanel::CreateVisualizer()
 {
-    auto agent = runner->GetAgent();
-    auto notifier = runner->GetNotifier();
-    auto env_spec = runner->GetBatchEnv()->GetSpec();
-
-    // TensorDictFnを取得
-    auto dict_fn = agent->GetTensorDictFunction(config_->conv2d.network_key);
-    ANET_CHECK(dict_fn.has_value());
-    vis_dict_fn_ = *dict_fn;
-
     // Observer生成＆登録
     this->visualizer_ = std::make_unique<anet::rl::Conv2dVisualizer>(config_->conv2d);
 }
@@ -91,34 +83,20 @@ void Conv2dPanel::CreateObserver(anet::rl::RunManager& run_manager, std::shared_
         {
             if (closed_) return;
 
-            // State取得
-            // next_state ではなく、Aux経由で「Agentがスタックした実際のテンソル」を取得する
-            torch::Tensor obs_to_visualize;
-            const auto& aux = event.action_info->GetAuxData();
-            auto it = aux.find("raw_obs");
-            if (it != aux.end() && it->second.defined()) {
-                // Stackerによって過去フレームが結合された3次元テンソル
-                obs_to_visualize = it->second;
-            } else {
-                // フォールバック (Stacker無効時など)
-                obs_to_visualize = event.experience.state.obs;
-            }
-
-            // OBSチェック
-            if (!obs_to_visualize.defined() || obs_to_visualize.size(0) <= 0) {
-                LOG::warn() << "Conv2dPanel: failed to get observation.";
+            if (!event.action_info) {
                 return;
             }
 
-            // TensorDict取得(バッチの先頭だけ切り出す)
-            torch::Tensor single_obs = obs_to_visualize.slice(0, 0, 1);
-            auto dict = vis_dict_fn_(single_obs);
+            auto dict = anet::rl::ExtractNnTrace(event.action_info->GetAuxData());
+            if (dict.empty()) {
+                return;
+            }
 
             // 画像生成
-            auto vis_result = visualizer_->Visualize(0, dict);
+            auto vis_result = visualizer_->Visualize(event.counts.train_step, dict);
             wxImage new_image = vis_result.first;
 
-            //  GUI描画用にスレッドセーフに保存
+            // GUI描画用にスレッドセーフに保存
             if (new_image.IsOk()) {
                 std::lock_guard<std::mutex> lock(image_mutex_);
                 current_image_ = new_image;

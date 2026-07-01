@@ -7,6 +7,7 @@
 
 cmake_minimum_required(VERSION 3.20)
 project(anet-lab LANGUAGES CXX)
+enable_testing()
 
 
 # ---------------------------------------------------------------------
@@ -27,16 +28,27 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # ビルド定数定義
 # ---------------------------------------------------------------------
 
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG -DDEBUG -DANET_ENABLE_DEBUGINFO -DANET_ENABLE_TRACY")
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -DNDEBUG -DANET_ENABLE_DEBUGINFO -DANET_ENABLE_TRACY")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DNDEBUG -DANET_ENABLE_TRACY")
+option(ANET_ENABLE_PROFILE "Enable anet profiling scopes." ON)
+option(ANET_ENABLE_TRACY "Enable Tracy profiling backend." ON)
+option(ANET_ENABLE_NVTX "Enable NVTX profiling backend." ON)
 
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    add_compile_definitions(_DEBUG ANET_ENABLE_DEBUGINFO)
-elseif(CMAKE_BUILD_TYPE STREQUAL "RelWithDebugInfo")
-    add_compile_definitions(NDEBUG ANET_ENABLE_DEBUGINFO)
-elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
-    add_compile_definitions(NDEBUG)
+add_compile_definitions(
+    $<$<CONFIG:Debug>:_DEBUG>
+    $<$<CONFIG:Debug>:DEBUG>
+    $<$<CONFIG:Debug>:ANET_ENABLE_DEBUGINFO>
+    $<$<CONFIG:RelWithDebInfo>:NDEBUG>
+    $<$<CONFIG:RelWithDebInfo>:ANET_ENABLE_DEBUGINFO>
+    $<$<CONFIG:Release>:NDEBUG>
+)
+
+if(ANET_ENABLE_PROFILE)
+    add_compile_definitions(ANET_ENABLE_PROFILE)
+    if(ANET_ENABLE_TRACY)
+        add_compile_definitions(ANET_ENABLE_TRACY)
+    endif()
+    if(ANET_ENABLE_NVTX)
+        add_compile_definitions(ANET_ENABLE_NVTX)
+    endif()
 endif()
 
 add_compile_definitions(WXINTL_NO_GETTEXT_MACRO) # N_()マクロ競合対策
@@ -53,6 +65,7 @@ if (MSVC)
     #add_compile_definitions(_HAS_CONDITIONAL_EXPLICIT=0)
     #add_compile_options(/diagnostics:color)
     #add_compile_options(/wd4267)  # warning C4267を無効化
+    add_compile_options(/w14996)   # warning C4996(deprecated)を有効化 
 
     add_link_options(/INCREMENTAL)
 
@@ -165,12 +178,14 @@ include_directories("${PROJECT_SOURCE_DIR}/third_party/nlohmann/include")
 # ---------------------------------------------------------------------
 add_subdirectory(third_party/box2d-2.4.2)
 add_subdirectory(third_party/tracy)
+add_subdirectory(third_party/catch2)
 
 add_subdirectory(core/anet-core)
 add_subdirectory(core/envs/lunarlander1)
 add_subdirectory(core/envs/cartpole2)
 add_subdirectory(core/envs/dropmerge1)
 add_subdirectory(core/envs/gridmaze1)
+add_subdirectory(core/envs/imagecls1)
 add_subdirectory(apps/runner)
 
 

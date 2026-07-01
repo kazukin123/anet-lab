@@ -15,7 +15,7 @@
 #include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
 #include "anet/stacker.hpp"
-#include "nn_heads.hpp"
+#include "dqn_based_heads.hpp"
 #include "anet/serialize.hpp"
 
 using namespace anet::rl::dqn;
@@ -63,7 +63,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     this->action_context_seed_ = seed_maker.MakeNamedSeed("action_context");
 
     // RuntimeVars生成
-    this->vars_ = std::make_unique<dqn::RuntimeVars>();
+    this->vars_ = std::make_unique<RuntimeVars>();
 
     // QR-DQN設定確認 (use_qrとの整合性)
     bool is_distributional = config_.use_qr;
@@ -75,7 +75,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     // RewardScaler生成
     anet::rl::RewardScalerFactory reward_scaler_factory(config_.reward_scaler);
     this->reward_scaler_ = reward_scaler_factory.CreateRewardScaler(config_.learner.gamma);
-    
+
     // ObservationNormalizer生成
     anet::rl::ObservationNormalizerFactory obs_norm_factory(config_.obs_norm);
     this->obs_norm_ = obs_norm_factory.CreateObservationNormalizer(env_spec.state_spec);
@@ -93,83 +93,115 @@ DefaultDQNAgent::DefaultDQNAgent(
     // アルゴリズムに応じてFactoryを切り替え
     if (is_distributional) {
         if (config_.use_dueling_net) {
-            head_factory = std::make_shared<anet::nn::QuantileDuelingHeadFactory>(
+            head_factory = std::make_shared<QuantileDuelingHeadFactory>(
                 n_actions_, config_.num_quantiles, head_init_config);
             LOG::info() << "Network Head: Quantile Dueling (N=" << config_.num_quantiles << ")";
         } else {
-            head_factory = std::make_shared<anet::nn::QuantileHeadFactory>(
+            head_factory = std::make_shared<QuantileHeadFactory>(
                 n_actions_, config_.num_quantiles, head_init_config);
             LOG::info() << "Network Head: Quantile Plain (N=" << config_.num_quantiles << ")";
         }
     } else {
         if (config_.use_dueling_net) {
-            head_factory = std::make_shared<anet::nn::DuelingHeadFactory>(
+            head_factory = std::make_shared<DuelingHeadFactory>(
                 n_actions_, head_init_config);
             LOG::info() << "Network Head: Dueling";
         } else {
-            head_factory = std::make_shared<anet::nn::LinearHeadFactory>(
+            head_factory = std::make_shared<LinearHeadFactory>(
                 n_actions_, head_init_config);
             LOG::info() << "Network Head: Plain Linear";
         }
     }
 
-    // 入力形状 (C, H, W) or (L,)
-    auto input_shape = env_spec.state_spec.shape;
+    // オリジナルのStateSpecをコピー
+    auto network_obs_spec = env_spec.state_spec.obs_spec;
 
-    // Stackの次元を先頭に追加（S, F)
-    if (config_.stucker.use_stacker) {
-        input_shape.insert(input_shape.begin(), config_.stucker.stack_count);
+    // Stackerが有効な場合、NNが期待する入力チャンネル（次元）数を調整
+    if (config_.stucker.use_stacker && config_.stucker.stack_count > 1) {
+        for (auto& kv : network_obs_spec) {
+
+            // このKeyがStack対象として設定されているかチェック
+            bool is_stacked_target = true;
+            if (!config_.stucker.stack_keys.empty()) {
+                auto it = std::find(config_.stucker.stack_keys.begin(), config_.stucker.stack_keys.end(), kv.first);
+                is_stacked_target = (it != config_.stucker.stack_keys.end());
+            }
+
+            // Stack対象のKeyのみ、最初の次元をstack_count倍する
+            if (is_stacked_target && !kv.second.shape.empty()) {
+                kv.second.shape[0] *= config_.stucker.stack_count;
+            }
+        }
     }
 
     // NetworkModel生成
-    this->model_ = std::make_unique<dqn::NetworkModel>(
+    this->model_ = std::make_unique<NetworkModel>(
         config_.model, device_,
-        net_config, input_shape, n_actions_, head_factory,
+        net_config, network_obs_spec, n_actions_, head_factory,
         config_.use_qr ? config_.num_quantiles : 0
     );
 
+    // Network グラフ可視化
+    {
+        const auto& net = *model_->GetOnlineNetwork();
+        auto structure_view = net.MakeGraphViz(anet::nn::NetworkGraphVizConfig{});
+        anet::MetricsLogger::Instance()->Log("net.structure", *structure_view);
+        auto detail_view = net.MakeGraphViz(config_.nn_viz);
+        anet::MetricsLogger::Instance()->Log("net.detail", *detail_view);
+    }
+
     // Target Policyの妥当性チェック
-    if (config_.target_policy.policy_type == "EpsilonGreedy" && config_.target_policy.eps_start > 0.0f) {
+    if (config_.target_policy.policy_type == "EpsilonGreedy" &&
+        (config_.target_policy.eps_start > 0.0f || config_.target_policy.eps_end > 0.0f)) {
         // TargetActionPolicy（学習用）はUQE/ThompsonSamplingもしくはGreedyである必要がある(ランダム要素はNG)
         ANET_SYSTEM_ERROR("target_policy cannot be EpsilonGreedy with eps > 0. It must be deterministic or optimistic.");
     }
 
     // ActionPolicy生成
-    this->train_policy_ = CreateActionPolicy(config_.train_policy);
-    this->eval_policy_ = CreateActionPolicy(config_.eval_policy);
-    this->target_policy_ = CreateActionPolicy(config_.target_policy);
+    this->train_policy_ = CreateActionPolicy(config_.train_policy, config_.train_policy.use_spatial_exploration, num_envs_, device_);
+    this->eval_policy_ = CreateActionPolicy(config_.eval_policy, false, num_envs_, device_);
+    this->target_policy_ = CreateActionPolicy(config_.target_policy, false, num_envs_, device_);
 
     // Learner生成
     if (is_distributional) {
-        this->learner_ = std::make_unique<dqn::QRLearner>(
+        this->learner_ = std::make_unique<QRLearner>(
             config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, target_policy_, config_.stucker, learner_seed);
         LOG::info() << "Initialized QRLearner (Quantiles=" << config_.num_quantiles << ")";
     } else {
-        this->learner_ = std::make_unique<dqn::TDLearner>(
+        this->learner_ = std::make_unique<TDLearner>(
             config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, target_policy_, config_.stucker, learner_seed);
         LOG::info() << "Initialized TDLearner";
     }
+
+    // load
+    if (!config_.auto_load_file.empty()) {
+        LOG::info() << "Auto-loading network from file: " << config_.auto_load_file;
+        LoadNetwork(config_.auto_load_file);
+	}
 }
 
-std::shared_ptr<anet::rl::dqn::ActionPolicy> DefaultDQNAgent::CreateActionPolicy(const ActionPolicyConfig& policy_config)
+std::shared_ptr<ActionPolicy> DefaultDQNAgent::CreateActionPolicy(
+    const ActionPolicyConfig& policy_config, bool enable_spatial_exploration, int64_t num_envs, const torch::Device& device)
 {
     if (policy_config.policy_type == "EpsilonGreedy" || policy_config.policy_type == "0") {
         // ε-Greedy
-        return std::make_shared<dqn::EpsilonGreedyActionPolicy>(policy_config);
+        return std::make_shared<EpsilonGreedyActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
     } else if (policy_config.policy_type == "UQE" || policy_config.policy_type == "1") {
         // UQE
         ANET_CHECK(config_.use_qr);
-        return std::make_shared<dqn::UQEActionPolicy>(policy_config);
+        return std::make_shared<UQEActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
     } else if (policy_config.policy_type == "ThompsonSampling" || policy_config.policy_type == "2") {
         //ThompsonSampling
         ANET_CHECK(config_.use_qr);
-        return std::make_shared<dqn::ThompsonSamplingActionPolicy>(policy_config);
+        return std::make_shared<ThompsonSamplingActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
     } else if (policy_config.policy_type == "Greedy" || policy_config.policy_type == "3") {
         // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化
         ActionPolicyConfig greedy_cfg = policy_config;
         greedy_cfg.eps_start = 0.0f;
         greedy_cfg.eps_end = 0.0f;
-        return std::make_shared<dqn::EpsilonGreedyActionPolicy>(greedy_cfg);
+		greedy_cfg.eps_decay_steps = 0;
+        greedy_cfg.use_spatial_exploration = false;
+        return std::make_shared<EpsilonGreedyActionPolicy>(greedy_cfg, false, num_envs, device);
     }
 
     // 不明なtype
@@ -179,7 +211,7 @@ std::shared_ptr<anet::rl::dqn::ActionPolicy> DefaultDQNAgent::CreateActionPolicy
 
 int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
 {
-    ProfileRange r1("DefaultDQNAgent::Save");
+    ANET_PROFILE_FUNC();
 
 	int64_t total_size = 0;
 
@@ -214,45 +246,38 @@ int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
     return total_size;
 }
 
-std::optional<anet::TensorFunction> DefaultDQNAgent::GetTensorFunction(const std::string& key)
+void DefaultDQNAgent::LoadNetwork(const std::string& filename)
 {
-    auto fn = model_->GetTensorFunction(key, device_);
-    if (fn == std::nullopt) return fn;
+	std::ifstream ifs(filename, std::ios::binary);
+    if (!ifs) {
+        LOG::info() << "cwd=" << std::filesystem::current_path();
+        ANET_SYSTEM_ERROR("Failed to open file for loading: " << filename);
+	}
+	anet::InputArchive in(ifs);
 
-    auto self = shared_from_this();
-    auto network_fn = *fn;
-    bool use_stacker = config_.stucker.use_stacker;
-    int stack_count = config_.stucker.stack_count;
+    // Header
+    anet::ArchiveHeader header;
+	in.Read(header);
+	LOG::verbose() << "LoadNetwork: Archive Header: " << header.kMagicWord << " " << header.kFormatVersion << " "  << header.info;
 
-    anet::TensorFunction norm_fn = [self, network_fn, use_stacker, stack_count](const torch::Tensor& obs) {
+    // Config
+	std::string config_str;
+	auto config_len = in.Read(config_str);
+    LOG::info() << "LoadNetwork: config: len=" << config_len;
+    LOG::verbose() << "LoadNetwork: config: config_str=\n" << config_str;
 
-        std::shared_lock<std::shared_mutex> lock(*(self->mutex_));
+	// Network
+	auto model_size = model_->Load(in);
+    LOG::info() << "LoadNetwork: model_size=" << model_size;
 
-        //ANET_LOG_DEBUG("obs=" << anet::ToDefString(obs));
-        torch::Tensor proc_obs = obs;
-
-        // Stacker有効なのに送られてきたデータが2次元(N, F)だった場合、時間方向に複製して3次元化する
-        if (use_stacker && proc_obs.dim() == 2) {
-            // (N, F) -> (N, 1, F) -> (N, Stack, F)
-            proc_obs = proc_obs.unsqueeze(1).expand({ -1, stack_count, -1 });
-        }
-        //ANET_LOG_DEBUG("proc_obs=" << anet::ToDefString(proc_obs));
-
-        // 正規化
-        auto obs_norm = self->obs_norm_->Normalize(proc_obs);
-        //ANET_LOG_DEBUG("obs_norm=" << anet::ToDefString(obs_norm));
-
-		// ネットワーク実行 (stack有効の場合は(N, S, F)、無効の場合は(N, F)
-        auto out = network_fn(obs_norm);
-        return out;
-        };
-
-    return norm_fn;
+	// Learner
+	auto learner_size = learner_->Load(in);
+    LOG::info() << "LoadNetwork: learner_size=" << learner_size;
 }
 
 std::optional<anet::TensorDictFunction> DefaultDQNAgent::GetTensorDictFunction(const std::string& key)
 {
-    // dqn::Network に委譲してベース関数を取得
+    // NetworkModel に委譲してベース関数を取得
     auto fn = model_->GetTensorDictFunction(key, device_);
     if (fn == std::nullopt) return std::nullopt;
 
@@ -262,17 +287,36 @@ std::optional<anet::TensorDictFunction> DefaultDQNAgent::GetTensorDictFunction(c
     int stack_count = config_.stucker.stack_count;
 
     // ロックと前処理（正規化等）をラップした関数を作成
-    anet::TensorDictFunction norm_fn = [self, network_fn, use_stacker, stack_count](const torch::Tensor& obs) {
+    anet::TensorDictFunction norm_fn = [self, network_fn, use_stacker, stack_count](const anet::TensorDict& obs) {
 
         // 排他制御（他スレッドでのパラメータ更新と競合しないように）
         std::shared_lock<std::shared_mutex> lock(*(self->mutex_));
         torch::NoGradGuard grad_guard;
 
-        torch::Tensor proc_obs = obs;
+        anet::TensorDict proc_obs;
+        anet::TensorDict device_obs = obs.To(self->device_);
 
-        // Stacker有効なのに送られてきたデータが2次元(N, F)だった場合、時間方向に複製して3次元化する
-        if (use_stacker && proc_obs.dim() == 2) {
-            proc_obs = proc_obs.unsqueeze(1).expand({ -1, stack_count, -1 });
+        for (const auto& kv : device_obs) {
+            auto k = kv.first;
+            auto t = kv.second;
+
+            bool is_stacked_target = true;
+            if (!self->config_.stucker.stack_keys.empty()) {
+                auto it = std::find(self->config_.stucker.stack_keys.begin(), self->config_.stucker.stack_keys.end(), k);
+                is_stacked_target = (it != self->config_.stucker.stack_keys.end());
+            }
+
+            // 状態スイープは実フレーム履歴を持たない合成1フレーム入力なので、
+            // stacker 有効時は同じフレームを stack 全域へ複製して通常の network 入力形状に合わせる。
+            if (use_stacker && is_stacked_target) {
+                // (B, C, H, W) -> (B, 1, C, H, W)
+                t = t.unsqueeze(1);
+                auto sizes = t.sizes().vec();
+                sizes[1] = stack_count;
+                // .expand はメモリを余分に確保せずポインタだけ増やすので高速
+                t = t.expand(sizes);
+            }
+            proc_obs.Set(k, t);
         }
 
         // Agentが持っているObservationNormalizerを通す
@@ -356,13 +400,15 @@ std::shared_ptr<anet::rl::ActionContext> DefaultDQNAgent::CreateActionContext(
 
     if (config_.stucker.use_stacker) {
         // Stackerを作成して包んで返す
-        auto stacker = std::make_shared<TensorFrameStacker>(
-            config_.stucker.stack_count, batch_env_spec.batch_size, target_device);
+        std::optional<std::vector<std::string>> stack_keys;
+        if (!config_.stucker.stack_keys.empty()) stack_keys = config_.stucker.stack_keys;
+        auto stacker = std::make_shared<DictFrameStacker>(
+			config_.stucker.stack_count, batch_env_spec.num_envs, target_device, stack_keys);
         return std::make_shared<StackerActionContext>(run_mode, stacker, ctx_seed);
     }
 
     // Stacker無効ならデフォルト
-    return std::make_shared<DefaultActionContext>(run_mode, ctx_seed);
+    return std::make_shared<DefaultActionContext>(run_mode, ctx_seed, target_device);
 }
 
 static bool IsForTarget(anet::rl::RunMode run_mode)
@@ -376,71 +422,32 @@ static bool IsForTarget(anet::rl::RunMode run_mode)
     return run_mode == anet::rl::RunMode::Eval1;
 }
 
-anet::rl::BatchActionInfo DefaultDQNAgent::MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const
-{
-    ProfileRange r1("DefaultDQNAgent::MakeAction");
-    ANET_ASSERT_SHAPE(state.obs, { ANET_SHAPE_ANY, state_dim_ });
-
-    // 共有ロック＆Grad抑止
-    std::shared_lock<std::shared_mutex> lock(*mutex_);
-    torch::NoGradGuard ng;
-
-    // obsを生成
-    torch::Tensor obs = state.obs.to(device_);
-    if (ctx) obs = ctx->PushObservation(state);
-
-    // Normalize observations
-    auto norm_obs = obs_norm_->Normalize(obs);
-    ANET_LOG_DEBUG("norm_obs=" << anet::ToDefString(norm_obs));
-
-    // 行動選択
-    BatchActionInfo act_info;
-
-    // RunMode に応じて Policy を切り替える
-    auto rnd = ctx->GetRandomGenerator();
-    auto run_mode = (ctx != nullptr) ? ctx->GetRunMode() : anet::rl::RunMode::Train;
-    if (anet::rl::IsEval(run_mode)) {
-        auto use_target = IsForTarget(run_mode);
-        auto network = use_target ? model_->GetTargetNetwork() : model_->GetMainNetwork();
-        act_info = eval_policy_->SelectAction(norm_obs, false, network, rnd);
-    } else {
-        // Train向けでは train_policy_ と MainNetwork で固定
-        act_info = train_policy_->SelectAction(norm_obs, false, model_->GetMainNetwork(), rnd);
-    }
-
-    // ObservationをAuxに詰める
-    act_info.GetAuxData()["raw_obs"] = obs;     // スタック済・正規化前のObservation
-    if (obs_norm_ != nullptr) {
-        act_info.GetAuxData()["norm_obs"] = norm_obs;       // スタック済・正規化済のObservation
-    }
-
-    // ActionInfoを返す
-    return act_info;
-}
-
 std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, bool clone_model, std::optional<torch::Device> device) const
 {
     // Contextを生成
     auto ctx = this->CreateActionContext(batch_env_spec, run_mode, device);
 
     // モードに応じて適切な Policy と Network を選択
-    std::shared_ptr<anet::rl::dqn::ActionPolicy> policy;
+    std::shared_ptr<ActionPolicy> policy;
     std::shared_ptr<anet::nn::Network> src_network;
 
     // 元ネタのPolicyとNetoworkを決定
     if (anet::rl::IsEval(run_mode)) {
         policy = eval_policy_;
-        src_network = IsForTarget(run_mode) ? model_->GetTargetNetwork() : model_->GetMainNetwork();
+        src_network = IsForTarget(run_mode) ? model_->GetTargetNetwork() : model_->GetOnlineNetwork();
     } else {
         policy = train_policy_;
-        src_network = model_->GetMainNetwork();
+        src_network = model_->GetOnlineNetwork();
     }
 
     // 必要に応じてCloneしてActor向けネットワークとする
     auto network = (clone_model) ? src_network->Clone(device) : src_network;
+    if (clone_model) {
+        network->eval();
+    }
 
     // Actor を生成
-    auto actor = std::make_shared<dqn::Actor>(policy, obs_norm_, ctx, this->mutex_, network, src_network);
+    auto actor = std::make_shared<Actor>(policy, obs_norm_, ctx, this->mutex_, network, src_network);
 
     // 生成したActorを返す
     return actor;
@@ -454,7 +461,7 @@ std::shared_ptr<anet::rl::Learner> DefaultDQNAgent::CreateLearner()
 anet::rl::BatchUpdateResultList
 DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp)
 {
-    ProfileRange r1("DefaultDQNAgent::UpdateFromBatch");
+    ANET_PROFILE_FUNC();
 
     BatchUpdateResultList result_list;
 

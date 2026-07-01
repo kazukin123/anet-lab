@@ -1,0 +1,534 @@
+﻿
+# ==============================================================================
+# 基本設定
+# ==============================================================================
+
+app.$ = app.online > P
+#app.$ = app.batchrun > P
+
+train.seed = 1
+
+train.num_envs = 256
+#train.num_envs = 128
+#train.num_envs = 16
+#train.num_envs = 10
+#train.num_envs = 1
+
+ImageClsEnv.$ = ImageClsEnv.baseline > E
+
+#net.branch.[main_feature].$ = net.branch.FoodResNet13      # 44%
+#net.branch.[main_feature].$ = net.branch.FoodResNet13_GAP  # 61% 1.3h
+#net.branch.[main_feature].$ = net.branch.ResNet18          # 71% 1.5h
+net.branch.[main_feature].$ = net.branch.ResNet18ish_hr     # 77% 2.5h
+#net.branch.[main_feature].$ = net.branch.ResNet18ish_mr    # 73% 1.5h
+#net.branch.[main_feature].$ = net.branch.ResNet18ish_MaxPool
+#net.branch.[main_feature].$ = net.branch.ResNet18ish_std
+#net.branch.[main_feature].$ = net.branch.Hybrid_CLS        # 60% 2.0h
+#net.branch.[main_feature].$ = net.branch.Hybrid_GAP        # 56%
+#net.branch.[main_feature].$ = net.branch.ViT_S16_CLS       # 37%
+#net.branch.[main_feature].$ = net.branch.ViT_S16_GAP       # 43%
+
+
+# ==============================================================================
+# 実験
+# ==============================================================================
+
+app.run_name = run_{t}_imgcls
+#app.run_name = run_{t}_imgcls_ResNet18ish_hr
+
+#E.augment.rrc_scale_min = 0.5        # RandomResizedCrop の面積比下限
+
+
+# ==============================================================================
+# デバッグ用
+# ==============================================================================
+
+#app.train_auto_start = false
+
+
+# ==============================================================================
+# BF16 ★未対応
+# ==============================================================================
+
+
+
+# ==============================================================================
+# ステップ数 依存設定
+# ==============================================================================
+
+app.online.exp_pause_step  = 10,000,000      # 10M
+#app.online.exp_pause_step  = 100,000,000      # 100M
+
+app.batchrun.exp_exit_step  = 160,000,000     # 160M
+
+
+# ==============================================================================
+# Env依存 Agent設定
+# ==============================================================================
+
+#ImageClsAgent.learning_rate = 5e-4
+ImageClsAgent.learning_rate = 1e-3
+ImageClsAgent.weight_decay = 0.05
+#ImageClsAgent.weight_decay = 0.1
+
+ImageClsAgent.label_smoothing = 0.1
+ImageClsAgent.grad_clip_max_norm = 1.0
+
+ImageClsAgent.nn_viz.show_param_shapes = true
+ImageClsAgent.nn_viz.show_param_count = true
+ImageClsAgent.nn_viz.show_tensor_specs = true
+ImageClsAgent.nn_viz.show_head_info = true
+ImageClsAgent.nn_viz.layout = LR  # TB LR
+ImageClsAgent.nn_viz.cluster_branches = true
+ImageClsAgent.nn_viz.float_precision = 3
+
+
+# ==============================================================================
+# NN
+# ==============================================================================
+
+net.block.[LinearOut].type = Linear
+net.block.[LinearOut].linear.out_features = 101
+net.block.[LinearOut].init.mode = 2
+
+net.block.[Drop].type = Dropout
+net.block.[Drop].dropout_rate = 0.5
+#net.block.[Drop].dropout_rate = 0.2
+#net.block.[Drop].dropout_rate = 0.0
+
+net.block.[DropHead].type = Dropout
+net.block.[DropHead].dropout_rate = 0.2
+
+
+net.block.[BN32].type = BatchNorm2d
+net.block.[BN32].num_features = 32
+
+net.block.[BN64].type = BatchNorm2d
+net.block.[BN64].num_features = 64
+
+net.block.[BN128].type = BatchNorm2d
+net.block.[BN128].num_features = 128
+
+net.block.[BN256].type = BatchNorm2d
+net.block.[BN256].num_features = 256
+
+net.block.[BN512].type = BatchNorm2d
+net.block.[BN512].num_features = 512
+
+
+net.block.[ConvInit32].type = Conv2d
+net.block.[ConvInit32].conv.out_channels = 32
+net.block.[ConvInit32].conv.kernel_size = 3
+net.block.[ConvInit32].conv.padding = 1
+net.block.[ConvInit32].conv.stride = 2
+net.block.[ConvInit32].init.mode = 2
+
+net.block.[ConvInit64].type = Conv2d
+net.block.[ConvInit64].conv.out_channels = 64
+net.block.[ConvInit64].conv.kernel_size = 3
+net.block.[ConvInit64].conv.stride = 2
+net.block.[ConvInit64].conv.padding = 1
+net.block.[ConvInit64].init.mode = 2
+
+net.block.[ConvInit64_7x7].type = Conv2d
+net.block.[ConvInit64_7x7].conv.out_channels = 64
+net.block.[ConvInit64_7x7].conv.kernel_size = 7
+net.block.[ConvInit64_7x7].conv.stride = 2
+net.block.[ConvInit64_7x7].conv.padding = 3
+net.block.[ConvInit64_7x7].init.mode = 2
+
+net.block.[MaxPool3x3s2].type = MaxPool2d
+net.block.[MaxPool3x3s2].pool.kernel_size = 3
+net.block.[MaxPool3x3s2].pool.stride = 2
+net.block.[MaxPool3x3s2].pool.padding = 1
+net.block.[MaxPool3x3s2].pool.dilation = 1
+net.block.[MaxPool3x3s2].pool.ceil_mode = false
+
+
+net.block.[ConvDown64].type = Conv2d
+net.block.[ConvDown64].conv.out_channels = 64
+net.block.[ConvDown64].conv.kernel_size = 3
+net.block.[ConvDown64].conv.padding = 1
+net.block.[ConvDown64].conv.stride = 2 # 空間サイズを半分に
+net.block.[ConvDown64].init.mode = 2
+
+net.block.[ConvDown128].type = Conv2d
+net.block.[ConvDown128].conv.out_channels = 128
+net.block.[ConvDown128].conv.kernel_size = 3
+net.block.[ConvDown128].conv.padding = 1
+net.block.[ConvDown128].conv.stride = 2 # 空間サイズを半分に
+net.block.[ConvDown128].init.mode = 2
+
+net.block.[ConvDown256].type = Conv2d
+net.block.[ConvDown256].conv.out_channels = 256
+net.block.[ConvDown256].conv.kernel_size = 3
+net.block.[ConvDown256].conv.stride = 2
+net.block.[ConvDown256].conv.padding = 1
+net.block.[ConvDown256].init.mode = 2
+
+net.block.[ConvDown512].type = Conv2d
+net.block.[ConvDown512].conv.out_channels = 512
+net.block.[ConvDown512].conv.kernel_size = 3
+net.block.[ConvDown512].conv.stride = 2 # 空間サイズを半分に
+net.block.[ConvDown512].conv.padding = 1
+net.block.[ConvDown512].init.mode = 2
+
+
+net.block.[ResBlock32].type = ResBlock
+net.block.[ResBlock32].res.channels = 32
+net.block.[ResBlock32].res.kernel_size = 3
+net.block.[ResBlock32].res.activation = silu
+net.block.[ResBlock32].res.norm_type = batch
+
+net.block.[ResBlock64].type = ResBlock
+net.block.[ResBlock64].res.channels = 64
+net.block.[ResBlock64].res.kernel_size = 3
+net.block.[ResBlock64].res.activation = silu
+net.block.[ResBlock64].res.norm_type = batch
+
+net.block.[ResBlock128].type = ResBlock
+net.block.[ResBlock128].res.channels = 128
+net.block.[ResBlock128].res.kernel_size = 3
+net.block.[ResBlock128].res.activation = silu
+net.block.[ResBlock128].res.norm_type = batch
+
+net.block.[ResBlock256].type = ResBlock
+net.block.[ResBlock256].res.channels = 256
+net.block.[ResBlock256].res.kernel_size = 3
+net.block.[ResBlock256].res.activation = silu
+net.block.[ResBlock256].res.norm_type = batch
+net.block.[ResBlock256].res.droppath_rate = 0.1
+net.block.[ResBlock256].res.dropout_rate = 0
+
+net.block.[ResBlock512].type = ResBlock
+net.block.[ResBlock512].res.channels = 512
+net.block.[ResBlock512].res.kernel_size = 3
+net.block.[ResBlock512].res.activation = silu
+net.block.[ResBlock512].res.norm_type = batch
+net.block.[ResBlock512].res.droppath_rate = 0.15
+net.block.[ResBlock512].res.dropout_rate = 0
+
+net.block.[ResBlock128s2].type = ResBlock
+net.block.[ResBlock128s2].res.channels = 128
+net.block.[ResBlock128s2].res.kernel_size = 3
+net.block.[ResBlock128s2].res.stride = 2
+net.block.[ResBlock128s2].res.activation = silu
+net.block.[ResBlock128s2].res.norm_type = batch
+
+net.block.[ResBlock256s2].type = ResBlock
+net.block.[ResBlock256s2].res.channels = 256
+net.block.[ResBlock256s2].res.kernel_size = 3
+net.block.[ResBlock256s2].res.stride = 2
+net.block.[ResBlock256s2].res.activation = silu
+net.block.[ResBlock256s2].res.norm_type = batch
+net.block.[ResBlock256s2].res.droppath_rate = 0.1
+net.block.[ResBlock256s2].res.dropout_rate = 0
+
+net.block.[ResBlock512s2].type = ResBlock
+net.block.[ResBlock512s2].res.channels = 512
+net.block.[ResBlock512s2].res.kernel_size = 3
+net.block.[ResBlock512s2].res.stride = 2
+net.block.[ResBlock512s2].res.activation = silu
+net.block.[ResBlock512s2].res.norm_type = batch
+net.block.[ResBlock512s2].res.droppath_rate = 0.15
+net.block.[ResBlock512s2].res.dropout_rate = 0
+
+net.block.[ResNet18Block64].type = ResBlock
+net.block.[ResNet18Block64].res.channels = 64
+net.block.[ResNet18Block64].res.kernel_size = 3
+net.block.[ResNet18Block64].res.activation = relu
+net.block.[ResNet18Block64].res.norm_type = batch
+net.block.[ResNet18Block64].res.conv1_bias = false
+net.block.[ResNet18Block64].res.conv2_bias = false
+net.block.[ResNet18Block64].res.droppath_rate = 0
+net.block.[ResNet18Block64].res.dropout_rate = 0
+
+net.block.[ResNet18Block128].type = ResBlock
+net.block.[ResNet18Block128].res.channels = 128
+net.block.[ResNet18Block128].res.kernel_size = 3
+net.block.[ResNet18Block128].res.activation = relu
+net.block.[ResNet18Block128].res.norm_type = batch
+net.block.[ResNet18Block128].res.conv1_bias = false
+net.block.[ResNet18Block128].res.conv2_bias = false
+net.block.[ResNet18Block128].res.droppath_rate = 0
+net.block.[ResNet18Block128].res.dropout_rate = 0
+
+net.block.[ResNet18Block128s2].type = ResBlock
+net.block.[ResNet18Block128s2].res.channels = 128
+net.block.[ResNet18Block128s2].res.kernel_size = 3
+net.block.[ResNet18Block128s2].res.stride = 2
+net.block.[ResNet18Block128s2].res.activation = relu
+net.block.[ResNet18Block128s2].res.norm_type = batch
+net.block.[ResNet18Block128s2].res.conv1_bias = false
+net.block.[ResNet18Block128s2].res.conv2_bias = false
+net.block.[ResNet18Block128s2].res.droppath_rate = 0
+net.block.[ResNet18Block128s2].res.dropout_rate = 0
+
+net.block.[ResNet18Block256].type = ResBlock
+net.block.[ResNet18Block256].res.channels = 256
+net.block.[ResNet18Block256].res.kernel_size = 3
+net.block.[ResNet18Block256].res.activation = relu
+net.block.[ResNet18Block256].res.norm_type = batch
+net.block.[ResNet18Block256].res.conv1_bias = false
+net.block.[ResNet18Block256].res.conv2_bias = false
+net.block.[ResNet18Block256].res.droppath_rate = 0
+net.block.[ResNet18Block256].res.dropout_rate = 0
+
+net.block.[ResNet18Block256s2].type = ResBlock
+net.block.[ResNet18Block256s2].res.channels = 256
+net.block.[ResNet18Block256s2].res.kernel_size = 3
+net.block.[ResNet18Block256s2].res.stride = 2
+net.block.[ResNet18Block256s2].res.activation = relu
+net.block.[ResNet18Block256s2].res.norm_type = batch
+net.block.[ResNet18Block256s2].res.conv1_bias = false
+net.block.[ResNet18Block256s2].res.conv2_bias = false
+net.block.[ResNet18Block256s2].res.droppath_rate = 0
+net.block.[ResNet18Block256s2].res.dropout_rate = 0
+
+net.block.[ResNet18Block512].type = ResBlock
+net.block.[ResNet18Block512].res.channels = 512
+net.block.[ResNet18Block512].res.kernel_size = 3
+net.block.[ResNet18Block512].res.activation = relu
+net.block.[ResNet18Block512].res.norm_type = batch
+net.block.[ResNet18Block512].res.conv1_bias = false
+net.block.[ResNet18Block512].res.conv2_bias = false
+net.block.[ResNet18Block512].res.droppath_rate = 0
+net.block.[ResNet18Block512].res.dropout_rate = 0
+
+net.block.[ResNet18Block512s2].type = ResBlock
+net.block.[ResNet18Block512s2].res.channels = 512
+net.block.[ResNet18Block512s2].res.kernel_size = 3
+net.block.[ResNet18Block512s2].res.stride = 2
+net.block.[ResNet18Block512s2].res.activation = relu
+net.block.[ResNet18Block512s2].res.norm_type = batch
+net.block.[ResNet18Block512s2].res.conv1_bias = false
+net.block.[ResNet18Block512s2].res.conv2_bias = false
+net.block.[ResNet18Block512s2].res.droppath_rate = 0
+net.block.[ResNet18Block512s2].res.dropout_rate = 0
+
+
+
+net.block.[PatchEmbed16].type = Conv2d
+net.block.[PatchEmbed16].conv.out_channels = 192
+net.block.[PatchEmbed16].conv.kernel_size = 16
+net.block.[PatchEmbed16].conv.stride = 16
+net.block.[PatchEmbed16].conv.padding = 0
+net.block.[PatchEmbed16].init.mode = 2
+
+
+net.block.[TransEnc_ViT].type = TransformerEncoder
+net.block.[TransEnc_ViT].tf.d_model = 192
+net.block.[TransEnc_ViT].tf.nhead = 6
+net.block.[TransEnc_ViT].tf.num_layers = 6
+net.block.[TransEnc_ViT].tf.dim_feedforward = 768
+net.block.[TransEnc_ViT].tf.norm_first = true
+net.block.[TransEnc_ViT].tf.use_sdpa = true
+net.block.[TransEnc_ViT].tf.hidden_dropout_rate = 0.1
+net.block.[TransEnc_ViT].tf.attn_dropout_rate = 0.0
+net.block.[TransEnc_ViT].tf.droppath_rate = 0.1
+
+net.block.[TransEnc_H256].type = TransformerEncoder
+net.block.[TransEnc_H256].tf.d_model = 256
+net.block.[TransEnc_H256].tf.nhead = 8
+net.block.[TransEnc_H256].tf.num_layers = 4
+net.block.[TransEnc_H256].tf.dim_feedforward = 1024
+net.block.[TransEnc_H256].tf.norm_first = true
+net.block.[TransEnc_H256].tf.use_sdpa = true
+net.block.[TransEnc_H256].tf.hidden_dropout_rate = 0.1
+net.block.[TransEnc_H256].tf.attn_dropout_rate = 0.0
+net.block.[TransEnc_H256].tf.droppath_rate = 0.1
+
+
+net.branch.FoodResNet13.bind = grid
+net.branch.FoodResNet13.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > Flatten > Drop > LinearOut
+
+net.branch.FoodResNet13_GAP.bind = grid
+net.branch.FoodResNet13_GAP.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > GAP2D > Drop > LinearOut
+
+net.branch.ResNet18.bind = grid
+net.branch.ResNet18.structure = ConvInit64_7x7 > BN64 > ReLU > MaxPool3x3s2 > ResNet18Block64(*2) > ResNet18Block128s2 > ResNet18Block128 > ResNet18Block256s2 > ResNet18Block256 > ResNet18Block512s2 > ResNet18Block512 > GAP2D > LinearOut
+
+net.branch.ResNet18ish_MaxPool.bind = grid
+net.branch.ResNet18ish_MaxPool.structure = ConvInit64_7x7 > BN64 > SiLU > MaxPool3x3s2 > ResBlock64(*2) > ResBlock128s2 > ResBlock128 > ResBlock256s2 > ResBlock256 > ResBlock512s2 > ResBlock512 > GAP2D > DropHead > LinearOut
+
+net.branch.ResNet18ish_std.bind = grid
+net.branch.ResNet18ish_std.structure   = ConvInit64 > BN64 > SiLU > ConvDown64 > BN64 > SiLU > ResBlock64(*2) > ResBlock128s2 > ResBlock128 > ResBlock256s2 > ResBlock256 > ResBlock512s2 > ResBlock512 > GAP2D > DropHead > LinearOut
+
+net.branch.ResNet18ish_hr.bind = grid
+#net.branch.ResNet18ish_hr.structure = ConvInit64 > BN64 > SiLU > ResBlock64(*2) > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > ConvDown512 > BN512 > SiLU > ResBlock512(*2) > GAP2D > LinearOut
+net.branch.ResNet18ish_hr.structure = ConvInit64 > BN64 > SiLU > ResBlock64(*2) > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > ConvDown512 > BN512 > SiLU > ResBlock512(*2) > GAP2D > DropHead > LinearOut
+
+net.branch.ResNet18ish_mr.bind = grid
+net.branch.ResNet18ish_mr.structure = ConvInit32 > BN32 > SiLU > ResBlock32(*2) > ConvDown64  > BN64  > SiLU > ResBlock64(*2)  > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > GAP2D > DropHead > LinearOut
+
+net.branch.Hybrid_CLS.bind = grid
+net.branch.Hybrid_CLS.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > PosEmbed2D > ClsAppend > TransEnc_H256 > ClsExtract > LinearOut
+
+net.branch.Hybrid_GAP.bind = grid
+net.branch.Hybrid_GAP.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > PosEmbed2D > TransEnc_H256 > GAP1D > LinearOut
+
+net.branch.ViT_S16_CLS.bind = grid
+net.branch.ViT_S16_CLS.structure = PatchEmbed16 > PosEmbed2D > ClsAppend > TransEnc_ViT > ClsExtract > LinearOut
+
+net.branch.ViT_S16_GAP.bind = grid
+net.branch.ViT_S16_GAP.structure   = PatchEmbed16 > PosEmbed2D > TransEnc_ViT > GAP1D > LinearOut
+
+
+net.body.output.[logits] = main_feature
+
+
+# ==============================================================================
+# scalar metrics
+# ==============================================================================
+
+#metrics.scalar.$ = metrics.scalar.baseline > M
+#metrics.scalar.$ = metrics.scalar.min > M
+#metrics.scalar.$ = metrics.scalar.full > M
+
+
+metrics.scalar.[20_eps/10_train_reward]     = $runner $episode_step train_episode_reward @train
+metrics.scalar.[20_eps/11_train_reward_ema] = $runner $episode_step train_episode_reward @train $ema ema_alpha:0.001
+
+metrics.scalar.[21_eval/01_test_reward] = eps_total_reward $runner @episode_end $eval.[eval1]
+metrics.scalar.[21_eval/02_test_reward_ema] = eps_total_reward $runner $ema @episode_end $eval.[eval1]
+
+metrics.scalar.[38_agent/01_loss] = loss @learn
+metrics.scalar.[38_agent/02_loss_ema] = loss $ema @learn
+
+metrics.scalar.[38_agent/03_accuracy] = accuracy @learn
+metrics.scalar.[38_agent/04_accuracy_ema] = accuracy $ema @learn
+
+metrics.scalar.[42_env/02_reward_sum_mean]  = $env mean.reward_sum @train
+metrics.scalar.[42_env/03_reward_sum_mean_ema]  = $env mean.reward_sum @train $ema ema_alpha:0.001
+
+metrics.scalar.[42_env/04_accuracy_mean]  = $env mean.accuracy @train
+metrics.scalar.[42_env/05_accuracy_mean_ema]  = $env mean.accuracy @train $ema ema_alpha:0.001
+
+metrics.scalar.[51_eval1/03_accuracy]         = $eval.[eval1] @episode_end $env mean.accuracy
+metrics.scalar.[51_eval1/04_accuracy_ema]     = $eval.[eval1] @episode_end $env mean.accuracy $ema ema_alpha:0.01
+
+metrics.scalar.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $runner interval:100
+metrics.scalar.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema ema_alpha:0.001 interval:100 
+metrics.scalar.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
+
+
+# ==============================================================================
+# image metrics
+# ==============================================================================
+
+#metrics.image.interval = 0   # 出力全無効
+#metrics.image.interval = 1   # 毎ステップ出力（重い）
+metrics.image.interval = 50   # 通常運用
+#metrics.image.interval = 500 # 重い場合
+
+metrics.image.[60_agent_img/11_conv2d_32p_jet].type = Conv2d
+#metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 20
+metrics.image.[60_agent_img/11_conv2d_32p_jet].interval = 0
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.channels_per_row = 64
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.margin_x = 3
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.margin_y = 3
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.layer_margin_y = 10
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.network_key = policy-net.conv2d
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.colormap = jet
+#metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.min_block_size = 56
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.min_block_size = 112
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.scale_factor = 0.50
+metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.flip_vertical = false
+
+
+# ==============================================================================
+# app
+# ==============================================================================
+
+app.online.eval_panel.auto_start = false
+app.batchrun.eval_panel.auto_start = false
+
+app.online.train_panel.fps = 3
+app.online.eval_panel.fps = 3
+
+agent.class_id = ImageClsAgent
+env.class_id = ImageClsEnv
+
+app.metrics_logger.video_codec = libx264
+
+Conv2dPanel.conv2d.channels_per_row = 16
+Conv2dPanel.conv2d.network_key = policy-net.conv2d
+Conv2dPanel.conv2d.flip_vertical = false
+Conv2dPanel.conv2d.margin_x = 3
+Conv2dPanel.conv2d.margin_y = 3
+Conv2dPanel.conv2d.layer_margin_y = 32
+Conv2dPanel.conv2d.colormap = jet  # gray hot jet
+Conv2dPanel.conv2d.scale_factor = 1
+Conv2dPanel.conv2d.min_block_size = 112
+
+
+# ==============================================================================
+# DropMergeEnv
+# ==============================================================================
+
+# --- Env 通常設定
+
+ImageClsEnv.baseline.root_dir = C:\dev\food-101\images
+ImageClsEnv.baseline.train_list_txt_path = C:\dev\food-101\meta\train.txt
+ImageClsEnv.baseline.eval_list_txt_path = C:\dev\food-101\meta\test.txt
+ImageClsEnv.baseline.classes_txt_path = C:\dev\food-101\meta\classes.txt
+ImageClsEnv.baseline.suffix = .jpg
+ImageClsEnv.baseline.image_width = 224
+ImageClsEnv.baseline.image_height = 224
+ImageClsEnv.baseline.max_steps = 100
+ImageClsEnv.baseline.augment.enabled = true             # train画像データ拡張（crop/flip）を有効化
+ImageClsEnv.baseline.augment.hflip_p = 0.5              # 水平フリップ確率
+ImageClsEnv.baseline.augment.rrc_scale_min = 0.7        # RandomResizedCrop の面積比下限
+ImageClsEnv.baseline.augment.rrc_scale_max = 1.0        # RandomResizedCrop の面積比上限
+ImageClsEnv.baseline.augment.rrc_ratio_min = 0.75       # crop アスペクト比下限
+ImageClsEnv.baseline.augment.rrc_ratio_max = 1.3333333  # crop アスペクト比上限
+
+
+# --- Env デフォルト設定
+
+ImageClsEnv.root_dir = ./images/
+ImageClsEnv.train_list_txt_path = train.txt
+ImageClsEnv.eval_list_txt_path = test.txt
+ImageClsEnv.classes_txt_path = classes.txt
+ImageClsEnv.suffix = .jpg
+ImageClsEnv.image_width = -1
+ImageClsEnv.image_height = -1
+ImageClsEnv.max_steps = 100
+ImageClsEnv.augment.enabled = false             # train画像データ拡張（crop/flip） defaultで無効
+ImageClsEnv.augment.hflip_p = 0.5               # 水平フリップ確率
+ImageClsEnv.augment.rrc_scale_min = 0.7         # RandomResizedCrop の面積比下限
+ImageClsEnv.augment.rrc_scale_max = 1.0         # RandomResizedCrop の面積比上限
+ImageClsEnv.augment.rrc_ratio_min = 0.75        # crop アスペクト比下限
+ImageClsEnv.augment.rrc_ratio_max = 1.3333333   # crop アスペクト比上限
+
+
+# --- Eval設定 ---
+
+train.eval.[eval1].interval = 10
+train.eval.[eval2].interval = 0
+
+
+# --- ImageCls augment 仕様 ---
+# augment は train mode の画像取得時だけに適用するデータ拡張。
+#
+# ・eval mode では augment.enabled=true でも適用しない（評価画像は無加工）。
+# ・ImageDataSource が読み込み・224x224 resize した [3,H,W] uint8 画像に対して処理する。
+# ・変換順は RandomResizedCrop -> horizontal flip。
+# ・乱数は env の seed 由来なので、同一 seed・同一実行系列なら再現可能。
+#
+# RandomResizedCrop は「画像のどの範囲を見るか」を毎回ランダムに変える処理。
+# 元画像から、設定された crop 面積比（rrc_scale_*）と crop 矩形の幅/高さ比（rrc_ratio_*）の範囲内で
+# ランダムな矩形を選び、その矩形を切り抜いて image_width/image_height へ resize する。
+# つまり、元画像全体をそのまま縮小するのではなく、料理の見える位置・大きさ・周辺の切れ方を揺らす。
+#
+# RandomResizedCrop仕様:
+# ・ rrc_scale_min/max は crop 面積比。元画像面積に対して [min,max] の範囲から乱数で選ぶ。
+# ・ rrc_ratio_min/max は crop 矩形の幅/高さ比。比率は log 空間で乱数選択する。
+# ・ 選んだ面積比と幅/高さ比から crop_w/crop_h を計算し、画像内に収まる矩形を最大10回試す。
+# ・ 有効な矩形が取れたら top/left を乱数で選び、その部分を切り出す。
+# ・ 10回失敗した場合は、ratio 範囲に収まる中央 crop に fallback する。
+# ・ crop 後の画像は bilinear resize で image_width/image_height に戻す。
+#
+# horizontal flip仕様:
+# ・ hflip_p は crop 後画像を左右反転する確率。0.0=無効、1.0=常に反転。
+

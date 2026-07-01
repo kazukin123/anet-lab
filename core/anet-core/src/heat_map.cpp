@@ -1,4 +1,4 @@
-﻿#include "anet/heat_map.hpp"
+#include "anet/heat_map.hpp"
 #include <cmath>
 #include <algorithm>
 #include <filesystem>
@@ -66,7 +66,7 @@ HeatMap::HeatMap(int width, int height, float x_min, float x_max, float y_min, f
 
 void HeatMap::AddData(float x, float y, float value)
 {
-	ProfileRange r("HeatMap::AddData");
+	ANET_PROFILE_FUNC();
 
 	if (is_fixed_) {
 		buf_[head_] = { x, y, value };
@@ -84,7 +84,7 @@ void HeatMap::AddData(float x, float y, float value)
 /// SoA (xv, yv, vv) を受け取り、内部でAoS (buf_) に変換して格納する
 void HeatMap::AddDataBatch(const std::vector<float>& xv, const std::vector<float>& yv, const std::vector<float>& vv)
 {
-	ProfileRange r("HeatMap::AddDataBatch");
+	ANET_PROFILE_FUNC();
 
 	// サイズチェック
 	size_t n = xv.size();
@@ -146,7 +146,7 @@ void HeatMap::AddDataBatch(const std::vector<float>& xv, const std::vector<float
 /// サイズ = W * H
 void HeatMap::SetGridValues(const float* values, int width, int height)
 {
-	ProfileRange r("HeatMap::SetGridValues");
+	ANET_PROFILE_FUNC();
 
 	ANET_ASSERT(width == width_);
 	ANET_ASSERT(height == height_);
@@ -185,7 +185,7 @@ void HeatMap::Reset()
 
 wxImage HeatMap::RenderRaw() const
 {
-	ProfileRange r("HeatMap::RenderRaw");
+	ANET_PROFILE_FUNC();
 
 	std::lock_guard<std::mutex> lock(mtx_);
 
@@ -198,7 +198,7 @@ wxImage HeatMap::RenderRaw() const
 		return empty;
 	}
 
-	ProfileRange r1("HeatMap::RenderRaw.prepare");
+	ANET_PROFILE_SCOPE(prepare);
 
 	const int W = width_;
 	const int H = height_;
@@ -240,7 +240,7 @@ wxImage HeatMap::RenderRaw() const
 		};
 
 	// --- 値レンジ決定 ---
-	ProfileRange r2("HeatMap::RenderRaw.autoNormValue", r1);
+	ANET_PROFILE_SCOPE_NEXT(auto_norm_value);
 	float vmin = value_min_;
 	float vmax = value_max_;
 
@@ -263,7 +263,7 @@ wxImage HeatMap::RenderRaw() const
 	}
 
 	// --- サンプル配置 ---
-	ProfileRange r3("HeatMap::RenderRaw.normalize", r2);
+	ANET_PROFILE_SCOPE_NEXT(normalize);
 
 	float* p_buf = work_buf_.data();
 	int* p_cnt = work_cnt_.data();
@@ -313,7 +313,7 @@ wxImage HeatMap::RenderRaw() const
 	}
 
 	// --- 画像生成 (ポインタアクセスによる高速化) ---
-	ProfileRange r4("HeatMap::RenderRaw.draw", r3);
+	ANET_PROFILE_SCOPE_NEXT(draw);
 	wxImage img(W, H);
 	unsigned char* data = (unsigned char*)malloc(W * H * 3);
 	img.SetData(data);
@@ -406,7 +406,7 @@ void TimeHeatMap::Reset() {
 
 wxImage TimeHeatMap::RenderRaw() const
 {
-	ProfileRange r("TimeHeatMap::RenderRaw");
+	ANET_PROFILE_FUNC();
 
 	if (mode_ != TimeFrameMode::Scale)
 		return HeatMap::RenderRaw();
@@ -554,7 +554,7 @@ void Histgram::Reset() { std::fill(counts_.begin(), counts_.end(), 0); }
 
 wxImage Histgram::RenderRaw() const
 {
-	ProfileRange r("Histgram::RenderRaw");
+	ANET_PROFILE_FUNC();
 
 	std::lock_guard<std::mutex> lock(mtx_);
 	wxImage img(width_, height_);
@@ -639,7 +639,7 @@ int TimeHistogram::MapToBin_(float v) const {
 
 void TimeHistogram::AddBatch(const std::vector<float>& values)
 {
-	ProfileRange r("TimeHistogram::AddBatch");
+	ANET_PROFILE_FUNC();
 
 	if (values.empty()) return;
 
@@ -710,7 +710,7 @@ void TimeHistogram::AppendCurrentFrameOnly() {
 
 void TimeHistogram::RebuildFromRaw()
 {
-	ProfileRange r("TimeHistogram::RebuildFromRaw");
+	ANET_PROFILE_FUNC();
 
 	thm_.Reset();
 
@@ -751,7 +751,7 @@ void TimeHistogram::Reset() {
 
 wxImage TimeHistogram::RenderRaw() const
 {
-	ProfileRange r("TimeHistogram::RenderRaw");
+	ANET_PROFILE_FUNC();
 
 	wxImage img = thm_.RenderRaw();
 	if (!img.IsOk()) return img;
@@ -813,7 +813,7 @@ void SweepedHeatMap::Evaluate(const std::function<float(float, float)>& func) {
 
 wxImage SweepedHeatMap::RenderRaw() const
 {
-	ProfileRange r("SweepedHeatMap::RenderRaw");
+	ANET_PROFILE_FUNC();
 
 	wxImage img(width_, height_);
 	img.SetData(new unsigned char[width_ * height_ * 3]);
@@ -833,35 +833,6 @@ wxImage SweepedHeatMap::RenderRaw() const
 void SweepedHeatMap::Reset() {
 	std::fill(values_.begin(), values_.end(), 0.0f);
 	value_min_ = 0.0f; value_max_ = 1.0f;
-}
-
-SweepedHeatMap SweepedHeatMap::EvaluateTensorFunction(
-	int width, int height, float x_min, float x_max, float y_min, float y_max,
-	const torch::Device& device,
-	const std::function<torch::Tensor(const torch::Tensor&)>& forward,
-	const std::function<torch::Tensor(const torch::Tensor&)>& value_extractor) {
-
-	SweepedHeatMap map(width, height, x_min, x_max, y_min, y_max);
-	torch::NoGradGuard ng;
-	auto xs = torch::linspace(x_min, x_max, width, device);
-	auto ys = torch::linspace(y_min, y_max, height, device);
-
-	map.value_min_ = std::numeric_limits<float>::max();
-	map.value_max_ = -std::numeric_limits<float>::max();
-
-	for (int j = 0; j < height; ++j) {
-		float yv = ys[j].item<float>();
-		auto grid = torch::stack({ xs, torch::full_like(xs, yv) }, 1); // (W,2)
-		auto out = forward(grid);                                     // 任意形状
-		auto val = value_extractor(out).to(torch::kCPU).contiguous(); // (W,)
-		for (int i = 0; i < width; ++i) {
-			float v = val[i].item<float>();
-			map.values_[j * width + i] = v;
-			map.value_min_ = std::min(map.value_min_, v);
-			map.value_max_ = std::max(map.value_max_, v);
-		}
-	}
-	return map;
 }
 
 void SweepedHeatMap::SetValues(const torch::Tensor& values) {

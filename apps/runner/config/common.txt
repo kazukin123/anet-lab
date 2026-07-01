@@ -1,15 +1,17 @@
 ﻿
 # --- trainer
 
-train.main_runner_type = pipeline;
+train.main_runner_type = pipeline
 
 train.eval.[eval1].interval = 100
 train.eval.[eval1].run_mode = eval1
 #train.eval.[eval1].use_background = false
+train.eval.[eval1].use_background = true
 
 train.eval.[eval2].interval = 100
 train.eval.[eval2].run_mode = eval2
 #train.eval.[eval2].use_background = false
+train.eval.[eval2].use_background = true
 
 train.eval_device_type = cuda  # default: cpu
 #train.eval_device_type = cpu
@@ -44,6 +46,7 @@ AS.heavy.learner.replay_ratio = 4
 # --- env
 
 env.worker_threads = -1	# -1=auto
+#env.worker_threads = 1	# -1=auto
 env.device_type = 0     # 0=cpu 1=cuda
 env.device_index = -1   # GPU index -1=current device
 env.worker_type = 0     # 0=AUTO 1=SINGLE_THEAD 2=THREAD_POOL
@@ -51,8 +54,8 @@ env.worker_type = 0     # 0=AUTO 1=SINGLE_THEAD 2=THREAD_POOL
 
 # --- gui
 
-#QValuePanel.row_height = 24
-QValuePanel.row_height = 48
+QValuePanel.row_height = 24
+#QValuePanel.row_height = 48
 QValuePanel.use_hist_smooth = true
 QValuePanel.smooth_radius = 5 # 4 1個の分位の描画幅（実際は幅無しだが可視化の都合）
 QValuePanel.hist_bins = 510
@@ -72,18 +75,29 @@ Conv2dPanel.conv2d.min_block_size = 40
 
 # --- backend
 
+backend.cuda_launch_blocking = inherit # ★  on:性能を犠牲にしてCUDA呼び出しを同期化してデバッグしやすくする inhert:環境変数 CUDA_LAUNCH_BLOCKING=1を引き継ぐ
+#backend.cuda_launch_blocking = on      # ★ 
+
 #backend.torch_num_threads = -1     # -1:Auto(使えるだけ使う)
-backend.torch_num_threads = 1
+backend.torch_num_threads = 1       # 1スレッドに制限
 
-backend.use_tf32_cublas = true      # GPUが対応していれば、ほぼ劣化なしで高速化
-backend.use_tf32_cudnn = true       # GPUが対応していれば、ほぼ劣化なしで高速化
-backend.cudnn_deterministic = true  # false:非決定論的だが高速化　               true:決定論的だが遅い
-backend.cudnn_benchmark = false     # true:非決定論的だが高速化(する場合がある)　false:決定論的だが遅い
+backend.use_tf32_cublas = true      # TF32: GPUが対応していれば、ほぼ劣化なしで高速化
+backend.use_tf32_cudnn = true       # TF32: GPUが対応していれば、ほぼ劣化なしで高速化
+backend.cudnn_benchmark = true
 
-#backend.use_tf32_cublas = true
-#backend.use_tf32_cudnn = true
-#backend.cudnn_deterministic = false
-#backend.cudnn_benchmark = true
+# デフォルトは決定論的モード
+backend.cudnn_deterministic = true  # false:非決定論的だが高速化(する場合がある) true:決定論的だが遅い
+backend.deterministic_algorithms = true   # ★ true:SDPA等の非決定opも決定化し同seed再現性を確保(やや遅い) false:高速だが非決定論的
+backend.deterministic_warn_only = false   # true:非決定opを例外でなく警告で素通り(再現性は保証されない/将来op追加でthrowした時の一時退避)
+
+
+backend.deterministic.cudnn_deterministic = true
+backend.deterministic.deterministic_algorithms = true
+
+backend.non-deterministic.cudnn_deterministic = false
+backend.non-deterministic.deterministic_algorithms = false
+
+
 
 # --- app
 
@@ -93,6 +107,16 @@ app.log_level = info
 
 #app.train_auto_start = false
 app.train_auto_start = true
+
+app.eval_panel.auto_start = false
+
+#app.eval_panel.model_sync.mode = frame
+#app.eval_panel.model_sync.mode = shared
+app.eval_panel.model_sync.mode = time
+#app.eval_panel.model_sync.mode = episode
+app.eval_panel.model_sync.frame_interval = 30       # 1
+app.eval_panel.model_sync.time_interval_ms = 10000   # 1000
+app.eval_panel.model_sync.episode_interval = 1
 
 app.online.exp_pause_step  = 25,600,000   # 256 * 100K
 app.online.train_panel.fps = 30
@@ -107,9 +131,9 @@ app.batchrun.train_panel.fps = 0.5
 app.batchrun.eval_panel.fps = 0.5
 app.batchrun.eval_panel.step_per_frame = 10
 
-app.metrics_logger.root_dir = runs
-#app.metrics_logger.video_codec = libx264
-app.metrics_logger.video_codec = h264_nvenc  # libx264
+app.runs_dir = runs
+app.metrics_logger.video_codec = libx264
+#app.metrics_logger.video_codec = h264_nvenc  # libx264
 #app.metrics_logger.video_fps = 30
 app.metrics_logger.video_fps = 15
 

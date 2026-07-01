@@ -14,7 +14,7 @@
 #include "anet/config.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
-#include "nn_heads.hpp"
+#include "dqn_based_heads.hpp"
 
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
@@ -45,7 +45,7 @@ RainbowAgent::RainbowAgent(
     //auto action_policy_seed = seed_maker.MakeNamedSeed("action_policy");
 
     // RuntimeVars生成
-    this->vars_ = std::make_unique<dqn::RuntimeVars>();
+    this->vars_ = std::make_unique<RuntimeVars>();
     this->vars_->epsilon = config_.action_policy.eps_start;
 
     // QR-DQN設定確認 (use_qr フラグと num_quantiles の整合性)
@@ -67,21 +67,21 @@ RainbowAgent::RainbowAgent(
     // アルゴリズムに応じてFactoryを切り替え
     if (is_distributional) {
         if (config_.use_dueling_net) {
-            head_factory = std::make_shared<anet::nn::QuantileDuelingHeadFactory>(
+            head_factory = std::make_shared<QuantileDuelingHeadFactory>(
                 n_actions_, config_.num_quantiles, head_init_config);
             LOG::info() << "Network Head: Quantile Dueling (N=" << config_.num_quantiles << ")";
         } else {
-            head_factory = std::make_shared<anet::nn::QuantileHeadFactory>(
+            head_factory = std::make_shared<QuantileHeadFactory>(
                 n_actions_, config_.num_quantiles, head_init_config);
             LOG::info() << "Network Head: Quantile Plain (N=" << config_.num_quantiles << ")";
         }
     } else {
         if (config_.use_dueling_net) {
-            head_factory = std::make_shared<anet::nn::DuelingHeadFactory>(
+            head_factory = std::make_shared<DuelingHeadFactory>(
                 n_actions_, head_init_config);
             LOG::info() << "Network Head: Dueling";
         } else {
-            head_factory = std::make_shared<anet::nn::LinearHeadFactory>(
+            head_factory = std::make_shared<LinearHeadFactory>(
                 n_actions_, head_init_config);
             LOG::info() << "Network Head: Plain Linear";
         }
@@ -91,49 +91,46 @@ RainbowAgent::RainbowAgent(
     // Network構築 (Builder)
     // ------------------------------------------------------------
 
-    // 入力形状 (C, H, W) or (L,)
-    auto input_shape = env_spec.state_spec.shape;
-
     // NetworkModel生成
-    this->model_ = std::make_unique<dqn::NetworkModel>(
-        config_.model, device_, net_config, input_shape, n_actions_, head_factory, config_.num_quantiles
-    );
+    this->model_ = std::make_unique<NetworkModel>(
+        config_.model, device_, net_config, env_spec.state_spec.obs_spec, n_actions_, head_factory, config_.num_quantiles);
 
     // ActionPolicy生成
-    this->action_policy_ = std::make_unique<dqn::EpsilonGreedyActionPolicy>(config_.action_policy);
+    this->action_policy_ = std::make_unique<EpsilonGreedyActionPolicy>(config_.action_policy);
 
     // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化
     ActionPolicyConfig greedy_cfg;
     greedy_cfg.policy_type = "EpsilonGreedy";
     greedy_cfg.eps_start = 0.0f;
     greedy_cfg.eps_end = 0.0f;
-    this->target_policy_ = std::make_shared<dqn::EpsilonGreedyActionPolicy>(greedy_cfg);
+    this->target_policy_ = std::make_shared<EpsilonGreedyActionPolicy>(greedy_cfg);
 
     // Learner生成
     if (is_distributional) {
-        this->learner_ = std::make_unique<dqn::QRLearner>(config_.learner, *model_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed, target_policy_);
+        this->learner_ = std::make_unique<QRLearner>(config_.learner, *model_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed, target_policy_);
         LOG::info() << "Initialized QRLearner (Quantiles=" << config_.num_quantiles << ")";
     } else {
-        this->learner_ = std::make_unique<dqn::TDLearner>(config_.learner, *model_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed, target_policy_);
+        this->learner_ = std::make_unique<TDLearner>(config_.learner, *model_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed, target_policy_);
         LOG::info() << "Initialized TDLearner";
     }
 }
 
-std::optional<anet::TensorFunction> RainbowAgent::GetTensorFunction(const std::string& key)
+std::optional<anet::TensorDictFunction> RainbowAgent::GetTensorDictFunction(const std::string& key)
 {
-    auto fn = model_->GetTensorFunction(key, device_);
-    if (fn == std::nullopt) return fn;
+    auto fn = model_->GetTensorDictFunction(key, device_);
+    if (fn == std::nullopt) return std::nullopt;
 
     auto self = shared_from_this();
     auto network_fn = *fn;
 
-    anet::TensorFunction norm_fn = [self, network_fn](const torch::Tensor& obs) {
+    anet::TensorDictFunction wrapped_fn = [self, network_fn](const anet::TensorDict& obs) {
         std::shared_lock<std::shared_mutex> lock(*(self->mutex_));
-        auto out = network_fn(obs);
+        torch::NoGradGuard grad_guard;
+        auto out = network_fn(obs.To(self->device_));
         return out;
         };
 
-    return norm_fn;
+    return wrapped_fn;
 }
 
 std::optional<float> RainbowAgent::GetScalar(const std::string& key, int64_t index) const
@@ -179,31 +176,7 @@ std::shared_ptr<anet::rl::ActionContext> RainbowAgent::CreateActionContext(
     // 専用のRNGから1つシードを払い出してコンテキストに渡す
     auto rng = GetRandomGenerator(run_mode);
     seed_t ctx_seed = rng->RandUint64();
-    return std::make_shared<DefaultActionContext>(run_mode, ctx_seed);
-}
-
-anet::rl::BatchActionInfo RainbowAgent::MakeAction(const StepCounts& step, const BatchState& state, std::shared_ptr<ActionContext> ctx) const
-{
-    ProfileRange r1("RainbowAgent::MakeAction");
-    ANET_ASSERT_SHAPE(state.obs, { ANET_SHAPE_ANY, state_dim_ });
-
-    // 共有ロック＆Grad抑止
-    std::shared_lock<std::shared_mutex> lock(*mutex_);
-    torch::NoGradGuard ng;
-
-    // Flatなobsを生成
-    auto flat_obs = state.To(device_).Flatten().obs;
-
-    // 行動選択
-    auto run_mode = ctx != nullptr ? ctx->GetRunMode() : anet::rl::RunMode::Train;
-    auto greedy_only = anet::rl::IsEval(run_mode);
-    auto use_target = (run_mode == anet::rl::RunMode::Eval1);
-    auto network = use_target ? model_->GetTargetNetwork() : model_->GetMainNetwork();
-    auto rnd = ctx->GetRandomGenerator();
-    auto act_info = this->action_policy_->SelectAction(flat_obs, greedy_only, network, rnd);
-
-    // ActionInfoを返す
-    return act_info;
+    return std::make_shared<DefaultActionContext>(run_mode, ctx_seed, device_);
 }
 
 std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, bool clone_model, std::optional<torch::Device> device) const
@@ -212,21 +185,24 @@ std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const anet::rl::Batch
     auto ctx = this->CreateActionContext(batch_env_spec, run_mode, device_);
 
     // モードに応じて適切な Policy と Network を選択
-    std::shared_ptr<anet::rl::dqn::ActionPolicy> policy;
+    std::shared_ptr<ActionPolicy> policy;
     std::shared_ptr<anet::nn::Network> src_network;
 
     // 元ネタのPolicyとNetoworkを決定
     if (anet::rl::IsEval(run_mode)) {
-        src_network = (run_mode == anet::rl::RunMode::Eval1) ? model_->GetTargetNetwork() : model_->GetMainNetwork();
+        src_network = (run_mode == anet::rl::RunMode::Eval1) ? model_->GetTargetNetwork() : model_->GetOnlineNetwork();
     } else {
-        src_network = model_->GetMainNetwork();
+        src_network = model_->GetOnlineNetwork();
     }
 
     // 必要に応じてCloneしてActor向けネットワークとする
     auto network = (clone_model) ? src_network->Clone(device) : src_network;
+    if (clone_model) {
+        network->eval();
+    }
 
     // Actor を生成
-    auto actor = std::make_shared<dqn::Actor>(action_policy_, nullptr, ctx, this->mutex_, network, src_network);
+    auto actor = std::make_shared<Actor>(action_policy_, nullptr, ctx, this->mutex_, network, src_network);
 
     // 生成したActorを返す
     return actor;
@@ -240,7 +216,7 @@ std::shared_ptr<anet::rl::Learner> RainbowAgent::CreateLearner()
 anet::rl::BatchUpdateResultList
 RainbowAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::BatchExperience& batch_exp)
 {
-    ProfileRange r1("RainbowAgent::UpdateFromBatch");
+    ANET_PROFILE_FUNC();
 
     anet::rl::BatchUpdateResultList result_list;
     {
@@ -277,4 +253,3 @@ std::shared_ptr<anet::rl::Agent> RainbowAgentFactory::CreateAgent(
 }
 
 //ANET_REGISTER_AGENT_FACTORY(RainbowAgentFactory);
-

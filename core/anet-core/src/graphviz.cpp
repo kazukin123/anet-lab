@@ -72,6 +72,22 @@ std::string EscapeHtml(const std::string& str)
     return out;
 }
 
+std::string EscapeDotString(const std::string& str)
+{
+    std::string out;
+    out.reserve(str.size());
+    for (char c : str) {
+        switch (c) {
+        case '\\': out += "\\\\"; break;
+        case '"': out += "\\\""; break;
+        case '\n': out += "\\n"; break;
+        case '\r': break;
+        default: out += c; break;
+        }
+    }
+    return out;
+}
+
 
 // ======================================================
 // LabelData
@@ -80,6 +96,7 @@ std::string EscapeHtml(const std::string& str)
 std::string LabelData::ToGraphvizLabel() const
 {
     if (IsEmpty()) return "";
+    if (!text_.empty()) return "\"" + EscapeDotString(text_) + "\"";
 
     std::ostringstream oss;
     oss << "<" << "<TABLE BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"0\">";

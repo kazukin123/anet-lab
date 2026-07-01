@@ -53,7 +53,7 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
         /// @brief 初期推論: 観測(Observation)から、隠れ状態(s0)、価値(v0)、方策(p0)を算出
         /// @param obs 生の観測テンソル (B, state_dim...)
         /// @return TensorDict containing: "hidden_state", "value", "policy_logits"
-        anet::TensorDict InitialInference(const torch::Tensor& obs) const;
+        anet::TensorDict InitialInference(const anet::TensorDict& obs) const;
 
         /// @brief 再帰推論: 隠れ状態(s)と行動(a)から、次の隠れ状態(s')、即時報酬(r)、価値(v')、方策(p')を算出
         /// @param hidden_state 現在の隠れ状態テンソル (B, hidden_dim...)

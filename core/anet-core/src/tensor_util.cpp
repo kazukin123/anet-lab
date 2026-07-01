@@ -27,7 +27,7 @@ namespace anet {
         std::ostringstream oss;
         if (t.defined()) {
             oss.precision(precision);
-            oss << "(" << t.device() << " " << t.dtype() << ") " << t.sizes() << " -> ";
+            oss << "(" << t.device() << " " << t.dtype() << ") " << t.sizes() << " -> \n";
             printTensorAsNestedBrackets(t, oss); //oss << "\n";
             //printTensorAsRows(t, oss);
         } else {
@@ -97,7 +97,7 @@ namespace anet {
             // 最後の次元（行として展開する次元）
             if (d == dim - 1) {
                 // 行ラベル
-                os << "[";
+                os << "\n[";
                 if (dim == 1) {
                     os << ":";   // 1D のときは [:] みたいにしておく
                 }
@@ -132,4 +132,14 @@ namespace anet {
         rec(0);
     }
 
+}
+
+torch::Tensor anet::GetOrFail(const anet::TensorDict& dict, const std::string& key, const std::string& msg)
+{
+    auto opt = dict.Get(key);
+    if (!opt.has_value()) {
+        ANET_SYSTEM_ERROR("expected key '" << key << "' in TensorDict, but it was not found. " << msg);
+        return torch::Tensor(); // 到達不可
+    }
+    return *opt;
 }

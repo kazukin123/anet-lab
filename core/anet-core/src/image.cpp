@@ -17,7 +17,7 @@ namespace LOG = anet::log;
 
 wxImage anet::ImageSource::Render(int width, int height) const
 {
-	ProfileRange r("ImageSource::Render");
+	ANET_PROFILE_FUNC();
 
 	wxImage src = RenderRaw();
 	if (width < 0 && height < 0) return src;
@@ -26,7 +26,7 @@ wxImage anet::ImageSource::Render(int width, int height) const
 	if (width == src.GetWidth() && height == src.GetHeight())
 		return src;
 
-	ProfileRange r1("ImageSource::Render.Scale");
+	ANET_PROFILE_SCOPE(scale);
 	//return src.Scale(width, height, wxIMAGE_QUALITY_HIGH);
 	return src.Scale(width, height, wxIMAGE_QUALITY_NORMAL);
 }
@@ -96,7 +96,9 @@ static std::shared_ptr<VectorProbe> MakeExperienceProbe(const ProbeConfig& probe
 	// spec準備
 	const anet::rl::StateSpec* state_spec = nullptr;
 	const anet::rl::ActionSpec* action_spec = nullptr;
-	if (key == BatchExperience::STATE_OBS || key == BatchExperience::NEXT_STATE_OBS)
+	if (key == BatchExperience::STATE_OBS || key == BatchExperience::NEXT_STATE_OBS ||
+		anet::StartsWith(key, std::string(BatchExperience::STATE_OBS) + ".") ||
+		anet::StartsWith(key, std::string(BatchExperience::NEXT_STATE_OBS) + "."))
 		state_spec = &env_spec.state_spec;
 	if (key == BatchExperience::ACTION_ACTION)
 		action_spec = &env_spec.action_spec;
@@ -134,7 +136,9 @@ static std::shared_ptr<VectorProbe> MakeAgentProbe(const ProbeConfig& probe_conf
 	// spec準備
 	const anet::rl::StateSpec* state_spec = nullptr;
 	const anet::rl::ActionSpec* action_spec = nullptr;
-	if (key == ReplayBuffer::STATE_OBS || key == ReplayBuffer::NEXT_STATE_OBS)
+	if (key == ReplayBuffer::STATE_OBS || key == ReplayBuffer::NEXT_STATE_OBS ||
+		anet::StartsWith(key, std::string(ReplayBuffer::STATE_OBS) + ".") ||
+		anet::StartsWith(key, std::string(ReplayBuffer::NEXT_STATE_OBS) + "."))
 		state_spec = &env_spec.state_spec;
 	if (key == ReplayBuffer::ACTION)
 		action_spec = &env_spec.action_spec;
@@ -202,7 +206,8 @@ static std::shared_ptr<SweepedHeatMapObserver> MakeSweepedHeatMapObserver(
 		config.sweep_obs.width,		// grid_width
 		config.sweep_obs.height,	// gird_height
 		config.image_width,
-		config.image_height
+		config.image_height,
+		config.sweep_obs.output_key
 	};
 
 	// extractor
@@ -250,13 +255,15 @@ static std::shared_ptr<SweepedHeatMapObserver> MakeSweepedHeatMapObserver(
 		env_spec.state_spec,
 		config.sweep_obs.x_index,  // x_index = x
 		config.sweep_obs.y_index,  // y_index = y
-		extractor
+		extractor,
+		config.sweep_obs.obs_key,
+		agent->GetDevice()
 	);
 
-	// TensorFunction
-	std::optional<anet::TensorFunction> forward_func = agent->GetTensorFunction(config.sweep_obs.network_key);
+	// TensorDictFunction
+	std::optional<anet::TensorDictFunction> forward_func = agent->GetTensorDictFunction(config.sweep_obs.network_key);
 	if (!forward_func.has_value()) {
-		ANET_SYSTEM_ERROR("Failed to get TensorFunction: " << config.sweep_obs.network_key);
+		ANET_SYSTEM_ERROR("Failed to get TensorDictFunction: " << config.sweep_obs.network_key);
 		return nullptr;
 	}
 
@@ -330,17 +337,9 @@ static std::shared_ptr<Conv2dVisualizationObserver> MakeConv2dVisualizationObser
 	// Visualizerのレイアウト設定を構築
 	Conv2dVisualizerConfig vis_config(config.conv2d);
 
-	// Agentから、対象ネットワークの抽出関数(TensorDictFunction)をもらう
-	auto dict_func_opt = agent->GetTensorDictFunction(config.conv2d.network_key);
-	if (!dict_func_opt.has_value()) {
-		ANET_SYSTEM_ERROR("Failed to get TensorDictFunction for key: " << config.conv2d.network_key);
-		return nullptr;
-	}
-
 	// Observerを生成
 	// ※ config.interval はエピソード周期として渡す
-	auto obs = std::make_shared<Conv2dVisualizationObserver>(
-		tag, config.interval, *dict_func_opt, vis_config);
+	auto obs = std::make_shared<Conv2dVisualizationObserver>(tag, config.interval, vis_config);
 
 	return obs;
 }
@@ -390,11 +389,58 @@ void ValueToRGB_Hot(float norm, unsigned char& r, unsigned char& g, unsigned cha
 	b = static_cast<unsigned char>(std::clamp(norm * 3.0f - 2.0f, 0.0f, 1.0f) * 255.0f);
 }
 
+static int EffectiveLayerMarginY(const Conv2dVisualizerConfig& config)
+{
+	return (config.layer_margin_y >= 0) ? config.layer_margin_y : config.margin_y;
+}
+
+static constexpr unsigned char kConv2dBackground = 32;
+static constexpr unsigned char kConv2dLayerGap = 56;
+static constexpr unsigned char kConv2dLayerGapEdge = 96;
+static constexpr unsigned char kConv2dLayerGapLine = 180;
+static constexpr int kConv2dLayerGapLineWidth = 3;
+
+static void FillRgbRect(unsigned char* img_data, int image_width, int x0, int y0, int width, int height,
+	unsigned char r, unsigned char g, unsigned char b)
+{
+	if (width <= 0 || height <= 0) return;
+	for (int y = y0; y < y0 + height; ++y) {
+		for (int x = x0; x < x0 + width; ++x) {
+			int idx = (y * image_width + x) * 3;
+			img_data[idx] = r;
+			img_data[idx + 1] = g;
+			img_data[idx + 2] = b;
+		}
+	}
+}
+
+static void ValidateConv2dVisualizerConfig(const Conv2dVisualizerConfig& config)
+{
+	if (config.margin_x < 0) {
+		ANET_SYSTEM_ERROR("Invalid Conv2dVisualizerConfig.margin_x: " << config.margin_x << " expected >= 0");
+	}
+	if (config.margin_y < 0) {
+		ANET_SYSTEM_ERROR("Invalid Conv2dVisualizerConfig.margin_y: " << config.margin_y << " expected >= 0");
+	}
+	if (config.layer_margin_y < -1) {
+		ANET_SYSTEM_ERROR("Invalid Conv2dVisualizerConfig.layer_margin_y: " << config.layer_margin_y << " expected >= -1");
+	}
+	if (config.channels_per_row <= 0) {
+		ANET_SYSTEM_ERROR("Invalid Conv2dVisualizerConfig.channels_per_row: " << config.channels_per_row << " expected > 0");
+	}
+	if (config.min_block_size <= 0) {
+		ANET_SYSTEM_ERROR("Invalid Conv2dVisualizerConfig.min_block_size: " << config.min_block_size << " expected > 0");
+	}
+}
+
 std::pair<wxImage, anet::json> Conv2dVisualizer::Visualize(int64_t step, const anet::TensorDict& dict) const
 {
+	ValidateConv2dVisualizerConfig(config_);
+
 	anet::json layout_json;
 	layout_json["step"] = step;
 	auto& layers_json = layout_json["layers"] = anet::json::array();
+	const int layer_margin_y = EffectiveLayerMarginY(config_);
 
 	int total_width = 0;
 	int max_height = 0;
@@ -407,6 +453,7 @@ std::pair<wxImage, anet::json> Conv2dVisualizer::Visualize(int64_t step, const a
 		int draw_width;    // ブロックが占める全体の幅
 		int draw_height;   // ブロックが占める全体の高さ
 		int local_scale;
+		int layer_margin_y;
 	};
 	std::vector<LayerInfo> layers;
 
@@ -428,10 +475,12 @@ std::pair<wxImage, anet::json> Conv2dVisualizer::Visualize(int64_t step, const a
 		int scaled_h = info.h * info.local_scale;
 		int layer_cols = std::min(info.c, config_.channels_per_row);
 		int layer_rows = (info.c + config_.channels_per_row - 1) / config_.channels_per_row;
+		int channel_rows_height = layer_rows * scaled_h + std::max(0, layer_rows - 1) * config_.margin_y;
 
 		info.offset_y = max_height;
 		info.draw_width = layer_cols * (scaled_w + config_.margin_x);
-		info.draw_height = layer_rows * (scaled_h + config_.margin_y);
+		info.draw_height = channel_rows_height + layer_margin_y;
+		info.layer_margin_y = layer_margin_y;
 
 		layers.push_back(info);
 		total_width = std::max(total_width, info.draw_width);
@@ -449,7 +498,7 @@ std::pair<wxImage, anet::json> Conv2dVisualizer::Visualize(int64_t step, const a
 	// キャンバス作成
 	wxImage image(total_width, max_height, false);
 	unsigned char* img_data = image.GetData();
-	std::fill(img_data, img_data + (total_width * max_height * 3), 32);
+	std::fill(img_data, img_data + (total_width * max_height * 3), kConv2dBackground);
 
 	// カラーマップ関数を準備
 	using ColorMapFunc = void(*)(float, unsigned char&, unsigned char&, unsigned char&);
@@ -465,15 +514,19 @@ std::pair<wxImage, anet::json> Conv2dVisualizer::Visualize(int64_t step, const a
 		int scaled_w = info.w * info.local_scale;
 		int scaled_h = info.h * info.local_scale;
 
-		// ブロック区切りの横線
-		if (info.offset_y > 0) {
-			int line_y = info.offset_y - 1;	// 現在のブロックの始まるY座標の「1つ上」のラインを赤く塗る
-			for (int x = 0; x < total_width; ++x) {
-				int idx = (line_y * total_width + x) * 3;
-				img_data[idx] = 255;     // R (赤)
-				img_data[idx + 1] = 0;   // G
-				img_data[idx + 2] = 0;   // B
-			}
+		// レイヤー区切りの余白は暗い帯と細い明線で、特徴マップ本体と役割を分けて見せる。
+		if (info.offset_y > 0 && info.layer_margin_y > 0) {
+			int start_y = std::max(0, info.offset_y - info.layer_margin_y);
+			FillRgbRect(img_data, total_width, 0, start_y, total_width, info.layer_margin_y,
+				kConv2dLayerGap, kConv2dLayerGap, kConv2dLayerGap);
+			FillRgbRect(img_data, total_width, 0, start_y, total_width, 1,
+				kConv2dLayerGapEdge, kConv2dLayerGapEdge, kConv2dLayerGapEdge);
+			FillRgbRect(img_data, total_width, 0, info.offset_y - 1, total_width, 1,
+				kConv2dLayerGapEdge, kConv2dLayerGapEdge, kConv2dLayerGapEdge);
+			const int line_height = std::min(kConv2dLayerGapLineWidth, info.layer_margin_y);
+			const int line_y = start_y + (info.layer_margin_y - line_height) / 2;
+			FillRgbRect(img_data, total_width, 0, line_y, total_width, line_height,
+				kConv2dLayerGapLine, kConv2dLayerGapLine, kConv2dLayerGapLine);
 		}
 
 		// レイヤーのJSON情報
@@ -485,6 +538,7 @@ std::pair<wxImage, anet::json> Conv2dVisualizer::Visualize(int64_t step, const a
 		l_json["offset_y"] = info.offset_y; // 配置座標を記録
 		l_json["margin_x"] = config_.margin_x;
 		l_json["margin_y"] = config_.margin_y;
+		l_json["layer_margin_y"] = info.layer_margin_y;
 		layers_json.push_back(l_json);
 
 		auto data_cont = info.data.contiguous();
@@ -556,8 +610,8 @@ std::pair<wxImage, anet::json> Conv2dVisualizer::Visualize(int64_t step, const a
 	layout_json["image_height"] = max_height;
 
 	// プレイヤー側でぼかされないように事前にスケーリング
-	if (config_.scale_factor > 1) {
-		image = image.Scale(total_width * config_.scale_factor, max_height * config_.scale_factor, wxIMAGE_QUALITY_NEAREST);
+	if (config_.scale_factor != 1.0f) {
+		image = image.Scale(static_cast<int>(total_width * config_.scale_factor), static_cast<int>(max_height * config_.scale_factor), wxIMAGE_QUALITY_NEAREST);
 	}
 	return { image, layout_json };
 }
@@ -729,4 +783,3 @@ std::vector<ImageProviderManager::Entry> ImageProviderManager::List() const
 	}
 	return list;
 }
-

@@ -1,7 +1,10 @@
 ﻿#pragma once
 
 #include <torch/torch.h>
-#include <ATen/autocast_mode.h>
+
+#include <optional>
+#include <unordered_map>
+#include <vector>
 
 namespace anet {
 
@@ -39,38 +42,80 @@ namespace anet {
         }
     }
 
+    std::vector<torch::Tensor> CollectDefinedGrads(const std::vector<torch::Tensor>& parameters);
+
+    torch::Tensor ForeachGradNorm(const std::vector<torch::Tensor>& grads);
+
+    void ForeachClipGradNorm_(const std::vector<torch::Tensor>& grads, const torch::Tensor& total_norm, float tau);
+
+
+    // ======================================================
+    // Autocast
+    // ======================================================
+
     class Autocast {
     public:
-        Autocast(torch::DeviceType device_type, bool enabled, torch::ScalarType dtype = torch::kHalf)
-            : device_type_(device_type)
-        {
-            // 現在の状態を保存
-            prev_enabled_ = at::autocast::is_autocast_enabled(device_type_);
-            prev_dtype_ = at::autocast::get_autocast_dtype(device_type_);
-
-            // 新しい状態を設定
-            at::autocast::set_autocast_dtype(device_type_, dtype);
-            at::autocast::set_autocast_enabled(device_type_, enabled);
-        }
-
-        ~Autocast()
-        {
-            at::autocast::set_autocast_enabled(device_type_, prev_enabled_);    // 元に戻す
-            at::autocast::set_autocast_dtype(device_type_, prev_dtype_);        // 元に戻す
-        }
+        Autocast(torch::DeviceType device_type, bool enabled, torch::ScalarType dtype = torch::kHalf);
+        ~Autocast();
     private:
-        torch::DeviceType device_type_;
-        bool prev_enabled_;
-        torch::ScalarType prev_dtype_;
+        const torch::DeviceType device_type_;
+        const bool prev_enabled_;
+        const torch::ScalarType prev_dtype_;
     };
 
 
+    // ======================================================
+    // TrainingModeGuard
+    // ======================================================
+
+    class TrainingModeGuard {
+    public:
+        TrainingModeGuard(torch::nn::Module& module, bool training)
+            : module_(module)
+            , was_training_(module.is_training())
+        {
+            module_.train(training);
+        }
+
+        ~TrainingModeGuard()
+        {
+            module_.train(was_training_);
+        }
+
+        TrainingModeGuard(const TrainingModeGuard&) = delete;
+        TrainingModeGuard& operator=(const TrainingModeGuard&) = delete;
+        TrainingModeGuard(TrainingModeGuard&&) = delete;
+        TrainingModeGuard& operator=(TrainingModeGuard&&) = delete;
+    private:
+        torch::nn::Module& module_;
+        const bool was_training_;
+    };
+
+
+    // ======================================================
+    // FusedAdamW
+    // ======================================================
+
+    class FusedAdamW : public torch::optim::AdamW {
+    public:
+        using torch::optim::AdamW::AdamW;
+
+        torch::Tensor step(LossClosure closure = nullptr) override;
+        void load(torch::serialize::InputArchive& archive) override;
+    private:
+        struct FusedAdamWStepGroup;
+    private:
+        std::unordered_map<void*, torch::Tensor> step_tensors_;
+    };
+
+
+    // ======================================================
+    // GradScaler
+    // ======================================================
+
     class GradScaler {
     public:
-        GradScaler(double init_scale = 65536.0, double growth_factor = 2.0, double backoff_factor = 0.5, int64_t growth_interval = 2000)
-            : scale_(init_scale), growth_factor_(growth_factor), backoff_factor_(backoff_factor), growth_interval_(growth_interval)
-        {
-        }
+        GradScaler(double init_scale = 65536.0, double growth_factor = 2.0, double backoff_factor = 0.5, int64_t growth_interval = 2000);
 
         // Lossをスケール
         torch::Tensor Scale(const torch::Tensor& loss)
@@ -78,59 +123,25 @@ namespace anet {
             return loss * static_cast<float>(scale_);
         }
 
+        // Step (直前のUnscale_で検出したInf/NaNに応じてスキップ)
+        void Step(torch::optim::Optimizer& optimizer);
+
         // Step (Inf/NaNチェック付き)
         // found_inf: 外部でNaNチェックした場合に true を渡す
-        void Step(torch::optim::Optimizer& optimizer, bool found_inf = false)
-        {
-            if (!found_inf) {
-                // 簡易チェック: まだUnscaleされていない場合などに備えて念のため
-                // (外部でclip_grad_norm_前にチェック済みならここはfalseで来るはず)
-                optimizer.step();
-            }
-
-            // 次のupdateのためにフラグ保存
-            found_inf_ = found_inf;
-        }
+        void Step(torch::optim::Optimizer& optimizer, bool found_inf);
 
         // スケール更新
-        void Update(std::optional<bool> found_inf_override = std::nullopt)
-        {
-            bool has_inf = found_inf_override.value_or(found_inf_);
+        void Update(std::optional<bool> found_inf_override = std::nullopt);
 
-            if (has_inf) {
-                scale_ *= backoff_factor_;
-                growth_tracker_ = 0;
-            } else {
-                growth_tracker_++;
-                if (growth_tracker_ >= growth_interval_) {
-                    scale_ *= growth_factor_;
-                    growth_tracker_ = 0;
-                }
-            }
-            if (scale_ < 1.0) scale_ = 1.0;
-            found_inf_ = false; // リセット
-        }
-
-        // 手動Unscale (Optimizerの全パラメータの勾配を scale で割る)
-        void Unscale_(torch::optim::Optimizer& optimizer)
-        {
-            double inv_scale = 1.0 / scale_;
-            for (auto& group : optimizer.param_groups()) {
-                for (auto& param : group.params()) {
-                    if (param.grad().defined()) {
-                        // In-placeで割り算
-                        param.grad().mul_(inv_scale);
-                    }
-                }
-            }
-        }
-
+        // 手動Unscale (勾配の非有限値検出とscale除算をforeachで行う)
+        void Unscale_(torch::optim::Optimizer& optimizer);
     private:
         double scale_;
-        double growth_factor_;
-        double backoff_factor_;
-        int64_t growth_interval_;
+        const double growth_factor_;
+        const double backoff_factor_;
+        const int64_t growth_interval_;
         int64_t growth_tracker_ = 0;
         bool found_inf_ = false;
+        torch::Tensor found_inf_tensor_;
     };
 }

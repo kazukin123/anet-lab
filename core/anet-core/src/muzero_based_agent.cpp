@@ -6,6 +6,7 @@
 #include "anet/profile.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/tensor_check.hpp"
+#include "anet/nn_util.hpp"
 #include "nn_heads.hpp"
 
 using namespace anet::rl::muzero_proto;
@@ -17,77 +18,72 @@ using namespace anet::rl::muzero_proto;
 
 class MuZeroDynamicsHead : public anet::nn::NetworkHead {
 public:
-    MuZeroDynamicsHead(
-        int64_t feature_dim,
-        const anet::nn::NetworkConfig& base_config,
-        const std::string& reward_branch_struct,
-        const anet::nn::WeightInitConfig& reward_init_config)
+    MuZeroDynamicsHead(int64_t reward_feature_dim, const anet::nn::WeightInitConfig& reward_init_config)
+        : reward_feature_dim_(reward_feature_dim)
     {
-        // Reward用の分岐ブランチを動的構築
-        reward_branch_ = anet::nn::NetworkStructBuilder::Build(base_config, reward_branch_struct);
-        register_module("reward_branch", reward_branch_);
-
-        // 構築したブランチの出力次元を推論
-        int64_t branch_out_dim = reward_branch_->InferFeatureDim({ feature_dim });
-
-        // 最終出力のスカラー層を固定構築
-        reward_layer_ = register_module("reward_layer", torch::nn::Linear(branch_out_dim, 1));
+        // Bodyが抽出してくれた特徴量をスカラー報酬に変換する最終層のみを構築
+        reward_layer_ = register_module("reward_layer", torch::nn::Linear(reward_feature_dim, 1));
         anet::nn::WeightInitializer::Initialize(reward_layer_, reward_init_config);
     }
 
-    anet::TensorDict Forward(torch::Tensor feature_vector) override
+    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
     {
-        anet::ProfileRange r("MuZeroDynamicsHead::Forward");
+        ANET_PROFILE_FUNC();
 
-        //ANET_ASSERT_SHAPE(feature_vector, { ANET_SHAPE_ANY, feature_dim_ });
-        ANET_ASSERT_NAN(feature_vector);
+        // Bodyから2つの特徴量を受け取る
+        torch::Tensor hidden_state = feature_dict.At("hidden_state");
+        torch::Tensor reward_feature = feature_dict.At("reward_feature");
+        ANET_ASSERT_NAN(hidden_state);
+        ANET_ASSERT_NAN(reward_feature);
 
-        anet::TensorDict dict;
-
-        // 次の隠れ状態としてそのままパススルー
-        dict["hidden_state"] = feature_vector;
-
-        // ブランチを通して特徴を抽出し、最終層でスカラー報酬にする
-        auto branch_out = reward_branch_->Forward(feature_vector);
-        auto reward = reward_layer_->forward(branch_out);
+        // 報酬を計算
+        auto reward = reward_layer_->forward(reward_feature);
         ANET_ASSERT_SHAPE(reward, { ANET_SHAPE_ANY, 1 });
-        ANET_ASSERT_NAN(reward);
 
-        // dictに結果を詰める
-        dict["reward"] = reward_layer_->forward(branch_out);
-
-        return dict;
+        // 結果をDictに詰めて返す
+        anet::TensorDict out;
+        out.Set("hidden_state", hidden_state); // 隠れ状態はBodyの出力をそのままパススルー
+        out.Set("reward", reward);             // rewardはLinearで集約した結果をセット
+        return out;
     }
 
-    std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override
+    std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override
     {
         return std::nullopt;
     }
+
+    anet::nn::HeadGraphVizInfo GetGraphVizInfo() const override
+    {
+        anet::nn::HeadGraphVizInfo info;
+        info.type = "MuZeroDynamicsHead";
+        info.outputs.push_back({ "hidden_state", {} });
+        info.outputs.push_back({ "reward", { 1 } });
+        info.details.push_back({ "reward_feature_dim", std::to_string(reward_feature_dim_) });
+        return info;
+    }
+
 private:
-    std::shared_ptr<anet::nn::NetworkStruct> reward_branch_;
     torch::nn::Linear reward_layer_{ nullptr };
+    int64_t reward_feature_dim_;
 };
 
 class MuZeroDynamicsHeadFactory : public anet::nn::NetworkHeadFactory {
 public:
-    MuZeroDynamicsHeadFactory(
-        const anet::nn::NetworkConfig& base_config,
-        const std::string& reward_branch_struct,
-        const anet::nn::WeightInitConfig& reward_init_config)
-        : base_config_(base_config)
-        , reward_branch_struct_(reward_branch_struct)
-        , reward_init_config_(reward_init_config) {
+    explicit MuZeroDynamicsHeadFactory(const anet::nn::WeightInitConfig& reward_init_config)
+        : reward_init_config_(reward_init_config) {
     }
 
-    std::shared_ptr<anet::nn::NetworkHead> CreateHead(int64_t feature_dim) const override
+    std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override
     {
-        return std::make_shared<MuZeroDynamicsHead>(
-            feature_dim, base_config_, reward_branch_struct_, reward_init_config_);
+        // Bodyから出力されたダミーTensorDictから次元数を取得
+        torch::Tensor r_feat = anet::GetOrFail(dummy_features, "reward_feature",
+            "Check your 'net.dyn.body.output.[reward_feature]' setting.");
+        int64_t reward_feature_dim = r_feat.size(-1);
+
+        return std::make_shared<MuZeroDynamicsHead>(reward_feature_dim, reward_init_config_);
     }
 
 private:
-    anet::nn::NetworkConfig base_config_;
-    std::string reward_branch_struct_;
     anet::nn::WeightInitConfig reward_init_config_;
 };
 
@@ -98,65 +94,61 @@ private:
 
 class MuZeroPredictionHead : public anet::nn::NetworkHead {
 public:
-    MuZeroPredictionHead(int64_t feature_dim, int64_t num_actions,
-        const anet::nn::NetworkConfig& base_config,
-        const std::string& value_branch_struct,
-        const std::string& policy_branch_struct,
+    MuZeroPredictionHead(
+        int64_t value_feature_dim, int64_t policy_feature_dim, int64_t num_actions,
         const anet::nn::WeightInitConfig& value_init_config,
         const anet::nn::WeightInitConfig& policy_init_config)
-        : feature_dim_(feature_dim)
-        , num_actions_(num_actions)
+        : num_actions_(num_actions)
+        , value_feature_dim_(value_feature_dim), policy_feature_dim_(policy_feature_dim)
     {
-        // Value Stream
-        value_branch_ = anet::nn::NetworkStructBuilder::Build(base_config, value_branch_struct);
-        register_module("value_branch", value_branch_);
-        int64_t v_dim = value_branch_->InferFeatureDim({ feature_dim });
-        value_layer_ = register_module("value_layer", torch::nn::Linear(v_dim, 1));
+        // Value Layer
+        value_layer_ = register_module("value_layer", torch::nn::Linear(value_feature_dim, 1));
         anet::nn::WeightInitializer::Initialize(value_layer_, value_init_config);
 
-        // Policy Stream
-        policy_branch_ = anet::nn::NetworkStructBuilder::Build(base_config, policy_branch_struct);
-        register_module("policy_branch", policy_branch_);
-        int64_t p_dim = policy_branch_->InferFeatureDim({ feature_dim });
-        policy_layer_ = register_module("policy_layer", torch::nn::Linear(p_dim, num_actions));
+        // Policy Layer
+        policy_layer_ = register_module("policy_layer", torch::nn::Linear(policy_feature_dim, num_actions));
         anet::nn::WeightInitializer::Initialize(policy_layer_, policy_init_config);
     }
 
-    anet::TensorDict Forward(torch::Tensor feature_vector) override
+    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
     {
-        anet::ProfileRange r("MuZeroPredictionHead::Forward");
+        ANET_PROFILE_FUNC();
 
-        ANET_ASSERT_SHAPE(feature_vector, { ANET_SHAPE_ANY, feature_dim_ });
-        ANET_ASSERT_NAN(feature_vector);
+        // Bodyから特徴量を受け取る
+        torch::Tensor value_feature = feature_dict.At("value_feature");
+        torch::Tensor policy_feature = feature_dict.At("policy_feature");
 
-        anet::TensorDict dict;
+        // 最終層を通す
+        auto value = value_layer_->forward(value_feature);
+        auto policy_logits = policy_layer_->forward(policy_feature);
 
-        // Valueを取る
-        auto v_branch_out = value_branch_->Forward(feature_vector);
-        auto value = value_layer_->forward(v_branch_out);
-        ANET_ASSERT_SHAPE(value, { ANET_SHAPE_ANY, 1 });
-        ANET_ASSERT_NAN(value);
-        dict["value"] = value;
-
-        // Policyを取る
-        auto p_branch_out = policy_branch_->Forward(feature_vector);
-        auto policy_logits = policy_layer_->forward(p_branch_out);
-        ANET_ASSERT_SHAPE(policy_logits, { ANET_SHAPE_ANY, num_actions_ });
-        ANET_ASSERT_NAN(policy_logits);
-        dict["policy_logits"] = policy_logits;
-
-        return dict;
+        anet::TensorDict out;
+        out.Set("value", value);
+        out.Set("policy_logits", policy_logits);
+        return out;
     }
 
-    std::optional<anet::TensorFunction> GetTensorFunction(const std::string& key) override
+    std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override
     {
         return std::nullopt;
     }
+
+    anet::nn::HeadGraphVizInfo GetGraphVizInfo() const override
+    {
+        anet::nn::HeadGraphVizInfo info;
+        info.type = "MuZeroPredictionHead";
+        info.outputs.push_back({ "value", { 1 } });
+        info.outputs.push_back({ "policy_logits", { num_actions_ } });
+        info.details.push_back({ "value_feature_dim", std::to_string(value_feature_dim_) });
+        info.details.push_back({ "policy_feature_dim", std::to_string(policy_feature_dim_) });
+        info.details.push_back({ "num_actions", std::to_string(num_actions_) });
+        return info;
+    }
+
 private:
-    const int64_t feature_dim_;
     const int64_t num_actions_;
-    std::shared_ptr<anet::nn::NetworkStruct> value_branch_;
-    std::shared_ptr<anet::nn::NetworkStruct> policy_branch_;
+    const int64_t value_feature_dim_;
+    const int64_t policy_feature_dim_;
     torch::nn::Linear value_layer_{ nullptr };
     torch::nn::Linear policy_layer_{ nullptr };
 };
@@ -165,31 +157,24 @@ class MuZeroPredictionHeadFactory : public anet::nn::NetworkHeadFactory {
 public:
     MuZeroPredictionHeadFactory(
         int64_t num_actions,
-        const anet::nn::NetworkConfig& base_config,
-        const std::string& value_branch_struct,
-        const std::string& policy_branch_struct,
         const anet::nn::WeightInitConfig& value_init_config,
         const anet::nn::WeightInitConfig& policy_init_config)
         : num_actions_(num_actions)
-        , base_config_(base_config)
-        , value_branch_struct_(value_branch_struct)
-        , policy_branch_struct_(policy_branch_struct)
-        , value_init_config_(value_init_config)
-        , policy_init_config_(policy_init_config) {
+        , value_init_config_(value_init_config), policy_init_config_(policy_init_config)
+    {
     }
 
-    std::shared_ptr<anet::nn::NetworkHead> CreateHead(int64_t feature_dim) const override
+    std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override
     {
+        // Bodyが計算した各特徴量の次元を直接取得
+        torch::Tensor v_feat = anet::GetOrFail(dummy_features, "value_feature", "Check 'net.pred.body.output.[value_feature]'.");
+        torch::Tensor p_feat = anet::GetOrFail(dummy_features, "policy_feature", "Check 'net.pred.body.output.[policy_feature]'.");
+
         return std::make_shared<MuZeroPredictionHead>(
-            feature_dim, num_actions_, base_config_,
-            value_branch_struct_, policy_branch_struct_,
-            value_init_config_, policy_init_config_);
+            v_feat.size(-1), p_feat.size(-1), num_actions_, value_init_config_, policy_init_config_);
     }
 private:
     int64_t num_actions_;
-    anet::nn::NetworkConfig base_config_;
-    std::string value_branch_struct_;
-    std::string policy_branch_struct_;
     anet::nn::WeightInitConfig value_init_config_;
     anet::nn::WeightInitConfig policy_init_config_;
 };
@@ -205,8 +190,12 @@ public:
         : expected_input_dim_(expected_input_dim) {
     }
 
-    std::shared_ptr<anet::nn::NetworkHead> CreateHead(int64_t input_dim) const override
+    std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override
     {
+        // ダミー特徴量から次元を取得して検証
+        torch::Tensor t = anet::GetOrFail(dummy_features, anet::nn::kKey_DefaultOutput);
+        int64_t input_dim = t.size(-1);
+
         // Body側の設定で指定された最終出力次元が
         // Agentの全体設定である hidden_state_dim と一致しているかを検証する
         ANET_ASSERT_MSG(input_dim == expected_input_dim_,
@@ -252,83 +241,83 @@ MuZeroNetworkModel::MuZeroNetworkModel(
     , num_actions_(action_spec.GetNumActions())
 {
     // Representation Network を構築
-    anet::nn::NetworkConfig rep_config{ config_data, config_.structure.rep };
+    anet::nn::NetworkConfig rep_config{ config_data, "net.rep" };
     anet::MetricsLogger::Instance()->Log("net.rep", rep_config.ToJson());
     auto rep_head_factory = std::make_shared<MuZeroRepresentationHeadFactory>(config_.hidden_state_dim);
-    auto rep_net = anet::nn::NetworkBuilder::BuildNetwork(rep_config, state_spec.shape, rep_head_factory);
+    auto rep_net = anet::nn::NetworkBuilder::BuildNetwork(rep_config, state_spec.obs_spec, rep_head_factory);
 
     // Dynamics Network を構築
     /// @todo MuZero試作制約：隠れ状態を1次元固定ではなく多次元表現に対応する。アクション用のプレーン(チャンネル)を考慮する必要がある
-    anet::nn::NetworkConfig dyn_config{ config_data, config_.structure.dyn };
+    anet::nn::NetworkConfig dyn_config{ config_data, "net.dyn" };
     anet::MetricsLogger::Instance()->Log("net.dyn", dyn_config.ToJson());
     int64_t action_dim = action_spec.GetNumActions();   // アクションをOne-Hot表現として結合すると想定し、アクション数をそのまま次元として足す
     std::vector<int64_t> dyn_input_shape = { config_.hidden_state_dim + action_dim };
-    auto dyn_head_factory = std::make_shared<MuZeroDynamicsHeadFactory>(
-        dyn_config, config_.structure.reward_branch, config_.head_init_weight.reward);
-    auto dyn_net = anet::nn::NetworkBuilder::BuildNetwork(dyn_config, dyn_input_shape, dyn_head_factory);
+
+	anet::TensorSpecMap dyn_input_specs;
+    dyn_input_specs["hidden_state"].shape = { config_.hidden_state_dim };
+    dyn_input_specs["action_one_hot"].shape = { action_dim };
+    auto dyn_head_factory = std::make_shared<MuZeroDynamicsHeadFactory>(config_.head_init_weight.reward);
+    auto dyn_net = anet::nn::NetworkBuilder::BuildNetwork(dyn_config, dyn_input_specs, dyn_head_factory);
 
     //  Prediction Network を構築
     /// @todo MuZero試作制約：価値(Value)と報酬(Reward)をスカラー値ではなく、Two - Hotエンコーディング等を用いたカテゴリカル分布で予測・学習する
-    anet::nn::NetworkConfig pred_config{ config_data, config_.structure.pred };
+    anet::nn::NetworkConfig pred_config{ config_data, "net.pred" };
     anet::MetricsLogger::Instance()->Log("net.pred", pred_config.ToJson());
-    std::vector<int64_t> pred_input_shape = { config_.hidden_state_dim };
+    //std::vector<int64_t> pred_input_shape = { config_.hidden_state_dim };
+    anet::TensorSpecMap pred_input_specs;
+    pred_input_specs["hidden_state"].shape = { config_.hidden_state_dim };
     auto pred_head_factory = std::make_shared<MuZeroPredictionHeadFactory>(
-        num_actions_, pred_config,
-        config_.structure.value_branch, config_.structure.policy_branch,
-        config_.head_init_weight.value, config_.head_init_weight.policy);
-    auto pred_net = anet::nn::NetworkBuilder::BuildNetwork(pred_config, pred_input_shape, pred_head_factory);
+        num_actions_, config_.head_init_weight.value, config_.head_init_weight.policy);
+    auto pred_net = anet::nn::NetworkBuilder::BuildNetwork(pred_config, pred_input_specs, pred_head_factory);
 
     // 自身が所有するSuiteを生成
     suite_ = std::make_shared<MuZeroNetworkSuite>(rep_net, dyn_net, pred_net);
 }
 
-namespace {
+/// @brief 隠れ状態のMin-Max正規化ヘルパー (MuZero特有の安定化処理)
+/// バッチごとに状態ベクトルの値を [0, 1] の範囲にスケールします。
+static torch::Tensor ScaleHiddenState(const torch::Tensor& hidden_state)
+{
+    ANET_PROFILE_FUNC();
 
-    /// @brief 隠れ状態のMin-Max正規化ヘルパー (MuZero特有の安定化処理)
-    /// バッチごとに状態ベクトルの値を [0, 1] の範囲にスケールします。
-    torch::Tensor ScaleHiddenState(const torch::Tensor& hidden_state)
-    {
-        anet::ProfileRange r("ScaleHiddenState");
+    ANET_ASSERT_NAN(hidden_state);
 
-        ANET_ASSERT_NAN(hidden_state);
+    // (B, D) または (B, C, H, W) の場合を考慮し、バッチ次元(dim=0)以外をflattenして最大/最小を計算
+    auto flat_h = hidden_state.view({ hidden_state.size(0), -1 });
 
-        // (B, D) または (B, C, H, W) の場合を考慮し、バッチ次元(dim=0)以外をflattenして最大/最小を計算
-        auto flat_h = hidden_state.view({ hidden_state.size(0), -1 });
+    auto max_val = std::get<0>(flat_h.max(/*dim=*/1, /*keepdim=*/true));
+    auto min_val = std::get<0>(flat_h.min(/*dim=*/1, /*keepdim=*/true));
 
-        auto max_val = std::get<0>(flat_h.max(/*dim=*/1, /*keepdim=*/true));
-        auto min_val = std::get<0>(flat_h.min(/*dim=*/1, /*keepdim=*/true));
+    // 元の形状にbroadcastできるようにview (例: 2Dなら [B, 1, 1, 1] に戻す)
+    auto view_shape = std::vector<int64_t>(hidden_state.dim(), 1);
+    view_shape[0] = hidden_state.size(0);
 
-        // 元の形状にbroadcastできるようにview (例: 2Dなら [B, 1, 1, 1] に戻す)
-        auto view_shape = std::vector<int64_t>(hidden_state.dim(), 1);
-        view_shape[0] = hidden_state.size(0);
+    max_val = max_val.view(view_shape);
+    min_val = min_val.view(view_shape);
 
-        max_val = max_val.view(view_shape);
-        min_val = min_val.view(view_shape);
-
-        // ゼロ除算回避のイプシロン(1e-5)を加算
-        return (hidden_state - min_val) / (max_val - min_val + 1e-5f);
-    }
+    // ゼロ除算回避のイプシロン(1e-5)を加算
+    return (hidden_state - min_val) / (max_val - min_val + 1e-5f);
 }
 
-anet::TensorDict MuZeroNetworkModel::InitialInference(const torch::Tensor& obs) const
+anet::TensorDict MuZeroNetworkModel::InitialInference(const anet::TensorDict& obs) const
 {
-    anet::ProfileRange r("MuZeroNetworkModel::InitialInference");
+    ANET_PROFILE_FUNC();
 
     // obsの形状は環境に依存するため、バッチ次元があることのみを確認 (末尾ANYを許容)
-    ANET_LOG_DEBUG("obs=" << anet::ToDefString(obs));
-    ANET_ASSERT_SHAPE(obs, { ANET_SHAPE_ANY, ANET_SHAPE_ENDANY });
+    ANET_LOG_DEBUG("obs=" << obs.ToDefString());
 
     //  Representation: 観測 -> 隠れ状態
     auto rep_out = suite_->GetRepresentationNet()->Forward(obs);
-    torch::Tensor hidden_state = rep_out.At("hidden_state");
+    auto hidden_state = rep_out.At("hidden_state");
     ANET_LOG_DEBUG("hidden_state=" << anet::ToDefString(hidden_state));
     ANET_ASSERT_SHAPE(hidden_state, { ANET_SHAPE_ANY, config_.hidden_state_dim });
 
     // 隠れ状態を [0, 1] に正規化
     hidden_state = ::ScaleHiddenState(hidden_state);
+	anet::TensorDict pred_input({ { "hidden_state", hidden_state } });
 
     //  Prediction: 隠れ状態 -> 価値, 方策
-    auto pred_out = suite_->GetPredictionNet()->Forward(hidden_state);
+    auto pred_out = suite_->GetPredictionNet()->Forward(pred_input);
     torch::Tensor value = pred_out.At("value");
     torch::Tensor policy_logits = pred_out.At("policy_logits");
     ANET_LOG_DEBUG("value=" << anet::ToDefString(value));
@@ -344,7 +333,7 @@ anet::TensorDict MuZeroNetworkModel::InitialInference(const torch::Tensor& obs) 
 
 anet::TensorDict MuZeroNetworkModel::RecurrentInference(const torch::Tensor& hidden_state, const torch::Tensor& action) const
 {
-    anet::ProfileRange r("MuZeroNetworkModel::RecurrentInference");
+    ANET_PROFILE_FUNC();
 
     ANET_LOG_DEBUG("hidden_state=" << anet::ToDefString(hidden_state));
     ANET_ASSERT_SHAPE(hidden_state, { ANET_SHAPE_ANY, config_.hidden_state_dim });
@@ -365,13 +354,15 @@ anet::TensorDict MuZeroNetworkModel::RecurrentInference(const torch::Tensor& hid
     ANET_ASSERT_SHAPE(action_one_hot, { ANET_SHAPE_ANY, num_actions_ });
 
     // 隠れ状態とOne-Hot化されたアクションを結合
-    auto dyn_input = torch::cat({ scaled_hidden_state, action_one_hot }, /*dim=*/1);   // (B, hidden_state_dim + num_actions)
-    ANET_ASSERT_SHAPE(dyn_input, { ANET_SHAPE_ANY, config_.hidden_state_dim + num_actions_ });   
+    anet::TensorDict dyn_input({
+        { "hidden_state", scaled_hidden_state },
+        { "action_one_hot", action_one_hot }
+        });
 
     // Dynamics: 隠れ状態 + アクション -> 次の隠れ状態, 報酬
     auto dyn_out = suite_->GetDynamicsNet()->Forward(dyn_input);
-    torch::Tensor next_hidden_state = dyn_out.At("hidden_state");
-    torch::Tensor reward = dyn_out.At("reward");
+    auto next_hidden_state = dyn_out.At("hidden_state");
+    auto reward = dyn_out.At("reward");
     ANET_ASSERT_SHAPE(next_hidden_state, { ANET_SHAPE_ANY, config_.hidden_state_dim });
     ANET_ASSERT_SHAPE(reward, { ANET_SHAPE_ANY, 1 });
 
@@ -379,7 +370,8 @@ anet::TensorDict MuZeroNetworkModel::RecurrentInference(const torch::Tensor& hid
     next_hidden_state = ::ScaleHiddenState(next_hidden_state);
 
     // Prediction: 次の隠れ状態 -> 価値, 方策
-    auto pred_out = suite_->GetPredictionNet()->Forward(next_hidden_state);
+    anet::TensorDict pred_input({ "hidden_state", next_hidden_state });
+    auto pred_out = suite_->GetPredictionNet()->Forward(pred_input);
     torch::Tensor value = pred_out.At("value");
     torch::Tensor policy_logits = pred_out.At("policy_logits");
 
@@ -559,7 +551,7 @@ MCTSEngine::MCTSEngine(const MCTSConfig& config, std::shared_ptr<MuZeroNetworkMo
 
 void MCTSEngine::ExpandNode(std::shared_ptr<Node> node, const torch::Tensor& policy_logits)
 {
-    anet::ProfileRange r("MCTSEngine::ExpandNode");
+    ANET_PROFILE_FUNC();
 
     // ロジットをソフトマックスで確率分布に変換
     torch::NoGradGuard no_grad;
@@ -576,7 +568,7 @@ void MCTSEngine::ExpandNode(std::shared_ptr<Node> node, const torch::Tensor& pol
 
 void MCTSEngine::AddExplorationNoise(std::shared_ptr<Node> node)
 {
-    anet::ProfileRange r("MCTSEngine::AddExplorationNoise");
+    ANET_PROFILE_FUNC();
 
     // ディリクレノイズの生成
     /// @todo 試作版では std::gamma_distribution を用いてシンプルなディリクレノイズを生成
@@ -598,7 +590,7 @@ void MCTSEngine::AddExplorationNoise(std::shared_ptr<Node> node)
 
 int64_t MCTSEngine::SelectAction(std::shared_ptr<Node> node, const MinMaxStats& min_max_stats)
 {
-    anet::ProfileRange r("MCTSEngine::SelectAction");
+    ANET_PROFILE_FUNC();
 
     int64_t best_action = -1;
     float best_ucb = std::numeric_limits<float>::lowest();
@@ -635,7 +627,7 @@ float MCTSEngine::CalculateUCBScore(std::shared_ptr<Node> parent, std::shared_pt
 
 void MCTSEngine::Backpropagate(const std::vector<std::shared_ptr<Edge>>& search_path, float value, MinMaxStats& min_max_stats)
 {
-    anet::ProfileRange r("MCTSEngine::Backpropagate");
+    ANET_PROFILE_FUNC();
 
     // 割引報酬和を計算しながら木を遡る
     // 本来は value = r + gamma * v だが、経路を下から遡るために逆順で更新する
@@ -664,7 +656,7 @@ void MCTSEngine::Backpropagate(const std::vector<std::shared_ptr<Edge>>& search_
 std::shared_ptr<MCTSTree> MCTSEngine::Search(
     const torch::Tensor& initial_hidden_state, const torch::Tensor& initial_policy_logits, float initial_value, bool add_noise)
 {
-    anet::ProfileRange r("MCTSEngine::Search");
+    ANET_PROFILE_FUNC();
 
     /// @todo MuZero試作制約：現在は1スレッド/1状態の探索。将来的にBatched MCTSへの対応が必要
 
@@ -708,10 +700,10 @@ std::shared_ptr<MCTSTree> MCTSEngine::Search(
 
         /// @todo MuZero試作制約：カテゴリカル分布予測から期待値への変換を省略し、直接スカラー値を使用している
         auto infer_out = model_->RecurrentInference(parent_node->hidden_state, action_tensor);
-        anet::ProfileRange r_sync("MCTSEngine::Search.sync");
+        ANET_PROFILE_SCOPE(sync);
         float reward = infer_out.At("reward").item<float>();    // GPU同期
         float value = infer_out.At("value").item<float>();      // GPU同期
-        r_sync.End();
+        ANET_PROFILE_SCOPE_END(sync);
 
         // 新しい子ノードを構築してエッジに接続
         auto child_node = std::make_shared<Node>();
@@ -752,6 +744,11 @@ public:
 
         // 基底クラスの shared_ptr<BatchActionInfo> として返却（暗黙のアップキャスト）
         return cloned;
+    }
+
+    std::shared_ptr<BatchActionInfo> WithAction(torch::Tensor action) const override
+    {
+        return std::make_shared<MuZeroActionInfo>(std::move(action), info_, aux_, mcts_trees_);
     }
 
     std::unique_ptr<anet::graphviz::GraphViz> CreateGraph(const std::string& key, int64_t index) const override
@@ -796,19 +793,19 @@ MuZeroActor::MuZeroActor(
 
 void MuZeroActor::Sync()
 {
-    /// @todo MuZero試作制約：Actor向けのModelのClone非対応  
+    /// @todo MuZero試作制約：Actor向けのModelのClone非対応
 }
 
 std::shared_ptr<anet::rl::BatchActionInfo> MuZeroActor::MakeAction(const anet::rl::StepCounts& step, const anet::rl::BatchState& state) const
 {
-    anet::ProfileRange r("MuZeroActor::MakeAction");
+    ANET_PROFILE_FUNC();
 
     torch::NoGradGuard grad_guard;
 
-    int64_t batch_size = state.obs.size(0);
+    int64_t batch_size = state.obs.Size(0);
 
     // デバイス転送
-    torch::Tensor batch_obs_dev = state.obs.to(device_, /*non_blocking=*/true);
+    auto batch_obs_dev = state.obs.To(device_, /*non_blocking=*/true); //anet::rl::ToUnifiedObservation(state.obs).to(device_, /*non_blocking=*/true);
 
     // バッチ分の結果を格納するテンソルを準備
     auto out_actions = torch::empty({ batch_size }, torch::TensorOptions().dtype(torch::kInt64));
@@ -838,14 +835,14 @@ std::shared_ptr<anet::rl::BatchActionInfo> MuZeroActor::MakeAction(const anet::r
     for (int64_t b = 0; b < batch_size; ++b) {
 
         // Initial Inference (観測から初期の隠れ状態・価値・方策を得る)
-        auto single_obs = batch_obs_dev[b].unsqueeze(0); // [1, obs_dim...]
+        auto single_obs = batch_obs_dev[b].Unsqueeze(0); // [1, obs_dim...]
         auto infer_out = model_->InitialInference(single_obs);
         auto hidden_state = infer_out.At("hidden_state");
         auto policy_logits = infer_out.At("policy_logits");
 
         float value = 0.0f;
         {
-            anet::ProfileRange r_sync("MuZeroActor::MakeAction.syncInitialValue");
+            ANET_PROFILE_SCOPE(sync_initial_value);
             value = infer_out.At("value").item<float>();       // GPU同期
         }
 
@@ -934,7 +931,7 @@ MuZeroLearner::MuZeroLearner(
     ANET_ASSERT(model_ != nullptr);
     ANET_ASSERT(replay_buffer_ != nullptr);
 
-    // Optimizerの初期化 (AdamW推奨)
+    // Optimizerの初期化
     auto optim_opts = torch::optim::AdamWOptions(config_.learning_rate).weight_decay(config_.weight_decay);
     optimizer_ = std::make_unique<torch::optim::AdamW>(model_->GetSuite()->parameters(), optim_opts);
 }
@@ -942,7 +939,7 @@ MuZeroLearner::MuZeroLearner(
 anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
     const anet::rl::StepCounts& step, const anet::rl::BatchExperience& experiences)
 {
-    anet::ProfileRange r("MuZeroLearner::UpdateFromBatch");
+    ANET_PROFILE_FUNC();
 
     // Runnerから渡された最新の経験をReplayBufferに蓄積する
     replay_buffer_->Push(experiences);
@@ -956,11 +953,10 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
     auto sample = replay_buffer_->Sample(config_.batch_size, device_);
 
     // [ASSERT] サンプリング直後のバッチ形状チェック
-    int64_t B = sample.obs.size(0);
+    int64_t B = sample.obs.Size(0);
     int64_t K = sample.actions.size(1);
     int64_t num_actions = sample.target_policies.size(2);
     ANET_ASSERT(B == config_.batch_size);
-    ANET_ASSERT_SHAPE(sample.obs, { B, ANET_SHAPE_ENDANY }); // obsは環境によって次元が変わる
     ANET_ASSERT_SHAPE(sample.actions, { B, K });
     ANET_ASSERT_SHAPE(sample.target_rewards, { B, K });
     ANET_ASSERT_SHAPE(sample.target_values, { B, K + 1 });
@@ -971,7 +967,7 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
     std::unique_lock<std::shared_mutex> lock(*mutex_);
 
     // 更新準備
-    model_->GetSuite()->train();
+    anet::TrainingModeGuard train_guard(*model_->GetSuite(), true);
     optimizer_->zero_grad();
 
     // loss値計算用
@@ -984,7 +980,7 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
     // =================================================================
     // Initial Inference (t = 0)
     // =================================================================
-    
+
     auto initial_out = model_->InitialInference(sample.obs);
     torch::Tensor hidden_state = initial_out.At("hidden_state");
     torch::Tensor value = initial_out.At("value");
@@ -1021,6 +1017,9 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
         ANET_ASSERT_SHAPE(mask, { B });
         ANET_ASSERT_SHAPE(mask_sum, { });
 
+        auto target_value_metrics = target_value.detach();
+        auto mask_metrics = mask.detach();
+        auto mask_sum_metrics = mask_sum.detach();
 
         // =================================================================
         // Value Loss
@@ -1034,9 +1033,10 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
         auto v_loss = (v_loss_raw * mask).sum() / mask_sum;
 
         // メトリクス：Value MAE & Target Value Mean
-        auto v_diff = torch::abs(value.squeeze(-1) - target_value);
-        total_v_mae += (v_diff * mask).sum() / mask_sum;
-        total_target_v += (target_value * mask).sum() / mask_sum;
+        auto value_metrics = value.detach().squeeze(-1);
+        auto v_diff = torch::abs(value_metrics - target_value_metrics);
+        total_v_mae += (v_diff * mask_metrics).sum() / mask_sum_metrics;
+        total_target_v += (target_value_metrics * mask_metrics).sum() / mask_sum_metrics;
 
         // =================================================================
         // Policy Loss
@@ -1047,9 +1047,10 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
         auto p_loss = (p_loss_raw * mask).sum() / mask_sum;
 
         // メトリクス: Policy Entropy (予測分布のエントロピー)
-        auto probs = torch::exp(log_probs);
-        auto entropy_raw = -torch::sum(probs * log_probs, /*dim=*/-1);
-        total_entropy += (entropy_raw * mask).sum() / mask_sum;
+        auto log_probs_metrics = log_probs.detach();
+        auto probs = torch::exp(log_probs_metrics);
+        auto entropy_raw = -torch::sum(probs * log_probs_metrics, /*dim=*/-1);
+        total_entropy += (entropy_raw * mask_metrics).sum() / mask_sum_metrics;
 
         // =================================================================
         // Reward Loss
@@ -1069,8 +1070,12 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
             r_loss = (r_loss_raw * prev_mask).sum() / prev_mask_sum;
 
             // メトリクス: Reward MAE
-            auto r_diff = torch::abs(reward.squeeze(-1) - target_reward);
-            total_r_mae += (r_diff * prev_mask).sum() / prev_mask_sum;
+            auto reward_metrics = reward.detach().squeeze(-1);
+            auto target_reward_metrics = target_reward.detach();
+            auto prev_mask_metrics = prev_mask.detach();
+            auto prev_mask_sum_metrics = prev_mask_sum.detach();
+            auto r_diff = torch::abs(reward_metrics - target_reward_metrics);
+            total_r_mae += (r_diff * prev_mask_metrics).sum() / prev_mask_sum_metrics;
         }
 
         // [ASSERT] 各LossのNaNチェック
@@ -1119,22 +1124,22 @@ anet::rl::BatchUpdateResultList MuZeroLearner::UpdateFromBatch(
 
     ANET_ASSERT_NAN(total_loss); // Backward直前の最終確認
     {
-        anet::ProfileRange r_back("MuZeroLearner::Backward");
+        ANET_PROFILE_SCOPE(backward);
         total_loss.backward();
     }
     torch::nn::utils::clip_grad_norm_(model_->GetSuite()->parameters(), config_.max_grad_norm);
     {
-        anet::ProfileRange r_opt("MuZeroLearner::OptimizerStep");
+        ANET_PROFILE_SCOPE(optimizer_step);
         optimizer_->step();
     }
 
     /// @todo MuZero試作制約: PER (Prioritized Experience Replay) を実装した場合、ここで計算した誤差をPriorityとして返却する必要がある
 
     auto result = std::make_shared<MuZeroUpdateResult>();
-    result->total_loss = total_loss;
-    result->value_loss = total_v_loss * gradient_scale;
-    result->policy_loss = total_p_loss * gradient_scale;
-    result->reward_loss = total_r_loss * gradient_scale;
+    result->total_loss = total_loss.detach();
+    result->value_loss = (total_v_loss * gradient_scale).detach();
+    result->policy_loss = (total_p_loss * gradient_scale).detach();
+    result->reward_loss = (total_r_loss * gradient_scale).detach();
     result->value_mae = total_v_mae * gradient_scale;
     result->reward_mae = total_r_mae * gradient_scale;
     result->policy_entropy = total_entropy * gradient_scale;

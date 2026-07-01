@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <vector>
 #include <wx/wx.h>
@@ -14,11 +15,15 @@
 #include "anet/gui.hpp"
 
 struct SweepHeatMapSettings {
-    int x;
-    int y;
+    int x = 0;
+    int y = 0;
+    wxString obs_key;
+    wxString network_side;
+    wxString function_key;
     wxString network_key;
+    wxString output_key;
     wxString extractor_name;
-    int extractor_index;
+    int extractor_index = -1;
     wxString tag;
 };
 
@@ -29,14 +34,29 @@ public:
     // 入力値を構造体として取得
     SweepHeatMapSettings GetSettings() const;
 private:
+    struct VectorObsChoice {
+        wxString key;
+        int64_t flatten_dim = 0;
+    };
+
+    void UpdateAxisRange();
+    void UpdateOutputKeyFromFunction();
+    void UpdateControlsEnabled();
     void UpdateTag();
+    int64_t GetSelectedObsDim() const;
+    wxString BuildNetworkKey() const;
 private:
+    wxComboBox* obs_key_combo_ = nullptr;
     wxSpinCtrl* spin_x_ = nullptr;
     wxSpinCtrl* spin_y_ = nullptr;
-    wxComboBox* network_combo_ = nullptr;
+    wxComboBox* network_side_combo_ = nullptr;
+    wxComboBox* function_combo_ = nullptr;
+    wxComboBox* output_key_combo_ = nullptr;
     wxComboBox* extractor_combo_ = nullptr;
     wxSpinCtrl* extractor_idx_ = nullptr;
     wxTextCtrl* tag_text_ = nullptr;
+    wxStaticText* validation_text_ = nullptr;
+    std::vector<VectorObsChoice> vector_obs_choices_;
 };
 
 class SweepHeatMapPanel final : public anet::rl::gui::Panel

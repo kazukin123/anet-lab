@@ -11,7 +11,9 @@
 using namespace anet::rl::env::drop_merge;
 namespace LOG = anet::log;
 
-constexpr int kNumScalarObsDim = 4;
+constexpr int kBaseScalarObsDim = 4;
+constexpr int kNoDropTimeoutScalarObsDim = 5;
+constexpr float kSpawnOverlapMargin = 0.95f;
 
 // -------------------------------------------------------------
 // Constants & UserData definition
@@ -20,7 +22,8 @@ constexpr int kNumScalarObsDim = 4;
 // Box2DのUserDataに格納する情報の定義
 enum class BodyType : uintptr_t {
     Ground = 0,
-    Fruit = 1
+    Fruit = 1,
+    Wall = 2
 };
 
 struct FruitUserData {
@@ -30,11 +33,13 @@ struct FruitUserData {
 
 // UserDataポインタを管理するための簡易プール等は省略し b2BodyUserData.pointerに直接キャストした値を埋め込む
 
-static uintptr_t EncodeUserData(BodyType type, int rank = 0) {
+static uintptr_t EncodeUserData(BodyType type, int rank = 0)
+{
     return (static_cast<uintptr_t>(type) << 16) | static_cast<uintptr_t>(rank);
 }
 
-static std::pair<BodyType, int> DecodeUserData(uintptr_t val) {
+static std::pair<BodyType, int> DecodeUserData(uintptr_t val)
+{
     BodyType type = static_cast<BodyType>(val >> 16);
     int rank = static_cast<int>(val & 0xFFFF);
     return { type, rank };
@@ -55,6 +60,7 @@ public:
             has_cache_ = true;
         }
     }
+
     anet::rl::AuxData GetAuxData() const override
     {
         // キャッシュがあればそれを返す（Reset後でも大丈夫）
@@ -85,7 +91,6 @@ public:
 class DropMergeEnv::StepResult : public anet::rl::SingleStepResult, public DropMergeEnv::Result {
 public:
     StepResult(std::shared_ptr<const DropMergeEnv> env, float reward, float raw_reward, anet::rl::SingleState next_state)
-//		: Result(env, reward, raw_reward, next_state.done || next_state.truncated)  // エピソード終了時は断面キャプチャ
 		: Result(env, reward, raw_reward, false)
         , SingleStepResult(reward, std::move(next_state))
     {
@@ -98,9 +103,7 @@ public:
 // -------------------------------------------------------------
 
 DropMergeEnv::DropMergeEnv(
-    const DropMergeEnvConfig& config,
-    const torch::Device& device,
-    const std::optional<anet::seed_t> seed)
+    const DropMergeEnvConfig& config, const torch::Device& device, const std::optional<anet::seed_t> seed)
     : anet::RandomHolder(std::nullopt)
     , config_(config)
 {
@@ -142,12 +145,13 @@ DropMergeEnv::DropMergeEnv(
 
 	// TensorOptionsの初期化
     float_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
-    bool_opt_ = torch::TensorOptions().dtype(torch::kBool).device(device);
 
     // Obsバッファ初期化
-    int total_dim = kNumScalarObsDim + config_.grid_rows * config_.grid_cols;
-    obs_buffer_ = torch::empty({ total_dim }, float_opt_);
-    obs_ptr_ = obs_buffer_.data_ptr<float>();
+    int grid_size = config_.grid_rows * config_.grid_cols;
+    auto grid_opt = torch::TensorOptions().dtype(torch::kInt8).device(device);
+    const int scalar_obs_dim = config_.use_no_drop_timeout_gameover ? kNoDropTimeoutScalarObsDim : kBaseScalarObsDim;
+    vec_buffer_ = torch::empty({ scalar_obs_dim }, float_opt_);
+    grid_buffer_ = torch::empty({ grid_size }, grid_opt);
 
     // ActionMode設定を解釈
     std::string am = anet::ToLower(config_.action_mode);
@@ -170,7 +174,7 @@ DropMergeEnv::~DropMergeEnv()
 
 void DropMergeEnv::bell()
 {
-    anet::ProfileRange r("DropMergeEnv::bell");
+    ANET_PROFILE_FUNC();
     /// @todo wxBell()はスレッドセーフじゃないのでwxSoundを使うべき
     //wxBell();
 }
@@ -182,25 +186,49 @@ anet::rl::EnvSpec DropMergeEnv::GetSpec() const
     //    [1]: current_rank (normalized 0~1)
     //    [2]: next_rank (normalized 0~1)
     //    [3]: is_busy (0 or 1)
+    //    [4]: no_drop_timeout_ratio (optional, 0~1)
     // Grid Info (Variable size: rows * cols)
-    //    [4...]: grid cell value (0.0=Empty, 0.1=Rank1 ... 1.0=Rank10)
+    //    grid cell value (0.0=Empty, 0.1=Rank1 ... 1.0=Rank10)
 
-    //状態空間定義
-    int grid_dim = config_.grid_rows * config_.grid_cols;
     anet::rl::StateSpec state_spec;
-    state_spec.shape = { static_cast<int64_t>(kNumScalarObsDim + grid_dim) };
 
-    state_spec.dims = {
-        { {0}, -1.0f, 1.0f, "dropper_x", "Dropper X position" },
-        { {1},  0.0f, 1.0f, "current_rank", "Current fruit rank" },
-        { {2},  0.0f, 1.0f, "next_rank", "Next fruit rank" },
-        { {3},  0.0f, 1.0f, "is_busy", "Dropper busy flag" },
-        /// @todo Grid部分は省略
+    // --- Vector Info (Dropper) ---
+    const int scalar_obs_dim = config_.use_no_drop_timeout_gameover ? kNoDropTimeoutScalarObsDim : kBaseScalarObsDim;
+    std::vector<std::string> vector_labels = { "dropper_x", "current_rank", "next_rank", "is_busy" };
+    std::vector<double> vector_min_values = { -1.0, 0.0, 0.0, 0.0 };
+    std::vector<double> vector_max_values = { 1.0, 1.0, 1.0, 1.0 };
+    if (config_.use_no_drop_timeout_gameover) {
+        vector_labels.push_back("no_drop_timeout_ratio");
+        vector_min_values.push_back(0.0);
+        vector_max_values.push_back(1.0);
+    }
+    state_spec.obs_spec[anet::rl::ObsKeys::kVector] = anet::TensorSpec {
+        .type = anet::SpaceType::Vector,
+        .shape = { scalar_obs_dim },
+        .dtype = torch::kFloat32,
+        .num_classes = 0,   // 連続値(正確にはrankやbusyは離散値だけど)
+        .labels = vector_labels,
+        .min_values = vector_min_values,
+        .max_values = vector_max_values
+    };
+
+
+    // --- Grid Info (Board) ---
+    auto num_classes = kFruitTypeCount + 2; // 空とDropperで2を足す
+    state_spec.obs_spec[anet::rl::ObsKeys::kGrid] = anet::TensorSpec {
+        .type = anet::SpaceType::Grid,
+        .shape = { 1, config_.grid_rows, config_.grid_cols }, // [C, H, W]
+        .dtype = torch::kInt8,
+        .num_classes = num_classes, // Gridの値は果物のランクもしくはDropperを表す離散値
+        .labels = { "grid" },
+        .min_values = { 0.0 },
+        .max_values = { static_cast<double>(kFruitTypeCount + 1) } // 最大値: スイカ + ドロッパー
     };
 
     // 離散アクション
-    anet::rl::ActionSpec action_spec;
-    action_spec.is_discrete = true;
+    anet::rl::ActionSpec action_spec {
+        .is_discrete = true
+    };
 
     // モードに応じたアクションラベルの動的生成
     if (action_mode_ == ActionMode::Move) {
@@ -218,10 +246,11 @@ anet::rl::EnvSpec DropMergeEnv::GetSpec() const
         }
     }
 
-    anet::rl::EnvSpec env_spec;
-    env_spec.state_spec = state_spec;
-    env_spec.action_spec = action_spec;
-    env_spec.reward_range = { 0.0f, 10000.0f }; /// @todo スコア青天井
+    anet::rl::EnvSpec env_spec {
+        .state_spec = state_spec,
+        .action_spec = action_spec,
+        .reward_range = { 0.0f, 10000.0f } /// @todo スコア青天井
+    };
 
     return env_spec;
 }
@@ -252,38 +281,47 @@ void DropMergeEnv::buildWorld()
 
     // --- コンテナ（箱）の作成 ---
     {
+        float half_w = config_.box_width * 0.5f;
+        float h = config_.box_height;
+        float wall_thick = 50.0f;   // 壁抜け防止のため、壁を厚くする
+        
+		// 地面＆壁のFixture定義
+        b2FixtureDef fd;
+        fd.density = 0.0f;
+        fd.friction = config_.box_friction < 0 ? config_.friction : config_.box_friction;  // 摩擦係数
+        fd.restitution = config_.box_restitution < 0 ? config_.restitution : config_.box_restitution; // 反発係数
+
+        // 地面のBody
         b2BodyDef bd;
         bd.type = b2_staticBody;
         bd.position.Set(0.0f, config_.ground_y);
         ground_body_ = world_->CreateBody(&bd);
         ground_body_->GetUserData().pointer = EncodeUserData(BodyType::Ground);
 
-        b2FixtureDef fd;
-        fd.density = 0.0f;
-        fd.friction = config_.box_friction < 0 ? config_.friction : config_.box_friction;  // 摩擦係数
-        fd.restitution = config_.box_restitution < 0 ? config_.restitution : config_.box_restitution; // 反発係数
-
-        float half_w = config_.box_width * 0.5f;
-        float h = config_.box_height;
-        float wall_thick = 50.0f;   // 壁抜け防止のため、壁を厚くする
-
-        // 底
+        // 地面のFixture
         b2PolygonShape shape_bottom;
         shape_bottom.SetAsBox(half_w, wall_thick, b2Vec2(0.0f, -wall_thick), 0.0f);
         fd.shape = &shape_bottom;
         ground_body_->CreateFixture(&fd);
 
+        // 左右の壁 (Wall) のBody
+        b2BodyDef wall_bd;
+        wall_bd.type = b2_staticBody;
+        wall_bd.position.Set(0.0f, config_.ground_y);
+        b2Body* wall_body = world_->CreateBody(&wall_bd);
+        wall_body->GetUserData().pointer = EncodeUserData(BodyType::Wall); // Wallとして登録
+
         // 左壁
         b2PolygonShape shape_left;
         shape_left.SetAsBox(wall_thick, h, b2Vec2(-half_w - wall_thick, h), 0.0f);
         fd.shape = &shape_left;
-        ground_body_->CreateFixture(&fd);
+        wall_body->CreateFixture(&fd);
 
         // 右壁
         b2PolygonShape shape_right;
         shape_right.SetAsBox(wall_thick, h, b2Vec2(half_w + wall_thick, h), 0.0f);
         fd.shape = &shape_right;
-        ground_body_->CreateFixture(&fd);
+        wall_body->CreateFixture(&fd);
 
         // ゲームオーバー判定ラインより少し上(+2.0f)に蓋を設置して
         // 「一瞬跳ねただけ」ならセーフ、「積み上がって詰まった」ならアウトになる余地を作る
@@ -322,7 +360,7 @@ int DropMergeEnv::determineNextRank()
 
 std::shared_ptr<const anet::rl::SingleResetResult> DropMergeEnv::Reset(anet::rl::RunMode mode)
 {
-    anet::ProfileRange r("DropMergeEnv::Reset");
+    ANET_PROFILE_FUNC();
 
     // --- Seed Reset Logic ---
     // Normal: 何もしない (継続性維持)
@@ -355,8 +393,6 @@ std::shared_ptr<const anet::rl::SingleResetResult> DropMergeEnv::Reset(anet::rl:
 
 bool DropMergeEnv::isSpawnAreaClear(float x, float y, float r) const
 {
-    constexpr float kOverlapMargin = 0.95f;
-
     for (b2Body* b = world_->GetBodyList(); b; b = b->GetNext()) {
         if (b->GetType() != b2_dynamicBody) continue;
 
@@ -371,7 +407,7 @@ bool DropMergeEnv::isSpawnAreaClear(float x, float y, float r) const
 
         float r_other = config_.fruit_radii[data.second - 1];
         float dist_sq = (pos.x - x) * (pos.x - x) + (pos.y - y) * (pos.y - y);
-        float radius_sum = (r + r_other) * kOverlapMargin;
+        float radius_sum = (r + r_other) * kSpawnOverlapMargin;
 
         // 接触（重なり）判定
         if (dist_sq < radius_sum * radius_sum) {
@@ -379,6 +415,99 @@ bool DropMergeEnv::isSpawnAreaClear(float x, float y, float r) const
         }
     }
     return true;
+}
+
+bool DropMergeEnv::hasClearSpawnXInRange(float x_min, float x_max, float y, float r) const
+{
+    ANET_PROFILE_FUNC();
+
+    if (x_min > x_max) std::swap(x_min, x_max);
+
+    // noise=0 などで実質1点の場合は既存の単点判定を使う。
+    if (std::abs(x_max - x_min) <= 1.0e-6f) {
+        return isSpawnAreaClear(x_min, y, r);
+    }
+
+    std::vector<std::pair<float, float>> blocked_intervals;
+
+    for (b2Body* b = world_->GetBodyList(); b; b = b->GetNext()) {
+        if (b->GetType() != b2_dynamicBody) continue;
+        if (b == dropper_.pending_body) continue;
+
+        auto data = DecodeUserData(b->GetUserData().pointer);
+        if (data.first != BodyType::Fruit) continue;
+
+        const b2Vec2 pos = b->GetPosition();
+        const float r_other = config_.fruit_radii[data.second - 1];
+        const float radius_sum = (r + r_other) * kSpawnOverlapMargin;
+        const float dy = pos.y - y;
+        const float rem = radius_sum * radius_sum - dy * dy;
+        if (rem <= 0.0f) continue;
+
+        const float dx = std::sqrt(rem);
+        const float left = std::max(x_min, pos.x - dx);
+        const float right = std::min(x_max, pos.x + dx);
+        if (left <= right) {
+            blocked_intervals.emplace_back(left, right);
+        }
+    }
+
+    if (blocked_intervals.empty()) {
+        return true;
+    }
+
+    std::sort(blocked_intervals.begin(), blocked_intervals.end(),
+        [](const auto& lhs, const auto& rhs) {
+            return lhs.first < rhs.first;
+        });
+
+    float covered_until = x_min;
+    for (const auto& interval : blocked_intervals) {
+        if (interval.first > covered_until) {
+            return true; // gap がある = clear な x がある
+        }
+
+        covered_until = std::max(covered_until, interval.second);
+        if (covered_until >= x_max) {
+            return false; // 範囲全体が塞がっている
+        }
+    }
+
+    return covered_until < x_max;
+}
+
+bool DropMergeEnv::hasAnyLegalDropForCurrentFruit() const
+{
+    ANET_PROFILE_FUNC();
+
+    if (dropper_.current_rank < 1 || dropper_.current_rank > kFruitTypeCount) {
+        return false;
+    }
+
+    const float spawn_y = config_.ground_y + config_.box_height;
+    const float r_drop = config_.fruit_radii[dropper_.current_rank - 1];
+
+    const float min_x = -config_.box_width * 0.5f;
+    const float max_x = config_.box_width * 0.5f;
+    const float cell_w = (max_x - min_x) / static_cast<float>(num_drop_actions_);
+
+    const float half_w = config_.box_width * 0.5f;
+    const float limit = half_w - r_drop - 0.01f;
+    const float noise = std::max(0.0f, config_.drop_noise);
+
+    for (int col = 0; col < num_drop_actions_; ++col) {
+        const float base_x = min_x + (static_cast<float>(col) + 0.5f) * cell_w;
+
+        float x_min = std::clamp(base_x - noise, -limit, limit);
+        float x_max = std::clamp(base_x + noise, -limit, limit);
+        if (x_min > x_max) std::swap(x_min, x_max);
+
+        if (hasClearSpawnXInRange(x_min, x_max, spawn_y, r_drop)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 b2Body* DropMergeEnv::spawnFruit(float x, float y, int rank)
@@ -554,15 +683,19 @@ void DropMergeEnv::processMerges()
 
             // 合体後のランクで最大ランクを更新
             ep_max_rank_ = std::max(ep_max_rank_, req.next_rank);
+            if (req.next_rank == kFruitTypeCount) {
+                ep_suika_created_++; // スイカ作成数をカウント
+            }
 
 			// スコア加算
             float s = config_.fruit_scores[req.next_rank - 1];
             current_step_merge_score_ += s;
             episode_score_ += s;
 
+
             // ログ
             if (req.next_rank >= kFruitTypeCount) { // スイカが出来たらログ＆音
-                LOG::info() << "Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_ << " current_step_merge_score_=" << current_step_merge_score_;
+                LOG::verbose() << "Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_ << " current_step_merge_score_=" << current_step_merge_score_;
                 bell();
             }
 
@@ -571,13 +704,16 @@ void DropMergeEnv::processMerges()
         } else {
             // 最大ランクを更新
             ep_max_rank_ = std::max(ep_max_rank_, req.next_rank);
+            ep_double_suika_created_++; // ダブルスイカ作成数をカウント
 
-            // スイカ同士が消えた場合はSpawnしない（Rank 12相当）
-            LOG::info() << "Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_ << " current_step_merge_score_=" << current_step_merge_score_;
+            // スイカ同士が消えた場合はSpawnしない（Rank 12相当、ダブルスイカ）
+            LOG::info() << "Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_
+                //<< " current_step_merge_score_=" << current_step_merge_score_
+                << " ep_double_suika_created=" << ep_double_suika_created_;
             bell();       /// @todo wxBell()はスレッドセーフじゃないのでwxSoundを使うべき
 
             // スコア加算
-            float s = config_.fruit_scores[kFruitTypeCount - 1];
+            float s = config_.fruit_scores[kFruitTypeCount];
             current_step_merge_score_ += s;
             episode_score_ += s;
 
@@ -730,9 +866,25 @@ bool DropMergeEnv::isWorldSettled() const
     return true; // 全て静止＆マージ完了
 }
 
+bool DropMergeEnv::isNoLegalDropState() const
+{
+    ANET_PROFILE_FUNC();
+
+    if (action_mode_ != ActionMode::DirectNoop) return false;
+    if (game_over_) return false;
+    if (dropper_.is_busy) return false;
+    if (dropper_.pending_body != nullptr) return false;
+    if (dropper_.current_rank < 1 || dropper_.current_rank > kFruitTypeCount) return false;
+    if (!merge_requests_.empty()) return false;
+    if (!bodies_to_destroy_.empty()) return false;
+    if (!isWorldSettled()) return false;
+
+    return !hasAnyLegalDropForCurrentFruit();
+}
+
 std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t action, anet::rl::RunMode mode)
 {
-    anet::ProfileRange r("DropMergeEnv::Step");
+    ANET_PROFILE_FUNC();
 
     // エピーソード開始してる
     episode_just_ended_ = false;
@@ -745,6 +897,8 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         ep_settle_steps_sum_ = 0;
         ep_settle_count_ = 0;
         ep_settle_steps_max_ = 0;
+        ep_suika_created_ = 0;
+        ep_double_suika_created_ = 0;
     }
 
     // エピソードstepインクリメント
@@ -869,7 +1023,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         last_step_sim_steps_ = sim_steps;
 
         // エピーソード統計用データを更新
-        if (action == kActionDrop) {
+        if (is_drop_action) {
             ep_settle_steps_sum_ += sim_steps;
             ep_settle_count_++;
             ep_settle_steps_max_ = std::max(ep_settle_steps_max_, sim_steps);
@@ -888,9 +1042,16 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         accumulated_reward += config_.game_over_penalty;
     }
 
+    // 盤面いっぱいでのNOOP判定
+    const bool no_legal_drop_terminal = !game_over_ && is_noop_action && isNoLegalDropState();
+    if (no_legal_drop_terminal) {
+        term_reason_ = TerminationReason::NoLegalDrop;
+        LOG::verbose() << "Episode done: no legal drop remains. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+    }
+
     // エピソード完了判定
-    bool done = game_over_;
-    bool truncated = (step_count_ >= config_.max_step);
+    bool done = game_over_ || no_legal_drop_terminal;
+    bool truncated = (!done && step_count_ >= config_.max_step);
 
     // 最大ステップ数到達による打ち切りを終了理由としてセット
     if (!done && truncated) {
@@ -899,12 +1060,16 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     }
 
     // ショットクロック判定
-    if (config_.no_drop_timeout_steps > 0 && steps_since_last_drop_ >= config_.no_drop_timeout_steps) {
-        truncated = true;
-        if (!done && term_reason_ != TerminationReason::MaxStep) {
-            term_reason_ = TerminationReason::Timeout;
+    if (!done && !truncated && config_.no_drop_timeout_steps > 0 && steps_since_last_drop_ >= config_.no_drop_timeout_steps) {
+        term_reason_ = TerminationReason::NoDropTimeout;
+        if (config_.use_no_drop_timeout_gameover) {
+            done = true;
+            accumulated_reward += config_.no_drop_timeout_gameover_penalty;
+            LOG::verbose() << "Episode done due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+        } else {
+            truncated = true;
+            LOG::verbose() << "Episode truncated due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
         }
-        LOG::verbose() << "Episode truncated due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
     }
 
     // エピソード終了時のフルーツ数カウント＆フラグ立て
@@ -979,8 +1144,15 @@ void DropMergeEnv::ContactListener::BeginContact(b2Contact* contact)
         }
     }
 
-    env_.notifyContact(contact->GetFixtureA()->GetBody());
-    env_.notifyContact(contact->GetFixtureB()->GetBody());
+    // 着地判定（壁との接触は無視する）
+    b2Body* pending = env_.dropper_.pending_body;
+    if (pending != nullptr) {
+        if (fa->GetBody() == pending && dataB.first != BodyType::Wall) {
+            env_.notifyContact(pending);
+        } else if (fb->GetBody() == pending && dataA.first != BodyType::Wall) {
+            env_.notifyContact(pending);
+        }
+    }
 }
 
 // -------------------------------------------------------------
@@ -989,7 +1161,7 @@ void DropMergeEnv::ContactListener::BeginContact(b2Contact* contact)
 
 anet::rl::SingleState DropMergeEnv::makeState() const
 {
-    anet::ProfileRange r("DropMergeEnv::makeState");
+    ANET_PROFILE_FUNC();
 
     // --- 定数・範囲の定義 ---
     const float min_x = -config_.box_width * 0.5f;
@@ -999,27 +1171,38 @@ anet::rl::SingleState DropMergeEnv::makeState() const
     const float cell_w = (max_x - min_x) / config_.grid_cols;
     const float cell_h = (max_y - min_y) / config_.grid_rows;
 
+    float* vec_ptr = vec_buffer_.data_ptr<float>();
+    int8_t* grid_ptr = grid_buffer_.data_ptr<int8_t>();
+
     // --- スカラー部を充填 ---
 
     // Dropper X 正規化
     if (action_mode_ == ActionMode::Direct || action_mode_ == ActionMode::DirectNoop) {
-        obs_ptr_[0] = 0.0f; // 座標指定モードの時は完全無効化（DropperX座標を使わないので）
+        vec_ptr[0] = 0.0f; // 座標指定モードの時は完全無効化（DropperX座標を使わないので）
     } else {
-        obs_ptr_[0] = std::clamp(dropper_.x / (config_.box_width * 0.5f), -1.0f, 1.0f);
+        vec_ptr[0] = std::clamp(dropper_.x / (config_.box_width * 0.5f), -1.0f, 1.0f);
     }
 
     // Rank 正規化
     const float norm_scale = 1.0f / (float)kFruitTypeCount;
-    obs_ptr_[1] = dropper_.current_rank * norm_scale;
-    obs_ptr_[2] = dropper_.next_rank * norm_scale;
+    vec_ptr[1] = dropper_.current_rank * norm_scale;
+    vec_ptr[2] = dropper_.next_rank * norm_scale;
 
     // Busy フラグ (instant_dropモード時は常に0)
     const bool is_busy = (config_.use_instant_drop) ? false : dropper_.is_busy;
-    obs_ptr_[3] = is_busy ? 1.0f : 0.0f;
+    vec_ptr[3] = is_busy ? 1.0f : 0.0f;
+
+    if (config_.use_no_drop_timeout_gameover) {
+        float no_drop_timeout_ratio = 0.0f;
+        if (config_.no_drop_timeout_steps > 0) {
+            no_drop_timeout_ratio = static_cast<float>(steps_since_last_drop_) / static_cast<float>(config_.no_drop_timeout_steps);
+        }
+        vec_ptr[4] = std::clamp(no_drop_timeout_ratio, 0.0f, 1.0f);
+    }
 
     // --- グリッド情報のクリア ---
     const int grid_size = config_.grid_rows * config_.grid_cols;
-    std::fill(obs_ptr_ + kNumScalarObsDim, obs_ptr_ + kNumScalarObsDim + grid_size, 0.0f);
+    std::fill(grid_ptr, grid_ptr + grid_size, 0);
 
     // --- グリッド充填 ---
     for (b2Body* b = world_->GetBodyList(); b; b = b->GetNext()) {
@@ -1030,7 +1213,7 @@ anet::rl::SingleState DropMergeEnv::makeState() const
 
         const b2Vec2 pos = b->GetPosition();
         const float r_fruit = config_.fruit_radii[data.second - 1];
-        const float val = static_cast<float>(data.second);
+        const int8_t val = static_cast<int8_t>(data.second);
 
         // バウンディングボックスからインデックス範囲を算出
         int c_min = static_cast<int>((pos.x - r_fruit - min_x) / cell_w);
@@ -1050,7 +1233,7 @@ anet::rl::SingleState DropMergeEnv::makeState() const
             const float cell_y2 = cell_y1 + cell_h;
             const float closest_y = std::clamp(pos.y, cell_y1, cell_y2);
             const float dy_sq = (pos.y - closest_y) * (pos.y - closest_y);
-            const int row_offset = kNumScalarObsDim + (iy * config_.grid_cols);
+            const int row_offset = iy * config_.grid_cols;
 
             for (int ix = c_min; ix <= c_max; ++ix) {
                 const float cell_x1 = min_x + ix * cell_w;
@@ -1061,8 +1244,8 @@ anet::rl::SingleState DropMergeEnv::makeState() const
                 if (dx * dx + dy_sq <= r_sq) {
                     const int idx = row_offset + ix;
                     // 重なっている場合はランクが低い（小さい）方を優先
-                    if (obs_ptr_[idx] == 0.0f || val < obs_ptr_[idx]) {
-                        obs_ptr_[idx] = val;
+                    if (grid_ptr[idx] == 0 || val < grid_ptr[idx]) {
+                        grid_ptr[idx] = val;
                     }
                 }
             }
@@ -1074,16 +1257,23 @@ anet::rl::SingleState DropMergeEnv::makeState() const
     if (draw_dropper) {
         int target_c = static_cast<int>((dropper_.x - min_x) / cell_w);
         target_c = std::clamp(target_c, 0, config_.grid_cols - 1);
-        const int target_idx = kNumScalarObsDim + ((config_.grid_rows - 1) * config_.grid_cols) + target_c;
-        obs_ptr_[target_idx] = static_cast<float>(kFruitTypeCount + 1);
+        const int target_idx = ((config_.grid_rows - 1) * config_.grid_cols) + target_c;
+        grid_ptr[target_idx] = static_cast<int8_t>(kFruitTypeCount + 1);
     }
 
-    // デバッグ表示用キャッシュ更新（vectorが必要な場合のみ）
-    grid_cache_.assign(obs_ptr_ + kNumScalarObsDim, obs_ptr_ + kNumScalarObsDim + grid_size);
+    // デバッグ表示用キャッシュ更新
+    grid_cache_.assign(grid_ptr, grid_ptr + grid_size);
 
-    // --- 返却（Designated Initializers） ---
+    // それぞれのバッファからクローンを作成
+    auto vec_tensor = vec_buffer_.clone();
+    auto grid_tensor = grid_buffer_.view({ 1, config_.grid_rows, config_.grid_cols }).clone();
+
+    // 返却
     return anet::rl::SingleState {
-        .obs = obs_buffer_.clone(),  // バッファのクローンを渡す
+        .obs = {
+            { anet::rl::ObsKeys::kVector, vec_tensor },
+            { anet::rl::ObsKeys::kGrid, grid_tensor }
+        },
         .done = false,            // Step/Reset側で後ほど上書きされる
         .truncated = false,
         .episode_start = false
@@ -1114,7 +1304,7 @@ std::pair<float, float> DropMergeEnv::calcReward()
 
 anet::rl::AuxData DropMergeEnv::CreateAuxData(float reward, float raw_reward) const
 {
-	anet::ProfileRange r("DropMergeEnv::CreateAuxData");
+	ANET_PROFILE_FUNC();
 
     anet::rl::AuxData aux;
 
@@ -1204,7 +1394,29 @@ std::optional<float> DropMergeEnv::GetScalar(const std::string& key, int64_t ind
     // --- 成果・盤面状態 ---
     if (key == "ep_max_rank") {
         if (!episode_just_ended_) return nan;
-        return static_cast<float>(ep_max_rank_);
+        float display_rank = static_cast<float>(ep_max_rank_);
+
+        // スイカ(Rank 11)以上が出来ている場合の特別計算
+        if (ep_max_rank_ >= 11) {
+            display_rank = 11.0f; // ベースを11に固定
+
+            // ダブルスイカ1つにつき +1.0 (12.0, 13.0, 14.0...)
+            display_rank += static_cast<float>(ep_double_suika_created_);
+
+            // マージされていない「余剰のスイカ」の数を計算
+            // (ダブルスイカ1つにつき、スイカを2つ消費しているため)
+            int extra_suikas = ep_suika_created_ - (ep_double_suika_created_ * 2);
+
+            // ダブルスイカが0個で、スイカが2個あるなら 11.5 (ダブルスイカリーチ状態)
+            if (ep_double_suika_created_ == 0 && extra_suikas >= 2) {
+                display_rank += 0.5f;
+            }
+            // ダブルスイカが1個以上で、余剰スイカが1個以上あるなら +0.5 (12.5, 13.5...)
+            else if (ep_double_suika_created_ > 0 && extra_suikas >= 1) {
+                display_rank += 0.5f;
+            }
+        }
+        return display_rank;
     }
     if (key == "ep_end_fruit_count") {
         if (!episode_just_ended_) return nan;
@@ -1222,10 +1434,6 @@ std::optional<float> DropMergeEnv::GetScalar(const std::string& key, int64_t ind
     }
 
     // --- 死因（One-hot表現） ---
-    if (key == "term_reason_timeout") {
-        if (!episode_just_ended_) return nan;
-        return (term_reason_ == TerminationReason::Timeout) ? 1.0f : 0.0f;
-    }
     if (key == "term_reason_spawn_blocked") {
         if (!episode_just_ended_) return nan;
         return (term_reason_ == TerminationReason::SpawnBlocked) ? 1.0f : 0.0f;
@@ -1237,6 +1445,14 @@ std::optional<float> DropMergeEnv::GetScalar(const std::string& key, int64_t ind
     if (key == "term_reason_maxstep") {
         if (!episode_just_ended_) return nan;
         return (term_reason_ == TerminationReason::MaxStep) ? 1.0f : 0.0f;
+    }
+    if (key == "term_reason_no_drop_timeout") {
+        if (!episode_just_ended_) return nan;
+        return (term_reason_ == TerminationReason::NoDropTimeout) ? 1.0f : 0.0f;
+    }
+    if (key == "term_reason_no_legal_drop") {
+        if (!episode_just_ended_) return nan;
+        return (term_reason_ == TerminationReason::NoLegalDrop) ? 1.0f : 0.0f;
     }
 
     return std::nullopt;

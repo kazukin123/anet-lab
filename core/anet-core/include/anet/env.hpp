@@ -14,7 +14,7 @@ namespace anet::rl {
         DiscreteBatchEnvBase(
             const ConfigData& config_data,
             std::shared_ptr<SingleDiscreteEnvFactory> factory,
-            int batch_size,
+            int num_envs,
             const torch::Device& device,
             std::optional<seed_t> seed,
             const std::string& config_prefix);
@@ -30,19 +30,20 @@ namespace anet::rl {
         class Result;
         class ResetResult;
         class StepResult;
+    protected:
         std::shared_ptr<DiscreteBatchEnvBase::ResetResult> createEmptyResetResult() const;
         std::shared_ptr<DiscreteBatchEnvBase::StepResult> createEmptyStepResult() const;
-    protected:
         std::shared_ptr<DiscreteBatchEnvBase::ResetResult> getResetResult() const;
         std::shared_ptr<DiscreteBatchEnvBase::StepResult> getStepResult() const;
+    private:
+        anet::TensorDict createEmptyObsDict() const;
     protected:
-        int64_t batch_size_;
+        int64_t num_envs_;
         std::vector<std::shared_ptr<SingleDiscreteEnv>> envs_;
         std::unique_ptr<EnvSpec> spec_;
         BatchEnvSpec batch_spec_;
         torch::Device device_;
 
-        std::vector<int64_t> obs_dims_;
         torch::TensorOptions float_opt_;
         torch::TensorOptions bool_opt_;
     protected:
@@ -57,7 +58,7 @@ namespace anet::rl {
         VectorizedDiscreteBatchEnv(
             const ConfigData& configData,
             std::shared_ptr<SingleDiscreteEnvFactory> factory,
-            int batch_size,
+            int num_envs,
             const torch::Device& device,
             std::optional<seed_t> seed = std::nullopt,
             const std::string& config_prefix = "");
@@ -71,7 +72,7 @@ namespace anet::rl {
         ThreadPoolDiscreteEnv(
             const ConfigData& configData,
             std::shared_ptr<SingleDiscreteEnvFactory> factory,
-            int batch_size,
+            int num_envs,
             const torch::Device& device,
             std::shared_ptr<ThreadPool> pool,
             std::optional<seed_t> seed = std::nullopt,
@@ -118,7 +119,7 @@ namespace anet::rl {
     {
         static constexpr int INVALID =0;
         static constexpr int AUTO = -1;                ///< 自動＝min(EnvCount, 論理コア数 - 2)
-        static constexpr int ENV_COUNT = -2;           ///< batch_size 固定
+        static constexpr int ENV_COUNT = -2;           ///< num_envs 固定
         static constexpr int LOGICAL_CORES = -3;       ///< 論理コア数（HT込み） - 2
         static constexpr int LOGICAL_CORES_EXACT = -4; ///< 論理コア数（HT込み）
         //static constexpr int PHYSICAL_EXACT = -5;      ///< 物理コア数そのまま
@@ -153,21 +154,21 @@ namespace anet::rl {
         DefaultBatchEnvFactory(
             const DefaultBatchEnvFactoryConfig& config,
             const ConfigData& config_data,
-            int batch_size = 1,
+            int num_envs = 1,
             std::optional<const torch::Device> device = std::nullopt);
 
-        std::shared_ptr<BatchEnv> CreateBatchEnv(std::optional<seed_t> seed = std::nullopt, int batch_size = -1) override;
+        std::shared_ptr<BatchEnv> CreateBatchEnv(std::optional<seed_t> seed = std::nullopt, int num_envs = -1) override;
         std::shared_ptr<SingleDiscreteEnvFactory> GetSingleFactory() const;
         torch::Device GetDevice() const { return device_; }
     public:
     private:
         std::shared_ptr<ThreadPool> CreatePool(int worker_threads) const;
         int GetLogicalCores() const;
-        int ResolveWorkerThreads(int batch) const;
+        int ResolveWorkerThreads(int num_envs) const;
     private:
         DefaultBatchEnvFactoryConfig config_;
         ConfigData config_data_;
-        int batch_size_;
+        int num_envs_;
         torch::Device device_;
     };
 }

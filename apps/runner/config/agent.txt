@@ -72,9 +72,19 @@ MuZeroAgent.baseline.learner.reward_loss_weight = 1.0     # Reward Lossの重み
 
 DefaultDQNAgent.baseline.head_init.manual_gain = 0.0
 DefaultDQNAgent.baseline.head_init.mode = 1
-DefaultDQNAgent.baseline.model.soft_update_tau = 0.001      # 1.0f 0.004f  0.01f 0.005f;
+DefaultDQNAgent.baseline.model.soft_update_tau = 0.001      # 1.0 0.004  0.01 0.005
+
+DefaultDQNAgent.baseline.nn_viz.show_param_shapes = true
+DefaultDQNAgent.baseline.nn_viz.show_param_count = true
+DefaultDQNAgent.baseline.nn_viz.show_tensor_specs = true
+DefaultDQNAgent.baseline.nn_viz.show_head_info = true
+DefaultDQNAgent.baseline.nn_viz.layout = LR  # TB LR
+DefaultDQNAgent.baseline.nn_viz.cluster_branches = true
+DefaultDQNAgent.baseline.nn_viz.float_precision = 3
+
 DefaultDQNAgent.baseline.stucker.use_stacker = true
 DefaultDQNAgent.baseline.stucker.stack_count = 4
+DefaultDQNAgent.baseline.stucker.stack_keys = 
 
 DefaultDQNAgent.baseline.use_optimistic_target = false           # Q値にtrain_policy（UQE）を反映させるならtrue
 
@@ -91,6 +101,8 @@ DefaultDQNAgent.baseline.train_policy.uqe_eps_decay_steps = 0    # 0=減衰な�
 DefaultDQNAgent.baseline.train_policy.uqe_use_tail_mean = false
 DefaultDQNAgent.baseline.train_policy.use_amp = false
 DefaultDQNAgent.baseline.train_policy.use_amp_bf16 = false
+DefaultDQNAgent.baseline.train_policy.use_spatial_exploration = false # ApeXのVectorized Explorationを有効にするか。 num_envs<32の場合は不安定化するのでfalse推奨。
+DefaultDQNAgent.baseline.train_policy.spatial_scale_type = log        # log or linear
 
 DefaultDQNAgent.baseline.eval_policy.policy_type = Greedy       # 常に平均Q値最大を選択
 DefaultDQNAgent.baseline.eval_policy.use_amp = false
@@ -101,24 +113,26 @@ DefaultDQNAgent.baseline.eval_policy.use_amp_bf16 = false
 #DefaultDQNAgent.baseline.target_policy.use_amp_bf16 = false
 
 
-DefaultDQNAgent.baseline.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4 batch_sizeを上げたら少し上げて良い
+DefaultDQNAgent.baseline.learner.alpha = 5e-4                 # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4 num_envsを上げたら少し上げて良い
 DefaultDQNAgent.baseline.learner.gamma = 0.99                 # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
 DefaultDQNAgent.baseline.learner.adam_eps = 1e-5              # 小さな勾配の変化に敏感になりすぎるのを防ぎ、学習をマイルドに
+DefaultDQNAgent.baseline.learner.use_fused_optimizer = true   # ATen fused AdamWでoptimizer stepのカーネル起動数を減らす。falseで従来AdamW
+DefaultDQNAgent.baseline.learner.weight_decay = 1e-2          # AdamWの重み減衰
 DefaultDQNAgent.baseline.learner.use_grad_clip = true         # ★
-DefaultDQNAgent.baseline.learner.grad_clip_tau = 5            # ★10 25 40 1f 5f 10f
+DefaultDQNAgent.baseline.learner.grad_clip_tau = 5            # ★10 25 40 1 5 10
 DefaultDQNAgent.baseline.learner.use_td_clip = false          # 
 DefaultDQNAgent.baseline.learner.td_clip_value = 30.0         # 4.0 20 30
-DefaultDQNAgent.baseline.learner.replay_capacity = 2560000    # batch_size=256向け。
+DefaultDQNAgent.baseline.learner.replay_capacity = 2560000    # num_envs=256向け。
 DefaultDQNAgent.baseline.learner.replay_batch_size = 1024     # 128 256 1024 大きいと実時間は早くなるが局所解に陥りやすくなる
-DefaultDQNAgent.baseline.learner.update_warmup_steps = 8192  # 1000　exp_step単位。replay_batch_size * 32 もしくは batch_size * エピソードの平均長、どちらか大きい方
+DefaultDQNAgent.baseline.learner.update_warmup_steps = 8192  # 1000　exp_step単位。replay_batch_size * 32 もしくは num_envs * エピソードの平均長、どちらか大きい方
 DefaultDQNAgent.baseline.learner.update_interval = 1         # 環境何ステップ毎にUpdateするか。replay_rationが正なら使われない
 DefaultDQNAgent.baseline.learner.replay_ratio = 4            # 環境1ステップあたり平均何回のUpdateするか。負数ではupdate_interval側を使う
 DefaultDQNAgent.baseline.learner.n_step = 3
 DefaultDQNAgent.baseline.learner.per_alpha = 0.6             # 優先度の反映度合い (0.0:ランダム選択, 1.0:優先度のみ考慮して選択)
 DefaultDQNAgent.baseline.learner.per_beta_start = 0.4        # 「beta」の初期値 β：同じ行動を選び続けないように優先度補正する強度
-DefaultDQNAgent.baseline.learner.per_beta_end = 1.0f         # 「beta」の収束値 β：同じ行動を選び続けないように優先度補正する強度
+DefaultDQNAgent.baseline.learner.per_beta_end = 1.0          # 「beta」の収束値 β：同じ行動を選び続けないように優先度補正する強度
 DefaultDQNAgent.baseline.learner.per_beta_step = 10,000,000  # 10M betaを収束値まで線形変化させるexpステップ数（初期は当てにならないので補正を弱める）
-DefaultDQNAgent.baseline.learner.per_eps = 1e-6f             # 優先度加算用微小値
+DefaultDQNAgent.baseline.learner.per_eps = 1e-6              # 優先度加算用微小値
 DefaultDQNAgent.baseline.learner.per_initial_priority = 1.0  # 新規データの初期優先度
 DefaultDQNAgent.baseline.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
 DefaultDQNAgent.baseline.learner.per_prio_clip_value = 20.0  # 優先度の上限値
@@ -126,6 +140,8 @@ DefaultDQNAgent.baseline.learner.quantile_huber_kappa = 1.0  # Huber Loss の閾
 DefaultDQNAgent.baseline.learner.use_double_dqn = true       # Double DQN 有効化フラグ（trueで有効）
 DefaultDQNAgent.baseline.learner.use_n_step = true
 DefaultDQNAgent.baseline.learner.use_per = true
+DefaultDQNAgent.baseline.learner.use_tbo = false            # Transformed Bellman OperatorでBellmanターゲットを圧縮するか
+DefaultDQNAgent.baseline.learner.tbo_epsilon = 0.01         # TBO変換関数hの正則化項
 DefaultDQNAgent.baseline.learner.use_amp = false
 DefaultDQNAgent.baseline.learner.use_amp_bf16 = false
 DefaultDQNAgent.baseline.reward_scaler.use_clipping = false
@@ -200,14 +216,14 @@ DefaultDQNAgent.baseline.use_qr = true                # QR-DQN 有効化フラ�
 
 RainbowAgent.baseline.head_init.manual_gain = 0.0
 RainbowAgent.baseline.head_init.mode = 1
-RainbowAgent.baseline.model.soft_update_tau = 0.001     # 1.0f 0.004f  0.01f 0.005f;
+RainbowAgent.baseline.model.soft_update_tau = 0.001     # 1.0 0.004  0.01 0.005
 RainbowAgent.baseline.action_policy.eps_start = 1.00              # 指数減衰  
-RainbowAgent.baseline.action_policy.eps_end = 0.05              # 0.1f 0.05f
+RainbowAgent.baseline.action_policy.eps_end = 0.05              # 0.1 0.05
 RainbowAgent.baseline.action_policy.eps_decay_steps = 10,000,000    # 10M
 RainbowAgent.baseline.learner.alpha = 5e-4                # 学習率 1e-3 3e-3 1e-4 1e-4 3e-4 5e-4
 RainbowAgent.baseline.learner.gamma = 0.99                # ★ 0.99 0.995  γが高いほど「長期安定」を目指す
 RainbowAgent.baseline.learner.use_grad_clip = true        # ★
-RainbowAgent.baseline.learner.grad_clip_tau = 30          # ★10 25 40 1f 5f 10f
+RainbowAgent.baseline.learner.grad_clip_tau = 30          # ★10 25 40 1 5 10
 RainbowAgent.baseline.learner.use_td_clip = false         # 
 RainbowAgent.baseline.learner.td_clip_value = 30.0        # 4.0 20 30
 RainbowAgent.baseline.learner.replay_capacity = 100,000   #  10000 30000
@@ -219,7 +235,7 @@ RainbowAgent.baseline.learner.per_alpha = 0.6             # 優先度の反映�
 RainbowAgent.baseline.learner.per_beta_start = 0.4        # IS重みの補正度合い「beta」の初期値
 RainbowAgent.baseline.learner.per_beta_end = 1.0          # IS重みの補正度合い「beta」の収束値
 RainbowAgent.baseline.learner.per_beta_step = 20000       # 20K betaを収束値まで線形変化させるステップ数
-RainbowAgent.baseline.learner.per_eps = 1e-6f             # 優先度加算用微小値
+RainbowAgent.baseline.learner.per_eps = 1e-6              # 優先度加算用微小値
 RainbowAgent.baseline.learner.per_initial_priority = 1.0  # 新規データの初期優先度
 RainbowAgent.baseline.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
 RainbowAgent.baseline.learner.per_prio_clip_value = 20.0  # 優先度の上限値

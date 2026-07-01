@@ -46,6 +46,7 @@ namespace anet::rl::env::drop_merge {
         // --- 環境パラメータ ---
         int max_step = 3000;
         int no_drop_timeout_steps = 200;
+        bool use_no_drop_timeout_gameover = false;
         float box_width = 3.0f;
         float box_height = 4.0f;
         float ground_y = 0.5f;     // 箱の底の高さ
@@ -82,6 +83,7 @@ namespace anet::rl::env::drop_merge {
         float time_penalty = -0.0001f;     ///< 毎ステップ引かれる罰報酬
         float noop_penalty = -0.001f;      ///< NOOPアクションを選ぶ事による罰報酬
         float game_over_penalty = -5.0f;   ///< ゲームオーバー時の罰報酬
+        float no_drop_timeout_gameover_penalty = 0.0f; ///< no_drop_timeoutを終端扱いした時の罰報酬
 
         // 箱物性
         float box_restitution = 0.0f;       /// 箱の反発係数。-1で果物と同じ
@@ -105,6 +107,7 @@ namespace anet::rl::env::drop_merge {
             ANET_READ_CONFIG(config_data, global_seed);
             ANET_READ_CONFIG(config_data, max_step);
             ANET_READ_CONFIG(config_data, no_drop_timeout_steps);
+            ANET_READ_CONFIG(config_data, use_no_drop_timeout_gameover);
             ANET_READ_CONFIG(config_data, box_width);
             ANET_READ_CONFIG(config_data, box_height);
             ANET_READ_CONFIG(config_data, ground_y);
@@ -132,9 +135,12 @@ namespace anet::rl::env::drop_merge {
             ANET_READ_CONFIG(config_data, time_penalty);
             ANET_READ_CONFIG(config_data, noop_penalty);
             ANET_READ_CONFIG(config_data, game_over_penalty);
+            ANET_READ_CONFIG(config_data, no_drop_timeout_gameover_penalty);
             ANET_READ_CONFIG(config_data, restitution);
             ANET_READ_CONFIG(config_data, friction);
             ANET_READ_CONFIG(config_data, damping);
+            ANET_READ_CONFIG(config_data, box_restitution);
+            ANET_READ_CONFIG(config_data, box_friction);
 
             // デフォルト値 (Configファイルがない場合用)を定義
             std::vector<float> def_radii = {
@@ -145,7 +151,7 @@ namespace anet::rl::env::drop_merge {
             std::vector<float> def_scores = {
                 0.1f, 0.3f, 0.6f, 1.0f, 1.5f,
                 2.1f, 2.8f, 3.6f, 4.5f, 5.5f,
-                6.6f
+				6.6f, 8.0f
             };
             std::vector<float> def_densities(11, 5.0f);
             std::vector<float> def_probs = { 20.0f, 20.0f, 20.0f, 20.0f, 20.0f };
@@ -165,7 +171,7 @@ namespace anet::rl::env::drop_merge {
             // サイズチェック
             if (fruit_radii.size() != kFruitTypeCount ||
                 fruit_densities.size() != kFruitTypeCount ||
-                fruit_scores.size() != kFruitTypeCount) {
+                fruit_scores.size() != (kFruitTypeCount + 1)) {
                 ANET_SYSTEM_ERROR("Invalid fruit config.");
             }
         }
@@ -215,10 +221,11 @@ namespace anet::rl::env::drop_merge {
 
         enum class TerminationReason {        ///< メトリクス集計用
             None,
-            Timeout,
             SpawnBlocked,
             Overflow,
-            MaxStep
+            MaxStep,
+            NoDropTimeout,
+            NoLegalDrop
         };
 
         // 衝突コールバック
@@ -233,6 +240,9 @@ namespace anet::rl::env::drop_merge {
         void buildWorld();
         void destroyWorld();
         bool isSpawnAreaClear(float x, float y, float r) const;
+        bool isNoLegalDropState() const;
+        bool hasAnyLegalDropForCurrentFruit() const;
+        bool hasClearSpawnXInRange(float x_min, float x_max, float y, float r) const;
         void updateDropperStatus();
         void bell();
 
@@ -262,7 +272,6 @@ namespace anet::rl::env::drop_merge {
 
         // 使いまわし
         torch::TensorOptions float_opt_;
-        torch::TensorOptions bool_opt_;
 
         // Box2d
         std::unique_ptr<b2World> world_;
@@ -275,8 +284,8 @@ namespace anet::rl::env::drop_merge {
         bool game_over_ = false;
         int game_over_timer_ = 0;
         int steps_since_last_drop_ = 0;
-        torch::Tensor obs_buffer_;  ///< obsのバッファ
-        float* obs_ptr_ = nullptr;  ///< obsのバッファのポインタ
+        torch::Tensor vec_buffer_;   ///< obsのバッファ
+        torch::Tensor grid_buffer_;  ///< obsのバッファ
 
         // マージ処理用
         std::vector<MergeRequest> merge_requests_;
@@ -295,6 +304,8 @@ namespace anet::rl::env::drop_merge {
         bool episode_just_ended_ = false; ///< GetScalarで値を返す判定用
         int ep_max_rank_ = 0;             ///< エピソード中の最大ランク
         int ep_end_fruit_count_ = 0;      ///< エピソード終了時のフルーツ数
+        int ep_suika_created_ = 0;        ///< エピソード中に作成されたスイカの総数
+        int ep_double_suika_created_ = 0; ///< エピソード中に作成されたダブルスイカの総数
 
         // Settleステップ計測用
         int ep_settle_steps_sum_ = 0;

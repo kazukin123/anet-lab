@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 #include <chrono>
+#include <limits>
 #include "anet/util.hpp"
 #include "anet/thread.hpp"
 #include "anet/env.hpp"
@@ -24,7 +25,8 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::Notifier> notifier,
             RunMode run_mode,
             bool clone_model,
-            std::optional<torch::Device> device = std::nullopt);
+            std::optional<torch::Device> device,
+            std::string name);
 
         virtual StepCounts DoStep() = 0;
 
@@ -36,17 +38,24 @@ namespace anet::rl {
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
+        bool LastStepHadEpisodeEnd() const { return last_step_had_episode_end_; }
     public:
         RunnerStatus GetStatus() const override { return status_; }
         StepCounts GetCounts() const override { return step_counts_; }
+        const std::string& GetName() const override { return name_; }
         std::shared_ptr<anet::rl::BatchEnv> GetBatchEnv() const override { return env_; }
         std::shared_ptr<anet::rl::Agent> GetAgent() const override { return agent_; }
         std::shared_ptr<anet::rl::Notifier> GetNotifier() const override { return notifier_; }
     protected:
         void InitializeMetrics();
         void UpdateMetrics(std::shared_ptr<const BatchStepResult> result);
+        bool AccumulateAndNotifyEpisodeEnd(
+            std::shared_ptr<const Runner> self,
+            std::shared_ptr<const BatchStepResult> result,
+            const StepCounts& event_counts);
     protected:
         // 内部状態
+        std::string name_;
         RunnerStatus status_ = RunnerStatus::NOT_INITIALIZED;
         bool env_initialized_ = false;
 
@@ -66,6 +75,9 @@ namespace anet::rl {
         anet::EmaFilter<float> reward_ema_;
         torch::Tensor episode_total_reward_cur_;        ///< エピソード単位総報酬を集計するために現在値
         torch::Tensor episode_total_reward_comp_;       ///< エピソード単位総報酬
+        std::vector<float> eps_total_reward_per_env_;   ///< EpisodeEndEvent用のENV単位総報酬累積
+        float last_episode_total_reward_ = std::numeric_limits<float>::quiet_NaN();
+        bool last_step_had_episode_end_ = false;
     };
 
 
@@ -81,13 +93,16 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::Notifier> notifier,
             RunMode run_mode = RunMode::Eval,
             bool clone_model = false,
-            std::optional<torch::Device> device = std::nullopt);
+            std::optional<torch::Device> device = std::nullopt,
+            std::string name = "eval");
 
         void Sync();
         void Shutdown() override { }
 
         //RunnerStatus Initialize(const ConfigData& config_data);
         StepCounts DoStep(int64_t action);
+        StepCounts DoStep(int64_t action, const StepCounts& event_counts);
+        StepCounts DoStep(const StepCounts& event_counts);
         StepCounts DoStep() override;
     };
 
@@ -106,7 +121,6 @@ namespace anet::rl {
         virtual StepCounts DoStep() override = 0;
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::string GetEnvClassId() const { return env_class_id_; }
-        void SetEvalLastReward(const std::string& name, float val);
 
         void Shutdown() override;
 
@@ -123,10 +137,6 @@ namespace anet::rl {
         // メトリクス
         std::chrono::high_resolution_clock::time_point start_time_;
         std::chrono::high_resolution_clock::time_point last_time_;
-		std::unordered_map<std::string, float> eval_last_rewards_;
-        
-        mutable std::mutex eval_rewards_mutex_;
-
         step_t acc_train_steps_ = 0;
         step_t acc_exp_steps_ = 0;
         anet::rl::step_t last_train_step_ = 0;
@@ -206,7 +216,7 @@ namespace anet::rl {
         std::shared_ptr<anet::rl::Agent> GetAgent() const { return agent_; }
         std::shared_ptr<anet::rl::Notifier> GetNotifier() const { return notifier_; }
         std::shared_ptr<TrainRunner> GetTrainRunner() { return train_runner_; }
-        //std::shared_ptr<EvalRunner> GetEvalRunner(const std::string& name) { return eval_runners[name]; }
+        std::shared_ptr<EvalRunner> GetEvalRunner(const std::string& name) { return eval_runners.at(name); }
         anet::rl::RunnerStatus GetStatus() { return status_; }
     private:
         // パラメータ
@@ -226,9 +236,6 @@ namespace anet::rl {
         std::shared_ptr<anet::rl::BatchEnv> env_;
         std::shared_ptr<anet::rl::Agent> agent_;
         std::shared_ptr<anet::rl::Notifier> notifier_;
-
-        // メトリクス
-        //std::unordered_map<std::string, float> eval_last_rewards_;
     };
 
 

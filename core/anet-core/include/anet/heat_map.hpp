@@ -213,12 +213,6 @@ namespace anet {
         void Reset() override;
         void SetValues(const torch::Tensor& grid);
 
-        static SweepedHeatMap EvaluateTensorFunction(
-            int width, int height, float x_min, float x_max, float y_min, float y_max,
-            const torch::Device& device,
-            const std::function<torch::Tensor(const torch::Tensor&)>& forward,
-            const std::function<torch::Tensor(const torch::Tensor&)>& value_extractor);
-
     private:
         int width_, height_;
         float x_min_, x_max_, y_min_, y_max_;

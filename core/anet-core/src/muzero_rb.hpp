@@ -19,7 +19,7 @@ namespace anet::rl::muzero_proto {
 
     /// Learnerに渡すためのMuZero専用バッチデータ
     struct MuZeroExperienceSamples {
-        torch::Tensor obs;             ///< (B, state_dim...) 起点の観測
+        anet::TensorDict obs;          ///< (B, state_dim...) 起点の観測
         torch::Tensor actions;         ///< (B, K) 未来Kステップの行動
         torch::Tensor target_rewards;  ///< (B, K) 未来Kステップの即時報酬
         torch::Tensor target_values;   ///< (B, K+1) 起点+未来Kステップの価値(N-Step計算済)
@@ -31,7 +31,7 @@ namespace anet::rl::muzero_proto {
 
     /// Actorから受け取った直後の1ステップの生データ
     struct MuZeroStepRecord {
-        torch::Tensor obs;
+        anet::TensorDict obs;
         int64_t action;
         float reward;
         bool done;
@@ -42,7 +42,7 @@ namespace anet::rl::muzero_proto {
 
     /// N-Step計算が完了し、Storageに保存される確定レコード
     struct MuZeroReplayRecord {
-        torch::Tensor obs;
+        anet::TensorDict obs;
         int64_t action;
         float reward;       ///< 即時報酬
         bool done;
