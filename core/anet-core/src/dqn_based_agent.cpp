@@ -38,53 +38,6 @@ NetworkModel::NetworkModel(
 
 #if 0
     {
-        // ファイルからアーカイブを読み込む
-        torch::serialize::InputArchive archive;
-        bool file_loaded = false;
-        if (std::filesystem::exists("../../runs/model.dat")) {
-            try {
-                archive.load_from("../../runs/model.dat");
-                LOG::info() << "Loaded weight archive from model.dat";
-                file_loaded = true;
-            } catch (const c10::Error& e) {
-                LOG::error() << "Failed to load model.dat: " << e.msg();
-            }
-        } else {
-            LOG::info() << "model.dat not found. Initializing network with default weights.";
-        }
-
-        // V2のネットワークに重みを上書きしていく
-        if (file_loaded) {
-            torch::NoGradGuard no_grad; // 必須ガード
-            auto v2_params = online_net_->named_parameters();
-
-            for (auto& pair : v2_params) {
-                std::string name = pair.key();
-                torch::Tensor loaded_tensor;
-
-                // archiveの中に該当する名前の重みがあるか試して、読み込む
-                if (archive.try_read(name, loaded_tensor)) {
-                    loaded_tensor = loaded_tensor.to(device); // デバイスを合わせる
-
-                    if (pair.value().sizes() == loaded_tensor.sizes()) {
-                        pair.value().data().copy_(loaded_tensor); // メモリを直接上書き
-                        LOG::info() << "[Load] Success: " << name;
-                    } else {
-                        ANET_SYSTEM_ERROR(
-                            "[Load Error] Shape mismatch for " << name
-                            << " (Expected " << pair.value().sizes() << ", got " << loaded_tensor.sizes() << ")"
-                        );
-                    }
-                } else {
-                    LOG::warn() << "[Load Warning] Weight not found in model.dat: " << name;
-                }
-            }
-        }
-    }
-#endif
-
-#if 0
-    {
         torch::NoGradGuard no_grad;
         for (auto& param : online_net_->parameters()) {
             torch::nn::init::constant_(param, 0.01f);

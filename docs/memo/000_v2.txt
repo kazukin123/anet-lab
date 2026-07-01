@@ -1,7 +1,2 @@
 ■V2対応残件
 ・auto_load_fileをagentからtrainerに移動。
-・ReplayBufferの可視化対応
-・DQNAgent：GetTensorFunctionを正しく実装。
-・HeatMapPanel.cpp：HeatMap可視化対応
-・probe.cpp
-・SweepdHeatMapの可視化対応：　SweepHeatMapDialog::SweepHeatMapDialog()

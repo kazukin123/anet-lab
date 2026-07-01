@@ -1,4 +1,4 @@
-// image_log.cpp （抜粋）
+﻿// probe.cpp
 
 #include "anet/probe.hpp"
 #include <sstream>

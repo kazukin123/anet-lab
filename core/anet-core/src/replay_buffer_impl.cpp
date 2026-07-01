@@ -668,7 +668,6 @@ public:
     {
     }
 
-#if 1
     IndexSampleResult SampleIndices(int64_t batch_size, const torch::Tensor& valid_indices_1d, float beta) override
     {
         ANET_PROFILE_FUNC();
@@ -678,79 +677,10 @@ public:
         auto indices = valid_indices_1d.index_select(0, rand_idx);
         auto ones = torch::ones({ batch_size }, opt_float_);
 
-#if 0
-        {
-            // デバッグ用メトリクス計算
-            torch::NoGradGuard no_grad; // 勾配計算から切り離す
 
-            auto sorted_indices = std::get<0>(torch::sort(indices));
-            auto unique_indices = std::get<0>(torch::unique_consecutive(sorted_indices));
-            float unique_count = static_cast<float>(unique_indices.size(0));
-            float unique_ratio = unique_count / static_cast<float>(batch_size);
-
-            float std_val = indices.to(torch::kFloat32).std().item<float>();
-            float std_norm = std_val / static_cast<float>(valid_count);
-
-            static step_t log_step = 0;
-            anet::MetricsLogger::Instance()->LogScalar("99_debug/rb_unique_ratio", log_step, unique_ratio);
-            anet::MetricsLogger::Instance()->LogScalar("99_debug/rb_std_norm", log_step, std_norm);
-            log_step++;
-
-        }
-#endif
 
         return { indices, ones / valid_count, ones, torch::Tensor() };
     }
-#else
-    // V1互換
-    IndexSampleResult SampleIndices(int64_t batch_size, const torch::Tensor& valid_indices_1d_2, float beta) override
-    {
-        auto shuffled_valid_indices = valid_indices_1d_2.index_select(0, torch::randperm(valid_indices_1d_2.size(0), opt_long_));
-
-        int64_t valid_count = shuffled_valid_indices.size(0);
-
-        std::vector<int64_t> cpp_rand_idx(batch_size);
-        for (int64_t i = 0; i < batch_size; ++i) {
-            // V1と同じ乱数生成器を使用する。
-            // ※V1で storage_size から引いていたのと同じ挙動にするため、
-            //   ここでは valid_count を上限として引く
-            cpp_rand_idx[i] = rnd_->RandIndex(valid_count);
-        }
-
-        // 生成したC++の配列を torch::Tensor に変換 (メモリをコピーして独立させる)
-        auto rand_idx_tensor = torch::from_blob(
-            cpp_rand_idx.data(), { batch_size }, torch::TensorOptions().dtype(torch::kInt64)
-        ).clone();
-
-        // デバイスを合わせる（valid_indices_1d がGPU上にある場合のため）
-        rand_idx_tensor = rand_idx_tensor.to(shuffled_valid_indices.device());
-
-        // テンソルを使って物理インデックスを抽出
-        auto indices = shuffled_valid_indices.index_select(0, rand_idx_tensor);
-        auto ones = torch::ones({ batch_size }, opt_float_);
-
-        {
-            // デバッグ用メトリクス計算
-            torch::NoGradGuard no_grad; // 勾配計算から切り離す
-
-            auto sorted_indices = std::get<0>(torch::sort(indices));
-            auto unique_indices = std::get<0>(torch::unique_consecutive(sorted_indices));
-            float unique_count = static_cast<float>(unique_indices.size(0));
-            float unique_ratio = unique_count / static_cast<float>(batch_size);
-
-            float std_val = indices.to(torch::kFloat32).std().item<float>();
-            float std_norm = std_val / static_cast<float>(valid_count);
-
-			static step_t log_step = 0;
-            anet::MetricsLogger::Instance()->LogScalar("99_debug/rb_unique_ratio", log_step, unique_ratio);
-			anet::MetricsLogger::Instance()->LogScalar("99_debug/rb_std_norm", log_step, std_norm);
-            log_step++;
-
-        }
-
-        return { indices, ones / valid_count, ones, torch::Tensor() };
-    }
-#endif
 private:
     torch::Generator gen_;
     torch::TensorOptions opt_long_;
@@ -772,7 +702,6 @@ public:
     {
     }
 
-#if 1
     IndexSampleResult SampleIndices(int64_t batch_size, const torch::Tensor& valid_indices_1d, float beta) override
     {
         ANET_PROFILE_FUNC();
@@ -837,73 +766,6 @@ public:
 
         return { indices_t, probs_t, weights_t, initial_t };
     }
-#else
-    // V1互換
-    IndexSampleResult SampleIndices(int64_t batch_size, const torch::Tensor& valid_indices_1d, float beta) override
-    {
-        int64_t valid_count = valid_indices_1d.size(0);
-        const int64_t* valid_ptr = valid_indices_1d.data_ptr<int64_t>();
-
-        std::vector<int64_t> sampled_indices(batch_size);
-        std::vector<float> sampled_probs(batch_size);
-        std::vector<float> sampled_weights(batch_size);
-        std::vector<int64_t> sampled_initial(batch_size);
-
-        float total_prio = tree_.GetTotalPriority();
-
-        int64_t b = 0;
-        int max_attempts = batch_size * 10;
-        int attempts = 0;
-
-        // valid_indices_1d は昇順ソートが保証されているため、std::binary_search による O(1)~O(log V) 判定が可能
-        while (b < batch_size && attempts < max_attempts) {
-            attempts++;
-            float r = rnd_->Uniform(0.0f, total_prio);
-
-            int64_t idx = tree_.Retrieve(r);
-
-            bool is_valid = std::binary_search(valid_ptr, valid_ptr + valid_count, idx);
-            if (is_valid) {
-                float p = tree_.GetPriority(idx);
-                if (p <= 0.0f) continue; // 安全装置
-
-                sampled_indices[b] = idx;
-                float prob = p / total_prio;
-                sampled_probs[b] = prob;
-
-                float weight = std::pow(valid_count * prob, -beta);
-                sampled_weights[b] = weight;
-                sampled_initial[b] = is_initial_priority_[static_cast<size_t>(idx)] ? 1 : 0;
-                b++;
-            }
-        }
-
-        // フェイルセーフ（滅多に起きないが、ツリーが空に近い極初期など）
-        if (b < batch_size) {
-            LOG::warn() << "PER Rejection Sampling failed to fill batch. Falling back to uniform.";
-            for (int64_t i = 0; i < batch_size - b; ++i) {
-                // ★ フェイルセーフ側もV1互換のRNGに統一
-                int64_t rand_valid_idx = rnd_->RandIndex(valid_count);
-                int64_t idx = valid_ptr[rand_valid_idx];
-
-                sampled_indices[b + i] = idx;
-                sampled_probs[b + i] = 1.0f / valid_count;
-                sampled_weights[b + i] = 1.0f;
-                sampled_initial[b + i] = is_initial_priority_[static_cast<size_t>(idx)] ? 1 : 0;
-            }
-        }
-
-        auto idx_device = valid_indices_1d.device();
-        auto indices_t = torch::tensor(sampled_indices, opt_long_).to(idx_device);
-        auto probs_t = torch::tensor(sampled_probs, opt_float_).to(idx_device);
-        auto weights_t = torch::tensor(sampled_weights, opt_float_).to(idx_device);
-        auto initial_t = torch::tensor(sampled_initial, opt_long_).to(torch::kBool);
-
-        weights_t /= weights_t.max(); // 正規化
-
-        return { indices_t, probs_t, weights_t, initial_t };
-    }
-#endif
 
     void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override
     {
@@ -1070,7 +932,6 @@ public:
             int64_t obs_pad_len = stack_count - obs_valid_len;
             batch_obs.push_back(RingSliceDict(storage.GetObs(), env_idx, obs_valid_start, obs_valid_len, obs_pad_len, cap, squeeze_stack, stack_keys_));
 
-#if 1
             // N-Step先 (NextState) のスライス抽出と境界パディング
             int64_t next_obs_end = time_idx + actual_n + 1;
             int64_t next_obs_start = next_obs_end - stack_count;
@@ -1085,79 +946,6 @@ public:
             int64_t next_obs_valid_len = next_obs_end - next_obs_valid_start;
             int64_t next_obs_pad_len = stack_count - next_obs_valid_len;
             batch_next_obs.push_back(RingSliceDict(storage.GetObs(), env_idx, next_obs_valid_start, next_obs_valid_len, next_obs_pad_len, cap, squeeze_stack, stack_keys_));
-#else
-            // -------------------------------------------------------------------------
-            // N-Step先 (NextState) のスライス抽出と境界パディング (★V1バグ再現パッチ 修正版)
-            // -------------------------------------------------------------------------
-
-            // 本来の next_obs の最新フレーム
-            int64_t next_obs_end = time_idx + actual_n + 1;
-
-            // ★ V1バグの再現: 
-            // V1は obs の抽出インデックスをそのまま next_obs のバッファ(next_states_)適用していた。
-            // つまり、抽出の開始位置(過去)は obs と全く同じになり、
-            // 抽出の終了位置(最新)も「1つ未来」ではなく「現在(obsと同じ)」になっていた。
-            // それを再現するため、開始位置を obs と同じにする。
-            int64_t bugged_start = time_idx - stack_count + 1;
-            int64_t bugged_valid_start = bugged_start;
-
-            for (int64_t k = time_idx - 1; k >= bugged_start; --k) {
-                if (k < 0) {
-                    bugged_valid_start = k + 1;
-                    break;
-                }
-                if (terminals_tensor[env_idx][k % cap].item<bool>()) {
-                    bugged_valid_start = k + 1;
-                    break;
-                }
-            }
-
-            // V1の抽出長は obs と同じ (= obs_valid_len)
-            int64_t bugged_valid_len = time_idx - bugged_valid_start + 1;
-
-            // ただし、一番最後（最新フレーム）だけは「Nextの画像」に差し替えるのが
-            // 強化学習の基本であり、V1でも末尾の結合等で実現されていた挙動。
-            // これをV2のDict構造で安全に再現するため、
-            // 1. まず [t-3, t-2, t-1] (過去3フレーム) を RingSliceDict で取る
-            // 2. 次に [t_next] (最新1フレーム) を RingSliceDict で取る
-            // 3. それらを concat する
-            // という手順を踏む。
-
-            // 1. 過去部分の抽出 (長さは stack_count - 1 になるように調整)
-            int64_t past_pad_len = stack_count - 1 - bugged_valid_len;
-            if (past_pad_len < 0) {
-                // パディング不要な場合（通常時）は、先頭を1つ削る
-                bugged_valid_start += 1;
-                bugged_valid_len -= 1;
-                past_pad_len = 0;
-            }
-
-            auto past_dict = RingSliceDict(storage.GetObs(), env_idx, bugged_valid_start, bugged_valid_len, past_pad_len, cap, false, stack_keys_);
-
-            // 2. 最新部分の抽出 (NextObs)
-            auto latest_dict = RingSliceDict(storage.GetObs(), env_idx, next_obs_end - 1, 1, 0, cap, false, stack_keys_);
-
-            // 3. 結合してバッチに追加
-            anet::TensorDict bugged_next_obs_dict;
-            for (const auto& kv : past_dict) {
-                auto past_tensor = kv.second;
-                auto latest_tensor = latest_dict.At(kv.first);
-
-                // Stack対象のキー（またはGridMazeのような全てStack）の場合のみ結合
-                if (past_tensor.dim() >= 2 && latest_tensor.dim() >= 2) {
-                    auto combined = torch::cat({ past_tensor, latest_tensor }, 0);
-                    if (squeeze_stack && combined.size(0) == 1) {
-                        combined = combined.squeeze(0);
-                    }
-                    bugged_next_obs_dict.Set(kv.first, combined);
-                } else {
-                    bugged_next_obs_dict.Set(kv.first, latest_tensor); // Stack非対象は最新のみ
-                }
-            }
-
-            batch_next_obs.push_back(bugged_next_obs_dict);
-            // -------------------------------------------------------------------------
-#endif
         }
 
         ANET_PROFILE_SCOPE_NEXT(stack);

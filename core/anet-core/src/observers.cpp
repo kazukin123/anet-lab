@@ -1339,8 +1339,5 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
             // 次のループへ（スカラー処理等との重複を避ける）
             continue;
         }
-
-        /// @todo HeatMap系Observerに対応
-
 	}
 }
