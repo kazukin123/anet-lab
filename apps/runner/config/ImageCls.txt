@@ -89,7 +89,7 @@ ImageClsAgent.nn_viz.float_precision = 3
 
 net.block.[LinearOut].type = Linear
 net.block.[LinearOut].linear.out_features = 101
-net.block.[LinearOut].init.mode = 2
+net.block.[LinearOut].init.mode = he
 
 net.block.[Drop].type = Dropout
 net.block.[Drop].dropout_rate = 0.5
@@ -121,21 +121,21 @@ net.block.[ConvInit32].conv.out_channels = 32
 net.block.[ConvInit32].conv.kernel_size = 3
 net.block.[ConvInit32].conv.padding = 1
 net.block.[ConvInit32].conv.stride = 2
-net.block.[ConvInit32].init.mode = 2
+net.block.[ConvInit32].init.mode = he
 
 net.block.[ConvInit64].type = Conv2d
 net.block.[ConvInit64].conv.out_channels = 64
 net.block.[ConvInit64].conv.kernel_size = 3
 net.block.[ConvInit64].conv.stride = 2
 net.block.[ConvInit64].conv.padding = 1
-net.block.[ConvInit64].init.mode = 2
+net.block.[ConvInit64].init.mode = he
 
 net.block.[ConvInit64_7x7].type = Conv2d
 net.block.[ConvInit64_7x7].conv.out_channels = 64
 net.block.[ConvInit64_7x7].conv.kernel_size = 7
 net.block.[ConvInit64_7x7].conv.stride = 2
 net.block.[ConvInit64_7x7].conv.padding = 3
-net.block.[ConvInit64_7x7].init.mode = 2
+net.block.[ConvInit64_7x7].init.mode = he
 
 net.block.[MaxPool3x3s2].type = MaxPool2d
 net.block.[MaxPool3x3s2].pool.kernel_size = 3
@@ -150,28 +150,28 @@ net.block.[ConvDown64].conv.out_channels = 64
 net.block.[ConvDown64].conv.kernel_size = 3
 net.block.[ConvDown64].conv.padding = 1
 net.block.[ConvDown64].conv.stride = 2 # 空間サイズを半分に
-net.block.[ConvDown64].init.mode = 2
+net.block.[ConvDown64].init.mode = he
 
 net.block.[ConvDown128].type = Conv2d
 net.block.[ConvDown128].conv.out_channels = 128
 net.block.[ConvDown128].conv.kernel_size = 3
 net.block.[ConvDown128].conv.padding = 1
 net.block.[ConvDown128].conv.stride = 2 # 空間サイズを半分に
-net.block.[ConvDown128].init.mode = 2
+net.block.[ConvDown128].init.mode = he
 
 net.block.[ConvDown256].type = Conv2d
 net.block.[ConvDown256].conv.out_channels = 256
 net.block.[ConvDown256].conv.kernel_size = 3
 net.block.[ConvDown256].conv.stride = 2
 net.block.[ConvDown256].conv.padding = 1
-net.block.[ConvDown256].init.mode = 2
+net.block.[ConvDown256].init.mode = he
 
 net.block.[ConvDown512].type = Conv2d
 net.block.[ConvDown512].conv.out_channels = 512
 net.block.[ConvDown512].conv.kernel_size = 3
 net.block.[ConvDown512].conv.stride = 2 # 空間サイズを半分に
 net.block.[ConvDown512].conv.padding = 1
-net.block.[ConvDown512].init.mode = 2
+net.block.[ConvDown512].init.mode = he
 
 
 net.block.[ResBlock32].type = ResBlock
@@ -313,7 +313,7 @@ net.block.[PatchEmbed16].conv.out_channels = 192
 net.block.[PatchEmbed16].conv.kernel_size = 16
 net.block.[PatchEmbed16].conv.stride = 16
 net.block.[PatchEmbed16].conv.padding = 0
-net.block.[PatchEmbed16].init.mode = 2
+net.block.[PatchEmbed16].init.mode = he
 
 
 net.block.[TransEnc_ViT].type = TransformerEncoder

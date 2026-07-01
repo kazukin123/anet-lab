@@ -900,9 +900,9 @@ private:
 
         Config(const anet::ConfigData& config_data) : anet::Config("")
         {
-            init1.mode = 2;			    // Default: He       
-            init2.mode = 4;             // Default: ZeroInit
-            init_ds.mode = 2;			// Default: He       
+            init1.mode = "he";          // Default: He
+            init2.mode = "constant";    // Default: ZeroInit
+            init_ds.mode = "he";        // Default: He
 
             ANET_READ_CONFIG(config_data, res.channels);
             ANET_READ_CONFIG(config_data, res.kernel_size);
@@ -1883,7 +1883,7 @@ private:
 
         Config(const anet::ConfigData& config_data) : anet::Config("")
         {
-            init.mode = 2; // Default: He
+            init.mode = "he"; // Default: He
             ANET_READ_CONFIG(config_data, conv.out_channels);
             ANET_READ_CONFIG(config_data, conv.kernel_size);
             ANET_READ_CONFIG(config_data, conv.stride);
@@ -1911,7 +1911,7 @@ private:
 
         Config(const anet::ConfigData& config_data) : anet::Config("")
         {
-			init.mode = 2; // Default: He
+			init.mode = "he"; // Default: He
             ANET_READ_CONFIG(config_data, conv.out_channels);
             ANET_READ_CONFIG(config_data, conv.kernel_size);
             ANET_READ_CONFIG(config_data, conv.stride);

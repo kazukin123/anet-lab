@@ -20,7 +20,7 @@ namespace anet::nn {
         template <typename T>
         static void Initialize(T& layer, const WeightInitConfig& config)
         {
-            if (config.mode == 0) return;
+            if (config.mode == "default") return;
 
             auto& weight = layer->weight;
 
@@ -28,16 +28,16 @@ namespace anet::nn {
             torch::NoGradGuard no_grad;
 
 			// mode別に初期化実行
-            if (config.mode == 1) { // Xavier Uniform
+            if (config.mode == "xavier") {
                 // Xavierは通常 gain=1.0 前提だが、calculate_gainを使う手もある
                 torch::nn::init::xavier_uniform_(weight);
-            } else if (config.mode == 2) { // He Normal (Kaiming)
+            } else if (config.mode == "he") {
                 // 文字列からLibtorchの定数へ変換
                 auto nonlinearity_mode = GetNonlinearityType(config.nonlinearity);
 
                 // 重み初期化(kaiming_normal_ は内部で nonlinearity に応じた gain を計算してくれる)
                 torch::nn::init::kaiming_normal_(weight, 0.0, torch::kFanOut, nonlinearity_mode);
-            } else if (config.mode == 3) { // Orthogonal
+            } else if (config.mode == "orthogonal") {
                 double gain = 1.0;
 
                 if (config.manual_gain > 0.0f) {
@@ -54,14 +54,17 @@ namespace anet::nn {
 
 				// Orthogonal初期化
                 torch::nn::init::orthogonal_(weight, gain);
-            } else if (config.mode == 4) { // Constant
+            } else if (config.mode == "constant") {
                 torch::nn::init::constant_(weight, config.constant_val);
+            } else {
+                ANET_SYSTEM_ERROR("Unknown WeightInitConfig.mode: \"" << config.mode
+                    << "\" expected one of: default, xavier, he, orthogonal, constant");
             }
 
             // バイアスはゼロ初期化
             auto& bias = layer->bias;
-            if (bias.defined() && config.mode != 0) {
-                if (config.mode == 4) {
+            if (bias.defined() && config.mode != "default") {
+                if (config.mode == "constant") {
                     // Constantモードならバイアスも同じ値で埋める (ZeroInit用など)
                     torch::nn::init::constant_(bias, config.constant_val);
                 } else {

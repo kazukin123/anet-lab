@@ -28,9 +28,15 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
         } structure;
         int64_t hidden_state_dim = 256;
         struct {
-            anet::nn::WeightInitConfig reward = { 4, 0.0, "linear", 0.0 };
-            anet::nn::WeightInitConfig value = { 4, 0.0, "linear", 0.0 };
-            anet::nn::WeightInitConfig policy = { 4, 0.0, "linear", 0.0 };
+            anet::nn::WeightInitConfig reward = {
+                .mode = "constant", .manual_gain = 0.0, .nonlinearity = "linear", .constant_val = 0.0
+            };
+            anet::nn::WeightInitConfig value = {
+                .mode = "constant", .manual_gain = 0.0, .nonlinearity = "linear", .constant_val = 0.0
+            };
+            anet::nn::WeightInitConfig policy = {
+                .mode = "constant", .manual_gain = 0.0, .nonlinearity = "linear", .constant_val = 0.0
+            };
         } head_init_weight;
     };
 
@@ -188,4 +194,3 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
     };
 
 }   // namespace anet::rl::muzero_proto
-

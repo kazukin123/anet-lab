@@ -9,11 +9,11 @@ RainbowAgent.$ = RainbowAgent.baseline
 
 net.block.[MuZero_Linear256].type = Linear
 net.block.[MuZero_Linear256].linear.out_features = 256
-net.block.[MuZero_Linear256].init.mode = 1
+net.block.[MuZero_Linear256].init.mode = xavier
 
 net.block.[MuZero_Linear128].type = Linear
 net.block.[MuZero_Linear128].linear.out_features = 128
-net.block.[MuZero_Linear128].init.mode = 1
+net.block.[MuZero_Linear128].init.mode = xavier
 
 
 # --- Model (ネットワーク構造と表現) ---
@@ -71,7 +71,7 @@ MuZeroAgent.baseline.learner.reward_loss_weight = 1.0     # Reward Lossの重み
 
 
 DefaultDQNAgent.baseline.head_init.manual_gain = 0.0
-DefaultDQNAgent.baseline.head_init.mode = 1
+DefaultDQNAgent.baseline.head_init.mode = xavier
 DefaultDQNAgent.baseline.model.soft_update_tau = 0.001      # 1.0 0.004  0.01 0.005
 
 DefaultDQNAgent.baseline.nn_viz.show_param_shapes = true
@@ -215,7 +215,7 @@ DefaultDQNAgent.baseline.use_qr = true                # QR-DQN 有効化フラ�
 # ==============================================================================
 
 RainbowAgent.baseline.head_init.manual_gain = 0.0
-RainbowAgent.baseline.head_init.mode = 1
+RainbowAgent.baseline.head_init.mode = xavier
 RainbowAgent.baseline.model.soft_update_tau = 0.001     # 1.0 0.004  0.01 0.005
 RainbowAgent.baseline.action_policy.eps_start = 1.00              # 指数減衰  
 RainbowAgent.baseline.action_policy.eps_end = 0.05              # 0.1 0.05

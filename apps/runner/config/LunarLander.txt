@@ -18,7 +18,8 @@ train.num_envs = 256
 DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.heavy > A > R
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R
 
-agent.device_type = 0    # 0=cpu 1=cuda   NNが小さいのでCPUのほうが早い
+#agent.device_type = 0    # 0=cpu 1=cuda   NNが小さいのでCPUのほうが早い
+agent.device_type = 1    # 0=cpu 1=cuda   NNが小さいのでCPUのほうが早い
 
 
 # ==============================================================================
@@ -47,7 +48,7 @@ R.eval_policy.uqe_eps_end   = 0.0
 
 E.landing_detection_mode = not_awake
 
-R.head_init.mode = 3
+R.head_init.mode = orthogonal
 R.head_init.manual_gain = 0.01
 
 R.learner.use_tbo = false
@@ -99,7 +100,7 @@ net.block.[TConv64].conv.out_channels = 64
 net.block.[TConv64].conv.kernel_size = 2
 net.block.[TConv64].conv.stride = 1
 net.block.[TConv64].conv.padding = 0
-net.block.[TConv64].init.mode = 1
+net.block.[TConv64].init.mode = xavier
 
 net.block.[ReS4F8].type = Reshape
 net.block.[ReS4F8].reshape.dims = 4 -1      # (N,32) -> (N,4,8)
@@ -108,8 +109,8 @@ net.block.[ReS4F8].reshape.dims = 4 -1      # (N,32) -> (N,4,8)
 # --- ブロックパラメータ上書き（nn.txt の MLP_FC1/MLP_FC2 を流用）
 net.block.FC1.linear.out_features = 256
 net.block.FC2.linear.out_features = 128
-net.block.FC1.init.mode = 1
-net.block.FC2.init.mode = 1
+net.block.FC1.init.mode = xavier
+net.block.FC2.init.mode = xavier
 
 
 # --- Body 本体ブランチ（vector 観測 -> MLP）
@@ -130,7 +131,7 @@ net.branch.[main_feature].structure = Flatten > MLP_FC1 > LN256 > SiLU > MLP_FC2
 #   切替時は上の output.[features] をコメントアウトし、下の6行を有効化する
 net.block.[HeadFC128].type = Linear
 net.block.[HeadFC128].linear.out_features = 128
-net.block.[HeadFC128].init.mode = 1
+net.block.[HeadFC128].init.mode = xavier
 
 net.branch.[value_stream].bind = main_feature
 net.branch.[value_stream].structure = HeadFC128 > SiLU
@@ -139,7 +140,7 @@ net.branch.[adv_stream].structure = HeadFC128 > SiLU
 net.body.output.[value_feature] = value_stream
 net.body.output.[adv_feature] = adv_stream
 
-A.head_init.mode = 1
+A.head_init.mode = xavier
 A.head_init.manual_gain = 0.0
 
 

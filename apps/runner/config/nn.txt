@@ -2,12 +2,12 @@
 # Neural Network Configuration (Backbone Only)
 # ==============================================================================
 
-#init.mode = 1 # Xavier Uniform
+#init.mode = xavier # Xavier Uniform
 
-#init.mode = 2 # He Normal (Kaiming)
+#init.mode = he # He Normal (Kaiming)
 #init.nonlinearity = relu  # linear tanh leaky_relu
 
-#init.mode = 3  # Orthogonal
+#init.mode = orthogonal  # Orthogonal
 #init.manual_gain = 1.0
 
 
@@ -68,19 +68,19 @@ net.block.[LeakyReLU].negative_slope = 0.01   # negative_slope: 負の領域の�
 
 net.block.[Linear_84].type = Linear
 net.block.[Linear_84].linear.out_features = 84
-net.block.[Linear_84].init.mode = 1
+net.block.[Linear_84].init.mode = xavier
 
 net.block.[Linear_120].type = Linear
 net.block.[Linear_120].linear.out_features = 120
-net.block.[Linear_120].init.mode = 1
+net.block.[Linear_120].init.mode = xavier
 
 net.block.[Linear_256].type = Linear
 net.block.[Linear_256].linear.out_features = 256
-net.block.[Linear_256].init.mode = 1
+net.block.[Linear_256].init.mode = xavier
 
 net.block.[Linear_512].type = Linear
 net.block.[Linear_512].linear.out_features = 512
-net.block.[Linear_512].init.mode = 1
+net.block.[Linear_512].init.mode = xavier
 
 
 # --- CNN Components (1D) ---
@@ -233,16 +233,16 @@ net.body.MLP3.structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU > MLP_FC3 > 
 
 net.block.[Linear_Proj].type = Linear
 net.block.[Linear_Proj].linear.out_features = 64
-net.block.[Linear_Proj].init.mode = 1
+net.block.[Linear_Proj].init.mode = xavier
 
 # ※ Residual Addをするため、入出力次元が揃っている必要あり
 net.block.[Linear_Hid].type = Linear
 net.block.[Linear_Hid].linear.out_features = 64
-net.block.[Linear_Hid].init.mode = 1
+net.block.[Linear_Hid].init.mode = xavier
 
 net.block.[Linear_Out].type = Linear
 net.block.[Linear_Out].linear.out_features = 128
-net.block.[Linear_Out].init.mode = 1
+net.block.[Linear_Out].init.mode = xavier
 
 net.block.[ResBlock].type = Composite
 net.block.[ResBlock].structure = Linear_Hid > ReLU > Linear_Hid(=proc) > Add(@input @proc) > ReLU
@@ -254,7 +254,7 @@ net.body.MLP_RES.structure = Flatten > Linear_Proj > ReLU > ResBlock(*3) > Linea
 # Conv1D
 # ------------------------------------------------------------------------------
 
-## init.mode 1=Xavier 2=He 3=Orthogonal
+## init.mode xavier=Xavier he=He orthogonal=Orthogonal
 # 浅いネットワークでは1=Xavierのほうが良好な結果が出る
 
 net.block.[Conv1D_Permute].type = Permute
@@ -265,12 +265,12 @@ net.block.[Conv1D_Conv1d].conv.out_channels = 256
 net.block.[Conv1D_Conv1d].conv.kernel_size = 2
 net.block.[Conv1D_Conv1d].conv.stride = 1
 net.block.[Conv1D_Conv1d].conv.padding = 0
-net.block.[Conv1D_Conv1d].init.mode = 1
+net.block.[Conv1D_Conv1d].init.mode = xavier
 net.block.[Conv1D_Conv1d].init.nonlinearity = relu
 
 net.block.[Conv1D_Linear].type = Linear
 net.block.[Conv1D_Linear].linear.out_features = 128
-net.block.[Conv1D_Linear].init.mode = 1
+net.block.[Conv1D_Linear].init.mode = xavier
 net.block.[Conv1D_Linear].init.nonlinearity = relu
 
 net.body.Conv1D.structure = Conv1D_Permute > Conv1D_Conv1d > ReLU > Flatten > Conv1D_Linear > ReLU

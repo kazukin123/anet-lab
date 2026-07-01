@@ -67,8 +67,8 @@ net.branch.[vector_feature].structure = Embed5846_v2
 #net.branch.[main_feature].$ = net.branch.SuikaResNet4064_10d
 #net.branch.[main_feature].$ = net.branch.SuikaViT_Flatten_128_pre
 #net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128
-#net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2
-net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2_dp
+net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2
+#net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2_dp
 
 # ==============================================================================
 # 実験
@@ -96,6 +96,7 @@ net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2_dp
 #app.run_name = run_{t}_apx_deton-2off
 #app.run_name = run_{t}_apx_cy01-dp03mix
 #app.run_name = run_{t}_apx_cy01-dp08
+app.run_name = run_{t}_apx_cy01-gn
 
 
 backend.deterministic_algorithms = false   # ★★ false:高速だが非決定論的
@@ -525,8 +526,8 @@ B.learner.alpha = 0
 net.block.FC1.linear.out_features = 2048
 net.block.FC2.linear.out_features = 1024
 
-net.block.FC1.init.mode = 1
-net.block.FC2.init.mode = 1
+net.block.FC1.init.mode = xavier
+net.block.FC2.init.mode = xavier
 
 
 # ==============================================================================
@@ -552,8 +553,8 @@ net.block.[Embed4064].embed.num_classes = 13   # Dropper X
 net.block.[LinearOut].type = Linear
 net.block.[LinearOut].linear.out_features = 512
 net.block.[LinearOut].linear.bias = true
-#net.block.[LinearOut].init.mode = 1            # Xavier Uniform
-net.block.[LinearOut].init.mode = 3				# Orthogonal
+#net.block.[LinearOut].init.mode = xavier       # Xavier Uniform
+net.block.[LinearOut].init.mode = orthogonal	# Orthogonal
 net.block.[LinearOut].init.manual_gain = 0.01
 
 
@@ -570,7 +571,7 @@ net.block.[Conv1].conv.out_channels = 64
 net.block.[Conv1].conv.kernel_size = 3
 net.block.[Conv1].conv.stride = 2
 net.block.[Conv1].conv.padding = 1
-net.block.[Conv1].init.mode = 2
+net.block.[Conv1].init.mode = he
 
 # Layer 2 : サイズ維持 (特徴抽出)
 net.block.[Conv2].type = Conv2d
@@ -580,7 +581,7 @@ net.block.[Conv2].conv.kernel_size = 3
 #net.block.[Conv2].conv.stride = 2
 net.block.[Conv2].conv.stride = 1
 net.block.[Conv2].conv.padding = 1
-net.block.[Conv2].init.mode = 2
+net.block.[Conv2].init.mode = he
 
 # Layer 3 : 最終圧縮
 # Input: 10x10 -> Output: 5x5
@@ -590,7 +591,7 @@ net.block.[Conv3].conv.out_channels = 128
 net.block.[Conv3].conv.kernel_size = 3
 net.block.[Conv3].conv.stride = 2
 net.block.[Conv3].conv.padding = 1
-net.block.[Conv3].init.mode = 2
+net.block.[Conv3].init.mode = he
 
 # Structure
 net.body.SuikaNet2032.structure = Embed2032 > Conv1 > ReLU > Conv2 > ReLU > Conv3 > ReLU > Flatten > LinearOut
@@ -606,14 +607,14 @@ net.block.[ConvInit32].conv.out_channels = 32
 net.block.[ConvInit32].conv.kernel_size = 3
 net.block.[ConvInit32].conv.padding = 1
 net.block.[ConvInit32].conv.stride = 2
-net.block.[ConvInit32].init.mode = 2
+net.block.[ConvInit32].init.mode = he
 
 net.block.[ConvInit64].type = Conv2d
 net.block.[ConvInit64].conv.out_channels = 64
 net.block.[ConvInit64].conv.kernel_size = 3
 net.block.[ConvInit64].conv.padding = 1
 net.block.[ConvInit64].conv.stride = 2
-net.block.[ConvInit64].init.mode = 2
+net.block.[ConvInit64].init.mode = he
 
 net.block.[ResBlock32].type = ResBlock
 net.block.[ResBlock32].res.channels = 32
@@ -663,7 +664,7 @@ net.block.[ConvCompress].conv.out_channels = 4  # ここで圧縮
 net.block.[ConvCompress].conv.kernel_size = 1   # 1x1 Conv
 net.block.[ConvCompress].conv.stride = 1
 net.block.[ConvCompress].conv.padding = 0
-net.block.[ConvCompress].init.mode = 2
+net.block.[ConvCompress].init.mode = he
 
 # 構造定義
 net.body.SuikaResNet4064_06.structure  = Embed4064 > ConvInit32 > SiLU > ResBlock32(*2) > ConvCompress > SiLU > Flatten > LinearOut
@@ -787,14 +788,15 @@ net.block.[ResBlock64p].res.channels = 64
 net.block.[ResBlock64p].res.kernel_size = 3
 net.block.[ResBlock64p].res.activation = silu
 net.block.[ResBlock64p].res.activation_mode = pre
+net.block.[ResBlock64p].res.norm_type = group      # none, batch, group
+net.block.[ResBlock64p].res.group_norm_groups = 1  # for norm_type=group
 
 net.block.[ResBlock64p_dp].type = ResBlock
 net.block.[ResBlock64p_dp].res.channels = 64
 net.block.[ResBlock64p_dp].res.kernel_size = 3
 net.block.[ResBlock64p_dp].res.activation = silu
 net.block.[ResBlock64p_dp].res.activation_mode = pre
-net.block.[ResBlock64p_dp].res.droppath_rate = 0.03
-#net.block.[ResBlock64p_dp].res.droppath_rate = 0.08
+net.block.[ResBlock64p_dp].res.droppath_rate = 0.03   # 0.08
 
 net.block.[Embed4064_v2].type = SpatialEmbedder
 net.block.[Embed4064_v2].embed.grid_width = 40
@@ -815,18 +817,18 @@ net.block.[Embed5846_v2].embed.grid_height = 46
 net.block.[Linear_1024].type = Linear
 net.block.[Linear_1024].linear.out_features = 1024
 net.block.[Linear_1024].linear.bias = true
-net.block.[Linear_1024].init.mode = 1
+net.block.[Linear_1024].init.mode = xavier
 
 net.block.[Linear_2048].type = Linear
 net.block.[Linear_2048].linear.out_features = 2048
 net.block.[Linear_2048].linear.bias = true
-#net.block.[Linear_2048].init.mode = 1 # Xavier Uniform
-net.block.[Linear_2048].init.mode = 3 # Orthogonal
+#net.block.[Linear_2048].init.mode = xavier
+net.block.[Linear_2048].init.mode = orthogonal
 net.block.[Linear_2048].init.manual_gain=1.0
 
 net.block.[HeadFC1024].type = Linear
 net.block.[HeadFC1024].linear.out_features = 1024
-net.block.[HeadFC1024].init.mode = 1
+net.block.[HeadFC1024].init.mode = xavier
 
 net.branch.[vector_feature].bind = vector
 #net.body.output.[features] = main_feature

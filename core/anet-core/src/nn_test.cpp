@@ -12,6 +12,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <map>
@@ -194,6 +195,39 @@ void CheckModuleGradientsClose(
     }
 }
 
+torch::nn::Linear MakeWeightInitTestLinear()
+{
+    return torch::nn::Linear(torch::nn::LinearOptions(4, 3).bias(true));
+}
+
+void FillWeightInitTestLinear(torch::nn::Linear& layer, double weight_value, double bias_value)
+{
+    torch::NoGradGuard no_grad;
+    layer->weight.fill_(weight_value);
+    layer->bias.fill_(bias_value);
+}
+
+void CheckWeightInitMatchesDirect(
+    const anet::nn::WeightInitConfig& config,
+    int64_t seed,
+    const std::function<void(torch::nn::Linear&)>& initialize_expected)
+{
+    auto actual = MakeWeightInitTestLinear();
+    auto expected = MakeWeightInitTestLinear();
+
+    torch::manual_seed(seed);
+    anet::nn::WeightInitializer::Initialize(actual, config);
+
+    torch::manual_seed(seed);
+    {
+        torch::NoGradGuard no_grad;
+        initialize_expected(expected);
+    }
+
+    CheckTensorClose(expected->weight, actual->weight);
+    CheckTensorClose(expected->bias, actual->bias);
+}
+
 template <typename Dict>
 bool HasKey(const Dict& dict, const std::string& key)
 {
@@ -237,7 +271,7 @@ std::shared_ptr<anet::nn::NetworkModule> MakeResBlockTestModule(
     config_data.Set("res.norm_type", norm_type);
     config_data.Set("res.droppath_rate", droppath_rate);
     config_data.Set("res.dropout_rate", dropout_rate);
-    config_data.Set("init2.mode", 2);
+    config_data.Set("init2.mode", "he");
 
     auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("ResBlock");
     return factory->CreateModule(config_data, anet::nn::ModuleContext{});
@@ -721,6 +755,56 @@ TEST_CASE("Body-only Network exposes forward TensorDictFunction", "[nn][function
     REQUIRE(direct_out.Contains("feature"));
     REQUIRE(func_out.Contains("feature"));
     CHECK(torch::equal(func_out.At("feature"), direct_out.At("feature")));
+}
+
+TEST_CASE("WeightInitializer string modes match torch initializers", "[nn][init]")
+{
+    anet::nn::WeightInitConfig config;
+    CheckWeightInitMatchesDirect(config, 1701, [](torch::nn::Linear& expected) {
+        torch::nn::init::xavier_uniform_(expected->weight);
+        torch::nn::init::constant_(expected->bias, 0.0);
+    });
+
+    config.mode = "he";
+    config.nonlinearity = "relu";
+    CheckWeightInitMatchesDirect(config, 1702, [](torch::nn::Linear& expected) {
+        torch::nn::init::kaiming_normal_(expected->weight, 0.0, torch::kFanOut, torch::kReLU);
+        torch::nn::init::constant_(expected->bias, 0.0);
+    });
+
+    config.mode = "orthogonal";
+    config.nonlinearity = "linear";
+    config.manual_gain = 0.0;
+    CheckWeightInitMatchesDirect(config, 1703, [](torch::nn::Linear& expected) {
+        const double gain = torch::nn::init::calculate_gain(torch::kLinear);
+        torch::nn::init::orthogonal_(expected->weight, gain);
+        torch::nn::init::constant_(expected->bias, 0.0);
+    });
+
+    config.mode = "constant";
+    config.constant_val = 0.25;
+    CheckWeightInitMatchesDirect(config, 1704, [](torch::nn::Linear& expected) {
+        torch::nn::init::constant_(expected->weight, 0.25);
+        torch::nn::init::constant_(expected->bias, 0.25);
+    });
+}
+
+TEST_CASE("WeightInitializer preserves default mode and rejects unknown modes", "[nn][init]")
+{
+    anet::nn::WeightInitConfig config;
+    config.mode = "default";
+    auto layer = MakeWeightInitTestLinear();
+    FillWeightInitTestLinear(layer, 0.25, -0.75);
+    anet::nn::WeightInitializer::Initialize(layer, config);
+    CheckTensorClose(torch::full_like(layer->weight, 0.25), layer->weight);
+    CheckTensorClose(torch::full_like(layer->bias, -0.75), layer->bias);
+
+    for (const std::string mode : { "unknown", "2" }) {
+        INFO("mode=" << mode);
+        config.mode = mode;
+        auto invalid_layer = MakeWeightInitTestLinear();
+        CHECK_THROWS(anet::nn::WeightInitializer::Initialize(invalid_layer, config));
+    }
 }
 
 TEST_CASE("Network dot view emits structure by default and configurable details", "[nn][dot]")
