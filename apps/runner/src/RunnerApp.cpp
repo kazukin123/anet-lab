@@ -423,9 +423,9 @@ void RunnerApp::StopTraining()
 int RunnerApp::OnExit()
 {
     trainer_thread_->Stop();
+    anet::MetricsLogger::Reset();
     standard_stream_logger_.Flush();
     standard_stream_logger_.Stop();
-    anet::MetricsLogger::Reset();
     return 0;
 }
 
