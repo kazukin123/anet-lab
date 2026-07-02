@@ -137,6 +137,14 @@ net.block.[ResA].res.group_norm_groups = 4  # for norm_type=group
 net.block.[ResA].res.droppath_rate = 0.0    # default=0.0 残差枝だけをサンプル単位で落とすDropPath率 (0で無効)
 net.block.[ResA].res.dropout_rate = 0.0     # default=0.0 conv1->conv2間の channel dropout 確率 (0で無効)
 
+# --- config_profile sample ---
+# branch内の出現順に沿って、@res_dp_sample を 0.0 -> 0.1 に線形展開する例。
+# net.config_profile.[res_dp_sample].type = linear
+# net.config_profile.[res_dp_sample].start = 0.0
+# net.config_profile.[res_dp_sample].end = 0.1
+# net.block.[ResA].res.droppath_rate = @res_dp_sample
+# net.body.Conv2D_ProfileSample.structure = Conv2d_S > ReLU > ResA(*3) > Flatten
+
 
 # --- Transformer / ViT Components ---
 

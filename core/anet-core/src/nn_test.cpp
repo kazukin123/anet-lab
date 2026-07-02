@@ -122,6 +122,26 @@ void CheckTensorClose(
     CHECK(torch::allclose(expected.detach().cpu(), actual.detach().cpu(), rtol, atol));
 }
 
+std::vector<double> GetDropoutRates(const std::shared_ptr<anet::nn::NetworkStruct>& network_struct)
+{
+    std::vector<double> rates;
+    for (const auto& block : network_struct->GetBlocks()) {
+        REQUIRE(block->GetModule());
+        const auto config_data = block->GetModule()->GetCurrentConfigData();
+        rates.push_back(std::stod(config_data.Get("dropout_rate")));
+    }
+    return rates;
+}
+
+anet::TensorSpec MakeConfigProfileVectorSpec()
+{
+    anet::TensorSpec spec;
+    spec.type = anet::SpaceType::Vector;
+    spec.shape = { 4 };
+    spec.dtype = torch::kFloat32;
+    return spec;
+}
+
 torch::Tensor LegacyMhaSelfAttention(torch::nn::MultiheadAttention& mha, const torch::Tensor& x)
 {
     torch::Tensor x_t = x.transpose(0, 1);
@@ -677,6 +697,149 @@ TEST_CASE("NetworkBuilder builds MaxPool2d and GAP2D pipeline", "[nn][pool]")
     auto output = network->Forward(input);
     auto expected = torch::tensor({ 10.0f }).reshape({ 1, 1 });
     CHECK(torch::equal(output.At("feature"), expected));
+}
+
+TEST_CASE("Network config profile expands linear markers by branch order", "[nn][config_profile]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    const std::vector<std::string> block_names = { "A", "B", "C", "D" };
+    for (const std::string& block_name : block_names) {
+        const std::string prefix = "net.block.[" + block_name + "].";
+        config_data.Set(prefix + "type", std::string("Dropout"));
+        config_data.Set(prefix + "dropout_rate", std::string("@dp"));
+    }
+    config_data.Set("net.config_profile.[dp].type", std::string("linear"));
+    config_data.Set("net.config_profile.[dp].start", 0.0);
+    config_data.Set("net.config_profile.[dp].end", 0.1);
+    config_data.Set("net.branch.[feature].bind", std::string("obs"));
+    config_data.Set("net.branch.[feature].structure", std::string("A(*3) > B(*3) > C(*9) > D(*3)"));
+    config_data.Set("net.body.output.[feature]", std::string("feature"));
+
+    anet::nn::NetworkConfig config(config_data);
+    const auto json = config.ToJson();
+    CHECK(json.at("config_profiles").at("dp").at("type") == "linear");
+    CHECK(json.at("config_profiles").at("dp").at("start") == 0.0);
+    CHECK(json.at("config_profiles").at("dp").at("end") == 0.1);
+
+    auto network_struct = anet::nn::NetworkStructBuilder::Build(
+        config, config.branches.at("feature").structure_str);
+    const auto rates = GetDropoutRates(network_struct);
+
+    REQUIRE(rates.size() == 18);
+    for (size_t i = 0; i < rates.size(); ++i) {
+        const double expected = 0.1 * static_cast<double>(i) / static_cast<double>(rates.size() - 1);
+        INFO("i=" << i);
+        CHECK(rates[i] == Catch::Approx(expected).margin(1.0e-12));
+    }
+    CHECK(rates[3] > rates[2]);
+    CHECK(rates[6] > rates[5]);
+    CHECK(rates[15] > rates[14]);
+}
+
+TEST_CASE("Network config profile returns start for a single marker", "[nn][config_profile]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[One].type", std::string("Dropout"));
+    config_data.Set("net.block.[One].dropout_rate", std::string("@single"));
+    config_data.Set("net.config_profile.[single].type", std::string("linear"));
+    config_data.Set("net.config_profile.[single].start", 0.25);
+    config_data.Set("net.config_profile.[single].end", 0.75);
+    config_data.Set("net.branch.[feature].bind", std::string("obs"));
+    config_data.Set("net.branch.[feature].structure", std::string("One"));
+
+    anet::nn::NetworkConfig config(config_data);
+    auto network_struct = anet::nn::NetworkStructBuilder::Build(
+        config, config.branches.at("feature").structure_str);
+    const auto rates = GetDropoutRates(network_struct);
+
+    REQUIRE(rates.size() == 1);
+    CHECK(rates[0] == Catch::Approx(0.25).margin(1.0e-12));
+}
+
+TEST_CASE("Network config profile leaves marker-free branches on original config", "[nn][config_profile]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Drop].type", std::string("Dropout"));
+    config_data.Set("net.block.[Drop].dropout_rate", 0.25);
+    config_data.Set("net.config_profile.[unused].type", std::string("linear"));
+    config_data.Set("net.config_profile.[unused].start", 0.0);
+    config_data.Set("net.config_profile.[unused].end", 0.5);
+    config_data.Set("net.branch.[feature].bind", std::string("obs"));
+    config_data.Set("net.branch.[feature].structure", std::string("Drop"));
+
+    anet::nn::NetworkConfig config(config_data);
+    anet::TensorSpecMap input_specs;
+    input_specs["obs"] = MakeConfigProfileVectorSpec();
+    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs);
+    REQUIRE(body);
+
+    auto network_struct = anet::nn::NetworkStructBuilder::Build(
+        config, config.branches.at("feature").structure_str);
+    const auto rates = GetDropoutRates(network_struct);
+
+    REQUIRE(rates.size() == 1);
+    CHECK(rates[0] == Catch::Approx(0.25).margin(1.0e-12));
+}
+
+TEST_CASE("Network config profile rejects invalid marker settings", "[nn][config_profile]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData undefined_group;
+    undefined_group.Set("net.block.[Drop].type", std::string("Dropout"));
+    undefined_group.Set("net.block.[Drop].dropout_rate", std::string("@missing"));
+    undefined_group.Set("net.branch.[feature].bind", std::string("obs"));
+    undefined_group.Set("net.branch.[feature].structure", std::string("Drop"));
+    anet::nn::NetworkConfig undefined_config(undefined_group);
+    CHECK_THROWS(anet::nn::NetworkStructBuilder::Build(
+        undefined_config, undefined_config.branches.at("feature").structure_str));
+
+    anet::ConfigData missing_end;
+    missing_end.Set("net.config_profile.[dp].type", std::string("linear"));
+    missing_end.Set("net.config_profile.[dp].start", 0.0);
+    CHECK_THROWS(anet::nn::NetworkConfig(missing_end));
+
+    anet::ConfigData legacy_minmax;
+    legacy_minmax.Set("net.config_profile.[dp].type", std::string("linear"));
+    legacy_minmax.Set("net.config_profile.[dp].min", 0.0);
+    legacy_minmax.Set("net.config_profile.[dp].max", 1.0);
+    CHECK_THROWS(anet::nn::NetworkConfig(legacy_minmax));
+
+    anet::ConfigData unknown_type;
+    unknown_type.Set("net.config_profile.[dp].type", std::string("cosine"));
+    unknown_type.Set("net.config_profile.[dp].end", 1.0);
+    CHECK_THROWS(anet::nn::NetworkConfig(unknown_type));
+}
+
+TEST_CASE("Network config profile rejects branch-crossing groups", "[nn][config_profile]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[A].type", std::string("Dropout"));
+    config_data.Set("net.block.[A].dropout_rate", std::string("@dp"));
+    config_data.Set("net.block.[B].type", std::string("Dropout"));
+    config_data.Set("net.block.[B].dropout_rate", std::string("@dp"));
+    config_data.Set("net.config_profile.[dp].type", std::string("linear"));
+    config_data.Set("net.config_profile.[dp].start", 0.0);
+    config_data.Set("net.config_profile.[dp].end", 0.5);
+    config_data.Set("net.branch.[feature_a].bind", std::string("obs_a"));
+    config_data.Set("net.branch.[feature_a].structure", std::string("A"));
+    config_data.Set("net.branch.[feature_b].bind", std::string("obs_b"));
+    config_data.Set("net.branch.[feature_b].structure", std::string("B"));
+
+    anet::nn::NetworkConfig config(config_data);
+    anet::TensorSpecMap input_specs;
+    input_specs["obs_a"] = MakeConfigProfileVectorSpec();
+    input_specs["obs_b"] = MakeConfigProfileVectorSpec();
+
+    CHECK_THROWS(anet::nn::NetworkBodyBuilder::Build(config, input_specs));
 }
 
 TEST_CASE("Network SoftCopyTo blends parameters and floating buffers", "[nn][soft-copy]")

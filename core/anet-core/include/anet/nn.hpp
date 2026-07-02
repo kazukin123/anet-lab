@@ -35,10 +35,18 @@ namespace anet::nn {
         std::string structure_str;             ///< ブランチ内部の直列パイプライン構造
     };
 
+    struct ConfigProfileConfig {
+        std::string type = "linear";   ///< 補間ルール（初期実装は linear のみ）
+        double start = 0.0;            ///< i=0 の値
+        double end = 0.0;              ///< i=N-1 の値
+        bool has_end = false;          ///< end が明示指定されたか
+    };
+
     struct NetworkConfig {
         std::map<std::string, NetworkBlockConfig> block_configs;
         std::map<std::string, NetworkBranchConfig> branches;
         std::map<std::string, std::string> output_keys;
+        std::map<std::string, ConfigProfileConfig> config_profiles;
 
         NetworkConfig() = default;
         NetworkConfig(const anet::ConfigData& config_data, const std::string& config_prefix = "net");
