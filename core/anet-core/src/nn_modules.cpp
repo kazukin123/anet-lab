@@ -583,6 +583,84 @@ public:
 
 
 // ===========================================================================
+//  LayerNorm2d Module
+// ===========================================================================
+
+class LayerNorm2dModule : public NetworkModule {
+public:
+    LayerNorm2dModule(int64_t num_channels, double eps)
+        : num_channels_(num_channels), eps_(eps)
+    {
+    }
+
+    bool IsConv2dVisualizable() const override { return true; }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        ANET_PROFILE_FUNC();
+
+        if (input.dim() != 4) {
+            ANET_SYSTEM_ERROR("LayerNorm2dModule: input must be 4D NCHW. actual_dim=" << input.dim());
+        }
+        if (input.size(1) != num_channels_) {
+            ANET_SYSTEM_ERROR("LayerNorm2dModule: input channels(" << input.size(1)
+                << ") != num_channels(" << num_channels_ << ")");
+        }
+
+        if (!weight_.defined()) {
+            weight_ = register_parameter("weight", torch::ones({ num_channels_ }, input.options()));
+            bias_ = register_parameter("bias", torch::zeros({ num_channels_ }, input.options()));
+        }
+
+        // NCHWのまま各ピクセル位置でchannel軸だけを正規化する。
+        auto mean = input.mean({ 1 }, /*keepdim=*/true);
+        auto variance = (input - mean).pow(2).mean({ 1 }, /*keepdim=*/true);
+        auto normalized = (input - mean) / torch::sqrt(variance + eps_);
+        return weight_.view({ 1, num_channels_, 1, 1 }) * normalized
+            + bias_.view({ 1, num_channels_, 1, 1 });
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("num_channels", num_channels_);
+        cd.Set("eps", eps_);
+        return cd;
+    }
+
+private:
+    int64_t num_channels_;
+    double eps_;
+    torch::Tensor weight_;
+    torch::Tensor bias_;
+};
+
+class LayerNorm2dModuleFactory final : public NetworkModuleFactory {
+private:
+    struct Config : anet::Config {
+        int num_channels = 0;
+        double eps = 1.0e-6;
+
+        Config(const anet::ConfigData& config_data) : anet::Config("")
+        {
+            ANET_READ_CONFIG(config_data, num_channels);
+            ANET_READ_CONFIG(config_data, eps);
+        }
+    };
+
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        Config config(config_data);
+        if (config.num_channels <= 0) {
+            ANET_SYSTEM_ERROR("LayerNorm2dModule: 'num_channels' must be strictly positive.");
+        }
+        return std::make_shared<LayerNorm2dModule>(config.num_channels, config.eps);
+    }
+};
+
+
+// ===========================================================================
 //  GroupNormModule Module
 // ===========================================================================
 
@@ -922,16 +1000,25 @@ private:
             ANET_READ_CONFIG(config_data, init1.manual_gain);
             ANET_READ_CONFIG(config_data, init1.nonlinearity);
             ANET_READ_CONFIG(config_data, init1.constant_val);
+            ANET_READ_CONFIG(config_data, init1.trunc_std);
+            ANET_READ_CONFIG(config_data, init1.trunc_a);
+            ANET_READ_CONFIG(config_data, init1.trunc_b);
 
             ANET_READ_CONFIG(config_data, init2.mode);
             ANET_READ_CONFIG(config_data, init2.manual_gain);
             ANET_READ_CONFIG(config_data, init2.nonlinearity);
             ANET_READ_CONFIG(config_data, init2.constant_val);
+            ANET_READ_CONFIG(config_data, init2.trunc_std);
+            ANET_READ_CONFIG(config_data, init2.trunc_a);
+            ANET_READ_CONFIG(config_data, init2.trunc_b);
 
             ANET_READ_CONFIG(config_data, init_ds.mode);
             ANET_READ_CONFIG(config_data, init_ds.manual_gain);
             ANET_READ_CONFIG(config_data, init_ds.nonlinearity);
             ANET_READ_CONFIG(config_data, init_ds.constant_val);
+            ANET_READ_CONFIG(config_data, init_ds.trunc_std);
+            ANET_READ_CONFIG(config_data, init_ds.trunc_a);
+            ANET_READ_CONFIG(config_data, init_ds.trunc_b);
         }
     };
 public:
@@ -952,15 +1039,205 @@ public:
 
 
 // ===========================================================================
+//  CNBlock Module
+// ===========================================================================
+
+struct CNBlockConfig {
+    int channels = 0;
+    int kernel_size = 7;
+    int ffn_expand_ratio = 4;
+    double layerscale_init = 1.0e-6;
+    double droppath_rate = 0.0;
+    std::string norm_type = "layernorm2d";
+};
+
+class CNBlockModule : public NetworkModule {
+public:
+    CNBlockModule(
+        const CNBlockConfig& config,
+        const WeightInitConfig& init_dw,
+        const WeightInitConfig& init_pw1,
+        const WeightInitConfig& init_pw2)
+        : config_(config), init_dw_(init_dw), init_pw1_(init_pw1), init_pw2_(init_pw2)
+    {
+    }
+
+    bool IsConv2dVisualizable() const override { return true; }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        ANET_PROFILE_FUNC();
+
+        if (!dwconv_) {
+            ANET_PROFILE_SCOPE(init);
+
+            const auto device = input.device();
+            const auto dtype = input.scalar_type();
+            const int64_t in_channels = input.size(1);
+            if (in_channels != config_.channels) {
+                ANET_SYSTEM_ERROR("CNBlock: in_channels(" << in_channels << ") != cn.channels(" << config_.channels
+                    << "). CNBlock does not change channel count internally; insert a downsample block before it.");
+            }
+
+            const int padding = config_.kernel_size / 2;
+            torch::nn::Conv2dOptions dw_opts(config_.channels, config_.channels, config_.kernel_size);
+            dw_opts.stride(1);
+            dw_opts.padding(padding);
+            dw_opts.groups(config_.channels);
+            dw_opts.bias(true);
+            dwconv_ = register_module("dwconv", torch::nn::Conv2d(dw_opts));
+            dwconv_->to(device, dtype);
+            WeightInitializer::Initialize(dwconv_, init_dw_);
+
+            if (config_.norm_type == "layernorm2d") {
+                norm_ = register_module("norm", std::make_shared<LayerNorm2dModule>(config_.channels, 1.0e-6));
+            } else if (config_.norm_type != "none") {
+                ANET_SYSTEM_ERROR("CNBlock: unknown cn.norm_type='" << config_.norm_type
+                    << "' expected one of: layernorm2d, none");
+            }
+
+            const int64_t hidden_channels = static_cast<int64_t>(config_.channels) * config_.ffn_expand_ratio;
+            pwconv1_ = register_module("pwconv1",
+                torch::nn::Conv2d(torch::nn::Conv2dOptions(config_.channels, hidden_channels, 1).bias(true)));
+            pwconv1_->to(device, dtype);
+            WeightInitializer::Initialize(pwconv1_, init_pw1_);
+
+            pwconv2_ = register_module("pwconv2",
+                torch::nn::Conv2d(torch::nn::Conv2dOptions(hidden_channels, config_.channels, 1).bias(true)));
+            pwconv2_->to(device, dtype);
+            WeightInitializer::Initialize(pwconv2_, init_pw2_);
+
+            if (config_.layerscale_init > 0.0) {
+                gamma_ = register_parameter("gamma",
+                    torch::full({ config_.channels }, config_.layerscale_init, input.options()));
+            }
+        }
+
+        torch::Tensor residual = input;
+        torch::Tensor out = dwconv_->forward(input);
+        if (norm_) {
+            out = norm_->Forward(out);
+        }
+        out = pwconv1_->forward(out);
+        out = torch::gelu(out, "none");
+        out = pwconv2_->forward(out);
+        if (gamma_.defined()) {
+            out = out * gamma_.view({ 1, config_.channels, 1, 1 });
+        }
+        return DropPath(out, config_.droppath_rate, is_training()) + residual;
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData cd;
+        cd.Set("channels", config_.channels);
+        cd.Set("kernel_size", config_.kernel_size);
+        cd.Set("ffn_expand_ratio", config_.ffn_expand_ratio);
+        cd.Set("layerscale_init", config_.layerscale_init);
+        cd.Set("droppath_rate", config_.droppath_rate);
+        cd.Set("norm_type", config_.norm_type);
+        if (dwconv_) {
+            cd.Set("in_channels", dwconv_->options.in_channels());
+        }
+        return cd;
+    }
+
+private:
+    CNBlockConfig config_;
+    WeightInitConfig init_dw_;
+    WeightInitConfig init_pw1_;
+    WeightInitConfig init_pw2_;
+    torch::nn::Conv2d dwconv_{ nullptr };
+    torch::nn::Conv2d pwconv1_{ nullptr };
+    torch::nn::Conv2d pwconv2_{ nullptr };
+    std::shared_ptr<NetworkModule> norm_{ nullptr };
+    torch::Tensor gamma_;
+};
+
+class CNBlockModuleFactory final : public NetworkModuleFactory {
+private:
+    struct Config : anet::Config {
+        CNBlockConfig cn;
+        WeightInitConfig init_dw;
+        WeightInitConfig init_pw1;
+        WeightInitConfig init_pw2;
+
+        Config(const anet::ConfigData& config_data) : anet::Config("")
+        {
+            init_dw.mode = "trunc_normal";
+            init_dw.trunc_std = 0.02;
+            init_pw1.mode = "trunc_normal";
+            init_pw1.trunc_std = 0.02;
+            init_pw2.mode = "trunc_normal";
+            init_pw2.trunc_std = 0.02;
+
+            ANET_READ_CONFIG(config_data, cn.channels);
+            ANET_READ_CONFIG(config_data, cn.kernel_size);
+            ANET_READ_CONFIG(config_data, cn.ffn_expand_ratio);
+            ANET_READ_CONFIG(config_data, cn.layerscale_init);
+            ANET_READ_CONFIG(config_data, cn.droppath_rate);
+            ANET_READ_CONFIG(config_data, cn.norm_type);
+
+            ANET_READ_CONFIG(config_data, init_dw.mode);
+            ANET_READ_CONFIG(config_data, init_dw.manual_gain);
+            ANET_READ_CONFIG(config_data, init_dw.nonlinearity);
+            ANET_READ_CONFIG(config_data, init_dw.constant_val);
+            ANET_READ_CONFIG(config_data, init_dw.trunc_std);
+            ANET_READ_CONFIG(config_data, init_dw.trunc_a);
+            ANET_READ_CONFIG(config_data, init_dw.trunc_b);
+
+            ANET_READ_CONFIG(config_data, init_pw1.mode);
+            ANET_READ_CONFIG(config_data, init_pw1.manual_gain);
+            ANET_READ_CONFIG(config_data, init_pw1.nonlinearity);
+            ANET_READ_CONFIG(config_data, init_pw1.constant_val);
+            ANET_READ_CONFIG(config_data, init_pw1.trunc_std);
+            ANET_READ_CONFIG(config_data, init_pw1.trunc_a);
+            ANET_READ_CONFIG(config_data, init_pw1.trunc_b);
+
+            ANET_READ_CONFIG(config_data, init_pw2.mode);
+            ANET_READ_CONFIG(config_data, init_pw2.manual_gain);
+            ANET_READ_CONFIG(config_data, init_pw2.nonlinearity);
+            ANET_READ_CONFIG(config_data, init_pw2.constant_val);
+            ANET_READ_CONFIG(config_data, init_pw2.trunc_std);
+            ANET_READ_CONFIG(config_data, init_pw2.trunc_a);
+            ANET_READ_CONFIG(config_data, init_pw2.trunc_b);
+        }
+    };
+
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        Config config(config_data);
+        if (config.cn.channels <= 0) {
+            ANET_SYSTEM_ERROR("CNBlock: 'cn.channels' must be strictly positive.");
+        }
+        if (config.cn.kernel_size <= 0 || config.cn.kernel_size % 2 == 0) {
+            ANET_SYSTEM_ERROR("CNBlock: 'cn.kernel_size' must be a positive odd number. value=" << config.cn.kernel_size);
+        }
+        if (config.cn.ffn_expand_ratio <= 0) {
+            ANET_SYSTEM_ERROR("CNBlock: 'cn.ffn_expand_ratio' must be strictly positive. value=" << config.cn.ffn_expand_ratio);
+        }
+        if (config.cn.norm_type != "layernorm2d" && config.cn.norm_type != "none") {
+            ANET_SYSTEM_ERROR("CNBlock: unknown cn.norm_type='" << config.cn.norm_type
+                << "' expected one of: layernorm2d, none");
+        }
+        ValidateDropRate("cn.droppath_rate", config.cn.droppath_rate);
+        return std::make_shared<CNBlockModule>(config.cn, config.init_dw, config.init_pw1, config.init_pw2);
+    }
+};
+
+
+// ===========================================================================
 //  LayerNorm Module
 // ===========================================================================
 
 class LayerNormModule : public NetworkModule {
 public:
-    explicit LayerNormModule(int64_t normalized_shape)
-        : normalized_shape_(normalized_shape)
+    LayerNormModule(int64_t normalized_shape, double eps)
+        : normalized_shape_(normalized_shape), eps_(eps)
     {
         torch::nn::LayerNormOptions opts({ normalized_shape });
+        opts.eps(eps);
         ln_ = register_module("ln", torch::nn::LayerNorm(opts));
     }
 
@@ -980,10 +1257,12 @@ public:
     {
         anet::ConfigData cd;
         cd.Set("normalized_shape", normalized_shape_);
+        cd.Set("eps", eps_);
         return cd;
     }
 private:
     int64_t normalized_shape_;
+    double eps_;
     bool initialized_ = false;
     torch::nn::LayerNorm ln_{ nullptr };
 };
@@ -992,9 +1271,11 @@ class LayerNormModuleFactory final : public NetworkModuleFactory {
 private:
     struct Config : anet::Config {
         int normalized_shape = 0;
+        double eps = 1.0e-5;
 
         Config(const anet::ConfigData& config_data) : anet::Config("") {
             ANET_READ_CONFIG(config_data, normalized_shape);
+            ANET_READ_CONFIG(config_data, eps);
         }
     };
 public:
@@ -1004,7 +1285,7 @@ public:
         if (config.normalized_shape <= 0) {
             ANET_SYSTEM_ERROR("LayerNormModule: 'normalized_shape' must be strictly positive.");
         }
-        return std::make_shared<LayerNormModule>(config.normalized_shape);
+        return std::make_shared<LayerNormModule>(config.normalized_shape, config.eps);
     }
 };
 
@@ -1865,6 +2146,10 @@ private:
             ANET_READ_CONFIG(config_data, init.mode);
             ANET_READ_CONFIG(config_data, init.manual_gain);
             ANET_READ_CONFIG(config_data, init.nonlinearity);
+            ANET_READ_CONFIG(config_data, init.constant_val);
+            ANET_READ_CONFIG(config_data, init.trunc_std);
+            ANET_READ_CONFIG(config_data, init.trunc_a);
+            ANET_READ_CONFIG(config_data, init.trunc_b);
         }
     };
 public:
@@ -1892,6 +2177,10 @@ private:
             ANET_READ_CONFIG(config_data, init.mode);
             ANET_READ_CONFIG(config_data, init.manual_gain);
             ANET_READ_CONFIG(config_data, init.nonlinearity);
+            ANET_READ_CONFIG(config_data, init.constant_val);
+            ANET_READ_CONFIG(config_data, init.trunc_std);
+            ANET_READ_CONFIG(config_data, init.trunc_a);
+            ANET_READ_CONFIG(config_data, init.trunc_b);
         }
     };
 public:
@@ -1920,6 +2209,10 @@ private:
             ANET_READ_CONFIG(config_data, init.mode);
             ANET_READ_CONFIG(config_data, init.manual_gain);
             ANET_READ_CONFIG(config_data, init.nonlinearity);
+            ANET_READ_CONFIG(config_data, init.constant_val);
+            ANET_READ_CONFIG(config_data, init.trunc_std);
+            ANET_READ_CONFIG(config_data, init.trunc_a);
+            ANET_READ_CONFIG(config_data, init.trunc_b);
         }
     };
 public:
@@ -2103,6 +2396,7 @@ public:
     // 正規化・Pooling登録
     repo.Register("GroupNorm", std::make_shared<GroupNormModuleFactory>());
     repo.Register("LayerNorm", std::make_shared<LayerNormModuleFactory>());
+    repo.Register("LayerNorm2d", std::make_shared<LayerNorm2dModuleFactory>());
     repo.Register("BatchNorm2d", std::make_shared<BatchNorm2dModuleFactory>());
     repo.Register("GAP1D", std::make_shared<GlobalAveragePooling1DFactory>());
     repo.Register("GAP2D", std::make_shared<GlobalAveragePooling2DFactory>());
@@ -2118,6 +2412,7 @@ public:
     repo.Register("Conv1d", std::make_shared<Conv1dModuleFactory>());
     repo.Register("Conv2d", std::make_shared<Conv2dModuleFactory>());
     repo.Register("ResBlock", std::make_shared<ResBlockModuleFactory>());
+    repo.Register("CNBlock", std::make_shared<CNBlockModuleFactory>());
     repo.Register("TransformerEncoder", std::make_shared<TransformerEncoderModuleFactory>());
 
     // Tokenモジュール登録

@@ -54,10 +54,13 @@ namespace anet::nn {
     };
 
     struct WeightInitConfig {
-        std::string mode = "xavier";        ///< "default", "xavier", "he", "orthogonal", "constant"
+        std::string mode = "xavier";        ///< "default", "xavier", "he", "orthogonal", "constant", "trunc_normal"
         double manual_gain = 0.0f;          ///< Orthogonal時の手動ゲイン (0.0なら自動計算)
         std::string nonlinearity = "relu";  ///< "relu", "linear", "tanh" etc.
         double constant_val = 0.0;          ///< for Constant
+        double trunc_std = 0.02;            ///< for TruncNormal
+        double trunc_a = -2.0;              ///< for TruncNormal
+        double trunc_b = 2.0;               ///< for TruncNormal
     };
 
     struct NetworkGraphVizConfig {

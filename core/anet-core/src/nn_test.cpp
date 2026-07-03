@@ -17,6 +17,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -36,6 +37,10 @@ void EnsureNNInitialized()
 {
     static const bool initialized = [] {
         anet::nn::InitNN();
+        // Debug版libtorchのoneDNNはCPU grouped conv(CNBlockのdepthwise)で
+        // thread検証assert(nthr_==nthr)を起こすため、CPUテスト用にmkldnnを無効化する。
+        // release版libtorch/本番GPUでは発生しないため本番コードには入れない。
+        at::globalContext().setUserEnabledMkldnn(false);
         return true;
     }();
     (void)initialized;
@@ -295,6 +300,72 @@ std::shared_ptr<anet::nn::NetworkModule> MakeResBlockTestModule(
 
     auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("ResBlock");
     return factory->CreateModule(config_data, anet::nn::ModuleContext{});
+}
+
+std::shared_ptr<anet::nn::NetworkModule> MakeLayerNormTestModule(int normalized_shape, std::optional<double> eps = std::nullopt)
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("normalized_shape", normalized_shape);
+    if (eps.has_value()) {
+        config_data.Set("eps", *eps);
+    }
+
+    auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("LayerNorm");
+    return factory->CreateModule(config_data, anet::nn::ModuleContext{});
+}
+
+std::shared_ptr<anet::nn::NetworkModule> MakeLayerNorm2dTestModule(int num_channels, double eps = 1.0e-6)
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("num_channels", num_channels);
+    config_data.Set("eps", eps);
+
+    auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("LayerNorm2d");
+    return factory->CreateModule(config_data, anet::nn::ModuleContext{});
+}
+
+std::shared_ptr<anet::nn::NetworkModule> MakeCNBlockTestModule(
+    int channels = 3,
+    double droppath_rate = 0.0,
+    double layerscale_init = 1.0e-6,
+    const std::string& norm_type = "layernorm2d",
+    int kernel_size = 3,
+    int ffn_expand_ratio = 2,
+    bool constant_init = false)
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("cn.channels", channels);
+    config_data.Set("cn.kernel_size", kernel_size);
+    config_data.Set("cn.ffn_expand_ratio", ffn_expand_ratio);
+    config_data.Set("cn.layerscale_init", layerscale_init);
+    config_data.Set("cn.droppath_rate", droppath_rate);
+    config_data.Set("cn.norm_type", norm_type);
+    if (constant_init) {
+        for (const std::string prefix : { "init_dw.", "init_pw1.", "init_pw2." }) {
+            config_data.Set(prefix + "mode", std::string("constant"));
+            config_data.Set(prefix + "constant_val", 0.05);
+        }
+    }
+
+    auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("CNBlock");
+    return factory->CreateModule(config_data, anet::nn::ModuleContext{});
+}
+
+torch::Tensor GetNamedParameter(torch::nn::Module& module, const std::string& name)
+{
+    for (const auto& kv : module.named_parameters(true)) {
+        if (kv.key() == name) {
+            return kv.value();
+        }
+    }
+    FAIL("Parameter not found: " << name);
+    return torch::Tensor();
 }
 
 std::shared_ptr<anet::nn::NetworkModule> MakeTransformerTestModule(
@@ -968,6 +1039,214 @@ TEST_CASE("WeightInitializer preserves default mode and rejects unknown modes", 
         auto invalid_layer = MakeWeightInitTestLinear();
         CHECK_THROWS(anet::nn::WeightInitializer::Initialize(invalid_layer, config));
     }
+}
+
+TEST_CASE("WeightInitializer trunc_normal clamps range and zeros bias", "[nn][init]")
+{
+    anet::nn::WeightInitConfig config;
+    config.mode = "trunc_normal";
+    config.trunc_std = 0.02;
+    config.trunc_a = -0.04;
+    config.trunc_b = 0.04;
+
+    auto layer = torch::nn::Linear(torch::nn::LinearOptions(512, 512).bias(true));
+    torch::manual_seed(1710);
+    anet::nn::WeightInitializer::Initialize(layer, config);
+
+    CHECK(layer->weight.min().item<double>() >= config.trunc_a - 1.0e-7);
+    CHECK(layer->weight.max().item<double>() <= config.trunc_b + 1.0e-7);
+    const double actual_std = layer->weight.std().item<double>();
+    CHECK(actual_std > 0.01);
+    CHECK(actual_std < 0.025);
+    CheckTensorClose(torch::zeros_like(layer->bias), layer->bias);
+
+    config.trunc_std = 0.0;
+    CHECK_THROWS(anet::nn::WeightInitializer::Initialize(layer, config));
+
+    config.trunc_std = 0.02;
+    config.trunc_a = 0.1;
+    config.trunc_b = 0.1;
+    CHECK_THROWS(anet::nn::WeightInitializer::Initialize(layer, config));
+}
+
+TEST_CASE("LayerNorm exposes backward-compatible eps config", "[nn][layernorm]")
+{
+    auto default_module = MakeLayerNormTestModule(4);
+    auto default_config = default_module->GetCurrentConfigData();
+    CHECK(std::stod(default_config.Get("eps")) == Catch::Approx(1.0e-5));
+
+    auto explicit_module = MakeLayerNormTestModule(4, 1.0e-6);
+    auto explicit_config = explicit_module->GetCurrentConfigData();
+    CHECK(std::stod(explicit_config.Get("eps")) == Catch::Approx(1.0e-6));
+
+    CHECK_THROWS(MakeLayerNormTestModule(0));
+}
+
+TEST_CASE("LayerNorm2d normalizes channel axis only", "[nn][layernorm2d]")
+{
+    auto module = MakeLayerNorm2dTestModule(3, /*eps=*/0.0);
+    torch::Tensor input = torch::arange(0, 24, torch::kFloat32).reshape({ 2, 3, 2, 2 });
+    torch::Tensor output = module->Forward(input);
+
+    CHECK(output.sizes() == input.sizes());
+
+    auto mean = input.mean({ 1 }, /*keepdim=*/true);
+    auto variance = (input - mean).pow(2).mean({ 1 }, /*keepdim=*/true);
+    auto expected = (input - mean) / torch::sqrt(variance);
+    CheckTensorClose(expected, output);
+    CheckTensorClose(torch::zeros_like(output.mean({ 1 }, /*keepdim=*/true)), output.mean({ 1 }, /*keepdim=*/true));
+    CheckTensorClose(torch::ones_like(output.pow(2).mean({ 1 }, /*keepdim=*/true)), output.pow(2).mean({ 1 }, /*keepdim=*/true));
+
+    auto cd = module->GetCurrentConfigData();
+    CHECK(cd.Get("num_channels") == "3");
+    CHECK(std::stod(cd.Get("eps")) == Catch::Approx(0.0));
+}
+
+TEST_CASE("LayerNorm2d rejects invalid config and input", "[nn][layernorm2d]")
+{
+    CHECK_THROWS(MakeLayerNorm2dTestModule(0));
+
+    auto module = MakeLayerNorm2dTestModule(3);
+    CHECK_THROWS(module->Forward(torch::randn({ 2, 3, 4 }, torch::kFloat32)));
+    CHECK_THROWS(module->Forward(torch::randn({ 2, 4, 2, 2 }, torch::kFloat32)));
+}
+
+TEST_CASE("CNBlock preserves shape and exposes config", "[nn][cnblock]")
+{
+    auto module = MakeCNBlockTestModule(
+        /*channels=*/8,
+        /*droppath_rate=*/0.25,
+        /*layerscale_init=*/1.0e-6,
+        /*norm_type=*/"layernorm2d",
+        /*kernel_size=*/3,
+        /*ffn_expand_ratio=*/2);
+
+    torch::Tensor input = torch::randn({ 2, 8, 6, 6 }, torch::kFloat32);
+    module->eval();
+    torch::Tensor output = module->Forward(input);
+    CHECK(output.sizes() == input.sizes());
+
+    anet::ConfigData cd = module->GetCurrentConfigData();
+    CHECK(cd.Get("channels") == "8");
+    CHECK(cd.Get("kernel_size") == "3");
+    CHECK(cd.Get("ffn_expand_ratio") == "2");
+    CHECK(std::stod(cd.Get("layerscale_init")) == Catch::Approx(1.0e-6));
+    CHECK(std::stod(cd.Get("droppath_rate")) == Catch::Approx(0.25));
+    CHECK(cd.Get("norm_type") == "layernorm2d");
+    CHECK(cd.Get("in_channels") == "8");
+
+    auto gamma = GetNamedParameter(*module, "gamma");
+    CheckTensorClose(torch::full_like(gamma, 1.0e-6), gamma);
+
+    auto no_layerscale = MakeCNBlockTestModule(/*channels=*/8, /*droppath_rate=*/0.0, /*layerscale_init=*/0.0);
+    (void)no_layerscale->Forward(input);
+    CHECK_FALSE(HasKey(no_layerscale->named_parameters(true), "gamma"));
+}
+
+TEST_CASE("CNBlock DropPath is eval no-op and train can return shortcut", "[nn][cnblock]")
+{
+    auto baseline = MakeCNBlockTestModule(/*channels=*/8, /*droppath_rate=*/0.0, /*layerscale_init=*/1.0);
+    auto droppath = MakeCNBlockTestModule(/*channels=*/8, /*droppath_rate=*/0.5, /*layerscale_init=*/1.0);
+    torch::Tensor input = torch::randn({ 2, 8, 6, 6 }, torch::kFloat32);
+
+    baseline->eval();
+    droppath->eval();
+    (void)baseline->Forward(input);
+    (void)droppath->Forward(input);
+    CopyModuleState(*baseline, *droppath);
+
+    CheckTensorClose(baseline->Forward(input), droppath->Forward(input));
+
+    auto shortcut_only = MakeCNBlockTestModule(/*channels=*/8, /*droppath_rate=*/0.999, /*layerscale_init=*/1.0);
+    shortcut_only->train();
+    (void)shortcut_only->Forward(input);
+
+    bool saw_shortcut = false;
+    for (int seed = 1500; seed < 1510; ++seed) {
+        torch::manual_seed(seed);
+        torch::Tensor output = shortcut_only->Forward(input);
+        if (torch::allclose(input, output)) {
+            saw_shortcut = true;
+            break;
+        }
+    }
+    CHECK(saw_shortcut);
+}
+
+TEST_CASE("CNBlock CPU fallback supports backward", "[nn][cnblock]")
+{
+    auto module = MakeCNBlockTestModule(
+        /*channels=*/8,
+        /*droppath_rate=*/0.0,
+        /*layerscale_init=*/1.0,
+        /*norm_type=*/"layernorm2d",
+        /*kernel_size=*/3,
+        /*ffn_expand_ratio=*/2);
+    module->train();
+
+    torch::Tensor input = torch::randn({ 2, 8, 5, 5 }, torch::kFloat32);
+    input.requires_grad_(true);
+    torch::Tensor loss = module->Forward(input).pow(2).mean();
+    loss.backward();
+
+    CHECK(input.grad().defined());
+    CHECK(GetNamedParameter(*module, "gamma").grad().defined());
+    CHECK(GetNamedParameter(*module, "dwconv.weight").grad().defined());
+    CHECK(GetNamedParameter(*module, "pwconv1.weight").grad().defined());
+    CHECK(GetNamedParameter(*module, "pwconv2.weight").grad().defined());
+}
+
+TEST_CASE("CNBlock supports disabling norm and validates invalid settings", "[nn][cnblock]")
+{
+    torch::Tensor input = torch::randn({ 2, 8, 5, 5 }, torch::kFloat32) + 0.5;
+
+    auto with_norm = MakeCNBlockTestModule(
+        /*channels=*/8,
+        /*droppath_rate=*/0.0,
+        /*layerscale_init=*/1.0,
+        /*norm_type=*/"layernorm2d",
+        /*kernel_size=*/3,
+        /*ffn_expand_ratio=*/2,
+        /*constant_init=*/true);
+    auto without_norm = MakeCNBlockTestModule(
+        /*channels=*/8,
+        /*droppath_rate=*/0.0,
+        /*layerscale_init=*/1.0,
+        /*norm_type=*/"none",
+        /*kernel_size=*/3,
+        /*ffn_expand_ratio=*/2,
+        /*constant_init=*/true);
+
+    with_norm->eval();
+    without_norm->eval();
+    torch::Tensor norm_output = with_norm->Forward(input);
+    torch::Tensor no_norm_output = without_norm->Forward(input);
+    CHECK_FALSE(torch::allclose(norm_output, no_norm_output));
+    CHECK(without_norm->GetCurrentConfigData().Get("norm_type") == "none");
+
+    CHECK_THROWS(MakeCNBlockTestModule(/*channels=*/0));
+    CHECK_THROWS(MakeCNBlockTestModule(/*channels=*/3, /*droppath_rate=*/1.0));
+    CHECK_THROWS(MakeCNBlockTestModule(
+        /*channels=*/3,
+        /*droppath_rate=*/0.0,
+        /*layerscale_init=*/1.0e-6,
+        /*norm_type=*/"layernorm2d",
+        /*kernel_size=*/2));
+    CHECK_THROWS(MakeCNBlockTestModule(
+        /*channels=*/3,
+        /*droppath_rate=*/0.0,
+        /*layerscale_init=*/1.0e-6,
+        /*norm_type=*/"layernorm2d",
+        /*kernel_size=*/3,
+        /*ffn_expand_ratio=*/0));
+    CHECK_THROWS(MakeCNBlockTestModule(
+        /*channels=*/3,
+        /*droppath_rate=*/0.0,
+        /*layerscale_init=*/1.0e-6,
+        /*norm_type=*/"batch"));
+
+    auto channel_mismatch = MakeCNBlockTestModule(/*channels=*/3);
+    CHECK_THROWS(channel_mismatch->Forward(torch::randn({ 2, 4, 5, 5 }, torch::kFloat32)));
 }
 
 TEST_CASE("Network dot view emits structure by default and configurable details", "[nn][dot]")

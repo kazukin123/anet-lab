@@ -25,6 +25,10 @@ namespace anet::rl::dqn {
         explicit RainbowAgentConfig(const ConfigData& config_data = EmptyConfigData) : anet::Config(config_data, "RainbowAgent") {
             ANET_READ_CONFIG(config_data, head_init.mode);
             ANET_READ_CONFIG(config_data, head_init.manual_gain);
+            ANET_READ_CONFIG(config_data, head_init.constant_val);
+            ANET_READ_CONFIG(config_data, head_init.trunc_std);
+            ANET_READ_CONFIG(config_data, head_init.trunc_a);
+            ANET_READ_CONFIG(config_data, head_init.trunc_b);
             head_init.nonlinearity = "linear";
 
             ANET_READ_CONFIG(config_data, model.soft_update_tau);
