@@ -1,4 +1,5 @@
 ﻿// anet/str_util.hpp
+
 #pragma once
 
 #include <string>

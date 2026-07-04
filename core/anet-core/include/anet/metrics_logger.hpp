@@ -11,7 +11,7 @@
 #include <wx/image.h>
 #include <wx/process.h>
 #include <wx/app.h>
-#include <nlohmann/json.hpp>
+#include "anet/json_util.hpp"
 #include "anet/heat_map.hpp"
 #include "anet/config.hpp"
 #include "anet/graphviz.hpp"

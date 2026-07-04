@@ -20,6 +20,7 @@
 #include "anet/log.hpp"
 #include "anet/tensor_util.hpp"
 #include "anet/nn_util.hpp"
+#include "anet/util.hpp"
 
 
 using namespace anet::nn;

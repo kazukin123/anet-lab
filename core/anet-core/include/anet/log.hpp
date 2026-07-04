@@ -11,7 +11,6 @@
 #include <cstdio>
 #include <wx/log.h>
 #include <wx/debug.h>
-#include "anet/common.hpp"
 #include "anet/profile.hpp"
 
 

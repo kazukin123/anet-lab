@@ -2,10 +2,8 @@
 
 #pragma once
 
-#include <algorithm>
 #include <sstream>
 #include <string>
-#include <nlohmann/json.hpp>
 
 #if ANET_ENABLE_DEBUGINFO
 
@@ -72,14 +70,5 @@
 namespace anet {
 
     void ThrowError(const char* file, int line, const char* prefix, const char* cond, const std::string& msg = "");
-
-    using json = nlohmann::json;
-
-    json round_numbers(const json& j, int precision = 6);
-
-    template <typename Container, typename T>
-    inline bool Contains(const Container& container, const T& value) {
-        return std::find(container.begin(), container.end(), value) != container.end();
-    }
 
 } // namespace anet

@@ -1,4 +1,4 @@
-// anet/schedule.hpp
+﻿// anet/schedule.hpp
 
 #pragma once
 
@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 #include "anet/config.hpp"
+#include "anet/diag.hpp"
 
 namespace anet {
 

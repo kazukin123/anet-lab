@@ -6,6 +6,7 @@
 #include <wx/cmdline.h>
 #include "anet/app_util.hpp"
 #include "anet/common.hpp"
+#include "anet/json_util.hpp"
 #include "anet/str_util.hpp"
 #include "anet/log.hpp"
 

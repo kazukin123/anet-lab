@@ -9,6 +9,7 @@
 #include <wx/process.h>
 #include <wx/image.h>
 #include <wx/filename.h>
+#include "anet/json_util.hpp"
 #include "anet/log.hpp"
 #include "anet/str_util.hpp"
 #include "anet/profile.hpp"

@@ -14,6 +14,11 @@
 
 namespace anet {
 
+    template <typename Container, typename T>
+    inline bool Contains(const Container& container, const T& value) {
+        return std::find(container.begin(), container.end(), value) != container.end();
+    }
+
     // ============================================================
     // EmaFilter
     // ============================================================

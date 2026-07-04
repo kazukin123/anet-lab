@@ -13,6 +13,7 @@
 #include <vector>
 #include <torch/torch.h>
 #include "anet/diag.hpp"
+#include "anet/json_util.hpp"
 #include "anet/tensor_util.hpp"
 
 namespace anet {

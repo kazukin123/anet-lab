@@ -7,7 +7,7 @@
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
-#include <nlohmann/json.hpp>
+#include "anet/json_util.hpp"
 #include "anet/util.hpp"
 #include "anet/str_util.hpp"
 
