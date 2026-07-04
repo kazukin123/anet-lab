@@ -49,6 +49,21 @@ net.block.[ReS4].type = Reshape
 net.block.[ReS4].reshape.dims = 4 -1      # (N,32) -> (N,4,8)  ※4=stack_count、残り8次元は-1で追従
 
 
+net.block.[BN32].type = BatchNorm2d
+net.block.[BN32].num_features = 32
+
+net.block.[BN64].type = BatchNorm2d
+net.block.[BN64].num_features = 64
+
+net.block.[BN128].type = BatchNorm2d
+net.block.[BN128].num_features = 128
+
+net.block.[BN256].type = BatchNorm2d
+net.block.[BN256].num_features = 256
+
+net.block.[BN512].type = BatchNorm2d
+net.block.[BN512].num_features = 512
+
 # --- 活性化関数  ---
 
 net.block.[ReLU].type = ReLU
