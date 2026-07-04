@@ -1,6 +1,7 @@
 #include "catch.hpp"
 
 #include "anet/config.hpp"
+#include "anet/schedule.hpp"
 #include "anet/test_util.hpp"
 
 #include <filesystem>
@@ -49,6 +50,19 @@ void WriteConfig(const std::filesystem::path& path, std::initializer_list<std::s
         ofs << line << "\n";
     }
 }
+
+class ProfiledValueOwnerConfig final : public anet::Config {
+public:
+    anet::ProfiledValueConfig<double> learning_rate;
+
+    explicit ProfiledValueOwnerConfig(
+        const anet::ConfigData& config_data,
+        const std::string& config_prefix = "")
+        : anet::Config(config_data, "ImageClsAgent", config_prefix)
+    {
+        ANET_READ_CONFIG(config_data, learning_rate);
+    }
+};
 
 } // namespace
 
@@ -132,6 +146,94 @@ TEST_CASE("ConfigData Read warns for present invalid values only", "[config]")
         logs.Flush();
         CHECK(CountRecords(logs.Records(), wxLOG_Warning) == 0);
     }
+}
+
+TEST_CASE("Config reads ProfiledValueConfig root fields and phases", "[config][profiled_value]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("ImageClsAgent.learning_rate.type", std::string("phased"));
+    config_data.Set("ImageClsAgent.learning_rate.value", 0.5);
+    config_data.Set("ImageClsAgent.learning_rate.start", 0.0);
+    config_data.Set("ImageClsAgent.learning_rate.end", 1.0);
+    config_data.Set("ImageClsAgent.learning_rate.steps", 100);
+    config_data.Set("ImageClsAgent.learning_rate.cycle_mult", 2.0);
+    config_data.Set("ImageClsAgent.learning_rate.phases", std::string("warmup main"));
+
+    config_data.Set("ImageClsAgent.learning_rate.phase.[warmup].type", std::string("linear"));
+    config_data.Set("ImageClsAgent.learning_rate.phase.[warmup].start", 0.0);
+    config_data.Set("ImageClsAgent.learning_rate.phase.[warmup].end", 0.1);
+    config_data.Set("ImageClsAgent.learning_rate.phase.[warmup].steps", 10);
+
+    config_data.Set("ImageClsAgent.learning_rate.phase.[main].type", std::string("cosine"));
+    config_data.Set("ImageClsAgent.learning_rate.phase.[main].start", 0.1);
+    config_data.Set("ImageClsAgent.learning_rate.phase.[main].end", 0.01);
+    config_data.Set("ImageClsAgent.learning_rate.phase.[main].steps", 90);
+
+    ProfiledValueOwnerConfig config(config_data);
+
+    CHECK(config.learning_rate.type == "phased");
+    CHECK(config.learning_rate.value == Catch::Approx(0.5));
+    CHECK(config.learning_rate.start == Catch::Approx(0.0));
+    CHECK(config.learning_rate.end == Catch::Approx(1.0));
+    CHECK(config.learning_rate.steps == 100);
+    CHECK(config.learning_rate.cycle_mult == Catch::Approx(2.0));
+    const std::vector<std::string> expected_phases = { "warmup", "main" };
+    CHECK(config.learning_rate.phases == expected_phases);
+
+    REQUIRE(config.learning_rate.phase.Has("warmup"));
+    REQUIRE(config.learning_rate.phase.Has("main"));
+    const auto& warmup = config.learning_rate.phase.Get("warmup");
+    CHECK(warmup.type == "linear");
+    CHECK(warmup.start == Catch::Approx(0.0));
+    CHECK(warmup.end == Catch::Approx(0.1));
+    CHECK(warmup.steps == 10);
+
+    const auto& main = config.learning_rate.phase.Get("main");
+    CHECK(main.type == "cosine");
+    CHECK(main.start == Catch::Approx(0.1));
+    CHECK(main.end == Catch::Approx(0.01));
+    CHECK(main.steps == 90);
+
+    const auto json = config.ToJson();
+    CHECK(json.at("learning_rate.type") == "phased");
+    CHECK(json.at("learning_rate.value") == 0.5);
+    CHECK(json.at("learning_rate.phases") == anet::json::array({ "warmup", "main" }));
+    CHECK(json.at("learning_rate.phase.[warmup].type") == "linear");
+    CHECK(json.at("learning_rate.phase.[main].steps") == 90);
+
+    const auto config_string = config.ToConfigString();
+    CHECK(config_string.find("ImageClsAgent.learning_rate.type = phased") != std::string::npos);
+    CHECK(config_string.find("ImageClsAgent.learning_rate.phases = warmup main") != std::string::npos);
+    CHECK(config_string.find("ImageClsAgent.learning_rate.phase.[warmup].start = 0") != std::string::npos);
+    CHECK(config_string.find("ImageClsAgent.learning_rate.phase.[main].steps = 90") != std::string::npos);
+}
+
+TEST_CASE("Config ProfiledValueConfig override can switch type and keep dormant fields", "[config][profiled_value]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("ImageClsAgent.learning_rate.type", std::string("phased"));
+    config_data.Set("ImageClsAgent.learning_rate.phases", std::string("main"));
+
+    config_data.Set("ImageClsAgent.learning_rate.phase.[main].type", std::string("constant"));
+    config_data.Set("ImageClsAgent.learning_rate.phase.[main].value", 0.2);
+    config_data.Set("ImageClsAgent.learning_rate.phase.[main].start", 0.1);
+    config_data.Set("ImageClsAgent.learning_rate.phase.[main].end", 0.01);
+    config_data.Set("ImageClsAgent.learning_rate.phase.[main].steps", 100);
+
+    config_data.Set("Trial.learning_rate.phase.[main].type", std::string("cosine"));
+
+    ProfiledValueOwnerConfig config(config_data, "Trial");
+
+    REQUIRE(config.learning_rate.phase.Has("main"));
+    const auto& phase = config.learning_rate.phase.Get("main");
+    CHECK(phase.type == "cosine");
+    CHECK(phase.value == Catch::Approx(0.2));
+    CHECK(phase.start == Catch::Approx(0.1));
+    CHECK(phase.end == Catch::Approx(0.01));
+    CHECK(phase.steps == 100);
+
+    anet::ProfiledValue<double> value(config.learning_rate);
+    CHECK(value.Evaluate(50) == Catch::Approx(0.055));
 }
 
 TEST_CASE("ConfigManager loads trial main config with include and override", "[config]")

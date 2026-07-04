@@ -3,6 +3,7 @@
 #include <sstream>
 #include <fstream>
 #include <wx/string.h>
+#include <wx/cmdline.h>
 #include "anet/app_util.hpp"
 #include "anet/common.hpp"
 #include "anet/str_util.hpp"

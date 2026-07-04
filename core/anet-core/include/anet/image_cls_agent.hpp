@@ -7,6 +7,7 @@
 #include <torch/torch.h>
 #include "anet/rl.hpp"
 #include "anet/config.hpp"
+#include "anet/schedule.hpp"
 #include "anet/nn.hpp"
 #include "anet/agent.hpp"
 
@@ -16,7 +17,7 @@ namespace anet::rl::img_cls {
     // Config
     // ======================================================
     struct ImageClsAgentConfig : public anet::Config {
-        double learning_rate = 1e-3;
+        anet::ProfiledValueConfig<double> learning_rate;
         double weight_decay = 1e-4;
         double label_smoothing = 0.1;
         double grad_clip_max_norm = 1.0;
@@ -26,6 +27,7 @@ namespace anet::rl::img_cls {
         ImageClsAgentConfig(const anet::ConfigData& config_data = anet::EmptyConfigData, const std::string& config_prefix = "")
             : anet::Config(config_data, "ImageClsAgent", config_prefix)
         {
+            learning_rate.value = 1e-3;
             ANET_READ_CONFIG(config_data, learning_rate);
             ANET_READ_CONFIG(config_data, weight_decay);
             ANET_READ_CONFIG(config_data, label_smoothing);
@@ -100,6 +102,7 @@ namespace anet::rl::img_cls {
         ImageClsLearner(const ImageClsAgentConfig& config,
             std::shared_ptr<std::shared_mutex> mutex,
             std::shared_ptr<anet::nn::Network> network,
+            std::shared_ptr<anet::ProfiledValue<double>> learning_rate,
             torch::Device device);
 
         anet::rl::BatchUpdateResultList UpdateFromBatch(
@@ -110,6 +113,7 @@ namespace anet::rl::img_cls {
         const ImageClsAgentConfig config_;
         std::shared_ptr<std::shared_mutex> mutex_;
         std::shared_ptr<anet::nn::Network> network_;
+        std::shared_ptr<anet::ProfiledValue<double>> learning_rate_;
         std::unique_ptr<torch::optim::Optimizer> optimizer_;
         torch::Device device_;
     };
@@ -132,7 +136,7 @@ namespace anet::rl::img_cls {
 
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
 
-        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
 
@@ -141,6 +145,7 @@ namespace anet::rl::img_cls {
         const ImageClsAgentConfig config_;
         std::shared_ptr<std::shared_mutex> mutex_;
         std::shared_ptr<anet::nn::Network> network_;
+        std::shared_ptr<anet::ProfiledValue<double>> learning_rate_;
     };
 
 
@@ -161,4 +166,3 @@ namespace anet::rl::img_cls {
     };
 
 } // namespace anet::rl::img_cls
-

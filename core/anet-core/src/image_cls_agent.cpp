@@ -10,6 +10,15 @@ using namespace anet::rl::img_cls;
 namespace LOG = anet::log;
 
 
+static void SetAdamWLearningRate(torch::optim::Optimizer& optimizer, double learning_rate)
+{
+    for (auto& group : optimizer.param_groups()) {
+        auto& options = static_cast<torch::optim::AdamWOptions&>(group.options());
+        options.lr(learning_rate);
+    }
+}
+
+
 // ======================================================
 // Actor (データ運び屋 兼 GUI可視化用推論)
 // ======================================================
@@ -65,11 +74,19 @@ ImageClsLearner::ImageClsLearner(
     const ImageClsAgentConfig& config,
     std::shared_ptr<std::shared_mutex> mutex,
     std::shared_ptr<anet::nn::Network> network,
+    std::shared_ptr<anet::ProfiledValue<double>> learning_rate,
     torch::Device device)
-    : config_(config), mutex_(mutex), network_(network), device_(device)
+    : config_(config)
+    , mutex_(mutex)
+    , network_(network)
+    , learning_rate_(learning_rate)
+    , device_(device)
 {
     // Optimizerを構築
-    auto opt_options = torch::optim::AdamWOptions(config_.learning_rate).weight_decay(config_.weight_decay);
+    if (!learning_rate_) {
+        ANET_SYSTEM_ERROR("ImageClsLearner: learning_rate must not be null.");
+    }
+    auto opt_options = torch::optim::AdamWOptions(learning_rate_->Value()).weight_decay(config_.weight_decay);
     optimizer_ = std::make_unique<torch::optim::AdamW>(network_->parameters(), opt_options);
 }
 
@@ -116,6 +133,9 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
         torch::nn::utils::clip_grad_norm_(network_->parameters(), config_.grad_clip_max_norm);
 
         // Optimizerステップ
+        learning_rate_->Update(step.exp_step);
+        const double current_learning_rate = learning_rate_->Value();
+        SetAdamWLearningRate(*optimizer_, current_learning_rate);
         optimizer_->step();
     }
 
@@ -147,6 +167,7 @@ ImageClsAgent::ImageClsAgent(
     : anet::rl::AgentBase(device, batch_env_spec, env_spec, seed), config_(config)
 {
     mutex_ = std::make_shared<std::shared_mutex>();
+    learning_rate_ = std::make_shared<anet::ProfiledValue<double>>(config_.learning_rate);
 
     // ログ：パラメータ
     LOG::info() << "ImageClsAgent config=" << config_.ToString();
@@ -188,7 +209,17 @@ std::shared_ptr<anet::rl::Actor> ImageClsAgent::CreateActor(
 std::shared_ptr<anet::rl::Learner> ImageClsAgent::CreateLearner()
 {
     // Learnerの生成
-    return std::make_shared<ImageClsLearner>(config_, mutex_, network_, device_);
+    return std::make_shared<ImageClsLearner>(config_, mutex_, network_, learning_rate_, device_);
+}
+
+std::optional<float> ImageClsAgent::GetScalar(const std::string& key, int64_t index) const
+{
+    if (key == "learning_rate") {
+        std::shared_lock lock(*mutex_);
+        return static_cast<float>(learning_rate_->Value());
+    }
+
+    return std::nullopt;
 }
 
 

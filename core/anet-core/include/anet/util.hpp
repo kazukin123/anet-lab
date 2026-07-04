@@ -1,42 +1,22 @@
-﻿#pragma once
+﻿// anet/util.hpp
+
+#pragma once
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <string>
 #include <unordered_map>
 #include <vector>
 #include <utility>
 #include <type_traits>
-#include "anet/common.hpp"
-
-/**
- * @file ema_filter.h
- * @brief Exponential Moving Average (EMA) filter.
- *
- * 差分型 EMA を用いた滑らかな逐次平均フィルタ。
- * value ← value + α * (x - value)
- *
- * - `Set(x)` / `operator=(x)` は「この値から再開始」
- * - `Update(x)` は EMA 更新
- * - `Restart()` は履歴のみ破棄し、次の Update を初回扱いに戻す
- *
- * @code
- * #include "anet/ema_filter.h"
- *
- * int main() {
- *   anet::EmaFilter<float> ema;   // decay = 0.01
- *
- *   ema = 10.0f;       // 初期値セット
- *   ema.Update(12.0f);
- *   ema.Update(11.0f);
- *
- *   float a = ema;      // 暗黙読み取り
- *
- *   ema.Restart();      // 履歴破棄（値は残る）
- *   ema.Update(100.0f); // 再初回扱い → 100 から再スタート
- *
- *   float b = ema.Value();
- * }
- * @endcode
- */
+#include "anet/diag.hpp"
 
 namespace anet {
+
+    // ============================================================
+    // EmaFilter
+    // ============================================================
 
     /**
      * @brief Exponential Moving Average filter.
@@ -133,9 +113,11 @@ namespace anet {
         T value_{};      ///< 現在値。init_ == false の間は意味を持たない
     };
 
-    // ================================
+
+    // ============================================================
     // OrderedMap Iterator
-    // ================================
+    // ============================================================
+
     template<typename K, typename V>
     class OrderedMap;
 
@@ -183,9 +165,9 @@ namespace anet {
     };
 
 
-    // ================================
-    // OrderedMap 本体
-    // ================================
+    // ============================================================
+    // OrderedMap
+    // ============================================================
     template<typename K, typename V>
     class OrderedMap
     {
@@ -301,6 +283,7 @@ namespace anet {
         std::unordered_map<K, V> kv_;  // 高速検索
         std::vector<K> order_;        // 定義順保持
     };
+
 
     static std::unordered_map<std::string, std::string>
         MakeReverseMap(const std::unordered_map<std::string, std::string>& m)
