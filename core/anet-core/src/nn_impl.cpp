@@ -399,6 +399,51 @@ static ConfigProfilePtrMap CreateConfigProfileMap(
     return profiles;
 }
 
+static void ApplyConfigProfileConfigField(
+    ConfigProfileConfig& config,
+    const std::string& full_key,
+    const std::string& sub_key,
+    const std::string& value)
+{
+    if (sub_key == "type") {
+        config.type = value;
+        config.has_type = true;
+    } else if (sub_key == "start") {
+        config.start = ParseDoubleStrict(value, full_key);
+        config.has_start = true;
+    } else if (sub_key == "end") {
+        config.end = ParseDoubleStrict(value, full_key);
+        config.has_end = true;
+    } else {
+        ANET_SYSTEM_ERROR(
+            "Unknown config profile key: " << full_key
+            << ". Expected one of: type, start, end.");
+    }
+}
+
+static std::map<std::string, ConfigProfileConfig> MergeConfigProfileConfig(
+    const std::map<std::string, ConfigProfileConfig>& base_profiles,
+    const std::map<std::string, ConfigProfileConfig>& override_profiles)
+{
+    auto merged_profiles = base_profiles;
+    for (const auto& [tag, override_config] : override_profiles) {
+        auto& config = merged_profiles[tag];
+        if (override_config.has_type) {
+            config.type = override_config.type;
+            config.has_type = true;
+        }
+        if (override_config.has_start) {
+            config.start = override_config.start;
+            config.has_start = true;
+        }
+        if (override_config.has_end) {
+            config.end = override_config.end;
+            config.has_end = true;
+        }
+    }
+    return merged_profiles;
+}
+
 static std::map<std::string, ConfigProfileConfig> ReadConfigProfileConfig(
     const anet::ConfigData& config_data, const std::string& config_prefix)
 {
@@ -435,18 +480,7 @@ static std::map<std::string, ConfigProfileConfig> ReadConfigProfileConfig(
         // profile定義を読み取り、未知キーは後方互換せずに設定エラーとして扱う。
         for (const auto& [sub_key, value] : profile_map) {
             const std::string full_key = "net.config_profile.[" + tag + "]." + sub_key;
-            if (sub_key == "type") {
-                config.type = value;
-            } else if (sub_key == "start") {
-                config.start = ParseDoubleStrict(value, full_key);
-            } else if (sub_key == "end") {
-                config.end = ParseDoubleStrict(value, full_key);
-                config.has_end = true;
-            } else {
-                ANET_SYSTEM_ERROR(
-                    "Unknown config profile key: " << full_key
-                    << ". Expected one of: type, start, end.");
-            }
+            ApplyConfigProfileConfigField(config, full_key, sub_key, value);
         }
         // 読み取ったprofileを実装objectへ変換し、型固有の必須項目を検証する。
         auto profile = CreateConfigProfile(tag, config);
@@ -460,13 +494,25 @@ static std::map<std::string, ConfigProfileConfig> ReadConfigProfileConfig(
 static std::map<std::string, NetworkBranchConfig> ReadBranchConfig(const anet::ConfigData& config_data, const std::string& config_prefix)
 {
     std::map<std::string, NetworkBranchConfig> branches;
+    std::map<std::string, std::map<std::string, ConfigProfileConfig>> branch_config_profiles;
 
     std::string escaped_prefix = std::regex_replace(config_prefix, std::regex(R"(\.)"), R"(\.)");
     std::regex re_branch(escaped_prefix + R"(\.branch\.\[([^\]]+)\]\.(bind|structure|auto_format))");
+    std::regex re_branch_config_profile(
+        escaped_prefix + R"(\.branch\.\[([^\]]+)\]\.config_profile\.\[([^\]]+)\]\.(.+))");
     std::regex re_raw(R"(\(raw\))");
 
     for (const auto& [key, value] : config_data.Map()) {
         std::smatch m;
+        if (std::regex_match(key, m, re_branch_config_profile)) {
+            const std::string b_name = m[1].str();
+            const std::string tag = m[2].str();
+            const std::string sub_key = m[3].str();
+            auto& config = branch_config_profiles[b_name][tag];
+            ApplyConfigProfileConfigField(config, key, sub_key, value);
+            continue;
+        }
+
         if (std::regex_match(key, m, re_branch)) {
             std::string b_name = m[1].str();
             std::string b_prop = m[2].str();
@@ -497,6 +543,16 @@ static std::map<std::string, NetworkBranchConfig> ReadBranchConfig(const anet::C
                 branches[b_name].auto_format = (anet::ToLower(value) == "true" || value == "1");
             }
         }
+    }
+
+    for (auto& [b_name, config_profiles] : branch_config_profiles) {
+        auto it = branches.find(b_name);
+        if (it == branches.end()) {
+            ANET_SYSTEM_ERROR(
+                "Branch config_profile is specified for undefined branch '" << b_name
+                << "'. Define '" << config_prefix << ".branch.[" << b_name << "].bind' and 'structure' first.");
+        }
+        it->second.config_profiles = std::move(config_profiles);
     }
 
     // 「auto_format=false」の場合、全ての bind_keysを raw_keys を追加
@@ -578,6 +634,22 @@ anet::json NetworkConfig::ToJson() const
     // ブランチ情報はすべて出力
     for (const auto& [k, v] : branches) {
         j["branches"][k] = { {"bind_keys", v.bind_keys}, {"structure", v.structure_str}, {"raw_keys", v.raw_keys} };
+        if (!v.config_profiles.empty()) {
+            j["branches"][k]["config_profiles"] = anet::json::object();
+            for (const auto& [profile_name, profile_config] : v.config_profiles) {
+                auto profile_json = anet::json::object();
+                if (profile_config.has_type) {
+                    profile_json["type"] = profile_config.type;
+                }
+                if (profile_config.has_start) {
+                    profile_json["start"] = profile_config.start;
+                }
+                if (profile_config.has_end) {
+                    profile_json["end"] = profile_config.end;
+                }
+                j["branches"][k]["config_profiles"][profile_name] = std::move(profile_json);
+            }
+        }
     }
 
     // profile 定義は、展開後の per-block 実効値と合わせて dump から追えるようにする。
@@ -915,10 +987,11 @@ static ConfigProfileExpansionPlan MakeConfigProfileExpansionPlan(
 }
 
 static void ValidateConfigProfileExpansionPlan(
-    const NetworkConfig& root_config, const ConfigProfileExpansionPlan& plan)
+    const std::map<std::string, ConfigProfileConfig>& config_profiles,
+    const ConfigProfileExpansionPlan& plan)
 {
     for (const auto& [group_name, uses] : plan.group_uses) {
-        if (root_config.config_profiles.find(group_name) == root_config.config_profiles.end()) {
+        if (config_profiles.find(group_name) == config_profiles.end()) {
             const auto& use = uses.front();
             ANET_SYSTEM_ERROR(
                 "Undefined config profile group: @" << group_name
@@ -934,12 +1007,20 @@ static void ValidateConfigProfileExpansionPlan(
 std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
     const NetworkConfig& root_config, const std::string& structure_str)
 {
+    return Build(root_config, structure_str, root_config.config_profiles);
+}
+
+std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
+    const NetworkConfig& root_config,
+    const std::string& structure_str,
+    const std::map<std::string, ConfigProfileConfig>& config_profiles)
+{
     if (structure_str.empty()) return std::make_shared<NetworkStruct>();
 
     std::vector<std::shared_ptr<NetworkBlock>> blocks;
     const auto expansion_plan = MakeConfigProfileExpansionPlan(root_config, structure_str);
-    ValidateConfigProfileExpansionPlan(root_config, expansion_plan);
-    const auto config_profiles = CreateConfigProfileMap(root_config.config_profiles);
+    ValidateConfigProfileExpansionPlan(config_profiles, expansion_plan);
+    const auto profile_objects = CreateConfigProfileMap(config_profiles);
 
     std::map<std::string, int> type_counters;
 
@@ -957,7 +1038,7 @@ std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
             // 補間対象のinstanceだけConfigDataをコピーし、profile objectで実効値へ置換する。
             anet::ConfigData effective_config = block_cfg.config_data;
             for (const auto& marker : instance.markers) {
-                const auto& profile = *config_profiles.at(marker.group_name);
+                const auto& profile = *profile_objects.at(marker.group_name);
                 const size_t count = expansion_plan.group_uses.at(marker.group_name).size();
                 const double value = profile.GenerateValue(marker.group_index, count);
                 effective_config.Set(marker.field_key, FormatDoubleForConfig(value));
@@ -984,34 +1065,36 @@ std::shared_ptr<NetworkBody> NetworkBodyBuilder::Build(const NetworkConfig& conf
     std::map<std::string, int> in_degree;
     std::map<std::string, std::vector<std::string>> adj;
     std::vector<std::string> all_raw_keys;
-    std::map<std::string, std::string> config_profile_branch_by_group;
+    std::set<std::string> used_config_profile_groups;
 
-    // config_profileはbranch内スコープなので、同じgroupのbranch跨ぎ使用を先に検出する。
+    // config_profileはbranch内で展開し、branch-local overrideをglobal既定へ重ねる。
     for (const auto& [b_name, b_cfg] : config.branches) {
+        const auto effective_profiles = MergeConfigProfileConfig(config.config_profiles, b_cfg.config_profiles);
         const auto expansion_plan = MakeConfigProfileExpansionPlan(config, b_cfg.structure_str);
-        ValidateConfigProfileExpansionPlan(config, expansion_plan);
+        ValidateConfigProfileExpansionPlan(effective_profiles, expansion_plan);
         for (const auto& group_name : expansion_plan.used_groups) {
-            const auto [it, inserted] = config_profile_branch_by_group.emplace(group_name, b_name);
-            if (!inserted && it->second != b_name) {
-                ANET_SYSTEM_ERROR(
-                    "Config profile group @" << group_name
-                    << " is used by multiple branches: '" << it->second
-                    << "' and '" << b_name
-                    << "'. config_profile scope is branch-local.");
+            used_config_profile_groups.insert(group_name);
+        }
+        for (const auto& [group_name, profile] : b_cfg.config_profiles) {
+            (void)profile;
+            if (expansion_plan.used_groups.find(group_name) == expansion_plan.used_groups.end()) {
+                LOG::warn() << "net.branch.[" << b_name << "].config_profile.["
+                    << group_name << "] is defined but not used by that branch.";
             }
         }
     }
 
     for (const auto& [group_name, profile] : config.config_profiles) {
         (void)profile;
-        if (config_profile_branch_by_group.find(group_name) == config_profile_branch_by_group.end()) {
+        if (used_config_profile_groups.find(group_name) == used_config_profile_groups.end()) {
             LOG::warn() << "net.config_profile.[" << group_name << "] is defined but not used by any branch.";
         }
     }
 
     // 各ブランチの生成と初期化
     for (const auto& [b_name, b_cfg] : config.branches) {
-        auto engine = NetworkStructBuilder::Build(config, b_cfg.structure_str);
+        const auto effective_profiles = MergeConfigProfileConfig(config.config_profiles, b_cfg.config_profiles);
+        auto engine = NetworkStructBuilder::Build(config, b_cfg.structure_str, effective_profiles);
         all_branches[b_name] = std::make_shared<NetworkBranch>(b_name, b_cfg.bind_keys, engine);
         in_degree[b_name] = 0;
 

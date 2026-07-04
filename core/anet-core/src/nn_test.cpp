@@ -138,6 +138,18 @@ std::vector<double> GetDropoutRates(const std::shared_ptr<anet::nn::NetworkStruc
     return rates;
 }
 
+std::shared_ptr<anet::nn::NetworkStruct> GetBranchNetworkStruct(
+    const std::shared_ptr<anet::nn::NetworkBody>& body, const std::string& branch_name)
+{
+    for (const auto& branch : body->GetBranches()) {
+        if (branch->GetName() == branch_name) {
+            return branch->GetNetworkStruct();
+        }
+    }
+    FAIL("Branch not found: " << branch_name);
+    return nullptr;
+}
+
 anet::TensorSpec MakeConfigProfileVectorSpec()
 {
     anet::TensorSpec spec;
@@ -831,6 +843,42 @@ TEST_CASE("Network config profile returns start for a single marker", "[nn][conf
     CHECK(rates[0] == Catch::Approx(0.25).margin(1.0e-12));
 }
 
+TEST_CASE("Network config profile supports branch-local overrides", "[nn][config_profile]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Drop].type", std::string("Dropout"));
+    config_data.Set("net.block.[Drop].dropout_rate", std::string("@dp"));
+    config_data.Set("net.config_profile.[dp].type", std::string("linear"));
+    config_data.Set("net.config_profile.[dp].start", 0.25);
+    config_data.Set("net.config_profile.[dp].end", 0.5);
+    config_data.Set("net.branch.[base].bind", std::string("obs"));
+    config_data.Set("net.branch.[base].structure", std::string("Drop(*2)"));
+    config_data.Set("net.branch.[wide].bind", std::string("obs"));
+    config_data.Set("net.branch.[wide].structure", std::string("Drop(*2)"));
+    config_data.Set("net.branch.[wide].config_profile.[dp].end", 0.75);
+
+    anet::nn::NetworkConfig config(config_data);
+    const auto json = config.ToJson();
+    CHECK(json.at("branches").at("wide").at("config_profiles").at("dp").at("end") == 0.75);
+
+    anet::TensorSpecMap input_specs;
+    input_specs["obs"] = MakeConfigProfileVectorSpec();
+    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs);
+    REQUIRE(body);
+
+    const auto base_rates = GetDropoutRates(GetBranchNetworkStruct(body, "base"));
+    REQUIRE(base_rates.size() == 2);
+    CHECK(base_rates[0] == Catch::Approx(0.25).margin(1.0e-12));
+    CHECK(base_rates[1] == Catch::Approx(0.5).margin(1.0e-12));
+
+    const auto wide_rates = GetDropoutRates(GetBranchNetworkStruct(body, "wide"));
+    REQUIRE(wide_rates.size() == 2);
+    CHECK(wide_rates[0] == Catch::Approx(0.25).margin(1.0e-12));
+    CHECK(wide_rates[1] == Catch::Approx(0.75).margin(1.0e-12));
+}
+
 TEST_CASE("Network config profile leaves marker-free branches on original config", "[nn][config_profile]")
 {
     EnsureNNInitialized();
@@ -888,7 +936,7 @@ TEST_CASE("Network config profile rejects invalid marker settings", "[nn][config
     CHECK_THROWS(anet::nn::NetworkConfig(unknown_type));
 }
 
-TEST_CASE("Network config profile rejects branch-crossing groups", "[nn][config_profile]")
+TEST_CASE("Network config profile expands same group independently per branch", "[nn][config_profile]")
 {
     EnsureNNInitialized();
 
@@ -901,16 +949,28 @@ TEST_CASE("Network config profile rejects branch-crossing groups", "[nn][config_
     config_data.Set("net.config_profile.[dp].start", 0.0);
     config_data.Set("net.config_profile.[dp].end", 0.5);
     config_data.Set("net.branch.[feature_a].bind", std::string("obs_a"));
-    config_data.Set("net.branch.[feature_a].structure", std::string("A"));
+    config_data.Set("net.branch.[feature_a].structure", std::string("A(*2)"));
     config_data.Set("net.branch.[feature_b].bind", std::string("obs_b"));
-    config_data.Set("net.branch.[feature_b].structure", std::string("B"));
+    config_data.Set("net.branch.[feature_b].structure", std::string("B(*3)"));
 
     anet::nn::NetworkConfig config(config_data);
     anet::TensorSpecMap input_specs;
     input_specs["obs_a"] = MakeConfigProfileVectorSpec();
     input_specs["obs_b"] = MakeConfigProfileVectorSpec();
 
-    CHECK_THROWS(anet::nn::NetworkBodyBuilder::Build(config, input_specs));
+    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs);
+    REQUIRE(body);
+
+    const auto a_rates = GetDropoutRates(GetBranchNetworkStruct(body, "feature_a"));
+    REQUIRE(a_rates.size() == 2);
+    CHECK(a_rates[0] == Catch::Approx(0.0).margin(1.0e-12));
+    CHECK(a_rates[1] == Catch::Approx(0.5).margin(1.0e-12));
+
+    const auto b_rates = GetDropoutRates(GetBranchNetworkStruct(body, "feature_b"));
+    REQUIRE(b_rates.size() == 3);
+    CHECK(b_rates[0] == Catch::Approx(0.0).margin(1.0e-12));
+    CHECK(b_rates[1] == Catch::Approx(0.25).margin(1.0e-12));
+    CHECK(b_rates[2] == Catch::Approx(0.5).margin(1.0e-12));
 }
 
 TEST_CASE("Network SoftCopyTo blends parameters and floating buffers", "[nn][soft-copy]")

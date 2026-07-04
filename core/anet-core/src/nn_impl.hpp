@@ -176,6 +176,10 @@ namespace anet::nn {
         /// @brief Config全体と、パース対象の構造文字列を受け取り、NetworkStructを構築する
         static std::shared_ptr<NetworkStruct> Build(
             const NetworkConfig& root_config, const std::string& structure_str);
+        static std::shared_ptr<NetworkStruct> Build(
+            const NetworkConfig& root_config,
+            const std::string& structure_str,
+            const std::map<std::string, ConfigProfileConfig>& config_profiles);
     };
 
 
