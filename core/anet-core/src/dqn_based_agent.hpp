@@ -517,7 +517,7 @@ namespace anet::rl::dqn {
             const torch::Tensor& q_gap = torch::Tensor(),
             const torch::Tensor& q_gap_rel = torch::Tensor()) const;
     private:
-        bool CanUpdate(step_t exp_step) const;
+        bool CanUpdate(step_t exp_step);
         void UpdatePerBeta(step_t step);
         void UpdateTargetNetwork(step_t step);
         void ValidateDeviceSamples(const anet::rl::ExperienceSamples& samples, int64_t batch_size) const;
@@ -539,6 +539,8 @@ namespace anet::rl::dqn {
         anet::transfer::EventRecycler<torch::Tensor> per_priority_event_recycler_;
     protected:
         float update_credit_ = 0.0f;
+    private:
+        bool has_enough_replay_samples_ = false;
     };
 
     class QuantileLearnerBase : public anet::rl::dqn::Learner {

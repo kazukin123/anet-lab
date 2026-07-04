@@ -1268,15 +1268,20 @@ void Learner::UpdatePerBeta(step_t step)
     }
 }
 
-bool Learner::CanUpdate(step_t exp_step) const
+bool Learner::CanUpdate(step_t exp_step)
 {
     // warmup
     if (config_.update_warmup_steps > 0 && exp_step < config_.update_warmup_steps)
         return false;
 
     // ReplayBufferのサイズがminibatchサイズに満たない場合はスキップ（N-STEPであり得る）
-    if (replay_buffer_->Size() < config_.replay_batch_size)
-        return false;
+    // 一度 minibatch サイズに到達した後は sampleable count が閾値未満へ戻らない前提で、
+    // 高コストな Size() 再走査を避ける。
+    if (!has_enough_replay_samples_) {
+        if (replay_buffer_->Size() < config_.replay_batch_size)
+            return false;
+        has_enough_replay_samples_ = true;
+    }
 
     return true;
 }

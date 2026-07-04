@@ -179,15 +179,34 @@ class RecordingReplayBuffer final : public rl::ReplayBuffer {
 public:
     void Push(const rl::BatchExperience&) override
     {
+        ++push_count;
     }
 
-    void Sample(rl::ExperienceSamples&, int64_t, float) const override
+    void Sample(rl::ExperienceSamples& out_samples, int64_t minibatch_size, float) const override
     {
+        ++sample_count;
+
+        out_samples.obs = anet::TensorDict{
+            { kVectorKey, torch::zeros({ minibatch_size, 2 }, torch::TensorOptions().dtype(torch::kFloat32)) },
+        };
+        out_samples.actions = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kInt64));
+        out_samples.target_returns = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kFloat32));
+        out_samples.next_state.next_obs = anet::TensorDict{
+            { kVectorKey, torch::zeros({ minibatch_size, 2 }, torch::TensorOptions().dtype(torch::kFloat32)) },
+        };
+        out_samples.next_state.terminals = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kBool));
+        out_samples.n_steps = torch::ones({ minibatch_size }, torch::TensorOptions().dtype(torch::kInt64));
+        out_samples.indices = torch::arange(minibatch_size, torch::TensorOptions().dtype(torch::kInt64));
+        out_samples.is_weights = torch::ones({ minibatch_size }, torch::TensorOptions().dtype(torch::kFloat32));
+        out_samples.per_is_initial_priority = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kBool));
     }
 
     int64_t Size() const override
     {
-        return 0;
+        ++size_count;
+        if (size_values.empty()) return 0;
+        if (size_index >= size_values.size()) return size_values.back();
+        return size_values[size_index++];
     }
 
     void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override
@@ -212,9 +231,23 @@ public:
         return std::nullopt;
     }
 
+    void SetSizeValues(std::vector<int64_t> values)
+    {
+        size_values = std::move(values);
+        size_index = 0;
+        size_count = 0;
+    }
+
     std::vector<int64_t> last_indices;
     std::vector<float> last_priorities;
+    int push_count = 0;
+    mutable int sample_count = 0;
+    mutable int size_count = 0;
     int update_count = 0;
+
+private:
+    std::vector<int64_t> size_values;
+    mutable size_t size_index = 0;
 };
 
 std::vector<int64_t> ShapeOf(const torch::Tensor& tensor)
@@ -1080,6 +1113,48 @@ TEST_CASE("TBO real-space q scalars are exposed from batch update result", "[dqn
         per_info);
     CHECK(off_result->GetScalar("q_max_real_mean", -1).has_value());
     CHECK(off_result->GetScalar("q_sa_real_mean", -1).has_value());
+}
+
+TEST_CASE("Learner stops polling replay buffer size after minibatch threshold is reached", "[dqn][replay_buffer][performance]")
+{
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 2;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = -1.0f;
+
+    auto env_spec = MakeLearnerEnvSpec();
+    TestNetworkModel model;
+    dqn::RuntimeVars vars;
+    rl::BatchEnvSpec batch_env_spec{ 1, 1 };
+    TestLearner learner(config, model, vars, batch_env_spec, env_spec);
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 0, config.replay_batch_size, 0 });
+    learner.UseReplayBuffer(replay_buffer);
+
+    auto make_counts = [&vars](rl::step_t step) {
+        rl::StepCounts counts;
+        counts.train_step = step;
+        counts.exp_step = step;
+        counts.learn_step = vars.learn_step;
+        return counts;
+    };
+
+    auto cold_result = learner.UpdateFromBatch(make_counts(0), MakeDeterminismExperience(0, 1));
+    REQUIRE(cold_result.empty());
+    REQUIRE(replay_buffer->size_count == 1);
+    REQUIRE(replay_buffer->sample_count == 0);
+
+    auto first_update = learner.UpdateFromBatch(make_counts(1), MakeDeterminismExperience(1, 1));
+    REQUIRE(first_update.size() == 1);
+    REQUIRE(replay_buffer->size_count == 2);
+    REQUIRE(replay_buffer->sample_count == 1);
+
+    auto latched_update = learner.UpdateFromBatch(make_counts(2), MakeDeterminismExperience(2, 1));
+    REQUIRE(latched_update.size() == 1);
+    REQUIRE(replay_buffer->size_count == 2);
+    REQUIRE(replay_buffer->sample_count == 2);
+    REQUIRE(replay_buffer->push_count == 3);
 }
 
 TEST_CASE("PER priority prepare/apply updates replay buffer from CPU materialized priorities", "[dqn][per]")
