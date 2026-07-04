@@ -8,8 +8,8 @@ app.$ = app.online > P
 
 train.seed = 1
 
-train.num_envs = 256
-#train.num_envs = 128
+#train.num_envs = 256
+train.num_envs = 128
 #train.num_envs = 16
 #train.num_envs = 10
 #train.num_envs = 1
@@ -19,7 +19,7 @@ ImageClsEnv.$ = ImageClsEnv.baseline > E
 #net.branch.[main_feature].$ = net.branch.FoodResNet13      # 44%
 #net.branch.[main_feature].$ = net.branch.FoodResNet13_GAP  # 61% 1.3h
 #net.branch.[main_feature].$ = net.branch.ResNet18          # 67% 1.5h
-#net.branch.[main_feature].$ = net.branch.ResNet18ish_hr     # 77% 2.5h
+net.branch.[main_feature].$ = net.branch.ResNet18ish_hr     # 77% 2.5h
 #net.branch.[main_feature].$ = net.branch.ResNet18ish_mr    # 73% 1.5h
 #net.branch.[main_feature].$ = net.branch.ResNet18ish_MaxPool
 #net.branch.[main_feature].$ = net.branch.ResNet18ish_std
@@ -27,9 +27,10 @@ ImageClsEnv.$ = ImageClsEnv.baseline > E
 #net.branch.[main_feature].$ = net.branch.Hybrid_GAP        # 56%
 #net.branch.[main_feature].$ = net.branch.ViT_S16_CLS       # 37%
 #net.branch.[main_feature].$ = net.branch.ViT_S16_GAP       # 43%
-net.branch.[main_feature].$ = net.branch.ConvNeXtFemto
-#net.branch.[main_feature].$ = net.branch.ConvNeXtNano
 #net.branch.[main_feature].$ = net.branch.ConvNeXtTiny
+#net.branch.[main_feature].$ = net.branch.ConvNeXtNano
+#net.branch.[main_feature].$ = net.branch.ConvNeXtFemto
+$net.branch.[main_feature].$ = net.branch.ConvNeXtAtto
 
 
 # ==============================================================================
@@ -37,13 +38,12 @@ net.branch.[main_feature].$ = net.branch.ConvNeXtFemto
 # ==============================================================================
 
 #app.run_name = run_{t}_imgcls
-#app.run_name = run_{t}_imgcls_ResNet18ish_hr
+app.run_name = run_{t}_imgcls_ResNet18ish_hr
 #app.run_name = run_{t}_imgcls_cn-femto
 #app.run_name = run_{t}_imgcls_cn-nano
 #app.run_name = run_{t}_imgcls_cn-femto_dp03
-app.run_name = run_{t}_imgcls_cn-femto_dp03rs05
-
-E.augment.rrc_scale_min = 0.5        # RandomResizedCrop の面積比下限
+#app.run_name = run_{t}_imgcls_cn-atto
+#app.run_name = run_{t}_imgcls_cn-atto_s2
 
 
 # ==============================================================================
@@ -63,7 +63,10 @@ E.augment.rrc_scale_min = 0.5        # RandomResizedCrop の面積比下限
 # ステップ数 依存設定
 # ==============================================================================
 
-app.online.exp_pause_step  = 10,000,000      # 10M
+#app.online.exp_pause_step  = 10,000,000      # 10M
+app.online.exp_pause_step  = 15,000,000      # 15M
+#app.online.exp_pause_step  = 20,000,000      # 20M
+#app.online.exp_pause_step  = 30,000,000      # 30M
 #app.online.exp_pause_step  = 100,000,000      # 100M
 
 app.batchrun.exp_exit_step  = 160,000,000     # 160M
@@ -73,8 +76,23 @@ app.batchrun.exp_exit_step  = 160,000,000     # 160M
 # Env依存 Agent設定
 # ==============================================================================
 
-#ImageClsAgent.learning_rate = 5e-4
-ImageClsAgent.learning_rate = 1e-3
+ImageClsAgent.learning_rate.type = phased
+ImageClsAgent.learning_rate.phases = warmup main_cosine
+
+ImageClsAgent.learning_rate.phase.[warmup].type  = linear
+ImageClsAgent.learning_rate.phase.[warmup].start = 0
+ImageClsAgent.learning_rate.phase.[warmup].end   = 1e-3
+ImageClsAgent.learning_rate.phase.[warmup].steps = 500,000
+
+ImageClsAgent.learning_rate.phase.[main_const].type  = constant
+ImageClsAgent.learning_rate.phase.[main_const].value = 1e-3
+
+ImageClsAgent.learning_rate.phase.[main_cosine].type  = cosine
+ImageClsAgent.learning_rate.phase.[main_cosine].start = 1e-3
+ImageClsAgent.learning_rate.phase.[main_cosine].end   = 1e-5
+ImageClsAgent.learning_rate.phase.[main_cosine].steps = 14,500,000
+
+
 ImageClsAgent.weight_decay = 0.05
 #ImageClsAgent.weight_decay = 0.1
 
@@ -94,6 +112,17 @@ ImageClsAgent.nn_viz.float_precision = 3
 # NN
 # ==============================================================================
 
+$include <nn_cnx.txt>
+
+net.block.[CStemConv40].conv.stride  = 2      # 4→2 高解像度
+net.block.[CStemConv40].conv.padding = 1      # 0→1（k=4,s=2,p=1 で 224→112 clean）
+
+net.block.[CStemConv48].conv.stride  = 2      # 4→2 高解像度
+net.block.[CStemConv48].conv.padding = 1      # 0→1（k=4,s=2,p=1 で 224→112 clean）
+
+net.config_profile.[cnx_dp01].end = 0.3
+
+
 net.block.[LinearOut].type = Linear
 net.block.[LinearOut].linear.out_features = 101
 net.block.[LinearOut].init.mode = he
@@ -105,22 +134,6 @@ net.block.[Drop].dropout_rate = 0.5
 
 net.block.[DropHead].type = Dropout
 net.block.[DropHead].dropout_rate = 0.2
-
-
-net.block.[BN32].type = BatchNorm2d
-net.block.[BN32].num_features = 32
-
-net.block.[BN64].type = BatchNorm2d
-net.block.[BN64].num_features = 64
-
-net.block.[BN128].type = BatchNorm2d
-net.block.[BN128].num_features = 128
-
-net.block.[BN256].type = BatchNorm2d
-net.block.[BN256].num_features = 256
-
-net.block.[BN512].type = BatchNorm2d
-net.block.[BN512].num_features = 512
 
 
 net.block.[ConvInit32].type = Conv2d
@@ -346,223 +359,6 @@ net.block.[TransEnc_H256].tf.attn_dropout_rate = 0.0
 net.block.[TransEnc_H256].tf.droppath_rate = 0.1
 
 
-net.block.[CTinyStemConv].type = Conv2d
-net.block.[CTinyStemConv].conv.out_channels = 96
-net.block.[CTinyStemConv].conv.kernel_size = 4
-net.block.[CTinyStemConv].conv.stride = 4
-net.block.[CTinyStemConv].conv.padding = 0
-net.block.[CTinyStemConv].init.mode = trunc_normal
-
-net.block.[CTinyStemLN].type = LayerNorm2d
-net.block.[CTinyStemLN].num_channels = 96
-net.block.[CTinyStemLN].eps = 1e-6
-
-net.block.[CTinyDownLN96].type = LayerNorm2d
-net.block.[CTinyDownLN96].num_channels = 96
-net.block.[CTinyDownLN96].eps = 1e-6
-
-net.block.[CTinyDownConv96to192].type = Conv2d
-net.block.[CTinyDownConv96to192].conv.out_channels = 192
-net.block.[CTinyDownConv96to192].conv.kernel_size = 2
-net.block.[CTinyDownConv96to192].conv.stride = 2
-net.block.[CTinyDownConv96to192].conv.padding = 0
-net.block.[CTinyDownConv96to192].init.mode = trunc_normal
-
-net.block.[CTinyDownLN192].type = LayerNorm2d
-net.block.[CTinyDownLN192].num_channels = 192
-net.block.[CTinyDownLN192].eps = 1e-6
-
-net.block.[CTinyDownConv192to384].type = Conv2d
-net.block.[CTinyDownConv192to384].conv.out_channels = 384
-net.block.[CTinyDownConv192to384].conv.kernel_size = 2
-net.block.[CTinyDownConv192to384].conv.stride = 2
-net.block.[CTinyDownConv192to384].conv.padding = 0
-net.block.[CTinyDownConv192to384].init.mode = trunc_normal
-
-net.block.[CTinyDownLN384].type = LayerNorm2d
-net.block.[CTinyDownLN384].num_channels = 384
-net.block.[CTinyDownLN384].eps = 1e-6
-
-net.block.[CTinyDownConv384to768].type = Conv2d
-net.block.[CTinyDownConv384to768].conv.out_channels = 768
-net.block.[CTinyDownConv384to768].conv.kernel_size = 2
-net.block.[CTinyDownConv384to768].conv.stride = 2
-net.block.[CTinyDownConv384to768].conv.padding = 0
-net.block.[CTinyDownConv384to768].init.mode = trunc_normal
-
-net.block.[CTiny96].type = CNBlock
-net.block.[CTiny96].cn.channels = 96
-net.block.[CTiny96].cn.droppath_rate = @ctiny_dp01
-
-net.block.[CTiny192].type = CNBlock
-net.block.[CTiny192].cn.channels = 192
-net.block.[CTiny192].cn.droppath_rate = @ctiny_dp01
-
-net.block.[CTiny384].type = CNBlock
-net.block.[CTiny384].cn.channels = 384
-net.block.[CTiny384].cn.droppath_rate = @ctiny_dp01
-
-net.block.[CTiny768].type = CNBlock
-net.block.[CTiny768].cn.channels = 768
-net.block.[CTiny768].cn.droppath_rate = @ctiny_dp01
-
-net.config_profile.[ctiny_dp01].type = linear
-net.config_profile.[ctiny_dp01].start = 0.0
-net.config_profile.[ctiny_dp01].end = 0.1
-
-net.block.[CTinyLayerNormHead].type = LayerNorm
-net.block.[CTinyLayerNormHead].normalized_shape = 768
-net.block.[CTinyLayerNormHead].eps = 1e-6
-
-net.block.[CTinyLinearOut].type = Linear
-net.block.[CTinyLinearOut].linear.out_features = 101
-net.block.[CTinyLinearOut].init.mode = trunc_normal
-
-net.block.[CNanoStemConv].type = Conv2d
-net.block.[CNanoStemConv].conv.out_channels = 80
-net.block.[CNanoStemConv].conv.kernel_size = 4
-net.block.[CNanoStemConv].conv.stride = 4
-net.block.[CNanoStemConv].conv.padding = 0
-net.block.[CNanoStemConv].init.mode = trunc_normal
-
-net.block.[CNanoStemLN].type = LayerNorm2d
-net.block.[CNanoStemLN].num_channels = 80
-net.block.[CNanoStemLN].eps = 1e-6
-
-net.block.[CNanoDownLN80].type = LayerNorm2d
-net.block.[CNanoDownLN80].num_channels = 80
-net.block.[CNanoDownLN80].eps = 1e-6
-
-net.block.[CNanoDownConv80to160].type = Conv2d
-net.block.[CNanoDownConv80to160].conv.out_channels = 160
-net.block.[CNanoDownConv80to160].conv.kernel_size = 2
-net.block.[CNanoDownConv80to160].conv.stride = 2
-net.block.[CNanoDownConv80to160].conv.padding = 0
-net.block.[CNanoDownConv80to160].init.mode = trunc_normal
-
-net.block.[CNanoDownLN160].type = LayerNorm2d
-net.block.[CNanoDownLN160].num_channels = 160
-net.block.[CNanoDownLN160].eps = 1e-6
-
-net.block.[CNanoDownConv160to320].type = Conv2d
-net.block.[CNanoDownConv160to320].conv.out_channels = 320
-net.block.[CNanoDownConv160to320].conv.kernel_size = 2
-net.block.[CNanoDownConv160to320].conv.stride = 2
-net.block.[CNanoDownConv160to320].conv.padding = 0
-net.block.[CNanoDownConv160to320].init.mode = trunc_normal
-
-net.block.[CNanoDownLN320].type = LayerNorm2d
-net.block.[CNanoDownLN320].num_channels = 320
-net.block.[CNanoDownLN320].eps = 1e-6
-
-net.block.[CNanoDownConv320to640].type = Conv2d
-net.block.[CNanoDownConv320to640].conv.out_channels = 640
-net.block.[CNanoDownConv320to640].conv.kernel_size = 2
-net.block.[CNanoDownConv320to640].conv.stride = 2
-net.block.[CNanoDownConv320to640].conv.padding = 0
-net.block.[CNanoDownConv320to640].init.mode = trunc_normal
-
-net.block.[CNano80].type = CNBlock
-net.block.[CNano80].cn.channels = 80
-net.block.[CNano80].cn.droppath_rate = @cnano_dp01
-
-net.block.[CNano160].type = CNBlock
-net.block.[CNano160].cn.channels = 160
-net.block.[CNano160].cn.droppath_rate = @cnano_dp01
-
-net.block.[CNano320].type = CNBlock
-net.block.[CNano320].cn.channels = 320
-net.block.[CNano320].cn.droppath_rate = @cnano_dp01
-
-net.block.[CNano640].type = CNBlock
-net.block.[CNano640].cn.channels = 640
-net.block.[CNano640].cn.droppath_rate = @cnano_dp01
-
-net.config_profile.[cnano_dp01].type = linear
-net.config_profile.[cnano_dp01].start = 0.0
-net.config_profile.[cnano_dp01].end = 0.1
-
-net.block.[CNanoLayerNormHead].type = LayerNorm
-net.block.[CNanoLayerNormHead].normalized_shape = 640
-net.block.[CNanoLayerNormHead].eps = 1e-6
-
-net.block.[CNanoLinearOut].type = Linear
-net.block.[CNanoLinearOut].linear.out_features = 101
-net.block.[CNanoLinearOut].init.mode = trunc_normal
-
-net.block.[CFemtoStemConv].type = Conv2d
-net.block.[CFemtoStemConv].conv.out_channels = 48
-net.block.[CFemtoStemConv].conv.kernel_size = 4
-net.block.[CFemtoStemConv].conv.stride = 4
-net.block.[CFemtoStemConv].conv.padding = 0
-net.block.[CFemtoStemConv].init.mode = trunc_normal
-
-net.block.[CFemtoStemLN].type = LayerNorm2d
-net.block.[CFemtoStemLN].num_channels = 48
-net.block.[CFemtoStemLN].eps = 1e-6
-
-net.block.[CFemtoDownLN48].type = LayerNorm2d
-net.block.[CFemtoDownLN48].num_channels = 48
-net.block.[CFemtoDownLN48].eps = 1e-6
-
-net.block.[CFemtoDownConv48to96].type = Conv2d
-net.block.[CFemtoDownConv48to96].conv.out_channels = 96
-net.block.[CFemtoDownConv48to96].conv.kernel_size = 2
-net.block.[CFemtoDownConv48to96].conv.stride = 2
-net.block.[CFemtoDownConv48to96].conv.padding = 0
-net.block.[CFemtoDownConv48to96].init.mode = trunc_normal
-
-net.block.[CFemtoDownLN96].type = LayerNorm2d
-net.block.[CFemtoDownLN96].num_channels = 96
-net.block.[CFemtoDownLN96].eps = 1e-6
-
-net.block.[CFemtoDownConv96to192].type = Conv2d
-net.block.[CFemtoDownConv96to192].conv.out_channels = 192
-net.block.[CFemtoDownConv96to192].conv.kernel_size = 2
-net.block.[CFemtoDownConv96to192].conv.stride = 2
-net.block.[CFemtoDownConv96to192].conv.padding = 0
-net.block.[CFemtoDownConv96to192].init.mode = trunc_normal
-
-net.block.[CFemtoDownLN192].type = LayerNorm2d
-net.block.[CFemtoDownLN192].num_channels = 192
-net.block.[CFemtoDownLN192].eps = 1e-6
-
-net.block.[CFemtoDownConv192to384].type = Conv2d
-net.block.[CFemtoDownConv192to384].conv.out_channels = 384
-net.block.[CFemtoDownConv192to384].conv.kernel_size = 2
-net.block.[CFemtoDownConv192to384].conv.stride = 2
-net.block.[CFemtoDownConv192to384].conv.padding = 0
-net.block.[CFemtoDownConv192to384].init.mode = trunc_normal
-
-net.block.[CFemto48].type = CNBlock
-net.block.[CFemto48].cn.channels = 48
-net.block.[CFemto48].cn.droppath_rate = @cfemto_dp01
-
-net.block.[CFemto96].type = CNBlock
-net.block.[CFemto96].cn.channels = 96
-net.block.[CFemto96].cn.droppath_rate = @cfemto_dp01
-
-net.block.[CFemto192].type = CNBlock
-net.block.[CFemto192].cn.channels = 192
-net.block.[CFemto192].cn.droppath_rate = @cfemto_dp01
-
-net.block.[CFemto384].type = CNBlock
-net.block.[CFemto384].cn.channels = 384
-net.block.[CFemto384].cn.droppath_rate = @cfemto_dp01
-
-net.config_profile.[cfemto_dp01].type = linear
-net.config_profile.[cfemto_dp01].start = 0.0
-net.config_profile.[cfemto_dp01].end = 0.3
-#net.config_profile.[cfemto_dp01].end = 0.1
-
-net.block.[CFemtoLayerNormHead].type = LayerNorm
-net.block.[CFemtoLayerNormHead].normalized_shape = 384
-net.block.[CFemtoLayerNormHead].eps = 1e-6
-
-net.block.[CFemtoLinearOut].type = Linear
-net.block.[CFemtoLinearOut].linear.out_features = 101
-net.block.[CFemtoLinearOut].init.mode = trunc_normal
-
 
 net.branch.FoodResNet13.bind = grid
 net.branch.FoodResNet13.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > Flatten > Drop > LinearOut
@@ -580,7 +376,6 @@ net.branch.ResNet18ish_std.bind = grid
 net.branch.ResNet18ish_std.structure   = ConvInit64 > BN64 > SiLU > ConvDown64 > BN64 > SiLU > ResBlock64(*2) > ResBlock128s2 > ResBlock128 > ResBlock256s2 > ResBlock256 > ResBlock512s2 > ResBlock512 > GAP2D > DropHead > LinearOut
 
 net.branch.ResNet18ish_hr.bind = grid
-#net.branch.ResNet18ish_hr.structure = ConvInit64 > BN64 > SiLU > ResBlock64(*2) > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > ConvDown512 > BN512 > SiLU > ResBlock512(*2) > GAP2D > LinearOut
 net.branch.ResNet18ish_hr.structure = ConvInit64 > BN64 > SiLU > ResBlock64(*2) > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > ConvDown512 > BN512 > SiLU > ResBlock512(*2) > GAP2D > DropHead > LinearOut
 
 net.branch.ResNet18ish_mr.bind = grid
@@ -598,15 +393,6 @@ net.branch.ViT_S16_CLS.structure = PatchEmbed16 > PosEmbed2D > ClsAppend > Trans
 net.branch.ViT_S16_GAP.bind = grid
 net.branch.ViT_S16_GAP.structure   = PatchEmbed16 > PosEmbed2D > TransEnc_ViT > GAP1D > LinearOut
 
-net.branch.ConvNeXtTiny.bind = grid
-net.branch.ConvNeXtTiny.structure = CTinyStemConv > CTinyStemLN > CTiny96(*3) > CTinyDownLN96 > CTinyDownConv96to192 > CTiny192(*3) > CTinyDownLN192 > CTinyDownConv192to384 > CTiny384(*9) > CTinyDownLN384 > CTinyDownConv384to768 > CTiny768(*3) > GAP2D > CTinyLayerNormHead > CTinyLinearOut
-
-net.branch.ConvNeXtNano.bind = grid
-net.branch.ConvNeXtNano.structure = CNanoStemConv > CNanoStemLN > CNano80(*2) > CNanoDownLN80 > CNanoDownConv80to160 > CNano160(*2) > CNanoDownLN160 > CNanoDownConv160to320 > CNano320(*8) > CNanoDownLN320 > CNanoDownConv320to640 > CNano640(*2) > GAP2D > CNanoLayerNormHead > CNanoLinearOut
-
-net.branch.ConvNeXtFemto.bind = grid
-net.branch.ConvNeXtFemto.structure = CFemtoStemConv > CFemtoStemLN > CFemto48(*2) > CFemtoDownLN48 > CFemtoDownConv48to96 > CFemto96(*2) > CFemtoDownLN96 > CFemtoDownConv96to192 > CFemto192(*6) > CFemtoDownLN192 > CFemtoDownConv192to384 > CFemto384(*2) > GAP2D > CFemtoLayerNormHead > CFemtoLinearOut
-
 
 net.body.output.[logits] = main_feature
 
@@ -620,30 +406,33 @@ net.body.output.[logits] = main_feature
 #metrics.scalar.$ = metrics.scalar.full > M
 
 
-metrics.scalar.[20_eps/10_train_reward]     = $runner $episode_step train_episode_reward @train
-metrics.scalar.[20_eps/11_train_reward_ema] = $runner $episode_step train_episode_reward @train $ema ema_alpha:0.001
+metrics.scalar.[20_eps/10_train_reward]     = $runner train_episode_reward $episode_step @train
+metrics.scalar.[20_eps/11_train_reward_ema] = $runner train_episode_reward $episode_step @train $ema ema_alpha:0.001
 
-metrics.scalar.[21_eval/01_test_reward] = eps_total_reward $runner @episode_end $eval.[eval1]
-metrics.scalar.[21_eval/02_test_reward_ema] = eps_total_reward $runner $ema @episode_end $eval.[eval1]
+metrics.scalar.[21_eval/01_test_reward]     = $eval.[eval1] $runner eps_total_reward @episode_end
+metrics.scalar.[21_eval/02_test_reward_ema] = $eval.[eval1] $runner eps_total_reward @episode_end $ema
 
-metrics.scalar.[38_agent/01_loss] = loss @learn
-metrics.scalar.[38_agent/02_loss_ema] = loss $ema @learn
+metrics.scalar.[38_agent/01_loss]           = loss @learn
+metrics.scalar.[38_agent/02_loss_ema]       = loss @learn $ema
 
-metrics.scalar.[38_agent/03_accuracy] = accuracy @learn
-metrics.scalar.[38_agent/04_accuracy_ema] = accuracy $ema @learn
+metrics.scalar.[38_agent/03_accuracy]       = accuracy @learn
+metrics.scalar.[38_agent/04_accuracy_ema]   = accuracy @learn $ema
 
-metrics.scalar.[42_env/02_reward_sum_mean]  = $env mean.reward_sum @train
-metrics.scalar.[42_env/03_reward_sum_mean_ema]  = $env mean.reward_sum @train $ema ema_alpha:0.001
+metrics.scalar.[39_agent/09_learning_rate]  = $agent learning_rate @learn interval:100
 
-metrics.scalar.[42_env/04_accuracy_mean]  = $env mean.accuracy @train
-metrics.scalar.[42_env/05_accuracy_mean_ema]  = $env mean.accuracy @train $ema ema_alpha:0.001
+#metrics.scalar.[42_env/02_reward_sum_mean]     = $env mean.reward_sum @train $exp_step
+#metrics.scalar.[42_env/03_reward_sum_mean_ema] = $env mean.reward_sum @train $exp_step $ema ema_alpha:0.001
 
-metrics.scalar.[51_eval1/03_accuracy]         = $eval.[eval1] @episode_end $env mean.accuracy
-metrics.scalar.[51_eval1/04_accuracy_ema]     = $eval.[eval1] @episode_end $env mean.accuracy $ema ema_alpha:0.01
+metrics.scalar.[42_env/04_accuracy_mean]       = $env mean.accuracy @train $exp_step
+metrics.scalar.[42_env/05_accuracy_mean_ema]   = $env mean.accuracy @train $exp_step $ema ema_alpha:0.001
 
-metrics.scalar.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $runner interval:100
-metrics.scalar.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema ema_alpha:0.001 interval:100 
-metrics.scalar.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
+metrics.scalar.[51_eval1/03_accuracy]          = $eval.[eval1] $env mean.accuracy @episode_end
+metrics.scalar.[51_eval1/04_accuracy_ema]      = $eval.[eval1] $env mean.accuracy @episode_end $ema ema_alpha:0.01
+
+metrics.scalar.[90_perf/12_exp_step_per_sec]     = $runner exp_step_per_sec @train $exp_step interval:100
+metrics.scalar.[90_perf/22_exp_step_per_sec_ema] = $runner exp_step_per_sec @train $exp_step interval:100 $ema ema_alpha:0.001
+
+metrics.scalar.[90_perf/90_elapse_hour]          = $runner elapse_hour @train $exp_step interval:100
 
 
 # ==============================================================================
@@ -712,7 +501,7 @@ ImageClsEnv.baseline.image_height = 224
 ImageClsEnv.baseline.max_steps = 100
 ImageClsEnv.baseline.augment.enabled = true             # train画像データ拡張（crop/flip）を有効化
 ImageClsEnv.baseline.augment.hflip_p = 0.5              # 水平フリップ確率
-ImageClsEnv.baseline.augment.rrc_scale_min = 0.7        # RandomResizedCrop の面積比下限
+ImageClsEnv.baseline.augment.rrc_scale_min = 0.5        # 0.7 RandomResizedCrop の面積比下限
 ImageClsEnv.baseline.augment.rrc_scale_max = 1.0        # RandomResizedCrop の面積比上限
 ImageClsEnv.baseline.augment.rrc_ratio_min = 0.75       # crop アスペクト比下限
 ImageClsEnv.baseline.augment.rrc_ratio_max = 1.3333333  # crop アスペクト比上限
