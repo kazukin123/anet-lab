@@ -1355,6 +1355,46 @@ TEST_CASE("ReplayBuffer flushes n-step returns at done terminals", "[replay_buff
     }
 }
 
+TEST_CASE("ReplayBuffer frame stacking keeps pre-terminal frames with n-step done flush", "[replay_buffer][frame_stack][n_step][done]")
+{
+    constexpr int64_t num_envs = 1;
+    constexpr int n_step = 3;
+    constexpr int stack_count = 4;
+    constexpr float gamma = 0.5f;
+
+    auto buffer = MakeBuffer(MakeConfig(20, n_step, gamma, stack_count), num_envs);
+
+    PushTime(buffer, 0, {}, {}, BoolValues(num_envs, true));
+    PushTime(buffer, 1);
+    PushTime(buffer, 2);
+    PushTime(buffer, 3);
+    PushTime(buffer, 4);
+    PushTime(buffer, 5, BoolValues(num_envs, true));
+    PushTime(buffer, 6, {}, {}, BoolValues(num_envs, true));
+    PushTime(buffer, 7);
+    PushTime(buffer, 8);
+
+    REQUIRE(buffer.rb->Size() == 6);
+
+    auto bootstrap = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 2));
+    RequireSampleMeta(bootstrap, IndexOf(buffer, 0, 2), DiscountedReturn(0, 2, n_step, gamma), false, n_step);
+    RequireFlatApprox(bootstrap.next_state.next_obs.At(kVectorKey)[0], {
+        StateValue(0, 2),
+        StateValue(0, 3),
+        StateValue(0, 4),
+        StateValue(0, 5)
+    });
+
+    auto terminal = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 5));
+    RequireSampleMeta(terminal, IndexOf(buffer, 0, 5), RewardValue(0, 5), true, 1);
+    RequireFlatApprox(terminal.obs.At(kVectorKey)[0], {
+        StateValue(0, 2),
+        StateValue(0, 3),
+        StateValue(0, 4),
+        StateValue(0, 5)
+    });
+}
+
 TEST_CASE("ReplayBuffer treats truncated transitions as bootstrapable n-step boundaries", "[replay_buffer][n_step][truncated][multi_env]")
 {
     constexpr int64_t num_envs = 2;

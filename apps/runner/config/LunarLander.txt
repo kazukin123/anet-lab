@@ -26,14 +26,14 @@ agent.device_type = 1    # 0=cpu 1=cuda   NNが小さいのでCPUのほうが早
 # 実験
 # ==============================================================================
 
-#app.run_name = run_{t}_ll_notbo
-app.run_name = run_{t}_ll
+#app.run_name = run_{t}_ll
+app.run_name = run_{t}_ll_rbfix
+
 
 R.learner.use_rb_prefetch = true
 
 #R.train_policy.uqe_tau_start = 0.95 #0.9
 #R.train_policy.uqe_tau_end = 0.5  # 0.5
-
 
 R.eval_policy.policy_type = UQE          # Greedy だと uqe_* が無視されるため必須
 R.eval_policy.uqe_use_tail_mean = false  # 単一分位 = リスク回避の鍵(true は上側=楽観で逆効果)
@@ -214,9 +214,9 @@ app.train_auto_start = false
 # image metrics
 # ==============================================================================
 
-#metrics.image.interval = 0   # 出力全無効
+metrics.image.interval = 0   # 出力全無効
 #metrics.image.interval = 1   # 毎ステップ出力（重い）
-metrics.image.interval = 50   # 通常運用
+#metrics.image.interval = 50   # 通常運用
 #metrics.image.interval = 500 # 重い場合
 
 metrics.image.[43_agent_img/52_per_hm_prio_01].$        = image.phm.per-prio > image.phm.s01

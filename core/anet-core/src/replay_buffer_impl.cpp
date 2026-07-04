@@ -388,7 +388,7 @@ void ReplayExperienceStorage::DumpToLog() const
             if (actions_[e][t].dim() == 0)
                 act_str = std::to_string(actions_[e][t].item<float>());
             else
-                anet::ToString(actions_[e][t]);
+                act_str = anet::ToString(actions_[e][t]);
 
             LOG::info() << "  [idx=" << t << "] ret=" << ret
                 << " term=" << term << " n_steps=" << n
@@ -893,8 +893,15 @@ public:
         std::vector<torch::Tensor> batch_actions, batch_returns, batch_terminals, batch_actual_n;
         std::vector<anet::TensorDict> batch_obs, batch_next_obs, batch_info;
 
-        // 境界チェック用に terminals (done) フラグを一括取得
+        // terminals_ は n-step return の終端到達も表すため、frame stack の境界には
+        // 実エピソード終端、dummy、未書き込み slot だけを使う。
         auto terminals_tensor = storage.GetTerminals();
+        auto actual_n_steps_tensor = storage.GetActualNSteps();
+        auto terminals_acc = terminals_tensor.accessor<bool, 2>();
+        auto actual_n_steps_acc = actual_n_steps_tensor.accessor<int64_t, 2>();
+        auto is_episode_boundary = [&](int64_t env_idx, int64_t phys_idx) {
+            return terminals_acc[env_idx][phys_idx] && actual_n_steps_acc[env_idx][phys_idx] <= 1;
+        };
 
         /// @todo [Performance] 現在はバッチサイズ(B)回数分のループで C++ 側からスライスと torch::stack を行っている。
         /// GPU上でストレージを持つ場合、Pythonの `tensor[batch_indices, time_indices]` のように
@@ -905,13 +912,13 @@ public:
             int64_t idx1d = indices_acc[b];
             int64_t env_idx = idx1d / cap;
             int64_t time_idx = idx1d % cap;
-            int64_t actual_n = storage.GetActualNSteps()[env_idx][time_idx].item<int64_t>();
+            int64_t actual_n = actual_n_steps_acc[env_idx][time_idx];
 
             // 未来方向 (Unroll) のスライス抽出 ---
             batch_actions.push_back(RingSlice(storage.GetActions(), env_idx, time_idx, unroll_len, cap, squeeze_unroll));
             batch_returns.push_back(RingSlice(storage.GetTargetReturns(), env_idx, time_idx, unroll_len, cap, squeeze_unroll));
-            batch_terminals.push_back(RingSlice(storage.GetTerminals(), env_idx, time_idx, unroll_len, cap, squeeze_unroll));
-            batch_actual_n.push_back(storage.GetActualNSteps()[env_idx][time_idx]);
+            batch_terminals.push_back(RingSlice(terminals_tensor, env_idx, time_idx, unroll_len, cap, squeeze_unroll));
+            batch_actual_n.push_back(actual_n_steps_tensor[env_idx][time_idx]);
 
             // MuZero用などの固有情報 (存在する場合のみ)
             if (!storage.GetInfo().empty()) {
@@ -923,7 +930,7 @@ public:
             int64_t obs_valid_start = obs_start;
             for (int64_t k = time_idx - 1; k >= obs_start; --k) {
                 int64_t phys_k = (k % cap + cap) % cap; // 負数を安全にリングバッファの末尾に折り返す
-                if (terminals_tensor[env_idx][phys_k].item<bool>()) {
+                if (is_episode_boundary(env_idx, phys_k)) {
                     obs_valid_start = k + 1;
                     break;
                 }
@@ -938,7 +945,7 @@ public:
             int64_t next_obs_valid_start = next_obs_start;
             for (int64_t k = next_obs_end - 2; k >= next_obs_start; --k) {
                 int64_t phys_k = (k % cap + cap) % cap; // 負数を安全にリングバッファの末尾に折り返す
-                if (terminals_tensor[env_idx][phys_k].item<bool>()) {
+                if (is_episode_boundary(env_idx, phys_k)) {
                     next_obs_valid_start = k + 1;
                     break;
                 }
