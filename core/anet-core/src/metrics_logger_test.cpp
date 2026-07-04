@@ -2,11 +2,13 @@
 
 #include "anet/metrics_logger.hpp"
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <memory>
 #include <string>
+#include <wx/image.h>
 
 namespace {
 
@@ -23,7 +25,98 @@ std::string ReadTextFile(const std::filesystem::path& path)
     return std::string(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
 }
 
+bool ContainsText(const std::string& text, const std::string& pattern)
+{
+    return text.find(pattern) != std::string::npos;
+}
+
 } // namespace
+
+TEST_CASE("VideoLogger checks NVENC eligible video size", "[metrics][video]")
+{
+    CHECK_FALSE(anet::detail::IsNvencEligibleVideoSize(128, 128));
+    CHECK(anet::detail::IsNvencEligibleVideoSize(160, 64));
+    CHECK_FALSE(anet::detail::IsNvencEligibleVideoSize(159, 64));
+    CHECK_FALSE(anet::detail::IsNvencEligibleVideoSize(160, 63));
+    CHECK_FALSE(anet::detail::IsNvencEligibleVideoSize(161, 64));
+}
+
+TEST_CASE("VideoLogger resolves configured video codec", "[metrics][video]")
+{
+    auto small_auto = anet::detail::ResolveVideoCodec("auto", 128, 128, "small.mkv");
+    CHECK(small_auto.codec == "libx264");
+    CHECK(small_auto.requested_auto);
+    CHECK_FALSE(small_auto.nvenc_eligible);
+
+    auto large_auto = anet::detail::ResolveVideoCodec("auto", 512, 512, "large.mkv");
+    CHECK(large_auto.codec == "h264_nvenc");
+    CHECK(large_auto.requested_auto);
+    CHECK(large_auto.nvenc_eligible);
+
+    auto explicit_nvenc = anet::detail::ResolveVideoCodec("h264_nvenc", 160, 64, "nvenc.mkv");
+    CHECK(explicit_nvenc.codec == "h264_nvenc");
+    CHECK_FALSE(explicit_nvenc.requested_auto);
+    CHECK(explicit_nvenc.nvenc_eligible);
+
+    auto explicit_libx264 = anet::detail::ResolveVideoCodec("libx264", 128, 128, "cpu.mkv");
+    CHECK(explicit_libx264.codec == "libx264");
+    CHECK_FALSE(explicit_libx264.requested_auto);
+
+    auto passthrough = anet::detail::ResolveVideoCodec("mjpeg", 128, 128, "mjpeg.mkv");
+    CHECK(passthrough.codec == "mjpeg");
+    CHECK_FALSE(passthrough.requested_auto);
+}
+
+TEST_CASE("VideoLogger rejects explicit NVENC for ineligible video size", "[metrics][video]")
+{
+    try {
+        static_cast<void>(anet::detail::ResolveVideoCodec("h264_nvenc", 128, 128, "small.mkv"));
+        FAIL("Expected explicit h264_nvenc to reject an ineligible video size");
+    } catch (const std::exception& e) {
+        const std::string message = e.what();
+        CHECK(ContainsText(message, "metrics_logger.video_codec=h264_nvenc"));
+        CHECK(ContainsText(message, "128x128"));
+        CHECK(ContainsText(message, "160x64"));
+        CHECK(ContainsText(message, "auto or libx264"));
+        CHECK(ContainsText(message, "small.mkv"));
+    }
+}
+
+TEST_CASE("MetricsLoggerConfig defaults video codec to auto", "[metrics][video]")
+{
+    const anet::MetricsLoggerConfig config;
+    CHECK(config.video_codec == "auto");
+}
+
+TEST_CASE("VideoLogger writes large frames in chunks", "[metrics][video]")
+{
+    const auto case_id = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        ("anet-core-video-large-frame-test-" + std::to_string(case_id));
+    std::filesystem::create_directories(root);
+
+    wxImage image(512, 512);
+    unsigned char* data = image.GetData();
+    REQUIRE(data != nullptr);
+    for (int y = 0; y < image.GetHeight(); ++y) {
+        for (int x = 0; x < image.GetWidth(); ++x) {
+            const int index = (y * image.GetWidth() + x) * 3;
+            data[index + 0] = static_cast<unsigned char>(x % 256);
+            data[index + 1] = static_cast<unsigned char>(y % 256);
+            data[index + 2] = static_cast<unsigned char>((x + y) % 256);
+        }
+    }
+
+    {
+        const auto video_path = root / "large_frame.mkv";
+        anet::VideoLogger logger(video_path.string(), image.GetWidth(), image.GetHeight(), "libx264", 15);
+        logger.WriteFrame(image);
+        logger.WriteFrame(image);
+    }
+
+    std::error_code cleanup_error;
+    std::filesystem::remove_all(root, cleanup_error);
+}
 
 TEST_CASE("MetricsLogger writes ConfigData text file", "[metrics][config]")
 {

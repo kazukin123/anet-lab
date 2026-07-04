@@ -1,8 +1,12 @@
 ﻿#pragma once
 
+#include <atomic>
+#include <condition_variable>
 #include <fstream>
 #include <filesystem>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <unordered_map>
 #include <wx/image.h>
 #include <wx/process.h>
@@ -78,21 +82,53 @@ namespace anet {
         bool started_ = false;
     };
 
+    namespace detail {
+
+        inline constexpr int kNvencMinWidth = 160;
+        inline constexpr int kNvencMinHeight = 64;
+
+        struct VideoCodecDecision {
+            std::string codec;
+            bool requested_auto = false;
+            bool nvenc_eligible = false;
+        };
+
+        bool IsNvencEligibleVideoSize(int width, int height);
+        VideoCodecDecision ResolveVideoCodec(const std::string& requested_codec, int width, int height, const std::string& path);
+
+    } // namespace detail
+
     //----------------------------------------------
     // VideoLogger (ffmpegパイプで動画出力)
     //----------------------------------------------
     class VideoLogger {
     public:
-        VideoLogger(const std::string& path, int width, int height, const std::string& codec = "libx264", int fps = 30);
+        VideoLogger(const std::string& path, int width, int height, const std::string& codec = "auto", int fps = 30);
         ~VideoLogger() { Close(); }
 
         void WriteFrame(const wxImage& img);
     private:
+        class Process;
+
+        void LaunchFfmpeg(const std::string& codec);
+        bool DiedAtStartup();
+        void UpdateFfmpegDeathFromPidLocked();
+        void DrainStderrLocked();
+        void AppendCapturedStderrLocked(const char* data, size_t size);
+        std::string BuildFfmpegFailureMessageLocked(const std::string& context) const;
+        std::string StderrExcerptLocked() const;
+        void CloseProcessLocked();
         void Close();
     private:
-        wxProcess* process_ = nullptr;
+        Process* process_ = nullptr;
         wxOutputStream* stream_ = nullptr;
         std::mutex write_mutex_;
+        std::atomic<bool> ffmpeg_dead_{ false };
+        int exit_code_ = 0;
+        bool has_exit_code_ = false;
+        long pid_ = 0;
+        std::string captured_stderr_;
+        std::string launch_cmd_;
         int width_ = 0;
         int height_ = 0;
         std::string path_;
@@ -108,7 +144,7 @@ namespace anet {
     struct MetricsLoggerConfig {
         std::string runs_dir = "runs";
         std::string run_name_tmpl = "run_{t}";
-        std::string video_codec = "libx264";
+        std::string video_codec = "auto";
         int video_fps = 30;
         bool use_png_dump = false;
     };
