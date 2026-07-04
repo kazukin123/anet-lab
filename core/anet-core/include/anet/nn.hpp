@@ -27,19 +27,22 @@ namespace anet::nn {
         anet::ConfigData config_data; // Specific config data for the block. "kernel_size"=3 etc.
     };
 
+    struct ConfigProfileConfig {
+        std::string type = "linear";   ///< 補間ルール（初期実装は linear のみ）
+        double start = 0.0;            ///< i=0 の値
+        double end = 0.0;              ///< i=N-1 の値
+        bool has_type = false;         ///< type が明示指定されたか
+        bool has_start = false;        ///< start が明示指定されたか
+        bool has_end = false;          ///< end が明示指定されたか
+    };
+
     struct NetworkBranchConfig {
         std::string name;                      ///< ブランチ名（＝出力キー）
         std::vector<std::string> bind_keys;    ///< 入力として要求するキーのリスト
         std::vector<std::string> raw_keys;     ///< bind_keys のうち、"(raw)" が指定されたキーのリスト
         bool auto_format = true;               ///< ブランチ全体での自動フォーマット有効/無効
         std::string structure_str;             ///< ブランチ内部の直列パイプライン構造
-    };
-
-    struct ConfigProfileConfig {
-        std::string type = "linear";   ///< 補間ルール（初期実装は linear のみ）
-        double start = 0.0;            ///< i=0 の値
-        double end = 0.0;              ///< i=N-1 の値
-        bool has_end = false;          ///< end が明示指定されたか
+        std::map<std::string, ConfigProfileConfig> config_profiles; ///< branch単位のconfig_profile上書き
     };
 
     struct NetworkConfig {
