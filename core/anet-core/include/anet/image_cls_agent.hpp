@@ -5,11 +5,13 @@
 #include <memory>
 #include <string>
 #include <torch/torch.h>
+#include "anet/diag.hpp"
 #include "anet/rl.hpp"
 #include "anet/config.hpp"
 #include "anet/schedule.hpp"
 #include "anet/nn.hpp"
 #include "anet/agent.hpp"
+#include "anet/random.hpp"
 
 namespace anet::rl::img_cls {
 
@@ -21,6 +23,17 @@ namespace anet::rl::img_cls {
         double weight_decay = 1e-4;
         double label_smoothing = 0.1;
         double grad_clip_max_norm = 1.0;
+        int64_t learn_log_interval = 0;
+
+        struct MixupConfig {
+            bool enabled = false;
+            double mixup_alpha = 0.2;
+            double cutmix_alpha = 1.0;
+            double prob = 1.0;
+            double switch_prob = 0.5;
+        };
+
+        MixupConfig mixup;
 
         anet::nn::NetworkGraphVizConfig nn_viz;
 
@@ -32,6 +45,13 @@ namespace anet::rl::img_cls {
             ANET_READ_CONFIG(config_data, weight_decay);
             ANET_READ_CONFIG(config_data, label_smoothing);
             ANET_READ_CONFIG(config_data, grad_clip_max_norm);
+            ANET_READ_CONFIG(config_data, learn_log_interval);
+
+            ANET_READ_CONFIG(config_data, mixup.enabled);
+            ANET_READ_CONFIG(config_data, mixup.mixup_alpha);
+            ANET_READ_CONFIG(config_data, mixup.cutmix_alpha);
+            ANET_READ_CONFIG(config_data, mixup.prob);
+            ANET_READ_CONFIG(config_data, mixup.switch_prob);
 
             ANET_READ_CONFIG(config_data, nn_viz.show_param_shapes);
             ANET_READ_CONFIG(config_data, nn_viz.show_param_count);
@@ -42,6 +62,34 @@ namespace anet::rl::img_cls {
             ANET_READ_CONFIG(config_data, nn_viz.cluster_branches);
             ANET_READ_CONFIG(config_data, nn_viz.float_precision);
 
+            Validate();
+        }
+
+    private:
+        void Validate() const
+        {
+            ValidateNonNegative("ImageClsAgent.mixup.mixup_alpha", mixup.mixup_alpha);
+            ValidateNonNegative("ImageClsAgent.mixup.cutmix_alpha", mixup.cutmix_alpha);
+            ValidateUnitInterval("ImageClsAgent.mixup.prob", mixup.prob);
+            ValidateUnitInterval("ImageClsAgent.mixup.switch_prob", mixup.switch_prob);
+            if (learn_log_interval < 0) {
+                ANET_SYSTEM_ERROR("Invalid config ImageClsAgent.learn_log_interval=" << learn_log_interval
+                    << ". Expected >= 0.");
+            }
+        }
+
+        static void ValidateNonNegative(const char* key, double value)
+        {
+            if (value < 0.0) {
+                ANET_SYSTEM_ERROR("Invalid config " << key << "=" << value << ". Expected >= 0.");
+            }
+        }
+
+        static void ValidateUnitInterval(const char* key, double value)
+        {
+            if (value < 0.0 || value > 1.0) {
+                ANET_SYSTEM_ERROR("Invalid config " << key << "=" << value << ". Expected range [0, 1].");
+            }
         }
     };
 
@@ -53,11 +101,13 @@ namespace anet::rl::img_cls {
     public:
         float loss = 0.0f;
         float accuracy = 0.0f;
+        float target_prob_mix = 0.0f;
 
         std::optional<float> GetScalar(const std::string& key, int64_t index) const override
         {
             if (key == "loss") return loss;
             if (key == "accuracy") return accuracy;
+            if (key == "target_prob_mix") return target_prob_mix;
             return std::nullopt;
         }
 
@@ -97,18 +147,27 @@ namespace anet::rl::img_cls {
     // ======================================================
     // Learner
     // ======================================================
-    class ImageClsLearner : public anet::rl::Learner {
+    class ImageClsLearner : public anet::rl::Learner, public anet::RandomHolder {
     public:
         ImageClsLearner(const ImageClsAgentConfig& config,
             std::shared_ptr<std::shared_mutex> mutex,
             std::shared_ptr<anet::nn::Network> network,
             std::shared_ptr<anet::ProfiledValue<double>> learning_rate,
-            torch::Device device);
+            torch::Device device,
+            std::optional<seed_t> seed = std::nullopt);
 
         anet::rl::BatchUpdateResultList UpdateFromBatch(
             const anet::rl::StepCounts& step,
             const anet::rl::BatchExperience& experiences) override;
+    private:
+        struct CutMixBox;
+        struct MixResult;
+    private:
+        double SampleBeta(double alpha);
+        bool Bernoulli(double probability);
+        CutMixBox SampleCutMixBox(int64_t height, int64_t width, double lambda);
 
+        MixResult ApplyMix(anet::TensorDict& obs, const torch::Tensor& targets);
     private:
         const ImageClsAgentConfig config_;
         std::shared_ptr<std::shared_mutex> mutex_;

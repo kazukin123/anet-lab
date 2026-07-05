@@ -2,11 +2,16 @@
 
 #include "anet/image_cls_agent.hpp"
 #include "anet/metrics_logger.hpp"
+#include "anet/random.hpp"
+#include "anet/test_util.hpp"
 #include "nn_impl.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <memory>
 #include <shared_mutex>
+#include <string>
 #include <vector>
 
 namespace {
@@ -36,6 +41,39 @@ public:
     ImageClsTrainableTestHead()
     {
         linear_ = register_module("linear", torch::nn::Linear(4, 2));
+    }
+
+    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
+    {
+        auto feature = feature_dict.At("main_feature").flatten(1);
+        return anet::TensorDict{ { "logits", linear_->forward(feature) } };
+    }
+
+private:
+    torch::nn::Linear linear_{ nullptr };
+};
+
+class ImageClsRecordingTestModule final : public anet::nn::NetworkModule {
+public:
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        last_input = input.detach().to(torch::kCPU).clone();
+        return input;
+    }
+
+    torch::Tensor last_input;
+};
+
+class ImageClsFixedLinearTestHead final : public anet::nn::NetworkHead {
+public:
+    explicit ImageClsFixedLinearTestHead(int64_t feature_size)
+    {
+        auto options = torch::nn::LinearOptions(feature_size, 2).bias(false);
+        linear_ = register_module("linear", torch::nn::Linear(options));
+        torch::NoGradGuard no_grad;
+        linear_->weight.zero_();
+        linear_->weight.index_put_({ 0, 0 }, 1.0f);
+        linear_->weight.index_put_({ 1, 1 }, 1.0f);
     }
 
     anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
@@ -154,6 +192,53 @@ std::shared_ptr<anet::nn::Network> MakeImageClsTrainableTestNetwork()
         std::make_shared<ImageClsTrainableTestHead>());
 }
 
+struct ImageClsRecordingNetworkFixture {
+    std::shared_ptr<anet::nn::Network> network;
+    std::shared_ptr<ImageClsRecordingTestModule> recorder;
+};
+
+ImageClsRecordingNetworkFixture MakeImageClsRecordingTestNetwork(
+    torch::Dtype grid_dtype = torch::kUInt8,
+    int64_t height = 2,
+    int64_t width = 2)
+{
+    anet::TensorSpec grid_spec;
+    grid_spec.type = anet::SpaceType::Grid;
+    grid_spec.shape = { 1, height, width };
+    grid_spec.dtype = grid_dtype;
+
+    anet::TensorSpecMap input_specs;
+    input_specs[anet::rl::ObsKeys::kGrid] = grid_spec;
+
+    auto recorder = std::make_shared<ImageClsRecordingTestModule>();
+    auto block = std::make_shared<anet::nn::NetworkBlock>("Record_0", recorder);
+    auto network_struct = std::make_shared<anet::nn::NetworkStruct>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
+    auto branch = std::make_shared<anet::nn::NetworkBranch>(
+        "main_feature",
+        std::vector<std::string>{ anet::rl::ObsKeys::kGrid },
+        network_struct);
+
+    anet::nn::NetworkConfig network_config;
+    network_config.output_keys["main_feature"] = "main_feature";
+
+    auto body = std::make_shared<anet::nn::NetworkBody>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{ branch },
+        input_specs,
+        std::vector<std::string>{},
+        network_config.output_keys);
+
+    return {
+        std::make_shared<anet::nn::Network>(
+            network_config,
+            input_specs,
+            nullptr,
+            body,
+            std::make_shared<ImageClsFixedLinearTestHead>(height * width)),
+        recorder
+    };
+}
+
 anet::rl::BatchState MakeImageClsBatchState(torch::Tensor grid)
 {
     const int64_t batch_size = grid.size(0);
@@ -179,17 +264,25 @@ anet::rl::BatchState MakeImageClsLearningBatchState(torch::Tensor grid, torch::T
         torch::zeros({ batch_size }, bool_options));
 }
 
+anet::rl::BatchExperience MakeImageClsLearningExperience(torch::Tensor grid, torch::Tensor labels);
+
 anet::rl::BatchExperience MakeImageClsLearningExperience()
 {
     auto grid = torch::arange(8, torch::kFloat32).view({ 2, 1, 2, 2 }).div(8.0f);
     auto labels = torch::tensor({ 0, 1 }, torch::TensorOptions().dtype(torch::kInt64));
+    return MakeImageClsLearningExperience(grid, labels);
+}
+
+anet::rl::BatchExperience MakeImageClsLearningExperience(torch::Tensor grid, torch::Tensor labels)
+{
     auto state = MakeImageClsLearningBatchState(grid, labels);
+    const int64_t batch_size = grid.size(0);
     auto action_info = std::make_shared<anet::rl::BatchActionInfo>(
-        torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kInt64)));
+        torch::zeros({ batch_size }, torch::TensorOptions().dtype(torch::kInt64)));
     return anet::rl::BatchExperience(
         state,
         action_info,
-        torch::zeros({ 2 }, torch::kFloat32),
+        torch::zeros({ batch_size }, torch::kFloat32),
         state.Clone());
 }
 
@@ -205,6 +298,186 @@ anet::rl::img_cls::ImageClsAgentConfig MakeImageClsLearningRateTestConfig()
     config_data.Set("ImageClsAgent.label_smoothing", 0.0);
     config_data.Set("ImageClsAgent.grad_clip_max_norm", 10.0);
     return anet::rl::img_cls::ImageClsAgentConfig(config_data);
+}
+
+anet::ConfigData MakeImageClsMixTestConfigData()
+{
+    anet::ConfigData config_data;
+    config_data.Set("ImageClsAgent.learning_rate.value", 0.01);
+    config_data.Set("ImageClsAgent.weight_decay", 0.0);
+    config_data.Set("ImageClsAgent.label_smoothing", 0.0);
+    config_data.Set("ImageClsAgent.grad_clip_max_norm", 10.0);
+    config_data.Set("ImageClsAgent.mixup.enabled", true);
+    config_data.Set("ImageClsAgent.mixup.mixup_alpha", 0.4);
+    config_data.Set("ImageClsAgent.mixup.cutmix_alpha", 1.0);
+    config_data.Set("ImageClsAgent.mixup.prob", 1.0);
+    config_data.Set("ImageClsAgent.mixup.switch_prob", 0.0);
+    return config_data;
+}
+
+anet::rl::img_cls::ImageClsAgentConfig MakeImageClsMixTestConfig(const anet::ConfigData& config_data)
+{
+    return anet::rl::img_cls::ImageClsAgentConfig(config_data);
+}
+
+anet::rl::EnvSpec MakeImageClsEnvSpec();
+anet::nn::NetworkConfig MakeImageClsAgentNetworkConfig();
+
+std::shared_ptr<const anet::rl::img_cls::ImageClsUpdateResult> RunImageClsRecordingUpdate(
+    ImageClsRecordingNetworkFixture& fixture,
+    const anet::rl::img_cls::ImageClsAgentConfig& config,
+    const anet::rl::StepCounts& step,
+    const anet::rl::BatchExperience& experience,
+    std::optional<anet::seed_t> seed = 123)
+{
+    auto mutex = std::make_shared<std::shared_mutex>();
+    auto learning_rate = std::make_shared<anet::ProfiledValue<double>>(config.learning_rate);
+    anet::rl::img_cls::ImageClsLearner learner(
+        config,
+        mutex,
+        fixture.network,
+        learning_rate,
+        torch::Device(torch::kCPU),
+        seed);
+
+    auto result_list = learner.UpdateFromBatch(step, experience);
+    REQUIRE(result_list.size() == 1);
+    auto result = std::dynamic_pointer_cast<const anet::rl::img_cls::ImageClsUpdateResult>(result_list[0]);
+    REQUIRE(result != nullptr);
+    return result;
+}
+
+std::shared_ptr<const anet::rl::img_cls::ImageClsUpdateResult> RunImageClsAgentMixUpdate(
+    anet::seed_t agent_seed,
+    torch::Tensor grid,
+    torch::Tensor labels)
+{
+    torch::manual_seed(20240705);
+
+    auto config = MakeImageClsMixTestConfig(MakeImageClsMixTestConfigData());
+    auto env_spec = MakeImageClsEnvSpec();
+    anet::rl::img_cls::ImageClsAgent agent(
+        config,
+        MakeImageClsAgentNetworkConfig(),
+        env_spec,
+        anet::rl::BatchEnvSpec{ static_cast<int>(grid.size(0)), 1 },
+        torch::Device(torch::kCPU),
+        agent_seed);
+
+    auto learner = agent.CreateLearner();
+    auto result_list = learner->UpdateFromBatch(
+        anet::rl::StepCounts{},
+        MakeImageClsLearningExperience(grid, labels));
+    REQUIRE(result_list.size() == 1);
+    auto result = std::dynamic_pointer_cast<const anet::rl::img_cls::ImageClsUpdateResult>(result_list[0]);
+    REQUIRE(result != nullptr);
+    return result;
+}
+
+bool Contains(const std::string& text, const std::string& pattern)
+{
+    return text.find(pattern) != std::string::npos;
+}
+
+void RequireTensorClose(const torch::Tensor& actual, const torch::Tensor& expected, double tolerance = 1e-5)
+{
+    REQUIRE(actual.sizes().vec() == expected.sizes().vec());
+    CHECK(torch::allclose(actual, expected, tolerance, tolerance));
+}
+
+double TestSampleBeta(anet::RandomGenerator& rng, double alpha)
+{
+    const double a = rng.Gamma(static_cast<float>(alpha), 1.0f);
+    const double b = rng.Gamma(static_cast<float>(alpha), 1.0f);
+    return a / (a + b);
+}
+
+struct ExpectedMixResult {
+    torch::Tensor perm;
+    torch::Tensor targets_b;
+    double lambda = 1.0;
+    int64_t x1 = 0;
+    int64_t y1 = 0;
+    int64_t x2 = 0;
+    int64_t y2 = 0;
+};
+
+ExpectedMixResult MakeExpectedMixupResult(
+    const anet::rl::img_cls::ImageClsAgentConfig& config,
+    int64_t batch_size,
+    const torch::Tensor& labels,
+    anet::seed_t seed)
+{
+    anet::RandomGenerator rng(seed);
+    ExpectedMixResult expected;
+    expected.lambda = TestSampleBeta(rng, config.mixup.mixup_alpha);
+    auto gen = rng.GetTorchGenerator(torch::Device(torch::kCPU));
+    expected.perm = torch::randperm(batch_size, gen, torch::TensorOptions().dtype(torch::kInt64));
+    expected.targets_b = labels.index_select(0, expected.perm);
+    return expected;
+}
+
+ExpectedMixResult MakeExpectedCutMixResult(
+    const anet::rl::img_cls::ImageClsAgentConfig& config,
+    int64_t batch_size,
+    int64_t height,
+    int64_t width,
+    const torch::Tensor& labels,
+    anet::seed_t seed)
+{
+    anet::RandomGenerator rng(seed);
+    ExpectedMixResult expected;
+    expected.lambda = TestSampleBeta(rng, config.mixup.cutmix_alpha);
+    auto gen = rng.GetTorchGenerator(torch::Device(torch::kCPU));
+    expected.perm = torch::randperm(batch_size, gen, torch::TensorOptions().dtype(torch::kInt64));
+    expected.targets_b = labels.index_select(0, expected.perm);
+
+    const double cut_ratio = std::sqrt(std::max(0.0, 1.0 - expected.lambda));
+    const int64_t cut_w = static_cast<int64_t>(std::round(width * cut_ratio));
+    const int64_t cut_h = static_cast<int64_t>(std::round(height * cut_ratio));
+    const int64_t cx = rng.RandInt(0, static_cast<int>(width - 1));
+    const int64_t cy = rng.RandInt(0, static_cast<int>(height - 1));
+    const int64_t left_w = cut_w / 2;
+    const int64_t top_h = cut_h / 2;
+    expected.x1 = std::clamp<int64_t>(cx - left_w, 0, width);
+    expected.x2 = std::clamp<int64_t>(cx + (cut_w - left_w), 0, width);
+    expected.y1 = std::clamp<int64_t>(cy - top_h, 0, height);
+    expected.y2 = std::clamp<int64_t>(cy + (cut_h - top_h), 0, height);
+    const double area = static_cast<double>(expected.x2 - expected.x1) * static_cast<double>(expected.y2 - expected.y1);
+    expected.lambda = 1.0 - area / static_cast<double>(height * width);
+    return expected;
+}
+
+torch::Tensor MakeExpectedMixupGrid(const torch::Tensor& grid, const torch::Tensor& perm, double lambda)
+{
+    auto paired = grid.index_select(0, perm);
+    return grid.to(torch::kFloat32).mul(lambda)
+        .add(paired.to(torch::kFloat32).mul(1.0 - lambda))
+        .round()
+        .clamp(0, 255)
+        .to(torch::kUInt8);
+}
+
+torch::Tensor MakeExpectedCutMixGrid(const torch::Tensor& grid, const ExpectedMixResult& expected)
+{
+    auto mixed = grid.clone();
+    auto paired = grid.index_select(0, expected.perm);
+    if (expected.x2 > expected.x1 && expected.y2 > expected.y1) {
+        using torch::indexing::Slice;
+        mixed.index({ Slice(), Slice(), Slice(expected.y1, expected.y2), Slice(expected.x1, expected.x2) })
+            .copy_(paired.index({ Slice(), Slice(), Slice(expected.y1, expected.y2), Slice(expected.x1, expected.x2) }));
+    }
+    return mixed;
+}
+
+float ExpectedTargetProbMix(const torch::Tensor& preprocessed_grid, const torch::Tensor& labels, const ExpectedMixResult& mix)
+{
+    auto feature = preprocessed_grid.flatten(1);
+    auto logits = torch::stack({ feature.select(1, 0), feature.select(1, 1) }, 1);
+    auto probs = torch::softmax(logits, 1);
+    auto target_prob_a = probs.gather(1, labels.unsqueeze(1)).squeeze(1);
+    auto target_prob_b = probs.gather(1, mix.targets_b.unsqueeze(1)).squeeze(1);
+    return target_prob_a.mul(mix.lambda).add(target_prob_b.mul(1.0 - mix.lambda)).mean().item<float>();
 }
 
 anet::rl::EnvSpec MakeImageClsEnvSpec()
@@ -241,6 +514,325 @@ anet::nn::NetworkConfig MakeImageClsAgentNetworkConfig()
 }
 
 } // namespace
+
+TEST_CASE("ImageCls mixup config defaults, round-trip and fail-fast validation", "[image_cls][mixup][config]")
+{
+    anet::rl::img_cls::ImageClsAgentConfig defaults;
+    CHECK_FALSE(defaults.mixup.enabled);
+    CHECK(defaults.mixup.mixup_alpha == Catch::Approx(0.2));
+    CHECK(defaults.mixup.cutmix_alpha == Catch::Approx(1.0));
+    CHECK(defaults.mixup.prob == Catch::Approx(1.0));
+    CHECK(defaults.mixup.switch_prob == Catch::Approx(0.5));
+    CHECK(defaults.learn_log_interval == 0);
+
+    auto config_data = MakeImageClsMixTestConfigData();
+    config_data.Set("ImageClsAgent.mixup.cutmix_alpha", 2.0);
+    config_data.Set("ImageClsAgent.mixup.prob", 0.75);
+    config_data.Set("ImageClsAgent.mixup.switch_prob", 0.25);
+    config_data.Set("ImageClsAgent.learn_log_interval", 100);
+    auto config = MakeImageClsMixTestConfig(config_data);
+    CHECK(config.mixup.enabled);
+    CHECK(config.mixup.mixup_alpha == Catch::Approx(0.4));
+    CHECK(config.mixup.cutmix_alpha == Catch::Approx(2.0));
+    CHECK(config.mixup.prob == Catch::Approx(0.75));
+    CHECK(config.mixup.switch_prob == Catch::Approx(0.25));
+    CHECK(config.learn_log_interval == 100);
+
+    const auto config_string = config.ToConfigString();
+    CHECK(Contains(config_string, "ImageClsAgent.mixup.enabled = true"));
+    CHECK(Contains(config_string, "ImageClsAgent.mixup.mixup_alpha = 0.4"));
+    CHECK(Contains(config_string, "ImageClsAgent.mixup.cutmix_alpha = 2"));
+    CHECK(Contains(config_string, "ImageClsAgent.mixup.prob = 0.75"));
+    CHECK(Contains(config_string, "ImageClsAgent.mixup.switch_prob = 0.25"));
+    CHECK(Contains(config_string, "ImageClsAgent.learn_log_interval = 100"));
+
+    SECTION("prob must stay in [0, 1]")
+    {
+        auto invalid = MakeImageClsMixTestConfigData();
+        invalid.Set("ImageClsAgent.mixup.prob", 1.1);
+        CHECK_THROWS(anet::rl::img_cls::ImageClsAgentConfig(invalid));
+    }
+
+    SECTION("switch_prob must stay in [0, 1]")
+    {
+        auto invalid = MakeImageClsMixTestConfigData();
+        invalid.Set("ImageClsAgent.mixup.switch_prob", -0.1);
+        CHECK_THROWS(anet::rl::img_cls::ImageClsAgentConfig(invalid));
+    }
+
+    SECTION("alpha and log interval must be non-negative")
+    {
+        auto invalid_alpha = MakeImageClsMixTestConfigData();
+        invalid_alpha.Set("ImageClsAgent.mixup.mixup_alpha", -0.1);
+        CHECK_THROWS(anet::rl::img_cls::ImageClsAgentConfig(invalid_alpha));
+
+        auto invalid_interval = MakeImageClsMixTestConfigData();
+        invalid_interval.Set("ImageClsAgent.learn_log_interval", -1);
+        CHECK_THROWS(anet::rl::img_cls::ImageClsAgentConfig(invalid_interval));
+    }
+}
+
+TEST_CASE("ImageClsLearner reports hard target probability when mixup is disabled", "[image_cls][mixup]")
+{
+    auto config_data = MakeImageClsMixTestConfigData();
+    config_data.Set("ImageClsAgent.mixup.enabled", false);
+    auto config = MakeImageClsMixTestConfig(config_data);
+
+    auto fixture = MakeImageClsRecordingTestNetwork(torch::kUInt8);
+    auto grid = torch::tensor(
+        { 255, 0, 0, 0,
+          0, 255, 0, 0 },
+        torch::TensorOptions().dtype(torch::kUInt8)).view({ 2, 1, 2, 2 });
+    auto labels = torch::tensor({ 0, 1 }, torch::TensorOptions().dtype(torch::kInt64));
+
+    auto result = RunImageClsRecordingUpdate(
+        fixture,
+        config,
+        anet::rl::StepCounts{},
+        MakeImageClsLearningExperience(grid, labels),
+        7);
+
+    auto expected_input = grid.to(torch::kFloat32).div(255.0f);
+    RequireTensorClose(fixture.recorder->last_input, expected_input);
+    ExpectedMixResult no_mix;
+    no_mix.targets_b = labels;
+    no_mix.lambda = 1.0;
+    CHECK(result->accuracy == Catch::Approx(1.0f));
+    CHECK(result->target_prob_mix == Catch::Approx(ExpectedTargetProbMix(expected_input, labels, no_mix)));
+    REQUIRE(result->GetScalar("target_prob_mix", -1).has_value());
+    CHECK_FALSE(result->GetScalar("unknown", -1).has_value());
+}
+
+TEST_CASE("ImageClsLearner bypasses mixup for small batches and prob zero", "[image_cls][mixup]")
+{
+    SECTION("batch size smaller than two")
+    {
+        auto config = MakeImageClsMixTestConfig(MakeImageClsMixTestConfigData());
+        auto fixture = MakeImageClsRecordingTestNetwork(torch::kUInt8);
+        auto grid = torch::tensor(
+            { 64, 128, 0, 255 },
+            torch::TensorOptions().dtype(torch::kUInt8)).view({ 1, 1, 2, 2 });
+        auto labels = torch::tensor({ 0 }, torch::TensorOptions().dtype(torch::kInt64));
+
+        RunImageClsRecordingUpdate(
+            fixture,
+            config,
+            anet::rl::StepCounts{},
+            MakeImageClsLearningExperience(grid, labels),
+            11);
+
+        RequireTensorClose(fixture.recorder->last_input, grid.to(torch::kFloat32).div(255.0f));
+    }
+
+    SECTION("probability zero")
+    {
+        auto config_data = MakeImageClsMixTestConfigData();
+        config_data.Set("ImageClsAgent.mixup.prob", 0.0);
+        auto config = MakeImageClsMixTestConfig(config_data);
+        auto fixture = MakeImageClsRecordingTestNetwork(torch::kUInt8);
+        auto grid = torch::tensor(
+            { 255, 0, 0, 0,
+              0, 255, 0, 0 },
+            torch::TensorOptions().dtype(torch::kUInt8)).view({ 2, 1, 2, 2 });
+        auto labels = torch::tensor({ 0, 1 }, torch::TensorOptions().dtype(torch::kInt64));
+
+        RunImageClsRecordingUpdate(
+            fixture,
+            config,
+            anet::rl::StepCounts{},
+            MakeImageClsLearningExperience(grid, labels),
+            11);
+
+        RequireTensorClose(fixture.recorder->last_input, grid.to(torch::kFloat32).div(255.0f));
+    }
+}
+
+TEST_CASE("ImageClsLearner applies deterministic Mixup before network forward", "[image_cls][mixup]")
+{
+    constexpr anet::seed_t seed = 42;
+    auto config = MakeImageClsMixTestConfig(MakeImageClsMixTestConfigData());
+    auto fixture = MakeImageClsRecordingTestNetwork(torch::kUInt8);
+    auto grid = torch::tensor(
+        { 255, 0, 0, 0,
+          0, 255, 0, 0,
+          128, 64, 0, 0 },
+        torch::TensorOptions().dtype(torch::kUInt8)).view({ 3, 1, 2, 2 });
+    auto labels = torch::tensor({ 0, 1, 0 }, torch::TensorOptions().dtype(torch::kInt64));
+
+    auto expected = MakeExpectedMixupResult(config, /*batch_size=*/3, labels, seed);
+    CHECK(expected.lambda > 0.0);
+    CHECK(expected.lambda < 1.0);
+    auto expected_grid = MakeExpectedMixupGrid(grid, expected.perm, expected.lambda);
+    auto expected_input = expected_grid.to(torch::kFloat32).div(255.0f);
+
+    auto result = RunImageClsRecordingUpdate(
+        fixture,
+        config,
+        anet::rl::StepCounts{},
+        MakeImageClsLearningExperience(grid, labels),
+        seed);
+
+    RequireTensorClose(fixture.recorder->last_input, expected_input);
+    CHECK(result->target_prob_mix == Catch::Approx(ExpectedTargetProbMix(expected_input, labels, expected)));
+}
+
+TEST_CASE("ImageClsLearner applies deterministic CutMix patch and corrected lambda", "[image_cls][mixup]")
+{
+    constexpr anet::seed_t seed = 99;
+    constexpr int64_t height = 4;
+    constexpr int64_t width = 4;
+    auto config_data = MakeImageClsMixTestConfigData();
+    config_data.Set("ImageClsAgent.mixup.cutmix_alpha", 10.0);
+    config_data.Set("ImageClsAgent.mixup.switch_prob", 1.0);
+    auto config = MakeImageClsMixTestConfig(config_data);
+    auto fixture = MakeImageClsRecordingTestNetwork(torch::kUInt8, height, width);
+    auto grid = torch::arange(3 * height * width, torch::TensorOptions().dtype(torch::kFloat32))
+        .mul(5.0f)
+        .remainder(256.0f)
+        .to(torch::kUInt8)
+        .view({ 3, 1, height, width });
+    auto labels = torch::tensor({ 0, 1, 0 }, torch::TensorOptions().dtype(torch::kInt64));
+
+    auto expected = MakeExpectedCutMixResult(config, /*batch_size=*/3, height, width, labels, seed);
+    const int64_t patch_area = (expected.x2 - expected.x1) * (expected.y2 - expected.y1);
+    REQUIRE(patch_area > 0);
+    CHECK(expected.lambda == Catch::Approx(1.0 - static_cast<double>(patch_area) / static_cast<double>(height * width)));
+    auto expected_grid = MakeExpectedCutMixGrid(grid, expected);
+    auto expected_input = expected_grid.to(torch::kFloat32).div(255.0f);
+
+    auto result = RunImageClsRecordingUpdate(
+        fixture,
+        config,
+        anet::rl::StepCounts{},
+        MakeImageClsLearningExperience(grid, labels),
+        seed);
+
+    RequireTensorClose(fixture.recorder->last_input, expected_input);
+    CHECK(result->target_prob_mix == Catch::Approx(ExpectedTargetProbMix(expected_input, labels, expected)));
+}
+
+TEST_CASE("ImageClsLearner mixup seed is reproducible and isolated from global torch RNG", "[image_cls][mixup]")
+{
+    constexpr anet::seed_t seed = 1234;
+    auto config = MakeImageClsMixTestConfig(MakeImageClsMixTestConfigData());
+    auto grid = torch::tensor(
+        { 255, 0, 0, 0,
+          0, 255, 0, 0,
+          128, 64, 0, 0 },
+        torch::TensorOptions().dtype(torch::kUInt8)).view({ 3, 1, 2, 2 });
+    auto labels = torch::tensor({ 0, 1, 0 }, torch::TensorOptions().dtype(torch::kInt64));
+
+    auto fixture_a = MakeImageClsRecordingTestNetwork(torch::kUInt8);
+    torch::manual_seed(999);
+    auto result_a = RunImageClsRecordingUpdate(
+        fixture_a,
+        config,
+        anet::rl::StepCounts{},
+        MakeImageClsLearningExperience(grid, labels),
+        seed);
+
+    auto fixture_b = MakeImageClsRecordingTestNetwork(torch::kUInt8);
+    torch::manual_seed(123);
+    auto result_b = RunImageClsRecordingUpdate(
+        fixture_b,
+        config,
+        anet::rl::StepCounts{},
+        MakeImageClsLearningExperience(grid, labels),
+        seed);
+
+    RequireTensorClose(fixture_a.recorder->last_input, fixture_b.recorder->last_input);
+    CHECK(result_a->loss == Catch::Approx(result_b->loss));
+    CHECK(result_a->accuracy == Catch::Approx(result_b->accuracy));
+    CHECK(result_a->target_prob_mix == Catch::Approx(result_b->target_prob_mix));
+}
+
+TEST_CASE("ImageClsAgent derives learner mixup seed from agent seed", "[image_cls][mixup]")
+{
+    EnsureImageClsNnInitialized();
+    ScopedNoopMetricsLogger metrics_logger;
+
+    auto grid = torch::tensor(
+        { 255, 0, 0, 0,
+          0, 255, 0, 0,
+          128, 64, 0, 0 },
+        torch::TensorOptions().dtype(torch::kUInt8)).view({ 3, 1, 2, 2 });
+    auto labels = torch::tensor({ 0, 1, 0 }, torch::TensorOptions().dtype(torch::kInt64));
+
+    auto result_a = RunImageClsAgentMixUpdate(/*agent_seed=*/1234, grid, labels);
+    auto result_b = RunImageClsAgentMixUpdate(/*agent_seed=*/1234, grid, labels);
+    CHECK(result_a->loss == Catch::Approx(result_b->loss));
+    CHECK(result_a->accuracy == Catch::Approx(result_b->accuracy));
+    CHECK(result_a->target_prob_mix == Catch::Approx(result_b->target_prob_mix));
+
+    auto result_c = RunImageClsAgentMixUpdate(/*agent_seed=*/4321, grid, labels);
+    const bool changed =
+        std::abs(result_a->loss - result_c->loss) > 1e-6f ||
+        std::abs(result_a->target_prob_mix - result_c->target_prob_mix) > 1e-6f;
+    CHECK(changed);
+}
+
+TEST_CASE("ImageClsLearner verbose log follows learn_log_interval", "[image_cls][mixup]")
+{
+    auto config_data = MakeImageClsMixTestConfigData();
+    config_data.Set("ImageClsAgent.mixup.enabled", false);
+    config_data.Set("ImageClsAgent.learn_log_interval", 2);
+    auto config = MakeImageClsMixTestConfig(config_data);
+    auto fixture = MakeImageClsRecordingTestNetwork(torch::kUInt8);
+    auto mutex = std::make_shared<std::shared_mutex>();
+    auto learning_rate = std::make_shared<anet::ProfiledValue<double>>(config.learning_rate);
+    anet::rl::img_cls::ImageClsLearner learner(
+        config,
+        mutex,
+        fixture.network,
+        learning_rate,
+        torch::Device(torch::kCPU),
+        5);
+
+    auto grid = torch::tensor(
+        { 255, 0, 0, 0,
+          0, 255, 0, 0 },
+        torch::TensorOptions().dtype(torch::kUInt8)).view({ 2, 1, 2, 2 });
+    auto labels = torch::tensor({ 0, 1 }, torch::TensorOptions().dtype(torch::kInt64));
+
+    anet::rl::StepCounts step;
+    step.learn_step = 1;
+    {
+        anet::test::LogCaptureGuard logs(wxLOG_Info);
+        learner.UpdateFromBatch(step, MakeImageClsLearningExperience(grid, labels));
+        logs.Flush();
+        CHECK_FALSE(anet::test::HasRecordContaining(logs.Records(), wxLOG_Info, { "ImageClsLearner update" }));
+    }
+
+    step.learn_step = 2;
+    {
+        anet::test::LogCaptureGuard logs(wxLOG_Info);
+        learner.UpdateFromBatch(step, MakeImageClsLearningExperience(grid, labels));
+        logs.Flush();
+        CHECK(anet::test::HasRecordContaining(
+            logs.Records(),
+            wxLOG_Info,
+            { "ImageClsLearner update", "learn_step=2", "target_prob_mix=", "mix_mode=none" }));
+    }
+
+    config_data.Set("ImageClsAgent.learn_log_interval", 0);
+    auto disabled_config = MakeImageClsMixTestConfig(config_data);
+    auto disabled_fixture = MakeImageClsRecordingTestNetwork(torch::kUInt8);
+    auto disabled_lr = std::make_shared<anet::ProfiledValue<double>>(disabled_config.learning_rate);
+    anet::rl::img_cls::ImageClsLearner disabled_learner(
+        disabled_config,
+        std::make_shared<std::shared_mutex>(),
+        disabled_fixture.network,
+        disabled_lr,
+        torch::Device(torch::kCPU),
+        5);
+    step.learn_step = 0;
+    {
+        anet::test::LogCaptureGuard logs(wxLOG_Info);
+        disabled_learner.UpdateFromBatch(step, MakeImageClsLearningExperience(grid, labels));
+        logs.Flush();
+        CHECK_FALSE(anet::test::HasRecordContaining(logs.Records(), wxLOG_Info, { "ImageClsLearner update" }));
+    }
+}
 
 TEST_CASE("ImageClsActor stores nn trace in action aux for Conv2dPanel", "[image_cls][trace]")
 {
