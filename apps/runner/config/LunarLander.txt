@@ -26,9 +26,15 @@ agent.device_type = 1    # 0=cpu 1=cuda   NNが小さいのでCPUのほうが早
 # 実験
 # ==============================================================================
 
-#app.run_name = run_{t}_ll
-app.run_name = run_{t}_ll_rbfix
+app.run_name = run_{t}_ll_cnn
 
+
+E.obs_include_action = true   # 風POMDP対策: 直前actionをobsに含める(032)
+
+#R.learner.replay_ratio = 2
+
+#R.learner.per_initial_priority = 10
+R.learner.per_initial_priority = -1
 
 R.learner.use_rb_prefetch = true
 
@@ -61,6 +67,7 @@ R.learner.replay_capacity = 512,000
 
 R.model.soft_update_tau = 0.005
 
+#R.num_quantiles = 51
 R.num_quantiles = 32
 
 R.learner.per_beta_step = 500,000              # 1M
@@ -89,6 +96,9 @@ R.train_policy.uqe_eps_end = 0.0  #0.01
 
 # --- ブロック定義
 
+net.block.[LN512].type = LayerNorm
+net.block.[LN512].normalized_shape = 512
+
 net.block.[LN256].type = LayerNorm
 net.block.[LN256].normalized_shape = 256
 
@@ -103,25 +113,31 @@ net.block.[TConv64].conv.padding = 0
 net.block.[TConv64].init.mode = xavier
 
 net.block.[ReS4F8].type = Reshape
-net.block.[ReS4F8].reshape.dims = 4 -1      # (N,32) -> (N,4,8)
+net.block.[ReS4F8].reshape.dims = 4 -1     # (N,48) -> (N,4,12) or (N,32) -> (N,4,8)
+#net.block.[ReS4F8].reshape.dims = 8 -1      # (N,96) -> (N,8,12) or (N,64) -> (N,8,8)
+
+net.block.[Linear512].type = Linear
+net.block.[Linear512].linear.out_features = 512
+net.block.[Linear512].init.mode = xavier
+
+net.block.[Linear256].type = Linear
+net.block.[Linear256].linear.out_features = 256
+net.block.[Linear256].init.mode = xavier
+
+net.block.[Linear128].type = Linear
+net.block.[Linear128].linear.out_features = 128
+net.block.[Linear128].init.mode = xavier
 
 
-# --- ブロックパラメータ上書き（nn.txt の MLP_FC1/MLP_FC2 を流用）
-net.block.FC1.linear.out_features = 256
-net.block.FC2.linear.out_features = 128
-net.block.FC1.init.mode = xavier
-net.block.FC2.init.mode = xavier
-
-
-# --- Body 本体ブランチ（vector 観測 -> MLP）
 net.branch.[main_feature].bind = vector
 
-#net.branch.[main_feature].structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU
-#net.branch.[main_feature].structure = Flatten > MLP_FC1 > SiLU > MLP_FC2 > SiLU
-net.branch.[main_feature].structure = Flatten > MLP_FC1 > LN256 > SiLU > MLP_FC2 > LN128 > SiLU
-#net.branch.[main_feature].structure = Conv1D_Permute > TConv64 > SiLU > Flatten > MLP_FC1 > SiLU > MLP_FC2 > SiLU
-#net.branch.[main_feature].structure = Conv1D_Permute > TConv64 > SiLU > Flatten > MLP_FC1 > LN256 > SiLU > MLP_FC2 > LN128 > SiLU
-#net.branch.[main_feature].structure = Flatten > ReS4F8 > Conv1D_Permute > TConv64 > SiLU > Flatten > MLP_FC1 > LN256 > SiLU > MLP_FC2 > LN128 > SiLU
+#net.branch.[main_feature].structure = Flatten > Linear256 > ReLU > Linear128 > ReLU
+#net.branch.[main_feature].structure = Flatten > Linear256 > SiLU > Linear128 > SiLU
+#net.branch.[main_feature].structure = Flatten > Linear256 > LN256 > SiLU > Linear128 > LN128 > SiLU
+#net.branch.[main_feature].structure = Flatten > Linear512 > LN512 > SiLU > Linear256 > LN256 > SiLU
+#net.branch.[main_feature].structure = Conv1D_Permute > TConv64 > SiLU > Flatten > Linear256 > SiLU > Linear128 > SiLU
+#net.branch.[main_feature].structure = Conv1D_Permute > TConv64 > SiLU > Flatten > Linear256 > LN256 > SiLU > Linear128 > LN128 > SiLU
+net.branch.[main_feature].structure = Flatten > ReS4F8 > Conv1D_Permute > TConv64 > SiLU > Flatten > Linear256 > LN256 > SiLU > Linear128 > LN128 > SiLU
 
 
 # --- Dueling V/A: [デフォルト] 単一 features を Head が内部で V/A 分割（V1 と同一挙動）
@@ -133,10 +149,15 @@ net.block.[HeadFC128].type = Linear
 net.block.[HeadFC128].linear.out_features = 128
 net.block.[HeadFC128].init.mode = xavier
 
+
 net.branch.[value_stream].bind = main_feature
-net.branch.[value_stream].structure = HeadFC128 > SiLU
+#net.branch.[value_stream].structure = HeadFC128 > SiLU
+net.branch.[value_stream].structure = HeadFC128 > LN128 > SiLU
+
 net.branch.[adv_stream].bind = main_feature
-net.branch.[adv_stream].structure = HeadFC128 > SiLU
+#net.branch.[adv_stream].structure = HeadFC128 > SiLU
+net.branch.[adv_stream].structure = HeadFC128 > LN128 > SiLU
+
 net.body.output.[value_feature] = value_stream
 net.body.output.[adv_feature] = adv_stream
 
@@ -170,6 +191,7 @@ app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
 
 A.stucker.use_stacker = true
 A.stucker.stack_count = 4
+#A.stucker.stack_count = 8
 
 A.learner.use_tbo = true
 
@@ -314,6 +336,7 @@ LunarLanderEnv.world_half_width = 2.5 # 2.5 10
 LunarLanderEnv.world_height = 4.0 #2.0
 LunarLanderEnv.ground_y = 0.5
 LunarLanderEnv.gravity = -10.0
+#LunarLanderEnv.obs_include_action = true   # 風POMDP対策: 直前actionをobsに含める(032)
 LunarLanderEnv.wind_power = 15.0
 LunarLanderEnv.turbulence_power = 1.5
 LunarLanderEnv.init.x_range = 1.0

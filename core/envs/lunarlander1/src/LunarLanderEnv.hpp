@@ -22,6 +22,7 @@ namespace anet::rl::env {
     constexpr int kActionLeft = 1;
     constexpr int kActionMain = 2;
     constexpr int kActionRight = 3;
+    constexpr int kActionCount = 4;
 
     /// LunarLander 環境の設定
     struct LunarLanderEnvConfig : public anet::Config {
@@ -30,6 +31,7 @@ namespace anet::rl::env {
         float world_height = 2.0f;
         float ground_y = 0.0f;
         float gravity = -10.0f;
+        bool obs_include_action = false;
 
         bool enable_wind = false;
         float wind_power = 15.0f;       ///< Gym の WIND_POWER 相当
@@ -62,6 +64,7 @@ namespace anet::rl::env {
             ANET_READ_CONFIG(config_data, world_height);
             ANET_READ_CONFIG(config_data, ground_y);
             ANET_READ_CONFIG(config_data, gravity);
+            ANET_READ_CONFIG(config_data, obs_include_action);
             ANET_READ_CONFIG(config_data, enable_wind);
             ANET_READ_CONFIG(config_data, wind_power);
             ANET_READ_CONFIG(config_data, turbulence_power);
@@ -171,6 +174,7 @@ namespace anet::rl::env {
         float last_wind_torque_ = 0.0f;
         int64_t wind_idx_ = 0;
         int64_t torque_idx_ = 0;
+        int64_t last_action_ = -1; ///< 直前に実行した action。-1 は Reset 直後の未行動を表す。
 
         float last_shaping_ = 0.0f;
         bool has_prev_shaping_ = false;
