@@ -766,12 +766,16 @@ RunManager::RunManager(const ConfigData& config_data)
         bool use_background = true;
         eval_config_data.Read("use_background", use_background, use_background);
 
+        // Eval actor の network clone 有無を選ぶ (デフォルト true)
+        bool clone_model = true;
+        eval_config_data.Read("clone_model", clone_model, clone_model);
+
         // EvalRunner生成&登録
         auto actor_device = config_->GetEvalDevice();
         auto eval_env = std::make_shared<VectorizedDiscreteBatchEnv>(
             config_data, single_env_factory, 1, env_device, eval_obs_seed, config_prefix);
         auto eval_runner = std::make_shared<EvalRunner>(
-            eval_env, agent_, notifier_, run_mode, /*clone_model=*/true, actor_device, tag);
+            eval_env, agent_, notifier_, run_mode, clone_model, actor_device, tag);
         eval_runners[tag] = eval_runner;
 
         // EvalObserver生成&登録
