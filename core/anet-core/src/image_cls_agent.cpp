@@ -6,6 +6,7 @@
 #include <fstream>
 #include <limits>
 #include <string>
+#include <tuple>
 #include "anet/image_cls_agent.hpp"
 #include "anet/log.hpp"
 #include "anet/profile.hpp"
@@ -320,23 +321,40 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
         optimizer_->step();
     }
 
-    // メトリクス (Accuracy) の計算
+    // メトリクスを計算
     // 確率が一番高いインデックスを予測クラスとして正解と比較
-    auto preds = logits.argmax(/*dim=*/1);
-    float accuracy = (preds == targets).to(torch::kFloat32).mean().item<float>();
-    auto probs = torch::softmax(logits.detach(), /*dim=*/1);
+    auto metric_logits = logits.detach();
+    auto preds = metric_logits.argmax(/*dim=*/1);
+    auto accuracy = (preds == targets).to(torch::kFloat32).mean();
+    auto probs = torch::softmax(metric_logits, /*dim=*/1);
     auto target_prob_a = probs.gather(/*dim=*/1, targets.unsqueeze(1)).squeeze(1);
-    auto target_prob_mix = target_prob_a;
-    if (mix.lambda < 1.0) {
-        auto target_prob_b = probs.gather(/*dim=*/1, mix.targets_b.unsqueeze(1)).squeeze(1);
-        target_prob_mix = target_prob_a.mul(mix.lambda).add(target_prob_b.mul(1.0 - mix.lambda));
-    }
+    auto target_prob_b = probs.gather(/*dim=*/1, mix.targets_b.unsqueeze(1)).squeeze(1);
+    auto target_prob_mix = target_prob_a.mul(mix.lambda).add(target_prob_b.mul(1.0 - mix.lambda));
+    const double eps = config_.label_smoothing;
+    const double class_count = static_cast<double>(logits.size(1));
+    const double ceiling = (1.0 - eps)
+        * (mix.lambda * mix.lambda + (1.0 - mix.lambda) * (1.0 - mix.lambda))
+        + eps / class_count;
 
     // 結果の返却
     auto result = std::make_shared<ImageClsUpdateResult>();
-    result->loss = loss.item<float>();
+    result->loss = loss.detach();
     result->accuracy = accuracy;
-    result->target_prob_mix = target_prob_mix.mean().item<float>();
+    result->target_prob_mix_norm = target_prob_mix.mean().div(ceiling);
+    result->accuracy_either = (preds == targets)
+        .logical_or(preds == mix.targets_b)
+        .to(torch::kFloat32)
+        .mean();
+    result->pred_max_prob = std::get<0>(probs.max(/*dim=*/1)).mean();
+    if (mix.mode != "none") {
+        result->same_class_pair_ratio = (targets == mix.targets_b)
+            .to(torch::kFloat32)
+            .mean();
+    } else {
+        result->same_class_pair_ratio = torch::zeros(
+            {},
+            torch::TensorOptions().dtype(torch::kFloat32).device(targets.device()));
+    }
 
     // 処理ログ
     if (config_.learn_log_interval > 0 && step.learn_step % config_.learn_log_interval == 0) {
@@ -344,9 +362,16 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
             << " exp_step=" << step.exp_step
             << " learn_step=" << step.learn_step
             //<< " batch=" << targets.size(0)
-            << " loss=" << result->loss
-            << " accuracy=" << result->accuracy
-            << " target_prob_mix=" << result->target_prob_mix
+            << " loss=" << result->GetScalar("loss", -1).value_or(std::numeric_limits<float>::quiet_NaN())
+            << " accuracy=" << result->GetScalar("accuracy", -1).value_or(std::numeric_limits<float>::quiet_NaN())
+            << " target_prob_mix_norm="
+            << result->GetScalar("target_prob_mix_norm", -1).value_or(std::numeric_limits<float>::quiet_NaN())
+            << " accuracy_either="
+            << result->GetScalar("accuracy_either", -1).value_or(std::numeric_limits<float>::quiet_NaN())
+            << " pred_max_prob="
+            << result->GetScalar("pred_max_prob", -1).value_or(std::numeric_limits<float>::quiet_NaN())
+            << " same_class_pair_ratio="
+            << result->GetScalar("same_class_pair_ratio", -1).value_or(std::numeric_limits<float>::quiet_NaN())
             << " learning_rate=" << current_learning_rate
             << " mix_mode=" << mix.mode;
     }

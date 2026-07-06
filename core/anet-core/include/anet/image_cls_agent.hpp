@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <limits>
 #include <memory>
 #include <string>
 #include <torch/torch.h>
@@ -102,15 +103,22 @@ namespace anet::rl::img_cls {
     // ======================================================
     class ImageClsUpdateResult : public anet::rl::BatchUpdateResult {
     public:
-        float loss = 0.0f;
-        float accuracy = 0.0f;
-        float target_prob_mix = 0.0f;
+        torch::Tensor loss;
+        torch::Tensor accuracy;
+        torch::Tensor target_prob_mix_norm;
+        torch::Tensor accuracy_either;
+        torch::Tensor pred_max_prob;
+        torch::Tensor same_class_pair_ratio;
 
         std::optional<float> GetScalar(const std::string& key, int64_t index) const override
         {
-            if (key == "loss") return loss;
-            if (key == "accuracy") return accuracy;
-            if (key == "target_prob_mix") return target_prob_mix;
+            // 必要になって初めて scalar tensor を CPU 同期し、同じ event 内の再読みに備えて cache する。
+            if (key == "loss") return GetCachedScalar(loss, loss_cache_);
+            if (key == "accuracy") return GetCachedScalar(accuracy, accuracy_cache_);
+            if (key == "target_prob_mix_norm") return GetCachedScalar(target_prob_mix_norm, target_prob_mix_norm_cache_);
+            if (key == "accuracy_either") return GetCachedScalar(accuracy_either, accuracy_either_cache_);
+            if (key == "pred_max_prob") return GetCachedScalar(pred_max_prob, pred_max_prob_cache_);
+            if (key == "same_class_pair_ratio") return GetCachedScalar(same_class_pair_ratio, same_class_pair_ratio_cache_);
             return std::nullopt;
         }
 
@@ -123,6 +131,25 @@ namespace anet::rl::img_cls {
         {
             return std::nullopt;
         }
+
+    private:
+        static std::optional<float> GetCachedScalar(const torch::Tensor& tensor, std::optional<float>& cache)
+        {
+            if (!tensor.defined()) {
+                return std::numeric_limits<float>::quiet_NaN();
+            }
+            if (!cache.has_value()) {
+                cache = tensor.item<float>();
+            }
+            return cache;
+        }
+
+        mutable std::optional<float> loss_cache_;
+        mutable std::optional<float> accuracy_cache_;
+        mutable std::optional<float> target_prob_mix_norm_cache_;
+        mutable std::optional<float> accuracy_either_cache_;
+        mutable std::optional<float> pred_max_prob_cache_;
+        mutable std::optional<float> same_class_pair_ratio_cache_;
     };
 
 

@@ -432,8 +432,14 @@ metrics.scalar.[38_agent/02_loss_ema]       = loss @learn $ema
 metrics.scalar.[38_agent/03_accuracy]       = accuracy @learn
 metrics.scalar.[38_agent/04_accuracy_ema]   = accuracy @learn $ema
 
-metrics.scalar.[38_agent/05_target_prob_mix]     = target_prob_mix @learn      # soft target重み付き正解クラス確率。accuracyではない
-metrics.scalar.[38_agent/06_target_prob_mix_ema] = target_prob_mix @learn $ema # 上記のEMA。混合ラベル側へ確率が寄る推移を見る
+metrics.scalar.[38_agent/05_target_prob_mix_norm]      = target_prob_mix_norm @learn
+metrics.scalar.[38_agent/06_target_prob_mix_norm_ema]  = target_prob_mix_norm $ema @learn
+metrics.scalar.[38_agent/07_accuracy_either]           = accuracy_either @learn
+metrics.scalar.[38_agent/08_accuracy_either_ema]       = accuracy_either $ema @learn
+metrics.scalar.[38_agent/09_pred_max_prob]             = pred_max_prob @learn
+metrics.scalar.[38_agent/10_pred_max_prob_ema]         = pred_max_prob $ema @learn
+metrics.scalar.[38_agent/11_same_class_pair_ratio]     = same_class_pair_ratio @learn
+metrics.scalar.[38_agent/12_same_class_pair_ratio_ema] = same_class_pair_ratio $ema @learn
 
 #metrics.scalar.[42_env/02_reward_sum_mean]     = $env mean.reward_sum @train $exp_step
 #metrics.scalar.[42_env/03_reward_sum_mean_ema] = $env mean.reward_sum @train $exp_step $ema ema_alpha:0.001
@@ -542,7 +548,7 @@ ImageClsEnv.augment.rrc_ratio_max = 1.3333333   # crop アスペクト比上限
 
 # --- Eval設定 ---
 
-train.eval.[eval1].interval = 10
+train.eval.[eval1].interval = 50
 train.eval.[eval2].interval = 0
 
 

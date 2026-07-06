@@ -14,6 +14,7 @@
 #include <memory>
 #include <shared_mutex>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace {
@@ -436,6 +437,23 @@ void RequireTensorClose(const torch::Tensor& actual, const torch::Tensor& expect
     CHECK(torch::allclose(actual, expected, tolerance, tolerance));
 }
 
+float RequireImageClsScalar(
+    const std::shared_ptr<const anet::rl::img_cls::ImageClsUpdateResult>& result,
+    const std::string& key)
+{
+    auto scalar = result->GetScalar(key, -1);
+    REQUIRE(scalar.has_value());
+    return *scalar;
+}
+
+void CheckImageClsScalar(
+    const std::shared_ptr<const anet::rl::img_cls::ImageClsUpdateResult>& result,
+    const std::string& key,
+    float expected)
+{
+    CHECK(RequireImageClsScalar(result, key) == Catch::Approx(expected));
+}
+
 double TestSampleBeta(anet::RandomGenerator& rng, double alpha)
 {
     const double a = rng.Gamma(static_cast<float>(alpha), 1.0f);
@@ -451,6 +469,13 @@ struct ExpectedMixResult {
     int64_t y1 = 0;
     int64_t x2 = 0;
     int64_t y2 = 0;
+};
+
+struct ExpectedImageClsMetrics {
+    float target_prob_mix_norm = 0.0f;
+    float accuracy_either = 0.0f;
+    float pred_max_prob = 0.0f;
+    float same_class_pair_ratio = 0.0f;
 };
 
 ExpectedMixResult MakeExpectedMixupResult(
@@ -521,14 +546,40 @@ torch::Tensor MakeExpectedCutMixGrid(const torch::Tensor& grid, const ExpectedMi
     return mixed;
 }
 
-float ExpectedTargetProbMix(const torch::Tensor& preprocessed_grid, const torch::Tensor& labels, const ExpectedMixResult& mix)
+ExpectedImageClsMetrics MakeExpectedImageClsMetrics(
+    const torch::Tensor& preprocessed_grid,
+    const torch::Tensor& labels,
+    const ExpectedMixResult& mix,
+    double label_smoothing,
+    bool mix_applied)
 {
     auto feature = preprocessed_grid.flatten(1);
     auto logits = torch::stack({ feature.select(1, 0), feature.select(1, 1) }, 1);
     auto probs = torch::softmax(logits, 1);
+    auto preds = logits.argmax(1);
     auto target_prob_a = probs.gather(1, labels.unsqueeze(1)).squeeze(1);
     auto target_prob_b = probs.gather(1, mix.targets_b.unsqueeze(1)).squeeze(1);
-    return target_prob_a.mul(mix.lambda).add(target_prob_b.mul(1.0 - mix.lambda)).mean().item<float>();
+    auto target_prob_mix = target_prob_a.mul(mix.lambda).add(target_prob_b.mul(1.0 - mix.lambda));
+    const double class_count = static_cast<double>(logits.size(1));
+    const double ceiling = (1.0 - label_smoothing)
+        * (mix.lambda * mix.lambda + (1.0 - mix.lambda) * (1.0 - mix.lambda))
+        + label_smoothing / class_count;
+
+    ExpectedImageClsMetrics metrics;
+    metrics.target_prob_mix_norm = static_cast<float>(target_prob_mix.mean().item<float>() / ceiling);
+    metrics.accuracy_either = (preds == labels)
+        .logical_or(preds == mix.targets_b)
+        .to(torch::kFloat32)
+        .mean()
+        .item<float>();
+    metrics.pred_max_prob = std::get<0>(probs.max(/*dim=*/1)).mean().item<float>();
+    if (mix_applied) {
+        metrics.same_class_pair_ratio = (labels == mix.targets_b)
+            .to(torch::kFloat32)
+            .mean()
+            .item<float>();
+    }
+    return metrics;
 }
 
 anet::rl::EnvSpec MakeImageClsEnvSpec()
@@ -627,10 +678,37 @@ TEST_CASE("ImageCls mixup config defaults, round-trip and fail-fast validation",
     }
 }
 
-TEST_CASE("ImageClsLearner reports hard target probability when mixup is disabled", "[image_cls][mixup]")
+TEST_CASE("ImageClsUpdateResult returns NaN for missing known scalars only", "[image_cls][mixup]")
+{
+    anet::rl::img_cls::ImageClsUpdateResult result;
+
+    const auto loss = result.GetScalar("loss", -1);
+    const auto accuracy = result.GetScalar("accuracy", -1);
+    const auto target_prob_mix_norm = result.GetScalar("target_prob_mix_norm", -1);
+    const auto accuracy_either = result.GetScalar("accuracy_either", -1);
+    const auto pred_max_prob = result.GetScalar("pred_max_prob", -1);
+    const auto same_class_pair_ratio = result.GetScalar("same_class_pair_ratio", -1);
+
+    REQUIRE(loss.has_value());
+    REQUIRE(accuracy.has_value());
+    REQUIRE(target_prob_mix_norm.has_value());
+    REQUIRE(accuracy_either.has_value());
+    REQUIRE(pred_max_prob.has_value());
+    REQUIRE(same_class_pair_ratio.has_value());
+    CHECK(std::isnan(*loss));
+    CHECK(std::isnan(*accuracy));
+    CHECK(std::isnan(*target_prob_mix_norm));
+    CHECK(std::isnan(*accuracy_either));
+    CHECK(std::isnan(*pred_max_prob));
+    CHECK(std::isnan(*same_class_pair_ratio));
+    CHECK_FALSE(result.GetScalar("unknown", -1).has_value());
+}
+
+TEST_CASE("ImageClsLearner reports normalized diagnostic metrics when mixup is disabled", "[image_cls][mixup]")
 {
     auto config_data = MakeImageClsMixTestConfigData();
     config_data.Set("ImageClsAgent.mixup.enabled", false);
+    config_data.Set("ImageClsAgent.label_smoothing", 0.1);
     auto config = MakeImageClsMixTestConfig(config_data);
 
     auto fixture = MakeImageClsRecordingTestNetwork(torch::kUInt8);
@@ -652,9 +730,13 @@ TEST_CASE("ImageClsLearner reports hard target probability when mixup is disable
     ExpectedMixResult no_mix;
     no_mix.targets_b = labels;
     no_mix.lambda = 1.0;
-    CHECK(result->accuracy == Catch::Approx(1.0f));
-    CHECK(result->target_prob_mix == Catch::Approx(ExpectedTargetProbMix(expected_input, labels, no_mix)));
-    REQUIRE(result->GetScalar("target_prob_mix", -1).has_value());
+    const auto expected = MakeExpectedImageClsMetrics(expected_input, labels, no_mix, config.label_smoothing, false);
+    CheckImageClsScalar(result, "accuracy", 1.0f);
+    CheckImageClsScalar(result, "target_prob_mix_norm", expected.target_prob_mix_norm);
+    CheckImageClsScalar(result, "accuracy_either", expected.accuracy_either);
+    CheckImageClsScalar(result, "pred_max_prob", expected.pred_max_prob);
+    CheckImageClsScalar(result, "same_class_pair_ratio", 0.0f);
+    CHECK_FALSE(result->GetScalar("target_prob_mix", -1).has_value());
     CHECK_FALSE(result->GetScalar("unknown", -1).has_value());
 }
 
@@ -728,7 +810,12 @@ TEST_CASE("ImageClsLearner applies deterministic Mixup before network forward", 
         seed);
 
     RequireTensorClose(fixture.recorder->last_input, expected_input);
-    CHECK(result->target_prob_mix == Catch::Approx(ExpectedTargetProbMix(expected_input, labels, expected)));
+    const auto expected_metrics = MakeExpectedImageClsMetrics(
+        expected_input, labels, expected, config.label_smoothing, true);
+    CheckImageClsScalar(result, "target_prob_mix_norm", expected_metrics.target_prob_mix_norm);
+    CheckImageClsScalar(result, "accuracy_either", expected_metrics.accuracy_either);
+    CheckImageClsScalar(result, "pred_max_prob", expected_metrics.pred_max_prob);
+    CheckImageClsScalar(result, "same_class_pair_ratio", expected_metrics.same_class_pair_ratio);
 }
 
 TEST_CASE("ImageClsLearner applies deterministic CutMix patch and corrected lambda", "[image_cls][mixup]")
@@ -763,7 +850,12 @@ TEST_CASE("ImageClsLearner applies deterministic CutMix patch and corrected lamb
         seed);
 
     RequireTensorClose(fixture.recorder->last_input, expected_input);
-    CHECK(result->target_prob_mix == Catch::Approx(ExpectedTargetProbMix(expected_input, labels, expected)));
+    const auto expected_metrics = MakeExpectedImageClsMetrics(
+        expected_input, labels, expected, config.label_smoothing, true);
+    CheckImageClsScalar(result, "target_prob_mix_norm", expected_metrics.target_prob_mix_norm);
+    CheckImageClsScalar(result, "accuracy_either", expected_metrics.accuracy_either);
+    CheckImageClsScalar(result, "pred_max_prob", expected_metrics.pred_max_prob);
+    CheckImageClsScalar(result, "same_class_pair_ratio", expected_metrics.same_class_pair_ratio);
 }
 
 TEST_CASE("ImageClsLearner mixup seed is reproducible and isolated from global torch RNG", "[image_cls][mixup]")
@@ -796,9 +888,12 @@ TEST_CASE("ImageClsLearner mixup seed is reproducible and isolated from global t
         seed);
 
     RequireTensorClose(fixture_a.recorder->last_input, fixture_b.recorder->last_input);
-    CHECK(result_a->loss == Catch::Approx(result_b->loss));
-    CHECK(result_a->accuracy == Catch::Approx(result_b->accuracy));
-    CHECK(result_a->target_prob_mix == Catch::Approx(result_b->target_prob_mix));
+    const float loss_a = RequireImageClsScalar(result_a, "loss");
+    const float accuracy_a = RequireImageClsScalar(result_a, "accuracy");
+    const float target_prob_mix_norm_a = RequireImageClsScalar(result_a, "target_prob_mix_norm");
+    CHECK(loss_a == Catch::Approx(RequireImageClsScalar(result_b, "loss")));
+    CHECK(accuracy_a == Catch::Approx(RequireImageClsScalar(result_b, "accuracy")));
+    CHECK(target_prob_mix_norm_a == Catch::Approx(RequireImageClsScalar(result_b, "target_prob_mix_norm")));
 }
 
 TEST_CASE("ImageClsAgent derives learner mixup seed from agent seed", "[image_cls][mixup]")
@@ -815,14 +910,19 @@ TEST_CASE("ImageClsAgent derives learner mixup seed from agent seed", "[image_cl
 
     auto result_a = RunImageClsAgentMixUpdate(/*agent_seed=*/1234, grid, labels);
     auto result_b = RunImageClsAgentMixUpdate(/*agent_seed=*/1234, grid, labels);
-    CHECK(result_a->loss == Catch::Approx(result_b->loss));
-    CHECK(result_a->accuracy == Catch::Approx(result_b->accuracy));
-    CHECK(result_a->target_prob_mix == Catch::Approx(result_b->target_prob_mix));
+    const float loss_a = RequireImageClsScalar(result_a, "loss");
+    const float accuracy_a = RequireImageClsScalar(result_a, "accuracy");
+    const float target_prob_mix_norm_a = RequireImageClsScalar(result_a, "target_prob_mix_norm");
+    CHECK(loss_a == Catch::Approx(RequireImageClsScalar(result_b, "loss")));
+    CHECK(accuracy_a == Catch::Approx(RequireImageClsScalar(result_b, "accuracy")));
+    CHECK(target_prob_mix_norm_a == Catch::Approx(RequireImageClsScalar(result_b, "target_prob_mix_norm")));
 
     auto result_c = RunImageClsAgentMixUpdate(/*agent_seed=*/4321, grid, labels);
+    const float loss_c = RequireImageClsScalar(result_c, "loss");
+    const float target_prob_mix_norm_c = RequireImageClsScalar(result_c, "target_prob_mix_norm");
     const bool changed =
-        std::abs(result_a->loss - result_c->loss) > 1e-6f ||
-        std::abs(result_a->target_prob_mix - result_c->target_prob_mix) > 1e-6f;
+        std::abs(loss_a - loss_c) > 1e-6f ||
+        std::abs(target_prob_mix_norm_a - target_prob_mix_norm_c) > 1e-6f;
     CHECK(changed);
 }
 
@@ -866,7 +966,14 @@ TEST_CASE("ImageClsLearner verbose log follows learn_log_interval", "[image_cls]
         CHECK(anet::test::HasRecordContaining(
             logs.Records(),
             wxLOG_Info,
-            { "ImageClsLearner update", "learn_step=2", "target_prob_mix=", "mix_mode=none" }));
+            {
+                "ImageClsLearner update",
+                "learn_step=2",
+                "target_prob_mix_norm=",
+                "accuracy_either=",
+                "pred_max_prob=",
+                "mix_mode=none"
+            }));
     }
 
     config_data.Set("ImageClsAgent.learn_log_interval", 0);
