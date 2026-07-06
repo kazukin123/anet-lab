@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 #include <string>
 #include "anet/image_cls_agent.hpp"
@@ -341,7 +343,7 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
         LOG::verbose() << "ImageClsLearner update"
             << " exp_step=" << step.exp_step
             << " learn_step=" << step.learn_step
-            << " batch=" << targets.size(0)
+            //<< " batch=" << targets.size(0)
             << " loss=" << result->loss
             << " accuracy=" << result->accuracy
             << " target_prob_mix=" << result->target_prob_mix
@@ -350,6 +352,24 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
     }
 
     return { result };
+}
+
+int64_t ImageClsLearner::Save(anet::OutputArchive& archive) const
+{
+    ANET_PROFILE_FUNC();
+
+    int64_t size = 0;
+    size += archive.WriteTorchObject(*optimizer_);
+    return size;
+}
+
+int64_t ImageClsLearner::Load(anet::InputArchive& archive)
+{
+    ANET_PROFILE_FUNC();
+
+    int64_t size = 0;
+    size += archive.ReadTorchObject(*optimizer_);
+    return size;
 }
 
 
@@ -393,9 +413,87 @@ ImageClsAgent::ImageClsAgent(
         anet::MetricsLogger::Instance()->Log("net.detail", *detail_view);
     }
 
+    // Learner は optimizer state 復元対象なので Agent と同じ lifetime で保持する
+    anet::SeedMaker seed_maker(GetSeed());
+    const auto learner_seed = seed_maker.MakeNamedSeed("learner");
+    learner_ = std::make_shared<ImageClsLearner>(config_, mutex_, network_, learning_rate_, device_, learner_seed);
+
+    // 暫定 checkpoint 指定がある場合は network/optimizer を復元する
+    if (!config_.auto_load_file.empty()) {
+        LOG::info() << "ImageClsAgent auto-load file=" << config_.auto_load_file;
+        LoadNetwork(config_.auto_load_file);
+    }
+
     // ログ記録
     anet::MetricsLogger::Instance()->Log(config);
     LOG::info() << "ImageClsAgent initialized. config=" << config_.ToString();
+}
+
+int64_t ImageClsAgent::Save(anet::OutputArchive& archive) const
+{
+    ANET_PROFILE_FUNC();
+
+    std::shared_lock lock(*mutex_);
+    int64_t total_size = 0;
+
+    // ヘッダ
+    anet::ArchiveHeader header("ImageClsAgent");
+    const auto header_size = archive.Write(header);
+    total_size += header_size;
+
+    // Config
+    const auto config_size = archive.Write(config_.ToString());
+    total_size += config_size;
+
+    // Network
+    const auto network_size = archive.WriteTorchObject(network_);
+    total_size += network_size;
+
+    // Learner(AdamW)
+    const auto learner_size = learner_->Save(archive);
+    total_size += learner_size;
+
+    LOG::info() << "ImageClsAgent Serialized. total_size=" << anet::FormatWithCommas(total_size)
+        << " config_size=" << anet::FormatWithCommas(config_size)
+        << " network_size=" << anet::FormatWithCommas(network_size)
+        << " learner_size=" << anet::FormatWithCommas(learner_size);
+
+    return total_size;
+}
+
+void ImageClsAgent::LoadNetwork(const std::string& filename)
+{
+    std::ifstream ifs(filename, std::ios::binary);
+    if (!ifs) {
+        LOG::info() << "cwd=" << std::filesystem::current_path();
+        ANET_SYSTEM_ERROR("Failed to open file for loading: " << filename);
+    }
+    anet::InputArchive in(ifs, filename);
+
+    // Header
+    anet::ArchiveHeader header;
+    in.Read(header);
+    LOG::verbose() << "ImageClsAgent::LoadNetwork: Archive Header: "
+        << header.kMagicWord << " " << header.kFormatVersion << " " << header.info;
+    if (header.GetInfo() != "ImageClsAgent") {
+        ANET_SYSTEM_ERROR("ImageClsAgent::LoadNetwork: incompatible archive info. file=" << filename
+            << " info=" << header.GetInfo() << " expected=ImageClsAgent");
+    }
+
+    // Config
+    std::string config_str;
+    const auto config_size = in.Read(config_str);
+    LOG::info() << "ImageClsAgent::LoadNetwork: config_size=" << config_size;
+    LOG::verbose() << "ImageClsAgent::LoadNetwork: config_str=\n" << config_str;
+
+    // Network と Learner は Actor/Learner と共有するため、同じ排他境界で復元する
+    std::unique_lock lock(*mutex_);
+    const auto network_size = in.ReadTorchObject(network_);
+    network_->eval();
+    const auto learner_size = learner_->Load(in);
+
+    LOG::info() << "ImageClsAgent::LoadNetwork: network_size=" << network_size
+        << " learner_size=" << learner_size;
 }
 
 std::shared_ptr<anet::rl::Actor> ImageClsAgent::CreateActor(
@@ -407,11 +505,8 @@ std::shared_ptr<anet::rl::Actor> ImageClsAgent::CreateActor(
 
 std::shared_ptr<anet::rl::Learner> ImageClsAgent::CreateLearner()
 {
-    anet::SeedMaker seed_maker(GetSeed());
-    const auto learner_seed = seed_maker.MakeNamedSeed("learner");
-
-    // Learnerの生成
-    return std::make_shared<ImageClsLearner>(config_, mutex_, network_, learning_rate_, device_, learner_seed);
+    // Agent 所有の Learner を返し、optimizer state を run 断面保存の対象に保つ
+    return learner_;
 }
 
 std::optional<float> ImageClsAgent::GetScalar(const std::string& key, int64_t index) const

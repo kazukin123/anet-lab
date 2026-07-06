@@ -12,6 +12,7 @@
 #include "anet/nn.hpp"
 #include "anet/agent.hpp"
 #include "anet/random.hpp"
+#include "anet/serialize.hpp"
 
 namespace anet::rl::img_cls {
 
@@ -24,6 +25,7 @@ namespace anet::rl::img_cls {
         double label_smoothing = 0.1;
         double grad_clip_max_norm = 1.0;
         int64_t learn_log_interval = 0;
+        std::string auto_load_file;
 
         struct MixupConfig {
             bool enabled = false;
@@ -46,6 +48,7 @@ namespace anet::rl::img_cls {
             ANET_READ_CONFIG(config_data, label_smoothing);
             ANET_READ_CONFIG(config_data, grad_clip_max_norm);
             ANET_READ_CONFIG(config_data, learn_log_interval);
+            ANET_READ_CONFIG(config_data, auto_load_file);
 
             ANET_READ_CONFIG(config_data, mixup.enabled);
             ANET_READ_CONFIG(config_data, mixup.mixup_alpha);
@@ -159,6 +162,9 @@ namespace anet::rl::img_cls {
         anet::rl::BatchUpdateResultList UpdateFromBatch(
             const anet::rl::StepCounts& step,
             const anet::rl::BatchExperience& experiences) override;
+
+        int64_t Save(anet::OutputArchive& archive) const;
+        int64_t Load(anet::InputArchive& archive);
     private:
         struct CutMixBox;
         struct MixResult;
@@ -195,16 +201,21 @@ namespace anet::rl::img_cls {
 
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
 
+        int64_t Save(anet::OutputArchive& archive) const override;
+
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
 
         std::optional<TensorDictFunction> GetTensorDictFunction(const std::string& key) override { return std::nullopt; }
     private:
+        void LoadNetwork(const std::string& filename);
+    private:
         const ImageClsAgentConfig config_;
         std::shared_ptr<std::shared_mutex> mutex_;
         std::shared_ptr<anet::nn::Network> network_;
         std::shared_ptr<anet::ProfiledValue<double>> learning_rate_;
+        std::shared_ptr<ImageClsLearner> learner_;
     };
 
 

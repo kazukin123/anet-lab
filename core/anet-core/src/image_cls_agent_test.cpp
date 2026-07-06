@@ -3,12 +3,14 @@
 #include "anet/image_cls_agent.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/random.hpp"
+#include "anet/serialize.hpp"
 #include "anet/test_util.hpp"
 #include "nn_impl.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <shared_mutex>
 #include <string>
@@ -315,6 +317,18 @@ anet::ConfigData MakeImageClsMixTestConfigData()
     return config_data;
 }
 
+anet::ConfigData MakeImageClsSerializeTestConfigData()
+{
+    anet::ConfigData config_data;
+    config_data.Set("ImageClsAgent.learning_rate.value", 0.01);
+    config_data.Set("ImageClsAgent.weight_decay", 0.0);
+    config_data.Set("ImageClsAgent.label_smoothing", 0.0);
+    config_data.Set("ImageClsAgent.grad_clip_max_norm", 10.0);
+    config_data.Set("ImageClsAgent.learn_log_interval", 0);
+    config_data.Set("ImageClsAgent.mixup.enabled", false);
+    return config_data;
+}
+
 anet::rl::img_cls::ImageClsAgentConfig MakeImageClsMixTestConfig(const anet::ConfigData& config_data)
 {
     return anet::rl::img_cls::ImageClsAgentConfig(config_data);
@@ -377,6 +391,43 @@ std::shared_ptr<const anet::rl::img_cls::ImageClsUpdateResult> RunImageClsAgentM
 bool Contains(const std::string& text, const std::string& pattern)
 {
     return text.find(pattern) != std::string::npos;
+}
+
+std::filesystem::path MakeImageClsCheckpointPath(const std::string& filename)
+{
+    const auto dir = std::filesystem::path("out") / "test-tmp" / "image_cls_agent_checkpoint";
+    std::filesystem::create_directories(dir);
+    return dir / filename;
+}
+
+int64_t SaveImageClsAgent(anet::rl::img_cls::ImageClsAgent& agent, const std::filesystem::path& path)
+{
+    std::ofstream ofs(path, std::ios::binary);
+    REQUIRE(ofs);
+    anet::OutputArchive archive(ofs, path.string());
+    return agent.Save(archive);
+}
+
+void WriteWrongImageClsHeaderArchive(const std::filesystem::path& path)
+{
+    std::ofstream ofs(path, std::ios::binary);
+    REQUIRE(ofs);
+    anet::OutputArchive archive(ofs, path.string());
+    archive.Write(anet::ArchiveHeader("DefaultDQNAgent"));
+    archive.Write(std::string("dummy config"));
+}
+
+torch::Tensor ForwardImageClsAgentProbs(
+    anet::rl::img_cls::ImageClsAgent& agent,
+    const torch::Tensor& grid)
+{
+    auto actor = agent.CreateActor(
+        anet::rl::BatchEnvSpec{ static_cast<int>(grid.size(0)), 1 },
+        anet::rl::RunMode::Eval,
+        false,
+        torch::Device(torch::kCPU));
+    auto action_info = actor->MakeAction(anet::rl::StepCounts{}, MakeImageClsBatchState(grid.clone()));
+    return action_info->GetInfo().At("probs").detach().to(torch::kCPU).clone();
 }
 
 void RequireTensorClose(const torch::Tensor& actual, const torch::Tensor& expected, double tolerance = 1e-5)
@@ -524,12 +575,14 @@ TEST_CASE("ImageCls mixup config defaults, round-trip and fail-fast validation",
     CHECK(defaults.mixup.prob == Catch::Approx(1.0));
     CHECK(defaults.mixup.switch_prob == Catch::Approx(0.5));
     CHECK(defaults.learn_log_interval == 0);
+    CHECK(defaults.auto_load_file.empty());
 
     auto config_data = MakeImageClsMixTestConfigData();
     config_data.Set("ImageClsAgent.mixup.cutmix_alpha", 2.0);
     config_data.Set("ImageClsAgent.mixup.prob", 0.75);
     config_data.Set("ImageClsAgent.mixup.switch_prob", 0.25);
     config_data.Set("ImageClsAgent.learn_log_interval", 100);
+    config_data.Set("ImageClsAgent.auto_load_file", std::string("runs/image_cls/agent_close.anet"));
     auto config = MakeImageClsMixTestConfig(config_data);
     CHECK(config.mixup.enabled);
     CHECK(config.mixup.mixup_alpha == Catch::Approx(0.4));
@@ -537,6 +590,7 @@ TEST_CASE("ImageCls mixup config defaults, round-trip and fail-fast validation",
     CHECK(config.mixup.prob == Catch::Approx(0.75));
     CHECK(config.mixup.switch_prob == Catch::Approx(0.25));
     CHECK(config.learn_log_interval == 100);
+    CHECK(config.auto_load_file == "runs/image_cls/agent_close.anet");
 
     const auto config_string = config.ToConfigString();
     CHECK(Contains(config_string, "ImageClsAgent.mixup.enabled = true"));
@@ -545,6 +599,7 @@ TEST_CASE("ImageCls mixup config defaults, round-trip and fail-fast validation",
     CHECK(Contains(config_string, "ImageClsAgent.mixup.prob = 0.75"));
     CHECK(Contains(config_string, "ImageClsAgent.mixup.switch_prob = 0.25"));
     CHECK(Contains(config_string, "ImageClsAgent.learn_log_interval = 100"));
+    CHECK(Contains(config_string, "ImageClsAgent.auto_load_file = runs/image_cls/agent_close.anet"));
 
     SECTION("prob must stay in [0, 1]")
     {
@@ -832,6 +887,85 @@ TEST_CASE("ImageClsLearner verbose log follows learn_log_interval", "[image_cls]
         logs.Flush();
         CHECK_FALSE(anet::test::HasRecordContaining(logs.Records(), wxLOG_Info, { "ImageClsLearner update" }));
     }
+}
+
+TEST_CASE("ImageClsAgent checkpoint restores network and AdamW optimizer state", "[image_cls][serialize]")
+{
+    EnsureImageClsNnInitialized();
+    ScopedNoopMetricsLogger metrics_logger;
+
+    torch::manual_seed(20240705);
+    auto config = anet::rl::img_cls::ImageClsAgentConfig(MakeImageClsSerializeTestConfigData());
+    auto env_spec = MakeImageClsEnvSpec();
+    anet::rl::img_cls::ImageClsAgent saved_agent(
+        config,
+        MakeImageClsAgentNetworkConfig(),
+        env_spec,
+        anet::rl::BatchEnvSpec{ 2, 1 },
+        torch::Device(torch::kCPU),
+        123);
+
+    // 1 update 済みの network/optimizer を checkpoint 化する
+    auto saved_learner = saved_agent.CreateLearner();
+    anet::rl::StepCounts first_step;
+    first_step.exp_step = 1;
+    first_step.learn_step = 1;
+    saved_learner->UpdateFromBatch(first_step, MakeImageClsLearningExperience());
+
+    const auto probe_grid = torch::arange(8, torch::kFloat32).view({ 2, 1, 2, 2 }).div(16.0f);
+    const auto saved_probs = ForwardImageClsAgentProbs(saved_agent, probe_grid);
+
+    const auto checkpoint_path = MakeImageClsCheckpointPath("roundtrip.anet");
+    CHECK(SaveImageClsAgent(saved_agent, checkpoint_path) > 0);
+
+    // 別 seed で作った Agent へ auto_load し、初期重みでなく checkpoint の重みに差し替わることを見る
+    auto load_config_data = MakeImageClsSerializeTestConfigData();
+    load_config_data.Set("ImageClsAgent.auto_load_file", checkpoint_path.string());
+    torch::manual_seed(999);
+    anet::rl::img_cls::ImageClsAgent loaded_agent(
+        anet::rl::img_cls::ImageClsAgentConfig(load_config_data),
+        MakeImageClsAgentNetworkConfig(),
+        env_spec,
+        anet::rl::BatchEnvSpec{ 2, 1 },
+        torch::Device(torch::kCPU),
+        999);
+
+    RequireTensorClose(ForwardImageClsAgentProbs(loaded_agent, probe_grid), saved_probs);
+
+    // 同じ追加 update をかけても一致することで、AdamW optimizer state も復元されていることを確認する
+    anet::rl::StepCounts second_step;
+    second_step.exp_step = 2;
+    second_step.learn_step = 2;
+    saved_learner->UpdateFromBatch(second_step, MakeImageClsLearningExperience());
+    loaded_agent.CreateLearner()->UpdateFromBatch(second_step, MakeImageClsLearningExperience());
+
+    RequireTensorClose(
+        ForwardImageClsAgentProbs(loaded_agent, probe_grid),
+        ForwardImageClsAgentProbs(saved_agent, probe_grid));
+}
+
+TEST_CASE("ImageClsAgent auto-load rejects checkpoints from other agent types", "[image_cls][serialize]")
+{
+    EnsureImageClsNnInitialized();
+    ScopedNoopMetricsLogger metrics_logger;
+
+    const auto checkpoint_path = MakeImageClsCheckpointPath("wrong_agent_header.anet");
+    WriteWrongImageClsHeaderArchive(checkpoint_path);
+
+    auto config_data = MakeImageClsSerializeTestConfigData();
+    config_data.Set("ImageClsAgent.auto_load_file", checkpoint_path.string());
+    auto env_spec = MakeImageClsEnvSpec();
+    auto construct_agent = [&]() {
+        anet::rl::img_cls::ImageClsAgent agent(
+            anet::rl::img_cls::ImageClsAgentConfig(config_data),
+            MakeImageClsAgentNetworkConfig(),
+            env_spec,
+            anet::rl::BatchEnvSpec{ 2, 1 },
+            torch::Device(torch::kCPU),
+            123);
+    };
+
+    CHECK_THROWS(construct_agent());
 }
 
 TEST_CASE("ImageClsActor stores nn trace in action aux for Conv2dPanel", "[image_cls][trace]")
