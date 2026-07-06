@@ -44,7 +44,7 @@ app.run_name = run_{t}_imgcls
 #app.run_name = run_{t}_imgcls_cn-nano
 #app.run_name = run_{t}_imgcls_cn-femto_dp03
 #app.run_name = run_{t}_imgcls_cn-atto
-#app.run_name = run_{t}_imgcls_ResNet18ish_hr
+app.run_name = run_{t}_imgcls_ResNet18ish_hr_mix
 #app.run_name = run_{t}_imgcls_CnAtto_hr
 
 
@@ -98,7 +98,6 @@ ImageClsAgent.learning_rate.phase.[main_cosine].steps = 19,500,000
 
 ImageClsAgent.weight_decay = 0.05
 #ImageClsAgent.weight_decay = 0.1
-
 ImageClsAgent.label_smoothing = 0.1
 ImageClsAgent.grad_clip_max_norm = 1.0
 
@@ -108,7 +107,10 @@ ImageClsAgent.mixup.cutmix_alpha = 1.0    # CutMix の差し替え面積。1.0 �
 ImageClsAgent.mixup.prob         = 1.0    # batch ごとに Mixup/CutMix を適用する確率
 ImageClsAgent.mixup.switch_prob  = 0.5    # Mixup/CutMixを適用する場合に CutMix を選ぶ確率
 
-ImageClsAgent.learn_log_interval = 1,000
+ImageClsAgent.learn_log_interval = 100
+
+#ImageClsAgent.auto_load_file = ../../runs/run_20260705-234512_imgcls/agent_close.anet
+
 
 ImageClsAgent.nn_viz.show_param_shapes = true
 ImageClsAgent.nn_viz.show_param_count = true
@@ -421,16 +423,17 @@ metrics.scalar.[20_eps/11_train_reward_ema] = $runner train_episode_reward $epis
 metrics.scalar.[21_eval/01_test_reward]     = $eval.[eval1] $runner eps_total_reward @episode_end
 metrics.scalar.[21_eval/02_test_reward_ema] = $eval.[eval1] $runner eps_total_reward @episode_end $ema
 
+metrics.scalar.[32_agent_base/04_lr]        = $agent learning_rate @learn interval:100
+metrics.scalar.[39_agent/09_learning_rate]  = $agent learning_rate @learn interval:100
+
 metrics.scalar.[38_agent/01_loss]           = loss @learn
 metrics.scalar.[38_agent/02_loss_ema]       = loss @learn $ema
 
 metrics.scalar.[38_agent/03_accuracy]       = accuracy @learn
 metrics.scalar.[38_agent/04_accuracy_ema]   = accuracy @learn $ema
 
-metrics.scalar.[38_agent/05_target_prob_mix]     = target_prob_mix @learn      # 混合ラベルへ割り当てた平均確率。Mix無効時は正解ラベル確率
-metrics.scalar.[38_agent/06_target_prob_mix_ema] = target_prob_mix @learn $ema # 上記のEMA。混合学習中の推移確認用
-
-metrics.scalar.[39_agent/09_learning_rate]  = $agent learning_rate @learn interval:100
+metrics.scalar.[38_agent/05_target_prob_mix]     = target_prob_mix @learn      # soft target重み付き正解クラス確率。accuracyではない
+metrics.scalar.[38_agent/06_target_prob_mix_ema] = target_prob_mix @learn $ema # 上記のEMA。混合ラベル側へ確率が寄る推移を見る
 
 #metrics.scalar.[42_env/02_reward_sum_mean]     = $env mean.reward_sum @train $exp_step
 #metrics.scalar.[42_env/03_reward_sum_mean_ema] = $env mean.reward_sum @train $exp_step $ema ema_alpha:0.001
