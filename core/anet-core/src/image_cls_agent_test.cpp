@@ -627,6 +627,7 @@ TEST_CASE("ImageCls mixup config defaults, round-trip and fail-fast validation",
     CHECK(defaults.mixup.switch_prob == Catch::Approx(0.5));
     CHECK(defaults.learn_log_interval == 0);
     CHECK(defaults.auto_load_file.empty());
+    CHECK(defaults.use_fused_optimizer);
 
     auto config_data = MakeImageClsMixTestConfigData();
     config_data.Set("ImageClsAgent.mixup.cutmix_alpha", 2.0);
@@ -634,6 +635,7 @@ TEST_CASE("ImageCls mixup config defaults, round-trip and fail-fast validation",
     config_data.Set("ImageClsAgent.mixup.switch_prob", 0.25);
     config_data.Set("ImageClsAgent.learn_log_interval", 100);
     config_data.Set("ImageClsAgent.auto_load_file", std::string("runs/image_cls/agent_close.anet"));
+    config_data.Set("ImageClsAgent.use_fused_optimizer", false);
     auto config = MakeImageClsMixTestConfig(config_data);
     CHECK(config.mixup.enabled);
     CHECK(config.mixup.mixup_alpha == Catch::Approx(0.4));
@@ -642,6 +644,7 @@ TEST_CASE("ImageCls mixup config defaults, round-trip and fail-fast validation",
     CHECK(config.mixup.switch_prob == Catch::Approx(0.25));
     CHECK(config.learn_log_interval == 100);
     CHECK(config.auto_load_file == "runs/image_cls/agent_close.anet");
+    CHECK_FALSE(config.use_fused_optimizer);
 
     const auto config_string = config.ToConfigString();
     CHECK(Contains(config_string, "ImageClsAgent.mixup.enabled = true"));
@@ -651,6 +654,7 @@ TEST_CASE("ImageCls mixup config defaults, round-trip and fail-fast validation",
     CHECK(Contains(config_string, "ImageClsAgent.mixup.switch_prob = 0.25"));
     CHECK(Contains(config_string, "ImageClsAgent.learn_log_interval = 100"));
     CHECK(Contains(config_string, "ImageClsAgent.auto_load_file = runs/image_cls/agent_close.anet"));
+    CHECK(Contains(config_string, "ImageClsAgent.use_fused_optimizer = false"));
 
     SECTION("prob must stay in [0, 1]")
     {
@@ -996,7 +1000,7 @@ TEST_CASE("ImageClsLearner verbose log follows learn_log_interval", "[image_cls]
     }
 }
 
-TEST_CASE("ImageClsAgent checkpoint restores network and AdamW optimizer state", "[image_cls][serialize]")
+TEST_CASE("ImageClsAgent checkpoint restores network and optimizer state", "[image_cls][serialize]")
 {
     EnsureImageClsNnInitialized();
     ScopedNoopMetricsLogger metrics_logger;
@@ -1039,7 +1043,7 @@ TEST_CASE("ImageClsAgent checkpoint restores network and AdamW optimizer state",
 
     RequireTensorClose(ForwardImageClsAgentProbs(loaded_agent, probe_grid), saved_probs);
 
-    // 同じ追加 update をかけても一致することで、AdamW optimizer state も復元されていることを確認する
+    // 同じ追加 update をかけても一致することで、optimizer state も復元されていることを確認する
     anet::rl::StepCounts second_step;
     second_step.exp_step = 2;
     second_step.learn_step = 2;
@@ -1049,6 +1053,63 @@ TEST_CASE("ImageClsAgent checkpoint restores network and AdamW optimizer state",
     RequireTensorClose(
         ForwardImageClsAgentProbs(loaded_agent, probe_grid),
         ForwardImageClsAgentProbs(saved_agent, probe_grid));
+}
+
+TEST_CASE("ImageClsAgent fused optimizer loads AdamW checkpoint", "[image_cls][serialize][optimizer]")
+{
+    EnsureImageClsNnInitialized();
+    ScopedNoopMetricsLogger metrics_logger;
+
+    auto save_config_data = MakeImageClsSerializeTestConfigData();
+    save_config_data.Set("ImageClsAgent.use_fused_optimizer", false);
+    torch::manual_seed(20240706);
+    auto env_spec = MakeImageClsEnvSpec();
+    anet::rl::img_cls::ImageClsAgent saved_agent(
+        anet::rl::img_cls::ImageClsAgentConfig(save_config_data),
+        MakeImageClsAgentNetworkConfig(),
+        env_spec,
+        anet::rl::BatchEnvSpec{ 2, 1 },
+        torch::Device(torch::kCPU),
+        123);
+
+    // 従来AdamWで1 update済みの checkpoint を作る
+    auto saved_learner = saved_agent.CreateLearner();
+    anet::rl::StepCounts first_step;
+    first_step.exp_step = 1;
+    first_step.learn_step = 1;
+    saved_learner->UpdateFromBatch(first_step, MakeImageClsLearningExperience());
+
+    const auto probe_grid = torch::arange(8, torch::kFloat32).view({ 2, 1, 2, 2 }).div(16.0f);
+    const auto saved_probs = ForwardImageClsAgentProbs(saved_agent, probe_grid);
+
+    const auto checkpoint_path = MakeImageClsCheckpointPath("adamw_to_fused.anet");
+    CHECK(SaveImageClsAgent(saved_agent, checkpoint_path) > 0);
+
+    // default fused optimizer の Agent で、従来AdamWの optimizer state を読み込めることを見る
+    auto load_config_data = MakeImageClsSerializeTestConfigData();
+    load_config_data.Set("ImageClsAgent.auto_load_file", checkpoint_path.string());
+    torch::manual_seed(999);
+    anet::rl::img_cls::ImageClsAgent loaded_agent(
+        anet::rl::img_cls::ImageClsAgentConfig(load_config_data),
+        MakeImageClsAgentNetworkConfig(),
+        env_spec,
+        anet::rl::BatchEnvSpec{ 2, 1 },
+        torch::Device(torch::kCPU),
+        999);
+
+    RequireTensorClose(ForwardImageClsAgentProbs(loaded_agent, probe_grid), saved_probs);
+
+    // 同じ追加 update をかけ、FusedAdamW側で復元済み state が使われることを確認する
+    anet::rl::StepCounts second_step;
+    second_step.exp_step = 2;
+    second_step.learn_step = 2;
+    saved_learner->UpdateFromBatch(second_step, MakeImageClsLearningExperience());
+    loaded_agent.CreateLearner()->UpdateFromBatch(second_step, MakeImageClsLearningExperience());
+
+    RequireTensorClose(
+        ForwardImageClsAgentProbs(loaded_agent, probe_grid),
+        ForwardImageClsAgentProbs(saved_agent, probe_grid),
+        1e-4);
 }
 
 TEST_CASE("ImageClsAgent auto-load rejects checkpoints from other agent types", "[image_cls][serialize]")

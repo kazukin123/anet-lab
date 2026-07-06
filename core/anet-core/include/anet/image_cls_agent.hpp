@@ -23,6 +23,7 @@ namespace anet::rl::img_cls {
     struct ImageClsAgentConfig : public anet::Config {
         anet::ProfiledValueConfig<double> learning_rate;
         double weight_decay = 1e-4;
+        bool use_fused_optimizer = true; ///< ATen fused AdamWを使うか。falseで従来AdamWへ戻す。
         double label_smoothing = 0.1;
         double grad_clip_max_norm = 1.0;
         int64_t learn_log_interval = 0;
@@ -46,6 +47,7 @@ namespace anet::rl::img_cls {
             learning_rate.value = 1e-3;
             ANET_READ_CONFIG(config_data, learning_rate);
             ANET_READ_CONFIG(config_data, weight_decay);
+            ANET_READ_CONFIG(config_data, use_fused_optimizer);
             ANET_READ_CONFIG(config_data, label_smoothing);
             ANET_READ_CONFIG(config_data, grad_clip_max_norm);
             ANET_READ_CONFIG(config_data, learn_log_interval);

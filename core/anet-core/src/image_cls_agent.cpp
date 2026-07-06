@@ -37,12 +37,15 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
     torch::NoGradGuard no_grad;
 
     // 推論準備
+    ANET_PROFILE_SCOPE(lock_wait);
     std::shared_lock lock(*mutex_);
     
     // Forward
+    ANET_PROFILE_SCOPE_NEXT(obs_to_device);
     auto obs = state.obs.To(device_);
     anet::TensorDict trace;
     anet::TraceSink sink = anet::rl::MakeActionTraceSink(trace);
+    ANET_PROFILE_SCOPE_NEXT(forward);
     auto outputs = network_->Forward(obs, sink);
 
     // 推論後処理
@@ -50,14 +53,17 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
 
 	// argmaxで推論結果を得る
     auto logits = outputs.At("logits");
+    ANET_PROFILE_SCOPE_NEXT(action_to_cpu);
     auto action = logits.argmax(1).to(torch::kCPU);
     //ANET_LOG_DEBUG("action=" << anet::ToString(action));
 
     // 可視化用に全クラスの確率分布を info に入れる
     anet::TensorDict info;
+    ANET_PROFILE_SCOPE_NEXT(info_to_cpu);
     info.Set("probs", torch::softmax(logits, 1).to(torch::kCPU));
 
     // BatchActionInfo(action, info, aux) の形式で返却
+    ANET_PROFILE_SCOPE_NEXT(build_action_info);
     auto action_info = std::make_shared<anet::rl::BatchActionInfo>(action, info);
     anet::rl::AppendTraceAux(action_info->GetAuxData(), trace);
     return action_info;
@@ -87,7 +93,14 @@ ImageClsLearner::ImageClsLearner(
         ANET_SYSTEM_ERROR("ImageClsLearner: learning_rate must not be null.");
     }
     auto opt_options = torch::optim::AdamWOptions(learning_rate_->Value()).weight_decay(config_.weight_decay);
-    optimizer_ = std::make_unique<torch::optim::AdamW>(network_->parameters(), opt_options);
+    LOG::verbose() << "ImageClsLearner optimizer: lr=" << opt_options.lr()
+        << " weight_decay=" << opt_options.weight_decay()
+        << " fused=" << config_.use_fused_optimizer;
+    if (config_.use_fused_optimizer) {
+        optimizer_ = std::make_unique<anet::FusedAdamW>(network_->parameters(), opt_options);
+    } else {
+        optimizer_ = std::make_unique<torch::optim::AdamW>(network_->parameters(), opt_options);
+    }
 }
 
 struct ImageClsLearner::MixResult {
@@ -172,6 +185,9 @@ static torch::Tensor MixImageTensor(torch::Tensor grid, torch::Tensor paired_gri
 
 ImageClsLearner::MixResult ImageClsLearner::ApplyMix(anet::TensorDict& obs, const torch::Tensor& targets)
 {
+    ANET_PROFILE_FUNC();
+
+    ANET_PROFILE_SCOPE(select_mode);
     auto& rng = *GetRandomGenerator();
     // 既定は混合なしとして、target_b も元ラベルを指す
     MixResult mix{
@@ -210,12 +226,14 @@ ImageClsLearner::MixResult ImageClsLearner::ApplyMix(anet::TensorDict& obs, cons
     mix.lambda = SampleBeta(alpha);
 
     // current mini-batch 内で partner を作り、batch size は変えない
+    ANET_PROFILE_SCOPE_NEXT(pair_batch);
     auto gen = rng.GetTorchGenerator(device_);
     auto perm = torch::randperm(batch_size, gen, torch::TensorOptions().dtype(torch::kInt64).device(device_));
     mix.targets_b = targets.index_select(0, perm);
     auto paired_grid = grid.index_select(0, perm);
 
     if (use_cutmix) {
+        ANET_PROFILE_SCOPE_NEXT(cutmix_patch);
         // CutMix は NCHW 画像の patch 差し替えとして適用する
         if (grid.dim() != 4) {
             ANET_SYSTEM_ERROR("ImageClsAgent CutMix requires 4D NCHW grid. actual=" << grid.sizes());
@@ -243,6 +261,7 @@ ImageClsLearner::MixResult ImageClsLearner::ApplyMix(anet::TensorDict& obs, cons
     }
 
     // Mixup は batch 全体を線形混合した grid へ差し替える
+    ANET_PROFILE_SCOPE_NEXT_FROM(mixup_blend, pair_batch);
     obs.Set(anet::rl::ObsKeys::kGrid, MixImageTensor(grid, paired_grid, mix.lambda));
     mix.mode = "mixup";
     return mix;
@@ -275,6 +294,7 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
     //auto images = grid.to(device_).to(torch::kFloat32).div(255.0);
     //ANET_LOG_DEBUG("images=" << anet::ToString(images));
 
+    ANET_PROFILE_SCOPE(targets_to_device);
     auto vector = experiences.state.obs.At(anet::rl::ObsKeys::kVector);
     auto targets = vector.to(device_).squeeze(-1).to(torch::kInt64);
     //ANET_LOG_DEBUG("targets=" << anet::ToString(targets));
@@ -286,21 +306,27 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
 
     {
         // ネットワーク更新準備 (排他ロック)
+        ANET_PROFILE_SCOPE_NEXT(lock_wait);
         std::unique_lock lock(*mutex_);
         anet::TrainingModeGuard train_guard(*network_, true);
+        ANET_PROFILE_SCOPE_NEXT(zero_grad);
         optimizer_->zero_grad();
 
         // Forward直前に batch 単位の Mixup/CutMix を適用
+        ANET_PROFILE_SCOPE_NEXT(obs_to_device);
         auto obs = experiences.state.obs.To(device_);
+        ANET_PROFILE_SCOPE_NEXT(mix);
         mix = ApplyMix(obs, targets);
 
         // Forward推論
+        ANET_PROFILE_SCOPE_NEXT(forward);
         auto outputs = network_->Forward(obs);
 
         // 出力ロジットの取得
         logits = outputs.At("logits");
 
         // Loss計算 (交差エントロピー + ラベルスムージング)
+        ANET_PROFILE_SCOPE_NEXT(loss);
         auto loss_opts = torch::nn::functional::CrossEntropyFuncOptions().label_smoothing(config_.label_smoothing);
         loss = CrossEntropyLoss(logits, targets, loss_opts);
         if (mix.lambda < 1.0) {
@@ -309,20 +335,25 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
         }
 
         // 誤差逆伝播
+        ANET_PROFILE_SCOPE_NEXT(backward);
         loss.backward();
 
         // 勾配クリッピングを追加
+        ANET_PROFILE_SCOPE_NEXT(grad_clip);
         torch::nn::utils::clip_grad_norm_(network_->parameters(), config_.grad_clip_max_norm);
 
         // Optimizerステップ
+        ANET_PROFILE_SCOPE_NEXT(lr_update);
         learning_rate_->Update(step.exp_step);
         current_learning_rate = learning_rate_->Value();
         SetAdamWLearningRate(*optimizer_, current_learning_rate);
+        ANET_PROFILE_SCOPE_NEXT(optimizer_step);
         optimizer_->step();
     }
 
     // メトリクスを計算
     // 確率が一番高いインデックスを予測クラスとして正解と比較
+    ANET_PROFILE_SCOPE(metrics);
     auto metric_logits = logits.detach();
     auto preds = metric_logits.argmax(/*dim=*/1);
     auto accuracy = (preds == targets).to(torch::kFloat32).mean();
@@ -357,6 +388,7 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
     }
 
     // 処理ログ
+    ANET_PROFILE_SCOPE_NEXT(verbose_log);
     if (config_.learn_log_interval > 0 && step.learn_step % config_.learn_log_interval == 0) {
         LOG::verbose() << "ImageClsLearner update"
             << " exp_step=" << step.exp_step
@@ -458,25 +490,31 @@ int64_t ImageClsAgent::Save(anet::OutputArchive& archive) const
 {
     ANET_PROFILE_FUNC();
 
+    ANET_PROFILE_SCOPE(lock_wait);
     std::shared_lock lock(*mutex_);
     int64_t total_size = 0;
 
     // ヘッダ
+    ANET_PROFILE_SCOPE_NEXT(header);
     anet::ArchiveHeader header("ImageClsAgent");
     const auto header_size = archive.Write(header);
     total_size += header_size;
 
     // Config
+    ANET_PROFILE_SCOPE_NEXT(config);
     const auto config_size = archive.Write(config_.ToString());
     total_size += config_size;
 
     // Network
+    ANET_PROFILE_SCOPE_NEXT(network);
     const auto network_size = archive.WriteTorchObject(network_);
     total_size += network_size;
 
-    // Learner(AdamW)
+    // Learner(optimizer)
+    ANET_PROFILE_SCOPE_NEXT(learner);
     const auto learner_size = learner_->Save(archive);
     total_size += learner_size;
+    ANET_PROFILE_SCOPE_END(learner);
 
     LOG::info() << "ImageClsAgent Serialized. total_size=" << anet::FormatWithCommas(total_size)
         << " config_size=" << anet::FormatWithCommas(config_size)
@@ -488,6 +526,9 @@ int64_t ImageClsAgent::Save(anet::OutputArchive& archive) const
 
 void ImageClsAgent::LoadNetwork(const std::string& filename)
 {
+    ANET_PROFILE_FUNC();
+
+    ANET_PROFILE_SCOPE(header);
     std::ifstream ifs(filename, std::ios::binary);
     if (!ifs) {
         LOG::info() << "cwd=" << std::filesystem::current_path();
@@ -506,16 +547,21 @@ void ImageClsAgent::LoadNetwork(const std::string& filename)
     }
 
     // Config
+    ANET_PROFILE_SCOPE_NEXT(config);
     std::string config_str;
     const auto config_size = in.Read(config_str);
     LOG::info() << "ImageClsAgent::LoadNetwork: config_size=" << config_size;
     LOG::verbose() << "ImageClsAgent::LoadNetwork: config_str=\n" << config_str;
 
     // Network と Learner は Actor/Learner と共有するため、同じ排他境界で復元する
+    ANET_PROFILE_SCOPE_NEXT(lock_wait);
     std::unique_lock lock(*mutex_);
+    ANET_PROFILE_SCOPE_NEXT(network);
     const auto network_size = in.ReadTorchObject(network_);
     network_->eval();
+    ANET_PROFILE_SCOPE_NEXT(learner);
     const auto learner_size = learner_->Load(in);
+    ANET_PROFILE_SCOPE_END(learner);
 
     LOG::info() << "ImageClsAgent::LoadNetwork: network_size=" << network_size
         << " learner_size=" << learner_size;

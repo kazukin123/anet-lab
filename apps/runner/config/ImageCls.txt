@@ -44,7 +44,7 @@ app.run_name = run_{t}_imgcls
 #app.run_name = run_{t}_imgcls_cn-nano
 #app.run_name = run_{t}_imgcls_cn-femto_dp03
 #app.run_name = run_{t}_imgcls_cn-atto
-app.run_name = run_{t}_imgcls_ResNet18ish_hr_mix
+#app.run_name = run_{t}_imgcls_ResNet18ish_hr_mix
 #app.run_name = run_{t}_imgcls_CnAtto_hr
 
 
@@ -67,11 +67,17 @@ app.run_name = run_{t}_imgcls_ResNet18ish_hr_mix
 
 #app.online.exp_pause_step  = 10,000,000      # 10M
 #app.online.exp_pause_step  = 15,000,000      # 15M
-app.online.exp_pause_step  = 20,000,000      # 20M
-#app.online.exp_pause_step  = 30,000,000      # 30M
+#app.online.exp_pause_step  = 20,000,000      # 20M
+app.online.exp_pause_step  = 30,000,000      # 30M
 #app.online.exp_pause_step  = 100,000,000      # 100M
 
 app.batchrun.exp_exit_step  = 160,000,000     # 160M
+
+ImageClsAgent.learning_rate.phase.[warmup].steps = 500,000
+
+ImageClsAgent.learning_rate.phase.[main_cosine].steps = 29,500,000
+#ImageClsAgent.learning_rate.phase.[main_cosine].steps = 19,500,000
+#ImageClsAgent.learning_rate.phase.[main_cosine].steps = 14,500,000
 
 
 # ==============================================================================
@@ -84,7 +90,6 @@ ImageClsAgent.learning_rate.phases = warmup main_cosine
 ImageClsAgent.learning_rate.phase.[warmup].type  = linear
 ImageClsAgent.learning_rate.phase.[warmup].start = 0
 ImageClsAgent.learning_rate.phase.[warmup].end   = 1e-3
-ImageClsAgent.learning_rate.phase.[warmup].steps = 500,000
 
 ImageClsAgent.learning_rate.phase.[main_const].type  = constant
 ImageClsAgent.learning_rate.phase.[main_const].value = 1e-3
@@ -92,12 +97,11 @@ ImageClsAgent.learning_rate.phase.[main_const].value = 1e-3
 ImageClsAgent.learning_rate.phase.[main_cosine].type  = cosine
 ImageClsAgent.learning_rate.phase.[main_cosine].start = 1e-3
 ImageClsAgent.learning_rate.phase.[main_cosine].end   = 1e-5
-ImageClsAgent.learning_rate.phase.[main_cosine].steps = 19,500,000
-#ImageClsAgent.learning_rate.phase.[main_cosine].steps = 14,500,000
 
 
 ImageClsAgent.weight_decay = 0.05
 #ImageClsAgent.weight_decay = 0.1
+ImageClsAgent.use_fused_optimizer = true   # ATen fused AdamWでoptimizer stepのカーネル起動数を減らす。falseで従来AdamW
 ImageClsAgent.label_smoothing = 0.1
 ImageClsAgent.grad_clip_max_norm = 1.0
 
