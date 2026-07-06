@@ -35,7 +35,10 @@ namespace anet::img {
             int target_w, int target_h, const std::string& suffix = ".jpg")
             : target_w_(target_w), target_h_(target_h)
         {
+            ANET_PROFILE_FUNC();
+
             // classes.txt からクラス名とID（行番号）のマッピングを作成
+            ANET_PROFILE_SCOPE(load_classes);
             std::map<std::string, int64_t> class_to_idx;
             std::ifstream cls_file(classes_txt_path);
             if (!cls_file.is_open()) {
@@ -54,6 +57,7 @@ namespace anet::img {
             }
 
             // list_txt を読み込み、フルパスとラベルを決定
+            ANET_PROFILE_SCOPE_NEXT(load_list);
             std::ifstream list_file(list_txt_path);
             if (!list_file.is_open()) {
                 throw std::runtime_error("Failed to open list file: " + list_txt_path);
@@ -89,6 +93,7 @@ namespace anet::img {
         {
 			ANET_PROFILE_FUNC();
 
+            ANET_PROFILE_SCOPE(load_file);
             const std::string& path = image_paths_[index];
 
             wxImage image;
@@ -98,10 +103,12 @@ namespace anet::img {
             }
 
 			// 画像のリサイズ（必要な場合）
+            ANET_PROFILE_SCOPE_NEXT(scale);
             if (target_w_ > 0 && target_h_ > 0 && (image.GetWidth() != target_w_ || image.GetHeight() != target_h_)) {
                 image = image.Scale(target_w_, target_h_, wxIMAGE_QUALITY_BILINEAR);
             }
 
+            ANET_PROFILE_SCOPE_NEXT(tensorize);
             int w = image.GetWidth();
             int h = image.GetHeight();
             unsigned char* rgb_data = image.GetData();

@@ -87,7 +87,10 @@ anet::rl::EnvSpec ImageClsEnv::GetSpec() const
 
 anet::rl::SingleState ImageClsEnv::FetchRandomImageState(anet::rl::RunMode mode)
 {
+    ANET_PROFILE_FUNC();
+
     // モードに応じてデータソースを切り替え
+    ANET_PROFILE_SCOPE(fetch_image);
     const bool is_eval = anet::rl::IsEval(mode);
     auto* source = is_eval ? eval_data_source_.get() : train_data_source_.get();
 
@@ -98,11 +101,13 @@ anet::rl::SingleState ImageClsEnv::FetchRandomImageState(anet::rl::RunMode mode)
     current_true_label_ = example.target.item<int64_t>();
 
     auto image = example.data;
+    ANET_PROFILE_SCOPE_NEXT(augment);
     if (!is_eval && config_.augment.enabled) {
         image = ApplyTrainAugment(image);
     }
 
     // Observationを生成
+    ANET_PROFILE_SCOPE_NEXT(build_state);
     anet::TensorDict obs;
     obs.Set(anet::rl::ObsKeys::kGrid, image);
     obs.Set(anet::rl::ObsKeys::kVector, example.target.clone());
@@ -120,9 +125,9 @@ anet::rl::SingleState ImageClsEnv::FetchRandomImageState(anet::rl::RunMode mode)
 
 torch::Tensor ImageClsEnv::ApplyTrainAugment(const torch::Tensor& image)
 {
-    ANET_PROFILE_SCOPE(augment);
-
+    ANET_PROFILE_SCOPE(random_resized_crop);
     auto result = ApplyRandomResizedCrop(image);
+    ANET_PROFILE_SCOPE_NEXT(hflip);
     if (config_.augment.hflip_p > 0.0 && rnd_->Uniform01() < config_.augment.hflip_p) {
         result = result.flip({ 2 });
     }
@@ -131,6 +136,7 @@ torch::Tensor ImageClsEnv::ApplyTrainAugment(const torch::Tensor& image)
 
 torch::Tensor ImageClsEnv::ApplyRandomResizedCrop(const torch::Tensor& image)
 {
+    ANET_PROFILE_SCOPE(sample_crop);
     const int64_t in_h = image.size(1);
     const int64_t in_w = image.size(2);
     const int64_t out_h = config_.image_height;
@@ -181,6 +187,7 @@ torch::Tensor ImageClsEnv::ApplyRandomResizedCrop(const torch::Tensor& image)
         left = (in_w - crop_w) / 2;
     }
 
+    ANET_PROFILE_SCOPE_NEXT(slice);
     auto cropped = image.index({
         torch::indexing::Slice(),
         torch::indexing::Slice(top, top + crop_h),
@@ -191,6 +198,7 @@ torch::Tensor ImageClsEnv::ApplyRandomResizedCrop(const torch::Tensor& image)
         return cropped.contiguous();
     }
 
+    ANET_PROFILE_SCOPE_NEXT(resize);
     auto resized = torch::nn::functional::interpolate(
         cropped.unsqueeze(0).to(torch::kFloat32),
         torch::nn::functional::InterpolateFuncOptions()
@@ -210,7 +218,10 @@ anet::rl::AuxData ImageClsEnv::MakeAuxData() const
 
 std::shared_ptr<const anet::rl::SingleResetResult> ImageClsEnv::Reset(anet::rl::RunMode mode)
 {
+    ANET_PROFILE_FUNC();
+
     //episode_just_ended_ = false;
+    ANET_PROFILE_SCOPE(reset_state);
     step_count_ = 0;
     ep_reward_sum_ = 0.0f;
     done_ = false;
@@ -218,17 +229,22 @@ std::shared_ptr<const anet::rl::SingleResetResult> ImageClsEnv::Reset(anet::rl::
     episode_start_ = true;
 
     // モードを渡して画像を取得
+    ANET_PROFILE_SCOPE_NEXT(fetch_state);
     auto state = FetchRandomImageState(mode);
     state.done = false;
     state.truncated = false;
 
     // 戻り値は const SingleResetResult の shared_ptr にする
+    ANET_PROFILE_SCOPE_NEXT(build_result);
     return std::make_shared<const ImageClsResetResult>(std::move(state), MakeAuxData());
 }
 
 std::shared_ptr<const anet::rl::SingleStepResult> ImageClsEnv::Step(int64_t action, anet::rl::RunMode mode)
 {
+    ANET_PROFILE_FUNC();
+
     // 初期化＆エピソードステップ更新
+    ANET_PROFILE_SCOPE(update_counters);
     episode_start_ = false;
     step_count_++;
 
@@ -240,11 +256,13 @@ std::shared_ptr<const anet::rl::SingleStepResult> ImageClsEnv::Step(int64_t acti
     done_ = (step_count_ >= config_.max_steps);
 
 	// 次の状態を生成
+    ANET_PROFILE_SCOPE_NEXT(fetch_state);
     auto next_state = FetchRandomImageState(mode);
 	next_state.done = done_;
 	next_state.truncated = truncated_;
 
     // メトリクス情報更新
+    ANET_PROFILE_SCOPE_NEXT(build_result);
     if (done_) {
         episode_just_ended_ = true;
         last_episode_len_ = static_cast<float>(step_count_);
