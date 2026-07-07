@@ -17,6 +17,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -40,6 +41,9 @@ class PalettePlaywrightTest {
 	private static final String TAG_A = "tag/a";
 	private static final String TAG_B = "tag/b";
 	private static final String TAG_C = "tag/c";
+	private static final String RELOAD_RUN = "run_reload";
+	private static final String RELOAD_OLD_TAG = "reload/old";
+	private static final String RELOAD_NEW_TAG = "reload/new";
 	private static final String SIGNED_LOG_TAG = "signed/log";
 	private static final Path TEST_RUNS_DIR = Path.of("target/playwright-test-empty-runs");
 
@@ -478,6 +482,55 @@ class PalettePlaywrightTest {
 	}
 
 	@Test
+	void reloadActivatesNewTagReturnedByMetricsResponse() {
+		final String baseUrl = "http://127.0.0.1:" + port;
+
+		assumeTrue(isMicrosoftEdgeInstalled(), "Microsoft Edge is not installed.");
+
+		try (Playwright playwright = Playwright.create()) {
+			final Browser browser = launchMicrosoftEdge(playwright);
+			try {
+				final BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+						.setViewportSize(1280, 720));
+				try {
+					final Page page = context.newPage();
+					final AtomicInteger metricsRequestCount = new AtomicInteger();
+					final List<String> metricsRequests = Collections.synchronizedList(new ArrayList<>());
+					page.route("**/api/runs.json", route -> fulfillJson(route, reloadTagRunsJson()));
+					page.route("**/api/metrics.json", route -> {
+						final int requestIndex = metricsRequestCount.incrementAndGet();
+						metricsRequests.add(route.request().postData());
+						fulfillJson(route,
+								requestIndex == 1 ? reloadInitialMetricsJson() : reloadNewTagMetricsJson());
+					});
+
+					page.navigate(baseUrl + "/?reloadNewTagTest=" + System.nanoTime(),
+							new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					waitForGraphTitle(page, RELOAD_OLD_TAG);
+					assertFalse(isTagVisible(page, RELOAD_NEW_TAG));
+
+					page.click("#btn-reload");
+					waitForTag(page, RELOAD_NEW_TAG);
+					waitForGraphTitle(page, RELOAD_NEW_TAG);
+
+					assertTrue(isTagActive(page, RELOAD_NEW_TAG));
+					assertTrue(readTagList(page).contains(RELOAD_OLD_TAG));
+					assertTrue(readTagList(page).contains(RELOAD_NEW_TAG));
+					assertTrue(isGraphTitleVisible(page, RELOAD_OLD_TAG));
+					assertTrue(isGraphTitleVisible(page, RELOAD_NEW_TAG));
+					assertTrue(metricsRequests.size() >= 2);
+					assertTrue(metricsRequests.get(1).contains(RELOAD_OLD_TAG));
+					assertFalse(metricsRequests.get(1).contains(RELOAD_NEW_TAG));
+				} finally {
+					context.close();
+				}
+			} finally {
+				browser.close();
+			}
+		}
+	}
+
+	@Test
 	void tagListAllowsVerticalTouchScrollingOnMobile() {
 		final String baseUrl = "http://127.0.0.1:" + port;
 
@@ -661,6 +714,35 @@ class PalettePlaywrightTest {
 						"steps":[0,1,2],"values":[4,5,6]}
 				]}
 				""";
+	}
+
+	private static String reloadTagRunsJson() {
+		return """
+				{"runs":[
+					{"id":"%s","stats":{"maxStep":3},
+						"tags":[{"key":"%s","type":"scalar"}]}
+				]}
+				""".formatted(RELOAD_RUN, RELOAD_OLD_TAG);
+	}
+
+	private static String reloadInitialMetricsJson() {
+		return """
+				{"data":[
+					{"runId":"%s","tagKey":"%s","type":"scalar","beginStep":0,"endStep":2,
+						"steps":[0,1,2],"values":[1,2,3]}
+				]}
+				""".formatted(RELOAD_RUN, RELOAD_OLD_TAG);
+	}
+
+	private static String reloadNewTagMetricsJson() {
+		return """
+				{"data":[
+					{"runId":"%s","tagKey":"%s","type":"scalar","beginStep":2,"endStep":3,
+						"steps":[3],"values":[4]},
+					{"runId":"%s","tagKey":"%s","type":"scalar","beginStep":0,"endStep":1,
+						"steps":[0,1],"values":[10,11]}
+				]}
+				""".formatted(RELOAD_RUN, RELOAD_OLD_TAG, RELOAD_RUN, RELOAD_NEW_TAG);
 	}
 
 	private static List<Map<String, String>> expectedDisplayedChips() {

@@ -293,6 +293,15 @@ class DataCache {
 		}
 	}
 
+	ensureRunTag(runId, tagKey, type = "scalar") {
+		const run = this.runs[runId];
+		if (!run || tagKey == null) return false;
+		if (!Array.isArray(run.tags)) run.tags = [];
+		if (run.tags.some(tag => tag.key === tagKey)) return false;
+		run.tags.push({ key: tagKey, type });
+		return true;
+	}
+
 	/** 差分データをマージ */
 	merge(payload) {
 console.log("payload=", payload);
@@ -301,6 +310,7 @@ console.log("payload=", payload);
 		for (const m of payload.data) {
 //console.log("run=", m);
 			if (!this.data[m.runId]) this.data[m.runId] = {};
+			this.ensureRunTag(m.runId, m.tagKey, m.type ?? "scalar");
 
 			let cur = this.data[m.runId][m.tagKey];
 			if (!cur) {
@@ -1092,21 +1102,34 @@ class MetricsViewerClientApp {
 	}
 
 	_updateTagListByRuns() {
-		const set = new Set();
-		for (const r of this.selectedRuns) {
-			for (const t of this.cache.getTagKeys(r) || []) set.add(t);
-		}
-		const keys = [...set].sort();
+		const keys = [...this._getVisibleTagSet()].sort();
 		this._populateTags(keys, false);
 		console.log(`[INTERNAL] updateTagListByRuns → ${keys.length} tags (keep=${this.activeTags.size})`);
 	}
 
-	_getVisibleSelectedTags() {
+	_getVisibleTagSet() {
 		const visibleTags = new Set();
 		for (const r of this.selectedRuns) {
 			for (const t of this.cache.getTagKeys(r) || []) visibleTags.add(t);
 		}
+		return visibleTags;
+	}
+
+	_getVisibleSelectedTags() {
+		const visibleTags = this._getVisibleTagSet();
 		return [...this.activeTags].filter(t => visibleTags.has(t)).sort();
+	}
+
+	_activateNewVisibleTags(previousVisibleTags) {
+		let changed = false;
+		for (const tagKey of this._getVisibleTagSet()) {
+			if (!previousVisibleTags.has(tagKey) && !this.activeTags.has(tagKey)) {
+				this.activeTags.add(tagKey);
+				changed = true;
+			}
+		}
+		if (changed) this._saveActiveTags();
+		return changed;
 	}
 
 	_renderCurrent() {
@@ -1237,6 +1260,7 @@ class MetricsViewerClientApp {
 			// 選択されていたRunのRun情報がなくなっていたら最新Runを再選択
 			this.selectedRuns = this.selectedRuns.filter(r => runIds.includes(r));
 	        if (!this.selectedRuns.length) this.selectedRuns = [runIds[runIds.length - 1]];
+			const visibleTagsBeforeMetrics = this._getVisibleTagSet();
 
 			// Runsを描画		
 	        this._populateRuns();
@@ -1249,6 +1273,8 @@ class MetricsViewerClientApp {
 			const cacheState = this.cache.buildCacheStateMap();
 	        const metricsPayload = await this.fetcher.fetchMetrics(cacheState);	// Reload時は選択状態関係無く全件再取得
 			this.cache.merge(metricsPayload);
+			this._activateNewVisibleTags(visibleTagsBeforeMetrics);
+			this._updateTagListByRuns();
 
 	        console.log("[RELOAD] fetchMetrics OK");
 

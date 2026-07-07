@@ -105,7 +105,7 @@ public class MetricsRepository {
 			// requestのTagKeyを回す（空の場合は全Tag対象）
 			final Map<String, Integer> tagMap = runEntry.getValue();
 			final boolean allTags = (tagMap == null || tagMap.isEmpty());
-			final List<String> tagKeys = allTags ? snapshot.listTagKeys() : new ArrayList<>(tagMap.keySet());
+			final List<String> tagKeys = snapshot.listTagKeys();
 
 			for (String tagKey : tagKeys) {
 				final int fromStep = allTags ? 0 : tagMap.getOrDefault(tagKey, 0);
