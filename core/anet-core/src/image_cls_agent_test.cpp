@@ -418,6 +418,14 @@ void WriteWrongImageClsHeaderArchive(const std::filesystem::path& path)
     archive.Write(std::string("dummy config"));
 }
 
+torch::Tensor ForwardImageClsActorProbs(
+    const std::shared_ptr<anet::rl::Actor>& actor,
+    const torch::Tensor& grid)
+{
+    auto action_info = actor->MakeAction(anet::rl::StepCounts{}, MakeImageClsBatchState(grid.clone()));
+    return action_info->GetInfo().At("probs").detach().to(torch::kCPU).clone();
+}
+
 torch::Tensor ForwardImageClsAgentProbs(
     anet::rl::img_cls::ImageClsAgent& agent,
     const torch::Tensor& grid)
@@ -427,8 +435,7 @@ torch::Tensor ForwardImageClsAgentProbs(
         anet::rl::RunMode::Eval,
         false,
         torch::Device(torch::kCPU));
-    auto action_info = actor->MakeAction(anet::rl::StepCounts{}, MakeImageClsBatchState(grid.clone()));
-    return action_info->GetInfo().At("probs").detach().to(torch::kCPU).clone();
+    return ForwardImageClsActorProbs(actor, grid);
 }
 
 void RequireTensorClose(const torch::Tensor& actual, const torch::Tensor& expected, double tolerance = 1e-5)
@@ -1134,6 +1141,61 @@ TEST_CASE("ImageClsAgent auto-load rejects checkpoints from other agent types", 
     };
 
     CHECK_THROWS(construct_agent());
+}
+
+TEST_CASE("ImageClsAgent cloned actor stays isolated until Sync", "[image_cls][actor]")
+{
+    EnsureImageClsNnInitialized();
+    ScopedNoopMetricsLogger metrics_logger;
+
+    auto config_data = MakeImageClsSerializeTestConfigData();
+    config_data.Set("ImageClsAgent.learning_rate.value", 0.1);
+    auto env_spec = MakeImageClsEnvSpec();
+    torch::manual_seed(20240706);
+    anet::rl::img_cls::ImageClsAgent agent(
+        anet::rl::img_cls::ImageClsAgentConfig(config_data),
+        MakeImageClsAgentNetworkConfig(),
+        env_spec,
+        anet::rl::BatchEnvSpec{ 2, 1 },
+        torch::Device(torch::kCPU),
+        123);
+
+    const anet::rl::BatchEnvSpec batch_spec{ 2, 1 };
+    auto shared_actor = agent.CreateActor(
+        batch_spec,
+        anet::rl::RunMode::Eval,
+        false,
+        torch::Device(torch::kCPU));
+    auto cloned_actor = agent.CreateActor(
+        batch_spec,
+        anet::rl::RunMode::Eval,
+        true,
+        torch::Device(torch::kCPU));
+
+    const auto probe_grid = torch::arange(8, torch::kFloat32).view({ 2, 1, 2, 2 }).div(16.0f);
+    const auto initial_shared = ForwardImageClsActorProbs(shared_actor, probe_grid);
+    const auto initial_cloned = ForwardImageClsActorProbs(cloned_actor, probe_grid);
+    RequireTensorClose(initial_cloned, initial_shared);
+
+    auto learner = agent.CreateLearner();
+    for (int64_t i = 1; i <= 3; ++i) {
+        anet::rl::StepCounts step;
+        step.exp_step = i;
+        step.learn_step = i;
+        learner->UpdateFromBatch(step, MakeImageClsLearningExperience());
+    }
+
+    const auto updated_shared = ForwardImageClsActorProbs(shared_actor, probe_grid);
+    CHECK_FALSE(torch::allclose(updated_shared, initial_shared, 1e-5, 1e-5));
+
+    // Clone actor は Sync まで作成時点の network を使い続ける
+    const auto stale_cloned = ForwardImageClsActorProbs(cloned_actor, probe_grid);
+    RequireTensorClose(stale_cloned, initial_cloned);
+
+    cloned_actor->Sync();
+    const auto synced_cloned = ForwardImageClsActorProbs(cloned_actor, probe_grid);
+    RequireTensorClose(synced_cloned, updated_shared);
+    RequireTensorClose(synced_cloned, ForwardImageClsAgentProbs(agent, probe_grid));
 }
 
 TEST_CASE("ImageClsActor stores nn trace in action aux for Conv2dPanel", "[image_cls][trace]")

@@ -44,8 +44,16 @@ app.run_name = run_{t}_imgcls
 #app.run_name = run_{t}_imgcls_cn-nano
 #app.run_name = run_{t}_imgcls_cn-femto_dp03
 #app.run_name = run_{t}_imgcls_cn-atto
-#app.run_name = run_{t}_imgcls_ResNet18ish_hr_mix
+app.run_name = run_{t}_imgcls_ResNet18ish_hr_mix
 #app.run_name = run_{t}_imgcls_CnAtto_hr
+
+
+backend.deterministic_algorithms = false   # ★★ false:高速だが非決定論的
+backend.cudnn_deterministic = false  # false:非決定論的だが高速化(する場合がある) true:決定論的だが遅い
+
+#train.eval_device_type = cpu
+
+train.eval.[eval1].clone_model = false  # なんか遅くなるので
 
 
 # ==============================================================================

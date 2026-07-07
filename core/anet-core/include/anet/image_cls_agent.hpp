@@ -103,7 +103,7 @@ namespace anet::rl::img_cls {
     // ======================================================
     // Result (Metrics)
     // ======================================================
-    class ImageClsUpdateResult : public anet::rl::BatchUpdateResult {
+    class ImageClsUpdateResult final : public anet::rl::BatchUpdateResult {
     public:
         torch::Tensor loss;
         torch::Tensor accuracy;
@@ -158,20 +158,22 @@ namespace anet::rl::img_cls {
     // ======================================================
     // Actor
     // ======================================================
-    class ImageClsActor : public anet::rl::Actor {
+    class ImageClsActor final : public anet::rl::Actor {
     public:
         ImageClsActor(
             std::shared_ptr<std::shared_mutex> mutex,
             std::shared_ptr<anet::nn::Network> network,
             anet::rl::RunMode run_mode,
-            torch::Device device);
+            torch::Device device,
+            std::shared_ptr<anet::nn::Network> src_network = nullptr);
 
         std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const override;
-        void Sync() override {}
+        void Sync() override;
     private:
         const anet::rl::RunMode run_mode_;
         std::shared_ptr<std::shared_mutex> mutex_;
         std::shared_ptr<anet::nn::Network> network_;
+        std::shared_ptr<anet::nn::Network> src_network_;
         torch::Device device_;
     };
 
@@ -179,7 +181,7 @@ namespace anet::rl::img_cls {
     // ======================================================
     // Learner
     // ======================================================
-    class ImageClsLearner : public anet::rl::Learner, public anet::RandomHolder {
+    class ImageClsLearner final : public anet::rl::Learner, public anet::RandomHolder {
     public:
         ImageClsLearner(const ImageClsAgentConfig& config,
             std::shared_ptr<std::shared_mutex> mutex,
@@ -216,7 +218,7 @@ namespace anet::rl::img_cls {
     // ======================================================
     // Agent
     // ======================================================
-    class ImageClsAgent : public anet::rl::AgentBase {
+    class ImageClsAgent final : public anet::rl::AgentBase {
     public:
         ImageClsAgent(const ImageClsAgentConfig& config, const anet::nn::NetworkConfig& network_config,
             const anet::rl::EnvSpec& env_spec, const anet::rl::BatchEnvSpec& batch_env_spec, torch::Device device,
@@ -251,7 +253,7 @@ namespace anet::rl::img_cls {
     // ======================================================
     // Factory
     // ======================================================
-    class ImageClsAgentFactory : public anet::rl::AgentFactory {
+    class ImageClsAgentFactory final : public anet::rl::AgentFactory {
     public:
         std::shared_ptr<Agent> CreateAgent(
             const EnvSpec& env_spec,

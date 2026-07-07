@@ -1,6 +1,7 @@
 ﻿// observers.cpp
 
 #include "anet/observers.hpp"
+#include <chrono>
 #include <limits>
 #include <wx/log.h>
 #include "anet/profile.hpp"
@@ -518,9 +519,30 @@ void EpisodeEvalObserver::RunEvaluationEpisode(const StepCounts& event_counts)
     } while (!eval_runner_->LastStepHadEpisodeEnd());
 }
 
+void EpisodeEvalObserver::RethrowCompletedBackgroundEval()
+{
+    if (!eval_future_.valid()) return;
+    if (eval_future_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+
+    // std::future は get() で初めて worker 側の例外を呼び出し元へ再送出する
+    eval_future_.get();
+}
+
+void EpisodeEvalObserver::WaitBackgroundEval()
+{
+    if (!eval_future_.valid()) return;
+
+    // 次の評価を投入する前に、前回評価の完了と失敗を必ず回収する
+    eval_future_.get();
+}
+
 void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
 {
     ANET_PROFILE_FUNC();
+
+    if (use_background_) {
+        RethrowCompletedBackgroundEval();
+    }
 
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::LEARN);
 
@@ -528,9 +550,7 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
     if (eval_interval_ > 0 && step % eval_interval_ == 0) {
         if (use_background_) {
             // 前回の評価がまだ終わっていなければ、ここで完了までブロックして待つ
-            if (eval_future_.valid()) {
-                eval_future_.wait();
-            }
+            WaitBackgroundEval();
 
             // スレッドに評価エピソード実行処理を投げる
             const StepCounts event_counts = event.counts;
@@ -538,7 +558,11 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
                 try {
                     this->RunEvaluationEpisode(event_counts);
                 } catch (const std::exception& e) {
-                    LOG::error() << "EpisodeEvalObserver Error: " << e.what();
+                    LOG::fatal() << this->ToString() << " RunEvaluationEpisode failed: " << e.what();
+                    throw;
+                } catch (...) {
+                    LOG::fatal() << this->ToString() << " RunEvaluationEpisode failed: unknown exception";
+                    throw;
                 }
                 });
         } else {

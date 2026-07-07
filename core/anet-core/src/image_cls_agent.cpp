@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <mutex>
 #include <string>
 #include <tuple>
 #include "anet/image_cls_agent.hpp"
@@ -25,8 +26,13 @@ ImageClsActor::ImageClsActor(
     std::shared_ptr<std::shared_mutex> mutex,
     std::shared_ptr<anet::nn::Network> network,
     anet::rl::RunMode run_mode,
-    torch::Device device)
-    : mutex_(mutex), network_(network), run_mode_(run_mode), device_(device)
+    torch::Device device,
+    std::shared_ptr<anet::nn::Network> src_network)
+    : run_mode_(run_mode)
+    , mutex_(mutex)
+    , network_(network)
+    , src_network_(src_network ? src_network : network)
+    , device_(device)
 {
 }
 
@@ -38,7 +44,10 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
 
     // 推論準備
     ANET_PROFILE_SCOPE(lock_wait);
-    std::shared_lock lock(*mutex_);
+    std::shared_lock lock(*mutex_, std::defer_lock);
+    if (network_ == src_network_) {
+        lock.lock();
+    }
     
     // Forward
     ANET_PROFILE_SCOPE_NEXT(obs_to_device);
@@ -49,7 +58,9 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
     auto outputs = network_->Forward(obs, sink);
 
     // 推論後処理
-    lock.unlock();
+    if (lock.owns_lock()) {
+        lock.unlock();
+    }
 
 	// argmaxで推論結果を得る
     auto logits = outputs.At("logits");
@@ -67,6 +78,16 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
     auto action_info = std::make_shared<anet::rl::BatchActionInfo>(action, info);
     anet::rl::AppendTraceAux(action_info->GetAuxData(), trace);
     return action_info;
+}
+
+void ImageClsActor::Sync()
+{
+    if (network_ != src_network_) {
+        // Clone済み actor だけ、学習側の network から現在の重みを取り込む
+        std::shared_lock lock(*mutex_);
+        src_network_->CopyTo(*network_);
+        network_->eval();
+    }
 }
 
 
@@ -570,8 +591,17 @@ void ImageClsAgent::LoadNetwork(const std::string& filename)
 std::shared_ptr<anet::rl::Actor> ImageClsAgent::CreateActor(
     const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, bool clone_model, std::optional<torch::Device> device) const
 {
+    const auto actor_device = device.value_or(device_);
+    auto actor_network = network_;
+    if (clone_model) {
+        // Clone は source network の重みを読むため、Learner 更新と同じ mutex で保護する
+        std::shared_lock lock(*mutex_);
+        actor_network = network_->Clone(actor_device);
+        actor_network->eval();
+    }
+
     // Actorの生成
-    return std::make_shared<ImageClsActor>(mutex_, network_, run_mode, device.value_or(device_));
+    return std::make_shared<ImageClsActor>(mutex_, actor_network, run_mode, actor_device, network_);
 }
 
 std::shared_ptr<anet::rl::Learner> ImageClsAgent::CreateLearner()

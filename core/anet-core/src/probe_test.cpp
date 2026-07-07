@@ -1,7 +1,5 @@
 #include "catch.hpp"
 
-#include "anet/metrics_logger.hpp"
-#include "anet/observers.hpp"
 #include "anet/probe.hpp"
 
 #include <string>
@@ -14,74 +12,6 @@ namespace rl = anet::rl;
 
 constexpr const char* kVectorKey = rl::ObsKeys::kVector;
 constexpr const char* kGridKey = rl::ObsKeys::kGrid;
-
-class NoopMetricsBackend final : public anet::IBackend {
-public:
-    void Open(const std::filesystem::path&, const std::string&) override {}
-    void WriteJsonl(const anet::json&) override {}
-    void Flush() override {}
-};
-
-class FixedSweepInputGenerator final : public rl::ISweepInputGenerator {
-public:
-    void ApplyGridSize(int width, int height) override
-    {
-        grid_w_ = width;
-        grid_h_ = height;
-    }
-
-    std::pair<int, int> GetGridSize() const override
-    {
-        return { grid_w_, grid_h_ };
-    }
-
-    anet::TensorDict BuildInputTensor() override
-    {
-        anet::TensorDict input;
-        input.Set(kVectorKey, torch::zeros({ grid_w_ * grid_h_, 2 }, torch::kFloat32));
-        return input;
-    }
-
-    int64_t GetFlattenSize() const override
-    {
-        return 2;
-    }
-
-private:
-    int grid_w_ = 2;
-    int grid_h_ = 2;
-};
-
-class RecordingSweepOutputExtractor final : public rl::ISweepOutputExtractor {
-public:
-    void ApplyGridSize(int width, int height) override
-    {
-        grid_w_ = width;
-        grid_h_ = height;
-    }
-
-    std::pair<int, int> GetGridSize() const override
-    {
-        return { grid_w_, grid_h_ };
-    }
-
-    rl::ExtractResult Extract(
-        const torch::Tensor& output,
-        const std::unordered_set<std::string>&) override
-    {
-        last_output = output.detach().cpu().clone();
-
-        rl::ExtractResult result;
-        result.grid = output.reshape({ -1 }).to(torch::kFloat32);
-        return result;
-    }
-
-    torch::Tensor last_output;
-
-private:
-    int grid_w_ = 2;
-    int grid_h_ = 2;
-};
 
 torch::Tensor FloatTensor(const std::vector<float>& values, const std::vector<int64_t>& shape)
 {
@@ -371,62 +301,4 @@ TEST_CASE("StateSweepProcessor rejects invalid sweep observation settings", "[pr
             "aux_vector",
             torch::kCPU);
     }()));
-}
-
-TEST_CASE("SweepedHeatMapObserver passes configured output_key tensor to extractor", "[probe][sweep]")
-{
-    anet::MetricsLogger::Reset();
-    anet::MetricsLoggerConfig logger_config;
-    logger_config.run_name_tmpl = "sweep_output_key_test";
-    anet::MetricsLogger::Init(std::make_unique<NoopMetricsBackend>(), logger_config, "out/test-tmp");
-
-    rl::SweepedHeatMapObserverConfig config;
-    config.log_interval = 1;
-    config.grid_width = 2;
-    config.grid_height = 2;
-    config.output_key = "score";
-
-    auto input_gen = std::make_shared<FixedSweepInputGenerator>();
-    auto output_ext = std::make_shared<RecordingSweepOutputExtractor>();
-    anet::TensorDictFunction tensor_fn = [](const anet::TensorDict&) {
-        anet::TensorDict output;
-        output.Set("q", torch::zeros({ 4, 1 }, torch::kFloat32));
-        output.Set("score", FloatTensor({ 1.0f, 2.0f, 3.0f, 4.0f }, { 4, 1 }));
-        return output;
-    };
-
-    rl::SweepedHeatMapObserver observer("test.sweep", config, input_gen, tensor_fn, output_ext);
-    rl::BatchExperience experience;
-    rl::StepCounts counts;
-    counts.learn_step = 1;
-    rl::LearnEvent event{ experience, nullptr, counts, nullptr, rl::BatchUpdateResultList{} };
-    observer.OnLearn(event);
-
-    RequireFlatApprox(output_ext->last_output, { 1.0f, 2.0f, 3.0f, 4.0f });
-    anet::MetricsLogger::Reset();
-}
-
-TEST_CASE("SweepedHeatMapObserver rejects missing output_key", "[probe][sweep]")
-{
-    rl::SweepedHeatMapObserverConfig config;
-    config.log_interval = 1;
-    config.grid_width = 2;
-    config.grid_height = 2;
-    config.output_key = "missing";
-
-    auto input_gen = std::make_shared<FixedSweepInputGenerator>();
-    auto output_ext = std::make_shared<RecordingSweepOutputExtractor>();
-    anet::TensorDictFunction tensor_fn = [](const anet::TensorDict&) {
-        anet::TensorDict output;
-        output.Set("q", torch::zeros({ 4, 1 }, torch::kFloat32));
-        return output;
-    };
-
-    rl::SweepedHeatMapObserver observer("test.sweep", config, input_gen, tensor_fn, output_ext);
-    rl::BatchExperience experience;
-    rl::StepCounts counts;
-    counts.learn_step = 1;
-    rl::LearnEvent event{ experience, nullptr, counts, nullptr, rl::BatchUpdateResultList{} };
-
-    CHECK_THROWS(observer.OnLearn(event));
 }

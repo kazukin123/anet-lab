@@ -12,6 +12,45 @@
 using namespace anet::rl;
 namespace LOG = anet::log;
 
+static int16_t NormalizeSharedActorDeviceIndex(const torch::Device& device)
+{
+    if (device.type() != torch::kCUDA) {
+        return -1;
+    }
+    return (device.has_index() && device.index() >= 0) ? device.index() : 0;
+}
+
+static bool IsSameSharedActorDevice(const torch::Device& lhs, const torch::Device& rhs)
+{
+    if (lhs.type() != rhs.type()) {
+        return false;
+    }
+    if (lhs.type() == torch::kCUDA) {
+        return NormalizeSharedActorDeviceIndex(lhs) == NormalizeSharedActorDeviceIndex(rhs);
+    }
+    return true;
+}
+
+static void ValidateSharedActorDevice(
+    const std::string& runner_name,
+    bool clone_model,
+    const torch::Device& actor_device,
+    const torch::Device& agent_device)
+{
+    if (clone_model) {
+        return;
+    }
+
+    // shared actor は学習側 network を直接使うため、入力 device と network device を一致させる
+    ANET_CHECK_MSG(IsSameSharedActorDevice(actor_device, agent_device),
+        "RunnerBase actor device mismatch: runner_name=" << runner_name
+        << " clone_model=false"
+        << " actor_device=" << actor_device.str()
+        << " agent_device=" << agent_device.str()
+        << ". Set train.eval_device_type to the agent device, or set train.eval.["
+        << runner_name << "].clone_model=true.");
+}
+
 
 // ======================================================
 // RunnerBase
@@ -29,7 +68,10 @@ RunnerBase::RunnerBase(
     InitializeMetrics();
     status_ = anet::rl::RunnerStatus::RUNNING;
     auto batch_env_spec = env_->GetBatchSpec();
-    actor_ = agent_->CreateActor(batch_env_spec, run_mode_, clone_model, device);
+    const auto agent_device = agent_->GetDevice();
+    const auto actor_device = device.value_or(agent_device);
+    ValidateSharedActorDevice(name_, clone_model, actor_device, agent_device);
+    actor_ = agent_->CreateActor(batch_env_spec, run_mode_, clone_model, actor_device);
 }
 
 void RunnerBase::InitializeMetrics()
