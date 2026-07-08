@@ -4,6 +4,7 @@
 #include <sstream>
 #include "nn_impl.hpp"
 #include "anet/log.hpp"
+#include "anet/nn_util.hpp"
 #include "anet/profile.hpp"
 
 
@@ -536,8 +537,8 @@ private:
 // BatchNorm2d Module
 class BatchNorm2dModule : public NetworkModule {
 public:
-    explicit BatchNorm2dModule(int64_t num_features)
-        : num_features_(num_features)
+    explicit BatchNorm2dModule(int64_t num_features, bool force_fp32 = true)
+        : num_features_(num_features), force_fp32_(force_fp32)
     {
     }
 
@@ -547,7 +548,13 @@ public:
         if (!bn_) {
             torch::nn::BatchNorm2dOptions opts(num_features_);
             bn_ = register_module("bn", torch::nn::BatchNorm2d(opts));
-            bn_->to(input.device(), input.scalar_type());
+            bn_->to(input.device(), force_fp32_ ? torch::kFloat32 : input.scalar_type());
+        }
+
+        if (force_fp32_) {
+            // Conv autocast 後の BF16 activation でも、BatchNorm の統計更新と正規化は FP32 で行う。
+            anet::Autocast disable_amp(input.device(), false, torch::kFloat32);
+            return bn_->forward(input.to(torch::kFloat32));
         }
         return bn_->forward(input);
     }
@@ -556,10 +563,12 @@ public:
     {
         anet::ConfigData cd;
         cd.Set("num_features", num_features_);
+        cd.Set("force_fp32", ToConfigBool(force_fp32_));
         return cd;
     }
 private:
     int64_t num_features_;
+    bool force_fp32_;
     torch::nn::BatchNorm2d bn_{ nullptr };
 };
 
@@ -568,16 +577,18 @@ class BatchNorm2dModuleFactory final : public NetworkModuleFactory {
 private:
     struct Config : anet::Config {
         int num_features = 0;
+        bool force_fp32 = true;
         Config(const anet::ConfigData& config_data) : anet::Config("")
         {
             ANET_READ_CONFIG(config_data, num_features);
+            ANET_READ_CONFIG(config_data, force_fp32);
         }
     };
 public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
     {
         Config config(config_data);
-        return std::make_shared<BatchNorm2dModule>(config.num_features);
+        return std::make_shared<BatchNorm2dModule>(config.num_features, config.force_fp32);
     }
 };
 
@@ -588,8 +599,8 @@ public:
 
 class LayerNorm2dModule : public NetworkModule {
 public:
-    LayerNorm2dModule(int64_t num_channels, double eps)
-        : num_channels_(num_channels), eps_(eps)
+    LayerNorm2dModule(int64_t num_channels, double eps, bool force_fp32 = true)
+        : num_channels_(num_channels), eps_(eps), force_fp32_(force_fp32)
     {
     }
 
@@ -608,16 +619,16 @@ public:
         }
 
         if (!weight_.defined()) {
-            weight_ = register_parameter("weight", torch::ones({ num_channels_ }, input.options()));
-            bias_ = register_parameter("bias", torch::zeros({ num_channels_ }, input.options()));
+            auto options = input.options().dtype(force_fp32_ ? torch::kFloat32 : input.scalar_type());
+            weight_ = register_parameter("weight", torch::ones({ num_channels_ }, options));
+            bias_ = register_parameter("bias", torch::zeros({ num_channels_ }, options));
         }
 
-        // NCHWのまま各ピクセル位置でchannel軸だけを正規化する。
-        auto mean = input.mean({ 1 }, /*keepdim=*/true);
-        auto variance = (input - mean).pow(2).mean({ 1 }, /*keepdim=*/true);
-        auto normalized = (input - mean) / torch::sqrt(variance + eps_);
-        return weight_.view({ 1, num_channels_, 1, 1 }) * normalized
-            + bias_.view({ 1, num_channels_, 1, 1 });
+        if (force_fp32_) {
+            anet::Autocast disable_amp(input.device(), false, torch::kFloat32);
+            return ForwardImpl(input.to(torch::kFloat32));
+        }
+        return ForwardImpl(input);
     }
 
     anet::ConfigData GetCurrentConfigData() const override
@@ -625,12 +636,24 @@ public:
         anet::ConfigData cd;
         cd.Set("num_channels", num_channels_);
         cd.Set("eps", eps_);
+        cd.Set("force_fp32", ToConfigBool(force_fp32_));
         return cd;
     }
 
 private:
+    torch::Tensor ForwardImpl(torch::Tensor x)
+    {
+        // NCHWのまま各ピクセル位置でchannel軸だけを正規化する。
+        auto mean = x.mean({ 1 }, /*keepdim=*/true);
+        auto variance = (x - mean).pow(2).mean({ 1 }, /*keepdim=*/true);
+        auto normalized = (x - mean) / torch::sqrt(variance + eps_);
+        return weight_.view({ 1, num_channels_, 1, 1 }) * normalized
+            + bias_.view({ 1, num_channels_, 1, 1 });
+    }
+
     int64_t num_channels_;
     double eps_;
+    bool force_fp32_;
     torch::Tensor weight_;
     torch::Tensor bias_;
 };
@@ -640,11 +663,13 @@ private:
     struct Config : anet::Config {
         int num_channels = 0;
         double eps = 1.0e-6;
+        bool force_fp32 = true;
 
         Config(const anet::ConfigData& config_data) : anet::Config("")
         {
             ANET_READ_CONFIG(config_data, num_channels);
             ANET_READ_CONFIG(config_data, eps);
+            ANET_READ_CONFIG(config_data, force_fp32);
         }
     };
 
@@ -655,7 +680,7 @@ public:
         if (config.num_channels <= 0) {
             ANET_SYSTEM_ERROR("LayerNorm2dModule: 'num_channels' must be strictly positive.");
         }
-        return std::make_shared<LayerNorm2dModule>(config.num_channels, config.eps);
+        return std::make_shared<LayerNorm2dModule>(config.num_channels, config.eps, config.force_fp32);
     }
 };
 
@@ -735,6 +760,7 @@ struct ResBlockConfig {
     std::string activation = "silu"; // "relu" or "silu"(default)  / "swish"
     std::string activation_mode = "post"; // "post" (v1) or "pre" (v2)
     std::string norm_type = "none"; // "none", "batch", "group"
+    bool norm_force_fp32 = true;
     int group_norm_groups = 32;
     bool conv1_bias = true;        // Norm無しならtrue必須。None有りならFalse推奨。
     bool conv2_bias = true;        // ZeroInitするならTrue推奨
@@ -911,6 +937,7 @@ public:
         cd.Set("activation", config_.activation);
         cd.Set("activation_mode", config_.activation_mode);
         cd.Set("norm_type", config_.norm_type);
+        cd.Set("norm_force_fp32", ToConfigBool(config_.norm_force_fp32));
         cd.Set("group_norm_groups", config_.group_norm_groups);
         cd.Set("conv1_bias", ToConfigBool(config_.conv1_bias));
         cd.Set("conv2_bias", ToConfigBool(config_.conv2_bias));
@@ -927,7 +954,7 @@ private:
         std::shared_ptr<NetworkModule> mod = nullptr;
 
         if (config_.norm_type == "batch") {
-            mod = std::make_shared<BatchNorm2dModule>(channels);
+            mod = std::make_shared<BatchNorm2dModule>(channels, config_.norm_force_fp32);
         } else if (config_.norm_type == "group") {
             mod = std::make_shared<GroupNormModule>(config_.group_norm_groups, channels);
         }
@@ -992,6 +1019,7 @@ private:
             ANET_READ_CONFIG(config_data, res.activation);
             ANET_READ_CONFIG(config_data, res.activation_mode);
             ANET_READ_CONFIG(config_data, res.norm_type);
+            ANET_READ_CONFIG(config_data, res.norm_force_fp32);
             ANET_READ_CONFIG(config_data, res.group_norm_groups);
             ANET_READ_CONFIG(config_data, res.droppath_rate);
             ANET_READ_CONFIG(config_data, res.dropout_rate);
@@ -1049,6 +1077,7 @@ struct CNBlockConfig {
     double layerscale_init = 1.0e-6;
     double droppath_rate = 0.0;
     std::string norm_type = "layernorm2d";
+    bool norm_force_fp32 = true;
 };
 
 class CNBlockModule : public NetworkModule {
@@ -1090,7 +1119,10 @@ public:
             WeightInitializer::Initialize(dwconv_, init_dw_);
 
             if (config_.norm_type == "layernorm2d") {
-                norm_ = register_module("norm", std::make_shared<LayerNorm2dModule>(config_.channels, 1.0e-6));
+                norm_ = register_module("norm", std::make_shared<LayerNorm2dModule>(
+                    config_.channels,
+                    1.0e-6,
+                    config_.norm_force_fp32));
             } else if (config_.norm_type != "none") {
                 ANET_SYSTEM_ERROR("CNBlock: unknown cn.norm_type='" << config_.norm_type
                     << "' expected one of: layernorm2d, none");
@@ -1136,6 +1168,7 @@ public:
         cd.Set("layerscale_init", config_.layerscale_init);
         cd.Set("droppath_rate", config_.droppath_rate);
         cd.Set("norm_type", config_.norm_type);
+        cd.Set("norm_force_fp32", ToConfigBool(config_.norm_force_fp32));
         if (dwconv_) {
             cd.Set("in_channels", dwconv_->options.in_channels());
         }
@@ -1177,6 +1210,7 @@ private:
             ANET_READ_CONFIG(config_data, cn.layerscale_init);
             ANET_READ_CONFIG(config_data, cn.droppath_rate);
             ANET_READ_CONFIG(config_data, cn.norm_type);
+            ANET_READ_CONFIG(config_data, cn.norm_force_fp32);
 
             ANET_READ_CONFIG(config_data, init_dw.mode);
             ANET_READ_CONFIG(config_data, init_dw.manual_gain);
@@ -1233,8 +1267,8 @@ public:
 
 class LayerNormModule : public NetworkModule {
 public:
-    LayerNormModule(int64_t normalized_shape, double eps)
-        : normalized_shape_(normalized_shape), eps_(eps)
+    LayerNormModule(int64_t normalized_shape, double eps, bool force_fp32 = true)
+        : normalized_shape_(normalized_shape), eps_(eps), force_fp32_(force_fp32)
     {
         torch::nn::LayerNormOptions opts({ normalized_shape });
         opts.eps(eps);
@@ -1247,8 +1281,12 @@ public:
 
         // Lazy Init for device/dtype transfer
         if (!initialized_) {
-            ln_->to(input.device(), input.scalar_type());
+            ln_->to(input.device(), force_fp32_ ? torch::kFloat32 : input.scalar_type());
             initialized_ = true;
+        }
+        if (force_fp32_) {
+            anet::Autocast disable_amp(input.device(), false, torch::kFloat32);
+            return ln_->forward(input.to(torch::kFloat32));
         }
         return ln_->forward(input);
     }
@@ -1258,11 +1296,13 @@ public:
         anet::ConfigData cd;
         cd.Set("normalized_shape", normalized_shape_);
         cd.Set("eps", eps_);
+        cd.Set("force_fp32", ToConfigBool(force_fp32_));
         return cd;
     }
 private:
     int64_t normalized_shape_;
     double eps_;
+    bool force_fp32_;
     bool initialized_ = false;
     torch::nn::LayerNorm ln_{ nullptr };
 };
@@ -1272,10 +1312,12 @@ private:
     struct Config : anet::Config {
         int normalized_shape = 0;
         double eps = 1.0e-5;
+        bool force_fp32 = true;
 
         Config(const anet::ConfigData& config_data) : anet::Config("") {
             ANET_READ_CONFIG(config_data, normalized_shape);
             ANET_READ_CONFIG(config_data, eps);
+            ANET_READ_CONFIG(config_data, force_fp32);
         }
     };
 public:
@@ -1285,7 +1327,10 @@ public:
         if (config.normalized_shape <= 0) {
             ANET_SYSTEM_ERROR("LayerNormModule: 'normalized_shape' must be strictly positive.");
         }
-        return std::make_shared<LayerNormModule>(config.normalized_shape, config.eps);
+        return std::make_shared<LayerNormModule>(
+            config.normalized_shape,
+            config.eps,
+            config.force_fp32);
     }
 };
 

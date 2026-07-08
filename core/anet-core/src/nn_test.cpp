@@ -9,6 +9,8 @@
 #include "nn_impl.hpp"
 #include "nn_heads.hpp"
 
+#include <ATen/autocast_mode.h>
+
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -21,12 +23,18 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace {
 
 namespace dqn = anet::rl::dqn;
 namespace muzero = anet::rl::muzero_proto;
+
+static_assert(!std::is_copy_constructible_v<anet::Autocast>);
+static_assert(!std::is_move_constructible_v<anet::Autocast>);
+static_assert(!std::is_constructible_v<anet::Autocast, torch::DeviceType, bool, torch::ScalarType>);
+static_assert(std::is_constructible_v<anet::Autocast, torch::Device, bool, torch::ScalarType>);
 
 bool Contains(const std::string& text, const std::string& pattern)
 {
@@ -295,7 +303,8 @@ std::shared_ptr<anet::nn::NetworkModule> MakeResBlockTestModule(
     double droppath_rate,
     double dropout_rate,
     const std::string& norm_type = "none",
-    const std::string& activation_mode = "pre")
+    const std::string& activation_mode = "pre",
+    std::optional<bool> norm_force_fp32 = std::nullopt)
 {
     EnsureNNInitialized();
 
@@ -306,6 +315,9 @@ std::shared_ptr<anet::nn::NetworkModule> MakeResBlockTestModule(
     config_data.Set("res.activation", "relu");
     config_data.Set("res.activation_mode", activation_mode);
     config_data.Set("res.norm_type", norm_type);
+    if (norm_force_fp32.has_value()) {
+        config_data.Set("res.norm_force_fp32", *norm_force_fp32);
+    }
     config_data.Set("res.droppath_rate", droppath_rate);
     config_data.Set("res.dropout_rate", dropout_rate);
     config_data.Set("init2.mode", "he");
@@ -314,7 +326,26 @@ std::shared_ptr<anet::nn::NetworkModule> MakeResBlockTestModule(
     return factory->CreateModule(config_data, anet::nn::ModuleContext{});
 }
 
-std::shared_ptr<anet::nn::NetworkModule> MakeLayerNormTestModule(int normalized_shape, std::optional<double> eps = std::nullopt)
+std::shared_ptr<anet::nn::NetworkModule> MakeBatchNorm2dTestModule(
+    int num_features,
+    std::optional<bool> force_fp32 = std::nullopt)
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("num_features", num_features);
+    if (force_fp32.has_value()) {
+        config_data.Set("force_fp32", *force_fp32);
+    }
+
+    auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("BatchNorm2d");
+    return factory->CreateModule(config_data, anet::nn::ModuleContext{});
+}
+
+std::shared_ptr<anet::nn::NetworkModule> MakeLayerNormTestModule(
+    int normalized_shape,
+    std::optional<double> eps = std::nullopt,
+    std::optional<bool> force_fp32 = std::nullopt)
 {
     EnsureNNInitialized();
 
@@ -323,18 +354,27 @@ std::shared_ptr<anet::nn::NetworkModule> MakeLayerNormTestModule(int normalized_
     if (eps.has_value()) {
         config_data.Set("eps", *eps);
     }
+    if (force_fp32.has_value()) {
+        config_data.Set("force_fp32", *force_fp32);
+    }
 
     auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("LayerNorm");
     return factory->CreateModule(config_data, anet::nn::ModuleContext{});
 }
 
-std::shared_ptr<anet::nn::NetworkModule> MakeLayerNorm2dTestModule(int num_channels, double eps = 1.0e-6)
+std::shared_ptr<anet::nn::NetworkModule> MakeLayerNorm2dTestModule(
+    int num_channels,
+    double eps = 1.0e-6,
+    std::optional<bool> force_fp32 = std::nullopt)
 {
     EnsureNNInitialized();
 
     anet::ConfigData config_data;
     config_data.Set("num_channels", num_channels);
     config_data.Set("eps", eps);
+    if (force_fp32.has_value()) {
+        config_data.Set("force_fp32", *force_fp32);
+    }
 
     auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("LayerNorm2d");
     return factory->CreateModule(config_data, anet::nn::ModuleContext{});
@@ -347,7 +387,8 @@ std::shared_ptr<anet::nn::NetworkModule> MakeCNBlockTestModule(
     const std::string& norm_type = "layernorm2d",
     int kernel_size = 3,
     int ffn_expand_ratio = 2,
-    bool constant_init = false)
+    bool constant_init = false,
+    std::optional<bool> norm_force_fp32 = std::nullopt)
 {
     EnsureNNInitialized();
 
@@ -358,6 +399,9 @@ std::shared_ptr<anet::nn::NetworkModule> MakeCNBlockTestModule(
     config_data.Set("cn.layerscale_init", layerscale_init);
     config_data.Set("cn.droppath_rate", droppath_rate);
     config_data.Set("cn.norm_type", norm_type);
+    if (norm_force_fp32.has_value()) {
+        config_data.Set("cn.norm_force_fp32", *norm_force_fp32);
+    }
     if (constant_init) {
         for (const std::string prefix : { "init_dw.", "init_pw1.", "init_pw2." }) {
             config_data.Set(prefix + "mode", std::string("constant"));
@@ -626,6 +670,358 @@ std::shared_ptr<anet::nn::NetworkHead> CreateDqnHead(const anet::nn::NetworkHead
     anet::TensorDict dummy_features;
     dummy_features.Set(anet::nn::kKey_DefaultOutput, torch::zeros({ 1, 4 }));
     return factory.CreateHead(dummy_features);
+}
+
+TEST_CASE("LinearHeadFactory emits configurable output key", "[nn][head]")
+{
+    EnsureNNInitialized();
+
+    anet::nn::WeightInitConfig init_config;
+    init_config.mode = "he";
+    anet::nn::LinearHeadFactory factory(3, "logits", init_config);
+
+    anet::TensorDict dummy_features;
+    dummy_features.Set(anet::nn::kKey_DefaultOutput, torch::ones({ 2, 4 }));
+
+    auto head = factory.CreateHead(dummy_features);
+    auto output = head->Forward(dummy_features);
+    REQUIRE(output.Contains("logits"));
+    CHECK_FALSE(output.Contains("q"));
+    CHECK(output.At("logits").sizes() == torch::IntArrayRef({ 2, 3 }));
+    CHECK(output.At("logits").dtype() == torch::kFloat32);
+    CHECK(HasKey(head->named_parameters(true), "linear.weight"));
+    CHECK(HasKey(head->named_parameters(true), "linear.bias"));
+
+    auto logits_func = head->GetTensorDictFunction("logits");
+    REQUIRE(logits_func.has_value());
+    auto func_output = (*logits_func)(dummy_features);
+    REQUIRE(func_output.Contains("logits"));
+    CHECK(func_output.At("logits").sizes() == torch::IntArrayRef({ 2, 3 }));
+
+    auto graph_info = head->GetGraphVizInfo();
+    REQUIRE(graph_info.outputs.size() == 1);
+    CHECK(graph_info.type == "LinearHead");
+    CHECK(graph_info.outputs[0].name == "logits");
+    CHECK(graph_info.outputs[0].shape == std::vector<int64_t>{ 3 });
+}
+
+TEST_CASE("Network keeps head output FP32 under CPU autocast", "[nn][head][bf16]")
+{
+    EnsureNNInitialized();
+
+    anet::nn::WeightInitConfig init_config;
+    init_config.mode = "he";
+    auto head = std::make_shared<anet::nn::LinearHead>(
+        2,
+        3,
+        "logits",
+        init_config);
+    auto network = MakeDotTestNetwork(head, anet::nn::kKey_DefaultOutput);
+
+    anet::TensorDict input;
+    input.Set("obs", torch::ones({ 2, 2 }, torch::TensorOptions().dtype(torch::kFloat32)));
+
+    anet::TensorDict output;
+    {
+        anet::Autocast autocast_guard(torch::Device(torch::kCPU), true, torch::kBFloat16);
+        output = network->Forward(input);
+    }
+    REQUIRE(output.Contains("logits"));
+    REQUIRE(output.At("logits").dtype() == torch::kFloat32);
+
+    auto logits_func = network->GetTensorDictFunction("logits");
+    REQUIRE(logits_func.has_value());
+    anet::TensorDict func_output;
+    {
+        anet::Autocast autocast_guard(torch::Device(torch::kCPU), true, torch::kBFloat16);
+        func_output = (*logits_func)(input);
+    }
+    REQUIRE(func_output.Contains("logits"));
+    REQUIRE(func_output.At("logits").dtype() == torch::kFloat32);
+}
+
+TEST_CASE("BatchNorm2d runs in FP32 after BF16 autocast convolution", "[nn][batchnorm][bf16]")
+{
+    EnsureNNInitialized();
+
+    std::vector<torch::Device> devices{ torch::Device(torch::kCPU) };
+    if (torch::cuda::is_available()) {
+        devices.emplace_back(torch::Device(torch::kCUDA, 0));
+    }
+
+    for (const auto& device : devices) {
+        INFO("device=" << device.str());
+
+        anet::ConfigData config_data;
+        config_data.Set("net.block.[Conv].type", "Conv2d");
+        config_data.Set("net.block.[Conv].conv.out_channels", 3);
+        config_data.Set("net.block.[Conv].conv.kernel_size", 3);
+        config_data.Set("net.block.[Conv].conv.stride", 1);
+        config_data.Set("net.block.[Conv].conv.padding", 1);
+        config_data.Set("net.block.[Conv].init.mode", "he");
+        config_data.Set("net.block.[BN].type", "BatchNorm2d");
+        config_data.Set("net.block.[BN].num_features", 3);
+        config_data.Set("net.branch.[feature].bind", "obs");
+        config_data.Set("net.branch.[feature].structure", "Conv > BN");
+        config_data.Set("net.body.output.[feature]", "feature");
+
+        anet::TensorSpec obs_spec;
+        obs_spec.type = anet::SpaceType::Grid;
+        obs_spec.shape = { 3, 4, 4 };
+        obs_spec.dtype = torch::kFloat32;
+
+        anet::TensorSpecMap input_specs;
+        input_specs["obs"] = obs_spec;
+
+        auto network_config = anet::nn::NetworkConfig(config_data);
+        auto network = anet::nn::NetworkBuilder::BuildNetwork(
+            network_config,
+            input_specs,
+            nullptr,
+            device);
+
+        anet::TensorDict input;
+        input.Set("obs", torch::randn(
+            { 2, 3, 4, 4 },
+            torch::TensorOptions().dtype(torch::kFloat32).device(device)));
+
+        anet::TensorDict output;
+        {
+            anet::Autocast autocast_guard(device, true, torch::kBFloat16);
+            output = network->Forward(input);
+        }
+
+        REQUIRE(output.Contains("feature"));
+        REQUIRE(output.At("feature").dtype() == torch::kFloat32);
+        REQUIRE(output.At("feature").device().type() == device.type());
+        CHECK_FALSE(at::autocast::is_autocast_enabled(device.type()));
+    }
+}
+
+TEST_CASE("Norm modules can opt out of forced FP32 under BF16 input", "[nn][batchnorm][layernorm][layernorm2d][bf16]")
+{
+    EnsureNNInitialized();
+
+    std::vector<torch::Device> devices{ torch::Device(torch::kCPU) };
+    if (torch::cuda::is_available()) {
+        devices.emplace_back(torch::Device(torch::kCUDA, 0));
+    }
+
+    for (const auto& device : devices) {
+        INFO("device=" << device.str());
+
+        {
+            auto module = MakeBatchNorm2dTestModule(3);
+            module->eval();
+            auto input = torch::randn({ 2, 3, 4, 4 },
+                torch::TensorOptions().dtype(torch::kBFloat16).device(device));
+            auto output = module->Forward(input);
+            REQUIRE(output.dtype() == torch::kFloat32);
+            REQUIRE(GetNamedParameter(*module, "bn.weight").dtype() == torch::kFloat32);
+            REQUIRE(module->GetCurrentConfigData().Get("force_fp32") == "true");
+        }
+
+        {
+            auto module = MakeBatchNorm2dTestModule(3, false);
+            module->eval();
+            auto input = torch::randn({ 2, 3, 4, 4 },
+                torch::TensorOptions().dtype(torch::kBFloat16).device(device));
+            auto output = module->Forward(input);
+            REQUIRE(output.dtype() == torch::kBFloat16);
+            REQUIRE(GetNamedParameter(*module, "bn.weight").dtype() == torch::kBFloat16);
+            REQUIRE(module->GetCurrentConfigData().Get("force_fp32") == "false");
+        }
+
+        {
+            auto module = MakeLayerNormTestModule(4);
+            auto input = torch::randn({ 2, 4 },
+                torch::TensorOptions().dtype(torch::kBFloat16).device(device));
+            auto output = module->Forward(input);
+            REQUIRE(output.dtype() == torch::kFloat32);
+            REQUIRE(GetNamedParameter(*module, "ln.weight").dtype() == torch::kFloat32);
+            REQUIRE(module->GetCurrentConfigData().Get("force_fp32") == "true");
+        }
+
+        {
+            auto module = MakeLayerNormTestModule(4, std::nullopt, false);
+            auto input = torch::randn({ 2, 4 },
+                torch::TensorOptions().dtype(torch::kBFloat16).device(device));
+            auto output = module->Forward(input);
+            REQUIRE(output.dtype() == torch::kBFloat16);
+            REQUIRE(GetNamedParameter(*module, "ln.weight").dtype() == torch::kBFloat16);
+            REQUIRE(module->GetCurrentConfigData().Get("force_fp32") == "false");
+        }
+
+        {
+            auto module = MakeLayerNorm2dTestModule(3);
+            auto input = torch::randn({ 2, 3, 4, 4 },
+                torch::TensorOptions().dtype(torch::kBFloat16).device(device));
+            auto output = module->Forward(input);
+            REQUIRE(output.dtype() == torch::kFloat32);
+            REQUIRE(GetNamedParameter(*module, "weight").dtype() == torch::kFloat32);
+            REQUIRE(module->GetCurrentConfigData().Get("force_fp32") == "true");
+        }
+
+        {
+            auto module = MakeLayerNorm2dTestModule(3, 1.0e-6, false);
+            auto input = torch::randn({ 2, 3, 4, 4 },
+                torch::TensorOptions().dtype(torch::kBFloat16).device(device));
+            auto output = module->Forward(input);
+            REQUIRE(output.dtype() == torch::kBFloat16);
+            REQUIRE(GetNamedParameter(*module, "weight").dtype() == torch::kBFloat16);
+            REQUIRE(module->GetCurrentConfigData().Get("force_fp32") == "false");
+        }
+    }
+}
+
+TEST_CASE("Internal norm force_fp32 config reaches ResBlock and CNBlock modules", "[nn][resblock][cnblock][bf16]")
+{
+    if (!torch::cuda::is_available()) {
+        SKIP("CUDA is not available.");
+    }
+
+    const auto device = torch::Device(torch::kCUDA, 0);
+
+    {
+        auto module = MakeResBlockTestModule(
+            /*droppath_rate=*/0.0,
+            /*dropout_rate=*/0.0,
+            "batch",
+            "post");
+        auto input = torch::randn({ 2, 3, 8, 8 },
+            torch::TensorOptions().dtype(torch::kFloat32).device(device));
+        {
+            anet::Autocast autocast_guard(device, true, torch::kBFloat16);
+            (void)module->Forward(input);
+        }
+
+        REQUIRE(module->GetCurrentConfigData().Get("norm_force_fp32") == "true");
+        REQUIRE(GetNamedParameter(*module, "norm1.bn.weight").dtype() == torch::kFloat32);
+    }
+
+    {
+        auto module = MakeResBlockTestModule(
+            /*droppath_rate=*/0.0,
+            /*dropout_rate=*/0.0,
+            "batch",
+            "post",
+            false);
+        auto input = torch::randn({ 2, 3, 8, 8 },
+            torch::TensorOptions().dtype(torch::kFloat32).device(device));
+        {
+            anet::Autocast autocast_guard(device, true, torch::kBFloat16);
+            (void)module->Forward(input);
+        }
+
+        REQUIRE(module->GetCurrentConfigData().Get("norm_force_fp32") == "false");
+        REQUIRE(GetNamedParameter(*module, "norm1.bn.weight").dtype() == torch::kBFloat16);
+    }
+
+    {
+        auto module = MakeCNBlockTestModule();
+        auto input = torch::randn({ 2, 3, 8, 8 },
+            torch::TensorOptions().dtype(torch::kFloat32).device(device));
+        {
+            anet::Autocast autocast_guard(device, true, torch::kBFloat16);
+            (void)module->Forward(input);
+        }
+
+        REQUIRE(module->GetCurrentConfigData().Get("norm_force_fp32") == "true");
+        REQUIRE(GetNamedParameter(*module, "norm.weight").dtype() == torch::kFloat32);
+    }
+
+    {
+        auto module = MakeCNBlockTestModule(
+            /*channels=*/3,
+            /*droppath_rate=*/0.0,
+            /*layerscale_init=*/1.0e-6,
+            /*norm_type=*/"layernorm2d",
+            /*kernel_size=*/3,
+            /*ffn_expand_ratio=*/2,
+            /*constant_init=*/false,
+            false);
+        auto input = torch::randn({ 2, 3, 8, 8 },
+            torch::TensorOptions().dtype(torch::kFloat32).device(device));
+        {
+            anet::Autocast autocast_guard(device, true, torch::kBFloat16);
+            (void)module->Forward(input);
+        }
+
+        REQUIRE(module->GetCurrentConfigData().Get("norm_force_fp32") == "false");
+        REQUIRE(GetNamedParameter(*module, "norm.weight").dtype() == torch::kBFloat16);
+    }
+}
+
+TEST_CASE("Autocast refreshes cached weight casts between scopes", "[nn][autocast][bf16]")
+{
+    if (!torch::cuda::is_available()) {
+        SKIP("CUDA is not available.");
+    }
+
+    auto device = torch::Device(torch::kCUDA, 0);
+    auto linear = torch::nn::Linear(torch::nn::LinearOptions(2, 1).bias(false));
+    linear->to(device, torch::kFloat32);
+
+    auto input = torch::ones({ 1, 2 }, torch::TensorOptions().dtype(torch::kFloat32).device(device));
+
+    torch::Tensor before_update;
+    {
+        torch::NoGradGuard no_grad;
+        linear->weight.fill_(1.0f);
+    }
+    {
+        anet::Autocast autocast_guard(device, true, torch::kBFloat16);
+        before_update = linear->forward(input).detach().to(torch::kFloat32);
+    }
+
+    torch::Tensor after_update;
+    {
+        torch::NoGradGuard no_grad;
+        linear->weight.fill_(2.0f);
+    }
+    {
+        anet::Autocast autocast_guard(device, true, torch::kBFloat16);
+        after_update = linear->forward(input).detach().to(torch::kFloat32);
+    }
+
+    REQUIRE(before_update.defined());
+    REQUIRE(after_update.defined());
+    const float before_value = before_update.cpu().item<float>();
+    const float after_value = after_update.cpu().item<float>();
+    REQUIRE(before_value == Catch::Approx(2.0f));
+    REQUIRE(after_value == Catch::Approx(4.0f));
+}
+
+TEST_CASE("Autocast restores nested enabled and disabled scopes", "[nn][autocast][bf16]")
+{
+    std::vector<torch::DeviceType> device_types{ torch::kCPU };
+    if (torch::cuda::is_available()) {
+        device_types.push_back(torch::kCUDA);
+    }
+
+    for (const auto device_type : device_types) {
+        INFO("device_type=" << c10::DeviceTypeName(device_type));
+        const bool original_enabled = at::autocast::is_autocast_enabled(device_type);
+        const auto original_dtype = at::autocast::get_autocast_dtype(device_type);
+
+        {
+            anet::Autocast outer(torch::Device(device_type), true, torch::kBFloat16);
+            REQUIRE(at::autocast::is_autocast_enabled(device_type));
+            REQUIRE(at::autocast::get_autocast_dtype(device_type) == torch::kBFloat16);
+
+            {
+                anet::Autocast inner(torch::Device(device_type), false, torch::kFloat32);
+                CHECK_FALSE(at::autocast::is_autocast_enabled(device_type));
+                REQUIRE(at::autocast::get_autocast_dtype(device_type) == torch::kFloat32);
+            }
+
+            REQUIRE(at::autocast::is_autocast_enabled(device_type));
+            REQUIRE(at::autocast::get_autocast_dtype(device_type) == torch::kBFloat16);
+        }
+
+        REQUIRE(at::autocast::is_autocast_enabled(device_type) == original_enabled);
+        REQUIRE(at::autocast::get_autocast_dtype(device_type) == original_dtype);
+    }
 }
 
 std::shared_ptr<anet::nn::Network> MakeTraceTestNetwork()

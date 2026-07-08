@@ -1175,8 +1175,8 @@ anet::TensorDict Network::Forward(const anet::TensorDict& input, const anet::Tra
 
     // Head部を実行
     if (head_) {
-        // Head部ではAMPを強制OFF（外側の設定を無効化）にする
-        anet::Autocast disable_amp(torch::kCUDA, false, torch::kFloat32);
+        // Head部では特徴量が置かれた device の AMP を強制OFF（外側の設定を無効化）にする。
+        anet::Autocast disable_amp(features.device(), false, torch::kFloat32);
 
         // Bodyから出てきたTensorはBF16になっているかもしれないのでキャストしてHeadに流し込む
         return head_->Forward(features.To(torch::kFloat32));
@@ -1213,8 +1213,8 @@ std::optional<anet::TensorDictFunction> Network::GetTensorDictFunction(const std
         // Bodyを実行 (ここはAMPが有効ならFP16で高速処理される)
         anet::TensorDict features = this->body_->Forward(state_input);
 
-        // 関数実行時もHead扱いの処理なので、確実にAMPを切る
-        anet::Autocast disable_amp(torch::kCUDA, false, torch::kFloat32);
+        // 関数実行時もHead扱いの処理なので、特徴量側の device で確実にAMPを切る
+        anet::Autocast disable_amp(features.device(), false, torch::kFloat32);
 
         // 抽出された特徴量DictをHeadの関数に渡して結果を返す
         return h_func(features.To(torch::kFloat32));

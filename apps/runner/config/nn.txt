@@ -51,6 +51,7 @@ net.block.[ReS4].reshape.dims = 4 -1      # (N,32) -> (N,4,8)  ※4=stack_count�
 
 net.block.[BN32].type = BatchNorm2d
 net.block.[BN32].num_features = 32
+#net.block.[BN32].force_fp32 = false  # AMP/BF16時にBNをBF16入力のまま実行してメモリを節約する。default=true
 
 net.block.[BN64].type = BatchNorm2d
 net.block.[BN64].num_features = 64
@@ -148,6 +149,7 @@ net.block.[ResA].res.conv2_bias =  true
 net.block.[ResA].res.activation = silu      # silu relu swish
 net.block.[ResA].res.activation_mode = post # pre
 net.block.[ResA].res.norm_type = group      # none(default), batch, group
+#net.block.[ResA].res.norm_force_fp32 = false # res.norm_type=batchの内部BatchNormをBF16入力のまま実行してメモリを節約する。default=true
 net.block.[ResA].res.group_norm_groups = 4  # for norm_type=group
 net.block.[ResA].res.droppath_rate = 0.0    # default=0.0 残差枝だけをサンプル単位で落とすDropPath率 (0で無効)
 net.block.[ResA].res.dropout_rate = 0.0     # default=0.0 conv1->conv2間の channel dropout 確率 (0で無効)
@@ -191,6 +193,7 @@ net.block.[ClsExtract].type = ClsExtract       # 先頭の[CLS]トークンを�
 ##  単独LayerNorm (※TransformerEncoderには内包されているため、別用途で組む時のお守り用)
 net.block.[LayerNorm].type = LayerNorm
 net.block.[LayerNorm].normalized_shape = 32
+#net.block.[LayerNorm].force_fp32 = false  # AMP/BF16時にLNをBF16入力のまま実行する。default=true
 
 
 
