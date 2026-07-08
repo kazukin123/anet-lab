@@ -9,6 +9,8 @@
 #include "nn_impl.hpp"
 #include "nn_heads.hpp"
 
+#include <ATen/autocast_mode.h>
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -31,6 +33,38 @@ namespace {
 
 namespace rl = anet::rl;
 namespace dqn = anet::rl::dqn;
+
+struct AutocastProbeState {
+    void Record(torch::DeviceType device_type)
+    {
+        ++forward_count;
+        if (at::autocast::is_autocast_enabled(device_type)) {
+            ++enabled_count;
+        }
+        last_device_type = device_type;
+    }
+
+    int forward_count = 0;
+    int enabled_count = 0;
+    torch::DeviceType last_device_type = torch::kCPU;
+};
+
+class AutocastProbeModule final : public anet::nn::NetworkModule {
+public:
+    explicit AutocastProbeModule(std::shared_ptr<AutocastProbeState> state)
+        : state_(std::move(state))
+    {
+    }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        state_->Record(input.device().type());
+        return input;
+    }
+
+private:
+    std::shared_ptr<AutocastProbeState> state_;
+};
 
 struct QuantileLearnerBaseAccess : public dqn::QuantileLearnerBase {
     using dqn::QuantileLearnerBase::ComputeQuantileHuberLoss;
@@ -110,6 +144,46 @@ std::shared_ptr<anet::nn::Network> MakeLinearNetwork()
         head);
 }
 
+std::shared_ptr<anet::nn::Network> MakeAutocastProbeNetwork(
+    const std::shared_ptr<AutocastProbeState>& probe_state,
+    torch::Device device)
+{
+    anet::TensorSpec vector_spec;
+    vector_spec.type = anet::SpaceType::Vector;
+    vector_spec.shape = { 2 };
+    vector_spec.dtype = torch::kFloat32;
+
+    anet::TensorSpecMap input_specs;
+    input_specs[kVectorKey] = vector_spec;
+
+    anet::nn::NetworkConfig network_config;
+    network_config.output_keys[kFeatureKey] = kFeatureKey;
+
+    auto probe = std::make_shared<AutocastProbeModule>(probe_state);
+    auto block = std::make_shared<anet::nn::NetworkBlock>("probe", probe);
+    auto network_struct = std::make_shared<anet::nn::NetworkStruct>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
+    auto branch = std::make_shared<anet::nn::NetworkBranch>(
+        kFeatureKey,
+        std::vector<std::string>{ kVectorKey },
+        network_struct);
+    auto body = std::make_shared<anet::nn::NetworkBody>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{ branch },
+        input_specs,
+        std::vector<std::string>{},
+        network_config.output_keys);
+    auto head = std::make_shared<TestLinearHead>(2, 1);
+
+    auto network = std::make_shared<anet::nn::Network>(
+        network_config,
+        input_specs,
+        nullptr,
+        body,
+        head);
+    network->to(device);
+    return network;
+}
+
 class TestNetworkModel final : public dqn::NetworkModel {
 public:
     explicit TestNetworkModel(int64_t num_quantiles = 1)
@@ -119,6 +193,24 @@ public:
             MakeLinearNetwork(),
             1,
             num_quantiles)
+    {
+        GetOnlineNetwork()->CopyTo(*GetTargetNetwork());
+        GetOnlineNetwork()->eval();
+        GetTargetNetwork()->eval();
+    }
+};
+
+class AutocastProbeNetworkModel final : public dqn::NetworkModel {
+public:
+    AutocastProbeNetworkModel(
+        const std::shared_ptr<AutocastProbeState>& probe_state,
+        torch::Device device)
+        : dqn::NetworkModel(
+            dqn::NetworkModelConfig{},
+            MakeAutocastProbeNetwork(probe_state, device),
+            MakeAutocastProbeNetwork(probe_state, device),
+            1,
+            1)
     {
         GetOnlineNetwork()->CopyTo(*GetTargetNetwork());
         GetOnlineNetwork()->eval();
@@ -998,6 +1090,38 @@ anet::TensorDict MakePolicyInput()
     };
 }
 
+anet::TensorDict MakeAutocastProbePolicyInput(torch::Device device)
+{
+    return anet::TensorDict{
+        { kVectorKey, torch::tensor(
+            {
+                { 1.0f, 2.0f },
+                { 3.0f, 4.0f },
+            },
+            torch::TensorOptions().dtype(torch::kFloat32).device(device)) },
+    };
+}
+
+rl::ExperienceSamples MakeAutocastProbeSamples(torch::Device device)
+{
+    rl::ExperienceSamples samples;
+    samples.obs = MakeAutocastProbePolicyInput(device);
+    samples.next_state.next_obs = anet::TensorDict{
+        { kVectorKey, torch::tensor(
+            {
+                { 0.5f, 1.0f },
+                { 1.5f, 2.0f },
+            },
+            torch::TensorOptions().dtype(torch::kFloat32).device(device)) },
+    };
+    samples.actions = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kInt64).device(device));
+    samples.target_returns = torch::tensor({ 0.1f, 0.2f }, torch::TensorOptions().dtype(torch::kFloat32).device(device));
+    samples.next_state.terminals = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool).device(device));
+    samples.n_steps = torch::ones({ 2 }, torch::TensorOptions().dtype(torch::kInt64).device(device));
+    samples.indices = torch::arange(2, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
+    return samples;
+}
+
 anet::TensorDict MakeSpatialUQEInput()
 {
     auto q_values = torch::zeros({ 2, 2 });
@@ -1251,6 +1375,65 @@ TEST_CASE("Optimizer helper keeps QR-DQN FP32 grad clip result contract", "[dqn]
     CHECK(weight_delta[0][1].item<float>() == Catch::Approx(-0.04f).margin(1.0e-5f));
 }
 
+TEST_CASE("DQN learner BF16 autocast follows learner device", "[dqn][learner][amp][bf16]")
+{
+    std::vector<torch::Device> devices{ torch::Device(torch::kCPU) };
+    if (torch::cuda::is_available()) {
+        devices.emplace_back(torch::Device(torch::kCUDA, 0));
+    }
+
+    for (const auto& device : devices) {
+        INFO("device=" << device.str());
+
+        auto probe_state = std::make_shared<AutocastProbeState>();
+        AutocastProbeNetworkModel model(probe_state, device);
+        dqn::RuntimeVars vars;
+        auto env_spec = MakeLearnerEnvSpec();
+        rl::BatchEnvSpec batch_env_spec{ 2, 1 };
+
+        dqn::LearnerConfig config;
+        config.use_amp = true;
+        config.use_amp_bf16 = true;
+        config.use_fused_optimizer = false;
+        config.use_grad_clip = false;
+        config.use_per = false;
+        config.replay_batch_size = 2;
+        config.replay_capacity = 8;
+
+        dqn::ActionPolicyConfig target_policy_config;
+        target_policy_config.use_amp = true;
+        target_policy_config.use_amp_bf16 = true;
+        auto target_policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(
+            target_policy_config,
+            false,
+            0,
+            device);
+
+        const auto device_type = device.type();
+        const bool original_enabled = at::autocast::is_autocast_enabled(device_type);
+        dqn::TDLearner learner(
+            config,
+            model,
+            vars,
+            nullptr,
+            batch_env_spec,
+            env_spec,
+            device,
+            123,
+            target_policy,
+            std::nullopt,
+            456);
+
+        auto result = learner.UpdateFromSamples(MakeAutocastProbeSamples(device));
+
+        REQUIRE(result != nullptr);
+        REQUIRE(probe_state->forward_count > 0);
+        CHECK(probe_state->enabled_count == probe_state->forward_count);
+        CHECK(probe_state->last_device_type == device_type);
+        CHECK(at::autocast::is_autocast_enabled(device_type) == original_enabled);
+    }
+}
+
 TEST_CASE("NetworkModel mode-specific forwards preserve training modes", "[dqn][network_model]")
 {
     TestNetworkModel model;
@@ -1443,6 +1626,38 @@ TEST_CASE("ActionPolicy variants preserve action info keys and shapes", "[dqn][a
             CHECK(*uqe_win_rate == Catch::Approx(0.0f));
             CHECK(*uqe_margin == Catch::Approx(-7.0f));
         }
+    }
+}
+
+TEST_CASE("DQN action policy BF16 autocast follows observation device", "[dqn][action_policy][amp][bf16]")
+{
+    std::vector<torch::Device> devices{ torch::Device(torch::kCPU) };
+    if (torch::cuda::is_available()) {
+        devices.emplace_back(torch::Device(torch::kCUDA, 0));
+    }
+
+    for (const auto& device : devices) {
+        INFO("device=" << device.str());
+
+        auto probe_state = std::make_shared<AutocastProbeState>();
+        auto network = MakeAutocastProbeNetwork(probe_state, device);
+        auto obs = MakeAutocastProbePolicyInput(device);
+
+        dqn::ActionPolicyConfig config;
+        config.use_amp = true;
+        config.use_amp_bf16 = true;
+        dqn::EpsilonGreedyActionPolicy policy(config, false, 0, device);
+
+        const auto device_type = device.type();
+        const bool original_enabled = at::autocast::is_autocast_enabled(device_type);
+        auto rnd = std::make_shared<anet::RandomGenerator>(123);
+        auto action_info = policy.SelectAction(obs, /*greedy_only=*/true, network, rnd, {});
+
+        REQUIRE(action_info->GetAction().device().type() == device_type);
+        REQUIRE(probe_state->forward_count > 0);
+        CHECK(probe_state->enabled_count == probe_state->forward_count);
+        CHECK(probe_state->last_device_type == device_type);
+        CHECK(at::autocast::is_autocast_enabled(device_type) == original_enabled);
     }
 }
 

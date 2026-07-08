@@ -519,7 +519,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> EpsilonGreedyActionPolicy::SelectActi
 
     torch::NoGradGuard grad_guard;
     torch::ScalarType amp_dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
-    anet::Autocast cast_guard(torch::kCUDA, config_.use_amp, amp_dtype);
+    anet::Autocast cast_guard(obs.device(), config_.use_amp, amp_dtype);
 
     // obsからQ値取得
     auto out = ForwardForAction(obs, network, sink);
@@ -691,7 +691,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> UQEActionPolicy::MakeUQEActionInfo(fl
 
     torch::NoGradGuard grad_guard;
     torch::ScalarType amp_dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
-    anet::Autocast cast_guard(torch::kCUDA, config_.use_amp, amp_dtype);
+    anet::Autocast cast_guard(obs.device(), config_.use_amp, amp_dtype);
 
     // Q値を取得
     auto out = ForwardForAction(obs, network, sink);
@@ -1558,7 +1558,7 @@ TDLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     // ============================================================
     {
         // AMP Guard (Forward計算のみfloat16化)
-        anet::Autocast amp_guard(torch::kCUDA, config_.use_amp, amp_dtype);
+        anet::Autocast amp_guard(device_, config_.use_amp, amp_dtype);
 
         // ------------------------------------------------------------
         // Q(s, a)
@@ -1720,7 +1720,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     // ============================================================
     {
         // AMP Guard
-        anet::Autocast amp_guard(torch::kCUDA, config_.use_amp, amp_dtype);
+        anet::Autocast amp_guard(device_, config_.use_amp, amp_dtype);
 
         // ------------------------------------------------------------
         // 分布計算
