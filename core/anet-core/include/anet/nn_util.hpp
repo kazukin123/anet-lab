@@ -55,12 +55,18 @@ namespace anet {
 
     class Autocast {
     public:
-        Autocast(torch::DeviceType device_type, bool enabled, torch::ScalarType dtype = torch::kHalf);
+        Autocast(torch::Device device, bool enabled, torch::ScalarType dtype);
+        Autocast(torch::DeviceType, bool, torch::ScalarType) = delete;
+        Autocast(const Autocast&) = delete;
+        Autocast& operator=(const Autocast&) = delete;
+        Autocast(Autocast&&) = delete;
+        Autocast& operator=(Autocast&&) = delete;
         ~Autocast();
     private:
         const torch::DeviceType device_type_;
         const bool prev_enabled_;
         const torch::ScalarType prev_dtype_;
+        const bool prev_cache_enabled_;
     };
 
 

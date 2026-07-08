@@ -60,12 +60,15 @@ void anet::ForeachClipGradNorm_(const std::vector<torch::Tensor>& grads, const t
 // Autocast
 // ======================================================
 
-anet::Autocast::Autocast(torch::DeviceType device_type, bool enabled, torch::ScalarType dtype)
-    : device_type_(device_type)
+anet::Autocast::Autocast(torch::Device device, bool enabled, torch::ScalarType dtype)
+    : device_type_(device.type())
     , prev_enabled_(at::autocast::is_autocast_enabled(device_type_))
     , prev_dtype_(at::autocast::get_autocast_dtype(device_type_))
+    , prev_cache_enabled_(at::autocast::is_autocast_cache_enabled())
 {
-    // 新しい状態を設定
+    // autocast状態はdevice indexではなくdevice type単位なので、anetのdevice指定からtypeだけを反映する。
+    // libtorchのautocast scopeとして入れ子深度を進め、外側scopeとのcache lifetimeを揃える。
+    at::autocast::increment_nesting();
     at::autocast::set_autocast_dtype(device_type_, dtype);
     at::autocast::set_autocast_enabled(device_type_, enabled);
 }
@@ -74,6 +77,10 @@ anet::Autocast::~Autocast()
 {
     at::autocast::set_autocast_enabled(device_type_, prev_enabled_);    // 元に戻す
     at::autocast::set_autocast_dtype(device_type_, prev_dtype_);        // 元に戻す
+    if (at::autocast::decrement_nesting() == 0) {
+        at::autocast::clear_cache();
+    }
+    at::autocast::set_autocast_cache_enabled(prev_cache_enabled_);      // 元に戻す
 }
 
 
