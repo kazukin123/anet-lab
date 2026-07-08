@@ -13,6 +13,7 @@
 #include "anet/profile.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/nn_util.hpp"
+#include "nn_heads.hpp"
 
 using namespace anet::rl::img_cls;
 namespace LOG = anet::log;
@@ -23,12 +24,14 @@ namespace LOG = anet::log;
 // ======================================================
 
 ImageClsActor::ImageClsActor(
+    const ImageClsAgentConfig& config,
     std::shared_ptr<std::shared_mutex> mutex,
     std::shared_ptr<anet::nn::Network> network,
     anet::rl::RunMode run_mode,
     torch::Device device,
     std::shared_ptr<anet::nn::Network> src_network)
-    : run_mode_(run_mode)
+    : config_(config)
+    , run_mode_(run_mode)
     , mutex_(mutex)
     , network_(network)
     , src_network_(src_network ? src_network : network)
@@ -55,7 +58,14 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
     anet::TensorDict trace;
     anet::TraceSink sink = anet::rl::MakeActionTraceSink(trace);
     ANET_PROFILE_SCOPE_NEXT(forward);
-    auto outputs = network_->Forward(obs, sink);
+    anet::TensorDict outputs;
+    {
+        anet::Autocast autocast_guard(
+            device_,
+            config_.bf16.enabled && config_.bf16.actor,
+            torch::kBFloat16);
+        outputs = network_->Forward(obs, sink);
+    }
 
     // 推論後処理
     if (lock.owns_lock()) {
@@ -341,7 +351,14 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
 
         // Forward推論
         ANET_PROFILE_SCOPE_NEXT(forward);
-        auto outputs = network_->Forward(obs);
+        anet::TensorDict outputs;
+        {
+            anet::Autocast autocast_guard(
+                device_,
+                config_.bf16.enabled && config_.bf16.learner,
+                torch::kBFloat16);
+            outputs = network_->Forward(obs);
+        }
 
         // 出力ロジットの取得
         logits = outputs.At("logits");
@@ -471,7 +488,18 @@ ImageClsAgent::ImageClsAgent(
     anet::MetricsLogger::Instance()->Log(config_);
 
     // NN構築
-    network_ = anet::nn::NetworkBuilder::BuildNetwork(network_config, env_spec.state_spec.obs_spec, nullptr, device_);
+    const int64_t num_classes = env_spec.action_spec.GetNumActions();
+    if (num_classes <= 0) {
+        ANET_SYSTEM_ERROR("ImageClsAgent requires positive action count for logits head. actual=" << num_classes);
+    }
+    anet::nn::WeightInitConfig head_init_config;
+    head_init_config.mode = "he";
+    auto head_factory = std::make_shared<anet::nn::LinearHeadFactory>(num_classes, "logits", head_init_config);
+    network_ = anet::nn::NetworkBuilder::BuildNetwork(
+        network_config,
+        env_spec.state_spec.obs_spec,
+        head_factory,
+        device_);
 	network_->to(device_);
     network_->eval();
     anet::MetricsLogger::Instance()->Log("net.body", network_config.ToJson());
@@ -601,7 +629,7 @@ std::shared_ptr<anet::rl::Actor> ImageClsAgent::CreateActor(
     }
 
     // Actorの生成
-    return std::make_shared<ImageClsActor>(mutex_, actor_network, run_mode, actor_device, network_);
+    return std::make_shared<ImageClsActor>(config_, mutex_, actor_network, run_mode, actor_device, network_);
 }
 
 std::shared_ptr<anet::rl::Learner> ImageClsAgent::CreateLearner()

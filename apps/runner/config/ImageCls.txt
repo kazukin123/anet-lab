@@ -19,7 +19,7 @@ ImageClsEnv.$ = ImageClsEnv.baseline > E
 #net.branch.[main_feature].$ = net.branch.FoodResNet13      #   44%
 #net.branch.[main_feature].$ = net.branch.FoodResNet13_GAP  #   61% 1.3h
 #net.branch.[main_feature].$ = net.branch.ResNet18          #   67% 1.5h
-net.branch.[main_feature].$ = net.branch.ResNet18ish_hr    # 83.6% 6.0～8.0h ★
+#net.branch.[main_feature].$ = net.branch.ResNet18ish_hr    # 86% 6.0h ★
 #net.branch.[main_feature].$ = net.branch.ResNet18ish_mr    #   73% 1.5h
 #net.branch.[main_feature].$ = net.branch.ResNet18ish_MaxPool
 #net.branch.[main_feature].$ = net.branch.ResNet18ish_std
@@ -30,7 +30,7 @@ net.branch.[main_feature].$ = net.branch.ResNet18ish_hr    # 83.6% 6.0～8.0h �
 #net.branch.[main_feature].$ = net.branch.ConvNeXtTiny
 #net.branch.[main_feature].$ = net.branch.ConvNeXtNano
 #net.branch.[main_feature].$ = net.branch.ConvNeXtFemto
-#net.branch.[main_feature].$ = net.branch.ConvNeXtAtto      # 80% 8.0h hr ★
+net.branch.[main_feature].$ = net.branch.ConvNeXtAtto      # 80% 8.0h hr ★
 
 app.run_name = run_{t}_imgcls
 
@@ -44,8 +44,8 @@ app.run_name = run_{t}_imgcls
 #app.run_name = run_{t}_imgcls_cn-nano
 #app.run_name = run_{t}_imgcls_cn-femto_dp03
 #app.run_name = run_{t}_imgcls_cn-atto
-app.run_name = run_{t}_imgcls_ResNet18ish_hr_mix
-#app.run_name = run_{t}_imgcls_CnAtto_hr
+#app.run_name = run_{t}_imgcls_ResNet18HRmix_bf16
+#app.run_name = run_{t}_imgcls_CnAttoHR_bf16
 
 
 backend.deterministic_algorithms = false   # ★★ false:高速だが非決定論的
@@ -64,33 +64,32 @@ train.eval.[eval1].clone_model = false  # なんか遅くなるので
 
 
 # ==============================================================================
-# BF16 ★未対応
-# ==============================================================================
-
-
-
-# ==============================================================================
 # ステップ数 依存設定
 # ==============================================================================
 
-#app.online.exp_pause_step  = 10,000,000      # 10M
-#app.online.exp_pause_step  = 15,000,000      # 15M
-#app.online.exp_pause_step  = 20,000,000      # 20M
-app.online.exp_pause_step  = 30,000,000      # 30M
-#app.online.exp_pause_step  = 100,000,000      # 100M
-
-app.batchrun.exp_exit_step  = 160,000,000     # 160M
-
 ImageClsAgent.learning_rate.phase.[warmup].steps = 500,000
 
-ImageClsAgent.learning_rate.phase.[main_cosine].steps = 29,500,000
-#ImageClsAgent.learning_rate.phase.[main_cosine].steps = 19,500,000
 #ImageClsAgent.learning_rate.phase.[main_cosine].steps = 14,500,000
+ImageClsAgent.learning_rate.phase.[main_cosine].steps = 19,500,000
+#ImageClsAgent.learning_rate.phase.[main_cosine].steps = 29,500,000
+
+#app.online.exp_pause_step  = 10,000,000      # 10M
+#app.online.exp_pause_step  = 15,000,000      # 15M
+app.online.exp_pause_step  = 20,000,000      # 20M
+#app.online.exp_pause_step  = 30,000,000      # 30M
+#app.online.exp_pause_step  = 100,000,000      # 100M
+
+app.batchrun.exp_exit_step  = 100,000,000     # 100M
 
 
 # ==============================================================================
 # Env依存 Agent設定
 # ==============================================================================
+
+ImageClsAgent.bf16.enabled = true  # default=false
+ImageClsAgent.bf16.learner = true
+ImageClsAgent.bf16.actor = false
+
 
 ImageClsAgent.learning_rate.type = phased
 ImageClsAgent.learning_rate.phases = warmup main_cosine
@@ -134,6 +133,70 @@ ImageClsAgent.nn_viz.float_precision = 3
 
 
 # ==============================================================================
+# BF16
+# ==============================================================================
+
+# --- force_fp32=false 実験用メモリ優先設定 ---
+# 以下を有効化すると、BN/LN系normalizerをBF16入力のまま実行する。default=true
+
+# standalone BatchNorm2d
+net.block.[BN32].force_fp32 = false
+net.block.[BN64].force_fp32 = false
+net.block.[BN128].force_fp32 = false
+net.block.[BN256].force_fp32 = false
+net.block.[BN512].force_fp32 = false
+
+# ResBlock internal BatchNorm2d
+net.block.[ResBlock32].res.norm_force_fp32 = false
+net.block.[ResBlock64].res.norm_force_fp32 = false
+net.block.[ResBlock128].res.norm_force_fp32 = false
+net.block.[ResBlock256].res.norm_force_fp32 = false
+net.block.[ResBlock512].res.norm_force_fp32 = false
+net.block.[ResBlock128s2].res.norm_force_fp32 = false
+net.block.[ResBlock256s2].res.norm_force_fp32 = false
+net.block.[ResBlock512s2].res.norm_force_fp32 = false
+net.block.[ResNet18Block64].res.norm_force_fp32 = false
+net.block.[ResNet18Block128].res.norm_force_fp32 = false
+net.block.[ResNet18Block128s2].res.norm_force_fp32 = false
+net.block.[ResNet18Block256].res.norm_force_fp32 = false
+net.block.[ResNet18Block256s2].res.norm_force_fp32 = false
+net.block.[ResNet18Block512].res.norm_force_fp32 = false
+net.block.[ResNet18Block512s2].res.norm_force_fp32 = false
+
+# ConvNeXt LayerNorm2d
+#net.block.[CStemLN40].force_fp32 = false
+#net.block.[CStemLN48].force_fp32 = false
+#net.block.[CStemLN80].force_fp32 = false
+#net.block.[CStemLN96].force_fp32 = false
+#net.block.[CDownLN40].force_fp32 = false
+#net.block.[CDownLN48].force_fp32 = false
+#net.block.[CDownLN80].force_fp32 = false
+#net.block.[CDownLN96].force_fp32 = false
+#net.block.[CDownLN160].force_fp32 = false
+#net.block.[CDownLN192].force_fp32 = false
+#net.block.[CDownLN320].force_fp32 = false
+#net.block.[CDownLN384].force_fp32 = false
+
+# ConvNeXt CNBlock internal LayerNorm2d
+#net.block.[CN40].cn.norm_force_fp32 = false
+#net.block.[CN48].cn.norm_force_fp32 = false
+#net.block.[CN80].cn.norm_force_fp32 = false
+#net.block.[CN96].cn.norm_force_fp32 = false
+#net.block.[CN160].cn.norm_force_fp32 = false
+#net.block.[CN192].cn.norm_force_fp32 = false
+#net.block.[CN320].cn.norm_force_fp32 = false
+#net.block.[CN384].cn.norm_force_fp32 = false
+#net.block.[CN640].cn.norm_force_fp32 = false
+#net.block.[CN768].cn.norm_force_fp32 = false
+
+# ConvNeXt head LayerNorm
+#net.block.[CLayerNormHead320].force_fp32 = false
+#net.block.[CLayerNormHead384].force_fp32 = false
+#net.block.[CLayerNormHead640].force_fp32 = false
+#net.block.[CLayerNormHead768].force_fp32 = false
+
+
+# ==============================================================================
 # NN
 # ==============================================================================
 
@@ -147,10 +210,6 @@ net.block.[CStemConv48].conv.padding = 1      # 0→1（k=4,s=2,p=1 で 224→11
 
 net.config_profile.[cnx_dp01].end = 0.3
 
-
-net.block.[LinearOut].type = Linear
-net.block.[LinearOut].linear.out_features = 101
-net.block.[LinearOut].init.mode = he
 
 net.block.[Drop].type = Dropout
 net.block.[Drop].dropout_rate = 0.5
@@ -384,40 +443,40 @@ net.block.[TransEnc_H256].tf.droppath_rate = 0.1
 
 
 net.branch.FoodResNet13.bind = grid
-net.branch.FoodResNet13.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > Flatten > Drop > LinearOut
+net.branch.FoodResNet13.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > Flatten > Drop
 
 net.branch.FoodResNet13_GAP.bind = grid
-net.branch.FoodResNet13_GAP.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > GAP2D > Drop > LinearOut
+net.branch.FoodResNet13_GAP.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > GAP2D > Drop
 
 net.branch.ResNet18.bind = grid
-net.branch.ResNet18.structure = ConvInit64_7x7 > BN64 > ReLU > MaxPool3x3s2 > ResNet18Block64(*2) > ResNet18Block128s2 > ResNet18Block128 > ResNet18Block256s2 > ResNet18Block256 > ResNet18Block512s2 > ResNet18Block512 > GAP2D > LinearOut
+net.branch.ResNet18.structure = ConvInit64_7x7 > BN64 > ReLU > MaxPool3x3s2 > ResNet18Block64(*2) > ResNet18Block128s2 > ResNet18Block128 > ResNet18Block256s2 > ResNet18Block256 > ResNet18Block512s2 > ResNet18Block512 > GAP2D
 
 net.branch.ResNet18ish_MaxPool.bind = grid
-net.branch.ResNet18ish_MaxPool.structure = ConvInit64_7x7 > BN64 > SiLU > MaxPool3x3s2 > ResBlock64(*2) > ResBlock128s2 > ResBlock128 > ResBlock256s2 > ResBlock256 > ResBlock512s2 > ResBlock512 > GAP2D > DropHead > LinearOut
+net.branch.ResNet18ish_MaxPool.structure = ConvInit64_7x7 > BN64 > SiLU > MaxPool3x3s2 > ResBlock64(*2) > ResBlock128s2 > ResBlock128 > ResBlock256s2 > ResBlock256 > ResBlock512s2 > ResBlock512 > GAP2D > DropHead
 
 net.branch.ResNet18ish_std.bind = grid
-net.branch.ResNet18ish_std.structure   = ConvInit64 > BN64 > SiLU > ConvDown64 > BN64 > SiLU > ResBlock64(*2) > ResBlock128s2 > ResBlock128 > ResBlock256s2 > ResBlock256 > ResBlock512s2 > ResBlock512 > GAP2D > DropHead > LinearOut
+net.branch.ResNet18ish_std.structure   = ConvInit64 > BN64 > SiLU > ConvDown64 > BN64 > SiLU > ResBlock64(*2) > ResBlock128s2 > ResBlock128 > ResBlock256s2 > ResBlock256 > ResBlock512s2 > ResBlock512 > GAP2D > DropHead
 
 net.branch.ResNet18ish_hr.bind = grid
-net.branch.ResNet18ish_hr.structure = ConvInit64 > BN64 > SiLU > ResBlock64(*2) > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > ConvDown512 > BN512 > SiLU > ResBlock512(*2) > GAP2D > DropHead > LinearOut
+net.branch.ResNet18ish_hr.structure = ConvInit64 > BN64 > SiLU > ResBlock64(*2) > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > ConvDown512 > BN512 > SiLU > ResBlock512(*2) > GAP2D > DropHead
 
 net.branch.ResNet18ish_mr.bind = grid
-net.branch.ResNet18ish_mr.structure = ConvInit32 > BN32 > SiLU > ResBlock32(*2) > ConvDown64  > BN64  > SiLU > ResBlock64(*2)  > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > GAP2D > DropHead > LinearOut
+net.branch.ResNet18ish_mr.structure = ConvInit32 > BN32 > SiLU > ResBlock32(*2) > ConvDown64  > BN64  > SiLU > ResBlock64(*2)  > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > GAP2D > DropHead
 
 net.branch.Hybrid_CLS.bind = grid
-net.branch.Hybrid_CLS.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > PosEmbed2D > ClsAppend > TransEnc_H256 > ClsExtract > LinearOut
+net.branch.Hybrid_CLS.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > PosEmbed2D > ClsAppend > TransEnc_H256 > ClsExtract
 
 net.branch.Hybrid_GAP.bind = grid
-net.branch.Hybrid_GAP.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > PosEmbed2D > TransEnc_H256 > GAP1D > LinearOut
+net.branch.Hybrid_GAP.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > PosEmbed2D > TransEnc_H256 > GAP1D
 
 net.branch.ViT_S16_CLS.bind = grid
-net.branch.ViT_S16_CLS.structure = PatchEmbed16 > PosEmbed2D > ClsAppend > TransEnc_ViT > ClsExtract > LinearOut
+net.branch.ViT_S16_CLS.structure = PatchEmbed16 > PosEmbed2D > ClsAppend > TransEnc_ViT > ClsExtract
 
 net.branch.ViT_S16_GAP.bind = grid
-net.branch.ViT_S16_GAP.structure   = PatchEmbed16 > PosEmbed2D > TransEnc_ViT > GAP1D > LinearOut
+net.branch.ViT_S16_GAP.structure   = PatchEmbed16 > PosEmbed2D > TransEnc_ViT > GAP1D
 
 
-net.body.output.[logits] = main_feature
+net.body.output.[features] = main_feature
 
 
 # ==============================================================================
@@ -587,4 +646,3 @@ train.eval.[eval2].interval = 0
 #
 # horizontal flip仕様:
 # ・ hflip_p は crop 後画像を左右反転する確率。0.0=無効、1.0=常に反転。
-

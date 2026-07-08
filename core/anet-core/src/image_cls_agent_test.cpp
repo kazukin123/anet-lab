@@ -6,6 +6,9 @@
 #include "anet/serialize.hpp"
 #include "anet/test_util.hpp"
 #include "nn_impl.hpp"
+#include "nn_heads.hpp"
+
+#include <ATen/autocast_mode.h>
 
 #include <algorithm>
 #include <cmath>
@@ -65,6 +68,17 @@ public:
     }
 
     torch::Tensor last_input;
+};
+
+class ImageClsAutocastProbeTestModule final : public anet::nn::NetworkModule {
+public:
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        last_autocast_enabled = at::autocast::is_autocast_enabled(input.device().type());
+        return input;
+    }
+
+    bool last_autocast_enabled = false;
 };
 
 class ImageClsFixedLinearTestHead final : public anet::nn::NetworkHead {
@@ -200,6 +214,11 @@ struct ImageClsRecordingNetworkFixture {
     std::shared_ptr<ImageClsRecordingTestModule> recorder;
 };
 
+struct ImageClsAutocastProbeNetworkFixture {
+    std::shared_ptr<anet::nn::Network> network;
+    std::shared_ptr<ImageClsAutocastProbeTestModule> probe;
+};
+
 ImageClsRecordingNetworkFixture MakeImageClsRecordingTestNetwork(
     torch::Dtype grid_dtype = torch::kUInt8,
     int64_t height = 2,
@@ -239,6 +258,45 @@ ImageClsRecordingNetworkFixture MakeImageClsRecordingTestNetwork(
             body,
             std::make_shared<ImageClsFixedLinearTestHead>(height * width)),
         recorder
+    };
+}
+
+ImageClsAutocastProbeNetworkFixture MakeImageClsAutocastProbeTestNetwork()
+{
+    anet::TensorSpec grid_spec;
+    grid_spec.type = anet::SpaceType::Grid;
+    grid_spec.shape = { 1, 2, 2 };
+    grid_spec.dtype = torch::kFloat32;
+
+    anet::TensorSpecMap input_specs;
+    input_specs[anet::rl::ObsKeys::kGrid] = grid_spec;
+
+    auto probe = std::make_shared<ImageClsAutocastProbeTestModule>();
+    auto block = std::make_shared<anet::nn::NetworkBlock>("Probe_0", probe);
+    auto network_struct = std::make_shared<anet::nn::NetworkStruct>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
+    auto branch = std::make_shared<anet::nn::NetworkBranch>(
+        "main_feature",
+        std::vector<std::string>{ anet::rl::ObsKeys::kGrid },
+        network_struct);
+
+    anet::nn::NetworkConfig network_config;
+    network_config.output_keys["main_feature"] = "main_feature";
+
+    auto body = std::make_shared<anet::nn::NetworkBody>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{ branch },
+        input_specs,
+        std::vector<std::string>{},
+        network_config.output_keys);
+
+    return {
+        std::make_shared<anet::nn::Network>(
+            network_config,
+            input_specs,
+            nullptr,
+            body,
+            std::make_shared<ImageClsFixedLinearTestHead>(4)),
+        probe
     };
 }
 
@@ -614,12 +672,17 @@ anet::nn::NetworkConfig MakeImageClsAgentNetworkConfig()
 {
     anet::ConfigData config_data;
     config_data.Set("net.block.[Flatten].type", std::string("Flatten"));
-    config_data.Set("net.block.[LinearOut].type", std::string("Linear"));
-    config_data.Set("net.block.[LinearOut].linear.out_features", 2);
     config_data.Set("net.branch.[main_feature].bind", std::string(anet::rl::ObsKeys::kGrid));
-    config_data.Set("net.branch.[main_feature].structure", std::string("Flatten > LinearOut"));
-    config_data.Set("net.body.output.[logits]", std::string("main_feature"));
+    config_data.Set("net.branch.[main_feature].structure", std::string("Flatten"));
+    config_data.Set(
+        std::string("net.body.output.[") + anet::nn::kKey_DefaultOutput + "]",
+        std::string("main_feature"));
     return anet::nn::NetworkConfig(config_data);
+}
+
+anet::nn::NetworkConfig MakeImageClsAgentHeadNetworkConfig()
+{
+    return MakeImageClsAgentNetworkConfig();
 }
 
 } // namespace
@@ -635,6 +698,9 @@ TEST_CASE("ImageCls mixup config defaults, round-trip and fail-fast validation",
     CHECK(defaults.learn_log_interval == 0);
     CHECK(defaults.auto_load_file.empty());
     CHECK(defaults.use_fused_optimizer);
+    CHECK_FALSE(defaults.bf16.enabled);
+    CHECK(defaults.bf16.learner);
+    CHECK_FALSE(defaults.bf16.actor);
 
     auto config_data = MakeImageClsMixTestConfigData();
     config_data.Set("ImageClsAgent.mixup.cutmix_alpha", 2.0);
@@ -643,6 +709,9 @@ TEST_CASE("ImageCls mixup config defaults, round-trip and fail-fast validation",
     config_data.Set("ImageClsAgent.learn_log_interval", 100);
     config_data.Set("ImageClsAgent.auto_load_file", std::string("runs/image_cls/agent_close.anet"));
     config_data.Set("ImageClsAgent.use_fused_optimizer", false);
+    config_data.Set("ImageClsAgent.bf16.enabled", true);
+    config_data.Set("ImageClsAgent.bf16.learner", false);
+    config_data.Set("ImageClsAgent.bf16.actor", true);
     auto config = MakeImageClsMixTestConfig(config_data);
     CHECK(config.mixup.enabled);
     CHECK(config.mixup.mixup_alpha == Catch::Approx(0.4));
@@ -652,6 +721,9 @@ TEST_CASE("ImageCls mixup config defaults, round-trip and fail-fast validation",
     CHECK(config.learn_log_interval == 100);
     CHECK(config.auto_load_file == "runs/image_cls/agent_close.anet");
     CHECK_FALSE(config.use_fused_optimizer);
+    CHECK(config.bf16.enabled);
+    CHECK_FALSE(config.bf16.learner);
+    CHECK(config.bf16.actor);
 
     const auto config_string = config.ToConfigString();
     CHECK(Contains(config_string, "ImageClsAgent.mixup.enabled = true"));
@@ -662,6 +734,9 @@ TEST_CASE("ImageCls mixup config defaults, round-trip and fail-fast validation",
     CHECK(Contains(config_string, "ImageClsAgent.learn_log_interval = 100"));
     CHECK(Contains(config_string, "ImageClsAgent.auto_load_file = runs/image_cls/agent_close.anet"));
     CHECK(Contains(config_string, "ImageClsAgent.use_fused_optimizer = false"));
+    CHECK(Contains(config_string, "ImageClsAgent.bf16.enabled = true"));
+    CHECK(Contains(config_string, "ImageClsAgent.bf16.learner = false"));
+    CHECK(Contains(config_string, "ImageClsAgent.bf16.actor = true"));
 
     SECTION("prob must stay in [0, 1]")
     {
@@ -792,6 +867,119 @@ TEST_CASE("ImageClsLearner bypasses mixup for small batches and prob zero", "[im
             11);
 
         RequireTensorClose(fixture.recorder->last_input, grid.to(torch::kFloat32).div(255.0f));
+    }
+}
+
+TEST_CASE("ImageClsAgent builds logits head from action spec", "[image_cls][head]")
+{
+    EnsureImageClsNnInitialized();
+    ScopedNoopMetricsLogger metrics_logger;
+
+    auto config = anet::rl::img_cls::ImageClsAgentConfig(MakeImageClsSerializeTestConfigData());
+    auto env_spec = MakeImageClsEnvSpec();
+    anet::rl::img_cls::ImageClsAgent agent(
+        config,
+        MakeImageClsAgentHeadNetworkConfig(),
+        env_spec,
+        anet::rl::BatchEnvSpec{ 2, 1 },
+        torch::Device(torch::kCPU),
+        123);
+
+    auto probs = ForwardImageClsAgentProbs(
+        agent,
+        torch::arange(8, torch::kFloat32).view({ 2, 1, 2, 2 }).div(16.0f));
+    CHECK(probs.sizes() == torch::IntArrayRef({ 2, env_spec.action_spec.GetNumActions() }));
+    CHECK(probs.dtype() == torch::kFloat32);
+}
+
+TEST_CASE("ImageCls actor and learner gate BF16 autocast around forward", "[image_cls][bf16]")
+{
+    const auto grid = torch::arange(8, torch::kFloat32).view({ 2, 1, 2, 2 }).div(16.0f);
+    const auto labels = torch::tensor({ 0, 1 }, torch::TensorOptions().dtype(torch::kInt64));
+
+    SECTION("actor uses BF16 autocast only when enabled for actor")
+    {
+        auto fixture = MakeImageClsAutocastProbeTestNetwork();
+        auto mutex = std::make_shared<std::shared_mutex>();
+        auto config = anet::rl::img_cls::ImageClsAgentConfig{};
+        config.bf16.enabled = true;
+        config.bf16.actor = true;
+        anet::rl::img_cls::ImageClsActor actor(
+            config,
+            mutex,
+            fixture.network,
+            anet::rl::RunMode::Eval,
+            torch::Device(torch::kCPU));
+
+        auto action_info = actor.MakeAction(anet::rl::StepCounts{}, MakeImageClsBatchState(grid));
+
+        REQUIRE(fixture.probe->last_autocast_enabled);
+        CHECK_FALSE(at::autocast::is_autocast_enabled(torch::kCPU));
+        REQUIRE(action_info->GetInfo().Contains("probs"));
+        REQUIRE(action_info->GetInfo().At("probs").dtype() == torch::kFloat32);
+    }
+
+    SECTION("actor leaves autocast disabled by default")
+    {
+        auto fixture = MakeImageClsAutocastProbeTestNetwork();
+        auto mutex = std::make_shared<std::shared_mutex>();
+        auto config = anet::rl::img_cls::ImageClsAgentConfig{};
+        config.bf16.enabled = true;
+        anet::rl::img_cls::ImageClsActor actor(
+            config,
+            mutex,
+            fixture.network,
+            anet::rl::RunMode::Eval,
+            torch::Device(torch::kCPU));
+
+        actor.MakeAction(anet::rl::StepCounts{}, MakeImageClsBatchState(grid));
+
+        CHECK_FALSE(fixture.probe->last_autocast_enabled);
+        CHECK_FALSE(at::autocast::is_autocast_enabled(torch::kCPU));
+    }
+
+    SECTION("learner uses BF16 autocast only when enabled for learner")
+    {
+        auto fixture = MakeImageClsAutocastProbeTestNetwork();
+        auto mutex = std::make_shared<std::shared_mutex>();
+        auto config = MakeImageClsLearningRateTestConfig();
+        config.bf16.enabled = true;
+        config.bf16.learner = true;
+        auto learning_rate = std::make_shared<anet::ProfiledValue<double>>(config.learning_rate);
+        anet::rl::img_cls::ImageClsLearner learner(
+            config,
+            mutex,
+            fixture.network,
+            learning_rate,
+            torch::Device(torch::kCPU),
+            123);
+        anet::rl::StepCounts step;
+
+        learner.UpdateFromBatch(step, MakeImageClsLearningExperience(grid, labels));
+
+        REQUIRE(fixture.probe->last_autocast_enabled);
+        CHECK_FALSE(at::autocast::is_autocast_enabled(torch::kCPU));
+    }
+
+    SECTION("learner leaves autocast disabled when globally disabled")
+    {
+        auto fixture = MakeImageClsAutocastProbeTestNetwork();
+        auto mutex = std::make_shared<std::shared_mutex>();
+        auto config = MakeImageClsLearningRateTestConfig();
+        auto learning_rate = std::make_shared<anet::ProfiledValue<double>>(config.learning_rate);
+        anet::rl::img_cls::ImageClsLearner learner(
+            config,
+            mutex,
+            fixture.network,
+            learning_rate,
+            torch::Device(torch::kCPU),
+            123);
+        anet::rl::StepCounts step;
+
+        learner.UpdateFromBatch(step, MakeImageClsLearningExperience(grid, labels));
+
+        CHECK_FALSE(fixture.probe->last_autocast_enabled);
+        CHECK_FALSE(at::autocast::is_autocast_enabled(torch::kCPU));
     }
 }
 
@@ -1203,6 +1391,7 @@ TEST_CASE("ImageClsActor stores nn trace in action aux for Conv2dPanel", "[image
     auto network = MakeImageClsTraceTestNetwork();
     auto mutex = std::make_shared<std::shared_mutex>();
     anet::rl::img_cls::ImageClsActor actor(
+        anet::rl::img_cls::ImageClsAgentConfig{},
         mutex,
         network,
         anet::rl::RunMode::Eval,

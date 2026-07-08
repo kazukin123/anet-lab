@@ -37,7 +37,14 @@ namespace anet::rl::img_cls {
             double switch_prob = 0.5;
         };
 
+        struct Bf16Config {
+            bool enabled = false;
+            bool learner = true;
+            bool actor = false;
+        };
+
         MixupConfig mixup;
+        Bf16Config bf16;
 
         anet::nn::NetworkGraphVizConfig nn_viz;
 
@@ -58,6 +65,10 @@ namespace anet::rl::img_cls {
             ANET_READ_CONFIG(config_data, mixup.cutmix_alpha);
             ANET_READ_CONFIG(config_data, mixup.prob);
             ANET_READ_CONFIG(config_data, mixup.switch_prob);
+
+            ANET_READ_CONFIG(config_data, bf16.enabled);
+            ANET_READ_CONFIG(config_data, bf16.learner);
+            ANET_READ_CONFIG(config_data, bf16.actor);
 
             ANET_READ_CONFIG(config_data, nn_viz.show_param_shapes);
             ANET_READ_CONFIG(config_data, nn_viz.show_param_count);
@@ -161,6 +172,7 @@ namespace anet::rl::img_cls {
     class ImageClsActor final : public anet::rl::Actor {
     public:
         ImageClsActor(
+            const ImageClsAgentConfig& config,
             std::shared_ptr<std::shared_mutex> mutex,
             std::shared_ptr<anet::nn::Network> network,
             anet::rl::RunMode run_mode,
@@ -170,6 +182,7 @@ namespace anet::rl::img_cls {
         std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const override;
         void Sync() override;
     private:
+        const ImageClsAgentConfig config_;
         const anet::rl::RunMode run_mode_;
         std::shared_ptr<std::shared_mutex> mutex_;
         std::shared_ptr<anet::nn::Network> network_;
