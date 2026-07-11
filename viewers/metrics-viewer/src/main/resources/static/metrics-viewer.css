@@ -304,8 +304,48 @@ input[type="checkbox"]:checked::after {
 #tag-list li:hover { background: #333; }
 
 /* --- Main Area --- */
+#main-panel {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	background: #000;
+}
+#floating-controls {
+	display: flex;
+	gap: 6px;
+	position: fixed;
+	top: 8px;
+	right: 12px;
+	z-index: 650;
+	align-items: center;
+}
+#btn-graph-scroll-lock {
+	height: 24px;
+	min-width: 112px;
+	padding: 2px 9px;
+	border: 1px solid #444;
+	border-radius: 2px;
+	background: #1b1b1b;
+	color: #aaa;
+	cursor: pointer;
+	font-size: 12px;
+	line-height: 18px;
+}
+#btn-graph-scroll-lock:hover {
+	color: #fff;
+	border-color: #777;
+	background: #252525;
+}
+#btn-graph-scroll-lock.active {
+	color: #e8f7ff;
+	border-color: #2a6b95;
+	background: #1e4d70;
+}
 #main-area {
 	flex: 1;
+	min-height: 0;
 	padding: 8px 16px;
 	box-sizing: border-box;
 	overflow-y: auto;
@@ -316,6 +356,22 @@ input[type="checkbox"]:checked::after {
 	margin-bottom: 10px;
 	height: 300px;
 	position: relative;
+}
+.graph-block > .js-plotly-plot {
+	position: relative;
+	z-index: 1;
+}
+body.graph-scroll-locked .js-plotly-plot,
+body.graph-scroll-locked .js-plotly-plot .draglayer,
+body.graph-scroll-locked .js-plotly-plot .nsewdrag,
+body.graph-scroll-locked .js-plotly-plot .nwdrag,
+body.graph-scroll-locked .js-plotly-plot .nedrag,
+body.graph-scroll-locked .js-plotly-plot .swdrag,
+body.graph-scroll-locked .js-plotly-plot .sedrag,
+body.graph-scroll-locked .js-plotly-plot .ewdrag,
+body.graph-scroll-locked .js-plotly-plot .wdrag,
+body.graph-scroll-locked .js-plotly-plot .edrag {
+	touch-action: pan-y pinch-zoom;
 }
 .graph-header {
   z-index: 10;
@@ -384,6 +440,14 @@ body.screenshot-mode #layout {
 	min-height: auto !important;
 	overflow: visible !important;
 }
+body.screenshot-mode #main-panel {
+	display: block !important;
+	width: 100% !important;
+	height: auto !important;
+	min-height: auto !important;
+	overflow: visible !important;
+	background: #000 !important;
+}
 body.screenshot-mode #main-area {
 	display: block !important;
 	width: 100% !important;
@@ -394,6 +458,9 @@ body.screenshot-mode #main-area {
 	position: relative;
 }
 body.screenshot-mode #side-panel {
+	display: none !important;
+}
+body.screenshot-mode #btn-graph-scroll-lock {
 	display: none !important;
 }
 body.screenshot-mode * {
@@ -418,9 +485,7 @@ body.screenshot-mode {
 body.screenshot-mode #screenshot-header { display: block !important; }
 
 #btn-screenshot-toggle {	/* TODO：ボタンが左右に少し動く */
-	position: fixed;
-	top: 8px;
-	right: 12px;
+	position: static;
 	width: 28px;
 	height: 24px;
 	font-size: 16px;
@@ -432,7 +497,6 @@ body.screenshot-mode #screenshot-header { display: block !important; }
 	border: 1px solid #555;
 	border-radius: 3px;
 	cursor: pointer;
-	z-index: 650;
 	opacity: 0.7;
 	transition: opacity 0.2s, background 0.2s;
 }

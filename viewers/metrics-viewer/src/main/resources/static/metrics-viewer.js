@@ -9,6 +9,8 @@ const AUTO_RELOAD_INTERVAL_MS = 30000;	// AutoReload間隔(msec)
 const MAX_POINTS = 10000000; // サーバーサイドでのダウンサンプリングに任せる為に大きくする
 const MAX_SCATTER_GL = 0;	// あまり大きくするとグラフがでなくなる
 const STORAGE_KEY_TAGS = "anet.metricsviewer.activeTags";
+const STORAGE_KEY_GRAPH_SCROLL_LOCK = "anet.metricsviewer.graphScrollLockEnabled";
+const GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX = 1;
 const HOVER_SCROLL_DELAY_MS = 300;  // 0でOFF
 
 const Mode = Object.freeze({
@@ -455,7 +457,7 @@ class PlotlyController {
 			xaxis: this._makeXAxis(ranges.xRange), yaxis: this._makeYAxis(signedLogScale, traces, ranges),
 			showlegend: showLegend
 		};
-		if (ranges.dragMode) {
+		if (Object.prototype.hasOwnProperty.call(ranges, "dragMode")) {
 			layout.dragmode = ranges.dragMode;
 		}
 		return layout;
@@ -616,6 +618,7 @@ class PlotlyController {
 			const isLogScale = this.app.logScaleTags.has(tagKey);
 			const logActiveClass = isLogScale ? " active" : "";
 			const logPressed = isLogScale ? "true" : "false";
+			const multi = (runIds.length > 1);
 			const $b = $(`
 				<div class="graph-block">
 					<div class="graph-header">
@@ -627,7 +630,6 @@ class PlotlyController {
 			`);
 			area.append($b);
 			const traces = [];
-			const multi = (runIds.length > 1);
 			
 			// 古い順にソートした sortedRunIds を回して描画用のtraceを作る
 			for (let i = 0; i < sortedRunIds.length; i++) {
@@ -642,7 +644,8 @@ class PlotlyController {
 			// 画面幅ピクセル数前提でデータ間引き処理（最大点数を超える場合に実行）
 			const reducedTraces = this._toDisplayTraces(traces, isLogScale);
 			//グラフ作成
-			const layout = this._makeLayout(area.width(), runIds.length > 1, isLogScale, traces);
+			const layout = this._makeLayout(area.width(), runIds.length > 1, isLogScale, traces,
+				this.app.graphScrollLockEnabled ? { dragMode: false } : {});
 			Plotly.newPlot(id, reducedTraces, layout, {
 				displayModeBar: 'hover',
 				responsive: false,
@@ -674,6 +677,12 @@ class PlotlyController {
 			});
 			plotDiv.on('plotly_relayout', (e) => {
 				if (plotDiv.__mvUpdatingPlot) return;
+				if (this.app.graphScrollLockEnabled
+						&& Object.prototype.hasOwnProperty.call(e || {}, "dragmode")
+						&& e.dragmode !== false) {
+					this._relayoutDragMode(plotDiv, false);
+					return;
+				}
 				if (!this._hasAxisRangeEvent(e)) return;
 				const ranges = this._readAxisRanges(plotDiv, e);
 				if (!ranges.xRange && !ranges.yRange) return;
@@ -686,6 +695,32 @@ class PlotlyController {
 		}
 		if (!drawn) area.append("<div style='color:#888;padding:12px;'>No metrics data.</div>");
 		return drawn;
+	}
+
+	_readDragMode(plotDiv) {
+		return plotDiv?.layout?.dragmode ?? plotDiv?._fullLayout?.dragmode ?? "zoom";
+	}
+
+	_relayoutDragMode(plotDiv, dragMode) {
+		if (!plotDiv) return;
+		Plotly.relayout(plotDiv, { dragmode: dragMode });
+	}
+
+	applyGraphScrollLock(enabled) {
+		$(".graph-block div[id^='graph-']").each((_, plotDiv) => {
+			if (enabled) {
+				if (!Object.prototype.hasOwnProperty.call(plotDiv, "__mvScrollLockPreviousDragMode")) {
+					plotDiv.__mvScrollLockPreviousDragMode = this._readDragMode(plotDiv);
+				}
+				this._relayoutDragMode(plotDiv, false);
+				return;
+			}
+			const previousDragMode = Object.prototype.hasOwnProperty.call(plotDiv, "__mvScrollLockPreviousDragMode")
+				? plotDiv.__mvScrollLockPreviousDragMode
+				: "zoom";
+			delete plotDiv.__mvScrollLockPreviousDragMode;
+			this._relayoutDragMode(plotDiv, previousDragMode || "zoom");
+		});
 	}
 
 	resizeAll() {
@@ -955,8 +990,10 @@ class UIController {
 	bindStaticControls() {
 		$("#btn-reload").off("click").on("click", () => this.app.onReload());
 		$("#btn-auto-reload").off("click").on("click", () => this.app.onToggleAutoReload());
+		$("#btn-graph-scroll-lock").off("click").on("click", () => this.app.onToggleGraphScrollLock());
 		$("#btn-screenshot").off("click").on("click", () => this.app.onToggleScreenshot());
 		$("#btn-screenshot-toggle").off("click").on("click", () => this.app.onToggleScreenshot());
+		this.app._syncGraphScrollLockUi();
 		const mainArea = document.getElementById("main-area");
 		if (mainArea) {
 			if (mainArea.__mvGraphDblClickReloadHandler) {
@@ -969,8 +1006,103 @@ class UIController {
 				this.app.onReload();
 			};
 			mainArea.addEventListener("click", mainArea.__mvGraphDblClickReloadHandler, true);
+			this.bindGraphScrollLockDrag(mainArea);
 		}
 		$(window).off("resize.mv").on("resize.mv", () => this.app.plotly.resizeAll());
+	}
+
+	bindGraphScrollLockDrag(mainArea) {
+		if (mainArea.__mvGraphScrollLockDragHandlers) {
+			for (const binding of mainArea.__mvGraphScrollLockDragHandlers) {
+				binding.target.removeEventListener(binding.type, binding.handler, binding.options);
+			}
+		}
+
+		const state = {
+			active: false,
+			scrolling: false,
+			startY: 0,
+			lastY: 0,
+			touchId: null
+		};
+		const reset = () => {
+			state.active = false;
+			state.scrolling = false;
+			state.touchId = null;
+		};
+		const isGraphTarget = (target) => {
+			return target instanceof Element
+				&& !!target.closest(".js-plotly-plot")
+				&& !target.closest(".modebar");
+		};
+		const begin = (target, clientY, touchId = null) => {
+			if (!this.app.graphScrollLockEnabled || !isGraphTarget(target)) return;
+			state.active = true;
+			state.scrolling = false;
+			state.startY = clientY;
+			state.lastY = clientY;
+			state.touchId = touchId;
+		};
+		const stopScrollEvent = (event) => {
+			if (event.cancelable) event.preventDefault();
+			event.stopPropagation();
+			event.stopImmediatePropagation();
+		};
+		const scrollByDrag = (event, clientY) => {
+			if (!state.active || !this.app.graphScrollLockEnabled) return;
+			const totalDelta = clientY - state.startY;
+			const stepDelta = state.lastY - clientY;
+			if (!state.scrolling && Math.abs(totalDelta) < GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX) return;
+			state.scrolling = true;
+			state.lastY = clientY;
+			mainArea.scrollTop += stepDelta;
+			stopScrollEvent(event);
+		};
+
+		const onMouseDown = (event) => {
+			if (event.button !== 0) return;
+			begin(event.target, event.clientY);
+		};
+		const onMouseMove = (event) => {
+			if (!state.active || (event.buttons & 1) !== 1) return;
+			scrollByDrag(event, event.clientY);
+		};
+		const onMouseUp = () => {
+			reset();
+		};
+		const onTouchStart = (event) => {
+			if (event.touches.length !== 1) return;
+			const touch = event.touches[0];
+			begin(event.target, touch.clientY, touch.identifier);
+		};
+		const findActiveTouch = (event) => {
+			for (const touch of event.touches) {
+				if (touch.identifier === state.touchId) return touch;
+			}
+			return null;
+		};
+		const onTouchMove = (event) => {
+			if (!state.active) return;
+			const touch = findActiveTouch(event);
+			if (!touch) return;
+			scrollByDrag(event, touch.clientY);
+		};
+		const onTouchEnd = () => {
+			reset();
+		};
+		const bindings = [
+			{ target: mainArea, type: "mousedown", handler: onMouseDown, options: true },
+			{ target: document, type: "mousemove", handler: onMouseMove, options: true },
+			{ target: document, type: "mouseup", handler: onMouseUp, options: true },
+			{ target: mainArea, type: "touchstart", handler: onTouchStart, options: { capture: true, passive: true } },
+			{ target: document, type: "touchmove", handler: onTouchMove, options: { capture: true, passive: false } },
+			{ target: document, type: "touchend", handler: onTouchEnd, options: { capture: true, passive: false } },
+			{ target: document, type: "touchcancel", handler: onTouchEnd, options: { capture: true, passive: false } }
+		];
+		for (const binding of bindings) {
+			binding.target.addEventListener(binding.type, binding.handler, binding.options);
+		}
+		mainArea.__mvGraphScrollLockDragHandlers = bindings;
 	}
 }
 
@@ -988,6 +1120,7 @@ class MetricsViewerClientApp {
 		this.runColorMap = new Map();
 		this.autoReloadEnabled = false;
 		this.autoReloadTimer = null;
+		this.graphScrollLockEnabled = false;
 		this.isTagsLocked = false;
 		console.log("[INIT] MetricsViewerClientApp constructed");
 	}
@@ -1011,6 +1144,8 @@ class MetricsViewerClientApp {
 
 			// LocalStorageから復元
 			this._loadActiveTags();
+			this._loadGraphScrollLock();
+			this._syncGraphScrollLockUi();
 			
 			// Run情報(+タグ情報)を取得
 			const runsPayload = await this.fetcher.fetchRuns();
@@ -1171,6 +1306,32 @@ class MetricsViewerClientApp {
 	}
 
 	/* ---------- イベントハンドラ群（onXXX統一） ---------- */
+
+	_saveGraphScrollLock() {
+		localStorage.setItem(STORAGE_KEY_GRAPH_SCROLL_LOCK, this.graphScrollLockEnabled ? "true" : "false");
+	}
+
+	_loadGraphScrollLock() {
+		this.graphScrollLockEnabled = localStorage.getItem(STORAGE_KEY_GRAPH_SCROLL_LOCK) === "true";
+	}
+
+	_syncGraphScrollLockUi() {
+		const enabled = !!this.graphScrollLockEnabled;
+		document.body.classList.toggle("graph-scroll-locked", enabled);
+		const button = document.getElementById("btn-graph-scroll-lock");
+		if (button) {
+			button.textContent = enabled ? "Scroll Lock: ON" : "Scroll Lock: OFF";
+			button.classList.toggle("active", enabled);
+			button.setAttribute("aria-pressed", enabled ? "true" : "false");
+		}
+		this.plotly.applyGraphScrollLock(enabled);
+	}
+
+	onToggleGraphScrollLock() {
+		this.graphScrollLockEnabled = !this.graphScrollLockEnabled;
+		this._saveGraphScrollLock();
+		this._syncGraphScrollLockUi();
+	}
 
 	onRunSelectionChanged() {
 		console.log(`[RUN] selection changed → ${this.selectedRuns.length} runs`);

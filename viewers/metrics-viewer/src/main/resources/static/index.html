@@ -62,13 +62,18 @@
 	</div>
 
 	<!-- Main Area -->
-	<div id="screenshot-header"></div>
-	<div id="main-area">
+	<div id="main-panel">
+		<div id="screenshot-header"></div>
+		<div id="main-area">
+		</div>
 	</div>
 </div>
 
 <!-- 常時右上に表示される Screenshot トグルボタン -->
-<button id="btn-screenshot-toggle">⬅</button>
+<div id="floating-controls">
+	<button id="btn-graph-scroll-lock" aria-pressed="false" title="Toggle graph scroll lock">Scroll Lock: OFF</button>
+	<button id="btn-screenshot-toggle">⬅</button>
+</div>
 
 <!-- アプリスクリプト -->
 <script src="numeric-buffers.js"></script>

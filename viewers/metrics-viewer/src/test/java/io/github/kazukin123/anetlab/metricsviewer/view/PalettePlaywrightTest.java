@@ -26,11 +26,14 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
+import com.microsoft.playwright.CDPSession;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.Route;
 import com.microsoft.playwright.options.WaitUntilState;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 
 @SpringBootTest(
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -166,6 +169,188 @@ class PalettePlaywrightTest {
 					final List<String> buttonTitles = readModeBarButtonTitles(page);
 					assertFalse(buttonTitles.contains("Autoscale"));
 					assertTrue(buttonTitles.contains("Reset axes"));
+				} finally {
+					context.close();
+				}
+			} finally {
+				browser.close();
+			}
+		}
+	}
+
+	@Test
+	void graphScrollLockDefaultsOffTogglesPersistsAndHidesInScreenshotMode() {
+		final String baseUrl = "http://127.0.0.1:" + port;
+
+		assumeTrue(isMicrosoftEdgeInstalled(), "Microsoft Edge is not installed.");
+
+		try (Playwright playwright = Playwright.create()) {
+			final Browser browser = launchMicrosoftEdge(playwright);
+			try {
+				final BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+						.setViewportSize(1280, 720));
+				try {
+					final Page page = context.newPage();
+					page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+					page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+					page.navigate(baseUrl + "/?graphScrollLockTest=" + System.nanoTime(),
+							new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					waitForGraph(page);
+
+					assertEquals("Scroll Lock: OFF", page.textContent("#btn-graph-scroll-lock"));
+					assertEquals("false", page.getAttribute("#btn-graph-scroll-lock", "aria-pressed"));
+					assertFalse(isGraphScrollLockButtonActive(page));
+					assertTrue(isGraphScrollLockButtonVisible(page));
+					assertTrue(areFloatingControlsSideBySide(page));
+					assertFalse(isPlotlyDragModeFalse(page));
+					assertEquals(null, readGraphScrollLockStorage(page));
+
+					setPlotlyPanMode(page);
+					waitForPlotlyDragMode(page, "pan");
+					page.click("#btn-graph-scroll-lock");
+					assertEquals("Scroll Lock: ON", page.textContent("#btn-graph-scroll-lock"));
+					assertEquals("true", page.getAttribute("#btn-graph-scroll-lock", "aria-pressed"));
+					assertTrue(isGraphScrollLockButtonActive(page));
+					waitForPlotlyDragModeFalse(page);
+					assertEquals("true", readGraphScrollLockStorage(page));
+
+					page.click("#btn-graph-scroll-lock");
+					waitForPlotlyDragMode(page, "pan");
+					assertEquals("false", readGraphScrollLockStorage(page));
+
+					page.click("#btn-graph-scroll-lock");
+					waitForPlotlyDragModeFalse(page);
+					page.reload(new Page.ReloadOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					waitForGraph(page);
+					assertEquals("Scroll Lock: ON", page.textContent("#btn-graph-scroll-lock"));
+					assertTrue(isGraphScrollLockButtonActive(page));
+					waitForPlotlyDragModeFalse(page);
+
+					page.click("#btn-screenshot");
+					page.waitForFunction("document.body.classList.contains('screenshot-mode')",
+							null, new Page.WaitForFunctionOptions().setTimeout(30000));
+					assertFalse(isGraphScrollLockButtonVisible(page));
+					assertEquals("true", readGraphScrollLockStorage(page));
+				} finally {
+					context.close();
+				}
+			} finally {
+				browser.close();
+			}
+		}
+	}
+
+	@Test
+	void graphScrollLockIsAvailableForMultiRunGraphs() {
+		final String baseUrl = "http://127.0.0.1:" + port;
+
+		assumeTrue(isMicrosoftEdgeInstalled(), "Microsoft Edge is not installed.");
+
+		try (Playwright playwright = Playwright.create()) {
+			final Browser browser = launchMicrosoftEdge(playwright);
+			try {
+				final BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+						.setViewportSize(1280, 720));
+				try {
+					final Page page = context.newPage();
+					page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+					page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+					page.navigate(baseUrl + "/?multiRunGraphScrollLockTest=" + System.nanoTime(),
+							new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					waitForGraph(page);
+
+					page.click("#btn-select-all-runs");
+					waitForMultiRunGraph(page);
+					assertTrue(isGraphScrollLockButtonVisible(page));
+					assertFalse(isPlotlyDragModeFalse(page));
+
+					page.click("#btn-graph-scroll-lock");
+					assertTrue(isGraphScrollLockButtonActive(page));
+					waitForPlotlyDragModeFalse(page);
+					hoverFirstTraceMiddlePoint(page);
+					waitForPlotlyHoverText(page);
+					clickFirstLegendItem(page);
+					waitForLegendOnlyTrace(page);
+				} finally {
+					context.close();
+				}
+			} finally {
+				browser.close();
+			}
+		}
+	}
+
+	@Test
+	void graphScrollLockAllowsVerticalTouchScrollingOnMobileGraph() {
+		final String baseUrl = "http://127.0.0.1:" + port;
+
+		assumeTrue(isMicrosoftEdgeInstalled(), "Microsoft Edge is not installed.");
+
+		try (Playwright playwright = Playwright.create()) {
+			final Browser browser = launchMicrosoftEdge(playwright);
+			try {
+				final BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+						.setViewportSize(1280, 720)
+						.setHasTouch(true));
+				try {
+					final Page page = context.newPage();
+					page.route("**/api/runs.json", route -> fulfillJson(route, manyGraphRunsJson(5)));
+					page.route("**/api/metrics.json", route -> fulfillJson(route, manyGraphMetricsJson(5)));
+
+					page.navigate(baseUrl + "/?mobileGraphScrollLockTest=" + System.nanoTime(),
+							new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					waitForGraphCount(page, 5);
+					assertTrue(isMainAreaScrollable(page));
+
+					page.click("#btn-graph-scroll-lock");
+					waitForPlotlyDragModeFalse(page);
+					for (int attempt = 0; attempt < 2; attempt++) {
+						setMainAreaScrollTop(page, 0);
+						dispatchTouchSwipe(page, readFirstGraphCenterX(page), readFirstGraphCenterY(page) + 90,
+								readFirstGraphCenterY(page) - 130);
+						waitForMainAreaScrolled(page);
+						waitForPlotlyDragCoverRemoved(page);
+					}
+				} finally {
+					context.close();
+				}
+			} finally {
+				browser.close();
+			}
+		}
+	}
+
+	@Test
+	void graphScrollLockAllowsDragScrollingOnGraph() {
+		final String baseUrl = "http://127.0.0.1:" + port;
+
+		assumeTrue(isMicrosoftEdgeInstalled(), "Microsoft Edge is not installed.");
+
+		try (Playwright playwright = Playwright.create()) {
+			final Browser browser = launchMicrosoftEdge(playwright);
+			try {
+				final BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+						.setViewportSize(1280, 720));
+				try {
+					final Page page = context.newPage();
+					page.route("**/api/runs.json", route -> fulfillJson(route, manyGraphRunsJson(5)));
+					page.route("**/api/metrics.json", route -> fulfillJson(route, manyGraphMetricsJson(5)));
+
+					page.navigate(baseUrl + "/?graphDragScrollLockTest=" + System.nanoTime(),
+							new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					waitForGraphCount(page, 5);
+					assertTrue(isMainAreaScrollable(page));
+
+					page.click("#btn-graph-scroll-lock");
+					waitForPlotlyDragModeFalse(page);
+					for (int attempt = 0; attempt < 2; attempt++) {
+						setMainAreaScrollTop(page, 0);
+						dragFromFirstPlotBody(page, 1500);
+						waitForMainAreaScrolled(page);
+						waitForPlotlyDragCoverRemoved(page);
+					}
 				} finally {
 					context.close();
 				}
@@ -614,10 +799,235 @@ class PalettePlaywrightTest {
 				null, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
+	private static void waitForMultiRunGraph(Page page) {
+		page.waitForFunction("""
+				() => {
+					const plot = document.querySelector('.js-plotly-plot');
+					return (plot?.data?.length ?? 0) > 1;
+				}
+				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	private static void waitForGraphCount(Page page, int count) {
+		page.waitForFunction("""
+				count => document.querySelectorAll('.js-plotly-plot').length === count
+					&& document.querySelectorAll('.js-plotly-plot path.js-line').length >= count
+				""", count, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
 	private static boolean isAutoReloadButtonActive(Page page) {
 		return Boolean.TRUE.equals(page.evaluate("""
 				() => document.getElementById('btn-auto-reload').classList.contains('active')
 				"""));
+	}
+
+	private static boolean isGraphScrollLockButtonActive(Page page) {
+		return Boolean.TRUE.equals(page.evaluate("""
+				() => document.getElementById('btn-graph-scroll-lock').classList.contains('active')
+				"""));
+	}
+
+	private static boolean isGraphScrollLockButtonVisible(Page page) {
+		return Boolean.TRUE.equals(page.evaluate("""
+				() => {
+					const el = document.getElementById('btn-graph-scroll-lock');
+					if (!el) return false;
+					const style = getComputedStyle(el);
+					return style.display !== 'none'
+						&& style.visibility !== 'hidden'
+						&& el.getClientRects().length > 0;
+				}
+				"""));
+	}
+
+	private static boolean areFloatingControlsSideBySide(Page page) {
+		return Boolean.TRUE.equals(page.evaluate("""
+				() => {
+					const lock = document.getElementById('btn-graph-scroll-lock')?.getBoundingClientRect();
+					const shot = document.getElementById('btn-screenshot-toggle')?.getBoundingClientRect();
+					if (!lock || !shot) return false;
+					const verticallyOverlaps = lock.top < shot.bottom && shot.top < lock.bottom;
+					return verticallyOverlaps && lock.right <= shot.left + 1;
+				}
+				"""));
+	}
+
+	private static String readGraphScrollLockStorage(Page page) {
+		return (String) page.evaluate("""
+				() => localStorage.getItem('anet.metricsviewer.graphScrollLockEnabled')
+				""");
+	}
+
+	private static boolean isPlotlyDragModeFalse(Page page) {
+		return Boolean.TRUE.equals(page.evaluate("""
+				() => {
+					const plot = document.querySelector('.js-plotly-plot');
+					return (plot?._fullLayout?.dragmode ?? plot?.layout?.dragmode) === false;
+				}
+				"""));
+	}
+
+	private static void waitForPlotlyDragModeFalse(Page page) {
+		page.waitForFunction("""
+				() => {
+					const plot = document.querySelector('.js-plotly-plot');
+					return (plot?._fullLayout?.dragmode ?? plot?.layout?.dragmode) === false;
+				}
+				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	@SuppressWarnings("unchecked")
+	private static Map<String, Number> readFirstTraceMiddlePointScreenPosition(Page page) {
+		return (Map<String, Number>) page.evaluate("""
+				() => {
+					const plot = document.querySelector('.js-plotly-plot');
+					const full = plot?._fullLayout;
+					const trace = plot?.data?.[0];
+					if (!plot || !full || !trace || trace.x.length < 2 || trace.y.length < 2) {
+						throw new Error('plot point not ready');
+					}
+					const rect = plot.getBoundingClientRect();
+					return {
+						x: rect.left + full._size.l + full.xaxis.l2p(Number(trace.x[1])),
+						y: rect.top + full._size.t + full.yaxis.l2p(Number(trace.y[1]))
+					};
+				}
+				""");
+	}
+
+	private static void hoverFirstTraceMiddlePoint(Page page) {
+		final Map<String, Number> position = readFirstTraceMiddlePointScreenPosition(page);
+		page.mouse().move(position.get("x").doubleValue(), position.get("y").doubleValue());
+	}
+
+	private static void waitForPlotlyHoverText(Page page) {
+		page.waitForFunction("""
+				() => Array.from(document.querySelectorAll('.hovertext'))
+					.some(el => (el.textContent || '').trim().length > 0)
+				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	private static void clickFirstLegendItem(Page page) {
+		page.click(".legend .traces");
+	}
+
+	private static void waitForLegendOnlyTrace(Page page) {
+		page.waitForFunction("""
+				() => {
+					const plot = document.querySelector('.js-plotly-plot');
+					return Array.from(plot?.data ?? []).some(trace => trace.visible === 'legendonly');
+				}
+				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	private static boolean isMainAreaScrollable(Page page) {
+		return Boolean.TRUE.equals(page.evaluate("""
+				() => {
+					const el = document.getElementById('main-area');
+					return !!el && el.scrollHeight > el.clientHeight;
+				}
+				"""));
+	}
+
+	private static void setMainAreaScrollTop(Page page, int scrollTop) {
+		page.evaluate("""
+				scrollTop => {
+					const el = document.getElementById('main-area');
+					if (!el) throw new Error('main-area not found');
+					el.scrollTop = scrollTop;
+				}
+				""", scrollTop);
+	}
+
+	private static void waitForMainAreaScrolled(Page page) {
+		page.waitForFunction("""
+				() => (document.getElementById('main-area')?.scrollTop ?? 0) > 0
+				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	private static void waitForPlotlyDragCoverRemoved(Page page) {
+		page.waitForFunction("""
+				() => !document.querySelector('.dragcover')
+				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	private static double readFirstGraphCenterX(Page page) {
+		return ((Number) page.evaluate("""
+				() => {
+					const rect = document.querySelector('.js-plotly-plot')?.getBoundingClientRect();
+					if (!rect) throw new Error('plot not found');
+					return rect.left + rect.width / 2;
+				}
+				""")).doubleValue();
+	}
+
+	private static double readFirstGraphCenterY(Page page) {
+		return ((Number) page.evaluate("""
+				() => {
+					const rect = document.querySelector('.js-plotly-plot')?.getBoundingClientRect();
+					if (!rect) throw new Error('plot not found');
+					return rect.top + rect.height / 2;
+				}
+				""")).doubleValue();
+	}
+
+	private static void dispatchTouchSwipe(Page page, double x, double startY, double endY) {
+		final CDPSession cdp = page.context().newCDPSession(page);
+		try {
+			dispatchTouchEvent(cdp, "touchStart", x, startY);
+			final int steps = 10;
+			for (int i = 1; i <= steps; i++) {
+				final double y = startY + (endY - startY) * i / steps;
+				dispatchTouchEvent(cdp, "touchMove", x, y);
+				page.waitForTimeout(16);
+			}
+			dispatchTouchEvent(cdp, "touchEnd", x, endY);
+		} finally {
+			cdp.detach();
+		}
+	}
+
+	private static void dispatchTouchEvent(CDPSession cdp, String type, double x, double y) {
+		final JsonObject params = new JsonObject();
+		params.addProperty("type", type);
+		final JsonArray touchPoints = new JsonArray();
+		if (!"touchEnd".equals(type) && !"touchCancel".equals(type)) {
+			final JsonObject touchPoint = new JsonObject();
+			touchPoint.addProperty("x", x);
+			touchPoint.addProperty("y", y);
+			touchPoint.addProperty("id", 1);
+			touchPoint.addProperty("radiusX", 2);
+			touchPoint.addProperty("radiusY", 2);
+			touchPoint.addProperty("force", 1);
+			touchPoints.add(touchPoint);
+		}
+		params.add("touchPoints", touchPoints);
+		cdp.send("Input.dispatchTouchEvent", params);
+	}
+
+	@SuppressWarnings("unchecked")
+	private static void dragFromFirstPlotBody(Page page, int holdMs) {
+		final Map<String, Number> position = (Map<String, Number>) page.evaluate("""
+				() => {
+					const rect = document.querySelector('.js-plotly-plot .nsewdrag')?.getBoundingClientRect();
+					if (!rect) throw new Error('plot body not found');
+					return {
+						x: rect.left + rect.width / 2,
+						y: rect.top + rect.height * 0.7
+					};
+				}
+				""");
+		final double x = position.get("x").doubleValue();
+		final double startY = position.get("y").doubleValue();
+		final double endY = startY - 80;
+		page.mouse().move(x, startY);
+		assertTrue(Boolean.TRUE.equals(page.evaluate("""
+				([x, y]) => document.elementFromPoint(x, y)?.classList.contains('nsewdrag') === true
+				""", List.of(x, startY))), "Drag must start on Plotly's nsewdrag layer");
+		page.mouse().down();
+		page.waitForTimeout(holdMs);
+		page.mouse().move(x, endY, new com.microsoft.playwright.Mouse.MoveOptions().setSteps(20));
+		page.mouse().up();
 	}
 
 	private static String runsJson() {
@@ -644,6 +1054,17 @@ class PalettePlaywrightTest {
 		return sb.toString();
 	}
 
+	private static String manyGraphRunsJson(int graphCount) {
+		final StringBuilder sb = new StringBuilder();
+		sb.append("{\"runs\":[{\"id\":\"run_mobile_graph\",\"stats\":{\"maxStep\":2},\"tags\":[");
+		for (int i = 0; i < graphCount; i++) {
+			if (i > 0) sb.append(',');
+			sb.append("{\"key\":\"mobile/graph_").append(String.format("%02d", i)).append("\",\"type\":\"scalar\"}");
+		}
+		sb.append("]}]}");
+		return sb.toString();
+	}
+
 	private static String metricsJson() {
 		final StringBuilder sb = new StringBuilder();
 		sb.append("{\"data\":[");
@@ -659,6 +1080,25 @@ class PalettePlaywrightTest {
 					.append("\"values\":[").append(baseValue).append(',')
 					.append(baseValue + 1).append(',')
 					.append(baseValue + 2).append("]}");
+		}
+		sb.append("]}");
+		return sb.toString();
+	}
+
+	private static String manyGraphMetricsJson(int graphCount) {
+		final StringBuilder sb = new StringBuilder();
+		sb.append("{\"data\":[");
+		for (int i = 0; i < graphCount; i++) {
+			if (i > 0) sb.append(',');
+			sb.append("{\"runId\":\"run_mobile_graph\",")
+					.append("\"tagKey\":\"mobile/graph_").append(String.format("%02d", i)).append("\",")
+					.append("\"type\":\"scalar\",")
+					.append("\"beginStep\":0,")
+					.append("\"endStep\":2,")
+					.append("\"steps\":[0,1,2],")
+					.append("\"values\":[").append(i + 1).append(',')
+					.append(i + 2).append(',')
+					.append(i + 3).append("]}");
 		}
 		sb.append("]}");
 		return sb.toString();
