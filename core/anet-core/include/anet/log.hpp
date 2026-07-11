@@ -183,10 +183,24 @@ namespace anet::log {
 
         ~FileLogger()
         {
+            // 破棄前にC stdioバッファを排出して、終了直前の通常ログを残す。
+            Flush();
             if (m_file) {
-                fclose(m_file);
+                std::fclose(m_file);
+                m_file = nullptr;
             }
         }
+
+        void Flush() override
+        {
+            // wxLog側の保留メッセージを確定してから、FILEの通常ログを排出する。
+            ANET_PROFILE_FUNC();
+            wxLog::Flush();
+            if (m_file) {
+                std::fflush(m_file);
+            }
+        }
+
     protected:
         void DoLogTextAtLevel(wxLogLevel level, const wxString& msg) override
         {
@@ -195,10 +209,11 @@ namespace anet::log {
             if (!m_file) return;
             wxString logStr = msg + wxT("\n");
             const wxCharBuffer buf = logStr.utf8_str(); // UTF-8エンコーディングのバイト列に変換
-            fwrite(buf.data(), 1, buf.length(), m_file);
+            std::fwrite(buf.data(), 1, buf.length(), m_file);
 
+            // 警告以上は定期flushを待たず、失敗原因を直ちにファイルへ残す。
             if (level <= wxLOG_Warning) {
-                fflush(m_file);
+                Flush();
             }
         }
     private:
@@ -271,4 +286,3 @@ namespace anet::log {
 #else
 #define ANET_LOG_DEBUG(expr) do {} while(0)
 #endif
-

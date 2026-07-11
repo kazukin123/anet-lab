@@ -108,6 +108,8 @@ app.run_name = run_{t}
 
 app.log_level = info
 
+app.log_flush_interval_ms = 500  # 0で定期flushを無効化。
+
 #app.train_auto_start = false
 app.train_auto_start = true
 

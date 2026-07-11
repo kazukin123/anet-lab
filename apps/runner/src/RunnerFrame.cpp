@@ -429,6 +429,7 @@ void RunnerFrame::OnClose(wxCloseEvent& event)
  
     wxGetApp().StopTraining();
     wxGetApp().SaveAgent("agent_close.anet");
+    wxGetApp().ShutdownRunLogging();
 
     if (eval_panel_) {
         eval_panel_->DoClose();
