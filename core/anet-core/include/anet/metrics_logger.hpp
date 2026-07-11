@@ -42,6 +42,8 @@ namespace anet {
         void Flush() override;
     private:
         std::ofstream ofs;
+        std::filesystem::path jsonl_path_;
+        bool io_error_reported_ = false;
         std::mutex mtx_;
     };
 

@@ -13,6 +13,7 @@
 #include "anet/log.hpp"
 #include "anet/str_util.hpp"
 #include "anet/profile.hpp"
+#include "metrics_logger_impl.hpp"
 
 using namespace anet;
 namespace LOG = anet::log;
@@ -116,6 +117,77 @@ VideoCodecDecision ResolveVideoCodec(const std::string& requested_codec, int wid
 } // namespace anet::detail
 
 
+namespace anet::detail {
+
+namespace {
+
+std::optional<JsonlIoFailure> TakeJsonlIoFailureOnce(
+    const std::ios& stream,
+    const std::filesystem::path& path,
+    JsonlIoOperation operation,
+    bool& error_reported)
+{
+    if (!stream.fail() || error_reported) {
+        return std::nullopt;
+    }
+
+    error_reported = true;
+    return JsonlIoFailure{
+        .path = path,
+        .operation = operation,
+        .fail = stream.fail(),
+        .bad = stream.bad(),
+    };
+}
+
+const char* JsonlIoOperationName(JsonlIoOperation operation)
+{
+    switch (operation) {
+    case JsonlIoOperation::kWrite:
+        return "write";
+    case JsonlIoOperation::kFlush:
+        return "flush";
+    }
+
+    return "unknown";
+}
+
+} // namespace
+
+std::optional<JsonlIoFailure> WriteJsonlLine(
+    std::ostream& stream,
+    std::string_view line,
+    const std::filesystem::path& path,
+    bool& error_reported)
+{
+    stream.write(line.data(), static_cast<std::streamsize>(line.size()));
+    return TakeJsonlIoFailureOnce(stream, path, JsonlIoOperation::kWrite, error_reported);
+}
+
+std::optional<JsonlIoFailure> FlushJsonl(
+    std::ostream& stream,
+    const std::filesystem::path& path,
+    bool& error_reported)
+{
+    stream.flush();
+    return TakeJsonlIoFailureOnce(stream, path, JsonlIoOperation::kFlush, error_reported);
+}
+
+void LogJsonlIoFailure(const JsonlIoFailure& failure)
+{
+    LOG::error()
+        << "Metrics JSONL I/O failed: operation=" << JsonlIoOperationName(failure.operation)
+        << " path=" << failure.path
+        << " fail=" << (failure.fail ? "true" : "false")
+        << " bad=" << (failure.bad ? "true" : "false")
+        << ". The run is not stopped, but metrics may no longer be recorded."
+        << " Check free disk space and filesystem health."
+        << " Further errors for this file are suppressed.";
+}
+
+} // namespace anet::detail
+
+
 //----------------------------------------------
 // JsonlBackend
 //----------------------------------------------
@@ -124,22 +196,41 @@ void JsonlBackend::Open(const std::filesystem::path& runs_dir, const std::string
 {
     auto run_dir = runs_dir / run_name;
     std::filesystem::create_directories(run_dir);
-    auto jsonl_path = run_dir / "metrics.jsonl";
-    ofs.open(jsonl_path, std::ios::app);
-    ANET_CHECK_MSG(ofs, "Failed to open: " << jsonl_path);
+    jsonl_path_ = run_dir / "metrics.jsonl";
+    io_error_reported_ = false;
+    ofs.open(jsonl_path_, std::ios::app);
+    ANET_CHECK_MSG(ofs, "Failed to open: " << jsonl_path_);
 }
 
 void JsonlBackend::WriteJsonl(const json& obj)
 {
     std::string line = obj.dump() + "\n";
-    std::lock_guard<std::mutex> lock(mtx_);
-    ofs << line;
+    std::optional<detail::JsonlIoFailure> failure;
+    {
+        // JSONLの書き込みとone-shot失敗claimを同じ排他区間で確定する。
+        std::lock_guard<std::mutex> lock(mtx_);
+        failure = detail::WriteJsonlLine(ofs, line, jsonl_path_, io_error_reported_);
+    }
+
+    // 外部logger callbackによる再入やlock順序の逆転を避けるため、排他解除後に通知する。
+    if (failure) {
+        detail::LogJsonlIoFailure(*failure);
+    }
 }
 
 void JsonlBackend::Flush()
 {
-    std::lock_guard<std::mutex> lock(mtx_);
-    ofs.flush();
+    std::optional<detail::JsonlIoFailure> failure;
+    {
+        // バッファ排出で初めて顕在化するI/O失敗もwriteと共通のlatchで捕捉する。
+        std::lock_guard<std::mutex> lock(mtx_);
+        failure = detail::FlushJsonl(ofs, jsonl_path_, io_error_reported_);
+    }
+
+    // LogPanel/FileLoggerへの配送はmetrics I/Oの排他区間外で行う。
+    if (failure) {
+        detail::LogJsonlIoFailure(*failure);
+    }
 }
 
 

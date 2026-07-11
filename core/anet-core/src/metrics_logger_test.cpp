@@ -1,12 +1,15 @@
 #include "catch.hpp"
 
 #include "anet/metrics_logger.hpp"
+#include "anet/test_util.hpp"
+#include "metrics_logger_impl.hpp"
 
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <wx/image.h>
 
@@ -30,7 +33,124 @@ bool ContainsText(const std::string& text, const std::string& pattern)
     return text.find(pattern) != std::string::npos;
 }
 
+class FailingWriteBuffer final : public std::streambuf {
+protected:
+    std::streamsize xsputn(const char*, std::streamsize) override
+    {
+        return 0;
+    }
+
+    int_type overflow(int_type) override
+    {
+        return traits_type::eof();
+    }
+};
+
+class FailingFlushBuffer final : public std::stringbuf {
+protected:
+    int sync() override
+    {
+        return -1;
+    }
+};
+
+void LogFailure(const std::optional<anet::detail::JsonlIoFailure>& failure)
+{
+    if (failure) {
+        anet::detail::LogJsonlIoFailure(*failure);
+    }
+}
+
 } // namespace
+
+TEST_CASE("Jsonl writer logs the first stream I/O failure only", "[metrics][io]")
+{
+    const std::filesystem::path path = "test-run/metrics.jsonl";
+    anet::test::LogCaptureGuard logs;
+    bool error_reported = false;
+
+    SECTION("healthy stream does not log an error")
+    {
+        std::ostringstream stream;
+
+        const auto write_failure = anet::detail::WriteJsonlLine(
+            stream, "{\"type\":\"scalar\"}\n", path, error_reported);
+        const auto flush_failure = anet::detail::FlushJsonl(stream, path, error_reported);
+        LogFailure(write_failure);
+        LogFailure(flush_failure);
+        logs.Flush();
+
+        CHECK_FALSE(write_failure);
+        CHECK_FALSE(flush_failure);
+        CHECK(stream.good());
+        CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Error) == 0);
+    }
+
+    SECTION("write failure logs once and leaves the stream failed")
+    {
+        FailingWriteBuffer buffer;
+        std::ostream stream(&buffer);
+
+        const auto first_failure = anet::detail::WriteJsonlLine(
+            stream, "{\"type\":\"scalar\"}\n", path, error_reported);
+        const auto suppressed_failure = anet::detail::FlushJsonl(stream, path, error_reported);
+        LogFailure(first_failure);
+        LogFailure(suppressed_failure);
+        logs.Flush();
+
+        REQUIRE(first_failure);
+        CHECK_FALSE(suppressed_failure);
+        CHECK(stream.fail());
+        CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Error) == 1);
+        CHECK(anet::test::HasRecordContaining(
+            logs.Records(),
+            wxLOG_Error,
+            {
+                "Metrics JSONL I/O failed",
+                "operation=write",
+                "metrics.jsonl",
+                "fail=true",
+                "bad=true",
+                "The run is not stopped",
+                "Check free disk space and filesystem health",
+                "Further errors for this file are suppressed",
+            }));
+    }
+
+    SECTION("flush failure logs once after a successful write")
+    {
+        FailingFlushBuffer buffer;
+        std::ostream stream(&buffer);
+
+        const auto write_failure = anet::detail::WriteJsonlLine(
+            stream, "{\"type\":\"scalar\"}\n", path, error_reported);
+        const auto first_failure = anet::detail::FlushJsonl(stream, path, error_reported);
+        const auto suppressed_failure = anet::detail::FlushJsonl(stream, path, error_reported);
+        LogFailure(write_failure);
+        LogFailure(first_failure);
+        LogFailure(suppressed_failure);
+        logs.Flush();
+
+        CHECK_FALSE(write_failure);
+        REQUIRE(first_failure);
+        CHECK_FALSE(suppressed_failure);
+        CHECK(stream.fail());
+        CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Error) == 1);
+        CHECK(anet::test::HasRecordContaining(
+            logs.Records(),
+            wxLOG_Error,
+            {
+                "Metrics JSONL I/O failed",
+                "operation=flush",
+                "metrics.jsonl",
+                "fail=true",
+                "bad=true",
+                "The run is not stopped",
+                "Check free disk space and filesystem health",
+                "Further errors for this file are suppressed",
+            }));
+    }
+}
 
 TEST_CASE("VideoLogger checks NVENC eligible video size", "[metrics][video]")
 {
@@ -162,6 +282,10 @@ TEST_CASE("MetricsLogger uses configured runs directory", "[metrics][config]")
     CHECK(anet::MetricsLogger::Instance()->GetRunDir() == run_dir);
     CHECK(std::filesystem::exists(run_dir / "metrics.jsonl"));
 
+    anet::MetricsLogger::Instance()->LogScalar("test/value", 7, 1.25);
+    anet::MetricsLogger::Instance()->Flush();
+
     anet::MetricsLogger::Reset();
+    CHECK(ContainsText(ReadTextFile(run_dir / "metrics.jsonl"), "\"tag\":\"test/value\""));
     std::filesystem::remove_all(root);
 }
