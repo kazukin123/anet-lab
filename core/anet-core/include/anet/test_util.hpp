@@ -6,13 +6,172 @@
 #include "anet/log.hpp"
 
 #include <cstdio>
+#include <cstdlib>
+#include <exception>
 #include <initializer_list>
+#include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
 #include <wx/log.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+#if defined(_MSC_VER)
+#include <crtdbg.h>
+#include <stdlib.h>
+#endif
+
 namespace anet::test {
+
+    inline constexpr std::string_view kFailureDialogOption = "--anet-test-failure-dialog";
+    inline constexpr const char* kFailureDialogEnv = "ANET_TEST_FAILURE_DIALOG";
+
+    struct PreparedTestArgs {
+        std::vector<std::string> storage;
+        std::vector<char*> argv;
+        bool failure_dialog_enabled = false;
+
+        int Argc() const
+        {
+            return static_cast<int>(argv.size());
+        }
+
+        char** Argv()
+        {
+            return argv.data();
+        }
+    };
+
+    namespace detail {
+
+        inline std::optional<bool> ParseFailureDialogValue(std::string_view value)
+        {
+            if (value == "on") return true;
+            if (value == "off") return false;
+            return std::nullopt;
+        }
+
+        inline std::string FormatExpectedFailureDialogValue()
+        {
+            return "Expected on or off.";
+        }
+
+        inline bool StartsWith(std::string_view text, std::string_view prefix)
+        {
+            return text.size() >= prefix.size() && text.substr(0, prefix.size()) == prefix;
+        }
+
+    } // namespace detail
+
+    inline PreparedTestArgs PrepareTestArgs(int argc, char* argv[], const char* failure_dialog_env)
+    {
+        PreparedTestArgs result;
+        result.storage.reserve(static_cast<size_t>(argc));
+
+        if (failure_dialog_env != nullptr) {
+            const auto value = detail::ParseFailureDialogValue(failure_dialog_env);
+            if (!value.has_value()) {
+                throw std::invalid_argument(
+                    "Invalid " + std::string(kFailureDialogEnv) + " value: \"" + std::string(failure_dialog_env)
+                    + "\". " + detail::FormatExpectedFailureDialogValue());
+            }
+            result.failure_dialog_enabled = *value;
+        }
+
+        const std::string option_prefix = std::string(kFailureDialogOption) + "=";
+        for (int i = 0; i < argc; ++i) {
+            const std::string_view arg = argv[i] != nullptr ? std::string_view(argv[i]) : std::string_view();
+
+            if (arg == kFailureDialogOption) {
+                throw std::invalid_argument(
+                    "Missing value for " + std::string(kFailureDialogOption)
+                    + ". Expected " + std::string(kFailureDialogOption) + "=on or =off.");
+            }
+
+            if (detail::StartsWith(arg, option_prefix)) {
+                const auto raw_value = arg.substr(option_prefix.size());
+                const auto value = detail::ParseFailureDialogValue(raw_value);
+                if (!value.has_value()) {
+                    throw std::invalid_argument(
+                        "Invalid " + std::string(kFailureDialogOption) + " value: \""
+                        + std::string(raw_value) + "\". " + detail::FormatExpectedFailureDialogValue());
+                }
+                result.failure_dialog_enabled = *value;
+                continue;
+            }
+
+            if (detail::StartsWith(arg, kFailureDialogOption)) {
+                throw std::invalid_argument(
+                    "Invalid " + std::string(kFailureDialogOption)
+                    + " format. Expected " + std::string(kFailureDialogOption) + "=on or =off.");
+            }
+
+            result.storage.emplace_back(arg);
+        }
+
+        result.argv.reserve(result.storage.size());
+        for (auto& arg : result.storage) {
+            result.argv.push_back(arg.data());
+        }
+        return result;
+    }
+
+    inline PreparedTestArgs PrepareTestArgs(int argc, char* argv[])
+    {
+#if defined(_MSC_VER)
+        char* env_value = nullptr;
+        size_t env_size = 0;
+        if (_dupenv_s(&env_value, &env_size, kFailureDialogEnv) != 0 || env_value == nullptr) {
+            return PrepareTestArgs(argc, argv, nullptr);
+        }
+
+        std::string env_storage(env_value);
+        std::free(env_value);
+        return PrepareTestArgs(argc, argv, env_storage.c_str());
+#else
+        return PrepareTestArgs(argc, argv, std::getenv(kFailureDialogEnv));
+#endif
+    }
+
+    inline int ReportTestArgsError(const std::exception& e, FILE* file = stderr)
+    {
+        std::fprintf(file, "ANET test argument error: %s\n", e.what());
+        std::fflush(file);
+        return 2;
+    }
+
+    inline void SetupTestFailureDialog(const bool enable_failure_dialog)
+    {
+#ifdef _WIN32
+        if (enable_failure_dialog) {
+            return;
+        }
+
+        // Windows/CRT の failure UI を stderr/非対話終了へ寄せ、test runner の人手待ちを防ぐ。
+        SetErrorMode(GetErrorMode()
+            | SEM_FAILCRITICALERRORS
+            | SEM_NOGPFAULTERRORBOX
+            | SEM_NOOPENFILEERRORBOX);
+
+#if defined(_MSC_VER)
+        _set_error_mode(_OUT_TO_STDERR);
+        _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+
+#if defined(_DEBUG)
+        _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+        _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+        _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+        _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+#endif
+#endif
+#else
+        (void)enable_failure_dialog;
+#endif
+    }
 
     /**
      * @brief テストで捕捉した wxLog の 1 件分の記録。

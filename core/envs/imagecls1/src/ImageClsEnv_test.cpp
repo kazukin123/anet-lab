@@ -3,9 +3,11 @@
 #include "ImageClsEnv.hpp"
 
 #include "anet/env.hpp"
+#include "anet/test_util.hpp"
 
 #include <algorithm>
 #include <clocale>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -189,7 +191,15 @@ int main(int argc, char* argv[])
 {
     SetupUtf8Console();
 
+    anet::test::PreparedTestArgs test_args;
+    try {
+        test_args = anet::test::PrepareTestArgs(argc, argv);
+    } catch (const std::exception& e) {
+        return anet::test::ReportTestArgsError(e);
+    }
+    anet::test::SetupTestFailureDialog(test_args.failure_dialog_enabled);
+
     Catch::Session session;
     session.configData().showDurations = Catch::ShowDurations::Always;
-    return session.run(argc, argv);
+    return session.run(test_args.Argc(), test_args.Argv());
 }
