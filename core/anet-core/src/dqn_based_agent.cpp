@@ -3,6 +3,7 @@
 #include <tuple>
 #include <cmath>
 #include <limits>
+#include <mutex>
 #include <optional>
 #include <utility>
 #include "anet/log.hpp"
@@ -19,6 +20,7 @@ namespace LOG = anet::log;
 
 anet::rl::ReplayInitialPriorityMode anet::rl::dqn::ParseReplayInitialPriorityMode(const LearnerConfig& config)
 {
+    // 文字列表現をReplayBufferへ渡す内部modeへ変換し、未知値は設定ミスとして停止する。
     ReplayInitialPriorityMode mode;
     if (config.per_initial_priority_mode == "fixed") {
         mode = ReplayInitialPriorityMode::FIXED;
@@ -30,6 +32,7 @@ anet::rl::ReplayInitialPriorityMode anet::rl::dqn::ParseReplayInitialPriorityMod
         ANET_SYSTEM_ERROR("Invalid learner.per_initial_priority_mode='" << config.per_initial_priority_mode
             << "'. Expected one of: fixed, max, actor_approx.");
     }
+    // modeを切り替えても同じconfigを再利用できるよう、関連する数値設定を一括検証する。
     if (!std::isfinite(config.per_initial_priority) || config.per_initial_priority < 0.0f) {
         ANET_SYSTEM_ERROR("Invalid learner.per_initial_priority=" << config.per_initial_priority
             << ". Expected a finite value >= 0; use learner.per_initial_priority_mode=max for maximum initialization.");
@@ -108,6 +111,7 @@ public:
 
     std::optional<float> Estimate(const anet::rl::InitialPriorityEstimateInput& input) const override
     {
+        // TBOではbootstrap値を実空間へ戻してn-step収益と加算し、Learnerと同じh空間へ再変換する。
         float target = input.target_return;
         if (!input.terminal) {
             const float bootstrap = use_tbo_
@@ -306,6 +310,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> DQNActionInfo::WithAction(torch::Tens
 {
     auto hint = actor_q_hint_;
     if (hint.has_value()) {
+        // 実行行動の差し替え後も、既存forwardの全行動QからQ(s,a)だけを再取得してhint契約を保つ。
         const auto it = aux_.find("q_values");
         if (it == aux_.end() || !it->second.defined()) {
             ANET_SYSTEM_ERROR("DQNActionInfo::WithAction requires aux[q_values] when ActorQHint is present.");

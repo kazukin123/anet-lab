@@ -69,10 +69,10 @@ namespace anet::rl::dqn {
         torch::Tensor per_priorities;      ///< Updated Priorities (B,)
         torch::Tensor per_clipped_count;   ///< Clipped Count (scalar tensor)
         torch::Tensor per_sample_initial_count; ///< 初期優先度のままサンプルされた件数
-        torch::Tensor per_sample_fixed_initial_count;
-        torch::Tensor per_sample_max_initial_count;
-        torch::Tensor per_sample_actor_initial_count;
-        ReplayPriorityUpdateResult per_update_result;
+        torch::Tensor per_sample_fixed_initial_count; ///< fixed_initial sourceのサンプル件数
+        torch::Tensor per_sample_max_initial_count;   ///< max_initial sourceのサンプル件数
+        torch::Tensor per_sample_actor_initial_count; ///< actor_initial sourceのサンプル件数
+        ReplayPriorityUpdateResult per_update_result; ///< 対応するLearner minibatchの優先度更新結果
         long per_minibatch_size = 0;       ///< Minibatch Size
 
         // QR-DQN Metrics
@@ -291,23 +291,23 @@ namespace anet::rl::dqn {
         torch::Tensor per_priorities;
         torch::Tensor per_is_weights;
         torch::Tensor per_sample_initial_count;
-        torch::Tensor per_sample_fixed_initial_count;
-        torch::Tensor per_sample_max_initial_count;
-        torch::Tensor per_sample_actor_initial_count;
-        ReplayPriorityUpdateResult per_update_result;
-        long per_minibatch_size = 0;
+        torch::Tensor per_sample_fixed_initial_count; ///< fixed_initial sourceのサンプル件数
+        torch::Tensor per_sample_max_initial_count;   ///< max_initial sourceのサンプル件数
+        torch::Tensor per_sample_actor_initial_count; ///< actor_initial sourceのサンプル件数
+        ReplayPriorityUpdateResult per_update_result; ///< ReplayBufferへ適用済みの更新結果
+        long per_minibatch_size = 0;                  ///< source比率の分母となるminibatch size
     };
 
     struct PerPriorityUpdatePending {
-        std::vector<int64_t> indices;
-        anet::transfer::HostReadback priority_readback;
-        torch::Tensor per_is_weights;
-        torch::Tensor per_sample_initial_count;
-        torch::Tensor per_sample_fixed_initial_count;
-        torch::Tensor per_sample_max_initial_count;
-        torch::Tensor per_sample_actor_initial_count;
-        long per_minibatch_size = 0;
-        bool enabled = false;
+        std::vector<int64_t> indices;                  ///< CPU上のgeneration付きreplay item key
+        anet::transfer::HostReadback priority_readback; ///< GPUで確定したraw優先度の遅延D2H結果
+        torch::Tensor per_is_weights;                 ///< 対応minibatchのIS weight
+        torch::Tensor per_sample_initial_count;       ///< 全initial sourceのサンプル件数
+        torch::Tensor per_sample_fixed_initial_count; ///< fixed_initial sourceのサンプル件数
+        torch::Tensor per_sample_max_initial_count;   ///< max_initial sourceのサンプル件数
+        torch::Tensor per_sample_actor_initial_count; ///< actor_initial sourceのサンプル件数
+        long per_minibatch_size = 0;                  ///< source比率の分母となるminibatch size
+        bool enabled = false;                         ///< PER更新が必要なminibatchか
     };
 
     struct QuantileMetrics {
@@ -509,7 +509,7 @@ namespace anet::rl::dqn {
         std::shared_ptr<std::shared_mutex> mutex_;
         std::shared_ptr<anet::nn::Network> network_;
         std::shared_ptr<anet::nn::Network> src_network_;
-        bool emit_actor_q_hint_ = false;
+        bool emit_actor_q_hint_ = false; ///< 学習Actorから初期優先度推定用Qヒントを生成するか
     };
 
     // ======================================================

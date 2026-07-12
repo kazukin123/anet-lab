@@ -30,12 +30,12 @@ namespace anet::rl {
     };
 
     struct InitialPriorityEstimateInput {
-        float actor_q_sa = 0.0f;
-        float bootstrap_state_value = 0.0f;
-        float target_return = 0.0f;
-        float discount = 0.0f;
-        bool terminal = false;
-        int actual_n_steps = 1;
+        float actor_q_sa = 0.0f;            ///< 開始状態で実際に選択した行動のActor Q値
+        float bootstrap_state_value = 0.0f; ///< bootstrap状態のActor推定価値
+        float target_return = 0.0f;         ///< 確定済みのn-step収益
+        float discount = 0.0f;              ///< 実n-step数を反映したbootstrap割引率
+        bool terminal = false;              ///< bootstrapを行わない真の終端か
+        int actual_n_steps = 1;              ///< 終端短縮を反映した実n-step数
     };
 
     class InitialPriorityEstimator {
@@ -55,8 +55,8 @@ namespace anet::rl {
 
         // PER系
         float per_alpha = 0.5f;
-        float per_initial_priority = 1.0f;
-        ReplayInitialPriorityMode per_initial_priority_mode = ReplayInitialPriorityMode::FIXED;
+        float per_initial_priority = 1.0f; ///< FIXEDで使うraw初期優先度
+        ReplayInitialPriorityMode per_initial_priority_mode = ReplayInitialPriorityMode::FIXED; ///< 初期優先度の決定方式
 
         // Stacking
         int stack_count = 1;                    ///< 過去方向へのスライス数 (Frame Stacking)

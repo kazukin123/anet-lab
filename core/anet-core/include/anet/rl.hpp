@@ -489,7 +489,7 @@ namespace anet::rl {
     private:
         torch::Tensor q_values_;        ///< float32 [B,2]: Q(s,a), max_a Q_online(s,a)
         torch::Tensor validity_;        ///< CPU uint8 [B]
-        mutable torch::Tensor q_values_cpu_;
+        mutable torch::Tensor q_values_cpu_; ///< ReplayBufferへ渡す際に再利用するCPU cache
     };
 
     // 行動選択時の情報
@@ -540,7 +540,7 @@ namespace anet::rl {
         mutable std::optional<std::pair<torch::Device, torch::Tensor>> gpu_;
         anet::TensorDict info_;
         AuxData aux_;
-        std::optional<ActorQHint> actor_q_hint_;
+        std::optional<ActorQHint> actor_q_hint_; ///< 学習Actorが生成した初期優先度推定用ヒント
     };
 
     class BatchEnvResult {
@@ -712,21 +712,21 @@ namespace anet::rl {
     // =============================================================
 
     enum class ReplayPrioritySource : int8_t {
-        NONE = 0,
-        FIXED_INITIAL = 1,
-        MAX_INITIAL = 2,
-        ACTOR_INITIAL = 3,
-        LEARNER_UPDATED = 4,
+        NONE = 0,            ///< 未初期化または無効化済み
+        FIXED_INITIAL = 1,   ///< 固定値による初期優先度
+        MAX_INITIAL = 2,     ///< Learner更新済み最大値による初期優先度
+        ACTOR_INITIAL = 3,   ///< Actor近似による初期優先度
+        LEARNER_UPDATED = 4, ///< LearnerのTD誤差で更新済み
     };
 
     struct ReplayPriorityUpdateResult {
-        int64_t applied_count = 0;
-        int64_t stale_count = 0;
-        int64_t actor_learner_pair_count = 0;
-        float actor_learner_positive_pair_ratio = std::numeric_limits<float>::quiet_NaN();
-        float actor_learner_ratio_median = std::numeric_limits<float>::quiet_NaN();
-        float actor_learner_log_ratio_mean = std::numeric_limits<float>::quiet_NaN();
-        float actor_learner_spearman = std::numeric_limits<float>::quiet_NaN();
+        int64_t applied_count = 0; ///< 現generationへ適用した更新数
+        int64_t stale_count = 0; ///< 上書き済みgenerationとして棄却した更新数
+        int64_t actor_learner_pair_count = 0; ///< Actor初期値とLearner更新値を比較できた件数
+        float actor_learner_positive_pair_ratio = std::numeric_limits<float>::quiet_NaN(); ///< 両方が正値の比較ペア率
+        float actor_learner_ratio_median = std::numeric_limits<float>::quiet_NaN(); ///< 正値ペアのActor/Learner比の中央値
+        float actor_learner_log_ratio_mean = std::numeric_limits<float>::quiet_NaN(); ///< 正値ペアのlog(Actor/Learner)平均
+        float actor_learner_spearman = std::numeric_limits<float>::quiet_NaN(); ///< 全finiteペアのSpearman順位相関
     };
 
     /// サンプリングされた経験のミニバッチ（再利用可能オブジェクト）

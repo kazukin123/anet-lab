@@ -4,7 +4,6 @@
 
 #include "anet/replay_buffer.hpp"
 #include <algorithm>
-#include <array>
 #include <limits>
 #include <vector>
 #include <memory>
@@ -112,6 +111,7 @@ namespace anet::rl {
 
         bool IsOverwritingSampleable(int64_t env_idx, int64_t time_idx, int stack_count, int unroll_steps, int n_step) const;
         int64_t GetWriteCursor(int64_t env_idx) const { return write_cursors_[env_idx]; }
+        /// 指定logical indexが上書き境界、未来観測、unroll終端の全条件を満たすか判定する。
         bool IsLogicalSampleable(int64_t env_idx, int64_t logical_idx, int unroll_steps, int n_step) const;
     private:
         template <class Fn>
@@ -123,6 +123,7 @@ namespace anet::rl {
             int64_t v_cursor = valid_cursors_[env];
             int64_t future_obs_lag = std::max<int64_t>(1, n_step);
 
+            // リング上で未上書き、かつ必要な未来観測とunroll範囲が確定済みの論理区間を求める。
             int64_t logical_start = std::max<int64_t>(0, w_cursor - capacity_per_env_);
             int64_t max_safe_by_write = std::max<int64_t>(-1, w_cursor - future_obs_lag - 1);
             int64_t max_safe_by_valid = v_cursor - 1 - unroll_steps;
@@ -241,7 +242,6 @@ namespace anet::rl {
         virtual void SetMaxInitialPriority(int64_t flat_slot_index) = 0;
         virtual ReplayPriorityUpdateResult ApplyLearnerPriorities(
             const std::vector<int64_t>& flat_slot_indices, const std::vector<float>& raw_priorities) = 0;
-        virtual ReplayPrioritySource GetSource(int64_t flat_slot_index) const = 0;
         virtual std::optional<float> GetScalar(const std::string& key) const = 0;
         virtual std::optional<torch::Tensor> GetPriorityTensor(int64_t flat_slot_index) const = 0;
         virtual torch::Tensor GatherPriorityRows(const torch::Tensor& flat_slot_indices) const = 0;
