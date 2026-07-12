@@ -400,53 +400,6 @@ void ReplayExperienceStorage::DumpToLog() const
 
 
 // ===========================================================================
-// SumTree
-// ===========================================================================
-
-SumTree::SumTree(int64_t capacity) : capacity_(capacity)
-{
-    tree_.assign(2 * capacity_ - 1, 0.0f);
-}
-
-void SumTree::Update(int64_t index, float priority)
-{
-    int64_t tree_idx = index + capacity_ - 1;
-    float change = priority - tree_[tree_idx];
-    tree_[tree_idx] = priority;
-    while (tree_idx != 0) {
-        tree_idx = (tree_idx - 1) / 2;
-        tree_[tree_idx] += change;
-    }
-}
-
-float SumTree::GetTotalPriority() const
-{
-    return tree_[0];
-}
-
-int64_t SumTree::Retrieve(float value) const
-{
-    int64_t tree_idx = 0;
-    while (tree_idx < capacity_ - 1) {
-        int64_t left = 2 * tree_idx + 1;
-        int64_t right = left + 1;
-        if (value <= tree_[left]) {
-            tree_idx = left;
-        } else {
-            value -= tree_[left];
-            tree_idx = right;
-        }
-    }
-    return tree_idx - capacity_ + 1;
-}
-
-float SumTree::GetPriority(int64_t index) const
-{
-    return tree_[index + capacity_ - 1];
-}
-
-
-// ===========================================================================
 // Sampler (具象クラス)
 // ===========================================================================
 
@@ -714,7 +667,7 @@ public:
         std::vector<float> sampled_weights(batch_size);
         std::vector<int64_t> sampled_initial(batch_size);
 
-        float total_prio = tree_.GetTotalPriority();
+        const double total_prio = tree_.GetTotalPriority();
 
         int64_t b = 0;
         int max_attempts = batch_size * 10;
@@ -723,20 +676,20 @@ public:
         // valid_indices_1d は昇順ソートが保証されているため、std::binary_search による O(1)~O(log V) 判定が可能
         while (b < batch_size && attempts < max_attempts) {
             attempts++;
-            float r = torch::rand({ 1 }, gen_, opt_float_).item<float>() * total_prio;
+            const double r = static_cast<double>(torch::rand({ 1 }, gen_, opt_float_).item<float>()) * total_prio;
             int64_t idx = tree_.Retrieve(r);
 
             bool is_valid = std::binary_search(valid_ptr, valid_ptr + valid_count, idx);
             if (is_valid) {
-                float p = tree_.GetPriority(idx);
-                if (p <= 0.0f) continue; // 安全装置
+                const double p = tree_.GetPriority(idx);
+                if (p <= 0.0) continue; // 安全装置
 
                 sampled_indices[b] = idx;
-                float prob = p / total_prio;
-                sampled_probs[b] = prob;
+                const double prob = p / total_prio;
+                sampled_probs[b] = static_cast<float>(prob);
 
-                float weight = std::pow(valid_count * prob, -beta);
-                sampled_weights[b] = weight;
+                const double weight = std::pow(static_cast<double>(valid_count) * prob, -static_cast<double>(beta));
+                sampled_weights[b] = static_cast<float>(weight);
                 sampled_initial[b] = is_initial_priority_[static_cast<size_t>(idx)] ? 1 : 0;
                 b++;
             }
@@ -803,22 +756,23 @@ public:
 
     float GetTotalPriority() const
     {
-        return tree_.GetTotalPriority();
+        return static_cast<float>(tree_.GetTotalPriority());
     }
 
     float GetInitialMassRatio() const
     {
-        const float total = tree_.GetTotalPriority();
-        if (total <= 0.0f) {
+        const double total = tree_.GetTotalPriority();
+        if (total <= 0.0) {
             return std::numeric_limits<float>::quiet_NaN();
         }
-        return std::min(total, std::max(0.0f, initial_priority_mass_)) / total;
+        const double initial_mass = std::clamp(initial_priority_mass_, 0.0, total);
+        return static_cast<float>(initial_mass / total);
     }
 
     std::optional<torch::Tensor> GetPriorityTensor(int64_t index) const
     {
         if (index < 0 || index >= tree_.Capacity()) return std::nullopt;
-        return torch::tensor(tree_.GetPriority(index), opt_float_);
+        return torch::tensor(static_cast<float>(tree_.GetPriority(index)), opt_float_);
     }
 
     torch::Tensor GatherPriorityRows(const torch::Tensor& indices) const
@@ -829,7 +783,7 @@ public:
         auto acc = indices_cpu.accessor<int64_t, 1>();
         std::vector<float> priorities(static_cast<size_t>(indices_cpu.size(0)));
         for (int64_t i = 0; i < indices_cpu.size(0); ++i) {
-            priorities[static_cast<size_t>(i)] = tree_.GetPriority(acc[i]);
+            priorities[static_cast<size_t>(i)] = static_cast<float>(tree_.GetPriority(acc[i]));
         }
         return torch::tensor(priorities, opt_float_).reshape({ indices_cpu.size(0), 1 });
     }
@@ -837,20 +791,20 @@ private:
     void UpdateTreePriority(int64_t index, float adjusted_priority, bool is_initial)
     {
         const size_t slot = static_cast<size_t>(index);
-        const float old_priority = tree_.GetPriority(index);
+        const double old_priority = tree_.GetPriority(index);
         if (is_initial_priority_[slot]) {
             initial_priority_mass_ -= old_priority;
         }
 
-        tree_.Update(index, adjusted_priority);
+        tree_.Update(index, static_cast<double>(adjusted_priority));
 
         is_initial_priority_[slot] = (is_initial && adjusted_priority > 0.0f) ? 1 : 0;
         if (is_initial_priority_[slot]) {
-            initial_priority_mass_ += adjusted_priority;
+            initial_priority_mass_ += static_cast<double>(adjusted_priority);
         }
     }
 
-    SumTree tree_;
+    SumTree<double> tree_;
     std::vector<uint8_t> is_initial_priority_;
     const float alpha_;
     const torch::Generator gen_;
@@ -858,7 +812,7 @@ private:
     const torch::TensorOptions opt_float_;
     float max_prio_;
     float initial_priority_;
-    float initial_priority_mass_ = 0.0f;
+    double initial_priority_mass_ = 0.0;
 };
 
 

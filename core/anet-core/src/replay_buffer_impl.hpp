@@ -10,6 +10,7 @@
 #include <deque>
 #include <mutex>
 #include <shared_mutex>
+#include <type_traits>
 #include <torch/torch.h>
 #include "anet/tensor_util.hpp"
 
@@ -227,17 +228,56 @@ namespace anet::rl {
     // SumTree (汎用部品)
     // ======================================================
 
+    template <typename Value>
     class SumTree {
+        static_assert(std::is_floating_point_v<Value>, "SumTree Value must be a floating-point type.");
     public:
-        explicit SumTree(int64_t capacity);
-        void Update(int64_t index, float priority);
-        float GetTotalPriority() const;
-        int64_t Retrieve(float value) const;
-        float GetPriority(int64_t index) const;
+        explicit SumTree(int64_t capacity) : capacity_(capacity)
+        {
+            tree_.assign(2 * capacity_ - 1, Value{ 0 });
+        }
+
+        void Update(int64_t index, Value priority)
+        {
+            int64_t tree_idx = index + capacity_ - 1;
+            const Value change = priority - tree_[tree_idx];
+            tree_[tree_idx] = priority;
+            while (tree_idx != 0) {
+                tree_idx = (tree_idx - 1) / 2;
+                tree_[tree_idx] += change;
+            }
+        }
+
+        Value GetTotalPriority() const
+        {
+            return tree_[0];
+        }
+
+        int64_t Retrieve(Value value) const
+        {
+            int64_t tree_idx = 0;
+            while (tree_idx < capacity_ - 1) {
+                const int64_t left = 2 * tree_idx + 1;
+                const int64_t right = left + 1;
+                if (value <= tree_[left]) {
+                    tree_idx = left;
+                } else {
+                    value -= tree_[left];
+                    tree_idx = right;
+                }
+            }
+            return tree_idx - capacity_ + 1;
+        }
+
+        Value GetPriority(int64_t index) const
+        {
+            return tree_[index + capacity_ - 1];
+        }
+
         int64_t Capacity() const { return capacity_; }
     private:
         int64_t capacity_;
-        std::vector<float> tree_;
+        std::vector<Value> tree_;
     };
 
 

@@ -7,6 +7,7 @@
 #include <torch/cuda.h>
 
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -17,12 +18,55 @@
 #include <thread>
 #include <vector>
 
+// ============================================================================
+// ReplayBuffer API test coverage model
+//
+// このファイルの [replay_buffer] テストは、内部 storage 表現ではなく public API
+// Push / Sample / Size / UpdatePriorities / visualization accessors の契約を検証する。
+// テストを追加するときは、以下の「観点」「条件」「確認事項」の組み合わせを確認し、
+// 全直積ではなく、仕様上リスクの高い相互作用を代表シナリオで覆う。
+//
+// テスト観点:
+// - Core transition alignment: Sample が同一 env/time の obs, action, return,
+//   next_obs, terminal, n_steps, indices を一貫して返す。
+// - Temporal horizons: n_step return と bootstrap next_obs が正しい時点を指す。
+// - Episode boundaries: done, truncated, episode_start, unwritten slot, ring wrap を
+//   sampleable range と frame stack 境界として正しく扱う。
+// - Frame stacking: stack_count と stack_keys に従って過去フレームを積み、境界では
+//   crossing せず padding する。
+// - Isolation and capacity: multi-env 間で境界や時系列が混ざらず、capacity / wrap 後も
+//   有効 index だけを sample する。
+// - Priority and decorators: PER metadata / UpdatePriorities / prefetch / transfer が
+//   ReplayBuffer の sample 契約を壊さない。
+//
+// テスト条件:
+// - env: single-env / multi-env
+// - horizon: n_step=1 / n_step>1 / unroll_steps=0 / unroll_steps>0
+// - stack: stack_count=1 / stack_count>1 / stack_keys 指定あり
+// - sampler: uniform / PER / fixed-index sampling
+// - boundary: 通常遷移 / done / truncated / episode_start / unwritten slot / ring wrap
+// - execution: direct buffer / prefetch / CPU transfer / CUDA transfer where available
+//
+// 確認事項:
+// - values: obs, action, target_returns, next_obs, terminal, n_steps に関する 入出力と時系列の整合
+// - shapes: stack/unroll/squeeze/TensorDict key ごとの shape 契約
+// - sampleability: Size, sampled indices, overwritten slot を sample しないこと
+// - boundaries: padding, no-crossing, bootstrap 可否, env 間 isolation
+// - metadata: is_weights, per_is_initial_priority, priority visualization/accessors
+//
+// 運用:
+// - TEST_CASE 名と tags は主条件を表す。例: [frame_stack][n_step][done]
+// - fixed-index sampling を使える仕様テストでは、乱択ではなく IndexOf で対象 transition を固定する。
+// - 1つの代表シナリオで複数の確認事項を assert し、時系列整合をまとめて検証する。
+// ============================================================================
+
 namespace {
 
 namespace rl = anet::rl;
 
 constexpr const char* kVectorKey = rl::ObsKeys::kVector;
 constexpr const char* kMaskKey = rl::ObsKeys::kActionMask;
+constexpr const char* kPolicyInfoKey = "policy_info";
 
 struct TestBuffer {
     std::shared_ptr<rl::ReplayBuffer> rb;
@@ -44,6 +88,11 @@ float TerminalStateValue(int64_t env_idx, int64_t time_idx)
 float RewardValue(int64_t env_idx, int64_t time_idx)
 {
     return static_cast<float>((env_idx + 1) * 10 + time_idx);
+}
+
+float PolicyInfoValue(int64_t env_idx, int64_t time_idx)
+{
+    return static_cast<float>(env_idx * 100 + 500 + time_idx);
 }
 
 std::vector<float> StateValues(int64_t num_envs, int64_t time_idx)
@@ -74,6 +123,16 @@ std::vector<float> RewardValues(int64_t num_envs, int64_t time_idx)
         rewards.push_back(RewardValue(env, time_idx));
     }
     return rewards;
+}
+
+std::vector<float> PolicyInfoValues(int64_t num_envs, int64_t time_idx)
+{
+    std::vector<float> values;
+    values.reserve(static_cast<size_t>(num_envs));
+    for (int64_t env = 0; env < num_envs; ++env) {
+        values.push_back(PolicyInfoValue(env, time_idx));
+    }
+    return values;
 }
 
 std::vector<bool> BoolValues(int64_t num_envs, bool value)
@@ -153,7 +212,8 @@ rl::BatchExperience MakeBatch(
     const std::vector<bool>& next_done,
     const std::vector<bool>& next_truncated,
     const std::vector<bool>& episode_start,
-    bool include_mask = false)
+    bool include_mask = false,
+    anet::TensorDict action_info_dict = anet::TensorDict())
 {
     const int64_t num_envs = static_cast<int64_t>(state_values.size());
 
@@ -170,7 +230,7 @@ rl::BatchExperience MakeBatch(
         BoolTensor(BoolValues(num_envs, false)));
 
     auto actions = torch::zeros({ num_envs }, torch::TensorOptions().dtype(torch::kInt64));
-    auto action_info = std::make_shared<rl::BatchActionInfo>(actions);
+    auto action_info = std::make_shared<rl::BatchActionInfo>(actions, action_info_dict);
 
     return rl::BatchExperience(state, action_info, FloatVector(rewards), next_state);
 }
@@ -211,6 +271,13 @@ std::vector<int64_t> TensorToInt64Vector(const torch::Tensor& tensor)
     auto cpu = tensor.cpu().contiguous();
     auto ptr = cpu.data_ptr<int64_t>();
     return std::vector<int64_t>(ptr, ptr + cpu.numel());
+}
+
+std::vector<float> TensorToFloatVector(const torch::Tensor& tensor)
+{
+    auto cpu = tensor.detach().cpu().to(torch::kFloat32).reshape({ -1 }).contiguous();
+    auto ptr = cpu.data_ptr<float>();
+    return std::vector<float>(ptr, ptr + cpu.numel());
 }
 
 bool WaitForFlag(const std::atomic<bool>& flag, std::chrono::milliseconds timeout)
@@ -463,6 +530,27 @@ void PushTime(
         include_mask));
 }
 
+void PushTimeWithActionInfo(
+    const TestBuffer& buffer,
+    int64_t time_idx,
+    const anet::TensorDict& action_info,
+    std::vector<bool> episode_start = {})
+{
+    if (episode_start.empty()) {
+        episode_start = BoolValues(buffer.num_envs, false);
+    }
+
+    buffer.rb->Push(MakeBatch(
+        StateValues(buffer.num_envs, time_idx),
+        StateValues(buffer.num_envs, time_idx + 1),
+        RewardValues(buffer.num_envs, time_idx),
+        BoolValues(buffer.num_envs, false),
+        BoolValues(buffer.num_envs, false),
+        episode_start,
+        false,
+        action_info));
+}
+
 rl::ExperienceSamples MakeTransferSamples()
 {
     return rl::ExperienceSamples{
@@ -499,6 +587,69 @@ void RequireFlatApprox(const torch::Tensor& tensor, const std::vector<float>& ex
     for (int64_t i = 0; i < static_cast<int64_t>(expected.size()); ++i) {
         REQUIRE(acc[i] == Catch::Approx(expected[static_cast<size_t>(i)]).margin(1.0e-5));
     }
+}
+
+void RequireFlatApproxUnordered(const torch::Tensor& tensor, std::vector<float> expected)
+{
+    auto actual = TensorToFloatVector(tensor);
+    REQUIRE(actual.size() == expected.size());
+
+    std::sort(actual.begin(), actual.end());
+    std::sort(expected.begin(), expected.end());
+
+    for (size_t i = 0; i < actual.size(); ++i) {
+        REQUIRE(actual[i] == Catch::Approx(expected[i]).margin(1.0e-5));
+    }
+}
+
+void RequireIndicesIn(const torch::Tensor& tensor, const std::vector<int64_t>& allowed)
+{
+    auto indices = TensorToInt64Vector(tensor);
+    for (const int64_t idx : indices) {
+        CAPTURE(idx);
+        REQUIRE(std::find(allowed.begin(), allowed.end(), idx) != allowed.end());
+    }
+}
+
+TEST_CASE("SumTree supports explicit floating-point value types", "[replay_buffer][per][precision]")
+{
+    // float / double のどちらでも基本的な更新と重み付き探索が成立することを確認する。
+    auto verify = []<typename Value>() {
+        rl::SumTree<Value> tree(4);
+        tree.Update(0, static_cast<Value>(1.0));
+        tree.Update(1, static_cast<Value>(2.0));
+        tree.Update(2, static_cast<Value>(3.0));
+        tree.Update(3, static_cast<Value>(4.0));
+
+        REQUIRE(tree.GetTotalPriority() == Catch::Approx(10.0).margin(1.0e-6));
+        REQUIRE(tree.GetPriority(2) == Catch::Approx(3.0).margin(1.0e-6));
+        REQUIRE(tree.Retrieve(static_cast<Value>(0.5)) == 0);
+        REQUIRE(tree.Retrieve(static_cast<Value>(1.5)) == 1);
+        REQUIRE(tree.Retrieve(static_cast<Value>(4.0)) == 2);
+        REQUIRE(tree.Retrieve(static_cast<Value>(9.5)) == 3);
+    };
+
+    verify.operator()<float>();
+    verify.operator()<double>();
+}
+
+TEST_CASE("SumTree double aggregation preserves small priority updates", "[replay_buffer][per][precision]")
+{
+    constexpr int64_t capacity = 65536;
+    const float initial_priority = std::pow(0.3f, 0.2f);
+    const float updated_priority = initial_priority + 0.001f;
+    rl::SumTree<double> tree(capacity);
+
+    // total が大きくなった後も、各 leaf の小さな差分を失わず集計できることを確認する。
+    for (int64_t index = 0; index < capacity; ++index) {
+        tree.Update(index, static_cast<double>(initial_priority));
+    }
+    for (int64_t index = 0; index < capacity; ++index) {
+        tree.Update(index, static_cast<double>(updated_priority));
+    }
+
+    const double expected_total = static_cast<double>(capacity) * static_cast<double>(updated_priority);
+    REQUIRE(tree.GetTotalPriority() == Catch::Approx(expected_total).margin(1.0e-6));
 }
 
 TEST_CASE("ExperienceSamples ForEachTensor visits defined tensors", "[transfer]")
@@ -998,6 +1149,29 @@ TEST_CASE("ReplayBuffer visualization accessors expose PER priorities", "[replay
     RequireFlatApprox(*env0_value, { env0_priority });
 }
 
+TEST_CASE("ReplayBuffer PER initial mass ratio remains accurate with many slots", "[replay_buffer][per][precision]")
+{
+    constexpr int64_t capacity = 2048;
+    constexpr int64_t updated_count = capacity / 2;
+    auto config = MakeConfig(capacity);
+    config.per_alpha = 1.0f;
+    config.per_initial_priority = 0.3f;
+    auto buffer = MakeBuffer(config, 1);
+
+    // 全 slot を初期優先度で埋め、半数だけ Learner 優先度へ置き換える。
+    for (int64_t time_idx = 0; time_idx < capacity; ++time_idx) {
+        PushTime(buffer, time_idx, {}, {}, time_idx == 0 ? BoolValues(1, true) : std::vector<bool>());
+    }
+
+    std::vector<int64_t> indices(static_cast<size_t>(updated_count));
+    std::iota(indices.begin(), indices.end(), 0);
+    buffer.rb->UpdatePriorities(indices, std::vector<float>(static_cast<size_t>(updated_count), 0.02f));
+
+    auto initial_mass_ratio = buffer.rb->GetScalar(rl::ReplayBuffer::PER_INITIAL_MASS_RATIO);
+    REQUIRE(initial_mass_ratio.has_value());
+    REQUIRE(*initial_mass_ratio == Catch::Approx(0.9375f).margin(1.0e-6));
+}
+
 TEST_CASE("ReplayBuffer PER samples expose initial-priority flags", "[replay_buffer][per]")
 {
     auto buffer = MakeBuffer(MakeConfig(20), 1, false, 777);
@@ -1019,6 +1193,74 @@ TEST_CASE("ReplayBuffer PER samples expose initial-priority flags", "[replay_buf
     buffer.rb->Sample(second, 1, 0.4f);
     RequireShape(second.per_is_initial_priority, { 1 });
     CHECK_FALSE(second.per_is_initial_priority[0].item<bool>());
+}
+
+TEST_CASE("ReplayBuffer PER normalizes IS weights from priority probabilities", "[replay_buffer][per][is_weight]")
+{
+    auto config = MakeConfig(20);
+    config.per_alpha = 1.0f;
+    auto buffer = MakeBuffer(config, 1, false, 777);
+
+    PushTime(buffer, 0, {}, {}, BoolValues(1, true));
+    PushTime(buffer, 1);
+    PushTime(buffer, 2);
+
+    REQUIRE(buffer.rb->Size() == 2);
+
+    const int64_t low_priority_index = IndexOf(buffer, 0, 0);
+    const int64_t high_priority_index = IndexOf(buffer, 0, 1);
+    buffer.rb->UpdatePriorities({ low_priority_index, high_priority_index }, { 1.0f, 4.0f });
+
+    bool checked_mixed_batch = false;
+    for (int attempt = 0; attempt < 128 && !checked_mixed_batch; ++attempt) {
+        rl::ExperienceSamples samples;
+        buffer.rb->Sample(samples, 2, 0.5f);
+        RequireShape(samples.indices, { 2 });
+        RequireShape(samples.is_weights, { 2 });
+
+        auto indices = TensorToInt64Vector(samples.indices);
+        auto weights = TensorToFloatVector(samples.is_weights);
+
+        const bool saw_low = std::find(indices.begin(), indices.end(), low_priority_index) != indices.end();
+        const bool saw_high = std::find(indices.begin(), indices.end(), high_priority_index) != indices.end();
+        if (!saw_low || !saw_high) continue;
+
+        checked_mixed_batch = true;
+        for (size_t i = 0; i < indices.size(); ++i) {
+            CAPTURE(indices[i], weights[i]);
+            if (indices[i] == low_priority_index) {
+                REQUIRE(weights[i] == Catch::Approx(1.0f).margin(1.0e-5));
+            } else if (indices[i] == high_priority_index) {
+                REQUIRE(weights[i] == Catch::Approx(0.5f).margin(1.0e-5));
+            } else {
+                FAIL("PER sampled an index outside the two sampleable priorities.");
+            }
+        }
+    }
+    REQUIRE(checked_mixed_batch);
+}
+
+TEST_CASE("ReplayBuffer PER initializes new samples from max priority when configured", "[replay_buffer][per]")
+{
+    auto config = MakeConfig(20);
+    config.per_alpha = 0.5f;
+    config.per_initial_priority = -1.0f;
+    auto buffer = MakeBuffer(config, 1);
+
+    PushTime(buffer, 0, {}, {}, BoolValues(1, true));
+
+    const int64_t first_index = IndexOf(buffer, 0, 0);
+    buffer.rb->UpdatePriorities({ first_index }, { 9.0f });
+
+    PushTime(buffer, 1);
+
+    const int64_t second_index = IndexOf(buffer, 0, 1);
+    auto first_priority = buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, first_index);
+    auto second_priority = buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, second_index);
+    REQUIRE(first_priority.has_value());
+    REQUIRE(second_priority.has_value());
+    RequireFlatApprox(*first_priority, { 3.0f });
+    RequireFlatApprox(*second_priority, { 3.0f });
 }
 
 TEST_CASE("ReplayBuffer PER tracks last evicted sampleable slots that were never sampled", "[replay_buffer][per]")
@@ -1325,6 +1567,53 @@ TEST_CASE("ReplayBuffer computes n-step returns independently for each env", "[r
     }
 }
 
+TEST_CASE("ReplayBuffer unroll samples aligned future transition fields", "[replay_buffer][unroll][n_step]")
+{
+    constexpr int64_t num_envs = 1;
+    constexpr int n_step = 2;
+    constexpr int unroll_steps = 3;
+    constexpr float gamma = 0.5f;
+
+    auto config = MakeConfig(40, n_step, gamma);
+    config.muzero.unroll_steps = unroll_steps;
+    auto buffer = MakeBuffer(config, num_envs);
+
+    for (int64_t t = 0; t <= 6; ++t) {
+        PushTimeWithActionInfo(
+            buffer,
+            t,
+            anet::TensorDict(kPolicyInfoKey, FloatColumn(PolicyInfoValues(num_envs, t))),
+            t == 0 ? BoolValues(num_envs, true) : BoolValues(num_envs, false));
+    }
+
+    REQUIRE(buffer.rb->Size() == 3);
+
+    auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 1));
+    RequireSampleIndex(samples, IndexOf(buffer, 0, 1));
+
+    RequireShape(samples.actions, { 1, unroll_steps });
+    RequireShape(samples.target_returns, { 1, unroll_steps });
+    RequireShape(samples.next_state.terminals, { 1, unroll_steps });
+    RequireShape(samples.n_steps, { 1 });
+    RequireShape(samples.info.At(kPolicyInfoKey), { 1, unroll_steps, 1 });
+
+    RequireFlatApprox(samples.actions, { 0.0f, 0.0f, 0.0f });
+    RequireFlatApprox(samples.target_returns, {
+        DiscountedReturn(0, 1, n_step, gamma),
+        DiscountedReturn(0, 2, n_step, gamma),
+        DiscountedReturn(0, 3, n_step, gamma)
+    });
+    RequireFlatApprox(samples.next_state.terminals, { 0.0f, 0.0f, 0.0f });
+    RequireFlatApprox(samples.info.At(kPolicyInfoKey), {
+        PolicyInfoValue(0, 1),
+        PolicyInfoValue(0, 2),
+        PolicyInfoValue(0, 3)
+    });
+    REQUIRE(samples.n_steps[0].item<int64_t>() == n_step);
+    RequireFlatApprox(samples.obs.At(kVectorKey)[0], { StateValue(0, 1) });
+    RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], { StateValue(0, 3) });
+}
+
 TEST_CASE("ReplayBuffer flushes n-step returns at done terminals", "[replay_buffer][n_step][done][multi_env]")
 {
     constexpr int64_t num_envs = 2;
@@ -1353,6 +1642,30 @@ TEST_CASE("ReplayBuffer flushes n-step returns at done terminals", "[replay_buff
         auto terminal = SampleOnlyIndex(buffer, IndexOf(buffer, env, 1));
         RequireSampleMeta(terminal, IndexOf(buffer, env, 1), RewardValue(env, 1), true, 1);
     }
+}
+
+TEST_CASE("ReplayBuffer n-step returns stop at episode_start without done", "[replay_buffer][n_step][episode_start]")
+{
+    constexpr int64_t num_envs = 1;
+    constexpr int n_step = 3;
+    constexpr float gamma = 0.5f;
+
+    auto buffer = MakeBuffer(MakeConfig(40, n_step, gamma), num_envs);
+
+    PushTime(buffer, 0, {}, {}, BoolValues(num_envs, true));
+    PushTime(buffer, 1);
+    PushTime(buffer, 2);
+    PushTime(buffer, 3, {}, {}, BoolValues(num_envs, true));
+    PushTime(buffer, 4);
+    PushTime(buffer, 5);
+
+    auto before_reset = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 1));
+    RequireSampleMeta(
+        before_reset,
+        IndexOf(buffer, 0, 1),
+        RewardValue(0, 1) + gamma * RewardValue(0, 2),
+        true,
+        2);
 }
 
 TEST_CASE("ReplayBuffer frame stacking keeps pre-terminal frames with n-step done flush", "[replay_buffer][frame_stack][n_step][done]")
@@ -1392,6 +1705,243 @@ TEST_CASE("ReplayBuffer frame stacking keeps pre-terminal frames with n-step don
         StateValue(0, 3),
         StateValue(0, 4),
         StateValue(0, 5)
+    });
+}
+
+TEST_CASE("ReplayBuffer frame stacking keeps truncated n-step boundary aligned", "[replay_buffer][frame_stack][n_step][truncated]")
+{
+    constexpr int64_t num_envs = 1;
+    constexpr int n_step = 3;
+    constexpr int stack_count = 4;
+    constexpr float gamma = 0.5f;
+
+    auto buffer = MakeBuffer(MakeConfig(20, n_step, gamma, stack_count), num_envs);
+
+    PushTime(buffer, 0, {}, {}, BoolValues(num_envs, true));
+    PushTime(buffer, 1);
+    PushTime(buffer, 2);
+    PushTime(buffer, 3);
+    PushTime(buffer, 4);
+    PushTime(
+        buffer,
+        5,
+        BoolValues(num_envs, false),
+        BoolValues(num_envs, true),
+        BoolValues(num_envs, false),
+        TerminalStateValues(num_envs, 5));
+    PushTime(buffer, 6, {}, {}, BoolValues(num_envs, true));
+    PushTime(buffer, 7);
+
+    REQUIRE(buffer.rb->Size() == 6);
+
+    auto bootstrap = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 2));
+    RequireSampleMeta(bootstrap, IndexOf(buffer, 0, 2), DiscountedReturn(0, 2, n_step, gamma), false, n_step);
+    RequireFlatApprox(bootstrap.next_state.next_obs.At(kVectorKey)[0], {
+        StateValue(0, 2),
+        StateValue(0, 3),
+        StateValue(0, 4),
+        StateValue(0, 5)
+    });
+
+    auto truncated = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 5));
+    RequireSampleMeta(truncated, IndexOf(buffer, 0, 5), RewardValue(0, 5), false, 1);
+    RequireFlatApprox(truncated.obs.At(kVectorKey)[0], {
+        StateValue(0, 2),
+        StateValue(0, 3),
+        StateValue(0, 4),
+        StateValue(0, 5)
+    });
+    RequireFlatApprox(truncated.next_state.next_obs.At(kVectorKey)[0], {
+        StateValue(0, 3),
+        StateValue(0, 4),
+        StateValue(0, 5),
+        TerminalStateValue(0, 5)
+    });
+}
+
+TEST_CASE("ReplayBuffer frame stacking and n-step next_obs survive ring wrap", "[replay_buffer][frame_stack][n_step][wrap]")
+{
+    constexpr int64_t num_envs = 1;
+    constexpr int64_t capacity = 8;
+    constexpr int n_step = 2;
+    constexpr int stack_count = 3;
+    constexpr float gamma = 0.5f;
+
+    auto buffer = MakeBuffer(MakeConfig(capacity, n_step, gamma, stack_count), num_envs);
+
+    for (int64_t t = 0; t <= 10; ++t) {
+        PushTime(buffer, t, {}, {}, t == 0 ? BoolValues(num_envs, true) : BoolValues(num_envs, false));
+    }
+
+    auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 0));
+    RequireSampleMeta(
+        samples,
+        IndexOf(buffer, 0, 0),
+        RewardValue(0, 8) + gamma * RewardValue(0, 9),
+        false,
+        n_step);
+    RequireFlatApprox(samples.obs.At(kVectorKey)[0], {
+        StateValue(0, 6),
+        StateValue(0, 7),
+        StateValue(0, 8)
+    });
+    RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], {
+        StateValue(0, 8),
+        StateValue(0, 9),
+        StateValue(0, 10)
+    });
+}
+
+TEST_CASE("ReplayBuffer excludes wrapped samples whose frame stack would read overwritten frames", "[replay_buffer][frame_stack][wrap][sampleability]")
+{
+    constexpr int64_t num_envs = 1;
+    constexpr int64_t capacity = 8;
+    constexpr int n_step = 2;
+    constexpr int stack_count = 3;
+    constexpr float gamma = 0.5f;
+
+    auto buffer = MakeBuffer(MakeConfig(capacity, n_step, gamma, stack_count), num_envs);
+
+    for (int64_t t = 0; t <= 10; ++t) {
+        PushTime(buffer, t, {}, {}, t == 0 ? BoolValues(num_envs, true) : BoolValues(num_envs, false));
+    }
+
+    REQUIRE(buffer.rb->Size() == 4);
+
+    auto state = RequireSingleTensorVector(buffer.rb->GetTensorVector(rl::ReplayBuffer::STATE_OBS));
+    RequireShape(state, { 4, 1 });
+    RequireFlatApproxUnordered(state, {
+        StateValue(0, 5),
+        StateValue(0, 6),
+        StateValue(0, 7),
+        StateValue(0, 8)
+    });
+
+    auto oldest_safe = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 5));
+    RequireSampleMeta(
+        oldest_safe,
+        IndexOf(buffer, 0, 5),
+        RewardValue(0, 5) + gamma * RewardValue(0, 6),
+        false,
+        n_step);
+    RequireFlatApprox(oldest_safe.obs.At(kVectorKey)[0], {
+        StateValue(0, 3),
+        StateValue(0, 4),
+        StateValue(0, 5)
+    });
+    RequireFlatApprox(oldest_safe.next_state.next_obs.At(kVectorKey)[0], {
+        StateValue(0, 5),
+        StateValue(0, 6),
+        StateValue(0, 7)
+    });
+}
+
+TEST_CASE("ReplayBuffer keeps wrapped oldest samples sampleable when frame stack is disabled", "[replay_buffer][wrap][sampleability]")
+{
+    constexpr int64_t num_envs = 1;
+    constexpr int64_t capacity = 8;
+    constexpr int n_step = 2;
+    constexpr float gamma = 0.5f;
+
+    auto buffer = MakeBuffer(MakeConfig(capacity, n_step, gamma), num_envs);
+
+    for (int64_t t = 0; t <= 10; ++t) {
+        PushTime(buffer, t, {}, {}, t == 0 ? BoolValues(num_envs, true) : BoolValues(num_envs, false));
+    }
+
+    REQUIRE(buffer.rb->Size() == 6);
+
+    auto oldest = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 3));
+    RequireSampleMeta(
+        oldest,
+        IndexOf(buffer, 0, 3),
+        RewardValue(0, 3) + gamma * RewardValue(0, 4),
+        false,
+        n_step);
+    RequireFlatApprox(oldest.obs.At(kVectorKey)[0], { StateValue(0, 3) });
+    RequireFlatApprox(oldest.next_state.next_obs.At(kVectorKey)[0], { StateValue(0, 5) });
+}
+
+TEST_CASE("ReplayBuffer PER samples only safe wrapped frame-stack indices", "[replay_buffer][per][frame_stack][wrap][sampleability]")
+{
+    constexpr int64_t num_envs = 1;
+    constexpr int64_t capacity = 8;
+    constexpr int n_step = 2;
+    constexpr int stack_count = 3;
+    constexpr float gamma = 0.5f;
+
+    auto buffer = MakeBuffer(MakeConfig(capacity, n_step, gamma, stack_count), num_envs, false, 777);
+
+    for (int64_t t = 0; t <= 10; ++t) {
+        PushTime(buffer, t, {}, {}, t == 0 ? BoolValues(num_envs, true) : BoolValues(num_envs, false));
+    }
+
+    std::vector<int64_t> all_indices(static_cast<size_t>(capacity));
+    std::iota(all_indices.begin(), all_indices.end(), 0);
+    buffer.rb->UpdatePriorities(all_indices, std::vector<float>(all_indices.size(), 0.0f));
+    buffer.rb->UpdatePriorities({ IndexOf(buffer, 0, 3), IndexOf(buffer, 0, 4) }, { 10.0f, 10.0f });
+
+    for (int attempt = 0; attempt < 16; ++attempt) {
+        rl::ExperienceSamples samples;
+        buffer.rb->Sample(samples, 1, 0.4f);
+        RequireShape(samples.indices, { 1 });
+        RequireIndicesIn(samples.indices, {
+            IndexOf(buffer, 0, 5),
+            IndexOf(buffer, 0, 6),
+            IndexOf(buffer, 0, 7),
+            IndexOf(buffer, 0, 0)
+        });
+    }
+}
+
+TEST_CASE("ReplayBuffer wrapped sampleability honors both frame stack and unroll horizons", "[replay_buffer][frame_stack][wrap][unroll][sampleability]")
+{
+    constexpr int64_t num_envs = 1;
+    constexpr int64_t capacity = 10;
+    constexpr int n_step = 2;
+    constexpr int stack_count = 3;
+    constexpr int unroll_steps = 2;
+    constexpr float gamma = 0.5f;
+
+    auto config = MakeConfig(capacity, n_step, gamma, stack_count);
+    config.muzero.unroll_steps = unroll_steps;
+    auto buffer = MakeBuffer(config, num_envs);
+
+    for (int64_t t = 0; t <= 12; ++t) {
+        PushTime(buffer, t, {}, {}, t == 0 ? BoolValues(num_envs, true) : BoolValues(num_envs, false));
+    }
+
+    REQUIRE(buffer.rb->Size() == 5);
+
+    auto state = RequireSingleTensorVector(buffer.rb->GetTensorVector(rl::ReplayBuffer::STATE_OBS));
+    RequireShape(state, { 5, 1 });
+    RequireFlatApproxUnordered(state, {
+        StateValue(0, 5),
+        StateValue(0, 6),
+        StateValue(0, 7),
+        StateValue(0, 8),
+        StateValue(0, 9)
+    });
+
+    auto oldest_safe = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 5));
+    RequireSampleIndex(oldest_safe, IndexOf(buffer, 0, 5));
+    RequireShape(oldest_safe.actions, { 1, unroll_steps });
+    RequireShape(oldest_safe.target_returns, { 1, unroll_steps });
+    RequireShape(oldest_safe.next_state.terminals, { 1, unroll_steps });
+    RequireFlatApprox(oldest_safe.target_returns, {
+        RewardValue(0, 5) + gamma * RewardValue(0, 6),
+        RewardValue(0, 6) + gamma * RewardValue(0, 7)
+    });
+    RequireFlatApprox(oldest_safe.next_state.terminals, { 0.0f, 0.0f });
+    RequireFlatApprox(oldest_safe.obs.At(kVectorKey)[0], {
+        StateValue(0, 3),
+        StateValue(0, 4),
+        StateValue(0, 5)
+    });
+    RequireFlatApprox(oldest_safe.next_state.next_obs.At(kVectorKey)[0], {
+        StateValue(0, 5),
+        StateValue(0, 6),
+        StateValue(0, 7)
     });
 }
 
@@ -1465,6 +2015,35 @@ TEST_CASE("ReplayBuffer frame-stacked truncated next_obs keeps the truncation fr
         StateValue(0, 0),
         StateValue(0, 1),
         TerminalStateValue(0, 1)
+    });
+}
+
+TEST_CASE("ReplayBuffer frame stacking starts a new stack at episode_start without done", "[replay_buffer][frame_stack][episode_start]")
+{
+    constexpr int64_t num_envs = 1;
+    constexpr int stack_count = 3;
+
+    auto buffer = MakeBuffer(MakeConfig(20, 1, 0.99f, stack_count), num_envs);
+
+    PushTime(buffer, 0, {}, {}, BoolValues(num_envs, true));
+    PushTime(buffer, 1);
+    PushTime(buffer, 2);
+    PushTime(buffer, 3, {}, {}, BoolValues(num_envs, true));
+    PushTime(buffer, 4);
+
+    REQUIRE(buffer.rb->Size() == 4);
+
+    auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 3));
+    RequireSampleMeta(samples, IndexOf(buffer, 0, 3), RewardValue(0, 3), false, 1);
+    RequireFlatApprox(samples.obs.At(kVectorKey)[0], {
+        StateValue(0, 3),
+        StateValue(0, 3),
+        StateValue(0, 3)
+    });
+    RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], {
+        StateValue(0, 3),
+        StateValue(0, 3),
+        StateValue(0, 4)
     });
 }
 
