@@ -659,15 +659,15 @@ namespace anet {
             for (auto merge_target_key : merge_target_keys) {   // env.common, env.trunk
                 if (merge_target_key.empty()) continue;
 
+                // 設定階層の子孫だけを対象にし、env.common_value のような単なる前方一致を除外する。
+                const std::string merge_target_prefix = merge_target_key + ".";
+
                 for (const auto& kv2 : map) {
                     std::string key2 = kv2.first;
                     std::string val2 = kv2.second;
-                    if (anet::StartsWith(key2, merge_target_key)) {                    // env.common, env.common.yyy, env.common.zzz
-                        // ERASE: env.common, env.common.yyy, env.common.zzz
+                    if (anet::StartsWith(key2, merge_target_prefix)) {                 // env.common.yyy, env.common.zzz
+                        // ERASE: env.common.yyy, env.common.zzz
                         //new_map.Erase(key2);	// 2回目のマージで困るので消さない
-
-                        // SKIP env.common
-                        if (merge_target_key == key2) continue;
 
                         auto key_suffix = anet::RemovePrefix(key2, merge_target_key);  // .yyy, .zzz
                         auto target_key = base_key + key_suffix;                       // env.yyy, env.zzz

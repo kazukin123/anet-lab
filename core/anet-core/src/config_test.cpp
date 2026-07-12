@@ -269,6 +269,37 @@ TEST_CASE("ConfigManager loads trial main config with include and override", "[c
     std::filesystem::remove_all(root);
 }
 
+TEST_CASE("ConfigManager AutoMerge only merges dot-delimited descendants", "[config]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "config-manager-merge-boundary-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_path = root / "config.txt";
+    WriteConfig(config_path, {
+        "backend.$ = backend.deterministic",
+        "backend.deterministic_algorithms = true",
+        "backend.deterministic_warn_only = false",
+        "backend.deterministic.cudnn_benchmark = false",
+        "backend.deterministic.cudnn_deterministic = true",
+        "backend.deterministic.deterministic_algorithms = true",
+    });
+
+    anet::ConfigManager manager(config_path.string(), nullptr);
+    const auto config_data = manager.GetConfigData();
+
+    // profile 配下の正規の子設定だけを backend 直下へ展開する。
+    CHECK(config_data.Get("backend.cudnn_benchmark") == "false");
+    CHECK(config_data.Get("backend.cudnn_deterministic") == "true");
+    CHECK(config_data.Get("backend.deterministic_algorithms") == "true");
+    CHECK(config_data.Get("backend.deterministic_warn_only") == "false");
+
+    // profile 名と文字列 prefix が同じだけのキーから、不正な派生キーを作らない。
+    CHECK_FALSE(config_data.Has("backend_algorithms"));
+    CHECK_FALSE(config_data.Has("backend_warn_only"));
+
+    std::filesystem::remove_all(root);
+}
+
 TEST_CASE("ConfigManager resolves include paths from parent before config search dirs", "[config]")
 {
     const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "config-manager-include-order-test";
