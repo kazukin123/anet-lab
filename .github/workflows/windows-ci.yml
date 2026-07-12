@@ -23,7 +23,7 @@ jobs:
       WX_VER: "3.3.1"
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     # ----------------------------------------------------------------
     # CUDA Toolkit
@@ -39,7 +39,7 @@ jobs:
     # ----------------------------------------------------------------
     - name: Cache LibTorch
       id: cache-libtorch
-      uses: actions/cache@v3
+      uses: actions/cache@v5
       with:
         path: deps/libtorch
         key: libtorch-${{ env.LIBTORCH_VER }}-windows-v1
@@ -77,7 +77,7 @@ jobs:
     # ----------------------------------------------------------------
     - name: Cache wxWidgets
       id: cache-wx
-      uses: actions/cache@v3
+      uses: actions/cache@v5
       with:
         # インストール先（成果物）をキャッシュ対象にする
         path: third_party/wxwidgets/install
