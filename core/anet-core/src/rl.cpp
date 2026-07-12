@@ -352,6 +352,30 @@ std::string BatchState::ToString() const
     return oss.str();
 }
 
+ActorQHint::ActorQHint(torch::Tensor q_values, torch::Tensor validity)
+    : q_values_(std::move(q_values)), validity_(std::move(validity))
+{
+    ANET_ASSERT_SHAPE(q_values_, { ANET_SHAPE_ANY, 2 });
+    ANET_ASSERT_DTYPE(q_values_, torch::kFloat32);
+    ANET_ASSERT_DEVICE_CPU(validity_);
+    ANET_ASSERT_SHAPE(validity_, { q_values_.size(0) });
+    ANET_ASSERT_DTYPE(validity_, torch::kUInt8);
+    q_values_ = q_values_.detach().contiguous();
+    validity_ = validity_.contiguous();
+}
+
+const torch::Tensor& ActorQHint::GetQValuesCpu() const
+{
+    ANET_PROFILE_FUNC();
+    if (!q_values_cpu_.defined()) {
+        q_values_cpu_ = q_values_.device().is_cpu()
+            ? q_values_
+            : q_values_.to(torch::kCPU, torch::kFloat32, /*non_blocking=*/false);
+        q_values_cpu_ = q_values_cpu_.contiguous();
+    }
+    return q_values_cpu_;
+}
+
 torch::Tensor BatchActionInfo::GetAction(torch::Device device) const
 {
     /// @todo GPU→CPUのno_blockingは同期が必要で面倒なので使わない
@@ -681,12 +705,14 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
                 .terminals = anet::To(next_state.terminals, device, non_blocking),
             },
             .n_steps = anet::To(n_steps, device, non_blocking),
-            // sampled index は ReplayBuffer の CPU metadata なので learner device へは送らない。
-            .indices = indices.defined() ? (indices.device().is_cpu() ? indices : indices.to(torch::kCPU)) : indices,
+            // replay item key/source は ReplayBuffer の CPU metadata なので learner device へは送らない。
+            .replay_item_keys = replay_item_keys.defined()
+                ? (replay_item_keys.device().is_cpu() ? replay_item_keys : replay_item_keys.to(torch::kCPU))
+                : replay_item_keys,
             .is_weights = anet::To(is_weights, device, non_blocking),
-            .per_is_initial_priority = per_is_initial_priority.defined()
-                ? (per_is_initial_priority.device().is_cpu() ? per_is_initial_priority : per_is_initial_priority.to(torch::kCPU))
-                : per_is_initial_priority,
+            .per_priority_sources = per_priority_sources.defined()
+                ? (per_priority_sources.device().is_cpu() ? per_priority_sources : per_priority_sources.to(torch::kCPU))
+                : per_priority_sources,
 			.info = info.To(device, non_blocking)
         };
     }
@@ -701,11 +727,11 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
             .terminals = next_state.terminals.to(device, non_blocking),
         },
         .n_steps = n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,
-        .indices = indices.defined() ? indices.to(device, non_blocking) : indices,
+        .replay_item_keys = replay_item_keys.defined() ? replay_item_keys.to(torch::kCPU) : replay_item_keys,
         .is_weights = is_weights.defined() ? is_weights.to(device, non_blocking) : is_weights,
-        .per_is_initial_priority = per_is_initial_priority.defined()
-            ? per_is_initial_priority.to(device, non_blocking)
-            : per_is_initial_priority,
+        .per_priority_sources = per_priority_sources.defined()
+            ? per_priority_sources.to(torch::kCPU)
+            : per_priority_sources,
         .info = info.To(device, non_blocking)
     };
 }
@@ -721,9 +747,9 @@ std::string ExperienceSamples::ToString() const
     oss << "  next_state.next_obs = " << next_state.next_obs.ToString() << "\n";
     oss << "  next_state.terminals     = " << anet::ToString(next_state.terminals) << "\n";
     oss << "  n_steps                  = " << anet::ToString(n_steps) << "\n";
-    oss << "  indices                  = " << anet::ToString(indices) << "\n";
+    oss << "  replay_item_keys         = " << anet::ToString(replay_item_keys) << "\n";
     oss << "  is_weights               = " << anet::ToString(is_weights) << "\n";
-    oss << "  per_is_initial_priority  = " << anet::ToString(per_is_initial_priority) << "\n";
+    oss << "  per_priority_sources     = " << anet::ToString(per_priority_sources) << "\n";
     oss << "  info = " << info.ToString() << "\n";
     oss << "}";
     return oss.str();
