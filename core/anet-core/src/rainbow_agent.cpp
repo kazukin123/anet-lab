@@ -202,7 +202,10 @@ std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const anet::rl::Batch
     }
 
     // Actor を生成
-    auto actor = std::make_shared<Actor>(action_policy_, nullptr, ctx, this->mutex_, network, src_network);
+    const bool emit_actor_q_hint = !anet::rl::IsEval(run_mode)
+        && ParseReplayInitialPriorityMode(config_.learner) == ReplayInitialPriorityMode::ACTOR_APPROX;
+    auto actor = std::make_shared<Actor>(
+        action_policy_, nullptr, ctx, this->mutex_, network, src_network, emit_actor_q_hint);
 
     // 生成したActorを返す
     return actor;

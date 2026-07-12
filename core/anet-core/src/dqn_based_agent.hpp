@@ -9,9 +9,16 @@
 #include "anet/nn.hpp"
 #include "anet/nn_util.hpp"
 #include "anet/transfer.hpp"
+#include "anet/replay_buffer.hpp"
 
 
 namespace anet::rl::dqn {
+
+    ReplayInitialPriorityMode ParseReplayInitialPriorityMode(const LearnerConfig& config);
+    torch::Tensor TransformH(const torch::Tensor& x, float epsilon);
+    torch::Tensor TransformHInv(const torch::Tensor& x, float epsilon);
+    torch::Tensor MakePerRawPriority(
+        const torch::Tensor& td_error, float per_eps, bool use_clip, float clip_value);
 
     const float MET_EMA_DECAY = 0.001f;  // 平滑化係数(メトリクス用)
     const float MET_EMA_DECAY_ACT = 0.0005f;  // 平滑化係数(メトリクス用)action_ema用
@@ -62,6 +69,10 @@ namespace anet::rl::dqn {
         torch::Tensor per_priorities;      ///< Updated Priorities (B,)
         torch::Tensor per_clipped_count;   ///< Clipped Count (scalar tensor)
         torch::Tensor per_sample_initial_count; ///< 初期優先度のままサンプルされた件数
+        torch::Tensor per_sample_fixed_initial_count;
+        torch::Tensor per_sample_max_initial_count;
+        torch::Tensor per_sample_actor_initial_count;
+        ReplayPriorityUpdateResult per_update_result;
         long per_minibatch_size = 0;       ///< Minibatch Size
 
         // QR-DQN Metrics
@@ -160,6 +171,31 @@ namespace anet::rl::dqn {
                     return per_sample_initial_count.item<float>() / static_cast<float>(per_minibatch_size);
                 return std::numeric_limits<float>::quiet_NaN();
             }
+            if (key == "per_sample_fixed_initial_ratio") {
+                return per_minibatch_size > 0 && per_sample_fixed_initial_count.defined()
+                    ? per_sample_fixed_initial_count.item<float>() / static_cast<float>(per_minibatch_size)
+                    : std::numeric_limits<float>::quiet_NaN();
+            }
+            if (key == "per_sample_max_initial_ratio") {
+                return per_minibatch_size > 0 && per_sample_max_initial_count.defined()
+                    ? per_sample_max_initial_count.item<float>() / static_cast<float>(per_minibatch_size)
+                    : std::numeric_limits<float>::quiet_NaN();
+            }
+            if (key == "per_sample_actor_initial_ratio") {
+                return per_minibatch_size > 0 && per_sample_actor_initial_count.defined()
+                    ? per_sample_actor_initial_count.item<float>() / static_cast<float>(per_minibatch_size)
+                    : std::numeric_limits<float>::quiet_NaN();
+            }
+            if (key == "per_priority_update_stale_ratio") {
+                const int64_t total = per_update_result.applied_count + per_update_result.stale_count;
+                return total > 0 ? static_cast<float>(per_update_result.stale_count) / static_cast<float>(total)
+                    : std::numeric_limits<float>::quiet_NaN();
+            }
+            if (key == "per_actor_learner_pair_count") return static_cast<float>(per_update_result.actor_learner_pair_count);
+            if (key == "per_actor_learner_positive_pair_ratio") return per_update_result.actor_learner_positive_pair_ratio;
+            if (key == "per_actor_learner_ratio_median") return per_update_result.actor_learner_ratio_median;
+            if (key == "per_actor_learner_log_ratio_mean") return per_update_result.actor_learner_log_ratio_mean;
+            if (key == "per_actor_learner_spearman") return per_update_result.actor_learner_spearman;
             if (key == "per_prio_max") {
                 if (per_priorities.defined())
                     return per_priorities.max().item<float>();
@@ -255,6 +291,10 @@ namespace anet::rl::dqn {
         torch::Tensor per_priorities;
         torch::Tensor per_is_weights;
         torch::Tensor per_sample_initial_count;
+        torch::Tensor per_sample_fixed_initial_count;
+        torch::Tensor per_sample_max_initial_count;
+        torch::Tensor per_sample_actor_initial_count;
+        ReplayPriorityUpdateResult per_update_result;
         long per_minibatch_size = 0;
     };
 
@@ -263,6 +303,9 @@ namespace anet::rl::dqn {
         anet::transfer::HostReadback priority_readback;
         torch::Tensor per_is_weights;
         torch::Tensor per_sample_initial_count;
+        torch::Tensor per_sample_fixed_initial_count;
+        torch::Tensor per_sample_max_initial_count;
+        torch::Tensor per_sample_actor_initial_count;
         long per_minibatch_size = 0;
         bool enabled = false;
     };
@@ -455,7 +498,8 @@ namespace anet::rl::dqn {
             std::shared_ptr<ActionContext> context,
             std::shared_ptr<std::shared_mutex> mutex,
             std::shared_ptr<anet::nn::Network> network,
-            std::shared_ptr<anet::nn::Network> src_network);
+            std::shared_ptr<anet::nn::Network> src_network,
+            bool emit_actor_q_hint = false);
         std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const override;
         void Sync() override;
     private:
@@ -465,6 +509,7 @@ namespace anet::rl::dqn {
         std::shared_ptr<std::shared_mutex> mutex_;
         std::shared_ptr<anet::nn::Network> network_;
         std::shared_ptr<anet::nn::Network> src_network_;
+        bool emit_actor_q_hint_ = false;
     };
 
     // ======================================================

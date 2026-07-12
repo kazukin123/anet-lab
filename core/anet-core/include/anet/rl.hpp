@@ -476,16 +476,34 @@ namespace anet::rl {
         std::string ToString() const;
     };
 
+    /// 学習Actorが既存forwardから取り出す、初期優先度推定用の小さなQメタデータ。
+    class ActorQHint {
+    public:
+        ActorQHint() = default;
+        ActorQHint(torch::Tensor q_values, torch::Tensor validity);
+
+        const torch::Tensor& GetQValues() const { return q_values_; }
+        const torch::Tensor& GetValidity() const { return validity_; }
+        const torch::Tensor& GetQValuesCpu() const;
+
+    private:
+        torch::Tensor q_values_;        ///< float32 [B,2]: Q(s,a), max_a Q_online(s,a)
+        torch::Tensor validity_;        ///< CPU uint8 [B]
+        mutable torch::Tensor q_values_cpu_;
+    };
+
     // 行動選択時の情報
     class BatchActionInfo : public anet::graphviz::GraphVizProvider {
     public:
         BatchActionInfo() {}
         virtual ~BatchActionInfo() = default;
 
-        BatchActionInfo(const torch::Tensor action, const anet::TensorDict& info = {}, const AuxData& aux = {})
+        BatchActionInfo(const torch::Tensor action, const anet::TensorDict& info = {}, const AuxData& aux = {},
+            std::optional<ActorQHint> actor_q_hint = std::nullopt)
             : action_cpu_(action.device().is_cpu() ? std::move(action) : torch::Tensor())
             , info_(info)
             , aux_(aux)
+            , actor_q_hint_(std::move(actor_q_hint))
         {
             if (action.device().is_cuda())
                 gpu_ = std::pair(action.device(), std::move(action));
@@ -503,16 +521,18 @@ namespace anet::rl {
         torch::Tensor GetAction(torch::Device device) const;
         virtual std::shared_ptr<BatchActionInfo> To(torch::Device device) const
         {
-            return std::make_shared<BatchActionInfo>(GetAction(device), info_.To(device), aux_ );
+            return std::make_shared<BatchActionInfo>(GetAction(device), info_.To(device), aux_, actor_q_hint_);
         }
         virtual std::shared_ptr<BatchActionInfo> WithAction(torch::Tensor action) const
         {
-            return std::make_shared<BatchActionInfo>(std::move(action), info_, aux_);
+            return std::make_shared<BatchActionInfo>(std::move(action), info_, aux_, actor_q_hint_);
         }
         const AuxData& GetAuxData() const { return aux_; }
         AuxData& GetAuxData() { return aux_; }
         const anet::TensorDict& GetInfo() const { return info_; }
         anet::TensorDict& GetInfo() { return info_; }
+        const std::optional<ActorQHint>& GetActorQHint() const { return actor_q_hint_; }
+        void SetActorQHint(ActorQHint actor_q_hint) { actor_q_hint_ = std::move(actor_q_hint); }
 
         std::string ToString() const;
     protected:
@@ -520,6 +540,7 @@ namespace anet::rl {
         mutable std::optional<std::pair<torch::Device, torch::Tensor>> gpu_;
         anet::TensorDict info_;
         AuxData aux_;
+        std::optional<ActorQHint> actor_q_hint_;
     };
 
     class BatchEnvResult {
@@ -690,6 +711,24 @@ namespace anet::rl {
     // ReplayBuffer 
     // =============================================================
 
+    enum class ReplayPrioritySource : int8_t {
+        NONE = 0,
+        FIXED_INITIAL = 1,
+        MAX_INITIAL = 2,
+        ACTOR_INITIAL = 3,
+        LEARNER_UPDATED = 4,
+    };
+
+    struct ReplayPriorityUpdateResult {
+        int64_t applied_count = 0;
+        int64_t stale_count = 0;
+        int64_t actor_learner_pair_count = 0;
+        float actor_learner_positive_pair_ratio = std::numeric_limits<float>::quiet_NaN();
+        float actor_learner_ratio_median = std::numeric_limits<float>::quiet_NaN();
+        float actor_learner_log_ratio_mean = std::numeric_limits<float>::quiet_NaN();
+        float actor_learner_spearman = std::numeric_limits<float>::quiet_NaN();
+    };
+
     /// サンプリングされた経験のミニバッチ（再利用可能オブジェクト）
     struct ExperienceSamples {
         // --- 観測データ ---
@@ -706,9 +745,9 @@ namespace anet::rl {
 
         // --- N-Step & PER メタデータ ---
         torch::Tensor n_steps;          ///< [B] 実際に進んだステップ数 (終端到達でNより短くなるケース用)
-        torch::Tensor indices;          ///< [B] PER優先度更新用の1Dインデックス
+        torch::Tensor replay_item_keys; ///< [B] generation付きopaque key (CPU int64)
         torch::Tensor is_weights;       ///< [B] Importance Sampling の重み
-        torch::Tensor per_is_initial_priority; ///< [B] サンプル時点で初期優先度のままかどうか
+        torch::Tensor per_priority_sources; ///< [B] ReplayPrioritySource (CPU int8)
 
         // --- その他 ---
         anet::TensorDict info;          ///< アルゴリズム固有データ (MuZeroの target_values 等)
@@ -730,9 +769,9 @@ namespace anet::rl {
             next_state.next_obs.ForEachTensor(visit);
             visit(next_state.terminals);
             visit(n_steps);
-            visit(indices);
+            visit(replay_item_keys);
             visit(is_weights);
-            visit(per_is_initial_priority);
+            visit(per_priority_sources);
             info.ForEachTensor(visit);
         }
         std::string ToString() const;
@@ -741,7 +780,8 @@ namespace anet::rl {
 
     class ReplayPriorityController {
     public:
-        virtual void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) = 0;
+        virtual ReplayPriorityUpdateResult UpdatePriorities(
+            const std::vector<int64_t>& item_keys, const std::vector<float>& priorities) = 0;
         //virtual void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override = 0;
         //virtual void UpdatePriorities(const torch::Tensor& indices, const torch::Tensor& priorities) = 0;
         ~ReplayPriorityController() = default;
@@ -768,6 +808,17 @@ namespace anet::rl {
         static constexpr const char* PER_VALUES = "replaybuffer.per.values";
         static constexpr const char* PER_DIST = "replaybuffer.per.distribution";
         static constexpr const char* PER_INITIAL_MASS_RATIO = "replaybuffer.per.initial_mass_ratio";
+        static constexpr const char* PER_FIXED_INITIAL_MASS_RATIO = "replaybuffer.per.fixed_initial_mass_ratio";
+        static constexpr const char* PER_MAX_INITIAL_MASS_RATIO = "replaybuffer.per.max_initial_mass_ratio";
+        static constexpr const char* PER_ACTOR_INITIAL_MASS_RATIO = "replaybuffer.per.actor_initial_mass_ratio";
+        static constexpr const char* PER_ACTOR_COMPLETION_ATTEMPT_COUNT = "replaybuffer.per.actor_completion_attempt_count";
+        static constexpr const char* PER_ACTOR_COMPLETION_SUCCESS_COUNT = "replaybuffer.per.actor_completion_success_count";
+        static constexpr const char* PER_ACTOR_COMPLETION_SUCCESS_RATIO = "replaybuffer.per.actor_completion_success_ratio";
+        static constexpr const char* PER_ACTOR_TRUNCATION_FALLBACK_COUNT = "replaybuffer.per.actor_truncation_fallback_count";
+        static constexpr const char* PER_ACTOR_TRUNCATION_FALLBACK_RATIO = "replaybuffer.per.actor_truncation_fallback_ratio";
+        static constexpr const char* PER_ACTOR_NONFINITE_FALLBACK_COUNT = "replaybuffer.per.actor_nonfinite_fallback_count";
+        static constexpr const char* PER_ACTOR_NONFINITE_FALLBACK_RATIO = "replaybuffer.per.actor_nonfinite_fallback_ratio";
+        static constexpr const char* PER_PRIORITY_UPDATE_STALE_DROP_COUNT = "replaybuffer.per.priority_update_stale_drop_count";
         static constexpr const char* PER_LAST_EVICTED_NEVER_SAMPLED_RATIO = "replaybuffer.per.last_evicted_never_sampled_ratio";
     };
 

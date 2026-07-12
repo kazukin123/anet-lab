@@ -4,6 +4,7 @@
 
 #include "anet/replay_buffer.hpp"
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <vector>
 #include <memory>
@@ -24,10 +25,17 @@ namespace anet::rl {
     /// Storage上の重いデータ（Obs等）とは分離された、N-Step計算用の軽量メタデータ
     struct QueueRecord {
         int64_t time_idx;       ///< Storage上のインデックス (Facadeが管理するためのKey)
+        int64_t logical_time_idx = 0;
         float reward;           ///< 即時報酬
         bool done;              ///< エピソード終了フラグ
         bool truncated;         ///< タイムアップ等による打ち切りフラグ
         bool is_dummy = false;  ///< Truncated時の終端計算用ダミーフラグ
+        struct ActorHintRow {
+            float q_sa = 0.0f;
+            float state_value = 0.0f;
+            bool valid = false;
+        };
+        std::optional<ActorHintRow> actor_q_hint;
     };
 
     /// 各環境(Env)ごとの未処理メタデータを一時保持するキュー
@@ -62,6 +70,7 @@ namespace anet::rl {
         float target_return;    ///< 計算された割引報酬和など (Value)
         bool terminal;          ///< 最終的な終了フラグ
         int actual_n_steps;     ///< 実際に進んだステップ数
+        bool truncated = false; ///< true terminalではないtruncation境界
     };
 
     class ReplayExperienceBuilder {
@@ -102,6 +111,8 @@ namespace anet::rl {
         int64_t GetSampleableCount(int stack_count, int unroll_steps, int n_step) const;
 
         bool IsOverwritingSampleable(int64_t env_idx, int64_t time_idx, int stack_count, int unroll_steps, int n_step) const;
+        int64_t GetWriteCursor(int64_t env_idx) const { return write_cursors_[env_idx]; }
+        bool IsLogicalSampleable(int64_t env_idx, int64_t logical_idx, int unroll_steps, int n_step) const;
     private:
         template <class Fn>
         void ForEachSampleableIndex(int64_t env, int stack_count, int unroll_steps, int n_step, Fn&& fn) const
@@ -200,10 +211,10 @@ namespace anet::rl {
     // ======================================================
 
     struct IndexSampleResult {
-        torch::Tensor indices;       ///< [B] 1D indices
+        torch::Tensor flat_slot_indices; ///< [B] 内部物理位置
         torch::Tensor sampling_prob; ///< [B] probabilities
         torch::Tensor is_weights;    ///< [B] importance sampling weights
-        torch::Tensor per_is_initial_priority; ///< [B] サンプル時点で初期PER優先度のままかどうか
+        torch::Tensor per_priority_sources; ///< [B] ReplayPrioritySource
     };
 
     class ReplayExperienceSampler {
@@ -221,6 +232,20 @@ namespace anet::rl {
             const IndexSampleResult& idx_result,
             int stack_count, int unroll_steps) const = 0;
         virtual ~ExperienceSampleExtractor() = default;
+    };
+
+    class ReplayPriorityStore {
+    public:
+        virtual void InvalidateSlot(int64_t flat_slot_index) = 0;
+        virtual void SetRawInitialPriority(int64_t flat_slot_index, float raw_priority, ReplayPrioritySource source) = 0;
+        virtual void SetMaxInitialPriority(int64_t flat_slot_index) = 0;
+        virtual ReplayPriorityUpdateResult ApplyLearnerPriorities(
+            const std::vector<int64_t>& flat_slot_indices, const std::vector<float>& raw_priorities) = 0;
+        virtual ReplayPrioritySource GetSource(int64_t flat_slot_index) const = 0;
+        virtual std::optional<float> GetScalar(const std::string& key) const = 0;
+        virtual std::optional<torch::Tensor> GetPriorityTensor(int64_t flat_slot_index) const = 0;
+        virtual torch::Tensor GatherPriorityRows(const torch::Tensor& flat_slot_indices) const = 0;
+        virtual ~ReplayPriorityStore() = default;
     };
 
 
@@ -294,15 +319,17 @@ namespace anet::rl {
             std::unique_ptr<ExperienceQueueController> queue_controller,
             std::unique_ptr<ReplayExperienceBuilder> builder,
             std::shared_ptr<ReplayExperienceSampler> sampler,
-            std::shared_ptr<ReplayPriorityController> prio_controller,
+            std::shared_ptr<ReplayPriorityStore> priority_store,
             std::shared_ptr<ExperienceSampleExtractor> extractor,
+            std::unique_ptr<InitialPriorityEstimator> initial_priority_estimator,
             torch::Device device,
             bool pin_memory);
 
         void Push(const BatchExperience& batch_exp) override;
         void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const override;
         int64_t Size() const override;
-        void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override;
+        ReplayPriorityUpdateResult UpdatePriorities(
+            const std::vector<int64_t>& item_keys, const std::vector<float>& priorities) override;
 
         std::optional<float> GetScalar(const std::string& key, int64_t index) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index) const override;
@@ -312,6 +339,10 @@ namespace anet::rl {
         void DumpToLog() const;
     private:
         void ProcessQueue(int64_t env_idx); // 内部パイプラインの駆動
+        void CompleteInitialPriorities(
+            int64_t env_idx, const std::optional<QueueRecord::ActorHintRow>& current_hint, int64_t current_logical_idx);
+        int64_t OnSlotWritten(int64_t flat_slot_index);
+        int64_t EncodeReplayItemKey(int64_t flat_slot_index) const;
         void InvalidateAccessorCacheForStorage();
         void InvalidateAccessorCacheForPriority();
         std::optional<std::vector<torch::Tensor>> TryGetCachedTensorVector(const std::string& key, int64_t index) const;
@@ -342,10 +373,28 @@ namespace anet::rl {
         std::unique_ptr<ExperienceQueueController> queue_controller_;
         std::unique_ptr<ReplayExperienceBuilder> builder_;
         std::shared_ptr<ReplayExperienceSampler> sampler_;
-        std::shared_ptr<ReplayPriorityController> prio_controller_;
+        std::shared_ptr<ReplayPriorityStore> priority_store_;
         std::shared_ptr<ExperienceSampleExtractor> extractor_;
+        std::unique_ptr<InitialPriorityEstimator> initial_priority_estimator_;
 
         std::vector<ExperienceQueue> queues_;
+        struct PendingInitialPriority {
+            int64_t logical_time_idx = 0;
+            int64_t flat_slot_index = 0;
+            float target_return = 0.0f;
+            bool terminal = false;
+            bool truncated = false;
+            int actual_n_steps = 1;
+            std::optional<QueueRecord::ActorHintRow> start_hint;
+        };
+        std::vector<std::deque<PendingInitialPriority>> pending_initial_priorities_;
+        std::vector<int64_t> generations_;
+        int64_t actual_capacity_ = 0;
+        int64_t actor_completion_attempt_count_ = 0;
+        int64_t actor_completion_success_count_ = 0;
+        int64_t actor_truncation_fallback_count_ = 0;
+        int64_t actor_nonfinite_fallback_count_ = 0;
+        int64_t priority_update_stale_drop_count_ = 0;
 
         mutable std::shared_mutex storage_mutex_;
         mutable std::mutex metadata_mutex_;

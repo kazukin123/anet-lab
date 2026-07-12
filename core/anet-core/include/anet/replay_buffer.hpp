@@ -23,6 +23,27 @@ namespace anet::rl {
         PRIORITIZED   // PER
     };
 
+    enum class ReplayInitialPriorityMode {
+        FIXED = 0,
+        MAX,
+        ACTOR_APPROX,
+    };
+
+    struct InitialPriorityEstimateInput {
+        float actor_q_sa = 0.0f;
+        float bootstrap_state_value = 0.0f;
+        float target_return = 0.0f;
+        float discount = 0.0f;
+        bool terminal = false;
+        int actual_n_steps = 1;
+    };
+
+    class InitialPriorityEstimator {
+    public:
+        virtual std::optional<float> Estimate(const InitialPriorityEstimateInput& input) const = 0;
+        virtual ~InitialPriorityEstimator() = default;
+    };
+
     struct ReplayBufferConfig {
 
         int64_t capacity = 100000;              // ENV毎の容量ではなく、全ENVの総容量(1Dツリーサイズ)
@@ -35,6 +56,7 @@ namespace anet::rl {
         // PER系
         float per_alpha = 0.5f;
         float per_initial_priority = 1.0f;
+        ReplayInitialPriorityMode per_initial_priority_mode = ReplayInitialPriorityMode::FIXED;
 
         // Stacking
         int stack_count = 1;                    ///< 過去方向へのスライス数 (Frame Stacking)
@@ -57,7 +79,8 @@ namespace anet::rl {
         int64_t num_envs,
         torch::Device storage_device,
         bool pin_memory = true,
-        std::optional<uint64_t> seed = std::nullopt
+        std::optional<uint64_t> seed = std::nullopt,
+        std::unique_ptr<InitialPriorityEstimator> initial_priority_estimator = nullptr
     );
 
     /// ReplayBuffer を 1-deep で先読みする decorator。
@@ -86,7 +109,8 @@ namespace anet::rl {
         void Push(const BatchExperience& batch_exp) override;
         void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const override;
         int64_t Size() const override;
-        void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override;
+        ReplayPriorityUpdateResult UpdatePriorities(
+            const std::vector<int64_t>& item_keys, const std::vector<float>& priorities) override;
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;

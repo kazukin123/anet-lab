@@ -1,4 +1,4 @@
-#include "catch.hpp"
+#include "anet/catch_test.hpp"
 
 #include "anet/replay_buffer.hpp"
 #include "anet/transfer.hpp"
@@ -213,7 +213,8 @@ rl::BatchExperience MakeBatch(
     const std::vector<bool>& next_truncated,
     const std::vector<bool>& episode_start,
     bool include_mask = false,
-    anet::TensorDict action_info_dict = anet::TensorDict())
+    anet::TensorDict action_info_dict = anet::TensorDict(),
+    std::optional<rl::ActorQHint> actor_q_hint = std::nullopt)
 {
     const int64_t num_envs = static_cast<int64_t>(state_values.size());
 
@@ -230,7 +231,8 @@ rl::BatchExperience MakeBatch(
         BoolTensor(BoolValues(num_envs, false)));
 
     auto actions = torch::zeros({ num_envs }, torch::TensorOptions().dtype(torch::kInt64));
-    auto action_info = std::make_shared<rl::BatchActionInfo>(actions, action_info_dict);
+    auto action_info = std::make_shared<rl::BatchActionInfo>(
+        actions, action_info_dict, rl::AuxData(), std::move(actor_q_hint));
 
     return rl::BatchExperience(state, action_info, FloatVector(rewards), next_state);
 }
@@ -256,15 +258,33 @@ TestBuffer MakeBuffer(
     const rl::ReplayBufferConfig& config,
     int64_t num_envs,
     bool include_mask = false,
-    uint64_t seed = 123)
+    uint64_t seed = 123,
+    std::unique_ptr<rl::InitialPriorityEstimator> initial_priority_estimator = nullptr)
 {
     TestBuffer out;
     out.config = config;
     out.num_envs = num_envs;
     out.capacity_per_env = config.capacity / num_envs;
-    out.rb = rl::CreateReplayBuffer(config, MakeEnvSpec(include_mask), num_envs, torch::kCPU, false, seed);
+    out.rb = rl::CreateReplayBuffer(
+        config,
+        MakeEnvSpec(include_mask),
+        num_envs,
+        torch::kCPU,
+        false,
+        seed,
+        std::move(initial_priority_estimator));
     return out;
 }
+
+class AbsoluteActorPriorityEstimator final : public rl::InitialPriorityEstimator {
+public:
+    std::optional<float> Estimate(const rl::InitialPriorityEstimateInput& input) const override
+    {
+        const float target = input.target_return
+            + (input.terminal ? 0.0f : input.discount * input.bootstrap_state_value);
+        return std::abs(input.actor_q_sa - target);
+    }
+};
 
 std::vector<int64_t> TensorToInt64Vector(const torch::Tensor& tensor)
 {
@@ -342,7 +362,7 @@ public:
         out_samples.next_state.next_obs = obs;
         out_samples.next_state.terminals = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kBool));
         out_samples.n_steps = torch::ones({ minibatch_size }, torch::TensorOptions().dtype(torch::kInt64));
-        out_samples.indices = torch::full({ minibatch_size }, call_index, torch::TensorOptions().dtype(torch::kInt64));
+        out_samples.replay_item_keys = torch::full({ minibatch_size }, call_index, torch::TensorOptions().dtype(torch::kInt64));
         out_samples.is_weights = torch::ones({ minibatch_size }, torch::TensorOptions().dtype(torch::kFloat32));
     }
 
@@ -351,12 +371,14 @@ public:
         return size_value;
     }
 
-    void UpdatePriorities(const std::vector<int64_t>&, const std::vector<float>&) override
+    rl::ReplayPriorityUpdateResult UpdatePriorities(
+        const std::vector<int64_t>&, const std::vector<float>&) override
     {
         std::lock_guard<std::mutex> lock(mutex);
         update_called_before_second_sample_finished = second_sample_started && !second_sample_finished;
         ++update_count;
         cv.notify_all();
+        return {};
     }
 
     std::optional<float> GetScalar(const std::string& key, int64_t) const override
@@ -562,9 +584,9 @@ rl::ExperienceSamples MakeTransferSamples()
             .terminals = BoolTensor({ false, true }),
         },
         .n_steps = torch::tensor({ 1, 2 }, torch::TensorOptions().dtype(torch::kInt64)),
-        .indices = torch::tensor({ 7, 8 }, torch::TensorOptions().dtype(torch::kInt64)),
+        .replay_item_keys = torch::tensor({ 7, 8 }, torch::TensorOptions().dtype(torch::kInt64)),
         .is_weights = FloatVector({ 0.5f, 0.25f }),
-        .per_is_initial_priority = BoolTensor({ true, false }),
+        .per_priority_sources = torch::tensor({ 1, 4 }, torch::TensorOptions().dtype(torch::kInt8)),
         .info = anet::TensorDict("info", FloatVector({ 9.0f, 10.0f }))
     };
 }
@@ -602,12 +624,16 @@ void RequireFlatApproxUnordered(const torch::Tensor& tensor, std::vector<float> 
     }
 }
 
-void RequireIndicesIn(const torch::Tensor& tensor, const std::vector<int64_t>& allowed)
+void RequireSlotsIn(
+    const torch::Tensor& tensor,
+    int64_t actual_capacity,
+    const std::vector<int64_t>& allowed)
 {
     auto indices = TensorToInt64Vector(tensor);
-    for (const int64_t idx : indices) {
-        CAPTURE(idx);
-        REQUIRE(std::find(allowed.begin(), allowed.end(), idx) != allowed.end());
+    for (const int64_t key : indices) {
+        const int64_t slot = key % actual_capacity;
+        CAPTURE(key, slot);
+        REQUIRE(std::find(allowed.begin(), allowed.end(), slot) != allowed.end());
     }
 }
 
@@ -670,7 +696,7 @@ TEST_CASE("ExperienceSamples ForEachTensor visits defined tensors", "[transfer]"
     RequireFlatApprox(samples.target_returns, { 4.0f, 5.0f });
     RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey), { 6.0f, 7.0f });
     RequireFlatApprox(samples.is_weights, { 1.5f, 1.25f });
-    RequireFlatApprox(samples.per_is_initial_priority, { 1.0f, 0.0f });
+    RequireFlatApprox(samples.per_priority_sources, { 1.0f, 4.0f });
     RequireFlatApprox(samples.info.At("info"), { 10.0f, 11.0f });
     CHECK_FALSE(samples.info.At("undefined").defined());
 }
@@ -681,8 +707,8 @@ TEST_CASE("DeviceTransfer CPU constructor keeps transfer synchronous", "[transfe
 
     CHECK_FALSE(transfer.ready_event.has_value());
     CHECK(transfer.device_samples.actions.device().is_cpu());
-    CHECK(transfer.device_samples.indices.device().is_cpu());
-    CHECK(transfer.device_samples.per_is_initial_priority.device().is_cpu());
+    CHECK(transfer.device_samples.replay_item_keys.device().is_cpu());
+    CHECK(transfer.device_samples.per_priority_sources.device().is_cpu());
     CHECK_FALSE(transfer.retained_source.actions.defined());
     RequireFlatApprox(transfer.device_samples.target_returns, { 3.0f, 4.0f });
 }
@@ -751,11 +777,11 @@ TEST_CASE("DeviceTransfer CUDA constructor copies and records stream when availa
 
     CHECK(transfer.device_samples.actions.is_cuda());
     CHECK(transfer.device_samples.obs.At(kVectorKey).is_cuda());
-    CHECK(transfer.device_samples.indices.device().is_cpu());
-    CHECK(transfer.device_samples.per_is_initial_priority.device().is_cpu());
-    RequireFlatApprox(transfer.device_samples.per_is_initial_priority, { 1.0f, 0.0f });
+    CHECK(transfer.device_samples.replay_item_keys.device().is_cpu());
+    CHECK(transfer.device_samples.per_priority_sources.device().is_cpu());
+    RequireFlatApprox(transfer.device_samples.per_priority_sources, { 1.0f, 4.0f });
     const auto expected_indices = std::vector<int64_t>{ 7, 8 };
-    CHECK(TensorToInt64Vector(transfer.device_samples.indices) == expected_indices);
+    CHECK(TensorToInt64Vector(transfer.device_samples.replay_item_keys) == expected_indices);
     RequireFlatApprox(transfer.device_samples.target_returns, { 3.0f, 4.0f });
 
     const auto& retained_strided = transfer.retained_source.info.At("strided");
@@ -793,9 +819,9 @@ TEST_CASE("ExperienceSamples To CUDA keeps sampled indices on CPU", "[transfer][
     CHECK(device_samples.n_steps.is_cuda());
     CHECK(device_samples.is_weights.is_cuda());
     CHECK(device_samples.info.At("info").is_cuda());
-    CHECK(device_samples.indices.device().is_cpu());
+    CHECK(device_samples.replay_item_keys.device().is_cpu());
     const auto expected_indices = std::vector<int64_t>{ 7, 8 };
-    CHECK(TensorToInt64Vector(device_samples.indices) == expected_indices);
+    CHECK(TensorToInt64Vector(device_samples.replay_item_keys) == expected_indices);
 }
 
 TEST_CASE("HostReadback CUDA constructor copies device tensor to pinned CPU", "[transfer][cuda]")
@@ -835,9 +861,8 @@ torch::Tensor RequireSingleTensorVector(const std::optional<std::vector<torch::T
 
 void RequireSampleIndex(const rl::ExperienceSamples& samples, int64_t expected_index)
 {
-    RequireShape(samples.indices, { 1 });
-    REQUIRE(samples.indices.scalar_type() == torch::kInt64);
-    REQUIRE(samples.indices[0].item<int64_t>() == expected_index);
+    RequireShape(samples.replay_item_keys, { 1 });
+    REQUIRE(samples.replay_item_keys.scalar_type() == torch::kInt64);
 }
 
 void RequireSampleMeta(
@@ -861,18 +886,23 @@ void RequireSampleMeta(
 
 rl::ExperienceSamples SampleOnlyIndex(const TestBuffer& buffer, int64_t target_index)
 {
-    const int64_t total_capacity = buffer.capacity_per_env * buffer.num_envs;
-    std::vector<int64_t> indices(static_cast<size_t>(total_capacity));
-    std::iota(indices.begin(), indices.end(), 0);
-    std::vector<float> zeros(static_cast<size_t>(total_capacity), 0.0f);
+    const int64_t actual_capacity = buffer.capacity_per_env * buffer.num_envs;
+    for (int attempt = 0; attempt < 4096; ++attempt) {
+        rl::ExperienceSamples samples;
+        buffer.rb->Sample(samples, 1, 0.4f);
+        const int64_t key = samples.replay_item_keys[0].item<int64_t>();
+        if (key % actual_capacity == target_index) {
+            RequireSampleIndex(samples, target_index);
+            return samples;
+        }
+    }
+    FAIL("Target replay slot was not sampled.");
+    return {};
+}
 
-    buffer.rb->UpdatePriorities(indices, zeros);
-    buffer.rb->UpdatePriorities({ target_index }, { 1.0f });
-
-    rl::ExperienceSamples samples;
-    buffer.rb->Sample(samples, 1, 0.4f);
-    RequireSampleIndex(samples, target_index);
-    return samples;
+int64_t FindCurrentKey(const TestBuffer& buffer, int64_t target_index)
+{
+    return SampleOnlyIndex(buffer, target_index).replay_item_keys[0].item<int64_t>();
 }
 
 float DiscountedReturn(int64_t env_idx, int64_t start_time, int n_step, float gamma)
@@ -928,16 +958,17 @@ TEST_CASE("ReplayBuffer sampled indices are valid sampleable storage indices", "
     rl::ExperienceSamples samples;
     buffer.rb->Sample(samples, buffer.rb->Size(), 0.4f);
 
-    RequireShape(samples.indices, { buffer.rb->Size() });
-    REQUIRE(samples.indices.scalar_type() == torch::kInt64);
+    RequireShape(samples.replay_item_keys, { buffer.rb->Size() });
+    REQUIRE(samples.replay_item_keys.scalar_type() == torch::kInt64);
 
-    auto idx_acc = samples.indices.accessor<int64_t, 1>();
-    for (int64_t b = 0; b < samples.indices.size(0); ++b) {
-        const int64_t idx = idx_acc[b];
+    auto idx_acc = samples.replay_item_keys.accessor<int64_t, 1>();
+    for (int64_t b = 0; b < samples.replay_item_keys.size(0); ++b) {
+        const int64_t key = idx_acc[b];
+        const int64_t idx = key % (buffer.capacity_per_env * num_envs);
         const int64_t env_idx = idx / buffer.capacity_per_env;
         const int64_t time_idx = idx % buffer.capacity_per_env;
 
-        CAPTURE(idx, env_idx, time_idx);
+        CAPTURE(key, idx, env_idx, time_idx);
         REQUIRE(idx >= 0);
         REQUIRE(idx < buffer.capacity_per_env * num_envs);
         REQUIRE(env_idx >= 0);
@@ -1121,25 +1152,27 @@ TEST_CASE("ReplayBuffer visualization accessors expose PER priorities", "[replay
 
     const int64_t env0_index = IndexOf(buffer, 0, 0);
     const int64_t env1_index = IndexOf(buffer, 1, 0);
-    buffer.rb->UpdatePriorities({ env0_index, env1_index }, { 4.0f, 9.0f });
+    buffer.rb->UpdatePriorities(
+        { FindCurrentKey(buffer, env0_index), FindCurrentKey(buffer, env1_index) },
+        { 4.0f, 9.0f });
 
     const float env0_priority = std::sqrt(4.0f);
     const float env1_priority = std::sqrt(9.0f);
 
     auto total = buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL);
     REQUIRE(total.has_value());
-    REQUIRE(*total == Catch::Approx(env0_priority + env1_priority + 2.0f).margin(1.0e-5));
+    REQUIRE(*total == Catch::Approx(env0_priority + env1_priority).margin(1.0e-5));
 
     auto initial_ratio = buffer.rb->GetScalar(rl::ReplayBuffer::PER_INITIAL_MASS_RATIO);
     REQUIRE(initial_ratio.has_value());
-    CHECK(*initial_ratio == Catch::Approx(2.0f / *total).margin(1.0e-5));
+    CHECK(*initial_ratio == Catch::Approx(0.0f).margin(1.0e-5));
 
     auto values = RequireSingleTensorVector(buffer.rb->GetTensorVector(rl::ReplayBuffer::PER_VALUES));
     RequireShape(values, { num_envs, 1 });
     RequireFlatApprox(values, { env0_priority, env1_priority });
 
     // PER_DIST は正規化サンプリング確率 p/total を返す。
-    const float per_total = env0_priority + env1_priority + 2.0f;
+    const float per_total = env0_priority + env1_priority;
     auto distribution = RequireSingleTensorVector(buffer.rb->GetTensorVector(rl::ReplayBuffer::PER_DIST));
     RequireShape(distribution, { num_envs, 1 });
     RequireFlatApprox(distribution, { env0_priority / per_total, env1_priority / per_total });
@@ -1163,13 +1196,99 @@ TEST_CASE("ReplayBuffer PER initial mass ratio remains accurate with many slots"
         PushTime(buffer, time_idx, {}, {}, time_idx == 0 ? BoolValues(1, true) : std::vector<bool>());
     }
 
-    std::vector<int64_t> indices(static_cast<size_t>(updated_count));
-    std::iota(indices.begin(), indices.end(), 0);
-    buffer.rb->UpdatePriorities(indices, std::vector<float>(static_cast<size_t>(updated_count), 0.02f));
+    rl::ExperienceSamples all_samples;
+    buffer.rb->Sample(all_samples, buffer.rb->Size(), 0.4f);
+    auto all_item_keys = TensorToInt64Vector(all_samples.replay_item_keys);
+    std::sort(all_item_keys.begin(), all_item_keys.end());
+    all_item_keys.erase(std::unique(all_item_keys.begin(), all_item_keys.end()), all_item_keys.end());
+    while (all_item_keys.size() < static_cast<size_t>(updated_count)) {
+        rl::ExperienceSamples extra;
+        buffer.rb->Sample(extra, buffer.rb->Size(), 0.4f);
+        auto extra_keys = TensorToInt64Vector(extra.replay_item_keys);
+        all_item_keys.insert(all_item_keys.end(), extra_keys.begin(), extra_keys.end());
+        std::sort(all_item_keys.begin(), all_item_keys.end());
+        all_item_keys.erase(std::unique(all_item_keys.begin(), all_item_keys.end()), all_item_keys.end());
+    }
+    std::vector<int64_t> item_keys(all_item_keys.begin(), all_item_keys.begin() + updated_count);
+    buffer.rb->UpdatePriorities(item_keys, std::vector<float>(static_cast<size_t>(updated_count), 0.02f));
 
     auto initial_mass_ratio = buffer.rb->GetScalar(rl::ReplayBuffer::PER_INITIAL_MASS_RATIO);
     REQUIRE(initial_mass_ratio.has_value());
-    REQUIRE(*initial_mass_ratio == Catch::Approx(0.9375f).margin(1.0e-6));
+    const float remaining_initial_mass = 0.3f * static_cast<float>(buffer.rb->Size() - updated_count);
+    const float learner_mass = 0.02f * static_cast<float>(updated_count);
+    REQUIRE(*initial_mass_ratio == Catch::Approx(
+        remaining_initial_mass / (remaining_initial_mass + learner_mass)).margin(1.0e-6));
+}
+
+TEST_CASE("ReplayBuffer completes actor initial priority when the transition becomes sampleable", "[replay_buffer][per][actor_initial]")
+{
+    auto config = MakeConfig(8, 1, 0.0f);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
+    auto buffer = MakeBuffer(
+        config,
+        1,
+        false,
+        777,
+        std::make_unique<AbsoluteActorPriorityEstimator>());
+
+    auto make_hint = [](float q_sa, float state_value) {
+        return rl::ActorQHint(
+            torch::tensor({ { q_sa, state_value } }, torch::TensorOptions().dtype(torch::kFloat32)),
+            torch::ones({ 1 }, torch::TensorOptions().dtype(torch::kUInt8).device(torch::kCPU)));
+    };
+
+    buffer.rb->Push(MakeBatch(
+        { 0.0f }, { 1.0f }, { 1.0f }, { false }, { false }, { true }, false, {}, make_hint(4.0f, 5.0f)));
+    REQUIRE(buffer.rb->Size() == 0);
+
+    buffer.rb->Push(MakeBatch(
+        { 1.0f }, { 2.0f }, { 0.0f }, { false }, { false }, { false }, false, {}, make_hint(6.0f, 2.0f)));
+    REQUIRE(buffer.rb->Size() == 1);
+
+    rl::ExperienceSamples samples;
+    buffer.rb->Sample(samples, 1, 0.4f);
+    REQUIRE(samples.per_priority_sources.device().is_cpu());
+    REQUIRE(samples.per_priority_sources.scalar_type() == torch::kInt8);
+    REQUIRE(samples.per_priority_sources[0].item<int8_t>()
+        == static_cast<int8_t>(rl::ReplayPrioritySource::ACTOR_INITIAL));
+}
+
+TEST_CASE("ReplayBuffer drops stale replay item keys after slot overwrite", "[replay_buffer][per][generation]")
+{
+    auto buffer = MakeBuffer(MakeConfig(4), 1);
+    PushTime(buffer, 0, {}, {}, BoolValues(1, true));
+    PushTime(buffer, 1);
+
+    const int64_t stale_key = FindCurrentKey(buffer, IndexOf(buffer, 0, 0));
+    PushTime(buffer, 2);
+    PushTime(buffer, 3);
+    PushTime(buffer, 4);
+
+    const auto result = buffer.rb->UpdatePriorities({ stale_key }, { 7.0f });
+    CHECK(result.applied_count == 0);
+    CHECK(result.stale_count == 1);
+    CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_PRIORITY_UPDATE_STALE_DROP_COUNT).value() == 1.0f);
+}
+
+TEST_CASE("ReplayBuffer priority update validates the whole batch before mutation", "[replay_buffer][per][generation]")
+{
+    auto buffer = MakeBuffer(MakeConfig(8), 1);
+    PushTime(buffer, 0, {}, {}, BoolValues(1, true));
+    PushTime(buffer, 1);
+    PushTime(buffer, 2);
+
+    const int64_t first_key = FindCurrentKey(buffer, IndexOf(buffer, 0, 0));
+    const int64_t second_key = FindCurrentKey(buffer, IndexOf(buffer, 0, 1));
+    const int64_t future_key = second_key + buffer.capacity_per_env * buffer.num_envs;
+    REQUIRE_THROWS(buffer.rb->UpdatePriorities({ first_key, future_key }, { 9.0f, 4.0f }));
+
+    rl::ExperienceSamples samples;
+    buffer.rb->Sample(samples, buffer.rb->Size(), 0.4f);
+    auto sources_tensor = samples.per_priority_sources.contiguous();
+    auto sources = sources_tensor.accessor<int8_t, 1>();
+    for (int64_t i = 0; i < samples.per_priority_sources.size(0); ++i) {
+        CHECK(sources[i] == static_cast<int8_t>(rl::ReplayPrioritySource::FIXED_INITIAL));
+    }
 }
 
 TEST_CASE("ReplayBuffer PER samples expose initial-priority flags", "[replay_buffer][per]")
@@ -1183,16 +1302,18 @@ TEST_CASE("ReplayBuffer PER samples expose initial-priority flags", "[replay_buf
 
     rl::ExperienceSamples first;
     buffer.rb->Sample(first, 1, 0.4f);
-    RequireShape(first.per_is_initial_priority, { 1 });
-    CHECK(first.per_is_initial_priority[0].item<bool>());
+    RequireShape(first.per_priority_sources, { 1 });
+    CHECK(first.per_priority_sources[0].item<int8_t>()
+        != static_cast<int8_t>(rl::ReplayPrioritySource::LEARNER_UPDATED));
 
-    auto sampled_indices = TensorToInt64Vector(first.indices);
+    auto sampled_indices = TensorToInt64Vector(first.replay_item_keys);
     buffer.rb->UpdatePriorities(sampled_indices, { 2.0f });
 
     rl::ExperienceSamples second;
     buffer.rb->Sample(second, 1, 0.4f);
-    RequireShape(second.per_is_initial_priority, { 1 });
-    CHECK_FALSE(second.per_is_initial_priority[0].item<bool>());
+    RequireShape(second.per_priority_sources, { 1 });
+    CHECK(second.per_priority_sources[0].item<int8_t>()
+        == static_cast<int8_t>(rl::ReplayPrioritySource::LEARNER_UPDATED));
 }
 
 TEST_CASE("ReplayBuffer PER normalizes IS weights from priority probabilities", "[replay_buffer][per][is_weight]")
@@ -1209,18 +1330,24 @@ TEST_CASE("ReplayBuffer PER normalizes IS weights from priority probabilities", 
 
     const int64_t low_priority_index = IndexOf(buffer, 0, 0);
     const int64_t high_priority_index = IndexOf(buffer, 0, 1);
-    buffer.rb->UpdatePriorities({ low_priority_index, high_priority_index }, { 1.0f, 4.0f });
+    buffer.rb->UpdatePriorities(
+        { FindCurrentKey(buffer, low_priority_index), FindCurrentKey(buffer, high_priority_index) },
+        { 1.0f, 4.0f });
 
     bool checked_mixed_batch = false;
     for (int attempt = 0; attempt < 128 && !checked_mixed_batch; ++attempt) {
         rl::ExperienceSamples samples;
         buffer.rb->Sample(samples, 2, 0.5f);
-        RequireShape(samples.indices, { 2 });
+        RequireShape(samples.replay_item_keys, { 2 });
         RequireShape(samples.is_weights, { 2 });
 
-        auto indices = TensorToInt64Vector(samples.indices);
+        auto indices = TensorToInt64Vector(samples.replay_item_keys);
         auto weights = TensorToFloatVector(samples.is_weights);
 
+        const int64_t actual_capacity = buffer.capacity_per_env * buffer.num_envs;
+        for (int64_t& key : indices) {
+            key %= actual_capacity;
+        }
         const bool saw_low = std::find(indices.begin(), indices.end(), low_priority_index) != indices.end();
         const bool saw_high = std::find(indices.begin(), indices.end(), high_priority_index) != indices.end();
         if (!saw_low || !saw_high) continue;
@@ -1244,15 +1371,16 @@ TEST_CASE("ReplayBuffer PER initializes new samples from max priority when confi
 {
     auto config = MakeConfig(20);
     config.per_alpha = 0.5f;
-    config.per_initial_priority = -1.0f;
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::MAX;
     auto buffer = MakeBuffer(config, 1);
 
     PushTime(buffer, 0, {}, {}, BoolValues(1, true));
+    PushTime(buffer, 1);
 
     const int64_t first_index = IndexOf(buffer, 0, 0);
-    buffer.rb->UpdatePriorities({ first_index }, { 9.0f });
+    buffer.rb->UpdatePriorities({ FindCurrentKey(buffer, first_index) }, { 9.0f });
 
-    PushTime(buffer, 1);
+    PushTime(buffer, 2);
 
     const int64_t second_index = IndexOf(buffer, 0, 1);
     auto first_priority = buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, first_index);
@@ -1320,14 +1448,14 @@ TEST_CASE("ReplayBuffer samples while push and priority update run concurrently"
                 rl::ExperienceSamples samples;
                 buffer.rb->Sample(samples, 4, 0.4f);
 
-                if (samples.indices.sizes().vec() != std::vector<int64_t>{ 4 }) {
+                if (samples.replay_item_keys.sizes().vec() != std::vector<int64_t>{ 4 }) {
                     throw std::runtime_error("Unexpected sample index shape.");
                 }
                 if (samples.actions.sizes().vec() != std::vector<int64_t>{ 4 }) {
                     throw std::runtime_error("Unexpected sample action shape.");
                 }
 
-                auto indices_cpu = samples.indices.cpu().contiguous();
+                auto indices_cpu = samples.replay_item_keys.cpu().contiguous();
                 auto indices_ptr = indices_cpu.data_ptr<int64_t>();
                 std::vector<int64_t> indices(indices_ptr, indices_ptr + indices_cpu.size(0));
                 std::vector<float> priorities(indices.size(), 1.0f + static_cast<float>(i % 7));
@@ -1349,7 +1477,7 @@ TEST_CASE("ReplayBuffer samples while push and priority update run concurrently"
 
     rl::ExperienceSamples samples;
     buffer.rb->Sample(samples, 4, 0.4f);
-    RequireShape(samples.indices, { 4 });
+    RequireShape(samples.replay_item_keys, { 4 });
     RequireShape(samples.actions, { 4 });
 }
 
@@ -1368,11 +1496,11 @@ TEST_CASE("PrefetchingReplayBuffer samples deterministically on CPU", "[replay_b
         for (int i = 0; i < 4; ++i) {
             rl::ExperienceSamples samples;
             rb->Sample(samples, 4, 0.4f);
-            RequireShape(samples.indices, { 4 });
+            RequireShape(samples.replay_item_keys, { 4 });
             RequireShape(samples.actions, { 4 });
             CHECK(samples.actions.device().is_cpu());
 
-            auto indices = TensorToInt64Vector(samples.indices);
+            auto indices = TensorToInt64Vector(samples.replay_item_keys);
             out.insert(out.end(), indices.begin(), indices.end());
             rb->UpdatePriorities(indices, std::vector<float>(indices.size(), 1.0f + static_cast<float>(i)));
         }
@@ -1415,7 +1543,7 @@ TEST_CASE("PrefetchingReplayBuffer waits for in-flight sample before priority up
 
     rl::ExperienceSamples samples;
     rb.Sample(samples, 1, 0.0f);
-    CHECK(TensorToInt64Vector(samples.indices) == std::vector<int64_t>{ 1 });
+    CHECK(TensorToInt64Vector(samples.replay_item_keys) == std::vector<int64_t>{ 1 });
 
     inner_state->WaitForSecondSampleStarted();
 
@@ -1458,7 +1586,7 @@ TEST_CASE("PrefetchingReplayBuffer waits for cold sample before push", "[replay_
     sampler.join();
     pusher.join();
 
-    CHECK(TensorToInt64Vector(samples.indices) == std::vector<int64_t>{ 1 });
+    CHECK(TensorToInt64Vector(samples.replay_item_keys) == std::vector<int64_t>{ 1 });
     REQUIRE(inner_state->WaitForPushCount(1, std::chrono::milliseconds(1000)));
     CHECK(inner_state->PushCount() == 1);
     CHECK_FALSE(inner_state->PushWasCalledBeforeFirstSampleFinished());
@@ -1471,7 +1599,7 @@ TEST_CASE("PrefetchingReplayBuffer delays armed push on worker FIFO", "[replay_b
 
     rl::ExperienceSamples samples;
     rb.Sample(samples, 1, 0.0f);
-    CHECK(TensorToInt64Vector(samples.indices) == std::vector<int64_t>{ 1 });
+    CHECK(TensorToInt64Vector(samples.replay_item_keys) == std::vector<int64_t>{ 1 });
 
     inner_state->WaitForSecondSampleStarted();
 
@@ -1493,7 +1621,7 @@ TEST_CASE("PrefetchingReplayBuffer delays armed push on worker FIFO", "[replay_b
 
     rl::ExperienceSamples second_samples;
     rb.Sample(second_samples, 1, 0.0f);
-    CHECK(TensorToInt64Vector(second_samples.indices) == std::vector<int64_t>{ 2 });
+    CHECK(TensorToInt64Vector(second_samples.replay_item_keys) == std::vector<int64_t>{ 2 });
     inner_state->WaitForSampleCount(3);
 
     CHECK(inner_state->PushCount() == 1);
@@ -1508,7 +1636,7 @@ TEST_CASE("PrefetchingReplayBuffer keeps shallow armed push alive after caller s
 
     rl::ExperienceSamples samples;
     rb.Sample(samples, 1, 0.0f);
-    CHECK(TensorToInt64Vector(samples.indices) == std::vector<int64_t>{ 1 });
+    CHECK(TensorToInt64Vector(samples.replay_item_keys) == std::vector<int64_t>{ 1 });
 
     inner_state->WaitForSecondSampleStarted();
 
@@ -1876,16 +2004,18 @@ TEST_CASE("ReplayBuffer PER samples only safe wrapped frame-stack indices", "[re
         PushTime(buffer, t, {}, {}, t == 0 ? BoolValues(num_envs, true) : BoolValues(num_envs, false));
     }
 
-    std::vector<int64_t> all_indices(static_cast<size_t>(capacity));
-    std::iota(all_indices.begin(), all_indices.end(), 0);
-    buffer.rb->UpdatePriorities(all_indices, std::vector<float>(all_indices.size(), 0.0f));
-    buffer.rb->UpdatePriorities({ IndexOf(buffer, 0, 3), IndexOf(buffer, 0, 4) }, { 10.0f, 10.0f });
+    rl::ExperienceSamples all_samples;
+    buffer.rb->Sample(all_samples, buffer.rb->Size(), 0.4f);
+    auto all_item_keys = TensorToInt64Vector(all_samples.replay_item_keys);
+    buffer.rb->UpdatePriorities(all_item_keys, std::vector<float>(all_item_keys.size(), 0.0f));
+    REQUIRE(all_item_keys.size() >= 2);
+    buffer.rb->UpdatePriorities({ all_item_keys[0], all_item_keys[1] }, { 10.0f, 10.0f });
 
     for (int attempt = 0; attempt < 16; ++attempt) {
         rl::ExperienceSamples samples;
         buffer.rb->Sample(samples, 1, 0.4f);
-        RequireShape(samples.indices, { 1 });
-        RequireIndicesIn(samples.indices, {
+        RequireShape(samples.replay_item_keys, { 1 });
+        RequireSlotsIn(samples.replay_item_keys, buffer.capacity_per_env * buffer.num_envs, {
             IndexOf(buffer, 0, 5),
             IndexOf(buffer, 0, 6),
             IndexOf(buffer, 0, 7),

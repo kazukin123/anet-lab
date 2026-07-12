@@ -1,4 +1,4 @@
-﻿#include "catch.hpp"
+﻿#include "anet/catch_test.hpp"
 
 #include "anet/default_dqn_agent.hpp"
 #include "anet/metrics_logger.hpp"
@@ -288,9 +288,9 @@ public:
         };
         out_samples.next_state.terminals = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kBool));
         out_samples.n_steps = torch::ones({ minibatch_size }, torch::TensorOptions().dtype(torch::kInt64));
-        out_samples.indices = torch::arange(minibatch_size, torch::TensorOptions().dtype(torch::kInt64));
+        out_samples.replay_item_keys = torch::arange(minibatch_size, torch::TensorOptions().dtype(torch::kInt64));
         out_samples.is_weights = torch::ones({ minibatch_size }, torch::TensorOptions().dtype(torch::kFloat32));
-        out_samples.per_is_initial_priority = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kBool));
+        out_samples.per_priority_sources = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kInt8));
     }
 
     int64_t Size() const override
@@ -301,11 +301,15 @@ public:
         return size_values[size_index++];
     }
 
-    void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override
+    rl::ReplayPriorityUpdateResult UpdatePriorities(
+        const std::vector<int64_t>& indices, const std::vector<float>& priorities) override
     {
         last_indices = indices;
         last_priorities = priorities;
         ++update_count;
+        rl::ReplayPriorityUpdateResult result;
+        result.applied_count = static_cast<int64_t>(indices.size());
+        return result;
     }
 
     std::optional<float> GetScalar(const std::string&, int64_t = -1) const override
@@ -697,7 +701,7 @@ protected:
 
         auto td_error = samples.target_returns.detach().to(torch::kFloat32) * 0.125f
             + samples.n_steps.to(torch::kFloat32) * 0.05f
-            + samples.indices.to(torch::kFloat32) * 0.001f
+            + samples.replay_item_keys.to(torch::kFloat32) * 0.001f
             + 0.01f;
 
         if (jitter_) jitter_->Sleep(DeterminismJitterPhase::BeforePerUpdate);
@@ -705,7 +709,7 @@ protected:
         if (jitter_) jitter_->Sleep(DeterminismJitterPhase::AfterPerUpdate);
 
         DeterminismTraceEntry entry{
-            .indices = TensorToInt64Vector(samples.indices),
+            .indices = TensorToInt64Vector(samples.replay_item_keys),
             .n_steps = TensorToInt64Vector(samples.n_steps),
             .target_returns = TensorToFloatVector(samples.target_returns),
             .is_weights = TensorToFloatVector(samples.is_weights),
@@ -1118,7 +1122,7 @@ rl::ExperienceSamples MakeAutocastProbeSamples(torch::Device device)
     samples.target_returns = torch::tensor({ 0.1f, 0.2f }, torch::TensorOptions().dtype(torch::kFloat32).device(device));
     samples.next_state.terminals = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool).device(device));
     samples.n_steps = torch::ones({ 2 }, torch::TensorOptions().dtype(torch::kInt64).device(device));
-    samples.indices = torch::arange(2, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
+    samples.replay_item_keys = torch::arange(2, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
     return samples;
 }
 
@@ -1298,9 +1302,12 @@ TEST_CASE("PER priority prepare/apply updates replay buffer from CPU materialize
     learner.UseReplayBuffer(replay_buffer);
 
     rl::ExperienceSamples samples;
-    samples.indices = torch::tensor({ 3, 5 }, torch::TensorOptions().dtype(torch::kInt64));
+    samples.replay_item_keys = torch::tensor({ 3, 5 }, torch::TensorOptions().dtype(torch::kInt64));
     samples.is_weights = torch::tensor({ 0.25f, 0.75f });
-    samples.per_is_initial_priority = DeterminismBoolTensor({ true, false });
+    samples.per_priority_sources = torch::tensor(
+        { static_cast<int8_t>(rl::ReplayPrioritySource::FIXED_INITIAL),
+          static_cast<int8_t>(rl::ReplayPrioritySource::LEARNER_UPDATED) },
+        torch::TensorOptions().dtype(torch::kInt8));
 
     auto td_error = torch::tensor({ -0.2f, 2.0f });
     auto pending = learner.PreparePerPriorityUpdate(samples, td_error);
@@ -1726,6 +1733,32 @@ TEST_CASE("DQNActionInfo exposes action UQE scalar metrics", "[dqn][action_polic
     CHECK_THROWS(non_uqe.GetScalar("action_uqe_margin"));
     CHECK_THROWS(non_uqe.GetScalar("action_uqe_margin.[x]"));
     CHECK_THROWS(win_info.GetScalar("action_uqe_margin.[3]"));
+}
+
+TEST_CASE("DQNActionInfo regathers Actor Q hint after action replacement", "[dqn][per][actor_initial]")
+{
+    auto q_values = torch::tensor({
+        { 1.0f, 5.0f, 2.0f },
+        { 7.0f, 3.0f, 4.0f },
+    });
+    rl::AuxData aux;
+    aux["q_values"] = q_values;
+    auto packed = torch::tensor({ { 5.0f, 5.0f }, { 7.0f, 7.0f } });
+    auto validity = torch::ones({ 2 }, torch::TensorOptions().dtype(torch::kUInt8));
+    dqn::DQNActionInfo info(
+        torch::tensor({ 1, 0 }, torch::TensorOptions().dtype(torch::kInt64)),
+        {},
+        aux,
+        rl::ActorQHint(packed, validity));
+
+    auto replaced = info.WithAction(torch::tensor({ 2, 1 }, torch::TensorOptions().dtype(torch::kInt64)));
+    REQUIRE(replaced->GetActorQHint().has_value());
+    CHECK(torch::equal(
+        replaced->GetActorQHint()->GetQValues(),
+        torch::tensor({ { 2.0f, 5.0f }, { 3.0f, 7.0f } })));
+    const auto& first_cpu = replaced->GetActorQHint()->GetQValuesCpu();
+    const auto& second_cpu = replaced->GetActorQHint()->GetQValuesCpu();
+    CHECK(first_cpu.unsafeGetTensorImpl() == second_cpu.unsafeGetTensorImpl());
 }
 
 TEST_CASE("ActionPolicy spatial tensor generation handles supported scale types", "[dqn][action_policy][spatial]")

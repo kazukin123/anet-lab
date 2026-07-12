@@ -17,6 +17,119 @@
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
 
+anet::rl::ReplayInitialPriorityMode anet::rl::dqn::ParseReplayInitialPriorityMode(const LearnerConfig& config)
+{
+    ReplayInitialPriorityMode mode;
+    if (config.per_initial_priority_mode == "fixed") {
+        mode = ReplayInitialPriorityMode::FIXED;
+    } else if (config.per_initial_priority_mode == "max") {
+        mode = ReplayInitialPriorityMode::MAX;
+    } else if (config.per_initial_priority_mode == "actor_approx") {
+        mode = ReplayInitialPriorityMode::ACTOR_APPROX;
+    } else {
+        ANET_SYSTEM_ERROR("Invalid learner.per_initial_priority_mode='" << config.per_initial_priority_mode
+            << "'. Expected one of: fixed, max, actor_approx.");
+    }
+    if (!std::isfinite(config.per_initial_priority) || config.per_initial_priority < 0.0f) {
+        ANET_SYSTEM_ERROR("Invalid learner.per_initial_priority=" << config.per_initial_priority
+            << ". Expected a finite value >= 0; use learner.per_initial_priority_mode=max for maximum initialization.");
+    }
+    if (!std::isfinite(config.per_eps) || config.per_eps < 0.0f) {
+        ANET_SYSTEM_ERROR("Invalid learner.per_eps=" << config.per_eps << ". Expected a finite value >= 0.");
+    }
+    if (!config.use_per && mode != ReplayInitialPriorityMode::FIXED) {
+        ANET_SYSTEM_ERROR("learner.per_initial_priority_mode=" << config.per_initial_priority_mode
+            << " requires learner.use_per=true; set the mode to fixed or enable PER.");
+    }
+    if (config.use_per && config.per_eps == 0.0f) {
+        static std::once_flag warn_once;
+        std::call_once(warn_once, [] { LOG::warn() << "zero-TD-error transitions may receive zero sampling priority"; });
+    }
+    if (mode == ReplayInitialPriorityMode::ACTOR_APPROX && config.per_alpha == 0.0f) {
+        static std::once_flag warn_once;
+        std::call_once(warn_once, [] { LOG::warn() << "Actor priority does not affect sampling when per_alpha is 0"; });
+    }
+    if (config.use_per_prio_clip) {
+        if (!std::isfinite(config.per_prio_clip_value) || config.per_prio_clip_value < 0.0f) {
+            ANET_SYSTEM_ERROR("Invalid learner.per_prio_clip_value=" << config.per_prio_clip_value
+                << ". Expected a finite value >= 0 when learner.use_per_prio_clip=true.");
+        }
+        if (config.per_prio_clip_value == 0.0f) {
+            static std::once_flag warn_once;
+            std::call_once(warn_once, [] { LOG::warn() << "PER priorities are clipped to zero when per_prio_clip_value is 0"; });
+        } else if (config.per_prio_clip_value <= config.per_eps) {
+            static std::once_flag warn_once;
+            std::call_once(warn_once, [] { LOG::warn() << "per_prio_clip_value <= per_eps may collapse priority differences"; });
+        }
+    }
+    return mode;
+}
+
+torch::Tensor anet::rl::dqn::TransformH(const torch::Tensor& x, float epsilon)
+{
+    return x.sign() * (torch::sqrt(x.abs() + 1.0f) - 1.0f) + epsilon * x;
+}
+
+torch::Tensor anet::rl::dqn::TransformHInv(const torch::Tensor& x, float epsilon)
+{
+    auto abs_x = x.abs();
+    auto inner = (torch::sqrt(1.0f + 4.0f * epsilon * (abs_x + 1.0f + epsilon)) - 1.0f) / (2.0f * epsilon);
+    return x.sign() * (inner * inner - 1.0f);
+}
+
+torch::Tensor anet::rl::dqn::MakePerRawPriority(
+    const torch::Tensor& td_error, float per_eps, bool use_clip, float clip_value)
+{
+    auto priority = td_error.abs() + per_eps;
+    return use_clip ? priority.clamp_max(clip_value) : priority;
+}
+
+namespace {
+
+float TransformHScalar(float x, float epsilon)
+{
+    return std::copysign(std::sqrt(std::abs(x) + 1.0f) - 1.0f, x) + epsilon * x;
+}
+
+float TransformHInvScalar(float x, float epsilon)
+{
+    const float inner = (std::sqrt(1.0f + 4.0f * epsilon * (std::abs(x) + 1.0f + epsilon)) - 1.0f)
+        / (2.0f * epsilon);
+    return std::copysign(inner * inner - 1.0f, x);
+}
+
+class DqnInitialPriorityEstimator final : public anet::rl::InitialPriorityEstimator {
+public:
+    explicit DqnInitialPriorityEstimator(const LearnerConfig& config)
+        : use_tbo_(config.use_tbo), tbo_epsilon_(config.tbo_epsilon), per_eps_(config.per_eps)
+        , use_clip_(config.use_per_prio_clip), clip_value_(config.per_prio_clip_value)
+    {
+    }
+
+    std::optional<float> Estimate(const anet::rl::InitialPriorityEstimateInput& input) const override
+    {
+        float target = input.target_return;
+        if (!input.terminal) {
+            const float bootstrap = use_tbo_
+                ? TransformHInvScalar(input.bootstrap_state_value, tbo_epsilon_)
+                : input.bootstrap_state_value;
+            target += input.discount * bootstrap;
+        }
+        if (use_tbo_) target = TransformHScalar(target, tbo_epsilon_);
+        float priority = std::abs(target - input.actor_q_sa) + per_eps_;
+        if (use_clip_) priority = std::min(priority, clip_value_);
+        return priority;
+    }
+private:
+    bool use_tbo_;
+    float tbo_epsilon_;
+    float per_eps_;
+    bool use_clip_;
+    float clip_value_;
+};
+
+} // namespace
+
 // ======================================================
 // NetworkModel
 // ======================================================
@@ -186,12 +299,27 @@ int64_t NetworkModel::Load(InputArchive& archive)
 
 std::shared_ptr<anet::rl::BatchActionInfo> DQNActionInfo::To(torch::Device device) const
 {
-    return std::make_shared<DQNActionInfo>(GetAction(device), info_.To(device), aux_);
+    return std::make_shared<DQNActionInfo>(GetAction(device), info_.To(device), aux_, actor_q_hint_);
 }
 
 std::shared_ptr<anet::rl::BatchActionInfo> DQNActionInfo::WithAction(torch::Tensor action) const
 {
-    return std::make_shared<DQNActionInfo>(std::move(action), info_, aux_);
+    auto hint = actor_q_hint_;
+    if (hint.has_value()) {
+        const auto it = aux_.find("q_values");
+        if (it == aux_.end() || !it->second.defined()) {
+            ANET_SYSTEM_ERROR("DQNActionInfo::WithAction requires aux[q_values] when ActorQHint is present.");
+        }
+        const auto& q_values = it->second;
+        if (action.device() != q_values.device()) {
+            ANET_SYSTEM_ERROR("DQNActionInfo::WithAction cannot replace a hinted action across devices. action="
+                << action.device() << " q_values=" << q_values.device());
+        }
+        auto q_sa = q_values.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1).to(torch::kFloat32);
+        auto packed = torch::stack({ q_sa, hint->GetQValues().select(1, 1) }, 1).contiguous();
+        hint = ActorQHint(std::move(packed), hint->GetValidity());
+    }
+    return std::make_shared<DQNActionInfo>(std::move(action), info_, aux_, std::move(hint));
 }
 
 namespace {
@@ -794,9 +922,10 @@ Actor::Actor(std::shared_ptr<ActionPolicy> policy,
     std::shared_ptr<ActionContext> context,
     std::shared_ptr<std::shared_mutex> mutex,
     std::shared_ptr<anet::nn::Network> network,
-    std::shared_ptr<anet::nn::Network> src_network)
+    std::shared_ptr<anet::nn::Network> src_network,
+    bool emit_actor_q_hint)
     : policy_(std::move(policy)), obs_norm_(std::move(obs_norm)), context_(std::move(context)), mutex_(std::move(mutex))
-    , network_(std::move(network)), src_network_(std::move(src_network))
+    , network_(std::move(network)), src_network_(std::move(src_network)), emit_actor_q_hint_(emit_actor_q_hint)
 {
     ;
 }
@@ -835,6 +964,26 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
         // Clone無し（直列モード）: Learnerの更新と競合しないようSharedLock
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         act_info = policy_->SelectAction(norm_obs, false, network_, rnd, sink);
+    }
+
+    // 学習Actorだけが、既存forwardの平均Qから初期優先度用ヒントをpackする。
+    if (emit_actor_q_hint_) {
+        const auto q_it = act_info->GetAuxData().find("q_values");
+        if (q_it == act_info->GetAuxData().end() || !q_it->second.defined()) {
+            ANET_SYSTEM_ERROR("actor_approx requires ActionPolicy aux[q_values].");
+        }
+        const auto& q_values = q_it->second;
+        auto action = act_info->GetAction();
+        if (action.device() != q_values.device()) {
+            ANET_SYSTEM_ERROR("actor_approx action and q_values must share a device. action="
+                << action.device() << " q_values=" << q_values.device());
+        }
+        auto q_sa = q_values.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1);
+        auto state_value = std::get<0>(q_values.max(1));
+        auto packed = torch::stack({ q_sa, state_value }, 1).to(torch::kFloat32).contiguous();
+        auto validity = torch::ones(
+            { packed.size(0) }, torch::TensorOptions().dtype(torch::kUInt8).device(torch::kCPU));
+        act_info->SetActorQHint(ActorQHint(std::move(packed), std::move(validity)));
     }
 
     // AuxData の詰め込み
@@ -927,6 +1076,7 @@ void Learner::SetupOptimizer()
 
 void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, seed_t seed)
 {
+    const auto initial_priority_mode = ParseReplayInitialPriorityMode(config_);
     anet::rl::ReplayBufferConfig rep_config{};
     rep_config.capacity = config_.replay_capacity;
     rep_config.gamma = config_.gamma;
@@ -936,6 +1086,7 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
         rep_config.sampler_type = anet::rl::ReplaySamplerType::PRIORITIZED;
         rep_config.per_alpha = config_.per_alpha;
         rep_config.per_initial_priority = config_.per_initial_priority;
+        rep_config.per_initial_priority_mode = initial_priority_mode;
         vars_.per_beta = config_.per_beta_start;
     } else {
         rep_config.sampler_type = ReplaySamplerType::UNIFORM;
@@ -952,7 +1103,12 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
 
     //this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.num_envs, device_, false, seed);
     //this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.num_envs, device_, true, seed);
-    this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.num_envs, torch::kCPU, false, seed);
+    std::unique_ptr<InitialPriorityEstimator> estimator;
+    if (initial_priority_mode == ReplayInitialPriorityMode::ACTOR_APPROX) {
+        estimator = std::make_unique<DqnInitialPriorityEstimator>(config_);
+    }
+    this->replay_buffer_ = anet::rl::CreateReplayBuffer(
+        rep_config, env_spec, batch_env_spec.num_envs, torch::kCPU, false, seed, std::move(estimator));
     if (config_.use_rb_prefetch) {
         this->replay_buffer_ = std::make_shared<anet::rl::PrefetchingReplayBuffer>(this->replay_buffer_, device_);
     }
@@ -1100,29 +1256,38 @@ PerPriorityUpdatePending Learner::PreparePerPriorityUpdate(const anet::rl::Exper
     if (samples.is_weights.defined()) {
         pending.per_is_weights = samples.is_weights;
     }
-    if (samples.per_is_initial_priority.defined()) {
-        auto initial_flags = samples.per_is_initial_priority.to(torch::kBool).to(torch::kCPU).contiguous();
+    if (samples.per_priority_sources.defined()) {
+        auto sources = samples.per_priority_sources.to(torch::kInt8).to(torch::kCPU).contiguous();
+        auto initial_flags = sources.ne(static_cast<int8_t>(ReplayPrioritySource::NONE))
+            & sources.ne(static_cast<int8_t>(ReplayPrioritySource::LEARNER_UPDATED));
         ANET_ASSERT_SHAPE(initial_flags, { batch_size });
         pending.per_sample_initial_count = initial_flags.to(torch::kFloat32).sum();
+        pending.per_sample_fixed_initial_count = sources.eq(
+            static_cast<int8_t>(ReplayPrioritySource::FIXED_INITIAL)).to(torch::kFloat32).sum();
+        pending.per_sample_max_initial_count = sources.eq(
+            static_cast<int8_t>(ReplayPrioritySource::MAX_INITIAL)).to(torch::kFloat32).sum();
+        pending.per_sample_actor_initial_count = sources.eq(
+            static_cast<int8_t>(ReplayPrioritySource::ACTOR_INITIAL)).to(torch::kFloat32).sum();
     }
 
     {
         ANET_PROFILE_SCOPE_FULL(indices_cpu, "Learner::UpdatePerPriorities.indices_cpu");
 
-        if (!samples.indices.device().is_cpu()) {
-            ANET_SYSTEM_ERROR("Learner::PreparePerPriorityUpdate expected samples.indices on CPU, actual="
-                << samples.indices.device());
+        if (!samples.replay_item_keys.device().is_cpu()) {
+            ANET_SYSTEM_ERROR("Learner::PreparePerPriorityUpdate expected samples.replay_item_keys on CPU, actual="
+                << samples.replay_item_keys.device());
         }
-        ANET_ASSERT_DEVICE_CPU(samples.indices);
-        ANET_ASSERT_SHAPE(samples.indices, { batch_size });
-        ANET_ASSERT_DTYPE(samples.indices, torch::kInt64);
-        auto indices_tensor_cpu = samples.indices.contiguous();
+        ANET_ASSERT_DEVICE_CPU(samples.replay_item_keys);
+        ANET_ASSERT_SHAPE(samples.replay_item_keys, { batch_size });
+        ANET_ASSERT_DTYPE(samples.replay_item_keys, torch::kInt64);
+        auto indices_tensor_cpu = samples.replay_item_keys.contiguous();
         auto indices_ptr = indices_tensor_cpu.data_ptr<int64_t>();
         pending.indices.assign(indices_ptr, indices_ptr + batch_size);
     }
 
     // TD error 由来の priority は GPU 上で確定し、CPU SumTree 更新まで D2H wait を遅延する。
-    auto raw_priorities = (td_error.abs().detach() + config_.per_eps).contiguous();
+    auto raw_priorities = MakePerRawPriority(
+        td_error.detach(), config_.per_eps, config_.use_per_prio_clip, config_.per_prio_clip_value).contiguous();
     ANET_ASSERT_SHAPE(raw_priorities, { batch_size });
     ANET_ASSERT_NAN(raw_priorities);
 
@@ -1153,6 +1318,9 @@ PerPriorityUpdateInfo Learner::ApplyPerPriorityUpdate(PerPriorityUpdatePending p
     info.per_minibatch_size = batch_size;
     info.per_is_weights = pending.per_is_weights;
     info.per_sample_initial_count = pending.per_sample_initial_count;
+    info.per_sample_fixed_initial_count = pending.per_sample_fixed_initial_count;
+    info.per_sample_max_initial_count = pending.per_sample_max_initial_count;
+    info.per_sample_actor_initial_count = pending.per_sample_actor_initial_count;
 
     {
         ANET_PROFILE_SCOPE_FULL(wait, "Learner::PerPriorityD2H.wait");
@@ -1168,8 +1336,7 @@ PerPriorityUpdateInfo Learner::ApplyPerPriorityUpdate(PerPriorityUpdatePending p
         ANET_ASSERT_SHAPE(priorities_cpu, { batch_size });
 
         if (config_.use_per_prio_clip) {
-            info.per_clipped_count = (priorities_cpu > config_.per_prio_clip_value).sum();
-            priorities_cpu = torch::clamp(priorities_cpu, 0.0f, config_.per_prio_clip_value);
+            info.per_clipped_count = (priorities_cpu >= config_.per_prio_clip_value).sum();
         } else {
             info.per_clipped_count = torch::zeros({}, priorities_cpu.options());
         }
@@ -1183,7 +1350,7 @@ PerPriorityUpdateInfo Learner::ApplyPerPriorityUpdate(PerPriorityUpdatePending p
 
     {
         ANET_PROFILE_SCOPE_FULL(update_tree, "Learner::UpdatePerPriorities.update_tree");
-        replay_buffer_->UpdatePriorities(pending.indices, priorities_vec);
+        info.per_update_result = replay_buffer_->UpdatePriorities(pending.indices, priorities_vec);
     }
 
     return info;
@@ -1198,17 +1365,13 @@ PerPriorityUpdateInfo Learner::UpdatePerPriorities(const anet::rl::ExperienceSam
 torch::Tensor Learner::TransformH(const torch::Tensor& x) const
 {
     // h 空間へ圧縮し、大きなBellmanターゲットの影響を抑える。
-    const float eps = config_.tbo_epsilon;
-    return x.sign() * (torch::sqrt(x.abs() + 1.0f) - 1.0f) + eps * x;
+    return dqn::TransformH(x, config_.tbo_epsilon);
 }
 
 torch::Tensor Learner::TransformHInv(const torch::Tensor& x) const
 {
     // h 空間の値を、報酬と足し合わせる前に実空間へ戻す。
-    const float eps = config_.tbo_epsilon;
-    auto abs_x = x.abs();
-    auto inner = (torch::sqrt(1.0f + 4.0f * eps * (abs_x + 1.0f + eps)) - 1.0f) / (2.0f * eps);
-    return x.sign() * (inner * inner - 1.0f);
+    return dqn::TransformHInv(x, config_.tbo_epsilon);
 }
 
 std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::MakeBatchUpdateResult(
@@ -1244,6 +1407,10 @@ std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::MakeBatchUpdateResult
         result->per_priorities = per_info.per_priorities;
         result->per_is_weights = per_info.per_is_weights;
         result->per_sample_initial_count = per_info.per_sample_initial_count;
+        result->per_sample_fixed_initial_count = per_info.per_sample_fixed_initial_count;
+        result->per_sample_max_initial_count = per_info.per_sample_max_initial_count;
+        result->per_sample_actor_initial_count = per_info.per_sample_actor_initial_count;
+        result->per_update_result = per_info.per_update_result;
     }
     return result;
 }
@@ -1294,17 +1461,17 @@ void Learner::ValidateDeviceSamples(const anet::rl::ExperienceSamples& samples, 
     ANET_ASSERT_DEVICE(samples.next_state.next_obs, device_);
     ANET_ASSERT_DEVICE(samples.next_state.terminals, device_);
     ANET_ASSERT_DEVICE(samples.n_steps, device_);
-    ANET_ASSERT_DEVICE_CPU(samples.indices);
+    ANET_ASSERT_DEVICE_CPU(samples.replay_item_keys);
     ANET_ASSERT_SHAPE(samples.actions, { batch_size });    // 離散アクション
     ANET_ASSERT_SHAPE(samples.target_returns, { batch_size });
     ANET_ASSERT_SHAPE(samples.next_state.terminals, { batch_size });
     ANET_ASSERT_SHAPE(samples.n_steps, { batch_size });
-    ANET_ASSERT_SHAPE(samples.indices, { batch_size });
+    ANET_ASSERT_SHAPE(samples.replay_item_keys, { batch_size });
     ANET_ASSERT_DTYPE(samples.actions, torch::kInt64);    // 離散アクション
     ANET_ASSERT_DTYPE(samples.target_returns, torch::kFloat32);
     ANET_ASSERT_DTYPE(samples.next_state.terminals, torch::kBool);
     ANET_ASSERT_DTYPE(samples.n_steps, torch::kInt64);
-    ANET_ASSERT_DTYPE(samples.indices, torch::kInt64);
+    ANET_ASSERT_DTYPE(samples.replay_item_keys, torch::kInt64);
 }
 
 anet::rl::BatchUpdateResultList

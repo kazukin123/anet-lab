@@ -186,6 +186,7 @@ namespace anet::rl {
             int   per_beta_step = 100000;      ///< betaを収束値まで線形変化させるステップ数
             float per_eps = 1e-6f;             ///< 優先度加算用微小値
             float per_initial_priority = 1.0f; ///< 新規データの初期優先度
+            std::string per_initial_priority_mode = "fixed"; ///< fixed / max / actor_approx
             bool use_per_prio_clip = false;    ///< 優先度をクリッピングするか
             float per_prio_clip_value = 50.0f; ///< 優先度の上限値
 
