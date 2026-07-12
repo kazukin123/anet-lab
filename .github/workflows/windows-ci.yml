@@ -19,7 +19,7 @@ jobs:
     env:
       # マトリックス変数を使用
       BUILD_TYPE: ${{ matrix.build_type }}
-      LIBTORCH_VER: "2.9.1-cu130"
+      LIBTORCH_VER: "2.12.0-cu130"
       WX_VER: "3.3.1"
 
     steps:
@@ -49,8 +49,8 @@ jobs:
       shell: pwsh
       run: |
         New-Item -ItemType Directory -Force -Path deps
-        $urlRel = "https://download.pytorch.org/libtorch/cu130/libtorch-win-shared-with-deps-2.11.0%2Bcu130.zip"
-        $urlDbg = "https://download.pytorch.org/libtorch/cu130/libtorch-win-shared-with-deps-debug-2.11.0%2Bcu130.zip"
+        $urlRel = "https://download.pytorch.org/libtorch/cu130/libtorch-win-shared-with-deps-2.12.0%2Bcu130.zip"
+        $urlDbg = "https://download.pytorch.org/libtorch/cu130/libtorch-win-shared-with-deps-debug-2.12.0%2Bcu130.zip"
 
         # 並列DLせず順次DLして確実に配置
         Write-Host "Downloading LibTorch Release..."
