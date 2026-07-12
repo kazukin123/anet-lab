@@ -1,4 +1,4 @@
-#include "catch.hpp"
+#include "anet/catch_test.hpp"
 
 #include "dqn_based_heads.hpp"
 #include "nn_heads.hpp"

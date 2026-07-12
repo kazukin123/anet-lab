@@ -1,4 +1,4 @@
-#include "catch.hpp"
+#include "anet/catch_test.hpp"
 
 #include "anet/default_dqn_agent.hpp"
 #include "anet/metrics_logger.hpp"

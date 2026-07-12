@@ -5,7 +5,7 @@
 #include <string_view>
 #include <stdexcept>
 #include <vector>
-#include "catch.hpp"
+#include "anet/catch_test.hpp"
 
 namespace {
 

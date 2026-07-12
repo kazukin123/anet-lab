@@ -7,7 +7,7 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "catch.hpp"
+#include "anet/catch_test.hpp"
 #include "anet/test_util.hpp"
 #include "anet/env.hpp"
 

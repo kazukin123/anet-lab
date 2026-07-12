@@ -1,4 +1,4 @@
-#include "catch.hpp"
+#include "anet/catch_test.hpp"
 
 #include "anet/config.hpp"
 #include "anet/schedule.hpp"

@@ -1,4 +1,4 @@
-#include "catch.hpp"
+#include "anet/catch_test.hpp"
 
 #include "anet/metrics_logger.hpp"
 #include "anet/observers.hpp"
