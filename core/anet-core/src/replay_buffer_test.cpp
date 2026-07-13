@@ -14,6 +14,7 @@
 #include <exception>
 #include <mutex>
 #include <numeric>
+#include <span>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -214,7 +215,7 @@ rl::BatchExperience MakeBatch(
     const std::vector<bool>& episode_start,
     bool include_mask = false,
     anet::TensorDict action_info_dict = anet::TensorDict(),
-    std::optional<rl::ActorQHint> actor_q_hint = std::nullopt)
+    std::optional<rl::ReplayInitialPriorityHint> replay_initial_priority_hint = std::nullopt)
 {
     const int64_t num_envs = static_cast<int64_t>(state_values.size());
 
@@ -232,7 +233,7 @@ rl::BatchExperience MakeBatch(
 
     auto actions = torch::zeros({ num_envs }, torch::TensorOptions().dtype(torch::kInt64));
     auto action_info = std::make_shared<rl::BatchActionInfo>(
-        actions, action_info_dict, rl::AuxData(), std::move(actor_q_hint));
+        actions, action_info_dict, rl::AuxData(), std::move(replay_initial_priority_hint));
 
     return rl::BatchExperience(state, action_info, FloatVector(rewards), next_state);
 }
@@ -278,11 +279,25 @@ TestBuffer MakeBuffer(
 
 class AbsoluteActorPriorityEstimator final : public rl::InitialPriorityEstimator {
 public:
+    bool ValidateHint(std::span<const float> hint) const override
+    {
+        if (hint.size() != 3) {
+            ANET_SYSTEM_ERROR("AbsoluteActorPriorityEstimator expected a three-column test hint. actual=" << hint.size());
+        }
+        return std::ranges::all_of(hint, [](float value) { return std::isfinite(value); });
+    }
+
     std::optional<float> Estimate(const rl::InitialPriorityEstimateInput& input) const override
     {
+        if (input.terminal && !input.bootstrap_hint.empty()) {
+            ANET_SYSTEM_ERROR("Terminal priority estimation must receive an empty bootstrap hint.");
+        }
+        if (!input.terminal && input.bootstrap_hint.empty()) {
+            ANET_SYSTEM_ERROR("Non-terminal priority estimation requires a bootstrap hint.");
+        }
         const float target = input.target_return
-            + (input.terminal ? 0.0f : input.discount * input.bootstrap_state_value);
-        return std::abs(input.actor_q_sa - target);
+            + (input.terminal ? 0.0f : input.discount * input.bootstrap_hint[1]);
+        return std::abs(input.start_hint[0] - target);
     }
 };
 
@@ -1220,7 +1235,41 @@ TEST_CASE("ReplayBuffer PER initial mass ratio remains accurate with many slots"
         remaining_initial_mass / (remaining_initial_mass + learner_mass)).margin(1.0e-6));
 }
 
-TEST_CASE("ReplayBuffer completes actor initial priority when the transition becomes sampleable", "[replay_buffer][per][actor_initial]")
+TEST_CASE("ReplayInitialPriorityHint validates and caches a packed payload", "[replay_buffer][per][actor_initial][hint]")
+{
+    auto source = torch::arange(6, torch::TensorOptions().dtype(torch::kFloat32))
+        .reshape({ 3, 2 })
+        .transpose(0, 1)
+        .set_requires_grad(true);
+    REQUIRE_FALSE(source.is_contiguous());
+
+    rl::ReplayInitialPriorityHint hint(source);
+    CHECK(hint.GetPayload().sizes() == torch::IntArrayRef({ 2, 3 }));
+    CHECK(hint.GetPayload().is_contiguous());
+    CHECK_FALSE(hint.GetPayload().requires_grad());
+
+    const auto& first_cpu = hint.GetPayloadCpu();
+    const auto& second_cpu = hint.GetPayloadCpu();
+    CHECK(first_cpu.unsafeGetTensorImpl() == second_cpu.unsafeGetTensorImpl());
+
+    CHECK_THROWS(rl::ReplayInitialPriorityHint(torch::Tensor()));
+    CHECK_THROWS(rl::ReplayInitialPriorityHint(torch::zeros({ 2, 3 }, torch::kFloat64)));
+    CHECK_THROWS(rl::ReplayInitialPriorityHint(torch::zeros({ 2 }, torch::kFloat32)));
+    CHECK_THROWS(rl::ReplayInitialPriorityHint(torch::zeros({ 0, 2 }, torch::kFloat32)));
+    CHECK_THROWS(rl::ReplayInitialPriorityHint(torch::zeros({ 2, 0 }, torch::kFloat32)));
+
+    if (torch::cuda::is_available()) {
+        rl::ReplayInitialPriorityHint cuda_hint(torch::tensor(
+            { { 1.0f, 2.0f, 3.0f } },
+            torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA, 0)));
+        const auto& first_cuda_cpu = cuda_hint.GetPayloadCpu();
+        const auto& second_cuda_cpu = cuda_hint.GetPayloadCpu();
+        CHECK(first_cuda_cpu.device().is_cpu());
+        CHECK(first_cuda_cpu.unsafeGetTensorImpl() == second_cuda_cpu.unsafeGetTensorImpl());
+    }
+}
+
+TEST_CASE("ReplayBuffer transports an opaque three-column hint until initial priority completion", "[replay_buffer][per][actor_initial]")
 {
     auto config = MakeConfig(8, 1, 0.0f);
     config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
@@ -1232,9 +1281,8 @@ TEST_CASE("ReplayBuffer completes actor initial priority when the transition bec
         std::make_unique<AbsoluteActorPriorityEstimator>());
 
     auto make_hint = [](float q_sa, float state_value) {
-        return rl::ActorQHint(
-            torch::tensor({ { q_sa, state_value } }, torch::TensorOptions().dtype(torch::kFloat32)),
-            torch::ones({ 1 }, torch::TensorOptions().dtype(torch::kUInt8).device(torch::kCPU)));
+        return rl::ReplayInitialPriorityHint(torch::tensor(
+            { { q_sa, state_value, 123.0f } }, torch::TensorOptions().dtype(torch::kFloat32)));
     };
 
     buffer.rb->Push(MakeBatch(
@@ -1251,6 +1299,121 @@ TEST_CASE("ReplayBuffer completes actor initial priority when the transition bec
     REQUIRE(samples.per_priority_sources.scalar_type() == torch::kInt8);
     REQUIRE(samples.per_priority_sources[0].item<int8_t>()
         == static_cast<int8_t>(rl::ReplayPrioritySource::ACTOR_INITIAL));
+}
+
+TEST_CASE("ReplayBuffer completes a true terminal from the start hint only", "[replay_buffer][per][actor_initial][terminal]")
+{
+    auto config = MakeConfig(8, 1, 0.0f);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
+    auto buffer = MakeBuffer(
+        config,
+        1,
+        false,
+        777,
+        std::make_unique<AbsoluteActorPriorityEstimator>());
+
+    auto hint = rl::ReplayInitialPriorityHint(torch::tensor(
+        { { 4.0f, 5.0f, 123.0f } }, torch::TensorOptions().dtype(torch::kFloat32)));
+    buffer.rb->Push(MakeBatch(
+        { 0.0f }, { 1.0f }, { 2.0f }, { true }, { false }, { true }, false, {}, std::move(hint)));
+    REQUIRE(buffer.rb->Size() == 0);
+
+    // sampleable境界へ進める次stepのhintはbootstrapとして読まれないことも同時に確認する。
+    auto next_episode_hint = rl::ReplayInitialPriorityHint(torch::tensor(
+        { { std::numeric_limits<float>::quiet_NaN(), 7.0f, 456.0f } },
+        torch::TensorOptions().dtype(torch::kFloat32)));
+    buffer.rb->Push(MakeBatch(
+        { 1.0f }, { 2.0f }, { 0.0f }, { false }, { false }, { true }, false, {},
+        std::move(next_episode_hint)));
+
+    REQUIRE(buffer.rb->Size() == 1);
+    rl::ExperienceSamples samples;
+    buffer.rb->Sample(samples, 1, 0.4f);
+    REQUIRE(samples.per_priority_sources[0].item<int8_t>()
+        == static_cast<int8_t>(rl::ReplayPrioritySource::ACTOR_INITIAL));
+}
+
+TEST_CASE("ReplayBuffer uses max initial priority for a finite truncated hint", "[replay_buffer][per][actor_initial][truncated]")
+{
+    auto config = MakeConfig(8, 1, 0.0f);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
+    auto buffer = MakeBuffer(
+        config,
+        1,
+        false,
+        777,
+        std::make_unique<AbsoluteActorPriorityEstimator>());
+
+    auto hint = rl::ReplayInitialPriorityHint(torch::tensor(
+        { { 4.0f, 5.0f, 123.0f } }, torch::TensorOptions().dtype(torch::kFloat32)));
+    buffer.rb->Push(MakeBatch(
+        { 0.0f }, { 1.0f }, { 2.0f }, { false }, { true }, { true }, false, {}, std::move(hint)));
+
+    REQUIRE(buffer.rb->Size() == 1);
+    rl::ExperienceSamples samples;
+    buffer.rb->Sample(samples, 1, 0.4f);
+    CHECK(samples.per_priority_sources[0].item<int8_t>()
+        == static_cast<int8_t>(rl::ReplayPrioritySource::MAX_INITIAL));
+    CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_ACTOR_TRUNCATION_FALLBACK_COUNT).value() == 1.0f);
+    CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_ACTOR_NONFINITE_FALLBACK_COUNT).value() == 0.0f);
+}
+
+TEST_CASE("ReplayBuffer validates a truncated start hint before fallback", "[replay_buffer][per][actor_initial][truncated][nonfinite]")
+{
+    auto config = MakeConfig(8, 1, 0.0f);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
+    auto buffer = MakeBuffer(
+        config,
+        1,
+        false,
+        777,
+        std::make_unique<AbsoluteActorPriorityEstimator>());
+
+    auto hint = rl::ReplayInitialPriorityHint(torch::tensor(
+        { { std::numeric_limits<float>::quiet_NaN(), 5.0f, 123.0f } },
+        torch::TensorOptions().dtype(torch::kFloat32)));
+    auto batch = MakeBatch(
+        { 0.0f }, { 1.0f }, { 2.0f }, { false }, { true }, { true }, false, {}, std::move(hint));
+
+#ifdef NDEBUG
+    REQUIRE_NOTHROW(buffer.rb->Push(batch));
+    REQUIRE(buffer.rb->Size() == 1);
+    rl::ExperienceSamples samples;
+    buffer.rb->Sample(samples, 1, 0.4f);
+    CHECK(samples.per_priority_sources[0].item<int8_t>()
+        == static_cast<int8_t>(rl::ReplayPrioritySource::MAX_INITIAL));
+    CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_ACTOR_NONFINITE_FALLBACK_COUNT).value() == 1.0f);
+    CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_ACTOR_TRUNCATION_FALLBACK_COUNT).value() == 0.0f);
+#else
+    REQUIRE_THROWS(buffer.rb->Push(batch));
+#endif
+}
+
+TEST_CASE("ReplayBuffer rejects a hint batch mismatch before mutation", "[replay_buffer][per][actor_initial][hint]")
+{
+    auto config = MakeConfig(8, 1, 0.0f);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
+    auto buffer = MakeBuffer(
+        config,
+        1,
+        false,
+        777,
+        std::make_unique<AbsoluteActorPriorityEstimator>());
+
+    auto mismatched_hint = rl::ReplayInitialPriorityHint(torch::tensor(
+        { { 1.0f, 2.0f, 3.0f }, { 4.0f, 5.0f, 6.0f } },
+        torch::TensorOptions().dtype(torch::kFloat32)));
+    REQUIRE_THROWS(buffer.rb->Push(MakeBatch(
+        { 0.0f, 1.0f },
+        { 1.0f, 2.0f },
+        { 0.0f, 0.0f },
+        { false, false },
+        { false, false },
+        { true, true },
+        false,
+        {},
+        std::move(mismatched_hint))));
+    CHECK(buffer.rb->Size() == 0);
 }
 
 TEST_CASE("ReplayBuffer drops stale replay item keys after slot overwrite", "[replay_buffer][per][generation]")

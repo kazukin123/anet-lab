@@ -87,6 +87,53 @@ torch::Tensor anet::rl::dqn::MakePerRawPriority(
     return use_clip ? priority.clamp_max(clip_value) : priority;
 }
 
+torch::Tensor anet::rl::dqn::PackActorQHint(
+    const torch::Tensor& actor_q_sa, const torch::Tensor& actor_state_value)
+{
+    // ActorとWithActionが同じ列順でpackできるよう、DQN payloadの構築を一元化する。
+    if (!actor_q_sa.defined() || !actor_state_value.defined()) {
+        ANET_SYSTEM_ERROR("PackActorQHint requires defined tensors.");
+    }
+    if (actor_q_sa.dim() != 1 || actor_state_value.dim() != 1
+        || actor_q_sa.sizes() != actor_state_value.sizes()) {
+        ANET_SYSTEM_ERROR("PackActorQHint expected matching rank-1 tensors. actor_q_sa="
+            << actor_q_sa.sizes() << " actor_state_value=" << actor_state_value.sizes());
+    }
+    if (actor_q_sa.device() != actor_state_value.device()) {
+        ANET_SYSTEM_ERROR("PackActorQHint expected tensors on the same device. actor_q_sa="
+            << actor_q_sa.device() << " actor_state_value=" << actor_state_value.device());
+    }
+    return torch::stack({ actor_q_sa, actor_state_value }, 1).to(torch::kFloat32).contiguous();
+}
+
+ActorQHintBatch anet::rl::dqn::DecodeActorQHint(const torch::Tensor& payload)
+{
+    // tensor carrierからDQN列を取り出す境界で、共通層が扱わないschemaを検証する。
+    if (!payload.defined()) {
+        ANET_SYSTEM_ERROR("DQN Actor Q hint payload must be defined.");
+    }
+    if (payload.dim() != 2 || payload.scalar_type() != torch::kFloat32
+        || payload.size(1) != kActorQHintColumnCount) {
+        ANET_SYSTEM_ERROR("DQN Actor Q hint must be float32 [B,2]. actual=" << payload.sizes());
+    }
+    return ActorQHintBatch{
+        .actor_q_sa = payload.select(1, kActorQSaColumn),
+        .actor_state_value = payload.select(1, kActorStateValueColumn),
+    };
+}
+
+ActorQHintRow anet::rl::dqn::DecodeActorQHint(std::span<const float> payload)
+{
+    // ReplayBufferから渡されたopaque rowは、DQN推定器に入る時点でだけ列へdecodeする。
+    if (payload.size() != kActorQHintColumnCount) {
+        ANET_SYSTEM_ERROR("DQN Actor Q hint must have K=2. actual=" << payload.size());
+    }
+    return ActorQHintRow{
+        .actor_q_sa = payload[kActorQSaColumn],
+        .actor_state_value = payload[kActorStateValueColumn],
+    };
+}
+
 namespace {
 
 float TransformHScalar(float x, float epsilon)
@@ -109,19 +156,32 @@ public:
     {
     }
 
+    bool ValidateHint(std::span<const float> hint) const override
+    {
+        const auto decoded = DecodeActorQHint(hint);
+        return std::isfinite(decoded.actor_q_sa) && std::isfinite(decoded.actor_state_value);
+    }
+
     std::optional<float> Estimate(const anet::rl::InitialPriorityEstimateInput& input) const override
     {
+        if (!ValidateHint(input.start_hint)
+            || (!input.terminal && !ValidateHint(input.bootstrap_hint))) {
+            return std::nullopt;
+        }
+        const auto start_hint = DecodeActorQHint(input.start_hint);
         // TBOではbootstrap値を実空間へ戻してn-step収益と加算し、Learnerと同じh空間へ再変換する。
         float target = input.target_return;
         if (!input.terminal) {
+            const float bootstrap_state_value = DecodeActorQHint(input.bootstrap_hint).actor_state_value;
             const float bootstrap = use_tbo_
-                ? TransformHInvScalar(input.bootstrap_state_value, tbo_epsilon_)
-                : input.bootstrap_state_value;
+                ? TransformHInvScalar(bootstrap_state_value, tbo_epsilon_)
+                : bootstrap_state_value;
             target += input.discount * bootstrap;
         }
         if (use_tbo_) target = TransformHScalar(target, tbo_epsilon_);
-        float priority = std::abs(target - input.actor_q_sa) + per_eps_;
+        float priority = std::abs(target - start_hint.actor_q_sa) + per_eps_;
         if (use_clip_) priority = std::min(priority, clip_value_);
+        if (!std::isfinite(priority)) return std::nullopt;
         return priority;
     }
 private:
@@ -303,17 +363,19 @@ int64_t NetworkModel::Load(InputArchive& archive)
 
 std::shared_ptr<anet::rl::BatchActionInfo> DQNActionInfo::To(torch::Device device) const
 {
-    return std::make_shared<DQNActionInfo>(GetAction(device), info_.To(device), aux_, actor_q_hint_);
+    return std::make_shared<DQNActionInfo>(
+        GetAction(device), info_.To(device), aux_, replay_initial_priority_hint_);
 }
 
 std::shared_ptr<anet::rl::BatchActionInfo> DQNActionInfo::WithAction(torch::Tensor action) const
 {
-    auto hint = actor_q_hint_;
+    auto hint = replay_initial_priority_hint_;
     if (hint.has_value()) {
         // 実行行動の差し替え後も、既存forwardの全行動QからQ(s,a)だけを再取得してhint契約を保つ。
         const auto it = aux_.find("q_values");
         if (it == aux_.end() || !it->second.defined()) {
-            ANET_SYSTEM_ERROR("DQNActionInfo::WithAction requires aux[q_values] when ActorQHint is present.");
+            ANET_SYSTEM_ERROR(
+                "DQNActionInfo::WithAction requires aux[q_values] when an Actor Q hint is present.");
         }
         const auto& q_values = it->second;
         if (action.device() != q_values.device()) {
@@ -321,8 +383,9 @@ std::shared_ptr<anet::rl::BatchActionInfo> DQNActionInfo::WithAction(torch::Tens
                 << action.device() << " q_values=" << q_values.device());
         }
         auto q_sa = q_values.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1).to(torch::kFloat32);
-        auto packed = torch::stack({ q_sa, hint->GetQValues().select(1, 1) }, 1).contiguous();
-        hint = ActorQHint(std::move(packed), hint->GetValidity());
+        const auto decoded = DecodeActorQHint(hint->GetPayload());
+        auto packed = PackActorQHint(q_sa, decoded.actor_state_value);
+        hint = ReplayInitialPriorityHint(std::move(packed));
     }
     return std::make_shared<DQNActionInfo>(std::move(action), info_, aux_, std::move(hint));
 }
@@ -985,10 +1048,8 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
         }
         auto q_sa = q_values.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1);
         auto state_value = std::get<0>(q_values.max(1));
-        auto packed = torch::stack({ q_sa, state_value }, 1).to(torch::kFloat32).contiguous();
-        auto validity = torch::ones(
-            { packed.size(0) }, torch::TensorOptions().dtype(torch::kUInt8).device(torch::kCPU));
-        act_info->SetActorQHint(ActorQHint(std::move(packed), std::move(validity)));
+        auto packed = PackActorQHint(q_sa, state_value);
+        act_info->SetReplayInitialPriorityHint(ReplayInitialPriorityHint(std::move(packed)));
     }
 
     // AuxData の詰め込み

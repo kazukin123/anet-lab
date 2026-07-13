@@ -1054,15 +1054,15 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
 
     // 事前に action の info を取得しておく
     anet::TensorDict action_info = batch.action->GetInfo();
-    const auto& actor_hint = batch.action->GetActorQHint();
-    torch::Tensor actor_hint_values;
-    torch::Tensor actor_hint_validity;
-    if (actor_hint.has_value()) {
-        ANET_PROFILE_SCOPE(actor_hint_cpu);
-        actor_hint_values = actor_hint->GetQValuesCpu();
-        actor_hint_validity = actor_hint->GetValidity();
-        ANET_ASSERT_SHAPE(actor_hint_values, { num_envs_, 2 });
-        ANET_ASSERT_SHAPE(actor_hint_validity, { num_envs_ });
+    const auto& replay_hint = batch.action->GetReplayInitialPriorityHint();
+    torch::Tensor replay_hint_payload;
+    if (replay_hint.has_value()) {
+        ANET_PROFILE_SCOPE(replay_initial_priority_hint_cpu);
+        replay_hint_payload = replay_hint->GetPayloadCpu();
+        if (replay_hint_payload.size(0) != num_envs_) {
+            ANET_SYSTEM_ERROR("ReplayInitialPriorityHint batch size mismatch. expected=" << num_envs_
+                << " actual=" << replay_hint_payload.size(0));
+        }
     }
 
     int64_t evicted_sampleable_count = 0;
@@ -1095,12 +1095,15 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
         rec.reward = batch.reward[b].item<float>();
         rec.done = batch.next_state.done[b].item<bool>();
         rec.truncated = batch.next_state.truncated[b].item<bool>();
-        if (actor_hint.has_value()) {
-            rec.actor_q_hint = QueueRecord::ActorHintRow{
-                .q_sa = actor_hint_values[b][0].item<float>(),
-                .state_value = actor_hint_values[b][1].item<float>(),
-                .valid = actor_hint_validity[b].item<uint8_t>() != 0,
-            };
+        if (replay_hint.has_value()) {
+            // 共通層では列を解釈せず、CPU化済みの1行をinline保持できる小配列へコピーする。
+            auto payload = replay_hint_payload.accessor<float, 2>();
+            ReplayInitialPriorityHintRow row;
+            row.reserve(static_cast<size_t>(replay_hint_payload.size(1)));
+            for (int64_t k = 0; k < replay_hint_payload.size(1); ++k) {
+                row.push_back(payload[b][k]);
+            }
+            rec.replay_initial_priority_hint = std::move(row);
         }
         queues_[b].Push(rec);
 
@@ -1132,7 +1135,7 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
         }
 
         ProcessQueue(b);
-        CompleteInitialPriorities(b, rec.actor_q_hint, rec.logical_time_idx);
+        CompleteInitialPriorities(b, rec.replay_initial_priority_hint, rec.logical_time_idx);
     }
 
     StoreLastEvictionStats(evicted_sampleable_count, evicted_never_sampled_count);
@@ -1215,7 +1218,7 @@ void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
             .terminal = exp.terminal,
             .truncated = exp.truncated,
             .actual_n_steps = exp.actual_n_steps,
-            .start_hint = seq.front().actor_q_hint,
+            .start_hint = seq.front().replay_initial_priority_hint,
         });
     }
 
@@ -1250,7 +1253,7 @@ int64_t DefaultReplayBuffer::EncodeReplayItemKey(int64_t flat_slot_index) const
 }
 
 void DefaultReplayBuffer::CompleteInitialPriorities(
-    int64_t env_idx, const std::optional<QueueRecord::ActorHintRow>& current_hint,
+    int64_t env_idx, const std::optional<ReplayInitialPriorityHintRow>& current_hint,
     int64_t current_logical_idx)
 {
     if (!priority_store_) return;
@@ -1280,22 +1283,23 @@ void DefaultReplayBuffer::CompleteInitialPriorities(
 
         ++actor_completion_attempt_count_;
 
-        // 実遷移の開始stepには必ず有効なQ(s,a)と状態価値が付随する契約を検証する。
-        if (!entry.start_hint.has_value() || !entry.start_hint->valid) {
-            ANET_SYSTEM_ERROR("actor_approx requires a valid Actor Q hint for every real start step."
+        // 実遷移の開始stepには必ずschemaを満たすhint行が付随する契約を検証する。
+        if (!entry.start_hint.has_value()) {
+            ANET_SYSTEM_ERROR("actor_approx requires a Replay initial priority hint for every real start step."
                 << " env=" << env_idx << " logical_time_idx=" << entry.logical_time_idx);
         }
-        const auto finite_hint = [](const QueueRecord::ActorHintRow& hint) {
-            return std::isfinite(hint.q_sa) && std::isfinite(hint.state_value);
-        };
+        if (!initial_priority_estimator_) {
+            ANET_SYSTEM_ERROR("actor_approx requires InitialPriorityEstimator.");
+        }
+        const auto start_hint = std::span<const float>(entry.start_hint->data(), entry.start_hint->size());
         // Actor由来の非finite値はDebugでは原因を表面化し、Release系ではmaxへ退避して学習を継続する。
-        if (!finite_hint(*entry.start_hint)) {
+        if (!initial_priority_estimator_->ValidateHint(start_hint)) {
 #ifdef NDEBUG
             ++actor_nonfinite_fallback_count_;
             priority_store_->SetMaxInitialPriority(entry.flat_slot_index);
             continue;
 #else
-            ANET_SYSTEM_ERROR("actor_approx received non-finite start Actor Q hint.");
+            ANET_SYSTEM_ERROR("actor_approx received a non-finite start Replay initial priority hint.");
 #endif
         }
         // truncatedは終端観測を推論しないため、bootstrapせずmax初期化へフォールバックする。
@@ -1305,32 +1309,29 @@ void DefaultReplayBuffer::CompleteInitialPriorities(
             continue;
         }
 
-        float bootstrap_state_value = 0.0f;
+        std::span<const float> bootstrap_hint;
         if (!entry.terminal) {
             // 非終端では実n-step先の現在hintだけをbootstrapに使い、時系列ずれを契約違反として止める。
             const int64_t expected_logical = entry.logical_time_idx + entry.actual_n_steps;
-            if (current_logical_idx != expected_logical || !current_hint.has_value() || !current_hint->valid) {
-                ANET_SYSTEM_ERROR("actor_approx bootstrap Actor Q hint mismatch. expected_logical="
+            if (current_logical_idx != expected_logical || !current_hint.has_value()) {
+                ANET_SYSTEM_ERROR("actor_approx bootstrap Replay initial priority hint mismatch. expected_logical="
                     << expected_logical << " actual_logical=" << current_logical_idx);
             }
-            if (!finite_hint(*current_hint)) {
+            bootstrap_hint = std::span<const float>(current_hint->data(), current_hint->size());
+            if (!initial_priority_estimator_->ValidateHint(bootstrap_hint)) {
 #ifdef NDEBUG
                 ++actor_nonfinite_fallback_count_;
                 priority_store_->SetMaxInitialPriority(entry.flat_slot_index);
                 continue;
 #else
-                ANET_SYSTEM_ERROR("actor_approx received non-finite bootstrap Actor Q hint.");
+                ANET_SYSTEM_ERROR("actor_approx received a non-finite bootstrap Replay initial priority hint.");
 #endif
             }
-            bootstrap_state_value = current_hint->state_value;
         }
         // 確定済み収益とActor値をアルゴリズム固有の推定器へ渡し、raw優先度を完成させる。
-        if (!initial_priority_estimator_) {
-            ANET_SYSTEM_ERROR("actor_approx requires InitialPriorityEstimator.");
-        }
         const auto raw_priority = initial_priority_estimator_->Estimate(InitialPriorityEstimateInput{
-            .actor_q_sa = entry.start_hint->q_sa,
-            .bootstrap_state_value = bootstrap_state_value,
+            .start_hint = start_hint,
+            .bootstrap_hint = bootstrap_hint,
             .target_return = entry.target_return,
             .discount = static_cast<float>(std::pow(config_.gamma, entry.actual_n_steps)),
             .terminal = entry.terminal,

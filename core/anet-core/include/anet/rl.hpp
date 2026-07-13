@@ -476,20 +476,17 @@ namespace anet::rl {
         std::string ToString() const;
     };
 
-    /// 学習Actorが既存forwardから取り出す、初期優先度推定用の小さなQメタデータ。
-    class ActorQHint {
+    /// 学習Actorが既存forwardから取り出す、初期優先度推定用の不透明なpayload。
+    class ReplayInitialPriorityHint {
     public:
-        ActorQHint() = default;
-        ActorQHint(torch::Tensor q_values, torch::Tensor validity);
+        explicit ReplayInitialPriorityHint(torch::Tensor payload);
 
-        const torch::Tensor& GetQValues() const { return q_values_; }
-        const torch::Tensor& GetValidity() const { return validity_; }
-        const torch::Tensor& GetQValuesCpu() const;
+        const torch::Tensor& GetPayload() const { return payload_; }
+        const torch::Tensor& GetPayloadCpu() const;
 
     private:
-        torch::Tensor q_values_;        ///< float32 [B,2]: Q(s,a), max_a Q_online(s,a)
-        torch::Tensor validity_;        ///< CPU uint8 [B]
-        mutable torch::Tensor q_values_cpu_; ///< ReplayBufferへ渡す際に再利用するCPU cache
+        torch::Tensor payload_;             ///< float32 [B,K]。列の意味は生成元Agentが所有する
+        mutable torch::Tensor payload_cpu_; ///< ReplayBufferへ渡す際に再利用するCPU cache
     };
 
     // 行動選択時の情報
@@ -499,11 +496,11 @@ namespace anet::rl {
         virtual ~BatchActionInfo() = default;
 
         BatchActionInfo(const torch::Tensor action, const anet::TensorDict& info = {}, const AuxData& aux = {},
-            std::optional<ActorQHint> actor_q_hint = std::nullopt)
+            std::optional<ReplayInitialPriorityHint> replay_initial_priority_hint = std::nullopt)
             : action_cpu_(action.device().is_cpu() ? std::move(action) : torch::Tensor())
             , info_(info)
             , aux_(aux)
-            , actor_q_hint_(std::move(actor_q_hint))
+            , replay_initial_priority_hint_(std::move(replay_initial_priority_hint))
         {
             if (action.device().is_cuda())
                 gpu_ = std::pair(action.device(), std::move(action));
@@ -521,18 +518,26 @@ namespace anet::rl {
         torch::Tensor GetAction(torch::Device device) const;
         virtual std::shared_ptr<BatchActionInfo> To(torch::Device device) const
         {
-            return std::make_shared<BatchActionInfo>(GetAction(device), info_.To(device), aux_, actor_q_hint_);
+            return std::make_shared<BatchActionInfo>(
+                GetAction(device), info_.To(device), aux_, replay_initial_priority_hint_);
         }
         virtual std::shared_ptr<BatchActionInfo> WithAction(torch::Tensor action) const
         {
-            return std::make_shared<BatchActionInfo>(std::move(action), info_, aux_, actor_q_hint_);
+            return std::make_shared<BatchActionInfo>(
+                std::move(action), info_, aux_, replay_initial_priority_hint_);
         }
         const AuxData& GetAuxData() const { return aux_; }
         AuxData& GetAuxData() { return aux_; }
         const anet::TensorDict& GetInfo() const { return info_; }
         anet::TensorDict& GetInfo() { return info_; }
-        const std::optional<ActorQHint>& GetActorQHint() const { return actor_q_hint_; }
-        void SetActorQHint(ActorQHint actor_q_hint) { actor_q_hint_ = std::move(actor_q_hint); }
+        const std::optional<ReplayInitialPriorityHint>& GetReplayInitialPriorityHint() const
+        {
+            return replay_initial_priority_hint_;
+        }
+        void SetReplayInitialPriorityHint(ReplayInitialPriorityHint hint)
+        {
+            replay_initial_priority_hint_ = std::move(hint);
+        }
 
         std::string ToString() const;
     protected:
@@ -540,7 +545,7 @@ namespace anet::rl {
         mutable std::optional<std::pair<torch::Device, torch::Tensor>> gpu_;
         anet::TensorDict info_;
         AuxData aux_;
-        std::optional<ActorQHint> actor_q_hint_; ///< 学習Actorが生成した初期優先度推定用ヒント
+        std::optional<ReplayInitialPriorityHint> replay_initial_priority_hint_; ///< 初期優先度推定用の不透明なpayload
     };
 
     class BatchEnvResult {

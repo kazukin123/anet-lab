@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <random>
+#include <span>
 #include <torch/torch.h>
 #include "anet/random.hpp"
 #include "anet/rl.hpp"
@@ -30,16 +31,17 @@ namespace anet::rl {
     };
 
     struct InitialPriorityEstimateInput {
-        float actor_q_sa = 0.0f;            ///< 開始状態で実際に選択した行動のActor Q値
-        float bootstrap_state_value = 0.0f; ///< bootstrap状態のActor推定価値
-        float target_return = 0.0f;         ///< 確定済みのn-step収益
-        float discount = 0.0f;              ///< 実n-step数を反映したbootstrap割引率
-        bool terminal = false;              ///< bootstrapを行わない真の終端か
-        int actual_n_steps = 1;             ///< 終端短縮を反映した実n-step数
+        std::span<const float> start_hint;     ///< 開始stepのopaqueなhint行。呼び出し中だけ有効
+        std::span<const float> bootstrap_hint; ///< bootstrap stepのopaqueなhint行。真の終端では空
+        float target_return = 0.0f;            ///< 確定済みのn-step収益
+        float discount = 0.0f;                 ///< 実n-step数を反映したbootstrap割引率
+        bool terminal = false;                 ///< bootstrapを行わない真の終端か
+        int actual_n_steps = 1;                ///< 終端短縮を反映した実n-step数
     };
 
     class InitialPriorityEstimator {
     public:
+        virtual bool ValidateHint(std::span<const float> hint) const = 0; ///< schema違反は停止し、nonfiniteだけfalseを返す
         virtual std::optional<float> Estimate(const InitialPriorityEstimateInput& input) const = 0;
         virtual ~InitialPriorityEstimator() = default;
     };

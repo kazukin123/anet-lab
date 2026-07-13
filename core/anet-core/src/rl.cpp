@@ -352,28 +352,36 @@ std::string BatchState::ToString() const
     return oss.str();
 }
 
-ActorQHint::ActorQHint(torch::Tensor q_values, torch::Tensor validity)
-    : q_values_(std::move(q_values)), validity_(std::move(validity))
+ReplayInitialPriorityHint::ReplayInitialPriorityHint(torch::Tensor payload)
+    : payload_(std::move(payload))
 {
-    ANET_ASSERT_SHAPE(q_values_, { ANET_SHAPE_ANY, 2 });
-    ANET_ASSERT_DTYPE(q_values_, torch::kFloat32);
-    ANET_ASSERT_DEVICE_CPU(validity_);
-    ANET_ASSERT_SHAPE(validity_, { q_values_.size(0) });
-    ANET_ASSERT_DTYPE(validity_, torch::kUInt8);
-    q_values_ = q_values_.detach().contiguous();
-    validity_ = validity_.contiguous();
+    // 共通carrierはpayloadの意味を解釈せず、運搬に必要な形式だけを全buildで検証する。
+    if (!payload_.defined()) {
+        ANET_SYSTEM_ERROR("ReplayInitialPriorityHint payload must be defined.");
+    }
+    if (payload_.dim() != 2) {
+        ANET_SYSTEM_ERROR("ReplayInitialPriorityHint payload must have rank 2. actual=" << payload_.sizes());
+    }
+    if (payload_.scalar_type() != torch::kFloat32) {
+        ANET_SYSTEM_ERROR("ReplayInitialPriorityHint payload must use float32. actual=" << payload_.scalar_type());
+    }
+    if (payload_.size(0) <= 0 || payload_.size(1) <= 0) {
+        ANET_SYSTEM_ERROR("ReplayInitialPriorityHint payload dimensions must be positive. actual=" << payload_.sizes());
+    }
+    payload_ = payload_.detach().contiguous();
 }
 
-const torch::Tensor& ActorQHint::GetQValuesCpu() const
+const torch::Tensor& ReplayInitialPriorityHint::GetPayloadCpu() const
 {
     ANET_PROFILE_FUNC();
-    if (!q_values_cpu_.defined()) {
-        q_values_cpu_ = q_values_.device().is_cpu()
-            ? q_values_
-            : q_values_.to(torch::kCPU, torch::kFloat32, /*non_blocking=*/false);
-        q_values_cpu_ = q_values_cpu_.contiguous();
+    // packed tensor全体を初回だけ同期転送し、env行ごとのD2Hへ分解しない。
+    if (!payload_cpu_.defined()) {
+        payload_cpu_ = payload_.device().is_cpu()
+            ? payload_
+            : payload_.to(torch::kCPU, torch::kFloat32, /*non_blocking=*/false);
+        payload_cpu_ = payload_cpu_.contiguous();
     }
-    return q_values_cpu_;
+    return payload_cpu_;
 }
 
 torch::Tensor BatchActionInfo::GetAction(torch::Device device) const

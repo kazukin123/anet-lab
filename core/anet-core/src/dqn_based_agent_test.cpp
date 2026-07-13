@@ -23,6 +23,7 @@
 #include <mutex>
 #include <random>
 #include <shared_mutex>
+#include <span>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -1668,6 +1669,37 @@ TEST_CASE("DQN action policy BF16 autocast follows observation device", "[dqn][a
     }
 }
 
+TEST_CASE("DQN Actor emits a packed priority hint without another forward", "[dqn][actor][per][actor_initial]")
+{
+    auto make_action = [](bool emit_hint) {
+        auto probe_state = std::make_shared<AutocastProbeState>();
+        auto network = MakeAutocastProbeNetwork(probe_state, torch::kCPU);
+        auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
+        auto context = std::make_shared<rl::DefaultActionContext>(rl::RunMode::Train, 123);
+        auto mutex = std::make_shared<std::shared_mutex>();
+        dqn::Actor actor(policy, nullptr, context, mutex, network, network, emit_hint);
+
+        auto flags = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool));
+        rl::BatchState state(MakeAutocastProbePolicyInput(torch::kCPU), flags, flags, flags);
+        auto action_info = actor.MakeAction(rl::StepCounts{}, state);
+        return std::pair(probe_state->forward_count, std::move(action_info));
+    };
+
+    const auto [plain_forward_count, plain] = make_action(false);
+    const auto [hint_forward_count, hinted] = make_action(true);
+
+    CHECK(plain_forward_count == hint_forward_count);
+    CHECK_FALSE(plain->GetReplayInitialPriorityHint().has_value());
+    REQUIRE(hinted->GetReplayInitialPriorityHint().has_value());
+    const auto decoded = dqn::DecodeActorQHint(hinted->GetReplayInitialPriorityHint()->GetPayload());
+    const auto& q_values = hinted->GetAuxData().at("q_values");
+    const auto expected_q_sa = q_values.gather(
+        1, hinted->GetAction(q_values.device()).to(torch::kInt64).unsqueeze(1)).squeeze(1).to(torch::kFloat32);
+    const auto expected_state_value = std::get<0>(q_values.max(1)).to(torch::kFloat32);
+    CHECK(torch::equal(decoded.actor_q_sa, expected_q_sa));
+    CHECK(torch::equal(decoded.actor_state_value, expected_state_value));
+}
+
 TEST_CASE("DQNActionInfo exposes action UQE scalar metrics", "[dqn][action_policy][metrics]")
 {
     auto make_info = [](const torch::Tensor& uqe_values) {
@@ -1735,6 +1767,28 @@ TEST_CASE("DQNActionInfo exposes action UQE scalar metrics", "[dqn][action_polic
     CHECK_THROWS(win_info.GetScalar("action_uqe_margin.[3]"));
 }
 
+TEST_CASE("DQN Actor Q hint schema packs and decodes two columns", "[dqn][per][actor_initial][hint]")
+{
+    auto q_sa = torch::tensor({ 2.0f, 3.0f });
+    auto state_value = torch::tensor({ 5.0f, 7.0f });
+
+    auto packed = dqn::PackActorQHint(q_sa, state_value);
+    CHECK(packed.scalar_type() == torch::kFloat32);
+    CHECK(packed.sizes() == torch::IntArrayRef({ 2, dqn::kActorQHintColumnCount }));
+
+    const auto batch = dqn::DecodeActorQHint(packed);
+    CHECK(torch::equal(batch.actor_q_sa, q_sa));
+    CHECK(torch::equal(batch.actor_state_value, state_value));
+
+    const std::array<float, 2> row{ 11.0f, 13.0f };
+    const auto decoded_row = dqn::DecodeActorQHint(std::span<const float>(row));
+    CHECK(decoded_row.actor_q_sa == Catch::Approx(11.0f));
+    CHECK(decoded_row.actor_state_value == Catch::Approx(13.0f));
+
+    CHECK_THROWS(dqn::DecodeActorQHint(torch::zeros({ 1, 3 }, torch::kFloat32)));
+    CHECK_THROWS(dqn::DecodeActorQHint(std::span<const float>(row.data(), 1)));
+}
+
 TEST_CASE("DQNActionInfo regathers Actor Q hint after action replacement", "[dqn][per][actor_initial]")
 {
     auto q_values = torch::tensor({
@@ -1744,20 +1798,19 @@ TEST_CASE("DQNActionInfo regathers Actor Q hint after action replacement", "[dqn
     rl::AuxData aux;
     aux["q_values"] = q_values;
     auto packed = torch::tensor({ { 5.0f, 5.0f }, { 7.0f, 7.0f } });
-    auto validity = torch::ones({ 2 }, torch::TensorOptions().dtype(torch::kUInt8));
     dqn::DQNActionInfo info(
         torch::tensor({ 1, 0 }, torch::TensorOptions().dtype(torch::kInt64)),
         {},
         aux,
-        rl::ActorQHint(packed, validity));
+        rl::ReplayInitialPriorityHint(packed));
 
     auto replaced = info.WithAction(torch::tensor({ 2, 1 }, torch::TensorOptions().dtype(torch::kInt64)));
-    REQUIRE(replaced->GetActorQHint().has_value());
+    REQUIRE(replaced->GetReplayInitialPriorityHint().has_value());
     CHECK(torch::equal(
-        replaced->GetActorQHint()->GetQValues(),
+        replaced->GetReplayInitialPriorityHint()->GetPayload(),
         torch::tensor({ { 2.0f, 5.0f }, { 3.0f, 7.0f } })));
-    const auto& first_cpu = replaced->GetActorQHint()->GetQValuesCpu();
-    const auto& second_cpu = replaced->GetActorQHint()->GetQValuesCpu();
+    const auto& first_cpu = replaced->GetReplayInitialPriorityHint()->GetPayloadCpu();
+    const auto& second_cpu = replaced->GetReplayInitialPriorityHint()->GetPayloadCpu();
     CHECK(first_cpu.unsafeGetTensorImpl() == second_cpu.unsafeGetTensorImpl());
 }
 

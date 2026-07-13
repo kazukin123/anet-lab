@@ -11,6 +11,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <type_traits>
+#include <c10/util/SmallVector.h>
 #include <torch/torch.h>
 #include "anet/tensor_util.hpp"
 
@@ -21,6 +22,9 @@ namespace anet::rl {
     // Queue
     // ======================================================
 
+    /// ReplayBuffer内部でcompletionまで運ぶ、schema非依存のhint行。
+    using ReplayInitialPriorityHintRow = c10::SmallVector<float, 4>;
+
     /// Storage上の重いデータ（Obs等）とは分離された、N-Step計算用の軽量メタデータ
     struct QueueRecord {
         int64_t time_idx;       ///< Storage上のインデックス (Facadeが管理するためのKey)
@@ -29,12 +33,7 @@ namespace anet::rl {
         bool done;              ///< エピソード終了フラグ
         bool truncated;         ///< タイムアップ等による打ち切りフラグ
         bool is_dummy = false;  ///< Truncated時の終端計算用ダミーフラグ
-        struct ActorHintRow {
-            float q_sa = 0.0f;
-            float state_value = 0.0f;
-            bool valid = false;
-        };
-        std::optional<ActorHintRow> actor_q_hint;
+        std::optional<ReplayInitialPriorityHintRow> replay_initial_priority_hint;
     };
 
     /// 各環境(Env)ごとの未処理メタデータを一時保持するキュー
@@ -340,7 +339,8 @@ namespace anet::rl {
     private:
         void ProcessQueue(int64_t env_idx); // 内部パイプラインの駆動
         void CompleteInitialPriorities(
-            int64_t env_idx, const std::optional<QueueRecord::ActorHintRow>& current_hint, int64_t current_logical_idx);
+            int64_t env_idx, const std::optional<ReplayInitialPriorityHintRow>& current_hint,
+            int64_t current_logical_idx);
         int64_t OnSlotWritten(int64_t flat_slot_index);
         int64_t EncodeReplayItemKey(int64_t flat_slot_index) const;
         void InvalidateAccessorCacheForStorage();
@@ -385,7 +385,7 @@ namespace anet::rl {
             bool terminal = false;
             bool truncated = false;
             int actual_n_steps = 1;
-            std::optional<QueueRecord::ActorHintRow> start_hint;
+            std::optional<ReplayInitialPriorityHintRow> start_hint;
         };
         std::vector<std::deque<PendingInitialPriority>> pending_initial_priorities_;
         std::vector<int64_t> generations_;

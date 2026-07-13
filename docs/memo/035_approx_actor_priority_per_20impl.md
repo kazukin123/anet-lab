@@ -1,5 +1,7 @@
 # 近似Actor PER初期優先度 実装メモ
 
+> **履歴注記**: 本文は初回実装時の計画を記録したものである。`ActorQHint`、CPU validity、completion責務の契約は、現行の[PRD 035](./035_approx_actor_priority_per_10prd.md)と[ADR 0012](../adr/0012-replay-initial-priority-hint-completion.md)で置き換えた。次回改修の実装根拠には使用せず、後続作業では次番号の`21impl`を作成する。
+
 ## 概要
 
 PRD 035に従い、学習Actorが既存forwardから得たQヒントをReplayBufferへ運び、遷移のsampleable化境界で近似初期優先度を完成させる。`per_initial_priority_mode`の既定値は`fixed`とし、generation付きreplay item keyで上書き後のstale優先度更新を要素単位で棄却する。

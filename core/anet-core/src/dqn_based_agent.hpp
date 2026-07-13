@@ -3,6 +3,7 @@
 #include <memory>
 #include <optional>
 #include <limits>
+#include <span>
 #include "anet/agent.hpp"
 #include "anet/rl.hpp"
 #include "anet/scaler.hpp"
@@ -19,6 +20,25 @@ namespace anet::rl::dqn {
     torch::Tensor TransformHInv(const torch::Tensor& x, float epsilon);
     torch::Tensor MakePerRawPriority(
         const torch::Tensor& td_error, float per_eps, bool use_clip, float clip_value);
+
+    inline constexpr int64_t kActorQHintColumnCount = 2;
+    inline constexpr int64_t kActorQSaColumn = 0;
+    inline constexpr int64_t kActorStateValueColumn = 1;
+
+    struct ActorQHintBatch {
+        torch::Tensor actor_q_sa;
+        torch::Tensor actor_state_value;
+    };
+
+    struct ActorQHintRow {
+        float actor_q_sa = 0.0f;
+        float actor_state_value = 0.0f;
+    };
+
+    torch::Tensor PackActorQHint(
+        const torch::Tensor& actor_q_sa, const torch::Tensor& actor_state_value);
+    ActorQHintBatch DecodeActorQHint(const torch::Tensor& payload);
+    ActorQHintRow DecodeActorQHint(std::span<const float> payload);
 
     const float MET_EMA_DECAY = 0.001f;  // 平滑化係数(メトリクス用)
     const float MET_EMA_DECAY_ACT = 0.0005f;  // 平滑化係数(メトリクス用)action_ema用
