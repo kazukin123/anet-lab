@@ -17,9 +17,14 @@ namespace anet::rl::dqn {
 
     ReplayInitialPriorityMode ParseReplayInitialPriorityMode(const LearnerConfig& config);
     torch::Tensor TransformH(const torch::Tensor& x, float epsilon);
+    float TransformH(float x, float epsilon);
     torch::Tensor TransformHInv(const torch::Tensor& x, float epsilon);
+    float TransformHInv(float x, float epsilon);
     torch::Tensor MakePerRawPriority(
         const torch::Tensor& td_error, float per_eps, bool use_clip, float clip_value);
+    float MakePerRawPriority(
+        float td_error, float per_eps, bool use_clip, float clip_value);
+    std::unique_ptr<InitialPriorityEstimator> CreateInitialPriorityEstimator(const LearnerConfig& config);
 
     inline constexpr int64_t kActorQHintColumnCount = 2;
     inline constexpr int64_t kActorQSaColumn = 0;

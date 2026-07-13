@@ -73,6 +73,12 @@ torch::Tensor anet::rl::dqn::TransformH(const torch::Tensor& x, float epsilon)
     return x.sign() * (torch::sqrt(x.abs() + 1.0f) - 1.0f) + epsilon * x;
 }
 
+float anet::rl::dqn::TransformH(float x, float epsilon)
+{
+    const float sign = static_cast<float>((x > 0.0f) - (x < 0.0f));
+    return sign * (std::sqrt(std::abs(x) + 1.0f) - 1.0f) + epsilon * x;
+}
+
 torch::Tensor anet::rl::dqn::TransformHInv(const torch::Tensor& x, float epsilon)
 {
     auto abs_x = x.abs();
@@ -80,11 +86,26 @@ torch::Tensor anet::rl::dqn::TransformHInv(const torch::Tensor& x, float epsilon
     return x.sign() * (inner * inner - 1.0f);
 }
 
+float anet::rl::dqn::TransformHInv(float x, float epsilon)
+{
+    const float sign = static_cast<float>((x > 0.0f) - (x < 0.0f));
+    const float inner = (std::sqrt(1.0f + 4.0f * epsilon * (std::abs(x) + 1.0f + epsilon)) - 1.0f)
+        / (2.0f * epsilon);
+    return sign * (inner * inner - 1.0f);
+}
+
 torch::Tensor anet::rl::dqn::MakePerRawPriority(
     const torch::Tensor& td_error, float per_eps, bool use_clip, float clip_value)
 {
     auto priority = td_error.abs() + per_eps;
     return use_clip ? priority.clamp_max(clip_value) : priority;
+}
+
+float anet::rl::dqn::MakePerRawPriority(
+    float td_error, float per_eps, bool use_clip, float clip_value)
+{
+    const float priority = std::abs(td_error) + per_eps;
+    return use_clip ? std::min(priority, clip_value) : priority;
 }
 
 torch::Tensor anet::rl::dqn::PackActorQHint(
@@ -136,18 +157,6 @@ ActorQHintRow anet::rl::dqn::DecodeActorQHint(std::span<const float> payload)
 
 namespace {
 
-float TransformHScalar(float x, float epsilon)
-{
-    return std::copysign(std::sqrt(std::abs(x) + 1.0f) - 1.0f, x) + epsilon * x;
-}
-
-float TransformHInvScalar(float x, float epsilon)
-{
-    const float inner = (std::sqrt(1.0f + 4.0f * epsilon * (std::abs(x) + 1.0f + epsilon)) - 1.0f)
-        / (2.0f * epsilon);
-    return std::copysign(inner * inner - 1.0f, x);
-}
-
 class DqnInitialPriorityEstimator final : public anet::rl::InitialPriorityEstimator {
 public:
     explicit DqnInitialPriorityEstimator(const LearnerConfig& config)
@@ -174,13 +183,14 @@ public:
         if (!input.terminal) {
             const float bootstrap_state_value = DecodeActorQHint(input.bootstrap_hint).actor_state_value;
             const float bootstrap = use_tbo_
-                ? TransformHInvScalar(bootstrap_state_value, tbo_epsilon_)
+                ? TransformHInv(bootstrap_state_value, tbo_epsilon_)
                 : bootstrap_state_value;
             target += input.discount * bootstrap;
         }
-        if (use_tbo_) target = TransformHScalar(target, tbo_epsilon_);
-        float priority = std::abs(target - start_hint.actor_q_sa) + per_eps_;
-        if (use_clip_) priority = std::min(priority, clip_value_);
+        if (use_tbo_) target = TransformH(target, tbo_epsilon_);
+        // Learnerと同じraw priority確定policyをscalar overloadで適用する。
+        const float priority = MakePerRawPriority(
+            target - start_hint.actor_q_sa, per_eps_, use_clip_, clip_value_);
         if (!std::isfinite(priority)) return std::nullopt;
         return priority;
     }
@@ -193,6 +203,12 @@ private:
 };
 
 } // namespace
+
+std::unique_ptr<anet::rl::InitialPriorityEstimator> anet::rl::dqn::CreateInitialPriorityEstimator(
+    const LearnerConfig& config)
+{
+    return std::make_unique<DqnInitialPriorityEstimator>(config);
+}
 
 // ======================================================
 // NetworkModel
@@ -1171,7 +1187,7 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
     //this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.num_envs, device_, true, seed);
     std::unique_ptr<InitialPriorityEstimator> estimator;
     if (initial_priority_mode == ReplayInitialPriorityMode::ACTOR_APPROX) {
-        estimator = std::make_unique<DqnInitialPriorityEstimator>(config_);
+        estimator = CreateInitialPriorityEstimator(config_);
     }
     this->replay_buffer_ = anet::rl::CreateReplayBuffer(
         rep_config, env_spec, batch_env_spec.num_envs, torch::kCPU, false, seed, std::move(estimator));
