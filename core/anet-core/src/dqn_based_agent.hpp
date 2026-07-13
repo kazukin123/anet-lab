@@ -299,15 +299,15 @@ namespace anet::rl::dqn {
     };
 
     struct PerPriorityUpdatePending {
-        std::vector<int64_t> indices;                  ///< CPU上のgeneration付きreplay item key
+        std::vector<int64_t> indices;                   ///< CPU上のgeneration付きreplay item key
         anet::transfer::HostReadback priority_readback; ///< GPUで確定したraw優先度の遅延D2H結果
-        torch::Tensor per_is_weights;                 ///< 対応minibatchのIS weight
-        torch::Tensor per_sample_initial_count;       ///< 全initial sourceのサンプル件数
-        torch::Tensor per_sample_fixed_initial_count; ///< fixed_initial sourceのサンプル件数
-        torch::Tensor per_sample_max_initial_count;   ///< max_initial sourceのサンプル件数
-        torch::Tensor per_sample_actor_initial_count; ///< actor_initial sourceのサンプル件数
-        long per_minibatch_size = 0;                  ///< source比率の分母となるminibatch size
-        bool enabled = false;                         ///< PER更新が必要なminibatchか
+        torch::Tensor per_is_weights;                   ///< 対応minibatchのIS weight
+        torch::Tensor per_sample_initial_count;         ///< 全initial sourceのサンプル件数
+        torch::Tensor per_sample_fixed_initial_count;   ///< fixed_initial sourceのサンプル件数
+        torch::Tensor per_sample_max_initial_count;     ///< max_initial sourceのサンプル件数
+        torch::Tensor per_sample_actor_initial_count;   ///< actor_initial sourceのサンプル件数
+        long per_minibatch_size = 0;                    ///< source比率の分母となるminibatch size
+        bool enabled = false;                           ///< PER更新が必要なminibatchか
     };
 
     struct QuantileMetrics {

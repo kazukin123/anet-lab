@@ -721,12 +721,12 @@ namespace anet::rl {
 
     struct ReplayPriorityUpdateResult {
         int64_t applied_count = 0; ///< 現generationへ適用した更新数
-        int64_t stale_count = 0; ///< 上書き済みgenerationとして棄却した更新数
+        int64_t stale_count = 0;   ///< 上書き済みgenerationとして棄却した更新数
         int64_t actor_learner_pair_count = 0; ///< Actor初期値とLearner更新値を比較できた件数
         float actor_learner_positive_pair_ratio = std::numeric_limits<float>::quiet_NaN(); ///< 両方が正値の比較ペア率
-        float actor_learner_ratio_median = std::numeric_limits<float>::quiet_NaN(); ///< 正値ペアのActor/Learner比の中央値
-        float actor_learner_log_ratio_mean = std::numeric_limits<float>::quiet_NaN(); ///< 正値ペアのlog(Actor/Learner)平均
-        float actor_learner_spearman = std::numeric_limits<float>::quiet_NaN(); ///< 全finiteペアのSpearman順位相関
+        float actor_learner_ratio_median = std::numeric_limits<float>::quiet_NaN();        ///< 正値ペアのActor/Learner比の中央値
+        float actor_learner_log_ratio_mean = std::numeric_limits<float>::quiet_NaN();      ///< 正値ペアのlog(Actor/Learner)平均
+        float actor_learner_spearman = std::numeric_limits<float>::quiet_NaN();            ///< 全finiteペアのSpearman順位相関
     };
 
     /// サンプリングされた経験のミニバッチ（再利用可能オブジェクト）

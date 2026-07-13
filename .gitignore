@@ -69,3 +69,4 @@
 /core/anet-core/bin/Release/out
 /core/anet-core/bin/RelWithDebInfo/out
 /apps/runner/tools/__pycache__
+/docs/xml

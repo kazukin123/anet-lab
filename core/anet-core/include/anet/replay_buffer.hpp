@@ -35,7 +35,7 @@ namespace anet::rl {
         float target_return = 0.0f;         ///< 確定済みのn-step収益
         float discount = 0.0f;              ///< 実n-step数を反映したbootstrap割引率
         bool terminal = false;              ///< bootstrapを行わない真の終端か
-        int actual_n_steps = 1;              ///< 終端短縮を反映した実n-step数
+        int actual_n_steps = 1;             ///< 終端短縮を反映した実n-step数
     };
 
     class InitialPriorityEstimator {
