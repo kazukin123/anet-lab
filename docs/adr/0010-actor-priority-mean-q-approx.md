@@ -1,5 +1,7 @@
 # Actor初期優先度は平均Q空間の近似とし、Learner target-network評価/UQE targetの再現を見送る
 
+> **後発決定**: Actorヒントのtransport表現と有効性マスクに関する決定はADR 0012で置き換えた。本ADRの平均Q近似、追加forward禁止、`WithAction`、UQE再現見送りの判断は引き続き有効である。
+
 PRD 035（`docs/memo/035_approx_actor_priority_per_10prd.md`）の近似Actor PER初期優先度は、行動選択で生成済みのonline出力から`actor_q_sa`（実行行動の平均Q）と`actor_state_value`（`max_a Q_online(s,a)`）だけを持ち出し、Learnerと同じ割引率・TBO変換・`per_eps`で近似TD誤差を作る。Learnerのtarget構成のうち次の2点は意図的に再現しない。理由が異なるため分けて記録する。
 
 **Learner側のtarget-network評価**は再現しない。Double DQN有効時は`Q_target(s', argmax_a Q_online)`、無効時もtarget networkによる行動選択・評価を行うため、どちらもActor側での再現にはtarget networkの保持と追加forwardが必要になる。これは「優先度のための追加forwardなし」という本機能の前提に反する。また行動時点とLearnerサンプル時点ではtarget networkのスナップショットが別物のため、コストを払っても厳密再現は原理的に不可能である。

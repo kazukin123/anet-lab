@@ -49,12 +49,16 @@ _Avoid_: value transform, Bellman transform
 
 ### Replay・PER
 
+**Replay初期優先度ヒント**:
+学習Actorが既存の行動推論結果から生成し、ReplayBufferが初期優先度を完成させるまで不透明な`float32[B,K]`として運ぶ小さなメタデータ。Actorが計算した最終優先度ではなく、payloadの意味は生成元Agentと初期優先度推定器が所有する。
+_Avoid_: Actor優先度, Actor priority, Actor-computed priority, final priority
+
 **Actor Qヒント**:
-学習Actorが行動推論で既に計算した、実行行動の`Q(s,a)`と`max_a Q_online(s,a)`の小さなメタデータ。ReplayBufferが近似Actor初期優先度を完成させる材料であり、Actor自身が計算した最終優先度ではない。
+Replay初期優先度ヒントへ格納するDQN固有payload。学習Actorが行動推論で既に計算した、実行行動の`Q(s,a)`と`max_a Q_online(s,a)`の2列を指す。ReplayBuffer共通層は列の意味を解釈しない。
 _Avoid_: Actor優先度, Actor priority, Actor TD error, final priority
 
 **近似Actor初期優先度**:
-ReplayBufferが遷移のサンプリング可能化境界で、Actor Qヒント、target return、終端情報、実n-step数から計算する初期優先度。最初の有効なLearner更新後はLearner優先度が最終権威になる。
+ReplayBufferが遷移のサンプリング可能化境界で、Replay初期優先度ヒント（DQNではActor Qヒント）、target return、終端情報、実n-step数から計算する初期優先度。最初の有効なLearner更新後はLearner優先度が最終権威になる。
 _Avoid_: Actor優先度, Actor priority, Actor-computed priority, final priority
 
 **優先度source**:

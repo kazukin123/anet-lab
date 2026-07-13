@@ -20,13 +20,13 @@ DropMerge 系の実行では、PER の新規遷移に固定 `per_initial_priorit
 
 ## 解決方針
 
-Actorは最終優先度を計算しない。既存の行動推論から得られる最小限のQヒントを、`BatchActionInfo`へ追加するoptionalなヒント構造体に載せる。
+Actorは最終優先度を計算しない。既存の行動推論から得られる最小限のアルゴリズム固有payloadを、`BatchActionInfo`へ追加するoptionalな`ReplayInitialPriorityHint`に載せる。
 
 TrainerとLearnerは、このメタデータを通常の`BatchExperience`と同じ経路で`ReplayBuffer`へ運ぶ。アルゴリズム固有の統合処理は行わない。
 
-`ReplayBuffer`は、遷移がサンプリング可能になる時点で、開始slotの`Q(s,a)`、ブートストラップ状態slotの状態価値、確定済みn-step収益、終端情報、実n-step数を初期優先度推定器へ渡す。
+`ReplayBuffer`は、遷移がサンプリング可能になる時点で、開始slotと必要なブートストラップ状態slotのopaqueなhint行、確定済みn-step収益、終端情報、実n-step数を初期優先度推定器へ渡す。DQN推定器がhint行から`Q(s,a)`と状態価値を解釈する。
 
-DQN Agentが注入する推定器は、Learnerと同じ割引率、TBO変換、PER epsilonを使って近似TD誤差を計算する。報酬スケールはAgentがPush前に適用済みで、保存済みtarget returnへ反映されているため、推定器では扱わない。仕様上ヒントが存在しない遷移（truncated）は最大優先度初期化へフォールバックし、契約違反はバグとしてエラーで停止する。
+DQN Agentが注入する推定器は、Learnerと同じ割引率、TBO変換、PER epsilonを使って近似TD誤差を計算する。報酬スケールはAgentがPush前に適用済みで、保存済みtarget returnへ反映されているため、推定器では扱わない。truncated遷移は開始hintを検証したうえで、終端観測由来のbootstrap hintが存在しないため最大優先度初期化へフォールバックする。契約違反はバグとしてエラーで停止する。
 
 この方式は、`PipelineRunner`と同期Trainerの両方で動作する。必要な前提は、経験が`ReplayBuffer`へ時系列順に到着するという既存契約だけである。
 
@@ -39,14 +39,14 @@ DQN Agentが注入する推定器は、Learnerと同じ割引率、TBO変換、P
 1. 強化学習の実験者として、既存の行動推論情報で新規遷移を順位付けしたい。固定初期優先度ですべての遷移を同じ価値として扱わないためである。
 2. 強化学習の実験者として、近似Actor初期優先度のためにネットワークforwardを増やしたくない。GPU時間をLearner更新に使うためである。
 3. 強化学習の実験者として、固定・最大・近似Actorの初期化方式を明示的に切り替えたい。同条件の実行を比較するためである。
-4. 強化学習の実験者として、仕様上ヒントが存在しない遷移（truncated等）には最大優先度初期化を使いたい。有効化によって遷移が暗黙にリプレイ対象外にならないためである。
+4. 強化学習の実験者として、仕様上bootstrap hintを利用できないtruncated遷移には最大優先度初期化を使いたい。有効化によって遷移が暗黙にリプレイ対象外にならないためである。
 5. 強化学習の実験者として、サンプリング後はLearnerのTD誤差を最終権威にしたい。Actorの近似情報を初回サンプリング前だけに限定するためである。
 6. 強化学習の実験者として、Actor初期化とフォールバック初期化をメトリクスで区別したい。近似値が実際に使われているか診断するためである。
 7. 強化学習の実験者として、近似Actor初期優先度とLearner優先度を比較したい。最終報酬とは独立に近似品質を評価するためである。
 8. 性能調査者として、forward呼び出し回数とプロファイル範囲を確認したい。優先度専用forwardが増えていないことを証明するためである。
 9. 性能調査者として、固定値基準のスループットを測りたい。小さなメタデータ転送による実行速度低下を見落とさないためである。
 10. 保守担当者として、TrainerにはDQN優先度の意味を理解させず、標準的な経験だけを運ばせたい。Runnerをアルゴリズム非依存に保つためである。
-11. 保守担当者として、`ActionPolicy`から小さなQヒントだけを出したい。`ReplayBuffer`に全行動価値や全quantileを保持させないためである。
+11. 保守担当者として、`ActionPolicy`から小さなReplay初期優先度ヒントだけを出したい。`ReplayBuffer`に全行動価値や全quantileを保持させないためである。
 12. 保守担当者として、DQN固有のtarget計算とTBO計算を優先度推定器へ閉じ込めたい。汎用`ReplayBuffer`にDQN分岐を持ち込まないためである。
 13. 保守担当者として、既存の`ReplayBuffer::Push`インターフェースを維持したい。先読みと転送のデコレータ契約を保つためである。
 14. 保守担当者として、リングバッファ上書き時に優先度sourceを正しく初期化したい。上書き済みslotの初期状態が診断とメトリクスに残らないためである。
@@ -66,63 +66,68 @@ DQN Agentが注入する推定器は、Learnerと同じ割引率、TBO変換、P
 - `per_initial_priority`は`fixed`モードでのみ使用する。`max`と`actor_approx`では非負の有限値を読み込むが使用しない。同一configで`per_initial_priority_mode`だけを切り替えるA/B比較を想定し、不使用モードでの非負指定はエラーやWARNにしない。
 - 負値`per_initial_priority`による暗黙の最大優先度初期化は廃止し、モードに関係なく負値は`per_initial_priority_mode = max`への移行方法を示してエラーにする。NaN/Infも全モードでエラーにする。既存configの負値使用箇所は本PRDで移行する（「設定」の章を参照）。
 - `fixed`モードの`per_initial_priority = 0`は意図的な指定として許可する。leafが0でもsourceは`fixed_initial`であり、値0を無効化protocolとして解釈しない。
-- `ActionPolicyConfig`へ重複するユーザー設定を追加しない。Agent構築時にLearnerのモードからQヒント出力の要否を決め、学習用Actorへ明示的に配線する。
+- `ActionPolicyConfig`へ重複するユーザー設定を追加しない。Agent構築時にLearnerのモードからReplay初期優先度ヒント出力の要否を決め、学習用Actorへ明示的に配線する。
 - `max`と`actor_approx`はPERを前提とする。`use_per = false`との組み合わせは、両設定と修正方法を示してエラーにする。
 - `actor_approx`でActor推定値を利用できない遷移のフォールバック初期化は、`max`モードと同一の最大優先度初期化とする。
 
-### 2. Actorは優先度ではなくQヒントを出力する
+### 2. Actorは優先度ではなくReplay初期優先度ヒントを出力する
 
 - 行動選択で生成済みのonline network出力を再利用する。online、target、優先度専用のforwardは追加しない。
-- `BatchActionInfo`にoptionalなヒント構造体を追加し、環境ごとに次の3値だけを保持する。Q値2列は連続した`float32[B,2]`へpackし、有効性マスクはCPU `uint8[B]`メタデータとして保持する。`fixed`と`max`モードでは構造体を設定しない（未設定＝確保・転送ゼロ）。
+- `BatchActionInfo`にoptionalな`ReplayInitialPriorityHint`を追加する。共通carrierは、アルゴリズム固有payloadを単一の連続した`float32[B,K]`（`K > 0`）として保持し、列の意味を解釈しない。carrierが存在する場合はbatchの全行が有効であり、別のvalidity maskは持たない。`fixed`と`max`モードではcarrierを設定しない（未設定＝確保・転送ゼロ）。
+- DQN系ではpayloadを`K = 2`のActor Qヒントとし、次の2列を保持する。列数、列index、pack/decodeはDQN module内の共通helperで一元管理し、汎用RL層とReplayBufferへQ値の意味を持ち込まない。
   - 環境へ実際に渡した行動の平均価値`actor_q_sa`
   - 全行動のonline平均Qの最大値として定義する状態価値近似`actor_state_value`
-  - 実ヒントと、欠損、dummy、無効メタデータを区別する有効性マスク
-- Q値tensorのdevice方針はaction本体と同一とする。出生デバイスで保持し、初回のCPU要求時にpack済みtensorを1本だけ同期変換してキャッシュする（non_blockingは使わない）。validityは最初からCPU metadataなのでD2Hを増やさない。CPU消費者はPER（CPU側）の`Push`だけであり、物理D2HはPush実行スレッドで1stepあたり1本だけ発生してactor/envのcritical pathに乗らない。GPU方向の変換APIは実装しない。
-- Qヒントを生成するのは`actor_approx`が有効な学習Actorだけとする。評価ActorとLearner内部のtarget action選択、ならびに`fixed`/`max`モードではヒントを生成しない。
+- carrier tensorのdevice方針はaction本体と同一とする。計算グラフから切り離した連続tensorを出生デバイスで保持し、初回のCPU要求時にpack済みtensorを1本だけ同期変換してキャッシュする（non_blockingは使わない）。CPU消費者はPER（CPU側）の`Push`だけであり、物理D2HはPush実行スレッドで1stepあたり1本だけ発生してactor/envのcritical pathに乗らない。GPU方向の変換APIは実装しない。
+- Replay初期優先度ヒントを生成するのは`actor_approx`が有効な学習Actorだけとする。評価ActorとLearner内部のtarget action選択、ならびに`fixed`/`max`モードではヒントを生成しない。
 - QR-DQNではquantileから算出済みの平均`q`出力を使う。`q_dist`を本機能のために追加保持せず、初期優先度用にquantile lossを再計算しない。
 - `actor_q_sa`は、epsilonやUQEを含む最終実行行動で収集する。探索の有無で定義を変えない。
 - `actor_state_value`は、Learnerのtarget選択を意図的に`max_a Q_online(s,a)`で近似する。
 - Learner側のtarget-network評価は再現しない。Double DQN有効時の`Q_target(s', argmax_a Q_online)`だけでなく、無効時もLearnerはtarget networkを行動選択・評価に使う。いずれもActor側での再現にはtarget networkの保持と追加forwardが必要で、forward追加禁止の目的に反する。また行動時点とLearnerサンプル時点ではtarget networkのスナップショットが別物のため、コストを払っても厳密再現は原理的に不可能である。
 - UQE/楽観的target選択も再現しない。こちらはquantileが行動時に手元にありforwardは増えないが、UQE版状態価値という追加ヒントtensorが必要になる。UQEのtauは減衰スケジュールで時間変化し、ThompsonSamplingのtauは呼び出しごとに再抽選されるため、いずれも行動時とLearnerサンプル時で一致しない。順位付け目的には平均Q近似で足りると割り切る。`greedy_only`指定でもUQEの楽観的選択基準は維持される実装のため、UQE構成では近似Actor初期優先度とLearner優先度に系統差が出ることを許容する。判断の記録と再訪条件はADR 0010を参照。
-- `DQNActionInfo::WithAction`で実行行動を差し替える場合、既存の一時的な`aux["q_values"]`から差し替え後の`actor_q_sa`をgatherし直し、`actor_state_value`を維持する。追加forwardやフォールバックは行わない。ヒントが存在するのに`q_values`が欠ける場合は契約違反としてエラーにする。現状の強制行動経路は評価用でヒント自体を持たないが、将来の学習利用でも正しい値を保つ契約とする。
-- ヒントは計算グラフから切り離した小さなtensorとする。本機能のために全network出力を追加保持しない。既存auxの全行動Q/quantileは補助診断用の一時データでReplayBufferへ保存せず、全行動Qは`WithAction`時の再計算に限って再利用する。
+- `DQNActionInfo::WithAction`で実行行動を差し替える場合、DQN payload helperでschemaを検証し、既存の一時的な`aux["q_values"]`から差し替え後の`actor_q_sa`をgatherし直して`actor_state_value`を維持する。追加forwardやフォールバックは行わない。ヒントが存在するのに`q_values`が欠ける場合は契約違反としてエラーにする。現状の強制行動経路は評価用でヒント自体を持たないが、将来の学習利用でも正しい値を保つ契約とする。
+- Replay初期優先度ヒントは小さなtensorとし、本機能のために全network出力を追加保持しない。既存auxの全行動Q/quantileは補助診断用の一時データでReplayBufferへ保存せず、全行動Qは`WithAction`時の再計算に限って再利用する。
 
 ### 3. 既存の経験転送経路だけを使用する
 
-- Qヒントは、`BatchActionInfo`のoptionalヒント構造体、`BatchExperience`、Trainer、`Learner::UpdateFromBatch`、`ReplayBuffer::Push`の順に流す。
-- 永続info（`info_storage_`へ保存されサンプル抽出でLearnerへ渡る経路）はヒントの置き場にしない。サンプルバッチへの漏出と抽出コストを避けるためである。auxの補助診断データもReplayBufferへ保存されないため、ヒントの運搬には使用しない。`WithAction`内で既存Qを一時参照する場合を除き、infoでもauxでもない第三の器としてoptionalな固定構造体を採用する。
-- TrainerはQヒントを読み取り、結合、改名、解釈しない。特に`PipelineRunner`で前回経験と現在の`ActionInfo`を結合しない。
+- Replay初期優先度ヒントは、`BatchActionInfo`のoptional carrier、`BatchExperience`、Trainer、`Learner::UpdateFromBatch`、`ReplayBuffer::Push`の順に流す。
+- 永続info（`info_storage_`へ保存されサンプル抽出でLearnerへ渡る経路）はヒントの置き場にしない。サンプルバッチへの漏出と抽出コストを避けるためである。auxの補助診断データもReplayBufferへ保存されないため、ヒントの運搬には使用しない。`WithAction`内で既存Qを一時参照する場合を除き、infoでもauxでもない第三の器としてoptionalな専用carrierを採用する。
+- TrainerはReplay初期優先度ヒントを読み取り、結合、改名、解釈しない。特に`PipelineRunner`で前回経験と現在の`ActionInfo`を結合しない。
 - `ReplayBuffer::Push`は変更しない。`PrefetchingReplayBuffer`は同じ不変`BatchExperience`スナップショットを運び、既存のFIFO順序を維持する。
-- `actor_approx`が有効な学習Actorは、dummyではない実stepごとにヒント構造体を必ず設定する。開始stepの設定漏れは、後にtruncatedになった場合もフォールバック理由とはせず、契約違反としてサンプリング可能化境界のエラー検出（決定4）で停止する。
+- `actor_approx`が有効な学習Actorは、dummyではない実stepごとにcarrierを必ず設定する。開始stepの設定漏れは、後にtruncatedになった場合もフォールバック理由とはせず、契約違反としてサンプリング可能化境界のエラー検出（決定4）で停止する。
 
 ### 4. サンプリング可能化の境界で優先度を完成させる
 
-- ReplayBufferはQヒントをslot単位で長期保存しない。開始stepのヒントはn-step確定キューのレコード（`QueueRecord`相当）に載せて確定まで運び、確定後は完成待ちエントリへ移す。ブートストラップstepのヒントは、そのslotを書き込む`Push`の入力から同一call内で直接消費し、保存しない。
+- ReplayBufferはReplay初期優先度ヒントをslot単位で長期保存しない。`Push`はpack済みtensorを1回だけCPU化し、envごとのopaqueな行をReplayBuffer内部の`c10::SmallVector<float, 4>`へコピーする。開始stepの行はn-step確定キューのレコード（`QueueRecord`相当）に載せて確定まで運び、確定後は完成待ちエントリへ移す。ブートストラップstepの行は、そのslotを書き込む`Push`の入力から同一call内で直接消費し、保存しない。推定器へは所有権を渡さない`std::span<const float>`として同期的に渡す。
 - 保存不要が成り立つ根拠: 非終端遷移は構造上`actual_n_steps = n_step`（短縮は終端到達時のみ）であり、開始slot tのサンプリング可能化はslot t+n を書くPushで起きるため、ブートストラップヒントの到着と消費は常に同一Pushになる。
 - 非終端遷移は、n-step収益と`start + actual_n_steps`にあるブートストラップ状態slotの両方が利用可能になった後に限り、近似Actor初期優先度を受け取る。このタイミングを既存の未来観測有効性ルール（`write_cursor >= start + n_step + 1`）と揃える。未初期化または古いSumTree leafを持つ遷移をサンプリング可能にしない。
 - 既存の`-1.0f`特殊フラグによる初期化は、シーケンス確定時すなわちブートストラップslot書き込み前に走るため、そのままの位置では近似初期化に流用できない。流用すると非終端遷移が全件ブートストラップ欠損になる。Push毎に、新たにサンプリング可能化境界へ達したエントリの優先度を完成させるsweepを設ける。確定順と完成順は一致するため、完成待ちはenv毎のFIFOで足りる。
-- 完成待ちリスト、推定器呼び出し、フォールバック/エラー判定は専用の小コンポーネント（例: `InitialPriorityCompleter`）へ切り出す。`DefaultReplayBuffer`はFacadeとして生成と委譲のみ行い、素のデータ配列を直接持たない。sweepのsampleable判定は`ForEachSampleableIndex`の範囲式を小関数へ括り出して共用し、式の二重保守を避ける。
-- 真の終端遷移はブートストラップを0とし、自身のQヒントと確定収益だけで推定する。ブートストラップslotの検査は行わない（次エピソードのslotを誤検査しないため）。
+- 完成待ちFIFO、mode分岐、推定器、フォールバック/エラー判定、初期系sourceの決定、completion理由カウンタは`InitialPriorityCompleter`が所有する。`DefaultReplayBuffer`は`ValidIndexManager`、`ReplayPriorityStore`、`metadata_mutex_`の所有者としてcompleterの生成と呼び出しを行い、同じ同期区間内で狭いinterface経由のsampleable照会と初期優先度適用を許可する。completer自身はsource配列を含む共有resourceとmutexを所有しない。
+- `InitialPriorityCompleter`はPERでのみ構築する。PERの`fixed`、`max`、`actor_approx`は同じcompletion経路とサンプリング可能化境界を使う。一様ReplayBufferではcompleterも完成待ちFIFOも生成せず、不要なpendingを蓄積しない。
+- sampleable範囲式は`ValidIndexManager`内の小関数へ括り出し、列挙、単点判定、上書き判定から共用して式の二重保守を避ける。
+- Replay初期優先度ヒントのtransport表現とcompletionの所有権判断はADR 0012へ記録する。
+- 真の終端遷移はブートストラップを0とし、自身の開始hintと確定収益だけで推定する。ブートストラップslotの検査は行わない（次エピソードのslotを誤検査しないため）。
 - 正当なフォールバックはtruncated遷移のみとする。現在のRunner契約では終端観測を推論せず、dummy slotにヒントが存在しないため、v1では最大優先度初期化へフォールバックする。
-- 契約違反はフォールバックせずエラーで停止する。`actor_approx`有効時の実stepのヒント構造体未設定、非dummy起点の無効ヒント、非終端遷移でのブートストラップ不整合、負の算出優先度は、いずれもバグでしか発生しないため`ANET_SYSTEM_ERROR`とする。算出優先度0は有効であり、sourceを`actor_initial`に保つ。
-- ActorヒントまたはActor算出値のNaN/Infは、Debugビルドでは`ANET_SYSTEM_ERROR`で停止し、Release/RelWithDebInfoでは最大優先度初期化へフォールバックして非finite理由カウンタに計上する。Learner算出優先度のNaN/Infは最終権威の破綻なので、全buildでReplayBuffer更新前に`ANET_SYSTEM_ERROR`とする。
+- 契約違反はフォールバックせずエラーで停止する。`actor_approx`有効時の実stepのcarrier未設定、共通carrierのrank/dtype/batch不整合、DQN payloadの`K != 2`、非終端遷移でのブートストラップ不整合、負の算出優先度は、いずれもバグでしか発生しないため`ANET_SYSTEM_ERROR`とする。算出優先度0は有効であり、sourceを`actor_initial`に保つ。
+- payloadのschemaとfinite判定はアルゴリズム固有推定器が所有する。`InitialPriorityEstimator::ValidateHint`はschema違反をエラーにし、payloadにNaN/Infがあればfalseを返す。truncatedでも開始hintへ先に`ValidateHint`を適用し、Actor由来の異常をtruncation理由へ隠さない。通常の`Estimate`は開始hintと必要なbootstrap hintを同じ規則で検証する。
+- 推定器が検出したhintまたは算出値のNaN/Infは、Debugビルドでは`ANET_SYSTEM_ERROR`で停止し、Release/RelWithDebInfoでは最大優先度初期化へフォールバックして非finite理由カウンタに計上する。Learner算出優先度のNaN/Infは最終権威の破綻なので、全buildでReplayBuffer更新前に`ANET_SYSTEM_ERROR`とする。
 - 未対応アルゴリズムの実行時フォールバックは存在しない。`per_initial_priority_mode`はDQN系Learner設定にのみ存在し、推定器を持たない構成は`actor_approx`になり得ないためである。
 - フォールバック初期化もActor初期化と同じサンプリング可能化境界で適用し、全モード（fixed/max/actor_approx）で有効性と順序の契約を共通化する。
 - 構築時に、丸め後の`capacity_per_env`が`max(1, n_step) + 1`以上であることを全モード共通で検証する。不足時は開始slotが未来観測到着前に上書きされるため、指定`replay_capacity`、`num_envs`、丸め後の`capacity_per_env`、必要最小値を含む`ANET_SYSTEM_ERROR`とする。既知のwrap/sampleabilityバグ自体は本PRDで修正しない。
 
 ### 5. DQN固有計算を深い戦略モジュールへ閉じ込める
 
-- ReplayBufferは構築時に任意の初期優先度推定器を受け取る。呼び出し時期、フォールバック、source管理はReplayBufferが所有し、DQN計算は推定器が所有する。
-- 推定器の入力は、小さな開始/ブートストラップメタデータ、確定済みtarget return、終端情報、実n-step数とする。ReplayBuffer内部やSumTreeへのアクセスは渡さない。
+- ReplayBufferは構築時に任意の初期優先度推定器を受け取る。completerが呼び出し時期、フォールバック、初期系sourceの決定を所有し、DQN計算とDQN payload検証は推定器が所有する。
+- 推定器の入力は、opaqueな開始/ブートストラップhint行を表す`std::span<const float>`、確定済みtarget return、終端情報、実n-step数とする。真の終端ではbootstrap spanを空にし、非終端では論理時刻が一致するhint行を必須とする。ReplayBuffer内部やSumTreeへのアクセスは渡さない。
+- `InitialPriorityEstimator::ValidateHint`はpayload schemaを検証し、finiteならtrue、NaN/Infならfalseを返す。DQN推定器は`K = 2`と列意味を所有し、Actor、`WithAction`、推定器で同じpack/decode helperを使用する。
 - 報酬スケールはAgentがPush前に適用済みで、保存済みtarget returnへ反映されている。推定器はRewardScalerを保持せず、スケールを再適用しない。
 - 非TBOのDQN/QR-DQNでは、確定済みn-step収益と割引済みonline状態価値ブートストラップから近似targetを作る。
 - TBOでは、h空間のブートストラップを逆変換し、実空間で確定収益と結合する。再びh空間へ変換して`actor_q_sa`と比較し、LearnerのTD誤差空間へ揃える。
 - 生のActor初期優先度は近似TD誤差の絶対値に`per_eps`を加えた値とする。Samplerが`per_alpha`を適用する前に、Learner優先度と共通のclipを適用する。`per_eps = 0`やclip上限0による優先度0は有効とする。
-- LearnerとのTD誤差計算はできる限り部品を共有する。`TransformH`/`TransformHInv`はLearnerのメンバ関数から名前付きnamespaceの自由関数へ移し、Learnerと推定器の両方が同一実装を呼ぶ。`|近似TD誤差| + per_eps`とclipの優先度確定ポリシーも共有ヘルパにする。
+- LearnerとのTD誤差計算はできる限り数式と命名を共有する。`TransformH`/`TransformHInv`は名前付きDQN namespaceへtensor版とscalar版のoverloadを隣接定義し、Learnerはtensor版、推定器はPush hot pathでtensor生成を避けるscalar版を呼ぶ。`|近似TD誤差| + per_eps`とclipの優先度確定ポリシーも同じnamespaceのtensor/scalar helperへ揃え、両版が同一数式であることを数値一致テストで拘束する。
 - `fixed`初期値は既存互換のため新しいActor/Learner共通clipの対象にせず、非負の指定値へ`per_alpha`を1回だけ適用する。`max_initial`は既に`per_alpha`適用済みのLearner最大値を使い、再度clipや`per_alpha`を適用しない。raw priorityとSumTree leaf priorityの内部設定経路を分け、二重変換を防ぐ。
 - n-stepターゲット合成（`G + γ^n (1 - T) V`のTBO挟み）は、Learner側がquantile次元付きテンソル、推定器側がスカラーで形が異なるため無理に共通化せず、同一入力でLearner計算と数値一致するテストで拘束する。なおLearnerの優先度用TD誤差は既に平均空間（`mean(Z(s,a)) - mean(target)`）であり、推定器の式と構造的に同形である。
 - QR×TBOでは、Learnerが分位点毎に変換して平均を取り、推定器が平均を変換するため、hの非線形性により完全一致は原理的に不可能である。一致テストは非TBOまたはスカラーDQN構成で行う。
-- 推定失敗は「推定値なし」として明示し、推定器自身はフォールバック値を選ばない。
+- `Estimate`の`std::nullopt`は入力または計算結果のnonfiniteに限定する。schema違反はエラーとし、値がある場合はcompleterがfiniteかつ非負であることを防御的に検証する。推定器自身はフォールバック値を選ばない。
 - 一様ReplayBuffer、MuZero、推定器を持たないAgentは既存の構築と動作を維持する。
 
 ### 6. 初期状態と優先度sourceを別の概念として扱う
@@ -132,7 +137,7 @@ DQN Agentが注入する推定器は、Learnerと同じ割引率、TBO変換、P
 - generation一致のLearner更新は、適用優先度が0の場合もsourceを`learner_updated`へ変更する。stale更新ではsourceを変更しない。
 - `ExperienceSamples::per_is_initial_priority`はCPU `int8` tensorの`per_priority_sources[B]`へ置き換える。LearnerはSample時点のsourceから、既存の`per_sample_initial_ratio`とsource別サンプル比率を導出する。source enumは診断上の意味情報であり、物理slotやgenerationは公開しない。
 - 既存のReplayBufferとSampler間の`-1.0f`=初期化、`0.0f`=無効化、正値=Learner更新というmagic protocolは廃止する。内部では、物理slot無効化、raw初期優先度設定、`per_alpha`適用済みmax初期優先度設定、Learner更新を別の明示APIにする。優先度0と無効化をsourceで区別する。
-- sourceの実体は、Samplerが既に持つper-slot配列をenumへ拡張して保持する。source別の優先度質量も、既存の初期質量の増分集計を分割して追跡する。
+- per-slot source配列とsource別優先度質量は、`DefaultReplayBuffer`が所有する`ReplayPriorityStore`に保持する。completerは`fixed_initial`、`max_initial`、`actor_initial`の初期遷移を決定し、リング上書き/dummy書き込み経路は`none`、generation一致のLearner更新経路は`learner_updated`を、同じstoreの明示APIから適用する。
 - 初期系（fixed/max/actor）の優先度設定は最大優先度追跡を更新しない。最大優先度追跡を押し上げるのは、generation検証を通過して実際に適用された有限なLearner優先度だけとする。staleとして棄却したLearner値は最大値にも反映しない。
 - リング上書きとdummy書き込みでは、generationを進めると同時にsourceを`none`へ戻し、leafを無効化する。優先度0の正当な初期sourceは上書きまで維持する。
 - 既存の`per_sample_initial_ratio`と`initial_mass_ratio`は、Learner未更新を集約する履歴互換メトリクスとして維持し、本PRDでは改名しない。
@@ -158,6 +163,7 @@ DQN Agentが注入する推定器は、Learnerと同じ割引率、TBO変換、P
 - Actor/Learner比較は各`UpdatePriorities`呼び出し、すなわちLearner minibatch単位で集計する。全比較ペア数と、両優先度が正のペア率を報告する。正値ペアについて`A/L`の中央値と`log(A/L)`の算術平均を計算し、正値ペア0件なら両方`NaN`とする。
 - Spearman順位相関はzeroを含む全finiteペアを平均rankで計算し、ペア数2未満または片側が全tieなら`NaN`とする。`per_alpha = 0`で全leafがtieになる場合も`NaN`とし、source/useメトリクスは通常どおり報告する。比較はすべて`per_alpha`適用済み空間で行う。
 - `ReplayPriorityUpdateResult`のstale数からminibatch単位のstale率を報告し、ReplayBuffer側にも累積stale-drop数を持つ。メトリクスのためにサンプリングを変えたり、環境stepごとの追加GPU同期を行ったりしない。
+- 既存の`per_prio_clip_ratio`は、clip適用前の`abs(td_error) + per_eps`が`per_prio_clip_value`を超え、実際に値が変更された要素の割合とする。上限と元から等しい要素はclip件数へ含めない。
 - ヒント抽出、初期優先度推定、source管理、key検証に安定したプロファイル範囲を追加する。
 
 #### 8.1 追加メトリクス辞書
@@ -201,7 +207,7 @@ Actor完成品質:
 | `replaybuffer.per.actor_completion_success_ratio` | Actor近似初期化を正常適用できた割合 | completion attempt数、比率 | non-truncated主体の環境では1付近。truncationが多い環境ではfallback率と合わせて読む | ハイパラ探索結果の原因分析 | completion attempt数が0 |
 | `replaybuffer.per.actor_truncation_fallback_count` | `truncated && !done`により`max_initial`へfallbackした累積件数 | 件数 | 環境契約由来のため単独で良否判定しない | truncation頻度とfallback影響の障害調査 | なし |
 | `replaybuffer.per.actor_truncation_fallback_ratio` | truncation fallbackの割合 | completion attempt数、比率 | baselineとの差ではなく環境のtruncation率と整合するかを見る | ハイパラ探索結果の原因分析 | completion attempt数が0 |
-| `replaybuffer.per.actor_nonfinite_fallback_count` | Release系でActorヒントまたは算出priorityが非finiteとなり`max_initial`へfallbackした累積件数 | 件数 | 原則0。1以上なら数値異常として扱う。Debugではfallbackせず停止する | 障害調査 | なし |
+| `replaybuffer.per.actor_nonfinite_fallback_count` | Release系で推定器がActor payloadまたは算出priorityのnonfiniteを検出し、`max_initial`へfallbackした累積件数 | 件数 | 原則0。1以上なら数値異常として扱う。Debugではfallbackせず停止する | 障害調査 | なし |
 | `replaybuffer.per.actor_nonfinite_fallback_ratio` | nonfinite fallbackの割合 | completion attempt数、比率 | 原則0 | ハイパラ探索結果の健全性確認 | completion attempt数が0 |
 
 #### 8.2 ハイパラ探索で見る最小セット
@@ -238,8 +244,8 @@ tag名の短縮語は`init`、`corr`、`pos`、`fb`、`ok`に限定する。`per
 ### 9. 実行性能と互換性の方針
 
 - 本機能のためにActor、Trainer、Learner、ReplayBufferへ新しいネットワークforwardを追加しない。
-- 想定する実行時コストは、連続`float32[B,2]`ヒントtensorの抽出、1stepあたり物理1本の小さなD2H（Push実行スレッド）、スカラー優先度計算、per-slot generation、診断処理だけとする。
-- `fixed`と`max`モード、および評価/target action選択ではActor Qヒント用メタデータを確保または転送しない。
+- 想定する実行時コストは、連続`float32[B,K]`carrier（DQNでは`K = 2`）の抽出、1stepあたり物理1本の小さなD2H（Push実行スレッド）、inline保持するopaque行のコピー、スカラー優先度計算、per-slot generation、診断処理だけとする。
+- `fixed`と`max`モード、および評価/target action選択ではReplay初期優先度ヒント用メタデータを確保または転送しない。一様ReplayBufferではcompletion用FIFOとcounterも確保しない。
 - `ReplayBuffer::Push`、Agent、network、optimizerのarchive契約は維持する。既存チェックポイントはリプレイ内容を直列化しないためarchive移行は不要とする。一方、Sampleのkey/source metadataと`UpdatePriorities`の引数名・戻り値は意図的に変更し、raw物理index互換は持たない。
 - `fixed`を既定値とし、非負の`per_initial_priority`を使う既存の実行設定はそのまま有効とする。負値を使う既存設定は`per_initial_priority_mode = max`へ移行する（「設定」の章を参照）。
 
@@ -259,6 +265,7 @@ tag名の短縮語は`init`、`corr`、`pos`、`fb`、`ok`に限定する。`per
 - `per_eps = 0`は全モードで許可し、PER有効時は`"zero-TD-error transitions may receive zero sampling priority"`を起動時に1回WARNする。負値・NaN・Infは全モードでエラーにする。
 - `actor_approx`かつ`per_alpha = 0`は許可し、`"Actor priority does not affect sampling when per_alpha is 0"`を起動時に1回WARNする。source/useメトリクスは有効だが、adjusted-spaceの順位相関は全tieなら`NaN`になる。PERのalpha/beta方針自体は本PRDで変更しない。
 - `use_per_prio_clip = true`のとき、`per_prio_clip_value = 0`を許可して近似Actor初期優先度とLearner優先度がすべて0へclipされる旨を1回WARNする。負値・NaN・Infはエラーにする。`0 < per_prio_clip_value <= per_eps`も許可するが、優先度差が潰れ得る旨を1回WARNする。`use_per_prio_clip = false`では値を使用せず、検証やWARNを行わない。
+- SumTree全質量0は、`per_alpha > 0`で優先度0を許可する設定により生じる有効な状態とする。Samplerはrejection samplingを行わず直接uniform samplingへフォールバックし、全質量0を初めて検出したときだけWARNする。`fixed`初期値0は正のLearner優先度が適用されれば質量が回復する一方、`per_prio_clip_value = 0`ではLearner更新後も全raw priorityが0なので実行中はuniform samplingを継続する。後者でもsample済みitemのsourceは`learner_updated`へ遷移し、source遷移と質量回復を同一視しない。`per_alpha = 0`ではadjusted leafが全tieとなる別契約であり、全質量0フォールバックには入らない。
 - 全モードで、丸め後の`capacity_per_env >= max(1, n_step) + 1`を構築時に要求する。不足時は`replay_capacity`、`num_envs`、丸め後容量、必要最小値をエラーへ含める。
 
 既存configの移行（本PRDの作業に含める）:
@@ -268,13 +275,15 @@ tag名の短縮語は`init`、`corr`、`pos`、`fb`、`ok`に限定する。`per
 ## テスト方針
 
 - 外部から観測できる動作と安定したインターフェースを中心にテストし、production APIへtest-only経路を追加しない。任意leaf設定が必要な低水準テストは内部の物理slot APIを直接テストし、外部`UpdatePriorities`へraw indexを再導入しない。
-- 初期優先度推定器について、DQN、QR平均Q、1-step、n-step、真の終端、TBO、有限値、優先度0、明示的失敗をテストする。推定器とLearnerの共有部品が同一入力で数値一致することを、非TBOまたはスカラーDQN構成で検証する（QR×TBOは変換と平均の順序差により原理的に不一致）。
-- 探索行動を含む最終実行行動からpack済み`actor_q_sa`/`actor_state_value`が生成され、CPU化が物理D2H 1本でキャッシュされることを検証する。`WithAction`は既存Qから差し替え後の`actor_q_sa`を再計算し、追加forwardやフォールバックを行わないことを検証する。
-- `fixed`/`max`モード、評価Actor、Learner内部のtarget action選択ではActor Qヒントが生成されないことを検証する。forward回数を数えるfake networkまたは同等の公開境界を使い、`actor_approx`有効化でもforward回数が増えないことを証明する。
+- `ReplayInitialPriorityHint`について、rank、`float32`、batch size、`K > 0`、detach/contiguous、CPU cacheを検証する。validity tensorが存在せず、GPU出生時もCPU化が物理D2H 1本で再利用されることを検証する。
+- 初期優先度推定器について、DQN payloadの`K = 2`、列decode、QR平均Q、1-step、n-step、真の終端、TBO、有限値、優先度0、`ValidateHint`、`nullopt`をテストする。schema不一致はエラー、nonfiniteはfalseまたは`nullopt`になることを区別する。`TransformH`/`TransformHInv`と優先度確定policyのtensor/scalar版が代表値・境界値で数値一致することを検証し、非TBOまたはスカラーDQN構成では推定器とLearnerのtarget/priorityも同一入力で一致させる（QR×TBOは変換と平均の順序差により原理的に不一致）。
+- 探索行動を含む最終実行行動からpack済み`actor_q_sa`/`actor_state_value`が生成されることを検証する。`WithAction`は同じDQN schema helperを通じて既存Qから差し替え後の`actor_q_sa`を再計算し、追加forwardやフォールバックを行わないことを検証する。
+- `fixed`/`max`モード、評価Actor、Learner内部のtarget action選択ではReplay初期優先度ヒントが生成されないことを検証する。forward回数を数えるfake networkまたは同等の公開境界を使い、`actor_approx`有効化でもforward回数が増えないことを証明する。一様ReplayBufferではcompleterと完成待ちFIFOを生成せず、Pushを継続しても未消費pendingを蓄積しないことを内部component境界で検証する。
 - 非終端遷移がサンプリング可能になった時点でのみ、開始stepとブートストラップstepのヒントから初期化されることを検証する。true terminalはbootstrapを検査せず、truncatedは`max_initial`へフォールバックして累積理由カウンタへ入ることを検証する。
-- ヒント構造体未設定、非dummy起点の無効ヒント、非終端遷移のブートストラップ不整合、負の算出優先度をエラーとして検証し、優先度0は`actor_initial`/`fixed_initial`を維持することを検証する。
-- ActorのNaN/InfはDebugで停止し、Release/RelWithDebInfoで`max_initial`へフォールバックすることを構成別に検証する。Learner優先度のNaN/Infは全buildでSumTree更新前に停止することを検証する。
-- 負値・NaN/Infの`per_initial_priority`、負値・NaN/Infの`per_eps`、clip設定、`per_alpha = 0`のWARN、容量不足について設定契約を検証する。`per_initial_priority_mode = max`が旧負値指定と同じ最大優先度初期化になることも検証する。
+- carrier未設定、共通形式不整合、DQN schema不一致、非終端遷移のブートストラップ欠落・論理時刻不整合、負の算出優先度をエラーとして検証し、優先度0は`actor_initial`/`fixed_initial`を維持することを検証する。
+- Actor payloadのNaN/Infは、truncatedの開始hintを含めてDebugで停止し、Release/RelWithDebInfoで`max_initial`へフォールバックすることを構成別に検証する。true terminalは空のbootstrap spanで成功し、非終端だけbootstrap hintを要求することを検証する。Learner優先度のNaN/Infは全buildでSumTree更新前に停止することを検証する。
+- 負値・NaN/Infの`per_initial_priority`、負値・NaN/Infの`per_eps`、clip設定、`per_alpha = 0`のWARN、容量不足について設定契約を検証する。`per_initial_priority_mode = max`が旧負値指定と同じ最大優先度初期化になることも検証する。`per_clipped_count`はclip前priorityが上限未満・等値・超過の3境界で、超過した要素だけを数えることを検証する。
+- `per_alpha > 0`のSumTree全質量0ではrejection samplingを経ずuniform samplingでき、WARNが初回1回だけであることを検証する。`fixed = 0`は正のLearner優先度でPER samplingへ復帰し、`per_prio_clip_value = 0`はsourceを`learner_updated`へ遷移させながら全質量0とuniform samplingを維持することを検証する。`per_alpha = 0`ではraw priority 0でも全tieの正質量となり、このfallbackへ入らないことを区別する。
 - real/dummy書き込みでgenerationが進み、Sampleが`replay_item_keys`と`per_priority_sources`をCPU metadataとして返すことを検証する。丸め後`actual_capacity`をkey基数とSumTree容量の両方に使うことも、非整除capacityで検証する。
 - generation一致、過去generation、未来generation、generation 0、負値、overflow、key/priorities長不一致を検証する。プログラムエラー時はbatchを部分適用せず、stale時はその要素だけを無視して他要素を更新することを検証する。
 - `F1 Sample -> write-behind Push overwrite -> F2 Sample -> F1 UpdatePriorities`を再現し、F1が新しいslotのleaf/source/最大優先度を変更せずstaleへ計上され、F2は新generationで更新できることを検証する。
