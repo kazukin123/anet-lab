@@ -135,10 +135,13 @@ public:
         return std::make_shared<rl::BatchActionInfo>(torch::zeros({ num_envs_ }, torch::kInt64));
     }
 
-    void Sync() override {}
+    void Sync() override { ++sync_count_; }
+
+    int GetSyncCount() const { return sync_count_; }
 
 private:
     int64_t num_envs_ = 1;
+    int sync_count_ = 0;
 };
 
 class TestLearner final : public rl::Learner {
@@ -159,11 +162,20 @@ public:
     std::shared_ptr<rl::Actor> CreateActor(
         const rl::BatchEnvSpec& batch_env_spec,
         rl::RunMode,
-        bool,
+        std::optional<bool> clone_model_override = std::nullopt,
         std::optional<torch::Device> = std::nullopt) const override
     {
-        return std::make_shared<TestActor>(batch_env_spec.num_envs);
+        last_clone_model_override_ = clone_model_override;
+        last_actor_ = std::make_shared<TestActor>(batch_env_spec.num_envs);
+        return last_actor_;
     }
+
+    std::optional<bool> GetLastCloneModelOverride() const
+    {
+        return last_clone_model_override_;
+    }
+
+    std::shared_ptr<const TestActor> GetLastActor() const { return last_actor_; }
 
     std::shared_ptr<rl::Learner> CreateLearner() override
     {
@@ -178,9 +190,35 @@ public:
 
 private:
     torch::Device device_;
+    mutable std::optional<bool> last_clone_model_override_ = true;
+    mutable std::shared_ptr<TestActor> last_actor_;
 };
 
 } // namespace
+
+TEST_CASE("TrainRunner delegates clone policy to Agent", "[trainer][actor]")
+{
+    auto env = std::make_shared<TestBatchEnv>(1, torch::Device(torch::kCPU));
+    auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
+
+    auto runner = std::make_shared<rl::SerialTrainRunner>(env, agent, nullptr);
+
+    CHECK_FALSE(agent->GetLastCloneModelOverride().has_value());
+}
+
+TEST_CASE("PipelineTrainRunner does not force actor synchronization every step", "[trainer][actor][pipeline]")
+{
+    auto env = std::make_shared<TestBatchEnv>(1, torch::Device(torch::kCPU));
+    auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
+    auto notifier = std::make_shared<rl::Notifier>();
+    auto runner = std::make_shared<rl::PipelineTrainRunner>(env, agent, notifier);
+
+    runner->DoStep();
+
+    REQUIRE(agent->GetLastActor());
+    CHECK(agent->GetLastActor()->GetSyncCount() == 0);
+    runner->Shutdown();
+}
 
 TEST_CASE("EvalRunner allows shared actor when actor device matches agent device", "[trainer][eval_runner]")
 {

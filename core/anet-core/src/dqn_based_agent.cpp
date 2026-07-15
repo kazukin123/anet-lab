@@ -379,8 +379,10 @@ int64_t NetworkModel::Load(InputArchive& archive)
 
 std::shared_ptr<anet::rl::BatchActionInfo> DQNActionInfo::To(torch::Device device) const
 {
-    return std::make_shared<DQNActionInfo>(
+    auto result = std::make_shared<DQNActionInfo>(
         GetAction(device), info_.To(device), aux_, replay_initial_priority_hint_);
+    result->train_actor_snapshot_metrics_ = train_actor_snapshot_metrics_;
+    return result;
 }
 
 std::shared_ptr<anet::rl::BatchActionInfo> DQNActionInfo::WithAction(torch::Tensor action) const
@@ -403,7 +405,9 @@ std::shared_ptr<anet::rl::BatchActionInfo> DQNActionInfo::WithAction(torch::Tens
         auto packed = PackActorQHint(q_sa, decoded.actor_state_value);
         hint = ReplayInitialPriorityHint(std::move(packed));
     }
-    return std::make_shared<DQNActionInfo>(std::move(action), info_, aux_, std::move(hint));
+    auto result = std::make_shared<DQNActionInfo>(std::move(action), info_, aux_, std::move(hint));
+    result->train_actor_snapshot_metrics_ = train_actor_snapshot_metrics_;
+    return result;
 }
 
 namespace {
@@ -467,6 +471,15 @@ std::optional<ActionUqeScalarKey> ParseActionUqeScalarKey(const std::string& key
 
 std::optional<float> DQNActionInfo::GetScalar(const std::string& key, int64_t) const
 {
+    if (key == "train_actor_snapshot_interval" || key == "train_actor_snapshot_age") {
+        if (!train_actor_snapshot_metrics_.has_value()) {
+            return std::nullopt;
+        }
+        return key == "train_actor_snapshot_interval"
+            ? train_actor_snapshot_metrics_->interval
+            : train_actor_snapshot_metrics_->age;
+    }
+
     const auto parsed_key = ParseActionUqeScalarKey(key);
     if (!parsed_key.has_value()) {
         return std::nullopt;
@@ -654,7 +667,7 @@ torch::Tensor anet::rl::dqn::ActionPolicy::MakeEpsilonGreedyAction(
     return torch::where(mask, random_actions, greedy_action);
 }
 
-std::shared_ptr<anet::rl::BatchActionInfo> anet::rl::dqn::ActionPolicy::MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const
+std::shared_ptr<DQNActionInfo> anet::rl::dqn::ActionPolicy::MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const
 {
     ANET_PROFILE_FUNC();
 
@@ -724,7 +737,7 @@ void anet::rl::dqn::EpsilonGreedyActionPolicy::OnLearn(const StepCounts& counts)
     UpdateEpsilon(counts.exp_step);
 }
 
-std::shared_ptr<anet::rl::BatchActionInfo> EpsilonGreedyActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
+std::shared_ptr<DQNActionInfo> EpsilonGreedyActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
     std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink) const
 {
     ANET_PROFILE_FUNC();
@@ -896,7 +909,7 @@ torch::Tensor UQEActionPolicy::MakeVectorizedUQEValues(const torch::Tensor& tau_
     return uqe_values;
 }
 
-std::shared_ptr<anet::rl::BatchActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs,
+std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs,
     bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink) const
 {
     ANET_PROFILE_FUNC();
@@ -948,7 +961,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> UQEActionPolicy::MakeUQEActionInfo(fl
     return action_info;
 }
 
-std::shared_ptr<anet::rl::BatchActionInfo> UQEActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
+std::shared_ptr<DQNActionInfo> UQEActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
     std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink) const
 {
     if (IsSpatialExplorationEnabled()) {
@@ -978,7 +991,7 @@ void anet::rl::dqn::ThompsonSamplingActionPolicy::OnLearn(const StepCounts& coun
     //UpdateTau(counts.exp_step);
 }
 
-std::shared_ptr<anet::rl::BatchActionInfo> ThompsonSamplingActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
+std::shared_ptr<DQNActionInfo> ThompsonSamplingActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
     std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink) const
 {
     // ランダムな Tau をバッチサイズ分生成 (N, 1)
@@ -1007,17 +1020,58 @@ Actor::Actor(std::shared_ptr<ActionPolicy> policy,
     std::shared_ptr<std::shared_mutex> mutex,
     std::shared_ptr<anet::nn::Network> network,
     std::shared_ptr<anet::nn::Network> src_network,
-    bool emit_actor_q_hint)
+    bool emit_actor_q_hint,
+    std::optional<anet::ProfiledValueConfig<step_t>> snapshot_sync_interval,
+    bool emit_snapshot_metrics)
     : policy_(std::move(policy)), obs_norm_(std::move(obs_norm)), context_(std::move(context)), mutex_(std::move(mutex))
     , network_(std::move(network)), src_network_(std::move(src_network)), emit_actor_q_hint_(emit_actor_q_hint)
+    , emit_snapshot_metrics_(emit_snapshot_metrics)
 {
-    ;
+    if (snapshot_sync_interval.has_value()) {
+        snapshot_sync_interval_.emplace(std::move(*snapshot_sync_interval));
+    }
+}
+
+void Actor::CopySourceNetwork() const
+{
+    if (network_ == src_network_) {
+        return;
+    }
+
+    // Learner更新と同じAgent mutexでsourceを保護してsnapshotへ複製する。
+    std::shared_lock<std::shared_mutex> lock(*mutex_);
+    src_network_->CopyTo(*network_);
+    network_->eval();
+}
+
+void Actor::UpdateSnapshot(const StepCounts& step) const
+{
+    if (!snapshot_sync_interval_.has_value()) {
+        return;
+    }
+
+    // exp_stepで現在周期を評価してから、強制同期後のage基準を現在actionへ合わせる。
+    snapshot_sync_interval_->Update(step.exp_step);
+    if (reset_snapshot_age_on_next_action_) {
+        last_snapshot_sync_train_step_ = step.train_step;
+        reset_snapshot_age_on_next_action_ = false;
+    }
+
+    // 現在ageが評価済み周期へ到達したaction境界でsnapshotを更新する。
+    const auto snapshot_age = step.train_step - last_snapshot_sync_train_step_;
+    if (snapshot_age >= snapshot_sync_interval_->Value()) {
+        CopySourceNetwork();
+        last_snapshot_sync_train_step_ = step.train_step;
+    }
 }
 
 std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const
 {
     ANET_PROFILE_FUNC();
     torch::NoGradGuard ng;
+
+    // action forwardより前にTrain Actor network snapshotを必要な場合だけ同期する。
+    UpdateSnapshot(step);
 
     // FrameStacking
     auto obs = state.obs;
@@ -1040,7 +1094,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     auto rnd = context_->GetRandomGenerator();
     anet::TensorDict trace;
     anet::TraceSink sink = anet::rl::MakeActionTraceSink(trace);
-    std::shared_ptr<anet::rl::BatchActionInfo> act_info;
+    std::shared_ptr<DQNActionInfo> act_info;
     if (network_ != src_network_) {
         // Clone済み: 自分専用のネットワークなので排他不要
         act_info = policy_->SelectAction(norm_obs, false, network_, rnd, sink);
@@ -1075,16 +1129,25 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     }
     anet::rl::AppendTraceAux(act_info->GetAuxData(), trace);
 
+    // DefaultDQNでは無効時もNaN、周期snapshot有効時は同期後の現在値を公開する。
+    if (emit_snapshot_metrics_) {
+        TrainActorSnapshotMetrics metrics;
+        if (snapshot_sync_interval_.has_value()) {
+            metrics.interval = static_cast<float>(snapshot_sync_interval_->Value());
+            metrics.age = static_cast<float>(step.train_step - last_snapshot_sync_train_step_);
+        }
+        act_info->SetTrainActorSnapshotMetrics(metrics);
+    }
+
     return act_info;
 }
 
 void Actor::Sync()
 {
-    if (network_ != src_network_) {
-        // Clone中は排他が必要
-        std::shared_lock<std::shared_mutex> lock(*mutex_);
-        src_network_->CopyTo(*network_);
-        network_->eval();
+    CopySourceNetwork();
+    if (snapshot_sync_interval_.has_value()) {
+        // Syncはstepを受け取らないため、次actionのtrain_stepを新しいage基準にする。
+        reset_snapshot_age_on_next_action_ = true;
     }
 }
 

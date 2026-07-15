@@ -153,7 +153,11 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
             const anet::rl::BatchEnvSpec& batch_env_spec, const anet::rl::EnvSpec& env_spec, const torch::Device device,
             std::optional<anet::seed_t> seed = std::nullopt);
 
-        std::shared_ptr<anet::rl::Actor> CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, bool clone_model, std::optional<torch::Device> device = std::nullopt) const override;
+        std::shared_ptr<anet::rl::Actor> CreateActor(
+            const anet::rl::BatchEnvSpec& batch_env_spec,
+            anet::rl::RunMode run_mode,
+            std::optional<bool> clone_model_override = std::nullopt,
+            std::optional<torch::Device> device = std::nullopt) const override;
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
 
     public: // anet::Module

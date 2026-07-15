@@ -240,8 +240,8 @@ namespace anet::rl::img_cls {
         std::shared_ptr<anet::rl::Actor> CreateActor(
             const anet::rl::BatchEnvSpec& batch_env_spec,
             anet::rl::RunMode run_mode,
-            bool clone_model,
-            std::optional<torch::Device> device) const override;
+            std::optional<bool> clone_model_override = std::nullopt,
+            std::optional<torch::Device> device = std::nullopt) const override;
 
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
 

@@ -11,6 +11,7 @@
 #include "anet/nn_util.hpp"
 #include "anet/transfer.hpp"
 #include "anet/replay_buffer.hpp"
+#include "anet/schedule.hpp"
 
 
 namespace anet::rl::dqn {
@@ -410,6 +411,11 @@ namespace anet::rl::dqn {
     // ActionPolicy
     // ======================================================
 
+    struct TrainActorSnapshotMetrics {
+        float interval = std::numeric_limits<float>::quiet_NaN();
+        float age = std::numeric_limits<float>::quiet_NaN();
+    };
+
     class DQNActionInfo final : public anet::rl::BatchActionInfo, public anet::ModuleBase {
     public:
         using anet::rl::BatchActionInfo::BatchActionInfo;
@@ -417,6 +423,12 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::rl::BatchActionInfo> To(torch::Device device) const override;
         std::shared_ptr<anet::rl::BatchActionInfo> WithAction(torch::Tensor action) const override;
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+        void SetTrainActorSnapshotMetrics(TrainActorSnapshotMetrics metrics)
+        {
+            train_actor_snapshot_metrics_ = metrics;
+        }
+    private:
+        std::optional<TrainActorSnapshotMetrics> train_actor_snapshot_metrics_;
     };
 
     class ActionPolicy : virtual public anet::ModuleBase {
@@ -425,7 +437,7 @@ namespace anet::rl::dqn {
         	bool enable_spatial_exploration = false, int64_t num_envs = 0,
             const torch::Device& device = torch::Device(torch::kCPU));
 
-        virtual std::shared_ptr<BatchActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
+        virtual std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
             const anet::TraceSink& sink = {}) const = 0;
         virtual void OnLearn(const StepCounts& counts) { }
@@ -437,7 +449,7 @@ namespace anet::rl::dqn {
         anet::TensorDict ForwardForAction(const anet::TensorDict& obs, std::shared_ptr<anet::nn::Network> network, const anet::TraceSink& sink) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, const torch::Tensor& epsilon_tensor, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
-        std::shared_ptr<BatchActionInfo> MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const;
+        std::shared_ptr<DQNActionInfo> MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const;
         //torch::Tensor GetQuantiles(const torch::Tensor& obs, bool use_target) const;
         void UpdateEpsilon(step_t step, bool is_uqe = false);
         bool IsSpatialExplorationEnabled() const { return use_spatial_exploration_; }
@@ -462,7 +474,7 @@ namespace anet::rl::dqn {
             int64_t num_envs = 0,
             const torch::Device& device = torch::Device(torch::kCPU));
 
-        std::shared_ptr<BatchActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
+        std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
             const anet::TraceSink& sink) const;
         void OnLearn(const StepCounts& counts) override;
@@ -483,14 +495,14 @@ namespace anet::rl::dqn {
             int64_t num_envs = 0,
             const torch::Device& device = torch::Device(torch::kCPU));
 
-        std::shared_ptr<BatchActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
+        std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
             const anet::TraceSink& sink) const;
         void OnLearn(const StepCounts& counts) override;
 
         virtual ~UQEActionPolicy() = default;
     protected:
-        std::shared_ptr<anet::rl::BatchActionInfo> MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs, bool greedy_only,
+        std::shared_ptr<DQNActionInfo> MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink) const;
         void UpdateTau(step_t step);
     private:
@@ -505,7 +517,7 @@ namespace anet::rl::dqn {
             int64_t num_envs = 0,
             const torch::Device& device = torch::Device(torch::kCPU));
 
-        std::shared_ptr<BatchActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
+        std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
             const anet::TraceSink& sink) const;
         void OnLearn(const StepCounts& counts) override;
@@ -524,9 +536,14 @@ namespace anet::rl::dqn {
             std::shared_ptr<std::shared_mutex> mutex,
             std::shared_ptr<anet::nn::Network> network,
             std::shared_ptr<anet::nn::Network> src_network,
-            bool emit_actor_q_hint = false);
+            bool emit_actor_q_hint = false,
+            std::optional<anet::ProfiledValueConfig<step_t>> snapshot_sync_interval = std::nullopt,
+            bool emit_snapshot_metrics = false);
         std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const override;
         void Sync() override;
+    private:
+        void CopySourceNetwork() const;
+        void UpdateSnapshot(const StepCounts& step) const;
     private:
         std::shared_ptr<ActionPolicy> policy_;
         std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm_;
@@ -535,6 +552,10 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::nn::Network> network_;
         std::shared_ptr<anet::nn::Network> src_network_;
         bool emit_actor_q_hint_ = false; ///< 学習Actorから初期優先度推定用Qヒントを生成するか
+        mutable std::optional<anet::ProfiledValue<step_t>> snapshot_sync_interval_;
+        mutable step_t last_snapshot_sync_train_step_ = 0;
+        mutable bool reset_snapshot_age_on_next_action_ = false;
+        bool emit_snapshot_metrics_ = false;
     };
 
     // ======================================================

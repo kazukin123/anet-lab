@@ -31,6 +31,20 @@ TEST_CASE("ProfiledValue evaluates linear schedule and clamps overrun", "[profil
     CHECK(value.Evaluate(15) == Catch::Approx(0.0));
 }
 
+TEST_CASE("ProfiledValue truncates fractional unsigned schedule values", "[profiled_value][step_t]")
+{
+    anet::ProfiledValueConfig<uint64_t> config;
+    config.type = "linear";
+    config.start = 400;
+    config.end = 399;
+    config.steps = 5;
+    anet::ProfiledValue<uint64_t> value(config);
+
+    CHECK(value.Evaluate(0) == 400);
+    CHECK(value.Evaluate(1) == 399);
+    CHECK(value.Evaluate(5) == 399);
+}
+
 TEST_CASE("ProfiledValue evaluates cosine schedule and clamps overrun", "[profiled_value]")
 {
     anet::ProfiledValueConfig<double> config;

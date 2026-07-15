@@ -17,6 +17,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 #include <map>
 #include <memory>
@@ -79,10 +81,10 @@ struct ActionPolicyAccess : public dqn::ActionPolicy {
 
     using dqn::ActionPolicy::CreateSpatialTensor;
 
-    std::shared_ptr<anet::rl::BatchActionInfo> SelectAction(const anet::TensorDict&, bool, std::shared_ptr<anet::nn::Network>,
+    std::shared_ptr<dqn::DQNActionInfo> SelectAction(const anet::TensorDict&, bool, std::shared_ptr<anet::nn::Network>,
         std::shared_ptr<anet::RandomGenerator>, const anet::TraceSink&) const override
     {
-        return std::make_shared<anet::rl::BatchActionInfo>();
+        return std::make_shared<dqn::DQNActionInfo>();
     }
 };
 
@@ -408,7 +410,7 @@ public:
     std::shared_ptr<rl::Actor> CreateActor(
         const rl::BatchEnvSpec&,
         rl::RunMode,
-        bool,
+        std::optional<bool> = std::nullopt,
         std::optional<torch::Device> = std::nullopt) const override
     {
         return nullptr;
@@ -964,7 +966,7 @@ public:
     std::shared_ptr<rl::Actor> CreateActor(
         const rl::BatchEnvSpec& batch_env_spec,
         rl::RunMode,
-        bool,
+        std::optional<bool> = std::nullopt,
         std::optional<torch::Device> = std::nullopt) const override
     {
         return std::make_shared<TraceActor>(batch_env_spec.num_envs);
@@ -1797,6 +1799,120 @@ TEST_CASE("DefaultDQNAgent TensorDictFunction accepts CPU input on CUDA agent", 
     CHECK(out.At("q").device().type() == torch::kCUDA);
 }
 
+TEST_CASE("DefaultDQNAgent resolves Train Actor snapshot clone overrides", "[dqn][actor][snapshot]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto make_agent = [](bool clone_model) {
+        auto config = MakeDeviceForwardDefaultDqnConfig();
+        config.train_actor.clone_model = clone_model;
+        config.train_actor.sync_interval.value = 7;
+        auto env_spec = MakeLearnerEnvSpec();
+        return std::make_shared<dqn::DefaultDQNAgent>(
+            config,
+            MakeAgentForwardNetworkConfig(),
+            rl::BatchEnvSpec{ 1, 1 },
+            env_spec,
+            torch::Device(torch::kCPU),
+            123);
+    };
+    auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
+    rl::BatchState state(
+        anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } },
+        flags,
+        flags,
+        flags);
+    const auto read_interval = [&](const std::shared_ptr<dqn::DefaultDQNAgent>& agent,
+                                   rl::RunMode mode,
+                                   std::optional<bool> clone_override) {
+        auto actor = agent->CreateActor(
+            rl::BatchEnvSpec{ 1, 1 }, mode, clone_override, torch::Device(torch::kCPU));
+        auto info = std::dynamic_pointer_cast<dqn::DQNActionInfo>(
+            actor->MakeAction(rl::StepCounts{}, state));
+        REQUIRE(info != nullptr);
+        const auto interval = info->GetScalar("train_actor_snapshot_interval");
+        REQUIRE(interval.has_value());
+        return *interval;
+    };
+
+    auto shared_default = make_agent(false);
+    CHECK(std::isnan(read_interval(shared_default, rl::RunMode::Train, std::nullopt)));
+    CHECK(read_interval(shared_default, rl::RunMode::Train, true) == Catch::Approx(7.0f));
+
+    auto snapshot_default = make_agent(true);
+    CHECK(read_interval(snapshot_default, rl::RunMode::Train, std::nullopt) == Catch::Approx(7.0f));
+    CHECK(std::isnan(read_interval(snapshot_default, rl::RunMode::Train, false)));
+    CHECK(std::isnan(read_interval(snapshot_default, rl::RunMode::Eval, true)));
+}
+
+TEST_CASE("DefaultDQNAgent rejects an effective shared Actor on another device", "[dqn][actor][snapshot][device]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto config = MakeDeviceForwardDefaultDqnConfig();
+    config.train_actor.clone_model = false;
+    const auto batch_env_spec = rl::BatchEnvSpec{ 1, 1 };
+    auto agent = std::make_shared<dqn::DefaultDQNAgent>(
+        config,
+        MakeAgentForwardNetworkConfig(),
+        batch_env_spec,
+        MakeLearnerEnvSpec(),
+        torch::Device(torch::kCPU),
+        123);
+
+    CHECK_THROWS(agent->CreateActor(
+        batch_env_spec,
+        rl::RunMode::Train,
+        std::nullopt,
+        torch::Device(torch::kCUDA, 0)));
+}
+
+TEST_CASE("DefaultDQNAgent creates the initial snapshot from an auto-loaded network", "[dqn][actor][snapshot][serialize]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    const auto env_spec = MakeLearnerEnvSpec();
+    const auto batch_env_spec = rl::BatchEnvSpec{ 1, 1 };
+    auto source_config = MakeDeviceForwardDefaultDqnConfig();
+    auto source_agent = std::make_shared<dqn::DefaultDQNAgent>(
+        source_config,
+        MakeAgentForwardNetworkConfig(),
+        batch_env_spec,
+        env_spec,
+        torch::Device(torch::kCPU),
+        123);
+    auto source_forward = source_agent->GetTensorDictFunction("policy-net.forward");
+    REQUIRE(source_forward.has_value());
+    const auto obs = anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } };
+    const auto expected_q = (*source_forward)(obs).At("q").detach().clone();
+
+    const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto checkpoint = std::filesystem::temp_directory_path()
+        / ("anet_default_dqn_snapshot_" + std::to_string(unique_suffix) + ".bin");
+    {
+        std::ofstream stream(checkpoint, std::ios::binary);
+        REQUIRE(stream);
+        anet::OutputArchive archive(stream, checkpoint.string());
+        source_agent->Save(archive);
+    }
+
+    auto loaded_config = MakeDeviceForwardDefaultDqnConfig();
+    loaded_config.auto_load_file = checkpoint.string();
+    loaded_config.train_actor.clone_model = true;
+    auto loaded_agent = std::make_shared<dqn::DefaultDQNAgent>(
+        loaded_config,
+        MakeAgentForwardNetworkConfig(),
+        batch_env_spec,
+        env_spec,
+        torch::Device(torch::kCPU),
+        456);
+    auto actor = loaded_agent->CreateActor(
+        batch_env_spec, rl::RunMode::Train, std::nullopt, torch::Device(torch::kCPU));
+    auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
+    rl::BatchState state(obs, flags, flags, flags);
+    const auto action_info = actor->MakeAction(rl::StepCounts{}, state);
+
+    CHECK(torch::allclose(action_info->GetAuxData().at("q_values"), expected_q));
+    std::filesystem::remove(checkpoint);
+}
+
 TEST_CASE("RainbowAgent TensorDictFunction accepts CPU input on CUDA agent", "[dqn][network_model][device]")
 {
     if (!torch::cuda::is_available()) return;
@@ -1822,6 +1938,39 @@ TEST_CASE("RainbowAgent TensorDictFunction accepts CPU input on CUDA agent", "[d
 
     REQUIRE(out.Get("q").has_value());
     CHECK(out.At("q").device().type() == torch::kCUDA);
+}
+
+TEST_CASE("RainbowAgent omits DefaultDQN snapshot diagnostics", "[dqn][actor][snapshot][rainbow]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    const auto env_spec = MakeLearnerEnvSpec();
+    const auto batch_env_spec = rl::BatchEnvSpec{ 1, 1 };
+    auto agent = std::make_shared<dqn::RainbowAgent>(
+        MakeDeviceForwardRainbowConfig(),
+        MakeAgentForwardNetworkConfig(),
+        batch_env_spec,
+        env_spec,
+        torch::Device(torch::kCPU),
+        123);
+    auto actor = agent->CreateActor(
+        batch_env_spec, rl::RunMode::Train, std::nullopt, torch::Device(torch::kCPU));
+    auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
+    rl::BatchState state(
+        anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } },
+        flags,
+        flags,
+        flags);
+    auto action_info = std::dynamic_pointer_cast<dqn::DQNActionInfo>(
+        actor->MakeAction(rl::StepCounts{}, state));
+
+    REQUIRE(action_info != nullptr);
+    CHECK_FALSE(action_info->GetScalar("train_actor_snapshot_interval").has_value());
+    CHECK_FALSE(action_info->GetScalar("train_actor_snapshot_age").has_value());
+    CHECK_THROWS(agent->CreateActor(
+        batch_env_spec,
+        rl::RunMode::Train,
+        std::nullopt,
+        torch::Device(torch::kCUDA, 0)));
 }
 
 TEST_CASE("NetworkModel routes TensorDictFunction by network side and function key", "[dqn][network_model]")
@@ -1872,6 +2021,203 @@ TEST_CASE("Actor sync leaves cloned network in eval mode", "[dqn][actor]")
 
     CHECK_FALSE(src_network->is_training());
     CHECK_FALSE(clone_network->is_training());
+}
+
+TEST_CASE("DQN Actor keeps a Train network snapshot until the sync interval", "[dqn][actor][snapshot]")
+{
+    auto src_network = MakeLinearNetwork();
+    {
+        torch::NoGradGuard no_grad;
+        src_network->parameters()[0].fill_(1.0f);
+    }
+    auto snapshot_network = MakeLinearNetwork();
+    {
+        torch::NoGradGuard no_grad;
+        snapshot_network->parameters()[0].fill_(1.0f);
+    }
+    auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
+    auto context = std::make_shared<rl::DefaultActionContext>(rl::RunMode::Train, 123);
+    auto mutex = std::make_shared<std::shared_mutex>();
+    anet::ProfiledValueConfig<rl::step_t> sync_interval;
+    sync_interval.value = 2;
+    dqn::Actor actor(
+        policy, nullptr, context, mutex, snapshot_network, src_network, false, sync_interval, true);
+
+    {
+        torch::NoGradGuard no_grad;
+        src_network->parameters()[0].fill_(2.0f);
+    }
+    auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
+    rl::BatchState state(
+        anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } },
+        flags,
+        flags,
+        flags);
+    auto make_action = [&](rl::step_t train_step) {
+        rl::StepCounts step;
+        step.train_step = train_step;
+        step.exp_step = train_step;
+        return actor.MakeAction(step, state);
+    };
+
+    const auto action0 = make_action(0);
+    const auto action1 = make_action(1);
+    const auto action2 = make_action(2);
+    CHECK(action0->GetAuxData().at("q_values").item<float>() == Catch::Approx(3.0f));
+    CHECK(action1->GetAuxData().at("q_values").item<float>() == Catch::Approx(3.0f));
+    CHECK(action2->GetAuxData().at("q_values").item<float>() == Catch::Approx(6.0f));
+
+    const auto metrics0 = std::dynamic_pointer_cast<dqn::DQNActionInfo>(action0);
+    const auto metrics1 = std::dynamic_pointer_cast<dqn::DQNActionInfo>(action1);
+    const auto metrics2 = std::dynamic_pointer_cast<dqn::DQNActionInfo>(action2);
+    REQUIRE(metrics0 != nullptr);
+    REQUIRE(metrics1 != nullptr);
+    REQUIRE(metrics2 != nullptr);
+    CHECK(metrics0->GetScalar("train_actor_snapshot_interval") == 2.0f);
+    CHECK(metrics0->GetScalar("train_actor_snapshot_age") == 0.0f);
+    CHECK(metrics1->GetScalar("train_actor_snapshot_age") == 1.0f);
+    CHECK(metrics2->GetScalar("train_actor_snapshot_age") == 0.0f);
+
+    const auto moved = std::dynamic_pointer_cast<dqn::DQNActionInfo>(metrics2->To(torch::kCPU));
+    const auto replaced = std::dynamic_pointer_cast<dqn::DQNActionInfo>(
+        metrics2->WithAction(torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kInt64))));
+    REQUIRE(moved != nullptr);
+    REQUIRE(replaced != nullptr);
+    CHECK(moved->GetScalar("train_actor_snapshot_interval") == 2.0f);
+    CHECK(replaced->GetScalar("train_actor_snapshot_age") == 0.0f);
+}
+
+TEST_CASE("DQN Actor forced Sync resets snapshot age without a duplicate copy", "[dqn][actor][snapshot]")
+{
+    auto src_network = MakeLinearNetwork();
+    auto snapshot_network = MakeLinearNetwork();
+    {
+        torch::NoGradGuard no_grad;
+        src_network->parameters()[0].fill_(1.0f);
+        snapshot_network->parameters()[0].fill_(1.0f);
+    }
+    auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
+    auto context = std::make_shared<rl::DefaultActionContext>(rl::RunMode::Train, 123);
+    auto mutex = std::make_shared<std::shared_mutex>();
+    anet::ProfiledValueConfig<rl::step_t> sync_interval;
+    sync_interval.value = 5;
+    dqn::Actor actor(
+        policy, nullptr, context, mutex, snapshot_network, src_network, false, sync_interval, true);
+
+    {
+        torch::NoGradGuard no_grad;
+        src_network->parameters()[0].fill_(2.0f);
+    }
+    actor.Sync();
+    {
+        torch::NoGradGuard no_grad;
+        src_network->parameters()[0].fill_(3.0f);
+    }
+
+    auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
+    rl::BatchState state(
+        anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } },
+        flags,
+        flags,
+        flags);
+    rl::StepCounts step;
+    step.train_step = 3;
+    step.exp_step = 3;
+    auto action_info = std::dynamic_pointer_cast<dqn::DQNActionInfo>(actor.MakeAction(step, state));
+
+    REQUIRE(action_info != nullptr);
+    CHECK(action_info->GetAuxData().at("q_values").item<float>() == Catch::Approx(6.0f));
+    CHECK(action_info->GetScalar("train_actor_snapshot_age") == 0.0f);
+}
+
+TEST_CASE("DQN Actor applies snapshot interval shortening and extension at action boundaries", "[dqn][actor][snapshot]")
+{
+    const auto run_profile = [](const anet::ProfiledValueConfig<rl::step_t>& sync_interval,
+                                const std::vector<rl::StepCounts>& steps) {
+        auto src_network = MakeLinearNetwork();
+        auto snapshot_network = MakeLinearNetwork();
+        {
+            torch::NoGradGuard no_grad;
+            src_network->parameters()[0].fill_(1.0f);
+            snapshot_network->parameters()[0].fill_(1.0f);
+        }
+        auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
+        auto context = std::make_shared<rl::DefaultActionContext>(rl::RunMode::Train, 123);
+        auto mutex = std::make_shared<std::shared_mutex>();
+        dqn::Actor actor(
+            policy, nullptr, context, mutex, snapshot_network, src_network, false, sync_interval, true);
+        {
+            torch::NoGradGuard no_grad;
+            src_network->parameters()[0].fill_(2.0f);
+        }
+        auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
+        rl::BatchState state(
+            anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } },
+            flags,
+            flags,
+            flags);
+
+        std::vector<std::shared_ptr<dqn::DQNActionInfo>> results;
+        for (const auto& step : steps) {
+            results.push_back(std::dynamic_pointer_cast<dqn::DQNActionInfo>(actor.MakeAction(step, state)));
+        }
+        return results;
+    };
+
+    anet::ProfiledValueConfig<rl::step_t> shortening{
+        .type = "linear",
+        .start = 4,
+        .end = 2,
+        .steps = 2,
+    };
+    auto shortened = run_profile(shortening, {
+        rl::StepCounts{ .train_step = 1, .exp_step = 1 },
+        rl::StepCounts{ .train_step = 2, .exp_step = 2 },
+    });
+    REQUIRE(shortened[0] != nullptr);
+    REQUIRE(shortened[1] != nullptr);
+    CHECK(shortened[0]->GetAuxData().at("q_values").item<float>() == Catch::Approx(3.0f));
+    CHECK(shortened[1]->GetAuxData().at("q_values").item<float>() == Catch::Approx(6.0f));
+
+    anet::ProfiledValueConfig<rl::step_t> extension{
+        .type = "linear",
+        .start = 2,
+        .end = 4,
+        .steps = 2,
+    };
+    auto extended = run_profile(extension, {
+        rl::StepCounts{ .train_step = 2, .exp_step = 2 },
+        rl::StepCounts{ .train_step = 4, .exp_step = 2 },
+    });
+    REQUIRE(extended[0] != nullptr);
+    REQUIRE(extended[1] != nullptr);
+    CHECK(extended[0]->GetAuxData().at("q_values").item<float>() == Catch::Approx(3.0f));
+    CHECK(extended[0]->GetScalar("train_actor_snapshot_age") == 2.0f);
+    CHECK(extended[1]->GetAuxData().at("q_values").item<float>() == Catch::Approx(6.0f));
+}
+
+TEST_CASE("DQN Actor exposes NaN snapshot metrics when periodic sync is disabled", "[dqn][actor][snapshot]")
+{
+    auto network = MakeLinearNetwork();
+    auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
+    auto context = std::make_shared<rl::DefaultActionContext>(rl::RunMode::Train, 123);
+    auto mutex = std::make_shared<std::shared_mutex>();
+    dqn::Actor actor(policy, nullptr, context, mutex, network, network, false, std::nullopt, true);
+    auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
+    rl::BatchState state(
+        anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } },
+        flags,
+        flags,
+        flags);
+
+    auto action_info = std::dynamic_pointer_cast<dqn::DQNActionInfo>(
+        actor.MakeAction(rl::StepCounts{}, state));
+
+    REQUIRE(action_info != nullptr);
+    REQUIRE(action_info->GetScalar("train_actor_snapshot_interval").has_value());
+    REQUIRE(action_info->GetScalar("train_actor_snapshot_age").has_value());
+    CHECK(std::isnan(*action_info->GetScalar("train_actor_snapshot_interval")));
+    CHECK(std::isnan(*action_info->GetScalar("train_actor_snapshot_age")));
 }
 
 TEST_CASE("ActionPolicy variants preserve action info keys and shapes", "[dqn][action_policy]")
@@ -1993,6 +2339,33 @@ TEST_CASE("DQN Actor emits a packed priority hint without another forward", "[dq
     const auto expected_state_value = std::get<0>(q_values.max(1)).to(torch::kFloat32);
     CHECK(torch::equal(decoded.actor_q_sa, expected_q_sa));
     CHECK(torch::equal(decoded.actor_state_value, expected_state_value));
+}
+
+TEST_CASE("DQN Actor snapshot synchronization performs one forward per action", "[dqn][actor][snapshot]")
+{
+    auto source_probe = std::make_shared<AutocastProbeState>();
+    auto snapshot_probe = std::make_shared<AutocastProbeState>();
+    auto source_network = MakeAutocastProbeNetwork(source_probe, torch::kCPU);
+    auto snapshot_network = MakeAutocastProbeNetwork(snapshot_probe, torch::kCPU);
+    auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
+    auto context = std::make_shared<rl::DefaultActionContext>(rl::RunMode::Train, 123);
+    auto mutex = std::make_shared<std::shared_mutex>();
+    anet::ProfiledValueConfig<rl::step_t> sync_interval;
+    sync_interval.value = 1;
+    dqn::Actor actor(
+        policy, nullptr, context, mutex, snapshot_network, source_network, false, sync_interval, true);
+
+    auto flags = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool));
+    rl::BatchState state(MakeAutocastProbePolicyInput(torch::kCPU), flags, flags, flags);
+    for (rl::step_t train_step = 0; train_step < 3; ++train_step) {
+        rl::StepCounts step;
+        step.train_step = train_step;
+        step.exp_step = train_step;
+        actor.MakeAction(step, state);
+    }
+
+    CHECK(source_probe->forward_count == 0);
+    CHECK(snapshot_probe->forward_count == 3);
 }
 
 TEST_CASE("DQNActionInfo exposes action UQE scalar metrics", "[dqn][action_policy][metrics]")
@@ -2143,6 +2516,94 @@ TEST_CASE("DefaultDQNAgentConfig keeps spatial exploration train-only", "[dqn][c
     CHECK(config.train_policy.use_spatial_exploration);
     CHECK_FALSE(config.eval_policy.use_spatial_exploration);
     CHECK_FALSE(config.target_policy.use_spatial_exploration);
+}
+
+TEST_CASE("DefaultDQNAgentConfig defaults Train Actor snapshot to shared mode", "[dqn][config][snapshot]")
+{
+    dqn::DefaultDQNAgentConfig config;
+
+    CHECK_FALSE(config.train_actor.clone_model);
+    CHECK(config.train_actor.sync_interval.type == "constant");
+    CHECK(config.train_actor.sync_interval.value == 400);
+}
+
+TEST_CASE("DefaultDQNAgentConfig rejects malformed Train Actor snapshot values", "[dqn][config][snapshot]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.train_actor.clone_model", "false");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.value", "400x");
+
+    CHECK_THROWS_WITH(
+        dqn::DefaultDQNAgentConfig(config_data),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.train_actor.sync_interval.value")
+            && Catch::Matchers::ContainsSubstring("400x")
+            && Catch::Matchers::ContainsSubstring("expected unsigned integer"));
+}
+
+TEST_CASE("DefaultDQNAgentConfig requires a positive active snapshot interval", "[dqn][config][snapshot]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.train_actor.clone_model", "false");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.type", "constant");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.value", "0");
+
+    CHECK_THROWS_WITH(
+        dqn::DefaultDQNAgentConfig(config_data),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.train_actor.sync_interval.value")
+            && Catch::Matchers::ContainsSubstring("value=0")
+            && Catch::Matchers::ContainsSubstring("expected >= 1"));
+}
+
+TEST_CASE("DefaultDQNAgentConfig strictly parses every explicit snapshot field", "[dqn][config][snapshot]")
+{
+    struct InvalidValue {
+        std::string key;
+        std::string value;
+    };
+    const std::vector<InvalidValue> invalid_values{
+        { "DefaultDQNAgent.train_actor.clone_model", "maybe" },
+        { "DefaultDQNAgent.train_actor.sync_interval.start", "-1" },
+        { "DefaultDQNAgent.train_actor.sync_interval.steps", "18446744073709551616" },
+        { "DefaultDQNAgent.train_actor.sync_interval.cycle_mult", "nan" },
+        { "DefaultDQNAgent.train_actor.sync_interval.cycle_mult", "inf" },
+    };
+    for (const auto& invalid : invalid_values) {
+        INFO("key=" << invalid.key << " value=" << invalid.value);
+        anet::ConfigData config_data;
+        config_data.Set(invalid.key, invalid.value);
+        CHECK_THROWS(dqn::DefaultDQNAgentConfig(config_data));
+    }
+
+    anet::ConfigData comma_data;
+    comma_data.Set("DefaultDQNAgent.train_actor.sync_interval.value", "1,000");
+    const dqn::DefaultDQNAgentConfig comma_config(comma_data);
+    CHECK(comma_config.train_actor.sync_interval.value == 1000);
+}
+
+TEST_CASE("DefaultDQNAgentConfig validates phased snapshot profiles", "[dqn][config][snapshot]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.type", "phased");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.phases", "warm main");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.phase.[warm].type", "constant");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.phase.[warm].value", "4");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.phase.[warm].steps", "10");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.phase.[main].type", "linear");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.phase.[main].start", "4");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.phase.[main].end", "2");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.phase.[main].steps", "20");
+
+    const dqn::DefaultDQNAgentConfig config(config_data);
+
+    anet::ProfiledValue<rl::step_t> interval(config.train_actor.sync_interval);
+    CHECK(interval.Evaluate(0) == 4);
+    CHECK(interval.Evaluate(10) == 4);
+    CHECK(interval.Evaluate(30) == 2);
+
+    anet::ConfigData undefined_phase_data;
+    undefined_phase_data.Set("DefaultDQNAgent.train_actor.sync_interval.type", "phased");
+    undefined_phase_data.Set("DefaultDQNAgent.train_actor.sync_interval.phases", "missing");
+    CHECK_THROWS(dqn::DefaultDQNAgentConfig(undefined_phase_data));
 }
 
 TEST_CASE("DefaultDQNAgentConfig clears optimistic target spatial exploration", "[dqn][config][spatial]")

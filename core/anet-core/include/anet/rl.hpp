@@ -680,8 +680,15 @@ namespace anet::rl {
 
     class Actor {
     public:
+        /// @brief BatchStateから行動を生成する。
+        /// @note 同一Actor instanceのMakeActionまたはSyncと並行呼び出ししてはならない。
         virtual std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const = 0;
+
+        /// @brief Actor固有のsourceから推論resourceを強制同期する。
+        /// @note 同一Actor instanceのMakeActionまたはSyncと並行呼び出ししてはならない。
         virtual void Sync() = 0;
+
+        /// 仮想デストラクタ
         virtual ~Actor() = default;
     };
 
@@ -702,7 +709,11 @@ namespace anet::rl {
 
     class Agent : public Module, public TensorDictFunctionProvider , public Serializable {
     public:
-        virtual std::shared_ptr<Actor> CreateActor(const BatchEnvSpec& batch_env_spec, RunMode run_mode, bool clone_model, std::optional<torch::Device> device = std::nullopt) const = 0;
+        virtual std::shared_ptr<Actor> CreateActor(
+            const BatchEnvSpec& batch_env_spec,
+            RunMode run_mode,
+            std::optional<bool> clone_model_override = std::nullopt,
+            std::optional<torch::Device> device = std::nullopt) const = 0;
         virtual std::shared_ptr<Learner> CreateLearner() = 0;
         virtual torch::Device GetDevice() const = 0;
     public:

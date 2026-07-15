@@ -617,9 +617,20 @@ void ImageClsAgent::LoadNetwork(const std::string& filename)
 }
 
 std::shared_ptr<anet::rl::Actor> ImageClsAgent::CreateActor(
-    const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, bool clone_model, std::optional<torch::Device> device) const
+    const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, std::optional<bool> clone_model_override, std::optional<torch::Device> device) const
 {
+    const bool clone_model = clone_model_override.value_or(false);
+
     const auto actor_device = device.value_or(device_);
+    const bool same_shared_device = actor_device.type() == device_.type()
+        && (actor_device.type() != torch::kCUDA
+            || (actor_device.has_index() ? actor_device.index() : 0)
+                == (device_.has_index() ? device_.index() : 0));
+    ANET_CHECK_MSG(
+        clone_model || same_shared_device,
+        "ImageClsAgent shared Actor device mismatch: actor_device=" << actor_device.str()
+        << " agent_device=" << device_.str()
+        << ". Use clone_model_override=true or the Agent device.");
     auto actor_network = network_;
     if (clone_model) {
         // Clone は source network の重みを読むため、Learner 更新と同じ mutex で保護する

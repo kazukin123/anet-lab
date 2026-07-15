@@ -255,7 +255,7 @@ public:
     std::shared_ptr<rl::Actor> CreateActor(
         const rl::BatchEnvSpec& batch_env_spec,
         rl::RunMode,
-        bool,
+        std::optional<bool> = std::nullopt,
         std::optional<torch::Device> = std::nullopt) const override
     {
         return std::make_shared<TestActor>(

@@ -33,11 +33,11 @@ static bool IsSameSharedActorDevice(const torch::Device& lhs, const torch::Devic
 
 static void ValidateSharedActorDevice(
     const std::string& runner_name,
-    bool clone_model,
+    std::optional<bool> clone_model_override,
     const torch::Device& actor_device,
     const torch::Device& agent_device)
 {
-    if (clone_model) {
+    if (!clone_model_override.has_value() || *clone_model_override) {
         return;
     }
 
@@ -57,7 +57,7 @@ static void ValidateSharedActorDevice(
 // ======================================================
 
 RunnerBase::RunnerBase(
-    std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier, RunMode run_mode, bool clone_model, std::optional<torch::Device> device, std::string name)
+    std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier, RunMode run_mode, std::optional<bool> clone_model_override, std::optional<torch::Device> device, std::string name)
     : name_(std::move(name))
     , env_(env)
     , agent_(agent)
@@ -70,8 +70,8 @@ RunnerBase::RunnerBase(
     auto batch_env_spec = env_->GetBatchSpec();
     const auto agent_device = agent_->GetDevice();
     const auto actor_device = device.value_or(agent_device);
-    ValidateSharedActorDevice(name_, clone_model, actor_device, agent_device);
-    actor_ = agent_->CreateActor(batch_env_spec, run_mode_, clone_model, actor_device);
+    ValidateSharedActorDevice(name_, clone_model_override, actor_device, agent_device);
+    actor_ = agent_->CreateActor(batch_env_spec, run_mode_, clone_model_override, actor_device);
 }
 
 void RunnerBase::InitializeMetrics()
@@ -338,7 +338,7 @@ StepCounts EvalRunner::DoStep()
 TrainRunner::TrainRunner(
     //const ConfigData& config_data,
     std::shared_ptr<anet::rl::BatchEnv> env, std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Notifier> notifier)
-    : RunnerBase(env, agent, notifier, anet::rl::RunMode::Train, false, std::nullopt, "train")   // Trainでの推論は、Clone無し＆同deviceで実行
+    : RunnerBase(env, agent, notifier, anet::rl::RunMode::Train, std::nullopt, std::nullopt, "train")
 {
     this->learner_ = agent_->CreateLearner();
 }
@@ -611,7 +611,6 @@ StepCounts PipelineTrainRunner::DoStep()
     // ==========================================================
     // 推論 (GPUが空なので最速で終わる)
     // ==========================================================
-    actor_->Sync();
     auto action_info = actor_->MakeAction(step_counts_, state_);
 
     // ==========================================================

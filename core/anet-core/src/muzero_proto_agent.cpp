@@ -62,7 +62,7 @@ MuZeroAgent::MuZeroAgent(
 }
 
 std::shared_ptr<anet::rl::Actor> MuZeroAgent::CreateActor(
-    const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, bool clone_model, std::optional<torch::Device> device) const
+    const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, std::optional<bool> clone_model_override, std::optional<torch::Device> device) const
 {
     // RunMode毎の再現性のあるseedを取得
     auto rnd = GetRandomGenerator(run_mode);

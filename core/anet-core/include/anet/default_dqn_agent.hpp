@@ -12,8 +12,17 @@
 #include "anet/agent.hpp"
 #include "anet/scaler.hpp"
 #include "anet/nn.hpp"
+#include "anet/schedule.hpp"
 
 namespace anet::rl::dqn {
+
+    struct TrainActorConfig {
+        bool clone_model = false;
+        anet::ProfiledValueConfig<step_t> sync_interval{
+            .type = "constant",
+            .value = 400,
+        };
+    };
 
 
     // ======================================================
@@ -27,6 +36,7 @@ namespace anet::rl::dqn {
         ActionPolicyConfig train_policy;
         ActionPolicyConfig eval_policy;
         ActionPolicyConfig target_policy;
+        TrainActorConfig train_actor;
         LearnerConfig learner;
         RewardScalerConfig reward_scaler;
         ObservationNormalizerConfig obs_norm;
@@ -39,9 +49,18 @@ namespace anet::rl::dqn {
         bool use_qr = true;
         bool use_optimistic_target = false;
 
+    private:
+        static void ValidateTrainActorRawConfig(const ConfigData& config_data);
+        static void ValidateTrainActorProfileConfig(
+            const ConfigData& config_data,
+            const TrainActorConfig& config);
+
+    public:
         explicit DefaultDQNAgentConfig(const ConfigData& config_data = EmptyConfigData)
             : anet::Config(config_data, "DefaultDQNAgent")
         {
+            ValidateTrainActorRawConfig(config_data);
+
             ANET_READ_CONFIG(config_data, head_init.mode);
             ANET_READ_CONFIG(config_data, head_init.manual_gain);
             ANET_READ_CONFIG(config_data, head_init.constant_val);
@@ -68,6 +87,11 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, model.hard_update_interval);
 
             ANET_READ_CONFIG(config_data, use_optimistic_target);
+
+            ANET_READ_CONFIG(config_data, train_actor.clone_model);
+            ANET_READ_CONFIG(config_data, train_actor.sync_interval);
+            ValidateTrainActorProfileConfig(config_data, train_actor);
+            static_cast<void>(anet::ProfiledValue<step_t>(train_actor.sync_interval));
 
             ANET_READ_CONFIG(config_data, train_policy.policy_type);
             ANET_READ_CONFIG(config_data, train_policy.eps_start);
@@ -244,7 +268,11 @@ namespace anet::rl::dqn {
             const anet::rl::BatchEnvSpec& batc_env_spec, const anet::rl::EnvSpec& env_spec, const torch::Device device,
             std::optional<seed_t> seed = std::nullopt);
 
-        std::shared_ptr<anet::rl::Actor> CreateActor(const BatchEnvSpec& batch_env_spec, RunMode mode, bool clone_model, std::optional<torch::Device> device = std::nullopt) const override;
+        std::shared_ptr<anet::rl::Actor> CreateActor(
+            const BatchEnvSpec& batch_env_spec,
+            RunMode mode,
+            std::optional<bool> clone_model_override = std::nullopt,
+            std::optional<torch::Device> device = std::nullopt) const override;
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
     public:
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;

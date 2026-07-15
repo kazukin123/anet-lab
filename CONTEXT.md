@@ -11,6 +11,10 @@ anet-lab は libtorch を基盤とした強化学習実験プロジェクトで�
 行動価値を推定する Q ネットワークを中心に学習する Agent 群。DefaultDQN、QR-DQN、Rainbow のような DQN 派生手法を指す。
 _Avoid_: Q Agent, value agent
 
+**Train Actor network snapshot**:
+`DefaultDQNAgent`のTrain Actorがaction forwardに使用する、Learner online networkから複製されたparameterとbufferの時点コピー。snapshot間で固定されるのはnetworkだけで、ActionPolicy、ObservationNormalizer、RNGは含まない。
+_Avoid_: policy snapshot, frozen policy, 方策固定
+
 **価値ストリーム**:
 Dueling DQN 系の Q ネットワークで、状態価値 V を推定するための特徴表現と最終射影の流れ。
 _Avoid_: V branch, value branch

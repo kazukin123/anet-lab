@@ -1352,7 +1352,7 @@ TEST_CASE("ImageClsAgent cloned actor stays isolated until Sync", "[image_cls][a
     auto shared_actor = agent.CreateActor(
         batch_spec,
         anet::rl::RunMode::Eval,
-        false,
+        std::nullopt,
         torch::Device(torch::kCPU));
     auto cloned_actor = agent.CreateActor(
         batch_spec,

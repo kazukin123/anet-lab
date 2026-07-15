@@ -24,7 +24,7 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::Agent> agent,
             std::shared_ptr<anet::rl::Notifier> notifier,
             RunMode run_mode,
-            bool clone_model,
+            std::optional<bool> clone_model_override,
             std::optional<torch::Device> device,
             std::string name);
 
