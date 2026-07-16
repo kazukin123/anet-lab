@@ -310,6 +310,9 @@ public:
         last_indices = indices;
         last_priorities = priorities;
         ++update_count;
+        if (priority_update_result.has_value()) {
+            return *priority_update_result;
+        }
         rl::ReplayPriorityUpdateResult result;
         result.applied_count = static_cast<int64_t>(indices.size());
         return result;
@@ -343,6 +346,7 @@ public:
     mutable int sample_count = 0;
     mutable int size_count = 0;
     int update_count = 0;
+    std::optional<rl::ReplayPriorityUpdateResult> priority_update_result;
 
 private:
     std::vector<int64_t> size_values;
@@ -1271,6 +1275,133 @@ TEST_CASE("DQN initial priority estimator completes a one-step bootstrap", "[dqn
     CHECK(*priority == Catch::Approx(1.3f).margin(1.0e-6f));
 }
 
+TEST_CASE("DQN replay priority validation warns independently for each learner", "[dqn][config][per]")
+{
+    dqn::LearnerConfig config;
+    config.use_per = true;
+    config.per_initial_priority_mode = "fixed";
+    config.per_eps = 0.0f;
+
+    anet::test::LogCaptureGuard logs;
+    const auto mode = dqn::ParseReplayInitialPriorityMode(config);
+    logs.Flush();
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
+
+    dqn::ValidateReplayPriorityConfig(config, mode);
+    dqn::ValidateReplayPriorityConfig(config, mode);
+    logs.Flush();
+
+    int matching_warnings = 0;
+    for (const auto& record : logs.Records()) {
+        if (record.level != wxLOG_Warning || record.message.find("learner.per_eps=0") == std::string::npos) continue;
+        ++matching_warnings;
+        CHECK(record.message.find("zero-TD-error transitions") != std::string::npos);
+        CHECK(record.message.find("Set learner.per_eps") != std::string::npos);
+    }
+    CHECK(matching_warnings == 2);
+}
+
+TEST_CASE("DQN replay priority warnings identify keys values reasons and alternatives", "[dqn][config][per]")
+{
+    auto require_warning = [](const dqn::LearnerConfig& config, const std::vector<std::string>& fragments) {
+        anet::test::LogCaptureGuard logs;
+        const auto mode = dqn::ParseReplayInitialPriorityMode(config);
+        dqn::ValidateReplayPriorityConfig(config, mode);
+        logs.Flush();
+
+        REQUIRE(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 1);
+        const auto& message = logs.Records().front().message;
+        for (const auto& fragment : fragments) {
+            CAPTURE(message, fragment);
+            CHECK(message.find(fragment) != std::string::npos);
+        }
+    };
+
+    SECTION("actor priority with alpha zero") {
+        dqn::LearnerConfig config;
+        config.use_per = true;
+        config.per_initial_priority_mode = "actor_approx";
+        config.per_alpha = 0.0f;
+        require_warning(config, {
+            "learner.per_initial_priority_mode=actor_approx",
+            "learner.per_alpha=0",
+            "does not affect sampling",
+            "Set learner.per_alpha",
+        });
+    }
+    SECTION("zero clip upper bound") {
+        dqn::LearnerConfig config;
+        config.use_per_prio_clip = true;
+        config.per_prio_clip_value = 0.0f;
+        require_warning(config, {
+            "learner.use_per_prio_clip=true",
+            "learner.per_prio_clip_value=0",
+            "clipped to zero",
+            "disable learner.use_per_prio_clip",
+        });
+    }
+    SECTION("clip upper bound no larger than epsilon") {
+        dqn::LearnerConfig config;
+        config.per_eps = 0.25f;
+        config.use_per_prio_clip = true;
+        config.per_prio_clip_value = 0.2f;
+        require_warning(config, {
+            "learner.per_prio_clip_value=0.2",
+            "learner.per_eps=0.25",
+            "collapse priority differences",
+            "learner.per_prio_clip_value > learner.per_eps",
+        });
+    }
+}
+
+TEST_CASE("DQN replay priority validation preserves invalid configuration errors", "[dqn][config][per]")
+{
+    dqn::LearnerConfig config;
+
+    config.per_initial_priority_mode = "unknown";
+    CHECK_THROWS(dqn::ParseReplayInitialPriorityMode(config));
+
+    config.per_initial_priority_mode = "fixed";
+    const auto fixed_mode = dqn::ParseReplayInitialPriorityMode(config);
+    for (const float invalid : {
+        -1.0f,
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::infinity() }) {
+        config.per_initial_priority = invalid;
+        CHECK_THROWS(dqn::ValidateReplayPriorityConfig(config, fixed_mode));
+    }
+
+    config.per_initial_priority = 1.0f;
+    for (const float invalid : {
+        -1.0f,
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::infinity() }) {
+        config.per_eps = invalid;
+        CHECK_THROWS(dqn::ValidateReplayPriorityConfig(config, fixed_mode));
+    }
+
+    config.per_eps = 1.0e-6f;
+    config.use_per = false;
+    config.per_initial_priority_mode = "max";
+    CHECK_THROWS(dqn::ValidateReplayPriorityConfig(
+        config, dqn::ParseReplayInitialPriorityMode(config)));
+
+    config.per_initial_priority_mode = "fixed";
+    config.use_per_prio_clip = true;
+    for (const float invalid : {
+        -1.0f,
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::infinity() }) {
+        config.per_prio_clip_value = invalid;
+        CHECK_THROWS(dqn::ValidateReplayPriorityConfig(config, fixed_mode));
+    }
+
+    // clip無効時は未使用の値を検証しない既存契約を維持する。
+    config.use_per_prio_clip = false;
+    config.per_prio_clip_value = -1.0f;
+    CHECK_NOTHROW(dqn::ValidateReplayPriorityConfig(config, fixed_mode));
+}
+
 TEST_CASE("DQN initial priority estimator distinguishes n-step bootstrap and true terminal", "[dqn][per][actor_initial][estimator]")
 {
     dqn::LearnerConfig config;
@@ -1583,7 +1714,33 @@ TEST_CASE("Learner stops polling replay buffer size after minibatch threshold is
     REQUIRE(replay_buffer->push_count == 3);
 }
 
-TEST_CASE("PER priority prepare/apply updates replay buffer from CPU materialized priorities", "[dqn][per]")
+TEST_CASE("PER raw priority batch counts strict pre-clip changes on CPU and CUDA", "[dqn][per][clip]")
+{
+    std::vector<torch::Device> devices{ torch::Device(torch::kCPU) };
+    if (torch::cuda::is_available()) {
+        devices.emplace_back(torch::Device(torch::kCUDA, 0));
+    }
+
+    for (const auto& device : devices) {
+        INFO("device=" << device.str());
+
+        // priorityがclip上限未満・等値・超過のとき、超過分だけを件数へ含める。
+        auto td_error = torch::tensor({ -0.2f, 0.9f, 2.0f }, torch::TensorOptions().device(device));
+        auto clipped = dqn::MakePerRawPriorityBatch(td_error, 0.1f, true, 1.0f);
+        CHECK(torch::allclose(clipped.priorities.cpu(), torch::tensor({ 0.3f, 1.0f, 1.0f })));
+        CHECK(clipped.clipped_count.item<int64_t>() == 1);
+
+        auto unclipped = dqn::MakePerRawPriorityBatch(td_error, 0.1f, false, 1.0f);
+        CHECK(torch::allclose(unclipped.priorities.cpu(), torch::tensor({ 0.3f, 1.0f, 2.1f })));
+        CHECK(unclipped.clipped_count.item<int64_t>() == 0);
+
+        auto zero_clip = dqn::MakePerRawPriorityBatch(td_error, 0.0f, true, 0.0f);
+        CHECK(torch::allclose(zero_clip.priorities.cpu(), torch::zeros({ 3 })));
+        CHECK(zero_clip.clipped_count.item<int64_t>() == 3);
+    }
+}
+
+TEST_CASE("PER priority prepare/apply counts only priorities changed by clipping", "[dqn][per][clip]")
 {
     dqn::LearnerConfig config;
     config.use_per = true;
@@ -1597,21 +1754,32 @@ TEST_CASE("PER priority prepare/apply updates replay buffer from CPU materialize
     rl::BatchEnvSpec batch_env_spec{ 1, 1 };
     TestLearner learner(config, model, vars, batch_env_spec, env_spec);
     auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->priority_update_result = rl::ReplayPriorityUpdateResult{
+        .applied_count = 2,
+        .stale_count = 1,
+        .actor_learner_pair_count = 4,
+        .actor_learner_positive_pair_ratio = 0.75f,
+        .actor_learner_ratio_median = 1.25f,
+        .actor_learner_log_ratio_mean = -0.5f,
+        .actor_learner_spearman = 0.6f,
+    };
     learner.UseReplayBuffer(replay_buffer);
 
     rl::ExperienceSamples samples;
-    samples.replay_item_keys = torch::tensor({ 3, 5 }, torch::TensorOptions().dtype(torch::kInt64));
-    samples.is_weights = torch::tensor({ 0.25f, 0.75f });
+    samples.replay_item_keys = torch::tensor({ 3, 4, 5 }, torch::TensorOptions().dtype(torch::kInt64));
+    samples.is_weights = torch::tensor({ 0.2f, 0.3f, 0.5f });
     samples.per_priority_sources = torch::tensor(
         { static_cast<int8_t>(rl::ReplayPrioritySource::FIXED_INITIAL),
+          static_cast<int8_t>(rl::ReplayPrioritySource::LEARNER_UPDATED),
           static_cast<int8_t>(rl::ReplayPrioritySource::LEARNER_UPDATED) },
         torch::TensorOptions().dtype(torch::kInt8));
 
-    auto td_error = torch::tensor({ -0.2f, 2.0f });
+    // clip前priorityが上限未満・等値・超過となる3境界を同時に検証する。
+    auto td_error = torch::tensor({ -0.2f, 0.9f, 2.0f });
     auto pending = learner.PreparePerPriorityUpdate(samples, td_error);
 
     REQUIRE(pending.enabled);
-    const auto expected_indices = std::vector<int64_t>{ 3, 5 };
+    const auto expected_indices = std::vector<int64_t>{ 3, 4, 5 };
     CHECK(pending.indices == expected_indices);
     REQUIRE(pending.per_sample_initial_count.defined());
     CHECK(pending.per_sample_initial_count.item<float>() == Catch::Approx(1.0f).margin(1.0e-6f));
@@ -1620,33 +1788,48 @@ TEST_CASE("PER priority prepare/apply updates replay buffer from CPU materialize
 
     CHECK(replay_buffer->update_count == 1);
     CHECK(replay_buffer->last_indices == expected_indices);
-    REQUIRE(replay_buffer->last_priorities.size() == 2);
+    REQUIRE(replay_buffer->last_priorities.size() == 3);
     CHECK(replay_buffer->last_priorities[0] == Catch::Approx(0.3f).margin(1.0e-6f));
     CHECK(replay_buffer->last_priorities[1] == Catch::Approx(1.0f).margin(1.0e-6f));
+    CHECK(replay_buffer->last_priorities[2] == Catch::Approx(1.0f).margin(1.0e-6f));
 
     REQUIRE(result.per_priorities.defined());
     CHECK(result.per_priorities.device().is_cpu());
-    CHECK(torch::allclose(result.per_priorities, torch::tensor({ 0.3f, 1.0f })));
+    CHECK(torch::allclose(result.per_priorities, torch::tensor({ 0.3f, 1.0f, 1.0f })));
     REQUIRE(result.per_clipped_count.defined());
     CHECK(result.per_clipped_count.device().is_cpu());
     CHECK(result.per_clipped_count.item<int64_t>() == 1);
-    CHECK(result.per_minibatch_size == 2);
+    CHECK(result.per_minibatch_size == 3);
     REQUIRE(result.per_is_weights.defined());
     CHECK(torch::allclose(result.per_is_weights, samples.is_weights));
     REQUIRE(result.per_sample_initial_count.defined());
     CHECK(result.per_sample_initial_count.item<float>() == Catch::Approx(1.0f).margin(1.0e-6f));
+    CHECK(result.per_update_result.applied_count == 2);
+    CHECK(result.per_update_result.stale_count == 1);
+    CHECK(result.per_update_result.actor_learner_pair_count == 4);
+    CHECK(result.per_update_result.actor_learner_positive_pair_ratio == Catch::Approx(0.75f));
+    CHECK(result.per_update_result.actor_learner_ratio_median == Catch::Approx(1.25f));
+    CHECK(result.per_update_result.actor_learner_log_ratio_mean == Catch::Approx(-0.5f));
+    CHECK(result.per_update_result.actor_learner_spearman == Catch::Approx(0.6f));
 
     dqn::OptimizerStepResult opt_result;
     auto batch_result = learner.MakeBatchUpdateResult(
         torch::tensor(0.0f),
         td_error,
         opt_result,
-        torch::zeros({ 2 }),
-        torch::zeros({ 2 }),
+        torch::zeros({ 3 }),
+        torch::zeros({ 3 }),
         result);
     auto sample_initial_ratio = batch_result->GetScalar("per_sample_initial_ratio", -1);
     REQUIRE(sample_initial_ratio.has_value());
-    CHECK(*sample_initial_ratio == Catch::Approx(0.5f).margin(1.0e-6f));
+    CHECK(*sample_initial_ratio == Catch::Approx(1.0f / 3.0f).margin(1.0e-6f));
+    CHECK(batch_result->GetScalar("per_priority_update_stale_ratio", -1).value()
+        == Catch::Approx(1.0f / 3.0f).margin(1.0e-6f));
+    CHECK(batch_result->GetScalar("per_actor_learner_pair_count", -1).value() == Catch::Approx(4.0f));
+    CHECK(batch_result->GetScalar("per_actor_learner_positive_pair_ratio", -1).value() == Catch::Approx(0.75f));
+    CHECK(batch_result->GetScalar("per_actor_learner_ratio_median", -1).value() == Catch::Approx(1.25f));
+    CHECK(batch_result->GetScalar("per_actor_learner_log_ratio_mean", -1).value() == Catch::Approx(-0.5f));
+    CHECK(batch_result->GetScalar("per_actor_learner_spearman", -1).value() == Catch::Approx(0.6f));
 }
 
 TEST_CASE("Optimizer helper keeps QR-DQN FP32 grad clip result contract", "[dqn][optimizer]")

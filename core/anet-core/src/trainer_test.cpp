@@ -3,6 +3,7 @@
 #include "anet/trainer.hpp"
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -132,7 +133,13 @@ public:
 
     std::shared_ptr<rl::BatchActionInfo> MakeAction(const rl::StepCounts&, const rl::BatchState&) const override
     {
-        return std::make_shared<rl::BatchActionInfo>(torch::zeros({ num_envs_ }, torch::kInt64));
+        auto payload = torch::arange(
+            1, num_envs_ * 3 + 1, torch::TensorOptions().dtype(torch::kFloat32)).reshape({ num_envs_, 3 });
+        return std::make_shared<rl::BatchActionInfo>(
+            torch::zeros({ num_envs_ }, torch::kInt64),
+            anet::TensorDict{},
+            rl::AuxData{},
+            rl::ReplayInitialPriorityHint(std::move(payload)));
     }
 
     void Sync() override { ++sync_count_; }
@@ -144,18 +151,74 @@ private:
     int sync_count_ = 0;
 };
 
-class TestLearner final : public rl::Learner {
+class HintRecordingReplayBuffer final : public rl::ReplayBuffer {
 public:
-    rl::BatchUpdateResultList UpdateFromBatch(const rl::StepCounts&, const rl::BatchExperience&) override
+    void Push(const rl::BatchExperience& batch_exp) override
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const auto& hint = batch_exp.action->GetReplayInitialPriorityHint();
+        if (hint.has_value()) {
+            payload_ = hint->GetPayload().clone();
+        }
+        ++push_count_;
+    }
+
+    void Sample(rl::ExperienceSamples&, int64_t, float) const override {}
+    int64_t Size() const override { return 0; }
+    rl::ReplayPriorityUpdateResult UpdatePriorities(
+        const std::vector<int64_t>&, const std::vector<float>&) override
     {
         return {};
     }
+    std::optional<float> GetScalar(const std::string&, int64_t = -1) const override { return std::nullopt; }
+    std::optional<torch::Tensor> GetTensor(const std::string&, int64_t = -1) const override { return std::nullopt; }
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(
+        const std::string&, int64_t = -1) const override
+    {
+        return std::nullopt;
+    }
+
+    torch::Tensor GetPayload() const
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return payload_.defined() ? payload_.clone() : torch::Tensor();
+    }
+
+    int GetPushCount() const
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return push_count_;
+    }
+
+private:
+    mutable std::mutex mutex_;
+    torch::Tensor payload_;
+    int push_count_ = 0;
+};
+
+class TestLearner final : public rl::Learner {
+public:
+    explicit TestLearner(std::shared_ptr<rl::ReplayBuffer> replay_buffer)
+        : replay_buffer_(std::move(replay_buffer))
+    {
+    }
+
+    rl::BatchUpdateResultList UpdateFromBatch(
+        const rl::StepCounts&, const rl::BatchExperience& batch_exp) override
+    {
+        replay_buffer_->Push(batch_exp);
+        return {};
+    }
+
+private:
+    std::shared_ptr<rl::ReplayBuffer> replay_buffer_;
 };
 
 class TestAgent final : public rl::Agent {
 public:
     explicit TestAgent(torch::Device device)
         : device_(std::move(device))
+        , replay_buffer_(std::make_shared<HintRecordingReplayBuffer>())
     {
     }
 
@@ -179,8 +242,10 @@ public:
 
     std::shared_ptr<rl::Learner> CreateLearner() override
     {
-        return std::make_shared<TestLearner>();
+        return std::make_shared<TestLearner>(replay_buffer_);
     }
+
+    std::shared_ptr<const HintRecordingReplayBuffer> GetReplayBuffer() const { return replay_buffer_; }
 
     torch::Device GetDevice() const override { return device_; }
 
@@ -192,6 +257,7 @@ private:
     torch::Device device_;
     mutable std::optional<bool> last_clone_model_override_ = true;
     mutable std::shared_ptr<TestActor> last_actor_;
+    std::shared_ptr<HintRecordingReplayBuffer> replay_buffer_;
 };
 
 } // namespace
@@ -218,6 +284,46 @@ TEST_CASE("PipelineTrainRunner does not force actor synchronization every step",
     REQUIRE(agent->GetLastActor());
     CHECK(agent->GetLastActor()->GetSyncCount() == 0);
     runner->Shutdown();
+}
+
+TEST_CASE("Train runners preserve opaque K3 replay priority hints to the replay boundary", "[trainer][replay_hint]")
+{
+    auto run_and_get_payload = [](bool pipeline) {
+        auto env = std::make_shared<TestBatchEnv>(2, torch::Device(torch::kCPU));
+        auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
+        auto notifier = std::make_shared<rl::Notifier>();
+
+        if (pipeline) {
+            auto runner = std::make_shared<rl::PipelineTrainRunner>(env, agent, notifier);
+            // 1step目の経験を保存し、2step目で非同期Learnerへ渡す。
+            runner->DoStep();
+            runner->DoStep();
+            runner->Shutdown();
+        } else {
+            auto runner = std::make_shared<rl::SerialTrainRunner>(env, agent, notifier);
+            runner->DoStep();
+            runner->Shutdown();
+        }
+
+        REQUIRE(agent->GetReplayBuffer()->GetPushCount() == 1);
+        return agent->GetReplayBuffer()->GetPayload();
+    };
+
+    const auto expected = torch::tensor({ { 1.0f, 2.0f, 3.0f }, { 4.0f, 5.0f, 6.0f } });
+
+    SECTION("Serial")
+    {
+        auto payload = run_and_get_payload(false);
+        REQUIRE(payload.defined());
+        CHECK(torch::equal(payload, expected));
+    }
+
+    SECTION("Pipeline")
+    {
+        auto payload = run_and_get_payload(true);
+        REQUIRE(payload.defined());
+        CHECK(torch::equal(payload, expected));
+    }
 }
 
 TEST_CASE("EvalRunner allows shared actor when actor device matches agent device", "[trainer][eval_runner]")

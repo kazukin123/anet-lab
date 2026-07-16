@@ -21,17 +21,22 @@ namespace LOG = anet::log;
 anet::rl::ReplayInitialPriorityMode anet::rl::dqn::ParseReplayInitialPriorityMode(const LearnerConfig& config)
 {
     // 文字列表現をReplayBufferへ渡す内部modeへ変換し、未知値は設定ミスとして停止する。
-    ReplayInitialPriorityMode mode;
     if (config.per_initial_priority_mode == "fixed") {
-        mode = ReplayInitialPriorityMode::FIXED;
+        return ReplayInitialPriorityMode::FIXED;
     } else if (config.per_initial_priority_mode == "max") {
-        mode = ReplayInitialPriorityMode::MAX;
+        return ReplayInitialPriorityMode::MAX;
     } else if (config.per_initial_priority_mode == "actor_approx") {
-        mode = ReplayInitialPriorityMode::ACTOR_APPROX;
-    } else {
-        ANET_SYSTEM_ERROR("Invalid learner.per_initial_priority_mode='" << config.per_initial_priority_mode
-            << "'. Expected one of: fixed, max, actor_approx.");
+        return ReplayInitialPriorityMode::ACTOR_APPROX;
     }
+
+    ANET_SYSTEM_ERROR("Invalid learner.per_initial_priority_mode='" << config.per_initial_priority_mode
+        << "'. Expected one of: fixed, max, actor_approx.");
+    return ReplayInitialPriorityMode::FIXED; // ANET_SYSTEM_ERROR後のMSVC制御経路警告を抑止する。
+}
+
+void anet::rl::dqn::ValidateReplayPriorityConfig(
+    const LearnerConfig& config, ReplayInitialPriorityMode initial_priority_mode)
+{
     // modeを切り替えても同じconfigを再利用できるよう、関連する数値設定を一括検証する。
     if (!std::isfinite(config.per_initial_priority) || config.per_initial_priority < 0.0f) {
         ANET_SYSTEM_ERROR("Invalid learner.per_initial_priority=" << config.per_initial_priority
@@ -40,17 +45,17 @@ anet::rl::ReplayInitialPriorityMode anet::rl::dqn::ParseReplayInitialPriorityMod
     if (!std::isfinite(config.per_eps) || config.per_eps < 0.0f) {
         ANET_SYSTEM_ERROR("Invalid learner.per_eps=" << config.per_eps << ". Expected a finite value >= 0.");
     }
-    if (!config.use_per && mode != ReplayInitialPriorityMode::FIXED) {
+    if (!config.use_per && initial_priority_mode != ReplayInitialPriorityMode::FIXED) {
         ANET_SYSTEM_ERROR("learner.per_initial_priority_mode=" << config.per_initial_priority_mode
             << " requires learner.use_per=true; set the mode to fixed or enable PER.");
     }
     if (config.use_per && config.per_eps == 0.0f) {
-        static std::once_flag warn_once;
-        std::call_once(warn_once, [] { LOG::warn() << "zero-TD-error transitions may receive zero sampling priority"; });
+        LOG::warn() << "learner.per_eps=0 is allowed with learner.use_per=true, but zero-TD-error transitions may "
+            << "receive zero sampling priority. Set learner.per_eps to a finite value > 0 to keep a positive priority floor.";
     }
-    if (mode == ReplayInitialPriorityMode::ACTOR_APPROX && config.per_alpha == 0.0f) {
-        static std::once_flag warn_once;
-        std::call_once(warn_once, [] { LOG::warn() << "Actor priority does not affect sampling when per_alpha is 0"; });
+    if (initial_priority_mode == ReplayInitialPriorityMode::ACTOR_APPROX && config.per_alpha == 0.0f) {
+        LOG::warn() << "learner.per_initial_priority_mode=actor_approx with learner.per_alpha=0 is allowed, but Actor "
+            << "priority does not affect sampling. Set learner.per_alpha to a finite value > 0 to enable prioritized sampling.";
     }
     if (config.use_per_prio_clip) {
         if (!std::isfinite(config.per_prio_clip_value) || config.per_prio_clip_value < 0.0f) {
@@ -58,14 +63,16 @@ anet::rl::ReplayInitialPriorityMode anet::rl::dqn::ParseReplayInitialPriorityMod
                 << ". Expected a finite value >= 0 when learner.use_per_prio_clip=true.");
         }
         if (config.per_prio_clip_value == 0.0f) {
-            static std::once_flag warn_once;
-            std::call_once(warn_once, [] { LOG::warn() << "PER priorities are clipped to zero when per_prio_clip_value is 0"; });
+            LOG::warn() << "learner.use_per_prio_clip=true with learner.per_prio_clip_value=0 is allowed, but all PER "
+                << "priorities are clipped to zero. Set learner.per_prio_clip_value to a finite value > 0 or disable "
+                << "learner.use_per_prio_clip.";
         } else if (config.per_prio_clip_value <= config.per_eps) {
-            static std::once_flag warn_once;
-            std::call_once(warn_once, [] { LOG::warn() << "per_prio_clip_value <= per_eps may collapse priority differences"; });
+            LOG::warn() << "learner.per_prio_clip_value=" << config.per_prio_clip_value
+                << " <= learner.per_eps=" << config.per_eps
+                << " may collapse priority differences. Set learner.per_prio_clip_value > learner.per_eps or disable "
+                << "learner.use_per_prio_clip.";
         }
     }
-    return mode;
 }
 
 torch::Tensor anet::rl::dqn::TransformH(const torch::Tensor& x, float epsilon)
@@ -94,11 +101,27 @@ float anet::rl::dqn::TransformHInv(float x, float epsilon)
     return sign * (inner * inner - 1.0f);
 }
 
+PerRawPriorityBatchResult anet::rl::dqn::MakePerRawPriorityBatch(
+    const torch::Tensor& td_error, float per_eps, bool use_clip, float clip_value)
+{
+    // clip前の値で変更件数を判定し、上限と元から等しいpriorityは数えない。
+    auto unclipped_priorities = td_error.abs() + per_eps;
+    auto clipped_count = use_clip
+        ? unclipped_priorities.gt(clip_value).sum()
+        : torch::zeros({}, unclipped_priorities.options().dtype(torch::kInt64));
+    auto priorities = use_clip
+        ? unclipped_priorities.clamp_max(clip_value)
+        : unclipped_priorities;
+    return {
+        .priorities = std::move(priorities),
+        .clipped_count = std::move(clipped_count),
+    };
+}
+
 torch::Tensor anet::rl::dqn::MakePerRawPriority(
     const torch::Tensor& td_error, float per_eps, bool use_clip, float clip_value)
 {
-    auto priority = td_error.abs() + per_eps;
-    return use_clip ? priority.clamp_max(clip_value) : priority;
+    return MakePerRawPriorityBatch(td_error, per_eps, use_clip, clip_value).priorities;
 }
 
 float anet::rl::dqn::MakePerRawPriority(
@@ -1222,6 +1245,7 @@ void Learner::SetupOptimizer()
 void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, seed_t seed)
 {
     const auto initial_priority_mode = ParseReplayInitialPriorityMode(config_);
+    ValidateReplayPriorityConfig(config_, initial_priority_mode);
     anet::rl::ReplayBufferConfig rep_config{};
     rep_config.capacity = config_.replay_capacity;
     rep_config.gamma = config_.gamma;
@@ -1430,23 +1454,30 @@ PerPriorityUpdatePending Learner::PreparePerPriorityUpdate(const anet::rl::Exper
         pending.indices.assign(indices_ptr, indices_ptr + batch_size);
     }
 
-    // TD error 由来の priority は GPU 上で確定し、CPU SumTree 更新まで D2H wait を遅延する。
-    auto raw_priorities = MakePerRawPriority(
-        td_error.detach(), config_.per_eps, config_.use_per_prio_clip, config_.per_prio_clip_value).contiguous();
+    // TD error由来のpriorityとclip件数をGPU上で確定し、1本のD2Hへpackする。
+    auto priority_result = MakePerRawPriorityBatch(
+        td_error.detach(), config_.per_eps, config_.use_per_prio_clip, config_.per_prio_clip_value);
+    auto raw_priorities = priority_result.priorities.contiguous();
     ANET_ASSERT_SHAPE(raw_priorities, { batch_size });
     ANET_ASSERT_NAN(raw_priorities);
+    auto packed_readback = torch::cat({
+        raw_priorities,
+        priority_result.clipped_count.to(raw_priorities.options()).reshape({ 1 }),
+    }).contiguous();
+    ANET_ASSERT_SHAPE(packed_readback, { batch_size + 1 });
+    ANET_ASSERT_NAN(packed_readback);
 
-    if (raw_priorities.is_cuda() && per_priority_copy_stream_.has_value()) {
+    if (packed_readback.is_cuda() && per_priority_copy_stream_.has_value()) {
         ANET_PROFILE_SCOPE_FULL(launch, "Learner::PerPriorityD2H.launch");
         const auto producer_stream = at::cuda::getCurrentCUDAStream();
         pending.priority_readback = anet::transfer::HostReadback(
-            std::move(raw_priorities),
+            std::move(packed_readback),
             per_priority_copy_stream_.value(),
             producer_stream,
             per_priority_event_recycler_);
     } else {
         pending.priority_readback = anet::transfer::HostReadback(
-            raw_priorities.device().is_cpu() ? std::move(raw_priorities) : raw_priorities.cpu());
+            packed_readback.device().is_cpu() ? std::move(packed_readback) : packed_readback.cpu());
     }
 
     return pending;
@@ -1476,15 +1507,15 @@ PerPriorityUpdateInfo Learner::ApplyPerPriorityUpdate(PerPriorityUpdatePending p
     {
         ANET_PROFILE_SCOPE_FULL(vector_copy, "Learner::PerPriorityD2H.vector_copy");
 
-        auto priorities_cpu = pending.priority_readback.pinned_result.to(torch::kFloat32).contiguous();
-        ANET_ASSERT_DEVICE_CPU(priorities_cpu);
-        ANET_ASSERT_SHAPE(priorities_cpu, { batch_size });
+        auto packed_cpu = pending.priority_readback.pinned_result.to(torch::kFloat32).contiguous();
+        ANET_ASSERT_DEVICE_CPU(packed_cpu);
+        ANET_ASSERT_SHAPE(packed_cpu, { batch_size + 1 });
 
-        if (config_.use_per_prio_clip) {
-            info.per_clipped_count = (priorities_cpu >= config_.per_prio_clip_value).sum();
-        } else {
-            info.per_clipped_count = torch::zeros({}, priorities_cpu.options());
-        }
+        // pack末尾の件数をCPU int64 scalarへ戻し、先頭B要素だけをReplayBufferへ渡す。
+        const int64_t clipped_count = static_cast<int64_t>(packed_cpu[batch_size].item<float>());
+        info.per_clipped_count = torch::tensor(
+            clipped_count, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
+        auto priorities_cpu = packed_cpu.narrow(0, 0, batch_size).contiguous();
 
         info.per_priorities = priorities_cpu;
         auto priorities_ptr = priorities_cpu.data_ptr<float>();

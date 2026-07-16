@@ -18,6 +18,22 @@
 
 namespace anet::rl {
 
+    struct DecodedReplayItemKey {
+        int64_t generation = 0;      ///< slotへ最後に書き込まれた世代
+        int64_t flat_slot_index = 0; ///< ReplayBuffer全体での物理slot index
+    };
+
+    /// generation付きopaque keyをoverflow検証付きで生成する内部helper。
+    int64_t EncodeReplayItemKeyChecked(
+        int64_t generation, int64_t flat_slot_index, int64_t actual_capacity);
+
+    /// generation付きopaque keyを算術境界検証付きで分解する内部helper。
+    DecodedReplayItemKey DecodeReplayItemKeyChecked(int64_t key, int64_t actual_capacity);
+
+    /// Actor初期値とLearner更新値の比較ペアから呼び出し単位の診断統計を埋める。
+    void FillActorLearnerComparison(
+        const std::vector<std::pair<float, float>>& pairs, ReplayPriorityUpdateResult* result);
+
 
     // ======================================================
     // Queue

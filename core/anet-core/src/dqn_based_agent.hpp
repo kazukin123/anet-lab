@@ -17,10 +17,19 @@
 namespace anet::rl::dqn {
 
     ReplayInitialPriorityMode ParseReplayInitialPriorityMode(const LearnerConfig& config);
+    void ValidateReplayPriorityConfig(const LearnerConfig& config, ReplayInitialPriorityMode initial_priority_mode);
     torch::Tensor TransformH(const torch::Tensor& x, float epsilon);
     float TransformH(float x, float epsilon);
     torch::Tensor TransformHInv(const torch::Tensor& x, float epsilon);
     float TransformHInv(float x, float epsilon);
+
+    struct PerRawPriorityBatchResult {
+        torch::Tensor priorities;    ///< clip適用後のfloat32 priority [B]
+        torch::Tensor clipped_count; ///< clip前priorityが上限を超えた件数のscalar
+    };
+
+    PerRawPriorityBatchResult MakePerRawPriorityBatch(
+        const torch::Tensor& td_error, float per_eps, bool use_clip, float clip_value);
     torch::Tensor MakePerRawPriority(
         const torch::Tensor& td_error, float per_eps, bool use_clip, float clip_value);
     float MakePerRawPriority(
@@ -326,7 +335,7 @@ namespace anet::rl::dqn {
 
     struct PerPriorityUpdatePending {
         std::vector<int64_t> indices;                   ///< CPU上のgeneration付きreplay item key
-        anet::transfer::HostReadback priority_readback; ///< GPUで確定したraw優先度の遅延D2H結果
+        anet::transfer::HostReadback priority_readback; ///< priority [B]とclip件数をpackした遅延D2H結果 [B+1]
         torch::Tensor per_is_weights;                   ///< 対応minibatchのIS weight
         torch::Tensor per_sample_initial_count;         ///< 全initial sourceのサンプル件数
         torch::Tensor per_sample_fixed_initial_count;   ///< fixed_initial sourceのサンプル件数

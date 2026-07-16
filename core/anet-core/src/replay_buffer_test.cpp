@@ -480,7 +480,7 @@ public:
         update_called_before_second_sample_finished = second_sample_started && !second_sample_finished;
         ++update_count;
         cv.notify_all();
-        return {};
+        return priority_update_result;
     }
 
     std::optional<float> GetScalar(const std::string& key, int64_t) const override
@@ -620,6 +620,7 @@ public:
     int64_t size_value = 7;
     float scalar_value = 3.5f;
     torch::Tensor tensor_value = torch::tensor({ 2.0f }, torch::TensorOptions().dtype(torch::kFloat32));
+    rl::ReplayPriorityUpdateResult priority_update_result;
 };
 
 void PushTime(
@@ -2001,6 +2002,64 @@ TEST_CASE("ReplayBuffer drops stale replay item keys after slot overwrite", "[re
     CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_PRIORITY_UPDATE_STALE_DROP_COUNT).value() == 1.0f);
 }
 
+TEST_CASE("Replay item key codec validates generation slot and overflow boundaries", "[replay_buffer][per][generation][key]")
+{
+    constexpr int64_t capacity = 8;
+    const int64_t key = rl::EncodeReplayItemKeyChecked(1, 3, capacity);
+    CHECK(key == 11);
+    const auto decoded = rl::DecodeReplayItemKeyChecked(key, capacity);
+    CHECK(decoded.generation == 1);
+    CHECK(decoded.flat_slot_index == 3);
+
+    CHECK_THROWS(rl::DecodeReplayItemKeyChecked(-1, capacity));
+    CHECK_THROWS(rl::DecodeReplayItemKeyChecked(0, capacity));
+    CHECK_THROWS(rl::DecodeReplayItemKeyChecked(capacity - 1, capacity));
+    CHECK_THROWS(rl::EncodeReplayItemKeyChecked(0, 0, capacity));
+    CHECK_THROWS(rl::EncodeReplayItemKeyChecked(1, -1, capacity));
+    CHECK_THROWS(rl::EncodeReplayItemKeyChecked(1, capacity, capacity));
+    CHECK_THROWS(rl::EncodeReplayItemKeyChecked(1, 0, 0));
+
+    const int64_t max_generation = std::numeric_limits<int64_t>::max() / capacity;
+    CHECK_NOTHROW(rl::EncodeReplayItemKeyChecked(max_generation, 0, capacity));
+    CHECK_THROWS(rl::EncodeReplayItemKeyChecked(max_generation + 1, 0, capacity));
+}
+
+TEST_CASE("Replay priority comparison reports positive ratios and tied Spearman ranks", "[replay_buffer][per][actor_comparison]")
+{
+    rl::ReplayPriorityUpdateResult result;
+    rl::FillActorLearnerComparison({
+        { 2.0f, 1.0f },
+        { 8.0f, 2.0f },
+        { 0.0f, 1.0f },
+        { 4.0f, 0.0f },
+    }, &result);
+
+    CHECK(result.actor_learner_pair_count == 4);
+    CHECK(result.actor_learner_positive_pair_ratio == Catch::Approx(0.5f));
+    CHECK(result.actor_learner_ratio_median == Catch::Approx(3.0f));
+    CHECK(result.actor_learner_log_ratio_mean == Catch::Approx(
+        (std::log(2.0f) + std::log(4.0f)) * 0.5f));
+    CHECK(result.actor_learner_spearman == Catch::Approx(0.31622776f).margin(1.0e-6f));
+
+    rl::ReplayPriorityUpdateResult single;
+    rl::FillActorLearnerComparison({ { 3.0f, 2.0f } }, &single);
+    CHECK(single.actor_learner_pair_count == 1);
+    CHECK(single.actor_learner_ratio_median == Catch::Approx(1.5f));
+    CHECK(std::isnan(single.actor_learner_spearman));
+
+    rl::ReplayPriorityUpdateResult tied;
+    rl::FillActorLearnerComparison({ { 1.0f, 2.0f }, { 1.0f, 3.0f } }, &tied);
+    CHECK(std::isnan(tied.actor_learner_spearman));
+
+    rl::ReplayPriorityUpdateResult empty;
+    rl::FillActorLearnerComparison({}, &empty);
+    CHECK(empty.actor_learner_pair_count == 0);
+    CHECK(std::isnan(empty.actor_learner_positive_pair_ratio));
+    CHECK(std::isnan(empty.actor_learner_ratio_median));
+    CHECK(std::isnan(empty.actor_learner_log_ratio_mean));
+    CHECK(std::isnan(empty.actor_learner_spearman));
+}
+
 TEST_CASE("ReplayBuffer priority update validates the whole batch before mutation", "[replay_buffer][per][generation]")
 {
     auto buffer = MakeBuffer(MakeConfig(8), 1);
@@ -2019,6 +2078,129 @@ TEST_CASE("ReplayBuffer priority update validates the whole batch before mutatio
     auto sources = sources_tensor.accessor<int8_t, 1>();
     for (int64_t i = 0; i < samples.per_priority_sources.size(0); ++i) {
         CHECK(sources[i] == static_cast<int8_t>(rl::ReplayPrioritySource::FIXED_INITIAL));
+    }
+}
+
+TEST_CASE("ReplayBuffer priority update rejects all invalid inputs before mutation", "[replay_buffer][per][generation]")
+{
+    auto buffer = MakeBuffer(MakeConfig(8), 1);
+    PushTime(buffer, 0, {}, {}, BoolValues(1, true));
+    PushTime(buffer, 1);
+    PushTime(buffer, 2);
+
+    const int64_t first_index = IndexOf(buffer, 0, 0);
+    const int64_t second_index = IndexOf(buffer, 0, 1);
+    const int64_t first_key = FindCurrentKey(buffer, first_index);
+    const int64_t second_key = FindCurrentKey(buffer, second_index);
+    const float first_before = buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, first_index)->item<float>();
+    const float second_before = buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, second_index)->item<float>();
+
+    CHECK_THROWS(buffer.rb->UpdatePriorities({ first_key }, {}));
+    CHECK_THROWS(buffer.rb->UpdatePriorities({ -1 }, { 2.0f }));
+    CHECK_THROWS(buffer.rb->UpdatePriorities({ first_index }, { 2.0f }));
+    CHECK_THROWS(buffer.rb->UpdatePriorities({ first_key, second_key }, { 2.0f, -1.0f }));
+    CHECK_THROWS(buffer.rb->UpdatePriorities(
+        { first_key, second_key }, { 2.0f, std::numeric_limits<float>::quiet_NaN() }));
+    CHECK_THROWS(buffer.rb->UpdatePriorities(
+        { first_key, second_key }, { 2.0f, std::numeric_limits<float>::infinity() }));
+
+    CHECK(buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, first_index)->item<float>()
+        == Catch::Approx(first_before));
+    CHECK(buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, second_index)->item<float>()
+        == Catch::Approx(second_before));
+}
+
+TEST_CASE("ReplayBuffer priority update applies current keys while dropping stale peers", "[replay_buffer][per][generation]")
+{
+    auto config = MakeConfig(4);
+    config.per_alpha = 1.0f;
+    auto buffer = MakeBuffer(config, 1);
+    PushTime(buffer, 0, {}, {}, BoolValues(1, true));
+    PushTime(buffer, 1);
+    PushTime(buffer, 2);
+
+    const int64_t stale_key = FindCurrentKey(buffer, IndexOf(buffer, 0, 0));
+    const int64_t current_key = FindCurrentKey(buffer, IndexOf(buffer, 0, 1));
+    PushTime(buffer, 3);
+    PushTime(buffer, 4);
+
+    const auto result = buffer.rb->UpdatePriorities({ stale_key, current_key }, { 9.0f, 4.0f });
+    CHECK(result.applied_count == 1);
+    CHECK(result.stale_count == 1);
+    CHECK(buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, IndexOf(buffer, 0, 0))->item<float>() == 0.0f);
+    CHECK(buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, IndexOf(buffer, 0, 1))->item<float>()
+        == Catch::Approx(4.0f));
+    CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_PRIORITY_UPDATE_STALE_DROP_COUNT).value() == 1.0f);
+}
+
+TEST_CASE("ReplayBuffer duplicate priority updates are last-wins with one actor comparison", "[replay_buffer][per][generation][actor_comparison]")
+{
+    auto config = MakeConfig(8, 1, 0.0f);
+    config.per_alpha = 1.0f;
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
+    auto buffer = MakeBuffer(
+        config, 1, false, 777, std::make_unique<AbsoluteActorPriorityEstimator>());
+
+    auto start_hint = rl::ReplayInitialPriorityHint(torch::tensor(
+        { { 4.0f, 5.0f, 123.0f } }, torch::TensorOptions().dtype(torch::kFloat32)));
+    buffer.rb->Push(MakeBatch(
+        { 0.0f }, { 1.0f }, { 2.0f }, { true }, { false }, { true }, false, {}, std::move(start_hint)));
+    auto next_hint = rl::ReplayInitialPriorityHint(torch::tensor(
+        { { 1.0f, 1.0f, 456.0f } }, torch::TensorOptions().dtype(torch::kFloat32)));
+    buffer.rb->Push(MakeBatch(
+        { 1.0f }, { 2.0f }, { 0.0f }, { false }, { false }, { true }, false, {}, std::move(next_hint)));
+
+    const int64_t slot = IndexOf(buffer, 0, 0);
+    const int64_t key = FindCurrentKey(buffer, slot);
+    const auto result = buffer.rb->UpdatePriorities({ key, key }, { 3.0f, 7.0f });
+
+    CHECK(result.applied_count == 2);
+    CHECK(result.stale_count == 0);
+    CHECK(result.actor_learner_pair_count == 1);
+    CHECK(result.actor_learner_positive_pair_ratio == 1.0f);
+    CHECK(result.actor_learner_ratio_median == Catch::Approx(2.0f / 3.0f));
+    CHECK(buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, slot)->item<float>() == Catch::Approx(7.0f));
+
+    rl::ExperienceSamples samples;
+    buffer.rb->Sample(samples, 1, 0.4f);
+    CHECK(samples.per_priority_sources[0].item<int8_t>()
+        == static_cast<int8_t>(rl::ReplayPrioritySource::LEARNER_UPDATED));
+}
+
+TEST_CASE("ReplayBuffer duplicate priority updates preserve the largest applied priority for max initialization", "[replay_buffer][per][generation]")
+{
+    auto config = MakeConfig(8);
+    config.per_alpha = 1.0f;
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::MAX;
+    auto buffer = MakeBuffer(config, 1);
+    PushTime(buffer, 0, {}, {}, BoolValues(1, true));
+    PushTime(buffer, 1);
+
+    const int64_t first_slot = IndexOf(buffer, 0, 0);
+    const int64_t key = FindCurrentKey(buffer, first_slot);
+    const auto result = buffer.rb->UpdatePriorities({ key, key }, { 7.0f, 3.0f });
+    CHECK(result.applied_count == 2);
+    CHECK(buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, first_slot)->item<float>() == Catch::Approx(3.0f));
+
+    // leafはlast-winsの3だが、後続itemのmax初期値にはbatch中最大の7を使う。
+    PushTime(buffer, 2);
+    const int64_t second_slot = IndexOf(buffer, 0, 1);
+    CHECK(buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, second_slot)->item<float>() == Catch::Approx(7.0f));
+}
+
+TEST_CASE("ReplayBuffer uses adjusted actual capacity as replay item key radix", "[replay_buffer][per][generation]")
+{
+    constexpr int64_t configured_capacity = 10;
+    constexpr int64_t num_envs = 3;
+    constexpr int64_t actual_capacity = 9;
+    auto buffer = MakeBuffer(MakeConfig(configured_capacity), num_envs);
+    PushTime(buffer, 0, {}, {}, BoolValues(num_envs, true));
+    PushTime(buffer, 1);
+
+    for (int64_t env_idx = 0; env_idx < num_envs; ++env_idx) {
+        const int64_t slot = IndexOf(buffer, env_idx, 0);
+        const int64_t key = FindCurrentKey(buffer, slot);
+        CHECK(key == actual_capacity + slot);
     }
 }
 
@@ -2265,6 +2447,31 @@ TEST_CASE("PrefetchingReplayBuffer forwards ReplayBuffer accessors on CPU", "[re
     REQUIRE(tensor_vector.has_value());
     REQUIRE(tensor_vector->size() == 1);
     RequireFlatApprox((*tensor_vector)[0], { 2.0f });
+}
+
+TEST_CASE("PrefetchingReplayBuffer forwards the complete priority update result", "[replay_buffer][prefetch][priority_update]")
+{
+    auto inner_state = std::make_shared<BlockingReplayBuffer>();
+    inner_state->priority_update_result = {
+        .applied_count = 5,
+        .stale_count = 2,
+        .actor_learner_pair_count = 3,
+        .actor_learner_positive_pair_ratio = 0.75f,
+        .actor_learner_ratio_median = 1.25f,
+        .actor_learner_log_ratio_mean = -0.5f,
+        .actor_learner_spearman = 0.6f,
+    };
+    rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
+
+    const auto result = rb.UpdatePriorities({ 1, 2 }, { 0.5f, 1.5f });
+
+    CHECK(result.applied_count == 5);
+    CHECK(result.stale_count == 2);
+    CHECK(result.actor_learner_pair_count == 3);
+    CHECK(result.actor_learner_positive_pair_ratio == Catch::Approx(0.75f));
+    CHECK(result.actor_learner_ratio_median == Catch::Approx(1.25f));
+    CHECK(result.actor_learner_log_ratio_mean == Catch::Approx(-0.5f));
+    CHECK(result.actor_learner_spearman == Catch::Approx(0.6f));
 }
 
 TEST_CASE("PrefetchingReplayBuffer waits for in-flight sample before priority update", "[replay_buffer][prefetch][thread]")

@@ -22,6 +22,44 @@
 using namespace anet::rl;
 namespace LOG = anet::log;
 
+int64_t anet::rl::EncodeReplayItemKeyChecked(
+    int64_t generation, int64_t flat_slot_index, int64_t actual_capacity)
+{
+    if (actual_capacity <= 0) {
+        ANET_SYSTEM_ERROR("Replay item key capacity must be positive. actual_capacity=" << actual_capacity);
+    }
+    if (generation <= 0) {
+        ANET_SYSTEM_ERROR("Replay item key generation must be positive. generation=" << generation);
+    }
+    if (flat_slot_index < 0 || flat_slot_index >= actual_capacity) {
+        ANET_SYSTEM_ERROR("Replay item key slot is out of range. flat_slot_index=" << flat_slot_index
+            << " actual_capacity=" << actual_capacity);
+    }
+    if (generation > (std::numeric_limits<int64_t>::max() - flat_slot_index) / actual_capacity) {
+        ANET_SYSTEM_ERROR("Replay item key overflow. generation=" << generation
+            << " actual_capacity=" << actual_capacity << " flat_slot_index=" << flat_slot_index);
+    }
+    return generation * actual_capacity + flat_slot_index;
+}
+
+DecodedReplayItemKey anet::rl::DecodeReplayItemKeyChecked(int64_t key, int64_t actual_capacity)
+{
+    if (actual_capacity <= 0) {
+        ANET_SYSTEM_ERROR("Replay item key capacity must be positive. actual_capacity=" << actual_capacity);
+    }
+    if (key < 0) {
+        ANET_SYSTEM_ERROR("Replay item key must be non-negative. key=" << key);
+    }
+    const int64_t generation = key / actual_capacity;
+    if (generation <= 0) {
+        ANET_SYSTEM_ERROR("Replay item key generation must be positive. key=" << key);
+    }
+    return DecodedReplayItemKey{
+        .generation = generation,
+        .flat_slot_index = key % actual_capacity,
+    };
+}
+
 
 /* ==============================================================================
  * [設計仕様] 時間軸の方向とエピソード境界処理のメカニズム
@@ -806,6 +844,77 @@ private:
     torch::TensorOptions opt_float_;
 };
 
+void anet::rl::FillActorLearnerComparison(
+    const std::vector<std::pair<float, float>>& pairs, ReplayPriorityUpdateResult* result)
+{
+    result->actor_learner_pair_count = static_cast<int64_t>(pairs.size());
+    if (pairs.empty()) return;
+
+    // 倍率統計は除算と対数が定義できる正値ペアだけを対象にする。
+    std::vector<float> ratios;
+    double log_sum = 0.0;
+    for (const auto& [actor, learner] : pairs) {
+        if (actor > 0.0f && learner > 0.0f) {
+            ratios.push_back(actor / learner);
+            log_sum += std::log(actor / learner);
+        }
+    }
+    result->actor_learner_positive_pair_ratio =
+        static_cast<float>(ratios.size()) / static_cast<float>(pairs.size());
+    if (!ratios.empty()) {
+        // 偶数件では中央2値を平均し、倍率の外れ値に強い代表値を作る。
+        std::sort(ratios.begin(), ratios.end());
+        const size_t mid = ratios.size() / 2;
+        result->actor_learner_ratio_median = ratios.size() % 2 == 0
+            ? (ratios[mid - 1] + ratios[mid]) * 0.5f
+            : ratios[mid];
+        result->actor_learner_log_ratio_mean = static_cast<float>(log_sum / ratios.size());
+    }
+
+    if (pairs.size() < 2) return;
+    // 同値には占有順位の平均を割り当て、tieを含む通常のSpearman順位相関にする。
+    auto make_ranks = [](const std::vector<float>& values) {
+        std::vector<size_t> order(values.size());
+        std::iota(order.begin(), order.end(), 0);
+        std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return values[a] < values[b]; });
+        std::vector<double> ranks(values.size());
+        for (size_t i = 0; i < order.size();) {
+            size_t j = i + 1;
+            while (j < order.size() && values[order[j]] == values[order[i]]) ++j;
+            const double rank = (static_cast<double>(i) + static_cast<double>(j - 1)) * 0.5;
+            for (size_t k = i; k < j; ++k) ranks[order[k]] = rank;
+            i = j;
+        }
+        return ranks;
+    };
+    std::vector<float> actor;
+    std::vector<float> learner;
+    actor.reserve(pairs.size());
+    learner.reserve(pairs.size());
+    for (const auto& pair : pairs) {
+        actor.push_back(pair.first);
+        learner.push_back(pair.second);
+    }
+    const auto actor_ranks = make_ranks(actor);
+    const auto learner_ranks = make_ranks(learner);
+    const double actor_mean = std::accumulate(actor_ranks.begin(), actor_ranks.end(), 0.0) / actor_ranks.size();
+    const double learner_mean = std::accumulate(learner_ranks.begin(), learner_ranks.end(), 0.0) / learner_ranks.size();
+    double covariance = 0.0;
+    double actor_variance = 0.0;
+    double learner_variance = 0.0;
+    for (size_t i = 0; i < actor_ranks.size(); ++i) {
+        const double actor_delta = actor_ranks[i] - actor_mean;
+        const double learner_delta = learner_ranks[i] - learner_mean;
+        covariance += actor_delta * learner_delta;
+        actor_variance += actor_delta * actor_delta;
+        learner_variance += learner_delta * learner_delta;
+    }
+    // 片側が全tieなら順位の分散がなく相関を定義できないためNaNを維持する。
+    if (actor_variance == 0.0 || learner_variance == 0.0) return;
+    result->actor_learner_spearman = static_cast<float>(
+        covariance / std::sqrt(actor_variance * learner_variance));
+}
+
 class PrioritizedSampler : public ReplayExperienceSampler, public ReplayPriorityStore, public anet::RandomHolder {
 public:
     PrioritizedSampler(int64_t capacity, float alpha, std::optional<anet::seed_t> seed)
@@ -921,7 +1030,7 @@ public:
             ++result.applied_count;
         }
 
-        FillActorComparison(actor_pairs, &result);
+        FillActorLearnerComparison(actor_pairs, &result);
         return result;
     }
 
@@ -959,70 +1068,6 @@ public:
         return torch::tensor(priorities, opt_float_).reshape({ indices_cpu.size(0), 1 });
     }
 private:
-    static void FillActorComparison(
-        const std::vector<std::pair<float, float>>& pairs, ReplayPriorityUpdateResult* result)
-    {
-        result->actor_learner_pair_count = static_cast<int64_t>(pairs.size());
-        if (pairs.empty()) return;
-
-        // 倍率統計は除算と対数が定義できる正値ペアだけを対象にする。
-        std::vector<float> ratios;
-        double log_sum = 0.0;
-        for (const auto& [actor, learner] : pairs) {
-            if (actor > 0.0f && learner > 0.0f) {
-                ratios.push_back(actor / learner);
-                log_sum += std::log(actor / learner);
-            }
-        }
-        result->actor_learner_positive_pair_ratio =
-            static_cast<float>(ratios.size()) / static_cast<float>(pairs.size());
-        if (!ratios.empty()) {
-            // 偶数件では中央2値を平均し、倍率の外れ値に強い代表値を作る。
-            std::sort(ratios.begin(), ratios.end());
-            const size_t mid = ratios.size() / 2;
-            result->actor_learner_ratio_median = ratios.size() % 2 == 0
-                ? (ratios[mid - 1] + ratios[mid]) * 0.5f
-                : ratios[mid];
-            result->actor_learner_log_ratio_mean = static_cast<float>(log_sum / ratios.size());
-        }
-        result->actor_learner_spearman = Spearman(pairs);
-    }
-
-    static float Spearman(const std::vector<std::pair<float, float>>& pairs)
-    {
-        if (pairs.size() < 2) return std::numeric_limits<float>::quiet_NaN();
-        // 同値には占有順位の平均を割り当て、tieを含む通常のSpearman順位相関にする。
-        auto make_ranks = [](const std::vector<float>& values) {
-            std::vector<size_t> order(values.size());
-            std::iota(order.begin(), order.end(), 0);
-            std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return values[a] < values[b]; });
-            std::vector<double> ranks(values.size());
-            for (size_t i = 0; i < order.size();) {
-                size_t j = i + 1;
-                while (j < order.size() && values[order[j]] == values[order[i]]) ++j;
-                const double rank = (static_cast<double>(i) + static_cast<double>(j - 1)) * 0.5;
-                for (size_t k = i; k < j; ++k) ranks[order[k]] = rank;
-                i = j;
-            }
-            return ranks;
-        };
-        std::vector<float> actor, learner;
-        for (const auto& p : pairs) { actor.push_back(p.first); learner.push_back(p.second); }
-        const auto ar = make_ranks(actor);
-        const auto lr = make_ranks(learner);
-        const double am = std::accumulate(ar.begin(), ar.end(), 0.0) / ar.size();
-        const double lm = std::accumulate(lr.begin(), lr.end(), 0.0) / lr.size();
-        double cov = 0.0, av = 0.0, lv = 0.0;
-        for (size_t i = 0; i < ar.size(); ++i) {
-            cov += (ar[i] - am) * (lr[i] - lm);
-            av += (ar[i] - am) * (ar[i] - am);
-            lv += (lr[i] - lm) * (lr[i] - lm);
-        }
-        // 片側が全tieなら順位の分散がなく相関を定義できないためNaNを維持する。
-        if (av == 0.0 || lv == 0.0) return std::numeric_limits<float>::quiet_NaN();
-        return static_cast<float>(cov / std::sqrt(av * lv));
-    }
-
     float SourceMassRatio(ReplayPrioritySource source, double total) const
     {
         return static_cast<float>(std::clamp(source_mass_[static_cast<size_t>(source)], 0.0, total) / total);
@@ -1416,11 +1461,7 @@ int64_t DefaultReplayBuffer::OnSlotWritten(int64_t flat_slot_index)
 int64_t DefaultReplayBuffer::EncodeReplayItemKey(int64_t flat_slot_index) const
 {
     const int64_t generation = generations_[static_cast<size_t>(flat_slot_index)];
-    if (generation <= 0 || generation > (std::numeric_limits<int64_t>::max() - flat_slot_index) / actual_capacity_) {
-        ANET_SYSTEM_ERROR("Replay item key overflow. generation=" << generation
-            << " actual_capacity=" << actual_capacity_ << " flat_slot_index=" << flat_slot_index);
-    }
-    return generation * actual_capacity_ + flat_slot_index;
+    return EncodeReplayItemKeyChecked(generation, flat_slot_index, actual_capacity_);
 }
 
 void DefaultReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const
@@ -1483,8 +1524,10 @@ ReplayPriorityUpdateResult DefaultReplayBuffer::UpdatePriorities(
     }
 
     std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+    std::vector<DecodedReplayItemKey> decoded_keys;
     std::vector<int64_t> valid_slots;
     std::vector<float> valid_priorities;
+    decoded_keys.reserve(item_keys.size());
     valid_slots.reserve(item_keys.size());
     valid_priorities.reserve(priorities.size());
 
@@ -1492,30 +1535,26 @@ ReplayPriorityUpdateResult DefaultReplayBuffer::UpdatePriorities(
     for (size_t i = 0; i < item_keys.size(); ++i) {
         const int64_t key = item_keys[i];
         const float priority = priorities[i];
-        if (key < 0 || !std::isfinite(priority) || priority < 0.0f) {
-            ANET_SYSTEM_ERROR("ReplayBuffer::UpdatePriorities invalid input. key=" << key
-                << " priority=" << priority << " expected non-negative finite priority and key");
+        if (!std::isfinite(priority) || priority < 0.0f) {
+            ANET_SYSTEM_ERROR("ReplayBuffer::UpdatePriorities invalid priority. key=" << key
+                << " priority=" << priority << " expected non-negative finite priority");
         }
-        const int64_t generation = key / actual_capacity_;
-        const int64_t flat_slot_index = key % actual_capacity_;
-        if (generation <= 0) {
-            ANET_SYSTEM_ERROR("ReplayBuffer::UpdatePriorities generation must be positive. key=" << key);
-        }
-        const int64_t current_generation = generations_[static_cast<size_t>(flat_slot_index)];
-        if (generation > current_generation) {
+        const auto decoded = DecodeReplayItemKeyChecked(key, actual_capacity_);
+        const int64_t current_generation = generations_[static_cast<size_t>(decoded.flat_slot_index)];
+        if (decoded.generation > current_generation) {
             ANET_SYSTEM_ERROR("ReplayBuffer::UpdatePriorities future generation. key=" << key
                 << " current_generation=" << current_generation);
         }
+        decoded_keys.push_back(decoded);
     }
     // 過去generationだけを要素単位で棄却し、現generationの更新を物理slotへ変換する。
     for (size_t i = 0; i < item_keys.size(); ++i) {
-        const int64_t generation = item_keys[i] / actual_capacity_;
-        const int64_t flat_slot_index = item_keys[i] % actual_capacity_;
-        if (generation < generations_[static_cast<size_t>(flat_slot_index)]) {
+        const auto& decoded = decoded_keys[i];
+        if (decoded.generation < generations_[static_cast<size_t>(decoded.flat_slot_index)]) {
             ++result.stale_count;
             continue;
         }
-        valid_slots.push_back(flat_slot_index);
+        valid_slots.push_back(decoded.flat_slot_index);
         valid_priorities.push_back(priorities[i]);
     }
     if (!valid_slots.empty()) {
