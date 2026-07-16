@@ -36,6 +36,15 @@ namespace anet::rl::env::drop_merge {
         GlobalFixed     ///< 全環境で共通の設定値（global_seed）を使用し、毎Reset時にRNGをリセットする。
     };
 
+    enum class TerminationReason { ///< エピソード終了要因
+        None = 0,
+        SpawnBlocked = 1,
+        Overflow = 2,
+        MaxStep = 3,
+        NoDropTimeout = 4,
+        NoLegalDrop = 5
+    };
+
     /// DropMerge 環境の設定
     struct DropMergeEnvConfig : public anet::Config {
 
@@ -219,15 +228,6 @@ namespace anet::rl::env::drop_merge {
             b2Body* pending_body = nullptr; ///< 落下判定待ちの果物
         };
 
-        enum class TerminationReason {        ///< メトリクス集計用
-            None,
-            SpawnBlocked,
-            Overflow,
-            MaxStep,
-            NoDropTimeout,
-            NoLegalDrop
-        };
-
         // 衝突コールバック
         class ContactListener : public b2ContactListener {
         public:
@@ -296,6 +296,7 @@ namespace anet::rl::env::drop_merge {
         // aux用 (Resetで初期化しない)
         float last_episode_score_ = -1.0f;
         int last_episode_step_ = -1;
+        TerminationReason last_episode_term_reason_ = TerminationReason::None;
         float episode_reward_ = 0.0f;           ///< エピソード累積報酬 (Penalty込み)
         float last_episode_reward_ = 0.0f;      ///< 前回のエピソード累積報酬
 

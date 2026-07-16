@@ -1091,6 +1091,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         // 前回エピソード情報を記録
         last_episode_score_ = episode_score_;
         last_episode_step_ = step_count_;
+        last_episode_term_reason_ = term_reason_;
         last_episode_reward_ = episode_reward_;
         last_ep_max_settle_steps_ = ep_settle_steps_max_;
         last_ep_mean_settle_steps_ = (ep_settle_count_ > 0) ? (static_cast<float>(ep_settle_steps_sum_) / ep_settle_count_) : 0.0f;
@@ -1368,6 +1369,7 @@ anet::rl::AuxData DropMergeEnv::CreateAuxData(float reward, float raw_reward) co
         (float)last_step_sim_steps_
         }, float_opt_));
     aux.emplace("last_step", torch::tensor({ (float)last_episode_step_ }, float_opt_));
+    aux.emplace("last_term_reason", torch::tensor({ static_cast<float>(last_episode_term_reason_) }, float_opt_));
 
     // スコア
     aux.emplace("score", torch::tensor({ episode_score_ }, float_opt_));
