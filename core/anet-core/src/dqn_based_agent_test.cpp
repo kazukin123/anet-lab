@@ -80,6 +80,7 @@ struct ActionPolicyAccess : public dqn::ActionPolicy {
     }
 
     using dqn::ActionPolicy::CreateSpatialTensor;
+    using dqn::ActionPolicy::CreateSpatialLaneTensor;
 
     std::shared_ptr<dqn::DQNActionInfo> SelectAction(const anet::TensorDict&, bool, std::shared_ptr<anet::nn::Network>,
         std::shared_ptr<anet::RandomGenerator>, const anet::TraceSink&) const override
@@ -1142,8 +1143,8 @@ anet::TensorDict MakeSpatialUQEInput()
             { 0.0f, 100.0f },
         },
         {
-            { 0.0f, 0.0f },
-            { 10.0f, 10.0f },
+            { 5.0f, 5.0f },
+            { 0.0f, 100.0f },
         },
     });
 
@@ -2686,6 +2687,38 @@ TEST_CASE("ActionPolicy spatial tensor generation handles supported scale types"
     CHECK_THROWS(ActionPolicyAccess::CreateSpatialTensor(2, 1.0f, 0.0f, "invalid", device));
 }
 
+TEST_CASE("ActionPolicy reverses spatial parameter tuples for env lane assignment", "[dqn][action_policy][spatial]")
+{
+    auto device = torch::Device(torch::kCPU);
+
+    // 補間結果を厳密に反転し、値の集合を変えずにend側をenv[0]へ割り当てる。
+    auto linear = ActionPolicyAccess::CreateSpatialTensor(3, 1.0f, 0.0f, "linear", device);
+    auto lane_linear = ActionPolicyAccess::CreateSpatialLaneTensor(3, 1.0f, 0.0f, "linear", device);
+    CHECK(torch::equal(lane_linear, linear.flip({ 0 })));
+    CHECK(torch::equal(lane_linear, torch::tensor({ 0.0f, 0.5f, 1.0f })));
+
+    auto log = ActionPolicyAccess::CreateSpatialTensor(3, 1.0f, 0.01f, "log", device);
+    auto lane_log = ActionPolicyAccess::CreateSpatialLaneTensor(3, 1.0f, 0.01f, "log", device);
+    CHECK(torch::equal(lane_log, log.flip({ 0 })));
+
+    // epsilonとtauを同じ向きで反転し、パラメータの組の集合を維持する。
+    auto original_pairs = torch::stack({
+        ActionPolicyAccess::CreateSpatialTensor(3, 0.6f, 0.0f, "log", device),
+        ActionPolicyAccess::CreateSpatialTensor(3, 0.95f, 0.85f, "log", device),
+    }, 1);
+    auto lane_pairs = torch::stack({
+        ActionPolicyAccess::CreateSpatialLaneTensor(3, 0.6f, 0.0f, "log", device),
+        ActionPolicyAccess::CreateSpatialLaneTensor(3, 0.95f, 0.85f, "log", device),
+    }, 1);
+    CHECK(torch::equal(lane_pairs, original_pairs.flip({ 0 })));
+    CHECK(lane_pairs[0][0].item<float>() == Catch::Approx(1.0e-4f).margin(1.0e-7f));
+    CHECK(lane_pairs[2][0].item<float>() == Catch::Approx(0.6f).margin(1.0e-6f));
+
+    // laneが1つなら反転はno-opとなり、従来どおりstart値を使う。
+    auto single = ActionPolicyAccess::CreateSpatialLaneTensor(1, 0.25f, 0.75f, "linear", device);
+    CHECK(single[0].item<float>() == Catch::Approx(0.25f).margin(1.0e-6f));
+}
+
 TEST_CASE("DefaultDQNAgentConfig keeps spatial exploration train-only", "[dqn][config][spatial]")
 {
     anet::ConfigData config_data;
@@ -3017,7 +3050,7 @@ TEST_CASE("Spatial UQE policies use per-env tau tensor", "[dqn][action_policy][s
     config.uqe_tau_start = 0.0f;
     config.uqe_tau_end = 1.0f;
 
-    auto expected_actions = torch::tensor({ 0, 1 }, torch::TensorOptions().dtype(torch::kInt64));
+    auto expected_actions = torch::tensor({ 1, 0 }, torch::TensorOptions().dtype(torch::kInt64));
 
     std::vector<std::pair<std::string, std::shared_ptr<dqn::ActionPolicy>>> policies;
     policies.emplace_back("uqe", std::make_shared<dqn::UQEActionPolicy>(config, true, 2, torch::Device(torch::kCPU)));
