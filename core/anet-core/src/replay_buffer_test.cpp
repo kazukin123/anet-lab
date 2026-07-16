@@ -301,6 +301,76 @@ public:
     }
 };
 
+class ConstantInitialPriorityEstimator final : public rl::InitialPriorityEstimator {
+public:
+    explicit ConstantInitialPriorityEstimator(std::optional<float> result)
+        : result_(result)
+    {
+    }
+
+    bool ValidateHint(std::span<const float> hint) const override
+    {
+        if (hint.size() != 1) {
+            ANET_SYSTEM_ERROR("ConstantInitialPriorityEstimator expected a one-column test hint. actual=" << hint.size());
+        }
+        return std::isfinite(hint[0]);
+    }
+
+    std::optional<float> Estimate(const rl::InitialPriorityEstimateInput&) const override
+    {
+        return result_;
+    }
+
+private:
+    std::optional<float> result_;
+};
+
+class RecordingPriorityStore final : public rl::ReplayPriorityStore {
+public:
+    struct InitialWrite {
+        int64_t flat_slot_index = 0;
+        std::optional<float> raw_priority;
+        rl::ReplayPrioritySource source = rl::ReplayPrioritySource::NONE;
+    };
+
+    void InvalidateSlot(int64_t flat_slot_index) override
+    {
+        invalidated_slots.push_back(flat_slot_index);
+    }
+
+    void SetRawInitialPriority(
+        int64_t flat_slot_index, float raw_priority, rl::ReplayPrioritySource source) override
+    {
+        initial_writes.push_back(InitialWrite{
+            .flat_slot_index = flat_slot_index,
+            .raw_priority = raw_priority,
+            .source = source,
+        });
+    }
+
+    void SetMaxInitialPriority(int64_t flat_slot_index) override
+    {
+        initial_writes.push_back(InitialWrite{
+            .flat_slot_index = flat_slot_index,
+            .raw_priority = std::nullopt,
+            .source = rl::ReplayPrioritySource::MAX_INITIAL,
+        });
+    }
+
+    rl::ReplayPriorityUpdateResult ApplyLearnerPriorities(
+        const std::vector<int64_t>&, const std::vector<float>&) override
+    {
+        return {};
+    }
+
+    std::optional<float> GetScalar(const std::string&) const override { return std::nullopt; }
+    std::optional<torch::Tensor> GetPriorityTensor(int64_t) const override { return std::nullopt; }
+    torch::Tensor GatherPriorityRows(const torch::Tensor&) const override { return torch::Tensor(); }
+
+    std::vector<int64_t> invalidated_slots;
+    std::vector<InitialWrite> initial_writes;
+};
+
 std::vector<int64_t> TensorToInt64Vector(const torch::Tensor& tensor)
 {
     auto cpu = tensor.cpu().contiguous();
@@ -313,6 +383,23 @@ std::vector<float> TensorToFloatVector(const torch::Tensor& tensor)
     auto cpu = tensor.detach().cpu().to(torch::kFloat32).reshape({ -1 }).contiguous();
     auto ptr = cpu.data_ptr<float>();
     return std::vector<float>(ptr, ptr + cpu.numel());
+}
+
+rl::ReplayInitialPriorityHintRow MakeHintRow(std::initializer_list<float> values)
+{
+    rl::ReplayInitialPriorityHintRow row;
+    row.reserve(values.size());
+    for (float value : values) row.push_back(value);
+    return row;
+}
+
+void MarkLogicalZeroSampleable(rl::ValidIndexManager* manager)
+{
+    manager->MarkWritten(0, 0);
+    manager->AdvanceWriteCursor(0);
+    manager->MarkWritten(0, 1);
+    manager->AdvanceWriteCursor(0);
+    manager->MarkValid(0);
 }
 
 bool WaitForFlag(const std::atomic<bool>& flag, std::chrono::milliseconds timeout)
@@ -1235,6 +1322,481 @@ TEST_CASE("ReplayBuffer PER initial mass ratio remains accurate with many slots"
         remaining_initial_mass / (remaining_initial_mass + learner_mass)).margin(1.0e-6));
 }
 
+TEST_CASE("Initial priority completer is created only for prioritized replay", "[replay_buffer][per][initial_priority_completer]")
+{
+    auto uniform_config = MakeConfig(8, 1, 0.99f, 1, rl::ReplaySamplerType::UNIFORM);
+    auto uniform_completer = rl::CreateInitialPriorityCompleter(uniform_config, 1, nullptr);
+    CHECK(uniform_completer == nullptr);
+
+    auto per_config = MakeConfig(8);
+    for (const auto mode : {
+        rl::ReplayInitialPriorityMode::FIXED,
+        rl::ReplayInitialPriorityMode::MAX,
+        rl::ReplayInitialPriorityMode::ACTOR_APPROX }) {
+        per_config.per_initial_priority_mode = mode;
+        auto per_completer = rl::CreateInitialPriorityCompleter(per_config, 1, nullptr);
+        CHECK(per_completer != nullptr);
+    }
+}
+
+TEST_CASE("Initial priority completer waits for sampleability before fixed initialization", "[replay_buffer][per][initial_priority_completer]")
+{
+    auto config = MakeConfig(8, 1, 0.99f);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::FIXED;
+    config.per_initial_priority = 0.25f;
+    auto completer = rl::CreateInitialPriorityCompleter(config, 1, nullptr);
+    REQUIRE(completer != nullptr);
+
+    rl::ValidIndexManager index_manager(1, 8);
+    RecordingPriorityStore priority_store;
+    completer->Enqueue(0, rl::InitialPriorityCompleter::PendingEntry{
+        .logical_time_idx = 0,
+        .flat_slot_index = 3,
+        .target_return = 4.0f,
+        .terminal = false,
+        .truncated = false,
+        .actual_n_steps = 1,
+        .start_hint = std::nullopt,
+    });
+
+    // 最初の書き込みだけでは未来観測が無いため、priorityを適用しない。
+    index_manager.MarkWritten(0, 0);
+    index_manager.AdvanceWriteCursor(0);
+    completer->CompleteReady(0, std::nullopt, 0, index_manager, priority_store);
+    CHECK(priority_store.initial_writes.empty());
+
+    // 次step到着とtarget return確定後にsampleableとなり、FIFO先頭を1回だけ完成させる。
+    index_manager.MarkWritten(0, 1);
+    index_manager.AdvanceWriteCursor(0);
+    index_manager.MarkValid(0);
+    completer->CompleteReady(0, std::nullopt, 1, index_manager, priority_store);
+    REQUIRE(priority_store.initial_writes.size() == 1);
+    CHECK(priority_store.initial_writes[0].flat_slot_index == 3);
+    CHECK(priority_store.initial_writes[0].raw_priority == Catch::Approx(0.25f));
+    CHECK(priority_store.initial_writes[0].source == rl::ReplayPrioritySource::FIXED_INITIAL);
+
+    completer->CompleteReady(0, std::nullopt, 1, index_manager, priority_store);
+    CHECK(priority_store.initial_writes.size() == 1);
+    CHECK(completer->GetStats().attempt_count == 0);
+}
+
+TEST_CASE("Initial priority completer applies max initialization with max source", "[replay_buffer][per][initial_priority_completer]")
+{
+    auto config = MakeConfig(8);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::MAX;
+    auto completer = rl::CreateInitialPriorityCompleter(config, 1, nullptr);
+    REQUIRE(completer != nullptr);
+
+    rl::ValidIndexManager index_manager(1, 8);
+    MarkLogicalZeroSampleable(&index_manager);
+    RecordingPriorityStore priority_store;
+    completer->Enqueue(0, rl::InitialPriorityCompleter::PendingEntry{
+        .logical_time_idx = 0,
+        .flat_slot_index = 6,
+        .target_return = 0.0f,
+        .terminal = false,
+        .truncated = false,
+        .actual_n_steps = 1,
+        .start_hint = std::nullopt,
+    });
+
+    completer->CompleteReady(0, std::nullopt, 1, index_manager, priority_store);
+
+    REQUIRE(priority_store.initial_writes.size() == 1);
+    CHECK(priority_store.initial_writes[0].flat_slot_index == 6);
+    CHECK_FALSE(priority_store.initial_writes[0].raw_priority.has_value());
+    CHECK(priority_store.initial_writes[0].source == rl::ReplayPrioritySource::MAX_INITIAL);
+    CHECK(completer->GetStats().attempt_count == 0);
+}
+
+TEST_CASE("Initial priority completer estimates a non-terminal actor priority at the matching bootstrap step", "[replay_buffer][per][initial_priority_completer][actor_initial]")
+{
+    auto config = MakeConfig(8, 1, 0.5f);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
+    auto completer = rl::CreateInitialPriorityCompleter(
+        config, 1, std::make_unique<AbsoluteActorPriorityEstimator>());
+    REQUIRE(completer != nullptr);
+
+    rl::ValidIndexManager index_manager(1, 8);
+    index_manager.MarkWritten(0, 0);
+    index_manager.AdvanceWriteCursor(0);
+    index_manager.MarkWritten(0, 1);
+    index_manager.AdvanceWriteCursor(0);
+    index_manager.MarkValid(0);
+
+    RecordingPriorityStore priority_store;
+    completer->Enqueue(0, rl::InitialPriorityCompleter::PendingEntry{
+        .logical_time_idx = 0,
+        .flat_slot_index = 2,
+        .target_return = 1.0f,
+        .terminal = false,
+        .truncated = false,
+        .actual_n_steps = 1,
+        .start_hint = MakeHintRow({ 4.0f, 5.0f, 123.0f }),
+    });
+    const auto bootstrap_hint = MakeHintRow({ 9.0f, 2.0f, 456.0f });
+    completer->CompleteReady(0, bootstrap_hint, 1, index_manager, priority_store);
+
+    REQUIRE(priority_store.initial_writes.size() == 1);
+    CHECK(priority_store.initial_writes[0].flat_slot_index == 2);
+    CHECK(priority_store.initial_writes[0].raw_priority == Catch::Approx(2.0f));
+    CHECK(priority_store.initial_writes[0].source == rl::ReplayPrioritySource::ACTOR_INITIAL);
+    const auto stats = completer->GetStats();
+    CHECK(stats.attempt_count == 1);
+    CHECK(stats.success_count == 1);
+    CHECK(stats.truncation_fallback_count == 0);
+    CHECK(stats.nonfinite_fallback_count == 0);
+}
+
+TEST_CASE("Initial priority completer completes a true terminal without a bootstrap hint", "[replay_buffer][per][initial_priority_completer][terminal]")
+{
+    auto config = MakeConfig(8, 1, 0.5f);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
+    auto completer = rl::CreateInitialPriorityCompleter(
+        config, 1, std::make_unique<AbsoluteActorPriorityEstimator>());
+    REQUIRE(completer != nullptr);
+
+    rl::ValidIndexManager index_manager(1, 8);
+    index_manager.MarkWritten(0, 0);
+    index_manager.AdvanceWriteCursor(0);
+    index_manager.MarkWritten(0, 1);
+    index_manager.AdvanceWriteCursor(0);
+    index_manager.MarkValid(0);
+
+    RecordingPriorityStore priority_store;
+    completer->Enqueue(0, rl::InitialPriorityCompleter::PendingEntry{
+        .logical_time_idx = 0,
+        .flat_slot_index = 4,
+        .target_return = 2.0f,
+        .terminal = true,
+        .truncated = false,
+        .actual_n_steps = 1,
+        .start_hint = MakeHintRow({ 4.0f, 5.0f, 123.0f }),
+    });
+    const auto unrelated_next_hint = MakeHintRow({
+        std::numeric_limits<float>::quiet_NaN(), 7.0f, 456.0f });
+    completer->CompleteReady(0, unrelated_next_hint, 99, index_manager, priority_store);
+
+    REQUIRE(priority_store.initial_writes.size() == 1);
+    CHECK(priority_store.initial_writes[0].raw_priority == Catch::Approx(2.0f));
+    CHECK(priority_store.initial_writes[0].source == rl::ReplayPrioritySource::ACTOR_INITIAL);
+    CHECK(completer->GetStats().success_count == 1);
+}
+
+TEST_CASE("Initial priority completer falls back to max for a finite truncated transition", "[replay_buffer][per][initial_priority_completer][truncated]")
+{
+    auto config = MakeConfig(8);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
+    auto completer = rl::CreateInitialPriorityCompleter(
+        config, 1, std::make_unique<AbsoluteActorPriorityEstimator>());
+    REQUIRE(completer != nullptr);
+
+    rl::ValidIndexManager index_manager(1, 8);
+    index_manager.MarkWritten(0, 0);
+    index_manager.AdvanceWriteCursor(0);
+    index_manager.MarkWritten(0, 1);
+    index_manager.AdvanceWriteCursor(0);
+    index_manager.MarkValid(0);
+
+    RecordingPriorityStore priority_store;
+    completer->Enqueue(0, rl::InitialPriorityCompleter::PendingEntry{
+        .logical_time_idx = 0,
+        .flat_slot_index = 5,
+        .target_return = 2.0f,
+        .terminal = false,
+        .truncated = true,
+        .actual_n_steps = 1,
+        .start_hint = MakeHintRow({ 4.0f, 5.0f, 123.0f }),
+    });
+    completer->CompleteReady(0, std::nullopt, 1, index_manager, priority_store);
+
+    REQUIRE(priority_store.initial_writes.size() == 1);
+    CHECK_FALSE(priority_store.initial_writes[0].raw_priority.has_value());
+    CHECK(priority_store.initial_writes[0].source == rl::ReplayPrioritySource::MAX_INITIAL);
+    const auto stats = completer->GetStats();
+    CHECK(stats.attempt_count == 1);
+    CHECK(stats.success_count == 0);
+    CHECK(stats.truncation_fallback_count == 1);
+    CHECK(stats.nonfinite_fallback_count == 0);
+}
+
+TEST_CASE("Initial priority completer handles a non-finite start hint by build type", "[replay_buffer][per][initial_priority_completer][nonfinite]")
+{
+    auto config = MakeConfig(8);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
+    auto completer = rl::CreateInitialPriorityCompleter(
+        config, 1, std::make_unique<AbsoluteActorPriorityEstimator>());
+    REQUIRE(completer != nullptr);
+
+    rl::ValidIndexManager index_manager(1, 8);
+    index_manager.MarkWritten(0, 0);
+    index_manager.AdvanceWriteCursor(0);
+    index_manager.MarkWritten(0, 1);
+    index_manager.AdvanceWriteCursor(0);
+    index_manager.MarkValid(0);
+
+    RecordingPriorityStore priority_store;
+    completer->Enqueue(0, rl::InitialPriorityCompleter::PendingEntry{
+        .logical_time_idx = 0,
+        .flat_slot_index = 6,
+        .target_return = 2.0f,
+        .terminal = true,
+        .truncated = false,
+        .actual_n_steps = 1,
+        .start_hint = MakeHintRow({
+            std::numeric_limits<float>::quiet_NaN(), 5.0f, 123.0f }),
+    });
+
+#ifdef NDEBUG
+    REQUIRE_NOTHROW(completer->CompleteReady(0, std::nullopt, 1, index_manager, priority_store));
+    REQUIRE(priority_store.initial_writes.size() == 1);
+    CHECK(priority_store.initial_writes[0].source == rl::ReplayPrioritySource::MAX_INITIAL);
+    CHECK(completer->GetStats().nonfinite_fallback_count == 1);
+#else
+    REQUIRE_THROWS(completer->CompleteReady(0, std::nullopt, 1, index_manager, priority_store));
+    CHECK(priority_store.initial_writes.empty());
+#endif
+}
+
+TEST_CASE("Initial priority completer handles a non-finite bootstrap hint by build type", "[replay_buffer][per][initial_priority_completer][nonfinite]")
+{
+    auto config = MakeConfig(8);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
+    auto completer = rl::CreateInitialPriorityCompleter(
+        config, 1, std::make_unique<AbsoluteActorPriorityEstimator>());
+    REQUIRE(completer != nullptr);
+
+    rl::ValidIndexManager index_manager(1, 8);
+    index_manager.MarkWritten(0, 0);
+    index_manager.AdvanceWriteCursor(0);
+    index_manager.MarkWritten(0, 1);
+    index_manager.AdvanceWriteCursor(0);
+    index_manager.MarkValid(0);
+
+    RecordingPriorityStore priority_store;
+    completer->Enqueue(0, rl::InitialPriorityCompleter::PendingEntry{
+        .logical_time_idx = 0,
+        .flat_slot_index = 7,
+        .target_return = 2.0f,
+        .terminal = false,
+        .truncated = false,
+        .actual_n_steps = 1,
+        .start_hint = MakeHintRow({ 4.0f, 5.0f, 123.0f }),
+    });
+    const auto bootstrap_hint = MakeHintRow({
+        9.0f, std::numeric_limits<float>::infinity(), 456.0f });
+
+#ifdef NDEBUG
+    REQUIRE_NOTHROW(completer->CompleteReady(0, bootstrap_hint, 1, index_manager, priority_store));
+    REQUIRE(priority_store.initial_writes.size() == 1);
+    CHECK(priority_store.initial_writes[0].source == rl::ReplayPrioritySource::MAX_INITIAL);
+    CHECK(completer->GetStats().nonfinite_fallback_count == 1);
+#else
+    REQUIRE_THROWS(completer->CompleteReady(0, bootstrap_hint, 1, index_manager, priority_store));
+    CHECK(priority_store.initial_writes.empty());
+#endif
+}
+
+TEST_CASE("Initial priority completer handles invalid estimator results by build type", "[replay_buffer][per][initial_priority_completer][nonfinite]")
+{
+    auto config = MakeConfig(8);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
+    const std::vector<std::optional<float>> invalid_results{
+        std::nullopt,
+        std::numeric_limits<float>::quiet_NaN(),
+    };
+    for (const auto result : invalid_results) {
+        auto completer = rl::CreateInitialPriorityCompleter(
+            config, 1, std::make_unique<ConstantInitialPriorityEstimator>(result));
+        REQUIRE(completer != nullptr);
+
+        rl::ValidIndexManager index_manager(1, 8);
+        MarkLogicalZeroSampleable(&index_manager);
+        RecordingPriorityStore priority_store;
+        completer->Enqueue(0, rl::InitialPriorityCompleter::PendingEntry{
+            .logical_time_idx = 0,
+            .flat_slot_index = 0,
+            .target_return = 1.0f,
+            .terminal = true,
+            .truncated = false,
+            .actual_n_steps = 1,
+            .start_hint = MakeHintRow({ 1.0f }),
+        });
+
+#ifdef NDEBUG
+        REQUIRE_NOTHROW(completer->CompleteReady(0, std::nullopt, 1, index_manager, priority_store));
+        REQUIRE(priority_store.initial_writes.size() == 1);
+        CHECK(priority_store.initial_writes[0].source == rl::ReplayPrioritySource::MAX_INITIAL);
+        CHECK(completer->GetStats().nonfinite_fallback_count == 1);
+#else
+        REQUIRE_THROWS(completer->CompleteReady(0, std::nullopt, 1, index_manager, priority_store));
+        CHECK(priority_store.initial_writes.empty());
+#endif
+    }
+}
+
+TEST_CASE("Initial priority completer rejects a negative estimator result", "[replay_buffer][per][initial_priority_completer][contract]")
+{
+    auto config = MakeConfig(8);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
+    auto completer = rl::CreateInitialPriorityCompleter(
+        config, 1, std::make_unique<ConstantInitialPriorityEstimator>(-0.1f));
+    REQUIRE(completer != nullptr);
+
+    rl::ValidIndexManager index_manager(1, 8);
+    MarkLogicalZeroSampleable(&index_manager);
+    RecordingPriorityStore priority_store;
+    completer->Enqueue(0, rl::InitialPriorityCompleter::PendingEntry{
+        .logical_time_idx = 0,
+        .flat_slot_index = 0,
+        .target_return = 1.0f,
+        .terminal = true,
+        .truncated = false,
+        .actual_n_steps = 1,
+        .start_hint = MakeHintRow({ 1.0f }),
+    });
+
+    REQUIRE_THROWS(completer->CompleteReady(0, std::nullopt, 1, index_manager, priority_store));
+    CHECK(priority_store.initial_writes.empty());
+}
+
+TEST_CASE("Initial priority completer preserves zero as an actor initial priority", "[replay_buffer][per][initial_priority_completer][contract]")
+{
+    auto config = MakeConfig(8);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
+    auto completer = rl::CreateInitialPriorityCompleter(
+        config, 1, std::make_unique<ConstantInitialPriorityEstimator>(0.0f));
+    REQUIRE(completer != nullptr);
+
+    rl::ValidIndexManager index_manager(1, 8);
+    MarkLogicalZeroSampleable(&index_manager);
+    RecordingPriorityStore priority_store;
+    completer->Enqueue(0, rl::InitialPriorityCompleter::PendingEntry{
+        .logical_time_idx = 0,
+        .flat_slot_index = 0,
+        .target_return = 1.0f,
+        .terminal = true,
+        .truncated = false,
+        .actual_n_steps = 1,
+        .start_hint = MakeHintRow({ 1.0f }),
+    });
+
+    completer->CompleteReady(0, std::nullopt, 1, index_manager, priority_store);
+    REQUIRE(priority_store.initial_writes.size() == 1);
+    CHECK(priority_store.initial_writes[0].raw_priority == Catch::Approx(0.0f));
+    CHECK(priority_store.initial_writes[0].source == rl::ReplayPrioritySource::ACTOR_INITIAL);
+    CHECK(completer->GetStats().success_count == 1);
+}
+
+TEST_CASE("Initial priority completer rejects a missing start hint", "[replay_buffer][per][initial_priority_completer][contract]")
+{
+    auto config = MakeConfig(8);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
+    auto completer = rl::CreateInitialPriorityCompleter(
+        config, 1, std::make_unique<ConstantInitialPriorityEstimator>(1.0f));
+    REQUIRE(completer != nullptr);
+
+    rl::ValidIndexManager index_manager(1, 8);
+    MarkLogicalZeroSampleable(&index_manager);
+    RecordingPriorityStore priority_store;
+    completer->Enqueue(0, rl::InitialPriorityCompleter::PendingEntry{
+        .logical_time_idx = 0,
+        .flat_slot_index = 0,
+        .target_return = 1.0f,
+        .terminal = true,
+        .truncated = false,
+        .actual_n_steps = 1,
+        .start_hint = std::nullopt,
+    });
+
+    REQUIRE_THROWS(completer->CompleteReady(0, std::nullopt, 1, index_manager, priority_store));
+    CHECK(priority_store.initial_writes.empty());
+}
+
+TEST_CASE("Initial priority completer rejects a bootstrap logical time mismatch", "[replay_buffer][per][initial_priority_completer][contract]")
+{
+    auto config = MakeConfig(8);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
+    auto completer = rl::CreateInitialPriorityCompleter(
+        config, 1, std::make_unique<ConstantInitialPriorityEstimator>(1.0f));
+    REQUIRE(completer != nullptr);
+
+    rl::ValidIndexManager index_manager(1, 8);
+    MarkLogicalZeroSampleable(&index_manager);
+    RecordingPriorityStore priority_store;
+    completer->Enqueue(0, rl::InitialPriorityCompleter::PendingEntry{
+        .logical_time_idx = 0,
+        .flat_slot_index = 0,
+        .target_return = 1.0f,
+        .terminal = false,
+        .truncated = false,
+        .actual_n_steps = 1,
+        .start_hint = MakeHintRow({ 1.0f }),
+    });
+    const auto bootstrap_hint = MakeHintRow({ 2.0f });
+
+    REQUIRE_THROWS(completer->CompleteReady(0, bootstrap_hint, 2, index_manager, priority_store));
+    CHECK(priority_store.initial_writes.empty());
+}
+
+TEST_CASE("ValidIndexManager sampleability consumers agree before and after wrap", "[replay_buffer][sampleability][valid_index]")
+{
+    rl::ValidIndexManager manager(1, 4);
+
+    // n-step=1でlogical 0がsampleableになるまで、2step書き込みと1件の確定を進める。
+    manager.MarkWritten(0, 0);
+    manager.AdvanceWriteCursor(0);
+    manager.MarkWritten(0, 1);
+    manager.AdvanceWriteCursor(0);
+    manager.MarkValid(0);
+
+    CHECK(TensorToInt64Vector(manager.GetValidIndices1D(1, 0, 1)) == std::vector<int64_t>{ 0 });
+    CHECK(manager.GetSampleableCount(1, 0, 1) == 1);
+    CHECK(manager.IsLogicalSampleable(0, 0, 0, 1));
+    CHECK_FALSE(manager.IsLogicalSampleable(0, 1, 0, 1));
+    CHECK_FALSE(manager.IsOverwritingSampleable(0, 2, 1, 0, 1));
+
+    // capacity到達時は、列挙中の最古slotだけが上書き対象として判定される。
+    manager.MarkWritten(0, 2);
+    manager.AdvanceWriteCursor(0);
+    manager.MarkValid(0);
+    manager.MarkWritten(0, 3);
+    manager.AdvanceWriteCursor(0);
+    manager.MarkValid(0);
+    CHECK(TensorToInt64Vector(manager.GetValidIndices1D(1, 0, 1)) == std::vector<int64_t>{ 0, 1, 2 });
+    CHECK(manager.IsOverwritingSampleable(0, 0, 1, 0, 1));
+    CHECK_FALSE(manager.IsOverwritingSampleable(0, 1, 1, 0, 1));
+
+    // wrap後もlogical範囲と物理index列挙を一致させる。
+    manager.MarkWritten(0, 0);
+    manager.AdvanceWriteCursor(0);
+    manager.MarkValid(0);
+    CHECK(TensorToInt64Vector(manager.GetValidIndices1D(1, 0, 1)) == std::vector<int64_t>{ 1, 2, 3 });
+    CHECK(manager.GetSampleableCount(1, 0, 1) == 3);
+    CHECK_FALSE(manager.IsLogicalSampleable(0, 0, 0, 1));
+    CHECK(manager.IsLogicalSampleable(0, 1, 0, 1));
+    CHECK(manager.IsLogicalSampleable(0, 3, 0, 1));
+    CHECK_FALSE(manager.IsLogicalSampleable(0, 4, 0, 1));
+    CHECK(manager.IsOverwritingSampleable(0, 1, 1, 0, 1));
+}
+
+TEST_CASE("ValidIndexManager keeps dummy filtering outside the shared logical range", "[replay_buffer][sampleability][valid_index]")
+{
+    rl::ValidIndexManager manager(1, 8);
+    for (int64_t logical_idx = 0; logical_idx < 6; ++logical_idx) {
+        manager.MarkWritten(0, logical_idx);
+        manager.AdvanceWriteCursor(0);
+    }
+    for (int i = 0; i < 5; ++i) manager.MarkValid(0);
+    manager.MarkDummy(0, 2);
+
+    // n-step=2、unroll=1ではlogical 0..3が範囲内だが、列挙だけはdummy slotを除外する。
+    CHECK(TensorToInt64Vector(manager.GetValidIndices1D(1, 1, 2)) == std::vector<int64_t>{ 0, 1, 3 });
+    CHECK(manager.GetSampleableCount(1, 1, 2) == 3);
+    CHECK(manager.IsLogicalSampleable(0, 2, 1, 2));
+    CHECK_FALSE(manager.IsLogicalSampleable(0, 4, 1, 2));
+}
+
 TEST_CASE("ReplayInitialPriorityHint validates and caches a packed payload", "[replay_buffer][per][actor_initial][hint]")
 {
     auto source = torch::arange(6, torch::TensorOptions().dtype(torch::kFloat32))
@@ -1299,6 +1861,11 @@ TEST_CASE("ReplayBuffer transports an opaque three-column hint until initial pri
     REQUIRE(samples.per_priority_sources.scalar_type() == torch::kInt8);
     REQUIRE(samples.per_priority_sources[0].item<int8_t>()
         == static_cast<int8_t>(rl::ReplayPrioritySource::ACTOR_INITIAL));
+    CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_ACTOR_COMPLETION_ATTEMPT_COUNT).value() == 1.0f);
+    CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_ACTOR_COMPLETION_SUCCESS_COUNT).value() == 1.0f);
+    CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_ACTOR_COMPLETION_SUCCESS_RATIO).value() == 1.0f);
+    CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_ACTOR_TRUNCATION_FALLBACK_RATIO).value() == 0.0f);
+    CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_ACTOR_NONFINITE_FALLBACK_RATIO).value() == 0.0f);
 }
 
 TEST_CASE("ReplayBuffer completes a true terminal from the start hint only", "[replay_buffer][per][actor_initial][terminal]")
@@ -1355,6 +1922,7 @@ TEST_CASE("ReplayBuffer uses max initial priority for a finite truncated hint", 
     CHECK(samples.per_priority_sources[0].item<int8_t>()
         == static_cast<int8_t>(rl::ReplayPrioritySource::MAX_INITIAL));
     CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_ACTOR_TRUNCATION_FALLBACK_COUNT).value() == 1.0f);
+    CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_ACTOR_TRUNCATION_FALLBACK_RATIO).value() == 1.0f);
     CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_ACTOR_NONFINITE_FALLBACK_COUNT).value() == 0.0f);
 }
 

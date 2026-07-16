@@ -9,6 +9,7 @@
 #include <memory>
 #include <deque>
 #include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <type_traits>
 #include <c10/util/SmallVector.h>
@@ -113,25 +114,35 @@ namespace anet::rl {
         /// 指定logical indexが上書き境界、未来観測、unroll終端の全条件を満たすか判定する。
         bool IsLogicalSampleable(int64_t env_idx, int64_t logical_idx, int unroll_steps, int n_step) const;
     private:
+        struct LogicalSampleableRange {
+            int64_t start = 0; ///< 未上書きで保持されている最古のlogical index
+            int64_t end = -1;  ///< 未来観測とunroll終端が確定済みの最新logical index
+
+            bool Contains(int64_t logical_idx) const
+            {
+                return logical_idx >= start && logical_idx <= end;
+            }
+        };
+
+        /**
+         * @brief write、valid、unrollの制約を満たすlogical indexの閉区間を返す。
+         *
+         * dummyは論理的な時系列幅へ含まれるため、このrangeでは除外しない。
+         * 列挙と上書き判定の各処理が物理slotのdummy状態を別途判断する。
+         */
+        std::optional<LogicalSampleableRange> GetLogicalSampleableRange(
+            int64_t env_idx, int unroll_steps, int n_step) const;
+
         template <class Fn>
         void ForEachSampleableIndex(int64_t env, int stack_count, int unroll_steps, int n_step, Fn&& fn) const
         {
             (void)stack_count;
 
-            int64_t w_cursor = write_cursors_[env];
-            int64_t v_cursor = valid_cursors_[env];
-            int64_t future_obs_lag = std::max<int64_t>(1, n_step);
+            const auto range = GetLogicalSampleableRange(env, unroll_steps, n_step);
+            if (!range.has_value()) return;
 
-            // リング上で未上書き、かつ必要な未来観測とunroll範囲が確定済みの論理区間を求める。
-            int64_t logical_start = std::max<int64_t>(0, w_cursor - capacity_per_env_);
-            int64_t max_safe_by_write = std::max<int64_t>(-1, w_cursor - future_obs_lag - 1);
-            int64_t max_safe_by_valid = v_cursor - 1 - unroll_steps;
-            int64_t logical_end = std::min(max_safe_by_write, max_safe_by_valid);
-
-            if (logical_end < logical_start) return;
-
-            int64_t start_phys = logical_start % capacity_per_env_;
-            int64_t end_phys = logical_end % capacity_per_env_;
+            int64_t start_phys = range->start % capacity_per_env_;
+            int64_t end_phys = range->end % capacity_per_env_;
 
             auto visit_range = [&](int64_t p_start, int64_t p_end) {
                 for (int64_t p = p_start; p <= p_end; ++p) {
@@ -247,6 +258,76 @@ namespace anet::rl {
         virtual ~ReplayPriorityStore() = default;
     };
 
+    /**
+     * @brief サンプリング可能化境界でPER初期優先度を完成させる内部Module。
+     *
+     * ExperienceQueueがn-step/系列を確定した後のpriority未完成entryをenv別FIFOで保持し、
+     * ValidIndexManagerがsampleableと判定した順に初期優先度を適用する。
+     * mode、Estimator呼び出し、fallback、初期source、completion counterを所有する一方、
+     * mutex、ValidIndexManager、ReplayPriorityStore内のpriority/source実体は所有しない。
+     *
+     * @note EnqueueとCompleteReadyは、呼び出し側がmetadata_mutex_を保持した状態で実行する。
+     * @note 現在は開始itemごとにscalar priorityを1つ完成させる。MuZero等で系列内の
+     *       複数stepを集約する場合は、Estimator入力とPendingEntryの表現を拡張する。
+     */
+    class InitialPriorityCompleter {
+    public:
+        struct Config {
+            ReplayInitialPriorityMode mode = ReplayInitialPriorityMode::FIXED; ///< 初期優先度の決定方式
+            float fixed_raw_priority = 1.0f; ///< FIXEDで適用するper_alpha変換前の優先度
+            float gamma = 0.99f;             ///< 実n-step数へ累乗する割引率
+            int n_step = 1;                  ///< sampleable判定に使う未来観測幅
+            int unroll_steps = 0;            ///< sampleable判定に使う未来系列幅
+        };
+
+        struct PendingEntry {
+            int64_t logical_time_idx = 0; ///< 開始stepのenv内単調増加index
+            int64_t flat_slot_index = 0;  ///< 初期優先度を適用する物理slot
+            float target_return = 0.0f;   ///< ExperienceQueue通過後の確定済みtarget return
+            bool terminal = false;        ///< bootstrapを行わない真の終端か
+            bool truncated = false;       ///< 終端観測を推論せずmaxへfallbackする打切りか
+            int actual_n_steps = 1;       ///< 終端短縮を反映した実n-step数
+            std::optional<ReplayInitialPriorityHintRow> start_hint; ///< 開始stepのopaqueなhint行
+        };
+
+        struct Stats {
+            int64_t attempt_count = 0;             ///< Actor近似completionを試みた累積件数
+            int64_t success_count = 0;             ///< Actor近似priorityを適用できた累積件数
+            int64_t truncation_fallback_count = 0; ///< truncatedを理由にmaxへfallbackした累積件数
+            int64_t nonfinite_fallback_count = 0;  ///< nonfiniteを理由にmaxへfallbackした累積件数
+        };
+
+        InitialPriorityCompleter(
+            Config config, int64_t num_envs,
+            std::unique_ptr<InitialPriorityEstimator> estimator);
+
+        /// target return確定済みのreal transitionを、env別の完成待ちFIFOへ追加する。
+        void Enqueue(int64_t env_idx, PendingEntry entry);
+
+        /// sampleableになったFIFO先頭から、初期優先度とsourceを同じ同期区間で適用する。
+        void CompleteReady(
+            int64_t env_idx,
+            const std::optional<ReplayInitialPriorityHintRow>& current_hint,
+            int64_t current_logical_idx,
+            const ValidIndexManager& index_manager,
+            ReplayPriorityStore& priority_store);
+
+        /// public metricsへ変換するための累積counter snapshotを返す。
+        Stats GetStats() const { return stats_; }
+
+    private:
+        Config config_;
+        std::unique_ptr<InitialPriorityEstimator> estimator_;
+        std::vector<std::deque<PendingEntry>> pending_;
+        Stats stats_;
+    };
+
+    /// productionとテストで共用し、PER時だけcompletion Moduleを構築する。
+    std::unique_ptr<InitialPriorityCompleter> CreateInitialPriorityCompleter(
+        const ReplayBufferConfig& config,
+        int64_t num_envs,
+        std::unique_ptr<InitialPriorityEstimator> estimator);
+
 
     // ======================================================
     // SumTree (汎用部品)
@@ -320,7 +401,7 @@ namespace anet::rl {
             std::shared_ptr<ReplayExperienceSampler> sampler,
             std::shared_ptr<ReplayPriorityStore> priority_store,
             std::shared_ptr<ExperienceSampleExtractor> extractor,
-            std::unique_ptr<InitialPriorityEstimator> initial_priority_estimator,
+            std::unique_ptr<InitialPriorityCompleter> initial_priority_completer,
             torch::Device device,
             bool pin_memory);
 
@@ -337,10 +418,10 @@ namespace anet::rl {
 		/// デバッグ用: Storageの内容とValid Indexをログに出力する
         void DumpToLog() const;
     private:
-        void ProcessQueue(int64_t env_idx); // 内部パイプラインの駆動
-        void CompleteInitialPriorities(
-            int64_t env_idx, const std::optional<ReplayInitialPriorityHintRow>& current_hint,
-            int64_t current_logical_idx);
+        void ProcessQueue(
+            int64_t env_idx,
+            const std::optional<ReplayInitialPriorityHintRow>& current_hint,
+            int64_t current_logical_idx); // 内部パイプラインの駆動
         int64_t OnSlotWritten(int64_t flat_slot_index);
         int64_t EncodeReplayItemKey(int64_t flat_slot_index) const;
         void InvalidateAccessorCacheForStorage();
@@ -375,25 +456,11 @@ namespace anet::rl {
         std::shared_ptr<ReplayExperienceSampler> sampler_;
         std::shared_ptr<ReplayPriorityStore> priority_store_;
         std::shared_ptr<ExperienceSampleExtractor> extractor_;
-        std::unique_ptr<InitialPriorityEstimator> initial_priority_estimator_;
+        std::unique_ptr<InitialPriorityCompleter> initial_priority_completer_;
 
         std::vector<ExperienceQueue> queues_;
-        struct PendingInitialPriority {
-            int64_t logical_time_idx = 0;
-            int64_t flat_slot_index = 0;
-            float target_return = 0.0f;
-            bool terminal = false;
-            bool truncated = false;
-            int actual_n_steps = 1;
-            std::optional<ReplayInitialPriorityHintRow> start_hint;
-        };
-        std::vector<std::deque<PendingInitialPriority>> pending_initial_priorities_;
         std::vector<int64_t> generations_;
         int64_t actual_capacity_ = 0;
-        int64_t actor_completion_attempt_count_ = 0;
-        int64_t actor_completion_success_count_ = 0;
-        int64_t actor_truncation_fallback_count_ = 0;
-        int64_t actor_nonfinite_fallback_count_ = 0;
         int64_t priority_update_stale_drop_count_ = 0;
 
         mutable std::shared_mutex storage_mutex_;

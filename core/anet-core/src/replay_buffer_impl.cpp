@@ -211,6 +211,22 @@ void ValidIndexManager::AdvanceWriteCursor(int64_t env_idx)
     write_cursors_[env_idx]++;
 }
 
+std::optional<ValidIndexManager::LogicalSampleableRange>
+ValidIndexManager::GetLogicalSampleableRange(int64_t env_idx, int unroll_steps, int n_step) const
+{
+    const int64_t write_cursor = write_cursors_[env_idx];
+    const int64_t valid_cursor = valid_cursors_[env_idx];
+    const int64_t future_obs_lag = std::max<int64_t>(1, n_step);
+
+    // リング上で未上書き、かつ必要な未来観測とunroll範囲が確定済みの論理区間を求める。
+    const int64_t logical_start = std::max<int64_t>(0, write_cursor - capacity_per_env_);
+    const int64_t max_safe_by_write = std::max<int64_t>(-1, write_cursor - future_obs_lag - 1);
+    const int64_t max_safe_by_valid = valid_cursor - 1 - unroll_steps;
+    const int64_t logical_end = std::min(max_safe_by_write, max_safe_by_valid);
+    if (logical_end < logical_start) return std::nullopt;
+    return LogicalSampleableRange{ .start = logical_start, .end = logical_end };
+}
+
 torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_steps, int n_step) const
 {
     ANET_PROFILE_FUNC();
@@ -261,24 +277,160 @@ bool ValidIndexManager::IsOverwritingSampleable(int64_t env_idx, int64_t time_id
     const int64_t flat_idx = env_idx * capacity_per_env_ + time_idx;
     if (is_dummy_[flat_idx]) return false;
 
-    const int64_t future_obs_lag = std::max<int64_t>(1, n_step);
     const int64_t evicted_logical = w_cursor - capacity_per_env_;
-    const int64_t max_safe_by_write = std::max<int64_t>(-1, w_cursor - future_obs_lag - 1);
-    const int64_t max_safe_by_valid = valid_cursors_[env_idx] - 1 - unroll_steps;
-    const int64_t logical_end = std::min(max_safe_by_write, max_safe_by_valid);
-
-    return evicted_logical <= logical_end;
+    const auto range = GetLogicalSampleableRange(env_idx, unroll_steps, n_step);
+    return range.has_value() && range->Contains(evicted_logical);
 }
 
 bool ValidIndexManager::IsLogicalSampleable(
     int64_t env_idx, int64_t logical_idx, int unroll_steps, int n_step) const
 {
     // 単点判定でも列挙処理と同じ上書き境界、未来観測、unroll終端を適用する。
-    const int64_t write_cursor = write_cursors_[env_idx];
-    const int64_t logical_start = std::max<int64_t>(0, write_cursor - capacity_per_env_);
-    const int64_t max_safe_by_write = write_cursor - std::max<int64_t>(1, n_step) - 1;
-    const int64_t max_safe_by_valid = valid_cursors_[env_idx] - 1 - unroll_steps;
-    return logical_idx >= logical_start && logical_idx <= std::min(max_safe_by_write, max_safe_by_valid);
+    const auto range = GetLogicalSampleableRange(env_idx, unroll_steps, n_step);
+    return range.has_value() && range->Contains(logical_idx);
+}
+
+
+// ===========================================================================
+// Initial Priority Completer
+// ===========================================================================
+
+InitialPriorityCompleter::InitialPriorityCompleter(
+    Config config, int64_t num_envs,
+    std::unique_ptr<InitialPriorityEstimator> estimator)
+    : config_(config)
+    , estimator_(std::move(estimator))
+    , pending_(static_cast<size_t>(num_envs))
+{
+}
+
+void InitialPriorityCompleter::Enqueue(int64_t env_idx, PendingEntry entry)
+{
+    pending_[static_cast<size_t>(env_idx)].push_back(std::move(entry));
+}
+
+void InitialPriorityCompleter::CompleteReady(
+    int64_t env_idx,
+    const std::optional<ReplayInitialPriorityHintRow>& current_hint,
+    int64_t current_logical_idx,
+    const ValidIndexManager& index_manager,
+    ReplayPriorityStore& priority_store)
+{
+    ANET_PROFILE_FUNC();
+
+    auto& pending = pending_[static_cast<size_t>(env_idx)];
+    // FIFO先頭から、必要な未来観測とunroll範囲が確定してsampleableになった遷移だけを処理する。
+    while (!pending.empty()
+        && index_manager.IsLogicalSampleable(
+            env_idx, pending.front().logical_time_idx, config_.unroll_steps, config_.n_step)) {
+        const auto entry = pending.front();
+        pending.pop_front();
+
+        // fixed/maxはActorヒントを参照せず、同じsampleable化境界で初期sourceを確定する。
+        if (config_.mode == ReplayInitialPriorityMode::FIXED) {
+            priority_store.SetRawInitialPriority(
+                entry.flat_slot_index, config_.fixed_raw_priority, ReplayPrioritySource::FIXED_INITIAL);
+            continue;
+        }
+        if (config_.mode == ReplayInitialPriorityMode::MAX) {
+            priority_store.SetMaxInitialPriority(entry.flat_slot_index);
+            continue;
+        }
+
+        ++stats_.attempt_count;
+
+        // 実遷移の開始stepには必ずschemaを満たすhint行が付随する契約を検証する。
+        if (!entry.start_hint.has_value()) {
+            ANET_SYSTEM_ERROR("actor_approx requires a Replay initial priority hint for every real start step."
+                << " env=" << env_idx << " logical_time_idx=" << entry.logical_time_idx);
+        }
+        if (!estimator_) {
+            ANET_SYSTEM_ERROR("actor_approx requires InitialPriorityEstimator.");
+        }
+        const auto start_hint = std::span<const float>(entry.start_hint->data(), entry.start_hint->size());
+        // Actor由来の非finite値はDebugでは原因を表面化し、Release系ではmaxへ退避して学習を継続する。
+        if (!estimator_->ValidateHint(start_hint)) {
+#ifdef NDEBUG
+            ++stats_.nonfinite_fallback_count;
+            priority_store.SetMaxInitialPriority(entry.flat_slot_index);
+            continue;
+#else
+            ANET_SYSTEM_ERROR("actor_approx received a non-finite start Replay initial priority hint.");
+#endif
+        }
+        // truncatedは終端観測を推論しないため、bootstrapせずmax初期化へフォールバックする。
+        if (entry.truncated) {
+            ++stats_.truncation_fallback_count;
+            priority_store.SetMaxInitialPriority(entry.flat_slot_index);
+            continue;
+        }
+
+        std::span<const float> bootstrap_hint;
+        if (!entry.terminal) {
+            // 非終端では実n-step先の現在hintだけをbootstrapに使い、時系列ずれを契約違反として止める。
+            const int64_t expected_logical = entry.logical_time_idx + entry.actual_n_steps;
+            if (current_logical_idx != expected_logical || !current_hint.has_value()) {
+                ANET_SYSTEM_ERROR("actor_approx bootstrap Replay initial priority hint mismatch. expected_logical="
+                    << expected_logical << " actual_logical=" << current_logical_idx);
+            }
+            bootstrap_hint = std::span<const float>(current_hint->data(), current_hint->size());
+            if (!estimator_->ValidateHint(bootstrap_hint)) {
+#ifdef NDEBUG
+                ++stats_.nonfinite_fallback_count;
+                priority_store.SetMaxInitialPriority(entry.flat_slot_index);
+                continue;
+#else
+                ANET_SYSTEM_ERROR("actor_approx received a non-finite bootstrap Replay initial priority hint.");
+#endif
+            }
+        }
+
+        // 確定済み収益とActor値をアルゴリズム固有Estimatorへ渡し、raw優先度を完成させる。
+        const auto raw_priority = estimator_->Estimate(InitialPriorityEstimateInput{
+            .start_hint = start_hint,
+            .bootstrap_hint = bootstrap_hint,
+            .target_return = entry.target_return,
+            .discount = static_cast<float>(std::pow(config_.gamma, entry.actual_n_steps)),
+            .terminal = entry.terminal,
+            .actual_n_steps = entry.actual_n_steps,
+        });
+        if (!raw_priority.has_value() || !std::isfinite(*raw_priority)) {
+#ifdef NDEBUG
+            ++stats_.nonfinite_fallback_count;
+            priority_store.SetMaxInitialPriority(entry.flat_slot_index);
+            continue;
+#else
+            ANET_SYSTEM_ERROR("actor_approx estimator returned a non-finite priority.");
+#endif
+        }
+        if (*raw_priority < 0.0f) {
+            ANET_SYSTEM_ERROR("actor_approx estimator returned a negative priority. value=" << *raw_priority);
+        }
+
+        // per_alpha適用前のraw値として保存し、sourceをactor_initialへ遷移させる。
+        priority_store.SetRawInitialPriority(
+            entry.flat_slot_index, *raw_priority, ReplayPrioritySource::ACTOR_INITIAL);
+        ++stats_.success_count;
+    }
+}
+
+std::unique_ptr<InitialPriorityCompleter> anet::rl::CreateInitialPriorityCompleter(
+    const ReplayBufferConfig& config,
+    int64_t num_envs,
+    std::unique_ptr<InitialPriorityEstimator> estimator)
+{
+    if (config.sampler_type == ReplaySamplerType::UNIFORM) return nullptr;
+
+    return std::make_unique<InitialPriorityCompleter>(
+        InitialPriorityCompleter::Config{
+            .mode = config.per_initial_priority_mode,
+            .fixed_raw_priority = config.per_initial_priority,
+            .gamma = config.gamma,
+            .n_step = config.n_step,
+            .unroll_steps = config.muzero.unroll_steps,
+        },
+        num_envs,
+        std::move(estimator));
 }
 
 
@@ -1024,7 +1176,7 @@ DefaultReplayBuffer::DefaultReplayBuffer(
     std::shared_ptr<ReplayExperienceSampler> sampler,
     std::shared_ptr<ReplayPriorityStore> priority_store,
     std::shared_ptr<ExperienceSampleExtractor> extractor,
-    std::unique_ptr<InitialPriorityEstimator> initial_priority_estimator,
+    std::unique_ptr<InitialPriorityCompleter> initial_priority_completer,
     torch::Device device, bool pin_memory)
     : config_(config)
     , num_envs_(num_envs)
@@ -1033,13 +1185,17 @@ DefaultReplayBuffer::DefaultReplayBuffer(
     , sampler_(sampler)
     , priority_store_(std::move(priority_store))
     , extractor_(extractor)
-    , initial_priority_estimator_(std::move(initial_priority_estimator))
+    , initial_priority_completer_(std::move(initial_priority_completer))
 {
     capacity_per_env_ = config_.capacity / num_envs_;
     actual_capacity_ = capacity_per_env_ * num_envs_;
     queues_.resize(num_envs_);
-    pending_initial_priorities_.resize(num_envs_);
     generations_.assign(static_cast<size_t>(actual_capacity_), 0);
+
+    // PERではpriority storeとcompletion Moduleを対で構築し、uniformではどちらも持たない。
+    if (static_cast<bool>(priority_store_) != static_cast<bool>(initial_priority_completer_)) {
+        ANET_SYSTEM_ERROR("ReplayPriorityStore and InitialPriorityCompleter must be configured together.");
+    }
 
     storage_ = std::make_unique<ReplayExperienceStorage>(num_envs_, capacity_per_env_, env_spec, config_, device, pin_memory);
     index_manager_ = std::make_unique<ValidIndexManager>(num_envs_, capacity_per_env_);
@@ -1134,8 +1290,7 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
             queues_[b].Push(dummy_rec);
         }
 
-        ProcessQueue(b);
-        CompleteInitialPriorities(b, rec.replay_initial_priority_hint, rec.logical_time_idx);
+        ProcessQueue(b, rec.replay_initial_priority_hint, rec.logical_time_idx);
     }
 
     StoreLastEvictionStats(evicted_sampleable_count, evicted_never_sampled_count);
@@ -1183,13 +1338,18 @@ void DefaultReplayBuffer::StoreLastEvictionStats(int64_t evicted_sampleable_coun
         : std::numeric_limits<float>::quiet_NaN();
 }
 
-void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
+void DefaultReplayBuffer::ProcessQueue(
+    int64_t env_idx,
+    const std::optional<ReplayInitialPriorityHintRow>& current_hint,
+    int64_t current_logical_idx)
 {
     ANET_PROFILE_FUNC();
 
     auto sequences = queue_controller_->ExtractSequences(queues_[env_idx]);
 
-    std::vector<int64_t> valid_envs;
+    int64_t valid_count = 0;
+    std::vector<InitialPriorityCompleter::PendingEntry> completion_entries;
+    if (initial_priority_completer_) completion_entries.reserve(sequences.size());
 
     for (const auto& seq : sequences) {
         // 念のため空チェック
@@ -1197,7 +1357,7 @@ void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
 
         //ダミーステップ自身が起点(state)となっているシーケンスはStorageに登録しない
         if (seq[0].is_dummy) {
-            valid_envs.push_back(env_idx);
+            ++valid_count;
             continue;
         }
 
@@ -1208,26 +1368,37 @@ void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
         int64_t time_idx = seq.front().time_idx;
         storage_->Update(env_idx, time_idx, exp);
 
-        // 完全にサンプリング可能になったので封印解除
-        valid_envs.push_back(env_idx);
-
-        pending_initial_priorities_[env_idx].push_back(PendingInitialPriority{
-            .logical_time_idx = seq.front().logical_time_idx,
-            .flat_slot_index = env_idx * capacity_per_env_ + time_idx,
-            .target_return = exp.target_return,
-            .terminal = exp.terminal,
-            .truncated = exp.truncated,
-            .actual_n_steps = exp.actual_n_steps,
-            .start_hint = seq.front().replay_initial_priority_hint,
-        });
+        ++valid_count;
+        if (initial_priority_completer_) {
+            // ExperienceQueueで系列が確定したreal transitionから、priority完成に必要な小さい情報だけを移す。
+            completion_entries.push_back(InitialPriorityCompleter::PendingEntry{
+                .logical_time_idx = seq.front().logical_time_idx,
+                .flat_slot_index = env_idx * capacity_per_env_ + time_idx,
+                .target_return = exp.target_return,
+                .terminal = exp.terminal,
+                .truncated = exp.truncated,
+                .actual_n_steps = exp.actual_n_steps,
+                .start_hint = seq.front().replay_initial_priority_hint,
+            });
+        }
     }
 
-    //  N-Step計算が完了し、安全になったデータをTreeに登録（初期優先度付与）
-    if (!valid_envs.empty()) {
-        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
-        for (int64_t valid_env : valid_envs) {
-            index_manager_->MarkValid(valid_env);
+    if (valid_count == 0 && !initial_priority_completer_) return;
+
+    // pending登録、sampleable化、priority/source適用を同じmetadata排他区間で公開する。
+    std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+    if (initial_priority_completer_) {
+        for (auto& entry : completion_entries) {
+            initial_priority_completer_->Enqueue(env_idx, std::move(entry));
         }
+    }
+    // pendingを先に登録してから封印解除し、sampleableだがpriority未完成という状態を作らない。
+    for (int64_t i = 0; i < valid_count; ++i) {
+        index_manager_->MarkValid(env_idx);
+    }
+    if (initial_priority_completer_) {
+        initial_priority_completer_->CompleteReady(
+            env_idx, current_hint, current_logical_idx, *index_manager_, *priority_store_);
     }
 }
 
@@ -1250,110 +1421,6 @@ int64_t DefaultReplayBuffer::EncodeReplayItemKey(int64_t flat_slot_index) const
             << " actual_capacity=" << actual_capacity_ << " flat_slot_index=" << flat_slot_index);
     }
     return generation * actual_capacity_ + flat_slot_index;
-}
-
-void DefaultReplayBuffer::CompleteInitialPriorities(
-    int64_t env_idx, const std::optional<ReplayInitialPriorityHintRow>& current_hint,
-    int64_t current_logical_idx)
-{
-    if (!priority_store_) return;
-    ANET_PROFILE_FUNC();
-
-    // pending FIFOとpriority source/counterを同じmetadata排他区間で完成させる。
-    std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
-
-    auto& pending = pending_initial_priorities_[env_idx];
-    // FIFO先頭から、必要な未来観測とunroll範囲が確定してsampleableになった遷移だけを処理する。
-    while (!pending.empty()
-        && index_manager_->IsLogicalSampleable(
-            env_idx, pending.front().logical_time_idx, config_.muzero.unroll_steps, config_.n_step)) {
-        const auto entry = pending.front();
-        pending.pop_front();
-
-        // fixed/maxはActorヒントを参照せず、sampleable化境界だけをactor_approxと共通化する。
-        if (config_.per_initial_priority_mode == ReplayInitialPriorityMode::FIXED) {
-            priority_store_->SetRawInitialPriority(
-                entry.flat_slot_index, config_.per_initial_priority, ReplayPrioritySource::FIXED_INITIAL);
-            continue;
-        }
-        if (config_.per_initial_priority_mode == ReplayInitialPriorityMode::MAX) {
-            priority_store_->SetMaxInitialPriority(entry.flat_slot_index);
-            continue;
-        }
-
-        ++actor_completion_attempt_count_;
-
-        // 実遷移の開始stepには必ずschemaを満たすhint行が付随する契約を検証する。
-        if (!entry.start_hint.has_value()) {
-            ANET_SYSTEM_ERROR("actor_approx requires a Replay initial priority hint for every real start step."
-                << " env=" << env_idx << " logical_time_idx=" << entry.logical_time_idx);
-        }
-        if (!initial_priority_estimator_) {
-            ANET_SYSTEM_ERROR("actor_approx requires InitialPriorityEstimator.");
-        }
-        const auto start_hint = std::span<const float>(entry.start_hint->data(), entry.start_hint->size());
-        // Actor由来の非finite値はDebugでは原因を表面化し、Release系ではmaxへ退避して学習を継続する。
-        if (!initial_priority_estimator_->ValidateHint(start_hint)) {
-#ifdef NDEBUG
-            ++actor_nonfinite_fallback_count_;
-            priority_store_->SetMaxInitialPriority(entry.flat_slot_index);
-            continue;
-#else
-            ANET_SYSTEM_ERROR("actor_approx received a non-finite start Replay initial priority hint.");
-#endif
-        }
-        // truncatedは終端観測を推論しないため、bootstrapせずmax初期化へフォールバックする。
-        if (entry.truncated) {
-            ++actor_truncation_fallback_count_;
-            priority_store_->SetMaxInitialPriority(entry.flat_slot_index);
-            continue;
-        }
-
-        std::span<const float> bootstrap_hint;
-        if (!entry.terminal) {
-            // 非終端では実n-step先の現在hintだけをbootstrapに使い、時系列ずれを契約違反として止める。
-            const int64_t expected_logical = entry.logical_time_idx + entry.actual_n_steps;
-            if (current_logical_idx != expected_logical || !current_hint.has_value()) {
-                ANET_SYSTEM_ERROR("actor_approx bootstrap Replay initial priority hint mismatch. expected_logical="
-                    << expected_logical << " actual_logical=" << current_logical_idx);
-            }
-            bootstrap_hint = std::span<const float>(current_hint->data(), current_hint->size());
-            if (!initial_priority_estimator_->ValidateHint(bootstrap_hint)) {
-#ifdef NDEBUG
-                ++actor_nonfinite_fallback_count_;
-                priority_store_->SetMaxInitialPriority(entry.flat_slot_index);
-                continue;
-#else
-                ANET_SYSTEM_ERROR("actor_approx received a non-finite bootstrap Replay initial priority hint.");
-#endif
-            }
-        }
-        // 確定済み収益とActor値をアルゴリズム固有の推定器へ渡し、raw優先度を完成させる。
-        const auto raw_priority = initial_priority_estimator_->Estimate(InitialPriorityEstimateInput{
-            .start_hint = start_hint,
-            .bootstrap_hint = bootstrap_hint,
-            .target_return = entry.target_return,
-            .discount = static_cast<float>(std::pow(config_.gamma, entry.actual_n_steps)),
-            .terminal = entry.terminal,
-            .actual_n_steps = entry.actual_n_steps,
-        });
-        if (!raw_priority.has_value() || !std::isfinite(*raw_priority)) {
-#ifdef NDEBUG
-            ++actor_nonfinite_fallback_count_;
-            priority_store_->SetMaxInitialPriority(entry.flat_slot_index);
-            continue;
-#else
-            ANET_SYSTEM_ERROR("actor_approx estimator returned a non-finite priority.");
-#endif
-        }
-        if (*raw_priority < 0.0f) {
-            ANET_SYSTEM_ERROR("actor_approx estimator returned a negative priority. value=" << *raw_priority);
-        }
-        // per_alpha適用前のraw値として保存し、sourceをactor_initialへ遷移させる。
-        priority_store_->SetRawInitialPriority(
-            entry.flat_slot_index, *raw_priority, ReplayPrioritySource::ACTOR_INITIAL);
-        ++actor_completion_success_count_;
-    }
 }
 
 void DefaultReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const
@@ -1527,16 +1594,27 @@ std::optional<float> DefaultReplayBuffer::GetScalar(const std::string& key, int6
     if (key == PER_ACTOR_COMPLETION_ATTEMPT_COUNT || key == PER_ACTOR_COMPLETION_SUCCESS_COUNT
         || key == PER_ACTOR_COMPLETION_SUCCESS_RATIO || key == PER_ACTOR_TRUNCATION_FALLBACK_COUNT
         || key == PER_ACTOR_TRUNCATION_FALLBACK_RATIO || key == PER_ACTOR_NONFINITE_FALLBACK_COUNT
-        || key == PER_ACTOR_NONFINITE_FALLBACK_RATIO || key == PER_PRIORITY_UPDATE_STALE_DROP_COUNT) {
+        || key == PER_ACTOR_NONFINITE_FALLBACK_RATIO) {
+        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+        if (!initial_priority_completer_) return std::nullopt;
+        const auto stats = initial_priority_completer_->GetStats();
+        if (key == PER_ACTOR_COMPLETION_ATTEMPT_COUNT) return static_cast<float>(stats.attempt_count);
+        if (key == PER_ACTOR_COMPLETION_SUCCESS_COUNT) return static_cast<float>(stats.success_count);
+        if (key == PER_ACTOR_COMPLETION_SUCCESS_RATIO) {
+            return ratio(stats.success_count, stats.attempt_count);
+        }
+        if (key == PER_ACTOR_TRUNCATION_FALLBACK_COUNT) return static_cast<float>(stats.truncation_fallback_count);
+        if (key == PER_ACTOR_TRUNCATION_FALLBACK_RATIO) {
+            return ratio(stats.truncation_fallback_count, stats.attempt_count);
+        }
+        if (key == PER_ACTOR_NONFINITE_FALLBACK_COUNT) return static_cast<float>(stats.nonfinite_fallback_count);
+        if (key == PER_ACTOR_NONFINITE_FALLBACK_RATIO) {
+            return ratio(stats.nonfinite_fallback_count, stats.attempt_count);
+        }
+    }
+    if (key == PER_PRIORITY_UPDATE_STALE_DROP_COUNT) {
         std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
         if (!priority_store_) return std::nullopt;
-        if (key == PER_ACTOR_COMPLETION_ATTEMPT_COUNT) return static_cast<float>(actor_completion_attempt_count_);
-        if (key == PER_ACTOR_COMPLETION_SUCCESS_COUNT) return static_cast<float>(actor_completion_success_count_);
-        if (key == PER_ACTOR_COMPLETION_SUCCESS_RATIO) return ratio(actor_completion_success_count_, actor_completion_attempt_count_);
-        if (key == PER_ACTOR_TRUNCATION_FALLBACK_COUNT) return static_cast<float>(actor_truncation_fallback_count_);
-        if (key == PER_ACTOR_TRUNCATION_FALLBACK_RATIO) return ratio(actor_truncation_fallback_count_, actor_completion_attempt_count_);
-        if (key == PER_ACTOR_NONFINITE_FALLBACK_COUNT) return static_cast<float>(actor_nonfinite_fallback_count_);
-        if (key == PER_ACTOR_NONFINITE_FALLBACK_RATIO) return ratio(actor_nonfinite_fallback_count_, actor_completion_attempt_count_);
         return static_cast<float>(priority_update_stale_drop_count_);
     }
     if (key == PER_LAST_EVICTED_NEVER_SAMPLED_RATIO) {
@@ -1984,10 +2062,12 @@ std::shared_ptr<ReplayBuffer> anet::rl::CreateReplayBuffer(
         sampler = per;
         priority_store = per;
     }
+    auto initial_priority_completer = CreateInitialPriorityCompleter(
+        config, num_envs, std::move(initial_priority_estimator));
 
     auto extractor = std::make_shared<DefaultSampleExtractor>(config.stack_keys);
 
     return std::make_shared<DefaultReplayBuffer>(
         config, env_spec, num_envs, std::move(queue_controller), std::move(builder), sampler,
-        priority_store, extractor, std::move(initial_priority_estimator), storage_device, pin_memory);
+        priority_store, extractor, std::move(initial_priority_completer), storage_device, pin_memory);
 }
