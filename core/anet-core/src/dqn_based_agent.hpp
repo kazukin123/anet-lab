@@ -463,6 +463,7 @@ namespace anet::rl::dqn {
         void UpdateEpsilon(step_t step, bool is_uqe = false);
         bool IsSpatialExplorationEnabled() const { return use_spatial_exploration_; }
         static torch::Tensor CreateSpatialTensor(int64_t num_envs, float start_val, float end_val, const std::string& scale_type, const torch::Device& device);
+        static torch::Tensor CreateSpatialLaneTensor(int64_t num_envs, float start_val, float end_val, const std::string& scale_type, const torch::Device& device);
         torch::Tensor GetSpatialEpsilonTensor(int64_t num_envs, const torch::Device& device, bool is_uqe) const;
         torch::Tensor GetSpatialTauTensor(int64_t num_envs, const torch::Device& device) const;
     protected:

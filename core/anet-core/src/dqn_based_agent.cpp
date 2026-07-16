@@ -614,6 +614,13 @@ torch::Tensor anet::rl::dqn::ActionPolicy::CreateSpatialTensor(
     return end_clamped * torch::exp((1.0f - base) * log_ratio);
 }
 
+torch::Tensor anet::rl::dqn::ActionPolicy::CreateSpatialLaneTensor(
+    int64_t num_envs, float start_val, float end_val, const std::string& scale_type, const torch::Device& device)
+{
+    // 補間値と探索パラメータの組を変えず、env[0]がend側になるようlane割り当てだけを反転する。
+    return CreateSpatialTensor(num_envs, start_val, end_val, scale_type, device).flip({ 0 });
+}
+
 static torch::Tensor PrepareSpatialTensorForAction(
     const torch::Tensor& tensor, int64_t expected_num_envs, int64_t actual_num_envs, const torch::Device& device, const char* name)
 {
@@ -748,7 +755,7 @@ anet::rl::dqn::EpsilonGreedyActionPolicy::EpsilonGreedyActionPolicy(
     : ActionPolicy(config, enable_spatial_exploration, num_envs, device)
 {
     if (IsSpatialExplorationEnabled()) {
-        spatial_eps_tensor_ = CreateSpatialTensor(num_envs, config_.eps_start, config_.eps_end, config_.spatial_scale_type, device);
+        spatial_eps_tensor_ = CreateSpatialLaneTensor(num_envs, config_.eps_start, config_.eps_end, config_.spatial_scale_type, device);
         return;
     }
     current_epsilon_ = config_.eps_start;
@@ -806,8 +813,8 @@ anet::rl::dqn::UQEActionPolicy::UQEActionPolicy(
     : ActionPolicy(config, enable_spatial_exploration, num_envs, device)
 {
     if (IsSpatialExplorationEnabled()) {
-        spatial_uqe_eps_tensor_ = CreateSpatialTensor(num_envs, config_.uqe_eps_start, config_.uqe_eps_end, config_.spatial_scale_type, device);
-        spatial_tau_tensor_ = CreateSpatialTensor(num_envs, config_.uqe_tau_start, config_.uqe_tau_end, config_.spatial_scale_type, device);
+        spatial_uqe_eps_tensor_ = CreateSpatialLaneTensor(num_envs, config_.uqe_eps_start, config_.uqe_eps_end, config_.spatial_scale_type, device);
+        spatial_tau_tensor_ = CreateSpatialLaneTensor(num_envs, config_.uqe_tau_start, config_.uqe_tau_end, config_.spatial_scale_type, device);
         return;
     }
     current_epsilon_ = config_.uqe_eps_start;
