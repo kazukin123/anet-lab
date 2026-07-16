@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -39,7 +40,167 @@ namespace anet {
         double cycle_mult = 1.0;
         std::vector<std::string> phases;
         anet::OrderedMap<std::string, ProfiledValuePhaseConfig<T>> phase;
+        std::optional<T> min_value; ///< 設定入出力には含めないinclusiveな下限。
+        std::optional<T> max_value; ///< 設定入出力には含めないinclusiveな上限。
     };
+
+    namespace detail {
+
+        inline bool IsProfiledValueRootType(const std::string& type)
+        {
+            return type == "constant"
+                || type == "linear"
+                || type == "cosine"
+                || type == "cosine_restart"
+                || type == "phased";
+        }
+
+        inline bool IsProfiledValuePhaseType(const std::string& type)
+        {
+            return type == "constant"
+                || type == "linear"
+                || type == "cosine"
+                || type == "cosine_restart";
+        }
+
+        template<typename T>
+        bool IsFiniteProfiledValue(T value)
+        {
+            if constexpr (std::is_floating_point_v<T>) {
+                return std::isfinite(value);
+            }
+            return true;
+        }
+
+        template<typename T>
+        void ValidateProfiledValueBounds(
+            const ProfiledValueConfig<T>& config,
+            const std::string& key,
+            T value)
+        {
+            if (!IsFiniteProfiledValue(value)) {
+                ANET_SYSTEM_ERROR(
+                    "ProfiledValue: active value must be finite. key=" << key
+                    << " value=" << value << " expected=finite");
+            }
+            if (config.min_value.has_value() && value < *config.min_value) {
+                ANET_SYSTEM_ERROR(
+                    "ProfiledValue: active value is below min_value. key=" << key
+                    << " value=" << value
+                    << " min_value=" << *config.min_value
+                    << " expected=>=" << *config.min_value);
+            }
+            if (config.max_value.has_value() && value > *config.max_value) {
+                ANET_SYSTEM_ERROR(
+                    "ProfiledValue: active value is above max_value. key=" << key
+                    << " value=" << value
+                    << " max_value=" << *config.max_value
+                    << " expected=<=" << *config.max_value);
+            }
+        }
+
+        template<typename T>
+        void ValidateProfiledValuePhaseConfig(
+            const ProfiledValueConfig<T>& root_config,
+            const std::string& root_key,
+            const std::string& phase_name,
+            const ProfiledValuePhaseConfig<T>& config)
+        {
+            const std::string phase_key = root_key + ".phase.[" + phase_name + "]";
+            if (!IsProfiledValuePhaseType(config.type)) {
+                ANET_SYSTEM_ERROR(
+                    "ProfiledValue: invalid phase type. key=" << phase_key + ".type"
+                    << " value=" << config.type
+                    << " expected=constant|linear|cosine|cosine_restart");
+            }
+            if (config.steps == 0) {
+                ANET_SYSTEM_ERROR(
+                    "ProfiledValue: phase steps must be greater than 0. key=" << phase_key + ".steps"
+                    << " value=" << config.steps << " expected=>=1");
+            }
+            if (config.type == "cosine_restart"
+                && (!std::isfinite(config.cycle_mult) || config.cycle_mult <= 0.0)) {
+                ANET_SYSTEM_ERROR(
+                    "ProfiledValue: cycle_mult must be greater than 0. key=" << phase_key + ".cycle_mult"
+                    << " value=" << config.cycle_mult << " expected=>0");
+            }
+
+            // phase typeが実際に参照する値だけを共通boundsで検証する。
+            if (config.type == "constant") {
+                ValidateProfiledValueBounds(root_config, phase_key + ".value", config.value);
+            } else {
+                ValidateProfiledValueBounds(root_config, phase_key + ".start", config.start);
+                ValidateProfiledValueBounds(root_config, phase_key + ".end", config.end);
+            }
+        }
+
+        template<typename T>
+        void ValidateProfiledValueConfig(
+            const ProfiledValueConfig<T>& config,
+            const std::string& root_key = "ProfiledValue")
+        {
+            // bounds自体を先に検証し、active fieldのエラーへ誤って見せない。
+            if (config.min_value.has_value() && !IsFiniteProfiledValue(*config.min_value)) {
+                ANET_SYSTEM_ERROR(
+                    "ProfiledValue: min_value must be finite. key=" << root_key + ".min_value"
+                    << " value=" << *config.min_value << " expected=finite");
+            }
+            if (config.max_value.has_value() && !IsFiniteProfiledValue(*config.max_value)) {
+                ANET_SYSTEM_ERROR(
+                    "ProfiledValue: max_value must be finite. key=" << root_key + ".max_value"
+                    << " value=" << *config.max_value << " expected=finite");
+            }
+            if (config.min_value.has_value()
+                && config.max_value.has_value()
+                && *config.min_value > *config.max_value) {
+                ANET_SYSTEM_ERROR(
+                    "ProfiledValue: min_value must not exceed max_value. key=" << root_key
+                    << " min_value=" << *config.min_value
+                    << " max_value=" << *config.max_value);
+            }
+            if (!IsProfiledValueRootType(config.type)) {
+                ANET_SYSTEM_ERROR(
+                    "ProfiledValue: unknown type. key=" << root_key + ".type"
+                    << " value=" << config.type
+                    << " expected=constant|linear|cosine|cosine_restart|phased");
+            }
+            if ((config.type == "linear" || config.type == "cosine" || config.type == "cosine_restart")
+                && config.steps == 0) {
+                ANET_SYSTEM_ERROR(
+                    "ProfiledValue: steps must be greater than 0. key=" << root_key + ".steps"
+                    << " value=" << config.steps << " expected=>=1");
+            }
+            if (config.type == "cosine_restart"
+                && (!std::isfinite(config.cycle_mult) || config.cycle_mult <= 0.0)) {
+                ANET_SYSTEM_ERROR(
+                    "ProfiledValue: cycle_mult must be greater than 0. key=" << root_key + ".cycle_mult"
+                    << " value=" << config.cycle_mult << " expected=>0");
+            }
+
+            // 最終typeが選択するfieldだけを検証し、dormant fieldは保持する。
+            if (config.type == "constant") {
+                ValidateProfiledValueBounds(config, root_key + ".value", config.value);
+            } else if (config.type == "linear" || config.type == "cosine" || config.type == "cosine_restart") {
+                ValidateProfiledValueBounds(config, root_key + ".start", config.start);
+                ValidateProfiledValueBounds(config, root_key + ".end", config.end);
+            } else {
+                if (config.phases.empty()) {
+                    ANET_SYSTEM_ERROR(
+                        "ProfiledValue: phases must not be empty for phased type. key=" << root_key + ".phases");
+                }
+                for (const auto& phase_name : config.phases) {
+                    if (config.phase.find(phase_name) == config.phase.end()) {
+                        ANET_SYSTEM_ERROR(
+                            "ProfiledValue: phase is listed but not defined. key=" << root_key + ".phases"
+                            << " value=" << phase_name << " expected=defined phase");
+                    }
+                    ValidateProfiledValuePhaseConfig(
+                        config, root_key, phase_name, config.phase.Get(phase_name));
+                }
+            }
+        }
+
+    } // namespace detail
 
     template<typename T>
     struct ConfigReader<ProfiledValueConfig<T>> {
@@ -59,10 +220,24 @@ namespace anet {
             owner.ReadSubConfig(config_data, key, "cycle_mult", value.cycle_mult);
             owner.ReadSubConfig(config_data, key, "phases", value.phases);
 
-            value.phase.Clear();
             for (const auto& phase_name : value.phases) {
-                ProfiledValuePhaseConfig<T> phase;
                 const auto phase_key = owner.MakeTaggedSubConfigKey(key, "phase", phase_name);
+                const bool has_explicit_definition =
+                    owner.HasConfigValue(config_data, phase_key + ".type")
+                    || owner.HasConfigValue(config_data, phase_key + ".value")
+                    || owner.HasConfigValue(config_data, phase_key + ".start")
+                    || owner.HasConfigValue(config_data, phase_key + ".end")
+                    || owner.HasConfigValue(config_data, phase_key + ".steps")
+                    || owner.HasConfigValue(config_data, phase_key + ".cycle_mult");
+                const auto existing_phase = value.phase.find(phase_name);
+                if (!has_explicit_definition && existing_phase == value.phase.end()) {
+                    continue;
+                }
+
+                // programmaticな既定phaseを保持し、明示fieldだけをlayer順に上書きする。
+                ProfiledValuePhaseConfig<T> phase = existing_phase != value.phase.end()
+                    ? value.phase.Get(phase_name)
+                    : ProfiledValuePhaseConfig<T>{};
 
                 owner.ReadSubConfig(config_data, phase_key, "type", phase.type);
                 owner.ReadSubConfig(config_data, phase_key, "value", phase.value);
@@ -73,6 +248,7 @@ namespace anet {
 
                 value.phase.Set(phase_name, phase);
             }
+            detail::ValidateProfiledValueConfig(value, key);
         }
     };
 
@@ -84,7 +260,7 @@ namespace anet {
         explicit ProfiledValue(ProfiledValueConfig<T> config)
             : config_(std::move(config))
         {
-            ValidateConfig();
+            detail::ValidateProfiledValueConfig(config_);
             value_ = Evaluate(0);
         }
 
@@ -131,23 +307,6 @@ namespace anet {
 
     private:
         static constexpr double kPi = 3.14159265358979323846264338327950288;
-
-        static bool IsRootType(const std::string& type)
-        {
-            return type == "constant"
-                || type == "linear"
-                || type == "cosine"
-                || type == "cosine_restart"
-                || type == "phased";
-        }
-
-        static bool IsPhaseType(const std::string& type)
-        {
-            return type == "constant"
-                || type == "linear"
-                || type == "cosine"
-                || type == "cosine_restart";
-        }
 
         static T Lerp(T start, T end, double t)
         {
@@ -259,64 +418,6 @@ namespace anet {
 
             ANET_SYSTEM_ERROR("ProfiledValue: unknown type. type=" << config.type);
             return T{};
-        }
-
-        void ValidatePhaseConfig(
-            const std::string& parent_type, const std::string& phase_name, const ProfiledValuePhaseConfig<T>& config) const
-        {
-            if (!IsPhaseType(config.type)) {
-                ANET_SYSTEM_ERROR(
-                    "ProfiledValue: invalid phase type. phase=" << phase_name
-                    << " type=" << config.type
-                    << " expected=constant|linear|cosine|cosine_restart");
-            }
-            if (parent_type == "phased" && config.steps == 0) {
-                ANET_SYSTEM_ERROR(
-                    "ProfiledValue: phase steps must be greater than 0. phase=" << phase_name
-                    << " steps=" << config.steps);
-            }
-            if ((config.type == "linear" || config.type == "cosine" || config.type == "cosine_restart")
-                && config.steps == 0) {
-                ANET_SYSTEM_ERROR(
-                    "ProfiledValue: steps must be greater than 0. phase=" << phase_name
-                    << " type=" << config.type
-                    << " steps=" << config.steps);
-            }
-            if (config.type == "cosine_restart" && config.cycle_mult <= 0.0) {
-                ANET_SYSTEM_ERROR(
-                    "ProfiledValue: cycle_mult must be greater than 0. phase=" << phase_name
-                    << " cycle_mult=" << config.cycle_mult);
-            }
-        }
-
-        void ValidateConfig() const
-        {
-            if (!IsRootType(config_.type)) {
-                ANET_SYSTEM_ERROR(
-                    "ProfiledValue: unknown type. type=" << config_.type
-                    << " expected=constant|linear|cosine|cosine_restart|phased");
-            }
-            if ((config_.type == "linear" || config_.type == "cosine" || config_.type == "cosine_restart")
-                && config_.steps == 0) {
-                ANET_SYSTEM_ERROR(
-                    "ProfiledValue: steps must be greater than 0. type=" << config_.type
-                    << " steps=" << config_.steps);
-            }
-            if (config_.type == "cosine_restart" && config_.cycle_mult <= 0.0) {
-                ANET_SYSTEM_ERROR(
-                    "ProfiledValue: cycle_mult must be greater than 0. cycle_mult=" << config_.cycle_mult);
-            }
-            if (config_.type == "phased") {
-                if (config_.phases.empty()) {
-                    ANET_SYSTEM_ERROR("ProfiledValue: phases must not be empty for phased type.");
-                }
-                for (const auto& phase_name : config_.phases) {
-                    if (config_.phase.find(phase_name) == config_.phase.end()) {
-                        ANET_SYSTEM_ERROR("ProfiledValue: phase is listed but not defined. phase=" << phase_name);
-                    }
-                    ValidatePhaseConfig(config_.type, phase_name, config_.phase.Get(phase_name));
-                }
-            }
         }
 
         ProfiledValueConfig<T> config_;

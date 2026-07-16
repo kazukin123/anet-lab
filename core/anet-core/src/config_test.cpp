@@ -85,63 +85,111 @@ public:
     }
 };
 
+class PositiveProfiledValueOwnerConfig final : public anet::Config {
+public:
+    anet::ProfiledValueConfig<double> interval{
+        .type = "constant",
+        .value = 400.0,
+        .min_value = 1.0,
+    };
+
+    explicit PositiveProfiledValueOwnerConfig(
+        const anet::ConfigData& config_data,
+        const std::string& override_prefix = "")
+        : anet::Config(config_data, "PositiveProfile", override_prefix)
+    {
+        ANET_READ_CONFIG(config_data, interval);
+    }
+};
+
+anet::ProfiledValueConfig<double> MakeDefaultPhasedProfile()
+{
+    anet::ProfiledValueConfig<double> config{
+        .type = "phased",
+        .phases = { "main" },
+    };
+    config.phase.Set("main", anet::ProfiledValuePhaseConfig<double>{
+        .type = "constant",
+        .value = 2.0,
+        .start = 4.0,
+        .end = 2.0,
+        .steps = 10,
+    });
+    config.phase.Set("dormant", anet::ProfiledValuePhaseConfig<double>{
+        .type = "constant",
+        .value = 0.0,
+        .steps = 0,
+    });
+    return config;
+}
+
+class DefaultPhasedProfileOwnerConfig final : public anet::Config {
+public:
+    anet::ProfiledValueConfig<double> profile = MakeDefaultPhasedProfile();
+
+    explicit DefaultPhasedProfileOwnerConfig(
+        const anet::ConfigData& config_data,
+        const std::string& override_prefix = "")
+        : anet::Config(config_data, "DefaultProfile", override_prefix)
+    {
+        ANET_READ_CONFIG(config_data, profile);
+    }
+};
+
 } // namespace
 
-TEST_CASE("ConfigData Read warns for present invalid values only", "[config]")
+TEST_CASE("ConfigData Read rejects present invalid values", "[config]")
 {
     anet::ConfigData config_data;
     config_data.Set("invalid_int", "not-int");
     config_data.Set("invalid_bool", "maybe");
+    config_data.Set("empty_bool", "  ");
     config_data.Set("invalid_float_vector", "1.0 x");
     config_data.Set("valid_int", "42");
 
-    SECTION("invalid int warns and returns the default")
+    SECTION("invalid int throws without replacing the current value")
     {
-        LogCaptureGuard logs;
-
         int value = 5;
-        CHECK_FALSE(config_data.Read("invalid_int", value, 9));
-        CHECK(value == 9);
-
-        logs.Flush();
-        CHECK(CountRecords(logs.Records(), wxLOG_Warning) == 1);
-        CHECK(HasRecordContaining(
-            logs.Records(),
-            wxLOG_Warning,
-            { "ConfigData::Read failed", "key=invalid_int", "value=\"not-int\"", "expected=int" }));
+        CHECK_THROWS_WITH(
+            config_data.Read("invalid_int", value, 9),
+            Catch::Matchers::ContainsSubstring("key=invalid_int")
+            && Catch::Matchers::ContainsSubstring("value=\"not-int\"")
+            && Catch::Matchers::ContainsSubstring("expected=int"));
+        CHECK(value == 5);
     }
 
-    SECTION("invalid bool warns and returns the default")
+    SECTION("invalid bool throws without replacing the current value")
     {
-        LogCaptureGuard logs;
-
         bool value = true;
-        CHECK_FALSE(config_data.Read("invalid_bool", value, false));
-        CHECK_FALSE(value);
-
-        logs.Flush();
-        CHECK(CountRecords(logs.Records(), wxLOG_Warning) == 1);
-        CHECK(HasRecordContaining(
-            logs.Records(),
-            wxLOG_Warning,
-            { "ConfigData::Read failed", "key=invalid_bool", "value=\"maybe\"", "expected=bool" }));
+        CHECK_THROWS_WITH(
+            config_data.Read("invalid_bool", value, false),
+            Catch::Matchers::ContainsSubstring("key=invalid_bool")
+            && Catch::Matchers::ContainsSubstring("value=\"maybe\"")
+            && Catch::Matchers::ContainsSubstring("expected=bool"));
+        CHECK(value);
     }
 
-    SECTION("invalid vector warns and returns the default")
+    SECTION("explicit empty bool is a format error")
     {
-        LogCaptureGuard logs;
+        bool value = true;
+        CHECK_THROWS_WITH(
+            config_data.Read("empty_bool", value, false),
+            Catch::Matchers::ContainsSubstring("key=empty_bool")
+            && Catch::Matchers::ContainsSubstring("value=\"  \"")
+            && Catch::Matchers::ContainsSubstring("expected=bool"));
+        CHECK(value);
+    }
 
+    SECTION("invalid vector throws without replacing the current value")
+    {
         std::vector<float> value = { 9.0f };
         const std::vector<float> default_value = { 1.0f, 2.0f };
-        CHECK_FALSE(config_data.Read("invalid_float_vector", value, default_value));
-        CHECK(value == default_value);
-
-        logs.Flush();
-        CHECK(CountRecords(logs.Records(), wxLOG_Warning) == 1);
-        CHECK(HasRecordContaining(
-            logs.Records(),
-            wxLOG_Warning,
-            { "ConfigData::Read failed", "key=invalid_float_vector", "value=\"1.0 x\"", "expected=float vector" }));
+        CHECK_THROWS_WITH(
+            config_data.Read("invalid_float_vector", value, default_value),
+            Catch::Matchers::ContainsSubstring("key=invalid_float_vector")
+            && Catch::Matchers::ContainsSubstring("value=\"1.0 x\"")
+            && Catch::Matchers::ContainsSubstring("expected=float vector"));
+        CHECK(value == std::vector<float>{ 9.0f });
     }
 
     SECTION("missing key keeps the existing no-warning behavior")
@@ -167,6 +215,93 @@ TEST_CASE("ConfigData Read warns for present invalid values only", "[config]")
         logs.Flush();
         CHECK(CountRecords(logs.Records(), wxLOG_Warning) == 0);
     }
+}
+
+TEST_CASE("ConfigData numeric readers require complete finite values", "[config]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("trailing_int", "42x");
+    config_data.Set("empty_int", "  ");
+    config_data.Set("negative_unsigned", "-1");
+    config_data.Set("overflow_unsigned", "18446744073709551616");
+    config_data.Set("nonfinite_float", "nan");
+    config_data.Set("nonfinite_double", "inf");
+    config_data.Set("comma_int", " 1,2,3 ");
+    config_data.Set("negative_int64", " -7 ");
+
+    int int_value = 5;
+    CHECK_THROWS(config_data.Read("trailing_int", int_value, 9));
+    CHECK_THROWS(config_data.Read("empty_int", int_value, 9));
+
+    uint64_t unsigned_value = 5;
+    CHECK_THROWS(config_data.Read("negative_unsigned", unsigned_value, 9));
+    CHECK_THROWS(config_data.Read("overflow_unsigned", unsigned_value, 9));
+
+    float float_value = 5.0f;
+    CHECK_THROWS(config_data.Read("nonfinite_float", float_value, 9.0f));
+
+    double double_value = 5.0;
+    CHECK_THROWS(config_data.Read("nonfinite_double", double_value, 9.0));
+
+    CHECK(config_data.Read("comma_int", int_value, 9));
+    CHECK(int_value == 123);
+
+    int64_t int64_value = 5;
+    CHECK(config_data.Read("negative_int64", int64_value, 9));
+    CHECK(int64_value == -7);
+}
+
+TEST_CASE("ConfigData Get shares the Read fail-fast contract", "[config]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("invalid", "12x");
+
+    CHECK(config_data.Get<int>("missing", 7) == 7);
+    CHECK_THROWS(config_data.Get<int>("invalid", 7));
+}
+
+TEST_CASE("ConfigData accepts explicit empty strings and vectors", "[config]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("string", "");
+    config_data.Set("float_vector", "  ");
+    config_data.Set("int_vector", "");
+    config_data.Set("string_vector", "　");
+
+    std::string string_value = "default";
+    CHECK(config_data.Read("string", string_value, "default"));
+    CHECK(string_value.empty());
+
+    std::vector<float> float_vector = { 1.0f };
+    CHECK(config_data.Read("float_vector", float_vector, { 2.0f }));
+    CHECK(float_vector.empty());
+
+    std::vector<int64_t> int_vector = { 1 };
+    CHECK(config_data.Read("int_vector", int_vector, { 2 }));
+    CHECK(int_vector.empty());
+
+    std::vector<std::string> string_vector = { "default" };
+    CHECK(config_data.Read("string_vector", string_vector, { "fallback" }));
+    CHECK(string_vector.empty());
+}
+
+TEST_CASE("ConfigData numeric vectors use strict scalar token parsing", "[config]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("float_vector", "1.0 inf");
+    config_data.Set("int_vector", "-7 8x");
+    config_data.Set("comma_vector", "1,2 3");
+
+    std::vector<float> float_vector = { 9.0f };
+    CHECK_THROWS(config_data.Read("float_vector", float_vector, { 1.0f }));
+    CHECK(float_vector == std::vector<float>{ 9.0f });
+
+    std::vector<int64_t> int_vector = { 9 };
+    CHECK_THROWS(config_data.Read("int_vector", int_vector, { 1 }));
+    CHECK(int_vector == std::vector<int64_t>{ 9 });
+
+    CHECK(config_data.Read("comma_vector", int_vector, { 1 }));
+    CHECK(int_vector == std::vector<int64_t>{ 12, 3 });
 }
 
 TEST_CASE("Config reads ProfiledValueConfig root fields and phases", "[config][profiled_value]")
@@ -198,6 +333,8 @@ TEST_CASE("Config reads ProfiledValueConfig root fields and phases", "[config][p
     CHECK(config.learning_rate.end == Catch::Approx(1.0));
     CHECK(config.learning_rate.steps == 100);
     CHECK(config.learning_rate.cycle_mult == Catch::Approx(2.0));
+    CHECK_FALSE(config.learning_rate.min_value.has_value());
+    CHECK_FALSE(config.learning_rate.max_value.has_value());
     const std::vector<std::string> expected_phases = { "warmup", "main" };
     CHECK(config.learning_rate.phases == expected_phases);
 
@@ -221,12 +358,85 @@ TEST_CASE("Config reads ProfiledValueConfig root fields and phases", "[config][p
     CHECK(json.at("learning_rate.phases") == anet::json::array({ "warmup", "main" }));
     CHECK(json.at("learning_rate.phase.[warmup].type") == "linear");
     CHECK(json.at("learning_rate.phase.[main].steps") == 90);
+    CHECK_FALSE(json.contains("learning_rate.min_value"));
+    CHECK_FALSE(json.contains("learning_rate.max_value"));
 
     const auto config_string = config.ToConfigString();
     CHECK(config_string.find("ImageClsAgent.learning_rate.type = phased") != std::string::npos);
     CHECK(config_string.find("ImageClsAgent.learning_rate.phases = warmup main") != std::string::npos);
     CHECK(config_string.find("ImageClsAgent.learning_rate.phase.[warmup].start = 0") != std::string::npos);
     CHECK(config_string.find("ImageClsAgent.learning_rate.phase.[main].steps = 90") != std::string::npos);
+    CHECK(config_string.find("min_value") == std::string::npos);
+    CHECK(config_string.find("max_value") == std::string::npos);
+
+    // bounds未指定のImageCls学習率では、0を従来どおり有効値として扱う。
+    const anet::ProfiledValue<double> learning_rate(config.learning_rate);
+    CHECK(learning_rate.Value() == Catch::Approx(0.0));
+}
+
+TEST_CASE("Config rejects a ProfiledValueConfig that violates its bounds", "[config][profiled_value][bounds]")
+{
+    SECTION("default layer reports a layer-neutral logical key")
+    {
+        anet::ConfigData config_data;
+        config_data.Set("PositiveProfile.interval.type", "constant");
+        config_data.Set("PositiveProfile.interval.value", "0");
+
+        CHECK_THROWS_WITH(
+            PositiveProfiledValueOwnerConfig(config_data),
+            Catch::Matchers::ContainsSubstring("key=interval.value value=0"));
+    }
+
+    SECTION("override layer reports the same layer-neutral logical key")
+    {
+        anet::ConfigData config_data;
+        config_data.Set("PositiveProfile.interval.type", "constant");
+        config_data.Set("PositiveProfile.interval.value", "400");
+        config_data.Set("Trial.interval.value", "0");
+
+        CHECK_THROWS_WITH(
+            PositiveProfiledValueOwnerConfig(config_data, "Trial"),
+            Catch::Matchers::ContainsSubstring("key=interval.value value=0"));
+    }
+}
+
+TEST_CASE("Config override does not mask a malformed default layer", "[config][profiled_value]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("PositiveProfile.interval.value", "invalid");
+    config_data.Set("Trial.interval.value", "2");
+
+    CHECK_THROWS_WITH(
+        PositiveProfiledValueOwnerConfig(config_data, "Trial"),
+        Catch::Matchers::ContainsSubstring("key=PositiveProfile.interval.value")
+        && Catch::Matchers::ContainsSubstring("value=\"invalid\"")
+        && Catch::Matchers::ContainsSubstring("expected=double"));
+}
+
+TEST_CASE("Config rejects a listed ProfiledValue phase without a definition", "[config][profiled_value]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("ImageClsAgent.learning_rate.type", "phased");
+    config_data.Set("ImageClsAgent.learning_rate.phases", "missing");
+
+    CHECK_THROWS_WITH(
+        ProfiledValueOwnerConfig(config_data),
+        Catch::Matchers::ContainsSubstring("phase is listed but not defined")
+        && Catch::Matchers::ContainsSubstring("value=missing"));
+}
+
+TEST_CASE("Config preserves programmatic ProfiledValue phase defaults", "[config][profiled_value]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("Trial.profile.phase.[main].type", "cosine");
+
+    DefaultPhasedProfileOwnerConfig config(config_data, "Trial");
+    const auto& main = config.profile.phase.Get("main");
+    CHECK(main.type == "cosine");
+    CHECK(main.start == Catch::Approx(4.0));
+    CHECK(main.end == Catch::Approx(2.0));
+    CHECK(main.steps == 10);
+    CHECK(config.profile.phase.find("dormant") != config.profile.phase.end());
 }
 
 TEST_CASE("Config ProfiledValueConfig override can switch type and keep dormant fields", "[config][profiled_value]")

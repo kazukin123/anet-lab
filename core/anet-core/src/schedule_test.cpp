@@ -2,6 +2,8 @@
 
 #include "anet/schedule.hpp"
 
+#include <limits>
+
 TEST_CASE("ProfiledValue evaluates constant and caches current value", "[profiled_value]")
 {
     anet::ProfiledValueConfig<double> config;
@@ -263,4 +265,114 @@ TEST_CASE("ProfiledValue rejects invalid config", "[profiled_value]")
 
         CHECK_THROWS_AS(anet::ProfiledValue<double>(config), std::runtime_error);
     }
+}
+
+TEST_CASE("ProfiledValue enforces an inclusive minimum value", "[profiled_value][bounds]")
+{
+    anet::ProfiledValueConfig<double> config{
+        .type = "constant",
+        .value = 0.5,
+        .min_value = 1.0,
+    };
+
+    CHECK_THROWS_AS(anet::ProfiledValue<double>(config), std::runtime_error);
+
+    config.value = 1.0;
+    CHECK_NOTHROW(anet::ProfiledValue<double>(config));
+}
+
+TEST_CASE("ProfiledValue enforces an inclusive maximum value", "[profiled_value][bounds]")
+{
+    anet::ProfiledValueConfig<double> config{
+        .type = "constant",
+        .value = 1.5,
+        .max_value = 1.0,
+    };
+
+    CHECK_THROWS_AS(anet::ProfiledValue<double>(config), std::runtime_error);
+
+    config.value = 1.0;
+    CHECK_NOTHROW(anet::ProfiledValue<double>(config));
+}
+
+TEST_CASE("ProfiledValue bounds validate every active profile field", "[profiled_value][bounds]")
+{
+    for (const std::string type : { "linear", "cosine", "cosine_restart" }) {
+        anet::ProfiledValueConfig<double> config{
+            .type = type,
+            .value = 0.0,
+            .start = 2.0,
+            .end = 0.5,
+            .steps = 10,
+            .min_value = 1.0,
+        };
+        CHECK_THROWS_AS(anet::ProfiledValue<double>(config), std::runtime_error);
+
+        config.end = 1.0;
+        CHECK_NOTHROW(anet::ProfiledValue<double>(config));
+    }
+
+    anet::ProfiledValueConfig<double> phased{
+        .type = "phased",
+        .phases = { "warmup", "main" },
+        .min_value = 1.0,
+    };
+    phased.phase.Set("warmup", anet::ProfiledValuePhaseConfig<double>{
+        .type = "constant",
+        .value = 2.0,
+        .steps = 5,
+    });
+    phased.phase.Set("main", anet::ProfiledValuePhaseConfig<double>{
+        .type = "linear",
+        .start = 2.0,
+        .end = 0.5,
+        .steps = 5,
+    });
+    phased.phase.Set("dormant", anet::ProfiledValuePhaseConfig<double>{
+        .type = "constant",
+        .value = 0.0,
+        .steps = 0,
+    });
+
+    CHECK_THROWS_AS(anet::ProfiledValue<double>(phased), std::runtime_error);
+
+    auto main = phased.phase.Get("main");
+    main.end = 1.0;
+    phased.phase.Set("main", main);
+    CHECK_NOTHROW(anet::ProfiledValue<double>(phased));
+}
+
+TEST_CASE("ProfiledValue rejects invalid bounds and nonfinite active fields", "[profiled_value][bounds]")
+{
+    anet::ProfiledValueConfig<double> invalid_bounds{
+        .type = "constant",
+        .value = 2.0,
+        .min_value = 2.0,
+        .max_value = 1.0,
+    };
+    CHECK_THROWS_WITH(
+        anet::ProfiledValue<double>(invalid_bounds),
+        Catch::Matchers::ContainsSubstring("min_value must not exceed max_value"));
+
+    anet::ProfiledValueConfig<double> invalid_min{
+        .type = "constant",
+        .value = 1.0,
+        .min_value = std::numeric_limits<double>::quiet_NaN(),
+    };
+    CHECK_THROWS_AS(anet::ProfiledValue<double>(invalid_min), std::runtime_error);
+
+    anet::ProfiledValueConfig<double> invalid_value{
+        .type = "constant",
+        .value = std::numeric_limits<double>::infinity(),
+    };
+    CHECK_THROWS_AS(anet::ProfiledValue<double>(invalid_value), std::runtime_error);
+
+    anet::ProfiledValueConfig<double> invalid_cycle{
+        .type = "cosine_restart",
+        .start = 1.0,
+        .end = 0.0,
+        .steps = 10,
+        .cycle_mult = std::numeric_limits<double>::infinity(),
+    };
+    CHECK_THROWS_AS(anet::ProfiledValue<double>(invalid_cycle), std::runtime_error);
 }

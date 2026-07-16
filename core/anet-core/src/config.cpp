@@ -1,7 +1,10 @@
 ﻿#include "anet/config.hpp"
 #include <algorithm>
+#include <cmath>
 #include <sstream>
 #include <fstream>
+#include <type_traits>
+#include <utility>
 #include <wx/string.h>
 #include <wx/cmdline.h>
 #include "anet/app_util.hpp"
@@ -16,10 +19,66 @@ namespace anet {
 
     namespace {
 
-    void LogReadFailure(const std::string& key, const std::string& value, const char* expected_type)
+    [[noreturn]] void ThrowReadFailure(
+        const std::string& key, const std::string& value, const char* expected_type)
     {
-        LOG::warn() << "ConfigData::Read failed. key=" << key
-            << " value=\"" << value << "\" expected=" << expected_type;
+        ANET_SYSTEM_ERROR(
+            "ConfigData::Read failed. key=" << key
+            << " value=\"" << value << "\" expected=" << expected_type);
+    }
+
+    std::string TrimConfigValue(const std::string& value)
+    {
+        const auto first = value.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos) {
+            return {};
+        }
+        const auto last = value.find_last_not_of(" \t\r\n");
+        return value.substr(first, last - first + 1);
+    }
+
+    template<typename T, typename Parser>
+    T ParseNumericConfigValue(
+        const std::string& key,
+        const std::string& raw_value,
+        const std::string& parse_value,
+        const char* expected_type,
+        Parser&& parser)
+    {
+        // 数値表現を正規化し、既存互換としてカンマ位置を問わず除去する。
+        const auto value = anet::ReplaceAll(TrimConfigValue(parse_value), ",", "");
+        if (value.empty() || (std::is_unsigned_v<T> && value.front() == '-')) {
+            ThrowReadFailure(key, raw_value, expected_type);
+        }
+
+        // 変換結果は一旦ローカルへ保持し、全体を正しく解釈できた場合だけ呼出側へ返す。
+        size_t parsed_length = 0;
+        T parsed{};
+        try {
+            parsed = parser(value, &parsed_length);
+        } catch (const std::exception&) {
+            ThrowReadFailure(key, raw_value, expected_type);
+        }
+        if (parsed_length != value.size()) {
+            ThrowReadFailure(key, raw_value, expected_type);
+        }
+        if constexpr (std::is_floating_point_v<T>) {
+            if (!std::isfinite(parsed)) {
+                ThrowReadFailure(key, raw_value, expected_type);
+            }
+        }
+        return parsed;
+    }
+
+    template<typename T, typename Parser>
+    T ParseNumericConfigValue(
+        const std::string& key,
+        const std::string& raw_value,
+        const char* expected_type,
+        Parser&& parser)
+    {
+        return ParseNumericConfigValue<T>(
+            key, raw_value, raw_value, expected_type, std::forward<Parser>(parser));
     }
 
     bool PathExists(const std::filesystem::path& path)
@@ -173,146 +232,111 @@ namespace anet {
 	//   sub_key = interval, run_mode, env.init.x_range
 	//   value = 100, 1, 0.0
 
-    bool ConfigData::Read(const std::string& key, std::string& value, const std::string& defaultValue) const
+    bool ConfigData::Read(const std::string& key, std::string& value, const std::string& value_if_missing) const
     {
         auto it = map_.find(key);
-        if (it == map_.end()) { value = defaultValue; return false; }
+        if (it == map_.end()) { value = value_if_missing; return false; }
         value = (*it).second;
         return true;
     }
 
-    bool ConfigData::Read(const std::string& key, int& value, int defaultValue) const
+    bool ConfigData::Read(const std::string& key, int& value, int value_if_missing) const
     {
         auto it = map_.find(key);
-        if (it == map_.end()) { value = defaultValue; return false; }
-        auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
-        try { value = std::stoi(str.c_str()); }
-        catch (...) {
-            LogReadFailure(key, (*it).second, "int");
-            value = defaultValue;
-            return false;
-        }
+        if (it == map_.end()) { value = value_if_missing; return false; }
+        value = ParseNumericConfigValue<int>(
+            key, (*it).second, "int",
+            [](const std::string& text, size_t* pos) { return std::stoi(text, pos); });
         return true;
     }
 
-    bool ConfigData::Read(const std::string& key, float& value, float defaultValue) const
+    bool ConfigData::Read(const std::string& key, float& value, float value_if_missing) const
     {
         auto it = map_.find(key);
-        if (it == map_.end()) { value = defaultValue; return false; }
-        auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
-        try { value = std::stof(str.c_str()); }
-        catch (...) {
-            LogReadFailure(key, (*it).second, "float");
-            value = defaultValue;
-            return false;
-        }
+        if (it == map_.end()) { value = value_if_missing; return false; }
+        value = ParseNumericConfigValue<float>(
+            key, (*it).second, "float",
+            [](const std::string& text, size_t* pos) { return std::stof(text, pos); });
         return true;
     }
 
-    bool ConfigData::Read(const std::string& key, double& value, double defaultValue) const
+    bool ConfigData::Read(const std::string& key, double& value, double value_if_missing) const
     {
         auto it = map_.find(key);
-        if (it == map_.end()) { value = defaultValue; return false; }
-        auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
-        try { value = std::stod(str.c_str()); }
-        catch (...) {
-            LogReadFailure(key, (*it).second, "double");
-            value = defaultValue;
-            return false;
-        }
+        if (it == map_.end()) { value = value_if_missing; return false; }
+        value = ParseNumericConfigValue<double>(
+            key, (*it).second, "double",
+            [](const std::string& text, size_t* pos) { return std::stod(text, pos); });
         return true;
     }
 
-    bool ConfigData::Read(const std::string& key, uint64_t& value, uint64_t defaultValue) const
+    bool ConfigData::Read(const std::string& key, uint64_t& value, uint64_t value_if_missing) const
     {
         auto it = map_.find(key);
-        if (it == map_.end()) { value = defaultValue; return false; }
-        auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
-        try { value = std::stoull(str); }
-        catch (...) {
-            LogReadFailure(key, (*it).second, "uint64_t");
-            value = defaultValue;
-            return false;
-        }
+        if (it == map_.end()) { value = value_if_missing; return false; }
+        value = ParseNumericConfigValue<uint64_t>(
+            key, (*it).second, "uint64_t",
+            [](const std::string& text, size_t* pos) { return std::stoull(text, pos); });
         return true;
     }
 
-    bool ConfigData::Read(const std::string& key, int64_t& value, int64_t defaultValue) const
+    bool ConfigData::Read(const std::string& key, int64_t& value, int64_t value_if_missing) const
     {
         auto it = map_.find(key);
-        if (it == map_.end()) { value = defaultValue; return false; }
-        auto str = anet::ReplaceAll((*it).second, ",", ""); // カンマ除去
-        try { value = std::stoll(str); } catch (...) {
-            LogReadFailure(key, (*it).second, "int64_t");
-            value = defaultValue;
-            return false;
-        }
+        if (it == map_.end()) { value = value_if_missing; return false; }
+        value = ParseNumericConfigValue<int64_t>(
+            key, (*it).second, "int64_t",
+            [](const std::string& text, size_t* pos) { return std::stoll(text, pos); });
         return true;
     }
 
-    bool ConfigData::Read(const std::string& key, bool& value, bool defaultValue) const
+    bool ConfigData::Read(const std::string& key, bool& value, bool value_if_missing) const
     {
         auto it = map_.find(key);
-        if (it == map_.end()) { value = defaultValue; return false; }
-        const auto& v = (*it).second;
+        if (it == map_.end()) { value = value_if_missing; return false; }
+        const auto v = TrimConfigValue((*it).second);
         if (v == "true" || v == "TRUE" || v == "1" || v == "yes" || v == "on") { value = true; return true; }
         if (v == "false" || v == "FALSE" || v == "0" || v == "no" || v == "off") { value = false; return true; }
-        LogReadFailure(key, v, "bool");
-        value = defaultValue;
-        return false;
+        ThrowReadFailure(key, (*it).second, "bool");
     }
 
-    bool ConfigData::Read(const std::string& key, std::vector<float>& value, std::vector<float> defaultValue) const
+    bool ConfigData::Read(const std::string& key, std::vector<float>& value, std::vector<float> value_if_missing) const
     {
         auto it = map_.find(key);
-        if (it == map_.end()) { value = defaultValue; return false; }
-        try {
-            auto str_vec = anet::Split((*it).second, { " ", "　" }, true);
-            value.resize(str_vec.size());
-            for (int i = 0; i < value.size(); i++) {
-                value[i] = std::stof(str_vec[i]);
-            }
-        } catch (...) {
-            LogReadFailure(key, (*it).second, "float vector");
-            value = defaultValue;
-            return false;
+        if (it == map_.end()) { value = value_if_missing; return false; }
+        auto str_vec = anet::Split((*it).second, { " ", "　" }, true);
+        std::vector<float> parsed_value;
+        parsed_value.reserve(str_vec.size());
+        for (const auto& token : str_vec) {
+            parsed_value.push_back(ParseNumericConfigValue<float>(
+                key, (*it).second, token, "float vector",
+                [](const std::string& text, size_t* pos) { return std::stof(text, pos); }));
         }
+        value = std::move(parsed_value);
         return true;
     }
 
-    bool ConfigData::Read(const std::string& key, std::vector<int64_t>& value, std::vector<int64_t> defaultValue) const
+    bool ConfigData::Read(const std::string& key, std::vector<int64_t>& value, std::vector<int64_t> value_if_missing) const
     {
         auto it = map_.find(key);
-        if (it == map_.end()) { value = defaultValue; return false; }
-        try {
-            auto str_vec = anet::Split((*it).second, { " ", "　" }, true);
-            value.resize(str_vec.size());
-            for (int i = 0; i < value.size(); i++) {
-                value[i] = std::stoull(str_vec[i]);
-            }
-        } catch (...) {
-            LogReadFailure(key, (*it).second, "int64_t vector");
-            value = defaultValue;
-            return false;
+        if (it == map_.end()) { value = value_if_missing; return false; }
+        auto str_vec = anet::Split((*it).second, { " ", "　" }, true);
+        std::vector<int64_t> parsed_value;
+        parsed_value.reserve(str_vec.size());
+        for (const auto& token : str_vec) {
+            parsed_value.push_back(ParseNumericConfigValue<int64_t>(
+                key, (*it).second, token, "int64_t vector",
+                [](const std::string& text, size_t* pos) { return std::stoll(text, pos); }));
         }
+        value = std::move(parsed_value);
         return true;
     }
 
-    bool ConfigData::Read(const std::string& key, std::vector<std::string>& value, std::vector<std::string> defaultValue) const
+    bool ConfigData::Read(const std::string& key, std::vector<std::string>& value, std::vector<std::string> value_if_missing) const
     {
         auto it = map_.find(key);
-        if (it == map_.end()) { value = defaultValue; return false; }
-        try {
-            auto str_vec = anet::Split((*it).second, { " ", "　" }, true);
-            value.resize(str_vec.size());
-            for (int i = 0; i < value.size(); i++) {
-                value[i] = str_vec[i];
-            }
-        } catch (...) {
-            LogReadFailure(key, (*it).second, "string vector");
-            value = defaultValue;
-            return false;
-        }
+        if (it == map_.end()) { value = value_if_missing; return false; }
+        value = anet::Split((*it).second, { " ", "　" }, true);
         return true;
     }
 

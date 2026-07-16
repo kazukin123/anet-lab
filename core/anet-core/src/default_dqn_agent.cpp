@@ -4,8 +4,6 @@
 #include "dqn_based_agent.hpp"
 #include <memory>
 #include <torch/torch.h>
-#include <tuple>
-#include <charconv>
 #include <cmath>
 #include "anet/str_util.hpp"
 #include "anet/nn_util.hpp"
@@ -26,61 +24,6 @@ namespace LOG = anet::log;
 
 namespace {
 
-std::string TrimConfigValue(const std::string& value)
-{
-    const auto first = value.find_first_not_of(" \t\r\n");
-    if (first == std::string::npos) {
-        return {};
-    }
-    const auto last = value.find_last_not_of(" \t\r\n");
-    return value.substr(first, last - first + 1);
-}
-
-[[noreturn]] void ThrowInvalidTrainActorConfig(
-    const std::string& key,
-    const std::string& raw_value,
-    const std::string& expected)
-{
-    ANET_SYSTEM_ERROR(
-        "Invalid Train Actor config: key=" << key
-        << " value=\"" << raw_value << "\" expected " << expected);
-}
-
-void ValidateStrictUnsigned(const std::string& key, const std::string& raw_value)
-{
-    auto value = TrimConfigValue(raw_value);
-    value = anet::ReplaceAll(value, ",", "");
-    if (value.empty() || value.front() == '-') {
-        ThrowInvalidTrainActorConfig(key, raw_value, "unsigned integer");
-    }
-
-    uint64_t parsed = 0;
-    const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
-    if (result.ec != std::errc{} || result.ptr != value.data() + value.size()) {
-        ThrowInvalidTrainActorConfig(key, raw_value, "unsigned integer");
-    }
-}
-
-void ValidateStrictDouble(const std::string& key, const std::string& raw_value)
-{
-    auto value = anet::ReplaceAll(TrimConfigValue(raw_value), ",", "");
-    if (value.empty()) {
-        ThrowInvalidTrainActorConfig(key, raw_value, "finite number");
-    }
-
-    bool valid = false;
-    try {
-        size_t parsed_length = 0;
-        const double parsed = std::stod(value, &parsed_length);
-        valid = parsed_length == value.size() && std::isfinite(parsed);
-    } catch (const std::exception&) {
-        valid = false;
-    }
-    if (!valid) {
-        ThrowInvalidTrainActorConfig(key, raw_value, "finite number");
-    }
-}
-
 bool IsSameSharedNetworkDevice(const torch::Device& lhs, const torch::Device& rhs)
 {
     if (lhs.type() != rhs.type()) {
@@ -95,102 +38,6 @@ bool IsSameSharedNetworkDevice(const torch::Device& lhs, const torch::Device& rh
 }
 
 } // namespace
-
-void DefaultDQNAgentConfig::ValidateTrainActorRawConfig(const ConfigData& config_data)
-{
-    static constexpr const char* kPrefix = "DefaultDQNAgent.train_actor.";
-    for (const auto& [key, raw_value] : config_data.Map()) {
-        if (!anet::StartsWith(key, kPrefix)) {
-            continue;
-        }
-
-        const auto value = TrimConfigValue(raw_value);
-        if (value.empty()) {
-            ThrowInvalidTrainActorConfig(key, raw_value, "non-empty value");
-        }
-        if (key == "DefaultDQNAgent.train_actor.clone_model") {
-            const bool valid = value == "true" || value == "TRUE" || value == "1"
-                || value == "yes" || value == "on"
-                || value == "false" || value == "FALSE" || value == "0"
-                || value == "no" || value == "off";
-            if (!valid) {
-                ThrowInvalidTrainActorConfig(key, raw_value, "bool");
-            }
-        } else if (anet::EndsWith(key, ".value")
-            || anet::EndsWith(key, ".start")
-            || anet::EndsWith(key, ".end")
-            || anet::EndsWith(key, ".steps")) {
-            ValidateStrictUnsigned(key, raw_value);
-        } else if (anet::EndsWith(key, ".cycle_mult")) {
-            ValidateStrictDouble(key, raw_value);
-        }
-    }
-}
-
-void DefaultDQNAgentConfig::ValidateTrainActorProfileConfig(
-    const ConfigData& config_data,
-    const TrainActorConfig& config)
-{
-    static constexpr const char* kRoot = "DefaultDQNAgent.train_actor.sync_interval";
-    const auto fail_value = [](const std::string& key, const auto& value, const std::string& expected) {
-        ANET_SYSTEM_ERROR(
-            "Invalid Train Actor config: key=" << key
-            << " value=" << value << " expected " << expected);
-    };
-    const auto validate_positive = [&](const std::string& key, step_t value) {
-        if (value < 1) {
-            fail_value(key, value, ">= 1");
-        }
-    };
-    const auto validate_profile = [&](const auto& profile, const std::string& root, bool require_duration) {
-        const bool is_constant = profile.type == "constant";
-        const bool is_linear = profile.type == "linear";
-        const bool is_cosine = profile.type == "cosine";
-        const bool is_restart = profile.type == "cosine_restart";
-        if (!is_constant && !is_linear && !is_cosine && !is_restart) {
-            fail_value(root + ".type", profile.type, "constant|linear|cosine|cosine_restart");
-        }
-        if (is_constant) {
-            validate_positive(root + ".value", profile.value);
-        } else {
-            validate_positive(root + ".start", profile.start);
-            validate_positive(root + ".end", profile.end);
-            if (profile.steps == 0) {
-                fail_value(root + ".steps", profile.steps, ">= 1");
-            }
-        }
-        if (require_duration && profile.steps == 0) {
-            fail_value(root + ".steps", profile.steps, ">= 1");
-        }
-        if (is_restart && profile.cycle_mult <= 0.0) {
-            fail_value(root + ".cycle_mult", profile.cycle_mult, "> 0");
-        }
-    };
-
-    const auto& interval = config.sync_interval;
-    if (interval.type != "phased") {
-        validate_profile(interval, kRoot, false);
-        return;
-    }
-
-    if (interval.phases.empty()) {
-        fail_value(std::string(kRoot) + ".phases", "", "non-empty phase list");
-    }
-    for (const auto& phase_name : interval.phases) {
-        const std::string phase_root = std::string(kRoot) + ".phase.[" + phase_name + "]";
-        bool has_definition = false;
-        for (const auto& [key, raw_value] : config_data.Map()) {
-            if (anet::StartsWith(key, phase_root + ".")) {
-                has_definition = true;
-                break;
-            }
-        }
-        if (!has_definition || interval.phase.find(phase_name) == interval.phase.end()) {
-            fail_value(std::string(kRoot) + ".phases", phase_name, "defined phase");
-        }
-        validate_profile(interval.phase.Get(phase_name), phase_root, true);
-    }
-}
 
 
 // ======================================================

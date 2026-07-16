@@ -2525,6 +2525,8 @@ TEST_CASE("DefaultDQNAgentConfig defaults Train Actor snapshot to shared mode", 
     CHECK_FALSE(config.train_actor.clone_model);
     CHECK(config.train_actor.sync_interval.type == "constant");
     CHECK(config.train_actor.sync_interval.value == 400);
+    REQUIRE(config.train_actor.sync_interval.min_value.has_value());
+    CHECK(*config.train_actor.sync_interval.min_value == 1);
 }
 
 TEST_CASE("DefaultDQNAgentConfig rejects malformed Train Actor snapshot values", "[dqn][config][snapshot]")
@@ -2537,7 +2539,7 @@ TEST_CASE("DefaultDQNAgentConfig rejects malformed Train Actor snapshot values",
         dqn::DefaultDQNAgentConfig(config_data),
         Catch::Matchers::ContainsSubstring("DefaultDQNAgent.train_actor.sync_interval.value")
             && Catch::Matchers::ContainsSubstring("400x")
-            && Catch::Matchers::ContainsSubstring("expected unsigned integer"));
+            && Catch::Matchers::ContainsSubstring("expected=uint64_t"));
 }
 
 TEST_CASE("DefaultDQNAgentConfig requires a positive active snapshot interval", "[dqn][config][snapshot]")
@@ -2549,9 +2551,9 @@ TEST_CASE("DefaultDQNAgentConfig requires a positive active snapshot interval", 
 
     CHECK_THROWS_WITH(
         dqn::DefaultDQNAgentConfig(config_data),
-        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.train_actor.sync_interval.value")
-            && Catch::Matchers::ContainsSubstring("value=0")
-            && Catch::Matchers::ContainsSubstring("expected >= 1"));
+        Catch::Matchers::ContainsSubstring("key=train_actor.sync_interval.value")
+        && Catch::Matchers::ContainsSubstring("value=0")
+        && Catch::Matchers::ContainsSubstring("expected=>=1"));
 }
 
 TEST_CASE("DefaultDQNAgentConfig strictly parses every explicit snapshot field", "[dqn][config][snapshot]")

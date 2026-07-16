@@ -14,7 +14,9 @@
   - `train_actor.clone_model = false`
   - `train_actor.sync_interval.type = constant`
   - `train_actor.sync_interval.value = 400`
-- 新規subtreeの明示raw値をDQN固有の厳格parserで先に検証する。既存の桁区切りカンマは許可するが、空値、負のunsigned値、末尾文字、overflow、nonfinite値は拒否する。active profileは周期1以上、必要なstepsとphase定義、正の`cycle_mult`を要求し、clone無効時も検証する。
+- `ConfigData::Read()` / `Get()`を共通fail-fast契約へ変更し、キー欠落時だけ既定値を使う。typed readerは全体消費、overflow、負unsigned値、nonfinite値、不正bool、vector tokenを検証し、数値中のカンマ除去互換を維持する。
+- default / overrideの各layerは独立して書式検証し、後続overrideは先行layerの書式不正を隠さない。
+- `ProfiledValueConfig<T>`へ設定schema非公開の`min_value` / `max_value`を追加し、共通Readerとruntime constructorで同じ構造・active field検証を行う。Train Actorは`min_value = 1`とし、clone無効時も検証する。Reader経由の構造・boundsエラーは物理layerではなくConfig所有者から見た論理keyを示す。
 - `Actor::MakeAction()` と `Actor::Sync()` に、同一Actorへ並行呼び出しできない契約をDoxygenで明記する。
 
 ## 実装変更
@@ -25,6 +27,7 @@
 - `Sync()` はclone Actorを必ず即時copyし、周期Train Actorでは次回actionをage 0の新基準にする。Pipeline Train Runnerの毎step `actor_->Sync()` は削除する。
 - `DQNActionInfo` に専用のoptional snapshot診断値を保持させ、DQN内部のActionPolicy戻り値を型付けしてActorから設定する。DefaultDQNのshared/Evalでは両キーを `NaN`、snapshot有効時は同期後のinterval/age、Rainbowでは診断値自体を持たせず `std::nullopt` とする。`To()` と `WithAction()` は診断値を保持する。
 - archiveにはsnapshot network、profile runtime、同期step、pending状態を追加しない。`auto_load_file` 後にload済みonline networkから新しい初期snapshotを作る。
+- `TrainActorConfig`専用ReaderとDQN固有raw/profile validatorは追加せず、`train_actor.clone_model`と`train_actor.sync_interval`の2つの`ANET_READ_CONFIG`だけで読み込み・検証を完了する。
 - 既存の `CONTEXT.md`、ADR 0013、ownership guideline、`metrics.scalar.full` のユーザー変更は保持する。実装後に設計資料のRunner境界、Actor ownership/API、snapshot metric契約を現行仕様へ更新する。新規ADRは追加しない。
 
 ## TDD・テスト
@@ -36,7 +39,7 @@
 5. DefaultDQNのTrain/Eval × `nullopt/true/false`、shared device不整合、Rainbow/ImageCls/MuZeroの互換性を検証する。
 6. Pipelineが毎step強制同期しないこととSerial/Pipelineのtrigger境界一致をRunnerの公開実行経路で検証する。
 7. snapshot scalar、無効時`NaN`、Rainbowの`nullopt`、`To()`/`WithAction()`保持、fullのみへのcatalog登録を検証する。
-8. 不正bool、負値、末尾文字、overflow、nonfinite、未定義phase、clone無効時の不正intervalをfail-fastテストする。
+8. 共通`ConfigData`の不正bool、負unsigned値、末尾文字、overflow、nonfinite、空値／vector契約と、共通`ProfiledValue`のbounds、未定義phase、programmatic phase既定値、clone無効時の不正intervalをfail-fastテストする。
 9. 保存済みAgentを `auto_load_file` で読み込んだ後、復元networkから初期snapshotが作られることを検証する。
 10. 各RED→GREEN後に関連テストを実行し、全GREEN後だけ重複整理を行う。
 

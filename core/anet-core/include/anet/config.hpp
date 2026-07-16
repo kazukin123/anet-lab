@@ -83,16 +83,17 @@ namespace anet {
             return v;
         }
     public:
-        bool Read(const std::string& key, std::string& value, const std::string& defaultValue) const;
-        bool Read(const std::string& key, int& value, int defaultValue) const;
-        bool Read(const std::string& key, float& value, float defaultValue) const;
-        bool Read(const std::string& key, double& value, double defaultValue) const;
-        bool Read(const std::string& key, uint64_t& value, uint64_t defaultValue) const;
-        bool Read(const std::string& key, int64_t& value, int64_t defaultValue) const;
-        bool Read(const std::string& key, bool& value, bool defaultValue) const;
-        bool Read(const std::string& key, std::vector<float>& value, std::vector<float> defaultValue) const;
-        bool Read(const std::string& key, std::vector<int64_t>& value, std::vector<int64_t> defaultValue) const;
-        bool Read(const std::string& key, std::vector<std::string>& value, std::vector<std::string> defaultValue) const;
+        /// キー欠落時だけvalue_if_missingを使い、存在する不正値は例外にする。
+        bool Read(const std::string& key, std::string& value, const std::string& value_if_missing) const;
+        bool Read(const std::string& key, int& value, int value_if_missing) const;
+        bool Read(const std::string& key, float& value, float value_if_missing) const;
+        bool Read(const std::string& key, double& value, double value_if_missing) const;
+        bool Read(const std::string& key, uint64_t& value, uint64_t value_if_missing) const;
+        bool Read(const std::string& key, int64_t& value, int64_t value_if_missing) const;
+        bool Read(const std::string& key, bool& value, bool value_if_missing) const;
+        bool Read(const std::string& key, std::vector<float>& value, std::vector<float> value_if_missing) const;
+        bool Read(const std::string& key, std::vector<int64_t>& value, std::vector<int64_t> value_if_missing) const;
+        bool Read(const std::string& key, std::vector<std::string>& value, std::vector<std::string> value_if_missing) const;
 
         anet::json ToJson() const
         {
@@ -169,11 +170,11 @@ namespace anet {
                 ConfigReader<T>::Read(*this, config_data, key, value);
             } else {
                 // default_prefixで設定取得
-			    std::string default_config_key = (default_prefix_.empty() ? "" : default_prefix_ + ".") + key;
+                const std::string default_config_key = MakeDefaultConfigKey(key);
                 config_data.Read(default_config_key, value, value);
 
 			    // override_prefixで上書き設定があれば取得
-			    std::string override_config_key = (override_prefix_.empty() ? "" : override_prefix_ + ".") + key;
+                const std::string override_config_key = MakeOverrideConfigKey(key);
                 config_data.Read(override_config_key, value, value);
 
 			    // 取り込んだKeyとValueを保存
@@ -201,9 +202,30 @@ namespace anet {
             return root_key.empty() ? key : root_key + "." + key;
         }
 
+        bool HasConfigValue(const ConfigData& config_data, const std::string& key) const
+        {
+            const std::string default_config_key = MakeDefaultConfigKey(key);
+            if (config_data.Has(default_config_key)) {
+                return true;
+            }
+
+            const std::string override_config_key = MakeOverrideConfigKey(key);
+            return config_data.Has(override_config_key);
+        }
+
+        std::string MakeDefaultConfigKey(const std::string& key) const
+        {
+            return (default_prefix_.empty() ? "" : default_prefix_ + ".") + key;
+        }
+
+        std::string MakeOverrideConfigKey(const std::string& key) const
+        {
+            return (override_prefix_.empty() ? "" : override_prefix_ + ".") + key;
+        }
+
         template<typename T>
         friend struct ConfigReader;
-    protected:
+
         /// Configの値としてConfigは含まめず、あくまでもフラットな設定データ構造とする
 
         std::string default_prefix_;

@@ -12,18 +12,8 @@
 #include "anet/agent.hpp"
 #include "anet/scaler.hpp"
 #include "anet/nn.hpp"
-#include "anet/schedule.hpp"
 
 namespace anet::rl::dqn {
-
-    struct TrainActorConfig {
-        bool clone_model = false;
-        anet::ProfiledValueConfig<step_t> sync_interval{
-            .type = "constant",
-            .value = 400,
-        };
-    };
-
 
     // ======================================================
     // DefaultDQNAgentConfig
@@ -49,18 +39,10 @@ namespace anet::rl::dqn {
         bool use_qr = true;
         bool use_optimistic_target = false;
 
-    private:
-        static void ValidateTrainActorRawConfig(const ConfigData& config_data);
-        static void ValidateTrainActorProfileConfig(
-            const ConfigData& config_data,
-            const TrainActorConfig& config);
-
     public:
         explicit DefaultDQNAgentConfig(const ConfigData& config_data = EmptyConfigData)
             : anet::Config(config_data, "DefaultDQNAgent")
         {
-            ValidateTrainActorRawConfig(config_data);
-
             ANET_READ_CONFIG(config_data, head_init.mode);
             ANET_READ_CONFIG(config_data, head_init.manual_gain);
             ANET_READ_CONFIG(config_data, head_init.constant_val);
@@ -90,8 +72,6 @@ namespace anet::rl::dqn {
 
             ANET_READ_CONFIG(config_data, train_actor.clone_model);
             ANET_READ_CONFIG(config_data, train_actor.sync_interval);
-            ValidateTrainActorProfileConfig(config_data, train_actor);
-            static_cast<void>(anet::ProfiledValue<step_t>(train_actor.sync_interval));
 
             ANET_READ_CONFIG(config_data, train_policy.policy_type);
             ANET_READ_CONFIG(config_data, train_policy.eps_start);

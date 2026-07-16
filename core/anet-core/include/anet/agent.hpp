@@ -7,6 +7,7 @@
 #include "anet/rl.hpp"
 #include "anet/config.hpp"
 #include "anet/scaler.hpp"
+#include "anet/schedule.hpp"
 
 namespace anet::rl {
 
@@ -150,6 +151,15 @@ namespace anet::rl {
             // ==========================================
             bool use_amp = false;
             bool use_amp_bf16 = false;
+        };
+
+        struct TrainActorConfig {
+            bool clone_model = false;
+            anet::ProfiledValueConfig<step_t> sync_interval{
+                .type = "constant",
+                .value = 400,
+                .min_value = 1,
+            };
         };
 
         struct StuckerConfig {

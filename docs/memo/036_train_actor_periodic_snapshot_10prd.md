@@ -156,18 +156,22 @@ source online networkのcopyは、Learner更新と同じAgent mutexの既存境�
 - phase field: `phase.[name].type`、`value`、`start`、`end`、`steps`、`cycle_mult`
 - type: `constant`、`linear`、`cosine`、`cosine_restart`、`phased`
 
+`ProfiledValueConfig`には設定schemaへ公開しないcode-ownedな`min_value` / `max_value`制約を持たせる。Train Actorの`sync_interval`は`min_value = 1`を指定し、この制約は設定成果物へ出力しない。
+
 既定値400に2の累乗としての意味はない。既存事例のある一般既定として採用するだけで、Ape-Xのframe軸と本機能の`train_step`軸が等価であるとはみなさない。DropMergeなど個別experimentでは、目的に応じたprofileを設定layerで明示的に上書きし、PRDは個別Runの最適周期を規定しない。
 
 ### バリデーション
 
-- 厳格検証の対象は新設する`DefaultDQNAgent.train_actor.*` subtreeだけとし、汎用`ConfigData::Read()`のWARNと既定値fallback契約は変更しない。
-- 新規subtreeで明示されたraw値は、型変換前に値全体を消費して厳格に解釈する。既存のbool表記以外、空値、数値の末尾文字、overflowを不正値とする。
-- `step_t`へ読むfieldは符号なし変換前に負値を拒否する。`cycle_mult`を含む浮動小数fieldは`NaN`と正負の無限大を拒否する。
-- activeなprofileが生成し得るすべての周期を1以上にする。`constant`の`value`、補間profileの`start` / `end`、各phaseのactive fieldを検証する。
-- 未知type、必要な`steps == 0`、`cycle_mult <= 0`、空の`phases`、未定義phaseなど、既存`ProfiledValue`の検証を維持する。
+- 汎用`ConfigData::Read()`はキー欠落時だけ呼出側の値を使い、存在する値の型変換失敗を`ANET_SYSTEM_ERROR`でfail-fastする。`ConfigData::Get()`も同じ契約に従う。
+- default prefixとoverride prefixの各layerは独立して書式検証する。後続layerに正常なoverrideがあっても、先行layerの書式不正を隠さず、その実keyとraw値でfail-fastする。
+- typed readerは前後空白を除去し、値全体の消費、overflow、負のunsigned値、nonfinite値、不正bool、vector内の不正tokenを検出する。数値中のカンマは既存互換として位置を問わず除去する。明示的な空値はstring / vectorでは有効、数値 / boolでは不正とする。
+- `ConfigReader<ProfiledValueConfig<T>>`と`ProfiledValue<T>` constructorは同じ共通validatorを使い、未知type、必要な`steps == 0`、非正またはnonfiniteな`cycle_mult`、空の`phases`、未定義phaseを拒否する。
+- `min_value` / `max_value`はinclusiveな構築時制約とし、`constant`の`value`、補間profileの`start` / `end`、列挙された各phaseのactive fieldだけを検証する。dormant fieldと未列挙phaseは検証しない。
+- `ProfiledValueConfig`の構造・boundsエラーはlayer provenanceを推測せず、Config所有者から見た`train_actor.sync_interval.value`などの論理keyを示す。
+- Train Actorの`min_value = 1`により、activeなprofileが生成し得るすべての周期を1以上にする。
 - `clone_model = false`でも`sync_interval`を検証する。不正値をinactiveとして無視しない。
 - `clone_model = false`かつ有効な`sync_interval`は、将来のA/B overrideに備えたdormant設定としてWARNなしで許可する。
-- 新規subtreeの不正値は`ANET_SYSTEM_ERROR`でfail-fastする。エラーには設定キー、raw指定値、期待される型または範囲を含め、暗黙のclampや既定値へのfallbackを行わない。
+- エラーには設定キー、raw指定値、期待される型または範囲を含め、暗黙のclampや既定値へのfallbackを行わない。
 
 `ProfiledValue<step_t>`の補間は既存実装どおり、非負の小数部分を整数変換で切り捨てる。例えば計算結果`399.8`は`399 train_step`として扱う。DQN側だけで丸め規則を変更しない。
 
@@ -236,8 +240,8 @@ DefaultDQNで周期Train snapshotが無効な場合は、キーを省略せず�
 10. DefaultDQNの`train_actor_snapshot_interval`と`train_actor_snapshot_age`が同期後のaction情報を返し、周期snapshot無効時は`NaN`を返す。Rainbowでは両キーを公開しない。
 11. 両snapshot metricを`metrics.scalar.full`だけに登録し、`metrics.scalar.baseline`へ追加しない。
 12. `train_actor_snapshot_learn_age`、`train_actor_snapshot_sync_count`、copy時間scalarを追加しない。
-13. 新規`DefaultDQNAgent.train_actor.*`の不正bool、負の`step_t`値、末尾文字を含む数値、nonfiniteな`cycle_mult`などが、既定値へfallbackせずfail-fastする。
-14. `ProfiledValue<step_t>`が全profile種別、整数切り捨て、正値検証を既存契約どおり扱う。
+13. 共通`ConfigData`が不正bool、負のunsigned値、末尾文字を含む数値、overflow、nonfinite値などを、既定値へfallbackせずfail-fastする。
+14. `ProfiledValue<step_t>`が全profile種別、整数切り捨て、`min_value = 1`による正値検証を共通契約どおり扱う。
 15. snapshot有効時もRun中のaction選択network forwardは各action 1回で、probeや優先度計算のための追加forwardを行わない。RNG利用回数または順序の一致は要求しない。
 16. `auto_load_file`後はload済みonline networkから初期snapshotを作り、profileを`exp_step = 0`から開始する。
 17. 同一Actorへの`MakeAction()` / `Sync()`非並行契約を公開Doxygenへ記載する。
@@ -259,7 +263,7 @@ DefaultDQNで周期Train snapshotが無効な場合は、キーを省略せず�
 - Serial/Pipelineで同じ`train_step`のtrigger境界となり、Pipelineが毎stepcopyしないことを検証すること。同じsource parameter versionのcopyはテスト要件にしない。
 - 両action-info scalarの値、DefaultDQN無効時`NaN`、Rainbow照会時`std::nullopt`、`To()` / `WithAction()`での保持を検証すること。
 - `metrics.scalar.full`に両キーがあり、`metrics.scalar.baseline`にないことを設定テストで検証すること。
-- 新規subtreeの不正bool、負値、末尾文字、overflow、nonfinite値がfail-fastし、`clone_model = false`でも`sync_interval`を検証すること。
+- 共通`ConfigData`の不正bool、負unsigned値、末尾文字、overflow、nonfinite値がfail-fastし、`clone_model = false`でも`sync_interval`の共通boundsを検証すること。
 - counting networkまたは同等の公開境界で、Run中のaction選択network forwardが各action 1回であることを検証すること。RNG消費回数は比較しない。
 - `auto_load_file`相当のload後Actor生成で、復元済みnetworkから初期snapshotが作られること。
 - Evalの明示`Sync()`、Rainbow、ImageCls、MuZeroの回帰テストを実行すること。
