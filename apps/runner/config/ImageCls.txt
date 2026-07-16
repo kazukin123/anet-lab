@@ -19,7 +19,7 @@ ImageClsEnv.$ = ImageClsEnv.baseline > E
 #net.branch.[main_feature].$ = net.branch.FoodResNet13      #   44%
 #net.branch.[main_feature].$ = net.branch.FoodResNet13_GAP  #   61% 1.3h
 #net.branch.[main_feature].$ = net.branch.ResNet18          #   67% 1.5h
-#net.branch.[main_feature].$ = net.branch.ResNet18ish_hr    # 86% 6.0h ★
+net.branch.[main_feature].$ = net.branch.ResNet18ish_hr    # 86% 6.0h ★
 #net.branch.[main_feature].$ = net.branch.ResNet18ish_mr    #   73% 1.5h
 #net.branch.[main_feature].$ = net.branch.ResNet18ish_MaxPool
 #net.branch.[main_feature].$ = net.branch.ResNet18ish_std
@@ -29,8 +29,8 @@ ImageClsEnv.$ = ImageClsEnv.baseline > E
 #net.branch.[main_feature].$ = net.branch.ViT_S16_GAP       #   43%
 #net.branch.[main_feature].$ = net.branch.ConvNeXtTiny
 #net.branch.[main_feature].$ = net.branch.ConvNeXtNano
-#net.branch.[main_feature].$ = net.branch.ConvNeXtFemto
-net.branch.[main_feature].$ = net.branch.ConvNeXtAtto      # 80% 8.0h hr ★
+#net.branch.[main_feature].$ = net.branch.ConvNeXtFemto     # 83% 12h
+#net.branch.[main_feature].$ = net.branch.ConvNeXtAtto      # 83% 10.0h hr
 
 app.run_name = run_{t}_imgcls
 
@@ -44,8 +44,9 @@ app.run_name = run_{t}_imgcls
 #app.run_name = run_{t}_imgcls_cn-nano
 #app.run_name = run_{t}_imgcls_cn-femto_dp03
 #app.run_name = run_{t}_imgcls_cn-atto
-#app.run_name = run_{t}_imgcls_ResNet18HRmix_bf16
-#app.run_name = run_{t}_imgcls_CnAttoHR_bf16
+#app.run_name = run_{t}_imgcls_ResNet18
+#app.run_name = run_{t}_imgcls_CnAttoHR
+#app.run_name = run_{t}_imgcls_CnFemtoHR
 
 
 backend.deterministic_algorithms = false   # ★★ false:高速だが非決定論的
