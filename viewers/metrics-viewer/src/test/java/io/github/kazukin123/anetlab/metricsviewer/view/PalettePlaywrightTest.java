@@ -203,6 +203,7 @@ class PalettePlaywrightTest {
 					assertFalse(isGraphScrollLockButtonActive(page));
 					assertTrue(isGraphScrollLockButtonVisible(page));
 					assertTrue(areFloatingControlsSideBySide(page));
+					assertTrue(hasTopClearanceForFloatingControls(page));
 					assertFalse(isPlotlyDragModeFalse(page));
 					assertEquals(null, readGraphScrollLockStorage(page));
 
@@ -848,6 +849,17 @@ class PalettePlaywrightTest {
 					if (!lock || !shot) return false;
 					const verticallyOverlaps = lock.top < shot.bottom && shot.top < lock.bottom;
 					return verticallyOverlaps && lock.right <= shot.left + 1;
+				}
+				"""));
+	}
+
+	private static boolean hasTopClearanceForFloatingControls(Page page) {
+		return Boolean.TRUE.equals(page.evaluate("""
+				() => {
+					const controls = document.getElementById('floating-controls')?.getBoundingClientRect();
+					const firstGraph = document.querySelector('.graph-block')?.getBoundingClientRect();
+					if (!controls || !firstGraph) return false;
+					return firstGraph.top >= controls.bottom + 8;
 				}
 				"""));
 	}
