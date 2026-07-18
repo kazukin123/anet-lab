@@ -1,4 +1,4 @@
-﻿// anet/trainer.hpp
+// anet/trainer.hpp
 #pragma once
 
 #include <memory>
@@ -16,7 +16,7 @@ namespace anet::rl {
     // ======================================================
     // RunnerBase
     // ======================================================
-    
+
     class RunnerBase : public Runner {
     public:
         RunnerBase(
@@ -219,6 +219,9 @@ namespace anet::rl {
         std::shared_ptr<EvalRunner> GetEvalRunner(const std::string& name) { return eval_runners.at(name); }
         anet::rl::RunnerStatus GetStatus() { return status_; }
     private:
+        void EnsureEnvNameAvailable(const std::string& name, const std::string& requested_owner) const;
+        void RegisterEnvName(const std::string& name, const std::string& owner);
+    private:
         // パラメータ
         struct Config;
         std::unique_ptr<Config> config_;
@@ -231,6 +234,7 @@ namespace anet::rl {
         std::unique_ptr<anet::MasterSeedManager> master_seed_;
         std::shared_ptr<TrainRunner> train_runner_;
         std::unordered_map<std::string, std::shared_ptr<EvalRunner>> eval_runners;
+        std::unordered_map<std::string, std::string> env_name_owners_;
 
         // インスタンス(共有)
         std::shared_ptr<anet::rl::BatchEnv> env_;

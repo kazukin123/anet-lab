@@ -1,4 +1,4 @@
-﻿// DropMergeEnv.cpp
+// DropMergeEnv.cpp
 #include "DropMergeEnv.hpp"
 #include <cmath>
 #include <algorithm>
@@ -103,8 +103,10 @@ public:
 // -------------------------------------------------------------
 
 DropMergeEnv::DropMergeEnv(
-    const DropMergeEnvConfig& config, const torch::Device& device, const std::optional<anet::seed_t> seed)
-    : anet::RandomHolder(std::nullopt)
+    const DropMergeEnvConfig& config, const torch::Device& device, const std::string& name,
+    const std::optional<anet::seed_t> seed)
+    : SingleDiscreteEnvBase(name)
+    , anet::RandomHolder(std::nullopt)
     , config_(config)
 {
     // メトリクスログなど
@@ -284,7 +286,7 @@ void DropMergeEnv::buildWorld()
         float half_w = config_.box_width * 0.5f;
         float h = config_.box_height;
         float wall_thick = 50.0f;   // 壁抜け防止のため、壁を厚くする
-        
+
 		// 地面＆壁のFixture定義
         b2FixtureDef fd;
         fd.density = 0.0f;
@@ -533,7 +535,6 @@ b2Body* DropMergeEnv::spawnFruit(float x, float y, int rank)
     fd.density = config_.fruit_densities[rank - 1];
     fd.restitution = config_.restitution;
     fd.friction = config_.friction;
-    
 
     body->CreateFixture(&fd);
 
@@ -628,7 +629,7 @@ void DropMergeEnv::processAction(int64_t action)
         if (!isSpawnAreaClear(actual_x, spawn_y, r_drop)) {
             game_over_ = true;
             term_reason_ = TerminationReason::SpawnBlocked;
-            LOG::verbose() << "Game Over: Spawn area blocked. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x ;
+            LOG::verbose() << "[" << GetName() << "] Game Over: Spawn area blocked. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x ;
             return;
         }
 
@@ -678,7 +679,7 @@ void DropMergeEnv::processMerges()
             // X座標を安全な範囲に強制クランプ
             float safe_x = std::clamp(req.center.x, -limit_x, limit_x);
 
-            // 新しい果物を生成 
+            // 新しい果物を生成
             spawnFruit(safe_x, req.center.y, req.next_rank);
 
             // 合体後のランクで最大ランクを更新
@@ -695,7 +696,7 @@ void DropMergeEnv::processMerges()
 
             // ログ
             if (req.next_rank >= kFruitTypeCount) { // スイカが出来たらログ＆音
-                LOG::verbose() << "Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_ << " current_step_merge_score_=" << current_step_merge_score_;
+                LOG::verbose() << "[" << GetName() << "] Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_ << " current_step_merge_score_=" << current_step_merge_score_;
                 bell();
             }
 
@@ -707,7 +708,7 @@ void DropMergeEnv::processMerges()
             ep_double_suika_created_++; // ダブルスイカ作成数をカウント
 
             // スイカ同士が消えた場合はSpawnしない（Rank 12相当、ダブルスイカ）
-            LOG::info() << "Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_
+            LOG::info() << "[" << GetName() << "] Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_
                 //<< " current_step_merge_score_=" << current_step_merge_score_
                 << " ep_double_suika_created=" << ep_double_suika_created_;
             bell();       /// @todo wxBell()はスレッドセーフじゃないのでwxSoundを使うべき
@@ -784,7 +785,7 @@ bool DropMergeEnv::checkGameOver()
         // 横にはみ出した（壁抜けバグ）
         if (std::abs(pos.x) > config_.box_width * 1.0f) {
             auto data = DecodeUserData(b->GetUserData().pointer);
-            LOG::error() << "Fruit out of bounds. x=" << pos.x << " rank=" << data.second;
+            LOG::error() << "[" << GetName() << "] Fruit out of bounds. x=" << pos.x << " rank=" << data.second;
             //ANET_SYSTEM_ERROR("Fruit out of bounds (x=" << pos.x << ")");
             return true;
         }
@@ -810,7 +811,7 @@ bool DropMergeEnv::checkGameOver()
     // 60step以上オーバーフローが続いたらゲームオーバー
     if (game_over_timer_ > config_.game_over_grace_step) {
         term_reason_ = TerminationReason::Overflow;
-        LOG::verbose() << "Game Over: overflow timeout. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+        LOG::verbose() << "[" << GetName() << "] Game Over: overflow timeout. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
         return true;
     }
 
@@ -1013,7 +1014,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
             // 無限ループ防止のため強制脱出
             if (sim_steps >= max_sim_steps) {
                 if (config_.use_settle_after_drop) {
-                    LOG::verbose() << "World did not settle within " << max_sim_steps << " steps. Forcing exit.";
+                    LOG::verbose() << "[" << GetName() << "] World did not settle within " << max_sim_steps << " steps. Forcing exit.";
                 }
                 break;
             }
@@ -1046,7 +1047,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     const bool no_legal_drop_terminal = !game_over_ && is_noop_action && isNoLegalDropState();
     if (no_legal_drop_terminal) {
         term_reason_ = TerminationReason::NoLegalDrop;
-        LOG::verbose() << "Episode done: no legal drop remains. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+        LOG::verbose() << "[" << GetName() << "] Episode done: no legal drop remains. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
     }
 
     // エピソード完了判定
@@ -1056,7 +1057,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     // 最大ステップ数到達による打ち切りを終了理由としてセット
     if (!done && truncated) {
         term_reason_ = TerminationReason::MaxStep;
-        LOG::verbose() << "Episode truncated. Maximum step count exceeded. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+        LOG::verbose() << "[" << GetName() << "] Episode truncated. Maximum step count exceeded. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
     }
 
     // ショットクロック判定
@@ -1065,10 +1066,10 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         if (config_.use_no_drop_timeout_gameover) {
             done = true;
             accumulated_reward += config_.no_drop_timeout_gameover_penalty;
-            LOG::verbose() << "Episode done due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+            LOG::verbose() << "[" << GetName() << "] Episode done due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
         } else {
             truncated = true;
-            LOG::verbose() << "Episode truncated due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+            LOG::verbose() << "[" << GetName() << "] Episode truncated due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
         }
     }
 
@@ -1109,7 +1110,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
 
     // 累積報酬更新
     episode_reward_ += accumulated_reward;
-     
+
     return std::make_shared<StepResult>(
         this->shared_from_this(), accumulated_reward, accumulated_raw_reward, std::move(state));
 }
@@ -1478,10 +1479,10 @@ DropMergeEnv::GetTensorVector(const std::string& key, int64_t index) const
 
 std::shared_ptr<anet::rl::SingleDiscreteEnv>
 DropMergeEnvFactory::CreateSingleEnv(const anet::ConfigData& config_data, const torch::Device& device,
-    std::optional<anet::seed_t> seed, const std::string& config_prefix)
+    const std::string& name, std::optional<anet::seed_t> seed, const std::string& config_prefix)
 {
     DropMergeEnvConfig config(config_data, config_prefix);
-    return std::make_shared<DropMergeEnv>(config, device, seed);
+    return std::make_shared<DropMergeEnv>(config, device, name, seed);
 }
 
 ANET_REGISTER_ENV_FACTORY(DropMergeEnvFactory);

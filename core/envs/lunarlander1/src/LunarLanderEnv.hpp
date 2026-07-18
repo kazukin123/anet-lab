@@ -1,15 +1,15 @@
-﻿// LunarLanderEnv.hpp
+// LunarLanderEnv.hpp
 #pragma once
 
 #include <memory>
 #include <string>
 #include <vector>
 #include <optional>
-#include <box2d/box2d.h> 
+#include <box2d/box2d.h>
 #include <torch/torch.h>
 #include "anet/random.hpp"
 #include "anet/config.hpp"
-#include "anet/rl.hpp"
+#include "anet/env.hpp"
 
 namespace anet::rl::env {
 
@@ -99,11 +99,12 @@ namespace anet::rl::env {
 
     /// LunarLander 単一環境クラス（離散アクション）
     /// Box2D を用いて 2D 物理を簡易再現する。
-    class LunarLanderEnv : public anet::rl::SingleDiscreteEnv, public anet::RandomHolder, public std::enable_shared_from_this<LunarLanderEnv> {
+    class LunarLanderEnv : public anet::rl::SingleDiscreteEnvBase, public anet::RandomHolder, public std::enable_shared_from_this<LunarLanderEnv> {
     public:
         LunarLanderEnv(
             const LunarLanderEnvConfig& config,
             const torch::Device& device,
+            const std::string& name,
             const std::optional<anet::seed_t> seed = std::nullopt);
 
         ~LunarLanderEnv() override;
@@ -201,6 +202,7 @@ namespace anet::rl::env {
         std::shared_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
             const anet::ConfigData& config_data,
             const torch::Device& device,
+            const std::string& name,
             std::optional<anet::seed_t> seed = std::nullopt,
             const std::string& config_prefix = "") override;
     };

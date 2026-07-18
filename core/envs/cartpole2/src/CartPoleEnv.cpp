@@ -1,4 +1,4 @@
-﻿#include "CartPoleEnv.hpp"
+#include "CartPoleEnv.hpp"
 
 #include <cmath>
 #include <algorithm>
@@ -32,8 +32,9 @@ const float tau = 0.02f;    //0.02f 0.01f
 
 const float deg = (float)M_PI / 180.0f;
 
-CartPoleEnv::CartPoleEnv(const CartPoleEnvConfig& config, const torch::Device& device, std::optional<anet::seed_t> seed)
-    : RandomHolder(seed), config_(config)
+CartPoleEnv::CartPoleEnv(const CartPoleEnvConfig& config, const torch::Device& device,
+    const std::string& name, std::optional<anet::seed_t> seed)
+    : SingleDiscreteEnvBase(name), RandomHolder(seed), config_(config)
 {
     // パラメータ記録
     anet::MetricsLogger::Instance()->Log("CartPoleEnvConfig", config_.ToJson());
@@ -97,7 +98,7 @@ std::shared_ptr<const anet::rl::SingleResetResult> CartPoleEnv::Reset(anet::rl::
         theta_ = 0.0f;
         theta_dot_ = 0.0f;
     }
-    
+
     //x = 0.2f;
     //x_dot = 0.2f;
     //theta = -0.05f;
@@ -238,12 +239,11 @@ CartPoleEnvFactory::CartPoleEnvFactory()
 
 std::shared_ptr<anet::rl::SingleDiscreteEnv> CartPoleEnvFactory::CreateSingleEnv(
     const anet::ConfigData& config_data,
-    const torch::Device& device, std::optional<anet::seed_t> seed,
+    const torch::Device& device, const std::string& name, std::optional<anet::seed_t> seed,
     const std::string& config_prefix)
 {
     CartPoleEnvConfig config(config_data, config_prefix);
-    return std::make_shared<CartPoleEnv>(config, device, seed);
+    return std::make_shared<CartPoleEnv>(config, device, name, seed);
 }
 
 ANET_REGISTER_ENV_FACTORY(CartPoleEnvFactory);
-

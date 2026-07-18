@@ -1,4 +1,5 @@
-﻿
+//env.cpp
+
 #include "anet/env.hpp"
 #include <functional>
 #include <deque>
@@ -15,6 +16,39 @@
 
 using namespace anet::rl;
 namespace LOG = anet::log;
+
+
+//----------------------------------------------
+// Env base classes
+//----------------------------------------------
+
+SingleDiscreteEnvBase::SingleDiscreteEnvBase(std::string name)
+    : name_(std::move(name))
+{
+    ANET_CHECK_MSG(!name_.empty(), "Env name must not be empty.");
+}
+
+BatchEnvBase::BatchEnvBase(std::string name, int num_envs)
+    : name_(std::move(name))
+{
+    ANET_CHECK_MSG(!name_.empty(), "Env name must not be empty.");
+    ANET_CHECK_MSG(num_envs > 0,
+        "BatchEnv num_envs must be positive. name='" << name_ << "' num_envs=" << num_envs);
+
+    // lane名は構築時に一度だけ確定し、実行中には再構築しない。
+    lane_names_.reserve(static_cast<size_t>(num_envs));
+    for (int lane_index = 0; lane_index < num_envs; ++lane_index) {
+        lane_names_.push_back(name_ + "[" + std::to_string(lane_index) + "]");
+    }
+}
+
+const std::string& BatchEnvBase::GetEnvName(int64_t lane_index) const
+{
+    ANET_CHECK_MSG(lane_index >= 0 && lane_index < static_cast<int64_t>(lane_names_.size()),
+        "Invalid BatchEnv lane index. name='" << name_ << "' lane_index=" << lane_index
+        << " num_envs=" << lane_names_.size());
+    return lane_names_[static_cast<size_t>(lane_index)];
+}
 
 
 //----------------------------------------------
@@ -79,10 +113,14 @@ public:
 
 DiscreteBatchEnvBase::DiscreteBatchEnvBase(
     const ConfigData& config_data,
-    std::shared_ptr<SingleDiscreteEnvFactory> factory, int num_envs,
+    std::shared_ptr<SingleDiscreteEnvFactory> factory, const std::string& name, int num_envs,
     const torch::Device& device, std::optional<seed_t> seed,
     const std::string& config_prefix)
-    : RandomHolder(seed), batch_spec_({ num_envs, 1 }), num_envs_(num_envs), device_(device)
+    : BatchEnvBase(name, num_envs)
+    , RandomHolder(seed)
+    , batch_spec_({ num_envs, 1 })
+    , num_envs_(num_envs)
+    , device_(device)
 {
     ANET_ASSERT(num_envs_ > 0);
     ANET_LOG_DEBUG("seed=" << this->GetSeed());
@@ -94,7 +132,7 @@ DiscreteBatchEnvBase::DiscreteBatchEnvBase(
     envs_.reserve(num_envs_);
     for (int i = 0; i < num_envs; ++i) {
         anet::seed_t env_seed = seed_maker.MakeIndexedSeed(i);
-        auto env = factory->CreateSingleEnv(config_data, device, env_seed, config_prefix);
+        auto env = factory->CreateSingleEnv(config_data, device, GetEnvName(i), env_seed, config_prefix);
         envs_.push_back(std::move(env));
     }
 
@@ -184,7 +222,7 @@ std::shared_ptr<DiscreteBatchEnvBase::StepResult> DiscreteBatchEnvBase::createEm
 std::shared_ptr<DiscreteBatchEnvBase::ResetResult> DiscreteBatchEnvBase::getResetResult() const
 {
     /// @todo どこかでDeepCopyしてない処理があるみたいので特定＆修正し、使いまわし&pinnedで高速化
-    
+
     std::shared_ptr<DiscreteBatchEnvBase::ResetResult> result = this->reset_result_;    // 使い回す
     //std::shared_ptr<DiscreteBatchEnvBase::ResetResult> result = createEmptyResetResult();
     return result;
@@ -296,11 +334,12 @@ std::optional<std::vector<torch::Tensor>> DiscreteBatchEnvBase::GetTensorVector(
 VectorizedDiscreteBatchEnv::VectorizedDiscreteBatchEnv(
     const ConfigData& configData,
     std::shared_ptr<SingleDiscreteEnvFactory> factory,
+    const std::string& name,
     int num_envs,
     const torch::Device& device,
     std::optional<seed_t> seed,
     const std::string& config_prefix)
-    : DiscreteBatchEnvBase(configData, factory, num_envs, device, seed, config_prefix)
+    : DiscreteBatchEnvBase(configData, factory, name, num_envs, device, seed, config_prefix)
 {
     ANET_LOG_DEBUG("seed=" << this->GetSeed());
 }
@@ -386,12 +425,13 @@ std::shared_ptr<const BatchStepResult> VectorizedDiscreteBatchEnv::Step(std::sha
 ThreadPoolDiscreteEnv::ThreadPoolDiscreteEnv(
     const ConfigData& configData,
     std::shared_ptr<SingleDiscreteEnvFactory> factory,
+    const std::string& name,
     int num_envs,
     const torch::Device& device,
     std::shared_ptr<ThreadPool> pool,
     std::optional<seed_t> seed,
     const std::string& config_prefix)
-    : DiscreteBatchEnvBase(configData, factory, num_envs, device, seed, config_prefix)
+    : DiscreteBatchEnvBase(configData, factory, name, num_envs, device, seed, config_prefix)
     , pool_(std::move(pool))
 {
     ANET_ASSERT(pool_ != nullptr);
@@ -596,7 +636,8 @@ std::shared_ptr<anet::ThreadPool> DefaultBatchEnvFactory::CreatePool(int worker_
     return std::make_shared<PinnedThreadPool>(worker_threads);
 }
 
-std::shared_ptr<BatchEnv> DefaultBatchEnvFactory::CreateBatchEnv(std::optional<seed_t> seed, int num_envs_in)
+std::shared_ptr<BatchEnv> DefaultBatchEnvFactory::CreateBatchEnv(
+    const std::string& name, std::optional<seed_t> seed, int num_envs_in)
 {
     auto factory = GetSingleFactory();
     if (factory == nullptr) return nullptr;
@@ -608,7 +649,7 @@ std::shared_ptr<BatchEnv> DefaultBatchEnvFactory::CreateBatchEnv(std::optional<s
     // num_envs == 1 では VectorizedDiscreteBatchEnv の方が有利
     if (num_envs == 1 || config_.worker_type == WorkerType::SINGLE_THREAD) {
         return std::make_shared<VectorizedDiscreteBatchEnv>(
-            config_data_, factory, num_envs, device_, seed);
+            config_data_, factory, name, num_envs, device_, seed);
     }
 
     int workers = ResolveWorkerThreads(num_envs);
@@ -621,7 +662,7 @@ std::shared_ptr<BatchEnv> DefaultBatchEnvFactory::CreateBatchEnv(std::optional<s
 
     // ThreadPoolDiscreteEnv の生成
     return std::make_shared<ThreadPoolDiscreteEnv>(
-        config_data_, factory, num_envs, device_, pool, seed);
+        config_data_, factory, name, num_envs, device_, pool, seed);
 }
 
 std::shared_ptr<SingleDiscreteEnvFactory> DefaultBatchEnvFactory::GetSingleFactory() const

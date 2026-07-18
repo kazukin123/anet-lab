@@ -1,4 +1,4 @@
-﻿// ImageClsEnv.cpp
+// ImageClsEnv.cpp
 
 #include "ImageClsEnv.hpp"
 
@@ -38,16 +38,17 @@ private:
 // ImageClsEnv
 // ----------------------------------------------------
 
-ImageClsEnv::ImageClsEnv(const ImageClsEnvConfig& config, std::optional<anet::seed_t> seed)
-    : anet::RandomHolder(seed), config_(config)
+ImageClsEnv::ImageClsEnv(
+    const ImageClsEnvConfig& config, const std::string& name, std::optional<anet::seed_t> seed)
+    : SingleDiscreteEnvBase(name), anet::RandomHolder(seed), config_(config)
 {
     // Train用データソースの生成
-    LOG::verbose() << "Loading train:" << config_.train_list_txt_path;
+    LOG::verbose() << "[" << GetName() << "] Loading train:" << config_.train_list_txt_path;
     train_data_source_ = std::make_unique<anet::img::ImageDataSource>(
         config_.root_dir, config_.train_list_txt_path, config_.classes_txt_path, config_.image_width, config.image_height, config_.suffix);
 
     // Eval用データソースの生成
-    LOG::verbose() << "Loading test:" << config_.eval_list_txt_path;
+    LOG::verbose() << "[" << GetName() << "] Loading test:" << config_.eval_list_txt_path;
     eval_data_source_ = std::make_unique<anet::img::ImageDataSource>(
         config_.root_dir, config_.eval_list_txt_path, config_.classes_txt_path, config_.image_width, config.image_height, config_.suffix);
 
@@ -77,7 +78,7 @@ ImageClsEnv::ImageClsEnv(const ImageClsEnvConfig& config, std::optional<anet::se
     spec_.action_spec.is_discrete = true;
     spec_.action_spec.value_labels = claeses;
 
-    LOG::verbose() << "ImageClsEnv initialized.";
+    LOG::verbose() << "[" << GetName() << "] ImageClsEnv initialized.";
 }
 
 anet::rl::EnvSpec ImageClsEnv::GetSpec() const
@@ -301,8 +302,9 @@ std::optional<float> ImageClsEnv::GetScalar(const std::string& key, int64_t inde
 // ----------------------------------------------------
 
 std::shared_ptr<anet::rl::SingleDiscreteEnv> ImageClsEnvFactory::CreateSingleEnv(
-        const anet::ConfigData& config_data, const torch::Device& device, std::optional<anet::seed_t> seed,const std::string& config_prefix)
+    const anet::ConfigData& config_data, const torch::Device& device, const std::string& name,
+    std::optional<anet::seed_t> seed, const std::string& config_prefix)
 {
     ImageClsEnvConfig config(config_data, config_prefix);
-    return std::make_shared<ImageClsEnv>(config, seed); // CPU固定
+    return std::make_shared<ImageClsEnv>(config, name, seed); // CPU固定
 }

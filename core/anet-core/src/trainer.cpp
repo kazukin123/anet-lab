@@ -718,6 +718,29 @@ RunManager::RunManager(const ConfigData& config_data)
     // Config
     config_ = std::make_unique<Config>(config_data);    ///< @todo config_prefixをtrainからrunに変更？
 
+    // BatchEnvを1つも構築する前に、設定から決まるnameを一括検証する。
+    auto eval_configs = config_data.MakeSubConfigData("train.eval");
+    std::unordered_map<std::string, std::string> planned_name_owners;
+    const auto validate_planned_name = [&planned_name_owners](
+        const std::string& name, const std::string& requested_owner) {
+        if (name.empty()) {
+            ANET_SYSTEM_ERROR("Env name must not be empty. requested_owner='" << requested_owner
+                << "'. Env names must be unique within a Run.");
+        }
+        const auto [it, inserted] = planned_name_owners.emplace(name, requested_owner);
+        if (!inserted) {
+            ANET_SYSTEM_ERROR("Duplicate Env name '" << name << "' within Run: existing_owner='"
+                << it->second << "', requested_owner='" << requested_owner
+                << "'. Env names must be unique within a Run.");
+        }
+    };
+    validate_planned_name("train", "main Train");
+    validate_planned_name("EvalPanel", "EvalPanel");
+    for (const auto& [tag, eval_config] : eval_configs) {
+        (void)eval_config;
+        validate_planned_name(tag, "configured Eval tag '" + tag + "'");
+    }
+
     // seed
     if (config_->seed == 0) {
         master_seed_ = std::make_unique<anet::MasterSeedManager>();
@@ -751,7 +774,8 @@ RunManager::RunManager(const ConfigData& config_data)
     env_class_id_ = env_config.class_id;
     auto env_device = env_factory_->GetDevice();
     auto single_env_factory = env_factory_->GetSingleFactory();
-    env_ = env_factory_->CreateBatchEnv(train_env_seed, -1);
+    EnsureEnvNameAvailable("train", "main Train");
+    env_ = env_factory_->CreateBatchEnv("train", train_env_seed, -1);
     if (env_ == nullptr) {
         LOG::error() << "Failed to create env.";
         return;
@@ -779,12 +803,12 @@ RunManager::RunManager(const ConfigData& config_data)
 
     // TrainRunner生成
     train_runner_ = anet::rl::RunnerFactory::CreateMainRunner(config_->main_runner_type, env_, agent_, notifier_);
+    RegisterEnvName("train", "main Train");
 
     // 設定からObserverを生成して登録
     anet::rl::ObserverFactory factory(config_data);
 
     // EpisodeEvalObserver
-    auto eval_configs = config_data.MakeSubConfigData("train.eval");
     for (const auto& kv : eval_configs) {
         // Eval設定取得
         const auto& tag = kv.first;
@@ -813,11 +837,14 @@ RunManager::RunManager(const ConfigData& config_data)
 
         // EvalRunner生成&登録
         auto actor_device = config_->GetEvalDevice();
+        const auto owner = "configured Eval tag '" + tag + "'";
+        EnsureEnvNameAvailable(tag, owner);
         auto eval_env = std::make_shared<VectorizedDiscreteBatchEnv>(
-            config_data, single_env_factory, 1, env_device, eval_obs_seed, config_prefix);
+            config_data, single_env_factory, tag, 1, env_device, eval_obs_seed, config_prefix);
         auto eval_runner = std::make_shared<EvalRunner>(
             eval_env, agent_, notifier_, run_mode, clone_model, actor_device, tag);
-        eval_runners[tag] = eval_runner;
+        eval_runners.emplace(tag, eval_runner);
+        RegisterEnvName(tag, owner);
 
         // EvalObserver生成&登録
         notifier_->AttachScoped<anet::rl::EpisodeEvalObserver>(
@@ -863,15 +890,36 @@ RunManager::~RunManager()
     this->agent_.reset();
 }
 
+void RunManager::EnsureEnvNameAvailable(const std::string& name, const std::string& requested_owner) const
+{
+    if (name.empty()) {
+        ANET_SYSTEM_ERROR("Env name must not be empty. requested_owner='" << requested_owner
+            << "'. Env names must be unique within a Run.");
+    }
+    const auto it = env_name_owners_.find(name);
+    if (it != env_name_owners_.end()) {
+        ANET_SYSTEM_ERROR("Duplicate Env name '" << name << "' within Run: existing_owner='"
+            << it->second << "', requested_owner='" << requested_owner
+            << "'. Env names must be unique within a Run.");
+    }
+}
+
+void RunManager::RegisterEnvName(const std::string& name, const std::string& owner)
+{
+    EnsureEnvNameAvailable(name, owner);
+    env_name_owners_.emplace(name, owner);
+}
+
 std::shared_ptr<EvalRunner> RunManager::CreateEvalRunner(const std::string& name, RunMode run_mode, bool clone_model, std::optional<torch::Device> device)
 {
-    /// @todo seed指定対応
-
     ANET_ASSERT(status_ == anet::rl::RunnerStatus::RUNNING);
 
-    auto env = env_factory_->CreateBatchEnv(eval_env_seed_, 1); // num_envs = 1
+    const auto owner = "CreateEvalRunner '" + name + "'";
+    EnsureEnvNameAvailable(name, owner);
+    auto env = env_factory_->CreateBatchEnv(name, eval_env_seed_, 1); // num_envs = 1
     auto eval_runner = std::make_shared<EvalRunner>(env, agent_, notifier_, run_mode, clone_model, device, name);
-    this->eval_runners[name] = eval_runner;
+    this->eval_runners.emplace(name, eval_runner);
+    RegisterEnvName(name, owner);
     return eval_runner;
 }
 

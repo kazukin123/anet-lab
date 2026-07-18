@@ -1,5 +1,6 @@
 #include "anet/catch_test.hpp"
 
+#include "anet/env.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/observers.hpp"
 #include "anet/trainer.hpp"
@@ -131,10 +132,11 @@ private:
     int num_envs_ = 0;
 };
 
-class TestBatchEnv final : public rl::BatchEnv {
+class TestBatchEnv final : public rl::BatchEnvBase {
 public:
-    explicit TestBatchEnv(int num_envs, float env_score = 0.0f)
-        : batch_spec_{ num_envs, 1 }
+    TestBatchEnv(const std::string& name, int num_envs, float env_score = 0.0f)
+        : rl::BatchEnvBase(name, num_envs)
+        , batch_spec_{ num_envs, 1 }
         , env_score_(env_score)
     {
     }
@@ -446,7 +448,7 @@ TEST_CASE("RunnerScopedEpisodeEndObserver only forwards target runner events", "
 {
     auto notifier = std::make_shared<rl::Notifier>();
     auto agent = std::make_shared<TestAgent>();
-    auto env = std::make_shared<TestBatchEnv>(1);
+    auto env = std::make_shared<TestBatchEnv>("observer-basic", 1);
     auto target_runner = std::make_shared<TestRunner>(env, agent, notifier, "target");
     auto other_runner = std::make_shared<TestRunner>(env, agent, notifier, "other");
     auto real_observer = std::make_shared<CountingEpisodeEndObserver>();
@@ -478,7 +480,7 @@ TEST_CASE("MetricsLogEpisodeEndObserver logs runner and env scalars", "[episode_
 
     auto notifier = std::make_shared<rl::Notifier>();
     auto agent = std::make_shared<TestAgent>();
-    auto env = std::make_shared<TestBatchEnv>(1, 42.0f);
+    auto env = std::make_shared<TestBatchEnv>("observer-scalar", 1, 42.0f);
     auto runner = std::make_shared<TestRunner>(env, agent, notifier);
 
     notifier->Attach(std::make_shared<rl::MetricsLogEpisodeEndObserver>(
@@ -513,7 +515,7 @@ TEST_CASE("MetricsLogTrainObserver skips undefined action-info scalar", "[metric
 
     auto notifier = std::make_shared<rl::Notifier>();
     auto agent = std::make_shared<TestAgent>();
-    auto env = std::make_shared<TestBatchEnv>(1);
+    auto env = std::make_shared<TestBatchEnv>("observer-event", 1);
     auto runner = std::make_shared<TestRunner>(env, agent, notifier);
     auto observer = std::make_shared<rl::MetricsLogTrainObserver>(
         "noop_uqe_win_rate",
@@ -636,7 +638,7 @@ TEST_CASE("EpisodeEvalObserver rethrows background eval failure on next learn", 
 {
     auto notifier = std::make_shared<rl::Notifier>();
     auto agent = std::make_shared<TestAgent>(0.0f, false, 0.0f, "forced eval failure");
-    auto env = std::make_shared<TestBatchEnv>(1);
+    auto env = std::make_shared<TestBatchEnv>("observer-scope", 1);
     auto runner = std::make_shared<rl::EvalRunner>(
         env,
         agent,

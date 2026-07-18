@@ -1,4 +1,4 @@
-﻿// ImageClsEnv.hpp
+// ImageClsEnv.hpp
 #pragma once
 
 #include <vector>
@@ -7,7 +7,7 @@
 #include <torch/torch.h>
 #include "anet/random.hpp"
 #include "anet/config.hpp"
-#include "anet/rl.hpp"
+#include "anet/env.hpp"
 #include "ImageData.hpp"
 
 namespace anet::rl::env {
@@ -73,9 +73,12 @@ namespace anet::rl::env {
         }
     };
 
-    class ImageClsEnv final : public anet::rl::SingleDiscreteEnv, public anet::RandomHolder {
+    class ImageClsEnv final : public anet::rl::SingleDiscreteEnvBase, public anet::RandomHolder {
     public:
-        ImageClsEnv(const ImageClsEnvConfig& config, std::optional<anet::seed_t> seed);
+        ImageClsEnv(
+            const ImageClsEnvConfig& config,
+            const std::string& name,
+            std::optional<anet::seed_t> seed);
 
         // --- SingleDiscreteEnv インターフェースの実装 ---
         anet::rl::EnvSpec GetSpec() const override;
@@ -121,6 +124,7 @@ namespace anet::rl::env {
         std::shared_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
             const anet::ConfigData& config_data,
             const torch::Device& device,
+            const std::string& name,
             std::optional<anet::seed_t> seed = std::nullopt,
             const std::string& config_prefix = "") override;
     };

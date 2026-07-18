@@ -1,4 +1,4 @@
-﻿// anet/rl.hpp
+// anet/rl.hpp
 
 #pragma once
 
@@ -205,11 +205,11 @@ namespace anet::rl {
         {
             return obs_spec.at(key).shape;
         }
-         
+
         // ---------------------------------------------------------
         // 整合性検証 (Assert用)
         // ---------------------------------------------------------
- 
+
         /// 定義されたTensorSpec自体に矛盾がないかを検証する
         void AssertSanity() const;
 
@@ -360,12 +360,12 @@ namespace anet::rl {
     class SingleStepResult : virtual public SingleEnvResult {
     public:
         SingleStepResult(float reward_in, SingleState next_state_in)
-            : reward(reward_in), next_state(std::move(next_state_in)) { } 
+            : reward(reward_in), next_state(std::move(next_state_in)) { }
 
         virtual ~SingleStepResult() = default;
         std::string ToString() const;
     public:
-        float reward;              ///< 報酬         
+        float reward;              ///< 報酬
         SingleState next_state;    ///< 遷移後の観測  (state_dim...)
     };
 
@@ -628,6 +628,7 @@ namespace anet::rl {
     /// not-thread-safe
     class SingleDiscreteEnv : public Module {
     public:
+        virtual const std::string& GetName() const = 0;
         virtual EnvSpec GetSpec() const = 0;
         virtual std::shared_ptr<const SingleResetResult> Reset(RunMode mode) = 0;
         virtual std::shared_ptr<const SingleStepResult> Step(int64_t action, RunMode mode) = 0;
@@ -640,6 +641,7 @@ namespace anet::rl {
         virtual std::shared_ptr<SingleDiscreteEnv> CreateSingleEnv(
             const anet::ConfigData& config_data,
             const torch::Device& device,
+            const std::string& name,
             std::optional<anet::seed_t> seed = std::nullopt,
             const std::string& config_prefix = "") = 0;
 
@@ -654,6 +656,8 @@ namespace anet::rl {
 
     class BatchEnv : public Module {
     public:
+        virtual const std::string& GetName() const = 0;
+        virtual const std::string& GetEnvName(int64_t lane_index) const = 0;
         virtual EnvSpec GetSpec() const = 0;
         virtual BatchEnvSpec GetBatchSpec() const = 0;
         virtual torch::Device GetDevice() const = 0;
@@ -669,7 +673,10 @@ namespace anet::rl {
 
     class BatchEnvFactory {
     public:
-        virtual std::shared_ptr<BatchEnv> CreateBatchEnv(std::optional<seed_t> seed = std::nullopt, int num_envs = -1) = 0;	///< num_envs=-1でnum_envs自動
+        virtual std::shared_ptr<BatchEnv> CreateBatchEnv(
+            const std::string& name,
+            std::optional<seed_t> seed = std::nullopt,
+            int num_envs = -1) = 0; ///< num_envs=-1でnum_envs自動
         virtual ~BatchEnvFactory() = default;
     };
 
@@ -724,7 +731,7 @@ namespace anet::rl {
 
 
     // =============================================================
-    // ReplayBuffer 
+    // ReplayBuffer
     // =============================================================
 
     enum class ReplayPrioritySource : int8_t {

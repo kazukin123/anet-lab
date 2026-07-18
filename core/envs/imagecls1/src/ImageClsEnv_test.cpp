@@ -144,7 +144,7 @@ TEST_CASE("ImageClsEnv sets episode_start flags for Conv2d metrics image recordi
 
     TinyImageClsDataset dataset;
 
-    anet::rl::env::ImageClsEnv env(dataset.MakeConfig(/*max_steps=*/2), /*seed=*/1);
+    anet::rl::env::ImageClsEnv env(dataset.MakeConfig(/*max_steps=*/2), "imagecls-test", /*seed=*/1);
     auto reset_result = env.Reset(anet::rl::RunMode::Train);
     CHECK(reset_result->state.done == false);
     CHECK(reset_result->state.truncated == false);
@@ -165,6 +165,7 @@ TEST_CASE("ImageClsEnv batch auto reset exposes episode_start on continue state"
     anet::rl::VectorizedDiscreteBatchEnv env(
         dataset.MakeConfigData(/*max_steps=*/1),
         factory,
+        "imagecls-batch-test",
         /*num_envs=*/1,
         torch::Device(torch::kCPU),
         /*seed=*/1,

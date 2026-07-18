@@ -64,7 +64,7 @@ std::shared_ptr<anet::rl::env::LunarLanderEnv> MakeEnv(
     bool obs_include_action, int limit_step = 1000, anet::seed_t seed = 1)
 {
     return std::make_shared<anet::rl::env::LunarLanderEnv>(
-        MakeConfig(obs_include_action, limit_step), torch::Device(torch::kCPU), seed);
+        MakeConfig(obs_include_action, limit_step), torch::Device(torch::kCPU), "lunar-test", seed);
 }
 
 std::vector<float> TensorToFloatVector(const torch::Tensor& tensor)
@@ -184,6 +184,35 @@ TEST_CASE("LunarLanderEnv keeps the first eight observation values unchanged", "
     }
 }
 
+TEST_CASE("LunarLanderEnv behavior does not depend on its name", "[lunarlander][env_name]")
+{
+    const auto config = MakeConfig(/*obs_include_action=*/false, /*limit_step=*/1000);
+    auto first = std::make_shared<anet::rl::env::LunarLanderEnv>(
+        config, torch::Device(torch::kCPU), "first-name[0]", 123);
+    auto second = std::make_shared<anet::rl::env::LunarLanderEnv>(
+        config, torch::Device(torch::kCPU), "second-name[0]", 123);
+
+    const auto first_reset = first->Reset(anet::rl::RunMode::Train);
+    const auto second_reset = second->Reset(anet::rl::RunMode::Train);
+    CHECK(torch::equal(VectorObs(first_reset->state), VectorObs(second_reset->state)));
+
+    const std::vector<int64_t> actions = {
+        anet::rl::env::kActionNoop,
+        anet::rl::env::kActionLeft,
+        anet::rl::env::kActionMain,
+        anet::rl::env::kActionRight,
+        anet::rl::env::kActionNoop,
+    };
+    for (const auto action : actions) {
+        const auto first_step = first->Step(action, anet::rl::RunMode::Train);
+        const auto second_step = second->Step(action, anet::rl::RunMode::Train);
+        CHECK(torch::equal(VectorObs(first_step->next_state), VectorObs(second_step->next_state)));
+        CHECK(first_step->reward == second_step->reward);
+        CHECK(first_step->next_state.done == second_step->next_state.done);
+        CHECK(first_step->next_state.truncated == second_step->next_state.truncated);
+    }
+}
+
 TEST_CASE("LunarLanderEnv action observation works through batch env prefixes", "[lunarlander][obs_include_action]")
 {
     auto config_data = MakeConfigData(/*obs_include_action=*/true, /*limit_step=*/1000);
@@ -193,6 +222,7 @@ TEST_CASE("LunarLanderEnv action observation works through batch env prefixes", 
     anet::rl::VectorizedDiscreteBatchEnv env(
         config_data,
         factory,
+        "lunar-batch-test",
         /*num_envs=*/1,
         torch::Device(torch::kCPU),
         /*seed=*/1,

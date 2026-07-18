@@ -1,6 +1,11 @@
-﻿#pragma once
+// anet/env.hpp
+
+#pragma once
+
 #include <functional>
 #include <optional>
+#include <string>
+#include <vector>
 #include "anet/config.hpp"
 #include "anet/thread.hpp"
 #include "anet/rl.hpp"
@@ -9,11 +14,34 @@ namespace anet::rl {
 
     // ==============
 
-    class DiscreteBatchEnvBase : public BatchEnv, public RandomHolder {
+    class SingleDiscreteEnvBase : public SingleDiscreteEnv {
+    public:
+        explicit SingleDiscreteEnvBase(std::string name);
+
+        const std::string& GetName() const override final { return name_; }
+    private:
+        std::string name_;
+    };
+
+    class BatchEnvBase : public BatchEnv {
+    public:
+        BatchEnvBase(std::string name, int num_envs);
+
+        const std::string& GetName() const override final { return name_; }
+        const std::string& GetEnvName(int64_t lane_index) const override final;
+    private:
+        std::string name_;
+        std::vector<std::string> lane_names_;
+    };
+
+    // ==============
+
+    class DiscreteBatchEnvBase : public BatchEnvBase, public RandomHolder {
     public:
         DiscreteBatchEnvBase(
             const ConfigData& config_data,
             std::shared_ptr<SingleDiscreteEnvFactory> factory,
+            const std::string& name,
             int num_envs,
             const torch::Device& device,
             std::optional<seed_t> seed,
@@ -58,6 +86,7 @@ namespace anet::rl {
         VectorizedDiscreteBatchEnv(
             const ConfigData& configData,
             std::shared_ptr<SingleDiscreteEnvFactory> factory,
+            const std::string& name,
             int num_envs,
             const torch::Device& device,
             std::optional<seed_t> seed = std::nullopt,
@@ -72,6 +101,7 @@ namespace anet::rl {
         ThreadPoolDiscreteEnv(
             const ConfigData& configData,
             std::shared_ptr<SingleDiscreteEnvFactory> factory,
+            const std::string& name,
             int num_envs,
             const torch::Device& device,
             std::shared_ptr<ThreadPool> pool,
@@ -137,7 +167,7 @@ namespace anet::rl {
         int device_type = 0;   ///< 0=cpu 1=cuda
         int device_index = -1; ///< GPU index -1=current device
         int worker_type = WorkerType::AUTO;
- 
+
         DefaultBatchEnvFactoryConfig(const ConfigData& config_data = EmptyConfigData)
             : anet::Config(config_data, "env")
         {
@@ -157,7 +187,10 @@ namespace anet::rl {
             int num_envs = 1,
             std::optional<const torch::Device> device = std::nullopt);
 
-        std::shared_ptr<BatchEnv> CreateBatchEnv(std::optional<seed_t> seed = std::nullopt, int num_envs = -1) override;
+        std::shared_ptr<BatchEnv> CreateBatchEnv(
+            const std::string& name,
+            std::optional<seed_t> seed = std::nullopt,
+            int num_envs = -1) override;
         std::shared_ptr<SingleDiscreteEnvFactory> GetSingleFactory() const;
         torch::Device GetDevice() const { return device_; }
     public:
@@ -182,5 +215,3 @@ namespace anet::rl {
         }; \
         static FactoryType##AutoRegister global_##FactoryType##_auto_register; \
     }
-
-

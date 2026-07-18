@@ -1,11 +1,11 @@
-﻿// GridMazeEnv.hpp
+// GridMazeEnv.hpp
 #pragma once
 
 #include <vector>
 #include <torch/torch.h>
 #include "anet/random.hpp"
 #include "anet/config.hpp"
-#include "anet/rl.hpp"
+#include "anet/env.hpp"
 
 namespace anet::rl::env {
 
@@ -51,13 +51,14 @@ namespace anet::rl::env {
         }
     };
 
-    class GridMazeEnv : public anet::rl::SingleDiscreteEnv, public anet::RandomHolder {
+    class GridMazeEnv : public anet::rl::SingleDiscreteEnvBase, public anet::RandomHolder {
     public:
         enum class Cell { Empty = 0, Wall = 1, Hole = 2, Goal = 3 };
 
         GridMazeEnv(
             const GridMazeEnvConfig& config,
             const torch::Device& device,
+            const std::string& name,
             const std::optional<anet::seed_t> seed = std::nullopt);
 
         anet::rl::EnvSpec GetSpec() const override;
@@ -98,7 +99,8 @@ namespace anet::rl::env {
         std::string GetTargetEnvClassId() const override { return "GridMazeEnv"; }
         std::shared_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
             const anet::ConfigData& config_data,
-            const torch::Device& device, std::optional<anet::seed_t> seed = std::nullopt,
+            const torch::Device& device, const std::string& name,
+            std::optional<anet::seed_t> seed = std::nullopt,
             const std::string& config_prefix = "") override;
     };
 

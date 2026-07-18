@@ -1,5 +1,6 @@
 #include "anet/catch_test.hpp"
 
+#include "anet/env.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/observers.hpp"
 #include "anet/trainer.hpp"
@@ -116,10 +117,11 @@ private:
     int num_envs_ = 0;
 };
 
-class TestBatchEnv final : public rl::BatchEnv {
+class TestBatchEnv final : public rl::BatchEnvBase {
 public:
-    explicit TestBatchEnv(int num_envs, float env_score = 0.0f)
-        : batch_spec_{ num_envs, 1 }
+    TestBatchEnv(const std::string& name, int num_envs, float env_score = 0.0f)
+        : rl::BatchEnvBase(name, num_envs)
+        , batch_spec_{ num_envs, 1 }
         , env_score_(env_score)
     {
     }
@@ -318,7 +320,7 @@ TEST_CASE("RunnerBase emits per-env EpisodeEndEvent with caller counts", "[episo
 {
     auto notifier = std::make_shared<rl::Notifier>();
     auto agent = std::make_shared<TestAgent>();
-    auto env = std::make_shared<TestBatchEnv>(3);
+    auto env = std::make_shared<TestBatchEnv>("episode-end-multi", 3);
     auto runner = std::make_shared<TestRunner>(env, agent, notifier);
     auto observer = std::make_shared<CountingEpisodeEndObserver>();
     notifier->Attach(observer);
@@ -365,7 +367,7 @@ TEST_CASE("EvalRunner forced action keeps derived action-info scalars", "[metric
 
     auto notifier = std::make_shared<rl::Notifier>();
     auto agent = std::make_shared<TestAgent>(0.0f, true, 12.5f);
-    auto env = std::make_shared<TestBatchEnv>(1);
+    auto env = std::make_shared<TestBatchEnv>("episode-end-single", 1);
     auto runner = std::make_shared<rl::EvalRunner>(
         env,
         agent,

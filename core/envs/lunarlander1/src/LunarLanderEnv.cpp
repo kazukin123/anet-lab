@@ -1,4 +1,4 @@
-﻿/*
+/*
  * LunarLander C++ Port
  * Based on work by OpenAI and Farama Foundation.
  * Licensed under the MIT License. See LICENSE file for details.
@@ -205,11 +205,13 @@ public:
 LunarLanderEnv::LunarLanderEnv(
     const LunarLanderEnvConfig& config,
     const torch::Device& device,
+    const std::string& name,
     const std::optional<anet::seed_t> seed)
-    : anet::RandomHolder(seed)
+    : SingleDiscreteEnvBase(name)
+    , anet::RandomHolder(seed)
     , config_(config)
 {
-    ANET_LOG_DEBUG("seed=" << this->GetSeed());
+    ANET_LOG_DEBUG("[" << GetName() << "] seed=" << this->GetSeed());
 
     if (auto logger = anet::MetricsLogger::Instance()) {
         logger->Log("LunarLanderEnv", config_.ToJson());
@@ -905,7 +907,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> LunarLanderEnv::Step(int64_t a
 
     step_count_++;
     last_action_ = action;
-    
+
     applyWind();
     applyActionForce(action);
 
@@ -975,11 +977,11 @@ std::optional<torch::Tensor> LunarLanderEnv::GetTensor(const std::string& key, i
     if (key == "legs") {
         auto left_seg = getLegSegment(left_leg_body_, kLegLength);
         auto right_seg = getLegSegment(right_leg_body_, kLegLength);
-        ANET_LOG_DEBUG("lander_body=" << lander_body_->GetPosition().x << " " << lander_body_->GetPosition().y);
-        ANET_LOG_DEBUG("left_seg.p0=" << left_seg.p0.x << " " << left_seg.p0.y);
-        ANET_LOG_DEBUG("left_seg.p1=" << left_seg.p1.x << " " << left_seg.p1.y);
-        ANET_LOG_DEBUG("right_seg.p0=" << right_seg.p0.x << " " << right_seg.p0.y);
-        ANET_LOG_DEBUG("right_seg.p1=" << right_seg.p1.x << " " << right_seg.p1.y);
+        ANET_LOG_DEBUG("[" << GetName() << "] lander_body=" << lander_body_->GetPosition().x << " " << lander_body_->GetPosition().y);
+        ANET_LOG_DEBUG("[" << GetName() << "] left_seg.p0=" << left_seg.p0.x << " " << left_seg.p0.y);
+        ANET_LOG_DEBUG("[" << GetName() << "] left_seg.p1=" << left_seg.p1.x << " " << left_seg.p1.y);
+        ANET_LOG_DEBUG("[" << GetName() << "] right_seg.p0=" << right_seg.p0.x << " " << right_seg.p0.y);
+        ANET_LOG_DEBUG("[" << GetName() << "] right_seg.p1=" << right_seg.p1.x << " " << right_seg.p1.y);
 
         torch::Tensor t = torch::tensor({
             left_seg.p0.x, left_seg.p0.y, left_seg.p1.x, left_seg.p1.y,
@@ -1148,11 +1150,11 @@ anet::rl::AuxData LunarLanderEnv::CreateAuxData(float reward, float raw_reward) 
 
 std::shared_ptr<anet::rl::SingleDiscreteEnv>
 LunarLanderEnvFactory::CreateSingleEnv(const anet::ConfigData& config_data, const torch::Device& device,
-    std::optional<anet::seed_t> seed, const std::string& config_prefix)
+    const std::string& name, std::optional<anet::seed_t> seed, const std::string& config_prefix)
 {
     LunarLanderEnvConfig config(config_data, config_prefix);
     //LOG::info() << "LunarLanderEnvFactory: config_prefix=" << config_prefix << " config=" << config.ToJson();
-    return std::make_shared<LunarLanderEnv>(config, device, seed);
+    return std::make_shared<LunarLanderEnv>(config, device, name, seed);
 }
 
 ANET_REGISTER_ENV_FACTORY(LunarLanderEnvFactory);

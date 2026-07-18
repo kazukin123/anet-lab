@@ -1,11 +1,11 @@
-﻿// CartPoleEnv.hpp
+// CartPoleEnv.hpp
 
 #pragma once
 
 #include <torch/torch.h>
 #include "anet/random.hpp"
 #include "anet/config.hpp"
-#include "anet/rl.hpp"
+#include "anet/env.hpp"
 
 
 struct CartPoleEnvConfig : public anet::Config {
@@ -17,17 +17,18 @@ struct CartPoleEnvConfig : public anet::Config {
     }
 };
 
-class CartPoleEnv : public anet::rl::SingleDiscreteEnv, public anet::RandomHolder {
+class CartPoleEnv : public anet::rl::SingleDiscreteEnvBase, public anet::RandomHolder {
 public:
     CartPoleEnv(
         const CartPoleEnvConfig& config,
         const torch::Device& device,
+        const std::string& name,
         const std::optional<anet::seed_t> seed = std::nullopt);
 
     anet::rl::EnvSpec GetSpec() const override;
     std::shared_ptr<const anet::rl::SingleResetResult> Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
     std::shared_ptr<const anet::rl::SingleStepResult> Step(int64_t action, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
-    
+
     std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
     std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
     std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
@@ -53,7 +54,7 @@ public:
 
     std::shared_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
         const anet::ConfigData& config_data,
-        const torch::Device& device, std::optional<anet::seed_t> seed = std::nullopt,
+        const torch::Device& device, const std::string& name,
+        std::optional<anet::seed_t> seed = std::nullopt,
         const std::string& config_prefix = "") override;
 };
-

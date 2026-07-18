@@ -1,4 +1,4 @@
-﻿// DropMergeEnv.hpp
+// DropMergeEnv.hpp
 #pragma once
 
 #include <memory>
@@ -9,7 +9,7 @@
 #include <torch/torch.h>
 #include "anet/random.hpp"
 #include "anet/config.hpp"
-#include "anet/rl.hpp"
+#include "anet/env.hpp"
 
 namespace anet::rl::env::drop_merge {
 
@@ -79,8 +79,8 @@ namespace anet::rl::env::drop_merge {
         int reload_min_steps = 20;      ///< Drop抑止ステップ数（物理判定が早くても必ず待つ時間）
         int reload_max_steps = 300;     ///< Drop抑止タイムアウトステップ数（物理判定が効かない場合の強制解除）
 		bool noop_override = false;     ///< NOOPアクションを中央方向移動に上書きするか
-		int game_over_grace_step = 60;  ///< 上端から溢れてからゲームオーバーとするまでの猶予ステップ数      
-        float drop_noise = 0.01f;       ///< Drop時のX座標ノイズ 
+		int game_over_grace_step = 60;  ///< 上端から溢れてからゲームオーバーとするまでの猶予ステップ数
+        float drop_noise = 0.01f;       ///< Drop時のX座標ノイズ
         float spin_noise = 0.0f;        ///< Drop時の初期角速度ノイズ(rad/s)
 
         bool use_settle_after_drop = false;     ///< 物理演算が安定(Settle)するまで強制的に時間を進めるか
@@ -187,11 +187,12 @@ namespace anet::rl::env::drop_merge {
     };
 
     /// DropMerge (Suika-like) 環境クラス
-    class DropMergeEnv : public anet::rl::SingleDiscreteEnv, public anet::RandomHolder, public std::enable_shared_from_this<DropMergeEnv> {
+    class DropMergeEnv : public anet::rl::SingleDiscreteEnvBase, public anet::RandomHolder, public std::enable_shared_from_this<DropMergeEnv> {
     public:
         DropMergeEnv(
             const DropMergeEnvConfig& config,
             const torch::Device& device,
+            const std::string& name,
             const std::optional<anet::seed_t> seed = std::nullopt);
 
         ~DropMergeEnv() override;
@@ -205,7 +206,6 @@ namespace anet::rl::env::drop_merge {
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
-        
     private:
         class Result;
         class ResetResult;
@@ -328,6 +328,7 @@ namespace anet::rl::env::drop_merge {
         std::shared_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
             const anet::ConfigData& config_data,
             const torch::Device& device,
+            const std::string& name,
             std::optional<anet::seed_t> seed = std::nullopt,
             const std::string& config_prefix = "") override;
     };

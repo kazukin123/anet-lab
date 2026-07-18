@@ -1,6 +1,7 @@
-﻿#include "anet/catch_test.hpp"
+#include "anet/catch_test.hpp"
 
 #include "anet/default_dqn_agent.hpp"
+#include "anet/env.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/rainbow_agent.hpp"
 #include "anet/test_util.hpp"
@@ -867,10 +868,12 @@ private:
     int64_t num_envs_;
 };
 
-class JitterBatchEnv final : public rl::BatchEnv {
+class JitterBatchEnv final : public rl::BatchEnvBase {
 public:
-    JitterBatchEnv(int64_t num_envs, std::shared_ptr<DeterminismJitterSchedule> jitter)
-        : batch_spec_{ static_cast<int>(num_envs), 1 }
+    JitterBatchEnv(
+        const std::string& name, int64_t num_envs, std::shared_ptr<DeterminismJitterSchedule> jitter)
+        : rl::BatchEnvBase(name, static_cast<int>(num_envs))
+        , batch_spec_{ static_cast<int>(num_envs), 1 }
         , jitter_(std::move(jitter))
     {
     }
@@ -1023,7 +1026,7 @@ RunnerDeterminismTrace RunPipelineDeterminismTrial(
         max_sleep_us,
         jitter_entries,
         sleep_stride);
-    auto env = std::make_shared<JitterBatchEnv>(kNumEnv, jitter);
+    auto env = std::make_shared<JitterBatchEnv>("determinism-jitter", kNumEnv, jitter);
     auto agent = std::make_shared<TraceAgent>(
         MakeDeterminismLearnerConfig(),
         env->GetBatchSpec(),

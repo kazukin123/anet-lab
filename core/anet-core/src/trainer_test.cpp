@@ -1,7 +1,11 @@
 #include "anet/catch_test.hpp"
 
+#include "anet/agent.hpp"
+#include "anet/env.hpp"
+#include "anet/metrics_logger.hpp"
 #include "anet/trainer.hpp"
 
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -93,10 +97,11 @@ private:
     int64_t num_envs_ = 0;
 };
 
-class TestBatchEnv final : public rl::BatchEnv {
+class TestBatchEnv final : public rl::BatchEnvBase {
 public:
-    TestBatchEnv(int num_envs, torch::Device device)
-        : batch_spec_{ num_envs, 1 }
+    TestBatchEnv(const std::string& name, int num_envs, torch::Device device)
+        : rl::BatchEnvBase(name, num_envs)
+        , batch_spec_{ num_envs, 1 }
         , device_(std::move(device))
     {
     }
@@ -260,11 +265,137 @@ private:
     std::shared_ptr<HintRecordingReplayBuffer> replay_buffer_;
 };
 
+class RunManagerTestSingleEnv final : public rl::SingleDiscreteEnvBase {
+public:
+    explicit RunManagerTestSingleEnv(const std::string& name)
+        : rl::SingleDiscreteEnvBase(name)
+    {
+    }
+
+    rl::EnvSpec GetSpec() const override { return MakeEnvSpec(); }
+
+    std::shared_ptr<const rl::SingleResetResult> Reset(rl::RunMode) override
+    {
+        return std::make_shared<rl::SingleResetResult>(rl::SingleState{
+            .obs = { rl::ObsKeys::kVector, torch::zeros({ 1 }, torch::kFloat32) },
+            .done = false,
+            .truncated = false,
+            .episode_start = true,
+        });
+    }
+
+    std::shared_ptr<const rl::SingleStepResult> Step(int64_t, rl::RunMode) override
+    {
+        return std::make_shared<rl::SingleStepResult>(0.0f, rl::SingleState{
+            .obs = { rl::ObsKeys::kVector, torch::zeros({ 1 }, torch::kFloat32) },
+            .done = false,
+            .truncated = false,
+            .episode_start = false,
+        });
+    }
+
+    std::optional<float> GetScalar(const std::string&, int64_t) const override { return std::nullopt; }
+    std::optional<torch::Tensor> GetTensor(const std::string&, int64_t) const override { return std::nullopt; }
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(
+        const std::string&, int64_t) const override
+    {
+        return std::nullopt;
+    }
+};
+
+struct RunManagerEnvFactoryState {
+    int creation_count = 0;
+    std::optional<std::string> failing_name;
+};
+
+class RunManagerTestEnvFactory final : public rl::SingleDiscreteEnvFactory {
+public:
+    explicit RunManagerTestEnvFactory(std::shared_ptr<RunManagerEnvFactoryState> state)
+        : state_(std::move(state))
+    {
+    }
+
+    std::shared_ptr<rl::SingleDiscreteEnv> CreateSingleEnv(
+        const anet::ConfigData&, const torch::Device&, const std::string& name,
+        std::optional<anet::seed_t>, const std::string&) override
+    {
+        ++state_->creation_count;
+        if (state_->failing_name == name) {
+            throw std::runtime_error("Requested RunManager test Env failure: " + name);
+        }
+        return std::make_shared<RunManagerTestSingleEnv>(name);
+    }
+
+    std::string GetTargetEnvClassId() const override { return "RunManagerNameTestEnv"; }
+
+private:
+    std::shared_ptr<RunManagerEnvFactoryState> state_;
+};
+
+class RunManagerTestAgentFactory final : public rl::AgentFactory {
+public:
+    std::shared_ptr<rl::Agent> CreateAgent(
+        const rl::EnvSpec&, const rl::BatchEnvSpec&, const torch::Device& device,
+        const anet::ConfigData&, std::shared_ptr<rl::Notifier>, std::optional<anet::seed_t>) const override
+    {
+        return std::make_shared<TestAgent>(device);
+    }
+
+    std::string GetTargetAgentClassId() const override { return "RunManagerNameTestAgent"; }
+};
+
+class RunManagerNoopMetricsBackend final : public anet::IBackend {
+public:
+    void Open(const std::filesystem::path&, const std::string&) override {}
+    void WriteJsonl(const anet::json&) override {}
+    void Flush() override {}
+};
+
+class ScopedRunManagerMetricsLogger final {
+public:
+    ScopedRunManagerMetricsLogger()
+    {
+        anet::MetricsLogger::Reset();
+        anet::MetricsLoggerConfig logger_config;
+        logger_config.run_name_tmpl = "run_manager_env_name_test";
+        anet::MetricsLogger::Init(
+            std::make_unique<RunManagerNoopMetricsBackend>(), logger_config, "C:/tmp");
+    }
+
+    ~ScopedRunManagerMetricsLogger()
+    {
+        anet::MetricsLogger::Reset();
+    }
+};
+
+anet::ConfigData MakeRunManagerNameTestConfig()
+{
+    anet::ConfigData config;
+    config.Set("env.class_id", "RunManagerNameTestEnv");
+    config.Set("env.device_type", "0");
+    config.Set("env.worker_type", "1");
+    config.Set("agent.class_id", "RunManagerNameTestAgent");
+    config.Set("agent.device_type", "0");
+    config.Set("train.seed", "123");
+    config.Set("train.num_envs", "1");
+    config.Set("train.main_runner_type", "serial");
+    config.Set("train.eval_device_type", "cpu");
+    return config;
+}
+
+std::shared_ptr<RunManagerEnvFactoryState> RegisterRunManagerNameTestFactories()
+{
+    auto state = std::make_shared<RunManagerEnvFactoryState>();
+    rl::EnvRepository::Instance().Regist(std::make_shared<RunManagerTestEnvFactory>(state));
+    rl::AgentRepository::Instance().Register(std::make_shared<RunManagerTestAgentFactory>());
+    return state;
+}
+
 } // namespace
 
 TEST_CASE("TrainRunner delegates clone policy to Agent", "[trainer][actor]")
 {
-    auto env = std::make_shared<TestBatchEnv>(1, torch::Device(torch::kCPU));
+    auto env = std::make_shared<TestBatchEnv>("serial-train", 1, torch::Device(torch::kCPU));
     auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
 
     auto runner = std::make_shared<rl::SerialTrainRunner>(env, agent, nullptr);
@@ -274,7 +405,7 @@ TEST_CASE("TrainRunner delegates clone policy to Agent", "[trainer][actor]")
 
 TEST_CASE("PipelineTrainRunner does not force actor synchronization every step", "[trainer][actor][pipeline]")
 {
-    auto env = std::make_shared<TestBatchEnv>(1, torch::Device(torch::kCPU));
+    auto env = std::make_shared<TestBatchEnv>("pipeline-train", 1, torch::Device(torch::kCPU));
     auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
     auto notifier = std::make_shared<rl::Notifier>();
     auto runner = std::make_shared<rl::PipelineTrainRunner>(env, agent, notifier);
@@ -289,7 +420,7 @@ TEST_CASE("PipelineTrainRunner does not force actor synchronization every step",
 TEST_CASE("Train runners preserve opaque K3 replay priority hints to the replay boundary", "[trainer][replay_hint]")
 {
     auto run_and_get_payload = [](bool pipeline) {
-        auto env = std::make_shared<TestBatchEnv>(2, torch::Device(torch::kCPU));
+        auto env = std::make_shared<TestBatchEnv>("replay-hint", 2, torch::Device(torch::kCPU));
         auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
         auto notifier = std::make_shared<rl::Notifier>();
 
@@ -328,7 +459,7 @@ TEST_CASE("Train runners preserve opaque K3 replay priority hints to the replay 
 
 TEST_CASE("EvalRunner allows shared actor when actor device matches agent device", "[trainer][eval_runner]")
 {
-    auto env = std::make_shared<TestBatchEnv>(1, torch::Device(torch::kCPU));
+    auto env = std::make_shared<TestBatchEnv>("eval-cpu", 1, torch::Device(torch::kCPU));
     auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
 
     REQUIRE_NOTHROW(std::make_shared<rl::EvalRunner>(
@@ -337,7 +468,7 @@ TEST_CASE("EvalRunner allows shared actor when actor device matches agent device
 
 TEST_CASE("EvalRunner allows cloned actor on different device", "[trainer][eval_runner]")
 {
-    auto env = std::make_shared<TestBatchEnv>(1, torch::Device(torch::kCPU));
+    auto env = std::make_shared<TestBatchEnv>("eval-cuda", 1, torch::Device(torch::kCPU));
     auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
 
     REQUIRE_NOTHROW(std::make_shared<rl::EvalRunner>(
@@ -346,7 +477,7 @@ TEST_CASE("EvalRunner allows cloned actor on different device", "[trainer][eval_
 
 TEST_CASE("EvalRunner rejects shared actor when actor device differs from agent device", "[trainer][eval_runner]")
 {
-    auto env = std::make_shared<TestBatchEnv>(1, torch::Device(torch::kCPU));
+    auto env = std::make_shared<TestBatchEnv>("eval-mismatch", 1, torch::Device(torch::kCPU));
     auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
 
     bool thrown = false;
@@ -363,4 +494,110 @@ TEST_CASE("EvalRunner rejects shared actor when actor device differs from agent 
     }
 
     CHECK(thrown);
+}
+
+TEST_CASE("RunManager rejects reserved configured Eval names before constructing Env", "[env_name][run_manager]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    SECTION("train") {
+        auto factory_state = RegisterRunManagerNameTestFactories();
+        auto config = MakeRunManagerNameTestConfig();
+        config.Set("train.eval.[train].run_mode", "eval1");
+
+        CHECK_THROWS_WITH(
+            std::make_shared<rl::RunManager>(config),
+            Catch::Matchers::ContainsSubstring("Duplicate Env name 'train' within Run"));
+        CHECK(factory_state->creation_count == 0);
+    }
+
+    SECTION("EvalPanel") {
+        auto factory_state = RegisterRunManagerNameTestFactories();
+        auto config = MakeRunManagerNameTestConfig();
+        config.Set("train.eval.[EvalPanel].run_mode", "eval1");
+
+        CHECK_THROWS_WITH(
+            std::make_shared<rl::RunManager>(config),
+            Catch::Matchers::ContainsSubstring("Duplicate Env name 'EvalPanel' within Run"));
+        CHECK(factory_state->creation_count == 0);
+    }
+}
+
+TEST_CASE("RunManager propagates distinct Env names without interpreting them", "[env_name][run_manager]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    auto factory_state = RegisterRunManagerNameTestFactories();
+    auto config = MakeRunManagerNameTestConfig();
+    config.Set("train.eval.[eval_a].run_mode", "eval1");
+    config.Set("train.eval.[Train].run_mode", "eval1");
+
+    auto manager = std::make_shared<rl::RunManager>(config);
+
+    REQUIRE(manager->GetStatus() == rl::RunnerStatus::RUNNING);
+    CHECK(manager->GetTrainRunner()->GetBatchEnv()->GetName() == "train");
+    CHECK(manager->GetEvalRunner("eval_a")->GetBatchEnv()->GetName() == "eval_a");
+    CHECK(manager->GetEvalRunner("Train")->GetBatchEnv()->GetName() == "Train");
+    CHECK(factory_state->creation_count == 3);
+
+    const auto eval_panel = manager->CreateEvalRunner("EvalPanel");
+    CHECK(eval_panel->GetBatchEnv()->GetName() == "EvalPanel");
+    CHECK(factory_state->creation_count == 4);
+}
+
+TEST_CASE("RunManager rejects dynamic duplicate Env names before construction", "[env_name][run_manager]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    auto factory_state = RegisterRunManagerNameTestFactories();
+    auto config = MakeRunManagerNameTestConfig();
+    config.Set("train.eval.[configured].run_mode", "eval1");
+    auto manager = std::make_shared<rl::RunManager>(config);
+    REQUIRE(manager->GetStatus() == rl::RunnerStatus::RUNNING);
+
+    const int initial_creation_count = factory_state->creation_count;
+    CHECK_THROWS_WITH(
+        manager->CreateEvalRunner("train"),
+        Catch::Matchers::ContainsSubstring("Duplicate Env name 'train' within Run"));
+    CHECK_THROWS_WITH(
+        manager->CreateEvalRunner("configured"),
+        Catch::Matchers::ContainsSubstring("Duplicate Env name 'configured' within Run"));
+    CHECK_THROWS_WITH(
+        manager->CreateEvalRunner(""),
+        Catch::Matchers::ContainsSubstring("Env name must not be empty"));
+    CHECK(factory_state->creation_count == initial_creation_count);
+
+    const auto first = manager->CreateEvalRunner("dynamic");
+    const int after_first_creation = factory_state->creation_count;
+    CHECK_THROWS_WITH(
+        manager->CreateEvalRunner("dynamic"),
+        Catch::Matchers::ContainsSubstring("Duplicate Env name 'dynamic' within Run"));
+    CHECK(factory_state->creation_count == after_first_creation);
+    CHECK(manager->GetEvalRunner("dynamic") == first);
+
+    const auto first_eval_panel = manager->CreateEvalRunner("EvalPanel");
+    const int after_eval_panel_creation = factory_state->creation_count;
+    CHECK_THROWS_WITH(
+        manager->CreateEvalRunner("EvalPanel"),
+        Catch::Matchers::ContainsSubstring("Duplicate Env name 'EvalPanel' within Run"));
+    CHECK(factory_state->creation_count == after_eval_panel_creation);
+    CHECK(manager->GetEvalRunner("EvalPanel") == first_eval_panel);
+}
+
+TEST_CASE("RunManager reserves Env names only after successful construction", "[env_name][run_manager]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    auto factory_state = RegisterRunManagerNameTestFactories();
+    auto config = MakeRunManagerNameTestConfig();
+    auto first_manager = std::make_shared<rl::RunManager>(config);
+    REQUIRE(first_manager->GetStatus() == rl::RunnerStatus::RUNNING);
+
+    factory_state->failing_name = "retry[0]";
+    CHECK_THROWS_WITH(
+        first_manager->CreateEvalRunner("retry"),
+        Catch::Matchers::ContainsSubstring("Requested RunManager test Env failure: retry[0]"));
+    factory_state->failing_name.reset();
+    CHECK(first_manager->CreateEvalRunner("retry")->GetBatchEnv()->GetName() == "retry");
+
+    // registryはRunManagerローカルなので、別Runでは同じnameを再利用できる。
+    auto second_manager = std::make_shared<rl::RunManager>(config);
+    REQUIRE(second_manager->GetStatus() == rl::RunnerStatus::RUNNING);
+    CHECK(second_manager->CreateEvalRunner("retry")->GetBatchEnv()->GetName() == "retry");
 }
