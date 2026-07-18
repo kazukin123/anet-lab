@@ -1,4 +1,4 @@
-﻿#include "anet/rl.hpp"
+#include "anet/rl.hpp"
 #include <stdexcept>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/CUDAEvent.h>
@@ -535,7 +535,7 @@ std::optional<torch::Tensor> BatchExperience::GetTensor(const std::string& key, 
         return state.truncated;
     if (key == STATE_EPISODE_START)
         return state.episode_start;
-        
+
     if (key == NEXT_STATE_DONE)
         return next_state.done;
     if (key == NEXT_STATE_TRUNCATED)
