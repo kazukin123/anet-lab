@@ -537,7 +537,7 @@ void DropMergePanel::DrawSidePanel(wxDC& dc)
         y += line_h;
 
         // 強調表示
-        dc.DrawText(wxString::Format("Total Rew: %f (%f)", total_r, last_total_r), r.x, y);
+        dc.DrawText(wxString::Format("Total Rew: %.2f (%.2f)", total_r, last_total_r), r.x, y);
         y += line_h;
     }
 
