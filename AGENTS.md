@@ -264,6 +264,7 @@ Python 補助ツールの検証も、同じ `.venv` の Python で行ってく�
 編集前:
 
 - 近い実装と既存ドキュメントを確認する。
+- 仕様、設定、Agent、Env、NN、メトリクス、Runner、Viewer などの設計や利用方法に影響する変更では、`docs/design/` 配下の関連ドキュメントも確認する。
 - 変更の目的と影響範囲を把握する。
 - ユーザーの未コミット変更を勝手に戻さない。
 
@@ -280,8 +281,35 @@ Python 補助ツールの検証も、同じ `.venv` の Python で行ってく�
 
 - 変更したファイルを要約する。
 - 実行したビルド・検証コマンドを報告する。
+- 修正内容が `docs/design/` 配下の設計ドキュメントと乖離する場合は、必要に応じて関連ページも同じ変更内で更新する。
 - ビルドを試す場合は、素の PowerShell から `cmake --build` せず、PowerShell-safe な `cmd /s /c 'call "...VsDevCmd.bat" ... && cmake --build ...'` 形式で MSVC 環境を初期化する。
 - 実行できなかった検証があれば理由を明記する。
+
+## Git 操作・コミットメッセージルール
+
+Git commit は原則として人間が実施する。
+AI エージェントは、ユーザーから明示的に依頼された場合だけ commit を作成し、勝手に commit や push をしない。
+
+commit message は Conventional Commits 形式を適用し、Topic Issue 番号を併記する。
+
+- subject は `type(scope): summary #issue` の形式を基本にする。
+  例: `feat(DropMerge): 前回エピソード終了理由表示を追加 #3 #18`
+- `type` は `feat`、`fix`、`refactor`、`test`、`docs`、`style`、`chore` など、変更の主目的に合わせる。
+- `scope` は `DQN`、`ReplayBuffer`、`config`、`PRD035` など、変更対象または作業単位が分かる短い名前にする。
+- Topic Issue が複数ある場合は、subject 末尾に `#3 #18` のように並べる。
+- AI エージェントが commit を実施しない場合でも、ユーザーから求められたらこの形式の commit message 案を提示する。
+
+## AI エージェントのRun結果分析ルール
+
+Run結果を分析する場合は、[Run分析ユーザーガイド](docs/design/030_user_guide_analysis.jp.md)に加えて以下に従ってください。
+
+- Run名や編集後の設定ファイルではなく、Run artifactの`config/config_data.txt`を実効設定の正本とする。
+- 分析開始時に到達step、停止理由、artifactの更新時刻を確認し、実行途中の分析は暫定結果と明記する。完了後は終盤値を再取得して結論を更新する。
+- Run成立性、主目的score、変更機構の健全性、Env挙動、throughput・実所要時間・資源消費を分けて評価し、機構が正常なことと成績改善を混同しない。
+- 報酬は単一の最終点や短期の立ち上がりではなく、比較可能な同一step範囲の終盤window、水準、傾き、急落からの回復を確認する。ユーザーが指定した評価期間とseed数を優先する。
+- 非決定論設定やカオス性のある環境では、1 Runの小差を因果効果と断定しない。絶対分析、baselineとの相対分析、seed間変動を区別して確度を示す。
+- 複数metricの同時変化は、定義、集計単位、排他関係、step軸、時間帯をコードと設定で確認してから解釈し、一時的ピークと終盤への張り付きを区別する。
+- 次アクションは原則として一度に一軸だけ変えるA/Bとし、目的、継続・棄却条件、必要step、必要seed数、概算所要時間を示す。
 
 ## AI エージェントでのビルド注意事項 (Windows/MSVC)
 

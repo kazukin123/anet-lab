@@ -278,7 +278,7 @@ CUDA D2Dの非同期完了時刻を必須CIテストにはしない。CUDA挙動
 
 - `docs/design/100_runtime_and_configuration.jp.md`: Train RunnerからActorへのclone overrideと、Pipeline/Serial共通の同期境界
 - `docs/design/110_agents_and_learning.jp.md`: `CreateActor()`のoptional override、Train Actor network snapshot、`Sync()`契約
-- `docs/design/150_observability.jp.md`: `$action_info`から読むsnapshot interval/ageと`NaN`条件
+- `docs/design/140_observability.jp.md`: `$action_info`から読むsnapshot interval/ageと`NaN`条件
 - Doxygen: `Actor::MakeAction()`と`Actor::Sync()`の非スレッドセーフ契約
 
 本PRDの確定時点で、共通interfaceとresource所有権の判断は`docs/adr/0013-actor-network-resource-policy.md`へ記録し、両snapshot metricは`apps/runner/config/metrics_scalar.txt`の`metrics.scalar.full`だけへ先行登録する。現行動作を説明する`docs/design/`本文は実装前に先行変更しない。

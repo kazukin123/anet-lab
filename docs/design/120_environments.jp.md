@@ -1,0 +1,238 @@
+# 環境
+
+> 主たる観点: 機能単位（Env。内部の処理工程を時系列で併記）
+
+## 1. はじめに
+
+### 1.1 目的
+
+本書は、ANETにおけるEnvの共通contract、single Envをbatch実行する仕組み、具象Envの物理配置を説明する。
+RunnerとAgentが環境固有実装へ依存せず、同じState、Action、Reset、Stepの流れで実行できる理由を明確にする。
+
+### 1.2 対象読者
+
+- Envを追加・変更する開発者
+- Observation、Action、Reward、episode終端のcontractを確認する開発者
+- 並列Env実行とseed/device設定を確認するレビュー担当者
+
+### 1.3 記載範囲
+
+現行の`SingleDiscreteEnv`、`BatchEnv`、batch wrapper、factory/repository、登録済みEnvを扱う。
+ImageClsのbatch-native化など、まだ実装されていない設計は[関連PRD](../memo/034_imagecls_batch_input_10prd.md)への参照に留める。
+
+## 2. 基本概念と外部contract
+
+### 2.1 EnvSpec
+
+`EnvSpec`はEnvとAgentを接続する共通仕様である。
+
+- `StateSpec`: Observationを構成するTensorDictのキー、shape、dtype、範囲
+- `ActionSpec`: 離散Actionのラベル、または連続Actionの各次元
+- `reward_range`: Envが返すRewardの想定範囲
+- `info`: Env固有の追加メタデータ
+
+標準Observationキーは`vector`、`grid`、`action_mask`である。`action_mask`は合法手を表すメタデータであり、通常のNetwork入力とは分けて扱う。
+
+`BatchEnvSpec`は`num_envs`と`num_threads`を持ち、batch側の並列度をAgentへ伝える。
+
+### 2.2 ResetとStep
+
+- `Reset(RunMode)`はepisodeを開始し、初期Stateを返す。
+- `Step(Action, RunMode)`はActionを適用し、次State、Reward、終端情報を返す。
+- `RunMode`によりTrain/Eval固有の乱数、augmentation、動作を分けられる。
+- batchのResult/Stateは実装内で再利用されるため、呼び出し側が後続Stepを越えて保持する場合はdeep copyが必要である。
+
+### 2.3 SingleとBatch
+
+`SingleDiscreteEnv`は1環境・1離散Actionを表す。
+`BatchEnv`は複数環境をまとめてRunnerへ公開する。
+
+現行の具象Envはすべて`SingleDiscreteEnvBase`を継承して`SingleDiscreteEnv` interfaceを実装し、`DefaultBatchEnvFactory`が次のいずれかでbatch化する。
+
+- `VectorizedDiscreteBatchEnv`: 呼び出しthread上で複数Envを順に実行する。
+- `ThreadPoolDiscreteEnv`: thread poolを使って複数Envを並列実行する。
+
+### 2.4 Env name
+
+`SingleDiscreteEnv`と`BatchEnv`はconstructorや状態を持たないinterfaceであり、name accessorをpure virtualで公開する。`SingleDiscreteEnvBase`と`BatchEnvBase`が人間向けのimmutableな`name`を保持し、accessorを`final override`する。`BatchEnvBase::GetName()`はbatch名を返し、`GetEnvName(lane_index)`は構築時に一度だけ生成した`<name>[0..N-1]`を返す。具象Envは対応するBaseを継承し、name accessorを独自実装しない。
+
+nameは不透明な表示文字列であり、Env class ID、RunMode、config prefix、seed、RNG、DatasetKey、metrics tagの代替ではない。Envはnameを解析せず、nameの違いでReset、Step、Reward、終端を分岐しない。空name、非正のlane数、範囲外lane indexは`ANET_CHECK_MSG`で常時fail-fastする。
+
+## 3. コンポーネント定義
+
+| コンポーネント | 定義 |
+|---|---|
+| `SingleDiscreteEnv` | 1つの離散Action Envの共通interface |
+| `SingleDiscreteEnvBase` | single Envのnameを保持し、interfaceのname accessorを共通実装する基底 |
+| `SingleDiscreteEnvFactory` | config、device、完成済みlane name、seedから具象single Envを生成する |
+| `BatchEnv` | batch化されたReset/Stepとspec、device、shutdownを公開する |
+| `BatchEnvBase` | BatchEnv nameと全lane nameを保持し、interfaceのname accessorを共通実装する基底 |
+| `DiscreteBatchEnvBase` | 複数single Envのspec検証、集約、共通metricsを提供する基底 |
+| `VectorizedDiscreteBatchEnv` | single-threadでsingle Env群を駆動するbatch実装 |
+| `ThreadPoolDiscreteEnv` | thread poolでsingle Env群を駆動するbatch実装 |
+| `EnvRepository` | class IDと`SingleDiscreteEnvFactory`を対応付けるprocess registry |
+| `DefaultBatchEnvFactory` | repositoryからfactoryを解決し、worker設定に応じたbatch Envを作る |
+| Env View | Env固有のStateをRunner GUIへ表示する任意のView実装 |
+
+## 4. コードマップ
+
+### 4.1 共通基盤
+
+| 領域 | 主なファイル |
+|---|---|
+| State/Action/Env interface | [rl.hpp](../../core/anet-core/include/anet/rl.hpp)、[rl.cpp](../../core/anet-core/src/rl.cpp) |
+| batch wrapper・repository | [env.hpp](../../core/anet-core/include/anet/env.hpp)、[env.cpp](../../core/anet-core/src/env.cpp) |
+| View interface・repository | [gui.hpp](../../core/anet-core/include/anet/gui.hpp)、[gui.cpp](../../core/anet-core/src/gui.cpp) |
+
+### 4.2 具象Env
+
+| Env | 実装場所 | Observationの主な性質 |
+|---|---|---|
+| CartPole | [core/envs/cartpole2](../../core/envs/cartpole2) | vector |
+| LunarLander | [core/envs/lunarlander1](../../core/envs/lunarlander1) | vector、Box2D物理状態 |
+| DropMerge | [core/envs/dropmerge1](../../core/envs/dropmerge1) | gridとvector、Box2D物理状態 |
+| GridMaze | [core/envs/gridmaze1](../../core/envs/gridmaze1) | vector中心の迷路状態 |
+| ImageCls | [core/envs/imagecls1](../../core/envs/imagecls1) | 画像gridと分類target |
+
+各Env directoryは、Env本体、factory、必要に応じてViewとtestを機能グループとしてまとめる。
+
+## 5. 静的構造
+
+```mermaid
+classDiagram
+direction LR
+
+class EnvRepository {
+  +Regist(factory)
+  +GetSingleDiscreteEnvFactory(class_id)
+}
+class SingleDiscreteEnvFactory
+class SingleDiscreteEnv {
+  +GetName()
+  +GetSpec()
+  +Reset(run_mode)
+  +Step(action, run_mode)
+}
+class SingleDiscreteEnvBase
+class DefaultBatchEnvFactory
+class BatchEnv {
+  +GetName()
+  +GetEnvName(lane_index)
+  +GetSpec()
+  +GetBatchSpec()
+  +Reset(run_mode)
+  +Step(action_info, run_mode)
+  +Shutdown()
+}
+class BatchEnvBase
+class DiscreteBatchEnvBase
+class VectorizedDiscreteBatchEnv
+class ThreadPoolDiscreteEnv
+
+EnvRepository o-- SingleDiscreteEnvFactory
+DefaultBatchEnvFactory --> EnvRepository : class_idを解決
+SingleDiscreteEnvFactory ..> SingleDiscreteEnv : N個生成
+SingleDiscreteEnv <|-- SingleDiscreteEnvBase
+BatchEnv <|-- BatchEnvBase
+BatchEnvBase <|-- DiscreteBatchEnvBase
+DiscreteBatchEnvBase <|-- VectorizedDiscreteBatchEnv
+DiscreteBatchEnvBase <|-- ThreadPoolDiscreteEnv
+VectorizedDiscreteBatchEnv *-- SingleDiscreteEnv
+ThreadPoolDiscreteEnv *-- SingleDiscreteEnv
+```
+
+Env固有コードはsingle interfaceまでを担当し、batch実行方法は共通基盤が担当する。
+
+## 6. 処理フロー
+
+### 6.1 ResetとStep
+
+```mermaid
+sequenceDiagram
+    participant R as Train/Eval Runner
+    participant B as BatchEnv
+    participant E as Single Env群
+    participant A as Actor
+
+    R->>B: Reset(run_mode)
+    B->>E: 各EnvをReset
+    E-->>B: SingleResetResult
+    B-->>R: 集約したBatchResetResult
+
+    R->>A: MakeAction(BatchState)
+    A-->>R: BatchActionInfo
+    R->>B: Step(action_info, run_mode)
+    B->>E: laneごとのActionでStep
+    Note over B,E: ThreadPool実装では並列実行
+    E-->>B: SingleStepResult
+    B-->>R: Reward・終端・次Stateを集約
+```
+
+episode終了laneのReset時期や`episode_start`の扱いはbatch wrapperとRunnerのcontractで決まる。具象Envは、自身の1 episode内の状態遷移とReward計算に集中する。
+
+### 6.2 構築
+
+1. `env.class_id`から`EnvRepository`が具象factoryを解決する。
+2. 呼出側がBatchEnv nameを渡し、`DefaultBatchEnvFactory`がnum_envs、device、seed、worker設定を確定する。
+3. wrapperが`<name>[lane_index]`を完成させ、factoryがlaneごとに完成済みnameと異なるseedを受けてsingle Envを生成する。
+4. worker方式に応じてvectorizedまたはthread-pool batch Envへ格納する。
+5. Runner構築時にEnvSpecとBatchEnvSpecをAgentへ渡す。
+
+## 7. 設定・lifetime・エラー・性能特性
+
+### 7.1 共通設定
+
+| キー | 意味 |
+|---|---|
+| `env.class_id` | 具象Env factoryのclass ID |
+| `env.worker_type` | `AUTO`、single-thread、thread-poolの選択 |
+| `env.worker_threads` | thread-poolのworker数。負値は定義済みの自動解決方式 |
+| `env.device_type` | Envが使用するCPU/CUDA device種別 |
+| `env.device_index` | CUDA device index。負値はcurrent device |
+| `train.num_envs` | 主Train Envのbatch size |
+
+Env固有設定は各factoryが同じConfigDataから読み取る。未知のclass ID、不正なworker設定、矛盾したspecは暗黙に補正せず失敗させる。
+
+### 7.2 lifetimeとshutdown
+
+- BatchEnvがsingle Env群と、thread-pool方式ではpoolを所有する。
+- Runner終了時は`BatchEnv::Shutdown()`を経由してworkerを停止する。
+- Envのmutable stateとRNGはEnv instanceごとに分離する。
+- EnvSpecは構築後の接続contractとして扱い、Run中にshapeやAction数を変更しない。
+
+### 7.3 性能
+
+- `num_envs`が小さい、またはEnv Stepが軽量な場合、thread-poolの同期costが利益を上回ることがある。
+- Box2Dや画像decodeのようにlaneごとの処理が重い場合、並列化の効果を実測する。
+- EnvのReset/Stepは主要なprofiling境界であり、worker数と`exp_step_per_sec`を併せて比較する。
+- Env deviceとAgent deviceが異なる場合は転送costが発生する。Envごとの対応deviceを設定と実装の両方で確認する。
+
+## 8. テストと拡張時の確認事項
+
+Envを追加・変更する場合は次を確認する。
+
+1. `EnvSpec`のshape、dtype、Action、Reward範囲が実データと一致する。
+2. 同じseedと設定に対する再現性contractを明確にする。
+3. Reset直後、通常Step、terminated、truncatedのState flagを検証する。
+4. B=1と複数laneの両方でbatch wrapperが正しく集約する。
+5. `VectorizedDiscreteBatchEnv`と`ThreadPoolDiscreteEnv`で意味が変わらない。
+6. Viewを追加する場合はEnv class IDと`ViewRepository`登録を一致させる。
+7. 頻繁に呼ばれるReset/Stepへ意味のあるprofile rangeを置く。
+
+専用testがあるEnvは次のとおりである。
+
+- [LunarLanderEnv_test.cpp](../../core/envs/lunarlander1/src/LunarLanderEnv_test.cpp)
+- [ImageClsEnv_test.cpp](../../core/envs/imagecls1/src/ImageClsEnv_test.cpp)
+
+上記の具象Env testは`VectorizedDiscreteBatchEnv`を通る経路も含む。一方、現行[trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp)はEval Actorのdevice整合性が中心で、batch wrapper全般やthread-pool方式の共通contractを網羅するtestではない。Envまたはwrapperを変更する場合は、必要なworker方式を明示して回帰testを追加する。
+
+## 9. 関連文書
+
+- [フレームワーク全体概要](010_framework_overview.jp.md)
+- [実行基盤と設定](100_runtime_and_configuration.jp.md)
+- [Agentと学習](110_agents_and_learning.jp.md)
+- [ReplayBuffer](150_replay_buffer.jp.md)
+- [アプリケーションとツール](160_applications_and_tools.jp.md)
+- [用語集](../../CONTEXT.md)
+- [ImageCls batch入力PRD](../memo/034_imagecls_batch_input_10prd.md)
+- [ImageCls batch Env seam ADR](../adr/0009-imagecls-batch-env-seam.md)

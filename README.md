@@ -9,12 +9,33 @@
 - Java/SpringによるWebベースのMetricsViewer
 
 勉強と趣味で作っているので不安定です。
-  
+
+## ドキュメント
+
+日本語のドキュメント入口は[docs/design/README.jp.md](docs/design/README.jp.md)です。
+フレームワーク全体像、ユーザーガイド、開発環境、機能カテゴリ別・具象Agent別の設計ガイドを参照できます。
+
+| 場所 | 役割 |
+|---|---|
+| [docs/design/](docs/design/) | 現在の構成、利用方法、実装上のcontractを説明する |
+| [CONTEXT.md](CONTEXT.md) | プロジェクト内で使うドメイン用語の正本 |
+| [docs/adr/](docs/adr/) | 採用した設計判断と理由を記録する |
+| [docs/memo/](docs/memo/) | 未実装の要求、検討中の設計、実装計画を記録する |
+| [docs/ownership_guideline.md](docs/ownership_guideline.md) | Agent系State/Resourceの所有権規則 |
+| Doxygen | class、method、公開APIの詳細 |
+
+現行動作の最終的な根拠はコード、設定、テストとする。
+設計ガイドへ将来案を現行仕様として混在させず、変更前の計画は`docs/memo/`、採用後も残す判断理由は`docs/adr/`へ置く。
+
 ## ビルド手順
-TODO：ビルド手順や依存ライブラリを書く
+
+Windows/MSVC、libtorch、wxWidgets、CUDA、Metrics Viewerを含む開発環境と検証手順は、
+[開発環境構築ガイド](docs/design/040_development_environment.jp.md)を参照してください。
 
 ## 実行手順
-TODO：実行手順を書く
+
+設定ファイルの選択、Runnerの起動、画面操作、Run成果物は、
+[Run実行ユーザーガイド](docs/design/020_user_guide_run.jp.md)を参照してください。
 
 ## 対応状況/予定
 
@@ -108,7 +129,7 @@ TODO：実行手順を書く
 	* TD3対応
 	* SAC対応
 	* Adaptive Stabilized DQN (AS-DQN)：unstable_ema
-	* AS-DQN：過安定制御(stagnant) 
+	* AS-DQN：過安定制御(stagnant)
 	* AS-DQN：勾配／損失ベース
 	* Adaptive Grad Control
 	* Adaptive α-schedule

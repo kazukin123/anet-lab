@@ -10,7 +10,7 @@ PRD 035とADR 0012に従い、DQN固有の`ActorQHint`とCPU validityを汎用RL
 - ReplayBuffer内部はCPU化した各行を`c10::SmallVector<float, 4>`へコピーし、開始・bootstrap hintを`std::span<const float>`として推定器へ同期的に渡す。
 - `InitialPriorityEstimator`へ`ValidateHint`を追加し、schema違反とnonfiniteを区別する。truncatedでも開始hintを先に検証し、true terminalのbootstrap spanは空にする。
 - DQN moduleへ`K = 2`の列定義とtensor/scalarのpack/decode helperを集約し、Actor、`DQNActionInfo::WithAction`、DQN推定器で共用する。
-- `docs/design/110_agents_and_learning.jp.md`と`docs/design/140_data_pipeline.jp.md`の該当箇所を新しいcarrier契約へ同期する。
+- `docs/design/110_agents_and_learning.jp.md`と`docs/design/150_replay_buffer.jp.md`の該当箇所を新しいcarrier契約へ同期する。
 
 ## テスト
 
