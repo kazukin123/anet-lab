@@ -1,7 +1,7 @@
 # ImageCls 専用 batch 入力コンポーネント / BatchEnv adapter
 
-> 文書状態: 設計レビュー中。本書だけで外部設定、実行時契約、責務、所有権、未決事項、実装範囲を確認できることを目的とする。
-> 記載区分: **確定**＝実装仕様、**基準案**＝現在の推奨設計、**未決**＝実装開始前の判断対象。
+> 文書状態: 全判断確定（D1～D10解決済み、第12章決定経緯参照）・実装待ち。本書だけで外部設定、実行時契約、責務、所有権、決定経緯、実装範囲を確認できることを目的とする。
+> 記載区分: **確定**＝実装仕様。旧区分の**基準案**（推奨設計）と**未決**（判断対象）は全D解決に伴い確定へ遷移済み。
 > 既存 runner / observer / GUI との接続は、当面 `BatchEnv` interface を使う adapter として維持する。
 
 ## 1. 目的・対象読者・変更概要
@@ -73,7 +73,7 @@ Datasetのpath、shape、cache policyをeval env prefixから直接上書きし�
 | 新規・移動 | `ImageDataset.image_width` | `ImageDatasetConfig` | Dataset shape | なし | 必須 | `>0`。非正値はerror | decode後のW、keyに紐づくimmutable contract | `ImageClsEnv.image_width`から移動。`-1`廃止 |
 | 新規・移動 | `ImageDataset.image_height` | `ImageDatasetConfig` | Dataset shape | なし | 必須 | `>0`。非正値はerror | decode後のH、keyに紐づくimmutable contract | `ImageClsEnv.image_height`から移動。`-1`廃止 |
 | 新規 | `ImageDataset.cache.mode` | `ImageDatasetConfig` | Dataset単位 | `auto` | 必須 | `auto / none / full_ram`以外error | pre-augment cache strategy | 旧PRDのEnv直下案からDatasetへ移動 |
-| 新規・未決 | `ImageDataset.cache.max_bytes` | `ImageDatasetConfig` | Dataset単位 | 候補`4294967296` | `auto/full_ram`で必須 | positive `uint64_t`、size積のoverflowをerror | full payload上限 | 正確な既定値は[D9](#decision-d9)で決定 |
+| 新規・確定 | `ImageDataset.cache.max_bytes` | `ImageDatasetConfig` | Dataset単位 | `4294967296`（4GiB） | `auto/full_ram`で必須 | positive `uint64_t`、size積のoverflowをerror | full payload上限。`auto`のcap超過/alloc失敗はWARN 1回+none、明示`full_ram`はerror（[D9](#decision-d9)決定済み） | 小さいdatasetは自動cache、大きいdatasetは明示同意 |
 | 新規 | `ImageDataset.[<DatasetKey>].*` | factoryのcatalog resolver / `ImageDatasetManager` | run-localなkey固有override兼key宣言 / process registry | 共通defaultを継承 | keyごとに1項目以上を明示 | unknown/empty keyは現在runのavailable keys付きerror。登録済み同名keyとのconfig差はfield付きerror | run-localに解決し、process identityとして登録するresolved config | 旧path比較による暗黙identityを廃止 |
 
 `DatasetKey`はcase-sensitiveなopaque identifierとする。同一process・同一key・同一resolved `ImageDatasetConfig`は常に同じ`ImageDataset`を表し、異なるkeyはresolved configが同一でも統合しない。同一processで既存keyへ異なるresolved configを要求した場合は、既存値と要求値の差分を含めてfail-fastする。`ImageDataset.[key].*`が1項目以上存在することをkeyの明示宣言とし、共通`ImageDataset.*`だけから任意の未宣言keyを作ることはできない。
@@ -89,21 +89,21 @@ Datasetのpath、shape、cache policyをeval env prefixから直接上書きし�
 | 移動・確定 | `ImageClsEnv.data_source.augment.hflip_p` | `ImageDataSourceConfig` | train Sourceのみ | `0.5` | 任意 | `[0,1]` | horizontal flip確率 | 同名旧項目をSource配下へ移動 |
 | 移動・確定 | `ImageClsEnv.data_source.augment.rrc_scale_min/max` | `ImageDataSourceConfig` | train Sourceのみ | `0.7 / 1.0` | 任意 | `0 < min <= max <= 1` | RandomResizedCrop面積比 | 同名旧項目をSource配下へ移動 |
 | 移動・確定 | `ImageClsEnv.data_source.augment.rrc_ratio_min/max` | `ImageDataSourceConfig` | train Sourceのみ | `0.75 / 1.3333333` | 任意 | `0 < min <= max` | crop aspect ratio | 同名旧項目をSource配下へ移動 |
-| 新規・未決 | `ImageClsEnv.data_source.eval_sample_mode` | `ImageDataSourceConfig` | eval Sourceのみ | class default候補`full` | enabled configured evalはoverlayで明示 | 候補`full / rotating_subset` | eval windowのsample選択方式 | [D5](#decision-d5)でsentinel分離を判断 |
-| 新規・未決 | `ImageClsEnv.data_source.eval_samples` | `ImageDataSourceConfig` | `rotating_subset`のみ | なし | subset時必須、full時指定禁止 | 推奨`1 <= N <= eval_size` | 1 eval windowのvalid sample数 | B単位切上げ案との比較は[D5](#decision-d5) |
+| 新規・確定 | `ImageClsEnv.data_source.eval_window.mode` | `ImageDataSourceConfig` | eval Sourceのみ | class default `full` | enabled configured evalはoverlayで明示 | `full / rotating`以外error。`full`で`size`指定はerror | eval windowの構成方式 | 旧案`eval_sample_mode`を改名。sentinel全廃（[D5](#decision-d5)決定済み） |
+| 新規・確定 | `ImageClsEnv.data_source.eval_window.size` | `ImageDataSourceConfig` | `rotating`のみ | なし | rotating時必須、full時指定禁止 | `1 <= size <= eval_size`外はerror | 1 eval windowの正確なvalid sample数 | 旧案`eval_samples`を改名。B単位切上げ案は廃止（[D5](#decision-d5)決定済み） |
 | 既存・意味明確化 | `ImageClsEnv.max_steps` | `ImageClsEnvConfig` | trainのみ | `100` | 必須 | `>0` | train episode / 可視化 / log cadence | eval終端には使用しない |
 
 ### 2.4 trainer、eval、backendの関連設定
 
 | 状態 | 設定キー | 所有クラス | 適用範囲 | 既定値 | 必須条件 | validation | 実行時効果 | 旧設定からの変更 |
 |---|---|---|---|---|---|---|---|---|
-| 既存・意味明確化 | `train.seed` | `RunManager` | run全体 | `0` | run間再現では固定非0必須 | parse失敗error。0は既存どおりauto seed | resolved master seedを介したsampler/augment seedの起点 | [D10](#decision-d10)でdomainと実seed logを決定 |
+| 既存・意味明確化 | `train.seed` | `RunManager` | run全体 | `0` | run間再現では固定非0必須 | parse失敗error。0は既存どおりauto seed | resolved master seedを介したsampler/augment seedの起点。実seedと各domain seedを起動logへ記録（[D10](#decision-d10)決定済み） | stable named domain採用 |
 | 既存・意味変更 | `train.num_envs` | `BatchEnvBuilder` | main train | code既定`1`、ImageCls実値`128` | `>0` | 非正値error | native ImageClsのtrain batch size B | N single env数からnative Bへ変わる |
 | 既存・意味拡張 | `env.worker_threads` | `WorkerThreadResolver` | native decode pool | `-1` | 必須 | 正数または定義済みauto値のみ | decode worker数 | single wrapperに加えSourceでも利用 |
-| 既存・未決 | `env.worker_type` | `BatchEnvBuilder` / Source | native decode方式 | `0` (`AUTO`) | 必須 | `AUTO / SINGLE_THREAD / THREAD_POOL` | 同期decodeかpoolか | native ImageClsへの適用は[D8](#decision-d8) |
-| 既存・未決 | `env.device_type/index` | `BatchEnvBuilder` | Env Tensor device | `0 (CPU) / -1` | 必須 | `device_type`は既存`0=CPU / 1=CUDA`。ImageClsは0のみ許可する案 | native Envのdevice | 非CPU時の扱いは[D8](#decision-d8) |
-| 新規 | `train.eval.[tag].eval_batch_size` | `RunManager` | 当該eval env | core既定`1` | `>0` | 非正値error | eval batch size B | B=1 hard-codeを設定化 |
-| 既存・validation追加 | `train.eval.[tag].interval` | `EpisodeEvalObserver` | eval trigger | `100`、ImageCls eval1実値`50` | `0`はdisable | `<0`はerror | learn step単位のtrigger | native ImageClsのdisabled Env生成は[D4](#decision-d4) |
+| 既存・意味拡張 | `env.worker_type` | `BatchEnvBuilder` / Source | native decode方式 | `0` (`AUTO`) | 必須 | `AUTO / SINGLE_THREAD / THREAD_POOL` | `AUTO`=B=1同期/B>1pool、`SINGLE_THREAD`=同期decode、`THREAD_POOL`=pool（[D8](#decision-d8)決定済み） | Source decodeへ意味拡張 |
+| 既存・validation追加 | `env.device_type/index` | `BatchEnvBuilder` | Env Tensor device | `0 (CPU) / -1` | 必須 | native ImageClsは`0=CPU`のみ許可、非CPUはfail-fast（[D8](#decision-d8)決定済み） | native EnvのCPU uint8 obs contract | silent ignoreしない |
+| 新規 | `train.eval.[tag].eval_batch_size` | `RunManager` | 当該eval env | core既定`1`、ImageCls eval1実値`128` | `>0` | 非正値error | eval batch size B | B=1 hard-codeを設定化（実値は[D6](#decision-d6)決定済み） |
+| 既存・意味明確化 | `train.eval.[tag].interval` | `EpisodeEvalObserver` | eval trigger | `100`、ImageCls eval1実値`50` | `0`はdormant（宣言のみ） | `<0`はerror | learn step単位のtrigger。`0`は全Envで宣言検証+name予約のみ行い、runner/Env/actor/observerを生成しない（[D4](#decision-d4)決定済み） | disabled tagの無条件Env生成を廃止 |
 | 既存 | `train.eval.[tag].run_mode` | `RunManager` | eval actor/env | `eval1` | 有効なRunMode | unknown値error | actorのnetwork種別等 | Env生成時にも利用（[D3](#decision-d3)決定済み） |
 | 既存 | `train.eval.[tag].use_background` | `EpisodeEvalObserver` | eval実行方式 | `true` | 任意 | bool parse失敗error | foreground/background | 意味不変 |
 | 既存・変更なし | `train.eval.[tag].clone_model` | agent / eval actor | network参照 | `true`、ImageCls eval1実値`false` | 任意 | bool parse失敗error | clone/live network | 034では変更しない |
@@ -132,7 +132,7 @@ Datasetのpath、shape、cache policyをeval env prefixから直接上書きし�
 | `ImageClsEnv.image_width/height` | `ImageDataset.image_width/height`またはkey固有値 | Dataset shapeへ移動 |
 | `ImageClsEnv.augment.*` | `ImageClsEnv.data_source.augment.*` | Source ownershipへ合わせる（[D1](#decision-d1)決定済み） |
 | 旧PRDの`ImageClsEnv.cache.*` | `ImageDataset.cache.*` | 共有資源の設定へ移動 |
-| 旧PRDの`eval_samples=all/N` | `eval_sample_mode`＋`eval_samples` | [D5](#decision-d5)で最終決定 |
+| 旧PRDの`eval_samples=all/N` | `eval_window.mode`＋`eval_window.size` | [D5](#decision-d5)で決定済み |
 | train用DatasetKey作成後 | `ImageClsEnv.data_source.dataset_key = <train-key>` | main train Sourceから明示参照する |
 | eval用DatasetKey作成後 | `train.eval.[tag].env.data_source.dataset_key = <eval-key>` | enabled eval tagごとに明示参照する |
 
@@ -148,7 +148,7 @@ Datasetのpath、shape、cache policyをeval env prefixから直接上書きし�
 6. Source constructorがresolved `dataset_key`をManagerの`Acquire(key)`へ渡す。Managerは登録済みconfigからDatasetを生成し、この時点でpath openとmanifest I/Oを行う。
 7. Env prefixからDataset fieldを直接上書きしない。decode I/Oはそのindexの最初の`Get`まで遅延する。
 
-手順6～7のmanifest / decode I/OのLazy境界は[D4](#decision-d4)で確定する。
+手順6～7のmanifest / decode I/OのLazy境界は[D4](#decision-d4)で確定済みである。
 
 上記Source config chainとキー名は[D1](#decision-d1)で確定した（option 1採用）。
 
@@ -162,7 +162,7 @@ unknown / obsolete key監査は次のscopeへ分ける。
 
 ### 2.7 Food101完全設定例
 
-以下は[D1](#decision-d1)で確定したSource設定と[D7](#decision-d7)で確定したEvalPanel routingに、[D5](#decision-d5)のeval件数案、[D8](#decision-d8)のworker/device案を組み合わせた基準例である。`cache.max_bytes`は[D9](#decision-d9)、実eval mode / N / Bは[D6](#decision-d6)で最終決定する。
+以下は[D1](#decision-d1)のSource設定、[D5](#decision-d5)のeval window契約、[D7](#decision-d7)のEvalPanel routing、[D8](#decision-d8)のworker/device解釈（いずれも確定済み）を組み合わせた基準例である。`cache.max_bytes`は[D9](#decision-d9)で決定済み（既定4GiB＋train opt-in）。実eval mode / size / Bは[D6](#decision-d6)で決定済み（rotating 1024 / B=128）。
 
 ```ini
 # Dataset catalog defaults
@@ -177,6 +177,11 @@ ImageDataset.cache.max_bytes = 4294967296
 # DatasetKey definitions: 定義だけではmanifest/cacheを生成しない
 ImageDataset.[food101_train].list_txt_path = C:\dev\food-101\meta\train.txt
 ImageDataset.[food101_eval].list_txt_path = C:\dev\food-101\meta\test.txt
+
+# train cache opt-in（D9決定済み）: train payload約10.6GiBを明示許可する。
+# 2 epoch目以降のdecodeが消える代わりにhost RAMへ常駐する（eval約3.5GiBと合わせ約14GiB）。
+# RAMが厳しいマシンではこの行を外す。既定4GiB capのままautoがWARN 1回でnoneへfallbackし、毎epoch再decodeになる。
+ImageDataset.[food101_train].cache.max_bytes = 12884901888
 
 # Main train env / env-local Source
 ImageClsEnv.data_source.dataset_key = food101_train
@@ -197,18 +202,22 @@ env.device_index = -1
 train.eval_device_type = cuda
 train.eval_device_index = 0
 
-# Configured eval1: full案
+# Configured eval1: 常用（D6決定: rotating 1024 / B=128）
 train.eval.[eval1].interval = 50
 train.eval.[eval1].run_mode = eval1
 train.eval.[eval1].use_background = true
 train.eval.[eval1].clone_model = false
 train.eval.[eval1].eval_batch_size = 128
 train.eval.[eval1].env.data_source.dataset_key = food101_eval
-train.eval.[eval1].env.data_source.eval_sample_mode = full
+train.eval.[eval1].env.data_source.eval_window.mode = rotating
+train.eval.[eval1].env.data_source.eval_window.size = 1024
 
-# rotating subset案を採る場合は上のmodeを置換する
-# train.eval.[eval1].env.data_source.eval_sample_mode = rotating_subset
-# train.eval.[eval1].env.data_source.eval_samples = 1000
+# 節目用の厳密full評価。普段はdormant（D4により非生成・コストゼロ）、使う時だけintervalを正値へ
+train.eval.[eval_full].interval = 0
+train.eval.[eval_full].run_mode = eval1
+train.eval.[eval_full].eval_batch_size = 128
+train.eval.[eval_full].env.data_source.dataset_key = food101_eval
+train.eval.[eval_full].env.data_source.eval_window.mode = full
 
 # EvalPanel（D7決定済み。選択tagのrun_mode/env overlayを使用し、Bは1固定）
 app.eval_panel.eval_config_tag = eval1
@@ -228,7 +237,7 @@ metrics.scalar.[51_eval1/04_accuracy_ema]    = $eval.[eval1] $env accuracy @epis
 
 - trainの`accuracy`は直近に確定したepochの正解率。初回epoch完了前はNaN。
 - evalの`accuracy`は直近eval windowの正解率。fullなら全件、subsetならそのwindowのvalid sampleを対象とする。
-- `epoch_count`はtrainでは採点完了したdataset cycle数。[D5](#decision-d5)の基準案ではfull eval window完了、またはsubset dataset cycle完了で増加する。
+- `epoch_count`はtrainでは採点完了したdataset cycle数。evalではfull window完了、またはrotatingのdataset cycle完了で増加する（[D5](#decision-d5)決定済み）。
 - `21_eval/01,02`の`$runner eps_total_reward`は削除する。代表lane方式では部分値となるためである。
 - `20_eps/10,11`の`$runner train_episode_reward`は維持する。
 - コメントアウト中の`42_env/02,03`（`mean.reward_sum`）はstreamキー廃止に合わせて削除する。
@@ -237,7 +246,7 @@ metrics.scalar.[51_eval1/04_accuracy_ema]    = $eval.[eval1] $env accuracy @epis
 
 ### 3.1 Dataset catalogと共有
 
-Dataset / manifest / payload / decode poolの生成時点は[D4](#decision-d4)の判断対象であり、以下は現在の推奨境界である。
+Dataset / manifest / payload / decode poolの生成時点は[D4](#decision-d4)で確定済みであり、以下がその境界である。
 
 - catalogへDatasetを定義しただけではmanifest I/Oもcache allocationも行わない。
 - factoryは全宣言keyとresolved `ImageDatasetConfig`をI/O無しの`RegisterCatalog`でsingleton Managerへatomic登録する。1件でも既存keyとのconfig conflictがあれば新規keyを残さない。Sourceが`Acquire(DatasetKey)`した時点で、同一process内の同一key/configに対する単一の`ImageDataset`を取得する。
@@ -276,21 +285,21 @@ native ImageClsなのに`EnvSpec.info["image_dataset_key"]`が無いか空の場
 
 ### 3.4 eval
 
-以下の`full / rotating_subset`、exact N、padding、window終端は[D5](#decision-d5)推奨案を採った場合の基準仕様であり、[D5](#decision-d5)決定前の確定contractではない。
+以下の`full / rotating`、exact size、padding、window終端は[D5](#decision-d5)で確定したcontractである。
 
 - evalは`max_steps`を使わず、eval windowのtarget件数を採点したStepで終端する。
 - window終了Stepでは代表lane 0だけ`done=true`にし、`EpisodeEndEvent`を1個だけ発火する。
 - `RunEvaluationEpisode`は既存どおり`LastStepHadEpisodeEnd()`で停止できる。
 - `accuracy`は1 eval windowのcorrect / valid totalをsnapshotする。
-- fullの末尾または正確なsubset N案の末尾はvalid-prefix paddingとし、pad laneをaccuracyと`n_transitions`から除外する。
+- fullまたはrotating windowの末尾はvalid-prefix paddingとし、pad laneをaccuracyと`n_transitions`から除外する。
 - window終了Stepの`continue_state`は次eval windowの先頭batchを保持できる。cursor会計はcurrent batchのmetadataで行う。
-- evalの`epoch_count`初期値は0。fullは全件windowを採点完了するごとに1増加し、rotating subsetはdataset streamの全indexを採点完了した時点で1増加する。
-- subset windowがdataset cycle境界を跨ぐ場合、current batchの採点によるcycle完了を反映してからwindow終了時のscalarを公開する。次window用`continue_state`の先読みでは増加させない。
+- evalの`epoch_count`初期値は0。fullは全件windowを採点完了するごとに1増加し、rotatingはdataset streamの全indexを採点完了した時点で1増加する。
+- rotating windowがdataset cycle境界を跨ぐ場合、current batchの採点によるcycle完了を反映してからwindow終了時のscalarを公開する。次window用`continue_state`の先読みでは増加させない。
 
 ### 3.5 reward、done、episode_start
 
 - valid laneの`reward[i] = (action[i] == target[i]) ? 1.0f : 0.0f`。
-- eval padding laneのrewardは[D5](#decision-d5)推奨案では0とする。
+- eval padding laneのrewardは0とする（[D5](#decision-d5)決定済み）。
 - train episode境界ではterminal `next_state.episode_start=false`、auto-reset後`continue_state.episode_start=true`を維持する。
 - trainの全B laneが同じ`max_steps`境界でdoneになる。evalは代表laneのみdone。
 - eval window境界のterminal `next_state.done`はlane 0だけtrue、`truncated`と`episode_start`は全lane falseとする基準案。
@@ -301,7 +310,7 @@ native ImageClsなのに`EnvSpec.info["image_dataset_key"]`が無いか空の場
 
 - `NoCachePolicy`は毎回decodeし、同一indexについて値の同一性を保証するがstorage identityは保証しない。
 - `FullRamCachePolicy`はDataset単位に`[N,3,H,W] uint8` payloadを持ち、pre-augment Tensorだけを保存する。
-- `ImageDataSource::NextBatch`はdecode/cache taskをenqueueする前に、caller thread上で`ImageDataset::PrepareCache()`を同期呼出しする。呼出し時点は[D4](#decision-d4)、allocation失敗時の`auto` fallback有無は[D9](#decision-d9)で決める。`none`ではno-op、`auto/full_ram`ではDataset-level single-flightによりpayload allocationを1回だけ確定する。
+- `ImageDataSource::NextBatch`はdecode/cache taskをenqueueする前に、caller thread上で`ImageDataset::PrepareCache()`を同期呼出しする。呼出し時点は[D4](#decision-d4)、allocation失敗時の挙動（`auto`のみWARN 1回+none fallback）は[D9](#decision-d9)で確定済み。`none`ではno-op、`auto/full_ram`ではDataset-level single-flightによりpayload allocationを1回だけ確定する。
 - 同一indexの初回同時fillはper-index one-time publishで1件だけ公開し、他callerは完了を待つ。
 - publish後のentryはimmutable。
 - cache entryは`Empty / Loading / Ready / Failed`相当のterminal stateを持つ。decode失敗時は全waiterを起こし、そのprocess lifetimeは同じindexへの後続要求へ同じ失敗を再送出して自動retryしない。
@@ -313,7 +322,7 @@ native ImageClsなのに`EnvSpec.info["image_dataset_key"]`が無いか空の場
 
 - [D10](#decision-d10)で確定したdomainを前提に、同一Dataset内容、同一resolved master seed、同一resolved configでsample列、epoch tag、augment、batch組立がrun間一致する。literal `train.seed=0`はauto seedのためrun間一致の前提にしない。
 - sampler RNGとaugment RNGは別streamとし、augment ON/OFFでsample順を変えない。
-- train、configured eval tag、EvalPanel間のroot seed domainと、EvalPanelをconfigured evalから独立させるかは[D10](#decision-d10)で確定する。どの案でもconstruction orderやworker順をseedへ含めない。
+- train、configured eval tag、EvalPanelのroot seed domainは`imagecls/source/train`、`imagecls/source/eval/<tag>`、`imagecls/source/eval_panel/<tag>`のstable名で分離し、EvalPanelはconfigured evalから独立させる（[D10](#decision-d10)決定済み）。construction orderやworker順をseedへ含めない。
 - decode taskのworker割当や完了順は結果へ影響させない。
 - 旧N個single envのRNG列とのbit一致は保証しない。
 - network演算の決定性はADR 0006、eval snapshotの時間的順序は999 PRDの責務である。
@@ -374,14 +383,14 @@ native ImageClsなのに`EnvSpec.info["image_dataset_key"]`が無いか空の場
 - mutex下でkeyをlookupし、同一keyの初回生成をsingle-flightにする。manifest I/Oはglobal registry mutex外で行い、異なるkeyは並行生成できる。
 - 成功時はprocess終了までstrong referenceを保持し、途中eviction/reset/reloadを行わない。
 - 初期化失敗時はpartial instanceを公開しない。そのprocess/key/configのterminal failureとして保持し、同時waiterと後続`Acquire`へ同じ失敗を再送出する。自動retryはしない。
-- catalogに存在するが未要求のkeyはDataset化せず、manifestをparseしない。このLazy境界は[D4](#decision-d4)で確定する。
+- catalogに存在するが未要求のkeyはDataset化せず、manifestをparseしない（[D4](#decision-d4)決定済み）。
 - run-local catalog resolverが全keyのschema/typeを検証してManagerへ登録するが、未要求keyのDataset生成、file open、manifest parseは行わない。
 - 未登録keyへの`Acquire`はprogramming/config errorとしてfail-fastする。available keysの利用者向け診断はrun-local catalog側で行う。
 
 ### 4.5 ImageDataset
 
-- [D4](#decision-d4)の生成時点と[D9](#decision-d9)のcache contractに従い、immutable manifestとcache policyをconstructorで確定する。
-- `PrepareCache()`はSource callerからworker task enqueue前に呼ばれ、Dataset-level payload allocationとpolicy確定をsingle-flightで行うthread-safe APIとする。呼出し時点は[D4](#decision-d4)、allocation失敗時の動作は[D9](#decision-d9)に従う。
+- [D4](#decision-d4)で確定した生成時点と[D9](#decision-d9)で確定したcache contractに従い、immutable manifestとcache policyをconstructorで確定する。
+- `PrepareCache()`はSource callerからworker task enqueue前に呼ばれ、Dataset-level payload allocationとpolicy確定をsingle-flightで行うthread-safe APIとする。呼出し時点は[D4](#decision-d4)、allocation失敗時の動作は[D9](#decision-d9)で確定済み。
 - `Get(index)`は複数Sourceから同時に呼べるthread-safe APIとする。
 - 同一key/indexに対して同じpre-augment値を返す。
 - cache hit時に返すTensorはread-only。Sourceはfresh batchへcopyしてからaugmentする。
@@ -399,7 +408,7 @@ native ImageClsなのに`EnvSpec.info["image_dataset_key"]`が無いか空の場
 ### 4.7 SampleCachePolicy
 
 - `NoCachePolicy`と`FullRamCachePolicy`を実装する。
-- `auto`はDataset生成時にpayload推定値から候補strategyを決め、最初のDataset-level prepareで上記いずれかへ一度だけ確定するmodeであり、独立policy classである必要はない。allocation失敗を`none`へfallbackするかerrorにするかは[D9](#decision-d9)の選択に従う。
+- `auto`はDataset生成時にpayload推定値から候補strategyを決め、最初のDataset-level prepareで上記いずれかへ一度だけ確定するmodeであり、独立policy classである必要はない。allocation失敗時は`auto`のみWARN 1回で`none`へfallbackし、明示`full_ram`はerrorとする（[D9](#decision-d9)決定済み）。
 - Dataset-level prepareは`Unprepared / Preparing / Ready / Failed`相当のsingle-flight stateを持つ。異なるindexへの同時初回`Get`もallocation/fallback完了を待ち、Failedはprocess lifetimeでterminalとする。
 - cache keyはDataset内index。augment済み画像を保存しない。
 - bounded LRUは非復元epoch samplingでhit率が低く、再現可能な復元も複雑なため不採用。
@@ -409,7 +418,7 @@ native ImageClsなのに`EnvSpec.info["image_dataset_key"]`が無いか空の場
 
 - `ImageClsEnv.data_source.*`から構築する（[D1](#decision-d1)で決定済み）。
 - DatasetKey、augment config、eval sampling configを持つ。
-- batch size、生成時RunMode（[D3](#decision-d3)決定済み）、[D10](#decision-d10)で決めるSource root seed、[D8](#decision-d8)で扱いを決めるworker configはconstruction contextから受け取る。
+- batch size、生成時RunMode（[D3](#decision-d3)決定済み）、Source root seed（[D10](#decision-d10)決定済み）、worker config（[D8](#decision-d8)決定済み）はconstruction contextから受け取る。
 - Dataset path、shape、cache policyは持たない。
 
 ### 4.9 ImageDataSource
@@ -419,15 +428,15 @@ native ImageClsなのに`EnvSpec.info["image_dataset_key"]`が無いか空の場
 - batch sizeとroleはconstruction時に固定し、APIは`NextBatch()`とする（[D3](#decision-d3)決定済み。旧案`NextBatch(B, mode)`は廃止）。
 - Source自身が専有するSamplerからindex/epoch metadataを取得する。
 - Source root seedからsampler / augmentの独立streamを作り、mutable RNG stateを他Sourceと共有しない。
-- [D4](#decision-d4) / [D9](#decision-d9)の契約に従い、最初のdecode/cache taskをenqueueする前にcaller threadからDatasetの`PrepareCache()`を同期呼出しし、完了後にだけworkerへ`Get(index)`を投入する。
+- [D4](#decision-d4)で確定した契約と[D9](#decision-d9)に従い、最初のdecode/cache taskをenqueueする前にcaller threadからDatasetの`PrepareCache()`を同期呼出しし、完了後にだけworkerへ`Get(index)`を投入する。
 - batch内dedupe後にunique indexをdecode/cache lookupし、slotごとにaugmentしてfresh Tensorへcollateする。
-- [D4](#decision-d4) / [D8](#decision-d8)の選択に従ってpoolをlazy生成し、`Shutdown`とdestructorのStop/joinをidempotentにする。同期decodeを選ぶ場合はpoolを生成しない。
+- [D4](#decision-d4)で確定した最初の`NextBatch`時点で、[D8](#decision-d8)で決定したworker_type解釈（AUTO=B=1同期/B>1pool）に従いpoolをlazy生成し、`Shutdown`とdestructorのStop/joinをidempotentにする。同期decodeではpoolを生成しない。
 - construction時の`Acquire`後はManagerを保持せず、取得したDatasetの`shared_ptr`だけを保持する。
 - decode taskをSource-local wrapperで囲み、例外保存とcompletion通知を保証する。`NextBatch`はworker失敗をcaller threadへ再送出する。
 
 ### 4.10 ImageBatch
 
-[D5](#decision-d5)のexact-N / padding案では、`NextBatch`の戻り値にgrid/targetsだけではepoch accuracy、padding、eval終端を実装できないため、次のmetadataを持つ内部valueを基準案とする。
+[D5](#decision-d5)で確定したexact size / padding契約では、`NextBatch`の戻り値にgrid/targetsだけではepoch accuracy、padding、eval終端を実装できないため、次のmetadataを持つ内部valueとする。
 
 | field | shape / type | 用途 |
 |---|---|---|
@@ -442,7 +451,7 @@ native ImageClsなのに`EnvSpec.info["image_dataset_key"]`が無いか空の場
 ### 4.11 IndexSampler各実装
 
 - `IndexSampler`はindex、epoch tag、valid metadataを返すinterface。
-- `EpochShuffleSampler`はtrainとrotating subsetで使用し、permutation、cursor、cycle、RNGを持つ。
+- `EpochShuffleSampler`はtrainとrotating windowで使用し、permutation、cursor、cycle、RNGを持つ。
 - `SequentialPassSampler`はfull evalでindex 0から順に返し、末尾をvalid-prefix paddingする。
 - data sizeよりBが大きい場合、1 batch内に複数cycleが入り得るため、単一`wrapped` boolではなくslot単位epoch tagを使う。
 - sampler stateを異なるEnv/Source間で共有しない。
@@ -460,7 +469,7 @@ native ImageClsなのに`EnvSpec.info["image_dataset_key"]`が無いか空の場
 ### 4.13 factory / RunManager
 
 - `ImageClsEnvFactory`は登録用のstateless providerとして扱い、Dataset registryを兼務しない。
-- factoryはresolved Env/Source config、B、[D10](#decision-d10)で確定するSource seed、生成時RunMode（[D3](#decision-d3)決定済み）を使ってEnvを生成する。
+- factoryはresolved Env/Source config、B、Source seed（[D10](#decision-d10)決定済み）、生成時RunMode（[D3](#decision-d3)決定済み）を使ってEnvを生成する。
 - factoryはrun-local catalogを`ImageDatasetManager::Instance().RegisterCatalog(...)`し、`ImageDataSource`はkeyだけで`Acquire(...)`する。Manager注入用session/contextは設けない。
 - main train Envの`EnvSpec.info["image_dataset_key"]`とEnvSpec本体をcanonicalとして`RunManager`に保持し、後続eval/EvalPanelを接続する前にrun単位で互換性を検証する。非ImageClsへこのinfo keyを要求しない。
 - run shutdownでは全train/eval/EvalPanel Sourceのpoolをstop/joinしてEnvを解放する。ManagerとDataset/cacheは解放せずprocess終了まで保持する。
@@ -562,8 +571,8 @@ flowchart LR
 
 - 基準案ではtrainとevalは異なるDatasetKeyなので別Dataset/cacheを持つ。
 - [D7](#decision-d7)の決定により、background evalとEvalPanelは明示的に同じconfig tagのeval keyを選べ、その場合Dataset/cacheを共有する。
-- 3つのSource、Sampler、cursor、RNGはそれぞれ別instanceであり、decode poolの生成有無と時点は[D4](#decision-d4) / [D8](#decision-d8)に従う。
-- [D4](#decision-d4)の基準案では、catalogに定義されてもAcquireされないDatasetKeyを生成しない。
+- 3つのSource、Sampler、cursor、RNGはそれぞれ別instanceであり、decode poolは最初の`NextBatch`で生成する（[D4](#decision-d4)決定済み。方式は[D8](#decision-d8)で決定したworker_type解釈に従う）。
+- catalogに定義されてもAcquireされないDatasetKeyは生成しない（[D4](#decision-d4)決定済み）。
 - Managerと生成済みDataset/cacheはrun scopeの外にあり、process終了まで保持する。同一keyへ異なるresolved configを要求するとfail-fastする。
 
 ## 7. 詳細設計・現行コード制約
@@ -701,11 +710,11 @@ PRD 037完了後の`RunManager`は、固定名`train`、全configured Eval tag�
 
 - prefetch queueは作らない。`NextBatch`はEnv.Step内で実行し、既存PipelineTrainRunnerのlearn overlapへ乗せる。
 - SamplerがB slot分のindex/epoch tagを確定し、同一batch内の重複indexをdedupeする。
-- [D4](#decision-d4) / [D9](#decision-d9)の基準案では、`NextBatch` callerがDatasetの`PrepareCache()`を同期実行し、payload allocation / `auto` fallbackの確定後にだけdecode/cache taskをworkerへenqueueする。worker task自身はFull RAM payloadを確保しない。
+- [D4](#decision-d4)で確定した境界では、`NextBatch` callerがDatasetの`PrepareCache()`を同期実行し、payload allocation / `auto` fallback（[D9](#decision-d9)）の確定後にだけdecode/cache taskをworkerへenqueueする。worker task自身はFull RAM payloadを確保しない。
 - unique indexをdecode/cache lookupした後、slotごとにaugmentしてfresh outputへcollateする。
 - `data_size < B`またはcycle境界で同じindexが異なるepoch tagを持つ場合、raw decodeは共有できてもaugment結果は別になり得る。
 - `FullRamCachePolicy`はDatasetごとにpayloadを1本持ち、per-index one-time publishで異なるEnvからの同時fillを保護する。
-- [D9](#decision-d9)の基準案では`auto`だけが`full_ram / none`を自動選択し、明示`full_ram`をcap超過で黙ってnoneへ変えない。
+- [D9](#decision-d9)の決定どおり、`auto`だけが`full_ram / none`を自動選択し、明示`full_ram`をcap超過で黙ってnoneへ変えない。
 - Food101 224x224 uint8 payloadはtrain約10.6GiB、eval約3.5GiB。ImageNet-1K trainは約180GiB、valは約7GiBの目安である。
 - outputは毎回fresh Tensorとし、double-buffer / ping-pong storageは使わない。
 - profilingは3.8のstable name contractへ従う。
@@ -731,7 +740,7 @@ PRD 037完了後の`RunManager`は、固定名`train`、全configured Eval tag�
 - fixed subsetは同じ画像だけを評価し続けるため採用しない。
 - 1 eval windowで1個だけEpisodeEndEventを出し、`$env accuracy`を1回記録する。
 - `$runner eps_total_reward`は代表laneの部分値となるためeval metricから外す。
-- exact N / B切上げ、cycle跨ぎ、paddingは[D5](#decision-d5)で確定し、旧B単位切上げ案を規範仕様として扱わない。
+- exact size＋padding、cycle跨ぎ許容は[D5](#decision-d5)で確定済みであり、旧B単位切上げ案を規範仕様として扱わない。
 - eval triggerのnetwork versionは本PRDの対象外だが、sample scheduleとbatch assemblyは同一seed/configで固定する。
 
 ### 7.7 C6: config / metrics
@@ -747,7 +756,7 @@ PRD 037完了後の`RunManager`は、固定名`train`、全configured Eval tag�
 
 ### 7.8 C7: RNG / reproducibility
 
-- Source root seedのrole/tag domainは[D10](#decision-d10)で確定し、そこから`SeedMaker`でsampler streamとaugment streamを分ける。
+- Source root seedのrole/tag domainは[D10](#decision-d10)で確定済みであり、そこから`SeedMaker`でsampler streamとaugment streamを分ける。
 - epoch permutationは`(sampler_seed, epoch)`から決定できるようにする。
 - augmentは`(augment_seed, epoch_tag, dataset_index)`からthread-local RNGを構成する。
 - unique indexのdecode task割当順や完了順をsample/augment順へ反映しない。
@@ -770,7 +779,7 @@ PRD 037完了後の`RunManager`は、固定名`train`、全configured Eval tag�
 | `core/anet-core/include/anet/env.hpp` | `name`引数を維持した`BatchEnvBuilder`改名、WorkerThreadResolver、registry variant、static macro削除、`SingleDiscreteEnvBase`/`BatchEnvBase`の生成時RunMode保持＋`GetRunMode()` | 0 / 1 |
 | `core/anet-core/src/env.cpp` | nameの無加工転送、Builder改名、worker解決、GetScalar fail-fast、registry dispatch、wrapper Reset/Stepの無mode転送 | 0 / 1 |
 | `core/anet-core/include/anet/trainer.hpp` | PRD 037のrun-local Env name registry維持、EvalPanel用runner生成API、run-local canonical `(DatasetKey, EnvSpec)`保持 | 0 / 1 / 2 |
-| `core/anet-core/src/trainer.cpp` | Env name preflight / registry維持、Builder型追従、eval routing、eval B / prefix / RunMode、Phase 2のImageCls EnvSpec互換検証 | 0 / 1 / 2 |
+| `core/anet-core/src/trainer.cpp` | Env name preflight / registry維持、Builder型追従、eval routing、eval B / prefix / RunMode、dormant tag非生成とmetrics dormant-skip WARN（[D4](#decision-d4)）、Phase 2のImageCls EnvSpec互換検証 | 0 / 1 / 2 |
 | `core/envs/{gridmaze1,lunarlander1,cartpole2,dropmerge1}/src/*Env.cpp` | `ANET_REGISTER_ENV_FACTORY`使用行削除（0）、Reset/Step無mode化。CartPoleのeval初期状態固定は保持RunMode参照へ（1） | 0 / 1 |
 | `core/envs/imagecls1/src/ImageData.{hpp,cpp}` | DatasetKey/config、Manager、Dataset、Manifest、Source、Sampler、cache、augment、profiling | 2 |
 | `core/envs/imagecls1/src/ImageClsEnv.{hpp,cpp}` | native BatchEnv、Source config、metrics snapshot、fresh observation、`EnvSpec.info["image_dataset_key"]` | 2 |
@@ -790,28 +799,28 @@ PRD 037完了後の`RunManager`は、固定名`train`、全configured Eval tag�
 
 未決事項を参照する項目は、該当Dの決定後に選択案へ書き換えてから実装gateとして使う。以下で「基準案では」とした内容は現時点の比較用期待値であり、未決のまま実装へ入ることを許可するものではない。
 
-1. 各Phase末でx64-Debug buildと既存testが成功する。Phase 0/1ではCartPole / LunarLander / DropMerge / GridMaze / 現行ImageCls single経路が不変動作する。
+1. 各Phase末でx64-Debug buildと既存testが成功する。Phase 0/1ではCartPole / LunarLander / DropMerge / GridMaze / 現行ImageCls single経路が不変動作する（例外は[D4](#decision-d4)で決定したdormant tagの非生成とmetrics dormant-skip WARNのみ）。
 2. [D2](#decision-d2)のsingleton決定と[D3](#decision-d3)のseam決定に従い、`class_id="ImageClsEnv"`がnative batch factoryを選び、他Envは従来のsingle wrapperを使う。同一class_id二重登録はfail-fastする。全Envの`Reset`/`Step`は実行時RunMode引数を持たず、生成時RunMode（`GetRunMode()`）で挙動し、既存train/eval挙動（CartPoleのeval初期状態固定を含む）が不変である。
-3. `ImageDatasetManager`は別RunManagerでも同一process/key/resolved configへ同じinstanceを返す。同一key/異configは最初の相違field付きでfail-fastし、異なるkeyは同じconfigでも別instanceとする。[D4](#decision-d4)の基準案では未要求keyのmanifest I/Oを行わない。
+3. `ImageDatasetManager`は別RunManagerでも同一process/key/resolved configへ同じinstanceを返す。同一key/異configは最初の相違field付きでfail-fastし、異なるkeyは同じconfigでも別instanceとする。未要求keyのmanifest I/Oを行わない（[D4](#decision-d4)決定済み）。
 4. 複数run/threadからの並行`RegisterCatalog` / `Acquire`でもcatalog commitはatomic、Dataset生成はkeyごとに1回とし、全callerが同じinstanceまたは同じ失敗を観測する。catalog後半keyのconflict時に先行新規keyを残さない。Acquire失敗後はprocess終了までretryせず同じterminal failureを再送出する。
 5. Dataset config chain（C++ default→`ImageDataset.*`→key override）をSource configから独立に解決し、eval overlayがDataset fieldを書き換えない。全宣言keyをI/O無しの`RegisterCatalog`でatomic登録し、同config再登録はno-op、異config再登録は全新規keyをcommitせずfail-fastする。Source chainはC++ default→`ImageClsEnv.*`→selected eval overlayとする（[D1](#decision-d1)決定済み）。unknown/undeclared key、不正型、required欠落、旧新キー混在をfail-fastする。
 6. Reset/Stepは`grid[B,3,H,W] uint8`と`vector[B,1] int64`を返し、valid laneのrewardがaction/target一致と等しい。
 7. B=1でshape、label、reward、train terminal/reset `episode_start`が旧contractと一致する。eval終端は[D7](#decision-d7)で決定したeval window終端に一致する。
 8. 連続する`NextBatch`が別storageを返し、後続Stepが過去stateを書き換えない。next/continue stateは同じfresh observationを共有してよい。
 9. train samplerが非復元で全件を覆い、wrap端数、`data_size < B`、1 batch複数cycle、epoch tag、採点時`epoch_count`を正しく処理する。
-10. [D5](#decision-d5)のexact N基準案を採る場合、full window内`n_transitions`合計が`eval_size`、subsetが正確にNとなる。`N < B`、`N % B == 0`、dataset cycle跨ぎを検証し、跨ぎ時の異cycle間同一index再登場を許容する。pad rewardは0。
-11. [D5](#decision-d5)のwindow基準案を採る場合、1 eval windowで`EpisodeEndEvent`とaccuracy記録が各1回、`n_episode_end=1`となる。next/continue stateのdone/truncated/episode_startが3.5のlane contractと一致する。
-12. [D4](#decision-d4) / [D9](#decision-d9)の契約に従い、別RunManagerを含む複数Sourceの同時初回`NextBatch`でもcaller-side `PrepareCache()`がDataset単位で1回だけpayloadを確定し、worker taskはpayload allocationを行わない。同一indexの複数Env同時fillもrace-freeで、失敗時は全waiterへ同じprocess-lifetime failure、成功時はimmutable entryを公開する。
-13. `auto` / `none` / `full_ram`が[D9](#decision-d9)のcap・allocation契約どおり動く。
+10. [D5](#decision-d5)の決定に従い、full window内`n_transitions`合計が`eval_size`、rotatingが正確に`eval_window.size`となる。`size < B`、`size % B == 0`、dataset cycle跨ぎを検証し、跨ぎ時の異cycle間同一index再登場を許容する。pad rewardは0。
+11. [D5](#decision-d5)の決定に従い、1 eval windowで`EpisodeEndEvent`とaccuracy記録が各1回、`n_episode_end=1`となる。next/continue stateのdone/truncated/episode_startが3.5のlane contractと一致する。
+12. [D4](#decision-d4)と[D9](#decision-d9)で確定した契約に従い、別RunManagerを含む複数Sourceの同時初回`NextBatch`でもcaller-side `PrepareCache()`がDataset単位で1回だけpayloadを確定し、worker taskはpayload allocationを行わない。同一indexの複数Env同時fillもrace-freeで、失敗時は全waiterへ同じprocess-lifetime failure、成功時はimmutable entryを公開する。
+13. `auto` / `none` / `full_ram`が[D9](#decision-d9)で確定したcap・allocation契約（既定4GiB、autoのみWARN 1回+none fallback、明示full_ramはDatasetKey/必要bytes/cap付きerror）どおり動く。
 14. malformed manifest、unknown/duplicate class、空dataset、decode失敗がDatasetKey、行、class、path、index等を含む診断でfail-fastする。decode worker例外はcompletionを阻害せず`NextBatch` callerへ再送出され、process-wide wxImage初期化がconcurrent runでも1回だけ行われる。
-15. [D10](#decision-d10)で確定したrole/tag domainを使い、同一Dataset bytes / resolved master seed / configでsample列、epoch tag、augment、batch組立がthread順・Source construction順に依存せず一致する。tag追加で既存tagの列を変えず、master seedとSource domain seedをlog / metricsから確認できる。literal `train.seed=0`同士のrun間一致は要求しない。
+15. [D10](#decision-d10)で決定したrole/tag stable named domainを使い、同一Dataset bytes / resolved master seed / configでsample列、epoch tag、augment、batch組立がthread順・Source construction順に依存せず一致する。tag追加で既存tagの列を変えず、master seedとSource domain seedをlog / metricsから確認できる。literal `train.seed=0`同士のrun間一致は要求しない。
 16. `accuracy`と`epoch_count`だけがglobal Env scalarとして利用でき、旧stream keyとprefix付きglobal keyを拒否する。
 17. profiling名が3.8のstable nameで取得できる。
-18. [D6](#decision-d6)の出荷設定を選ぶため、Food101でhost RAM、`exp_step_per_sec`、eval時間、eval accuracyを測り、旧single比の性能・精度影響を記録する。
+18. [D6](#decision-d6)で決定した出荷設定（rotating 1024 / B=128）を確認するため、Food101でhost RAM、`exp_step_per_sec`、eval時間、eval accuracyを測り、旧single比の性能・精度影響を記録する。問題があれば`eval_window.size`だけをmode決定を変えずに調整する。
 19. native ImageClsのtrain/eval/EvalPanel EnvSpecが`info["image_dataset_key"]`へ非空のDatasetKeyを持つ。`RunManager`はmain train `(DatasetKey, EnvSpec)`をcanonicalとして、eval/EvalPanelをAgent・runnerへ接続する前にclass names/order、grid shape/dtype、vector/action specを照合し、欠落または不一致を両DatasetKeyとfield付きでfail-fastする。非ImageClsにはこのinfo keyを要求しない。
-20. [D7](#decision-d7)の決定に従い、EvalPanelは明示config tagの`run_mode`と`env.*`を使用し、Dataset instanceをconfigured evalと共有しつつSource/Sampler/cursorを共有しない。B=1固定で同じfull/N window件数、metrics、state flagを使い、tagのinterval/use_background/clone_modelを誤適用しない。[D10](#decision-d10)基準案ではsample列も独立domainにする。
-21. [D8](#decision-d8)決定後、選択したworker_type各分岐、worker数、env device contractをSource / Builder testへ反映し、unsupported値をsilent ignoreしない。
-22. [D4](#decision-d4)決定後、native ImageClsの`interval=0` tagについてEnv/manifest生成有無と、そのtagを参照するmetricsの成功またはfail-fastを選択contractどおり検証する。Phase 1と非ImageClsのgeneric routingは従来挙動を維持する。
+20. [D7](#decision-d7)の決定に従い、EvalPanelは明示config tagの`run_mode`と`env.*`を使用し、Dataset instanceをconfigured evalと共有しつつSource/Sampler/cursorを共有しない。B=1固定で同じfull/N window件数、metrics、state flagを使い、tagのinterval/use_background/clone_modelを誤適用しない。[D10](#decision-d10)の決定どおりsample列も独立domainにする。
+21. [D8](#decision-d8)の決定に従い、worker_type各分岐（AUTO=B=1同期/B>1pool、SINGLE_THREAD、THREAD_POOL）、`WorkerThreadResolver`によるworker数解決、非CPU deviceのfail-fastをSource / Builder testへ反映し、unsupported値をsilent ignoreしない。
+22. [D4](#decision-d4)の決定に従い、全Envの`interval=0`（dormant）tagについて、schema/type/DatasetKey宣言の検証とname予約だけを行い、EvalRunner / Env / actor / observer / poolを生成しないことを検証する。宣言済みdormant tagを参照するactive metricsはerrorにせず、tagごと1回のLOG::warn（skipしたmetricキー列挙付き）でobserver生成をskipする。未宣言tagの参照は従来どおりerrorとする。dormant tagのDatasetはmanifest I/Oされない（EvalPanel等の別インスタンスが同じ定義を参照する場合を除く）。
 23. 1つのrun終了でsingleton Dataset/cacheが破棄されず後続runから再利用でき、別runが使用中でも影響を受けない。manifest/imageのin-place変更とproduction `Reset/Clear`は非対応とし、更新時は新directory＋新DatasetKeyまたはprocess restartを要求する。
 24. Phase 0の改名前後で、main Train、configured Eval、EvalPanelの`BatchEnv::GetName()`と全laneの`GetEnvName(lane_index)`が不変である。
 25. Phase 1のBuilder移行後もconfigured Evalは`name=tag`、`config_prefix=train.eval.[tag].env`を別引数で受け、EvalPanelは`name=EvalPanel`をselected tag、RunMode、config prefixから独立して維持する。
@@ -821,7 +830,7 @@ PRD 037完了後の`RunManager`は、固定名`train`、全configured Eval tag�
 29. main Train、configured Eval、EvalPanel、既存の動的Evalと同名の`CreateEvalRunner(name, ...)`は第二のEnv構築前に失敗し、既存runnerを上書きしない。生成失敗したnameはregistryへ残らず、生成成功済みnameはRun終了まで再利用できない。
 30. name一意性registryは`RunManager`だけが所有し、Builder、per-class Factory、native `ImageClsEnv`は検証済みnameを無加工で伝播する。別RunManagerでは同じnameを使用できる。
 
-性能は本PRDでは観測・設定選択項目とし、事前の数値gateを設けない。[D6](#decision-d6)の実設定を確定する際に測定結果をレビューし、必要なら別途target値を追加する。機能受け入れを、未測定の恣意的なthroughput閾値では失敗させない。
+性能は本PRDでは観測・設定選択項目とし、事前の数値gateを設けない。[D6](#decision-d6)で決定した実設定は基準18の測定結果でレビューし、必要なら`eval_window.size`の調整または別途target値の追加を行う。機能受け入れを、未測定の恣意的なthroughput閾値では失敗させない。
 
 ### 8.2 テスト観点
 
@@ -832,8 +841,8 @@ PRD 037完了後の`RunManager`は、固定名`train`、全configured Eval tag�
 - Source ([D4](#decision-d4) / [D8](#decision-d8) / [D9](#decision-d9)): sampler、dedupe、augment、fresh storage、pool lifecycle、worker exception rethrow、ImageBatch metadata。
 - Env: Reset/Step（無mode引数、生成時RunMode固定＝`GetRunMode()`）、reward、episode_start、accuracy snapshot、epoch_count、B=1、`EnvSpec.info`のDatasetKey。
 - Factory/name: Phase 0改名前後、Phase 1 Builder移行前後で`GetName()` / `GetEnvName(lane_index)`が不変。Phase 2 native B>1では`GetName()==name`、全laneの`GetEnvName(i)==<name>[i]`、範囲外fail-fastを検証する。nameだけを変えた比較でDatasetKey、Source、cache、seed、RNG列が不変。全Phaseでreserved name衝突、動的name重複、生成失敗時の非登録、別RunManagerでの再利用を検証する。
-- Eval ([D5](#decision-d5) / [D7](#decision-d7)): full/subset、N<B、N%B==0、cycle跨ぎ、padding、representative lane、state flag、event/metric 1回、explicit EvalPanel tag routing、接続前のcanonical `(DatasetKey, EnvSpec)`互換検証。
-- Reproducibility: 同じresolved master seedでworker数・Source construction順を変えてもsample/augment/batchが一致し、eval tag追加で既存tagの列が変わらない。seed 0の実seed記録と、[D10](#decision-d10)選択案に応じたconfigured eval / EvalPanel初期列の一致または独立を検証する。
+- Eval ([D5](#decision-d5) / [D7](#decision-d7)): full/rotating、size<B、size%B==0、cycle跨ぎ、padding、representative lane、state flag、event/metric 1回、explicit EvalPanel tag routing、接続前のcanonical `(DatasetKey, EnvSpec)`互換検証。
+- Reproducibility: 同じresolved master seedでworker数・Source construction順を変えてもsample/augment/batchが一致し、eval tag追加で既存tagの列が変わらない。seed 0の実seed記録と、configured eval / EvalPanel初期列の独立（[D10](#decision-d10)決定済み）を検証する。
 
 singletonを使うunit testはtestごとに固有DatasetKeyを使い、process lifetime stateへ依存する順序不定testにしない。production向け`Reset/Clear` APIをtest都合で追加せず、singleton lifetime自体は専用integration testで確認する。
 
@@ -856,13 +865,13 @@ runner online確認では、batch obs shape、DatasetKeyごとのinstance/cache�
 - 旧Datasetキーが現行の有効キーとして記載されず、設定一覧の変更説明、移行表、決定経緯だけに現れる。
 - DatasetKey、Manager scope、Sampler専有、cache共有、Lazy境界が本文と図で一致する。
 - 未決事項は規範仕様へ紛れ込まず、判断材料、選択肢、推奨、影響、期限を持つ。
-- 未決事項章は決定経緯の後にある最終章とし、第2～12章の条件付き記載から未決[D4](#decision-d4)～[D10](#decision-d10)へ遷移できる。解決済み[D1](#decision-d1)～[D3](#decision-d3)は決定経緯へ置く。
+- 全D判断（D1～D10）は解決済みであり、第12章決定経緯（12.3～12.12節）へ記録する。第13章は解決済みであることを示すstubとして残し、`#decision-dN` anchorは決定経緯側でリンクを維持する。
 - リスクと決定経緯が別章になっている。
 - double-buffer、ping-pong、Phase 3が現行仕様として復活していない。
 
 ## 9. 実装フェーズ
 
-> PRD 037完了状態からPhase 0を開始し、各Phaseは独立してbuild/testをgreenにする。[D2](#decision-d2)（process singleton）、[D3](#decision-d3)（生成時RunMode固定）、[D7](#decision-d7)（EvalPanel明示タグ参照）は決定済み。その他の実装必須判断はPhase 2前に確定する。
+> PRD 037完了状態からPhase 0を開始し、各Phaseは独立してbuild/testをgreenにする。全D判断（[D1](#decision-d1)～[D10](#decision-d10)）は決定済みであり、第12章決定経緯を規範とする。
 
 ### Phase 0: framework refactor（挙動不変）
 
@@ -886,13 +895,14 @@ runner online確認では、batch obs shape、DatasetKeyごとのinstance/cache�
 - `BatchEnv` / `SingleDiscreteEnv`の`Reset` / `Step`から実行時RunMode引数を撤去し、`SingleDiscreteEnvBase` / `BatchEnvBase`が生成時RunModeを保持して`GetRunMode()`を公開する。`SingleDiscreteEnvFactory::CreateSingleEnv`へRunModeを追加し、CartPoleのeval初期状態固定は保持RunMode参照へ置換する（挙動不変）。EvalRunnerのReset/Step呼出しを無引数化する。
 - configured evalとEvalPanelをBuilder経由へ統一し、EvalPanel APIが明示config tagをnameとは別に運べるseamを追加する。configured Evalは`name=tag`を渡す。EvalPanelは`CreateEvalRunner` seamで`name=EvalPanel`とselected tagを分離する。selected tagから解決するRunModeとconfig prefixの利用方法は[D7](#decision-d7)の決定に従い、RunModeは生成時にBuilderへ渡す（[D3](#decision-d3)決定済み）。ただし既存single Envへoverlayを適用せず、Phase 1ではrouting挙動を変えない。
 - configured EvalのBuilder移行後も、nameの一意性検証・成功後登録・既存runner保護は`RunManager`で一度だけ行う。Builderまたはper-class Factoryで再検証・予約しない。
+- `interval=0`のdormant tagは全Env共通で宣言検証+name予約のみとし、EvalRunner / Env / actor / observer / poolを生成しない（[D4](#decision-d4)決定済み）。宣言済みdormant tagを参照するactive metricsはtagごと1回のLOG::warn（skipキー列挙）でobserver生成をskipし、未宣言tag参照は従来どおりerrorとする。
 - ImageClsはこのPhase末では旧single factoryのままでもよい。
 
-検証: existing single Envのtrain/evalとEvalPanel routingが不変。Builder移行前後でname、lane name、reserved name衝突、動的name重複の結果が不変。
+検証: existing single Envのtrain/evalとEvalPanel routingが不変（例外は[D4](#decision-d4)のdormant tag非生成とmetrics dormant-skip WARNのみ）。Builder移行前後でname、lane name、reserved name衝突、動的name重複の結果が不変。
 
 ### Phase 2: ImageCls Dataset / Source / native Env / config移行
 
-着手gate: [D4](#decision-d4)、[D5](#decision-d5)、[D8](#decision-d8)、[D9](#decision-d9)、[D10](#decision-d10)を確定し、[D6](#decision-d6)の出荷config値を決める。[D1](#decision-d1)はSource設定埋め込みとして決定済み。[D7](#decision-d7)のImageCls固有overlay / 終端contractは決定済み（12.6節）で、受け入れ基準7/20どおり実装する。
+着手gate: なし。全D判断（[D1](#decision-d1)～[D10](#decision-d10)）は決定済みであり、第12章決定経緯（12.3～12.12節）を規範とする。[D7](#decision-d7)のImageCls固有overlay / 終端contractは決定済み（12.6節）で、受け入れ基準7/20どおり実装する。
 
 - `ImageDatasetConfig`、`DatasetKey`、process singleton `ImageDatasetManager`、`ImageManifest`、`ImageDataset`を実装する。
 - factoryのatomic `RegisterCatalog`、cross-run Acquire共有、config mismatch fail-fast、process-lifetime保持を実装する。
@@ -937,18 +947,18 @@ runner online確認では、batch obs shape、DatasetKeyごとのinstance/cache�
 - **Dataset fileのin-place変更**: `none`では再decode、`full_ram`では未fill indexから新bytesが混ざる。manifest/classes/imagesはprocess中immutableとし、更新時は新directory＋新DatasetKeyまたはprocess restartを要求する。
 - **設定indirection**: Source設定（[D1](#decision-d1)で確定）とeval env overlayの対応を誤るとtrain dataでevalする可能性がある。起動logへrun mode、env tag、DatasetKey、resolved manifest、cache policyを出す。
 - **EvalPanel tag / RunMode二重管理**: selected tagのoverlayとRunnerFrame固定RunModeがずれると、actorとEnvのroleが不一致になる。[D7](#decision-d7)の決定どおりtagをauthoritativeにし、使用・無視するfieldをrouting testで固定する。
-- **Lazy境界とfail-fastの衝突**: [D4](#decision-d4)で遅延しすぎるとmanifest errorが最初のStepまで潜伏する。GetSpecに必要なmanifestは参照Env生成時に検証する基準案とする。
+- **Lazy境界とfail-fastの衝突**: 遅延しすぎるとmanifest errorが最初のStepまで潜伏する。[D4](#decision-d4)の決定どおり、GetSpecに必要なmanifestは参照Env生成時に検証する。
 - **同期episode burst**: trainの全B laneが同時に`max_steps`へ達しEpisodeEndEventがB件発火する。現行N envでも同じcadenceだが、Conv2d/video observerへの影響を確認する。
 - **共有cache fill race**: batch内dedupeだけでは別Sourceからの同一index fillを保護できない。Dataset自身のone-time publishをstress testする。
 - **fresh batch allocation**: 毎`NextBatch`の新規grid/targetsはstorage lifetimeを単純化する一方、allocator churn、collate copy、同時生存batchによるhost RAMを増やし得る。`ImageDataSource::NextBatch.collate`とhost peakを計測し、bottleneckなら所有権を壊さない別PRDのpoolingを検討する。
 - **wxImage parallel decode**: handler登録を並列化するとraceし得る。process-wide onceでparallel decode開始前に初期化する。
 - **worker例外によるwait hang**: generic poolはtask exceptionを安全に回収しない。Source-local wrapperが必ずcompletionを通知し、`NextBatch` callerへ例外を再送出することをtestする。
-- **Full RAM cap**: [D9](#decision-d9)の4GiB候補はFood101 evalを載せるがtrainはnoneになる。マシン差、allocation failure、process lifetimeで累積する複数Datasetの合計RAMをprofile/logで確認する。
+- **Full RAM cap**: [D9](#decision-d9)の既定4GiBはFood101 evalを自動で載せ、trainはkey固有`max_bytes`のopt-in（出荷例は12GiB、外せばnone fallback）。マシン差、allocation failure、process lifetimeで累積する複数Datasetの合計RAM（Food101でtrain+eval約14GiB）をprofile/logで確認する。
 - **eval padding metadata**: [D5](#decision-d5)のvalid_count / window_end / current batch会計を誤るとaccuracyと`n_transitions`が汚れる。Bで割り切れる場合とN<Bを含めtestする。
 - **subset抽選ノイズ**: [D5](#decision-d5)のrotating subsetはevalごとに対象chunkが変わる。scheduleは決定的でもintervalを変えると同learn stepのchunkが変わる。
-- **background eval負荷**: [D6](#decision-d6)でfull evalを選ぶとB=128でも約198 Stepあり、network lock/GPU競合と次trigger待機を通じてtraining throughputへ影響し得る。
-- **新RNG契約**: [D10](#decision-d10)で決める新contractは旧N single env runとbit一致しない。新contract内の再現性と複数seedの学習曲線で評価する。`train.seed=0`はauto seedなので、run間一致ではなく実resolved seedの記録を保証する。
-- **seed domain drift**: Source生成順やeval tag列挙順をseedへ混ぜると、無関係なtag追加で既存sample列が変わる。[D10](#decision-d10)でstable named domainを決め、tag追加・並べ替えtestを行う。
+- **background eval負荷**: full evalはB=128でも約198 Stepあり、network lock/GPU競合と次trigger待機を通じてtraining throughputへ影響し得る。[D6](#decision-d6)は常用をrotating 1024（8 Step/点）とし、fullはdormantな`[eval_full]`タグの節目利用に限定してこのリスクを避ける。
+- **新RNG契約**: [D10](#decision-d10)で決定した新contractは旧N single env runとbit一致しない。新contract内の再現性と複数seedの学習曲線で評価する。`train.seed=0`はauto seedなので、run間一致ではなく実resolved seedの記録を保証する。
+- **seed domain drift**: Source生成順やeval tag列挙順をseedへ混ぜると、無関係なtag追加で既存sample列が変わる。[D10](#decision-d10)で決定したstable named domainに従い、tag追加・並べ替えtestを行う。
 - **fail-fast移行**: 旧config、unknown DatasetKey、旧scalar keyを残すと起動時または最初のmetrics読出しで停止する。Phase 2でconfigとcodeを同時移行する。
 - **decode律速**: 軽量model/高速GPUではdecodeがlearnを隠しきれない。profile結果によりfuture mmap/preprocessed cacheを判断する。
 
@@ -994,7 +1004,7 @@ runner online確認では、batch obs shape、DatasetKeyごとのinstance/cache�
 - env-localなSource設定はnamed catalogにせず、`ImageClsEnv.data_source.*`へ埋め込む（13章旧D1のoption 1を採用）。
 - 根拠: catalog key（`[key]`記法）はprocess内で共有されるidentityのための機構である。Sourceはsampler、RNG、cursorというmutable stateを持つenv専有objectであり、identityを与える関心が存在しない。`[key]`記法がDatasetでは「共有実体」、Sourceでは「設定テンプレ」という2つの意味を持つことも避ける。
 - 既存`Config`基底のdefault prefix＋override prefix機構がnested keyへそのまま適用でき、新しい設定解決機構を追加しない。evalは`train.eval.[tag].env.data_source.*`で項目単位に差し替える。
-- 検討した再利用シナリオはいずれもSource catalogを要求しない。train/evalはそもそも設定内容が異なる（augment対eval sampling）。EvalPanelは[D7](#decision-d7)の`eval_config_tag`でevalタグごと参照する。項目差分のバリエーション（例: `eval_samples`だけ違うeval tag）はoverlayの1行差分で表現でき、catalog案では丸ごと別profile定義になりかえって冗長になる。
+- 検討した再利用シナリオはいずれもSource catalogを要求しない。train/evalはそもそも設定内容が異なる（augment対eval sampling）。EvalPanelは[D7](#decision-d7)の`eval_config_tag`でevalタグごと参照する。項目差分のバリエーション（例: `eval_window.size`だけ違うeval tag）はoverlayの1行差分で表現でき、catalog案では丸ごと別profile定義になりかえって冗長になる。
 - named `ImageDataSource.[key]` catalogは、複数Env種別で同一Source profileを再利用する具体例が出た時点で追加を再検討する。その際の移行は`ImageCls.txt`と`ImageDataSourceConfig`構築経路に閉じ、可逆である。
 
 <a id="decision-d3"></a>
@@ -1014,31 +1024,108 @@ runner online確認では、batch obs shape、DatasetKeyごとのinstance/cache�
 ### 12.6 D7解決: EvalPanelは`app.eval_panel.eval_config_tag`の明示タグ参照とする
 
 - EvalPanel用Envの設定源は、`app.eval_panel.eval_config_tag`で明示したconfigured eval tagとする（13章旧D7のoption 1）。`RunMode::Eval1`とタグ名`eval1`は別概念で、複数タグが同じrun_modeを持てるためRunModeからoverlayを逆引きしない。RunnerFrameの`Eval1`固定は撤去し、selected tagの`run_mode`を生成時に渡す（[D3](#decision-d3)整合）。
-- 再利用contract: selected tagの`run_mode`と`env.*` overlay（DatasetKey、sample mode、N）をauthoritativeに再利用する。`eval_batch_size`は再利用せずB=1固定。`interval` / `use_background`は無視する（interval=0の寝タグも参照可）。`clone_model`は再利用せず、`app.eval_panel.model_sync.*`を唯一の設定源とする。
+- 再利用contract: selected tagの`run_mode`と`env.*` overlay（DatasetKey、eval window mode/size）をauthoritativeに再利用する。`eval_batch_size`は再利用せずB=1固定。`interval` / `use_background`は無視する（interval=0の寝タグも参照可）。`clone_model`は再利用せず、`app.eval_panel.model_sync.*`を唯一の設定源とする。
 - タグの役割整理（レビューで確定）: タグ=**configured evalの宣言と識別子**であり、1タグ=1常設インスタンス（タグ文字列がEnv name）、`interval=0`なら定義のみの寝タグ。EvalPanelはタグの内容subset（run_mode＋env.*）を**鏡写し参照する別の独立インスタンス**（name=`EvalPanel`、metrics laneなし、独立Source/Sampler/cursor）であり、第二のタグインスタンスにはならない。軸の分離: インスタンス軸=Env name、内容軸=タグ参照、データ軸=DatasetKey。
 - EvalPanel独自の`app.eval_panel.env.*` overlayを設けて`.$`合成で共有する代案は、「configured evalと同じ内容」という意図が機械検証不能になりdriftし得るため不採用。GUIでmetrics evalと異なるデータを見たい場合は、定義専用の寝タグを1個宣言して参照する。
 - `eval_config_tag`はnative ImageCls専用とし、ImageCls利用時は必須（EvalPanel Envは起動時eager生成のため起動時に検証）。非ImageClsは未指定なら従来挙動（`Eval1`既定・prefix無し）を維持し、明示された場合はsilent ignoreせずfail-fastする。
 - episode終端は選択tagのeval windowとする。旧ランダム復元抽出＋`max_steps=100`終端は互換対象外で、`model_sync.mode=episode`はwindow単位の同期になる（既定のtimeモードは無影響）。
 - Phase 1ではtag搬送seam（`CreateEvalRunner`がselected tagを運ぶ）だけを追加し、ImageCls固有overlayの適用と終端変更はPhase 2のnative切替時に有効化する。
 
-### 12.7 更新・撤回された案
+<a id="decision-d4"></a>
+
+### 12.7 D4解決: Lazyラダー確定、dormant tagは全Env共通で非生成
+
+生成境界は次の5段で確定した。全段が`core/envs/imagecls1`モジュール内に閉じ、フレームワーク（anet-core）はdataset/manifest/cacheの語彙を持たない。
+
+| 段階 | 生成タイミング | 理由 |
+|---|---|---|
+| catalog定義・検証・`RegisterCatalog` | factory resolve時（I/O無し） | typo・key衝突の起動時全数検出。宣言はタダ |
+| Dataset / manifest | 参照EnvのSource constructor（`Acquire`） | `GetSpec()`の`value_labels`とeval runner構築時のactor生成に必要（実質強制）。pathエラーを起動時に検出 |
+| Full RAM payload | 最初の`NextBatch`のcaller-side `PrepareCache()` | Food101 train 10.6GiBの未使用確保を回避。失敗をworker例外と分離 |
+| per-index entry | そのindexの最初の`Get` | lazy fill |
+| decode pool | 最初の`NextBatch` | 未使用Sourceにthreadを作らない |
+
+要点は「manifestは早く（fail-fastのため）、payloadは遅く（容量のため）」の非対称である。
+
+`interval=0`のtagは**dormant（意図された休止状態）**と定義し、**全Env共通**のフレームワークルールとして次を適用する。
+
+- dormant tagはschema/type/DatasetKey宣言の検証とname予約のみ行い、EvalRunner / Env / actor clone / observer / background poolを生成しない。参照されないDatasetのmanifest I/Oも行わない。
+- **dormantは意図された状態であり、fail-fastの「fail」に該当しない**。宣言済みdormant tagを参照するactive metricsはerrorにせず、tagごと1回の`LOG::warn`（skipしたmetricキー列挙付き）でobserver生成をskipする。未宣言tag（typo）の参照は従来どおりerror＝こちらは意図しない状態である。
+- 適用範囲を「native ImageCls限定」にしなかった理由: creation loopはRunManager（フレームワーク）にあり、限定するには class_id 比較（禁止）か「batch-native variantか」のenv種別分岐が必要で、いずれも染み出しになる。全Env共通ルールなら条件分岐ゼロ。全configの実測で、dormant tagを参照するactive metricsは現存せず（LunarLander test1/test2参照metricsは既にコメントアウト＝運用習慣と一致）、互換コストはゼロと確認した。
+- 旧挙動（dormant tagでもEnv＋manifest＋actor clone＋background poolを無条件生成し、参照metricsは黙って空laneになる）は、未使用リソースと「evalが動いていると誤認して長時間runを無駄にする」footgunの両方を持つため廃止する。
+- dormant tagの定義はEvalPanel等の別インスタンスから参照可能（[D7](#decision-d7)の定義専用寝タグ運用）。その場合manifestを読むのは参照側インスタンスのAcquireである。
+- 実施はPhase 1（creation loopのBuilder統一と同時）。Phase 0/1の「既存Env不変」受け入れ基準はdormant非生成とmetrics dormant-skip WARNのみを例外とする。
+
+<a id="decision-d5"></a>
+
+### 12.8 D5解決: eval windowはEnvがepisodeへ翻訳、exact size＋padding、`eval_window.mode/size`
+
+- **終了判定の責務**: Envは「設定された採点区間（eval window）をepisode抽象へ翻訳して報告する」係、Runnerは「episodeが終わるまでStepし、episodeを数える」汎用の係とする。driver側でsample数をカウントして止める案は、境界整形（padding）が物理的にSource側必須（eval_size % B ≠ 0）でロジックが二重化し、汎用EvalRunnerがvalid件数というdataset語彙を持つことになるため不採用。SB3/DI-engineの層割り（driver=episode数、env=episode終端）とも一致する。将来のdriver側protocol knob「1評価あたりepisode数」（n_eval_episodes相当、現在は1固定）は本決定と直交して追加可能。
+- **per-lane flagsとbatch-level境界の不整合（既知の妥協として明記）**: per-laneのdone/episode_startはB本の独立episodeストリーム用の語彙であり、「1本の論理ストリームをB幅に刻んだ採点window境界」とは本質的に別物である。lane 0代表はこれを既存episode配管（EpisodeEndEvent / n_episode_end / metrics @episode_end / runner停止条件）へ無改修で載せるエンコーディング上の妥協。**再訪トリガー**: batch-level境界を持つ第二のEnv（マルチエージェントleagueのmatch境界等）が現れた時点で、per-lane flagsと分離したbatch-level boundary channelへの昇格を検討する。
+- **lane 0代表の根拠**: 各laneはepisodeストリームでstart/doneが同一lane上でペアになる会計則を持つ。eval windowはlane 0だけをepisode entityとし（start/doneともlane 0、他laneはbatch slot）、ペア則を守る。境界lane（最終validのlane）案はstartなしdoneを生み、運ぶ固有情報もない（境界位置は`valid_count`/`n_transitions`が既に運ぶ。accuracyはglobal snapshotでlane非依存）。
+- **exact size＋padding**: `eval_window.size`は正確なvalid件数。最終batchはvalid-prefix＋決定的pad（最後のvalid複製等）とし、padはforwardには乗るが採点外（reward 0、accuracy / `n_transitions` / cursorから除外）。B単位切上げ案はNとcycle計算の矛盾（N=100, B=128で128件採点）により棄却済み。
+- **mode分離とsentinel全廃**: `eval_window.mode = full | rotating`。`full`=毎回全件sequentialで1点、`rotating`=`eval_window.size`件ずつcursor継続（size/eval_size回で全件一巡→epoch_count+1→reshuffle継続）。固定subsetは「同じ画像だけ」になるため不採用（既決）。`all` / `<=0でall` / clamp等のmagic値解釈は全廃し、fullでsize指定・rotatingでsize省略・範囲外size・unknown modeはfail-fast。
+- **命名**: 旧案`eval_sample_mode` / `eval_samples` / `rotating_subset`を`eval_window.mode` / `eval_window.size` / `rotating`へ改名。`cache.mode`＋`cache.max_bytes`の既存流儀（`<group>.mode`＋`<group>.<param>`）に揃え、用語「eval window」と設定キーを直結させる。`data_source.`配下は実体どおり（windowを物理的に作るのはSampler/Source。`ANET_READ_CONFIG`のキー=C++メンバパス規約とも一致）。Env自体に残る設定は`max_steps`のみ。
+- 機械的帰結: window終了Stepは代表lane 0のみdone、`EpisodeEndEvent`1回、`n_episode_end=1`、`n_transitions`=valid数。rotating windowのcycle跨ぎはsizeを維持し異cycle間の同一index再登場を許容。cycle=全index一巡、window=accuracy 1点の区間として用語分離。`ImageBatch`が`valid_count` / `window_end` / `epoch_tags`を運ぶ。
+
+<a id="decision-d6"></a>
+
+### 12.9 D6解決: 出荷値はrotating 1024 / B=128、fullはdormantタグの節目利用
+
+- `ImageCls.txt`のeval1出荷値は`eval_window.mode = rotating`、`eval_window.size = 1024`、`eval_batch_size = 128`（train Bと同値）、`interval = 50`据置とする。class defaultは`full`、coreの`eval_batch_size`既定は互換のため`1`を維持する。
+- 根拠: ユーザーの構成比較は終盤eval accuracy EMA（α=0.01）のブレ幅基準であり、評価軸は「EMAに入る情報量/コスト」。現行（B=1で100回unbatched forward）はoverhead支配のため、rotating 1024（8 batched forward/点）は**同等以下のコストで1点10倍のサンプル・EMA精度約3倍・件数会計正確**となる。約25点（1,250 learn step）で全件一巡し`epoch_count`で被覆を監視できる。
+- fullを常用にしない根拠: interval=50のままでは198 batch/点が学習GPUと競合し、次trigger待機で点間隔が乱れる。fullの厳密さが要る節目には、dormantな`[eval_full]`タグ（interval=0、mode=full、同じ`food101_eval` key）を宣言しておき、使う時だけintervalを正値にする。dormant中は[D4](#decision-d4)により非生成・コストゼロで、Dataset/cacheはeval1と共有される。
+- 最終確認は受け入れ基準18の実測（host RAM / `exp_step_per_sec` / eval時間 / accuracy、旧single比）をゲートとし、問題があれば`eval_window.size`だけをmode決定を変えずに調整する。
+
+<a id="decision-d8"></a>
+
+### 12.10 D8解決: worker_type/threadsをSource decodeへ意味拡張、env deviceはCPU限定
+
+- `env.worker_type` / `env.worker_threads`は「env側ワークのホスト並列度」という従来の意図のまま、適用先をsingle env fan-outからSource内並列decodeへ意味拡張する（13章旧D8のoption 1）。同じ関心には同じknobを使い、新キー・config移行を発生させない。
+- 解釈: `AUTO`（既定）=B=1は同期decode・B>1はpool（EvalPanelは自動で同期、train/configured evalはpool）。`SINGLE_THREAD`=poolを作らずcaller threadで同期decode。`THREAD_POOL`=pool使用。worker数は既存`WorkerThreadResolver`で解決し、明示正数を尊重、`-1`=min(B, logical_cores-2)等の既存値域を維持する。
+- native ImageClsのobs契約はCPU uint8 Tensor（`float32/255`変換とdevice転送はactor責務、`train.eval_device_type/index`は独立）であり、`env.device_type != CPU`は黙って無視せずfail-fastする。dormant（意図された休止=WARN）と異なり、非CPU deviceは「サポートされない状態」なのでerrorが正しい。将来のGPU decode（nvJPEG等）は新しい判断として別途開く。
+- 許容するトレードオフ: Sourceごとにpoolを持つため、background eval実行中はtrainとevalのpoolが一時的にCPUを取り合う。[D6](#decision-d6)でeval windowを8バッチ/点に抑えたため競合は短時間・有界であり、必要なら`worker_threads`明示値で制御する。
+
+<a id="decision-d9"></a>
+
+### 12.11 D9解決: cap既定4GiB、autoのみWARN fallback、Food101 trainはopt-in
+
+- `cache.max_bytes`の既定は`4294967296`（4GiB、Dataset単位）とする。線引きの意味は「**小さいdatasetは黙ってタダでcache、大きいdatasetはRAM予算の明示宣言が必要**」。Food101ではeval（約3.5GiB）が自動でfull_ram化し、train（約10.6GiB）はkey固有`max_bytes`のopt-inとする。出荷`ImageCls.txt`にはコメント付きでtrain opt-in行（12GiB）を含める——2 epoch目以降のdecode消滅と引き換えにhost RAM常駐約14GiB（train+eval）で、RAMが厳しいマシンでは行を外せばWARN 1回でnoneへfallbackする。
+- allocation失敗（cap超過、およびcap内でのalloc失敗）: `auto`は**WARN 1回＋`NoCachePolicy`へfallback**しprocess中はpolicy固定。明示`full_ram`は**DatasetKey・必要bytes・cap付きerror**。D4（dormant=意図された休止→WARN）/D8（非CPU=unsupported→error）と同じ原則の3例目: `auto`のfallbackは意図された適応挙動、明示`full_ram`の不履行は宣言違反である。
+- **bounded LRU不採用の定量根拠**: epochシャッフルは「使った直後のitemは次のepochまで再来しない」という逆向きの局所性を持ち、recencyベースevictionの病的ケースになる。再利用距離は平均約0.75Nで、容量K=N/2を割いてもLRU hit率は約15%。同容量なら「固定K件のピン留め」（hit率=K/N=50%）が常に勝ち、evictionはどう転んでも不要。主流も同型: PyTorch DataLoader=キャッシュ無し＋並列decode、tf.data `.cache()`=全量、規模が超えたらオフライン前処理＋mmapでOS page cacheに委譲（本PRDの`MmapCachePolicy` / `PreprocessedFileCachePolicy` future seamが該当）。ランタイムbounded LRU decode cacheは主流に存在しない。
+- 部分ピン留めcache（固定K件のみ保持）は将来`SampleCachePolicy`のstrategy追加で対応可能な席として残す。まず基準18の実測（`exp_step_per_sec`）でdecode律速かを確認し、必要なら`max_bytes`1行で全量化する運用を優先する。
+- cap対象は`N*3*H*W`のuint8 payloadのみ（metadata/lock除外）、size積はchecked `uint64_t`、aggregate process capは設けない、payload prepareはDataset単位single-flight——という共通contractは13章旧D9のとおり維持する。
+
+<a id="decision-d10"></a>
+
+### 12.12 D10解決: Source seedはrole/tagのstable named domainで分離、EvalPanelは独立
+
+- resolved run master seedを起点に、`imagecls/source/train`、`imagecls/source/eval/<tag>`、`imagecls/source/eval_panel/<tag>`のstable named domainでSource root seedを導出する（13章旧D10のoption 1）。各rootから`SeedMaker`で`sampler` / `augment`の2 streamへ分岐する。既存`MasterSeedManager::GetGroupSeed(name)`の named群パターンの粒度拡張であり、新機構ではない。
+- hash入力は定数文字列とconfig識別子（role＋タグ）のみとし、construction order、pointer値、タグ列挙indexを含めない。これによりタグ追加・生成順変更で既存tagのsample列が変わらない。正確なhash入力文字列は既存`SeedMaker`契約の範囲で実装時に定数化する。
+- 現行の「全configured evalタグが単一`eval_obs_seed`を共有」する形（全タグ同一シャッフル列＝相関eval）を廃止し、タグごと独立domainにする。
+- **EvalPanelはconfigured evalからseed独立**とする（option 2棄却）。同一タグ参照時に初期列を揃えても、GUI操作（自動step / pause / 手動step）でcursorが即座にズレて整列は維持不能であり、「同じseedだから同じ対象を見ている」という偽アフォーダンスだけが残る。[D7](#decision-d7)の3軸分離のとおり、タグ鏡写しは内容定義の共有であってstream整列ではない。EvalPanelが共有するのはDataset/cacheのみ。
+- PRD 037のEnv name契約との整合: ADR 0009 follow-upは「nameをseed/RNG domainの決定に使用しない」を既に契約している。domainはEnv nameではなくconfig識別子（role＋タグ）から作る。configured evalではname==タグ文字列だが、意味論上は設定上のタグidentityを使う。
+- literal `train.seed=0`はauto seedでありrun間再現の保証外。resolved master seedと各Source domain seedを起動logへ記録し、再現runでは記録されたmaster seedを明示`train.seed`として指定する。
+- 旧N single env runとのbit互換はなく、本PRDは新central batch contract内の再現性（同一Dataset bytes・resolved master seed・configでsample列/epoch tag/augment/batch組立が一致、worker数・生成順非依存）を保証対象とする。
+
+### 12.13 更新・撤回された案
 
 - **double-buffer / ping-pong**: 当初はallocation削減のため提案したが、storage lifetimeと浅参照保持の複雑性を避けるため撤回した。現行仕様は毎回fresh Tensorである。
 - **Source単位cache**: 当初はtrain/eval Sourceごとに持つ案だったが、同一Datasetを使うEnv間でmanifest/cacheを共有する方針へ更新した。
 - **batch内dedupeだけでcache raceを防ぐ案**: 別Envのconcurrent fillを防げないため撤回し、Dataset内per-index safe publishへ更新した。
 - **Phase 2=Source、Phase 3=Env/eval**: atomicなbuild-green移行が難しいため1つのPhase 2へ統合した。
-- **`eval_samples=all/N`とB単位切上げ**: Nとcycle計算が矛盾するため規範仕様から外し、[D5](#decision-d5)のmode分離・正確なN案として再レビューする。
+- **`eval_samples=all/N`とB単位切上げ**: Nとcycle計算が矛盾するため規範仕様から外し、[D5](#decision-d5)でmode分離（`eval_window.mode/size`）＋exact sizeとして確定した。
 - **Dataset identityをpath/config比較で導出**: 利用者が明示するcase-sensitive `DatasetKey`をidentityとする基準案へ更新した。
 - **run-scoped Manager注入**: 当初案はfactory session/contextがManagerを所有したが撤回した。[D2](#decision-d2)で独立`ImageDatasetManager`をprocess singletonとし、Factoryはcatalog登録、SourceはAcquireだけを行う形へ更新した。
 - **Env直下のpath/cache設定**: Dataset catalogと、Source配下の`dataset_key`参照（[D1](#decision-d1)で確定）へ更新した。
 
-### 12.8 別PRD・非対象へ分離した事項
+### 12.14 別PRD・非対象へ分離した事項
 
 - background evalがどのnetwork versionを評価するかという時間的順序は既存潜在問題であり、999 PRDへ分離した。
 - `PinnedThreadPool` worker例外のframework一般契約は034で変更しない。worker例外が最終的にAPを停止させるべきかという問題は別件として扱う。
 - `clone_model`とbackend deterministic設定は現状を維持する。
 
-### 12.9 用語と後続
+### 12.15 用語と後続
 
 - `targets`はper-image class ID、`class_names`はper-class label、epochはDataset cycle、episodeはRLのmetrics/window境界とする。
 - `accuracy`は直近に確定した採点cycle/windowのsnapshotを意味する。
@@ -1046,199 +1133,4 @@ runner online確認では、batch obs shape、DatasetKeyごとのinstance/cache�
 
 ## 13. 未決事項一覧
 
-### 13.1 レビュー用サマリ
-
-| ID | 判断対象 | 現在の推奨 | 主な影響 | 決定期限 |
-|---|---|---|---|---|
-| [D4](#decision-d4) | Lazy生成の境界 | Datasetは参照Env生成時、cache/poolはfirst use | fail-fast、unused memory、GetSpec | Phase 2着手前 |
-| [D5](#decision-d5) | eval samplingと正確な件数 | mode分離＋正確なN＋pad | metric意味、cycle、metadata | Phase 2着手前 |
-| [D6](#decision-d6) | ImageClsの実eval mode / N / B | class default full、実値は要判断、B候補128 | 精度、GPU時間、trigger待機 | config移行前 |
-| [D8](#decision-d8) | native ImageClsのworker_type / device | worker_typeを尊重、CPU以外fail-fast | 性能、明示設定 | Phase 2着手前 |
-| [D9](#decision-d9) | cache capとallocation失敗 | 4GiB候補、autoのみnone fallback | メモリ、fail-fast | Phase 2着手前 |
-| [D10](#decision-d10) | train / eval tag / EvalPanelのSource seed domain | roleとconfig tagによるstable named domain | run間再現性、sample列の独立性 | Phase 2着手前 |
-
-「推奨」「基準案」はレビュー対象であり、決定済み仕様ではない。第2～12章に置いた[D5](#decision-d5) / [D7](#decision-d7)等の推奨案は、外部仕様と影響を比較できるように置いた条件付きの設計案である。各決定期限までに採否を記録し、採用しない場合は参照先の設定、クラス、受け入れ基準を実装前に更新する。解決済みの[D2](#decision-d2)（process singleton）、[D1](#decision-d1)（Source設定埋め込み）、[D3](#decision-d3)（生成時RunMode固定＋Reset/Step無mode化）、[D7](#decision-d7)（EvalPanel明示タグ参照）は本一覧から除外し、第12.3～12.6節へ記録した。
-
-<a id="decision-d4"></a>
-
-### 13.2 D4: Lazy生成の境界
-
-**判断対象**: Dataset定義、manifest、cache payload、entry、decode poolをいつ生成するか。
-
-**現行コードと既決事項**:
-
-- `RunManager`はReset前に`env_->GetSpec()`を呼び、ImageClsの`value_labels`にはclasses manifestが必要である。
-- Full RAM payloadがFood101 train約10.6GiB、eval約3.5GiBと大きく、Env生成時確保は避ける必要がある。
-
-**選択肢と推奨境界**:
-
-| 段階 | 推奨タイミング | 理由 |
-|---|---|---|
-| catalog定義、schema/type検証、singleton `RegisterCatalog` | ImageCls factoryによるrun-local catalog resolve時 | 全keyをI/O無しでpreflight・atomic登録し、typoとprocess内config衝突を早期検出。conflict時にpartial entryを残さない |
-| Dataset / manifest | そのkeyを参照するEnvのSource constructor内`Acquire` | `GetSpec()`とpath/manifestの早期validationに必要 |
-| Full RAM payload | Sourceの最初の`NextBatch`で、decode/cache task enqueue前にcaller threadが`PrepareCache()` | 大容量未使用確保を避けつつ、allocation失敗をworker例外と分離する |
-| per-index entry | そのindexの最初の`Get` | lazy fill |
-| decode pool | Sourceの最初の`NextBatch` | interval=0等の未使用Sourceでthreadを作らない |
-
-**残る判断**: `interval=0`のnative ImageCls eval tagについてrunner/env自体を作らないか、envは作るがSource/poolを使わないか。前者はunused Datasetも読まないが、disabled tagを参照するmetricsの扱いを変更する。
-
-`interval=0`には次の2案がある。
-
-1. 現行互換を優先し、EvalRunner / Env / Sourceを構築してDataset manifestまで読む。実行、pool、cache payloadだけを無効化する。
-2. disabled tagのschema/typeとDatasetKey宣言だけをI/O無しで検証し、EvalRunner / Env / Sourceを構築しない。そのtagを参照するmetricsは「disabled eval tag」としてfail-fastする。
-
-**推奨案**: 2をnative ImageClsに限ってPhase 2で適用する。未使用Dataset定義でmanifest I/Oもcache確保も行わない契約と一致し、disabled tagが有効なmetricを提供するように見える曖昧さをなくす。Phase 1のgeneric eval routingと非ImageCls Envは従来挙動を維持する。全Env共通でdisabled tagをregistryから除く変更は034の範囲を越えるため、必要なら別PRDで扱う。metrics参照の現行互換を優先する場合は1を選ぶ。
-
-**性能・互換性・保守性**: option 2はstartup I/Oとmemoryを最小化するが、interval 0 tagをmetricsから名前解決できた現行挙動を変更する。option 1はrouting互換性が高い一方、Lazy契約の例外を増やす。
-
-**影響する仕様**: 2.4 `interval`、2.6 config validation、native ImageClsのManager tests、GetSpec、eval tag構築、受け入れ基準3/5/22、memory acceptance。Phase 2開始前に決定必須。Dataset / manifest、payload、entry、poolの基本境界は実装開始前に固定し、lock等の内部表現だけは実装中に確定可能。
-
-<a id="decision-d5"></a>
-
-### 13.3 D5: eval sample mode、N、cycle、padding
-
-**判断対象**: `eval_samples=N`が設定値N件を意味するか、固定Bへ切り上げた件数を意味するか。
-
-**現行コードと既決事項**:
-
-- 現行ImageCls evalはB=1、ランダム復元抽出で`max_steps=100`件を1 episodeとしている。
-- 新native Envは固定Bの`BatchEnvSpec`を維持し、eval末尾だけ可変Bにする案は非対象である。
-- dataset cycleとeval windowは別概念として扱い、padding sampleを有効sampleとして数えない案を比較対象にする。
-
-**問題**: 旧案は1 evalで`ceil(N/B) * B`件を採点する一方、cycle計算を`ceil(eval_size/N)`としており矛盾する。例としてN=100、B=128では設定値100に対して128件を消費する。
-
-**選択肢**:
-
-1. Nを正確なvalid sample数とする。最終batchをBまでpadし、paddingはcursorを進めず、accuracy / reward / `n_transitions`から除外する。
-2. Nを最小目標としB単位へ切り上げる。実件数を別metric/config名で明示する必要がある。
-
-**推奨案**:
-
-- `eval_sample_mode = full | rotating_subset`を導入する。
-- `full`は毎回全件をsequentialに評価するwindow。
-- `rotating_subset`では`eval_samples=N`を正確なvalid件数とする。
-- `1 <= N <= eval_size`。sentinel `all`、`<=0 -> all`、`>size -> clamp`を廃止する。
-- `full`で`eval_samples`を明示した場合、subsetでNを省略した場合、unknown modeはfail-fastする。
-- class defaultは`full`とする候補だが、`interval > 0`のconfigured ImageCls evalではmodeをtag overlayへ明示させる。
-- final batchはvalid prefixとし、pad slotは最後のvalid sample等を決定的に複製するが、採点対象外とする。
-- subset windowがdataset cycle境界を跨いでもN件を維持する。異なるcycle間で同じindexが1 window内に再登場する可能性は許容する。
-- dataset cycleは「全indexを一度消費した区間」、eval windowは「accuracy 1点を作る区間」として用語を分ける。
-
-**性能・互換性・保守性**: exact N案は最終batchのpad laneをforwardする計算コストがあるが、設定値、`n_transitions`、accuracyの意味が一致する。B単位切上げ案は実装が単純でも、設定Nと評価件数の差を継続的に説明・計測する必要がある。可変Bはframework contract変更が大きいため本PRDでは選択肢にしない。
-
-**影響する仕様**: `eval_sample_mode` / `eval_samples`、`ImageBatch.valid_count/window_end/epoch_tags`、Sampler、accuracy、`epoch_count`、受け入れ基準10/11、tests、metrics説明。Phase 2開始前に決定必須で、実装中への持越し不可。
-
-<a id="decision-d6"></a>
-
-### 13.4 D6: ImageClsの実eval mode、N、eval_batch_size
-
-**判断対象**: class defaultとは別に、`ImageCls.txt`のeval1を何件・何Bで実行するか。
-
-**現行コードと判断材料**:
-
-- Food101 evalは約25,250件。
-- B=128のfull windowは約198 Step。
-- 現行evalはB=1、`max_steps=100`件。
-- backgroundでも前回evalが未完了なら次triggerで待機し、同じGPUを使えば学習throughputにも影響する。「window長は点間隔へ影響しない」とは言えない。
-
-**選択肢**:
-
-| 案 | 1点の意味 | コスト | ノイズ |
-|---|---|---|---|
-| full、B=128 | 全25,250件exact | 約198 batched Step | 最小 |
-| rotating subset、N=128、B=128 | 1 batch | 最小 | 大きい |
-| rotating subset、N=1024、B=128 | 8 batch | 中 | fullより大きい |
-
-**現在の推奨**: class defaultは`full`、coreのeval B defaultは互換のため`1`。ImageCls eval1のmode/N/Bは、実測可能な設定として明示し、最終値はユーザー判断とする。Bの第一候補はtrain Bと同じ128。
-
-**性能・互換性・保守性**: fullは評価点の比較可能性が最も高いが、GPU/lock競合と次trigger待機が長い。subsetは短い一方、点ごとの対象sampleが変わるためノイズが増える。Bを大きくするとStep overheadは下がるが、forward memoryとpadding計算量は増える。
-
-**影響する仕様**: `ImageCls.txt`の`eval_sample_mode` / `eval_samples` / `eval_batch_size`、`ImageDataSourceConfig`、eval Source / Runner、Food101例、受け入れ基準18、eval metrics。config移行前に実測とユーザー判断で決定必須。Samplerやpaddingの実装方針とは分離できるが、出荷config値は実装中に暗黙決定しない。
-
-<a id="decision-d8"></a>
-
-### 13.5 D8: native ImageClsのworker_typeとenv device
-
-**判断対象**: single env wrapper向けの既存設定をnative batch Envでどう解釈するか。
-
-**現行コードと既決事項**:
-
-- `env.worker_type` / `env.worker_threads`は現在、single envをまとめるwrapperの実行方式を制御する。
-- native ImageClsではEnv fan-outを廃止する一方、Source内decodeを並列化するため同じ設定の新しい適用先が生じる。
-- ImageCls observationはCPU uint8 TensorとしてEnvから返し、actor側device転送は別責務である。
-
-**選択肢**:
-
-1. 既存worker_typeをSource decodeへ意味拡張し、env deviceはCPUだけ許可する。
-2. native ImageClsではworker_type/deviceを無視し、Source固有の新設定を追加する。
-3. worker_type/deviceをnative ImageClsで全面禁止し、固定実装にする。
-
-**推奨案**:
-
-- `env.worker_type=SINGLE_THREAD`: decode poolを作らずcaller threadで同期decode。
-- `AUTO`: B=1は同期、B>1はpool。
-- `THREAD_POOL`: poolを使用。
-- worker数は`env.worker_threads`を既存`WorkerThreadResolver`で解決し、明示正数を尊重する。
-- native ImageClsはCPU Tensor contractとし、`env.device_type != cpu`は黙って無視せずfail-fast。
-- `train.eval_device_type/index`はactor forward deviceなので上記と独立。
-
-**性能・互換性・保守性**: option 1は既存tuning knobを保ち、新設定を増やさない。Source decodeとEnv fan-outで同じ名前の意味が少し変わるため設定表とprofileで明示する必要がある。option 2/3は意味が明快でも既存ImageCls configの移行項目が増える。
-
-**影響する仕様**: `env.worker_type` / `env.worker_threads` / env device、Source pool生成、Builder config、device validation、受け入れ基準21、profile/perf tests。Phase 2開始前に決定必須。pool内部実装は実装中に確定可能だが、設定の意味と非CPU時の動作は持越し不可。
-
-<a id="decision-d9"></a>
-
-### 13.6 D9: cache capと実allocation失敗
-
-**判断対象**: `cache.max_bytes`の正確な既定値と、推定sizeがcap内でもallocationに失敗した場合の動作。
-
-**現行コードと既決事項**:
-
-- 現行ImageClsには共有pre-augment cacheがなく、本PRDでDataset所有の`none / auto / full_ram`を新設する。
-- cacheは同一DatasetKeyのSource間で共有し、augment済みTensorとfresh batch outputは保存しない。
-- Full RAM payloadの確保はdecode workerではなく`NextBatch` caller-side `PrepareCache()`で行う。
-
-**選択肢**:
-
-1. `auto`だけWARN付き`NoCachePolicy`へfallbackし、明示`full_ram`はerror。
-2. modeに関係なくallocation失敗はerror。
-
-**推奨案**: `4294967296` bytes（4GiB）をDataset単位の既定capとし、1を採る。`auto`はもともと実行可能strategyの自動選択であり、明示`full_ram`だけを厳格な要求として扱う。allocationはworker内ではなくcaller側のpolicy prepareで行い、worker例外問題と混ぜない。
-
-**共通contract**:
-
-- cap対象は`N * 3 * H * W`のuint8 payload。metadata / lock overheadは含めない。
-- size積はchecked `uint64_t`。
-- aggregate process capは設けない。異なるDatasetKeyは各自のcapで判定し、生成済みpayloadはprocess終了まで累積し得る。
-- `auto`のcap超過は一度だけWARNし、process中policyを変更しない。
-- 明示`full_ram`のcap超過・allocation失敗はDatasetKey、必要bytes、capを含むerror。
-- payload prepareはDataset単位のsingle-flightとする。複数Sourceが同時に最初の`NextBatch`から`PrepareCache()`へ到達しても、allocationと`auto` fallback判定を1回だけ行い、他callerは確定したpolicyを観測する。
-
-**性能・互換性・保守性**: 大きな連続payloadはlookupとlocalityに有利だが、allocation失敗とprocess lifetimeで累積する複数Datasetの合計RAMを事前には保証できない。`auto`だけをfallback可能にすると明示指定を尊重しつつ実用性を保てる。Dataset-level prepare stateは同期実装を増やすが、worker例外とallocation policyを分離できる。
-
-**影響する仕様**: `ImageDataset.cache.*`、`ImageDatasetConfig`、`SampleCachePolicy`、`PrepareCache()`、受け入れ基準12/13、cache tests、memory risk。Phase 2開始前に既定capとfallback契約を決定必須。allocatorやlockの内部実装だけは実装中に確定可能。
-
-<a id="decision-d10"></a>
-
-### 13.7 D10: Source seedのdomain分離
-
-**判断対象**: resolved run master seedからtrain、configured eval各tag、EvalPanelのSource root seedをどう導出し、同じDatasetを参照するSource間でsample列を共有するか独立させるか。
-
-**現行コードと既決事項**:
-
-- 現行`RunManager`はmaster seedからtrain Env用`"env"`、EvalPanel用`"eval_env"`、configured eval用`"eval_obs"`を生成する（[`trainer.cpp:729-737`](../../core/anet-core/src/trainer.cpp:729)）。
-- literal `train.seed=0`では`MasterSeedManager`がauto seedを生成する（[`trainer.cpp:722-727`](../../core/anet-core/src/trainer.cpp:722)）。したがってdomain導出の起点はconfig値0ではなく、`GetMasterSeed()`で確定したresolved master seedでなければならない。
-- configured evalの全tagは同じ`eval_obs_seed`を受け、EvalPanelは別の`eval_env_seed_`を受ける（[`trainer.cpp:787-820`](../../core/anet-core/src/trainer.cpp:787)、[`trainer.cpp:867-874`](../../core/anet-core/src/trainer.cpp:867)）。
-- 新SourceはSampler cursorとRNGを長期間保持し、Sampler streamとaugment streamを分離する。object生成順に依存するindexed seedではconfig tag追加時に既存tagの列が変わり得る。
-
-**選択肢**:
-
-1. resolved run master seedを起点にroleとconfig tagからstable named Source domainを作る。EvalPanelは選択tagとDatasetを共有しても別domainにする。
-2. configured evalとEvalPanelが同じtagを選んだ場合、同じSource root seedを使う。instance cursorは別だが初期sample列は一致する。
-3. 全configured evalで1つのseed、EvalPanelで1つのseedを使う現行形を維持する。
-
-**推奨案**: 1。resolved run master seedから、概念domainを`imagecls/source/train`、`imagecls/source/eval/<tag>`、`imagecls/source/eval_panel/<tag>`のようなstable名で分け、そのrootから`SeedMaker`で`sampler`と`augment`を分ける。EvalPanelはDataset/cacheだけを共有し、sample列はconfigured evalから独立させる。hash入力の正確な文字列は実装時に定数化し、construction orderやpointer値を含めない。literal `train.seed=0`はrunごとにresolved master seedが変わるためrun間再現保証外とし、実際のmaster seedと各Source domain seedを起動log / metricsへ記録する。再現runでは記録されたmaster seedを明示`train.seed`として指定する。
-
-**性能・互換性・保守性**: seed導出の実行コストは無視できる。option 1はtag追加やEnv生成順変更で既存列がずれず、障害解析が容易。現行RNG列とのbit互換はないが、本PRDは新central batch contract内の再現性を保証対象とする。option 2はGUIとbackground evalの比較に便利だが、manual操作によるcursor差で「同じseedなら常に同じ対象」という誤解を招く。
-
-**影響する仕様**: `train.seed`、resolved seed log、Source construction context、`ImageDataSource`、`IndexSampler`、3.7、C7、受け入れ基準15/20、reproducibility tests。Phase 2着手前にdomain identityとEvalPanel独立性を決定必須。named hashの関数選択は既存`SeedMaker`契約の範囲で実装中に確定可能。
+全10件の判断（D1～D10）は解決済みである。決定内容と経緯は第12章（12.3～12.12節）を参照。各`#decision-dN` anchorは決定経緯側へ移設済みで、本文からのリンクは維持されている。
