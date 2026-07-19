@@ -58,6 +58,8 @@ ImageClsのbatch-native化など、まだ実装されていない設計は[関�
 
 nameは不透明な表示文字列であり、Env class ID、RunMode、config prefix、seed、RNG、DatasetKey、metrics tagの代替ではない。Envはnameを解析せず、nameの違いでReset、Step、Reward、終端を分岐しない。空name、非正のlane数、範囲外lane indexは`ANET_CHECK_MSG`で常時fail-fastする。
 
+両Baseはprotectedな`anet::log::Logger log`も保持し、name確定時にprefixを`<name>: `として一度だけ構築する。具象Envのactiveなtext logは`log.info()`、`log.verbose()`、`log.warn()`、`log.error()`を使用し、`GetName()`を各行で連結しない。debug logは`ANET_LOG_DEBUG_PREFIXED`を使用し、通常の`ANET_LOG_DEBUG`と同じguard・ビルド消去特性を維持する。
+
 ## 3. コンポーネント定義
 
 | コンポーネント | 定義 |

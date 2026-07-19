@@ -2,6 +2,7 @@
 
 #include "anet/env.hpp"
 #include "anet/rl.hpp"
+#include "anet/test_util.hpp"
 
 #include <memory>
 #include <string>
@@ -49,6 +50,9 @@ public:
     {
         return std::nullopt;
     }
+
+    void LogInfo(const std::string& body) { log.info() << body; }
+    void LogInfoFromConst(const std::string& body) const { log.info() << body; }
 };
 
 class RecordingSingleEnvFactory final : public rl::SingleDiscreteEnvFactory {
@@ -94,6 +98,8 @@ public:
     {
         return std::nullopt;
     }
+
+    void LogInfo(const std::string& body) { log.info() << body; }
 
 private:
     rl::BatchEnvSpec batch_spec_;
@@ -151,4 +157,22 @@ TEST_CASE("Batch wrappers pass stable lane names to every single Env", "[env_nam
         std::make_shared<anet::PinnedThreadPool>(2, "env-name-multi-worker"),
         1);
     CHECK(multi_worker_factory->GetNames() == expected_names);
+}
+
+TEST_CASE("Env bases bind immutable names to protected loggers", "[env_name][logger]")
+{
+    NameTestSingleEnv single("train[2]");
+    const NameTestSingleEnv& const_single = single;
+    NameTestBatchEnv batch("eval", 2);
+    anet::test::LogCaptureGuard logs;
+
+    single.LogInfo("single-body");
+    const_single.LogInfoFromConst("const-body");
+    batch.LogInfo("batch-body");
+    logs.Flush();
+
+    REQUIRE(logs.Records().size() == 3);
+    CHECK(logs.Records()[0].message == "train[2]: single-body");
+    CHECK(logs.Records()[1].message == "train[2]: const-body");
+    CHECK(logs.Records()[2].message == "eval: batch-body");
 }

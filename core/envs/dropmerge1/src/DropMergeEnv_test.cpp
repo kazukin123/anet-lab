@@ -83,8 +83,8 @@ TEST_CASE("DropMergeEnv prefixes maximum-step log with its name once", "[dropmer
         }
         ++matching_records;
         CHECK(record.level == wxLOG_Info);
-        CHECK(record.message.find("[dropmerge-log[0]] Episode truncated. Maximum step count exceeded.") == 0);
-        CHECK(CountOccurrences(record.message, "[dropmerge-log[0]]") == 1);
+        CHECK(record.message.find("dropmerge-log[0]: Episode truncated. Maximum step count exceeded.") == 0);
+        CHECK(CountOccurrences(record.message, "dropmerge-log[0]: ") == 1);
     }
     CHECK(matching_records == 1);
 }

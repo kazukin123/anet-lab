@@ -629,7 +629,7 @@ void DropMergeEnv::processAction(int64_t action)
         if (!isSpawnAreaClear(actual_x, spawn_y, r_drop)) {
             game_over_ = true;
             term_reason_ = TerminationReason::SpawnBlocked;
-            LOG::verbose() << "[" << GetName() << "] Game Over: Spawn area blocked. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x ;
+            log.verbose() << "Game Over: Spawn area blocked. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x ;
             return;
         }
 
@@ -696,7 +696,7 @@ void DropMergeEnv::processMerges()
 
             // ログ
             if (req.next_rank >= kFruitTypeCount) { // スイカが出来たらログ＆音
-                LOG::verbose() << "[" << GetName() << "] Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_ << " current_step_merge_score_=" << current_step_merge_score_;
+                log.verbose() << "Merged fruits into Rank " << req.next_rank << " episode_score_=" << episode_score_ << " current_step_merge_score_=" << current_step_merge_score_;
                 bell();
             }
 
@@ -708,7 +708,7 @@ void DropMergeEnv::processMerges()
             ep_double_suika_created_++; // ダブルスイカ作成数をカウント
 
             // スイカ同士が消えた場合はSpawnしない（Rank 12相当、ダブルスイカ）
-            LOG::info() << "[" << GetName() << "] Merged fruits into Rank [ " << req.next_rank << " ] episode_score_=" << episode_score_
+            log.info() << "Merged fruits into Rank " << req.next_rank << " episode_score_=" << episode_score_
                 //<< " current_step_merge_score_=" << current_step_merge_score_
                 << " ep_double_suika_created=" << ep_double_suika_created_;
             bell();       /// @todo wxBell()はスレッドセーフじゃないのでwxSoundを使うべき
@@ -785,7 +785,7 @@ bool DropMergeEnv::checkGameOver()
         // 横にはみ出した（壁抜けバグ）
         if (std::abs(pos.x) > config_.box_width * 1.0f) {
             auto data = DecodeUserData(b->GetUserData().pointer);
-            LOG::error() << "[" << GetName() << "] Fruit out of bounds. x=" << pos.x << " rank=" << data.second;
+            log.error() << "Fruit out of bounds. x=" << pos.x << " rank=" << data.second;
             //ANET_SYSTEM_ERROR("Fruit out of bounds (x=" << pos.x << ")");
             return true;
         }
@@ -811,7 +811,7 @@ bool DropMergeEnv::checkGameOver()
     // 60step以上オーバーフローが続いたらゲームオーバー
     if (game_over_timer_ > config_.game_over_grace_step) {
         term_reason_ = TerminationReason::Overflow;
-        LOG::verbose() << "[" << GetName() << "] Game Over: overflow timeout. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+        log.verbose() << "Game Over: overflow timeout. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
         return true;
     }
 
@@ -1014,7 +1014,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
             // 無限ループ防止のため強制脱出
             if (sim_steps >= max_sim_steps) {
                 if (config_.use_settle_after_drop) {
-                    LOG::verbose() << "[" << GetName() << "] World did not settle within " << max_sim_steps << " steps. Forcing exit.";
+                    log.verbose() << "World did not settle within " << max_sim_steps << " steps. Forcing exit.";
                 }
                 break;
             }
@@ -1047,7 +1047,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     const bool no_legal_drop_terminal = !game_over_ && is_noop_action && isNoLegalDropState();
     if (no_legal_drop_terminal) {
         term_reason_ = TerminationReason::NoLegalDrop;
-        LOG::verbose() << "[" << GetName() << "] Episode done: no legal drop remains. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+        log.verbose() << "Episode done: no legal drop remains. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
     }
 
     // エピソード完了判定
@@ -1057,7 +1057,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     // 最大ステップ数到達による打ち切りを終了理由としてセット
     if (!done && truncated) {
         term_reason_ = TerminationReason::MaxStep;
-        LOG::verbose() << "[" << GetName() << "] Episode truncated. Maximum step count exceeded. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+        log.verbose() << "Episode truncated. Maximum step count exceeded. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
     }
 
     // ショットクロック判定
@@ -1066,10 +1066,10 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         if (config_.use_no_drop_timeout_gameover) {
             done = true;
             accumulated_reward += config_.no_drop_timeout_gameover_penalty;
-            LOG::verbose() << "[" << GetName() << "] Episode done due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+            log.verbose() << "Episode done due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
         } else {
             truncated = true;
-            LOG::verbose() << "[" << GetName() << "] Episode truncated due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+            log.verbose() << "Episode truncated due to inactivity (No DROP). episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
         }
     }
 

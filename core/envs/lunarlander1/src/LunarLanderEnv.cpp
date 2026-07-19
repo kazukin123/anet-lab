@@ -211,7 +211,7 @@ LunarLanderEnv::LunarLanderEnv(
     , anet::RandomHolder(seed)
     , config_(config)
 {
-    ANET_LOG_DEBUG("[" << GetName() << "] seed=" << this->GetSeed());
+    ANET_LOG_DEBUG_PREFIXED("seed=" << this->GetSeed());
 
     if (auto logger = anet::MetricsLogger::Instance()) {
         logger->Log("LunarLanderEnv", config_.ToJson());
@@ -977,11 +977,11 @@ std::optional<torch::Tensor> LunarLanderEnv::GetTensor(const std::string& key, i
     if (key == "legs") {
         auto left_seg = getLegSegment(left_leg_body_, kLegLength);
         auto right_seg = getLegSegment(right_leg_body_, kLegLength);
-        ANET_LOG_DEBUG("[" << GetName() << "] lander_body=" << lander_body_->GetPosition().x << " " << lander_body_->GetPosition().y);
-        ANET_LOG_DEBUG("[" << GetName() << "] left_seg.p0=" << left_seg.p0.x << " " << left_seg.p0.y);
-        ANET_LOG_DEBUG("[" << GetName() << "] left_seg.p1=" << left_seg.p1.x << " " << left_seg.p1.y);
-        ANET_LOG_DEBUG("[" << GetName() << "] right_seg.p0=" << right_seg.p0.x << " " << right_seg.p0.y);
-        ANET_LOG_DEBUG("[" << GetName() << "] right_seg.p1=" << right_seg.p1.x << " " << right_seg.p1.y);
+        ANET_LOG_DEBUG_PREFIXED("lander_body=" << lander_body_->GetPosition().x << " " << lander_body_->GetPosition().y);
+        ANET_LOG_DEBUG_PREFIXED("left_seg.p0=" << left_seg.p0.x << " " << left_seg.p0.y);
+        ANET_LOG_DEBUG_PREFIXED("left_seg.p1=" << left_seg.p1.x << " " << left_seg.p1.y);
+        ANET_LOG_DEBUG_PREFIXED("right_seg.p0=" << right_seg.p0.x << " " << right_seg.p0.y);
+        ANET_LOG_DEBUG_PREFIXED("right_seg.p1=" << right_seg.p1.x << " " << right_seg.p1.y);
 
         torch::Tensor t = torch::tensor({
             left_seg.p0.x, left_seg.p0.y, left_seg.p1.x, left_seg.p1.y,

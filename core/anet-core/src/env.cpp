@@ -24,12 +24,14 @@ namespace LOG = anet::log;
 
 SingleDiscreteEnvBase::SingleDiscreteEnvBase(std::string name)
     : name_(std::move(name))
+    , log(name_ + ": ")
 {
     ANET_CHECK_MSG(!name_.empty(), "Env name must not be empty.");
 }
 
 BatchEnvBase::BatchEnvBase(std::string name, int num_envs)
     : name_(std::move(name))
+    , log(name_ + ": ")
 {
     ANET_CHECK_MSG(!name_.empty(), "Env name must not be empty.");
     ANET_CHECK_MSG(num_envs > 0,
@@ -123,7 +125,7 @@ DiscreteBatchEnvBase::DiscreteBatchEnvBase(
     , device_(device)
 {
     ANET_ASSERT(num_envs_ > 0);
-    ANET_LOG_DEBUG("seed=" << this->GetSeed());
+    ANET_LOG_DEBUG_PREFIXED("seed=" << this->GetSeed());
 
     // ベースのシードを準備
     anet::SeedMaker seed_maker(seed);
@@ -262,7 +264,7 @@ std::optional<float> DiscreteBatchEnvBase::GetScalar(const std::string& key, int
         subkey = key.substr(4);
     } else {
         // プレフィックスが無い場合はデフォルトでMeanとして集計
-        LOG::warn() << "DiscreteBatchEnvBase::GetScalar() Unknown prefix. assuming mean. key=" << key;
+        log.warn() << "DiscreteBatchEnvBase::GetScalar() Unknown prefix. assuming mean. key=" << key;
         agg_type = AggType::Mean;
         subkey = key;
     }
@@ -341,7 +343,7 @@ VectorizedDiscreteBatchEnv::VectorizedDiscreteBatchEnv(
     const std::string& config_prefix)
     : DiscreteBatchEnvBase(configData, factory, name, num_envs, device, seed, config_prefix)
 {
-    ANET_LOG_DEBUG("seed=" << this->GetSeed());
+    ANET_LOG_DEBUG_PREFIXED("seed=" << this->GetSeed());
 }
 
 std::shared_ptr<const BatchResetResult> VectorizedDiscreteBatchEnv::Reset(RunMode mode)
@@ -435,7 +437,7 @@ ThreadPoolDiscreteEnv::ThreadPoolDiscreteEnv(
     , pool_(std::move(pool))
 {
     ANET_ASSERT(pool_ != nullptr);
-    ANET_LOG_DEBUG("seed=" << this->GetSeed());
+    ANET_LOG_DEBUG_PREFIXED("seed=" << this->GetSeed());
     this->batch_spec_.num_threads = pool_->GetWorkerCount();
 }
 
@@ -499,7 +501,7 @@ std::shared_ptr<const BatchStepResult> ThreadPoolDiscreteEnv::Step(std::shared_p
     ANET_PROFILE_FUNC();
 
     const int N = num_envs_;
-    ANET_LOG_DEBUG("action=" << anet::ToString(action_info->GetAction()));
+    ANET_LOG_DEBUG_PREFIXED("action=" << anet::ToString(action_info->GetAction()));
     ANET_ASSERT_DTYPE_MSG(action_info->GetAction(), torch::kInt64,
         "ThreadPoolDiscreteEnv supports discrete action only. actions should be kInt64.");
     ANET_ASSERT_SHAPE(action_info->GetAction(), {N});

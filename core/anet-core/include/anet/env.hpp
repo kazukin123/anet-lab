@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include "anet/config.hpp"
+#include "anet/log.hpp"
 #include "anet/thread.hpp"
 #include "anet/rl.hpp"
 
@@ -21,6 +22,8 @@ namespace anet::rl {
         const std::string& GetName() const override final { return name_; }
     private:
         std::string name_;
+    protected:
+        log::Logger log;
     };
 
     class BatchEnvBase : public BatchEnv {
@@ -32,6 +35,8 @@ namespace anet::rl {
     private:
         std::string name_;
         std::vector<std::string> lane_names_;
+    protected:
+        log::Logger log;
     };
 
     // ==============

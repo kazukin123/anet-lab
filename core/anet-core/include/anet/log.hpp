@@ -4,8 +4,9 @@
 
 #include <ostream>
 #include <sstream>
+#include <string>
 #include <string_view>
-#include <string_view>
+#include <utility>
 #include <algorithm>
 #include <filesystem>
 #include <cstdio>
@@ -38,6 +39,7 @@
 
 namespace anet::log {
 
+    class Logger;
 
     // ============================================================
     // Null Stream (無効ログ用)
@@ -77,6 +79,17 @@ namespace anet::log {
         using Manip = std::ostream& (*)(std::ostream&);
         WxLogStream& operator<<(Manip manip) { manip(stream_); return *this; }
     private:
+        struct InitialBodyTag {
+        };
+
+        WxLogStream(wxLogLevel level, InitialBodyTag, std::string_view initial_body)
+            : WxLogStream(level)
+        {
+            stream_ << initial_body;
+        }
+
+        friend class Logger;
+
         void LogDebug(const std::string& msg)
         {
             if (wxIsDebuggerRunning()
@@ -159,6 +172,39 @@ namespace anet::log {
     }
 
     static_assert(anet::log::ExtractSourceFileName("C:\\abc\\test.cpp") == "test.cpp");
+
+
+    // ============================================================
+    // Prefix付き Logger
+    // ============================================================
+
+    /// prefix付きでWxLogStreamを生成する軽量logger。
+    class Logger {
+    public:
+        Logger() = default;
+        explicit Logger(std::string prefix)
+            : prefix_(std::move(prefix))
+        {
+        }
+        Logger(const Logger&) = default;
+        Logger(Logger&&) noexcept = default;
+        Logger& operator=(const Logger&) = delete;
+        Logger& operator=(Logger&&) = delete;
+
+        WxLogStream info() const { return make(wxLOG_Message); }
+        WxLogStream verbose() const { return make(wxLOG_Info); }
+        WxLogStream warn() const { return make(wxLOG_Warning); }
+        WxLogStream error() const { return make(wxLOG_Error); }
+        const std::string& prefix() const { return prefix_; }
+
+    private:
+        WxLogStream make(wxLogLevel level) const
+        {
+            return WxLogStream(level, WxLogStream::InitialBodyTag{}, prefix_);
+        }
+
+        std::string prefix_;
+    };
 
 
     // ============================================================
@@ -286,3 +332,6 @@ namespace anet::log {
 #else
 #define ANET_LOG_DEBUG(expr) do {} while(0)
 #endif
+
+// Loggerを保持するクラス向けのprefix付きdebugログ。
+#define ANET_LOG_DEBUG_PREFIXED(expr) ANET_LOG_DEBUG(log.prefix() << expr)

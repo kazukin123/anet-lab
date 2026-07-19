@@ -1,6 +1,7 @@
 #include "anet/catch_test.hpp"
 
 #include "anet/log.hpp"
+#include "anet/test_util.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -10,6 +11,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <type_traits>
 
 namespace {
 
@@ -54,6 +56,9 @@ private:
 
 } // namespace
 
+static_assert(!std::is_copy_assignable_v<anet::log::Logger>);
+static_assert(!std::is_move_assignable_v<anet::log::Logger>);
+
 TEST_CASE("FileLogger flushes main and worker thread info messages", "[log]")
 {
     const auto case_id = std::chrono::steady_clock::now().time_since_epoch().count();
@@ -80,4 +85,52 @@ TEST_CASE("FileLogger flushes main and worker thread info messages", "[log]")
 
     std::error_code cleanup_error;
     std::filesystem::remove_all(root, cleanup_error);
+}
+
+TEST_CASE("Logger prefixes an info message exactly once", "[log][logger]")
+{
+    anet::test::LogCaptureGuard logs;
+    anet::log::Logger logger("train[0]: ");
+
+    logger.info() << "body";
+    logs.Flush();
+
+    REQUIRE(logs.Records().size() == 1);
+    CHECK(logs.Records()[0].level == wxLOG_Message);
+    CHECK(logs.Records()[0].message == "train[0]: body");
+}
+
+TEST_CASE("Logger level methods preserve wx levels and prefix", "[log][logger]")
+{
+    anet::test::LogCaptureGuard logs;
+    anet::log::Logger logger("eval: ");
+
+    logger.verbose() << "verbose-body";
+    logger.warn() << "warn-body";
+    logger.error() << "error-body";
+    logs.Flush();
+
+    REQUIRE(logs.Records().size() == 3);
+    CHECK(logs.Records()[0].level == wxLOG_Info);
+    CHECK(logs.Records()[0].message == "eval: verbose-body");
+    CHECK(logs.Records()[1].level == wxLOG_Warning);
+    CHECK(logs.Records()[1].message == "eval: warn-body");
+    CHECK(logs.Records()[2].level == wxLOG_Error);
+    CHECK(logs.Records()[2].message == "eval: error-body");
+}
+
+TEST_CASE("Logger keeps its construction prefix and defaults to no prefix", "[log][logger]")
+{
+    anet::log::Logger prefixed("train: ");
+    anet::log::Logger unprefixed;
+
+    CHECK(prefixed.prefix() == "train: ");
+    CHECK(unprefixed.prefix().empty());
+
+    anet::test::LogCaptureGuard logs;
+    unprefixed.info() << "body";
+    logs.Flush();
+
+    REQUIRE(logs.Records().size() == 1);
+    CHECK(logs.Records()[0].message == "body");
 }

@@ -43,12 +43,12 @@ ImageClsEnv::ImageClsEnv(
     : SingleDiscreteEnvBase(name), anet::RandomHolder(seed), config_(config)
 {
     // Train用データソースの生成
-    LOG::verbose() << "[" << GetName() << "] Loading train:" << config_.train_list_txt_path;
+    log.verbose() << "Loading train:" << config_.train_list_txt_path;
     train_data_source_ = std::make_unique<anet::img::ImageDataSource>(
         config_.root_dir, config_.train_list_txt_path, config_.classes_txt_path, config_.image_width, config.image_height, config_.suffix);
 
     // Eval用データソースの生成
-    LOG::verbose() << "[" << GetName() << "] Loading test:" << config_.eval_list_txt_path;
+    log.verbose() << "Loading test:" << config_.eval_list_txt_path;
     eval_data_source_ = std::make_unique<anet::img::ImageDataSource>(
         config_.root_dir, config_.eval_list_txt_path, config_.classes_txt_path, config_.image_width, config.image_height, config_.suffix);
 
@@ -78,7 +78,7 @@ ImageClsEnv::ImageClsEnv(
     spec_.action_spec.is_discrete = true;
     spec_.action_spec.value_labels = claeses;
 
-    LOG::verbose() << "[" << GetName() << "] ImageClsEnv initialized.";
+    log.verbose() << "ImageClsEnv initialized.";
 }
 
 anet::rl::EnvSpec ImageClsEnv::GetSpec() const
