@@ -85,11 +85,25 @@ _Avoid_: index, physical index, logical index, slot index
 ReplayBuffer内部のリングストレージ上の物理位置。全envを1次元化した位置は`flat_slot_index`と呼び、外向けのreplay item keyとは区別する。
 _Avoid_: replay item key, logical index, sample index
 
+### Module・設定参照
+
+**Module Config**:
+`Module`インスタンスへ構築時に実際に注入された不変の設定情報。設定ファイルのinclude・継承・overrideを解決した後の値を、注入先を区別できるscope付きkeyで保持する。`Module::GetConfigData()`は`std::optional<ConfigData>`を返し、`nullopt`は取得未対応、値ありの空`ConfigData`は対応済みだが設定項目なしを表す。複合Moduleは子を含む実効設定を返し、同一scope/keyの同値は統合、異値は契約違反とする。ログdumpと将来のGUI設定ブラウザは同じ情報を利用する。元の記述箇所やoverride経路は追跡せず、実動情報は含めない。`Module`は純粋interfaceを原則とするが、段階導入中は既存実装への波及を避けるため`GetConfigData()`だけdefaultで`nullopt`を返し、全Module対応時にpure virtual化を再検討する。
+_Avoid_: raw config, config provenance, runtime property, EnvSpec metadata
+
+**Property**:
+構築時に設定から導出された値、`auto`戦略の選択結果、または実行中の状態など、Moduleの実動情報。Module Configとは別の自己記述情報として扱い、`ConfigData`へ混在させない。
+_Avoid_: config, resolved config
+
 ### Env・実行
 
 **Env name**:
 同一Run内でBatchEnvと各laneの出力元を人間が識別するための、不透明でimmutableな表示名。BatchEnv nameはRun内で一意とし、lane nameは`<BatchEnv name>[lane index]`で表す。Envはnameの意味を解析せず、挙動、RunMode、設定、seed、RNG、metrics identityの決定には使用しない。
 _Avoid_: Env ID, Env key, role, context
+
+**Actor Env contract**:
+AgentがActor生成時に、対象EnvのEnvSpecを入力・出力として受理できるか判断する契約。Train EnvとEval EnvのEnvSpecが同一であること自体は全Agent共通の要件ではなく、汎用的な同一I/O判定はAgentが選べる補助手段として扱う。
+_Avoid_: Env間互換性, RunManager compatibility, canonical EnvSpec
 
 ### 実行系統
 
@@ -145,12 +159,24 @@ _Avoid_: data source, per-env dataset
 1 つの Env が専有するデータ供給機構（sampler / RNG / augment / collate）。mutable 状態を持つため定義上共有されず、カタログ identity を持たない（設定は Env 配下に置く）。共有されるのは参照先の ImageDataset だけ。
 _Avoid_: shared source, source catalog, dataset
 
+**Train ImageDataSource**:
+ImageCls の学習系統に使う標準の ImageDataSource 定義。ImageCls は、使用する RunMode にかかわらず Train ImageDataSource と Eval ImageDataSource の両方が特定されていることを前提とし、両者が同じ ImageDataset を明示的に参照することも許容する。
+_Avoid_: main source, default source, train dataset
+
+**Eval ImageDataSource**:
+ImageCls の評価系統に使う標準の ImageDataSource 定義。ImageCls は、使用する RunMode にかかわらず Train ImageDataSource と Eval ImageDataSource の両方が特定されていることを前提とし、両者が同じ ImageDataset を明示的に参照することも許容する。
+_Avoid_: eval tag source, configured eval source, eval dataset
+
+**ImageCls Dataset pair**:
+標準の Train ImageDataSource と Eval ImageDataSource が参照する、1つの画像分類問題を構成するImageDatasetの組。同じImageDatasetを両側から参照することもできるが、入力shapeとclass_namesを含む観測・行動契約は一致しなければならない。
+_Avoid_: train/eval catalog, dataset profile, paired source
+
 **epoch**:
-データセットを一巡（全サンプルを 1 回ずつ）走査する単位。train は毎 epoch シャッフルし直す（一巡ごとに scalar `epoch_count` が進む）。「データ被覆」の関心であり、metrics を区切る窓（episode）とは別軸で、両者を等値にしない。eval の episode は「eval 1 回の採点区間」（`eval_samples=all` なら 1 epoch と一致、指定時はローテーションで複数 eval かけて一巡）。
+データセットを一巡（全サンプルを 1 回ずつ）走査する単位。train は毎 epoch シャッフルし直す（一巡ごとに scalar `epoch_count` が進む）。「データ被覆」の関心であり、metrics を区切る窓（episode）とは別軸で、両者を等値にしない。eval の episode は「eval 1 回の採点区間」であり、`eval_window.mode=full`なら1 epochと一致し、`rotating`なら複数windowをかけて一巡する。
 _Avoid_: pass, round, sweep
 
 **eval window**:
-eval の accuracy 1 点を作る採点区間。`eval_window.mode=full` なら全件 1 周、`rotating` なら `eval_window.size` 件ずつカーソル継続で消化する（複数 window で全件を一巡）。データ被覆の単位である epoch（dataset cycle）とは別軸。Env はこの区間の終端を episode（lane 0 の done）へ翻訳して報告する。
+eval の accuracy 1 点を作る採点区間。`eval_window.mode=full` なら全件 1 周、`rotating` なら `eval_window.rotating.size` 件ずつカーソル継続で消化する（複数 window で全件を一巡）。`rotating.size`は非選択中もrotating方式の完全な設定として保持され、未設定状態を持たない。データ被覆の単位である epoch（dataset cycle）とは別軸。Env はこの区間の終端を episode（lane 0 の done）へ翻訳して報告する。
 _Avoid_: eval episode 長, eval バッチ, サンプル数（size と区別）
 
 **accuracy**（env scalar キー）:

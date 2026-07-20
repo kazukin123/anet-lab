@@ -70,10 +70,10 @@ TEST_CASE("DropMergeEnv prefixes maximum-step log with its name once", "[dropmer
     config.max_step = 1;
     auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
         config, torch::Device(torch::kCPU), "dropmerge-log[0]", 123);
-    env->Reset(anet::rl::RunMode::Train);
+    env->Reset();
 
     anet::test::LogCaptureGuard logs(wxLOG_Info);
-    env->Step(anet::rl::env::drop_merge::kActionNoop, anet::rl::RunMode::Train);
+    env->Step(anet::rl::env::drop_merge::kActionNoop);
     logs.Flush();
 
     int matching_records = 0;

@@ -440,8 +440,14 @@ static bool IsForTarget(anet::rl::RunMode run_mode)
     return run_mode == anet::rl::RunMode::Eval1;
 }
 
-std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, std::optional<bool> clone_model_override, std::optional<torch::Device> device) const
+std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(
+    const anet::rl::BatchEnvSpec& batch_env_spec,
+    const anet::rl::EnvSpec& env_spec,
+    anet::rl::RunMode run_mode,
+    std::optional<bool> clone_model_override,
+    std::optional<torch::Device> device) const
 {
+    env_spec_.CheckSameStateActionSpec(env_spec);
     const bool is_train_actor = !anet::rl::IsEval(run_mode);
     const bool clone_model = clone_model_override.value_or(
         is_train_actor ? config_.train_actor.clone_model : false);

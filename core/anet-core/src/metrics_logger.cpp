@@ -663,13 +663,6 @@ void MetricsLogger::Log(const std::string& tag, const anet::Config& config)
     auto config_prefix = config.GetConfigPrefix();
     auto config_str = config.ToConfigString();
 
-    // config.txtに追記
-    auto common_txt_path = this->run_dir_ / "config.txt";
-    {
-        std::ofstream ofs(common_txt_path, std::ios_base::app);  // 追記モードでファイルを開く
-        ofs << config_str;
-    }
-
     // バラのファイルにダンプ
     std::string safe_tag = SanitizeFilename(tag);
     auto config_dir = this->run_dir_ / "config";

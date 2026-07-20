@@ -22,6 +22,17 @@ public:
     void Flush() override {}
 };
 
+class LoggerSnapshotConfig final : public anet::Config {
+public:
+    int value = 1;
+
+    explicit LoggerSnapshotConfig(const anet::ConfigData& config_data)
+        : Config(config_data, "LoggerSnapshot")
+    {
+        ANET_READ_CONFIG(config_data, value);
+    }
+};
+
 std::string ReadTextFile(const std::filesystem::path& path)
 {
     std::ifstream ifs(path);
@@ -261,6 +272,31 @@ TEST_CASE("MetricsLogger writes ConfigData text file", "[metrics][config]")
         "app.run_name = run_{t}\n"
         "train.num_envs = 8\n"
         "DefaultDQNAgent.batch_size = 128\n");
+
+    anet::MetricsLogger::Reset();
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("MetricsLogger writes individual Config files without run-root config.txt", "[metrics][config]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "anet-core-individual-config-test";
+    std::filesystem::remove_all(root);
+
+    anet::MetricsLogger::Reset();
+    auto backend = std::make_unique<NullBackend>();
+    anet::MetricsLoggerConfig logger_config;
+    logger_config.run_name_tmpl = "individual_config_test";
+    anet::MetricsLogger::Init(std::move(backend), logger_config, root);
+
+    anet::ConfigData config_data;
+    config_data.Set("LoggerSnapshot.value", 7);
+    const LoggerSnapshotConfig snapshot_config(config_data);
+    anet::MetricsLogger::Instance()->Log("logger_settings", snapshot_config);
+
+    const auto run_dir = root / "runs" / "individual_config_test";
+    CHECK(std::filesystem::exists(run_dir / "config" / "logger_settings.txt"));
+    CHECK_FALSE(std::filesystem::exists(run_dir / "config.txt"));
 
     anet::MetricsLogger::Reset();
     std::filesystem::remove_all(root);

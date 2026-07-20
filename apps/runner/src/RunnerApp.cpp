@@ -79,6 +79,7 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, eval_panel.fps);
         ANET_READ_CONFIG(config_data, eval_panel.step_per_frame);
         ANET_READ_CONFIG(config_data, eval_panel.auto_start);
+        ANET_READ_CONFIG(config_data, eval_panel.eval_config_tag);
         ANET_READ_CONFIG(config_data, eval_panel.model_sync.mode);
         ANET_READ_CONFIG(config_data, eval_panel.model_sync.frame_interval);
         ANET_READ_CONFIG(config_data, eval_panel.model_sync.time_interval_ms);

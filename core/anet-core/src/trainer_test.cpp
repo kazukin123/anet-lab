@@ -5,7 +5,10 @@
 #include "anet/metrics_logger.hpp"
 #include "anet/trainer.hpp"
 
+#include <algorithm>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -19,6 +22,12 @@ namespace rl = anet::rl;
 bool ContainsText(const std::string& text, const std::string& pattern)
 {
     return text.find(pattern) != std::string::npos;
+}
+
+std::string ReadTextFile(const std::filesystem::path& path)
+{
+    std::ifstream ifs(path);
+    return std::string(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
 }
 
 torch::Tensor BoolTensor(const std::vector<bool>& values)
@@ -110,12 +119,12 @@ public:
     rl::BatchEnvSpec GetBatchSpec() const override { return batch_spec_; }
     torch::Device GetDevice() const override { return device_; }
 
-    std::shared_ptr<const rl::BatchResetResult> Reset(rl::RunMode = rl::RunMode::Train) override
+    std::shared_ptr<const rl::BatchResetResult> Reset() override
     {
         return std::make_shared<TestResetResult>(batch_spec_.num_envs);
     }
 
-    std::shared_ptr<const rl::BatchStepResult> Step(std::shared_ptr<rl::BatchActionInfo>, rl::RunMode = rl::RunMode::Train) override
+    std::shared_ptr<const rl::BatchStepResult> Step(std::shared_ptr<rl::BatchActionInfo>) override
     {
         return std::make_shared<TestStepResult>(batch_spec_.num_envs);
     }
@@ -229,6 +238,7 @@ public:
 
     std::shared_ptr<rl::Actor> CreateActor(
         const rl::BatchEnvSpec& batch_env_spec,
+        const rl::EnvSpec&,
         rl::RunMode,
         std::optional<bool> clone_model_override = std::nullopt,
         std::optional<torch::Device> = std::nullopt) const override
@@ -267,14 +277,17 @@ private:
 
 class RunManagerTestSingleEnv final : public rl::SingleDiscreteEnvBase {
 public:
-    explicit RunManagerTestSingleEnv(const std::string& name)
-        : rl::SingleDiscreteEnvBase(name)
+    explicit RunManagerTestSingleEnv(
+        const std::string& name,
+        rl::RunMode run_mode = rl::RunMode::Train,
+        std::optional<anet::ConfigData> config_data = std::nullopt)
+        : rl::SingleDiscreteEnvBase(name, run_mode, std::move(config_data))
     {
     }
 
     rl::EnvSpec GetSpec() const override { return MakeEnvSpec(); }
 
-    std::shared_ptr<const rl::SingleResetResult> Reset(rl::RunMode) override
+    std::shared_ptr<const rl::SingleResetResult> Reset() override
     {
         return std::make_shared<rl::SingleResetResult>(rl::SingleState{
             .obs = { rl::ObsKeys::kVector, torch::zeros({ 1 }, torch::kFloat32) },
@@ -284,7 +297,7 @@ public:
         });
     }
 
-    std::shared_ptr<const rl::SingleStepResult> Step(int64_t, rl::RunMode) override
+    std::shared_ptr<const rl::SingleStepResult> Step(int64_t) override
     {
         return std::make_shared<rl::SingleStepResult>(0.0f, rl::SingleState{
             .obs = { rl::ObsKeys::kVector, torch::zeros({ 1 }, torch::kFloat32) },
@@ -306,6 +319,7 @@ public:
 struct RunManagerEnvFactoryState {
     int creation_count = 0;
     std::optional<std::string> failing_name;
+    std::vector<std::string> config_prefixes;
 };
 
 class RunManagerTestEnvFactory final : public rl::SingleDiscreteEnvFactory {
@@ -317,13 +331,16 @@ public:
 
     std::shared_ptr<rl::SingleDiscreteEnv> CreateSingleEnv(
         const anet::ConfigData&, const torch::Device&, const std::string& name,
-        std::optional<anet::seed_t>, const std::string&) override
+        std::optional<anet::seed_t>, rl::RunMode run_mode, const std::string& config_prefix) override
     {
         ++state_->creation_count;
+        state_->config_prefixes.push_back(config_prefix);
         if (state_->failing_name == name) {
             throw std::runtime_error("Requested RunManager test Env failure: " + name);
         }
-        return std::make_shared<RunManagerTestSingleEnv>(name);
+        anet::ConfigData config_snapshot;
+        config_snapshot.Set("RunManagerNameTestEnv.value", 1);
+        return std::make_shared<RunManagerTestSingleEnv>(name, run_mode, config_snapshot);
     }
 
     std::string GetTargetEnvClassId() const override { return "RunManagerNameTestEnv"; }
@@ -385,9 +402,15 @@ anet::ConfigData MakeRunManagerNameTestConfig()
 
 std::shared_ptr<RunManagerEnvFactoryState> RegisterRunManagerNameTestFactories()
 {
-    auto state = std::make_shared<RunManagerEnvFactoryState>();
-    rl::EnvRepository::Instance().Regist(std::make_shared<RunManagerTestEnvFactory>(state));
-    rl::AgentRepository::Instance().Register(std::make_shared<RunManagerTestAgentFactory>());
+    static auto state = std::make_shared<RunManagerEnvFactoryState>();
+    static std::once_flag register_once;
+    std::call_once(register_once, [&] {
+        rl::EnvRepository::Instance().Regist(std::make_shared<RunManagerTestEnvFactory>(state));
+        rl::AgentRepository::Instance().Register(std::make_shared<RunManagerTestAgentFactory>());
+    });
+    state->creation_count = 0;
+    state->failing_name.reset();
+    state->config_prefixes.clear();
     return state;
 }
 
@@ -541,6 +564,59 @@ TEST_CASE("RunManager propagates distinct Env names without interpreting them", 
     const auto eval_panel = manager->CreateEvalRunner("EvalPanel");
     CHECK(eval_panel->GetBatchEnv()->GetName() == "EvalPanel");
     CHECK(factory_state->creation_count == 4);
+    CHECK(factory_state->config_prefixes.back().empty());
+    CHECK(std::ranges::find(
+        factory_state->config_prefixes, "train.eval.[eval_a].env")
+        != factory_state->config_prefixes.end());
+}
+
+TEST_CASE("RunManager writes each Env effective config to its own file", "[trainer][env_config]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    RegisterRunManagerNameTestFactories();
+    const auto config_path = anet::MetricsLogger::Instance()->GetRunDir() /
+        "config" / "env.train.txt";
+    std::filesystem::remove(config_path);
+
+    auto manager = std::make_shared<rl::RunManager>(MakeRunManagerNameTestConfig());
+
+    REQUIRE(manager->GetStatus() == rl::RunnerStatus::RUNNING);
+    REQUIRE(std::filesystem::exists(config_path));
+    CHECK(ContainsText(ReadTextFile(config_path), "env.class_id = RunManagerNameTestEnv"));
+    CHECK(ContainsText(ReadTextFile(config_path), "RunManagerNameTestEnv.value = 1"));
+}
+
+TEST_CASE("RunManager rejects distinct Env names that map to one config filename", "[trainer][env_config]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    RegisterRunManagerNameTestFactories();
+    auto config = MakeRunManagerNameTestConfig();
+    config.Set("train.eval.[eval/a].run_mode", "eval1");
+    config.Set("train.eval.[eval-a].run_mode", "eval1");
+
+    CHECK_THROWS_WITH(
+        std::make_shared<rl::RunManager>(config),
+        Catch::Matchers::ContainsSubstring("Env config filename collision"));
+}
+
+TEST_CASE("RunManager reserves dormant Eval tags without constructing an Env", "[trainer][dormant_eval]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    auto factory_state = RegisterRunManagerNameTestFactories();
+    auto config = MakeRunManagerNameTestConfig();
+    config.Set("train.eval.[sleep].run_mode", "eval1");
+    config.Set("train.eval.[sleep].interval", "0");
+    config.Set(
+        "metrics.scalar.[sleep_reward]",
+        "eps_total_reward $runner @episode_end $eval.[sleep]");
+
+    auto manager = std::make_shared<rl::RunManager>(config);
+    REQUIRE(manager->GetStatus() == rl::RunnerStatus::RUNNING);
+    CHECK(factory_state->creation_count == 1);
+    CHECK_THROWS_WITH(
+        manager->CreateEvalRunner("sleep"),
+        Catch::Matchers::ContainsSubstring("Duplicate Env name 'sleep' within Run"));
+    CHECK(factory_state->creation_count == 1);
 }
 
 TEST_CASE("RunManager rejects dynamic duplicate Env names before construction", "[env_name][run_manager]")

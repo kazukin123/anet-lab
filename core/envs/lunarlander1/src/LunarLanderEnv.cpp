@@ -10,7 +10,6 @@
 #include <box2d/box2d.h>
 #include "anet/profile.hpp"
 #include "anet/log.hpp"
-#include "anet/metrics_logger.hpp"
 #include "anet/env.hpp"
 
 
@@ -206,16 +205,13 @@ LunarLanderEnv::LunarLanderEnv(
     const LunarLanderEnvConfig& config,
     const torch::Device& device,
     const std::string& name,
-    const std::optional<anet::seed_t> seed)
-    : SingleDiscreteEnvBase(name)
+    const std::optional<anet::seed_t> seed,
+    anet::rl::RunMode run_mode)
+    : SingleDiscreteEnvBase(name, run_mode, config.GetScopedConfigData())
     , anet::RandomHolder(seed)
     , config_(config)
 {
     ANET_LOG_DEBUG_PREFIXED("seed=" << this->GetSeed());
-
-    if (auto logger = anet::MetricsLogger::Instance()) {
-        logger->Log("LunarLanderEnv", config_.ToJson());
-    }
 
     float_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
     bool_opt_ = torch::TensorOptions().dtype(torch::kBool).device(device);
@@ -617,7 +613,7 @@ void LunarLanderEnv::buildWorld(float init_x, float init_y, float init_angle)
     buildLander(init_x, init_y, init_angle);
 }
 
-std::shared_ptr<const anet::rl::SingleResetResult> LunarLanderEnv::Reset(anet::rl::RunMode mode)
+std::shared_ptr<const anet::rl::SingleResetResult> LunarLanderEnv::Reset()
 {
     ANET_PROFILE_FUNC();
 
@@ -901,7 +897,7 @@ std::pair<float, float> LunarLanderEnv::calcReward(const anet::rl::SingleState& 
     return { reward, raw_reward };
 }
 
-std::shared_ptr<const anet::rl::SingleStepResult> LunarLanderEnv::Step(int64_t action, anet::rl::RunMode runmode)
+std::shared_ptr<const anet::rl::SingleStepResult> LunarLanderEnv::Step(int64_t action)
 {
     ANET_PROFILE_FUNC();
 
@@ -1150,11 +1146,10 @@ anet::rl::AuxData LunarLanderEnv::CreateAuxData(float reward, float raw_reward) 
 
 std::shared_ptr<anet::rl::SingleDiscreteEnv>
 LunarLanderEnvFactory::CreateSingleEnv(const anet::ConfigData& config_data, const torch::Device& device,
-    const std::string& name, std::optional<anet::seed_t> seed, const std::string& config_prefix)
+    const std::string& name, std::optional<anet::seed_t> seed, anet::rl::RunMode run_mode,
+    const std::string& config_prefix)
 {
     LunarLanderEnvConfig config(config_data, config_prefix);
     //LOG::info() << "LunarLanderEnvFactory: config_prefix=" << config_prefix << " config=" << config.ToJson();
-    return std::make_shared<LunarLanderEnv>(config, device, name, seed);
+    return std::make_shared<LunarLanderEnv>(config, device, name, seed, run_mode);
 }
-
-ANET_REGISTER_ENV_FACTORY(LunarLanderEnvFactory);

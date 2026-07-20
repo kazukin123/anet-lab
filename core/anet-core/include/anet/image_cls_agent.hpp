@@ -239,6 +239,7 @@ namespace anet::rl::img_cls {
 
         std::shared_ptr<anet::rl::Actor> CreateActor(
             const anet::rl::BatchEnvSpec& batch_env_spec,
+            const anet::rl::EnvSpec& env_spec,
             anet::rl::RunMode run_mode,
             std::optional<bool> clone_model_override = std::nullopt,
             std::optional<torch::Device> device = std::nullopt) const override;

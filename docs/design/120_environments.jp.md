@@ -17,8 +17,7 @@ RunnerとAgentが環境固有実装へ依存せず、同じState、Action、Rese
 
 ### 1.3 記載範囲
 
-現行の`SingleDiscreteEnv`、`BatchEnv`、batch wrapper、factory/repository、登録済みEnvを扱う。
-ImageClsのbatch-native化など、まだ実装されていない設計は[関連PRD](../memo/034_imagecls_batch_input_10prd.md)への参照に留める。
+現行の`SingleDiscreteEnv`、`BatchEnv`、batch wrapper、native batch Env、factory/repository、登録済みEnvを扱う。
 
 ## 2. 基本概念と外部contract
 
@@ -37,20 +36,25 @@ ImageClsのbatch-native化など、まだ実装されていない設計は[関�
 
 ### 2.2 ResetとStep
 
-- `Reset(RunMode)`はepisodeを開始し、初期Stateを返す。
-- `Step(Action, RunMode)`はActionを適用し、次State、Reward、終端情報を返す。
-- `RunMode`によりTrain/Eval固有の乱数、augmentation、動作を分けられる。
-- batchのResult/Stateは実装内で再利用されるため、呼び出し側が後続Stepを越えて保持する場合はdeep copyが必要である。
+- Envは生成時に`RunMode`を固定し、`GetRunMode()`で公開する。
+- `Reset()`はepisodeを開始し、初期Stateを返す。
+- `Step(Action)`はActionを適用し、次State、Reward、終端情報を返す。
+- Train/Eval固有の乱数、augmentation、終端は生成時の`RunMode`で分ける。呼出し時に異なるmodeを渡す経路はない。
+- wrapper系BatchEnvには一部Result buffer再利用が残るため、呼び出し側が後続Stepを越えて保持する場合は各実装契約を確認する。native ImageClsはReset/Stepごとにfresh Tensorを返し、呼出し側へ所有権を渡す。
 
 ### 2.3 SingleとBatch
 
 `SingleDiscreteEnv`は1環境・1離散Actionを表す。
 `BatchEnv`は複数環境をまとめてRunnerへ公開する。
 
-現行の具象Envはすべて`SingleDiscreteEnvBase`を継承して`SingleDiscreteEnv` interfaceを実装し、`DefaultBatchEnvFactory`が次のいずれかでbatch化する。
+通常の具象Envは`SingleDiscreteEnvBase`を継承し、`BatchEnvBuilder`が次のいずれかでbatch化する。
 
 - `VectorizedDiscreteBatchEnv`: 呼び出しthread上で複数Envを順に実行する。
 - `ThreadPoolDiscreteEnv`: thread poolを使って複数Envを並列実行する。
+
+ImageClsは`BatchEnvBase`を直接継承するnative batch Envである。`ImageDataSource`がDatasetから固定BのTensorを生成し、single EnvのN個生成やwrapper collateを経由しない。
+
+ImageCls設定は標準Train/Eval Sourceを必須の組として持つ。`ImageClsEnv.train.dataset_key`と`ImageClsEnv.train.augment.*`がTrain側、`ImageClsEnv.eval.dataset_key`と`ImageClsEnv.eval.eval_window.mode` / `eval_window.rotating.size`がEval側である。tagなしEvalは標準Eval設定を使い、configured Evalは`train.eval.[tag].env.eval.*`で必要な項目だけをoverlayする。Factoryは両manifestをEnv構築時に検証するが、画像decodeとcache準備は選択Sourceの使用時まで遅延する。
 
 ### 2.4 Env name
 
@@ -72,8 +76,10 @@ nameは不透明な表示文字列であり、Env class ID、RunMode、config pr
 | `DiscreteBatchEnvBase` | 複数single Envのspec検証、集約、共通metricsを提供する基底 |
 | `VectorizedDiscreteBatchEnv` | single-threadでsingle Env群を駆動するbatch実装 |
 | `ThreadPoolDiscreteEnv` | thread poolでsingle Env群を駆動するbatch実装 |
-| `EnvRepository` | class IDと`SingleDiscreteEnvFactory`を対応付けるprocess registry |
-| `DefaultBatchEnvFactory` | repositoryからfactoryを解決し、worker設定に応じたbatch Envを作る |
+| `BatchEnvFactory` | native batch Envを生成するEnvクラス単位のfactory interface |
+| `EnvRepository` | class IDごとにsingle factoryまたはbatch factoryのどちらか一方を保持するprocess registry |
+| `BatchEnvBuilder` | repositoryからfactoryを解決し、native batchを直接生成するかsingle Env群をwrapperでbatch化する |
+| `ImageDatasetManager` | DatasetKey、manifest、pre-augment cacheをprocess内で共有するImageCls専用singleton |
 | Env View | Env固有のStateをRunner GUIへ表示する任意のView実装 |
 
 ## 4. コードマップ
@@ -107,43 +113,51 @@ direction LR
 class EnvRepository {
   +Regist(factory)
   +GetSingleDiscreteEnvFactory(class_id)
+  +GetBatchEnvFactory(class_id)
 }
 class SingleDiscreteEnvFactory
+class BatchEnvFactory
 class SingleDiscreteEnv {
   +GetName()
+  +GetRunMode()
   +GetSpec()
-  +Reset(run_mode)
-  +Step(action, run_mode)
+  +Reset()
+  +Step(action)
 }
 class SingleDiscreteEnvBase
-class DefaultBatchEnvFactory
+class BatchEnvBuilder
 class BatchEnv {
   +GetName()
   +GetEnvName(lane_index)
+  +GetRunMode()
   +GetSpec()
   +GetBatchSpec()
-  +Reset(run_mode)
-  +Step(action_info, run_mode)
+  +Reset()
+  +Step(action_info)
   +Shutdown()
 }
 class BatchEnvBase
 class DiscreteBatchEnvBase
 class VectorizedDiscreteBatchEnv
 class ThreadPoolDiscreteEnv
+class ImageClsEnv
 
 EnvRepository o-- SingleDiscreteEnvFactory
-DefaultBatchEnvFactory --> EnvRepository : class_idを解決
+EnvRepository o-- BatchEnvFactory
+BatchEnvBuilder --> EnvRepository : class_idを解決
+BatchEnvFactory ..> ImageClsEnv : native batchを生成
 SingleDiscreteEnvFactory ..> SingleDiscreteEnv : N個生成
 SingleDiscreteEnv <|-- SingleDiscreteEnvBase
 BatchEnv <|-- BatchEnvBase
 BatchEnvBase <|-- DiscreteBatchEnvBase
 DiscreteBatchEnvBase <|-- VectorizedDiscreteBatchEnv
 DiscreteBatchEnvBase <|-- ThreadPoolDiscreteEnv
+BatchEnvBase <|-- ImageClsEnv
 VectorizedDiscreteBatchEnv *-- SingleDiscreteEnv
 ThreadPoolDiscreteEnv *-- SingleDiscreteEnv
 ```
 
-Env固有コードはsingle interfaceまでを担当し、batch実行方法は共通基盤が担当する。
+single Envのbatch実行方法は共通基盤が担当する。batch生成自体がドメイン処理であるImageClsはnative `BatchEnv`として実装する。
 
 ## 6. 処理フロー
 
@@ -156,14 +170,14 @@ sequenceDiagram
     participant E as Single Env群
     participant A as Actor
 
-    R->>B: Reset(run_mode)
+    R->>B: Reset()
     B->>E: 各EnvをReset
     E-->>B: SingleResetResult
     B-->>R: 集約したBatchResetResult
 
     R->>A: MakeAction(BatchState)
     A-->>R: BatchActionInfo
-    R->>B: Step(action_info, run_mode)
+    R->>B: Step(action_info)
     B->>E: laneごとのActionでStep
     Note over B,E: ThreadPool実装では並列実行
     E-->>B: SingleStepResult
@@ -174,10 +188,10 @@ episode終了laneのReset時期や`episode_start`の扱いはbatch wrapperとRun
 
 ### 6.2 構築
 
-1. `env.class_id`から`EnvRepository`が具象factoryを解決する。
-2. 呼出側がBatchEnv nameを渡し、`DefaultBatchEnvFactory`がnum_envs、device、seed、worker設定を確定する。
-3. wrapperが`<name>[lane_index]`を完成させ、factoryがlaneごとに完成済みnameと異なるseedを受けてsingle Envを生成する。
-4. worker方式に応じてvectorizedまたはthread-pool batch Envへ格納する。
+1. `env.class_id`から`EnvRepository`がsingle/batchいずれかの具象factoryを解決する。
+2. 呼出側がBatchEnv name、RunMode、config prefixを渡し、`BatchEnvBuilder`がnum_envs、device、seed、worker設定を確定する。
+3. batch factoryならnative `BatchEnv`を直接生成する。single factoryならwrapperが`<name>[lane_index]`を完成させ、laneごとにsingle Envを生成する。
+4. single経路はworker方式に応じてvectorizedまたはthread-pool wrapperへ格納する。native ImageClsでは同じworker設定をSource内decodeへ適用する。
 5. Runner構築時にEnvSpecとBatchEnvSpecをAgentへ渡す。
 
 ## 7. 設定・lifetime・エラー・性能特性
@@ -197,9 +211,9 @@ Env固有設定は各factoryが同じConfigDataから読み取る。未知のcla
 
 ### 7.2 lifetimeとshutdown
 
-- BatchEnvがsingle Env群と、thread-pool方式ではpoolを所有する。
+- wrapper BatchEnvはsingle Env群とpoolを所有する。native ImageClsはEnv-local Sourceとdecode poolを所有する。
 - Runner終了時は`BatchEnv::Shutdown()`を経由してworkerを停止する。
-- Envのmutable stateとRNGはEnv instanceごとに分離する。
+- Envのmutable stateとRNGはEnv instanceごとに分離する。ImageClsのimmutable Dataset/manifest/cacheだけはDatasetKey単位でprocess共有する。
 - EnvSpecは構築後の接続contractとして扱い、Run中にshapeやAction数を変更しない。
 
 ### 7.3 性能
@@ -226,7 +240,7 @@ Envを追加・変更する場合は次を確認する。
 - [LunarLanderEnv_test.cpp](../../core/envs/lunarlander1/src/LunarLanderEnv_test.cpp)
 - [ImageClsEnv_test.cpp](../../core/envs/imagecls1/src/ImageClsEnv_test.cpp)
 
-上記の具象Env testは`VectorizedDiscreteBatchEnv`を通る経路も含む。一方、現行[trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp)はEval Actorのdevice整合性が中心で、batch wrapper全般やthread-pool方式の共通contractを網羅するtestではない。Envまたはwrapperを変更する場合は、必要なworker方式を明示して回帰testを追加する。
+single具象Env testは`VectorizedDiscreteBatchEnv`を通る経路も含む。ImageCls testはnative batch、Dataset catalog/cache、eval window、worker方式を直接検証する。Envまたはwrapperを変更する場合は、必要なworker方式を明示して回帰testを追加する。
 
 ## 9. 関連文書
 

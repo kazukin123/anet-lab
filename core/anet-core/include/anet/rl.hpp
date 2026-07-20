@@ -285,6 +285,7 @@ namespace anet::rl {
 
         /// @todo RewardSpec
 
+        void CheckSameStateActionSpec(const EnvSpec& actual) const;
         anet::json ToJson() const;
         std::string ToString() const;
     };
@@ -400,8 +401,6 @@ namespace anet::rl {
     // =============================================================
     // Batch系データ
     // =============================================================
-
-    // 「Batch～」はN環境対応版の意味
 
     // 状態
     struct BatchState {
@@ -629,9 +628,10 @@ namespace anet::rl {
     class SingleDiscreteEnv : public Module {
     public:
         virtual const std::string& GetName() const = 0;
+        virtual RunMode GetRunMode() const = 0;
         virtual EnvSpec GetSpec() const = 0;
-        virtual std::shared_ptr<const SingleResetResult> Reset(RunMode mode) = 0;
-        virtual std::shared_ptr<const SingleStepResult> Step(int64_t action, RunMode mode) = 0;
+        virtual std::shared_ptr<const SingleResetResult> Reset() = 0;
+        virtual std::shared_ptr<const SingleStepResult> Step(int64_t action) = 0;
 
         virtual ~SingleDiscreteEnv() = default;
     };
@@ -643,6 +643,7 @@ namespace anet::rl {
             const torch::Device& device,
             const std::string& name,
             std::optional<anet::seed_t> seed = std::nullopt,
+            RunMode run_mode = RunMode::Train,
             const std::string& config_prefix = "") = 0;
 
         virtual std::string GetTargetEnvClassId() const = 0;
@@ -658,12 +659,13 @@ namespace anet::rl {
     public:
         virtual const std::string& GetName() const = 0;
         virtual const std::string& GetEnvName(int64_t lane_index) const = 0;
+        virtual RunMode GetRunMode() const = 0;
         virtual EnvSpec GetSpec() const = 0;
         virtual BatchEnvSpec GetBatchSpec() const = 0;
         virtual torch::Device GetDevice() const = 0;
 
-        virtual std::shared_ptr<const BatchResetResult> Reset(RunMode mode = RunMode::Train) = 0;    ///< BatchStateは使い回されるので必要に応じてDeepCopy必須
-        virtual std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> action_info, RunMode mode = RunMode::Train) = 0; ///< BatchStepResultは使い回されるので必要に応じてDeepCopy必須
+        virtual std::shared_ptr<const BatchResetResult> Reset() = 0;    ///< BatchStateは使い回されるので必要に応じてDeepCopy必須
+        virtual std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> action_info) = 0; ///< BatchStepResultは使い回されるので必要に応じてDeepCopy必須
         //virtual std::shared_ptr<BatchEnv> Clone() const = 0;
 
         virtual void Shutdown() { }
@@ -673,10 +675,16 @@ namespace anet::rl {
 
     class BatchEnvFactory {
     public:
+        virtual void ValidateConfig(const anet::ConfigData&, RunMode, const std::string&) const {}
         virtual std::shared_ptr<BatchEnv> CreateBatchEnv(
+            const anet::ConfigData& config_data,
+            const torch::Device& device,
             const std::string& name,
             std::optional<seed_t> seed = std::nullopt,
-            int num_envs = -1) = 0; ///< num_envs=-1でnum_envs自動
+            int num_envs = 1,
+            RunMode run_mode = RunMode::Train,
+            const std::string& config_prefix = "") = 0;
+        virtual std::string GetTargetEnvClassId() const = 0;
         virtual ~BatchEnvFactory() = default;
     };
 
@@ -718,6 +726,7 @@ namespace anet::rl {
     public:
         virtual std::shared_ptr<Actor> CreateActor(
             const BatchEnvSpec& batch_env_spec,
+            const EnvSpec& env_spec,
             RunMode run_mode,
             std::optional<bool> clone_model_override = std::nullopt,
             std::optional<torch::Device> device = std::nullopt) const = 0;

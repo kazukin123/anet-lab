@@ -617,8 +617,13 @@ void ImageClsAgent::LoadNetwork(const std::string& filename)
 }
 
 std::shared_ptr<anet::rl::Actor> ImageClsAgent::CreateActor(
-    const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, std::optional<bool> clone_model_override, std::optional<torch::Device> device) const
+    const anet::rl::BatchEnvSpec& batch_env_spec,
+    const anet::rl::EnvSpec& env_spec,
+    anet::rl::RunMode run_mode,
+    std::optional<bool> clone_model_override,
+    std::optional<torch::Device> device) const
 {
+    env_spec_.CheckSameStateActionSpec(env_spec);
     const bool clone_model = clone_model_override.value_or(false);
 
     const auto actor_device = device.value_or(device_);

@@ -93,7 +93,7 @@ direction LR
 class ConfigManager
 class ConfigData
 class RunManager
-class DefaultBatchEnvFactory
+class BatchEnvBuilder
 class Agent
 class Notifier
 class TrainRunner
@@ -104,7 +104,7 @@ class RunnerThread
 
 ConfigManager --> ConfigData
 ConfigData ..> RunManager : 構築入力
-RunManager *-- DefaultBatchEnvFactory
+RunManager *-- BatchEnvBuilder
 RunManager *-- Agent
 RunManager *-- Notifier
 RunManager *-- TrainRunner
@@ -125,7 +125,7 @@ sequenceDiagram
     participant App as RunnerApp
     participant CM as ConfigManager
     participant RM as RunManager
-    participant EF as BatchEnvFactory
+    participant EB as BatchEnvBuilder
     participant AF as AgentFactory
     participant RF as RunnerFactory
     participant OF as ObserverFactory
@@ -135,8 +135,8 @@ sequenceDiagram
     App->>App: MetricsLogger / backend / repository初期化
     App->>RM: RunManager(config)
     RM->>RM: train / configured Eval tag / EvalPanelのnameを一括検証
-    RM->>EF: Train BatchEnvを生成
-    EF-->>RM: EnvSpec / BatchEnvSpec
+    RM->>EB: Train BatchEnvを生成
+    EB-->>RM: EnvSpec / BatchEnvSpec
     RM->>AF: Agentを生成
     AF-->>RM: Agent
     RM->>RF: TrainRunnerを生成
@@ -146,6 +146,8 @@ sequenceDiagram
 ```
 
 構築中に型変換、EnvSpec、device、class ID、Env name衝突、または各`Config`の不整合を検出した場合は、RunnerThread開始前に失敗する。固定名`train`、全configured Eval tag、予約名`EvalPanel`は最初のBatchEnv構築前に一括検証する。型変換失敗時の契約は[設定の解決](#21-設定の解決)のとおりである。
+
+configured Evalの`interval=0`はdormant宣言である。tag名とschemaは検証・予約するが、Eval Env、Actor、Observer、background workerは生成しない。dormant tagを参照するmetricsはtagごとに1回WARNしてskipし、未宣言tag参照はerrorとする。ImageClsは`ImageClsEnv.train.*`と`ImageClsEnv.eval.*`を標準の組として必須化し、tagなしEvalは標準Eval設定、configured Evalは`train.eval.[tag].env.eval.*`のoverlayを使用する。
 
 ### 6.2 Serial Train step
 
@@ -260,7 +262,7 @@ sequenceDiagram
 | `train.num_envs` | 主Train BatchEnvのlane数 |
 | `train.main_runner_type` | `serial`または`pipeline` |
 | `train.eval_device_type/index` | configured Evalのdevice |
-| `train.eval.[tag].*` | configured Evalのinterval、RunMode、Env override、model clone |
+| `train.eval.[tag].*` | configured Evalのinterval、RunMode、`eval_batch_size`、Env override、model clone |
 | `env.*` | Env class、worker、device |
 | `agent.*` | Agent class、device |
 | `backend.*` | TF32、cuDNN、決定論などlibtorch backend |
@@ -274,6 +276,7 @@ sequenceDiagram
 - `RunnerThread`はRunnerをshared ownershipし、停止・join後に解放する。
 - Pipelineの前回Experienceは次の非同期更新が完了するまでstorageを保持する。
 - process singleton repositoryはfactoryを保持するが、Run固有のAgent、Env、Runnerを保持しない。
+- ImageClsの`ImageDatasetManager`は例外的にDatasetKey単位のmanifest/cacheをprocess終了まで保持する。Sampler、RNG、decode poolは各EnvのSourceが所有する。
 - Env name registryは`RunManager`のlifetimeに限定する。生成成功後に登録したnameはそのRunManagerを破棄するまで再利用せず、Env生成失敗時は登録しない。別RunManagerでは同じnameを再利用できる。
 
 ### 7.3 エラー

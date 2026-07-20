@@ -250,6 +250,7 @@ namespace anet::rl::dqn {
 
         std::shared_ptr<anet::rl::Actor> CreateActor(
             const BatchEnvSpec& batch_env_spec,
+            const EnvSpec& env_spec,
             RunMode mode,
             std::optional<bool> clone_model_override = std::nullopt,
             std::optional<torch::Device> device = std::nullopt) const override;

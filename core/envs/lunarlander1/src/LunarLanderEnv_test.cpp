@@ -105,10 +105,10 @@ TEST_CASE("LunarLanderEnv keeps default observation contract", "[lunarlander][ob
     const std::vector<int64_t> expected_shape{ 8 };
     CHECK(spec.shape == expected_shape);
 
-    const auto reset_result = env->Reset(anet::rl::RunMode::Train);
+    const auto reset_result = env->Reset();
     CHECK(VectorObs(reset_result->state).numel() == 8);
 
-    const auto step_result = env->Step(anet::rl::env::kActionNoop, anet::rl::RunMode::Train);
+    const auto step_result = env->Step(anet::rl::env::kActionNoop);
     CHECK(VectorObs(step_result->next_state).numel() == 8);
 }
 
@@ -130,7 +130,7 @@ TEST_CASE("LunarLanderEnv extends spec and reset observation with previous actio
     CHECK(spec.max_values[8] == Catch::Approx(1.0));
     CHECK(spec.max_values[11] == Catch::Approx(1.0));
 
-    const auto reset_result = env->Reset(anet::rl::RunMode::Train);
+    const auto reset_result = env->Reset();
     const auto obs = VectorObs(reset_result->state);
     CHECK(obs.numel() == 12);
     RequireFlatApprox(obs.slice(/*dim=*/0, 8, 12), { 0.0f, 0.0f, 0.0f, 0.0f });
@@ -147,9 +147,9 @@ TEST_CASE("LunarLanderEnv reports the action that produced the next observation"
 
     for (const auto& [action, expected] : cases) {
         auto env = MakeEnv(/*obs_include_action=*/true);
-        env->Reset(anet::rl::RunMode::Train);
+        env->Reset();
 
-        const auto step_result = env->Step(action, anet::rl::RunMode::Train);
+        const auto step_result = env->Step(action);
         const auto obs = VectorObs(step_result->next_state);
         CHECK(obs.numel() == 12);
         RequireFlatApprox(obs.slice(/*dim=*/0, 8, 12), expected);
@@ -161,8 +161,8 @@ TEST_CASE("LunarLanderEnv keeps the first eight observation values unchanged", "
     auto env_without_action = MakeEnv(/*obs_include_action=*/false, /*limit_step=*/1000, /*seed=*/123);
     auto env_with_action = MakeEnv(/*obs_include_action=*/true, /*limit_step=*/1000, /*seed=*/123);
 
-    auto reset_without_action = env_without_action->Reset(anet::rl::RunMode::Train);
-    auto reset_with_action = env_with_action->Reset(anet::rl::RunMode::Train);
+    auto reset_without_action = env_without_action->Reset();
+    auto reset_with_action = env_with_action->Reset();
     CHECK(torch::allclose(
         VectorObs(reset_without_action->state),
         VectorObs(reset_with_action->state).slice(/*dim=*/0, 0, 8)));
@@ -176,8 +176,8 @@ TEST_CASE("LunarLanderEnv keeps the first eight observation values unchanged", "
     };
 
     for (const auto action : actions) {
-        const auto step_without_action = env_without_action->Step(action, anet::rl::RunMode::Train);
-        const auto step_with_action = env_with_action->Step(action, anet::rl::RunMode::Train);
+        const auto step_without_action = env_without_action->Step(action);
+        const auto step_with_action = env_with_action->Step(action);
         CHECK(torch::allclose(
             VectorObs(step_without_action->next_state),
             VectorObs(step_with_action->next_state).slice(/*dim=*/0, 0, 8)));
@@ -192,8 +192,8 @@ TEST_CASE("LunarLanderEnv behavior does not depend on its name", "[lunarlander][
     auto second = std::make_shared<anet::rl::env::LunarLanderEnv>(
         config, torch::Device(torch::kCPU), "second-name[0]", 123);
 
-    const auto first_reset = first->Reset(anet::rl::RunMode::Train);
-    const auto second_reset = second->Reset(anet::rl::RunMode::Train);
+    const auto first_reset = first->Reset();
+    const auto second_reset = second->Reset();
     CHECK(torch::equal(VectorObs(first_reset->state), VectorObs(second_reset->state)));
 
     const std::vector<int64_t> actions = {
@@ -204,8 +204,8 @@ TEST_CASE("LunarLanderEnv behavior does not depend on its name", "[lunarlander][
         anet::rl::env::kActionNoop,
     };
     for (const auto action : actions) {
-        const auto first_step = first->Step(action, anet::rl::RunMode::Train);
-        const auto second_step = second->Step(action, anet::rl::RunMode::Train);
+        const auto first_step = first->Step(action);
+        const auto second_step = second->Step(action);
         CHECK(torch::equal(VectorObs(first_step->next_state), VectorObs(second_step->next_state)));
         CHECK(first_step->reward == second_step->reward);
         CHECK(first_step->next_state.done == second_step->next_state.done);
@@ -226,6 +226,7 @@ TEST_CASE("LunarLanderEnv action observation works through batch env prefixes", 
         /*num_envs=*/1,
         torch::Device(torch::kCPU),
         /*seed=*/1,
+        anet::rl::RunMode::Train,
         /*config_prefix=*/"train.eval.[test1].env");
 
     const auto spec = env.GetSpec();
@@ -233,14 +234,14 @@ TEST_CASE("LunarLanderEnv action observation works through batch env prefixes", 
     const std::vector<int64_t> expected_batch_shape{ 1, 12 };
     CHECK(spec.state_spec.obs_spec.at(kVectorKey).shape == expected_single_shape);
 
-    const auto reset_result = env.Reset(anet::rl::RunMode::Train);
+    const auto reset_result = env.Reset();
     CHECK(spec.state_spec.ValidateObservation(reset_result->state.obs, /*is_batched=*/true));
     CHECK(reset_result->state.obs.At(kVectorKey).sizes().vec() == expected_batch_shape);
     RequireFlatApprox(reset_result->state.obs.At(kVectorKey)[0].slice(/*dim=*/0, 8, 12), { 0.0f, 0.0f, 0.0f, 0.0f });
 
     auto action_info = std::make_shared<anet::rl::BatchActionInfo>(
         torch::tensor({ anet::rl::env::kActionRight }, torch::TensorOptions().dtype(torch::kInt64)));
-    const auto step_result = env.Step(action_info, anet::rl::RunMode::Train);
+    const auto step_result = env.Step(action_info);
     CHECK(spec.state_spec.ValidateObservation(step_result->next_state.obs, /*is_batched=*/true));
     CHECK(step_result->next_state.obs.At(kVectorKey).sizes().vec() == expected_batch_shape);
     RequireFlatApprox(step_result->next_state.obs.At(kVectorKey)[0].slice(/*dim=*/0, 8, 12), { 0.0f, 0.0f, 0.0f, 1.0f });

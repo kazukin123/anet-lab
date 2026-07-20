@@ -70,7 +70,7 @@ Reloadでは、既存のOFF選択を保ち、新たに発見された可視tag�
 グラフを重ねる前に、各Runの次を確認する。
 
 - `config/config_data.txt`: includeとCLI override解決後の全設定
-- `config.txt`: 各Config objectが読み取った設定
+- `config/*.txt`: コンポーネント別の注入済み設定。Envは`config/env.<Env name>.txt`
 - seed、Agent/Env、Network構成、batch size、replay条件
 - CPU/GPU、device index、決定論設定
 - configured evalのinterval、RunMode、clone設定

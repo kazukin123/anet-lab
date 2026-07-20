@@ -29,6 +29,7 @@ DQN固有の構成と学習方式は[DQN系Agent](200_dqn_agents.jp.md)、Replay
 - `Actor`は`StepCounts`と`BatchState`から`BatchActionInfo`を生成する。`Sync()`はActor固有のsourceから推論Resourceを強制同期する。
 - 同一Actor instanceの`MakeAction()`と`Sync()`は並行呼出ししない。必要な直列化はActorを利用するRunner側が守る。
 - `Agent::CreateActor()`の`clone_model_override`はoptionalであり、`std::nullopt`はmodel複製の既定を具象Agentへ委譲する。値が指定された場合の対応可否、同期source、同期時点も具象Agentの契約である。
+- `Agent::CreateActor()`は`BatchEnvSpec`の後に対象Envの`EnvSpec`を受け取り、そのActorを生成できるかを具象Agentが判断する。通常の同一state/action契約には`EnvSpec::CheckSameStateActionSpec()`を使用できるが、異なるspecを扱えるAgentへ共通層が一律制約を課さない。
 - `Learner`は`BatchExperience`を受け取り、0件以上の`BatchUpdateResult`を`BatchUpdateResultList`として返す。1回のExperience受入れが必ずparameter更新を発生させるとは限らない。
 - `AgentBase`はdevice、Envのspec、RunMode別RNG、共有mutexなど、複数Agentに共通する実行資源を保持する。
 
@@ -137,7 +138,7 @@ sequenceDiagram
     participant G as Agent
     participant A as Actor
 
-    R->>G: CreateActor(batch_env_spec, run_mode, override, device)
+    R->>G: CreateActor(batch_env_spec, env_spec, run_mode, override, device)
     G-->>R: Actor
     loop Runner step
         R->>A: MakeAction(step_counts, batch_state)

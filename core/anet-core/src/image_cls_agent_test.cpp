@@ -490,6 +490,7 @@ torch::Tensor ForwardImageClsAgentProbs(
 {
     auto actor = agent.CreateActor(
         anet::rl::BatchEnvSpec{ static_cast<int>(grid.size(0)), 1 },
+        MakeImageClsEnvSpec(),
         anet::rl::RunMode::Eval,
         false,
         torch::Device(torch::kCPU));
@@ -1351,11 +1352,13 @@ TEST_CASE("ImageClsAgent cloned actor stays isolated until Sync", "[image_cls][a
     const anet::rl::BatchEnvSpec batch_spec{ 2, 1 };
     auto shared_actor = agent.CreateActor(
         batch_spec,
+        env_spec,
         anet::rl::RunMode::Eval,
         std::nullopt,
         torch::Device(torch::kCPU));
     auto cloned_actor = agent.CreateActor(
         batch_spec,
+        env_spec,
         anet::rl::RunMode::Eval,
         true,
         torch::Device(torch::kCPU));

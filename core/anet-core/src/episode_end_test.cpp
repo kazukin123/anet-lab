@@ -130,12 +130,12 @@ public:
     rl::BatchEnvSpec GetBatchSpec() const override { return batch_spec_; }
     torch::Device GetDevice() const override { return torch::Device(torch::kCPU); }
 
-    std::shared_ptr<const rl::BatchResetResult> Reset(rl::RunMode = rl::RunMode::Train) override
+    std::shared_ptr<const rl::BatchResetResult> Reset() override
     {
         return std::make_shared<TestResetResult>(batch_spec_.num_envs);
     }
 
-    std::shared_ptr<const rl::BatchStepResult> Step(std::shared_ptr<rl::BatchActionInfo> action_info, rl::RunMode = rl::RunMode::Train) override
+    std::shared_ptr<const rl::BatchStepResult> Step(std::shared_ptr<rl::BatchActionInfo> action_info) override
     {
         last_action_ = action_info->GetAction().clone();
         return std::make_shared<TestStepResult>(
@@ -228,6 +228,7 @@ public:
 
     std::shared_ptr<rl::Actor> CreateActor(
         const rl::BatchEnvSpec& batch_env_spec,
+        const rl::EnvSpec&,
         rl::RunMode,
         std::optional<bool> = std::nullopt,
         std::optional<torch::Device> = std::nullopt) const override

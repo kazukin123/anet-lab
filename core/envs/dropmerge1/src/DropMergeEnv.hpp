@@ -193,13 +193,14 @@ namespace anet::rl::env::drop_merge {
             const DropMergeEnvConfig& config,
             const torch::Device& device,
             const std::string& name,
-            const std::optional<anet::seed_t> seed = std::nullopt);
+            const std::optional<anet::seed_t> seed = std::nullopt,
+            anet::rl::RunMode run_mode = anet::rl::RunMode::Train);
 
         ~DropMergeEnv() override;
 
         anet::rl::EnvSpec GetSpec() const override;
-        std::shared_ptr<const anet::rl::SingleResetResult> Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
-        std::shared_ptr<const anet::rl::SingleStepResult> Step(int64_t action, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
+        std::shared_ptr<const anet::rl::SingleResetResult> Reset() override;
+        std::shared_ptr<const anet::rl::SingleStepResult> Step(int64_t action) override;
 
     public:
         // デバッグ・可視化用
@@ -330,6 +331,7 @@ namespace anet::rl::env::drop_merge {
             const torch::Device& device,
             const std::string& name,
             std::optional<anet::seed_t> seed = std::nullopt,
+            anet::rl::RunMode run_mode = anet::rl::RunMode::Train,
             const std::string& config_prefix = "") override;
     };
 

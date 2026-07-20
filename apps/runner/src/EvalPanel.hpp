@@ -32,6 +32,7 @@ struct EvalPanelConfig {
 	float fps = 30.0f;
 	int step_per_frame = 3;
 	bool auto_start = true;
+	std::string eval_config_tag;
 	EvalPanelModelSyncConfig model_sync;
 };
 

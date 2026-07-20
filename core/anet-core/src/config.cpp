@@ -340,6 +340,23 @@ namespace anet {
         return true;
     }
 
+    void ConfigData::MergeFromChecked(const ConfigData& other)
+    {
+        // 同一スコープの重複は、同じ実効値を表している場合だけ一つに畳み込む。
+        for (const auto& [key, value] : other.Map()) {
+            const auto existing = map_.find(key);
+            const auto existing_value = existing == map_.end() ? std::string() : (*existing).second;
+            ANET_CHECK_MSG(
+                existing == map_.end() || existing_value == value,
+                "ConfigData merge conflict. key=" << key
+                << " existing=\"" << existing_value
+                << "\" incoming=\"" << value << "\"");
+            if (existing == map_.end()) {
+                map_.Set(key, value);
+            }
+        }
+    }
+
     std::unordered_map<std::string, ConfigData> ConfigData::MakeSubConfigData(const std::string& prefix) const
     {
         //std::unordered_map<std::string, std::unordered_map<std::string, std::string>> tag_block_map;
@@ -547,6 +564,19 @@ namespace anet {
         , override_prefix_(override_prefix)
     {
         ;
+    }
+
+    ConfigData Config::GetScopedConfigData() const
+    {
+        // override が指定されたインスタンスは、実際に設定が注入されたスコープを採用する。
+        const auto& scope = override_prefix_.empty() ? default_prefix_ : override_prefix_;
+
+        // Config 内部の相対キーを、ダンプや親モジュールで衝突しない完全キーへ戻す。
+        ConfigData scoped_config_data;
+        for (const auto& [key, value] : my_config_data_.Map()) {
+            scoped_config_data.Set(scope.empty() ? key : scope + "." + key, value);
+        }
+        return scoped_config_data;
     }
 
     std::string Config::ToString() const

@@ -37,3 +37,17 @@ ImageCls を batch-native 化するにあたり、既存の `EnvRepository`（cl
 元のConsequencesに記載したname追加前のシグネチャは歴史的な判断時点の表記として残す。実装時の規範シグネチャはこのfollow-upとPRD 034のPhase定義を優先する。
 
 PRD 034 D3の決定（生成時RunMode固定）に伴い、次を追記する。`BatchEnv` / `SingleDiscreteEnv`の`Reset` / `Step`から実行時`RunMode`引数を撤去し、`SingleDiscreteEnvBase` / `BatchEnvBase`が`name`と同じパターンで生成時RunModeを保持して`GetRunMode()`を公開する。`SingleDiscreteEnvFactory::CreateSingleEnv`にもRunModeを追加する。既存Envの実行時mode分岐（CartPoleのeval初期状態固定）は保持値参照へ置換し挙動を変えない。役割特化インスタンスを構築時に確定する形は、Gym系env API（SB3 / Tianshou / DI-engine / RLlib）およびPyTorch DataLoaderのtrain/val分離と同型であり、誤modeでのReset/Stepは引数の不存在により構造的に不可能になる。
+
+## Follow-up: PRD 034実装時のDataset ownershipとdormant検証
+
+PRD 034の確定判断に従い、ImageClsのimmutable Dataset資源はprocess singleton `ImageDatasetManager`が`DatasetKey`単位で所有する。同一key・同一resolved configはmanifest/cacheを共有し、同一key・異configは登録済みDatasetの利用有無にかかわらずfield差付きでfail-fastする。catalog登録はI/Oなしの全件preflight後にcommitし、manifest構築またはcache entry decodeの失敗はprocess lifetime中stickyとする。一方、Sampler、cursor、RNG、augment、decode pool、episode stateはEnv-local `ImageDataSource`が所有し、singletonへ移さない。
+
+`interval=0`のconfigured Evalは全Env共通のdormant宣言として、name予約とschema検証だけを行う。ImageCls batch factoryの`ValidateConfig`はcatalog/SourceをI/Oなしで検証するため、dormant tagはmanifest、Env、Actor、Observer、poolを生成しない。enabled configured EvalとEvalPanelは生成したEnvの`EnvSpec.info["image_dataset_key"]`、state/action specをmain Envのcanonical specと接続前に比較する。
+
+## Follow-up: ImageCls固有判断をAgent・Module seamへ移動
+
+後続レビューにより、直前follow-up末尾のcanonical DatasetKey/EnvSpec比較を撤回する。ImageCls設定は`ImageClsEnv.train.*`と`ImageClsEnv.eval.*`を標準の組として必須化し、tagなしEvalは標準Eval設定、configured Evalはtag固有overlayを使用する。両manifestはImageCls factoryが起動時に個別検証するが、Train/Eval間でspec一致を強制しない。
+
+Runnerは生成対象の`BatchEnvSpec`と`EnvSpec`を`Agent::CreateActor()`へ渡し、Actor生成可否はAgentが判断する。通常の同一state/action契約には`EnvSpec::CheckSameStateActionSpec()`を使用できるが、RunManagerはImageCls class ID、DatasetKey、`EnvSpec.info`を解釈せず、canonical specを保持しない。DatasetKeyも`EnvSpec.info`へ特別格納しない。
+
+適用済み設定は`Module::GetConfigData()`の共通自己記述情報として扱う。Envは子を含む不変の実効設定snapshotを返し、RunManagerは`config/env.<Env name>.txt`へ共通dumpする。これに伴い、具象Envからの個別設定ログとRun直下`config.txt`集約を廃止する。実動情報はこのConfigへ混ぜず、将来のProperty seamへ分離する。

@@ -415,6 +415,7 @@ public:
 
     std::shared_ptr<rl::Actor> CreateActor(
         const rl::BatchEnvSpec&,
+        const rl::EnvSpec&,
         rl::RunMode,
         std::optional<bool> = std::nullopt,
         std::optional<torch::Device> = std::nullopt) const override
@@ -882,15 +883,14 @@ public:
     rl::BatchEnvSpec GetBatchSpec() const override { return batch_spec_; }
     torch::Device GetDevice() const override { return torch::Device(torch::kCPU); }
 
-    std::shared_ptr<const rl::BatchResetResult> Reset(rl::RunMode = rl::RunMode::Train) override
+    std::shared_ptr<const rl::BatchResetResult> Reset() override
     {
         step_ = 0;
         return std::make_shared<DeterminismResetResult>(batch_spec_.num_envs);
     }
 
     std::shared_ptr<const rl::BatchStepResult> Step(
-        std::shared_ptr<rl::BatchActionInfo>,
-        rl::RunMode = rl::RunMode::Train) override
+        std::shared_ptr<rl::BatchActionInfo>) override
     {
         if (jitter_) jitter_->Sleep(DeterminismJitterPhase::EnvStep);
 
@@ -973,6 +973,7 @@ public:
 
     std::shared_ptr<rl::Actor> CreateActor(
         const rl::BatchEnvSpec& batch_env_spec,
+        const rl::EnvSpec&,
         rl::RunMode,
         std::optional<bool> = std::nullopt,
         std::optional<torch::Device> = std::nullopt) const override
@@ -2012,7 +2013,8 @@ TEST_CASE("DefaultDQNAgent resolves Train Actor snapshot clone overrides", "[dqn
                                    rl::RunMode mode,
                                    std::optional<bool> clone_override) {
         auto actor = agent->CreateActor(
-            rl::BatchEnvSpec{ 1, 1 }, mode, clone_override, torch::Device(torch::kCPU));
+            rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec(), mode, clone_override,
+            torch::Device(torch::kCPU));
         auto info = std::dynamic_pointer_cast<dqn::DQNActionInfo>(
             actor->MakeAction(rl::StepCounts{}, state));
         REQUIRE(info != nullptr);
@@ -2047,9 +2049,33 @@ TEST_CASE("DefaultDQNAgent rejects an effective shared Actor on another device",
 
     CHECK_THROWS(agent->CreateActor(
         batch_env_spec,
+        MakeLearnerEnvSpec(),
         rl::RunMode::Train,
         std::nullopt,
         torch::Device(torch::kCUDA, 0)));
+}
+
+TEST_CASE("DefaultDQNAgent decides whether an Eval EnvSpec is acceptable", "[dqn][actor][env_spec]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    const auto batch_env_spec = rl::BatchEnvSpec{ 1, 1 };
+    const auto train_env_spec = MakeLearnerEnvSpec();
+    auto agent = std::make_shared<dqn::DefaultDQNAgent>(
+        MakeDeviceForwardDefaultDqnConfig(),
+        MakeAgentForwardNetworkConfig(),
+        batch_env_spec,
+        train_env_spec,
+        torch::Device(torch::kCPU),
+        123);
+
+    auto incompatible_eval_spec = train_env_spec;
+    incompatible_eval_spec.action_spec.value_labels.push_back("incompatible");
+    CHECK_THROWS(agent->CreateActor(
+        batch_env_spec,
+        incompatible_eval_spec,
+        rl::RunMode::Eval,
+        std::nullopt,
+        torch::Device(torch::kCPU)));
 }
 
 TEST_CASE("DefaultDQNAgent creates the initial snapshot from an auto-loaded network", "[dqn][actor][snapshot][serialize]")
@@ -2091,7 +2117,7 @@ TEST_CASE("DefaultDQNAgent creates the initial snapshot from an auto-loaded netw
         torch::Device(torch::kCPU),
         456);
     auto actor = loaded_agent->CreateActor(
-        batch_env_spec, rl::RunMode::Train, std::nullopt, torch::Device(torch::kCPU));
+        batch_env_spec, env_spec, rl::RunMode::Train, std::nullopt, torch::Device(torch::kCPU));
     auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
     rl::BatchState state(obs, flags, flags, flags);
     const auto action_info = actor->MakeAction(rl::StepCounts{}, state);
@@ -2140,7 +2166,7 @@ TEST_CASE("RainbowAgent omits DefaultDQN snapshot diagnostics", "[dqn][actor][sn
         torch::Device(torch::kCPU),
         123);
     auto actor = agent->CreateActor(
-        batch_env_spec, rl::RunMode::Train, std::nullopt, torch::Device(torch::kCPU));
+        batch_env_spec, env_spec, rl::RunMode::Train, std::nullopt, torch::Device(torch::kCPU));
     auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
     rl::BatchState state(
         anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } },
@@ -2155,6 +2181,7 @@ TEST_CASE("RainbowAgent omits DefaultDQN snapshot diagnostics", "[dqn][actor][sn
     CHECK_FALSE(action_info->GetScalar("train_actor_snapshot_age").has_value());
     CHECK_THROWS(agent->CreateActor(
         batch_env_spec,
+        env_spec,
         rl::RunMode::Train,
         std::nullopt,
         torch::Device(torch::kCUDA, 0)));

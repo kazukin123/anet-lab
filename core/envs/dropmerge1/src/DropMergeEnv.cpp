@@ -104,14 +104,11 @@ public:
 
 DropMergeEnv::DropMergeEnv(
     const DropMergeEnvConfig& config, const torch::Device& device, const std::string& name,
-    const std::optional<anet::seed_t> seed)
-    : SingleDiscreteEnvBase(name)
+    const std::optional<anet::seed_t> seed, anet::rl::RunMode run_mode)
+    : SingleDiscreteEnvBase(name, run_mode, config.GetScopedConfigData())
     , anet::RandomHolder(std::nullopt)
     , config_(config)
 {
-    // メトリクスログなど
-    anet::MetricsLogger::Instance()->Log("DropMergeEnv", config_);
-
     // --- Seed Mode の解析 ---
     std::string mode_str = anet::ToLower(config_.seed_mode);
     if (mode_str == "fixed") {
@@ -360,7 +357,7 @@ int DropMergeEnv::determineNextRank()
     return (int)probs.size();
 }
 
-std::shared_ptr<const anet::rl::SingleResetResult> DropMergeEnv::Reset(anet::rl::RunMode mode)
+std::shared_ptr<const anet::rl::SingleResetResult> DropMergeEnv::Reset()
 {
     ANET_PROFILE_FUNC();
 
@@ -883,7 +880,7 @@ bool DropMergeEnv::isNoLegalDropState() const
     return !hasAnyLegalDropForCurrentFruit();
 }
 
-std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t action, anet::rl::RunMode mode)
+std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t action)
 {
     ANET_PROFILE_FUNC();
 
@@ -1479,10 +1476,9 @@ DropMergeEnv::GetTensorVector(const std::string& key, int64_t index) const
 
 std::shared_ptr<anet::rl::SingleDiscreteEnv>
 DropMergeEnvFactory::CreateSingleEnv(const anet::ConfigData& config_data, const torch::Device& device,
-    const std::string& name, std::optional<anet::seed_t> seed, const std::string& config_prefix)
+    const std::string& name, std::optional<anet::seed_t> seed, anet::rl::RunMode run_mode,
+    const std::string& config_prefix)
 {
     DropMergeEnvConfig config(config_data, config_prefix);
-    return std::make_shared<DropMergeEnv>(config, device, name, seed);
+    return std::make_shared<DropMergeEnv>(config, device, name, seed, run_mode);
 }
-
-ANET_REGISTER_ENV_FACTORY(DropMergeEnvFactory);

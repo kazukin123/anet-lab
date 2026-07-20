@@ -1,310 +1,286 @@
-// ImageClsEnv.cpp
-
 #include "ImageClsEnv.hpp"
 
-#include <algorithm>
-#include <cmath>
+#include <limits>
 
-#include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
-#include "anet/env.hpp"
 
 using namespace anet::rl::env;
-namespace LOG = anet::log;
 
-// ----------------------------------------------------
-// ImageClsEnv Results (AuxData保持用)
-// ----------------------------------------------------
+namespace {
 
-class ImageClsResetResult : public anet::rl::SingleResetResult {
-public:
-    ImageClsResetResult(anet::rl::SingleState state, anet::rl::AuxData aux)
-        : anet::rl::SingleResetResult(std::move(state)), aux_(std::move(aux)) {}
-    anet::rl::AuxData GetAuxData() const override { return aux_; }
-private:
-    anet::rl::AuxData aux_;
-};
+anet::seed_t ResolveSeed(std::optional<anet::seed_t> seed)
+{
+    return seed.value_or(anet::SeedMaker::MakeAutoSeed());
+}
 
-class ImageClsStepResult : public anet::rl::SingleStepResult {
-public:
-    ImageClsStepResult(float reward, anet::rl::SingleState next_state, anet::rl::AuxData aux)
-        : anet::rl::SingleStepResult(reward, std::move(next_state)), aux_(std::move(aux)) {}
-    anet::rl::AuxData GetAuxData() const override { return aux_; }
-private:
-    anet::rl::AuxData aux_;
-};
-
-// ----------------------------------------------------
-// ImageClsEnv
-// ----------------------------------------------------
+} // namespace
 
 ImageClsEnv::ImageClsEnv(
-    const ImageClsEnvConfig& config, const std::string& name, std::optional<anet::seed_t> seed)
-    : SingleDiscreteEnvBase(name), anet::RandomHolder(seed), config_(config)
+    const ImageClsEnvConfig& config,
+    std::unique_ptr<anet::img::ImageDataSource> source,
+    anet::ConfigData config_data,
+    const std::string& name,
+    int num_envs,
+    anet::rl::RunMode run_mode)
+    : BatchEnvBase(name, num_envs, run_mode, std::move(config_data))
+    , config_(config)
+    , batch_spec_({ num_envs, 1 })
+    , source_(std::move(source))
 {
-    // Train用データソースの生成
-    log.verbose() << "Loading train:" << config_.train_list_txt_path;
-    train_data_source_ = std::make_unique<anet::img::ImageDataSource>(
-        config_.root_dir, config_.train_list_txt_path, config_.classes_txt_path, config_.image_width, config.image_height, config_.suffix);
+    batch_spec_.num_threads = source_->GetWorkerCount();
+    const auto& dataset = source_->GetDataset();
+    const auto& dataset_config = dataset->GetConfig();
+    const auto& class_names = dataset->GetManifest().class_names;
 
-    // Eval用データソースの生成
-    log.verbose() << "Loading test:" << config_.eval_list_txt_path;
-    eval_data_source_ = std::make_unique<anet::img::ImageDataSource>(
-        config_.root_dir, config_.eval_list_txt_path, config_.classes_txt_path, config_.image_width, config.image_height, config_.suffix);
-
-	// 分類クラスを取得
-    auto claeses = train_data_source_->GetClassLabelList();
-
-	// 画像情報のObservation定義
-    anet::TensorSpec obs_grid_spec {
+    spec_.state_spec.obs_spec[anet::rl::ObsKeys::kGrid] = anet::TensorSpec{
         .type = anet::SpaceType::Grid,
-        .shape = { 3, config_.image_height, config_.image_width },
-        .dtype = torch::kUInt8
+        .shape = { 3, dataset_config.image_height, dataset_config.image_width },
+        .dtype = torch::kUInt8,
     };
-
-    // 正しい分類クラスIDを含むObservation (離散、スカラー)
-    anet::TensorSpec obs_vector_spec {
+    spec_.state_spec.obs_spec[anet::rl::ObsKeys::kVector] = anet::TensorSpec{
         .type = anet::SpaceType::Vector,
-        .shape = { 1 }, // Scaler
+        .shape = { 1 },
         .dtype = torch::kInt64,
-		.num_classes = static_cast<int64_t>(claeses.size()),  // 分類クラス数
+        .num_classes = static_cast<int64_t>(class_names.size()),
     };
-
-    // StateSpec
-	spec_.state_spec.obs_spec[anet::rl::ObsKeys::kGrid] = obs_grid_spec;
-    spec_.state_spec.obs_spec[anet::rl::ObsKeys::kVector] = obs_vector_spec;
-
-	// ActionSpec
     spec_.action_spec.is_discrete = true;
-    spec_.action_spec.value_labels = claeses;
-
-    log.verbose() << "ImageClsEnv initialized.";
+    spec_.action_spec.value_labels = class_names;
 }
 
-anet::rl::EnvSpec ImageClsEnv::GetSpec() const
+anet::rl::BatchState ImageClsEnv::MakeState(
+    const anet::img::ImageBatch& batch,
+    const torch::Tensor& done,
+    const torch::Tensor& truncated,
+    const torch::Tensor& episode_start) const
 {
-    return spec_;
-}
-
-anet::rl::SingleState ImageClsEnv::FetchRandomImageState(anet::rl::RunMode mode)
-{
-    ANET_PROFILE_FUNC();
-
-    // モードに応じてデータソースを切り替え
-    ANET_PROFILE_SCOPE(fetch_image);
-    const bool is_eval = anet::rl::IsEval(mode);
-    auto* source = is_eval ? eval_data_source_.get() : train_data_source_.get();
-
-    // ランダムサンプリング
-    size_t data_size = source->size().value();
-    size_t rand_idx = rnd_->RandUint64() % data_size;
-    auto example = source->get(rand_idx);
-    current_true_label_ = example.target.item<int64_t>();
-
-    auto image = example.data;
-    ANET_PROFILE_SCOPE_NEXT(augment);
-    if (!is_eval && config_.augment.enabled) {
-        image = ApplyTrainAugment(image);
-    }
-
-    // Observationを生成
-    ANET_PROFILE_SCOPE_NEXT(build_state);
     anet::TensorDict obs;
-    obs.Set(anet::rl::ObsKeys::kGrid, image);
-    obs.Set(anet::rl::ObsKeys::kVector, example.target.clone());
-
-    anet::rl::SingleState state {
-        .obs = std::move(obs),
-        .done = done_,
-        .truncated = truncated_,
-        .episode_start = episode_start_,
-    };
-    //ANET_LOG_DEBUG("state=" << state.ToString());
-
-    return state;
+    obs.Set(anet::rl::ObsKeys::kGrid, batch.grid);
+    obs.Set(anet::rl::ObsKeys::kVector, batch.targets.unsqueeze(1));
+    return anet::rl::BatchState(obs, done, truncated, episode_start);
 }
 
-torch::Tensor ImageClsEnv::ApplyTrainAugment(const torch::Tensor& image)
+std::vector<anet::rl::AuxData> ImageClsEnv::MakeAuxDataList(
+    const anet::img::ImageBatch& batch) const
 {
-    ANET_PROFILE_SCOPE(random_resized_crop);
-    auto result = ApplyRandomResizedCrop(image);
-    ANET_PROFILE_SCOPE_NEXT(hflip);
-    if (config_.augment.hflip_p > 0.0 && rnd_->Uniform01() < config_.augment.hflip_p) {
-        result = result.flip({ 2 });
+    std::vector<anet::rl::AuxData> result;
+    result.reserve(static_cast<size_t>(batch_spec_.num_envs));
+    for (int64_t lane = 0; lane < batch_spec_.num_envs; ++lane) {
+        anet::rl::AuxData aux;
+        aux["step_count"] = torch::tensor(step_count_, torch::kInt32);
+        aux["current_true_label"] = batch.targets[lane].clone();
+        aux["valid"] = torch::tensor(lane < batch.valid_count, torch::kBool);
+        result.push_back(std::move(aux));
     }
-    return result.contiguous();
-}
-
-torch::Tensor ImageClsEnv::ApplyRandomResizedCrop(const torch::Tensor& image)
-{
-    ANET_PROFILE_SCOPE(sample_crop);
-    const int64_t in_h = image.size(1);
-    const int64_t in_w = image.size(2);
-    const int64_t out_h = config_.image_height;
-    const int64_t out_w = config_.image_width;
-    const double area = static_cast<double>(in_h * in_w);
-    const double log_ratio_min = std::log(config_.augment.rrc_ratio_min);
-    const double log_ratio_max = std::log(config_.augment.rrc_ratio_max);
-
-    int64_t crop_h = in_h;
-    int64_t crop_w = in_w;
-    int64_t top = 0;
-    int64_t left = 0;
-    bool sampled = false;
-
-    // torchvision の RandomResizedCrop と同じく、指定範囲から妥当な crop 矩形を複数回試す。
-    for (int attempt = 0; attempt < 10; ++attempt) {
-        const double target_area = area * rnd_->Uniform(
-            static_cast<float>(config_.augment.rrc_scale_min),
-            static_cast<float>(config_.augment.rrc_scale_max));
-        const double aspect_ratio = std::exp(rnd_->Uniform(
-            static_cast<float>(log_ratio_min),
-            static_cast<float>(log_ratio_max)));
-        const int64_t candidate_w = static_cast<int64_t>(std::round(std::sqrt(target_area * aspect_ratio)));
-        const int64_t candidate_h = static_cast<int64_t>(std::round(std::sqrt(target_area / aspect_ratio)));
-
-        if (candidate_w > 0 && candidate_w <= in_w && candidate_h > 0 && candidate_h <= in_h) {
-            crop_w = candidate_w;
-            crop_h = candidate_h;
-            top = rnd_->RandInt(0, static_cast<int>(in_h - crop_h));
-            left = rnd_->RandInt(0, static_cast<int>(in_w - crop_w));
-            sampled = true;
-            break;
-        }
-    }
-
-    if (!sampled) {
-        const double in_ratio = static_cast<double>(in_w) / static_cast<double>(in_h);
-        if (in_ratio < config_.augment.rrc_ratio_min) {
-            crop_w = in_w;
-            crop_h = static_cast<int64_t>(std::round(static_cast<double>(crop_w) / config_.augment.rrc_ratio_min));
-        } else if (in_ratio > config_.augment.rrc_ratio_max) {
-            crop_h = in_h;
-            crop_w = static_cast<int64_t>(std::round(static_cast<double>(crop_h) * config_.augment.rrc_ratio_max));
-        }
-        crop_w = std::min(crop_w, in_w);
-        crop_h = std::min(crop_h, in_h);
-        top = (in_h - crop_h) / 2;
-        left = (in_w - crop_w) / 2;
-    }
-
-    ANET_PROFILE_SCOPE_NEXT(slice);
-    auto cropped = image.index({
-        torch::indexing::Slice(),
-        torch::indexing::Slice(top, top + crop_h),
-        torch::indexing::Slice(left, left + crop_w)
-    });
-
-    if (crop_h == out_h && crop_w == out_w) {
-        return cropped.contiguous();
-    }
-
-    ANET_PROFILE_SCOPE_NEXT(resize);
-    auto resized = torch::nn::functional::interpolate(
-        cropped.unsqueeze(0).to(torch::kFloat32),
-        torch::nn::functional::InterpolateFuncOptions()
-            .size(std::vector<int64_t>{ out_h, out_w })
-            .mode(torch::kBilinear)
-            .align_corners(false));
-    return resized.squeeze(0).round().clamp(0, 255).to(torch::kUInt8).contiguous();
-}
-
-anet::rl::AuxData ImageClsEnv::MakeAuxData() const
-{
-    anet::rl::AuxData aux;
-    aux["step_count"] = torch::tensor(step_count_, torch::kInt32);
-    aux["current_true_label"] = torch::tensor(current_true_label_, torch::kInt64);
-    return aux;
-}
-
-std::shared_ptr<const anet::rl::SingleResetResult> ImageClsEnv::Reset(anet::rl::RunMode mode)
-{
-    ANET_PROFILE_FUNC();
-
-    //episode_just_ended_ = false;
-    ANET_PROFILE_SCOPE(reset_state);
-    step_count_ = 0;
-    ep_reward_sum_ = 0.0f;
-    done_ = false;
-    truncated_ = false;
-    episode_start_ = true;
-
-    // モードを渡して画像を取得
-    ANET_PROFILE_SCOPE_NEXT(fetch_state);
-    auto state = FetchRandomImageState(mode);
-    state.done = false;
-    state.truncated = false;
-
-    // 戻り値は const SingleResetResult の shared_ptr にする
-    ANET_PROFILE_SCOPE_NEXT(build_result);
-    return std::make_shared<const ImageClsResetResult>(std::move(state), MakeAuxData());
-}
-
-std::shared_ptr<const anet::rl::SingleStepResult> ImageClsEnv::Step(int64_t action, anet::rl::RunMode mode)
-{
-    ANET_PROFILE_FUNC();
-
-    // 初期化＆エピソードステップ更新
-    ANET_PROFILE_SCOPE(update_counters);
-    episode_start_ = false;
-    step_count_++;
-
-	// 報酬計算 (正解なら1.0、そうでなければ0.0)
-    float reward = (action == current_true_label_) ? 1.0f : 0.0f;
-    ep_reward_sum_ += reward;
-
-	// エピソード終了判定
-    done_ = (step_count_ >= config_.max_steps);
-
-	// 次の状態を生成
-    ANET_PROFILE_SCOPE_NEXT(fetch_state);
-    auto next_state = FetchRandomImageState(mode);
-	next_state.done = done_;
-	next_state.truncated = truncated_;
-
-    // メトリクス情報更新
-    ANET_PROFILE_SCOPE_NEXT(build_result);
-    if (done_) {
-        episode_just_ended_ = true;
-        last_episode_len_ = static_cast<float>(step_count_);
-        last_reward_sum_ = ep_reward_sum_;
-        last_accuracy_ = ep_reward_sum_ / static_cast<float>(step_count_);
-    } else {
-        //episode_just_ended_ = false;
-    }
-
-    auto result = std::make_shared<ImageClsStepResult>(reward, std::move(next_state), MakeAuxData());
     return result;
+}
+
+std::shared_ptr<const anet::rl::BatchResetResult> ImageClsEnv::Reset()
+{
+    ANET_PROFILE_SCOPE(ImageClsEnv_Reset);
+    step_count_ = 0;
+    current_batch_ = source_->NextBatch();
+    const auto options = torch::TensorOptions().dtype(torch::kBool).device(torch::kCPU);
+    auto state = MakeState(
+        current_batch_,
+        torch::zeros({ batch_spec_.num_envs }, options),
+        torch::zeros({ batch_spec_.num_envs }, options),
+        torch::ones({ batch_spec_.num_envs }, options));
+    return std::make_shared<const anet::rl::PlainBatchResetResult>(
+        std::move(state), MakeAuxDataList(current_batch_));
+}
+
+void ImageClsEnv::UpdateMetrics(const torch::Tensor& reward)
+{
+    if (anet::rl::IsEval(GetRunMode())) {
+        accuracy_correct_ += reward.narrow(0, 0, current_batch_.valid_count).sum().item<double>();
+        accuracy_samples_ += current_batch_.valid_count;
+        epoch_count_ += current_batch_.completed_cycles;
+        if (current_batch_.window_end) {
+            accuracy_snapshot_ = accuracy_samples_ == 0
+                ? std::numeric_limits<float>::quiet_NaN()
+                : static_cast<float>(accuracy_correct_ / static_cast<double>(accuracy_samples_));
+            accuracy_correct_ = 0.0;
+            accuracy_samples_ = 0;
+        }
+        return;
+    }
+
+    uint64_t observed_boundaries = 0;
+    for (int64_t lane = 0; lane < current_batch_.valid_count; ++lane) {
+        const auto epoch_tag = current_batch_.epoch_tags[static_cast<size_t>(lane)];
+        if (!has_active_epoch_tag_) {
+            active_epoch_tag_ = epoch_tag;
+            has_active_epoch_tag_ = true;
+        } else if (epoch_tag != active_epoch_tag_) {
+            accuracy_snapshot_ = static_cast<float>(accuracy_correct_ / static_cast<double>(accuracy_samples_));
+            accuracy_correct_ = 0.0;
+            accuracy_samples_ = 0;
+            active_epoch_tag_ = epoch_tag;
+            ++epoch_count_;
+            ++observed_boundaries;
+        }
+        accuracy_correct_ += reward[lane].item<double>();
+        ++accuracy_samples_;
+    }
+    if (current_batch_.completed_cycles > observed_boundaries) {
+        accuracy_snapshot_ = static_cast<float>(accuracy_correct_ / static_cast<double>(accuracy_samples_));
+        accuracy_correct_ = 0.0;
+        accuracy_samples_ = 0;
+        has_active_epoch_tag_ = false;
+        epoch_count_ += current_batch_.completed_cycles - observed_boundaries;
+    }
+}
+
+std::shared_ptr<const anet::rl::BatchStepResult> ImageClsEnv::Step(
+    std::shared_ptr<anet::rl::BatchActionInfo> action_info)
+{
+    // current batchだけを採点し、padding laneを集計とtransition数から除外する。
+    ANET_PROFILE_SCOPE(reward);
+    const auto actions = action_info->GetAction(torch::Device(torch::kCPU));
+    ANET_ASSERT_DTYPE_MSG(actions, torch::kInt64, "ImageClsEnv actions must be int64.");
+    ANET_ASSERT_SHAPE(actions, { batch_spec_.num_envs });
+
+    auto reward = actions.eq(current_batch_.targets).to(torch::kFloat32);
+    if (current_batch_.valid_count < batch_spec_.num_envs) {
+        reward.narrow(0, current_batch_.valid_count,
+            batch_spec_.num_envs - current_batch_.valid_count).zero_();
+    }
+    UpdateMetrics(reward);
+    const auto scored_aux_data = MakeAuxDataList(current_batch_);
+
+    // train episodeまたはeval windowの境界を既存BatchEnv flagへ翻訳する。
+    ++step_count_;
+    const bool episode_end = anet::rl::IsEval(GetRunMode())
+        ? current_batch_.window_end : step_count_ >= config_.max_steps;
+    // 境界通知後もRunnerが継続できるよう、次batchをfresh storageで先読みする。
+    ANET_PROFILE_SCOPE_NEXT(next_batch);
+    auto next_batch = source_->NextBatch();
+
+    // evalはlane 0だけを代表episodeとし、trainは全laneを同時終端させる。
+    ANET_PROFILE_SCOPE_NEXT(build_result);
+    const auto bool_options = torch::TensorOptions().dtype(torch::kBool).device(torch::kCPU);
+    auto done = torch::zeros({ batch_spec_.num_envs }, bool_options);
+    if (episode_end) {
+        if (anet::rl::IsEval(GetRunMode())) done[0].fill_(true);
+        else done.fill_(true);
+    }
+    auto truncated = torch::zeros({ batch_spec_.num_envs }, bool_options);
+    auto next_episode_start = torch::zeros({ batch_spec_.num_envs }, bool_options);
+    auto continue_episode_start = torch::zeros({ batch_spec_.num_envs }, bool_options);
+    if (episode_end) {
+        if (anet::rl::IsEval(GetRunMode())) continue_episode_start[0].fill_(true);
+        else continue_episode_start.fill_(true);
+    }
+    auto next_state = MakeState(next_batch, done, truncated, next_episode_start);
+    auto continue_state = MakeState(
+        next_batch,
+        torch::zeros({ batch_spec_.num_envs }, bool_options),
+        torch::zeros({ batch_spec_.num_envs }, bool_options),
+        continue_episode_start);
+
+    const auto n_transitions = static_cast<uint32_t>(current_batch_.valid_count);
+    const auto n_episode_end = episode_end
+        ? static_cast<uint32_t>(anet::rl::IsEval(GetRunMode()) ? 1 : batch_spec_.num_envs)
+        : 0U;
+    current_batch_ = std::move(next_batch);
+    if (episode_end) step_count_ = 0;
+
+    return std::make_shared<const anet::rl::PlainBatchStepResult>(
+        std::move(reward), std::move(next_state), std::move(continue_state),
+        n_transitions, n_episode_end, scored_aux_data);
+}
+
+void ImageClsEnv::Shutdown()
+{
+    source_->Shutdown();
 }
 
 std::optional<float> ImageClsEnv::GetScalar(const std::string& key, int64_t index) const
 {
-    const float nan = std::numeric_limits<float>::quiet_NaN();
-
-    if (key == "episode_len") {
-        if (!episode_just_ended_) return nan;
-        return last_episode_len_;
+    if (index != -1) {
+        ANET_SYSTEM_ERROR("ImageClsEnv scalar is global and does not accept an index. key='"
+            << key << "' index=" << index);
     }
-    if (key == "reward_sum") {
-        if (!episode_just_ended_) return nan;
-        return last_reward_sum_;
-    }
-    if (key == "accuracy") {
-        if (!episode_just_ended_) return nan;
-        return last_accuracy_;
-    }
+    if (key == "accuracy") return accuracy_snapshot_;
+    if (key == "epoch_count") return static_cast<float>(epoch_count_);
+    ANET_SYSTEM_ERROR("Unknown ImageClsEnv scalar key='" << key
+        << "'. Expected accuracy or epoch_count.");
     return std::nullopt;
 }
 
-
-// ----------------------------------------------------
-// ImageClsEnvFactory
-// ----------------------------------------------------
-
-std::shared_ptr<anet::rl::SingleDiscreteEnv> ImageClsEnvFactory::CreateSingleEnv(
-    const anet::ConfigData& config_data, const torch::Device& device, const std::string& name,
-    std::optional<anet::seed_t> seed, const std::string& config_prefix)
+void ImageClsEnvFactory::ValidateConfig(
+    const anet::ConfigData& config_data,
+    anet::rl::RunMode run_mode,
+    const std::string& config_prefix) const
 {
-    ImageClsEnvConfig config(config_data, config_prefix);
-    return std::make_shared<ImageClsEnv>(config, name, seed); // CPU固定
+    // catalogとSource schemaだけを検証し、manifest/decode I/OはAcquireまで遅延する。
+    const auto catalog = anet::img::ResolveImageDatasetCatalog(config_data);
+    anet::img::ImageDatasetManager::Instance().RegisterCatalog(catalog);
+    const ImageClsEnvConfig env_config(config_data, config_prefix);
+    const anet::img::TrainImageDataSourceConfig train_config(config_data, config_prefix);
+    const anet::img::EvalImageDataSourceConfig eval_config(config_data, config_prefix);
+    (void)env_config;
+    (void)run_mode;
+
+    const auto validate_dataset_reference = [&catalog](const char* role, const std::string& dataset_key) {
+        if (catalog.contains(dataset_key)) return;
+        std::string available;
+        for (const auto& [key, config] : catalog) {
+            (void)config;
+            if (!available.empty()) available += ",";
+            available += key;
+        }
+        ANET_SYSTEM_ERROR("Unknown ImageClsEnv DatasetKey. role='" << role
+            << "' dataset_key='" << dataset_key << "' available_keys='" << available << "'");
+    };
+    validate_dataset_reference("train", train_config.dataset_key);
+    validate_dataset_reference("eval", eval_config.dataset_key);
+}
+
+std::shared_ptr<anet::rl::BatchEnv> ImageClsEnvFactory::CreateBatchEnv(
+    const anet::ConfigData& config_data,
+    const torch::Device& device,
+    const std::string& name,
+    std::optional<anet::seed_t> seed,
+    int num_envs,
+    anet::rl::RunMode run_mode,
+    const std::string& config_prefix)
+{
+    if (!device.is_cpu()) {
+        ANET_SYSTEM_ERROR("ImageClsEnv supports CPU device only. requested_device='"
+            << device.str() << "'");
+    }
+    ValidateConfig(config_data, run_mode, config_prefix);
+    const auto catalog = anet::img::ResolveImageDatasetCatalog(config_data);
+    auto& dataset_manager = anet::img::ImageDatasetManager::Instance();
+    dataset_manager.RegisterCatalog(catalog);
+
+    const ImageClsEnvConfig env_config(config_data, config_prefix);
+    const anet::img::TrainImageDataSourceConfig train_config(config_data, config_prefix);
+    const anet::img::EvalImageDataSourceConfig eval_config(config_data, config_prefix);
+    const anet::rl::BatchEnvBuilderConfig builder_config(config_data);
+
+    // 標準Train/Eval sourceのmanifestはEnv構築時に両方検証し、decode/cacheだけを使用時まで遅延する。
+    const auto train_dataset = dataset_manager.Acquire(train_config.dataset_key);
+    const auto eval_dataset = dataset_manager.Acquire(eval_config.dataset_key);
+
+    // 実際に注入されたEnv設定と参照dataset設定を、子を含む不変snapshotへ統合する。
+    anet::ConfigData effective_config = builder_config.GetScopedConfigData();
+    effective_config.MergeFromChecked(env_config.GetScopedConfigData());
+    effective_config.MergeFromChecked(train_config.GetScopedConfigData());
+    effective_config.MergeFromChecked(eval_config.GetScopedConfigData());
+    effective_config.MergeFromChecked(train_dataset->GetConfig().ToConfigData(train_config.dataset_key));
+    effective_config.MergeFromChecked(eval_dataset->GetConfig().ToConfigData(eval_config.dataset_key));
+
+    const auto resolved_seed = ResolveSeed(seed);
+    std::unique_ptr<anet::img::ImageDataSource> source;
+    if (anet::rl::IsTrain(run_mode)) {
+        source = std::make_unique<anet::img::ImageDataSource>(
+            train_config, num_envs, resolved_seed, builder_config.worker_type, builder_config.worker_threads);
+    } else {
+        source = std::make_unique<anet::img::ImageDataSource>(
+            eval_config, num_envs, resolved_seed, builder_config.worker_type, builder_config.worker_threads);
+    }
+    return std::make_shared<ImageClsEnv>(
+        env_config, std::move(source), std::move(effective_config), name, num_envs, run_mode);
 }

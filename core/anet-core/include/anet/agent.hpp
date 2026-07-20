@@ -85,6 +85,7 @@ namespace anet::rl {
     protected:
         std::shared_ptr<std::shared_mutex> mutex_;
         const torch::Device device_;
+        const EnvSpec env_spec_;
         int n_actions_;
         int num_envs_;
     private:

@@ -148,7 +148,7 @@ sequenceDiagram
     participant P as ActionPolicy
     participant N as Actor Network
 
-    R->>G: CreateActor(batch_env_spec, run_mode, override, device)
+    R->>G: CreateActor(batch_env_spec, env_spec, run_mode, override, device)
     G->>G: Policyとsource Networkを選択
     opt modelを複製
         G->>N: sourceからcloneを作成
@@ -266,7 +266,7 @@ sequenceDiagram
 | Replay | capacity、batch size、warmup、prefetch、priority mode |
 | 前処理 | frame stack、Reward scale、Observation normalize |
 
-全keyと既定値の正本は`DefaultDQNAgentConfig`、`RainbowAgentConfig`、`LearnerConfig`、`ActionPolicyConfig`と[apps/runner/config](../../apps/runner/config)である。本書へ設定一覧を複製せず、Runの`config.txt`と`config/config_data.txt`で解決結果を確認する。
+全keyと既定値の正本は`DefaultDQNAgentConfig`、`RainbowAgentConfig`、`LearnerConfig`、`ActionPolicyConfig`と[apps/runner/config](../../apps/runner/config)である。本書へ設定一覧を複製せず、Runの`config/config_data.txt`と`config/<tag>.txt`で解決結果を確認する。
 
 `per_initial_priority_mode`は`fixed`、`max`、`actor_approx`を受け付ける。`max`と`actor_approx`はPER有効を要求し、priority、epsilon、clip値、profile構造などはConfig構築時に検証する。不正な組合せを暗黙に既定値へ戻さない。
 

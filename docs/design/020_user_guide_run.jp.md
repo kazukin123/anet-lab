@@ -156,9 +156,8 @@ checkpointから再開する場合は、新しいRunの互換設定にAgent固�
 | 成果物 | 内容 |
 |---|---|
 | `metrics.jsonl` | scalar、JSON metadata、動画metadataを追記する主メトリクス |
-| `config.txt` | 各Config objectが実際に読み取った設定の集約 |
 | `config/config_data.txt` | includeとoverride解決後の全ConfigData |
-| `config/*.txt`、`json/*.json` | コンポーネント別の設定・metadata dump |
+| `config/*.txt`、`json/*.json` | コンポーネント別の注入済み設定・metadata dump。Envは`config/env.<Env name>.txt` |
 | `<run_name>.log` | timestampとlevelを含むrunner text log |
 | `stdout.log` / `stderr.log` | process標準出力・標準エラー |
 | `agent_close.anet` | 正常なwindow close時に保存されるAgent checkpoint |

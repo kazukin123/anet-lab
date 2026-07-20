@@ -14,8 +14,6 @@ train.num_envs = 128
 #train.num_envs = 10
 #train.num_envs = 1
 
-ImageClsEnv.$ = ImageClsEnv.baseline > E
-
 #net.branch.[main_feature].$ = net.branch.FoodResNet13      #   44%
 #net.branch.[main_feature].$ = net.branch.FoodResNet13_GAP  #   61% 1.3h
 #net.branch.[main_feature].$ = net.branch.ResNet18          #   67% 1.5h
@@ -49,8 +47,8 @@ app.run_name = run_{t}_imgcls
 #app.run_name = run_{t}_imgcls_CnFemtoHR
 
 
-backend.deterministic_algorithms = false   # ★★ false:高速だが非決定論的
-backend.cudnn_deterministic = false  # false:非決定論的だが高速化(する場合がある) true:決定論的だが遅い
+#backend.$ = backend.deterministic      # 決定論的（遅いけど再現性あり）
+backend.$ = backend.non-deterministic # 非決定論的（高速化）
 
 #train.eval_device_type = cpu
 
@@ -516,11 +514,13 @@ metrics.scalar.[38_agent/12_same_class_pair_ratio_ema] = same_class_pair_ratio $
 #metrics.scalar.[42_env/02_reward_sum_mean]     = $env mean.reward_sum @train $exp_step
 #metrics.scalar.[42_env/03_reward_sum_mean_ema] = $env mean.reward_sum @train $exp_step $ema ema_alpha:0.001
 
-metrics.scalar.[42_env/04_accuracy_mean]       = $env mean.accuracy @train $exp_step
-metrics.scalar.[42_env/05_accuracy_mean_ema]   = $env mean.accuracy @train $exp_step $ema ema_alpha:0.001
+metrics.scalar.[42_env/04_accuracy]       = $env accuracy @train $exp_step
+metrics.scalar.[42_env/05_accuracy_ema]   = $env accuracy @train $exp_step $ema ema_alpha:0.001
+metrics.scalar.[42_env/06_epoch_count]    = $env epoch_count @train $exp_step
 
-metrics.scalar.[51_eval1/03_accuracy]          = $eval.[eval1] $env mean.accuracy @episode_end
-metrics.scalar.[51_eval1/04_accuracy_ema]      = $eval.[eval1] $env mean.accuracy @episode_end $ema ema_alpha:0.01
+metrics.scalar.[51_eval1/03_accuracy]          = $eval.[eval1] $env accuracy @episode_end
+metrics.scalar.[51_eval1/04_accuracy_ema]      = $eval.[eval1] $env accuracy @episode_end $ema ema_alpha:0.01
+metrics.scalar.[51_eval1/05_epoch_count]       = $eval.[eval1] $env epoch_count @episode_end
 
 metrics.scalar.[90_perf/12_exp_step_per_sec]     = $runner exp_step_per_sec @train $exp_step interval:100
 metrics.scalar.[90_perf/22_exp_step_per_sec_ema] = $runner exp_step_per_sec @train $exp_step interval:100 $ema ema_alpha:0.001
@@ -558,6 +558,8 @@ metrics.image.[60_agent_img/11_conv2d_32p_jet].conv2d.flip_vertical = false
 
 app.online.eval_panel.auto_start = false
 app.batchrun.eval_panel.auto_start = false
+app.online.eval_panel.eval_config_tag = eval1
+app.batchrun.eval_panel.eval_config_tag = eval1
 
 app.online.train_panel.fps = 3
 app.online.eval_panel.fps = 3
@@ -579,56 +581,65 @@ Conv2dPanel.conv2d.min_block_size = 112
 
 
 # ==============================================================================
-# DropMergeEnv
+# ImageCls Dataset / Env
 # ==============================================================================
 
-# --- Env 通常設定
+# --- Dataset catalog defaults
 
-ImageClsEnv.baseline.root_dir = C:\dev\food-101\images
-ImageClsEnv.baseline.train_list_txt_path = C:\dev\food-101\meta\train.txt
-ImageClsEnv.baseline.eval_list_txt_path = C:\dev\food-101\meta\test.txt
-ImageClsEnv.baseline.classes_txt_path = C:\dev\food-101\meta\classes.txt
-ImageClsEnv.baseline.suffix = .jpg
-ImageClsEnv.baseline.image_width = 224
-ImageClsEnv.baseline.image_height = 224
-ImageClsEnv.baseline.max_steps = 100
-ImageClsEnv.baseline.augment.enabled = true             # train画像データ拡張（crop/flip）を有効化
-ImageClsEnv.baseline.augment.hflip_p = 0.5              # 水平フリップ確率
-ImageClsEnv.baseline.augment.rrc_scale_min = 0.5        # 0.7 RandomResizedCrop の面積比下限
-ImageClsEnv.baseline.augment.rrc_scale_max = 1.0        # RandomResizedCrop の面積比上限
-ImageClsEnv.baseline.augment.rrc_ratio_min = 0.75       # crop アスペクト比下限
-ImageClsEnv.baseline.augment.rrc_ratio_max = 1.3333333  # crop アスペクト比上限
+ImageDataset.root_dir = C:\dev\food-101\images
+ImageDataset.classes_txt_path = C:\dev\food-101\meta\classes.txt
+ImageDataset.suffix = .jpg
+ImageDataset.image_width = 224
+ImageDataset.image_height = 224
+
+ImageDataset.[food101_train].list_txt_path = C:\dev\food-101\meta\train.txt
+ImageDataset.[food101_train].cache.mode = none  # メモリ厳しいので都度デコード
+ImageDataset.[food101_train].cache.max_bytes = 12,884,901,888 # 12GB→きつい
+
+ImageDataset.[food101_eval].list_txt_path = C:\dev\food-101\meta\test.txt
+ImageDataset.[food101_eval].cache.mode = auto
+#ImageDataset.[food101_eval].cache.mode = none
+ImageDataset.[food101_eval].cache.max_bytes = 4,294,967,296   # 最大4GB(3.8Gなので全部入る)
 
 
-# --- Env デフォルト設定
+# --- ImageCls standard Train/Eval Sources
 
-ImageClsEnv.root_dir = ./images/
-ImageClsEnv.train_list_txt_path = train.txt
-ImageClsEnv.eval_list_txt_path = test.txt
-ImageClsEnv.classes_txt_path = classes.txt
-ImageClsEnv.suffix = .jpg
-ImageClsEnv.image_width = -1
-ImageClsEnv.image_height = -1
 ImageClsEnv.max_steps = 100
-ImageClsEnv.augment.enabled = false             # train画像データ拡張（crop/flip） defaultで無効
-ImageClsEnv.augment.hflip_p = 0.5               # 水平フリップ確率
-ImageClsEnv.augment.rrc_scale_min = 0.7         # RandomResizedCrop の面積比下限
-ImageClsEnv.augment.rrc_scale_max = 1.0         # RandomResizedCrop の面積比上限
-ImageClsEnv.augment.rrc_ratio_min = 0.75        # crop アスペクト比下限
-ImageClsEnv.augment.rrc_ratio_max = 1.3333333   # crop アスペクト比上限
+ImageClsEnv.train.dataset_key = food101_train
+#ImageClsEnv.train.augment.enabled = false
+ImageClsEnv.train.augment.enabled = true
+ImageClsEnv.train.augment.hflip_p = 0.5
+ImageClsEnv.train.augment.rrc_scale_min = 0.5
+ImageClsEnv.train.augment.rrc_scale_max = 1.0
+ImageClsEnv.train.augment.rrc_ratio_min = 0.75
+ImageClsEnv.train.augment.rrc_ratio_max = 1.3333333
+ImageClsEnv.eval.dataset_key = food101_eval
+ImageClsEnv.eval.eval_window.mode = full
+ImageClsEnv.eval.eval_window.rotating.size = 1024
 
 
 # --- Eval設定 ---
 
 train.eval.[eval1].interval = 50
+train.eval.[eval1].run_mode = eval1
+train.eval.[eval1].eval_batch_size = 128
+train.eval.[eval1].env.eval.eval_window.mode = rotating
+train.eval.[eval1].env.eval.eval_window.rotating.size = 1024 # 8step @ food101
+#train.eval.[eval1].env.eval.eval_window.rotating.size = 100
+
+train.eval.[eval_full].interval = 0
+train.eval.[eval_full].run_mode = eval1
+train.eval.[eval_full].eval_batch_size = 128
+train.eval.[eval_full].env.eval.eval_window.mode = full
+
 train.eval.[eval2].interval = 0
 
 
 # --- ImageCls augment 仕様 ---
 # augment は train mode の画像取得時だけに適用するデータ拡張。
 #
-# ・eval mode では augment.enabled=true でも適用しない（評価画像は無加工）。
-# ・ImageDataSource が読み込み・224x224 resize した [3,H,W] uint8 画像に対して処理する。
+# ・eval mode では train.augment.enabled=true でも適用しない（評価画像は無加工）。
+# ・ImageDataset が読み込み・224x224 resize した [3,H,W] uint8 画像に対して処理する。
 # ・変換順は RandomResizedCrop -> horizontal flip。
 # ・乱数は env の seed 由来なので、同一 seed・同一実行系列なら再現可能。
 #

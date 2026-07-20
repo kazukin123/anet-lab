@@ -238,6 +238,26 @@ std::string ActionSpec::ToString() const
 // EnvSpec
 // =============================================================
 
+void EnvSpec::CheckSameStateActionSpec(const EnvSpec& actual) const
+{
+    // infoは参考情報なので除外し、NN入出力へ実際に影響する通常fieldだけを比較する。
+    auto expected_state = state_spec;
+    auto actual_state = actual.state_spec;
+    expected_state.info.clear();
+    actual_state.info.clear();
+    ANET_CHECK_MSG(expected_state.ToJson() == actual_state.ToJson(),
+        "Env state spec mismatch. expected=" << expected_state.ToJson().dump()
+        << " actual=" << actual_state.ToJson().dump());
+
+    auto expected_action = action_spec;
+    auto actual_action = actual.action_spec;
+    expected_action.info.clear();
+    actual_action.info.clear();
+    ANET_CHECK_MSG(expected_action.ToJson() == actual_action.ToJson(),
+        "Env action spec mismatch. expected=" << expected_action.ToJson().dump()
+        << " actual=" << actual_action.ToJson().dump());
+}
+
 anet::json EnvSpec::ToJson() const
 {
     anet::json j;

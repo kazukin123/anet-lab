@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <vector>
 #include <torch/torch.h>
+#include "anet/config.hpp"
 #include "anet/diag.hpp"
 #include "anet/json_util.hpp"
 #include "anet/tensor_util.hpp"
@@ -58,6 +59,7 @@ namespace anet {
 
     class Module {
     public:
+        virtual std::optional<ConfigData> GetConfigData() const { return std::nullopt; }
         virtual std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const = 0;
         virtual std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const = 0;
         virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const = 0;

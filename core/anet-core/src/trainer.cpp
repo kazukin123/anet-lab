@@ -51,6 +51,22 @@ static void ValidateSharedActorDevice(
         << runner_name << "].clone_model=true.");
 }
 
+static std::string SanitizeEnvConfigFilename(std::string filename)
+{
+    // MetricsLogger と同じ置換規則で、書き込み前に異なる Env 名の衝突を検出する。
+    for (char& c : filename) {
+        switch (c) {
+        case '/': case '\\': case ':': case '*': case '?':
+        case '"': case '<': case '>': case '|':
+            c = '-';
+            break;
+        default:
+            break;
+        }
+    }
+    return filename;
+}
+
 
 // ======================================================
 // RunnerBase
@@ -68,10 +84,12 @@ RunnerBase::RunnerBase(
     InitializeMetrics();
     status_ = anet::rl::RunnerStatus::RUNNING;
     auto batch_env_spec = env_->GetBatchSpec();
+    auto env_spec = env_->GetSpec();
     const auto agent_device = agent_->GetDevice();
     const auto actor_device = device.value_or(agent_device);
     ValidateSharedActorDevice(name_, clone_model_override, actor_device, agent_device);
-    actor_ = agent_->CreateActor(batch_env_spec, run_mode_, clone_model_override, actor_device);
+    actor_ = agent_->CreateActor(
+        batch_env_spec, env_spec, run_mode_, clone_model_override, actor_device);
 }
 
 void RunnerBase::InitializeMetrics()
@@ -259,7 +277,7 @@ StepCounts EvalRunner::DoStep(int64_t action, const StepCounts& event_counts)
 
     if (!env_initialized_) {
         // 環境初期化
-        auto reset_result = env_->Reset(run_mode_);
+        auto reset_result = env_->Reset();
         state_ = reset_result->state;
         env_initialized_ = true;
         ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
@@ -282,7 +300,7 @@ StepCounts EvalRunner::DoStep(int64_t action, const StepCounts& event_counts)
     }
 
     // 環境ステップ実行
-    auto result = env_->Step(action_info, run_mode_);    // next_state, reward, done, truncated
+    auto result = env_->Step(action_info);    // next_state, reward, done, truncated
     ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info->ToString());
     ANET_LOG_DEBUG("step=" << train_step << " next_state=" << result->next_state.ToString());
     ANET_LOG_DEBUG("step=" << train_step << " continue_state=" << result->continue_state.ToString());
@@ -741,6 +759,9 @@ RunManager::RunManager(const ConfigData& config_data)
         validate_planned_name(tag, "configured Eval tag '" + tag + "'");
     }
 
+    // Env種別を解決し、以後の生成は共通builder/factory契約だけで扱う。
+    anet::rl::BatchEnvBuilderConfig env_config(config_data);
+
     // seed
     if (config_->seed == 0) {
         master_seed_ = std::make_unique<anet::MasterSeedManager>();
@@ -751,12 +772,9 @@ RunManager::RunManager(const ConfigData& config_data)
     // seed値生成
     auto global_seed = master_seed_->GetMasterSeed();
     auto train_env_seed = master_seed_->GetGroupSeed("env");
-    auto eval_env_seed = master_seed_->GetGroupSeed("eval_env");
     auto agent_seed = master_seed_->GetGroupSeed("agent");
-    auto eval_obs_seed = master_seed_->GetGroupSeed("eval_obs");
     LOG::info() << "global_seed=" << global_seed << " train_env_seed="
-        << train_env_seed << " eval_env_seed=" << eval_env_seed << " agent_seed=" << agent_seed;
-    eval_env_seed_ = eval_env_seed;
+        << train_env_seed << " agent_seed=" << agent_seed;
 
     // パラメータ記録
     anet::MetricsLogger::Instance()->Log("train/seed",
@@ -768,18 +786,17 @@ RunManager::RunManager(const ConfigData& config_data)
     notifier_ = std::make_shared<Notifier>();
 
     // BatchEnv生成
-    anet::rl::DefaultBatchEnvFactoryConfig env_config(config_data);
     LOG::info() << "env_config=" << env_config.ToString();
-    env_factory_ = std::make_unique<anet::rl::DefaultBatchEnvFactory>(env_config, config_data, config_->num_envs);
+    env_factory_ = std::make_unique<anet::rl::BatchEnvBuilder>(env_config, config_data, config_->num_envs);
     env_class_id_ = env_config.class_id;
     auto env_device = env_factory_->GetDevice();
-    auto single_env_factory = env_factory_->GetSingleFactory();
     EnsureEnvNameAvailable("train", "main Train");
-    env_ = env_factory_->CreateBatchEnv("train", train_env_seed, -1);
+    env_ = env_factory_->CreateBatchEnv("train", train_env_seed, -1, anet::rl::RunMode::Train);
     if (env_ == nullptr) {
         LOG::error() << "Failed to create env.";
         return;
     }
+    LogEnvConfig(*env_);
 
     // BatchEnvログ
     auto batch_env_spec = env_->GetBatchSpec();
@@ -822,10 +839,22 @@ RunManager::RunManager(const ConfigData& config_data)
         std::string run_mode_str = "eval1";
         eval_config_data.Read("run_mode", run_mode_str, run_mode_str);
         anet::rl::RunMode run_mode = anet::rl::RunModeFromString(run_mode_str);
+        configured_eval_run_modes_.emplace(tag, run_mode);
 
         // Interval取得
         int interval = 100;
         eval_config_data.Read("interval", interval, interval);
+        if (interval < 0) {
+            ANET_SYSTEM_ERROR("Invalid train.eval.[" << tag << "].interval=" << interval
+                << ". Expected a non-negative value.");
+        }
+
+        int eval_batch_size = 1;
+        eval_config_data.Read("eval_batch_size", eval_batch_size, eval_batch_size);
+        if (eval_batch_size <= 0) {
+            ANET_SYSTEM_ERROR("Invalid train.eval.[" << tag << "].eval_batch_size="
+                << eval_batch_size << ". Expected a positive value.");
+        }
 
         // バックグラウンド実行の切り替え (デフォルト true)
         bool use_background = true;
@@ -835,12 +864,23 @@ RunManager::RunManager(const ConfigData& config_data)
         bool clone_model = true;
         eval_config_data.Read("clone_model", clone_model, clone_model);
 
+        // dormant tagも宣言時schemaだけは検証し、Env/manifest/actorは生成しない。
+        env_factory_->ValidateConfig(run_mode, config_prefix);
+        if (interval == 0) {
+            dormant_eval_tags_.insert(tag);
+            RegisterEnvName(tag, "dormant configured Eval tag '" + tag + "'");
+            continue;
+        }
+
         // EvalRunner生成&登録
         auto actor_device = config_->GetEvalDevice();
         const auto owner = "configured Eval tag '" + tag + "'";
         EnsureEnvNameAvailable(tag, owner);
-        auto eval_env = std::make_shared<VectorizedDiscreteBatchEnv>(
-            config_data, single_env_factory, tag, 1, env_device, eval_obs_seed, config_prefix);
+        const auto eval_seed_domain = "eval_env/" + tag;
+        const auto eval_seed = master_seed_->GetGroupSeed(eval_seed_domain.c_str());
+        auto eval_env = env_factory_->CreateBatchEnv(
+            tag, eval_seed, eval_batch_size, run_mode, config_prefix);
+        LogEnvConfig(*eval_env);
         auto eval_runner = std::make_shared<EvalRunner>(
             eval_env, agent_, notifier_, run_mode, clone_model, actor_device, tag);
         eval_runners.emplace(tag, eval_runner);
@@ -859,6 +899,13 @@ RunManager::RunManager(const ConfigData& config_data)
         if (scope == RunnerScope::TRAIN) return train_runner_;
         auto it = eval_runners.find(eval_name);
         if (it == eval_runners.end()) {
+            if (dormant_eval_tags_.contains(eval_name)) {
+                if (warned_dormant_metric_tags_.insert(eval_name).second) {
+                    LOG::warn() << "Skipping metrics for dormant eval tag. tag='" << eval_name
+                        << "' interval=0";
+                }
+                return nullptr;
+            }
             ANET_SYSTEM_ERROR("Unknown eval name '" << eval_name << "' in metrics.scalar config.");
         }
         return it->second;
@@ -868,15 +915,21 @@ RunManager::RunManager(const ConfigData& config_data)
     auto learn_obs = factory.GetLearnObservers();
     auto episode_end_obs = factory.GetEpisodeEndObservers();
     for (const auto& p : train_obs) {
-        auto scoped_obs = std::make_shared<RunnerScopedTrainObserver>(p.obs, resolve_runner(p.scope, p.eval_name));
+        auto runner = resolve_runner(p.scope, p.eval_name);
+        if (runner == nullptr) continue;
+        auto scoped_obs = std::make_shared<RunnerScopedTrainObserver>(p.obs, runner);
         notifier_->Attach(scoped_obs);
     }
     for (const auto& p : learn_obs) {
-        auto scoped_obs = std::make_shared<RunnerScopedLearnObserver>(p.obs, resolve_runner(p.scope, p.eval_name));
+        auto runner = resolve_runner(p.scope, p.eval_name);
+        if (runner == nullptr) continue;
+        auto scoped_obs = std::make_shared<RunnerScopedLearnObserver>(p.obs, runner);
         notifier_->Attach(scoped_obs);
     }
     for (const auto& p : episode_end_obs) {
-        auto scoped_obs = std::make_shared<RunnerScopedEpisodeEndObserver>(p.obs, resolve_runner(p.scope, p.eval_name));
+        auto runner = resolve_runner(p.scope, p.eval_name);
+        if (runner == nullptr) continue;
+        auto scoped_obs = std::make_shared<RunnerScopedEpisodeEndObserver>(p.obs, runner);
         notifier_->Attach(scoped_obs);
     }
 
@@ -910,13 +963,51 @@ void RunManager::RegisterEnvName(const std::string& name, const std::string& own
     env_name_owners_.emplace(name, owner);
 }
 
-std::shared_ptr<EvalRunner> RunManager::CreateEvalRunner(const std::string& name, RunMode run_mode, bool clone_model, std::optional<torch::Device> device)
+void RunManager::LogEnvConfig(const BatchEnv& env)
+{
+    const auto config_data = env.GetConfigData();
+    if (!config_data.has_value()) {
+        if (warned_unsupported_env_config_names_.insert(env.GetName()).second) {
+            LOG::warn() << "Skipping Env config dump because GetConfigData is unsupported. env_name='"
+                << env.GetName() << "'";
+        }
+        return;
+    }
+
+    // 実際のファイル名で所有者を管理し、sanitize 後に同じパスへ上書きされることを防ぐ。
+    const auto filename = SanitizeEnvConfigFilename("env." + env.GetName()) + ".txt";
+    const auto [it, inserted] = env_config_file_owners_.emplace(filename, env.GetName());
+    ANET_CHECK_MSG(inserted || it->second == env.GetName(),
+        "Env config filename collision. filename='" << filename
+        << "' existing_env_name='" << it->second
+        << "' requested_env_name='" << env.GetName() << "'");
+
+    anet::MetricsLogger::Instance()->Log("env." + env.GetName(), *config_data);
+}
+
+std::shared_ptr<EvalRunner> RunManager::CreateEvalRunner(
+    const std::string& name, RunMode run_mode, bool clone_model,
+    std::optional<torch::Device> device, const std::string& config_tag)
 {
     ANET_ASSERT(status_ == anet::rl::RunnerStatus::RUNNING);
 
     const auto owner = "CreateEvalRunner '" + name + "'";
     EnsureEnvNameAvailable(name, owner);
-    auto env = env_factory_->CreateBatchEnv(name, eval_env_seed_, 1); // num_envs = 1
+    const auto selected_tag = config_tag.empty() ? name : config_tag;
+    if (!config_tag.empty()) {
+        const auto mode_it = configured_eval_run_modes_.find(config_tag);
+        if (mode_it == configured_eval_run_modes_.end()) {
+            ANET_SYSTEM_ERROR("Unknown Eval config tag='" << config_tag << "'.");
+        }
+        run_mode = mode_it->second;
+    }
+    const auto eval_seed_domain = "eval_panel/" + selected_tag;
+    const auto eval_seed = master_seed_->GetGroupSeed(eval_seed_domain.c_str());
+    const auto config_prefix = config_tag.empty()
+        ? std::string() : "train.eval.[" + config_tag + "].env";
+    auto env = env_factory_->CreateBatchEnv(
+        name, eval_seed, 1, run_mode, config_prefix);
+    LogEnvConfig(*env);
     auto eval_runner = std::make_shared<EvalRunner>(env, agent_, notifier_, run_mode, clone_model, device, name);
     this->eval_runners.emplace(name, eval_runner);
     RegisterEnvName(name, owner);

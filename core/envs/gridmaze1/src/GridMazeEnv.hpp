@@ -59,11 +59,12 @@ namespace anet::rl::env {
             const GridMazeEnvConfig& config,
             const torch::Device& device,
             const std::string& name,
-            const std::optional<anet::seed_t> seed = std::nullopt);
+            const std::optional<anet::seed_t> seed = std::nullopt,
+            anet::rl::RunMode run_mode = anet::rl::RunMode::Train);
 
         anet::rl::EnvSpec GetSpec() const override;
-        std::shared_ptr<const anet::rl::SingleResetResult> Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
-        std::shared_ptr<const anet::rl::SingleStepResult> Step(int64_t action, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
+        std::shared_ptr<const anet::rl::SingleResetResult> Reset() override;
+        std::shared_ptr<const anet::rl::SingleStepResult> Step(int64_t action) override;
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
@@ -101,6 +102,7 @@ namespace anet::rl::env {
             const anet::ConfigData& config_data,
             const torch::Device& device, const std::string& name,
             std::optional<anet::seed_t> seed = std::nullopt,
+            anet::rl::RunMode run_mode = anet::rl::RunMode::Train,
             const std::string& config_prefix = "") override;
     };
 

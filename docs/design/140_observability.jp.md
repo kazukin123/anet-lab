@@ -200,7 +200,7 @@ step軸を省略した場合、`@train`は`train_step`、`@learn`と`@episode_en
 | 出力 | 生成主体 | 更新・flush境界 |
 |---|---|---|
 | `metrics.jsonl` | `JsonlBackend` | scalar/metadataごとに追記し、明示flushで確定 |
-| `config.txt`、`config/*.txt` | `MetricsLogger` | ConfigをLogした時点で書出し |
+| `config/*.txt` | `MetricsLogger` | ConfigをLogした時点でtag別に書出し。Envは`env.<Env name>.txt` |
 | `json/*.json` | `MetricsLogger` | JSON metadataをLogした時点で上書きまたはstep別生成 |
 | `videos/<tag>.mkv` | `VideoLogger` | 最初のframeでloggerを作り、Run終了時にclose |
 | `images/<tag>/*.png` | `MetricsLogger` | `use_png_dump=true`時にframeごとに生成 |

@@ -16,6 +16,7 @@ AgentBase::AgentBase(torch::Device device,
     const EnvSpec& env_spec,
     std::optional<seed_t> seed)
     : RandomHolder(seed), device_(device)
+    , env_spec_(env_spec)
     , n_actions_(env_spec.action_spec.GetNumActions())
     , num_envs_(batch_env_spec.num_envs)
 {

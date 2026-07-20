@@ -1,132 +1,100 @@
-// ImageClsEnv.hpp
 #pragma once
 
-#include <vector>
 #include <memory>
+#include <limits>
+#include <optional>
 #include <string>
+#include <vector>
+
 #include <torch/torch.h>
-#include "anet/random.hpp"
+
 #include "anet/config.hpp"
 #include "anet/env.hpp"
 #include "ImageData.hpp"
 
 namespace anet::rl::env {
 
-    struct ImageClsEnvConfig : public anet::Config {
-        std::string root_dir = "";
-        std::string train_list_txt_path = "";
-        std::string eval_list_txt_path = "";
-        std::string classes_txt_path = "";
-        int image_width = -1;
-        int image_height = -1;
-        std::string suffix = ".jpg";
+struct ImageClsEnvConfig : public anet::Config {
+    int max_steps = 100;
 
-        int max_steps = 100; // 1エピソードあたりの分類回数（画像枚数）
-
-        struct {
-            bool enabled = false;
-            double hflip_p = 0.5;
-            double rrc_scale_min = 0.7;
-            double rrc_scale_max = 1.0;
-            double rrc_ratio_min = 0.75;
-            double rrc_ratio_max = 1.3333333;
-        } augment;
-
-        ImageClsEnvConfig(const anet::ConfigData& config_data = anet::EmptyConfigData, const std::string& config_prefix = "")
-            : anet::Config(config_data, "ImageClsEnv", config_prefix)
-        {
-            ANET_READ_CONFIG(config_data, root_dir);
-            ANET_READ_CONFIG(config_data, train_list_txt_path);
-            ANET_READ_CONFIG(config_data, eval_list_txt_path);
-            ANET_READ_CONFIG(config_data, classes_txt_path);
-			ANET_READ_CONFIG(config_data, image_width);
-			ANET_READ_CONFIG(config_data, image_height);
-            ANET_READ_CONFIG(config_data, suffix);
-            ANET_READ_CONFIG(config_data, max_steps);
-            ANET_READ_CONFIG(config_data, augment.enabled);
-            ANET_READ_CONFIG(config_data, augment.hflip_p);
-            ANET_READ_CONFIG(config_data, augment.rrc_scale_min);
-            ANET_READ_CONFIG(config_data, augment.rrc_scale_max);
-            ANET_READ_CONFIG(config_data, augment.rrc_ratio_min);
-            ANET_READ_CONFIG(config_data, augment.rrc_ratio_max);
-
-            if (augment.hflip_p < 0.0 || augment.hflip_p > 1.0) {
-                ANET_SYSTEM_ERROR("Invalid ImageClsEnv.augment.hflip_p: "
-                    << augment.hflip_p << ". Expected range is [0.0, 1.0].");
-            }
-            if (augment.rrc_scale_min <= 0.0 || augment.rrc_scale_min > augment.rrc_scale_max
-                || augment.rrc_scale_max > 1.0) {
-                ANET_SYSTEM_ERROR("Invalid ImageClsEnv.augment.rrc_scale range: min="
-                    << augment.rrc_scale_min << ", max=" << augment.rrc_scale_max
-                    << ". Expected 0.0 < min <= max <= 1.0.");
-            }
-            if (augment.rrc_ratio_min <= 0.0 || augment.rrc_ratio_min > augment.rrc_ratio_max) {
-                ANET_SYSTEM_ERROR("Invalid ImageClsEnv.augment.rrc_ratio range: min="
-                    << augment.rrc_ratio_min << ", max=" << augment.rrc_ratio_max
-                    << ". Expected 0.0 < min <= max.");
-            }
-            if (augment.enabled && (image_width <= 0 || image_height <= 0)) {
-                ANET_SYSTEM_ERROR("Invalid ImageClsEnv image size for augmentation: width="
-                    << image_width << ", height=" << image_height
-                    << ". Expected image_width > 0 and image_height > 0 when augment.enabled is true.");
-            }
+    ImageClsEnvConfig(
+        const anet::ConfigData& config_data = anet::EmptyConfigData,
+        const std::string& config_prefix = "")
+        : anet::Config(config_data, "ImageClsEnv", config_prefix)
+    {
+        ANET_READ_CONFIG(config_data, max_steps);
+        if (max_steps <= 0) {
+            ANET_SYSTEM_ERROR("Invalid ImageClsEnv.max_steps=" << max_steps
+                << ". Expected a positive value.");
         }
-    };
+    }
+};
 
-    class ImageClsEnv final : public anet::rl::SingleDiscreteEnvBase, public anet::RandomHolder {
-    public:
-        ImageClsEnv(
-            const ImageClsEnvConfig& config,
-            const std::string& name,
-            std::optional<anet::seed_t> seed);
+class ImageClsEnv final : public anet::rl::BatchEnvBase {
+public:
+    ImageClsEnv(
+        const ImageClsEnvConfig& config,
+        std::unique_ptr<anet::img::ImageDataSource> source,
+        anet::ConfigData config_data,
+        const std::string& name,
+        int num_envs,
+        anet::rl::RunMode run_mode);
 
-        // --- SingleDiscreteEnv インターフェースの実装 ---
-        anet::rl::EnvSpec GetSpec() const override;
-        std::shared_ptr<const anet::rl::SingleResetResult> Reset(anet::rl::RunMode mode) override;
-        std::shared_ptr<const anet::rl::SingleStepResult> Step(int64_t action, anet::rl::RunMode mode) override;
+    anet::rl::EnvSpec GetSpec() const override { return spec_; }
+    anet::rl::BatchEnvSpec GetBatchSpec() const override { return batch_spec_; }
+    torch::Device GetDevice() const override { return torch::Device(torch::kCPU); }
+    std::shared_ptr<const anet::rl::BatchResetResult> Reset() override;
+    std::shared_ptr<const anet::rl::BatchStepResult> Step(
+        std::shared_ptr<anet::rl::BatchActionInfo> action_info) override;
+    void Shutdown() override;
 
-        // --- Module (Metrics) インターフェース ---
-        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
-        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override { return std::nullopt; }
-        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const { return std::nullopt; }
-    private:
-        anet::rl::SingleState FetchRandomImageState(anet::rl::RunMode mode);
-        torch::Tensor ApplyTrainAugment(const torch::Tensor& image);
-        torch::Tensor ApplyRandomResizedCrop(const torch::Tensor& image);
-        anet::rl::AuxData MakeAuxData() const;
+    std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(
+        const std::string&, int64_t = -1) const override { return std::nullopt; }
+    std::optional<torch::Tensor> GetTensor(
+        const std::string&, int64_t = -1) const override { return std::nullopt; }
 
-    private:
-        ImageClsEnvConfig config_;
-        anet::rl::EnvSpec spec_;
+private:
+    anet::rl::BatchState MakeState(
+        const anet::img::ImageBatch& batch,
+        const torch::Tensor& done,
+        const torch::Tensor& truncated,
+        const torch::Tensor& episode_start) const;
+    std::vector<anet::rl::AuxData> MakeAuxDataList(const anet::img::ImageBatch& batch) const;
+    void UpdateMetrics(const torch::Tensor& reward);
 
-        std::unique_ptr<anet::img::ImageDataSource> train_data_source_;
-        std::unique_ptr<anet::img::ImageDataSource> eval_data_source_;
+    ImageClsEnvConfig config_;
+    anet::rl::EnvSpec spec_;
+    anet::rl::BatchEnvSpec batch_spec_;
+    std::unique_ptr<anet::img::ImageDataSource> source_;
+    anet::img::ImageBatch current_batch_;
+    int step_count_ = 0;
 
-        int step_count_;
-        float ep_reward_sum_;
-        bool done_, truncated_, episode_start_;
-        bool episode_just_ended_ = false;
+    double accuracy_correct_ = 0.0;
+    int64_t accuracy_samples_ = 0;
+    float accuracy_snapshot_ = std::numeric_limits<float>::quiet_NaN();
+    uint64_t active_epoch_tag_ = 0;
+    bool has_active_epoch_tag_ = false;
+    uint64_t epoch_count_ = 0;
+};
 
-        int64_t current_true_label_;
+class ImageClsEnvFactory final : public anet::rl::BatchEnvFactory {
+public:
+    std::string GetTargetEnvClassId() const override { return "ImageClsEnv"; }
 
-        // メトリクス用
-        float last_episode_len_ = 0.0f;
-        float last_reward_sum_ = 0.0f;
-        float last_accuracy_ = 0.0f;
-    };
+    void ValidateConfig(
+        const anet::ConfigData& config_data,
+        anet::rl::RunMode run_mode,
+        const std::string& config_prefix) const override;
 
-    class ImageClsEnvFactory final : public anet::rl::SingleDiscreteEnvFactory {
-    public:
-        ImageClsEnvFactory() = default;
-
-        std::string GetTargetEnvClassId() const override { return "ImageClsEnv"; }
-
-        std::shared_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
-            const anet::ConfigData& config_data,
-            const torch::Device& device,
-            const std::string& name,
-            std::optional<anet::seed_t> seed = std::nullopt,
-            const std::string& config_prefix = "") override;
-    };
+    std::shared_ptr<anet::rl::BatchEnv> CreateBatchEnv(
+        const anet::ConfigData& config_data,
+        const torch::Device& device,
+        const std::string& name,
+        std::optional<anet::seed_t> seed = std::nullopt,
+        int num_envs = 1,
+        anet::rl::RunMode run_mode = anet::rl::RunMode::Train,
+        const std::string& config_prefix = "") override;
+};
 
 } // namespace anet::rl::env

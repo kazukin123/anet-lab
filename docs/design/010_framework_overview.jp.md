@@ -114,7 +114,7 @@ flowchart TB
         env_impl["CartPole / LunarLander / DropMerge<br/>GridMaze / ImageCls"]
     end
 
-    artifacts["Run 成果物<br/>metrics.jsonl / config.txt / image / video"]
+    artifacts["Run 成果物<br/>metrics.jsonl / config/ / image / video"]
 
     user --> runner
     runner --> config
@@ -185,7 +185,7 @@ flowchart TB
 | Env | `LunarLanderEnv` | Box2D を利用する月面着陸環境 |
 | Env | `DropMergeEnv` | 格子画像を Observation とする落下・融合ゲーム環境 |
 | Env | `GridMazeEnv` | 部分観測の格子迷路環境 |
-| Env | `ImageClsEnv` | 画像 1 件を供給・採点し、共通の BatchEnv wrapper で batch 化される環境 |
+| Env | `ImageClsEnv` | Datasetを直接固定BのTensorへ組み立てて採点するnative BatchEnv |
 
 ### 5.3 アプリケーションと分析
 
@@ -371,8 +371,8 @@ Agent共通の拡張契約は[Agent と学習](110_agents_and_learning.jp.md)、
 | 成果物 | 内容 |
 |---|---|
 | `metrics.jsonl` | scalar、設定、成果物参照などの時系列メトリクス |
-| `config.txt` | 各 Config object が実際に解釈した設定を追記した集約 |
 | `config/config_data.txt` | include、merge、コマンドライン上書き後の全 ConfigData |
+| `config/<tag>.txt` | 各 Config object またはEnv instanceへ注入された設定 |
 | `<run_name>.log` | Runner のテキストログ |
 | `images/` | step ごとに出力した画像 |
 | `videos/` | heat map、histogram などの動画 |

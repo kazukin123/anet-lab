@@ -33,6 +33,7 @@ namespace anet {
     public:
         std::unordered_map<std::string, ConfigData> MakeSubConfigData(const std::string& prefix) const;
 		std::unordered_set<std::string> GetSubConfigTags(const std::string& prefix) const;
+        void MergeFromChecked(const ConfigData& other);
     public:
         void Set(const std::string& key, const std::string& value)
         {
@@ -162,6 +163,7 @@ namespace anet {
         std::string GetConfigPrefix() const { return default_prefix_; }
         std::string GetOverridePrefix() const { return override_prefix_; }
         anet::ConfigData GetConfigData() const { return my_config_data_; }
+        anet::ConfigData GetScopedConfigData() const;
     protected:
         template<typename T>
         void ReadConfig(const ConfigData& config_data, const std::string& key, T& value)

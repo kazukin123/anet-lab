@@ -177,8 +177,10 @@ void RunnerFrame::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
     train_panel_->Initialize(run_manager);
 
     // EvalPanel初期化
+    const auto& eval_config_tag = eval_panel_->GetConfig().eval_config_tag;
     eval_runner_ = run_manager->CreateEvalRunner(
-        "EvalPanel", anet::rl::RunMode::Eval1, eval_panel_->GetConfig().model_sync.UsesClonedModel());
+        "EvalPanel", anet::rl::RunMode::Eval1,
+        eval_panel_->GetConfig().model_sync.UsesClonedModel(), std::nullopt, eval_config_tag);
     eval_panel_->Initialize(run_manager, eval_runner_);
 
     // QValuePanel初期化

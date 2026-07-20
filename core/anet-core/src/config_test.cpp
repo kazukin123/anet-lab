@@ -136,6 +136,21 @@ public:
     }
 };
 
+class ScopedSnapshotConfig final : public anet::Config {
+public:
+    int value = 1;
+    std::string label = "default";
+
+    explicit ScopedSnapshotConfig(
+        const anet::ConfigData& config_data,
+        const std::string& override_prefix = "")
+        : anet::Config(config_data, "ScopedSnapshot", override_prefix)
+    {
+        ANET_READ_CONFIG(config_data, value);
+        ANET_READ_CONFIG(config_data, label);
+    }
+};
+
 } // namespace
 
 TEST_CASE("ConfigData Read rejects present invalid values", "[config]")
@@ -258,6 +273,39 @@ TEST_CASE("ConfigData Get shares the Read fail-fast contract", "[config]")
 
     CHECK(config_data.Get<int>("missing", 7) == 7);
     CHECK_THROWS(config_data.Get<int>("invalid", 7));
+}
+
+TEST_CASE("Config exposes resolved values under the injected scope", "[config][snapshot]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("ScopedSnapshot.value", 10);
+    config_data.Set("ScopedSnapshot.label", "base");
+    config_data.Set("train.eval.[eval1].env.value", 20);
+
+    const ScopedSnapshotConfig config(config_data, "train.eval.[eval1].env");
+    const auto snapshot = config.GetScopedConfigData();
+
+    CHECK(snapshot.Get<int>("train.eval.[eval1].env.value") == 20);
+    CHECK(snapshot.Get("train.eval.[eval1].env.label") == "base");
+    CHECK_FALSE(snapshot.Has("ScopedSnapshot.value"));
+}
+
+TEST_CASE("ConfigData checked merge rejects conflicting effective values", "[config][snapshot]")
+{
+    anet::ConfigData merged;
+    merged.Set("env.batch_size", 4);
+
+    anet::ConfigData compatible;
+    compatible.Set("env.batch_size", 4);
+    compatible.Set("ImageClsEnv.train.dataset_key", "food101_train");
+    merged.MergeFromChecked(compatible);
+
+    CHECK(merged.Get<int>("env.batch_size") == 4);
+    CHECK(merged.Get("ImageClsEnv.train.dataset_key") == "food101_train");
+
+    anet::ConfigData conflicting;
+    conflicting.Set("env.batch_size", 8);
+    CHECK_THROWS(merged.MergeFromChecked(conflicting));
 }
 
 TEST_CASE("ConfigData accepts explicit empty strings and vectors", "[config]")
