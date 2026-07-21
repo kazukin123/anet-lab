@@ -94,12 +94,20 @@ public:
         config_data.Set("ImageClsEnv.train.dataset_key", dataset_key_);
         config_data.Set("ImageClsEnv.eval.dataset_key", dataset_key_);
         config_data.Set("ImageClsEnv.eval.eval_window.mode", "full");
-        config_data.Set("ImageClsEnv.eval.eval_window.rotating.size", "1");
+        config_data.Set("ImageClsEnv.eval.eval_window.rotating_size", "1");
         config_data.Set("ImageClsEnv.max_steps", std::to_string(max_steps));
         return config_data;
     }
 
     const std::string& GetDatasetKey() const { return dataset_key_; }
+
+    void CorruptImage(int index) const
+    {
+        const auto path = image_root_ / "class0" / ("sample" + std::to_string(index) + ".png");
+        std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
+        REQUIRE(ofs.good());
+        ofs << "not-an-image";
+    }
 
     anet::img::ImageDatasetConfig MakeDatasetConfig() const
     {
@@ -256,17 +264,19 @@ TEST_CASE("ImageClsEnv validates both standard manifests before selecting its Ru
         Catch::Matchers::ContainsSubstring("missing-eval-classes.txt"));
 }
 
-TEST_CASE("ImageCls config validation rejects obsolete keys without manifest I/O", "[image_cls_env][config]")
+TEST_CASE("ImageCls config validation ignores unknown keys without manifest I/O", "[image_cls_env][config]")
 {
+    EnsureWxImageSupport();
+
     TinyImageClsDataset dataset;
     anet::rl::env::ImageClsEnvFactory factory;
 
-    SECTION("obsolete key") {
+    SECTION("unknown key") {
         auto config = dataset.MakeNativeConfigData(/*max_steps=*/100);
-        config.Set("ImageClsEnv.root_dir", "obsolete");
-        CHECK_THROWS_WITH(
-            factory.ValidateConfig(config, anet::rl::RunMode::Train, ""),
-            Catch::Matchers::ContainsSubstring("Unknown or obsolete ImageClsEnv config key"));
+        config.Set("ImageClsEnv.unknown", "ignored");
+        config.Set("ImageDataset.unknown", "ignored");
+        config.Set("ImageDataset.[" + dataset.GetDatasetKey() + "].unknown", "ignored");
+        CHECK_NOTHROW(factory.ValidateConfig(config, anet::rl::RunMode::Train, ""));
     }
 
     SECTION("dormant-style schema validation remains I/O free") {
@@ -368,6 +378,59 @@ TEST_CASE("ImageCls native decode honors worker_type and worker_threads", "[imag
     }
 }
 
+TEST_CASE("ImageCls train augmentation is independent of worker scheduling", "[image_cls_env][worker][augment]")
+{
+    EnsureWxImageSupport();
+
+    TinyImageClsDataset dataset(/*sample_count=*/4);
+    auto single_config = dataset.MakeNativeConfigData(/*max_steps=*/100);
+    single_config.Set("ImageClsEnv.train.augment.enabled", "true");
+    single_config.Set("ImageClsEnv.train.augment.hflip_p", "0.5");
+    single_config.Set("ImageClsEnv.train.augment.rrc_scale_min", "0.5");
+    single_config.Set("ImageClsEnv.train.augment.rrc_scale_max", "1.0");
+    single_config.Set("ImageClsEnv.train.augment.rrc_ratio_min", "0.75");
+    single_config.Set("ImageClsEnv.train.augment.rrc_ratio_max", "1.3333333");
+    single_config.Set("env.worker_type", std::to_string(anet::rl::WorkerType::SINGLE_THREAD));
+    single_config.Set("env.worker_threads", "1");
+
+    auto parallel_config = single_config;
+    parallel_config.Set("env.worker_type", std::to_string(anet::rl::WorkerType::THREAD_POOL));
+    parallel_config.Set("env.worker_threads", "3");
+
+    anet::rl::env::ImageClsEnvFactory factory;
+    auto single_env = factory.CreateBatchEnv(
+        single_config, torch::Device(torch::kCPU), "imagecls-augment-single",
+        /*seed=*/42, /*num_envs=*/4, anet::rl::RunMode::Train, "");
+    auto parallel_env = factory.CreateBatchEnv(
+        parallel_config, torch::Device(torch::kCPU), "imagecls-augment-parallel",
+        /*seed=*/42, /*num_envs=*/4, anet::rl::RunMode::Train, "");
+
+    const auto single_result = single_env->Reset();
+    const auto parallel_result = parallel_env->Reset();
+    CHECK(single_result->state.obs.Get(anet::rl::ObsKeys::kGrid).value().equal(
+        parallel_result->state.obs.Get(anet::rl::ObsKeys::kGrid).value()));
+    CHECK(single_result->state.obs.Get(anet::rl::ObsKeys::kVector).value().equal(
+        parallel_result->state.obs.Get(anet::rl::ObsKeys::kVector).value()));
+}
+
+TEST_CASE("ImageCls does not publish a partial batch after worker failure", "[image_cls_env][worker]")
+{
+    EnsureWxImageSupport();
+
+    TinyImageClsDataset dataset(/*sample_count=*/4);
+    dataset.CorruptImage(/*index=*/2);
+    auto config = dataset.MakeNativeConfigData(/*max_steps=*/100);
+    config.Set("env.worker_type", std::to_string(anet::rl::WorkerType::THREAD_POOL));
+    config.Set("env.worker_threads", "3");
+
+    anet::rl::env::ImageClsEnvFactory factory;
+    auto env = factory.CreateBatchEnv(
+        config, torch::Device(torch::kCPU), "imagecls-worker-failure",
+        /*seed=*/42, /*num_envs=*/4, anet::rl::RunMode::Train, "");
+
+    CHECK_THROWS(env->Reset());
+}
+
 TEST_CASE("ImageClsEnv returns fresh observations and representative eval termination", "[image_cls_env][eval_window]")
 {
     EnsureWxImageSupport();
@@ -402,7 +465,7 @@ TEST_CASE("ImageCls rotating eval window uses exact valid count and padding", "[
     TinyImageClsDataset dataset(/*sample_count=*/4);
     auto config = dataset.MakeNativeConfigData(/*max_steps=*/100);
     config.Set("ImageClsEnv.eval.eval_window.mode", "rotating");
-    config.Set("ImageClsEnv.eval.eval_window.rotating.size", "3");
+    config.Set("ImageClsEnv.eval.eval_window.rotating_size", "3");
     anet::rl::env::ImageClsEnvFactory factory;
     auto env = factory.CreateBatchEnv(
         config, torch::Device(torch::kCPU), "imagecls-rotating-test",

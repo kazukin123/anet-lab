@@ -54,7 +54,7 @@ RunnerとAgentが環境固有実装へ依存せず、同じState、Action、Rese
 
 ImageClsは`BatchEnvBase`を直接継承するnative batch Envである。`ImageDataSource`がDatasetから固定BのTensorを生成し、single EnvのN個生成やwrapper collateを経由しない。
 
-ImageCls設定は標準Train/Eval Sourceを必須の組として持つ。`ImageClsEnv.train.dataset_key`と`ImageClsEnv.train.augment.*`がTrain側、`ImageClsEnv.eval.dataset_key`と`ImageClsEnv.eval.eval_window.mode` / `eval_window.rotating.size`がEval側である。tagなしEvalは標準Eval設定を使い、configured Evalは`train.eval.[tag].env.eval.*`で必要な項目だけをoverlayする。Factoryは両manifestをEnv構築時に検証するが、画像decodeとcache準備は選択Sourceの使用時まで遅延する。
+ImageCls設定は標準Train/Eval Sourceを必須の組として持つ。`ImageClsEnv.train.dataset_key`と`ImageClsEnv.train.augment.*`がTrain側、`ImageClsEnv.eval.dataset_key`と`ImageClsEnv.eval.eval_window.mode` / `eval_window.rotating_size`がEval側である。tagなしEvalは標準Eval設定を使い、configured Evalは`train.eval.[tag].env.eval.*`で必要な項目だけをoverlayする。Factoryは両manifestをEnv構築時に検証するが、画像decodeとcache準備は選択Sourceの使用時まで遅延する。
 
 ### 2.4 Env name
 
@@ -191,7 +191,7 @@ episode終了laneのReset時期や`episode_start`の扱いはbatch wrapperとRun
 1. `env.class_id`から`EnvRepository`がsingle/batchいずれかの具象factoryを解決する。
 2. 呼出側がBatchEnv name、RunMode、config prefixを渡し、`BatchEnvBuilder`がnum_envs、device、seed、worker設定を確定する。
 3. batch factoryならnative `BatchEnv`を直接生成する。single factoryならwrapperが`<name>[lane_index]`を完成させ、laneごとにsingle Envを生成する。
-4. single経路はworker方式に応じてvectorizedまたはthread-pool wrapperへ格納する。native ImageClsでは同じworker設定をSource内decodeへ適用する。
+4. single経路はworker方式に応じてvectorizedまたはthread-pool wrapperへ格納する。native ImageClsでは同じworker設定をSource内sample処理へ適用し、decode/cache lookupからaugmentationまでを同一workで実行する。
 5. Runner構築時にEnvSpecとBatchEnvSpecをAgentへ渡す。
 
 ## 7. 設定・lifetime・エラー・性能特性
@@ -211,7 +211,7 @@ Env固有設定は各factoryが同じConfigDataから読み取る。未知のcla
 
 ### 7.2 lifetimeとshutdown
 
-- wrapper BatchEnvはsingle Env群とpoolを所有する。native ImageClsはEnv-local Sourceとdecode poolを所有する。
+- wrapper BatchEnvはsingle Env群とpoolを所有する。native ImageClsはEnv-local Sourceとsample worker poolを所有する。
 - Runner終了時は`BatchEnv::Shutdown()`を経由してworkerを停止する。
 - Envのmutable stateとRNGはEnv instanceごとに分離する。ImageClsのimmutable Dataset/manifest/cacheだけはDatasetKey単位でprocess共有する。
 - EnvSpecは構築後の接続contractとして扱い、Run中にshapeやAction数を変更しない。

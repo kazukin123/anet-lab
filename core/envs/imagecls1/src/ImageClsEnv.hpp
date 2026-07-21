@@ -14,6 +14,11 @@
 
 namespace anet::rl::env {
 
+
+// -------------------------------------------------------------
+// ImageClsEnvConfig
+// -------------------------------------------------------------
+
 struct ImageClsEnvConfig : public anet::Config {
     int max_steps = 100;
 
@@ -29,6 +34,11 @@ struct ImageClsEnvConfig : public anet::Config {
         }
     }
 };
+
+
+// -------------------------------------------------------------
+// ImageClsEnv
+// -------------------------------------------------------------
 
 class ImageClsEnv final : public anet::rl::BatchEnvBase {
 public:
@@ -77,6 +87,11 @@ private:
     bool has_active_epoch_tag_ = false;
     uint64_t epoch_count_ = 0;
 };
+
+
+// -------------------------------------------------------------
+// ImageClsEnvFactory
+// -------------------------------------------------------------
 
 class ImageClsEnvFactory final : public anet::rl::BatchEnvFactory {
 public:

@@ -42,7 +42,7 @@ app.run_name = run_{t}_imgcls
 #app.run_name = run_{t}_imgcls_cn-nano
 #app.run_name = run_{t}_imgcls_cn-femto_dp03
 #app.run_name = run_{t}_imgcls_cn-atto
-#app.run_name = run_{t}_imgcls_ResNet18
+app.run_name = run_{t}_imgcls_ResNet18HR
 #app.run_name = run_{t}_imgcls_CnAttoHR
 #app.run_name = run_{t}_imgcls_CnFemtoHR
 
@@ -52,7 +52,7 @@ backend.$ = backend.non-deterministic # 非決定論的（高速化）
 
 #train.eval_device_type = cpu
 
-train.eval.[eval1].clone_model = false  # なんか遅くなるので
+#train.eval.[eval1].clone_model = false  # なんか遅くなるので
 
 
 # ==============================================================================
@@ -593,6 +593,7 @@ ImageDataset.image_width = 224
 ImageDataset.image_height = 224
 
 ImageDataset.[food101_train].list_txt_path = C:\dev\food-101\meta\train.txt
+#ImageDataset.[food101_train].cache.mode = auto
 ImageDataset.[food101_train].cache.mode = none  # メモリ厳しいので都度デコード
 ImageDataset.[food101_train].cache.max_bytes = 12,884,901,888 # 12GB→きつい
 
@@ -615,7 +616,7 @@ ImageClsEnv.train.augment.rrc_ratio_min = 0.75
 ImageClsEnv.train.augment.rrc_ratio_max = 1.3333333
 ImageClsEnv.eval.dataset_key = food101_eval
 ImageClsEnv.eval.eval_window.mode = full
-ImageClsEnv.eval.eval_window.rotating.size = 1024
+ImageClsEnv.eval.eval_window.rotating_size = 1024
 
 
 # --- Eval設定 ---
@@ -624,8 +625,9 @@ train.eval.[eval1].interval = 50
 train.eval.[eval1].run_mode = eval1
 train.eval.[eval1].eval_batch_size = 128
 train.eval.[eval1].env.eval.eval_window.mode = rotating
-train.eval.[eval1].env.eval.eval_window.rotating.size = 1024 # 8step @ food101
-#train.eval.[eval1].env.eval.eval_window.rotating.size = 100
+#train.eval.[eval1].env.eval.eval_window.rotating_size = 1024 # 8step @ food101
+train.eval.[eval1].env.eval.eval_window.rotating_size = 256
+#train.eval.[eval1].env.eval.eval_window.rotating_size = 128
 
 train.eval.[eval_full].interval = 0
 train.eval.[eval_full].run_mode = eval1

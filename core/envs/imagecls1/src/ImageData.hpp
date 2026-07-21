@@ -1,4 +1,4 @@
-// ImageData.hpp
+﻿// ImageData.hpp
 #pragma once
 
 #include <condition_variable>
@@ -8,16 +8,21 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <random>
 #include <string>
 #include <unordered_map>
 #include <vector>
 #include <torch/torch.h>
 #include "anet/config.hpp"
+#include "anet/random.hpp"
 #include "anet/thread.hpp"
 #include "anet/rl.hpp"
 
 namespace anet::img {
+
+
+    // -------------------------------------------------------------
+    // ImageDataset Configuration
+    // -------------------------------------------------------------
 
     using DatasetKey = std::string;
 
@@ -46,6 +51,11 @@ namespace anet::img {
     using ResolvedImageDatasetCatalog = std::unordered_map<DatasetKey, ImageDatasetConfig>;
 
     ResolvedImageDatasetCatalog ResolveImageDatasetCatalog(const anet::ConfigData& config_data);
+
+
+    // -------------------------------------------------------------
+    // ImageDataset
+    // -------------------------------------------------------------
 
     struct ImageManifest {
         std::vector<std::filesystem::path> paths;
@@ -86,6 +96,11 @@ namespace anet::img {
         std::vector<std::exception_ptr> entry_failures_;
     };
 
+
+    // -------------------------------------------------------------
+    // ImageDatasetManager
+    // -------------------------------------------------------------
+
     class ImageDatasetManager {
     public:
         static ImageDatasetManager& Instance();
@@ -109,6 +124,11 @@ namespace anet::img {
         std::unordered_map<DatasetKey, std::shared_ptr<Entry>> entries_;
     };
 
+
+    // -------------------------------------------------------------
+    // ImageDataSource Configuration
+    // -------------------------------------------------------------
+
     struct TrainImageDataSourceConfig : public anet::Config {
         std::string dataset_key;
         struct {
@@ -122,66 +142,121 @@ namespace anet::img {
 
         TrainImageDataSourceConfig(
             const anet::ConfigData& config_data = anet::EmptyConfigData,
-            const std::string& config_prefix = "");
+            const std::string& config_prefix = "")
+            : anet::Config(
+                config_data,
+                "ImageClsEnv.train",
+                config_prefix.empty() ? "" : config_prefix + ".train")
+        {
+            // train roleが所有するdataset参照とaugmentation設定だけを読み込む。
+            ANET_READ_CONFIG(config_data, dataset_key);
+            ANET_READ_CONFIG(config_data, augment.enabled);
+            ANET_READ_CONFIG(config_data, augment.hflip_p);
+            ANET_READ_CONFIG(config_data, augment.rrc_scale_min);
+            ANET_READ_CONFIG(config_data, augment.rrc_scale_max);
+            ANET_READ_CONFIG(config_data, augment.rrc_ratio_min);
+            ANET_READ_CONFIG(config_data, augment.rrc_ratio_max);
+
+            // dataset参照とaugmentation範囲をSource構築前に検証する。
+            if (dataset_key.empty()) {
+                ANET_SYSTEM_ERROR("ImageClsEnv.train.dataset_key must not be empty.");
+            }
+            if (augment.hflip_p < 0.0 || augment.hflip_p > 1.0) {
+                ANET_SYSTEM_ERROR("Invalid ImageClsEnv.train.augment.hflip_p=" << augment.hflip_p
+                    << ". Expected [0, 1].");
+            }
+            if (augment.rrc_scale_min <= 0.0 || augment.rrc_scale_min > augment.rrc_scale_max
+                || augment.rrc_scale_max > 1.0) {
+                ANET_SYSTEM_ERROR("Invalid ImageClsEnv.train.augment.rrc_scale range. min="
+                    << augment.rrc_scale_min << " max=" << augment.rrc_scale_max);
+            }
+            if (augment.rrc_ratio_min <= 0.0 || augment.rrc_ratio_min > augment.rrc_ratio_max) {
+                ANET_SYSTEM_ERROR("Invalid ImageClsEnv.train.augment.rrc_ratio range. min="
+                    << augment.rrc_ratio_min << " max=" << augment.rrc_ratio_max);
+            }
+        }
     };
 
     struct EvalImageDataSourceConfig : public anet::Config {
         std::string dataset_key;
         struct {
             std::string mode = "full";
-            struct {
-                int64_t size = 1;
-            } rotating;
+            int64_t rotating_size = 1;
         } eval_window;
 
         EvalImageDataSourceConfig(
             const anet::ConfigData& config_data = anet::EmptyConfigData,
-            const std::string& config_prefix = "");
+            const std::string& config_prefix = "")
+            : anet::Config(
+                config_data,
+                "ImageClsEnv.eval",
+                config_prefix.empty() ? "" : config_prefix + ".eval")
+        {
+            // eval roleが所有するdataset参照とwindow設定だけを読み込む。
+            ANET_READ_CONFIG(config_data, dataset_key);
+            ANET_READ_CONFIG(config_data, eval_window.mode);
+            ANET_READ_CONFIG(config_data, eval_window.rotating_size);
+
+            // fullでもrotating用sizeを正値として保持し、mode切替時の未設定概念を持ち込まない。
+            if (dataset_key.empty()) {
+                ANET_SYSTEM_ERROR("ImageClsEnv.eval.dataset_key must not be empty.");
+            }
+            if (eval_window.mode != "full" && eval_window.mode != "rotating") {
+                ANET_SYSTEM_ERROR("Invalid ImageClsEnv.eval.eval_window.mode='" << eval_window.mode
+                    << "'. Expected full or rotating.");
+            }
+            if (eval_window.rotating_size <= 0) {
+                ANET_SYSTEM_ERROR("ImageClsEnv.eval.eval_window.rotating_size must be positive. actual="
+                    << eval_window.rotating_size);
+            }
+        }
     };
 
+
+    // -------------------------------------------------------------
+    // ImageBatch
+    // -------------------------------------------------------------
+
+	/// バッチ化された画像サンプリング結果。ImageDataSource::NextBatch()で生成。
     struct ImageBatch {
-        torch::Tensor grid;
-        torch::Tensor targets;
-        std::vector<uint64_t> epoch_tags;
-        int64_t valid_count = 0;
-        bool window_end = false;
-        uint64_t completed_cycles = 0;
+        torch::Tensor grid;                         ///< `[B, C, H, W]`のUInt8画像batch。
+        torch::Tensor targets;                      ///< `[B]`のInt64 class ID。
+        std::vector<uint64_t> epoch_tags;           ///< 各slotのsampleが属するdataset cycle。
+        int64_t valid_count = 0;                    ///< Eval末尾paddingを除く有効sample数。TrainではBと等しい。
+        bool window_end = false;                    ///< このbatchでEval windowが完了したことを示す。
+        uint64_t completed_cycles = 0;              ///< このbatchの選択中に完了したdataset周回数。
     };
 
-    class ImageDataSource {
+
+    // -------------------------------------------------------------
+    // ImageDataSource
+    // -------------------------------------------------------------
+
+    class ImageDataSource : public anet::RandomHolder {
     public:
         ImageDataSource(
             TrainImageDataSourceConfig config,
-            int batch_size,
-            anet::seed_t seed,
-            int worker_type,
-            int worker_threads);
+            int batch_size, anet::seed_t seed, int worker_type, int worker_threads);
         ImageDataSource(
             EvalImageDataSourceConfig config,
-            int batch_size,
-            anet::seed_t seed,
-            int worker_type,
-            int worker_threads);
+            int batch_size, anet::seed_t seed, int worker_type, int worker_threads);
         ~ImageDataSource();
 
         ImageBatch NextBatch();
-        void Shutdown();
-
         const DatasetKey& GetDatasetKey() const { return dataset_key_; }
         const std::shared_ptr<ImageDataset>& GetDataset() const { return dataset_; }
         int GetWorkerCount() const { return worker_count_; }
-
+        void Shutdown();
     private:
-        struct SampleSelection {
+        struct BatchPlan {
             std::vector<size_t> indices;
             std::vector<uint64_t> epoch_tags;
             int64_t valid_count = 0;
             bool window_end = false;
             uint64_t completed_cycles = 0;
         };
-    private:
         enum class Role { Train, Eval };
-
+    private:
         ImageDataSource(
             Role role,
             std::string dataset_key,
@@ -198,10 +273,14 @@ namespace anet::img {
             int worker_type,
             int worker_threads);
 
-        SampleSelection SelectTrainBatch();
-        SampleSelection SelectEvalBatch();
-        torch::Tensor ApplyAugment(const torch::Tensor& image, uint64_t epoch_tag, size_t dataset_index);
-        torch::Tensor ApplyRandomResizedCrop(const torch::Tensor& image, std::mt19937_64& random);
+        BatchPlan PlanTrainBatch();
+        BatchPlan PlanEvalBatch();
+        void ShufflePermutation();
+
+        void FillSample(ImageBatch& batch, const BatchPlan& plan, size_t slot) const;
+        torch::Tensor ApplyAugment(const torch::Tensor& image, uint64_t epoch_tag, size_t dataset_index) const;
+        torch::Tensor ApplyRandomResizedCrop(
+            const torch::Tensor& image, anet::RandomGenerator& random) const;
     private:
         Role role_;
         std::string dataset_key_;
@@ -217,7 +296,6 @@ namespace anet::img {
         anet::seed_t augment_seed_;
         std::shared_ptr<ImageDataset> dataset_;
 
-        std::mt19937_64 sampler_random_;
         std::vector<size_t> permutation_;
         size_t cursor_ = 0;
         uint64_t cycle_ = 0;
@@ -225,7 +303,7 @@ namespace anet::img {
         int worker_type_;
         int worker_threads_;
         int worker_count_ = 1;
-        std::shared_ptr<anet::ThreadPool> decode_pool_;
+        std::shared_ptr<anet::ThreadPool> sample_pool_;
     };
 
 } // namespace anet::img

@@ -151,71 +151,12 @@ ImageManifest LoadManifest(const DatasetKey& key, const ImageDatasetConfig& conf
     return manifest;
 }
 
-uint64_t MixSeed(uint64_t seed, uint64_t a, uint64_t b)
-{
-    auto mix = [](uint64_t value) {
-        value += 0x9e3779b97f4a7c15ULL;
-        value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9ULL;
-        value = (value ^ (value >> 27)) * 0x94d049bb133111ebULL;
-        return value ^ (value >> 31);
-    };
-    return mix(seed ^ mix(a) ^ mix(b));
-}
-
-const std::set<std::string>& DatasetFields()
-{
-    static const std::set<std::string> fields = {
-        "root_dir", "list_txt_path", "classes_txt_path", "suffix",
-        "image_width", "image_height", "cache.mode", "cache.max_bytes",
-    };
-    return fields;
-}
-
-const std::set<std::string>& ImageClsEnvFields()
-{
-    static const std::set<std::string> fields = {
-        "max_steps",
-        "train.dataset_key",
-        "train.augment.enabled",
-        "train.augment.hflip_p",
-        "train.augment.rrc_scale_min",
-        "train.augment.rrc_scale_max",
-        "train.augment.rrc_ratio_min",
-        "train.augment.rrc_ratio_max",
-        "eval.dataset_key",
-        "eval.eval_window.mode",
-        "eval.eval_window.rotating.size",
-    };
-    return fields;
-}
-
-void AuditImageClsEnvKeys(const anet::ConfigData& config_data, const std::string& config_prefix)
-{
-    // default tagとEnv固有tagの両方を走査し、ImageClsEnvが所有する設定だけを監査する。
-    const std::string default_prefix = "ImageClsEnv.";
-    const std::string override_prefix = config_prefix.empty() ? "" : config_prefix + ".";
-    for (const auto& [key, value] : config_data.Map()) {
-        (void)value;
-        std::string field;
-        bool active = false;
-        if (key.starts_with(default_prefix)) {
-            field = key.substr(default_prefix.size());
-            active = true;
-        } else if (!override_prefix.empty() && key.starts_with(override_prefix)) {
-            field = key.substr(override_prefix.size());
-            active = true;
-        }
-        if (!active) continue;
-
-        // 現行schemaのfieldだけを許可し、旧schemaと各role配下のtypoをfail-fastする。
-        if (ImageClsEnvFields().contains(field)) continue;
-        ANET_SYSTEM_ERROR("Unknown or obsolete ImageClsEnv config key='" << key
-            << "'. Use ImageDataset.* for shared dataset fields and ImageClsEnv.train.* or"
-            << " ImageClsEnv.eval.* for role-specific fields.");
-    }
-}
-
 } // namespace
+
+
+// -------------------------------------------------------------
+// ImageDatasetConfig
+// -------------------------------------------------------------
 
 ImageDatasetConfig ImageDatasetConfig::Resolve(const anet::ConfigData& config_data, const DatasetKey& key)
 {
@@ -306,30 +247,26 @@ std::string ImageDatasetConfig::ToString() const
     return oss.str();
 }
 
+
+// -------------------------------------------------------------
+// ImageDataset Catalog
+// -------------------------------------------------------------
+
 ResolvedImageDatasetCatalog anet::img::ResolveImageDatasetCatalog(const anet::ConfigData& config_data)
 {
-    // catalogを一巡してdataset keyを収集し、未知fieldや壊れたkey構文を先に排除する。
+    // catalogを一巡してdataset keyを収集し、壊れたkey構文を先に排除する。
     std::set<DatasetKey> keys;
     const std::string prefix = "ImageDataset.[";
     for (const auto& [config_key, value] : config_data.Map()) {
         (void)value;
         if (!config_key.starts_with("ImageDataset.")) continue;
         if (!config_key.starts_with(prefix)) {
-            const auto field = config_key.substr(std::string("ImageDataset.").size());
-            if (!DatasetFields().contains(field)) {
-                ANET_SYSTEM_ERROR("Unknown ImageDataset config key='" << config_key << "'.");
-            }
             continue;
         }
         const auto close = config_key.find(']', prefix.size());
         if (close == std::string::npos || close == prefix.size()
             || close + 1 >= config_key.size() || config_key[close + 1] != '.') {
             ANET_SYSTEM_ERROR("Malformed ImageDataset catalog key='" << config_key << "'");
-        }
-        const auto field = config_key.substr(close + 2);
-        if (!DatasetFields().contains(field)) {
-            ANET_SYSTEM_ERROR("Unknown ImageDataset catalog field. key='" << config_key
-                << "' field='" << field << "'");
         }
         keys.insert(config_key.substr(prefix.size(), close - prefix.size()));
     }
@@ -342,6 +279,11 @@ ResolvedImageDatasetCatalog anet::img::ResolveImageDatasetCatalog(const anet::Co
     for (const auto& key : keys) catalog.emplace(key, ImageDatasetConfig::Resolve(config_data, key));
     return catalog;
 }
+
+
+// -------------------------------------------------------------
+// ImageDataset
+// -------------------------------------------------------------
 
 ImageDataset::ImageDataset(DatasetKey key, ImageDatasetConfig config)
     : key_(std::move(key)), config_(std::move(config)), manifest_(LoadManifest(key_, config_))
@@ -513,6 +455,11 @@ torch::data::Example<> ImageDataset::Get(size_t index)
     }
 }
 
+
+// -------------------------------------------------------------
+// ImageDatasetManager
+// -------------------------------------------------------------
+
 ImageDatasetManager& ImageDatasetManager::Instance()
 {
     static ImageDatasetManager instance;
@@ -585,68 +532,10 @@ std::shared_ptr<ImageDataset> ImageDatasetManager::Acquire(const DatasetKey& key
     }
 }
 
-TrainImageDataSourceConfig::TrainImageDataSourceConfig(
-    const anet::ConfigData& config_data, const std::string& config_prefix)
-    : anet::Config(
-        config_data,
-        "ImageClsEnv.train",
-        config_prefix.empty() ? "" : config_prefix + ".train")
-{
-    // train roleが所有するdataset参照とaugmentation設定だけを読み込む。
-    AuditImageClsEnvKeys(config_data, config_prefix);
-    ANET_READ_CONFIG(config_data, dataset_key);
-    ANET_READ_CONFIG(config_data, augment.enabled);
-    ANET_READ_CONFIG(config_data, augment.hflip_p);
-    ANET_READ_CONFIG(config_data, augment.rrc_scale_min);
-    ANET_READ_CONFIG(config_data, augment.rrc_scale_max);
-    ANET_READ_CONFIG(config_data, augment.rrc_ratio_min);
-    ANET_READ_CONFIG(config_data, augment.rrc_ratio_max);
 
-    // dataset参照とaugmentation範囲をSource構築前に検証する。
-    if (dataset_key.empty()) {
-        ANET_SYSTEM_ERROR("ImageClsEnv.train.dataset_key must not be empty.");
-    }
-    if (augment.hflip_p < 0.0 || augment.hflip_p > 1.0) {
-        ANET_SYSTEM_ERROR("Invalid ImageClsEnv.train.augment.hflip_p=" << augment.hflip_p
-            << ". Expected [0, 1].");
-    }
-    if (augment.rrc_scale_min <= 0.0 || augment.rrc_scale_min > augment.rrc_scale_max
-        || augment.rrc_scale_max > 1.0) {
-        ANET_SYSTEM_ERROR("Invalid ImageClsEnv.train.augment.rrc_scale range. min="
-            << augment.rrc_scale_min << " max=" << augment.rrc_scale_max);
-    }
-    if (augment.rrc_ratio_min <= 0.0 || augment.rrc_ratio_min > augment.rrc_ratio_max) {
-        ANET_SYSTEM_ERROR("Invalid ImageClsEnv.train.augment.rrc_ratio range. min="
-            << augment.rrc_ratio_min << " max=" << augment.rrc_ratio_max);
-    }
-}
-
-EvalImageDataSourceConfig::EvalImageDataSourceConfig(
-    const anet::ConfigData& config_data, const std::string& config_prefix)
-    : anet::Config(
-        config_data,
-        "ImageClsEnv.eval",
-        config_prefix.empty() ? "" : config_prefix + ".eval")
-{
-    // eval roleが所有するdataset参照とwindow設定だけを読み込む。
-    AuditImageClsEnvKeys(config_data, config_prefix);
-    ANET_READ_CONFIG(config_data, dataset_key);
-    ANET_READ_CONFIG(config_data, eval_window.mode);
-    ANET_READ_CONFIG(config_data, eval_window.rotating.size);
-
-    // fullでもrotating用sizeを正値として保持し、mode切替時の未設定概念を持ち込まない。
-    if (dataset_key.empty()) {
-        ANET_SYSTEM_ERROR("ImageClsEnv.eval.dataset_key must not be empty.");
-    }
-    if (eval_window.mode != "full" && eval_window.mode != "rotating") {
-        ANET_SYSTEM_ERROR("Invalid ImageClsEnv.eval.eval_window.mode='" << eval_window.mode
-            << "'. Expected full or rotating.");
-    }
-    if (eval_window.rotating.size <= 0) {
-        ANET_SYSTEM_ERROR("ImageClsEnv.eval.eval_window.rotating.size must be positive. actual="
-            << eval_window.rotating.size);
-    }
-}
+// -------------------------------------------------------------
+// ImageDataSource
+// -------------------------------------------------------------
 
 ImageDataSource::ImageDataSource(
     TrainImageDataSourceConfig config, int batch_size, anet::seed_t seed,
@@ -682,7 +571,7 @@ ImageDataSource::ImageDataSource(
         1.0,
         1.0,
         std::move(config.eval_window.mode),
-        config.eval_window.rotating.size,
+        config.eval_window.rotating_size,
         batch_size,
         seed,
         worker_type,
@@ -705,7 +594,8 @@ ImageDataSource::ImageDataSource(
     anet::seed_t seed,
     int worker_type,
     int worker_threads)
-    : role_(role)
+    : anet::RandomHolder(anet::SeedMaker(seed).MakeNamedSeed("ImageDataSource.sampler"))
+    , role_(role)
     , dataset_key_(std::move(dataset_key))
     , augment_enabled_(augment_enabled)
     , augment_hflip_p_(augment_hflip_p)
@@ -716,9 +606,8 @@ ImageDataSource::ImageDataSource(
     , eval_window_mode_(std::move(eval_window_mode))
     , eval_window_rotating_size_(eval_window_rotating_size)
     , batch_size_(batch_size)
-    , augment_seed_(MixSeed(seed, 0x6175676d656e74ULL, 0))
+    , augment_seed_(anet::SeedMaker(seed).MakeNamedSeed("ImageDataSource.augment"))
     , dataset_(ImageDatasetManager::Instance().Acquire(dataset_key_))
-    , sampler_random_(MixSeed(seed, 0x73616d706c6572ULL, 0))
     , worker_type_(worker_type)
     , worker_threads_(worker_threads)
 {
@@ -740,7 +629,7 @@ ImageDataSource::ImageDataSource(
     // rotating windowがdataset外を要求しないことをdataset取得後に確認する。
     if (role_ == Role::Eval && eval_window_mode_ == "rotating"
         && eval_window_rotating_size_ > static_cast<int64_t>(dataset_->Size())) {
-        ANET_SYSTEM_ERROR("ImageClsEnv.eval.eval_window.rotating.size exceeds dataset size. dataset_key='"
+        ANET_SYSTEM_ERROR("ImageClsEnv.eval.eval_window.rotating_size exceeds dataset size. dataset_key='"
             << dataset_key_ << "' size=" << eval_window_rotating_size_
             << " dataset_size=" << dataset_->Size());
     }
@@ -748,7 +637,7 @@ ImageDataSource::ImageDataSource(
     permutation_.resize(dataset_->Size());
     std::iota(permutation_.begin(), permutation_.end(), size_t{0});
     if (role_ == Role::Train || eval_window_mode_ == "rotating") {
-        std::shuffle(permutation_.begin(), permutation_.end(), sampler_random_);
+        ShufflePermutation();
     }
 }
 
@@ -757,78 +646,87 @@ ImageDataSource::~ImageDataSource()
     Shutdown();
 }
 
-ImageDataSource::SampleSelection ImageDataSource::SelectTrainBatch()
+void ImageDataSource::ShufflePermutation()
+{
+    // RandomGeneratorだけを乱数源にしてFisher-Yatesを行い、Source固有の順序を更新する。
+    for (size_t upper = permutation_.size(); upper > 1; --upper) {
+        const size_t other = rnd_->RandIndex(upper);
+        std::swap(permutation_[upper - 1], permutation_[other]);
+    }
+}
+
+ImageDataSource::BatchPlan ImageDataSource::PlanTrainBatch()
 {
     // 全laneへ実sampleを割り当て、dataset末尾を跨いでもbatch sizeを厳密に満たす。
-    SampleSelection selection;
-    selection.indices.reserve(batch_size_);
-    selection.epoch_tags.reserve(batch_size_);
+    BatchPlan plan;
+    plan.indices.reserve(batch_size_);
+    plan.epoch_tags.reserve(batch_size_);
     for (int i = 0; i < batch_size_; ++i) {
-        selection.indices.push_back(permutation_[cursor_]);
-        selection.epoch_tags.push_back(cycle_);
+        plan.indices.push_back(permutation_[cursor_]);
+        plan.epoch_tags.push_back(cycle_);
         ++cursor_;
         if (cursor_ == permutation_.size()) {
             // dataset一周をepochとして数え、次epoch用の順序を直ちに作り直す。
             cursor_ = 0;
             ++cycle_;
-            ++selection.completed_cycles;
-            std::shuffle(permutation_.begin(), permutation_.end(), sampler_random_);
+            ++plan.completed_cycles;
+            ShufflePermutation();
         }
     }
-    selection.valid_count = batch_size_;
-    return selection;
+    plan.valid_count = batch_size_;
+    return plan;
 }
 
-ImageDataSource::SampleSelection ImageDataSource::SelectEvalBatch()
+ImageDataSource::BatchPlan ImageDataSource::PlanEvalBatch()
 {
     // fullはdataset全体、rotatingは指定sizeを1 windowとして今回の有効件数を求める。
     const int64_t window_size = eval_window_mode_ == "full"
         ? static_cast<int64_t>(dataset_->Size()) : eval_window_rotating_size_;
     const int64_t valid_count = std::min<int64_t>(batch_size_, window_size - eval_window_progress_);
 
-    SampleSelection selection;
-    selection.valid_count = valid_count;
-    selection.indices.reserve(batch_size_);
-    selection.epoch_tags.reserve(batch_size_);
+    BatchPlan plan;
+    plan.valid_count = valid_count;
+    plan.indices.reserve(batch_size_);
+    plan.epoch_tags.reserve(batch_size_);
     // 有効sampleだけcursorを進め、dataset周回とwindow終端を別々に記録する。
     for (int64_t i = 0; i < valid_count; ++i) {
         const size_t index = eval_window_mode_ == "full" ? cursor_ : permutation_[cursor_];
-        selection.indices.push_back(index);
-        selection.epoch_tags.push_back(cycle_);
+        plan.indices.push_back(index);
+        plan.epoch_tags.push_back(cycle_);
         ++cursor_;
         if (cursor_ == dataset_->Size()) {
             cursor_ = 0;
             ++cycle_;
-            ++selection.completed_cycles;
+            ++plan.completed_cycles;
             if (eval_window_mode_ == "rotating") {
-                std::shuffle(permutation_.begin(), permutation_.end(), sampler_random_);
+                ShufflePermutation();
             }
         }
     }
     eval_window_progress_ += valid_count;
-    selection.window_end = eval_window_progress_ == window_size;
-    if (selection.window_end) eval_window_progress_ = 0;
+    plan.window_end = eval_window_progress_ == window_size;
+    if (plan.window_end) eval_window_progress_ = 0;
 
     // window末尾の不足laneは最後の有効sampleで埋め、valid_countで集計対象から除外する。
-    const auto padding_index = selection.indices.back();
-    const auto padding_epoch = selection.epoch_tags.back();
-    while (static_cast<int>(selection.indices.size()) < batch_size_) {
-        selection.indices.push_back(padding_index);
-        selection.epoch_tags.push_back(padding_epoch);
+    const auto padding_index = plan.indices.back();
+    const auto padding_epoch = plan.epoch_tags.back();
+    while (static_cast<int>(plan.indices.size()) < batch_size_) {
+        plan.indices.push_back(padding_index);
+        plan.epoch_tags.push_back(padding_epoch);
     }
-    return selection;
+    return plan;
 }
 
-torch::Tensor ImageDataSource::ApplyRandomResizedCrop(const torch::Tensor& image, std::mt19937_64& random)
+torch::Tensor ImageDataSource::ApplyRandomResizedCrop(
+    const torch::Tensor& image, anet::RandomGenerator& random) const
 {
     const int64_t in_h = image.size(1);
     const int64_t in_w = image.size(2);
     const int64_t out_h = dataset_->GetConfig().image_height;
     const int64_t out_w = dataset_->GetConfig().image_width;
     const double area = static_cast<double>(in_h * in_w);
-    std::uniform_real_distribution<double> scale(augment_rrc_scale_min_, augment_rrc_scale_max_);
-    std::uniform_real_distribution<double> ratio(
-        std::log(augment_rrc_ratio_min_), std::log(augment_rrc_ratio_max_));
+    const auto log_ratio_min = static_cast<float>(std::log(augment_rrc_ratio_min_));
+    const auto log_ratio_max = static_cast<float>(std::log(augment_rrc_ratio_max_));
 
     // torchvision相当の候補を最大10回試し、成立しなければ元画像全体を採用する。
     int64_t crop_h = in_h;
@@ -836,17 +734,16 @@ torch::Tensor ImageDataSource::ApplyRandomResizedCrop(const torch::Tensor& image
     int64_t top = 0;
     int64_t left = 0;
     for (int attempt = 0; attempt < 10; ++attempt) {
-        const double target_area = area * scale(random);
-        const double aspect_ratio = std::exp(ratio(random));
+        const double target_area = area * random.Uniform(
+            static_cast<float>(augment_rrc_scale_min_), static_cast<float>(augment_rrc_scale_max_));
+        const double aspect_ratio = std::exp(random.Uniform(log_ratio_min, log_ratio_max));
         const auto candidate_w = static_cast<int64_t>(std::round(std::sqrt(target_area * aspect_ratio)));
         const auto candidate_h = static_cast<int64_t>(std::round(std::sqrt(target_area / aspect_ratio)));
         if (candidate_w <= 0 || candidate_w > in_w || candidate_h <= 0 || candidate_h > in_h) continue;
         crop_w = candidate_w;
         crop_h = candidate_h;
-        std::uniform_int_distribution<int64_t> top_dist(0, in_h - crop_h);
-        std::uniform_int_distribution<int64_t> left_dist(0, in_w - crop_w);
-        top = top_dist(random);
-        left = left_dist(random);
+        top = static_cast<int64_t>(random.RandIndex(static_cast<size_t>(in_h - crop_h + 1)));
+        left = static_cast<int64_t>(random.RandIndex(static_cast<size_t>(in_w - crop_w + 1)));
         break;
     }
     // 選択領域を切り出し、必要な場合だけ契約shapeへbilinear resizeする。
@@ -862,95 +759,98 @@ torch::Tensor ImageDataSource::ApplyRandomResizedCrop(const torch::Tensor& image
 }
 
 torch::Tensor ImageDataSource::ApplyAugment(
-    const torch::Tensor& image, uint64_t epoch_tag, size_t dataset_index)
+    const torch::Tensor& image, uint64_t epoch_tag, size_t dataset_index) const
 {
     if (!augment_enabled_ || role_ != Role::Train) return image;
     // epochとdataset indexから乱数列を再構成し、worker実行順に依存しないaugmentにする。
-    std::mt19937_64 random(MixSeed(augment_seed_, epoch_tag, dataset_index));
+    const auto epoch_seed = anet::SeedMaker(augment_seed_).MakeIndexedSeed(epoch_tag);
+    anet::RandomGenerator random(anet::SeedMaker(epoch_seed).MakeIndexedSeed(dataset_index));
     auto result = ApplyRandomResizedCrop(image, random);
-    std::bernoulli_distribution horizontal_flip(augment_hflip_p_);
-    if (horizontal_flip(random)) result = result.flip({ 2 });
+    const bool horizontal_flip = augment_hflip_p_ >= 1.0
+        || (augment_hflip_p_ > 0.0 && random.Uniform01() < augment_hflip_p_);
+    if (horizontal_flip) result = result.flip({ 2 });
     return result.contiguous();
+}
+
+void ImageDataSource::FillSample(
+    ImageBatch& batch, const BatchPlan& plan, size_t slot) const
+{
+    // Datasetからpre-augment画像を取得し、cache miss時のdecodeも同じworker内で完結させる。
+    ANET_PROFILE_SCOPE(decode_cache);
+    const auto dataset_index = plan.indices[slot];
+    auto example = dataset_->Get(dataset_index);
+
+    // slot固有のepoch/indexから再現可能な変換を適用し、worker実行順への依存を避ける。
+    ANET_PROFILE_SCOPE_NEXT(augment);
+    auto image = ApplyAugment(example.data, plan.epoch_tags[slot], dataset_index);
+
+    // 事前確保したbatchの排他的なslotだけを書き換え、partial batchは外部へ公開しない。
+    ANET_PROFILE_SCOPE_NEXT(write);
+    batch.grid[static_cast<int64_t>(slot)].copy_(image);
+    batch.targets.data_ptr<int64_t>()[slot] = example.target.item<int64_t>();
 }
 
 ImageBatch ImageDataSource::NextBatch()
 {
-    // Source専有samplerから、このbatchが採点するindexとcycle metadataを確定する。
+    // Source専有samplerから、このbatchが採点するsampleとcycle metadataを先に確定する。
     ANET_PROFILE_SCOPE(sample);
     dataset_->PrepareCache();
-    auto selection = role_ == Role::Train ? SelectTrainBatch() : SelectEvalBatch();
+    auto plan = role_ == Role::Train ? PlanTrainBatch() : PlanEvalBatch();
 
-    std::vector<size_t> unique_indices;
-    std::unordered_map<size_t, size_t> unique_positions;
-    // eval末尾paddingを含む重複indexは一度だけdecodeし、slot組立時に再利用する。
-    for (const auto index : selection.indices) {
-        if (unique_positions.contains(index)) continue;
-        unique_positions.emplace(index, unique_indices.size());
-        unique_indices.push_back(index);
-    }
+    // 固定shapeのfresh batchを一括確保し、各workerが排他的なslotを直接埋める。
+    ANET_PROFILE_SCOPE_NEXT(allocate);
+    const auto& dataset_config = dataset_->GetConfig();
+    ImageBatch batch{
+        .grid = torch::empty(
+            { batch_size_, 3, dataset_config.image_height, dataset_config.image_width },
+            torch::TensorOptions().dtype(torch::kUInt8)),
+        .targets = torch::empty(
+            { batch_size_ }, torch::TensorOptions().dtype(torch::kInt64)),
+        .valid_count = plan.valid_count,
+        .window_end = plan.window_end,
+        .completed_cycles = plan.completed_cycles,
+    };
 
-    // padding等の重複indexをまとめ、同期またはSource専有poolでdecode/cache lookupする。
-    ANET_PROFILE_SCOPE_NEXT(decode_cache);
-    std::vector<std::optional<torch::data::Example<>>> decoded(unique_indices.size());
+    // Trainは全lane、Evalは有効laneだけをdecodeからwriteまで一つのworkとして処理する。
+    ANET_PROFILE_SCOPE_NEXT(fill);
     const bool use_pool = worker_type_ == anet::rl::WorkerType::THREAD_POOL
         || (worker_type_ == anet::rl::WorkerType::AUTO && batch_size_ > 1);
-    if (use_pool && decode_pool_ == nullptr) {
-        decode_pool_ = std::make_shared<anet::PinnedThreadPool>(worker_count_);
+    if (use_pool && sample_pool_ == nullptr) {
+        sample_pool_ = std::make_shared<anet::PinnedThreadPool>(worker_count_, "ImageDataSource");
     }
-    if (decode_pool_ == nullptr) {
-        for (size_t i = 0; i < unique_indices.size(); ++i) {
-            decoded[i] = dataset_->Get(unique_indices[i]);
+    const auto work_count = static_cast<size_t>(
+        role_ == Role::Train ? batch_size_ : plan.valid_count);
+    if (sample_pool_ == nullptr) {
+        for (size_t slot = 0; slot < work_count; ++slot) {
+            FillSample(batch, plan, slot);
         }
     } else {
-        // worker例外は最初の1件を呼出しthreadへ戻し、部分batchを公開しない。
-        std::mutex failure_mutex;
-        std::exception_ptr failure;
-        for (size_t i = 0; i < unique_indices.size(); ++i) {
-            decode_pool_->Enqueue(static_cast<int>(i % static_cast<size_t>(worker_count_)),
-                [&, i] {
-                    ANET_PROFILE_SCOPE_FULL(decode, "ImageDataSource::NextBatch.decode");
-                    try {
-                        decoded[i] = dataset_->Get(unique_indices[i]);
-                    } catch (...) {
-                        std::lock_guard lock(failure_mutex);
-                        if (failure == nullptr) failure = std::current_exception();
-                    }
-                });
+        sample_pool_->ParallelFor(work_count, [&](size_t slot) {
+            FillSample(batch, plan, slot);
+        });
+    }
+
+    // Eval末尾の不足laneは最後の有効slotから複製し、decode/augmentの重複実行を避ける。
+    ANET_PROFILE_SCOPE_NEXT(padding);
+    if (plan.valid_count < batch_size_) {
+        const int64_t padding_source = plan.valid_count - 1;
+        for (int64_t slot = plan.valid_count; slot < batch_size_; ++slot) {
+            batch.grid[slot].copy_(batch.grid[padding_source]);
+            batch.targets.data_ptr<int64_t>()[slot]
+                = batch.targets.data_ptr<int64_t>()[padding_source];
         }
-        decode_pool_->WaitAll();
-        if (failure != nullptr) std::rethrow_exception(failure);
     }
 
-    // slotごとのepoch/indexから再現可能なaugmentを適用し、targetと順序を揃える。
-    ANET_PROFILE_SCOPE_NEXT(augment);
-    std::vector<torch::Tensor> images;
-    std::vector<int64_t> targets;
-    images.reserve(batch_size_);
-    targets.reserve(batch_size_);
-    for (int i = 0; i < batch_size_; ++i) {
-        const auto index = selection.indices[static_cast<size_t>(i)];
-        const auto& example = decoded[unique_positions.at(index)].value();
-        images.push_back(ApplyAugment(example.data, selection.epoch_tags[static_cast<size_t>(i)], index));
-        targets.push_back(example.target.item<int64_t>());
-    }
-
-    // 過去batchとstorageを共有しないfresh Tensorへcollateして所有権を渡す。
-    ANET_PROFILE_SCOPE_NEXT(collate);
-    return ImageBatch{
-        .grid = torch::stack(images).contiguous(),
-        .targets = torch::tensor(targets, torch::TensorOptions().dtype(torch::kInt64)),
-        .epoch_tags = std::move(selection.epoch_tags),
-        .valid_count = selection.valid_count,
-        .window_end = selection.window_end,
-        .completed_cycles = selection.completed_cycles,
-    };
+    // sampler metadataを完成済みbatchへ移し、呼出し側へfresh storageの所有権を渡す。
+    batch.epoch_tags = std::move(plan.epoch_tags);
+    return batch;
 }
 
 void ImageDataSource::Shutdown()
 {
     // Source専有workerを停止してから参照を解放し、破棄後のcallback実行を防ぐ。
-    if (decode_pool_ != nullptr) {
-        decode_pool_->Stop();
-        decode_pool_.reset();
+    if (sample_pool_ != nullptr) {
+        sample_pool_->Stop();
+        sample_pool_.reset();
     }
 }

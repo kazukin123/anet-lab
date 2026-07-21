@@ -23,8 +23,8 @@ namespace anet::nn {
     // ===========================================================================
 
     struct NetworkBlockConfig {
-        std::string type;             // "Conv2d", "Linear", "ResBlock" etc.
-        anet::ConfigData config_data; // Specific config data for the block. "kernel_size"=3 etc.
+        std::string type;             ///< "Conv2d", "Linear", "ResBlock" etc.
+        anet::ConfigData config_data; ///< Specific config data for the block. "kernel_size"=3 etc.
     };
 
     struct ConfigProfileConfig {
