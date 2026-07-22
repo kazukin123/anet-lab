@@ -33,10 +33,6 @@ DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > BF16.agent > R > X
 DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G5846 > DropMergeEnv.heavy > E
 
 
-#net.body.$ = net.body.MLP2
-#net.body.$ = net.body.SuikaNet2032
-#net.body.$ = net.body.SuikaNet4064
-
 #net.body.$ = net.body.SuikaResNet4064_06
 #net.body.$ = net.body.SuikaResNet4064_10
 #net.body.$ = net.body.SuikaResNet4064_10d_64
@@ -68,9 +64,12 @@ net.branch.[vector_feature].structure = Embed5846_v2
 #net.branch.[main_feature].$ = net.branch.SuikaResNet4064_10d
 #net.branch.[main_feature].$ = net.branch.SuikaViT_Flatten_128_pre
 #net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128
-net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2
+#net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2
 #net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2_dp
+#net.branch.[main_feature].$ = net.branch.SuikaConvNeXt_S128
+net.branch.[main_feature].$ = net.branch.SuikaConvNeXt_ViT128
 
+app.run_name = run_{t}_dm
 
 # ==============================================================================
 # Run設定
@@ -110,6 +109,9 @@ net.branch.[main_feature].$ = net.branch.SuikaHybrid_Flatten_128_pre2
 #app.run_name = run_{t}_TA_snap200_fixed
 #app.run_name = run_{t}_TA_snap200_fixed-L
 #app.run_name = run_{t}_TA_snap200_aa-L
+#app.run_name = run_{t}_cnx-s128
+#app.run_name = run_{t}_cnx-vit128
+
 
 #app.online.exp_pause_step  = 9,000,000    # 9M
 #app.online.exp_pause_step  = 15,000,000      # 15M
@@ -135,7 +137,7 @@ backend.$ = backend.non-deterministic # 非決定論的（高速化）
 # 実験
 # ==============================================================================
 
-#E.no_drop_timeout_gameover_penalty = -10
+E.no_drop_timeout_gameover_penalty = 0
 
 M.[33_agent_action/11_train_actor_snapshot_interval] = train_actor_snapshot_interval @train $action_info
 M.[33_agent_action/12_train_actor_snapshot_age] = train_actor_snapshot_age @train $action_info
@@ -819,6 +821,8 @@ net.body.SuikaHybrid_Flatten_256HR.structure = Embed4064 > ConvInit64 > SiLU > R
 # V2
 # ==============================================================================
 
+# --- Common blocks ---
+
 net.block.[ResBlock64p].type = ResBlock
 net.block.[ResBlock64p].res.channels = 64
 net.block.[ResBlock64p].res.kernel_size = 3
@@ -867,6 +871,66 @@ net.block.[HeadFC1024].type = Linear
 net.block.[HeadFC1024].linear.out_features = 1024
 net.block.[HeadFC1024].init.mode = xavier
 
+
+# --- DropMerge ConvNeXt ---
+
+# Stem: 46x58 -> 23x29
+net.block.[DMCnxStem64].type = Conv2d
+net.block.[DMCnxStem64].conv.out_channels = 64
+net.block.[DMCnxStem64].conv.kernel_size = 3
+net.block.[DMCnxStem64].conv.stride = 2
+net.block.[DMCnxStem64].conv.padding = 1
+net.block.[DMCnxStem64].init.mode = trunc_normal
+
+net.block.[DMCnxStemLN64].type = LayerNorm2d
+net.block.[DMCnxStemLN64].num_channels = 64
+net.block.[DMCnxStemLN64].eps = 1e-6
+net.block.[DMCnxStemLN64].force_fp32 = true
+
+net.block.[DMCnx64].type = CNBlock
+net.block.[DMCnx64].cn.channels = 64
+net.block.[DMCnx64].cn.kernel_size = 7
+net.block.[DMCnx64].cn.ffn_expand_ratio = 4
+net.block.[DMCnx64].cn.layerscale_init = 1e-3
+net.block.[DMCnx64].cn.droppath_rate = 0.0
+net.block.[DMCnx64].cn.norm_force_fp32 = true
+
+# Downsample: 23x29 -> 11x14
+net.block.[DMCnxDownLN64].type = LayerNorm2d
+net.block.[DMCnxDownLN64].num_channels = 64
+net.block.[DMCnxDownLN64].eps = 1e-6
+net.block.[DMCnxDownLN64].force_fp32 = true
+
+net.block.[DMCnxDown64to128].type = Conv2d
+net.block.[DMCnxDown64to128].conv.out_channels = 128
+net.block.[DMCnxDown64to128].conv.kernel_size = 2
+net.block.[DMCnxDown64to128].conv.stride = 2
+net.block.[DMCnxDown64to128].conv.padding = 0
+net.block.[DMCnxDown64to128].init.mode = trunc_normal
+
+net.block.[DMCnx128].type = CNBlock
+net.block.[DMCnx128].cn.channels = 128
+net.block.[DMCnx128].cn.kernel_size = 7
+net.block.[DMCnx128].cn.ffn_expand_ratio = 4
+net.block.[DMCnx128].cn.layerscale_init = 1e-3
+net.block.[DMCnx128].cn.droppath_rate = 0.0
+net.block.[DMCnx128].cn.norm_force_fp32 = true
+
+net.block.[DMCnxTrans128].type = TransformerEncoder
+net.block.[DMCnxTrans128].tf.d_model = 128
+net.block.[DMCnxTrans128].tf.nhead = 8
+net.block.[DMCnxTrans128].tf.num_layers = 4
+net.block.[DMCnxTrans128].tf.dim_feedforward = 512
+net.block.[DMCnxTrans128].tf.norm_first = true
+net.block.[DMCnxTrans128].tf.use_sdpa = true
+net.block.[DMCnxTrans128].tf.activation = gelu
+net.block.[DMCnxTrans128].tf.hidden_dropout_rate = 0.0
+net.block.[DMCnxTrans128].tf.attn_dropout_rate = 0.0
+net.block.[DMCnxTrans128].tf.droppath_rate = 0.0
+
+
+# --- branches ---
+
 net.branch.[vector_feature].bind = vector
 #net.body.output.[features] = main_feature
 
@@ -902,6 +966,12 @@ net.branch.SuikaHybrid_Flatten_128_pre2.structure = ConvInit64 >        ResBlock
 
 net.branch.SuikaHybrid_Flatten_128_pre2_dp.bind = grid, vector_feature
 net.branch.SuikaHybrid_Flatten_128_pre2_dp.structure = ConvInit64 > ResBlock64p_dp(*4) > ConvDown64 > SiLU > ViT_Proj_128 > SiLU > PosEmbed2D > TransEnc_128_dp > Flatten > Linear_2048 > SiLU
+
+net.branch.SuikaConvNeXt_S128.bind = grid, vector_feature
+net.branch.SuikaConvNeXt_S128.structure = DMCnxStem64 > DMCnxStemLN64 > DMCnx64(*2) > DMCnxDownLN64 > DMCnxDown64to128 > DMCnx128(*6) > Flatten > Linear_2048 > SiLU
+
+net.branch.SuikaConvNeXt_ViT128.bind = grid, vector_feature
+net.branch.SuikaConvNeXt_ViT128.structure = DMCnxStem64 > DMCnxStemLN64 > DMCnx64(*2) > DMCnxDownLN64 > DMCnxDown64to128 > DMCnx128(*2) > PosEmbed2D > DMCnxTrans128 > Flatten > Linear_2048 > SiLU
 
 
 # ==============================================================================
@@ -1015,6 +1085,8 @@ metrics.image.interval = 0   # 出力全無効
 
 #metrics.image.[44_agent_img/52_per_thg_prio].$         = image.thg.per-prio
 #image.thg.per-prio.histgram.probe.value.key = replaybuffer.per.distribution
+#image.thg.per-prio.histgram.frame_interval = 200 # 10
+#image.thg.per-prio.interval = 100
 #image.thg.per-prio.interval = 500
 #image.thg.per-prio.interval = 1000
 
