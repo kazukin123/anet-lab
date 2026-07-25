@@ -372,6 +372,7 @@ std::shared_ptr<const anet::rl::SingleResetResult> DropMergeEnv::Reset()
 
     step_count_ = 0;
     steps_since_last_drop_ = 0;
+    blocked_candidate_frames_ = 0;
     game_over_ = false;
     game_over_timer_ = 0;
     episode_score_ = 0.0f;
@@ -416,6 +417,33 @@ bool DropMergeEnv::isSpawnAreaClear(float x, float y, float r) const
     return true;
 }
 
+bool anet::rl::env::drop_merge::DoBlockedIntervalsCoverRange(
+    std::vector<std::pair<float, float>>& blocked_intervals, float x_min, float x_max)
+{
+    if (blocked_intervals.empty()) {
+        return false;
+    }
+
+    std::sort(blocked_intervals.begin(), blocked_intervals.end(),
+        [](const auto& lhs, const auto& rhs) {
+            return lhs.first < rhs.first;
+        });
+
+    float covered_until = x_min;
+    for (const auto& interval : blocked_intervals) {
+        if (interval.first > covered_until) {
+            return false;
+        }
+
+        covered_until = std::max(covered_until, interval.second);
+        if (covered_until >= x_max) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool DropMergeEnv::hasClearSpawnXInRange(float x_min, float x_max, float y, float r) const
 {
     ANET_PROFILE_FUNC();
@@ -451,28 +479,8 @@ bool DropMergeEnv::hasClearSpawnXInRange(float x_min, float x_max, float y, floa
         }
     }
 
-    if (blocked_intervals.empty()) {
-        return true;
-    }
-
-    std::sort(blocked_intervals.begin(), blocked_intervals.end(),
-        [](const auto& lhs, const auto& rhs) {
-            return lhs.first < rhs.first;
-        });
-
-    float covered_until = x_min;
-    for (const auto& interval : blocked_intervals) {
-        if (interval.first > covered_until) {
-            return true; // gap がある = clear な x がある
-        }
-
-        covered_until = std::max(covered_until, interval.second);
-        if (covered_until >= x_max) {
-            return false; // 範囲全体が塞がっている
-        }
-    }
-
-    return covered_until < x_max;
+    // blocked interval の union に gap があれば、配置可能な x が存在する。
+    return !DoBlockedIntervalsCoverRange(blocked_intervals, x_min, x_max);
 }
 
 bool DropMergeEnv::hasAnyLegalDropForCurrentFruit() const
@@ -492,6 +500,7 @@ bool DropMergeEnv::hasAnyLegalDropForCurrentFruit() const
 
     const float half_w = config_.box_width * 0.5f;
     const float limit = half_w - r_drop - 0.01f;
+    if (limit <= 0.0f) return false; // 果物が箱幅より大きく、配置可能な x が存在しない。
     const float noise = std::max(0.0f, config_.drop_noise);
 
     for (int col = 0; col < num_drop_actions_; ++col) {
@@ -868,6 +877,14 @@ bool DropMergeEnv::isNoLegalDropState() const
 {
     ANET_PROFILE_FUNC();
 
+    if (!isNoLegalCandidateState()) return false;
+    return isWorldSettled();
+}
+
+bool DropMergeEnv::isNoLegalCandidateState() const
+{
+    ANET_PROFILE_FUNC();
+
     if (action_mode_ != ActionMode::DirectNoop) return false;
     if (game_over_) return false;
     if (dropper_.is_busy) return false;
@@ -875,7 +892,6 @@ bool DropMergeEnv::isNoLegalDropState() const
     if (dropper_.current_rank < 1 || dropper_.current_rank > kFruitTypeCount) return false;
     if (!merge_requests_.empty()) return false;
     if (!bodies_to_destroy_.empty()) return false;
-    if (!isWorldSettled()) return false;
 
     return !hasAnyLegalDropForCurrentFruit();
 }
@@ -897,6 +913,11 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         ep_settle_steps_max_ = 0;
         ep_suika_created_ = 0;
         ep_double_suika_created_ = 0;
+        ep_blocked_run_sum_ = 0;
+        ep_blocked_run_count_ = 0;
+        ep_blocked_run_max_ = 0;
+        ep_blocked_drop_on_candidate_ = false;
+        ep_no_drop_timeout_on_candidate_ = false;
     }
 
     // エピソードstepインクリメント
@@ -923,8 +944,16 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         steps_since_last_drop_++;   // それ以外ならカウント
     }
 
+    // action 適用前に、現在の fruit を置ける DROP がない状態かを記録する。
+    const bool pre_action_candidate = isNoLegalCandidateState();
+
     // アクション処理
     processAction(action);
+
+    // 確実に置けない状態で DROP を選び、実際に SpawnBlocked になったことを記録する。
+    if (pre_action_candidate && is_drop_action && term_reason_ == TerminationReason::SpawnBlocked) {
+        ep_blocked_drop_on_candidate_ = true;
+    }
 
     // 物理ステップ実行 (通常は1回、InstantDropやSettleモード時は条件を満たすまで回す)
     float accumulated_reward = 0.0f;
@@ -979,6 +1008,19 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
 
             // ゲームオーバーになったら即抜ける
             if (game_over_) break;
+
+            // NoLegal candidate の継続物理 frame 数を更新する。
+            // candidate が途切れた run だけを記録し、継続中の打ち切り run は集計しない。
+            if (isNoLegalCandidateState()) {
+                blocked_candidate_frames_++;
+            } else {
+                if (blocked_candidate_frames_ > 0) {
+                    ep_blocked_run_sum_ += blocked_candidate_frames_;
+                    ep_blocked_run_count_++;
+                    ep_blocked_run_max_ = std::max(ep_blocked_run_max_, blocked_candidate_frames_);
+                }
+                blocked_candidate_frames_ = 0;
+            }
 
             // 静止状態ならカウンターを増やし、動いていたらリセットする
             bool currently_settled = isWorldSettled();
@@ -1060,6 +1102,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     // ショットクロック判定
     if (!done && !truncated && config_.no_drop_timeout_steps > 0 && steps_since_last_drop_ >= config_.no_drop_timeout_steps) {
         term_reason_ = TerminationReason::NoDropTimeout;
+        ep_no_drop_timeout_on_candidate_ = isNoLegalCandidateState();
         if (config_.use_no_drop_timeout_gameover) {
             done = true;
             accumulated_reward += config_.no_drop_timeout_gameover_penalty;
@@ -1093,6 +1136,10 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         last_episode_reward_ = episode_reward_;
         last_ep_max_settle_steps_ = ep_settle_steps_max_;
         last_ep_mean_settle_steps_ = (ep_settle_count_ > 0) ? (static_cast<float>(ep_settle_steps_sum_) / ep_settle_count_) : 0.0f;
+        last_ep_max_blocked_frames_ = ep_blocked_run_max_;
+        last_ep_mean_blocked_frames_ = (ep_blocked_run_count_ > 0)
+            ? (static_cast<float>(ep_blocked_run_sum_) / ep_blocked_run_count_)
+            : 0.0f;
     }
 
     // State生成
@@ -1453,6 +1500,24 @@ std::optional<float> DropMergeEnv::GetScalar(const std::string& key, int64_t ind
     if (key == "term_reason_no_legal_drop") {
         if (!episode_just_ended_) return nan;
         return (term_reason_ == TerminationReason::NoLegalDrop) ? 1.0f : 0.0f;
+    }
+
+    // --- NoLegal candidate 診断 ---
+    if (key == "blocked_drop_on_candidate") {
+        if (!episode_just_ended_) return nan;
+        return ep_blocked_drop_on_candidate_ ? 1.0f : 0.0f;
+    }
+    if (key == "no_drop_timeout_on_candidate") {
+        if (!episode_just_ended_) return nan;
+        return ep_no_drop_timeout_on_candidate_ ? 1.0f : 0.0f;
+    }
+    if (key == "ep_mean_blocked_frames") {
+        if (!episode_just_ended_) return nan;
+        return last_ep_mean_blocked_frames_;
+    }
+    if (key == "ep_max_blocked_frames") {
+        if (!episode_just_ended_) return nan;
+        return static_cast<float>(last_ep_max_blocked_frames_);
     }
 
     return std::nullopt;

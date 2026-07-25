@@ -5,6 +5,7 @@
 #include <vector>
 #include <optional>
 #include <set>
+#include <utility>
 #include <box2d/box2d.h>
 #include <torch/torch.h>
 #include "anet/random.hpp"
@@ -21,6 +22,10 @@ namespace anet::rl::env::drop_merge {
     constexpr int kActionFastRight = 5;
 
     constexpr int kFruitTypeCount = 11; // 11種類 (Rank 1..11)
+
+    /// blocked 区間の union が [x_min, x_max] 全体を覆うかを判定する。
+    bool DoBlockedIntervalsCoverRange(
+        std::vector<std::pair<float, float>>& blocked_intervals, float x_min, float x_max);
 
 
     enum class ActionMode {
@@ -241,6 +246,7 @@ namespace anet::rl::env::drop_merge {
         void buildWorld();
         void destroyWorld();
         bool isSpawnAreaClear(float x, float y, float r) const;
+        bool isNoLegalCandidateState() const;
         bool isNoLegalDropState() const;
         bool hasAnyLegalDropForCurrentFruit() const;
         bool hasClearSpawnXInRange(float x_min, float x_max, float y, float r) const;
@@ -285,6 +291,7 @@ namespace anet::rl::env::drop_merge {
         bool game_over_ = false;
         int game_over_timer_ = 0;
         int steps_since_last_drop_ = 0;
+        int blocked_candidate_frames_ = 0; ///< NoLegal candidate が連続成立した物理 frame 数
         torch::Tensor vec_buffer_;   ///< obsのバッファ
         torch::Tensor grid_buffer_;  ///< obsのバッファ
 
@@ -316,6 +323,15 @@ namespace anet::rl::env::drop_merge {
         float last_ep_mean_settle_steps_ = 0.0f;
         int last_ep_max_settle_steps_ = 0;
         int last_step_sim_steps_ = 0;     ///< 直近のStepで回った物理ステップ数(UI用)
+
+        // NoLegal candidate 診断用
+        int ep_blocked_run_sum_ = 0;
+        int ep_blocked_run_count_ = 0;
+        int ep_blocked_run_max_ = 0;
+        float last_ep_mean_blocked_frames_ = 0.0f;
+        int last_ep_max_blocked_frames_ = 0;
+        bool ep_blocked_drop_on_candidate_ = false;
+        bool ep_no_drop_timeout_on_candidate_ = false;
 
         // デバッグ・観測用キャッシュ
         mutable std::vector<float> grid_cache_;

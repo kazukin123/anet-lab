@@ -2535,7 +2535,8 @@ TEST_CASE("DQN Actor emits a packed priority hint without another forward", "[dq
         dqn::Actor actor(policy, nullptr, context, mutex, network, network, emit_hint);
 
         auto flags = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool));
-        rl::BatchState state(MakeAutocastProbePolicyInput(torch::kCPU), flags, flags, flags);
+        auto episode_start = torch::tensor({ true, false }, torch::TensorOptions().dtype(torch::kBool));
+        rl::BatchState state(MakeAutocastProbePolicyInput(torch::kCPU), flags, flags, episode_start);
         auto action_info = actor.MakeAction(rl::StepCounts{}, state);
         return std::pair(probe_state->forward_count, std::move(action_info));
     };
@@ -2545,6 +2546,9 @@ TEST_CASE("DQN Actor emits a packed priority hint without another forward", "[dq
 
     CHECK(plain_forward_count == hint_forward_count);
     CHECK_FALSE(plain->GetReplayInitialPriorityHint().has_value());
+    CHECK(torch::equal(
+        plain->GetAuxData().at("episode_start"),
+        torch::tensor({ true, false }, torch::TensorOptions().dtype(torch::kBool))));
     REQUIRE(hinted->GetReplayInitialPriorityHint().has_value());
     const auto decoded = dqn::DecodeActorQHint(hinted->GetReplayInitialPriorityHint()->GetPayload());
     const auto& q_values = hinted->GetAuxData().at("q_values");
@@ -2647,6 +2651,93 @@ TEST_CASE("DQNActionInfo exposes action UQE scalar metrics", "[dqn][action_polic
     CHECK_THROWS(non_uqe.GetScalar("action_uqe_margin"));
     CHECK_THROWS(non_uqe.GetScalar("action_uqe_margin.[x]"));
     CHECK_THROWS(win_info.GetScalar("action_uqe_margin.[3]"));
+}
+
+TEST_CASE("DQNActionInfo exposes episode-start action margin scalar metrics", "[dqn][action_policy][metrics]")
+{
+    const auto make_info = [](const torch::Tensor& q_values, const torch::Tensor& uqe_values, const torch::Tensor& episode_start) {
+        rl::AuxData aux;
+        aux["q_values"] = q_values;
+        aux["uqe_values"] = uqe_values;
+        aux["episode_start"] = episode_start;
+        return dqn::DQNActionInfo(
+            torch::zeros({ q_values.size(0) }, torch::TensorOptions().dtype(torch::kInt64)),
+            anet::TensorDict{},
+            aux);
+    };
+
+    const auto q_values = torch::tensor({
+        { 6.0f, 2.0f, 1.0f },
+        { 9.0f, 1.0f, 0.0f },
+        { 2.0f, 5.0f, 0.0f },
+    });
+    const auto uqe_values = torch::tensor({
+        { 5.0f, 1.0f, 0.0f },
+        { 8.0f, 2.0f, 1.0f },
+        { 3.0f, 4.0f, 2.0f },
+    });
+    const auto episode_start = torch::tensor({ true, false, true }, torch::TensorOptions().dtype(torch::kBool));
+    auto info = make_info(q_values, uqe_values, episode_start);
+
+    auto uqe_margin = info.GetScalar("episode_start_action_uqe_margin.[0]");
+    REQUIRE(uqe_margin.has_value());
+    CHECK(*uqe_margin == Catch::Approx(1.5f));
+    auto q_margin = info.GetScalar("episode_start_action_q_margin.[0]");
+    REQUIRE(q_margin.has_value());
+    CHECK(*q_margin == Catch::Approx(0.5f));
+
+    const auto no_episode_start = torch::zeros({ 3 }, torch::TensorOptions().dtype(torch::kBool));
+    auto no_reset_info = make_info(q_values, uqe_values, no_episode_start);
+    auto no_reset_uqe = no_reset_info.GetScalar("episode_start_action_uqe_margin.[0]");
+    auto no_reset_q = no_reset_info.GetScalar("episode_start_action_q_margin.[0]");
+    REQUIRE(no_reset_uqe.has_value());
+    REQUIRE(no_reset_q.has_value());
+    CHECK(std::isnan(*no_reset_uqe));
+    CHECK(std::isnan(*no_reset_q));
+
+    rl::AuxData non_uqe_aux;
+    non_uqe_aux["q_values"] = q_values;
+    non_uqe_aux["episode_start"] = episode_start;
+    dqn::DQNActionInfo non_uqe(
+        torch::zeros({ 3 }, torch::TensorOptions().dtype(torch::kInt64)),
+        anet::TensorDict{},
+        non_uqe_aux);
+    auto non_uqe_margin = non_uqe.GetScalar("episode_start_action_uqe_margin.[0]");
+    REQUIRE(non_uqe_margin.has_value());
+    CHECK(std::isnan(*non_uqe_margin));
+
+    auto replaced = info.WithAction(torch::tensor({ 2, 1, 0 }, torch::TensorOptions().dtype(torch::kInt64)));
+    auto replaced_scalar_target = dynamic_cast<const anet::Module*>(replaced.get());
+    REQUIRE(replaced_scalar_target != nullptr);
+    auto replaced_q_margin = replaced_scalar_target->GetScalar("episode_start_action_q_margin.[0]");
+    REQUIRE(replaced_q_margin.has_value());
+    CHECK(*replaced_q_margin == Catch::Approx(0.5f));
+
+    rl::AuxData missing_mask_aux;
+    missing_mask_aux["q_values"] = q_values;
+    dqn::DQNActionInfo missing_mask(
+        torch::zeros({ 3 }, torch::TensorOptions().dtype(torch::kInt64)),
+        anet::TensorDict{},
+        missing_mask_aux);
+    CHECK_THROWS(missing_mask.GetScalar("episode_start_action_q_margin.[0]"));
+
+    rl::AuxData missing_q_aux;
+    missing_q_aux["episode_start"] = episode_start;
+    dqn::DQNActionInfo missing_q(
+        torch::zeros({ 3 }, torch::TensorOptions().dtype(torch::kInt64)),
+        anet::TensorDict{},
+        missing_q_aux);
+    CHECK_THROWS(missing_q.GetScalar("episode_start_action_q_margin.[0]"));
+
+    auto invalid_mask_dtype = make_info(q_values, uqe_values, episode_start.to(torch::kInt64));
+    CHECK_THROWS(invalid_mask_dtype.GetScalar("episode_start_action_q_margin.[0]"));
+    auto invalid_mask_shape = make_info(q_values, uqe_values, episode_start.unsqueeze(1));
+    CHECK_THROWS(invalid_mask_shape.GetScalar("episode_start_action_q_margin.[0]"));
+    auto invalid_q_shape = make_info(q_values.flatten(), uqe_values, episode_start);
+    CHECK_THROWS(invalid_q_shape.GetScalar("episode_start_action_q_margin.[0]"));
+    CHECK_THROWS(info.GetScalar("episode_start_action_q_margin"));
+    CHECK_THROWS(info.GetScalar("episode_start_action_q_margin.[x]"));
+    CHECK_THROWS(info.GetScalar("episode_start_action_q_margin.[3]"));
 }
 
 TEST_CASE("DQN Actor Q hint schema packs and decodes two columns", "[dqn][per][actor_initial][hint]")

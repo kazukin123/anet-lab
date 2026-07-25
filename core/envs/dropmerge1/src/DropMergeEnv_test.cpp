@@ -2,6 +2,7 @@
 
 #include "DropMergeEnv.hpp"
 
+#include <cmath>
 #include <clocale>
 #include <exception>
 #include <filesystem>
@@ -50,6 +51,25 @@ public:
     }
 };
 
+anet::rl::env::drop_merge::DropMergeEnvConfig MakeBlockedBoardConfig()
+{
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.seed_mode = "fixed";
+    config.action_mode = "direct_noop";
+    config.drop_divisions = 1;
+    config.box_width = 1.0f;
+    config.box_height = 0.9f;
+    config.fruit_radii.assign(anet::rl::env::drop_merge::kFruitTypeCount, 0.4f);
+    config.drop_probs = { 1.0f };
+    config.drop_noise = 0.0f;
+    config.spin_noise = 0.0f;
+    config.restitution = 0.0f;
+    config.box_restitution = 0.0f;
+    config.use_instant_drop = true;
+    config.game_over_grace_step = 1000;
+    return config;
+}
+
 int CountOccurrences(const std::string& value, const std::string& needle)
 {
     int count = 0;
@@ -87,6 +107,202 @@ TEST_CASE("DropMergeEnv prefixes maximum-step log with its name once", "[dropmer
         CHECK(CountOccurrences(record.message, "dropmerge-log[0]: ") == 1);
     }
     CHECK(matching_records == 1);
+}
+
+TEST_CASE("DropMergeEnv reports DROP selected on a NoLegal candidate", "[dropmerge][no_legal_candidate]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto config = MakeBlockedBoardConfig();
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "dropmerge-candidate[0]", 123);
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto first_drop = env->Step(1);
+    REQUIRE_FALSE(first_drop->next_state.done);
+    REQUIRE_FALSE(first_drop->next_state.truncated);
+    REQUIRE(env->GetScalar("blocked_drop_on_candidate").has_value());
+    CHECK(std::isnan(*env->GetScalar("blocked_drop_on_candidate")));
+    REQUIRE(env->GetScalar("no_drop_timeout_on_candidate").has_value());
+    CHECK(std::isnan(*env->GetScalar("no_drop_timeout_on_candidate")));
+    REQUIRE(env->GetScalar("ep_mean_blocked_frames").has_value());
+    CHECK(std::isnan(*env->GetScalar("ep_mean_blocked_frames")));
+    REQUIRE(env->GetScalar("ep_max_blocked_frames").has_value());
+    CHECK(std::isnan(*env->GetScalar("ep_max_blocked_frames")));
+
+    const auto blocked_drop = env->Step(1);
+    CHECK(blocked_drop->next_state.done);
+    CHECK_FALSE(blocked_drop->next_state.truncated);
+    REQUIRE(env->GetScalar("term_reason_spawn_blocked").has_value());
+    CHECK(*env->GetScalar("term_reason_spawn_blocked") == 1.0f);
+    REQUIRE(env->GetScalar("blocked_drop_on_candidate").has_value());
+    CHECK(*env->GetScalar("blocked_drop_on_candidate") == 1.0f);
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv handles a fruit wider than its placement range", "[dropmerge][no_legal_candidate]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto config = MakeBlockedBoardConfig();
+    config.box_width = 0.5f;
+    config.settle_velocity_threshold = 100.0f;
+    config.settle_angular_threshold = 100.0f;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "dropmerge-no-placement-range[0]", 123);
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto noop = env->Step(0);
+    CHECK(noop->next_state.done);
+    CHECK_FALSE(noop->next_state.truncated);
+    REQUIRE(env->GetScalar("term_reason_no_legal_drop").has_value());
+    CHECK(*env->GetScalar("term_reason_no_legal_drop") == 1.0f);
+    logs.Flush();
+}
+
+TEST_CASE("blocked intervals report whether the entire range is covered", "[dropmerge][blocked_intervals]")
+{
+    const auto covers = [](std::vector<std::pair<float, float>> intervals) {
+        return anet::rl::env::drop_merge::DoBlockedIntervalsCoverRange(intervals, -1.0f, 1.0f);
+    };
+
+    CHECK_FALSE(covers({}));
+    CHECK(covers({ { -1.0f, 1.0f } }));
+    CHECK_FALSE(covers({ { -0.9f, 1.0f } }));
+    CHECK_FALSE(covers({ { -1.0f, 0.9f } }));
+    CHECK_FALSE(covers({ { -1.0f, -0.1f }, { 0.1f, 1.0f } }));
+    CHECK(covers({ { 0.0f, 1.0f }, { -1.0f, 0.5f } }));
+    CHECK(covers({ { -1.0f, 0.0f }, { 0.0f, 1.0f } }));
+}
+
+TEST_CASE("DropMergeEnv keeps settled NoLegal NOOP termination unchanged", "[dropmerge][no_legal_candidate]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto config = MakeBlockedBoardConfig();
+    config.settle_velocity_threshold = 100.0f;
+    config.settle_angular_threshold = 100.0f;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "dropmerge-settled[0]", 123);
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto first_drop = env->Step(1);
+    REQUIRE_FALSE(first_drop->next_state.done);
+
+    const auto noop = env->Step(0);
+    CHECK(noop->next_state.done);
+    CHECK_FALSE(noop->next_state.truncated);
+    REQUIRE(env->GetScalar("term_reason_no_legal_drop").has_value());
+    CHECK(*env->GetScalar("term_reason_no_legal_drop") == 1.0f);
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv reports timeout with a legal DROP available", "[dropmerge][no_legal_candidate]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.seed_mode = "fixed";
+    config.action_mode = "direct_noop";
+    config.no_drop_timeout_steps = 1;
+    config.max_step = 10;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "dropmerge-legal-timeout[0]", 123);
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto timeout = env->Step(0);
+    CHECK_FALSE(timeout->next_state.done);
+    CHECK(timeout->next_state.truncated);
+    REQUIRE(env->GetScalar("term_reason_no_drop_timeout").has_value());
+    CHECK(*env->GetScalar("term_reason_no_drop_timeout") == 1.0f);
+    REQUIRE(env->GetScalar("no_drop_timeout_on_candidate").has_value());
+    CHECK(*env->GetScalar("no_drop_timeout_on_candidate") == 0.0f);
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv reports timeout while an unsettled board remains blocked", "[dropmerge][no_legal_candidate]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto config = MakeBlockedBoardConfig();
+    config.no_drop_timeout_steps = 3;
+    config.restitution = 1.0f;
+    config.box_restitution = 1.0f;
+    config.damping = 0.0f;
+    config.settle_velocity_threshold = 0.0f;
+    config.settle_angular_threshold = 0.0f;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "dropmerge-unsettled[0]", 123);
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto first_drop = env->Step(1);
+    REQUIRE_FALSE(first_drop->next_state.done);
+
+    std::shared_ptr<const anet::rl::SingleStepResult> timeout;
+    for (int i = 0; i < config.no_drop_timeout_steps; ++i) {
+        timeout = env->Step(0);
+    }
+
+    REQUIRE(timeout != nullptr);
+    CHECK_FALSE(timeout->next_state.done);
+    CHECK(timeout->next_state.truncated);
+    REQUIRE(env->GetScalar("term_reason_no_drop_timeout").has_value());
+    CHECK(*env->GetScalar("term_reason_no_drop_timeout") == 1.0f);
+    REQUIRE(env->GetScalar("no_drop_timeout_on_candidate").has_value());
+    CHECK(*env->GetScalar("no_drop_timeout_on_candidate") == 1.0f);
+    REQUIRE(env->GetScalar("ep_mean_blocked_frames").has_value());
+    CHECK(*env->GetScalar("ep_mean_blocked_frames") == 0.0f);
+    REQUIRE(env->GetScalar("ep_max_blocked_frames").has_value());
+    CHECK(*env->GetScalar("ep_max_blocked_frames") == 0.0f);
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv reports the length of a resolved blocked run", "[dropmerge][blocked_persistence]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.seed_mode = "fixed";
+    config.action_mode = "direct_noop";
+    config.drop_divisions = 1;
+    config.box_width = 1.0f;
+    config.box_height = 2.0f;
+    config.fruit_radii.assign(anet::rl::env::drop_merge::kFruitTypeCount, 0.1f);
+    config.drop_probs = { 1.0f };
+    config.drop_noise = 0.0f;
+    config.spin_noise = 0.0f;
+    config.restitution = 0.0f;
+    config.damping = 0.0f;
+    config.use_instant_drop = true;
+    config.reload_min_steps = 0;
+    config.reload_max_steps = 1;
+    config.no_drop_timeout_steps = 30;
+    config.max_step = 100;
+    config.game_over_grace_step = 1000;
+    config.settle_velocity_threshold = 0.0f;
+    config.settle_angular_threshold = 0.0f;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "dropmerge-resolved-run[0]", 123);
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto first_drop = env->Step(1);
+    REQUIRE_FALSE(first_drop->next_state.done);
+
+    std::shared_ptr<const anet::rl::SingleStepResult> timeout;
+    for (int i = 0; i < config.no_drop_timeout_steps; ++i) {
+        timeout = env->Step(0);
+    }
+
+    REQUIRE(timeout != nullptr);
+    REQUIRE(timeout->next_state.truncated);
+    REQUIRE(env->GetScalar("ep_mean_blocked_frames").has_value());
+    REQUIRE(env->GetScalar("ep_max_blocked_frames").has_value());
+    const float mean_blocked_frames = *env->GetScalar("ep_mean_blocked_frames");
+    const float max_blocked_frames = *env->GetScalar("ep_max_blocked_frames");
+    CHECK(mean_blocked_frames > 0.0f);
+    CHECK(mean_blocked_frames == max_blocked_frames);
+    CHECK(max_blocked_frames < static_cast<float>(config.no_drop_timeout_steps));
+    logs.Flush();
 }
 
 int main(int argc, char* argv[])

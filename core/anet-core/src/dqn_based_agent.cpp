@@ -445,6 +445,36 @@ struct ActionUqeScalarKey {
     int64_t action_index;
 };
 
+int64_t ParseActionScalarIndex(const std::string& key, const char* prefix)
+{
+    const std::string prefix_text(prefix);
+    if (!anet::StartsWith(key, prefix_text) || !anet::EndsWith(key, "]")) {
+        ANET_SYSTEM_ERROR("DQNActionInfo: invalid scalar key format: " << key);
+    }
+
+    const std::string index_text = key.substr(
+        prefix_text.size(),
+        key.size() - prefix_text.size() - 1);
+    if (index_text.empty()) {
+        ANET_SYSTEM_ERROR("DQNActionInfo: action index is empty in scalar key: " << key);
+    }
+
+    int64_t action_index = -1;
+    try {
+        size_t parsed_len = 0;
+        action_index = std::stoll(index_text, &parsed_len);
+        if (parsed_len != index_text.size()) {
+            ANET_SYSTEM_ERROR("DQNActionInfo: invalid action index in scalar key: " << key);
+        }
+    } catch (const std::exception&) {
+        ANET_SYSTEM_ERROR("DQNActionInfo: invalid action index in scalar key: " << key);
+    }
+    if (action_index < 0) {
+        ANET_SYSTEM_ERROR("DQNActionInfo: action index must be non-negative in scalar key: " << key);
+    }
+    return action_index;
+}
+
 std::optional<ActionUqeScalarKey> ParseActionUqeScalarKey(const std::string& key)
 {
     static constexpr const char* kWinRatePrefix = "action_uqe_win_rate.[";
@@ -452,40 +482,43 @@ std::optional<ActionUqeScalarKey> ParseActionUqeScalarKey(const std::string& key
     static constexpr const char* kMarginPrefix = "action_uqe_margin.[";
     static constexpr const char* kMarginBase = "action_uqe_margin";
 
-    auto parse_index = [&key](const char* prefix) {
-        const std::string prefix_text(prefix);
-        if (!anet::StartsWith(key, prefix_text) || !anet::EndsWith(key, "]")) {
-            ANET_SYSTEM_ERROR("DQNActionInfo: invalid scalar key format: " << key);
-        }
-
-        const std::string index_text = key.substr(
-            prefix_text.size(),
-            key.size() - prefix_text.size() - 1);
-        if (index_text.empty()) {
-            ANET_SYSTEM_ERROR("DQNActionInfo: action index is empty in scalar key: " << key);
-        }
-
-        int64_t action_index = -1;
-        try {
-            size_t parsed_len = 0;
-            action_index = std::stoll(index_text, &parsed_len);
-            if (parsed_len != index_text.size()) {
-                ANET_SYSTEM_ERROR("DQNActionInfo: invalid action index in scalar key: " << key);
-            }
-        } catch (const std::exception&) {
-            ANET_SYSTEM_ERROR("DQNActionInfo: invalid action index in scalar key: " << key);
-        }
-        if (action_index < 0) {
-            ANET_SYSTEM_ERROR("DQNActionInfo: action index must be non-negative in scalar key: " << key);
-        }
-        return action_index;
-    };
-
     if (anet::StartsWith(key, kWinRateBase)) {
-        return ActionUqeScalarKey{ ActionUqeScalarKind::kWinRate, parse_index(kWinRatePrefix) };
+        return ActionUqeScalarKey{ ActionUqeScalarKind::kWinRate, ParseActionScalarIndex(key, kWinRatePrefix) };
     }
     if (anet::StartsWith(key, kMarginBase)) {
-        return ActionUqeScalarKey{ ActionUqeScalarKind::kMargin, parse_index(kMarginPrefix) };
+        return ActionUqeScalarKey{ ActionUqeScalarKind::kMargin, ParseActionScalarIndex(key, kMarginPrefix) };
+    }
+    return std::nullopt;
+}
+
+enum class EpisodeStartActionMarginValueKind {
+    kUqe,
+    kQ,
+};
+
+struct EpisodeStartActionMarginKey {
+    EpisodeStartActionMarginValueKind value_kind;
+    int64_t action_index;
+};
+
+std::optional<EpisodeStartActionMarginKey> ParseEpisodeStartActionMarginKey(const std::string& key)
+{
+    static constexpr const char* kUqePrefix = "episode_start_action_uqe_margin.[";
+    static constexpr const char* kUqeBase = "episode_start_action_uqe_margin";
+    static constexpr const char* kQPrefix = "episode_start_action_q_margin.[";
+    static constexpr const char* kQBase = "episode_start_action_q_margin";
+
+    if (anet::StartsWith(key, kUqeBase)) {
+        return EpisodeStartActionMarginKey{
+            EpisodeStartActionMarginValueKind::kUqe,
+            ParseActionScalarIndex(key, kUqePrefix)
+        };
+    }
+    if (anet::StartsWith(key, kQBase)) {
+        return EpisodeStartActionMarginKey{
+            EpisodeStartActionMarginValueKind::kQ,
+            ParseActionScalarIndex(key, kQPrefix)
+        };
     }
     return std::nullopt;
 }
@@ -501,6 +534,77 @@ std::optional<float> DQNActionInfo::GetScalar(const std::string& key, int64_t) c
         return key == "train_actor_snapshot_interval"
             ? train_actor_snapshot_metrics_->interval
             : train_actor_snapshot_metrics_->age;
+    }
+
+    const auto episode_start_key = ParseEpisodeStartActionMarginKey(key);
+    if (episode_start_key.has_value()) {
+        // 指定された価値表現を取得し、非UQE Policyだけは未対応値としてNaNを返す。
+        const bool is_uqe = episode_start_key->value_kind == EpisodeStartActionMarginValueKind::kUqe;
+        const char* values_key = is_uqe ? "uqe_values" : "q_values";
+        const auto values_it = aux_.find(values_key);
+        if (values_it == aux_.end() || !values_it->second.defined()) {
+            if (is_uqe) {
+                return std::numeric_limits<float>::quiet_NaN();
+            }
+            ANET_SYSTEM_ERROR("DQNActionInfo: required aux value is missing. key=" << key << " aux=" << values_key);
+        }
+
+        const auto& values = values_it->second;
+        if (values.dim() != 2) {
+            ANET_SYSTEM_ERROR("DQNActionInfo: " << values_key << " must have shape [B,A]. actual=" << values.sizes());
+        }
+        const int64_t batch_size = values.size(0);
+        const int64_t num_actions = values.size(1);
+        if (batch_size <= 0 || num_actions < 2) {
+            ANET_SYSTEM_ERROR("DQNActionInfo: " << values_key
+                << " must have non-empty batch and at least two actions. actual=" << values.sizes());
+        }
+        const int64_t action_index = episode_start_key->action_index;
+        if (action_index >= num_actions) {
+            ANET_SYSTEM_ERROR("DQNActionInfo: action index out of range. key=" << key << " num_actions=" << num_actions);
+        }
+
+        // 現在actionと同じbatchに対応するepisode開始maskを検証する。
+        const auto episode_start_it = aux_.find("episode_start");
+        if (episode_start_it == aux_.end() || !episode_start_it->second.defined()) {
+            ANET_SYSTEM_ERROR("DQNActionInfo: required aux value is missing. key=" << key << " aux=episode_start");
+        }
+        const auto& episode_start = episode_start_it->second;
+        if (episode_start.scalar_type() != torch::kBool) {
+            ANET_SYSTEM_ERROR("DQNActionInfo: episode_start must have dtype bool. actual=" << episode_start.scalar_type());
+        }
+        if (episode_start.dim() != 1 || episode_start.size(0) != batch_size) {
+            ANET_SYSTEM_ERROR("DQNActionInfo: episode_start must have shape [" << batch_size
+                << "]. actual=" << episode_start.sizes());
+        }
+
+        // resetがない通常stepではdevice転送せず、Observerが出力をskipするNaNを返す。
+        const auto episode_start_cpu = episode_start.device().is_cpu()
+            ? episode_start
+            : episode_start.to(torch::kCPU);
+        if (!episode_start_cpu.any().item<bool>()) {
+            return std::numeric_limits<float>::quiet_NaN();
+        }
+
+        // reset laneだけを抽出し、指定actionと最良の他actionとの差を平均する。
+        const auto episode_start_on_device = episode_start.device() == values.device()
+            ? episode_start
+            : episode_start.to(values.device());
+        const auto reset_values = values.index({ episode_start_on_device });
+        const auto selected = reset_values.select(1, action_index);
+        torch::Tensor other_values;
+        if (action_index == 0) {
+            other_values = reset_values.slice(1, 1, num_actions);
+        } else if (action_index == num_actions - 1) {
+            other_values = reset_values.slice(1, 0, num_actions - 1);
+        } else {
+            other_values = torch::cat({
+                reset_values.slice(1, 0, action_index),
+                reset_values.slice(1, action_index + 1, num_actions)
+            }, 1);
+        }
+        const auto max_other = std::get<0>(other_values.max(1));
+        return (selected - max_other).mean().item<float>();
     }
 
     const auto parsed_key = ParseActionUqeScalarKey(key);
@@ -1153,6 +1257,8 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     }
 
     // AuxData の詰め込み
+    // 現在actionがepisode開始直後かを、device転送せず診断用auxへ保持する。
+    act_info->GetAuxData()["episode_start"] = state.episode_start;
     act_info->GetAuxData()["raw_obs"] = anet::rl::ToUnifiedObservation(obs);
     if (obs_norm_ != nullptr) {
         act_info->GetAuxData()["norm_obs"] = anet::rl::ToUnifiedObservation(norm_obs);

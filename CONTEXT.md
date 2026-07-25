@@ -105,6 +105,42 @@ _Avoid_: Env ID, Env key, role, context
 AgentがActor生成時に、対象EnvのEnvSpecを入力・出力として受理できるか判断する契約。Train EnvとEval EnvのEnvSpecが同一であること自体は全Agent共通の要件ではなく、汎用的な同一I/O判定はAgentが選べる補助手段として扱う。
 _Avoid_: Env間互換性, RunManager compatibility, canonical EnvSpec
 
+### DropMerge終局診断
+
+**NoLegal candidate**:
+DropMergeで、現在のfruitを配置できるDROPが1つもない瞬間状態。盤面の安定や状態の継続時間は含まない。
+_Avoid_: candidate, 詰み
+
+**blocked persistence**:
+NoLegal candidateが連続して成立する物理frame区間と、その継続長。
+_Avoid_: persistence, 安定待ち
+
+**投了**:
+NoLegal candidateが継続する盤面で方策がNOOPを選び続ける行動。EnvはこれをNoLegalDrop終端として受理する（罰なし）。
+_Avoid_: 諦め, give-up, resignation action（明示的な専用行動と混同）
+
+**NEET**:
+合法DROPが存在するのにNOOPを選び続ける方策の病理。投了（詰みでのNOOP）とは区別する。
+_Avoid_: 停滞（あいまい）, no-op連発
+
+**NoDropTimeout**:
+合法DROPがあるのにDROPしないままショットクロックを使い切った敗着終端（done）。詰みでの投了は含まない（それはNoLegalDrop）。
+_Avoid_: 時間切れtruncation, タイムアウト打ち切り
+
+### DropMerge観測拡張
+
+**直前行動観測**:
+直前stepでAgentが選択した行動をObservationに含める拡張の総称。obsには「そのobsへ至らせた行動」を入れ、episode先頭は未行動（全ゼロ・マーカー無し）とする。記録するのは選択した命令であり、執行の成否は問わない。
+_Avoid_: action feedback, action echo
+
+**prev-action trio**:
+DropMergeのvector観測末尾へ連結する [valid, noop, drop_x] の3 scalar。drop_xは直前DROP命令列の中心を [-1,1] 正規化した値で、非DROPは0。独立した観測キーではない。
+_Avoid_: prev_actionキー（PRD900の別キー設計と混同）, action one-hot
+
+**DROP列マーカー**:
+direct系action modeでは未使用になるgridのdropper classを再利用し、直前DROPの命令列をtop rowに描画するマーカー。move系の「現在のdropper位置」表示とは別意味。
+_Avoid_: dropper marker（move系表示と混同）
+
 ### 実行系統
 
 **RunMode**:

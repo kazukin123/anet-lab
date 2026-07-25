@@ -301,6 +301,7 @@ sequenceDiagram
 ### 9.1 metric
 
 - `DQNActionInfo`はAction、Q値・quantile補助情報、必要に応じてReplay初期priority hintを運ぶ。
+- `episode_start_action_uqe_margin.[i]`と`episode_start_action_q_margin.[i]`は、episode開始laneだけを対象に、action `i`の値と最良の他actionとの差をbatch内平均する。UQE版はUQE値、Q版はnetwork出力の平均Qを使い、TBO有効時もh空間のまま扱う。episode開始laneがないstepは`NaN`を返し、scalar出力をskipする。
 - DefaultDQNは`train_actor_snapshot_interval`と`train_actor_snapshot_age`をActionInfoから公開する。定期snapshotがないActorでは両値を`NaN`とし、同期したactionのageは0になる。
 - Rainbowはsnapshot診断を設定しないため、同じkeyの取得は`std::nullopt`になる。
 - `BatchUpdateResult`はloss、TD error、Q統計、勾配、PER更新結果などを公開し、inner Learnerは`replaybuffer.*` keyをReplayBufferへ委譲する。
