@@ -71,6 +71,8 @@ namespace anet::rl::env::drop_merge {
         // --- グリッド観測パラメータ ---
         int grid_rows = 30;
         int grid_cols = 30;
+        bool obs_include_prev_action = false; ///< 直前 action の trio を vector 観測へ追加するか
+        bool obs_prev_drop_marker = false;    ///< 直前 DROP 命令列を grid の top row へ描画するか
 
         // --- アクションモード
         std::string action_mode = "move_fast"; ///< "move", "move_fast", "direct", "direct_noop"
@@ -132,6 +134,8 @@ namespace anet::rl::env::drop_merge {
             ANET_READ_CONFIG(config_data, gravity);
             ANET_READ_CONFIG(config_data, grid_rows);
             ANET_READ_CONFIG(config_data, grid_cols);
+            ANET_READ_CONFIG(config_data, obs_include_prev_action);
+            ANET_READ_CONFIG(config_data, obs_prev_drop_marker);
             ANET_READ_CONFIG(config_data, action_mode);
             ANET_READ_CONFIG(config_data, drop_divisions);
             ANET_READ_CONFIG(config_data, use_fast_move);
@@ -259,6 +263,7 @@ namespace anet::rl::env::drop_merge {
 
         // ゲームロジック
         void notifyContact(b2Body* body);
+        int decodeDirectDropColumn(int64_t action) const;
         void processAction(int64_t action);
         b2Body* spawnFruit(float x, float y, int rank);
         void processMerges();
@@ -296,6 +301,7 @@ namespace anet::rl::env::drop_merge {
         int game_over_timer_ = 0;
         int steps_since_last_drop_ = 0;
         int blocked_candidate_frames_ = 0; ///< NoLegal candidate が連続成立した物理 frame 数
+        int64_t last_action_ = -1;         ///< 直前に選択した action。-1 は Reset 直後の未行動
         torch::Tensor vec_buffer_;   ///< obsのバッファ
         torch::Tensor grid_buffer_;  ///< obsのバッファ
 
@@ -319,6 +325,10 @@ namespace anet::rl::env::drop_merge {
         int ep_end_fruit_count_ = 0;      ///< エピソード終了時のフルーツ数
         int ep_suika_created_ = 0;        ///< エピソード中に作成されたスイカの総数
         int ep_double_suika_created_ = 0; ///< エピソード中に作成されたダブルスイカの総数
+        int ep_drop_command_count_ = 0;   ///< エピソード中に選択された direct 系 DROP 命令数
+        int ep_same_drop_col_count_ = 0;  ///< 直前 DROP と同じ命令列を連続選択した回数
+        int ep_previous_drop_col_ = -1;   ///< 比較対象となる直前 DROP 命令列
+        float last_ep_same_drop_col_ratio_ = 0.0f; ///< 終了エピソードの同一列選択率
 
         // Settleステップ計測用
         int ep_settle_steps_sum_ = 0;

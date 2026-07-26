@@ -8,8 +8,10 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "anet/catch_test.hpp"
+#include "anet/env.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/test_util.hpp"
 
@@ -18,6 +20,9 @@
 #endif
 
 namespace {
+
+constexpr const char* kVectorKey = anet::rl::ObsKeys::kVector;
+constexpr const char* kGridKey = anet::rl::ObsKeys::kGrid;
 
 void SetupUtf8Console()
 {
@@ -51,6 +56,25 @@ public:
     }
 };
 
+torch::Tensor VectorObs(const anet::rl::SingleState& state)
+{
+    return state.obs.At(kVectorKey);
+}
+
+torch::Tensor GridObs(const anet::rl::SingleState& state)
+{
+    return state.obs.At(kGridKey);
+}
+
+void RequireFlatApprox(const torch::Tensor& tensor, const std::vector<float>& expected)
+{
+    const auto flat = tensor.detach().cpu().to(torch::kFloat32).reshape({ -1 }).contiguous();
+    REQUIRE(flat.numel() == static_cast<int64_t>(expected.size()));
+    for (int64_t i = 0; i < flat.numel(); ++i) {
+        CHECK(flat[i].item<float>() == Catch::Approx(expected[static_cast<size_t>(i)]).margin(1.0e-6f));
+    }
+}
+
 anet::rl::env::drop_merge::DropMergeEnvConfig MakeBlockedBoardConfig()
 {
     anet::rl::env::drop_merge::DropMergeEnvConfig config;
@@ -82,6 +106,418 @@ int CountOccurrences(const std::string& value, const std::string& needle)
 }
 
 } // namespace
+
+TEST_CASE("DropMergeEnv appends the selected previous action trio", "[dropmerge][prev_action]")
+{
+    anet::rl::env::drop_merge::DropMergeEnvConfig default_config;
+    CHECK_FALSE(default_config.ToJson().at("obs_include_prev_action").get<bool>());
+    CHECK_FALSE(default_config.ToJson().at("obs_prev_drop_marker").get<bool>());
+    CHECK(default_config.ToConfigString().find(
+        "DropMergeEnv.obs_include_prev_action = false") != std::string::npos);
+    CHECK(default_config.ToConfigString().find(
+        "DropMergeEnv.obs_prev_drop_marker = false") != std::string::npos);
+
+    anet::ConfigData config_data;
+    config_data.Set("DropMergeEnv.obs_include_prev_action", true);
+    config_data.Set("DropMergeEnv.obs_prev_drop_marker", false);
+    config_data.Set("DropMergeEnv.action_mode", "direct_noop");
+    config_data.Set("DropMergeEnv.drop_divisions", 4);
+    const anet::rl::env::drop_merge::DropMergeEnvConfig config(config_data);
+    CHECK(config.obs_include_prev_action);
+    CHECK_FALSE(config.obs_prev_drop_marker);
+
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "dropmerge-prev-action[0]", 123);
+    const auto spec = env->GetSpec();
+    const auto& vector_spec = spec.state_spec.obs_spec.at(kVectorKey);
+    CHECK(vector_spec.shape == std::vector<int64_t>{ 7 });
+    REQUIRE(vector_spec.labels.size() == 7);
+    CHECK(vector_spec.labels[4] == "prev_valid");
+    CHECK(vector_spec.labels[5] == "prev_noop");
+    CHECK(vector_spec.labels[6] == "prev_drop_x");
+    CHECK(vector_spec.min_values[4] == Catch::Approx(0.0));
+    CHECK(vector_spec.min_values[5] == Catch::Approx(0.0));
+    CHECK(vector_spec.min_values[6] == Catch::Approx(-1.0));
+    CHECK(vector_spec.max_values[4] == Catch::Approx(1.0));
+    CHECK(vector_spec.max_values[5] == Catch::Approx(1.0));
+    CHECK(vector_spec.max_values[6] == Catch::Approx(1.0));
+
+    const auto reset = env->Reset();
+    CHECK(spec.state_spec.ValidateObservation(reset->state.obs, /*is_batched=*/false));
+    RequireFlatApprox(VectorObs(reset->state).slice(/*dim=*/0, 4, 7), { 0.0f, 0.0f, 0.0f });
+
+    const auto noop = env->Step(0);
+    CHECK(spec.state_spec.ValidateObservation(noop->next_state.obs, /*is_batched=*/false));
+    RequireFlatApprox(VectorObs(noop->next_state).slice(/*dim=*/0, 4, 7), { 1.0f, 1.0f, 0.0f });
+
+    const auto drop = env->Step(1);
+    CHECK(spec.state_spec.ValidateObservation(drop->next_state.obs, /*is_batched=*/false));
+    RequireFlatApprox(VectorObs(drop->next_state).slice(/*dim=*/0, 4, 7), { 1.0f, 0.0f, -0.75f });
+}
+
+TEST_CASE("DropMergeEnv appends the previous action trio after the timeout ratio", "[dropmerge][prev_action][timeout]")
+{
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.action_mode = "direct_noop";
+    config.drop_divisions = 4;
+    config.use_no_drop_timeout_gameover = true;
+    config.obs_include_prev_action = true;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "dropmerge-prev-timeout[0]", 123);
+
+    const auto spec = env->GetSpec();
+    const auto& vector_spec = spec.state_spec.obs_spec.at(kVectorKey);
+    CHECK(vector_spec.shape == std::vector<int64_t>{ 8 });
+    REQUIRE(vector_spec.labels.size() == 8);
+    CHECK(vector_spec.labels[4] == "no_drop_timeout_ratio");
+    CHECK(vector_spec.labels[5] == "prev_valid");
+    CHECK(vector_spec.labels[6] == "prev_noop");
+    CHECK(vector_spec.labels[7] == "prev_drop_x");
+
+    const auto reset = env->Reset();
+    CHECK(spec.state_spec.ValidateObservation(
+        reset->state.obs, /*is_batched=*/false));
+    RequireFlatApprox(
+        VectorObs(reset->state).slice(/*dim=*/0, 5, 8),
+        { 0.0f, 0.0f, 0.0f });
+
+    const auto drop = env->Step(1);
+    CHECK(spec.state_spec.ValidateObservation(
+        drop->next_state.obs, /*is_batched=*/false));
+    RequireFlatApprox(
+        VectorObs(drop->next_state).slice(/*dim=*/0, 5, 8),
+        { 1.0f, 0.0f, -0.75f });
+}
+
+TEST_CASE("DropMergeEnv previous action observations require a direct action mode", "[dropmerge][prev_action][config]")
+{
+    anet::rl::env::drop_merge::DropMergeEnvConfig direct_config;
+    direct_config.action_mode = "direct";
+    direct_config.drop_divisions = 4;
+    direct_config.obs_include_prev_action = true;
+    auto direct_env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        direct_config, torch::Device(torch::kCPU), "dropmerge-prev-direct[0]", 123);
+    direct_env->Reset();
+    const auto direct_drop = direct_env->Step(3);
+    RequireFlatApprox(
+        VectorObs(direct_drop->next_state).slice(/*dim=*/0, 4, 7),
+        { 1.0f, 0.0f, 0.75f });
+
+    for (const std::string& action_mode : { "move", "move_fast" }) {
+        for (const bool use_marker : { false, true }) {
+            anet::rl::env::drop_merge::DropMergeEnvConfig invalid_config;
+            invalid_config.action_mode = action_mode;
+            invalid_config.obs_include_prev_action = !use_marker;
+            invalid_config.obs_prev_drop_marker = use_marker;
+
+            anet::test::LogCaptureGuard logs(wxLOG_Info);
+            CHECK_THROWS_WITH(
+                std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+                    invalid_config, torch::Device(torch::kCPU), "dropmerge-prev-invalid[0]", 123),
+                Catch::Matchers::ContainsSubstring(
+                    "obs_include_prev_action / obs_prev_drop_marker require "
+                    "action_mode=direct or direct_noop")
+                && Catch::Matchers::ContainsSubstring("actual=" + action_mode));
+            logs.Flush();
+        }
+    }
+}
+
+TEST_CASE("DropMergeEnv draws the selected DROP column marker", "[dropmerge][prev_action][marker]")
+{
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.action_mode = "direct_noop";
+    config.drop_divisions = 2;
+    config.grid_rows = 4;
+    config.grid_cols = 4;
+    config.use_instant_drop = true;
+    config.obs_prev_drop_marker = true;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "dropmerge-prev-marker[0]", 123);
+
+    const auto spec = env->GetSpec();
+    const auto& grid_spec = spec.state_spec.obs_spec.at(kGridKey);
+    CHECK(grid_spec.shape == std::vector<int64_t>{ 1, 4, 4 });
+    CHECK(grid_spec.num_classes == anet::rl::env::drop_merge::kFruitTypeCount + 2);
+    CHECK(grid_spec.max_values == std::vector<double>{
+        static_cast<double>(anet::rl::env::drop_merge::kFruitTypeCount + 1) });
+
+    const int marker_class = anet::rl::env::drop_merge::kFruitTypeCount + 1;
+    const auto reset = env->Reset();
+    CHECK(spec.state_spec.ValidateObservation(reset->state.obs, /*is_batched=*/false));
+    CHECK(GridObs(reset->state).eq(marker_class).sum().item<int64_t>() == 0);
+
+    // 2 分割の DROP 命令列 1 を、4 列 grid の対応する top-row 列 3 へ写像する。
+    const auto drop = env->Step(2);
+    CHECK(spec.state_spec.ValidateObservation(drop->next_state.obs, /*is_batched=*/false));
+    CHECK(GridObs(drop->next_state).index({ 0, 3, 3 }).item<int>() == marker_class);
+    CHECK(GridObs(drop->next_state).eq(marker_class).sum().item<int64_t>() == 1);
+
+    const auto noop = env->Step(0);
+    CHECK(spec.state_spec.ValidateObservation(noop->next_state.obs, /*is_batched=*/false));
+    CHECK(GridObs(noop->next_state).eq(marker_class).sum().item<int64_t>() == 0);
+
+    const auto reset_again = env->Reset();
+    CHECK(spec.state_spec.ValidateObservation(reset_again->state.obs, /*is_batched=*/false));
+    CHECK(GridObs(reset_again->state).eq(marker_class).sum().item<int64_t>() == 0);
+}
+
+TEST_CASE("DropMergeEnv previous action observations preserve the default state contract", "[dropmerge][prev_action][compat]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::rl::env::drop_merge::DropMergeEnvConfig default_config;
+    default_config.action_mode = "direct_noop";
+    default_config.drop_divisions = 4;
+    default_config.use_instant_drop = true;
+    default_config.max_step = 3;
+
+    auto enabled_config = default_config;
+    enabled_config.obs_include_prev_action = true;
+    enabled_config.obs_prev_drop_marker = true;
+
+    auto default_env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        default_config, torch::Device(torch::kCPU), "dropmerge-prev-default[0]", 123);
+    auto enabled_env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        enabled_config, torch::Device(torch::kCPU), "dropmerge-prev-enabled[0]", 123);
+
+    const auto default_spec = default_env->GetSpec();
+    const auto enabled_spec = enabled_env->GetSpec();
+    CHECK(default_spec.state_spec.obs_spec.at(kVectorKey).shape == std::vector<int64_t>{ 4 });
+    CHECK(enabled_spec.state_spec.obs_spec.at(kVectorKey).shape == std::vector<int64_t>{ 7 });
+    CHECK(default_spec.state_spec.obs_spec.at(kGridKey).shape ==
+        enabled_spec.state_spec.obs_spec.at(kGridKey).shape);
+    CHECK(default_spec.state_spec.obs_spec.at(kGridKey).num_classes ==
+        enabled_spec.state_spec.obs_spec.at(kGridKey).num_classes);
+
+    const auto default_reset = default_env->Reset();
+    const auto enabled_reset = enabled_env->Reset();
+    CHECK(torch::equal(
+        VectorObs(default_reset->state),
+        VectorObs(enabled_reset->state).slice(/*dim=*/0, 0, 4)));
+    CHECK(torch::equal(GridObs(default_reset->state), GridObs(enabled_reset->state)));
+
+    const int marker_class = anet::rl::env::drop_merge::kFruitTypeCount + 1;
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    for (const int64_t action : { 2, 0, 3 }) {
+        const auto default_step = default_env->Step(action);
+        const auto enabled_step = enabled_env->Step(action);
+        CHECK(default_spec.state_spec.ValidateObservation(
+            default_step->next_state.obs, /*is_batched=*/false));
+        CHECK(enabled_spec.state_spec.ValidateObservation(
+            enabled_step->next_state.obs, /*is_batched=*/false));
+        CHECK(torch::equal(
+            VectorObs(default_step->next_state),
+            VectorObs(enabled_step->next_state).slice(/*dim=*/0, 0, 4)));
+
+        // marker class だけを除けば、同 seed・同 action の盤面は一致する。
+        auto enabled_grid_without_marker = GridObs(enabled_step->next_state).clone();
+        enabled_grid_without_marker.masked_fill_(
+            enabled_grid_without_marker.eq(marker_class), 0);
+        CHECK(torch::equal(
+            GridObs(default_step->next_state), enabled_grid_without_marker));
+        CHECK(default_step->reward == enabled_step->reward);
+        CHECK(default_step->next_state.done == enabled_step->next_state.done);
+        CHECK(default_step->next_state.truncated ==
+            enabled_step->next_state.truncated);
+    }
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv previous action observations work through batch env prefixes", "[dropmerge][prev_action][batch]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("DropMergeEnv.action_mode", "direct_noop");
+    config_data.Set("DropMergeEnv.drop_divisions", 4);
+    config_data.Set("DropMergeEnv.use_instant_drop", true);
+    config_data.Set("DropMergeEnv.obs_include_prev_action", true);
+    config_data.Set("DropMergeEnv.obs_prev_drop_marker", true);
+
+    const std::vector<std::string> prefixes = {
+        "train.env",
+        "train.eval.[eval1].env",
+        "train.eval.[eval2].env",
+    };
+    const std::vector<anet::rl::RunMode> run_modes = {
+        anet::rl::RunMode::Train,
+        anet::rl::RunMode::Eval1,
+        anet::rl::RunMode::Eval2,
+    };
+    auto factory =
+        std::make_shared<anet::rl::env::drop_merge::DropMergeEnvFactory>();
+
+    for (size_t i = 0; i < prefixes.size(); ++i) {
+        anet::rl::VectorizedDiscreteBatchEnv env(
+            config_data,
+            factory,
+            "dropmerge-prev-batch-" + std::to_string(i),
+            /*num_envs=*/1,
+            torch::Device(torch::kCPU),
+            /*seed=*/123,
+            run_modes[i],
+            prefixes[i]);
+
+        const auto spec = env.GetSpec();
+        CHECK(spec.state_spec.obs_spec.at(kVectorKey).shape ==
+            std::vector<int64_t>{ 7 });
+        const auto reset = env.Reset();
+        CHECK(spec.state_spec.ValidateObservation(
+            reset->state.obs, /*is_batched=*/true));
+        CHECK(reset->state.obs.At(kVectorKey).sizes().vec() ==
+            std::vector<int64_t>{ 1, 7 });
+
+        auto action_info = std::make_shared<anet::rl::BatchActionInfo>(
+            torch::tensor(
+                { 2 },
+                torch::TensorOptions().dtype(torch::kInt64)));
+        const auto step = env.Step(action_info);
+        CHECK(spec.state_spec.ValidateObservation(
+            step->next_state.obs, /*is_batched=*/true));
+        RequireFlatApprox(
+            step->next_state.obs.At(kVectorKey)[0].slice(
+                /*dim=*/0, 4, 7),
+            { 1.0f, 0.0f, -0.25f });
+    }
+}
+
+TEST_CASE("DropMergeEnv reports the successive DROP column ratio", "[dropmerge][prev_action][ratio]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.action_mode = "direct_noop";
+    config.drop_divisions = 6;
+    config.use_instant_drop = true;
+    config.max_step = 5;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "dropmerge-prev-ratio[0]", 123);
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    for (const int64_t action : { 4, 4, 6, 6 }) {
+        const auto step = env->Step(action);
+        REQUIRE_FALSE(step->next_state.done);
+        REQUIRE_FALSE(step->next_state.truncated);
+        REQUIRE(env->GetScalar("ep_same_drop_col_ratio").has_value());
+        CHECK(std::isnan(*env->GetScalar("ep_same_drop_col_ratio")));
+    }
+    const auto terminal = env->Step(6);
+    REQUIRE(terminal->next_state.truncated);
+    REQUIRE(env->GetScalar("ep_same_drop_col_ratio").has_value());
+    CHECK(*env->GetScalar("ep_same_drop_col_ratio") ==
+        Catch::Approx(3.0f / 4.0f));
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv handles sparse DROP commands in the column ratio", "[dropmerge][prev_action][ratio]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+
+    SECTION("fewer than two DROP commands reports zero")
+    {
+        anet::rl::env::drop_merge::DropMergeEnvConfig config;
+        config.action_mode = "direct";
+        config.drop_divisions = 4;
+        config.use_instant_drop = true;
+        config.max_step = 1;
+        auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+            config, torch::Device(torch::kCPU), "dropmerge-prev-ratio-short[0]", 123);
+        env->Reset();
+
+        anet::test::LogCaptureGuard logs(wxLOG_Info);
+        const auto terminal = env->Step(2);
+        REQUIRE(terminal->next_state.truncated);
+        REQUIRE(env->GetScalar("ep_same_drop_col_ratio").has_value());
+        CHECK(*env->GetScalar("ep_same_drop_col_ratio") == Catch::Approx(0.0f));
+        logs.Flush();
+    }
+
+    SECTION("NOOP preserves the previous DROP column")
+    {
+        anet::rl::env::drop_merge::DropMergeEnvConfig config;
+        config.action_mode = "direct_noop";
+        config.drop_divisions = 4;
+        config.use_instant_drop = true;
+        config.max_step = 3;
+        auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+            config, torch::Device(torch::kCPU), "dropmerge-prev-ratio-noop[0]", 123);
+        env->Reset();
+
+        anet::test::LogCaptureGuard logs(wxLOG_Info);
+        env->Step(2);
+        env->Step(0);
+        const auto terminal = env->Step(2);
+        REQUIRE(terminal->next_state.truncated);
+        REQUIRE(env->GetScalar("ep_same_drop_col_ratio").has_value());
+        CHECK(*env->GetScalar("ep_same_drop_col_ratio") == Catch::Approx(1.0f));
+        logs.Flush();
+    }
+}
+
+TEST_CASE("DropMergeEnv column ratio is NaN for move action modes", "[dropmerge][prev_action][ratio]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    for (const std::string& action_mode : { "move", "move_fast" }) {
+        anet::rl::env::drop_merge::DropMergeEnvConfig config;
+        config.action_mode = action_mode;
+        config.max_step = 1;
+        auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+            config, torch::Device(torch::kCPU),
+            "dropmerge-prev-ratio-" + action_mode + "[0]", 123);
+        env->Reset();
+
+        anet::test::LogCaptureGuard logs(wxLOG_Info);
+        const auto terminal = env->Step(anet::rl::env::drop_merge::kActionNoop);
+        REQUIRE(terminal->next_state.truncated);
+        REQUIRE(env->GetScalar("ep_same_drop_col_ratio").has_value());
+        CHECK(std::isnan(*env->GetScalar("ep_same_drop_col_ratio")));
+        logs.Flush();
+    }
+}
+
+TEST_CASE("DropMergeEnv observes DROP commands rejected while busy", "[dropmerge][prev_action][busy]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.action_mode = "direct_noop";
+    config.drop_divisions = 4;
+    config.grid_rows = 4;
+    config.grid_cols = 4;
+    config.use_instant_drop = false;
+    config.reload_min_steps = 20;
+    config.max_step = 3;
+    config.obs_include_prev_action = true;
+    config.obs_prev_drop_marker = true;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "dropmerge-prev-busy[0]", 123);
+    const auto spec = env->GetSpec();
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto first = env->Step(1);
+    REQUIRE_FALSE(first->next_state.truncated);
+    CHECK(VectorObs(first->next_state)[3].item<float>() == Catch::Approx(1.0f));
+
+    const auto rejected = env->Step(4);
+    REQUIRE_FALSE(rejected->next_state.truncated);
+    CHECK(VectorObs(rejected->next_state)[3].item<float>() == Catch::Approx(1.0f));
+
+    const auto terminal = env->Step(4);
+    REQUIRE(terminal->next_state.truncated);
+    CHECK(spec.state_spec.ValidateObservation(
+        terminal->next_state.obs, /*is_batched=*/false));
+    RequireFlatApprox(
+        VectorObs(terminal->next_state).slice(/*dim=*/0, 4, 7),
+        { 1.0f, 0.0f, 0.75f });
+
+    const int marker_class = anet::rl::env::drop_merge::kFruitTypeCount + 1;
+    CHECK(GridObs(terminal->next_state).index({ 0, 3, 3 }).item<int>() ==
+        marker_class);
+    REQUIRE(env->GetScalar("ep_same_drop_col_ratio").has_value());
+    CHECK(*env->GetScalar("ep_same_drop_col_ratio") ==
+        Catch::Approx(1.0f / 2.0f));
+    REQUIRE(env->GetScalar("ep_end_fruit_count").has_value());
+    CHECK(*env->GetScalar("ep_end_fruit_count") == Catch::Approx(1.0f));
+    logs.Flush();
+}
 
 TEST_CASE("DropMergeEnv prefixes maximum-step log with its name once", "[dropmerge][env_name]")
 {

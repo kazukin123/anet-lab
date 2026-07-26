@@ -13,6 +13,7 @@ namespace LOG = anet::log;
 
 constexpr int kBaseScalarObsDim = 4;
 constexpr int kNoDropTimeoutScalarObsDim = 5;
+constexpr int kPrevActionScalarObsDim = 3;
 constexpr float kSpawnOverlapMargin = 0.95f;
 
 // -------------------------------------------------------------
@@ -165,7 +166,10 @@ DropMergeEnv::DropMergeEnv(
     // Obsバッファ初期化
     int grid_size = config_.grid_rows * config_.grid_cols;
     auto grid_opt = torch::TensorOptions().dtype(torch::kInt8).device(device);
-    const int scalar_obs_dim = config_.use_no_drop_timeout_gameover ? kNoDropTimeoutScalarObsDim : kBaseScalarObsDim;
+    const int base_scalar_obs_dim =
+        config_.use_no_drop_timeout_gameover ? kNoDropTimeoutScalarObsDim : kBaseScalarObsDim;
+    const int scalar_obs_dim = base_scalar_obs_dim
+        + (config_.obs_include_prev_action ? kPrevActionScalarObsDim : 0);
     vec_buffer_ = torch::empty({ scalar_obs_dim }, float_opt_);
     grid_buffer_ = torch::empty({ grid_size }, grid_opt);
 
@@ -175,6 +179,18 @@ DropMergeEnv::DropMergeEnv(
     else if (am == "direct") action_mode_ = ActionMode::Direct;
     else if (am == "direct_noop") action_mode_ = ActionMode::DirectNoop;
     else action_mode_ = ActionMode::MoveFast;
+
+    const bool is_direct_action_mode =
+        action_mode_ == ActionMode::Direct ||
+        action_mode_ == ActionMode::DirectNoop;
+    if ((config_.obs_include_prev_action ||
+         config_.obs_prev_drop_marker) &&
+        !is_direct_action_mode) {
+        ANET_SYSTEM_ERROR(
+            "DropMergeEnv: obs_include_prev_action / obs_prev_drop_marker "
+            "require action_mode=direct or direct_noop. actual="
+            << config_.action_mode);
+    }
 
     // DROP座標数を設定から生成
     num_drop_actions_ = (config_.drop_divisions > 0) ? config_.drop_divisions : config_.grid_cols;
@@ -209,7 +225,10 @@ anet::rl::EnvSpec DropMergeEnv::GetSpec() const
     anet::rl::StateSpec state_spec;
 
     // --- Vector Info (Dropper) ---
-    const int scalar_obs_dim = config_.use_no_drop_timeout_gameover ? kNoDropTimeoutScalarObsDim : kBaseScalarObsDim;
+    const int base_scalar_obs_dim =
+        config_.use_no_drop_timeout_gameover ? kNoDropTimeoutScalarObsDim : kBaseScalarObsDim;
+    const int scalar_obs_dim = base_scalar_obs_dim
+        + (config_.obs_include_prev_action ? kPrevActionScalarObsDim : 0);
     std::vector<std::string> vector_labels = { "dropper_x", "current_rank", "next_rank", "is_busy" };
     std::vector<double> vector_min_values = { -1.0, 0.0, 0.0, 0.0 };
     std::vector<double> vector_max_values = { 1.0, 1.0, 1.0, 1.0 };
@@ -217,6 +236,11 @@ anet::rl::EnvSpec DropMergeEnv::GetSpec() const
         vector_labels.push_back("no_drop_timeout_ratio");
         vector_min_values.push_back(0.0);
         vector_max_values.push_back(1.0);
+    }
+    if (config_.obs_include_prev_action) {
+        vector_labels.insert(vector_labels.end(), { "prev_valid", "prev_noop", "prev_drop_x" });
+        vector_min_values.insert(vector_min_values.end(), { 0.0, 0.0, -1.0 });
+        vector_max_values.insert(vector_max_values.end(), { 1.0, 1.0, 1.0 });
     }
     state_spec.obs_spec[anet::rl::ObsKeys::kVector] = anet::TensorSpec {
         .type = anet::SpaceType::Vector,
@@ -390,6 +414,7 @@ std::shared_ptr<const anet::rl::SingleResetResult> DropMergeEnv::Reset()
     step_count_ = 0;
     steps_since_last_drop_ = 0;
     blocked_candidate_frames_ = 0;
+    last_action_ = -1;
     game_over_ = false;
     game_over_timer_ = 0;
     episode_score_ = 0.0f;
@@ -566,6 +591,20 @@ b2Body* DropMergeEnv::spawnFruit(float x, float y, int rank)
         body->SetAngularVelocity(spin);
     }
     return body;
+}
+
+int DropMergeEnv::decodeDirectDropColumn(int64_t action) const
+{
+    int64_t drop_col = -1;
+    if (action_mode_ == ActionMode::Direct) {
+        drop_col = action;
+    } else if (action_mode_ == ActionMode::DirectNoop && action > 0) {
+        drop_col = action - 1;
+    }
+    if (drop_col < 0 || drop_col >= num_drop_actions_) {
+        return -1;
+    }
+    return static_cast<int>(drop_col);
 }
 
 void DropMergeEnv::processAction(int64_t action)
@@ -935,7 +974,13 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         ep_blocked_run_max_ = 0;
         ep_blocked_drop_on_candidate_ = false;
         ep_no_drop_timeout_on_candidate_ = false;
+        ep_drop_command_count_ = 0;
+        ep_same_drop_col_count_ = 0;
+        ep_previous_drop_col_ = -1;
     }
+
+    // この Step が返す Observation には、選択された命令を執行成否に関係なく記録する。
+    last_action_ = action;
 
     // エピソードstepインクリメント
     step_count_++;
@@ -952,6 +997,21 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
     } else {
         is_drop_action = (action == kActionDrop);
         is_noop_action = (action == kActionNoop);
+    }
+
+    // direct 系で選択された DROP 命令列を、執行成否に関係なく連続比較する。
+    if (is_drop_action &&
+        (action_mode_ == ActionMode::Direct ||
+         action_mode_ == ActionMode::DirectNoop)) {
+        const int drop_col = decodeDirectDropColumn(action);
+        if (drop_col >= 0) {
+            if (ep_previous_drop_col_ >= 0 &&
+                drop_col == ep_previous_drop_col_) {
+                ep_same_drop_col_count_++;
+            }
+            ep_drop_command_count_++;
+            ep_previous_drop_col_ = drop_col;
+        }
     }
 
     // DROP無しカウント更新
@@ -1171,6 +1231,10 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
             : 0.0f;
         // 終端まで解消しなかった blocked run を、終了理由と同じタイミングで確定する。
         last_ep_terminal_blocked_frames_ = blocked_candidate_frames_;
+        last_ep_same_drop_col_ratio_ = ep_drop_command_count_ >= 2
+            ? static_cast<float>(ep_same_drop_col_count_) /
+                static_cast<float>(ep_drop_command_count_ - 1)
+            : 0.0f;
     }
 
     // State生成
@@ -1276,6 +1340,21 @@ anet::rl::SingleState DropMergeEnv::makeState() const
         }
         vec_ptr[4] = std::clamp(no_drop_timeout_ratio, 0.0f, 1.0f);
     }
+    if (config_.obs_include_prev_action) {
+        const int prev_action_offset =
+            config_.use_no_drop_timeout_gameover ? kNoDropTimeoutScalarObsDim : kBaseScalarObsDim;
+        vec_ptr[prev_action_offset] = last_action_ >= 0 ? 1.0f : 0.0f;
+        vec_ptr[prev_action_offset + 1] =
+            action_mode_ == ActionMode::DirectNoop && last_action_ == 0 ? 1.0f : 0.0f;
+
+        // direct 系 action を DROP 命令列へ復号し、命令列中心を [-1, 1] へ正規化する。
+        const int drop_col = decodeDirectDropColumn(last_action_);
+        vec_ptr[prev_action_offset + 2] =
+            drop_col >= 0
+            ? (2.0f * static_cast<float>(drop_col) + 1.0f - static_cast<float>(num_drop_actions_))
+                / static_cast<float>(num_drop_actions_)
+            : 0.0f;
+    }
 
     // --- グリッド情報のクリア ---
     const int grid_size = config_.grid_rows * config_.grid_cols;
@@ -1326,6 +1405,22 @@ anet::rl::SingleState DropMergeEnv::makeState() const
                     }
                 }
             }
+        }
+    }
+
+    // --- 直前 DROP 命令列マーカーの描画 ---
+    if (config_.obs_prev_drop_marker) {
+        const int drop_col = decodeDirectDropColumn(last_action_);
+        if (drop_col >= 0) {
+            const float command_cell_w =
+                (max_x - min_x) / static_cast<float>(num_drop_actions_);
+            const float command_x =
+                min_x + (static_cast<float>(drop_col) + 0.5f) * command_cell_w;
+            int target_c = static_cast<int>((command_x - min_x) / cell_w);
+            target_c = std::clamp(target_c, 0, config_.grid_cols - 1);
+            const int target_idx =
+                ((config_.grid_rows - 1) * config_.grid_cols) + target_c;
+            grid_ptr[target_idx] = static_cast<int8_t>(kFruitTypeCount + 1);
         }
     }
 
@@ -1499,6 +1594,14 @@ std::optional<float> DropMergeEnv::GetScalar(const std::string& key, int64_t ind
     if (key == "ep_end_fruit_count") {
         if (!episode_just_ended_) return nan;
         return static_cast<float>(ep_end_fruit_count_);
+    }
+    if (key == "ep_same_drop_col_ratio") {
+        if (action_mode_ != ActionMode::Direct &&
+            action_mode_ != ActionMode::DirectNoop) {
+            return nan;
+        }
+        if (!episode_just_ended_) return nan;
+        return last_ep_same_drop_col_ratio_;
     }
 
     // --- Settle関連統計 ---
