@@ -48,10 +48,13 @@ MetricsViewer(`viewers/metrics-viewer`、Spring Boot 3.5.7 / Java 17)には3課�
   viewportやLODレベルに依存しない正確な統計として維持する。
 - LODはvalueだけでなくmin / max / lastが実際に発生したL0のordinalとstepを保持する。
   既存Min-Max-Lastと同様、MinMax modeでも極値を実stepへ描画する。
+- metrics queryは前回応答へ依存しないrange要求だけとし、1 seriesにつき単一LOD levelの
+  描画projectionを返す。clientはviewport用の有界windowを応答単位で置換する。
 - キャッシュ全再構築ごとに`generation`を変更し、通常追記では維持する。
   サーバーとクライアントはgenerationをstaleデータの拒否に使う。
 - サーバー/クライアントのメモリをRunサイズ・Run数から切り離し、
-  表示中の系列数と設定済み上限だけに比例させる。
+  表示中の系列数と設定済み上限だけに比例させる。server LRUは完成済みLODを
+  固定bucket pageで管理し、queryごとの任意rangeをcache identityにしない。
 
 ## 1. 原則(アーキテクチャ不変条件)
 
@@ -74,7 +77,7 @@ MetricsViewer(`viewers/metrics-viewer`、Spring Boot 3.5.7 / Java 17)には3課�
    3ブロック:1ブロックで処理し、変換途中でもcommit済み分を表示する。
 6. **解像度はviewportの関数**:
    空きヒープ量に応じて保持点数を増やさない。描画点数予算内でLODを選び、
-   ズームすればL0へ到達する。余剰メモリは完成済みLODのLRUにだけ使う。
+   ズームすればL0へ到達する。余剰メモリは完成済みLODの固定page LRUにだけ使う。
 7. **単一Viewerプロセス**:
    複数Viewerプロセスによる協調取り込みは対象外。偶発的な同時接続でも
    WALと`busy_timeout`によりDBを破損させない。
@@ -184,7 +187,7 @@ CREATE TABLE source_meta(
 | `source_head_sha256` | ソース先頭64 KiBのSHA-256 |
 | `source_commit_tail_sha256` | commit offset直前64 KiBのSHA-256 |
 | `committed_offset` | 最後にcommitしたsource位置。JSONLでは完全改行までのbyte offset、gzipでは圧縮stream消費bytes |
-| `state` | `pending` / `converting` / `caught_up` / `complete` / `error` |
+| `state` | `pending` / `converting` / `ready` / `error` |
 | `error_code` / `error_message` | Run-level error。正常時は削除する |
 
 設計上の制約:
@@ -320,19 +323,21 @@ skip行にはordinalを割り当てず、`TagStats`とstep順序の基準にも�
 進捗はsource kind固有の機能ではなく、各Runについて
 「選択したMetricsマスタをSQLiteへどこまでcommitしたか」を表す共通契約とする。
 
-- `ingestedBytes`は最後に成功したDB transactionまでに消費したsource bytes。
+- `ingestedBytes`はMetricsキャッシュ内部で保持する、最後に成功したDB transactionまでに
+  消費したsource bytes。
   JSONLでは完全改行までのcommit offset、gzipでは圧縮streamの消費bytesを使う。
-- `sourceBytes`は選択中のMetricsマスタの現在file size。
-- 表示percentageはstateを優先して次のように決める。
+- `sourceBytes`はMetricsキャッシュ内部で保持する、選択中のMetricsマスタの現在file size。
+- Public Interfaceへはbyte値を出さず、serverがstateを優先して計算した
+  `percentage`だけを返す。
   - `pending`: 0%
   - `converting`: `floor(ingestedBytes * 100 / sourceBytes)`を0〜99%へclamp
-  - `caught_up` / `complete`: 100%
+  - `ready`: 100%
   - `error`: 最後にcommitできた`ingestedBytes / sourceBytes`を0〜99%へclampし、error表示を併記
-- JSONLとgzipでAPI field、percentage計算、UI表現を分けない。
+- JSONLとgzipでPublic Interface、percentage計算、UI表現を分けない。
   精度区分を示すfieldや、gzipだけに`~`などの印を付ける仕様は設けない。
 - live JSONLへの追記で`sourceBytes`が増えた場合、percentageが一時的に下がり、
-  stateが`caught_up`から`converting`へ戻ることを許容する。
-- `sourceBytes=0`で処理対象行がないRunは`caught_up`または`complete`として100%とする。
+  stateが`ready`から`converting`へ戻ることを許容する。
+- `sourceBytes=0`で処理対象行がないRunは`ready`として100%とする。
 
 ### 3.5 gzip
 
@@ -342,9 +347,9 @@ skip行にはordinalを割り当てず、`TagStats`とstep順序の基準にも�
 - corrupt / truncated gzipは、それまでにcommitした部分dataを残してRunを`error`にする。
   source fingerprintが変わるまで再試行しない。
 - 進捗は3.4のRun共通契約に従う。EOF確定前は`converting`のため最大99%、
-  最終commit後に`complete`となって100%を表示する。
+  最終commit後に`ready`となって100%を表示する。
 - activeなgzip変換中はstream handleを保持するため、そのRunフォルダの移動・削除は非対応。
-  `caught_up` / `complete` / `error`後はhandleを閉じる。
+  `ready` / `error`後はhandleを閉じる。
 
 ### 3.6 state
 
@@ -352,9 +357,12 @@ skip行にはordinalを割り当てず、`TagStats`とstep順序の基準にも�
 |---|---|
 | `pending` | Runは存在するが、有効なcache generationがまだない |
 | `converting` | 現在のマスタに未処理の完成行またはgzip streamがある |
-| `caught_up` | JSONLの現在の完全改行までcommit済み。将来追記され得る |
-| `complete` | immutable gzipのEOFまでcommit済み |
+| `ready` | 選択したMetricsマスタの現在読める末尾までcommit済み |
 | `error` | Run-level fatal error。commit済み部分dataは保持する |
+
+`ready`はsource kindから独立した取り込み状態である。JSONLは正常追記を検出すると
+`ready`から`converting`へ戻る。immutable gzipはfingerprint変更時に既存cacheを
+無効化して新しいgenerationを作るため、同じgenerationの`ready`からは戻らない。
 
 tag隔離だけではRunを`error`にしない。
 
@@ -364,7 +372,7 @@ tag隔離だけではRunを`error`にしない。
 - 選択(priority)側3ブロック、背景側1ブロックを1 cycleとする。
 - 各集合内はRun単位round-robinで、1 Runが1回に処理するのは最大1ブロック。
 - 片側に処理可能Runがなければ、もう片側を連続処理してwriterを遊ばせない。
-- 全Runが`caught_up` / `complete` / `error`で、処理可能なsource変化もない場合だけ10秒sleepする。
+- 全Runが`ready` / `error`で、処理可能なsource変化もない場合だけ10秒sleepする。
 
 ## 4. Public API
 
@@ -380,9 +388,8 @@ RunInfo {
     maxStep: safe-integer | null
   },
   ingest: {
-    state: pending | converting | caught_up | complete | error,
-    ingestedBytes,
-    sourceBytes,
+    state: pending | converting | ready | error,
+    percentage: integer, // 0..100
     error?: {
       code,
       message
@@ -406,14 +413,14 @@ RunInfo {
 - `stats.maxStep`はcommit済み`TagStats.maxStep`の最大。点がなければ`null`。
 - 非scalarは`RunInfo.tags`へ含めない。
 - tag隔離およびRun-level errorでも、commit済みのtagと統計は返す。
-- `ingestedBytes` / `sourceBytes`とpercentageの意味はsource kindによらず3.4の共通契約に従う。
-  source kindや進捗の精度区分は公開しない。
+- `ingest.percentage`は3.4の共通契約に従ってserverが算出する。
+  source kind、`ingestedBytes` / `sourceBytes`、進捗の精度区分は公開しない。
 
 ### 4.2 `POST /api/metrics.json`
 
 #### request
 
-1 batch内でrange modeとfollow modeをseries単位に混在できる。
+すべてのseriesを、前回応答へ依存しないinclusive step rangeとして要求する。
 
 ```jsonc
 {
@@ -424,33 +431,24 @@ RunInfo {
       "fromStep": 1000,
       "toStep": 2000,
       "maxPoints": 4000
-    },
-    {
-      "runId": "run-b",
-      "tagKey": "10_train/loss",
-      "fromOrdinal": 123456,
-      "maxPoints": 4000
     }
   ]
 }
 ```
 
-- range modeはinclusiveな`fromStep`と`toStep`を両方指定する。
-- follow modeは`fromOrdinal`を指定する。
+- `fromStep`と`toStep`を両方指定する。範囲はinclusive。
 - `maxPoints`省略時は`metricsviewer.target-points-per-series`を使う。
 - 次はrequest shape違反としてHTTP 400:
-  - range fieldとfollow fieldの混在
   - `fromStep` / `toStep`の片方だけ
-  - どちらのmode fieldもない
+  - `fromOrdinal`など廃止したfollow用fieldの指定
   - unsafe step
-  - 負の`fromOrdinal`
   - `fromStep > toStep`
   - `maxPoints < 3`またはglobal上限超過
   - 空または型不正の`runId` / `tagKey`
 
-shape検証と最低quota実現性検証を通過したbatchは、データ状態にかかわらず
-入力順・入力件数を保ったHTTP 200を返す。series単位のpending / not_found / errorを
-HTTP errorへ昇格させない。request全体を拒否する例外は、
+shape検証と最低quota実現性検証を通過したbatchは、data availabilityやissueに
+かかわらず入力順・入力件数を保ったHTTP 200を返す。series単位のpending /
+not_found / issueをHTTP errorへ昇格させない。request全体を拒否する例外は、
 最低quotaを満たせないHTTP 422とquery slotを取得できないHTTP 503だけとする。
 
 #### response
@@ -461,85 +459,91 @@ HTTP errorへ昇格させない。request全体を拒否する例外は、
     runId,
     tagKey,
     generation: UUID | null,
-    status: ok | pending | empty | not_found | error,
+    fromStep,
+    toStep,
+    availability: ok | pending | empty | not_found,
     pointBudget,
-    snapshotEndOrdinal,
-    nextOrdinal,
-    error?: {
-      code,
-      message
-    },
-    segments: [Segment, ...]
+    level: integer | null,
+    bucketWidth: safe-integer | null,
+    issues?: [Issue, ...],
+    projection: RawProjection | LodProjection | null
   }, ...]
 }
 
-Segment {
-  level,
-  bucketWidth,
-  ordinalFrom,
-  ordinalTo,
-  steps?,        // base64 little-endian f64[]。L0の実step
-  values?,       // base64 little-endian f32[]。L0だけ
-  firstSteps?,   // base64 little-endian f64[]。LOD bucket先頭の実step
-  lastSteps?,    // base64 little-endian f64[]。LOD bucket末尾の実step
-  minSteps?,     // base64 little-endian f64[]。minが発生した実step
-  maxSteps?,     // base64 little-endian f64[]。maxが発生した実step
-  minOrdinals?,  // base64 little-endian f64[]。minが発生したabsolute ordinal
-  maxOrdinals?,  // base64 little-endian f64[]。maxが発生したabsolute ordinal
-  mins?,         // base64 little-endian f32[]。LODだけ
-  maxs?,
-  means?,
-  lasts?,
-  cnts?          // base64 little-endian f64[]。LODだけ
+Issue {
+  scope: run | tag,
+  code,
+  message
+}
+
+RawProjection {
+  kind: "raw",
+  steps,   // base64 little-endian f64[] chunks
+  values   // base64 little-endian f32[] chunks
+}
+
+LodProjection {
+  kind: "lod",
+  minMax: {
+    steps,   // base64 little-endian f64[] chunks
+    values   // base64 little-endian f32[] chunks
+  },
+  summary: {
+    steps,     // 各bucketのfirstStep。base64 little-endian f64[] chunks
+    mins,      // base64 little-endian f32[] chunks
+    maxs,
+    means,
+    minSteps,  // extremaが発生した実step。base64 little-endian f64[] chunks
+    maxSteps
+  }
 }
 ```
 
-- `segments`は`ordinalFrom`昇順で、隙間・重複なく連続する。
-  `ordinalTo`は排他的終端。
-- L0では`level=0`、`bucketWidth=1`、1点につきstep/valueを1つ返す。
-- LODでは同じ添字の`firstSteps/lastSteps/minSteps/maxSteps/minOrdinals/`
-  `maxOrdinals/mins/maxs/means/lasts/cnts`が1 bucketを表す。
-- `cnts`はbucketが覆うL0点数。bucket先頭ordinalは`ordinalFrom`から
-  それ以前の`cnts`を加算して求め、bucket末尾ordinalは`先頭+cnt-1`で求める。
-- stepとordinal位置はf64で転送し、JavaScript安全整数範囲内を正確に表す。
-- MinMax用の1 bucketの候補点は次の3つ。
-  - `(minOrdinal, minStep, min)`
-  - `(maxOrdinal, maxStep, max)`
-  - `(bucket末尾ordinal, lastStep, last)`
-  同一ordinalを重複排除してordinal昇順に並べる。これにより1 bucketは1〜3 verticesとなり、
-  stepが重複していても既存Min-Max-Lastと同じL0出現順を復元できる。
-- `snapshotEndOrdinal`は、そのRunのread transaction開始時点にcommit済みだった
-  対象tagの総L0点数。
-- `nextOrdinal`は常に今回返したordinal区間の排他的終端。
-  空のfollow結果では要求`fromOrdinal`、まだordinalを解決できないpending / not_foundでは0とする。
-- `error`でも既知のcommit済み区間を`segments`へ添付できる。
+- `fromStep` / `toStep`は要求したinclusive rangeをそのまま返し、clientの
+  range window identityとする。
+- `level=0`、`bucketWidth=1`では`RawProjection`を返す。
+- `level>0`、`bucketWidth=16^level`では`LodProjection`を返す。
+- 各array fieldは順序付きbase64 chunk列である。同じgroup内の論理array長は一致する。
+- `minMax`はserverが各bucketのmin / max / last候補を同一ordinalで重複排除し、
+  全rangeについてordinal昇順へ確定した描画projectionである。clientへordinalや
+  永続LOD rowの形を公開しない。
+- `summary`は選択levelのbucket順で、MeanとBandを再fetchなしで描画するための
+  projectionである。`minSteps` / `maxSteps`はhoverでextremaの実位置を示す。
+- `availability != ok`では通常`projection=null`、`level=null`、`bucketWidth=null`とする。
+- Run-level errorまたはtag隔離があっても、commit済みdataの有無とは独立して
+  `issues`へ載せる。両方存在する場合は2件を返し得る。
+- `availability=ok`と`issues`は併存でき、commit済みprojectionを描画し続ける。
 
-statusの判定:
+availabilityの判定:
 
-| status | 意味 |
+| availability | 意味 |
 |---|---|
-| `ok` | 要求区間をcommit済みdataで返した |
-| `pending` | Run/cache/tagが変換途中で、現時点では要求を解決できない |
-| `empty` | Run/tagは存在するが、要求区間に点がない |
-| `not_found` | Runが消失した、または現在のcommit済みマスタにtagが存在しない |
-| `error` | Run-level errorまたはtag隔離。commit済み部分dataは返し得る |
+| `ok` | read snapshot内の要求区間に描画可能なcommit済みdataがある |
+| `pending` | Run/cache/tagが取り込み途中で、現時点では描画可能なdataがない |
+| `empty` | 取り込みが`ready`または`error`でRun/tagは存在するが、要求区間に点がない |
+| `not_found` | Runが消失した、または現在の確定済みMetricsマスタにtagが存在しない |
 
-### 4.3 range解決とLOD tiling
+### 4.3 range解決と単一level projection
 
-- range modeのinclusive step範囲は、非減少L0に対する二分探索で
+- inclusive step範囲は、非減少L0に対する二分探索で
   `[first(step >= fromStep), first(step > toStep))`のordinal範囲へ変換する。
   重複stepを境界上もすべて含める。
-- follow modeは`[fromOrdinal, snapshotEndOrdinal)`を対象とする。
 - queryはread transaction内で同じsnapshotを使い、途中commitを混ぜない。
-- 完成済み永続LODを内部に使い、要求範囲の左右端だけは
-  永続LOD/L0を合成した部分bucketをquery時に最大2個作る。
-  範囲外ordinalを含めず、欠落も作らない。
+- 1 series responseは全rangeで単一levelを使い、levelを混在させない。
+  L0が`pointBudget`内なら`level=0`、超える場合はLOD bucketを最大3 verticesとして
+  予算内に入る最も細かいlevelを選ぶ。最新側だけを細かいlevelやL0にしない。
+- 完成済み永続LODを内部に使い、選択levelのbucket境界に揃わない左右端だけは
+  永続LOD/L0から部分bucketをquery時に最大2個合成する。
+  選択levelが永続化済み最上位より上の場合も、下位levelから必要な部分bucketを合成できる。
+- すべてのbucketは選択levelの論理bucketとして扱い、範囲外ordinalを含めず、
+  欠落・重複を作らない。
 - query時に合成する部分bucketも、value集約だけでなく
   `step_first/step_last/min_ordinal/min_step/max_ordinal/max_step`を保持する。
-- 内部は粗いlevel、右端ほど細かいlevelの順にsegmentを並べる。
-  vertex予算に余裕があれば最新側をL0まで細かくする。
+- serverは永続LOD rowと部分bucketから`RawProjection`または`LodProjection`を構築し、
+  clientへlevel選択、bucket合成、ordinal順復元を漏らさない。
+- 選択levelの完成済み永続bucketは、4.5の固定page LRUから取得する。
+  page単位で余分に読んだbucketはrange projectionへ混ぜず、要求ordinal範囲だけをsliceする。
 - query合成bucketはDBへ書かず、LRUにも保存しない。
-- 旧`level` / `tail` / `watermark`単一応答は廃止する。
 
 ### 4.4 点数予算
 
@@ -548,7 +552,7 @@ statusの判定:
 - L0点は1 vertex。
 - LOD bucketはMinMaxのmin / max / lastまたはBandのmin / max / meanを基準に
   最大3 verticesとして計算する。
-- Mean表示を選んでいても予算を縮小せず、mode変更後も同じcacheを再利用する。
+- Mean表示を選んでいても予算を縮小せず、mode変更後も同じprojectionを再利用する。
 - seriesごとの最低quotaは
   `min(50, requestedMaxPoints, availableVertices)`。
 - 最低quota合計が`metricsviewer.max-points-per-request`を超える場合はHTTP 422とし、
@@ -573,7 +577,17 @@ statusの判定:
   `Retry-After: 2`、error code `query_busy`を返す。
 - 1 HTTP要求内ではseriesをRunごとにgroup化し、Runごとに短命read connectionを1つ開閉する。
 - binary chunk LRUへ保存できるのは、完成済み永続LODだけ。
-- LRU keyは`generation / run / tag / level / bucket range`。
+- LRUは1 pageを連続する1,024 bucketに固定し、`LOD_PAGE_BUCKETS=1024`を
+  外部設定へ公開しないImplementation定数とする。
+- `pageIndex = floor(bucket / LOD_PAGE_BUCKETS)`。
+  page `p`はbucket区間`[p * 1024, (p + 1) * 1024)`を担当し、
+  level末尾だけは1,024件未満の短いpageを許容する。
+- LRU keyは`generation / run / tag / level / pageIndex`。
+  query固有の任意`bucket range`をkeyにしない。
+- Queryは必要なbucket区間をpageIndex列へ変換してpageを取得し、
+  cache hit後に要求bucketだけをsliceする。重なるrange queryは同じpage entryを再利用する。
+- evictionの容量計算はpageの実byte数を使う。
+- ここでいうLOD cache pageはSQLite pageおよびPublic Interfaceのbase64 chunkとは別概念である。
 - L0とquery合成bucketはcacheしない。
 - Run消失検出時は、そのRunのLRU entryを即時削除する。
 
@@ -601,44 +615,51 @@ statusの判定:
 
 ### 5.2 Run単位のDB取り込み進捗
 
-- Run行へ`ingestedBytes / sourceBytes`から求めたpercentageを表示し、
-  同じ割合まで背景を左から塗る。JSONLとgzipで表示を分けない。
-- `pending` / `converting`では`0%`〜`99%`、`caught_up` / `complete`では`100%`を表示する。
+- Run行へ`ingest.percentage`を表示し、同じ割合まで背景を左から塗る。
+  JSONLとgzipで表示を分けない。
+- `pending` / `converting`では`0%`〜`99%`、`ready`では`100%`を表示する。
 - `error`では最後にcommitできたpercentageを残し、Run-level errorまたは隔離tag数の警告を併記する。
 - `100%`表示は低彩度にして変換中Runを目立たせるが、値自体は省略しない。
-- `title`へ`ingestedBytes / sourceBytes`の完全値とstateを載せる。
+- `title`へpercentageとstateを載せる。
 - gzip固有の接頭辞、記号、tooltip、色分けは設けない。
 
 ### 5.3 Run消失とstale応答
 
 - 次の`runs.json`でRun消失を検出した時点で、Run一覧、server LRU、
   ingest scheduler、client viewport cacheから除去する。
-- clientはselection、viewport、renderの各変更でrequest revisionを増やし、
+- clientはRun/tag selectionまたはviewport変更で`queryRevision`を増やし、
   旧metrics通信を`AbortController`でabortする。
-- response適用時にもmetadata revision、selection、Run generation、
-  request revisionを再検証する。どれかが古ければ描画へ反映しない。
+- LOD表示modeやLog modeの変更では`renderRevision`だけを増やし、
+  metrics通信をabortせず、保持中projectionを再描画する。
+- response適用時はseriesごとに`queryRevision`、現在のselection、表示対象、
+  Run存在、Run generationを再検証する。無関係なmetadata更新や別Runの
+  generation変更だけでは有効なseries responseを捨てない。
+- responseを描画するときは最新`renderRevision`の表示modeを使う。
 
 ### 5.4 viewport cacheと取得
 
-- seriesごとのclient cacheは現在viewportの左右1画面ずつを加えた計3画面分だけ保持する。
+- seriesごとのclient cacheは、現在viewportの左右1画面ずつを加えた計3画面分を覆う
+  単一immutable range windowだけを保持する。
+- range responseを受理したら、そのseriesの旧windowを応答単位で丸ごと置換する。
+  range response同士のunion、append、部分mergeはしない。
 - `plotly_relayout`後150ms debounceし、手元の粗いcacheを即描画する。
 - coverage不足または解像度不足なら、同一cycleで不足している可視seriesを
   1件の`metrics.json` batchへまとめる。
 - serverが予算を保証するため、client側stride decimationは削除する。
 - `MAX_POINTS=10000000`と追記専用の無制限numeric bufferは廃止する。
 
-### 5.5 followとpolling
+### 5.5 最新追従とpolling
 
-- Plotlyがautorange中、またはviewport右端と最新stepの差がviewport幅の5%以内ならfollow状態。
+- Plotlyがautorange中、またはviewport右端と最新stepの差がviewport幅の5%以内なら
+  最新追従状態とする。このUX上の追従状態はmetrics queryの別modeではない。
 - 過去rangeを表示中は、Auto Reload時もmetrics queryを送らない。
-- followは`fromOrdinal=nextOrdinal`で差分取得する。
-- followで蓄積したBand換算verticesが実効`pointBudget × 3`を超える前に、
-  現在viewportをrange modeで再取得してcacheを置換する。
 - `pending`または`converting`のRunが1つでもある間は、
   Auto Reload設定に関係なく`runs.json`を2秒間隔でpollする。
 - metricsを2秒更新するのは、
   選択中・表示中・変換中という3条件を満たすseriesだけ。
-- 対象Runが`caught_up` / `complete` / `error`になったら強制2秒metrics更新を止める。
+- 2秒更新では最新stepを反映した現在viewportの計3画面rangeを再要求し、
+  受理したresponseでseries windowを丸ごと置換する。
+- 対象Runが`ready` / `error`になったら強制2秒metrics更新を止める。
 
 ### 5.6 tag発見と空状態
 
@@ -683,18 +704,17 @@ MinMax / Mean / Band
 
 - 既定は`MinMax`。
 - 選択値を`localStorage`へ保存する。
-- mode変更では再fetchせず、同じsegment列を再描画する。
+- mode変更では再fetchせず、同じprojectionを再描画する。
 - L0は全modeでraw折れ線。
 - LODの描画:
-  - **MinMax**: bucketごとにmin / max / lastの候補点を作り、同一ordinalを重複排除して
-    ordinal昇順に並べる。各点のxには`minStep` / `maxStep` / `lastStep`という
-    元L0の実stepを使い、全bucketを1本の折れ線として連結する。
+  - **MinMax**: serverがordinal順と重複排除を確定した`projection.minMax`を
+    1本の折れ線として描画する。各点のxは元L0の実stepである。
     `step_first`へmin/maxを縦置きする描画は禁止する。
-  - **Mean**: `firstSteps`上の`means`を結ぶ折れ線。
-  - **Band**: 各bucketの`firstStep`を共通xとして、下端min、上端maxを別traceで結び、
-    その間を塗ってmean線を重ねる。
+  - **Mean**: `projection.summary.steps`上の`means`を結ぶ折れ線。
+  - **Band**: `projection.summary.steps`を共通xとして、下端`mins`、上端`maxs`を
+    別traceで結び、その間を塗って`means`を重ねる。
     minとmaxを同じtrace内で直接結ばないため、MinMaxのような縦線は作らない。
-    `minStep/maxStep`はhoverで実際のextrema位置を示すために使う。
+    `minSteps/maxSteps`はhoverで実際のextrema位置を示すために使う。
 - MeanとBandは初期実装へ残すが、実Run上の可読性を手動受け入れで評価する。
   継続、見え方の調整、将来の削除はその実画面を見て別途判断する。
 
@@ -787,9 +807,12 @@ M2    = M2_a + M2_b + delta^2 * count_a * count_b / count
 - min / max同値時に最小ordinalを選ぶ決定性
 - 16子未満を永続化しない
 - 再起動時に各level最大15子から未完成状態を復元
-- range左右端の部分bucket合成
-- ordinalが隙間・重複なく連続する複数segment
-- MinMaxの候補点を同一ordinalで重複排除し、ordinal順へ復元
+- range左右端の部分bucket合成と範囲外ordinal非混入
+- 1 series responseが単一levelだけを使い、最新側だけ細かくしない
+- L0が予算内ならraw、超える場合は予算内で最も細かい単一LOD levelを選ぶ
+- serverがMinMax候補点を同一ordinalで重複排除し、全rangeのordinal順へ
+  描画projectionとして復元する
+- Mean / Band用summary projectionの同一bucket順と同一array長
 - Bandのmin / max / mean 3 traceを含むvertex予算
 - `maxPoints=3`の最小予算
 - 重複stepをinclusive境界にすべて含める
@@ -824,12 +847,17 @@ M2    = M2_a + M2_b + delta^2 * count_a * count_b / count
 ### 7.6 APIとscheduler
 
 - batch入力順と同件数
-- `ok` / `pending` / `empty` / `not_found` / `error`
-- errorとpartial segmentsの併存
-- JSONL / gzip共通の`ingestedBytes` / `sourceBytes`とstate別percentage
-- range / follow混在
-- LODのactual extrema step / ordinal列とL0 raw列
-- snapshotとgeneration
+- range-only requestと廃止済みfollow fieldの400
+- `ok` / `pending` / `empty` / `not_found` availability
+- availabilityとRun/tag `issues`の独立、および`ok + issues + projection`の併存
+- JSONL / gzip共通の`pending / converting / ready / error`とserver算出percentage
+- 1 seriesにつき単一levelのraw / LOD描画projection
+- MinMax projectionがactual extrema stepを維持し、ordinal自体は公開しない
+- read transaction snapshotとgeneration
+- 固定1,024 bucket pageの境界`1023 / 1024`、level末尾の短いpage
+- 重なるbucket rangeが同じpage entryを再利用し、要求外bucketをprojectionへ混ぜない
+- LRU evictionがpageの実byte数に従い、L0とquery合成bucketをcacheしない
+- generation変更とRun消失で対象page entryを無効化する
 - quota不足422の3 field
 - priority集合の全置換
 - priority / backgroundの3:1公平性と片側empty時の連続処理
@@ -842,17 +870,20 @@ M2    = M2_a + M2_b + delta^2 * count_a * count_b / count
 - Run消失
 - pending / converting中の2秒poll
 - JSONL / gzipで同一のRun進捗percentage表示
+- 最新追従中の2秒range再取得と単一window置換
+- 過去range表示中はmetrics queryを送らない
+- range responseをappend / unionせず応答単位で置換する
 - 新tag自動ONと既知OFF維持
 - `#floating-controls`内でScroll Lock左に表示されるLOD mode select
 - screenshot modeで`#lod-display-mode-control`を非表示
 - LOD mode永続化とmode変更時no-fetch
-- MinMaxがmin / max / lastを実stepかつordinal順に描画し、`step_first`縦線を作らない
-- Bandが`firstSteps`を共通xとするmin/max帯とmean線を描画
+- MinMax projectionを実stepかつserver確定済みordinal順に描画し、`step_first`縦線を作らない
+- Bandがsummary stepsを共通xとするmin/max帯とmean線を描画
 - `TagStats`表示と複数Run合成
 - tag / Run error警告UI
-- revision / generationによるstale response破棄
+- queryRevision / generationによるseries単位のstale response破棄
+- renderRevision変更が通信をabortせず最新modeで再描画される
 - zoom時の精細化
-- follow後の再圧縮
 - 既存signed-log、scroll-lock、reload契約の維持
 
 ## 8. 受け入れ基準
