@@ -1,28 +1,38 @@
 @echo off
 REM ============================================================
-REM tb_bridge èµ·å‹•ã‚¹ã‚¯ãƒªãƒ—ãƒˆ
+REM tb_bridge ‹N“®ƒXƒNƒŠƒvƒg
 REM ============================================================
 
 setlocal
 
-REM ---- è¨­å®š ----
+REM ---- İ’è ----
 set RUNS_PATH=logs
 set PORT=8000
-set VENV_PATH=..\..\viewers\metrics-tools\.venv
+set VENV_PYTHON=..\..\.venv\Scripts\python.exe
+set MLFLOW_REQUIREMENTS=..\..\viewers\metrics-tools\requirements.txt
 
-REM ---- ä½œæ¥­ãƒ‡ã‚£ãƒ¬ã‚¯ãƒˆãƒªã‚’ãƒ—ãƒ­ã‚¸ã‚§ã‚¯ãƒˆãƒ«ãƒ¼ãƒˆã¸ç§»å‹• ----
+REM ---- ì‹ÆƒfƒBƒŒƒNƒgƒŠ‚ğƒvƒƒWƒFƒNƒgƒ‹[ƒg‚ÖˆÚ“® ----
 cd /d "%~dp0"
 
-REM ---- ä»®æƒ³ç’°å¢ƒãŒå­˜åœ¨ã™ã‚Œã°æœ‰åŠ¹åŒ– ----
-if exist "%VENV_PATH%\Scripts\activate.bat" (
-    call "%VENV_PATH%\Scripts\activate.bat"
+REM ---- ƒŠƒ|ƒWƒgƒŠ‚Ì‰¼‘zŠÂ‹«‚ğŒŸØ ----
+if not exist "%VENV_PYTHON%" (
+    echo [ERROR] Python virtual environment was not found: "%VENV_PYTHON%"
+    echo [INFO] Create it from the repository root: C:\Python314\python.exe -m venv .venv
+    exit /b 1
 )
 
-REM ---- ãƒ“ãƒ¥ãƒ¼ãƒ¯ãƒ¼èµ·å‹• ----
-pwd
-python ..\..\viewers\metrics-tools\mlflow_bridge.py
+"%VENV_PYTHON%" -c "import mlflow, sys; sys.exit(0 if mlflow.__version__ == '3.13.0' else 1)" >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Required MLflow version 3.13.0 is not installed in: "%VENV_PYTHON%"
+    echo [INFO] Install it with: "%VENV_PYTHON%" -m pip install -r "%MLFLOW_REQUIREMENTS%"
+    exit /b 1
+)
 
-REM ---- è‡ªå‹•ãƒ–ãƒ©ã‚¦ã‚¶ã‚ªãƒ¼ãƒ—ãƒ³ ----
+REM ---- ƒrƒ…[ƒ[‹N“® ----
+pwd
+"%VENV_PYTHON%" ..\..\viewers\metrics-tools\mlflow_bridge.py
+
+REM ---- ©“®ƒuƒ‰ƒEƒUƒI[ƒvƒ“ ----
 REM start http://127.0.0.1:%PORT%
 
 pause

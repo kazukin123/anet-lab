@@ -9,12 +9,29 @@ MLflow Tracking Server（ローカルUI含む）へ転送するスクリプト�
 """
 
 import argparse
+from dataclasses import dataclass
 import json
-import os
-import time
-import glob
-import mlflow
 import pathlib
+import re
+import time
+
+import mlflow
+from mlflow.entities import Metric, Param
+from mlflow.tracking import MlflowClient
+
+
+DEFAULT_EXPERIMENT_ID = "0"
+SOURCE_METRICS_TAG = "anet.bridge.source_metrics"
+METRICS_OFFSET_TAG = "anet.bridge.metrics_offset"
+BRIDGE_STATE_TAG = "anet.bridge.state"
+READ_BATCH_SIZE = 1000
+
+
+@dataclass
+class MonitoredRun:
+    metrics_path: pathlib.Path
+    run_id: str
+    offset: int
 
 
 def parse_args():
@@ -26,84 +43,304 @@ def parse_args():
     return parser.parse_args()
 
 
-def log_entry(entry):
-    tag = entry.get("tag") or entry.get("key") or entry.get("name")
-    step = entry.get("step") or entry.get("global_step")
-    value = entry.get("value") or entry.get("scalar")
+def load_config_params(filepath):
+    config_path = pathlib.Path(filepath)
+    if not config_path.is_file():
+        raise FileNotFoundError(f"Config data file not found: {config_path}")
 
-    if tag is None or value is None:
-        return
+    params = {}
+    source_keys = {}
 
-    if isinstance(value, (int, float)):
-        mlflow.log_metric(tag, value, step=step or 0)
-
-
-def stream_jsonl(filepath, start_offset=0):
-    with open(filepath, "r", encoding="utf-8") as f:
-        f.seek(start_offset)
-        while True:
-            line = f.readline()
-            if not line:
-                yield None, f.tell()
-                time.sleep(0.1)
-                continue
-            try:
-                yield json.loads(line.strip()), f.tell()
-            except json.JSONDecodeError:
+    # ConfigData の出力形式である key = value を行単位で変換する
+    with config_path.open("r", encoding="utf-8") as config_file:
+        for line_number, raw_line in enumerate(config_file, start=1):
+            line = raw_line.rstrip("\r\n")
+            if not line.strip():
                 continue
 
+            separator = line.find(" = ")
+            if separator <= 0:
+                raise ValueError(
+                    f"Invalid config_data line: {config_path}:{line_number}: "
+                    "expected 'key = value'"
+                )
 
-def find_latest_run_dir(logdir):
-    candidates = sorted(
-        glob.glob(os.path.join(logdir, "run_*/metrics.jsonl")),
-        key=os.path.getmtime,
-        reverse=True,
+            key = line[:separator]
+            value = line[separator + 3 :]
+            normalized_key = key.replace("[", "").replace("]", "")
+            normalized_key = re.sub(r"[^\w.\- /]", "_", normalized_key)
+            if not normalized_key.strip():
+                raise ValueError(
+                    f"Invalid config_data key: {config_path}:{line_number}: key='{key}'"
+                )
+
+            if normalized_key in source_keys:
+                previous_key = source_keys[normalized_key]
+                if previous_key != key:
+                    raise ValueError(
+                        f"Config_data keys collide after MLflow normalization: "
+                        f"{config_path}:{line_number}: keys='{previous_key}', '{key}', "
+                        f"normalized_key='{normalized_key}'"
+                    )
+                raise ValueError(
+                    f"Duplicate config_data key: {config_path}:{line_number}: key='{key}'"
+                )
+
+            source_keys[normalized_key] = key
+            params[normalized_key] = value
+
+    return params
+
+
+def find_run_metrics(logdir):
+    log_root = pathlib.Path(logdir)
+    return sorted(
+        metrics_path
+        for metrics_path in log_root.glob("run_*/metrics.jsonl")
+        if metrics_path.is_file()
     )
-    if not candidates:
-        raise FileNotFoundError(f"{logdir}/run_*/metrics.jsonl が見つかりません。")
-    return candidates[0]
+
+
+def source_metrics_key(metrics_path):
+    return pathlib.Path(metrics_path).resolve().as_posix()
+
+
+def read_jsonl_batch(filepath, start_offset=0, max_lines=READ_BATCH_SIZE):
+    metrics_path = pathlib.Path(filepath)
+    entries = []
+    next_offset = start_offset
+
+    # byte offset を保持し、bridge再起動後も同じ位置から再開する
+    with metrics_path.open("rb") as metrics_file:
+        metrics_file.seek(0, 2)
+        file_size = metrics_file.tell()
+        if start_offset > file_size:
+            raise ValueError(
+                f"Metrics file was truncated: path='{metrics_path}', "
+                f"offset={start_offset}, size={file_size}"
+            )
+        metrics_file.seek(start_offset)
+
+        for _ in range(max_lines):
+            line_start = metrics_file.tell()
+            raw_line = metrics_file.readline()
+            if not raw_line:
+                break
+
+            has_newline = raw_line.endswith(b"\n")
+            try:
+                entry = json.loads(raw_line.decode("utf-8").strip())
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                if not has_newline:
+                    # 書き込み途中の末尾行はoffsetを進めず、次回pollで再読込する
+                    metrics_file.seek(line_start)
+                    break
+            else:
+                entries.append(entry)
+
+            next_offset = metrics_file.tell()
+
+    return entries, next_offset
+
+
+def entry_to_metric(entry, timestamp_ms=None):
+    tag = entry.get("tag") or entry.get("key") or entry.get("name")
+    step = entry.get("step")
+    if step is None:
+        step = entry.get("global_step")
+    value = entry.get("value")
+    if value is None:
+        value = entry.get("scalar")
+
+    if tag is None or value is None or not isinstance(value, (int, float)):
+        return None
+
+    if timestamp_ms is None:
+        timestamp_ms = int(time.time() * 1000)
+    return Metric(
+        key=tag,
+        value=value,
+        timestamp=timestamp_ms,
+        step=0 if step is None else int(step),
+    )
+
+
+def load_existing_bridge_runs(client):
+    existing_runs = {}
+    page_token = None
+
+    # source tag を持つ既存MLflow Runを読み、重複作成せず再利用する
+    while True:
+        page = client.search_runs(
+            experiment_ids=[DEFAULT_EXPERIMENT_ID],
+            max_results=1000,
+            page_token=page_token,
+        )
+        for run in page:
+            source_key = run.data.tags.get(SOURCE_METRICS_TAG)
+            if source_key is None:
+                continue
+            if source_key in existing_runs:
+                raise ValueError(
+                    f"Duplicate MLflow runs for source metrics: source='{source_key}', "
+                    f"run_ids='{existing_runs[source_key].info.run_id}', "
+                    f"'{run.info.run_id}'"
+                )
+            existing_runs[source_key] = run
+
+        page_token = page.token
+        if not page_token:
+            break
+
+    return existing_runs
+
+
+def register_run(client, metrics_path, existing_runs, run_name=None):
+    metrics_path = pathlib.Path(metrics_path)
+    source_key = source_metrics_key(metrics_path)
+    config_data_path = metrics_path.parent / "config" / "config_data.txt"
+    config_params = load_config_params(config_data_path)
+    existing_run = existing_runs.get(source_key)
+
+    # source tagでRunを一意に対応付け、再起動時は保存済みoffsetから再開する
+    if existing_run is None:
+        mlflow_run = client.create_run(
+            experiment_id=DEFAULT_EXPERIMENT_ID,
+            run_name=run_name or metrics_path.parent.name,
+            tags={
+                SOURCE_METRICS_TAG: source_key,
+                METRICS_OFFSET_TAG: "0",
+                BRIDGE_STATE_TAG: "monitoring",
+            },
+        )
+        offset = 0
+        existing_runs[source_key] = mlflow_run
+        action = "Registered"
+    else:
+        mlflow_run = existing_run
+        raw_offset = mlflow_run.data.tags.get(METRICS_OFFSET_TAG, "0")
+        try:
+            offset = int(raw_offset)
+        except ValueError as error:
+            raise ValueError(
+                f"Invalid MLflow metrics offset: run_id='{mlflow_run.info.run_id}', "
+                f"value='{raw_offset}'"
+            ) from error
+        if offset < 0:
+            raise ValueError(
+                f"Invalid MLflow metrics offset: run_id='{mlflow_run.info.run_id}', "
+                f"value='{raw_offset}'"
+            )
+        client.update_run(mlflow_run.info.run_id, status="RUNNING")
+        client.set_tag(mlflow_run.info.run_id, BRIDGE_STATE_TAG, "monitoring")
+        action = "Resumed"
+
+    # 同じ値のparameter再登録を許し、途中失敗した初回登録も次回起動で回復する
+    client.log_batch(
+        mlflow_run.info.run_id,
+        params=[Param(key, value) for key, value in config_params.items()],
+    )
+    print(
+        f"[INFO] {action}: {metrics_path} "
+        f"(run_id={mlflow_run.info.run_id}, offset={offset}, "
+        f"parameters={len(config_params)})"
+    )
+    return MonitoredRun(metrics_path=metrics_path, run_id=mlflow_run.info.run_id, offset=offset)
+
+
+def poll_run(client, monitored_run):
+    entries, next_offset = read_jsonl_batch(
+        monitored_run.metrics_path,
+        monitored_run.offset,
+    )
+    if next_offset == monitored_run.offset:
+        return False
+
+    # 1 batch分を記録してからoffsetを更新し、再起動時の取りこぼしを防ぐ
+    timestamp_ms = int(time.time() * 1000)
+    metrics = [
+        metric
+        for entry in entries
+        if (metric := entry_to_metric(entry, timestamp_ms)) is not None
+    ]
+    if metrics:
+        client.log_batch(monitored_run.run_id, metrics=metrics)
+
+    client.set_tag(monitored_run.run_id, METRICS_OFFSET_TAG, str(next_offset))
+    monitored_run.offset = next_offset
+    return True
+
+
+def resolve_initial_metrics(logdir):
+    log_path = pathlib.Path(logdir)
+    if log_path.is_dir():
+        metrics_paths = find_run_metrics(log_path)
+        if metrics_paths:
+            return metrics_paths, log_path
+
+        direct_metrics = log_path / "metrics.jsonl"
+        if direct_metrics.is_file():
+            return [direct_metrics], None
+
+        raise FileNotFoundError(
+            f"Direct run metrics were not found: {log_path / 'run_*' / 'metrics.jsonl'}"
+        )
+
+    if not log_path.is_file():
+        raise FileNotFoundError(f"Metrics file not found: {log_path}")
+    return [log_path], None
 
 
 def main():
     args = parse_args()
+    initial_metrics, scan_root = resolve_initial_metrics(args.logdir)
+    if scan_root is not None and args.run_name is not None:
+        raise ValueError("--run-name can only be used when --logdir points to one metrics file")
 
-    # 対象 JSONL ファイルの決定
-    target_jsonl = None
-    if os.path.isdir(args.logdir):
-        try:
-            target_jsonl = find_latest_run_dir(args.logdir)
-        except FileNotFoundError:
-            direct = os.path.join(args.logdir, "metrics.jsonl")
-            if os.path.exists(direct):
-                target_jsonl = direct
-            else:
-                raise
-    else:
-        target_jsonl = args.logdir  # ファイルパス指定時
+    # Windows上でも安定する絶対POSIX pathで、runs配下のSQLite DBを指定する
+    mlflow_db_path = pathlib.Path("runs", "mlflow.db").absolute()
+    mlflow_db_path.parent.mkdir(parents=True, exist_ok=True)
+    mlflow.set_tracking_uri(f"sqlite:///{mlflow_db_path.as_posix()}")
+    print(f"[INFO] Tracking database: {mlflow_db_path}")
+    if scan_root is not None:
+        print(f"[INFO] Monitoring direct runs: {scan_root} ({len(initial_metrics)} found)")
 
-    print(f"[INFO] Monitoring: {target_jsonl}")
+    client = MlflowClient()
+    existing_runs = load_existing_bridge_runs(client)
+    monitored_runs = {}
 
-    # --- Windows対応: mlruns を POSIX形式で指定 ---
-    mlruns_path = pathlib.Path("mlruns").absolute().as_posix()
-    mlflow.set_tracking_uri(f"file:///{mlruns_path}")
+    def add_metrics_path(metrics_path, run_name=None):
+        source_key = source_metrics_key(metrics_path)
+        if source_key in monitored_runs:
+            return
+        monitored_runs[source_key] = register_run(
+            client,
+            metrics_path,
+            existing_runs,
+            run_name=run_name,
+        )
 
-    # Run名を決定
-    run_name = args.run_name or os.path.basename(os.path.dirname(target_jsonl))
-    print(f"[INFO] Run name: {run_name}")
+    for metrics_path in initial_metrics:
+        add_metrics_path(metrics_path, run_name=args.run_name)
 
-    with mlflow.start_run(run_name=run_name):
-        offset = 0
-        for entry, offset in stream_jsonl(target_jsonl, 0):
-            if entry:
-                log_entry(entry)
+    while True:
+        # 監視中に作成されたruns直下のRunも追加する。再帰globは使わない。
+        if scan_root is not None:
+            for metrics_path in find_run_metrics(scan_root):
+                add_metrics_path(metrics_path)
 
-        if not args.once:
-            while True:
-                for entry, offset in stream_jsonl(target_jsonl, offset):
-                    if entry:
-                        log_entry(entry)
-                time.sleep(args.poll_interval)
+        made_progress = False
+        for source_key in sorted(monitored_runs):
+            made_progress = poll_run(client, monitored_runs[source_key]) or made_progress
 
+        if args.once and not made_progress:
+            for monitored_run in monitored_runs.values():
+                client.set_tag(monitored_run.run_id, BRIDGE_STATE_TAG, "converted")
+                client.set_terminated(monitored_run.run_id, status="FINISHED")
+            return
+
+        if not made_progress:
+            time.sleep(args.poll_interval)
 
 if __name__ == "__main__":
     main()

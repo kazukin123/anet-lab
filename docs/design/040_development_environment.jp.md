@@ -201,6 +201,29 @@ C:\Python314\python.exe -m venv .venv
 
 `.venv` はローカル開発環境であり、Git 管理対象にしません。
 
+### 7.1 MLflow bridge
+
+MLflow bridge と MLflow server は、リポジトリルートの `.venv` と `apps/runner/runs/mlflow.db` を共有します。
+依存 package は次のコマンドで導入してください。
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r viewers\metrics-tools\requirements.txt
+```
+
+`requirements.txt` は MLflow を `3.13.0` に固定しています。
+MLflow 3.14.0 の server は Python 3.14 で削除された `importlib.abc.Traversable` を import するため、この組み合わせでは起動できません。
+`apps/runner/41_mlflow_bridge.bat` と `apps/runner/42_start_mlflow.bat` は、要求 version が導入されていない場合に fail-fast します。
+
+MLflow bridge は対象 Run の `config/config_data.txt` を読み、各 `key = value` を MLflow parameter として記録します。
+MLflow parameter 名で使用できない `[` と `]` は除去し、その他の使用不可文字は `_` へ置換します。
+変換後の parameter 名が衝突する場合は、値を上書きせず fail-fast します。
+
+`apps/runner/41_mlflow_bridge.bat` は `apps/runner/runs/run_*/metrics.jsonl` を列挙し、起動時点で存在するすべての直下 Run を MLflow へ変換します。
+監視中に追加された直下 Run も自動的に対象へ追加します。
+`runs/group/run_*/metrics.jsonl` のように別 directory の下へネストされた Run は対象外です。
+MLflow の `Status=RUNNING` は学習 process の生存状態ではなく、bridge が継続監視する対象として登録したことを示します。
+`--once` で変換した場合だけ、現在の末尾まで取り込んだ後に `Status=FINISHED` とします。
+
 ## 8. トラブルシューティング
 
 ### 8.1 `type_traits` などの標準 header が見つからない
