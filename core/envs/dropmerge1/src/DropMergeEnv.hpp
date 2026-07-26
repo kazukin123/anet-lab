@@ -61,6 +61,8 @@ namespace anet::rl::env::drop_merge {
         int max_step = 3000;
         int no_drop_timeout_steps = 200;
         bool use_no_drop_timeout_gameover = false;
+        bool use_no_legal_adjudication = false; ///< blocked persistence による NoLegal 受理上限保証を使うか
+        int no_legal_min_blocked_frames = 60;   ///< NoLegal 受理に必要な連続 blocked 物理 frame 数
         float box_width = 3.0f;
         float box_height = 4.0f;
         float ground_y = 0.5f;     // 箱の底の高さ
@@ -122,6 +124,8 @@ namespace anet::rl::env::drop_merge {
             ANET_READ_CONFIG(config_data, max_step);
             ANET_READ_CONFIG(config_data, no_drop_timeout_steps);
             ANET_READ_CONFIG(config_data, use_no_drop_timeout_gameover);
+            ANET_READ_CONFIG(config_data, use_no_legal_adjudication);
+            ANET_READ_CONFIG(config_data, no_legal_min_blocked_frames);
             ANET_READ_CONFIG(config_data, box_width);
             ANET_READ_CONFIG(config_data, box_height);
             ANET_READ_CONFIG(config_data, ground_y);
@@ -330,6 +334,7 @@ namespace anet::rl::env::drop_merge {
         int ep_blocked_run_max_ = 0;
         float last_ep_mean_blocked_frames_ = 0.0f;
         int last_ep_max_blocked_frames_ = 0;
+        int last_ep_terminal_blocked_frames_ = 0;
         bool ep_blocked_drop_on_candidate_ = false;
         bool ep_no_drop_timeout_on_candidate_ = false;
 

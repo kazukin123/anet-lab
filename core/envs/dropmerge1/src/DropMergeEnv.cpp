@@ -109,6 +109,23 @@ DropMergeEnv::DropMergeEnv(
     , anet::RandomHolder(std::nullopt)
     , config_(config)
 {
+    // NoLegal 裁定 horizon は OFF 時も完全な設定値として保持し、不正値を構築時に拒否する。
+    if (config_.no_legal_min_blocked_frames < 1) {
+        ANET_SYSTEM_ERROR(
+            "Invalid NoLegal adjudication config. key=no_legal_min_blocked_frames value="
+            << config_.no_legal_min_blocked_frames << " expected integer >= 1");
+    }
+    if (config_.use_no_legal_adjudication
+        && config_.use_no_drop_timeout_gameover
+        && config_.no_drop_timeout_steps > 0
+        && config_.no_legal_min_blocked_frames >= config_.no_drop_timeout_steps) {
+        ANET_SYSTEM_ERROR(
+            "Invalid NoLegal adjudication config. key=no_legal_min_blocked_frames value="
+            << config_.no_legal_min_blocked_frames
+            << " expected < no_drop_timeout_steps=" << config_.no_drop_timeout_steps
+            << " when use_no_legal_adjudication=true and use_no_drop_timeout_gameover=true");
+    }
+
     // --- Seed Mode の解析 ---
     std::string mode_str = anet::ToLower(config_.seed_mode);
     if (mode_str == "fixed") {
@@ -1082,11 +1099,23 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         accumulated_reward += config_.game_over_penalty;
     }
 
-    // 盤面いっぱいでのNOOP判定
-    const bool no_legal_drop_terminal = !game_over_ && is_noop_action && isNoLegalDropState();
+    // 盤面いっぱいでの NOOP を、既存 settled fast-path または blocked persistence で受理する。
+    const bool settled_no_legal_drop = !game_over_ && is_noop_action && isNoLegalDropState();
+    const bool persistent_no_legal_drop = !game_over_
+        && is_noop_action
+        && config_.use_no_legal_adjudication
+        && blocked_candidate_frames_ >= config_.no_legal_min_blocked_frames;
+    const bool no_legal_drop_terminal = settled_no_legal_drop || persistent_no_legal_drop;
     if (no_legal_drop_terminal) {
         term_reason_ = TerminationReason::NoLegalDrop;
-        log.verbose() << "Episode done: no legal drop remains. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+        if (settled_no_legal_drop) {
+            log.verbose() << "Episode done: no legal drop remains. episode_score=" << episode_score_ << " step_count=" << step_count_ << " x=" << dropper_.x;
+        } else {
+            log.verbose() << "Episode done: no legal drop persisted for "
+                << config_.no_legal_min_blocked_frames
+                << " frames. episode_score=" << episode_score_
+                << " step_count=" << step_count_ << " x=" << dropper_.x;
+        }
     }
 
     // エピソード完了判定
@@ -1140,6 +1169,8 @@ std::shared_ptr<const anet::rl::SingleStepResult> DropMergeEnv::Step(int64_t act
         last_ep_mean_blocked_frames_ = (ep_blocked_run_count_ > 0)
             ? (static_cast<float>(ep_blocked_run_sum_) / ep_blocked_run_count_)
             : 0.0f;
+        // 終端まで解消しなかった blocked run を、終了理由と同じタイミングで確定する。
+        last_ep_terminal_blocked_frames_ = blocked_candidate_frames_;
     }
 
     // State生成
@@ -1518,6 +1549,14 @@ std::optional<float> DropMergeEnv::GetScalar(const std::string& key, int64_t ind
     if (key == "ep_max_blocked_frames") {
         if (!episode_just_ended_) return nan;
         return static_cast<float>(last_ep_max_blocked_frames_);
+    }
+    if (key == "ep_terminal_blocked_frames") {
+        if (!episode_just_ended_) return nan;
+        return static_cast<float>(last_ep_terminal_blocked_frames_);
+    }
+    if (key == "ep_blocked_run_count") {
+        if (!episode_just_ended_) return nan;
+        return static_cast<float>(ep_blocked_run_count_);
     }
 
     return std::nullopt;

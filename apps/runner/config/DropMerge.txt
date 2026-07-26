@@ -121,6 +121,9 @@ app.run_name = run_{t}_dm
 #app.run_name = run_{t}_imp3-vit128
 #app.run_name = run_{t}_imp3-vit128_gn
 #app.run_name = run_{t}_imp2-vit128_tgtg-nose
+#app.run_name = run_{t}_imp2-vit128_tgtg-nolg60-tm10
+#app.run_name = run_{t}_imp2-vit128_tgtg-nolg60-tm10
+
 
 #app.online.exp_pause_step  = 9,000,000    # 9M
 #app.online.exp_pause_step  = 15,000,000      # 15M
@@ -154,7 +157,9 @@ R.use_optimistic_target = false
 #train.eval.[eval1].eval_batch_size = 16
 #train.eval.[eval2].eval_batch_size = 16
 
-E.no_drop_timeout_gameover_penalty = 0
+E.use_no_legal_adjudication = true
+E.no_legal_min_blocked_frames = 60
+E.no_drop_timeout_gameover_penalty = -10
 
 M.[33_agent_action/11_train_actor_snapshot_interval] = train_actor_snapshot_interval @train $action_info
 M.[33_agent_action/12_train_actor_snapshot_age] = train_actor_snapshot_age @train $action_info
@@ -1169,6 +1174,8 @@ M.[42_env/21_blkdrop_cand_mean]      = $env mean.blocked_drop_on_candidate @trai
 M.[42_env/22_timeout_cand_mean]      = $env mean.no_drop_timeout_on_candidate @train
 M.[42_env/23_ep_mean_blocked_frames] = $env mean.ep_mean_blocked_frames @train
 M.[42_env/24_ep_max_blocked_frames]  = $env max.ep_max_blocked_frames @train
+M.[42_env/25_ep_terminal_blocked_frames_max] = $env max.ep_terminal_blocked_frames @train
+M.[42_env/26_ep_blocked_run_count_mean] = $env mean.ep_blocked_run_count @train
 
 #M.[42_env/51_ep_maxrank_max_ema]  = $env max.ep_max_rank @train $ema
 #M.[42_env/52_ep_frct_max_ema]     = $env max.ep_end_fruit_count @train $ema
@@ -1210,6 +1217,8 @@ M.[51_eval1/74_tr_timeout_mean]      = $eval.[eval1] @episode_end $env mean.term
 M.[51_eval1/75_tr_nolg_mean]         = $eval.[eval1] @episode_end $env mean.term_reason_no_legal_drop
 M.[51_eval1/77_blkdrop_cand_mean]    = $eval.[eval1] @episode_end $env mean.blocked_drop_on_candidate
 M.[51_eval1/78_timeout_cand_mean]    = $eval.[eval1] @episode_end $env mean.no_drop_timeout_on_candidate
+M.[51_eval1/79_terminal_blocked_frames_mean] = $eval.[eval1] @episode_end $env mean.ep_terminal_blocked_frames
+M.[51_eval1/80_blocked_run_count_mean] = $eval.[eval1] @episode_end $env mean.ep_blocked_run_count
 M.[51_eval1/83_tr_blk_mean_ema]      = $eval.[eval1] @episode_end $env mean.term_reason_spawn_blocked $ema ema_alpha:0.01
 M.[51_eval1/84_tr_timeout_max_ema]   = $eval.[eval1] @episode_end $env mean.term_reason_no_drop_timeout $ema ema_alpha:0.01  # TODO max -> min
 M.[51_eval1/85_tr_nolg_mean_ema]     = $eval.[eval1] @episode_end $env mean.term_reason_no_legal_drop $ema ema_alpha:0.01
@@ -1233,6 +1242,8 @@ M.[52_eval2/74_tr_timeout_mean]      = $eval.[eval2] @episode_end $env mean.term
 M.[52_eval2/76_tr_nolg_mean]         = $eval.[eval2] @episode_end $env mean.term_reason_no_legal_drop
 M.[52_eval2/77_blkdrop_cand_mean]    = $eval.[eval2] @episode_end $env mean.blocked_drop_on_candidate
 M.[52_eval2/78_timeout_cand_mean]    = $eval.[eval2] @episode_end $env mean.no_drop_timeout_on_candidate
+M.[52_eval2/79_terminal_blocked_frames_mean] = $eval.[eval2] @episode_end $env mean.ep_terminal_blocked_frames
+M.[52_eval2/80_blocked_run_count_mean] = $eval.[eval2] @episode_end $env mean.ep_blocked_run_count
 M.[52_eval2/83_tr_blk_mean_ema]      = $eval.[eval2] @episode_end $env mean.term_reason_spawn_blocked $ema ema_alpha:0.01
 M.[52_eval2/84_tr_timeout_mean_ema]  = $eval.[eval2] @episode_end $env mean.term_reason_no_drop_timeout $ema ema_alpha:0.01
 M.[52_eval2/85_tr_nolg_mean_ema]     = $eval.[eval2] @episode_end $env mean.term_reason_no_legal_drop $ema ema_alpha:0.01
@@ -1452,6 +1463,8 @@ DropMergeEnv.drop_divisions = -1         # DROP座標の分割数（-1でgrid_co
 DropMergeEnv.max_step = 20000            # エピソード打ち切りステップ数 スイカ以上のためには10000以上推奨
 DropMergeEnv.no_drop_timeout_steps = 200 # 500 DROPしないでいると強制エピソード打ち切りとするステップ数
 DropMergeEnv.use_no_drop_timeout_gameover = true # no_drop_timeout時にtruncatedではなくdoneとして扱うか
+DropMergeEnv.use_no_legal_adjudication = false # blocked persistenceによるNoLegal受理上限保証を使うか
+DropMergeEnv.no_legal_min_blocked_frames = 60 # NoLegal受理に必要な連続blocked物理frame数
 DropMergeEnv.use_fast_move = false
 DropMergeEnv.use_instant_drop = false
 DropMergeEnv.use_dropper_x_grid = true
