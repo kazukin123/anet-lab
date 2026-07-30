@@ -347,7 +347,8 @@ skip行にはordinalを割り当てず、`TagStats`とstep順序の基準にも�
 - corrupt / truncated gzipは、それまでにcommitした部分dataを残してRunを`error`にする。
   source fingerprintが変わるまで再試行しない。
 - 進捗は3.4のRun共通契約に従う。EOF確定前は`converting`のため最大99%、
-  最終commit後に`ready`となって100%を表示する。
+  最終commit後に`ready`となってPublic Interfaceは100%を返す。
+  UIは5.2に従い100%の数値を表示しない。
 - activeなgzip変換中はstream handleを保持するため、そのRunフォルダの移動・削除は非対応。
   `ready` / `error`後はhandleを閉じる。
 
@@ -617,16 +618,20 @@ availabilityの判定:
 
 - Run行へ`ingest.percentage`を表示し、同じ割合まで背景を左から塗る。
   JSONLとgzipで表示を分けない。
-- `pending` / `converting`では`0%`〜`99%`、`ready`では`100%`を表示する。
-- `error`では最後にcommitできたpercentageを残し、Run-level errorまたは隔離tag数の警告を併記する。
-- `100%`表示は低彩度にして変換中Runを目立たせるが、値自体は省略しない。
+- `pending` / `converting`では`0%`〜`99%`を表示する。
+- `ready` / `error`ではpercentageの数値を表示しない。
+  100%ではprogress背景も表示しない。
+  `error`ではRun-level errorまたは隔離tag数の警告を併記する。
+- progress背景と数値は灰色系とし、濃い青系の選択状態とは視覚的に分離する。
 - `title`へpercentageとstateを載せる。
 - gzip固有の接頭辞、記号、tooltip、色分けは設けない。
 
 ### 5.3 Run消失とstale応答
 
-- 次の`runs.json`でRun消失を検出した時点で、Run一覧、server LRU、
+- ReloadまたはAuto Reloadによる通常metadata refreshでRun消失を検出した時点で、Run一覧、server LRU、
   ingest scheduler、client viewport cacheから除去する。
+- percentage-only pollで得たRun消失やgeneration変更は反映せず、次の通常metadata refreshまで
+  現在表示中のsnapshotを維持する。
 - clientはRun/tag selectionまたはviewport変更で`queryRevision`を増やし、
   旧metrics通信を`AbortController`でabortする。
 - LOD表示modeやLog modeの変更では`renderRevision`だけを増やし、
@@ -654,16 +659,22 @@ availabilityの判定:
   最新追従状態とする。このUX上の追従状態はmetrics queryの別modeではない。
 - 過去rangeを表示中は、Auto Reload時もmetrics queryを送らない。
 - `pending`または`converting`のRunが1つでもある間は、
-  Auto Reload設定に関係なく`runs.json`を2秒間隔でpollする。
-- metricsを2秒更新するのは、
-  選択中・表示中・変換中という3条件を満たすseriesだけ。
-- 2秒更新では最新stepを反映した現在viewportの計3画面rangeを再要求し、
-  受理したresponseでseries windowを丸ごと置換する。
-- 対象Runが`ready` / `error`になったら強制2秒metrics更新を止める。
+  Auto Reload設定に関係なく`runs.json`を4秒間隔でpollする。
+- このbackground pollは、すでにRun一覧へ表示されているRunのpercentage背景と数値だけを
+  DOMへ差分反映する。`metrics.json`は要求しない。
+- poll応答のstateはpercentage表示の終了とpoll停止判定だけに使う。
+  Run行のstate class、警告、titleなど、percentage以外のmetadata表示は更新しない。
+- poll中に発見した新Run・新tag、Run消失、generation変更、`TagStats`更新は無視する。
+  Run一覧、Tag一覧、selection、client cache、graph header、グラフdataは変更しない。
+- 既知Runが`ready` / `error`になったらそのRunのpercentage数値を消し、
+  既知Runに`pending` / `converting`がなくなった時点でpollを停止する。
+- 保留したmetadataは、次のReloadまたはAuto Reloadによる通常metadata refreshで初めて反映する。
 
 ### 5.6 tag発見と空状態
 
-- 新しく発見した可視tagは、現在のTag Filterに一致するかどうかにかかわらず自動ONにする。
+- 通常metadata refreshで新しく発見した可視tagは、
+  現在のTag Filterに一致するかどうかにかかわらず自動ONにする。
+  percentage-only pollではTag一覧へ反映しない。
 - 一度認識したtagをユーザーがOFFにした状態は、以後のmetadata refreshでも維持する。
 - pending初期変換中もRun一覧と操作を表示し、全画面blockingにしない。
 - 選択なしは`No selection.`。
@@ -756,7 +767,7 @@ M2    = M2_a + M2_b + delta^2 * count_a * count_b / count
 
 | key | 既定値 | 起動時validation |
 |---|---:|---|
-| `metricsviewer.target-points-per-series` | 4000 | 3以上かつglobal上限以下 |
+| `metricsviewer.target-points-per-series` | 8000 | 3以上かつglobal上限以下 |
 | `metricsviewer.max-points-per-request` | 500000 | 3〜1,000,000 |
 | `metricsviewer.cache-memory-mb` | 256 | 0以上、0は無効、runtime max heapの50%以下 |
 | `metricsviewer.max-concurrent-queries` | 2 | 1〜4 |
@@ -868,12 +879,19 @@ M2    = M2_a + M2_b + delta^2 * count_a * count_b / count
 - Run toggle / 350ms solo / 空選択
 - 初回だけLatest
 - Run消失
-- pending / converting中の2秒poll
+- pending / converting中の4秒percentage-only poll
 - JSONL / gzipで同一のRun進捗percentage表示
-- 最新追従中の2秒range再取得と単一window置換
+- pollを複数回実行しても`metrics.json`要求数、Plotly DOM identity、
+  zoom / pan / Y range、main scroll位置が変わらない
+- poll応答に新Run・新tag・新generation・更新済み`TagStats`が含まれても
+  Run一覧、Tag一覧、client cache、graph header、グラフへ反映せず、
+  次のReloadでまとめて反映する
+- 全既知Runが`ready` / `error`になったときのpoll停止と100%数値非表示
+- progressの灰色と、Run / Tag / Auto Reload / Scroll Lock / Log /
+  checked checkboxの共通active palette
 - 過去range表示中はmetrics queryを送らない
 - range responseをappend / unionせず応答単位で置換する
-- 新tag自動ONと既知OFF維持
+- 通常metadata refresh時の新tag自動ONと既知OFF維持
 - `#floating-controls`内でScroll Lock左に表示されるLOD mode select
 - screenshot modeで`#lod-display-mode-control`を非表示
 - LOD mode永続化とmode変更時no-fetch

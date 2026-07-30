@@ -1,9 +1,9 @@
 {"properties": [
   {
-    "name": "metricsviewer.decimation.enabled",
-    "type": "java.lang.Boolean",
-    "description": "サーバーサイド間引きを行うか",
-    "defaultValue": true
+    "name": "metricsviewer.target-points-per-series",
+    "type": "java.lang.Integer",
+    "description": "1系列の既定描画vertex予算",
+    "defaultValue": 8000
   },
   {
     "name": "metricsviewer.runs-dir",
@@ -12,15 +12,21 @@
     "defaultValue": "runs"
   },
   {
-    "name": "metricsviewer.max-transfer-points-initial",
+    "name": "metricsviewer.max-points-per-request",
     "type": "java.lang.Integer",
-    "description": "サーバーサイド間引きの初回リクエストでの最大ポイント数",
-    "defaultValue": 30000
+    "description": "1回のmetrics request全体の描画vertex上限",
+    "defaultValue": 500000
   },
   {
-    "name": "metricsviewer.max-transfer-points-delta",
-    "type": "java.lang.String",
-    "description": "サーバーサイド間引きの2回目以降のリクエストでの最大ポイント数",
-    "defaultValue": 10000
+    "name": "metricsviewer.cache-memory-mb",
+    "type": "java.lang.Integer",
+    "description": "完成済みLOD page cacheの上限MiB。0で無効",
+    "defaultValue": 256
+  },
+  {
+    "name": "metricsviewer.max-concurrent-queries",
+    "type": "java.lang.Integer",
+    "description": "同時に実行できるmetrics query数",
+    "defaultValue": 2
   }
 ]}

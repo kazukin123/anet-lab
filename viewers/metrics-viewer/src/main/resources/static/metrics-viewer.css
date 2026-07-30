@@ -1,5 +1,14 @@
 @charset "UTF-8";
 
+:root {
+	--active-background: #24577d;
+	--active-hover: #2c6b98;
+	--active-accent: #49c9ff;
+	--active-text: #f3faff;
+	--progress-fill: rgba(190, 190, 190, 0.24);
+	--progress-text: #c4c4c4;
+}
+
 /* ============================================================
    Metrics Viewer CSS（モック準拠＋スクロール完全復元＋JS整合）
    ============================================================ */
@@ -31,8 +40,8 @@ input[type="checkbox"] {
 }
 input[type="checkbox"]:hover { border-color: #777; }
 input[type="checkbox"]:checked {
-	background-color: #1e4d70;
-	border-color: #2a6b95;
+	background-color: var(--active-background);
+	border-color: var(--active-accent);
 }
 input[type="checkbox"]:checked::after {
 	content: "";
@@ -41,7 +50,7 @@ input[type="checkbox"]:checked::after {
 	top: 0px;
 	width: 6px;
 	height: 10px;
-	border: solid #ccc;
+	border: solid var(--active-text);
 	border-width: 0 2px 2px 0;
 	transform: rotate(45deg);
 }
@@ -160,14 +169,14 @@ input[type="checkbox"]:checked::after {
 	color: #eee;
 }
 #btn-auto-reload.active {
-	color: #e8f7ff;
-	border-color: #2a6b95;
-	background: #1e4d70;
+	color: var(--active-text);
+	border-color: var(--active-accent);
+	background: var(--active-background);
 }
 #btn-auto-reload.active:hover {
-	color: #f5fbff;
-	border-color: #3d88bb;
-	background: #255c84;
+	color: var(--active-text);
+	border-color: var(--active-accent);
+	background: var(--active-hover);
 }
 
 /* --- Section --- */
@@ -216,12 +225,29 @@ input[type="checkbox"]:checked::after {
 }
 
 .run-row {
+	display: flex;
+	position: relative;
+	isolation: isolate;
+	overflow: hidden;
 	font-size: 12px;
 	background-color: transparent;
 	transition: background-color 0.15s ease;
-	align-items: center;      /* 縦中央揃え */
-	padding: 0px 6px;
+	align-items: center;
+	gap: 5px;
+	padding: 3px 6px;
+	margin-bottom: 2px;
 	border-radius: 3px;
+	cursor: pointer;
+	isolation: isolate;
+}
+.run-row::before {
+	content: "";
+	position: absolute;
+	inset: 0 auto 0 0;
+	width: var(--ingest-progress, 0%);
+	background: var(--progress-fill);
+	z-index: -1;
+	transition: width 0.2s linear;
 }
 
 /* ホバー時のハイライト（クリック領域を視覚化） */
@@ -230,10 +256,14 @@ input[type="checkbox"]:checked::after {
 }
 
 /* アクティブ選択中の行 */
-.run-row input.run-check:checked + span,
 .run-row.active {
-  background-color: rgba(80, 160, 255, 0.15);
+	background-color: var(--active-background);
+	box-shadow: inset 3px 0 var(--active-accent);
+	color: var(--active-text);
 }
+.run-row.active::before { background: var(--active-background); }
+.run-row.active:hover { background-color: var(--active-hover); }
+.run-row.active:hover::before { background: var(--active-hover); }
 
 /* --- Run Color Chip --- */
 .run-color {
@@ -245,11 +275,24 @@ input[type="checkbox"]:checked::after {
 	vertical-align: middle;
 }
 
-/* チェックボックスの位置調整 */
-.run-check {
-  cursor: pointer;       /* マウスカーソル：チェックボックスも独立操作 */
-  align-self: center;       /* チェックボックス自体も中央寄せ */
-  transform: translateY(-0.85px);
+.run-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.run-progress {
+	font-variant-numeric: tabular-nums;
+	color: var(--progress-text);
+	min-width: 31px;
+	text-align: right;
+}
+.run-warning,
+.tag-warning,
+.graph-warning {
+	color: #ffb14a;
+	font-weight: 700;
 }
 
 
@@ -296,11 +339,11 @@ input[type="checkbox"]:checked::after {
 	transition: background 0.15s ease, border-color 0.15s ease;
 }
 #tag-list li.active {
-	background-color: #223344;  /* 深めの青灰 */
-	border-left: 3px solid #00bcd4;
-	color: #ddd;
+	background-color: var(--active-background);
+	border-left: 3px solid var(--active-accent);
+	color: var(--active-text);
 }
-#tag-list li.active:hover { background: #256690; }
+#tag-list li.active:hover { background: var(--active-hover); }
 #tag-list li:hover { background: #333; }
 
 /* --- Main Area --- */
@@ -333,16 +376,36 @@ input[type="checkbox"]:checked::after {
 	font-size: 12px;
 	line-height: 18px;
 }
+#lod-display-mode-control {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	height: 24px;
+	color: #aaa;
+	font-size: 11px;
+	white-space: nowrap;
+}
+#lod-display-mode {
+	height: 24px;
+	max-width: 74px;
+	padding: 1px 3px;
+	border: 1px solid #444;
+	border-radius: 2px;
+	background: #1b1b1b;
+	color: #ccc;
+	font-size: 11px;
+}
 #btn-graph-scroll-lock:hover {
 	color: #fff;
 	border-color: #777;
 	background: #252525;
 }
 #btn-graph-scroll-lock.active {
-	color: #e8f7ff;
-	border-color: #2a6b95;
-	background: #1e4d70;
+	color: var(--active-text);
+	border-color: var(--active-accent);
+	background: var(--active-background);
 }
+#btn-graph-scroll-lock.active:hover { background: var(--active-hover); }
 #main-area {
 	flex: 1;
 	min-height: 0;
@@ -413,10 +476,11 @@ body.graph-scroll-locked .js-plotly-plot .edrag {
   background: #252525;
 }
 .graph-log-toggle.active {
-  color: #e8f7ff;
-  border-color: #2a6b95;
-  background: #1e4d70;
+  color: var(--active-text);
+  border-color: var(--active-accent);
+  background: var(--active-background);
 }
+.graph-log-toggle.active:hover { background: var(--active-hover); }
 
 /* Hover時：軽い明度アップでインタラクティブ感 */
 .graph-title:hover {
@@ -448,6 +512,19 @@ body.screenshot-mode #main-panel {
 	overflow: visible !important;
 	background: #000 !important;
 }
+.graph-stats {
+	margin: 4px 0 2px 2px;
+	color: #9da8b1;
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.graph-warning {
+	margin-top: 3px;
+	font-size: 13px;
+}
 body.screenshot-mode #main-area {
 	display: block !important;
 	width: 100% !important;
@@ -461,6 +538,9 @@ body.screenshot-mode #side-panel {
 	display: none !important;
 }
 body.screenshot-mode #btn-graph-scroll-lock {
+	display: none !important;
+}
+body.screenshot-mode #lod-display-mode-control {
 	display: none !important;
 }
 body.screenshot-mode * {
@@ -516,9 +596,9 @@ body.screenshot-mode #btn-exit-screenshot { display: block !important; }
    ============================================================ */
 
 body.metaLoading #side-panel {
-	opacity: 0.5;
-	pointer-events: none;
-	cursor: progress;
+	opacity: 1;
+	pointer-events: auto;
+	cursor: default;
 }
 body.dataLoading #side-panel {
 	opacity: 1;

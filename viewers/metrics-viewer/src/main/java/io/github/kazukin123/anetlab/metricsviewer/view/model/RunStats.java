@@ -8,9 +8,9 @@ import lombok.Data;
 @Builder
 @AllArgsConstructor
 public class RunStats {
-	private int maxStep;
-	
+	private Long maxStep;
+
 	public RunStats() {
-		this.maxStep = 0;
+		this.maxStep = null;
 	}
 }

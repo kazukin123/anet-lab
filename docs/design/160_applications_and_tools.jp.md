@@ -39,15 +39,16 @@
 | コンポーネント | 定義 |
 |---|---|
 | `MetricsViewerApplication` | Spring Boot application entry |
-| `RunScanner` | runs directory直下から`metrics.jsonl`を持つRunを列挙する |
-| `MetricsFileReader` | 前回のcommitted offset以降のJSONLをblock単位でparseする |
-| `LoadingThread` | 10秒周期で追記を読んでrepositoryへmergeし、cacheを保存するdaemon thread |
-| `MetricsRepository` | Runごとの`MetricsSnapshot`、読込位置、永続cacheを管理するthread-safe store |
-| `MetricsService` | Run metadataとmetric差分をAPI responseへ組み立てるapplication service |
-| `MetricsViewerController` | `/api/runs.json`と`/api/metrics.json`を公開するREST controller |
-| `MetricsViewerClientApp` | browser側のRun/tag選択、Reload、localStorage、描画stateを所有する |
-| `DataFetcher` / `DataCache` | HTTP差分取得、TypedArray変換、browser内cacheを担当する |
-| `PlotlyController` | scalar graph、signed-log、zoom/pan、scroll lockを描画する |
+| `RunScanner` | runs directory直下から`metrics.jsonl`または`metrics.jsonl.gz`を持つRunを列挙する |
+| `MetricsCacheDatabase` | RunごとのSQLite cache、source fingerprint、generation、短命connectionを管理する |
+| `MetricsIngestor` / `LodIngestWriter` | JSONL/gzipをstreaming parseし、L0、factor 16 LOD、`TagStats`を同一transactionで更新する |
+| `IngestScheduler` / `LoadingThread` | priority 3 : background 1で1 blockずつ単一writerへ配分する |
+| `MetricsRepository` | Runごとの短命read snapshotでrange解決、点数quota、単一LOD projectionを組み立てる |
+| `MetricsService` | Run metadata、range query semaphore、priority集合を提供するapplication service |
+| `MetricsViewerController` | `/api/runs.json`、`/api/metrics.json`、`/api/runs/prioritize`を公開するREST controller |
+| `MetricsViewerClientApp` | browser側のRun/tag選択、viewport、Reload、取り込みpoll、描画世代を所有する |
+| `DataFetcher` / `DataCache` | viewport単位のrange取得、binary projection decode、3画面window置換を担当する |
+| `PlotlyController` | raw/MinMax/Mean/Band、`TagStats`、signed-log、zoom/pan、scroll lockを描画する |
 
 ### 2.3 Optuna harnessとlauncher
 
@@ -80,8 +81,9 @@
 | 領域 | 主なファイル |
 |---|---|
 | Spring entry/config | [MetricsViewerApplication.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/MetricsViewerApplication.java)、[application.properties](../../viewers/metrics-viewer/src/main/resources/application.properties) |
-| scan/read | [RunScanner.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java)、[MetricsFileReader.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsFileReader.java) |
-| cache/service | [LoadingThread.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThread.java)、[MetricsRepository.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java)、[MetricsService.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsService.java) |
+| scan/source identity | [RunScanner.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java)、[MetricsSource.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java) |
+| SQLite cache | [MetricsCacheDatabase.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java)、[MetricsIngestor.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java)、[LodIngestWriter.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodIngestWriter.java) |
+| scheduling/query | [IngestScheduler.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestScheduler.java)、[LoadingThread.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThread.java)、[MetricsRepository.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java)、[MetricsService.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsService.java) |
 | REST API | [MetricsViewerController.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java) |
 | browser UI | [index.html](../../viewers/metrics-viewer/src/main/resources/static/index.html)、[metrics-viewer.js](../../viewers/metrics-viewer/src/main/resources/static/metrics-viewer.js)、[metrics-viewer.css](../../viewers/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
 
@@ -130,20 +132,24 @@ flowchart LR
 
   subgraph VP["Metrics Viewer process / browser"]
     LT[LoadingThread]
+    MI[MetricsIngestor]
+    DB[(Run-local SQLite cache)]
     MR[MetricsRepository]
     MS[MetricsService]
     MC[MetricsViewerController]
     CA[MetricsViewerClientApp]
     PL[PlotlyController]
 
-    LT --> MR
+    LT --> MI
+    MI --> DB
+    DB --> MR
     MR --> MS
     MS --> MC
     MC <--> CA
     CA --> PL
   end
 
-  RUN --> LT
+  RUN --> MI
 
   subgraph OP["Optuna harness / Dashboard"]
     OH[OptunaHarnessRuntime]
@@ -196,41 +202,47 @@ sequenceDiagram
 
 GUIはmain thread、Train Runnerは`RunnerThread`で動く。TrainPanelはTrain eventでView dataを更新し、GUI timerで描画断面を取得する。EvalPanelはGUI timer上で独立EvalRunnerを進めるため、configured background evalとは別用途である。ImageClsでは`app.eval_panel.eval_config_tag`で参照するconfigured Eval tagを明示し、その`run_mode`と`env.*`設定を別instanceへ適用する。非ImageClsで同キーを指定した場合はfail-fastする。
 
-### 5.2 Metrics ViewerのReload
+### 5.2 Metrics Viewerの取り込みとviewport range更新
 
 ```mermaid
 sequenceDiagram
     participant L as LoadingThread
-    participant F as metrics.jsonl
+    participant F as metrics.jsonl / .jsonl.gz
+    participant D as Run-local SQLite
     participant R as MetricsRepository
     participant B as Browser Client
     participant C as REST Controller
     participant S as MetricsService
     participant P as PlotlyController
 
-    loop background scan
-        L->>F: committed offset以降をparseDiff
-        F-->>L: MetricsFileBlock
-        L->>R: mergeMetrics
+    loop priority 3 : background 1
+        L->>F: 完成行を最大1,000,000行streaming parse
+        L->>D: L0 + LOD + TagStats + offsetをcommit
     end
 
     B->>C: GET /api/runs.json
     C->>S: getRuns()
     S->>R: Run/tag metadata取得
+    R->>D: 短命read connection
+    D-->>R: generation、進捗、Run/tag metadata
     R-->>S: Run/tag metadata
     S-->>C: Run一覧response
     C-->>B: Run一覧JSON
-    B->>C: POST /api/metrics.json + cache endStep
+    B->>C: POST /api/metrics.json + inclusive step range
     C->>S: getMetrics(request)
-    S->>R: findTagTraceDiff
-    R-->>S: tag trace差分
-    S-->>C: encoded step/value response
+    S->>R: range query + point quota
+    R->>D: 同一snapshotでordinal解決 + L0/LOD読込
+    D-->>R: 完成LODとrange境界
+    R-->>S: 単一level projection
+    S-->>C: encoded raw/LOD response
     C-->>B: metrics JSON
-    B->>B: TypedArrayへdecodeしてcacheへmerge
-    B->>P: 選択Run/tagを描画
+    B->>B: TypedArrayへdecodeして3画面windowを置換
+    B->>P: viewportをraw/MinMax/Mean/Bandで描画
 ```
 
-HTTP requestはfileを直接読み直さず、background loaderが更新したrepository snapshotを読む。通常Reloadを正規経路とし、別の強制refresh APIを増やさない。
+HTTP requestはMetricsマスタを直接読まず、background writerがcommitしたSQLite snapshotを読む。
+各rangeは前回応答へ依存せず、clientはviewport左右1画面を含む3画面windowを置換する。
+取り込み中Runがある間はRun metadataを2秒pollし、選択中かつfollow中の系列だけrangeを更新する。
 
 ### 5.3 Optunaのmulti-seed trial
 
@@ -289,9 +301,11 @@ sequenceDiagram
 ### 7.2 Metrics Viewer
 
 - `MetricsService`の`@PostConstruct`でLoadingThreadを開始し、`@PreDestroy`で最大30秒待って停止する。
-- fileがcache済みoffsetより小さくなった場合は自動で巻き戻さずwarningにする。
-- Reload/Auto ReloadはPlotly DOMを再構築するため、選択tag、signed-log、scroll lockなどのpage stateはclient appが所有する。
-- 初期転送量、差分転送量、server-side decimationは`application.properties`で制御する。
+- source kind、size、mtime、先頭/commit直前hashが一致しない場合はSQLite cacheを破棄して新しいgenerationで再構築する。
+- `TagStats`はcommit済みL0全点、LODは完成した16子だけから作り、viewport queryから独立して保持する。
+- Reload/Auto ReloadはPlotly DOMを再構築するため、選択tag、LOD表示mode、signed-log、scroll lockなどのpage stateはclient appが所有する。
+- 既定系列予算、request全体予算、LOD page cache容量、query同時実行数は`application.properties`で制御する。
+- activeなgzip取り込み中だけはsource streamをblock間で保持するため、そのRun folderの移動をサポートしない。
 
 ### 7.3 Optuna
 
@@ -303,8 +317,8 @@ sequenceDiagram
 ## 8. テストと変更時の確認事項
 
 - Runner UI変更: Frame close順序、pane menu連動、Train/Eval入力、model syncを確認する。
-- Metrics Viewer backend変更: `MetricsFileReaderTest`、`LoadingThreadTest`、`MetricsRepositoryTest`を実行する。
-- Metrics Viewer UI変更: `PalettePlaywrightTest`でReload、Plotly state、mobile gestureを確認する。
+- Metrics Viewer backend変更: SQLite/source identity、ingest/LOD、range API、scheduler、query concurrencyの各integration testを実行する。
+- Metrics Viewer UI変更: `PalettePlaywrightTest`でRun toggle、viewport精細化、LOD mode、stale response、Reload、Plotly state、mobile gestureを確認する。
 - Optuna変更: dry-run、短いrun-trial、artifact/DB state、interrupt cleanupを確認する。
 - process間contract変更: 旧Run artifactを読めるか、または明示的なmigration/non-goalを記録する。
 

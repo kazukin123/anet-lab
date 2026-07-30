@@ -1,34 +1,39 @@
-/* ============================================================
-   Metrics Viewer - Phase1 リファクタリング（UIと状態の分離）
-   ※ 挙動は変更せず、責務のみ整理
-   ============================================================ */
+/* Metrics Viewer: SQLite range cache client */
 
-const API_BASE_URL = (false) ? "/dummy_api" : "/api";
-const AUTO_RELOAD_INTERVAL_MS = 30000;	// AutoReload間隔(msec)
-//const MAX_POINTS = 6000;	// 4Kモニタ想定
-const MAX_POINTS = 10000000; // サーバーサイドでのダウンサンプリングに任せる為に大きくする
-const MAX_SCATTER_GL = 0;	// あまり大きくするとグラフがでなくなる
-const STORAGE_KEY_TAGS = "anet.metricsviewer.activeTags";
-const STORAGE_KEY_GRAPH_SCROLL_LOCK = "anet.metricsviewer.graphScrollLockEnabled";
+const API_BASE_URL = "/api";
+const AUTO_RELOAD_INTERVAL_MS = 30000;
+const INGEST_POLL_INTERVAL_MS = 4000;
+const VIEWPORT_DEBOUNCE_MS = 150;
+const RUN_SOLO_INTERVAL_MS = 350;
 const GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX = 1;
-const HOVER_SCROLL_DELAY_MS = 300;  // 0でOFF
+const HOVER_SCROLL_DELAY_MS = 300;
+const MAX_SAFE_STEP = Number.MAX_SAFE_INTEGER;
+const STORAGE_KEY_TAGS = "anet.metricsviewer.activeTags";
+const STORAGE_KEY_KNOWN_TAGS = "anet.metricsviewer.knownTags";
+const STORAGE_KEY_GRAPH_SCROLL_LOCK = "anet.metricsviewer.graphScrollLockEnabled";
+const STORAGE_KEY_LOD_MODE = "anet.metricsviewer.lodDisplayMode";
 
 const Mode = Object.freeze({
 	UNINITIALIZED: "uninitialized",
 	META_LOADING: "metaLoading",
-	DATA_LOADING: "dataLoading",
 	NORMAL: "normal",
 	SCREENSHOT: "screenshot",
 	ERROR: "error"
 });
 
-// パレット
+const LodDisplayMode = Object.freeze({
+	MIN_MAX: "MinMax",
+	MEAN: "Mean",
+	BAND: "Band"
+});
+
 const RUN_COLORS = Object.freeze([
 	"#2F7DE1", "#F2C230", "#7A5CFF", "#008B8B", "#F05A28",
 	"#C678DD", "#FF9F1C", "#00A99D", "#A3C720", "#E23B4F",
 	"#2FBF71", "#E75A9B", "#D1D83B", "#B83280", "#00B36B",
 	"#A6761D", "#4656D9", "#C85A17", "#D83BD2", "#A65A2E"
 ]);
+
 function getRunColors() {
 	return RUN_COLORS;
 }
@@ -38,1075 +43,928 @@ function encodePlotlyTraceUidPart(value) {
 	return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function makePlotlyTraceUid(runId, tagKey) {
-	return `mv_${encodePlotlyTraceUidPart(runId)}_${encodePlotlyTraceUidPart(tagKey)}`;
+function makePlotlyTraceUid(runId, tagKey, suffix = "") {
+	return `mv_${encodePlotlyTraceUidPart(runId)}_${encodePlotlyTraceUidPart(tagKey)}_${suffix}`;
 }
 
-function sliceTraceField(field, startIdx, endIdx) {
-	if (!field) return field;
-	if (typeof field.subarray === "function") return field.subarray(startIdx, endIdx);
-	if (typeof field.slice === "function") return field.slice(startIdx, endIdx);
-	return field;
+function graphId(tagKey) {
+	return `graph-${encodePlotlyTraceUidPart(tagKey)}`;
 }
 
-function makeTraceFieldBuffer(field, length) {
-	if (!field) return null;
-	if (ArrayBuffer.isView(field) && field.constructor) return new field.constructor(length);
-	return new Array(length);
+function decodeBase64Bytes(input) {
+	if (!input) return new Uint8Array(0);
+	const chunks = typeof input === "string" ? [input] : input;
+	if (!Array.isArray(chunks)) return new Uint8Array(0);
+	let totalBytes = 0;
+	for (const chunk of chunks) {
+		let padding = 0;
+		if (chunk.endsWith("==")) padding = 2;
+		else if (chunk.endsWith("=")) padding = 1;
+		totalBytes += chunk.length * 3 / 4 - padding;
+	}
+	const bytes = new Uint8Array(totalBytes);
+	let offset = 0;
+	for (const chunk of chunks) {
+		const binary = atob(chunk);
+		for (let i = 0; i < binary.length; i++) bytes[offset + i] = binary.charCodeAt(i);
+		offset += binary.length;
+	}
+	return bytes;
 }
 
-/**
- * TypedArray対応の高速デシメーション
- * O(N/log N)程度のキャッシュ効率で動作
- * @param {{x: Int32Array|Float32Array, y: Float32Array, customdata?: Array|TypedArray}} trace
- * @param {number} maxPoints 最大プロット点数
- * @param {[number, number]|null} range 表示範囲 [xmin, xmax]
- * @returns {{x: Int32Array|Float32Array, y: Float32Array, customdata?: Array|TypedArray}}
- */
-function decimateTrace(trace, maxPoints = 8000, range = null) {
-  if (!trace.x || trace.x.length <= maxPoints) return trace;
-
-  const x = trace.x;
-  const y = trace.y;
-  const n = x.length;
-
-  // 範囲抽出（二分探索）
-  let startIdx = 0, endIdx = n;
-  if (range) {
-    const [xmin, xmax] = range;
-    let lo = 0, hi = n - 1;
-    while (lo < hi) {
-      const mid = (lo + hi) >>> 1;
-      if (x[mid] < xmin) lo = mid + 1; else hi = mid;
-    }
-    startIdx = lo;
-    lo = 0; hi = n - 1;
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >>> 1;
-      if (x[mid] > xmax) hi = mid - 1; else lo = mid;
-    }
-    endIdx = hi + 1;
-  }
-
-  const visibleCount = endIdx - startIdx;
-  if (visibleCount <= maxPoints) {
-    return {
-      ...trace,
-      x: x.subarray(startIdx, endIdx),
-      y: y.subarray(startIdx, endIdx),
-      customdata: sliceTraceField(trace.customdata, startIdx, endIdx)
-    };
-  }
-
-  const step = Math.ceil(visibleCount / maxPoints);
-  const outLen = Math.ceil(visibleCount / step);
-
-  const outX = new (x.constructor)(outLen);
-  const outY = new (y.constructor)(outLen);
-  const outCustomData = makeTraceFieldBuffer(trace.customdata, outLen);
-  for (let i = 0, j = startIdx; j < endIdx && i < outLen; j += step, i++) {
-    outX[i] = x[j];
-    outY[i] = y[j];
-    if (outCustomData) outCustomData[i] = trace.customdata[j];
-  }
-
-  // traceをクローンしてメタ情報維持
-  return {
-    ...trace,
-    x: outX,
-    y: outY,
-    customdata: outCustomData ?? trace.customdata
-  };
+function base64ToFloat32Array(input) {
+	const bytes = decodeBase64Bytes(input);
+	const values = new Float32Array(Math.floor(bytes.length / Float32Array.BYTES_PER_ELEMENT));
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	for (let i = 0; i < values.length; i++) values[i] = view.getFloat32(i * 4, true);
+	return values;
 }
 
+function base64ToFloat64Array(input) {
+	const bytes = decodeBase64Bytes(input);
+	const values = new Float64Array(Math.floor(bytes.length / Float64Array.BYTES_PER_ELEMENT));
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	for (let i = 0; i < values.length; i++) values[i] = view.getFloat64(i * 8, true);
+	return values;
+}
 
-// Toast
-class Toast {
-	static show(msg, ms = 2500) {
-		const el = document.createElement("div");
-		el.textContent = msg;
-		Object.assign(el.style, {
-			position: "fixed", top: "10px", left: "50%", transform: "translateX(-50%)",
-			background: "rgba(255,64,64,0.92)", color: "#fff", padding: "8px 16px",
-			borderRadius: "6px", fontSize: "13px", zIndex: 200, boxShadow: "0 2px 6px rgba(0,0,0,0.3)"
+function decodeProjection(projection) {
+	if (!projection) return null;
+	if (projection.kind === "raw") {
+		return Object.freeze({
+			kind: "raw",
+			steps: base64ToFloat64Array(projection.steps),
+			values: base64ToFloat32Array(projection.values)
 		});
-		document.body.appendChild(el);
-		setTimeout(() => el.remove(), ms);
+	}
+	if (projection.kind !== "lod") return null;
+	return Object.freeze({
+		kind: "lod",
+		minMax: Object.freeze({
+			steps: base64ToFloat64Array(projection.minMax?.steps),
+			values: base64ToFloat32Array(projection.minMax?.values)
+		}),
+		summary: Object.freeze({
+			steps: base64ToFloat64Array(projection.summary?.steps),
+			mins: base64ToFloat32Array(projection.summary?.mins),
+			maxs: base64ToFloat32Array(projection.summary?.maxs),
+			means: base64ToFloat32Array(projection.summary?.means),
+			minSteps: base64ToFloat64Array(projection.summary?.minSteps),
+			maxSteps: base64ToFloat64Array(projection.summary?.maxSteps)
+		})
+	});
+}
+
+function clampSafeStep(value) {
+	if (!Number.isFinite(value)) return 0;
+	return Math.max(-MAX_SAFE_STEP, Math.min(MAX_SAFE_STEP, Math.trunc(value)));
+}
+
+function colorWithAlpha(hex, alpha) {
+	const value = hex.replace("#", "");
+	const r = Number.parseInt(value.slice(0, 2), 16);
+	const g = Number.parseInt(value.slice(2, 4), 16);
+	const b = Number.parseInt(value.slice(4, 6), 16);
+	return `rgba(${r},${g},${b},${alpha})`;
+}
+
+class Toast {
+	static show(message, durationMs = 2500) {
+		const element = document.createElement("div");
+		element.textContent = message;
+		Object.assign(element.style, {
+			position: "fixed",
+			top: "10px",
+			left: "50%",
+			transform: "translateX(-50%)",
+			background: "rgba(255,64,64,0.92)",
+			color: "#fff",
+			padding: "8px 16px",
+			borderRadius: "6px",
+			fontSize: "13px",
+			zIndex: 1000
+		});
+		document.body.appendChild(element);
+		setTimeout(() => element.remove(), durationMs);
 	}
 }
 
-/**
- * Base64文字列(単一or配列)をデコードしてFloat32Arrayに変換
- * 文字列連結を行わず、直接バイナリバッファに書き込むことでメモリ溢れを防ぐ
- */
-function base64ToFloat32Array(input) {
-  if (!input) return new Float32Array(0);
-  
-  // 単一文字列が来た場合（互換性維持）
-  if (typeof input === "string") return _decodeSingleBase64ToFloat32(input);
-  
-  // 配列が来た場合（Chunk分割対応）
-  if (Array.isArray(input)) {
-    // 1. 全体のバイトサイズを計算
-    let totalBytes = 0;
-    for (const chunk of input) {
-        // Base64の長さからパディング(=)を除いたバイト数を計算
-        // 正確には (len * 3) / 4 - padding
-        const len = chunk.length;
-        let padding = 0;
-        if (chunk.endsWith("==")) padding = 2;
-        else if (chunk.endsWith("=")) padding = 1;
-        totalBytes += (len * 3 / 4) - padding;
-    }
-
-    // 2. 最終的な配列を確保
-    const result = new Float32Array(totalBytes / 4);
-    const resultBytes = new Uint8Array(result.buffer);
-    
-    // 3. チャンクごとにデコードして書き込み
-    let offset = 0;
-    for (const chunk of input) {
-        const binStr = atob(chunk); // チャンク単位なら巨大文字列にならないので安全
-        const len = binStr.length;
-        for (let i = 0; i < len; i++) {
-            resultBytes[offset + i] = binStr.charCodeAt(i);
-        }
-        offset += len;
-    }
-    return result;
-  }
-  return new Float32Array(0);
-}
-
-function _decodeSingleBase64ToFloat32(base64) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new Float32Array(bytes.buffer);
-}
-
-function base64ToInt32Array(input) {
-  if (!input) return new Int32Array(0);
-
-  if (typeof input === "string") return _decodeSingleBase64ToInt32(input);
-
-  if (Array.isArray(input)) {
-    let totalBytes = 0;
-    for (const chunk of input) {
-        const len = chunk.length;
-        let padding = 0;
-        if (chunk.endsWith("==")) padding = 2;
-        else if (chunk.endsWith("=")) padding = 1;
-        totalBytes += (len * 3 / 4) - padding;
-    }
-
-    const result = new Int32Array(totalBytes / 4);
-    const resultBytes = new Uint8Array(result.buffer);
-    
-    let offset = 0;
-    for (const chunk of input) {
-        const binStr = atob(chunk);
-        const len = binStr.length;
-        for (let i = 0; i < len; i++) {
-            resultBytes[offset + i] = binStr.charCodeAt(i);
-        }
-        offset += len;
-    }
-    return result;
-  }
-  return new Int32Array(0);
-}
-
-function _decodeSingleBase64ToInt32(base64) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new Int32Array(bytes.buffer);
-}
-
-/* ---------------- データ取得 ---------------- */
 class DataFetcher {
-	constructor() { this.controllers = []; }
-	
-	_ctrl() { const c = new AbortController(); this.controllers.push(c); return c; }
+	constructor() {
+		this.metadataController = null;
+		this.metricsController = null;
+		this.priorityTail = Promise.resolve();
+	}
 
 	async fetchRuns() {
-		const c = this._ctrl();
-		const res = await fetch(`${API_BASE_URL}/runs.json`, { signal: c.signal });
-		if (!res.ok) throw new Error(`Failed runs.json: ${res.status}`);
-		return res.json();
+		if (this.metadataController) this.metadataController.abort();
+		this.metadataController = new AbortController();
+		const response = await fetch(`${API_BASE_URL}/runs.json`, {
+			signal: this.metadataController.signal
+		});
+		if (!response.ok) throw new Error(`Failed runs.json: ${response.status}`);
+		return response.json();
 	}
 
-	async fetchMetrics(cacheState) {
-console.log("cacheState=", cacheState);
-	    const c = this._ctrl();
-	    const res = await fetch(`${API_BASE_URL}/metrics.json`, {
-	        method: "POST",
+	async fetchIngestProgress() {
+		const response = await fetch(`${API_BASE_URL}/runs.json`);
+		if (!response.ok) throw new Error(`Failed runs.json: ${response.status}`);
+		return response.json();
+	}
+
+	async fetchMetrics(series) {
+		this.abortMetrics();
+		this.metricsController = new AbortController();
+		const response = await fetch(`${API_BASE_URL}/metrics.json`, {
+			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ runTagMap: cacheState }),
-	        signal: c.signal
-	    });
-
-	    if (!res.ok) throw new Error(`Failed metrics.json: ${res.status}`);
-		const json = await res.json();
-console.log("json=", json);
-
-		// --- Base64 → TypedArray の復元 ---
-		for (const item of json.data ?? []) {
-		    if (item.encodedSteps) {
-		      item.steps = base64ToInt32Array(item.encodedSteps);
-		      delete item.encodedSteps;
-		    }
-		    if (item.encodedValues) {
-		      item.values = base64ToFloat32Array(item.encodedValues);
-		      delete item.encodedValues;
-		    }
+			body: JSON.stringify({ series }),
+			signal: this.metricsController.signal
+		});
+		if (!response.ok) {
+			const body = await response.text();
+			throw new Error(`Failed metrics.json: ${response.status} ${body}`);
 		}
+		return response.json();
+	}
 
-		return json;
+	async prioritize(runIds) {
+		const send = async () => {
+			const response = await fetch(`${API_BASE_URL}/runs/prioritize`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ runIds })
+			});
+			if (!response.ok) throw new Error(`Failed prioritize: ${response.status}`);
+		};
+		this.priorityTail = this.priorityTail.catch(() => {}).then(send);
+		return this.priorityTail;
+	}
+
+	abortMetrics() {
+		if (this.metricsController) {
+			this.metricsController.abort();
+			this.metricsController = null;
+		}
 	}
 
 	abortAll() {
-		for (const c of this.controllers) { try { c.abort(); } catch (_) {} }
-		this.controllers = [];
+		this.abortMetrics();
+		if (this.metadataController) {
+			this.metadataController.abort();
+			this.metadataController = null;
+		}
 	}
 }
 
-/* ---------------- キャッシュ ---------------- */
 class DataCache {
 	constructor() {
-		this.runs = {};
-		this.data = {};
-	}
-
-	clear() {
-		this.runs = {};
-		this.data = {};
+		this.runs = new Map();
+		this.windows = new Map();
 	}
 
 	updateRuns(runArray) {
-		if (runArray == null) {
-			this.runs = {};
-			return;
+		const next = new Map();
+		for (const run of runArray ?? []) next.set(run.id, run);
+		for (const [runId, previous] of this.runs) {
+			const current = next.get(runId);
+			if (!current || current.generation !== previous.generation) this.removeRun(runId);
 		}
-		this.runs = {};
-		for (const run of runArray) {
-			this.runs[run.id] = run;
+		this.runs = next;
+	}
+
+	removeRun(runId) {
+		this.runs.delete(runId);
+		for (const key of this.windows.keys()) {
+			if (key.startsWith(`${runId}\u0000`)) this.windows.delete(key);
 		}
 	}
 
-	ensureRunTag(runId, tagKey, type = "scalar") {
-		const run = this.runs[runId];
-		if (!run || tagKey == null) return false;
-		if (!Array.isArray(run.tags)) run.tags = [];
-		if (run.tags.some(tag => tag.key === tagKey)) return false;
-		run.tags.push({ key: tagKey, type });
-		return true;
-	}
-
-	/** 差分データをマージ */
-	merge(payload) {
-console.log("payload=", payload);
-		if (!payload || !Array.isArray(payload.data)) return;
-
-		for (const m of payload.data) {
-//console.log("run=", m);
-			if (!this.data[m.runId]) this.data[m.runId] = {};
-			this.ensureRunTag(m.runId, m.tagKey, m.type ?? "scalar");
-
-			let cur = this.data[m.runId][m.tagKey];
-			if (!cur) {
-				// 新規タグ → 新しいバッファとして作成
-				const stepsBuf = new Int32Buffer(m.steps.length || 1024);
-				const valuesBuf = new Float32Buffer(m.values.length || 1024);
-				stepsBuf.append(m.steps);
-				valuesBuf.append(m.values);
-				this.data[m.runId][m.tagKey] = {
-					steps: stepsBuf,
-					values: valuesBuf,
-					beginStep: m.beginStep ?? 0,
-					endStep: m.endStep ?? (m.steps.at(-1) || 0)
-				};
-				continue;
-			}
-
-			// 既存データへの追記
-			const last = cur.steps.length > 0 ? cur.steps.buffer[cur.steps.length - 1] : -Infinity;
-			const newSteps = m.steps.filter(s => s > last);
-			if (newSteps.length > 0) {
-				const startIndex = m.steps.length - newSteps.length;
-				const newVals = m.values.slice(startIndex);
-				cur.steps.append(newSteps);
-				cur.values.append(newVals);
-			}
-			// 取得済みステップ数範囲を更新（データ無しでもstep数だけ進む可能性を考慮）
-			cur.beginStep = Math.min(cur.beginStep ?? Infinity, m.beginStep ?? Infinity);
-			cur.endStep = Math.max(cur.endStep ?? -Infinity, m.endStep ?? -Infinity);
-		}
-console.log("data=", this.data);
-	}
-
-	/** 指定run/tagのデータ取得（TypedArray subarray） */
-	get(runId, tagKey) {
-	  const d = this.data[runId]?.[tagKey];
-	  if (!d) return null;
-	  return {
-	    beginStep: d.beginStep,
-	    endStep: d.endStep,
-	    steps: d.steps.buffer.subarray(0, d.steps.length),
-	    values: d.values.buffer.subarray(0, d.values.length)
-	  };
+	clear() {
+		this.runs.clear();
+		this.windows.clear();
 	}
 
 	getRuns() {
-		return this.runs;
+		return Object.fromEntries(this.runs);
+	}
+
+	getRun(runId) {
+		return this.runs.get(runId) ?? null;
 	}
 
 	getRunIds() {
-		return Object.keys(this.runs);
+		return [...this.runs.keys()];
+	}
+
+	getTag(runId, tagKey) {
+		return this.getRun(runId)?.tags?.find(tag => tag.key === tagKey) ?? null;
 	}
 
 	getTagKeys(runId) {
-		const run = this.runs[runId];
-		if (!run) return [];
-		return run.tags.map(tag => tag.key);
+		return (this.getRun(runId)?.tags ?? []).map(tag => tag.key);
 	}
 
-	buildCacheStateMap(targetRuns = null, targetTags = null) {	// デフォルトで全Run、全Tag
-		const runIds = targetRuns ?? this.getRunIds();
-		const map = {};
-		for (const r of runIds) {
-			const tagMap = {};
-			const tags = targetTags ?? Object.keys(this.data[r] ?? {});
-			for (const t of tags) {
-				const d = this.data[r]?.[t];
-				if (!d) {
-					tagMap[t] = -1;
-					continue;
-				}
-				// buffer再割り当て中でも安全な範囲コピー
-				const safeEnd = (d.endStep != null)
-				  ? d.endStep
-				  : (d.steps.length ? d.steps.buffer[d.steps.length - 1] : -1);
-				tagMap[t] = safeEnd;
-			}
-			map[r] = tagMap;
+	getWindow(runId, tagKey) {
+		return this.windows.get(this._key(runId, tagKey)) ?? null;
+	}
+
+	replaceWindow(result, requestedViewportWidth) {
+		const window = Object.freeze({
+			runId: result.runId,
+			tagKey: result.tagKey,
+			generation: result.generation,
+			fromStep: result.fromStep,
+			toStep: result.toStep,
+			availability: result.availability,
+			pointBudget: result.pointBudget,
+			level: result.level,
+			bucketWidth: result.bucketWidth,
+			issues: Object.freeze([...(result.issues ?? [])]),
+			projection: decodeProjection(result.projection),
+			requestedViewportWidth
+		});
+		this.windows.set(this._key(result.runId, result.tagKey), window);
+		return window;
+	}
+
+	needsFetch(runId, tagKey, target, viewport, force) {
+		if (force) return true;
+		const current = this.getWindow(runId, tagKey);
+		if (!current || current.generation !== this.getRun(runId)?.generation) return true;
+		if (current.fromStep > target.fromStep || current.toStep < target.toStep) return true;
+		if (current.level > 0
+				&& Number.isFinite(current.requestedViewportWidth)
+				&& viewport.width < current.requestedViewportWidth * 0.75) {
+			return true;
 		}
-		return map;
+		return false;
+	}
+
+	_key(runId, tagKey) {
+		return `${runId}\u0000${tagKey}`;
 	}
 }
 
-/* ---------------- 描画 ---------------- */
 class PlotlyController {
 	constructor(app) {
 		this.app = app;
 	}
 
-	_makeTrace(runId, tagKey, steps, values, index, multi) {
-	  const traceType = (index < MAX_SCATTER_GL) ? 'scattergl' : 'scatter';
-	  return {
-		type: traceType,
-	    x: steps,
-	    y: values,
-		name: `${runId}`,
-	    mode: 'lines',
-		line: { width: 1.5, color: this.app.runColorMap.get(runId) },
-	    uid: makePlotlyTraceUid(runId, tagKey),
-		opacity: multi ? 0.8 : 1.0
-	  };
-	}
-
-	static _signedLogValue(value) {
+	static signedLogValue(value) {
 		if (value === 0 || !Number.isFinite(value)) return value;
 		return Math.sign(value) * Math.log10(1 + Math.abs(value));
 	}
 
-	static _signedLogRawValue(value) {
+	static signedLogRawValue(value) {
 		if (value === 0 || !Number.isFinite(value)) return value;
 		return Math.sign(value) * (Math.pow(10, Math.abs(value)) - 1);
 	}
 
-	_toSignedLogValues(values) {
-		const transformed = new Float32Array(values.length);
-		for (let i = 0; i < values.length; i++) {
-			transformed[i] = PlotlyController._signedLogValue(Number(values[i]));
+	_formatValue(value) {
+		if (!Number.isFinite(value)) return String(value);
+		if (value === 0) return "0";
+		const absolute = Math.abs(value);
+		if (absolute >= 10000 || absolute < 0.001) {
+			return value.toExponential(3).replace("e+", "e");
 		}
-		return transformed;
+		return String(Number(value.toPrecision(6)));
+	}
+
+	_makeLineTrace(runId, tagKey, steps, values, suffix = "line") {
+		return {
+			type: "scatter",
+			x: steps,
+			y: values,
+			name: runId,
+			mode: "lines",
+			line: { width: 1.5, color: this.app.runColorMap.get(runId) },
+			uid: makePlotlyTraceUid(runId, tagKey, suffix),
+			opacity: this.app.selectedRuns.length > 1 ? 0.8 : 1.0
+		};
+	}
+
+	_makeSeriesTraces(runId, tagKey, window) {
+		const projection = window?.projection;
+		if (!projection) return [];
+		if (projection.kind === "raw") {
+			return [this._makeLineTrace(runId, tagKey, projection.steps, projection.values, "raw")];
+		}
+		if (this.app.lodDisplayMode === LodDisplayMode.MIN_MAX) {
+			return [this._makeLineTrace(
+					runId,
+					tagKey,
+					projection.minMax.steps,
+					projection.minMax.values,
+					"minmax")];
+		}
+		if (this.app.lodDisplayMode === LodDisplayMode.MEAN) {
+			return [this._makeLineTrace(
+					runId,
+					tagKey,
+					projection.summary.steps,
+					projection.summary.means,
+					"mean")];
+		}
+
+		const color = this.app.runColorMap.get(runId);
+		const summary = projection.summary;
+		const minCustomData = Array.from(
+				summary.mins,
+				(value, index) => [summary.minSteps[index], value]);
+		const maxCustomData = Array.from(
+				summary.maxs,
+				(value, index) => [summary.maxSteps[index], value]);
+		const lower = {
+			...this._makeLineTrace(runId, tagKey, summary.steps, summary.mins, "band-min"),
+			name: `${runId} min`,
+			line: { width: 0, color },
+			showlegend: false,
+			hovertemplate: "run=%{fullData.name}<br>bucket=%{x}<br>min step=%{customdata[0]}<br>min=%{customdata[1]:.6g}<extra></extra>",
+			customdata: minCustomData
+		};
+		const upper = {
+			...this._makeLineTrace(runId, tagKey, summary.steps, summary.maxs, "band-max"),
+			name: `${runId} max`,
+			line: { width: 0, color },
+			fill: "tonexty",
+			fillcolor: colorWithAlpha(color, 0.28),
+			showlegend: false,
+			hovertemplate: "run=%{fullData.name}<br>bucket=%{x}<br>max step=%{customdata[0]}<br>max=%{customdata[1]:.6g}<extra></extra>",
+			customdata: maxCustomData
+		};
+		const mean = {
+			...this._makeLineTrace(runId, tagKey, summary.steps, summary.means, "band-mean"),
+			name: runId,
+			line: { width: 1.5, color }
+		};
+		return [lower, upper, mean];
 	}
 
 	_toDisplayTrace(trace, signedLogScale) {
 		if (!signedLogScale) return { ...trace };
+		const transformed = new Float32Array(trace.y.length);
+		for (let i = 0; i < trace.y.length; i++) {
+			transformed[i] = PlotlyController.signedLogValue(Number(trace.y[i]));
+		}
 		return {
 			...trace,
-			y: this._toSignedLogValues(trace.y),
-			customdata: trace.y,
-			hovertemplate: "run=%{fullData.name}<br>step=%{x}<br>value=%{customdata:.6g}<extra></extra>"
+			y: transformed,
+			customdata: trace.customdata ?? trace.y,
+			hovertemplate: trace.hovertemplate
+					?? "run=%{fullData.name}<br>step=%{x}<br>value=%{customdata:.6g}<extra></extra>"
 		};
 	}
 
-	_toDisplayTraces(traces, signedLogScale, range = null) {
-		return traces
-			.map(trace => this._toDisplayTrace(trace, signedLogScale))
-			.map(trace => decimateTrace(trace, MAX_POINTS, range));
+	_toDisplayTraces(traces, signedLogScale) {
+		return traces.map(trace => this._toDisplayTrace(trace, signedLogScale));
 	}
 
 	_makeLayout(width, showLegend, signedLogScale, traces, ranges = {}) {
 		const layout = {
-			margin: { t: 30, b: 20, l: 50, r: 10 }, height: 300, width, autosize:false,
-			plot_bgcolor: "#111", paper_bgcolor: "#111", font: { color: "#ccc" },
-			xaxis: this._makeXAxis(ranges.xRange), yaxis: this._makeYAxis(signedLogScale, traces, ranges),
+			margin: { t: 30, b: 20, l: 50, r: 10 },
+			height: 300,
+			width,
+			autosize: false,
+			plot_bgcolor: "#111",
+			paper_bgcolor: "#111",
+			font: { color: "#ccc" },
+			xaxis: { gridcolor: "#444" },
+			yaxis: this._makeYAxis(signedLogScale, traces, ranges),
 			showlegend: showLegend
 		};
+		if (Array.isArray(ranges.xRange)) layout.xaxis.range = ranges.xRange.slice();
 		if (Object.prototype.hasOwnProperty.call(ranges, "dragMode")) {
 			layout.dragmode = ranges.dragMode;
 		}
 		return layout;
 	}
 
-	_makeXAxis(xRange) {
-		const xaxis = { gridcolor: "#444" };
-		if (Array.isArray(xRange) && xRange.length === 2) {
-			xaxis.range = xRange.slice();
-		}
-		return xaxis;
-	}
-
-	_makeYAxis(signedLogScale, traces, ranges = {}) {
-		const yaxis = { gridcolor: "#444", type: "linear" };
-		if (Array.isArray(ranges.yRange) && ranges.yRange.length === 2) {
-			yaxis.range = ranges.yRange.slice();
-		}
-		if (!signedLogScale) return yaxis;
-
+	_makeYAxis(signedLogScale, traces, ranges) {
+		const axis = { gridcolor: "#444", type: "linear" };
+		if (Array.isArray(ranges.yRange)) axis.range = ranges.yRange.slice();
+		if (!signedLogScale) return axis;
 		const ticks = this._makeSignedLogTicks(traces, ranges);
 		return {
-			...yaxis,
+			...axis,
 			zeroline: true,
 			zerolinecolor: "#666",
 			tickmode: "array",
-			tickvals: ticks.map(value => PlotlyController._signedLogValue(value)),
-			ticktext: ticks.map(value => this._formatTickValue(value))
+			tickvals: ticks.map(PlotlyController.signedLogValue),
+			ticktext: ticks.map(value => this._formatValue(value))
 		};
 	}
 
-	_makeSignedLogTicks(traces, ranges = {}) {
-		const rawRange = this._makeSignedLogRawRange(traces, ranges);
-		if (!rawRange) return [0];
-		let { min, max } = rawRange;
-		if (min > max) {
-			const temp = min;
-			min = max;
-			max = temp;
+	_makeSignedLogTicks(traces, ranges) {
+		let min = Infinity;
+		let max = -Infinity;
+		if (Array.isArray(ranges.yRange)) {
+			const raw0 = PlotlyController.signedLogRawValue(Number(ranges.yRange[0]));
+			const raw1 = PlotlyController.signedLogRawValue(Number(ranges.yRange[1]));
+			min = Math.min(raw0, raw1);
+			max = Math.max(raw0, raw1);
+		} else {
+			for (const trace of traces) {
+				for (const raw of trace.y) {
+					const value = Number(raw);
+					if (!Number.isFinite(value)) continue;
+					min = Math.min(min, value);
+					max = Math.max(max, value);
+				}
+			}
 		}
-		if (min === 0 && max === 0) return [0];
-
+		if (!Number.isFinite(min) || !Number.isFinite(max)) return [0];
 		const ticks = new Set();
-		if (min <= 0 && 0 <= max) ticks.add(0);
-
+		if (min <= 0 && max >= 0) ticks.add(0);
 		const maxAbs = Math.max(Math.abs(min), Math.abs(max));
-		const minPower = Math.min(0, Math.floor(Math.log10(maxAbs)));
-		const maxPower = Math.max(0, Math.floor(Math.log10(maxAbs)));
-		for (let power = minPower; power <= maxPower; power++) {
-			const value = Math.pow(10, power);
-			if (min <= -value && -value <= max) ticks.add(-value);
-			if (min <= value && value <= max) ticks.add(value);
+		if (maxAbs > 0) {
+			const minPower = Math.min(0, Math.floor(Math.log10(maxAbs)));
+			const maxPower = Math.max(0, Math.floor(Math.log10(maxAbs)));
+			for (let power = minPower; power <= maxPower; power++) {
+				const value = Math.pow(10, power);
+				if (min <= -value && -value <= max) ticks.add(-value);
+				if (min <= value && value <= max) ticks.add(value);
+			}
 		}
-
 		if (ticks.size < 2) {
 			ticks.add(min);
 			ticks.add(max);
 		}
-		return Array.from(ticks).sort((a, b) => a - b);
+		return [...ticks].sort((a, b) => a - b);
 	}
 
-	_makeSignedLogRawRange(traces, ranges = {}) {
-		if (Array.isArray(ranges.yRange) && ranges.yRange.length === 2) {
-			const y0 = PlotlyController._signedLogRawValue(Number(ranges.yRange[0]));
-			const y1 = PlotlyController._signedLogRawValue(Number(ranges.yRange[1]));
-			if (Number.isFinite(y0) && Number.isFinite(y1)) {
-				return { min: Math.min(y0, y1), max: Math.max(y0, y1) };
-			}
-		}
-		const xRange = Array.isArray(ranges.xRange) && ranges.xRange.length === 2 ? ranges.xRange : null;
-		let min = Infinity;
-		let max = -Infinity;
-		for (const trace of traces) {
-			for (let i = 0; i < trace.y.length; i++) {
-				if (xRange) {
-					const x = Number(trace.x[i]);
-					if (!Number.isFinite(x) || x < xRange[0] || x > xRange[1]) continue;
-				}
-				const value = Number(trace.y[i]);
-				if (!Number.isFinite(value)) continue;
-				min = Math.min(min, value);
-				max = Math.max(max, value);
-			}
-		}
-		if (Number.isFinite(min) && Number.isFinite(max)) return { min, max };
-		if (!xRange) return null;
-		return this._makeSignedLogRawRange(traces, {});
-	}
-
-	_readAxisRange(axisLayout, axisName, event) {
-		const range = event?.[`${axisName}.range`];
-		if (Array.isArray(range) && range.length === 2) return range.slice();
-
-		const range0 = event?.[`${axisName}.range[0]`];
-		const range1 = event?.[`${axisName}.range[1]`];
-		if (range0 != null && range1 != null) return [range0, range1];
-
-		if (event?.[`${axisName}.autorange`]) return null;
-		if (Array.isArray(axisLayout?.range) && axisLayout.range.length === 2) return axisLayout.range.slice();
-		return null;
-	}
-
-	_hasAxisRangeEvent(event) {
-		return event && Object.keys(event).some(key =>
-			key === "xaxis.range" ||
-			key === "yaxis.range" ||
-			key === "xaxis.range[0]" ||
-			key === "xaxis.range[1]" ||
-			key === "yaxis.range[0]" ||
-			key === "yaxis.range[1]" ||
-			key === "xaxis.autorange" ||
-			key === "yaxis.autorange");
-	}
-
-	_readAxisRanges(plotDiv, event) {
-		return {
-			xRange: this._readAxisRange(plotDiv.layout?.xaxis, "xaxis", event),
-			yRange: this._readAxisRange(plotDiv.layout?.yaxis, "yaxis", event),
-			dragMode: plotDiv.layout?.dragmode ?? plotDiv._fullLayout?.dragmode
-		};
-	}
-
-	_reactPlot(plotDiv, traces, layout) {
-		plotDiv.__mvUpdatingPlot = true;
-		try {
-			Promise.resolve(Plotly.react(plotDiv, traces, layout)).finally(() => {
-				plotDiv.__mvUpdatingPlot = false;
-			});
-		} catch (e) {
-			plotDiv.__mvUpdatingPlot = false;
-			throw e;
-		}
-	}
-
-	_formatTickValue(value) {
-		if (value === 0) return "0";
-		const abs = Math.abs(value);
-		if (abs >= 10000 || abs < 0.001) return value.toExponential(0).replace("e+", "e");
-		if (Number.isInteger(value)) return String(value);
-		return String(Number(value.toPrecision(6)));
-	}
-	
-	renderBySelection(containerSel, runIds, tagKeys, cache) {
-		const area = $(containerSel).empty();
-		Plotly.purge(area);
-		if (!runIds.length || !tagKeys.length) {
-			area.append("<div style='color:#888;padding:12px;'>No selection.</div>");
+	renderBySelection(containerSelector, runIds, tagKeys, cache) {
+		const area = document.querySelector(containerSelector);
+		for (const plot of area.querySelectorAll(".js-plotly-plot")) Plotly.purge(plot);
+		area.replaceChildren();
+		if (!runIds.length) {
+			this._empty(area, "No selection.");
 			return false;
 		}
-		
-		const sortedRunIds = runIds.slice().sort((a, b) => a.localeCompare(b));
-		
+		if (!tagKeys.length) {
+			this._empty(area, "No metrics data.");
+			return false;
+		}
+
 		let drawn = false;
-		let traceIndex = 0;
+		const sortedRuns = runIds.slice().sort((a, b) => a.localeCompare(b));
 		for (const tagKey of tagKeys) {
-			const safe = tagKey.replace(/[^\w-]/g, "_");
-			const id = `graph-${safe}`;
-			const isLogScale = this.app.logScaleTags.has(tagKey);
-			const logActiveClass = isLogScale ? " active" : "";
-			const logPressed = isLogScale ? "true" : "false";
-			const multi = (runIds.length > 1);
-			const $b = $(`
-				<div class="graph-block">
-					<div class="graph-header">
-						<div class="graph-title">${tagKey}</div>
-						<button type="button" class="graph-log-toggle${logActiveClass}" aria-pressed="${logPressed}" title="Toggle signed log scale">Log</button>
-					</div>
-					<div id="${id}"></div>
-				</div>
-			`);
-			area.append($b);
 			const traces = [];
-			
-			// 古い順にソートした sortedRunIds を回して描画用のtraceを作る
-			for (let i = 0; i < sortedRunIds.length; i++) {
-				const r = sortedRunIds[i];
-				const d = cache.get(r, tagKey);
-				if (!d) continue;
-				const trace = this._makeTrace(r, tagKey, d.steps, d.values, traceIndex, multi);
-				traces.push(trace);
-				traceIndex++;
+			for (const runId of sortedRuns) {
+				const window = cache.getWindow(runId, tagKey);
+				if (window?.availability !== "ok") continue;
+				traces.push(...this._makeSeriesTraces(runId, tagKey, window));
 			}
 			if (!traces.length) continue;
-			// 画面幅ピクセル数前提でデータ間引き処理（最大点数を超える場合に実行）
-			const reducedTraces = this._toDisplayTraces(traces, isLogScale);
-			//グラフ作成
-			const layout = this._makeLayout(area.width(), runIds.length > 1, isLogScale, traces,
-				this.app.graphScrollLockEnabled ? { dragMode: false } : {});
-			Plotly.newPlot(id, reducedTraces, layout, {
-				displayModeBar: 'hover',
-				responsive: false,
-				useResizeHandler: false,
-				modeBarButtonsToRemove: ['autoScale2d']
-			});
+			drawn = true;
 
-			// --- ズーム追従処理 ---
-			const plotDiv = document.getElementById(id);
-			$b.find(".graph-log-toggle").off("click").on("click", (e) => {
-				e.stopPropagation();
-				const enabled = !this.app.logScaleTags.has(tagKey);
-				if (enabled) {
-					this.app.logScaleTags.add(tagKey);
-				} else {
-					this.app.logScaleTags.delete(tagKey);
-				}
-				const button = e.currentTarget;
-				button.classList.toggle("active", enabled);
-				button.setAttribute("aria-pressed", enabled ? "true" : "false");
-				const nextLayout = this._makeLayout(area.width(), runIds.length > 1, enabled, traces, {
-					dragMode: plotDiv.layout?.dragmode ?? plotDiv._fullLayout?.dragmode
-				});
-				const currentRange = plotDiv.layout?.xaxis?.range;
-				if (Array.isArray(currentRange) && currentRange.length === 2) {
-					nextLayout.xaxis.range = currentRange.slice();
-				}
-				this._reactPlot(plotDiv, this._toDisplayTraces(traces, enabled, nextLayout.xaxis.range), nextLayout);
+			const block = document.createElement("div");
+			block.className = "graph-block";
+			const header = document.createElement("div");
+			header.className = "graph-header";
+			const title = document.createElement("div");
+			title.className = "graph-title";
+			title.textContent = tagKey;
+			const logButton = document.createElement("button");
+			logButton.type = "button";
+			logButton.className = "graph-log-toggle";
+			logButton.textContent = "Log";
+			logButton.title = "Toggle signed log scale";
+			const signedLogScale = this.app.logScaleTags.has(tagKey);
+			logButton.classList.toggle("active", signedLogScale);
+			logButton.setAttribute("aria-pressed", signedLogScale ? "true" : "false");
+			header.append(title, logButton);
+
+			const issue = this.app.issueForTag(tagKey);
+			if (issue) {
+				const warning = document.createElement("span");
+				warning.className = "graph-warning";
+				warning.textContent = "⚠";
+				warning.title = issue;
+				header.append(warning);
+			}
+			const stats = this.app.combinedStats(tagKey);
+			if (stats) {
+				const statsElement = document.createElement("span");
+				statsElement.className = "graph-stats";
+				statsElement.textContent =
+						`Min ${this._formatValue(stats.min)} / Max ${this._formatValue(stats.max)}`
+						+ ` / Avg ${this._formatValue(stats.mean)} / Std ${this._formatValue(stats.stdDev)}`;
+				statsElement.title = `count=${stats.count}\nmin=${stats.min}\nmax=${stats.max}`
+						+ `\navg=${stats.mean}\nstd=${stats.stdDev}`;
+				header.append(statsElement);
+			}
+
+			const plot = document.createElement("div");
+			plot.id = graphId(tagKey);
+			block.append(header, plot);
+			area.append(block);
+
+			const viewport = this.app.explicitViewport(tagKey);
+			const layout = this._makeLayout(
+					this._plotWidth(block),
+					runIds.length > 1,
+					signedLogScale,
+					traces,
+					{
+						xRange: viewport?.range ?? null,
+						dragMode: this.app.graphScrollLockEnabled ? false : undefined
+					});
+			if (layout.dragmode === undefined) delete layout.dragmode;
+			Plotly.newPlot(
+					plot,
+					this._toDisplayTraces(traces, signedLogScale),
+					layout,
+					{
+						displayModeBar: "hover",
+						responsive: false,
+						useResizeHandler: false
+					});
+
+			logButton.addEventListener("click", event => {
+				event.stopPropagation();
+				this.app.onToggleLog(tagKey);
 			});
-			plotDiv.on('plotly_relayout', (e) => {
-				if (plotDiv.__mvUpdatingPlot) return;
+			plot.on("plotly_relayout", event => {
+				if (plot.__mvUpdatingPlot) return;
 				if (this.app.graphScrollLockEnabled
-						&& Object.prototype.hasOwnProperty.call(e || {}, "dragmode")
-						&& e.dragmode !== false) {
-					this._relayoutDragMode(plotDiv, false);
+						&& Object.prototype.hasOwnProperty.call(event ?? {}, "dragmode")
+						&& event.dragmode !== false) {
+					Plotly.relayout(plot, { dragmode: false });
 					return;
 				}
-				if (!this._hasAxisRangeEvent(e)) return;
-				const ranges = this._readAxisRanges(plotDiv, e);
-				if (!ranges.xRange && !ranges.yRange) return;
-				const signedLogScale = this.app.logScaleTags.has(tagKey);
-				const zoomedTraces = this._toDisplayTraces(traces, signedLogScale, ranges.xRange);
-				const nextLayout = this._makeLayout(area.width(), runIds.length > 1, signedLogScale, traces, ranges);
-				this._reactPlot(plotDiv, zoomedTraces, nextLayout);
+				const xRange = this._readRange(plot.layout?.xaxis, "xaxis", event);
+				const yRange = this._readRange(plot.layout?.yaxis, "yaxis", event);
+				const xChanged = this._hasRangeEvent(event, "xaxis");
+				const yChanged = this._hasRangeEvent(event, "yaxis");
+				if (!xChanged && !yChanged) return;
+				const nextLayout = this._makeLayout(
+						this._plotWidth(block),
+						runIds.length > 1,
+						this.app.logScaleTags.has(tagKey),
+						traces,
+						{
+							xRange,
+							yRange,
+							dragMode: plot.layout?.dragmode ?? plot._fullLayout?.dragmode
+						});
+				this._reactPlot(
+						plot,
+						this._toDisplayTraces(traces, this.app.logScaleTags.has(tagKey)),
+						nextLayout);
+				if (xChanged) {
+					this.app.onViewportChanged(
+							tagKey,
+							xRange,
+							Boolean(event?.["xaxis.autorange"]));
+				}
 			});
-			drawn = true;
 		}
-		if (!drawn) area.append("<div style='color:#888;padding:12px;'>No metrics data.</div>");
+		if (!drawn) this._empty(area, "No metrics data.");
 		return drawn;
 	}
 
-	_readDragMode(plotDiv) {
-		return plotDiv?.layout?.dragmode ?? plotDiv?._fullLayout?.dragmode ?? "zoom";
+	_readRange(axisLayout, axisName, event) {
+		const combined = event?.[`${axisName}.range`];
+		if (Array.isArray(combined)) return combined.slice();
+		const first = event?.[`${axisName}.range[0]`];
+		const second = event?.[`${axisName}.range[1]`];
+		if (first != null && second != null) return [first, second];
+		if (event?.[`${axisName}.autorange`]) return null;
+		return Array.isArray(axisLayout?.range) ? axisLayout.range.slice() : null;
 	}
 
-	_relayoutDragMode(plotDiv, dragMode) {
-		if (!plotDiv) return;
-		Plotly.relayout(plotDiv, { dragmode: dragMode });
+	_hasRangeEvent(event, axisName) {
+		return Object.keys(event ?? {}).some(key =>
+			key === `${axisName}.range`
+			|| key === `${axisName}.range[0]`
+			|| key === `${axisName}.range[1]`
+			|| key === `${axisName}.autorange`);
+	}
+
+	_reactPlot(plot, traces, layout) {
+		plot.__mvUpdatingPlot = true;
+		Promise.resolve(Plotly.react(plot, traces, layout))
+				.finally(() => { plot.__mvUpdatingPlot = false; });
+	}
+
+	_plotWidth(block) {
+		return Math.max(1, Math.floor(block.getBoundingClientRect().width));
+	}
+
+	_empty(area, text) {
+		const message = document.createElement("div");
+		message.style.cssText = "color:#888;padding:12px;";
+		message.textContent = text;
+		area.append(message);
 	}
 
 	applyGraphScrollLock(enabled) {
-		$(".graph-block div[id^='graph-']").each((_, plotDiv) => {
+		for (const plot of document.querySelectorAll(".graph-block .js-plotly-plot")) {
 			if (enabled) {
-				if (!Object.prototype.hasOwnProperty.call(plotDiv, "__mvScrollLockPreviousDragMode")) {
-					plotDiv.__mvScrollLockPreviousDragMode = this._readDragMode(plotDiv);
+				if (!Object.prototype.hasOwnProperty.call(plot, "__mvScrollLockPreviousDragMode")) {
+					plot.__mvScrollLockPreviousDragMode =
+							plot.layout?.dragmode ?? plot._fullLayout?.dragmode ?? "zoom";
 				}
-				this._relayoutDragMode(plotDiv, false);
-				return;
+				Plotly.relayout(plot, { dragmode: false });
+			} else {
+				const previous = plot.__mvScrollLockPreviousDragMode ?? "zoom";
+				delete plot.__mvScrollLockPreviousDragMode;
+				Plotly.relayout(plot, { dragmode: previous || "zoom" });
 			}
-			const previousDragMode = Object.prototype.hasOwnProperty.call(plotDiv, "__mvScrollLockPreviousDragMode")
-				? plotDiv.__mvScrollLockPreviousDragMode
-				: "zoom";
-			delete plotDiv.__mvScrollLockPreviousDragMode;
-			this._relayoutDragMode(plotDiv, previousDragMode || "zoom");
-		});
+		}
 	}
 
 	resizeAll() {
-		$(".graph-block div[id^='graph-']").each(function () {
-			const rect = this.getBoundingClientRect();
-			const newWidth = Math.floor(rect.width);
-			const newHeight = Math.floor(rect.height);
-			Plotly.relayout(this, { width: newWidth, height: newHeight });
-			Plotly.Plots.resize(this);
-		});
+		for (const plot of document.querySelectorAll(".graph-block .js-plotly-plot")) {
+			const rectangle = plot.getBoundingClientRect();
+			const block = plot.closest(".graph-block");
+			Plotly.relayout(plot, {
+				width: block ? this._plotWidth(block) : Math.floor(rectangle.width),
+				height: Math.floor(rectangle.height)
+			});
+			Plotly.Plots.resize(plot);
+		}
 	}
 }
 
-/* ---------------- UIController ---------------- */
 class UIController {
-	constructor(app) { this.app = app; }
-	
+	constructor(app) {
+		this.app = app;
+		this.lastRunClick = { runId: null, at: -Infinity };
+	}
+
 	setLoadingSpinner(active) {
-	    const el = document.getElementById("loading-spinner");
-	    if (!el) return;
-	    if (active) el.classList.add("active");
-	    else el.classList.remove("active");
+		document.getElementById("loading-spinner")?.classList.toggle("active", active);
 	}
 
 	applyMode(mode) {
-		const b = document.body;
-		b.classList.remove("uninitialized", "metaLoading", "dataLoading", "error");
-		if (mode === Mode.UNINITIALIZED) b.classList.add("uninitialized");
-		if (mode === Mode.META_LOADING) b.classList.add("metaLoading");
-		if (mode === Mode.DATA_LOADING) b.classList.add("dataLoading");
-		if (mode === Mode.ERROR) b.classList.add("error");
-		const disabled = (mode === Mode.META_LOADING || mode === Mode.ERROR);
-		document.querySelectorAll("button, input, select").forEach(el => el.disabled = disabled);
+		document.body.classList.remove("uninitialized", "metaLoading", "dataLoading", "error");
+		if (mode === Mode.UNINITIALIZED) document.body.classList.add("uninitialized");
+		if (mode === Mode.META_LOADING) document.body.classList.add("metaLoading");
+		if (mode === Mode.ERROR) document.body.classList.add("error");
 	}
 
 	renderRunList(runs, selectedRunIds, runColorMap) {
-		const runIds = Object.keys(runs);
-		const $list = $("#run-list").empty();
-		const palette = getRunColors();
-
-		// --- まず古いRun→新しいRunの順で色割当（昇順） ---
-		runIds.sort(); // 昇順：古いRunから順に
+		const list = document.getElementById("run-list");
+		list.replaceChildren();
+		const runIds = Object.keys(runs).sort();
 		for (const runId of runIds) {
 			if (!runColorMap.has(runId)) {
-				const c = palette[runColorMap.size % palette.length];
-				runColorMap.set(runId, c);
+				runColorMap.set(runId, getRunColors()[runColorMap.size % getRunColors().length]);
 			}
 		}
-
-		// --- 新しいRun→古いRunの順で表示（降順） ---
-		const sortedDesc = [...runIds].reverse();
-		sortedDesc.forEach((runId) => {
+		for (const runId of runIds.reverse()) {
 			const run = runs[runId];
-			const c = runColorMap.get(runId);
-			const chk = selectedRunIds.includes(runId) ? "checked" : "";
-			const title = run.stats
-				? Object.entries(run.stats)
-					.map(([k, v]) => `${k}: ${v}`)
-					.join("\n")
-				: "";
-
-			$list.append(`
-				<label class="run-row" title="${title}">
-					<input type="checkbox" class="run-check" value="${runId}" ${chk}>
-					<span class="run-color" style="background:${c};"></span> ${runId}
-				</label><br>
-			`);
-		});
-	}
-
-	bindRunListEvents(runIds) {
-	  const $list = $("#run-list");
-	  const selected = this.app.selectedRuns; // ← 常にアプリ本体の参照を使う
-	  const sortedRunIds = runIds.slice().sort((a, b) => b.localeCompare(a));
-
-	  // チェックボックス（複数選択）
-	  $list.find(".run-check").off("change").on("change", (e) => {
-	    const id = e.currentTarget.value;
-	    const ok = e.currentTarget.checked;
-
-	    if (ok) {
-	      if (!selected.includes(id)) selected.push(id); // 破壊的更新
-	    } else {
-	      if (selected.length <= 1) { e.currentTarget.checked = true; return; }
-	      const i = selected.indexOf(id);
-	      if (i >= 0) selected.splice(i, 1);            // 破壊的更新
-	    }
-	    this.app.onRunSelectionChanged();                // 即時でOK（デバウンス不要）
-	  });
-
-	  // 行クリック（単独選択＝ラジオ動作）
-	  $list.find(".run-row").off("click").on("click", (e) => {
-	    if ($(e.target).hasClass("run-check")) return; // 二重反応防止
-
-	    const $checkbox = $(e.currentTarget).find(".run-check");
-	    const id = $checkbox.val();
-
-	    // 破壊的に単独選択へ置換
-	    selected.splice(0, selected.length, id);
-
-	    $list.find(".run-check").prop("checked", false);
-	    $checkbox.prop("checked", true);
-
-	    this.app.onRunSelectionChanged();
-	  });
-
-	  // 全選択
-	  $("#btn-select-all-runs").off("click").on("click", () => {
-	    // 破壊的更新に統一（参照を保つ）
-	    selected.splice(0, selected.length, ...runIds);
-	    $list.find(".run-check").prop("checked", true);
-	    this.app.onRunSelectionChanged();
-	  });
-
-	  // 最新のみ
-	  $("#btn-latest-only").off("click").on("click", () => {
-	    const latest = sortedRunIds[0];
-	    selected.splice(0, selected.length, ...(latest ? [latest] : []));
-	    $list.find(".run-check").each((_, el) => { el.checked = (el.value === latest); });
-	    this.app.onRunSelectionChanged();
-	  });
-	}
-
-	updateRunColorChips(runColorMap) {
-		$("#run-list label .run-color").each((i, el) => {
-			const runId = $(el).next("input").val();
-			const c = runColorMap.get(runId);
-			if (c) el.style.background = c;
-		});
-	}
-
-	renderTagList(tagKeys, active) {
-		const $ul = $("#tag-list").empty();
-		tagKeys.sort();
-		tagKeys.forEach(k => {
-			const id = `tag-${k.replace(/[^\w-]/g, "_")}`;
-			// 状態に含まれていれば active クラスを付与
-			const activeClass = active.has(k) ? "active" : "";
-			const displayStyle = (this.app.isTagsLocked && !active.has(k)) ? 'style="display:none;"' : '';
-			$ul.append(`<li id="${id}" class="${activeClass}" ${displayStyle}>${k}</li>`);		});
-	}
-
-	bindTagListEvents(tagKeys, active) {
-		const $ul = $("#tag-list");
-		let hoverTimeout = null;
-
-		// 状態をチェックボックスに反映（リロード時など）
-		$("#chk-lock-tags").prop("checked", this.app.isTagsLocked);
-
-		// チェックボックス切り替え時のイベント
-		$("#chk-lock-tags").off("change").on("change", (e) => {
-			this.app.isTagsLocked = e.currentTarget.checked;
-			if (this.app.isTagsLocked) {
-				// Lock ON: アクティブでないタグを隠し、ボタンを無効化
-				$ul.find("li:not(.active)").hide();
-				$("#btn-select-all, #btn-clear-all").prop("disabled", true);
-			} else {
-				// Lock OFF: 全てのタグを表示し、ボタンを有効化
-				$ul.find("li").show();
-				$("#btn-select-all, #btn-clear-all").prop("disabled", false);
+			const row = document.createElement("div");
+			row.className = `run-row ${run.ingest?.state ?? "pending"}`;
+			row.classList.toggle("active", selectedRunIds.includes(runId));
+			row.dataset.runId = runId;
+			const percentage = this._ingestPercentage(run.ingest);
+			const quarantineCount = (run.tags ?? []).filter(tag => tag.status === "error").length;
+			const issueMessages = [];
+			if (run.ingest?.error) issueMessages.push(
+					`${run.ingest.error.code}: ${run.ingest.error.message}`);
+			for (const tag of run.tags ?? []) {
+				if (tag.error) issueMessages.push(`${tag.key}: ${tag.error.code}: ${tag.error.message}`);
 			}
-		});
-				
-		// 再描画時のボタン状態反映
-		$("#btn-select-all, #btn-clear-all").prop("disabled", this.app.isTagsLocked);
+			const ingestLabel = percentage >= 100
+					? (run.ingest?.state ?? "ready")
+					: `${percentage}% · ${run.ingest?.state ?? "pending"}`;
+			row.title = ingestLabel
+					+ (issueMessages.length ? `\n${issueMessages.join("\n")}` : "");
 
-		const clearHoverTimer = () => {
-			if (hoverTimeout) {
-				clearTimeout(hoverTimeout);
-				hoverTimeout = null;
+			const chip = document.createElement("span");
+			chip.className = "run-color";
+			chip.style.background = runColorMap.get(runId);
+			const name = document.createElement("span");
+			name.className = "run-name";
+			name.textContent = runId;
+			row.append(chip, name);
+			this._applyRunProgress(row, run.ingest);
+			if (run.ingest?.error || quarantineCount > 0) {
+				const warning = document.createElement("span");
+				warning.className = "run-warning";
+				warning.textContent = quarantineCount > 0 ? `⚠${quarantineCount}` : "⚠";
+				row.append(warning);
 			}
-		};
+			list.append(row);
+		}
+	}
 
-		// --- スクロール発動用の共通関数 ---
-		const startHoverTimer = (li) => {
-			clearHoverTimer(); // 二重起動防止
-			if (HOVER_SCROLL_DELAY_MS <= 0) return;
-			if (!$(li).hasClass("active")) return; // アクティブじゃなければ何もしない
+	updateRunProgress(runs) {
+		const runsById = new Map(runs.map(run => [run.id, run]));
+		let needsPolling = false;
+		for (const row of document.querySelectorAll("#run-list .run-row")) {
+			const run = runsById.get(row.dataset.runId);
+			if (!run) continue;
+			needsPolling = this._applyRunProgress(row, run.ingest) || needsPolling;
+		}
+		return needsPolling;
+	}
 
-			hoverTimeout = setTimeout(() => {
-				const tagKey = $(li).text();
-				const safe = tagKey.replace(/[^\w-]/g, "_");
-				const targetId = `graph-${safe}`;
-				const targetEl = document.getElementById(targetId);
+	_applyRunProgress(row, ingest) {
+		const percentage = this._ingestPercentage(ingest);
+		const active = ["pending", "converting"].includes(ingest?.state);
+		row.style.setProperty("--ingest-progress", percentage < 100 ? `${percentage}%` : "0%");
 
-				if (targetEl) {
-					const blockEl = targetEl.closest('.graph-block');
-					if (blockEl) {
-						blockEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-						$(blockEl).css("transition", "background-color 0.4s ease-out")
-						          .css("background-color", "#334433"); 
-						setTimeout(() => {
-							$(blockEl).css("background-color", "");
-						}, 800);
-					}
+		let progress = row.querySelector(".run-progress");
+		if (active && percentage < 100) {
+			if (!progress) {
+				progress = document.createElement("span");
+				progress.className = "run-progress";
+				const warning = row.querySelector(".run-warning");
+				row.insertBefore(progress, warning);
+			}
+			progress.textContent = `${percentage}%`;
+		} else {
+			progress?.remove();
+		}
+		return active;
+	}
+
+	_ingestPercentage(ingest) {
+		const rawPercentage = Number(ingest?.percentage ?? 0);
+		return Number.isFinite(rawPercentage)
+				? Math.max(0, Math.min(100, rawPercentage))
+				: 0;
+	}
+
+	bindRunListEvents() {
+		const list = document.getElementById("run-list");
+		for (const row of list.querySelectorAll(".run-row")) {
+			row.addEventListener("click", () => {
+				const runId = row.dataset.runId;
+				const now = performance.now();
+				const solo = this.lastRunClick.runId === runId
+						&& now - this.lastRunClick.at <= RUN_SOLO_INTERVAL_MS;
+				this.lastRunClick = { runId, at: now };
+				if (solo) {
+					this.app.setSelectedRuns([runId]);
+					return;
 				}
-			}, HOVER_SCROLL_DELAY_MS);
-		};
-
-		// 個別クリック・ホバー
-		$ul.find("li").off("click mouseenter mouseleave")
-		.on("click", (e) => {
-
-			// Lock中はクリック操作（トグル）を無視して終了
-//			if (this.app.isTagsLocked) return;
-
-			const li = e.currentTarget;
-			$(li).toggleClass("active");
-
-			const tagKey = $(li).text();
-			if ($(li).hasClass("active")) {
-				this.app.activeTags.add(tagKey);
-			} else {
-				this.app.activeTags.delete(tagKey);
-			}
-
-			this.app.onTagSelectionChanged();
-
-			// クリックしてONになったら、そのままホバー判定を開始する
-			if ($(li).hasClass("active")) {
-				startHoverTimer(li);
-			} else {
-				clearHoverTimer(); // OFFにした場合はタイマーをキャンセル
-			}
-		})
-		.on("mouseenter", (e) => {
-			// マウスが入ってきた時もホバー判定を開始
-			startHoverTimer(e.currentTarget);
-		})
-		.on("mouseleave", () => {
-			// カーソルが離れたらキャンセル
-			clearHoverTimer();
-		});
-
-		// 全選択
-		$("#btn-select-all").off("click").on("click", () => {
-			$ul.find("li").addClass("active");
-
-			$ul.find("li").each((_, el) => this.app.activeTags.add($(el).text()));
-
-			this.app.onTagSelectionChanged();
-		});
-		
-		// 全解除
-		$("#btn-clear-all").off("click").on("click", () => {
-			$ul.find("li").removeClass("active");
-
-			$ul.find("li").each((_, el) => this.app.activeTags.delete($(el).text()));
-
-			this.app.onTagSelectionChanged();
-		});
-
-		// 並べ替え
-		if ($("#tag-list").data("ui-sortable")) {
-			$("#tag-list").sortable("option", "update", () => {
-				this.app.onTagSelectionChanged();
+				const selected = new Set(this.app.selectedRuns);
+				if (selected.has(runId)) selected.delete(runId);
+				else selected.add(runId);
+				this.app.setSelectedRuns([...selected]);
 			});
 		}
+		document.getElementById("btn-select-all-runs").onclick =
+				() => this.app.setSelectedRuns(this.app.cache.getRunIds());
+		document.getElementById("btn-latest-only").onclick = () => {
+			const latest = this.app.cache.getRunIds().sort().at(-1);
+			this.app.setSelectedRuns(latest ? [latest] : []);
+		};
 	}
 
-	captureInitialTagList(active) {
-		active.clear();
-		$("#tag-list li.active").each((_, li) => active.add($(li).text()));
-		this.bindTagListEvents([...active], active);
+	renderTagList(tagKeys) {
+		const list = document.getElementById("tag-list");
+		list.replaceChildren();
+		for (const tagKey of tagKeys.slice().sort()) {
+			const item = document.createElement("li");
+			item.dataset.tagKey = tagKey;
+			item.classList.toggle("active", this.app.activeTags.has(tagKey));
+			if (this.app.isTagsLocked && !this.app.activeTags.has(tagKey)) item.hidden = true;
+			const label = document.createElement("span");
+			label.className = "tag-label";
+			label.textContent = tagKey;
+			item.append(label);
+			const issue = this.app.issueForTag(tagKey);
+			if (issue) {
+				const warning = document.createElement("span");
+				warning.className = "tag-warning";
+				warning.textContent = " ⚠";
+				warning.title = issue;
+				item.append(warning);
+			}
+			list.append(item);
+		}
+	}
+
+	bindTagListEvents() {
+		const list = document.getElementById("tag-list");
+		let hoverTimer = null;
+		const clearHover = () => {
+			if (hoverTimer) clearTimeout(hoverTimer);
+			hoverTimer = null;
+		};
+		const startHover = item => {
+			clearHover();
+			if (HOVER_SCROLL_DELAY_MS <= 0 || !item.classList.contains("active")) return;
+			hoverTimer = setTimeout(() => {
+				document.getElementById(graphId(item.dataset.tagKey))
+						?.closest(".graph-block")
+						?.scrollIntoView({ behavior: "smooth", block: "start" });
+			}, HOVER_SCROLL_DELAY_MS);
+		};
+		for (const item of list.querySelectorAll("li")) {
+			item.addEventListener("click", () => {
+				const tagKey = item.dataset.tagKey;
+				if (this.app.activeTags.has(tagKey)) this.app.activeTags.delete(tagKey);
+				else this.app.activeTags.add(tagKey);
+				this.app.onTagSelectionChanged();
+				if (this.app.activeTags.has(tagKey)) startHover(item);
+				else clearHover();
+			});
+			item.addEventListener("mouseenter", () => startHover(item));
+			item.addEventListener("mouseleave", clearHover);
+		}
+		document.getElementById("btn-select-all").onclick = () => {
+			for (const item of list.querySelectorAll("li")) {
+				this.app.activeTags.add(item.dataset.tagKey);
+			}
+			this.app.onTagSelectionChanged();
+		};
+		document.getElementById("btn-clear-all").onclick = () => {
+			for (const item of list.querySelectorAll("li")) {
+				this.app.activeTags.delete(item.dataset.tagKey);
+			}
+			this.app.onTagSelectionChanged();
+		};
+		const filter = document.getElementById("chk-lock-tags");
+		filter.checked = this.app.isTagsLocked;
+		filter.onchange = () => {
+			this.app.isTagsLocked = filter.checked;
+			this.app.refreshLists();
+		};
+		document.getElementById("btn-select-all").disabled = this.app.isTagsLocked;
+		document.getElementById("btn-clear-all").disabled = this.app.isTagsLocked;
 	}
 
 	bindStaticControls() {
-		$("#btn-reload").off("click").on("click", () => this.app.onReload());
-		$("#btn-auto-reload").off("click").on("click", () => this.app.onToggleAutoReload());
-		$("#btn-graph-scroll-lock").off("click").on("click", () => this.app.onToggleGraphScrollLock());
-		$("#btn-screenshot").off("click").on("click", () => this.app.onToggleScreenshot());
-		$("#btn-screenshot-toggle").off("click").on("click", () => this.app.onToggleScreenshot());
-		this.app._syncGraphScrollLockUi();
+		document.getElementById("btn-reload").onclick = () => this.app.onReload();
+		document.getElementById("btn-auto-reload").onclick = () => this.app.onToggleAutoReload();
+		document.getElementById("btn-graph-scroll-lock").onclick =
+				() => this.app.onToggleGraphScrollLock();
+		document.getElementById("btn-screenshot").onclick = () => this.app.onToggleScreenshot();
+		document.getElementById("btn-screenshot-toggle").onclick =
+				() => this.app.onToggleScreenshot();
+		const lodMode = document.getElementById("lod-display-mode");
+		lodMode.value = this.app.lodDisplayMode;
+		lodMode.onchange = () => this.app.onLodDisplayModeChanged(lodMode.value);
+		window.onresize = () => this.app.plotly.resizeAll();
+
 		const mainArea = document.getElementById("main-area");
-		if (mainArea) {
-			if (mainArea.__mvGraphDblClickReloadHandler) {
-				mainArea.removeEventListener("click", mainArea.__mvGraphDblClickReloadHandler, true);
-			}
-			mainArea.__mvGraphDblClickReloadHandler = (e) => {
-				if (e.detail !== 2) return;
-				const target = e.target instanceof Element ? e.target : null;
-				if (!target || target.closest(".graph-log-toggle") || !target.closest(".graph-block")) return;
-				this.app.onReload();
-			};
-			mainArea.addEventListener("click", mainArea.__mvGraphDblClickReloadHandler, true);
-			this.bindGraphScrollLockDrag(mainArea);
-		}
-		$(window).off("resize.mv").on("resize.mv", () => this.app.plotly.resizeAll());
+		mainArea.onclick = event => {
+			if (event.detail !== 2) return;
+			if (!(event.target instanceof Element)) return;
+			if (event.target.closest("button,select") || !event.target.closest(".graph-block")) return;
+			this.app.onReload();
+		};
+		mainArea.__mvGraphDblClickReloadHandler = mainArea.onclick;
+		this.bindGraphScrollLockDrag(mainArea);
 	}
 
 	bindGraphScrollLockDrag(mainArea) {
-		if (mainArea.__mvGraphScrollLockDragHandlers) {
-			for (const binding of mainArea.__mvGraphScrollLockDragHandlers) {
-				binding.target.removeEventListener(binding.type, binding.handler, binding.options);
-			}
-		}
-
-		const state = {
-			active: false,
-			scrolling: false,
-			startY: 0,
-			lastY: 0,
-			touchId: null
-		};
+		const state = { active: false, scrolling: false, startY: 0, lastY: 0, touchId: null };
 		const reset = () => {
 			state.active = false;
 			state.scrolling = false;
 			state.touchId = null;
 		};
-		const isGraphTarget = (target) => {
-			return target instanceof Element
-				&& !!target.closest(".js-plotly-plot")
+		const isGraphTarget = target => target instanceof Element
+				&& Boolean(target.closest(".js-plotly-plot"))
 				&& !target.closest(".modebar");
-		};
 		const begin = (target, clientY, touchId = null) => {
 			if (!this.app.graphScrollLockEnabled || !isGraphTarget(target)) return;
 			state.active = true;
-			state.scrolling = false;
 			state.startY = clientY;
 			state.lastY = clientY;
 			state.touchId = touchId;
 		};
-		const stopScrollEvent = (event) => {
+		const move = (event, clientY) => {
+			if (!state.active || !this.app.graphScrollLockEnabled) return;
+			const total = clientY - state.startY;
+			if (!state.scrolling && Math.abs(total) < GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX) return;
+			state.scrolling = true;
+			const delta = state.lastY - clientY;
+			state.lastY = clientY;
+			mainArea.scrollTop += delta;
 			if (event.cancelable) event.preventDefault();
 			event.stopPropagation();
-			event.stopImmediatePropagation();
 		};
-		const scrollByDrag = (event, clientY) => {
-			if (!state.active || !this.app.graphScrollLockEnabled) return;
-			const totalDelta = clientY - state.startY;
-			const stepDelta = state.lastY - clientY;
-			if (!state.scrolling && Math.abs(totalDelta) < GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX) return;
-			state.scrolling = true;
-			state.lastY = clientY;
-			mainArea.scrollTop += stepDelta;
-			stopScrollEvent(event);
-		};
-
-		const onMouseDown = (event) => {
-			if (event.button !== 0) return;
-			begin(event.target, event.clientY);
-		};
-		const onMouseMove = (event) => {
-			if (!state.active || (event.buttons & 1) !== 1) return;
-			scrollByDrag(event, event.clientY);
-		};
-		const onMouseUp = () => {
-			reset();
-		};
-		const onTouchStart = (event) => {
+		mainArea.addEventListener("mousedown", event => {
+			if (event.button === 0) begin(event.target, event.clientY);
+		}, true);
+		document.addEventListener("mousemove", event => {
+			if ((event.buttons & 1) === 1) move(event, event.clientY);
+		}, true);
+		document.addEventListener("mouseup", reset, true);
+		mainArea.addEventListener("touchstart", event => {
 			if (event.touches.length !== 1) return;
 			const touch = event.touches[0];
 			begin(event.target, touch.clientY, touch.identifier);
-		};
-		const findActiveTouch = (event) => {
+		}, { capture: true, passive: true });
+		document.addEventListener("touchmove", event => {
 			for (const touch of event.touches) {
-				if (touch.identifier === state.touchId) return touch;
+				if (touch.identifier === state.touchId) move(event, touch.clientY);
 			}
-			return null;
-		};
-		const onTouchMove = (event) => {
-			if (!state.active) return;
-			const touch = findActiveTouch(event);
-			if (!touch) return;
-			scrollByDrag(event, touch.clientY);
-		};
-		const onTouchEnd = () => {
-			reset();
-		};
-		const bindings = [
-			{ target: mainArea, type: "mousedown", handler: onMouseDown, options: true },
-			{ target: document, type: "mousemove", handler: onMouseMove, options: true },
-			{ target: document, type: "mouseup", handler: onMouseUp, options: true },
-			{ target: mainArea, type: "touchstart", handler: onTouchStart, options: { capture: true, passive: true } },
-			{ target: document, type: "touchmove", handler: onTouchMove, options: { capture: true, passive: false } },
-			{ target: document, type: "touchend", handler: onTouchEnd, options: { capture: true, passive: false } },
-			{ target: document, type: "touchcancel", handler: onTouchEnd, options: { capture: true, passive: false } }
-		];
-		for (const binding of bindings) {
-			binding.target.addEventListener(binding.type, binding.handler, binding.options);
-		}
-		mainArea.__mvGraphScrollLockDragHandlers = bindings;
+		}, { capture: true, passive: false });
+		document.addEventListener("touchend", reset, true);
+		document.addEventListener("touchcancel", reset, true);
 	}
 }
 
-/* ---------------- MetricsViewerClientApp (with debug logs) ---------------- */
 class MetricsViewerClientApp {
 	constructor() {
 		this.fetcher = new DataFetcher();
@@ -1116,344 +974,461 @@ class MetricsViewerClientApp {
 		this.mode = Mode.UNINITIALIZED;
 		this.selectedRuns = [];
 		this.activeTags = new Set();
+		this.knownTags = new Set();
 		this.logScaleTags = new Set();
 		this.runColorMap = new Map();
+		this.viewports = new Map();
+		this.graphScrollLockEnabled = false;
+		this.lodDisplayMode = LodDisplayMode.MIN_MAX;
+		this.isTagsLocked = false;
 		this.autoReloadEnabled = false;
 		this.autoReloadTimer = null;
-		this.graphScrollLockEnabled = false;
-		this.isTagsLocked = false;
-		console.log("[INIT] MetricsViewerClientApp constructed");
-	}
-
-	setMode(mode) {
-		const prev = this.mode;
-		console.log(`[MODE] ${prev} → ${mode}`);
-		this.mode = mode;
-		this.ui.applyMode(mode);
-		if (mode == Mode.UNINITIALIZED || mode == Mode.META_LOADING || mode == Mode.DATA_LOADING) {
-			this.ui.setLoadingSpinner(true);
-		} else {
-			this.ui.setLoadingSpinner(false);
-		}
+		this.ingestPollTimer = null;
+		this.polling = false;
+		this.initialSelectionApplied = false;
+		this.queryRevision = 0;
+		this.renderRevision = 0;
+		this.metadataRevision = 0;
+		this.viewportDebounceTimer = null;
 	}
 
 	async init() {
+		this._loadState();
+		this.ui.bindStaticControls();
+		this._syncGraphScrollLockUi();
+		this.setMode(Mode.META_LOADING);
 		try {
-			console.log("[INIT] start");
-			this.setMode(Mode.META_LOADING);
-
-			// LocalStorageから復元
-			this._loadActiveTags();
-			this._loadGraphScrollLock();
-			this._syncGraphScrollLockUi();
-			
-			// Run情報(+タグ情報)を取得
-			const runsPayload = await this.fetcher.fetchRuns();
-			console.log("[INIT] fetchRuns OK");
-			const runs = Array.isArray(runsPayload?.runs) ? runsPayload.runs : [];
-
-			// Run無しの場合はキャッシュ全クリして終わり
-			const runIds = runs.map(r => typeof r === "string" ? r : (r.id ?? r.name ?? String(r)));
-			if (!runIds.length) {
-				this.cache.clear();
-				$("#main-area").empty().append("<div style='color:#888;padding:12px;'>No runs.</div>");
-				this.setMode(Mode.NORMAL);
-				this.ui.bindStaticControls();
-				Toast.show("No runs available。");
-				console.log("[INIT] no runs found");
-				return;
-			}
-
-			// Run情報をキャッシュ保存
-			this.cache.updateRuns(runs);
-
-			// Runsを描画
-			this._populateRuns();
-
-			// Tagsを描画
-			const latest = this.selectedRuns[this.selectedRuns.length - 1];
-			const tags = latest ? this.cache.getTagKeys(latest) : [];
-			if (tags.length) {
-				// 保存されたタグがあればそれを使う、なければ全選択
-				const hasSaved = this.activeTags.size > 0;
-				this._populateTags(tags, !hasSaved);
-			} else {
-				this.ui.captureInitialTagList(this.activeTags);
-			}
-
-			// メトリクス情報を取得
-			this.setMode(Mode.DATA_LOADING);
-			const cacheState = this.cache.buildCacheStateMap();
-			const metricsPayload = await this.fetcher.fetchMetrics(cacheState);
-			console.log("metricsPayload=", metricsPayload);
-			this.cache.merge(metricsPayload);
-			console.log("[INIT] fetchMetrics OK");
-
-			// グラフ描画
-			this._renderCurrent();
-
-			// UIイベントBind
-			this.ui.bindStaticControls();
-
-			// 初期化終わり
+			await this.refreshMetadata({ initial: true, requestData: false });
 			this.setMode(Mode.NORMAL);
-			console.log("[INIT] completed normally");
-		} catch (e) {
-			console.error(e);
-			this.setMode(Mode.ERROR);
-			Toast.show("System error:" + e.message);
-            console.log("[INIT] failed with error");
+			await this.requestVisibleData({ force: true });
+		} catch (error) {
+			if (error.name !== "AbortError") {
+				console.error(error);
+				this.setMode(Mode.ERROR);
+				Toast.show(`System error: ${error.message}`);
+			}
 		}
 	}
 
-	_populateRuns() {
-		if (!Array.isArray(this.selectedRuns)) this.selectedRuns = [];
-
-		const runs = this.cache.getRuns();
-		const runIds = this.cache.getRunIds();
-
-		// selected が空 or 消失した場合 → 最新だけ自動選択
-		if (!this.selectedRuns.length || !runIds.includes(this.selectedRuns[0])) {
-			runIds.sort().reverse();
-			const latestRunId = runIds[0];
-			this.selectedRuns = [latestRunId];
-		 }
-
-		 // Runsを描画
-		this.ui.renderRunList(runs, this.selectedRuns, this.runColorMap);
-		this.ui.bindRunListEvents(runIds, this.selectedRuns);
-		console.log(`[RUN] populateRuns → ${runIds.length} runs, selected=${this.selectedRuns.length}`);
+	setMode(mode) {
+		this.mode = mode;
+		this.ui.applyMode(mode);
 	}
 
-	_populateTags(tagKeys, allActive) {
-		this.ui.renderTagList(tagKeys, this.activeTags);
-		if (allActive) {
-			this.activeTags = new Set(tagKeys);
-			$("#tag-list li").addClass("active");
+	async refreshMetadata({ initial = false, requestData = true } = {}) {
+		const revision = ++this.metadataRevision;
+		this.ui.setLoadingSpinner(true);
+		try {
+			const payload = await this.fetcher.fetchRuns();
+			if (revision !== this.metadataRevision) return;
+			const runs = Array.isArray(payload?.runs) ? payload.runs : [];
+			const previousSelection = this.selectedRuns.join("\u0000");
+			const previousGenerations = new Map(
+					this.selectedRuns.map(runId => [runId, this.cache.getRun(runId)?.generation]));
+			this.cache.updateRuns(runs);
+			const runIds = this.cache.getRunIds();
+			for (const runId of this.runColorMap.keys()) {
+				if (!runIds.includes(runId)) this.runColorMap.delete(runId);
+			}
+			if (!this.initialSelectionApplied && initial) {
+				const latest = runIds.slice().sort().at(-1);
+				this.selectedRuns = latest ? [latest] : [];
+				this.initialSelectionApplied = true;
+			} else {
+				this.selectedRuns = this.selectedRuns.filter(runId => runIds.includes(runId));
+			}
+			const generationChanged = this.selectedRuns.some(runId =>
+				previousGenerations.has(runId)
+					&& previousGenerations.get(runId) !== this.cache.getRun(runId)?.generation);
+			if (previousSelection !== this.selectedRuns.join("\u0000") || generationChanged) {
+				this._bumpQueryRevision();
+				this.fetcher.prioritize(this.selectedRuns).catch(error => console.warn(error));
+			}
+
+			this._activateNewVisibleTags();
+			this.refreshLists();
+			this._renderCurrent();
+			this._syncIngestPoller();
+			if (requestData) await this.requestVisibleData();
+		} finally {
+			if (revision === this.metadataRevision) this.ui.setLoadingSpinner(false);
 		}
-		this.ui.bindTagListEvents(tagKeys, this.activeTags);
-		this._saveActiveTags();
-		console.log(`[TAG] populateTags → total=${tagKeys.length}, active=${this.activeTags.size}`);
 	}
 
-	_updateTagListByRuns() {
-		const keys = [...this._getVisibleTagSet()].sort();
-		this._populateTags(keys, false);
-		console.log(`[INTERNAL] updateTagListByRuns → ${keys.length} tags (keep=${this.activeTags.size})`);
+	refreshLists() {
+		this.ui.renderRunList(this.cache.getRuns(), this.selectedRuns, this.runColorMap);
+		this.ui.bindRunListEvents();
+		this.ui.renderTagList([...this._visibleTagSet()]);
+		this.ui.bindTagListEvents();
 	}
 
-	_getVisibleTagSet() {
-		const visibleTags = new Set();
-		for (const r of this.selectedRuns) {
-			for (const t of this.cache.getTagKeys(r) || []) visibleTags.add(t);
+	setSelectedRuns(runIds) {
+		this.selectedRuns = [...new Set(runIds)].filter(runId => this.cache.getRun(runId));
+		this._bumpQueryRevision();
+		this._activateNewVisibleTags();
+		this.refreshLists();
+		this._renderCurrent();
+		this.fetcher.prioritize(this.selectedRuns).catch(error => console.warn(error));
+		this.requestVisibleData().catch(error => this._handleQueryError(error));
+	}
+
+	onTagSelectionChanged() {
+		this._saveSets();
+		this._bumpQueryRevision();
+		this.refreshLists();
+		this._renderCurrent();
+		this.requestVisibleData().catch(error => this._handleQueryError(error));
+	}
+
+	onViewportChanged(tagKey, range, autorange) {
+		if (autorange || !Array.isArray(range)) {
+			this.viewports.set(tagKey, { autorange: true });
+		} else {
+			const from = Math.min(Number(range[0]), Number(range[1]));
+			const to = Math.max(Number(range[0]), Number(range[1]));
+			this.viewports.set(tagKey, { autorange: false, from, to });
 		}
-		return visibleTags;
+		this._bumpQueryRevision();
+		clearTimeout(this.viewportDebounceTimer);
+		this.viewportDebounceTimer = setTimeout(() => {
+			this.requestVisibleData().catch(error => this._handleQueryError(error));
+		}, VIEWPORT_DEBOUNCE_MS);
 	}
 
-	_getVisibleSelectedTags() {
-		const visibleTags = this._getVisibleTagSet();
-		return [...this.activeTags].filter(t => visibleTags.has(t)).sort();
+	onToggleLog(tagKey) {
+		if (this.logScaleTags.has(tagKey)) this.logScaleTags.delete(tagKey);
+		else this.logScaleTags.add(tagKey);
+		this.renderRevision++;
+		this._renderCurrent();
 	}
 
-	_activateNewVisibleTags(previousVisibleTags) {
+	onLodDisplayModeChanged(mode) {
+		if (!Object.values(LodDisplayMode).includes(mode)) return;
+		this.lodDisplayMode = mode;
+		localStorage.setItem(STORAGE_KEY_LOD_MODE, mode);
+		this.renderRevision++;
+		this._renderCurrent();
+	}
+
+	async requestVisibleData({ force = false, eligibleRunIds = null, followOnly = false } = {}) {
+		const revision = this.queryRevision;
+		const series = [];
+		const requestContext = [];
+		for (const tagKey of this._visibleSelectedTags()) {
+			const viewport = this._viewportFor(tagKey);
+			if (!viewport) continue;
+			const target = this._windowFor(viewport);
+			for (const runId of this.selectedRuns) {
+				const run = this.cache.getRun(runId);
+				if (!run || !this.cache.getTag(runId, tagKey)) continue;
+				if (eligibleRunIds && !eligibleRunIds.has(runId)) continue;
+				if (followOnly && !this._isFollowing(tagKey, viewport)) continue;
+				if (!this.cache.needsFetch(runId, tagKey, target, viewport, force)) continue;
+				series.push({
+					runId,
+					tagKey,
+					fromStep: target.fromStep,
+					toStep: target.toStep
+				});
+				requestContext.push({
+					runId,
+					tagKey,
+					generation: run.generation,
+					viewportWidth: viewport.width
+				});
+			}
+		}
+		if (!series.length) return;
+
+		this.ui.setLoadingSpinner(true);
+		try {
+			const payload = await this.fetcher.fetchMetrics(series);
+			if (revision !== this.queryRevision) return;
+			const contextBySeries = new Map(requestContext.map(expected => [
+				`${expected.runId}\u0000${expected.tagKey}`,
+				expected
+			]));
+			for (const result of payload.data ?? []) {
+				const expected = contextBySeries.get(`${result.runId}\u0000${result.tagKey}`);
+				if (!expected) continue;
+				const run = this.cache.getRun(result.runId);
+				if (!run
+						|| !this.selectedRuns.includes(result.runId)
+						|| !this.activeTags.has(result.tagKey)
+						|| run.generation !== expected.generation
+						|| result.generation !== expected.generation) {
+					continue;
+				}
+				this.cache.replaceWindow(result, expected.viewportWidth);
+			}
+			this._renderCurrent();
+		} finally {
+			if (revision === this.queryRevision) this.ui.setLoadingSpinner(false);
+		}
+	}
+
+	_viewportFor(tagKey) {
+		const explicit = this.viewports.get(tagKey);
+		if (explicit && !explicit.autorange) {
+			return {
+				from: explicit.from,
+				to: explicit.to,
+				width: Math.max(1, explicit.to - explicit.from),
+				autorange: false
+			};
+		}
+		let min = Infinity;
+		let max = -Infinity;
+		for (const runId of this.selectedRuns) {
+			const stats = this.cache.getTag(runId, tagKey)?.stats;
+			if (!stats) continue;
+			min = Math.min(min, Number(stats.minStep));
+			max = Math.max(max, Number(stats.maxStep));
+		}
+		if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+		return { from: min, to: max, width: Math.max(1, max - min), autorange: true };
+	}
+
+	_windowFor(viewport) {
+		return {
+			fromStep: clampSafeStep(Math.floor(viewport.from - viewport.width)),
+			toStep: clampSafeStep(Math.ceil(viewport.to + viewport.width))
+		};
+	}
+
+	explicitViewport(tagKey) {
+		const viewport = this.viewports.get(tagKey);
+		if (!viewport || viewport.autorange) return null;
+		return { range: [viewport.from, viewport.to] };
+	}
+
+	_isFollowing(tagKey, viewport = this._viewportFor(tagKey)) {
+		if (!viewport) return false;
+		if (viewport.autorange) return true;
+		let latest = -Infinity;
+		for (const runId of this.selectedRuns) {
+			const tag = this.cache.getTag(runId, tagKey);
+			if (tag?.stats) latest = Math.max(latest, Number(tag.stats.maxStep));
+		}
+		return Number.isFinite(latest)
+				&& Math.abs(latest - viewport.to) <= viewport.width * 0.05;
+	}
+
+	_visibleTagSet() {
+		const tags = new Set();
+		for (const runId of this.selectedRuns) {
+			for (const tagKey of this.cache.getTagKeys(runId)) tags.add(tagKey);
+		}
+		return tags;
+	}
+
+	_visibleSelectedTags() {
+		const visible = this._visibleTagSet();
+		return [...this.activeTags].filter(tag => visible.has(tag)).sort();
+	}
+
+	_activateNewVisibleTags() {
 		let changed = false;
-		for (const tagKey of this._getVisibleTagSet()) {
-			if (!previousVisibleTags.has(tagKey) && !this.activeTags.has(tagKey)) {
+		for (const tagKey of this._visibleTagSet()) {
+			if (!this.knownTags.has(tagKey)) {
+				this.knownTags.add(tagKey);
 				this.activeTags.add(tagKey);
 				changed = true;
 			}
 		}
-		if (changed) this._saveActiveTags();
-		return changed;
+		if (changed) this._saveSets();
+	}
+
+	combinedStats(tagKey) {
+		let count = 0;
+		let mean = 0;
+		let m2 = 0;
+		let min = Infinity;
+		let max = -Infinity;
+		for (const runId of this.selectedRuns) {
+			const stats = this.cache.getTag(runId, tagKey)?.stats;
+			if (!stats || Number(stats.count) <= 0) continue;
+			const nextCount = Number(stats.count);
+			const nextMean = Number(stats.mean);
+			const nextM2 = Number(stats.variance) * nextCount;
+			if (count === 0) {
+				count = nextCount;
+				mean = nextMean;
+				m2 = nextM2;
+			} else {
+				const delta = nextMean - mean;
+				const combinedCount = count + nextCount;
+				mean += delta * nextCount / combinedCount;
+				m2 += nextM2 + delta * delta * count * nextCount / combinedCount;
+				count = combinedCount;
+			}
+			min = Math.min(min, Number(stats.minValue));
+			max = Math.max(max, Number(stats.maxValue));
+		}
+		if (count === 0) return null;
+		return { count, min, max, mean, stdDev: Math.sqrt(Math.max(0, m2 / count)) };
+	}
+
+	issueForTag(tagKey) {
+		const issues = [];
+		for (const runId of this.selectedRuns) {
+			const run = this.cache.getRun(runId);
+			if (run?.ingest?.error) {
+				issues.push(`${runId}: ${run.ingest.error.code}: ${run.ingest.error.message}`);
+			}
+			const tag = this.cache.getTag(runId, tagKey);
+			if (tag?.error) issues.push(`${runId}: ${tag.error.code}: ${tag.error.message}`);
+			for (const issue of this.cache.getWindow(runId, tagKey)?.issues ?? []) {
+				issues.push(`${runId}: ${issue.code}: ${issue.message}`);
+			}
+		}
+		return issues.length ? issues.join("\n") : null;
 	}
 
 	_renderCurrent() {
-		const t0 = performance.now();
-
-		// --- スクロール位置を保存 ---
-		const $main = $("#main-area");
-		const mainScroll = $main.scrollTop();
-		const winScroll = $(window).scrollTop(); // 画面全体スクロールの場合の保険
-		// ----------------------------
-
-		const t1 = performance.now();
-		this.ui.updateRunColorChips(this.runColorMap);
-		const t2 = performance.now();
-		this.plotly.renderBySelection("#main-area", this.selectedRuns.slice(), this._getVisibleSelectedTags(), this.cache);
-		const t3 = performance.now();
-
-		// --- スクロール位置を復元 ---
-		$main.scrollTop(mainScroll);
-		$(window).scrollTop(winScroll);
-
-		const t4 = performance.now();
-		console.log(`[DRAW] total=${(t4-t0).toFixed(1)}ms | ui=${(t2-t1).toFixed(1)}ms | plotly=${(t3-t2).toFixed(1)}ms | resize=${(t4-t3).toFixed(1)}ms`);
+		const main = document.getElementById("main-area");
+		const scrollTop = main.scrollTop;
+		this.plotly.renderBySelection(
+				"#main-area",
+				this.selectedRuns.slice(),
+				this._visibleSelectedTags(),
+				this.cache);
+		main.scrollTop = scrollTop;
+		this._syncGraphScrollLockUi();
 	}
 
-		_saveActiveTags() {
-		localStorage.setItem(STORAGE_KEY_TAGS, JSON.stringify([...this.activeTags]));
+	_bumpQueryRevision() {
+		this.queryRevision++;
+		this.fetcher.abortMetrics();
 	}
 
-	_loadActiveTags() {
-		const saved = localStorage.getItem(STORAGE_KEY_TAGS);
-		if (saved) {
-			try {
-				this.activeTags = new Set(JSON.parse(saved));
-			} catch (e) {
-				console.error("Failed to load activeTags from storage", e);
+	_syncIngestPoller() {
+		const needsPolling = this.cache.getRunIds().some(runId =>
+			["pending", "converting"].includes(this.cache.getRun(runId)?.ingest?.state));
+		if (needsPolling && !this.ingestPollTimer) {
+			this.ingestPollTimer = setInterval(() => this._pollIngest(), INGEST_POLL_INTERVAL_MS);
+		} else if (!needsPolling && this.ingestPollTimer) {
+			clearInterval(this.ingestPollTimer);
+			this.ingestPollTimer = null;
+		}
+	}
+
+	async _pollIngest() {
+		if (this.polling || this.mode === Mode.SCREENSHOT) return;
+		this.polling = true;
+		try {
+			const metadataRevision = this.metadataRevision;
+			const payload = await this.fetcher.fetchIngestProgress();
+			if (metadataRevision !== this.metadataRevision) return;
+			const runs = Array.isArray(payload?.runs) ? payload.runs : [];
+			const needsPolling = this.ui.updateRunProgress(runs);
+			if (!needsPolling && this.ingestPollTimer) {
+				clearInterval(this.ingestPollTimer);
+				this.ingestPollTimer = null;
 			}
+		} catch (error) {
+			this._handleQueryError(error);
+		} finally {
+			this.polling = false;
 		}
-	}
-
-	/* ---------- イベントハンドラ群（onXXX統一） ---------- */
-
-	_saveGraphScrollLock() {
-		localStorage.setItem(STORAGE_KEY_GRAPH_SCROLL_LOCK, this.graphScrollLockEnabled ? "true" : "false");
-	}
-
-	_loadGraphScrollLock() {
-		this.graphScrollLockEnabled = localStorage.getItem(STORAGE_KEY_GRAPH_SCROLL_LOCK) === "true";
-	}
-
-	_syncGraphScrollLockUi() {
-		const enabled = !!this.graphScrollLockEnabled;
-		document.body.classList.toggle("graph-scroll-locked", enabled);
-		const button = document.getElementById("btn-graph-scroll-lock");
-		if (button) {
-			button.textContent = enabled ? "Scroll Lock: ON" : "Scroll Lock: OFF";
-			button.classList.toggle("active", enabled);
-			button.setAttribute("aria-pressed", enabled ? "true" : "false");
-		}
-		this.plotly.applyGraphScrollLock(enabled);
 	}
 
 	onToggleGraphScrollLock() {
 		this.graphScrollLockEnabled = !this.graphScrollLockEnabled;
-		this._saveGraphScrollLock();
+		localStorage.setItem(
+				STORAGE_KEY_GRAPH_SCROLL_LOCK,
+				this.graphScrollLockEnabled ? "true" : "false");
 		this._syncGraphScrollLockUi();
 	}
 
-	onRunSelectionChanged() {
-		console.log(`[RUN] selection changed → ${this.selectedRuns.length} runs`);
-		this._updateTagListByRuns();
-		this._renderCurrent();
-	}
-
-	onTagSelectionChanged() {
-		console.log(`[TAG] selection changed → ${this.activeTags.size} tags`);
-		this._saveActiveTags();
-		this._renderCurrent();
+	_syncGraphScrollLockUi() {
+		document.body.classList.toggle("graph-scroll-locked", this.graphScrollLockEnabled);
+		const button = document.getElementById("btn-graph-scroll-lock");
+		if (button) {
+			button.textContent = this.graphScrollLockEnabled
+					? "Scroll Lock: ON"
+					: "Scroll Lock: OFF";
+			button.classList.toggle("active", this.graphScrollLockEnabled);
+			button.setAttribute("aria-pressed", this.graphScrollLockEnabled ? "true" : "false");
+		}
+		this.plotly.applyGraphScrollLock(this.graphScrollLockEnabled);
 	}
 
 	onToggleAutoReload() {
 		this.autoReloadEnabled = !this.autoReloadEnabled;
-		const button = $("#btn-auto-reload");
+		const button = document.getElementById("btn-auto-reload");
+		button.textContent = this.autoReloadEnabled ? "Auto Reload: ON" : "Auto Reload: OFF";
+		button.classList.toggle("active", this.autoReloadEnabled);
+		button.setAttribute("aria-pressed", this.autoReloadEnabled ? "true" : "false");
 		if (this.autoReloadEnabled) {
-			this.autoReloadTimer = setInterval(() => {
-				this.onReload();
+			this.autoReloadTimer = setInterval(async () => {
+				try {
+					await this.refreshMetadata({ requestData: false });
+					await this.requestVisibleData({ force: true, followOnly: true });
+				} catch (error) {
+					this._handleQueryError(error);
+				}
 			}, AUTO_RELOAD_INTERVAL_MS);
-			button.text("Auto Reload: ON").addClass("active").attr("aria-pressed", "true");
-			Toast.show("Auto-reload enabled.");
-			console.log("[AUTO] toggled → ON");
 		} else {
 			clearInterval(this.autoReloadTimer);
 			this.autoReloadTimer = null;
-			button.text("Auto Reload: OFF").removeClass("active").attr("aria-pressed", "false");
-			Toast.show("Auto-reload disabled.");
-			console.log("[AUTO] toggled → OFF");
-		}
-	}
-
-	onToggleScreenshot() {
-		const b = document.body, h = document.documentElement, btn = document.getElementById("btn-screenshot-toggle");
-		const on = b.classList.contains("screenshot-mode");
-		if (on) {
-			b.classList.remove("screenshot-mode");
-			h.classList.remove("screenshot-mode");
-			this.setMode(Mode.NORMAL);
-			if (btn) btn.textContent = "⬅";
-			const hd = document.getElementById("screenshot-header");
-			if (hd) hd.style.display = "none";
-			setTimeout(() => this.plotly.resizeAll(), 300);
-			console.log("[SHOT] toggled → NORMAL");
-		} else {
-			b.classList.add("screenshot-mode");
-			h.classList.add("screenshot-mode");
-			this.setMode(Mode.SCREENSHOT);
-			if (btn) btn.textContent = "➡";
-			const title = this.selectedRuns.length === 1 ? `Metrics Viewer — ${this.selectedRuns[0]}` : "Metrics Viewer";
-			const hd = document.getElementById("screenshot-header");
-			if (hd) {
-				hd.textContent = title;
-				hd.style.display = "block";
-			}
-			setTimeout(() => this.plotly.resizeAll(), 300);
-			console.log("[SHOT] toggled → SCREENSHOT");
 		}
 	}
 
 	async onReload() {
-	    if (this.mode === Mode.SCREENSHOT) return;
-		console.log("[RELOAD] full start");
-		console.log(""+this.selectedRuns +" ", this.activeTags);
-	    try {
-			// 既存の通信を全てキャンセル
-	        this.fetcher.abortAll();
-	        this.setMode(Mode.META_LOADING);
-
-			// Run情報(+Tags)を取得してキャシュ保存
-	        const runsPayload = await this.fetcher.fetchRuns();
-			const runs = Array.isArray(runsPayload?.runs) ? runsPayload.runs : [];
-			this.cache.updateRuns(runs);
-	        console.log("[RELOAD] fetchRuns OK");
-
-			// Run情報がなかったらクリアして終わる
-	        const runIds = runs.map(r => typeof r === "string" ? r : (r.id ?? r.name ?? String(r)));
-	        if (!runIds.length) {
-	            this.cache.clear();
-	            $("#main-area").empty().append("<div style='color:#888;padding:12px;'>No runs.</div>");
-	            this.setMode(Mode.NORMAL);
-	            Toast.show("No runs available。");
-	            console.log("[RELOAD] no runs found");
-	            return;
-	        }
-
-			// 選択されていたRunのRun情報がなくなっていたら最新Runを再選択
-			this.selectedRuns = this.selectedRuns.filter(r => runIds.includes(r));
-	        if (!this.selectedRuns.length) this.selectedRuns = [runIds[runIds.length - 1]];
-			const visibleTagsBeforeMetrics = this._getVisibleTagSet();
-
-			// Runsを描画		
-	        this._populateRuns();
-
-			// Tagsを描画
-			this._updateTagListByRuns();
-
-			// Metricsを取得、キャッシュ登録
-	        this.setMode(Mode.DATA_LOADING);
-			const cacheState = this.cache.buildCacheStateMap();
-	        const metricsPayload = await this.fetcher.fetchMetrics(cacheState);	// Reload時は選択状態関係無く全件再取得
-			this.cache.merge(metricsPayload);
-			this._activateNewVisibleTags(visibleTagsBeforeMetrics);
-			this._updateTagListByRuns();
-
-	        console.log("[RELOAD] fetchMetrics OK");
-
-			// グラフ再描画
-			this._renderCurrent();
-	        // -----------------------------------
-
-	        this.setMode(Mode.NORMAL);
-	    } catch (err) {
-	        console.error("[RELOAD] failed:", err);
-//	        this.setMode(Mode.ERROR);
+		if (this.mode === Mode.SCREENSHOT) return;
+		try {
+			await this.refreshMetadata({ requestData: false });
+			await this.requestVisibleData({ force: true });
+		} catch (error) {
+			this._handleQueryError(error);
 			Toast.show("Reload failed.");
-	    }
+		}
 	}
 
-} // MetricsViewerClientApp
+	onToggleScreenshot() {
+		const enabled = document.body.classList.toggle("screenshot-mode");
+		document.documentElement.classList.toggle("screenshot-mode", enabled);
+		this.setMode(enabled ? Mode.SCREENSHOT : Mode.NORMAL);
+		document.getElementById("btn-screenshot-toggle").textContent = enabled ? "➡" : "⬅";
+		const header = document.getElementById("screenshot-header");
+		header.textContent = this.selectedRuns.length === 1
+				? `Metrics Viewer — ${this.selectedRuns[0]}`
+				: "Metrics Viewer";
+		header.style.display = enabled ? "block" : "none";
+		setTimeout(() => this.plotly.resizeAll(), 300);
+	}
 
-/* ---------------- 起動 ---------------- */
+	_loadState() {
+		this.activeTags = this._loadSet(STORAGE_KEY_TAGS);
+		this.knownTags = this._loadSet(STORAGE_KEY_KNOWN_TAGS);
+		this.graphScrollLockEnabled =
+				localStorage.getItem(STORAGE_KEY_GRAPH_SCROLL_LOCK) === "true";
+		const storedMode = localStorage.getItem(STORAGE_KEY_LOD_MODE);
+		if (Object.values(LodDisplayMode).includes(storedMode)) this.lodDisplayMode = storedMode;
+	}
+
+	_loadSet(key) {
+		try {
+			const stored = localStorage.getItem(key);
+			return stored ? new Set(JSON.parse(stored)) : new Set();
+		} catch (error) {
+			console.warn(`Failed to load ${key}`, error);
+			return new Set();
+		}
+	}
+
+	_saveSets() {
+		localStorage.setItem(STORAGE_KEY_TAGS, JSON.stringify([...this.activeTags]));
+		localStorage.setItem(STORAGE_KEY_KNOWN_TAGS, JSON.stringify([...this.knownTags]));
+	}
+
+	_handleQueryError(error) {
+		if (error?.name === "AbortError") return;
+		console.error(error);
+	}
+}
+
 let app = null;
 window.addEventListener("load", () => {
 	app = new MetricsViewerClientApp();

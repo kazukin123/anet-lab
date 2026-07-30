@@ -69,14 +69,21 @@
 	</div>
 </div>
 
-<!-- 常時右上に表示される Screenshot トグルボタン -->
+<!-- 常時右上に表示される描画・操作コントロール -->
 <div id="floating-controls">
+	<span id="lod-display-mode-control">
+		<label for="lod-display-mode">LOD:</label>
+		<select id="lod-display-mode">
+			<option value="MinMax">MinMax</option>
+			<option value="Mean">Mean</option>
+			<option value="Band">Band</option>
+		</select>
+	</span>
 	<button id="btn-graph-scroll-lock" aria-pressed="false" title="Toggle graph scroll lock">Scroll Lock: OFF</button>
 	<button id="btn-screenshot-toggle">⬅</button>
 </div>
 
 <!-- アプリスクリプト -->
-<script src="numeric-buffers.js"></script>
 <script src="metrics-viewer.js"></script>
 </body>
 </html>

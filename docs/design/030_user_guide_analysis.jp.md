@@ -41,7 +41,9 @@ Optuna seed runを見る場合は次を使う。
 - URL: `http://localhost:8083`
 - runs directory: `apps/runner/runs_optuna`
 
-独自の場所を読む場合はjarへ`--metricsviewer.runs-dir=<path>`を渡す。Viewerは直下に`metrics.jsonl`を持つdirectoryだけをRunとして認識する。
+独自の場所を読む場合はjarへ`--metricsviewer.runs-dir=<path>`を渡す。Viewerは直下に
+`metrics.jsonl`または`metrics.jsonl.gz`を持つdirectoryだけをRunとして認識する。
+両方がある場合は`metrics.jsonl`を使う。
 
 ## 3. 画面の基本操作
 
@@ -49,19 +51,31 @@ Optuna seed runを見る場合は次を使う。
 
 | UI | 動作 |
 |---|---|
-| `Runs` | checkboxで複数Runを重ね、行クリックで1 Runだけを選ぶ |
+| `Runs` | 行クリックで即時toggleする。同じ行を350ms以内にもう一度押すとそのRunだけを選ぶ。空選択も可能 |
 | `Select All` / `Latest Only` | 全Run、または最新Runへ選択を切り替える |
 | `Tags` | 表示するmetric tagを選ぶ |
 | Tagsの`Filter` | 選択済みtagだけを一覧へ残す |
-| `Reload` | Run一覧、tag、metric差分を再取得して再描画する |
-| `Auto Reload` | 30秒ごとに通常のReload処理を実行する |
+| Run行の背景と`%` | 選択したMetricsマスタをSQLiteへ取り込んだRun単位の進捗を示す |
+| `Reload` | Run一覧、tag、現在viewportのmetric rangeを再取得して再描画する |
+| `Auto Reload` | 30秒ごとにmetadataを更新し、最新を表示中のgraphだけを更新する |
+| `LOD: MinMax / Mean / Band` | 右上のScroll Lock直前にある全graph共通のLOD表示mode。変更時に再取得しない |
 | グラフの`Log` | 正負と0を扱えるsigned-log表示を切り替える |
 | `Scroll Lock` | グラフ操作を抑え、drag/swipeを縦scrollへ使う |
 | Screenshotボタン | side panelを隠し、比較画像向けの表示へ切り替える |
 
 Plotlyのmodebarではzoom、pan、画像保存、`Reset axes`を利用できる。`Autoscale`ボタンは重複を避けるため非表示である。グラフ本体のdouble-clickはPlotlyのaxis resetを維持しつつ、ViewerのReloadも実行する。
 
-Reloadでは、既存のOFF選択を保ち、新たに発見された可視tagだけを自動的にONへ加える。選択tagとScroll Lockはbrowserの`localStorage`へ保持される。
+初回表示だけ最新Runを自動選択する。以後は手動の空選択と、Run消失で空になった選択を維持する。
+Reloadでは既知のOFF tagを保ち、新たに発見された可視tagだけを自動的にONへ加える。
+選択tag、LOD mode、Scroll Lockはbrowserの`localStorage`へ保持される。
+
+LODの`MinMax`は各bucketのmin、max、lastを元データの実step順に結ぶ。
+`Mean`はbucket平均、`Band`はmin/max帯へ平均線を重ねる。点数が少なくL0を表示できる場合は、
+どのmodeでもraw折れ線になる。グラフheaderの`Min / Max / Avg / Std`はviewportではなく、
+選択Runのcommit済みraw全点に対する`TagStats`を合成した値である。
+
+取り込み中でもRun一覧とcommit済みgraphは操作できる。Run-level errorまたはstep逆行で
+隔離されたtagは`⚠`とtooltipで示し、commit済み部分は引き続き表示する。
 
 ## 4. Run比較の手順
 

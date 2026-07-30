@@ -11,7 +11,7 @@ pwd
 echo.
 echo [1/2] Starting Metrics Viewer (port %VIEWER_PORT%)...
 start "MetricsViewer" cmd /c ^
-   "java -Xverify:none -jar "%VIEWER_JAR%" --server.port=%VIEWER_PORT% --metricsviewer.runs-dir="%RUNS_DIR%""
+   "java -Xmx1g -Xverify:none -jar "%VIEWER_JAR%" --server.port=%VIEWER_PORT% --metricsviewer.runs-dir="%RUNS_DIR%""
 
 rem === Spring Boot起動待機（Tomcat初期化） ===
 timeout /t 20 /nobreak >nul

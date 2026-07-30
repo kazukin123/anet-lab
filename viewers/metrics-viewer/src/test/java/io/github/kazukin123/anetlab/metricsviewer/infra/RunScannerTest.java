@@ -18,14 +18,17 @@ class RunScannerTest {
 	@Test
 	void listRunIdIgnoresDirectoriesWithoutMetricsJsonl() throws Exception {
 		final Path runA = runsDir.resolve("runA");
+		final Path runGzip = runsDir.resolve("runGzip");
 		final Path representative = runsDir.resolve("study_t00000");
 		Files.createDirectories(runA);
+		Files.createDirectories(runGzip);
 		Files.createDirectories(representative.resolve("trial"));
 		Files.writeString(runA.resolve("metrics.jsonl"), "\n", StandardCharsets.UTF_8);
+		Files.write(runGzip.resolve("metrics.jsonl.gz"), new byte[] {31, -117, 8, 0});
 		Files.writeString(runsDir.resolve("plain.txt"), "ignored", StandardCharsets.UTF_8);
 
 		final List<String> runIds = new RunScanner(runsDir.toString()).listRunId();
 
-		assertEquals(List.of("runA"), runIds);
+		assertEquals(List.of("runA", "runGzip"), runIds);
 	}
 }

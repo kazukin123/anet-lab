@@ -7,59 +7,45 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 
-public class MetricTraceEncoder {
+public final class MetricTraceEncoder {
 
-    // 分割サイズ設定 (floatは4byteなので、250,000要素 = 1MBバイナリ = 約1.33MB Base64文字列)
-    private static final int CHUNK_SIZE = 250_000;
+	// float 250,000要素を1 MBのbinary chunkとして転送する。
+	private static final int CHUNK_SIZE = 250_000;
 
-    /** float配列をBase64文字列のリストに変換 */
-    public static List<String> encodeFloatArray(float[] values) {
-        if (values == null || values.length == 0) return Collections.emptyList();
+	private MetricTraceEncoder() {
+	}
 
-        List<String> chunks = new ArrayList<>();
-        int length = values.length;
+	/** double配列をBase64文字列のリストに変換する。 */
+	public static List<String> encodeDoubleArray(double[] values) {
+		if (values == null || values.length == 0) return Collections.emptyList();
 
-        for (int i = 0; i < length; i += CHUNK_SIZE) {
-            int end = Math.min(length, i + CHUNK_SIZE);
-            int count = end - i;
-            
-            // 部分配列を切り出し
-            byte[] bytes = new byte[count * 4];
-            float[] part = new float[count];
-            System.arraycopy(values, i, part, 0, count);
+		final List<String> chunks = new ArrayList<>();
+		for (int offset = 0; offset < values.length; offset += CHUNK_SIZE) {
+			final int count = Math.min(CHUNK_SIZE, values.length - offset);
+			final byte[] bytes = new byte[count * Double.BYTES];
+			ByteBuffer.wrap(bytes)
+					.order(ByteOrder.LITTLE_ENDIAN)
+					.asDoubleBuffer()
+					.put(values, offset, count);
+			chunks.add(Base64.getEncoder().encodeToString(bytes));
+		}
+		return chunks;
+	}
 
-            ByteBuffer.wrap(bytes)
-                    .order(ByteOrder.LITTLE_ENDIAN)
-                    .asFloatBuffer()
-                    .put(part);
+	/** float配列をBase64文字列のリストに変換する。 */
+	public static List<String> encodeFloatArray(float[] values) {
+		if (values == null || values.length == 0) return Collections.emptyList();
 
-            chunks.add(Base64.getEncoder().encodeToString(bytes));
-        }
-        return chunks;
-    }
-
-    /** int配列をBase64文字列のリストに変換 */
-    public static List<String> encodeIntArray(int[] values) {
-        if (values == null || values.length == 0) return Collections.emptyList();
-
-        List<String> chunks = new ArrayList<>();
-        int length = values.length;
-
-        for (int i = 0; i < length; i += CHUNK_SIZE) {
-            int end = Math.min(length, i + CHUNK_SIZE);
-            int count = end - i;
-
-            byte[] bytes = new byte[count * 4];
-            int[] part = new int[count];
-            System.arraycopy(values, i, part, 0, count);
-
-            ByteBuffer.wrap(bytes)
-                    .order(ByteOrder.LITTLE_ENDIAN)
-                    .asIntBuffer()
-                    .put(part);
-
-            chunks.add(Base64.getEncoder().encodeToString(bytes));
-        }
-        return chunks;
-    }
+		final List<String> chunks = new ArrayList<>();
+		for (int offset = 0; offset < values.length; offset += CHUNK_SIZE) {
+			final int count = Math.min(CHUNK_SIZE, values.length - offset);
+			final byte[] bytes = new byte[count * Float.BYTES];
+			ByteBuffer.wrap(bytes)
+					.order(ByteOrder.LITTLE_ENDIAN)
+					.asFloatBuffer()
+					.put(values, offset, count);
+			chunks.add(Base64.getEncoder().encodeToString(bytes));
+		}
+		return chunks;
+	}
 }

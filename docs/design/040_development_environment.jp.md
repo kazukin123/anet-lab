@@ -178,7 +178,7 @@ mvn -B package
 package 後の実行可能 JAR は `viewers/metrics-viewer/target/metrics-viewer.jar` です。起動確認の例:
 
 ```powershell
-java -jar target\metrics-viewer.jar --server.port=8082
+java -Xmx1g -jar target\metrics-viewer.jar --server.port=8082
 ```
 
 Run ディレクトリなどの起動引数は [Run 分析ガイド](030_user_guide_analysis.jp.md)を参照してください。
@@ -220,6 +220,10 @@ MLflow parameter 名で使用できない `[` と `]` は除去し、その他�
 
 `apps/runner/41_mlflow_bridge.bat` は `apps/runner/runs/run_*/metrics.jsonl` を列挙し、起動時点で存在するすべての直下 Run を MLflow へ変換します。
 監視中に追加された直下 Run も自動的に対象へ追加します。
+更新時刻が最も新しい Run は、保存済み offset が現在の末尾へ追いつくまで優先して変換します。
+最新 Run の処理中も、10 batchごとに過去 Runを1 batch処理し、対象はround-robinで交代します。
+追いついた後は、他の Run を 1 batch ずつ変換します。
+監視中は、前回表示後にmetricsの処理が進んだRunに限り、最大10秒間隔で最新Runと過去Runを区別して、Run名、処理offset、末尾までの遅延量をconsoleへ表示します。
 `runs/group/run_*/metrics.jsonl` のように別 directory の下へネストされた Run は対象外です。
 MLflow の `Status=RUNNING` は学習 process の生存状態ではなく、bridge が継続監視する対象として登録したことを示します。
 `--once` で変換した場合だけ、現在の末尾まで取り込んだ後に `Status=FINISHED` とします。

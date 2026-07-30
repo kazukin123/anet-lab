@@ -8,18 +8,20 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.ResponseEntity;
 
-import io.github.kazukin123.anetlab.metricsviewer.service.MetricsRepository;
+import io.github.kazukin123.anetlab.metricsviewer.service.MetricsApiException;
 import io.github.kazukin123.anetlab.metricsviewer.service.MetricsService;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetMetricsRequest;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetMetricsResponse;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetRunsResponse;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.PrioritizeRunsRequest;
 
 @RestController
 @RequestMapping("/api")
 public class MetricsViewerController {
 
-	private static final Logger log = LoggerFactory.getLogger(MetricsRepository.class);
+	private static final Logger log = LoggerFactory.getLogger(MetricsViewerController.class);
 
 	private final MetricsService metricsService;
 
@@ -38,17 +40,29 @@ public class MetricsViewerController {
 	/** Metricsデータ取得 */
 	@PostMapping(value = "/metrics.json", consumes = "application/json")
 	@ResponseBody
-	public GetMetricsResponse getMetrics(@RequestBody GetMetricsRequest request) {
-	    log.info("getMetrics() runTagMap.size={}", 
-	            request.getRunTagMap() != null ? request.getRunTagMap().size() : 0);
-
-	    final GetMetricsResponse response = metricsService.getMetrics(request);
-		if (log.isTraceEnabled()) {
-			log.trace("getMetrics() req={} resp={}", request, response);
-		} else {
-			log.debug("getMetrics() req={}", request);
+	public ResponseEntity<?> getMetrics(@RequestBody GetMetricsRequest request) {
+		try {
+			final GetMetricsResponse response = metricsService.getMetrics(request);
+			log.debug("getMetrics() series={}",
+					request.getSeries() == null ? 0 : request.getSeries().size());
+			return ResponseEntity.ok(response);
+		} catch (MetricsApiException e) {
+			return ResponseEntity.status(e.getStatus())
+					.headers(e.getHeaders())
+					.body(e.getBody());
 		}
+	}
 
-		return response;
+	/** 取り込み優先Run集合の全置換 */
+	@PostMapping(value = "/runs/prioritize", consumes = "application/json")
+	public ResponseEntity<?> prioritizeRuns(@RequestBody PrioritizeRunsRequest request) {
+		try {
+			metricsService.prioritizeRuns(request);
+			return ResponseEntity.noContent().build();
+		} catch (MetricsApiException e) {
+			return ResponseEntity.status(e.getStatus())
+					.headers(e.getHeaders())
+					.body(e.getBody());
+		}
 	}
 }
