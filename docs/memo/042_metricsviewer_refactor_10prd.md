@@ -8,7 +8,7 @@
 
 ## 0. 共通原則(全タスク)
 
-1. **挙動不変**。HTTP 応答の JSON 形式・DB スキーマと格納値・状態文字列・キャッシュ破棄判定の真偽・ログ出力条件は一切変えない。唯一の例外は T3 の診断 reason 文言(タスク内に明記)。
+1. **挙動不変**。HTTP 応答の JSON 形式・DB スキーマと格納値・状態文字列・キャッシュ破棄判定の真偽・ログ出力条件は一切変えない。例外は T3 の診断 reason 文言(タスク内に明記)と、T2 で外部改変・破損により未知の DB state が入ったキャッシュを再構築前に直接読んだ場合の安全側 fallback とする。
 2. **ADR0015(docs/adr/0015)の確定事項に触れない**: SQLite 短命接続(読み=リクエスト毎/書き=ブロック毎)、migration を書かない(不整合=全破棄再構築)、L0 PK=(tag_id, ordinal)、アプリ層 LRU は確定バケット限定、TagStats は LOD 非依存、step 逆行は tag 単位隔離、**LOD factor=16 の値**。
 3. **既知バグに触れても現行挙動を維持する**。レビューでバグ疑いとして別管理中(例: ingestBlock で SQLException が "source_read_error" に誤分類される、issuedWarnings がプルーンされない等)。リファクタ中に気づいても本書では直さない。`// TODO` コメントの付記は可。
 4. **テスト**: 各タスク完了ごとに `viewers/metrics-viewer` で `mvn test` 全緑。既存テストの修正は「内部構造変更への追従」のみ可、アサートの弱体化・削除は禁止。PalettePlaywrightTest は Edge 前提(assumeTrue)のため環境によっては skip される — その場合は残り全緑+コンパイル成功で可。
@@ -61,6 +61,7 @@
    `IngestState { PENDING, CONVERTING, READY, ERROR }` を導入する。
    - 各値はDBとHTTP JSONで共通の安定した小文字表現を保持し、`externalName()`で返す。`name()`、`toString()`、呼び出し側の小文字変換へ永続・wire表現を依存させない。
    - `fromDb(String)` はnull・未知値を拒否する。DB妥当性検査では非例外の`isValidDbValue(String)`を使用し、不正値を`PENDING`へ丸めず従来どおり全破棄再構築する。
+   - 正規の書き込み経路では生成されない未知stateを再構築前に直接読んだ場合、`runs.json`は`pending`・0%・空タグ・generationなしへfallbackしてwarnを記録し、`metrics.json`は`pending`・`run/query_error`・projectionなしへfallbackする。未知文字列のechoは互換対象外とし、次回取り込み時に`state_invalid`として再構築する。
    - 実際に必要な判定`isStillIngesting()`を持たせる(PENDINGまたはCONVERTING)。未使用の`isTerminal()`は追加しない。
 2. Java内部interfaceのstate型を`String`から`IngestState`へ差し替える。
    - 対象は`CachePreparation.state`、`CacheMetadata.state`、`IngestOutcome.state`。

@@ -11,6 +11,7 @@ import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.PreparedStatement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -18,9 +19,12 @@ import java.util.Base64;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -120,6 +124,42 @@ class MetricsApiIntegrationTest {
 			assertTrue(!run.path("ingest").has("approximate"));
 			assertTrue(!run.path("ingest").has("ingestedBytes"));
 			assertTrue(!run.path("ingest").has("sourceBytes"));
+		}
+	}
+
+	@Test
+	@ExtendWith(OutputCaptureExtension.class)
+	void unknownDatabaseStateFallsBackSafelyUntilCacheRebuild(CapturedOutput output)
+			throws Exception {
+		awaitStates();
+		updateIngestState("run-ready", "unknown");
+		try {
+			final JsonNode runs = OBJECT_MAPPER.readTree(mockMvc.perform(get("/api/runs.json"))
+						.andReturn()
+						.getResponse()
+						.getContentAsString(StandardCharsets.UTF_8))
+					.path("runs");
+			final JsonNode run = findRun(runs, "run-ready");
+			assertEquals("pending", run.path("ingest").path("state").asText());
+			assertEquals(0, run.path("ingest").path("percentage").asInt());
+			assertTrue(run.path("generation").isNull());
+			assertEquals(0, run.path("tags").size());
+
+			final JsonNode result = postMetrics("""
+					{"series":[{
+					  "runId":"run-ready","tagKey":"a",
+					  "fromStep":0,"toStep":1,"maxPoints":3
+					}]}
+					""", 200).path("data").get(0);
+			assertEquals("pending", result.path("availability").asText());
+			assertTrue(result.path("projection").isNull());
+			assertEquals("run", result.path("issues").get(0).path("scope").asText());
+			assertEquals("query_error", result.path("issues").get(0).path("code").asText());
+			assertTrue(output.getAll().contains(
+					"Failed to read Run metadata: run=run-ready"
+							+ " message=Unknown Metrics cache ingest state: unknown"));
+		} finally {
+			updateIngestState("run-ready", IngestState.READY.externalName());
 		}
 	}
 
@@ -249,6 +289,24 @@ class MetricsApiIntegrationTest {
 		final List<String> statuses = new ArrayList<>();
 		for (JsonNode result : data) statuses.add(result.path("availability").asText());
 		return statuses;
+	}
+
+	private static JsonNode findRun(JsonNode runs, String runId) {
+		for (JsonNode run : runs) {
+			if (runId.equals(run.path("id").asText())) return run;
+		}
+		throw new AssertionError("Run not found: " + runId);
+	}
+
+	private static void updateIngestState(String runId, String state) throws Exception {
+		final MetricsCacheDatabase database = new MetricsCacheDatabase();
+		try (MetricsCacheDatabase.ConnectionHandle handle =
+				database.openWrite(RUNS_DIR.resolve(runId));
+				PreparedStatement statement = handle.connection().prepareStatement(
+						"UPDATE source_meta SET v=? WHERE k='state'")) {
+			statement.setString(1, state);
+			assertEquals(1, statement.executeUpdate());
+		}
 	}
 
 	private static List<Double> decodeDoubles(String encoded) {

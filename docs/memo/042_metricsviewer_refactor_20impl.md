@@ -77,12 +77,15 @@ enumを外部へ直接公開しない。文字列への変換は次へ限定す�
 - DB妥当性検査で不正値として検出する。
 - 従来の無効DB処理へ進み、キャッシュを全再構築する。
 - 再構築理由は`state_invalid`となり、generationが変更されることを統合試験で固定する。
+- 外部改変・破損による未知stateを再構築前に直接読んだ場合、`runs.json`は`pending`・0%・空タグ・generationなしへfallbackしてwarnを記録し、`metrics.json`は`pending`・`run/query_error`・projectionなしへfallbackする。
+- 未知文字列をHTTP JSONへechoする旧挙動は互換対象外とする。既知state、通常時のHTTP JSON、DB schemaと正規のDB値は変更しない。
 
 ## 3. テスト計画
 
 ### 3.1 enum単体契約
 
 - 全enum値と小文字`externalName()`の対応を確認する。
+- `SeriesAvailability`の全enum値と小文字`externalName()`の対応を直接確認する。
 - `fromDb()`が正常値を復元することを確認する。
 - null・未知値について`isValidDbValue()`がfalse、`fromDb()`が例外となることを確認する。
 - `isStillIngesting()`が`PENDING / CONVERTING`だけtrueとなることを確認する。
@@ -99,6 +102,7 @@ enumを外部へ直接公開しない。文字列への変換は次へ限定す�
 - runs.jsonの`pending / converting / ready / error`が小文字のままであることを確認する。
 - metrics.jsonの`ok / pending / not_found / empty`が小文字のままであることを確認する。
 - `converting`を安定して確認できる専用Run fixtureを追加し、background schedulerに依存しない外部契約試験とする。
+- DB stateを一時的に未知値へ変更し、runs.jsonとmetrics.jsonの安全側fallbackおよびwarnを確認した後、既知stateへ復元する。
 
 ### 3.4 検証コマンド
 
@@ -109,7 +113,10 @@ git diff --check
 
 実施結果:
 
-- `mvn -B test`: 69 tests、Failures 0、Errors 0、Skipped 0
+- 初回実装時の`mvn -B test`: 69 tests、Failures 0、Errors 0、Skipped 0
+- レビュー指摘対応の対象テスト: 33 tests、Failures 0、Errors 0、Skipped 0
+- レビュー指摘対応後の`mvn -B test`: 71 tests、Failures 0、Errors 0、Skipped 0
+- production 37 files、test 19 filesの全再コンパイル成功
 - `git diff --check`: エラーなし
 
 ## 4. 修正ファイル一覧
@@ -137,7 +144,9 @@ git diff --check
 - `viewers/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestorIntegrationTest.java`
   - Java内部state assertionをenumへ追従し、DB文字列assertionは維持。
 - `viewers/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsApiIntegrationTest.java`
-  - 内部fixtureをenumへ追従し、runs.jsonの`converting`を含む外部小文字契約を固定。
+  - 内部fixtureをenumへ追従し、runs.jsonの`converting`を含む外部小文字契約と未知DB stateの安全側fallbackを固定。
+- `viewers/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/SeriesAvailabilityTest.java`
+  - 系列availabilityのenum値と外部小文字名の対応を直接固定。
 
 ## 5. 対象外
 
@@ -151,6 +160,6 @@ git diff --check
 
 ## 6. 作業上の注意
 
-- 本実装は未コミット。ユーザーの明示指示なしにcommit/pushしない。
+- T2本体はコミット済みだが、本レビュー指摘対応は未コミット。ユーザーの明示指示なしにcommit/pushしない。
 - 作業ツリーにはPlaywrightテスト分割やRunner側変更など別作業の差分があるため、T2差分と混在させず保護する。
 - 後続タスクでは本書をT2の完了記録として扱い、T2を再実装しない。

@@ -230,7 +230,7 @@ public class MetricsRepository {
 			if (plan.availability != SeriesAvailability.OK) continue;
 			final int requested = effectiveMaxPoints(plan.request);
 			plan.cap = (int) Math.min((long) requested, plan.availableVertices);
-			plan.pointBudget = Math.min(50, plan.cap);
+			plan.pointBudget = Math.min(LodBucket.MIN_POINTS_PER_SERIES, plan.cap);
 			requiredMinimum += plan.pointBudget;
 		}
 

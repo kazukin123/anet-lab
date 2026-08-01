@@ -98,6 +98,10 @@ public class MetricsRangeProjector {
 					new Candidate(bucket.minOrdinal(), bucket.minStep(), bucket.minValue()),
 					new Candidate(bucket.maxOrdinal(), bucket.maxStep(), bucket.maxValue()),
 					new Candidate(bucket.ordinalTo() - 1L, bucket.stepLast(), bucket.lastValue())));
+			if (candidates.size() != LodBucket.POINTS_PER_LOD_BUCKET) {
+				throw new IllegalStateException("LOD bucket requires exactly "
+						+ LodBucket.POINTS_PER_LOD_BUCKET + " candidates");
+			}
 			candidates.sort(Comparator.comparingLong(Candidate::ordinal));
 			long previousOrdinal = Long.MIN_VALUE;
 			for (Candidate candidate : candidates) {
@@ -181,7 +185,7 @@ public class MetricsRangeProjector {
 			int level) throws Exception {
 		if (level <= 0) return aggregateL0(connection, tagId, ordinalFrom, ordinalTo);
 
-		final long width = LodPageCache.widthForLevel(level);
+		final long width = LodBucket.widthForLevel(level);
 		final long firstBucket = ordinalFrom / width;
 		final long lastBucket = (ordinalTo - 1L) / width;
 		final AggregateBuilder aggregate = new AggregateBuilder();
@@ -237,10 +241,11 @@ public class MetricsRangeProjector {
 
 	private static LevelSelection selectLevel(long ordinalFrom, long ordinalTo, int pointBudget) {
 		int level = 1;
-		long width = 16L;
-		while (bucketCount(ordinalFrom, ordinalTo, width) * 3L > pointBudget) {
+		long width = LodBucket.widthForLevel(level);
+		while (bucketCount(ordinalFrom, ordinalTo, width)
+				* LodBucket.POINTS_PER_LOD_BUCKET > pointBudget) {
 			level++;
-			width = Math.multiplyExact(width, 16L);
+			width = LodBucket.widthForLevel(level);
 		}
 		return new LevelSelection(level, width);
 	}

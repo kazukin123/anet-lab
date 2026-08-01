@@ -47,7 +47,7 @@ public class LodPageCache {
 			final Page loaded = loadPage(connection, tagId, level, pageIndex);
 			page = capacityBytes == 0L ? loaded : retain(key, loaded);
 		}
-		return page.find(bucket, widthForLevel(level));
+		return page.find(bucket, LodBucket.widthForLevel(level));
 	}
 
 	public synchronized void retainRuns(Set<String> runIds) {
@@ -139,12 +139,6 @@ public class LodPageCache {
 			}
 		}
 		return Page.from(rows);
-	}
-
-	static long widthForLevel(int level) {
-		long width = 1L;
-		for (int i = 0; i < level; i++) width = Math.multiplyExact(width, 16L);
-		return width;
 	}
 
 	private record PageKey(

@@ -20,7 +20,7 @@ public class LodIngestWriter {
 
 		// 親bucketになっていない末尾最大15子だけを各levelから復元する。
 		while (childCount > 0L) {
-			final int remainder = (int) (childCount % 16L);
+			final int remainder = (int) (childCount % LodBucket.LOD_FACTOR);
 			state.ensureLevel(childLevel);
 			if (remainder > 0) {
 				final long firstChild = childCount - remainder;
@@ -35,7 +35,7 @@ public class LodIngestWriter {
 							state.pending(childLevel));
 				}
 			}
-			childCount /= 16L;
+			childCount /= LodBucket.LOD_FACTOR;
 			childLevel++;
 		}
 		return state;
@@ -95,29 +95,9 @@ public class LodIngestWriter {
 			statement.setInt(2, level);
 			statement.setLong(3, firstBucket);
 			try (ResultSet result = statement.executeQuery()) {
-				while (result.next()) pending.add(fromLodRow(result, level));
+				while (result.next()) pending.add(LodBucket.fromLodRow(result, level));
 			}
 		}
-	}
-
-	private static LodBucket fromLodRow(ResultSet result, int level) throws SQLException {
-		final long bucket = result.getLong(1);
-		final long ordinalFrom = Math.multiplyExact(bucket, widthForLevel(level));
-		final long count = result.getLong(2);
-		return new LodBucket(
-				ordinalFrom,
-				ordinalFrom + count,
-				count,
-				result.getLong(3),
-				result.getLong(4),
-				result.getLong(5),
-				result.getLong(6),
-				result.getDouble(7),
-				result.getLong(8),
-				result.getLong(9),
-				result.getDouble(10),
-				result.getDouble(11),
-				result.getDouble(12));
 	}
 
 	private static void appendChild(
@@ -129,19 +109,20 @@ public class LodIngestWriter {
 		state.ensureLevel(childLevel);
 		final List<LodBucket> pending = state.pending(childLevel);
 		pending.add(child);
-		if (pending.size() < 16) return;
+		if (pending.size() < LodBucket.LOD_FACTOR) return;
 
 		final LodBucket parent = combine(pending);
 		pending.clear();
 		final int parentLevel = childLevel + 1;
-		final long bucket = parent.ordinalFrom() / widthForLevel(parentLevel);
+		final long bucket = parent.ordinalFrom() / LodBucket.widthForLevel(parentLevel);
 		insertSession.insert(tagId, parentLevel, bucket, parent);
 		appendChild(insertSession, tagId, state, parentLevel, parent);
 	}
 
 	private static LodBucket combine(List<LodBucket> children) {
-		if (children.size() != 16) {
-			throw new IllegalArgumentException("LOD parent requires exactly 16 children");
+		if (children.size() != LodBucket.LOD_FACTOR) {
+			throw new IllegalArgumentException(
+					"LOD parent requires exactly " + LodBucket.LOD_FACTOR + " children");
 		}
 		final LodBucket first = children.get(0);
 		final LodBucket last = children.get(children.size() - 1);
@@ -177,12 +158,6 @@ public class LodIngestWriter {
 				maxChild.maxValue(),
 				weightedSum / count,
 				last.lastValue());
-	}
-
-	private static long widthForLevel(int level) {
-		long width = 1L;
-		for (int i = 0; i < level; i++) width = Math.multiplyExact(width, 16L);
-		return width;
 	}
 
 	static final class State {
