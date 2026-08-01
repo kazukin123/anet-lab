@@ -31,8 +31,6 @@ public class MetricsCacheDatabase {
 	private static final Logger log = LoggerFactory.getLogger(MetricsCacheDatabase.class);
 	private static final Set<String> REQUIRED_TABLES = Set.of(
 			"tags", "scalars", "scalars_lod", "tag_stats", "json_lines", "source_meta");
-	private static final Set<String> VALID_STATES = Set.of(
-			"pending", "converting", "ready", "error");
 	private static final Map<String, Set<String>> REQUIRED_COLUMNS = Map.of(
 			"tags", Set.of(
 					"id", "key", "type", "status", "error_code", "error_message",
@@ -65,16 +63,51 @@ public class MetricsCacheDatabase {
 		boolean isValid(Statement statement) throws Exception;
 	}
 
+	public enum IngestState {
+		PENDING("pending"),
+		CONVERTING("converting"),
+		READY("ready"),
+		ERROR("error");
+
+		private final String externalName;
+
+		IngestState(String externalName) {
+			this.externalName = externalName;
+		}
+
+		public String externalName() {
+			return externalName;
+		}
+
+		public boolean isStillIngesting() {
+			return this == PENDING || this == CONVERTING;
+		}
+
+		public static IngestState fromDb(String value) {
+			for (IngestState state : values()) {
+				if (state.externalName.equals(value)) return state;
+			}
+			throw new IllegalArgumentException("Unknown Metrics cache ingest state: " + value);
+		}
+
+		public static boolean isValidDbValue(String value) {
+			for (IngestState state : values()) {
+				if (state.externalName.equals(value)) return true;
+			}
+			return false;
+		}
+	}
+
 	public record CachePreparation(
 			String generation,
-			String state,
+			IngestState state,
 			long committedOffset,
 			boolean sourceUnchangedError) {
 	}
 
 	public record CacheMetadata(
 			String generation,
-			String state,
+			IngestState state,
 			long committedOffset,
 			long sourceSize,
 			String errorCode,
@@ -157,12 +190,13 @@ public class MetricsCacheDatabase {
 				}
 			}
 
-			final String state = meta.getOrDefault("state", "pending");
+			final IngestState state = IngestState.fromDb(
+					meta.getOrDefault("state", IngestState.PENDING.externalName()));
 			return new CachePreparation(
 					meta.get("generation"),
 					state,
 					parseLong(meta.get("committed_offset"), 0L),
-					"error".equals(state));
+					state == IngestState.ERROR);
 		} finally {
 			rwLock.writeLock().unlock();
 		}
@@ -213,7 +247,8 @@ public class MetricsCacheDatabase {
 		} catch (Exception e) {
 			return false;
 		}
-		if (!VALID_STATES.contains(meta.get("state"))) return false;
+		if (!IngestState.isValidDbValue(meta.get("state"))) return false;
+		final IngestState state = IngestState.fromDb(meta.get("state"));
 
 		final long storedSize = parseLong(meta.get("source_size"), -1L);
 		final long committedOffset = parseLong(meta.get("committed_offset"), -1L);
@@ -221,12 +256,12 @@ public class MetricsCacheDatabase {
 		if (!source.headSha256(storedSize).equals(meta.get("source_head_sha256"))) return false;
 		if (!source.sha256Before(committedOffset).equals(meta.get("source_commit_tail_sha256"))) return false;
 
-		if ("error".equals(meta.get("state"))) {
+		if (state == IngestState.ERROR) {
 			return source.size() == storedSize
 					&& source.modifiedTime() == parseLong(meta.get("source_mtime"), -1L);
 		}
 		if ("jsonl.gz".equals(source.kind())) {
-			if ("converting".equals(meta.get("state")) && !activeGzipSession) return false;
+			if (state == IngestState.CONVERTING && !activeGzipSession) return false;
 			return source.size() == storedSize
 					&& source.modifiedTime() == parseLong(meta.get("source_mtime"), -1L);
 		}
@@ -245,7 +280,8 @@ public class MetricsCacheDatabase {
 		} catch (Exception e) {
 			return "generation_invalid";
 		}
-		if (!VALID_STATES.contains(meta.get("state"))) return "state_invalid";
+		if (!IngestState.isValidDbValue(meta.get("state"))) return "state_invalid";
+		final IngestState state = IngestState.fromDb(meta.get("state"));
 
 		final long storedSize = parseLong(meta.get("source_size"), -1L);
 		final long committedOffset = parseLong(meta.get("committed_offset"), -1L);
@@ -253,7 +289,7 @@ public class MetricsCacheDatabase {
 		if (source.size() < committedOffset) return "source_truncated_below_committed_offset";
 		if (source.size() < storedSize) return "source_truncated_below_previous_size";
 		if ("jsonl.gz".equals(source.kind())
-				&& "converting".equals(meta.get("state"))
+				&& state == IngestState.CONVERTING
 				&& !activeGzipSession) {
 			return "gzip_conversion_session_missing";
 		}
@@ -271,7 +307,7 @@ public class MetricsCacheDatabase {
 		}
 
 		final long storedMtime = parseLong(meta.get("source_mtime"), -1L);
-		if ("error".equals(meta.get("state"))) {
+		if (state == IngestState.ERROR) {
 			if (source.size() != storedSize) return "errored_source_size_changed";
 			if (source.modifiedTime() != storedMtime) return "errored_source_mtime_changed";
 		}
@@ -367,7 +403,7 @@ public class MetricsCacheDatabase {
 				writeMeta(statement, "source_head_sha256", source.headSha256());
 				writeMeta(statement, "source_commit_tail_sha256", source.sha256Before(0L));
 				writeMeta(statement, "committed_offset", "0");
-				writeMeta(statement, "state", "pending");
+				writeMeta(statement, "state", IngestState.PENDING.externalName());
 				statement.execute("PRAGMA user_version = " + SCHEMA_VERSION);
 				connection.commit();
 			} catch (Exception e) {

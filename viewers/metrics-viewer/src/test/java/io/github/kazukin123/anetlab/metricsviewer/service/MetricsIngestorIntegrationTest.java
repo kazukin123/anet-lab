@@ -21,6 +21,7 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.ConnectionHandle;
+import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.IngestState;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsSource;
 
 class MetricsIngestorIntegrationTest {
@@ -48,7 +49,7 @@ class MetricsIngestorIntegrationTest {
 				runDir,
 				MetricsSource.select(runDir).orElseThrow());
 
-		assertEquals("error", outcome.state());
+		assertEquals(IngestState.ERROR, outcome.state());
 		try (ConnectionHandle handle = database.openRead(runDir)) {
 			final Connection connection = handle.connection();
 			assertEquals(0L, queryLong(connection, "SELECT COUNT(*) FROM scalars"));
@@ -78,7 +79,7 @@ class MetricsIngestorIntegrationTest {
 				runDir,
 				MetricsSource.select(runDir).orElseThrow());
 
-		assertEquals("error", outcome.state());
+		assertEquals(IngestState.ERROR, outcome.state());
 		try (ConnectionHandle handle = database.openRead(runDir)) {
 			assertEquals(0L, queryLong(handle.connection(), "SELECT COUNT(*) FROM scalars"));
 			assertEquals("invalid_json", queryString(
@@ -96,7 +97,7 @@ class MetricsIngestorIntegrationTest {
 
 		final MetricsCacheDatabase database = new MetricsCacheDatabase();
 		final MetricsIngestor ingestor = new MetricsIngestor(database);
-		assertEquals("error", ingestor.ingestBlock(
+		assertEquals(IngestState.ERROR, ingestor.ingestBlock(
 				"run-error-retry",
 				runDir,
 				MetricsSource.select(runDir).orElseThrow()).state());
@@ -111,7 +112,7 @@ class MetricsIngestorIntegrationTest {
 				jsonl,
 				"{\"type\":\"scalar\",\"tag\":\"loss\",\"step\":1,\"value\":2.0}\n",
 				StandardCharsets.UTF_8);
-		assertEquals("ready", ingestor.ingestBlock(
+		assertEquals(IngestState.READY, ingestor.ingestBlock(
 				"run-error-retry",
 				runDir,
 				MetricsSource.select(runDir).orElseThrow()).state());
@@ -145,7 +146,7 @@ class MetricsIngestorIntegrationTest {
 					runDir,
 					MetricsSource.select(runDir).orElseThrow());
 
-			assertEquals("error", outcome.state());
+			assertEquals(IngestState.ERROR, outcome.state());
 			try (ConnectionHandle handle = database.openRead(runDir)) {
 				assertEquals(cases[i][1], queryString(
 						handle.connection(),
@@ -184,7 +185,7 @@ class MetricsIngestorIntegrationTest {
 				runDir,
 				MetricsSource.select(runDir).orElseThrow());
 
-		assertEquals("ready", outcome.state());
+		assertEquals(IngestState.READY, outcome.state());
 		try (ConnectionHandle handle = database.openRead(runDir)) {
 			final Connection connection = handle.connection();
 			assertEquals(3L, queryLong(connection, "SELECT COUNT(*) FROM scalars"));
@@ -276,7 +277,7 @@ class MetricsIngestorIntegrationTest {
 		final MetricsIngestor.IngestOutcome idle = ingestor.ingestBlock(
 				"run-tail", runDir, MetricsSource.select(runDir).orElseThrow());
 		assertFalse(idle.didWork());
-		assertEquals("ready", idle.state());
+		assertEquals(IngestState.READY, idle.state());
 
 		Files.writeString(jsonl, "\n", StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.APPEND);
 		ingestor.ingestBlock(
@@ -439,7 +440,7 @@ class MetricsIngestorIntegrationTest {
 		final MetricsCacheDatabase database = new MetricsCacheDatabase();
 		final GzipInputSessions firstSessions = new GzipInputSessions();
 		final MetricsIngestor firstProcess = new MetricsIngestor(database, firstSessions, 2);
-		assertEquals("converting", firstProcess.ingestBlock(
+		assertEquals(IngestState.CONVERTING, firstProcess.ingestBlock(
 				"run-gzip-restart",
 				runDir,
 				MetricsSource.select(runDir).orElseThrow()).state());
@@ -455,7 +456,7 @@ class MetricsIngestorIntegrationTest {
 		final GzipInputSessions restartedSessions = new GzipInputSessions();
 		final MetricsIngestor restartedProcess =
 				new MetricsIngestor(database, restartedSessions, 2);
-		assertEquals("converting", restartedProcess.ingestBlock(
+		assertEquals(IngestState.CONVERTING, restartedProcess.ingestBlock(
 				"run-gzip-restart",
 				runDir,
 				MetricsSource.select(runDir).orElseThrow()).state());
@@ -538,7 +539,7 @@ class MetricsIngestorIntegrationTest {
 					runDir.getFileName().toString(),
 					runDir,
 					MetricsSource.select(runDir).orElseThrow());
-			if ("ready".equals(outcome.state()) || "error".equals(outcome.state())) return;
+			if (outcome.state() == IngestState.READY || outcome.state() == IngestState.ERROR) return;
 		}
 		throw new AssertionError("Ingest did not stop");
 	}

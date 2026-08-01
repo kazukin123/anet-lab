@@ -19,6 +19,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 
+import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.IngestState;
 import io.github.kazukin123.anetlab.metricsviewer.infra.RunScanner;
 
 class IngestSchedulerTest {
@@ -46,7 +47,7 @@ class IngestSchedulerTest {
 		when(ingestor.ingestBlock(anyString(), any(Path.class), any()))
 				.thenAnswer(invocation -> {
 					processed.add(invocation.getArgument(0));
-					return new MetricsIngestor.IngestOutcome(true, "converting");
+					return new MetricsIngestor.IngestOutcome(true, IngestState.CONVERTING);
 				});
 		final IngestScheduler scheduler =
 				new IngestScheduler(scanner, ingestor, new GzipInputSessions());
@@ -78,7 +79,7 @@ class IngestSchedulerTest {
 		when(ingestor.ingestBlock(anyString(), any(Path.class), any()))
 				.thenAnswer(invocation -> {
 					processed.add(invocation.getArgument(0));
-					return new MetricsIngestor.IngestOutcome(true, "converting");
+					return new MetricsIngestor.IngestOutcome(true, IngestState.CONVERTING);
 				});
 		final IngestScheduler scheduler =
 				new IngestScheduler(scanner, ingestor, new GzipInputSessions());
@@ -102,7 +103,7 @@ class IngestSchedulerTest {
 		when(scanner.resolveRunDir(runId)).thenReturn(runDir);
 		final MetricsIngestor ingestor = mock(MetricsIngestor.class);
 		when(ingestor.ingestBlock(anyString(), any(Path.class), any()))
-				.thenReturn(new MetricsIngestor.IngestOutcome(false, "ready"));
+				.thenReturn(new MetricsIngestor.IngestOutcome(false, IngestState.READY));
 		final IngestScheduler scheduler =
 				new IngestScheduler(scanner, ingestor, new GzipInputSessions());
 

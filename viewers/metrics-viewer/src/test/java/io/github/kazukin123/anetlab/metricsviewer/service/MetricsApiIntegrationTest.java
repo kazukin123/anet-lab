@@ -30,6 +30,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase;
+import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.IngestState;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsSource;
 
 @SpringBootTest
@@ -112,6 +113,7 @@ class MetricsApiIntegrationTest {
 		assertEquals(100, byId.get("run-ready").path("ingest").path("percentage").asInt());
 		assertEquals(0, byId.get("run-pending").path("ingest").path("percentage").asInt());
 		assertTrue(byId.get("run-error").path("ingest").path("percentage").asInt() < 100);
+		assertEquals("converting", byId.get("run-converting").path("ingest").path("state").asText());
 		for (JsonNode run : runs) {
 			assertTrue(run.path("ingest").path("percentage").asInt() >= 0);
 			assertTrue(run.path("ingest").path("percentage").asInt() <= 100);
@@ -234,6 +236,7 @@ class MetricsApiIntegrationTest {
 			}
 			if ("ready".equals(states.get("run-ready"))
 					&& "pending".equals(states.get("run-pending"))
+					&& "converting".equals(states.get("run-converting"))
 					&& "error".equals(states.get("run-error"))) {
 				return;
 			}
@@ -263,9 +266,11 @@ class MetricsApiIntegrationTest {
 					.normalize();
 			final Path ready = runsDir.resolve("run-ready");
 			final Path pending = runsDir.resolve("run-pending");
+			final Path converting = runsDir.resolve("run-converting");
 			final Path error = runsDir.resolve("run-error");
 			Files.createDirectories(ready);
 			Files.createDirectories(pending);
+			Files.createDirectories(converting);
 			Files.createDirectories(error);
 
 			final StringBuilder jsonl = new StringBuilder();
@@ -289,6 +294,13 @@ class MetricsApiIntegrationTest {
 					"{\"type\":\"scalar\",\"tag\":\"loss\",\"step\":0,\"value\":1.0}",
 					StandardCharsets.UTF_8);
 			Files.writeString(
+					converting.resolve("metrics.jsonl"),
+					"""
+					{"type":"scalar","tag":"loss","step":0,"value":1.0}
+					{"type":"scalar","tag":"loss","step":1,"value":2.0}
+					""",
+					StandardCharsets.UTF_8);
+			Files.writeString(
 					error.resolve("metrics.jsonl"),
 					"""
 					{"type":"scalar","tag":"loss","step":0,"value":1.0}
@@ -298,17 +310,20 @@ class MetricsApiIntegrationTest {
 
 			final MetricsCacheDatabase database = new MetricsCacheDatabase();
 			final MetricsSource readySource = MetricsSource.select(ready).orElseThrow();
-			assertEquals("ready",
+			assertEquals(IngestState.READY,
 					new MetricsIngestor(database).ingestBlock(
 							"run-ready", ready, readySource).state());
 			final MetricsSource pendingSource = MetricsSource.select(pending).orElseThrow();
 			database.prepare(pending, pendingSource, false);
 			final MetricsIngestor ingestor =
 					new MetricsIngestor(database, new GzipInputSessions(), 1);
+			final MetricsSource convertingSource = MetricsSource.select(converting).orElseThrow();
+			assertEquals(IngestState.CONVERTING,
+					ingestor.ingestBlock("run-converting", converting, convertingSource).state());
 			final MetricsSource errorSource = MetricsSource.select(error).orElseThrow();
-			assertEquals("converting",
+			assertEquals(IngestState.CONVERTING,
 					ingestor.ingestBlock("run-error", error, errorSource).state());
-			assertEquals("error",
+			assertEquals(IngestState.ERROR,
 					ingestor.ingestBlock("run-error", error, errorSource).state());
 			return runsDir;
 		} catch (Exception e) {

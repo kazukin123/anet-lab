@@ -30,6 +30,7 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.CachePreparation;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.ConnectionHandle;
+import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.IngestState;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsSource;
 
 @Component
@@ -48,7 +49,7 @@ public class MetricsIngestor {
 	private final int maxBlockLines;
 	private final Set<WarningKey> issuedWarnings = ConcurrentHashMap.newKeySet();
 
-	public record IngestOutcome(boolean didWork, String state) {
+	public record IngestOutcome(boolean didWork, IngestState state) {
 	}
 
 	public MetricsIngestor(MetricsCacheDatabase database) {
@@ -90,11 +91,11 @@ public class MetricsIngestor {
 				gzip && gzipSessions.hasSession(runDir, source));
 		if (preparation.sourceUnchangedError()) {
 			if (gzip) gzipSessions.close(runDir);
-			return new IngestOutcome(false, "error");
+			return new IngestOutcome(false, IngestState.ERROR);
 		}
-		if (gzip && "ready".equals(preparation.state())) {
+		if (gzip && preparation.state() == IngestState.READY) {
 			gzipSessions.close(runDir);
-			return new IngestOutcome(false, "ready");
+			return new IngestOutcome(false, IngestState.READY);
 		}
 
 		final long startOffset = preparation.committedOffset();
@@ -111,7 +112,7 @@ public class MetricsIngestor {
 				session = gzipSessions.acquire(runDir, source, preparation.generation());
 			} catch (IOException e) {
 				markRunError(runDir, source, "gzip_corrupt", e.getMessage());
-				return new IngestOutcome(true, "error");
+				return new IngestOutcome(true, IngestState.ERROR);
 			}
 			input = session.input();
 			consumedBytes = session::compressedBytes;
@@ -166,9 +167,9 @@ public class MetricsIngestor {
 				}
 				// raw JSONLの未終端末尾は次回追記まで保持するが、現snapshotの完全行には
 				// 追いついている。gzipだけはimmutableなので未終端末尾をcorruptとする。
-				final String state = cursor.eof && (!gzip || cursor.trailingBytes == 0)
-						? "ready"
-						: "converting";
+				final IngestState state = cursor.eof && (!gzip || cursor.trailingBytes == 0)
+						? IngestState.READY
+						: IngestState.CONVERTING;
 				updateSourceMeta(connection, source, cursor.committedOffset, state);
 				connection.commit();
 
@@ -192,26 +193,26 @@ public class MetricsIngestor {
 							warning.step(),
 							warning.sourceOffset());
 				}
-				if (gzip && "ready".equals(state)) gzipSessions.close(runDir);
+				if (gzip && state == IngestState.READY) gzipSessions.close(runDir);
 				return new IngestOutcome(
-						cursor.committedOffset != startOffset || !state.equals(preparation.state()),
+						cursor.committedOffset != startOffset || state != preparation.state(),
 						state);
 			} catch (FatalRecordException e) {
 				connection.rollback();
 				markRunError(runDir, source, e.code(), e.getMessage());
 				if (gzip) gzipSessions.close(runDir);
-				return new IngestOutcome(true, "error");
+				return new IngestOutcome(true, IngestState.ERROR);
 			} catch (GzipCorruptException e) {
 				connection.rollback();
 				markRunError(runDir, source, "gzip_corrupt", e.getMessage());
 				gzipSessions.close(runDir);
-				return new IngestOutcome(true, "error");
+				return new IngestOutcome(true, IngestState.ERROR);
 			} catch (IOException e) {
 				connection.rollback();
 				if (gzip) {
 					markRunError(runDir, source, "gzip_corrupt", e.getMessage());
 					gzipSessions.close(runDir);
-					return new IngestOutcome(true, "error");
+					return new IngestOutcome(true, IngestState.ERROR);
 				}
 				throw e;
 			} catch (Exception e) {
@@ -508,13 +509,13 @@ public class MetricsIngestor {
 			Connection connection,
 			MetricsSource source,
 			long committedOffset,
-			String state) throws SQLException, IOException {
+			IngestState state) throws SQLException, IOException {
 		upsertMeta(connection, "source_size", Long.toString(source.size()));
 		upsertMeta(connection, "source_mtime", Long.toString(source.modifiedTime()));
 		upsertMeta(connection, "source_head_sha256", source.headSha256());
 		upsertMeta(connection, "source_commit_tail_sha256", source.sha256Before(committedOffset));
 		upsertMeta(connection, "committed_offset", Long.toString(committedOffset));
-		upsertMeta(connection, "state", state);
+		upsertMeta(connection, "state", state.externalName());
 		try (PreparedStatement statement = connection.prepareStatement(
 				"DELETE FROM source_meta WHERE k IN ('error_code', 'error_message')")) {
 			statement.executeUpdate();
@@ -532,7 +533,7 @@ public class MetricsIngestor {
 			upsertMeta(connection, "source_size", Long.toString(source.size()));
 			upsertMeta(connection, "source_mtime", Long.toString(source.modifiedTime()));
 			upsertMeta(connection, "source_head_sha256", source.headSha256());
-			upsertMeta(connection, "state", "error");
+			upsertMeta(connection, "state", IngestState.ERROR.externalName());
 			upsertMeta(connection, "error_code", code);
 			upsertMeta(connection, "error_message", message == null ? code : message);
 			connection.commit();

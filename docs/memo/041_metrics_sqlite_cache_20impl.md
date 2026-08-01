@@ -176,7 +176,7 @@ commit済み有効L0全点の正確な統計として維持する。
 cd viewers\metrics-viewer
 mvn -B -Dtest=MetricsCacheIntegrationTest test
 mvn -B -Dtest=MetricsApiIntegrationTest test
-mvn -B -Dtest=PalettePlaywrightTest test
+mvn -B "-Dtest=*PlaywrightTest" test
 mvn -B test
 mvn -B package
 git diff --check

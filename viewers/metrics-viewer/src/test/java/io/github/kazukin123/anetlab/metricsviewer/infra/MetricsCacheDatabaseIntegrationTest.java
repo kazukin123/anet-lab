@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -28,12 +29,33 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 
+import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.IngestState;
 import io.github.kazukin123.anetlab.metricsviewer.service.MetricsIngestor;
 
 class MetricsCacheDatabaseIntegrationTest {
 
 	@TempDir
 	private Path tempDir;
+
+	@Test
+	void ingestStateKeepsStableExternalNamesAndRejectsUnknownDatabaseValues() {
+		for (IngestState state : IngestState.values()) {
+			assertTrue(IngestState.isValidDbValue(state.externalName()));
+			assertEquals(state, IngestState.fromDb(state.externalName()));
+		}
+		assertEquals("pending", IngestState.PENDING.externalName());
+		assertEquals("converting", IngestState.CONVERTING.externalName());
+		assertEquals("ready", IngestState.READY.externalName());
+		assertEquals("error", IngestState.ERROR.externalName());
+		assertFalse(IngestState.isValidDbValue(null));
+		assertFalse(IngestState.isValidDbValue("unknown"));
+		assertThrows(IllegalArgumentException.class, () -> IngestState.fromDb(null));
+		assertThrows(IllegalArgumentException.class, () -> IngestState.fromDb("unknown"));
+		assertTrue(IngestState.PENDING.isStillIngesting());
+		assertTrue(IngestState.CONVERTING.isStillIngesting());
+		assertFalse(IngestState.READY.isStillIngesting());
+		assertFalse(IngestState.ERROR.isStillIngesting());
+	}
 
 	@Test
 	void schemaWithMissingColumnsIsRebuiltAndOnlyLegacyKryoIsRemoved() throws Exception {
@@ -174,10 +196,19 @@ class MetricsCacheDatabaseIntegrationTest {
 
 		try (MetricsCacheDatabase.ConnectionHandle handle = database.openWrite(runDir);
 				Statement statement = handle.connection().createStatement()) {
+			statement.execute("UPDATE source_meta SET v='unknown' WHERE k='state'");
+		}
+		final String invalidStateGeneration = database.prepare(runDir, source, false).generation();
+		assertNotEquals(rebuiltGeneration, invalidStateGeneration);
+		assertTrue(output.getAll().contains(
+				"Rebuilding Metrics cache: run=run-corrupt-cache reason=state_invalid"));
+
+		try (MetricsCacheDatabase.ConnectionHandle handle = database.openWrite(runDir);
+				Statement statement = handle.connection().createStatement()) {
 			statement.execute("DROP TABLE scalars");
 		}
 		final String schemaRebuiltGeneration = database.prepare(runDir, source, false).generation();
-		assertNotEquals(rebuiltGeneration, schemaRebuiltGeneration);
+		assertNotEquals(invalidStateGeneration, schemaRebuiltGeneration);
 		assertTrue(output.getAll().contains(
 				"Rebuilding Metrics cache: run=run-corrupt-cache reason=required_table_missing"));
 	}
@@ -221,7 +252,7 @@ class MetricsCacheDatabaseIntegrationTest {
 			} finally {
 				releaseValidation.countDown();
 			}
-			assertEquals("pending", preparation.get(2, TimeUnit.SECONDS).state());
+			assertEquals(IngestState.PENDING, preparation.get(2, TimeUnit.SECONDS).state());
 		} finally {
 			releaseValidation.countDown();
 			executor.shutdownNow();

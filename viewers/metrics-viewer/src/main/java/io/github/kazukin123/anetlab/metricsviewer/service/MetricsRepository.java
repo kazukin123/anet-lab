@@ -23,6 +23,7 @@ import io.github.kazukin123.anetlab.metricsviewer.config.MetricsViewerSettings;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.CacheMetadata;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.ConnectionHandle;
+import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.IngestState;
 import io.github.kazukin123.anetlab.metricsviewer.infra.RunScanner;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.ApiError;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.IngestInfo;
@@ -63,7 +64,8 @@ public class MetricsRepository {
 			final Map<String, String> meta = readMeta(handle.connection());
 			final CacheMetadata metadata = new CacheMetadata(
 					meta.get("generation"),
-					meta.getOrDefault("state", "pending"),
+					IngestState.fromDb(meta.getOrDefault(
+							"state", IngestState.PENDING.externalName())),
 					parseLong(meta.get("committed_offset"), 0L),
 					parseLong(meta.get("source_size"), 0L),
 					meta.get("error_code"),
@@ -84,7 +86,7 @@ public class MetricsRepository {
 					.generation(UUID.fromString(metadata.generation()))
 					.stats(RunStats.builder().maxStep(maxStep).build())
 					.ingest(new IngestInfo(
-							metadata.state(),
+							metadata.state().externalName(),
 							calculatePercentage(metadata),
 							error))
 					.tags(tags)
@@ -158,56 +160,65 @@ public class MetricsRepository {
 			RunQueryContext context) {
 		final SeriesPlan plan = new SeriesPlan(index, request);
 		if (!runExists) {
-			plan.availability = "not_found";
+			plan.availability = SeriesAvailability.NOT_FOUND;
 			return plan;
 		}
 		if (context == null) {
-			plan.availability = "pending";
+			plan.availability = SeriesAvailability.PENDING;
 			return plan;
 		}
 
 		plan.context = context;
 		plan.generation = parseUuid(context.meta.get("generation"));
-		final String ingestState = context.meta.getOrDefault("state", "pending");
 		addRunIssue(plan, context.meta);
 
-		try (PreparedStatement statement = context.connection.prepareStatement("""
+		try {
+			final IngestState ingestState = IngestState.fromDb(context.meta.getOrDefault(
+					"state", IngestState.PENDING.externalName()));
+			try (PreparedStatement statement = context.connection.prepareStatement("""
 				SELECT t.id, t.status, t.error_code, t.error_message, s.count
 				FROM tags t
 				LEFT JOIN tag_stats s ON s.tag_id=t.id
 				WHERE t.key=?
-				""")) {
-			statement.setString(1, request.getTagKey());
-			try (ResultSet result = statement.executeQuery()) {
-				if (!result.next()) {
-					plan.availability = isConverting(ingestState) ? "pending" : "not_found";
-					return plan;
-				}
-				plan.tagId = result.getLong(1);
-				if ("error".equals(result.getString(2))) {
-					plan.issues.add(new Issue(
-							"tag",
-							result.getString(3),
-							result.getString(4)));
-				}
-				final long totalCount = result.getLong(5);
-				if (result.wasNull() || totalCount == 0L) {
-					plan.availability = isConverting(ingestState) ? "pending" : "empty";
-					return plan;
-				}
+					""")) {
+				statement.setString(1, request.getTagKey());
+				try (ResultSet result = statement.executeQuery()) {
+					if (!result.next()) {
+						plan.availability = ingestState.isStillIngesting()
+								? SeriesAvailability.PENDING
+								: SeriesAvailability.NOT_FOUND;
+						return plan;
+					}
+					plan.tagId = result.getLong(1);
+					if ("error".equals(result.getString(2))) {
+						plan.issues.add(new Issue(
+								"tag",
+								result.getString(3),
+								result.getString(4)));
+					}
+					final long totalCount = result.getLong(5);
+					if (result.wasNull() || totalCount == 0L) {
+						plan.availability = ingestState.isStillIngesting()
+								? SeriesAvailability.PENDING
+								: SeriesAvailability.EMPTY;
+						return plan;
+					}
 
-				plan.ordinalFrom = lowerBound(
-						context.connection, plan.tagId, totalCount, request.getFromStep(), false);
-				plan.ordinalTo = lowerBound(
-						context.connection, plan.tagId, totalCount, request.getToStep(), true);
-				plan.availableVertices = Math.max(0L, plan.ordinalTo - plan.ordinalFrom);
-				plan.availability = plan.availableVertices > 0L
-						? "ok"
-						: (isConverting(ingestState) ? "pending" : "empty");
-				return plan;
+					plan.ordinalFrom = lowerBound(
+							context.connection, plan.tagId, totalCount, request.getFromStep(), false);
+					plan.ordinalTo = lowerBound(
+							context.connection, plan.tagId, totalCount, request.getToStep(), true);
+					plan.availableVertices = Math.max(0L, plan.ordinalTo - plan.ordinalFrom);
+					plan.availability = plan.availableVertices > 0L
+							? SeriesAvailability.OK
+							: (ingestState.isStillIngesting()
+									? SeriesAvailability.PENDING
+									: SeriesAvailability.EMPTY);
+					return plan;
+				}
 			}
 		} catch (Exception e) {
-			plan.availability = "pending";
+			plan.availability = SeriesAvailability.PENDING;
 			plan.issues.add(new Issue("run", "query_error", e.getMessage()));
 			return plan;
 		}
@@ -216,7 +227,7 @@ public class MetricsRepository {
 	private void allocatePointBudgets(SeriesPlan[] plans) {
 		long requiredMinimum = 0L;
 		for (SeriesPlan plan : plans) {
-			if (!"ok".equals(plan.availability)) continue;
+			if (plan.availability != SeriesAvailability.OK) continue;
 			final int requested = effectiveMaxPoints(plan.request);
 			plan.cap = (int) Math.min((long) requested, plan.availableVertices);
 			plan.pointBudget = Math.min(50, plan.cap);
@@ -253,7 +264,7 @@ public class MetricsRepository {
 	}
 
 	private MetricsSeriesResult buildResult(SeriesPlan plan) {
-		if (!"ok".equals(plan.availability)) {
+		if (plan.availability != SeriesAvailability.OK) {
 			return baseResult(plan)
 					.level(null)
 					.bucketWidth(null)
@@ -278,7 +289,7 @@ public class MetricsRepository {
 		} catch (Exception e) {
 			plan.issues.add(new Issue("run", "query_error", e.getMessage()));
 			return baseResult(plan)
-					.availability("pending")
+					.availability(SeriesAvailability.PENDING.externalName())
 					.level(null)
 					.bucketWidth(null)
 					.projection(null)
@@ -293,7 +304,7 @@ public class MetricsRepository {
 				.generation(plan.generation)
 				.fromStep(plan.request.getFromStep())
 				.toStep(plan.request.getToStep())
-				.availability(plan.availability)
+				.availability(plan.availability.externalName())
 				.pointBudget(plan.pointBudget)
 				.issues(List.copyOf(plan.issues));
 	}
@@ -334,10 +345,6 @@ public class MetricsRepository {
 		if (code != null) {
 			plan.issues.add(new Issue("run", code, meta.get("error_message")));
 		}
-	}
-
-	private static boolean isConverting(String state) {
-		return "pending".equals(state) || "converting".equals(state);
 	}
 
 	private static UUID parseUuid(String value) {
@@ -404,9 +411,9 @@ public class MetricsRepository {
 	}
 
 	private static int calculatePercentage(CacheMetadata metadata) {
-		if ("pending".equals(metadata.state())) return 0;
-		if ("ready".equals(metadata.state())) return 100;
-		if (metadata.sourceSize() <= 0L) return "error".equals(metadata.state()) ? 0 : 100;
+		if (metadata.state() == IngestState.PENDING) return 0;
+		if (metadata.state() == IngestState.READY) return 100;
+		if (metadata.sourceSize() <= 0L) return metadata.state() == IngestState.ERROR ? 0 : 100;
 		final long percentage = metadata.committedOffset() * 100L / metadata.sourceSize();
 		return (int) Math.max(0L, Math.min(99L, percentage));
 	}
@@ -425,7 +432,7 @@ public class MetricsRepository {
 				.id(runId)
 				.generation(null)
 				.stats(new RunStats())
-				.ingest(new IngestInfo("pending", 0, null))
+				.ingest(new IngestInfo(IngestState.PENDING.externalName(), 0, null))
 				.tags(List.of())
 				.build();
 	}
@@ -460,7 +467,7 @@ public class MetricsRepository {
 		private long ordinalFrom;
 		private long ordinalTo;
 		private long availableVertices;
-		private String availability;
+		private SeriesAvailability availability;
 		private int cap;
 		private int pointBudget;
 
@@ -470,4 +477,21 @@ public class MetricsRepository {
 		}
 	}
 
+}
+
+enum SeriesAvailability {
+	OK("ok"),
+	PENDING("pending"),
+	NOT_FOUND("not_found"),
+	EMPTY("empty");
+
+	private final String externalName;
+
+	SeriesAvailability(String externalName) {
+		this.externalName = externalName;
+	}
+
+	String externalName() {
+		return externalName;
+	}
 }

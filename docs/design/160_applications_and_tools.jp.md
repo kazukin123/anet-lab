@@ -318,7 +318,7 @@ sequenceDiagram
 
 - Runner UI変更: Frame close順序、pane menu連動、Train/Eval入力、model syncを確認する。
 - Metrics Viewer backend変更: SQLite/source identity、ingest/LOD、range API、scheduler、query concurrencyの各integration testを実行する。
-- Metrics Viewer UI変更: `PalettePlaywrightTest`でRun toggle、viewport精細化、LOD mode、stale response、Reload、Plotly state、mobile gestureを確認する。
+- Metrics Viewer UI変更: `RunListPlaywrightTest`、`TagListPlaywrightTest`、`MetricsPlotPlaywrightTest`、`GraphInteractionPlaywrightTest`、`SignedLogPlaywrightTest`で、Run/Tag操作、viewport精細化、LOD mode、stale response、Reload、Plotly state、mobile gestureを関心別に確認する。
 - Optuna変更: dry-run、短いrun-trial、artifact/DB state、interrupt cleanupを確認する。
 - process間contract変更: 旧Run artifactを読めるか、または明示的なmigration/non-goalを記録する。
 
