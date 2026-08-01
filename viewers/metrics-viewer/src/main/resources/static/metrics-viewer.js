@@ -340,6 +340,9 @@ class PlotlyController {
 			mode: "lines",
 			line: { width: 1.5, color: this.app.runColorMap.get(runId) },
 			uid: makePlotlyTraceUid(runId, tagKey, suffix),
+			meta: { tagKey, runId },
+			legendgroup: makePlotlyTraceUid(runId, tagKey, "legend"),
+			visible: this.app.isLegendSeriesHidden(tagKey, runId) ? "legendonly" : true,
 			opacity: this.app.selectedRuns.length > 1 ? 0.8 : 1.0
 		};
 	}
@@ -431,7 +434,8 @@ class PlotlyController {
 			font: { color: "#ccc" },
 			xaxis: { gridcolor: "#444" },
 			yaxis: this._makeYAxis(signedLogScale, traces, ranges),
-			showlegend: showLegend
+			showlegend: showLegend,
+			legend: { groupclick: "togglegroup" }
 		};
 		if (Array.isArray(ranges.xRange)) layout.xaxis.range = ranges.xRange.slice();
 		if (Object.prototype.hasOwnProperty.call(ranges, "dragMode")) {
@@ -495,6 +499,9 @@ class PlotlyController {
 
 	renderBySelection(containerSelector, runIds, tagKeys, cache) {
 		const area = document.querySelector(containerSelector);
+		this.capturePlotState(area);
+		this.app.pruneLegendVisibility(runIds, tagKeys);
+		this.app.prunePlotDragModes(tagKeys);
 		for (const plot of area.querySelectorAll(".js-plotly-plot")) Plotly.purge(plot);
 		area.replaceChildren();
 		if (!runIds.length) {
@@ -568,7 +575,9 @@ class PlotlyController {
 					traces,
 					{
 						xRange: viewport?.range ?? null,
-						dragMode: this.app.graphScrollLockEnabled ? false : undefined
+						dragMode: this.app.graphScrollLockEnabled
+								? false
+								: this.app.plotDragMode(tagKey)
 					});
 			if (layout.dragmode === undefined) delete layout.dragmode;
 			Plotly.newPlot(
@@ -598,6 +607,7 @@ class PlotlyController {
 				const xChanged = this._hasRangeEvent(event, "xaxis");
 				const yChanged = this._hasRangeEvent(event, "yaxis");
 				if (!xChanged && !yChanged) return;
+				this.capturePlotState(plot);
 				const nextLayout = this._makeLayout(
 						this._plotWidth(block),
 						runIds.length > 1,
@@ -610,7 +620,9 @@ class PlotlyController {
 						});
 				this._reactPlot(
 						plot,
-						this._toDisplayTraces(traces, this.app.logScaleTags.has(tagKey)),
+						this._toDisplayTraces(
+								this._applyLegendVisibility(traces),
+								this.app.logScaleTags.has(tagKey)),
 						nextLayout);
 				if (xChanged) {
 					this.app.onViewportChanged(
@@ -622,6 +634,36 @@ class PlotlyController {
 		}
 		if (!drawn) this._empty(area, "No metrics data.");
 		return drawn;
+	}
+
+	capturePlotState(root) {
+		const plots = root?.matches?.(".js-plotly-plot")
+				? [root]
+				: Array.from(root?.querySelectorAll?.(".js-plotly-plot") ?? []);
+		for (const plot of plots) {
+			const tagKey = Array.from(plot.data ?? [])
+					.find(trace => typeof trace.meta?.tagKey === "string")?.meta.tagKey;
+			const dragMode = plot._fullLayout?.dragmode ?? plot.layout?.dragmode;
+			if (typeof tagKey === "string" && typeof dragMode === "string") {
+				this.app.setPlotDragMode(tagKey, dragMode);
+			}
+			for (const trace of plot.data ?? []) {
+				if (trace.showlegend === false) continue;
+				const traceTagKey = trace.meta?.tagKey;
+				const runId = trace.meta?.runId;
+				if (typeof traceTagKey !== "string" || typeof runId !== "string") continue;
+				this.app.setLegendSeriesHidden(traceTagKey, runId, trace.visible === "legendonly");
+			}
+		}
+	}
+
+	_applyLegendVisibility(traces) {
+		return traces.map(trace => ({
+			...trace,
+			visible: this.app.isLegendSeriesHidden(trace.meta?.tagKey, trace.meta?.runId)
+					? "legendonly"
+					: true
+		}));
 	}
 
 	_readRange(axisLayout, axisName, event) {
@@ -663,12 +705,20 @@ class PlotlyController {
 		for (const plot of document.querySelectorAll(".graph-block .js-plotly-plot")) {
 			if (enabled) {
 				if (!Object.prototype.hasOwnProperty.call(plot, "__mvScrollLockPreviousDragMode")) {
+					const tagKey = Array.from(plot.data ?? [])
+							.find(trace => typeof trace.meta?.tagKey === "string")?.meta.tagKey;
 					plot.__mvScrollLockPreviousDragMode =
-							plot.layout?.dragmode ?? plot._fullLayout?.dragmode ?? "zoom";
+							this.app.plotDragMode(tagKey)
+							?? plot.layout?.dragmode
+							?? plot._fullLayout?.dragmode
+							?? "zoom";
 				}
 				Plotly.relayout(plot, { dragmode: false });
 			} else {
-				const previous = plot.__mvScrollLockPreviousDragMode ?? "zoom";
+				if (!Object.prototype.hasOwnProperty.call(
+						plot,
+						"__mvScrollLockPreviousDragMode")) continue;
+				const previous = plot.__mvScrollLockPreviousDragMode;
 				delete plot.__mvScrollLockPreviousDragMode;
 				Plotly.relayout(plot, { dragmode: previous || "zoom" });
 			}
@@ -685,6 +735,18 @@ class PlotlyController {
 			});
 			Plotly.Plots.resize(plot);
 		}
+	}
+
+	async resetView() {
+		const plots = Array.from(document.querySelectorAll(".graph-block .js-plotly-plot"));
+		await Promise.all(plots.map(async plot => {
+			// 凡例で隠した系列を戻してから、表示対象全体に対して軸を再計算する。
+			await Plotly.restyle(plot, { visible: true });
+			await Plotly.relayout(plot, {
+				"xaxis.autorange": true,
+				"yaxis.autorange": true
+			});
+		}));
 	}
 }
 
@@ -896,6 +958,8 @@ class UIController {
 		document.getElementById("btn-auto-reload").onclick = () => this.app.onToggleAutoReload();
 		document.getElementById("btn-graph-scroll-lock").onclick =
 				() => this.app.onToggleGraphScrollLock();
+		document.getElementById("btn-reset-view").onclick =
+				() => this.app.onResetView().catch(error => console.error(error));
 		document.getElementById("btn-screenshot").onclick = () => this.app.onToggleScreenshot();
 		document.getElementById("btn-screenshot-toggle").onclick =
 				() => this.app.onToggleScreenshot();
@@ -976,6 +1040,8 @@ class MetricsViewerClientApp {
 		this.activeTags = new Set();
 		this.knownTags = new Set();
 		this.logScaleTags = new Set();
+		this.hiddenLegendSeries = new Map();
+		this.plotDragModes = new Map();
 		this.runColorMap = new Map();
 		this.viewports = new Map();
 		this.graphScrollLockEnabled = false;
@@ -1283,6 +1349,60 @@ class MetricsViewerClientApp {
 			}
 		}
 		return issues.length ? issues.join("\n") : null;
+	}
+
+	isLegendSeriesHidden(tagKey, runId) {
+		return this.hiddenLegendSeries.get(tagKey)?.has(runId) ?? false;
+	}
+
+	setLegendSeriesHidden(tagKey, runId, hidden) {
+		if (!hidden) {
+			const runIds = this.hiddenLegendSeries.get(tagKey);
+			runIds?.delete(runId);
+			if (runIds?.size === 0) this.hiddenLegendSeries.delete(tagKey);
+			return;
+		}
+		let runIds = this.hiddenLegendSeries.get(tagKey);
+		if (!runIds) {
+			runIds = new Set();
+			this.hiddenLegendSeries.set(tagKey, runIds);
+		}
+		runIds.add(runId);
+	}
+
+	pruneLegendVisibility(runIds, tagKeys) {
+		const selectedRuns = new Set(runIds);
+		const selectedTags = new Set(tagKeys);
+		for (const [tagKey, hiddenRuns] of this.hiddenLegendSeries) {
+			if (!selectedTags.has(tagKey)) {
+				this.hiddenLegendSeries.delete(tagKey);
+				continue;
+			}
+			for (const runId of hiddenRuns) {
+				if (!selectedRuns.has(runId)) hiddenRuns.delete(runId);
+			}
+			if (hiddenRuns.size === 0) this.hiddenLegendSeries.delete(tagKey);
+		}
+	}
+
+	plotDragMode(tagKey) {
+		return this.plotDragModes.get(tagKey);
+	}
+
+	setPlotDragMode(tagKey, dragMode) {
+		this.plotDragModes.set(tagKey, dragMode);
+	}
+
+	prunePlotDragModes(tagKeys) {
+		const selectedTags = new Set(tagKeys);
+		for (const tagKey of this.plotDragModes.keys()) {
+			if (!selectedTags.has(tagKey)) this.plotDragModes.delete(tagKey);
+		}
+	}
+
+	async onResetView() {
+		this.hiddenLegendSeries.clear();
+		await this.plotly.resetView();
 	}
 
 	_renderCurrent() {

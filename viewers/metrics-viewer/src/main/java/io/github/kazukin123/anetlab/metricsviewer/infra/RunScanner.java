@@ -32,7 +32,8 @@ public class RunScanner {
 	}
 
 	private boolean hasMetricsFile(Path runDir) {
-		return Files.isRegularFile(runDir.resolve("metrics.jsonl"));
+		return Files.isRegularFile(runDir.resolve("metrics.jsonl"))
+				|| Files.isRegularFile(runDir.resolve("metrics.jsonl.gz"));
 	}
 
 	private List<String> scanRunsDir() {

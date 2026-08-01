@@ -648,6 +648,7 @@ availabilityの判定:
 - range responseを受理したら、そのseriesの旧windowを応答単位で丸ごと置換する。
   range response同士のunion、append、部分mergeはしない。
 - `plotly_relayout`後150ms debounceし、手元の粗いcacheを即描画する。
+- Plotly modebarで選択したgraphごとのdrag modeは、range取得応答によるDOM再構築後も維持する。
 - coverage不足または解像度不足なら、同一cycleで不足している可視seriesを
   1件の`metrics.json` batchへまとめる。
 - serverが予算を保証するため、client側stride decimationは削除する。
@@ -686,7 +687,7 @@ availabilityの判定:
 `#floating-controls`とする。これは現行で`Scroll Lock: ON/OFF`と
 screenshot切替`⬅`を横並びにしている枠である。
 
-DOM上はScroll Lockボタンの直前へ、compactなlabelとselectを追加する。
+DOM上はScroll Lockボタンの前へ、compactなLOD label / selectと`Reset View`を追加する。
 
 ```html
 <div id="floating-controls">
@@ -698,16 +699,18 @@ DOM上はScroll Lockボタンの直前へ、compactなlabelとselectを追加す
       <option>Band</option>
     </select>
   </span>
+  <button id="btn-reset-view">Reset View</button>
   <button id="btn-graph-scroll-lock">Scroll Lock: OFF</button>
   <button id="btn-screenshot-toggle">⬅</button>
 </div>
 ```
 
 - selectは全graphへ作用するglobal設定であり、graphごとのheaderやside panelには複製しない。
+- `Reset View`はLOD selectとScroll Lockの間へ置く。
 - `#floating-controls`の既存flex配置、右上位置、Scroll Lock、screenshot切替の挙動を維持する。
 - `#lod-display-mode-control`はinline-flexとし、label/selectの高さを既存Scroll Lockボタンと揃え、
   320px幅でも`#floating-controls`全体を1行に収める。
-- screenshot modeではScroll Lockと同様に`#lod-display-mode-control`を非表示にする。
+- screenshot modeではScroll Lockと同様に`#lod-display-mode-control`と`Reset View`を非表示にする。
 
 ```text
 MinMax / Mean / Band
@@ -729,7 +732,29 @@ MinMax / Mean / Band
 - MeanとBandは初期実装へ残すが、実Run上の可読性を手動受け入れで評価する。
   継続、見え方の調整、将来の削除はその実画面を見て別途判断する。
 
-### 5.8 TagStats表示
+### 5.8 凡例の表示状態
+
+- Plotly標準の凡例クリック・ダブルクリック操作を維持し、event payloadの独自解釈や
+  legend clickの独自実装は行わない。
+- clientは各traceへ`tagKey`と`runId`を識別できる`meta`を付与し、
+  `(tagKey, runId)`単位の非表示状態をページ内memoryだけに保持する。
+  `localStorage`には保存せず、ページ再読込後は全series表示へ戻す。
+- Zoom直後の`Plotly.react`と、range取得、Reload、Auto Reload、Log、LOD mode変更に伴う
+  graph DOM再構築の直前に、現在のtraceから`visible === "legendonly"`を取得する。
+  新しいtrace生成時に同じ状態を復元する。
+- Runまたはtagの選択解除、Run消失時は対象の非表示状態を破棄し、
+  再選択時は表示状態へ戻す。
+- Bandのmin / max / mean 3 traceは同じ`legendgroup`へ所属させ、
+  凡例が示すRun単位で帯とmean線をまとめて切り替える。
+- globalな`Reset View`は全graphを`Plotly.restyle`で表示状態へ戻して非表示状態を空にした後、
+  X/Y両軸を`Plotly.relayout`のautorangeで全体表示へ戻す。
+- X軸のautorangeは既存viewport処理を通じてTagStatsが示す全step範囲を対象とし、
+  client cacheのcoverageが不足する場合だけ、150ms debounce後に全対象を1件の`metrics.json` batchで取得する。
+- `Reset View`操作自体はgraph DOMを明示再構築せず、既存のrange response反映経路だけを利用する。
+  Run / tag選択、LOD、Log、PlotlyのPan / Zoom mode、Scroll Lock、main scroll位置は変更しない。
+  常時操作可能とする。
+
+### 5.9 TagStats表示
 
 グラフheaderのLogボタン右へ、選択Run全体を合成した次を表示する。
 
@@ -751,7 +776,7 @@ M2    = M2_a + M2_b + delta^2 * count_a * count_b / count
 - 最終`Avg=mean`、`Std=sqrt(M2/count)`。
 - 既存数値formatterを再利用し、title属性へ合計countと省略前の完全値を載せる。
 
-### 5.9 error表示
+### 5.10 error表示
 
 - tag隔離はTag一覧とグラフheaderへ警告色、`⚠`、詳細tooltipを表示する。
 - Run行には隔離tag数を集約表示する。
@@ -897,11 +922,19 @@ M2    = M2_a + M2_b + delta^2 * count_a * count_b / count
 - LOD mode永続化とmode変更時no-fetch
 - MinMax projectionを実stepかつserver確定済みordinal順に描画し、`step_first`縦線を作らない
 - Bandがsummary stepsを共通xとするmin/max帯とmean線を描画
+- 2 Run / 2 tagで1 graphの1 Runを凡例から非表示にし、Zoom直後とrange再取得後、
+  Reload、Auto Reload、Log、LOD mode変更後も状態を維持し、別graphへ影響しない
+- Bandのmin / max / meanが同じRun単位で切り替わる
+- global `Reset View`で全graphが表示状態へ戻り、X/Y軸がTagStats上の全範囲へautorangeされ、
+  cache不足時のmetrics要求が1件のbatchへまとまる
+- Run / tagを選択解除して再選択すると、対象seriesが表示状態へ戻る
+- screenshot modeで`Reset View`を非表示にする
 - `TagStats`表示と複数Run合成
 - tag / Run error警告UI
 - queryRevision / generationによるseries単位のstale response破棄
 - renderRevision変更が通信をabortせず最新modeで再描画される
 - zoom時の精細化
+- PlotlyのPan選択がドラッグ直後とrange再取得後も維持される
 - 既存signed-log、scroll-lock、reload契約の維持
 
 ## 8. 受け入れ基準

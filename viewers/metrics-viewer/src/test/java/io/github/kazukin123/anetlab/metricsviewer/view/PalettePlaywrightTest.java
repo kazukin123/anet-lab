@@ -12,6 +12,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -276,6 +277,201 @@ class PalettePlaywrightTest {
 					page.waitForFunction("document.querySelector('#lod-display-mode')?.value === 'Band'");
 					page.waitForFunction("document.querySelector('.js-plotly-plot')?.data?.length === 3");
 					assertEquals(2, metricsRequests.get());
+				} finally {
+					context.close();
+				}
+			} finally {
+				browser.close();
+			}
+		}
+	}
+
+	@Test
+	void legendVisibilitySurvivesRedrawsAndResetViewShowsAllAndAutoscales() {
+		final String baseUrl = "http://127.0.0.1:" + port;
+		assumeTrue(isMicrosoftEdgeInstalled(), "Microsoft Edge is not installed.");
+
+		try (Playwright playwright = Playwright.create()) {
+			final Browser browser = launchMicrosoftEdge(playwright);
+			try {
+				final BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+						.setViewportSize(1280, 720));
+				try {
+					final Page page = context.newPage();
+					final AtomicInteger metricsRequests = new AtomicInteger();
+					page.route("**/api/runs.json", route -> fulfillJson(route, legendStateRunsJson()));
+					page.route("**/api/metrics.json", route -> {
+						metricsRequests.incrementAndGet();
+						fulfillJson(route, legendStateMetricsJson());
+					});
+					page.route("**/api/runs/prioritize", PalettePlaywrightTest::fulfillNoContent);
+
+					page.navigate(baseUrl + "/?legendStateTest=" + System.nanoTime(),
+							new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					page.click("#btn-select-all-runs");
+					waitForGraphCount(page, 2);
+					waitForSeriesTrace(page, TAG_A, "run_a", true);
+
+					clickLegendSeries(page, TAG_A, "run_a");
+					waitForSeriesTrace(page, TAG_A, "run_a", false);
+					assertTrue(isSeriesVisible(page, TAG_B, "run_a"));
+
+					final int requestsBeforeRangeResponse = metricsRequests.get();
+					page.evaluate("""
+							() => Plotly.relayout(
+								document.getElementById(graphId('tag/a')),
+								{'xaxis.range': [0.5, 1.5]})
+							""");
+					waitForSeriesTrace(page, TAG_A, "run_a", false);
+					page.waitForTimeout(600);
+					assertTrue(metricsRequests.get() > requestsBeforeRangeResponse);
+					waitForSeriesTrace(page, TAG_A, "run_a", false);
+
+					page.click("#btn-reload");
+					page.waitForTimeout(500);
+					waitForSeriesTrace(page, TAG_A, "run_a", false);
+
+					page.evaluate("""
+							() => document.getElementById(graphId('tag/a'))
+								.closest('.graph-block').querySelector('.graph-log-toggle').click()
+							""");
+					waitForSeriesTrace(page, TAG_A, "run_a", false);
+					page.selectOption("#lod-display-mode", "Mean");
+					waitForSeriesTrace(page, TAG_A, "run_a", false);
+
+					page.evaluate("""
+							async () => {
+								await app.refreshMetadata({requestData: false});
+								await app.requestVisibleData({force: true, followOnly: true});
+							}
+							""");
+					waitForSeriesTrace(page, TAG_A, "run_a", false);
+
+					page.evaluate("""
+							async () => Promise.all([
+								Plotly.relayout(document.getElementById(graphId('tag/a')), {
+									'xaxis.range': [0.5, 1.5],
+									'yaxis.range': [0.5, 1.5],
+									dragmode: 'pan'
+								}),
+								Plotly.relayout(document.getElementById(graphId('tag/b')), {
+									'xaxis.range': [1, 1.5],
+									'yaxis.range': [4.5, 5.5]
+								})
+							])
+							""");
+					page.waitForTimeout(600);
+					final int requestsBeforeReset = metricsRequests.get();
+					page.evaluate("""
+							() => {
+								const main = document.getElementById('main-area');
+								main.style.flex = 'none';
+								main.style.height = '400px';
+								main.scrollTop = 100;
+							}
+							""");
+					page.click("#btn-reset-view");
+					waitForSeriesTrace(page, TAG_A, "run_a", true);
+					page.waitForTimeout(600);
+					assertEquals(requestsBeforeReset + 1, metricsRequests.get());
+					assertEquals(true, page.evaluate("""
+							() => ['tag/a', 'tag/b'].every(tagKey => {
+								const plot = document.getElementById(graphId(tagKey));
+								return app.explicitViewport(tagKey) === null
+									&& plot._fullLayout.xaxis.autorange === true
+									&& plot._fullLayout.yaxis.autorange === true;
+							})
+							"""));
+					assertEquals("pan", page.evaluate("""
+							() => document.getElementById(graphId('tag/a'))._fullLayout.dragmode
+							"""));
+					assertEquals(100, ((Number) page.evaluate(
+							"() => document.getElementById('main-area').scrollTop")).intValue());
+
+					clickLegendSeries(page, TAG_A, "run_a");
+					waitForSeriesTrace(page, TAG_A, "run_a", false);
+					page.evaluate("() => app.setSelectedRuns(['run_b'])");
+					page.evaluate("() => app.setSelectedRuns(['run_a', 'run_b'])");
+					waitForSeriesTrace(page, TAG_A, "run_a", true);
+
+					clickLegendSeries(page, TAG_A, "run_a");
+					waitForSeriesTrace(page, TAG_A, "run_a", false);
+					page.evaluate("""
+							() => {
+								app.activeTags.delete('tag/a');
+								app.onTagSelectionChanged();
+								app.activeTags.add('tag/a');
+								app.onTagSelectionChanged();
+							}
+							""");
+					waitForSeriesTrace(page, TAG_A, "run_a", true);
+				} finally {
+					context.close();
+				}
+			} finally {
+				browser.close();
+			}
+		}
+	}
+
+	@Test
+	void bandLegendTogglesAllRunTracesAndResetViewIsHiddenInScreenshotMode() {
+		final String baseUrl = "http://127.0.0.1:" + port;
+		assumeTrue(isMicrosoftEdgeInstalled(), "Microsoft Edge is not installed.");
+
+		try (Playwright playwright = Playwright.create()) {
+			final Browser browser = launchMicrosoftEdge(playwright);
+			try {
+				final BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+						.setViewportSize(1280, 720));
+				try {
+					final Page page = context.newPage();
+					page.route("**/api/runs.json", route -> fulfillJson(route, legendStateRunsJson()));
+					page.route("**/api/metrics.json", route -> fulfillJson(route, legendStateLodMetricsJson()));
+					page.route("**/api/runs/prioritize", PalettePlaywrightTest::fulfillNoContent);
+
+					page.navigate(baseUrl + "/?bandLegendStateTest=" + System.nanoTime(),
+							new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					page.click("#btn-select-all-runs");
+					page.selectOption("#lod-display-mode", "Band");
+					page.waitForFunction("""
+							() => document.getElementById(graphId('tag/a'))?.data?.length === 6
+							""");
+
+					clickLegendSeries(page, TAG_A, "run_a");
+					page.waitForFunction("""
+							() => document.getElementById(graphId('tag/a')).data
+								.filter(trace => trace.meta?.runId === 'run_a')
+								.every(trace => trace.visible === 'legendonly')
+							""");
+					page.click("#btn-graph-scroll-lock");
+					waitForPlotlyDragModeFalse(page);
+					page.click("#btn-reset-view");
+					page.waitForFunction("""
+							() => Array.from(document.querySelectorAll('.js-plotly-plot'))
+								.flatMap(plot => Array.from(plot.data ?? []))
+								.every(trace => trace.visible !== 'legendonly')
+							""");
+					assertTrue(isGraphScrollLockButtonActive(page));
+					waitForPlotlyDragModeFalse(page);
+
+					page.setViewportSize(320, 720);
+					assertEquals("Reset View", page.textContent("#btn-reset-view"));
+					assertEquals(true, page.evaluate("""
+							() => {
+								const controls = document.getElementById('floating-controls');
+								const bounds = controls.getBoundingClientRect();
+								const tops = Array.from(controls.children).map(child => child.getBoundingClientRect().top);
+								return bounds.left >= 0
+									&& bounds.right <= window.innerWidth
+									&& Math.max(...tops) - Math.min(...tops) < 1;
+							}
+							"""));
+
+					page.click("#btn-screenshot-toggle");
+					assertEquals("none", page.evaluate("""
+							() => getComputedStyle(document.getElementById('btn-reset-view')).display
+							"""));
 				} finally {
 					context.close();
 				}
@@ -749,6 +945,41 @@ class PalettePlaywrightTest {
 					final List<String> buttonTitles = readModeBarButtonTitles(page);
 					assertTrue(buttonTitles.contains("Autoscale"));
 					assertTrue(buttonTitles.contains("Reset axes"));
+				} finally {
+					context.close();
+				}
+			} finally {
+				browser.close();
+			}
+		}
+	}
+
+	@Test
+	void plotlyPanModeSurvivesDraggingTheVisibleRange() {
+		final String baseUrl = "http://127.0.0.1:" + port;
+		assumeTrue(isMicrosoftEdgeInstalled(), "Microsoft Edge is not installed.");
+
+		try (Playwright playwright = Playwright.create()) {
+			final Browser browser = launchMicrosoftEdge(playwright);
+			try {
+				final BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+						.setViewportSize(1280, 720));
+				try {
+					final Page page = context.newPage();
+					page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+					page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+					page.route("**/api/runs/prioritize", PalettePlaywrightTest::fulfillNoContent);
+
+					page.navigate(baseUrl + "/?plotlyPanDragTest=" + System.nanoTime(),
+							new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+					waitForGraph(page);
+					page.hover(".js-plotly-plot");
+					page.locator(".modebar-btn[data-title='Pan']").first().click();
+					waitForPlotlyDragMode(page, "pan");
+
+					panFirstPlotHorizontally(page);
+					page.waitForTimeout(700);
+					assertEquals("pan", readPlotlyDragMode(page));
 				} finally {
 					context.close();
 				}
@@ -1516,6 +1747,47 @@ class PalettePlaywrightTest {
 				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 
+	private static void clickLegendSeries(Page page, String tagKey, String runId) {
+		final int legendIndex = ((Number) page.evaluate("""
+				([tagKey, runId]) => {
+					const plot = document.getElementById(graphId(tagKey));
+					return Array.from(plot?.data ?? [])
+						.filter(trace => trace.showlegend !== false)
+						.findIndex(trace => trace.meta?.runId === runId);
+				}
+				""", List.of(tagKey, runId))).intValue();
+		assertTrue(legendIndex >= 0, "Legend series should exist");
+		page.locator("#" + graphDomId(tagKey) + " .legend .traces").nth(legendIndex).click();
+	}
+
+	private static void waitForSeriesTrace(Page page, String tagKey, String runId, boolean visible) {
+		page.waitForFunction("""
+				([tagKey, runId, visible]) => {
+					const trace = Array.from(document.getElementById(graphId(tagKey))?.data ?? [])
+						.find(candidate => candidate.meta?.runId === runId && candidate.showlegend !== false);
+					return !!trace && (trace.visible !== 'legendonly') === visible;
+				}
+				""", List.of(tagKey, runId, visible),
+				new Page.WaitForFunctionOptions().setTimeout(30000));
+	}
+
+	private static boolean isSeriesVisible(Page page, String tagKey, String runId) {
+		return Boolean.TRUE.equals(page.evaluate("""
+				([tagKey, runId]) => Array.from(document.getElementById(graphId(tagKey))?.data ?? [])
+					.some(trace => trace.meta?.runId === runId
+						&& trace.showlegend !== false
+						&& trace.visible !== 'legendonly')
+				""", List.of(tagKey, runId)));
+	}
+
+	private static String graphDomId(String tagKey) {
+		final StringBuilder encoded = new StringBuilder("graph-");
+		for (byte value : tagKey.getBytes(StandardCharsets.UTF_8)) {
+			encoded.append(String.format("%02x", value & 0xff));
+		}
+		return encoded.toString();
+	}
+
 	private static boolean isMainAreaScrollable(Page page) {
 		return Boolean.TRUE.equals(page.evaluate("""
 				() => {
@@ -1708,6 +1980,38 @@ class PalettePlaywrightTest {
 				+ "]}";
 	}
 
+	private static String legendStateRunsJson() {
+		return "{\"runs\":["
+				+ runJson("run_a", 31, TAG_A, TAG_B)
+				+ ","
+				+ runJson("run_b", 31, TAG_A, TAG_B)
+				+ "]}";
+	}
+
+	private static String legendStateMetricsJson() {
+		return "{\"data\":["
+				+ rawSeriesJson("run_a", TAG_A, new double[] {0, 1, 2}, new float[] {1, 2, 3})
+				+ ","
+				+ rawSeriesJson("run_b", TAG_A, new double[] {0, 1, 2}, new float[] {3, 2, 1})
+				+ ","
+				+ rawSeriesJson("run_a", TAG_B, new double[] {0, 1, 2}, new float[] {4, 5, 6})
+				+ ","
+				+ rawSeriesJson("run_b", TAG_B, new double[] {0, 1, 2}, new float[] {6, 5, 4})
+				+ "]}";
+	}
+
+	private static String legendStateLodMetricsJson() {
+		return "{\"data\":["
+				+ lodSeriesJson("run_a", TAG_A, 0)
+				+ ","
+				+ lodSeriesJson("run_b", TAG_A, 10)
+				+ ","
+				+ lodSeriesJson("run_a", TAG_B, 20)
+				+ ","
+				+ lodSeriesJson("run_b", TAG_B, 30)
+				+ "]}";
+	}
+
 	private static String splitTagMetricsJson() {
 		return "{\"data\":["
 				+ rawSeriesJson("run_a", TAG_A, new double[] {0, 1, 2}, new float[] {1, 2, 3})
@@ -1830,8 +2134,12 @@ class PalettePlaywrightTest {
 	}
 
 	private static String lodMetricsJson() {
-		return "{\"data\":[{"
-				+ "\"runId\":\"run_lod_ui\",\"tagKey\":\"" + TAG_KEY + "\","
+		return "{\"data\":[" + lodSeriesJson("run_lod_ui", TAG_KEY, 0) + "]}";
+	}
+
+	private static String lodSeriesJson(String runId, String tagKey, float offset) {
+		return "{"
+				+ "\"runId\":\"" + runId + "\",\"tagKey\":\"" + tagKey + "\","
 				+ "\"generation\":\"" + GENERATION + "\","
 				+ "\"fromStep\":-31,\"toStep\":62,\"availability\":\"ok\","
 				+ "\"pointBudget\":6,\"level\":1,\"bucketWidth\":16,\"issues\":[],"
@@ -1839,21 +2147,23 @@ class PalettePlaywrightTest {
 				+ "\"minMax\":{\"steps\":\""
 				+ encodeFloat64(new double[] {2, 8, 15, 18, 25, 31})
 				+ "\",\"values\":\""
-				+ encodeFloat32(new float[] {-2, 8, 1, -3, 9, 2})
+				+ encodeFloat32(new float[] {
+						-2 + offset, 8 + offset, 1 + offset,
+						-3 + offset, 9 + offset, 2 + offset})
 				+ "\"},"
 				+ "\"summary\":{\"steps\":\""
 				+ encodeFloat64(new double[] {0, 16})
 				+ "\",\"mins\":\""
-				+ encodeFloat32(new float[] {-2, -3})
+				+ encodeFloat32(new float[] {-2 + offset, -3 + offset})
 				+ "\",\"maxs\":\""
-				+ encodeFloat32(new float[] {8, 9})
+				+ encodeFloat32(new float[] {8 + offset, 9 + offset})
 				+ "\",\"means\":\""
-				+ encodeFloat32(new float[] {3, 4})
+				+ encodeFloat32(new float[] {3 + offset, 4 + offset})
 				+ "\",\"minSteps\":\""
 				+ encodeFloat64(new double[] {2, 18})
 				+ "\",\"maxSteps\":\""
 				+ encodeFloat64(new double[] {8, 25})
-				+ "\"}}}]}";
+				+ "\"}}}";
 	}
 
 	private static String statsWarningRunsJson() {
@@ -2107,6 +2417,32 @@ class PalettePlaywrightTest {
 				() => {
 					const plot = document.querySelector('.js-plotly-plot');
 					return Plotly.relayout(plot, { dragmode: 'pan' });
+				}
+				""");
+	}
+
+	@SuppressWarnings("unchecked")
+	private static void panFirstPlotHorizontally(Page page) {
+		final Map<String, Number> position = (Map<String, Number>) page.evaluate("""
+				() => {
+					const rect = document.querySelector('.js-plotly-plot .nsewdrag')?.getBoundingClientRect();
+					if (!rect) throw new Error('plot body not found');
+					return {x: rect.left + rect.width / 2, y: rect.top + rect.height / 2};
+				}
+				""");
+		final double x = position.get("x").doubleValue();
+		final double y = position.get("y").doubleValue();
+		page.mouse().move(x, y);
+		page.mouse().down();
+		page.mouse().move(x - 120, y, new com.microsoft.playwright.Mouse.MoveOptions().setSteps(20));
+		page.mouse().up();
+	}
+
+	private static String readPlotlyDragMode(Page page) {
+		return (String) page.evaluate("""
+				() => {
+					const plot = document.querySelector('.js-plotly-plot');
+					return plot?._fullLayout?.dragmode ?? plot?.layout?.dragmode ?? '';
 				}
 				""");
 	}
