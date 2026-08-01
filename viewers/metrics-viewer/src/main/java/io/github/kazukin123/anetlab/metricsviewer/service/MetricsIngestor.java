@@ -31,6 +31,7 @@ import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.CachePreparation;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.ConnectionHandle;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.IngestState;
+import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.SourceMeta;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsSource;
 
 @Component
@@ -510,16 +511,7 @@ public class MetricsIngestor {
 			MetricsSource source,
 			long committedOffset,
 			IngestState state) throws SQLException, IOException {
-		upsertMeta(connection, "source_size", Long.toString(source.size()));
-		upsertMeta(connection, "source_mtime", Long.toString(source.modifiedTime()));
-		upsertMeta(connection, "source_head_sha256", source.headSha256());
-		upsertMeta(connection, "source_commit_tail_sha256", source.sha256Before(committedOffset));
-		upsertMeta(connection, "committed_offset", Long.toString(committedOffset));
-		upsertMeta(connection, "state", state.externalName());
-		try (PreparedStatement statement = connection.prepareStatement(
-				"DELETE FROM source_meta WHERE k IN ('error_code', 'error_message')")) {
-			statement.executeUpdate();
-		}
+		SourceMeta.updateProgress(connection, source, committedOffset, state);
 	}
 
 	private void markRunError(
@@ -530,29 +522,13 @@ public class MetricsIngestor {
 		try (ConnectionHandle handle = database.openWrite(runDir)) {
 			final Connection connection = handle.connection();
 			connection.setAutoCommit(false);
-			upsertMeta(connection, "source_size", Long.toString(source.size()));
-			upsertMeta(connection, "source_mtime", Long.toString(source.modifiedTime()));
-			upsertMeta(connection, "source_head_sha256", source.headSha256());
-			upsertMeta(connection, "state", IngestState.ERROR.externalName());
-			upsertMeta(connection, "error_code", code);
-			upsertMeta(connection, "error_message", message == null ? code : message);
+			SourceMeta.markError(connection, source, code, message);
 			connection.commit();
 			log.warn("Run ingest entered error state: run={} code={} message={}",
 					runDir.getFileName(), code, message == null ? code : message);
 		} catch (Exception error) {
 			log.error("Failed to persist Run error: run={} code={} message={}",
 					runDir.getFileName(), code, error.getMessage());
-		}
-	}
-
-	private static void upsertMeta(Connection connection, String key, String value) throws SQLException {
-		try (PreparedStatement statement = connection.prepareStatement("""
-				INSERT INTO source_meta(k, v) VALUES(?, ?)
-				ON CONFLICT(k) DO UPDATE SET v=excluded.v
-				""")) {
-			statement.setString(1, key);
-			statement.setString(2, value);
-			statement.executeUpdate();
 		}
 	}
 

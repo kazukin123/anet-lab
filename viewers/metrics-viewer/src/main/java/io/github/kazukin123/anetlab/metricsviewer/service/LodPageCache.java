@@ -107,7 +107,7 @@ public class LodPageCache {
 			long pageIndex) throws SQLException {
 		final long firstBucket = Math.multiplyExact(pageIndex, LOD_PAGE_BUCKETS);
 		final long lastBucketExclusive = Math.addExact(firstBucket, LOD_PAGE_BUCKETS);
-		final List<LodBucketRow> rows = new ArrayList<>();
+		final List<LodBucket> rows = new ArrayList<>();
 		try (PreparedStatement statement = connection.prepareStatement("""
 				SELECT bucket, cnt, step_first, step_last,
 				       min_ordinal, min_step, vmin,
@@ -122,23 +122,11 @@ public class LodPageCache {
 			statement.setLong(4, lastBucketExclusive);
 			try (ResultSet result = statement.executeQuery()) {
 				while (result.next()) {
-					rows.add(new LodBucketRow(
-							result.getLong(1),
-							result.getLong(2),
-							result.getLong(3),
-							result.getLong(4),
-							result.getLong(5),
-							result.getLong(6),
-							result.getDouble(7),
-							result.getLong(8),
-							result.getLong(9),
-							result.getDouble(10),
-							result.getDouble(11),
-							result.getDouble(12)));
+					rows.add(LodBucket.fromLodRow(result, level));
 				}
 			}
 		}
-		return Page.from(rows);
+		return Page.from(rows, LodBucket.widthForLevel(level));
 	}
 
 	private record PageKey(
@@ -147,21 +135,6 @@ public class LodPageCache {
 			long tagId,
 			int level,
 			long pageIndex) {
-	}
-
-	private record LodBucketRow(
-			long bucket,
-			long count,
-			long stepFirst,
-			long stepLast,
-			long minOrdinal,
-			long minStep,
-			double minValue,
-			long maxOrdinal,
-			long maxStep,
-			double maxValue,
-			double mean,
-			double lastValue) {
 	}
 
 	private static final class Page {
@@ -193,11 +166,11 @@ public class LodPageCache {
 			lastValues = new double[size];
 		}
 
-		private static Page from(List<LodBucketRow> rows) {
+		private static Page from(List<LodBucket> rows, long width) {
 			final Page page = new Page(rows.size());
 			for (int i = 0; i < rows.size(); i++) {
-				final LodBucketRow row = rows.get(i);
-				page.buckets[i] = row.bucket();
+				final LodBucket row = rows.get(i);
+				page.buckets[i] = row.ordinalFrom() / width;
 				page.counts[i] = row.count();
 				page.stepFirsts[i] = row.stepFirst();
 				page.stepLasts[i] = row.stepLast();

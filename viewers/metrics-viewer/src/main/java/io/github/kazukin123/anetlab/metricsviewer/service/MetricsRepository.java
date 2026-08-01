@@ -6,7 +6,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,7 +15,6 @@ import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 import io.github.kazukin123.anetlab.metricsviewer.config.MetricsViewerSettings;
@@ -24,6 +22,7 @@ import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.CacheMetadata;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.ConnectionHandle;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.IngestState;
+import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.SourceMeta;
 import io.github.kazukin123.anetlab.metricsviewer.infra.RunScanner;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.ApiError;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.IngestInfo;
@@ -39,11 +38,12 @@ import io.github.kazukin123.anetlab.metricsviewer.view.model.TagStats;
 public class MetricsRepository {
 
 	private static final Logger log = LoggerFactory.getLogger(MetricsRepository.class);
+	private static final long SOURCE_META_NUMERIC_FALLBACK = 0L;
 
 	private final RunScanner runScanner;
 	private final MetricsCacheDatabase database;
-	private final MetricsViewerSettings settings;
 	private final MetricsRangeProjector rangeProjector;
+	private final MetricsQueryPlanner queryPlanner;
 
 	public MetricsRepository(
 			RunScanner runScanner,
@@ -52,8 +52,8 @@ public class MetricsRepository {
 			MetricsRangeProjector rangeProjector) {
 		this.runScanner = runScanner;
 		this.database = database;
-		this.settings = settings;
 		this.rangeProjector = rangeProjector;
+		this.queryPlanner = new MetricsQueryPlanner(settings);
 	}
 
 	public RunInfo findRunInfo(String runId) {
@@ -61,15 +61,9 @@ public class MetricsRepository {
 		try (ConnectionHandle handle = database.openRead(runDir)) {
 			if (handle == null) return pendingRun(runId);
 
-			final Map<String, String> meta = readMeta(handle.connection());
-			final CacheMetadata metadata = new CacheMetadata(
-					meta.get("generation"),
-					IngestState.fromDb(meta.getOrDefault(
-							"state", IngestState.PENDING.externalName())),
-					parseLong(meta.get("committed_offset"), 0L),
-					parseLong(meta.get("source_size"), 0L),
-					meta.get("error_code"),
-					meta.get("error_message"));
+			final CacheMetadata metadata = SourceMeta.read(
+					handle.connection(), SOURCE_META_NUMERIC_FALLBACK);
+			final IngestState state = metadata.stateOrThrow();
 			final List<TagInfo> tags = readTags(handle.connection());
 			final Long maxStep = tags.stream()
 					.map(TagInfo::getStats)
@@ -86,7 +80,7 @@ public class MetricsRepository {
 					.generation(UUID.fromString(metadata.generation()))
 					.stats(RunStats.builder().maxStep(maxStep).build())
 					.ingest(new IngestInfo(
-							metadata.state().externalName(),
+							state.externalName(),
 							calculatePercentage(metadata),
 							error))
 					.tags(tags)
@@ -99,36 +93,70 @@ public class MetricsRepository {
 
 	public List<MetricsSeriesResult> query(List<MetricsSeriesRequest> requests) {
 		final Set<String> existingRuns = new HashSet<>(runScanner.listRunId());
+		final MetricsQueryPlanner.SeriesInput[] inputs =
+				new MetricsQueryPlanner.SeriesInput[requests.size()];
+		final Map<String, List<Integer>> indicesByRun = new LinkedHashMap<>();
+		for (int i = 0; i < requests.size(); i++) {
+			final MetricsSeriesRequest request = requests.get(i);
+			if (!existingRuns.contains(request.getRunId())) {
+				inputs[i] = new MetricsQueryPlanner.SeriesInput(
+						i, request, false, null, null, null);
+				continue;
+			}
+			indicesByRun.computeIfAbsent(request.getRunId(), ignored -> new ArrayList<>()).add(i);
+		}
+		// Runごとに1本のread connectionを計画から射影完了まで保持する。lifecycle read lockで
+		// 全再構築を排他し、SQLite transactionにより通常commitをまたいでも同じsnapshotを参照する。
 		final Map<String, RunQueryContext> contexts = new LinkedHashMap<>();
-		final SeriesPlan[] plans = new SeriesPlan[requests.size()];
-
 		try {
-			// request内ではRunごとに1本だけread connectionを開き、同じsnapshotを使う。
-			for (MetricsSeriesRequest request : requests) {
-				if (!existingRuns.contains(request.getRunId())
-						|| contexts.containsKey(request.getRunId())) {
-					continue;
-				}
-				contexts.put(request.getRunId(), openQueryContext(request.getRunId()));
+			for (Map.Entry<String, List<Integer>> entry : indicesByRun.entrySet()) {
+				final RunQueryContext context = openQueryContext(entry.getKey());
+				contexts.put(entry.getKey(), context);
+				readSeriesInputs(context, entry.getValue(), requests, inputs);
 			}
 
-			for (int i = 0; i < requests.size(); i++) {
-				final MetricsSeriesRequest request = requests.get(i);
-				plans[i] = inspectSeries(
-						i,
-						request,
-						existingRuns.contains(request.getRunId()),
-						contexts.get(request.getRunId()));
-			}
-
-			allocatePointBudgets(plans);
-
+			final MetricsQueryPlanner.SeriesPlan[] plans =
+					queryPlanner.plan(Arrays.asList(inputs));
 			final MetricsSeriesResult[] results = new MetricsSeriesResult[plans.length];
-			for (SeriesPlan plan : plans) results[plan.index] = buildResult(plan);
+			for (MetricsQueryPlanner.SeriesPlan plan : plans) {
+				final RunQueryContext context = plan.availability() == SeriesAvailability.OK
+						? contexts.get(plan.request().getRunId())
+						: null;
+				results[plan.index()] = buildResult(plan, context);
+			}
 			return Arrays.asList(results);
 		} finally {
 			for (RunQueryContext context : contexts.values()) {
 				if (context != null) context.close();
+			}
+		}
+	}
+
+	private void readSeriesInputs(
+			RunQueryContext context,
+			List<Integer> indices,
+			List<MetricsSeriesRequest> requests,
+			MetricsQueryPlanner.SeriesInput[] inputs) {
+		if (context == null) {
+			for (int index : indices) {
+				inputs[index] = new MetricsQueryPlanner.SeriesInput(
+						index, requests.get(index), true, null, null, null);
+			}
+			return;
+		}
+		for (int index : indices) {
+			final MetricsSeriesRequest request = requests.get(index);
+			try {
+				inputs[index] = new MetricsQueryPlanner.SeriesInput(
+						index,
+						request,
+						true,
+						context.metadata,
+						readTagInput(context.connection, request),
+						null);
+			} catch (Exception e) {
+				inputs[index] = new MetricsQueryPlanner.SeriesInput(
+						index, request, true, context.metadata, null, e.getMessage());
 			}
 		}
 	}
@@ -139,7 +167,8 @@ public class MetricsRepository {
 			handle = database.openRead(runScanner.resolveRunDir(runId));
 			if (handle == null) return null;
 			handle.connection().setAutoCommit(false);
-			return new RunQueryContext(handle, readMeta(handle.connection()));
+			return new RunQueryContext(handle, SourceMeta.read(
+					handle.connection(), SOURCE_META_NUMERIC_FALLBACK));
 		} catch (Exception e) {
 			if (handle != null) {
 				try {
@@ -153,118 +182,47 @@ public class MetricsRepository {
 		}
 	}
 
-	private SeriesPlan inspectSeries(
-			int index,
-			MetricsSeriesRequest request,
-			boolean runExists,
-			RunQueryContext context) {
-		final SeriesPlan plan = new SeriesPlan(index, request);
-		if (!runExists) {
-			plan.availability = SeriesAvailability.NOT_FOUND;
-			return plan;
-		}
-		if (context == null) {
-			plan.availability = SeriesAvailability.PENDING;
-			return plan;
-		}
-
-		plan.context = context;
-		plan.generation = parseUuid(context.meta.get("generation"));
-		addRunIssue(plan, context.meta);
-
-		try {
-			final IngestState ingestState = IngestState.fromDb(context.meta.getOrDefault(
-					"state", IngestState.PENDING.externalName()));
-			try (PreparedStatement statement = context.connection.prepareStatement("""
+	private static MetricsQueryPlanner.TagInput readTagInput(
+			Connection connection,
+			MetricsSeriesRequest request) throws Exception {
+		try (PreparedStatement statement = connection.prepareStatement("""
 				SELECT t.id, t.status, t.error_code, t.error_message, s.count
 				FROM tags t
 				LEFT JOIN tag_stats s ON s.tag_id=t.id
 				WHERE t.key=?
-					""")) {
-				statement.setString(1, request.getTagKey());
-				try (ResultSet result = statement.executeQuery()) {
-					if (!result.next()) {
-						plan.availability = ingestState.isStillIngesting()
-								? SeriesAvailability.PENDING
-								: SeriesAvailability.NOT_FOUND;
-						return plan;
-					}
-					plan.tagId = result.getLong(1);
-					if ("error".equals(result.getString(2))) {
-						plan.issues.add(new Issue(
-								"tag",
-								result.getString(3),
-								result.getString(4)));
-					}
-					final long totalCount = result.getLong(5);
-					if (result.wasNull() || totalCount == 0L) {
-						plan.availability = ingestState.isStillIngesting()
-								? SeriesAvailability.PENDING
-								: SeriesAvailability.EMPTY;
-						return plan;
-					}
-
-					plan.ordinalFrom = lowerBound(
-							context.connection, plan.tagId, totalCount, request.getFromStep(), false);
-					plan.ordinalTo = lowerBound(
-							context.connection, plan.tagId, totalCount, request.getToStep(), true);
-					plan.availableVertices = Math.max(0L, plan.ordinalTo - plan.ordinalFrom);
-					plan.availability = plan.availableVertices > 0L
-							? SeriesAvailability.OK
-							: (ingestState.isStillIngesting()
-									? SeriesAvailability.PENDING
-									: SeriesAvailability.EMPTY);
-					return plan;
+				""")) {
+			statement.setString(1, request.getTagKey());
+			try (ResultSet result = statement.executeQuery()) {
+				if (!result.next()) return null;
+				final long tagId = result.getLong(1);
+				final String status = result.getString(2);
+				final String errorCode = "error".equals(status) ? result.getString(3) : null;
+				final String errorMessage = "error".equals(status) ? result.getString(4) : null;
+				final long count = result.getLong(5);
+				if (result.wasNull() || count == 0L) {
+					return new MetricsQueryPlanner.TagInput(
+							tagId, null, 0L, 0L, "error".equals(status), errorCode, errorMessage);
 				}
+				final long ordinalFrom = lowerBound(
+						connection, tagId, count, request.getFromStep(), false);
+				final long ordinalTo = lowerBound(
+						connection, tagId, count, request.getToStep(), true);
+				return new MetricsQueryPlanner.TagInput(
+						tagId,
+						count,
+						ordinalFrom,
+						ordinalTo,
+						"error".equals(status),
+						errorCode,
+						errorMessage);
 			}
-		} catch (Exception e) {
-			plan.availability = SeriesAvailability.PENDING;
-			plan.issues.add(new Issue("run", "query_error", e.getMessage()));
-			return plan;
 		}
 	}
 
-	private void allocatePointBudgets(SeriesPlan[] plans) {
-		long requiredMinimum = 0L;
-		for (SeriesPlan plan : plans) {
-			if (plan.availability != SeriesAvailability.OK) continue;
-			final int requested = effectiveMaxPoints(plan.request);
-			plan.cap = (int) Math.min((long) requested, plan.availableVertices);
-			plan.pointBudget = Math.min(LodBucket.MIN_POINTS_PER_SERIES, plan.cap);
-			requiredMinimum += plan.pointBudget;
-		}
-
-		if (requiredMinimum > settings.getMaxPointsPerRequest()) {
-			final Map<String, Object> body = new LinkedHashMap<>();
-			body.put("seriesCount", plans.length);
-			body.put("requiredMinimumPoints", requiredMinimum);
-			body.put("maxPointsPerRequest", settings.getMaxPointsPerRequest());
-			throw new MetricsApiException(HttpStatus.UNPROCESSABLE_ENTITY, body);
-		}
-
-		int remaining = settings.getMaxPointsPerRequest() - (int) requiredMinimum;
-		while (remaining > 0) {
-			final List<SeriesPlan> active = Arrays.stream(plans)
-					.filter(plan -> plan.pointBudget < plan.cap)
-					.toList();
-			if (active.isEmpty()) break;
-
-			final int fairShare = Math.max(1, remaining / active.size());
-			boolean allocated = false;
-			for (SeriesPlan plan : active) {
-				final int addition = Math.min(plan.cap - plan.pointBudget, Math.min(fairShare, remaining));
-				if (addition <= 0) continue;
-				plan.pointBudget += addition;
-				remaining -= addition;
-				allocated = true;
-				if (remaining == 0) break;
-			}
-			if (!allocated) break;
-		}
-	}
-
-	private MetricsSeriesResult buildResult(SeriesPlan plan) {
-		if (plan.availability != SeriesAvailability.OK) {
+	private MetricsSeriesResult buildResult(
+			MetricsQueryPlanner.SeriesPlan plan,
+			RunQueryContext context) {
+		if (plan.availability() != SeriesAvailability.OK) {
 			return baseResult(plan)
 					.level(null)
 					.bucketWidth(null)
@@ -274,20 +232,20 @@ public class MetricsRepository {
 
 		try {
 			final MetricsRangeProjector.Projection projection = rangeProjector.project(
-					plan.context.connection,
-					plan.context.meta.get("generation"),
-					plan.request.getRunId(),
-					plan.tagId,
-					plan.ordinalFrom,
-					plan.ordinalTo,
-					plan.pointBudget);
+					context.connection,
+					plan.generationValue(),
+					plan.request().getRunId(),
+					plan.tagId(),
+					plan.ordinalFrom(),
+					plan.ordinalTo(),
+					plan.pointBudget());
 			return baseResult(plan)
 					.level(projection.level())
 					.bucketWidth(projection.bucketWidth())
 					.projection(projection.body())
 					.build();
 		} catch (Exception e) {
-			plan.issues.add(new Issue("run", "query_error", e.getMessage()));
+			plan.issues().add(new Issue("run", "query_error", e.getMessage()));
 			return baseResult(plan)
 					.availability(SeriesAvailability.PENDING.externalName())
 					.level(null)
@@ -297,22 +255,17 @@ public class MetricsRepository {
 		}
 	}
 
-	private static MetricsSeriesResult.MetricsSeriesResultBuilder baseResult(SeriesPlan plan) {
+	private static MetricsSeriesResult.MetricsSeriesResultBuilder baseResult(
+			MetricsQueryPlanner.SeriesPlan plan) {
 		return MetricsSeriesResult.builder()
-				.runId(plan.request.getRunId())
-				.tagKey(plan.request.getTagKey())
-				.generation(plan.generation)
-				.fromStep(plan.request.getFromStep())
-				.toStep(plan.request.getToStep())
-				.availability(plan.availability.externalName())
-				.pointBudget(plan.pointBudget)
-				.issues(List.copyOf(plan.issues));
-	}
-
-	private int effectiveMaxPoints(MetricsSeriesRequest request) {
-		return request.getMaxPoints() == null
-				? settings.getTargetPointsPerSeries()
-				: request.getMaxPoints();
+				.runId(plan.request().getRunId())
+				.tagKey(plan.request().getTagKey())
+				.generation(plan.generation())
+				.fromStep(plan.request().getFromStep())
+				.toStep(plan.request().getToStep())
+				.availability(plan.availability().externalName())
+				.pointBudget(plan.pointBudget())
+				.issues(List.copyOf(plan.issues()));
 	}
 
 	private static long lowerBound(
@@ -338,21 +291,6 @@ public class MetricsRepository {
 			}
 		}
 		return low;
-	}
-
-	private static void addRunIssue(SeriesPlan plan, Map<String, String> meta) {
-		final String code = meta.get("error_code");
-		if (code != null) {
-			plan.issues.add(new Issue("run", code, meta.get("error_message")));
-		}
-	}
-
-	private static UUID parseUuid(String value) {
-		try {
-			return value == null ? null : UUID.fromString(value);
-		} catch (IllegalArgumentException e) {
-			return null;
-		}
 	}
 
 	private static List<TagInfo> readTags(Connection connection) throws Exception {
@@ -401,30 +339,13 @@ public class MetricsRepository {
 		return tags;
 	}
 
-	private static Map<String, String> readMeta(Connection connection) throws Exception {
-		final Map<String, String> meta = new HashMap<>();
-		try (PreparedStatement statement = connection.prepareStatement("SELECT k, v FROM source_meta");
-				ResultSet result = statement.executeQuery()) {
-			while (result.next()) meta.put(result.getString(1), result.getString(2));
-		}
-		return meta;
-	}
-
 	private static int calculatePercentage(CacheMetadata metadata) {
-		if (metadata.state() == IngestState.PENDING) return 0;
-		if (metadata.state() == IngestState.READY) return 100;
-		if (metadata.sourceSize() <= 0L) return metadata.state() == IngestState.ERROR ? 0 : 100;
+		final IngestState state = metadata.stateOrThrow();
+		if (state == IngestState.PENDING) return 0;
+		if (state == IngestState.READY) return 100;
+		if (metadata.sourceSize() <= 0L) return state == IngestState.ERROR ? 0 : 100;
 		final long percentage = metadata.committedOffset() * 100L / metadata.sourceSize();
 		return (int) Math.max(0L, Math.min(99L, percentage));
-	}
-
-	private static long parseLong(String value, long fallback) {
-		if (value == null) return fallback;
-		try {
-			return Long.parseLong(value);
-		} catch (NumberFormatException e) {
-			return fallback;
-		}
 	}
 
 	private static RunInfo pendingRun(String runId) {
@@ -437,18 +358,19 @@ public class MetricsRepository {
 				.build();
 	}
 
-	private static final class RunQueryContext {
+	private static final class RunQueryContext implements AutoCloseable {
 		private final ConnectionHandle handle;
 		private final Connection connection;
-		private final Map<String, String> meta;
+		private final CacheMetadata metadata;
 
-		private RunQueryContext(ConnectionHandle handle, Map<String, String> meta) {
+		private RunQueryContext(ConnectionHandle handle, CacheMetadata metadata) {
 			this.handle = handle;
 			this.connection = handle.connection();
-			this.meta = meta;
+			this.metadata = metadata;
 		}
 
-		private void close() {
+		@Override
+		public void close() {
 			try {
 				handle.close();
 			} catch (Exception e) {
@@ -457,41 +379,4 @@ public class MetricsRepository {
 		}
 	}
 
-	private static final class SeriesPlan {
-		private final int index;
-		private final MetricsSeriesRequest request;
-		private final List<Issue> issues = new ArrayList<>();
-		private RunQueryContext context;
-		private UUID generation;
-		private long tagId;
-		private long ordinalFrom;
-		private long ordinalTo;
-		private long availableVertices;
-		private SeriesAvailability availability;
-		private int cap;
-		private int pointBudget;
-
-		private SeriesPlan(int index, MetricsSeriesRequest request) {
-			this.index = index;
-			this.request = request;
-		}
-	}
-
-}
-
-enum SeriesAvailability {
-	OK("ok"),
-	PENDING("pending"),
-	NOT_FOUND("not_found"),
-	EMPTY("empty");
-
-	private final String externalName;
-
-	SeriesAvailability(String externalName) {
-		this.externalName = externalName;
-	}
-
-	String externalName() {
-		return externalName;
-	}
 }

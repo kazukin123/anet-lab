@@ -26,6 +26,9 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 
@@ -211,6 +214,99 @@ class MetricsCacheDatabaseIntegrationTest {
 		assertNotEquals(invalidStateGeneration, schemaRebuiltGeneration);
 		assertTrue(output.getAll().contains(
 				"Rebuilding Metrics cache: run=run-corrupt-cache reason=required_table_missing"));
+	}
+
+	@Test
+	@ExtendWith(OutputCaptureExtension.class)
+	void failedDeepValidationRebuildsWithStableReason(CapturedOutput output) throws Exception {
+		final Path runDir = tempDir.resolve("run-deep-validation-failure");
+		Files.createDirectories(runDir);
+		Files.writeString(
+				runDir.resolve("metrics.jsonl"),
+				scalarLine(1, 1.0),
+				StandardCharsets.UTF_8);
+		final MetricsSource source = MetricsSource.select(runDir).orElseThrow();
+		final String initialGeneration =
+				new MetricsCacheDatabase().prepare(runDir, source, false).generation();
+
+		final MetricsCacheDatabase failingDatabase = new MetricsCacheDatabase(statement -> false);
+		final String rebuiltGeneration = failingDatabase.prepare(runDir, source, false).generation();
+
+		assertNotEquals(initialGeneration, rebuiltGeneration);
+		assertTrue(output.getAll().contains(
+				"Rebuilding Metrics cache: run=run-deep-validation-failure"
+						+ " reason=deep_validation_failed"));
+	}
+
+	@Test
+	@ExtendWith(OutputCaptureExtension.class)
+	void invalidCommittedOffsetMetadataRebuildsWithStableReason(CapturedOutput output)
+			throws Exception {
+		final Path runDir = tempDir.resolve("run-invalid-committed-offset");
+		Files.createDirectories(runDir);
+		Files.writeString(
+				runDir.resolve("metrics.jsonl"),
+				scalarLine(1, 1.0),
+				StandardCharsets.UTF_8);
+
+		final MetricsCacheDatabase database = new MetricsCacheDatabase();
+		final MetricsIngestor ingestor = new MetricsIngestor(database);
+		ingest(ingestor, runDir);
+		final String initialGeneration = generation(database, runDir);
+		try (MetricsCacheDatabase.ConnectionHandle handle = database.openWrite(runDir);
+				Statement statement = handle.connection().createStatement()) {
+			statement.execute(
+					"UPDATE source_meta SET v='not-a-number' WHERE k='committed_offset'");
+		}
+
+		final String rebuiltGeneration = database.prepare(
+				runDir,
+				MetricsSource.select(runDir).orElseThrow(),
+				false).generation();
+
+		assertNotEquals(initialGeneration, rebuiltGeneration);
+		assertTrue(output.getAll().contains(
+				"Rebuilding Metrics cache: run=run-invalid-committed-offset"
+						+ " reason=source_metadata_invalid"));
+	}
+
+	@ParameterizedTest
+	@NullSource
+	@ValueSource(strings = "not-a-number")
+	@ExtendWith(OutputCaptureExtension.class)
+	void invalidRawSourceMtimeMetadataRebuildsWithStableReason(
+			String invalidMtime,
+			CapturedOutput output) throws Exception {
+		final Path runDir = tempDir.resolve("run-invalid-source-mtime");
+		Files.createDirectories(runDir);
+		Files.writeString(
+				runDir.resolve("metrics.jsonl"),
+				scalarLine(1, 1.0),
+				StandardCharsets.UTF_8);
+
+		final MetricsCacheDatabase database = new MetricsCacheDatabase();
+		final MetricsIngestor ingestor = new MetricsIngestor(database);
+		ingest(ingestor, runDir);
+		final String initialGeneration = generation(database, runDir);
+		try (MetricsCacheDatabase.ConnectionHandle handle = database.openWrite(runDir);
+				Statement statement = handle.connection().createStatement()) {
+			if (invalidMtime == null) {
+				statement.execute("DELETE FROM source_meta WHERE k='source_mtime'");
+			} else {
+				statement.execute(
+						"UPDATE source_meta SET v='not-a-number' WHERE k='source_mtime'");
+			}
+		}
+
+		final String rebuiltGeneration = database.prepare(
+				runDir,
+				MetricsSource.select(runDir).orElseThrow(),
+				false).generation();
+
+		assertNotEquals(initialGeneration, rebuiltGeneration);
+		assertTrue(output.getAll().contains(
+				"Rebuilding Metrics cache: run=run-invalid-source-mtime"
+						+ " reason=source_metadata_invalid"));
 	}
 
 	@Test

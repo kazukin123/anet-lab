@@ -132,8 +132,10 @@ class MetricsApiIntegrationTest {
 	void unknownDatabaseStateFallsBackSafelyUntilCacheRebuild(CapturedOutput output)
 			throws Exception {
 		awaitStates();
-		updateIngestState("run-ready", "unknown");
+		updateSourceMeta("run-ready", "state", "unknown");
 		try {
+			final String expectedStateError = "Unknown Metrics cache ingest state: unknown;"
+					+ " expected one of: pending, converting, ready, error";
 			final JsonNode runs = OBJECT_MAPPER.readTree(mockMvc.perform(get("/api/runs.json"))
 						.andReturn()
 						.getResponse()
@@ -155,11 +157,32 @@ class MetricsApiIntegrationTest {
 			assertTrue(result.path("projection").isNull());
 			assertEquals("run", result.path("issues").get(0).path("scope").asText());
 			assertEquals("query_error", result.path("issues").get(0).path("code").asText());
+			assertEquals(expectedStateError,
+					result.path("issues").get(0).path("message").asText());
 			assertTrue(output.getAll().contains(
 					"Failed to read Run metadata: run=run-ready"
-							+ " message=Unknown Metrics cache ingest state: unknown"));
+							+ " message=" + expectedStateError));
 		} finally {
-			updateIngestState("run-ready", IngestState.READY.externalName());
+			updateSourceMeta("run-ready", "state", IngestState.READY.externalName());
+		}
+	}
+
+	@Test
+	void invalidSourceSizeUsesTheRunsDisplayFallback() throws Exception {
+		awaitStates();
+		final String originalSourceSize = sourceMetaValue("run-ready", "source_size");
+		updateSourceMeta("run-ready", "source_size", "not-a-number");
+		try {
+			final JsonNode runs = OBJECT_MAPPER.readTree(mockMvc.perform(get("/api/runs.json"))
+						.andReturn()
+						.getResponse()
+						.getContentAsString(StandardCharsets.UTF_8))
+					.path("runs");
+			final JsonNode run = findRun(runs, "run-ready");
+			assertEquals("ready", run.path("ingest").path("state").asText());
+			assertEquals(100, run.path("ingest").path("percentage").asInt());
+		} finally {
+			updateSourceMeta("run-ready", "source_size", originalSourceSize);
 		}
 	}
 
@@ -298,13 +321,28 @@ class MetricsApiIntegrationTest {
 		throw new AssertionError("Run not found: " + runId);
 	}
 
-	private static void updateIngestState(String runId, String state) throws Exception {
+	private static String sourceMetaValue(String runId, String key) throws Exception {
+		final MetricsCacheDatabase database = new MetricsCacheDatabase();
+		try (MetricsCacheDatabase.ConnectionHandle handle =
+				database.openRead(RUNS_DIR.resolve(runId));
+				PreparedStatement statement = handle.connection().prepareStatement(
+						"SELECT v FROM source_meta WHERE k=?")) {
+			statement.setString(1, key);
+			try (var result = statement.executeQuery()) {
+				assertTrue(result.next());
+				return result.getString(1);
+			}
+		}
+	}
+
+	private static void updateSourceMeta(String runId, String key, String value) throws Exception {
 		final MetricsCacheDatabase database = new MetricsCacheDatabase();
 		try (MetricsCacheDatabase.ConnectionHandle handle =
 				database.openWrite(RUNS_DIR.resolve(runId));
 				PreparedStatement statement = handle.connection().prepareStatement(
-						"UPDATE source_meta SET v=? WHERE k='state'")) {
-			statement.setString(1, state);
+						"UPDATE source_meta SET v=? WHERE k=?")) {
+			statement.setString(1, value);
+			statement.setString(2, key);
 			assertEquals(1, statement.executeUpdate());
 		}
 	}

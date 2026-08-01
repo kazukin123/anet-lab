@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -63,6 +64,10 @@ public class MetricsCacheDatabase {
 		boolean isValid(Statement statement) throws Exception;
 	}
 
+	/**
+	 * externalNameはsource_meta.stateの永続値かつHTTP JSONのingest state公開値であり、
+	 * 互換性なく変更しない。
+	 */
 	public enum IngestState {
 		PENDING("pending"),
 		CONVERTING("converting"),
@@ -87,7 +92,8 @@ public class MetricsCacheDatabase {
 			for (IngestState state : values()) {
 				if (state.externalName.equals(value)) return state;
 			}
-			throw new IllegalArgumentException("Unknown Metrics cache ingest state: " + value);
+			throw new IllegalArgumentException("Unknown Metrics cache ingest state: " + value
+					+ "; expected one of: pending, converting, ready, error");
 		}
 
 		public static boolean isValidDbValue(String value) {
@@ -105,13 +111,22 @@ public class MetricsCacheDatabase {
 			boolean sourceUnchangedError) {
 	}
 
+	/**
+	 * stateとstateParseErrorは排他的で、既知stateではstateのみ、未知stateでは解析エラーのみを保持する。
+	 */
 	public record CacheMetadata(
 			String generation,
 			IngestState state,
+			String stateParseError,
 			long committedOffset,
 			long sourceSize,
 			String errorCode,
 			String errorMessage) {
+
+		public IngestState stateOrThrow() {
+			if (stateParseError != null) throw new IllegalArgumentException(stateParseError);
+			return state;
+		}
 	}
 
 	public CachePreparation prepare(Path runDir, MetricsSource source, boolean activeGzipSession)
@@ -127,7 +142,7 @@ public class MetricsCacheDatabase {
 				final long startedAt = System.nanoTime();
 				log.info("Metrics cache validation started: run={} dbBytes={}",
 						normalizedRunDir.getFileName(), Files.size(database));
-				final boolean valid = isValidDatabase(database, true);
+				final boolean valid = checkDatabaseInvalid(database, true) == null;
 				log.info("Metrics cache validation completed: run={} valid={} durationMs={}",
 						normalizedRunDir.getFileName(),
 						valid,
@@ -147,14 +162,10 @@ public class MetricsCacheDatabase {
 			if (Files.exists(database)) {
 				final String invalidReason;
 				if (failedCurrentDeepCheck) {
-					final String diagnosedReason = diagnoseInvalidDatabase(database);
-					invalidReason = "database_validation_failed".equals(diagnosedReason)
-							? "deep_validation_failed"
-							: diagnosedReason;
-				} else if (!isValidDatabase(database, false)) {
-					invalidReason = diagnoseInvalidDatabase(database);
+					final String currentReason = checkDatabaseInvalid(database, false);
+					invalidReason = currentReason == null ? "deep_validation_failed" : currentReason;
 				} else {
-					invalidReason = null;
+					invalidReason = checkDatabaseInvalid(database, false);
 				}
 				if (invalidReason != null) {
 					logCacheRebuild(
@@ -171,14 +182,15 @@ public class MetricsCacheDatabase {
 			}
 			deepValidatedDatabases.add(database);
 
-			Map<String, String> meta;
+			SourceMeta.Values meta;
 			try (Connection connection = openConnection(database, false)) {
-				meta = readSourceMeta(connection);
+				meta = SourceMeta.readValues(connection);
 			}
-			if (!matchesSource(meta, source, activeGzipSession)) {
+			final String sourceMismatch = checkSourceMismatch(meta, source, activeGzipSession);
+			if (sourceMismatch != null) {
 				logCacheRebuild(
 						normalizedRunDir,
-						describeSourceMismatch(meta, source, activeGzipSession),
+						sourceMismatch,
 						meta,
 						source);
 				deepValidatedDatabases.remove(database);
@@ -186,16 +198,16 @@ public class MetricsCacheDatabase {
 				initialize(database, source);
 				deepValidatedDatabases.add(database);
 				try (Connection connection = openConnection(database, false)) {
-					meta = readSourceMeta(connection);
+					meta = SourceMeta.readValues(connection);
 				}
 			}
 
 			final IngestState state = IngestState.fromDb(
-					meta.getOrDefault("state", IngestState.PENDING.externalName()));
+					meta.getOrDefault(SourceMeta.STATE, IngestState.PENDING.externalName()));
 			return new CachePreparation(
-					meta.get("generation"),
+					meta.get(SourceMeta.GENERATION),
 					state,
-					parseLong(meta.get("committed_offset"), 0L),
+					SourceMeta.parseLong(meta.get(SourceMeta.COMMITTED_OFFSET), 0L),
 					state == IngestState.ERROR);
 		} finally {
 			rwLock.writeLock().unlock();
@@ -237,55 +249,26 @@ public class MetricsCacheDatabase {
 		return lifecycleLocks.computeIfAbsent(runDir, ignored -> new ReentrantReadWriteLock(true));
 	}
 
-	private boolean matchesSource(
-			Map<String, String> meta,
+	private String checkSourceMismatch(
+			SourceMeta.Values meta,
 			MetricsSource source,
 			boolean activeGzipSession) throws IOException {
-		if (!source.kind().equals(meta.get("source_kind"))) return false;
+		if (!source.kind().equals(meta.get(SourceMeta.SOURCE_KIND))) return "source_kind_changed";
 		try {
-			UUID.fromString(meta.get("generation"));
-		} catch (Exception e) {
-			return false;
-		}
-		if (!IngestState.isValidDbValue(meta.get("state"))) return false;
-		final IngestState state = IngestState.fromDb(meta.get("state"));
-
-		final long storedSize = parseLong(meta.get("source_size"), -1L);
-		final long committedOffset = parseLong(meta.get("committed_offset"), -1L);
-		if (storedSize < 0L || committedOffset < 0L) return false;
-		if (!source.headSha256(storedSize).equals(meta.get("source_head_sha256"))) return false;
-		if (!source.sha256Before(committedOffset).equals(meta.get("source_commit_tail_sha256"))) return false;
-
-		if (state == IngestState.ERROR) {
-			return source.size() == storedSize
-					&& source.modifiedTime() == parseLong(meta.get("source_mtime"), -1L);
-		}
-		if ("jsonl.gz".equals(source.kind())) {
-			if (state == IngestState.CONVERTING && !activeGzipSession) return false;
-			return source.size() == storedSize
-					&& source.modifiedTime() == parseLong(meta.get("source_mtime"), -1L);
-		}
-
-		if (source.size() < committedOffset || source.size() < storedSize) return false;
-		return true;
-	}
-
-	private String describeSourceMismatch(
-			Map<String, String> meta,
-			MetricsSource source,
-			boolean activeGzipSession) {
-		if (!source.kind().equals(meta.get("source_kind"))) return "source_kind_changed";
-		try {
-			UUID.fromString(meta.get("generation"));
+			UUID.fromString(meta.get(SourceMeta.GENERATION));
 		} catch (Exception e) {
 			return "generation_invalid";
 		}
-		if (!IngestState.isValidDbValue(meta.get("state"))) return "state_invalid";
-		final IngestState state = IngestState.fromDb(meta.get("state"));
+		if (!IngestState.isValidDbValue(meta.get(SourceMeta.STATE))) return "state_invalid";
+		final IngestState state = IngestState.fromDb(meta.get(SourceMeta.STATE));
 
-		final long storedSize = parseLong(meta.get("source_size"), -1L);
-		final long committedOffset = parseLong(meta.get("committed_offset"), -1L);
-		if (storedSize < 0L || committedOffset < 0L) return "source_metadata_invalid";
+		final long storedSize = SourceMeta.parseLong(meta.get(SourceMeta.SOURCE_SIZE), -1L);
+		final long committedOffset =
+				SourceMeta.parseLong(meta.get(SourceMeta.COMMITTED_OFFSET), -1L);
+		final long storedMtime = SourceMeta.parseLong(meta.get(SourceMeta.SOURCE_MTIME), -1L);
+		if (storedSize < 0L || committedOffset < 0L || storedMtime < 0L) {
+			return "source_metadata_invalid";
+		}
 		if (source.size() < committedOffset) return "source_truncated_below_committed_offset";
 		if (source.size() < storedSize) return "source_truncated_below_previous_size";
 		if ("jsonl.gz".equals(source.kind())
@@ -294,28 +277,25 @@ public class MetricsCacheDatabase {
 			return "gzip_conversion_session_missing";
 		}
 
-		try {
-			if (!source.headSha256(storedSize).equals(meta.get("source_head_sha256"))) {
-				return "source_head_changed";
-			}
-			if (!source.sha256Before(committedOffset).equals(
-					meta.get("source_commit_tail_sha256"))) {
-				return "committed_source_tail_changed";
-			}
-		} catch (IOException e) {
-			return "source_fingerprint_diagnosis_failed";
+		// fingerprintのI/O失敗はキャッシュ不一致へ丸めず、呼び出し元へIOExceptionを伝播する。
+		if (!source.headSha256(storedSize).equals(meta.get(SourceMeta.SOURCE_HEAD_SHA256))) {
+			return "source_head_changed";
+		}
+		if (!source.sha256Before(committedOffset).equals(
+				meta.get(SourceMeta.SOURCE_COMMIT_TAIL_SHA256))) {
+			return "committed_source_tail_changed";
 		}
 
-		final long storedMtime = parseLong(meta.get("source_mtime"), -1L);
 		if (state == IngestState.ERROR) {
 			if (source.size() != storedSize) return "errored_source_size_changed";
 			if (source.modifiedTime() != storedMtime) return "errored_source_mtime_changed";
+			return null;
 		}
 		if ("jsonl.gz".equals(source.kind())) {
 			if (source.size() != storedSize) return "gzip_source_size_changed";
 			if (source.modifiedTime() != storedMtime) return "gzip_source_mtime_changed";
 		}
-		return "source_identity_changed";
+		return null;
 	}
 
 	private void initialize(Path database, MetricsSource source) throws IOException, SQLException {
@@ -396,14 +376,7 @@ public class MetricsCacheDatabase {
 						) WITHOUT ROWID
 						""");
 
-				writeMeta(statement, "generation", UUID.randomUUID().toString());
-				writeMeta(statement, "source_kind", source.kind());
-				writeMeta(statement, "source_size", Long.toString(source.size()));
-				writeMeta(statement, "source_mtime", Long.toString(source.modifiedTime()));
-				writeMeta(statement, "source_head_sha256", source.headSha256());
-				writeMeta(statement, "source_commit_tail_sha256", source.sha256Before(0L));
-				writeMeta(statement, "committed_offset", "0");
-				writeMeta(statement, "state", IngestState.PENDING.externalName());
+				SourceMeta.initialize(connection, source);
 				statement.execute("PRAGMA user_version = " + SCHEMA_VERSION);
 				connection.commit();
 			} catch (Exception e) {
@@ -418,33 +391,7 @@ public class MetricsCacheDatabase {
 		}
 	}
 
-	private boolean isValidDatabase(Path database, boolean deepCheck) {
-		try (Connection connection = openConnection(database, true);
-				Statement statement = connection.createStatement()) {
-			if (queryInt(statement, "PRAGMA application_id") != APPLICATION_ID) return false;
-			if (queryInt(statement, "PRAGMA user_version") != SCHEMA_VERSION) return false;
-			if (deepCheck && !deepDatabaseValidator.isValid(statement)) return false;
-			final Set<String> tables = new HashSet<>();
-			try (ResultSet result = statement.executeQuery(
-					"SELECT name FROM sqlite_master WHERE type='table'")) {
-				while (result.next()) tables.add(result.getString(1));
-			}
-			if (!tables.containsAll(REQUIRED_TABLES)) return false;
-			for (Map.Entry<String, Set<String>> requirement : REQUIRED_COLUMNS.entrySet()) {
-				final Set<String> columns = new HashSet<>();
-				try (ResultSet result = statement.executeQuery(
-						"PRAGMA table_info(" + requirement.getKey() + ")")) {
-					while (result.next()) columns.add(result.getString("name"));
-				}
-				if (!columns.containsAll(requirement.getValue())) return false;
-			}
-			return true;
-		} catch (Exception e) {
-			return false;
-		}
-	}
-
-	private String diagnoseInvalidDatabase(Path database) {
+	private String checkDatabaseInvalid(Path database, boolean deepCheck) {
 		try (Connection connection = openConnection(database, true);
 				Statement statement = connection.createStatement()) {
 			if (queryInt(statement, "PRAGMA application_id") != APPLICATION_ID) {
@@ -452,6 +399,9 @@ public class MetricsCacheDatabase {
 			}
 			if (queryInt(statement, "PRAGMA user_version") != SCHEMA_VERSION) {
 				return "schema_version_mismatch";
+			}
+			if (deepCheck && !deepDatabaseValidator.isValid(statement)) {
+				return "deep_validation_failed";
 			}
 			final Set<String> tables = new HashSet<>();
 			try (ResultSet result = statement.executeQuery(
@@ -469,7 +419,7 @@ public class MetricsCacheDatabase {
 					return "required_column_missing";
 				}
 			}
-			return "database_validation_failed";
+			return null;
 		} catch (Exception e) {
 			return "database_open_failed";
 		}
@@ -511,27 +461,18 @@ public class MetricsCacheDatabase {
 		}
 	}
 
-	private static Map<String, String> readSourceMeta(Connection connection) throws SQLException {
-		final Map<String, String> meta = new HashMap<>();
-		try (Statement statement = connection.createStatement();
-				ResultSet result = statement.executeQuery("SELECT k, v FROM source_meta")) {
-			while (result.next()) meta.put(result.getString(1), result.getString(2));
-		}
-		return meta;
-	}
-
-	private Map<String, String> readSourceMetaIfAvailable(Path database) {
+	private SourceMeta.Values readSourceMetaIfAvailable(Path database) {
 		try (Connection connection = openConnection(database, true)) {
-			return readSourceMeta(connection);
+			return SourceMeta.readValues(connection);
 		} catch (Exception e) {
-			return Map.of();
+			return SourceMeta.Values.empty();
 		}
 	}
 
 	private static void logCacheRebuild(
 			Path runDir,
 			String reason,
-			Map<String, String> meta,
+			SourceMeta.Values meta,
 			MetricsSource source) {
 		log.warn(
 				"Rebuilding Metrics cache: run={} reason={} oldGeneration={} oldState={}"
@@ -540,31 +481,15 @@ public class MetricsCacheDatabase {
 						+ " storedSourceMtime={} currentSourceMtime={}",
 				runDir.getFileName(),
 				reason,
-				meta.getOrDefault("generation", "unknown"),
-				meta.getOrDefault("state", "unknown"),
-				meta.getOrDefault("committed_offset", "unknown"),
-				meta.getOrDefault("source_kind", "unknown"),
+				meta.getOrDefault(SourceMeta.GENERATION, "unknown"),
+				meta.getOrDefault(SourceMeta.STATE, "unknown"),
+				meta.getOrDefault(SourceMeta.COMMITTED_OFFSET, "unknown"),
+				meta.getOrDefault(SourceMeta.SOURCE_KIND, "unknown"),
 				source.kind(),
-				meta.getOrDefault("source_size", "unknown"),
+				meta.getOrDefault(SourceMeta.SOURCE_SIZE, "unknown"),
 				source.size(),
-				meta.getOrDefault("source_mtime", "unknown"),
+				meta.getOrDefault(SourceMeta.SOURCE_MTIME, "unknown"),
 				source.modifiedTime());
-	}
-
-	private static void writeMeta(Statement statement, String key, String value) throws SQLException {
-		final String escapedKey = key.replace("'", "''");
-		final String escapedValue = value.replace("'", "''");
-		statement.execute("INSERT INTO source_meta(k, v) VALUES('"
-				+ escapedKey + "', '" + escapedValue + "')");
-	}
-
-	private static long parseLong(String value, long fallback) {
-		if (value == null) return fallback;
-		try {
-			return Long.parseLong(value);
-		} catch (NumberFormatException e) {
-			return fallback;
-		}
 	}
 
 	private static void deleteCacheFiles(Path database) throws IOException {
@@ -577,6 +502,141 @@ public class MetricsCacheDatabase {
 		return Files.exists(database)
 				|| Files.exists(database.resolveSibling(database.getFileName() + "-wal"))
 				|| Files.exists(database.resolveSibling(database.getFileName() + "-shm"));
+	}
+
+	public static final class SourceMeta {
+		private static final String GENERATION = "generation";
+		private static final String SOURCE_KIND = "source_kind";
+		private static final String SOURCE_SIZE = "source_size";
+		private static final String SOURCE_MTIME = "source_mtime";
+		private static final String SOURCE_HEAD_SHA256 = "source_head_sha256";
+		private static final String SOURCE_COMMIT_TAIL_SHA256 = "source_commit_tail_sha256";
+		private static final String COMMITTED_OFFSET = "committed_offset";
+		private static final String STATE = "state";
+		private static final String ERROR_CODE = "error_code";
+		private static final String ERROR_MESSAGE = "error_message";
+
+		private SourceMeta() {
+		}
+
+		public static CacheMetadata read(Connection connection, long numericFallback)
+				throws SQLException {
+			final Values values = readValues(connection);
+			final String stateValue = values.getOrDefault(
+					STATE, IngestState.PENDING.externalName());
+			IngestState state = null;
+			String stateParseError = null;
+			try {
+				state = IngestState.fromDb(stateValue);
+			} catch (IllegalArgumentException e) {
+				stateParseError = e.getMessage();
+			}
+			return new CacheMetadata(
+					values.get(GENERATION),
+					state,
+					stateParseError,
+					parseLong(values.get(COMMITTED_OFFSET), numericFallback),
+					parseLong(values.get(SOURCE_SIZE), numericFallback),
+					values.get(ERROR_CODE),
+					values.get(ERROR_MESSAGE));
+		}
+
+		public static void initialize(Connection connection, MetricsSource source)
+				throws IOException, SQLException {
+			try (PreparedStatement statement = upsertStatement(connection)) {
+				upsert(statement, GENERATION, UUID.randomUUID().toString());
+				upsert(statement, SOURCE_KIND, source.kind());
+				upsert(statement, SOURCE_SIZE, Long.toString(source.size()));
+				upsert(statement, SOURCE_MTIME, Long.toString(source.modifiedTime()));
+				upsert(statement, SOURCE_HEAD_SHA256, source.headSha256());
+				upsert(statement, SOURCE_COMMIT_TAIL_SHA256, source.sha256Before(0L));
+				upsert(statement, COMMITTED_OFFSET, "0");
+				upsert(statement, STATE, IngestState.PENDING.externalName());
+			}
+		}
+
+		public static void updateProgress(
+				Connection connection,
+				MetricsSource source,
+				long committedOffset,
+				IngestState state) throws IOException, SQLException {
+			try (PreparedStatement statement = upsertStatement(connection)) {
+				upsert(statement, SOURCE_SIZE, Long.toString(source.size()));
+				upsert(statement, SOURCE_MTIME, Long.toString(source.modifiedTime()));
+				upsert(statement, SOURCE_HEAD_SHA256, source.headSha256());
+				upsert(statement, SOURCE_COMMIT_TAIL_SHA256, source.sha256Before(committedOffset));
+				upsert(statement, COMMITTED_OFFSET, Long.toString(committedOffset));
+				upsert(statement, STATE, state.externalName());
+			}
+			try (PreparedStatement statement = connection.prepareStatement(
+					"DELETE FROM source_meta WHERE k IN (?, ?)")) {
+				statement.setString(1, ERROR_CODE);
+				statement.setString(2, ERROR_MESSAGE);
+				statement.executeUpdate();
+			}
+		}
+
+		public static void markError(
+				Connection connection,
+				MetricsSource source,
+				String code,
+				String message) throws IOException, SQLException {
+			try (PreparedStatement statement = upsertStatement(connection)) {
+				upsert(statement, SOURCE_SIZE, Long.toString(source.size()));
+				upsert(statement, SOURCE_MTIME, Long.toString(source.modifiedTime()));
+				upsert(statement, SOURCE_HEAD_SHA256, source.headSha256());
+				upsert(statement, STATE, IngestState.ERROR.externalName());
+				upsert(statement, ERROR_CODE, code);
+				upsert(statement, ERROR_MESSAGE, message == null ? code : message);
+			}
+		}
+
+		private static PreparedStatement upsertStatement(Connection connection) throws SQLException {
+			return connection.prepareStatement("""
+					INSERT INTO source_meta(k, v) VALUES(?, ?)
+					ON CONFLICT(k) DO UPDATE SET v=excluded.v
+					""");
+		}
+
+		private static void upsert(PreparedStatement statement, String key, String value)
+				throws SQLException {
+			statement.setString(1, key);
+			statement.setString(2, value);
+			statement.executeUpdate();
+		}
+
+		private static Values readValues(Connection connection) throws SQLException {
+			final Map<String, String> values = new HashMap<>();
+			try (PreparedStatement statement = connection.prepareStatement(
+					"SELECT k, v FROM source_meta");
+					ResultSet result = statement.executeQuery()) {
+				while (result.next()) values.put(result.getString(1), result.getString(2));
+			}
+			return new Values(values);
+		}
+
+		private static long parseLong(String value, long fallback) {
+			if (value == null) return fallback;
+			try {
+				return Long.parseLong(value);
+			} catch (NumberFormatException e) {
+				return fallback;
+			}
+		}
+
+		private record Values(Map<String, String> entries) {
+			private static Values empty() {
+				return new Values(Map.of());
+			}
+
+			private String get(String key) {
+				return entries.get(key);
+			}
+
+			private String getOrDefault(String key, String fallback) {
+				return entries.getOrDefault(key, fallback);
+			}
+		}
 	}
 
 	public static final class ConnectionHandle implements AutoCloseable {

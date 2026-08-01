@@ -22,8 +22,9 @@ IngestState {
 ```
 
 - 各値は従来のDB・HTTP JSON表現に対応する小文字名を保持し、`externalName()`で返す。
+- `externalName()`は`source_meta.state`の永続値かつHTTP JSONの公開値であり、互換性なく変更しないことをJavadocで明記する。
 - 永続・wire表現を`Enum.name()`、`toString()`、呼び出し側の小文字変換へ依存させない。
-- `fromDb(String)`はnull・未知値を厳格に拒否する。
+- `fromDb(String)`はnull・未知値を厳格に拒否し、例外文言へ期待値集合を含める。
 - DB妥当性判定では非例外の`isValidDbValue(String)`を使用する。
 - `isStillIngesting()`は`PENDING`または`CONVERTING`を返す。
 - 使用予定のない`isTerminal()`は追加しない。
@@ -42,7 +43,7 @@ IngestState {
 
 ### 1.3 SeriesAvailabilityの導入
 
-`MetricsRepository.java`内へpackage-private top-level enumとして次を追加する。
+`service/SeriesAvailability.java`へpackage-private top-level enumとして次を追加する。
 
 ```java
 SeriesAvailability {
@@ -56,6 +57,7 @@ SeriesAvailability {
 - `SeriesPlan.availability`を`String`から`SeriesAvailability`へ変更する。
 - 系列検査、点数予算配分、結果構築、projection失敗時fallbackの代入・比較をenumへ統一する。
 - `MetricsSeriesResult.availability`は`String`のまま維持し、レスポンス構築時だけ`externalName()`へ変換する。
+- `externalName()`はHTTP JSONの公開値であり、互換性なく変更しないことをJavadocで明記する。
 - 旧`isConverting(String)`を削除し、`IngestState.isStillIngesting()`へ置換する。
 
 ### 1.4 外部変換seam
@@ -88,6 +90,7 @@ enumを外部へ直接公開しない。文字列への変換は次へ限定す�
 - `SeriesAvailability`の全enum値と小文字`externalName()`の対応を直接確認する。
 - `fromDb()`が正常値を復元することを確認する。
 - null・未知値について`isValidDbValue()`がfalse、`fromDb()`が例外となることを確認する。
+- 未知値の例外、runs側warn、metrics側`query_error.message`に期待値集合が含まれることを確認する。
 - `isStillIngesting()`が`PENDING / CONVERTING`だけtrueとなることを確認する。
 
 ### 3.2 DB・取り込み統合試験
@@ -116,6 +119,8 @@ git diff --check
 - 初回実装時の`mvn -B test`: 69 tests、Failures 0、Errors 0、Skipped 0
 - レビュー指摘対応の対象テスト: 33 tests、Failures 0、Errors 0、Skipped 0
 - レビュー指摘対応後の`mvn -B test`: 71 tests、Failures 0、Errors 0、Skipped 0
+- R1〜R6レビュー修正の対象テスト: 30 tests、Failures 0、Errors 0、Skipped 0
+- R1〜R6レビュー修正後の`mvn -B test`: 82 tests、Failures 0、Errors 0、Skipped 0
 - production 37 files、test 19 filesの全再コンパイル成功
 - `git diff --check`: エラーなし
 
@@ -133,7 +138,9 @@ git diff --check
 - `viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java`
   - `IngestOutcome`と取り込み状態の代入・比較・DB書き込み境界をenumへ変更。
 - `viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java`
-  - `SeriesAvailability`、`SeriesPlan`、取り込み状態解釈、DB/JSON変換境界をenumへ変更。
+  - `SeriesPlan`、取り込み状態解釈、DB/JSON変換境界をenumへ変更。
+- `viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/SeriesAvailability.java`
+  - 系列availabilityを独立したpackage-private enumとして配置し、HTTP公開名の契約を明記。
 
 ### 4.3 Tests
 

@@ -20,7 +20,6 @@ record LodBucket(
 
 	static final int LOD_FACTOR = 16;
 	static final int POINTS_PER_LOD_BUCKET = 3;
-	static final int MIN_POINTS_PER_SERIES = 50;
 
 	static LodBucket point(long ordinal, long step, double value) {
 		return new LodBucket(
