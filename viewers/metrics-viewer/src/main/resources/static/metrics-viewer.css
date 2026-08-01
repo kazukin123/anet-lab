@@ -307,13 +307,6 @@ input[type="checkbox"]:checked::after {
 
 /* タグリスト部分だけスクロールを有効化 */
 #tag-list {
-  flex: 1;
-  overflow-y: auto;
-  max-height: none;
-  margin: 0;
-  padding-right: 6px; /* スクロールバー分の余白 */
-}
-#tag-list {
 	list-style: none;
 	margin: 4px 0 0 0;
 	padding: 0;
@@ -562,8 +555,6 @@ body.screenshot-mode #btn-graph-scroll-lock {
 body.screenshot-mode #lod-display-mode-control {
 	display: none !important;
 }
-body.screenshot-mode * {
-}
 html.screenshot-mode,
 body.screenshot-mode {
   overflow-y: visible !important;
@@ -604,12 +595,6 @@ body.screenshot-mode #screenshot-header { display: block !important; }
 	color: #fff;
 	opacity: 1;
 }
-#btn-exit-screenshot:hover {
-	background: rgba(70,70,70,0.85);
-	opacity: 1;
-}
-body.screenshot-mode #btn-exit-screenshot { display: block !important; }
-
 /* ============================================================
    状態クラス
    ============================================================ */
@@ -617,10 +602,6 @@ body.screenshot-mode #btn-exit-screenshot { display: block !important; }
 body.metaLoading #side-panel {
 	opacity: 1;
 	pointer-events: auto;
-	cursor: default;
-}
-body.dataLoading #side-panel {
-	opacity: 1;
 	cursor: default;
 }
 body.error {
@@ -659,10 +640,3 @@ body.uninitialized::before {
 	border: 1px solid #2a2a2a;
 }
 ::-webkit-scrollbar-thumb:hover { background: #e6e6e6; }
-
-/* --- Utility --- */
-.hidden { display: none !important; }
-.disabled {
-	opacity: 0.55 !important;
-	pointer-events: none !important;
-}

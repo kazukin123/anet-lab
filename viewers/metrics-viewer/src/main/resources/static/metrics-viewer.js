@@ -761,7 +761,7 @@ class UIController {
 	}
 
 	applyMode(mode) {
-		document.body.classList.remove("uninitialized", "metaLoading", "dataLoading", "error");
+		document.body.classList.remove("uninitialized", "metaLoading", "error");
 		if (mode === Mode.UNINITIALIZED) document.body.classList.add("uninitialized");
 		if (mode === Mode.META_LOADING) document.body.classList.add("metaLoading");
 		if (mode === Mode.ERROR) document.body.classList.add("error");
@@ -1053,7 +1053,6 @@ class MetricsViewerClientApp {
 		this.polling = false;
 		this.initialSelectionApplied = false;
 		this.queryRevision = 0;
-		this.renderRevision = 0;
 		this.metadataRevision = 0;
 		this.viewportDebounceTimer = null;
 	}
@@ -1164,7 +1163,6 @@ class MetricsViewerClientApp {
 	onToggleLog(tagKey) {
 		if (this.logScaleTags.has(tagKey)) this.logScaleTags.delete(tagKey);
 		else this.logScaleTags.add(tagKey);
-		this.renderRevision++;
 		this._renderCurrent();
 	}
 
@@ -1172,7 +1170,6 @@ class MetricsViewerClientApp {
 		if (!Object.values(LodDisplayMode).includes(mode)) return;
 		this.lodDisplayMode = mode;
 		localStorage.setItem(STORAGE_KEY_LOD_MODE, mode);
-		this.renderRevision++;
 		this._renderCurrent();
 	}
 

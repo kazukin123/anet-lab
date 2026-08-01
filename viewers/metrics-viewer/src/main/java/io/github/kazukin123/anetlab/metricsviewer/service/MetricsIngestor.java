@@ -527,7 +527,6 @@ public class MetricsIngestor {
 			String code,
 			String message) {
 		try (ConnectionHandle handle = database.openWrite(runDir)) {
-			if (handle == null) return;
 			final Connection connection = handle.connection();
 			connection.setAutoCommit(false);
 			upsertMeta(connection, "source_size", Long.toString(source.size()));

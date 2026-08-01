@@ -2512,17 +2512,6 @@ class PalettePlaywrightTest {
 				""", runId);
 	}
 
-	private static void clickTag(Page page, String tagKey) {
-		page.evaluate("""
-				tagKey => {
-					const tag = Array.from(document.querySelectorAll('#tag-list li'))
-						.find(el => el.textContent === tagKey);
-					if (!tag) throw new Error('tag not found: ' + tagKey);
-					tag.click();
-				}
-				""", tagKey);
-	}
-
 	private static void waitForTag(Page page, String tagKey) {
 		page.waitForFunction("""
 				tagKey => Array.from(document.querySelectorAll('#tag-list li'))

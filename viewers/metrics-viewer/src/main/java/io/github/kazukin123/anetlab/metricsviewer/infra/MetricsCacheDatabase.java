@@ -199,27 +199,6 @@ public class MetricsCacheDatabase {
 		}
 	}
 
-	public void invalidate(Path runDir) {
-		final Path normalizedRunDir = runDir.toAbsolutePath().normalize();
-		final Path database = normalizedRunDir.resolve(DATABASE_FILENAME);
-		final ReentrantReadWriteLock rwLock = lifecycleLockFor(normalizedRunDir);
-		rwLock.writeLock().lock();
-		try {
-			if (cacheFilesExist(database)) {
-				log.warn("Invalidating Metrics cache: run={} reason=explicit_request",
-						normalizedRunDir.getFileName());
-			}
-			deepValidatedDatabases.remove(database);
-			deleteCacheFiles(database);
-		} catch (IOException e) {
-			log.warn("Failed to invalidate Metrics cache: run={} message={}",
-					runDir.getFileName(), e.getMessage());
-		} finally {
-			// 待機中threadと別lockへ分裂しないよう、registry entryはprocess中維持する。
-			rwLock.writeLock().unlock();
-		}
-	}
-
 	private ReentrantReadWriteLock lifecycleLockFor(Path runDir) {
 		return lifecycleLocks.computeIfAbsent(runDir, ignored -> new ReentrantReadWriteLock(true));
 	}
