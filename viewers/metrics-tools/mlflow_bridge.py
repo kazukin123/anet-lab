@@ -25,6 +25,8 @@ SOURCE_METRICS_TAG = "anet.bridge.source_metrics"
 METRICS_OFFSET_TAG = "anet.bridge.metrics_offset"
 BRIDGE_STATE_TAG = "anet.bridge.state"
 READ_BATCH_SIZE = 1000
+STATUS_INTERVAL_SECONDS = 10.0
+LATEST_BATCHES_PER_HISTORY_BATCH = 10
 
 
 @dataclass
@@ -32,6 +34,12 @@ class MonitoredRun:
     metrics_path: pathlib.Path
     run_id: str
     offset: int
+
+
+@dataclass
+class PollScheduleState:
+    latest_batches: int = 0
+    history_cursor: int = 0
 
 
 def parse_args():
@@ -271,6 +279,71 @@ def poll_run(client, monitored_run):
     return True
 
 
+def poll_monitored_runs(client, monitored_runs, schedule_state):
+    ordered_runs = sorted(
+        monitored_runs.values(),
+        key=lambda monitored_run: monitored_run.metrics_path.stat().st_mtime_ns,
+        reverse=True,
+    )
+
+    # 最新更新Runを優先しつつ、一定batchごとに過去Runへ処理枠を渡す
+    latest_run = ordered_runs[0]
+    latest_progress = poll_run(client, latest_run)
+    historical_runs = ordered_runs[1:]
+    if latest_progress:
+        progressed_historical_runs = []
+        schedule_state.latest_batches += 1
+        if (
+            historical_runs
+            and schedule_state.latest_batches >= LATEST_BATCHES_PER_HISTORY_BATCH
+        ):
+            history_index = schedule_state.history_cursor % len(historical_runs)
+            historical_run = historical_runs[history_index]
+            if poll_run(client, historical_run):
+                progressed_historical_runs.append(historical_run)
+            schedule_state.history_cursor += 1
+            schedule_state.latest_batches = 0
+        elif not historical_runs:
+            schedule_state.latest_batches = 0
+        return True, progressed_historical_runs
+
+    # 最新Runへ追いついた後、過去Runを1 batchずつ処理する
+    schedule_state.latest_batches = 0
+    progressed_historical_runs = []
+    for monitored_run in historical_runs:
+        if poll_run(client, monitored_run):
+            progressed_historical_runs.append(monitored_run)
+
+    return False, progressed_historical_runs
+
+
+def format_bridge_status(monitored_runs):
+    latest_run = max(
+        monitored_runs.values(),
+        key=lambda monitored_run: monitored_run.metrics_path.stat().st_mtime_ns,
+    )
+    file_size = latest_run.metrics_path.stat().st_size
+    lag = max(0, file_size - latest_run.offset)
+    mebibyte = 1024 * 1024
+    return (
+        f"[INFO] Latest progress: runs={len(monitored_runs)}, "
+        f"run={latest_run.metrics_path.parent.name}, "
+        f"offset={latest_run.offset / mebibyte:.1f}/{file_size / mebibyte:.1f} MiB, "
+        f"lag={lag / mebibyte:.1f} MiB"
+    )
+
+
+def format_historical_status(monitored_run):
+    file_size = monitored_run.metrics_path.stat().st_size
+    lag = max(0, file_size - monitored_run.offset)
+    mebibyte = 1024 * 1024
+    return (
+        f"[INFO] Historical progress: run={monitored_run.metrics_path.parent.name}, "
+        f"offset={monitored_run.offset / mebibyte:.1f}/{file_size / mebibyte:.1f} MiB, "
+        f"lag={lag / mebibyte:.1f} MiB"
+    )
+
+
 def resolve_initial_metrics(logdir):
     log_path = pathlib.Path(logdir)
     if log_path.is_dir():
@@ -323,15 +396,37 @@ def main():
     for metrics_path in initial_metrics:
         add_metrics_path(metrics_path, run_name=args.run_name)
 
+    next_status_time = 0.0
+    latest_progress_since_status = False
+    historical_progress_since_status = {}
+    poll_schedule_state = PollScheduleState()
     while True:
         # 監視中に作成されたruns直下のRunも追加する。再帰globは使わない。
         if scan_root is not None:
             for metrics_path in find_run_metrics(scan_root):
                 add_metrics_path(metrics_path)
 
-        made_progress = False
-        for source_key in sorted(monitored_runs):
-            made_progress = poll_run(client, monitored_runs[source_key]) or made_progress
+        latest_progress, progressed_historical_runs = poll_monitored_runs(
+            client,
+            monitored_runs,
+            poll_schedule_state,
+        )
+        latest_progress_since_status = (
+            latest_progress_since_status or latest_progress
+        )
+        for monitored_run in progressed_historical_runs:
+            historical_progress_since_status[monitored_run.run_id] = monitored_run
+        made_progress = latest_progress or bool(progressed_historical_runs)
+
+        current_time = time.monotonic()
+        if current_time >= next_status_time:
+            if latest_progress_since_status:
+                print(format_bridge_status(monitored_runs), flush=True)
+            for monitored_run in historical_progress_since_status.values():
+                print(format_historical_status(monitored_run), flush=True)
+            latest_progress_since_status = False
+            historical_progress_since_status.clear()
+            next_status_time = current_time + STATUS_INTERVAL_SECONDS
 
         if args.once and not made_progress:
             for monitored_run in monitored_runs.values():

@@ -1,0 +1,2 @@
+# Python 3.14 では MLflow 3.14.0 の server が importlib.abc.Traversable の削除により起動できない。
+mlflow==3.13.0
