@@ -976,16 +976,17 @@ class UIController {
 		const lodMode = document.getElementById("lod-display-mode");
 		lodMode.value = this.app.lodDisplayMode;
 		lodMode.onchange = () => this.app.onLodDisplayModeChanged(lodMode.value);
-		window.onresize = () => this.app.plotly.resizeAll();
+		window.addEventListener("resize", () => this.app.plotly.resizeAll());
 
 		const mainArea = document.getElementById("main-area");
-		mainArea.onclick = event => {
+		const graphDblClickReloadHandler = event => {
 			if (event.detail !== 2) return;
 			if (!(event.target instanceof Element)) return;
 			if (event.target.closest("button,select") || !event.target.closest(".graph-block")) return;
 			this.app.onReload();
 		};
-		mainArea.__mvGraphDblClickReloadHandler = mainArea.onclick;
+		mainArea.addEventListener("click", graphDblClickReloadHandler);
+		mainArea.__mvGraphDblClickReloadHandler = graphDblClickReloadHandler;
 		this.bindGraphScrollLockDrag(mainArea);
 	}
 

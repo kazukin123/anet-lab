@@ -21,6 +21,34 @@ import com.microsoft.playwright.options.WaitUntilState;
 class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 	@Test
+	void resizeKeepsAnExistingWindowHandlerAndResizesMetricsViewer() {
+		context.addInitScript("""
+				window.__existingResizeCalls = 0;
+				window.onresize = () => window.__existingResizeCalls += 1;
+				""");
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+		page.navigate(baseUrl + "/?resizeListenerCoexistenceTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+		page.evaluate("""
+				() => {
+					const original = app.plotly.resizeAll.bind(app.plotly);
+					window.__metricsViewerResizeCalls = 0;
+					app.plotly.resizeAll = () => {
+						window.__metricsViewerResizeCalls += 1;
+						return original();
+					};
+					window.dispatchEvent(new Event('resize'));
+				}
+				""");
+
+		assertEquals(1, ((Number) page.evaluate("window.__existingResizeCalls")).intValue());
+		assertEquals(1, ((Number) page.evaluate("window.__metricsViewerResizeCalls")).intValue());
+	}
+
+	@Test
 	void plotlyPanModeSurvivesDraggingTheVisibleRange() {
 		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
 		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
@@ -154,7 +182,15 @@ class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport 
 	}
 
 	@Test
-	void doubleClickingGraphAreaReloads() {
+	void doubleClickingGraphAreaReloadsWithoutReplacingAnExistingClickHandler() {
+		context.addInitScript("""
+				window.__existingMainAreaDoubleClickCalls = 0;
+				window.addEventListener('load', () => {
+					document.getElementById('main-area').onclick = event => {
+						if (event.detail === 2) window.__existingMainAreaDoubleClickCalls += 1;
+					};
+				});
+				""");
 		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
 		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
 
@@ -188,5 +224,7 @@ class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport 
 					&& window.__graphDblClickReloadSettled === 1
 				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
 		assertEquals(1, ((Number) page.evaluate("() => window.__graphDblClickReloadCalls")).intValue());
+		assertEquals(1, ((Number) page.evaluate(
+				"() => window.__existingMainAreaDoubleClickCalls")).intValue());
 	}
 }
