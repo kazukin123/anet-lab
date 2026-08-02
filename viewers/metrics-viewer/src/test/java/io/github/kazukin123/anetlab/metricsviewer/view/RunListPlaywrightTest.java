@@ -56,6 +56,38 @@ class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 	}
 
 	@Test
+	void initialLoadErrorAllowsReloadRecoveryButNotScreenshotEscape() {
+		final AtomicInteger runsRequests = new AtomicInteger();
+		page.route("**/api/runs.json", route -> {
+			if (runsRequests.incrementAndGet() == 1) route.abort();
+			else fulfillJson(route, runsJson());
+		});
+		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?errorRecoveryTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		page.waitForFunction("document.body.classList.contains('error') && app?.mode === 'error'");
+
+		assertEquals("none", page.evaluate(
+				"() => getComputedStyle(document.body, '::before').pointerEvents"));
+		page.click("#btn-screenshot");
+		assertTrue(Boolean.TRUE.equals(page.evaluate("""
+				() => document.body.classList.contains('error')
+					&& !document.body.classList.contains('screenshot-mode')
+					&& app?.mode === 'error'
+				""")));
+
+		page.click("#btn-reload");
+		page.waitForFunction("""
+				() => app?.mode === 'normal'
+					&& document.querySelectorAll('.js-plotly-plot').length > 0
+				""");
+		assertFalse(Boolean.TRUE.equals(page.evaluate(
+				"() => document.body.classList.contains('error')")));
+	}
+
+	@Test
 	void disappearingRunIsRemovedFromSelectionWindowsAndColorCache() {
 		final AtomicInteger runsRequests = new AtomicInteger();
 		page.route("**/api/runs.json", route -> fulfillJson(

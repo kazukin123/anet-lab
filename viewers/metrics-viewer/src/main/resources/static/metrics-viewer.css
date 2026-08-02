@@ -618,6 +618,7 @@ body.error::before {
 	color: #ffaaaa;
 	background: rgba(0,0,0,0.55);
 	z-index: 100;
+	pointer-events: none;
 }
 body.uninitialized::before {
 	content: "Initializing...";

@@ -1494,9 +1494,14 @@ class MetricsViewerClientApp {
 
 	async onReload() {
 		if (this.mode === Mode.SCREENSHOT) return;
+		const recoveringFromInitialError = this.mode === Mode.ERROR;
 		try {
-			await this.refreshMetadata({ requestData: false });
+			await this.refreshMetadata({
+				initial: recoveringFromInitialError,
+				requestData: false
+			});
 			await this.requestVisibleData({ force: true });
+			if (recoveringFromInitialError) this.setMode(Mode.NORMAL);
 		} catch (error) {
 			this._handleQueryError(error);
 			Toast.show("Reload failed.");
@@ -1504,6 +1509,7 @@ class MetricsViewerClientApp {
 	}
 
 	onToggleScreenshot() {
+		if (this.mode === Mode.ERROR) return;
 		const enabled = document.body.classList.toggle("screenshot-mode");
 		document.documentElement.classList.toggle("screenshot-mode", enabled);
 		this.setMode(enabled ? Mode.SCREENSHOT : Mode.NORMAL);
