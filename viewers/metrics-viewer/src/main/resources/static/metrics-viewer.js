@@ -760,6 +760,16 @@ class UIController {
 		document.getElementById("loading-spinner")?.classList.toggle("active", active);
 	}
 
+	renderUpdateStatus(failures) {
+		const status = document.getElementById("update-status");
+		const details = [];
+		if (failures.metadata) details.push(`Metadata: ${failures.metadata}`);
+		if (failures.metrics) details.push(`Metrics: ${failures.metrics}`);
+		status.hidden = details.length === 0;
+		status.textContent = details.length ? "Update failed" : "";
+		status.title = details.join("\n");
+	}
+
 	applyMode(mode) {
 		document.body.classList.remove("uninitialized", "metaLoading", "error");
 		if (mode === Mode.UNINITIALIZED) document.body.classList.add("uninitialized");
@@ -1055,6 +1065,7 @@ class MetricsViewerClientApp {
 		this.queryRevision = 0;
 		this.metadataRevision = 0;
 		this.viewportDebounceTimer = null;
+		this.updateFailures = { metadata: null, metrics: null };
 	}
 
 	async init() {
@@ -1082,10 +1093,13 @@ class MetricsViewerClientApp {
 
 	async refreshMetadata({ initial = false, requestData = true } = {}) {
 		const revision = ++this.metadataRevision;
+		let metadataSucceeded = false;
 		this.ui.setLoadingSpinner(true);
 		try {
 			const payload = await this.fetcher.fetchRuns();
 			if (revision !== this.metadataRevision) return;
+			metadataSucceeded = true;
+			this._setUpdateFailure("metadata", null);
 			const runs = Array.isArray(payload?.runs) ? payload.runs : [];
 			const previousSelection = this.selectedRuns.join("\u0000");
 			const previousGenerations = new Map(
@@ -1115,6 +1129,11 @@ class MetricsViewerClientApp {
 			this._renderCurrent();
 			this._syncIngestPoller();
 			if (requestData) await this.requestVisibleData();
+		} catch (error) {
+			if (!metadataSucceeded && revision === this.metadataRevision) {
+				this._setUpdateFailure("metadata", error);
+			}
+			throw error;
 		} finally {
 			if (revision === this.metadataRevision) this.ui.setLoadingSpinner(false);
 		}
@@ -1207,6 +1226,7 @@ class MetricsViewerClientApp {
 		try {
 			const payload = await this.fetcher.fetchMetrics(series);
 			if (revision !== this.queryRevision) return;
+			this._setUpdateFailure("metrics", null);
 			const contextBySeries = new Map(requestContext.map(expected => [
 				`${expected.runId}\u0000${expected.tagKey}`,
 				expected
@@ -1225,6 +1245,9 @@ class MetricsViewerClientApp {
 				this.cache.replaceWindow(result, expected.viewportWidth);
 			}
 			this._renderCurrent();
+		} catch (error) {
+			if (revision === this.queryRevision) this._setUpdateFailure("metrics", error);
+			throw error;
 		} finally {
 			if (revision === this.queryRevision) this.ui.setLoadingSpinner(false);
 		}
@@ -1433,10 +1456,11 @@ class MetricsViewerClientApp {
 	async _pollIngest() {
 		if (this.polling || this.mode === Mode.SCREENSHOT) return;
 		this.polling = true;
+		const metadataRevision = this.metadataRevision;
 		try {
-			const metadataRevision = this.metadataRevision;
 			const payload = await this.fetcher.fetchIngestProgress();
 			if (metadataRevision !== this.metadataRevision) return;
+			this._setUpdateFailure("metadata", null);
 			const runs = Array.isArray(payload?.runs) ? payload.runs : [];
 			const needsPolling = this.ui.updateRunProgress(runs);
 			if (!needsPolling && this.ingestPollTimer) {
@@ -1444,6 +1468,9 @@ class MetricsViewerClientApp {
 				this.ingestPollTimer = null;
 			}
 		} catch (error) {
+			if (metadataRevision === this.metadataRevision) {
+				this._setUpdateFailure("metadata", error);
+			}
 			this._handleQueryError(error);
 		} finally {
 			this.polling = false;
@@ -1544,6 +1571,12 @@ class MetricsViewerClientApp {
 	_saveSets() {
 		localStorage.setItem(STORAGE_KEY_TAGS, JSON.stringify([...this.activeTags]));
 		localStorage.setItem(STORAGE_KEY_KNOWN_TAGS, JSON.stringify([...this.knownTags]));
+	}
+
+	_setUpdateFailure(kind, error) {
+		if (error?.name === "AbortError") return;
+		this.updateFailures[kind] = error ? (error.message ?? String(error)) : null;
+		this.ui.renderUpdateStatus(this.updateFailures);
 	}
 
 	_handleQueryError(error) {

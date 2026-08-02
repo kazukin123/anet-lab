@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import com.microsoft.playwright.Page;
+import com.microsoft.playwright.Route;
 import com.microsoft.playwright.options.WaitUntilState;
 
 @SpringBootTest(
@@ -85,6 +86,71 @@ class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 				""");
 		assertFalse(Boolean.TRUE.equals(page.evaluate(
 				"() => document.body.classList.contains('error')")));
+	}
+
+	@Test
+	void updateFailuresRemainVisibleUntilEachRequestTypeSucceeds() {
+		final AtomicInteger runsRequests = new AtomicInteger();
+		final AtomicInteger metricsRequests = new AtomicInteger();
+		page.route("**/api/runs.json", route -> {
+			if (runsRequests.incrementAndGet() == 4) {
+				route.fulfill(new Route.FulfillOptions()
+						.setStatus(503)
+						.setContentType("text/plain")
+						.setBody("metadata unavailable"));
+			} else {
+				fulfillJson(route, runsJson());
+			}
+		});
+		page.route("**/api/metrics.json", route -> {
+			if (metricsRequests.incrementAndGet() == 2) {
+				route.fulfill(new Route.FulfillOptions()
+						.setStatus(502)
+						.setContentType("text/plain")
+						.setBody("metrics unavailable"));
+			} else {
+				fulfillJson(route, metricsJson());
+			}
+		});
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?updateFailureTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+		assertEquals(1, page.locator("#update-status").count());
+		assertFalse(page.locator("#update-status").isVisible());
+
+		page.click("#btn-reload");
+		page.waitForFunction("""
+				() => document.getElementById('update-status')?.title
+					=== 'Metrics: Failed metrics.json: 502 metrics unavailable'
+				""");
+		assertEquals("Update failed", page.textContent("#update-status"));
+		page.evaluate("() => app.refreshMetadata({ requestData: false })");
+		assertEquals(
+				"Metrics: Failed metrics.json: 502 metrics unavailable",
+				page.getAttribute("#update-status", "title"));
+
+		page.click("#btn-reload");
+		page.waitForFunction("""
+				() => document.getElementById('update-status')?.title
+					=== 'Metadata: Failed runs.json: 503\\n'
+						+ 'Metrics: Failed metrics.json: 502 metrics unavailable'
+				""");
+
+		page.click("#run-list .run-row[data-run-id='run_10']");
+		page.waitForFunction("""
+				() => document.getElementById('update-status')?.title
+					=== 'Metadata: Failed runs.json: 503'
+				""");
+
+		page.click("#btn-reload");
+		page.waitForFunction("""
+				() => {
+					const status = document.getElementById('update-status');
+					return status?.hidden && status.textContent === '' && status.title === '';
+				}
+				""");
 	}
 
 	@Test

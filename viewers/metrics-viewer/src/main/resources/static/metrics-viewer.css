@@ -123,6 +123,12 @@ input[type="checkbox"]:checked::after {
 	color: #fff;
 	margin: 0;
 }
+#update-status {
+	color: #ff8080;
+	font-size: 12px;
+	font-weight: 600;
+	white-space: nowrap;
+}
 .header-buttons {
 	display: flex;
 	gap: 4px;
