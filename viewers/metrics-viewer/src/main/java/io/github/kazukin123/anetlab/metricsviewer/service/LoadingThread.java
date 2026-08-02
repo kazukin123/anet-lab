@@ -11,10 +11,16 @@ public class LoadingThread extends Thread {
 	private static final Logger log = LoggerFactory.getLogger(LoadingThread.class);
 
 	private final IngestScheduler scheduler;
+	private final int idleSleepMs;
 	private volatile boolean running = true;
 
 	public LoadingThread(IngestScheduler scheduler) {
+		this(scheduler, IDLE_SLEEP_MS);
+	}
+
+	LoadingThread(IngestScheduler scheduler, int idleSleepMs) {
 		this.scheduler = scheduler;
+		this.idleSleepMs = idleSleepMs;
 		setName("Metrics-LoadingThread");
 		setDaemon(true);
 	}
@@ -40,8 +46,14 @@ public class LoadingThread extends Thread {
 		log.info("LoadingThread started.");
 		try {
 			while (running && !isInterrupted()) {
-				// 全Runが停止状態のときだけpoll間隔を空ける。
-				if (!scheduler.runCycle()) Thread.sleep(IDLE_SLEEP_MS);
+				try {
+					// 全Runが停止状態のときだけpoll間隔を空ける。
+					if (!scheduler.runCycle()) Thread.sleep(idleSleepMs);
+				} catch (RuntimeException e) {
+					// cycle境界の予期しない失敗を記録し、HTTPを生かしたまま次cycleで回復を試みる。
+					log.error("LoadingThread cycle failed; retrying in {}ms.", idleSleepMs, e);
+					Thread.sleep(idleSleepMs);
+				}
 			}
 		} catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
