@@ -399,12 +399,13 @@ runner アプリと同じ実行時配置に揃えています。
 
 ### Issue tracker
 
-Issues live in the GitHub repo `kazukin123/anet-lab`. Use the `gh` CLI.
+Implementation issues live as Markdown files under `.scratch/<feature>/`;
+PRDs and implementation plans remain under `docs/memo/`.
 See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Canonical roles map 1:1 to label strings (no overrides).
+Canonical roles map 1:1 to local issue status strings (no overrides).
 See `docs/agents/triage-labels.md`.
 
 ### Domain docs
