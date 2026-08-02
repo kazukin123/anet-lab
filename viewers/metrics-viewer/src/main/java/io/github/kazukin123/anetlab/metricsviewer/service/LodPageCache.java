@@ -37,6 +37,7 @@ public class LodPageCache {
 			long tagId,
 			int level,
 			long bucket) throws SQLException {
+		final long width = LodBucket.widthForLevel(level);
 		final long pageIndex = Math.floorDiv(bucket, LOD_PAGE_BUCKETS);
 		final PageKey key = new PageKey(generation, runId, tagId, level, pageIndex);
 		Page page;
@@ -44,10 +45,15 @@ public class LodPageCache {
 			page = pages.get(key);
 		}
 		if (page == null) {
+			if (capacityBytes == 0L) {
+				return loadBucket(connection, tagId, level, bucket);
+			}
 			final Page loaded = loadPage(connection, tagId, level, pageIndex);
-			page = capacityBytes == 0L ? loaded : retain(key, loaded);
+			page = !loaded.isComplete(pageIndex, width)
+					? loaded
+					: retain(key, loaded);
 		}
-		return page.find(bucket, LodBucket.widthForLevel(level));
+		return page.find(bucket, width);
 	}
 
 	public synchronized void retainRuns(Set<String> runIds) {
@@ -79,6 +85,27 @@ public class LodPageCache {
 
 	synchronized long usedBytes() {
 		return usedBytes;
+	}
+
+	private static LodBucket loadBucket(
+			Connection connection,
+			long tagId,
+			int level,
+			long bucket) throws SQLException {
+		try (PreparedStatement statement = connection.prepareStatement("""
+				SELECT bucket, cnt, step_first, step_last,
+				       min_ordinal, min_step, vmin,
+				       max_ordinal, max_step, vmax, vmean, vlast
+				FROM scalars_lod
+				WHERE tag_id=? AND level=? AND bucket=?
+				""")) {
+			statement.setLong(1, tagId);
+			statement.setInt(2, level);
+			statement.setLong(3, bucket);
+			try (ResultSet result = statement.executeQuery()) {
+				return result.next() ? LodBucket.fromLodRow(result, level) : null;
+			}
+		}
 	}
 
 	private Page retain(PageKey key, Page loaded) {
@@ -212,6 +239,15 @@ public class LodPageCache {
 				}
 			}
 			return null;
+		}
+
+		private boolean isComplete(long pageIndex, long width) {
+			if (buckets.length != LOD_PAGE_BUCKETS) return false;
+			final long firstBucket = Math.multiplyExact(pageIndex, LOD_PAGE_BUCKETS);
+			for (int i = 0; i < buckets.length; i++) {
+				if (buckets[i] != firstBucket + i || counts[i] != width) return false;
+			}
+			return true;
 		}
 
 		private long byteSize() {
