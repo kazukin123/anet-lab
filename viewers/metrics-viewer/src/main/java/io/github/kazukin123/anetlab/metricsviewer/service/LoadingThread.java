@@ -2,6 +2,7 @@ package io.github.kazukin123.anetlab.metricsviewer.service;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -14,6 +15,7 @@ public class LoadingThread extends Thread {
 	private final int idleSleepMs;
 	private volatile boolean running = true;
 
+	@Autowired
 	public LoadingThread(IngestScheduler scheduler) {
 		this(scheduler, IDLE_SLEEP_MS);
 	}
