@@ -3,6 +3,7 @@ package io.github.kazukin123.anetlab.metricsviewer.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -429,6 +430,69 @@ class MetricsIngestorIntegrationTest {
 					gzip.connection(),
 					"SELECT v FROM source_meta WHERE k='state'"));
 		}
+	}
+
+	@Test
+	void gzipSessionContinuesBufferedLinesAfterCompressedOffsetReachesEof()
+			throws Exception {
+		final Path runDir = tempDir.resolve("run-gzip-buffered-resume");
+		Files.createDirectories(runDir);
+		final Path gzip = runDir.resolve("metrics.jsonl.gz");
+		writeGzip(gzip, scalarLines(0, 5));
+		final MetricsSource source = MetricsSource.select(runDir).orElseThrow();
+		assertTrue(source.size() < 64 * 1024);
+
+		final MetricsCacheDatabase database = new MetricsCacheDatabase();
+		final GzipInputSessions sessions = new GzipInputSessions();
+		final MetricsIngestor ingestor = new MetricsIngestor(database, sessions, 2);
+
+		final MetricsIngestor.IngestOutcome first = ingestor.ingestBlock(
+				"run-gzip-buffered-resume", runDir, source);
+		assertTrue(first.didWork());
+		assertEquals(IngestState.CONVERTING, first.state());
+		final String generation;
+		final long committedOffset;
+		try (ConnectionHandle handle = database.openRead(runDir)) {
+			generation = queryString(
+					handle.connection(),
+					"SELECT v FROM source_meta WHERE k='generation'");
+			committedOffset = queryLong(
+					handle.connection(),
+					"SELECT CAST(v AS INTEGER) FROM source_meta WHERE k='committed_offset'");
+			assertEquals(2L, queryLong(handle.connection(), "SELECT COUNT(*) FROM scalars"));
+			assertEquals(source.size(), committedOffset);
+		}
+		assertTrue(sessions.hasSession(runDir, source));
+
+		final MetricsIngestor.IngestOutcome second = ingestor.ingestBlock(
+				"run-gzip-buffered-resume", runDir, source);
+		assertFalse(second.didWork());
+		assertEquals(IngestState.CONVERTING, second.state());
+		try (ConnectionHandle handle = database.openRead(runDir)) {
+			assertEquals(generation, queryString(
+					handle.connection(),
+					"SELECT v FROM source_meta WHERE k='generation'"));
+			assertEquals(committedOffset, queryLong(
+					handle.connection(),
+					"SELECT CAST(v AS INTEGER) FROM source_meta WHERE k='committed_offset'"));
+			assertEquals(4L, queryLong(handle.connection(), "SELECT COUNT(*) FROM scalars"));
+		}
+		assertTrue(sessions.hasSession(runDir, source));
+
+		final MetricsIngestor.IngestOutcome third = ingestor.ingestBlock(
+				"run-gzip-buffered-resume", runDir, source);
+		assertTrue(third.didWork());
+		assertEquals(IngestState.READY, third.state());
+		try (ConnectionHandle handle = database.openRead(runDir)) {
+			assertEquals(generation, queryString(
+					handle.connection(),
+					"SELECT v FROM source_meta WHERE k='generation'"));
+			assertEquals(committedOffset, queryLong(
+					handle.connection(),
+					"SELECT CAST(v AS INTEGER) FROM source_meta WHERE k='committed_offset'"));
+			assertEquals(5L, queryLong(handle.connection(), "SELECT COUNT(*) FROM scalars"));
+		}
+		assertFalse(sessions.hasSession(runDir, source));
 	}
 
 	@Test

@@ -177,12 +177,14 @@ MetricsIngestor.java:84-227 の `ingestBlock`(143 行)に gzip/raw の分岐が 
    - 契約: 「完全な 1 行を返す(未完行は返さない)」「消費ソースオフセットを報告する」「論理 EOF / corrupt を判定する」。
    - adapter 2 つ: `RawFileReader`(raw。オフセット=非圧縮 byte)と `GzipSessionReader`(gzip。GzipInputSessions の 3 段プロトコルと CountingInputStream を内包し、オフセット=圧縮消費 byte)。
    - オフセットの**単位の違いを名前で明示**する(例: `consumedSourceBytes()` の Javadoc に raw/gzip の意味を明記。BlockCursor 側もフィールド名か契約コメントで単位を明示)。
-3. `ingestBlock` は transaction 境界・状態遷移("ready"/"converting" 判定)・エラー分類だけにする。エラー分類の**現行挙動は誤分類含め維持**(共通原則 3。SQLException→"source_read_error" 経路は既知バグ疑いのため現状維持+TODO 可)。
+3. `ingestBlock` は transaction 境界・状態遷移("ready"/"converting" 判定)・エラー分類だけにする。エラー分類の**現行挙動は誤分類含め原則維持**(共通原則 3。SQLException→"source_read_error" 経路は既知バグ疑いのため現状維持+TODO 可)。ただし下記5の`loadTagState`例外契約は明示的な許容差分とする。
 4. `BlockWriteSession`(名前は例)を導入し、1 ブロック分の書込文脈(statements / lodInsert / tagStates / warnings / cursor)を 1 オブジェクトに畳んで writeScalar の 9 引数リレーを解消する。
 5. `DatabaseWriteRuntimeException` トンネルを撤去: `computeIfAbsent` をやめ `Map.get` + null 時ロード(checked SQLException をそのまま伝播)にする。
+   - **例外契約の裁定**: `loadTagState`内の`SQLException`も同じblock内の他の`SQLException`と同様に外側の分類へ到達し、rawでは`source_read_error`を記録してRunを`error`にする。旧実装でunchecked wrapperが外側のcatchを偶然迂回し、`converting`のまま次cycleへ再試行していた挙動は互換対象外とする。
+   - `SQLException`全般を`source_read_error`へ分類する問題自体は既知バグ#1のままとし、T6では`loadTagState`だけ旧挙動へ戻さない。将来の一括修正時に同じblock内の全`SQLException`をまとめて再裁定する。
 
 ### やらないこと
-- 取り込み結果(DB 内容・state 遷移・quarantine 条件・warn 条件・committed_offset の値)の一切の変更。単一 writer thread 前提の変更。
+- 上記`loadTagState`の例外契約を除く、取り込み結果(DB 内容・state 遷移・quarantine 条件・warn 条件・committed_offset の値)の変更。単一 writer thread 前提の変更。
 
 ### 完了条件
 - `if (gzip)` が ingestBlock 系から消え、モード差が 2 つの adapter に閉じている。writeScalar 系の引数リレーと例外トンネルが消えている。`mvn test` 緑(gzip/raw 両モードの統合テスト含む)。

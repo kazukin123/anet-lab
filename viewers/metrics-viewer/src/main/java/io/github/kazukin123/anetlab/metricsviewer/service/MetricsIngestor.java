@@ -1,10 +1,6 @@
 package io.github.kazukin123.anetlab.metricsviewer.service;
 
-import java.io.BufferedInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -15,7 +11,6 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.LongSupplier;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
@@ -33,6 +28,8 @@ import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.Con
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.IngestState;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.SourceMeta;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsSource;
+import io.github.kazukin123.anetlab.metricsviewer.service.SourceReader.GzipCorruptException;
+import io.github.kazukin123.anetlab.metricsviewer.service.SourceReader.ReadResult;
 
 @Component
 public class MetricsIngestor {
@@ -84,178 +81,85 @@ public class MetricsIngestor {
 	}
 
 	public IngestOutcome ingestBlock(String runId, Path runDir, MetricsSource source) throws Exception {
-		// ソース同一性を検証し、必要なら破棄可能cacheを先頭から作り直す。
-		final boolean gzip = "jsonl.gz".equals(source.kind());
-		final CachePreparation preparation = database.prepare(
-				runDir,
-				source,
-				gzip && gzipSessions.hasSession(runDir, source));
-		if (preparation.sourceUnchangedError()) {
-			if (gzip) gzipSessions.close(runDir);
-			return new IngestOutcome(false, IngestState.ERROR);
-		}
-		if (gzip && preparation.state() == IngestState.READY) {
-			gzipSessions.close(runDir);
-			return new IngestOutcome(false, IngestState.READY);
-		}
-
-		final long startOffset = preparation.committedOffset();
-		final BlockCursor cursor = new BlockCursor(startOffset);
-		final Map<String, TagWriteState> tagStates = new HashMap<>();
-		final Set<WarningKey> warnings = new HashSet<>();
-		final Set<TagQuarantineWarning> quarantineWarnings = new HashSet<>();
-		final InputStream input;
-		final LongSupplier consumedBytes;
-		final boolean closeInput;
-		if (gzip) {
-			final GzipInputSessions.Session session;
+		final SourceReader reader = SourceReader.forSource(runDir, source, gzipSessions);
+		try (reader) {
+			final SourceReader.Preparation sourcePreparation;
 			try {
-				session = gzipSessions.acquire(runDir, source, preparation.generation());
-			} catch (IOException e) {
-				markRunError(runDir, source, "gzip_corrupt", e.getMessage());
-				return new IngestOutcome(true, IngestState.ERROR);
-			}
-			input = session.input();
-			consumedBytes = session::compressedBytes;
-			closeInput = false;
-		} else {
-			input = new BufferedInputStream(
-					java.nio.file.Files.newInputStream(source.path()), 64 * 1024);
-			input.skipNBytes(startOffset);
-			consumedBytes = () -> cursor.bytesRead;
-			closeInput = true;
-		}
-
-		try (ConnectionHandle handle = database.openWrite(runDir)) {
-			final Connection connection = handle.connection();
-			connection.setAutoCommit(false);
-
-			try {
-				try (PreparedStatement insertScalar = connection.prepareStatement(
-							"INSERT INTO scalars(tag_id, ordinal, step, value) VALUES(?, ?, ?, ?)");
-						PreparedStatement insertJson = connection.prepareStatement("""
-								INSERT INTO json_lines(type, tag, step, timestamp, json)
-								VALUES(?, ?, ?, ?, ?)
-								""");
-						LodIngestWriter.InsertSession lodInsert =
-								lodWriter.openInsertSession(connection)) {
-					// 1行ずつparseし、巨大な中間Listを作らず同じtransactionへ反映する。
-					// JSONLはMetricsSource取得後も追記され得るため、取得時点の末尾を論理EOFとする。
-					final long readLimitOffset = gzip ? Long.MAX_VALUE : source.size();
-					readCompleteLines(input, consumedBytes, gzip, readLimitOffset, cursor, line -> {
-						final ParsedRecord record = parseRecord(line, cursor.bytesRead);
-						if (record.scalar()) {
-							writeScalar(
-									connection,
-									insertScalar,
-									lodInsert,
-									runId,
-									record,
-									cursor.bytesRead,
-									tagStates,
-									warnings,
-									quarantineWarnings);
-						} else {
-							writeJsonLine(insertJson, record, line);
-						}
-					});
-				}
-
-				// block内で更新したTagStatsとsource位置を、L0と同じcommit境界で確定する。
-				flushTagStats(connection, tagStates);
-				if (gzip && cursor.eof && cursor.trailingBytes != 0) {
-					throw new GzipCorruptException("gzip ended with an unterminated JSON line");
-				}
-				// raw JSONLの未終端末尾は次回追記まで保持するが、現snapshotの完全行には
-				// 追いついている。gzipだけはimmutableなので未終端末尾をcorruptとする。
-				final IngestState state = cursor.eof && (!gzip || cursor.trailingBytes == 0)
-						? IngestState.READY
-						: IngestState.CONVERTING;
-				updateSourceMeta(connection, source, cursor.committedOffset, state);
-				connection.commit();
-
-				for (WarningKey warning : warnings) {
-					if (issuedWarnings.add(warning)) {
-						log.warn(
-								"Skipping invalid scalar value: run={} tag={} reason={}",
-								warning.runId(),
-								warning.tag(),
-								warning.reason());
-					}
-				}
-				for (TagQuarantineWarning warning : quarantineWarnings) {
-					log.warn(
-							"Scalar tag quarantined: run={} tag={}"
-									+ " reason=tag_step_regression previousStep={} step={}"
-									+ " sourceOffset={}",
-							warning.runId(),
-							warning.tag(),
-							warning.previousStep(),
-							warning.step(),
-							warning.sourceOffset());
-				}
-				if (gzip && state == IngestState.READY) gzipSessions.close(runDir);
-				return new IngestOutcome(
-						cursor.committedOffset != startOffset || state != preparation.state(),
-						state);
-			} catch (FatalRecordException e) {
-				connection.rollback();
-				markRunError(runDir, source, e.code(), e.getMessage());
-				if (gzip) gzipSessions.close(runDir);
-				return new IngestOutcome(true, IngestState.ERROR);
+				// ソース同一性を検証し、必要なら破棄可能cacheを先頭から作り直す。
+				sourcePreparation = reader.prepare(database);
 			} catch (GzipCorruptException e) {
-				connection.rollback();
 				markRunError(runDir, source, "gzip_corrupt", e.getMessage());
-				gzipSessions.close(runDir);
+				reader.fail();
 				return new IngestOutcome(true, IngestState.ERROR);
-			} catch (IOException e) {
-				connection.rollback();
-				if (gzip) {
-					markRunError(runDir, source, "gzip_corrupt", e.getMessage());
-					gzipSessions.close(runDir);
+			}
+			final CachePreparation preparation = sourcePreparation.cache();
+			if (!sourcePreparation.readRequired()) {
+				return new IngestOutcome(false, preparation.state());
+			}
+
+			final long startOffset = preparation.committedOffset();
+
+			try (ConnectionHandle handle = database.openWrite(runDir)) {
+				final Connection connection = handle.connection();
+				connection.setAutoCommit(false);
+
+				try {
+					final ReadResult readResult;
+					final BlockWriteSession writeSession = new BlockWriteSession(connection, runId);
+					try (writeSession) {
+						// 1行ずつparseし、巨大な中間Listを作らず同じtransactionへ反映する。
+						readResult = reader.readCompleteLines(maxBlockLines, writeSession::writeLine);
+					}
+
+					// block内のL0、LOD、TagStats、source位置を同じcommit境界で確定する。
+					writeSession.flushTagStats();
+					reader.validate(readResult);
+					final IngestState state = readResult.logicalEof()
+							? IngestState.READY
+							: IngestState.CONVERTING;
+					updateSourceMeta(
+							connection,
+							source,
+							readResult.committedSourceOffset(),
+							state);
+					connection.commit();
+
+					writeSession.emitWarnings();
+					reader.finish(state);
+					return new IngestOutcome(
+							readResult.committedSourceOffset() != startOffset
+									|| state != preparation.state(),
+							state);
+				} catch (FatalRecordException e) {
+					connection.rollback();
+					markRunError(runDir, source, e.code(), e.getMessage());
+					reader.fail();
 					return new IngestOutcome(true, IngestState.ERROR);
+				} catch (GzipCorruptException e) {
+					connection.rollback();
+					markRunError(runDir, source, "gzip_corrupt", e.getMessage());
+					reader.fail();
+					return new IngestOutcome(true, IngestState.ERROR);
+				} catch (IOException e) {
+					connection.rollback();
+					if (reader.treatsBlockIOExceptionAsCorrupt()) {
+						markRunError(runDir, source, "gzip_corrupt", e.getMessage());
+						reader.fail();
+						return new IngestOutcome(true, IngestState.ERROR);
+					}
+					throw e;
+				} catch (Exception e) {
+					connection.rollback();
+					throw e;
+				}
+			} catch (IOException | SQLException e) {
+				// rawのSQLException誤分類を含む既存契約を維持する。
+				if (reader.marksDatabaseFailureAsSourceReadError()) {
+					markRunError(runDir, source, "source_read_error", e.getMessage());
 				}
 				throw e;
-			} catch (Exception e) {
-				connection.rollback();
-				throw e;
-			}
-		} catch (IOException | SQLException e) {
-			if (!gzip) markRunError(runDir, source, "source_read_error", e.getMessage());
-			throw e;
-		} finally {
-			if (closeInput) input.close();
-		}
-	}
-
-	private void readCompleteLines(
-			InputStream input,
-			LongSupplier consumedBytes,
-			boolean compressed,
-			long readLimitOffset,
-			BlockCursor cursor,
-			LineConsumer consumer) throws Exception {
-		final ByteArrayOutputStream lineBuffer = new ByteArrayOutputStream(4096);
-		int value = -1;
-		while (cursor.completedLines < maxBlockLines
-				&& cursor.bytesRead < readLimitOffset
-				&& (value = input.read()) >= 0) {
-			if (compressed) cursor.bytesRead = consumedBytes.getAsLong();
-			else cursor.bytesRead++;
-			if (value == '\n') {
-				cursor.completedLines++;
-				cursor.committedOffset = compressed ? consumedBytes.getAsLong() : cursor.bytesRead;
-				String line = lineBuffer.toString(StandardCharsets.UTF_8);
-				lineBuffer.reset();
-				if (line.endsWith("\r")) line = line.substring(0, line.length() - 1);
-				consumer.accept(line);
-			} else {
-				lineBuffer.write(value);
 			}
 		}
-		cursor.trailingBytes = lineBuffer.size();
-		cursor.eof = value < 0 || cursor.bytesRead >= readLimitOffset;
-		if (compressed) cursor.bytesRead = consumedBytes.getAsLong();
 	}
 
 	private static ParsedRecord parseRecord(String rawLine, long sourceOffset)
@@ -346,67 +250,62 @@ public class MetricsIngestor {
 	}
 
 	private void writeScalar(
-			Connection connection,
-			PreparedStatement insertScalar,
-			LodIngestWriter.InsertSession lodInsert,
-			String runId,
+			BlockWriteSession session,
 			ParsedRecord record,
-			long sourceOffset,
-			Map<String, TagWriteState> tagStates,
-			Set<WarningKey> warnings,
-			Set<TagQuarantineWarning> quarantineWarnings) throws SQLException {
+			long sourceOffset) throws SQLException {
 		final JsonNode valueNode = record.valueNode();
 		if (valueNode.isNull()) {
-			warnings.add(new WarningKey(runId, record.tag(), "null"));
+			session.warnings.add(new WarningKey(session.runId, record.tag(), "null"));
 			return;
 		}
 		if (!valueNode.isNumber()) {
-			warnings.add(new WarningKey(runId, record.tag(), "not_numeric"));
+			session.warnings.add(new WarningKey(session.runId, record.tag(), "not_numeric"));
 			return;
 		}
 		final double value = valueNode.doubleValue();
 		if (!Double.isFinite(value)) {
-			warnings.add(new WarningKey(runId, record.tag(), "non_finite"));
+			session.warnings.add(new WarningKey(session.runId, record.tag(), "non_finite"));
 			return;
 		}
 		if (!Float.isFinite((float) value)) {
-			warnings.add(new WarningKey(runId, record.tag(), "f32_overflow"));
+			session.warnings.add(new WarningKey(session.runId, record.tag(), "f32_overflow"));
 			return;
 		}
 
-		final TagWriteState state = tagStates.computeIfAbsent(
-				record.tag(),
-				tag -> loadTagState(connection, tag));
+		TagWriteState state = session.tagStates.get(record.tag());
+		if (state == null) {
+			state = loadTagState(session.connection, record.tag());
+			session.tagStates.put(record.tag(), state);
+		}
 		if (state.quarantined) return;
 		if (state.count > 0L && record.step() < state.previousStep) {
-			quarantineWarnings.add(new TagQuarantineWarning(
-					runId,
+			session.quarantineWarnings.add(new TagQuarantineWarning(
+					session.runId,
 					record.tag(),
 					state.previousStep,
 					record.step(),
 					sourceOffset));
-			quarantineTag(connection, state, sourceOffset, record.step());
+			quarantineTag(session.connection, state, sourceOffset, record.step());
 			state.quarantined = true;
 			return;
 		}
 
 		final long ordinal = state.nextOrdinal;
-		insertScalar.setLong(1, state.tagId);
-		insertScalar.setLong(2, ordinal);
-		insertScalar.setLong(3, record.step());
-		insertScalar.setDouble(4, value);
-		insertScalar.executeUpdate();
+		session.insertScalar.setLong(1, state.tagId);
+		session.insertScalar.setLong(2, ordinal);
+		session.insertScalar.setLong(3, record.step());
+		session.insertScalar.setDouble(4, value);
+		session.insertScalar.executeUpdate();
 		state.record(record.step(), value);
 		lodWriter.append(
-				lodInsert,
+				session.lodInsert,
 				state.tagId,
 				state.lodState,
 				LodBucket.point(ordinal, record.step(), value));
 	}
 
-	private TagWriteState loadTagState(Connection connection, String tag) {
-		try {
-			try (PreparedStatement statement = connection.prepareStatement("""
+	private TagWriteState loadTagState(Connection connection, String tag) throws SQLException {
+		try (PreparedStatement statement = connection.prepareStatement("""
 					SELECT t.id, t.status, s.count, s.mean, s.m2, s.min_value, s.max_value,
 					       s.min_step, s.max_step, s.last_value,
 					       COALESCE((SELECT MAX(ordinal) + 1 FROM scalars WHERE tag_id=t.id), 0)
@@ -414,30 +313,27 @@ public class MetricsIngestor {
 					LEFT JOIN tag_stats s ON s.tag_id=t.id
 					WHERE t.key=?
 					""")) {
-				statement.setString(1, tag);
-				try (ResultSet result = statement.executeQuery()) {
-					if (result.next()) {
-						final TagWriteState state = TagWriteState.fromResult(result);
-						state.lodState = lodWriter.restore(connection, state.tagId, state.count);
-						return state;
-					}
-				}
-			}
-
-			try (PreparedStatement statement = connection.prepareStatement(
-					"INSERT INTO tags(key, type, status) VALUES(?, 'scalar', 'ok')",
-					PreparedStatement.RETURN_GENERATED_KEYS)) {
-				statement.setString(1, tag);
-				statement.executeUpdate();
-				try (ResultSet keys = statement.getGeneratedKeys()) {
-					if (!keys.next()) throw new SQLException("Missing generated tag id");
-					final TagWriteState state = TagWriteState.empty(keys.getLong(1));
-					state.lodState = lodWriter.restore(connection, state.tagId, 0L);
+			statement.setString(1, tag);
+			try (ResultSet result = statement.executeQuery()) {
+				if (result.next()) {
+					final TagWriteState state = TagWriteState.fromResult(result);
+					state.lodState = lodWriter.restore(connection, state.tagId, state.count);
 					return state;
 				}
 			}
-		} catch (SQLException e) {
-			throw new DatabaseWriteRuntimeException(e);
+		}
+
+		try (PreparedStatement statement = connection.prepareStatement(
+				"INSERT INTO tags(key, type, status) VALUES(?, 'scalar', 'ok')",
+				PreparedStatement.RETURN_GENERATED_KEYS)) {
+			statement.setString(1, tag);
+			statement.executeUpdate();
+			try (ResultSet keys = statement.getGeneratedKeys()) {
+				if (!keys.next()) throw new SQLException("Missing generated tag id");
+				final TagWriteState state = TagWriteState.empty(keys.getLong(1));
+				state.lodState = lodWriter.restore(connection, state.tagId, 0L);
+				return state;
+			}
 		}
 	}
 
@@ -532,9 +428,95 @@ public class MetricsIngestor {
 		}
 	}
 
-	@FunctionalInterface
-	private interface LineConsumer {
-		void accept(String line) throws Exception;
+	private final class BlockWriteSession implements AutoCloseable {
+		private final Connection connection;
+		private final String runId;
+		private final Map<String, TagWriteState> tagStates = new HashMap<>();
+		private final Set<WarningKey> warnings = new HashSet<>();
+		private final Set<TagQuarantineWarning> quarantineWarnings = new HashSet<>();
+		private PreparedStatement insertScalar;
+		private PreparedStatement insertJson;
+		private LodIngestWriter.InsertSession lodInsert;
+
+		private BlockWriteSession(Connection connection, String runId) throws SQLException {
+			this.connection = connection;
+			this.runId = runId;
+			try {
+				insertScalar = connection.prepareStatement(
+						"INSERT INTO scalars(tag_id, ordinal, step, value) VALUES(?, ?, ?, ?)");
+				insertJson = connection.prepareStatement("""
+						INSERT INTO json_lines(type, tag, step, timestamp, json)
+						VALUES(?, ?, ?, ?, ?)
+						""");
+				lodInsert = lodWriter.openInsertSession(connection);
+			} catch (SQLException e) {
+				try {
+					close();
+				} catch (SQLException closeError) {
+					e.addSuppressed(closeError);
+				}
+				throw e;
+			}
+		}
+
+		private void writeLine(String line, long sourceOffset) throws Exception {
+			final ParsedRecord record = parseRecord(line, sourceOffset);
+			if (record.scalar()) {
+				writeScalar(this, record, sourceOffset);
+			} else {
+				writeJsonLine(insertJson, record, line);
+			}
+		}
+
+		private void flushTagStats() throws SQLException {
+			MetricsIngestor.flushTagStats(connection, tagStates);
+		}
+
+		private void emitWarnings() {
+			for (WarningKey warning : warnings) {
+				if (issuedWarnings.add(warning)) {
+					log.warn(
+							"Skipping invalid scalar value: run={} tag={} reason={}",
+							warning.runId(),
+							warning.tag(),
+							warning.reason());
+				}
+			}
+			for (TagQuarantineWarning warning : quarantineWarnings) {
+				log.warn(
+						"Scalar tag quarantined: run={} tag={}"
+								+ " reason=tag_step_regression previousStep={} step={}"
+								+ " sourceOffset={}",
+						warning.runId(),
+						warning.tag(),
+						warning.previousStep(),
+						warning.step(),
+						warning.sourceOffset());
+			}
+		}
+
+		@Override
+		public void close() throws SQLException {
+			SQLException failure = null;
+			failure = closeResource(lodInsert, failure);
+			failure = closeResource(insertJson, failure);
+			failure = closeResource(insertScalar, failure);
+			if (failure != null) throw failure;
+		}
+
+		private SQLException closeResource(AutoCloseable resource, SQLException failure) {
+			if (resource == null) return failure;
+			try {
+				resource.close();
+			} catch (Exception e) {
+				final SQLException closeError = e instanceof SQLException sqlError
+						? sqlError
+						: new SQLException("Failed to close block write resource", e);
+				if (failure == null) return closeError;
+				failure.addSuppressed(closeError);
+			}
+			return failure;
+		}
 	}
 
 	private record ParsedRecord(
@@ -555,19 +537,6 @@ public class MetricsIngestor {
 			long previousStep,
 			long step,
 			long sourceOffset) {
-	}
-
-	private static final class BlockCursor {
-		private long bytesRead;
-		private long committedOffset;
-		private int completedLines;
-		private int trailingBytes;
-		private boolean eof;
-
-		private BlockCursor(long startOffset) {
-			this.bytesRead = startOffset;
-			this.committedOffset = startOffset;
-		}
 	}
 
 	private static final class TagWriteState {
@@ -654,15 +623,4 @@ public class MetricsIngestor {
 		}
 	}
 
-	private static final class GzipCorruptException extends IOException {
-		private GzipCorruptException(String message) {
-			super(message);
-		}
-	}
-
-	private static final class DatabaseWriteRuntimeException extends RuntimeException {
-		private DatabaseWriteRuntimeException(SQLException cause) {
-			super(cause);
-		}
-	}
 }
