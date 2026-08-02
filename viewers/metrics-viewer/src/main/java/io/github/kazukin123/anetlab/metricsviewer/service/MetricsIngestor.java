@@ -152,11 +152,16 @@ public class MetricsIngestor {
 					connection.rollback();
 					throw e;
 				}
-			} catch (IOException | SQLException e) {
-				// rawのSQLException誤分類を含む既存契約を維持する。
-				if (reader.marksDatabaseFailureAsSourceReadError()) {
+			} catch (IOException e) {
+				// Metricsマスタの読取失敗だけをsource errorとして記録する。
+				if (reader.marksSourceReadFailureAsError()) {
 					markRunError(runDir, source, "source_read_error", e.getMessage());
 				}
+				throw e;
+			} catch (SQLException e) {
+				// 開始済みcache transactionはrollbackされる。読取位置だけが先行しないようsessionを破棄し、
+				// pending/convertingを維持したまま次cycleの再試行へ委ねる。
+				reader.fail();
 				throw e;
 			}
 		}

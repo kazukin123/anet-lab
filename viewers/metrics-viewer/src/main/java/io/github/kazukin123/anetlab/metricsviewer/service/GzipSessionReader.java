@@ -98,7 +98,7 @@ final class GzipSessionReader implements SourceReader {
 	}
 
 	@Override
-	public boolean marksDatabaseFailureAsSourceReadError() {
+	public boolean marksSourceReadFailureAsError() {
 		return false;
 	}
 

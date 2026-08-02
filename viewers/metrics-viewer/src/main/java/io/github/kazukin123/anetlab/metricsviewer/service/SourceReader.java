@@ -89,7 +89,7 @@ interface SourceReader extends AutoCloseable {
 
 	boolean treatsBlockIOExceptionAsCorrupt();
 
-	boolean marksDatabaseFailureAsSourceReadError();
+	boolean marksSourceReadFailureAsError();
 
 	@Override
 	void close() throws IOException;

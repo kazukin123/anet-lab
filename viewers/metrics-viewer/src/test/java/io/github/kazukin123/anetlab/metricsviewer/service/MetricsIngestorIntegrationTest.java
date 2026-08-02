@@ -3,15 +3,19 @@ package io.github.kazukin123.anetlab.metricsviewer.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.sql.Connection;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.GZIPOutputStream;
 
 import org.junit.jupiter.api.Test;
@@ -20,15 +24,61 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 
+import io.github.kazukin123.anetlab.metricsviewer.config.MetricsViewerSettings;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.ConnectionHandle;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.IngestState;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsSource;
+import io.github.kazukin123.anetlab.metricsviewer.infra.RunScanner;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.RunInfo;
 
 class MetricsIngestorIntegrationTest {
 
 	@TempDir
 	private Path tempDir;
+
+	@Test
+	void databaseWriteFailureKeepsRunRetryableAndNextAttemptRecovers() throws Exception {
+		final String runId = "run-database-retry";
+		final Path runDir = tempDir.resolve(runId);
+		Files.createDirectories(runDir);
+		Files.writeString(
+				runDir.resolve("metrics.jsonl"),
+				scalarLines(0, 2),
+				StandardCharsets.UTF_8);
+
+		final MetricsCacheDatabase database = new FailSecondWriteDatabase();
+		final MetricsIngestor ingestor = new MetricsIngestor(
+				database,
+				new GzipInputSessions(),
+				1);
+		final MetricsRepository repository = createRepository(database);
+		final MetricsSource source = MetricsSource.select(runDir).orElseThrow();
+
+		final MetricsIngestor.IngestOutcome first = ingestor.ingestBlock(runId, runDir, source);
+		assertEquals(IngestState.CONVERTING, first.state());
+		final RunInfo beforeFailure = repository.findRunInfo(runId);
+		assertEquals("converting", beforeFailure.getIngest().state());
+		assertEquals(50, beforeFailure.getIngest().percentage());
+		assertNull(beforeFailure.getIngest().error());
+
+		assertThrows(SQLException.class, () -> ingestor.ingestBlock(runId, runDir, source));
+
+		final RunInfo afterFailure = repository.findRunInfo(runId);
+		assertEquals(beforeFailure.getGeneration(), afterFailure.getGeneration());
+		assertEquals("converting", afterFailure.getIngest().state());
+		assertEquals(50, afterFailure.getIngest().percentage());
+		assertNull(afterFailure.getIngest().error());
+
+		final MetricsIngestor.IngestOutcome retry = ingestor.ingestBlock(runId, runDir, source);
+		assertEquals(IngestState.READY, retry.state());
+		final RunInfo recovered = repository.findRunInfo(runId);
+		assertEquals(beforeFailure.getGeneration(), recovered.getGeneration());
+		assertEquals("ready", recovered.getIngest().state());
+		assertEquals(100, recovered.getIngest().percentage());
+		assertNull(recovered.getIngest().error());
+		assertEquals(2L, recovered.getTags().get(0).getStats().getCount());
+	}
 
 	@Test
 	@ExtendWith(OutputCaptureExtension.class)
@@ -658,5 +708,26 @@ class MetricsIngestorIntegrationTest {
 			offset += needle.length();
 		}
 		return count;
+	}
+
+	private MetricsRepository createRepository(MetricsCacheDatabase database) {
+		final MetricsViewerSettings settings = new MetricsViewerSettings(3, 100, 0, 1);
+		return new MetricsRepository(
+				new RunScanner(tempDir.toString()),
+				database,
+				settings,
+				new MetricsRangeProjector(new LodPageCache(settings)));
+	}
+
+	private static final class FailSecondWriteDatabase extends MetricsCacheDatabase {
+		private final AtomicInteger writeCount = new AtomicInteger();
+
+		@Override
+		public ConnectionHandle openWrite(Path runDir) throws SQLException {
+			if (writeCount.incrementAndGet() == 2) {
+				throw new SQLException("Injected Metrics cache write failure");
+			}
+			return super.openWrite(runDir);
+		}
 	}
 }

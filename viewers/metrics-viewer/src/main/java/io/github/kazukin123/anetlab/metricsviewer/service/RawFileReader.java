@@ -76,7 +76,7 @@ final class RawFileReader implements SourceReader {
 	}
 
 	@Override
-	public boolean marksDatabaseFailureAsSourceReadError() {
+	public boolean marksSourceReadFailureAsError() {
 		return true;
 	}
 
