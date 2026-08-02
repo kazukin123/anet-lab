@@ -23,7 +23,7 @@ public class IngestScheduler {
 	private final RunScanner runScanner;
 	private final MetricsIngestor ingestor;
 	private final GzipInputSessions gzipSessions;
-	private final Set<String> duplicateSourceWarnings = java.util.concurrent.ConcurrentHashMap.newKeySet();
+	private final RunWarningRegistry warningRegistry;
 	private final AtomicReference<Set<String>> priorityRunIds =
 			new AtomicReference<>(Set.of());
 	private int priorityCursor;
@@ -32,10 +32,12 @@ public class IngestScheduler {
 	public IngestScheduler(
 			RunScanner runScanner,
 			MetricsIngestor ingestor,
-			GzipInputSessions gzipSessions) {
+			GzipInputSessions gzipSessions,
+			RunWarningRegistry warningRegistry) {
 		this.runScanner = runScanner;
 		this.ingestor = ingestor;
 		this.gzipSessions = gzipSessions;
+		this.warningRegistry = warningRegistry;
 	}
 
 	public void replacePriority(Set<String> runIds) {
@@ -47,16 +49,19 @@ public class IngestScheduler {
 	}
 
 	public boolean runCycle() {
+		final Set<String> priorityAtScanStart = priorityRunIds.get();
 		final List<String> allRuns = runScanner.listRunId();
 		final Set<String> existing = Set.copyOf(allRuns);
 		priorityRunIds.updateAndGet(current -> {
 			final Set<String> retained = new LinkedHashSet<>(current);
-			retained.retainAll(existing);
+			// scan開始後に追加されたpriorityを、古いscan結果で削除しない。
+			retained.removeIf(runId -> priorityAtScanStart.contains(runId)
+					&& !existing.contains(runId));
 			return Set.copyOf(retained);
 		});
 		gzipSessions.retainRuns(allRuns.stream().map(runScanner::resolveRunDir).collect(
 				java.util.stream.Collectors.toUnmodifiableSet()));
-		duplicateSourceWarnings.retainAll(existing);
+		warningRegistry.retainRuns(existing);
 
 		final Set<String> priority = priorityRunIds.get();
 		final List<String> selected = new ArrayList<>();
@@ -111,7 +116,7 @@ public class IngestScheduler {
 	private void warnForDuplicateSources(String runId, Path runDir) {
 		if (Files.isRegularFile(runDir.resolve("metrics.jsonl"))
 				&& Files.isRegularFile(runDir.resolve("metrics.jsonl.gz"))
-				&& duplicateSourceWarnings.add(runId)) {
+				&& warningRegistry.firstDuplicateSource(runId)) {
 			log.warn("Both metrics.jsonl and metrics.jsonl.gz exist; using metrics.jsonl: run={}", runId);
 		}
 	}

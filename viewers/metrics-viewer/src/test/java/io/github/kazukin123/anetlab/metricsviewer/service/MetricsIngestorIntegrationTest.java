@@ -267,7 +267,8 @@ class MetricsIngestorIntegrationTest {
 
 	@Test
 	@ExtendWith(OutputCaptureExtension.class)
-	void invalidValueWarningIsLoggedOncePerRunTagAndReason(CapturedOutput output) throws Exception {
+	void invalidValueWarningIsLoggedOnceWhileTheRunRemainsInTheWorkSet(
+			CapturedOutput output) throws Exception {
 		final Path runDir = tempDir.resolve("run-warning-once");
 		Files.createDirectories(runDir);
 		final Path jsonl = runDir.resolve("metrics.jsonl");
@@ -285,6 +286,12 @@ class MetricsIngestorIntegrationTest {
 				"run-warning-once",
 				runDir,
 				MetricsSource.select(runDir).orElseThrow());
+		final String firstGeneration;
+		try (ConnectionHandle handle = database.openRead(runDir)) {
+			firstGeneration = queryString(
+					handle.connection(),
+					"SELECT v FROM source_meta WHERE k='generation'");
+		}
 		Files.writeString(
 				jsonl,
 				"{\"type\":\"scalar\",\"tag\":\"loss\",\"step\":3,\"value\":null}\n",
@@ -294,6 +301,19 @@ class MetricsIngestorIntegrationTest {
 				"run-warning-once",
 				runDir,
 				MetricsSource.select(runDir).orElseThrow());
+		Files.writeString(
+				jsonl,
+				"{\"type\":\"scalar\",\"tag\":\"loss\",\"step\":1000,\"value\":null}\n",
+				StandardCharsets.UTF_8);
+		ingestor.ingestBlock(
+				"run-warning-once",
+				runDir,
+				MetricsSource.select(runDir).orElseThrow());
+		try (ConnectionHandle handle = database.openRead(runDir)) {
+			assertNotEquals(firstGeneration, queryString(
+					handle.connection(),
+					"SELECT v FROM source_meta WHERE k='generation'"));
+		}
 
 		assertEquals(1, countOccurrences(
 				output.getAll(),

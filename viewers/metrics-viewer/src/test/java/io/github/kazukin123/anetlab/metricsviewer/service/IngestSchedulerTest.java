@@ -1,6 +1,7 @@
 package io.github.kazukin123.anetlab.metricsviewer.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -9,9 +10,15 @@ import static org.mockito.Mockito.when;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -19,6 +26,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 
+import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.IngestState;
 import io.github.kazukin123.anetlab.metricsviewer.infra.RunScanner;
 
@@ -50,7 +58,8 @@ class IngestSchedulerTest {
 					return new MetricsIngestor.IngestOutcome(true, IngestState.CONVERTING);
 				});
 		final IngestScheduler scheduler =
-				new IngestScheduler(scanner, ingestor, new GzipInputSessions());
+				new IngestScheduler(
+						scanner, ingestor, new GzipInputSessions(), new RunWarningRegistry());
 		scheduler.replacePriority(Set.of("p1", "p2"));
 
 		scheduler.runCycle();
@@ -82,7 +91,8 @@ class IngestSchedulerTest {
 					return new MetricsIngestor.IngestOutcome(true, IngestState.CONVERTING);
 				});
 		final IngestScheduler scheduler =
-				new IngestScheduler(scanner, ingestor, new GzipInputSessions());
+				new IngestScheduler(
+						scanner, ingestor, new GzipInputSessions(), new RunWarningRegistry());
 
 		scheduler.runCycle();
 
@@ -90,8 +100,40 @@ class IngestSchedulerTest {
 	}
 
 	@Test
+	void priorityAddedDuringScanIsNotPrunedByThatScan() throws Exception {
+		final CountDownLatch scanStarted = new CountDownLatch(1);
+		final CountDownLatch finishScan = new CountDownLatch(1);
+		final RunScanner scanner = mock(RunScanner.class);
+		when(scanner.listRunId()).thenAnswer(ignored -> {
+			scanStarted.countDown();
+			finishScan.await(2, TimeUnit.SECONDS);
+			return List.of();
+		});
+		final IngestScheduler scheduler = new IngestScheduler(
+				scanner,
+				mock(MetricsIngestor.class),
+				new GzipInputSessions(),
+				new RunWarningRegistry());
+		final ExecutorService executor = Executors.newSingleThreadExecutor();
+
+		try {
+			final Future<Boolean> cycle = executor.submit(scheduler::runCycle);
+			assertTrue(scanStarted.await(2, TimeUnit.SECONDS));
+			scheduler.replacePriority(Set.of("new-run"));
+			finishScan.countDown();
+			cycle.get(2, TimeUnit.SECONDS);
+		} finally {
+			finishScan.countDown();
+			executor.shutdownNow();
+		}
+
+		assertEquals(Set.of("new-run"), scheduler.priorityRunIds());
+	}
+
+	@Test
 	@ExtendWith(OutputCaptureExtension.class)
-	void jsonlWinsAndTheDuplicateSourceWarningIsEmittedOncePerRun(CapturedOutput output)
+	void duplicateSourceWarningIsEmittedAgainAfterTheRunReentersTheWorkSet(
+			CapturedOutput output)
 			throws Exception {
 		final String runId = "both";
 		final Path runDir = tempDir.resolve(runId);
@@ -99,20 +141,70 @@ class IngestSchedulerTest {
 		Files.writeString(runDir.resolve("metrics.jsonl"), "{}\n", StandardCharsets.UTF_8);
 		Files.write(runDir.resolve("metrics.jsonl.gz"), new byte[] {31, -117, 8, 0});
 		final RunScanner scanner = mock(RunScanner.class);
-		when(scanner.listRunId()).thenReturn(List.of(runId));
+		when(scanner.listRunId()).thenReturn(
+				List.of(runId),
+				List.of(runId),
+				List.of(),
+				List.of(runId));
 		when(scanner.resolveRunDir(runId)).thenReturn(runDir);
 		final MetricsIngestor ingestor = mock(MetricsIngestor.class);
 		when(ingestor.ingestBlock(anyString(), any(Path.class), any()))
 				.thenReturn(new MetricsIngestor.IngestOutcome(false, IngestState.READY));
 		final IngestScheduler scheduler =
-				new IngestScheduler(scanner, ingestor, new GzipInputSessions());
+				new IngestScheduler(
+						scanner, ingestor, new GzipInputSessions(), new RunWarningRegistry());
 
 		scheduler.runCycle();
 		scheduler.runCycle();
+		scheduler.runCycle();
+		scheduler.runCycle();
 
-		assertEquals(1, countOccurrences(
+		assertEquals(2, countOccurrences(
 				output.getAll(),
 				"Both metrics.jsonl and metrics.jsonl.gz exist; using metrics.jsonl: run=both"));
+	}
+
+	@Test
+	@ExtendWith(OutputCaptureExtension.class)
+	void scalarWarningIsEmittedAgainAfterTheRunLeavesAndReentersTheWorkSet(
+			CapturedOutput output) throws Exception {
+		final String runId = "scalar-warning";
+		final Path runDir = tempDir.resolve(runId);
+		Files.createDirectories(runDir);
+		final Path source = runDir.resolve("metrics.jsonl");
+		final Path parkedSource = runDir.resolve("metrics.jsonl.parked");
+		Files.writeString(
+				source,
+				"{\"type\":\"scalar\",\"tag\":\"loss\",\"step\":1,\"value\":null}\n",
+				StandardCharsets.UTF_8);
+		final GzipInputSessions gzipSessions = new GzipInputSessions();
+		final RunWarningRegistry warningRegistry = new RunWarningRegistry();
+		final MetricsIngestor ingestor = new MetricsIngestor(
+				new MetricsCacheDatabase(),
+				gzipSessions,
+				new LodIngestWriter(),
+				warningRegistry);
+		final IngestScheduler scheduler = new IngestScheduler(
+				new RunScanner(tempDir.toString()),
+				ingestor,
+				gzipSessions,
+				warningRegistry);
+
+		scheduler.runCycle();
+		scheduler.runCycle();
+		Files.move(source, parkedSource);
+		scheduler.runCycle();
+		Files.move(parkedSource, source);
+		Files.writeString(
+				source,
+				"{\"type\":\"scalar\",\"tag\":\"loss\",\"step\":2,\"value\":null}\n",
+				StandardCharsets.UTF_8,
+				StandardOpenOption.APPEND);
+		scheduler.runCycle();
+
+		assertEquals(2, countOccurrences(
+				output.getAll(),
+				"run=scalar-warning tag=loss reason=null"));
 	}
 
 	private static int countOccurrences(String text, String needle) {

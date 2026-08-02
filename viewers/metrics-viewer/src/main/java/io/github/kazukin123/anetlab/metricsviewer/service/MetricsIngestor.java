@@ -10,7 +10,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
@@ -44,39 +43,52 @@ public class MetricsIngestor {
 	private final MetricsCacheDatabase database;
 	private final GzipInputSessions gzipSessions;
 	private final LodIngestWriter lodWriter;
+	private final RunWarningRegistry warningRegistry;
 	private final int maxBlockLines;
-	private final Set<WarningKey> issuedWarnings = ConcurrentHashMap.newKeySet();
 
 	public record IngestOutcome(boolean didWork, IngestState state) {
 	}
 
 	public MetricsIngestor(MetricsCacheDatabase database) {
-		this(database, new GzipInputSessions(), new LodIngestWriter(), MAX_BLOCK_LINES);
+		this(
+				database,
+				new GzipInputSessions(),
+				new LodIngestWriter(),
+				new RunWarningRegistry(),
+				MAX_BLOCK_LINES);
 	}
 
 	@Autowired
 	public MetricsIngestor(
 			MetricsCacheDatabase database,
 			GzipInputSessions gzipSessions,
-			LodIngestWriter lodWriter) {
-		this(database, gzipSessions, lodWriter, MAX_BLOCK_LINES);
+			LodIngestWriter lodWriter,
+			RunWarningRegistry warningRegistry) {
+		this(database, gzipSessions, lodWriter, warningRegistry, MAX_BLOCK_LINES);
 	}
 
 	MetricsIngestor(
 			MetricsCacheDatabase database,
 			GzipInputSessions gzipSessions,
 			int maxBlockLines) {
-		this(database, gzipSessions, new LodIngestWriter(), maxBlockLines);
+		this(
+				database,
+				gzipSessions,
+				new LodIngestWriter(),
+				new RunWarningRegistry(),
+				maxBlockLines);
 	}
 
 	private MetricsIngestor(
 			MetricsCacheDatabase database,
 			GzipInputSessions gzipSessions,
 			LodIngestWriter lodWriter,
+			RunWarningRegistry warningRegistry,
 			int maxBlockLines) {
 		this.database = database;
 		this.gzipSessions = gzipSessions;
 		this.lodWriter = lodWriter;
+		this.warningRegistry = warningRegistry;
 		this.maxBlockLines = maxBlockLines;
 	}
 
@@ -479,7 +491,8 @@ public class MetricsIngestor {
 
 		private void emitWarnings() {
 			for (WarningKey warning : warnings) {
-				if (issuedWarnings.add(warning)) {
+				if (warningRegistry.firstScalarSkip(
+						warning.runId(), warning.tag(), warning.reason())) {
 					log.warn(
 							"Skipping invalid scalar value: run={} tag={} reason={}",
 							warning.runId(),
