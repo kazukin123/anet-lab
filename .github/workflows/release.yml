@@ -255,7 +255,7 @@ jobs:
 
     - name: Upload artifact (main tree)
       if: github.ref_type != 'tag'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: anet-lab-${{ steps.ver.outputs.version }}-win64
         path: stage/
@@ -263,7 +263,7 @@ jobs:
 
     - name: Upload artifact (docs)
       if: github.ref_type != 'tag'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: anet-lab-docs-${{ steps.ver.outputs.version }}
         path: docs/html/
