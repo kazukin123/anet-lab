@@ -155,6 +155,16 @@ _Avoid_: eval profile, eval preset, RunMode（別概念）
 `interval=0` の評価タグが持つ「意図された休止」状態。宣言検証と name 予約だけが行われ、runner / Env / actor / observer は生成されない。意図された状態なので fail-fast の対象外——dormant タグを参照する metrics はエラーではなく、タグごと 1 回の WARN で skip される（未宣言タグの参照＝typo は従来どおりエラー）。
 _Avoid_: disabled（エラー状態と紛らわしい）, 無効タグ
 
+### Runner GUI
+
+**主領域**:
+Runner 画面中央で Train pane・Eval pane が占める領域。両 pane が定位置（Train=Centre、Eval=Right 内側）に表示されている間だけ 50:50 分割ポリシーの対象になり、どちらかが非表示・浮動・移動中は wxAUI の素の配分に任せる。
+_Avoid_: main area, センター領域
+
+**補助 pane**:
+HeatMap・Conv2d のように View メニューから動的追加される右端の可視化 pane 群。名前は生成時刻で一意化され、追加時に既存の補助 pane 列（最外周の右列）へ同じ幅で縦積みされる。Train/Eval/QValue/Log の常設 pane とは寿命も配置規約も異なる。
+_Avoid_: aux panel, ツールパネル, サブパネル
+
 ### Metrics基盤
 
 **Run作業セット**:

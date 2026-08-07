@@ -90,7 +90,7 @@ nameは不透明な表示文字列であり、Env class ID、RunMode、config pr
 |---|---|
 | State/Action/Env interface | [rl.hpp](../../core/anet-core/include/anet/rl.hpp)、[rl.cpp](../../core/anet-core/src/rl.cpp) |
 | batch wrapper・repository | [env.hpp](../../core/anet-core/include/anet/env.hpp)、[env.cpp](../../core/anet-core/src/env.cpp) |
-| View interface・repository | [gui.hpp](../../core/anet-core/include/anet/gui.hpp)、[gui.cpp](../../core/anet-core/src/gui.cpp) |
+| View interface・repository、AUIレイアウト基底Frame（`AuiLayoutFrame`） | [gui.hpp](../../core/anet-core/include/anet/gui.hpp)、[gui.cpp](../../core/anet-core/src/gui.cpp) |
 
 ### 4.2 具象Env
 

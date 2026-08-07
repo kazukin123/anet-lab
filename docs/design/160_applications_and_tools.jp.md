@@ -17,6 +17,7 @@
 ### 1.3 記載範囲
 
 現行の`apps/runner`、`viewers/metrics-viewer`、`apps/runner/tools`と起動launcherを扱う。Agent、Env、学習loop、metric生成の内部は各設計文書を参照する。
+Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存ライブラリ）は[Metrics Viewer](210_metrics_viewer.jp.md)を正本とし、本書ではprocess境界と接続だけを扱う。
 
 ## 2. コンポーネント定義
 
@@ -25,7 +26,7 @@
 | コンポーネント | 定義 |
 |---|---|
 | `RunnerApp` | wxWidgets application entry。config、RunManager、RunnerThread、GUI、loggingのlifecycleを統括する。Run directory自体は`MetricsLogger`が保持する |
-| `RunnerFrame` | menu、status bar、wxAUI paneとclose順序を管理するmain window |
+| `RunnerFrame` | menu、status bar、wxAUI paneとclose順序を管理するmain window。wxAUIの制約吸収（dockサイズ往復・遷移時同期・pane⇄メニュー連動）は基底`anet::rl::gui::AuiLayoutFrame`（gui.hpp）が担い、本クラスはpane定義とレイアウトポリシー（50:50、frame縮退）を持つ |
 | `TrainPanel` | Train eventからEnv固有Viewを更新し、GUI timerで断面を描画する |
 | `EvalPanel` | 専用`EvalRunner`をtimerまたは手動Actionで駆動し、clone modelの同期を管理する |
 | `QValuePanel` | Eval ActorのAction候補を可視化し、選択Actionを`EvalPanel`へ渡す |
@@ -242,7 +243,7 @@ sequenceDiagram
 
 HTTP requestはMetricsマスタを直接読まず、background writerがcommitしたSQLite snapshotを読む。
 各rangeは前回応答へ依存せず、clientはviewport左右1画面を含む3画面windowを置換する。
-取り込み中Runがある間はRun metadataを2秒pollし、選択中かつfollow中の系列だけrangeを更新する。
+取り込み中Runがある間はRun metadataを4秒pollして進捗表示だけを更新し、Auto Reloadは30秒ごとにmetadataを取り直して最新stepへfollow中の系列だけrangeを更新する。
 
 ### 5.3 Optunaのmulti-seed trial
 
@@ -287,7 +288,7 @@ sequenceDiagram
 - Runnerのmain configは`--config`で差し替え、実験差分は末尾の`key=value` overrideで渡す。
 - Viewerのruns directoryは`--metricsviewer.runs-dir`で差し替える。
 - Optuna harnessのPythonはrepository rootの`.venv`を使う。
-- Viewer frontendはCDNのjQuery、jQuery UI、Plotlyを読む。完全offline環境ではasset取得方法を別途用意する必要がある。
+- Viewer frontendはbuild工程を持たず、外部依存はCDNのPlotlyだけを読む。完全offline環境ではasset取得方法を別途用意する必要がある。
 
 ## 7. Lifetime・エラー・性能特性
 
@@ -332,5 +333,6 @@ sequenceDiagram
 - [環境](120_environments.jp.md)
 - [可観測性](140_observability.jp.md)
 - [DQN系Agent](200_dqn_agents.jp.md)
+- [Metrics Viewer](210_metrics_viewer.jp.md)
 - [DropMerge Optuna利用ガイド](../optuna.md)
 - [Metrics Viewer load map](../../viewers/metrics-viewer/docs/loadmap.md)

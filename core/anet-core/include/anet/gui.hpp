@@ -3,7 +3,10 @@
 #pragma once
 
 #include <chrono>
+#include <vector>
 #include <wx/wx.h>
+#include <wx/aui/aui.h>
+#include <wx/aui/serializer.h>
 #include "anet/common.hpp"
 #include "anet/rl.hpp"
 
@@ -77,7 +80,92 @@ namespace anet::rl::gui {
 
 
     // =============================================================
-    // UIDataStore 
+    // AuiLayoutFrame
+    // =============================================================
+
+    // wxAUI レイアウト管理 Frame の共通基底クラス (制約吸収層。docs/adr/0016 参照)。
+    //
+    // wxAUI の dock サイズは内部 dock 構造体が持ち、pane.dock_size は dock が
+    // (再)生成される瞬間しか読まれない。既存 dock のサイズを設定する公開 API は無く、
+    // pane を隠して dock が空になると dock ごと削除されてサイズは失われ、
+    // サッシ確定を通知するイベントも無い。本クラスはこれらの制約を
+    //   - 構造化シリアライザ往復 (TakeLayoutSnapshot → 編集 → ApplyLayoutSnapshot)
+    //   - 遷移時同期 (隠す直前に実 dock サイズを pane.dock_size へ書き戻す)
+    // で吸収し、pane⇄メニュー連動とポリシー適用タイミングの制御だけを担う。
+    // pane の中身とレイアウトポリシーは派生クラスが決める。
+    class AuiLayoutFrame : public wxFrame {
+    public:
+        AuiLayoutFrame(const wxString& title, const wxSize& size);
+        virtual ~AuiLayoutFrame();
+    protected:
+        // ---- 派生クラスが実装する層 ----
+
+        /// レイアウトポリシー適用フック。表示遷移後・リサイズ後・restore 後に呼ばれる。
+        virtual void OnApplyLayoutPolicy() {}
+        
+        /// pane 非表示化の直前 (メニュー OFF / ✕ボタン共通) の追加処理。
+        virtual void OnPaneHiding(wxAuiPaneInfo& WXUNUSED(pane)) {}
+
+    protected:
+        // ---- 派生クラスが使う道具 ----
+
+        // レイアウトポリシーを適用する (フックの呼び出し口。派生からの明示適用もこれを使う)
+        void ApplyLayoutPolicy() { OnApplyLayoutPolicy(); }
+ 
+        // pane とメニュー項目を対応付け、表示トグル・✕連動・チェック同期を有効にする
+        void RegisterPaneMenu(int menu_id, wxWindow* window);
+ 
+        // 登録済み pane の表示状態をメニューのチェックへ反映する
+        void UpdatePaneMenuChecks();
+ 
+        // ApplyLayoutPolicy の遅延実行 (多重呼び出しは 1 回に集約される)
+        void SchedulePolicy();
+ 
+        // 表示中 pane が属する dock の実サイズを pane.dock_size へ書き戻す (遷移時同期)
+        void SyncDockSizesToPanes();
+ 
+        bool HasMaximizedPane() const;
+ 
+        // 現在レイアウトのスナップショット (非表示・浮動 pane の dock_size は記憶値で補完済み)
+        std::vector<wxAuiPaneLayoutInfo> TakeLayoutSnapshot();
+ 
+        // 編集済み snapshot の反映 (内部で Update が 1 回走る)。
+        // 注意: LoadLayout は pane 配列を丸ごと差し替えるため、取得済みの wxAuiPaneInfo
+        // 参照はこの後すべて無効になる。必要なら GetPane で再取得する。
+        void ApplyLayoutSnapshot(std::vector<wxAuiPaneLayoutInfo> panes);
+ 
+        static wxAuiPaneLayoutInfo* FindPaneLayout(std::vector<wxAuiPaneLayoutInfo>& panes, const wxString& name);
+ 
+        // pane が指定 dock (方向+layer) にドッキング表示中か。rect 幾何に依存しない定位置判定
+         static bool IsInHomeDock(const wxAuiPaneInfo& pane, int direction, int layer);
+ 
+        // 生成時刻で一意化した名前を持つ pane 情報を作る (動的追加 pane 用)
+        wxAuiPaneInfo MakeUniquePaneInfo(const wxString& name, const wxString& caption, const wxString& sub_caption = wxEmptyString);
+    protected:
+        wxAuiManager aui_mgr_;      ///< フラグ・DockSizeConstraint の設定は派生クラスの責務
+    private:
+        // pane とメニュー項目の対応
+        struct PaneMenuBinding {
+            int menu_id;
+            wxWindow* window;
+        };
+    private:
+        void OnFrameSize(wxSizeEvent& event);
+        void OnTogglePaneMenu(wxCommandEvent& event);
+        void OnAuiPaneClose(wxAuiManagerEvent& event);
+        void OnAuiPaneMaximize(wxAuiManagerEvent& event);
+        void OnAuiPaneRestore(wxAuiManagerEvent& event);
+        const PaneMenuBinding* FindBindingByMenuId(int menu_id) const;
+        const PaneMenuBinding* FindBindingByWindow(wxWindow* window) const;
+        void CheckPaneMenuItem(int menu_id, bool checked);
+    private:
+        std::vector<PaneMenuBinding> pane_menu_bindings_;
+        bool layout_policy_scheduled_ = false;
+    };
+
+
+    // =============================================================
+    // UIDataStore
     // =============================================================
 
     template<typename UIDataType>
