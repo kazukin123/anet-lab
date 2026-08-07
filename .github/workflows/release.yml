@@ -247,18 +247,24 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         gh release create "${{ github.ref_name }}" `
+          --draft `
           --verify-tag `
           --generate-notes `
           "${{ steps.pack.outputs.main_zip }}" `
           "${{ steps.pack.outputs.docs_zip }}"
 
-    - name: Upload dry-run artifacts
+    - name: Upload artifact (main tree)
       if: github.ref_type != 'tag'
       uses: actions/upload-artifact@v4
       with:
-        name: release-dry-run-${{ steps.ver.outputs.version }}
-        path: |
-          anet-lab-*-win64.zip
-          anet-lab-docs-*.zip
-        compression-level: 0
+        name: anet-lab-${{ steps.ver.outputs.version }}-win64
+        path: stage/
+        retention-days: 7
+
+    - name: Upload artifact (docs)
+      if: github.ref_type != 'tag'
+      uses: actions/upload-artifact@v4
+      with:
+        name: anet-lab-docs-${{ steps.ver.outputs.version }}
+        path: docs/html/
         retention-days: 7
