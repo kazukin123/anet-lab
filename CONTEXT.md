@@ -51,6 +51,14 @@ _Avoid_: reward normalizer, reward transform
 Bellman ターゲットを可逆な変換関数 h で圧縮し、大きな Q 値に対する学習を安定させる手法。anet-lab では TBO と略す。
 _Avoid_: value transform, Bellman transform
 
+**taus（τサンプル）**:
+IQN で分布 Z の評価点として使う τ∈[0,1] のサンプル列。環境が渡す Observation ではなく、Agent（ActionPolicy / Learner）が forward 直前に NN 入力へ注入する。
+_Avoid_: 観測キー扱い, tau テンソル（曖昧）
+
+**tau配置方式**:
+taus の並べ方の区分（random / fixed_midpoint）。TauGenerator が担当し、τ の時間減衰スケジュール（uqe_tau_decay）とは別概念。
+_Avoid_: sampling mode, tau schedule（減衰スケジュールと混同）
+
 ### Replay・PER
 
 **Replay初期優先度ヒント**:
