@@ -323,8 +323,8 @@ LLM がコードを書く際に起こしやすい失敗を減らすための行�
 
 ## Git 操作・コミットメッセージルール
 
-Git commit は原則として人間が実施する。
-AI エージェントは、ユーザーから明示的に依頼された場合だけ commit を作成し、勝手に commit や push をしない。
+Git staging（`git add`）、commit、push は人間が実施する。
+AI エージェントは `git add`、`git commit`、`git push` を実行せず、必要に応じて対象ファイル、commit message 案、検証結果を提示して人間の操作を支援する。
 
 commit message は Conventional Commits 形式を適用し、Topic Issue 番号を併記する。
 
@@ -333,7 +333,35 @@ commit message は Conventional Commits 形式を適用し、Topic Issue 番号�
 - `type` は `feat`、`fix`、`refactor`、`test`、`docs`、`style`、`chore` など、変更の主目的に合わせる。
 - `scope` は `DQN`、`ReplayBuffer`、`config`、`PRD035` など、変更対象または作業単位が分かる短い名前にする。
 - Topic Issue が複数ある場合は、subject 末尾に `#3 #18` のように並べる。
-- AI エージェントが commit を実施しない場合でも、ユーザーから求められたらこの形式の commit message 案を提示する。
+- AI エージェントは作業まとめ時またはユーザーから求められたときに、変更内容に合う commit message 案を適宜提示する。
+
+Topic Issue 番号は以下の対応表から、変更目的と対象領域に合うものを選ぶ。
+
+| Topic | Issue |
+|---|---|
+| 010_リファクタリング | #1 |
+| 020_性能改善 | #2 |
+| 030_機能追加 | #3 |
+| 040_不具合対応 | #24 |
+| 110_RunnerApp | #4 |
+| 120_MetricsViewer | #5 |
+| 310_ソース構成/ビルド | #6 |
+| 311_開発プロセス / 開発ツール/テスト基盤 | #7 |
+| 312_ユーティリティ | #8 |
+| 313_プロファイリング | #9 |
+| 314_テンソル処理 | #10 |
+| 315_ニューラルネットワーク | #11 |
+| 316_設定管理 | #12 |
+| 317_可視化/メトリクス | #13 |
+| 318_強化学習 共通基盤 | #14 |
+| 319_GUI 共通基盤 | #15 |
+| 320_Env 共通基盤 | #16 |
+| 321_Agent 共通基盤 | #17 |
+| 322_ENV個別実装 | #18 |
+| 323_AGENT個別実装 | #19 |
+| 324_AGENT個別実装 > DQN系列 | #20 |
+| 325_AGENT個別実装 > MuZero系列 | #21 |
+| 330_ハイパラ探索 | #22 |
 
 ## AI エージェントのRun結果分析ルール
 
