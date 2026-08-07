@@ -1,4 +1,4 @@
-name: Release
+﻿name: Release
 
 on:
   push:
@@ -38,6 +38,8 @@ jobs:
           $ver = "${{ inputs.version }}"
           if ([string]::IsNullOrWhiteSpace($ver)) { $ver = "dev" }
         }
+        # ファイル名はインストーラ慣例に合わせ数字始まり(タグ v1.0.0 → anet-lab-1.0.0-win64.zip)
+        $ver = $ver -replace '^v',''
         "version=$ver" >> $env:GITHUB_OUTPUT
         Write-Host "Release version: $ver"
 
@@ -148,7 +150,7 @@ jobs:
     # MetricsViewer (jar) ビルド
     # ----------------------------------------------------------------
     - name: Set up JDK 17
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@v5
       with:
         distribution: temurin
         java-version: '17'
@@ -194,6 +196,11 @@ jobs:
         Copy-Item apps/runner/bin/Release/* "$stage/apps/runner/bin/Release/" -Exclude *.ilk,*.pdb
         Copy-Item apps/runner/config "$stage/apps/runner/config" -Recurse
         Copy-Item apps/runner/tools "$stage/apps/runner/tools" -Recurse
+
+        # wx DLL はビルド時の POST_BUILD コピー(apps/runner/CMakeLists.txt)で bin に入る前提。欠落は fail-fast
+        if (-not (Test-Path "$stage/apps/runner/bin/Release/wxmsw*_core_*.dll")) {
+          throw "wx core DLL missing in bin (check wx POST_BUILD copy in apps/runner/CMakeLists.txt)"
+        }
 
         # apps/metrics-viewer: jar のみ (パスは開発時と同一)
         New-Item -ItemType Directory -Force -Path "$stage/apps/metrics-viewer/target" | Out-Null

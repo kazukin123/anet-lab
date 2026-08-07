@@ -100,6 +100,23 @@ if (MSVC)
   else()
     message(WARNING "No DLLs found in ${TORCH_DLL_DIR}")
   endif()
+
+  # --- wxWidgets DLLコピー（Configモード＝wxソースビルド時のみ） ---
+  # Moduleモード（ローカルのvcpkg toolchain）ではapplocal配備がDLLコピーを担うため対象外
+  if(TARGET wx::core)
+    get_target_property(ANET_WX_CORE_TYPE wx::core TYPE)
+    if(ANET_WX_CORE_TYPE STREQUAL "SHARED_LIBRARY")
+      add_custom_command(TARGET AnetRLRunner POST_BUILD
+          COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                  $<TARGET_FILE:wx::base>
+                  $<TARGET_FILE:wx::core>
+                  $<TARGET_FILE:wx::gl>
+                  $<TARGET_FILE:wx::aui>
+                  $<TARGET_FILE_DIR:AnetRLRunner>
+          COMMENT "Copying wxWidgets DLLs"
+      )
+    endif()
+  endif()
 endif()
 
 
