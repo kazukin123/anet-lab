@@ -48,21 +48,6 @@ public class MetricsCacheDatabase {
 			"source_meta", Set.of("k", "v"));
 
 	private final Map<Path, ReentrantReadWriteLock> lifecycleLocks = new ConcurrentHashMap<>();
-	private final Set<Path> deepValidatedDatabases = ConcurrentHashMap.newKeySet();
-	private final DeepDatabaseValidator deepDatabaseValidator;
-
-	public MetricsCacheDatabase() {
-		this(MetricsCacheDatabase::passesQuickCheck);
-	}
-
-	MetricsCacheDatabase(DeepDatabaseValidator deepDatabaseValidator) {
-		this.deepDatabaseValidator = deepDatabaseValidator;
-	}
-
-	@FunctionalInterface
-	interface DeepDatabaseValidator {
-		boolean isValid(Statement statement) throws Exception;
-	}
 
 	/**
 	 * externalNameはsource_meta.stateの永続値かつHTTP JSONのingest state公開値であり、
@@ -134,53 +119,25 @@ public class MetricsCacheDatabase {
 		final Path normalizedRunDir = runDir.toAbsolutePath().normalize();
 		final Path database = normalizedRunDir.resolve(DATABASE_FILENAME);
 		final ReentrantReadWriteLock rwLock = lifecycleLockFor(normalizedRunDir);
-		boolean deepValidationFailed = false;
-		final Lock readLock = rwLock.readLock();
-		readLock.lock();
-		try {
-			if (Files.exists(database) && !deepValidatedDatabases.contains(database)) {
-				final long startedAt = System.nanoTime();
-				log.info("Metrics cache validation started: run={} dbBytes={}",
-						normalizedRunDir.getFileName(), Files.size(database));
-				final boolean valid = checkDatabaseInvalid(database, true) == null;
-				log.info("Metrics cache validation completed: run={} valid={} durationMs={}",
-						normalizedRunDir.getFileName(),
-						valid,
-						(System.nanoTime() - startedAt) / 1_000_000L);
-				if (valid) deepValidatedDatabases.add(database);
-				else deepValidationFailed = true;
-			}
-		} finally {
-			readLock.unlock();
-		}
 
 		rwLock.writeLock().lock();
 		try {
 			Files.deleteIfExists(normalizedRunDir.resolve("metrics_cache.kryo"));
-			final boolean failedCurrentDeepCheck =
-					deepValidationFailed && !deepValidatedDatabases.contains(database);
 			if (Files.exists(database)) {
-				final String invalidReason;
-				if (failedCurrentDeepCheck) {
-					final String currentReason = checkDatabaseInvalid(database, false);
-					invalidReason = currentReason == null ? "deep_validation_failed" : currentReason;
-				} else {
-					invalidReason = checkDatabaseInvalid(database, false);
-				}
+				// 起動時にDB全体を走査せず、headerとschemaの軽量検査だけを行う。
+				final String invalidReason = checkDatabaseInvalid(database);
 				if (invalidReason != null) {
 					logCacheRebuild(
 							normalizedRunDir,
 							invalidReason,
 							readSourceMetaIfAvailable(database),
 							source);
-					deepValidatedDatabases.remove(database);
 					deleteCacheFiles(database);
 				}
 			}
 			if (!Files.exists(database)) {
 				initialize(database, source);
 			}
-			deepValidatedDatabases.add(database);
 
 			SourceMeta.Values meta;
 			try (Connection connection = openConnection(database, false)) {
@@ -193,10 +150,8 @@ public class MetricsCacheDatabase {
 						sourceMismatch,
 						meta,
 						source);
-				deepValidatedDatabases.remove(database);
 				deleteCacheFiles(database);
 				initialize(database, source);
-				deepValidatedDatabases.add(database);
 				try (Connection connection = openConnection(database, false)) {
 					meta = SourceMeta.readValues(connection);
 				}
@@ -391,7 +346,7 @@ public class MetricsCacheDatabase {
 		}
 	}
 
-	private String checkDatabaseInvalid(Path database, boolean deepCheck) {
+	private String checkDatabaseInvalid(Path database) {
 		try (Connection connection = openConnection(database, true);
 				Statement statement = connection.createStatement()) {
 			if (queryInt(statement, "PRAGMA application_id") != APPLICATION_ID) {
@@ -399,9 +354,6 @@ public class MetricsCacheDatabase {
 			}
 			if (queryInt(statement, "PRAGMA user_version") != SCHEMA_VERSION) {
 				return "schema_version_mismatch";
-			}
-			if (deepCheck && !deepDatabaseValidator.isValid(statement)) {
-				return "deep_validation_failed";
 			}
 			final Set<String> tables = new HashSet<>();
 			try (ResultSet result = statement.executeQuery(
@@ -422,12 +374,6 @@ public class MetricsCacheDatabase {
 			return null;
 		} catch (Exception e) {
 			return "database_open_failed";
-		}
-	}
-
-	private static boolean passesQuickCheck(Statement statement) throws SQLException {
-		try (ResultSet result = statement.executeQuery("PRAGMA quick_check")) {
-			return result.next() && "ok".equalsIgnoreCase(result.getString(1));
 		}
 	}
 

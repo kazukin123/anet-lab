@@ -17,7 +17,6 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -218,28 +217,6 @@ class MetricsCacheDatabaseIntegrationTest {
 
 	@Test
 	@ExtendWith(OutputCaptureExtension.class)
-	void failedDeepValidationRebuildsWithStableReason(CapturedOutput output) throws Exception {
-		final Path runDir = tempDir.resolve("run-deep-validation-failure");
-		Files.createDirectories(runDir);
-		Files.writeString(
-				runDir.resolve("metrics.jsonl"),
-				scalarLine(1, 1.0),
-				StandardCharsets.UTF_8);
-		final MetricsSource source = MetricsSource.select(runDir).orElseThrow();
-		final String initialGeneration =
-				new MetricsCacheDatabase().prepare(runDir, source, false).generation();
-
-		final MetricsCacheDatabase failingDatabase = new MetricsCacheDatabase(statement -> false);
-		final String rebuiltGeneration = failingDatabase.prepare(runDir, source, false).generation();
-
-		assertNotEquals(initialGeneration, rebuiltGeneration);
-		assertTrue(output.getAll().contains(
-				"Rebuilding Metrics cache: run=run-deep-validation-failure"
-						+ " reason=deep_validation_failed"));
-	}
-
-	@Test
-	@ExtendWith(OutputCaptureExtension.class)
 	void invalidCommittedOffsetMetadataRebuildsWithStableReason(CapturedOutput output)
 			throws Exception {
 		final Path runDir = tempDir.resolve("run-invalid-committed-offset");
@@ -307,52 +284,6 @@ class MetricsCacheDatabaseIntegrationTest {
 		assertTrue(output.getAll().contains(
 				"Rebuilding Metrics cache: run=run-invalid-source-mtime"
 						+ " reason=source_metadata_invalid"));
-	}
-
-	@Test
-	void startupDeepValidationDoesNotBlockReadSnapshots() throws Exception {
-		final Path runDir = tempDir.resolve("run-deep-validation-concurrency");
-		Files.createDirectories(runDir);
-		Files.writeString(
-				runDir.resolve("metrics.jsonl"),
-				scalarLine(1, 1.0),
-				StandardCharsets.UTF_8);
-		final MetricsSource source = MetricsSource.select(runDir).orElseThrow();
-		new MetricsCacheDatabase().prepare(runDir, source, false);
-
-		final CountDownLatch validationStarted = new CountDownLatch(1);
-		final CountDownLatch releaseValidation = new CountDownLatch(1);
-		final MetricsCacheDatabase database = new MetricsCacheDatabase(statement -> {
-			validationStarted.countDown();
-			if (!releaseValidation.await(5, TimeUnit.SECONDS)) {
-				throw new IllegalStateException("Timed out waiting to release deep validation");
-			}
-			return true;
-		});
-		final ExecutorService executor = Executors.newFixedThreadPool(2);
-		try {
-			final Future<MetricsCacheDatabase.CachePreparation> preparation =
-					executor.submit(() -> database.prepare(runDir, source, false));
-			assertTrue(validationStarted.await(1, TimeUnit.SECONDS));
-			final Future<String> state = executor.submit(() -> {
-				try (MetricsCacheDatabase.ConnectionHandle reader = database.openRead(runDir);
-						Statement statement = reader.connection().createStatement();
-						ResultSet result = statement.executeQuery(
-								"SELECT v FROM source_meta WHERE k='state'")) {
-					result.next();
-					return result.getString(1);
-				}
-			});
-			try {
-				assertEquals("pending", state.get(1, TimeUnit.SECONDS));
-			} finally {
-				releaseValidation.countDown();
-			}
-			assertEquals(IngestState.PENDING, preparation.get(2, TimeUnit.SECONDS).state());
-		} finally {
-			releaseValidation.countDown();
-			executor.shutdownNow();
-		}
 	}
 
 	@Test

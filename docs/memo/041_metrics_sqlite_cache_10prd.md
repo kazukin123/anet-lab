@@ -99,7 +99,10 @@ PRAGMA busy_timeout = 5000;          -- 接続ごと
 - 新規DBではDDLと初期`source_meta`を完了するまで`user_version=0`のままにし、
   初期化がすべて成功したときだけ現行versionを設定する。
 - `application_id`不一致、`user_version`不一致、必須table/column欠落、
-  `PRAGMA quick_check`失敗、接続不能は無効DBとして扱う。
+  接続不能は無効DBとして扱う。
+- 通常起動ではDBサイズに比例する`PRAGMA quick_check` / `integrity_check`を実行しない。
+  cacheはマスタから再生成できる派生物であるため、起動時検査はheader、schema、
+  metadata、source fingerprintの軽量検査に限定する。
 - 無効DB、旧schema、corrupt DBは接続を閉じてから
   `.db` / `-wal` / `-shm`を削除し、generationを新しくして先頭から再構築する。
 
