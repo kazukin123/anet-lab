@@ -30,7 +30,9 @@ anet-lab は libtorch を基盤とした C++20 の強化学習実験プロジェ
 - `core/anet-core`: 強化学習フレームワーク、Agent、NN、設定、メトリクスなどの共通実装
 - `core/envs`: 環境実装
 - `apps/runner`: 実行アプリケーションと設定
-- `viewers`: メトリクス表示・可視化ツール
+- `apps/metrics-viewer`: Java/Spring 製 Metrics Viewer(リリース配布対象)
+- `apps/*.bat`: 起動 launcher 群(開発・リリース共通)
+- `viewers`: メトリクス可視化の開発用補助ツール(Python 等)
 - `docs`: 設計資料、Doxygen 設定、実行結果
 - `third_party`: 外部依存ライブラリ
 

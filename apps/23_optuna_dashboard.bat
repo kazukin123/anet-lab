@@ -2,7 +2,7 @@
 setlocal
 
 rem === batファイルの場所を基準に Optuna DB の場所へ移動 ===
-set "RUNS_OPTUNA=%~dp0runs_optuna"
+set "RUNS_OPTUNA=%~dp0runner\runs_optuna"
 set "DASHBOARD_HOST=0.0.0.0"
 set "DASHBOARD_PORT=8088"
 

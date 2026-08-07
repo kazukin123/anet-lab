@@ -2,11 +2,11 @@
 setlocal
 
 rem === batファイルの場所を基準にパスを構築 ===
-set "ROOT=%~dp0..\.."
-set "VIEWER_JAR=%ROOT%\viewers\metrics-viewer\target\metrics-viewer.jar"
+set "ROOT=%~dp0.."
+set "VIEWER_JAR=%ROOT%\apps\metrics-viewer\target\metrics-viewer.jar"
 set "RUNS_DIR=%ROOT%\apps\runner\runs_optuna"
 set "VIEWER_PORT=8083"
-pwd
+cd /d "%~dp0runner"
 
 echo.
 echo [1/2] Starting Metrics Viewer (port %VIEWER_PORT%)...

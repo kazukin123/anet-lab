@@ -17,7 +17,7 @@ Runner processとの境界、cacheをどこまで信頼してよいか、どの�
 
 ### 1.3 記載範囲
 
-現行の`viewers/metrics-viewer`を扱う。Runner側のMetricsマスタ生成、Event、metric登録の内部は[可観測性](140_observability.jp.md)を参照する。
+現行の`apps/metrics-viewer`を扱う。Runner側のMetricsマスタ生成、Event、metric登録の内部は[可観測性](140_observability.jp.md)を参照する。
 Runner GUI、Optuna harnessとのprocess境界は[アプリケーションとツール](160_applications_and_tools.jp.md)を正本とする。
 利用手順は[Run分析ガイド](030_user_guide_analysis.jp.md)、build手順は[開発環境](040_development_environment.jp.md)を参照する。
 
@@ -283,17 +283,17 @@ HTTP応答とbrowser DataCacheはこの世代を突き合わせ、古い世代�
 
 | 領域 | 主なファイル |
 |---|---|
-| entry / 設定 | [MetricsViewerApplication.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/MetricsViewerApplication.java)、[MetricsViewerSettings.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/config/MetricsViewerSettings.java)、[application.properties](../../viewers/metrics-viewer/src/main/resources/application.properties) |
-| scan / source同一性 | [RunScanner.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java)、[MetricsSource.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java) |
-| cache DB | [MetricsCacheDatabase.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java) |
-| source読み出し | [SourceReader.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/SourceReader.java)、[RawFileReader.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/RawFileReader.java)、[GzipSessionReader.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/GzipSessionReader.java)、[GzipInputSessions.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/GzipInputSessions.java) |
-| 取り込み | [MetricsIngestor.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java)、[LodIngestWriter.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodIngestWriter.java)、[LodBucket.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodBucket.java) |
-| scheduling | [IngestScheduler.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestScheduler.java)、[LoadingThread.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThread.java) |
-| query | [MetricsRepository.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java)、[MetricsQueryPlanner.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsQueryPlanner.java)、[MetricsRangeProjector.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRangeProjector.java)、[LodPageCache.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodPageCache.java) |
-| API | [MetricsService.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsService.java)、[MetricsViewerController.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java)、[view/model](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model)、[MetricTraceEncoder.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/util/MetricTraceEncoder.java) |
-| browser UI | [index.html](../../viewers/metrics-viewer/src/main/resources/static/index.html)、[metrics-viewer.js](../../viewers/metrics-viewer/src/main/resources/static/metrics-viewer.js)、[metrics-viewer.css](../../viewers/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
-| test | [src/test/java](../../viewers/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer) |
-| build | [pom.xml](../../viewers/metrics-viewer/pom.xml)、[checkstyle.xml](../../viewers/metrics-viewer/checkstyle.xml) |
+| entry / 設定 | [MetricsViewerApplication.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/MetricsViewerApplication.java)、[MetricsViewerSettings.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/config/MetricsViewerSettings.java)、[application.properties](../../apps/metrics-viewer/src/main/resources/application.properties) |
+| scan / source同一性 | [RunScanner.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java)、[MetricsSource.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java) |
+| cache DB | [MetricsCacheDatabase.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java) |
+| source読み出し | [SourceReader.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/SourceReader.java)、[RawFileReader.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/RawFileReader.java)、[GzipSessionReader.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/GzipSessionReader.java)、[GzipInputSessions.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/GzipInputSessions.java) |
+| 取り込み | [MetricsIngestor.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java)、[LodIngestWriter.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodIngestWriter.java)、[LodBucket.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodBucket.java) |
+| scheduling | [IngestScheduler.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestScheduler.java)、[LoadingThread.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThread.java) |
+| query | [MetricsRepository.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java)、[MetricsQueryPlanner.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsQueryPlanner.java)、[MetricsRangeProjector.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRangeProjector.java)、[LodPageCache.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodPageCache.java) |
+| API | [MetricsService.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsService.java)、[MetricsViewerController.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java)、[view/model](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model)、[MetricTraceEncoder.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/util/MetricTraceEncoder.java) |
+| browser UI | [index.html](../../apps/metrics-viewer/src/main/resources/static/index.html)、[metrics-viewer.js](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、[metrics-viewer.css](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
+| test | [src/test/java](../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer) |
+| build | [pom.xml](../../apps/metrics-viewer/pom.xml)、[checkstyle.xml](../../apps/metrics-viewer/checkstyle.xml) |
 
 ## 5. 静的構造
 
@@ -513,11 +513,11 @@ request bodyは上記に加えて、`@JsonAnySetter`で未知fieldを捕捉し�
 | 通常Runの可視化 | `java -Xmx1g -jar target\metrics-viewer.jar --server.port=8082` |
 | Optuna seed runの可視化 | `java -Xmx1g -jar target\metrics-viewer.jar --server.port=8083 --metricsviewer.runs-dir=<repo>\apps\runner\runs_optuna` |
 
-既定pathとportは[22_metrics_viewer_java.bat](../../apps/runner/22_metrics_viewer_java.bat)と[22_metrics_viewer_java_optuna.bat](../../apps/runner/22_metrics_viewer_java_optuna.bat)が固定する。
+既定pathとportは[22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat)と[22_metrics_viewer_java_optuna.bat](../../apps/22_metrics_viewer_java_optuna.bat)が固定する。
 
 ### 7.4 browser側の定数と永続state
 
-serverから配布しないclient定数は[metrics-viewer.js](../../viewers/metrics-viewer/src/main/resources/static/metrics-viewer.js)の先頭で定義する。
+serverから配布しないclient定数は[metrics-viewer.js](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)の先頭で定義する。
 
 | 定数 | 値 | 意味 |
 |---|---:|---|
@@ -828,12 +828,12 @@ lod : { "kind":"lod",
 | `spring-boot-maven-plugin` | 3.5.7 | `repackage`実行可能JARを生成する |
 | `maven-compiler-plugin` | 3.15.0 | `release=17`、`parameters=true`、`proc=full`、annotation processorにlombokを指定 |
 
-Java側のコード規約は[checkstyle.xml](../../viewers/metrics-viewer/checkstyle.xml)で定義する。行頭indentはtab（tab幅4、継続行8）、行長上限120、`FinalLocalVariable`と標準の命名規則を要求する。Eclipse用の設定は`.checkstyle`とformatter定義に置く。
+Java側のコード規約は[checkstyle.xml](../../apps/metrics-viewer/checkstyle.xml)で定義する。行頭indentはtab（tab幅4、継続行8）、行長上限120、`FinalLocalVariable`と標準の命名規則を要求する。Eclipse用の設定は`.checkstyle`とformatter定義に置く。
 
 ### 11.4 build・実行
 
 ```powershell
-cd viewers\metrics-viewer
+cd apps\metrics-viewer
 mvn -B test
 mvn -B package
 java -Xmx1g -jar target\metrics-viewer.jar --server.port=8082
@@ -883,4 +883,3 @@ Playwrightテストは既定でMicrosoft Edgeを起動する。Edgeが無い環�
 - [アプリケーションとツール](160_applications_and_tools.jp.md)
 - [Metricsキャッシュを破棄可能な従属導出物とするADR](../adr/0015-metrics-cache-disposable-derivative.md)
 - [ドメイン用語集](../../CONTEXT.md)
-- [Metrics Viewer load map](../../viewers/metrics-viewer/docs/loadmap.md)

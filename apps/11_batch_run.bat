@@ -1,4 +1,5 @@
 @echo off
+cd /d "%~dp0runner"
 REM SET EXE="bin\RelWithDebInfo\AnetRLRunner.exe"
 SET EXE="bin\Release\AnetRLRunner.exe" app.$=app.batchrun
 REM SET EXE="bin\Release\AnetRLRunner.exe"

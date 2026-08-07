@@ -50,7 +50,7 @@ Box2D、Catch2、nlohmann/json、Tracy、NVTX header は `third_party/` に含�
 
 ### 3.2 Metrics Viewer
 
-`viewers/metrics-viewer/pom.xml` は Java 17 を target とします。JDK 17 以上と Maven を用意してください。JavaScript 表示テストは、ローカルに Microsoft Edge がない場合は skip されます。
+`apps/metrics-viewer/pom.xml` は Java 17 を target とします。JDK 17 以上と Maven を用意してください。JavaScript 表示テストは、ローカルに Microsoft Edge がない場合は skip されます。
 
 ### 3.3 Python 補助ツール
 
@@ -170,12 +170,12 @@ core\anet-core\bin\Debug\anet-core-test.exe
 Java 版 Metrics Viewer は Maven project です。
 
 ```powershell
-cd viewers\metrics-viewer
+cd apps\metrics-viewer
 mvn -B test
 mvn -B package
 ```
 
-package 後の実行可能 JAR は `viewers/metrics-viewer/target/metrics-viewer.jar` です。起動確認の例:
+package 後の実行可能 JAR は `apps/metrics-viewer/target/metrics-viewer.jar` です。起動確認の例:
 
 ```powershell
 java -Xmx1g -jar target\metrics-viewer.jar --server.port=8082
@@ -212,13 +212,13 @@ MLflow bridge と MLflow server は、リポジトリルートの `.venv` と `a
 
 `requirements.txt` は MLflow を `3.13.0` に固定しています。
 MLflow 3.14.0 の server は Python 3.14 で削除された `importlib.abc.Traversable` を import するため、この組み合わせでは起動できません。
-`apps/runner/41_mlflow_bridge.bat` と `apps/runner/42_start_mlflow.bat` は、要求 version が導入されていない場合に fail-fast します。
+`apps/41_mlflow_bridge.bat` と `apps/42_start_mlflow.bat` は、要求 version が導入されていない場合に fail-fast します。
 
 MLflow bridge は対象 Run の `config/config_data.txt` を読み、各 `key = value` を MLflow parameter として記録します。
 MLflow parameter 名で使用できない `[` と `]` は除去し、その他の使用不可文字は `_` へ置換します。
 変換後の parameter 名が衝突する場合は、値を上書きせず fail-fast します。
 
-`apps/runner/41_mlflow_bridge.bat` は `apps/runner/runs/run_*/metrics.jsonl` を列挙し、起動時点で存在するすべての直下 Run を MLflow へ変換します。
+`apps/41_mlflow_bridge.bat` は `apps/runner/runs/run_*/metrics.jsonl` を列挙し、起動時点で存在するすべての直下 Run を MLflow へ変換します。
 監視中に追加された直下 Run も自動的に対象へ追加します。
 更新時刻が最も新しい Run は、保存済み offset が現在の末尾へ追いつくまで優先して変換します。
 最新 Run の処理中も、10 batchごとに過去 Runを1 batch処理し、対象はround-robinで交代します。
@@ -259,4 +259,4 @@ libtorch の CUDA 世代、NVIDIA driver、CUDA Toolkit の互換性を確認し
 - [ルート CMakeLists](../../CMakeLists.txt)
 - [CMake Presets](../../CMakePresets.json)
 - [Windows CI](../../.github/workflows/windows-ci.yml)
-- [Metrics Viewer Maven 設定](../../viewers/metrics-viewer/pom.xml)
+- [Metrics Viewer Maven 設定](../../apps/metrics-viewer/pom.xml)

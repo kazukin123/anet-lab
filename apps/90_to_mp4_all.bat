@@ -1,4 +1,5 @@
 @echo off
+cd /d "%~dp0runner"
 
 set "run="
 for /f "delims=" %%A in ('dir runs /b /o:-n') do (

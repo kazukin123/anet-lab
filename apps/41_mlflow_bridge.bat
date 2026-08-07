@@ -12,7 +12,7 @@ set VENV_PYTHON=..\..\.venv\Scripts\python.exe
 set MLFLOW_REQUIREMENTS=..\..\viewers\metrics-tools\requirements.txt
 
 REM ---- 作業ディレクトリをプロジェクトルートへ移動 ----
-cd /d "%~dp0"
+cd /d "%~dp0runner"
 
 REM ---- リポジトリの仮想環境を検証 ----
 if not exist "%VENV_PYTHON%" (

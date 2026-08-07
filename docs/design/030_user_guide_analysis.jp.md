@@ -182,4 +182,3 @@ late windowの`score_60_80`、`score_80_100`、`late_slope`は伸びや頭打ち
 - [可観測性](140_observability.jp.md)
 - [アプリケーションとツール](160_applications_and_tools.jp.md)
 - [DropMerge Optuna利用ガイド](../optuna.md)
-- [Metrics Viewer load map](../../viewers/metrics-viewer/docs/loadmap.md)

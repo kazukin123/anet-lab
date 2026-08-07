@@ -1029,7 +1029,6 @@ WARN_LOGFILE           =
 INPUT                  = ../core/anet-core/include \
                          ../core/anet-core/src \
                          ../apps \
-                         ../viewers/metrics-viewer/src/main/java \
                          ../apps-wx
 
 # This tag can be used to specify the character encoding of the source files

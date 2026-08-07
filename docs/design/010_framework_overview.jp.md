@@ -145,7 +145,7 @@ flowchart TB
 | `core/anet-core/src/` | 共通基盤、Agent、NN、ReplayBuffer、Observer、テスト |
 | `core/envs/` | CartPole、LunarLander、DropMerge、GridMaze、ImageCls の Env 実装 |
 | `apps/runner/` | `AnetRLRunner`、画面パネル、設定、起動・分析用スクリプト |
-| `viewers/metrics-viewer/` | Java/Spring 製 Metrics Viewer |
+| `apps/metrics-viewer/` | Java/Spring 製 Metrics Viewer |
 | `viewers/metrics-tools/` | Python 製 viewer、TensorBoard・MLflow bridge |
 | `docs/design/` | 現行の概要、利用方法、設計 |
 | `docs/adr/` | 採用した設計判断 |

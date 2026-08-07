@@ -2,12 +2,12 @@
 setlocal
 
 rem === batファイルの場所を基準にパスを構築 ===
-set ROOT=%~dp0..\..
+set ROOT=%~dp0..
 rem cd /d "%ROOT%"
 
-set VIEWER_JAR=..\..\viewers\metrics-viewer\target\metrics-viewer.jar
+set VIEWER_JAR=%~dp0metrics-viewer\target\metrics-viewer.jar
 set VIEWER_PORT=8082
-pwd
+cd /d "%~dp0runner"
 
 echo.
 echo [1/2] Starting Metrics Viewer (port %VIEWER_PORT%)...

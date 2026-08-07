@@ -16,7 +16,7 @@
 
 ### 1.3 記載範囲
 
-現行の`apps/runner`、`viewers/metrics-viewer`、`apps/runner/tools`と起動launcherを扱う。Agent、Env、学習loop、metric生成の内部は各設計文書を参照する。
+現行の`apps/runner`、`apps/metrics-viewer`、`apps/runner/tools`と起動launcherを扱う。Agent、Env、学習loop、metric生成の内部は各設計文書を参照する。
 Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存ライブラリ）は[Metrics Viewer](210_metrics_viewer.jp.md)を正本とし、本書ではprocess境界と接続だけを扱う。
 
 ## 2. コンポーネント定義
@@ -81,12 +81,12 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 
 | 領域 | 主なファイル |
 |---|---|
-| Spring entry/config | [MetricsViewerApplication.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/MetricsViewerApplication.java)、[application.properties](../../viewers/metrics-viewer/src/main/resources/application.properties) |
-| scan/source identity | [RunScanner.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java)、[MetricsSource.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java) |
-| SQLite cache | [MetricsCacheDatabase.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java)、[MetricsIngestor.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java)、[LodIngestWriter.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodIngestWriter.java) |
-| scheduling/query | [IngestScheduler.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestScheduler.java)、[LoadingThread.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThread.java)、[MetricsRepository.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java)、[MetricsService.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsService.java) |
-| REST API | [MetricsViewerController.java](../../viewers/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java) |
-| browser UI | [index.html](../../viewers/metrics-viewer/src/main/resources/static/index.html)、[metrics-viewer.js](../../viewers/metrics-viewer/src/main/resources/static/metrics-viewer.js)、[metrics-viewer.css](../../viewers/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
+| Spring entry/config | [MetricsViewerApplication.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/MetricsViewerApplication.java)、[application.properties](../../apps/metrics-viewer/src/main/resources/application.properties) |
+| scan/source identity | [RunScanner.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java)、[MetricsSource.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java) |
+| SQLite cache | [MetricsCacheDatabase.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java)、[MetricsIngestor.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java)、[LodIngestWriter.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodIngestWriter.java) |
+| scheduling/query | [IngestScheduler.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestScheduler.java)、[LoadingThread.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThread.java)、[MetricsRepository.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java)、[MetricsService.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsService.java) |
+| REST API | [MetricsViewerController.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java) |
+| browser UI | [index.html](../../apps/metrics-viewer/src/main/resources/static/index.html)、[metrics-viewer.js](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、[metrics-viewer.css](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
 
 ### 3.3 Optunaとlauncher
 
@@ -94,9 +94,9 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 |---|---|
 | DropMerge CLI/domain | [dropmerge_optuna.py](../../apps/runner/tools/dropmerge_optuna.py) |
 | harness共通runtime | [optuna_common.py](../../apps/runner/tools/optuna_common.py) |
-| Runner launcher | [10_run.bat](../../apps/runner/10_run.bat) |
-| Metrics Viewer launcher | [22_metrics_viewer_java.bat](../../apps/runner/22_metrics_viewer_java.bat)、[22_metrics_viewer_java_optuna.bat](../../apps/runner/22_metrics_viewer_java_optuna.bat) |
-| Dashboard launcher | [23_optuna_dashboard.bat](../../apps/runner/23_optuna_dashboard.bat) |
+| Runner launcher | [10_run.bat](../../apps/10_run.bat) |
+| Metrics Viewer launcher | [22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat)、[22_metrics_viewer_java_optuna.bat](../../apps/22_metrics_viewer_java_optuna.bat) |
+| Dashboard launcher | [23_optuna_dashboard.bat](../../apps/23_optuna_dashboard.bat) |
 | 詳細運用仕様 | [optuna.md](../optuna.md) |
 
 ## 4. 静的構造
@@ -279,10 +279,10 @@ sequenceDiagram
 
 | 用途 | Entry point | 既定出力・URL |
 |---|---|---|
-| GUI Run | `apps/runner/10_run.bat` | `apps/runner/runs` |
-| 通常Runの可視化 | `apps/runner/22_metrics_viewer_java.bat` | `http://localhost:8082` |
-| Optuna seed runの可視化 | `apps/runner/22_metrics_viewer_java_optuna.bat` | `http://localhost:8083` |
-| Optuna study/artifact | `apps/runner/23_optuna_dashboard.bat` | `http://127.0.0.1:8088` |
+| GUI Run | `apps/10_run.bat` | `apps/runner/runs` |
+| 通常Runの可視化 | `apps/22_metrics_viewer_java.bat` | `http://localhost:8082` |
+| Optuna seed runの可視化 | `apps/22_metrics_viewer_java_optuna.bat` | `http://localhost:8083` |
+| Optuna study/artifact | `apps/23_optuna_dashboard.bat` | `http://127.0.0.1:8088` |
 | DropMerge探索 | `.venv\Scripts\python.exe apps\runner\tools\dropmerge_optuna.py run-study ...` | `apps/runner/runs_optuna` |
 
 - Runnerのmain configは`--config`で差し替え、実験差分は末尾の`key=value` overrideで渡す。
@@ -335,4 +335,3 @@ sequenceDiagram
 - [DQN系Agent](200_dqn_agents.jp.md)
 - [Metrics Viewer](210_metrics_viewer.jp.md)
 - [DropMerge Optuna利用ガイド](../optuna.md)
-- [Metrics Viewer load map](../../viewers/metrics-viewer/docs/loadmap.md)

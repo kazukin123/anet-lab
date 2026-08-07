@@ -6,7 +6,7 @@ set VENV_PYTHON=..\..\.venv\Scripts\python.exe
 set MLFLOW_EXE=..\..\.venv\Scripts\mlflow.exe
 set MLFLOW_REQUIREMENTS=..\..\viewers\metrics-tools\requirements.txt
 
-cd /d "%~dp0"
+cd /d "%~dp0runner"
 
 if not exist "%VENV_PYTHON%" (
     echo [ERROR] Python virtual environment was not found: "%VENV_PYTHON%"

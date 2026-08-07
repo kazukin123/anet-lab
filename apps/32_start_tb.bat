@@ -1,3 +1,4 @@
+cd /d "%~dp0runner"
 
 start tensorboard --logdir runs
 sleep 10
