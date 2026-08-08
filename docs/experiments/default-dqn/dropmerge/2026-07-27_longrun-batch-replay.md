@@ -20,6 +20,7 @@
 4. `batch_size=512`, `replay_ratio=1.0` は、その分離に使える未実行の診断候補である。ただし最終成績を直接改善する事前期待は低い。
 5. 設定上の `alpha` を変更した Run は、checkpoint から AdamW の param group options が復元されるため、学習率 A/B としては無効化する。batch / replay の履歴まで無効になるわけではない。
 6. ここでの判断は single-seed、非決定論、継続学習 lineage 上のものとし、普遍的な最適値とは扱わない。
+7. cy07 から B512/RR2 を再開した追加 100M では、終盤の Eval と Double Suika 率が cy07 終盤を上回った。改善余地は残るが、異常終了により checkpoint は保存されていない。
 
 ## この文書の読み方・更新規則
 
@@ -425,6 +426,71 @@ B512/RR1 は B256/RR1 と sample budget が同じでも、optimizer update と s
 5. B512/RR2 と比較した 1 時間あたりの性能上昇
 
 明確な性能上昇がなく、PER coverage も B256/RR1 相当なら診断完了として止める。
+
+---
+
+## 探索ブロック 09: cy07 から B512/RR2 を再開した追加 100M
+
+**記録時点:** 2026-08-08
+**状態:** completed / 事故中断
+**確度:** medium-low、同一 checkpoint・単一 Run・非決定論。close checkpoint なし
+
+### 探索観点
+
+cy07 の保存 checkpoint から最終成績優先ラインの B512/RR2 を再開し、cy07 終盤以降にも改善余地が残るかを見る。
+見た目上の plateau が実際の収束なのか、Double Suika 率や Eval 終盤値では改善が継続しているのかを確認する。
+
+### 探索条件・対象 Run
+
+| Run | 親 | 実効設定 | 到達・停止 |
+|---|---|---|---|
+| `run_20260808-023912_apx-ll_cy08` | `run_20260805-115101_apx-ll_cy07` の close checkpoint | B512/RR2 | `100,170,496 exp_step`、約13時間47分。`bad allocation` により異常終了、close checkpoint なし |
+
+実効設定は Run artifact の `config/config_data.txt` で、親 checkpoint、`replay_batch_size=512`、`replay_ratio=2.0` を確認した。
+Double Suika 率は `ep_maxrank_max >= 12` の episode 割合として再集計した。
+
+### 探索結果
+
+#### cy07 終盤と cy08 終盤の比較
+
+| 指標 | cy07 175〜200M | cy08 75〜100M | 傾向 |
+|---|---:|---:|---|
+| Eval target reward EMA | 約2636 | 約2708 | cy08 が約2.7%高い |
+| Eval policy reward EMA | 約2493 | 約2603 | cy08 が約4.4%高い |
+| Eval target/policy 平均 | 約2564 | 約2655 | cy08 が約3.5%高い |
+| Eval1 Double Suika 率 | 15.66% | 18.01% | +2.35ポイント |
+| Eval2 Double Suika 率 | 12.38% | 15.46% | +3.08ポイント |
+| 両 Eval の Double Suika 率平均 | 14.02% | 16.73% | +2.71ポイント |
+| Train reward EMA の終盤水準 | 約2176 | 約2184 | ほぼ横ばい |
+| PER unsampled eviction EMA | 約5.90% | 約5.87% | 同水準を維持 |
+
+- 50〜75M では Eval が一時的に低下し、`q_max_max=49.86` の単発スパイクも発生したが、75〜100M では Eval と Double Suika 率が回復した。
+- 終盤の TD error EMA、loss EMA、通常の Q 水準は cy07 終盤と同程度で、Q スパイクに続く持続的な発散はなかった。
+- reset NOOP margin は終盤も Eval1 / Eval2 の UQE、Q とも平均が負であり、持続的な reset NOOP 優位や NEET 再発の証拠はなかった。
+- throughput EMA は前半の約2400から後半約2146まで低下した。ただし IQN ビルドとの並行実行とメモリ逼迫を伴っており、B512/RR2 固有の低下とは解釈しない。
+
+### 考察
+
+Train reward の見た目は plateau に近いが、cy08 終盤の Eval reward と Double Suika 率は cy07 終盤を上回った。
+したがって、cy07 時点で完全に収束していたとは言えず、B512/RR2 には追加の改善余地が残っていた。
+
+一方、cy08 内の改善は単調ではなく、50〜75M の低下から終盤に回復した形である。
+single-seed、非決定論、同一 lineage の結果であるため、B512/RR2 の普遍的優位や今後の継続改善までは断定しない。
+
+`bad allocation` は IQN ビルドと並行したメモリ逼迫時に発生し、close checkpoint が保存されなかった。
+そのため保存済み lineage の終点は cy07 とし、cy08 は「改善余地を示したが成果を保存できなかった診断 Run」と扱う。
+
+### 次の探索
+
+性能主力は引き続き B512/RR2、実時間効率の対照は B256/RR1 とする。
+batch size と replay sample budget の寄与を分離する場合は、探索ブロック 08 の B512/RR1 診断を同じ保存 checkpoint から実施する。
+
+### 現在の判断
+
+- **B512/RR2:** cy07 後にも改善余地が残る証拠を得たが、収束は未確認
+- **保存済み lineage の終点:** cy07
+- **cy08 の扱い:** 成績傾向の診断証拠。checkpoint 継続元にはできない
+- **B512/RR1:** 未実行の機構分離診断として維持
 
 ---
 
