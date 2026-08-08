@@ -123,7 +123,6 @@ app.run_name = run_{t}_dm
 #app.run_name = run_{t}_imp2-vit128_tgtg-nose
 #app.run_name = run_{t}_imp2-vit128_tgtg-nolg60-tm10
 #app.run_name = run_{t}_imp2-vit128_tgtg-nolg60-tm10
-#app.run_name = run_{t}_apx-ll_cy01
 
 #app.online.exp_pause_step  = 9,000,000    # 9M
 #app.online.exp_pause_step  = 15,000,000      # 15M
@@ -145,11 +144,41 @@ backend.$ = backend.non-deterministic # 非決定論的（高速化）
 
 
 # ==============================================================================
+# 長期Run
+# ==============================================================================
+
+#app.run_name = run_{t}_apx-ll_cy08
+#R.auto_load_file = ../../runs/run_20260805-115101_apx-ll_cy07/agent_close.anet
+#R.learner.per_beta_start = 0.6
+
+
+# ==============================================================================
 # 実験
 # ==============================================================================
 
 E.obs_include_prev_action = true # 直前命令を [valid, noop, drop_x] として vector 末尾へ追加
 E.obs_prev_drop_marker = true    # 直前 DROP 命令列を grid top row の class 12 で表示
+
+#R.learner.alpha = 7.5e-5
+R.learner.alpha = 3e-4
+
+#R.learner.replay_batch_size = 256
+R.learner.replay_batch_size = 512
+
+#R.learner.replay_ratio = 1.0
+#R.learner.replay_ratio = 0.5
+#R.learner.replay_ratio = 1.25
+#R.learner.replay_ratio = 1.5
+R.learner.replay_ratio = 2.0
+
+#E.action_mode = move_fast     # move move_fast direct direct_noop
+
+R.learner.per_alpha = 0.2
+
+#R.learner.per_initial_priority_mode = actor_approx
+R.learner.per_initial_priority_mode = fixed
+#R.learner.per_initial_priority_mode = max
+
 
 R.train_policy.use_spatial_exploration = true
 #R.train_policy.use_spatial_exploration = false
@@ -173,12 +202,6 @@ R.train_actor.sync_interval.type = constant
 #R.train_actor.sync_interval.value = 400
 R.train_actor.sync_interval.value = 200
 
-#R.learner.per_initial_priority_mode = actor_approx
-R.learner.per_initial_priority_mode = fixed
-#R.learner.per_initial_priority_mode = max
-
-R.learner.replay_ratio = 1.25
-#R.learner.replay_ratio = 1.5
 
 R.learner.per_initial_priority = 0.3
 
@@ -255,8 +278,6 @@ R.learner.grad_clip_tau = 5
 #R.learner.weight_decay = 1e-3 # p3
 #R.learner.weight_decay = 1e-1 # p4
 #R.learner.weight_decay = 0 # p5
-
-#R.learner.alpha = 3e-4
 
 #E.learner.alpha = 1e-4
 #E.learner.weight_decay = 1e-2
