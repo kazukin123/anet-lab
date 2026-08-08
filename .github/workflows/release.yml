@@ -235,7 +235,7 @@ jobs:
 
         # zip 作成 (bsdtar: Compress-Archive より高速・省メモリ)
         $mainZip = "anet-lab-$ver-win64.zip"
-        $docsZip = "anet-lab-docs-$ver.zip"
+        $docsZip = "anet-lab-doxygen-$ver.zip"
         Set-Location $stage
         tar.exe -a -cf "../$mainZip" LICENSE NOTICE apps docs licenses
         Set-Location ..
@@ -289,6 +289,6 @@ jobs:
       if: github.ref_type != 'tag'
       uses: actions/upload-artifact@v5
       with:
-        name: anet-lab-docs-${{ steps.ver.outputs.version }}
+        name: anet-lab-doxygen-${{ steps.ver.outputs.version }}
         path: docs/html/
         retention-days: 7
