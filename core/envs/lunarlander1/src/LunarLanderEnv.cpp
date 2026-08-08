@@ -1,8 +1,4 @@
-/*
- * LunarLander C++ Port
- * Based on work by OpenAI and Farama Foundation.
- * Licensed under the MIT License. See LICENSE file for details.
- */
+﻿// LunarLanderEnv.cpp
 
 #include "LunarLanderEnv.hpp"
 #include <cmath>

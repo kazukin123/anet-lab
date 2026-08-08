@@ -1,6 +1,7 @@
 ﻿# anet-lab
 
 [![Windows Build](https://github.com/kazukin123/anet-lab/actions/workflows/windows-ci.yml/badge.svg)](https://github.com/kazukin123/anet-lab/actions/workflows/windows-ci.yml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 ## 概要
 
@@ -137,6 +138,14 @@ Windows/MSVC、libtorch、wxWidgets、CUDA、Metrics Viewerを含む開発環境
 * メトリクス
 	* ヒートマップ：ヒストグラムTB対応
 * AP改善
+
+## ライセンス
+
+特記のない本リポジトリのファーストパーティ部分は、[Apache License 2.0](LICENSE)で提供します。
+著作権表示は[NOTICE](NOTICE)を参照してください。
+
+`third_party/`、`licenses/`、およびファイル内で別のライセンスが明記された部分には、
+それぞれのライセンス条件が適用されます。
 
 ## 備考
 

@@ -40,8 +40,11 @@ anet-lab の実行アプリケーションと起動 launcher(bat)を置くディ
 
 リリース zip(`anet-lab-<version>-win64.zip`)の内容:
 
+- `LICENSE` — anet-lab本体に適用するApache License 2.0
+- `NOTICE` — anet-lab本体の著作権表示
 - `apps/` — 本ディレクトリ(実行バイナリ・設定・launcher。ソースは含まない)
 - `docs/design/` — 設計ドキュメント
-- `licenses/` — 同梱ソフトウェアのライセンス
+- `licenses/` — 同梱する第三者ソフトウェアのライセンス
 
 Doxygen 生成の API ドキュメントは別 zip(`anet-lab-docs-<version>.zip`)です。
+このzipにも直下に`LICENSE`と`NOTICE`を同梱します。

@@ -176,7 +176,7 @@ jobs:
         if (-not (Test-Path html/index.html)) { throw "Doxygen output missing (docs/html/index.html)" }
 
     # ----------------------------------------------------------------
-    # パッケージング (リリース zip = リポジトリ配置のミラーサブセット / ADR 0017)
+    # パッケージング (配置ミラー + zip 直下の法的文書 / ADR 0017, 0020)
     # ----------------------------------------------------------------
     - name: Package release zips
       id: pack
@@ -184,7 +184,18 @@ jobs:
       run: |
         $ver = "${{ steps.ver.outputs.version }}"
         $stage = "stage"
+        $docsStage = "stage-docs"
         New-Item -ItemType Directory -Force -Path $stage | Out-Null
+        New-Item -ItemType Directory -Force -Path $docsStage | Out-Null
+
+        # anet-lab 本体のライセンス文書は各 zip の直下に置く
+        if (-not (Test-Path LICENSE) -or -not (Test-Path NOTICE)) {
+          throw "Project LICENSE or NOTICE missing"
+        }
+        Copy-Item LICENSE "$stage/LICENSE"
+        Copy-Item NOTICE "$stage/NOTICE"
+        Copy-Item LICENSE "$docsStage/LICENSE"
+        Copy-Item NOTICE "$docsStage/NOTICE"
 
         # apps: launcher bat + README
         New-Item -ItemType Directory -Force -Path "$stage/apps" | Out-Null
@@ -210,6 +221,9 @@ jobs:
         New-Item -ItemType Directory -Force -Path "$stage/docs" | Out-Null
         Copy-Item docs/design "$stage/docs/design" -Recurse
 
+        # Doxygen zip は独立配布物として html と法的文書をまとめる
+        Copy-Item docs/html "$docsStage/html" -Recurse
+
         # licenses (+ MetricsViewer の THIRD-PARTY 一覧)
         Copy-Item licenses "$stage/licenses" -Recurse
         $tp = "apps/metrics-viewer/target/generated-sources/license/THIRD-PARTY.txt"
@@ -223,11 +237,21 @@ jobs:
         $mainZip = "anet-lab-$ver-win64.zip"
         $docsZip = "anet-lab-docs-$ver.zip"
         Set-Location $stage
-        tar.exe -a -cf "../$mainZip" apps docs licenses
+        tar.exe -a -cf "../$mainZip" LICENSE NOTICE apps docs licenses
         Set-Location ..
-        Set-Location docs
-        tar.exe -a -cf "../$docsZip" html
+        Set-Location $docsStage
+        tar.exe -a -cf "../$docsZip" LICENSE NOTICE html
         Set-Location ..
+
+        # 各配布物が単独でライセンス文書を持つことを archive entry で検証する
+        $mainEntries = @(tar.exe -tf $mainZip)
+        foreach ($entry in @("LICENSE", "NOTICE", "apps/", "docs/", "licenses/")) {
+          if ($mainEntries -notcontains $entry) { throw "Main zip entry missing: $entry" }
+        }
+        $docsEntries = @(tar.exe -tf $docsZip)
+        foreach ($entry in @("LICENSE", "NOTICE", "html/")) {
+          if ($docsEntries -notcontains $entry) { throw "Docs zip entry missing: $entry" }
+        }
 
         # サイズガード: GitHub Release の 1 ファイル 2GiB 制限を事前検知
         $sizeMB = [math]::Round((Get-Item $mainZip).Length / 1MB)
