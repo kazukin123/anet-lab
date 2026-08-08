@@ -24,11 +24,23 @@ agent.device_type = 1    # 0=cpu 1=cuda   NNが小さいのでCPUのほうが早
 
 
 # ==============================================================================
+# Run設定
+# ==============================================================================
+
+app.run_name = run_{t}_ll
+
+#backend.$ = backend.deterministic      # 決定論的（遅いけど再現性あり）
+backend.$ = backend.non-deterministic # 非決定論的（高速化）
+
+
+# ==============================================================================
 # 実験
 # ==============================================================================
 
-app.run_name = run_{t}_ll_bf16
+#app.run_name = run_{t}_ll_bf16
 
+train.eval.[eval_panel].env.limit_step = 200
+app.online.eval_panel.eval_config_tag = eval_panel
 
 #E.terrain_noise_height = 0.25
 
