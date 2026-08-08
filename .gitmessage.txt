@@ -1,4 +1,4 @@
-
+﻿
 # ==== Commit Messages(Template) ====
 # <type>[(optional scope)][!]: <description> #topic
 # feat(api)!: add new feature(breaking change) #3 #4 #15
@@ -27,7 +27,7 @@
 # #17 Agent 共通基盤
 # #18 ENV個別実装
 # #19 AGENT個別実装
-#
+# #20 ハイパラ探索
 # ==== memo ==== 
 # build: #6
 # ci: #7
