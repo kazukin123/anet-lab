@@ -37,7 +37,11 @@ backend.$ = backend.non-deterministic # 非決定論的（高速化）
 # 実験
 # ==============================================================================
 
-#app.run_name = run_{t}_ll_bf16
+#app.run_name = run_{t}_ll
+
+R.learner.replay_ratio = 8
+#R.learner.replay_batch_size = 512
+#R.learner.replay_batch_size = 1024
 
 train.eval.[eval_panel].env.limit_step = 200
 app.online.eval_panel.eval_config_tag = eval_panel
@@ -45,8 +49,6 @@ app.online.eval_panel.eval_config_tag = eval_panel
 #E.terrain_noise_height = 0.25
 
 E.obs_include_action = true   # 風POMDP対策: 直前actionをobsに含める(032)
-
-#R.learner.replay_ratio = 2
 
 #R.learner.per_initial_priority = 10
 R.learner.per_initial_priority_mode = max
@@ -192,9 +194,9 @@ A.learner.per_beta_step = 1,000,000              # 1M
 #app.online.exp_pause_step  = -1
 #app.online.exp_pause_step  = 50,000
 #app.online.exp_pause_step  = 25,600,000   # 256 * 100K
-app.online.exp_pause_step  = 10,000,000   # 10M
+#app.online.exp_pause_step  = 10,000,000   # 10M
 #app.online.exp_pause_step  = 4,000,000   # 4M
-#app.online.exp_pause_step  = 2,000,000   # 2M
+app.online.exp_pause_step  = 2,000,000   # 2M
 app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
 
 
