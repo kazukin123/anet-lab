@@ -122,6 +122,19 @@ namespace anet::rl {
         static constexpr const char* kActionPolicyTypeStr_UQE = "UQE";
         static constexpr const char* kActionPolicyTypeStr_ThompsonSampling = "ThompsonSampling";
 
+        struct TauRuleConfig {
+            int num_taus = 32;
+            std::string sample_mode = "random";
+        };
+
+        struct FullDistributionQueryConfig {
+            bool enabled = false;
+            TauRuleConfig tau_rule{
+                .num_taus = 32,
+                .sample_mode = "fixed",
+            };
+        };
+
         struct ActionPolicyConfig {
             // Poilcy選択
             std::string policy_type = "EpsilonGreedy"; ///< "EpsilonGreedy", "UQE", "ThompsonSampling", "Greedy"
@@ -152,6 +165,10 @@ namespace anet::rl {
             // ==========================================
             bool use_amp = false;
             bool use_amp_bf16 = false;
+
+            TauRuleConfig tau_rule;
+            FullDistributionQueryConfig full_distribution_query;
+            std::string quantile_mode = "none";
         };
 
         struct TrainActorConfig {
@@ -210,6 +227,17 @@ namespace anet::rl {
 
             int num_quantiles = 51;         ///< 分位数 N (デフォルト51)
             float quantile_huber_kappa = 1.0f;///< Huber Loss の閾値 kappa
+
+            struct IqnConfig {
+                TauRuleConfig current_taus{
+                    .num_taus = 64,
+                    .sample_mode = "random",
+                };
+                TauRuleConfig target_taus{
+                    .num_taus = 64,
+                    .sample_mode = "random",
+                };
+            } iqn;
 
             bool use_amp = false;
             bool use_amp_bf16 = false;

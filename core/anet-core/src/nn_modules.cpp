@@ -1,6 +1,7 @@
 ﻿// nn_module_impl.cpp
 
 #include <numeric>
+#include <numbers>
 #include <sstream>
 #include "nn_impl.hpp"
 #include "anet/log.hpp"
@@ -329,6 +330,45 @@ public:
         cd.Set("start_dim", 1);
         return cd;
     }
+};
+
+/// IQN の分位点を固定 cosine basis へ展開する module。
+class CosineEmbeddingModule : public NetworkModule {
+public:
+    explicit CosineEmbeddingModule(int64_t num_basis)
+        : num_basis_(num_basis)
+    {
+    }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        ANET_PROFILE_FUNC();
+
+        if (input.dim() != 2) {
+            ANET_SYSTEM_ERROR(
+                "CosineEmbedding input rank is invalid: rank=" << input.dim()
+                << " shape=" << input.sizes() << " expected=2 for (B,K).");
+        }
+
+        // Network構築時のdummy inputを基準にbasisを遅延生成し、以後のforwardで再利用する。
+        if (!frequencies_.defined()
+            || frequencies_.device() != input.device()
+            || frequencies_.scalar_type() != input.scalar_type()) {
+            frequencies_ = torch::arange(num_basis_, input.options()) * std::numbers::pi_v<double>;
+        }
+        return torch::cos(input.unsqueeze(-1) * frequencies_);
+    }
+
+    anet::ConfigData GetCurrentConfigData() const override
+    {
+        anet::ConfigData config_data;
+        config_data.Set("num_basis", num_basis_);
+        return config_data;
+    }
+
+private:
+    int64_t num_basis_;
+    torch::Tensor frequencies_;
 };
 
 class StackMergeModule : public NetworkModule {
@@ -2178,6 +2218,10 @@ struct ReshapeConfig {
     std::vector<int64_t> dims;
 };
 
+struct CosineEmbeddingConfig {
+    int64_t num_basis = 64;
+};
+
 class LinearModuleFactory final : public NetworkModuleFactory {
 private:
     struct Config : anet::Config {
@@ -2304,6 +2348,33 @@ public:
             ANET_SYSTEM_ERROR("ReshapeModule: 'dims' is empty.");
         }
         return std::make_shared<ReshapeModule>(config.reshape.dims);
+    }
+};
+
+class CosineEmbeddingModuleFactory final : public NetworkModuleFactory {
+private:
+    struct Config : anet::Config {
+        CosineEmbeddingConfig cos;
+
+        explicit Config(const anet::ConfigData& config_data)
+            : anet::Config("")
+        {
+            ANET_READ_CONFIG(config_data, cos.num_basis);
+        }
+    };
+
+public:
+    std::shared_ptr<NetworkModule> CreateModule(
+        const anet::ConfigData& config_data, const ModuleContext& context) const override
+    {
+        (void)context;
+        Config config(config_data);
+        if (config.cos.num_basis <= 0) {
+            ANET_SYSTEM_ERROR(
+                "Invalid CosineEmbedding config: key=cos.num_basis value=" << config.cos.num_basis
+                << " expected=>0.");
+        }
+        return std::make_shared<CosineEmbeddingModule>(config.cos.num_basis);
     }
 };
 
@@ -2451,6 +2522,7 @@ public:
     repo.Register("HybridSpatialEmbedder", std::make_shared<HybridSpatialEmbedderModuleFactory>());
     repo.Register("SpatialEmbedder", std::make_shared<SpatialEmbedderModuleFactory>());
     repo.Register("SpatialPositionalEmbedding2D", std::make_shared<SpatialPositionalEmbedding2DFactory>());
+    repo.Register("CosineEmbedding", std::make_shared<CosineEmbeddingModuleFactory>());
 
     // レイヤー系モジュール登録
     repo.Register("Linear", std::make_shared<LinearModuleFactory>());

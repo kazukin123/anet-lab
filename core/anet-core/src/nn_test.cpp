@@ -299,6 +299,16 @@ std::shared_ptr<anet::nn::NetworkModule> MakeDropoutTestModule(double dropout_ra
     return factory->CreateModule(config_data, anet::nn::ModuleContext{});
 }
 
+std::shared_ptr<anet::nn::NetworkModule> MakeCosineEmbeddingTestModule(int64_t num_basis = 64)
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("cos.num_basis", num_basis);
+    auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("CosineEmbedding");
+    return factory->CreateModule(config_data, anet::nn::ModuleContext{});
+}
+
 std::shared_ptr<anet::nn::NetworkModule> MakeResBlockTestModule(
     double droppath_rate,
     double dropout_rate,
@@ -564,13 +574,14 @@ std::shared_ptr<anet::nn::Network> MakeDotTestNetwork(
         std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<anet::nn::NetworkBranch>(
         "feature",
-        std::vector<std::string>{ "obs" },
+        std::vector<std::vector<std::string>>{ { "obs" } },
+        1,
         network_struct);
 
     anet::nn::NetworkConfig network_config;
     anet::nn::NetworkBranchConfig branch_config;
     branch_config.name = "feature";
-    branch_config.bind_keys = { "obs" };
+    branch_config.bind_terms = { { "obs" } };
     branch_config.raw_keys = { "obs" };
     branch_config.auto_format = false;
     branch_config.structure_str = "Scale_0";
@@ -608,7 +619,8 @@ std::shared_ptr<anet::nn::Network> MakeSoftCopyTestNetwork(float base, int64_t c
         std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<anet::nn::NetworkBranch>(
         "feature",
-        std::vector<std::string>{ "obs" },
+        std::vector<std::vector<std::string>>{ { "obs" } },
+        1,
         network_struct);
 
     anet::nn::NetworkConfig network_config;
@@ -645,7 +657,8 @@ std::shared_ptr<anet::nn::Network> MakeBodyOnlyDotTestNetwork()
         std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<anet::nn::NetworkBranch>(
         "feature",
-        std::vector<std::string>{ "obs" },
+        std::vector<std::vector<std::string>>{ { "obs" } },
+        1,
         network_struct);
 
     anet::nn::NetworkConfig network_config;
@@ -738,6 +751,279 @@ TEST_CASE("Network keeps head output FP32 under CPU autocast", "[nn][head][bf16]
     }
     REQUIRE(func_output.Contains("logits"));
     REQUIRE(func_output.At("logits").dtype() == torch::kFloat32);
+}
+
+TEST_CASE("Network bind product fuses feature and tau tensors", "[nn][bind]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.branch.[fusion].bind", "features * tau_embedding");
+    config_data.Set("net.branch.[fusion].structure", "");
+    config_data.Set("net.body.output.[features]", "fusion");
+    anet::nn::NetworkConfig config(config_data);
+
+    anet::TensorSpecMap input_specs;
+    input_specs["features"] = anet::TensorSpec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    input_specs["tau_embedding"] = anet::TensorSpec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 3, 2 },
+        .dtype = torch::kFloat32,
+    };
+
+    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs);
+    anet::TensorDict input;
+    input.Set("features", torch::tensor({ { 2.0f, 3.0f }, { 5.0f, 7.0f } }));
+    input.Set("tau_embedding", torch::tensor({
+        { { 1.0f, 2.0f }, { 3.0f, 4.0f }, { 5.0f, 6.0f } },
+        { { 2.0f, 3.0f }, { 4.0f, 5.0f }, { 6.0f, 7.0f } },
+    }));
+
+    const auto output = body->Forward(input);
+    const auto expected = torch::tensor({
+        { { 2.0f, 6.0f }, { 6.0f, 12.0f }, { 10.0f, 18.0f } },
+        { { 10.0f, 21.0f }, { 20.0f, 35.0f }, { 30.0f, 49.0f } },
+    });
+    CheckTensorClose(expected, output.At("features"));
+}
+
+TEST_CASE("CosineEmbedding expands taus into cosine basis features", "[nn][iqn][cosine_embedding]")
+{
+    auto module = MakeCosineEmbeddingTestModule(4);
+    const auto taus = torch::tensor(
+        { { 0.0, 0.5, 1.0 }, { 0.25, 0.75, 0.0 } },
+        torch::TensorOptions().dtype(torch::kFloat64));
+    const auto output = module->Forward(taus);
+
+    CHECK(output.sizes() == torch::IntArrayRef({ 2, 3, 4 }));
+    CHECK(output.dtype() == torch::kFloat64);
+    CHECK(output.device() == taus.device());
+    CHECK(module->GetCurrentConfigData().Get("num_basis") == "4");
+    CHECK(torch::allclose(output.select(-1, 0), torch::ones({ 2, 3 }, taus.options())));
+    CHECK(torch::allclose(output[0][0], torch::ones({ 4 }, taus.options())));
+    CHECK(torch::allclose(
+        output[0][2],
+        torch::tensor({ 1.0, -1.0, 1.0, -1.0 }, taus.options()),
+        1.0e-12,
+        1.0e-12));
+}
+
+TEST_CASE("CosineEmbedding validates its local input and config contracts", "[nn][iqn][cosine_embedding]")
+{
+    CHECK_THROWS_WITH(
+        MakeCosineEmbeddingTestModule(0),
+        Catch::Matchers::ContainsSubstring("cos.num_basis")
+        && Catch::Matchers::ContainsSubstring("value=0")
+        && Catch::Matchers::ContainsSubstring("expected=>0"));
+
+    auto module = MakeCosineEmbeddingTestModule(4);
+    CHECK_THROWS_WITH(
+        module->Forward(torch::zeros({ 2, 3, 1 })),
+        Catch::Matchers::ContainsSubstring("CosineEmbedding")
+        && Catch::Matchers::ContainsSubstring("rank=3")
+        && Catch::Matchers::ContainsSubstring("expected=2"));
+}
+
+TEST_CASE("Network bind config exposes product terms and concat dimension", "[nn][bind][config]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("net.branch.[fusion].bind", " a(raw) * b * c , d, , ");
+    config_data.Set("net.branch.[fusion].bind_concat_dim", -1);
+    config_data.Set("net.branch.[fusion].structure", "");
+
+    const anet::nn::NetworkConfig config(config_data);
+    const auto& branch = config.branches.at("fusion");
+    CHECK(branch.bind_terms == std::vector<std::vector<std::string>>{ { "a", "b", "c" }, { "d" } });
+    CHECK(branch.bind_concat_dim == -1);
+    CHECK(branch.raw_keys == std::vector<std::string>{ "a" });
+
+    const auto json = config.ToJson();
+    const auto& branch_json = json.at("branches").at("fusion");
+    CHECK(branch_json.at("bind_terms") == branch.bind_terms);
+    CHECK(branch_json.at("bind_concat_dim") == -1);
+    CHECK(branch_json.at("raw_keys") == branch.raw_keys);
+    CHECK(branch_json.at("structure") == "");
+    CHECK_FALSE(branch_json.contains("bind_keys"));
+}
+
+TEST_CASE("Network bind product rejects empty factors with context", "[nn][bind][config]")
+{
+    for (const std::string bind : { "a**b", "*a", "a*" }) {
+        INFO("bind=" << bind);
+        anet::ConfigData config_data;
+        config_data.Set("net.branch.[fusion].bind", bind);
+        config_data.Set("net.branch.[fusion].structure", "");
+        CHECK_THROWS_WITH(
+            anet::nn::NetworkConfig(config_data),
+            Catch::Matchers::ContainsSubstring("branch 'fusion'")
+            && Catch::Matchers::ContainsSubstring("bind=\"")
+            && Catch::Matchers::ContainsSubstring(bind));
+    }
+}
+
+TEST_CASE("NetworkBodyBuilder warns once only for directly unused inputs", "[nn][bind][warning]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("net.branch.[feature].bind", "used");
+    config_data.Set("net.branch.[feature].structure", "");
+    config_data.Set("net.body.output.[features]", "feature");
+    config_data.Set("net.body.output.[direct]", "direct_input");
+    const anet::nn::NetworkConfig config(config_data);
+
+    anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    anet::TensorSpecMap input_specs{
+        { "used", spec },
+        { "direct_input", spec },
+        { "unused", spec },
+    };
+
+    anet::test::LogCaptureGuard logs;
+    (void)anet::nn::NetworkBodyBuilder::Build(config, input_specs);
+    logs.Flush();
+
+    int unused_warning_count = 0;
+    for (const auto& record : logs.Records()) {
+        if (record.level == wxLOG_Warning && Contains(record.message, "input key 'unused'")
+            && Contains(record.message, "not bound")) {
+            ++unused_warning_count;
+        }
+        CHECK_FALSE((Contains(record.message, "input key 'direct_input'") && Contains(record.message, "not bound")));
+        CHECK_FALSE((Contains(record.message, "input key 'used'") && Contains(record.message, "not bound")));
+    }
+    CHECK(unused_warning_count == 1);
+}
+
+TEST_CASE("Network bind concat honors non-batch dimensions", "[nn][bind]")
+{
+    auto network_struct = std::make_shared<anet::nn::NetworkStruct>();
+    anet::nn::NetworkBranch branch(
+        "concat",
+        std::vector<std::vector<std::string>>{ { "a" }, { "b" } },
+        -1,
+        network_struct);
+
+    anet::TensorDict state;
+    state.Set("a", torch::tensor({ { 1.0f, 2.0f }, { 3.0f, 4.0f } }));
+    state.Set("b", torch::tensor({ { 5.0f }, { 6.0f } }));
+    branch.Execute(state);
+
+    CHECK(torch::equal(
+        state.At("concat"),
+        torch::tensor({ { 1.0f, 2.0f, 5.0f }, { 3.0f, 4.0f, 6.0f } })));
+}
+
+TEST_CASE("Network bind enforces product and concat batch contracts", "[nn][bind]")
+{
+    auto network_struct = std::make_shared<anet::nn::NetworkStruct>();
+
+    SECTION("product factors must have matching batches")
+    {
+        anet::nn::NetworkBranch branch(
+            "fusion", { { "a", "b" } }, 1, network_struct);
+        anet::TensorDict state;
+        state.Set("a", torch::ones({ 2, 3 }));
+        state.Set("b", torch::ones({ 3, 1, 3 }));
+        CHECK_THROWS_WITH(
+            branch.Execute(state),
+            Catch::Matchers::ContainsSubstring("NetworkBranch 'fusion'")
+            && Catch::Matchers::ContainsSubstring("factor 'a'")
+            && Catch::Matchers::ContainsSubstring("factor 'b'")
+            && Catch::Matchers::ContainsSubstring("shape="));
+    }
+
+    SECTION("concat terms must have matching batches")
+    {
+        anet::nn::NetworkBranch branch(
+            "concat", { { "a" }, { "b" } }, 1, network_struct);
+        anet::TensorDict state;
+        state.Set("a", torch::ones({ 2, 3 }));
+        state.Set("b", torch::ones({ 3, 4 }));
+        CHECK_THROWS_WITH(
+            branch.Execute(state),
+            Catch::Matchers::ContainsSubstring("NetworkBranch 'concat'")
+            && Catch::Matchers::ContainsSubstring("batch size mismatch")
+            && Catch::Matchers::ContainsSubstring("term_shapes="));
+    }
+}
+
+TEST_CASE("Network bind rejects batch and out-of-range concat dimensions", "[nn][bind]")
+{
+    auto network_struct = std::make_shared<anet::nn::NetworkStruct>();
+    for (const int64_t concat_dim : { int64_t{ 0 }, int64_t{ -2 }, int64_t{ 2 } }) {
+        INFO("bind_concat_dim=" << concat_dim);
+        anet::nn::NetworkBranch branch(
+            "concat", { { "a" }, { "b" } }, concat_dim, network_struct);
+        anet::TensorDict state;
+        state.Set("a", torch::ones({ 2, 3 }));
+        state.Set("b", torch::ones({ 2, 4 }));
+        CHECK_THROWS_WITH(
+            branch.Execute(state),
+            Catch::Matchers::ContainsSubstring("NetworkBranch 'concat'")
+            && Catch::Matchers::ContainsSubstring("value=" + std::to_string(concat_dim))
+            && Catch::Matchers::ContainsSubstring("rank=2")
+            && Catch::Matchers::ContainsSubstring("term_shapes="));
+    }
+
+    SECTION("concat dimension must exist in every term")
+    {
+        anet::nn::NetworkBranch branch(
+            "concat", { { "a" }, { "b" } }, 2, network_struct);
+        anet::TensorDict state;
+        state.Set("a", torch::ones({ 2, 3, 4 }));
+        state.Set("b", torch::ones({ 2, 5 }));
+        CHECK_THROWS_WITH(
+            branch.Execute(state),
+            Catch::Matchers::ContainsSubstring("NetworkBranch 'concat'")
+            && Catch::Matchers::ContainsSubstring("value=2")
+            && Catch::Matchers::ContainsSubstring("term_rank=2")
+            && Catch::Matchers::ContainsSubstring("term_shapes="));
+    }
+}
+
+TEST_CASE("Network bind product factors participate in DAG validation", "[nn][bind]")
+{
+    anet::TensorSpec spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+
+    SECTION("factor dependency determines execution order")
+    {
+        anet::ConfigData config_data;
+        config_data.Set("net.branch.[base].bind", "obs");
+        config_data.Set("net.branch.[base].structure", "");
+        config_data.Set("net.branch.[fusion].bind", "base * scale");
+        config_data.Set("net.branch.[fusion].structure", "");
+        config_data.Set("net.body.output.[features]", "fusion");
+        const anet::nn::NetworkConfig config(config_data);
+        auto body = anet::nn::NetworkBodyBuilder::Build(
+            config, anet::TensorSpecMap{ { "obs", spec }, { "scale", spec } });
+        REQUIRE(body->GetBranches().size() == 2);
+        CHECK(body->GetBranches()[0]->GetName() == "base");
+        CHECK(body->GetBranches()[1]->GetName() == "fusion");
+    }
+
+    SECTION("factor dependency cycles fail fast")
+    {
+        anet::ConfigData config_data;
+        config_data.Set("net.branch.[a].bind", "obs * b");
+        config_data.Set("net.branch.[a].structure", "");
+        config_data.Set("net.branch.[b].bind", "a");
+        config_data.Set("net.branch.[b].structure", "");
+        const anet::nn::NetworkConfig config(config_data);
+        CHECK_THROWS_WITH(
+            anet::nn::NetworkBodyBuilder::Build(config, anet::TensorSpecMap{ { "obs", spec } }),
+            Catch::Matchers::ContainsSubstring("Cycle detected"));
+    }
 }
 
 TEST_CASE("BatchNorm2d runs in FP32 after BF16 autocast convolution", "[nn][batchnorm][bf16]")
@@ -1041,7 +1327,8 @@ std::shared_ptr<anet::nn::Network> MakeTraceTestNetwork()
         std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<anet::nn::NetworkBranch>(
         "feature",
-        std::vector<std::string>{ "obs" },
+        std::vector<std::vector<std::string>>{ { "obs" } },
+        1,
         network_struct);
 
     anet::nn::NetworkConfig network_config;
@@ -1754,6 +2041,40 @@ TEST_CASE("Network dot view emits structure by default and configurable details"
     CHECK(Contains(branch_detail_dot, ">false</TD>"));
     CHECK(Contains(branch_detail_dot, "raw_keys"));
     CHECK(Contains(branch_detail_dot, ">obs</TD>"));
+    CHECK(Contains(branch_detail_dot, "bind_concat_dim"));
+    CHECK(Contains(branch_detail_dot, ">1</TD>"));
+}
+
+TEST_CASE("Network dot view emits an edge for every bind product factor", "[nn][bind][dot]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("net.branch.[fusion].bind", "features * tau_embedding");
+    config_data.Set("net.branch.[fusion].structure", "");
+    config_data.Set("net.body.output.[features]", "fusion");
+    const anet::nn::NetworkConfig config(config_data);
+
+    anet::TensorSpecMap input_specs;
+    input_specs["features"] = anet::TensorSpec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 2 },
+        .dtype = torch::kFloat32,
+    };
+    input_specs["tau_embedding"] = anet::TensorSpec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 3, 2 },
+        .dtype = torch::kFloat32,
+    };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(
+        config, input_specs, nullptr, torch::Device(torch::kCPU));
+
+    anet::nn::NetworkGraphVizConfig viz_config;
+    viz_config.show_branch_config = true;
+    const auto dot = network->MakeGraphViz(viz_config)->ToDotString();
+    CHECK(Contains(dot, "\"input_features\" -> \"branch_fusion\""));
+    CHECK(Contains(dot, "label=\"features\""));
+    CHECK(Contains(dot, "\"input_tau_embedding\" -> \"branch_fusion\""));
+    CHECK(Contains(dot, "label=\"tau_embedding\""));
+    CHECK(Contains(dot, "bind_concat_dim"));
 }
 
 TEST_CASE("Network dot view emits head outputs and optional head info", "[nn][dot][head]")

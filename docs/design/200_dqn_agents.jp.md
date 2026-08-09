@@ -26,7 +26,7 @@ Agent共通contractは[Agentと学習](110_agents_and_learning.jp.md)、ReplayBu
 
 `DefaultDQNAgent`と`RainbowAgent`は、どちらも`AgentBase`と共通`rl::Learner`を実装する具象Agentである。`CreateLearner()`は外側のAgent自身を返し、外側が共有mutexや前後処理を管理したうえで、内側の`dqn::Learner`へ更新を委譲する。
 
-`dqn_based_agent.*`は、`NetworkModel`、`ActionPolicy`、`Actor`、`Learner`、`TDLearner`、`QRLearner`などを提供する内部component群である。両具象Agentはこれらを合成しており、`DefaultDQNAgent`または`RainbowAgent`が内側の`dqn::Learner`を継承する構造ではない。
+`dqn_based_agent.*`は、`NetworkModel`、`ActionPolicy`、`Actor`、`Learner`、`TDLearner`、`QRLearner`、`IQNLearner`などを提供する内部component群である。両具象Agentはこれらを合成しており、`DefaultDQNAgent`または`RainbowAgent`が内側の`dqn::Learner`を継承する構造ではない。
 
 ### 2.2 Online NetworkとTarget Network
 
@@ -38,13 +38,18 @@ HeadとLearnerは次を組み合わせる。
 |---|---|---|
 | 通常Q | Actionごとの`q` | `TDLearner` |
 | QR-DQN | Action・quantileごとの`q_dist`と平均`q` | `QRLearner` |
-| Dueling | valueとadvantageを合成したQ | TDまたはQRと組合せ可能 |
+| IQN | 注入したtausごとの`q_dist`と標本平均`q` | `IQNLearner` |
+| Dueling | valueとadvantageを合成したQ | TD、QR、IQNと組合せ可能 |
 
 Double DQN、N-step、PER、勾配clip、AMPなどはLearner設定で組み合わせる。すべての組合せを「Rainbow」という名称だけから暗黙に仮定せず、Runの解決済み設定を確認する。
 
 ### 2.3 ActionPolicyとDQNActionInfo
 
 `ActionPolicy`はNetwork forwardとAction選択を担当し、Action、Q値、quantileなどを`DQNActionInfo`へまとめる。現行の共通部品にはepsilon-greedy、UQE、Thompson Samplingがある。DefaultDQNはTrain、Eval、target用Policyを分け、RainbowはAction用Policyと学習target用のgreedy Policyを構成する。
+
+DefaultDQNのIQNでは、各Policyが`tau_rule`（`num_taus`と`random|fixed`）に従ってtausを生成し、受領したObservationのshallow copyへ注入してからforwardする。`fixed`は指定範囲をK個の等幅区間に分け、各区間の中心へτを固定配置する決定論的な方式で、RNGを消費しない。Trainの既定はrandom×32、Eval/targetはfixed×32である。UQEは減衰後の実効tauを下限とし、`uqe_use_tail_mean=true`では下限から1までの平均、`false`では全点を下限へ固定した`Zτ`をaction scoreにする。非spatial Thompsonは`[0,1]`、spatial Thompsonはlaneごとの下限を使う。tau配置方式と`uqe_tau_decay`は別の設定概念である。
+
+IQN+UQEは任意の`full_distribution_query`を持つ。既定はdisabledで、enabled時はrisk tausとfull `[0,1]` tausを連結して1回だけforwardする。`q_values`/`uqe_values`/`q_quantiles`はrisk側、`full_q_values`/`full_q_quantiles`はfull側であり、Headが連結全体から返す平均`q`は使わない。point UQEのrisk側は同値なα 1本に縮約する。非IQN modeではenabled設定を休眠状態のまま保持して無視するため、quantile modeの切替時に同時変更する必要はない。IQNでenabledにしたままUQE以外のPolicyを選ぶ構成は設定エラーになる。
 
 Actorは、構成に応じてActionContextによるframe stackとdevice転送を行い、Observation正規化、Policy呼出し、補助情報の付与へ進む。PolicyはLearnerへ依存せず、NetworkとRNGだけでActionを決定する。
 
@@ -56,10 +61,12 @@ PERの初期priority modeが`actor_approx`の場合だけ、Train Actorは既存
 
 | 列 | 値 |
 |---:|---|
-| 0 | 実際に選択したActionの`Q(s,a)` |
-| 1 | `max_a Q(s,a)`で表すActor側state value |
+| 0 | 実際に選択したActionのaction score |
+| 1 | `max_a` action scoreで表すActor側state value |
 
 共通ReplayBufferはpayloadをopaqueな行として運び、DQNの`InitialPriorityEstimator`だけが`K = 2`を検証・decodeする。N-step確定後、開始hint、bootstrap hint、確定収益、割引からLearner更新前のraw priorityを推定する。true terminalではbootstrapを使わず、TBO有効時はLearnerと同じ変換空間で計算する。
+
+通常Q/QRではこの2列は平均Qである。IQN+UQEでは追加forwardを行わず、行動選択と同じrisk-biased action scoreを使う。`uqe_use_tail_mean=true`はupper-tail mean、`false`は`Zτ`であり、full queryを有効にしてもActor Qヒントへfull分布平均は使わない。
 
 ## 3. コンポーネント定義
 
@@ -74,7 +81,8 @@ PERの初期priority modeが`actor_approx`の場合だけ、Train Actorは既存
 | `dqn::Actor` | ActionContext、正規化、Policy、Network、同期StateをまとめるActor実装 |
 | `dqn::Learner` | ReplayBuffer、optimizer、更新credit、target同期、PER更新をまとめる内部Learner |
 | `TDLearner` | scalar TD targetとTD lossを計算するLearner |
-| `QuantileLearnerBase` / `QRLearner` | target quantileとquantile Huber lossを計算するLearner |
+| `QuantileLearnerBase` / `QRLearner` / `IQNLearner` | target quantileと方式別のquantile Huber lossを計算するLearner |
+| `TauGenerator` | IQNのrandom/fixed tausを指定device上で生成するstateless component |
 | `RewardScaler` / `ObservationNormalizer` | DefaultDQNのExperience前処理とNetwork入力正規化を担当するcomponent |
 
 ## 4. コードマップ
@@ -107,6 +115,7 @@ class DqnLearner
 class TDLearner
 class QuantileLearnerBase
 class QRLearner
+class IQNLearner
 class ReplayBuffer
 class Optimizer
 
@@ -127,6 +136,7 @@ RainbowAgent ..> DqnActor : 生成
 DqnLearner <|-- TDLearner
 DqnLearner <|-- QuantileLearnerBase
 QuantileLearnerBase <|-- QRLearner
+QuantileLearnerBase <|-- IQNLearner
 DqnLearner *-- ReplayBuffer
 DqnLearner *-- Optimizer
 DqnLearner --> DqnNetworkModel
@@ -159,6 +169,9 @@ sequenceDiagram
     A->>C: PushObservation(batch_state)
     C-->>A: 加工済みObservation
     A->>P: SelectAction(observation, Network, RNG)
+    opt DefaultDQN IQN
+        P->>P: tausを生成して入力copyへ注入
+    end
     P->>N: forward
     N-->>P: q または q_dist
     P-->>A: DQNActionInfo
@@ -191,6 +204,9 @@ sequenceDiagram
         loop update creditが1以上
             L->>B: Sample(minibatch, beta)
             B-->>L: ExperienceSamples
+            opt IQNLearner
+                L->>L: current/target用tausを独立生成
+            end
             L->>N: currentとtargetを計算
             N-->>L: lossとTD error
             L->>O: backwardとstep
@@ -249,7 +265,7 @@ sequenceDiagram
 |---|---|---|
 | Policy | Train、Eval、targetを個別構成。epsilon-greedy、UQE、Thompson Sampling | Action用epsilon-greedyとtarget用greedy |
 | 前処理 | RewardScaler、ObservationNormalizer、frame stack | 共通ActionContext。専用scaler/normalizer設定なし |
-| Head/Learner | TD/QR、Dueling有無を選択 | TD/QR、Dueling有無を選択 |
+| Head/Learner | TD/QR/IQN、Dueling有無を選択 | TD/QR、Dueling有無を選択 |
 | Replay拡張 | N-step、PER、prefetch、replay ratio、TBOなど | N-step、PER。現行Configはprefetch、TBO、fused optimizerを無効化 |
 | Actor clone | Train既定を`train_actor.clone_model`で指定し、定期snapshotを構成可能 | override省略時はshared。overrideによるcloneは可能だが定期snapshotなし |
 | spatial exploration | Train Policyだけで利用可能 | 専用設定なし |
@@ -259,14 +275,18 @@ sequenceDiagram
 
 | グループ | 主な責務 |
 |---|---|
-| Network/Head | TDかQR、quantile数、Dueling、初期化、online/target同期 |
-| ActionPolicy | Policy種類、epsilon・tau schedule、Train/Eval/targetの選択 |
+| Network/Head | `quantile_mode=none|qr|iqn`、QR quantile数、Dueling、初期化、online/target同期 |
+| ActionPolicy | Policy種類、epsilon、UQE tau減衰、IQN tau配置方式、Train/Eval/targetの選択 |
 | Train Actor | shared/clone、snapshot同期周期 |
 | Learner | optimizer、update間隔・比率、AMP、Double DQN、N-step、PER、TBO |
 | Replay | capacity、batch size、warmup、prefetch、priority mode |
 | 前処理 | frame stack、Reward scale、Observation normalize |
 
 全keyと既定値の正本は`DefaultDQNAgentConfig`、`RainbowAgentConfig`、`LearnerConfig`、`ActionPolicyConfig`と[apps/runner/config](../../apps/runner/config)である。本書へ設定一覧を複製せず、Runの`config/config_data.txt`と`config/<tag>.txt`で解決結果を確認する。
+
+DefaultDQNでは`quantile_mode`の既定が`qr`、`qr.num_quantiles`の既定が51である。IQN learnerは勾配側`learner.iqn.current_taus`とtarget分布側`learner.iqn.target_taus`を独立に持ち、どちらも既定random×64でN≠Mを許す。target action選択はこの2系統とは別に`target_policy.tau_rule`を使う。旧DefaultDQN keyの`use_qr`と直下`num_quantiles`は現行契約に含めず、Rainbowの`use_qr`と`num_quantiles`は維持する。
+
+IQN専用lossはcurrent側Nをsum、target側Mをmeanし、Huber項を`kappa`で除算する。`N = 1`では分散の不偏推定を使わず、`q_std`を明示的に0とする。
 
 `per_initial_priority_mode`は`fixed`、`max`、`actor_approx`を受け付ける。`max`と`actor_approx`はPER有効を要求し、priority、epsilon、clip値、profile構造などはConfig構築時に検証する。不正な組合せを暗黙に既定値へ戻さない。
 
@@ -277,7 +297,7 @@ sequenceDiagram
 - 外側Agentが`RuntimeVars`、`NetworkModel`、Policy、inner Learner、scaler類のlifetimeを所有する。
 - inner Learnerは外側の`NetworkModel`と`RuntimeVars`を参照し、OptimizerとReplayBufferを直接所有する。
 - shared ActorはAgent所有Networkを参照し、clone Actorはprivate Networkを所有する。どちらもLearnerそのものは参照しない。
-- epsilon/tau scheduleはActionPolicy、update creditとwarmup latchはinner Learner、snapshot intervalとlast sync stepはclone Actorが更新・所有するStateである。
+- epsilonとUQE tau減衰scheduleはActionPolicy、update creditとwarmup latchはinner Learner、snapshot intervalとlast sync stepはclone Actorが更新・所有するStateである。IQNのtau配置方式は設定であり、各forwardのtausはPolicyまたはLearnerが所有するRNGから生成する一時入力である。
 - outer Agentの共有mutexはLearner更新、shared Actor forward、clone/sync copyの境界を直列化する。
 
 ### 8.2 checkpoint
@@ -301,7 +321,7 @@ sequenceDiagram
 ### 9.1 metric
 
 - `DQNActionInfo`はAction、Q値・quantile補助情報、必要に応じてReplay初期priority hintを運ぶ。
-- `episode_start_action_uqe_margin.[i]`と`episode_start_action_q_margin.[i]`は、episode開始laneだけを対象に、action `i`の値と最良の他actionとの差をbatch内平均する。UQE版はUQE値、Q版はnetwork出力の平均Qを使い、TBO有効時もh空間のまま扱う。episode開始laneがないstepは`NaN`を返し、scalar出力をskipする。
+- `episode_start_action_uqe_margin.[i]`と`episode_start_action_q_margin.[i]`は、episode開始laneだけを対象に、action `i`の値と最良の他actionとの差をbatch内平均する。UQE版はUQE値、Q版はnetwork出力のQ系scoreを使い、TBO有効時もh空間のまま扱う。IQN+UQEでは両者が同じrisk-biased action scoreになり、full-distributionの`E[Z]`ではない。episode開始laneがないstepは`NaN`を返し、scalar出力をskipする。
 - DefaultDQNは`train_actor_snapshot_interval`と`train_actor_snapshot_age`をActionInfoから公開する。定期snapshotがないActorでは両値を`NaN`とし、同期したactionのageは0になる。
 - Rainbowはsnapshot診断を設定しないため、同じkeyの取得は`std::nullopt`になる。
 - `BatchUpdateResult`はloss、TD error、Q統計、勾配、PER更新結果などを公開し、inner Learnerは`replaybuffer.*` keyをReplayBufferへ委譲する。
@@ -314,6 +334,7 @@ sequenceDiagram
 - shared Actorは追加Networkを持たないがLearnerのunique lockと競合する。clone Actorは追加memoryと同期copyを使う代わりにforwardを分離する。
 - PipelineTrainRunnerとReplay prefetchは異なる1-deep overlapである。Runner、Replay、H2D、GPU学習のどこが隠れたかをprofileで分けて確認する。
 - AMP/BF16、fused optimizer、prefetchはdevice対応と再現性を含めて同じ設定・seedで比較する。
+- IQNはfusion以降とHeadの中間Tensorがtaus数Kに比例する。Policy用KとLearner用N/Mを分けてprofileし、追加の`E[Z]` forwardは行わない。
 
 ### 9.3 エラー境界
 
@@ -321,6 +342,7 @@ sequenceDiagram
 - Action数、Observation shape、sample tensorのshape・dtype・deviceをAgent、Actor、Learner境界で検証する。
 - `actor_approx`のhintは`float32[B,2]`を要求し、schema違反はfail-fastする。nonfiniteはDebug buildでfail-fastし、`NDEBUG` buildではmax初期化へfallbackする。
 - 未知Policy、無効なPER mode、非finiteまたは範囲外設定、互換性のないcheckpointは処理を継続しない。
+- DefaultDQNは未知`quantile_mode`、QRのquantile数不正、IQNのtau数・配置方式・Huber κ不正、IQN+UQE/spatial Thompsonで使用するtau下限の非finite・範囲外を構築時にfail-fastする。
 
 ## 10. テストと拡張時の確認事項
 
@@ -331,7 +353,7 @@ DQN系Agentを追加・変更する場合は、少なくとも次を確認する
 1. 外側Agent、共通DQN component、ReplayBufferのどのlayerへ責務を置くかを明示する。
 2. outer Agentが`CreateLearner()`で自身を返す場合、mutex取得と前後処理をinner Learner呼出しの外側へ保つ。
 3. RunModeごとのPolicy、source Network、shared/clone、`Sync()`契約をtestする。
-4. TD/QR、Dueling、Double DQN、N-step、PERの有効・無効組合せをConfigとshapeの両方で検証する。
+4. TD/QR/IQN、Dueling、Double DQN、N-step、PERの有効・無効組合せをConfigとshapeの両方で検証する。IQNはN≠M、N=1、入力Observation非汚染も確認する。
 5. PER更新にはsample時のgeneration-aware `item_keys`を使い、物理indexを代用しない。
 6. `actor_approx` schemaをDQN layerに閉じ、共通ReplayBufferへQ値の意味を持ち込まない。
 7. 保存対象と非保存Stateを列挙し、互換checkpointと非互換checkpointの結果をtestする。
@@ -350,3 +372,5 @@ DQN系Agentを追加・変更する場合は、少なくとも次を確認する
 - [Actor Network Resource Policy ADR](../adr/0013-actor-network-resource-policy.md)
 - [Actor priority近似 ADR](../adr/0010-actor-priority-mean-q-approx.md)
 - [Replay初期priority completion ADR](../adr/0012-replay-initial-priority-hint-completion.md)
+- [IQN bind積DAG ADR](../adr/0018-iqn-via-bind-product-dag.md)
+- [IQN+UQE score ADR](../adr/0019-iqn-uqe-score-without-extra-forward.md)

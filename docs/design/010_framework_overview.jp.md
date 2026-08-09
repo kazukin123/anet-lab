@@ -233,7 +233,7 @@ ReplayBufferは、RunnerからLearnerへ渡されたExperienceをlane別のring 
 
 ### 6.6 ニューラルネットワーク
 
-ニューラルネットワーク機能は、設定から `NetworkModel`、module、head、optimizer を構築し、`TensorDict` の Observation を policy、value、Q 値などの出力へ変換します。shape、dtype、device を境界で検証し、CPU 上の Env データを Actor または Learner の利用 device へ転送します。
+ニューラルネットワーク機能は、設定から `NetworkModel`、module、head、optimizer を構築し、`TensorDict` の入力を policy、value、Q 値などの出力へ変換します。入力specはEnvのObservationを基礎とし、Agentが所有する推論入力を追加できる。DefaultDQNのIQNでは、AgentがStacker調整後のinput specへEnv由来ではない`taus`を追加してNetworkを構築し、PolicyまたはLearnerがforward直前にObservationのshallow copyへ`taus` Tensorを注入する。shape、dtype、deviceをNetwork境界で検証し、CPU上のEnvデータをActorまたはLearnerの利用deviceへ転送します。
 
 module 構成、入出力契約、device の扱いは[ニューラルネットワーク](130_neural_networks.jp.md)を参照してください。
 

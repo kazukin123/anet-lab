@@ -498,7 +498,7 @@ static std::map<std::string, NetworkBranchConfig> ReadBranchConfig(const anet::C
     std::map<std::string, std::map<std::string, ConfigProfileConfig>> branch_config_profiles;
 
     std::string escaped_prefix = std::regex_replace(config_prefix, std::regex(R"(\.)"), R"(\.)");
-    std::regex re_branch(escaped_prefix + R"(\.branch\.\[([^\]]+)\]\.(bind|structure|auto_format))");
+    std::regex re_branch(escaped_prefix + R"(\.branch\.\[([^\]]+)\]\.(bind|bind_concat_dim|structure|auto_format))");
     std::regex re_branch_config_profile(
         escaped_prefix + R"(\.branch\.\[([^\]]+)\]\.config_profile\.\[([^\]]+)\]\.(.+))");
     std::regex re_raw(R"(\(raw\))");
@@ -522,22 +522,53 @@ static std::map<std::string, NetworkBranchConfig> ReadBranchConfig(const anet::C
 
             if (b_prop == "bind") {
                 std::stringstream ss(value);
-                std::string item;
-                while (std::getline(ss, item, ',')) {
-                    item = Trim(item);
-                    if (item.empty()) continue;
+                std::string term_text;
+                while (std::getline(ss, term_text, ',')) {
+                    if (term_text.empty()) continue;
+                    term_text = Trim(term_text);
+                    if (term_text.empty()) continue;
 
-                    bool is_raw = false;
-                    if (std::regex_search(item, re_raw)) {
-                        is_raw = true;
-                        item = std::regex_replace(item, re_raw, "");
-                        item = Trim(item);
+                    std::vector<std::string> factors;
+                    size_t factor_begin = 0;
+                    while (true) {
+                        const size_t separator = term_text.find('*', factor_begin);
+                        std::string factor = term_text.substr(factor_begin, separator - factor_begin);
+                        if (factor.empty()) {
+                            ANET_SYSTEM_ERROR(
+                                "Invalid bind product in branch '" << b_name << "': bind=\"" << value
+                                << "\" contains an empty factor.");
+                        }
+                        factor = Trim(factor);
+                        if (factor.empty()) {
+                            ANET_SYSTEM_ERROR(
+                                "Invalid bind product in branch '" << b_name << "': bind=\"" << value
+                                << "\" contains an empty factor.");
+                        }
+
+                        const bool is_raw = std::regex_search(factor, re_raw);
+                        if (is_raw) {
+                            factor = std::regex_replace(factor, re_raw, "");
+                            if (!factor.empty()) {
+                                factor = Trim(factor);
+                            }
+                        }
+                        if (factor.empty()) {
+                            ANET_SYSTEM_ERROR(
+                                "Invalid bind product in branch '" << b_name << "': bind=\"" << value
+                                << "\" contains an empty factor.");
+                        }
+                        factors.push_back(factor);
+                        if (is_raw) {
+                            branches[b_name].raw_keys.push_back(factor);
+                        }
+
+                        if (separator == std::string::npos) break;
+                        factor_begin = separator + 1;
                     }
-                    branches[b_name].bind_keys.push_back(item);
-                    if (is_raw) {
-                        branches[b_name].raw_keys.push_back(item);
-                    }
+                    branches[b_name].bind_terms.push_back(std::move(factors));
                 }
+            } else if (b_prop == "bind_concat_dim") {
+                config_data.Read(key, branches[b_name].bind_concat_dim, branches[b_name].bind_concat_dim);
             } else if (b_prop == "structure") {
                 branches[b_name].structure_str = value;
             } else if (b_prop == "auto_format") {
@@ -556,12 +587,14 @@ static std::map<std::string, NetworkBranchConfig> ReadBranchConfig(const anet::C
         it->second.config_profiles = std::move(config_profiles);
     }
 
-    // 「auto_format=false」の場合、全ての bind_keysを raw_keys を追加
+    // 「auto_format=false」の場合、全ての bind factor を raw_keys へ追加する。
     for (auto& [b_name, branch_cfg] : branches) {    // 全ブランチでチェック
         if (!branch_cfg.auto_format) {
-            for (const auto& k : branch_cfg.bind_keys) {
-                if (!anet::Contains(branch_cfg.raw_keys, k)) {
-                    branch_cfg.raw_keys.push_back(k);
+            for (const auto& term : branch_cfg.bind_terms) {
+                for (const auto& factor : term) {
+                    if (!anet::Contains(branch_cfg.raw_keys, factor)) {
+                        branch_cfg.raw_keys.push_back(factor);
+                    }
                 }
             }
         }
@@ -634,7 +667,12 @@ anet::json NetworkConfig::ToJson() const
 
     // ブランチ情報はすべて出力
     for (const auto& [k, v] : branches) {
-        j["branches"][k] = { {"bind_keys", v.bind_keys}, {"structure", v.structure_str}, {"raw_keys", v.raw_keys} };
+        j["branches"][k] = {
+            {"bind_terms", v.bind_terms},
+            {"bind_concat_dim", v.bind_concat_dim},
+            {"structure", v.structure_str},
+            {"raw_keys", v.raw_keys},
+        };
         if (!v.config_profiles.empty()) {
             j["branches"][k]["config_profiles"] = anet::json::object();
             for (const auto& [profile_name, profile_config] : v.config_profiles) {
@@ -805,8 +843,15 @@ anet::TensorDict NetworkBoundaryPreprocessor::Format(const anet::TensorDict& raw
 // NetworkBranch
 // ===========================================================================
 
-NetworkBranch::NetworkBranch(std::string name, std::vector<std::string> bind_keys, std::shared_ptr<NetworkStruct> network_struct)
-    : name_(std::move(name)), bind_keys_(std::move(bind_keys)), network_struct_(std::move(network_struct))
+NetworkBranch::NetworkBranch(
+    std::string name,
+    std::vector<std::vector<std::string>> bind_terms,
+    int64_t bind_concat_dim,
+    std::shared_ptr<NetworkStruct> network_struct)
+    : name_(std::move(name))
+    , bind_terms_(std::move(bind_terms))
+    , bind_concat_dim_(bind_concat_dim)
+    , network_struct_(std::move(network_struct))
 {
     register_module("network_struct", network_struct_);
 }
@@ -815,18 +860,100 @@ void NetworkBranch::Execute(anet::TensorDict& current_state, const anet::TraceSi
 {
     torch::Tensor block_input;
 
-    if (bind_keys_.empty()) {
+    if (bind_terms_.empty()) {
         block_input = torch::empty({ 0 }, current_state.device());
     } else {
-        std::vector<torch::Tensor> inputs;
-        for (const auto& key : bind_keys_) {
-            auto t_opt = current_state.Get(key);
-            if (!t_opt.has_value()) {
-                ANET_SYSTEM_ERROR("NetworkBranch '" << name_ << "' failed to execute: Input key '" << key << "' not found in TensorDict.");
+        std::vector<torch::Tensor> term_values;
+        term_values.reserve(bind_terms_.size());
+
+        // 各項を左から評価する。積を取るtensorのrankが異なる場合は、
+        // batch次元の直後へサイズ1の軸を追加し、broadcast可能なrankへ揃える。
+        for (const auto& term : bind_terms_) {
+            torch::Tensor term_value;
+            std::string accumulated_factor;
+            for (const auto& factor : term) {
+                auto factor_value = current_state.Get(factor);
+                if (!factor_value.has_value()) {
+                    ANET_SYSTEM_ERROR(
+                        "NetworkBranch '" << name_ << "' failed to execute: Input key '"
+                        << factor << "' not found in TensorDict.");
+                }
+                if (factor_value->dim() == 0) {
+                    ANET_SYSTEM_ERROR(
+                        "NetworkBranch '" << name_ << "' bind factor '" << factor
+                        << "' has no batch dimension. shape=" << factor_value->sizes());
+                }
+
+                if (!term_value.defined()) {
+                    term_value = *factor_value;
+                    accumulated_factor = factor;
+                    continue;
+                }
+                if (term_value.size(0) != factor_value->size(0)) {
+                    ANET_SYSTEM_ERROR(
+                        "NetworkBranch '" << name_ << "' bind product batch size mismatch: factor '"
+                        << accumulated_factor << "' shape=" << term_value.sizes() << ", factor '"
+                        << factor << "' shape=" << factor_value->sizes() << ".");
+                }
+
+                torch::Tensor lhs = term_value;
+                torch::Tensor rhs = *factor_value;
+                while (lhs.dim() < rhs.dim()) lhs = lhs.unsqueeze(1);
+                while (rhs.dim() < lhs.dim()) rhs = rhs.unsqueeze(1);
+                term_value = lhs * rhs;
+                accumulated_factor += "*" + factor;
             }
-            inputs.push_back(*t_opt);
+            term_values.push_back(term_value);
         }
-        block_input = (inputs.size() == 1) ? inputs[0] : torch::cat(inputs, 1);
+
+        if (term_values.size() == 1) {
+            block_input = term_values.front();
+        } else {
+            const int64_t rank = term_values.front().dim();
+            int64_t normalized_dim = bind_concat_dim_;
+            if (normalized_dim < 0) normalized_dim += rank;
+
+            // shape列は診断時だけ必要なため、正常forwardでは整形しない。
+            const auto format_term_shapes = [&term_values]() {
+                std::ostringstream shapes;
+                shapes << "[";
+                for (size_t i = 0; i < term_values.size(); ++i) {
+                    if (i > 0) shapes << ", ";
+                    shapes << term_values[i].sizes();
+                }
+                shapes << "]";
+                return shapes.str();
+            };
+
+            if (normalized_dim < 0 || normalized_dim >= rank) {
+                ANET_SYSTEM_ERROR(
+                    "NetworkBranch '" << name_ << "' bind_concat_dim is out of range: value="
+                    << bind_concat_dim_ << ", rank=" << rank << ", term_shapes=" << format_term_shapes() << ".");
+            }
+            if (normalized_dim == 0) {
+                ANET_SYSTEM_ERROR(
+                    "NetworkBranch '" << name_ << "' bind_concat_dim must not select the batch dimension: value="
+                    << bind_concat_dim_ << ", rank=" << rank << ", term_shapes=" << format_term_shapes() << ".");
+            }
+            const int64_t batch_size = term_values.front().size(0);
+            for (size_t term_index = 0; term_index < term_values.size(); ++term_index) {
+                const auto& term_value = term_values[term_index];
+                // 先頭termで正規化した次元が、後続termにも存在することをcat前に保証する。
+                if (normalized_dim >= term_value.dim()) {
+                    ANET_SYSTEM_ERROR(
+                        "NetworkBranch '" << name_ << "' bind_concat_dim is out of range for term: value="
+                        << bind_concat_dim_ << ", normalized_dim=" << normalized_dim
+                        << ", term_index=" << term_index << ", term_rank=" << term_value.dim()
+                        << ", term_shapes=" << format_term_shapes() << ".");
+                }
+                if (term_value.dim() == 0 || term_value.size(0) != batch_size) {
+                    ANET_SYSTEM_ERROR(
+                        "NetworkBranch '" << name_ << "' bind term batch size mismatch before concat: value="
+                        << bind_concat_dim_ << ", rank=" << rank << ", term_shapes=" << format_term_shapes() << ".");
+                }
+            }
+            block_input = torch::cat(term_values, normalized_dim);
+        }
     }
 
     anet::TraceSink branch_sink;
@@ -1067,6 +1194,7 @@ std::shared_ptr<NetworkBody> NetworkBodyBuilder::Build(const NetworkConfig& conf
     std::map<std::string, std::vector<std::string>> adj;
     std::vector<std::string> all_raw_keys;
     std::set<std::string> used_config_profile_groups;
+    std::set<std::string> bound_input_keys;
 
     // config_profileはbranch内で展開し、branch-local overrideをglobal既定へ重ねる。
     for (const auto& [b_name, b_cfg] : config.branches) {
@@ -1096,7 +1224,8 @@ std::shared_ptr<NetworkBody> NetworkBodyBuilder::Build(const NetworkConfig& conf
     for (const auto& [b_name, b_cfg] : config.branches) {
         const auto effective_profiles = MergeConfigProfileConfig(config.config_profiles, b_cfg.config_profiles);
         auto engine = NetworkStructBuilder::Build(config, b_cfg.structure_str, effective_profiles);
-        all_branches[b_name] = std::make_shared<NetworkBranch>(b_name, b_cfg.bind_keys, engine);
+        all_branches[b_name] = std::make_shared<NetworkBranch>(
+            b_name, b_cfg.bind_terms, b_cfg.bind_concat_dim, engine);
         in_degree[b_name] = 0;
 
         for (const auto& rk : b_cfg.raw_keys) {
@@ -1106,16 +1235,21 @@ std::shared_ptr<NetworkBody> NetworkBodyBuilder::Build(const NetworkConfig& conf
 
     // 依存関係（エッジ）の構築
     for (const auto& [b_name, b_cfg] : config.branches) {
-        for (const auto& bind_key : b_cfg.bind_keys) {
-            if (input_specs.find(bind_key) != input_specs.end()) {
-                // Envからの入力（依存なし）
-                continue;
-            } else if (all_branches.find(bind_key) != all_branches.end()) {
-                // 他のブランチからの入力（依存あり）
-                adj[bind_key].push_back(b_name);
-                in_degree[b_name]++;
-            } else {
-                ANET_SYSTEM_ERROR("NetworkBodyBuilder: Branch '" << b_name << "' requires unknown input key '" << bind_key << "'. Check your 'bind' configuration.");
+        for (const auto& term : b_cfg.bind_terms) {
+            for (const auto& bind_key : term) {
+                if (input_specs.find(bind_key) != input_specs.end()) {
+                    // Envからの入力（依存なし）
+                    bound_input_keys.insert(bind_key);
+                    continue;
+                } else if (all_branches.find(bind_key) != all_branches.end()) {
+                    // 他のブランチからの入力（依存あり）
+                    adj[bind_key].push_back(b_name);
+                    in_degree[b_name]++;
+                } else {
+                    ANET_SYSTEM_ERROR(
+                        "NetworkBodyBuilder: Branch '" << b_name << "' requires unknown input key '"
+                        << bind_key << "'. Check your 'bind' configuration.");
+                }
             }
         }
     }
@@ -1143,6 +1277,23 @@ std::shared_ptr<NetworkBody> NetworkBodyBuilder::Build(const NetworkConfig& conf
     // 循環参照のチェック
     if (sorted_branches.size() != all_branches.size()) {
         ANET_SYSTEM_ERROR("NetworkBodyBuilder: Cycle detected in branch bindings! Check for circular dependencies in configuration.");
+    }
+
+    // bind も direct body output も参照しない入力だけを、構成確認用の診断として一度警告する。
+    std::set<std::string> direct_output_keys;
+    for (const auto& [head_key, source_key] : config.output_keys) {
+        (void)head_key;
+        if (input_specs.find(source_key) != input_specs.end()) {
+            direct_output_keys.insert(source_key);
+        }
+    }
+    for (const auto& [input_key, spec] : input_specs) {
+        (void)spec;
+        if (bound_input_keys.find(input_key) == bound_input_keys.end()
+            && direct_output_keys.find(input_key) == direct_output_keys.end()) {
+            LOG::warn() << "NetworkBodyBuilder: input key '" << input_key
+                << "' is present in input_specs but not bound by any branch and not mapped directly by net.body.output.";
+        }
     }
 
     return std::make_shared<NetworkBody>(sorted_branches, input_specs, all_raw_keys, config.output_keys);
@@ -1251,18 +1402,21 @@ std::unique_ptr<anet::graphviz::GraphViz> Network::MakeGraphViz(const NetworkGra
                 const auto& branch_config = branch_config_it->second;
                 branch_node.label.AddAttr("auto_format", branch_config.auto_format ? "true" : "false");
                 branch_node.label.AddAttr("raw_keys", FormatStringVector(branch_config.raw_keys));
+                branch_node.label.AddAttr("bind_concat_dim", branch_config.bind_concat_dim);
             }
         }
 
-        for (const auto& bind_key : branch->GetBindKeys()) {
-            auto input_it = input_nodes.find(bind_key);
-            auto branch_it = branch_output_nodes.find(bind_key);
-            if (input_it != input_nodes.end()) {
-                auto& edge = tree->AddEdge(input_it->second, branch_id);
-                edge.label.SetText(bind_key);
-            } else if (branch_it != branch_output_nodes.end()) {
-                auto& edge = tree->AddEdge(branch_it->second, branch_id);
-                edge.label.SetText(bind_key);
+        for (const auto& bind_term : branch->GetBindTerms()) {
+            for (const auto& bind_factor : bind_term) {
+                auto input_it = input_nodes.find(bind_factor);
+                auto branch_it = branch_output_nodes.find(bind_factor);
+                if (input_it != input_nodes.end()) {
+                    auto& edge = tree->AddEdge(input_it->second, branch_id);
+                    edge.label.SetText(bind_factor);
+                } else if (branch_it != branch_output_nodes.end()) {
+                    auto& edge = tree->AddEdge(branch_it->second, branch_id);
+                    edge.label.SetText(bind_factor);
+                }
             }
         }
 

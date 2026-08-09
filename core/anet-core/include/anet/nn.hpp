@@ -38,8 +38,9 @@ namespace anet::nn {
 
     struct NetworkBranchConfig {
         std::string name;                      ///< ブランチ名（＝出力キー）
-        std::vector<std::string> bind_keys;    ///< 入力として要求するキーのリスト
-        std::vector<std::string> raw_keys;     ///< bind_keys のうち、"(raw)" が指定されたキーのリスト
+        std::vector<std::vector<std::string>> bind_terms; ///< 入力項のリスト（各項は積 factor のリスト）
+        int64_t bind_concat_dim = 1;            ///< 複数項を結合する次元
+        std::vector<std::string> raw_keys;      ///< bind factor のうち、"(raw)" が指定されたキーのリスト
         bool auto_format = true;               ///< ブランチ全体での自動フォーマット有効/無効
         std::string structure_str;             ///< ブランチ内部の直列パイプライン構造
         std::map<std::string, ConfigProfileConfig> config_profiles; ///< branch単位のconfig_profile上書き

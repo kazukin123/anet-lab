@@ -152,7 +152,8 @@ std::shared_ptr<anet::nn::Network> MakeImageClsTraceTestNetwork()
         std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<anet::nn::NetworkBranch>(
         "main_feature",
-        std::vector<std::string>{ anet::rl::ObsKeys::kGrid },
+        std::vector<std::vector<std::string>>{ { anet::rl::ObsKeys::kGrid } },
+        1,
         network_struct);
 
     anet::nn::NetworkConfig network_config;
@@ -189,7 +190,8 @@ std::shared_ptr<anet::nn::Network> MakeImageClsTrainableTestNetwork()
         std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<anet::nn::NetworkBranch>(
         "main_feature",
-        std::vector<std::string>{ anet::rl::ObsKeys::kGrid },
+        std::vector<std::vector<std::string>>{ { anet::rl::ObsKeys::kGrid } },
+        1,
         network_struct);
 
     anet::nn::NetworkConfig network_config;
@@ -238,7 +240,8 @@ ImageClsRecordingNetworkFixture MakeImageClsRecordingTestNetwork(
         std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<anet::nn::NetworkBranch>(
         "main_feature",
-        std::vector<std::string>{ anet::rl::ObsKeys::kGrid },
+        std::vector<std::vector<std::string>>{ { anet::rl::ObsKeys::kGrid } },
+        1,
         network_struct);
 
     anet::nn::NetworkConfig network_config;
@@ -277,7 +280,8 @@ ImageClsAutocastProbeNetworkFixture MakeImageClsAutocastProbeTestNetwork()
         std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<anet::nn::NetworkBranch>(
         "main_feature",
-        std::vector<std::string>{ anet::rl::ObsKeys::kGrid },
+        std::vector<std::vector<std::string>>{ { anet::rl::ObsKeys::kGrid } },
+        1,
         network_struct);
 
     anet::nn::NetworkConfig network_config;

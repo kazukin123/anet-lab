@@ -31,7 +31,7 @@ net.body.$ = net.body.MLP2
 
 R.learner.use_rb_prefetch = true
 
-#R.use_qr = false  # true
+#R.quantile_mode = none  # qr
 #R.train_policy.policy_type = EpsilonGreedy
 #R.eval_policy.policy_type = EpsilonGreedy
 

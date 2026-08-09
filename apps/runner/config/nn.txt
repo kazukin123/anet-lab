@@ -25,7 +25,7 @@
 #   GroupNorm, LayerNorm, BatchNorm2d, GAP1D
 #
 # 【Embedding / Bridge】
-#   SpatialEmbedder, SpatialPositionalEmbedding2D
+#   CosineEmbedding, SpatialEmbedder, SpatialPositionalEmbedding2D
 #
 # 【Layer (Core)】
 #   Linear, Conv1d, Conv2d, ResBlock, TransformerEncoder
@@ -310,6 +310,21 @@ net.body.Conv1D.structure = Conv1D_Permute > Conv1D_Conv1d > ReLU > Flatten > Co
 # net.body.$ = net.body.MLP2
 # net.body.$ = net.body.Conv1D
 # net.body.$ = net.body.Conv2D
+
+# --- IQN taus / fusion ブランチ例（inactive、MLP系backbone向け） ---
+# net.block.[CosEmb].type = CosineEmbedding
+# net.block.[CosEmb].cos.num_basis = 64
+# net.block.[TauProj].type = Linear
+# net.block.[TauProj].linear.out_features = 84       # main_feature最終次元と一致させる
+# net.block.[FusionFC].type = Linear
+# net.block.[FusionFC].linear.out_features = 84
+# net.branch.[main_feature].bind = vector
+# net.branch.[main_feature].structure = Flatten > Linear_84 > ReLU
+# net.branch.[tau_embedding].bind = taus
+# net.branch.[tau_embedding].structure = CosEmb > TauProj > ReLU             # (B,K,84)
+# net.branch.[fusion].bind = main_feature * tau_embedding                    # (B,1,84)×(B,K,84)→(B,K,84)
+# net.branch.[fusion].structure = FusionFC > ReLU
+# net.body.output.[features] = fusion
 
 
 

@@ -56,7 +56,7 @@ IQN で分布 Z の評価点として使う τ∈[0,1] のサンプル列。環�
 _Avoid_: 観測キー扱い, tau テンソル（曖昧）
 
 **tau配置方式**:
-taus の並べ方の区分（random / fixed_midpoint）。TauGenerator が担当し、τ の時間減衰スケジュール（uqe_tau_decay）とは別概念。
+taus の並べ方の区分（random / fixed）。`fixed`は指定範囲をK個の等幅区間に分け、各区間の中心へτを固定配置してRNGを消費しない。TauGenerator が担当し、τ の時間減衰スケジュール（uqe_tau_decay）とは別概念。
 _Avoid_: sampling mode, tau schedule（減衰スケジュールと混同）
 
 ### Replay・PER
@@ -66,7 +66,7 @@ _Avoid_: sampling mode, tau schedule（減衰スケジュールと混同）
 _Avoid_: Actor優先度, Actor priority, Actor-computed priority, final priority
 
 **Actor Qヒント**:
-Replay初期優先度ヒントへ格納するDQN固有payload。学習Actorが行動推論で既に計算した、実行行動の`Q(s,a)`と`max_a Q_online(s,a)`の2列を指す。ReplayBuffer共通層は列の意味を解釈しない。
+Replay初期優先度ヒントへ格納するDQN固有payload。学習Actorが行動推論で既に計算した、実行行動のaction scoreと全行動中の最大scoreの2列を指す。通常Q/QRでは`Q(s,a)`と`max_a Q_online(s,a)`、IQN+UQEでは同一forwardから得たrisk-biased action score（upper-tail meanまたは`Zτ`）を使い、全分布平均`E[Z]`のための追加forwardは行わない。ReplayBuffer共通層は列の意味を解釈しない。
 _Avoid_: Actor優先度, Actor priority, Actor TD error, final priority
 
 **近似Actor初期優先度**:

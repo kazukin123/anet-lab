@@ -29,7 +29,7 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | `RunnerFrame` | menu、status bar、wxAUI paneとclose順序を管理するmain window。wxAUIの制約吸収（dockサイズ往復・遷移時同期・pane⇄メニュー連動）は基底`anet::rl::gui::AuiLayoutFrame`（gui.hpp）が担い、本クラスはpane定義とレイアウトポリシー（50:50、frame縮退）を持つ |
 | `TrainPanel` | Train eventからEnv固有Viewを更新し、GUI timerで断面を描画する |
 | `EvalPanel` | 専用`EvalRunner`をtimerまたは手動Actionで駆動し、clone modelの同期を管理する |
-| `QValuePanel` | Eval ActorのAction候補を可視化し、選択Actionを`EvalPanel`へ渡す |
+| `QValuePanel` | Eval ActorのAction候補を可視化し、選択Actionを`EvalPanel`へ渡す。`full_q_quantiles`があれば優先し、なければ`q_quantiles`、`q_values`へfallbackする |
 | `LogPanel` | wxLogの画面表示とlevel filterを提供する |
 | `DefaultViewFactory` | Env class IDからTrain/Eval用Viewを生成する |
 | `ImageProviderManager` | configで定義された画像Provider/Observerを生成・登録する |

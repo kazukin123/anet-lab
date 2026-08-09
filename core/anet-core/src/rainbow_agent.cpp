@@ -93,7 +93,7 @@ RainbowAgent::RainbowAgent(
 
     // NetworkModel生成
     this->model_ = std::make_unique<NetworkModel>(
-        config_.model, device_, net_config, env_spec.state_spec.obs_spec, n_actions_, head_factory, config_.num_quantiles);
+        config_.model, device_, net_config, env_spec.state_spec.obs_spec, n_actions_, head_factory, is_distributional);
 
     // ActionPolicy生成
     this->action_policy_ = std::make_unique<EpsilonGreedyActionPolicy>(config_.action_policy);

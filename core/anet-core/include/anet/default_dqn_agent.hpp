@@ -34,9 +34,11 @@ namespace anet::rl::dqn {
         anet::nn::NetworkGraphVizConfig nn_viz;
         std::string auto_load_file;
 
-        int num_quantiles = 51;
+        struct QrConfig {
+            int num_quantiles = 51;
+        } qr;
+        std::string quantile_mode = "qr";
         bool use_dueling_net = true;
-        bool use_qr = true;
         bool use_optimistic_target = false;
 
     public:
@@ -91,6 +93,11 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, train_policy.uqe_eps_decay_steps);
             ANET_READ_CONFIG(config_data, train_policy.use_amp);
             ANET_READ_CONFIG(config_data, train_policy.use_amp_bf16);
+            ANET_READ_CONFIG(config_data, train_policy.tau_rule.num_taus);
+            ANET_READ_CONFIG(config_data, train_policy.tau_rule.sample_mode);
+            ANET_READ_CONFIG(config_data, train_policy.full_distribution_query.enabled);
+            ANET_READ_CONFIG(config_data, train_policy.full_distribution_query.tau_rule.num_taus);
+            ANET_READ_CONFIG(config_data, train_policy.full_distribution_query.tau_rule.sample_mode);
 
             eval_policy.policy_type = "Greedy";     // デフォルトでGreedy
             eval_policy.eps_start = 0.0f;           // デフォルトでGreedy
@@ -104,6 +111,7 @@ namespace anet::rl::dqn {
             eval_policy.eps_end = train_policy.eps_end;
             eval_policy.uqe_eps_start = 0.0f; // デフォルトでGreedy
             eval_policy.uqe_eps_end = 0.0f;   // デフォルトでGreedy
+            eval_policy.tau_rule.sample_mode = "fixed";
             //eval_policy.uqe_eps_start = train_policy.uqe_eps_end;
             //eval_policy.uqe_eps_end = train_policy.uqe_eps_end;
             ANET_READ_CONFIG(config_data, eval_policy.policy_type);
@@ -119,6 +127,11 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, eval_policy.uqe_eps_decay_steps);
             ANET_READ_CONFIG(config_data, eval_policy.use_amp);
             ANET_READ_CONFIG(config_data, eval_policy.use_amp_bf16);
+            ANET_READ_CONFIG(config_data, eval_policy.tau_rule.num_taus);
+            ANET_READ_CONFIG(config_data, eval_policy.tau_rule.sample_mode);
+            ANET_READ_CONFIG(config_data, eval_policy.full_distribution_query.enabled);
+            ANET_READ_CONFIG(config_data, eval_policy.full_distribution_query.tau_rule.num_taus);
+            ANET_READ_CONFIG(config_data, eval_policy.full_distribution_query.tau_rule.sample_mode);
             eval_policy.use_spatial_exploration = false;
 
 
@@ -143,6 +156,13 @@ namespace anet::rl::dqn {
                 target_policy.policy_type = "Greedy";   // デフォルトは安全なGreedy
             }
 
+            // 楽観policyのコピー対象にせず、target推定品質の既定を決定的な32点へ戻す。
+            target_policy.tau_rule = TauRuleConfig{
+                .num_taus = 32,
+                .sample_mode = "fixed",
+            };
+            target_policy.full_distribution_query = FullDistributionQueryConfig{};
+
             // target_policy.*の設定があれば、継承したかもしれないデフォルト値から上書き反映
             ANET_READ_CONFIG(config_data, target_policy.policy_type);
             ANET_READ_CONFIG(config_data, target_policy.eps_start);
@@ -157,6 +177,11 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, target_policy.uqe_eps_decay_steps);
             ANET_READ_CONFIG(config_data, target_policy.use_amp);
             ANET_READ_CONFIG(config_data, target_policy.use_amp_bf16);
+            ANET_READ_CONFIG(config_data, target_policy.tau_rule.num_taus);
+            ANET_READ_CONFIG(config_data, target_policy.tau_rule.sample_mode);
+            ANET_READ_CONFIG(config_data, target_policy.full_distribution_query.enabled);
+            ANET_READ_CONFIG(config_data, target_policy.full_distribution_query.tau_rule.num_taus);
+            ANET_READ_CONFIG(config_data, target_policy.full_distribution_query.tau_rule.sample_mode);
             target_policy.use_spatial_exploration = false;
 
             ANET_READ_CONFIG(config_data, learner.alpha);
@@ -192,6 +217,10 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.tbo_epsilon);
             ANET_READ_CONFIG(config_data, learner.use_amp);
             ANET_READ_CONFIG(config_data, learner.use_amp_bf16);
+            ANET_READ_CONFIG(config_data, learner.iqn.current_taus.num_taus);
+            ANET_READ_CONFIG(config_data, learner.iqn.current_taus.sample_mode);
+            ANET_READ_CONFIG(config_data, learner.iqn.target_taus.num_taus);
+            ANET_READ_CONFIG(config_data, learner.iqn.target_taus.sample_mode);
             if (!std::isfinite(learner.tbo_epsilon) || learner.tbo_epsilon <= 0.0f) {
                 ANET_SYSTEM_ERROR(
                     "Invalid DefaultDQNAgent.learner.tbo_epsilon: value=" << learner.tbo_epsilon
@@ -227,11 +256,79 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, obs_norm.post_process_threshold);
 
             ANET_READ_CONFIG(config_data, auto_load_file);
-            ANET_READ_CONFIG(config_data, num_quantiles);
+            ANET_READ_CONFIG(config_data, quantile_mode);
+            ANET_READ_CONFIG(config_data, qr.num_quantiles);
             ANET_READ_CONFIG(config_data, use_dueling_net);
-            ANET_READ_CONFIG(config_data, use_qr);
 
-            learner.num_quantiles = num_quantiles;
+            // Agent直下の分布表現を3つのpolicyへ引き継ぎ、QR幅だけをQR learnerへ渡す。
+            train_policy.quantile_mode = quantile_mode;
+            eval_policy.quantile_mode = quantile_mode;
+            target_policy.quantile_mode = quantile_mode;
+            learner.num_quantiles = qr.num_quantiles;
+
+            // 現行の分布表現契約と全tau ruleを、利用前の設定境界で検証する。
+            if (quantile_mode != "none" && quantile_mode != "qr" && quantile_mode != "iqn") {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.quantile_mode: value='" << quantile_mode
+                    << "' expected one of: none, qr, iqn");
+            }
+            if (quantile_mode == "qr" && qr.num_quantiles <= 1) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.qr.num_quantiles: value=" << qr.num_quantiles
+                    << " expected > 1 when quantile_mode=qr");
+            }
+
+            const auto validate_tau_rule = [](const TauRuleConfig& rule, const char* key) {
+                if (rule.num_taus <= 0) {
+                    ANET_SYSTEM_ERROR("Invalid " << key << ".num_taus: value=" << rule.num_taus << " expected > 0");
+                }
+                if (rule.sample_mode != "random" && rule.sample_mode != "fixed") {
+                    ANET_SYSTEM_ERROR("Invalid " << key << ".sample_mode: value='" << rule.sample_mode
+                        << "' expected one of: random, fixed");
+                }
+            };
+            validate_tau_rule(train_policy.tau_rule, "DefaultDQNAgent.train_policy.tau_rule");
+            validate_tau_rule(eval_policy.tau_rule, "DefaultDQNAgent.eval_policy.tau_rule");
+            validate_tau_rule(target_policy.tau_rule, "DefaultDQNAgent.target_policy.tau_rule");
+            validate_tau_rule(train_policy.full_distribution_query.tau_rule,
+                "DefaultDQNAgent.train_policy.full_distribution_query.tau_rule");
+            validate_tau_rule(eval_policy.full_distribution_query.tau_rule,
+                "DefaultDQNAgent.eval_policy.full_distribution_query.tau_rule");
+            validate_tau_rule(target_policy.full_distribution_query.tau_rule,
+                "DefaultDQNAgent.target_policy.full_distribution_query.tau_rule");
+            validate_tau_rule(learner.iqn.current_taus, "DefaultDQNAgent.learner.iqn.current_taus");
+            validate_tau_rule(learner.iqn.target_taus, "DefaultDQNAgent.learner.iqn.target_taus");
+
+            const auto is_uqe = [](const std::string& type) { return type == "UQE" || type == "1"; };
+            const auto is_thompson = [](const std::string& type) { return type == "ThompsonSampling" || type == "2"; };
+            const auto validate_distributional_policy = [&](const ActionPolicyConfig& policy, const char* key) {
+                if ((is_uqe(policy.policy_type) || is_thompson(policy.policy_type)) && quantile_mode == "none") {
+                    ANET_SYSTEM_ERROR("Invalid " << key << ".policy_type: value='" << policy.policy_type
+                        << "' expected quantile_mode=qr or iqn");
+                }
+                // full queryはIQN専用の任意機能とし、他のquantile modeでは休眠設定として保持する。
+                if (policy.full_distribution_query.enabled
+                    && quantile_mode == "iqn" && !is_uqe(policy.policy_type)) {
+                    ANET_SYSTEM_ERROR("Invalid " << key << ".full_distribution_query.enabled: value=true"
+                        << " expected policy_type=UQE when quantile_mode=iqn, actual quantile_mode='"
+                        << quantile_mode << "' policy_type='" << policy.policy_type << "'");
+                }
+                const bool uses_iqn_tau_range = quantile_mode == "iqn"
+                    && (is_uqe(policy.policy_type) || (is_thompson(policy.policy_type) && policy.use_spatial_exploration));
+                if (uses_iqn_tau_range
+                    && (!std::isfinite(policy.uqe_tau_start) || policy.uqe_tau_start < 0.0f || policy.uqe_tau_start > 1.0f
+                        || !std::isfinite(policy.uqe_tau_end) || policy.uqe_tau_end < 0.0f || policy.uqe_tau_end > 1.0f)) {
+                    ANET_SYSTEM_ERROR("Invalid " << key << ".uqe_tau_start/end: values="
+                        << policy.uqe_tau_start << "," << policy.uqe_tau_end << " expected finite values in [0,1]");
+                }
+            };
+            validate_distributional_policy(train_policy, "DefaultDQNAgent.train_policy");
+            validate_distributional_policy(eval_policy, "DefaultDQNAgent.eval_policy");
+            validate_distributional_policy(target_policy, "DefaultDQNAgent.target_policy");
+
+            if (quantile_mode == "iqn"
+                && (!std::isfinite(learner.quantile_huber_kappa) || learner.quantile_huber_kappa <= 0.0f)) {
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.learner.quantile_huber_kappa: value="
+                    << learner.quantile_huber_kappa << " expected finite value > 0 when quantile_mode=iqn");
+            }
         }
     };
 

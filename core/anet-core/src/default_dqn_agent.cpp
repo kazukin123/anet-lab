@@ -16,6 +16,7 @@
 #include "anet/profile.hpp"
 #include "anet/stacker.hpp"
 #include "dqn_based_heads.hpp"
+#include "nn_heads.hpp"
 #include "anet/serialize.hpp"
 
 
@@ -83,12 +84,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     // RuntimeVars生成
     this->vars_ = std::make_unique<RuntimeVars>();
 
-    // QR-DQN設定確認 (use_qrとの整合性)
-    bool is_distributional = config_.use_qr;
-    if (is_distributional && config_.num_quantiles <= 1) {
-        LOG::error() << "use_qr is true but num_quantiles <= 1. Treating as Scalar DQN.";
-        ANET_SYSTEM_ERROR("use_qr is true but num_quantiles <= 1. Treating as Scalar DQN.");
-    }
+    const bool is_distributional = config_.quantile_mode != "none";
 
     // RewardScaler生成
     anet::rl::RewardScalerFactory reward_scaler_factory(config_.reward_scaler);
@@ -108,16 +104,24 @@ DefaultDQNAgent::DefaultDQNAgent(
 
     std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory;
 
-    // アルゴリズムに応じてFactoryを切り替え
-    if (is_distributional) {
+    // 分布表現とDuelingの直積でHeadを選択する。
+    if (config_.quantile_mode == "iqn") {
+        if (config_.use_dueling_net) {
+            head_factory = std::make_shared<IQNDuelingHeadFactory>(n_actions_, head_init_config);
+            LOG::info() << "Network Head: IQN Dueling";
+        } else {
+            head_factory = std::make_shared<IQNHeadFactory>(n_actions_, head_init_config);
+            LOG::info() << "Network Head: IQN Plain";
+        }
+    } else if (config_.quantile_mode == "qr") {
         if (config_.use_dueling_net) {
             head_factory = std::make_shared<QuantileDuelingHeadFactory>(
-                n_actions_, config_.num_quantiles, head_init_config);
-            LOG::info() << "Network Head: Quantile Dueling (N=" << config_.num_quantiles << ")";
+                n_actions_, config_.qr.num_quantiles, head_init_config);
+            LOG::info() << "Network Head: Quantile Dueling (N=" << config_.qr.num_quantiles << ")";
         } else {
             head_factory = std::make_shared<QuantileHeadFactory>(
-                n_actions_, config_.num_quantiles, head_init_config);
-            LOG::info() << "Network Head: Quantile Plain (N=" << config_.num_quantiles << ")";
+                n_actions_, config_.qr.num_quantiles, head_init_config);
+            LOG::info() << "Network Head: Quantile Plain (N=" << config_.qr.num_quantiles << ")";
         }
     } else {
         if (config_.use_dueling_net) {
@@ -152,11 +156,21 @@ DefaultDQNAgent::DefaultDQNAgent(
         }
     }
 
+    // tausはObservationではなくAgentが注入するNN入力なので、Stacker調整後にspecを追加する。
+    if (config_.quantile_mode == "iqn") {
+        anet::TensorSpec tau_spec;
+        tau_spec.type = anet::SpaceType::Vector;
+        tau_spec.shape = { config_.train_policy.tau_rule.num_taus };
+        tau_spec.dtype = torch::kFloat32;
+        tau_spec.num_classes = 0;
+        network_obs_spec[anet::nn::kKey_Taus] = tau_spec;
+    }
+
     // NetworkModel生成
     this->model_ = std::make_unique<NetworkModel>(
         config_.model, device_,
         net_config, network_obs_spec, n_actions_, head_factory,
-        config_.use_qr ? config_.num_quantiles : 0
+        is_distributional
     );
 
     // Network グラフ可視化
@@ -181,10 +195,15 @@ DefaultDQNAgent::DefaultDQNAgent(
     this->target_policy_ = CreateActionPolicy(config_.target_policy, false, num_envs_, device_);
 
     // Learner生成
-    if (is_distributional) {
+    if (config_.quantile_mode == "iqn") {
+        this->learner_ = std::make_unique<IQNLearner>(
+            config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, target_policy_, config_.stucker, learner_seed);
+        LOG::info() << "Initialized IQNLearner (current_taus=" << config_.learner.iqn.current_taus.num_taus
+            << ", target_taus=" << config_.learner.iqn.target_taus.num_taus << ")";
+    } else if (config_.quantile_mode == "qr") {
         this->learner_ = std::make_unique<QRLearner>(
             config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, target_policy_, config_.stucker, learner_seed);
-        LOG::info() << "Initialized QRLearner (Quantiles=" << config_.num_quantiles << ")";
+        LOG::info() << "Initialized QRLearner (Quantiles=" << config_.qr.num_quantiles << ")";
     } else {
         this->learner_ = std::make_unique<TDLearner>(
             config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed, target_policy_, config_.stucker, learner_seed);
@@ -206,11 +225,17 @@ std::shared_ptr<ActionPolicy> DefaultDQNAgent::CreateActionPolicy(
         return std::make_shared<EpsilonGreedyActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
     } else if (policy_config.policy_type == "UQE" || policy_config.policy_type == "1") {
         // UQE
-        ANET_CHECK(config_.use_qr);
+        if (config_.quantile_mode == "none") {
+            ANET_SYSTEM_ERROR("Invalid action policy: policy_type='" << policy_config.policy_type
+                << "' requires quantile_mode=qr or iqn, actual='" << config_.quantile_mode << "'");
+        }
         return std::make_shared<UQEActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
     } else if (policy_config.policy_type == "ThompsonSampling" || policy_config.policy_type == "2") {
         //ThompsonSampling
-        ANET_CHECK(config_.use_qr);
+        if (config_.quantile_mode == "none") {
+            ANET_SYSTEM_ERROR("Invalid action policy: policy_type='" << policy_config.policy_type
+                << "' requires quantile_mode=qr or iqn, actual='" << config_.quantile_mode << "'");
+        }
         return std::make_shared<ThompsonSamplingActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
     } else if (policy_config.policy_type == "Greedy" || policy_config.policy_type == "3") {
         // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化

@@ -72,6 +72,7 @@ private:
 
 struct QuantileLearnerBaseAccess : public dqn::QuantileLearnerBase {
     using dqn::QuantileLearnerBase::ComputeQuantileHuberLoss;
+    using dqn::QuantileLearnerBase::ComputeIqnQuantileHuberLoss;
 };
 
 struct ActionPolicyAccess : public dqn::ActionPolicy {
@@ -170,7 +171,8 @@ std::shared_ptr<anet::nn::Network> MakeAutocastProbeNetwork(
         std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
     auto branch = std::make_shared<anet::nn::NetworkBranch>(
         kFeatureKey,
-        std::vector<std::string>{ kVectorKey },
+        std::vector<std::vector<std::string>>{ { kVectorKey } },
+        1,
         network_struct);
     auto body = std::make_shared<anet::nn::NetworkBody>(
         std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{ branch },
@@ -191,13 +193,13 @@ std::shared_ptr<anet::nn::Network> MakeAutocastProbeNetwork(
 
 class TestNetworkModel final : public dqn::NetworkModel {
 public:
-    explicit TestNetworkModel(int64_t num_quantiles = 1)
+    explicit TestNetworkModel(bool distributional = false)
         : dqn::NetworkModel(
             dqn::NetworkModelConfig{},
             MakeLinearNetwork(),
             MakeLinearNetwork(),
             1,
-            num_quantiles)
+            distributional)
     {
         GetOnlineNetwork()->CopyTo(*GetTargetNetwork());
         GetOnlineNetwork()->eval();
@@ -215,7 +217,7 @@ public:
             MakeAutocastProbeNetwork(probe_state, device),
             MakeAutocastProbeNetwork(probe_state, device),
             1,
-            1)
+            false)
     {
         GetOnlineNetwork()->CopyTo(*GetTargetNetwork());
         GetOnlineNetwork()->eval();
@@ -382,10 +384,52 @@ anet::nn::NetworkConfig MakeAgentForwardNetworkConfig()
     return config;
 }
 
+rl::EnvSpec MakeIqnTracerEnvSpec()
+{
+    anet::TensorSpec vector_spec;
+    vector_spec.type = anet::SpaceType::Vector;
+    vector_spec.shape = { 4 };
+    vector_spec.dtype = torch::kFloat32;
+
+    rl::EnvSpec spec;
+    spec.state_spec.obs_spec[kVectorKey] = vector_spec;
+    spec.action_spec.is_discrete = true;
+    spec.action_spec.value_labels = { "a0", "a1" };
+    spec.reward_range = { -1.0f, 1.0f };
+    return spec;
+}
+
+anet::ConfigData MakeIqnTracerConfigData()
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.quantile_mode", "iqn");
+    config_data.Set("DefaultDQNAgent.use_dueling_net", false);
+    config_data.Set("DefaultDQNAgent.stucker.use_stacker", false);
+    config_data.Set("DefaultDQNAgent.obs_norm.pass_through", true);
+    config_data.Set("DefaultDQNAgent.train_policy.eps_start", 0.0f);
+    config_data.Set("DefaultDQNAgent.train_policy.eps_end", 0.0f);
+    config_data.Set("DefaultDQNAgent.train_policy.tau_rule.num_taus", 3);
+    config_data.Set("DefaultDQNAgent.train_policy.tau_rule.sample_mode", "fixed");
+    config_data.Set("DefaultDQNAgent.learner.replay_capacity", 16);
+    config_data.Set("DefaultDQNAgent.learner.replay_batch_size", 2);
+    config_data.Set("DefaultDQNAgent.learner.use_fused_optimizer", false);
+
+    config_data.Set("net.block.[CosEmb].type", "CosineEmbedding");
+    config_data.Set("net.block.[CosEmb].cos.num_basis", 4);
+    config_data.Set("net.block.[TauProj].type", "Linear");
+    config_data.Set("net.block.[TauProj].linear.out_features", 4);
+    config_data.Set("net.branch.[main].bind", kVectorKey);
+    config_data.Set("net.branch.[tau_embedding].bind", anet::nn::kKey_Taus);
+    config_data.Set("net.branch.[tau_embedding].structure", "CosEmb > TauProj");
+    config_data.Set("net.branch.[fusion].bind", "main * tau_embedding");
+    config_data.Set("net.body.output.[features]", "fusion");
+    return config_data;
+}
+
 dqn::DefaultDQNAgentConfig MakeDeviceForwardDefaultDqnConfig()
 {
     dqn::DefaultDQNAgentConfig config;
-    config.use_qr = false;
+    config.quantile_mode = "none";
     config.use_dueling_net = false;
     config.stucker.use_stacker = false;
     config.obs_norm.pass_through = true;
@@ -1158,6 +1202,78 @@ anet::TensorDict MakeSpatialUQEInput()
     };
 }
 
+struct TauEchoState {
+    int forward_count = 0;
+    torch::Tensor last_taus;
+};
+
+class TauEchoHead final : public anet::nn::NetworkHead {
+public:
+    explicit TauEchoHead(std::shared_ptr<TauEchoState> state)
+        : state_(std::move(state))
+    {
+    }
+
+    anet::TensorDict Forward(const anet::TensorDict& feature_dict) override
+    {
+        const auto taus = feature_dict.At(anet::nn::kKey_Taus);
+        ++state_->forward_count;
+        state_->last_taus = taus.detach().clone();
+
+        auto q_dist = torch::stack({ taus, 1.0f - taus }, 1);
+        return anet::TensorDict{
+            { "q", q_dist.mean(2) },
+            { "q_dist", q_dist },
+        };
+    }
+
+    std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string&) override
+    {
+        return std::nullopt;
+    }
+
+private:
+    std::shared_ptr<TauEchoState> state_;
+};
+
+std::shared_ptr<anet::nn::Network> MakeTauEchoNetwork(
+    int64_t nominal_num_taus,
+    const std::shared_ptr<TauEchoState>& state)
+{
+    anet::TensorSpec vector_spec;
+    vector_spec.shape = { 1 };
+    vector_spec.dtype = torch::kFloat32;
+
+    anet::TensorSpec tau_spec;
+    tau_spec.shape = { nominal_num_taus };
+    tau_spec.dtype = torch::kFloat32;
+
+    anet::TensorSpecMap input_specs{
+        { kVectorKey, vector_spec },
+        { anet::nn::kKey_Taus, tau_spec },
+    };
+    anet::nn::NetworkConfig network_config;
+    network_config.output_keys[anet::nn::kKey_Taus] = anet::nn::kKey_Taus;
+    auto body = std::make_shared<anet::nn::NetworkBody>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{},
+        input_specs,
+        std::vector<std::string>{},
+        network_config.output_keys);
+    return std::make_shared<anet::nn::Network>(
+        network_config,
+        input_specs,
+        nullptr,
+        body,
+        std::make_shared<TauEchoHead>(state));
+}
+
+anet::TensorDict MakeTauEchoObservation()
+{
+    return anet::TensorDict{
+        { kVectorKey, torch::zeros({ 2, 1 }) },
+    };
+}
+
 } // namespace
 
 TEST_CASE("Quantile huber loss matches known QR-DQN inputs", "[dqn][quantile]")
@@ -1174,6 +1290,49 @@ TEST_CASE("Quantile huber loss matches known QR-DQN inputs", "[dqn][quantile]")
 
     REQUIRE(ShapeOf(loss) == std::vector<int64_t>{ 1 });
     REQUIRE(loss.item<float>() == Catch::Approx(0.625f).margin(1.0e-6f));
+}
+
+TEST_CASE("IQN quantile huber loss sums current samples and averages target samples", "[dqn][iqn][loss]")
+{
+    auto current_dist = torch::tensor({ { 1.0f, 3.0f } });
+    auto target_dist = torch::tensor({ { 2.0f, 3.25f, 4.0f } });
+    auto taus = torch::tensor({ 0.25f, 0.75f }).view({ 1, 2, 1 });
+
+    auto loss = QuantileLearnerBaseAccess::ComputeIqnQuantileHuberLoss(
+        current_dist,
+        target_dist,
+        taus,
+        0.5f);
+
+    REQUIRE(ShapeOf(loss) == std::vector<int64_t>{ 1 });
+    REQUIRE(loss.item<float>() == Catch::Approx(139.0f / 192.0f).margin(1.0e-6f));
+}
+
+TEST_CASE("IQN and QR quantile huber losses agree when sample counts and kappa are one", "[dqn][iqn][loss]")
+{
+    auto current_dist = torch::tensor({ { 1.0f, 3.0f }, { -1.0f, 2.0f } });
+    auto target_dist = torch::tensor({ { 2.0f, 4.0f }, { 0.5f, 3.0f } });
+    auto taus = torch::tensor({ { 0.25f, 0.75f }, { 0.2f, 0.8f } }).unsqueeze(2);
+
+    auto qr_loss = QuantileLearnerBaseAccess::ComputeQuantileHuberLoss(
+        current_dist, target_dist, taus, 1.0f);
+    auto iqn_loss = QuantileLearnerBaseAccess::ComputeIqnQuantileHuberLoss(
+        current_dist, target_dist, taus, 1.0f);
+
+    REQUIRE(torch::allclose(iqn_loss, qr_loss, 1.0e-6, 1.0e-6));
+}
+
+TEST_CASE("IQN quantile huber loss is finite for one current sample", "[dqn][iqn][loss]")
+{
+    auto current_dist = torch::tensor({ { 1.0f } });
+    auto target_dist = torch::tensor({ { 0.5f, 2.0f, 4.0f } });
+    auto taus = torch::tensor({ 0.5f }).view({ 1, 1, 1 });
+
+    auto loss = QuantileLearnerBaseAccess::ComputeIqnQuantileHuberLoss(
+        current_dist, target_dist, taus, 0.5f);
+
+    REQUIRE(ShapeOf(loss) == std::vector<int64_t>{ 1 });
+    REQUIRE(torch::isfinite(loss).all().item<bool>());
 }
 
 TEST_CASE("TBO transform is monotonic and invertible on representative values", "[dqn][tbo]")
@@ -1987,6 +2146,177 @@ TEST_CASE("DefaultDQNAgent TensorDictFunction accepts CPU input on CUDA agent", 
     CHECK(out.At("q").device().type() == torch::kCUDA);
 }
 
+TEST_CASE("DefaultDQNAgent IQN acts through the public ConfigData path", "[dqn][iqn][tracer]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+    const auto config_data = MakeIqnTracerConfigData();
+    const auto env_spec = MakeIqnTracerEnvSpec();
+    const rl::BatchEnvSpec batch_env_spec{ 2, 1 };
+    auto agent = std::make_shared<dqn::DefaultDQNAgent>(
+        dqn::DefaultDQNAgentConfig(config_data),
+        anet::nn::NetworkConfig(config_data),
+        batch_env_spec,
+        env_spec,
+        torch::Device(torch::kCPU),
+        123);
+    auto actor = agent->CreateActor(
+        batch_env_spec, env_spec, rl::RunMode::Train, std::nullopt, torch::Device(torch::kCPU));
+
+    const auto flags = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool));
+    rl::BatchState state(
+        anet::TensorDict{ { kVectorKey, torch::tensor({
+            { 1.0f, 2.0f, 3.0f, 4.0f },
+            { 4.0f, 3.0f, 2.0f, 1.0f },
+        }) } },
+        flags,
+        flags,
+        flags);
+    REQUIRE_FALSE(state.obs.Contains(anet::nn::kKey_Taus));
+
+    auto action_info = std::dynamic_pointer_cast<dqn::DQNActionInfo>(
+        actor->MakeAction(rl::StepCounts{}, state));
+
+    REQUIRE(action_info != nullptr);
+    REQUIRE(ShapeOf(action_info->GetAction()) == std::vector<int64_t>{ 2 });
+    const auto& aux = action_info->GetAuxData();
+    REQUIRE(ShapeOf(aux.at("q_values")) == std::vector<int64_t>{ 2, 2 });
+    REQUIRE(ShapeOf(aux.at("q_quantiles")) == std::vector<int64_t>{ 2, 2, 3 });
+    CHECK(torch::isfinite(aux.at("q_values")).all().item<bool>());
+    CHECK(torch::isfinite(aux.at("q_quantiles")).all().item<bool>());
+    CHECK_FALSE(state.obs.Contains(anet::nn::kKey_Taus));
+}
+
+TEST_CASE("DefaultDQNAgent IQN rejects a dead tau fusion branch", "[dqn][iqn][tracer]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+    auto config_data = MakeIqnTracerConfigData();
+    config_data.Set("net.body.output.[features]", "main");
+    const auto env_spec = MakeIqnTracerEnvSpec();
+
+    CHECK_THROWS_WITH(
+        dqn::DefaultDQNAgent(
+            dqn::DefaultDQNAgentConfig(config_data),
+            anet::nn::NetworkConfig(config_data),
+            rl::BatchEnvSpec{ 2, 1 },
+            env_spec,
+            torch::Device(torch::kCPU),
+            123),
+        Catch::Matchers::ContainsSubstring("IQNHead expected rank-3")
+            && Catch::Matchers::ContainsSubstring("IQN fusion branch"));
+}
+
+TEST_CASE("DefaultDQNAgent IQN learner updates through the public learner path", "[dqn][iqn][learner]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::nn::InitNN();
+
+    auto run_update = [](int64_t current_num_taus) {
+        auto config_data = MakeIqnTracerConfigData();
+        config_data.Set("DefaultDQNAgent.learner.iqn.current_taus.num_taus", current_num_taus);
+        config_data.Set("DefaultDQNAgent.learner.iqn.current_taus.sample_mode", "fixed");
+        config_data.Set("DefaultDQNAgent.learner.iqn.target_taus.num_taus", 3);
+        config_data.Set("DefaultDQNAgent.learner.iqn.target_taus.sample_mode", "fixed");
+        config_data.Set("DefaultDQNAgent.target_policy.tau_rule.num_taus", 4);
+        config_data.Set("DefaultDQNAgent.target_policy.tau_rule.sample_mode", "fixed");
+        config_data.Set("DefaultDQNAgent.learner.update_warmup_steps", 0);
+        config_data.Set("DefaultDQNAgent.learner.update_interval", 1);
+        config_data.Set("DefaultDQNAgent.learner.use_n_step", false);
+        config_data.Set("DefaultDQNAgent.learner.use_per", true);
+
+        const auto env_spec = MakeIqnTracerEnvSpec();
+        const rl::BatchEnvSpec batch_env_spec{ 2, 1 };
+        auto agent = std::make_shared<dqn::DefaultDQNAgent>(
+            dqn::DefaultDQNAgentConfig(config_data),
+            anet::nn::NetworkConfig(config_data),
+            batch_env_spec,
+            env_spec,
+            torch::Device(torch::kCPU),
+            321);
+        auto learner = agent->CreateLearner();
+
+        const auto flags = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool));
+        const auto episode_start = torch::ones({ 2 }, torch::TensorOptions().dtype(torch::kBool));
+        rl::BatchState state(
+            anet::TensorDict{ { kVectorKey, torch::tensor({
+                { 1.0f, 2.0f, 3.0f, 4.0f },
+                { 4.0f, 3.0f, 2.0f, 1.0f },
+            }) } },
+            flags,
+            flags,
+            episode_start);
+        rl::BatchState next_state(
+            anet::TensorDict{ { kVectorKey, torch::tensor({
+                { 1.5f, 2.5f, 3.5f, 4.5f },
+                { 3.5f, 2.5f, 1.5f, 0.5f },
+            }) } },
+            flags,
+            flags,
+            flags);
+        auto action_info = std::make_shared<rl::BatchActionInfo>(
+            torch::tensor({ 0, 1 }, torch::TensorOptions().dtype(torch::kInt64)));
+        rl::BatchExperience experience(
+            state,
+            action_info,
+            torch::tensor({ 0.25f, -0.5f }),
+            next_state);
+        rl::BatchState final_state(
+            anet::TensorDict{ { kVectorKey, torch::tensor({
+                { 2.0f, 3.0f, 4.0f, 5.0f },
+                { 3.0f, 2.0f, 1.0f, 0.0f },
+            }) } },
+            flags,
+            flags,
+            flags);
+        rl::BatchExperience next_experience(
+            next_state,
+            action_info,
+            torch::tensor({ -0.25f, 0.5f }),
+            final_state);
+
+        rl::StepCounts counts;
+        counts.exp_step = 0;
+        REQUIRE(learner->UpdateFromBatch(counts, experience).empty());
+        counts.exp_step = 2;
+        auto results = learner->UpdateFromBatch(counts, next_experience);
+
+        REQUIRE(results.size() == 1);
+        auto result = std::dynamic_pointer_cast<const dqn::BatchUpdateResult>(results.front());
+        REQUIRE(result != nullptr);
+        CHECK(ShapeOf(result->loss).empty());
+        CHECK(ShapeOf(result->td_error) == std::vector<int64_t>{ 2 });
+        CHECK(ShapeOf(result->per_priorities) == std::vector<int64_t>{ 2 });
+        CHECK(torch::isfinite(result->loss).all().item<bool>());
+        CHECK(torch::isfinite(result->td_error).all().item<bool>());
+        CHECK(torch::isfinite(result->per_priorities).all().item<bool>());
+        CHECK(torch::isfinite(result->q_std).all().item<bool>());
+        CHECK(torch::isfinite(result->max_q).all().item<bool>());
+        CHECK(torch::isfinite(result->q_sa).all().item<bool>());
+        CHECK(torch::isfinite(result->q_gap).all().item<bool>());
+        CHECK(torch::isfinite(result->q_gap_rel).all().item<bool>());
+        CHECK(result->per_update_result.applied_count == 2);
+        CHECK(result->per_update_result.stale_count == 0);
+        CHECK_FALSE(experience.state.obs.Contains(anet::nn::kKey_Taus));
+        CHECK_FALSE(experience.next_state.obs.Contains(anet::nn::kKey_Taus));
+        CHECK_FALSE(next_experience.state.obs.Contains(anet::nn::kKey_Taus));
+        CHECK_FALSE(next_experience.next_state.obs.Contains(anet::nn::kKey_Taus));
+        return result;
+    };
+
+    SECTION("current and target sample counts may differ")
+    {
+        const auto result = run_update(2);
+        CHECK(result->q_std.item<float>() >= 0.0f);
+    }
+
+    SECTION("one current sample reports finite zero q_std")
+    {
+        const auto result = run_update(1);
+        CHECK(result->q_std.item<float>() == Catch::Approx(0.0f));
+    }
+}
+
 TEST_CASE("DefaultDQNAgent resolves Train Actor snapshot clone overrides", "[dqn][actor][snapshot]")
 {
     ScopedNoopMetricsLogger metrics_logger;
@@ -2212,13 +2542,13 @@ TEST_CASE("NetworkModel routes TensorDictFunction by network side and function k
     CHECK_FALSE(model.GetTensorDictFunction("unknown-net.forward", torch::kCPU).has_value());
 }
 
-TEST_CASE("NetworkModel distributionality depends only on quantile count", "[dqn][network_model]")
+TEST_CASE("NetworkModel exposes the resolved distributional mode", "[dqn][network_model]")
 {
-    TestNetworkModel dqn_model(1);
-    TestNetworkModel qr_model(8);
+    TestNetworkModel scalar_model(false);
+    TestNetworkModel distributional_model(true);
 
-    CHECK_FALSE(dqn_model.IsDistributional());
-    CHECK(qr_model.IsDistributional());
+    CHECK_FALSE(scalar_model.IsDistributional());
+    CHECK(distributional_model.IsDistributional());
 }
 
 TEST_CASE("Actor sync leaves cloned network in eval mode", "[dqn][actor]")
@@ -2490,6 +2820,199 @@ TEST_CASE("ActionPolicy variants preserve action info keys and shapes", "[dqn][a
             CHECK(*uqe_margin == Catch::Approx(-7.0f));
         }
     }
+}
+
+TEST_CASE("IQN action policies inject their tau rules without mutating observations", "[dqn][iqn][action_policy]")
+{
+    auto run_policy = [](
+        const std::shared_ptr<dqn::ActionPolicy>& policy,
+        const torch::Tensor& expected_taus) {
+        auto state = std::make_shared<TauEchoState>();
+        auto network = MakeTauEchoNetwork(expected_taus.size(1), state);
+        auto obs = MakeTauEchoObservation();
+        auto rnd = std::make_shared<anet::RandomGenerator>(123);
+
+        REQUIRE_FALSE(obs.Contains(anet::nn::kKey_Taus));
+        auto action_info = policy->SelectAction(obs, /*greedy_only=*/true, network, rnd);
+
+        REQUIRE(state->forward_count == 1);
+        REQUIRE(state->last_taus.defined());
+        CHECK(torch::allclose(state->last_taus, expected_taus, 1.0e-6, 1.0e-6));
+        CHECK_FALSE(obs.Contains(anet::nn::kKey_Taus));
+        const auto& aux = action_info->GetAuxData();
+        REQUIRE(aux.count("q_values") == 1);
+        REQUIRE(aux.count("q_quantiles") == 1);
+        CHECK(aux.count("full_q_values") == 0);
+        CHECK(aux.count("full_q_quantiles") == 0);
+        CHECK(torch::allclose(aux.at("q_values"), aux.at("q_quantiles").mean(2)));
+        return action_info;
+    };
+
+    SECTION("epsilon greedy and greedy score the full interval")
+    {
+        dqn::ActionPolicyConfig config;
+        config.quantile_mode = "iqn";
+        config.eps_start = 0.0f;
+        config.eps_end = 0.0f;
+        config.tau_rule.num_taus = 4;
+        config.tau_rule.sample_mode = "fixed";
+        auto expected = torch::tensor({ 0.125f, 0.375f, 0.625f, 0.875f }).repeat({ 2, 1 });
+
+        run_policy(std::make_shared<dqn::EpsilonGreedyActionPolicy>(config), expected);
+    }
+
+    SECTION("UQE tail mean scores the sampled upper tail")
+    {
+        dqn::ActionPolicyConfig config;
+        config.quantile_mode = "iqn";
+        config.uqe_tau_start = 0.5f;
+        config.uqe_tau_end = 0.5f;
+        config.uqe_use_tail_mean = true;
+        config.uqe_eps_start = 0.0f;
+        config.uqe_eps_end = 0.0f;
+        config.tau_rule.num_taus = 2;
+        config.tau_rule.sample_mode = "fixed";
+        auto expected = torch::tensor({ 0.625f, 0.875f }).repeat({ 2, 1 });
+
+        auto action_info = run_policy(std::make_shared<dqn::UQEActionPolicy>(config), expected);
+        CHECK(torch::allclose(
+            action_info->GetAuxData().at("q_values"),
+            action_info->GetAuxData().at("uqe_values")));
+    }
+
+    SECTION("UQE point score uses the decayed Z tau")
+    {
+        dqn::ActionPolicyConfig config;
+        config.quantile_mode = "iqn";
+        config.uqe_tau_start = 0.2f;
+        config.uqe_tau_end = 0.6f;
+        config.uqe_tau_decay_steps = 10;
+        config.uqe_use_tail_mean = false;
+        config.uqe_eps_start = 0.0f;
+        config.uqe_eps_end = 0.0f;
+        config.tau_rule.num_taus = 3;
+        config.tau_rule.sample_mode = "fixed";
+        auto policy = std::make_shared<dqn::UQEActionPolicy>(config);
+        policy->OnLearn(rl::StepCounts{ .exp_step = 5 });
+        auto expected = torch::full({ 2, 3 }, 0.4f);
+
+        auto action_info = run_policy(policy, expected);
+        CHECK(torch::allclose(
+            action_info->GetAuxData().at("q_values"),
+            action_info->GetAuxData().at("uqe_values")));
+    }
+
+    SECTION("non spatial Thompson sampling scores the full interval")
+    {
+        dqn::ActionPolicyConfig config;
+        config.quantile_mode = "iqn";
+        config.tau_rule.num_taus = 2;
+        config.tau_rule.sample_mode = "fixed";
+        auto expected = torch::tensor({ 0.25f, 0.75f }).repeat({ 2, 1 });
+
+        run_policy(std::make_shared<dqn::ThompsonSamplingActionPolicy>(config), expected);
+    }
+
+    SECTION("spatial UQE and Thompson sampling use per-env lower bounds")
+    {
+        dqn::ActionPolicyConfig config;
+        config.quantile_mode = "iqn";
+        config.use_spatial_exploration = true;
+        config.spatial_scale_type = "linear";
+        config.uqe_tau_start = 0.0f;
+        config.uqe_tau_end = 0.5f;
+        config.uqe_use_tail_mean = true;
+        config.uqe_eps_start = 0.0f;
+        config.uqe_eps_end = 0.0f;
+        config.tau_rule.num_taus = 2;
+        config.tau_rule.sample_mode = "fixed";
+        auto expected = torch::tensor({
+            { 0.625f, 0.875f },
+            { 0.25f, 0.75f },
+        });
+
+        run_policy(
+            std::make_shared<dqn::UQEActionPolicy>(config, true, 2, torch::Device(torch::kCPU)),
+            expected);
+        run_policy(
+            std::make_shared<dqn::ThompsonSamplingActionPolicy>(config, true, 2, torch::Device(torch::kCPU)),
+            expected);
+    }
+}
+
+TEST_CASE("IQN UQE point query exports a full distribution from the same forward", "[dqn][iqn][action_policy]")
+{
+    dqn::ActionPolicyConfig config;
+    config.quantile_mode = "iqn";
+    config.uqe_tau_start = 0.4f;
+    config.uqe_tau_end = 0.4f;
+    config.uqe_use_tail_mean = false;
+    config.uqe_eps_start = 0.0f;
+    config.uqe_eps_end = 0.0f;
+    config.tau_rule.num_taus = 3;
+    config.tau_rule.sample_mode = "fixed";
+    config.full_distribution_query.enabled = true;
+    config.full_distribution_query.tau_rule.num_taus = 4;
+    config.full_distribution_query.tau_rule.sample_mode = "fixed";
+
+    auto state = std::make_shared<TauEchoState>();
+    auto network = MakeTauEchoNetwork(5, state);
+    auto obs = MakeTauEchoObservation();
+    auto rnd = std::make_shared<anet::RandomGenerator>(123);
+    auto policy = std::make_shared<dqn::UQEActionPolicy>(config);
+
+    REQUIRE_FALSE(obs.Contains(anet::nn::kKey_Taus));
+    auto action_info = policy->SelectAction(obs, /*greedy_only=*/true, network, rnd, {});
+
+    const auto expected_taus = torch::tensor({ 0.4f, 0.125f, 0.375f, 0.625f, 0.875f }).repeat({ 2, 1 });
+    REQUIRE(state->forward_count == 1);
+    CHECK(torch::allclose(state->last_taus, expected_taus, 1.0e-6, 1.0e-6));
+    CHECK_FALSE(obs.Contains(anet::nn::kKey_Taus));
+
+    const auto& aux = action_info->GetAuxData();
+    REQUIRE(aux.count("full_q_values") == 1);
+    REQUIRE(aux.count("full_q_quantiles") == 1);
+    CHECK((ShapeOf(aux.at("q_quantiles")) == std::vector<int64_t>{ 2, 2, 1 }));
+    CHECK((ShapeOf(aux.at("full_q_quantiles")) == std::vector<int64_t>{ 2, 2, 4 }));
+    CHECK(torch::allclose(aux.at("q_values"), aux.at("q_quantiles").mean(2)));
+    CHECK(torch::allclose(aux.at("uqe_values"), aux.at("q_values")));
+    CHECK(torch::allclose(aux.at("full_q_values"), aux.at("full_q_quantiles").mean(2)));
+    CHECK(torch::equal(action_info->GetAction().cpu(), torch::ones({ 2 }, torch::TensorOptions().dtype(torch::kInt64))));
+}
+
+TEST_CASE("IQN UQE tail score excludes the optional full distribution", "[dqn][iqn][action_policy]")
+{
+    dqn::ActionPolicyConfig config;
+    config.quantile_mode = "iqn";
+    config.uqe_tau_start = 0.5f;
+    config.uqe_tau_end = 0.5f;
+    config.uqe_use_tail_mean = true;
+    config.uqe_eps_start = 0.0f;
+    config.uqe_eps_end = 0.0f;
+    config.tau_rule.num_taus = 2;
+    config.tau_rule.sample_mode = "fixed";
+    config.full_distribution_query.enabled = true;
+    config.full_distribution_query.tau_rule.num_taus = 2;
+    config.full_distribution_query.tau_rule.sample_mode = "fixed";
+
+    auto state = std::make_shared<TauEchoState>();
+    auto network = MakeTauEchoNetwork(4, state);
+    auto obs = MakeTauEchoObservation();
+    auto rnd = std::make_shared<anet::RandomGenerator>(123);
+    dqn::UQEActionPolicy policy(config);
+
+    auto action_info = policy.SelectAction(obs, /*greedy_only=*/true, network, rnd, {});
+
+    const auto expected_taus = torch::tensor({ 0.625f, 0.875f, 0.25f, 0.75f }).repeat({ 2, 1 });
+    REQUIRE(state->forward_count == 1);
+    CHECK(torch::allclose(state->last_taus, expected_taus, 1.0e-6, 1.0e-6));
+
+    const auto& aux = action_info->GetAuxData();
+    CHECK((ShapeOf(aux.at("q_quantiles")) == std::vector<int64_t>{ 2, 2, 2 }));
+    CHECK((ShapeOf(aux.at("full_q_quantiles")) == std::vector<int64_t>{ 2, 2, 2 }));
+    CHECK(torch::allclose(aux.at("q_values"), torch::tensor({ { 0.75f, 0.25f }, { 0.75f, 0.25f } })));
+    CHECK(torch::allclose(aux.at("full_q_values"), torch::full({ 2, 2 }, 0.5f)));
+    CHECK(torch::equal(action_info->GetAction().cpu(), torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kInt64))));
 }
 
 TEST_CASE("DQN action policy BF16 autocast follows observation device", "[dqn][action_policy][amp][bf16]")
@@ -2853,6 +3376,278 @@ TEST_CASE("DefaultDQNAgentConfig keeps spatial exploration train-only", "[dqn][c
     CHECK(config.train_policy.use_spatial_exploration);
     CHECK_FALSE(config.eval_policy.use_spatial_exploration);
     CHECK_FALSE(config.target_policy.use_spatial_exploration);
+}
+
+TEST_CASE("DefaultDQNAgentConfig defines IQN and QR sampling defaults", "[dqn][iqn][config]")
+{
+    const dqn::DefaultDQNAgentConfig config(anet::ConfigData{});
+
+    CHECK(config.quantile_mode == "qr");
+    CHECK(config.qr.num_quantiles == 51);
+    CHECK(config.train_policy.tau_rule.num_taus == 32);
+    CHECK(config.train_policy.tau_rule.sample_mode == "random");
+    CHECK(config.eval_policy.tau_rule.num_taus == 32);
+    CHECK(config.eval_policy.tau_rule.sample_mode == "fixed");
+    CHECK(config.target_policy.tau_rule.num_taus == 32);
+    CHECK(config.target_policy.tau_rule.sample_mode == "fixed");
+    CHECK_FALSE(config.train_policy.full_distribution_query.enabled);
+    CHECK(config.train_policy.full_distribution_query.tau_rule.num_taus == 32);
+    CHECK(config.train_policy.full_distribution_query.tau_rule.sample_mode == "fixed");
+    CHECK_FALSE(config.eval_policy.full_distribution_query.enabled);
+    CHECK(config.eval_policy.full_distribution_query.tau_rule.num_taus == 32);
+    CHECK(config.eval_policy.full_distribution_query.tau_rule.sample_mode == "fixed");
+    CHECK_FALSE(config.target_policy.full_distribution_query.enabled);
+    CHECK(config.target_policy.full_distribution_query.tau_rule.num_taus == 32);
+    CHECK(config.target_policy.full_distribution_query.tau_rule.sample_mode == "fixed");
+    CHECK(config.learner.iqn.current_taus.num_taus == 64);
+    CHECK(config.learner.iqn.current_taus.sample_mode == "random");
+    CHECK(config.learner.iqn.target_taus.num_taus == 64);
+    CHECK(config.learner.iqn.target_taus.sample_mode == "random");
+}
+
+TEST_CASE("DefaultDQNAgentConfig propagates quantile mode to every policy", "[dqn][iqn][config]")
+{
+    for (const auto& mode : { "none", "qr", "iqn" }) {
+        INFO("mode=" << mode);
+        anet::ConfigData config_data;
+        config_data.Set("DefaultDQNAgent.quantile_mode", mode);
+        const dqn::DefaultDQNAgentConfig config(config_data);
+
+        CHECK(config.train_policy.quantile_mode == mode);
+        CHECK(config.eval_policy.quantile_mode == mode);
+        CHECK(config.target_policy.quantile_mode == mode);
+    }
+}
+
+TEST_CASE("DefaultDQNAgentConfig reads an optional IQN UQE full distribution query", "[dqn][iqn][config]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.quantile_mode", "iqn");
+    config_data.Set("DefaultDQNAgent.eval_policy.policy_type", "UQE");
+    config_data.Set("DefaultDQNAgent.eval_policy.full_distribution_query.enabled", true);
+    config_data.Set("DefaultDQNAgent.eval_policy.full_distribution_query.tau_rule.num_taus", 5);
+    config_data.Set("DefaultDQNAgent.eval_policy.full_distribution_query.tau_rule.sample_mode", "random");
+
+    const dqn::DefaultDQNAgentConfig config(config_data);
+
+    CHECK_FALSE(config.train_policy.full_distribution_query.enabled);
+    CHECK(config.eval_policy.full_distribution_query.enabled);
+    CHECK(config.eval_policy.full_distribution_query.tau_rule.num_taus == 5);
+    CHECK(config.eval_policy.full_distribution_query.tau_rule.sample_mode == "random");
+    CHECK_FALSE(config.target_policy.full_distribution_query.enabled);
+}
+
+TEST_CASE("DefaultDQNAgent config fixture resolves the IQN profile chain", "[dqn][iqn][config]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "default-dqn-iqn-profile-test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+
+    // live実験値から分離したprofile連鎖を作り、後段IQN設定の上書きを固定する。
+    const auto config_path = root / "config.txt";
+    {
+        std::ofstream stream(config_path);
+        REQUIRE(stream.is_open());
+        stream << "DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A > IQN\n";
+        stream << "DefaultDQNAgent.baseline.quantile_mode = qr\n";
+        stream << "A.learner.iqn.current_taus.num_taus = 64\n";
+        stream << "A.learner.iqn.target_taus.num_taus = 64\n";
+        stream << "IQN.quantile_mode = iqn\n";
+        stream << "IQN.train_policy.policy_type = UQE\n";
+        stream << "IQN.train_policy.tau_rule.num_taus = 32\n";
+        stream << "IQN.train_policy.tau_rule.sample_mode = random\n";
+        stream << "IQN.eval_policy.policy_type = UQE\n";
+        stream << "IQN.eval_policy.uqe_use_tail_mean = true\n";
+        stream << "IQN.eval_policy.tau_rule.num_taus = 32\n";
+        stream << "IQN.eval_policy.tau_rule.sample_mode = fixed\n";
+        stream << "IQN.eval_policy.full_distribution_query.enabled = true\n";
+        stream << "IQN.eval_policy.full_distribution_query.tau_rule.num_taus = 32\n";
+        stream << "IQN.eval_policy.full_distribution_query.tau_rule.sample_mode = fixed\n";
+        stream << "IQN.learner.iqn.current_taus.num_taus = 32\n";
+        stream << "IQN.learner.iqn.target_taus.num_taus = 32\n";
+        stream << "net.$ = net.base > net.iqn\n";
+        stream << "net.base.branch.[value_stream].bind = main_feature\n";
+        stream << "net.base.branch.[adv_stream].bind = main_feature\n";
+        stream << "net.iqn.block.[IQNTauProjFixture].linear.out_features = 2048\n";
+        stream << "net.iqn.branch.[tau_embedding].bind = taus\n";
+        stream << "net.iqn.branch.[iqn_fusion].bind = main_feature * tau_embedding\n";
+        stream << "net.iqn.branch.[value_stream].bind = iqn_fusion\n";
+        stream << "net.iqn.branch.[adv_stream].bind = iqn_fusion\n";
+    }
+
+    anet::ConfigManager config_manager(config_path.string());
+    const auto config_data = config_manager.GetConfigData();
+    const dqn::DefaultDQNAgentConfig config(config_data);
+
+    // Agent設定とNN設定の両方で、profile連鎖の最終値が読み出せることを確認する。
+    CHECK(config.quantile_mode == "iqn");
+    CHECK(config.train_policy.policy_type == "UQE");
+    CHECK(config.train_policy.tau_rule.num_taus == 32);
+    CHECK(config.train_policy.tau_rule.sample_mode == "random");
+    CHECK_FALSE(config.train_policy.full_distribution_query.enabled);
+    CHECK(config.eval_policy.policy_type == "UQE");
+    CHECK(config.eval_policy.uqe_use_tail_mean);
+    CHECK(config.eval_policy.tau_rule.num_taus == 32);
+    CHECK(config.eval_policy.tau_rule.sample_mode == "fixed");
+    CHECK(config.eval_policy.full_distribution_query.enabled);
+    CHECK(config.eval_policy.full_distribution_query.tau_rule.num_taus == 32);
+    CHECK(config.eval_policy.full_distribution_query.tau_rule.sample_mode == "fixed");
+    CHECK_FALSE(config.target_policy.full_distribution_query.enabled);
+    CHECK(config_data.Get("A.learner.iqn.current_taus.num_taus") == "64");
+    CHECK(config.learner.iqn.current_taus.num_taus == 32);
+    CHECK(config.learner.iqn.target_taus.num_taus == 32);
+    CHECK(config_data.Get("net.block.[IQNTauProjFixture].linear.out_features") == "2048");
+    CHECK(config_data.Get("net.branch.[tau_embedding].bind") == "taus");
+    CHECK(config_data.Get("net.branch.[iqn_fusion].bind") == "main_feature * tau_embedding");
+    CHECK(config_data.Get("net.branch.[value_stream].bind") == "iqn_fusion");
+    CHECK(config_data.Get("net.branch.[adv_stream].bind") == "iqn_fusion");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("DefaultDQNAgentConfig restores deterministic target taus after optimistic policy copy", "[dqn][iqn][config]")
+{
+    anet::ConfigData inherited_data;
+    inherited_data.Set("DefaultDQNAgent.quantile_mode", "iqn");
+    inherited_data.Set("DefaultDQNAgent.use_optimistic_target", true);
+    inherited_data.Set("DefaultDQNAgent.train_policy.policy_type", "UQE");
+    inherited_data.Set("DefaultDQNAgent.train_policy.tau_rule.num_taus", 7);
+    inherited_data.Set("DefaultDQNAgent.train_policy.tau_rule.sample_mode", "random");
+    inherited_data.Set("DefaultDQNAgent.train_policy.full_distribution_query.enabled", true);
+    inherited_data.Set("DefaultDQNAgent.train_policy.full_distribution_query.tau_rule.num_taus", 7);
+    inherited_data.Set("DefaultDQNAgent.train_policy.full_distribution_query.tau_rule.sample_mode", "random");
+    const dqn::DefaultDQNAgentConfig inherited(inherited_data);
+
+    CHECK(inherited.target_policy.policy_type == "UQE");
+    CHECK(inherited.target_policy.tau_rule.num_taus == 32);
+    CHECK(inherited.target_policy.tau_rule.sample_mode == "fixed");
+    CHECK_FALSE(inherited.target_policy.full_distribution_query.enabled);
+    CHECK(inherited.target_policy.full_distribution_query.tau_rule.num_taus == 32);
+    CHECK(inherited.target_policy.full_distribution_query.tau_rule.sample_mode == "fixed");
+
+    auto explicit_data = inherited_data;
+    explicit_data.Set("DefaultDQNAgent.target_policy.tau_rule.num_taus", 5);
+    explicit_data.Set("DefaultDQNAgent.target_policy.tau_rule.sample_mode", "random");
+    explicit_data.Set("DefaultDQNAgent.target_policy.full_distribution_query.enabled", true);
+    explicit_data.Set("DefaultDQNAgent.target_policy.full_distribution_query.tau_rule.num_taus", 5);
+    explicit_data.Set("DefaultDQNAgent.target_policy.full_distribution_query.tau_rule.sample_mode", "random");
+    const dqn::DefaultDQNAgentConfig explicit_target(explicit_data);
+
+    CHECK(explicit_target.target_policy.tau_rule.num_taus == 5);
+    CHECK(explicit_target.target_policy.tau_rule.sample_mode == "random");
+    CHECK(explicit_target.target_policy.full_distribution_query.enabled);
+    CHECK(explicit_target.target_policy.full_distribution_query.tau_rule.num_taus == 5);
+    CHECK(explicit_target.target_policy.full_distribution_query.tau_rule.sample_mode == "random");
+}
+
+TEST_CASE("DefaultDQNAgentConfig validates quantile modes and tau rules", "[dqn][iqn][config]")
+{
+    SECTION("mode and QR width")
+    {
+        anet::ConfigData invalid_mode;
+        invalid_mode.Set("DefaultDQNAgent.quantile_mode", "invalid");
+        CHECK_THROWS(dqn::DefaultDQNAgentConfig(invalid_mode));
+
+        anet::ConfigData invalid_qr;
+        invalid_qr.Set("DefaultDQNAgent.quantile_mode", "qr");
+        invalid_qr.Set("DefaultDQNAgent.qr.num_quantiles", 1);
+        CHECK_THROWS(dqn::DefaultDQNAgentConfig(invalid_qr));
+    }
+
+    SECTION("all tau rules")
+    {
+        const std::vector<std::string> prefixes{
+            "DefaultDQNAgent.train_policy.tau_rule",
+            "DefaultDQNAgent.eval_policy.tau_rule",
+            "DefaultDQNAgent.target_policy.tau_rule",
+            "DefaultDQNAgent.train_policy.full_distribution_query.tau_rule",
+            "DefaultDQNAgent.eval_policy.full_distribution_query.tau_rule",
+            "DefaultDQNAgent.target_policy.full_distribution_query.tau_rule",
+            "DefaultDQNAgent.learner.iqn.current_taus",
+            "DefaultDQNAgent.learner.iqn.target_taus",
+        };
+        for (const auto& prefix : prefixes) {
+            INFO("prefix=" << prefix);
+            anet::ConfigData invalid_count;
+            invalid_count.Set(prefix + ".num_taus", 0);
+            CHECK_THROWS(dqn::DefaultDQNAgentConfig(invalid_count));
+
+            anet::ConfigData invalid_mode;
+            invalid_mode.Set(prefix + ".sample_mode", "sorted_random");
+            CHECK_THROWS(dqn::DefaultDQNAgentConfig(invalid_mode));
+        }
+    }
+
+    SECTION("full distribution query compatibility")
+    {
+        for (const auto& [mode, policy_type] : {
+                 std::pair{ "none", "Greedy" },
+                 std::pair{ "qr", "UQE" },
+             }) {
+            INFO("mode=" << mode);
+            anet::ConfigData non_iqn;
+            non_iqn.Set("DefaultDQNAgent.quantile_mode", mode);
+            non_iqn.Set("DefaultDQNAgent.eval_policy.policy_type", policy_type);
+            non_iqn.Set("DefaultDQNAgent.eval_policy.full_distribution_query.enabled", true);
+
+            const dqn::DefaultDQNAgentConfig config(non_iqn);
+
+            CHECK(config.eval_policy.full_distribution_query.enabled);
+        }
+
+        anet::ConfigData non_uqe;
+        non_uqe.Set("DefaultDQNAgent.quantile_mode", "iqn");
+        non_uqe.Set("DefaultDQNAgent.eval_policy.policy_type", "Greedy");
+        non_uqe.Set("DefaultDQNAgent.eval_policy.full_distribution_query.enabled", true);
+        CHECK_THROWS(dqn::DefaultDQNAgentConfig(non_uqe));
+    }
+
+    SECTION("IQN kappa")
+    {
+        for (const auto& value : { "0", "-0.5", "nan", "inf" }) {
+            INFO("kappa=" << value);
+            anet::ConfigData config_data;
+            config_data.Set("DefaultDQNAgent.quantile_mode", "iqn");
+            config_data.Set("DefaultDQNAgent.learner.quantile_huber_kappa", value);
+            CHECK_THROWS(dqn::DefaultDQNAgentConfig(config_data));
+        }
+    }
+}
+
+TEST_CASE("DefaultDQNAgentConfig validates IQN risk ranges only when consumed", "[dqn][iqn][config]")
+{
+    for (const auto& type : { "UQE", "ThompsonSampling" }) {
+        INFO("type=" << type);
+        anet::ConfigData none_data;
+        none_data.Set("DefaultDQNAgent.quantile_mode", "none");
+        none_data.Set("DefaultDQNAgent.train_policy.policy_type", type);
+        CHECK_THROWS(dqn::DefaultDQNAgentConfig(none_data));
+    }
+
+    anet::ConfigData uqe_data;
+    uqe_data.Set("DefaultDQNAgent.quantile_mode", "iqn");
+    uqe_data.Set("DefaultDQNAgent.train_policy.policy_type", "UQE");
+    uqe_data.Set("DefaultDQNAgent.train_policy.uqe_tau_start", -0.1f);
+    CHECK_THROWS(dqn::DefaultDQNAgentConfig(uqe_data));
+
+    anet::ConfigData non_spatial_thompson;
+    non_spatial_thompson.Set("DefaultDQNAgent.quantile_mode", "iqn");
+    non_spatial_thompson.Set("DefaultDQNAgent.train_policy.policy_type", "ThompsonSampling");
+    non_spatial_thompson.Set("DefaultDQNAgent.train_policy.use_spatial_exploration", false);
+    non_spatial_thompson.Set("DefaultDQNAgent.train_policy.uqe_tau_start", -0.1f);
+    non_spatial_thompson.Set("DefaultDQNAgent.train_policy.uqe_tau_end", 1.1f);
+    CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(non_spatial_thompson));
+
+    auto spatial_thompson = non_spatial_thompson;
+    spatial_thompson.Set("DefaultDQNAgent.train_policy.use_spatial_exploration", true);
+    CHECK_THROWS(dqn::DefaultDQNAgentConfig(spatial_thompson));
+
+    anet::ConfigData qr_uqe;
+    qr_uqe.Set("DefaultDQNAgent.quantile_mode", "qr");
+    qr_uqe.Set("DefaultDQNAgent.train_policy.policy_type", "UQE");
+    qr_uqe.Set("DefaultDQNAgent.train_policy.uqe_tau_start", -0.1f);
+    qr_uqe.Set("DefaultDQNAgent.train_policy.uqe_tau_end", 1.1f);
+    CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(qr_uqe));
 }
 
 TEST_CASE("DefaultDQNAgentConfig defaults Train Actor snapshot to shared mode", "[dqn][config][snapshot]")

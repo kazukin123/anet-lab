@@ -8,6 +8,7 @@ namespace anet::nn {
 
 
     static constexpr const char* kKey_DefaultOutput = "features";
+    static constexpr const char* kKey_Taus = "taus";
 
     // ===========================================================================
     // PassThroughHead

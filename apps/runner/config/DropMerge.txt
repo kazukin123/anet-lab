@@ -76,53 +76,12 @@ net.branch.[main_feature].$ = net.branch.SuikaImpala2_ViT128  # ★
 
 app.run_name = run_{t}_dm
 
+
 # ==============================================================================
 # Run設定
 # ==============================================================================
 
-#app.run_name = run_{t}_gs_5846_cy12_apx1
-#app.run_name = run_{t}_gs_apx1_L1024_p1
-#app.run_name = run_{t}_gs_apx1_L1024_p1_bf16
-#app.run_name = run_{t}_apx_L2048_orts2
-#app.run_name = run_{t}_apx_L2048_ortg1o
-#app.run_name = run_{t}_apx_L2048_tbo
-#app.run_name = run_{t}_apx_tbo_rs001
-#app.run_name = run_{t}_apx_tbo_rs001_va1024
-#app.run_name = run_{t}_apx_tbo_rs001_va1024p
-#app.run_name = run_{t}_apx_tbo_rs001_va1024_ot2
-#app.run_name = run_{t}_apx_tbo_va1024_ot2np
-#app.run_name = run_{t}_apx_tbo_va1024_ot2npa2e4
-#app.run_name = run_{t}_apx_tbo_va1024_ndp0
-#app.run_name = run_{t}_apx_tbo_va1024_vit
-#app.run_name = run_{t}_apx_tbo_va1024_ot2np_res2
-#app.run_name = run_{t}_bf16-2
-#app.run_name = run_{t}_rb_prefetch
-#app.run_name = run_{t}_apx_cy01
-#app.run_name = run_{t}_apx_deton-2off
-#app.run_name = run_{t}_apx_deton-2off
-#app.run_name = run_{t}_apx_cy01-dp03mix
-#app.run_name = run_{t}_apx_cy01-dp08
-#app.run_name = run_{t}_apx_cy01-gn
-#app.run_name = run_{t}_apx_cy01-gn8
-#app.run_name = run_{t}_base
-#app.run_name = run_{t}_BF16-1
-#app.run_name = run_{t}_p060_r150
-#app.run_name = run_{t}_p030_r150
-#app.run_name = run_{t}_PER_fixed_r125
-#app.run_name = run_{t}_TA_snap400_fixed
-#app.run_name = run_{t}_TA_snap000_fixed
-#app.run_name = run_{t}_TA_snap200_fixed
-#app.run_name = run_{t}_TA_snap200_fixed-L
-#app.run_name = run_{t}_TA_snap200_aa-L
-#app.run_name = run_{t}_cnx-s128
-#app.run_name = run_{t}_cnx-vit128
-#app.run_name = run_{t}_imp2-vit128
-#app.run_name = run_{t}_imp2-vit128_gn
-#app.run_name = run_{t}_imp3-vit128
-#app.run_name = run_{t}_imp3-vit128_gn
-#app.run_name = run_{t}_imp2-vit128_tgtg-nose
-#app.run_name = run_{t}_imp2-vit128_tgtg-nolg60-tm10
-#app.run_name = run_{t}_imp2-vit128_tgtg-nolg60-tm10
+app.run_name = run_{t}_dm_iqn
 
 #app.online.exp_pause_step  = 9,000,000    # 9M
 #app.online.exp_pause_step  = 15,000,000      # 15M
@@ -130,9 +89,9 @@ app.run_name = run_{t}_dm
 #app.online.exp_pause_step  = 40,000,000      # 40M
 #app.online.exp_pause_step  = 50,000,000      # 50M
 #app.online.exp_pause_step  = 80,000,000    # 80M
-#app.online.exp_pause_step  = 100,000,000      # 100M
+app.online.exp_pause_step  = 100,000,000      # 100M
 #app.online.exp_pause_step  = 160,000,000    # 160M
-app.online.exp_pause_step  = 200,000,000    # 200M
+#app.online.exp_pause_step  = 200,000,000    # 200M
 
 #A.learner.per_beta_step = 10,000,000              # 10M
 A.learner.per_beta_step = 20,000,000              # 20M
@@ -156,20 +115,46 @@ backend.$ = backend.non-deterministic # 非決定論的（高速化）
 # 実験
 # ==============================================================================
 
+#app.run_name = run_{t}_dm_iqn32-b128-rr100
+app.run_name = run_{t}_iqn_qr
+
+#net.$ = net.iqn
+net.$ = net.qr
+
+R.quantile_mode = qr
+#R.quantile_mode = iqn
+
+R.train_policy.tau_rule.num_taus = 32
+R.train_policy.tau_rule.sample_mode = random
+R.eval_policy.policy_type = UQE
+R.eval_policy.uqe_use_tail_mean = true
+R.eval_policy.tau_rule.num_taus = 32
+R.eval_policy.tau_rule.sample_mode = fixed
+R.eval_policy.full_distribution_query.enabled = true
+R.eval_policy.full_distribution_query.tau_rule.num_taus = 32
+R.eval_policy.full_distribution_query.tau_rule.sample_mode = fixed
+R.learner.iqn.current_taus.num_taus = 32
+R.learner.iqn.current_taus.sample_mode = random
+R.learner.iqn.target_taus.num_taus = 32
+R.learner.iqn.target_taus.sample_mode = random
+
+
 E.obs_include_prev_action = true # 直前命令を [valid, noop, drop_x] として vector 末尾へ追加
 E.obs_prev_drop_marker = true    # 直前 DROP 命令列を grid top row の class 12 で表示
 
 #R.learner.alpha = 7.5e-5
-R.learner.alpha = 3e-4
+#R.learner.alpha = 3e-4
+R.learner.alpha = 1e-4
 
-#R.learner.replay_batch_size = 256
-R.learner.replay_batch_size = 512
+#R.learner.replay_batch_size = 128
+R.learner.replay_batch_size = 256
+#R.learner.replay_batch_size = 512
 
-#R.learner.replay_ratio = 1.0
+R.learner.replay_ratio = 1.0
 #R.learner.replay_ratio = 0.5
 #R.learner.replay_ratio = 1.25
 #R.learner.replay_ratio = 1.5
-R.learner.replay_ratio = 2.0
+#R.learner.replay_ratio = 2.0
 
 #E.action_mode = move_fast     # move move_fast direct direct_noop
 
@@ -202,9 +187,7 @@ R.train_actor.sync_interval.type = constant
 #R.train_actor.sync_interval.value = 400
 R.train_actor.sync_interval.value = 200
 
-
 R.learner.per_initial_priority = 0.3
-
 
 R.learner.use_rb_prefetch = true
 
@@ -228,7 +211,6 @@ R.learner.grad_clip_tau = 5
 #E.no_drop_timeout_gameover_penalty = -10.0
 
 #E.no_drop_timeout_steps = 100
-
 
 #E.game_over_penalty = -1.0   #-10.0
 
@@ -321,7 +303,7 @@ R.learner.grad_clip_tau = 5
 #R.learner.per_beta_step = 5,000,000              # 5M
 #R.learner.per_beta_step = 20,000,000             # 20M
 
-#R.num_quantiles = 101
+#R.qr.num_quantiles = 101
 
 #R.learner.per_alpha = 0
 #R.learner.per_alpha = 0.4
@@ -538,6 +520,22 @@ BF16.agent.learner.adam_eps = 1e-4   # AMP有効時は大きめにする
 # ==============================================================================
 # Env依存 Agent設定
 # ==============================================================================
+
+A.quantile_mode = iqn
+
+A.train_policy.tau_rule.num_taus = 32
+A.train_policy.tau_rule.sample_mode = random
+A.eval_policy.policy_type = UQE
+A.eval_policy.uqe_use_tail_mean = true
+A.eval_policy.tau_rule.num_taus = 32
+A.eval_policy.tau_rule.sample_mode = fixed
+A.eval_policy.full_distribution_query.enabled = true
+A.eval_policy.full_distribution_query.tau_rule.num_taus = 32
+A.eval_policy.full_distribution_query.tau_rule.sample_mode = fixed
+A.learner.iqn.current_taus.num_taus = 32
+A.learner.iqn.current_taus.sample_mode = random
+A.learner.iqn.target_taus.num_taus = 32
+A.learner.iqn.target_taus.sample_mode = random
 
 A.stucker.use_stacker = true
 A.stucker.stack_count = 4
@@ -912,6 +910,13 @@ net.block.[HeadFC1024].type = Linear
 net.block.[HeadFC1024].linear.out_features = 1024
 net.block.[HeadFC1024].init.mode = xavier
 
+net.block.[IQNCosEmb].type = CosineEmbedding
+net.block.[IQNCosEmb].cos.num_basis = 64
+
+net.block.[IQNTauProj2048].type = Linear
+net.block.[IQNTauProj2048].linear.out_features = 2048
+net.block.[IQNTauProj2048].init.mode = xavier
+
 
 # --- DropMerge ConvNeXt ---
 
@@ -1089,22 +1094,27 @@ net.block.[DMImpalaTrans128].tf.attn_dropout_rate = 0.0
 net.block.[DMImpalaTrans128].tf.droppath_rate = 0.0
 #net.block.[DMImpalaTrans128].tf.droppath_rate = 0.02
 
-
-# --- branches ---
-
-net.branch.[vector_feature].bind = vector
-#net.body.output.[features] = main_feature
-
-# Dueling head 用の任意 V/A ストリーム。有効化する場合はまとめてコメント解除
-
-net.branch.[value_stream].bind = main_feature
-net.branch.[value_stream].structure = HeadFC1024 > SiLU
-
-net.branch.[adv_stream].bind = main_feature
-net.branch.[adv_stream].structure = HeadFC1024 > SiLU
+# --- body ---
 
 net.body.output.[value_feature] = value_stream
 net.body.output.[adv_feature] = adv_stream
+
+# --- branches ---
+net.branch.[vector_feature].bind = vector
+net.branch.[value_stream].structure = HeadFC1024 > SiLU
+net.branch.[adv_stream].structure = HeadFC1024 > SiLU
+
+# 切替用
+
+net.iqn.branch.[tau_embedding].bind = taus
+net.iqn.branch.[tau_embedding].structure = IQNCosEmb > IQNTauProj2048 > SiLU
+net.iqn.branch.[iqn_fusion].bind = main_feature * tau_embedding                     # (B,1,128)×(B,K,128)→(B,K,128)
+net.iqn.branch.[iqn_fusion].structure = 
+net.iqn.branch.[value_stream].bind = iqn_fusion
+net.iqn.branch.[adv_stream].bind = iqn_fusion
+
+net.qr.branch.[value_stream].bind = main_feature
+net.qr.branch.[adv_stream].bind = main_feature
 
 
 net.branch.SuikaResNet_10d.bind = grid, vector_feature

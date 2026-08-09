@@ -11,6 +11,7 @@
 #include "anet/nn_util.hpp"
 #include "anet/transfer.hpp"
 #include "anet/replay_buffer.hpp"
+#include "anet/random.hpp"
 #include "anet/schedule.hpp"
 
 
@@ -22,6 +23,22 @@ namespace anet::rl::dqn {
     float TransformH(float x, float epsilon);
     torch::Tensor TransformHInv(const torch::Tensor& x, float epsilon);
     float TransformHInv(float x, float epsilon);
+
+    torch::Tensor GenerateTaus(
+        int64_t batch_size,
+        int64_t num_taus,
+        const std::string& sample_mode,
+        float tau_min,
+        float tau_max,
+        const torch::Device& device,
+        anet::RandomGenerator& rnd);
+
+    torch::Tensor GenerateTaus(
+        const torch::Tensor& tau_min_per_env,
+        float tau_max,
+        int64_t num_taus,
+        const std::string& sample_mode,
+        anet::RandomGenerator& rnd);
 
     struct PerRawPriorityBatchResult {
         torch::Tensor priorities;    ///< clip適用後のfloat32 priority [B]
@@ -367,14 +384,14 @@ namespace anet::rl::dqn {
             const anet::TensorSpecMap& obs_spec,
             int64_t n_actions,
             std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory,
-            int64_t num_quantiles);
+            bool distributional);
     protected:
         NetworkModel(
             const NetworkModelConfig& config,
             std::shared_ptr<anet::nn::Network> online_net,
             std::shared_ptr<anet::nn::Network> target_net,
             int64_t n_actions,
-            int64_t num_quantiles);
+            bool distributional);
     public:
 
         /// 行動選択・学習用：期待値Q (B, A) を返す
@@ -387,7 +404,7 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::nn::Network> GetOnlineNetwork() { return online_net_; }
         std::shared_ptr<anet::nn::Network> GetTargetNetwork() { return target_net_; }
 
-        /// QR判定
+        /// 分布型Head判定
         bool IsDistributional() const;
 
         /// online_netのパラメータ取得
@@ -412,7 +429,7 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::nn::Network> target_net_;
 
         int64_t n_actions_;
-        int64_t num_quantiles_;
+        bool distributional_;
     };
 
 
@@ -456,6 +473,9 @@ namespace anet::rl::dqn {
         virtual ~ActionPolicy() = default;
     protected:
         anet::TensorDict ForwardForAction(const anet::TensorDict& obs, std::shared_ptr<anet::nn::Network> network, const anet::TraceSink& sink) const;
+        anet::TensorDict ForwardForActionWithTaus(
+            const anet::TensorDict& obs, const torch::Tensor& taus,
+            std::shared_ptr<anet::nn::Network> network, const anet::TraceSink& sink) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, const torch::Tensor& epsilon_tensor, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         std::shared_ptr<DQNActionInfo> MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const;
@@ -513,7 +533,8 @@ namespace anet::rl::dqn {
         virtual ~UQEActionPolicy() = default;
     protected:
         std::shared_ptr<DQNActionInfo> MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs, bool greedy_only,
-            std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink) const;
+            std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink,
+            bool iqn_use_full_range = false) const;
         void UpdateTau(step_t step);
     private:
         torch::Tensor MakeUQEValues(float tau, const torch::Tensor& q_quantiles) const;
@@ -663,6 +684,8 @@ namespace anet::rl::dqn {
         	const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& taus) const;
         static torch::Tensor ComputeQuantileHuberLoss(
             const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& taus, float kappa);
+        static torch::Tensor ComputeIqnQuantileHuberLoss(
+            const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& taus, float kappa);
     };
 
     class TDLearner final : public anet::rl::dqn::Learner {
@@ -689,6 +712,18 @@ namespace anet::rl::dqn {
             const anet::rl::ExperienceSamples& samples) override;
     private:
         torch::Tensor tau_i_; // QuantileHuberLoss 算出用
+    };
+
+    class IQNLearner final : public anet::rl::dqn::QuantileLearnerBase {
+    public:
+        explicit IQNLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+            const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
+            std::shared_ptr<ActionPolicy> target_policy,
+            std::optional<StuckerConfig> stucker_config = std::nullopt,
+            std::optional<anet::seed_t> target_seed = std::nullopt);
+
+        std::shared_ptr<const anet::rl::BatchUpdateResult> UpdateFromSamples(
+            const anet::rl::ExperienceSamples& samples) override;
     };
 
 

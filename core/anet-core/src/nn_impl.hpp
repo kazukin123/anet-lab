@@ -156,18 +156,22 @@ namespace anet::nn {
     class NetworkBranch : public torch::nn::Module {
     public:
         NetworkBranch(
-            std::string name, std::vector<std::string> bind_keys, std::shared_ptr<NetworkStruct> network_struct);
+            std::string name,
+            std::vector<std::vector<std::string>> bind_terms,
+            int64_t bind_concat_dim,
+            std::shared_ptr<NetworkStruct> network_struct);
 
         /// 現在のTensorDictから必要な入力(bind)を拾って結合し、処理を実行して結果をDictに書き戻す
         void Execute(anet::TensorDict& current_state, const anet::TraceSink& sink = {});
 
         const std::string& GetName() const { return name_; }
-        const std::vector<std::string>& GetBindKeys() const { return bind_keys_; }
+        const std::vector<std::vector<std::string>>& GetBindTerms() const { return bind_terms_; }
         std::shared_ptr<NetworkStruct> GetNetworkStruct() const { return network_struct_; }
 
     private:
         std::string name_;
-        std::vector<std::string> bind_keys_;
+        std::vector<std::vector<std::string>> bind_terms_;
+        int64_t bind_concat_dim_ = 1;
         std::shared_ptr<NetworkStruct> network_struct_;
     };
 

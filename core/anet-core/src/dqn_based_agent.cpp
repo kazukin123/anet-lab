@@ -14,9 +14,84 @@
 #include "anet/replay_buffer.hpp"
 #include "anet/image.hpp"
 #include "anet/metrics_logger.hpp"
+#include "nn_heads.hpp"
 
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
+
+static void ValidateTauGeneratorArguments(int64_t batch_size, int64_t num_taus, const std::string& sample_mode)
+{
+    if (batch_size < 0) {
+        ANET_SYSTEM_ERROR("TauGenerator requires batch_size>=0, but batch_size=" << batch_size << ".");
+    }
+    if (num_taus <= 0) {
+        ANET_SYSTEM_ERROR("TauGenerator requires num_taus>0, but num_taus=" << num_taus << ".");
+    }
+    if (sample_mode != "random" && sample_mode != "fixed") {
+        ANET_SYSTEM_ERROR("TauGenerator received sample_mode=" << sample_mode
+            << "; expected random or fixed.");
+    }
+}
+
+static torch::Tensor MakeTauMidpointPositions(int64_t num_taus, const torch::TensorOptions& options)
+{
+    return (torch::arange(num_taus, options) + 0.5f) / static_cast<float>(num_taus);
+}
+
+torch::Tensor anet::rl::dqn::GenerateTaus(
+    int64_t batch_size,
+    int64_t num_taus,
+    const std::string& sample_mode,
+    float tau_min,
+    float tau_max,
+    const torch::Device& device,
+    anet::RandomGenerator& rnd)
+{
+    ANET_PROFILE_FUNC();
+    ValidateTauGeneratorArguments(batch_size, num_taus, sample_mode);
+
+    const auto options = torch::TensorOptions().dtype(torch::kFloat32).device(device);
+    if (sample_mode == "random") {
+        // 乱数を対象 device 上で一括生成し、CPU 同期を挟まず指定範囲へ写像する。
+        auto gen = rnd.GetTorchGenerator(device);
+        const auto unit = torch::rand({ batch_size, num_taus }, gen, options);
+        return tau_min + unit * (tau_max - tau_min);
+    }
+
+    // midpoint 配置では generator に触れず、全 batch へ同じ配置を共有する。
+    const auto positions = MakeTauMidpointPositions(num_taus, options);
+    const auto taus = tau_min + positions * (tau_max - tau_min);
+    return taus.unsqueeze(0).expand({ batch_size, num_taus });
+}
+
+torch::Tensor anet::rl::dqn::GenerateTaus(
+    const torch::Tensor& tau_min_per_env,
+    float tau_max,
+    int64_t num_taus,
+    const std::string& sample_mode,
+    anet::RandomGenerator& rnd)
+{
+    ANET_PROFILE_FUNC();
+    if (tau_min_per_env.dim() != 1) {
+        ANET_SYSTEM_ERROR("TauGenerator requires tau_min_per_env rank=1 (B), but shape="
+            << tau_min_per_env.sizes() << ".");
+    }
+    ValidateTauGeneratorArguments(tau_min_per_env.size(0), num_taus, sample_mode);
+
+    const auto device = tau_min_per_env.device();
+    const auto options = torch::TensorOptions().dtype(torch::kFloat32).device(device);
+    const auto lower = tau_min_per_env.to(torch::kFloat32).unsqueeze(1);
+    if (sample_mode == "random") {
+        // env ごとの下限を broadcast し、各行を独立にサンプリングする。
+        auto gen = rnd.GetTorchGenerator(device);
+        const auto unit = torch::rand({ tau_min_per_env.size(0), num_taus }, gen, options);
+        return lower + unit * (tau_max - lower);
+    }
+
+    // midpoint の相対位置だけを共有し、絶対位置は env ごとの下限で決める。
+    const auto positions = MakeTauMidpointPositions(num_taus, options).unsqueeze(0);
+    return lower + positions * (tau_max - lower);
+}
 
 anet::rl::ReplayInitialPriorityMode anet::rl::dqn::ParseReplayInitialPriorityMode(const LearnerConfig& config)
 {
@@ -240,10 +315,10 @@ std::unique_ptr<anet::rl::InitialPriorityEstimator> anet::rl::dqn::CreateInitial
 NetworkModel::NetworkModel(
     const NetworkModelConfig& config, const torch::Device device,
     const anet::nn::NetworkConfig& network_config, const anet::TensorSpecMap& obs_spec, int64_t n_actions, std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory,
-    int64_t num_quantiles)
+    bool distributional)
     : config_(config)
     , n_actions_(n_actions)
-    , num_quantiles_(num_quantiles)
+    , distributional_(distributional)
 {
     ANET_ASSERT(n_actions_ > 0);
 
@@ -280,12 +355,12 @@ NetworkModel::NetworkModel(
     std::shared_ptr<anet::nn::Network> online_net,
     std::shared_ptr<anet::nn::Network> target_net,
     int64_t n_actions,
-    int64_t num_quantiles)
+    bool distributional)
     : config_(config)
     , online_net_(std::move(online_net))
     , target_net_(std::move(target_net))
     , n_actions_(n_actions)
-    , num_quantiles_(num_quantiles)
+    , distributional_(distributional)
 {
     ANET_ASSERT(n_actions_ > 0);
     ANET_ASSERT(online_net_ != nullptr);
@@ -312,7 +387,7 @@ anet::TensorDict NetworkModel::ForwardTarget(const anet::TensorDict& obs) const
 
 bool NetworkModel::IsDistributional() const
 {
-    return (num_quantiles_ > 1);
+    return distributional_;
 }
 
 std::vector<torch::Tensor> NetworkModel::GetOnlineParameters() const
@@ -681,6 +756,16 @@ anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForAction(
     return network->Forward(obs, sink);
 }
 
+anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForActionWithTaus(
+    const anet::TensorDict& obs, const torch::Tensor& taus,
+    std::shared_ptr<anet::nn::Network> network, const anet::TraceSink& sink) const
+{
+    // 呼び出し元やReplayBufferが所有する辞書を変更せず、forward専用入力へtausを足す。
+    anet::TensorDict network_input = obs;
+    network_input.Set(anet::nn::kKey_Taus, taus);
+    return ForwardForAction(network_input, std::move(network), sink);
+}
+
 torch::Tensor anet::rl::dqn::ActionPolicy::CreateSpatialTensor(
     int64_t num_envs, float start_val, float end_val, const std::string& scale_type, const torch::Device& device)
 {
@@ -880,8 +965,16 @@ std::shared_ptr<DQNActionInfo> EpsilonGreedyActionPolicy::SelectAction(const ane
     torch::ScalarType amp_dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
     anet::Autocast cast_guard(obs.device(), config_.use_amp, amp_dtype);
 
-    // obsからQ値取得
-    auto out = ForwardForAction(obs, network, sink);
+    // IQNではpolicy自身のtau ruleでサンプルし、QR/TDは従来入力をそのまま使う。
+    anet::TensorDict out;
+    if (config_.quantile_mode == "iqn") {
+        auto taus = GenerateTaus(
+            obs.Size(0), config_.tau_rule.num_taus, config_.tau_rule.sample_mode,
+            0.0f, 1.0f, obs.device(), *rnd);
+        out = ForwardForActionWithTaus(obs, taus, network, sink);
+    } else {
+        out = ForwardForAction(obs, network, sink);
+    }
     auto q_values = out.At("q");
     torch::Tensor q_quantiles;
     if (out.Contains("q_dist")) {
@@ -1044,7 +1137,8 @@ torch::Tensor UQEActionPolicy::MakeVectorizedUQEValues(const torch::Tensor& tau_
 }
 
 std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs,
-    bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink) const
+    bool greedy_only, std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink,
+    bool iqn_use_full_range) const
 {
     ANET_PROFILE_FUNC();
 
@@ -1052,12 +1146,7 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
     torch::ScalarType amp_dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
     anet::Autocast cast_guard(obs.device(), config_.use_amp, amp_dtype);
 
-    // Q値を取得
-    auto out = ForwardForAction(obs, network, sink);
-    auto q_values = out.At("q");
-    auto q_quantiles = out.At("q_dist");
-
-    // パラメータの決定 (Train vs Eval)
+    // policy更新で変化する探索率と、呼び出し側が決めたrisk基準tauを今回のaction queryへ反映する。
     float effective_epsilon = current_epsilon_;
     float effective_tau = tau;
     bool use_vectorized_tau = tau_tensor.defined();
@@ -1068,9 +1157,79 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
         effective_epsilon = 0.0f;
     }
 
-    // UQE (楽観的Q値) の計算
+    // IQNでは行動scoreを作るrisk queryを先頭へ置き、任意のfull queryを後ろへ連結して1回のforwardで処理する。
+    // QRではネットワークが固定quantileを返すため、tausを観測へ追加せず従来のforwardを使う。
+    ANET_PROFILE_SCOPE(generate_taus);
+    anet::TensorDict out;
+    int64_t risk_num_taus = 0;
+    if (config_.quantile_mode == "iqn") {
+        const int64_t N = obs.Size(0);
+        torch::Tensor risk_taus;
+        if (iqn_use_full_range) {
+            // ThompsonSamplingの非spatial IQNは、各環境でfull rangeをサンプルして分布から直接scoreを作る。
+            risk_taus = GenerateTaus(
+                N, config_.tau_rule.num_taus, config_.tau_rule.sample_mode,
+                0.0f, 1.0f, obs.device(), *rnd);
+        } else if (use_vectorized_tau) {
+            // spatial UQEでは環境ごとの下限tauを使い、tail meanなら下限から1までをサンプルする。
+            auto lower = tau_tensor.reshape({ N });
+            if (config_.uqe_use_tail_mean) {
+                risk_taus = GenerateTaus(
+                    lower, 1.0f, config_.tau_rule.num_taus, config_.tau_rule.sample_mode, *rnd);
+            } else {
+                // point UQEは基準分位そのものを使う。full query併用時は重複計算を避けて1点だけ渡す。
+                const int64_t point_count = config_.full_distribution_query.enabled ? 1 : config_.tau_rule.num_taus;
+                risk_taus = lower.unsqueeze(1).expand({ N, point_count });
+            }
+        } else if (config_.uqe_use_tail_mean) {
+            // scalar tail meanは[effective_tau, 1]を問い合わせる。
+            risk_taus = GenerateTaus(
+                N, config_.tau_rule.num_taus, config_.tau_rule.sample_mode,
+                effective_tau, 1.0f, obs.device(), *rnd);
+        } else {
+            // scalar point UQEはeffective_tauだけを問い合わせる。
+            const int64_t point_count = config_.full_distribution_query.enabled ? 1 : config_.tau_rule.num_taus;
+            risk_taus = torch::full(
+                { N, point_count }, effective_tau,
+                torch::TensorOptions().dtype(torch::kFloat32).device(obs.device()));
+        }
+        risk_num_taus = risk_taus.size(1);
+
+        // 可視化・統計用のfull rangeはrisk queryと混ぜず、後段で切り分けられる順序で連結する。
+        torch::Tensor iqn_taus = risk_taus;
+        if (config_.full_distribution_query.enabled) {
+            const auto& full_rule = config_.full_distribution_query.tau_rule;
+            auto full_taus = GenerateTaus(
+                N, full_rule.num_taus, full_rule.sample_mode,
+                0.0f, 1.0f, obs.device(), *rnd);
+            iqn_taus = torch::cat({ risk_taus, full_taus }, 1);
+        }
+
+        ANET_PROFILE_SCOPE_NEXT(forward);
+        out = ForwardForActionWithTaus(obs, iqn_taus, network, sink);
+    } else {
+        ANET_PROFILE_SCOPE_NEXT(forward);
+        out = ForwardForAction(obs, network, sink);
+    }
+    // Headのqは連結した全tausの平均になるため、full query有効時は使わず各領域から平均を再計算する。
+    ANET_PROFILE_SCOPE_NEXT(split_outputs);
+    auto q_values = out.At("q");
+    auto q_quantiles = out.At("q_dist");
+    torch::Tensor full_q_values;
+    torch::Tensor full_q_quantiles;
+    if (config_.quantile_mode == "iqn" && config_.full_distribution_query.enabled) {
+        full_q_quantiles = q_quantiles.slice(2, risk_num_taus);
+        q_quantiles = q_quantiles.slice(2, 0, risk_num_taus);
+        q_values = q_quantiles.mean(2);
+        full_q_values = full_q_quantiles.mean(2);
+    }
+
+    // IQNのrisk部分は問い合わせたい分位だけで構成済みなので、その平均をそのまま行動scoreにする。
+    // QRは固定quantile列から基準分位またはupper-tailを抽出する既存処理を維持する。
     torch::Tensor uqe_values;
-    if (use_vectorized_tau) {
+    if (config_.quantile_mode == "iqn") {
+        uqe_values = q_values;
+    } else if (use_vectorized_tau) {
         // 学習時: バッチごとに異なるTauが渡されている場合（hompsonSampling向け）
         uqe_values = MakeVectorizedUQEValues(tau_tensor, q_quantiles);
     } else {
@@ -1079,7 +1238,7 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
     }
     auto uqe_action_values = uqe_values.argmax(1);
 
-    // EpsilonGreedy
+    // risk-biased scoreでgreedy actionを決めた後、通常またはspatialなepsilon探索を適用する。
     const int64_t N = q_values.sizes()[0];      // shape 読み取りは TensorOptions 経由で同期を回避
     const int64_t A = q_values.sizes()[1];
     torch::Tensor actions;
@@ -1089,9 +1248,14 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
         actions = MakeEpsilonGreedyAction(uqe_action_values, effective_epsilon, N, A, rnd);
     }
 
-    // 情報詰め替え
+    // q_quantilesは行動選択に使ったrisk分布、full_q_quantilesは独立した観測用分布として公開する。
+    // どちらも同一forward由来なので、QValuePanelやmetricのための追加forwardは発生しない。
     auto action_info = MakeActionInfo(actions, q_values, q_quantiles);
     action_info->GetAuxData()["uqe_values"] = uqe_values.detach();
+    if (full_q_quantiles.defined()) {
+        action_info->GetAuxData()["full_q_values"] = full_q_values.detach();
+        action_info->GetAuxData()["full_q_quantiles"] = full_q_quantiles.detach();
+    }
     return action_info;
 }
 
@@ -1134,6 +1298,12 @@ std::shared_ptr<DQNActionInfo> ThompsonSamplingActionPolicy::SelectAction(const 
     if (IsSpatialExplorationEnabled()) {
         auto tau_tensor = GetSpatialTauTensor(N, device).view({ N, 1 });
         return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, network, rnd, sink);
+    }
+
+    if (config_.quantile_mode == "iqn") {
+        return MakeUQEActionInfo(
+            0.0f, torch::Tensor(), obs, greedy_only, network, rnd, sink,
+            /*iqn_use_full_range=*/true);
     }
 
     auto gen = rnd->GetTorchGenerator(device);
@@ -1905,8 +2075,12 @@ QuantileMetrics QuantileLearnerBase::MakeQuantileMetrics(const torch::Tensor& cu
     metrics.max_q = std::get<0>(q_values_metrics.max(1));
     ANET_ASSERT_SHAPE(metrics.max_q, { B });
 
-    // 分布の広がりをQ stdとして保持する
-    metrics.q_std = current_dist_metrics.std(1).mean();
+    // 分布の広がりをQ stdとして保持する。N=1は不偏分散が未定義なので明示的に0とする。
+    if (current_dist_metrics.size(1) == 1) {
+        metrics.q_std = torch::zeros({}, current_dist_metrics.options());
+    } else {
+        metrics.q_std = current_dist_metrics.std(1).mean();
+    }
     ANET_ASSERT_SHAPE(metrics.q_std, {});
 
     if (n_actions_ >= 2) {
@@ -1969,6 +2143,39 @@ torch::Tensor QuantileLearnerBase::ComputeQuantileHuberLoss(
     const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& taus) const
 {
     return ComputeQuantileHuberLoss(current_dist, target_dist, taus, config_.quantile_huber_kappa);
+}
+
+torch::Tensor QuantileLearnerBase::ComputeIqnQuantileHuberLoss(
+    const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& taus, float kappa)
+{
+    ANET_PROFILE_FUNC();
+
+    const auto B = current_dist.size(0);
+    const auto N = current_dist.size(1);
+    const auto M = target_dist.size(1);
+
+    ANET_ASSERT_SHAPE(current_dist, { B, N });
+    ANET_ASSERT_SHAPE(target_dist, { B, M });
+    ANET_ASSERT_SHAPE(taus, { B, N, 1 });
+
+    // Eq. 3 の全 (current tau_i, target tau'_j) ペアを作る。
+    auto diff = target_dist.unsqueeze(1) - current_dist.unsqueeze(2);
+    ANET_ASSERT_SHAPE(diff, { B, N, M });
+
+    // IQN論文どおりHuberをkappaで正規化し、quantile regression重みを掛ける。
+    auto abs_diff = diff.abs();
+    auto huber = torch::where(
+        abs_diff < kappa,
+        0.5f * diff.pow(2),
+        kappa * (abs_diff - 0.5f * kappa));
+    auto indicator = (diff.detach() < 0).to(torch::kFloat);
+    auto loss_per_pair = torch::abs(taus - indicator) * huber / kappa;
+    ANET_ASSERT_SHAPE(loss_per_pair, { B, N, M });
+
+    // current側Nをsum、target側Mをmeanし、サンプル単位のlossを返す。
+    auto element_wise_loss = loss_per_pair.sum(1).mean(1);
+    ANET_ASSERT_SHAPE(element_wise_loss, { B });
+    return element_wise_loss;
 }
 
 
@@ -2248,6 +2455,146 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
     } // End of Autocast Scope
 
+    ANET_PROFILE_SCOPE(prepare_per);
+    auto per_pending = PreparePerPriorityUpdate(samples, td_error_tensor);
+
+    ANET_PROFILE_SCOPE_NEXT(optimize);
+    auto opt_result = Optimize(loss);
+
+    ANET_PROFILE_SCOPE_NEXT(update_per);
+    auto per_result = ApplyPerPriorityUpdate(std::move(per_pending));
+
+    ANET_PROFILE_SCOPE_NEXT(make_result);
+    return MakeBatchUpdateResult(
+        loss, td_error_tensor, opt_result,
+        metrics.max_q, metrics.q_sa, per_result,
+        metrics.q_std, metrics.q_gap, metrics.q_gap_rel);
+}
+
+
+// ======================================================
+// IQNLearner
+// ======================================================
+
+IQNLearner::IQNLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+    const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
+    std::shared_ptr<ActionPolicy> target_policy, std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed)
+    : QuantileLearnerBase(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, std::move(device), replay_seed,
+        std::move(target_policy), stucker_config, target_seed)
+{
+    SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
+    SetupOptimizer();
+}
+
+std::shared_ptr<const anet::rl::BatchUpdateResult>
+IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
+{
+    ANET_PROFILE_FUNC();
+
+    const int B = config_.replay_batch_size;
+    const int A = n_actions_;
+    const int N = config_.iqn.current_taus.num_taus;
+    const int M = config_.iqn.target_taus.num_taus;
+    const torch::ScalarType amp_dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
+
+    // ReplayBufferから受け取ったbatch契約を、forwardより前に検証する。
+    ANET_ASSERT_SHAPE(samples.actions, { B });
+    ANET_ASSERT_SHAPE(samples.target_returns, { B });
+    ANET_ASSERT_SHAPE(samples.next_state.terminals, { B });
+
+    ANET_PROFILE_SCOPE(normalize);
+    auto norm_samples = NormalizeSampleObservations(samples);
+    const auto& obs = norm_samples.obs;
+    const auto& next_obs = norm_samples.next_obs;
+    ANET_ASSERT_NAN(obs);
+    ANET_ASSERT_NAN(next_obs);
+
+    torch::Tensor loss;
+    torch::Tensor td_error_tensor;
+    QuantileMetrics metrics;
+
+    // current・target-policy・target-valueで異なるtau集合を使い、行動選択と分布回帰の役割を分離する。
+    {
+        anet::Autocast amp_guard(device_, config_.use_amp, amp_dtype);
+
+        // 現在ネットワークをN本のtauで評価し、経験に記録されたactionのquantile列だけを損失対象へ集める。
+        ANET_PROFILE_SCOPE_NEXT(generate_current_taus);
+        auto current_taus = GenerateTaus(B, N, config_.iqn.current_taus.sample_mode, 0.0f, 1.0f, device_, *GetRandomGenerator());
+        ANET_ASSERT_SHAPE(current_taus, { B, N });
+
+        // ReplayBuffer所有のobservationを変更せず、current forward専用の浅いcopyへtausを注入する。
+        anet::TensorDict current_input = obs;
+        current_input.Set(anet::nn::kKey_Taus, current_taus);
+
+        ANET_PROFILE_SCOPE_NEXT(forward_current);
+        auto current_out = model_.ForwardOnlineWithTrain(current_input);
+        auto current_dist_all = current_out.At("q_dist");
+        ANET_ASSERT_SHAPE(current_dist_all, { B, A, N });
+        ANET_ASSERT_NAN(current_dist_all);
+
+        auto current_dist = GatherActionQuantiles(current_dist_all, samples.actions);
+        auto q_values_mean = current_out.At("q");
+        metrics = MakeQuantileMetrics(current_dist, q_values_mean);
+
+        torch::Tensor target_dist;
+        {
+            torch::NoGradGuard grad_guard;
+
+            // Double DQNと同様にtarget-policy側で次actionを選ぶ。policy自身のtau ruleはlearnerのN/Mから独立する。
+            ANET_PROFILE_SCOPE_NEXT(select_target_action);
+            auto next_actions = SelectTargetActions(next_obs);
+            ANET_ASSERT_SHAPE(next_actions, { B });
+
+            // 選択済みactionの価値はtarget networkをM本のtauで評価し、bootstrap済みtarget分布へ変換する。
+            // target-value用tauは行動選択時のtauから独立に生成し、NとMが異なる設定も許容する。
+            ANET_PROFILE_SCOPE_NEXT(generate_target_taus);
+            auto target_taus = GenerateTaus(B, M, config_.iqn.target_taus.sample_mode, 0.0f, 1.0f, device_, *GetRandomGenerator());
+            ANET_ASSERT_SHAPE(target_taus, { B, M });
+
+            anet::TensorDict target_input = next_obs;
+            target_input.Set(anet::nn::kKey_Taus, target_taus);
+
+            ANET_PROFILE_SCOPE_NEXT(forward_target);
+            auto next_out = model_.ForwardTarget(target_input);
+            auto next_dist_all = next_out.At("q_dist");
+            ANET_ASSERT_SHAPE(next_dist_all, { B, A, M });
+            ANET_ASSERT_NAN(next_dist_all);
+
+            auto next_dist = GatherActionQuantiles(next_dist_all, next_actions);
+            target_dist = CalcTargetQuantiles(samples, next_dist);
+        }
+
+        // ------------------------------------------------------------
+        // Loss Calculation
+        // ------------------------------------------------------------
+
+        ANET_PROFILE_SCOPE(loss);
+
+        // PER priority更新用に、選択actionの現在Q期待値とtarget分布の期待値との差をサンプル単位で求める。
+        // quantile回帰lossとは定義が異なるため、最適化には使わずReplayBufferのpriority更新へ渡す。
+        auto target_mean = target_dist.mean(1).detach();
+        td_error_tensor = metrics.q_sa - target_mean;
+        ANET_ASSERT_SHAPE(td_error_tensor, { B });
+        ANET_ASSERT_NAN(td_error_tensor);
+
+        // 各current tau_iへquantile regression重みを対応付け、全N×MペアのIQN Huber lossを計算する。
+        // ComputeIqnQuantileHuberLossはcurrent側Nをsum、target側Mをmeanし、サンプル単位(B)で返す。
+        auto tau_weights = current_taus.unsqueeze(2);
+        auto element_loss = ComputeIqnQuantileHuberLoss(current_dist, target_dist, tau_weights, config_.quantile_huber_kappa);
+        ANET_ASSERT_SHAPE(element_loss, { B });
+        ANET_ASSERT_NAN(element_loss);
+
+        // PER有効時はimportance sampling weightでsampling biasを補正し、最後にbatch平均してscalar lossへ集約する。
+        // PER無効時は全サンプルを等重みとし、同じ集約経路を使う。
+        auto weights = config_.use_per ? samples.is_weights : torch::ones({ B }, device_);
+        ANET_ASSERT_SHAPE(weights, { B });
+        ANET_ASSERT_NAN(weights);
+        loss = (element_loss * weights).mean();
+        ANET_ASSERT_SHAPE(loss, {});
+        ANET_ASSERT_NAN(loss);
+    }
+
+    // backward前にTD errorからPER更新内容を準備し、optimizer完了後にReplayBufferへ反映する。
     ANET_PROFILE_SCOPE(prepare_per);
     auto per_pending = PreparePerPriorityUpdate(samples, td_error_tensor);
 

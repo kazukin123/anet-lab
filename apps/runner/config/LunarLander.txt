@@ -10,6 +10,8 @@ app.$ = app.online > P
 #train.seed = 540080446186335311 # N-STEP評価用
 #train.seed = 7508636947373324265 # 評価用
 train.seed = 1
+#train.seed = 2
+#train.seed = 3
 
 train.num_envs = 256
 #train.num_envs = 10
@@ -32,12 +34,60 @@ app.run_name = run_{t}_ll
 #backend.$ = backend.deterministic      # 決定論的（遅いけど再現性あり）
 backend.$ = backend.non-deterministic # 非決定論的（高速化）
 
+#net.$ = net.qr
+#R.quantile_mode = qr
+
+R.quantile_mode = iqn
+net.$ = net.iqn
+
 
 # ==============================================================================
 # 実験
 # ==============================================================================
 
-#app.run_name = run_{t}_ll
+app.run_name = run_{t}_ll_iqn
+
+R.learner.iqn.current_taus.num_taus = 32
+R.learner.iqn.target_taus.num_taus = 32
+
+R.learner.update_warmup_steps = 8,192
+#R.learner.update_warmup_steps = 38,400
+#R.learner.update_warmup_steps = 76,800
+
+#R.learner.replay_capacity = 256,000
+R.learner.replay_capacity = 512,000
+
+R.train_policy.policy_type = UQE
+#R.train_policy.uqe_use_tail_mean = true
+R.train_policy.uqe_use_tail_mean = false
+R.train_policy.uqe_tau_start = 0.9
+#R.train_policy.uqe_tau_end = 0.7
+R.train_policy.uqe_tau_end = 0.5
+R.train_policy.tau_rule.num_taus = 32
+R.train_policy.tau_rule.sample_mode = random
+R.train_policy.uqe_eps_start = 0.3
+#R.train_policy.uqe_eps_end = 0.05
+R.train_policy.uqe_eps_end = 0.0
+
+#R.train_policy.policy_type = EpsilonGreedy
+#R.train_policy.eps_start = 0.3
+#R.train_policy.eps_end = 0.0
+#R.train_policy.tau_rule.num_taus = 32
+#R.train_policy.tau_rule.sample_mode = fixed
+#R.train_policy.use_spatial_exploration = true
+
+
+R.eval_policy.policy_type = UQE
+#R.eval_policy.uqe_use_tail_mean = true
+R.eval_policy.uqe_use_tail_mean = false
+R.eval_policy.uqe_tau_start = 0.25
+R.eval_policy.uqe_tau_end = 0.25
+R.eval_policy.tau_rule.num_taus = 32
+R.eval_policy.tau_rule.sample_mode = fixed
+R.eval_policy.full_distribution_query.enabled = true
+R.eval_policy.full_distribution_query.tau_rule.num_taus = 32
+R.eval_policy.full_distribution_query.tau_rule.sample_mode = fixed
+
 
 R.learner.replay_ratio = 8
 #R.learner.replay_batch_size = 512
@@ -58,13 +108,6 @@ R.learner.use_rb_prefetch = true
 #R.train_policy.uqe_tau_start = 0.95 #0.9
 #R.train_policy.uqe_tau_end = 0.5  # 0.5
 
-R.eval_policy.policy_type = UQE          # Greedy だと uqe_* が無視されるため必須
-R.eval_policy.uqe_use_tail_mean = false  ## 単一分位 = リスク回避の鍵(true は上側=楽観で逆効果)
-R.eval_policy.uqe_tau_start = 0.25       # 下げるほど保守的 → 風によるPOMDPを考慮して保守的に設定
-R.eval_policy.uqe_tau_end   = 0.25       # eval は減衰しないので start=end
-R.eval_policy.uqe_eps_start = 0.0        # ランダム無し(現状0)
-R.eval_policy.uqe_eps_end   = 0.0
-
 #E.contact_mode = pad           # ground pad
 
 E.landing_detection_mode = not_awake
@@ -78,14 +121,10 @@ R.learner.n_step = 5
 
 R.learner.weight_decay = 1e-4
 
-R.learner.replay_capacity = 512,000
-
 R.model.soft_update_tau = 0.005
 
-#R.num_quantiles = 51
-R.num_quantiles = 32
-
-R.learner.per_beta_step = 500,000              # 1M
+#R.qr.num_quantiles = 51
+R.qr.num_quantiles = 32
 
 #R.learner.alpha = 1e-3  # 5e-4
 
@@ -93,16 +132,9 @@ R.train_policy.use_spatial_exploration = true
 
 app.exp_pause_step  = 2,000,000
 
-R.train_policy.uqe_eps_start = 0.3
-R.train_policy.uqe_eps_end = 0.0  #0.01
-
 #E.enable_wind = false
 
 #R.learner.alpha = 5e-3
-
-#A.action_policy.policy_type = 0        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
-#A.action_policy.policy_type = 1        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
-#A.action_policy.policy_type = 2        # 0=EpsilonGreedy 1=UQE 2=TomsonSampling
 
 
 # ==============================================================================
@@ -165,11 +197,17 @@ net.block.[HeadFC128].linear.out_features = 128
 net.block.[HeadFC128].init.mode = xavier
 
 
-net.branch.[value_stream].bind = main_feature
+## --- IQN
+
+net.block.[CosEmb].type = CosineEmbedding
+net.block.[CosEmb].cos.num_basis = 64
+net.block.[TauProj].type = Linear
+net.block.[TauProj].linear.out_features = 128     # main_feature 最終次元 128 と一致させる
+net.block.[TauProj].init.mode = xavier
+
 #net.branch.[value_stream].structure = HeadFC128 > SiLU
 net.branch.[value_stream].structure = HeadFC128 > LN128 > SiLU
 
-net.branch.[adv_stream].bind = main_feature
 #net.branch.[adv_stream].structure = HeadFC128 > SiLU
 net.branch.[adv_stream].structure = HeadFC128 > LN128 > SiLU
 
@@ -180,24 +218,39 @@ A.head_init.mode = xavier
 A.head_init.manual_gain = 0.0
 
 
+## --- 切替用
+
+net.qr.branch.[value_stream].bind = main_feature
+net.qr.branch.[adv_stream].bind = main_feature
+
+net.iqn.branch.[tau_embedding].bind = taus
+net.iqn.branch.[tau_embedding].structure = CosEmb > TauProj > SiLU              # (B,K,128)
+net.iqn.branch.[fusion].bind = main_feature * tau_embedding                     # (B,1,128)×(B,K,128)→(B,K,128)
+net.iqn.branch.[fusion].structure = Linear128 > LN128 > SiLU
+net.iqn.branch.[value_stream].bind = fusion
+net.iqn.branch.[adv_stream].bind = fusion
+
+
 # ==============================================================================
 # ステップ数 依存設定
 # ==============================================================================
+
+#A.learner.per_beta_step = 1,000,000              # 1M
+A.learner.per_beta_step = 500,000
+
+#app.online.exp_pause_step  = -1
+#app.online.exp_pause_step  = 50,000
+#app.online.exp_pause_step  = 10,000,000   # 10M
+#app.online.exp_pause_step  = 4,000,000   # 4M
+app.online.exp_pause_step   = 2,000,000   # 2M
+app.batchrun.exp_exit_step  = 2,000,000   # 2M
+#app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
 
 #A.action_policy.eps_decay_step = 10,000,000      # 10M
 #A.learner.per_beta_step = 10,000,000             # 10M betaを収束値まで線形変化させるexpステップ数（初期は当てにならないので補正を弱める）
 
 A.train_policy.uqe_eps_decay_steps = 1,000,000
 A.train_policy.uqe_tau_decay_steps = 1,000,000  # 10M
-A.learner.per_beta_step = 1,000,000              # 1M
-
-#app.online.exp_pause_step  = -1
-#app.online.exp_pause_step  = 50,000
-#app.online.exp_pause_step  = 25,600,000   # 256 * 100K
-#app.online.exp_pause_step  = 10,000,000   # 10M
-#app.online.exp_pause_step  = 4,000,000   # 4M
-app.online.exp_pause_step  = 2,000,000   # 2M
-app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
 
 
 # ==============================================================================
@@ -244,7 +297,7 @@ train.eval.[test2].env.$ = LunarLanderEnv.test2
 #app.online.train_panel.fps = 30
 #app.online.eval_panel.fps = 0
 
-app.train_auto_start = false
+#app.train_auto_start = false
 
 
 # ==============================================================================
@@ -388,4 +441,3 @@ LunarLanderEnv.init.angular_velocity_range = 0.0
 # agent.*は無条件で最初に採用される。
 # その上で、例えば "agent.$ = agent.base > agent.trunk" があれば
 # agent.baseとagent.trunkの配下の内容が順にagentにマージされる。
-
