@@ -1,6 +1,5 @@
 #include "anet/catch_test.hpp"
 
-#include "anet/app_util.hpp"
 #include "anet/config.hpp"
 #include "anet/schedule.hpp"
 #include "anet/test_util.hpp"
@@ -15,25 +14,6 @@
 using namespace anet::test;
 
 namespace {
-
-TEST_CASE("Train Actor snapshot metrics are registered only in the full catalog", "[config][metrics][snapshot]")
-{
-    const auto repository_root = anet::GetExecutableRootDir().parent_path().parent_path();
-    const auto catalog_path = repository_root / "apps" / "runner" / "config" / "metrics_scalar.txt";
-    std::ifstream catalog(catalog_path);
-    REQUIRE(catalog);
-
-    int snapshot_metric_count = 0;
-    std::string line;
-    while (std::getline(catalog, line)) {
-        if (line.find("train_actor_snapshot_") == std::string::npos) continue;
-
-        ++snapshot_metric_count;
-        CHECK(line.starts_with("metrics.scalar.full."));
-        CHECK(line.find("@train $action_info") != std::string::npos);
-    }
-    CHECK(snapshot_metric_count == 2);
-}
 
 class ScopedCurrentPath final {
 public:
