@@ -1,8 +1,6 @@
 ﻿name: Windows Build
 
 on:
-  push:
-    branches: [ ]
   pull_request:
     branches: [ ]
   workflow_dispatch:
@@ -19,17 +17,17 @@ jobs:
     env:
       # マトリックス変数を使用
       BUILD_TYPE: ${{ matrix.build_type }}
-      LIBTORCH_VER: "2.9.1-cu130"
+      LIBTORCH_VER: "2.12.0-cu130"
       WX_VER: "3.3.1"
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     # ----------------------------------------------------------------
     # CUDA Toolkit
     # ----------------------------------------------------------------
     - name: Install CUDA Toolkit
-      uses: Jimver/cuda-toolkit@v0.2.30
+      uses: Jimver/cuda-toolkit@v0.2.35
       id: cuda-toolkit
       with:
         cuda: '13.0.0'
@@ -39,7 +37,7 @@ jobs:
     # ----------------------------------------------------------------
     - name: Cache LibTorch
       id: cache-libtorch
-      uses: actions/cache@v3
+      uses: actions/cache@v5
       with:
         path: deps/libtorch
         key: libtorch-${{ env.LIBTORCH_VER }}-windows-v1
@@ -49,8 +47,8 @@ jobs:
       shell: pwsh
       run: |
         New-Item -ItemType Directory -Force -Path deps
-        $urlRel = "https://download.pytorch.org/libtorch/cu130/libtorch-win-shared-with-deps-2.11.0%2Bcu130.zip"
-        $urlDbg = "https://download.pytorch.org/libtorch/cu130/libtorch-win-shared-with-deps-debug-2.11.0%2Bcu130.zip"
+        $urlRel = "https://download.pytorch.org/libtorch/cu130/libtorch-win-shared-with-deps-2.12.0%2Bcu130.zip"
+        $urlDbg = "https://download.pytorch.org/libtorch/cu130/libtorch-win-shared-with-deps-debug-2.12.0%2Bcu130.zip"
 
         # 並列DLせず順次DLして確実に配置
         Write-Host "Downloading LibTorch Release..."
@@ -77,7 +75,7 @@ jobs:
     # ----------------------------------------------------------------
     - name: Cache wxWidgets
       id: cache-wx
-      uses: actions/cache@v3
+      uses: actions/cache@v5
       with:
         # インストール先（成果物）をキャッシュ対象にする
         path: third_party/wxwidgets/install

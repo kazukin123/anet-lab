@@ -25,6 +25,10 @@ namespace anet::rl::dqn {
         explicit RainbowAgentConfig(const ConfigData& config_data = EmptyConfigData) : anet::Config(config_data, "RainbowAgent") {
             ANET_READ_CONFIG(config_data, head_init.mode);
             ANET_READ_CONFIG(config_data, head_init.manual_gain);
+            ANET_READ_CONFIG(config_data, head_init.constant_val);
+            ANET_READ_CONFIG(config_data, head_init.trunc_std);
+            ANET_READ_CONFIG(config_data, head_init.trunc_a);
+            ANET_READ_CONFIG(config_data, head_init.trunc_b);
             head_init.nonlinearity = "linear";
 
             ANET_READ_CONFIG(config_data, model.soft_update_tau);
@@ -51,6 +55,7 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.per_beta_step);
             ANET_READ_CONFIG(config_data, learner.per_eps);
             ANET_READ_CONFIG(config_data, learner.per_initial_priority);
+            ANET_READ_CONFIG(config_data, learner.per_initial_priority_mode);
             ANET_READ_CONFIG(config_data, learner.use_per_prio_clip);
             ANET_READ_CONFIG(config_data, learner.per_prio_clip_value);
             ANET_READ_CONFIG(config_data, learner.quantile_huber_kappa);
@@ -79,7 +84,12 @@ namespace anet::rl::dqn {
 
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const anet::rl::BatchExperience& exprience);
     public:
-        std::shared_ptr<anet::rl::Actor> CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, bool clone_model, std::optional<torch::Device> device = std::nullopt) const override;
+        std::shared_ptr<anet::rl::Actor> CreateActor(
+            const anet::rl::BatchEnvSpec& batch_env_spec,
+            const anet::rl::EnvSpec& env_spec,
+            anet::rl::RunMode run_mode,
+            std::optional<bool> clone_model_override = std::nullopt,
+            std::optional<torch::Device> device = std::nullopt) const override;
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
     public:
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override;

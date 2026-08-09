@@ -1,4 +1,4 @@
-﻿// anet/rl.hpp
+// anet/rl.hpp
 
 #pragma once
 
@@ -205,11 +205,11 @@ namespace anet::rl {
         {
             return obs_spec.at(key).shape;
         }
-         
+
         // ---------------------------------------------------------
         // 整合性検証 (Assert用)
         // ---------------------------------------------------------
- 
+
         /// 定義されたTensorSpec自体に矛盾がないかを検証する
         void AssertSanity() const;
 
@@ -285,6 +285,7 @@ namespace anet::rl {
 
         /// @todo RewardSpec
 
+        void CheckSameStateActionSpec(const EnvSpec& actual) const;
         anet::json ToJson() const;
         std::string ToString() const;
     };
@@ -360,12 +361,12 @@ namespace anet::rl {
     class SingleStepResult : virtual public SingleEnvResult {
     public:
         SingleStepResult(float reward_in, SingleState next_state_in)
-            : reward(reward_in), next_state(std::move(next_state_in)) { } 
+            : reward(reward_in), next_state(std::move(next_state_in)) { }
 
         virtual ~SingleStepResult() = default;
         std::string ToString() const;
     public:
-        float reward;              ///< 報酬         
+        float reward;              ///< 報酬
         SingleState next_state;    ///< 遷移後の観測  (state_dim...)
     };
 
@@ -400,8 +401,6 @@ namespace anet::rl {
     // =============================================================
     // Batch系データ
     // =============================================================
-
-    // 「Batch～」はN環境対応版の意味
 
     // 状態
     struct BatchState {
@@ -476,16 +475,31 @@ namespace anet::rl {
         std::string ToString() const;
     };
 
+    /// 学習Actorが既存forwardから取り出す、初期優先度推定用の不透明なpayload。
+    class ReplayInitialPriorityHint {
+    public:
+        explicit ReplayInitialPriorityHint(torch::Tensor payload);
+
+        const torch::Tensor& GetPayload() const { return payload_; }
+        const torch::Tensor& GetPayloadCpu() const;
+
+    private:
+        torch::Tensor payload_;             ///< float32 [B,K]。列の意味は生成元Agentが所有する
+        mutable torch::Tensor payload_cpu_; ///< ReplayBufferへ渡す際に再利用するCPU cache
+    };
+
     // 行動選択時の情報
     class BatchActionInfo : public anet::graphviz::GraphVizProvider {
     public:
         BatchActionInfo() {}
         virtual ~BatchActionInfo() = default;
 
-        BatchActionInfo(const torch::Tensor action, const anet::TensorDict& info = {}, const AuxData& aux = {})
+        BatchActionInfo(const torch::Tensor action, const anet::TensorDict& info = {}, const AuxData& aux = {},
+            std::optional<ReplayInitialPriorityHint> replay_initial_priority_hint = std::nullopt)
             : action_cpu_(action.device().is_cpu() ? std::move(action) : torch::Tensor())
             , info_(info)
             , aux_(aux)
+            , replay_initial_priority_hint_(std::move(replay_initial_priority_hint))
         {
             if (action.device().is_cuda())
                 gpu_ = std::pair(action.device(), std::move(action));
@@ -503,16 +517,26 @@ namespace anet::rl {
         torch::Tensor GetAction(torch::Device device) const;
         virtual std::shared_ptr<BatchActionInfo> To(torch::Device device) const
         {
-            return std::make_shared<BatchActionInfo>(GetAction(device), info_.To(device), aux_ );
+            return std::make_shared<BatchActionInfo>(
+                GetAction(device), info_.To(device), aux_, replay_initial_priority_hint_);
         }
         virtual std::shared_ptr<BatchActionInfo> WithAction(torch::Tensor action) const
         {
-            return std::make_shared<BatchActionInfo>(std::move(action), info_, aux_);
+            return std::make_shared<BatchActionInfo>(
+                std::move(action), info_, aux_, replay_initial_priority_hint_);
         }
         const AuxData& GetAuxData() const { return aux_; }
         AuxData& GetAuxData() { return aux_; }
         const anet::TensorDict& GetInfo() const { return info_; }
         anet::TensorDict& GetInfo() { return info_; }
+        const std::optional<ReplayInitialPriorityHint>& GetReplayInitialPriorityHint() const
+        {
+            return replay_initial_priority_hint_;
+        }
+        void SetReplayInitialPriorityHint(ReplayInitialPriorityHint hint)
+        {
+            replay_initial_priority_hint_ = std::move(hint);
+        }
 
         std::string ToString() const;
     protected:
@@ -520,6 +544,7 @@ namespace anet::rl {
         mutable std::optional<std::pair<torch::Device, torch::Tensor>> gpu_;
         anet::TensorDict info_;
         AuxData aux_;
+        std::optional<ReplayInitialPriorityHint> replay_initial_priority_hint_; ///< 初期優先度推定用の不透明なpayload
     };
 
     class BatchEnvResult {
@@ -602,9 +627,11 @@ namespace anet::rl {
     /// not-thread-safe
     class SingleDiscreteEnv : public Module {
     public:
+        virtual const std::string& GetName() const = 0;
+        virtual RunMode GetRunMode() const = 0;
         virtual EnvSpec GetSpec() const = 0;
-        virtual std::shared_ptr<const SingleResetResult> Reset(RunMode mode) = 0;
-        virtual std::shared_ptr<const SingleStepResult> Step(int64_t action, RunMode mode) = 0;
+        virtual std::shared_ptr<const SingleResetResult> Reset() = 0;
+        virtual std::shared_ptr<const SingleStepResult> Step(int64_t action) = 0;
 
         virtual ~SingleDiscreteEnv() = default;
     };
@@ -614,7 +641,9 @@ namespace anet::rl {
         virtual std::shared_ptr<SingleDiscreteEnv> CreateSingleEnv(
             const anet::ConfigData& config_data,
             const torch::Device& device,
+            const std::string& name,
             std::optional<anet::seed_t> seed = std::nullopt,
+            RunMode run_mode = RunMode::Train,
             const std::string& config_prefix = "") = 0;
 
         virtual std::string GetTargetEnvClassId() const = 0;
@@ -628,12 +657,15 @@ namespace anet::rl {
 
     class BatchEnv : public Module {
     public:
+        virtual const std::string& GetName() const = 0;
+        virtual const std::string& GetEnvName(int64_t lane_index) const = 0;
+        virtual RunMode GetRunMode() const = 0;
         virtual EnvSpec GetSpec() const = 0;
         virtual BatchEnvSpec GetBatchSpec() const = 0;
         virtual torch::Device GetDevice() const = 0;
 
-        virtual std::shared_ptr<const BatchResetResult> Reset(RunMode mode = RunMode::Train) = 0;    ///< BatchStateは使い回されるので必要に応じてDeepCopy必須
-        virtual std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> action_info, RunMode mode = RunMode::Train) = 0; ///< BatchStepResultは使い回されるので必要に応じてDeepCopy必須
+        virtual std::shared_ptr<const BatchResetResult> Reset() = 0;    ///< BatchStateは使い回されるので必要に応じてDeepCopy必須
+        virtual std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> action_info) = 0; ///< BatchStepResultは使い回されるので必要に応じてDeepCopy必須
         //virtual std::shared_ptr<BatchEnv> Clone() const = 0;
 
         virtual void Shutdown() { }
@@ -643,7 +675,16 @@ namespace anet::rl {
 
     class BatchEnvFactory {
     public:
-        virtual std::shared_ptr<BatchEnv> CreateBatchEnv(std::optional<seed_t> seed = std::nullopt, int num_envs = -1) = 0;	///< num_envs=-1でnum_envs自動
+        virtual void ValidateConfig(const anet::ConfigData&, RunMode, const std::string&) const {}
+        virtual std::shared_ptr<BatchEnv> CreateBatchEnv(
+            const anet::ConfigData& config_data,
+            const torch::Device& device,
+            const std::string& name,
+            std::optional<seed_t> seed = std::nullopt,
+            int num_envs = 1,
+            RunMode run_mode = RunMode::Train,
+            const std::string& config_prefix = "") = 0;
+        virtual std::string GetTargetEnvClassId() const = 0;
         virtual ~BatchEnvFactory() = default;
     };
 
@@ -654,8 +695,15 @@ namespace anet::rl {
 
     class Actor {
     public:
+        /// @brief BatchStateから行動を生成する。
+        /// @note 同一Actor instanceのMakeActionまたはSyncと並行呼び出ししてはならない。
         virtual std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const = 0;
+
+        /// @brief Actor固有のsourceから推論resourceを強制同期する。
+        /// @note 同一Actor instanceのMakeActionまたはSyncと並行呼び出ししてはならない。
         virtual void Sync() = 0;
+
+        /// 仮想デストラクタ
         virtual ~Actor() = default;
     };
 
@@ -676,7 +724,12 @@ namespace anet::rl {
 
     class Agent : public Module, public TensorDictFunctionProvider , public Serializable {
     public:
-        virtual std::shared_ptr<Actor> CreateActor(const BatchEnvSpec& batch_env_spec, RunMode run_mode, bool clone_model, std::optional<torch::Device> device = std::nullopt) const = 0;
+        virtual std::shared_ptr<Actor> CreateActor(
+            const BatchEnvSpec& batch_env_spec,
+            const EnvSpec& env_spec,
+            RunMode run_mode,
+            std::optional<bool> clone_model_override = std::nullopt,
+            std::optional<torch::Device> device = std::nullopt) const = 0;
         virtual std::shared_ptr<Learner> CreateLearner() = 0;
         virtual torch::Device GetDevice() const = 0;
     public:
@@ -687,8 +740,26 @@ namespace anet::rl {
 
 
     // =============================================================
-    // ReplayBuffer 
+    // ReplayBuffer
     // =============================================================
+
+    enum class ReplayPrioritySource : int8_t {
+        NONE = 0,            ///< 未初期化または無効化済み
+        FIXED_INITIAL = 1,   ///< 固定値による初期優先度
+        MAX_INITIAL = 2,     ///< Learner更新済み最大値による初期優先度
+        ACTOR_INITIAL = 3,   ///< Actor近似による初期優先度
+        LEARNER_UPDATED = 4, ///< LearnerのTD誤差で更新済み
+    };
+
+    struct ReplayPriorityUpdateResult {
+        int64_t applied_count = 0; ///< 現generationへ適用した更新数
+        int64_t stale_count = 0;   ///< 上書き済みgenerationとして棄却した更新数
+        int64_t actor_learner_pair_count = 0; ///< Actor初期値とLearner更新値を比較できた件数
+        float actor_learner_positive_pair_ratio = std::numeric_limits<float>::quiet_NaN(); ///< 両方が正値の比較ペア率
+        float actor_learner_ratio_median = std::numeric_limits<float>::quiet_NaN();        ///< 正値ペアのActor/Learner比の中央値
+        float actor_learner_log_ratio_mean = std::numeric_limits<float>::quiet_NaN();      ///< 正値ペアのlog(Actor/Learner)平均
+        float actor_learner_spearman = std::numeric_limits<float>::quiet_NaN();            ///< 全finiteペアのSpearman順位相関
+    };
 
     /// サンプリングされた経験のミニバッチ（再利用可能オブジェクト）
     struct ExperienceSamples {
@@ -706,9 +777,9 @@ namespace anet::rl {
 
         // --- N-Step & PER メタデータ ---
         torch::Tensor n_steps;          ///< [B] 実際に進んだステップ数 (終端到達でNより短くなるケース用)
-        torch::Tensor indices;          ///< [B] PER優先度更新用の1Dインデックス
+        torch::Tensor replay_item_keys; ///< [B] generation付きopaque key (CPU int64)
         torch::Tensor is_weights;       ///< [B] Importance Sampling の重み
-        torch::Tensor per_is_initial_priority; ///< [B] サンプル時点で初期優先度のままかどうか
+        torch::Tensor per_priority_sources; ///< [B] ReplayPrioritySource (CPU int8)
 
         // --- その他 ---
         anet::TensorDict info;          ///< アルゴリズム固有データ (MuZeroの target_values 等)
@@ -730,9 +801,9 @@ namespace anet::rl {
             next_state.next_obs.ForEachTensor(visit);
             visit(next_state.terminals);
             visit(n_steps);
-            visit(indices);
+            visit(replay_item_keys);
             visit(is_weights);
-            visit(per_is_initial_priority);
+            visit(per_priority_sources);
             info.ForEachTensor(visit);
         }
         std::string ToString() const;
@@ -741,7 +812,8 @@ namespace anet::rl {
 
     class ReplayPriorityController {
     public:
-        virtual void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) = 0;
+        virtual ReplayPriorityUpdateResult UpdatePriorities(
+            const std::vector<int64_t>& item_keys, const std::vector<float>& priorities) = 0;
         //virtual void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override = 0;
         //virtual void UpdatePriorities(const torch::Tensor& indices, const torch::Tensor& priorities) = 0;
         ~ReplayPriorityController() = default;
@@ -768,6 +840,17 @@ namespace anet::rl {
         static constexpr const char* PER_VALUES = "replaybuffer.per.values";
         static constexpr const char* PER_DIST = "replaybuffer.per.distribution";
         static constexpr const char* PER_INITIAL_MASS_RATIO = "replaybuffer.per.initial_mass_ratio";
+        static constexpr const char* PER_FIXED_INITIAL_MASS_RATIO = "replaybuffer.per.fixed_initial_mass_ratio";
+        static constexpr const char* PER_MAX_INITIAL_MASS_RATIO = "replaybuffer.per.max_initial_mass_ratio";
+        static constexpr const char* PER_ACTOR_INITIAL_MASS_RATIO = "replaybuffer.per.actor_initial_mass_ratio";
+        static constexpr const char* PER_ACTOR_COMPLETION_ATTEMPT_COUNT = "replaybuffer.per.actor_completion_attempt_count";
+        static constexpr const char* PER_ACTOR_COMPLETION_SUCCESS_COUNT = "replaybuffer.per.actor_completion_success_count";
+        static constexpr const char* PER_ACTOR_COMPLETION_SUCCESS_RATIO = "replaybuffer.per.actor_completion_success_ratio";
+        static constexpr const char* PER_ACTOR_TRUNCATION_FALLBACK_COUNT = "replaybuffer.per.actor_truncation_fallback_count";
+        static constexpr const char* PER_ACTOR_TRUNCATION_FALLBACK_RATIO = "replaybuffer.per.actor_truncation_fallback_ratio";
+        static constexpr const char* PER_ACTOR_NONFINITE_FALLBACK_COUNT = "replaybuffer.per.actor_nonfinite_fallback_count";
+        static constexpr const char* PER_ACTOR_NONFINITE_FALLBACK_RATIO = "replaybuffer.per.actor_nonfinite_fallback_ratio";
+        static constexpr const char* PER_PRIORITY_UPDATE_STALE_DROP_COUNT = "replaybuffer.per.priority_update_stale_drop_count";
         static constexpr const char* PER_LAST_EVICTED_NEVER_SAMPLED_RATIO = "replaybuffer.per.last_evicted_never_sampled_ratio";
     };
 

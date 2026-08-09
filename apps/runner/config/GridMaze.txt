@@ -136,8 +136,8 @@ net.block.FC2.linear.out_features = 512
 #net.block.FC1.linear.out_features = 2048
 #net.block.FC2.linear.out_features = 1024
 
-net.block.FC1.init.mode = 1
-net.block.FC2.init.mode = 1
+net.block.FC1.init.mode = xavier
+net.block.FC2.init.mode = xavier
 
 net.branch.[main_feature].bind = vector
 net.branch.[main_feature].structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU

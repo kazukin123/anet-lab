@@ -1,15 +1,19 @@
 ﻿#include "anet/metrics_logger.hpp"
 #include <stdexcept>
 #include <algorithm>
+#include <chrono>
 #include <iostream>
 #include <format>
 #include <sstream>
+#include <thread>
 #include <wx/process.h>
 #include <wx/image.h>
 #include <wx/filename.h>
+#include "anet/json_util.hpp"
 #include "anet/log.hpp"
 #include "anet/str_util.hpp"
 #include "anet/profile.hpp"
+#include "metrics_logger_impl.hpp"
 
 using namespace anet;
 namespace LOG = anet::log;
@@ -27,7 +31,161 @@ std::string ConfigDataToConfigString(const ConfigData& config_data)
     return oss.str();
 }
 
+constexpr size_t kMaxCapturedStderr = 4096;
+constexpr auto kFfmpegStartupCheckDelay = std::chrono::milliseconds(250);
+// wx の Windows pipe は非ブロッキングなので、大きい frame は小分けに書き込む。
+constexpr size_t kFfmpegWriteChunkBytes = 4 * 1024;
+constexpr int kFfmpegZeroWriteRetryLimit = 1000;
+constexpr auto kFfmpegZeroWriteRetryDelay = std::chrono::milliseconds(1);
+
+std::string ToUtf8String(const wxString& value)
+{
+    const wxCharBuffer buffer = value.utf8_str();
+    return buffer.data() ? std::string(buffer.data()) : std::string();
+}
+
+wxString BuildVideoOutputOptions(const std::string& codec, int fps)
+{
+    if (codec == "libx264") {
+        // H.264用: 超高速(CPU最小)、色差間引きなし
+        return wxString::Format(
+            "-c:v libx264 -preset ultrafast -crf 15 -pix_fmt yuv444p -g %d -keyint_min 30 -sc_threshold 0 -tune fastdecode ",
+            fps);
+    }
+    if (codec == "h264_nvenc") {
+        return wxString::Format(
+            "-c:v h264_nvenc -preset p1 -rc vbr -cq 15 -pix_fmt yuv444p -g %d  -forced-idr 1",
+            fps);
+    }
+
+    // MJPEG等: 従来の可変ビットレート品質指定 (2は最高品質クラス)
+    return wxString::Format("-c:v %s -q:v 2", wxString::FromUTF8(codec));
+}
+
+wxString BuildFfmpegCommand(const std::string& path, int width, int height, const std::string& codec, int fps)
+{
+    const wxString output_options = BuildVideoOutputOptions(codec, fps);
+    return wxString::Format(
+        "ffmpeg -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -threads 2"
+        //"-report "
+        " -hide_banner -loglevel error -nostats"
+        " -thread_queue_size 512 -i - -f matroska %s \"%s\"",
+        width, height, fps, output_options, wxString::FromUTF8(path)
+    );
+}
+
 } // namespace
+
+namespace anet::detail {
+
+bool IsNvencEligibleVideoSize(int width, int height)
+{
+    return (width % 2 == 0)
+        && (height % 2 == 0)
+        && width >= kNvencMinWidth
+        && height >= kNvencMinHeight;
+}
+
+VideoCodecDecision ResolveVideoCodec(const std::string& requested_codec, int width, int height, const std::string& path)
+{
+    const bool nvenc_eligible = IsNvencEligibleVideoSize(width, height);
+
+    if (requested_codec == "auto") {
+        return VideoCodecDecision{
+            .codec = nvenc_eligible ? "h264_nvenc" : "libx264",
+            .requested_auto = true,
+            .nvenc_eligible = nvenc_eligible,
+        };
+    }
+
+    if (requested_codec == "h264_nvenc" && !nvenc_eligible) {
+        ANET_SYSTEM_ERROR(
+            "metrics_logger.video_codec=h264_nvenc is not supported for video size "
+            << width << "x" << height
+            << ". Expected even width/height and at least "
+            << kNvencMinWidth << "x" << kNvencMinHeight
+            << ". Use metrics_logger.video_codec=auto or libx264. path=" << path);
+    }
+
+    return VideoCodecDecision{
+        .codec = requested_codec,
+        .requested_auto = false,
+        .nvenc_eligible = nvenc_eligible,
+    };
+}
+
+} // namespace anet::detail
+
+
+namespace anet::detail {
+
+namespace {
+
+std::optional<JsonlIoFailure> TakeJsonlIoFailureOnce(
+    const std::ios& stream,
+    const std::filesystem::path& path,
+    JsonlIoOperation operation,
+    bool& error_reported)
+{
+    if (!stream.fail() || error_reported) {
+        return std::nullopt;
+    }
+
+    error_reported = true;
+    return JsonlIoFailure{
+        .path = path,
+        .operation = operation,
+        .fail = stream.fail(),
+        .bad = stream.bad(),
+    };
+}
+
+const char* JsonlIoOperationName(JsonlIoOperation operation)
+{
+    switch (operation) {
+    case JsonlIoOperation::kWrite:
+        return "write";
+    case JsonlIoOperation::kFlush:
+        return "flush";
+    }
+
+    return "unknown";
+}
+
+} // namespace
+
+std::optional<JsonlIoFailure> WriteJsonlLine(
+    std::ostream& stream,
+    std::string_view line,
+    const std::filesystem::path& path,
+    bool& error_reported)
+{
+    stream.write(line.data(), static_cast<std::streamsize>(line.size()));
+    return TakeJsonlIoFailureOnce(stream, path, JsonlIoOperation::kWrite, error_reported);
+}
+
+std::optional<JsonlIoFailure> FlushJsonl(
+    std::ostream& stream,
+    const std::filesystem::path& path,
+    bool& error_reported)
+{
+    stream.flush();
+    return TakeJsonlIoFailureOnce(stream, path, JsonlIoOperation::kFlush, error_reported);
+}
+
+void LogJsonlIoFailure(const JsonlIoFailure& failure)
+{
+    LOG::error()
+        << "Metrics JSONL I/O failed: operation=" << JsonlIoOperationName(failure.operation)
+        << " path=" << failure.path
+        << " fail=" << (failure.fail ? "true" : "false")
+        << " bad=" << (failure.bad ? "true" : "false")
+        << ". The run is not stopped, but metrics may no longer be recorded."
+        << " Check free disk space and filesystem health."
+        << " Further errors for this file are suppressed.";
+}
+
+} // namespace anet::detail
 
 
 //----------------------------------------------
@@ -38,28 +196,114 @@ void JsonlBackend::Open(const std::filesystem::path& runs_dir, const std::string
 {
     auto run_dir = runs_dir / run_name;
     std::filesystem::create_directories(run_dir);
-    auto jsonl_path = run_dir / "metrics.jsonl";
-    ofs.open(jsonl_path, std::ios::app);
-    ANET_CHECK_MSG(ofs, "Failed to open: " << jsonl_path);
+    jsonl_path_ = run_dir / "metrics.jsonl";
+    io_error_reported_ = false;
+    ofs.open(jsonl_path_, std::ios::app);
+    ANET_CHECK_MSG(ofs, "Failed to open: " << jsonl_path_);
 }
 
 void JsonlBackend::WriteJsonl(const json& obj)
 {
     std::string line = obj.dump() + "\n";
-    std::lock_guard<std::mutex> lock(mtx_);
-    ofs << line;
+    std::optional<detail::JsonlIoFailure> failure;
+    {
+        // JSONLの書き込みとone-shot失敗claimを同じ排他区間で確定する。
+        std::lock_guard<std::mutex> lock(mtx_);
+        failure = detail::WriteJsonlLine(ofs, line, jsonl_path_, io_error_reported_);
+    }
+
+    // 外部logger callbackによる再入やlock順序の逆転を避けるため、排他解除後に通知する。
+    if (failure) {
+        detail::LogJsonlIoFailure(*failure);
+    }
 }
 
 void JsonlBackend::Flush()
 {
-    std::lock_guard<std::mutex> lock(mtx_);
-    ofs.flush();
+    std::optional<detail::JsonlIoFailure> failure;
+    {
+        // バッファ排出で初めて顕在化するI/O失敗もwriteと共通のlatchで捕捉する。
+        std::lock_guard<std::mutex> lock(mtx_);
+        failure = detail::FlushJsonl(ofs, jsonl_path_, io_error_reported_);
+    }
+
+    // LogPanel/FileLoggerへの配送はmetrics I/Oの排他区間外で行う。
+    if (failure) {
+        detail::LogJsonlIoFailure(*failure);
+    }
 }
 
 
 //----------------------------------------------
 // VideoLogger 実装
 //----------------------------------------------
+
+class anet::VideoLogger::Process final : public wxProcess {
+public:
+    void DisableTerminationCapture()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        capture_termination_ = false;
+    }
+
+    void OnTerminate(int pid, int status) override
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (capture_termination_) {
+            terminated_ = true;
+            pid_ = pid;
+            exit_code_ = status;
+            has_exit_code_ = true;
+            DrainStderrLocked();
+        }
+        wxProcess::OnTerminate(pid, status);
+    }
+
+    bool CopyTerminationState(long expected_pid, int* exit_code, bool* has_exit_code, std::string* captured_stderr) const
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!terminated_) {
+            return false;
+        }
+        if (expected_pid != 0 && pid_ != 0 && pid_ != expected_pid) {
+            return false;
+        }
+        *exit_code = exit_code_;
+        *has_exit_code = has_exit_code_;
+        captured_stderr->append(captured_stderr_);
+        return true;
+    }
+
+private:
+    void DrainStderrLocked()
+    {
+        wxInputStream* error_stream = GetErrorStream();
+        if (!error_stream) {
+            return;
+        }
+
+        char buffer[1024];
+        while (IsErrorAvailable()) {
+            error_stream->Read(buffer, sizeof(buffer));
+            const size_t bytes_read = error_stream->LastRead();
+            if (bytes_read == 0) {
+                break;
+            }
+            captured_stderr_.append(buffer, bytes_read);
+            if (captured_stderr_.size() > kMaxCapturedStderr) {
+                captured_stderr_.erase(0, captured_stderr_.size() - kMaxCapturedStderr);
+            }
+        }
+    }
+
+    mutable std::mutex mutex_;
+    bool capture_termination_ = true;
+    bool terminated_ = false;
+    long pid_ = 0;
+    int exit_code_ = 0;
+    bool has_exit_code_ = false;
+    std::string captured_stderr_;
+};
 
 VideoLogger::VideoLogger(const std::string& path, int width, int height, const std::string& codec, int fps)
     : width_(width), height_(height), path_(path), codec_(codec), fps_(fps)
@@ -70,89 +314,240 @@ VideoLogger::VideoLogger(const std::string& path, int width, int height, const s
     wxFileName fn(wxString::FromUTF8(path_));
     wxFileName::Mkdir(fn.GetPath(), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
 
-    // エンコード用の出力オプションをコーデックによって切り替え
-    wxString output_options;
-    if (codec_ == "libx264") {
-        // H.264用: 超高速(CPU最小)、色差間引きなし
-        output_options = wxString::Format(
-            "-c:v libx264 -preset ultrafast -crf 15 -pix_fmt yuv444p -g %d -keyint_min 30 -sc_threshold 0 -tune fastdecode ",
-            fps);
-    } else if (codec_ == "h264_nvenc") {
-        output_options = wxString::Format(
-            "-c:v h264_nvenc -preset p1 -rc vbr -cq 15 -pix_fmt yuv444p -g %d  -forced-idr 1",
-            fps);
-    } else {
-        // MJPEG等: 従来の可変ビットレート品質指定 (2は最高品質クラス)
-        output_options = wxString::Format("-c:v %s -q:v 2", wxString::FromUTF8(codec_));
+    const auto decision = detail::ResolveVideoCodec(codec, width_, height_, path_);
+    if (decision.requested_auto) {
+        LOG::info() << "VideoLogger(auto): " << width_ << "x" << height_ << " -> " << decision.codec;
     }
 
-    // コマンドライン
-    wxString cmd = wxString::Format(
-        "ffmpeg -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -threads 2"
-        //"-report "
-        " -hide_banner -loglevel error -nostats"
-        " -thread_queue_size 512 -i - -f matroska %s \"%s\"",
-        width_, height_, fps_, output_options, wxString::FromUTF8(path_)
-    );
-    //ANET_LOG_DEBUG("cmd=" << cmd.c_str());
-    LOG::info() << "VideoLogger: cmd=" << cmd.c_str();
+    LaunchFfmpeg(decision.codec);
+    if (!DiedAtStartup()) {
+        return;
+    }
 
-    process_ = new wxProcess();
+    if (decision.requested_auto && decision.codec == "h264_nvenc") {
+        std::string failure_message;
+        {
+            std::lock_guard<std::mutex> lock(write_mutex_);
+            failure_message = BuildFfmpegFailureMessageLocked("ffmpeg startup failed for auto-selected h264_nvenc");
+        }
+        LOG::warn() << failure_message << " Retrying with libx264. path=" << path_;
+
+        LaunchFfmpeg("libx264");
+        if (!DiedAtStartup()) {
+            return;
+        }
+    }
+
+    std::lock_guard<std::mutex> lock(write_mutex_);
+    const std::string failure_message = BuildFfmpegFailureMessageLocked("ffmpeg startup failed");
+    CloseProcessLocked();
+    ANET_SYSTEM_ERROR(failure_message);
+}
+
+void VideoLogger::LaunchFfmpeg(const std::string& codec)
+{
+    std::lock_guard<std::mutex> lock(write_mutex_);
+    CloseProcessLocked();
+
+    codec_ = codec;
+    ffmpeg_dead_.store(false);
+    exit_code_ = 0;
+    has_exit_code_ = false;
+    pid_ = 0;
+    captured_stderr_.clear();
+    launch_cmd_.clear();
+    stream_ = nullptr;
+
+    const wxString cmd = BuildFfmpegCommand(path_, width_, height_, codec_, fps_);
+    launch_cmd_ = ToUtf8String(cmd);
+    LOG::info() << "VideoLogger: cmd=" << launch_cmd_;
+
+    process_ = new Process();
     process_->Redirect();  // 標準入出力をリダイレクト
 
     if (!wxThread::IsMain()) {
-        ANET_LOG_DEBUG("Sending ffmpeg execue request into main thread. command=" << cmd);
+        ANET_LOG_DEBUG("Sending ffmpeg execute request into main thread. command=" << launch_cmd_);
         ExecuteStarter executer(cmd, process_);
         executer.Execute();
-        ANET_LOG_DEBUG("ffmpeg execute done. pid=" << process_->GetPid());
-        LOG::info() << "ffmpeg started from thread. pid=" << process_->GetPid();
+        pid_ = process_->GetPid();
+        ANET_LOG_DEBUG("ffmpeg execute done. pid=" << pid_);
+        LOG::info() << "ffmpeg started from thread. pid=" << pid_;
     } else {
-        long pid = wxExecute(cmd, wxEXEC_ASYNC | wxEXEC_HIDE_CONSOLE, process_);
-        if (pid == 0)
-            ANET_SYSTEM_ERROR("Failed to launch ffmpeg process");
-        ANET_LOG_DEBUG("ffmpeg started from main thread. pid=" << pid);
-        LOG::info() << "ffmpeg started from main thread. pid=" << pid;
+        pid_ = wxExecute(cmd, wxEXEC_ASYNC | wxEXEC_HIDE_CONSOLE, process_);
+        ANET_LOG_DEBUG("ffmpeg started from main thread. pid=" << pid_);
+        LOG::info() << "ffmpeg started from main thread. pid=" << pid_;
+    }
+
+    if (pid_ == 0) {
+        ffmpeg_dead_.store(true);
+        const std::string failure_message = BuildFfmpegFailureMessageLocked("Failed to launch ffmpeg process");
+        CloseProcessLocked();
+        ANET_SYSTEM_ERROR(failure_message);
     }
 
     // 書き込みストリーム取得
     stream_ = process_->GetOutputStream();
-    if (!stream_)
-        ANET_SYSTEM_ERROR("Failed to get ffmpeg stdin stream. nullptr");
-    if (!stream_->IsOk())
-        ANET_SYSTEM_ERROR("Failed to get ffmpeg stdin stream. Is not OK.");
+    if (!stream_) {
+        const std::string failure_message = BuildFfmpegFailureMessageLocked("Failed to get ffmpeg stdin stream. nullptr");
+        CloseProcessLocked();
+        ANET_SYSTEM_ERROR(failure_message);
+    }
+    if (!stream_->IsOk()) {
+        const std::string failure_message = BuildFfmpegFailureMessageLocked("Failed to get ffmpeg stdin stream. Is not OK");
+        CloseProcessLocked();
+        ANET_SYSTEM_ERROR(failure_message);
+    }
+}
+
+bool VideoLogger::DiedAtStartup()
+{
+    std::this_thread::sleep_for(kFfmpegStartupCheckDelay);
+
+    std::lock_guard<std::mutex> lock(write_mutex_);
+    UpdateFfmpegDeathFromPidLocked();
+    return ffmpeg_dead_.load();
+}
+
+void VideoLogger::UpdateFfmpegDeathFromPidLocked()
+{
+    if (ffmpeg_dead_.load() || pid_ == 0) {
+        return;
+    }
+    if (process_ && process_->CopyTerminationState(pid_, &exit_code_, &has_exit_code_, &captured_stderr_)) {
+        if (captured_stderr_.size() > kMaxCapturedStderr) {
+            captured_stderr_.erase(0, captured_stderr_.size() - kMaxCapturedStderr);
+        }
+        ffmpeg_dead_.store(true);
+        stream_ = nullptr;
+        return;
+    }
+    if (!wxProcess::Exists(static_cast<int>(pid_))) {
+        DrainStderrLocked();
+        ffmpeg_dead_.store(true);
+        stream_ = nullptr;
+    }
+}
+
+void VideoLogger::DrainStderrLocked()
+{
+    if (!process_) {
+        return;
+    }
+    wxInputStream* error_stream = process_->GetErrorStream();
+    if (!error_stream) {
+        return;
+    }
+
+    char buffer[1024];
+    while (process_->IsErrorAvailable()) {
+        error_stream->Read(buffer, sizeof(buffer));
+        const size_t bytes_read = error_stream->LastRead();
+        if (bytes_read == 0) {
+            break;
+        }
+        AppendCapturedStderrLocked(buffer, bytes_read);
+    }
+}
+
+void VideoLogger::AppendCapturedStderrLocked(const char* data, size_t size)
+{
+    if (size == 0) {
+        return;
+    }
+    captured_stderr_.append(data, size);
+    if (captured_stderr_.size() > kMaxCapturedStderr) {
+        captured_stderr_.erase(0, captured_stderr_.size() - kMaxCapturedStderr);
+    }
+}
+
+std::string VideoLogger::BuildFfmpegFailureMessageLocked(const std::string& context) const
+{
+    std::ostringstream oss;
+    oss << context
+        << ". path=" << path_
+        << " codec=" << codec_
+        << " exit_code=";
+    if (has_exit_code_) {
+        oss << exit_code_;
+    } else {
+        oss << "unknown";
+    }
+    oss << " cmd=\"" << launch_cmd_ << "\""
+        << " stderr=\"" << StderrExcerptLocked() << "\"";
+    return oss.str();
+}
+
+std::string VideoLogger::StderrExcerptLocked() const
+{
+    if (captured_stderr_.empty()) {
+        return "(empty)";
+    }
+    return captured_stderr_;
 }
 
 void VideoLogger::WriteFrame(const wxImage& img)
 {
     std::lock_guard<std::mutex> lock(write_mutex_);
-    ANET_CHECK(stream_ != nullptr);
-    if (!stream_ || !stream_->IsOk()) return; 
+    UpdateFfmpegDeathFromPidLocked();
+    if (ffmpeg_dead_.load() || stream_ == nullptr) {
+        ANET_SYSTEM_ERROR(BuildFfmpegFailureMessageLocked("ffmpeg process is not available before frame write"));
+    }
+    if (!stream_->IsOk()) {
+        DrainStderrLocked();
+        ANET_SYSTEM_ERROR(BuildFfmpegFailureMessageLocked("ffmpeg stdin stream is not OK before frame write"));
+    }
 
     const unsigned char* data = img.GetData();
     size_t nbytes = width_ * height_ * 3;
 
     size_t written = 0;
+    int zero_write_retries = 0;
     while (written < nbytes) {
-        stream_->Write(data + written, nbytes - written);
+        const size_t write_size = std::min(kFfmpegWriteChunkBytes, nbytes - written);
+        stream_->Write(data + written, write_size);
         if (!stream_->IsOk()) {
-            LOG::error() << "ffmpeg pipe write failed";
-            return;
+            UpdateFfmpegDeathFromPidLocked();
+            DrainStderrLocked();
+            ANET_SYSTEM_ERROR(BuildFfmpegFailureMessageLocked("ffmpeg pipe write failed"));
         }
-        written += stream_->LastWrite();
+        const size_t last_write = stream_->LastWrite();
+        if (last_write == 0) {
+            UpdateFfmpegDeathFromPidLocked();
+            DrainStderrLocked();
+            if (ffmpeg_dead_.load() || stream_ == nullptr || !stream_->IsOk()) {
+                ANET_SYSTEM_ERROR(BuildFfmpegFailureMessageLocked("ffmpeg pipe wrote zero bytes after ffmpeg stopped"));
+            }
+            ++zero_write_retries;
+            if (zero_write_retries > kFfmpegZeroWriteRetryLimit) {
+                ANET_SYSTEM_ERROR(BuildFfmpegFailureMessageLocked("ffmpeg pipe wrote zero bytes repeatedly"));
+            }
+            std::this_thread::sleep_for(kFfmpegZeroWriteRetryDelay);
+            continue;
+        }
+        zero_write_retries = 0;
+        written += last_write;
     }
 }
 
-void VideoLogger::Close()
+void VideoLogger::CloseProcessLocked()
 {
     if (stream_) {
         stream_ = nullptr;
     }
     if (process_) {
+        process_->DisableTerminationCapture();
         process_->SetNextHandler(nullptr);
         process_->CloseOutput();
         delete process_;
         process_ = nullptr;
     }
+    pid_ = 0;
+}
+
+void VideoLogger::Close()
+{
+    std::lock_guard<std::mutex> lock(write_mutex_);
+    CloseProcessLocked();
 }
 
 
@@ -267,13 +662,6 @@ void MetricsLogger::Log(const std::string& tag, const anet::Config& config)
 
     auto config_prefix = config.GetConfigPrefix();
     auto config_str = config.ToConfigString();
-
-    // config.txtに追記
-    auto common_txt_path = this->run_dir_ / "config.txt";
-    {
-        std::ofstream ofs(common_txt_path, std::ios_base::app);  // 追記モードでファイルを開く
-        ofs << config_str;
-    }
 
     // バラのファイルにダンプ
     std::string safe_tag = SanitizeFilename(tag);
@@ -486,4 +874,3 @@ void MetricsLogger::Reset() {
 //	}
     instance_.reset();
 }
-

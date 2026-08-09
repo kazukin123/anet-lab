@@ -28,9 +28,15 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
         } structure;
         int64_t hidden_state_dim = 256;
         struct {
-            anet::nn::WeightInitConfig reward = { 4, 0.0, "linear", 0.0 };
-            anet::nn::WeightInitConfig value = { 4, 0.0, "linear", 0.0 };
-            anet::nn::WeightInitConfig policy = { 4, 0.0, "linear", 0.0 };
+            anet::nn::WeightInitConfig reward = {
+                .mode = "constant", .manual_gain = 0.0, .nonlinearity = "linear", .constant_val = 0.0
+            };
+            anet::nn::WeightInitConfig value = {
+                .mode = "constant", .manual_gain = 0.0, .nonlinearity = "linear", .constant_val = 0.0
+            };
+            anet::nn::WeightInitConfig policy = {
+                .mode = "constant", .manual_gain = 0.0, .nonlinearity = "linear", .constant_val = 0.0
+            };
         } head_init_weight;
     };
 
@@ -147,7 +153,12 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
             const anet::rl::BatchEnvSpec& batch_env_spec, const anet::rl::EnvSpec& env_spec, const torch::Device device,
             std::optional<anet::seed_t> seed = std::nullopt);
 
-        std::shared_ptr<anet::rl::Actor> CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, bool clone_model, std::optional<torch::Device> device = std::nullopt) const override;
+        std::shared_ptr<anet::rl::Actor> CreateActor(
+            const anet::rl::BatchEnvSpec& batch_env_spec,
+            const anet::rl::EnvSpec& env_spec,
+            anet::rl::RunMode run_mode,
+            std::optional<bool> clone_model_override = std::nullopt,
+            std::optional<torch::Device> device = std::nullopt) const override;
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
 
     public: // anet::Module
@@ -188,4 +199,3 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
     };
 
 }   // namespace anet::rl::muzero_proto
-

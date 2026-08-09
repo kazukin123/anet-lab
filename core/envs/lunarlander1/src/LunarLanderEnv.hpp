@@ -1,15 +1,16 @@
 ﻿// LunarLanderEnv.hpp
+
 #pragma once
 
 #include <memory>
 #include <string>
 #include <vector>
 #include <optional>
-#include <box2d/box2d.h> 
+#include <box2d/box2d.h>
 #include <torch/torch.h>
 #include "anet/random.hpp"
 #include "anet/config.hpp"
-#include "anet/rl.hpp"
+#include "anet/env.hpp"
 
 namespace anet::rl::env {
 
@@ -22,6 +23,7 @@ namespace anet::rl::env {
     constexpr int kActionLeft = 1;
     constexpr int kActionMain = 2;
     constexpr int kActionRight = 3;
+    constexpr int kActionCount = 4;
 
     /// LunarLander 環境の設定
     struct LunarLanderEnvConfig : public anet::Config {
@@ -30,6 +32,7 @@ namespace anet::rl::env {
         float world_height = 2.0f;
         float ground_y = 0.0f;
         float gravity = -10.0f;
+        bool obs_include_action = false;
 
         bool enable_wind = false;
         float wind_power = 15.0f;       ///< Gym の WIND_POWER 相当
@@ -62,6 +65,7 @@ namespace anet::rl::env {
             ANET_READ_CONFIG(config_data, world_height);
             ANET_READ_CONFIG(config_data, ground_y);
             ANET_READ_CONFIG(config_data, gravity);
+            ANET_READ_CONFIG(config_data, obs_include_action);
             ANET_READ_CONFIG(config_data, enable_wind);
             ANET_READ_CONFIG(config_data, wind_power);
             ANET_READ_CONFIG(config_data, turbulence_power);
@@ -96,18 +100,20 @@ namespace anet::rl::env {
 
     /// LunarLander 単一環境クラス（離散アクション）
     /// Box2D を用いて 2D 物理を簡易再現する。
-    class LunarLanderEnv : public anet::rl::SingleDiscreteEnv, public anet::RandomHolder, public std::enable_shared_from_this<LunarLanderEnv> {
+    class LunarLanderEnv : public anet::rl::SingleDiscreteEnvBase, public anet::RandomHolder, public std::enable_shared_from_this<LunarLanderEnv> {
     public:
         LunarLanderEnv(
             const LunarLanderEnvConfig& config,
             const torch::Device& device,
-            const std::optional<anet::seed_t> seed = std::nullopt);
+            const std::string& name,
+            const std::optional<anet::seed_t> seed = std::nullopt,
+            anet::rl::RunMode run_mode = anet::rl::RunMode::Train);
 
         ~LunarLanderEnv() override;
 
         anet::rl::EnvSpec GetSpec() const override;
-        std::shared_ptr<const anet::rl::SingleResetResult> Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
-        std::shared_ptr<const anet::rl::SingleStepResult> Step(int64_t action, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
+        std::shared_ptr<const anet::rl::SingleResetResult> Reset() override;
+        std::shared_ptr<const anet::rl::SingleStepResult> Step(int64_t action) override;
 
     public:
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
@@ -171,6 +177,7 @@ namespace anet::rl::env {
         float last_wind_torque_ = 0.0f;
         int64_t wind_idx_ = 0;
         int64_t torque_idx_ = 0;
+        int64_t last_action_ = -1; ///< 直前に実行した action。-1 は Reset 直後の未行動を表す。
 
         float last_shaping_ = 0.0f;
         bool has_prev_shaping_ = false;
@@ -197,7 +204,9 @@ namespace anet::rl::env {
         std::shared_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
             const anet::ConfigData& config_data,
             const torch::Device& device,
+            const std::string& name,
             std::optional<anet::seed_t> seed = std::nullopt,
+            anet::rl::RunMode run_mode = anet::rl::RunMode::Train,
             const std::string& config_prefix = "") override;
     };
 }

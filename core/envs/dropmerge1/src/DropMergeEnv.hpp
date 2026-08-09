@@ -1,15 +1,16 @@
-﻿// DropMergeEnv.hpp
+// DropMergeEnv.hpp
 #pragma once
 
 #include <memory>
 #include <vector>
 #include <optional>
 #include <set>
+#include <utility>
 #include <box2d/box2d.h>
 #include <torch/torch.h>
 #include "anet/random.hpp"
 #include "anet/config.hpp"
-#include "anet/rl.hpp"
+#include "anet/env.hpp"
 
 namespace anet::rl::env::drop_merge {
 
@@ -21,6 +22,10 @@ namespace anet::rl::env::drop_merge {
     constexpr int kActionFastRight = 5;
 
     constexpr int kFruitTypeCount = 11; // 11種類 (Rank 1..11)
+
+    /// blocked 区間の union が [x_min, x_max] 全体を覆うかを判定する。
+    bool DoBlockedIntervalsCoverRange(
+        std::vector<std::pair<float, float>>& blocked_intervals, float x_min, float x_max);
 
 
     enum class ActionMode {
@@ -36,6 +41,15 @@ namespace anet::rl::env::drop_merge {
         GlobalFixed     ///< 全環境で共通の設定値（global_seed）を使用し、毎Reset時にRNGをリセットする。
     };
 
+    enum class TerminationReason { ///< エピソード終了要因
+        None = 0,
+        SpawnBlocked = 1,
+        Overflow = 2,
+        MaxStep = 3,
+        NoDropTimeout = 4,
+        NoLegalDrop = 5
+    };
+
     /// DropMerge 環境の設定
     struct DropMergeEnvConfig : public anet::Config {
 
@@ -47,6 +61,8 @@ namespace anet::rl::env::drop_merge {
         int max_step = 3000;
         int no_drop_timeout_steps = 200;
         bool use_no_drop_timeout_gameover = false;
+        bool use_no_legal_adjudication = false; ///< blocked persistence による NoLegal 受理上限保証を使うか
+        int no_legal_min_blocked_frames = 60;   ///< NoLegal 受理に必要な連続 blocked 物理 frame 数
         float box_width = 3.0f;
         float box_height = 4.0f;
         float ground_y = 0.5f;     // 箱の底の高さ
@@ -55,6 +71,8 @@ namespace anet::rl::env::drop_merge {
         // --- グリッド観測パラメータ ---
         int grid_rows = 30;
         int grid_cols = 30;
+        bool obs_include_prev_action = false; ///< 直前 action の trio を vector 観測へ追加するか
+        bool obs_prev_drop_marker = false;    ///< 直前 DROP 命令列を grid の top row へ描画するか
 
         // --- アクションモード
         std::string action_mode = "move_fast"; ///< "move", "move_fast", "direct", "direct_noop"
@@ -70,8 +88,8 @@ namespace anet::rl::env::drop_merge {
         int reload_min_steps = 20;      ///< Drop抑止ステップ数（物理判定が早くても必ず待つ時間）
         int reload_max_steps = 300;     ///< Drop抑止タイムアウトステップ数（物理判定が効かない場合の強制解除）
 		bool noop_override = false;     ///< NOOPアクションを中央方向移動に上書きするか
-		int game_over_grace_step = 60;  ///< 上端から溢れてからゲームオーバーとするまでの猶予ステップ数      
-        float drop_noise = 0.01f;       ///< Drop時のX座標ノイズ 
+		int game_over_grace_step = 60;  ///< 上端から溢れてからゲームオーバーとするまでの猶予ステップ数
+        float drop_noise = 0.01f;       ///< Drop時のX座標ノイズ
         float spin_noise = 0.0f;        ///< Drop時の初期角速度ノイズ(rad/s)
 
         bool use_settle_after_drop = false;     ///< 物理演算が安定(Settle)するまで強制的に時間を進めるか
@@ -108,12 +126,16 @@ namespace anet::rl::env::drop_merge {
             ANET_READ_CONFIG(config_data, max_step);
             ANET_READ_CONFIG(config_data, no_drop_timeout_steps);
             ANET_READ_CONFIG(config_data, use_no_drop_timeout_gameover);
+            ANET_READ_CONFIG(config_data, use_no_legal_adjudication);
+            ANET_READ_CONFIG(config_data, no_legal_min_blocked_frames);
             ANET_READ_CONFIG(config_data, box_width);
             ANET_READ_CONFIG(config_data, box_height);
             ANET_READ_CONFIG(config_data, ground_y);
             ANET_READ_CONFIG(config_data, gravity);
             ANET_READ_CONFIG(config_data, grid_rows);
             ANET_READ_CONFIG(config_data, grid_cols);
+            ANET_READ_CONFIG(config_data, obs_include_prev_action);
+            ANET_READ_CONFIG(config_data, obs_prev_drop_marker);
             ANET_READ_CONFIG(config_data, action_mode);
             ANET_READ_CONFIG(config_data, drop_divisions);
             ANET_READ_CONFIG(config_data, use_fast_move);
@@ -178,25 +200,26 @@ namespace anet::rl::env::drop_merge {
     };
 
     /// DropMerge (Suika-like) 環境クラス
-    class DropMergeEnv : public anet::rl::SingleDiscreteEnv, public anet::RandomHolder, public std::enable_shared_from_this<DropMergeEnv> {
+    class DropMergeEnv : public anet::rl::SingleDiscreteEnvBase, public anet::RandomHolder, public std::enable_shared_from_this<DropMergeEnv> {
     public:
         DropMergeEnv(
             const DropMergeEnvConfig& config,
             const torch::Device& device,
-            const std::optional<anet::seed_t> seed = std::nullopt);
+            const std::string& name,
+            const std::optional<anet::seed_t> seed = std::nullopt,
+            anet::rl::RunMode run_mode = anet::rl::RunMode::Train);
 
         ~DropMergeEnv() override;
 
         anet::rl::EnvSpec GetSpec() const override;
-        std::shared_ptr<const anet::rl::SingleResetResult> Reset(anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
-        std::shared_ptr<const anet::rl::SingleStepResult> Step(int64_t action, anet::rl::RunMode mode = anet::rl::RunMode::Train) override;
+        std::shared_ptr<const anet::rl::SingleResetResult> Reset() override;
+        std::shared_ptr<const anet::rl::SingleStepResult> Step(int64_t action) override;
 
     public:
         // デバッグ・可視化用
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
-        
     private:
         class Result;
         class ResetResult;
@@ -219,15 +242,6 @@ namespace anet::rl::env::drop_merge {
             b2Body* pending_body = nullptr; ///< 落下判定待ちの果物
         };
 
-        enum class TerminationReason {        ///< メトリクス集計用
-            None,
-            SpawnBlocked,
-            Overflow,
-            MaxStep,
-            NoDropTimeout,
-            NoLegalDrop
-        };
-
         // 衝突コールバック
         class ContactListener : public b2ContactListener {
         public:
@@ -240,6 +254,7 @@ namespace anet::rl::env::drop_merge {
         void buildWorld();
         void destroyWorld();
         bool isSpawnAreaClear(float x, float y, float r) const;
+        bool isNoLegalCandidateState() const;
         bool isNoLegalDropState() const;
         bool hasAnyLegalDropForCurrentFruit() const;
         bool hasClearSpawnXInRange(float x_min, float x_max, float y, float r) const;
@@ -248,6 +263,7 @@ namespace anet::rl::env::drop_merge {
 
         // ゲームロジック
         void notifyContact(b2Body* body);
+        int decodeDirectDropColumn(int64_t action) const;
         void processAction(int64_t action);
         b2Body* spawnFruit(float x, float y, int rank);
         void processMerges();
@@ -284,6 +300,8 @@ namespace anet::rl::env::drop_merge {
         bool game_over_ = false;
         int game_over_timer_ = 0;
         int steps_since_last_drop_ = 0;
+        int blocked_candidate_frames_ = 0; ///< NoLegal candidate が連続成立した物理 frame 数
+        int64_t last_action_ = -1;         ///< 直前に選択した action。-1 は Reset 直後の未行動
         torch::Tensor vec_buffer_;   ///< obsのバッファ
         torch::Tensor grid_buffer_;  ///< obsのバッファ
 
@@ -296,6 +314,7 @@ namespace anet::rl::env::drop_merge {
         // aux用 (Resetで初期化しない)
         float last_episode_score_ = -1.0f;
         int last_episode_step_ = -1;
+        TerminationReason last_episode_term_reason_ = TerminationReason::None;
         float episode_reward_ = 0.0f;           ///< エピソード累積報酬 (Penalty込み)
         float last_episode_reward_ = 0.0f;      ///< 前回のエピソード累積報酬
 
@@ -306,6 +325,10 @@ namespace anet::rl::env::drop_merge {
         int ep_end_fruit_count_ = 0;      ///< エピソード終了時のフルーツ数
         int ep_suika_created_ = 0;        ///< エピソード中に作成されたスイカの総数
         int ep_double_suika_created_ = 0; ///< エピソード中に作成されたダブルスイカの総数
+        int ep_drop_command_count_ = 0;   ///< エピソード中に選択された direct 系 DROP 命令数
+        int ep_same_drop_col_count_ = 0;  ///< 直前 DROP と同じ命令列を連続選択した回数
+        int ep_previous_drop_col_ = -1;   ///< 比較対象となる直前 DROP 命令列
+        float last_ep_same_drop_col_ratio_ = 0.0f; ///< 終了エピソードの同一列選択率
 
         // Settleステップ計測用
         int ep_settle_steps_sum_ = 0;
@@ -314,6 +337,16 @@ namespace anet::rl::env::drop_merge {
         float last_ep_mean_settle_steps_ = 0.0f;
         int last_ep_max_settle_steps_ = 0;
         int last_step_sim_steps_ = 0;     ///< 直近のStepで回った物理ステップ数(UI用)
+
+        // NoLegal candidate 診断用
+        int ep_blocked_run_sum_ = 0;
+        int ep_blocked_run_count_ = 0;
+        int ep_blocked_run_max_ = 0;
+        float last_ep_mean_blocked_frames_ = 0.0f;
+        int last_ep_max_blocked_frames_ = 0;
+        int last_ep_terminal_blocked_frames_ = 0;
+        bool ep_blocked_drop_on_candidate_ = false;
+        bool ep_no_drop_timeout_on_candidate_ = false;
 
         // デバッグ・観測用キャッシュ
         mutable std::vector<float> grid_cache_;
@@ -327,7 +360,9 @@ namespace anet::rl::env::drop_merge {
         std::shared_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
             const anet::ConfigData& config_data,
             const torch::Device& device,
+            const std::string& name,
             std::optional<anet::seed_t> seed = std::nullopt,
+            anet::rl::RunMode run_mode = anet::rl::RunMode::Train,
             const std::string& config_prefix = "") override;
     };
 

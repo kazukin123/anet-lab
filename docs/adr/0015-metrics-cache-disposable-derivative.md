@@ -1,0 +1,11 @@
+# Metricsキャッシュは破棄可能な従属導出物とする(マスタ=JSONL、PK=序数)
+
+MetricsViewer の OOM 対策として導入する Run 毎の SQLite キャッシュ(`metrics_cache.db`、L0 全点+factor16 序数バケット LOD)は、マスタ `metrics.jsonl(.gz)` から従属構築される破棄可能な導出物であり、第2のマスタにしない。様式は DB ヘッダ(`PRAGMA application_id=0x414E4554`+`user_version`)でテーブルに触れる前に判定し、不一致・ソース指紋(source_kind/size/mtime)の不整合はすべて警告なしの全破棄・再構築で解決する——キャッシュだから migration を書かない。SQLite 接続は読み=リクエスト毎・書き=取り込みブロック毎の短命とする。これは「runs ディレクトリへのフォルダ出し入れ=可視化対象の登録/解除」という運用契約(Windows ではオープン中ファイルの移動・削除が不可)を守るためで、失われるページキャッシュはアプリ層の確定バケット限定 LRU が代替する。L0 の PK は `(tag_id, ordinal)`(tag 内出現順)であり step ではない: 実測で step は全 tag 非減少だが episode 系 1 tag に同一 step が 240,109 件あり、`(tag_id, step)` UNIQUE は成立せず REPLACE は正当データを喪失する。step は座標値として列に持ち、範囲検索は L1 バケットの `step_first` 二分探索で序数範囲へ写像する(step 補助インデックス不要)。却下した代替: dual-write(マスタ2種化で「フォルダ操作で完結する Run 運用」と整合性責務が崩れる)、rowid 表+index(実測 35.7 vs 18.9 B/点で容量 1.9 倍)、常時接続(フォルダ操作阻害)、DuckDB/Parquet を正とする案(列圧縮は優るが単一 writer 制約・C++ 依存重量・Python 標準ライブラリで読めない点で、ライブ追従と「AI が事前準備なしで SQL 分析」の要件に劣後)。Phase 2 では C++ 側 `SqliteBackend` が同一スキーマへ直接出力してマスタ地位が DB へ移る構想であり、`user_version` と `source_meta.source_kind` がその移行判定の枢軸になる。
+
+## Follow-up: TagStats、cache generation、tag隔離
+
+PRD 041の詳細化により、`TagStats`はLODから導出せず、commit済みの有効なL0全点に対する範囲非依存の統計として同じtransactionで更新する。LODは表示解像度のための近似表現であり、そこから統計を復元すると表示levelや未完成bucketに結果が依存するためである。
+
+全再構築ごとに新しいcache generationを発行し、通常追記では維持する。Public APIとbrowser cacheはgenerationを比較し、同じRun名でも別のMetricsマスタから再構築された応答を混在させない。`user_version`はschema様式、generationはcache内容の同一性を表す別概念である。
+
+step逆行はマスタ全体を利用不能にせず、該当tagだけを隔離する。異なるtagは独立した系列であり、1系列の順序違反によって他系列のcommit済みデータまで隠す必要はない。隔離前のL0、LOD、`TagStats`は公開し続け、隔離解除はソース変更による全再構築時だけ行う。

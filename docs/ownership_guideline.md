@@ -31,15 +31,17 @@
 
 - 複数モジュール間で利用される共有可能な「外部リソース」
 - “箱” としての性質を持ち、長寿命で参照され続ける
-- 所有者は常に Agent（Hub）
+- 共有Resourceの所有者は Agent（Hub）
+- 共有Resourceから派生し、単一モジュールだけが利用・更新するprivate Resourceは、そのモジュールが所有する
 
 例：
 
-- policy_net / target_net
+- Agent所有のsource policy_net / target_net
 - optimizer
 - ReplayBuffer
 - RNG
 - Config（読み取り専用）
+- Actorだけがforwardと同期に使うprivate network snapshot
 
 ---
 
@@ -70,14 +72,17 @@ Resource の場合はここでは判断しない。
 ## **Step 3：読み(Read)たい主体は複数か？（Resource判定）**
 
 - Yes → Resource（共有リソース）→ Agent が所有
-- No → State（単一モジュール内に閉じ込める）
+- No → Stateかprivate ResourceかをStep 4で判定し、単一モジュール内に閉じ込める
 
 ---
 
 ## **Step 4：“箱(Container)” か “中身(Value)” か？**
 
-- 箱 → Resource（NN, Buffer, Optimizer）→ Agent に置く
+- 複数モジュールが使う箱 → 共有Resource（NN, Buffer, Optimizer）→ Agent に置く
+- 単一モジュールだけが使う派生した箱 → private Resource → 利用・更新するモジュールに置く
 - 内部変量 → State（epsilon, EMA など）→ モジュールに置く
+
+例：Learnerが更新しActorがsourceとして参照するonline networkはAgent所有の共有Resourceとする。一方、そのonline networkから複製され、特定Actorだけがforwardと同期に使うnetwork snapshotはActor所有のprivate Resourceとする。
 
 ---
 
@@ -108,8 +113,14 @@ Resource の場合はここでは判断しない。
 ### ◎ Resource（共有資源）
 
 - 複数利用されるもの
-- 所有者は常に Agent
+- 所有者は Agent
 - NN / Optimizer / ReplayBuffer / RNG / Config
+
+### ◎ Private Resource（モジュール専用資源）
+
+- 共有Resourceから派生し、単一モジュールだけが利用・更新する箱
+- 利用・更新するモジュールに閉じ込める
+- 例：Actor-private network snapshot
 
 ### ◎ 判断基準の優先順位
 
@@ -130,6 +141,9 @@ Resource の場合はここでは判断しない。
 
 - “ReplayBuffer は ReplayHandler が使うからそこに置く” → ✗  
   → Buffer は Resource、Runner と Learner 両方が使用 → Agent が所有
+
+- “NN はすべて無条件に Agent が所有する” → ✗
+  → source/shared network は Agent が所有する。特定Actorだけが利用・同期するprivate snapshotはActorが所有する
 
 ---
 

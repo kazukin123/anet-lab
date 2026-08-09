@@ -1,7 +1,6 @@
-﻿// GridMazeEnv.cpp
+// GridMazeEnv.cpp
 
 #include "GridMazeEnv.hpp"
-#include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
 #include "anet/env.hpp"
 
@@ -37,11 +36,12 @@ private:
 // GridMazeEnv
 // ----------------------------------------------------
 
-GridMazeEnv::GridMazeEnv(const GridMazeEnvConfig& config,const torch::Device& device, std::optional<anet::seed_t> seed)
-    : RandomHolder(seed), config_(config)
+GridMazeEnv::GridMazeEnv(const GridMazeEnvConfig& config, const torch::Device& device,
+    const std::string& name, std::optional<anet::seed_t> seed, anet::rl::RunMode run_mode)
+    : SingleDiscreteEnvBase(name, run_mode, config.GetScopedConfigData())
+    , RandomHolder(seed)
+    , config_(config)
 {
-    anet::MetricsLogger::Instance()->Log("GridMazeEnvConfig", config_.ToJson());
-
     obs_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
     Reset();
 }
@@ -163,7 +163,7 @@ void GridMazeEnv::GenerateGridMap()
     }
 }
 
-std::shared_ptr<const anet::rl::SingleResetResult> GridMazeEnv::Reset(anet::rl::RunMode mode)
+std::shared_ptr<const anet::rl::SingleResetResult> GridMazeEnv::Reset()
 {
     ANET_PROFILE_FUNC();
 
@@ -192,7 +192,7 @@ std::shared_ptr<const anet::rl::SingleResetResult> GridMazeEnv::Reset(anet::rl::
     return std::make_shared<GridMazeResetResult>(std::move(state), MakeAuxData());
 }
 
-std::shared_ptr<const anet::rl::SingleStepResult> GridMazeEnv::Step(int64_t action, anet::rl::RunMode mode)
+std::shared_ptr<const anet::rl::SingleStepResult> GridMazeEnv::Step(int64_t action)
 {
     ANET_PROFILE_FUNC();
     episode_start_ = false;
@@ -232,7 +232,7 @@ std::shared_ptr<const anet::rl::SingleStepResult> GridMazeEnv::Step(int64_t acti
 
     if (done_ || truncated_) {
         episode_just_ended_ = true;
- 
+
         last_episode_len_ = static_cast<float>(step_count_);
         last_reward_sum_ = ep_reward_sum_;
         last_is_success_ = (reward == config_.reward_goal) ? 1.0f : 0.0f;
@@ -284,12 +284,10 @@ std::optional<float> GridMazeEnv::GetScalar(const std::string& key, int64_t inde
 
 std::shared_ptr<anet::rl::SingleDiscreteEnv> GridMazeEnvFactory::CreateSingleEnv(
     const anet::ConfigData& config_data,
-    const torch::Device& device, std::optional<anet::seed_t> seed,
+    const torch::Device& device, const std::string& name, std::optional<anet::seed_t> seed,
+    anet::rl::RunMode run_mode,
     const std::string& config_prefix)
 {
     GridMazeEnvConfig config(config_data, config_prefix);
-    return std::make_shared<GridMazeEnv>(config, device, seed);
+    return std::make_shared<GridMazeEnv>(config, device, name, seed, run_mode);
 }
-
-ANET_REGISTER_ENV_FACTORY(GridMazeEnvFactory);
-

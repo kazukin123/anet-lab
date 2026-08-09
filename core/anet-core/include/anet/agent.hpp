@@ -7,6 +7,7 @@
 #include "anet/rl.hpp"
 #include "anet/config.hpp"
 #include "anet/scaler.hpp"
+#include "anet/schedule.hpp"
 
 namespace anet::rl {
 
@@ -84,6 +85,7 @@ namespace anet::rl {
     protected:
         std::shared_ptr<std::shared_mutex> mutex_;
         const torch::Device device_;
+        const EnvSpec env_spec_;
         int n_actions_;
         int num_envs_;
     private:
@@ -152,6 +154,15 @@ namespace anet::rl {
             bool use_amp_bf16 = false;
         };
 
+        struct TrainActorConfig {
+            bool clone_model = false;
+            anet::ProfiledValueConfig<step_t> sync_interval{
+                .type = "constant",
+                .value = 400,
+                .min_value = 1,
+            };
+        };
+
         struct StuckerConfig {
             bool use_stacker = false;
             int stack_count = 4;
@@ -186,6 +197,7 @@ namespace anet::rl {
             int   per_beta_step = 100000;      ///< betaを収束値まで線形変化させるステップ数
             float per_eps = 1e-6f;             ///< 優先度加算用微小値
             float per_initial_priority = 1.0f; ///< 新規データの初期優先度
+            std::string per_initial_priority_mode = "fixed"; ///< fixed / max / actor_approx
             bool use_per_prio_clip = false;    ///< 優先度をクリッピングするか
             float per_prio_clip_value = 50.0f; ///< 優先度の上限値
 

@@ -1,0 +1,14 @@
+Intel OpenMP Runtime Library
+============================
+
+This distribution includes the Intel OpenMP runtime library
+(libiomp5md.dll), redistributed as part of the LibTorch (PyTorch)
+distribution.
+
+The Intel OpenMP runtime is licensed under the Intel Simplified
+Software License. The full text of the governing license is
+available at:
+
+  https://www.intel.com/content/www/us/en/developer/articles/license/end-user-license-agreement.html
+
+Copyright (c) Intel Corporation. All rights reserved.

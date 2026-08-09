@@ -3,15 +3,57 @@
 #include <memory>
 #include <optional>
 #include <limits>
+#include <span>
 #include "anet/agent.hpp"
 #include "anet/rl.hpp"
 #include "anet/scaler.hpp"
 #include "anet/nn.hpp"
 #include "anet/nn_util.hpp"
 #include "anet/transfer.hpp"
+#include "anet/replay_buffer.hpp"
+#include "anet/schedule.hpp"
 
 
 namespace anet::rl::dqn {
+
+    ReplayInitialPriorityMode ParseReplayInitialPriorityMode(const LearnerConfig& config);
+    void ValidateReplayPriorityConfig(const LearnerConfig& config, ReplayInitialPriorityMode initial_priority_mode);
+    torch::Tensor TransformH(const torch::Tensor& x, float epsilon);
+    float TransformH(float x, float epsilon);
+    torch::Tensor TransformHInv(const torch::Tensor& x, float epsilon);
+    float TransformHInv(float x, float epsilon);
+
+    struct PerRawPriorityBatchResult {
+        torch::Tensor priorities;    ///< clip適用後のfloat32 priority [B]
+        torch::Tensor clipped_count; ///< clip前priorityが上限を超えた件数のscalar
+    };
+
+    PerRawPriorityBatchResult MakePerRawPriorityBatch(
+        const torch::Tensor& td_error, float per_eps, bool use_clip, float clip_value);
+    torch::Tensor MakePerRawPriority(
+        const torch::Tensor& td_error, float per_eps, bool use_clip, float clip_value);
+    float MakePerRawPriority(
+        float td_error, float per_eps, bool use_clip, float clip_value);
+    std::unique_ptr<InitialPriorityEstimator> CreateInitialPriorityEstimator(const LearnerConfig& config);
+
+    inline constexpr int64_t kActorQHintColumnCount = 2;
+    inline constexpr int64_t kActorQSaColumn = 0;
+    inline constexpr int64_t kActorStateValueColumn = 1;
+
+    struct ActorQHintBatch {
+        torch::Tensor actor_q_sa;
+        torch::Tensor actor_state_value;
+    };
+
+    struct ActorQHintRow {
+        float actor_q_sa = 0.0f;
+        float actor_state_value = 0.0f;
+    };
+
+    torch::Tensor PackActorQHint(
+        const torch::Tensor& actor_q_sa, const torch::Tensor& actor_state_value);
+    ActorQHintBatch DecodeActorQHint(const torch::Tensor& payload);
+    ActorQHintRow DecodeActorQHint(std::span<const float> payload);
 
     const float MET_EMA_DECAY = 0.001f;  // 平滑化係数(メトリクス用)
     const float MET_EMA_DECAY_ACT = 0.0005f;  // 平滑化係数(メトリクス用)action_ema用
@@ -62,6 +104,10 @@ namespace anet::rl::dqn {
         torch::Tensor per_priorities;      ///< Updated Priorities (B,)
         torch::Tensor per_clipped_count;   ///< Clipped Count (scalar tensor)
         torch::Tensor per_sample_initial_count; ///< 初期優先度のままサンプルされた件数
+        torch::Tensor per_sample_fixed_initial_count; ///< fixed_initial sourceのサンプル件数
+        torch::Tensor per_sample_max_initial_count;   ///< max_initial sourceのサンプル件数
+        torch::Tensor per_sample_actor_initial_count; ///< actor_initial sourceのサンプル件数
+        ReplayPriorityUpdateResult per_update_result; ///< 対応するLearner minibatchの優先度更新結果
         long per_minibatch_size = 0;       ///< Minibatch Size
 
         // QR-DQN Metrics
@@ -160,6 +206,31 @@ namespace anet::rl::dqn {
                     return per_sample_initial_count.item<float>() / static_cast<float>(per_minibatch_size);
                 return std::numeric_limits<float>::quiet_NaN();
             }
+            if (key == "per_sample_fixed_initial_ratio") {
+                return per_minibatch_size > 0 && per_sample_fixed_initial_count.defined()
+                    ? per_sample_fixed_initial_count.item<float>() / static_cast<float>(per_minibatch_size)
+                    : std::numeric_limits<float>::quiet_NaN();
+            }
+            if (key == "per_sample_max_initial_ratio") {
+                return per_minibatch_size > 0 && per_sample_max_initial_count.defined()
+                    ? per_sample_max_initial_count.item<float>() / static_cast<float>(per_minibatch_size)
+                    : std::numeric_limits<float>::quiet_NaN();
+            }
+            if (key == "per_sample_actor_initial_ratio") {
+                return per_minibatch_size > 0 && per_sample_actor_initial_count.defined()
+                    ? per_sample_actor_initial_count.item<float>() / static_cast<float>(per_minibatch_size)
+                    : std::numeric_limits<float>::quiet_NaN();
+            }
+            if (key == "per_priority_update_stale_ratio") {
+                const int64_t total = per_update_result.applied_count + per_update_result.stale_count;
+                return total > 0 ? static_cast<float>(per_update_result.stale_count) / static_cast<float>(total)
+                    : std::numeric_limits<float>::quiet_NaN();
+            }
+            if (key == "per_actor_learner_pair_count") return static_cast<float>(per_update_result.actor_learner_pair_count);
+            if (key == "per_actor_learner_positive_pair_ratio") return per_update_result.actor_learner_positive_pair_ratio;
+            if (key == "per_actor_learner_ratio_median") return per_update_result.actor_learner_ratio_median;
+            if (key == "per_actor_learner_log_ratio_mean") return per_update_result.actor_learner_log_ratio_mean;
+            if (key == "per_actor_learner_spearman") return per_update_result.actor_learner_spearman;
             if (key == "per_prio_max") {
                 if (per_priorities.defined())
                     return per_priorities.max().item<float>();
@@ -255,16 +326,23 @@ namespace anet::rl::dqn {
         torch::Tensor per_priorities;
         torch::Tensor per_is_weights;
         torch::Tensor per_sample_initial_count;
-        long per_minibatch_size = 0;
+        torch::Tensor per_sample_fixed_initial_count; ///< fixed_initial sourceのサンプル件数
+        torch::Tensor per_sample_max_initial_count;   ///< max_initial sourceのサンプル件数
+        torch::Tensor per_sample_actor_initial_count; ///< actor_initial sourceのサンプル件数
+        ReplayPriorityUpdateResult per_update_result; ///< ReplayBufferへ適用済みの更新結果
+        long per_minibatch_size = 0;                  ///< source比率の分母となるminibatch size
     };
 
     struct PerPriorityUpdatePending {
-        std::vector<int64_t> indices;
-        anet::transfer::HostReadback priority_readback;
-        torch::Tensor per_is_weights;
-        torch::Tensor per_sample_initial_count;
-        long per_minibatch_size = 0;
-        bool enabled = false;
+        std::vector<int64_t> indices;                   ///< CPU上のgeneration付きreplay item key
+        anet::transfer::HostReadback priority_readback; ///< priority [B]とclip件数をpackした遅延D2H結果 [B+1]
+        torch::Tensor per_is_weights;                   ///< 対応minibatchのIS weight
+        torch::Tensor per_sample_initial_count;         ///< 全initial sourceのサンプル件数
+        torch::Tensor per_sample_fixed_initial_count;   ///< fixed_initial sourceのサンプル件数
+        torch::Tensor per_sample_max_initial_count;     ///< max_initial sourceのサンプル件数
+        torch::Tensor per_sample_actor_initial_count;   ///< actor_initial sourceのサンプル件数
+        long per_minibatch_size = 0;                    ///< source比率の分母となるminibatch size
+        bool enabled = false;                           ///< PER更新が必要なminibatchか
     };
 
     struct QuantileMetrics {
@@ -342,6 +420,11 @@ namespace anet::rl::dqn {
     // ActionPolicy
     // ======================================================
 
+    struct TrainActorSnapshotMetrics {
+        float interval = std::numeric_limits<float>::quiet_NaN();
+        float age = std::numeric_limits<float>::quiet_NaN();
+    };
+
     class DQNActionInfo final : public anet::rl::BatchActionInfo, public anet::ModuleBase {
     public:
         using anet::rl::BatchActionInfo::BatchActionInfo;
@@ -349,6 +432,12 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::rl::BatchActionInfo> To(torch::Device device) const override;
         std::shared_ptr<anet::rl::BatchActionInfo> WithAction(torch::Tensor action) const override;
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+        void SetTrainActorSnapshotMetrics(TrainActorSnapshotMetrics metrics)
+        {
+            train_actor_snapshot_metrics_ = metrics;
+        }
+    private:
+        std::optional<TrainActorSnapshotMetrics> train_actor_snapshot_metrics_;
     };
 
     class ActionPolicy : virtual public anet::ModuleBase {
@@ -357,7 +446,7 @@ namespace anet::rl::dqn {
         	bool enable_spatial_exploration = false, int64_t num_envs = 0,
             const torch::Device& device = torch::Device(torch::kCPU));
 
-        virtual std::shared_ptr<BatchActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
+        virtual std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
             const anet::TraceSink& sink = {}) const = 0;
         virtual void OnLearn(const StepCounts& counts) { }
@@ -369,11 +458,12 @@ namespace anet::rl::dqn {
         anet::TensorDict ForwardForAction(const anet::TensorDict& obs, std::shared_ptr<anet::nn::Network> network, const anet::TraceSink& sink) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, const torch::Tensor& epsilon_tensor, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
-        std::shared_ptr<BatchActionInfo> MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const;
+        std::shared_ptr<DQNActionInfo> MakeActionInfo(const torch::Tensor& action_values, const torch::Tensor& q_values, const torch::Tensor& q_quantiles) const;
         //torch::Tensor GetQuantiles(const torch::Tensor& obs, bool use_target) const;
         void UpdateEpsilon(step_t step, bool is_uqe = false);
         bool IsSpatialExplorationEnabled() const { return use_spatial_exploration_; }
         static torch::Tensor CreateSpatialTensor(int64_t num_envs, float start_val, float end_val, const std::string& scale_type, const torch::Device& device);
+        static torch::Tensor CreateSpatialLaneTensor(int64_t num_envs, float start_val, float end_val, const std::string& scale_type, const torch::Device& device);
         torch::Tensor GetSpatialEpsilonTensor(int64_t num_envs, const torch::Device& device, bool is_uqe) const;
         torch::Tensor GetSpatialTauTensor(int64_t num_envs, const torch::Device& device) const;
     protected:
@@ -394,7 +484,7 @@ namespace anet::rl::dqn {
             int64_t num_envs = 0,
             const torch::Device& device = torch::Device(torch::kCPU));
 
-        std::shared_ptr<BatchActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
+        std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
             const anet::TraceSink& sink) const;
         void OnLearn(const StepCounts& counts) override;
@@ -415,14 +505,14 @@ namespace anet::rl::dqn {
             int64_t num_envs = 0,
             const torch::Device& device = torch::Device(torch::kCPU));
 
-        std::shared_ptr<BatchActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
+        std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
             const anet::TraceSink& sink) const;
         void OnLearn(const StepCounts& counts) override;
 
         virtual ~UQEActionPolicy() = default;
     protected:
-        std::shared_ptr<anet::rl::BatchActionInfo> MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs, bool greedy_only,
+        std::shared_ptr<DQNActionInfo> MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd, const anet::TraceSink& sink) const;
         void UpdateTau(step_t step);
     private:
@@ -437,7 +527,7 @@ namespace anet::rl::dqn {
             int64_t num_envs = 0,
             const torch::Device& device = torch::Device(torch::kCPU));
 
-        std::shared_ptr<BatchActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
+        std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             std::shared_ptr<anet::nn::Network> network, std::shared_ptr<anet::RandomGenerator> rnd,
             const anet::TraceSink& sink) const;
         void OnLearn(const StepCounts& counts) override;
@@ -455,9 +545,15 @@ namespace anet::rl::dqn {
             std::shared_ptr<ActionContext> context,
             std::shared_ptr<std::shared_mutex> mutex,
             std::shared_ptr<anet::nn::Network> network,
-            std::shared_ptr<anet::nn::Network> src_network);
+            std::shared_ptr<anet::nn::Network> src_network,
+            bool emit_actor_q_hint = false,
+            std::optional<anet::ProfiledValueConfig<step_t>> snapshot_sync_interval = std::nullopt,
+            bool emit_snapshot_metrics = false);
         std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const override;
         void Sync() override;
+    private:
+        void CopySourceNetwork() const;
+        void UpdateSnapshot(const StepCounts& step) const;
     private:
         std::shared_ptr<ActionPolicy> policy_;
         std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm_;
@@ -465,6 +561,11 @@ namespace anet::rl::dqn {
         std::shared_ptr<std::shared_mutex> mutex_;
         std::shared_ptr<anet::nn::Network> network_;
         std::shared_ptr<anet::nn::Network> src_network_;
+        bool emit_actor_q_hint_ = false; ///< 学習Actorから初期優先度推定用Qヒントを生成するか
+        mutable std::optional<anet::ProfiledValue<step_t>> snapshot_sync_interval_;
+        mutable step_t last_snapshot_sync_train_step_ = 0;
+        mutable bool reset_snapshot_age_on_next_action_ = false;
+        bool emit_snapshot_metrics_ = false;
     };
 
     // ======================================================
@@ -517,7 +618,7 @@ namespace anet::rl::dqn {
             const torch::Tensor& q_gap = torch::Tensor(),
             const torch::Tensor& q_gap_rel = torch::Tensor()) const;
     private:
-        bool CanUpdate(step_t exp_step) const;
+        bool CanUpdate(step_t exp_step);
         void UpdatePerBeta(step_t step);
         void UpdateTargetNetwork(step_t step);
         void ValidateDeviceSamples(const anet::rl::ExperienceSamples& samples, int64_t batch_size) const;
@@ -539,6 +640,8 @@ namespace anet::rl::dqn {
         anet::transfer::EventRecycler<torch::Tensor> per_priority_event_recycler_;
     protected:
         float update_credit_ = 0.0f;
+    private:
+        bool has_enough_replay_samples_ = false;
     };
 
     class QuantileLearnerBase : public anet::rl::dqn::Learner {

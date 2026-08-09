@@ -1,4 +1,4 @@
-﻿// anet/trainer.hpp
+// anet/trainer.hpp
 #pragma once
 
 #include <memory>
@@ -16,7 +16,7 @@ namespace anet::rl {
     // ======================================================
     // RunnerBase
     // ======================================================
-    
+
     class RunnerBase : public Runner {
     public:
         RunnerBase(
@@ -24,7 +24,7 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::Agent> agent,
             std::shared_ptr<anet::rl::Notifier> notifier,
             RunMode run_mode,
-            bool clone_model,
+            std::optional<bool> clone_model_override,
             std::optional<torch::Device> device,
             std::string name);
 
@@ -208,7 +208,12 @@ namespace anet::rl {
         RunManager(const ConfigData& config_data);
         ~RunManager();
 
-        std::shared_ptr<EvalRunner> CreateEvalRunner(const std::string& name, RunMode runmode = RunMode::Eval, bool clone_model = false, std::optional<torch::Device> device = std::nullopt);
+        std::shared_ptr<EvalRunner> CreateEvalRunner(
+            const std::string& name,
+            RunMode runmode = RunMode::Eval,
+            bool clone_model = false,
+            std::optional<torch::Device> device = std::nullopt,
+            const std::string& config_tag = "");
 
         // アクセサ
         //std::shared_ptr<anet::rl::BatchEnv> GetBatchEnv() const { return env_; }  // EnvはRunnerインスタンス別なので隠蔽
@@ -219,18 +224,27 @@ namespace anet::rl {
         std::shared_ptr<EvalRunner> GetEvalRunner(const std::string& name) { return eval_runners.at(name); }
         anet::rl::RunnerStatus GetStatus() { return status_; }
     private:
+        void EnsureEnvNameAvailable(const std::string& name, const std::string& requested_owner) const;
+        void RegisterEnvName(const std::string& name, const std::string& owner);
+        void LogEnvConfig(const BatchEnv& env);
+    private:
         // パラメータ
         struct Config;
         std::unique_ptr<Config> config_;
         std::string env_class_id_;
-        seed_t eval_env_seed_;
 
         // インスタンス(管理系)
         anet::rl::RunnerStatus status_ = RunnerStatus::NOT_INITIALIZED;
-        std::unique_ptr<anet::rl::DefaultBatchEnvFactory> env_factory_;
+        std::unique_ptr<anet::rl::BatchEnvBuilder> env_factory_;
         std::unique_ptr<anet::MasterSeedManager> master_seed_;
         std::shared_ptr<TrainRunner> train_runner_;
         std::unordered_map<std::string, std::shared_ptr<EvalRunner>> eval_runners;
+        std::unordered_map<std::string, std::string> env_name_owners_;
+        std::unordered_set<std::string> dormant_eval_tags_;
+        std::unordered_set<std::string> warned_dormant_metric_tags_;
+        std::unordered_map<std::string, RunMode> configured_eval_run_modes_;
+        std::unordered_set<std::string> warned_unsupported_env_config_names_;
+        std::unordered_map<std::string, std::string> env_config_file_owners_;
 
         // インスタンス(共有)
         std::shared_ptr<anet::rl::BatchEnv> env_;

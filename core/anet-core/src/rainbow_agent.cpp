@@ -179,8 +179,26 @@ std::shared_ptr<anet::rl::ActionContext> RainbowAgent::CreateActionContext(
     return std::make_shared<DefaultActionContext>(run_mode, ctx_seed, device_);
 }
 
-std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, bool clone_model, std::optional<torch::Device> device) const
+std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(
+    const anet::rl::BatchEnvSpec& batch_env_spec,
+    const anet::rl::EnvSpec& env_spec,
+    anet::rl::RunMode run_mode,
+    std::optional<bool> clone_model_override,
+    std::optional<torch::Device> device) const
 {
+    env_spec_.CheckSameStateActionSpec(env_spec);
+    const bool clone_model = clone_model_override.value_or(false);
+    const auto actor_device = device.value_or(device_);
+    const bool same_shared_device = actor_device.type() == device_.type()
+        && (actor_device.type() != torch::kCUDA
+            || (actor_device.has_index() ? actor_device.index() : 0)
+                == (device_.has_index() ? device_.index() : 0));
+    ANET_CHECK_MSG(
+        clone_model || same_shared_device,
+        "RainbowAgent shared Actor device mismatch: actor_device=" << actor_device.str()
+        << " agent_device=" << device_.str()
+        << ". Use clone_model_override=true or the Agent device.");
+
     // Contextを生成
     auto ctx = this->CreateActionContext(batch_env_spec, run_mode, device_);
 
@@ -202,7 +220,10 @@ std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const anet::rl::Batch
     }
 
     // Actor を生成
-    auto actor = std::make_shared<Actor>(action_policy_, nullptr, ctx, this->mutex_, network, src_network);
+    const bool emit_actor_q_hint = !anet::rl::IsEval(run_mode)
+        && ParseReplayInitialPriorityMode(config_.learner) == ReplayInitialPriorityMode::ACTOR_APPROX;
+    auto actor = std::make_shared<Actor>(
+        action_policy_, nullptr, ctx, this->mutex_, network, src_network, emit_actor_q_hint);
 
     // 生成したActorを返す
     return actor;

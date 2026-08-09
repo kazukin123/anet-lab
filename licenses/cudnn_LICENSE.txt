@@ -1,0 +1,15 @@
+NVIDIA cuDNN
+============
+
+This distribution includes NVIDIA cuDNN runtime libraries
+(cudnn64_9.dll, cudnn_ops64_9.dll, cudnn_cnn64_9.dll, cudnn_adv64_9.dll,
+cudnn_graph64_9.dll, cudnn_engines_precompiled64_9.dll,
+cudnn_engines_runtime_compiled64_9.dll, cudnn_heuristic64_9.dll),
+redistributed as part of the LibTorch (PyTorch) distribution.
+
+cuDNN is licensed under the NVIDIA cuDNN Software License Agreement.
+The full text of the governing license is available at:
+
+  https://docs.nvidia.com/deeplearning/cudnn/latest/reference/eula.html
+
+Copyright (c) NVIDIA Corporation. All rights reserved.

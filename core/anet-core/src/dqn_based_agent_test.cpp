@@ -1,6 +1,7 @@
-﻿#include "catch.hpp"
+#include "anet/catch_test.hpp"
 
 #include "anet/default_dqn_agent.hpp"
+#include "anet/env.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/rainbow_agent.hpp"
 #include "anet/test_util.hpp"
@@ -9,18 +10,23 @@
 #include "nn_impl.hpp"
 #include "nn_heads.hpp"
 
+#include <ATen/autocast_mode.h>
+
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <random>
 #include <shared_mutex>
+#include <span>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -31,6 +37,38 @@ namespace {
 
 namespace rl = anet::rl;
 namespace dqn = anet::rl::dqn;
+
+struct AutocastProbeState {
+    void Record(torch::DeviceType device_type)
+    {
+        ++forward_count;
+        if (at::autocast::is_autocast_enabled(device_type)) {
+            ++enabled_count;
+        }
+        last_device_type = device_type;
+    }
+
+    int forward_count = 0;
+    int enabled_count = 0;
+    torch::DeviceType last_device_type = torch::kCPU;
+};
+
+class AutocastProbeModule final : public anet::nn::NetworkModule {
+public:
+    explicit AutocastProbeModule(std::shared_ptr<AutocastProbeState> state)
+        : state_(std::move(state))
+    {
+    }
+
+    torch::Tensor Forward(torch::Tensor input) override
+    {
+        state_->Record(input.device().type());
+        return input;
+    }
+
+private:
+    std::shared_ptr<AutocastProbeState> state_;
+};
 
 struct QuantileLearnerBaseAccess : public dqn::QuantileLearnerBase {
     using dqn::QuantileLearnerBase::ComputeQuantileHuberLoss;
@@ -43,11 +81,12 @@ struct ActionPolicyAccess : public dqn::ActionPolicy {
     }
 
     using dqn::ActionPolicy::CreateSpatialTensor;
+    using dqn::ActionPolicy::CreateSpatialLaneTensor;
 
-    std::shared_ptr<anet::rl::BatchActionInfo> SelectAction(const anet::TensorDict&, bool, std::shared_ptr<anet::nn::Network>,
+    std::shared_ptr<dqn::DQNActionInfo> SelectAction(const anet::TensorDict&, bool, std::shared_ptr<anet::nn::Network>,
         std::shared_ptr<anet::RandomGenerator>, const anet::TraceSink&) const override
     {
-        return std::make_shared<anet::rl::BatchActionInfo>();
+        return std::make_shared<dqn::DQNActionInfo>();
     }
 };
 
@@ -110,6 +149,46 @@ std::shared_ptr<anet::nn::Network> MakeLinearNetwork()
         head);
 }
 
+std::shared_ptr<anet::nn::Network> MakeAutocastProbeNetwork(
+    const std::shared_ptr<AutocastProbeState>& probe_state,
+    torch::Device device)
+{
+    anet::TensorSpec vector_spec;
+    vector_spec.type = anet::SpaceType::Vector;
+    vector_spec.shape = { 2 };
+    vector_spec.dtype = torch::kFloat32;
+
+    anet::TensorSpecMap input_specs;
+    input_specs[kVectorKey] = vector_spec;
+
+    anet::nn::NetworkConfig network_config;
+    network_config.output_keys[kFeatureKey] = kFeatureKey;
+
+    auto probe = std::make_shared<AutocastProbeModule>(probe_state);
+    auto block = std::make_shared<anet::nn::NetworkBlock>("probe", probe);
+    auto network_struct = std::make_shared<anet::nn::NetworkStruct>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBlock>>{ block });
+    auto branch = std::make_shared<anet::nn::NetworkBranch>(
+        kFeatureKey,
+        std::vector<std::string>{ kVectorKey },
+        network_struct);
+    auto body = std::make_shared<anet::nn::NetworkBody>(
+        std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{ branch },
+        input_specs,
+        std::vector<std::string>{},
+        network_config.output_keys);
+    auto head = std::make_shared<TestLinearHead>(2, 1);
+
+    auto network = std::make_shared<anet::nn::Network>(
+        network_config,
+        input_specs,
+        nullptr,
+        body,
+        head);
+    network->to(device);
+    return network;
+}
+
 class TestNetworkModel final : public dqn::NetworkModel {
 public:
     explicit TestNetworkModel(int64_t num_quantiles = 1)
@@ -119,6 +198,24 @@ public:
             MakeLinearNetwork(),
             1,
             num_quantiles)
+    {
+        GetOnlineNetwork()->CopyTo(*GetTargetNetwork());
+        GetOnlineNetwork()->eval();
+        GetTargetNetwork()->eval();
+    }
+};
+
+class AutocastProbeNetworkModel final : public dqn::NetworkModel {
+public:
+    AutocastProbeNetworkModel(
+        const std::shared_ptr<AutocastProbeState>& probe_state,
+        torch::Device device)
+        : dqn::NetworkModel(
+            dqn::NetworkModelConfig{},
+            MakeAutocastProbeNetwork(probe_state, device),
+            MakeAutocastProbeNetwork(probe_state, device),
+            1,
+            1)
     {
         GetOnlineNetwork()->CopyTo(*GetTargetNetwork());
         GetOnlineNetwork()->eval();
@@ -179,22 +276,48 @@ class RecordingReplayBuffer final : public rl::ReplayBuffer {
 public:
     void Push(const rl::BatchExperience&) override
     {
+        ++push_count;
     }
 
-    void Sample(rl::ExperienceSamples&, int64_t, float) const override
+    void Sample(rl::ExperienceSamples& out_samples, int64_t minibatch_size, float) const override
     {
+        ++sample_count;
+
+        out_samples.obs = anet::TensorDict{
+            { kVectorKey, torch::zeros({ minibatch_size, 2 }, torch::TensorOptions().dtype(torch::kFloat32)) },
+        };
+        out_samples.actions = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kInt64));
+        out_samples.target_returns = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kFloat32));
+        out_samples.next_state.next_obs = anet::TensorDict{
+            { kVectorKey, torch::zeros({ minibatch_size, 2 }, torch::TensorOptions().dtype(torch::kFloat32)) },
+        };
+        out_samples.next_state.terminals = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kBool));
+        out_samples.n_steps = torch::ones({ minibatch_size }, torch::TensorOptions().dtype(torch::kInt64));
+        out_samples.replay_item_keys = torch::arange(minibatch_size, torch::TensorOptions().dtype(torch::kInt64));
+        out_samples.is_weights = torch::ones({ minibatch_size }, torch::TensorOptions().dtype(torch::kFloat32));
+        out_samples.per_priority_sources = torch::zeros({ minibatch_size }, torch::TensorOptions().dtype(torch::kInt8));
     }
 
     int64_t Size() const override
     {
-        return 0;
+        ++size_count;
+        if (size_values.empty()) return 0;
+        if (size_index >= size_values.size()) return size_values.back();
+        return size_values[size_index++];
     }
 
-    void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override
+    rl::ReplayPriorityUpdateResult UpdatePriorities(
+        const std::vector<int64_t>& indices, const std::vector<float>& priorities) override
     {
         last_indices = indices;
         last_priorities = priorities;
         ++update_count;
+        if (priority_update_result.has_value()) {
+            return *priority_update_result;
+        }
+        rl::ReplayPriorityUpdateResult result;
+        result.applied_count = static_cast<int64_t>(indices.size());
+        return result;
     }
 
     std::optional<float> GetScalar(const std::string&, int64_t = -1) const override
@@ -212,9 +335,24 @@ public:
         return std::nullopt;
     }
 
+    void SetSizeValues(std::vector<int64_t> values)
+    {
+        size_values = std::move(values);
+        size_index = 0;
+        size_count = 0;
+    }
+
     std::vector<int64_t> last_indices;
     std::vector<float> last_priorities;
+    int push_count = 0;
+    mutable int sample_count = 0;
+    mutable int size_count = 0;
     int update_count = 0;
+    std::optional<rl::ReplayPriorityUpdateResult> priority_update_result;
+
+private:
+    std::vector<int64_t> size_values;
+    mutable size_t size_index = 0;
 };
 
 std::vector<int64_t> ShapeOf(const torch::Tensor& tensor)
@@ -277,8 +415,9 @@ public:
 
     std::shared_ptr<rl::Actor> CreateActor(
         const rl::BatchEnvSpec&,
+        const rl::EnvSpec&,
         rl::RunMode,
-        bool,
+        std::optional<bool> = std::nullopt,
         std::optional<torch::Device> = std::nullopt) const override
     {
         return nullptr;
@@ -572,7 +711,7 @@ protected:
 
         auto td_error = samples.target_returns.detach().to(torch::kFloat32) * 0.125f
             + samples.n_steps.to(torch::kFloat32) * 0.05f
-            + samples.indices.to(torch::kFloat32) * 0.001f
+            + samples.replay_item_keys.to(torch::kFloat32) * 0.001f
             + 0.01f;
 
         if (jitter_) jitter_->Sleep(DeterminismJitterPhase::BeforePerUpdate);
@@ -580,7 +719,7 @@ protected:
         if (jitter_) jitter_->Sleep(DeterminismJitterPhase::AfterPerUpdate);
 
         DeterminismTraceEntry entry{
-            .indices = TensorToInt64Vector(samples.indices),
+            .indices = TensorToInt64Vector(samples.replay_item_keys),
             .n_steps = TensorToInt64Vector(samples.n_steps),
             .target_returns = TensorToFloatVector(samples.target_returns),
             .is_weights = TensorToFloatVector(samples.is_weights),
@@ -730,10 +869,12 @@ private:
     int64_t num_envs_;
 };
 
-class JitterBatchEnv final : public rl::BatchEnv {
+class JitterBatchEnv final : public rl::BatchEnvBase {
 public:
-    JitterBatchEnv(int64_t num_envs, std::shared_ptr<DeterminismJitterSchedule> jitter)
-        : batch_spec_{ static_cast<int>(num_envs), 1 }
+    JitterBatchEnv(
+        const std::string& name, int64_t num_envs, std::shared_ptr<DeterminismJitterSchedule> jitter)
+        : rl::BatchEnvBase(name, static_cast<int>(num_envs))
+        , batch_spec_{ static_cast<int>(num_envs), 1 }
         , jitter_(std::move(jitter))
     {
     }
@@ -742,15 +883,14 @@ public:
     rl::BatchEnvSpec GetBatchSpec() const override { return batch_spec_; }
     torch::Device GetDevice() const override { return torch::Device(torch::kCPU); }
 
-    std::shared_ptr<const rl::BatchResetResult> Reset(rl::RunMode = rl::RunMode::Train) override
+    std::shared_ptr<const rl::BatchResetResult> Reset() override
     {
         step_ = 0;
         return std::make_shared<DeterminismResetResult>(batch_spec_.num_envs);
     }
 
     std::shared_ptr<const rl::BatchStepResult> Step(
-        std::shared_ptr<rl::BatchActionInfo>,
-        rl::RunMode = rl::RunMode::Train) override
+        std::shared_ptr<rl::BatchActionInfo>) override
     {
         if (jitter_) jitter_->Sleep(DeterminismJitterPhase::EnvStep);
 
@@ -833,8 +973,9 @@ public:
 
     std::shared_ptr<rl::Actor> CreateActor(
         const rl::BatchEnvSpec& batch_env_spec,
+        const rl::EnvSpec&,
         rl::RunMode,
-        bool,
+        std::optional<bool> = std::nullopt,
         std::optional<torch::Device> = std::nullopt) const override
     {
         return std::make_shared<TraceActor>(batch_env_spec.num_envs);
@@ -886,7 +1027,7 @@ RunnerDeterminismTrace RunPipelineDeterminismTrial(
         max_sleep_us,
         jitter_entries,
         sleep_stride);
-    auto env = std::make_shared<JitterBatchEnv>(kNumEnv, jitter);
+    auto env = std::make_shared<JitterBatchEnv>("determinism-jitter", kNumEnv, jitter);
     auto agent = std::make_shared<TraceAgent>(
         MakeDeterminismLearnerConfig(),
         env->GetBatchSpec(),
@@ -965,6 +1106,38 @@ anet::TensorDict MakePolicyInput()
     };
 }
 
+anet::TensorDict MakeAutocastProbePolicyInput(torch::Device device)
+{
+    return anet::TensorDict{
+        { kVectorKey, torch::tensor(
+            {
+                { 1.0f, 2.0f },
+                { 3.0f, 4.0f },
+            },
+            torch::TensorOptions().dtype(torch::kFloat32).device(device)) },
+    };
+}
+
+rl::ExperienceSamples MakeAutocastProbeSamples(torch::Device device)
+{
+    rl::ExperienceSamples samples;
+    samples.obs = MakeAutocastProbePolicyInput(device);
+    samples.next_state.next_obs = anet::TensorDict{
+        { kVectorKey, torch::tensor(
+            {
+                { 0.5f, 1.0f },
+                { 1.5f, 2.0f },
+            },
+            torch::TensorOptions().dtype(torch::kFloat32).device(device)) },
+    };
+    samples.actions = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kInt64).device(device));
+    samples.target_returns = torch::tensor({ 0.1f, 0.2f }, torch::TensorOptions().dtype(torch::kFloat32).device(device));
+    samples.next_state.terminals = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool).device(device));
+    samples.n_steps = torch::ones({ 2 }, torch::TensorOptions().dtype(torch::kInt64).device(device));
+    samples.replay_item_keys = torch::arange(2, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
+    return samples;
+}
+
 anet::TensorDict MakeSpatialUQEInput()
 {
     auto q_values = torch::zeros({ 2, 2 });
@@ -974,8 +1147,8 @@ anet::TensorDict MakeSpatialUQEInput()
             { 0.0f, 100.0f },
         },
         {
-            { 0.0f, 0.0f },
-            { 10.0f, 10.0f },
+            { 5.0f, 5.0f },
+            { 0.0f, 100.0f },
         },
     });
 
@@ -1026,6 +1199,428 @@ TEST_CASE("TBO transform is monotonic and invertible on representative values", 
 
         auto diffs = transformed.slice(0, 1) - transformed.slice(0, 0, -1);
         CHECK(torch::all(diffs.gt(0)).item<bool>());
+    }
+}
+
+TEST_CASE("DQN TBO scalar transforms match tensor transforms", "[dqn][tbo][per][actor_initial][math]")
+{
+    const std::array<float, 9> values{
+        -1000.0f, -10.0f, -1.0f, -0.0f, 0.0f, 1.0e-6f, 1.0f, 10.0f, 1000.0f,
+    };
+
+    for (float epsilon : { 1.0e-2f, 1.0e-3f }) {
+        INFO("epsilon=" << epsilon);
+        for (float value : values) {
+            INFO("value=" << value);
+            const float tensor_h = dqn::TransformH(torch::tensor(value), epsilon).item<float>();
+            const float tensor_h_inv = dqn::TransformHInv(torch::tensor(value), epsilon).item<float>();
+            CHECK(dqn::TransformH(value, epsilon)
+                == Catch::Approx(tensor_h).epsilon(1.0e-5f).margin(1.0e-6f));
+            CHECK(dqn::TransformHInv(value, epsilon)
+                == Catch::Approx(tensor_h_inv).epsilon(1.0e-5f).margin(1.0e-6f));
+        }
+    }
+}
+
+TEST_CASE("DQN scalar raw priority matches tensor clipping policy", "[dqn][per][actor_initial][math]")
+{
+    struct Case {
+        float td_error;
+        float per_eps;
+        bool use_clip;
+        float clip_value;
+    };
+    const std::array<Case, 8> cases{
+        Case{ 0.0f, 0.0f, false, 0.0f },
+        Case{ -0.25f, 0.1f, false, 0.0f },
+        Case{ 0.25f, 0.1f, false, 0.0f },
+        Case{ 0.25f, 0.1f, true, 0.5f },
+        Case{ 0.4f, 0.1f, true, 0.5f },
+        Case{ 2.0f, 0.1f, true, 0.5f },
+        Case{ -2.0f, 0.1f, true, 0.5f },
+        Case{ 2.0f, 0.0f, true, 0.0f },
+    };
+
+    for (const auto& test_case : cases) {
+        INFO("td_error=" << test_case.td_error << " per_eps=" << test_case.per_eps
+            << " use_clip=" << test_case.use_clip << " clip_value=" << test_case.clip_value);
+        const float tensor_priority = dqn::MakePerRawPriority(
+            torch::tensor(test_case.td_error),
+            test_case.per_eps,
+            test_case.use_clip,
+            test_case.clip_value).item<float>();
+        CHECK(dqn::MakePerRawPriority(
+            test_case.td_error,
+            test_case.per_eps,
+            test_case.use_clip,
+            test_case.clip_value) == Catch::Approx(tensor_priority).margin(1.0e-7f));
+    }
+}
+
+TEST_CASE("DQN initial priority estimator completes a one-step bootstrap", "[dqn][per][actor_initial][estimator]")
+{
+    dqn::LearnerConfig config;
+    config.use_tbo = false;
+    config.per_eps = 0.1f;
+    config.use_per_prio_clip = false;
+    auto estimator = dqn::CreateInitialPriorityEstimator(config);
+
+    const std::array<float, 2> start_hint{ 4.0f, 5.0f };
+    const std::array<float, 2> bootstrap_hint{ 6.0f, 2.0f };
+    const auto priority = estimator->Estimate(rl::InitialPriorityEstimateInput{
+        .start_hint = start_hint,
+        .bootstrap_hint = bootstrap_hint,
+        .target_return = 1.0f,
+        .discount = 0.9f,
+        .terminal = false,
+        .actual_n_steps = 1,
+    });
+
+    REQUIRE(priority.has_value());
+    CHECK(*priority == Catch::Approx(1.3f).margin(1.0e-6f));
+}
+
+TEST_CASE("DQN replay priority validation warns independently for each learner", "[dqn][config][per]")
+{
+    dqn::LearnerConfig config;
+    config.use_per = true;
+    config.per_initial_priority_mode = "fixed";
+    config.per_eps = 0.0f;
+
+    anet::test::LogCaptureGuard logs;
+    const auto mode = dqn::ParseReplayInitialPriorityMode(config);
+    logs.Flush();
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
+
+    dqn::ValidateReplayPriorityConfig(config, mode);
+    dqn::ValidateReplayPriorityConfig(config, mode);
+    logs.Flush();
+
+    int matching_warnings = 0;
+    for (const auto& record : logs.Records()) {
+        if (record.level != wxLOG_Warning || record.message.find("learner.per_eps=0") == std::string::npos) continue;
+        ++matching_warnings;
+        CHECK(record.message.find("zero-TD-error transitions") != std::string::npos);
+        CHECK(record.message.find("Set learner.per_eps") != std::string::npos);
+    }
+    CHECK(matching_warnings == 2);
+}
+
+TEST_CASE("DQN replay priority warnings identify keys values reasons and alternatives", "[dqn][config][per]")
+{
+    auto require_warning = [](const dqn::LearnerConfig& config, const std::vector<std::string>& fragments) {
+        anet::test::LogCaptureGuard logs;
+        const auto mode = dqn::ParseReplayInitialPriorityMode(config);
+        dqn::ValidateReplayPriorityConfig(config, mode);
+        logs.Flush();
+
+        REQUIRE(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 1);
+        const auto& message = logs.Records().front().message;
+        for (const auto& fragment : fragments) {
+            CAPTURE(message, fragment);
+            CHECK(message.find(fragment) != std::string::npos);
+        }
+    };
+
+    SECTION("actor priority with alpha zero") {
+        dqn::LearnerConfig config;
+        config.use_per = true;
+        config.per_initial_priority_mode = "actor_approx";
+        config.per_alpha = 0.0f;
+        require_warning(config, {
+            "learner.per_initial_priority_mode=actor_approx",
+            "learner.per_alpha=0",
+            "does not affect sampling",
+            "Set learner.per_alpha",
+        });
+    }
+    SECTION("zero clip upper bound") {
+        dqn::LearnerConfig config;
+        config.use_per_prio_clip = true;
+        config.per_prio_clip_value = 0.0f;
+        require_warning(config, {
+            "learner.use_per_prio_clip=true",
+            "learner.per_prio_clip_value=0",
+            "clipped to zero",
+            "disable learner.use_per_prio_clip",
+        });
+    }
+    SECTION("clip upper bound no larger than epsilon") {
+        dqn::LearnerConfig config;
+        config.per_eps = 0.25f;
+        config.use_per_prio_clip = true;
+        config.per_prio_clip_value = 0.2f;
+        require_warning(config, {
+            "learner.per_prio_clip_value=0.2",
+            "learner.per_eps=0.25",
+            "collapse priority differences",
+            "learner.per_prio_clip_value > learner.per_eps",
+        });
+    }
+}
+
+TEST_CASE("DQN replay priority validation preserves invalid configuration errors", "[dqn][config][per]")
+{
+    dqn::LearnerConfig config;
+
+    config.per_initial_priority_mode = "unknown";
+    CHECK_THROWS(dqn::ParseReplayInitialPriorityMode(config));
+
+    config.per_initial_priority_mode = "fixed";
+    const auto fixed_mode = dqn::ParseReplayInitialPriorityMode(config);
+    for (const float invalid : {
+        -1.0f,
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::infinity() }) {
+        config.per_initial_priority = invalid;
+        CHECK_THROWS(dqn::ValidateReplayPriorityConfig(config, fixed_mode));
+    }
+
+    config.per_initial_priority = 1.0f;
+    for (const float invalid : {
+        -1.0f,
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::infinity() }) {
+        config.per_eps = invalid;
+        CHECK_THROWS(dqn::ValidateReplayPriorityConfig(config, fixed_mode));
+    }
+
+    config.per_eps = 1.0e-6f;
+    config.use_per = false;
+    config.per_initial_priority_mode = "max";
+    CHECK_THROWS(dqn::ValidateReplayPriorityConfig(
+        config, dqn::ParseReplayInitialPriorityMode(config)));
+
+    config.per_initial_priority_mode = "fixed";
+    config.use_per_prio_clip = true;
+    for (const float invalid : {
+        -1.0f,
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::infinity() }) {
+        config.per_prio_clip_value = invalid;
+        CHECK_THROWS(dqn::ValidateReplayPriorityConfig(config, fixed_mode));
+    }
+
+    // clip無効時は未使用の値を検証しない既存契約を維持する。
+    config.use_per_prio_clip = false;
+    config.per_prio_clip_value = -1.0f;
+    CHECK_NOTHROW(dqn::ValidateReplayPriorityConfig(config, fixed_mode));
+}
+
+TEST_CASE("DQN initial priority estimator distinguishes n-step bootstrap and true terminal", "[dqn][per][actor_initial][estimator]")
+{
+    dqn::LearnerConfig config;
+    config.use_tbo = false;
+    config.per_eps = 0.0f;
+    config.use_per_prio_clip = false;
+    auto estimator = dqn::CreateInitialPriorityEstimator(config);
+    const std::array<float, 2> start_hint{ 4.0f, 99.0f };
+    const std::array<float, 2> bootstrap_hint{ 88.0f, 3.0f };
+
+    const auto n_step_priority = estimator->Estimate(rl::InitialPriorityEstimateInput{
+        .start_hint = start_hint,
+        .bootstrap_hint = bootstrap_hint,
+        .target_return = 1.0f,
+        .discount = 0.729f,
+        .terminal = false,
+        .actual_n_steps = 3,
+    });
+    REQUIRE(n_step_priority.has_value());
+    CHECK(*n_step_priority == Catch::Approx(0.813f).margin(1.0e-6f));
+
+    const auto terminal_priority = estimator->Estimate(rl::InitialPriorityEstimateInput{
+        .start_hint = start_hint,
+        .bootstrap_hint = {},
+        .target_return = 1.0f,
+        .discount = 0.729f,
+        .terminal = true,
+        .actual_n_steps = 3,
+    });
+    REQUIRE(terminal_priority.has_value());
+    CHECK(*terminal_priority == Catch::Approx(3.0f).margin(1.0e-6f));
+}
+
+TEST_CASE("DQN initial priority estimator applies TBO to QR mean Q hints", "[dqn][tbo][per][actor_initial][estimator]")
+{
+    dqn::LearnerConfig config;
+    config.use_tbo = true;
+    config.tbo_epsilon = 1.0e-2f;
+    config.per_eps = 0.05f;
+    config.use_per_prio_clip = false;
+    auto estimator = dqn::CreateInitialPriorityEstimator(config);
+
+    const float actor_q_sa = torch::tensor({ 2.0f, 4.0f }).mean().item<float>();
+    const float bootstrap_state_value = torch::tensor({ 1.0f, 5.0f }).mean().item<float>();
+    const std::array<float, 2> start_hint{ actor_q_sa, 0.0f };
+    const std::array<float, 2> bootstrap_hint{ 0.0f, bootstrap_state_value };
+    const auto priority = estimator->Estimate(rl::InitialPriorityEstimateInput{
+        .start_hint = start_hint,
+        .bootstrap_hint = bootstrap_hint,
+        .target_return = 2.0f,
+        .discount = 0.81f,
+        .terminal = false,
+        .actual_n_steps = 2,
+    });
+
+    const float target = dqn::TransformH(
+        2.0f + 0.81f * dqn::TransformHInv(bootstrap_state_value, config.tbo_epsilon),
+        config.tbo_epsilon);
+    const float expected = dqn::MakePerRawPriority(
+        target - actor_q_sa,
+        config.per_eps,
+        config.use_per_prio_clip,
+        config.per_prio_clip_value);
+    REQUIRE(priority.has_value());
+    CHECK(*priority == Catch::Approx(expected).epsilon(1.0e-6f).margin(1.0e-6f));
+}
+
+TEST_CASE("DQN initial priority estimator preserves zero and clip boundaries", "[dqn][per][actor_initial][estimator]")
+{
+    const std::array<float, 2> start_hint{ 2.0f, 0.0f };
+
+    dqn::LearnerConfig zero_config;
+    zero_config.per_eps = 0.0f;
+    zero_config.use_per_prio_clip = false;
+    auto zero_estimator = dqn::CreateInitialPriorityEstimator(zero_config);
+    const auto zero_priority = zero_estimator->Estimate(rl::InitialPriorityEstimateInput{
+        .start_hint = start_hint,
+        .bootstrap_hint = {},
+        .target_return = 2.0f,
+        .discount = 0.0f,
+        .terminal = true,
+        .actual_n_steps = 1,
+    });
+    REQUIRE(zero_priority.has_value());
+    CHECK(*zero_priority == 0.0f);
+
+    dqn::LearnerConfig clip_config;
+    clip_config.per_eps = 0.1f;
+    clip_config.use_per_prio_clip = true;
+    clip_config.per_prio_clip_value = 0.5f;
+    auto clip_estimator = dqn::CreateInitialPriorityEstimator(clip_config);
+    const auto clipped_priority = clip_estimator->Estimate(rl::InitialPriorityEstimateInput{
+        .start_hint = start_hint,
+        .bootstrap_hint = {},
+        .target_return = 4.0f,
+        .discount = 0.0f,
+        .terminal = true,
+        .actual_n_steps = 1,
+    });
+    REQUIRE(clipped_priority.has_value());
+    CHECK(*clipped_priority == Catch::Approx(0.5f).margin(1.0e-7f));
+}
+
+TEST_CASE("DQN initial priority estimator distinguishes schema errors and non-finite values", "[dqn][per][actor_initial][estimator]")
+{
+    dqn::LearnerConfig config;
+    auto estimator = dqn::CreateInitialPriorityEstimator(config);
+    const std::array<float, 2> finite_hint{ 1.0f, 2.0f };
+    const std::array<float, 2> nan_hint{ std::numeric_limits<float>::quiet_NaN(), 2.0f };
+    const std::array<float, 2> inf_hint{ 1.0f, std::numeric_limits<float>::infinity() };
+
+    CHECK(estimator->ValidateHint(finite_hint));
+    CHECK_FALSE(estimator->ValidateHint(nan_hint));
+    CHECK_FALSE(estimator->ValidateHint(inf_hint));
+    CHECK_THROWS(estimator->ValidateHint(std::span<const float>(finite_hint.data(), 1)));
+
+    const auto nonfinite_start = estimator->Estimate(rl::InitialPriorityEstimateInput{
+        .start_hint = nan_hint,
+        .bootstrap_hint = {},
+        .target_return = 1.0f,
+        .discount = 0.0f,
+        .terminal = true,
+        .actual_n_steps = 1,
+    });
+    CHECK_FALSE(nonfinite_start.has_value());
+
+    const auto nonfinite_bootstrap = estimator->Estimate(rl::InitialPriorityEstimateInput{
+        .start_hint = finite_hint,
+        .bootstrap_hint = inf_hint,
+        .target_return = 1.0f,
+        .discount = 0.9f,
+        .terminal = false,
+        .actual_n_steps = 1,
+    });
+    CHECK_FALSE(nonfinite_bootstrap.has_value());
+}
+
+TEST_CASE("DQN initial priority estimator matches scalar learner TD priority", "[dqn][learner][tbo][per][actor_initial][math]")
+{
+    for (bool use_tbo : { false, true }) {
+        INFO("use_tbo=" << use_tbo);
+        dqn::LearnerConfig config;
+        config.alpha = 0.0f;
+        config.use_fused_optimizer = false;
+        config.use_grad_clip = false;
+        config.use_td_clip = false;
+        config.use_per = false;
+        config.replay_capacity = 8;
+        config.replay_batch_size = 1;
+        config.gamma = 0.9f;
+        config.use_tbo = use_tbo;
+        config.tbo_epsilon = 1.0e-2f;
+        config.per_eps = 0.05f;
+        config.use_per_prio_clip = true;
+        config.per_prio_clip_value = 10.0f;
+
+        auto env_spec = MakeLearnerEnvSpec();
+        TestNetworkModel model;
+        dqn::RuntimeVars vars;
+        rl::BatchEnvSpec batch_env_spec{ 1, 1 };
+        auto target_policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
+        dqn::TDLearner learner(
+            config,
+            model,
+            vars,
+            nullptr,
+            batch_env_spec,
+            env_spec,
+            torch::kCPU,
+            123,
+            target_policy,
+            std::nullopt,
+            456);
+
+        rl::ExperienceSamples samples;
+        samples.obs = anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } };
+        samples.actions = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kInt64));
+        samples.target_returns = torch::tensor({ 0.75f });
+        samples.next_state.next_obs = anet::TensorDict{
+            { kVectorKey, torch::tensor({ { 3.0f, 4.0f } }) },
+        };
+        samples.next_state.terminals = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
+        samples.n_steps = torch::tensor({ 3 }, torch::TensorOptions().dtype(torch::kInt64));
+
+        float bootstrap_state_value = 0.0f;
+        {
+            torch::NoGradGuard no_grad;
+            bootstrap_state_value = model.ForwardTarget(samples.next_state.next_obs).At("q").item<float>();
+        }
+        const auto base_result = learner.UpdateFromSamples(samples);
+        const auto result = std::dynamic_pointer_cast<const dqn::BatchUpdateResult>(base_result);
+        REQUIRE(result != nullptr);
+        REQUIRE(result->td_error.numel() == 1);
+        REQUIRE(result->q_sa.numel() == 1);
+
+        const std::array<float, 2> start_hint{ result->q_sa.item<float>(), 0.0f };
+        const std::array<float, 2> bootstrap_hint{ 0.0f, bootstrap_state_value };
+        auto estimator = dqn::CreateInitialPriorityEstimator(config);
+        const auto actor_priority = estimator->Estimate(rl::InitialPriorityEstimateInput{
+            .start_hint = start_hint,
+            .bootstrap_hint = bootstrap_hint,
+            .target_return = samples.target_returns.item<float>(),
+            .discount = static_cast<float>(std::pow(config.gamma, samples.n_steps.item<int64_t>())),
+            .terminal = false,
+            .actual_n_steps = samples.n_steps.item<int>(),
+        });
+        const float learner_priority = dqn::MakePerRawPriority(
+            result->td_error.detach(),
+            config.per_eps,
+            config.use_per_prio_clip,
+            config.per_prio_clip_value).item<float>();
+
+        REQUIRE(actor_priority.has_value());
+        CHECK(*actor_priority == Catch::Approx(learner_priority).epsilon(2.0e-5f).margin(5.0e-6f));
     }
 }
 
@@ -1082,7 +1677,75 @@ TEST_CASE("TBO real-space q scalars are exposed from batch update result", "[dqn
     CHECK(off_result->GetScalar("q_sa_real_mean", -1).has_value());
 }
 
-TEST_CASE("PER priority prepare/apply updates replay buffer from CPU materialized priorities", "[dqn][per]")
+TEST_CASE("Learner stops polling replay buffer size after minibatch threshold is reached", "[dqn][replay_buffer][performance]")
+{
+    dqn::LearnerConfig config;
+    config.replay_batch_size = 2;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = -1.0f;
+
+    auto env_spec = MakeLearnerEnvSpec();
+    TestNetworkModel model;
+    dqn::RuntimeVars vars;
+    rl::BatchEnvSpec batch_env_spec{ 1, 1 };
+    TestLearner learner(config, model, vars, batch_env_spec, env_spec);
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->SetSizeValues({ 0, config.replay_batch_size, 0 });
+    learner.UseReplayBuffer(replay_buffer);
+
+    auto make_counts = [&vars](rl::step_t step) {
+        rl::StepCounts counts;
+        counts.train_step = step;
+        counts.exp_step = step;
+        counts.learn_step = vars.learn_step;
+        return counts;
+    };
+
+    auto cold_result = learner.UpdateFromBatch(make_counts(0), MakeDeterminismExperience(0, 1));
+    REQUIRE(cold_result.empty());
+    REQUIRE(replay_buffer->size_count == 1);
+    REQUIRE(replay_buffer->sample_count == 0);
+
+    auto first_update = learner.UpdateFromBatch(make_counts(1), MakeDeterminismExperience(1, 1));
+    REQUIRE(first_update.size() == 1);
+    REQUIRE(replay_buffer->size_count == 2);
+    REQUIRE(replay_buffer->sample_count == 1);
+
+    auto latched_update = learner.UpdateFromBatch(make_counts(2), MakeDeterminismExperience(2, 1));
+    REQUIRE(latched_update.size() == 1);
+    REQUIRE(replay_buffer->size_count == 2);
+    REQUIRE(replay_buffer->sample_count == 2);
+    REQUIRE(replay_buffer->push_count == 3);
+}
+
+TEST_CASE("PER raw priority batch counts strict pre-clip changes on CPU and CUDA", "[dqn][per][clip]")
+{
+    std::vector<torch::Device> devices{ torch::Device(torch::kCPU) };
+    if (torch::cuda::is_available()) {
+        devices.emplace_back(torch::Device(torch::kCUDA, 0));
+    }
+
+    for (const auto& device : devices) {
+        INFO("device=" << device.str());
+
+        // priorityがclip上限未満・等値・超過のとき、超過分だけを件数へ含める。
+        auto td_error = torch::tensor({ -0.2f, 0.9f, 2.0f }, torch::TensorOptions().device(device));
+        auto clipped = dqn::MakePerRawPriorityBatch(td_error, 0.1f, true, 1.0f);
+        CHECK(torch::allclose(clipped.priorities.cpu(), torch::tensor({ 0.3f, 1.0f, 1.0f })));
+        CHECK(clipped.clipped_count.item<int64_t>() == 1);
+
+        auto unclipped = dqn::MakePerRawPriorityBatch(td_error, 0.1f, false, 1.0f);
+        CHECK(torch::allclose(unclipped.priorities.cpu(), torch::tensor({ 0.3f, 1.0f, 2.1f })));
+        CHECK(unclipped.clipped_count.item<int64_t>() == 0);
+
+        auto zero_clip = dqn::MakePerRawPriorityBatch(td_error, 0.0f, true, 0.0f);
+        CHECK(torch::allclose(zero_clip.priorities.cpu(), torch::zeros({ 3 })));
+        CHECK(zero_clip.clipped_count.item<int64_t>() == 3);
+    }
+}
+
+TEST_CASE("PER priority prepare/apply counts only priorities changed by clipping", "[dqn][per][clip]")
 {
     dqn::LearnerConfig config;
     config.use_per = true;
@@ -1096,18 +1759,32 @@ TEST_CASE("PER priority prepare/apply updates replay buffer from CPU materialize
     rl::BatchEnvSpec batch_env_spec{ 1, 1 };
     TestLearner learner(config, model, vars, batch_env_spec, env_spec);
     auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    replay_buffer->priority_update_result = rl::ReplayPriorityUpdateResult{
+        .applied_count = 2,
+        .stale_count = 1,
+        .actor_learner_pair_count = 4,
+        .actor_learner_positive_pair_ratio = 0.75f,
+        .actor_learner_ratio_median = 1.25f,
+        .actor_learner_log_ratio_mean = -0.5f,
+        .actor_learner_spearman = 0.6f,
+    };
     learner.UseReplayBuffer(replay_buffer);
 
     rl::ExperienceSamples samples;
-    samples.indices = torch::tensor({ 3, 5 }, torch::TensorOptions().dtype(torch::kInt64));
-    samples.is_weights = torch::tensor({ 0.25f, 0.75f });
-    samples.per_is_initial_priority = DeterminismBoolTensor({ true, false });
+    samples.replay_item_keys = torch::tensor({ 3, 4, 5 }, torch::TensorOptions().dtype(torch::kInt64));
+    samples.is_weights = torch::tensor({ 0.2f, 0.3f, 0.5f });
+    samples.per_priority_sources = torch::tensor(
+        { static_cast<int8_t>(rl::ReplayPrioritySource::FIXED_INITIAL),
+          static_cast<int8_t>(rl::ReplayPrioritySource::LEARNER_UPDATED),
+          static_cast<int8_t>(rl::ReplayPrioritySource::LEARNER_UPDATED) },
+        torch::TensorOptions().dtype(torch::kInt8));
 
-    auto td_error = torch::tensor({ -0.2f, 2.0f });
+    // clip前priorityが上限未満・等値・超過となる3境界を同時に検証する。
+    auto td_error = torch::tensor({ -0.2f, 0.9f, 2.0f });
     auto pending = learner.PreparePerPriorityUpdate(samples, td_error);
 
     REQUIRE(pending.enabled);
-    const auto expected_indices = std::vector<int64_t>{ 3, 5 };
+    const auto expected_indices = std::vector<int64_t>{ 3, 4, 5 };
     CHECK(pending.indices == expected_indices);
     REQUIRE(pending.per_sample_initial_count.defined());
     CHECK(pending.per_sample_initial_count.item<float>() == Catch::Approx(1.0f).margin(1.0e-6f));
@@ -1116,33 +1793,48 @@ TEST_CASE("PER priority prepare/apply updates replay buffer from CPU materialize
 
     CHECK(replay_buffer->update_count == 1);
     CHECK(replay_buffer->last_indices == expected_indices);
-    REQUIRE(replay_buffer->last_priorities.size() == 2);
+    REQUIRE(replay_buffer->last_priorities.size() == 3);
     CHECK(replay_buffer->last_priorities[0] == Catch::Approx(0.3f).margin(1.0e-6f));
     CHECK(replay_buffer->last_priorities[1] == Catch::Approx(1.0f).margin(1.0e-6f));
+    CHECK(replay_buffer->last_priorities[2] == Catch::Approx(1.0f).margin(1.0e-6f));
 
     REQUIRE(result.per_priorities.defined());
     CHECK(result.per_priorities.device().is_cpu());
-    CHECK(torch::allclose(result.per_priorities, torch::tensor({ 0.3f, 1.0f })));
+    CHECK(torch::allclose(result.per_priorities, torch::tensor({ 0.3f, 1.0f, 1.0f })));
     REQUIRE(result.per_clipped_count.defined());
     CHECK(result.per_clipped_count.device().is_cpu());
     CHECK(result.per_clipped_count.item<int64_t>() == 1);
-    CHECK(result.per_minibatch_size == 2);
+    CHECK(result.per_minibatch_size == 3);
     REQUIRE(result.per_is_weights.defined());
     CHECK(torch::allclose(result.per_is_weights, samples.is_weights));
     REQUIRE(result.per_sample_initial_count.defined());
     CHECK(result.per_sample_initial_count.item<float>() == Catch::Approx(1.0f).margin(1.0e-6f));
+    CHECK(result.per_update_result.applied_count == 2);
+    CHECK(result.per_update_result.stale_count == 1);
+    CHECK(result.per_update_result.actor_learner_pair_count == 4);
+    CHECK(result.per_update_result.actor_learner_positive_pair_ratio == Catch::Approx(0.75f));
+    CHECK(result.per_update_result.actor_learner_ratio_median == Catch::Approx(1.25f));
+    CHECK(result.per_update_result.actor_learner_log_ratio_mean == Catch::Approx(-0.5f));
+    CHECK(result.per_update_result.actor_learner_spearman == Catch::Approx(0.6f));
 
     dqn::OptimizerStepResult opt_result;
     auto batch_result = learner.MakeBatchUpdateResult(
         torch::tensor(0.0f),
         td_error,
         opt_result,
-        torch::zeros({ 2 }),
-        torch::zeros({ 2 }),
+        torch::zeros({ 3 }),
+        torch::zeros({ 3 }),
         result);
     auto sample_initial_ratio = batch_result->GetScalar("per_sample_initial_ratio", -1);
     REQUIRE(sample_initial_ratio.has_value());
-    CHECK(*sample_initial_ratio == Catch::Approx(0.5f).margin(1.0e-6f));
+    CHECK(*sample_initial_ratio == Catch::Approx(1.0f / 3.0f).margin(1.0e-6f));
+    CHECK(batch_result->GetScalar("per_priority_update_stale_ratio", -1).value()
+        == Catch::Approx(1.0f / 3.0f).margin(1.0e-6f));
+    CHECK(batch_result->GetScalar("per_actor_learner_pair_count", -1).value() == Catch::Approx(4.0f));
+    CHECK(batch_result->GetScalar("per_actor_learner_positive_pair_ratio", -1).value() == Catch::Approx(0.75f));
+    CHECK(batch_result->GetScalar("per_actor_learner_ratio_median", -1).value() == Catch::Approx(1.25f));
+    CHECK(batch_result->GetScalar("per_actor_learner_log_ratio_mean", -1).value() == Catch::Approx(-0.5f));
+    CHECK(batch_result->GetScalar("per_actor_learner_spearman", -1).value() == Catch::Approx(0.6f));
 }
 
 TEST_CASE("Optimizer helper keeps QR-DQN FP32 grad clip result contract", "[dqn][optimizer]")
@@ -1174,6 +1866,65 @@ TEST_CASE("Optimizer helper keeps QR-DQN FP32 grad clip result contract", "[dqn]
     auto weight_delta = model.GetOnlineParameters()[0].detach().cpu() - weight_before;
     CHECK(weight_delta[0][0].item<float>() == Catch::Approx(-0.03f).margin(1.0e-5f));
     CHECK(weight_delta[0][1].item<float>() == Catch::Approx(-0.04f).margin(1.0e-5f));
+}
+
+TEST_CASE("DQN learner BF16 autocast follows learner device", "[dqn][learner][amp][bf16]")
+{
+    std::vector<torch::Device> devices{ torch::Device(torch::kCPU) };
+    if (torch::cuda::is_available()) {
+        devices.emplace_back(torch::Device(torch::kCUDA, 0));
+    }
+
+    for (const auto& device : devices) {
+        INFO("device=" << device.str());
+
+        auto probe_state = std::make_shared<AutocastProbeState>();
+        AutocastProbeNetworkModel model(probe_state, device);
+        dqn::RuntimeVars vars;
+        auto env_spec = MakeLearnerEnvSpec();
+        rl::BatchEnvSpec batch_env_spec{ 2, 1 };
+
+        dqn::LearnerConfig config;
+        config.use_amp = true;
+        config.use_amp_bf16 = true;
+        config.use_fused_optimizer = false;
+        config.use_grad_clip = false;
+        config.use_per = false;
+        config.replay_batch_size = 2;
+        config.replay_capacity = 8;
+
+        dqn::ActionPolicyConfig target_policy_config;
+        target_policy_config.use_amp = true;
+        target_policy_config.use_amp_bf16 = true;
+        auto target_policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(
+            target_policy_config,
+            false,
+            0,
+            device);
+
+        const auto device_type = device.type();
+        const bool original_enabled = at::autocast::is_autocast_enabled(device_type);
+        dqn::TDLearner learner(
+            config,
+            model,
+            vars,
+            nullptr,
+            batch_env_spec,
+            env_spec,
+            device,
+            123,
+            target_policy,
+            std::nullopt,
+            456);
+
+        auto result = learner.UpdateFromSamples(MakeAutocastProbeSamples(device));
+
+        REQUIRE(result != nullptr);
+        REQUIRE(probe_state->forward_count > 0);
+        CHECK(probe_state->enabled_count == probe_state->forward_count);
+        CHECK(probe_state->last_device_type == device_type);
+        CHECK(at::autocast::is_autocast_enabled(device_type) == original_enabled);
+    }
 }
 
 TEST_CASE("NetworkModel mode-specific forwards preserve training modes", "[dqn][network_model]")
@@ -1236,6 +1987,145 @@ TEST_CASE("DefaultDQNAgent TensorDictFunction accepts CPU input on CUDA agent", 
     CHECK(out.At("q").device().type() == torch::kCUDA);
 }
 
+TEST_CASE("DefaultDQNAgent resolves Train Actor snapshot clone overrides", "[dqn][actor][snapshot]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto make_agent = [](bool clone_model) {
+        auto config = MakeDeviceForwardDefaultDqnConfig();
+        config.train_actor.clone_model = clone_model;
+        config.train_actor.sync_interval.value = 7;
+        auto env_spec = MakeLearnerEnvSpec();
+        return std::make_shared<dqn::DefaultDQNAgent>(
+            config,
+            MakeAgentForwardNetworkConfig(),
+            rl::BatchEnvSpec{ 1, 1 },
+            env_spec,
+            torch::Device(torch::kCPU),
+            123);
+    };
+    auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
+    rl::BatchState state(
+        anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } },
+        flags,
+        flags,
+        flags);
+    const auto read_interval = [&](const std::shared_ptr<dqn::DefaultDQNAgent>& agent,
+                                   rl::RunMode mode,
+                                   std::optional<bool> clone_override) {
+        auto actor = agent->CreateActor(
+            rl::BatchEnvSpec{ 1, 1 }, MakeLearnerEnvSpec(), mode, clone_override,
+            torch::Device(torch::kCPU));
+        auto info = std::dynamic_pointer_cast<dqn::DQNActionInfo>(
+            actor->MakeAction(rl::StepCounts{}, state));
+        REQUIRE(info != nullptr);
+        const auto interval = info->GetScalar("train_actor_snapshot_interval");
+        REQUIRE(interval.has_value());
+        return *interval;
+    };
+
+    auto shared_default = make_agent(false);
+    CHECK(std::isnan(read_interval(shared_default, rl::RunMode::Train, std::nullopt)));
+    CHECK(read_interval(shared_default, rl::RunMode::Train, true) == Catch::Approx(7.0f));
+
+    auto snapshot_default = make_agent(true);
+    CHECK(read_interval(snapshot_default, rl::RunMode::Train, std::nullopt) == Catch::Approx(7.0f));
+    CHECK(std::isnan(read_interval(snapshot_default, rl::RunMode::Train, false)));
+    CHECK(std::isnan(read_interval(snapshot_default, rl::RunMode::Eval, true)));
+}
+
+TEST_CASE("DefaultDQNAgent rejects an effective shared Actor on another device", "[dqn][actor][snapshot][device]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto config = MakeDeviceForwardDefaultDqnConfig();
+    config.train_actor.clone_model = false;
+    const auto batch_env_spec = rl::BatchEnvSpec{ 1, 1 };
+    auto agent = std::make_shared<dqn::DefaultDQNAgent>(
+        config,
+        MakeAgentForwardNetworkConfig(),
+        batch_env_spec,
+        MakeLearnerEnvSpec(),
+        torch::Device(torch::kCPU),
+        123);
+
+    CHECK_THROWS(agent->CreateActor(
+        batch_env_spec,
+        MakeLearnerEnvSpec(),
+        rl::RunMode::Train,
+        std::nullopt,
+        torch::Device(torch::kCUDA, 0)));
+}
+
+TEST_CASE("DefaultDQNAgent decides whether an Eval EnvSpec is acceptable", "[dqn][actor][env_spec]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    const auto batch_env_spec = rl::BatchEnvSpec{ 1, 1 };
+    const auto train_env_spec = MakeLearnerEnvSpec();
+    auto agent = std::make_shared<dqn::DefaultDQNAgent>(
+        MakeDeviceForwardDefaultDqnConfig(),
+        MakeAgentForwardNetworkConfig(),
+        batch_env_spec,
+        train_env_spec,
+        torch::Device(torch::kCPU),
+        123);
+
+    auto incompatible_eval_spec = train_env_spec;
+    incompatible_eval_spec.action_spec.value_labels.push_back("incompatible");
+    CHECK_THROWS(agent->CreateActor(
+        batch_env_spec,
+        incompatible_eval_spec,
+        rl::RunMode::Eval,
+        std::nullopt,
+        torch::Device(torch::kCPU)));
+}
+
+TEST_CASE("DefaultDQNAgent creates the initial snapshot from an auto-loaded network", "[dqn][actor][snapshot][serialize]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    const auto env_spec = MakeLearnerEnvSpec();
+    const auto batch_env_spec = rl::BatchEnvSpec{ 1, 1 };
+    auto source_config = MakeDeviceForwardDefaultDqnConfig();
+    auto source_agent = std::make_shared<dqn::DefaultDQNAgent>(
+        source_config,
+        MakeAgentForwardNetworkConfig(),
+        batch_env_spec,
+        env_spec,
+        torch::Device(torch::kCPU),
+        123);
+    auto source_forward = source_agent->GetTensorDictFunction("policy-net.forward");
+    REQUIRE(source_forward.has_value());
+    const auto obs = anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } };
+    const auto expected_q = (*source_forward)(obs).At("q").detach().clone();
+
+    const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto checkpoint = std::filesystem::temp_directory_path()
+        / ("anet_default_dqn_snapshot_" + std::to_string(unique_suffix) + ".bin");
+    {
+        std::ofstream stream(checkpoint, std::ios::binary);
+        REQUIRE(stream);
+        anet::OutputArchive archive(stream, checkpoint.string());
+        source_agent->Save(archive);
+    }
+
+    auto loaded_config = MakeDeviceForwardDefaultDqnConfig();
+    loaded_config.auto_load_file = checkpoint.string();
+    loaded_config.train_actor.clone_model = true;
+    auto loaded_agent = std::make_shared<dqn::DefaultDQNAgent>(
+        loaded_config,
+        MakeAgentForwardNetworkConfig(),
+        batch_env_spec,
+        env_spec,
+        torch::Device(torch::kCPU),
+        456);
+    auto actor = loaded_agent->CreateActor(
+        batch_env_spec, env_spec, rl::RunMode::Train, std::nullopt, torch::Device(torch::kCPU));
+    auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
+    rl::BatchState state(obs, flags, flags, flags);
+    const auto action_info = actor->MakeAction(rl::StepCounts{}, state);
+
+    CHECK(torch::allclose(action_info->GetAuxData().at("q_values"), expected_q));
+    std::filesystem::remove(checkpoint);
+}
+
 TEST_CASE("RainbowAgent TensorDictFunction accepts CPU input on CUDA agent", "[dqn][network_model][device]")
 {
     if (!torch::cuda::is_available()) return;
@@ -1261,6 +2151,40 @@ TEST_CASE("RainbowAgent TensorDictFunction accepts CPU input on CUDA agent", "[d
 
     REQUIRE(out.Get("q").has_value());
     CHECK(out.At("q").device().type() == torch::kCUDA);
+}
+
+TEST_CASE("RainbowAgent omits DefaultDQN snapshot diagnostics", "[dqn][actor][snapshot][rainbow]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    const auto env_spec = MakeLearnerEnvSpec();
+    const auto batch_env_spec = rl::BatchEnvSpec{ 1, 1 };
+    auto agent = std::make_shared<dqn::RainbowAgent>(
+        MakeDeviceForwardRainbowConfig(),
+        MakeAgentForwardNetworkConfig(),
+        batch_env_spec,
+        env_spec,
+        torch::Device(torch::kCPU),
+        123);
+    auto actor = agent->CreateActor(
+        batch_env_spec, env_spec, rl::RunMode::Train, std::nullopt, torch::Device(torch::kCPU));
+    auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
+    rl::BatchState state(
+        anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } },
+        flags,
+        flags,
+        flags);
+    auto action_info = std::dynamic_pointer_cast<dqn::DQNActionInfo>(
+        actor->MakeAction(rl::StepCounts{}, state));
+
+    REQUIRE(action_info != nullptr);
+    CHECK_FALSE(action_info->GetScalar("train_actor_snapshot_interval").has_value());
+    CHECK_FALSE(action_info->GetScalar("train_actor_snapshot_age").has_value());
+    CHECK_THROWS(agent->CreateActor(
+        batch_env_spec,
+        env_spec,
+        rl::RunMode::Train,
+        std::nullopt,
+        torch::Device(torch::kCUDA, 0)));
 }
 
 TEST_CASE("NetworkModel routes TensorDictFunction by network side and function key", "[dqn][network_model]")
@@ -1311,6 +2235,203 @@ TEST_CASE("Actor sync leaves cloned network in eval mode", "[dqn][actor]")
 
     CHECK_FALSE(src_network->is_training());
     CHECK_FALSE(clone_network->is_training());
+}
+
+TEST_CASE("DQN Actor keeps a Train network snapshot until the sync interval", "[dqn][actor][snapshot]")
+{
+    auto src_network = MakeLinearNetwork();
+    {
+        torch::NoGradGuard no_grad;
+        src_network->parameters()[0].fill_(1.0f);
+    }
+    auto snapshot_network = MakeLinearNetwork();
+    {
+        torch::NoGradGuard no_grad;
+        snapshot_network->parameters()[0].fill_(1.0f);
+    }
+    auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
+    auto context = std::make_shared<rl::DefaultActionContext>(rl::RunMode::Train, 123);
+    auto mutex = std::make_shared<std::shared_mutex>();
+    anet::ProfiledValueConfig<rl::step_t> sync_interval;
+    sync_interval.value = 2;
+    dqn::Actor actor(
+        policy, nullptr, context, mutex, snapshot_network, src_network, false, sync_interval, true);
+
+    {
+        torch::NoGradGuard no_grad;
+        src_network->parameters()[0].fill_(2.0f);
+    }
+    auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
+    rl::BatchState state(
+        anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } },
+        flags,
+        flags,
+        flags);
+    auto make_action = [&](rl::step_t train_step) {
+        rl::StepCounts step;
+        step.train_step = train_step;
+        step.exp_step = train_step;
+        return actor.MakeAction(step, state);
+    };
+
+    const auto action0 = make_action(0);
+    const auto action1 = make_action(1);
+    const auto action2 = make_action(2);
+    CHECK(action0->GetAuxData().at("q_values").item<float>() == Catch::Approx(3.0f));
+    CHECK(action1->GetAuxData().at("q_values").item<float>() == Catch::Approx(3.0f));
+    CHECK(action2->GetAuxData().at("q_values").item<float>() == Catch::Approx(6.0f));
+
+    const auto metrics0 = std::dynamic_pointer_cast<dqn::DQNActionInfo>(action0);
+    const auto metrics1 = std::dynamic_pointer_cast<dqn::DQNActionInfo>(action1);
+    const auto metrics2 = std::dynamic_pointer_cast<dqn::DQNActionInfo>(action2);
+    REQUIRE(metrics0 != nullptr);
+    REQUIRE(metrics1 != nullptr);
+    REQUIRE(metrics2 != nullptr);
+    CHECK(metrics0->GetScalar("train_actor_snapshot_interval") == 2.0f);
+    CHECK(metrics0->GetScalar("train_actor_snapshot_age") == 0.0f);
+    CHECK(metrics1->GetScalar("train_actor_snapshot_age") == 1.0f);
+    CHECK(metrics2->GetScalar("train_actor_snapshot_age") == 0.0f);
+
+    const auto moved = std::dynamic_pointer_cast<dqn::DQNActionInfo>(metrics2->To(torch::kCPU));
+    const auto replaced = std::dynamic_pointer_cast<dqn::DQNActionInfo>(
+        metrics2->WithAction(torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kInt64))));
+    REQUIRE(moved != nullptr);
+    REQUIRE(replaced != nullptr);
+    CHECK(moved->GetScalar("train_actor_snapshot_interval") == 2.0f);
+    CHECK(replaced->GetScalar("train_actor_snapshot_age") == 0.0f);
+}
+
+TEST_CASE("DQN Actor forced Sync resets snapshot age without a duplicate copy", "[dqn][actor][snapshot]")
+{
+    auto src_network = MakeLinearNetwork();
+    auto snapshot_network = MakeLinearNetwork();
+    {
+        torch::NoGradGuard no_grad;
+        src_network->parameters()[0].fill_(1.0f);
+        snapshot_network->parameters()[0].fill_(1.0f);
+    }
+    auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
+    auto context = std::make_shared<rl::DefaultActionContext>(rl::RunMode::Train, 123);
+    auto mutex = std::make_shared<std::shared_mutex>();
+    anet::ProfiledValueConfig<rl::step_t> sync_interval;
+    sync_interval.value = 5;
+    dqn::Actor actor(
+        policy, nullptr, context, mutex, snapshot_network, src_network, false, sync_interval, true);
+
+    {
+        torch::NoGradGuard no_grad;
+        src_network->parameters()[0].fill_(2.0f);
+    }
+    actor.Sync();
+    {
+        torch::NoGradGuard no_grad;
+        src_network->parameters()[0].fill_(3.0f);
+    }
+
+    auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
+    rl::BatchState state(
+        anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } },
+        flags,
+        flags,
+        flags);
+    rl::StepCounts step;
+    step.train_step = 3;
+    step.exp_step = 3;
+    auto action_info = std::dynamic_pointer_cast<dqn::DQNActionInfo>(actor.MakeAction(step, state));
+
+    REQUIRE(action_info != nullptr);
+    CHECK(action_info->GetAuxData().at("q_values").item<float>() == Catch::Approx(6.0f));
+    CHECK(action_info->GetScalar("train_actor_snapshot_age") == 0.0f);
+}
+
+TEST_CASE("DQN Actor applies snapshot interval shortening and extension at action boundaries", "[dqn][actor][snapshot]")
+{
+    const auto run_profile = [](const anet::ProfiledValueConfig<rl::step_t>& sync_interval,
+                                const std::vector<rl::StepCounts>& steps) {
+        auto src_network = MakeLinearNetwork();
+        auto snapshot_network = MakeLinearNetwork();
+        {
+            torch::NoGradGuard no_grad;
+            src_network->parameters()[0].fill_(1.0f);
+            snapshot_network->parameters()[0].fill_(1.0f);
+        }
+        auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
+        auto context = std::make_shared<rl::DefaultActionContext>(rl::RunMode::Train, 123);
+        auto mutex = std::make_shared<std::shared_mutex>();
+        dqn::Actor actor(
+            policy, nullptr, context, mutex, snapshot_network, src_network, false, sync_interval, true);
+        {
+            torch::NoGradGuard no_grad;
+            src_network->parameters()[0].fill_(2.0f);
+        }
+        auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
+        rl::BatchState state(
+            anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } },
+            flags,
+            flags,
+            flags);
+
+        std::vector<std::shared_ptr<dqn::DQNActionInfo>> results;
+        for (const auto& step : steps) {
+            results.push_back(std::dynamic_pointer_cast<dqn::DQNActionInfo>(actor.MakeAction(step, state)));
+        }
+        return results;
+    };
+
+    anet::ProfiledValueConfig<rl::step_t> shortening{
+        .type = "linear",
+        .start = 4,
+        .end = 2,
+        .steps = 2,
+    };
+    auto shortened = run_profile(shortening, {
+        rl::StepCounts{ .train_step = 1, .exp_step = 1 },
+        rl::StepCounts{ .train_step = 2, .exp_step = 2 },
+    });
+    REQUIRE(shortened[0] != nullptr);
+    REQUIRE(shortened[1] != nullptr);
+    CHECK(shortened[0]->GetAuxData().at("q_values").item<float>() == Catch::Approx(3.0f));
+    CHECK(shortened[1]->GetAuxData().at("q_values").item<float>() == Catch::Approx(6.0f));
+
+    anet::ProfiledValueConfig<rl::step_t> extension{
+        .type = "linear",
+        .start = 2,
+        .end = 4,
+        .steps = 2,
+    };
+    auto extended = run_profile(extension, {
+        rl::StepCounts{ .train_step = 2, .exp_step = 2 },
+        rl::StepCounts{ .train_step = 4, .exp_step = 2 },
+    });
+    REQUIRE(extended[0] != nullptr);
+    REQUIRE(extended[1] != nullptr);
+    CHECK(extended[0]->GetAuxData().at("q_values").item<float>() == Catch::Approx(3.0f));
+    CHECK(extended[0]->GetScalar("train_actor_snapshot_age") == 2.0f);
+    CHECK(extended[1]->GetAuxData().at("q_values").item<float>() == Catch::Approx(6.0f));
+}
+
+TEST_CASE("DQN Actor exposes NaN snapshot metrics when periodic sync is disabled", "[dqn][actor][snapshot]")
+{
+    auto network = MakeLinearNetwork();
+    auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
+    auto context = std::make_shared<rl::DefaultActionContext>(rl::RunMode::Train, 123);
+    auto mutex = std::make_shared<std::shared_mutex>();
+    dqn::Actor actor(policy, nullptr, context, mutex, network, network, false, std::nullopt, true);
+    auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
+    rl::BatchState state(
+        anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } },
+        flags,
+        flags,
+        flags);
+
+    auto action_info = std::dynamic_pointer_cast<dqn::DQNActionInfo>(
+        actor.MakeAction(rl::StepCounts{}, state));
+
+    REQUIRE(action_info != nullptr);
+    REQUIRE(action_info->GetScalar("train_actor_snapshot_interval").has_value());
+    REQUIRE(action_info->GetScalar("train_actor_snapshot_age").has_value());
+    CHECK(std::isnan(*action_info->GetScalar("train_actor_snapshot_interval")));
+    CHECK(std::isnan(*action_info->GetScalar("train_actor_snapshot_age")));
 }
 
 TEST_CASE("ActionPolicy variants preserve action info keys and shapes", "[dqn][action_policy]")
@@ -1369,6 +2490,100 @@ TEST_CASE("ActionPolicy variants preserve action info keys and shapes", "[dqn][a
             CHECK(*uqe_margin == Catch::Approx(-7.0f));
         }
     }
+}
+
+TEST_CASE("DQN action policy BF16 autocast follows observation device", "[dqn][action_policy][amp][bf16]")
+{
+    std::vector<torch::Device> devices{ torch::Device(torch::kCPU) };
+    if (torch::cuda::is_available()) {
+        devices.emplace_back(torch::Device(torch::kCUDA, 0));
+    }
+
+    for (const auto& device : devices) {
+        INFO("device=" << device.str());
+
+        auto probe_state = std::make_shared<AutocastProbeState>();
+        auto network = MakeAutocastProbeNetwork(probe_state, device);
+        auto obs = MakeAutocastProbePolicyInput(device);
+
+        dqn::ActionPolicyConfig config;
+        config.use_amp = true;
+        config.use_amp_bf16 = true;
+        dqn::EpsilonGreedyActionPolicy policy(config, false, 0, device);
+
+        const auto device_type = device.type();
+        const bool original_enabled = at::autocast::is_autocast_enabled(device_type);
+        auto rnd = std::make_shared<anet::RandomGenerator>(123);
+        auto action_info = policy.SelectAction(obs, /*greedy_only=*/true, network, rnd, {});
+
+        REQUIRE(action_info->GetAction().device().type() == device_type);
+        REQUIRE(probe_state->forward_count > 0);
+        CHECK(probe_state->enabled_count == probe_state->forward_count);
+        CHECK(probe_state->last_device_type == device_type);
+        CHECK(at::autocast::is_autocast_enabled(device_type) == original_enabled);
+    }
+}
+
+TEST_CASE("DQN Actor emits a packed priority hint without another forward", "[dqn][actor][per][actor_initial]")
+{
+    auto make_action = [](bool emit_hint) {
+        auto probe_state = std::make_shared<AutocastProbeState>();
+        auto network = MakeAutocastProbeNetwork(probe_state, torch::kCPU);
+        auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
+        auto context = std::make_shared<rl::DefaultActionContext>(rl::RunMode::Train, 123);
+        auto mutex = std::make_shared<std::shared_mutex>();
+        dqn::Actor actor(policy, nullptr, context, mutex, network, network, emit_hint);
+
+        auto flags = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool));
+        auto episode_start = torch::tensor({ true, false }, torch::TensorOptions().dtype(torch::kBool));
+        rl::BatchState state(MakeAutocastProbePolicyInput(torch::kCPU), flags, flags, episode_start);
+        auto action_info = actor.MakeAction(rl::StepCounts{}, state);
+        return std::pair(probe_state->forward_count, std::move(action_info));
+    };
+
+    const auto [plain_forward_count, plain] = make_action(false);
+    const auto [hint_forward_count, hinted] = make_action(true);
+
+    CHECK(plain_forward_count == hint_forward_count);
+    CHECK_FALSE(plain->GetReplayInitialPriorityHint().has_value());
+    CHECK(torch::equal(
+        plain->GetAuxData().at("episode_start"),
+        torch::tensor({ true, false }, torch::TensorOptions().dtype(torch::kBool))));
+    REQUIRE(hinted->GetReplayInitialPriorityHint().has_value());
+    const auto decoded = dqn::DecodeActorQHint(hinted->GetReplayInitialPriorityHint()->GetPayload());
+    const auto& q_values = hinted->GetAuxData().at("q_values");
+    const auto expected_q_sa = q_values.gather(
+        1, hinted->GetAction(q_values.device()).to(torch::kInt64).unsqueeze(1)).squeeze(1).to(torch::kFloat32);
+    const auto expected_state_value = std::get<0>(q_values.max(1)).to(torch::kFloat32);
+    CHECK(torch::equal(decoded.actor_q_sa, expected_q_sa));
+    CHECK(torch::equal(decoded.actor_state_value, expected_state_value));
+}
+
+TEST_CASE("DQN Actor snapshot synchronization performs one forward per action", "[dqn][actor][snapshot]")
+{
+    auto source_probe = std::make_shared<AutocastProbeState>();
+    auto snapshot_probe = std::make_shared<AutocastProbeState>();
+    auto source_network = MakeAutocastProbeNetwork(source_probe, torch::kCPU);
+    auto snapshot_network = MakeAutocastProbeNetwork(snapshot_probe, torch::kCPU);
+    auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
+    auto context = std::make_shared<rl::DefaultActionContext>(rl::RunMode::Train, 123);
+    auto mutex = std::make_shared<std::shared_mutex>();
+    anet::ProfiledValueConfig<rl::step_t> sync_interval;
+    sync_interval.value = 1;
+    dqn::Actor actor(
+        policy, nullptr, context, mutex, snapshot_network, source_network, false, sync_interval, true);
+
+    auto flags = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool));
+    rl::BatchState state(MakeAutocastProbePolicyInput(torch::kCPU), flags, flags, flags);
+    for (rl::step_t train_step = 0; train_step < 3; ++train_step) {
+        rl::StepCounts step;
+        step.train_step = train_step;
+        step.exp_step = train_step;
+        actor.MakeAction(step, state);
+    }
+
+    CHECK(source_probe->forward_count == 0);
+    CHECK(snapshot_probe->forward_count == 3);
 }
 
 TEST_CASE("DQNActionInfo exposes action UQE scalar metrics", "[dqn][action_policy][metrics]")
@@ -1438,6 +2653,140 @@ TEST_CASE("DQNActionInfo exposes action UQE scalar metrics", "[dqn][action_polic
     CHECK_THROWS(win_info.GetScalar("action_uqe_margin.[3]"));
 }
 
+TEST_CASE("DQNActionInfo exposes episode-start action margin scalar metrics", "[dqn][action_policy][metrics]")
+{
+    const auto make_info = [](const torch::Tensor& q_values, const torch::Tensor& uqe_values, const torch::Tensor& episode_start) {
+        rl::AuxData aux;
+        aux["q_values"] = q_values;
+        aux["uqe_values"] = uqe_values;
+        aux["episode_start"] = episode_start;
+        return dqn::DQNActionInfo(
+            torch::zeros({ q_values.size(0) }, torch::TensorOptions().dtype(torch::kInt64)),
+            anet::TensorDict{},
+            aux);
+    };
+
+    const auto q_values = torch::tensor({
+        { 6.0f, 2.0f, 1.0f },
+        { 9.0f, 1.0f, 0.0f },
+        { 2.0f, 5.0f, 0.0f },
+    });
+    const auto uqe_values = torch::tensor({
+        { 5.0f, 1.0f, 0.0f },
+        { 8.0f, 2.0f, 1.0f },
+        { 3.0f, 4.0f, 2.0f },
+    });
+    const auto episode_start = torch::tensor({ true, false, true }, torch::TensorOptions().dtype(torch::kBool));
+    auto info = make_info(q_values, uqe_values, episode_start);
+
+    auto uqe_margin = info.GetScalar("episode_start_action_uqe_margin.[0]");
+    REQUIRE(uqe_margin.has_value());
+    CHECK(*uqe_margin == Catch::Approx(1.5f));
+    auto q_margin = info.GetScalar("episode_start_action_q_margin.[0]");
+    REQUIRE(q_margin.has_value());
+    CHECK(*q_margin == Catch::Approx(0.5f));
+
+    const auto no_episode_start = torch::zeros({ 3 }, torch::TensorOptions().dtype(torch::kBool));
+    auto no_reset_info = make_info(q_values, uqe_values, no_episode_start);
+    auto no_reset_uqe = no_reset_info.GetScalar("episode_start_action_uqe_margin.[0]");
+    auto no_reset_q = no_reset_info.GetScalar("episode_start_action_q_margin.[0]");
+    REQUIRE(no_reset_uqe.has_value());
+    REQUIRE(no_reset_q.has_value());
+    CHECK(std::isnan(*no_reset_uqe));
+    CHECK(std::isnan(*no_reset_q));
+
+    rl::AuxData non_uqe_aux;
+    non_uqe_aux["q_values"] = q_values;
+    non_uqe_aux["episode_start"] = episode_start;
+    dqn::DQNActionInfo non_uqe(
+        torch::zeros({ 3 }, torch::TensorOptions().dtype(torch::kInt64)),
+        anet::TensorDict{},
+        non_uqe_aux);
+    auto non_uqe_margin = non_uqe.GetScalar("episode_start_action_uqe_margin.[0]");
+    REQUIRE(non_uqe_margin.has_value());
+    CHECK(std::isnan(*non_uqe_margin));
+
+    auto replaced = info.WithAction(torch::tensor({ 2, 1, 0 }, torch::TensorOptions().dtype(torch::kInt64)));
+    auto replaced_scalar_target = dynamic_cast<const anet::Module*>(replaced.get());
+    REQUIRE(replaced_scalar_target != nullptr);
+    auto replaced_q_margin = replaced_scalar_target->GetScalar("episode_start_action_q_margin.[0]");
+    REQUIRE(replaced_q_margin.has_value());
+    CHECK(*replaced_q_margin == Catch::Approx(0.5f));
+
+    rl::AuxData missing_mask_aux;
+    missing_mask_aux["q_values"] = q_values;
+    dqn::DQNActionInfo missing_mask(
+        torch::zeros({ 3 }, torch::TensorOptions().dtype(torch::kInt64)),
+        anet::TensorDict{},
+        missing_mask_aux);
+    CHECK_THROWS(missing_mask.GetScalar("episode_start_action_q_margin.[0]"));
+
+    rl::AuxData missing_q_aux;
+    missing_q_aux["episode_start"] = episode_start;
+    dqn::DQNActionInfo missing_q(
+        torch::zeros({ 3 }, torch::TensorOptions().dtype(torch::kInt64)),
+        anet::TensorDict{},
+        missing_q_aux);
+    CHECK_THROWS(missing_q.GetScalar("episode_start_action_q_margin.[0]"));
+
+    auto invalid_mask_dtype = make_info(q_values, uqe_values, episode_start.to(torch::kInt64));
+    CHECK_THROWS(invalid_mask_dtype.GetScalar("episode_start_action_q_margin.[0]"));
+    auto invalid_mask_shape = make_info(q_values, uqe_values, episode_start.unsqueeze(1));
+    CHECK_THROWS(invalid_mask_shape.GetScalar("episode_start_action_q_margin.[0]"));
+    auto invalid_q_shape = make_info(q_values.flatten(), uqe_values, episode_start);
+    CHECK_THROWS(invalid_q_shape.GetScalar("episode_start_action_q_margin.[0]"));
+    CHECK_THROWS(info.GetScalar("episode_start_action_q_margin"));
+    CHECK_THROWS(info.GetScalar("episode_start_action_q_margin.[x]"));
+    CHECK_THROWS(info.GetScalar("episode_start_action_q_margin.[3]"));
+}
+
+TEST_CASE("DQN Actor Q hint schema packs and decodes two columns", "[dqn][per][actor_initial][hint]")
+{
+    auto q_sa = torch::tensor({ 2.0f, 3.0f });
+    auto state_value = torch::tensor({ 5.0f, 7.0f });
+
+    auto packed = dqn::PackActorQHint(q_sa, state_value);
+    CHECK(packed.scalar_type() == torch::kFloat32);
+    CHECK(packed.sizes() == torch::IntArrayRef({ 2, dqn::kActorQHintColumnCount }));
+
+    const auto batch = dqn::DecodeActorQHint(packed);
+    CHECK(torch::equal(batch.actor_q_sa, q_sa));
+    CHECK(torch::equal(batch.actor_state_value, state_value));
+
+    const std::array<float, 2> row{ 11.0f, 13.0f };
+    const auto decoded_row = dqn::DecodeActorQHint(std::span<const float>(row));
+    CHECK(decoded_row.actor_q_sa == Catch::Approx(11.0f));
+    CHECK(decoded_row.actor_state_value == Catch::Approx(13.0f));
+
+    CHECK_THROWS(dqn::DecodeActorQHint(torch::zeros({ 1, 3 }, torch::kFloat32)));
+    CHECK_THROWS(dqn::DecodeActorQHint(std::span<const float>(row.data(), 1)));
+}
+
+TEST_CASE("DQNActionInfo regathers Actor Q hint after action replacement", "[dqn][per][actor_initial]")
+{
+    auto q_values = torch::tensor({
+        { 1.0f, 5.0f, 2.0f },
+        { 7.0f, 3.0f, 4.0f },
+    });
+    rl::AuxData aux;
+    aux["q_values"] = q_values;
+    auto packed = torch::tensor({ { 5.0f, 5.0f }, { 7.0f, 7.0f } });
+    dqn::DQNActionInfo info(
+        torch::tensor({ 1, 0 }, torch::TensorOptions().dtype(torch::kInt64)),
+        {},
+        aux,
+        rl::ReplayInitialPriorityHint(packed));
+
+    auto replaced = info.WithAction(torch::tensor({ 2, 1 }, torch::TensorOptions().dtype(torch::kInt64)));
+    REQUIRE(replaced->GetReplayInitialPriorityHint().has_value());
+    CHECK(torch::equal(
+        replaced->GetReplayInitialPriorityHint()->GetPayload(),
+        torch::tensor({ { 2.0f, 5.0f }, { 3.0f, 7.0f } })));
+    const auto& first_cpu = replaced->GetReplayInitialPriorityHint()->GetPayloadCpu();
+    const auto& second_cpu = replaced->GetReplayInitialPriorityHint()->GetPayloadCpu();
+    CHECK(first_cpu.unsafeGetTensorImpl() == second_cpu.unsafeGetTensorImpl());
+}
+
 TEST_CASE("ActionPolicy spatial tensor generation handles supported scale types", "[dqn][action_policy][spatial]")
 {
     auto device = torch::Device(torch::kCPU);
@@ -1459,6 +2808,38 @@ TEST_CASE("ActionPolicy spatial tensor generation handles supported scale types"
     CHECK_THROWS(ActionPolicyAccess::CreateSpatialTensor(2, 1.0f, 0.0f, "invalid", device));
 }
 
+TEST_CASE("ActionPolicy reverses spatial parameter tuples for env lane assignment", "[dqn][action_policy][spatial]")
+{
+    auto device = torch::Device(torch::kCPU);
+
+    // 補間結果を厳密に反転し、値の集合を変えずにend側をenv[0]へ割り当てる。
+    auto linear = ActionPolicyAccess::CreateSpatialTensor(3, 1.0f, 0.0f, "linear", device);
+    auto lane_linear = ActionPolicyAccess::CreateSpatialLaneTensor(3, 1.0f, 0.0f, "linear", device);
+    CHECK(torch::equal(lane_linear, linear.flip({ 0 })));
+    CHECK(torch::equal(lane_linear, torch::tensor({ 0.0f, 0.5f, 1.0f })));
+
+    auto log = ActionPolicyAccess::CreateSpatialTensor(3, 1.0f, 0.01f, "log", device);
+    auto lane_log = ActionPolicyAccess::CreateSpatialLaneTensor(3, 1.0f, 0.01f, "log", device);
+    CHECK(torch::equal(lane_log, log.flip({ 0 })));
+
+    // epsilonとtauを同じ向きで反転し、パラメータの組の集合を維持する。
+    auto original_pairs = torch::stack({
+        ActionPolicyAccess::CreateSpatialTensor(3, 0.6f, 0.0f, "log", device),
+        ActionPolicyAccess::CreateSpatialTensor(3, 0.95f, 0.85f, "log", device),
+    }, 1);
+    auto lane_pairs = torch::stack({
+        ActionPolicyAccess::CreateSpatialLaneTensor(3, 0.6f, 0.0f, "log", device),
+        ActionPolicyAccess::CreateSpatialLaneTensor(3, 0.95f, 0.85f, "log", device),
+    }, 1);
+    CHECK(torch::equal(lane_pairs, original_pairs.flip({ 0 })));
+    CHECK(lane_pairs[0][0].item<float>() == Catch::Approx(1.0e-4f).margin(1.0e-7f));
+    CHECK(lane_pairs[2][0].item<float>() == Catch::Approx(0.6f).margin(1.0e-6f));
+
+    // laneが1つなら反転はno-opとなり、従来どおりstart値を使う。
+    auto single = ActionPolicyAccess::CreateSpatialLaneTensor(1, 0.25f, 0.75f, "linear", device);
+    CHECK(single[0].item<float>() == Catch::Approx(0.25f).margin(1.0e-6f));
+}
+
 TEST_CASE("DefaultDQNAgentConfig keeps spatial exploration train-only", "[dqn][config][spatial]")
 {
     anet::ConfigData config_data;
@@ -1472,6 +2853,96 @@ TEST_CASE("DefaultDQNAgentConfig keeps spatial exploration train-only", "[dqn][c
     CHECK(config.train_policy.use_spatial_exploration);
     CHECK_FALSE(config.eval_policy.use_spatial_exploration);
     CHECK_FALSE(config.target_policy.use_spatial_exploration);
+}
+
+TEST_CASE("DefaultDQNAgentConfig defaults Train Actor snapshot to shared mode", "[dqn][config][snapshot]")
+{
+    dqn::DefaultDQNAgentConfig config;
+
+    CHECK_FALSE(config.train_actor.clone_model);
+    CHECK(config.train_actor.sync_interval.type == "constant");
+    CHECK(config.train_actor.sync_interval.value == 400);
+    REQUIRE(config.train_actor.sync_interval.min_value.has_value());
+    CHECK(*config.train_actor.sync_interval.min_value == 1);
+}
+
+TEST_CASE("DefaultDQNAgentConfig rejects malformed Train Actor snapshot values", "[dqn][config][snapshot]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.train_actor.clone_model", "false");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.value", "400x");
+
+    CHECK_THROWS_WITH(
+        dqn::DefaultDQNAgentConfig(config_data),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.train_actor.sync_interval.value")
+            && Catch::Matchers::ContainsSubstring("400x")
+            && Catch::Matchers::ContainsSubstring("expected=uint64_t"));
+}
+
+TEST_CASE("DefaultDQNAgentConfig requires a positive active snapshot interval", "[dqn][config][snapshot]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.train_actor.clone_model", "false");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.type", "constant");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.value", "0");
+
+    CHECK_THROWS_WITH(
+        dqn::DefaultDQNAgentConfig(config_data),
+        Catch::Matchers::ContainsSubstring("key=train_actor.sync_interval.value")
+        && Catch::Matchers::ContainsSubstring("value=0")
+        && Catch::Matchers::ContainsSubstring("expected=>=1"));
+}
+
+TEST_CASE("DefaultDQNAgentConfig strictly parses every explicit snapshot field", "[dqn][config][snapshot]")
+{
+    struct InvalidValue {
+        std::string key;
+        std::string value;
+    };
+    const std::vector<InvalidValue> invalid_values{
+        { "DefaultDQNAgent.train_actor.clone_model", "maybe" },
+        { "DefaultDQNAgent.train_actor.sync_interval.start", "-1" },
+        { "DefaultDQNAgent.train_actor.sync_interval.steps", "18446744073709551616" },
+        { "DefaultDQNAgent.train_actor.sync_interval.cycle_mult", "nan" },
+        { "DefaultDQNAgent.train_actor.sync_interval.cycle_mult", "inf" },
+    };
+    for (const auto& invalid : invalid_values) {
+        INFO("key=" << invalid.key << " value=" << invalid.value);
+        anet::ConfigData config_data;
+        config_data.Set(invalid.key, invalid.value);
+        CHECK_THROWS(dqn::DefaultDQNAgentConfig(config_data));
+    }
+
+    anet::ConfigData comma_data;
+    comma_data.Set("DefaultDQNAgent.train_actor.sync_interval.value", "1,000");
+    const dqn::DefaultDQNAgentConfig comma_config(comma_data);
+    CHECK(comma_config.train_actor.sync_interval.value == 1000);
+}
+
+TEST_CASE("DefaultDQNAgentConfig validates phased snapshot profiles", "[dqn][config][snapshot]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.type", "phased");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.phases", "warm main");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.phase.[warm].type", "constant");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.phase.[warm].value", "4");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.phase.[warm].steps", "10");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.phase.[main].type", "linear");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.phase.[main].start", "4");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.phase.[main].end", "2");
+    config_data.Set("DefaultDQNAgent.train_actor.sync_interval.phase.[main].steps", "20");
+
+    const dqn::DefaultDQNAgentConfig config(config_data);
+
+    anet::ProfiledValue<rl::step_t> interval(config.train_actor.sync_interval);
+    CHECK(interval.Evaluate(0) == 4);
+    CHECK(interval.Evaluate(10) == 4);
+    CHECK(interval.Evaluate(30) == 2);
+
+    anet::ConfigData undefined_phase_data;
+    undefined_phase_data.Set("DefaultDQNAgent.train_actor.sync_interval.type", "phased");
+    undefined_phase_data.Set("DefaultDQNAgent.train_actor.sync_interval.phases", "missing");
+    CHECK_THROWS(dqn::DefaultDQNAgentConfig(undefined_phase_data));
 }
 
 TEST_CASE("DefaultDQNAgentConfig clears optimistic target spatial exploration", "[dqn][config][spatial]")
@@ -1700,7 +3171,7 @@ TEST_CASE("Spatial UQE policies use per-env tau tensor", "[dqn][action_policy][s
     config.uqe_tau_start = 0.0f;
     config.uqe_tau_end = 1.0f;
 
-    auto expected_actions = torch::tensor({ 0, 1 }, torch::TensorOptions().dtype(torch::kInt64));
+    auto expected_actions = torch::tensor({ 1, 0 }, torch::TensorOptions().dtype(torch::kInt64));
 
     std::vector<std::pair<std::string, std::shared_ptr<dqn::ActionPolicy>>> policies;
     policies.emplace_back("uqe", std::make_shared<dqn::UQEActionPolicy>(config, true, 2, torch::Device(torch::kCPU)));

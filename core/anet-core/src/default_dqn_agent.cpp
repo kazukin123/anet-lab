@@ -4,7 +4,7 @@
 #include "dqn_based_agent.hpp"
 #include <memory>
 #include <torch/torch.h>
-#include <tuple>
+#include <cmath>
 #include "anet/str_util.hpp"
 #include "anet/nn_util.hpp"
 #include "anet/tensor_util.hpp"
@@ -18,8 +18,26 @@
 #include "dqn_based_heads.hpp"
 #include "anet/serialize.hpp"
 
+
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
+
+namespace {
+
+bool IsSameSharedNetworkDevice(const torch::Device& lhs, const torch::Device& rhs)
+{
+    if (lhs.type() != rhs.type()) {
+        return false;
+    }
+    if (lhs.type() != torch::kCUDA) {
+        return true;
+    }
+    const auto lhs_index = lhs.has_index() && lhs.index() >= 0 ? lhs.index() : 0;
+    const auto rhs_index = rhs.has_index() && rhs.index() >= 0 ? rhs.index() : 0;
+    return lhs_index == rhs_index;
+}
+
+} // namespace
 
 
 // ======================================================
@@ -422,10 +440,26 @@ static bool IsForTarget(anet::rl::RunMode run_mode)
     return run_mode == anet::rl::RunMode::Eval1;
 }
 
-std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const anet::rl::BatchEnvSpec& batch_env_spec, anet::rl::RunMode run_mode, bool clone_model, std::optional<torch::Device> device) const
+std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(
+    const anet::rl::BatchEnvSpec& batch_env_spec,
+    const anet::rl::EnvSpec& env_spec,
+    anet::rl::RunMode run_mode,
+    std::optional<bool> clone_model_override,
+    std::optional<torch::Device> device) const
 {
+    env_spec_.CheckSameStateActionSpec(env_spec);
+    const bool is_train_actor = !anet::rl::IsEval(run_mode);
+    const bool clone_model = clone_model_override.value_or(
+        is_train_actor ? config_.train_actor.clone_model : false);
+    const auto actor_device = device.value_or(device_);
+    ANET_CHECK_MSG(
+        clone_model || IsSameSharedNetworkDevice(actor_device, device_),
+        "DefaultDQNAgent shared Actor device mismatch: actor_device=" << actor_device.str()
+        << " agent_device=" << device_.str()
+        << ". Use clone_model_override=true or the Agent device.");
+
     // Contextを生成
-    auto ctx = this->CreateActionContext(batch_env_spec, run_mode, device);
+    auto ctx = this->CreateActionContext(batch_env_spec, run_mode, actor_device);
 
     // モードに応じて適切な Policy と Network を選択
     std::shared_ptr<ActionPolicy> policy;
@@ -441,13 +475,22 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const anet::rl::Ba
     }
 
     // 必要に応じてCloneしてActor向けネットワークとする
-    auto network = (clone_model) ? src_network->Clone(device) : src_network;
+    auto network = src_network;
     if (clone_model) {
+        // Clone構築時のparameter・buffer copyもLearner更新と同じmutexで保護する。
+        std::shared_lock<std::shared_mutex> lock(*mutex_);
+        network = src_network->Clone(actor_device);
         network->eval();
     }
 
     // Actor を生成
-    auto actor = std::make_shared<Actor>(policy, obs_norm_, ctx, this->mutex_, network, src_network);
+    const bool emit_actor_q_hint = !anet::rl::IsEval(run_mode)
+        && ParseReplayInitialPriorityMode(config_.learner) == ReplayInitialPriorityMode::ACTOR_APPROX;
+    const auto snapshot_sync_interval = is_train_actor && clone_model
+        ? std::optional<anet::ProfiledValueConfig<step_t>>(config_.train_actor.sync_interval)
+        : std::nullopt;
+    auto actor = std::make_shared<Actor>(
+        policy, obs_norm_, ctx, this->mutex_, network, src_network, emit_actor_q_hint, snapshot_sync_interval, true);
 
     // 生成したActorを返す
     return actor;

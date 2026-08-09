@@ -49,8 +49,6 @@ void TrainPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
 
 void TrainPanel::OnTimer(wxTimerEvent& event)
 {
-	wxLog::FlushActive();
-
 	//ANET_LOG_DEBUG("TrainPanel::OnTimer size=(" << this->GetSize().x << ", " << this->GetSize().y << ")");
 	wxWindow* parent = GetParent();
 	wxSize parent_size = parent ? parent->GetClientSize() : wxSize(-1, -1);

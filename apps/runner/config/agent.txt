@@ -9,11 +9,11 @@ RainbowAgent.$ = RainbowAgent.baseline
 
 net.block.[MuZero_Linear256].type = Linear
 net.block.[MuZero_Linear256].linear.out_features = 256
-net.block.[MuZero_Linear256].init.mode = 1
+net.block.[MuZero_Linear256].init.mode = xavier
 
 net.block.[MuZero_Linear128].type = Linear
 net.block.[MuZero_Linear128].linear.out_features = 128
-net.block.[MuZero_Linear128].init.mode = 1
+net.block.[MuZero_Linear128].init.mode = xavier
 
 
 # --- Model (ネットワーク構造と表現) ---
@@ -71,7 +71,7 @@ MuZeroAgent.baseline.learner.reward_loss_weight = 1.0     # Reward Lossの重み
 
 
 DefaultDQNAgent.baseline.head_init.manual_gain = 0.0
-DefaultDQNAgent.baseline.head_init.mode = 1
+DefaultDQNAgent.baseline.head_init.mode = xavier
 DefaultDQNAgent.baseline.model.soft_update_tau = 0.001      # 1.0 0.004  0.01 0.005
 
 DefaultDQNAgent.baseline.nn_viz.show_param_shapes = true
@@ -134,6 +134,7 @@ DefaultDQNAgent.baseline.learner.per_beta_end = 1.0          # 「beta」の収�
 DefaultDQNAgent.baseline.learner.per_beta_step = 10,000,000  # 10M betaを収束値まで線形変化させるexpステップ数（初期は当てにならないので補正を弱める）
 DefaultDQNAgent.baseline.learner.per_eps = 1e-6              # 優先度加算用微小値
 DefaultDQNAgent.baseline.learner.per_initial_priority = 1.0  # 新規データの初期優先度
+DefaultDQNAgent.baseline.learner.per_initial_priority_mode = fixed # fixed max actor_approx
 DefaultDQNAgent.baseline.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
 DefaultDQNAgent.baseline.learner.per_prio_clip_value = 20.0  # 優先度の上限値
 DefaultDQNAgent.baseline.learner.quantile_huber_kappa = 1.0  # Huber Loss の閾値 kappa
@@ -215,7 +216,7 @@ DefaultDQNAgent.baseline.use_qr = true                # QR-DQN 有効化フラ�
 # ==============================================================================
 
 RainbowAgent.baseline.head_init.manual_gain = 0.0
-RainbowAgent.baseline.head_init.mode = 1
+RainbowAgent.baseline.head_init.mode = xavier
 RainbowAgent.baseline.model.soft_update_tau = 0.001     # 1.0 0.004  0.01 0.005
 RainbowAgent.baseline.action_policy.eps_start = 1.00              # 指数減衰  
 RainbowAgent.baseline.action_policy.eps_end = 0.05              # 0.1 0.05
@@ -237,6 +238,7 @@ RainbowAgent.baseline.learner.per_beta_end = 1.0          # IS重みの補正度
 RainbowAgent.baseline.learner.per_beta_step = 20000       # 20K betaを収束値まで線形変化させるステップ数
 RainbowAgent.baseline.learner.per_eps = 1e-6              # 優先度加算用微小値
 RainbowAgent.baseline.learner.per_initial_priority = 1.0  # 新規データの初期優先度
+RainbowAgent.baseline.learner.per_initial_priority_mode = fixed
 RainbowAgent.baseline.learner.use_per_prio_clip = true    # 優先度をクリッピングするか
 RainbowAgent.baseline.learner.per_prio_clip_value = 20.0  # 優先度の上限値
 RainbowAgent.baseline.learner.quantile_huber_kappa = 1.0  # Huber Loss の閾値 kappa

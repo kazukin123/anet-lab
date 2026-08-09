@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <string>
@@ -52,11 +53,16 @@ namespace anet {
     class ThreadPool {
     public:
         using TaskFunction = std::function<void()>;
+        using IndexedTaskFunction = std::function<void(size_t)>;
 
         virtual void Enqueue(int worker_id, TaskFunction fn) = 0;
         virtual void WaitAll() = 0;
         virtual int GetWorkerCount() const = 0;
         virtual void Stop() = 0;
+
+        /// index範囲をworkerへ動的分配し、完了待ちと例外再送出まで同期実行する。
+        /// 同じpoolのworker task内から呼ぶと自己待機になるため、pool外のthreadから呼ぶこと。
+        void ParallelFor(size_t work_count, IndexedTaskFunction fn);
 
         virtual ~ThreadPool() = default;
     };

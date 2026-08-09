@@ -26,6 +26,12 @@
 
 namespace LOG = anet::log;
 
+namespace {
+
+constexpr int kTextLogFlushTimerId = wxID_HIGHEST + 100;
+
+} // namespace
+
 
 wxDEFINE_EVENT(wxEVT_TRAINER_EXIT, wxCommandEvent);
 wxDEFINE_EVENT(wxEVT_APP_TRAINER_SHUTDOWN, wxThreadEvent);
@@ -35,6 +41,7 @@ struct RunnerApp::Config : public anet::Config {
     std::string run_name = "run_{%t}";
     std::string runs_dir = "runs";
     std::string log_level = "info";
+    int log_flush_interval_ms = 500;
     bool train_auto_start = true;
     int train_pause_step = -1;
     int train_exit_step = -1; //110000;
@@ -51,6 +58,7 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, run_name);
         ANET_READ_CONFIG(config_data, runs_dir);
         ANET_READ_CONFIG(config_data, log_level);
+        ANET_READ_CONFIG(config_data, log_flush_interval_ms);
 
         ANET_READ_CONFIG(config_data, train_auto_start);
         ANET_READ_CONFIG(config_data, train_pause_step);
@@ -60,6 +68,7 @@ struct RunnerApp::Config : public anet::Config {
 
         WarnDeprecatedRunsDirConfig(config_data);
         ValidateRunsDir();
+        ValidateLogFlushInterval();
         metrics_logger.runs_dir = runs_dir;
         metrics_logger.run_name_tmpl = run_name;
         ANET_READ_CONFIG(config_data, metrics_logger.video_codec);
@@ -70,6 +79,7 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, eval_panel.fps);
         ANET_READ_CONFIG(config_data, eval_panel.step_per_frame);
         ANET_READ_CONFIG(config_data, eval_panel.auto_start);
+        ANET_READ_CONFIG(config_data, eval_panel.eval_config_tag);
         ANET_READ_CONFIG(config_data, eval_panel.model_sync.mode);
         ANET_READ_CONFIG(config_data, eval_panel.model_sync.frame_interval);
         ANET_READ_CONFIG(config_data, eval_panel.model_sync.time_interval_ms);
@@ -99,6 +109,15 @@ private:
     {
         if (runs_dir.empty()) {
             ANET_SYSTEM_ERROR("Invalid config key app.runs_dir: value must not be empty.");
+        }
+    }
+
+    void ValidateLogFlushInterval() const
+    {
+        if (log_flush_interval_ms < 0) {
+            ANET_SYSTEM_ERROR(
+                "Invalid config key app.log_flush_interval_ms: value=" << log_flush_interval_ms
+                << " (expected: >= 0; 0 disables periodic flushing).");
         }
     }
 };
@@ -343,15 +362,29 @@ void RunnerApp::SetupLogging()
         file_logger->SetFormatter(new anet::log::LogFormatter(/*enable_timestamp=*/true));
 
         // 既存のUIロガー(LogPanel等)を維持したまま、ファイルロガーをチェーンに追加
-        new wxLogChain(file_logger);
+        run_log_chain_ = new wxLogChain(file_logger);
+
+        // 表示FPSと独立した周期で、RunName.logだけを外部から読める状態へ近づける。
+        if (config_->log_flush_interval_ms > 0) {
+            text_log_flush_timer_.SetOwner(this, kTextLogFlushTimerId);
+            Bind(wxEVT_TIMER, &RunnerApp::OnTextLogFlushTimer, this, kTextLogFlushTimerId);
+            text_log_flush_timer_.Start(config_->log_flush_interval_ms);
+        }
     }
 }
 
 void RunnerApp::FlushRunOutputs()
 {
+    // 標準出力とメトリクスは、pause/saveなどの明示的な即時境界でのみflushする。
     standard_stream_logger_.Flush();
     anet::MetricsLogger::Instance()->Flush();
 
+    // RunName.logを含むwxLogは、メインスレッドで保留分までまとめて排出する。
+    FlushTextLog();
+}
+
+void RunnerApp::FlushTextLog()
+{
     if (wxThread::IsMain()) {
         wxLog::FlushActive();
         return;
@@ -360,6 +393,39 @@ void RunnerApp::FlushRunOutputs()
     CallAfter([] {
         wxLog::FlushActive();
     });
+}
+
+void RunnerApp::OnTextLogFlushTimer(wxTimerEvent& WXUNUSED(event))
+{
+    // timerはtext log専用とし、metrics/stdoutのI/O周期を増やさない。
+    ANET_PROFILE_SCOPE(text_log_flush);
+    FlushTextLog();
+}
+
+void RunnerApp::ShutdownRunLogging()
+{
+    // shutdown開始後に周期イベントがfile loggerへ触れないよう先に停止する。
+    text_log_flush_timer_.Stop();
+
+    if (run_log_chain_ == nullptr) {
+        return;
+    }
+
+    // Save完了など、終了直前に発生した全出力をfile loggerのclose前に確定する。
+    FlushRunOutputs();
+
+    // LogPanelが破棄される前にactive targetを戻し、chainが所有するFileLoggerをcloseする。
+    if (wxLog::GetActiveTarget() != run_log_chain_) {
+        run_log_chain_ = nullptr;
+        return;
+    }
+
+    wxLogChain* const run_log_chain = run_log_chain_;
+    run_log_chain_ = nullptr;
+    wxLog* const detached_chain = wxLog::SetActiveTarget(run_log_chain->GetOldLog());
+    if (detached_chain == run_log_chain) {
+        delete detached_chain;
+    }
 }
 
 int64_t RunnerApp::SaveAgent(const std::string& file_name)
@@ -372,7 +438,7 @@ int64_t RunnerApp::SaveAgent(const std::string& file_name)
     const auto log_file_path_str = log_file_path.string();
 
     LOG::info() << "Started saving agent: file=" << log_file_path_str;
-    wxLog::FlushActive();
+    FlushTextLog();
 
     wxBeginBusyCursor();
 
@@ -423,6 +489,7 @@ void RunnerApp::StopTraining()
 int RunnerApp::OnExit()
 {
     trainer_thread_->Stop();
+    ShutdownRunLogging();
     anet::MetricsLogger::Reset();
     standard_stream_logger_.Flush();
     standard_stream_logger_.Stop();

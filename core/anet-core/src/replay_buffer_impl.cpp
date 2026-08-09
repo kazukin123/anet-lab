@@ -1,11 +1,13 @@
 ﻿// replay_buffer_impl.cpp
 
 #include "replay_buffer_impl.hpp"
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
-#include <algorithm>
 #include <deque>
 #include <future>
+#include <numeric>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -19,6 +21,44 @@
 
 using namespace anet::rl;
 namespace LOG = anet::log;
+
+int64_t anet::rl::EncodeReplayItemKeyChecked(
+    int64_t generation, int64_t flat_slot_index, int64_t actual_capacity)
+{
+    if (actual_capacity <= 0) {
+        ANET_SYSTEM_ERROR("Replay item key capacity must be positive. actual_capacity=" << actual_capacity);
+    }
+    if (generation <= 0) {
+        ANET_SYSTEM_ERROR("Replay item key generation must be positive. generation=" << generation);
+    }
+    if (flat_slot_index < 0 || flat_slot_index >= actual_capacity) {
+        ANET_SYSTEM_ERROR("Replay item key slot is out of range. flat_slot_index=" << flat_slot_index
+            << " actual_capacity=" << actual_capacity);
+    }
+    if (generation > (std::numeric_limits<int64_t>::max() - flat_slot_index) / actual_capacity) {
+        ANET_SYSTEM_ERROR("Replay item key overflow. generation=" << generation
+            << " actual_capacity=" << actual_capacity << " flat_slot_index=" << flat_slot_index);
+    }
+    return generation * actual_capacity + flat_slot_index;
+}
+
+DecodedReplayItemKey anet::rl::DecodeReplayItemKeyChecked(int64_t key, int64_t actual_capacity)
+{
+    if (actual_capacity <= 0) {
+        ANET_SYSTEM_ERROR("Replay item key capacity must be positive. actual_capacity=" << actual_capacity);
+    }
+    if (key < 0) {
+        ANET_SYSTEM_ERROR("Replay item key must be non-negative. key=" << key);
+    }
+    const int64_t generation = key / actual_capacity;
+    if (generation <= 0) {
+        ANET_SYSTEM_ERROR("Replay item key generation must be positive. key=" << key);
+    }
+    return DecodedReplayItemKey{
+        .generation = generation,
+        .flat_slot_index = key % actual_capacity,
+    };
+}
 
 
 /* ==============================================================================
@@ -160,6 +200,7 @@ public:
         } else {
             // 本当のゲームオーバー
             exp.terminal = sequence.back().done;
+            exp.truncated = sequence.back().truncated && !sequence.back().done;
         }
 
         exp.actual_n_steps = n;
@@ -206,6 +247,22 @@ void ValidIndexManager::MarkDummy(int64_t env_idx, int64_t time_idx)
 void ValidIndexManager::AdvanceWriteCursor(int64_t env_idx)
 {
     write_cursors_[env_idx]++;
+}
+
+std::optional<ValidIndexManager::LogicalSampleableRange>
+ValidIndexManager::GetLogicalSampleableRange(int64_t env_idx, int unroll_steps, int n_step) const
+{
+    const int64_t write_cursor = write_cursors_[env_idx];
+    const int64_t valid_cursor = valid_cursors_[env_idx];
+    const int64_t future_obs_lag = std::max<int64_t>(1, n_step);
+
+    // リング上で未上書き、かつ必要な未来観測とunroll範囲が確定済みの論理区間を求める。
+    const int64_t logical_start = std::max<int64_t>(0, write_cursor - capacity_per_env_);
+    const int64_t max_safe_by_write = std::max<int64_t>(-1, write_cursor - future_obs_lag - 1);
+    const int64_t max_safe_by_valid = valid_cursor - 1 - unroll_steps;
+    const int64_t logical_end = std::min(max_safe_by_write, max_safe_by_valid);
+    if (logical_end < logical_start) return std::nullopt;
+    return LogicalSampleableRange{ .start = logical_start, .end = logical_end };
 }
 
 torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_steps, int n_step) const
@@ -258,13 +315,160 @@ bool ValidIndexManager::IsOverwritingSampleable(int64_t env_idx, int64_t time_id
     const int64_t flat_idx = env_idx * capacity_per_env_ + time_idx;
     if (is_dummy_[flat_idx]) return false;
 
-    const int64_t future_obs_lag = std::max<int64_t>(1, n_step);
     const int64_t evicted_logical = w_cursor - capacity_per_env_;
-    const int64_t max_safe_by_write = std::max<int64_t>(-1, w_cursor - future_obs_lag - 1);
-    const int64_t max_safe_by_valid = valid_cursors_[env_idx] - 1 - unroll_steps;
-    const int64_t logical_end = std::min(max_safe_by_write, max_safe_by_valid);
+    const auto range = GetLogicalSampleableRange(env_idx, unroll_steps, n_step);
+    return range.has_value() && range->Contains(evicted_logical);
+}
 
-    return evicted_logical <= logical_end;
+bool ValidIndexManager::IsLogicalSampleable(
+    int64_t env_idx, int64_t logical_idx, int unroll_steps, int n_step) const
+{
+    // 単点判定でも列挙処理と同じ上書き境界、未来観測、unroll終端を適用する。
+    const auto range = GetLogicalSampleableRange(env_idx, unroll_steps, n_step);
+    return range.has_value() && range->Contains(logical_idx);
+}
+
+
+// ===========================================================================
+// Initial Priority Completer
+// ===========================================================================
+
+InitialPriorityCompleter::InitialPriorityCompleter(
+    Config config, int64_t num_envs,
+    std::unique_ptr<InitialPriorityEstimator> estimator)
+    : config_(config)
+    , estimator_(std::move(estimator))
+    , pending_(static_cast<size_t>(num_envs))
+{
+}
+
+void InitialPriorityCompleter::Enqueue(int64_t env_idx, PendingEntry entry)
+{
+    pending_[static_cast<size_t>(env_idx)].push_back(std::move(entry));
+}
+
+void InitialPriorityCompleter::CompleteReady(
+    int64_t env_idx,
+    const std::optional<ReplayInitialPriorityHintRow>& current_hint,
+    int64_t current_logical_idx,
+    const ValidIndexManager& index_manager,
+    ReplayPriorityStore& priority_store)
+{
+    ANET_PROFILE_FUNC();
+
+    auto& pending = pending_[static_cast<size_t>(env_idx)];
+    // FIFO先頭から、必要な未来観測とunroll範囲が確定してsampleableになった遷移だけを処理する。
+    while (!pending.empty()
+        && index_manager.IsLogicalSampleable(
+            env_idx, pending.front().logical_time_idx, config_.unroll_steps, config_.n_step)) {
+        const auto entry = pending.front();
+        pending.pop_front();
+
+        // fixed/maxはActorヒントを参照せず、同じsampleable化境界で初期sourceを確定する。
+        if (config_.mode == ReplayInitialPriorityMode::FIXED) {
+            priority_store.SetRawInitialPriority(
+                entry.flat_slot_index, config_.fixed_raw_priority, ReplayPrioritySource::FIXED_INITIAL);
+            continue;
+        }
+        if (config_.mode == ReplayInitialPriorityMode::MAX) {
+            priority_store.SetMaxInitialPriority(entry.flat_slot_index);
+            continue;
+        }
+
+        ++stats_.attempt_count;
+
+        // 実遷移の開始stepには必ずschemaを満たすhint行が付随する契約を検証する。
+        if (!entry.start_hint.has_value()) {
+            ANET_SYSTEM_ERROR("actor_approx requires a Replay initial priority hint for every real start step."
+                << " env=" << env_idx << " logical_time_idx=" << entry.logical_time_idx);
+        }
+        if (!estimator_) {
+            ANET_SYSTEM_ERROR("actor_approx requires InitialPriorityEstimator.");
+        }
+        const auto start_hint = std::span<const float>(entry.start_hint->data(), entry.start_hint->size());
+        // Actor由来の非finite値はDebugでは原因を表面化し、Release系ではmaxへ退避して学習を継続する。
+        if (!estimator_->ValidateHint(start_hint)) {
+#ifdef NDEBUG
+            ++stats_.nonfinite_fallback_count;
+            priority_store.SetMaxInitialPriority(entry.flat_slot_index);
+            continue;
+#else
+            ANET_SYSTEM_ERROR("actor_approx received a non-finite start Replay initial priority hint.");
+#endif
+        }
+        // truncatedは終端観測を推論しないため、bootstrapせずmax初期化へフォールバックする。
+        if (entry.truncated) {
+            ++stats_.truncation_fallback_count;
+            priority_store.SetMaxInitialPriority(entry.flat_slot_index);
+            continue;
+        }
+
+        std::span<const float> bootstrap_hint;
+        if (!entry.terminal) {
+            // 非終端では実n-step先の現在hintだけをbootstrapに使い、時系列ずれを契約違反として止める。
+            const int64_t expected_logical = entry.logical_time_idx + entry.actual_n_steps;
+            if (current_logical_idx != expected_logical || !current_hint.has_value()) {
+                ANET_SYSTEM_ERROR("actor_approx bootstrap Replay initial priority hint mismatch. expected_logical="
+                    << expected_logical << " actual_logical=" << current_logical_idx);
+            }
+            bootstrap_hint = std::span<const float>(current_hint->data(), current_hint->size());
+            if (!estimator_->ValidateHint(bootstrap_hint)) {
+#ifdef NDEBUG
+                ++stats_.nonfinite_fallback_count;
+                priority_store.SetMaxInitialPriority(entry.flat_slot_index);
+                continue;
+#else
+                ANET_SYSTEM_ERROR("actor_approx received a non-finite bootstrap Replay initial priority hint.");
+#endif
+            }
+        }
+
+        // 確定済み収益とActor値をアルゴリズム固有Estimatorへ渡し、raw優先度を完成させる。
+        const auto raw_priority = estimator_->Estimate(InitialPriorityEstimateInput{
+            .start_hint = start_hint,
+            .bootstrap_hint = bootstrap_hint,
+            .target_return = entry.target_return,
+            .discount = static_cast<float>(std::pow(config_.gamma, entry.actual_n_steps)),
+            .terminal = entry.terminal,
+            .actual_n_steps = entry.actual_n_steps,
+        });
+        if (!raw_priority.has_value() || !std::isfinite(*raw_priority)) {
+#ifdef NDEBUG
+            ++stats_.nonfinite_fallback_count;
+            priority_store.SetMaxInitialPriority(entry.flat_slot_index);
+            continue;
+#else
+            ANET_SYSTEM_ERROR("actor_approx estimator returned a non-finite priority.");
+#endif
+        }
+        if (*raw_priority < 0.0f) {
+            ANET_SYSTEM_ERROR("actor_approx estimator returned a negative priority. value=" << *raw_priority);
+        }
+
+        // per_alpha適用前のraw値として保存し、sourceをactor_initialへ遷移させる。
+        priority_store.SetRawInitialPriority(
+            entry.flat_slot_index, *raw_priority, ReplayPrioritySource::ACTOR_INITIAL);
+        ++stats_.success_count;
+    }
+}
+
+std::unique_ptr<InitialPriorityCompleter> anet::rl::CreateInitialPriorityCompleter(
+    const ReplayBufferConfig& config,
+    int64_t num_envs,
+    std::unique_ptr<InitialPriorityEstimator> estimator)
+{
+    if (config.sampler_type == ReplaySamplerType::UNIFORM) return nullptr;
+
+    return std::make_unique<InitialPriorityCompleter>(
+        InitialPriorityCompleter::Config{
+            .mode = config.per_initial_priority_mode,
+            .fixed_raw_priority = config.per_initial_priority,
+            .gamma = config.gamma,
+            .n_step = config.n_step,
+            .unroll_steps = config.muzero.unroll_steps,
+        },
+        num_envs,
+        std::move(estimator));
 }
 
 
@@ -388,7 +592,7 @@ void ReplayExperienceStorage::DumpToLog() const
             if (actions_[e][t].dim() == 0)
                 act_str = std::to_string(actions_[e][t].item<float>());
             else
-                anet::ToString(actions_[e][t]);
+                act_str = anet::ToString(actions_[e][t]);
 
             LOG::info() << "  [idx=" << t << "] ret=" << ret
                 << " term=" << term << " n_steps=" << n
@@ -396,53 +600,6 @@ void ReplayExperienceStorage::DumpToLog() const
                 << " act={" << act_str << "}";
         }
     }
-}
-
-
-// ===========================================================================
-// SumTree
-// ===========================================================================
-
-SumTree::SumTree(int64_t capacity) : capacity_(capacity)
-{
-    tree_.assign(2 * capacity_ - 1, 0.0f);
-}
-
-void SumTree::Update(int64_t index, float priority)
-{
-    int64_t tree_idx = index + capacity_ - 1;
-    float change = priority - tree_[tree_idx];
-    tree_[tree_idx] = priority;
-    while (tree_idx != 0) {
-        tree_idx = (tree_idx - 1) / 2;
-        tree_[tree_idx] += change;
-    }
-}
-
-float SumTree::GetTotalPriority() const
-{
-    return tree_[0];
-}
-
-int64_t SumTree::Retrieve(float value) const
-{
-    int64_t tree_idx = 0;
-    while (tree_idx < capacity_ - 1) {
-        int64_t left = 2 * tree_idx + 1;
-        int64_t right = left + 1;
-        if (value <= tree_[left]) {
-            tree_idx = left;
-        } else {
-            value -= tree_[left];
-            tree_idx = right;
-        }
-    }
-    return tree_idx - capacity_ + 1;
-}
-
-float SumTree::GetPriority(int64_t index) const
-{
-    return tree_[index + capacity_ - 1];
 }
 
 
@@ -687,18 +844,88 @@ private:
     torch::TensorOptions opt_float_;
 };
 
-class PrioritizedSampler : public ReplayExperienceSampler, public ReplayPriorityController, public anet::RandomHolder {
+void anet::rl::FillActorLearnerComparison(
+    const std::vector<std::pair<float, float>>& pairs, ReplayPriorityUpdateResult* result)
+{
+    result->actor_learner_pair_count = static_cast<int64_t>(pairs.size());
+    if (pairs.empty()) return;
+
+    // 倍率統計は除算と対数が定義できる正値ペアだけを対象にする。
+    std::vector<float> ratios;
+    double log_sum = 0.0;
+    for (const auto& [actor, learner] : pairs) {
+        if (actor > 0.0f && learner > 0.0f) {
+            ratios.push_back(actor / learner);
+            log_sum += std::log(actor / learner);
+        }
+    }
+    result->actor_learner_positive_pair_ratio =
+        static_cast<float>(ratios.size()) / static_cast<float>(pairs.size());
+    if (!ratios.empty()) {
+        // 偶数件では中央2値を平均し、倍率の外れ値に強い代表値を作る。
+        std::sort(ratios.begin(), ratios.end());
+        const size_t mid = ratios.size() / 2;
+        result->actor_learner_ratio_median = ratios.size() % 2 == 0
+            ? (ratios[mid - 1] + ratios[mid]) * 0.5f
+            : ratios[mid];
+        result->actor_learner_log_ratio_mean = static_cast<float>(log_sum / ratios.size());
+    }
+
+    if (pairs.size() < 2) return;
+    // 同値には占有順位の平均を割り当て、tieを含む通常のSpearman順位相関にする。
+    auto make_ranks = [](const std::vector<float>& values) {
+        std::vector<size_t> order(values.size());
+        std::iota(order.begin(), order.end(), 0);
+        std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return values[a] < values[b]; });
+        std::vector<double> ranks(values.size());
+        for (size_t i = 0; i < order.size();) {
+            size_t j = i + 1;
+            while (j < order.size() && values[order[j]] == values[order[i]]) ++j;
+            const double rank = (static_cast<double>(i) + static_cast<double>(j - 1)) * 0.5;
+            for (size_t k = i; k < j; ++k) ranks[order[k]] = rank;
+            i = j;
+        }
+        return ranks;
+    };
+    std::vector<float> actor;
+    std::vector<float> learner;
+    actor.reserve(pairs.size());
+    learner.reserve(pairs.size());
+    for (const auto& pair : pairs) {
+        actor.push_back(pair.first);
+        learner.push_back(pair.second);
+    }
+    const auto actor_ranks = make_ranks(actor);
+    const auto learner_ranks = make_ranks(learner);
+    const double actor_mean = std::accumulate(actor_ranks.begin(), actor_ranks.end(), 0.0) / actor_ranks.size();
+    const double learner_mean = std::accumulate(learner_ranks.begin(), learner_ranks.end(), 0.0) / learner_ranks.size();
+    double covariance = 0.0;
+    double actor_variance = 0.0;
+    double learner_variance = 0.0;
+    for (size_t i = 0; i < actor_ranks.size(); ++i) {
+        const double actor_delta = actor_ranks[i] - actor_mean;
+        const double learner_delta = learner_ranks[i] - learner_mean;
+        covariance += actor_delta * learner_delta;
+        actor_variance += actor_delta * actor_delta;
+        learner_variance += learner_delta * learner_delta;
+    }
+    // 片側が全tieなら順位の分散がなく相関を定義できないためNaNを維持する。
+    if (actor_variance == 0.0 || learner_variance == 0.0) return;
+    result->actor_learner_spearman = static_cast<float>(
+        covariance / std::sqrt(actor_variance * learner_variance));
+}
+
+class PrioritizedSampler : public ReplayExperienceSampler, public ReplayPriorityStore, public anet::RandomHolder {
 public:
-    PrioritizedSampler(int64_t capacity, float alpha, float initial_priority, std::optional<anet::seed_t> seed)
+    PrioritizedSampler(int64_t capacity, float alpha, std::optional<anet::seed_t> seed)
         : anet::RandomHolder(seed)
         , tree_(capacity)
-        , is_initial_priority_(static_cast<size_t>(capacity), 0)
+        , sources_(static_cast<size_t>(capacity), ReplayPrioritySource::NONE)
         , alpha_(alpha)
         , gen_(rnd_->GetTorchGenerator(torch::kCPU))
         , opt_long_(torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU))
         , opt_float_(torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU))
-        , max_prio_(initial_priority < 0.0f ? 1.0f : std::pow(initial_priority, alpha))
-        , initial_priority_(initial_priority)
+        , max_prio_(1.0f)
     {
     }
 
@@ -712,9 +939,9 @@ public:
         std::vector<int64_t> sampled_indices(batch_size);
         std::vector<float> sampled_probs(batch_size);
         std::vector<float> sampled_weights(batch_size);
-        std::vector<int64_t> sampled_initial(batch_size);
+        std::vector<int8_t> sampled_sources(batch_size);
 
-        float total_prio = tree_.GetTotalPriority();
+        const double total_prio = tree_.GetTotalPriority();
 
         int64_t b = 0;
         int max_attempts = batch_size * 10;
@@ -723,21 +950,21 @@ public:
         // valid_indices_1d は昇順ソートが保証されているため、std::binary_search による O(1)~O(log V) 判定が可能
         while (b < batch_size && attempts < max_attempts) {
             attempts++;
-            float r = torch::rand({ 1 }, gen_, opt_float_).item<float>() * total_prio;
+            const double r = static_cast<double>(torch::rand({ 1 }, gen_, opt_float_).item<float>()) * total_prio;
             int64_t idx = tree_.Retrieve(r);
 
             bool is_valid = std::binary_search(valid_ptr, valid_ptr + valid_count, idx);
             if (is_valid) {
-                float p = tree_.GetPriority(idx);
-                if (p <= 0.0f) continue; // 安全装置
+                const double p = tree_.GetPriority(idx);
+                if (p <= 0.0) continue; // 安全装置
 
                 sampled_indices[b] = idx;
-                float prob = p / total_prio;
-                sampled_probs[b] = prob;
+                const double prob = p / total_prio;
+                sampled_probs[b] = static_cast<float>(prob);
 
-                float weight = std::pow(valid_count * prob, -beta);
-                sampled_weights[b] = weight;
-                sampled_initial[b] = is_initial_priority_[static_cast<size_t>(idx)] ? 1 : 0;
+                const double weight = std::pow(static_cast<double>(valid_count) * prob, -static_cast<double>(beta));
+                sampled_weights[b] = static_cast<float>(weight);
+                sampled_sources[b] = static_cast<int8_t>(sources_[static_cast<size_t>(idx)]);
                 b++;
             }
         }
@@ -752,7 +979,7 @@ public:
                 sampled_indices[b + i] = idx;
                 sampled_probs[b + i] = 1.0f / valid_count;
                 sampled_weights[b + i] = 1.0f;
-                sampled_initial[b + i] = is_initial_priority_[static_cast<size_t>(idx)] ? 1 : 0;
+                sampled_sources[b + i] = static_cast<int8_t>(sources_[static_cast<size_t>(idx)]);
             }
         }
 
@@ -760,68 +987,75 @@ public:
         auto indices_t = torch::tensor(sampled_indices, opt_long_).to(idx_device);
         auto probs_t = torch::tensor(sampled_probs, opt_float_).to(idx_device);
         auto weights_t = torch::tensor(sampled_weights, opt_float_).to(idx_device);
-        auto initial_t = torch::tensor(sampled_initial, opt_long_).to(torch::kBool);
+        auto source_t = torch::tensor(sampled_sources, torch::TensorOptions().dtype(torch::kInt8).device(torch::kCPU));
 
         weights_t /= weights_t.max(); // 正規化
 
-        return { indices_t, probs_t, weights_t, initial_t };
+        return { indices_t, probs_t, weights_t, source_t };
     }
 
-    void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override
+    void InvalidateSlot(int64_t flat_slot_index) override
+    {
+        UpdateTreePriority(flat_slot_index, 0.0f, ReplayPrioritySource::NONE);
+    }
+
+    void SetRawInitialPriority(
+        int64_t flat_slot_index, float raw_priority, ReplayPrioritySource source) override
+    {
+        UpdateTreePriority(flat_slot_index, std::pow(raw_priority, alpha_), source);
+    }
+
+    void SetMaxInitialPriority(int64_t flat_slot_index) override
+    {
+        UpdateTreePriority(flat_slot_index, max_prio_, ReplayPrioritySource::MAX_INITIAL);
+    }
+
+    ReplayPriorityUpdateResult ApplyLearnerPriorities(
+        const std::vector<int64_t>& flat_slot_indices,
+        const std::vector<float>& raw_priorities) override
     {
         ANET_PROFILE_FUNC();
+        ReplayPriorityUpdateResult result;
+        std::vector<std::pair<float, float>> actor_pairs;
+        actor_pairs.reserve(flat_slot_indices.size());
 
-        //ANET_LOG_DEBUG("UpdatePriorities() indices=" << indices << " priorities=" << priorities);
-        //LOG::info() << "UpdatePriorities() indices=" << indices << " priorities=" << priorities;
-
-        for (size_t i = 0; i < indices.size(); ++i) {
-            float p = priorities[i];
-            const int64_t index = indices[i];
-
-            if (p < 0.0f) {
-                // 特殊フラグ (-1.0f): 初期優先度を設定
-                float adjusted_p = 0.0f;
-                if (initial_priority_ < 0.0f) {
-					adjusted_p = max_prio_;    // 最大優先度で初期化
-                } else {
-                    adjusted_p = (initial_priority_ == 1.0) ? 1.0f : std::pow(initial_priority_, alpha_);
-                }
-                UpdateTreePriority(index, adjusted_p, true);
-            } else if (p == 0.0f) {
-                // 特殊フラグ (0.0f): 上書きに伴う無効化
-                UpdateTreePriority(index, 0.0f, false);
-            } else {
-                // 通常の更新
-                float adjusted_p = std::pow(p, alpha_);
-                UpdateTreePriority(index, adjusted_p, false);
-                if (adjusted_p > 0.0f) {
-                    max_prio_ = std::max(max_prio_, adjusted_p);
-                }
+        for (size_t i = 0; i < flat_slot_indices.size(); ++i) {
+            const int64_t index = flat_slot_indices[i];
+            const float adjusted = std::pow(raw_priorities[i], alpha_);
+            if (sources_[static_cast<size_t>(index)] == ReplayPrioritySource::ACTOR_INITIAL) {
+                actor_pairs.emplace_back(static_cast<float>(tree_.GetPriority(index)), adjusted);
             }
+            UpdateTreePriority(index, adjusted, ReplayPrioritySource::LEARNER_UPDATED);
+            max_prio_ = std::max(max_prio_, adjusted);
+            ++result.applied_count;
         }
+
+        FillActorLearnerComparison(actor_pairs, &result);
+        return result;
     }
 
-    float GetTotalPriority() const
+    std::optional<float> GetScalar(const std::string& key) const override
     {
-        return tree_.GetTotalPriority();
-    }
-
-    float GetInitialMassRatio() const
-    {
-        const float total = tree_.GetTotalPriority();
-        if (total <= 0.0f) {
-            return std::numeric_limits<float>::quiet_NaN();
+        if (key == ReplayBuffer::PER_TOTAL) return static_cast<float>(tree_.GetTotalPriority());
+        const double total = tree_.GetTotalPriority();
+        if (total <= 0.0) return std::numeric_limits<float>::quiet_NaN();
+        if (key == ReplayBuffer::PER_INITIAL_MASS_RATIO) {
+            const double mass = source_mass_[1] + source_mass_[2] + source_mass_[3];
+            return static_cast<float>(std::clamp(mass, 0.0, total) / total);
         }
-        return std::min(total, std::max(0.0f, initial_priority_mass_)) / total;
+        if (key == ReplayBuffer::PER_FIXED_INITIAL_MASS_RATIO) return SourceMassRatio(ReplayPrioritySource::FIXED_INITIAL, total);
+        if (key == ReplayBuffer::PER_MAX_INITIAL_MASS_RATIO) return SourceMassRatio(ReplayPrioritySource::MAX_INITIAL, total);
+        if (key == ReplayBuffer::PER_ACTOR_INITIAL_MASS_RATIO) return SourceMassRatio(ReplayPrioritySource::ACTOR_INITIAL, total);
+        return std::nullopt;
     }
 
-    std::optional<torch::Tensor> GetPriorityTensor(int64_t index) const
+    std::optional<torch::Tensor> GetPriorityTensor(int64_t index) const override
     {
         if (index < 0 || index >= tree_.Capacity()) return std::nullopt;
-        return torch::tensor(tree_.GetPriority(index), opt_float_);
+        return torch::tensor(static_cast<float>(tree_.GetPriority(index)), opt_float_);
     }
 
-    torch::Tensor GatherPriorityRows(const torch::Tensor& indices) const
+    torch::Tensor GatherPriorityRows(const torch::Tensor& indices) const override
     {
         ANET_PROFILE_FUNC();
 
@@ -829,36 +1063,35 @@ public:
         auto acc = indices_cpu.accessor<int64_t, 1>();
         std::vector<float> priorities(static_cast<size_t>(indices_cpu.size(0)));
         for (int64_t i = 0; i < indices_cpu.size(0); ++i) {
-            priorities[static_cast<size_t>(i)] = tree_.GetPriority(acc[i]);
+            priorities[static_cast<size_t>(i)] = static_cast<float>(tree_.GetPriority(acc[i]));
         }
         return torch::tensor(priorities, opt_float_).reshape({ indices_cpu.size(0), 1 });
     }
 private:
-    void UpdateTreePriority(int64_t index, float adjusted_priority, bool is_initial)
+    float SourceMassRatio(ReplayPrioritySource source, double total) const
     {
-        const size_t slot = static_cast<size_t>(index);
-        const float old_priority = tree_.GetPriority(index);
-        if (is_initial_priority_[slot]) {
-            initial_priority_mass_ -= old_priority;
-        }
-
-        tree_.Update(index, adjusted_priority);
-
-        is_initial_priority_[slot] = (is_initial && adjusted_priority > 0.0f) ? 1 : 0;
-        if (is_initial_priority_[slot]) {
-            initial_priority_mass_ += adjusted_priority;
-        }
+        return static_cast<float>(std::clamp(source_mass_[static_cast<size_t>(source)], 0.0, total) / total);
     }
 
-    SumTree tree_;
-    std::vector<uint8_t> is_initial_priority_;
+    void UpdateTreePriority(int64_t index, float adjusted_priority, ReplayPrioritySource source)
+    {
+        const size_t slot = static_cast<size_t>(index);
+        const double old_priority = tree_.GetPriority(index);
+        source_mass_[static_cast<size_t>(sources_[slot])] -= old_priority;
+
+        tree_.Update(index, static_cast<double>(adjusted_priority));
+        sources_[slot] = source;
+        source_mass_[static_cast<size_t>(source)] += static_cast<double>(adjusted_priority);
+    }
+
+    SumTree<double> tree_;
+    std::vector<ReplayPrioritySource> sources_;
+    std::array<double, 5> source_mass_{};
     const float alpha_;
     const torch::Generator gen_;
     const torch::TensorOptions opt_long_;
     const torch::TensorOptions opt_float_;
     float max_prio_;
-    float initial_priority_;
-    float initial_priority_mass_ = 0.0f;
 };
 
 
@@ -879,8 +1112,8 @@ public:
 
         ANET_PROFILE_SCOPE(prepare);
 
-        int64_t B = idx_result.indices.size(0);
-        auto indices_acc = idx_result.indices.accessor<int64_t, 1>();
+        int64_t B = idx_result.flat_slot_indices.size(0);
+        auto indices_acc = idx_result.flat_slot_indices.accessor<int64_t, 1>();
 
         int64_t cap = storage.GetTargetReturns().size(1); // capacity_per_env
 
@@ -893,8 +1126,15 @@ public:
         std::vector<torch::Tensor> batch_actions, batch_returns, batch_terminals, batch_actual_n;
         std::vector<anet::TensorDict> batch_obs, batch_next_obs, batch_info;
 
-        // 境界チェック用に terminals (done) フラグを一括取得
+        // terminals_ は n-step return の終端到達も表すため、frame stack の境界には
+        // 実エピソード終端、dummy、未書き込み slot だけを使う。
         auto terminals_tensor = storage.GetTerminals();
+        auto actual_n_steps_tensor = storage.GetActualNSteps();
+        auto terminals_acc = terminals_tensor.accessor<bool, 2>();
+        auto actual_n_steps_acc = actual_n_steps_tensor.accessor<int64_t, 2>();
+        auto is_episode_boundary = [&](int64_t env_idx, int64_t phys_idx) {
+            return terminals_acc[env_idx][phys_idx] && actual_n_steps_acc[env_idx][phys_idx] <= 1;
+        };
 
         /// @todo [Performance] 現在はバッチサイズ(B)回数分のループで C++ 側からスライスと torch::stack を行っている。
         /// GPU上でストレージを持つ場合、Pythonの `tensor[batch_indices, time_indices]` のように
@@ -905,13 +1145,13 @@ public:
             int64_t idx1d = indices_acc[b];
             int64_t env_idx = idx1d / cap;
             int64_t time_idx = idx1d % cap;
-            int64_t actual_n = storage.GetActualNSteps()[env_idx][time_idx].item<int64_t>();
+            int64_t actual_n = actual_n_steps_acc[env_idx][time_idx];
 
             // 未来方向 (Unroll) のスライス抽出 ---
             batch_actions.push_back(RingSlice(storage.GetActions(), env_idx, time_idx, unroll_len, cap, squeeze_unroll));
             batch_returns.push_back(RingSlice(storage.GetTargetReturns(), env_idx, time_idx, unroll_len, cap, squeeze_unroll));
-            batch_terminals.push_back(RingSlice(storage.GetTerminals(), env_idx, time_idx, unroll_len, cap, squeeze_unroll));
-            batch_actual_n.push_back(storage.GetActualNSteps()[env_idx][time_idx]);
+            batch_terminals.push_back(RingSlice(terminals_tensor, env_idx, time_idx, unroll_len, cap, squeeze_unroll));
+            batch_actual_n.push_back(actual_n_steps_tensor[env_idx][time_idx]);
 
             // MuZero用などの固有情報 (存在する場合のみ)
             if (!storage.GetInfo().empty()) {
@@ -923,7 +1163,7 @@ public:
             int64_t obs_valid_start = obs_start;
             for (int64_t k = time_idx - 1; k >= obs_start; --k) {
                 int64_t phys_k = (k % cap + cap) % cap; // 負数を安全にリングバッファの末尾に折り返す
-                if (terminals_tensor[env_idx][phys_k].item<bool>()) {
+                if (is_episode_boundary(env_idx, phys_k)) {
                     obs_valid_start = k + 1;
                     break;
                 }
@@ -938,7 +1178,7 @@ public:
             int64_t next_obs_valid_start = next_obs_start;
             for (int64_t k = next_obs_end - 2; k >= next_obs_start; --k) {
                 int64_t phys_k = (k % cap + cap) % cap; // 負数を安全にリングバッファの末尾に折り返す
-                if (terminals_tensor[env_idx][phys_k].item<bool>()) {
+                if (is_episode_boundary(env_idx, phys_k)) {
                     next_obs_valid_start = k + 1;
                     break;
                 }
@@ -962,9 +1202,8 @@ public:
         }
 
         // --- PER等のメタデータ引き継ぎ ---
-        out.indices = idx_result.indices;
         out.is_weights = idx_result.is_weights;
-        out.per_is_initial_priority = idx_result.per_is_initial_priority;
+        out.per_priority_sources = idx_result.per_priority_sources;
     }
 private:
     std::vector<std::string> stack_keys_;
@@ -980,19 +1219,28 @@ DefaultReplayBuffer::DefaultReplayBuffer(
     std::unique_ptr<ExperienceQueueController> queue_controller,
     std::unique_ptr<ReplayExperienceBuilder> builder,
     std::shared_ptr<ReplayExperienceSampler> sampler,
-    std::shared_ptr<ReplayPriorityController> prio_controller,
+    std::shared_ptr<ReplayPriorityStore> priority_store,
     std::shared_ptr<ExperienceSampleExtractor> extractor,
+    std::unique_ptr<InitialPriorityCompleter> initial_priority_completer,
     torch::Device device, bool pin_memory)
     : config_(config)
     , num_envs_(num_envs)
     , queue_controller_(std::move(queue_controller))
     , builder_(std::move(builder))
     , sampler_(sampler)
-    , prio_controller_(prio_controller)
+    , priority_store_(std::move(priority_store))
     , extractor_(extractor)
+    , initial_priority_completer_(std::move(initial_priority_completer))
 {
     capacity_per_env_ = config_.capacity / num_envs_;
+    actual_capacity_ = capacity_per_env_ * num_envs_;
     queues_.resize(num_envs_);
+    generations_.assign(static_cast<size_t>(actual_capacity_), 0);
+
+    // PERではpriority storeとcompletion Moduleを対で構築し、uniformではどちらも持たない。
+    if (static_cast<bool>(priority_store_) != static_cast<bool>(initial_priority_completer_)) {
+        ANET_SYSTEM_ERROR("ReplayPriorityStore and InitialPriorityCompleter must be configured together.");
+    }
 
     storage_ = std::make_unique<ReplayExperienceStorage>(num_envs_, capacity_per_env_, env_spec, config_, device, pin_memory);
     index_manager_ = std::make_unique<ValidIndexManager>(num_envs_, capacity_per_env_);
@@ -1007,6 +1255,16 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
 
     // 事前に action の info を取得しておく
     anet::TensorDict action_info = batch.action->GetInfo();
+    const auto& replay_hint = batch.action->GetReplayInitialPriorityHint();
+    torch::Tensor replay_hint_payload;
+    if (replay_hint.has_value()) {
+        ANET_PROFILE_SCOPE(replay_initial_priority_hint_cpu);
+        replay_hint_payload = replay_hint->GetPayloadCpu();
+        if (replay_hint_payload.size(0) != num_envs_) {
+            ANET_SYSTEM_ERROR("ReplayInitialPriorityHint batch size mismatch. expected=" << num_envs_
+                << " actual=" << replay_hint_payload.size(0));
+        }
+    }
 
     int64_t evicted_sampleable_count = 0;
     int64_t evicted_never_sampled_count = 0;
@@ -1018,25 +1276,36 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
         anet::TensorDict single_obs = batch.state.obs[b];
         anet::TensorDict single_info = action_info.empty() ? anet::TensorDict() : action_info[b];
 
+        const int64_t logical_time_idx = index_manager_->GetWriteCursor(b);
         int64_t time_idx = storage_->Push(b, single_obs, batch.action->GetAction()[b], single_info);
+        const int64_t flat_slot_index = b * capacity_per_env_ + time_idx;
         {
             std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
             RecordEvictionIfSampleable(b, time_idx, &evicted_sampleable_count, &evicted_never_sampled_count);
-            sampled_once_[static_cast<size_t>(b * capacity_per_env_ + time_idx)] = 0;
+            sampled_once_[static_cast<size_t>(flat_slot_index)] = 0;
+            OnSlotWritten(flat_slot_index);
             index_manager_->MarkWritten(b, time_idx);
             index_manager_->AdvanceWriteCursor(b); // カーソルを進める
 
-            if (prio_controller_) {
-                prio_controller_->UpdatePriorities({ b * capacity_per_env_ + time_idx }, { 0.0f });
-            }
         }
 
         // 正常なステップを先に Queue に入れる (タイムトラベル防止)
         QueueRecord rec;
         rec.time_idx = time_idx;
+        rec.logical_time_idx = logical_time_idx;
         rec.reward = batch.reward[b].item<float>();
         rec.done = batch.next_state.done[b].item<bool>();
         rec.truncated = batch.next_state.truncated[b].item<bool>();
+        if (replay_hint.has_value()) {
+            // 共通層では列を解釈せず、CPU化済みの1行をinline保持できる小配列へコピーする。
+            auto payload = replay_hint_payload.accessor<float, 2>();
+            ReplayInitialPriorityHintRow row;
+            row.reserve(static_cast<size_t>(replay_hint_payload.size(1)));
+            for (int64_t k = 0; k < replay_hint_payload.size(1); ++k) {
+                row.push_back(payload[b][k]);
+            }
+            rec.replay_initial_priority_hint = std::move(row);
+        }
         queues_[b].Push(rec);
 
         // Truncatedのパラドックス対策 (ダミーステップの挿入)
@@ -1045,20 +1314,20 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
             storage_->PushTerminalDummy(b, terminal_obs);
 
             int64_t dummy_idx = (time_idx + 1) % capacity_per_env_;
+            const int64_t dummy_logical_idx = index_manager_->GetWriteCursor(b);
             {
                 std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
                 RecordEvictionIfSampleable(b, dummy_idx, &evicted_sampleable_count, &evicted_never_sampled_count);
                 sampled_once_[static_cast<size_t>(b * capacity_per_env_ + dummy_idx)] = 0;
+                OnSlotWritten(b * capacity_per_env_ + dummy_idx);
                 index_manager_->MarkDummy(b, dummy_idx);
                 index_manager_->AdvanceWriteCursor(b); // ダミー書き込み分もカーソルを進める
 
-                if (prio_controller_) {
-                    prio_controller_->UpdatePriorities({ b * capacity_per_env_ + dummy_idx }, { 0.0f });
-                }
             }
 
             QueueRecord dummy_rec;
             dummy_rec.time_idx = dummy_idx;
+            dummy_rec.logical_time_idx = dummy_logical_idx;
             dummy_rec.reward = 0.0f;
             dummy_rec.done = true;
             dummy_rec.truncated = false;
@@ -1066,7 +1335,7 @@ void DefaultReplayBuffer::Push(const BatchExperience& batch)
             queues_[b].Push(dummy_rec);
         }
 
-        ProcessQueue(b);
+        ProcessQueue(b, rec.replay_initial_priority_hint, rec.logical_time_idx);
     }
 
     StoreLastEvictionStats(evicted_sampleable_count, evicted_never_sampled_count);
@@ -1114,15 +1383,18 @@ void DefaultReplayBuffer::StoreLastEvictionStats(int64_t evicted_sampleable_coun
         : std::numeric_limits<float>::quiet_NaN();
 }
 
-void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
+void DefaultReplayBuffer::ProcessQueue(
+    int64_t env_idx,
+    const std::optional<ReplayInitialPriorityHintRow>& current_hint,
+    int64_t current_logical_idx)
 {
     ANET_PROFILE_FUNC();
 
     auto sequences = queue_controller_->ExtractSequences(queues_[env_idx]);
 
-    std::vector<int64_t> valid_envs;
-    std::vector<int64_t> newly_valid;
-    std::vector<float> init_prios;
+    int64_t valid_count = 0;
+    std::vector<InitialPriorityCompleter::PendingEntry> completion_entries;
+    if (initial_priority_completer_) completion_entries.reserve(sequences.size());
 
     for (const auto& seq : sequences) {
         // 念のため空チェック
@@ -1130,7 +1402,7 @@ void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
 
         //ダミーステップ自身が起点(state)となっているシーケンスはStorageに登録しない
         if (seq[0].is_dummy) {
-            valid_envs.push_back(env_idx);
+            ++valid_count;
             continue;
         }
 
@@ -1141,23 +1413,55 @@ void DefaultReplayBuffer::ProcessQueue(int64_t env_idx)
         int64_t time_idx = seq.front().time_idx;
         storage_->Update(env_idx, time_idx, exp);
 
-        // 完全にサンプリング可能になったので封印解除
-        valid_envs.push_back(env_idx);
-
-        newly_valid.push_back(env_idx * capacity_per_env_ + time_idx);
-        init_prios.push_back(-1.0f); // 初期優先度を割り当てるための特殊フラグ
-    }
-
-    //  N-Step計算が完了し、安全になったデータをTreeに登録（初期優先度付与）
-    if (!valid_envs.empty() || (prio_controller_ && !newly_valid.empty())) {
-        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
-        for (int64_t valid_env : valid_envs) {
-            index_manager_->MarkValid(valid_env);
-        }
-        if (prio_controller_ && !newly_valid.empty()) {
-            prio_controller_->UpdatePriorities(newly_valid, init_prios);
+        ++valid_count;
+        if (initial_priority_completer_) {
+            // ExperienceQueueで系列が確定したreal transitionから、priority完成に必要な小さい情報だけを移す。
+            completion_entries.push_back(InitialPriorityCompleter::PendingEntry{
+                .logical_time_idx = seq.front().logical_time_idx,
+                .flat_slot_index = env_idx * capacity_per_env_ + time_idx,
+                .target_return = exp.target_return,
+                .terminal = exp.terminal,
+                .truncated = exp.truncated,
+                .actual_n_steps = exp.actual_n_steps,
+                .start_hint = seq.front().replay_initial_priority_hint,
+            });
         }
     }
+
+    if (valid_count == 0 && !initial_priority_completer_) return;
+
+    // pending登録、sampleable化、priority/source適用を同じmetadata排他区間で公開する。
+    std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+    if (initial_priority_completer_) {
+        for (auto& entry : completion_entries) {
+            initial_priority_completer_->Enqueue(env_idx, std::move(entry));
+        }
+    }
+    // pendingを先に登録してから封印解除し、sampleableだがpriority未完成という状態を作らない。
+    for (int64_t i = 0; i < valid_count; ++i) {
+        index_manager_->MarkValid(env_idx);
+    }
+    if (initial_priority_completer_) {
+        initial_priority_completer_->CompleteReady(
+            env_idx, current_hint, current_logical_idx, *index_manager_, *priority_store_);
+    }
+}
+
+int64_t DefaultReplayBuffer::OnSlotWritten(int64_t flat_slot_index)
+{
+    auto& generation = generations_[static_cast<size_t>(flat_slot_index)];
+    if (generation == std::numeric_limits<int64_t>::max()) {
+        ANET_SYSTEM_ERROR("Replay item generation overflow. flat_slot_index=" << flat_slot_index);
+    }
+    ++generation;
+    if (priority_store_) priority_store_->InvalidateSlot(flat_slot_index);
+    return generation;
+}
+
+int64_t DefaultReplayBuffer::EncodeReplayItemKey(int64_t flat_slot_index) const
+{
+    const int64_t generation = generations_[static_cast<size_t>(flat_slot_index)];
+    return EncodeReplayItemKeyChecked(generation, flat_slot_index, actual_capacity_);
 }
 
 void DefaultReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const
@@ -1182,11 +1486,19 @@ void DefaultReplayBuffer::Sample(ExperienceSamples& out_samples, int64_t minibat
     ANET_PROFILE_SCOPE(sample_indices);
     idx_result = sampler_->SampleIndices(minibatch_size, valid_1d, beta);
     ANET_PROFILE_SCOPE_END(sample_indices);
-    MarkSampledOnce(idx_result.indices);
+    MarkSampledOnce(idx_result.flat_slot_indices);
     metadata_lock.unlock();
 
     ANET_PROFILE_SCOPE(extract);
     extractor_->ExtractSamples(out_samples, *storage_, idx_result, config_.stack_count, config_.muzero.unroll_steps);
+    auto flat_indices = idx_result.flat_slot_indices.to(torch::kCPU).contiguous();
+    auto flat_acc = flat_indices.accessor<int64_t, 1>();
+    std::vector<int64_t> item_keys(static_cast<size_t>(flat_indices.size(0)));
+    for (int64_t i = 0; i < flat_indices.size(0); ++i) {
+        item_keys[static_cast<size_t>(i)] = EncodeReplayItemKey(flat_acc[i]);
+    }
+    out_samples.replay_item_keys = torch::tensor(
+        item_keys, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
     ANET_PROFILE_SCOPE_END(extract);
 }
 
@@ -1199,15 +1511,60 @@ int64_t DefaultReplayBuffer::Size() const
     return index_manager_->GetSampleableCount(config_.stack_count, config_.muzero.unroll_steps, config_.n_step);
 }
 
-void DefaultReplayBuffer::UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities)
+ReplayPriorityUpdateResult DefaultReplayBuffer::UpdatePriorities(
+    const std::vector<int64_t>& item_keys, const std::vector<float>& priorities)
 {
-    if (prio_controller_) {
-        {
-            std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
-            prio_controller_->UpdatePriorities(indices, priorities);
+    ANET_PROFILE_FUNC();
+
+    ReplayPriorityUpdateResult result;
+    if (!priority_store_) return result;
+    if (item_keys.size() != priorities.size()) {
+        ANET_SYSTEM_ERROR("ReplayBuffer::UpdatePriorities size mismatch. item_keys=" << item_keys.size()
+            << " priorities=" << priorities.size());
+    }
+
+    std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+    std::vector<DecodedReplayItemKey> decoded_keys;
+    std::vector<int64_t> valid_slots;
+    std::vector<float> valid_priorities;
+    decoded_keys.reserve(item_keys.size());
+    valid_slots.reserve(item_keys.size());
+    valid_priorities.reserve(priorities.size());
+
+    // どのleafも変更する前にbatch全体を検証する。
+    for (size_t i = 0; i < item_keys.size(); ++i) {
+        const int64_t key = item_keys[i];
+        const float priority = priorities[i];
+        if (!std::isfinite(priority) || priority < 0.0f) {
+            ANET_SYSTEM_ERROR("ReplayBuffer::UpdatePriorities invalid priority. key=" << key
+                << " priority=" << priority << " expected non-negative finite priority");
         }
+        const auto decoded = DecodeReplayItemKeyChecked(key, actual_capacity_);
+        const int64_t current_generation = generations_[static_cast<size_t>(decoded.flat_slot_index)];
+        if (decoded.generation > current_generation) {
+            ANET_SYSTEM_ERROR("ReplayBuffer::UpdatePriorities future generation. key=" << key
+                << " current_generation=" << current_generation);
+        }
+        decoded_keys.push_back(decoded);
+    }
+    // 過去generationだけを要素単位で棄却し、現generationの更新を物理slotへ変換する。
+    for (size_t i = 0; i < item_keys.size(); ++i) {
+        const auto& decoded = decoded_keys[i];
+        if (decoded.generation < generations_[static_cast<size_t>(decoded.flat_slot_index)]) {
+            ++result.stale_count;
+            continue;
+        }
+        valid_slots.push_back(decoded.flat_slot_index);
+        valid_priorities.push_back(priorities[i]);
+    }
+    if (!valid_slots.empty()) {
+        auto applied = priority_store_->ApplyLearnerPriorities(valid_slots, valid_priorities);
+        applied.stale_count = result.stale_count;
+        result = applied;
         InvalidateAccessorCacheForPriority();
     }
+    priority_update_stale_drop_count_ += result.stale_count;
+    return result;
 }
 
 void DefaultReplayBuffer::InvalidateAccessorCacheForStorage()
@@ -1268,23 +1625,44 @@ void DefaultReplayBuffer::StoreTensorVectorCache(const std::string& key, int64_t
 
 std::optional<float> DefaultReplayBuffer::GetScalar(const std::string& key, int64_t index) const
 {
-    if (key == PER_TOTAL) {
+    const auto ratio = [](int64_t numerator, int64_t denominator) {
+        return denominator > 0
+            ? static_cast<float>(numerator) / static_cast<float>(denominator)
+            : std::numeric_limits<float>::quiet_NaN();
+    };
+    if (key == PER_ACTOR_COMPLETION_ATTEMPT_COUNT || key == PER_ACTOR_COMPLETION_SUCCESS_COUNT
+        || key == PER_ACTOR_COMPLETION_SUCCESS_RATIO || key == PER_ACTOR_TRUNCATION_FALLBACK_COUNT
+        || key == PER_ACTOR_TRUNCATION_FALLBACK_RATIO || key == PER_ACTOR_NONFINITE_FALLBACK_COUNT
+        || key == PER_ACTOR_NONFINITE_FALLBACK_RATIO) {
         std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
-        auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
-        if (!prioritized) return std::nullopt;
-        return prioritized->GetTotalPriority();
+        if (!initial_priority_completer_) return std::nullopt;
+        const auto stats = initial_priority_completer_->GetStats();
+        if (key == PER_ACTOR_COMPLETION_ATTEMPT_COUNT) return static_cast<float>(stats.attempt_count);
+        if (key == PER_ACTOR_COMPLETION_SUCCESS_COUNT) return static_cast<float>(stats.success_count);
+        if (key == PER_ACTOR_COMPLETION_SUCCESS_RATIO) {
+            return ratio(stats.success_count, stats.attempt_count);
+        }
+        if (key == PER_ACTOR_TRUNCATION_FALLBACK_COUNT) return static_cast<float>(stats.truncation_fallback_count);
+        if (key == PER_ACTOR_TRUNCATION_FALLBACK_RATIO) {
+            return ratio(stats.truncation_fallback_count, stats.attempt_count);
+        }
+        if (key == PER_ACTOR_NONFINITE_FALLBACK_COUNT) return static_cast<float>(stats.nonfinite_fallback_count);
+        if (key == PER_ACTOR_NONFINITE_FALLBACK_RATIO) {
+            return ratio(stats.nonfinite_fallback_count, stats.attempt_count);
+        }
     }
-    if (key == PER_INITIAL_MASS_RATIO) {
+    if (key == PER_PRIORITY_UPDATE_STALE_DROP_COUNT) {
         std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
-        auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
-        if (!prioritized) return std::nullopt;
-        return prioritized->GetInitialMassRatio();
+        if (!priority_store_) return std::nullopt;
+        return static_cast<float>(priority_update_stale_drop_count_);
     }
     if (key == PER_LAST_EVICTED_NEVER_SAMPLED_RATIO) {
         std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
-        auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
-        if (!prioritized) return std::nullopt;
-        return last_evicted_never_sampled_ratio_;
+        return priority_store_ ? std::optional<float>(last_evicted_never_sampled_ratio_) : std::nullopt;
+    }
+    if (priority_store_) {
+        std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
+        return priority_store_->GetScalar(key);
     }
     return std::nullopt;
 }
@@ -1293,9 +1671,7 @@ std::optional<torch::Tensor> DefaultReplayBuffer::GetTensor(const std::string& k
 {
     if (key == PER_VALUES) {
         std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
-        auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
-        if (!prioritized) return std::nullopt;
-        return prioritized->GetPriorityTensor(index);
+        return priority_store_ ? priority_store_->GetPriorityTensor(index) : std::nullopt;
     }
 
     auto opt_vec = GetTensorVector(key, -1);
@@ -1345,12 +1721,11 @@ std::optional<std::vector<torch::Tensor>> DefaultReplayBuffer::GetTensorVector(c
         ANET_PROFILE_SCOPE_NEXT(gather_per);
         {
             std::lock_guard<std::mutex> metadata_lock(metadata_mutex_);
-            auto prioritized = std::dynamic_pointer_cast<PrioritizedSampler>(sampler_);
-            if (!prioritized) return std::nullopt;
-            tensor = prioritized->GatherPriorityRows(valid_1d);
+            if (!priority_store_) return std::nullopt;
+            tensor = priority_store_->GatherPriorityRows(valid_1d);
             if (key == PER_DIST) {
                 // PER_DIST は正規化サンプリング確率 p/total を返す（SampleIndices の prob=p/total と同義）。
-                const float total = prioritized->GetTotalPriority();
+                const float total = priority_store_->GetScalar(PER_TOTAL).value_or(0.0f);
                 if (total > 0.0f) tensor = tensor / total;  // total<=0（極初期）はゼロのまま
             }
         }
@@ -1645,7 +2020,8 @@ int64_t PrefetchingReplayBuffer::Size() const
     return inner_->Size();
 }
 
-void PrefetchingReplayBuffer::UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities)
+ReplayPriorityUpdateResult PrefetchingReplayBuffer::UpdatePriorities(
+    const std::vector<int64_t>& item_keys, const std::vector<float>& priorities)
 {
     ANET_PROFILE_FUNC();
 
@@ -1657,7 +2033,7 @@ void PrefetchingReplayBuffer::UpdatePriorities(const std::vector<int64_t>& indic
         state_->WaitForPrefetchLocked();
         state_->WaitForQueuedPushesLocked();
     }
-    inner_->UpdatePriorities(indices, priorities);
+    return inner_->UpdatePriorities(item_keys, priorities);
 }
 
 std::optional<float> PrefetchingReplayBuffer::GetScalar(const std::string& key, int64_t index) const
@@ -1681,10 +2057,31 @@ std::optional<std::vector<torch::Tensor>> PrefetchingReplayBuffer::GetTensorVect
 // ===========================================================================
 
 std::shared_ptr<ReplayBuffer> anet::rl::CreateReplayBuffer(
-    const ReplayBufferConfig& config, const EnvSpec& env_spec, int64_t num_envs, torch::Device storage_device, bool pin_memory, std::optional<uint64_t> seed)
+    const ReplayBufferConfig& config, const EnvSpec& env_spec, int64_t num_envs,
+    torch::Device storage_device, bool pin_memory, std::optional<uint64_t> seed,
+    std::unique_ptr<InitialPriorityEstimator> initial_priority_estimator)
 {
     // capacity の割り切れ補正
     int64_t capacity_per_env = config.capacity / num_envs;
+    const int64_t actual_capacity = capacity_per_env * num_envs;
+    const int64_t required_capacity_per_env = std::max<int64_t>(1, config.n_step) + 1;
+    if (capacity_per_env < required_capacity_per_env) {
+        ANET_SYSTEM_ERROR("ReplayBuffer capacity per env is too small. replay_capacity=" << config.capacity
+            << " num_envs=" << num_envs << " capacity_per_env=" << capacity_per_env
+            << " required_min=" << required_capacity_per_env);
+    }
+    if (!std::isfinite(config.per_initial_priority) || config.per_initial_priority < 0.0f) {
+        ANET_SYSTEM_ERROR("Invalid per_initial_priority: value=" << config.per_initial_priority
+            << " expected finite value >= 0; use per_initial_priority_mode=max for maximum initialization");
+    }
+    if (config.sampler_type == ReplaySamplerType::UNIFORM
+        && config.per_initial_priority_mode != ReplayInitialPriorityMode::FIXED) {
+        ANET_SYSTEM_ERROR("per_initial_priority_mode requires prioritized replay when mode is not fixed.");
+    }
+    if (config.per_initial_priority_mode == ReplayInitialPriorityMode::ACTOR_APPROX
+        && !initial_priority_estimator) {
+        ANET_SYSTEM_ERROR("per_initial_priority_mode=actor_approx requires InitialPriorityEstimator.");
+    }
     if (capacity_per_env * num_envs != config.capacity) {
         LOG::info() << "ReplayBuffer capacity adjusted to be divisible by num_envs."
             << " config.capacity=" << config.capacity << " actual_capacity=" << capacity_per_env * num_envs;
@@ -1695,18 +2092,21 @@ std::shared_ptr<ReplayBuffer> anet::rl::CreateReplayBuffer(
     auto builder = std::make_unique<DefaultExperienceBuilder>(config.gamma);
 
     std::shared_ptr<ReplayExperienceSampler> sampler;
-    std::shared_ptr<ReplayPriorityController> prio;
+    std::shared_ptr<ReplayPriorityStore> priority_store;
     if (config.sampler_type == ReplaySamplerType::UNIFORM) {
         sampler = std::make_shared<UniformSampler>(seed);
-        prio = nullptr;
+        priority_store = nullptr;
     } else {
-        auto per = std::make_shared<PrioritizedSampler>(config.capacity, config.per_alpha, config.per_initial_priority, seed);
+        auto per = std::make_shared<PrioritizedSampler>(actual_capacity, config.per_alpha, seed);
         sampler = per;
-        prio = per;
+        priority_store = per;
     }
+    auto initial_priority_completer = CreateInitialPriorityCompleter(
+        config, num_envs, std::move(initial_priority_estimator));
 
     auto extractor = std::make_shared<DefaultSampleExtractor>(config.stack_keys);
 
     return std::make_shared<DefaultReplayBuffer>(
-        config, env_spec, num_envs, std::move(queue_controller), std::move(builder), sampler, prio, extractor, storage_device, pin_memory);
+        config, env_spec, num_envs, std::move(queue_controller), std::move(builder), sampler,
+        priority_store, extractor, std::move(initial_priority_completer), storage_device, pin_memory);
 }

@@ -10,6 +10,11 @@
 
 namespace anet::rl::env {
 
+
+    // -------------------------------------------------------------
+    // ImageCls View Data
+    // -------------------------------------------------------------
+
     struct ImageClsOutputValue {
         int64_t rank = -1;
         int64_t label_id = -1;
@@ -30,6 +35,11 @@ namespace anet::rl::env {
         bool is_valid = false;
     };
 
+
+    // -------------------------------------------------------------
+    // ImageClsPanel
+    // -------------------------------------------------------------
+
     class ImageClsPanel : public anet::rl::gui::Panel {
     public:
         explicit ImageClsPanel(wxWindow* parent);
@@ -43,11 +53,21 @@ namespace anet::rl::env {
         wxBitmap current_bitmap_;
     };
 
+
+    // -------------------------------------------------------------
+    // ImageClsView
+    // -------------------------------------------------------------
+
     class ImageClsView final : public anet::rl::gui::ViewBase<ImageClsData, ImageClsPanel> {
     public:
         explicit ImageClsView(wxWindow* parent);
         ImageClsData CreateViewData(const anet::rl::TrainEvent& event) const override;
     };
+
+
+    // -------------------------------------------------------------
+    // ImageClsViewCreator
+    // -------------------------------------------------------------
 
     class ImageClsViewCreator final : public anet::rl::gui::ViewCreator {
     public:

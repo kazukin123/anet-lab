@@ -1,98 +1,23 @@
-﻿#pragma once
+﻿// anet/common.hpp
+
+#pragma once
+
 #include <memory>
 #include <optional>
 #include <type_traits>
 #include <functional>
+#include <cstdint>
 #include <string>
 #include <string_view>
-#include <sstream>
-#include <stdexcept>
 #include <unordered_map>
-#include <nlohmann/json.hpp>
+#include <vector>
 #include <torch/torch.h>
-#include "anet/util.hpp"
+#include "anet/config.hpp"
+#include "anet/diag.hpp"
+#include "anet/json_util.hpp"
 #include "anet/tensor_util.hpp"
 
-#if ANET_ENABLE_DEBUGINFO
-
-#ifndef ANET_ENABLE_ASSERT
-#define ANET_ENABLE_ASSERT 1
-#endif
-
-#else
-
-#ifndef ANET_ENABLE_ASSERT
-#define ANET_ENABLE_ASSERT 0
-#endif
-
-#endif
-
-
-#if ANET_ENABLE_ASSERT
-
-#define ANET_ASSERT(cond)                                                           \
-    do {                                                                            \
-        if (!(cond)) {                                                              \
-            anet::ThrowError(__FILE__, __LINE__, "ANET_ASSERT failed: ", #cond);     \
-        }                                                                           \
-    } while (0)
-
-#define ANET_ASSERT_MSG(cond, stream_args)                                          \
-    do {                                                                            \
-        if (!(cond)) {                                                              \
-            std::ostringstream ss;                                                  \
-            ss << stream_args;                                                      \
-            anet::ThrowError(__FILE__, __LINE__, "ANET_ASSERT failed: ", #cond, ss.str());  \
-        }                                                                           \
-    } while (0)
-
-#else
-#define ANET_ASSERT(cond) do {} while (0)
-#define ANET_ASSERT_MSG(cond, msg) do {} while (0)
-#endif
-
-
-#define ANET_CHECK(cond)                                                            \
-    do {                                                                            \
-        if (!(cond)) {                                                              \
-            anet::ThrowError(__FILE__, __LINE__, "ANET_CHECK failed: ", #cond);     \
-        }                                                                           \
-    } while (0)
-
-#define ANET_CHECK_MSG(cond, stream_args)                                           \
-    do {                                                                            \
-        if (!(cond)) {                                                              \
-            std::ostringstream ss;                                                  \
-            ss << stream_args;                                                      \
-            anet::ThrowError(__FILE__, __LINE__, "ANET_CHECK failed: ", #cond, ss.str());  \
-        }                                                                           \
-    } while (0)
-
-#define ANET_SYSTEM_ERROR(stream_args)                                              \
-    do {                                                                            \
-        std::ostringstream ss;                                                      \
-        ss << stream_args;                                                          \
-        anet::ThrowError(__FILE__, __LINE__, "System error: ", nullptr, ss.str());  \
-    } while (0)
-
 namespace anet {
-
-
-    // ===========================================================================
-    // misc
-    // ===========================================================================
-
-    using json = nlohmann::json;
-
-    void ThrowError(const char* file, int line, const char* prefix, const char* cond, const std::string& msg = "");
-
-    json round_numbers(const json& j, int precision = 6);
-
-    template <typename Container, typename T>
-    inline bool Contains(const Container& container, const T& value) {
-        return std::find(container.begin(), container.end(), value) != container.end();
-    }
-
 
     // ===========================================================================
 	// Tensor Function Providers
@@ -134,6 +59,7 @@ namespace anet {
 
     class Module {
     public:
+        virtual std::optional<ConfigData> GetConfigData() const { return std::nullopt; }
         virtual std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const = 0;
         virtual std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const = 0;
         virtual std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const = 0;

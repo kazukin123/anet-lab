@@ -1,4 +1,4 @@
-﻿#include "anet/rl.hpp"
+#include "anet/rl.hpp"
 #include <stdexcept>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/CUDAEvent.h>
@@ -238,6 +238,26 @@ std::string ActionSpec::ToString() const
 // EnvSpec
 // =============================================================
 
+void EnvSpec::CheckSameStateActionSpec(const EnvSpec& actual) const
+{
+    // infoは参考情報なので除外し、NN入出力へ実際に影響する通常fieldだけを比較する。
+    auto expected_state = state_spec;
+    auto actual_state = actual.state_spec;
+    expected_state.info.clear();
+    actual_state.info.clear();
+    ANET_CHECK_MSG(expected_state.ToJson() == actual_state.ToJson(),
+        "Env state spec mismatch. expected=" << expected_state.ToJson().dump()
+        << " actual=" << actual_state.ToJson().dump());
+
+    auto expected_action = action_spec;
+    auto actual_action = actual.action_spec;
+    expected_action.info.clear();
+    actual_action.info.clear();
+    ANET_CHECK_MSG(expected_action.ToJson() == actual_action.ToJson(),
+        "Env action spec mismatch. expected=" << expected_action.ToJson().dump()
+        << " actual=" << actual_action.ToJson().dump());
+}
+
 anet::json EnvSpec::ToJson() const
 {
     anet::json j;
@@ -350,6 +370,38 @@ std::string BatchState::ToString() const
     oss << ", episode_start=" << anet::ToString(episode_start);
     oss << "}";
     return oss.str();
+}
+
+ReplayInitialPriorityHint::ReplayInitialPriorityHint(torch::Tensor payload)
+    : payload_(std::move(payload))
+{
+    // 共通carrierはpayloadの意味を解釈せず、運搬に必要な形式だけを全buildで検証する。
+    if (!payload_.defined()) {
+        ANET_SYSTEM_ERROR("ReplayInitialPriorityHint payload must be defined.");
+    }
+    if (payload_.dim() != 2) {
+        ANET_SYSTEM_ERROR("ReplayInitialPriorityHint payload must have rank 2. actual=" << payload_.sizes());
+    }
+    if (payload_.scalar_type() != torch::kFloat32) {
+        ANET_SYSTEM_ERROR("ReplayInitialPriorityHint payload must use float32. actual=" << payload_.scalar_type());
+    }
+    if (payload_.size(0) <= 0 || payload_.size(1) <= 0) {
+        ANET_SYSTEM_ERROR("ReplayInitialPriorityHint payload dimensions must be positive. actual=" << payload_.sizes());
+    }
+    payload_ = payload_.detach().contiguous();
+}
+
+const torch::Tensor& ReplayInitialPriorityHint::GetPayloadCpu() const
+{
+    ANET_PROFILE_FUNC();
+    // packed tensor全体を初回だけ同期転送し、env行ごとのD2Hへ分解しない。
+    if (!payload_cpu_.defined()) {
+        payload_cpu_ = payload_.device().is_cpu()
+            ? payload_
+            : payload_.to(torch::kCPU, torch::kFloat32, /*non_blocking=*/false);
+        payload_cpu_ = payload_cpu_.contiguous();
+    }
+    return payload_cpu_;
 }
 
 torch::Tensor BatchActionInfo::GetAction(torch::Device device) const
@@ -503,7 +555,7 @@ std::optional<torch::Tensor> BatchExperience::GetTensor(const std::string& key, 
         return state.truncated;
     if (key == STATE_EPISODE_START)
         return state.episode_start;
-        
+
     if (key == NEXT_STATE_DONE)
         return next_state.done;
     if (key == NEXT_STATE_TRUNCATED)
@@ -681,12 +733,14 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
                 .terminals = anet::To(next_state.terminals, device, non_blocking),
             },
             .n_steps = anet::To(n_steps, device, non_blocking),
-            // sampled index は ReplayBuffer の CPU metadata なので learner device へは送らない。
-            .indices = indices.defined() ? (indices.device().is_cpu() ? indices : indices.to(torch::kCPU)) : indices,
+            // replay item key/source は ReplayBuffer の CPU metadata なので learner device へは送らない。
+            .replay_item_keys = replay_item_keys.defined()
+                ? (replay_item_keys.device().is_cpu() ? replay_item_keys : replay_item_keys.to(torch::kCPU))
+                : replay_item_keys,
             .is_weights = anet::To(is_weights, device, non_blocking),
-            .per_is_initial_priority = per_is_initial_priority.defined()
-                ? (per_is_initial_priority.device().is_cpu() ? per_is_initial_priority : per_is_initial_priority.to(torch::kCPU))
-                : per_is_initial_priority,
+            .per_priority_sources = per_priority_sources.defined()
+                ? (per_priority_sources.device().is_cpu() ? per_priority_sources : per_priority_sources.to(torch::kCPU))
+                : per_priority_sources,
 			.info = info.To(device, non_blocking)
         };
     }
@@ -701,11 +755,11 @@ ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking)
             .terminals = next_state.terminals.to(device, non_blocking),
         },
         .n_steps = n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,
-        .indices = indices.defined() ? indices.to(device, non_blocking) : indices,
+        .replay_item_keys = replay_item_keys.defined() ? replay_item_keys.to(torch::kCPU) : replay_item_keys,
         .is_weights = is_weights.defined() ? is_weights.to(device, non_blocking) : is_weights,
-        .per_is_initial_priority = per_is_initial_priority.defined()
-            ? per_is_initial_priority.to(device, non_blocking)
-            : per_is_initial_priority,
+        .per_priority_sources = per_priority_sources.defined()
+            ? per_priority_sources.to(torch::kCPU)
+            : per_priority_sources,
         .info = info.To(device, non_blocking)
     };
 }
@@ -721,9 +775,9 @@ std::string ExperienceSamples::ToString() const
     oss << "  next_state.next_obs = " << next_state.next_obs.ToString() << "\n";
     oss << "  next_state.terminals     = " << anet::ToString(next_state.terminals) << "\n";
     oss << "  n_steps                  = " << anet::ToString(n_steps) << "\n";
-    oss << "  indices                  = " << anet::ToString(indices) << "\n";
+    oss << "  replay_item_keys         = " << anet::ToString(replay_item_keys) << "\n";
     oss << "  is_weights               = " << anet::ToString(is_weights) << "\n";
-    oss << "  per_is_initial_priority  = " << anet::ToString(per_is_initial_priority) << "\n";
+    oss << "  per_priority_sources     = " << anet::ToString(per_priority_sources) << "\n";
     oss << "  info = " << info.ToString() << "\n";
     oss << "}";
     return oss.str();

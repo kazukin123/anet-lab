@@ -1,4 +1,6 @@
 ﻿#include "anet/thread.hpp"
+#include <algorithm>
+
 #include "anet/common.hpp"
 #include "anet/profile.hpp"
 #include "anet/log.hpp"
@@ -64,6 +66,51 @@ void ThreadBase::ThreadMain()
     running_.store(false);
 
     ANET_LOG_DEBUG("END name=" << name_);
+}
+
+
+//----------------------------------------------
+// ThreadPool
+//----------------------------------------------
+
+void ThreadPool::ParallelFor(size_t work_count, IndexedTaskFunction fn)
+{
+    // 空の範囲ではworkerを起こさず、そのまま同期完了とする。
+    if (work_count == 0) return;
+
+    // work数を超えるworker taskを作らず、各workerから次のindexを動的に取得する。
+    const int worker_count = GetWorkerCount();
+    ANET_CHECK_MSG(worker_count > 0,
+        "ThreadPool::ParallelFor requires at least one worker. work_count=" << work_count);
+    const int active_workers = static_cast<int>(
+        std::min<size_t>(static_cast<size_t>(worker_count), work_count));
+    std::atomic<size_t> next_work = 0;
+    std::atomic<bool> cancelled = false;
+    std::mutex failure_mutex;
+    std::exception_ptr failure;
+    for (int worker_id = 0; worker_id < active_workers; ++worker_id) {
+        Enqueue(worker_id, [&] {
+            while (!cancelled.load(std::memory_order_acquire)) {
+                const size_t work_index = next_work.fetch_add(1, std::memory_order_relaxed);
+                if (work_index >= work_count) break;
+                try {
+                    fn(work_index);
+                } catch (...) {
+                    // 最初の失敗だけを保持し、他workerが新しいworkを取得しないよう通知する。
+                    {
+                        std::lock_guard lock(failure_mutex);
+                        if (failure == nullptr) failure = std::current_exception();
+                    }
+                    cancelled.store(true, std::memory_order_release);
+                    break;
+                }
+            }
+        });
+    }
+
+    // 全worker taskがローカル参照を使い終わるまで待ち、失敗は呼出しthreadへ戻す。
+    WaitAll();
+    if (failure != nullptr) std::rethrow_exception(failure);
 }
 
 

@@ -1,0 +1,294 @@
+﻿name: Release
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'ドライラン用バージョン文字列(zip 名に使用)'
+        required: false
+        default: 'dev'
+
+permissions:
+  contents: write
+
+jobs:
+  build-package:
+    runs-on: windows-2022
+
+    env:
+      BUILD_TYPE: Release
+      LIBTORCH_VER: "2.12.0-cu130"
+      WX_VER: "3.3.1"
+
+    steps:
+    - uses: actions/checkout@v6
+
+    # ----------------------------------------------------------------
+    # バージョン決定 (tag push: tag 名 / dispatch: 入力値)
+    # ----------------------------------------------------------------
+    - name: Determine version
+      id: ver
+      shell: pwsh
+      run: |
+        if ("${{ github.ref_type }}" -eq "tag") {
+          $ver = "${{ github.ref_name }}"
+        } else {
+          $ver = "${{ inputs.version }}"
+          if ([string]::IsNullOrWhiteSpace($ver)) { $ver = "dev" }
+        }
+        # ファイル名はインストーラ慣例に合わせ数字始まり(タグ v1.0.0 → anet-lab-1.0.0-win64.zip)
+        $ver = $ver -replace '^v',''
+        "version=$ver" >> $env:GITHUB_OUTPUT
+        Write-Host "Release version: $ver"
+
+    # ----------------------------------------------------------------
+    # CUDA Toolkit
+    # ----------------------------------------------------------------
+    - name: Install CUDA Toolkit
+      uses: Jimver/cuda-toolkit@v0.2.35
+      id: cuda-toolkit
+      with:
+        cuda: '13.0.0'
+
+    # ----------------------------------------------------------------
+    # LibTorch のキャッシュ (windows-ci.yml とキー共有)
+    # ----------------------------------------------------------------
+    - name: Cache LibTorch
+      id: cache-libtorch
+      uses: actions/cache@v5
+      with:
+        path: deps/libtorch
+        key: libtorch-${{ env.LIBTORCH_VER }}-windows-v1
+
+    - name: Download and Extract LibTorch
+      if: steps.cache-libtorch.outputs.cache-hit != 'true'
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path deps
+        $urlRel = "https://download.pytorch.org/libtorch/cu130/libtorch-win-shared-with-deps-2.12.0%2Bcu130.zip"
+        $urlDbg = "https://download.pytorch.org/libtorch/cu130/libtorch-win-shared-with-deps-debug-2.12.0%2Bcu130.zip"
+
+        # windows-ci.yml とキャッシュ内容を一致させるため release/debug 両方を配置する
+        Write-Host "Downloading LibTorch Release..."
+        Invoke-WebRequest -Uri $urlRel -OutFile libtorch-release.zip
+        Write-Host "Downloading LibTorch Debug..."
+        Invoke-WebRequest -Uri $urlDbg -OutFile libtorch-debug.zip
+
+        Write-Host "Extracting Release..."
+        Expand-Archive -Path libtorch-release.zip -DestinationPath temp_rel
+        New-Item -ItemType Directory -Force -Path deps/libtorch/release
+        Move-Item -Path temp_rel/libtorch/* -Destination deps/libtorch/release/
+
+        Write-Host "Extracting Debug..."
+        Expand-Archive -Path libtorch-debug.zip -DestinationPath temp_dbg
+        New-Item -ItemType Directory -Force -Path deps/libtorch/debug
+        Move-Item -Path temp_dbg/libtorch/* -Destination deps/libtorch/debug/
+
+        Remove-Item libtorch-release.zip, libtorch-debug.zip
+        Remove-Item temp_rel, temp_dbg -Recurse -Force
+
+    # ----------------------------------------------------------------
+    # wxWidgets のキャッシュとビルド (windows-ci.yml の Release キーと共有)
+    # ----------------------------------------------------------------
+    - name: Cache wxWidgets
+      id: cache-wx
+      uses: actions/cache@v5
+      with:
+        path: third_party/wxwidgets/install
+        key: wxwidgets-${{ env.WX_VER }}-vs2022-Release
+
+    - name: Build wxWidgets (if not cached)
+      if: steps.cache-wx.outputs.cache-hit != 'true'
+      shell: pwsh
+      run: |
+        $wxRoot  = "third_party/wxwidgets"
+        $wxBuild = "$wxRoot/build"
+        $wxInst  = "$wxRoot/install"
+
+        if (Test-Path $wxRoot) { Remove-Item $wxRoot -Recurse -Force }
+        New-Item -ItemType Directory -Force -Path $wxRoot
+
+        git clone --branch v${{ env.WX_VER }} --depth 1 --recurse-submodules --shallow-submodules https://github.com/wxWidgets/wxWidgets.git $wxRoot
+
+        cmake -S $wxRoot -B $wxBuild `
+          -DCMAKE_INSTALL_PREFIX="$wxInst" `
+          -DCMAKE_CONFIGURATION_TYPES="Release" `
+          -DwxBUILD_SHARED=ON `
+          -DwxBUILD_PRECOMP=ON
+
+        cmake --build $wxBuild --config Release --parallel
+        cmake --install $wxBuild --config Release
+        Remove-Item $wxBuild -Recurse -Force
+
+    # ----------------------------------------------------------------
+    # AnetRLRunner ビルド (Release)
+    # ----------------------------------------------------------------
+    - name: Configure CMake
+      shell: pwsh
+      run: |
+        $env:Torch_DIR_RELEASE = "${{ github.workspace }}/deps/libtorch/release/share/cmake/Torch"
+        $env:Torch_DIR_DEBUG   = "${{ github.workspace }}/deps/libtorch/debug/share/cmake/Torch"
+
+        $wxInst = "${{ github.workspace }}/third_party/wxwidgets/install"
+        $env:wxWidgets_DIR = "$wxInst/lib/cmake/wxWidgets"
+        $env:wxWidgets_ROOT = ""
+
+        cmake -B build `
+          -DCMAKE_BUILD_TYPE=Release `
+          -DCMAKE_CONFIGURATION_TYPES="Release" `
+          -DCUDAToolkit_ROOT="$env:CUDA_PATH" `
+          -DCMAKE_CUDA_COMPILER="$env:CUDA_PATH/bin/nvcc.exe" `
+          -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON `
+          -DwxWidgets_DIR="$wxInst/lib/cmake/wxWidgets"
+
+    - name: Build
+      run: cmake --build build --config Release --parallel
+
+    # ----------------------------------------------------------------
+    # MetricsViewer (jar) ビルド
+    # ----------------------------------------------------------------
+    - name: Set up JDK 17
+      uses: actions/setup-java@v5
+      with:
+        distribution: temurin
+        java-version: '17'
+        cache: maven
+
+    - name: Build MetricsViewer jar
+      shell: pwsh
+      run: mvn -B -f apps/metrics-viewer/pom.xml clean package "-Dmaven.test.skip=true"
+
+    # ----------------------------------------------------------------
+    # Doxygen ドキュメント生成
+    # ----------------------------------------------------------------
+    - name: Install Doxygen and Graphviz
+      shell: pwsh
+      run: choco install -y --no-progress doxygen.install graphviz
+
+    - name: Generate Doxygen docs
+      shell: pwsh
+      run: |
+        $env:PATH = "C:\Program Files\Graphviz\bin;$env:PATH"
+        Set-Location docs
+        & "C:\Program Files\doxygen\bin\doxygen.exe" Doxyfile
+        if (-not (Test-Path html/index.html)) { throw "Doxygen output missing (docs/html/index.html)" }
+
+    # ----------------------------------------------------------------
+    # パッケージング (配置ミラー + zip 直下の法的文書 / ADR 0017, 0020)
+    # ----------------------------------------------------------------
+    - name: Package release zips
+      id: pack
+      shell: pwsh
+      run: |
+        $ver = "${{ steps.ver.outputs.version }}"
+        $stage = "stage"
+        $docsStage = "stage-docs"
+        New-Item -ItemType Directory -Force -Path $stage | Out-Null
+        New-Item -ItemType Directory -Force -Path $docsStage | Out-Null
+
+        # anet-lab 本体のライセンス文書は各 zip の直下に置く
+        if (-not (Test-Path LICENSE) -or -not (Test-Path NOTICE)) {
+          throw "Project LICENSE or NOTICE missing"
+        }
+        Copy-Item LICENSE "$stage/LICENSE"
+        Copy-Item NOTICE "$stage/NOTICE"
+        Copy-Item LICENSE "$docsStage/LICENSE"
+        Copy-Item NOTICE "$docsStage/NOTICE"
+
+        # apps: launcher bat + README
+        New-Item -ItemType Directory -Force -Path "$stage/apps" | Out-Null
+        Copy-Item apps/*.bat "$stage/apps/"
+        Copy-Item apps/README.md "$stage/apps/"
+
+        # apps/runner: 実行バイナリ(.ilk/.pdb 除外) + config + tools
+        New-Item -ItemType Directory -Force -Path "$stage/apps/runner/bin/Release" | Out-Null
+        Copy-Item apps/runner/bin/Release/* "$stage/apps/runner/bin/Release/" -Exclude *.ilk,*.pdb
+        Copy-Item apps/runner/config "$stage/apps/runner/config" -Recurse
+        Copy-Item apps/runner/tools "$stage/apps/runner/tools" -Recurse
+
+        # wx DLL はビルド時の POST_BUILD コピー(apps/runner/CMakeLists.txt)で bin に入る前提。欠落は fail-fast
+        if (-not (Test-Path "$stage/apps/runner/bin/Release/wxmsw*_core_*.dll")) {
+          throw "wx core DLL missing in bin (check wx POST_BUILD copy in apps/runner/CMakeLists.txt)"
+        }
+
+        # apps/metrics-viewer: jar のみ (パスは開発時と同一)
+        New-Item -ItemType Directory -Force -Path "$stage/apps/metrics-viewer/target" | Out-Null
+        Copy-Item apps/metrics-viewer/target/metrics-viewer.jar "$stage/apps/metrics-viewer/target/"
+
+        # docs: design のみ
+        New-Item -ItemType Directory -Force -Path "$stage/docs" | Out-Null
+        Copy-Item docs/design "$stage/docs/design" -Recurse
+
+        # Doxygen zip は独立配布物として html と法的文書をまとめる
+        Copy-Item docs/html "$docsStage/html" -Recurse
+
+        # licenses (+ MetricsViewer の THIRD-PARTY 一覧)
+        Copy-Item licenses "$stage/licenses" -Recurse
+        $tp = "apps/metrics-viewer/target/generated-sources/license/THIRD-PARTY.txt"
+        if (Test-Path $tp) {
+          Copy-Item $tp "$stage/licenses/metrics-viewer_THIRD-PARTY.txt"
+        } else {
+          throw "THIRD-PARTY.txt not generated ($tp)"
+        }
+
+        # zip 作成 (bsdtar: Compress-Archive より高速・省メモリ)
+        $mainZip = "anet-lab-$ver-win64.zip"
+        $docsZip = "anet-lab-doxygen-$ver.zip"
+        Set-Location $stage
+        tar.exe -a -cf "../$mainZip" LICENSE NOTICE apps docs licenses
+        Set-Location ..
+        Set-Location $docsStage
+        tar.exe -a -cf "../$docsZip" LICENSE NOTICE html
+        Set-Location ..
+
+        # 各配布物が単独でライセンス文書を持つことを archive entry で検証する
+        $mainEntries = @(tar.exe -tf $mainZip)
+        foreach ($entry in @("LICENSE", "NOTICE", "apps/", "docs/", "licenses/")) {
+          if ($mainEntries -notcontains $entry) { throw "Main zip entry missing: $entry" }
+        }
+        $docsEntries = @(tar.exe -tf $docsZip)
+        foreach ($entry in @("LICENSE", "NOTICE", "html/")) {
+          if ($docsEntries -notcontains $entry) { throw "Docs zip entry missing: $entry" }
+        }
+
+        # サイズガード: GitHub Release の 1 ファイル 2GiB 制限を事前検知
+        $sizeMB = [math]::Round((Get-Item $mainZip).Length / 1MB)
+        Write-Host "main zip: $sizeMB MB / docs zip: $([math]::Round((Get-Item $docsZip).Length / 1MB)) MB"
+        if ($sizeMB -gt 2000) { throw "Release zip too large: $sizeMB MB > 2000 MB (2GiB asset limit)" }
+
+        "main_zip=$mainZip" >> $env:GITHUB_OUTPUT
+        "docs_zip=$docsZip" >> $env:GITHUB_OUTPUT
+
+    # ----------------------------------------------------------------
+    # tag push: GitHub Release 作成 / dispatch: artifact のみ (ドライラン)
+    # ----------------------------------------------------------------
+    - name: Create GitHub Release
+      if: github.ref_type == 'tag'
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release create "${{ github.ref_name }}" `
+          --draft `
+          --verify-tag `
+          --generate-notes `
+          "${{ steps.pack.outputs.main_zip }}" `
+          "${{ steps.pack.outputs.docs_zip }}"
+
+    - name: Upload artifact (main tree)
+      if: github.ref_type != 'tag'
+      uses: actions/upload-artifact@v5
+      with:
+        name: anet-lab-${{ steps.ver.outputs.version }}-win64
+        path: stage/
+        retention-days: 7
+
+    - name: Upload artifact (docs)
+      if: github.ref_type != 'tag'
+      uses: actions/upload-artifact@v5
+      with:
+        name: anet-lab-doxygen-${{ steps.ver.outputs.version }}
+        path: docs/html/
+        retention-days: 7

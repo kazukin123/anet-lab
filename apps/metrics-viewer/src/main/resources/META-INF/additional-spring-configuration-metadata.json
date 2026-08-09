@@ -1,0 +1,32 @@
+{"properties": [
+  {
+    "name": "metricsviewer.target-points-per-series",
+    "type": "java.lang.Integer",
+    "description": "1系列の既定描画vertex予算",
+    "defaultValue": 8000
+  },
+  {
+    "name": "metricsviewer.runs-dir",
+    "type": "java.lang.String",
+    "description": "Runsディレクトリ",
+    "defaultValue": "runs"
+  },
+  {
+    "name": "metricsviewer.max-points-per-request",
+    "type": "java.lang.Integer",
+    "description": "1回のmetrics request全体の描画vertex上限",
+    "defaultValue": 500000
+  },
+  {
+    "name": "metricsviewer.cache-memory-mb",
+    "type": "java.lang.Integer",
+    "description": "完成済みLOD page cacheの上限MiB。0で無効",
+    "defaultValue": 256
+  },
+  {
+    "name": "metricsviewer.max-concurrent-queries",
+    "type": "java.lang.Integer",
+    "description": "同時に実行できるmetrics query数",
+    "defaultValue": 2
+  }
+]}

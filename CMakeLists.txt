@@ -64,7 +64,7 @@ if (MSVC)
     add_compile_options(/utf-8)
     #add_compile_definitions(_HAS_CONDITIONAL_EXPLICIT=0)
     #add_compile_options(/diagnostics:color)
-    #add_compile_options(/wd4267)  # warning C4267を無効化
+    add_compile_options(/wd4267)   # warning C4267を無効化
     add_compile_options(/w14996)   # warning C4996(deprecated)を有効化 
 
     add_link_options(/INCREMENTAL)

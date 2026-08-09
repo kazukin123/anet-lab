@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include <cmath>
+
 #include "anet/nn.hpp" 
 
 namespace anet::nn {
@@ -20,7 +22,7 @@ namespace anet::nn {
         template <typename T>
         static void Initialize(T& layer, const WeightInitConfig& config)
         {
-            if (config.mode == 0) return;
+            if (config.mode == "default") return;
 
             auto& weight = layer->weight;
 
@@ -28,16 +30,16 @@ namespace anet::nn {
             torch::NoGradGuard no_grad;
 
 			// mode別に初期化実行
-            if (config.mode == 1) { // Xavier Uniform
+            if (config.mode == "xavier") {
                 // Xavierは通常 gain=1.0 前提だが、calculate_gainを使う手もある
                 torch::nn::init::xavier_uniform_(weight);
-            } else if (config.mode == 2) { // He Normal (Kaiming)
+            } else if (config.mode == "he") {
                 // 文字列からLibtorchの定数へ変換
                 auto nonlinearity_mode = GetNonlinearityType(config.nonlinearity);
 
                 // 重み初期化(kaiming_normal_ は内部で nonlinearity に応じた gain を計算してくれる)
                 torch::nn::init::kaiming_normal_(weight, 0.0, torch::kFanOut, nonlinearity_mode);
-            } else if (config.mode == 3) { // Orthogonal
+            } else if (config.mode == "orthogonal") {
                 double gain = 1.0;
 
                 if (config.manual_gain > 0.0f) {
@@ -54,14 +56,19 @@ namespace anet::nn {
 
 				// Orthogonal初期化
                 torch::nn::init::orthogonal_(weight, gain);
-            } else if (config.mode == 4) { // Constant
+            } else if (config.mode == "constant") {
                 torch::nn::init::constant_(weight, config.constant_val);
+            } else if (config.mode == "trunc_normal") {
+                TruncNormal_(weight, config);
+            } else {
+                ANET_SYSTEM_ERROR("Unknown WeightInitConfig.mode: \"" << config.mode
+                    << "\" expected one of: default, xavier, he, orthogonal, constant, trunc_normal");
             }
 
             // バイアスはゼロ初期化
             auto& bias = layer->bias;
-            if (bias.defined() && config.mode != 0) {
-                if (config.mode == 4) {
+            if (bias.defined() && config.mode != "default") {
+                if (config.mode == "constant") {
                     // Constantモードならバイアスも同じ値で埋める (ZeroInit用など)
                     torch::nn::init::constant_(bias, config.constant_val);
                 } else {
@@ -69,6 +76,36 @@ namespace anet::nn {
                     torch::nn::init::constant_(bias, 0.0);
                 }
             }
+        }
+
+    private:
+        static double NormalCdf(double x)
+        {
+            return (1.0 + std::erf(x / std::sqrt(2.0))) / 2.0;
+        }
+
+        static void ValidateTruncNormalConfig(const WeightInitConfig& config)
+        {
+            if (!std::isfinite(config.trunc_std) || config.trunc_std <= 0.0) {
+                ANET_SYSTEM_ERROR("Invalid WeightInitConfig.trunc_std: " << config.trunc_std
+                    << " expected > 0 for mode=trunc_normal");
+            }
+            if (!std::isfinite(config.trunc_a) || !std::isfinite(config.trunc_b) || config.trunc_a >= config.trunc_b) {
+                ANET_SYSTEM_ERROR("Invalid WeightInitConfig truncation range: trunc_a=" << config.trunc_a
+                    << " trunc_b=" << config.trunc_b << " expected trunc_a < trunc_b for mode=trunc_normal");
+            }
+        }
+
+        static void TruncNormal_(torch::Tensor& tensor, const WeightInitConfig& config)
+        {
+            ValidateTruncNormalConfig(config);
+
+            const double low = NormalCdf(config.trunc_a / config.trunc_std);
+            const double high = NormalCdf(config.trunc_b / config.trunc_std);
+            tensor.uniform_(2.0 * low - 1.0, 2.0 * high - 1.0);
+            tensor.erfinv_();
+            tensor.mul_(config.trunc_std * std::sqrt(2.0));
+            tensor.clamp_(config.trunc_a, config.trunc_b);
         }
     };
 
@@ -139,6 +176,10 @@ namespace anet::nn {
         /// @brief Config全体と、パース対象の構造文字列を受け取り、NetworkStructを構築する
         static std::shared_ptr<NetworkStruct> Build(
             const NetworkConfig& root_config, const std::string& structure_str);
+        static std::shared_ptr<NetworkStruct> Build(
+            const NetworkConfig& root_config,
+            const std::string& structure_str,
+            const std::map<std::string, ConfigProfileConfig>& config_profiles);
     };
 
 

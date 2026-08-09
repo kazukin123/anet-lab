@@ -6,6 +6,8 @@
 #include <optional>
 #include <filesystem>
 #include <wx/app.h>
+#include <wx/log.h>
+#include <wx/timer.h>
 #include "anet/config.hpp"
 #include "anet/trainer.hpp"
 #include "anet/gui.hpp"
@@ -43,11 +45,14 @@ public:
     std::ofstream GetOutputStream(const std::string& file_name);
     int64_t SaveAgent(const std::string& file_name);
     void FlushRunOutputs();
+    void ShutdownRunLogging();
 private:
     void InitTrainer();
     void showFatalError();
     bool WriteLastRunName(const std::string& run_name) const;
     void SetupLogging();
+    void FlushTextLog();
+    void OnTextLogFlushTimer(wxTimerEvent& event);
 private:
     std::unique_ptr<anet::ConfigManager> config_mgr_;
     struct Config;
@@ -58,6 +63,8 @@ private:
     std::unique_ptr<anet::rl::gui::DefaultViewFactory> view_factory_;
     std::unique_ptr<anet::rl::ImageProviderManager> img_prov_mgr_;
     anet::StandardStreamLogger standard_stream_logger_;
+    wxTimer text_log_flush_timer_;
+    wxLogChain* run_log_chain_ = nullptr;
     bool auto_pause_done_ = false;
     RunnerFrame* frame_;
 };

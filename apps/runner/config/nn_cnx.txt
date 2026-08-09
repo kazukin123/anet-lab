@@ -1,0 +1,214 @@
+# ==============================================================================
+# ConvNeXt NN definitions
+# ==============================================================================
+
+net.config_profile.[cnx_dp01].type = linear
+net.config_profile.[cnx_dp01].start = 0.0
+net.config_profile.[cnx_dp01].end = 0.1
+
+net.block.[CStemConv40].type = Conv2d
+net.block.[CStemConv40].conv.out_channels = 40
+net.block.[CStemConv40].conv.kernel_size = 4
+net.block.[CStemConv40].conv.stride = 4
+net.block.[CStemConv40].conv.padding = 0
+net.block.[CStemConv40].init.mode = trunc_normal
+
+net.block.[CStemConv48].type = Conv2d
+net.block.[CStemConv48].conv.out_channels = 48
+net.block.[CStemConv48].conv.kernel_size = 4
+net.block.[CStemConv48].conv.stride = 4
+net.block.[CStemConv48].conv.padding = 0
+net.block.[CStemConv48].init.mode = trunc_normal
+
+net.block.[CStemConv80].type = Conv2d
+net.block.[CStemConv80].conv.out_channels = 80
+net.block.[CStemConv80].conv.kernel_size = 4
+net.block.[CStemConv80].conv.stride = 4
+net.block.[CStemConv80].conv.padding = 0
+net.block.[CStemConv80].init.mode = trunc_normal
+
+net.block.[CStemConv96].type = Conv2d
+net.block.[CStemConv96].conv.out_channels = 96
+net.block.[CStemConv96].conv.kernel_size = 4
+net.block.[CStemConv96].conv.stride = 4
+net.block.[CStemConv96].conv.padding = 0
+net.block.[CStemConv96].init.mode = trunc_normal
+
+net.block.[CStemLN40].type = LayerNorm2d
+net.block.[CStemLN40].num_channels = 40
+net.block.[CStemLN40].eps = 1e-6
+#net.block.[CStemLN40].force_fp32 = false  # AMP/BF16時にLayerNorm2dをBF16入力のまま実行してメモリを節約する。default=true
+
+net.block.[CStemLN48].type = LayerNorm2d
+net.block.[CStemLN48].num_channels = 48
+net.block.[CStemLN48].eps = 1e-6
+
+net.block.[CStemLN80].type = LayerNorm2d
+net.block.[CStemLN80].num_channels = 80
+net.block.[CStemLN80].eps = 1e-6
+
+net.block.[CStemLN96].type = LayerNorm2d
+net.block.[CStemLN96].num_channels = 96
+net.block.[CStemLN96].eps = 1e-6
+
+net.block.[CDownLN40].type = LayerNorm2d
+net.block.[CDownLN40].num_channels = 40
+net.block.[CDownLN40].eps = 1e-6
+
+net.block.[CDownLN48].type = LayerNorm2d
+net.block.[CDownLN48].num_channels = 48
+net.block.[CDownLN48].eps = 1e-6
+
+net.block.[CDownLN80].type = LayerNorm2d
+net.block.[CDownLN80].num_channels = 80
+net.block.[CDownLN80].eps = 1e-6
+
+net.block.[CDownLN96].type = LayerNorm2d
+net.block.[CDownLN96].num_channels = 96
+net.block.[CDownLN96].eps = 1e-6
+
+net.block.[CDownLN160].type = LayerNorm2d
+net.block.[CDownLN160].num_channels = 160
+net.block.[CDownLN160].eps = 1e-6
+
+net.block.[CDownLN192].type = LayerNorm2d
+net.block.[CDownLN192].num_channels = 192
+net.block.[CDownLN192].eps = 1e-6
+
+net.block.[CDownLN320].type = LayerNorm2d
+net.block.[CDownLN320].num_channels = 320
+net.block.[CDownLN320].eps = 1e-6
+
+net.block.[CDownLN384].type = LayerNorm2d
+net.block.[CDownLN384].num_channels = 384
+net.block.[CDownLN384].eps = 1e-6
+
+net.block.[CDownConv40to80].type = Conv2d
+net.block.[CDownConv40to80].conv.out_channels = 80
+net.block.[CDownConv40to80].conv.kernel_size = 2
+net.block.[CDownConv40to80].conv.stride = 2
+net.block.[CDownConv40to80].conv.padding = 0
+net.block.[CDownConv40to80].init.mode = trunc_normal
+
+net.block.[CDownConv48to96].type = Conv2d
+net.block.[CDownConv48to96].conv.out_channels = 96
+net.block.[CDownConv48to96].conv.kernel_size = 2
+net.block.[CDownConv48to96].conv.stride = 2
+net.block.[CDownConv48to96].conv.padding = 0
+net.block.[CDownConv48to96].init.mode = trunc_normal
+
+net.block.[CDownConv80to160].type = Conv2d
+net.block.[CDownConv80to160].conv.out_channels = 160
+net.block.[CDownConv80to160].conv.kernel_size = 2
+net.block.[CDownConv80to160].conv.stride = 2
+net.block.[CDownConv80to160].conv.padding = 0
+net.block.[CDownConv80to160].init.mode = trunc_normal
+
+net.block.[CDownConv96to192].type = Conv2d
+net.block.[CDownConv96to192].conv.out_channels = 192
+net.block.[CDownConv96to192].conv.kernel_size = 2
+net.block.[CDownConv96to192].conv.stride = 2
+net.block.[CDownConv96to192].conv.padding = 0
+net.block.[CDownConv96to192].init.mode = trunc_normal
+
+net.block.[CDownConv160to320].type = Conv2d
+net.block.[CDownConv160to320].conv.out_channels = 320
+net.block.[CDownConv160to320].conv.kernel_size = 2
+net.block.[CDownConv160to320].conv.stride = 2
+net.block.[CDownConv160to320].conv.padding = 0
+net.block.[CDownConv160to320].init.mode = trunc_normal
+
+net.block.[CDownConv192to384].type = Conv2d
+net.block.[CDownConv192to384].conv.out_channels = 384
+net.block.[CDownConv192to384].conv.kernel_size = 2
+net.block.[CDownConv192to384].conv.stride = 2
+net.block.[CDownConv192to384].conv.padding = 0
+net.block.[CDownConv192to384].init.mode = trunc_normal
+
+net.block.[CDownConv320to640].type = Conv2d
+net.block.[CDownConv320to640].conv.out_channels = 640
+net.block.[CDownConv320to640].conv.kernel_size = 2
+net.block.[CDownConv320to640].conv.stride = 2
+net.block.[CDownConv320to640].conv.padding = 0
+net.block.[CDownConv320to640].init.mode = trunc_normal
+
+net.block.[CDownConv384to768].type = Conv2d
+net.block.[CDownConv384to768].conv.out_channels = 768
+net.block.[CDownConv384to768].conv.kernel_size = 2
+net.block.[CDownConv384to768].conv.stride = 2
+net.block.[CDownConv384to768].conv.padding = 0
+net.block.[CDownConv384to768].init.mode = trunc_normal
+
+net.block.[CN40].type = CNBlock
+net.block.[CN40].cn.channels = 40
+net.block.[CN40].cn.droppath_rate = @cnx_dp01
+#net.block.[CN40].cn.norm_force_fp32 = false # AMP/BF16時に内部LayerNorm2dをBF16入力のまま実行してメモリを節約する。default=true
+
+net.block.[CN48].type = CNBlock
+net.block.[CN48].cn.channels = 48
+net.block.[CN48].cn.droppath_rate = @cnx_dp01
+
+net.block.[CN80].type = CNBlock
+net.block.[CN80].cn.channels = 80
+net.block.[CN80].cn.droppath_rate = @cnx_dp01
+
+net.block.[CN96].type = CNBlock
+net.block.[CN96].cn.channels = 96
+net.block.[CN96].cn.droppath_rate = @cnx_dp01
+
+net.block.[CN160].type = CNBlock
+net.block.[CN160].cn.channels = 160
+net.block.[CN160].cn.droppath_rate = @cnx_dp01
+
+net.block.[CN192].type = CNBlock
+net.block.[CN192].cn.channels = 192
+net.block.[CN192].cn.droppath_rate = @cnx_dp01
+
+net.block.[CN320].type = CNBlock
+net.block.[CN320].cn.channels = 320
+net.block.[CN320].cn.droppath_rate = @cnx_dp01
+
+net.block.[CN384].type = CNBlock
+net.block.[CN384].cn.channels = 384
+net.block.[CN384].cn.droppath_rate = @cnx_dp01
+
+net.block.[CN640].type = CNBlock
+net.block.[CN640].cn.channels = 640
+net.block.[CN640].cn.droppath_rate = @cnx_dp01
+
+net.block.[CN768].type = CNBlock
+net.block.[CN768].cn.channels = 768
+net.block.[CN768].cn.droppath_rate = @cnx_dp01
+
+net.block.[CLayerNormHead320].type = LayerNorm
+net.block.[CLayerNormHead320].normalized_shape = 320
+net.block.[CLayerNormHead320].eps = 1e-6
+#net.block.[CLayerNormHead320].force_fp32 = false  # AMP/BF16時にLayerNormをBF16入力のまま実行する。default=true
+
+net.block.[CLayerNormHead384].type = LayerNorm
+net.block.[CLayerNormHead384].normalized_shape = 384
+net.block.[CLayerNormHead384].eps = 1e-6
+
+net.block.[CLayerNormHead640].type = LayerNorm
+net.block.[CLayerNormHead640].normalized_shape = 640
+net.block.[CLayerNormHead640].eps = 1e-6
+
+net.block.[CLayerNormHead768].type = LayerNorm
+net.block.[CLayerNormHead768].normalized_shape = 768
+net.block.[CLayerNormHead768].eps = 1e-6
+
+net.block.[CLinearOut].type = Linear
+net.block.[CLinearOut].linear.out_features = 101
+net.block.[CLinearOut].init.mode = trunc_normal
+
+net.branch.ConvNeXtTiny.bind = grid
+net.branch.ConvNeXtTiny.structure = CStemConv96 > CStemLN96 > CN96(*3) > CDownLN96 > CDownConv96to192 > CN192(*3) > CDownLN192 > CDownConv192to384 > CN384(*9) > CDownLN384 > CDownConv384to768 > CN768(*3) > GAP2D > CLayerNormHead768 > CLinearOut
+
+net.branch.ConvNeXtNano.bind = grid
+net.branch.ConvNeXtNano.structure = CStemConv80 > CStemLN80 > CN80(*2) > CDownLN80 > CDownConv80to160 > CN160(*2) > CDownLN160 > CDownConv160to320 > CN320(*8) > CDownLN320 > CDownConv320to640 > CN640(*2) > GAP2D > CLayerNormHead640 > CLinearOut
+
+net.branch.ConvNeXtFemto.bind = grid
+net.branch.ConvNeXtFemto.structure = CStemConv48 > CStemLN48 > CN48(*2) > CDownLN48 > CDownConv48to96 > CN96(*2) > CDownLN96 > CDownConv96to192 > CN192(*6) > CDownLN192 > CDownConv192to384 > CN384(*2) > GAP2D > CLayerNormHead384 > CLinearOut
+
+net.branch.ConvNeXtAtto.bind = grid
+net.branch.ConvNeXtAtto.structure = CStemConv40 > CStemLN40 > CN40(*2) > CDownLN40 > CDownConv40to80 > CN80(*2) > CDownLN80 > CDownConv80to160 > CN160(*6) > CDownLN160 > CDownConv160to320 > CN320(*2) > GAP2D > CLayerNormHead320 > CLinearOut

@@ -1,4 +1,4 @@
-#include "catch.hpp"
+#include "anet/catch_test.hpp"
 
 #include "anet/default_dqn_agent.hpp"
 #include "anet/metrics_logger.hpp"
@@ -9,22 +9,32 @@
 #include "nn_impl.hpp"
 #include "nn_heads.hpp"
 
+#include <ATen/autocast_mode.h>
+
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace {
 
 namespace dqn = anet::rl::dqn;
 namespace muzero = anet::rl::muzero_proto;
+
+static_assert(!std::is_copy_constructible_v<anet::Autocast>);
+static_assert(!std::is_move_constructible_v<anet::Autocast>);
+static_assert(!std::is_constructible_v<anet::Autocast, torch::DeviceType, bool, torch::ScalarType>);
+static_assert(std::is_constructible_v<anet::Autocast, torch::Device, bool, torch::ScalarType>);
 
 bool Contains(const std::string& text, const std::string& pattern)
 {
@@ -35,6 +45,10 @@ void EnsureNNInitialized()
 {
     static const bool initialized = [] {
         anet::nn::InitNN();
+        // Debug版libtorchのoneDNNはCPU grouped conv(CNBlockのdepthwise)で
+        // thread検証assert(nthr_==nthr)を起こすため、CPUテスト用にmkldnnを無効化する。
+        // release版libtorch/本番GPUでは発生しないため本番コードには入れない。
+        at::globalContext().setUserEnabledMkldnn(false);
         return true;
     }();
     (void)initialized;
@@ -121,6 +135,38 @@ void CheckTensorClose(
     CHECK(torch::allclose(expected.detach().cpu(), actual.detach().cpu(), rtol, atol));
 }
 
+std::vector<double> GetDropoutRates(const std::shared_ptr<anet::nn::NetworkStruct>& network_struct)
+{
+    std::vector<double> rates;
+    for (const auto& block : network_struct->GetBlocks()) {
+        REQUIRE(block->GetModule());
+        const auto config_data = block->GetModule()->GetCurrentConfigData();
+        rates.push_back(std::stod(config_data.Get("dropout_rate")));
+    }
+    return rates;
+}
+
+std::shared_ptr<anet::nn::NetworkStruct> GetBranchNetworkStruct(
+    const std::shared_ptr<anet::nn::NetworkBody>& body, const std::string& branch_name)
+{
+    for (const auto& branch : body->GetBranches()) {
+        if (branch->GetName() == branch_name) {
+            return branch->GetNetworkStruct();
+        }
+    }
+    FAIL("Branch not found: " << branch_name);
+    return nullptr;
+}
+
+anet::TensorSpec MakeConfigProfileVectorSpec()
+{
+    anet::TensorSpec spec;
+    spec.type = anet::SpaceType::Vector;
+    spec.shape = { 4 };
+    spec.dtype = torch::kFloat32;
+    return spec;
+}
+
 torch::Tensor LegacyMhaSelfAttention(torch::nn::MultiheadAttention& mha, const torch::Tensor& x)
 {
     torch::Tensor x_t = x.transpose(0, 1);
@@ -194,6 +240,39 @@ void CheckModuleGradientsClose(
     }
 }
 
+torch::nn::Linear MakeWeightInitTestLinear()
+{
+    return torch::nn::Linear(torch::nn::LinearOptions(4, 3).bias(true));
+}
+
+void FillWeightInitTestLinear(torch::nn::Linear& layer, double weight_value, double bias_value)
+{
+    torch::NoGradGuard no_grad;
+    layer->weight.fill_(weight_value);
+    layer->bias.fill_(bias_value);
+}
+
+void CheckWeightInitMatchesDirect(
+    const anet::nn::WeightInitConfig& config,
+    int64_t seed,
+    const std::function<void(torch::nn::Linear&)>& initialize_expected)
+{
+    auto actual = MakeWeightInitTestLinear();
+    auto expected = MakeWeightInitTestLinear();
+
+    torch::manual_seed(seed);
+    anet::nn::WeightInitializer::Initialize(actual, config);
+
+    torch::manual_seed(seed);
+    {
+        torch::NoGradGuard no_grad;
+        initialize_expected(expected);
+    }
+
+    CheckTensorClose(expected->weight, actual->weight);
+    CheckTensorClose(expected->bias, actual->bias);
+}
+
 template <typename Dict>
 bool HasKey(const Dict& dict, const std::string& key)
 {
@@ -224,7 +303,8 @@ std::shared_ptr<anet::nn::NetworkModule> MakeResBlockTestModule(
     double droppath_rate,
     double dropout_rate,
     const std::string& norm_type = "none",
-    const std::string& activation_mode = "pre")
+    const std::string& activation_mode = "pre",
+    std::optional<bool> norm_force_fp32 = std::nullopt)
 {
     EnsureNNInitialized();
 
@@ -235,12 +315,113 @@ std::shared_ptr<anet::nn::NetworkModule> MakeResBlockTestModule(
     config_data.Set("res.activation", "relu");
     config_data.Set("res.activation_mode", activation_mode);
     config_data.Set("res.norm_type", norm_type);
+    if (norm_force_fp32.has_value()) {
+        config_data.Set("res.norm_force_fp32", *norm_force_fp32);
+    }
     config_data.Set("res.droppath_rate", droppath_rate);
     config_data.Set("res.dropout_rate", dropout_rate);
-    config_data.Set("init2.mode", 2);
+    config_data.Set("init2.mode", "he");
 
     auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("ResBlock");
     return factory->CreateModule(config_data, anet::nn::ModuleContext{});
+}
+
+std::shared_ptr<anet::nn::NetworkModule> MakeBatchNorm2dTestModule(
+    int num_features,
+    std::optional<bool> force_fp32 = std::nullopt)
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("num_features", num_features);
+    if (force_fp32.has_value()) {
+        config_data.Set("force_fp32", *force_fp32);
+    }
+
+    auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("BatchNorm2d");
+    return factory->CreateModule(config_data, anet::nn::ModuleContext{});
+}
+
+std::shared_ptr<anet::nn::NetworkModule> MakeLayerNormTestModule(
+    int normalized_shape,
+    std::optional<double> eps = std::nullopt,
+    std::optional<bool> force_fp32 = std::nullopt)
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("normalized_shape", normalized_shape);
+    if (eps.has_value()) {
+        config_data.Set("eps", *eps);
+    }
+    if (force_fp32.has_value()) {
+        config_data.Set("force_fp32", *force_fp32);
+    }
+
+    auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("LayerNorm");
+    return factory->CreateModule(config_data, anet::nn::ModuleContext{});
+}
+
+std::shared_ptr<anet::nn::NetworkModule> MakeLayerNorm2dTestModule(
+    int num_channels,
+    double eps = 1.0e-6,
+    std::optional<bool> force_fp32 = std::nullopt)
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("num_channels", num_channels);
+    config_data.Set("eps", eps);
+    if (force_fp32.has_value()) {
+        config_data.Set("force_fp32", *force_fp32);
+    }
+
+    auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("LayerNorm2d");
+    return factory->CreateModule(config_data, anet::nn::ModuleContext{});
+}
+
+std::shared_ptr<anet::nn::NetworkModule> MakeCNBlockTestModule(
+    int channels = 3,
+    double droppath_rate = 0.0,
+    double layerscale_init = 1.0e-6,
+    const std::string& norm_type = "layernorm2d",
+    int kernel_size = 3,
+    int ffn_expand_ratio = 2,
+    bool constant_init = false,
+    std::optional<bool> norm_force_fp32 = std::nullopt)
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("cn.channels", channels);
+    config_data.Set("cn.kernel_size", kernel_size);
+    config_data.Set("cn.ffn_expand_ratio", ffn_expand_ratio);
+    config_data.Set("cn.layerscale_init", layerscale_init);
+    config_data.Set("cn.droppath_rate", droppath_rate);
+    config_data.Set("cn.norm_type", norm_type);
+    if (norm_force_fp32.has_value()) {
+        config_data.Set("cn.norm_force_fp32", *norm_force_fp32);
+    }
+    if (constant_init) {
+        for (const std::string prefix : { "init_dw.", "init_pw1.", "init_pw2." }) {
+            config_data.Set(prefix + "mode", std::string("constant"));
+            config_data.Set(prefix + "constant_val", 0.05);
+        }
+    }
+
+    auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory("CNBlock");
+    return factory->CreateModule(config_data, anet::nn::ModuleContext{});
+}
+
+torch::Tensor GetNamedParameter(torch::nn::Module& module, const std::string& name)
+{
+    for (const auto& kv : module.named_parameters(true)) {
+        if (kv.key() == name) {
+            return kv.value();
+        }
+    }
+    FAIL("Parameter not found: " << name);
+    return torch::Tensor();
 }
 
 std::shared_ptr<anet::nn::NetworkModule> MakeTransformerTestModule(
@@ -491,6 +672,358 @@ std::shared_ptr<anet::nn::NetworkHead> CreateDqnHead(const anet::nn::NetworkHead
     return factory.CreateHead(dummy_features);
 }
 
+TEST_CASE("LinearHeadFactory emits configurable output key", "[nn][head]")
+{
+    EnsureNNInitialized();
+
+    anet::nn::WeightInitConfig init_config;
+    init_config.mode = "he";
+    anet::nn::LinearHeadFactory factory(3, "logits", init_config);
+
+    anet::TensorDict dummy_features;
+    dummy_features.Set(anet::nn::kKey_DefaultOutput, torch::ones({ 2, 4 }));
+
+    auto head = factory.CreateHead(dummy_features);
+    auto output = head->Forward(dummy_features);
+    REQUIRE(output.Contains("logits"));
+    CHECK_FALSE(output.Contains("q"));
+    CHECK(output.At("logits").sizes() == torch::IntArrayRef({ 2, 3 }));
+    CHECK(output.At("logits").dtype() == torch::kFloat32);
+    CHECK(HasKey(head->named_parameters(true), "linear.weight"));
+    CHECK(HasKey(head->named_parameters(true), "linear.bias"));
+
+    auto logits_func = head->GetTensorDictFunction("logits");
+    REQUIRE(logits_func.has_value());
+    auto func_output = (*logits_func)(dummy_features);
+    REQUIRE(func_output.Contains("logits"));
+    CHECK(func_output.At("logits").sizes() == torch::IntArrayRef({ 2, 3 }));
+
+    auto graph_info = head->GetGraphVizInfo();
+    REQUIRE(graph_info.outputs.size() == 1);
+    CHECK(graph_info.type == "LinearHead");
+    CHECK(graph_info.outputs[0].name == "logits");
+    CHECK(graph_info.outputs[0].shape == std::vector<int64_t>{ 3 });
+}
+
+TEST_CASE("Network keeps head output FP32 under CPU autocast", "[nn][head][bf16]")
+{
+    EnsureNNInitialized();
+
+    anet::nn::WeightInitConfig init_config;
+    init_config.mode = "he";
+    auto head = std::make_shared<anet::nn::LinearHead>(
+        2,
+        3,
+        "logits",
+        init_config);
+    auto network = MakeDotTestNetwork(head, anet::nn::kKey_DefaultOutput);
+
+    anet::TensorDict input;
+    input.Set("obs", torch::ones({ 2, 2 }, torch::TensorOptions().dtype(torch::kFloat32)));
+
+    anet::TensorDict output;
+    {
+        anet::Autocast autocast_guard(torch::Device(torch::kCPU), true, torch::kBFloat16);
+        output = network->Forward(input);
+    }
+    REQUIRE(output.Contains("logits"));
+    REQUIRE(output.At("logits").dtype() == torch::kFloat32);
+
+    auto logits_func = network->GetTensorDictFunction("logits");
+    REQUIRE(logits_func.has_value());
+    anet::TensorDict func_output;
+    {
+        anet::Autocast autocast_guard(torch::Device(torch::kCPU), true, torch::kBFloat16);
+        func_output = (*logits_func)(input);
+    }
+    REQUIRE(func_output.Contains("logits"));
+    REQUIRE(func_output.At("logits").dtype() == torch::kFloat32);
+}
+
+TEST_CASE("BatchNorm2d runs in FP32 after BF16 autocast convolution", "[nn][batchnorm][bf16]")
+{
+    EnsureNNInitialized();
+
+    std::vector<torch::Device> devices{ torch::Device(torch::kCPU) };
+    if (torch::cuda::is_available()) {
+        devices.emplace_back(torch::Device(torch::kCUDA, 0));
+    }
+
+    for (const auto& device : devices) {
+        INFO("device=" << device.str());
+
+        anet::ConfigData config_data;
+        config_data.Set("net.block.[Conv].type", "Conv2d");
+        config_data.Set("net.block.[Conv].conv.out_channels", 3);
+        config_data.Set("net.block.[Conv].conv.kernel_size", 3);
+        config_data.Set("net.block.[Conv].conv.stride", 1);
+        config_data.Set("net.block.[Conv].conv.padding", 1);
+        config_data.Set("net.block.[Conv].init.mode", "he");
+        config_data.Set("net.block.[BN].type", "BatchNorm2d");
+        config_data.Set("net.block.[BN].num_features", 3);
+        config_data.Set("net.branch.[feature].bind", "obs");
+        config_data.Set("net.branch.[feature].structure", "Conv > BN");
+        config_data.Set("net.body.output.[feature]", "feature");
+
+        anet::TensorSpec obs_spec;
+        obs_spec.type = anet::SpaceType::Grid;
+        obs_spec.shape = { 3, 4, 4 };
+        obs_spec.dtype = torch::kFloat32;
+
+        anet::TensorSpecMap input_specs;
+        input_specs["obs"] = obs_spec;
+
+        auto network_config = anet::nn::NetworkConfig(config_data);
+        auto network = anet::nn::NetworkBuilder::BuildNetwork(
+            network_config,
+            input_specs,
+            nullptr,
+            device);
+
+        anet::TensorDict input;
+        input.Set("obs", torch::randn(
+            { 2, 3, 4, 4 },
+            torch::TensorOptions().dtype(torch::kFloat32).device(device)));
+
+        anet::TensorDict output;
+        {
+            anet::Autocast autocast_guard(device, true, torch::kBFloat16);
+            output = network->Forward(input);
+        }
+
+        REQUIRE(output.Contains("feature"));
+        REQUIRE(output.At("feature").dtype() == torch::kFloat32);
+        REQUIRE(output.At("feature").device().type() == device.type());
+        CHECK_FALSE(at::autocast::is_autocast_enabled(device.type()));
+    }
+}
+
+TEST_CASE("Norm modules can opt out of forced FP32 under BF16 input", "[nn][batchnorm][layernorm][layernorm2d][bf16]")
+{
+    EnsureNNInitialized();
+
+    std::vector<torch::Device> devices{ torch::Device(torch::kCPU) };
+    if (torch::cuda::is_available()) {
+        devices.emplace_back(torch::Device(torch::kCUDA, 0));
+    }
+
+    for (const auto& device : devices) {
+        INFO("device=" << device.str());
+
+        {
+            auto module = MakeBatchNorm2dTestModule(3);
+            module->eval();
+            auto input = torch::randn({ 2, 3, 4, 4 },
+                torch::TensorOptions().dtype(torch::kBFloat16).device(device));
+            auto output = module->Forward(input);
+            REQUIRE(output.dtype() == torch::kFloat32);
+            REQUIRE(GetNamedParameter(*module, "bn.weight").dtype() == torch::kFloat32);
+            REQUIRE(module->GetCurrentConfigData().Get("force_fp32") == "true");
+        }
+
+        {
+            auto module = MakeBatchNorm2dTestModule(3, false);
+            module->eval();
+            auto input = torch::randn({ 2, 3, 4, 4 },
+                torch::TensorOptions().dtype(torch::kBFloat16).device(device));
+            auto output = module->Forward(input);
+            REQUIRE(output.dtype() == torch::kBFloat16);
+            REQUIRE(GetNamedParameter(*module, "bn.weight").dtype() == torch::kBFloat16);
+            REQUIRE(module->GetCurrentConfigData().Get("force_fp32") == "false");
+        }
+
+        {
+            auto module = MakeLayerNormTestModule(4);
+            auto input = torch::randn({ 2, 4 },
+                torch::TensorOptions().dtype(torch::kBFloat16).device(device));
+            auto output = module->Forward(input);
+            REQUIRE(output.dtype() == torch::kFloat32);
+            REQUIRE(GetNamedParameter(*module, "ln.weight").dtype() == torch::kFloat32);
+            REQUIRE(module->GetCurrentConfigData().Get("force_fp32") == "true");
+        }
+
+        {
+            auto module = MakeLayerNormTestModule(4, std::nullopt, false);
+            auto input = torch::randn({ 2, 4 },
+                torch::TensorOptions().dtype(torch::kBFloat16).device(device));
+            auto output = module->Forward(input);
+            REQUIRE(output.dtype() == torch::kBFloat16);
+            REQUIRE(GetNamedParameter(*module, "ln.weight").dtype() == torch::kBFloat16);
+            REQUIRE(module->GetCurrentConfigData().Get("force_fp32") == "false");
+        }
+
+        {
+            auto module = MakeLayerNorm2dTestModule(3);
+            auto input = torch::randn({ 2, 3, 4, 4 },
+                torch::TensorOptions().dtype(torch::kBFloat16).device(device));
+            auto output = module->Forward(input);
+            REQUIRE(output.dtype() == torch::kFloat32);
+            REQUIRE(GetNamedParameter(*module, "weight").dtype() == torch::kFloat32);
+            REQUIRE(module->GetCurrentConfigData().Get("force_fp32") == "true");
+        }
+
+        {
+            auto module = MakeLayerNorm2dTestModule(3, 1.0e-6, false);
+            auto input = torch::randn({ 2, 3, 4, 4 },
+                torch::TensorOptions().dtype(torch::kBFloat16).device(device));
+            auto output = module->Forward(input);
+            REQUIRE(output.dtype() == torch::kBFloat16);
+            REQUIRE(GetNamedParameter(*module, "weight").dtype() == torch::kBFloat16);
+            REQUIRE(module->GetCurrentConfigData().Get("force_fp32") == "false");
+        }
+    }
+}
+
+TEST_CASE("Internal norm force_fp32 config reaches ResBlock and CNBlock modules", "[nn][resblock][cnblock][bf16]")
+{
+    if (!torch::cuda::is_available()) {
+        SKIP("CUDA is not available.");
+    }
+
+    const auto device = torch::Device(torch::kCUDA, 0);
+
+    {
+        auto module = MakeResBlockTestModule(
+            /*droppath_rate=*/0.0,
+            /*dropout_rate=*/0.0,
+            "batch",
+            "post");
+        auto input = torch::randn({ 2, 3, 8, 8 },
+            torch::TensorOptions().dtype(torch::kFloat32).device(device));
+        {
+            anet::Autocast autocast_guard(device, true, torch::kBFloat16);
+            (void)module->Forward(input);
+        }
+
+        REQUIRE(module->GetCurrentConfigData().Get("norm_force_fp32") == "true");
+        REQUIRE(GetNamedParameter(*module, "norm1.bn.weight").dtype() == torch::kFloat32);
+    }
+
+    {
+        auto module = MakeResBlockTestModule(
+            /*droppath_rate=*/0.0,
+            /*dropout_rate=*/0.0,
+            "batch",
+            "post",
+            false);
+        auto input = torch::randn({ 2, 3, 8, 8 },
+            torch::TensorOptions().dtype(torch::kFloat32).device(device));
+        {
+            anet::Autocast autocast_guard(device, true, torch::kBFloat16);
+            (void)module->Forward(input);
+        }
+
+        REQUIRE(module->GetCurrentConfigData().Get("norm_force_fp32") == "false");
+        REQUIRE(GetNamedParameter(*module, "norm1.bn.weight").dtype() == torch::kBFloat16);
+    }
+
+    {
+        auto module = MakeCNBlockTestModule();
+        auto input = torch::randn({ 2, 3, 8, 8 },
+            torch::TensorOptions().dtype(torch::kFloat32).device(device));
+        {
+            anet::Autocast autocast_guard(device, true, torch::kBFloat16);
+            (void)module->Forward(input);
+        }
+
+        REQUIRE(module->GetCurrentConfigData().Get("norm_force_fp32") == "true");
+        REQUIRE(GetNamedParameter(*module, "norm.weight").dtype() == torch::kFloat32);
+    }
+
+    {
+        auto module = MakeCNBlockTestModule(
+            /*channels=*/3,
+            /*droppath_rate=*/0.0,
+            /*layerscale_init=*/1.0e-6,
+            /*norm_type=*/"layernorm2d",
+            /*kernel_size=*/3,
+            /*ffn_expand_ratio=*/2,
+            /*constant_init=*/false,
+            false);
+        auto input = torch::randn({ 2, 3, 8, 8 },
+            torch::TensorOptions().dtype(torch::kFloat32).device(device));
+        {
+            anet::Autocast autocast_guard(device, true, torch::kBFloat16);
+            (void)module->Forward(input);
+        }
+
+        REQUIRE(module->GetCurrentConfigData().Get("norm_force_fp32") == "false");
+        REQUIRE(GetNamedParameter(*module, "norm.weight").dtype() == torch::kBFloat16);
+    }
+}
+
+TEST_CASE("Autocast refreshes cached weight casts between scopes", "[nn][autocast][bf16]")
+{
+    if (!torch::cuda::is_available()) {
+        SKIP("CUDA is not available.");
+    }
+
+    auto device = torch::Device(torch::kCUDA, 0);
+    auto linear = torch::nn::Linear(torch::nn::LinearOptions(2, 1).bias(false));
+    linear->to(device, torch::kFloat32);
+
+    auto input = torch::ones({ 1, 2 }, torch::TensorOptions().dtype(torch::kFloat32).device(device));
+
+    torch::Tensor before_update;
+    {
+        torch::NoGradGuard no_grad;
+        linear->weight.fill_(1.0f);
+    }
+    {
+        anet::Autocast autocast_guard(device, true, torch::kBFloat16);
+        before_update = linear->forward(input).detach().to(torch::kFloat32);
+    }
+
+    torch::Tensor after_update;
+    {
+        torch::NoGradGuard no_grad;
+        linear->weight.fill_(2.0f);
+    }
+    {
+        anet::Autocast autocast_guard(device, true, torch::kBFloat16);
+        after_update = linear->forward(input).detach().to(torch::kFloat32);
+    }
+
+    REQUIRE(before_update.defined());
+    REQUIRE(after_update.defined());
+    const float before_value = before_update.cpu().item<float>();
+    const float after_value = after_update.cpu().item<float>();
+    REQUIRE(before_value == Catch::Approx(2.0f));
+    REQUIRE(after_value == Catch::Approx(4.0f));
+}
+
+TEST_CASE("Autocast restores nested enabled and disabled scopes", "[nn][autocast][bf16]")
+{
+    std::vector<torch::DeviceType> device_types{ torch::kCPU };
+    if (torch::cuda::is_available()) {
+        device_types.push_back(torch::kCUDA);
+    }
+
+    for (const auto device_type : device_types) {
+        INFO("device_type=" << c10::DeviceTypeName(device_type));
+        const bool original_enabled = at::autocast::is_autocast_enabled(device_type);
+        const auto original_dtype = at::autocast::get_autocast_dtype(device_type);
+
+        {
+            anet::Autocast outer(torch::Device(device_type), true, torch::kBFloat16);
+            REQUIRE(at::autocast::is_autocast_enabled(device_type));
+            REQUIRE(at::autocast::get_autocast_dtype(device_type) == torch::kBFloat16);
+
+            {
+                anet::Autocast inner(torch::Device(device_type), false, torch::kFloat32);
+                CHECK_FALSE(at::autocast::is_autocast_enabled(device_type));
+                REQUIRE(at::autocast::get_autocast_dtype(device_type) == torch::kFloat32);
+            }
+
+            REQUIRE(at::autocast::is_autocast_enabled(device_type));
+            REQUIRE(at::autocast::get_autocast_dtype(device_type) == torch::kBFloat16);
+        }
+
+        REQUIRE(at::autocast::is_autocast_enabled(device_type) == original_enabled);
+        REQUIRE(at::autocast::get_autocast_dtype(device_type) == original_dtype);
+    }
+}
+
 std::shared_ptr<anet::nn::Network> MakeTraceTestNetwork()
 {
     anet::TensorSpec obs_spec;
@@ -645,6 +1178,197 @@ TEST_CASE("NetworkBuilder builds MaxPool2d and GAP2D pipeline", "[nn][pool]")
     CHECK(torch::equal(output.At("feature"), expected));
 }
 
+TEST_CASE("Network config profile expands linear markers by branch order", "[nn][config_profile]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    const std::vector<std::string> block_names = { "A", "B", "C", "D" };
+    for (const std::string& block_name : block_names) {
+        const std::string prefix = "net.block.[" + block_name + "].";
+        config_data.Set(prefix + "type", std::string("Dropout"));
+        config_data.Set(prefix + "dropout_rate", std::string("@dp"));
+    }
+    config_data.Set("net.config_profile.[dp].type", std::string("linear"));
+    config_data.Set("net.config_profile.[dp].start", 0.0);
+    config_data.Set("net.config_profile.[dp].end", 0.1);
+    config_data.Set("net.branch.[feature].bind", std::string("obs"));
+    config_data.Set("net.branch.[feature].structure", std::string("A(*3) > B(*3) > C(*9) > D(*3)"));
+    config_data.Set("net.body.output.[feature]", std::string("feature"));
+
+    anet::nn::NetworkConfig config(config_data);
+    const auto json = config.ToJson();
+    CHECK(json.at("config_profiles").at("dp").at("type") == "linear");
+    CHECK(json.at("config_profiles").at("dp").at("start") == 0.0);
+    CHECK(json.at("config_profiles").at("dp").at("end") == 0.1);
+
+    auto network_struct = anet::nn::NetworkStructBuilder::Build(
+        config, config.branches.at("feature").structure_str);
+    const auto rates = GetDropoutRates(network_struct);
+
+    REQUIRE(rates.size() == 18);
+    for (size_t i = 0; i < rates.size(); ++i) {
+        const double expected = 0.1 * static_cast<double>(i) / static_cast<double>(rates.size() - 1);
+        INFO("i=" << i);
+        CHECK(rates[i] == Catch::Approx(expected).margin(1.0e-12));
+    }
+    CHECK(rates[3] > rates[2]);
+    CHECK(rates[6] > rates[5]);
+    CHECK(rates[15] > rates[14]);
+}
+
+TEST_CASE("Network config profile returns start for a single marker", "[nn][config_profile]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[One].type", std::string("Dropout"));
+    config_data.Set("net.block.[One].dropout_rate", std::string("@single"));
+    config_data.Set("net.config_profile.[single].type", std::string("linear"));
+    config_data.Set("net.config_profile.[single].start", 0.25);
+    config_data.Set("net.config_profile.[single].end", 0.75);
+    config_data.Set("net.branch.[feature].bind", std::string("obs"));
+    config_data.Set("net.branch.[feature].structure", std::string("One"));
+
+    anet::nn::NetworkConfig config(config_data);
+    auto network_struct = anet::nn::NetworkStructBuilder::Build(
+        config, config.branches.at("feature").structure_str);
+    const auto rates = GetDropoutRates(network_struct);
+
+    REQUIRE(rates.size() == 1);
+    CHECK(rates[0] == Catch::Approx(0.25).margin(1.0e-12));
+}
+
+TEST_CASE("Network config profile supports branch-local overrides", "[nn][config_profile]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Drop].type", std::string("Dropout"));
+    config_data.Set("net.block.[Drop].dropout_rate", std::string("@dp"));
+    config_data.Set("net.config_profile.[dp].type", std::string("linear"));
+    config_data.Set("net.config_profile.[dp].start", 0.25);
+    config_data.Set("net.config_profile.[dp].end", 0.5);
+    config_data.Set("net.branch.[base].bind", std::string("obs"));
+    config_data.Set("net.branch.[base].structure", std::string("Drop(*2)"));
+    config_data.Set("net.branch.[wide].bind", std::string("obs"));
+    config_data.Set("net.branch.[wide].structure", std::string("Drop(*2)"));
+    config_data.Set("net.branch.[wide].config_profile.[dp].end", 0.75);
+
+    anet::nn::NetworkConfig config(config_data);
+    const auto json = config.ToJson();
+    CHECK(json.at("branches").at("wide").at("config_profiles").at("dp").at("end") == 0.75);
+
+    anet::TensorSpecMap input_specs;
+    input_specs["obs"] = MakeConfigProfileVectorSpec();
+    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs);
+    REQUIRE(body);
+
+    const auto base_rates = GetDropoutRates(GetBranchNetworkStruct(body, "base"));
+    REQUIRE(base_rates.size() == 2);
+    CHECK(base_rates[0] == Catch::Approx(0.25).margin(1.0e-12));
+    CHECK(base_rates[1] == Catch::Approx(0.5).margin(1.0e-12));
+
+    const auto wide_rates = GetDropoutRates(GetBranchNetworkStruct(body, "wide"));
+    REQUIRE(wide_rates.size() == 2);
+    CHECK(wide_rates[0] == Catch::Approx(0.25).margin(1.0e-12));
+    CHECK(wide_rates[1] == Catch::Approx(0.75).margin(1.0e-12));
+}
+
+TEST_CASE("Network config profile leaves marker-free branches on original config", "[nn][config_profile]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Drop].type", std::string("Dropout"));
+    config_data.Set("net.block.[Drop].dropout_rate", 0.25);
+    config_data.Set("net.config_profile.[unused].type", std::string("linear"));
+    config_data.Set("net.config_profile.[unused].start", 0.0);
+    config_data.Set("net.config_profile.[unused].end", 0.5);
+    config_data.Set("net.branch.[feature].bind", std::string("obs"));
+    config_data.Set("net.branch.[feature].structure", std::string("Drop"));
+
+    anet::nn::NetworkConfig config(config_data);
+    anet::TensorSpecMap input_specs;
+    input_specs["obs"] = MakeConfigProfileVectorSpec();
+    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs);
+    REQUIRE(body);
+
+    auto network_struct = anet::nn::NetworkStructBuilder::Build(
+        config, config.branches.at("feature").structure_str);
+    const auto rates = GetDropoutRates(network_struct);
+
+    REQUIRE(rates.size() == 1);
+    CHECK(rates[0] == Catch::Approx(0.25).margin(1.0e-12));
+}
+
+TEST_CASE("Network config profile rejects invalid marker settings", "[nn][config_profile]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData undefined_group;
+    undefined_group.Set("net.block.[Drop].type", std::string("Dropout"));
+    undefined_group.Set("net.block.[Drop].dropout_rate", std::string("@missing"));
+    undefined_group.Set("net.branch.[feature].bind", std::string("obs"));
+    undefined_group.Set("net.branch.[feature].structure", std::string("Drop"));
+    anet::nn::NetworkConfig undefined_config(undefined_group);
+    CHECK_THROWS(anet::nn::NetworkStructBuilder::Build(
+        undefined_config, undefined_config.branches.at("feature").structure_str));
+
+    anet::ConfigData missing_end;
+    missing_end.Set("net.config_profile.[dp].type", std::string("linear"));
+    missing_end.Set("net.config_profile.[dp].start", 0.0);
+    CHECK_THROWS(anet::nn::NetworkConfig(missing_end));
+
+    anet::ConfigData legacy_minmax;
+    legacy_minmax.Set("net.config_profile.[dp].type", std::string("linear"));
+    legacy_minmax.Set("net.config_profile.[dp].min", 0.0);
+    legacy_minmax.Set("net.config_profile.[dp].max", 1.0);
+    CHECK_THROWS(anet::nn::NetworkConfig(legacy_minmax));
+
+    anet::ConfigData unknown_type;
+    unknown_type.Set("net.config_profile.[dp].type", std::string("cosine"));
+    unknown_type.Set("net.config_profile.[dp].end", 1.0);
+    CHECK_THROWS(anet::nn::NetworkConfig(unknown_type));
+}
+
+TEST_CASE("Network config profile expands same group independently per branch", "[nn][config_profile]")
+{
+    EnsureNNInitialized();
+
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[A].type", std::string("Dropout"));
+    config_data.Set("net.block.[A].dropout_rate", std::string("@dp"));
+    config_data.Set("net.block.[B].type", std::string("Dropout"));
+    config_data.Set("net.block.[B].dropout_rate", std::string("@dp"));
+    config_data.Set("net.config_profile.[dp].type", std::string("linear"));
+    config_data.Set("net.config_profile.[dp].start", 0.0);
+    config_data.Set("net.config_profile.[dp].end", 0.5);
+    config_data.Set("net.branch.[feature_a].bind", std::string("obs_a"));
+    config_data.Set("net.branch.[feature_a].structure", std::string("A(*2)"));
+    config_data.Set("net.branch.[feature_b].bind", std::string("obs_b"));
+    config_data.Set("net.branch.[feature_b].structure", std::string("B(*3)"));
+
+    anet::nn::NetworkConfig config(config_data);
+    anet::TensorSpecMap input_specs;
+    input_specs["obs_a"] = MakeConfigProfileVectorSpec();
+    input_specs["obs_b"] = MakeConfigProfileVectorSpec();
+
+    auto body = anet::nn::NetworkBodyBuilder::Build(config, input_specs);
+    REQUIRE(body);
+
+    const auto a_rates = GetDropoutRates(GetBranchNetworkStruct(body, "feature_a"));
+    REQUIRE(a_rates.size() == 2);
+    CHECK(a_rates[0] == Catch::Approx(0.0).margin(1.0e-12));
+    CHECK(a_rates[1] == Catch::Approx(0.5).margin(1.0e-12));
+
+    const auto b_rates = GetDropoutRates(GetBranchNetworkStruct(body, "feature_b"));
+    REQUIRE(b_rates.size() == 3);
+    CHECK(b_rates[0] == Catch::Approx(0.0).margin(1.0e-12));
+    CHECK(b_rates[1] == Catch::Approx(0.25).margin(1.0e-12));
+    CHECK(b_rates[2] == Catch::Approx(0.5).margin(1.0e-12));
+}
+
 TEST_CASE("Network SoftCopyTo blends parameters and floating buffers", "[nn][soft-copy]")
 {
     auto source = MakeSoftCopyTestNetwork(/*base=*/10.0f, /*counter=*/42);
@@ -721,6 +1445,264 @@ TEST_CASE("Body-only Network exposes forward TensorDictFunction", "[nn][function
     REQUIRE(direct_out.Contains("feature"));
     REQUIRE(func_out.Contains("feature"));
     CHECK(torch::equal(func_out.At("feature"), direct_out.At("feature")));
+}
+
+TEST_CASE("WeightInitializer string modes match torch initializers", "[nn][init]")
+{
+    anet::nn::WeightInitConfig config;
+    CheckWeightInitMatchesDirect(config, 1701, [](torch::nn::Linear& expected) {
+        torch::nn::init::xavier_uniform_(expected->weight);
+        torch::nn::init::constant_(expected->bias, 0.0);
+    });
+
+    config.mode = "he";
+    config.nonlinearity = "relu";
+    CheckWeightInitMatchesDirect(config, 1702, [](torch::nn::Linear& expected) {
+        torch::nn::init::kaiming_normal_(expected->weight, 0.0, torch::kFanOut, torch::kReLU);
+        torch::nn::init::constant_(expected->bias, 0.0);
+    });
+
+    config.mode = "orthogonal";
+    config.nonlinearity = "linear";
+    config.manual_gain = 0.0;
+    CheckWeightInitMatchesDirect(config, 1703, [](torch::nn::Linear& expected) {
+        const double gain = torch::nn::init::calculate_gain(torch::kLinear);
+        torch::nn::init::orthogonal_(expected->weight, gain);
+        torch::nn::init::constant_(expected->bias, 0.0);
+    });
+
+    config.mode = "constant";
+    config.constant_val = 0.25;
+    CheckWeightInitMatchesDirect(config, 1704, [](torch::nn::Linear& expected) {
+        torch::nn::init::constant_(expected->weight, 0.25);
+        torch::nn::init::constant_(expected->bias, 0.25);
+    });
+}
+
+TEST_CASE("WeightInitializer preserves default mode and rejects unknown modes", "[nn][init]")
+{
+    anet::nn::WeightInitConfig config;
+    config.mode = "default";
+    auto layer = MakeWeightInitTestLinear();
+    FillWeightInitTestLinear(layer, 0.25, -0.75);
+    anet::nn::WeightInitializer::Initialize(layer, config);
+    CheckTensorClose(torch::full_like(layer->weight, 0.25), layer->weight);
+    CheckTensorClose(torch::full_like(layer->bias, -0.75), layer->bias);
+
+    for (const std::string mode : { "unknown", "2" }) {
+        INFO("mode=" << mode);
+        config.mode = mode;
+        auto invalid_layer = MakeWeightInitTestLinear();
+        CHECK_THROWS(anet::nn::WeightInitializer::Initialize(invalid_layer, config));
+    }
+}
+
+TEST_CASE("WeightInitializer trunc_normal clamps range and zeros bias", "[nn][init]")
+{
+    anet::nn::WeightInitConfig config;
+    config.mode = "trunc_normal";
+    config.trunc_std = 0.02;
+    config.trunc_a = -0.04;
+    config.trunc_b = 0.04;
+
+    auto layer = torch::nn::Linear(torch::nn::LinearOptions(512, 512).bias(true));
+    torch::manual_seed(1710);
+    anet::nn::WeightInitializer::Initialize(layer, config);
+
+    CHECK(layer->weight.min().item<double>() >= config.trunc_a - 1.0e-7);
+    CHECK(layer->weight.max().item<double>() <= config.trunc_b + 1.0e-7);
+    const double actual_std = layer->weight.std().item<double>();
+    CHECK(actual_std > 0.01);
+    CHECK(actual_std < 0.025);
+    CheckTensorClose(torch::zeros_like(layer->bias), layer->bias);
+
+    config.trunc_std = 0.0;
+    CHECK_THROWS(anet::nn::WeightInitializer::Initialize(layer, config));
+
+    config.trunc_std = 0.02;
+    config.trunc_a = 0.1;
+    config.trunc_b = 0.1;
+    CHECK_THROWS(anet::nn::WeightInitializer::Initialize(layer, config));
+}
+
+TEST_CASE("LayerNorm exposes backward-compatible eps config", "[nn][layernorm]")
+{
+    auto default_module = MakeLayerNormTestModule(4);
+    auto default_config = default_module->GetCurrentConfigData();
+    CHECK(std::stod(default_config.Get("eps")) == Catch::Approx(1.0e-5));
+
+    auto explicit_module = MakeLayerNormTestModule(4, 1.0e-6);
+    auto explicit_config = explicit_module->GetCurrentConfigData();
+    CHECK(std::stod(explicit_config.Get("eps")) == Catch::Approx(1.0e-6));
+
+    CHECK_THROWS(MakeLayerNormTestModule(0));
+}
+
+TEST_CASE("LayerNorm2d normalizes channel axis only", "[nn][layernorm2d]")
+{
+    auto module = MakeLayerNorm2dTestModule(3, /*eps=*/0.0);
+    torch::Tensor input = torch::arange(0, 24, torch::kFloat32).reshape({ 2, 3, 2, 2 });
+    torch::Tensor output = module->Forward(input);
+
+    CHECK(output.sizes() == input.sizes());
+
+    auto mean = input.mean({ 1 }, /*keepdim=*/true);
+    auto variance = (input - mean).pow(2).mean({ 1 }, /*keepdim=*/true);
+    auto expected = (input - mean) / torch::sqrt(variance);
+    CheckTensorClose(expected, output);
+    CheckTensorClose(torch::zeros_like(output.mean({ 1 }, /*keepdim=*/true)), output.mean({ 1 }, /*keepdim=*/true));
+    CheckTensorClose(torch::ones_like(output.pow(2).mean({ 1 }, /*keepdim=*/true)), output.pow(2).mean({ 1 }, /*keepdim=*/true));
+
+    auto cd = module->GetCurrentConfigData();
+    CHECK(cd.Get("num_channels") == "3");
+    CHECK(std::stod(cd.Get("eps")) == Catch::Approx(0.0));
+}
+
+TEST_CASE("LayerNorm2d rejects invalid config and input", "[nn][layernorm2d]")
+{
+    CHECK_THROWS(MakeLayerNorm2dTestModule(0));
+
+    auto module = MakeLayerNorm2dTestModule(3);
+    CHECK_THROWS(module->Forward(torch::randn({ 2, 3, 4 }, torch::kFloat32)));
+    CHECK_THROWS(module->Forward(torch::randn({ 2, 4, 2, 2 }, torch::kFloat32)));
+}
+
+TEST_CASE("CNBlock preserves shape and exposes config", "[nn][cnblock]")
+{
+    auto module = MakeCNBlockTestModule(
+        /*channels=*/8,
+        /*droppath_rate=*/0.25,
+        /*layerscale_init=*/1.0e-6,
+        /*norm_type=*/"layernorm2d",
+        /*kernel_size=*/3,
+        /*ffn_expand_ratio=*/2);
+
+    torch::Tensor input = torch::randn({ 2, 8, 6, 6 }, torch::kFloat32);
+    module->eval();
+    torch::Tensor output = module->Forward(input);
+    CHECK(output.sizes() == input.sizes());
+
+    anet::ConfigData cd = module->GetCurrentConfigData();
+    CHECK(cd.Get("channels") == "8");
+    CHECK(cd.Get("kernel_size") == "3");
+    CHECK(cd.Get("ffn_expand_ratio") == "2");
+    CHECK(std::stod(cd.Get("layerscale_init")) == Catch::Approx(1.0e-6));
+    CHECK(std::stod(cd.Get("droppath_rate")) == Catch::Approx(0.25));
+    CHECK(cd.Get("norm_type") == "layernorm2d");
+    CHECK(cd.Get("in_channels") == "8");
+
+    auto gamma = GetNamedParameter(*module, "gamma");
+    CheckTensorClose(torch::full_like(gamma, 1.0e-6), gamma);
+
+    auto no_layerscale = MakeCNBlockTestModule(/*channels=*/8, /*droppath_rate=*/0.0, /*layerscale_init=*/0.0);
+    (void)no_layerscale->Forward(input);
+    CHECK_FALSE(HasKey(no_layerscale->named_parameters(true), "gamma"));
+}
+
+TEST_CASE("CNBlock DropPath is eval no-op and train can return shortcut", "[nn][cnblock]")
+{
+    auto baseline = MakeCNBlockTestModule(/*channels=*/8, /*droppath_rate=*/0.0, /*layerscale_init=*/1.0);
+    auto droppath = MakeCNBlockTestModule(/*channels=*/8, /*droppath_rate=*/0.5, /*layerscale_init=*/1.0);
+    torch::Tensor input = torch::randn({ 2, 8, 6, 6 }, torch::kFloat32);
+
+    baseline->eval();
+    droppath->eval();
+    (void)baseline->Forward(input);
+    (void)droppath->Forward(input);
+    CopyModuleState(*baseline, *droppath);
+
+    CheckTensorClose(baseline->Forward(input), droppath->Forward(input));
+
+    auto shortcut_only = MakeCNBlockTestModule(/*channels=*/8, /*droppath_rate=*/0.999, /*layerscale_init=*/1.0);
+    shortcut_only->train();
+    (void)shortcut_only->Forward(input);
+
+    bool saw_shortcut = false;
+    for (int seed = 1500; seed < 1510; ++seed) {
+        torch::manual_seed(seed);
+        torch::Tensor output = shortcut_only->Forward(input);
+        if (torch::allclose(input, output)) {
+            saw_shortcut = true;
+            break;
+        }
+    }
+    CHECK(saw_shortcut);
+}
+
+TEST_CASE("CNBlock CPU fallback supports backward", "[nn][cnblock]")
+{
+    auto module = MakeCNBlockTestModule(
+        /*channels=*/8,
+        /*droppath_rate=*/0.0,
+        /*layerscale_init=*/1.0,
+        /*norm_type=*/"layernorm2d",
+        /*kernel_size=*/3,
+        /*ffn_expand_ratio=*/2);
+    module->train();
+
+    torch::Tensor input = torch::randn({ 2, 8, 5, 5 }, torch::kFloat32);
+    input.requires_grad_(true);
+    torch::Tensor loss = module->Forward(input).pow(2).mean();
+    loss.backward();
+
+    CHECK(input.grad().defined());
+    CHECK(GetNamedParameter(*module, "gamma").grad().defined());
+    CHECK(GetNamedParameter(*module, "dwconv.weight").grad().defined());
+    CHECK(GetNamedParameter(*module, "pwconv1.weight").grad().defined());
+    CHECK(GetNamedParameter(*module, "pwconv2.weight").grad().defined());
+}
+
+TEST_CASE("CNBlock supports disabling norm and validates invalid settings", "[nn][cnblock]")
+{
+    torch::Tensor input = torch::randn({ 2, 8, 5, 5 }, torch::kFloat32) + 0.5;
+
+    auto with_norm = MakeCNBlockTestModule(
+        /*channels=*/8,
+        /*droppath_rate=*/0.0,
+        /*layerscale_init=*/1.0,
+        /*norm_type=*/"layernorm2d",
+        /*kernel_size=*/3,
+        /*ffn_expand_ratio=*/2,
+        /*constant_init=*/true);
+    auto without_norm = MakeCNBlockTestModule(
+        /*channels=*/8,
+        /*droppath_rate=*/0.0,
+        /*layerscale_init=*/1.0,
+        /*norm_type=*/"none",
+        /*kernel_size=*/3,
+        /*ffn_expand_ratio=*/2,
+        /*constant_init=*/true);
+
+    with_norm->eval();
+    without_norm->eval();
+    torch::Tensor norm_output = with_norm->Forward(input);
+    torch::Tensor no_norm_output = without_norm->Forward(input);
+    CHECK_FALSE(torch::allclose(norm_output, no_norm_output));
+    CHECK(without_norm->GetCurrentConfigData().Get("norm_type") == "none");
+
+    CHECK_THROWS(MakeCNBlockTestModule(/*channels=*/0));
+    CHECK_THROWS(MakeCNBlockTestModule(/*channels=*/3, /*droppath_rate=*/1.0));
+    CHECK_THROWS(MakeCNBlockTestModule(
+        /*channels=*/3,
+        /*droppath_rate=*/0.0,
+        /*layerscale_init=*/1.0e-6,
+        /*norm_type=*/"layernorm2d",
+        /*kernel_size=*/2));
+    CHECK_THROWS(MakeCNBlockTestModule(
+        /*channels=*/3,
+        /*droppath_rate=*/0.0,
+        /*layerscale_init=*/1.0e-6,
+        /*norm_type=*/"layernorm2d",
+        /*kernel_size=*/3,
+        /*ffn_expand_ratio=*/0));
+    CHECK_THROWS(MakeCNBlockTestModule(
+        /*channels=*/3,
+        /*droppath_rate=*/0.0,
+        /*layerscale_init=*/1.0e-6,
+        /*norm_type=*/"batch"));
+
+    auto channel_mismatch = MakeCNBlockTestModule(/*channels=*/3);
+    CHECK_THROWS(channel_mismatch->Forward(torch::randn({ 2, 4, 5, 5 }, torch::kFloat32)));
 }
 
 TEST_CASE("Network dot view emits structure by default and configurable details", "[nn][dot]")

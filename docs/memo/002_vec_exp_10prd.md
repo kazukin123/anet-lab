@@ -18,9 +18,12 @@ DefaultDQNAgentのみ対象。RainbowAgent は対応対象外。
 
 `use_spatial_exploration = true` の場合、以下の既存設定は空間分配の境界値として使用される。
 
-* **`*_start`**: インデックス `0`（最大探索環境）のパラメータ値。
-* **`*_end`**: インデックス `num_envs - 1`（最小探索環境）のパラメータ値。
+* **`*_start`**: インデックス `num_envs - 1`（最大探索環境）のパラメータ値。
+* **`*_end`**: インデックス `0`（最小探索環境）のパラメータ値。TrainViewが既定表示するlaneを最小探索側にする。
 * **`*_decay_steps`**: **無視する**（使用しない）。
+
+`num_envs == 1`ではlane順序を反転できないため、従来どおり`*_start`を使用する。
+複数パラメータを持つPolicyでは、epsilonとtauを同じ向きで反転し、パラメータの組と分布を維持する。
 
 ### 2.2. 整合チェック
 
@@ -50,7 +53,7 @@ ActionPolicy またはユーティリティクラスにて、サイズ `[num_env
 * **対象インスタンス:** `train_policy_` のみ（初期化時に `use_spatial_exploration` フラグを渡す）。
 * **初期化時の処理:**
   * `use_spatial_exploration == true` の場合：
-    1. 上記の `CreateSpatialEpsilon` 等を用いてテンソル（例: `spatial_eps_tensor_`, `spatial_tau_tensor_`）を生成し、メンバ変数として保持する。
+    1. 上記の補間テンソルを`flip({0})`してlane割り当てだけを反転し、テンソル（例: `spatial_eps_tensor_`, `spatial_tau_tensor_`）をメンバ変数として保持する。epsilonとtauは必ず同じ向きで反転する。
     2. 既存のスカラ状態変数（`current_epsilon_` や `current_uqe_tau_`）には、**`std::numeric_limits<float>::quiet_NaN()`** を代入する。
 * **推論時の処理 (`MakeAction` 等):**
   * `use_spatial_exploration == true` の場合、保持している空間パラメータテンソル（Shape: `[num_envs]`）を用いて行動選択（乱数テンソルとの比較やマスク生成）を一括で行う。

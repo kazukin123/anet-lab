@@ -1,8 +1,4 @@
-﻿/*
- * LunarLander C++ Port
- * Based on work by OpenAI and Farama Foundation.
- * Licensed under the MIT License. See LICENSE file for details.
- */
+﻿// LunarLanderEnv.cpp
 
 #include "LunarLanderEnv.hpp"
 #include <cmath>
@@ -10,7 +6,6 @@
 #include <box2d/box2d.h>
 #include "anet/profile.hpp"
 #include "anet/log.hpp"
-#include "anet/metrics_logger.hpp"
 #include "anet/env.hpp"
 
 
@@ -55,13 +50,18 @@ anet::rl::EnvSpec LunarLanderEnv::GetSpec() const
     // obs_spec
     anet::TensorSpec obs_spec {
         .type = anet::SpaceType::Vector,
-        .shape = { 8 },
+        .shape = { config_.obs_include_action ? 8 + kActionCount : 8 },
         .dtype = torch::kFloat32,
         .num_classes = 0,   // 連続値
         .labels = { "x", "y", "vx", "vy", "angle", "v_angle", "leg_l", "leg_r" },
         .min_values = { -1.5, -0.5, -5.0, -5.0, -3.14, -5.0, 0.0, 0.0 },
         .max_values = {  1.5,  2.0,  5.0,  5.0,  3.14,  5.0, 1.0, 1.0 }
     };
+    if (config_.obs_include_action) {
+        obs_spec.labels.insert(obs_spec.labels.end(), { "a_noop", "a_left", "a_main", "a_right" });
+        obs_spec.min_values.insert(obs_spec.min_values.end(), kActionCount, 0.0);
+        obs_spec.max_values.insert(obs_spec.max_values.end(), kActionCount, 1.0);
+    }
 
     // StateSpec
     anet::rl::StateSpec state_spec;
@@ -200,14 +200,14 @@ public:
 LunarLanderEnv::LunarLanderEnv(
     const LunarLanderEnvConfig& config,
     const torch::Device& device,
-    const std::optional<anet::seed_t> seed)
-    : anet::RandomHolder(seed)
+    const std::string& name,
+    const std::optional<anet::seed_t> seed,
+    anet::rl::RunMode run_mode)
+    : SingleDiscreteEnvBase(name, run_mode, config.GetScopedConfigData())
+    , anet::RandomHolder(seed)
     , config_(config)
 {
-    ANET_LOG_DEBUG("seed=" << this->GetSeed());
-
-    //anet::MetricsLogger::Instance()->Log(config_);
-    anet::MetricsLogger::Instance()->Log("LunarLanderEnv", config_.ToJson());
+    ANET_LOG_DEBUG_PREFIXED("seed=" << this->GetSeed());
 
     float_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
     bool_opt_ = torch::TensorOptions().dtype(torch::kBool).device(device);
@@ -609,7 +609,7 @@ void LunarLanderEnv::buildWorld(float init_x, float init_y, float init_angle)
     buildLander(init_x, init_y, init_angle);
 }
 
-std::shared_ptr<const anet::rl::SingleResetResult> LunarLanderEnv::Reset(anet::rl::RunMode mode)
+std::shared_ptr<const anet::rl::SingleResetResult> LunarLanderEnv::Reset()
 {
     ANET_PROFILE_FUNC();
 
@@ -630,6 +630,7 @@ std::shared_ptr<const anet::rl::SingleResetResult> LunarLanderEnv::Reset(anet::r
 
     // 状態変数初期化
     step_count_ = 0;
+    last_action_ = -1;
     body_contact_ = false;
     left_leg_contact_ = false;
     right_leg_contact_ = false;
@@ -772,7 +773,9 @@ anet::rl::SingleState LunarLanderEnv::makeState() const
 
     if (!lander_body_) {
         anet::rl::SingleState s {
-            .obs = anet::TensorDict(anet::rl::ObsKeys::kVector, torch::zeros({ 8 }, float_opt_)),
+            .obs = anet::TensorDict(
+                anet::rl::ObsKeys::kVector,
+                torch::zeros({ config_.obs_include_action ? 8 + kActionCount : 8 }, float_opt_)),
             .done = true,
             .truncated = false,
             .episode_start = false
@@ -799,8 +802,16 @@ anet::rl::SingleState LunarLanderEnv::makeState() const
     float left_contact = left_leg_contact_ ? 1.0f : 0.0f;
     float right_contact = right_leg_contact_ ? 1.0f : 0.0f;
 
+    std::vector<float> obs_values = { x, y, vx, vy, angle, angular_vel, left_contact, right_contact };
+    if (config_.obs_include_action) {
+        obs_values.reserve(8 + kActionCount);
+        for (int64_t action = 0; action < kActionCount; ++action) {
+            obs_values.push_back(last_action_ == action ? 1.0f : 0.0f);
+        }
+    }
+
     anet::rl::SingleState s {
-        .obs = { anet::rl::ObsKeys::kVector, torch::tensor({ x, y, vx, vy, angle, angular_vel, left_contact, right_contact }) },
+        .obs = { anet::rl::ObsKeys::kVector, torch::tensor(obs_values) },
         .done = false,
         .truncated = false,
         .episode_start = false,
@@ -882,12 +893,13 @@ std::pair<float, float> LunarLanderEnv::calcReward(const anet::rl::SingleState& 
     return { reward, raw_reward };
 }
 
-std::shared_ptr<const anet::rl::SingleStepResult> LunarLanderEnv::Step(int64_t action, anet::rl::RunMode runmode)
+std::shared_ptr<const anet::rl::SingleStepResult> LunarLanderEnv::Step(int64_t action)
 {
     ANET_PROFILE_FUNC();
 
     step_count_++;
-    
+    last_action_ = action;
+
     applyWind();
     applyActionForce(action);
 
@@ -957,11 +969,11 @@ std::optional<torch::Tensor> LunarLanderEnv::GetTensor(const std::string& key, i
     if (key == "legs") {
         auto left_seg = getLegSegment(left_leg_body_, kLegLength);
         auto right_seg = getLegSegment(right_leg_body_, kLegLength);
-        ANET_LOG_DEBUG("lander_body=" << lander_body_->GetPosition().x << " " << lander_body_->GetPosition().y);
-        ANET_LOG_DEBUG("left_seg.p0=" << left_seg.p0.x << " " << left_seg.p0.y);
-        ANET_LOG_DEBUG("left_seg.p1=" << left_seg.p1.x << " " << left_seg.p1.y);
-        ANET_LOG_DEBUG("right_seg.p0=" << right_seg.p0.x << " " << right_seg.p0.y);
-        ANET_LOG_DEBUG("right_seg.p1=" << right_seg.p1.x << " " << right_seg.p1.y);
+        ANET_LOG_DEBUG_PREFIXED("lander_body=" << lander_body_->GetPosition().x << " " << lander_body_->GetPosition().y);
+        ANET_LOG_DEBUG_PREFIXED("left_seg.p0=" << left_seg.p0.x << " " << left_seg.p0.y);
+        ANET_LOG_DEBUG_PREFIXED("left_seg.p1=" << left_seg.p1.x << " " << left_seg.p1.y);
+        ANET_LOG_DEBUG_PREFIXED("right_seg.p0=" << right_seg.p0.x << " " << right_seg.p0.y);
+        ANET_LOG_DEBUG_PREFIXED("right_seg.p1=" << right_seg.p1.x << " " << right_seg.p1.y);
 
         torch::Tensor t = torch::tensor({
             left_seg.p0.x, left_seg.p0.y, left_seg.p1.x, left_seg.p1.y,
@@ -1130,12 +1142,10 @@ anet::rl::AuxData LunarLanderEnv::CreateAuxData(float reward, float raw_reward) 
 
 std::shared_ptr<anet::rl::SingleDiscreteEnv>
 LunarLanderEnvFactory::CreateSingleEnv(const anet::ConfigData& config_data, const torch::Device& device,
-    std::optional<anet::seed_t> seed, const std::string& config_prefix)
+    const std::string& name, std::optional<anet::seed_t> seed, anet::rl::RunMode run_mode,
+    const std::string& config_prefix)
 {
     LunarLanderEnvConfig config(config_data, config_prefix);
     //LOG::info() << "LunarLanderEnvFactory: config_prefix=" << config_prefix << " config=" << config.ToJson();
-    return std::make_shared<LunarLanderEnv>(config, device, seed);
+    return std::make_shared<LunarLanderEnv>(config, device, name, seed, run_mode);
 }
-
-ANET_REGISTER_ENV_FACTORY(LunarLanderEnvFactory);
-

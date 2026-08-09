@@ -5,6 +5,7 @@
 
 apps/**/*.hpp text eol=lf
 apps/**/*.cpp text eol=lf
+apps/**/*.bat text eol=crlf
 core/**/*.hpp text eol=lf
 core/**/*.cpp text eol=lf
 docs/**/*.md text eol=lf

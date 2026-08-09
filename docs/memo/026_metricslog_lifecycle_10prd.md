@@ -5,7 +5,7 @@
 
 ## Context / Problem Statement
 
-`this==nullptr` で `MetricsLogger::LogScalar` が読み取りアクセス違反でクラッシュする。スタック（eval スレッド）:
+アプリケーションの終了時、`this==nullptr` で `MetricsLogger::LogScalar` が読み取りアクセス違反でクラッシュする。スタック（eval スレッド）:
 
 ```
 MetricsLogger::LogScalar                      metrics_logger.hpp:131 (backend_->WriteJsonl)

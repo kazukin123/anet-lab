@@ -1,0 +1,161 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>io.github.kazukin123.anetlab</groupId>
+    <artifactId>metrics-viewer</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>Metrics Viewer</name>
+    <description>Metrics Viewer for anet-lab experiments</description>
+
+    <licenses>
+        <license>
+            <name>Apache-2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <properties>
+        <java.version>17</java.version>
+        <maven.compiler.release>${java.version}</maven.compiler.release>
+        <spring.boot.version>3.5.7</spring.boot.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <version>${spring.boot.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.20.1</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-logging</artifactId>
+            <version>${spring.boot.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.42</version>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <version>${spring.boot.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.microsoft.playwright</groupId>
+            <artifactId>playwright</artifactId>
+            <version>1.60.0</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <version>${spring.boot.version}</version>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+            <version>3.53.1.0</version>
+        </dependency>
+
+    </dependencies>
+
+    <build>
+        <finalName>metrics-viewer</finalName>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <resource>
+                <directory>${project.basedir}/../..</directory>
+                <targetPath>META-INF</targetPath>
+                <includes>
+                    <include>LICENSE</include>
+                    <include>NOTICE</include>
+                </includes>
+                <filtering>false</filtering>
+            </resource>
+            <resource>
+                <directory>${project.build.directory}/generated-sources/license</directory>
+                <targetPath>META-INF</targetPath>
+                <includes>
+                    <include>THIRD-PARTY.txt</include>
+                </includes>
+                <filtering>false</filtering>
+            </resource>
+        </resources>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring.boot.version}</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+			<plugin>
+			  <groupId>org.apache.maven.plugins</groupId>
+			  <artifactId>maven-compiler-plugin</artifactId>
+			  <version>3.15.0</version>
+			  <configuration>
+			    <release>${java.version}</release>
+			    <parameters>true</parameters>
+			    <proc>full</proc>
+			    <annotationProcessorPaths>
+			      <path>
+			        <groupId>org.projectlombok</groupId>
+			        <artifactId>lombok</artifactId>
+			        <version>1.18.42</version>
+			      </path>
+			    </annotationProcessorPaths>
+			  </configuration>
+			</plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>license-maven-plugin</artifactId>
+                <version>2.6.0</version>
+                <executions>
+                    <execution>
+                        <id>add-third-party</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>add-third-party</goal>
+                        </goals>
+                        <configuration>
+                            <!-- runtime 依存のみ対象(test/provided はリリース物に含まれない) -->
+                            <excludedScopes>test,provided</excludedScopes>
+                            <addOutputDirectoryAsResourceDir>false</addOutputDirectoryAsResourceDir>
+                            <failOnMissing>false</failOnMissing>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

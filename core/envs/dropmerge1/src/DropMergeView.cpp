@@ -12,6 +12,23 @@ using namespace anet::rl::env::drop_merge;
 
 static constexpr int kFruitAlpha = 200;
 
+namespace {
+
+wxString GetTerminationReasonLabel(TerminationReason reason)
+{
+    switch (reason) {
+    case TerminationReason::SpawnBlocked: return "SpawnBlk";
+    case TerminationReason::Overflow: return "Overflow";
+    case TerminationReason::MaxStep: return "MaxStep";
+    case TerminationReason::NoDropTimeout: return "NoDrop";
+    case TerminationReason::NoLegalDrop: return "NoLegal";
+    case TerminationReason::None: return {};
+    }
+    return {};
+}
+
+} // 無名名前空間
+
 
 // =============================================================
 // DropMergeData
@@ -469,7 +486,17 @@ void DropMergePanel::DrawSidePanel(wxDC& dc)
 
         if (last_step >= 0) {
             wxSize stepSize = dc.GetTextExtent(step_str);
-            wxString lastStepStr = wxString::Format("(%s)", anet::FormatWithCommas(last_step));
+            const auto last_step_value = anet::FormatWithCommas(last_step);
+            wxString lastStepStr = wxString::Format("(%s)", last_step_value);
+
+            // 前回エピソードの終了要因が有効ならステップ数と並べて表示する
+            if (snapshot_.aux.count("last_term_reason")) {
+                const auto reason_id = static_cast<int>(snapshot_.aux.at("last_term_reason").item<float>());
+                const auto reason_label = GetTerminationReasonLabel(static_cast<TerminationReason>(reason_id));
+                if (!reason_label.empty()) {
+                    lastStepStr = wxString::Format("(%s,%s)", last_step_value, reason_label);
+                }
+            }
 
             dc.SetFont(wxFont(12, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
             dc.SetTextForeground(wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT));
@@ -510,7 +537,7 @@ void DropMergePanel::DrawSidePanel(wxDC& dc)
         y += line_h;
 
         // 強調表示
-        dc.DrawText(wxString::Format("Total Rew: %f (%f)", total_r, last_total_r), r.x, y);
+        dc.DrawText(wxString::Format("Total Rew: %.2f (%.2f)", total_r, last_total_r), r.x, y);
         y += line_h;
     }
 
@@ -664,4 +691,3 @@ DropMergeData DropMergeView::CreateViewData(const anet::rl::TrainEvent& event) c
 {
     return DropMergeData::Create(event);
 }
-

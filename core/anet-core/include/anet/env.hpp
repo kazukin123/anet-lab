@@ -1,7 +1,15 @@
-﻿#pragma once
+// anet/env.hpp
+
+#pragma once
+
 #include <functional>
 #include <optional>
+#include <string>
+#include <unordered_map>
+#include <variant>
+#include <vector>
 #include "anet/config.hpp"
+#include "anet/log.hpp"
 #include "anet/thread.hpp"
 #include "anet/rl.hpp"
 
@@ -9,14 +17,98 @@ namespace anet::rl {
 
     // ==============
 
-    class DiscreteBatchEnvBase : public BatchEnv, public RandomHolder {
+    class SingleDiscreteEnvBase : public SingleDiscreteEnv {
+    public:
+        explicit SingleDiscreteEnvBase(
+            std::string name,
+            RunMode run_mode = RunMode::Train,
+            std::optional<ConfigData> config_data = std::nullopt);
+
+        const std::string& GetName() const override final { return name_; }
+        RunMode GetRunMode() const override final { return run_mode_; }
+        std::optional<ConfigData> GetConfigData() const override final { return config_data_; }
+    private:
+        std::string name_;
+        RunMode run_mode_;
+        std::optional<ConfigData> config_data_;
+    protected:
+        log::Logger log;
+    };
+
+    class BatchEnvBase : public BatchEnv {
+    public:
+        BatchEnvBase(
+            std::string name,
+            int num_envs,
+            RunMode run_mode = RunMode::Train,
+            std::optional<ConfigData> config_data = std::nullopt);
+
+        const std::string& GetName() const override final { return name_; }
+        const std::string& GetEnvName(int64_t lane_index) const override final;
+        RunMode GetRunMode() const override final { return run_mode_; }
+        std::optional<ConfigData> GetConfigData() const override final { return config_data_; }
+    protected:
+        void SetConfigData(ConfigData config_data);
+    private:
+        std::string name_;
+        std::vector<std::string> lane_names_;
+        RunMode run_mode_;
+        std::optional<ConfigData> config_data_;
+    protected:
+        log::Logger log;
+    };
+
+    /// batch-native Env が追加情報をそのまま保持する標準 Reset result。
+    class PlainBatchResetResult final : public BatchResetResult {
+    public:
+        PlainBatchResetResult(BatchState state, std::vector<AuxData> aux_data)
+            : BatchResetResult(std::move(state)), aux_data_(std::move(aux_data)) {}
+
+        std::vector<AuxData> GetAuxDataList(int env_index = -1) const override
+        {
+            if (env_index < 0) return aux_data_;
+            if (env_index >= static_cast<int>(aux_data_.size())) return {};
+            return { aux_data_[static_cast<size_t>(env_index)] };
+        }
+
+    private:
+        std::vector<AuxData> aux_data_;
+    };
+
+    /// batch-native Env が追加情報をそのまま保持する標準 Step result。
+    class PlainBatchStepResult final : public BatchStepResult {
+    public:
+        PlainBatchStepResult(
+            torch::Tensor reward, BatchState next_state, BatchState continue_state,
+            uint32_t n_transitions, uint32_t n_episode_end, std::vector<AuxData> aux_data)
+            : BatchStepResult(
+                std::move(reward), std::move(next_state), std::move(continue_state),
+                n_transitions, n_episode_end)
+            , aux_data_(std::move(aux_data)) {}
+
+        std::vector<AuxData> GetAuxDataList(int env_index = -1) const override
+        {
+            if (env_index < 0) return aux_data_;
+            if (env_index >= static_cast<int>(aux_data_.size())) return {};
+            return { aux_data_[static_cast<size_t>(env_index)] };
+        }
+
+    private:
+        std::vector<AuxData> aux_data_;
+    };
+
+    // ==============
+
+    class DiscreteBatchEnvBase : public BatchEnvBase, public RandomHolder {
     public:
         DiscreteBatchEnvBase(
             const ConfigData& config_data,
             std::shared_ptr<SingleDiscreteEnvFactory> factory,
+            const std::string& name,
             int num_envs,
             const torch::Device& device,
             std::optional<seed_t> seed,
+            RunMode run_mode,
             const std::string& config_prefix);
 
         EnvSpec GetSpec() const override;
@@ -58,13 +150,15 @@ namespace anet::rl {
         VectorizedDiscreteBatchEnv(
             const ConfigData& configData,
             std::shared_ptr<SingleDiscreteEnvFactory> factory,
+            const std::string& name,
             int num_envs,
             const torch::Device& device,
             std::optional<seed_t> seed = std::nullopt,
+            RunMode run_mode = RunMode::Train,
             const std::string& config_prefix = "");
 
-        std::shared_ptr<const BatchResetResult> Reset(RunMode mode) override;
-        std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> action_info, RunMode mode) override;
+        std::shared_ptr<const BatchResetResult> Reset() override;
+        std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> action_info) override;
     };
 
     class ThreadPoolDiscreteEnv : public DiscreteBatchEnvBase {
@@ -72,16 +166,18 @@ namespace anet::rl {
         ThreadPoolDiscreteEnv(
             const ConfigData& configData,
             std::shared_ptr<SingleDiscreteEnvFactory> factory,
+            const std::string& name,
             int num_envs,
             const torch::Device& device,
             std::shared_ptr<ThreadPool> pool,
             std::optional<seed_t> seed = std::nullopt,
+            RunMode run_mode = RunMode::Train,
             const std::string& config_prefix = "");
 
         virtual ~ThreadPoolDiscreteEnv();
 
-        std::shared_ptr<const BatchResetResult> Reset(RunMode mode) override;
-        std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> action_info, RunMode mode) override;
+        std::shared_ptr<const BatchResetResult> Reset() override;
+        std::shared_ptr<const BatchStepResult> Step(std::shared_ptr<BatchActionInfo> action_info) override;
         void Shutdown() override;
     private:
         std::shared_ptr<ThreadPool> pool_;
@@ -99,18 +195,27 @@ namespace anet::rl {
 
         /// @todo SingleDiscreteEnvFactory → SingleDiscreteEnvCreator
 
+        using Factory = std::variant<std::shared_ptr<SingleDiscreteEnvFactory>, std::shared_ptr<BatchEnvFactory>>;
+
         void Regist(std::shared_ptr<SingleDiscreteEnvFactory> factory);
+        void Regist(std::shared_ptr<BatchEnvFactory> factory);
         std::shared_ptr<SingleDiscreteEnvFactory> GetSingleDiscreteEnvFactory(const std::string& id) const;
+        std::shared_ptr<BatchEnvFactory> GetBatchEnvFactory(const std::string& id) const;
     private:
         EnvRepository() = default;
 
         mutable std::mutex mtx_;
-        std::unordered_map<std::string, std::shared_ptr<SingleDiscreteEnvFactory>> factories_;
+        std::unordered_map<std::string, Factory> factories_;
     };
 
     inline void RegistEnvFactory(std::shared_ptr<SingleDiscreteEnvFactory> factory)
     {
         EnvRepository::Instance().Regist(factory);
+    }
+
+    inline void RegistEnvFactory(std::shared_ptr<BatchEnvFactory> factory)
+    {
+        EnvRepository::Instance().Regist(std::move(factory));
     }
 
     // ==============
@@ -130,15 +235,22 @@ namespace anet::rl {
         static constexpr int THREAD_POOL = 2;
     }
 
-    struct DefaultBatchEnvFactoryConfig : public anet::Config
+    class WorkerThreadResolver {
+    public:
+        static int Resolve(int worker_threads, int work_items);
+    private:
+        static int GetLogicalCores();
+    };
+
+    struct BatchEnvBuilderConfig : public anet::Config
     {
         std::string class_id;
         int worker_threads = WorkerThreadAuto::AUTO; ///< 負値は自動設定
         int device_type = 0;   ///< 0=cpu 1=cuda
         int device_index = -1; ///< GPU index -1=current device
         int worker_type = WorkerType::AUTO;
- 
-        DefaultBatchEnvFactoryConfig(const ConfigData& config_data = EmptyConfigData)
+
+        BatchEnvBuilderConfig(const ConfigData& config_data = EmptyConfigData)
             : anet::Config(config_data, "env")
         {
             ANET_READ_CONFIG(config_data, class_id);
@@ -149,38 +261,31 @@ namespace anet::rl {
         }
     };
 
-    class DefaultBatchEnvFactory : public BatchEnvFactory {
+    class BatchEnvBuilder {
     public:
-        DefaultBatchEnvFactory(
-            const DefaultBatchEnvFactoryConfig& config,
+        BatchEnvBuilder(
+            const BatchEnvBuilderConfig& config,
             const ConfigData& config_data,
             int num_envs = 1,
             std::optional<const torch::Device> device = std::nullopt);
 
-        std::shared_ptr<BatchEnv> CreateBatchEnv(std::optional<seed_t> seed = std::nullopt, int num_envs = -1) override;
+        std::shared_ptr<BatchEnv> CreateBatchEnv(
+            const std::string& name,
+            std::optional<seed_t> seed = std::nullopt,
+            int num_envs = -1,
+            RunMode run_mode = RunMode::Train,
+            const std::string& config_prefix = "");
+        void ValidateConfig(RunMode run_mode, const std::string& config_prefix = "") const;
         std::shared_ptr<SingleDiscreteEnvFactory> GetSingleFactory() const;
         torch::Device GetDevice() const { return device_; }
     public:
     private:
         std::shared_ptr<ThreadPool> CreatePool(int worker_threads) const;
-        int GetLogicalCores() const;
         int ResolveWorkerThreads(int num_envs) const;
     private:
-        DefaultBatchEnvFactoryConfig config_;
+        BatchEnvBuilderConfig config_;
         ConfigData config_data_;
         int num_envs_;
         torch::Device device_;
     };
 }
-
-#define ANET_REGISTER_ENV_FACTORY(FactoryType) \
-    namespace { \
-        struct FactoryType##AutoRegister { \
-            FactoryType##AutoRegister() { \
-                anet::rl::RegistEnvFactory(std::make_shared<FactoryType>()); \
-            } \
-        }; \
-        static FactoryType##AutoRegister global_##FactoryType##_auto_register; \
-    }
-
-

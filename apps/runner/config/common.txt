@@ -7,11 +7,19 @@ train.eval.[eval1].interval = 100
 train.eval.[eval1].run_mode = eval1
 #train.eval.[eval1].use_background = false
 train.eval.[eval1].use_background = true
+# clone_model=false は学習中networkを共有し、clone/syncコストを避ける代わりにlearner更新とeval forwardがlock境界で直列化される
+train.eval.[eval1].clone_model = true
+train.eval.[eval1].eval_batch_size = 1
 
 train.eval.[eval2].interval = 100
 train.eval.[eval2].run_mode = eval2
 #train.eval.[eval2].use_background = false
 train.eval.[eval2].use_background = true
+train.eval.[eval2].clone_model = true
+train.eval.[eval2].eval_batch_size = 1
+
+app.online.eval_panel.eval_config_tag = eval1
+app.batchrun.eval_panel.eval_config_tag = eval1
 
 train.eval_device_type = cuda  # default: cpu
 #train.eval_device_type = cpu
@@ -83,17 +91,19 @@ backend.torch_num_threads = 1       # 1スレッドに制限
 
 backend.use_tf32_cublas = true      # TF32: GPUが対応していれば、ほぼ劣化なしで高速化
 backend.use_tf32_cudnn = true       # TF32: GPUが対応していれば、ほぼ劣化なしで高速化
-backend.cudnn_benchmark = true
 
 # デフォルトは決定論的モード
-backend.cudnn_deterministic = true  # false:非決定論的だが高速化(する場合がある) true:決定論的だが遅い
+backend.cudnn_benchmark = false
+backend.cudnn_deterministic = false  # false:非決定論的だが高速化(する場合がある) true:決定論的だが遅い
 backend.deterministic_algorithms = true   # ★ true:SDPA等の非決定opも決定化し同seed再現性を確保(やや遅い) false:高速だが非決定論的
 backend.deterministic_warn_only = false   # true:非決定opを例外でなく警告で素通り(再現性は保証されない/将来op追加でthrowした時の一時退避)
 
 
+backend.deterministic.cudnn_benchmark = false
 backend.deterministic.cudnn_deterministic = true
 backend.deterministic.deterministic_algorithms = true
 
+backend.non-deterministic.cudnn_benchmark = true
 backend.non-deterministic.cudnn_deterministic = false
 backend.non-deterministic.deterministic_algorithms = false
 
@@ -104,6 +114,8 @@ backend.non-deterministic.deterministic_algorithms = false
 app.run_name = run_{t}
 
 app.log_level = info
+
+app.log_flush_interval_ms = 500  # 0で定期flushを無効化。
 
 #app.train_auto_start = false
 app.train_auto_start = true
@@ -132,8 +144,9 @@ app.batchrun.eval_panel.fps = 0.5
 app.batchrun.eval_panel.step_per_frame = 10
 
 app.runs_dir = runs
-app.metrics_logger.video_codec = libx264
-#app.metrics_logger.video_codec = h264_nvenc  # libx264
+app.metrics_logger.video_codec = auto
+#app.metrics_logger.video_codec = libx264
+#app.metrics_logger.video_codec = h264_nvenc
 #app.metrics_logger.video_fps = 30
 app.metrics_logger.video_fps = 15
 

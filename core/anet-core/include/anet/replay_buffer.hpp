@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <random>
+#include <span>
 #include <torch/torch.h>
 #include "anet/random.hpp"
 #include "anet/rl.hpp"
@@ -23,6 +24,28 @@ namespace anet::rl {
         PRIORITIZED   // PER
     };
 
+    enum class ReplayInitialPriorityMode {
+        FIXED = 0,
+        MAX,
+        ACTOR_APPROX,
+    };
+
+    struct InitialPriorityEstimateInput {
+        std::span<const float> start_hint;     ///< 開始stepのopaqueなhint行。呼び出し中だけ有効
+        std::span<const float> bootstrap_hint; ///< bootstrap stepのopaqueなhint行。真の終端では空
+        float target_return = 0.0f;            ///< 確定済みのn-step収益
+        float discount = 0.0f;                 ///< 実n-step数を反映したbootstrap割引率
+        bool terminal = false;                 ///< bootstrapを行わない真の終端か
+        int actual_n_steps = 1;                ///< 終端短縮を反映した実n-step数
+    };
+
+    class InitialPriorityEstimator {
+    public:
+        virtual bool ValidateHint(std::span<const float> hint) const = 0; ///< schema違反は停止し、nonfiniteだけfalseを返す
+        virtual std::optional<float> Estimate(const InitialPriorityEstimateInput& input) const = 0;
+        virtual ~InitialPriorityEstimator() = default;
+    };
+
     struct ReplayBufferConfig {
 
         int64_t capacity = 100000;              // ENV毎の容量ではなく、全ENVの総容量(1Dツリーサイズ)
@@ -34,7 +57,8 @@ namespace anet::rl {
 
         // PER系
         float per_alpha = 0.5f;
-        float per_initial_priority = 1.0f;
+        float per_initial_priority = 1.0f; ///< FIXEDで使うraw初期優先度
+        ReplayInitialPriorityMode per_initial_priority_mode = ReplayInitialPriorityMode::FIXED; ///< 初期優先度の決定方式
 
         // Stacking
         int stack_count = 1;                    ///< 過去方向へのスライス数 (Frame Stacking)
@@ -57,7 +81,8 @@ namespace anet::rl {
         int64_t num_envs,
         torch::Device storage_device,
         bool pin_memory = true,
-        std::optional<uint64_t> seed = std::nullopt
+        std::optional<uint64_t> seed = std::nullopt,
+        std::unique_ptr<InitialPriorityEstimator> initial_priority_estimator = nullptr
     );
 
     /// ReplayBuffer を 1-deep で先読みする decorator。
@@ -86,7 +111,8 @@ namespace anet::rl {
         void Push(const BatchExperience& batch_exp) override;
         void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta) const override;
         int64_t Size() const override;
-        void UpdatePriorities(const std::vector<int64_t>& indices, const std::vector<float>& priorities) override;
+        ReplayPriorityUpdateResult UpdatePriorities(
+            const std::vector<int64_t>& item_keys, const std::vector<float>& priorities) override;
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;

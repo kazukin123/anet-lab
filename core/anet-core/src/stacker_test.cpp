@@ -1,6 +1,6 @@
 // stacker_test.cpp
 
-#include "catch.hpp"
+#include "anet/catch_test.hpp"
 
 #include "anet/stacker.hpp"
 

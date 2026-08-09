@@ -1,11 +1,10 @@
-﻿#include "CartPoleEnv.hpp"
+#include "CartPoleEnv.hpp"
 
 #include <cmath>
 #include <algorithm>
 #include <random>
 #include <memory>
 #include <wx/log.h>
-#include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
 #include "anet/tensor_util.hpp"
 #include "anet/env.hpp"
@@ -32,13 +31,12 @@ const float tau = 0.02f;    //0.02f 0.01f
 
 const float deg = (float)M_PI / 180.0f;
 
-CartPoleEnv::CartPoleEnv(const CartPoleEnvConfig& config, const torch::Device& device, std::optional<anet::seed_t> seed)
-    : RandomHolder(seed), config_(config)
+CartPoleEnv::CartPoleEnv(const CartPoleEnvConfig& config, const torch::Device& device,
+    const std::string& name, std::optional<anet::seed_t> seed, anet::rl::RunMode run_mode)
+    : SingleDiscreteEnvBase(name, run_mode, config.GetScopedConfigData())
+    , RandomHolder(seed)
+    , config_(config)
 {
-    // パラメータ記録
-    anet::MetricsLogger::Instance()->Log("CartPoleEnvConfig", config_.ToJson());
-    anet::MetricsLogger::Instance()->Flush();
-
     obs_opt_ = torch::TensorOptions().dtype(torch::kFloat32).device(device);
 
     Reset();
@@ -80,11 +78,11 @@ anet::rl::EnvSpec CartPoleEnv::GetSpec() const
     return env_spec;
 }
 
-std::shared_ptr<const anet::rl::SingleResetResult> CartPoleEnv::Reset(anet::rl::RunMode mode)
+std::shared_ptr<const anet::rl::SingleResetResult> CartPoleEnv::Reset()
 {
     ANET_PROFILE_FUNC();
 
-    if (anet::rl::IsTrain(mode)) {
+    if (anet::rl::IsTrain(GetRunMode())) {
         const float d = 0.05f;
         x_ =         rnd_->Uniform(-d, d);
         x_dot_ =     rnd_->Uniform(-d, d);
@@ -97,7 +95,7 @@ std::shared_ptr<const anet::rl::SingleResetResult> CartPoleEnv::Reset(anet::rl::
         theta_ = 0.0f;
         theta_dot_ = 0.0f;
     }
-    
+
     //x = 0.2f;
     //x_dot = 0.2f;
     //theta = -0.05f;
@@ -119,7 +117,7 @@ std::shared_ptr<const anet::rl::SingleResetResult> CartPoleEnv::Reset(anet::rl::
     return result;
 }
 
-std::shared_ptr<const anet::rl::SingleStepResult> CartPoleEnv::Step(int64_t action, anet::rl::RunMode mode)
+std::shared_ptr<const anet::rl::SingleStepResult> CartPoleEnv::Step(int64_t action)
 {
     ANET_PROFILE_FUNC();
 
@@ -238,12 +236,10 @@ CartPoleEnvFactory::CartPoleEnvFactory()
 
 std::shared_ptr<anet::rl::SingleDiscreteEnv> CartPoleEnvFactory::CreateSingleEnv(
     const anet::ConfigData& config_data,
-    const torch::Device& device, std::optional<anet::seed_t> seed,
+    const torch::Device& device, const std::string& name, std::optional<anet::seed_t> seed,
+    anet::rl::RunMode run_mode,
     const std::string& config_prefix)
 {
     CartPoleEnvConfig config(config_data, config_prefix);
-    return std::make_shared<CartPoleEnv>(config, device, seed);
+    return std::make_shared<CartPoleEnv>(config, device, name, seed, run_mode);
 }
-
-ANET_REGISTER_ENV_FACTORY(CartPoleEnvFactory);
-

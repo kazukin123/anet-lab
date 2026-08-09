@@ -23,8 +23,17 @@ namespace anet::nn {
     // ===========================================================================
 
     struct NetworkBlockConfig {
-        std::string type;             // "Conv2d", "Linear", "ResBlock" etc.
-        anet::ConfigData config_data; // Specific config data for the block. "kernel_size"=3 etc.
+        std::string type;             ///< "Conv2d", "Linear", "ResBlock" etc.
+        anet::ConfigData config_data; ///< Specific config data for the block. "kernel_size"=3 etc.
+    };
+
+    struct ConfigProfileConfig {
+        std::string type = "linear";   ///< 補間ルール（初期実装は linear のみ）
+        double start = 0.0;            ///< i=0 の値
+        double end = 0.0;              ///< i=N-1 の値
+        bool has_type = false;         ///< type が明示指定されたか
+        bool has_start = false;        ///< start が明示指定されたか
+        bool has_end = false;          ///< end が明示指定されたか
     };
 
     struct NetworkBranchConfig {
@@ -33,12 +42,14 @@ namespace anet::nn {
         std::vector<std::string> raw_keys;     ///< bind_keys のうち、"(raw)" が指定されたキーのリスト
         bool auto_format = true;               ///< ブランチ全体での自動フォーマット有効/無効
         std::string structure_str;             ///< ブランチ内部の直列パイプライン構造
+        std::map<std::string, ConfigProfileConfig> config_profiles; ///< branch単位のconfig_profile上書き
     };
 
     struct NetworkConfig {
         std::map<std::string, NetworkBlockConfig> block_configs;
         std::map<std::string, NetworkBranchConfig> branches;
         std::map<std::string, std::string> output_keys;
+        std::map<std::string, ConfigProfileConfig> config_profiles;
 
         NetworkConfig() = default;
         NetworkConfig(const anet::ConfigData& config_data, const std::string& config_prefix = "net");
@@ -46,10 +57,13 @@ namespace anet::nn {
     };
 
     struct WeightInitConfig {
-        int mode = 1;                       ///< 0:Default, 1:Xavier, 2:He, 3:Orthogonal 4:Constant
+        std::string mode = "xavier";        ///< "default", "xavier", "he", "orthogonal", "constant", "trunc_normal"
         double manual_gain = 0.0f;          ///< Orthogonal時の手動ゲイン (0.0なら自動計算)
         std::string nonlinearity = "relu";  ///< "relu", "linear", "tanh" etc.
         double constant_val = 0.0;          ///< for Constant
+        double trunc_std = 0.02;            ///< for TruncNormal
+        double trunc_a = -2.0;              ///< for TruncNormal
+        double trunc_b = 2.0;               ///< for TruncNormal
     };
 
     struct NetworkGraphVizConfig {

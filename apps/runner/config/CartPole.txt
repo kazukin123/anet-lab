@@ -23,8 +23,8 @@ DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A
 # --- ブロックパラメータ上書き（nn.txt の MLP_FC1/MLP_FC2 を流用）
 net.block.FC1.linear.out_features = 120
 net.block.FC2.linear.out_features = 80
-net.block.FC1.init.mode = 1
-net.block.FC2.init.mode = 1
+net.block.FC1.init.mode = xavier
+net.block.FC2.init.mode = xavier
 
 # --- Body 本体ブランチ（vector 観測 -> MLP）
 net.branch.[main_feature].bind = vector
@@ -37,7 +37,7 @@ net.branch.[main_feature].structure = Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU
 #   切替時は上の output.[features] をコメントアウトし、下の6行を有効化する
 net.block.[HeadFC80].type = Linear
 net.block.[HeadFC80].linear.out_features = 80
-net.block.[HeadFC80].init.mode = 1
+net.block.[HeadFC80].init.mode = xavier
 net.branch.[value_stream].bind = main_feature
 net.branch.[value_stream].structure = HeadFC80 > ReLU
 net.branch.[adv_stream].bind = main_feature
@@ -45,7 +45,7 @@ net.branch.[adv_stream].structure = HeadFC80 > ReLU
 net.body.output.[value_feature] = value_stream
 net.body.output.[adv_feature] = adv_stream
 
-A.head_init.mode = 1
+A.head_init.mode = xavier
 A.head_init.manual_gain = 0.0
 
 
