@@ -24,12 +24,12 @@ DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.heavy > A > BF16.agent > R
 #agent.device_type = 0    # 0=cpu 1=cuda   NNが小さいのでCPUのほうが早い
 agent.device_type = 1    # 0=cpu 1=cuda   NNが小さいのでCPUのほうが早い
 
+app.run_name = run_{t}_ll
+
 
 # ==============================================================================
 # Run設定
 # ==============================================================================
-
-app.run_name = run_{t}_ll
 
 #backend.$ = backend.deterministic      # 決定論的（遅いけど再現性あり）
 backend.$ = backend.non-deterministic # 非決定論的（高速化）
@@ -63,8 +63,8 @@ R.train_policy.uqe_use_tail_mean = false
 R.train_policy.uqe_tau_start = 0.9
 #R.train_policy.uqe_tau_end = 0.7
 R.train_policy.uqe_tau_end = 0.5
-R.train_policy.tau_rule.num_taus = 32
 R.train_policy.tau_rule.sample_mode = random
+R.train_policy.tau_rule.num_taus = 32
 R.train_policy.uqe_eps_start = 0.3
 #R.train_policy.uqe_eps_end = 0.05
 R.train_policy.uqe_eps_end = 0.0
@@ -72,8 +72,8 @@ R.train_policy.uqe_eps_end = 0.0
 #R.train_policy.policy_type = EpsilonGreedy
 #R.train_policy.eps_start = 0.3
 #R.train_policy.eps_end = 0.0
-#R.train_policy.tau_rule.num_taus = 32
 #R.train_policy.tau_rule.sample_mode = fixed
+#R.train_policy.tau_rule.num_taus = 32
 #R.train_policy.use_spatial_exploration = true
 
 
@@ -82,11 +82,11 @@ R.eval_policy.policy_type = UQE
 R.eval_policy.uqe_use_tail_mean = false
 R.eval_policy.uqe_tau_start = 0.25
 R.eval_policy.uqe_tau_end = 0.25
-R.eval_policy.tau_rule.num_taus = 32
 R.eval_policy.tau_rule.sample_mode = fixed
+R.eval_policy.tau_rule.num_taus = 32
 R.eval_policy.full_distribution_query.enabled = true
-R.eval_policy.full_distribution_query.tau_rule.num_taus = 32
 R.eval_policy.full_distribution_query.tau_rule.sample_mode = fixed
+R.eval_policy.full_distribution_query.tau_rule.num_taus = 32
 
 
 R.learner.replay_ratio = 8
@@ -243,6 +243,7 @@ A.learner.per_beta_step = 500,000
 #app.online.exp_pause_step  = 10,000,000   # 10M
 #app.online.exp_pause_step  = 4,000,000   # 4M
 app.online.exp_pause_step   = 2,000,000   # 2M
+#app.online.exp_pause_step   = 1,000,000   # 1M
 app.batchrun.exp_exit_step  = 2,000,000   # 2M
 #app.batchrun.exp_exit_step  = 25,600,000  # 256 * 100K = 25.6M
 

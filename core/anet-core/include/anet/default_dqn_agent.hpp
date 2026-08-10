@@ -93,11 +93,11 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, train_policy.uqe_eps_decay_steps);
             ANET_READ_CONFIG(config_data, train_policy.use_amp);
             ANET_READ_CONFIG(config_data, train_policy.use_amp_bf16);
-            ANET_READ_CONFIG(config_data, train_policy.tau_rule.num_taus);
             ANET_READ_CONFIG(config_data, train_policy.tau_rule.sample_mode);
+            ANET_READ_CONFIG(config_data, train_policy.tau_rule.num_taus);
             ANET_READ_CONFIG(config_data, train_policy.full_distribution_query.enabled);
-            ANET_READ_CONFIG(config_data, train_policy.full_distribution_query.tau_rule.num_taus);
             ANET_READ_CONFIG(config_data, train_policy.full_distribution_query.tau_rule.sample_mode);
+            ANET_READ_CONFIG(config_data, train_policy.full_distribution_query.tau_rule.num_taus);
 
             eval_policy.policy_type = "Greedy";     // デフォルトでGreedy
             eval_policy.eps_start = 0.0f;           // デフォルトでGreedy
@@ -127,11 +127,11 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, eval_policy.uqe_eps_decay_steps);
             ANET_READ_CONFIG(config_data, eval_policy.use_amp);
             ANET_READ_CONFIG(config_data, eval_policy.use_amp_bf16);
-            ANET_READ_CONFIG(config_data, eval_policy.tau_rule.num_taus);
             ANET_READ_CONFIG(config_data, eval_policy.tau_rule.sample_mode);
+            ANET_READ_CONFIG(config_data, eval_policy.tau_rule.num_taus);
             ANET_READ_CONFIG(config_data, eval_policy.full_distribution_query.enabled);
-            ANET_READ_CONFIG(config_data, eval_policy.full_distribution_query.tau_rule.num_taus);
             ANET_READ_CONFIG(config_data, eval_policy.full_distribution_query.tau_rule.sample_mode);
+            ANET_READ_CONFIG(config_data, eval_policy.full_distribution_query.tau_rule.num_taus);
             eval_policy.use_spatial_exploration = false;
 
 
@@ -158,8 +158,8 @@ namespace anet::rl::dqn {
 
             // 楽観policyのコピー対象にせず、target推定品質の既定を決定的な32点へ戻す。
             target_policy.tau_rule = TauRuleConfig{
-                .num_taus = 32,
                 .sample_mode = "fixed",
+                .num_taus = 32,
             };
             target_policy.full_distribution_query = FullDistributionQueryConfig{};
 
@@ -177,11 +177,11 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, target_policy.uqe_eps_decay_steps);
             ANET_READ_CONFIG(config_data, target_policy.use_amp);
             ANET_READ_CONFIG(config_data, target_policy.use_amp_bf16);
-            ANET_READ_CONFIG(config_data, target_policy.tau_rule.num_taus);
             ANET_READ_CONFIG(config_data, target_policy.tau_rule.sample_mode);
+            ANET_READ_CONFIG(config_data, target_policy.tau_rule.num_taus);
             ANET_READ_CONFIG(config_data, target_policy.full_distribution_query.enabled);
-            ANET_READ_CONFIG(config_data, target_policy.full_distribution_query.tau_rule.num_taus);
             ANET_READ_CONFIG(config_data, target_policy.full_distribution_query.tau_rule.sample_mode);
+            ANET_READ_CONFIG(config_data, target_policy.full_distribution_query.tau_rule.num_taus);
             target_policy.use_spatial_exploration = false;
 
             ANET_READ_CONFIG(config_data, learner.alpha);
@@ -217,10 +217,10 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, learner.tbo_epsilon);
             ANET_READ_CONFIG(config_data, learner.use_amp);
             ANET_READ_CONFIG(config_data, learner.use_amp_bf16);
-            ANET_READ_CONFIG(config_data, learner.iqn.current_taus.num_taus);
             ANET_READ_CONFIG(config_data, learner.iqn.current_taus.sample_mode);
-            ANET_READ_CONFIG(config_data, learner.iqn.target_taus.num_taus);
+            ANET_READ_CONFIG(config_data, learner.iqn.current_taus.num_taus);
             ANET_READ_CONFIG(config_data, learner.iqn.target_taus.sample_mode);
+            ANET_READ_CONFIG(config_data, learner.iqn.target_taus.num_taus);
             if (!std::isfinite(learner.tbo_epsilon) || learner.tbo_epsilon <= 0.0f) {
                 ANET_SYSTEM_ERROR(
                     "Invalid DefaultDQNAgent.learner.tbo_epsilon: value=" << learner.tbo_epsilon

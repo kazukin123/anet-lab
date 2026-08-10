@@ -108,6 +108,7 @@ backend.$ = backend.non-deterministic # 非決定論的（高速化）
 
 #app.run_name = run_{t}_apx-ll_cy08
 #R.auto_load_file = ../../runs/run_20260805-115101_apx-ll_cy07/agent_close.anet
+#R.auto_load_file = ../../runs/run_20260809-033908_dm_iqn32-b128-rr125/agent_close.anet
 #R.learner.per_beta_start = 0.6
 
 
@@ -115,28 +116,28 @@ backend.$ = backend.non-deterministic # 非決定論的（高速化）
 # 実験
 # ==============================================================================
 
-#app.run_name = run_{t}_dm_iqn32-b128-rr100
-app.run_name = run_{t}_iqn_qr
+#app.run_name = run_{t}_dm_qr51-b256-rr125
+#app.run_name = run_{t}_dm_iqn32-b128-rr125_cy2
 
-#net.$ = net.iqn
-net.$ = net.qr
+#net.$ = net.qr
+#R.quantile_mode = qr
 
-R.quantile_mode = qr
-#R.quantile_mode = iqn
+net.$ = net.iqn
+R.quantile_mode = iqn
 
-R.train_policy.tau_rule.num_taus = 32
 R.train_policy.tau_rule.sample_mode = random
+R.train_policy.tau_rule.num_taus = 32
 R.eval_policy.policy_type = UQE
-R.eval_policy.uqe_use_tail_mean = true
-R.eval_policy.tau_rule.num_taus = 32
 R.eval_policy.tau_rule.sample_mode = fixed
+R.eval_policy.tau_rule.num_taus = 32
+R.eval_policy.uqe_use_tail_mean = true
 R.eval_policy.full_distribution_query.enabled = true
-R.eval_policy.full_distribution_query.tau_rule.num_taus = 32
 R.eval_policy.full_distribution_query.tau_rule.sample_mode = fixed
-R.learner.iqn.current_taus.num_taus = 32
+R.eval_policy.full_distribution_query.tau_rule.num_taus = 32
 R.learner.iqn.current_taus.sample_mode = random
-R.learner.iqn.target_taus.num_taus = 32
+R.learner.iqn.current_taus.num_taus = 32
 R.learner.iqn.target_taus.sample_mode = random
+R.learner.iqn.target_taus.num_taus = 32
 
 
 E.obs_include_prev_action = true # 直前命令を [valid, noop, drop_x] として vector 末尾へ追加
@@ -146,13 +147,13 @@ E.obs_prev_drop_marker = true    # 直前 DROP 命令列を grid top row の cla
 #R.learner.alpha = 3e-4
 R.learner.alpha = 1e-4
 
-#R.learner.replay_batch_size = 128
-R.learner.replay_batch_size = 256
+R.learner.replay_batch_size = 128
+#R.learner.replay_batch_size = 256
 #R.learner.replay_batch_size = 512
 
-R.learner.replay_ratio = 1.0
+#R.learner.replay_ratio = 1.0
 #R.learner.replay_ratio = 0.5
-#R.learner.replay_ratio = 1.25
+R.learner.replay_ratio = 1.25
 #R.learner.replay_ratio = 1.5
 #R.learner.replay_ratio = 2.0
 
@@ -523,19 +524,19 @@ BF16.agent.learner.adam_eps = 1e-4   # AMP有効時は大きめにする
 
 A.quantile_mode = iqn
 
-A.train_policy.tau_rule.num_taus = 32
 A.train_policy.tau_rule.sample_mode = random
+A.train_policy.tau_rule.num_taus = 32
 A.eval_policy.policy_type = UQE
 A.eval_policy.uqe_use_tail_mean = true
-A.eval_policy.tau_rule.num_taus = 32
 A.eval_policy.tau_rule.sample_mode = fixed
+A.eval_policy.tau_rule.num_taus = 32
 A.eval_policy.full_distribution_query.enabled = true
-A.eval_policy.full_distribution_query.tau_rule.num_taus = 32
 A.eval_policy.full_distribution_query.tau_rule.sample_mode = fixed
-A.learner.iqn.current_taus.num_taus = 32
+A.eval_policy.full_distribution_query.tau_rule.num_taus = 32
 A.learner.iqn.current_taus.sample_mode = random
-A.learner.iqn.target_taus.num_taus = 32
+A.learner.iqn.current_taus.num_taus = 32
 A.learner.iqn.target_taus.sample_mode = random
+A.learner.iqn.target_taus.num_taus = 32
 
 A.stucker.use_stacker = true
 A.stucker.stack_count = 4
@@ -1257,7 +1258,7 @@ M.[51_eval1/79_terminal_blocked_frames_mean] = $eval.[eval1] @episode_end $env m
 M.[51_eval1/80_blocked_run_count_mean] = $eval.[eval1] @episode_end $env mean.ep_blocked_run_count
 M.[51_eval1/81_same_drop_col_ratio_mean] = $eval.[eval1] @episode_end $env mean.ep_same_drop_col_ratio
 M.[51_eval1/83_tr_blk_mean_ema]      = $eval.[eval1] @episode_end $env mean.term_reason_spawn_blocked $ema ema_alpha:0.01
-M.[51_eval1/84_tr_timeout_max_ema]   = $eval.[eval1] @episode_end $env mean.term_reason_no_drop_timeout $ema ema_alpha:0.01  # TODO max -> min
+M.[51_eval1/84_tr_timeout_mean_ema]   = $eval.[eval1] @episode_end $env mean.term_reason_no_drop_timeout $ema ema_alpha:0.01  # TODO max -> min
 M.[51_eval1/85_tr_nolg_mean_ema]     = $eval.[eval1] @episode_end $env mean.term_reason_no_legal_drop $ema ema_alpha:0.01
 M.[51_eval1/86_blkdrop_cand_mean_ema] = $eval.[eval1] @episode_end $env mean.blocked_drop_on_candidate $ema ema_alpha:0.01
 M.[51_eval1/87_timeout_cand_mean_ema] = $eval.[eval1] @episode_end $env mean.no_drop_timeout_on_candidate $ema ema_alpha:0.01

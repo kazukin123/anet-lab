@@ -123,15 +123,15 @@ namespace anet::rl {
         static constexpr const char* kActionPolicyTypeStr_ThompsonSampling = "ThompsonSampling";
 
         struct TauRuleConfig {
-            int num_taus = 32;
             std::string sample_mode = "random";
+            int num_taus = 32;
         };
 
         struct FullDistributionQueryConfig {
             bool enabled = false;
             TauRuleConfig tau_rule{
-                .num_taus = 32,
                 .sample_mode = "fixed",
+                .num_taus = 32,
             };
         };
 
@@ -230,12 +230,12 @@ namespace anet::rl {
 
             struct IqnConfig {
                 TauRuleConfig current_taus{
-                    .num_taus = 64,
                     .sample_mode = "random",
+                    .num_taus = 64,
                 };
                 TauRuleConfig target_taus{
-                    .num_taus = 64,
                     .sample_mode = "random",
+                    .num_taus = 64,
                 };
             } iqn;
 
