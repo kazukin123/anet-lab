@@ -173,10 +173,20 @@ _Avoid_: main area, センター領域
 HeatMap・Conv2d のように View メニューから動的追加される右端の可視化 pane 群。名前は生成時刻で一意化され、追加時に既存の補助 pane 列（最外周の右列）へ同じ幅で縦積みされる。Train/Eval/QValue/Log の常設 pane とは寿命も配置規約も異なる。
 _Avoid_: aux panel, ツールパネル, サブパネル
 
+### Run管理
+
+**ワークスペース (Workspace)**:
+Runの入力（workspace config）と成果物（`runs/`、`optuna/`）を一体で束ねる自己完結フォルダ。既定の置き場は`apps/runner/workspaces/`直下で、指定はパス（相対=`workspaces/`基準、絶対パスで任意の場所も可。Eclipseのworkspace指定と同形式）。実験系列の分類・退避・削除・復帰はworkspaceフォルダのOS操作だけで行い、フォルダ外に分類のメタデータを持たない。Runner・Metrics Viewer・optunaハーネスはいずれも「workspaceを選んで箱の中で完結する」。既定は`_default`。
+_Avoid_: プロジェクト, プロファイル, runs_dir（出力先設定であって箱ではない）
+
+**workspace config**:
+`workspaces/<ws>/config/_main.txt`。共通`_main.txt`（common/metrics/agent/nn）の後に後勝ちで重ねる、env選択（`$include <DropMerge.txt>`等）を含むworkspace固有の設定差分。runnerの`--config`明示起動（完全自己記述モード）ではworkspace解決を行わず、configを生成する側が`$include`の並びで合成順に責任を持つ。
+_Avoid_: workspace設定ファイル（あいまい）, プロファイルconfig
+
 ### Metrics基盤
 
 **Run作業セット**:
-`runs`ディレクトリ直下のRunフォルダ群。Metrics Viewerが可視化とキャッシュ構築の対象とする「見たいRun」の集合で、フォルダを入れる・出す・リネームするというファイル操作だけが登録・解除・改名の手段。Viewerは作業セット外のRunを追跡しない。
+選択中workspaceの`runs/`ディレクトリ直下のRunフォルダ群。Metrics Viewerが可視化とキャッシュ構築の対象とする「見たいRun」の集合で、workspaceの切替とフォルダを入れる・出す・リネームするというファイル操作だけが登録・解除・改名の手段。Viewerは作業セット外のRunを追跡しない。
 _Avoid_: runs list（UI表示と混同）, アーカイブ（作業セット外の保管側を指す）
 
 **Metricsマスタ**:
@@ -202,6 +212,10 @@ _Avoid_: index（多義）, step（座標値であってidentityではない）
 **LODバケット**:
 tag内の連続する序数区間（幅は固定倍率の冪）をmin/max/last/件数/総和へ畳み込んだ集約単位。バケット幅は序数で数え、step幅では数えない（tag間・区間内のstep密度差に依存しないため）。全スケールでの描画とバケット境界に整合する区間統計はここから導出する。
 _Avoid_: ダウンサンプル点（単一代表値と混同）, ビン（step軸の等幅分割と混同）
+
+**バイアス補正EMA**:
+ゼロ初期化した EMA 内部値を観測済みサンプルの重み和で正規化して読み出す平滑方式。出力は常に「これまで観測したサンプルの指数重み付き平均」となり、初回サンプルを引きずる初期値バイアスが O(1/t) で消える。ウォームアップ中も欠損なく step 1 から有効値を出力するため、tag 間の step 整列を壊さない。
+_Avoid_: debiased EMA（表記ゆれ）, ウォームアップEMA（累積平均遷移方式と混同）, Adam補正（最適化器の文脈と混同）
 
 ### 観測と可視化
 
