@@ -183,17 +183,19 @@ metrics.scalar.[tag] = key [$step_axis] [@event] [$target] [$runner_scope] [$ema
 | `$target` | `$runner`、`$agent`、`$env`、`$exp`、`$update_result`、`$action_info` | 値を取得するsource |
 | `$runner_scope` | `$train`、`$eval.[name]` | eventを発生させたRunnerを限定する |
 | `$ema` | - | Observer内でEMAを計算する |
-| `ema_alpha:A` | 通常は0以上1以下のfinite値を指定する | EMAが新しい値へ寄る係数を指定する |
+| `ema_alpha:A` | 0より大きく1以下のfinite値を指定する | EMAが新しい値へ寄る係数を指定する |
 | `interval:N` | 1以上の整数を指定する | eventを間引く |
 | `clip:C` | 0以上のfinite値を指定する | 記録前に値を`[-C, C]`へclipする |
 
 step軸を省略した場合、`@train`は`train_step`、`@learn`と`@episode_end`は`exp_step`を使う。scalar JSON recordは`type`、`tag`、`step`、`value`だけを持ち、軸名を保存しない。このため設定変更時は同じtagへ別step軸を流用しない。
 
+`$ema`は、ゼロ初期化した内部値と観測済み重み和を同じ`ema_alpha`で更新し、内部値を重み和で正規化するバイアス補正EMAを使う。初回サンプルから欠損なく値を出力し、途中で`ema_alpha`が変わっても観測済み重み和に基づく補正を継続する。
+
 不明なevent、step軸、targetにはWARN後に既定値を使う経路があり、対応しないEval scope/fieldの組み合わせはfail-fastする。特にEval scopeは現行contractで`@episode_end`、またはEvalの`@train $action_info`に限定される。
 
 `$agent`、`$action_info`、`$update_result`で取得できるkeyは、共通interfaceと具象Agentが公開するmetricの組合せで決まる。対応しないkeyを全Agentで同じ値に見せることはせず、Observer側は`std::optional`や`NaN`の意味をmetric定義ごとに扱う。DefaultDQNのTrain Actor snapshot診断など、Agent固有keyの意味は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
 
-現行parserは`interval`、`ema_alpha`、`clip`を`stoi`/`stof`で変換するが、範囲やfinite性を検証しない。`interval=0`は記録時の剰余演算を成立させず、負の`clip`もclip範囲を壊すため指定しない。数値文字列の変換失敗は構築中の例外になる。
+現行parserは`interval`、`ema_alpha`、`clip`を`stoi`/`stof`で変換する。`ema_alpha`は変換後に`EmaFilter`がfiniteかつ`0 < ema_alpha <= 1`を検証する。`interval`と`clip`は範囲やfinite性を検証しないため、`interval=0`や負の`clip`は指定しない。数値文字列の変換失敗は構築中の例外になる。
 
 ## 7. 出力とlifetime
 
