@@ -77,6 +77,10 @@ _Avoid_: Actor優先度, Actor priority, Actor-computed priority, final priority
 現在のSumTree leafへ適用した値の由来を表す`none`、`fixed_initial`、`max_initial`、`actor_initial`、`learner_updated`の区分。初期状態かどうか、フォールバック理由、item generationとは別の概念。
 _Avoid_: initial flag, fallback reason, priority type
 
+**初回Learner priority更新**:
+ReplayBufferからsampleした時点の優先度sourceが`fixed_initial`、`max_initial`、`actor_initial`のいずれかである行へ、Learnerが初めて計算済みpriorityを反映する更新。`none`と`learner_updated`は含めない。
+_Avoid_: 初回sample, 初回minibatch, initial priority投入
+
 **raw priority**:
 `per_alpha`適用前の非負優先度。Learnerと近似Actorでは`abs(TD error) + per_eps`へ必要なclipを適用した値を指す。
 _Avoid_: leaf priority, sampling probability, TD error

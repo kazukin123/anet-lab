@@ -130,6 +130,9 @@ namespace anet::rl::dqn {
         // QR-DQN Metrics
         torch::Tensor q_std; // 分布の標準偏差
 
+        // IQN診断（CPU scalar pack）
+        torch::Tensor iqn_diagnostics;
+
     public:
         BatchUpdateResult() = default;
 
@@ -207,6 +210,20 @@ namespace anet::rl::dqn {
                 return 0.0f;
             }
 
+            int64_t iqn_diagnostic_index = -1;
+            if (key == "iqn_current_mc_scale") iqn_diagnostic_index = 0;
+            else if (key == "iqn_target_mc_scale") iqn_diagnostic_index = 1;
+            else if (key == "iqn_priority_mc_ratio") iqn_diagnostic_index = 2;
+            else if (key == "iqn_first_priority_mc_ratio") iqn_diagnostic_index = 3;
+            else if (key == "iqn_first_pair_abs_td") iqn_diagnostic_index = 4;
+            else if (key == "iqn_first_cancellation_ratio") iqn_diagnostic_index = 5;
+            else if (key == "iqn_first_quantile_loss_norm") iqn_diagnostic_index = 6;
+            if (iqn_diagnostic_index >= 0) {
+                return iqn_diagnostics.defined()
+                    ? iqn_diagnostics[iqn_diagnostic_index].item<float>()
+                    : std::numeric_limits<float>::quiet_NaN();
+            }
+
             // PER Metrics
             if (key == "per_td_error_abs_max") {
                 if (td_error.defined())
@@ -222,6 +239,11 @@ namespace anet::rl::dqn {
                 if (per_sample_initial_count.defined() && per_minibatch_size > 0)
                     return per_sample_initial_count.item<float>() / static_cast<float>(per_minibatch_size);
                 return std::numeric_limits<float>::quiet_NaN();
+            }
+            if (key == "per_sample_initial_count") {
+                return per_sample_initial_count.defined()
+                    ? per_sample_initial_count.item<float>()
+                    : 0.0f;
             }
             if (key == "per_sample_fixed_initial_ratio") {
                 return per_minibatch_size > 0 && per_sample_fixed_initial_count.defined()
@@ -348,18 +370,21 @@ namespace anet::rl::dqn {
         torch::Tensor per_sample_actor_initial_count; ///< actor_initial sourceのサンプル件数
         ReplayPriorityUpdateResult per_update_result; ///< ReplayBufferへ適用済みの更新結果
         long per_minibatch_size = 0;                  ///< source比率の分母となるminibatch size
+        torch::Tensor iqn_diagnostics;                ///< IQN診断scalarのCPU pack
     };
 
     struct PerPriorityUpdatePending {
         std::vector<int64_t> indices;                   ///< CPU上のgeneration付きreplay item key
-        anet::transfer::HostReadback priority_readback; ///< priority [B]とclip件数をpackした遅延D2H結果 [B+1]
+        anet::transfer::HostReadback priority_readback; ///< priority、clip件数、診断scalarをまとめた遅延D2H結果
         torch::Tensor per_is_weights;                   ///< 対応minibatchのIS weight
         torch::Tensor per_sample_initial_count;         ///< 全initial sourceのサンプル件数
         torch::Tensor per_sample_fixed_initial_count;   ///< fixed_initial sourceのサンプル件数
         torch::Tensor per_sample_max_initial_count;     ///< max_initial sourceのサンプル件数
         torch::Tensor per_sample_actor_initial_count;   ///< actor_initial sourceのサンプル件数
         long per_minibatch_size = 0;                    ///< source比率の分母となるminibatch size
-        bool enabled = false;                           ///< PER更新が必要なminibatchか
+        int64_t iqn_diagnostics_count = 0;              ///< pack末尾のIQN診断scalar数
+        bool per_enabled = false;                       ///< ReplayBuffer priority更新を行うか
+        bool enabled = false;                           ///< packed readbackが必要なminibatchか
     };
 
     struct QuantileMetrics {
@@ -368,6 +393,12 @@ namespace anet::rl::dqn {
         torch::Tensor q_std;
         torch::Tensor q_gap;
         torch::Tensor q_gap_rel;
+    };
+
+    struct IqnLossResult {
+        torch::Tensor element_loss;
+        torch::Tensor pair_abs_td;
+        torch::Tensor cancellation_ratio;
     };
 
 
@@ -455,6 +486,7 @@ namespace anet::rl::dqn {
         }
     private:
         std::optional<TrainActorSnapshotMetrics> train_actor_snapshot_metrics_;
+        mutable torch::Tensor iqn_policy_diagnostics_cpu_;
     };
 
     class ActionPolicy : virtual public anet::ModuleBase {
@@ -622,7 +654,10 @@ namespace anet::rl::dqn {
         NormalizedSampleObservations NormalizeSampleObservations(const anet::rl::ExperienceSamples& samples) const;
         OptimizerStepResult Optimize(const torch::Tensor& loss);
     protected:
-        PerPriorityUpdatePending PreparePerPriorityUpdate(const anet::rl::ExperienceSamples& samples, const torch::Tensor& td_error);
+        PerPriorityUpdatePending PreparePerPriorityUpdate(
+            const anet::rl::ExperienceSamples& samples,
+            const torch::Tensor& td_error,
+            const torch::Tensor& iqn_diagnostics = torch::Tensor());
         PerPriorityUpdateInfo ApplyPerPriorityUpdate(PerPriorityUpdatePending pending);
         PerPriorityUpdateInfo UpdatePerPriorities(const anet::rl::ExperienceSamples& samples, const torch::Tensor& td_error);
     protected:
@@ -684,7 +719,7 @@ namespace anet::rl::dqn {
         	const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& taus) const;
         static torch::Tensor ComputeQuantileHuberLoss(
             const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& taus, float kappa);
-        static torch::Tensor ComputeIqnQuantileHuberLoss(
+        static IqnLossResult ComputeIqnQuantileHuberLoss(
             const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& taus, float kappa);
     };
 

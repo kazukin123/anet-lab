@@ -598,6 +598,16 @@ std::optional<EpisodeStartActionMarginKey> ParseEpisodeStartActionMarginKey(cons
     return std::nullopt;
 }
 
+std::optional<int64_t> ParseActionFullQMarginKey(const std::string& key)
+{
+    static constexpr const char* kPrefix = "action_full_q_margin.[";
+    static constexpr const char* kBase = "action_full_q_margin";
+    if (!anet::StartsWith(key, kBase)) {
+        return std::nullopt;
+    }
+    return ParseActionScalarIndex(key, kPrefix);
+}
+
 } // namespace
 
 std::optional<float> DQNActionInfo::GetScalar(const std::string& key, int64_t) const
@@ -609,6 +619,37 @@ std::optional<float> DQNActionInfo::GetScalar(const std::string& key, int64_t) c
         return key == "train_actor_snapshot_interval"
             ? train_actor_snapshot_metrics_->interval
             : train_actor_snapshot_metrics_->age;
+    }
+
+    const bool is_iqn_policy_metric = key == "iqn_policy_margin_mc_ratio"
+        || key == "iqn_uqe_full_q_argmax_disagreement";
+    const auto full_q_margin_index = ParseActionFullQMarginKey(key);
+    if (is_iqn_policy_metric || full_q_margin_index.has_value()) {
+        const auto diagnostics_it = aux_.find("iqn_policy_diagnostics");
+        if (diagnostics_it == aux_.end() || !diagnostics_it->second.defined()) {
+            return std::numeric_limits<float>::quiet_NaN();
+        }
+
+        // packed Tensorのshapeからaction契約を検証し、初回参照時だけCPUへ転送する。
+        const auto& diagnostics = diagnostics_it->second;
+        if (diagnostics.dim() != 1 || diagnostics.size(0) < 4) {
+            ANET_SYSTEM_ERROR("DQNActionInfo: iqn_policy_diagnostics must have shape [2+A] with A >= 2. actual="
+                << diagnostics.sizes());
+        }
+        const int64_t num_actions = diagnostics.size(0) - 2;
+        int64_t diagnostics_index = key == "iqn_policy_margin_mc_ratio" ? 0 : 1;
+        if (full_q_margin_index.has_value()) {
+            if (*full_q_margin_index >= num_actions) {
+                ANET_SYSTEM_ERROR("DQNActionInfo: action index out of range. key=" << key
+                    << " index=" << *full_q_margin_index
+                    << " valid_range=[0," << (num_actions - 1) << "]");
+            }
+            diagnostics_index = 2 + *full_q_margin_index;
+        }
+        if (!iqn_policy_diagnostics_cpu_.defined()) {
+            iqn_policy_diagnostics_cpu_ = diagnostics.to(torch::kCPU);
+        }
+        return iqn_policy_diagnostics_cpu_[diagnostics_index].item<float>();
     }
 
     const auto episode_start_key = ParseEpisodeStartActionMarginKey(key);
@@ -1256,6 +1297,49 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
         action_info->GetAuxData()["full_q_values"] = full_q_values.detach();
         action_info->GetAuxData()["full_q_quantiles"] = full_q_quantiles.detach();
     }
+
+    // 行動決定済みのTensorだけを使い、Policy診断を1本のreadback単位へまとめる。
+    if (config_.quantile_mode == "iqn") {
+        ANET_PROFILE_SCOPE_NEXT(policy_diagnostics);
+        const auto float_options = q_values.options().dtype(torch::kFloat32);
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        torch::Tensor margin_ratio = torch::full({}, nan, float_options);
+        if (risk_num_taus >= 2) {
+            const auto risk_quantiles_float = q_quantiles.detach().to(torch::kFloat32);
+            const auto uqe_values_float = uqe_values.detach().to(torch::kFloat32);
+            const auto top2 = uqe_values_float.topk(/*k=*/2, /*dim=*/1);
+            const auto top2_values = std::get<0>(top2);
+            const auto top2_indices = std::get<1>(top2);
+            const auto mc_scale = risk_quantiles_float.std(/*dim=*/2, /*unbiased=*/true)
+                / std::sqrt(static_cast<float>(risk_num_taus));
+            const auto top2_scale = mc_scale.gather(1, top2_indices);
+            const auto denominator = (top2_scale.square().sum(1)).sqrt() + 1.0e-6f;
+            margin_ratio = ((top2_values.select(1, 0) - top2_values.select(1, 1)) / denominator).mean();
+        }
+
+        torch::Tensor disagreement = torch::full({}, nan, float_options);
+        torch::Tensor full_q_margins = torch::full({ A }, nan, float_options);
+        if (full_q_values.defined()) {
+            const auto uqe_values_float = uqe_values.detach().to(torch::kFloat32);
+            const auto full_q_values_float = full_q_values.detach().to(torch::kFloat32);
+            disagreement = uqe_values_float.argmax(1).ne(full_q_values_float.argmax(1))
+                .to(torch::kFloat32).mean();
+
+            const auto full_top2 = full_q_values_float.topk(/*k=*/2, /*dim=*/1);
+            const auto top2_values = std::get<0>(full_top2);
+            const auto top1_indices = std::get<1>(full_top2).select(1, 0).unsqueeze(1);
+            const auto action_indices = torch::arange(A,
+                torch::TensorOptions().dtype(torch::kInt64).device(full_q_values.device())).unsqueeze(0);
+            const auto max_other = torch::where(
+                action_indices.eq(top1_indices),
+                top2_values.select(1, 1).unsqueeze(1),
+                top2_values.select(1, 0).unsqueeze(1));
+            full_q_margins = (full_q_values_float - max_other).mean(0);
+        }
+        action_info->GetAuxData()["iqn_policy_diagnostics"] = torch::cat({
+            margin_ratio.reshape({ 1 }), disagreement.reshape({ 1 }), full_q_margins
+        }).detach();
+    }
     return action_info;
 }
 
@@ -1693,25 +1777,38 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss)
     return result;
 }
 
-PerPriorityUpdatePending Learner::PreparePerPriorityUpdate(const anet::rl::ExperienceSamples& samples, const torch::Tensor& td_error)
+PerPriorityUpdatePending Learner::PreparePerPriorityUpdate(
+    const anet::rl::ExperienceSamples& samples,
+    const torch::Tensor& td_error,
+    const torch::Tensor& iqn_diagnostics)
 {
     PerPriorityUpdatePending pending;
 
-    if (!config_.use_per) {
+    if (!config_.use_per && !iqn_diagnostics.defined()) {
         return pending;
     }
 
     torch::NoGradGuard grad_guard;
     const int64_t batch_size = td_error.size(0);
     pending.enabled = true;
+    pending.per_enabled = config_.use_per;
     pending.per_minibatch_size = batch_size;
+    pending.iqn_diagnostics_count = iqn_diagnostics.defined() ? iqn_diagnostics.numel() : 0;
     if (samples.is_weights.defined()) {
         pending.per_is_weights = samples.is_weights;
     }
-    if (samples.per_priority_sources.defined()) {
+
+    // source未指定またはPER無効時も、初回行数は明示的な0として公開する。
+    const auto count_options = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
+    pending.per_sample_initial_count = torch::zeros({}, count_options);
+    pending.per_sample_fixed_initial_count = torch::zeros({}, count_options);
+    pending.per_sample_max_initial_count = torch::zeros({}, count_options);
+    pending.per_sample_actor_initial_count = torch::zeros({}, count_options);
+    if (config_.use_per && samples.per_priority_sources.defined()) {
         auto sources = samples.per_priority_sources.to(torch::kInt8).to(torch::kCPU).contiguous();
-        auto initial_flags = sources.ne(static_cast<int8_t>(ReplayPrioritySource::NONE))
-            & sources.ne(static_cast<int8_t>(ReplayPrioritySource::LEARNER_UPDATED));
+        auto initial_flags = sources.eq(static_cast<int8_t>(ReplayPrioritySource::FIXED_INITIAL))
+            | sources.eq(static_cast<int8_t>(ReplayPrioritySource::MAX_INITIAL))
+            | sources.eq(static_cast<int8_t>(ReplayPrioritySource::ACTOR_INITIAL));
         ANET_ASSERT_SHAPE(initial_flags, { batch_size });
         pending.per_sample_initial_count = initial_flags.to(torch::kFloat32).sum();
         pending.per_sample_fixed_initial_count = sources.eq(
@@ -1722,7 +1819,8 @@ PerPriorityUpdatePending Learner::PreparePerPriorityUpdate(const anet::rl::Exper
             static_cast<int8_t>(ReplayPrioritySource::ACTOR_INITIAL)).to(torch::kFloat32).sum();
     }
 
-    {
+    std::vector<torch::Tensor> readback_parts;
+    if (config_.use_per) {
         ANET_PROFILE_SCOPE_FULL(indices_cpu, "Learner::UpdatePerPriorities.indices_cpu");
 
         if (!samples.replay_item_keys.device().is_cpu()) {
@@ -1735,20 +1833,27 @@ PerPriorityUpdatePending Learner::PreparePerPriorityUpdate(const anet::rl::Exper
         auto indices_tensor_cpu = samples.replay_item_keys.contiguous();
         auto indices_ptr = indices_tensor_cpu.data_ptr<int64_t>();
         pending.indices.assign(indices_ptr, indices_ptr + batch_size);
-    }
 
-    // TD error由来のpriorityとclip件数をGPU上で確定し、1本のD2Hへpackする。
-    auto priority_result = MakePerRawPriorityBatch(
-        td_error.detach(), config_.per_eps, config_.use_per_prio_clip, config_.per_prio_clip_value);
-    auto raw_priorities = priority_result.priorities.contiguous();
-    ANET_ASSERT_SHAPE(raw_priorities, { batch_size });
-    ANET_ASSERT_NAN(raw_priorities);
-    auto packed_readback = torch::cat({
-        raw_priorities,
-        priority_result.clipped_count.to(raw_priorities.options()).reshape({ 1 }),
-    }).contiguous();
-    ANET_ASSERT_SHAPE(packed_readback, { batch_size + 1 });
-    ANET_ASSERT_NAN(packed_readback);
+        // TD error由来のpriorityとclip件数を先頭へ置き、ReplayBuffer更新契約を維持する。
+        auto priority_result = MakePerRawPriorityBatch(
+            td_error.detach(), config_.per_eps, config_.use_per_prio_clip, config_.per_prio_clip_value);
+        auto raw_priorities = priority_result.priorities.to(torch::kFloat32).contiguous();
+        ANET_ASSERT_SHAPE(raw_priorities, { batch_size });
+        ANET_ASSERT_NAN(raw_priorities);
+        readback_parts.push_back(raw_priorities);
+        readback_parts.push_back(priority_result.clipped_count.to(raw_priorities.options()).reshape({ 1 }));
+    }
+    if (iqn_diagnostics.defined()) {
+        if (iqn_diagnostics.dim() != 1) {
+            ANET_SYSTEM_ERROR("Learner::PreparePerPriorityUpdate expected rank-1 IQN diagnostics. actual="
+                << iqn_diagnostics.sizes());
+        }
+        readback_parts.push_back(iqn_diagnostics.detach().to(
+            torch::TensorOptions().dtype(torch::kFloat32).device(td_error.device())).contiguous());
+    }
+    auto packed_readback = torch::cat(readback_parts).contiguous();
+    const int64_t priority_value_count = config_.use_per ? batch_size + 1 : 0;
+    ANET_ASSERT_SHAPE(packed_readback, { priority_value_count + pending.iqn_diagnostics_count });
 
     if (packed_readback.is_cuda() && per_priority_copy_stream_.has_value()) {
         ANET_PROFILE_SCOPE_FULL(launch, "Learner::PerPriorityD2H.launch");
@@ -1792,22 +1897,28 @@ PerPriorityUpdateInfo Learner::ApplyPerPriorityUpdate(PerPriorityUpdatePending p
 
         auto packed_cpu = pending.priority_readback.pinned_result.to(torch::kFloat32).contiguous();
         ANET_ASSERT_DEVICE_CPU(packed_cpu);
-        ANET_ASSERT_SHAPE(packed_cpu, { batch_size + 1 });
+        const int64_t priority_value_count = pending.per_enabled ? batch_size + 1 : 0;
+        ANET_ASSERT_SHAPE(packed_cpu, { priority_value_count + pending.iqn_diagnostics_count });
 
-        // pack末尾の件数をCPU int64 scalarへ戻し、先頭B要素だけをReplayBufferへ渡す。
-        const int64_t clipped_count = static_cast<int64_t>(packed_cpu[batch_size].item<float>());
-        info.per_clipped_count = torch::tensor(
-            clipped_count, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
-        auto priorities_cpu = packed_cpu.narrow(0, 0, batch_size).contiguous();
-
-        info.per_priorities = priorities_cpu;
-        auto priorities_ptr = priorities_cpu.data_ptr<float>();
-        priorities_vec.assign(priorities_ptr, priorities_ptr + batch_size);
+        if (pending.per_enabled) {
+            // pack先頭のpriorityとclip件数だけをReplayBuffer更新へ渡す。
+            const int64_t clipped_count = static_cast<int64_t>(packed_cpu[batch_size].item<float>());
+            info.per_clipped_count = torch::tensor(
+                clipped_count, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
+            auto priorities_cpu = packed_cpu.narrow(0, 0, batch_size).contiguous();
+            info.per_priorities = priorities_cpu;
+            auto priorities_ptr = priorities_cpu.data_ptr<float>();
+            priorities_vec.assign(priorities_ptr, priorities_ptr + batch_size);
+        }
+        if (pending.iqn_diagnostics_count > 0) {
+            info.iqn_diagnostics = packed_cpu.narrow(
+                0, priority_value_count, pending.iqn_diagnostics_count).contiguous();
+        }
     }
 
     pending.priority_readback.RetireEvents(per_priority_event_recycler_);
 
-    {
+    if (pending.per_enabled) {
         ANET_PROFILE_SCOPE_FULL(update_tree, "Learner::UpdatePerPriorities.update_tree");
         info.per_update_result = replay_buffer_->UpdatePriorities(pending.indices, priorities_vec);
     }
@@ -1860,6 +1971,7 @@ std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::MakeBatchUpdateResult
     result->q_std = q_std;
     result->q_gap = q_gap;
     result->q_gap_rel = q_gap_rel;
+    result->iqn_diagnostics = per_info.iqn_diagnostics;
     if (per_info.per_minibatch_size > 0) {
         result->per_minibatch_size = per_info.per_minibatch_size;
         result->per_clipped_count = per_info.per_clipped_count;
@@ -2145,7 +2257,7 @@ torch::Tensor QuantileLearnerBase::ComputeQuantileHuberLoss(
     return ComputeQuantileHuberLoss(current_dist, target_dist, taus, config_.quantile_huber_kappa);
 }
 
-torch::Tensor QuantileLearnerBase::ComputeIqnQuantileHuberLoss(
+IqnLossResult QuantileLearnerBase::ComputeIqnQuantileHuberLoss(
     const torch::Tensor& current_dist, const torch::Tensor& target_dist, const torch::Tensor& taus, float kappa)
 {
     ANET_PROFILE_FUNC();
@@ -2175,7 +2287,19 @@ torch::Tensor QuantileLearnerBase::ComputeIqnQuantileHuberLoss(
     // current側Nをsum、target側Mをmeanし、サンプル単位のlossを返す。
     auto element_wise_loss = loss_per_pair.sum(1).mean(1);
     ANET_ASSERT_SHAPE(element_wise_loss, { B });
-    return element_wise_loss;
+
+    // 同じdeltaから相殺前の大きさと相殺率をfloat32で集約し、pairwise Tensorを再生成しない。
+    const auto diff_float = diff.detach().to(torch::kFloat32);
+    const auto pair_abs_td = diff_float.abs().mean({ 1, 2 });
+    const auto pair_mean_td = diff_float.mean({ 1, 2 });
+    const auto cancellation_ratio = (1.0f - pair_mean_td.abs() / (pair_abs_td + 1.0e-6f))
+        .clamp(0.0f, 1.0f);
+
+    return IqnLossResult{
+        .element_loss = element_wise_loss,
+        .pair_abs_td = pair_abs_td,
+        .cancellation_ratio = cancellation_ratio,
+    };
 }
 
 
@@ -2511,6 +2635,7 @@ IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
     torch::Tensor loss;
     torch::Tensor td_error_tensor;
+    torch::Tensor iqn_diagnostics;
     QuantileMetrics metrics;
 
     // current・target-policy・target-valueで異なるtau集合を使い、行動選択と分布回帰の役割を分離する。
@@ -2580,12 +2705,67 @@ IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         // 各current tau_iへquantile regression重みを対応付け、全N×MペアのIQN Huber lossを計算する。
         // ComputeIqnQuantileHuberLossはcurrent側Nをsum、target側Mをmeanし、サンプル単位(B)で返す。
         auto tau_weights = current_taus.unsqueeze(2);
-        auto element_loss = ComputeIqnQuantileHuberLoss(current_dist, target_dist, tau_weights, config_.quantile_huber_kappa);
+        auto iqn_loss = ComputeIqnQuantileHuberLoss(
+            current_dist, target_dist, tau_weights, config_.quantile_huber_kappa);
+        auto element_loss = iqn_loss.element_loss;
         ANET_ASSERT_SHAPE(element_loss, { B });
         ANET_ASSERT_NAN(element_loss);
 
+        // quantile有限本数のscaleと初回Learner更新行を、学習グラフから切り離して集約する。
+        ANET_PROFILE_SCOPE_NEXT(iqn_diagnostics);
+        {
+            torch::NoGradGuard grad_guard;
+
+            // current・target分布のMonte Carlo標準誤差をfloat32で求め、priorityを合成標準誤差で正規化する。
+            const auto float_options = current_dist.options().dtype(torch::kFloat32);
+            const float nan = std::numeric_limits<float>::quiet_NaN();
+            torch::Tensor current_scale = torch::full({ B }, nan, float_options);
+            torch::Tensor target_scale = torch::full({ B }, nan, float_options);
+            if (N >= 2) {
+                current_scale = current_dist.detach().to(torch::kFloat32).std(/*dim=*/1, /*unbiased=*/true)
+                    / std::sqrt(static_cast<float>(N));
+            }
+            if (M >= 2) {
+                target_scale = target_dist.detach().to(torch::kFloat32).std(/*dim=*/1, /*unbiased=*/true)
+                    / std::sqrt(static_cast<float>(M));
+            }
+            const auto priority_ratio = td_error_tensor.detach().to(torch::kFloat32).abs()
+                / ((current_scale.square() + target_scale.square()).sqrt() + 1.0e-6f);
+
+            // 初回priority由来の行だけを抽出し、対象行がない場合は初回系診断をNaNにする。
+            auto initial_mask = torch::zeros(
+                { B }, torch::TensorOptions().dtype(torch::kBool).device(device_));
+            if (config_.use_per && samples.per_priority_sources.defined()) {
+                const auto sources = samples.per_priority_sources.to(
+                    torch::TensorOptions().dtype(torch::kInt8).device(device_));
+                initial_mask = sources.eq(static_cast<int8_t>(ReplayPrioritySource::FIXED_INITIAL))
+                    | sources.eq(static_cast<int8_t>(ReplayPrioritySource::MAX_INITIAL))
+                    | sources.eq(static_cast<int8_t>(ReplayPrioritySource::ACTOR_INITIAL));
+            }
+            const auto initial_count = initial_mask.to(torch::kFloat32).sum();
+            const auto masked_mean = [&](const torch::Tensor& values) {
+                const auto value_sum = torch::where(initial_mask, values, torch::zeros_like(values)).sum();
+                return torch::where(
+                    initial_count.gt(0.0f),
+                    value_sum / initial_count.clamp_min(1.0f),
+                    torch::full({}, nan, float_options));
+            };
+
+            // 全batch診断と初回行診断を、既存priority readbackへ同梱する固定長packにまとめる。
+            iqn_diagnostics = torch::stack({
+                current_scale.mean(),
+                target_scale.mean(),
+                priority_ratio.mean(),
+                masked_mean(priority_ratio),
+                masked_mean(iqn_loss.pair_abs_td),
+                masked_mean(iqn_loss.cancellation_ratio),
+                masked_mean(element_loss.detach().to(torch::kFloat32) / static_cast<float>(N)),
+            }).detach();
+        }
+
         // PER有効時はimportance sampling weightでsampling biasを補正し、最後にbatch平均してscalar lossへ集約する。
         // PER無効時は全サンプルを等重みとし、同じ集約経路を使う。
+        ANET_PROFILE_SCOPE_NEXT(weighted_loss);
         auto weights = config_.use_per ? samples.is_weights : torch::ones({ B }, device_);
         ANET_ASSERT_SHAPE(weights, { B });
         ANET_ASSERT_NAN(weights);
@@ -2596,7 +2776,7 @@ IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
     // backward前にTD errorからPER更新内容を準備し、optimizer完了後にReplayBufferへ反映する。
     ANET_PROFILE_SCOPE(prepare_per);
-    auto per_pending = PreparePerPriorityUpdate(samples, td_error_tensor);
+    auto per_pending = PreparePerPriorityUpdate(samples, td_error_tensor, iqn_diagnostics);
 
     ANET_PROFILE_SCOPE_NEXT(optimize);
     auto opt_result = Optimize(loss);

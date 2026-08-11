@@ -1298,14 +1298,16 @@ TEST_CASE("IQN quantile huber loss sums current samples and averages target samp
     auto target_dist = torch::tensor({ { 2.0f, 3.25f, 4.0f } });
     auto taus = torch::tensor({ 0.25f, 0.75f }).view({ 1, 2, 1 });
 
-    auto loss = QuantileLearnerBaseAccess::ComputeIqnQuantileHuberLoss(
+    auto result = QuantileLearnerBaseAccess::ComputeIqnQuantileHuberLoss(
         current_dist,
         target_dist,
         taus,
         0.5f);
 
-    REQUIRE(ShapeOf(loss) == std::vector<int64_t>{ 1 });
-    REQUIRE(loss.item<float>() == Catch::Approx(139.0f / 192.0f).margin(1.0e-6f));
+    REQUIRE(ShapeOf(result.element_loss) == std::vector<int64_t>{ 1 });
+    REQUIRE(result.element_loss.item<float>() == Catch::Approx(139.0f / 192.0f).margin(1.0e-6f));
+    CHECK(result.pair_abs_td.item<float>() == Catch::Approx(17.0f / 12.0f).margin(1.0e-6f));
+    CHECK(result.cancellation_ratio.item<float>() == Catch::Approx(4.0f / 17.0f).margin(1.0e-6f));
 }
 
 TEST_CASE("IQN and QR quantile huber losses agree when sample counts and kappa are one", "[dqn][iqn][loss]")
@@ -1319,7 +1321,7 @@ TEST_CASE("IQN and QR quantile huber losses agree when sample counts and kappa a
     auto iqn_loss = QuantileLearnerBaseAccess::ComputeIqnQuantileHuberLoss(
         current_dist, target_dist, taus, 1.0f);
 
-    REQUIRE(torch::allclose(iqn_loss, qr_loss, 1.0e-6, 1.0e-6));
+    REQUIRE(torch::allclose(iqn_loss.element_loss, qr_loss, 1.0e-6, 1.0e-6));
 }
 
 TEST_CASE("IQN quantile huber loss is finite for one current sample", "[dqn][iqn][loss]")
@@ -1331,8 +1333,32 @@ TEST_CASE("IQN quantile huber loss is finite for one current sample", "[dqn][iqn
     auto loss = QuantileLearnerBaseAccess::ComputeIqnQuantileHuberLoss(
         current_dist, target_dist, taus, 0.5f);
 
-    REQUIRE(ShapeOf(loss) == std::vector<int64_t>{ 1 });
-    REQUIRE(torch::isfinite(loss).all().item<bool>());
+    REQUIRE(ShapeOf(loss.element_loss) == std::vector<int64_t>{ 1 });
+    REQUIRE(torch::isfinite(loss.element_loss).all().item<bool>());
+}
+
+TEST_CASE("IQN diagnostics preserve cancellation and N-normalized loss contracts", "[dqn][iqn][loss][metrics]")
+{
+    const auto target_dist = torch::tensor({ { -1.0f, 1.0f } });
+    const auto one_current = torch::tensor({ { 0.0f } });
+    const auto one_tau = torch::tensor({ 0.5f }).view({ 1, 1, 1 });
+    const auto cancelling = QuantileLearnerBaseAccess::ComputeIqnQuantileHuberLoss(
+        one_current, target_dist, one_tau, 1.0f);
+    CHECK(cancelling.pair_abs_td.item<float>() == Catch::Approx(1.0f));
+    CHECK(cancelling.cancellation_ratio.item<float>() == Catch::Approx(1.0f));
+
+    const auto same_sign_target = torch::tensor({ { 1.0f, 1.0f } });
+    const auto same_sign = QuantileLearnerBaseAccess::ComputeIqnQuantileHuberLoss(
+        one_current, same_sign_target, one_tau, 1.0f);
+    CHECK(same_sign.cancellation_ratio.item<float>() == Catch::Approx(0.0f).margin(1.0e-6f));
+
+    // current quantileを同じ値で2本に増やすとsample lossは2倍になるが、/N後は一致する。
+    const auto two_current = torch::tensor({ { 0.0f, 0.0f } });
+    const auto two_taus = torch::tensor({ 0.5f, 0.5f }).view({ 1, 2, 1 });
+    const auto two_samples = QuantileLearnerBaseAccess::ComputeIqnQuantileHuberLoss(
+        two_current, same_sign_target, two_taus, 1.0f);
+    CHECK(two_samples.element_loss.item<float>() / 2.0f
+        == Catch::Approx(same_sign.element_loss.item<float>()).margin(1.0e-6f));
 }
 
 TEST_CASE("TBO transform is monotonic and invertible on representative values", "[dqn][tbo]")
@@ -1996,6 +2022,43 @@ TEST_CASE("PER priority prepare/apply counts only priorities changed by clipping
     CHECK(batch_result->GetScalar("per_actor_learner_spearman", -1).value() == Catch::Approx(0.6f));
 }
 
+TEST_CASE("PER IQN diagnostics classify only explicit initial priority sources", "[dqn][per][iqn][metrics]")
+{
+    dqn::LearnerConfig config;
+    config.use_per = true;
+    config.per_eps = 0.0f;
+
+    auto env_spec = MakeLearnerEnvSpec();
+    TestNetworkModel model;
+    dqn::RuntimeVars vars;
+    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+    auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+    learner.UseReplayBuffer(replay_buffer);
+
+    rl::ExperienceSamples samples;
+    samples.replay_item_keys = torch::arange(5, torch::TensorOptions().dtype(torch::kInt64));
+    samples.is_weights = torch::ones({ 5 });
+    samples.per_priority_sources = torch::tensor(
+        { static_cast<int8_t>(rl::ReplayPrioritySource::FIXED_INITIAL),
+          static_cast<int8_t>(rl::ReplayPrioritySource::MAX_INITIAL),
+          static_cast<int8_t>(rl::ReplayPrioritySource::ACTOR_INITIAL),
+          static_cast<int8_t>(rl::ReplayPrioritySource::NONE),
+          static_cast<int8_t>(rl::ReplayPrioritySource::LEARNER_UPDATED) },
+        torch::TensorOptions().dtype(torch::kInt8));
+    const auto diagnostics = torch::tensor({ 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f });
+
+    auto pending = learner.PreparePerPriorityUpdate(samples, torch::zeros({ 5 }), diagnostics);
+    CHECK(pending.per_sample_initial_count.item<float>() == Catch::Approx(3.0f));
+    CHECK(pending.per_sample_fixed_initial_count.item<float>() == Catch::Approx(1.0f));
+    CHECK(pending.per_sample_max_initial_count.item<float>() == Catch::Approx(1.0f));
+    CHECK(pending.per_sample_actor_initial_count.item<float>() == Catch::Approx(1.0f));
+
+    const auto result = learner.ApplyPerPriorityUpdate(std::move(pending));
+    CHECK(replay_buffer->update_count == 1);
+    REQUIRE(result.iqn_diagnostics.defined());
+    CHECK(torch::equal(result.iqn_diagnostics, diagnostics));
+}
+
 TEST_CASE("Optimizer helper keeps QR-DQN FP32 grad clip result contract", "[dqn][optimizer]")
 {
     dqn::LearnerConfig config;
@@ -2212,18 +2275,28 @@ TEST_CASE("DefaultDQNAgent IQN learner updates through the public learner path",
     ScopedNoopMetricsLogger metrics_logger;
     anet::nn::InitNN();
 
-    auto run_update = [](int64_t current_num_taus) {
+    auto run_update = [](
+        int64_t current_num_taus,
+        int64_t target_num_taus = 3,
+        bool use_per = true,
+        bool use_tbo = false,
+        torch::Device device = torch::Device(torch::kCPU),
+        bool use_amp_bf16 = false) {
         auto config_data = MakeIqnTracerConfigData();
         config_data.Set("DefaultDQNAgent.learner.iqn.current_taus.num_taus", current_num_taus);
         config_data.Set("DefaultDQNAgent.learner.iqn.current_taus.sample_mode", "fixed");
-        config_data.Set("DefaultDQNAgent.learner.iqn.target_taus.num_taus", 3);
+        config_data.Set("DefaultDQNAgent.learner.iqn.target_taus.num_taus", target_num_taus);
         config_data.Set("DefaultDQNAgent.learner.iqn.target_taus.sample_mode", "fixed");
         config_data.Set("DefaultDQNAgent.target_policy.tau_rule.num_taus", 4);
         config_data.Set("DefaultDQNAgent.target_policy.tau_rule.sample_mode", "fixed");
         config_data.Set("DefaultDQNAgent.learner.update_warmup_steps", 0);
         config_data.Set("DefaultDQNAgent.learner.update_interval", 1);
         config_data.Set("DefaultDQNAgent.learner.use_n_step", false);
-        config_data.Set("DefaultDQNAgent.learner.use_per", true);
+        config_data.Set("DefaultDQNAgent.learner.use_per", use_per);
+        config_data.Set("DefaultDQNAgent.learner.use_tbo", use_tbo);
+        config_data.Set("DefaultDQNAgent.learner.use_amp", use_amp_bf16);
+        config_data.Set("DefaultDQNAgent.learner.use_amp_bf16", use_amp_bf16);
+        config_data.Set("DefaultDQNAgent.learner.use_fused_optimizer", false);
 
         const auto env_spec = MakeIqnTracerEnvSpec();
         const rl::BatchEnvSpec batch_env_spec{ 2, 1 };
@@ -2232,7 +2305,7 @@ TEST_CASE("DefaultDQNAgent IQN learner updates through the public learner path",
             anet::nn::NetworkConfig(config_data),
             batch_env_spec,
             env_spec,
-            torch::Device(torch::kCPU),
+            device,
             321);
         auto learner = agent->CreateLearner();
 
@@ -2286,17 +2359,68 @@ TEST_CASE("DefaultDQNAgent IQN learner updates through the public learner path",
         REQUIRE(result != nullptr);
         CHECK(ShapeOf(result->loss).empty());
         CHECK(ShapeOf(result->td_error) == std::vector<int64_t>{ 2 });
-        CHECK(ShapeOf(result->per_priorities) == std::vector<int64_t>{ 2 });
         CHECK(torch::isfinite(result->loss).all().item<bool>());
         CHECK(torch::isfinite(result->td_error).all().item<bool>());
-        CHECK(torch::isfinite(result->per_priorities).all().item<bool>());
+        if (use_per) {
+            CHECK(ShapeOf(result->per_priorities) == std::vector<int64_t>{ 2 });
+            CHECK(torch::isfinite(result->per_priorities).all().item<bool>());
+            const auto expected_priorities = dqn::MakePerRawPriorityBatch(
+                result->td_error, 1.0e-6f, false, 50.0f).priorities.to(torch::kFloat32).cpu();
+            CHECK(torch::equal(result->per_priorities, expected_priorities));
+            CHECK(result->per_update_result.applied_count == 2);
+            CHECK(result->per_update_result.stale_count == 0);
+        } else {
+            CHECK_FALSE(result->per_priorities.defined());
+        }
         CHECK(torch::isfinite(result->q_std).all().item<bool>());
         CHECK(torch::isfinite(result->max_q).all().item<bool>());
         CHECK(torch::isfinite(result->q_sa).all().item<bool>());
         CHECK(torch::isfinite(result->q_gap).all().item<bool>());
         CHECK(torch::isfinite(result->q_gap_rel).all().item<bool>());
-        CHECK(result->per_update_result.applied_count == 2);
-        CHECK(result->per_update_result.stale_count == 0);
+        REQUIRE(result->iqn_diagnostics.defined());
+        CHECK(result->iqn_diagnostics.device().is_cpu());
+        CHECK(result->iqn_diagnostics.scalar_type() == torch::kFloat32);
+        CHECK(ShapeOf(result->iqn_diagnostics) == std::vector<int64_t>{ 7 });
+        const auto current_mc_scale = result->GetScalar("iqn_current_mc_scale", -1);
+        REQUIRE(current_mc_scale.has_value());
+        if (current_num_taus >= 2) {
+            CHECK(std::isfinite(*current_mc_scale));
+        } else {
+            CHECK(std::isnan(*current_mc_scale));
+        }
+        const auto target_mc_scale = result->GetScalar("iqn_target_mc_scale", -1);
+        REQUIRE(target_mc_scale.has_value());
+        if (target_num_taus >= 2) {
+            CHECK(std::isfinite(*target_mc_scale));
+        } else {
+            CHECK(std::isnan(*target_mc_scale));
+        }
+        const auto priority_mc_ratio = result->GetScalar("iqn_priority_mc_ratio", -1);
+        REQUIRE(priority_mc_ratio.has_value());
+        if (current_num_taus >= 2 && target_num_taus >= 2) {
+            CHECK(std::isfinite(*priority_mc_ratio));
+        } else {
+            CHECK(std::isnan(*priority_mc_ratio));
+        }
+
+        const auto initial_count = result->GetScalar("per_sample_initial_count", -1);
+        REQUIRE(initial_count.has_value());
+        CHECK(*initial_count == Catch::Approx(use_per ? 2.0f : 0.0f));
+        for (const char* key : {
+            "iqn_first_priority_mc_ratio",
+            "iqn_first_pair_abs_td",
+            "iqn_first_cancellation_ratio",
+            "iqn_first_quantile_loss_norm",
+        }) {
+            const auto value = result->GetScalar(key, -1);
+            REQUIRE(value.has_value());
+            if (!use_per || (std::string_view(key) == "iqn_first_priority_mc_ratio"
+                    && (current_num_taus < 2 || target_num_taus < 2))) {
+                CHECK(std::isnan(*value));
+            } else {
+                CHECK(std::isfinite(*value));
+            }
+        }
         CHECK_FALSE(experience.state.obs.Contains(anet::nn::kKey_Taus));
         CHECK_FALSE(experience.next_state.obs.Contains(anet::nn::kKey_Taus));
         CHECK_FALSE(next_experience.state.obs.Contains(anet::nn::kKey_Taus));
@@ -2314,6 +2438,29 @@ TEST_CASE("DefaultDQNAgent IQN learner updates through the public learner path",
     {
         const auto result = run_update(1);
         CHECK(result->q_std.item<float>() == Catch::Approx(0.0f));
+    }
+
+    SECTION("one target sample leaves only target-dependent ratios undefined")
+    {
+        run_update(2, 1);
+    }
+
+    SECTION("PER disabled keeps general IQN diagnostics and disables first-update diagnostics")
+    {
+        run_update(2, 3, false);
+    }
+
+    SECTION("TBO keeps IQN diagnostics in the learner priority path")
+    {
+        run_update(2, 3, true, true);
+    }
+
+    SECTION("BF16 diagnostics use one CPU float32 pack on each available device")
+    {
+        run_update(2, 3, true, false, torch::Device(torch::kCPU), true);
+        if (torch::cuda::is_available()) {
+            run_update(2, 3, true, false, torch::Device(torch::kCUDA, 0), true);
+        }
     }
 }
 
@@ -2978,6 +3125,14 @@ TEST_CASE("IQN UQE point query exports a full distribution from the same forward
     CHECK(torch::allclose(aux.at("uqe_values"), aux.at("q_values")));
     CHECK(torch::allclose(aux.at("full_q_values"), aux.at("full_q_quantiles").mean(2)));
     CHECK(torch::equal(action_info->GetAction().cpu(), torch::ones({ 2 }, torch::TensorOptions().dtype(torch::kInt64))));
+
+    // point queryのK=1ではscaleを定義せず、full Qとの選択差だけを公開する。
+    const auto margin_ratio = action_info->GetScalar("iqn_policy_margin_mc_ratio");
+    REQUIRE(margin_ratio.has_value());
+    CHECK(std::isnan(*margin_ratio));
+    const auto disagreement = action_info->GetScalar("iqn_uqe_full_q_argmax_disagreement");
+    REQUIRE(disagreement.has_value());
+    CHECK(*disagreement == Catch::Approx(1.0f));
 }
 
 TEST_CASE("IQN UQE tail score excludes the optional full distribution", "[dqn][iqn][action_policy]")
@@ -3013,6 +3168,32 @@ TEST_CASE("IQN UQE tail score excludes the optional full distribution", "[dqn][i
     CHECK(torch::allclose(aux.at("q_values"), torch::tensor({ { 0.75f, 0.25f }, { 0.75f, 0.25f } })));
     CHECK(torch::allclose(aux.at("full_q_values"), torch::full({ 2, 2 }, 0.5f)));
     CHECK(torch::equal(action_info->GetAction().cpu(), torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kInt64))));
+
+    // 同じforwardのrisk/full quantileからPolicy診断を公開する。
+    const auto margin_ratio = action_info->GetScalar("iqn_policy_margin_mc_ratio");
+    REQUIRE(margin_ratio.has_value());
+    CHECK(*margin_ratio == Catch::Approx(2.828411f));
+    const auto disagreement = action_info->GetScalar("iqn_uqe_full_q_argmax_disagreement");
+    REQUIRE(disagreement.has_value());
+    CHECK(*disagreement == Catch::Approx(0.0f));
+    const auto noop_margin = action_info->GetScalar("action_full_q_margin.[0]");
+    REQUIRE(noop_margin.has_value());
+    CHECK(*noop_margin == Catch::Approx(0.0f));
+    CHECK_THROWS_WITH(
+        action_info->GetScalar("action_full_q_margin.[2]"),
+        Catch::Matchers::ContainsSubstring("index=2")
+            && Catch::Matchers::ContainsSubstring("valid_range=[0,1]"));
+    CHECK(state->forward_count == 1);
+
+    // full queryを無効化してもrisk診断は残り、full依存診断だけNaNになる。
+    config.full_distribution_query.enabled = false;
+    auto risk_only_state = std::make_shared<TauEchoState>();
+    auto risk_only = dqn::UQEActionPolicy(config).SelectAction(
+        obs, /*greedy_only=*/true, MakeTauEchoNetwork(2, risk_only_state), rnd, {});
+    CHECK_FALSE(std::isnan(*risk_only->GetScalar("iqn_policy_margin_mc_ratio")));
+    CHECK(std::isnan(*risk_only->GetScalar("iqn_uqe_full_q_argmax_disagreement")));
+    CHECK(std::isnan(*risk_only->GetScalar("action_full_q_margin.[0]")));
+    CHECK(risk_only_state->forward_count == 1);
 }
 
 TEST_CASE("DQN action policy BF16 autocast follows observation device", "[dqn][action_policy][amp][bf16]")
@@ -3156,6 +3337,9 @@ TEST_CASE("DQNActionInfo exposes action UQE scalar metrics", "[dqn][action_polic
     auto undefined_margin = non_uqe.GetScalar("action_uqe_margin.[0]");
     REQUIRE(undefined_margin.has_value());
     CHECK(std::isnan(*undefined_margin));
+    CHECK(std::isnan(*non_uqe.GetScalar("iqn_policy_margin_mc_ratio")));
+    CHECK(std::isnan(*non_uqe.GetScalar("iqn_uqe_full_q_argmax_disagreement")));
+    CHECK(std::isnan(*non_uqe.GetScalar("action_full_q_margin.[0]")));
 
     auto replaced = win_info.WithAction(torch::tensor({ 2, 1 }, torch::TensorOptions().dtype(torch::kInt64)));
     CHECK(torch::equal(replaced->GetAction(), torch::tensor({ 2, 1 }, torch::TensorOptions().dtype(torch::kInt64))));

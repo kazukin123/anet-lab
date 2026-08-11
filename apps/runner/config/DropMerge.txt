@@ -116,7 +116,7 @@ backend.$ = backend.non-deterministic # 非決定論的（高速化）
 # 実験
 # ==============================================================================
 
-#app.run_name = run_{t}_dm_qr51-b256-rr125
+app.run_name = run_{t}_dm_qr51-b256-rr100
 #app.run_name = run_{t}_dm_iqn32-b128-rr125_cy2
 
 #net.$ = net.qr
@@ -147,13 +147,13 @@ E.obs_prev_drop_marker = true    # 直前 DROP 命令列を grid top row の cla
 #R.learner.alpha = 3e-4
 R.learner.alpha = 1e-4
 
-R.learner.replay_batch_size = 128
-#R.learner.replay_batch_size = 256
+#R.learner.replay_batch_size = 128
+R.learner.replay_batch_size = 256
 #R.learner.replay_batch_size = 512
 
-#R.learner.replay_ratio = 1.0
+R.learner.replay_ratio = 1.0
 #R.learner.replay_ratio = 0.5
-R.learner.replay_ratio = 1.25
+#R.learner.replay_ratio = 1.25
 #R.learner.replay_ratio = 1.5
 #R.learner.replay_ratio = 2.0
 
@@ -1166,7 +1166,7 @@ net.branch.SuikaImpala3_ViT128_GN.structure = DMImpalaConv32 > DMImpalaPool > DM
 # scalar metrics
 # ==============================================================================
 
-metrics.scalar.$ = metrics.scalar.baseline > M > O
+metrics.scalar.$ = metrics.scalar.baseline > metrics.scalar.iqn_search_p0 > M > O
 #metrics.scalar.$ = metrics.scalar.min > M > O
 #metrics.scalar.$ = metrics.scalar.full > M > O
 
@@ -1182,6 +1182,16 @@ M.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema
 #M.[22_eval/04_test2_reward_ema] = eps_total_reward $runner @episode_end $eval.[test2] $ema ema_alpha:0.001
 
 M.[32_agent_base/04_uqe_tau_target] = $agent target_policy.uqe_tau @learn $exp_step
+M.[33_agent_action/21_iqn_policy_margin_mc_ratio_ema] = iqn_policy_margin_mc_ratio @train $action_info $exp_step $ema interval:100
+
+M.[36_agent_iqn/01_current_mc_scale_ema] = iqn_current_mc_scale @learn $exp_step $ema interval:100
+M.[36_agent_iqn/02_target_mc_scale_ema] = iqn_target_mc_scale @learn $exp_step $ema interval:100
+M.[36_agent_iqn/03_priority_mc_ratio_ema] = iqn_priority_mc_ratio @learn $exp_step $ema interval:100
+M.[36_agent_iqn/04_first_priority_mc_ratio_ema] = iqn_first_priority_mc_ratio @learn $exp_step $ema interval:100
+M.[36_agent_iqn/05_first_pair_abs_td_ema] = iqn_first_pair_abs_td @learn $exp_step $ema interval:100
+M.[36_agent_iqn/06_first_cancellation_ratio_ema] = iqn_first_cancellation_ratio @learn $exp_step $ema interval:100
+M.[36_agent_iqn/07_first_quantile_loss_norm_ema] = iqn_first_quantile_loss_norm @learn $exp_step $ema interval:100
+M.[36_agent_iqn/08_sample_initial_count_ema] = per_sample_initial_count @learn $exp_step $ema interval:100
 
 M.[37_agent_qtd/03_td_mean_ema] = td_mean @learn $ema
 M.[37_agent_qtd/05_td_std_ema] = td_std @learn $ema
@@ -1212,6 +1222,7 @@ M.[42_env/24_ep_max_blocked_frames]  = $env max.ep_max_blocked_frames @train
 M.[42_env/25_ep_terminal_blocked_frames_max] = $env max.ep_terminal_blocked_frames @train
 M.[42_env/26_ep_blocked_run_count_mean] = $env mean.ep_blocked_run_count @train
 M.[42_env/27_same_drop_col_ratio_mean] = $env mean.ep_same_drop_col_ratio @train
+M.[42_env/31_double_suika_created_mean] = $env mean.ep_double_suika_created @train $exp_step
 
 #M.[42_env/51_ep_maxrank_max_ema]  = $env max.ep_max_rank @train $ema
 #M.[42_env/52_ep_frct_max_ema]     = $env max.ep_end_fruit_count @train $ema
@@ -1232,6 +1243,7 @@ M.[42_env/69_tr_no_legal_mean_ema] = $env mean.term_reason_no_legal_drop @train 
 M.[42_env/71_blkdrop_cand_mean_ema] = $env mean.blocked_drop_on_candidate @train $ema ema_alpha:0.001
 M.[42_env/72_timeout_cand_mean_ema] = $env mean.no_drop_timeout_on_candidate @train $ema ema_alpha:0.001
 M.[42_env/73_same_drop_col_ratio_mean_ema] = $env mean.ep_same_drop_col_ratio @train $ema ema_alpha:0.001
+M.[42_env/81_double_suika_achieved_ema] = $env mean.ep_double_suika_achieved @train $exp_step $ema ema_alpha:0.001
 
 M.[42_env/00_ep_step_mean]  = $env mean.ep_step @train
 M.[42_env/00_ep_step_mean_ema]  = $env mean.ep_step @train $ema ema_alpha:0.001
@@ -1241,14 +1253,19 @@ M.[51_eval1/00_ep_step_mean]         = $eval.[eval1] @episode_end $env mean.ep_s
 M.[51_eval1/00_ep_step_mean_ema]     = $eval.[eval1] @episode_end $env mean.ep_step                   $ema ema_alpha:0.01
 M.[51_eval1/01_ep_maxrank_max]       = $eval.[eval1] @episode_end $env max.ep_max_rank
 M.[51_eval1/12_ep_frct_mean]         = $eval.[eval1] @episode_end $env mean.ep_end_fruit_count 
-M.[51_eval1/41_noop_uqe_win_rate]    = $eval.[eval1] @train action_uqe_win_rate.[0] $action_info
-M.[51_eval1/42_noop_uqe_margin]      = $eval.[eval1] @train action_uqe_margin.[0] $action_info
+M.[51_eval1/13_double_suika_created_mean] = $eval.[eval1] @episode_end $env $exp_step mean.ep_double_suika_created
+M.[51_eval1/41_noop_uqe_win_rate]    = $eval.[eval1] @train $exp_step action_uqe_win_rate.[0] $action_info
+M.[51_eval1/42_noop_uqe_margin]      = $eval.[eval1] @train $exp_step action_uqe_margin.[0] $action_info
 M.[51_eval1/43_reset_noop_uqe_margin] = $eval.[eval1] @train $exp_step episode_start_action_uqe_margin.[0] $action_info
 M.[51_eval1/44_reset_noop_q_margin]   = $eval.[eval1] @train $exp_step episode_start_action_q_margin.[0] $action_info
-M.[51_eval1/51_noop_uqe_win_rate_ema] = $eval.[eval1] @train action_uqe_win_rate.[0] $action_info $ema ema_alpha:0.001
-M.[51_eval1/52_noop_uqe_margin_ema]  = $eval.[eval1] @train action_uqe_margin.[0] $action_info $ema ema_alpha:0.01
+M.[51_eval1/51_noop_uqe_win_rate_ema] = $eval.[eval1] @train $exp_step action_uqe_win_rate.[0] $action_info $ema ema_alpha:0.001
+M.[51_eval1/52_noop_uqe_margin_ema]  = $eval.[eval1] @train $exp_step action_uqe_margin.[0] $action_info $ema ema_alpha:0.01
+M.[51_eval1/53_iqn_policy_margin_mc_ratio_ema] = $eval.[eval1] @train $exp_step iqn_policy_margin_mc_ratio $action_info $ema ema_alpha:0.01 interval:100
+M.[51_eval1/54_iqn_uqe_full_q_argmax_disagreement_ema] = $eval.[eval1] @train $exp_step iqn_uqe_full_q_argmax_disagreement $action_info $ema ema_alpha:0.01 interval:100
+M.[51_eval1/55_noop_full_q_margin_ema] = $eval.[eval1] @train $exp_step action_full_q_margin.[0] $action_info $ema ema_alpha:0.01 interval:100
 M.[51_eval1/61_ep_maxrank_mean_ema]  = $eval.[eval1] @episode_end $env mean.ep_max_rank               $ema ema_alpha:0.01
 M.[51_eval1/62_ep_frct_mean_ema]     = $eval.[eval1] @episode_end $env mean.ep_end_fruit_count        $ema ema_alpha:0.01
+M.[51_eval1/63_double_suika_achieved_ema] = $eval.[eval1] @episode_end $env $exp_step mean.ep_double_suika_achieved $ema ema_alpha:0.01
 M.[51_eval1/73_tr_blk_mean]          = $eval.[eval1] @episode_end $env mean.term_reason_spawn_blocked
 M.[51_eval1/74_tr_timeout_mean]      = $eval.[eval1] @episode_end $env mean.term_reason_no_drop_timeout
 M.[51_eval1/75_tr_nolg_mean]         = $eval.[eval1] @episode_end $env mean.term_reason_no_legal_drop
@@ -1268,14 +1285,19 @@ M.[52_eval2/00_ep_step_mean]         = $eval.[eval2] @episode_end $env mean.ep_s
 M.[52_eval2/00_ep_step_mean_ema]     = $eval.[eval2] @episode_end $env mean.ep_step                   $ema ema_alpha:0.01
 M.[52_eval2/01_ep_maxrank_max]       = $eval.[eval2] @episode_end $env max.ep_max_rank
 M.[52_eval2/12_ep_frct_mean]         = $eval.[eval2] @episode_end $env mean.ep_end_fruit_count
-M.[52_eval2/41_noop_uqe_win_rate]    = $eval.[eval2] @train action_uqe_win_rate.[0] $action_info
-M.[52_eval2/42_noop_uqe_margin]      = $eval.[eval2] @train action_uqe_margin.[0] $action_info
+M.[52_eval2/13_double_suika_created_mean] = $eval.[eval2] @episode_end $env $exp_step mean.ep_double_suika_created
+M.[52_eval2/41_noop_uqe_win_rate]    = $eval.[eval2] @train $exp_step action_uqe_win_rate.[0] $action_info
+M.[52_eval2/42_noop_uqe_margin]      = $eval.[eval2] @train $exp_step action_uqe_margin.[0] $action_info
 M.[52_eval2/43_reset_noop_uqe_margin] = $eval.[eval2] @train $exp_step episode_start_action_uqe_margin.[0] $action_info
 M.[52_eval2/44_reset_noop_q_margin]   = $eval.[eval2] @train $exp_step episode_start_action_q_margin.[0] $action_info
-M.[52_eval2/51_noop_uqe_win_rate_ema] = $eval.[eval2] @train action_uqe_win_rate.[0] $action_info $ema ema_alpha:0.001
-M.[52_eval2/52_noop_uqe_margin_ema]  = $eval.[eval2] @train action_uqe_margin.[0] $action_info $ema ema_alpha:0.01
+M.[52_eval2/51_noop_uqe_win_rate_ema] = $eval.[eval2] @train $exp_step action_uqe_win_rate.[0] $action_info $ema ema_alpha:0.001
+M.[52_eval2/52_noop_uqe_margin_ema]  = $eval.[eval2] @train $exp_step action_uqe_margin.[0] $action_info $ema ema_alpha:0.01
+M.[52_eval2/53_iqn_policy_margin_mc_ratio_ema] = $eval.[eval2] @train $exp_step iqn_policy_margin_mc_ratio $action_info $ema ema_alpha:0.01 interval:100
+M.[52_eval2/54_iqn_uqe_full_q_argmax_disagreement_ema] = $eval.[eval2] @train $exp_step iqn_uqe_full_q_argmax_disagreement $action_info $ema ema_alpha:0.01 interval:100
+M.[52_eval2/55_noop_full_q_margin_ema] = $eval.[eval2] @train $exp_step action_full_q_margin.[0] $action_info $ema ema_alpha:0.01 interval:100
 M.[52_eval2/61_ep_maxrank_mean_ema]  = $eval.[eval2] @episode_end $env mean.ep_max_rank               $ema ema_alpha:0.01
 M.[52_eval2/62_ep_frct_mean_ema]     = $eval.[eval2] @episode_end $env mean.ep_end_fruit_count        $ema ema_alpha:0.01
+M.[52_eval2/63_double_suika_achieved_ema] = $eval.[eval2] @episode_end $env $exp_step mean.ep_double_suika_achieved $ema ema_alpha:0.01
 M.[52_eval2/73_tr_blk_mean]          = $eval.[eval2] @episode_end $env mean.term_reason_spawn_blocked
 M.[52_eval2/74_tr_timeout_mean]      = $eval.[eval2] @episode_end $env mean.term_reason_no_drop_timeout
 M.[52_eval2/76_tr_nolg_mean]         = $eval.[eval2] @episode_end $env mean.term_reason_no_legal_drop

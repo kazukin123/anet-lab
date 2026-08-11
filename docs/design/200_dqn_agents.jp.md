@@ -326,6 +326,28 @@ IQN専用lossはcurrent側Nをsum、target側Mをmeanし、Huber項を`kappa`で
 - Rainbowはsnapshot診断を設定しないため、同じkeyの取得は`std::nullopt`になる。
 - `BatchUpdateResult`はloss、TD error、Q統計、勾配、PER更新結果などを公開し、inner Learnerは`replaybuffer.*` keyをReplayBufferへ委譲する。
 
+IQN探索診断は、行動選択とloss計算に既に使ったTensorを再利用する。Policy側でrisk quantile数を`K`、UQE上位2行動を`a1,a2`とすると、`iqn_policy_margin_mc_ratio`は次である。標準偏差はfloat32の不偏標準偏差を使う。
+
+```text
+s[b,a] = std_k(risk_quantiles[b,a,k]) / sqrt(K)
+ratio[b] = (uqe[b,a1] - uqe[b,a2]) / (sqrt(s[b,a1]^2 + s[b,a2]^2) + 1e-6)
+```
+
+`iqn_uqe_full_q_argmax_disagreement`はUQEとfull Qのargmax不一致率、`action_full_q_margin.[i]`は`mean_b(full_q[b,i] - max_{a != i}(full_q[b,a]))`である。full queryがない場合はfull依存値を`NaN`、IQN+UQE以外または`K < 2`ではmargin ratioを`NaN`とする。不正なaction indexは有効範囲を含めてfail-fastする。診断値は1本のdetached packed TensorとしてActionInfoへ渡し、複数keyの取得ではCPU materializeを1回だけ行う。診断用forwardやtau生成は追加しない。
+
+Learner側では`z[b,i]`をcurrent quantile、`y[b,j]`をtarget quantile、`delta=y-z`、本数を`N,M`として次を使う。
+
+```text
+current_scale[b] = std_i(z[b,i]) / sqrt(N)
+target_scale[b]  = std_j(y[b,j]) / sqrt(M)
+priority_ratio[b] = abs(mean_i(z[b,i]) - mean_j(y[b,j]))
+                    / (sqrt(current_scale[b]^2 + target_scale[b]^2) + 1e-6)
+pair_abs_td[b] = mean_ij(abs(delta[b,i,j]))
+cancellation[b] = clamp(1 - abs(mean_ij(delta[b,i,j])) / (pair_abs_td[b] + 1e-6), 0, 1)
+```
+
+`iqn_current_mc_scale`、`iqn_target_mc_scale`、`iqn_priority_mc_ratio`はbatch平均である。`iqn_first_*`は優先度sourceが`fixed_initial|max_initial|actor_initial`の初回Learner priority更新行だけを平均し、`iqn_first_quantile_loss_norm`は現行sample lossを`N`で除算する。初回行がない場合は`per_sample_initial_count=0`かつ`iqn_first_*=NaN`、PER無効時も同じ初回契約とする一方、一般scale/ratioは計算する。`N < 2`または`M < 2`では該当scaleと依存ratioを`NaN`にする。TBO有効時はpriorityと同じh空間で計測する。Learner診断は既存priority readbackへ同梱し、PER無効時も固定長pack 1本で回収する。
+
 現在のsnapshot metricは[metrics_scalar.txt](../../apps/runner/config/metrics_scalar.txt)の`metrics.scalar.full`へ登録し、baselineには含めない。Event、step軸、targetの一般contractは[可観測性](140_observability.jp.md)を参照する。
 
 ### 9.2 性能

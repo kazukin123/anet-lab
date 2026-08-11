@@ -129,6 +129,17 @@ Run B: 0 - 70M exp_step
 - `exp_step_per_sec`は他process、動画出力、profiling、Optunaの並列jobに影響される。
 - 1 seedの差はseedぶれを含む。候補選定後は複数seedで再評価する。
 
+### 4.5 IQN探索P0診断を読む
+
+IQN探索では、解決済み`config/config_data.txt`に`metrics.scalar.iqn_search_p0`が合成されていることと、Policy/Learnerそれぞれのtau配置方式・本数`K/N/M`を先に確認する。診断値だけで採用を決めず、DropMergeのDouble Suika生成数・達成率、報酬、PER健全性、throughputを同じmatched `exp_step` windowで分けて読む。
+
+- `iqn_policy_margin_mc_ratio`はUQE上位2行動のgapをrisk quantileの有限本数scaleで正規化する。`random`ではMonte Carlo平均の安定度、`fixed`および`stratified`ではforward間の乱数分散ではなく積分解像度のproxyとして扱う。
+- `iqn_current_mc_scale`と`iqn_target_mc_scale`は`N`と`M`を分けて読む。`iqn_priority_mc_ratio`は現行の平均TD priority信号が両側の有限tau scaleに対してどの程度大きいかを表す。
+- `iqn_first_pair_abs_td`と`iqn_first_cancellation_ratio`は初回Learner priority更新行だけを対象とする。`per_sample_initial_count=0`の区間では`iqn_first_*`が`NaN`になるため、0への改善・悪化とは解釈しない。
+- TBO有効時のLearner診断は実空間ではなく、現行priorityと同じh空間の値である。TBO有効/無効Runの絶対値を直接比較しない。
+- `iqn_uqe_full_q_argmax_disagreement`と`action_full_q_margin.[i]`はfull-distribution queryがあるPolicyだけで成立する。欠落時の`NaN`を一致やmargin 0と解釈しない。
+- P0 group OFF/ONの負荷比較は同一binary・seed・実行条件で直列に行い、安定区間の`exp_step_per_sec`を比較する。他processやparallel Optuna jobがある測定は採用しない。
+
 ## 5. Optuna結果を分析する
 
 ### 5.1 Metrics ViewerとDashboardの役割

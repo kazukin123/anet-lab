@@ -347,12 +347,21 @@ metrics.image.[45_agent_img/05_shm_01_qma01].$   = image.shm.qmax > image.shm.s0
 # scalar metrics
 # ==============================================================================
 
-metrics.scalar.$ = metrics.scalar.baseline > M
+metrics.scalar.$ = metrics.scalar.baseline > metrics.scalar.iqn_search_p0 > M
 #metrics.scalar.$ = metrics.scalar.min > M
 #metrics.scalar.$ = metrics.scalar.full > M
 
 M.[20_eps/11_train_reward_ema] = $runner $episode_step train_episode_reward @train $ema ema_alpha:0.01
 M.[90_perf/82_exp_step] = exp_step @train $runner interval:100
+M.[33_agent_action/21_iqn_policy_margin_mc_ratio_ema] = iqn_policy_margin_mc_ratio @train $action_info $exp_step $ema interval:100
+M.[36_agent_iqn/01_current_mc_scale_ema] = iqn_current_mc_scale @learn $exp_step $ema interval:100
+M.[36_agent_iqn/02_target_mc_scale_ema] = iqn_target_mc_scale @learn $exp_step $ema interval:100
+M.[36_agent_iqn/03_priority_mc_ratio_ema] = iqn_priority_mc_ratio @learn $exp_step $ema interval:100
+M.[36_agent_iqn/04_first_priority_mc_ratio_ema] = iqn_first_priority_mc_ratio @learn $exp_step $ema interval:100
+M.[36_agent_iqn/05_first_pair_abs_td_ema] = iqn_first_pair_abs_td @learn $exp_step $ema interval:100
+M.[36_agent_iqn/06_first_cancellation_ratio_ema] = iqn_first_cancellation_ratio @learn $exp_step $ema interval:100
+M.[36_agent_iqn/07_first_quantile_loss_norm_ema] = iqn_first_quantile_loss_norm @learn $exp_step $ema interval:100
+M.[36_agent_iqn/08_sample_initial_count_ema] = per_sample_initial_count @learn $exp_step $ema interval:100
 
 
 # ==============================================================================

@@ -84,6 +84,22 @@ metrics.scalar.baseline.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train 
 metrics.scalar.baseline.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema ema_alpha:0.001 interval:100 
 metrics.scalar.baseline.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
 
+
+# ==============================================================================
+# IQN探索P0（fullからPER健全性とthroughputだけを選抜）
+# ==============================================================================
+
+metrics.scalar.iqn_search_p0.[39_agent_per/08_evicted_unsampled_ratio_ema] = replaybuffer.per.last_evicted_never_sampled_ratio @learn $agent $exp_step $ema interval:100
+metrics.scalar.iqn_search_p0.[39_agent_per/71_priority_clip_ratio_ema] = per_prio_clip_ratio @learn $exp_step $ema interval:100
+metrics.scalar.iqn_search_p0.[39_agent_per/73_batch_priority_mean_ema] = per_batch_prio_mean @learn $exp_step $ema interval:100
+metrics.scalar.iqn_search_p0.[39_agent_per/77_priority_cv_ema] = per_prio_cv @learn $exp_step $ema interval:100
+metrics.scalar.iqn_search_p0.[39_agent_per/79_priority_ess_ratio_ema] = per_prio_ess_ratio @learn $exp_step $ema interval:100
+metrics.scalar.iqn_search_p0.[39_agent_per/81_is_ess_ratio_ema] = per_is_ess_ratio @learn $exp_step $ema interval:100
+metrics.scalar.iqn_search_p0.[39_agent_per/83_sample_initial_ratio_ema] = per_sample_initial_ratio @learn $exp_step $ema interval:100
+metrics.scalar.iqn_search_p0.[39_agent_per/85_initial_mass_ratio_ema] = replaybuffer.per.initial_mass_ratio @learn $agent $exp_step $ema interval:100
+metrics.scalar.iqn_search_p0.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $exp_step $ema ema_alpha:0.001 interval:100
+metrics.scalar.iqn_search_p0.[90_perf/90_elapse_hour] = elapse_hour @train $runner $exp_step interval:100
+
 # q_sa：  実際に選んだ行動のQ値 ($Q(s, a)$)
 # qmax_*：過去に実行した行動のQ値。リプレイバッファ内のデータ品質。
 
@@ -213,4 +229,3 @@ metrics.scalar.full.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @tr
 metrics.scalar.full.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema interval:100 ema_alpha:0.001
 metrics.scalar.full.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 metrics.scalar.full.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
-
