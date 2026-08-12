@@ -364,9 +364,9 @@ Agent共通の拡張契約は[Agent と学習](110_agents_and_learning.jp.md)、
 
 ## 7. 設定、Run、成果物
 
-`AnetRLRunner` は既定で executable root の `config/_main.txt` を読みます。現在の通常配置では `apps/runner/config/_main.txt` です。`_main.txt` から共通設定、メトリクス、Agent、NetworkModel、対象 Env の設定を `$include` し、必要に応じて設定グループのマージやコマンドラインの `key=value` で上書きします。
+`AnetRLRunner` はworkspaceを選択し、executable rootの`config/_main.txt`に`<workspace>/config/_main.txt`を後勝ちで重ねます。共通mainはメトリクス、Agent、NetworkModelを、workspace configは対象Envを`$include`します。Run出力先は`<workspace>/runs`へ導出され、設定グループのmergeとコマンドライン`key=value`の後にも変更されていないことを検証します。`--config`明示時だけはworkspaceを使わない完全自己記述モードです。
 
-一回の起動につき、`app.runs_dir` 配下へ Run ディレクトリを作成します。代表的な成果物は次のとおりです。
+一回の起動につき、選択workspaceの`runs/`配下へRunディレクトリを作成します。代表的な成果物は次のとおりです。
 
 | 成果物 | 内容 |
 |---|---|

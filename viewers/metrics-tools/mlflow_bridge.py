@@ -45,10 +45,20 @@ class PollScheduleState:
 def parse_args():
     parser = argparse.ArgumentParser(description="Bridge JSONL logs to MLflow")
     parser.add_argument("--logdir", default="runs", help="MetricsLogger 出力フォルダ（省略時: runs）")
+    parser.add_argument(
+        "--tracking-db",
+        default=str(pathlib.Path("runs", "mlflow.db")),
+        help="MLflow SQLite database path (default: runs/mlflow.db)",
+    )
     parser.add_argument("--run-name", default=None, help="MLflow上のRun名")
     parser.add_argument("--poll-interval", type=float, default=2.0, help="監視間隔[秒]")
     parser.add_argument("--once", action="store_true", help="一度だけ変換して終了")
     return parser.parse_args()
+
+
+def tracking_uri_from_path(tracking_db):
+    db_path = pathlib.Path(tracking_db).absolute()
+    return db_path, f"sqlite:///{db_path.as_posix()}"
 
 
 def load_config_params(filepath):
@@ -370,10 +380,10 @@ def main():
     if scan_root is not None and args.run_name is not None:
         raise ValueError("--run-name can only be used when --logdir points to one metrics file")
 
-    # Windows上でも安定する絶対POSIX pathで、runs配下のSQLite DBを指定する
-    mlflow_db_path = pathlib.Path("runs", "mlflow.db").absolute()
+    # launcher が選択した workspace のDBを、Windowsでも安定する絶対POSIX URIへ変換する。
+    mlflow_db_path, tracking_uri = tracking_uri_from_path(args.tracking_db)
     mlflow_db_path.parent.mkdir(parents=True, exist_ok=True)
-    mlflow.set_tracking_uri(f"sqlite:///{mlflow_db_path.as_posix()}")
+    mlflow.set_tracking_uri(tracking_uri)
     print(f"[INFO] Tracking database: {mlflow_db_path}")
     if scan_root is not None:
         print(f"[INFO] Monitoring direct runs: {scan_root} ({len(initial_metrics)} found)")

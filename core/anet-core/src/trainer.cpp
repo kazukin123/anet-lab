@@ -793,7 +793,8 @@ RunManager::RunManager(const ConfigData& config_data)
     EnsureEnvNameAvailable("train", "main Train");
     env_ = env_factory_->CreateBatchEnv("train", train_env_seed, -1, anet::rl::RunMode::Train);
     if (env_ == nullptr) {
-        LOG::error() << "Failed to create env.";
+        LOG::error() << "Failed to create env. class_id=\"" << env_class_id_
+            << "\". Check that the selected workspace config includes an environment config.";
         return;
     }
     LogEnvConfig(*env_);

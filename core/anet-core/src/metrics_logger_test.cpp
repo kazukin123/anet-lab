@@ -325,3 +325,31 @@ TEST_CASE("MetricsLogger uses configured runs directory", "[metrics][config]")
     CHECK(ContainsText(ReadTextFile(run_dir / "metrics.jsonl"), "\"tag\":\"test/value\""));
     std::filesystem::remove_all(root);
 }
+
+TEST_CASE("MetricsLogger uses UTF-8 absolute runs directory", "[metrics][config][utf8]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "anet-core-utf8-absolute-runs-dir-test";
+    const auto runs_dir = root / std::filesystem::path(u8"日本語 workspace") / "runs";
+    std::filesystem::remove_all(root);
+
+    anet::MetricsLogger::Reset();
+    auto backend = std::make_unique<anet::JsonlBackend>();
+    anet::MetricsLoggerConfig logger_config;
+    const auto runs_dir_utf8 = runs_dir.u8string();
+    logger_config.runs_dir.assign(
+        reinterpret_cast<const char*>(runs_dir_utf8.data()), runs_dir_utf8.size());
+    logger_config.run_name_tmpl = "utf8_absolute_runs_dir_test";
+    anet::MetricsLogger::Init(std::move(backend), logger_config, root / "ignored-root");
+
+    const auto run_dir = runs_dir / "utf8_absolute_runs_dir_test";
+    CHECK(anet::MetricsLogger::Instance()->GetRunDir() == run_dir);
+    CHECK(std::filesystem::exists(run_dir / "metrics.jsonl"));
+
+    anet::MetricsLogger::Instance()->LogScalar("test/value", 9, 2.5);
+    anet::MetricsLogger::Instance()->Flush();
+
+    anet::MetricsLogger::Reset();
+    CHECK(ContainsText(ReadTextFile(run_dir / "metrics.jsonl"), "\"tag\":\"test/value\""));
+    std::filesystem::remove_all(root);
+}

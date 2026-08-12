@@ -19,6 +19,7 @@ from mlflow_bridge import (
     load_config_params,
     poll_monitored_runs,
     read_jsonl_batch,
+    tracking_uri_from_path,
 )
 
 
@@ -93,6 +94,17 @@ class RunDiscoveryTest(unittest.TestCase):
             deeper_metrics.write_text("", encoding="utf-8")
 
             self.assertEqual(find_run_metrics(runs_path), [direct_metrics])
+
+
+class TrackingDatabaseTest(unittest.TestCase):
+    def test_builds_absolute_sqlite_uri_for_selected_workspace(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            tracking_db = pathlib.Path(temp_dir) / "workspace" / "runs" / "mlflow.db"
+
+            resolved_path, uri = tracking_uri_from_path(tracking_db)
+
+            self.assertEqual(resolved_path, tracking_db.absolute())
+            self.assertEqual(uri, f"sqlite:///{tracking_db.absolute().as_posix()}")
 
 
 class JsonlReaderTest(unittest.TestCase):

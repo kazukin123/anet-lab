@@ -26,12 +26,14 @@ GUI操作は[Run実行ガイド](020_user_guide_run.jp.md)、EventとObserverは
 
 設定は文字列key/valueを保持する`ConfigData`へ集約される。
 
-1. `Properties`がmain configと`$include`先を読み込む。
-2. `ConfigManager`がコマンドラインの`key=value`を一度適用する。この指定は`.$`によるmerge対象の選択にも使われる。
-3. `ConfigManager`が設定グループのmergeを左から右へ解決する。
-4. merge結果よりコマンドライン指定を優先するため、同じ`key=value`を最終overrideとして再適用する。
-5. 各`Config` classがdefault prefixとoverride prefixから型付きfieldを読み取る。
-6. 読み取った値をRun directoryの設定成果物へ記録する。
+1. `Properties`が共通main configと`$include`先を読み込む。
+2. workspaceモードではRunnerが`app.runs_dir=<workspace>/runs`を注入し、workspaceの`config/_main.txt`を後勝ちで重ねる。workspace内includeは共通config directoryへfallbackして解決する。
+3. `ConfigManager`がコマンドラインの`key=value`を一度適用する。この指定は`.$`によるmerge対象の選択にも使われる。
+4. `ConfigManager`が設定グループのmergeを左から右へ解決する。
+5. merge結果よりコマンドライン指定を優先するため、同じ`key=value`を最終overrideとして再適用する。
+6. workspaceモードでは最終`app.runs_dir`が注入値と文字列完全一致することを検証し、各`Config` classが型付きfieldを読み、Run directoryへ設定成果物を記録する。
+
+`--config`明示時は手順2のworkspace解決・注入・後読みを省略する完全自己記述モードである。`--config`、`--workspace`、`--select-workspace`は相互排他である。
 
 `ConfigData::Read` / `Get`は、キーが存在しない場合だけ呼出側が渡した値を使う。存在する値の型変換に失敗した場合は、key、raw値、期待型を含む`ANET_SYSTEM_ERROR`でfail-fastし、既定値へ戻さない。default prefixとoverride prefixの各layerは独立して書式検証するため、後続overrideは先行layerの書式不正を隠さない。typed readerは前後空白、値全体の消費、overflow、負unsigned値、nonfinite値、不正bool、vector tokenを共通に検証する。stringとvectorの明示的な空値は有効である。値域、enum、組み合わせは各Configまたは再利用される設定型の構築時validatorが検証する。複数layerの合成後に行う構造・bounds検証は物理layerを推測せず、Config所有者から見た論理keyを診断へ使う。
 
@@ -60,7 +62,7 @@ Train Runnerは`Agent::CreateActor()`へclone方針を指定せず`std::nullopt`
 | コンポーネント | 定義 |
 |---|---|
 | `Properties` | Properties類似形式のファイルとincludeを読み込む |
-| `ConfigManager` | file、merge、CLI overrideから最終ConfigDataを作る |
+| `ConfigManager` | main file、注入値、後勝ちoverlay、merge、CLI overrideから最終ConfigDataを作る |
 | `Config` | default/override prefixを使い、1コンポーネントの型付き設定を読む基底 |
 | `RunManager` | seed、Env、Agent、Notifier、Runnerの構築とRun内共有objectを管理する |
 | `RunnerFactory` | `serial`または`pipeline`のTrainRunnerを選ぶ |

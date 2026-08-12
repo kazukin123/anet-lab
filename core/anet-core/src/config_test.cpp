@@ -288,6 +288,51 @@ TEST_CASE("ConfigData checked merge rejects conflicting effective values", "[con
     CHECK_THROWS(merged.MergeFromChecked(conflicting));
 }
 
+TEST_CASE("ConfigData saves Properties text and replaces an existing file", "[config][properties]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-data-save-properties-test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    const auto path = root / "history.txt";
+
+    anet::ConfigData first;
+    first.Set("workspace.history.0", R"(D:\Program Files\anet workspace)");
+    first.Set("workspace.history.1", "_default");
+    first.SaveProperties(path);
+
+    CHECK(first.ToPropertiesString() ==
+        "workspace.history.0 = D:\\Program Files\\anet workspace\n"
+        "workspace.history.1 = _default\n");
+    const auto loaded_first = anet::Properties(path.string()).ToConfigData();
+    CHECK(loaded_first.Map().Size() == 2);
+    CHECK(loaded_first.Get("workspace.history.0") == R"(D:\Program Files\anet workspace)");
+    CHECK(loaded_first.Get("workspace.history.1") == "_default");
+
+    anet::ConfigData second;
+    second.Set("workspace.dialog_skip", true);
+    second.SaveProperties(path);
+
+    const auto loaded_second = anet::Properties(path.string()).ToConfigData();
+    CHECK(loaded_second.Map().Size() == 1);
+    CHECK(loaded_second.Get<bool>("workspace.dialog_skip") == true);
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigData rejects Properties control tokens when saving", "[config][properties]")
+{
+    const auto path = std::filesystem::current_path() / "out" / "test-tmp" / "unsafe-properties.txt";
+
+    for (const auto& value : { "value#comment", "value//comment", "value;", "value;  " }) {
+        anet::ConfigData config_data;
+        config_data.Set("workspace.value", value);
+        CHECK_THROWS_WITH(
+            config_data.SaveProperties(path),
+            Catch::Matchers::ContainsSubstring("key=workspace.value")
+            && Catch::Matchers::ContainsSubstring(value));
+    }
+}
+
 TEST_CASE("ConfigData accepts explicit empty strings and vectors", "[config]")
 {
     anet::ConfigData config_data;
@@ -524,6 +569,46 @@ TEST_CASE("ConfigManager loads trial main config with include and override", "[c
 
     CHECK(config_data.Get("app.run_name") == "optuna_trial_00001");
     CHECK(config_data.Get("net.branch.[main_feature].structure") == "TrialBranch");
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("ConfigManager applies injected and file overlays before AutoMerge", "[config][workspace]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "config-manager-workspace-overlay-test";
+    std::filesystem::remove_all(root);
+
+    const auto config_dir = root / "config";
+    const auto workspace_dir = root / "workspace";
+    WriteConfig(config_dir / "base.txt", {
+        "app.runs_dir = base-runs",
+        "env.profile.value = base",
+        "env.$ = env.profile",
+    });
+    WriteConfig(workspace_dir / "_main.txt", {
+        "$include <base.txt>",
+        "env.profile.value = workspace",
+    });
+    WriteConfig(workspace_dir / "override.txt", {
+        "$include <overlay-include.txt>",
+        "app.runs_dir = forbidden-override",
+    });
+    WriteConfig(config_dir / "overlay-include.txt", {
+        "overlay.include = found",
+    });
+
+    anet::ConfigManagerOptions options;
+    options.config_search_dirs = { config_dir };
+    options.injected_config.Set("app.runs_dir", "workspace-runs");
+    options.overwrite_config_paths = { workspace_dir / "override.txt" };
+
+    anet::ConfigManager manager((workspace_dir / "_main.txt").string(), nullptr, options);
+    const auto config_data = manager.GetConfigData();
+
+    CHECK(config_data.Get("app.runs_dir") == "forbidden-override");
+    CHECK(config_data.Get("overlay.include") == "found");
+    CHECK(config_data.Get("env.value") == "workspace");
 
     std::filesystem::remove_all(root);
 }

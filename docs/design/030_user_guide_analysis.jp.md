@@ -30,19 +30,15 @@
 ```
 
 - URL: `http://localhost:8082`
-- runs directory: `apps/runner/runs`
+- workspace directory: `apps/runner/workspaces`
 
-Optuna seed runを見る場合は次を使う。
+画面上部の`Workspace` selectorで、`runs/`または`config/`を持つworkspaceを切り替える。
+前回選択はbrowserへ保存され、次回起動時に同じworkspaceが存在すれば復元される。
+保存済みworkspaceが存在しない場合はserverのcurrent workspaceへ戻る。
 
-```powershell
-22_metrics_viewer_java_optuna.bat
-```
-
-- URL: `http://localhost:8083`
-- runs directory: `apps/runner/runs_optuna`
-
-独自の場所を読む場合はjarへ`--metricsviewer.runs-dir=<path>`を渡す。Viewerは直下に
-`metrics.jsonl`または`metrics.jsonl.gz`を持つdirectoryだけをRunとして認識する。
+独自のworkspace群を読む場合はjarへ`--metricsviewer.workspaces-dir=<path>`を渡し、必要なら
+`--metricsviewer.initial-workspace=<name>`で起動時workspaceを指定する。Viewerは選択workspaceの
+`runs/`直下で、`metrics.jsonl`または`metrics.jsonl.gz`を持つdirectoryだけをRunとして認識する。
 両方がある場合は`metrics.jsonl`を使う。
 
 ## 3. 画面の基本操作
@@ -51,6 +47,7 @@ Optuna seed runを見る場合は次を使う。
 
 | UI | 動作 |
 |---|---|
+| `Workspace` | serverが列挙したworkspaceへ切り替え、Run選択・色・viewport・凡例状態をリセットする |
 | `Runs` | 行クリックで即時toggleする。同じ行を350ms以内にもう一度押すとそのRunだけを選ぶ。空選択も可能 |
 | `Select All` / `Latest Only` | 全Run、または最新Runへ選択を切り替える |
 | `Tags` | 表示するmetric tagを選ぶ |
@@ -67,7 +64,7 @@ Plotlyのmodebarではzoom、pan、画像保存、`Reset axes`を利用できる
 
 初回表示だけ最新Runを自動選択する。以後は手動の空選択と、Run消失で空になった選択を維持する。
 Reloadでは既知のOFF tagを保ち、新たに発見された可視tagだけを自動的にONへ加える。
-選択tag、LOD mode、Scroll Lockはbrowserの`localStorage`へ保持される。
+選択workspace、選択tag、LOD mode、Scroll Lockはbrowserの`localStorage`へ保持される。
 
 LODの`MinMax`は各bucketのmin、max、lastを元データの実step順に結ぶ。
 `Mean`はbucket平均、`Band`はmin/max帯へ平均線を重ねる。点数が少なくL0を表示できる場合は、
@@ -139,6 +136,17 @@ IQN探索では、解決済み`config/config_data.txt`に`metrics.scalar.iqn_sea
 - TBO有効時のLearner診断は実空間ではなく、現行priorityと同じh空間の値である。TBO有効/無効Runの絶対値を直接比較しない。
 - `iqn_uqe_full_q_argmax_disagreement`と`action_full_q_margin.[i]`はfull-distribution queryがあるPolicyだけで成立する。欠落時の`NaN`を一致やmargin 0と解釈しない。
 - P0 group OFF/ONの負荷比較は同一binary・seed・実行条件で直列に行い、安定区間の`exp_step_per_sec`を比較する。他processやparallel Optuna jobがある測定は採用しない。
+
+### 4.6 分位tail探索診断を読む
+
+分位tail診断はPolicyやpriorityを変更する信号ではなく、既存QR / IQNのreturn distributionを観測する6 scalarである。まず解決済み`config/config_data.txt`でPolicy 5本が`eval2`、Learner 1本が`@learn`へ登録されていることを確認し、Policy側はfixed full distributionの本数`K`、Learner側はPERとTBOの有効状態を併記する。
+
+- `policy_upper_truncated_std`と`policy_lower_truncated_std`は最終実行actionについてmedianから上下へ広がる幅であり、Q値と同じ単位で読む。差からtail asymmetryは見られるが、単一networkの幅をparametric uncertaintyや探索bonusの有効性と断定しない。
+- `lower_risk_full_q_argmax_disagreement`は、full Qのargmaxが係数1の仮想的なlower-tail penaltyで変わる割合である。既存`iqn_uqe_full_q_argmax_disagreement`とは目的が異なり、risk回避Policyが実際に有効という結果ではない。
+- `quantile_crossing_ratio`はtau順の隣接quantileが降下した割合である。高い区間ではupper / lower tailを分位関数の領域として解釈する信頼度が低いため、tail幅の大小より先にorderingを確認する。同値はcrossingに含めない。
+- `policy_selected_crossing_depth_p90_ratio`は、最終実行action内のpositive crossing深度を分布rangeで正規化し、action event内でlane別nearest-rank p90を求めてbatch平均した無次元量である。全actionの発生頻度を測る`quantile_crossing_ratio`と組み合わせ、頻度が横ばいでp90が下がる場合は浅い局所逆転へ寄った可能性、頻度が下がってp90が上がる場合は少数の深い逆転が残る可能性として読む。Run全期間のcrossing sampleをpoolしたp90ではない。
+- `upper_tail_priority_spearman`は、PERで既に偏ってsamplingされたminibatch内に限った、upper-tail幅とclip後raw priorityの順位相関である。高い正相関は両者が似た経験を強調している可能性を示すがReplayBuffer全体の冗長性を証明せず、低相関や負相関も新しい信号の有用性を証明しない。
+- PER無効、batch不足、定数順位列、Policy full distribution欠損、`K < 2`では該当値が`NaN`になる。0との一致や相関0へ読み替えない。ただしcrossing深度p90は、入力が成立していてpositive crossingがない場合、またはrangeが0の場合を正常値`0`とする。TBO有効時は実空間ではなく現行Policy score / priorityと同じh空間なので、TBO有効/無効Runの絶対値を直接比較しない。
 
 ## 5. Optuna結果を分析する
 

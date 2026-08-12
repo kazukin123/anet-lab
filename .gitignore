@@ -63,6 +63,8 @@
 /dist
 /docs/*.lock
 /apps/runner/runname.txt
+/apps/runner/workspaces
+/apps/runner/appdata
 /.claude/worktrees
 /.claude/settings.local.json
 /core/anet-core/bin/Debug/out

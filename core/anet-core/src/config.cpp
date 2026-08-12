@@ -1,10 +1,19 @@
-﻿#include "anet/config.hpp"
+﻿// config.cpp
+
+#include "anet/config.hpp"
+
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <sstream>
 #include <fstream>
 #include <type_traits>
 #include <utility>
+#ifdef _WIN32
+#include <Windows.h>
+#else
+#include <unistd.h>
+#endif
 #include <wx/string.h>
 #include <wx/cmdline.h>
 #include "anet/app_util.hpp"
@@ -18,6 +27,15 @@ namespace LOG = anet::log;
 namespace anet {
 
     namespace {
+
+    uint64_t GetCurrentProcessIdValue()
+    {
+#ifdef _WIN32
+        return static_cast<uint64_t>(::GetCurrentProcessId());
+#else
+        return static_cast<uint64_t>(::getpid());
+#endif
+    }
 
     [[noreturn]] void ThrowReadFailure(
         const std::string& key, const std::string& value, const char* expected_type)
@@ -357,6 +375,80 @@ namespace anet {
         }
     }
 
+    void ConfigData::OverwriteFrom(const ConfigData& other)
+    {
+        // 後から与えられた設定値を優先し、既存キーの定義順は維持する。
+        for (const auto& [key, value] : other.Map()) {
+            map_.Set(key, value);
+        }
+    }
+
+    std::string ConfigData::ToPropertiesString() const
+    {
+        std::ostringstream oss;
+        for (const auto& [key, value] : map_) {
+            oss << key << " = " << value << '\n';
+        }
+        return oss.str();
+    }
+
+    void ConfigData::SaveProperties(const std::filesystem::path& path) const
+    {
+        // Properties のコメント・終端記号に再解釈される値は、黙って変形せず拒否する。
+        for (const auto& [key, value] : map_) {
+            const auto last_non_whitespace = value.find_last_not_of(" \t\r\n");
+            const bool has_terminal_semicolon = last_non_whitespace != std::string::npos
+                && value[last_non_whitespace] == ';';
+            ANET_CHECK_MSG(
+                value.find('#') == std::string::npos
+                && value.find("//") == std::string::npos
+                && !has_terminal_semicolon,
+                "ConfigData::SaveProperties rejected an unsafe value. key=" << key
+                << " value=\"" << value << "\"");
+        }
+
+        // 同一ディレクトリへ一時ファイルを書き、完成後に置換する。
+        const auto parent = path.parent_path();
+        if (!parent.empty()) {
+            std::filesystem::create_directories(parent);
+        }
+        static std::atomic_uint64_t next_id = 0;
+        auto temp_path = path;
+        temp_path += ".tmp."
+            + std::to_string(GetCurrentProcessIdValue()) + "."
+            + std::to_string(next_id.fetch_add(1));
+        {
+            std::ofstream ofs(temp_path, std::ios::binary | std::ios::trunc);
+            ANET_CHECK_MSG(ofs, "ConfigData::SaveProperties failed to open a temporary file. path=" << temp_path.string());
+            ofs << ToPropertiesString();
+            ofs.flush();
+            if (!ofs) {
+                ofs.close();
+                std::filesystem::remove(temp_path);
+                ANET_SYSTEM_ERROR(
+                    "ConfigData::SaveProperties failed to write a temporary file. path=" << temp_path.string());
+            }
+        }
+
+        std::error_code error;
+#ifdef _WIN32
+        if (!::MoveFileExW(
+            temp_path.c_str(),
+            path.c_str(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            error = std::error_code(static_cast<int>(::GetLastError()), std::system_category());
+        }
+#else
+        std::filesystem::rename(temp_path, path, error);
+#endif
+        if (error) {
+            std::filesystem::remove(temp_path);
+            ANET_SYSTEM_ERROR(
+                "ConfigData::SaveProperties failed to replace the destination. path=" << path.string()
+                << " error=" << error.message());
+        }
+    }
+
     std::unordered_map<std::string, ConfigData> ConfigData::MakeSubConfigData(const std::string& prefix) const
     {
         //std::unordered_map<std::string, std::unordered_map<std::string, std::string>> tag_block_map;
@@ -618,13 +710,21 @@ namespace anet {
     // ---- ConfigManager ----
 
     ConfigManager::ConfigManager(
-        const std::string& filePath,
+        const std::filesystem::path& filePath,
         const wxCmdLineParser* cmdLine,
         ConfigManagerOptions options)
         : options_(options)
     {
         // ベース読み込み
         LoadFromFile(filePath);
+
+        // 呼出側が確定した設定と追加ファイルを、ベース設定へ順番に重ねる。
+        ConfigData config_data(map_);
+        config_data.OverwriteFrom(options_.injected_config);
+        map_ = config_data.Map();
+        for (const auto& overwrite_config_path : options_.overwrite_config_paths) {
+            OverwriteFromFile(overwrite_config_path);
+        }
 
         // コマンドライン引数を上書き
         if (cmdLine) {
@@ -640,11 +740,20 @@ namespace anet {
         }
     }
 
-    void ConfigManager::LoadFromFile(const std::string& filePath)
+    void ConfigManager::LoadFromFile(const std::filesystem::path& filePath)
     {
         const auto resolved_path = ResolveMainConfigPath(filePath, options_);
-        Properties props(resolved_path.string(), options_);
+        Properties props(resolved_path, options_);
         map_ = props.ToConfigData().Map();
+    }
+
+    void ConfigManager::OverwriteFromFile(const std::filesystem::path& filePath)
+    {
+        const auto resolved_path = ResolveMainConfigPath(filePath, options_);
+        const Properties props(resolved_path, options_);
+        ConfigData config_data(map_);
+        config_data.OverwriteFrom(props.ToConfigData());
+        map_ = config_data.Map();
     }
 
     void ConfigManager::ApplyCmdLineOverrides(const wxCmdLineParser& cmdLine)

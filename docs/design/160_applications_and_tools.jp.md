@@ -26,6 +26,8 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | コンポーネント | 定義 |
 |---|---|
 | `RunnerApp` | wxWidgets application entry。config、RunManager、RunnerThread、GUI、loggingのlifecycleを統括する。Run directory自体は`MetricsLogger`が保持する |
+| `WorkspaceService` | coreのapplication共通基盤。workspace pathと新規名の検証・解決・新規生成、MRU、`last_workspace.txt`、config合成、`app.runs_dir`不変条件を管理する |
+| workspace選択dialog | Runner固有GUI。履歴、`workspaces/`直下一覧、任意path参照、新規名、`workspace.dialog_skip`選好を起動前に選択する。新規名は`WorkspaceService`の検証結果を入力欄の下へ即時表示し、不正な間はOKを無効化する |
 | `RunnerFrame` | menu、status bar、wxAUI paneとclose順序を管理するmain window。wxAUIの制約吸収（dockサイズ往復・遷移時同期・pane⇄メニュー連動）は基底`anet::rl::gui::AuiLayoutFrame`（gui.hpp）が担い、本クラスはpane定義とレイアウトポリシー（50:50、frame縮退）を持つ |
 | `TrainPanel` | Train eventからEnv固有Viewを更新し、GUI timerで断面を描画する |
 | `EvalPanel` | 専用`EvalRunner`をtimerまたは手動Actionで駆動し、clone modelの同期を管理する |
@@ -70,6 +72,8 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | 領域 | 主なファイル |
 |---|---|
 | application entry、config、logging | [RunnerApp.hpp](../../apps/runner/src/RunnerApp.hpp)、[RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp) |
+| workspace共通基盤 | [app_util.hpp](../../core/anet-core/include/anet/app_util.hpp)、[app_util.cpp](../../core/anet-core/src/app_util.cpp) |
+| workspace選択GUI | [WorkspaceDialog.hpp](../../apps/runner/src/WorkspaceDialog.hpp)、[WorkspaceDialog.cpp](../../apps/runner/src/WorkspaceDialog.cpp) |
 | main frame、pane、入力操作 | [RunnerFrame.hpp](../../apps/runner/src/RunnerFrame.hpp)、[RunnerFrame.cpp](../../apps/runner/src/RunnerFrame.cpp) |
 | Train View | [TrainPanel.hpp](../../apps/runner/src/TrainPanel.hpp)、[TrainPanel.cpp](../../apps/runner/src/TrainPanel.cpp) |
 | Eval View、model同期 | [EvalPanel.hpp](../../apps/runner/src/EvalPanel.hpp)、[EvalPanel.cpp](../../apps/runner/src/EvalPanel.cpp) |
@@ -95,7 +99,8 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | DropMerge CLI/domain | [dropmerge_optuna.py](../../apps/runner/tools/dropmerge_optuna.py) |
 | harness共通runtime | [optuna_common.py](../../apps/runner/tools/optuna_common.py) |
 | Runner launcher | [10_run.bat](../../apps/10_run.bat) |
-| Metrics Viewer launcher | [22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat)、[22_metrics_viewer_java_optuna.bat](../../apps/22_metrics_viewer_java_optuna.bat) |
+| workspace対応補助launcher | [resolve_workspace.bat](../../apps/runner/tools/resolve_workspace.bat)、[31_tb_bridge.bat](../../apps/31_tb_bridge.bat)、[41_mlflow_bridge.bat](../../apps/41_mlflow_bridge.bat) |
+| Metrics Viewer launcher | [22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat) |
 | Dashboard launcher | [23_optuna_dashboard.bat](../../apps/23_optuna_dashboard.bat) |
 | 詳細運用仕様 | [optuna.md](../optuna.md) |
 
@@ -180,6 +185,7 @@ RunnerはviewerやDashboardへ直接接続しない。Run directory、Optuna DB�
 sequenceDiagram
     participant OS as OS/wxWidgets
     participant A as RunnerApp
+    participant W as WorkspaceService/Dialog
     participant C as ConfigManager
     participant M as MetricsLogger
     participant R as RunManager
@@ -187,7 +193,9 @@ sequenceDiagram
     participant T as RunnerThread
 
     OS->>A: OnInit()
-    A->>C: main config読込 + CLI override + merge
+    A->>W: CLI / dialog / history / _defaultからworkspace確定
+    W-->>A: config path + runs path
+    A->>C: 共通main + runs注入 + workspace config + CLI + merge
     C-->>A: ConfigData
     A->>M: Init(JsonlBackend, app設定)
     M-->>A: Run directory
@@ -202,6 +210,8 @@ sequenceDiagram
 ```
 
 GUIはmain thread、Train Runnerは`RunnerThread`で動く。TrainPanelはTrain eventでView dataを更新し、GUI timerで描画断面を取得する。EvalPanelはGUI timer上で独立EvalRunnerを進めるため、configured background evalとは別用途である。ImageClsでは`app.eval_panel.eval_config_tag`で参照するconfigured Eval tagを明示し、その`run_mode`と`env.*`設定を別instanceへ適用する。非ImageClsで同キーを指定した場合はfail-fastする。
+
+補助launcherは第1引数、`GetAppDataDir()/last_workspace.txt`、`_default`の順でworkspaceを解決し、選択済み`runs/`だけをDOT/MP4/TensorBoard/MLflowへ渡す。既存workspace rootと`runs/`だけを解決条件とし、`config/_main.txt`は要求しない。launcherはworkspaceや`runs/`を生成しない。MLflow DBはADR 0022の限定例外として`<workspace>/runs/mlflow.db`に置く。
 
 ### 5.2 Metrics Viewerの取り込みとviewport range更新
 
@@ -279,14 +289,13 @@ sequenceDiagram
 
 | 用途 | Entry point | 既定出力・URL |
 |---|---|---|
-| GUI Run | `apps/10_run.bat` | `apps/runner/runs` |
+| GUI Run | `apps/10_run.bat [--workspace <path>]` | `<workspace>/runs` |
 | 通常Runの可視化 | `apps/22_metrics_viewer_java.bat` | `http://localhost:8082` |
-| Optuna seed runの可視化 | `apps/22_metrics_viewer_java_optuna.bat` | `http://localhost:8083` |
 | Optuna study/artifact | `apps/23_optuna_dashboard.bat` | `http://127.0.0.1:8088` |
 | DropMerge探索 | `.venv\Scripts\python.exe apps\runner\tools\dropmerge_optuna.py run-study ...` | `apps/runner/runs_optuna` |
 
-- Runnerのmain configは`--config`で差し替え、実験差分は末尾の`key=value` overrideで渡す。
-- Viewerのruns directoryは`--metricsviewer.runs-dir`で差し替える。
+- 通常Runnerはworkspaceを選び、実験差分は末尾の`key=value` overrideで渡す。`--config`はworkspaceを使わない完全自己記述起動に限定する。
+- Viewerは`apps/runner/workspaces`を既定の親directoryとし、画面のselectorでcurrent workspaceを切り替える。親directoryは`--metricsviewer.workspaces-dir`で差し替える。
 - Optuna harnessのPythonはrepository rootの`.venv`を使う。
 - Viewer frontendはbuild工程を持たず、外部依存はCDNのPlotlyだけを読む。完全offline環境ではasset取得方法を別途用意する必要がある。
 
@@ -302,6 +311,7 @@ sequenceDiagram
 ### 7.2 Metrics Viewer
 
 - `MetricsService`の`@PostConstruct`でLoadingThreadを開始し、`@PreDestroy`で最大30秒待って停止する。
+- `WorkspaceManager`はcurrent workspaceをepoch付きsnapshotとして保持し、APIとingest cycleへleaseを渡す。切替はingest gateで直列化し、旧snapshotのgzip sessionは最終lease解放時に閉じる。
 - source kind、size、mtime、先頭/commit直前hashが一致しない場合はSQLite cacheを破棄して新しいgenerationで再構築する。
 - `TagStats`はcommit済みL0全点、LODは完成した16子だけから作り、viewport queryから独立して保持する。
 - Reload/Auto ReloadはPlotly DOMを再構築するため、選択tag、LOD表示mode、signed-log、scroll lockなどのpage stateはclient appが所有する。

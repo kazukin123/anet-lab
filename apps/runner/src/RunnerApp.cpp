@@ -23,6 +23,7 @@
 #include "RunnerFrame.hpp"
 #include "TrainPanel.hpp"
 #include "EvalPanel.hpp"
+#include "WorkspaceDialog.hpp"
 
 namespace LOG = anet::log;
 
@@ -122,12 +123,12 @@ private:
     }
 };
 
-std::string GetConfigFilePath()
+std::filesystem::path GetConfigFilePath()
 {
-    return (anet::GetExecutableConfigDir() / "_main.txt").string();
+    return anet::GetExecutableConfigDir() / "_main.txt";
 }
 
-std::string GetConfigFilePath(const wxCmdLineParser& cmdline)
+std::filesystem::path GetConfigFilePath(const wxCmdLineParser& cmdline)
 {
     wxString config_path_arg;
     if (!cmdline.Found("config", &config_path_arg)) {
@@ -139,12 +140,7 @@ std::string GetConfigFilePath(const wxCmdLineParser& cmdline)
         ANET_SYSTEM_ERROR("Invalid command line option --config: value must not be empty.");
     }
 
-    return config_path.string();
-}
-
-std::string GetRunsPath()
-{
-    return (anet::GetExecutableRootDir() / "runs").string();
+    return config_path;
 }
 
 static wxCmdLineEntryDesc desc[] = {
@@ -157,6 +153,22 @@ static wxCmdLineEntryDesc desc[] = {
         "config",
         "main config file path",
         wxCMD_LINE_VAL_STRING,
+        0
+    },
+    {
+        wxCMD_LINE_OPTION,
+        "w",
+        "workspace",
+        "workspace path (relative paths use runner/workspaces)",
+        wxCMD_LINE_VAL_STRING,
+        0
+    },
+    {
+        wxCMD_LINE_SWITCH,
+        nullptr,
+        "select-workspace",
+        "always show the workspace selection dialog",
+        wxCMD_LINE_VAL_NONE,
         0
     },
 
@@ -203,8 +215,62 @@ bool RunnerApp::OnInit()
         return false;
     }
 
-    // ConfigManager
-    config_mgr_ = std::make_unique<anet::ConfigManager>(GetConfigFilePath(cmdline), &cmdline);
+    // 起動入力を排他的に解決し、workspace モードでは config と Run 出力先を同じ箱へ束ねる。
+    wxString config_arg;
+    wxString workspace_arg;
+    const bool has_config = cmdline.Found("config", &config_arg);
+    const bool has_workspace = cmdline.Found("workspace", &workspace_arg);
+    const bool select_workspace = cmdline.Found("select-workspace");
+    const auto config_mode = anet::DetermineAppConfigMode(
+        has_config, has_workspace, select_workspace);
+    std::string startup_warning;
+    std::string startup_info;
+
+    if (config_mode == anet::AppConfigMode::DirectConfig) {
+        startup_info = "Workspace resolution bypassed because --config was specified.";
+        config_mgr_ = std::make_unique<anet::ConfigManager>(GetConfigFilePath(cmdline), &cmdline);
+    } else {
+        anet::WorkspaceService workspace_service(
+            anet::GetExecutableRootDir(), anet::GetAppDataDir());
+        std::optional<anet::WorkspacePaths> workspace;
+
+        if (config_mode == anet::AppConfigMode::ExplicitWorkspace) {
+            workspace = workspace_service.Resolve(workspace_arg.utf8_string(), true);
+        } else if (select_workspace
+            || !anet::runner::LoadWorkspaceDialogSkip(workspace_service.AppDataDir())) {
+            const auto selection = anet::runner::ShowWorkspaceDialog(nullptr, workspace_service);
+            if (!selection.has_value()) {
+                return false;
+            }
+            anet::runner::SaveWorkspaceDialogSkip(
+                workspace_service.AppDataDir(), selection->skip_dialog);
+            workspace = workspace_service.Resolve(selection->input, true);
+        } else {
+            const auto history = workspace_service.LoadHistory();
+            if (!history.empty()) {
+                try {
+                    workspace = workspace_service.Resolve(history.front(), false);
+                } catch (const std::exception& e) {
+                    startup_warning = "Last workspace is unavailable; falling back to _default. path=\""
+                        + history.front() + "\" error=" + e.what();
+                }
+            }
+            if (!workspace.has_value()) {
+                workspace = workspace_service.Resolve("_default", true);
+            }
+        }
+
+        workspace_service.RecordHistory(workspace->input);
+        workspace_service.SaveLastWorkspace(*workspace);
+        config_mgr_ = anet::CreateWorkspaceConfigManager(
+            *workspace, anet::GetExecutableConfigDir(), &cmdline);
+        const auto workspace_root_text = workspace->root.u8string();
+        startup_info = "Workspace selected. input=\"" + workspace->input
+            + "\" path="
+            + std::string(
+                reinterpret_cast<const char*>(workspace_root_text.data()),
+                workspace_root_text.size());
+    }
     auto config_data = config_mgr_->GetConfigData();
 
     // RunnerApp設定生成
@@ -233,6 +299,14 @@ bool RunnerApp::OnInit()
 
     // ログ初期化
     SetupLogging();
+
+    // workspace 確定中の通知は、wxLogGUI ではなく UI と Run file のログへ送る。
+    if (!startup_warning.empty()) {
+        LOG::warn() << startup_warning;
+    }
+    if (!startup_info.empty()) {
+        LOG::info() << startup_info;
+    }
     standard_stream_logger_.LogStatus();
     for (const auto& warning : config_->warnings) {
         LOG::warn() << warning;
@@ -586,7 +660,7 @@ bool RunnerApp::WriteLastRunName(const std::string& run_name) const
     //}
 
     // ファイル名を設定
-    wxFileName fn(anet::GetExecutableRootDir().string(), "runname.txt");
+    wxFileName fn(wxString(anet::GetAppDataDir().wstring()), "runname.txt");
     wxString file_path = fn.GetFullPath();
     //LOG::info() << "file_path=" << file_path;
 

@@ -3,7 +3,7 @@
 > 設計分担: Claude=設計/PRD、実装=Codex、Run/commit=ユーザー。
 > 本書は self-contained。実装時は行番号ではなく、近傍のシンボル名で再検索する。
 > 用語(ワークスペース / workspace config / Run作業セット)はリポジトリルート `CONTEXT.md` が正本。
-> 対応 ADR: [0021-run-classification-by-workspace-folder.md](../adr/0021-run-classification-by-workspace-folder.md)
+> 対応 ADR: [0021-run-classification-by-workspace-folder.md](../adr/0021-run-classification-by-workspace-folder.md)、[0022-mlflow-database-lives-with-workspace-runs.md](../adr/0022-mlflow-database-lives-with-workspace-runs.md)
 
 ## Context(背景・目的)
 
@@ -43,6 +43,9 @@ optuna 出力の Viewer 可視化、`23_optuna_dashboard.bat` 等のハードコ
 | D17 | ダイアログ Cancel=アプリ終了。`--config`/`--workspace`/`--select-workspace` の同時指定は全組み合わせエラー |
 | D18 | workspace path は **`#`・`//` を含まず、UNC(`\\`・`//` の両表記。正規化後の root 判定)も非対応**の契約。`#`/`//` は受理時点と `SaveProperties` の両方で fail-fast(壊れた値を保存しない)。**UNC の拒否はパス入力境界のみ**(SaveProperties は検査しない) |
 | D19 | optuna ハーネスは副作用の**前に**サブコマンド別の事前検証で fail-fast(run 系=workspace root+config、cleanup-running=storage のみ、summarize-study=storage/artifact のみ。箱の自動生成はしない)。preflight は **4 段階分離**(パス解決[mkdir 無し]→source 検証→全成功→target 作成)。**run 系の runs dir は `<ws>/runs` 固定で `--runs-dir` 引数は削除**、`--storage`/`--optuna-artifact-dir` は `<ws>/optuna` 配下限定(跨ぎは summarize-study のみ)。placeholder 展開機能は廃止 |
+| D20 | workspace 入力は外側空白を trim した値を採用・履歴保存し、末尾 `;` も拒否する。`SaveProperties` は値の末尾 `;` も拒否する |
+| D21 | PH1 の補助 launcher(DOT/MP4/TensorBoard/MLflow)は第1引数→`GetAppDataDir()/last_workspace.txt`→`_default`で workspace を選ぶ。`last_workspace.txt` は解決済み絶対パスだけを持つplain text。MLflow DBだけは運用上一体のため例外として `<workspace>/runs/mlflow.db` に置く(ADR 0022) |
+| D22 | Runner は `workspaces/` 直下の全ディレクトリを選択肢へ出す。選択・明示指定された既存ディレクトリに `config/_main.txt` が無ければ、相対・絶対パスともテンプレートから不足 config だけを補完する。既存内容は保持し、履歴自動解決と補助 launcher は自動補完しない。補助 launcher は既存 workspace root と `runs/` を必須とするが、`config/_main.txt` は要求しない |
 
 ## 1. ディレクトリ構造と不変条件
 
@@ -75,6 +78,8 @@ apps/runner/workspaces/
   `workspaces/`(runner root 基準)を基点に解決し、絶対パスなら任意の場所(別ドライブ等)を
   workspace にできる。既定の置き場は `workspaces/` 直下で、その場合はフォルダ名 1 語が
   そのまま指定になる(`--workspace dm_long`)。
+- 入力の外側空白は受理時に trim し、以後は trim 後の値を採用値・履歴値として扱う。
+  `#`、`//` に加えて末尾 `;` も Properties の再解釈を避けるため拒否する。
 - **workspace path は `#` および `//` を含まず、UNC パス(`\\server\share` 等の `\\` 始まり)も
   非対応**(D18)。`#`/`//` は Properties 形式がコメントとして切り捨てるため(履歴の round-trip が
   壊れる)。UNC は入力自体に `//` を含まないが、optuna の include 生成(`config_include_line` の
@@ -106,8 +111,9 @@ apps/runner/workspaces/
       (=最後に使った workspace)。選択して OK で起動。解決できない項目(退避ドライブ未接続等)は
       グレー表示し、選択されたらエラー表示で再選択を促す(履歴からの自動削除はしない)
    2. **workspaces/ 直下スキャン一覧**: コンボとは別の画面項目。`workspaces/` 直下の
-      ディレクトリを列挙し、**ワンクリック(キーボードなら選択+Enter)で即起動**する
-      ランチャー的挙動(OK 不要)
+      ディレクトリを `config/_main.txt` の有無にかかわらず列挙し、**ワンクリック
+      (キーボードなら選択+Enter)で即起動**するランチャー的挙動(OK 不要)。
+      未初期化フォルダは起動確定時にテンプレートで補完する
    3. 任意パスを選ぶ「参照」ボタン(ディレクトリ選択)
    4. 新規 workspace 名の入力欄(入力されたら `config/_main.txt` テンプレートを生成)
    5. 「今後表示しない」チェック(スキップ設定 ON)
@@ -141,6 +147,9 @@ apps/runner/workspaces/
 (`config/_main.txt` を後読みし、`runs/` へ出力する)。存在しないパスの扱い:
 `workspaces/` 相対 1 語(名前形式)なら新規作成としてテンプレート生成、
 それ以外(絶対パス等)は誤指定の可能性が高いため fail-fast。
+解決先ディレクトリが既存で `config/_main.txt` だけが無い場合は、Runner の
+選択・明示指定経路に限り、相対・絶対パスともテンプレートをコピーして補完する。
+既存の `runs/`、`optuna/`、`config/` 内の別ファイルは保持し、既存 `_main.txt` は上書きしない。
 
 **履歴の記録と運用**: 起動確定時(workspace 解決成功後)に、指定文字列をそのまま
 (相対は相対のまま)履歴の先頭へ記録する。MRU 順・重複は指定文字列の完全一致で 1 件に畳む・
@@ -159,6 +168,7 @@ env 選択ブロック(コメントアウト一覧+有効 env 1 行)は `_main.t
 **同一 commit でこのファイルへ移動**する(clean checkout でも正本が常に存在する)。
 `_default` 自動生成とダイアログの新規作成は、このファイルを `config/_main.txt` として
 コピーする。これにより checkout 直後や release 配布物の初回起動でも従来どおり起動できる。
+既存ディレクトリの初回選択時に `config/_main.txt` が無い場合も同じ正本をコピーする。
 テンプレートの更新=このファイルの編集(C++ への埋め込みは更新性が悪く不採用)。
 
 ### 2.2 AP データフォルダ(D5)
@@ -234,7 +244,7 @@ read-only の可能性があるため廃止)。`.gitignore` の `/apps/runner/ru
 - `ConfigData::SaveProperties(const std::filesystem::path&) const` — `ToPropertiesString()` を
   UTF-8 で**一意な temp ファイル名**(同 directory 内)へ書き、**replace-existing セマンティクス**で
   宛先を置換して保存する(Windows では既存宛先への単純な `std::filesystem::rename` が失敗するため、
-  既存ファイルを上書き置換できる方式を明示要件とする)。値に `#` または `//` を含むキーがあれば
+  既存ファイルを上書き置換できる方式を明示要件とする)。値に `#`、`//`、または末尾 `;` を含むキーがあれば
   **保存せずエラー**(D18。Properties の読み側がコメント扱いして round-trip が壊れるため、
   「WARN して壊れた値を保存」はしない。呼び出し側が受理時点で事前検証する契約で、
   ここは最後の防波堤)。検査は `#`・`//` のみで **UNC(`\\`)は検査しない** — UNC は
@@ -307,10 +317,16 @@ include 元基準(`workspaces/<ws>/config/`)で見つからず、config search d
 
 ### 2.6 影響を受ける既存動線
 
-- `apps/10_run.bat`: 変更不要(workspace モードで起動、履歴先頭に従う)。
+- `apps/10_run.bat`: 引数を Runner へ渡し、無指定なら workspace モードの選択規則に従う。
 - `apps/11_batch_run.bat`: `key=value` 位置 override のみで `--config` 無し → workspace モード。
   履歴先頭の workspace に出力される。固定したい場合は bat に `--workspace` を足す(任意)。
 - 旧 `GetRunsPath()`(`RunnerApp.cpp`、未使用の死に関数)はこの機会に削除。
+- Runner は workspace 確定時に解決済み絶対パスを `GetAppDataDir()/last_workspace.txt` へ
+  plain UTF-8 textで保存する。`--config` 起動はこのファイルを参照・更新しない。
+- DOT/MP4/TensorBoard/MLflow launcher は第1引数を優先し、省略時は `last_workspace.txt`、
+  取得不能時は `_default` を使う。launcher は workspace を生成せず、root/runs 不足をエラーにする。
+- MLflow bridge/server のSQLite DBは `<workspace>/runs/mlflow.db` とする。これは
+  「runs直下はRunのみ」の原則に対する補助ツール運用上の明示的例外であり、ADR 0022に記録する。
 
 ## 3. MetricsViewer(PH2)
 
@@ -668,6 +684,7 @@ optuna は PH3 完了まで実行しない。
 - workspace path の禁止文字(`#`・`//`)が受理時点と `SaveProperties` の両方で fail-fast すること、
   **UNC パス(`\\server\share`・`//server/share` の両表記)が受理時点で拒否されること**(D18)
 - ダイアログ: Cancel でアプリ終了、空選択で OK が無効、初回起動で `_default` プリセット(D17)
+- `workspaces/` 直下の完成済み・過去 Run だけ・空のディレクトリがすべて一覧に出ること、未初期化 workspace の初回起動で不足 `_main.txt` だけが補完され、既存 Run が保持されること(D22)
 - env 未選択 workspace で起動 → 「Failed to create env.」+ヒントで Run が始まらないこと
 - 既存 Run(手動で `workspaces/_default/runs/` へ移動)の config_data.txt ダンプが従来と同等であること
 

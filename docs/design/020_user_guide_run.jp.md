@@ -32,17 +32,12 @@
 
 ### 2.2 設定ファイルの選択
 
-引数を省略したrunnerは`apps/runner/config/_main.txt`をmain configとして読む。`_main.txt`は共通設定を`$include`し、CartPole、LunarLander、DropMerge、GridMaze、ImageClsのいずれか1つを有効化する入口である。
+引数を省略したrunnerはworkspace選択ダイアログを表示し、選択したworkspaceの`config/_main.txt`からEnvを選ぶ。共通の`apps/runner/config/_main.txt`はAgent、Network、metric等だけを読み、Env選択はworkspace側へ分離される。新規workspace、および既存ディレクトリの初回選択時に不足しているworkspace configは、`apps/runner/config/_workspace_template.txt`を`config/_main.txt`へコピーして作成される。
 
 ```text
-$include <common.txt>
-$include <metrics_scalar.txt>
-$include <metrics_image.txt>
-$include <agent.txt>
-$include <nn.txt>
-
-$include <LunarLander.txt>
-#$include <DropMerge.txt>
+# apps/runner/workspaces/<workspace>/config/_main.txt
+#$include <LunarLander.txt>
+$include <DropMerge.txt>
 ```
 
 1回のRunでは、意図したEnv設定だけを有効にする。各Env設定内の`app.$`、`metrics.scalar.$`などは、`>`の左から右へ設定群を重ねる。コマンドラインの`key=value`はmerge後にも再適用されるため、最終overrideとして扱われる。
@@ -52,7 +47,7 @@ $include <LunarLander.txt>
 | キー | 役割 |
 |---|---|
 | `app.run_name` | Run名。`{t}`は起動時刻へ展開される |
-| `app.runs_dir` | `apps/runner`を基準とするRun出力先。既定は`runs` |
+| `app.runs_dir` | workspaceモードでは`<workspace>/runs`へRunnerが導出する。設定やCLIからの変更は禁止 |
 | `app.train_auto_start` | `true`ならGUI初期化後に学習を開始する |
 | `app.eval_panel.auto_start` | 手動EvalPanelを起動直後から動かすか |
 | `train.seed` | Runの基準seed |
@@ -75,6 +70,8 @@ $include <LunarLander.txt>
 10_run.bat
 ```
 
+初回は`_default`が新規名として入力済みの選択ダイアログが開く。履歴、`workspaces/`直下の全ディレクトリ一覧、任意パス参照、新規名から選択できる。過去Runだけを移動したフォルダなど`config/_main.txt`が無い既存ディレクトリも一覧に出て、選択時に不足configだけが補完される。新規名は入力中に検証され、不正理由が入力欄の下へ表示されている間はOKを選択できない。`--workspace dm_long`で相対workspaceを直接指定し、`--select-workspace`でスキップ設定に関係なくダイアログを表示できる。相対パスは`apps/runner/workspaces/`基準、絶対パスも使用できる。入力の外側空白は除去され、`#`、`//`、末尾`;`、UNC pathは拒否される。
+
 または、リポジトリルートから実行ファイルとmain configを明示する。
 
 ```powershell
@@ -84,9 +81,11 @@ apps\runner\bin\Release\AnetRLRunner.exe `
   train.seed=12345
 ```
 
+`--config`はworkspace、履歴、`last_workspace.txt`を一切参照しない完全自己記述モードである。`--workspace`または`--select-workspace`との併用は起動エラーになる。
+
 起動時は概ね次の順に初期化される。
 
-1. main configとコマンドラインoverrideを解決する。
+1. workspaceを確定し、共通main config、導出`app.runs_dir`、workspace config、コマンドラインoverrideの順で解決する。
 2. Run directory、`metrics.jsonl`、標準出力ログを準備する。
 3. libtorch backendと登録済みEnvを初期化する。
 4. `RunManager`がEnv、Agent、Train Runner、configured Evalを構築する。
@@ -151,7 +150,7 @@ checkpointから再開する場合は、新しいRunの互換設定にAgent固�
 
 ## 6. 成果物
 
-`app.runs_dir=runs`、`app.run_name=run_{t}`の場合、成果物は`apps/runner/runs/<run_name>/`へ保存される。
+workspaceが`dm_long`、`app.run_name=run_{t}`の場合、成果物は`apps/runner/workspaces/dm_long/runs/<run_name>/`へ保存される。絶対パスworkspaceでも同様に、そのworkspaceの`runs/`配下へ保存される。
 
 | 成果物 | 内容 |
 |---|---|
@@ -172,7 +171,8 @@ checkpointから再開する場合は、新しいRunの互換設定にAgent固�
 - 起動直後にTrainが進まない: `app.train_auto_start`を確認し、左クリックまたは`Shift`でresumeする。
 - Evalが進まない: `Evaluation View`を表示し、`app.eval_panel.auto_start`または`Space`を確認する。
 - CUDA初期化に失敗する: libtorch/CUDA/driverの組み合わせ、`agent.device_type`、eval deviceを確認する。
-- 期待したEnvでない: `_main.txt`で有効なEnv includeと、Run内`config/config_data.txt`を確認する。
+- 期待したEnvでない: 選択workspaceの`config/_main.txt`で有効なEnv includeと、Run内`config/config_data.txt`を確認する。
+- workspaceを選び直したい: `--select-workspace`で起動する。履歴は`GetAppDataDir()/history.txt`、ダイアログ選好は`prefs.txt`を削除すると個別にリセットできる。
 - Viewが空: Log paneのEnv class ID、View factory、初期化errorを確認し、`Reset Layout`も試す。
 
 ## 8. 関連文書

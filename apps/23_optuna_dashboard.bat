@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-rem === batãƒ•ã‚¡ã‚¤ãƒ«ã®å ´æ‰€ã‚’åŸºæº–ã« Optuna DB ã®å ´æ‰€ã¸ç§»å‹• ===
+rem === batƒtƒ@ƒCƒ‹‚ÌêŠ‚ğŠî€‚É Optuna DB ‚ÌêŠ‚ÖˆÚ“® ===
 set "RUNS_OPTUNA=%~dp0runner\runs_optuna"
 set "DASHBOARD_HOST=0.0.0.0"
 set "DASHBOARD_PORT=8088"

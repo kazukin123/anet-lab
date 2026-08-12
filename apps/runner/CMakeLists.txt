@@ -1,4 +1,4 @@
-﻿# anet-lab/apps/runner/CMakeLists.txt
+# anet-lab/apps/runner/CMakeLists.txt
 
 
 # ---------------------------------------------------------------------
@@ -72,7 +72,6 @@ set_target_properties(AnetRLRunner PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_CURRENT_SOURCE_DIR}/bin/RelWithDebInfo
     RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_CURRENT_SOURCE_DIR}/bin/Release
 )
-
 
 # ---------------------------------------------------------------------
 #  DLLコピー

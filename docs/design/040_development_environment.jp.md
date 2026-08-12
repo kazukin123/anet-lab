@@ -379,17 +379,17 @@ C:\Python314\python.exe -m venv .venv
 
 ### 7.2 MLflow bridge
 
-MLflow bridgeとMLflow serverは、リポジトリルートの `.venv` と `apps/runner/runs/mlflow.db` を共有します。依存packageは次のコマンドで導入します。
+MLflow bridgeとMLflow serverは、リポジトリルートの `.venv` と選択workspaceの`runs/mlflow.db`を共有します。launcherの第1引数でworkspaceを指定し、省略時はRunnerが保存した`last_workspace.txt`、取得不能時は`_default`を使います。依存packageは次のコマンドで導入します。
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r viewers\metrics-tools\requirements.txt
 ```
 
-`requirements.txt` はMLflowを `3.13.0` に固定しています。MLflow 3.14.0のserverはPython 3.14で削除された `importlib.abc.Traversable` をimportするため、この組み合わせでは起動できません。`apps/41_mlflow_bridge.bat` と `apps/42_start_mlflow.bat` は、要求versionが導入されていない場合にfail-fastします。
+`requirements.txt` はMLflowを `3.13.0` に固定しています。MLflow 3.14.0のserverはPython 3.14で削除された `importlib.abc.Traversable` をimportするため、この組み合わせでは起動できません。`apps/41_mlflow_bridge.bat` と `apps/42_start_mlflow.bat` は、要求versionが導入されていない場合にfail-fastします。`41_mlflow_bridge.bat`のversion確認はMLflow本体をimportせずpackage metadataを参照し、本体importの開始前に進捗をconsoleへ表示します。
 
 MLflow bridgeは対象Runの `config/config_data.txt` を読み、各 `key = value` をMLflow parameterとして記録します。parameter名で使用できない `[` と `]` は除去し、その他の使用不可文字は `_` へ置換します。変換後のparameter名が衝突する場合は、値を上書きせずfail-fastします。
 
-`apps/41_mlflow_bridge.bat` は `apps/runner/runs/run_*/metrics.jsonl` を列挙し、起動時点で存在するすべての直下RunをMLflowへ変換します。監視中に追加された直下Runも自動的に対象へ追加します。
+`apps/41_mlflow_bridge.bat` は選択workspaceの`runs/run_*/metrics.jsonl`を列挙し、起動時点で存在するすべての直下RunをMLflowへ変換します。監視中に追加された直下Runも自動的に対象へ追加します。
 
 更新時刻が最も新しいRunは、保存済みoffsetが現在の末尾へ追いつくまで優先して変換します。最新Runの処理中も、10 batchごとに過去Runを1 batch処理し、対象はround-robinで交代します。追いついた後は、他のRunを1 batchずつ変換します。
 
