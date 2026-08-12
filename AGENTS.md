@@ -292,7 +292,15 @@ Doxygen ドキュメントを確認する場合:
 cmake --build --preset x64-Debug --target doc
 ```
 
-テストが追加された場合は、このドキュメントに標準のテスト実行手順を追記してください。
+Runner workspace 機構と補助 launcher、MLflow bridge の標準テスト手順:
+
+```powershell
+core\anet-core\bin\Debug\anet-core-test.exe "[workspace]"
+powershell -NoProfile -ExecutionPolicy Bypass -File apps\_resolve_workspace_test.ps1
+.\.venv\Scripts\python.exe viewers\metrics-tools\mlflow_bridge_test.py
+```
+
+新しいテスト実行体や専用スクリプトが追加された場合は、この節に標準の実行手順を追記してください。
 
 ## Python 補助ツールの実行
 
@@ -397,7 +405,12 @@ commit message は Conventional Commits 形式を適用し、Topic Issue 番号�
 - `type` は `feat`、`fix`、`refactor`、`test`、`docs`、`style`、`chore` など、変更の主目的に合わせる。
 - `scope` は `DQN`、`ReplayBuffer`、`config`、`PRD035` など、変更対象または作業単位が分かる短い名前にする。
 - Topic Issue が複数ある場合は、subject 末尾に `#3 #18` のように並べる。
-- AI エージェントは作業まとめ時またはユーザーから求められたときに、変更内容に合う commit message 案を適宜提示する。
+- AI エージェントが commit message 案を提示する場合は、個々の修正差分ではなく、人間がこれから staging / commit する予定の、同一作業コンテキストに関連する未コミット変更のまとまりに対する案として提示する。
+- PRD 対応や機能追加の途中で局所的な不具合修正を含んだ場合でも、それを独立 commit にしない限り、commit message は局所修正ではなく commit 対象全体の主目的を表す。
+- 作業まとめ時に常に commit message 案を出す必要はない。ユーザーが commit する段階、または未コミット変更のまとまりが明確になった段階で必要に応じて提示する。
+
+Topic Issue 番号は、個々の修正経緯ではなく、commit 対象全体の主目的と主な対象領域に基づいて選ぶ。
+例: workspace 機能追加 PRD の中で局所的な不具合修正を含んだ場合でも、同じ commit にまとめるなら主目的は `030_機能追加` とし、独立した不具合修正 commit にする場合だけ `040_不具合対応` を付ける。
 
 Topic Issue 番号は以下の対応表から、変更目的と対象領域に合うものを選ぶ。
 
