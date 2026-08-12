@@ -6,25 +6,27 @@ DropMerge の DefaultDQNAgent 系 Run に関する探索索引です。
 
 | 期間 | 文書 | 主題 | 状態 |
 |---|---|---|---|
-| 2026-07-27〜 | [長期 Run: batch / replay 探索](2026-07-27_longrun-batch-replay.md) | 長期継続学習における batch size、replay ratio、PER、実時間効率 | active |
-| 2026-08-09〜 | [IQN 導入・QR 比較](2026-08-09_iqn.md) | IQN 32/32 の成立性、QR51 比較、Q 値バブルと一時的 NEET、fixed-grid control | active |
+| 2026-07-27〜2026-08-12 | [長期 Run: batch / replay 探索](2026-07-27_longrun-batch-replay.md) | 長期継続学習における batch size、replay ratio、PER、実時間効率 | 一旦クローズ。機構分離・再現性は次campaignへ保留 |
+| 2026-08-09〜 | [IQN 導入・QR 比較](2026-08-09_iqn.md) | IQN 32/32 の成立性、QR51 比較、Q 値バブルと一時的 NEET、stratified / fixed control | active |
 
 ## 現時点の判断
 
-最終更新: 2026-08-10
+最終更新: 2026-08-12
 
 | 設定・探索 | 現在の扱い | 根拠の概要 |
 |---|---|---|
 | `batch_size=512`, `replay_ratio=2.0` | 成熟checkpoint継続時の最終成績優先ライン | 同一checkpointの短期比較と後続長期Runで、B256/RR1より高い性能水準を示した。ただしscratch開始の80M RunではQバブルと条件付きNEETが発生した |
-| `batch_size=128`, `replay_ratio=1.25` | scratch基準・次の対照 | cy01の立ち上がりとQ / lossは安定。再開済みQR対照Runで再確認中 |
-| `batch_size=256`, `replay_ratio=1.0` | 実時間効率の対照。性能主力としては見送り | throughput は高いが、cy07 分岐の 107M では後半が停滞し、B512/RR2 の水準を回収できなかった |
+| `batch_size=128`, `replay_ratio=1.25` | historical scratch reference | cy01の立ち上がりとQ / lossは安定。IQN対応後binaryのQR対照も35.59Mまで旧cy01と同水準で正常closeした |
+| `batch_size=256`, `replay_ratio=1.0` | QR / IQNハイパラ探索の高速基準として採用。長期最終成績ラインは未確定 | scratch QR51が100Mで過去B128/RR1.25 QRと同等の終盤rewardを維持し、同条件IQNより約9%高速だった。RR1によるReplay coverage低下は残る |
 | `batch_size=512`, `replay_ratio=1.0` | pending | B256/RR1 と同じ sample budget で optimizer update 回数だけを減らす診断候補。未実行 |
 | `alpha=5e-5` / `7.5e-5` | invalidated | checkpoint load により AdamW の param group options が復元され、設定ファイル上の alpha が実効学習率になっていない可能性が高い |
 | `per_alpha=0.1` | 採用見送り | 単一分岐では明確な改善がなく、NEET 増加の懸念もあった。確度は低い |
-| IQN 32/32 random | 100M基準Run完了。長期主力への採用は保留 | Q/NEETバブルは自力鎮火し正常close。90–100MでQR51よりEval target rewardが約16%低く、Double Suika未観測 |
-| IQN fixed-grid control | 次の優先診断 | current / target / train-policy tauを`fixed`へ寄せ、IQN固有のsampling varianceとQRとの差を切り分ける |
+| IQN 32/32 random | B256/RR1の100M基準Run完了。長期主力への採用は保留 | 同一B256/RR1のQR51に対し、90–100MのEval target rewardが約8%、Policy rewardが約13%低い。Q/TD/lossは安定し正常close |
+| IQN stratified / fixed control | 次の優先診断 | まず`stratified`で各tau区間を被覆しつつランダム性を残す。必要なら`fixed`をsampling variance除去用controlとして追加する |
+| batch sizeの段階的引き上げ | 将来候補。現時点では未採用 | 今回lineageは結果的にB128→B256→B512となったが、普遍的優位は未検証。ProfiledValue化にはRRとの一体切替とreplay / prefetch境界の診断が必要 |
 
-詳細な条件、当時の解釈、判断の更新履歴は campaign 文書を参照してください。
+運用上は、B128/RR1.25をscratch安定参照、B256/RR1を100M級探索の高速基準、B512/RR2を成熟checkpointの最終成績優先ラインとして使い分ける。
+詳細な条件、当時の解釈、判断の更新履歴、保留残件はcampaign文書を参照してください。
 
 ## DropMerge 共通の学習・挙動知見
 
