@@ -132,6 +132,7 @@ namespace anet::rl::dqn {
 
         // IQN診断（CPU scalar pack）
         torch::Tensor iqn_diagnostics;
+        float upper_tail_priority_spearman = std::numeric_limits<float>::quiet_NaN();
 
     public:
         BatchUpdateResult() = default;
@@ -222,6 +223,9 @@ namespace anet::rl::dqn {
                 return iqn_diagnostics.defined()
                     ? iqn_diagnostics[iqn_diagnostic_index].item<float>()
                     : std::numeric_limits<float>::quiet_NaN();
+            }
+            if (key == "upper_tail_priority_spearman") {
+                return upper_tail_priority_spearman;
             }
 
             // PER Metrics
@@ -371,6 +375,7 @@ namespace anet::rl::dqn {
         ReplayPriorityUpdateResult per_update_result; ///< ReplayBufferへ適用済みの更新結果
         long per_minibatch_size = 0;                  ///< source比率の分母となるminibatch size
         torch::Tensor iqn_diagnostics;                ///< IQN診断scalarのCPU pack
+        float upper_tail_priority_spearman = std::numeric_limits<float>::quiet_NaN();
     };
 
     struct PerPriorityUpdatePending {
@@ -383,6 +388,7 @@ namespace anet::rl::dqn {
         torch::Tensor per_sample_actor_initial_count;   ///< actor_initial sourceのサンプル件数
         long per_minibatch_size = 0;                    ///< source比率の分母となるminibatch size
         int64_t iqn_diagnostics_count = 0;              ///< pack末尾のIQN診断scalar数
+        int64_t upper_tail_std_count = 0;                ///< pack末尾のsample単位upper-tail幅数
         bool per_enabled = false;                       ///< ReplayBuffer priority更新を行うか
         bool enabled = false;                           ///< packed readbackが必要なminibatchか
     };
@@ -487,6 +493,7 @@ namespace anet::rl::dqn {
     private:
         std::optional<TrainActorSnapshotMetrics> train_actor_snapshot_metrics_;
         mutable torch::Tensor iqn_policy_diagnostics_cpu_;
+        mutable torch::Tensor quantile_tail_diagnostics_cpu_;
     };
 
     class ActionPolicy : virtual public anet::ModuleBase {
@@ -657,7 +664,8 @@ namespace anet::rl::dqn {
         PerPriorityUpdatePending PreparePerPriorityUpdate(
             const anet::rl::ExperienceSamples& samples,
             const torch::Tensor& td_error,
-            const torch::Tensor& iqn_diagnostics = torch::Tensor());
+            const torch::Tensor& iqn_diagnostics = torch::Tensor(),
+            const torch::Tensor& upper_tail_std = torch::Tensor());
         PerPriorityUpdateInfo ApplyPerPriorityUpdate(PerPriorityUpdatePending pending);
         PerPriorityUpdateInfo UpdatePerPriorities(const anet::rl::ExperienceSamples& samples, const torch::Tensor& td_error);
     protected:

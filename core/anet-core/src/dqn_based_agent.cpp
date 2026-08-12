@@ -4,6 +4,7 @@
 #include <cmath>
 #include <limits>
 #include <mutex>
+#include <numeric>
 #include <optional>
 #include <utility>
 #include "anet/log.hpp"
@@ -510,6 +511,145 @@ std::shared_ptr<anet::rl::BatchActionInfo> DQNActionInfo::WithAction(torch::Tens
 
 namespace {
 
+struct QuantileTailStatistics {
+    torch::Tensor upper_truncated_std;
+    torch::Tensor lower_truncated_std;
+    torch::Tensor crossing_ratio;
+};
+
+QuantileTailStatistics CalculateQuantileTailStatistics(const torch::Tensor& tau_ordered_quantiles)
+{
+    if (!tau_ordered_quantiles.defined() || tau_ordered_quantiles.dim() < 1) {
+        ANET_SYSTEM_ERROR("CalculateQuantileTailStatistics requires a defined rank>=1 tensor.");
+    }
+
+    // AMP/BF16入力も診断集約前にfloat32へ切り離し、学習graphへ接続しない。
+    const auto quantiles = tau_ordered_quantiles.detach().to(torch::kFloat32);
+    const int64_t num_quantiles = quantiles.size(-1);
+    std::vector<int64_t> result_shape(
+        quantiles.sizes().begin(), quantiles.sizes().end() - 1);
+    const auto result_options = quantiles.options().dtype(torch::kFloat32);
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    if (num_quantiles < 2) {
+        return QuantileTailStatistics{
+            .upper_truncated_std = torch::full(result_shape, nan, result_options),
+            .lower_truncated_std = torch::full(result_shape, nan, result_options),
+            .crossing_ratio = torch::full({}, nan, result_options),
+        };
+    }
+
+    // tau順を維持したまま中央quantileを除外し、上下同数のtruncated stdを求める。
+    const int64_t half = num_quantiles / 2;
+    torch::Tensor median;
+    if (num_quantiles % 2 == 0) {
+        median = (quantiles.select(-1, half - 1) + quantiles.select(-1, half)) / 2.0f;
+    } else {
+        median = quantiles.select(-1, half);
+    }
+    const auto lower = quantiles.slice(-1, 0, half);
+    const auto upper = quantiles.slice(-1, num_quantiles - half, num_quantiles);
+    const auto upper_std = (upper - median.unsqueeze(-1)).square().mean(-1).sqrt();
+    const auto lower_std = (median.unsqueeze(-1) - lower).square().mean(-1).sqrt();
+    const auto crossing = quantiles.slice(-1, 0, num_quantiles - 1)
+        .gt(quantiles.slice(-1, 1, num_quantiles))
+        .to(torch::kFloat32).mean();
+    return QuantileTailStatistics{
+        .upper_truncated_std = upper_std,
+        .lower_truncated_std = lower_std,
+        .crossing_ratio = crossing,
+    };
+}
+
+void AttachQuantileTailPolicyDiagnostics(
+    const std::shared_ptr<DQNActionInfo>& action_info,
+    const torch::Tensor& tau_ordered_quantiles)
+{
+    const auto stats = CalculateQuantileTailStatistics(tau_ordered_quantiles);
+    const auto float_quantiles = tau_ordered_quantiles.detach().to(torch::kFloat32);
+    torch::Tensor disagreement;
+    if (tau_ordered_quantiles.size(-1) < 2) {
+        disagreement = torch::full(
+            {}, std::numeric_limits<float>::quiet_NaN(),
+            float_quantiles.options().dtype(torch::kFloat32));
+    } else {
+        const auto full_q = float_quantiles.mean(-1);
+        const auto lower_risk_score = full_q - stats.lower_truncated_std;
+        disagreement = full_q.argmax(1).ne(lower_risk_score.argmax(1))
+            .to(torch::kFloat32).mean();
+    }
+
+    auto& aux = action_info->GetAuxData();
+    aux["quantile_tail_upper_std"] = stats.upper_truncated_std;
+    aux["quantile_tail_lower_std"] = stats.lower_truncated_std;
+    aux["quantile_tail_full_quantiles"] = tau_ordered_quantiles.detach();
+    aux["quantile_tail_global_diagnostics"] = torch::stack({
+        disagreement, stats.crossing_ratio,
+    }).detach();
+}
+
+std::vector<double> MakeAverageRanks(const std::vector<float>& values)
+{
+    std::vector<size_t> order(values.size());
+    std::iota(order.begin(), order.end(), 0);
+    std::sort(order.begin(), order.end(), [&](size_t lhs, size_t rhs) {
+        return values[lhs] < values[rhs];
+    });
+
+    std::vector<double> ranks(values.size());
+    size_t begin = 0;
+    while (begin < order.size()) {
+        size_t end = begin + 1;
+        while (end < order.size() && values[order[end]] == values[order[begin]]) {
+            ++end;
+        }
+        const double average_rank = (static_cast<double>(begin + 1) + static_cast<double>(end)) / 2.0;
+        for (size_t i = begin; i < end; ++i) {
+            ranks[order[i]] = average_rank;
+        }
+        begin = end;
+    }
+    return ranks;
+}
+
+float CalculateSpearmanCorrelation(const torch::Tensor& lhs_cpu, const torch::Tensor& rhs_cpu)
+{
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    if (!lhs_cpu.defined() || !rhs_cpu.defined()
+        || lhs_cpu.dim() != 1 || rhs_cpu.sizes() != lhs_cpu.sizes()
+        || lhs_cpu.size(0) < 2) {
+        return nan;
+    }
+
+    // clipで生じた同値を平均順位へまとめ、minibatch内の順位相関だけをCPUで求める。
+    const auto lhs = lhs_cpu.to(torch::kFloat32).contiguous();
+    const auto rhs = rhs_cpu.to(torch::kFloat32).contiguous();
+    if (!torch::isfinite(lhs).all().item<bool>() || !torch::isfinite(rhs).all().item<bool>()) {
+        return nan;
+    }
+    std::vector<float> lhs_values(lhs.data_ptr<float>(), lhs.data_ptr<float>() + lhs.numel());
+    std::vector<float> rhs_values(rhs.data_ptr<float>(), rhs.data_ptr<float>() + rhs.numel());
+    const auto lhs_ranks = MakeAverageRanks(lhs_values);
+    const auto rhs_ranks = MakeAverageRanks(rhs_values);
+    const double lhs_mean = std::accumulate(lhs_ranks.begin(), lhs_ranks.end(), 0.0) / lhs_ranks.size();
+    const double rhs_mean = std::accumulate(rhs_ranks.begin(), rhs_ranks.end(), 0.0) / rhs_ranks.size();
+
+    double covariance = 0.0;
+    double lhs_square_sum = 0.0;
+    double rhs_square_sum = 0.0;
+    for (size_t i = 0; i < lhs_ranks.size(); ++i) {
+        const double lhs_centered = lhs_ranks[i] - lhs_mean;
+        const double rhs_centered = rhs_ranks[i] - rhs_mean;
+        covariance += lhs_centered * rhs_centered;
+        lhs_square_sum += lhs_centered * lhs_centered;
+        rhs_square_sum += rhs_centered * rhs_centered;
+    }
+    if (lhs_square_sum == 0.0 || rhs_square_sum == 0.0) {
+        return nan;
+    }
+    return static_cast<float>(std::clamp(
+        covariance / std::sqrt(lhs_square_sum * rhs_square_sum), -1.0, 1.0));
+}
+
 enum class ActionUqeScalarKind {
     kWinRate,
     kMargin,
@@ -650,6 +790,78 @@ std::optional<float> DQNActionInfo::GetScalar(const std::string& key, int64_t) c
             iqn_policy_diagnostics_cpu_ = diagnostics.to(torch::kCPU);
         }
         return iqn_policy_diagnostics_cpu_[diagnostics_index].item<float>();
+    }
+
+    int64_t quantile_tail_index = -1;
+    if (key == "policy_upper_truncated_std") quantile_tail_index = 0;
+    else if (key == "policy_lower_truncated_std") quantile_tail_index = 1;
+    else if (key == "lower_risk_full_q_argmax_disagreement") quantile_tail_index = 2;
+    else if (key == "quantile_crossing_ratio") quantile_tail_index = 3;
+    else if (key == "policy_selected_crossing_depth_p90_ratio") quantile_tail_index = 4;
+    if (quantile_tail_index >= 0) {
+        const auto upper_it = aux_.find("quantile_tail_upper_std");
+        const auto lower_it = aux_.find("quantile_tail_lower_std");
+        const auto quantiles_it = aux_.find("quantile_tail_full_quantiles");
+        const auto global_it = aux_.find("quantile_tail_global_diagnostics");
+        if (upper_it == aux_.end() || lower_it == aux_.end()
+            || quantiles_it == aux_.end() || global_it == aux_.end()) {
+            return std::numeric_limits<float>::quiet_NaN();
+        }
+
+        // 最終実行actionへ追従した幅とcrossing深度、global診断を初回参照時だけ1本にpackする。
+        if (!quantile_tail_diagnostics_cpu_.defined()) {
+            const auto& upper = upper_it->second;
+            const auto& lower = lower_it->second;
+            const auto& quantiles = quantiles_it->second;
+            const auto& global = global_it->second;
+            const int64_t batch_size = GetAction().size(0);
+            if (upper.dim() != 2 || lower.sizes() != upper.sizes()
+                || upper.size(0) != batch_size || quantiles.dim() != 3
+                || quantiles.size(0) != batch_size
+                || quantiles.size(1) != upper.size(1)
+                || global.dim() != 1 || global.size(0) != 2) {
+                ANET_SYSTEM_ERROR("DQNActionInfo: invalid quantile tail diagnostic payload. upper="
+                    << upper.sizes() << " lower=" << lower.sizes()
+                    << " quantiles=" << quantiles.sizes() << " global=" << global.sizes());
+            }
+            const auto action = GetAction(upper.device()).to(torch::kInt64).unsqueeze(1);
+            const auto selected_upper = upper.gather(1, action).squeeze(1).mean();
+            const auto selected_lower = lower.gather(1, action).squeeze(1).mean();
+            torch::Tensor selected_crossing_depth_p90;
+            const int64_t num_quantiles = quantiles.size(2);
+            if (num_quantiles < 2) {
+                selected_crossing_depth_p90 = torch::full(
+                    {}, std::numeric_limits<float>::quiet_NaN(), upper.options());
+            } else {
+                // positive crossingだけを母集団にし、lane別nearest-rank p90をdevice上で選ぶ。
+                const auto quantile_action = action.unsqueeze(2).expand({ -1, 1, num_quantiles });
+                const auto selected_quantiles = quantiles.gather(1, quantile_action)
+                    .squeeze(1).to(torch::kFloat32);
+                const auto depths = (selected_quantiles.slice(1, 0, num_quantiles - 1)
+                    - selected_quantiles.slice(1, 1, num_quantiles)).clamp_min(0.0f);
+                const auto ranges = std::get<0>(selected_quantiles.max(1))
+                    - std::get<0>(selected_quantiles.min(1));
+                const auto normalized_depths = depths / ranges.clamp_min(
+                	std::numeric_limits<float>::epsilon()).unsqueeze(1);
+                const auto positive_count = depths.gt(0.0f).sum(1);
+                const auto nearest_rank = (positive_count.to(torch::kFloat32) * 0.9f)
+                    .ceil().to(torch::kInt64);
+                const int64_t pair_count = num_quantiles - 1;
+                const auto sorted_depths = std::get<0>(normalized_depths.sort(1));
+                const auto sorted_index = (pair_count - positive_count + nearest_rank - 1)
+                    .clamp(0, pair_count - 1).unsqueeze(1);
+                const auto lane_p90 = sorted_depths.gather(1, sorted_index).squeeze(1);
+                selected_crossing_depth_p90 = torch::where(
+                    positive_count.gt(0), lane_p90, torch::zeros_like(lane_p90)).mean();
+            }
+            quantile_tail_diagnostics_cpu_ = torch::cat({
+                selected_upper.reshape({ 1 }),
+                selected_lower.reshape({ 1 }),
+                global,
+                selected_crossing_depth_p90.reshape({ 1 }),
+            }).detach().to(torch::kCPU);
+        }
+        return quantile_tail_diagnostics_cpu_[quantile_tail_index].item<float>();
     }
 
     const auto episode_start_key = ParseEpisodeStartActionMarginKey(key);
@@ -941,6 +1153,11 @@ std::shared_ptr<DQNActionInfo> anet::rl::dqn::ActionPolicy::MakeActionInfo(const
     aux["q_values"] = q_values;
     aux["q_quantiles"] = q_quantiles;
     aux["raw_actions"] = action_values;
+
+    // QRの固定quantile列はtau順のfull distributionとしてそのまま診断へ使う。
+    if (config_.quantile_mode == "qr" && q_quantiles.defined()) {
+        AttachQuantileTailPolicyDiagnostics(action_info, q_quantiles);
+    }
 
     return action_info;
 }
@@ -1296,6 +1513,9 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
     if (full_q_quantiles.defined()) {
         action_info->GetAuxData()["full_q_values"] = full_q_values.detach();
         action_info->GetAuxData()["full_q_quantiles"] = full_q_quantiles.detach();
+        if (config_.full_distribution_query.tau_rule.sample_mode == "fixed") {
+            AttachQuantileTailPolicyDiagnostics(action_info, full_q_quantiles);
+        }
     }
 
     // 行動決定済みのTensorだけを使い、Policy診断を1本のreadback単位へまとめる。
@@ -1780,7 +2000,8 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& loss)
 PerPriorityUpdatePending Learner::PreparePerPriorityUpdate(
     const anet::rl::ExperienceSamples& samples,
     const torch::Tensor& td_error,
-    const torch::Tensor& iqn_diagnostics)
+    const torch::Tensor& iqn_diagnostics,
+    const torch::Tensor& upper_tail_std)
 {
     PerPriorityUpdatePending pending;
 
@@ -1794,6 +2015,7 @@ PerPriorityUpdatePending Learner::PreparePerPriorityUpdate(
     pending.per_enabled = config_.use_per;
     pending.per_minibatch_size = batch_size;
     pending.iqn_diagnostics_count = iqn_diagnostics.defined() ? iqn_diagnostics.numel() : 0;
+    pending.upper_tail_std_count = config_.use_per && upper_tail_std.defined() ? upper_tail_std.numel() : 0;
     if (samples.is_weights.defined()) {
         pending.per_is_weights = samples.is_weights;
     }
@@ -1851,9 +2073,18 @@ PerPriorityUpdatePending Learner::PreparePerPriorityUpdate(
         readback_parts.push_back(iqn_diagnostics.detach().to(
             torch::TensorOptions().dtype(torch::kFloat32).device(td_error.device())).contiguous());
     }
+    if (pending.upper_tail_std_count > 0) {
+        if (upper_tail_std.dim() != 1 || upper_tail_std.size(0) != batch_size) {
+            ANET_SYSTEM_ERROR("Learner::PreparePerPriorityUpdate expected upper_tail_std shape ["
+                << batch_size << "], actual=" << upper_tail_std.sizes());
+        }
+        readback_parts.push_back(upper_tail_std.detach().to(
+            torch::TensorOptions().dtype(torch::kFloat32).device(td_error.device())).contiguous());
+    }
     auto packed_readback = torch::cat(readback_parts).contiguous();
     const int64_t priority_value_count = config_.use_per ? batch_size + 1 : 0;
-    ANET_ASSERT_SHAPE(packed_readback, { priority_value_count + pending.iqn_diagnostics_count });
+    ANET_ASSERT_SHAPE(packed_readback, {
+        priority_value_count + pending.iqn_diagnostics_count + pending.upper_tail_std_count });
 
     if (packed_readback.is_cuda() && per_priority_copy_stream_.has_value()) {
         ANET_PROFILE_SCOPE_FULL(launch, "Learner::PerPriorityD2H.launch");
@@ -1898,14 +2129,16 @@ PerPriorityUpdateInfo Learner::ApplyPerPriorityUpdate(PerPriorityUpdatePending p
         auto packed_cpu = pending.priority_readback.pinned_result.to(torch::kFloat32).contiguous();
         ANET_ASSERT_DEVICE_CPU(packed_cpu);
         const int64_t priority_value_count = pending.per_enabled ? batch_size + 1 : 0;
-        ANET_ASSERT_SHAPE(packed_cpu, { priority_value_count + pending.iqn_diagnostics_count });
+        ANET_ASSERT_SHAPE(packed_cpu, {
+            priority_value_count + pending.iqn_diagnostics_count + pending.upper_tail_std_count });
 
+        torch::Tensor priorities_cpu;
         if (pending.per_enabled) {
             // pack先頭のpriorityとclip件数だけをReplayBuffer更新へ渡す。
             const int64_t clipped_count = static_cast<int64_t>(packed_cpu[batch_size].item<float>());
             info.per_clipped_count = torch::tensor(
                 clipped_count, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
-            auto priorities_cpu = packed_cpu.narrow(0, 0, batch_size).contiguous();
+            priorities_cpu = packed_cpu.narrow(0, 0, batch_size).contiguous();
             info.per_priorities = priorities_cpu;
             auto priorities_ptr = priorities_cpu.data_ptr<float>();
             priorities_vec.assign(priorities_ptr, priorities_ptr + batch_size);
@@ -1913,6 +2146,14 @@ PerPriorityUpdateInfo Learner::ApplyPerPriorityUpdate(PerPriorityUpdatePending p
         if (pending.iqn_diagnostics_count > 0) {
             info.iqn_diagnostics = packed_cpu.narrow(
                 0, priority_value_count, pending.iqn_diagnostics_count).contiguous();
+        }
+        if (pending.upper_tail_std_count > 0) {
+            const auto upper_tail_std_cpu = packed_cpu.narrow(
+                0,
+                priority_value_count + pending.iqn_diagnostics_count,
+                pending.upper_tail_std_count).contiguous();
+            info.upper_tail_priority_spearman = CalculateSpearmanCorrelation(
+                upper_tail_std_cpu, priorities_cpu);
         }
     }
 
@@ -1972,6 +2213,7 @@ std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::MakeBatchUpdateResult
     result->q_gap = q_gap;
     result->q_gap_rel = q_gap_rel;
     result->iqn_diagnostics = per_info.iqn_diagnostics;
+    result->upper_tail_priority_spearman = per_info.upper_tail_priority_spearman;
     if (per_info.per_minibatch_size > 0) {
         result->per_minibatch_size = per_info.per_minibatch_size;
         result->per_clipped_count = per_info.per_clipped_count;
@@ -2500,6 +2742,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
     torch::Tensor loss;
     torch::Tensor td_error_tensor;
+    torch::Tensor upper_tail_std;
     QuantileMetrics metrics;
 
     // ============================================================
@@ -2522,6 +2765,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         ANET_ASSERT_NAN(current_dist_all);
 
         auto current_dist = GatherActionQuantiles(current_dist_all, samples.actions);
+        upper_tail_std = CalculateQuantileTailStatistics(current_dist).upper_truncated_std;
 
         // メトリクス用: 平均値をmax_qとして報告
         auto q_values_mean = current_out.At("q"); // すでに計算済みの平均Q値 (B, A)
@@ -2580,7 +2824,7 @@ QRLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     } // End of Autocast Scope
 
     ANET_PROFILE_SCOPE(prepare_per);
-    auto per_pending = PreparePerPriorityUpdate(samples, td_error_tensor);
+    auto per_pending = PreparePerPriorityUpdate(samples, td_error_tensor, torch::Tensor(), upper_tail_std);
 
     ANET_PROFILE_SCOPE_NEXT(optimize);
     auto opt_result = Optimize(loss);
@@ -2636,6 +2880,7 @@ IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     torch::Tensor loss;
     torch::Tensor td_error_tensor;
     torch::Tensor iqn_diagnostics;
+    torch::Tensor upper_tail_std;
     QuantileMetrics metrics;
 
     // current・target-policy・target-valueで異なるtau集合を使い、行動選択と分布回帰の役割を分離する。
@@ -2658,6 +2903,9 @@ IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         ANET_ASSERT_NAN(current_dist_all);
 
         auto current_dist = GatherActionQuantiles(current_dist_all, samples.actions);
+        const auto current_tau_order = std::get<1>(current_taus.sort(/*dim=*/1));
+        const auto tau_ordered_current_dist = current_dist.gather(1, current_tau_order);
+        upper_tail_std = CalculateQuantileTailStatistics(tau_ordered_current_dist).upper_truncated_std;
         auto q_values_mean = current_out.At("q");
         metrics = MakeQuantileMetrics(current_dist, q_values_mean);
 
@@ -2745,9 +2993,7 @@ IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
             const auto initial_count = initial_mask.to(torch::kFloat32).sum();
             const auto masked_mean = [&](const torch::Tensor& values) {
                 const auto value_sum = torch::where(initial_mask, values, torch::zeros_like(values)).sum();
-                return torch::where(
-                    initial_count.gt(0.0f),
-                    value_sum / initial_count.clamp_min(1.0f),
+                return torch::where(initial_count.gt(0.0f), value_sum / initial_count.clamp_min(1.0f),
                     torch::full({}, nan, float_options));
             };
 
@@ -2776,7 +3022,7 @@ IQNLearner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
 
     // backward前にTD errorからPER更新内容を準備し、optimizer完了後にReplayBufferへ反映する。
     ANET_PROFILE_SCOPE(prepare_per);
-    auto per_pending = PreparePerPriorityUpdate(samples, td_error_tensor, iqn_diagnostics);
+    auto per_pending = PreparePerPriorityUpdate(samples, td_error_tensor, iqn_diagnostics, upper_tail_std);
 
     ANET_PROFILE_SCOPE_NEXT(optimize);
     auto opt_result = Optimize(loss);

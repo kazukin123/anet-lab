@@ -1966,7 +1966,9 @@ TEST_CASE("PER priority prepare/apply counts only priorities changed by clipping
 
     // clip前priorityが上限未満・等値・超過となる3境界を同時に検証する。
     auto td_error = torch::tensor({ -0.2f, 0.9f, 2.0f });
-    auto pending = learner.PreparePerPriorityUpdate(samples, td_error);
+    auto upper_tail_std = torch::tensor({ 1.0f, 2.0f, 3.0f });
+    auto pending = learner.PreparePerPriorityUpdate(
+        samples, td_error, torch::Tensor(), upper_tail_std);
 
     REQUIRE(pending.enabled);
     const auto expected_indices = std::vector<int64_t>{ 3, 4, 5 };
@@ -2020,6 +2022,55 @@ TEST_CASE("PER priority prepare/apply counts only priorities changed by clipping
     CHECK(batch_result->GetScalar("per_actor_learner_ratio_median", -1).value() == Catch::Approx(1.25f));
     CHECK(batch_result->GetScalar("per_actor_learner_log_ratio_mean", -1).value() == Catch::Approx(-0.5f));
     CHECK(batch_result->GetScalar("per_actor_learner_spearman", -1).value() == Catch::Approx(0.6f));
+    const auto upper_tail_spearman = batch_result->GetScalar("upper_tail_priority_spearman", -1);
+    REQUIRE(upper_tail_spearman.has_value());
+    CHECK(*upper_tail_spearman == Catch::Approx(std::sqrt(3.0f) / 2.0f).margin(1.0e-6f));
+}
+
+TEST_CASE("Upper-tail priority Spearman handles rank direction and undefined cases", "[dqn][per][quantile][metrics]")
+{
+    auto calculate = [](const torch::Tensor& td_error, const torch::Tensor& upper_tail_std, bool use_per) {
+        dqn::LearnerConfig config;
+        config.use_per = use_per;
+        config.per_eps = 0.0f;
+
+        auto env_spec = MakeLearnerEnvSpec();
+        TestNetworkModel model;
+        dqn::RuntimeVars vars;
+        TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec);
+        auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
+        learner.UseReplayBuffer(replay_buffer);
+
+        const int64_t batch_size = td_error.size(0);
+        rl::ExperienceSamples samples;
+        samples.replay_item_keys = torch::arange(
+            batch_size, torch::TensorOptions().dtype(torch::kInt64));
+        auto pending = learner.PreparePerPriorityUpdate(
+            samples, td_error, torch::Tensor(), upper_tail_std);
+        auto per_result = learner.ApplyPerPriorityUpdate(std::move(pending));
+        auto batch_result = learner.MakeBatchUpdateResult(
+            torch::tensor(0.0f),
+            td_error,
+            dqn::OptimizerStepResult{},
+            torch::zeros({ batch_size }),
+            torch::zeros({ batch_size }),
+            per_result);
+        return batch_result->GetScalar("upper_tail_priority_spearman", -1).value();
+    };
+
+    // raw priorityと同順・逆順なら、それぞれ順位相関は+1・-1になる。
+    const auto increasing_priority = torch::tensor({ 1.0f, 2.0f, 3.0f });
+    CHECK(calculate(increasing_priority, torch::tensor({ 1.0f, 2.0f, 3.0f }), true)
+        == Catch::Approx(1.0f));
+    CHECK(calculate(increasing_priority, torch::tensor({ 3.0f, 2.0f, 1.0f }), true)
+        == Catch::Approx(-1.0f));
+
+    // 順位分散がない場合、batch不足、PER無効は相関を定義しない。
+    CHECK(std::isnan(calculate(torch::tensor({ 1.0f }), torch::tensor({ 2.0f }), true)));
+    CHECK(std::isnan(calculate(increasing_priority, torch::ones({ 3 }), true)));
+    CHECK(std::isnan(calculate(torch::tensor({ 1.0f, -1.0f, 1.0f }),
+        torch::tensor({ 1.0f, 2.0f, 3.0f }), true)));
+    CHECK(std::isnan(calculate(increasing_priority, torch::tensor({ 1.0f, 2.0f, 3.0f }), false)));
 }
 
 TEST_CASE("PER IQN diagnostics classify only explicit initial priority sources", "[dqn][per][iqn][metrics]")
@@ -2401,6 +2452,13 @@ TEST_CASE("DefaultDQNAgent IQN learner updates through the public learner path",
             CHECK(std::isfinite(*priority_mc_ratio));
         } else {
             CHECK(std::isnan(*priority_mc_ratio));
+        }
+        const auto upper_tail_spearman = result->GetScalar("upper_tail_priority_spearman", -1);
+        REQUIRE(upper_tail_spearman.has_value());
+        if (use_per && current_num_taus >= 2) {
+            CHECK(std::isfinite(*upper_tail_spearman));
+        } else {
+            CHECK(std::isnan(*upper_tail_spearman));
         }
 
         const auto initial_count = result->GetScalar("per_sample_initial_count", -1);
@@ -2969,6 +3027,188 @@ TEST_CASE("ActionPolicy variants preserve action info keys and shapes", "[dqn][a
     }
 }
 
+TEST_CASE("QR policy exposes quantile tail diagnostics through action info", "[dqn][qr][action_policy][metrics]")
+{
+    auto network = MakePassthroughNetwork(2, 4);
+    const auto q_quantiles = torch::tensor({
+        {
+            { 0.0f, 1.0f, 2.0f, 3.0f },
+            { 0.0f, 0.0f, 0.0f, 4.0f },
+        },
+        {
+            { 0.0f, 0.0f, 0.0f, 0.0f },
+            { -4.0f, 0.0f, 0.0f, 0.0f },
+        },
+    });
+    const auto obs = anet::TensorDict{
+        { "q", q_quantiles.mean(2) },
+        { "q_dist", q_quantiles },
+    };
+
+    dqn::ActionPolicyConfig config;
+    config.quantile_mode = "qr";
+    dqn::EpsilonGreedyActionPolicy policy(config);
+    auto rnd = std::make_shared<anet::RandomGenerator>(123);
+    auto action_info = policy.SelectAction(obs, /*greedy_only=*/true, network, rnd, {});
+
+    const float selected_tail_mean = std::sqrt(1.25f) / 2.0f;
+    const auto crossing_depth_p90 =
+        action_info->GetScalar("policy_selected_crossing_depth_p90_ratio");
+    const auto upper = action_info->GetScalar("policy_upper_truncated_std");
+    const auto lower = action_info->GetScalar("policy_lower_truncated_std");
+    const auto disagreement = action_info->GetScalar("lower_risk_full_q_argmax_disagreement");
+    const auto crossing = action_info->GetScalar("quantile_crossing_ratio");
+    REQUIRE(crossing_depth_p90.has_value());
+    REQUIRE(upper.has_value());
+    REQUIRE(lower.has_value());
+    REQUIRE(disagreement.has_value());
+    REQUIRE(crossing.has_value());
+    CHECK(*upper == Catch::Approx(selected_tail_mean));
+    CHECK(*lower == Catch::Approx(selected_tail_mean));
+    CHECK(*disagreement == Catch::Approx(0.5f));
+    CHECK(*crossing == Catch::Approx(0.0f));
+    CHECK(*crossing_depth_p90 == Catch::Approx(0.0f));
+    CHECK(*action_info->GetScalar("policy_selected_crossing_depth_p90_ratio")
+        == Catch::Approx(0.0f));
+
+    // action差し替え後は上下幅だけを最終actionから再集約し、global診断は維持する。
+    auto replaced = std::dynamic_pointer_cast<dqn::DQNActionInfo>(action_info->WithAction(torch::ones(
+        { 2 }, torch::TensorOptions().dtype(torch::kInt64))));
+    REQUIRE(replaced != nullptr);
+    CHECK(*replaced->GetScalar("policy_upper_truncated_std") == Catch::Approx(std::sqrt(2.0f)));
+    CHECK(*replaced->GetScalar("policy_lower_truncated_std") == Catch::Approx(std::sqrt(2.0f)));
+    CHECK(*replaced->GetScalar("lower_risk_full_q_argmax_disagreement") == Catch::Approx(0.5f));
+    CHECK(*replaced->GetScalar("quantile_crossing_ratio") == Catch::Approx(0.0f));
+    CHECK(*replaced->GetScalar("policy_selected_crossing_depth_p90_ratio") == Catch::Approx(0.0f));
+}
+
+TEST_CASE("QR policy exposes selected action crossing depth p90", "[dqn][qr][action_policy][metrics]")
+{
+    const auto q_quantiles = torch::tensor({ { { 0.0f, 2.0f, 1.0f, 4.0f, 2.0f } } });
+    const auto obs = anet::TensorDict{
+        { "q", q_quantiles.mean(2) },
+        { "q_dist", q_quantiles },
+    };
+
+    dqn::ActionPolicyConfig config;
+    config.quantile_mode = "qr";
+    dqn::EpsilonGreedyActionPolicy policy(config);
+    auto action_info = policy.SelectAction(
+        obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 5),
+        std::make_shared<anet::RandomGenerator>(123), {});
+
+    const auto crossing_depth_p90 =
+        action_info->GetScalar("policy_selected_crossing_depth_p90_ratio");
+    REQUIRE(crossing_depth_p90.has_value());
+    CHECK(*crossing_depth_p90 == Catch::Approx(0.5f));
+}
+
+TEST_CASE("QR policy reports zero crossing depth without positive crossings", "[dqn][qr][action_policy][metrics]")
+{
+    const auto q_quantiles = torch::tensor({
+        { { 0.0f, 1.0f, 2.0f, 3.0f, 4.0f } },
+        { { 2.0f, 2.0f, 2.0f, 2.0f, 2.0f } },
+    });
+    const auto obs = anet::TensorDict{
+        { "q", q_quantiles.mean(2) },
+        { "q_dist", q_quantiles },
+    };
+
+    dqn::ActionPolicyConfig config;
+    config.quantile_mode = "qr";
+    dqn::EpsilonGreedyActionPolicy policy(config);
+    auto action_info = policy.SelectAction(
+        obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 5),
+        std::make_shared<anet::RandomGenerator>(123), {});
+
+    CHECK(*action_info->GetScalar("policy_selected_crossing_depth_p90_ratio")
+        == Catch::Approx(0.0f));
+}
+
+TEST_CASE("QR selected crossing depth aggregates BF16 quantiles in float32", "[dqn][qr][action_policy][metrics][bf16]")
+{
+    const auto q_quantiles = torch::tensor({ { { 0.0f, 2.0f, 1.0f, 4.0f, 2.0f } } })
+        .to(torch::kBFloat16);
+    const auto obs = anet::TensorDict{
+        { "q", q_quantiles.mean(2) },
+        { "q_dist", q_quantiles },
+    };
+
+    dqn::ActionPolicyConfig config;
+    config.quantile_mode = "qr";
+    dqn::EpsilonGreedyActionPolicy policy(config);
+    auto action_info = policy.SelectAction(
+        obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 5),
+        std::make_shared<anet::RandomGenerator>(123), {});
+
+    CHECK(*action_info->GetScalar("policy_selected_crossing_depth_p90_ratio")
+        == Catch::Approx(0.5f));
+}
+
+TEST_CASE("QR selected crossing depth follows the final action per lane", "[dqn][qr][action_policy][metrics]")
+{
+    const auto q_quantiles = torch::tensor({
+        {
+            { 10.0f, 12.0f, 11.0f, 14.0f, 12.0f },
+            { 0.0f, 1.0f, 2.0f, 3.0f, 4.0f },
+        },
+        {
+            { 10.0f, 11.0f, 12.0f, 13.0f, 14.0f },
+            { 0.0f, 3.0f, 0.0f, 4.0f, 0.0f },
+        },
+    });
+    const auto obs = anet::TensorDict{
+        { "q", q_quantiles.mean(2) },
+        { "q_dist", q_quantiles },
+    };
+
+    dqn::ActionPolicyConfig config;
+    config.quantile_mode = "qr";
+    dqn::EpsilonGreedyActionPolicy policy(config);
+    auto action_info = policy.SelectAction(
+        obs, /*greedy_only=*/true, MakePassthroughNetwork(2, 5),
+        std::make_shared<anet::RandomGenerator>(123), {});
+    CHECK(*action_info->GetScalar("policy_selected_crossing_depth_p90_ratio")
+        == Catch::Approx(0.25f));
+
+    auto replaced = std::dynamic_pointer_cast<dqn::DQNActionInfo>(action_info->WithAction(torch::ones(
+        { 2 }, torch::TensorOptions().dtype(torch::kInt64))));
+    REQUIRE(replaced != nullptr);
+    CHECK(*replaced->GetScalar("policy_selected_crossing_depth_p90_ratio")
+        == Catch::Approx(0.5f));
+}
+
+TEST_CASE("QR policy tail diagnostics exclude the odd median and reject K below two", "[dqn][qr][action_policy][metrics]")
+{
+    dqn::ActionPolicyConfig config;
+    config.quantile_mode = "qr";
+    dqn::EpsilonGreedyActionPolicy policy(config);
+    auto rnd = std::make_shared<anet::RandomGenerator>(123);
+
+    const auto odd_quantiles = torch::tensor({ { { 0.0f, 1.0f, 5.0f } } });
+    const auto odd_obs = anet::TensorDict{
+        { "q", odd_quantiles.mean(2) },
+        { "q_dist", odd_quantiles },
+    };
+    auto odd_info = policy.SelectAction(
+        odd_obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 3), rnd, {});
+    CHECK(*odd_info->GetScalar("policy_upper_truncated_std") == Catch::Approx(4.0f));
+    CHECK(*odd_info->GetScalar("policy_lower_truncated_std") == Catch::Approx(1.0f));
+
+    const auto one_quantile = torch::tensor({ { { 2.0f } } });
+    const auto one_obs = anet::TensorDict{
+        { "q", one_quantile.mean(2) },
+        { "q_dist", one_quantile },
+    };
+    auto one_info = policy.SelectAction(
+        one_obs, /*greedy_only=*/true, MakePassthroughNetwork(1, 1), rnd, {});
+    CHECK(std::isnan(*one_info->GetScalar("policy_upper_truncated_std")));
+    CHECK(std::isnan(*one_info->GetScalar("policy_lower_truncated_std")));
+    CHECK(std::isnan(*one_info->GetScalar("lower_risk_full_q_argmax_disagreement")));
+    CHECK(std::isnan(*one_info->GetScalar("quantile_crossing_ratio")));
+    CHECK(std::isnan(*one_info->GetScalar("policy_selected_crossing_depth_p90_ratio")));
+}
+
 TEST_CASE("IQN action policies inject their tau rules without mutating observations", "[dqn][iqn][action_policy]")
 {
     auto run_policy = [](
@@ -3179,6 +3419,11 @@ TEST_CASE("IQN UQE tail score excludes the optional full distribution", "[dqn][i
     const auto noop_margin = action_info->GetScalar("action_full_q_margin.[0]");
     REQUIRE(noop_margin.has_value());
     CHECK(*noop_margin == Catch::Approx(0.0f));
+    CHECK(*action_info->GetScalar("policy_upper_truncated_std") == Catch::Approx(0.25f));
+    CHECK(*action_info->GetScalar("policy_lower_truncated_std") == Catch::Approx(0.25f));
+    CHECK(*action_info->GetScalar("lower_risk_full_q_argmax_disagreement") == Catch::Approx(0.0f));
+    CHECK(*action_info->GetScalar("quantile_crossing_ratio") == Catch::Approx(0.5f));
+    CHECK(*action_info->GetScalar("policy_selected_crossing_depth_p90_ratio") == Catch::Approx(0.0f));
     CHECK_THROWS_WITH(
         action_info->GetScalar("action_full_q_margin.[2]"),
         Catch::Matchers::ContainsSubstring("index=2")
@@ -3193,7 +3438,25 @@ TEST_CASE("IQN UQE tail score excludes the optional full distribution", "[dqn][i
     CHECK_FALSE(std::isnan(*risk_only->GetScalar("iqn_policy_margin_mc_ratio")));
     CHECK(std::isnan(*risk_only->GetScalar("iqn_uqe_full_q_argmax_disagreement")));
     CHECK(std::isnan(*risk_only->GetScalar("action_full_q_margin.[0]")));
+    CHECK(std::isnan(*risk_only->GetScalar("policy_upper_truncated_std")));
+    CHECK(std::isnan(*risk_only->GetScalar("policy_lower_truncated_std")));
+    CHECK(std::isnan(*risk_only->GetScalar("lower_risk_full_q_argmax_disagreement")));
+    CHECK(std::isnan(*risk_only->GetScalar("quantile_crossing_ratio")));
+    CHECK(std::isnan(*risk_only->GetScalar("policy_selected_crossing_depth_p90_ratio")));
     CHECK(risk_only_state->forward_count == 1);
+
+    // random full queryはtau順が保証されないため、tail診断payloadを作らない。
+    config.full_distribution_query.enabled = true;
+    config.full_distribution_query.tau_rule.sample_mode = "random";
+    auto random_full_state = std::make_shared<TauEchoState>();
+    auto random_full = dqn::UQEActionPolicy(config).SelectAction(
+        obs, /*greedy_only=*/true, MakeTauEchoNetwork(4, random_full_state), rnd, {});
+    CHECK(std::isnan(*random_full->GetScalar("policy_upper_truncated_std")));
+    CHECK(std::isnan(*random_full->GetScalar("policy_lower_truncated_std")));
+    CHECK(std::isnan(*random_full->GetScalar("lower_risk_full_q_argmax_disagreement")));
+    CHECK(std::isnan(*random_full->GetScalar("quantile_crossing_ratio")));
+    CHECK(std::isnan(*random_full->GetScalar("policy_selected_crossing_depth_p90_ratio")));
+    CHECK(random_full_state->forward_count == 1);
 }
 
 TEST_CASE("DQN action policy BF16 autocast follows observation device", "[dqn][action_policy][amp][bf16]")
