@@ -116,8 +116,8 @@ backend.$ = backend.non-deterministic # 非決定論的（高速化）
 # 実験
 # ==============================================================================
 
-app.run_name = run_{t}_dm_qr51-b256-rr100
-#app.run_name = run_{t}_dm_iqn32-b128-rr125_cy2
+app.run_name = run_{t}_dm_iqn32-b256-rr100
+#app.run_name = run_{t}_dm_iqn32-b128-rr125
 
 #net.$ = net.qr
 #R.quantile_mode = qr
@@ -1184,6 +1184,8 @@ M.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema
 M.[32_agent_base/04_uqe_tau_target] = $agent target_policy.uqe_tau @learn $exp_step
 M.[33_agent_action/21_iqn_policy_margin_mc_ratio_ema] = iqn_policy_margin_mc_ratio @train $action_info $exp_step $ema interval:100
 
+M.[36_agent_quantile/01_upper_tail_priority_spearman_ema] = upper_tail_priority_spearman @learn $exp_step $ema ema_alpha:0.01 interval:100
+
 M.[36_agent_iqn/01_current_mc_scale_ema] = iqn_current_mc_scale @learn $exp_step $ema interval:100
 M.[36_agent_iqn/02_target_mc_scale_ema] = iqn_target_mc_scale @learn $exp_step $ema interval:100
 M.[36_agent_iqn/03_priority_mc_ratio_ema] = iqn_priority_mc_ratio @learn $exp_step $ema interval:100
@@ -1295,6 +1297,11 @@ M.[52_eval2/52_noop_uqe_margin_ema]  = $eval.[eval2] @train $exp_step action_uqe
 M.[52_eval2/53_iqn_policy_margin_mc_ratio_ema] = $eval.[eval2] @train $exp_step iqn_policy_margin_mc_ratio $action_info $ema ema_alpha:0.01 interval:100
 M.[52_eval2/54_iqn_uqe_full_q_argmax_disagreement_ema] = $eval.[eval2] @train $exp_step iqn_uqe_full_q_argmax_disagreement $action_info $ema ema_alpha:0.01 interval:100
 M.[52_eval2/55_noop_full_q_margin_ema] = $eval.[eval2] @train $exp_step action_full_q_margin.[0] $action_info $ema ema_alpha:0.01 interval:100
+M.[52_eval2/56_policy_upper_truncated_std_ema] = $eval.[eval2] @train $exp_step policy_upper_truncated_std $action_info $ema ema_alpha:0.01 interval:100
+M.[52_eval2/57_policy_lower_truncated_std_ema] = $eval.[eval2] @train $exp_step policy_lower_truncated_std $action_info $ema ema_alpha:0.01 interval:100
+M.[52_eval2/58_lower_risk_full_q_argmax_disagreement_ema] = $eval.[eval2] @train $exp_step lower_risk_full_q_argmax_disagreement $action_info $ema ema_alpha:0.01 interval:100
+M.[52_eval2/59_quantile_crossing_ratio_ema] = $eval.[eval2] @train $exp_step quantile_crossing_ratio $action_info $ema ema_alpha:0.01 interval:100
+M.[52_eval2/60_policy_selected_crossing_depth_p90_ratio_ema] = $eval.[eval2] @train $exp_step policy_selected_crossing_depth_p90_ratio $action_info $ema ema_alpha:0.01 interval:100
 M.[52_eval2/61_ep_maxrank_mean_ema]  = $eval.[eval2] @episode_end $env mean.ep_max_rank               $ema ema_alpha:0.01
 M.[52_eval2/62_ep_frct_mean_ema]     = $eval.[eval2] @episode_end $env mean.ep_end_fruit_count        $ema ema_alpha:0.01
 M.[52_eval2/63_double_suika_achieved_ema] = $eval.[eval2] @episode_end $env $exp_step mean.ep_double_suika_achieved $ema ema_alpha:0.01
