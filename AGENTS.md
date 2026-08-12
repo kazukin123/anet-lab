@@ -170,7 +170,9 @@ C++ コードは Google C++ スタイルガイドを前提とします。
 - `dynamic_cast` はテストコード内に限定し、production code では使用しない。型ごとの分岐が必要な場合は、仮想関数、明示的な interface、既存 API の拡張、または型情報を持つデータ構造で表現する。
 - 例外、安全性、境界条件を意識する。
 - 大規模な整形変更や無関係なリネームは避ける。
-- 改行コードは LF で統一。
+- 改行コードは原則 LF で統一。ただし `.bat` は Windows batch として Shift-JIS（Windows CP932）+ CRLF を維持する。
+- `.bat` ファイルを新規作成・編集する場合は、文字コードを Shift-JIS（Windows CP932）とし、UTF-8 へ変換しない。
+  PowerShell や Python で生成・置換する場合も、明示的に Shift-JIS / CP932 で読み書きする。
 - `.hpp`、`.cpp`、`.java`、`.md`、`.editorconfig`、`.gitattributes` は `.editorconfig` と `.gitattributes` の LF 指定に従う。
 - `third_party/` 配下は外部依存として改行コード統一の一括対象から除外する。
 
