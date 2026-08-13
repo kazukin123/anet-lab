@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
@@ -30,6 +31,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.zip.GZIPOutputStream;
 
 import org.junit.jupiter.api.Test;
@@ -46,6 +48,72 @@ import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsSource;
 class WorkspaceManagerTest {
 
 	@Test
+	void switchedWorkspaceCancelsQueriesBoundToThePreviousEpoch() throws Exception {
+		final Path root = Files.createTempDirectory("workspace-manager-cancel-query-");
+		Files.createDirectories(root.resolve("ws-a").resolve("runs"));
+		Files.createDirectories(root.resolve("ws-b").resolve("runs"));
+		final MetricsViewerSettings settings = settings();
+		final MetricsQueryCoordinator coordinator = mock(MetricsQueryCoordinator.class);
+		final WorkspaceManager manager = new WorkspaceManager(
+				root.toString(), "ws-a", database(), settings,
+				coordinator, GzipInputSessions::new);
+		try {
+			assertEquals(WorkspaceManager.SwitchResult.SWITCHED,
+					manager.switchWorkspace("ws-b"));
+			assertEquals(1L, manager.currentEpoch());
+			verify(coordinator).cancelWorkspace(0L);
+		} finally {
+			manager.shutdown();
+		}
+	}
+
+	@Test
+	void noOpAndUnknownSwitchesDoNotCancelCurrentWorkspaceQueries() throws Exception {
+		final Path root = Files.createTempDirectory("workspace-manager-no-cancel-");
+		Files.createDirectories(root.resolve("ws-a").resolve("runs"));
+		final MetricsViewerSettings settings = settings();
+		final MetricsQueryCoordinator coordinator = new MetricsQueryCoordinator(1);
+		final WorkspaceManager manager = new WorkspaceManager(
+				root.toString(), "ws-a", database(), settings,
+				coordinator, GzipInputSessions::new);
+		final CountDownLatch started = new CountDownLatch(1);
+		final CountDownLatch release = new CountDownLatch(1);
+		final ExecutorService executor = Executors.newSingleThreadExecutor();
+		try {
+			final Future<String> running = executor.submit(() -> coordinator.run(
+					new QueryChannel("browser-tab"),
+					0L,
+					execution -> {
+						execution.bindWorkspace(manager.currentEpoch());
+						started.countDown();
+						try {
+							if (!release.await(2, TimeUnit.SECONDS)) {
+								throw new AssertionError("Timed out waiting to release query");
+							}
+						} catch (InterruptedException e) {
+							Thread.currentThread().interrupt();
+							throw new AssertionError("Query was interrupted", e);
+						}
+						execution.checkpoint();
+						return "current";
+					}));
+			assertTrue(started.await(2, TimeUnit.SECONDS));
+
+			assertEquals(WorkspaceManager.SwitchResult.NO_OP,
+					manager.switchWorkspace("ws-a"));
+			assertEquals(WorkspaceManager.SwitchResult.UNKNOWN,
+					manager.switchWorkspace("missing"));
+			release.countDown();
+
+			assertEquals("current", running.get(2, TimeUnit.SECONDS));
+		} finally {
+			release.countDown();
+			executor.shutdownNow();
+			manager.shutdown();
+		}
+	}
+
+	@Test
 	@ExtendWith(OutputCaptureExtension.class)
 	void initialWorkspaceMustBeOneDirectChildName(CapturedOutput output) throws Exception {
 		final Path root = Files.createTempDirectory("workspace-manager-validation-");
@@ -53,11 +121,11 @@ class WorkspaceManagerTest {
 				"", " ", ".", "..", "a/b", "a\\b", "C:relative", "a#b",
 				root.resolve("absolute").toString())) {
 			assertThrows(IllegalArgumentException.class,
-					() -> new WorkspaceManager(root.toString(), invalid, database(), settings()),
+					() -> workspaceManager(root.toString(), invalid, database(), settings()),
 					invalid);
 		}
 
-		final WorkspaceManager manager = new WorkspaceManager(
+		final WorkspaceManager manager = workspaceManager(
 				root.toString(), "missing", database(), settings());
 		try {
 			assertEquals("missing", manager.currentName());
@@ -75,9 +143,9 @@ class WorkspaceManagerTest {
 	@Test
 	void uncWorkspacesDirectoryIsRejectedAtStartup() {
 		assertThrows(IllegalArgumentException.class,
-				() -> new WorkspaceManager("\\\\server\\share", "ws", database(), settings()));
+				() -> workspaceManager("\\\\server\\share", "ws", database(), settings()));
 		assertThrows(IllegalArgumentException.class,
-				() -> new WorkspaceManager("//server/share", "ws", database(), settings()));
+				() -> workspaceManager("//server/share", "ws", database(), settings()));
 	}
 
 	@Test
@@ -85,7 +153,7 @@ class WorkspaceManagerTest {
 		final Path root = Files.createTempDirectory("workspace-manager-concurrent-switch-");
 		Files.createDirectories(root.resolve("ws-a").resolve("runs"));
 		Files.createDirectories(root.resolve("ws-b").resolve("runs"));
-		final WorkspaceManager manager = new WorkspaceManager(
+		final WorkspaceManager manager = workspaceManager(
 				root.toString(), "ws-a", database(), settings());
 		final ExecutorService executor = Executors.newFixedThreadPool(6);
 		final CountDownLatch ready = new CountDownLatch(6);
@@ -123,7 +191,7 @@ class WorkspaceManagerTest {
 		Files.createDirectories(root.resolve("ws-b").resolve("runs"));
 		Files.createDirectories(root.resolve("ws-c").resolve("runs"));
 		final BlockingWriteDatabase database = new BlockingWriteDatabase();
-		final WorkspaceManager manager = new WorkspaceManager(
+		final WorkspaceManager manager = workspaceManager(
 				root.toString(), "ws-a", database, settings());
 		final ExecutorService executor = Executors.newFixedThreadPool(3);
 		final AtomicReference<Thread> firstSwitchThread = new AtomicReference<>();
@@ -163,7 +231,7 @@ class WorkspaceManagerTest {
 		Files.createDirectories(root.resolve("ws-a").resolve("runs"));
 		Files.createDirectories(root.resolve("ws-b").resolve("runs"));
 		final CountingGzipInputSessions sessions = new CountingGzipInputSessions();
-		final WorkspaceManager manager = new WorkspaceManager(
+		final WorkspaceManager manager = workspaceManager(
 				root.toString(), "ws-a", database(), settings(), () -> sessions);
 		final WorkspaceManager.Lease lease = manager.acquireLease();
 		try {
@@ -186,7 +254,7 @@ class WorkspaceManagerTest {
 		final Path root = Files.createTempDirectory("workspace-manager-lease-race-");
 		Files.createDirectories(root.resolve("ws-a").resolve("runs"));
 		Files.createDirectories(root.resolve("ws-b").resolve("runs"));
-		final WorkspaceManager manager = new WorkspaceManager(
+		final WorkspaceManager manager = workspaceManager(
 				root.toString(), "ws-a", database(), settings());
 		// 本体へtest hookを増やさず、read直後・tryAcquire前の競合だけをwhite-boxで固定する。
 		final Object oldSnapshot = currentSnapshot(manager);
@@ -228,7 +296,7 @@ class WorkspaceManagerTest {
 		final MetricsSource source = MetricsSource.select(runA).orElseThrow();
 		new MetricsIngestor(database).ingestBlock("same-run", runA, source);
 
-		final WorkspaceManager manager = new WorkspaceManager(
+		final WorkspaceManager manager = workspaceManager(
 				root.toString(), "ws-a", database, settings());
 		final WorkspaceManager.Lease oldLease = manager.acquireLease();
 		ConnectionHandle oldQuery = database.openRead(runA);
@@ -278,7 +346,7 @@ class WorkspaceManagerTest {
 		final GzipInputSessions newSessions = new GzipInputSessions();
 		final java.util.ArrayDeque<GzipInputSessions> sessions =
 				new java.util.ArrayDeque<>(List.of(oldSessions, newSessions));
-		final WorkspaceManager manager = new WorkspaceManager(
+		final WorkspaceManager manager = workspaceManager(
 				root.toString(), "ws-a", database(), settings(), sessions::removeFirst);
 		final MetricsSource source = MetricsSource.select(runA).orElseThrow();
 		oldSessions.acquire(runA, source, UUID.randomUUID().toString());
@@ -316,7 +384,7 @@ class WorkspaceManagerTest {
 			}
 			throw new IOException("Injected preparation failure");
 		});
-		final WorkspaceManager manager = new WorkspaceManager(
+		final WorkspaceManager manager = workspaceManager(
 				root.toString(), "ws-a", database, settings());
 		final ExecutorService executor = Executors.newFixedThreadPool(2);
 		try {
@@ -368,14 +436,21 @@ class WorkspaceManagerTest {
 			}
 			throw new IOException("Injected preparation failure");
 		});
-		final WorkspaceManager manager = new WorkspaceManager(
+		final WorkspaceManager manager = workspaceManager(
 				root.toString(), "ws-a", database, settings());
 		final ExecutorService executor = Executors.newFixedThreadPool(2);
+		final AtomicReference<Thread> switchThread = new AtomicReference<>();
+		final CountDownLatch switchStarted = new CountDownLatch(1);
 		try {
 			final Future<Boolean> cycle = executor.submit(manager::runIngestCycle);
 			assertTrue(firstBlockEntered.await(2, TimeUnit.SECONDS));
-			final Future<WorkspaceManager.SwitchResult> switching =
-					executor.submit(() -> manager.switchWorkspace("ws-b"));
+			final Future<WorkspaceManager.SwitchResult> switching = executor.submit(() -> {
+				switchThread.set(Thread.currentThread());
+				switchStarted.countDown();
+				return manager.switchWorkspace("ws-b");
+			});
+			assertTrue(switchStarted.await(2, TimeUnit.SECONDS));
+			assertTrue(awaitThreadState(switchThread, Thread.State.WAITING));
 			assertFalse(switching.isDone());
 
 			releaseFirstBlock.countDown();
@@ -397,7 +472,7 @@ class WorkspaceManagerTest {
 		final Path root = Files.createTempDirectory("workspace-manager-shutdown-cycle-");
 		createRawRun(root, "ws-a", "same-run");
 		final BlockingWriteDatabase database = new BlockingWriteDatabase();
-		final WorkspaceManager manager = new WorkspaceManager(
+		final WorkspaceManager manager = workspaceManager(
 				root.toString(), "ws-a", database, settings());
 		final ExecutorService executor = Executors.newFixedThreadPool(2);
 		try {
@@ -432,7 +507,7 @@ class WorkspaceManagerTest {
 		Files.createDirectories(root.resolve("ws-b").resolve("runs"));
 
 		final BlockingWriteDatabase database = new BlockingWriteDatabase();
-		final WorkspaceManager manager = new WorkspaceManager(
+		final WorkspaceManager manager = workspaceManager(
 				root.toString(), "ws-a", database, settings());
 		final ExecutorService executor = Executors.newFixedThreadPool(2);
 		final AtomicReference<Thread> switchThread = new AtomicReference<>();
@@ -476,7 +551,7 @@ class WorkspaceManagerTest {
 		final CountingGzipInputSessions newSessions = new CountingGzipInputSessions();
 		final java.util.ArrayDeque<GzipInputSessions> sessions =
 				new java.util.ArrayDeque<>(List.of(oldSessions, newSessions));
-		final WorkspaceManager manager = new WorkspaceManager(
+		final WorkspaceManager manager = workspaceManager(
 				root.toString(), "ws-a", database(), settings(), sessions::removeFirst);
 		final WorkspaceManager.Lease oldLease = manager.acquireLease();
 		try {
@@ -503,9 +578,38 @@ class WorkspaceManagerTest {
 		return mock(MetricsCacheDatabase.class);
 	}
 
+	private static WorkspaceManager workspaceManager(
+			String workspacesDirPath,
+			String initialWorkspace,
+			MetricsCacheDatabase database,
+			MetricsViewerSettings settings) {
+		return workspaceManager(
+				workspacesDirPath,
+				initialWorkspace,
+				database,
+				settings,
+				GzipInputSessions::new);
+	}
+
+	private static WorkspaceManager workspaceManager(
+			String workspacesDirPath,
+			String initialWorkspace,
+			MetricsCacheDatabase database,
+			MetricsViewerSettings settings,
+			Supplier<GzipInputSessions> gzipSessionsFactory) {
+		return new WorkspaceManager(
+				workspacesDirPath,
+				initialWorkspace,
+				database,
+				settings,
+				new MetricsQueryCoordinator(settings),
+				gzipSessionsFactory);
+	}
+
 	private static MetricsViewerSettings settings() {
 		final MetricsViewerSettings settings = mock(MetricsViewerSettings.class);
 		when(settings.getCacheMemoryBytes()).thenReturn(0L);
+		when(settings.getMaxConcurrentQueries()).thenReturn(1);
 		when(settings.getTargetPointsPerSeries()).thenReturn(8_000);
 		when(settings.getMaxPointsPerRequest()).thenReturn(500_000);
 		return settings;

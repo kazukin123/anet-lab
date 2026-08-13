@@ -1,11 +1,9 @@
 package io.github.kazukin123.anetlab.metricsviewer.service;
 
-import java.util.List;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -35,16 +33,17 @@ public class MetricsService {
 	private final WorkspaceManager workspaceManager;
 	private final LoadingThread loadingThread;
 	private final MetricsViewerSettings settings;
-	private final Semaphore querySemaphore;
+	private final MetricsQueryCoordinator queryCoordinator;
 
 	public MetricsService(
 			WorkspaceManager workspaceManager,
 			LoadingThread loadingThread,
-			MetricsViewerSettings settings) {
+			MetricsViewerSettings settings,
+			MetricsQueryCoordinator queryCoordinator) {
 		this.workspaceManager = workspaceManager;
 		this.loadingThread = loadingThread;
 		this.settings = settings;
-		this.querySemaphore = new Semaphore(settings.getMaxConcurrentQueries(), true);
+		this.queryCoordinator = queryCoordinator;
 	}
 
 	@PostConstruct
@@ -55,6 +54,7 @@ public class MetricsService {
 
 	@PreDestroy
 	private void shutdown() {
+		queryCoordinator.cancelAll();
 		loadingThread.terminateAndWait(SHUTDOWN_WAIT_TIMEOUT_MS);
 		workspaceManager.shutdown();
 	}
@@ -98,21 +98,31 @@ public class MetricsService {
 		}
 	}
 
-	public GetMetricsResponse getMetrics(GetMetricsRequest request) {
-		try (WorkspaceManager.Lease lease = workspaceManager.acquireLease()) {
-			validateRequest(request);
+	public GetMetricsResponse getMetrics(
+			GetMetricsRequest request,
+			String queryChannelHeader,
+			String querySequenceHeader) {
+		validateRequest(request);
+		final QueryChannel queryChannel = validateQueryChannel(queryChannelHeader);
+		final long querySequence = validateQuerySequence(querySequenceHeader);
 
-			boolean acquired = false;
-			try {
-				acquired = querySemaphore.tryAcquire(5L, TimeUnit.SECONDS);
-				if (!acquired) throw queryBusy(request, "timeout");
-				return new GetMetricsResponse(lease.repository().query(request.getSeries()));
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-				throw queryBusy(request, "interrupted");
-			} finally {
-				if (acquired) querySemaphore.release();
-			}
+		try {
+			return queryCoordinator.run(queryChannel, querySequence, query -> {
+				final WorkspaceManager.Lease lease;
+				try {
+					lease = workspaceManager.acquireLease();
+				} catch (IllegalStateException e) {
+					throw new QueryCapacityException("shutdown", 0, 0);
+				}
+				try (lease) {
+					query.bindWorkspace(lease.epoch());
+					return new GetMetricsResponse(lease.repository().query(request.getSeries(), query));
+				}
+			});
+		} catch (QueryCancelledException e) {
+			throw superseded();
+		} catch (QueryCapacityException e) {
+			throw queryBusy(request, e);
 		}
 	}
 
@@ -173,19 +183,48 @@ public class MetricsService {
 		return -9_007_199_254_740_991L <= value && value <= 9_007_199_254_740_991L;
 	}
 
+	private static QueryChannel validateQueryChannel(String value) {
+		if (value == null || value.isBlank() || value.length() > 128) {
+			throw invalidRequest("X-Query-Channel must be a non-blank string of 1..128 characters");
+		}
+		return new QueryChannel(value);
+	}
+
+	private static long validateQuerySequence(String value) {
+		if (value == null) {
+			throw invalidRequest("X-Query-Sequence must be a JavaScript safe non-negative integer");
+		}
+		try {
+			final long sequence = Long.parseLong(value);
+			if (sequence < 0L || !isSafeInteger(sequence)) {
+				throw invalidRequest(
+						"X-Query-Sequence must be a JavaScript safe non-negative integer");
+			}
+			return sequence;
+		} catch (NumberFormatException e) {
+			throw invalidRequest("X-Query-Sequence must be a JavaScript safe non-negative integer");
+		}
+	}
+
 	private static MetricsApiException invalidRequest(String message) {
 		return new MetricsApiException(
 				HttpStatus.BAD_REQUEST,
 				Map.of("code", "invalid_request", "message", message));
 	}
 
-	private MetricsApiException queryBusy(GetMetricsRequest request, String reason) {
+	private static MetricsApiException superseded() {
+		return new MetricsApiException(
+				HttpStatus.CONFLICT,
+				Map.of("code", "superseded", "message", "Metrics query was superseded"));
+	}
+
+	private MetricsApiException queryBusy(GetMetricsRequest request, QueryCapacityException capacity) {
 		log.warn(
 				"Metrics query rejected: code=query_busy reason={} series={} active={} queued={}",
-				reason,
+				capacity.reason(),
 				request.getSeries().size(),
-				settings.getMaxConcurrentQueries() - querySemaphore.availablePermits(),
-				querySemaphore.getQueueLength());
+				capacity.active(),
+				capacity.queued());
 		final HttpHeaders headers = new HttpHeaders();
 		headers.set("Retry-After", "2");
 		return new MetricsApiException(

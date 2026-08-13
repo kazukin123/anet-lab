@@ -18,6 +18,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -25,6 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 
 import io.github.kazukin123.anetlab.metricsviewer.config.MetricsViewerSettings;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase;
@@ -37,7 +39,7 @@ import io.github.kazukin123.anetlab.metricsviewer.view.model.RawProjection;
 class WorkspaceSnapshotIntegrationTest {
 
 	@Test
-	void delayedQueryKeepsCopiedSameGenerationRunInItsOriginalWorkspace() throws Exception {
+	void switchingWorkspaceCancelsTheOldQueryAndTheNewWorkspaceQuerySucceeds() throws Exception {
 		final Path root = Files.createTempDirectory("workspace-snapshot-query-");
 		final Path runA = createRun(root, "ws-a", 1.0);
 		final BlockingReadDatabase database = new BlockingReadDatabase();
@@ -50,25 +52,32 @@ class WorkspaceSnapshotIntegrationTest {
 		updateScalar(runB.resolve(MetricsCacheDatabase.DATABASE_FILENAME), 2.0);
 
 		final MetricsViewerSettings settings = settings();
+		final MetricsQueryCoordinator coordinator = new MetricsQueryCoordinator(settings);
 		final WorkspaceManager manager = new WorkspaceManager(
-				root.toString(), "ws-a", database, settings);
+				root.toString(), "ws-a", database, settings, coordinator, GzipInputSessions::new);
 		final MetricsService service = new MetricsService(
-				manager, mock(LoadingThread.class), settings);
+				manager, mock(LoadingThread.class), settings, coordinator);
 		final ExecutorService executor = Executors.newSingleThreadExecutor();
 		database.blockNextRead(runA);
 		try {
-			final Future<MetricsSeriesResult> oldQuery = executor.submit(
-					() -> service.getMetrics(request()).data().get(0));
+			final Future<MetricsSeriesResult> oldQuery = executor.submit(() -> service.getMetrics(
+					request(), "old-browser-tab", "0").data().get(0));
 			assertTrue(database.awaitBlockedRead());
 
 			assertEquals(WorkspaceManager.SwitchResult.SWITCHED,
 					manager.switchWorkspace("ws-b"));
 			database.releaseBlockedRead();
 
-			final MetricsSeriesResult oldResult = oldQuery.get(2, TimeUnit.SECONDS);
-			final MetricsSeriesResult newResult = service.getMetrics(request()).data().get(0);
-			assertEquals(oldResult.getGeneration(), newResult.getGeneration());
-			assertEquals(1.0f, firstValue(oldResult));
+			final ExecutionException oldError = org.junit.jupiter.api.Assertions.assertThrows(
+					ExecutionException.class,
+					() -> oldQuery.get(2, TimeUnit.SECONDS));
+			final MetricsApiException superseded =
+					(MetricsApiException) oldError.getCause();
+			assertEquals(HttpStatus.CONFLICT, superseded.getStatus());
+			assertEquals("superseded", ((java.util.Map<?, ?>) superseded.getBody()).get("code"));
+
+			final MetricsSeriesResult newResult = service.getMetrics(
+					request(), "new-browser-tab", "0").data().get(0);
 			assertEquals(2.0f, firstValue(newResult));
 		} finally {
 			database.releaseBlockedRead();

@@ -1,6 +1,8 @@
 package io.github.kazukin123.anetlab.metricsviewer.view;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -18,6 +20,67 @@ import com.microsoft.playwright.options.WaitUntilState;
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
 		properties = "metricsviewer.workspaces-dir=target/playwright-test-empty-workspaces")
 class WorkspaceSelectorPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
+
+	@Test
+	void workspaceSelectorIsLockedOnlyUntilSwitchPostCompletes() {
+		final AtomicReference<String> current = new AtomicReference<>("ws-a");
+		final AtomicReference<List<String>> workspaces =
+				new AtomicReference<>(List.of("ws-a", "ws-b"));
+		installWorkspaceFetchGate();
+		routeWorkspaceApi(current, workspaces, new AtomicInteger());
+
+		page.navigate(baseUrl + "/?workspaceLockLifetime=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		page.waitForFunction("document.querySelector('#run-list .run-row.active')"
+				+ "?.dataset.runId === 'run-a'");
+		page.evaluate("""
+			() => {
+				workspaceFetchGate.holdNextWorkspace = true;
+				workspaceFetchGate.holdNextRuns = true;
+			}
+			""");
+
+		page.selectOption("#workspace-selector", "ws-b");
+		page.waitForFunction("workspaceFetchGate.workspacePending");
+		assertTrue(Boolean.TRUE.equals(page.evaluate(
+				"document.querySelector('#workspace-selector').disabled")));
+
+		page.evaluate("workspaceFetchGate.releaseWorkspace()");
+		page.waitForFunction("workspaceFetchGate.runsPending");
+		assertFalse(Boolean.TRUE.equals(page.evaluate(
+				"document.querySelector('#workspace-selector').disabled")));
+	}
+
+	@Test
+	void newerWorkspaceSwitchSupersedesPendingRefreshWithoutStaleFeedback() {
+		final AtomicReference<String> current = new AtomicReference<>("ws-a");
+		final AtomicReference<List<String>> workspaces =
+				new AtomicReference<>(List.of("ws-a", "ws-b", "ws-c"));
+		installWorkspaceFetchGate();
+		routeWorkspaceApi(current, workspaces, new AtomicInteger());
+
+		page.navigate(baseUrl + "/?workspaceRefreshSupersede=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		page.waitForFunction("document.querySelector('#run-list .run-row.active')"
+				+ "?.dataset.runId === 'run-a'");
+		page.evaluate("workspaceFetchGate.holdNextRuns = true");
+
+		page.selectOption("#workspace-selector", "ws-b");
+		page.waitForFunction("workspaceFetchGate.runsPending");
+		page.selectOption("#workspace-selector", "ws-c");
+		page.waitForFunction("document.querySelector('#run-list .run-row.active')"
+				+ "?.dataset.runId === 'run-c'");
+
+		assertEquals("ws-c", page.inputValue("#workspace-selector"));
+		assertEquals("ws-c", page.evaluate(
+				"localStorage.getItem('anet.metricsviewer.workspace')"));
+		assertTrue(Boolean.TRUE.equals(page.evaluate(
+				"document.getElementById('update-status').hidden")));
+		assertFalse(Boolean.TRUE.equals(page.evaluate("""
+			() => Array.from(document.querySelectorAll('[role=alert]')).some(element =>
+				element.textContent.includes('Workspace switched, but data refresh failed'))
+			""")));
+	}
 
 	@Test
 	void changingWorkspaceResetsWorkspaceStateAndSelectsLatestRun() {
@@ -308,9 +371,72 @@ class WorkspaceSelectorPlaywrightTest extends MetricsViewerPlaywrightTestSupport
 	}
 
 	private static String runPayload(String workspace) {
-		final String runId = workspace.equals("ws-b") ? "run-b" : "run-a";
+		final String runId = switch (workspace) {
+			case "ws-b" -> "run-b";
+			case "ws-c" -> "run-c";
+			default -> "run-a";
+		};
 		return "{\"runs\":[{\"id\":\"" + runId
 				+ "\",\"generation\":\"generation\","
 				+ "\"ingest\":{\"state\":\"ready\",\"percentage\":100},\"tags\":[]}]}";
+	}
+
+	private void installWorkspaceFetchGate() {
+		context.addInitScript("""
+			(() => {
+				const originalFetch = globalThis.fetch.bind(globalThis);
+				const gate = {
+					holdNextWorkspace: false,
+					holdNextRuns: false,
+					workspacePending: false,
+					runsPending: false,
+					releaseWorkspace: null,
+					releaseRuns: null
+				};
+
+				const hold = (kind, input, init) => new Promise((resolve, reject) => {
+					const pendingKey = `${kind}Pending`;
+					const releaseKey = `release${kind[0].toUpperCase()}${kind.slice(1)}`;
+					const signal = init?.signal;
+					let settled = false;
+					const cleanup = () => {
+						gate[pendingKey] = false;
+						gate[releaseKey] = null;
+						signal?.removeEventListener("abort", onAbort);
+					};
+					const onAbort = () => {
+						if (settled) return;
+						settled = true;
+						cleanup();
+						reject(new DOMException("The operation was aborted.", "AbortError"));
+					};
+					gate[pendingKey] = true;
+					gate[releaseKey] = () => {
+						if (settled) return;
+						settled = true;
+						cleanup();
+						originalFetch(input, init).then(resolve, reject);
+					};
+					if (signal?.aborted) onAbort();
+					else signal?.addEventListener("abort", onAbort, { once: true });
+				});
+
+				globalThis.workspaceFetchGate = gate;
+				globalThis.fetch = (input, init) => {
+					const path = new URL(
+						typeof input === "string" ? input : input.url,
+						globalThis.location.href).pathname;
+					if (path === "/api/workspace" && gate.holdNextWorkspace) {
+						gate.holdNextWorkspace = false;
+						return hold("workspace", input, init);
+					}
+					if (path === "/api/runs.json" && gate.holdNextRuns) {
+						gate.holdNextRuns = false;
+						return hold("runs", input, init);
+					}
+					return originalFetch(input, init);
+				};
+			})();
+			""");
 	}
 }

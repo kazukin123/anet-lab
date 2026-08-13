@@ -32,6 +32,7 @@ public class WorkspaceManager {
 	private final Path workspacesDir;
 	private final MetricsCacheDatabase database;
 	private final MetricsViewerSettings settings;
+	private final MetricsQueryCoordinator queryCoordinator;
 	private final Supplier<GzipInputSessions> gzipSessionsFactory;
 	private final AtomicReference<WorkspaceSnapshot> current;
 	private final ReentrantLock ingestGate = new ReentrantLock(true);
@@ -43,8 +44,10 @@ public class WorkspaceManager {
 			@Value("${metricsviewer.workspaces-dir:workspaces}") String workspacesDirPath,
 			@Value("${metricsviewer.initial-workspace:_default}") String initialWorkspace,
 			MetricsCacheDatabase database,
-			MetricsViewerSettings settings) {
-		this(workspacesDirPath, initialWorkspace, database, settings, GzipInputSessions::new);
+			MetricsViewerSettings settings,
+			MetricsQueryCoordinator queryCoordinator) {
+		this(workspacesDirPath, initialWorkspace, database, settings,
+				queryCoordinator, GzipInputSessions::new);
 	}
 
 	WorkspaceManager(
@@ -52,11 +55,13 @@ public class WorkspaceManager {
 			String initialWorkspace,
 			MetricsCacheDatabase database,
 			MetricsViewerSettings settings,
+			MetricsQueryCoordinator queryCoordinator,
 			Supplier<GzipInputSessions> gzipSessionsFactory) {
 		this.workspacesDir = normalizeWorkspacesDir(workspacesDirPath);
 		validateInitialWorkspace(initialWorkspace, this.workspacesDir);
 		this.database = database;
 		this.settings = settings;
+		this.queryCoordinator = queryCoordinator;
 		this.gzipSessionsFactory = gzipSessionsFactory;
 		this.current = new AtomicReference<>(createSnapshot(0L, initialWorkspace));
 		if (!Files.isDirectory(this.workspacesDir.resolve(initialWorkspace))) {
@@ -107,23 +112,31 @@ public class WorkspaceManager {
 	}
 
 	public SwitchResult switchWorkspace(String name) {
+		final SwitchResult result;
+		long cancelledEpoch = Long.MIN_VALUE;
 		pendingSwitchRequests.incrementAndGet();
 		ingestGate.lock();
 		try {
 			ensureRunning();
 			final WorkspaceSnapshot previous = current.get();
-			if (previous.name().equals(name)) return SwitchResult.NO_OP;
-			if (!listWorkspaceNames().contains(name)) return SwitchResult.UNKNOWN;
-
-			// cycle と同じゲート内で current を再確認してから一度だけ交換する。
-			final WorkspaceSnapshot next = createSnapshot(previous.epoch() + 1L, name);
-			current.set(next);
-			previous.retire();
-			return SwitchResult.SWITCHED;
+			if (previous.name().equals(name)) {
+				result = SwitchResult.NO_OP;
+			} else if (!listWorkspaceNames().contains(name)) {
+				result = SwitchResult.UNKNOWN;
+			} else {
+				// cycle と同じゲート内で current を再確認してから一度だけ交換する。
+				final WorkspaceSnapshot next = createSnapshot(previous.epoch() + 1L, name);
+				current.set(next);
+				previous.retire();
+				cancelledEpoch = previous.epoch();
+				result = SwitchResult.SWITCHED;
+			}
 		} finally {
 			pendingSwitchRequests.decrementAndGet();
 			ingestGate.unlock();
 		}
+		if (result == SwitchResult.SWITCHED) queryCoordinator.cancelWorkspace(cancelledEpoch);
+		return result;
 	}
 
 	public boolean runIngestCycle() {

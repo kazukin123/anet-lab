@@ -1,6 +1,7 @@
 package io.github.kazukin123.anetlab.metricsviewer.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -17,6 +18,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -224,6 +226,8 @@ class MetricsApiIntegrationTest {
 		awaitStates();
 		mockMvc.perform(post("/api/metrics.json")
 						.contentType("application/json")
+						.header("X-Query-Channel", UUID.randomUUID().toString())
+						.header("X-Query-Sequence", "0")
 						.content("""
 								{"series":[{
 								  "runId":"run-ready","tagKey":"a",
@@ -233,6 +237,8 @@ class MetricsApiIntegrationTest {
 				.andExpect(status().isBadRequest());
 		mockMvc.perform(post("/api/metrics.json")
 						.contentType("application/json")
+						.header("X-Query-Channel", UUID.randomUUID().toString())
+						.header("X-Query-Sequence", "0")
 						.content("""
 								{"series":[{
 								  "runId":"run-ready","tagKey":"a",
@@ -272,19 +278,87 @@ class MetricsApiIntegrationTest {
 				""")) {
 			mockMvc.perform(post("/api/metrics.json")
 							.contentType("application/json")
+							.header("X-Query-Channel", UUID.randomUUID().toString())
+							.header("X-Query-Sequence", "0")
 							.content(request))
 					.andExpect(status().isBadRequest());
 		}
 	}
 
+	@Test
+	void queryHeadersAreRequiredAndStrictlyValidated() throws Exception {
+		awaitStates();
+		final String request = """
+				{"series":[{
+				  "runId":"run-ready","tagKey":"a",
+				  "fromStep":0,"toStep":1,"maxPoints":3
+				}]}
+				""";
+
+		assertInvalidQueryHeaders(request, null, "0");
+		assertInvalidQueryHeaders(request, "browser-tab", null);
+		assertInvalidQueryHeaders(request, " ", "0");
+		assertInvalidQueryHeaders(request, "x".repeat(129), "0");
+		assertInvalidQueryHeaders(request, "browser-tab", "-1");
+		assertInvalidQueryHeaders(request, "browser-tab", "9007199254740992");
+		assertInvalidQueryHeaders(request, "browser-tab", "not-a-number");
+	}
+
+	@Test
+	void aLateSequenceReturnsTheSupersededHttpContract() throws Exception {
+		awaitStates();
+		final String request = """
+				{"series":[{
+				  "runId":"run-ready","tagKey":"a",
+				  "fromStep":0,"toStep":1,"maxPoints":3
+				}]}
+				""";
+		final String channel = "late-sequence-" + UUID.randomUUID();
+		mockMvc.perform(post("/api/metrics.json")
+						.contentType("application/json")
+						.header("X-Query-Channel", channel)
+						.header("X-Query-Sequence", "1")
+						.content(request))
+				.andExpect(status().isOk());
+
+		final var response = mockMvc.perform(post("/api/metrics.json")
+						.contentType("application/json")
+						.header("X-Query-Channel", channel)
+						.header("X-Query-Sequence", "0")
+						.content(request))
+				.andExpect(status().isConflict())
+				.andReturn()
+				.getResponse();
+		assertNull(response.getHeader("Retry-After"));
+		assertEquals("superseded", OBJECT_MAPPER.readTree(
+				response.getContentAsString(StandardCharsets.UTF_8)).path("code").asText());
+	}
+
 	private JsonNode postMetrics(String request, int expectedStatus) throws Exception {
 		final var response = mockMvc.perform(post("/api/metrics.json")
 						.contentType("application/json")
+						.header("X-Query-Channel", UUID.randomUUID().toString())
+						.header("X-Query-Sequence", "0")
 						.content(request))
 				.andExpect(status().is(expectedStatus))
 				.andReturn()
 				.getResponse();
 		return OBJECT_MAPPER.readTree(response.getContentAsString(StandardCharsets.UTF_8));
+	}
+
+	private void assertInvalidQueryHeaders(String request, String channel, String sequence)
+			throws Exception {
+		final var builder = post("/api/metrics.json")
+				.contentType("application/json")
+				.content(request);
+		if (channel != null) builder.header("X-Query-Channel", channel);
+		if (sequence != null) builder.header("X-Query-Sequence", sequence);
+		final String body = mockMvc.perform(builder)
+				.andExpect(status().isBadRequest())
+				.andReturn()
+				.getResponse()
+				.getContentAsString(StandardCharsets.UTF_8);
+		assertEquals("invalid_request", OBJECT_MAPPER.readTree(body).path("code").asText());
 	}
 
 	private void awaitStates() throws Exception {

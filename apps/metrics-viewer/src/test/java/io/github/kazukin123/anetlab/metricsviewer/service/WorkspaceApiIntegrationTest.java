@@ -107,7 +107,9 @@ class WorkspaceApiIntegrationTest {
 				.andExpect(jsonPath("$.code").value("invalid_request"));
 
 		final String metricsBody = mockMvc.perform(post("/api/metrics.json")
-				.contentType("application/json")
+						.contentType("application/json")
+						.header("X-Query-Channel", "workspace-api-test")
+						.header("X-Query-Sequence", "0")
 				.content("{"))
 				.andExpect(status().isBadRequest())
 				.andReturn()

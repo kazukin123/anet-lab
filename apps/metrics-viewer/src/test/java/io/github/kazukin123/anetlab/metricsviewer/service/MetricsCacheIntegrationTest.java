@@ -103,6 +103,8 @@ class MetricsCacheIntegrationTest {
 
 		final String body = mockMvc.perform(post("/api/metrics.json")
 						.contentType("application/json")
+						.header("X-Query-Channel", "metrics-cache-test")
+						.header("X-Query-Sequence", "0")
 						.content(request))
 				.andReturn()
 				.getResponse()

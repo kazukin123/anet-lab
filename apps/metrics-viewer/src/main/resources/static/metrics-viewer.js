@@ -129,6 +129,23 @@ function colorWithAlpha(hex, alpha) {
 	return `rgba(${r},${g},${b},${alpha})`;
 }
 
+function isSupersededMetricsError(error) {
+	return error?.status === 409 && error?.code === "superseded";
+}
+
+function createQueryChannel() {
+	if (typeof globalThis.crypto?.randomUUID === "function") {
+		return globalThis.crypto.randomUUID();
+	}
+	return [
+		"tab",
+		Date.now().toString(36),
+		Math.random().toString(36).slice(2),
+		Math.random().toString(36).slice(2),
+		Math.random().toString(36).slice(2)
+	].join("-");
+}
+
 class Toast {
 	static show(message, durationMs = 2500) {
 		const element = document.createElement("div");
@@ -145,6 +162,8 @@ class DataFetcher {
 		this.metadataController = null;
 		this.metricsController = null;
 		this.priorityTail = Promise.resolve();
+		this.queryChannel = createQueryChannel();
+		this.querySequence = 0;
 	}
 
 	async fetchRuns() {
@@ -189,13 +208,26 @@ class DataFetcher {
 		this.metricsController = new AbortController();
 		const response = await fetch(`${API_BASE_URL}/metrics.json`, {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: {
+				"Content-Type": "application/json",
+				"X-Query-Channel": this.queryChannel,
+				"X-Query-Sequence": String(this.querySequence++)
+			},
 			body: JSON.stringify({ series }),
 			signal: this.metricsController.signal
 		});
 		if (!response.ok) {
 			const body = await response.text();
-			throw new Error(`Failed metrics.json: ${response.status} ${body}`);
+			let payload = null;
+			try {
+				payload = JSON.parse(body);
+			} catch (_error) {
+				// Non-JSON error bodies retain the existing message-only behavior.
+			}
+			const error = new Error(`Failed metrics.json: ${response.status} ${body}`);
+			error.status = response.status;
+			error.code = payload?.code ?? null;
+			throw error;
 		}
 		return response.json();
 	}
@@ -1111,6 +1143,7 @@ class MetricsViewerClientApp {
 		this.currentWorkspace = null;
 		this.workspaces = [];
 		this.workspaceListRevision = 0;
+		this.workspaceSwitchRevision = 0;
 		this.missingWorkspaceNotified = null;
 	}
 
@@ -1125,7 +1158,7 @@ class MetricsViewerClientApp {
 			this.setMode(Mode.NORMAL);
 			await this.requestVisibleData({ force: true });
 		} catch (error) {
-			if (error.name !== "AbortError") {
+			if (error.name !== "AbortError" && !isSupersededMetricsError(error)) {
 				console.error(error);
 				this.setMode(Mode.ERROR);
 				Toast.show(`System error: ${error.message}`);
@@ -1172,46 +1205,70 @@ class MetricsViewerClientApp {
 
 	async onWorkspaceChanged(name) {
 		if (!name || name === this.currentWorkspace) return;
+		const switchRevision = ++this.workspaceSwitchRevision;
 		const previous = this.currentWorkspace;
 		this.ui.setWorkspaceBusy(true);
 		this.fetcher.abortAll();
 		this.workspaceListRevision++;
 		this.metadataRevision++;
 		this._bumpQueryRevision();
+		let switchError = null;
+
+		// workspace POSTが確定するまでは直列化し、応答後の同期状態反映までを1世代として扱う。
 		try {
 			try {
 				await this.fetcher.switchWorkspace(name);
 			} catch (error) {
-				if (error.code !== "unknown_workspace") {
-					this.ui.renderWorkspaceSelector(this.workspaces, previous);
-					this._handleQueryError(error);
-					Toast.show("Workspace switch failed.");
-					return;
-				}
+				switchError = error;
+			}
+			if (switchRevision !== this.workspaceSwitchRevision) return;
+
+			if (!switchError) {
+				this._resetWorkspaceState();
+				this._applyWorkspaceList(this.workspaces, name);
+			} else if (switchError.code === "unknown_workspace") {
 				this.workspaces = this.workspaces.filter(workspace => workspace !== name);
 				this._applyWorkspaceList(this.workspaces, previous);
-				try {
-					await this._refreshWorkspaceList();
-				} catch (refreshError) {
-					this._handleQueryError(refreshError);
-				}
-				Toast.show(`Workspace "${name}" no longer exists. Workspace list was refreshed.`);
-				return;
-			}
-
-			this._resetWorkspaceState();
-			this._applyWorkspaceList(this.workspaces, name);
-			try {
-				await this._refreshWorkspaceList();
-				await this.refreshMetadata({ initial: true, requestData: false });
-				await this.requestVisibleData({ force: true });
-			} catch (error) {
-				this.ui.renderWorkspaceSelector(this.workspaces, name);
-				this._handleQueryError(error);
-				Toast.show("Workspace switched, but data refresh failed.");
+			} else {
+				this.ui.renderWorkspaceSelector(this.workspaces, previous);
 			}
 		} finally {
-			this.ui.setWorkspaceBusy(false);
+			if (switchRevision === this.workspaceSwitchRevision) {
+				this.ui.setWorkspaceBusy(false);
+			}
+		}
+
+		if (switchRevision !== this.workspaceSwitchRevision) return;
+		if (switchError?.code === "unknown_workspace") {
+			try {
+				await this._refreshWorkspaceList();
+			} catch (refreshError) {
+				if (switchRevision !== this.workspaceSwitchRevision) return;
+				this._handleQueryError(refreshError);
+			}
+			if (switchRevision !== this.workspaceSwitchRevision) return;
+			Toast.show(`Workspace "${name}" no longer exists. Workspace list was refreshed.`);
+			return;
+		}
+		if (switchError) {
+			this._handleQueryError(switchError);
+			Toast.show("Workspace switch failed.");
+			return;
+		}
+
+		// refresh中の再切替を許可し、古い世代は描画・失敗表示・通知を更新しない。
+		try {
+			await this._refreshWorkspaceList();
+			if (switchRevision !== this.workspaceSwitchRevision) return;
+			await this.refreshMetadata({ initial: true, requestData: false });
+			if (switchRevision !== this.workspaceSwitchRevision) return;
+			await this.requestVisibleData({ force: true });
+			if (switchRevision !== this.workspaceSwitchRevision) return;
+		} catch (error) {
+			if (switchRevision !== this.workspaceSwitchRevision) return;
+			this.ui.renderWorkspaceSelector(this.workspaces, name);
+			this._handleQueryError(error);
+			Toast.show("Workspace switched, but data refresh failed.");
 		}
 	}
 
@@ -1730,13 +1787,13 @@ class MetricsViewerClientApp {
 	}
 
 	_setUpdateFailure(kind, error) {
-		if (error?.name === "AbortError") return;
+		if (error?.name === "AbortError" || isSupersededMetricsError(error)) return;
 		this.updateFailures[kind] = error ? (error.message ?? String(error)) : null;
 		this.ui.renderUpdateStatus(this.updateFailures);
 	}
 
 	_handleQueryError(error) {
-		if (error?.name === "AbortError") return;
+		if (error?.name === "AbortError" || isSupersededMetricsError(error)) return;
 		console.error(error);
 	}
 }

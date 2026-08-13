@@ -88,12 +88,16 @@ public class MetricsRepository {
 		}
 	}
 
-	public List<MetricsSeriesResult> query(List<MetricsSeriesRequest> requests) {
+	public List<MetricsSeriesResult> query(
+			List<MetricsSeriesRequest> requests,
+			QueryExecution query) {
+		query.checkpoint();
 		final Set<String> existingRuns = new HashSet<>(runScanner.listRunId());
 		final MetricsQueryPlanner.SeriesInput[] inputs =
 				new MetricsQueryPlanner.SeriesInput[requests.size()];
 		final Map<String, List<Integer>> indicesByRun = new LinkedHashMap<>();
 		for (int i = 0; i < requests.size(); i++) {
+			query.checkpoint();
 			final MetricsSeriesRequest request = requests.get(i);
 			if (!existingRuns.contains(request.getRunId())) {
 				inputs[i] = new MetricsQueryPlanner.SeriesInput(
@@ -107,20 +111,23 @@ public class MetricsRepository {
 		final Map<String, RunQueryContext> contexts = new LinkedHashMap<>();
 		try {
 			for (Map.Entry<String, List<Integer>> entry : indicesByRun.entrySet()) {
-				final RunQueryContext context = openQueryContext(entry.getKey());
+				query.checkpoint();
+				final RunQueryContext context = openQueryContext(entry.getKey(), query);
 				contexts.put(entry.getKey(), context);
-				readSeriesInputs(context, entry.getValue(), requests, inputs);
+				readSeriesInputs(context, entry.getValue(), requests, inputs, query);
 			}
 
 			final MetricsQueryPlanner.SeriesPlan[] plans =
 					queryPlanner.plan(Arrays.asList(inputs));
 			final MetricsSeriesResult[] results = new MetricsSeriesResult[plans.length];
 			for (MetricsQueryPlanner.SeriesPlan plan : plans) {
+				query.checkpoint();
 				final RunQueryContext context = plan.availability() == SeriesAvailability.OK
 						? contexts.get(plan.request().getRunId())
 						: null;
-				results[plan.index()] = buildResult(plan, context);
+				results[plan.index()] = buildResult(plan, context, query);
 			}
+			query.checkpoint();
 			return Arrays.asList(results);
 		} finally {
 			for (RunQueryContext context : contexts.values()) {
@@ -133,15 +140,18 @@ public class MetricsRepository {
 			RunQueryContext context,
 			List<Integer> indices,
 			List<MetricsSeriesRequest> requests,
-			MetricsQueryPlanner.SeriesInput[] inputs) {
+			MetricsQueryPlanner.SeriesInput[] inputs,
+			QueryExecution query) {
 		if (context == null) {
 			for (int index : indices) {
+				query.checkpoint();
 				inputs[index] = new MetricsQueryPlanner.SeriesInput(
 						index, requests.get(index), true, null, null, null);
 			}
 			return;
 		}
 		for (int index : indices) {
+			query.checkpoint();
 			final MetricsSeriesRequest request = requests.get(index);
 			try {
 				inputs[index] = new MetricsQueryPlanner.SeriesInput(
@@ -149,8 +159,10 @@ public class MetricsRepository {
 						request,
 						true,
 						context.metadata,
-						readTagInput(context.connection, request),
+						readTagInput(context.connection, request, query),
 						null);
+			} catch (QueryCancelledException e) {
+				throw e;
 			} catch (Exception e) {
 				inputs[index] = new MetricsQueryPlanner.SeriesInput(
 						index, request, true, context.metadata, null, e.getMessage());
@@ -158,14 +170,26 @@ public class MetricsRepository {
 		}
 	}
 
-	private RunQueryContext openQueryContext(String runId) {
+	private RunQueryContext openQueryContext(String runId, QueryExecution query) {
 		ConnectionHandle handle = null;
 		try {
+			query.checkpoint();
 			handle = database.openRead(runScanner.resolveRunDir(runId));
 			if (handle == null) return null;
 			handle.connection().setAutoCommit(false);
-			return new RunQueryContext(handle, SourceMeta.read(
-					handle.connection(), SOURCE_META_NUMERIC_FALLBACK));
+			final CacheMetadata metadata = SourceMeta.read(
+					handle.connection(), SOURCE_META_NUMERIC_FALLBACK);
+			query.checkpoint();
+			return new RunQueryContext(handle, metadata);
+		} catch (QueryCancelledException e) {
+			if (handle != null) {
+				try {
+					handle.close();
+				} catch (Exception closeError) {
+					e.addSuppressed(closeError);
+				}
+			}
+			throw e;
 		} catch (Exception e) {
 			if (handle != null) {
 				try {
@@ -181,44 +205,57 @@ public class MetricsRepository {
 
 	private static MetricsQueryPlanner.TagInput readTagInput(
 			Connection connection,
-			MetricsSeriesRequest request) throws Exception {
+			MetricsSeriesRequest request,
+			QueryExecution query) throws Exception {
+		final long tagId;
+		final String status;
+		final String errorCode;
+		final String errorMessage;
+		final long count;
+		final boolean empty;
 		try (PreparedStatement statement = connection.prepareStatement("""
 				SELECT t.id, t.status, t.error_code, t.error_message, s.count
 				FROM tags t
 				LEFT JOIN tag_stats s ON s.tag_id=t.id
 				WHERE t.key=?
-				""")) {
+				""");
+				StatementRegistration ignored = query.registerStatement(statement)) {
 			statement.setString(1, request.getTagKey());
+			query.checkpoint();
 			try (ResultSet result = statement.executeQuery()) {
+				query.checkpoint();
 				if (!result.next()) return null;
-				final long tagId = result.getLong(1);
-				final String status = result.getString(2);
-				final String errorCode = "error".equals(status) ? result.getString(3) : null;
-				final String errorMessage = "error".equals(status) ? result.getString(4) : null;
-				final long count = result.getLong(5);
-				if (result.wasNull() || count == 0L) {
-					return new MetricsQueryPlanner.TagInput(
-							tagId, null, 0L, 0L, "error".equals(status), errorCode, errorMessage);
-				}
-				final long ordinalFrom = lowerBound(
-						connection, tagId, count, request.getFromStep(), false);
-				final long ordinalTo = lowerBound(
-						connection, tagId, count, request.getToStep(), true);
-				return new MetricsQueryPlanner.TagInput(
-						tagId,
-						count,
-						ordinalFrom,
-						ordinalTo,
-						"error".equals(status),
-						errorCode,
-						errorMessage);
+				tagId = result.getLong(1);
+				status = result.getString(2);
+				errorCode = "error".equals(status) ? result.getString(3) : null;
+				errorMessage = "error".equals(status) ? result.getString(4) : null;
+				count = result.getLong(5);
+				empty = result.wasNull() || count == 0L;
 			}
 		}
+		if (empty) {
+			return new MetricsQueryPlanner.TagInput(
+					tagId, null, 0L, 0L, "error".equals(status), errorCode, errorMessage);
+		}
+		final long ordinalFrom = lowerBound(
+				connection, tagId, count, request.getFromStep(), false, query);
+		final long ordinalTo = lowerBound(
+				connection, tagId, count, request.getToStep(), true, query);
+		return new MetricsQueryPlanner.TagInput(
+				tagId,
+				count,
+				ordinalFrom,
+				ordinalTo,
+				"error".equals(status),
+				errorCode,
+				errorMessage);
 	}
 
 	private MetricsSeriesResult buildResult(
 			MetricsQueryPlanner.SeriesPlan plan,
-			RunQueryContext context) {
+			RunQueryContext context,
+			QueryExecution query) {
+		query.checkpoint();
 		if (plan.availability() != SeriesAvailability.OK) {
 			return baseResult(plan)
 					.level(null)
@@ -235,12 +272,15 @@ public class MetricsRepository {
 					plan.tagId(),
 					plan.ordinalFrom(),
 					plan.ordinalTo(),
-					plan.pointBudget());
+					plan.pointBudget(),
+					query);
 			return baseResult(plan)
 					.level(projection.level())
 					.bucketWidth(projection.bucketWidth())
 					.projection(projection.body())
 					.build();
+		} catch (QueryCancelledException e) {
+			throw e;
 		} catch (Exception e) {
 			plan.issues().add(new Issue("run", "query_error", e.getMessage()));
 			return baseResult(plan)
@@ -270,12 +310,15 @@ public class MetricsRepository {
 			long tagId,
 			long count,
 			long target,
-			boolean upperBound) throws Exception {
+			boolean upperBound,
+			QueryExecution query) throws Exception {
 		long low = 0L;
 		long high = count;
 		try (PreparedStatement statement = connection.prepareStatement(
-				"SELECT step FROM scalars WHERE tag_id=? AND ordinal=?")) {
+				"SELECT step FROM scalars WHERE tag_id=? AND ordinal=?");
+				StatementRegistration ignored = query.registerStatement(statement)) {
 			while (low < high) {
+				query.checkpoint();
 				final long middle = low + (high - low) / 2L;
 				statement.setLong(1, tagId);
 				statement.setLong(2, middle);

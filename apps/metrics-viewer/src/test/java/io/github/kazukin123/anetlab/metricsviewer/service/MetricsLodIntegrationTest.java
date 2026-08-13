@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -60,6 +61,8 @@ class MetricsLodIntegrationTest {
 
 		final String body = mockMvc.perform(post("/api/metrics.json")
 						.contentType("application/json")
+						.header("X-Query-Channel", "metrics-lod-test-full-range")
+						.header("X-Query-Sequence", "0")
 						.content(request))
 				.andReturn()
 				.getResponse()
@@ -129,6 +132,8 @@ class MetricsLodIntegrationTest {
 				""".formatted(fromStep, toStep, maxPoints);
 		final String body = mockMvc.perform(post("/api/metrics.json")
 						.contentType("application/json")
+						.header("X-Query-Channel", UUID.randomUUID().toString())
+						.header("X-Query-Sequence", "0")
 						.content(request))
 				.andReturn()
 				.getResponse()
