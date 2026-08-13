@@ -20,7 +20,6 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpStatus;
 
 import io.github.kazukin123.anetlab.metricsviewer.config.MetricsViewerSettings;
-import io.github.kazukin123.anetlab.metricsviewer.infra.RunScanner;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetMetricsRequest;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.MetricsSeriesRequest;
 
@@ -42,12 +41,13 @@ class MetricsQueryConcurrencyTest {
 		when(settings.getMaxConcurrentQueries()).thenReturn(1);
 		when(settings.getTargetPointsPerSeries()).thenReturn(4000);
 		when(settings.getMaxPointsPerRequest()).thenReturn(500_000);
+		final WorkspaceManager workspaceManager = mock(WorkspaceManager.class);
+		final WorkspaceManager.Lease lease = mock(WorkspaceManager.Lease.class);
+		when(workspaceManager.acquireLease()).thenReturn(lease);
+		when(lease.repository()).thenReturn(repository);
 		final MetricsService service = new MetricsService(
-				mock(RunScanner.class),
-				repository,
+				workspaceManager,
 				mock(LoadingThread.class),
-				mock(IngestScheduler.class),
-				mock(LodPageCache.class),
 				settings);
 
 		final ExecutorService executor = Executors.newFixedThreadPool(2);

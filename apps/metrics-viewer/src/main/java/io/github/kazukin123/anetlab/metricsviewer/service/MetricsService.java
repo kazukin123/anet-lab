@@ -17,13 +17,14 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 
 import io.github.kazukin123.anetlab.metricsviewer.config.MetricsViewerSettings;
-import io.github.kazukin123.anetlab.metricsviewer.infra.RunScanner;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetMetricsRequest;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetMetricsResponse;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetRunsResponse;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.GetWorkspacesResponse;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.RunInfo;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.MetricsSeriesRequest;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.PrioritizeRunsRequest;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.SwitchWorkspaceRequest;
 
 @Service
 public class MetricsService {
@@ -31,26 +32,17 @@ public class MetricsService {
 	private static final long SHUTDOWN_WAIT_TIMEOUT_MS = 30_000L;
 	private static final Logger log = LoggerFactory.getLogger(MetricsService.class);
 
-	private final RunScanner runScanner;
-	private final MetricsRepository metricsRepository;
+	private final WorkspaceManager workspaceManager;
 	private final LoadingThread loadingThread;
-	private final IngestScheduler ingestScheduler;
-	private final LodPageCache lodPageCache;
 	private final MetricsViewerSettings settings;
 	private final Semaphore querySemaphore;
 
 	public MetricsService(
-			RunScanner runScanner,
-			MetricsRepository metricsRepository,
+			WorkspaceManager workspaceManager,
 			LoadingThread loadingThread,
-			IngestScheduler ingestScheduler,
-			LodPageCache lodPageCache,
 			MetricsViewerSettings settings) {
-		this.runScanner = runScanner;
-		this.metricsRepository = metricsRepository;
+		this.workspaceManager = workspaceManager;
 		this.loadingThread = loadingThread;
-		this.ingestScheduler = ingestScheduler;
-		this.lodPageCache = lodPageCache;
 		this.settings = settings;
 		this.querySemaphore = new Semaphore(settings.getMaxConcurrentQueries(), true);
 	}
@@ -64,55 +56,84 @@ public class MetricsService {
 	@PreDestroy
 	private void shutdown() {
 		loadingThread.terminateAndWait(SHUTDOWN_WAIT_TIMEOUT_MS);
+		workspaceManager.shutdown();
 	}
 
 	public GetRunsResponse getRuns() {
-		final List<String> runIds = runScanner.listRunId();
-		final Set<String> existingRuns = Set.copyOf(runIds);
-		lodPageCache.retainRuns(existingRuns);
-		final List<RunInfo> runs = runIds.stream()
-				.map(metricsRepository::findRunInfo)
-				.toList();
-		for (RunInfo run : runs) {
-			if (run.getGeneration() != null) {
-				lodPageCache.invalidateGeneration(run.getId(), run.getGeneration().toString());
+		try (WorkspaceManager.Lease lease = workspaceManager.acquireLease()) {
+			final List<String> runIds = lease.runScanner().listRunId();
+			final Set<String> existingRuns = Set.copyOf(runIds);
+			lease.pageCache().retainRuns(existingRuns);
+			final List<RunInfo> runs = runIds.stream()
+					.map(lease.repository()::findRunInfo)
+					.toList();
+			for (RunInfo run : runs) {
+				if (run.getGeneration() != null) {
+					lease.pageCache().invalidateGeneration(
+							run.getId(), run.getGeneration().toString());
+				}
 			}
+			final GetRunsResponse response = new GetRunsResponse();
+			response.setRuns(runs);
+			return response;
 		}
-		final GetRunsResponse response = new GetRunsResponse();
-		response.setRuns(runs);
-		return response;
 	}
 
 	public void prioritizeRuns(PrioritizeRunsRequest request) {
-		if (request == null
-				|| !request.getUnknownFields().isEmpty()
-				|| request.getRunIds() == null) {
-			throw invalidRequest("Request must contain only a runIds array");
-		}
-		final Set<String> existing = Set.copyOf(runScanner.listRunId());
-		final Set<String> requested = new LinkedHashSet<>();
-		for (String runId : request.getRunIds()) {
-			if (runId == null || runId.isBlank() || !existing.contains(runId)) {
-				throw invalidRequest("runIds must contain only existing non-empty Run ids");
+		try (WorkspaceManager.Lease lease = workspaceManager.acquireLease()) {
+			if (request == null
+					|| !request.getUnknownFields().isEmpty()
+					|| request.getRunIds() == null) {
+				throw invalidRequest("Request must contain only a runIds array");
 			}
-			requested.add(runId);
+			final Set<String> existing = Set.copyOf(lease.runScanner().listRunId());
+			final Set<String> requested = new LinkedHashSet<>();
+			for (String runId : request.getRunIds()) {
+				if (runId == null || runId.isBlank() || !existing.contains(runId)) {
+					throw invalidRequest("runIds must contain only existing non-empty Run ids");
+				}
+				requested.add(runId);
+			}
+			lease.ingestScheduler().replacePriority(requested);
 		}
-		ingestScheduler.replacePriority(requested);
 	}
 
 	public GetMetricsResponse getMetrics(GetMetricsRequest request) {
-		validateRequest(request);
+		try (WorkspaceManager.Lease lease = workspaceManager.acquireLease()) {
+			validateRequest(request);
 
-		boolean acquired = false;
-		try {
-			acquired = querySemaphore.tryAcquire(5L, TimeUnit.SECONDS);
-			if (!acquired) throw queryBusy(request, "timeout");
-			return new GetMetricsResponse(metricsRepository.query(request.getSeries()));
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-			throw queryBusy(request, "interrupted");
-		} finally {
-			if (acquired) querySemaphore.release();
+			boolean acquired = false;
+			try {
+				acquired = querySemaphore.tryAcquire(5L, TimeUnit.SECONDS);
+				if (!acquired) throw queryBusy(request, "timeout");
+				return new GetMetricsResponse(lease.repository().query(request.getSeries()));
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				throw queryBusy(request, "interrupted");
+			} finally {
+				if (acquired) querySemaphore.release();
+			}
+		}
+	}
+
+	public GetWorkspacesResponse getWorkspaces() {
+		final GetWorkspacesResponse response = new GetWorkspacesResponse();
+		response.setCurrent(workspaceManager.currentName());
+		response.setWorkspaces(workspaceManager.listWorkspaceNames());
+		return response;
+	}
+
+	public void switchWorkspace(SwitchWorkspaceRequest request) {
+		if (request == null || !request.getUnknownFields().isEmpty()
+				|| request.getName() == null || request.getName().isBlank()) {
+			throw invalidRequest("Request must contain only a non-empty name string");
+		}
+		final WorkspaceManager.SwitchResult result = workspaceManager.switchWorkspace(request.getName());
+		if (result == WorkspaceManager.SwitchResult.UNKNOWN) {
+			throw new MetricsApiException(
+					HttpStatus.NOT_FOUND,
+					Map.of("code", "unknown_workspace", "message",
+							"Unknown workspace: " + request.getName()));
 		}
 	}
 

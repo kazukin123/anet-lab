@@ -15,8 +15,6 @@ import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
-
 import io.github.kazukin123.anetlab.metricsviewer.config.MetricsViewerSettings;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.CacheMetadata;
@@ -34,7 +32,6 @@ import io.github.kazukin123.anetlab.metricsviewer.view.model.RunStats;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.TagInfo;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.TagStats;
 
-@Component
 public class MetricsRepository {
 
 	private static final Logger log = LoggerFactory.getLogger(MetricsRepository.class);

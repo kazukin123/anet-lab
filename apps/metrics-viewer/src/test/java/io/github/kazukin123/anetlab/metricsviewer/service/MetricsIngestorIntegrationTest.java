@@ -15,6 +15,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.GZIPOutputStream;
 
@@ -36,6 +37,51 @@ class MetricsIngestorIntegrationTest {
 
 	@TempDir
 	private Path tempDir;
+
+	@Test
+	void switchYieldCommitsCompleteLinesAndNextBlockResumesFromCommittedOffset()
+			throws Exception {
+		final String runId = "run-switch-yield";
+		final Path runDir = tempDir.resolve(runId);
+		Files.createDirectories(runDir);
+		Files.writeString(
+				runDir.resolve("metrics.jsonl"),
+				scalarLines(0, 5),
+				StandardCharsets.UTF_8);
+
+		final MetricsCacheDatabase database = new MetricsCacheDatabase();
+		final AtomicBoolean yieldEnabled = new AtomicBoolean(true);
+		final AtomicInteger completedLineChecks = new AtomicInteger();
+		final MetricsIngestor ingestor = new MetricsIngestor(
+				database,
+				new GzipInputSessions(),
+				new LodIngestWriter(),
+				new RunWarningRegistry(),
+				MetricsIngestor.MAX_BLOCK_LINES,
+				() -> yieldEnabled.get() && completedLineChecks.incrementAndGet() >= 2);
+		final MetricsSource source = MetricsSource.select(runDir).orElseThrow();
+
+		final MetricsIngestor.IngestOutcome yielded =
+				ingestor.ingestBlock(runId, runDir, source);
+		assertEquals(IngestState.CONVERTING, yielded.state());
+		try (ConnectionHandle handle = database.openRead(runDir)) {
+			assertEquals(2L, queryLong(handle.connection(), "SELECT COUNT(*) FROM scalars"));
+			assertEquals("converting", queryString(
+					handle.connection(),
+					"SELECT v FROM source_meta WHERE k='state'"));
+		}
+
+		yieldEnabled.set(false);
+		final MetricsIngestor.IngestOutcome resumed =
+				ingestor.ingestBlock(runId, runDir, source);
+		assertEquals(IngestState.READY, resumed.state());
+		try (ConnectionHandle handle = database.openRead(runDir)) {
+			assertEquals(5L, queryLong(handle.connection(), "SELECT COUNT(*) FROM scalars"));
+			assertEquals("ready", queryString(
+					handle.connection(),
+					"SELECT v FROM source_meta WHERE k='state'"));
+		}
+	}
 
 	@Test
 	void databaseWriteFailureKeepsRunRetryableAndNextAttemptRecovers() throws Exception {

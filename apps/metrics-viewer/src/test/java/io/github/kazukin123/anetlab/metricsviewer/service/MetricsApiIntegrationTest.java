@@ -52,7 +52,10 @@ class MetricsApiIntegrationTest {
 
 	@DynamicPropertySource
 	static void configure(DynamicPropertyRegistry registry) {
-		registry.add("metricsviewer.runs-dir", () -> RUNS_DIR.toString());
+		registry.add("metricsviewer.workspaces-dir",
+				() -> RUNS_DIR.getParent().getParent().toString());
+		registry.add("metricsviewer.initial-workspace",
+				() -> RUNS_DIR.getParent().getFileName().toString());
 		registry.add("metricsviewer.cache-memory-mb", () -> "0");
 		registry.add("metricsviewer.target-points-per-series", () -> "60");
 		registry.add("metricsviewer.max-points-per-request", () -> "100");
@@ -357,7 +360,8 @@ class MetricsApiIntegrationTest {
 
 	private static Path createFixture() {
 		try {
-			final Path runsDir = Path.of("target", "metrics-api-integration-" + System.nanoTime())
+			final Path runsDir = Path.of(
+					"target", "metrics-api-integration-" + System.nanoTime(), "_test", "runs")
 					.toAbsolutePath()
 					.normalize();
 			final Path ready = runsDir.resolve("run-ready");

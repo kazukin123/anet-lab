@@ -62,8 +62,7 @@ class IngestSchedulerTest {
 						scanner, ingestor, new GzipInputSessions(), new RunWarningRegistry());
 		scheduler.replacePriority(Set.of("p1", "p2"));
 
-		scheduler.runCycle();
-		scheduler.runCycle();
+		for (int block = 0; block < 8; block++) scheduler.runNextBlock();
 
 		assertEquals(List.of("p1", "p2", "p1", "b1", "p2", "p1", "p2", "b2"), processed);
 	}
@@ -94,7 +93,7 @@ class IngestSchedulerTest {
 				new IngestScheduler(
 						scanner, ingestor, new GzipInputSessions(), new RunWarningRegistry());
 
-		scheduler.runCycle();
+		for (int block = 0; block < 4; block++) scheduler.runNextBlock();
 
 		assertEquals(List.of("b1", "b2", "b1", "b2"), processed);
 	}
@@ -117,7 +116,7 @@ class IngestSchedulerTest {
 		final ExecutorService executor = Executors.newSingleThreadExecutor();
 
 		try {
-			final Future<Boolean> cycle = executor.submit(scheduler::runCycle);
+			final Future<Boolean> cycle = executor.submit(scheduler::runNextBlock);
 			assertTrue(scanStarted.await(2, TimeUnit.SECONDS));
 			scheduler.replacePriority(Set.of("new-run"));
 			finishScan.countDown();
@@ -154,10 +153,10 @@ class IngestSchedulerTest {
 				new IngestScheduler(
 						scanner, ingestor, new GzipInputSessions(), new RunWarningRegistry());
 
-		scheduler.runCycle();
-		scheduler.runCycle();
-		scheduler.runCycle();
-		scheduler.runCycle();
+		runBlocks(scheduler, 4);
+		runBlocks(scheduler, 4);
+		runBlocks(scheduler, 4);
+		runBlocks(scheduler, 4);
 
 		assertEquals(2, countOccurrences(
 				output.getAll(),
@@ -190,21 +189,25 @@ class IngestSchedulerTest {
 				gzipSessions,
 				warningRegistry);
 
-		scheduler.runCycle();
-		scheduler.runCycle();
+		runBlocks(scheduler, 4);
+		runBlocks(scheduler, 4);
 		Files.move(source, parkedSource);
-		scheduler.runCycle();
+		runBlocks(scheduler, 4);
 		Files.move(parkedSource, source);
 		Files.writeString(
 				source,
 				"{\"type\":\"scalar\",\"tag\":\"loss\",\"step\":2,\"value\":null}\n",
 				StandardCharsets.UTF_8,
 				StandardOpenOption.APPEND);
-		scheduler.runCycle();
+		runBlocks(scheduler, 4);
 
 		assertEquals(2, countOccurrences(
 				output.getAll(),
 				"run=scalar-warning tag=loss reason=null"));
+	}
+
+	private static void runBlocks(IngestScheduler scheduler, int count) {
+		for (int block = 0; block < count; block++) scheduler.runNextBlock();
 	}
 
 	private static int countOccurrences(String text, String needle) {

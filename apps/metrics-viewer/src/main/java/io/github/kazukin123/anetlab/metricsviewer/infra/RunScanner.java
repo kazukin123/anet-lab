@@ -10,16 +10,12 @@ import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
-
-@Component
 public class RunScanner {
 
 	private static final Logger log = LoggerFactory.getLogger(RunScanner.class);
 	private final Path runsDir;
 
-	public RunScanner(@Value("${metricsviewer.runs-dir:runs}") String runsDirPath) {
+	public RunScanner(String runsDirPath) {
 		this.runsDir = Paths.get(runsDirPath);
 	}
 

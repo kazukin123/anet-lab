@@ -42,11 +42,14 @@ class MetricsCacheIntegrationTest {
 	private MockMvc mockMvc;
 
 	@Autowired
-	private IngestScheduler ingestScheduler;
+	private WorkspaceManager workspaceManager;
 
 	@DynamicPropertySource
 	static void configureRunsDir(DynamicPropertyRegistry registry) {
-		registry.add("metricsviewer.runs-dir", () -> RUNS_DIR.toString());
+		registry.add("metricsviewer.workspaces-dir",
+				() -> RUNS_DIR.getParent().getParent().toString());
+		registry.add("metricsviewer.initial-workspace",
+				() -> RUNS_DIR.getParent().getFileName().toString());
 		registry.add("metricsviewer.cache-memory-mb", () -> "0");
 	}
 
@@ -129,16 +132,22 @@ class MetricsCacheIntegrationTest {
 						.contentType("application/json")
 						.content("{\"runIds\":[\"run-a\",\"run-a\"]}"))
 				.andExpect(status().isNoContent());
-		assertEquals(Set.of("run-a"), ingestScheduler.priorityRunIds());
+		assertEquals(Set.of("run-a"), priorityRunIds());
 		mockMvc.perform(post("/api/runs/prioritize")
 						.contentType("application/json")
 						.content("{\"runIds\":[]}"))
 				.andExpect(status().isNoContent());
-		assertEquals(Set.of(), ingestScheduler.priorityRunIds());
+		assertEquals(Set.of(), priorityRunIds());
 		mockMvc.perform(post("/api/runs/prioritize")
 						.contentType("application/json")
 						.content("{\"runIds\":[\"missing\"]}"))
 				.andExpect(status().isBadRequest());
+	}
+
+	private Set<String> priorityRunIds() {
+		try (WorkspaceManager.Lease lease = workspaceManager.acquireLease()) {
+			return lease.ingestScheduler().priorityRunIds();
+		}
 	}
 
 	private JsonNode awaitReadyRun() throws Exception {
@@ -161,7 +170,8 @@ class MetricsCacheIntegrationTest {
 
 	private static Path createFixture() {
 		try {
-			final Path runsDir = Path.of("target", "metrics-cache-integration-" + System.nanoTime())
+			final Path runsDir = Path.of(
+					"target", "metrics-cache-integration-" + System.nanoTime(), "_test", "runs")
 					.toAbsolutePath()
 					.normalize();
 			final Path runDir = runsDir.resolve("run-a");

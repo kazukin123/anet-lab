@@ -10,11 +10,10 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.core.json.JsonReadFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -30,7 +29,6 @@ import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsSource;
 import io.github.kazukin123.anetlab.metricsviewer.service.SourceReader.GzipCorruptException;
 import io.github.kazukin123.anetlab.metricsviewer.service.SourceReader.ReadResult;
 
-@Component
 public class MetricsIngestor {
 
 	public static final int MAX_BLOCK_LINES = 1_000_000;
@@ -45,6 +43,7 @@ public class MetricsIngestor {
 	private final LodIngestWriter lodWriter;
 	private final RunWarningRegistry warningRegistry;
 	private final int maxBlockLines;
+	private final BooleanSupplier yieldRequested;
 
 	public record IngestOutcome(boolean didWork, IngestState state) {
 	}
@@ -55,16 +54,16 @@ public class MetricsIngestor {
 				new GzipInputSessions(),
 				new LodIngestWriter(),
 				new RunWarningRegistry(),
-				MAX_BLOCK_LINES);
+				MAX_BLOCK_LINES,
+				() -> false);
 	}
 
-	@Autowired
 	public MetricsIngestor(
 			MetricsCacheDatabase database,
 			GzipInputSessions gzipSessions,
 			LodIngestWriter lodWriter,
 			RunWarningRegistry warningRegistry) {
-		this(database, gzipSessions, lodWriter, warningRegistry, MAX_BLOCK_LINES);
+		this(database, gzipSessions, lodWriter, warningRegistry, MAX_BLOCK_LINES, () -> false);
 	}
 
 	MetricsIngestor(
@@ -76,20 +75,23 @@ public class MetricsIngestor {
 				gzipSessions,
 				new LodIngestWriter(),
 				new RunWarningRegistry(),
-				maxBlockLines);
+				maxBlockLines,
+				() -> false);
 	}
 
-	private MetricsIngestor(
+	MetricsIngestor(
 			MetricsCacheDatabase database,
 			GzipInputSessions gzipSessions,
 			LodIngestWriter lodWriter,
 			RunWarningRegistry warningRegistry,
-			int maxBlockLines) {
+			int maxBlockLines,
+			BooleanSupplier yieldRequested) {
 		this.database = database;
 		this.gzipSessions = gzipSessions;
 		this.lodWriter = lodWriter;
 		this.warningRegistry = warningRegistry;
 		this.maxBlockLines = maxBlockLines;
+		this.yieldRequested = yieldRequested;
 	}
 
 	public IngestOutcome ingestBlock(String runId, Path runDir, MetricsSource source) throws Exception {
@@ -120,7 +122,10 @@ public class MetricsIngestor {
 					final BlockWriteSession writeSession = new BlockWriteSession(connection, runId);
 					try (writeSession) {
 						// 1行ずつparseし、巨大な中間Listを作らず同じtransactionへ反映する。
-						readResult = reader.readCompleteLines(maxBlockLines, writeSession::writeLine);
+						readResult = reader.readCompleteLines(
+								maxBlockLines,
+								yieldRequested,
+								writeSession::writeLine);
 					}
 
 					// block内のL0、LOD、TagStats、source位置を同じcommit境界で確定する。

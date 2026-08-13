@@ -11,11 +11,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.springframework.stereotype.Component;
-
 import io.github.kazukin123.anetlab.metricsviewer.config.MetricsViewerSettings;
 
-@Component
 public class LodPageCache {
 
 	static final int LOD_PAGE_BUCKETS = 1024;

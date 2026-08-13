@@ -12,6 +12,7 @@ const STORAGE_KEY_TAGS = "anet.metricsviewer.activeTags";
 const STORAGE_KEY_KNOWN_TAGS = "anet.metricsviewer.knownTags";
 const STORAGE_KEY_GRAPH_SCROLL_LOCK = "anet.metricsviewer.graphScrollLockEnabled";
 const STORAGE_KEY_LOD_MODE = "anet.metricsviewer.lodDisplayMode";
+const STORAGE_KEY_WORKSPACE = "anet.metricsviewer.workspace";
 
 const Mode = Object.freeze({
 	UNINITIALIZED: "uninitialized",
@@ -131,19 +132,9 @@ function colorWithAlpha(hex, alpha) {
 class Toast {
 	static show(message, durationMs = 2500) {
 		const element = document.createElement("div");
+		element.className = "toast";
+		element.setAttribute("role", "alert");
 		element.textContent = message;
-		Object.assign(element.style, {
-			position: "fixed",
-			top: "10px",
-			left: "50%",
-			transform: "translateX(-50%)",
-			background: "rgba(255,64,64,0.92)",
-			color: "#fff",
-			padding: "8px 16px",
-			borderRadius: "6px",
-			fontSize: "13px",
-			zIndex: 1000
-		});
 		document.body.appendChild(element);
 		setTimeout(() => element.remove(), durationMs);
 	}
@@ -164,6 +155,27 @@ class DataFetcher {
 		});
 		if (!response.ok) throw new Error(`Failed runs.json: ${response.status}`);
 		return response.json();
+	}
+
+	async fetchWorkspaces() {
+		const response = await fetch(`${API_BASE_URL}/workspaces.json`);
+		if (!response.ok) throw new Error(`Failed workspaces.json: ${response.status}`);
+		return response.json();
+	}
+
+	async switchWorkspace(name) {
+		const response = await fetch(`${API_BASE_URL}/workspace`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ name })
+		});
+		if (!response.ok) {
+			const payload = await response.json().catch(() => null);
+			const error = new Error(payload?.message ?? `Failed workspace switch: ${response.status}`);
+			error.status = response.status;
+			error.code = payload?.code ?? null;
+			throw error;
+		}
 	}
 
 	async fetchIngestProgress() {
@@ -770,6 +782,30 @@ class UIController {
 		status.title = details.join("\n");
 	}
 
+	renderWorkspaceSelector(workspaces, current) {
+		const selector = document.getElementById("workspace-selector");
+		const names = [...new Set(workspaces ?? [])].sort();
+		const options = names.map(name => {
+			const option = document.createElement("option");
+			option.value = name;
+			option.textContent = name;
+			return option;
+		});
+		if (current && !names.includes(current)) {
+			const missing = document.createElement("option");
+			missing.value = current;
+			missing.textContent = `(missing) ${current}`;
+			missing.disabled = true;
+			options.unshift(missing);
+		}
+		selector.replaceChildren(...options);
+		selector.value = current ?? "";
+	}
+
+	setWorkspaceBusy(busy) {
+		document.getElementById("workspace-selector").disabled = busy;
+	}
+
 	applyMode(mode) {
 		document.body.classList.remove("uninitialized", "metaLoading", "error");
 		if (mode === Mode.UNINITIALIZED) document.body.classList.add("uninitialized");
@@ -964,6 +1000,11 @@ class UIController {
 	}
 
 	bindStaticControls() {
+		const workspaceSelector = document.getElementById("workspace-selector");
+		workspaceSelector.onfocus = () => this.app.onWorkspaceSelectorFocused();
+		workspaceSelector.onchange = event => {
+			this.app.onWorkspaceChanged(event.target.value);
+		};
 		document.getElementById("btn-reload").onclick = () => this.app.onReload();
 		document.getElementById("btn-auto-reload").onclick = () => this.app.onToggleAutoReload();
 		document.getElementById("btn-graph-scroll-lock").onclick =
@@ -1067,6 +1108,10 @@ class MetricsViewerClientApp {
 		this.metadataRevision = 0;
 		this.viewportDebounceTimer = null;
 		this.updateFailures = { metadata: null, metrics: null };
+		this.currentWorkspace = null;
+		this.workspaces = [];
+		this.workspaceListRevision = 0;
+		this.missingWorkspaceNotified = null;
 	}
 
 	async init() {
@@ -1075,6 +1120,7 @@ class MetricsViewerClientApp {
 		this._syncGraphScrollLockUi();
 		this.setMode(Mode.META_LOADING);
 		try {
+			await this._initializeWorkspace();
 			await this.refreshMetadata({ initial: true, requestData: false });
 			this.setMode(Mode.NORMAL);
 			await this.requestVisibleData({ force: true });
@@ -1085,6 +1131,109 @@ class MetricsViewerClientApp {
 				Toast.show(`System error: ${error.message}`);
 			}
 		}
+	}
+
+	async _initializeWorkspace() {
+		const payload = await this.fetcher.fetchWorkspaces();
+		const workspaces = Array.isArray(payload?.workspaces) ? payload.workspaces : [];
+		const serverCurrent = typeof payload?.current === "string" ? payload.current : null;
+		const saved = localStorage.getItem(STORAGE_KEY_WORKSPACE);
+		const restored = saved && workspaces.includes(saved) ? saved : serverCurrent;
+		if (restored && restored !== serverCurrent) await this.fetcher.switchWorkspace(restored);
+		this._applyWorkspaceList(workspaces, restored);
+	}
+
+	_applyWorkspaceList(workspaces, current) {
+		this.workspaces = [...new Set(workspaces ?? [])].sort();
+		this.currentWorkspace = current;
+		if (current) localStorage.setItem(STORAGE_KEY_WORKSPACE, current);
+		else localStorage.removeItem(STORAGE_KEY_WORKSPACE);
+		this.ui.renderWorkspaceSelector(this.workspaces, current);
+
+		// 現在値だけが外部リネームで消えた場合は、勝手に別 workspace へ切り替えず通知する。
+		const currentIsMissing = !!current && !this.workspaces.includes(current);
+		if (currentIsMissing && this.missingWorkspaceNotified !== current) {
+			this.missingWorkspaceNotified = current;
+			Toast.show(`Current workspace "${current}" no longer exists.`);
+		} else if (!currentIsMissing) {
+			this.missingWorkspaceNotified = null;
+		}
+	}
+
+	async _refreshWorkspaceList() {
+		const revision = ++this.workspaceListRevision;
+		const payload = await this.fetcher.fetchWorkspaces();
+		if (revision !== this.workspaceListRevision) return false;
+		const workspaces = Array.isArray(payload?.workspaces) ? payload.workspaces : [];
+		const current = typeof payload?.current === "string" ? payload.current : null;
+		this._applyWorkspaceList(workspaces, current);
+		return true;
+	}
+
+	async onWorkspaceChanged(name) {
+		if (!name || name === this.currentWorkspace) return;
+		const previous = this.currentWorkspace;
+		this.ui.setWorkspaceBusy(true);
+		this.fetcher.abortAll();
+		this.workspaceListRevision++;
+		this.metadataRevision++;
+		this._bumpQueryRevision();
+		try {
+			try {
+				await this.fetcher.switchWorkspace(name);
+			} catch (error) {
+				if (error.code !== "unknown_workspace") {
+					this.ui.renderWorkspaceSelector(this.workspaces, previous);
+					this._handleQueryError(error);
+					Toast.show("Workspace switch failed.");
+					return;
+				}
+				this.workspaces = this.workspaces.filter(workspace => workspace !== name);
+				this._applyWorkspaceList(this.workspaces, previous);
+				try {
+					await this._refreshWorkspaceList();
+				} catch (refreshError) {
+					this._handleQueryError(refreshError);
+				}
+				Toast.show(`Workspace "${name}" no longer exists. Workspace list was refreshed.`);
+				return;
+			}
+
+			this._resetWorkspaceState();
+			this._applyWorkspaceList(this.workspaces, name);
+			try {
+				await this._refreshWorkspaceList();
+				await this.refreshMetadata({ initial: true, requestData: false });
+				await this.requestVisibleData({ force: true });
+			} catch (error) {
+				this.ui.renderWorkspaceSelector(this.workspaces, name);
+				this._handleQueryError(error);
+				Toast.show("Workspace switched, but data refresh failed.");
+			}
+		} finally {
+			this.ui.setWorkspaceBusy(false);
+		}
+	}
+
+	async onWorkspaceSelectorFocused() {
+		try {
+			await this._refreshWorkspaceList();
+		} catch (error) {
+			this._handleQueryError(error);
+			Toast.show("Workspace list refresh failed.");
+		}
+	}
+
+	_resetWorkspaceState() {
+		this.cache.clear();
+		this.selectedRuns = [];
+		this.runColorMap.clear();
+		this.viewports.clear();
+		this.hiddenLegendSeries.clear();
+		this.initialSelectionApplied = false;
+		if (this.ingestPollTimer) clearInterval(this.ingestPollTimer);
+		this.ingestPollTimer = null;
+		this.polling = false;
 	}
 
 	setMode(mode) {
@@ -1508,7 +1657,10 @@ class MetricsViewerClientApp {
 		if (this.autoReloadEnabled) {
 			this.autoReloadTimer = setInterval(async () => {
 				try {
-					await this.refreshMetadata({ requestData: false });
+					await Promise.all([
+						this._refreshWorkspaceList(),
+						this.refreshMetadata({ requestData: false })
+					]);
 					await this.requestVisibleData({ force: true, followOnly: true });
 				} catch (error) {
 					this._handleQueryError(error);
@@ -1524,10 +1676,13 @@ class MetricsViewerClientApp {
 		if (this.mode === Mode.SCREENSHOT) return;
 		const recoveringFromInitialError = this.mode === Mode.ERROR;
 		try {
-			await this.refreshMetadata({
-				initial: recoveringFromInitialError,
-				requestData: false
-			});
+			await Promise.all([
+				this._refreshWorkspaceList(),
+				this.refreshMetadata({
+					initial: recoveringFromInitialError,
+					requestData: false
+				})
+			]);
 			await this.requestVisibleData({ force: true });
 			if (recoveringFromInitialError) this.setMode(Mode.NORMAL);
 		} catch (error) {

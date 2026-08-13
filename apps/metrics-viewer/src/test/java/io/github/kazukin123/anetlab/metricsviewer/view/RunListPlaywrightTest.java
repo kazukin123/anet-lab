@@ -23,7 +23,7 @@ import com.microsoft.playwright.options.WaitUntilState;
 
 @SpringBootTest(
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-		properties = "metricsviewer.runs-dir=target/playwright-test-empty-runs")
+		properties = "metricsviewer.workspaces-dir=target/playwright-test-empty-workspaces")
 class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 	@Test

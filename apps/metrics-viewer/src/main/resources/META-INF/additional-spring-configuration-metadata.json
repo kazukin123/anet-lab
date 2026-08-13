@@ -6,10 +6,16 @@
     "defaultValue": 8000
   },
   {
-    "name": "metricsviewer.runs-dir",
+    "name": "metricsviewer.workspaces-dir",
     "type": "java.lang.String",
-    "description": "Runsディレクトリ",
-    "defaultValue": "runs"
+    "description": "Workspace群を格納する親ディレクトリ",
+    "defaultValue": "workspaces"
+  },
+  {
+    "name": "metricsviewer.initial-workspace",
+    "type": "java.lang.String",
+    "description": "起動時に選択する直下Workspace名",
+    "defaultValue": "_default"
   },
   {
     "name": "metricsviewer.max-points-per-request",

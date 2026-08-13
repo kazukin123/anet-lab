@@ -38,7 +38,10 @@ class MetricsLodIntegrationTest {
 
 	@DynamicPropertySource
 	static void configureRunsDir(DynamicPropertyRegistry registry) {
-		registry.add("metricsviewer.runs-dir", () -> RUNS_DIR.toString());
+		registry.add("metricsviewer.workspaces-dir",
+				() -> RUNS_DIR.getParent().getParent().toString());
+		registry.add("metricsviewer.initial-workspace",
+				() -> RUNS_DIR.getParent().getFileName().toString());
 		registry.add("metricsviewer.cache-memory-mb", () -> "0");
 	}
 
@@ -152,7 +155,8 @@ class MetricsLodIntegrationTest {
 
 	private static Path createFixture() {
 		try {
-			final Path runsDir = Path.of("target", "metrics-lod-integration-" + System.nanoTime())
+			final Path runsDir = Path.of(
+					"target", "metrics-lod-integration-" + System.nanoTime(), "_test", "runs")
 					.toAbsolutePath()
 					.normalize();
 			final Path runDir = runsDir.resolve("run-lod");

@@ -7,15 +7,12 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-import org.springframework.stereotype.Component;
-
 import io.github.kazukin123.anetlab.metricsviewer.util.MetricTraceEncoder;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.LodProjection;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.LodSummary;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.MinMaxProjection;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.RawProjection;
 
-@Component
 public class MetricsRangeProjector {
 
 	private final LodPageCache pageCache;
