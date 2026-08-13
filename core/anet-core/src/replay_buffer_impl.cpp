@@ -249,8 +249,8 @@ void ValidIndexManager::AdvanceWriteCursor(int64_t env_idx)
     write_cursors_[env_idx]++;
 }
 
-std::optional<ValidIndexManager::LogicalSampleableRange>
-ValidIndexManager::GetLogicalSampleableRange(int64_t env_idx, int unroll_steps, int n_step) const
+std::optional<ValidIndexManager::LogicalReadyRange>
+ValidIndexManager::GetLogicalReadyRange(int64_t env_idx, int unroll_steps, int n_step) const
 {
     const int64_t write_cursor = write_cursors_[env_idx];
     const int64_t valid_cursor = valid_cursors_[env_idx];
@@ -262,7 +262,7 @@ ValidIndexManager::GetLogicalSampleableRange(int64_t env_idx, int unroll_steps, 
     const int64_t max_safe_by_valid = valid_cursor - 1 - unroll_steps;
     const int64_t logical_end = std::min(max_safe_by_write, max_safe_by_valid);
     if (logical_end < logical_start) return std::nullopt;
-    return LogicalSampleableRange{ .start = logical_start, .end = logical_end };
+    return LogicalReadyRange{ .start = logical_start, .end = logical_end };
 }
 
 torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_steps, int n_step) const
@@ -282,15 +282,6 @@ torch::Tensor ValidIndexManager::GetValidIndices1D(int stack_count, int unroll_s
     return torch::tensor(valid_list, torch::kInt64);
 }
 
-int64_t ValidIndexManager::GetValidCount() const
-{
-    int64_t total = 0;
-    for (auto c : valid_cursors_) {
-        total += std::min(c, capacity_per_env_);
-    }
-    return total;
-}
-
 int64_t ValidIndexManager::GetSampleableCount(int stack_count, int unroll_steps, int n_step) const
 {
     ANET_PROFILE_FUNC();
@@ -304,10 +295,8 @@ int64_t ValidIndexManager::GetSampleableCount(int stack_count, int unroll_steps,
     return total;
 }
 
-bool ValidIndexManager::IsOverwritingSampleable(int64_t env_idx, int64_t time_idx, int stack_count, int unroll_steps, int n_step) const
+bool ValidIndexManager::IsOverwritingReady(int64_t env_idx, int64_t time_idx, int unroll_steps, int n_step) const
 {
-    (void)stack_count;
-
     const int64_t w_cursor = write_cursors_[env_idx];
     if (w_cursor < capacity_per_env_) return false;
     if (time_idx != w_cursor % capacity_per_env_) return false;
@@ -316,15 +305,15 @@ bool ValidIndexManager::IsOverwritingSampleable(int64_t env_idx, int64_t time_id
     if (is_dummy_[flat_idx]) return false;
 
     const int64_t evicted_logical = w_cursor - capacity_per_env_;
-    const auto range = GetLogicalSampleableRange(env_idx, unroll_steps, n_step);
+    const auto range = GetLogicalReadyRange(env_idx, unroll_steps, n_step);
     return range.has_value() && range->Contains(evicted_logical);
 }
 
-bool ValidIndexManager::IsLogicalSampleable(
+bool ValidIndexManager::IsLogicalReady(
     int64_t env_idx, int64_t logical_idx, int unroll_steps, int n_step) const
 {
-    // 単点判定でも列挙処理と同じ上書き境界、未来観測、unroll終端を適用する。
-    const auto range = GetLogicalSampleableRange(env_idx, unroll_steps, n_step);
+    // 単点判定へ上書き境界、未来観測、unroll終端を適用する。
+    const auto range = GetLogicalReadyRange(env_idx, unroll_steps, n_step);
     return range.has_value() && range->Contains(logical_idx);
 }
 
@@ -357,14 +346,14 @@ void InitialPriorityCompleter::CompleteReady(
     ANET_PROFILE_FUNC();
 
     auto& pending = pending_[static_cast<size_t>(env_idx)];
-    // FIFO先頭から、必要な未来観測とunroll範囲が確定してsampleableになった遷移だけを処理する。
+    // FIFO先頭から、必要な未来観測とunroll範囲が確定してreadyになった遷移だけを処理する。
     while (!pending.empty()
-        && index_manager.IsLogicalSampleable(
+        && index_manager.IsLogicalReady(
             env_idx, pending.front().logical_time_idx, config_.unroll_steps, config_.n_step)) {
         const auto entry = pending.front();
         pending.pop_front();
 
-        // fixed/maxはActorヒントを参照せず、同じsampleable化境界で初期sourceを確定する。
+        // fixed/maxはActorヒントを参照せず、同じready化境界で初期sourceを確定する。
         if (config_.mode == ReplayInitialPriorityMode::FIXED) {
             priority_store.SetRawInitialPriority(
                 entry.flat_slot_index, config_.fixed_raw_priority, ReplayPrioritySource::FIXED_INITIAL);
@@ -1362,7 +1351,7 @@ void DefaultReplayBuffer::RecordEvictionIfSampleable(
     int64_t* evicted_sampleable_count,
     int64_t* evicted_never_sampled_count)
 {
-    if (!index_manager_->IsOverwritingSampleable(env_idx, time_idx, config_.stack_count, config_.muzero.unroll_steps, config_.n_step)) {
+    if (!index_manager_->IsOverwritingReady(env_idx, time_idx, config_.muzero.unroll_steps, config_.n_step)) {
         return;
     }
 
@@ -2064,7 +2053,8 @@ std::shared_ptr<ReplayBuffer> anet::rl::CreateReplayBuffer(
     // capacity の割り切れ補正
     int64_t capacity_per_env = config.capacity / num_envs;
     const int64_t actual_capacity = capacity_per_env * num_envs;
-    const int64_t required_capacity_per_env = std::max<int64_t>(1, config.n_step) + 1;
+    const int64_t required_capacity_per_env =
+        std::max<int64_t>(1, config.n_step) + 1 + (config.stack_count - 1);
     if (capacity_per_env < required_capacity_per_env) {
         ANET_SYSTEM_ERROR("ReplayBuffer capacity per env is too small. replay_capacity=" << config.capacity
             << " num_envs=" << num_envs << " capacity_per_env=" << capacity_per_env

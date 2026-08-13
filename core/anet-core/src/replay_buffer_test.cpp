@@ -1042,6 +1042,21 @@ TEST_CASE("ReplayBufferConfig has default values", "[replay_buffer][config]")
     REQUIRE(config.muzero.unroll_steps == 0);
 }
 
+TEST_CASE("ReplayBuffer capacity includes frame stack history margin", "[replay_buffer][config][capacity][frame_stack]")
+{
+    constexpr int n_step = 2;
+    constexpr int stack_count = 3;
+    constexpr int64_t required_capacity_per_env = n_step + 1 + (stack_count - 1);
+
+    // sample可能transitionを必ず1件持てる境界の直前は、構築時に拒否する。
+    CHECK_THROWS(MakeBuffer(
+        MakeConfig(required_capacity_per_env - 1, n_step, 0.99f, stack_count), 1));
+
+    // history marginを含む必要量を満たす境界値は、そのまま受け入れる。
+    CHECK_NOTHROW(MakeBuffer(
+        MakeConfig(required_capacity_per_env, n_step, 0.99f, stack_count), 1));
+}
+
 TEST_CASE("ReplayBuffer sampled indices are valid sampleable storage indices", "[replay_buffer][indices]")
 {
     constexpr int64_t num_envs = 2;
@@ -1753,9 +1768,9 @@ TEST_CASE("ValidIndexManager sampleability consumers agree before and after wrap
 
     CHECK(TensorToInt64Vector(manager.GetValidIndices1D(1, 0, 1)) == std::vector<int64_t>{ 0 });
     CHECK(manager.GetSampleableCount(1, 0, 1) == 1);
-    CHECK(manager.IsLogicalSampleable(0, 0, 0, 1));
-    CHECK_FALSE(manager.IsLogicalSampleable(0, 1, 0, 1));
-    CHECK_FALSE(manager.IsOverwritingSampleable(0, 2, 1, 0, 1));
+    CHECK(manager.IsLogicalReady(0, 0, 0, 1));
+    CHECK_FALSE(manager.IsLogicalReady(0, 1, 0, 1));
+    CHECK_FALSE(manager.IsOverwritingReady(0, 2, 0, 1));
 
     // capacity到達時は、列挙中の最古slotだけが上書き対象として判定される。
     manager.MarkWritten(0, 2);
@@ -1765,8 +1780,8 @@ TEST_CASE("ValidIndexManager sampleability consumers agree before and after wrap
     manager.AdvanceWriteCursor(0);
     manager.MarkValid(0);
     CHECK(TensorToInt64Vector(manager.GetValidIndices1D(1, 0, 1)) == std::vector<int64_t>{ 0, 1, 2 });
-    CHECK(manager.IsOverwritingSampleable(0, 0, 1, 0, 1));
-    CHECK_FALSE(manager.IsOverwritingSampleable(0, 1, 1, 0, 1));
+    CHECK(manager.IsOverwritingReady(0, 0, 0, 1));
+    CHECK_FALSE(manager.IsOverwritingReady(0, 1, 0, 1));
 
     // wrap後もlogical範囲と物理index列挙を一致させる。
     manager.MarkWritten(0, 0);
@@ -1774,11 +1789,11 @@ TEST_CASE("ValidIndexManager sampleability consumers agree before and after wrap
     manager.MarkValid(0);
     CHECK(TensorToInt64Vector(manager.GetValidIndices1D(1, 0, 1)) == std::vector<int64_t>{ 1, 2, 3 });
     CHECK(manager.GetSampleableCount(1, 0, 1) == 3);
-    CHECK_FALSE(manager.IsLogicalSampleable(0, 0, 0, 1));
-    CHECK(manager.IsLogicalSampleable(0, 1, 0, 1));
-    CHECK(manager.IsLogicalSampleable(0, 3, 0, 1));
-    CHECK_FALSE(manager.IsLogicalSampleable(0, 4, 0, 1));
-    CHECK(manager.IsOverwritingSampleable(0, 1, 1, 0, 1));
+    CHECK_FALSE(manager.IsLogicalReady(0, 0, 0, 1));
+    CHECK(manager.IsLogicalReady(0, 1, 0, 1));
+    CHECK(manager.IsLogicalReady(0, 3, 0, 1));
+    CHECK_FALSE(manager.IsLogicalReady(0, 4, 0, 1));
+    CHECK(manager.IsOverwritingReady(0, 1, 0, 1));
 }
 
 TEST_CASE("ValidIndexManager keeps dummy filtering outside the shared logical range", "[replay_buffer][sampleability][valid_index]")
@@ -1794,8 +1809,49 @@ TEST_CASE("ValidIndexManager keeps dummy filtering outside the shared logical ra
     // n-step=2、unroll=1ではlogical 0..3が範囲内だが、列挙だけはdummy slotを除外する。
     CHECK(TensorToInt64Vector(manager.GetValidIndices1D(1, 1, 2)) == std::vector<int64_t>{ 0, 1, 3 });
     CHECK(manager.GetSampleableCount(1, 1, 2) == 3);
-    CHECK(manager.IsLogicalSampleable(0, 2, 1, 2));
-    CHECK_FALSE(manager.IsLogicalSampleable(0, 4, 1, 2));
+    CHECK(manager.IsLogicalReady(0, 2, 1, 2));
+    CHECK_FALSE(manager.IsLogicalReady(0, 4, 1, 2));
+}
+
+TEST_CASE("ValidIndexManager applies frame stack history margin per env lane", "[replay_buffer][sampleability][valid_index][multi_env]")
+{
+    rl::ValidIndexManager manager(2, 4);
+
+    // lane 0だけをwrapさせ、logical 1..3のready rangeを作る。
+    for (int64_t logical_idx = 0; logical_idx < 5; ++logical_idx) {
+        manager.MarkWritten(0, logical_idx % 4);
+        manager.AdvanceWriteCursor(0);
+        if (logical_idx < 4) manager.MarkValid(0);
+    }
+
+    // lane 1はwrap前のlogical 0..1をready rangeにする。
+    for (int64_t logical_idx = 0; logical_idx < 3; ++logical_idx) {
+        manager.MarkWritten(1, logical_idx);
+        manager.AdvanceWriteCursor(1);
+        if (logical_idx < 2) manager.MarkValid(1);
+    }
+
+    // stack=3のmarginはwrap済みlane 0だけに適用され、lane 1の初期paddingは維持される。
+    CHECK(TensorToInt64Vector(manager.GetValidIndices1D(3, 0, 1))
+        == std::vector<int64_t>{ 3, 4, 5 });
+    CHECK(manager.GetSampleableCount(3, 0, 1) == 3);
+}
+
+TEST_CASE("ValidIndexManager filters dummy slots after applying frame stack history margin", "[replay_buffer][sampleability][valid_index][dummy]")
+{
+    rl::ValidIndexManager manager(1, 6);
+    for (int64_t logical_idx = 0; logical_idx < 8; ++logical_idx) {
+        manager.MarkWritten(0, logical_idx % 6);
+        manager.AdvanceWriteCursor(0);
+        if (logical_idx < 7) manager.MarkValid(0);
+    }
+    manager.MarkDummy(0, 4);
+
+    // ready range 2..6へstack=3のmarginを適用した4..6から、dummyのlogical 4だけを除外する。
+    CHECK(manager.IsLogicalReady(0, 4, 0, 1));
+    CHECK(TensorToInt64Vector(manager.GetValidIndices1D(3, 0, 1))
+        == std::vector<int64_t>{ 0, 5 });
+    CHECK(manager.GetSampleableCount(3, 0, 1) == 2);
 }
 
 TEST_CASE("ReplayInitialPriorityHint validates and caches a packed payload", "[replay_buffer][per][actor_initial][hint]")
@@ -2317,6 +2373,29 @@ TEST_CASE("ReplayBuffer PER tracks last evicted sampleable slots that were never
     REQUIRE(ratio_before_overwrite.has_value());
     CHECK(std::isnan(*ratio_before_overwrite));
 
+    SampleOnlyIndex(buffer, IndexOf(buffer, 0, 0));
+
+    PushTime(buffer, 4);
+    auto sampled_eviction_ratio = buffer.rb->GetScalar(rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO);
+    REQUIRE(sampled_eviction_ratio.has_value());
+    CHECK(*sampled_eviction_ratio == Catch::Approx(0.0f).margin(1.0e-5));
+
+    PushTime(buffer, 5);
+    auto never_sampled_eviction_ratio = buffer.rb->GetScalar(rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO);
+    REQUIRE(never_sampled_eviction_ratio.has_value());
+    CHECK(*never_sampled_eviction_ratio == Catch::Approx(1.0f).margin(1.0e-5));
+}
+
+TEST_CASE("ReplayBuffer PER keeps eviction statistics alive with frame stack history margin", "[replay_buffer][per][frame_stack][eviction]")
+{
+    auto buffer = MakeBuffer(MakeConfig(4, 1, 0.99f, 3), 1);
+
+    PushTime(buffer, 0, {}, {}, BoolValues(1, true));
+    PushTime(buffer, 1);
+    PushTime(buffer, 2);
+    PushTime(buffer, 3);
+
+    // wrap前にsampleしたslotと未sampleのslotを順に追い出し、ready基準の統計を固定する。
     SampleOnlyIndex(buffer, IndexOf(buffer, 0, 0));
 
     PushTime(buffer, 4);

@@ -40,7 +40,7 @@ RunnerはEnvが再利用するstorageからExperienceを切り離すため、Sta
 |---|---|
 | `Push(batch_exp)` | 構築時の`num_envs`と同じlane数を持つ1 step分のExperienceを受け取る。`DefaultReplayBuffer`はObservation、Action、infoを事前確保storageへ即時copyし、N-step確定用の軽量recordをlane別queueへ積む |
 | `Sample(out_samples, minibatch_size, beta)` | `Size() >= minibatch_size`を前提に、sample可能transitionからminibatchを作る。不足時はassertで停止し、暗黙に小さいbatchへ変更しない |
-| `Size()` | 保存済みraw slot数ではなく、stack、N-step、unroll、dummyを考慮した現在のsample可能transition数を返す |
+| `Size()` | 保存済みraw slot数ではなく、ready rangeへstackのhistory marginを適用し、dummyを除外したsampleable rangeのtransition数を返す |
 | `UpdatePriorities(item_keys, priorities)` | PER有効時にgeneration-aware keyへraw priorityを適用し、applied/stale件数を返す。uniform samplerでは更新を行わない |
 
 ReplayBuffer capacityは全laneの合計として指定する。現行実装は`capacity_per_env = capacity / num_envs`とし、`actual_capacity = capacity_per_env * num_envs`へ切り下げ、laneごとに同じ長さのring時間列を持つ。generation keyの基数とSumTree容量には、この`actual_capacity`を使う。
@@ -49,21 +49,21 @@ ReplayBuffer capacityは全laneの合計として指定する。現行実装は`
 
 keyは物理indexではなく`generation * actual_capacity + flat_slot_index`であり、ring overwrite後のstale更新を識別する。sample結果のTensor handleとmetadataはcallerが所有する。非同期CUDA転送では転送元payloadをready event完了まで内部で保持し、consumer streamへ`record_stream`して早期再利用を防ぐ。
 
-現行の`ValidIndexManager`は、書込状態、N-step/unrollの未来側条件、dummy、ring overwriteを基にsample候補を作る。過去のstack frameがすべて存在することはsample条件に含めず、`ExperienceSampleExtractor`が利用可能な履歴を再構成して不足分をpaddingする。
+`ValidIndexManager`はenv laneごとに、未上書きかつN-step/unrollの未来側条件が確定した論理区間をready rangeとして管理する。uniform sampling、PER、`Size()`、可視化accessor、`DumpToLog()`は、ready rangeへring折り返し後のhistory margin（`stack_count - 1`）を適用し、dummy slotを除外したsampleable rangeを共有する。wrap前と`stack_count == 1`ではhistory marginは0である。`InitialPriorityCompleter`とeviction統計は、過去stack履歴を必要としないためready rangeを使う。
 
 ### 2.3 Frame stacking
 
 frame stackingには2つの利用箇所がある。
 
 - Actor側の`StackerActionContext`は、行動選択用にlaneごとの直近Observationをstackし、`episode_start`を受けたlaneを初期frameで埋め直す。
-- ReplayBufferのsample extractorは、学習用に保存済み時間列からstackを再構成し、保存済みterminalまたは未書込領域を境界としてpaddingする。
+- ReplayBufferのsample extractorは、学習用に保存済み時間列からstackを再構成し、起動直後の未書込領域または保存済みterminalによる実episode境界をpaddingする。ring上書きで失われた履歴はepisode境界ではないためpaddingせず、`ValidIndexManager`が該当transitionをsampleable rangeから除外する。
 
 現行`DefaultReplayBuffer::Push`は`BatchState::episode_start`自体を保存・参照しない。このため、直前に`done`/`truncated`を伴わない`episode_start`だけをReplayBufferのstack境界とする動作は、現行production経路の保証に含めない。
 
 ### 2.4 PER
 
 Prioritized Experience Replayでは、priorityに応じてindexをsampleし、確率からImportance Sampling weightを計算する。
-初期sourceは`fixed_initial`、`max_initial`、`actor_initial`、学習後は`learner_updated`、無効slotは`none`である。priority値0と無効化はsourceで区別する。Actor近似modeでは開始stepの初期priority hintをopaqueな行としてN-step確定まで運び、sampleable化境界でbootstrap hintと組み合わせる。共通層は列の意味を解釈せず、注入された`InitialPriorityEstimator`がschema検証と推定を行う。true terminalではbootstrap spanを空にし、truncatedは開始hintを検証してからmax初期化へfallbackする。nonfinite hintまたは推定値はDebug buildでfail-fastし、`NDEBUG` buildではmax初期化へfallbackする。DQNの`K = 2` schemaと推定式は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
+初期sourceは`fixed_initial`、`max_initial`、`actor_initial`、学習後は`learner_updated`、無効slotは`none`である。priority値0と無効化はsourceで区別する。Actor近似modeでは開始stepの初期priority hintをopaqueな行としてN-step確定まで運び、ready化境界でbootstrap hintと組み合わせる。共通層は列の意味を解釈せず、注入された`InitialPriorityEstimator`がschema検証と推定を行う。true terminalではbootstrap spanを空にし、truncatedは開始hintを検証してからmax初期化へfallbackする。nonfinite hintまたは推定値はDebug buildでfail-fastし、`NDEBUG` buildではmax初期化へfallbackする。DQNの`K = 2` schemaと推定式は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
 
 LearnerはTD error等から新しいpriorityを作り、sample時に返されたkeyへ`UpdatePriorities(item_keys, priorities)`する。更新はbatch全体をpreflightし、負key、generation 0/future、長さ不一致、負またはnonfinite priorityでは部分適用しない。過去generationだけは要素単位で棄却し、戻り値の`ReplayPriorityUpdateResult`がapplied/stale件数とActor初期priority・Learner更新priorityの比較統計を返す。同一keyの重複は入力順のlast-winsである。
 uniform samplerではPER固有metricを公開しない。
@@ -89,7 +89,7 @@ uniform samplerではPER固有metricを公開しない。
 | `DefaultReplayBuffer` | storage、valid index、sample、N-step/PERを束ねるfacade |
 | `ReplayExperienceStorage` | lane別ring storageへObservation、Action、infoを保持する |
 | `ExperienceQueueController` | laneごとの遷移からN-step targetを確定する |
-| `ValidIndexManager` | 書込状態とN-step/unrollの未来側条件、dummy、overwriteを基にsample候補を管理する。過去stack不足はextractor側のpaddingに委ねる |
+| `ValidIndexManager` | 書込状態とN-step/unrollの未来側条件からready rangeを管理し、ring折り返し後のhistory marginとdummy除外を加えたsampleable rangeを全consumerへ提供する |
 | `ReplayExperienceSampler` | uniformまたはpriority付きindexを選ぶ |
 | `ReplayPriorityStore` / `SumTree` | priority source、leaf、total、weighted sampleを管理する |
 | `InitialPriorityCompleter` | N-step確定時にfixed、max、Actor近似の初期priorityを完成させる |
@@ -173,15 +173,15 @@ sequenceDiagram
     L->>B: Push(experience)
     B->>Q: laneごとの遷移を追加
     Q-->>B: 確定したtarget return / terminal
-    B->>V: sample可能indexを更新
+    B->>V: ready rangeを更新
     opt PER
         B->>P: 初期priorityとsourceを確定
     end
     alt warmupと更新条件を満たす
         L->>B: Sample(minibatch_size, beta)
         B->>V: GetValidIndices1D()
-        V-->>B: valid indices
-        B->>S: SampleIndices(valid indices, beta)
+        V-->>B: sampleable indices
+        B->>S: SampleIndices(sampleable indices, beta)
         S-->>B: sampled indices / IS weight
         B->>X: ExtractSamples(storage, sampled indices)
         X-->>B: stack/N-stepを組み立て
@@ -291,9 +291,11 @@ futureを起動する前の`Push`はinnerへ同期委譲する。prefetch中の`
 | `replaybuffer.per.*_initial_mass_ratio` | fixed、max、Actor近似を含む初期sourceのmass比率 |
 | `replaybuffer.per.actor_completion_*` | Actor近似completionの試行、成功、fallback |
 | `replaybuffer.per.priority_update_stale_drop_count` | overwrite済みgenerationとして棄却した累積件数 |
-| `replaybuffer.per.last_evicted_never_sampled_ratio` | 直近Pushでsample前にevictされたsample可能slotの比率 |
+| `replaybuffer.per.last_evicted_never_sampled_ratio` | 直近Pushでsample前にevictされたready slotの比率 |
 
 uniform samplerではPER keyを値0として偽装せず、未対応を`std::nullopt`で表す。metric定義、Event、step軸は[可観測性](140_observability.jp.md)を参照する。
+
+eviction統計はready rangeを基準にする。追い出されるslotはhistory margin期間中すでにsample不可であるため、`last_evicted_never_sampled_ratio`は「sample機会があったのに引かれなかった」件数をmargin分だけ過大に数える近似を含む。sampleable rangeを基準にするとwrap後の追い出しが構造的に0件となるため、margin幅がcapacityに対して十分小さいことを前提に、この近似を監視用途として許容する。
 
 ### 7.6 checkpoint
 
