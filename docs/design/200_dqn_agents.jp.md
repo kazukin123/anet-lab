@@ -47,7 +47,7 @@ Double DQN、N-step、PER、勾配clip、AMPなどはLearner設定で組み合�
 
 `ActionPolicy`はNetwork forwardとAction選択を担当し、Action、Q値、quantileなどを`DQNActionInfo`へまとめる。現行の共通部品にはepsilon-greedy、UQE、Thompson Samplingがある。DefaultDQNはTrain、Eval、target用Policyを分け、RainbowはAction用Policyと学習target用のgreedy Policyを構成する。
 
-DefaultDQNのIQNでは、各Policyが`tau_rule`（`num_taus`と`random|fixed`）に従ってtausを生成し、受領したObservationのshallow copyへ注入してからforwardする。`fixed`は指定範囲をK個の等幅区間に分け、各区間の中心へτを固定配置する決定論的な方式で、RNGを消費しない。Trainの既定はrandom×32、Eval/targetはfixed×32である。UQEは減衰後の実効tauを下限とし、`uqe_use_tail_mean=true`では下限から1までの平均、`false`では全点を下限へ固定した`Zτ`をaction scoreにする。非spatial Thompsonは`[0,1]`、spatial Thompsonはlaneごとの下限を使う。tau配置方式と`uqe_tau_decay`は別の設定概念である。
+DefaultDQNのIQNでは、各Policyが`tau_rule`（`num_taus`と`random|fixed|stratified|systematic|antithetic`）に従ってtausを生成し、受領したObservationのshallow copyへ注入してからforwardする。`stratified`は各等幅層から独立に1点、`systematic`は行ごとに1つの位相を共有した等間隔点、`antithetic`は範囲中点に関する鏡映ペア（奇数本では末尾に独立点）を生成する。`fixed`は各等幅区間の中点へ固定配置する決定論的な方式で、RNGを消費しない。Trainの既定はrandom×32、Eval/targetはfixed×32である。UQEは減衰後の実効tauを下限とし、`uqe_use_tail_mean=true`では下限から1までの平均、`false`では全点を下限へ固定した`Zτ`をaction scoreにする。非spatial Thompsonは`[0,1]`、spatial Thompsonはlaneごとの下限を使う。tau配置方式と`uqe_tau_decay`は別の設定概念である。
 
 IQN+UQEは任意の`full_distribution_query`を持つ。既定はdisabledで、enabled時はrisk tausとfull `[0,1]` tausを連結して1回だけforwardする。`q_values`/`uqe_values`/`q_quantiles`はrisk側、`full_q_values`/`full_q_quantiles`はfull側であり、Headが連結全体から返す平均`q`は使わない。point UQEのrisk側は同値なα 1本に縮約する。非IQN modeではenabled設定を休眠状態のまま保持して無視するため、quantile modeの切替時に同時変更する必要はない。IQNでenabledにしたままUQE以外のPolicyを選ぶ構成は設定エラーになる。
 
@@ -82,7 +82,7 @@ PERの初期priority modeが`actor_approx`の場合だけ、Train Actorは既存
 | `dqn::Learner` | ReplayBuffer、optimizer、更新credit、target同期、PER更新をまとめる内部Learner |
 | `TDLearner` | scalar TD targetとTD lossを計算するLearner |
 | `QuantileLearnerBase` / `QRLearner` / `IQNLearner` | target quantileと方式別のquantile Huber lossを計算するLearner |
-| `TauGenerator` | IQNのrandom/fixed tausを指定device上で生成するstateless component |
+| `TauGenerator` | IQNの5種のtau配置方式を指定device上で生成するstateless component |
 | `RewardScaler` / `ObservationNormalizer` | DefaultDQNのExperience前処理とNetwork入力正規化を担当するcomponent |
 
 ## 4. コードマップ

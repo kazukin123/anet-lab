@@ -6,8 +6,8 @@
 app.$ = app.online > P
 #app.$ = app.batchrun > P
 
-train.seed = 1
-#train.seed = 2
+#train.seed = 1
+train.seed = 2
 #train.seed = 3
 
 train.num_envs = 256
@@ -87,11 +87,13 @@ app.run_name = run_{t}_dm_iqn
 #app.online.exp_pause_step  = 15,000,000      # 15M
 #app.online.exp_pause_step  = 20,000,000      # 20M
 #app.online.exp_pause_step  = 40,000,000      # 40M
-#app.online.exp_pause_step  = 50,000,000      # 50M
+app.online.exp_pause_step  = 50,000,000      # 50M
 #app.online.exp_pause_step  = 80,000,000    # 80M
-app.online.exp_pause_step  = 100,000,000      # 100M
+#app.online.exp_pause_step  = 100,000,000      # 100M
 #app.online.exp_pause_step  = 160,000,000    # 160M
 #app.online.exp_pause_step  = 200,000,000    # 200M
+
+app.batchrun.exp_exit_step  = 20,000,000     # 20M
 
 #A.learner.per_beta_step = 10,000,000              # 10M
 A.learner.per_beta_step = 20,000,000              # 20M
@@ -116,8 +118,12 @@ backend.$ = backend.non-deterministic # 非決定論的（高速化）
 # 実験
 # ==============================================================================
 
-app.run_name = run_{t}_dm_iqn32-b256-rr100
+app.run_name = run_{t}_dm_iqn32-at-b256-rr100
 #app.run_name = run_{t}_dm_iqn32-b128-rr125
+
+X.train_policy.tau_rule.sample_mode = stratified
+X.learner.iqn.current_taus.sample_mode = stratified
+X.learner.iqn.target_taus.sample_mode = stratified
 
 #net.$ = net.qr
 #R.quantile_mode = qr

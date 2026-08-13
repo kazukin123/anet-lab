@@ -280,9 +280,11 @@ namespace anet::rl::dqn {
                 if (rule.num_taus <= 0) {
                     ANET_SYSTEM_ERROR("Invalid " << key << ".num_taus: value=" << rule.num_taus << " expected > 0");
                 }
-                if (rule.sample_mode != "random" && rule.sample_mode != "fixed") {
+                if (rule.sample_mode != "random" && rule.sample_mode != "fixed"
+                    && rule.sample_mode != "stratified" && rule.sample_mode != "systematic"
+                    && rule.sample_mode != "antithetic") {
                     ANET_SYSTEM_ERROR("Invalid " << key << ".sample_mode: value='" << rule.sample_mode
-                        << "' expected one of: random, fixed");
+                        << "' expected one of: random, fixed, stratified, systematic, antithetic");
                 }
             };
             validate_tau_rule(train_policy.tau_rule, "DefaultDQNAgent.train_policy.tau_rule");

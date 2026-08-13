@@ -28,15 +28,62 @@ static void ValidateTauGeneratorArguments(int64_t batch_size, int64_t num_taus, 
     if (num_taus <= 0) {
         ANET_SYSTEM_ERROR("TauGenerator requires num_taus>0, but num_taus=" << num_taus << ".");
     }
-    if (sample_mode != "random" && sample_mode != "fixed") {
+    if (sample_mode != "random" && sample_mode != "fixed"
+        && sample_mode != "stratified" && sample_mode != "systematic"
+        && sample_mode != "antithetic") {
         ANET_SYSTEM_ERROR("TauGenerator received sample_mode=" << sample_mode
-            << "; expected random or fixed.");
+            << "; expected one of: random, fixed, stratified, systematic, antithetic.");
     }
 }
 
 static torch::Tensor MakeTauMidpointPositions(int64_t num_taus, const torch::TensorOptions& options)
 {
     return (torch::arange(num_taus, options) + 0.5f) / static_cast<float>(num_taus);
+}
+
+static torch::Tensor MakeNormalizedTauPositions(
+    int64_t batch_size,
+    int64_t num_taus,
+    const std::string& sample_mode,
+    const torch::Device& device,
+    anet::RandomGenerator& rnd)
+{
+    const auto options = torch::TensorOptions().dtype(torch::kFloat32).device(device);
+    if (sample_mode == "random") {
+        // 乱数を対象device上で一括生成し、行・列ごとに独立な位置を返す。
+        auto gen = rnd.GetTorchGenerator(device);
+        return torch::rand({ batch_size, num_taus }, gen, options);
+    }
+    if (sample_mode == "stratified") {
+        // 各stratumの層内位置を行ごとに一括生成し、列順の被覆を維持する。
+        auto gen = rnd.GetTorchGenerator(device);
+        const auto unit = torch::rand({ batch_size, num_taus }, gen, options);
+        const auto stratum = torch::arange(num_taus, options).unsqueeze(0);
+        return (stratum + unit) / static_cast<float>(num_taus);
+    }
+    if (sample_mode == "systematic") {
+        // 行ごとに1つの位相を生成し、全stratumへbroadcastして等間隔を維持する。
+        auto gen = rnd.GetTorchGenerator(device);
+        const auto phase = torch::rand({ batch_size, 1 }, gen, options);
+        const auto stratum = torch::arange(num_taus, options).unsqueeze(0);
+        return (stratum + phase) / static_cast<float>(num_taus);
+    }
+    if (sample_mode == "antithetic") {
+        // 前半の乱数を同じindex順で鏡映し、奇数Kでは最後の乱数を独立点として使う。
+        const int64_t pair_count = num_taus / 2;
+        const int64_t draw_count = (num_taus + 1) / 2;
+        auto gen = rnd.GetTorchGenerator(device);
+        const auto unit = torch::rand({ batch_size, draw_count }, gen, options);
+        const auto first = unit.slice(1, 0, pair_count);
+        const auto mirrored = 1.0f - first;
+        if (num_taus % 2 == 0) {
+            return torch::cat({ first, mirrored }, 1);
+        }
+        return torch::cat({ first, mirrored, unit.slice(1, pair_count, draw_count) }, 1);
+    }
+
+    // midpoint配置ではgeneratorに触れず、全batchへ同じ正規化位置を共有する。
+    return MakeTauMidpointPositions(num_taus, options).unsqueeze(0).expand({ batch_size, num_taus });
 }
 
 torch::Tensor anet::rl::dqn::GenerateTaus(
@@ -51,18 +98,9 @@ torch::Tensor anet::rl::dqn::GenerateTaus(
     ANET_PROFILE_FUNC();
     ValidateTauGeneratorArguments(batch_size, num_taus, sample_mode);
 
-    const auto options = torch::TensorOptions().dtype(torch::kFloat32).device(device);
-    if (sample_mode == "random") {
-        // 乱数を対象 device 上で一括生成し、CPU 同期を挟まず指定範囲へ写像する。
-        auto gen = rnd.GetTorchGenerator(device);
-        const auto unit = torch::rand({ batch_size, num_taus }, gen, options);
-        return tau_min + unit * (tau_max - tau_min);
-    }
-
-    // midpoint 配置では generator に触れず、全 batch へ同じ配置を共有する。
-    const auto positions = MakeTauMidpointPositions(num_taus, options);
-    const auto taus = tau_min + positions * (tau_max - tau_min);
-    return taus.unsqueeze(0).expand({ batch_size, num_taus });
+    // mode固有の正規化位置を、CPU同期を挟まず指定範囲へ写像する。
+    const auto positions = MakeNormalizedTauPositions(batch_size, num_taus, sample_mode, device, rnd);
+    return tau_min + positions * (tau_max - tau_min);
 }
 
 torch::Tensor anet::rl::dqn::GenerateTaus(
@@ -80,17 +118,10 @@ torch::Tensor anet::rl::dqn::GenerateTaus(
     ValidateTauGeneratorArguments(tau_min_per_env.size(0), num_taus, sample_mode);
 
     const auto device = tau_min_per_env.device();
-    const auto options = torch::TensorOptions().dtype(torch::kFloat32).device(device);
     const auto lower = tau_min_per_env.to(torch::kFloat32).unsqueeze(1);
-    if (sample_mode == "random") {
-        // env ごとの下限を broadcast し、各行を独立にサンプリングする。
-        auto gen = rnd.GetTorchGenerator(device);
-        const auto unit = torch::rand({ tau_min_per_env.size(0), num_taus }, gen, options);
-        return lower + unit * (tau_max - lower);
-    }
-
-    // midpoint の相対位置だけを共有し、絶対位置は env ごとの下限で決める。
-    const auto positions = MakeTauMidpointPositions(num_taus, options).unsqueeze(0);
+    // 共通範囲版と同じ正規化位置を使い、絶対位置だけをenvごとの下限で決める。
+    const auto positions = MakeNormalizedTauPositions(
+        tau_min_per_env.size(0), num_taus, sample_mode, device, rnd);
     return lower + positions * (tau_max - lower);
 }
 

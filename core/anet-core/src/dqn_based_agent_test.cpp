@@ -4015,6 +4015,14 @@ TEST_CASE("DefaultDQNAgentConfig validates quantile modes and tau rules", "[dqn]
         };
         for (const auto& prefix : prefixes) {
             INFO("prefix=" << prefix);
+
+            for (const auto& mode : { "stratified", "systematic", "antithetic" }) {
+                INFO("mode=" << mode);
+                anet::ConfigData valid_mode;
+                valid_mode.Set(prefix + ".sample_mode", mode);
+                CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(valid_mode));
+            }
+
             anet::ConfigData invalid_count;
             invalid_count.Set(prefix + ".num_taus", 0);
             CHECK_THROWS(dqn::DefaultDQNAgentConfig(invalid_count));

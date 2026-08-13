@@ -99,7 +99,7 @@ DefaultDQNAgent.baseline.train_policy.uqe_eps_start = 0.05      # for UQEハイ�
 DefaultDQNAgent.baseline.train_policy.uqe_eps_end = 0.05
 DefaultDQNAgent.baseline.train_policy.uqe_eps_decay_steps = 0    # 0=減衰なし固定
 DefaultDQNAgent.baseline.train_policy.uqe_use_tail_mean = false
-DefaultDQNAgent.baseline.train_policy.tau_rule.sample_mode = random      # random / fixed
+DefaultDQNAgent.baseline.train_policy.tau_rule.sample_mode = random      # random / fixed / stratified / systematic / antithetic
 DefaultDQNAgent.baseline.train_policy.tau_rule.num_taus = 32             # IQNの行動推論に使うτ数 K
 DefaultDQNAgent.baseline.train_policy.full_distribution_query.enabled = false
 DefaultDQNAgent.baseline.train_policy.full_distribution_query.tau_rule.sample_mode = fixed

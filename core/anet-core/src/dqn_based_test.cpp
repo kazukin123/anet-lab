@@ -4,6 +4,7 @@
 #include "dqn_based_agent.hpp"
 #include "nn_heads.hpp"
 
+#include <cmath>
 #include <memory>
 #include <string>
 #include <vector>
@@ -380,6 +381,157 @@ TEST_CASE("TauGenerator samples reproducible taus within a common range", "[dqn]
         first.slice(1, 1, first.size(1)) < first.slice(1, 0, first.size(1) - 1)).item<bool>());
 }
 
+TEST_CASE("TauGenerator stratified mode covers every stratum reproducibly", "[dqn][iqn][tau]")
+{
+    anet::RandomGenerator first_rng(321);
+    anet::RandomGenerator second_rng(321);
+
+    // 公開生成経路から各列が対応stratum内に入り、同seedで再現されることを確認する。
+    const auto first = dqn::GenerateTaus(
+        3, 8, "stratified", 0.2f, 0.8f, torch::Device(torch::kCPU), first_rng);
+    const auto second = dqn::GenerateTaus(
+        3, 8, "stratified", 0.2f, 0.8f, torch::Device(torch::kCPU), second_rng);
+    const auto normalized = (first - 0.2f) / 0.6f;
+    const auto stratum_begin = torch::arange(8, first.options()) / 8.0f;
+    const auto stratum_end = (torch::arange(8, first.options()) + 1.0f) / 8.0f;
+
+    CHECK(first.sizes() == torch::IntArrayRef({ 3, 8 }));
+    CHECK(first.scalar_type() == torch::kFloat32);
+    CHECK(first.device().is_cpu());
+    CHECK(torch::all(normalized >= stratum_begin).item<bool>());
+    CHECK(torch::all(normalized <= stratum_end).item<bool>());
+    CHECK(torch::all(first.slice(1, 1) > first.slice(1, 0, -1)).item<bool>());
+    CHECK(torch::equal(first, second));
+}
+
+TEST_CASE("TauGenerator systematic mode uses an independent phase per row", "[dqn][iqn][tau]")
+{
+    anet::RandomGenerator first_rng(987);
+    anet::RandomGenerator second_rng(987);
+
+    // 行ごとに1つの位相を持ちながら、行内の点間隔が一定になることを確認する。
+    const auto first = dqn::GenerateTaus(
+        4, 5, "systematic", 0.2f, 0.8f, torch::Device(torch::kCPU), first_rng);
+    const auto second = dqn::GenerateTaus(
+        4, 5, "systematic", 0.2f, 0.8f, torch::Device(torch::kCPU), second_rng);
+    const auto gaps = first.slice(1, 1) - first.slice(1, 0, -1);
+
+    CHECK(first.sizes() == torch::IntArrayRef({ 4, 5 }));
+    CHECK(torch::allclose(gaps, torch::full_like(gaps, 0.12f)));
+    CHECK(torch::all(first.slice(1, 1) > first.slice(1, 0, -1)).item<bool>());
+    CHECK_FALSE(torch::equal(first[0], first[1]));
+    CHECK(torch::equal(first, second));
+}
+
+TEST_CASE("TauGenerator systematic mode maps per-environment ranges and consumes one draw per row", "[dqn][iqn][tau]")
+{
+    const auto lower = torch::tensor({ 0.0f, 0.5f, 1.0f });
+    anet::RandomGenerator sampled_after_systematic(988);
+    anet::RandomGenerator sampled_after_direct_draw(988);
+
+    // per-env写像と退化範囲を確認し、同形の直接乱数生成後と後続系列が一致することを確認する。
+    const auto taus = dqn::GenerateTaus(
+        lower, 1.0f, 4, "systematic", sampled_after_systematic);
+    auto direct_gen = sampled_after_direct_draw.GetTorchGenerator(torch::Device(torch::kCPU));
+    static_cast<void>(torch::rand({ 3, 1 }, direct_gen, lower.options()));
+    const auto after_systematic = dqn::GenerateTaus(
+        2, 3, "random", 0.0f, 1.0f, torch::Device(torch::kCPU), sampled_after_systematic);
+    const auto after_direct_draw = dqn::GenerateTaus(
+        2, 3, "random", 0.0f, 1.0f, torch::Device(torch::kCPU), sampled_after_direct_draw);
+    const auto gaps = taus.slice(0, 0, 2).slice(1, 1) - taus.slice(0, 0, 2).slice(1, 0, -1);
+    const auto expected_gaps = torch::tensor({ { 0.25f, 0.25f, 0.25f }, { 0.125f, 0.125f, 0.125f } });
+
+    CHECK(torch::allclose(gaps, expected_gaps));
+    CHECK(torch::equal(taus[2], torch::ones({ 4 }, taus.options())));
+    CHECK(torch::equal(after_systematic, after_direct_draw));
+}
+
+TEST_CASE("TauGenerator antithetic mode lays out mirrored pairs and an odd tail sample", "[dqn][iqn][tau]")
+{
+    anet::RandomGenerator even_rng(741);
+    anet::RandomGenerator odd_rng(742);
+    anet::RandomGenerator single_rng(743);
+
+    // 前半と後半を同じindexの鏡映ペアにし、奇数Kの末尾だけを独立サンプルとして残す。
+    const auto even = dqn::GenerateTaus(
+        3, 4, "antithetic", 0.2f, 0.8f, torch::Device(torch::kCPU), even_rng);
+    const auto odd = dqn::GenerateTaus(
+        3, 5, "antithetic", 0.2f, 0.8f, torch::Device(torch::kCPU), odd_rng);
+    const auto single = dqn::GenerateTaus(
+        3, 1, "antithetic", 0.2f, 0.8f, torch::Device(torch::kCPU), single_rng);
+
+    CHECK(even.sizes() == torch::IntArrayRef({ 3, 4 }));
+    CHECK(torch::allclose(even.slice(1, 0, 2) + even.slice(1, 2, 4), torch::ones({ 3, 2 })));
+    CHECK(torch::allclose(odd.slice(1, 0, 2) + odd.slice(1, 2, 4), torch::ones({ 3, 2 })));
+    CHECK(torch::all(even >= 0.2f).item<bool>());
+    CHECK(torch::all(even <= 0.8f).item<bool>());
+    CHECK(torch::all(odd.slice(1, 4) >= 0.2f).item<bool>());
+    CHECK(torch::all(odd.slice(1, 4) <= 0.8f).item<bool>());
+    CHECK(single.sizes() == torch::IntArrayRef({ 3, 1 }));
+    CHECK(torch::all(single >= 0.2f).item<bool>());
+    CHECK(torch::all(single <= 0.8f).item<bool>());
+}
+
+TEST_CASE("TauGenerator antithetic mode mirrors per-environment ranges and consumes ceil half draws", "[dqn][iqn][tau]")
+{
+    const auto lower = torch::tensor({ 0.0f, 0.5f, 1.0f });
+    anet::RandomGenerator sampled_after_antithetic(744);
+    anet::RandomGenerator sampled_after_direct_draw(744);
+
+    // 各行の範囲中点で同じindexを鏡映し、奇数Kでも乱数消費をceil(K/2)へ固定する。
+    const auto taus = dqn::GenerateTaus(
+        lower, 1.0f, 5, "antithetic", sampled_after_antithetic);
+    auto direct_gen = sampled_after_direct_draw.GetTorchGenerator(torch::Device(torch::kCPU));
+    static_cast<void>(torch::rand({ 3, 3 }, direct_gen, lower.options()));
+    const auto after_antithetic = dqn::GenerateTaus(
+        2, 3, "random", 0.0f, 1.0f, torch::Device(torch::kCPU), sampled_after_antithetic);
+    const auto after_direct_draw = dqn::GenerateTaus(
+        2, 3, "random", 0.0f, 1.0f, torch::Device(torch::kCPU), sampled_after_direct_draw);
+    const auto pair_sum = taus.slice(1, 0, 2) + taus.slice(1, 2, 4);
+    const auto expected_sum = (lower + 1.0f).unsqueeze(1).expand({ 3, 2 });
+
+    CHECK(torch::allclose(pair_sum, expected_sum));
+    CHECK(torch::equal(taus[2], torch::ones({ 5 }, taus.options())));
+    CHECK(torch::equal(after_antithetic, after_direct_draw));
+}
+
+TEST_CASE("TauGenerator randomized placement modes follow their seeds", "[dqn][iqn][tau]")
+{
+    for (const auto& mode : { "stratified", "systematic", "antithetic" }) {
+        INFO("mode=" << mode);
+        anet::RandomGenerator first_rng(745);
+        anet::RandomGenerator second_rng(745);
+        anet::RandomGenerator different_rng(746);
+
+        // 同一seedと呼出し順では再現し、異なるseedでは確率的位置が変わることを確認する。
+        const auto first = dqn::GenerateTaus(
+            4, 5, mode, 0.0f, 1.0f, torch::Device(torch::kCPU), first_rng);
+        const auto second = dqn::GenerateTaus(
+            4, 5, mode, 0.0f, 1.0f, torch::Device(torch::kCPU), second_rng);
+        const auto different = dqn::GenerateTaus(
+            4, 5, mode, 0.0f, 1.0f, torch::Device(torch::kCPU), different_rng);
+
+        CHECK(torch::equal(first, second));
+        CHECK_FALSE(torch::equal(first, different));
+    }
+}
+
+TEST_CASE("TauGenerator ordered modes allow float32 ties in narrow ranges", "[dqn][iqn][tau]")
+{
+    for (const auto& mode : { "stratified", "systematic" }) {
+        INFO("mode=" << mode);
+        anet::RandomGenerator rng(747);
+
+        // float32で隣接値を区別できない正幅でも補正せず、列順を非減少に保つ。
+        const auto taus = dqn::GenerateTaus(
+            2, 8, mode, 1.0f, std::nextafter(1.0f, 2.0f), torch::Device(torch::kCPU), rng);
+
+        CHECK(torch::all(taus.slice(1, 1) >= taus.slice(1, 0, -1)).item<bool>());
+        CHECK(torch::all(taus >= 1.0f).item<bool>());
+        CHECK(torch::all(taus <= std::nextafter(1.0f, 2.0f)).item<bool>());
+    }
+}
+
 TEST_CASE("TauGenerator fixed mode places midpoint grids without consuming RNG", "[dqn][iqn][tau]")
 {
     anet::RandomGenerator sampled_after_fixed(456);
@@ -423,19 +575,61 @@ TEST_CASE("TauGenerator supports per-environment lower bounds", "[dqn][iqn][tau]
     CHECK(torch::equal(random, second_random));
 }
 
+TEST_CASE("TauGenerator stratified mode maps per-environment ranges", "[dqn][iqn][tau]")
+{
+    const auto lower = torch::tensor({ 0.0f, 0.5f, 1.0f });
+    anet::RandomGenerator rng(654);
+    anet::RandomGenerator different_rng(655);
+
+    // 行ごとの範囲へ同じstratum規則を写像し、幅0の行は全点を下限へ保つ。
+    const auto taus = dqn::GenerateTaus(lower, 1.0f, 4, "stratified", rng);
+    const auto different = dqn::GenerateTaus(lower, 1.0f, 4, "stratified", different_rng);
+    const auto normalized = (taus.slice(0, 0, 2) - lower.slice(0, 0, 2).unsqueeze(1))
+        / (1.0f - lower.slice(0, 0, 2).unsqueeze(1));
+    const auto stratum_begin = torch::arange(4, taus.options()) / 4.0f;
+    const auto stratum_end = (torch::arange(4, taus.options()) + 1.0f) / 4.0f;
+
+    CHECK(taus.sizes() == torch::IntArrayRef({ 3, 4 }));
+    CHECK(torch::all(normalized >= stratum_begin).item<bool>());
+    CHECK(torch::all(normalized <= stratum_end).item<bool>());
+    CHECK(torch::all(taus.slice(0, 0, 2).slice(1, 1)
+        > taus.slice(0, 0, 2).slice(1, 0, -1)).item<bool>());
+    CHECK(torch::equal(taus[2], torch::ones({ 4 }, taus.options())));
+    CHECK_FALSE(torch::equal(taus.slice(0, 0, 2), different.slice(0, 0, 2)));
+}
+
+TEST_CASE("TauGenerator stratified mode consumes one draw per row and stratum", "[dqn][iqn][tau]")
+{
+    anet::RandomGenerator sampled_after_stratified(656);
+    anet::RandomGenerator sampled_after_direct_draw(656);
+
+    // `(B,K)`の一括生成と同じ乱数列だけを消費することを後続randomから確認する。
+    static_cast<void>(dqn::GenerateTaus(
+        3, 4, "stratified", 0.0f, 1.0f, torch::Device(torch::kCPU), sampled_after_stratified));
+    auto direct_gen = sampled_after_direct_draw.GetTorchGenerator(torch::Device(torch::kCPU));
+    static_cast<void>(torch::rand(
+        { 3, 4 }, direct_gen, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU)));
+    const auto after_stratified = dqn::GenerateTaus(
+        2, 3, "random", 0.0f, 1.0f, torch::Device(torch::kCPU), sampled_after_stratified);
+    const auto after_direct_draw = dqn::GenerateTaus(
+        2, 3, "random", 0.0f, 1.0f, torch::Device(torch::kCPU), sampled_after_direct_draw);
+
+    CHECK(torch::equal(after_stratified, after_direct_draw));
+}
+
 TEST_CASE("TauGenerator rejects unknown placement modes", "[dqn][iqn][tau][validation]")
 {
     anet::RandomGenerator rng(1);
     CHECK_THROWS_WITH(
         dqn::GenerateTaus(1, 2, "invalid", 0.0f, 1.0f, torch::Device(torch::kCPU), rng),
         Catch::Matchers::ContainsSubstring("sample_mode=invalid")
-            && Catch::Matchers::ContainsSubstring("random or fixed"));
+            && Catch::Matchers::ContainsSubstring("random, fixed, stratified, systematic, antithetic"));
 
     const auto lower = torch::tensor({ 0.0f });
     CHECK_THROWS_WITH(
         dqn::GenerateTaus(lower, 1.0f, 2, "invalid", rng),
         Catch::Matchers::ContainsSubstring("sample_mode=invalid")
-            && Catch::Matchers::ContainsSubstring("random or fixed"));
+            && Catch::Matchers::ContainsSubstring("random, fixed, stratified, systematic, antithetic"));
 }
 
 TEST_CASE("TauGenerator creates taus on CUDA when available", "[dqn][iqn][tau][cuda]")
@@ -446,16 +640,20 @@ TEST_CASE("TauGenerator creates taus on CUDA when available", "[dqn][iqn][tau][c
 
     const torch::Device device(torch::kCUDA, 0);
     anet::RandomGenerator rng(789);
-    const auto taus = dqn::GenerateTaus(2, 3, "random", 0.0f, 1.0f, device, rng);
-    CHECK(taus.sizes() == torch::IntArrayRef({ 2, 3 }));
-    CHECK(taus.device() == device);
-
     const auto lower = torch::tensor(
         { 0.2f, 0.6f }, torch::TensorOptions().dtype(torch::kFloat32).device(device));
-    const auto per_env_random = dqn::GenerateTaus(lower, 1.0f, 3, "random", rng);
-    const auto per_env_fixed = dqn::GenerateTaus(lower, 1.0f, 3, "fixed", rng);
-    CHECK(per_env_random.sizes() == torch::IntArrayRef({ 2, 3 }));
-    CHECK(per_env_fixed.sizes() == torch::IntArrayRef({ 2, 3 }));
-    CHECK(per_env_random.device() == device);
-    CHECK(per_env_fixed.device() == device);
+
+    for (const auto& mode : { "random", "fixed", "stratified", "systematic", "antithetic" }) {
+        INFO("mode=" << mode);
+        // 両overloadが全modeでCUDA上のfloat32 `(B,K)` を維持することを確認する。
+        const auto common = dqn::GenerateTaus(2, 3, mode, 0.0f, 1.0f, device, rng);
+        const auto per_env = dqn::GenerateTaus(lower, 1.0f, 3, mode, rng);
+
+        CHECK(common.sizes() == torch::IntArrayRef({ 2, 3 }));
+        CHECK(per_env.sizes() == torch::IntArrayRef({ 2, 3 }));
+        CHECK(common.scalar_type() == torch::kFloat32);
+        CHECK(per_env.scalar_type() == torch::kFloat32);
+        CHECK(common.device() == device);
+        CHECK(per_env.device() == device);
+    }
 }

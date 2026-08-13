@@ -56,7 +56,7 @@ IQN で分布 Z の評価点として使う τ∈[0,1] のサンプル列。環�
 _Avoid_: 観測キー扱い, tau テンソル（曖昧）
 
 **tau配置方式**:
-taus の並べ方の区分（random / fixed）。`fixed`は指定範囲をK個の等幅区間に分け、各区間の中心へτを固定配置してRNGを消費しない。TauGenerator が担当し、τ の時間減衰スケジュール（uqe_tau_decay）とは別概念。
+taus の並べ方の区分（random / fixed / stratified / systematic / antithetic）。被覆を強める軸と範囲中点対称を強める軸を持ち、`fixed`は指定範囲をK個の等幅区間に分けた中点へ固定配置してRNGを消費しない。TauGenerator が担当し、τ の時間減衰スケジュール（uqe_tau_decay）とは別概念。
 _Avoid_: sampling mode, tau schedule（減衰スケジュールと混同）
 
 ### Replay・PER
