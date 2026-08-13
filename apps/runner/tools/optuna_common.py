@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import csv
+import gzip
 import itertools
 import json
 import math
@@ -822,9 +823,32 @@ def completed_run_values(seed_runs: list[dict], field: str) -> list[float]:
     return values
 
 
+def resolve_metrics_path(metrics_path: Path) -> Path:
+    """rawを優先し、無ければ同じRunのimmutable gzipを選ぶ。"""
+    path = Path(metrics_path)
+    if path.is_dir():
+        raw_path = path / "metrics.jsonl"
+        gzip_path = path / "metrics.jsonl.gz"
+    else:
+        raw_path = path
+        gzip_path = path.with_name("metrics.jsonl.gz") if path.name == "metrics.jsonl" else path
+    if raw_path.is_file():
+        return raw_path
+    if gzip_path.is_file():
+        return gzip_path
+    raise FileNotFoundError(f"metrics.jsonl(.gz) not found: {path}")
+
+
+def open_metrics_text(metrics_path: Path):
+    path = resolve_metrics_path(metrics_path)
+    if path.name == "metrics.jsonl.gz":
+        return gzip.open(path, "rt", encoding="utf-8-sig")
+    return path.open("r", encoding="utf-8-sig")
+
+
 
 def scalar_records(metrics_path: Path) -> Iterable[dict]:
-    with metrics_path.open("r", encoding="utf-8-sig") as stream:
+    with open_metrics_text(metrics_path) as stream:
         for line in stream:
             line = line.strip()
             if not line:
@@ -882,6 +906,7 @@ def summarize_metrics_window(
 
 
 def summarize_metrics(metrics_path: Path, window: ScoreWindow, spec: MetricsSpec) -> dict:
+    metrics_path = resolve_metrics_path(metrics_path)
     tag_summary, score = summarize_metrics_window(metrics_path, window, spec)
     analysis_windows: dict[str, dict[str, object]] = {}
     for name, raw_start, raw_end in spec.late_score_windows:
@@ -2694,9 +2719,10 @@ class OptunaHarnessRuntime:
         if returncode != 0:
             raise TrialFailedError(f"runner failed: returncode={returncode}")
 
-        metrics_path = Path(ctx.run_dir) / "metrics.jsonl"
-        if not metrics_path.exists():
-            raise TrialFailedError(f"metrics.jsonl not found: {metrics_path}")
+        try:
+            metrics_path = resolve_metrics_path(Path(ctx.run_dir))
+        except FileNotFoundError as error:
+            raise TrialFailedError(str(error)) from error
 
         summary = MetricsSummarizer.summarize(metrics_path, score_window, self.metrics_spec)
         MetricsSummarizer.write_single_seed_summary(summary, Path(ctx.artifact_dir))

@@ -1,4 +1,8 @@
 $ErrorActionPreference = 'Stop'
+chcp 65001 | Out-Null
+[Console]::InputEncoding = [Text.UTF8Encoding]::new()
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new()
+$OutputEncoding = [Console]::OutputEncoding
 
 $toolsRoot = $PSScriptRoot
 $runnerRoot = Split-Path -Parent $toolsRoot
@@ -39,8 +43,11 @@ function Invoke-Resolver([string]$Argument = '') {
     } else {
         "call `"$resolver`" && echo RUNS_DIR=!RUNS_DIR!"
     }
+    $ErrorActionPreference = 'Continue'
     $output = & $env:COMSPEC /d /v:on /s /c $command 2>&1
-    return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = ($output -join "`n") }
+    $exitCode = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
+    return [pscustomobject]@{ ExitCode = $exitCode; Output = ($output -join "`n") }
 }
 
 function Assert-BatchFileEncoding {
@@ -70,6 +77,30 @@ function Assert-LauncherWiring {
         $content = $shiftJis.GetString([IO.File]::ReadAllBytes($launcherPath))
         if (-not $content.Contains($expectedCall)) {
             throw "Workspace resolver call is missing: $launcherPath"
+        }
+    }
+
+    $compressLauncher = Join-Path $appsRoot '70_compress_workspace_metrics.bat'
+    $compressContent = $shiftJis.GetString([IO.File]::ReadAllBytes($compressLauncher))
+    foreach ($expected in @(
+        'resolve_workspace.bat" --select-if-empty',
+        'compress_workspace_metrics.py" --workspace-root "%WORKSPACE_ROOT%"',
+        ':interactive_workspace_loop',
+        'if defined WORKSPACE_SELECTION_EXIT',
+        'if defined INTERACTIVE_MODE (',
+        'if not defined NO_PAUSE pause',
+        '--dry-run',
+        '--no-pause'
+    )) {
+        if (-not $compressContent.Contains($expected)) {
+            throw "Metrics compression launcher wiring is missing: $expected"
+        }
+    }
+
+    $resolverContent = $shiftJis.GetString([IO.File]::ReadAllBytes($sourceResolver))
+    foreach ($expected in @('[0] EXIT', 'set "WORKSPACE_SELECTION_EXIT=1"')) {
+        if (-not $resolverContent.Contains($expected)) {
+            throw "Workspace EXIT selection wiring is missing: $expected"
         }
     }
 }

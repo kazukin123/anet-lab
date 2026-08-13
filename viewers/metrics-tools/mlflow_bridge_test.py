@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+import gzip
 import pathlib
 import re
 import tempfile
@@ -18,7 +19,9 @@ from mlflow_bridge import (
     format_historical_status,
     load_config_params,
     poll_monitored_runs,
+    poll_run,
     read_jsonl_batch,
+    source_metrics_key,
     tracking_uri_from_path,
 )
 
@@ -95,6 +98,29 @@ class RunDiscoveryTest(unittest.TestCase):
 
             self.assertEqual(find_run_metrics(runs_path), [direct_metrics])
 
+    def test_uses_raw_first_and_falls_back_to_gzip(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runs_path = pathlib.Path(temp_dir)
+            raw_run = runs_path / "run_raw"
+            gzip_run = runs_path / "run_gzip"
+            raw_run.mkdir()
+            gzip_run.mkdir()
+            raw = raw_run / "metrics.jsonl"
+            raw.write_text("", encoding="utf-8")
+            with gzip.open(raw_run / "metrics.jsonl.gz", "wb") as stream:
+                stream.write(b"ignored\n")
+            with gzip.open(gzip_run / "metrics.jsonl.gz", "wb") as stream:
+                stream.write(b"{}\n")
+
+            self.assertEqual(
+                find_run_metrics(runs_path),
+                [gzip_run / "metrics.jsonl.gz", raw],
+            )
+            self.assertEqual(
+                source_metrics_key(raw),
+                source_metrics_key(raw_run / "metrics.jsonl.gz"),
+            )
+
 
 class TrackingDatabaseTest(unittest.TestCase):
     def test_builds_absolute_sqlite_uri_for_selected_workspace(self):
@@ -141,6 +167,76 @@ class JsonlReaderTest(unittest.TestCase):
         self.assertEqual(metric.value, 0)
         self.assertEqual(metric.step, 0)
         self.assertEqual(metric.timestamp, 123)
+
+    def test_reads_gzip_with_decompressed_byte_offset(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            metrics_path = pathlib.Path(temp_dir) / "metrics.jsonl.gz"
+            first = b'{"step":0,"tag":"zero","value":0}\n'
+            second = b'{"step":1,"tag":"one","value":1}\n'
+            with gzip.open(metrics_path, "wb") as stream:
+                stream.write(first + second)
+
+            entries, offset = read_jsonl_batch(metrics_path, len(first), max_lines=1)
+
+            self.assertEqual(entries, [{"step": 1, "tag": "one", "value": 1}])
+            self.assertEqual(offset, len(first + second))
+
+    def test_poll_reuses_gzip_stream_between_batches(self):
+        class FakeClient:
+            def log_batch(self, *args, **kwargs):
+                pass
+
+            def set_tag(self, *args, **kwargs):
+                pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            metrics_path = pathlib.Path(temp_dir) / "metrics.jsonl.gz"
+            with gzip.open(metrics_path, "wb") as stream:
+                stream.write(
+                    b'{"step":0,"tag":"zero","value":0}\n'
+                    b'{"step":1,"tag":"one","value":1}\n'
+                )
+            monitored = MonitoredRun(metrics_path, "run-id", 0)
+
+            with mock.patch("mlflow_bridge.READ_BATCH_SIZE", 1):
+                self.assertTrue(poll_run(FakeClient(), monitored))
+                opened_stream = monitored.gzip_stream
+                self.assertTrue(poll_run(FakeClient(), monitored))
+
+            self.assertIs(monitored.gzip_stream, opened_stream)
+            monitored.gzip_stream.close()
+
+    def test_poll_continues_same_decompressed_offset_after_raw_to_gzip_switch(self):
+        class FakeClient:
+            def __init__(self):
+                self.metrics = []
+
+            def log_batch(self, *args, **kwargs):
+                self.metrics.extend(kwargs.get("metrics", []))
+
+            def set_tag(self, *args, **kwargs):
+                pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run_dir = pathlib.Path(temp_dir) / "run_switch"
+            run_dir.mkdir()
+            raw = run_dir / "metrics.jsonl"
+            compressed = run_dir / "metrics.jsonl.gz"
+            first = b'{"step":0,"tag":"zero","value":0}\n'
+            second = b'{"step":1,"tag":"one","value":1}\n'
+            raw.write_bytes(first + second)
+            monitored = MonitoredRun(raw, "run-id", len(first))
+            with gzip.open(compressed, "wb") as stream:
+                stream.write(first + second)
+            raw.unlink()
+            client = FakeClient()
+
+            self.assertTrue(poll_run(client, monitored))
+
+            self.assertEqual(monitored.metrics_path, compressed)
+            self.assertEqual(monitored.offset, len(first + second))
+            self.assertEqual([metric.key for metric in client.metrics], ["one"])
+            monitored.gzip_stream.close()
 
 
 class PollMonitoredRunsTest(unittest.TestCase):

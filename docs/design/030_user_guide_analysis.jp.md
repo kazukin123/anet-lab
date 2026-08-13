@@ -41,6 +41,26 @@
 `runs/`直下で、`metrics.jsonl`または`metrics.jsonl.gz`を持つdirectoryだけをRunとして認識する。
 両方がある場合は`metrics.jsonl`を使う。
 
+### 2.1 完了Runのmetricsを圧縮する
+
+`apps/70_compress_workspace_metrics.bat`は、選択workspaceの`runs/`直下にある全Runの
+`metrics.jsonl`を`metrics.jsonl.gz`へ移行する。引数なしで起動すると`runs/`を持つworkspaceを
+名前順に列挙するので、番号を入力して選択する。`[0] EXIT`を選ぶとlauncherを終了する。
+workspace名または絶対pathを第1引数で指定してもよい。
+
+preflight後の`Execute compression? [YES/NO/DRY-RUN]:`には、次のいずれかを入力する。
+
+- `YES`: gzipを作成・検証し、確定後に元の`metrics.jsonl`を削除する。
+- `NO`: fileを変更せず、そのworkspaceの処理を取り消す。
+- `DRY-RUN`: 対象、skip理由、必要容量だけを表示し、fileを変更しない。
+
+非空fileの末尾が改行で完結していないRunや、Runnerが書き込み中のRunは変更せずskipする。
+処理後もMetrics Viewer、TensorBoard bridge、MLflow bridge、Optuna集計はrawを優先し、
+rawが無いRunではgzipを透過的に読む。
+workspaceを引数指定せずに起動した場合は、`YES`、`NO`、`DRY-RUN`の結果表示後にpauseし、
+キー入力後にworkspace選択へ戻る。`--no-pause`指定時はpauseを省略する。
+複数workspaceを続けて処理し、最後に`[0] EXIT`で終了できる。workspaceを引数指定した場合は1回だけ処理する。
+
 ## 3. 画面の基本操作
 
 ![複数Runを選択したMetrics Viewer](assets/030_metrics_viewer_run_comparison.png)

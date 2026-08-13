@@ -119,7 +119,7 @@ Metrics Viewerはconnectionを読み＝request単位、書き＝取り込みbloc
 
 ### 2.4 マスタとキャッシュの従属関係
 
-`metrics.jsonl`（Runnerが圧縮した後は`metrics.jsonl.gz`）が**Metricsマスタ**である。
+`metrics.jsonl`（workspace metrics圧縮ツールで移行した後は`metrics.jsonl.gz`）が**Metricsマスタ**である。
 `metrics_cache.db`はマスタから従属構築される破棄可能な**Metricsキャッシュ**であり、第2のマスタにはしない。
 
 この区別が効いてくるのは、schemaを変えたときとfileが壊れたときである。

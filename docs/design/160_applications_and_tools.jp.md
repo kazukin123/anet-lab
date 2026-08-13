@@ -61,9 +61,10 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | `DropMergeDomain` | 探索空間、generated config、cost、score tagをまとめるdomain adapter |
 | `OptunaHarnessRuntime` | dry-run、run-trial、run-study、summary、cleanupを実行する共通runtime |
 | `RunnerProcessManager` | runner子processの起動、timeout、中断、終了を管理する |
-| `MetricsSummarizer` | `metrics.jsonl`を指定`exp_step` windowで集計する |
+| `MetricsSummarizer` | `metrics.jsonl`または`metrics.jsonl.gz`を指定`exp_step` windowで集計する |
 | Optuna storage/artifact store | trial state/attributesとDashboard用artifactを永続化する |
-| `.bat` launcher | Runner、通常/Optuna Metrics Viewer、Optuna Dashboardの既定pathとportを固定する |
+| `compress_workspace_metrics.py` | workspaceの完了Runを検査し、検証済みgzipへRun単位で移行する |
+| `.bat` launcher | Runner、通常/Optuna Metrics Viewer、Optuna Dashboard、workspace metrics圧縮の入口を提供する |
 
 ## 3. コードマップ
 

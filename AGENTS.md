@@ -299,7 +299,11 @@ Runner workspace 機構と補助 launcher、MLflow bridge の標準テスト手�
 ```powershell
 core\anet-core\bin\Debug\anet-core-test.exe "[workspace]"
 powershell -NoProfile -ExecutionPolicy Bypass -File apps\runner\tools\resolve_workspace_test.ps1
+.\.venv\Scripts\python.exe apps\runner\tools\compress_workspace_metrics_test.py
 .\.venv\Scripts\python.exe viewers\metrics-tools\mlflow_bridge_test.py
+.\.venv\Scripts\python.exe viewers\metrics-tools\metrics_source_test.py
+.\.venv\Scripts\python.exe viewers\metrics-tools\tb_bridge_test.py
+.\.venv\Scripts\python.exe apps\runner\tools\optuna_metrics_gzip_test.py
 ```
 
 新しいテスト実行体や専用スクリプトが追加された場合は、この節に標準の実行手順を追記してください。

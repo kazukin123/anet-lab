@@ -74,3 +74,4 @@
 /docs/xml
 /apps/Servers
 /apps/.metadata
+/viewers/metrics-tools/__pycache__

@@ -19,6 +19,13 @@ import mlflow
 from mlflow.entities import Metric, Param
 from mlflow.tracking import MlflowClient
 
+from metrics_source import (
+    logical_metrics_path,
+    open_metrics_binary,
+    resolve_metrics_path,
+    resolve_run_metrics,
+)
+
 
 DEFAULT_EXPERIMENT_ID = "0"
 SOURCE_METRICS_TAG = "anet.bridge.source_metrics"
@@ -34,6 +41,7 @@ class MonitoredRun:
     metrics_path: pathlib.Path
     run_id: str
     offset: int
+    gzip_stream: object | None = None
 
 
 @dataclass
@@ -112,53 +120,79 @@ def load_config_params(filepath):
 
 def find_run_metrics(logdir):
     log_root = pathlib.Path(logdir)
-    return sorted(
-        metrics_path
-        for metrics_path in log_root.glob("run_*/metrics.jsonl")
-        if metrics_path.is_file()
-    )
+    metrics_paths = []
+    for run_dir in log_root.glob("run_*"):
+        if not run_dir.is_dir():
+            continue
+        metrics_path = resolve_run_metrics(run_dir)
+        if metrics_path is not None:
+            metrics_paths.append(metrics_path)
+    return sorted(metrics_paths)
 
 
 def source_metrics_key(metrics_path):
-    return pathlib.Path(metrics_path).resolve().as_posix()
+    return logical_metrics_path(metrics_path).resolve().as_posix()
+
+
+def _read_jsonl_stream(metrics_file, start_offset, max_lines):
+    entries = []
+    next_offset = start_offset
+    if metrics_file.tell() != start_offset:
+        metrics_file.seek(start_offset)
+
+    for _ in range(max_lines):
+        line_start = metrics_file.tell()
+        raw_line = metrics_file.readline()
+        if not raw_line:
+            break
+
+        has_newline = raw_line.endswith(b"\n")
+        try:
+            entry = json.loads(raw_line.decode("utf-8").strip())
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            if not has_newline:
+                # 書き込み途中の末尾行はoffsetを進めず、次回pollで再読込する
+                metrics_file.seek(line_start)
+                break
+        else:
+            entries.append(entry)
+
+        next_offset = metrics_file.tell()
+    return entries, next_offset
 
 
 def read_jsonl_batch(filepath, start_offset=0, max_lines=READ_BATCH_SIZE):
-    metrics_path = pathlib.Path(filepath)
-    entries = []
-    next_offset = start_offset
-
-    # byte offset を保持し、bridge再起動後も同じ位置から再開する
-    with metrics_path.open("rb") as metrics_file:
-        metrics_file.seek(0, 2)
-        file_size = metrics_file.tell()
-        if start_offset > file_size:
+    metrics_path = resolve_metrics_path(filepath)
+    # offsetはraw/gzipとも展開後JSONL byte位置で統一する。
+    with open_metrics_binary(metrics_path) as metrics_file:
+        if metrics_path.name == "metrics.jsonl" and start_offset > metrics_path.stat().st_size:
             raise ValueError(
                 f"Metrics file was truncated: path='{metrics_path}', "
-                f"offset={start_offset}, size={file_size}"
+                f"offset={start_offset}, size={metrics_path.stat().st_size}"
             )
-        metrics_file.seek(start_offset)
+        try:
+            metrics_file.seek(start_offset)
+        except (EOFError, OSError) as error:
+            raise ValueError(
+                f"Metrics file was truncated: path='{metrics_path}', offset={start_offset}"
+            ) from error
+        if metrics_file.tell() != start_offset:
+            raise ValueError(
+                f"Metrics file was truncated: path='{metrics_path}', offset={start_offset}"
+            )
+        return _read_jsonl_stream(metrics_file, start_offset, max_lines)
 
-        for _ in range(max_lines):
-            line_start = metrics_file.tell()
-            raw_line = metrics_file.readline()
-            if not raw_line:
-                break
 
-            has_newline = raw_line.endswith(b"\n")
-            try:
-                entry = json.loads(raw_line.decode("utf-8").strip())
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                if not has_newline:
-                    # 書き込み途中の末尾行はoffsetを進めず、次回pollで再読込する
-                    metrics_file.seek(line_start)
-                    break
-            else:
-                entries.append(entry)
-
-            next_offset = metrics_file.tell()
-
-    return entries, next_offset
+def refresh_monitored_source(monitored_run):
+    current_path = resolve_run_metrics(monitored_run.metrics_path.parent)
+    if current_path is None:
+        raise FileNotFoundError(f"Metrics file not found: {monitored_run.metrics_path.parent}")
+    if current_path == monitored_run.metrics_path:
+        return
+    if monitored_run.gzip_stream is not None:
+        monitored_run.gzip_stream.close()
+        monitored_run.gzip_stream = None
+    monitored_run.metrics_path = current_path
 
 
 def entry_to_metric(entry, timestamp_ms=None):
@@ -267,10 +301,21 @@ def register_run(client, metrics_path, existing_runs, run_name=None):
 
 
 def poll_run(client, monitored_run):
-    entries, next_offset = read_jsonl_batch(
-        monitored_run.metrics_path,
-        monitored_run.offset,
-    )
+    refresh_monitored_source(monitored_run)
+    if monitored_run.metrics_path.name == "metrics.jsonl.gz":
+        if monitored_run.gzip_stream is None:
+            monitored_run.gzip_stream = open_metrics_binary(monitored_run.metrics_path)
+            monitored_run.gzip_stream.seek(monitored_run.offset)
+        entries, next_offset = _read_jsonl_stream(
+            monitored_run.gzip_stream,
+            monitored_run.offset,
+            READ_BATCH_SIZE,
+        )
+    else:
+        entries, next_offset = read_jsonl_batch(
+            monitored_run.metrics_path,
+            monitored_run.offset,
+        )
     if next_offset == monitored_run.offset:
         return False
 
@@ -290,6 +335,8 @@ def poll_run(client, monitored_run):
 
 
 def poll_monitored_runs(client, monitored_runs, schedule_state):
+    for monitored_run in monitored_runs.values():
+        refresh_monitored_source(monitored_run)
     ordered_runs = sorted(
         monitored_runs.values(),
         key=lambda monitored_run: monitored_run.metrics_path.stat().st_mtime_ns,
@@ -361,17 +408,15 @@ def resolve_initial_metrics(logdir):
         if metrics_paths:
             return metrics_paths, log_path
 
-        direct_metrics = log_path / "metrics.jsonl"
-        if direct_metrics.is_file():
+        direct_metrics = resolve_run_metrics(log_path)
+        if direct_metrics is not None:
             return [direct_metrics], None
 
         raise FileNotFoundError(
-            f"Direct run metrics were not found: {log_path / 'run_*' / 'metrics.jsonl'}"
+            f"Direct run metrics were not found: {log_path / 'run_*' / 'metrics.jsonl(.gz)'}"
         )
 
-    if not log_path.is_file():
-        raise FileNotFoundError(f"Metrics file not found: {log_path}")
-    return [log_path], None
+    return [resolve_metrics_path(log_path)], None
 
 
 def main():
@@ -395,6 +440,12 @@ def main():
     def add_metrics_path(metrics_path, run_name=None):
         source_key = source_metrics_key(metrics_path)
         if source_key in monitored_runs:
+            monitored_run = monitored_runs[source_key]
+            if monitored_run.metrics_path != metrics_path:
+                if monitored_run.gzip_stream is not None:
+                    monitored_run.gzip_stream.close()
+                    monitored_run.gzip_stream = None
+                monitored_run.metrics_path = metrics_path
             return
         monitored_runs[source_key] = register_run(
             client,
