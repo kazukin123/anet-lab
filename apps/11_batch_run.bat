@@ -6,22 +6,17 @@ SET EXE="bin\Release\AnetRLRunner.exe" app.$=app.batchrun
 REM SET EXE="bin\Release\AnetRLRunner.exe"
 
 
-call:run_tau_mode stratified
-call:run_tau_mode antithetic
-call:run_tau_mode systematic
-call:run_tau_mode fixed
+call:run_target_m 32
+call:run_target_m 16
+call:run_target_m 64
+call:run_target_m 8
 
 pause
 exit /b
 
 
-:run_tau_mode
-call:run_exe ^
-  app.run_name=run_{t}_dm_iqn32-%1-b256-rr100 ^
-  train.seed=1 ^
-  DefaultDQNAgent.train_policy.tau_rule.sample_mode=%1 ^
-  DefaultDQNAgent.learner.iqn.current_taus.sample_mode=%1 ^
-  DefaultDQNAgent.learner.iqn.target_taus.sample_mode=%1
+:run_target_m
+call:run_exe app.run_name=run_{t}_dm_iqn-k32-n32-m%1-stratified
 exit /b
 
 

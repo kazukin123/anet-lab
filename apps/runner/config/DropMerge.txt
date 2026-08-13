@@ -6,8 +6,8 @@
 app.$ = app.online > P
 #app.$ = app.batchrun > P
 
-#train.seed = 1
-train.seed = 2
+train.seed = 1
+#train.seed = 2
 #train.seed = 3
 
 train.num_envs = 256
@@ -19,7 +19,6 @@ train.num_envs = 256
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > B	 # Random Policy
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
 DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > BF16.agent > R > X
-
 
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G20 > E
 #DropMergeEnv.$ = DropMergeEnv.baseline > DropMergeEnv.G2032 > E
@@ -81,7 +80,7 @@ app.run_name = run_{t}_dm
 # Run設定
 # ==============================================================================
 
-app.run_name = run_{t}_dm_iqn
+app.run_name = run_{t}_dm_iqn32
 
 #app.online.exp_pause_step  = 9,000,000    # 9M
 #app.online.exp_pause_step  = 15,000,000      # 15M
@@ -118,8 +117,7 @@ backend.$ = backend.non-deterministic # 非決定論的（高速化）
 # 実験
 # ==============================================================================
 
-app.run_name = run_{t}_dm_iqn32-at-b256-rr100
-#app.run_name = run_{t}_dm_iqn32-b128-rr125
+app.run_name = run_{t}_dm_iqn32
 
 X.train_policy.tau_rule.sample_mode = stratified
 X.learner.iqn.current_taus.sample_mode = stratified

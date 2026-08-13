@@ -7,7 +7,7 @@ DropMerge の DefaultDQNAgent 系 Run に関する探索索引です。
 | 期間 | 文書 | 主題 | 状態 |
 |---|---|---|---|
 | 2026-07-27〜2026-08-12 | [長期 Run: batch / replay 探索](2026-07-27_longrun-batch-replay.md) | 長期継続学習における batch size、replay ratio、PER、実時間効率 | 一旦クローズ。機構分離・再現性は次campaignへ保留 |
-| 2026-08-09〜 | [IQN 導入・QR 比較](2026-08-09_iqn.md) | IQN 32/32 の成立性、QR51 比較、Q 値バブル、tau sampling 5方式screening | active |
+| 2026-08-09〜 | [IQN 導入・QR 比較](2026-08-09_iqn.md) | IQN成立性、QR51比較、tau sampling 5方式、K/N/M本数探索 | active |
 
 ## 現時点の判断
 
@@ -22,7 +22,8 @@ DropMerge の DefaultDQNAgent 系 Run に関する探索索引です。
 | `alpha=5e-5` / `7.5e-5` | invalidated | checkpoint load により AdamW の param group options が復元され、設定ファイル上の alpha が実効学習率になっていない可能性が高い |
 | `per_alpha=0.1` | 採用見送り | 単一分岐では明確な改善がなく、NEET 増加の懸念もあった。確度は低い |
 | IQN 32/32 random | B256/RR1の100M基準Run完了。長期主力への採用は保留 | 同一B256/RR1のQR51に対し、90–100MのEval target rewardが約8%、Policy rewardが約13%低い。Q/TD/lossは安定し正常close |
-| IQN stratified / antithetic | 20M gate通過。新seedで両方式を再現してfinalist決定 | stratifiedはrewardとPolicy識別性、antitheticはMaxRank・初回priority・終端品質で優位。systematicはrandom同等、fixedは明確劣後して棄却 |
+| IQN tau sampling | `stratified`採用、`antithetic`は代替候補 | 両方式とも2-seedでrandom改善を再現し、seed 2の50Mでも同率。全stratum被覆と2-seed Targetからstratifiedを標準化。systematic / fixedは棄却 |
+| IQN tau本数 | 次はtarget `M=8/16/32/64` | K=N=32とstratifiedを固定。M32 control、M16高速化、M64高精度化、M8下限確認の順で同じ終了stepまで流し、勝者だけ50Mへ進める |
 | batch sizeの段階的引き上げ | 将来候補。現時点では未採用 | 今回lineageは結果的にB128→B256→B512となったが、普遍的優位は未検証。ProfiledValue化にはRRとの一体切替とreplay / prefetch境界の診断が必要 |
 
 運用上は、B128/RR1.25をscratch安定参照、B256/RR1を100M級探索の高速基準、B512/RR2を成熟checkpointの最終成績優先ラインとして使い分ける。
