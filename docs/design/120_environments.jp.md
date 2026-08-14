@@ -101,6 +101,7 @@ nameは不透明な表示文字列であり、Env class ID、RunMode、config pr
 | DropMerge | [core/envs/dropmerge1](../../core/envs/dropmerge1) | gridとvector、Box2D物理状態 |
 | GridMaze | [core/envs/gridmaze1](../../core/envs/gridmaze1) | vector中心の迷路状態 |
 | ImageCls | [core/envs/imagecls1](../../core/envs/imagecls1) | 画像gridと分類target |
+| Atari | [core/envs/atari1](../../core/envs/atari1) | ALE由来の単フレームuint8 grid |
 
 各Env directoryは、Env本体、factory、必要に応じてViewとtestを機能グループとしてまとめる。
 
@@ -239,6 +240,7 @@ Envを追加・変更する場合は次を確認する。
 
 - [LunarLanderEnv_test.cpp](../../core/envs/lunarlander1/src/LunarLanderEnv_test.cpp)
 - [ImageClsEnv_test.cpp](../../core/envs/imagecls1/src/ImageClsEnv_test.cpp)
+- [AtariEnv_test.cpp](../../core/envs/atari1/src/AtariEnv_test.cpp)
 
 single具象Env testは`VectorizedDiscreteBatchEnv`を通る経路も含む。ImageCls testはnative batch、Dataset catalog/cache、eval window、worker方式を直接検証する。Envまたはwrapperを変更する場合は、必要なworker方式を明示して回帰testを追加する。
 

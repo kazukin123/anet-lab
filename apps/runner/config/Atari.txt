@@ -1,0 +1,524 @@
+﻿# ==============================================================================
+# 基本設定
+# ==============================================================================
+
+app.$ = app.online > P
+#app.$ = app.batchrun > P
+
+train.seed = 1
+#train.seed = 2
+#train.seed = 3
+
+# num_envs は Random Policy(下の B 合成)で実測して確定する。
+# 手順: baseline > B に切替 → num_envs を振って 90_perf/12_exp_step_per_sec を比較 → 最速を採用。
+#train.num_envs = 256
+#train.num_envs = 128
+train.num_envs = 64
+#train.num_envs = 32
+#train.num_envs = 16
+#train.num_envs = 8
+#train.num_envs = 1
+
+DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
+#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > B    # Random Policy (num_envs 実測用)
+
+AtariEnv.$ = AtariEnv.v5 > E
+#AtariEnv.$ = AtariEnv.classic > E    # クラシックプリセット(sticky なし+NoOp+episodic life+fire reset)
+
+# quantile 系の配線選択。agent 側の quantile_mode(A/R 層)と揃えること。
+net.$ = net.qr
+#net.$ = net.iqn
+
+# main_feature の実体選択
+net.branch.[main_feature].$ = net.branch.AtariNature
+#net.branch.[main_feature].$ = net.branch.AtariImpala        # ベースライン本命(IMPALA-CNN 16/32/32)
+#net.branch.[main_feature].$ = net.branch.AtariImpalaViT     # IMPALA+ViT ハイブリッド(定義のみ、未検証)
+
+app.run_name = run_{t}_atari
+
+
+# ==============================================================================
+# Run設定
+# ==============================================================================
+
+#app.run_name = run_{t}_atari
+app.run_name = run_{t}_atari_pong
+
+
+# --- 定番(DQN 系譜の頻出。検収・比較向き) ---
+E.game = pong
+#E.game = breakout
+#E.game = space_invaders
+#E.game = seaquest
+#E.game = beam_rider
+#E.game = enduro
+#E.game = ms_pacman
+#E.game = boxing
+#E.game = freeway
+#E.game = frostbite
+#E.game = crazy_climber
+#E.game = asterix
+#E.game = hero
+#E.game = montezuma_revenge    # 探索難の代表(ベースラインではほぼ 0 点が正常)
+
+# --- Atari-5(57 ゲーム median 推定サブセット) ---
+#E.game = battle_zone
+#E.game = double_dunk
+#E.game = name_this_game
+#E.game = phoenix
+#E.game = qbert
+
+# --- その他(アルファベット順。combat / surround / warlords 等は対戦前提) ---
+#E.game = adventure
+#E.game = air_raid
+#E.game = alien
+#E.game = amidar
+#E.game = assault
+#E.game = asteroids
+#E.game = atlantis
+#E.game = atlantis2
+#E.game = backgammon
+#E.game = bank_heist
+#E.game = basic_math
+#E.game = berzerk
+#E.game = blackjack
+#E.game = bowling
+#E.game = carnival
+#E.game = casino
+#E.game = centipede
+#E.game = chopper_command
+#E.game = combat
+#E.game = crossbow
+#E.game = darkchambers
+#E.game = defender
+#E.game = demon_attack
+#E.game = donkey_kong
+#E.game = earthworld
+#E.game = elevator_action
+#E.game = entombed
+#E.game = et
+#E.game = fishing_derby
+#E.game = flag_capture
+#E.game = frogger
+#E.game = galaxian
+#E.game = gopher
+#E.game = gravitar
+#E.game = hangman
+#E.game = haunted_house
+#E.game = human_cannonball
+#E.game = ice_hockey
+#E.game = jamesbond
+#E.game = journey_escape
+#E.game = joust
+#E.game = kaboom
+#E.game = kangaroo
+#E.game = keystone_kapers
+#E.game = king_kong
+#E.game = klax
+#E.game = koolaid
+#E.game = krull
+#E.game = kung_fu_master
+#E.game = laser_gates
+#E.game = lost_luggage
+#E.game = mario_bros
+#E.game = maze_craze
+#E.game = miniature_golf
+#E.game = mr_do
+#E.game = othello
+#E.game = pacman
+#E.game = pitfall
+#E.game = pitfall2
+#E.game = pooyan
+#E.game = private_eye
+#E.game = riverraid
+#E.game = road_runner
+#E.game = robotank
+#E.game = sir_lancelot
+#E.game = skiing
+#E.game = solaris
+#E.game = space_war
+#E.game = star_gunner
+#E.game = superman
+#E.game = surround
+#E.game = tennis
+#E.game = tetris
+#E.game = tic_tac_toe_3d
+#E.game = time_pilot
+#E.game = trondead
+#E.game = turmoil
+#E.game = tutankham
+#E.game = up_n_down
+#E.game = venture
+#E.game = video_checkers
+#E.game = video_chess
+#E.game = video_cube
+#E.game = video_pinball
+#E.game = warlords
+#E.game = wizard_of_wor
+#E.game = word_zapper
+#E.game = yars_revenge
+#E.game = zaxxon
+
+# 10M emulator frames / frame_skip=4 = 2.5M transitions
+app.online.exp_pause_step = 2,500,000
+app.batchrun.exp_exit_step = 2,500,000
+
+#backend.$ = backend.deterministic        # 同seed再現(+11%コスト)
+#backend.$ = backend.non-deterministic    # 高速化
+
+
+# ==============================================================================
+# 実験
+# ==============================================================================
+# A/B テストの差分は X(agent 最右)/ E(env 最右)へ。恒久化したら A / AtariEnv 素辞書へ移す。
+
+# --- IQN 切替(2 箇所セット。tau 系の既定は agent.txt baseline 参照) ---
+#net.$ = net.iqn
+#R.quantile_mode = iqn
+
+# --- QR 分位数 ---
+#R.qr.num_quantiles = 101    # 200 が重い場合の縮小候補
+
+#X.
+#E.
+
+
+# ==============================================================================
+# デバッグ用
+# ==============================================================================
+
+#app.train_auto_start = false
+
+#train.num_envs = 1
+#env.worker_type = 1                  # SINGLE_THREAD
+
+#E.display_screen = true              # SDL 観戦窓。sandbox/単発用(N lane では N 窓+worker スレッド未サポート)
+#E.sound = true
+#A.learner.update_warmup_steps = 512
+
+
+# ==============================================================================
+# ステップ数 依存設定
+# ==============================================================================
+# 予算 2.5M steps(10M frames)に紐づく値をここに集約。予算変更時はセットで見直す。
+
+A.train_policy.eps_decay_steps = 250,000      # 1M frames 相当で 1.0→0.01 線形減衰(exp_step 単位)
+A.learner.per_beta_step = 2,500,000           # Run 全体で beta 0.4→1.0
+A.learner.update_warmup_steps = 20,000        # Dopamine min_replay_history 相当(exp_step 単位)
+
+
+# ==============================================================================
+# BF16
+# ==============================================================================
+# ベースラインは FP32。wall-clock A/B する時だけ合成に BF16.agent を挿す。
+
+BF16.agent.learner.use_amp = true
+BF16.agent.learner.use_amp_bf16 = true
+BF16.agent.learner.adam_eps = 1e-4
+
+
+# ==============================================================================
+# Env依存 Agent設定
+# ==============================================================================
+# 文献錨: QR-DQN(200 quantiles) + PER(Rainbow 値) + n-step 3 + dueling + Double。
+# stucker(stack4)/double/dueling/per/tbo=off/grad_clip/obs_norm(pass_through) は baseline に委任。
+
+A.quantile_mode = qr
+A.qr.num_quantiles = 200                      # QR-DQN 論文値
+
+# --- 探索(ε-greedy。UQE/spatial exploration は Atari では使わない) ---
+A.train_policy.policy_type = EpsilonGreedy
+A.train_policy.eps_start = 1.00
+A.train_policy.eps_end = 0.01
+
+# --- optimizer ---
+A.learner.alpha = 1e-4                        # ★ lr。batch 256 の Atari 相場
+A.learner.adam_eps = 1.5e-4                   # Dopamine 系(0.01/batch)準拠
+A.learner.weight_decay = 0                    # 文献整合(DQN 系譜に WD なし)
+
+# --- TD ---
+A.learner.gamma = 0.99                        # ★ Atari 標準
+A.learner.n_step = 3                          # Rainbow 標準
+
+# --- Replay ---
+A.learner.replay_capacity = 1,048,576         # 文献 1M。uint8 単フレーム保存で ~7GB host RAM
+A.learner.replay_batch_size = 256             # ★
+A.learner.replay_ratio = 8                    # ★ samples/insert。古典 DQN=8(batch32×1update/4steps)
+A.learner.use_rb_prefetch = true
+
+# --- PER ---
+A.learner.per_alpha = 0.5                     # Rainbow 値
+A.learner.per_beta_start = 0.4
+A.learner.per_beta_end = 1.0
+A.learner.per_initial_priority_mode = max     # 文献の max-priority 初期化
+
+# --- target ---
+A.model.soft_update_tau = 0.001
+#A.model.soft_update_tau = 0                  # hard 切替時はこの 2 行を有効化
+#A.model.hard_update_interval = 8000          # learn_step 単位(Dopamine 相当)
+
+# --- actor snapshot ---
+A.train_actor.clone_model = true
+A.train_actor.sync_interval.type = constant
+A.train_actor.sync_interval.value = 400
+
+# --- reward scaler 中和(重要) ---
+# baseline は dynamic scaling + constant_scale 0.01。Atari は sign clip 済み ±1 を素通しする。
+A.reward_scaler.use_dynamic_scaling = false
+A.reward_scaler.use_auto_post_scale = false
+A.reward_scaler.constant_scale = 1.0
+
+# --- Random Policy ベースライン(num_envs 実測用。baseline > B で使用) ---
+B.train_policy.policy_type = EpsilonGreedy
+B.train_policy.eps_start = 1.00
+B.train_policy.eps_end = 1.00
+B.train_policy.eps_decay_steps = 0
+B.learner.alpha = 0
+B.learner.update_warmup_steps = 999,999,999
+
+
+# ==============================================================================
+# NN
+# ==============================================================================
+# 入力: grid uint8 [stack4 → StackMerge → (B,4,84,84)]。NN 境界で自動 /255。
+# main_feature 最終次元は 512(AtariLinear512)。IQN の TauProj もこれに一致させる。
+
+# --- Atari Nature CNN (DQN 2015。疎通実績あり) ---
+
+net.block.[AtariConv32].type = Conv2d
+net.block.[AtariConv32].conv.out_channels = 32
+net.block.[AtariConv32].conv.kernel_size = 8
+net.block.[AtariConv32].conv.stride = 4
+net.block.[AtariConv32].conv.padding = 0
+net.block.[AtariConv32].init.mode = he
+
+net.block.[AtariConv64].type = Conv2d
+net.block.[AtariConv64].conv.out_channels = 64
+net.block.[AtariConv64].conv.kernel_size = 4
+net.block.[AtariConv64].conv.stride = 2
+net.block.[AtariConv64].conv.padding = 0
+net.block.[AtariConv64].init.mode = he
+
+net.block.[AtariConv64Final].type = Conv2d
+net.block.[AtariConv64Final].conv.out_channels = 64
+net.block.[AtariConv64Final].conv.kernel_size = 3
+net.block.[AtariConv64Final].conv.stride = 1
+net.block.[AtariConv64Final].conv.padding = 0
+net.block.[AtariConv64Final].init.mode = he
+
+net.block.[AtariLinear512].type = Linear
+net.block.[AtariLinear512].linear.out_features = 512
+net.block.[AtariLinear512].init.mode = xavier
+
+# --- Atari IMPALA (文献準拠 16/32/32・ReLU。DropMerge の SiLU 版とは意図的に別) ---
+# 84 → pool → 42 → pool → 21 → pool → 11。Flatten 32*11*11=3872。
+# 全 ResBlock は既定の init2.mode=constant で conv2 を zero-init し、identity から開始する。
+
+net.block.[AtariImpalaConv16].type = Conv2d
+net.block.[AtariImpalaConv16].conv.out_channels = 16
+net.block.[AtariImpalaConv16].conv.kernel_size = 3
+net.block.[AtariImpalaConv16].conv.stride = 1
+net.block.[AtariImpalaConv16].conv.padding = 1
+net.block.[AtariImpalaConv16].init.mode = he
+
+net.block.[AtariImpalaConv32].type = Conv2d
+net.block.[AtariImpalaConv32].conv.out_channels = 32
+net.block.[AtariImpalaConv32].conv.kernel_size = 3
+net.block.[AtariImpalaConv32].conv.stride = 1
+net.block.[AtariImpalaConv32].conv.padding = 1
+net.block.[AtariImpalaConv32].init.mode = he
+
+net.block.[AtariImpalaPool].type = MaxPool2d
+net.block.[AtariImpalaPool].pool.kernel_size = 3
+net.block.[AtariImpalaPool].pool.stride = 2
+net.block.[AtariImpalaPool].pool.padding = 1
+
+net.block.[AtariImpalaRes16].type = ResBlock
+net.block.[AtariImpalaRes16].res.channels = 16
+net.block.[AtariImpalaRes16].res.kernel_size = 3
+net.block.[AtariImpalaRes16].res.activation = relu
+net.block.[AtariImpalaRes16].res.activation_mode = pre
+net.block.[AtariImpalaRes16].res.norm_type = none
+net.block.[AtariImpalaRes16].res.droppath_rate = 0.0
+#net.block.[AtariImpalaRes16].res.droppath_rate = 0.03
+
+net.block.[AtariImpalaRes32].type = ResBlock
+net.block.[AtariImpalaRes32].res.channels = 32
+net.block.[AtariImpalaRes32].res.kernel_size = 3
+net.block.[AtariImpalaRes32].res.activation = relu
+net.block.[AtariImpalaRes32].res.activation_mode = pre
+net.block.[AtariImpalaRes32].res.norm_type = none
+net.block.[AtariImpalaRes32].res.droppath_rate = 0.0
+#net.block.[AtariImpalaRes32].res.droppath_rate = 0.03
+
+# --- Atari IMPALA + ViT ハイブリッド(定義のみ、未検証。11x11=121 token) ---
+
+net.block.[AtariViTProj128].type = Conv2d
+net.block.[AtariViTProj128].conv.out_channels = 128
+net.block.[AtariViTProj128].conv.kernel_size = 1
+net.block.[AtariViTProj128].conv.stride = 1
+net.block.[AtariViTProj128].conv.padding = 0
+net.block.[AtariViTProj128].init.mode = he
+
+net.block.[AtariImpalaTrans128].type = TransformerEncoder
+net.block.[AtariImpalaTrans128].tf.d_model = 128
+net.block.[AtariImpalaTrans128].tf.nhead = 8
+net.block.[AtariImpalaTrans128].tf.num_layers = 4
+net.block.[AtariImpalaTrans128].tf.dim_feedforward = 512
+net.block.[AtariImpalaTrans128].tf.norm_first = true
+net.block.[AtariImpalaTrans128].tf.use_sdpa = true
+net.block.[AtariImpalaTrans128].tf.activation = gelu
+net.block.[AtariImpalaTrans128].tf.hidden_dropout_rate = 0.0
+#net.block.[AtariImpalaTrans128].tf.hidden_dropout_rate = 0.03
+net.block.[AtariImpalaTrans128].tf.attn_dropout_rate = 0.0
+net.block.[AtariImpalaTrans128].tf.droppath_rate = 0.0
+#net.block.[AtariImpalaTrans128].tf.droppath_rate = 0.02
+
+# --- head / IQN 用 block ---
+
+net.block.[AtariHeadFC512].type = Linear
+net.block.[AtariHeadFC512].linear.out_features = 512
+net.block.[AtariHeadFC512].init.mode = xavier
+
+net.block.[AtariIQNCosEmb].type = CosineEmbedding
+net.block.[AtariIQNCosEmb].cos.num_basis = 64
+
+net.block.[AtariIQNTauProj512].type = Linear
+net.block.[AtariIQNTauProj512].linear.out_features = 512    # main_feature 最終次元と一致必須
+net.block.[AtariIQNTauProj512].init.mode = xavier
+
+# --- 配線 ---
+
+net.branch.AtariNature.bind = grid
+net.branch.AtariNature.structure = StackMerge > AtariConv32 > ReLU > AtariConv64 > ReLU > AtariConv64Final > ReLU > Flatten > AtariLinear512 > ReLU
+
+net.branch.AtariImpala.bind = grid
+net.branch.AtariImpala.structure = StackMerge > AtariImpalaConv16 > AtariImpalaPool > AtariImpalaRes16(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > ReLU > Flatten > AtariLinear512 > ReLU
+
+net.branch.AtariImpalaViT.bind = grid
+net.branch.AtariImpalaViT.structure = StackMerge > AtariImpalaConv16 > AtariImpalaPool > AtariImpalaRes16(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariViTProj128 > SiLU > PosEmbed2D > AtariImpalaTrans128 > Flatten > AtariLinear512 > ReLU
+
+# dueling は明示 V/A ストリーム方式(IQN 切替を net.$ で成立させるため)
+net.body.output.[value_feature] = value_stream
+net.body.output.[adv_feature] = adv_stream
+net.branch.[value_stream].structure = AtariHeadFC512 > SiLU
+net.branch.[adv_stream].structure = AtariHeadFC512 > SiLU
+
+# QR: V/A は main_feature 直結
+net.qr.branch.[value_stream].bind = main_feature
+net.qr.branch.[adv_stream].bind = main_feature
+
+# IQN: tau 埋め込みとの要素積に V/A を接続
+net.iqn.branch.[tau_embedding].bind = taus
+net.iqn.branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj512 > SiLU
+net.iqn.branch.[iqn_fusion].bind = main_feature * tau_embedding
+net.iqn.branch.[iqn_fusion].structure =
+net.iqn.branch.[value_stream].bind = iqn_fusion
+net.iqn.branch.[adv_stream].bind = iqn_fusion
+
+
+# ==============================================================================
+# AtariEnv
+# ==============================================================================
+
+env.class_id = AtariEnv
+
+# --- プロトコルプリセット(スコアはプリセット間で直接比較不可) ---
+
+# v5 / Machado 準拠(既定)
+AtariEnv.v5.repeat_action_probability = 0.25
+AtariEnv.v5.noop_max = 0
+AtariEnv.v5.episodic_life = false
+AtariEnv.v5.fire_reset = false
+
+# クラシック(DeepMind 2015 系。CleanRL/SB3 の数字と比較する時用)
+AtariEnv.classic.repeat_action_probability = 0.0
+AtariEnv.classic.noop_max = 30
+AtariEnv.classic.episodic_life = true
+AtariEnv.classic.fire_reset = true
+
+# --- デフォルト設定 ---
+
+AtariEnv.game = pong
+AtariEnv.rom_dir =                            # 空 = 環境変数 ATARI_ROM_DIR を参照
+AtariEnv.screen_size = 84
+AtariEnv.frame_skip = 4
+AtariEnv.max_pool = true
+AtariEnv.reward_clip = true
+AtariEnv.full_action_space = false
+AtariEnv.mode = -1                            # -1 = ALE 既定(flavor)
+AtariEnv.difficulty = -1
+AtariEnv.max_episode_frames = 108,000         # v5 既定(emulator frame 単位)
+AtariEnv.retain_rgb_frame = true              # AtariView 用 RGB 保持
+AtariEnv.display_screen = false
+AtariEnv.sound = false
+
+# --- Eval設定 ---
+
+train.eval.[eval1].interval = 100
+train.eval.[eval2].interval = 100
+
+# 別 flavor / 別ゲーム eval の雛形(必要時に有効化)
+#AtariEnv.test1.difficulty = 1
+#train.eval.[test1].interval = 5000
+#train.eval.[test1].run_mode = eval1
+#train.eval.[test1].env.$ = AtariEnv.v5 > AtariEnv.test1 > E1
+
+
+# ==============================================================================
+# scalar metrics
+# ==============================================================================
+# 報酬・TD・loss・PER・throughput は metrics.scalar.baseline が提供済み。
+# ここは env 固有(42_env)と eval 別 env 集計(51/52)のみ。episode_score は clip 前の生スコア。
+
+metrics.scalar.$ = metrics.scalar.baseline > M > O
+
+M.[42_env/10_episode_score_mean] = $env mean.episode_score @train $exp_step
+M.[42_env/11_episode_score_mean_ema] = $env mean.episode_score @train $exp_step $ema ema_alpha:0.001
+M.[42_env/20_episode_len_mean] = $env mean.episode_len @train $exp_step
+M.[42_env/21_episode_frames_mean] = $env mean.episode_frames @train $exp_step
+M.[42_env/30_lives_mean] = $env mean.lives @train $exp_step
+
+M.[51_eval1/10_episode_score_mean] = $eval.[eval1] @episode_end $env mean.episode_score
+M.[51_eval1/20_episode_len_mean] = $eval.[eval1] @episode_end $env mean.episode_len
+M.[51_eval1/21_episode_frames_mean] = $eval.[eval1] @episode_end $env mean.episode_frames
+M.[51_eval1/30_lives_mean] = $eval.[eval1] @episode_end $env mean.lives
+
+M.[52_eval2/10_episode_score_mean] = $eval.[eval2] @episode_end $env mean.episode_score
+M.[52_eval2/20_episode_len_mean] = $eval.[eval2] @episode_end $env mean.episode_len
+M.[52_eval2/21_episode_frames_mean] = $eval.[eval2] @episode_end $env mean.episode_frames
+M.[52_eval2/30_lives_mean] = $eval.[eval2] @episode_end $env mean.lives
+
+
+# ==============================================================================
+# app
+# ==============================================================================
+
+Conv2dPanel.conv2d.flip_vertical = false
+
+app.online.eval_panel.auto_start = false
+app.batchrun.eval_panel.auto_start = false
+
+app.online.eval_panel.eval_config_tag = eval_panel
+#app.batchrun.eval_panel.eval_config_tag = eval_panel
+
+# EvalPanel だけ SDL 音声を有効化(観戦用)。SDL_DYNLOAD のため SDL2.dll が必要 —
+# third_party/runtime_dlls/ に置けばビルド時に runner bin へ配備される(README 参照)。
+#
+# さらに Windows では環境変数 SDL_AUDIODRIVER=directsound が必須。既定の WASAPI では
+# ALE の AUDIO_U8 前提が破れて無音になる(ALE v0.12.0 upstream バグ。詳細は
+# docs/design/220_atari_env.jp.md §4.2 契約ノート)。
+#
+# interval = 0(dormant 宣言)は必須。train.eval.[eval_panel].* キーの存在だけで
+# 実タグとして列挙され(interval 既定 100)、背景 eval「eval_panel」が生成されて
+# sound=1 の ALE が 2 個になる。SoundSDL は SDL audio 初期化済みだと 2 個目の
+# 初期化を丸ごとスキップする(callback 未登録)ため、先に作られた背景 eval 側がデバイスを握り、
+# EvalPanel 側が無音になる。dormant なら env を作らないので唯一の音声クライアント = EvalPanel になる。
+train.eval.[eval_panel].interval = 0
+#train.eval.[eval_panel].env.sound = true   # タイマー精度の問題で音がおかしくなるのは現状の制限事項
+#train.eval.[eval_panel].env.display_screen = true
+
+# 実速観戦(音声正常化)。既定 fps=30 だと 2 倍速になり、音声レジスタキューが溜まって SoundSDL の刈り込みが働き音割れする。
+# 15 fps × step_per_frame:1 × frame_skip:4 = 60 エミュレータフレーム/s = 実機速度。
+app.online.eval_panel.fps = 14.5
+

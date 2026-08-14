@@ -140,6 +140,7 @@ jobs:
           -DCMAKE_CONFIGURATION_TYPES="Release" `
           -DCUDAToolkit_ROOT="$env:CUDA_PATH" `
           -DCMAKE_CUDA_COMPILER="$env:CUDA_PATH/bin/nvcc.exe" `
+          -DANET_ENABLE_ATARI=OFF `
           -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON `
           -DwxWidgets_DIR="$wxInst/lib/cmake/wxWidgets"
 

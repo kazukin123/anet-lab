@@ -97,6 +97,18 @@ _Avoid_: index, physical index, logical index, slot index
 ReplayBuffer内部のリングストレージ上の物理位置。全envを1次元化した位置は`flat_slot_index`と呼び、外向けのreplay item keyとは区別する。
 _Avoid_: replay item key, logical index, sample index
 
+**ready range**:
+env laneごとの、未来側条件（N-stepに必要な未来観測の書込完了・unroll終端確定・未上書き）をすべて満たした論理時刻区間。過去のstack履歴が残っているかは含まない。`InitialPriorityCompleter`とeviction統計の判定基準。
+_Avoid_: valid range（dummy除外前後のどちらとも読める）, sampleable（stack込みの最終集合と混同する）
+
+**sampleable range**:
+ready rangeへwrap後のhistory marginを適用した、sample候補の最終論理時刻区間。uniform sampling、PER、`Size()`、可視化accessorが共有する唯一の集合。dummyはこの区間に含まれたまま列挙時にphysical slot単位で除外する。
+_Avoid_: valid indices（実装上の列挙結果であって概念名ではない）, ready range（未来側条件のみの広い区間と混同する）
+
+**history margin**:
+ring折り返し後に、保持最古のlogical timeから`stack_count - 1`件をsample不可とする下限側の余白。過去stack frameが上書きで失われたtransitionを候補から除外するためのもので、wrap前は0。episode境界のpaddingとは別概念（上書き由来の履歴喪失はpaddingしない）。
+_Avoid_: stack margin（NN構成の語と紛れる）, padding幅（padding可否とは独立の除外幅）
+
 ### Module・設定参照
 
 **Module Config**:
@@ -152,6 +164,24 @@ _Avoid_: prev_actionキー（PRD900の別キー設計と混同）, action one-ho
 **DROP列マーカー**:
 direct系action modeでは未使用になるgridのdropper classを再利用し、直前DROPの命令列をtop rowに描画するマーカー。move系の「現在のdropper位置」表示とは別意味。
 _Avoid_: dropper marker（move系表示と混同）
+
+### Atari/ALE
+
+**sticky actions**:
+確率`repeat_action_probability`で当該フレームの入力行動を無視し、直前の実行行動を継続させるALEの確率性注入。ALE内部RNGがエミュレータフレーム単位で判定する（AtariEnvの自前skipループでもact()単位=フレーム単位なので原義と同一）。丸暗記方策（open-loop）を壊すための機構で、frame_skip（時間抽象化）とは別概念。
+_Avoid_: action repeat（frame_skipと混同）, 行動ノイズ
+
+**flavor**:
+Atariゲームのモード×難易度の組合せ（`setMode`/`setDifficulty`、Machado et al. 2018の用語）。同一ROMからルール違いの環境バリエーションを作る軸で、ゲーム（ROM）の選択とは別階層。
+_Avoid_: game variant, ステージ
+
+**生スコア**:
+reward clip適用前の環境スコア。AtariEnvでは`episode_score`（GetScalar、実game over/truncationで確定）が持ち、事例比較に使うのは常にこちら。`Step()`が返すreward（`reward_clip=true`ならsign化済みの学習報酬）とは別物。
+_Avoid_: reward（学習報酬と曖昧）, episode reward（どちらを指すか不明）
+
+**プロトコルプリセット**:
+sticky actions・NoOp reset・episodic life・fire reset等の評価条件の組（`AtariEnv.v5` / `AtariEnv.classic`）。スコアはプリセット間で直接比較不可であり、比較先の事例がどちらの条件かを常に確認する。env idのバージョン（Gymnasiumのv0/v4/v5）はこのプリセットの命名由来だが、anet-labでは条件セット名として扱う。
+_Avoid_: envバージョン（Gymnasium環境IDと混同）, 難易度設定（flavorと混同）
 
 ### 実行系統
 
@@ -220,6 +250,14 @@ _Avoid_: ダウンサンプル点（単一代表値と混同）, ビン（step�
 **バイアス補正EMA**:
 ゼロ初期化した EMA 内部値を観測済みサンプルの重み和で正規化して読み出す平滑方式。出力は常に「これまで観測したサンプルの指数重み付き平均」となり、初回サンプルを引きずる初期値バイアスが O(1/t) で消える。ウォームアップ中も欠損なく step 1 から有効値を出力するため、tag 間の step 整列を壊さない。
 _Avoid_: debiased EMA（表記ゆれ）, ウォームアップEMA（累積平均遷移方式と混同）, Adam補正（最適化器の文脈と混同）
+
+**query channel**:
+Metrics Viewerのmetrics queryの発行系列で、1つのブラウザタブに対応する。ページロード時に生成した識別子と、そのタブ内で単調増加する連番でqueryを識別する。連番の大小はchannel内でのみ意味を持ち、channel間では比較しない。Viewerを2つのタブで開けばchannelは2つになる。
+_Avoid_: HTTPセッション（同一ブラウザの別タブが同一になり単位が合わない）, 接続（TCP接続と1対1ではない）, クライアント（プロセスとタブのどちらとも読める）
+
+**query supersede**:
+同じquery channelのより新しいmetrics queryが、そのchannelの古いqueryを取り消して同時実行枠を明け渡させる規則。frontendのHTTP切断の検出には依存せず、サーバが連番の大小だけで判定する。異なるchannelは相互に取り消さず、プロセス全体の同時実行枠だけを共有する。取り消されたqueryはエラーではなく「追い出された」ものとして扱い、画面の更新失敗表示に出さない。
+_Avoid_: キャンセル（利用者の明示操作と混同）, abort（frontend側のHTTP打ち切りを指す別概念）, タイムアウト（時間経過による打ち切りと混同）
 
 ### 観測と可視化
 

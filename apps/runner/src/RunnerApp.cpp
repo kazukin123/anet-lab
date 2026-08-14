@@ -19,6 +19,9 @@
 #include "anet/env/DropMerge.hpp"
 #include "anet/env/GridMaze.hpp"
 #include "anet/env/ImageCls.hpp"
+#ifdef ANET_HAS_ATARI
+#include "anet/env/Atari.hpp"
+#endif
 #include "ErrorDialog.hpp"
 #include "RunnerFrame.hpp"
 #include "TrainPanel.hpp"
@@ -292,6 +295,9 @@ bool RunnerApp::OnInit()
     anet::rl::env::InitDropMerge();
     anet::rl::env::InitGridMaze();
     anet::rl::env::InitImageCls();
+#ifdef ANET_HAS_ATARI
+    anet::rl::env::InitAtari();
+#endif
 
     // RunnerFrame生成
     wxString frame_title = anet::MetricsLogger::Instance()->GetRunName() + " - ANET RL Runner";

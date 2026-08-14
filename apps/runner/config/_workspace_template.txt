@@ -5,5 +5,6 @@
 #$include <GridMaze.txt>
 #$include <GridMaze_muzero.txt>
 #$include <ImageCls.txt>
+#$include <Atari.txt>
 $include <LunarLander.txt>
 #$include <DropMerge.txt>
