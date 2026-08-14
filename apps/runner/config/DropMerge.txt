@@ -1574,17 +1574,17 @@ DropMergeEnv.box_friction = -1          # 箱の摩擦。-1で果物と同じ
 # --- Eval設定 ---
 
 
-#train.eval.[eval1].interval = 0
-#train.eval.[eval2].interval = 0
-#train.eval.[eval1].interval = 1000
-#train.eval.[eval2].interval = 10
-#train.eval.[eval1].interval = 500
-#train.eval.[eval2].interval = 500
-train.eval.[eval1].interval = 100
-train.eval.[eval2].interval = 100
+#train.eval_schedule.[eval1].interval = 0
+#train.eval_schedule.[eval2].interval = 0
+#train.eval_schedule.[eval1].interval = 1000
+#train.eval_schedule.[eval2].interval = 10
+#train.eval_schedule.[eval1].interval = 500
+#train.eval_schedule.[eval2].interval = 500
+train.eval_schedule.[eval1].interval = 100
+train.eval_schedule.[eval2].interval = 100
 
 #DropMergeEnv.test1.max_step = 8000
-#train.eval.[test1].interval = 5000
+#train.eval_schedule.[test1].interval = 5000
 #train.eval.[test1].run_mode = eval1
 #train.eval.[test1].env.$ = DropMergeEnv.standard > DropMergeEnv.test1 > E1
 

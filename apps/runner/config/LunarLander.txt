@@ -266,15 +266,15 @@ A.learner.use_tbo = true
 
 A.learner.update_warmup_steps = 76,800           # exp_step単位。256(B) * 300step = 76800
 
-#train.eval.[test1].interval = 100
-train.eval.[test1].interval = 0
-#train.eval.[test1].interval = 1000
+#train.eval_schedule.[test1].interval = 100
+train.eval_schedule.[test1].interval = 0
+#train.eval_schedule.[test1].interval = 1000
 train.eval.[test1].run_mode = eval1
 train.eval.[test1].env.$ = LunarLanderEnv.test1
 
-#train.eval.[test2].interval = 100
-train.eval.[test2].interval = 0
-#train.eval.[test2].interval = 1000
+#train.eval_schedule.[test2].interval = 100
+train.eval_schedule.[test2].interval = 0
+#train.eval_schedule.[test2].interval = 1000
 train.eval.[test2].run_mode = eval1
 train.eval.[test2].env.$ = LunarLanderEnv.test2
 

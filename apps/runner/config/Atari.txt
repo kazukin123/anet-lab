@@ -455,12 +455,12 @@ AtariEnv.sound = false
 
 # --- Eval設定 ---
 
-train.eval.[eval1].interval = 100
-train.eval.[eval2].interval = 100
+train.eval_schedule.[eval1].interval = 100
+train.eval_schedule.[eval2].interval = 100
 
 # 別 flavor / 別ゲーム eval の雛形(必要時に有効化)
 #AtariEnv.test1.difficulty = 1
-#train.eval.[test1].interval = 5000
+#train.eval_schedule.[test1].interval = 5000
 #train.eval.[test1].run_mode = eval1
 #train.eval.[test1].env.$ = AtariEnv.v5 > AtariEnv.test1 > E1
 
@@ -509,16 +509,13 @@ app.online.eval_panel.eval_config_tag = eval_panel
 # sound=true 時に SDL_AUDIODRIVER=directsound を自動設定する(未設定時のみ。
 # 明示した環境変数は尊重される。詳細は docs/design/220_atari_env.jp.md §4.2)。
 #
-# interval = 0(dormant 宣言)は必須。train.eval.[eval_panel].* キーの存在だけで
-# 実タグとして列挙され(interval 既定 100)、背景 eval「eval_panel」が生成されて
-# sound=1 の ALE が 2 個になる。SoundSDL は SDL audio 初期化済みだと 2 個目の
-# 初期化を丸ごとスキップする(callback 未登録)ため、先に作られた背景 eval 側がデバイスを握り、
-# EvalPanel 側が無音になる。dormant なら env を作らないので唯一の音声クライアント = EvalPanel になる。
-train.eval.[eval_panel].interval = 0
+# train.eval.[eval_panel] は EvalPanel が参照する定義だけを置く。schedule エントリを
+# 書かなければ definition-only となり、背景 eval「eval_panel」は生成されない。
+# これにより sound=1 の ALE は EvalPanel だけが所有し、SDL audio device の競合を避ける。
+train.eval.[eval_panel].run_mode = eval1
 #train.eval.[eval_panel].env.sound = true   # タイマー精度の問題で音がおかしくなるのは現状の制限事項
 #train.eval.[eval_panel].env.display_screen = true
 
 # 実速観戦(音声正常化)。既定 fps=30 だと 2 倍速になり、音声レジスタキューが溜まって SoundSDL の刈り込みが働き音割れする。
 # 15 fps × step_per_frame:1 × frame_skip:4 = 60 エミュレータフレーム/s = 実機速度。
 app.online.eval_panel.fps = 14.5
-

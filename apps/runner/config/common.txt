@@ -3,18 +3,18 @@
 
 train.main_runner_type = pipeline
 
-train.eval.[eval1].interval = 100
+train.eval_schedule.[eval1].interval = 100
 train.eval.[eval1].run_mode = eval1
-#train.eval.[eval1].use_background = false
-train.eval.[eval1].use_background = true
+#train.eval_schedule.[eval1].use_background = false
+train.eval_schedule.[eval1].use_background = true
 # clone_model=false は学習中networkを共有し、clone/syncコストを避ける代わりにlearner更新とeval forwardがlock境界で直列化される
 train.eval.[eval1].clone_model = true
 train.eval.[eval1].eval_batch_size = 1
 
-train.eval.[eval2].interval = 100
+train.eval_schedule.[eval2].interval = 100
 train.eval.[eval2].run_mode = eval2
-#train.eval.[eval2].use_background = false
-train.eval.[eval2].use_background = true
+#train.eval_schedule.[eval2].use_background = false
+train.eval_schedule.[eval2].use_background = true
 train.eval.[eval2].clone_model = true
 train.eval.[eval2].eval_batch_size = 1
 

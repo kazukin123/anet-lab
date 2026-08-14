@@ -190,12 +190,16 @@ Train / Eval 系（Eval, Eval1, Eval2）という実行系統の区分。Env は
 _Avoid_: per-call mode, eval flag, 実行時モード引数
 
 **configured eval tag**（評価タグ）:
-`train.eval.[tag]` で宣言する常設評価系の宣言と識別子。1 タグ = 1 configured eval インスタンス（タグ文字列が Env name になる）で、`interval=0` なら定義のみの寝タグ。EvalPanel はタグの内容（run_mode / env overlay）を鏡写し参照する別インスタンスであり、第二のタグインスタンスにはならない。
+`train.eval.[tag]` で宣言する常設評価系の定義と識別子。1 タグ = 1 configured eval インスタンス（タグ文字列が Env name になる）。定義は純粋で、書いただけでは何もインスタンス化されない——定期駆動は eval schedule が名前参照で宣言する。EvalPanel はタグの内容（run_mode / env overlay）を鏡写し参照する別インスタンスであり、第二のタグインスタンスにはならない。
 _Avoid_: eval profile, eval preset, RunMode（別概念）
 
+**eval schedule**（定期駆動）:
+`train.eval_schedule.[tag]` で configured eval tag を名前参照し、定期評価の駆動（interval / use_background）を宣言するエントリ。Env + Runner + Observer の生成はこのエントリが駆動し、消費者は EpisodeEvalObserver ただ一つ。interval は必須（`0` = 明示 OFF = dormant）で、未定義タグの参照は fail-fast。
+_Avoid_: eval interval 設定（キー名でなく機構名で呼ぶ）, スケジューラ（消費者コンポーネントと混同）
+
 **dormant**（寝タグの状態）:
-`interval=0` の評価タグが持つ「意図された休止」状態。宣言検証と name 予約だけが行われ、runner / Env / actor / observer は生成されない。意図された状態なので fail-fast の対象外——dormant タグを参照する metrics はエラーではなく、タグごと 1 回の WARN で skip される（未宣言タグの参照＝typo は従来どおりエラー）。
-_Avoid_: disabled（エラー状態と紛らわしい）, 無効タグ
+定義済みの評価タグが有効な eval schedule を持たない（エントリ無し、または `interval=0` の明示 OFF）ことから導出される「意図された休止」状態。宣言検証と name 予約だけが行われ、runner / Env / actor / observer は生成されない。意図された状態なので fail-fast の対象外——dormant タグを参照する metrics はエラーではなく、タグごと 1 回の WARN で skip される（未宣言タグの参照＝typo は従来どおりエラー）。
+_Avoid_: disabled（エラー状態と紛らわしい）, 無効タグ, interval=0 タグ（旧契約の宣言方法）
 
 ### Runner GUI
 

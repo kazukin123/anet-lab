@@ -705,7 +705,6 @@ struct RunManager::Config : public anet::Config
 {
     uint64_t seed = 0;
     int num_envs = 1;
-    int eval_interval = 50;
     std::string main_runner_type = "serial";
 
     std::string eval_device_type = "cpu";
@@ -716,7 +715,6 @@ struct RunManager::Config : public anet::Config
     {
         ANET_READ_CONFIG(config_data, seed);
         ANET_READ_CONFIG(config_data, num_envs);
-        ANET_READ_CONFIG(config_data, eval_interval);
         ANET_READ_CONFIG(config_data, main_runner_type);
         ANET_READ_CONFIG(config_data, eval_device_type);
         ANET_READ_CONFIG(config_data, eval_device_index);
@@ -738,6 +736,12 @@ RunManager::RunManager(const ConfigData& config_data)
 
     // BatchEnvを1つも構築する前に、設定から決まるnameを一括検証する。
     auto eval_configs = config_data.MakeSubConfigData("train.eval");
+    auto eval_schedule_configs = config_data.MakeSubConfigData("train.eval_schedule");
+    struct EvalScheduleConfig {
+        int interval;
+        bool use_background;
+    };
+    std::unordered_map<std::string, EvalScheduleConfig> resolved_eval_schedules;
     std::unordered_map<std::string, std::string> planned_name_owners;
     const auto validate_planned_name = [&planned_name_owners](
         const std::string& name, const std::string& requested_owner) {
@@ -757,6 +761,28 @@ RunManager::RunManager(const ConfigData& config_data)
     for (const auto& [tag, eval_config] : eval_configs) {
         (void)eval_config;
         validate_planned_name(tag, "configured Eval tag '" + tag + "'");
+    }
+    for (const auto& [tag, schedule_config] : eval_schedule_configs) {
+        if (!eval_configs.contains(tag)) {
+            ANET_SYSTEM_ERROR("Unknown train.eval_schedule tag '" << tag
+                << "'. Define train.eval.[" << tag << "] before scheduling it.");
+        }
+        if (!schedule_config.Has("interval")) {
+            ANET_SYSTEM_ERROR("Missing required train.eval_schedule.[" << tag
+                << "].interval. Expected a non-negative integer (0 disables the schedule).");
+        }
+        int interval = 0;
+        schedule_config.Read("interval", interval, interval);
+        if (interval < 0) {
+            ANET_SYSTEM_ERROR("Invalid train.eval_schedule.[" << tag << "].interval=" << interval
+                << ". Expected a non-negative value.");
+        }
+        bool use_background = true;
+        schedule_config.Read("use_background", use_background, use_background);
+        resolved_eval_schedules.emplace(tag, EvalScheduleConfig{
+            .interval = interval,
+            .use_background = use_background,
+        });
     }
 
     // Env種別を解決し、以後の生成は共通builder/factory契約だけで扱う。
@@ -842,14 +868,6 @@ RunManager::RunManager(const ConfigData& config_data)
         anet::rl::RunMode run_mode = anet::rl::RunModeFromString(run_mode_str);
         configured_eval_run_modes_.emplace(tag, run_mode);
 
-        // Interval取得
-        int interval = 100;
-        eval_config_data.Read("interval", interval, interval);
-        if (interval < 0) {
-            ANET_SYSTEM_ERROR("Invalid train.eval.[" << tag << "].interval=" << interval
-                << ". Expected a non-negative value.");
-        }
-
         int eval_batch_size = 1;
         eval_config_data.Read("eval_batch_size", eval_batch_size, eval_batch_size);
         if (eval_batch_size <= 0) {
@@ -857,21 +875,33 @@ RunManager::RunManager(const ConfigData& config_data)
                 << eval_batch_size << ". Expected a positive value.");
         }
 
-        // バックグラウンド実行の切り替え (デフォルト true)
-        bool use_background = true;
-        eval_config_data.Read("use_background", use_background, use_background);
-
         // Eval actor の network clone 有無を選ぶ (デフォルト true)
         bool clone_model = true;
         eval_config_data.Read("clone_model", clone_model, clone_model);
 
-        // dormant tagも宣言時schemaだけは検証し、Env/manifest/actorは生成しない。
+        // definition-only tagも宣言時schemaだけは検証し、Env/manifest/actorは生成しない。
         env_factory_->ValidateConfig(run_mode, config_prefix);
-        if (interval == 0) {
+        const auto schedule_it = resolved_eval_schedules.find(tag);
+        if (schedule_it == resolved_eval_schedules.end()) {
+            LOG::info() << "eval tag '" << tag << "': definition-only";
             dormant_eval_tags_.insert(tag);
             RegisterEnvName(tag, "dormant configured Eval tag '" + tag + "'");
             continue;
         }
+
+        const auto& schedule_config = schedule_it->second;
+        const int interval = schedule_config.interval;
+        const bool use_background = schedule_config.use_background;
+
+        if (interval == 0) {
+            LOG::info() << "eval tag '" << tag << "': definition-only";
+            dormant_eval_tags_.insert(tag);
+            RegisterEnvName(tag, "dormant configured Eval tag '" + tag + "'");
+            continue;
+        }
+
+        LOG::info() << "eval tag '" << tag << "': scheduled (interval=" << interval
+            << ", background=" << (use_background ? "true" : "false") << ")";
 
         // EvalRunner生成&登録
         auto actor_device = config_->GetEvalDevice();
@@ -902,8 +932,9 @@ RunManager::RunManager(const ConfigData& config_data)
         if (it == eval_runners.end()) {
             if (dormant_eval_tags_.contains(eval_name)) {
                 if (warned_dormant_metric_tags_.insert(eval_name).second) {
-                    LOG::warn() << "Skipping metrics for dormant eval tag. tag='" << eval_name
-                        << "' interval=0";
+                    LOG::warn() << "Skipping metrics for unscheduled eval tag. tag='" << eval_name
+                        << "'. The tag is defined in train.eval but has no active "
+                        << "train.eval_schedule entry.";
                 }
                 return nullptr;
             }

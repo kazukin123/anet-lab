@@ -240,15 +240,15 @@ namespace anet {
 
     } // namespace
 
-    // train.eval.[greedy].interval = 100
-    // train.eval.[greedy].run_mode = 1
+    // train.eval.[greedy].eval_batch_size = 1
+    // train.eval.[greedy].run_mode = eval1
     // train.eval.[greedy].env.init.x_range = 0.0
     //   prefix = "train.eval"
     //   key_prefix = "train.eval.["
     //   key_suffix = "]"
     //   tag = greedy
-	//   sub_key = interval, run_mode, env.init.x_range
-	//   value = 100, 1, 0.0
+	//   sub_key = eval_batch_size, run_mode, env.init.x_range
+	//   value = 1, eval1, 0.0
 
     bool ConfigData::Read(const std::string& key, std::string& value, const std::string& value_if_missing) const
     {

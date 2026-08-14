@@ -621,7 +621,7 @@ ImageClsEnv.eval.eval_window.rotating_size = 1024
 
 # --- Eval設定 ---
 
-train.eval.[eval1].interval = 50
+train.eval_schedule.[eval1].interval = 50
 train.eval.[eval1].run_mode = eval1
 train.eval.[eval1].eval_batch_size = 128
 train.eval.[eval1].env.eval.eval_window.mode = rotating
@@ -629,12 +629,12 @@ train.eval.[eval1].env.eval.eval_window.mode = rotating
 train.eval.[eval1].env.eval.eval_window.rotating_size = 256
 #train.eval.[eval1].env.eval.eval_window.rotating_size = 128
 
-train.eval.[eval_full].interval = 0
+train.eval_schedule.[eval_full].interval = 0
 train.eval.[eval_full].run_mode = eval1
 train.eval.[eval_full].eval_batch_size = 128
 train.eval.[eval_full].env.eval.eval_window.mode = full
 
-train.eval.[eval2].interval = 0
+train.eval_schedule.[eval2].interval = 0
 
 
 # --- ImageCls augment 仕様 ---

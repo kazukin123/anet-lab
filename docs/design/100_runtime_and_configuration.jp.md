@@ -136,20 +136,20 @@ sequenceDiagram
     CM-->>App: ConfigData
     App->>App: MetricsLogger / backend / repository初期化
     App->>RM: RunManager(config)
-    RM->>RM: train / configured Eval tag / EvalPanelのnameを一括検証
+    RM->>RM: train / configured Eval tag / EvalPanelのnameとeval scheduleを一括検証
     RM->>EB: Train BatchEnvを生成
     EB-->>RM: EnvSpec / BatchEnvSpec
     RM->>AF: Agentを生成
     AF-->>RM: Agent
     RM->>RF: TrainRunnerを生成
     RF-->>RM: SerialまたはPipeline Runner
-    RM->>OF: configured Eval / metrics Observerを構築
+    RM->>OF: activeなeval schedule / metrics Observerを構築
     RM-->>App: 実行可能なRun
 ```
 
 構築中に型変換、EnvSpec、device、class ID、Env name衝突、または各`Config`の不整合を検出した場合は、RunnerThread開始前に失敗する。固定名`train`、全configured Eval tag、予約名`EvalPanel`は最初のBatchEnv構築前に一括検証する。型変換失敗時の契約は[設定の解決](#21-設定の解決)のとおりである。
 
-configured Evalの`interval=0`はdormant宣言である。tag名とschemaは検証・予約するが、Eval Env、Actor、Observer、background workerは生成しない。dormant tagを参照するmetricsはtagごとに1回WARNしてskipし、未宣言tag参照はerrorとする。ImageClsは`ImageClsEnv.train.*`と`ImageClsEnv.eval.*`を標準の組として必須化し、tagなしEvalは標準Eval設定、configured Evalは`train.eval.[tag].env.eval.*`のoverlayを使用する。
+`train.eval.[tag]`はconfigured Evalの定義であり、定義だけでは何も生成しない。`train.eval_schedule.[tag]`の`interval>0`が同名の定義を定期駆動するときだけEval Env、Actor、Observer、background workerを生成する。定義済みでscheduleが無いか`interval=0`のtagはdormantとなり、tag名とschemaの検証・予約だけを行う。dormant tagを参照するmetricsはtagごとに1回WARNしてskipし、未宣言tag参照と未定義tagを指すscheduleはerrorとする。ImageClsは`ImageClsEnv.train.*`と`ImageClsEnv.eval.*`を標準の組として必須化し、tagなしEvalは標準Eval設定、configured Evalは`train.eval.[tag].env.eval.*`のoverlayを使用する。
 
 ### 6.2 Serial Train step
 
@@ -264,7 +264,8 @@ sequenceDiagram
 | `train.num_envs` | 主Train BatchEnvのlane数 |
 | `train.main_runner_type` | `serial`または`pipeline` |
 | `train.eval_device_type/index` | configured Evalのdevice |
-| `train.eval.[tag].*` | configured Evalのinterval、RunMode、`eval_batch_size`、Env override、model clone |
+| `train.eval.[tag].*` | configured EvalのRunMode、`eval_batch_size`、Env override、model clone |
+| `train.eval_schedule.[tag].*` | configured Evalを定期駆動する必須`interval`と`use_background` |
 | `env.*` | Env class、worker、device |
 | `agent.*` | Agent class、device |
 | `backend.*` | TF32、cuDNN、決定論などlibtorch backend |

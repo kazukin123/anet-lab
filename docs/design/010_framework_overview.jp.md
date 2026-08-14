@@ -291,7 +291,7 @@ sequenceDiagram
 
 #### 6.7.3 評価
 
-設定された評価は、学習更新数が interval に達したとき `EpisodeEvalObserver` から起動されます。評価用 Actor は学習中のモデルを同期し、評価 Episode が終わるまで行動選択と Env Step を繰り返します。評価中に Learner は呼び出しません。
+`train.eval.[tag]`で定義され、`train.eval_schedule.[tag]`の`interval>0`で定期駆動される評価は、学習更新数がintervalに達したとき`EpisodeEvalObserver`から起動されます。scheduleが無いか`interval=0`の定義はdormantとなり、評価用Env、Runner、Observerを生成しません。起動された評価用Actorは学習中のモデルを同期し、評価Episodeが終わるまで行動選択とEnv Stepを繰り返します。評価中にLearnerは呼び出しません。
 
 ```mermaid
 sequenceDiagram

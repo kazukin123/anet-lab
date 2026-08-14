@@ -3,6 +3,7 @@
 #include "anet/agent.hpp"
 #include "anet/env.hpp"
 #include "anet/metrics_logger.hpp"
+#include "anet/test_util.hpp"
 #include "anet/trainer.hpp"
 
 #include <algorithm>
@@ -552,6 +553,8 @@ TEST_CASE("RunManager propagates distinct Env names without interpreting them", 
     auto config = MakeRunManagerNameTestConfig();
     config.Set("train.eval.[eval_a].run_mode", "eval1");
     config.Set("train.eval.[Train].run_mode", "eval1");
+    config.Set("train.eval_schedule.[eval_a].interval", "100");
+    config.Set("train.eval_schedule.[Train].interval", "100");
 
     auto manager = std::make_shared<rl::RunManager>(config);
 
@@ -593,6 +596,8 @@ TEST_CASE("RunManager rejects distinct Env names that map to one config filename
     auto config = MakeRunManagerNameTestConfig();
     config.Set("train.eval.[eval/a].run_mode", "eval1");
     config.Set("train.eval.[eval-a].run_mode", "eval1");
+    config.Set("train.eval_schedule.[eval/a].interval", "100");
+    config.Set("train.eval_schedule.[eval-a].interval", "100");
 
     CHECK_THROWS_WITH(
         std::make_shared<rl::RunManager>(config),
@@ -605,7 +610,7 @@ TEST_CASE("RunManager reserves dormant Eval tags without constructing an Env", "
     auto factory_state = RegisterRunManagerNameTestFactories();
     auto config = MakeRunManagerNameTestConfig();
     config.Set("train.eval.[sleep].run_mode", "eval1");
-    config.Set("train.eval.[sleep].interval", "0");
+    config.Set("train.eval_schedule.[sleep].interval", "0");
     config.Set(
         "metrics.scalar.[sleep_reward]",
         "eps_total_reward $runner @episode_end $eval.[sleep]");
@@ -617,6 +622,121 @@ TEST_CASE("RunManager reserves dormant Eval tags without constructing an Env", "
         manager->CreateEvalRunner("sleep"),
         Catch::Matchers::ContainsSubstring("Duplicate Env name 'sleep' within Run"));
     CHECK(factory_state->creation_count == 1);
+}
+
+TEST_CASE("RunManager keeps definition-only Eval tags dormant", "[trainer][eval_schedule]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    auto factory_state = RegisterRunManagerNameTestFactories();
+    auto config = MakeRunManagerNameTestConfig();
+    config.Set("train.eval.[sleep].run_mode", "eval1");
+    config.Set(
+        "metrics.scalar.[sleep_reward_a]",
+        "eps_total_reward $runner @episode_end $eval.[sleep]");
+    config.Set(
+        "metrics.scalar.[sleep_reward_b]",
+        "eps_total_reward $runner @episode_end $eval.[sleep]");
+
+    auto manager = std::make_shared<rl::RunManager>(config);
+    logs.Flush();
+
+    REQUIRE(manager->GetStatus() == rl::RunnerStatus::RUNNING);
+    CHECK(factory_state->creation_count == 1);
+    CHECK_THROWS_AS(manager->GetEvalRunner("sleep"), std::out_of_range);
+    CHECK(anet::test::HasRecordContaining(
+        logs.Records(), wxLOG_Message, { "eval tag 'sleep': definition-only" }));
+    CHECK(std::ranges::count_if(logs.Records(), [](const auto& record) {
+        return record.level == wxLOG_Warning
+            && ContainsText(record.message, "Skipping metrics for unscheduled eval tag. tag='sleep'.");
+    }) == 1);
+}
+
+TEST_CASE("RunManager rejects schedules for undefined Eval tags", "[trainer][eval_schedule]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    auto factory_state = RegisterRunManagerNameTestFactories();
+    auto config = MakeRunManagerNameTestConfig();
+    config.Set("train.eval_schedule.[ghost].interval", "10");
+
+    CHECK_THROWS_WITH(
+        std::make_shared<rl::RunManager>(config),
+        Catch::Matchers::ContainsSubstring("train.eval.[ghost]"));
+    CHECK(factory_state->creation_count == 0);
+}
+
+TEST_CASE("RunManager requires an interval for every Eval schedule", "[trainer][eval_schedule]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    auto factory_state = RegisterRunManagerNameTestFactories();
+    auto config = MakeRunManagerNameTestConfig();
+    config.Set("train.eval.[scheduled].run_mode", "eval1");
+    config.Set("train.eval_schedule.[scheduled].use_background", "false");
+
+    CHECK_THROWS_WITH(
+        std::make_shared<rl::RunManager>(config),
+        Catch::Matchers::ContainsSubstring("train.eval_schedule.[scheduled].interval"));
+    CHECK(factory_state->creation_count == 0);
+}
+
+TEST_CASE("RunManager rejects negative Eval schedule intervals before constructing Env", "[trainer][eval_schedule]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    auto factory_state = RegisterRunManagerNameTestFactories();
+    auto config = MakeRunManagerNameTestConfig();
+    config.Set("train.eval.[scheduled].run_mode", "eval1");
+    config.Set("train.eval_schedule.[scheduled].interval", "-1");
+
+    CHECK_THROWS_WITH(
+        std::make_shared<rl::RunManager>(config),
+        Catch::Matchers::ContainsSubstring(
+            "Invalid train.eval_schedule.[scheduled].interval=-1"));
+    CHECK(factory_state->creation_count == 0);
+}
+
+TEST_CASE("RunManager treats a zero interval Eval schedule as definition-only", "[trainer][eval_schedule]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    auto factory_state = RegisterRunManagerNameTestFactories();
+    auto config = MakeRunManagerNameTestConfig();
+    config.Set("train.eval.[sleep].run_mode", "eval1");
+    config.Set("train.eval_schedule.[sleep].interval", "0");
+    config.Set("train.eval_schedule.[sleep].use_background", "false");
+
+    auto manager = std::make_shared<rl::RunManager>(config);
+    logs.Flush();
+
+    REQUIRE(manager->GetStatus() == rl::RunnerStatus::RUNNING);
+    CHECK(factory_state->creation_count == 1);
+    CHECK_THROWS_AS(manager->GetEvalRunner("sleep"), std::out_of_range);
+    CHECK(anet::test::HasRecordContaining(
+        logs.Records(), wxLOG_Message, { "eval tag 'sleep': definition-only" }));
+}
+
+TEST_CASE("RunManager creates Eval runners only for active schedules", "[trainer][eval_schedule]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    auto factory_state = RegisterRunManagerNameTestFactories();
+    auto config = MakeRunManagerNameTestConfig();
+    config.Set("train.eval.[scheduled].run_mode", "eval1");
+    config.Set("train.eval_schedule.[scheduled].interval", "7");
+    config.Set("train.eval_schedule.[scheduled].use_background", "false");
+
+    auto manager = std::make_shared<rl::RunManager>(config);
+    logs.Flush();
+
+    REQUIRE(manager->GetStatus() == rl::RunnerStatus::RUNNING);
+    REQUIRE(manager->GetEvalRunner("scheduled") != nullptr);
+    CHECK(manager->GetEvalRunner("scheduled")->GetBatchEnv()->GetName() == "scheduled");
+    CHECK(factory_state->creation_count == 2);
+    CHECK(std::ranges::find(
+        factory_state->config_prefixes, "train.eval.[scheduled].env")
+        != factory_state->config_prefixes.end());
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message, {
+        "eval tag 'scheduled': scheduled (interval=7, background=false)"
+    }));
 }
 
 TEST_CASE("RunManager rejects dynamic duplicate Env names before construction", "[env_name][run_manager]")
