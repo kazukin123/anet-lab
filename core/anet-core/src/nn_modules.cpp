@@ -12,11 +12,6 @@
 using namespace anet::nn;
 namespace LOG = anet::log;
 
-static std::string ToConfigBool(bool value)
-{
-    return value ? "true" : "false";
-}
-
 static void ValidateDropRate(const std::string& key, double value)
 {
     if (value < 0.0 || value >= 1.0) {
@@ -111,7 +106,7 @@ public:
     {
         anet::ConfigData cd;
         cd.Set("out_features", out_features_);
-        cd.Set("bias", ToConfigBool(with_bias_));
+        cd.Set("bias", with_bias_);
         if (linear) {
             cd.Set("in_features", linear->options.in_features());
         }
@@ -603,7 +598,7 @@ public:
     {
         anet::ConfigData cd;
         cd.Set("num_features", num_features_);
-        cd.Set("force_fp32", ToConfigBool(force_fp32_));
+        cd.Set("force_fp32", force_fp32_);
         return cd;
     }
 private:
@@ -676,7 +671,7 @@ public:
         anet::ConfigData cd;
         cd.Set("num_channels", num_channels_);
         cd.Set("eps", eps_);
-        cd.Set("force_fp32", ToConfigBool(force_fp32_));
+        cd.Set("force_fp32", force_fp32_);
         return cd;
     }
 
@@ -977,10 +972,10 @@ public:
         cd.Set("activation", config_.activation);
         cd.Set("activation_mode", config_.activation_mode);
         cd.Set("norm_type", config_.norm_type);
-        cd.Set("norm_force_fp32", ToConfigBool(config_.norm_force_fp32));
+        cd.Set("norm_force_fp32", config_.norm_force_fp32);
         cd.Set("group_norm_groups", config_.group_norm_groups);
-        cd.Set("conv1_bias", ToConfigBool(config_.conv1_bias));
-        cd.Set("conv2_bias", ToConfigBool(config_.conv2_bias));
+        cd.Set("conv1_bias", config_.conv1_bias);
+        cd.Set("conv2_bias", config_.conv2_bias);
         cd.Set("droppath_rate", config_.droppath_rate);
         cd.Set("dropout_rate", config_.dropout_rate);
         if (conv1_) {
@@ -1208,7 +1203,7 @@ public:
         cd.Set("layerscale_init", config_.layerscale_init);
         cd.Set("droppath_rate", config_.droppath_rate);
         cd.Set("norm_type", config_.norm_type);
-        cd.Set("norm_force_fp32", ToConfigBool(config_.norm_force_fp32));
+        cd.Set("norm_force_fp32", config_.norm_force_fp32);
         if (dwconv_) {
             cd.Set("in_channels", dwconv_->options.in_channels());
         }
@@ -1336,7 +1331,7 @@ public:
         anet::ConfigData cd;
         cd.Set("normalized_shape", normalized_shape_);
         cd.Set("eps", eps_);
-        cd.Set("force_fp32", ToConfigBool(force_fp32_));
+        cd.Set("force_fp32", force_fp32_);
         return cd;
     }
 private:
@@ -1916,8 +1911,8 @@ public:
         cd.Set("nhead", config_.nhead);
         cd.Set("num_layers", config_.num_layers);
         cd.Set("dim_feedforward", config_.dim_feedforward);
-        cd.Set("norm_first", ToConfigBool(config_.norm_first));
-        cd.Set("use_sdpa", ToConfigBool(config_.use_sdpa));
+        cd.Set("norm_first", config_.norm_first);
+        cd.Set("use_sdpa", config_.use_sdpa);
         cd.Set("activation", config_.activation);
         cd.Set("hidden_dropout_rate", config_.hidden_dropout_rate);
         cd.Set("attn_dropout_rate", config_.attn_dropout_rate);
@@ -2055,7 +2050,7 @@ public:
         cd.Set("stride", stride_);
         cd.Set("padding", padding_);
         cd.Set("dilation", dilation_);
-        cd.Set("ceil_mode", ToConfigBool(ceil_mode_));
+        cd.Set("ceil_mode", ceil_mode_);
         return cd;
     }
 private:

@@ -309,13 +309,25 @@ TEST_CASE("ConfigData saves Properties text and replaces an existing file", "[co
     CHECK(loaded_first.Get("workspace.history.0") == R"(D:\Program Files\anet workspace)");
     CHECK(loaded_first.Get("workspace.history.1") == "_default");
 
-    anet::ConfigData second;
-    second.Set("workspace.dialog_skip", true);
-    second.SaveProperties(path);
+    for (const bool skip : { false, true }) {
+        const std::string expected = std::string("workspace.dialog_skip = ")
+            + (skip ? "true\n" : "false\n");
 
-    const auto loaded_second = anet::Properties(path.string()).ToConfigData();
-    CHECK(loaded_second.Map().Size() == 1);
-    CHECK(loaded_second.Get<bool>("workspace.dialog_skip") == true);
+        anet::ConfigData second;
+        second.Set("workspace.dialog_skip", skip);
+        CHECK(second.Get("workspace.dialog_skip") == (skip ? "true" : "false"));
+        CHECK(second.ToPropertiesString() == expected);
+        second.SaveProperties(path);
+
+        std::ifstream saved_file(path, std::ios::binary);
+        std::stringstream saved_text;
+        saved_text << saved_file.rdbuf();
+        CHECK(saved_text.str() == expected);
+
+        const auto loaded_second = anet::Properties(path.string()).ToConfigData();
+        CHECK(loaded_second.Map().Size() == 1);
+        CHECK(loaded_second.Get<bool>("workspace.dialog_skip") == skip);
+    }
     std::filesystem::remove_all(root);
 }
 

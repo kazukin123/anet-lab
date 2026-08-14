@@ -43,6 +43,11 @@ namespace anet {
             map_.Set(key, value);
         }
 
+        void Set(const std::string& key, bool value)
+        {
+            map_.Set(key, value ? "true" : "false");
+        }
+
         template<typename T>
         void Set(const std::string& key, const T& value)
         {
