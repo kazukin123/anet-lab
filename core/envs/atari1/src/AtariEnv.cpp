@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <limits>
+#include <mutex>
 #include <regex>
 #include <sstream>
 #include <string_view>
@@ -59,6 +60,21 @@ static bool ContainsAction(const std::vector<int>& actions, int action)
     return std::find(actions.begin(), actions.end(), action) != actions.end();
 }
 
+// WASAPI は ALE SoundSDL の AUDIO_U8 前提を満たさず無音になるため
+// (docs/design/220_atari_env.jp.md §3.1)、未設定時のみ DirectSound を既定にする。
+// 明示設定された環境変数は尊重する。
+static void EnsureSdlAudioDriverDefault()
+{
+    static std::once_flag once;
+    std::call_once(once, [] {
+#ifdef _WIN32
+        if (std::getenv("SDL_AUDIODRIVER") == nullptr) {
+            _putenv_s("SDL_AUDIODRIVER", "directsound");
+        }
+#endif
+    });
+}
+
 AtariEnvConfig::AtariEnvConfig(
     const anet::ConfigData& config_data, const std::string& config_prefix)
     : Config(config_data, "AtariEnv", config_prefix)
@@ -95,6 +111,9 @@ AtariEnv::AtariEnv(
 {
     // 設定とROMを先に確定し、不完全なEnvを公開しない。
     ValidateConfig();
+    if (config_.sound) {
+        EnsureSdlAudioDriverDefault();
+    }
     const auto rom_path = ResolveRomPath();
     ale_ = std::make_unique<ale::ALEInterface>();
     ConfigureAle(rom_path);

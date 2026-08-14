@@ -505,9 +505,9 @@ app.online.eval_panel.eval_config_tag = eval_panel
 # EvalPanel だけ SDL 音声を有効化(観戦用)。SDL_DYNLOAD のため SDL2.dll が必要 —
 # third_party/runtime_dlls/ に置けばビルド時に runner bin へ配備される(README 参照)。
 #
-# さらに Windows では環境変数 SDL_AUDIODRIVER=directsound が必須。既定の WASAPI では
-# ALE の AUDIO_U8 前提が破れて無音になる(ALE v0.12.0 upstream バグ。詳細は
-# docs/design/220_atari_env.jp.md §4.2 契約ノート)。
+# Windows では WASAPI で無音になる ALE upstream バグがあるため、AtariEnv が
+# sound=true 時に SDL_AUDIODRIVER=directsound を自動設定する(未設定時のみ。
+# 明示した環境変数は尊重される。詳細は docs/design/220_atari_env.jp.md §4.2)。
 #
 # interval = 0(dormant 宣言)は必須。train.eval.[eval_panel].* キーの存在だけで
 # 実タグとして列挙され(interval 既定 100)、背景 eval「eval_panel」が生成されて
