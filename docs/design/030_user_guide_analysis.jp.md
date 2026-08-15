@@ -133,7 +133,7 @@ Run B: 0 - 70M exp_step
 - 水準: window内のmean/medianや評価EMA
 - 安定性: 振れ幅、急落、seed間のrange/std
 - 傾向: window前半と後半の差、傾き
-- 速度: 同一hardware・同一並列条件での`exp_step_per_sec`や経過時間
+- 速度: 同一hardware・同一並列条件での`90_perf/90_elapse_hour`差分。`exp_step_per_sec`は補助として読む
 
 1つの長いRunだけから、別設定より高速・高性能と断定しない。停止点が違う場合は、まずmatched windowへ揃える。
 
@@ -144,6 +144,8 @@ Run B: 0 - 70M exp_step
 - signed-logは0付近を広げる表示変換である。線間の見た目の距離をlinear scaleと同じ比率として読まない。
 - configured evalとEvalPanelは別Runnerである。tagのrunner scopeを確認する。
 - `exp_step_per_sec`は他process、動画出力、profiling、Optunaの並列jobに影響される。
+- `90_perf/12_exp_step_per_sec`はτ=10秒の時間重みEMAである。窓の長さで重み付けするためevalなどのstallも計上されるが、瞬間値ではないため区間の切り出しには使わない。真のthroughputは`90_perf/90_elapse_hour`の差分と`exp_step`の差分から算出する。`90_perf/22_exp_step_per_sec_ema`はそれをさらに`ema_alpha`で平滑した長期線である。
+- 時間重みEMA化より前のRunでは同tagがstallを過小評価している（実測で真値478 steps/sに対し1,830 steps/sを表示した例がある）。過去Runと同tagの数値を直接比較しない。
 - 1 seedの差はseedぶれを含む。候補選定後は複数seedで再評価する。
 
 ### 4.5 IQN探索P0診断を読む
@@ -155,7 +157,7 @@ IQN探索では、解決済み`config/config_data.txt`に`metrics.scalar.iqn_sea
 - `iqn_first_pair_abs_td`と`iqn_first_cancellation_ratio`は初回Learner priority更新行だけを対象とする。`per_sample_initial_count=0`の区間では`iqn_first_*`が`NaN`になるため、0への改善・悪化とは解釈しない。
 - TBO有効時のLearner診断は実空間ではなく、現行priorityと同じh空間の値である。TBO有効/無効Runの絶対値を直接比較しない。
 - `iqn_uqe_full_q_argmax_disagreement`と`action_full_q_margin.[i]`はfull-distribution queryがあるPolicyだけで成立する。欠落時の`NaN`を一致やmargin 0と解釈しない。
-- P0 group OFF/ONの負荷比較は同一binary・seed・実行条件で直列に行い、安定区間の`exp_step_per_sec`を比較する。他processやparallel Optuna jobがある測定は採用しない。
+- P0 group OFF/ONの負荷比較は同一binary・seed・実行条件で直列に行い、matched windowの`90_perf/90_elapse_hour`差分から算出したthroughputを比較する。他processやparallel Optuna jobがある測定は採用しない。
 
 ### 4.6 分位tail探索診断を読む
 
@@ -204,7 +206,64 @@ late windowの`score_60_80`、`score_80_100`、`late_slope`は伸びや頭打ち
 
 `run-study --n-jobs > 1`は同一GPU上でrunnerを並列起動できるが、durationとstep/secは相互干渉を受ける。その条件のthroughputを単独Runと直接比較しない。
 
-## 6. 最小分析チェックリスト
+## 6. `inspect_run.py`でRunを検査・抽出する
+
+Metrics Viewerは人間向けの可視化画面である。shellから構造化結果を取り出したい場合、特にAIエージェントへRun分析を依頼する場合は`inspect_run.py`を使う。Run artifactを一切変更しないread-onlyのCLIである。
+
+```powershell
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py RUN [RUN ...] [options]
+```
+
+### 6.1 Runの指定
+
+`RUN`はRun名、または既存の相対・絶対directory pathを取る。Run名の探索範囲は`apps/runner/workspaces/*/runs/`直下だけである。同名Runが複数workspaceにある場合は候補pathを示して終了値2で止まり、どのworkspaceも暗黙選択しない。`apps/runner/runs_*`のlegacy配置はdirectory pathで明示すれば読める。
+
+optionを付けない実行は軽量inspectionになり、Metricsマスタを開かない。artifactのpath・size・更新時刻、`config/config_data.txt`のSHA-256、Metricsマスタの選択結果、Metricsキャッシュの状態だけを返す。分析の入口としてまずこれを実行し、Run treeの再帰検索や巨大な`metrics.jsonl`の直接grepをしない。
+
+### 6.2 metricとconfigを抽出する
+
+```powershell
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py run_A run_B --metric 42_env/81_double_suika_achieved_ema --window 80%:100% --window 0:5M
+```
+
+- `--metric`は完全一致のscalar tag。複数指定でき、Runごとに1 passでまとめて抽出する。
+- `--window`は`START:END`（両端inclusive、`K`/`M`/`G`suffix可）と`START%:END%`を取る。複数指定すると各windowを独立に集約する。1つのwindow内で絶対値と百分率を混ぜることはできない。
+- percentage windowはRun×step軸の最大到達stepを100%として解決する。Run長が違えば解決後の絶対範囲も違うので、結果には元の百分率表現と解決後の絶対範囲の両方が載る。ハイパラ比較の正式判断では、4.3のとおりmatchedな絶対windowも併記する。
+- step軸は`config/config_data.txt`の解決済み`metrics.scalar.[tag]`定義から復元する。軸を決められないtagへpercentage windowを適用すると、対象tagとRunを示して失敗する。
+- `--config-key`は実効configのキーまたはglobを取る。glob meta characterは`*`と`?`だけで、`[`と`]`はリテラルとして扱う。`train.eval.[eval1].run_mode`のような`[tag]`記法のキーをそのまま書ける。
+- `--diff-config`は複数Run間で値または存在有無が異なるキーだけを返す。`--config-key`と併用するとその範囲に絞られる。
+
+各Run×tag×windowについて`count`、`mean`、`population_std`、`min`/`max`、`first`/`last`、step範囲を返し、曲線形状の確認用に最大128点へ間引いた系列を添える。間引きは決定的で、cache経路とマスタ経路で同じ結果になる。
+
+### 6.3 Run解析プロファイル
+
+繰り返す抽出条件はJSONの[Run解析プロファイル](../../CONTEXT.md)へ切り出して`--profile`で渡す。
+
+```json
+{
+  "version": 1,
+  "name": "dropmerge-iqn-k-search",
+  "metrics": ["42_env/81_double_suika_achieved_ema"],
+  "config_keys": ["agent.*"],
+  "windows": ["0:5M", "80%:100%"]
+}
+```
+
+`--metric`と`--config-key`はprofileの配列末尾へ追加される。`--window`を1件でも指定するとprofileの`windows`は全置換される。profileは抽出条件だけを持ち、解釈・閾値・採否判断・Run pathは持たない。
+
+### 6.4 Metricsキャッシュとの関係
+
+`metrics_cache.db`は完全にcurrentなときだけread-onlyで使い、それ以外はMetricsマスタへ自動fallbackする。`--format md`または`json`の結果に判定結果と理由（`current` / `absent` / `invalid` / `partial` / `stale` / `error`）が載る。toolはキャッシュの作成・更新・修復・削除を一切行わない。
+
+Runner実行中のRunも読める。rawは実行開始時のサイズまでを読み、未終端の末尾行を取り込まず、読み取り中にマスタが変化した場合は暫定結果として`provisional`と`source_changed_during_read`を立てる。
+
+### 6.5 出力
+
+既定はJSON（schema v1）で、`--format md`にするとMarkdownになる。どちらも同じresult modelから生成するので、Markdownだけに現れる分析判断はない。`--output`を付けるとstdoutの代わりにfileへ書き、一時file経由で原子的に置換する。警告と診断は常にstderrへ出るのでJSONを汚さない。
+
+終了値は、Run未発見・曖昧性・引数やprofileの契約違反が`2`、source読み取りやquery失敗、および指定したmetric/config selectorが全Runで1件も成立しない場合が`1`、一部Runだけの欠損は`0`である。
+
+## 7. 最小分析チェックリスト
 
 1. 比較対象の`config/config_data.txt`を保存した。
 2. 同じtag、同じstep軸、同じeval定義を確認した。
@@ -214,7 +273,7 @@ late windowの`score_60_80`、`score_80_100`、`late_slope`は伸びや頭打ち
 6. 1 seedの結果だけで最終判断していない。
 7. Optunaではaggregate方式、seed別分布、trial stateを確認した。
 
-## 7. 関連文書
+## 8. 関連文書
 
 - [Run実行ユーザーガイド](020_user_guide_run.jp.md)
 - [開発環境](040_development_environment.jp.md)

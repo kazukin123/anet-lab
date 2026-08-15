@@ -302,6 +302,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File apps\runner\tools\resolve_wo
 .\.venv\Scripts\python.exe apps\runner\tools\compress_workspace_metrics_test.py
 .\.venv\Scripts\python.exe viewers\metrics-tools\mlflow_bridge_test.py
 .\.venv\Scripts\python.exe viewers\metrics-tools\metrics_source_test.py
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run_test.py
 .\.venv\Scripts\python.exe viewers\metrics-tools\tb_bridge_test.py
 .\.venv\Scripts\python.exe apps\runner\tools\optuna_metrics_gzip_test.py
 ```
@@ -449,6 +450,19 @@ Topic Issue 番号は以下の対応表から、変更目的と対象領域に�
 ## AI エージェントのRun結果分析ルール
 
 Run結果を分析する場合は、[Run分析ユーザーガイド](docs/design/030_user_guide_analysis.jp.md)に加えて以下に従ってください。
+
+ユーザーがRun名（またはRunフォルダのパス）だけを提示した場合は、原則としてRun分析の依頼として扱ってください。
+分析の入口には `inspect_run.py` を使い、Run treeを再帰 `rg` / `Get-ChildItem -Recurse` で探索しないでください。
+`metrics.jsonl` は数百MBになるため、直接 `Get-Content` / `Select-String` しないでください。
+
+```powershell
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py RUN [RUN ...] [options]
+```
+
+- option未指定ならartifact、実効configのpath、Metricsマスタ、Metricsキャッシュの状態だけを返す軽量inspectionになる。
+- `--metric TAG` でscalarを抽出し、`--window 0:5M` / `--window 80%:100%` で集約範囲を指定する。`--config-key` と `--diff-config` で実効設定を比較する。
+- Run名の探索範囲は `apps/runner/workspaces/*/runs/` 直下だけ。`apps/runner/runs_*` のlegacy配置は明示pathでのみ指定できる。同名Runが複数workspaceにあるときは候補を示して終了値2で止まる。
+- 正本の関係は「実効設定=`config/config_data.txt`」「メトリクス=Metricsマスタ（`metrics.jsonl`優先、無ければ`metrics.jsonl.gz`）」「`metrics_cache.db`=マスタへ完全追随しているときだけ使える高速経路」。cacheが追随していなければ自動でマスタへfallbackするので、cacheを正本として読まない。
 
 - Run名や編集後の設定ファイルではなく、Run artifactの`config/config_data.txt`を実効設定の正本とする。
 - 分析開始時に到達step、停止理由、artifactの更新時刻を確認し、実行途中の分析は暫定結果と明記する。完了後は終盤値を再取得して結論を更新する。
