@@ -9,8 +9,9 @@ train.seed = 1
 #train.seed = 2
 #train.seed = 3
 
-# num_envs は Random Policy(下の B 合成)で実測して確定する。
-# 手順: baseline > B に切替 → num_envs を振って 90_perf/12_exp_step_per_sec を比較 → 最速を採用。
+# num_envs は Random Policy(下の B 合成)で env 天井を実測し、実構成の必要量とのマージンで決める。
+#train.num_envs = 1024
+#train.num_envs = 512
 #train.num_envs = 256
 #train.num_envs = 128
 train.num_envs = 64
@@ -24,6 +25,7 @@ DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
 
 AtariEnv.$ = AtariEnv.v5 > E
 #AtariEnv.$ = AtariEnv.classic > E    # クラシックプリセット(sticky なし+NoOp+episodic life+fire reset)
+#AtariEnv.$ = AtariEnv.100k > E       # Atari-100k プリセット(予算 100k steps とセット。Run設定 章参照)
 
 # quantile 系の配線選択。agent 側の quantile_mode(A/R 層)と揃えること。
 net.$ = net.qr
@@ -163,6 +165,11 @@ E.game = pong
 app.online.exp_pause_step = 2,500,000
 app.batchrun.exp_exit_step = 2,500,000
 
+# Atari-100k 予算(400k frames = 100k transitions)。AtariEnv.100k とセットで有効化し、
+# ステップ数依存 章(eps_decay/per_beta/warmup)も 100k 相応へ見直すこと。
+#app.online.exp_pause_step = 100,000
+#app.batchrun.exp_exit_step = 100,000
+
 #backend.$ = backend.deterministic        # 同seed再現(+11%コスト)
 #backend.$ = backend.non-deterministic    # 高速化
 
@@ -170,13 +177,12 @@ app.batchrun.exp_exit_step = 2,500,000
 # ==============================================================================
 # 実験
 # ==============================================================================
-# A/B テストの差分は X(agent 最右)/ E(env 最右)へ。恒久化したら A / AtariEnv 素辞書へ移す。
 
-# --- IQN 切替(2 箇所セット。tau 系の既定は agent.txt baseline 参照) ---
+#app.online.exp_exit_step  = 200,000     # 0.2M
+
 #net.$ = net.iqn
 #R.quantile_mode = iqn
 
-# --- QR 分位数 ---
 #R.qr.num_quantiles = 101    # 200 が重い場合の縮小候補
 
 #X.
@@ -200,7 +206,6 @@ app.batchrun.exp_exit_step = 2,500,000
 # ==============================================================================
 # ステップ数 依存設定
 # ==============================================================================
-# 予算 2.5M steps(10M frames)に紐づく値をここに集約。予算変更時はセットで見直す。
 
 A.train_policy.eps_decay_steps = 250,000      # 1M frames 相当で 1.0→0.01 線形減衰(exp_step 単位)
 A.learner.per_beta_step = 2,500,000           # Run 全体で beta 0.4→1.0
@@ -210,7 +215,6 @@ A.learner.update_warmup_steps = 20,000        # Dopamine min_replay_history 相�
 # ==============================================================================
 # BF16
 # ==============================================================================
-# ベースラインは FP32。wall-clock A/B する時だけ合成に BF16.agent を挿す。
 
 BF16.agent.learner.use_amp = true
 BF16.agent.learner.use_amp_bf16 = true
@@ -220,8 +224,6 @@ BF16.agent.learner.adam_eps = 1e-4
 # ==============================================================================
 # Env依存 Agent設定
 # ==============================================================================
-# 文献錨: QR-DQN(200 quantiles) + PER(Rainbow 値) + n-step 3 + dueling + Double。
-# stucker(stack4)/double/dueling/per/tbo=off/grad_clip/obs_norm(pass_through) は baseline に委任。
 
 A.quantile_mode = qr
 A.qr.num_quantiles = 200                      # QR-DQN 論文値
@@ -262,11 +264,11 @@ A.train_actor.clone_model = true
 A.train_actor.sync_interval.type = constant
 A.train_actor.sync_interval.value = 400
 
-# --- reward scaler 中和(重要) ---
-# baseline は dynamic scaling + constant_scale 0.01。Atari は sign clip 済み ±1 を素通しする。
+# --- reward scaler ---
 A.reward_scaler.use_dynamic_scaling = false
 A.reward_scaler.use_auto_post_scale = false
-A.reward_scaler.constant_scale = 1.0
+A.reward_scaler.constant_scale = 1.0  # sign clip 済み ±1 を素通し
+
 
 # --- Random Policy ベースライン(num_envs 実測用。baseline > B で使用) ---
 B.train_policy.policy_type = EpsilonGreedy
@@ -437,6 +439,17 @@ AtariEnv.classic.noop_max = 30
 AtariEnv.classic.episodic_life = true
 AtariEnv.classic.fire_reset = true
 
+# Atari-100k(SimPLe 起源のサンプル効率ベンチ。26 ゲーム・予算 100k steps = 400k frames)
+# 共通不変は sticky なし+400k frames のみで、残りは実装系統で分裂している
+# (reports/atari_env_survey_2026-08-13.md §5.3/§7.2)。ここは torch 系多数派
+# (SPR/EfficientZero)に合わせた。Dopamine 系(DrQ(ε)/DER(ε)/BBF)は
+# noop 0・episodic_life false で報告しており、比較先の条件確認は必須。
+# 学習予算は Run設定 章の exp_pause/exit_step = 100,000 とセットで使う。
+AtariEnv.100k.repeat_action_probability = 0.0
+AtariEnv.100k.noop_max = 30
+AtariEnv.100k.episodic_life = true
+AtariEnv.100k.fire_reset = false
+
 # --- デフォルト設定 ---
 
 AtariEnv.game = pong
@@ -455,8 +468,8 @@ AtariEnv.sound = false
 
 # --- Eval設定 ---
 
-train.eval_schedule.[eval1].interval = 100
-train.eval_schedule.[eval2].interval = 100
+train.eval_schedule.[eval1].interval = 500
+train.eval_schedule.[eval2].interval = 500
 
 # 別 flavor / 別ゲーム eval の雛形(必要時に有効化)
 #AtariEnv.test1.difficulty = 1

@@ -146,6 +146,7 @@ class_id は `AtariEnv`。`AtariEnv : public SingleDiscreteEnvBase, public anet:
 
 - `AtariEnv.v5`: sticky 0.25 / noop_max 0 / episodic_life false / fire_reset false
 - `AtariEnv.classic`: sticky 0.0 / noop_max 30 / episodic_life true / fire_reset true
+- `AtariEnv.100k`: sticky 0.0 / noop_max 30 / episodic_life true / fire_reset false（Atari-100k ベンチ。予算 100k steps = 400k frames は Run 設定側で指定。100k の共通不変は sticky なし+400k frames のみで、torch 系多数派＝SPR/EfficientZero の条件に合わせた。Dopamine 系＝DrQ(ε)/DER(ε)/BBF は noop 0・episodic_life false と分裂しているため、比較先の実装系統を必ず確認する）
 
 config 契約ノート:
 

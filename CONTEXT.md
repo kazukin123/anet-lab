@@ -180,7 +180,7 @@ reward clip適用前の環境スコア。AtariEnvでは`episode_score`（GetScal
 _Avoid_: reward（学習報酬と曖昧）, episode reward（どちらを指すか不明）
 
 **プロトコルプリセット**:
-sticky actions・NoOp reset・episodic life・fire reset等の評価条件の組（`AtariEnv.v5` / `AtariEnv.classic`）。スコアはプリセット間で直接比較不可であり、比較先の事例がどちらの条件かを常に確認する。env idのバージョン（Gymnasiumのv0/v4/v5）はこのプリセットの命名由来だが、anet-labでは条件セット名として扱う。
+sticky actions・NoOp reset・episodic life・fire reset等の評価条件の組（`AtariEnv.v5` / `AtariEnv.classic` / `AtariEnv.100k`）。スコアはプリセット間で直接比較不可であり、比較先の事例がどの条件かを常に確認する。env idのバージョン（Gymnasiumのv0/v4/v5）はこのプリセットの命名由来だが、anet-labでは条件セット名として扱う。
 _Avoid_: envバージョン（Gymnasium環境IDと混同）, 難易度設定（flavorと混同）
 
 ### 実行系統
