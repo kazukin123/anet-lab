@@ -1,0 +1,239 @@
+# Atari ベースライン定義 探索履歴
+
+## メタデータ
+
+| 項目 | 内容 |
+|---|---|
+| 対象 Agent | DefaultDQNAgent（QR-DQN 200 quantiles） |
+| 対象 Env | AtariEnv（ALE v0.12.0 直結、Pong / Breakout） |
+| 開始日 | 2026-08-14 |
+| 最終更新 | 2026-08-17 |
+| 状態 | active。プロトコル探索は Breakout 50M まで完了、num_envs は再取得待ち |
+| 主目的 | Atari のベースライン設定を確定する。プロトコルプリセット（sticky / episodic_life）と num_envs の効き方を実測し、文献比較の土俵を決める |
+| 比較上の注意 | 全 Run が single-seed（`train.seed = 1`）。eval は `eval_batch_size = 1` の 1 エピソード評価であり分散が大きい（Breakout 後期で 44〜227 の幅）。値の比較は window 平均で行う |
+| 汚染注意 | 2026-08-15 の Run 群は PRD 053 実装前であり、eval 発火頻度が num_envs 依存で 4 倍ずれる。wall-clock 比較はこの影響を受ける（探索ブロック 01・02 参照） |
+
+## 現時点のまとめ
+
+1. **sticky actions が Breakout で支配的**。0.25 → 0.0 で train 生スコア 42 → 119（2.8 倍）。v5 プリセットのまま回すと 5M step で 42 に飽和し、以降 22M step 分がほぼ無駄になる。sticky 0 では 50M まで伸び続けた。
+2. **episodic_life は単独では効果ゼロ**。sticky 0.25 固定で false / true を 27M step 比較し、train 生スコア 42.0 対 41.9、median 41 対 41 で差がない。中間指標（`q_gap_rel` 上昇、`q_max` 低下）は設計どおり動いており、機構は効いているがスコアに繋がらなかった。`lives` が 3.45 対 3.64 と変わらないことが決定的で、死ぬ頻度そのものが改善していない。
+3. **sticky 0 では `lives` が明確に上昇する**（3.4 → 4.3）。episodic_life で動かなかった同じ指標が動いたことから、Breakout のプラトーはパドル制御の精度で律速されていたと解釈できる。
+4. **eval が wall-clock を支配しうる**。Pong で `interval` 100 → 500 にすると真の throughput が 478 → 1,198 steps/s（2.5 倍）。train 曲線は完全一致しており、差分は eval の実行コストのみ。
+5. **num_envs は wall-clock のレバーではない**。eval 頻度を揃えると n64 1,198 steps/s ≒ n512 1,264 steps/s で差が消える。一方で**学習効率では n64 が明確に優位**（2.0-2.5M の eval1 が +7.10 対 -5.79）。
+6. **Breakout 50M（sticky 0 / episodic_life true / noop 0 / fire_reset false）で train 生スコア 119.4、eval1 115.7**。43-44M で train 140.1 のピークを打ち、以降 -15% で 119 台に安定。100 点超が 50.1%、300 点超が 3.6%、ピーク期の max 427（1 画面 432 点にほぼ到達）。
+7. Pong は v5 プリセット・num_envs 64 で 1M step から動き出し、2.5M で eval1 +7.10。
+
+## 参照 Run
+
+| Run | 条件 | 到達 |
+|---|---|---|
+| `run_20260815-031815_atari_pong_n512` | Pong / v5 / num_envs 512 / eval interval 100 | 2,496,000、0.548h |
+| `run_20260815-035220_atari_pong_n64` | Pong / v5 / num_envs 64 / eval interval 100 | 2,499,200、1.452h |
+| `run_20260815-052657_atari_pong` | Pong / v5 / num_envs 64 / eval interval 500 | 2,499,200、0.580h |
+| `run_20260816-041123_atari_breakout` | Breakout / v5（sticky 0.25、episodic_life false） | 27,451,968、4.34h |
+| `run_20260816-083440_atari_breakout` | Breakout / sticky 0.25、episodic_life **true** | 28,995,904、7.03h |
+| `run_20260816-162140_atari_breakout` | Breakout / sticky **0.0**、episodic_life true | 50,017,728、8.30h |
+
+実効設定の正本は各 Run の `config/config_data.txt`。
+
+## ベースライン実効設定
+
+`run_20260816-162140_atari_breakout/config/config_data.txt` を正本として確認した。
+
+| 分類 | 設定 |
+|---|---|
+| quantile | `quantile_mode=qr`、`qr.num_quantiles=200`（QR-DQN 論文値） |
+| network | AtariNature（Nature CNN 32/64/64 + FC512）、dueling は明示 V/A ストリーム、frame stack 4 |
+| learner | `alpha=1e-4`、`adam_eps=1.5e-4`、`weight_decay=0`、`gamma=0.99`、`n_step=3` |
+| replay | capacity 1,048,576、`replay_batch_size=256`、`replay_ratio=8`（samples/insert）、prefetch ON |
+| PER | `alpha=0.5`、`beta 0.4→1.0 / 2,500,000`、`initial_priority_mode=max` |
+| target | `soft_update_tau=0.001`、actor sync interval 400 |
+| policy | EpsilonGreedy、`eps 1.00→0.01 / 250,000`、warmup 20,000 |
+| Env 共通 | `frame_skip=4`、`max_pool=true`、`screen_size=84`、`reward_clip=true`、`max_episode_frames=108,000`、`full_action_space=false` |
+| プロトコル | 探索ブロック 03 で振った（v5 / sticky 0 / episodic_life） |
+| 実行 | num_envs 64、seed 1、backend 既定（non-deterministic）、eval device cuda |
+
+`per_beta_step` と `eps_decay_steps` は Atari.txt の「ステップ数依存設定」章にあり、2.5M 予算前提の値のまま 50M Run に適用されている。
+
+## 探索ブロック 01: num_envs
+
+**記録時点:** 2026-08-15、Pong 2.5M
+**状態:** wall-clock 比較は invalidated（PRD 053 の eval 発火バグによる）。学習効率の比較は有効
+**確度:** low。single-seed、Pong のみ
+
+### 探索観点
+
+num_envs をいくつに置くか。Random Policy によるラダー測定（8〜1024）で env スループット天井を測り、実構成での必要量とのマージンで決める。
+
+### 探索結果
+
+Random Policy ラダーの `exp_step_per_sec` は num_envs に対し単調増加（n32 5.1k → n512 11.5k → n1024 12.1k）。しかし実構成では learner 律速であり、この天井は一度も binding しない。
+
+実構成 n512 対 n64 の 2.5M 比較:
+
+| | n512 | n64 |
+|---|---|---|
+| eval1 [2.0-2.5M] | **-5.79** | **+7.10** |
+| eval2 [2.0-2.5M] | -5.31 | +6.06 |
+| train score EMA @2.5M | -19.45 | -13.16 |
+| episode_len @2.5M | 3,093 | 5,342 |
+| 真の throughput | 1,264 steps/s | 478 steps/s |
+
+wall-clock では n512 が 2.65 倍速く見えたが、これは eval 発火頻度の差によるものだった（n512 は `LCM(16,100)=400` 更新周期、n64 は 100 更新周期で 4 倍発火）。n64 の eval interval を 500 にして頻度を揃えると 1,198 steps/s となり、n512 の 1,264 steps/s とほぼ一致する。
+
+### 考察
+
+学習効率の差は実在する。lane あたりの進行量が n512 で 4,878 step（完了エピソード 3.5 本）に対し n64 は 38,995 step（18.7 本）であり、同時に終端する lane 数の実測が n512 2.98 / n64 1.11 と、n512 では lane 位相が揃っている。`noop_max=0` で全 lane が同一初期状態から同時発進し、かつ lane あたりのエピソード数が少ないため位相がほどけない。RB 1M を per-lane 時間で見ると n512 は 2,048 lane-step 分しか覆わず、状態カバレッジが薄くなる。
+
+同一 config の反復（eval interval のみ違う 2 Run）で train 曲線が小数以下まで完全一致したため、この環境での Run 間ブレは実質ゼロであり、n512 対 n64 の差はノイズではなく num_envs 由来と確定できる。
+
+### 状態
+
+num_envs の測定は eval 発火バグの影響下で行われ、値の解釈が複雑になった。PRD 053 実装後の最新知見で再取得し、本ファイルに追記予定（pending）。
+
+## 探索ブロック 02: eval interval の wall-clock 影響
+
+**記録時点:** 2026-08-15、Pong 2.5M
+**状態:** completed
+**確度:** high。同一 config の反復で train 曲線が完全一致
+
+### 探索観点
+
+eval が wall-clock をどれだけ食っているか。
+
+### 探索結果
+
+num_envs 64 固定で eval interval のみ 100 → 500 に変更:
+
+| | interval 100 | interval 500 |
+|---|---|---|
+| eval 発火間隔 | 3,200 exp_step | 16,000 exp_step |
+| eval エピソード総量 | 3.24M single-env step | 0.64M |
+| 真の throughput | 478 steps/s | **1,198 steps/s** |
+| 2.5M 到達 | 1.452h | **0.580h** |
+| train score EMA @2.5M | -13.16 | **-13.16**（完全一致） |
+
+`exp_step_per_sec` メトリクスの表示値は 1,830 対 1,531 で、真値（478 対 1,198）と乖離していた。旧実装は 200ms 窓の瞬間値を時間重みなしで拾うため、stall 区間が観測から抜けていた（PRD 053 で修正）。
+
+### 考察
+
+train 曲線・loss・episode_len が小数以下まで一致したことから、eval 頻度は学習に一切影響せず、差分は純粋に eval の実行コストである。eval エピソード長はスキル向上に伴って伸びる（Pong で 764 → 5,342 step）ため、固定 interval では Run 後期ほど eval が高くつく。interval 100 の後期（2.0-2.5M）は 334 steps/s まで落ちた。
+
+## 探索ブロック 03: Breakout プロトコル（sticky / episodic_life）
+
+**記録時点:** 2026-08-16
+**状態:** completed
+**確度:** medium。single-seed だが、飽和後 20M step 以上の平均で判定しており差は明瞭
+
+### 探索観点
+
+v5 プリセット（Machado 2018 準拠）で Breakout が 5M step・42 点で飽和した。文献値（Nature DQN 401.2）との差が大きく、プロトコル条件のどれが効いているかを切り分ける。
+
+### 探索条件
+
+`E` 層で 1 要素ずつ変更。ベースラインは v5（sticky 0.25 / noop 0 / episodic_life false / fire_reset false）。
+
+### 探索結果
+
+**episodic_life（sticky 0.25 固定、27M / 29M）**
+
+| 指標（直近 3M） | false | true |
+|---|---|---|
+| train 生スコア mean | 42.0 | 41.9 |
+| median | 41 | 41 |
+| p90 | 59 | 63 |
+| max | 229 | 210 |
+| eval1（直近 5M） | 46.1 | 43.4 |
+| `lives` | 3.45 | 3.64 |
+| `q_max_mean` @25M | 2.33 | 1.60 |
+| `q_gap_rel` @25M | 0.010 | 0.018 |
+| `loss_ema` @25M | 0.064 | 0.164 |
+
+1M ごとの推移でも、序盤（〜3M）は true がやや速く、5〜15M は false が上、20M 以降は拮抗し、両者とも 41〜43 の同じプラトーに収束した。
+
+**sticky（episodic_life true 固定、50M）**
+
+| | sticky 0.25 | sticky 0.0 |
+|---|---|---|
+| train 生スコア mean（直近 3M） | 41.9 | **119.4** |
+| median | 41 | 100 |
+| p90 | 63 | 247 |
+| max | 210 | 384（ピーク期 427） |
+| 100 点超の割合 | — | 50.1% |
+| 200 点超 | — | 14.9% |
+| 300 点超 | — | 3.6% |
+| eval1（直近 5M） | 43.4 | 115.7 |
+| `lives` | 3.4〜3.6 で横ばい | **4.03 → 4.33 と上昇** |
+| `game_len` | 約 1,030 | 1,509〜2,579 |
+
+### 考察
+
+episodic_life は `q_max`（1 ライフ分の価値へ低下）と `q_gap_rel`（行動間の価値差が拡大）に設計どおりの変化を与えたが、`lives` が動かなかった。ボールを落とす直前の状態ではパドルが既に間に合わない位置にあり、そこへ負の信号を積んでも「先回りする」能力は上がらなかったと解釈できる。
+
+sticky 0 では同じ `lives` が明確に上昇した。sticky は 4 回に 1 回前の行動が固着するため、パドルの精密制御を直接阻害する。Breakout は狙った列に当て続けてトンネルを掘る戦略が高得点の要件であり、そこが塞がれていた。
+
+episodic_life=true 下では eval の記録周期が 5 倍（160,000 → 800,000 exp_step）になる。`RunEvaluationEpisode` が最初の done で停止し、life-loss done ではスコアが未確定（NaN）で記録されないため。記録時点の `lives` 平均が 3.04 で、理論値 (4+3+2+1+5)/5 = 3.0 と一致した。**値そのものは正しく、周期だけが 5 倍になる**（生スコアは soft-reset で切れない）。
+
+## 探索ブロック 04: Breakout 50M 長期
+
+**記録時点:** 2026-08-17
+**状態:** completed
+**確度:** medium。single-seed、eval は 1 本評価
+
+### 探索観点
+
+sticky 0 で飽和が解けた後、どこまで伸びるか。文献の比較点（Nature DQN の 50M steps = 200M emulator frames）まで回す。
+
+### 探索結果
+
+`run_20260816-162140_atari_breakout`、50,017,728 exp_step、8.30h、真の throughput 1,674 steps/s。
+
+train 生スコアの 1M ごと平均は 4 フェーズに分かれた。
+
+| 区間 | 推移 | 特徴 |
+|---|---|---|
+| 0M-5M | 0 → 43 | 急上昇 |
+| 5M-30M | 43 → 77 | 緩やか（約 +1.3/M） |
+| 30M-44M | 77 → 140 | 再加速。29-30M で +14.3、35-36M で +19.5 の階段状ジャンプ |
+| 44M-50M | 140 → 119 | ピークアウト後 -15% で横ばい |
+
+ピークアウトは train 側で一貫している（43-44M 140.1 → 44-45M 126.1 → 47-48M 119.9 → 49-50M 119.1）。eval1 の window 平均も 195.3（42-45M）→ 142.2（45-47M）→ 80.3（47-50M）と低下した。
+
+max スコアは 360 → 402 → 427 と推移し、1 画面 432 点にほぼ到達した。
+
+マイルストーン:
+
+| step | score_ema | game_len | lives | q_max | q_gap_rel | loss_ema |
+|---|---|---|---|---|---|---|
+| 1M | 5.73 | 544 | 3.20 | 0.618 | 0.1178 | 0.1630 |
+| 5M | 38.84 | 1,244 | 4.03 | 1.684 | 0.0395 | 0.1649 |
+| 10M | 43.71 | 1,177 | 3.33 | 1.729 | 0.0442 | 0.1531 |
+| 20M | 53.98 | 1,611 | 3.67 | 1.844 | 0.0379 | 0.1315 |
+| 25M | 59.93 | 1,509 | 4.33 | 1.904 | 0.0603 | 0.1507 |
+
+### 考察
+
+30M 以降の階段状ジャンプと max スコアの上昇は、トンネル戦略の獲得と整合する。1 画面クリア相当（432 点）に手が届いており、300 点超が 3.6% 出ている。
+
+44M 以降の低下は train・eval が独立に同じ向きに動いているため、単独 Run のノイズではなく実際の性能低下と見る。DQN 系で長期学習の後半に現れる典型的な劣化の範囲であり、コラプスではない。ただし**最終時点の値を成績として採ると、ピーク時より約 15% 低く出る**。
+
+文献との比較には条件差が残る。
+
+| 項目 | Nature DQN | 本 Run |
+|---|---|---|
+| スコア | 401.2 | 119.4（train）/ 115.7（eval1） |
+| 学習量 | 50M steps（= 200M emulator frames） | 50.0M exp_step（同一） |
+| sticky | 0.0 | 0.0 |
+| episodic_life | true | true |
+| noop_max | 30 | **0** |
+| fire_reset | true | **false** |
+| 評価 | 30 本平均、ε=0.05、18,000 frames 上限 | **1 本**、eval1=target net / eval2=policy、108,000 frames 上限 |
+| 参考 | 人間 31.8、random 1.7 | — |
+
+Nature DQN の「50 million frames（approximately 38 days of game experience）」は agent step を指す。50M agent step × frame_skip 4 = 200M emulator frames、÷60fps = 38.6 日で論文記述と整合するため、本フレームワークの `exp_step` と直接対応する。
+
+eval1 の直近 7 点は `[148, 227, 59, 135, 77, 44, 120]` で 44〜227 の幅がある。1 本評価では平均値の推定精度が 30 本平均と比較できる水準にない。
+
+## pending
+
+- num_envs の再取得（探索ブロック 01 の wall-clock 測定が eval 発火バグ下のため）。本ファイルに追記予定。

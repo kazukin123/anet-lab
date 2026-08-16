@@ -44,12 +44,12 @@ app.run_name = run_{t}_atari
 # ==============================================================================
 
 #app.run_name = run_{t}_atari
-app.run_name = run_{t}_atari_pong
+app.run_name = run_{t}_atari_breakout
 
 
 # --- 定番(DQN 系譜の頻出。検収・比較向き) ---
-E.game = pong
-#E.game = breakout
+#E.game = pong
+E.game = breakout
 #E.game = space_invaders
 #E.game = seaquest
 #E.game = beam_rider
@@ -162,7 +162,8 @@ E.game = pong
 #E.game = zaxxon
 
 # 10M emulator frames / frame_skip=4 = 2.5M transitions
-app.online.exp_pause_step = 2,500,000
+#app.online.exp_pause_step = 2,500,000
+app.online.exp_pause_step = 5,000,000
 app.batchrun.exp_exit_step = 2,500,000
 
 # Atari-100k 予算(400k frames = 100k transitions)。AtariEnv.100k とセットで有効化し、
@@ -177,6 +178,10 @@ app.batchrun.exp_exit_step = 2,500,000
 # ==============================================================================
 # 実験
 # ==============================================================================
+
+E.episodic_life = true
+E.repeat_action_probability = 0.0
+
 
 #app.online.exp_exit_step  = 200,000     # 0.2M
 
@@ -468,8 +473,8 @@ AtariEnv.sound = false
 
 # --- Eval設定 ---
 
-train.eval_schedule.[eval1].interval = 500
-train.eval_schedule.[eval2].interval = 500
+train.eval_schedule.[eval1].interval = 5000
+train.eval_schedule.[eval2].interval = 5000
 
 # 別 flavor / 別ゲーム eval の雛形(必要時に有効化)
 #AtariEnv.test1.difficulty = 1
