@@ -7,7 +7,7 @@
 
     # metrics.scalar.[tag] = key [&step]  [@event]  [$target]
     #   @event   : (default: @train) @learn || @train
-    #   &step    : &train_step || &learn_step || &episode_step || &exp_step || &update_step || &sim_step
+    #   $step    : $train_step || $learn_step || &episode_step || $exp_step || $update_step || $sim_step
     #   $target  : $update_result || $agent || $exp || $runner
 
 metrics.scalar.baseline.[10_train/11_eps_count] = $runner episode_count @train $runner interval:100
@@ -39,10 +39,10 @@ metrics.scalar.baseline.[37_agent_qtd/16_q_std] = q_std @learn
 metrics.scalar.baseline.[37_agent_qtd/17_q_gap] = q_gap @learn
 metrics.scalar.baseline.[37_agent_qtd/18_q_gap_rel] = q_gap_rel @learn
 metrics.scalar.baseline.[37_agent_qtd/19_q_gap_rel_ema] = q_gap_rel @learn $ema
-metrics.scalar.baseline.[37_agent_qtd/21_grad_norm] = grad_norm @learn interval:10
-metrics.scalar.baseline.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema
-metrics.scalar.baseline.[37_agent_qtd/24_grad_clip_ratio] = grad_clip_ratio @learn interval:10
-metrics.scalar.baseline.[37_agent_qtd/25_grad_clip_ratio_ema] = grad_clip_ratio @learn interval:10 $ema
+metrics.scalar.baseline.[37_agent_qtd/21_grad_norm] = grad_norm @learn
+metrics.scalar.baseline.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn $ema
+metrics.scalar.baseline.[37_agent_qtd/24_grad_clip_ratio] = grad_clip_ratio @learn
+metrics.scalar.baseline.[37_agent_qtd/25_grad_clip_ratio_ema] = grad_clip_ratio @learn $ema
 metrics.scalar.baseline.[38_agent_loss/01_loss] = loss @learn
 metrics.scalar.baseline.[38_agent_loss/02_loss_ema] = loss @learn $ema
 
@@ -78,27 +78,27 @@ metrics.scalar.baseline.[40_agent_rs/02_clip_ratio] = $agent reward_scaler.clip_
 #metrics.scalar.baseline.[41_agent_on/03_std_mean] = $agent obs_norm.std_mean @learn
 #metrics.scalar.baseline.[41_agent_on/05_outlier_ratio] = $agent obs_norm.robust_outlier_ratio @learn
 
-#metrics.scalar.baseline.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:100
-metrics.scalar.baseline.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $runner interval:100
-#metrics.scalar.baseline.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema ema_alpha:0.001 interval:100 
-metrics.scalar.baseline.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema ema_alpha:0.001 interval:100 
-metrics.scalar.baseline.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:100
+#metrics.scalar.baseline.[90_perf/11_train_step_per_sec] = train_step_per_sec @train $runner interval:5000 $exp_step
+metrics.scalar.baseline.[90_perf/12_exp_step_per_sec] = exp_step_per_sec @train $runner interval:5000 $exp_step
+#metrics.scalar.baseline.[90_perf/21_train_step_per_sec_ema] = train_step_per_sec @train $runner $ema ema_alpha:0.001 interval:5000 $exp_step
+metrics.scalar.baseline.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $ema ema_alpha:0.0001 interval:5000 $exp_step
+metrics.scalar.baseline.[90_perf/90_elapse_hour] = elapse_hour @train $runner interval:5000 $exp_step
 
 
 # ==============================================================================
 # IQN探索P0（fullからPER健全性とthroughputだけを選抜）
 # ==============================================================================
 
-metrics.scalar.iqn_search_p0.[39_agent_per/08_evicted_unsampled_ratio_ema] = replaybuffer.per.last_evicted_never_sampled_ratio @learn $agent $exp_step $ema interval:100
-metrics.scalar.iqn_search_p0.[39_agent_per/71_priority_clip_ratio_ema] = per_prio_clip_ratio @learn $exp_step $ema interval:100
-metrics.scalar.iqn_search_p0.[39_agent_per/73_batch_priority_mean_ema] = per_batch_prio_mean @learn $exp_step $ema interval:100
-metrics.scalar.iqn_search_p0.[39_agent_per/77_priority_cv_ema] = per_prio_cv @learn $exp_step $ema interval:100
-metrics.scalar.iqn_search_p0.[39_agent_per/79_priority_ess_ratio_ema] = per_prio_ess_ratio @learn $exp_step $ema interval:100
-metrics.scalar.iqn_search_p0.[39_agent_per/81_is_ess_ratio_ema] = per_is_ess_ratio @learn $exp_step $ema interval:100
-metrics.scalar.iqn_search_p0.[39_agent_per/83_sample_initial_ratio_ema] = per_sample_initial_ratio @learn $exp_step $ema interval:100
-metrics.scalar.iqn_search_p0.[39_agent_per/85_initial_mass_ratio_ema] = replaybuffer.per.initial_mass_ratio @learn $agent $exp_step $ema interval:100
-metrics.scalar.iqn_search_p0.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $exp_step $ema ema_alpha:0.001 interval:100
-metrics.scalar.iqn_search_p0.[90_perf/90_elapse_hour] = elapse_hour @train $runner $exp_step interval:100
+metrics.scalar.iqn_search_p0.[39_agent_per/08_evicted_unsampled_ratio_ema] = replaybuffer.per.last_evicted_never_sampled_ratio @learn $agent $exp_step $ema interval:5000
+metrics.scalar.iqn_search_p0.[39_agent_per/71_priority_clip_ratio_ema] = per_prio_clip_ratio @learn $exp_step $ema interval:5000
+metrics.scalar.iqn_search_p0.[39_agent_per/73_batch_priority_mean_ema] = per_batch_prio_mean @learn $exp_step $ema interval:5000
+metrics.scalar.iqn_search_p0.[39_agent_per/77_priority_cv_ema] = per_prio_cv @learn $exp_step $ema interval:5000
+metrics.scalar.iqn_search_p0.[39_agent_per/79_priority_ess_ratio_ema] = per_prio_ess_ratio @learn $exp_step $ema interval:5000
+metrics.scalar.iqn_search_p0.[39_agent_per/81_is_ess_ratio_ema] = per_is_ess_ratio @learn $exp_step $ema interval:5000
+metrics.scalar.iqn_search_p0.[39_agent_per/83_sample_initial_ratio_ema] = per_sample_initial_ratio @learn $exp_step $ema interval:5000
+metrics.scalar.iqn_search_p0.[39_agent_per/85_initial_mass_ratio_ema] = replaybuffer.per.initial_mass_ratio @learn $agent $exp_step $ema interval:5000
+metrics.scalar.iqn_search_p0.[90_perf/22_exp_step_per_sec_ema] = exp_step_per_sec @train $runner $exp_step $ema ema_alpha:0.001 interval:5000
+metrics.scalar.iqn_search_p0.[90_perf/90_elapse_hour] = elapse_hour @train $runner $exp_step interval:5000
 
 # q_sa：  実際に選んだ行動のQ値 ($Q(s, a)$)
 # qmax_*：過去に実行した行動のQ値。リプレイバッファ内のデータ品質。

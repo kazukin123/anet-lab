@@ -125,6 +125,12 @@ TimeHistogramObserver::TimeHistogramObserver(
 {
     histogram_ = std::make_unique<anet::TimeHistogram>(
         config_.bins, config_.max_frames, config_.mode, config_.flags, config_.base_min, config_.base_max, config_.alpha);
+
+    // interval <= 0 は「無効」を表すため、そのときは gate を持たない
+    if (config_.frame_interval > 0)
+        frame_gate_.emplace(static_cast<uint64_t>(config_.frame_interval));
+    if (config_.log_interval > 0)
+        log_gate_.emplace(static_cast<uint64_t>(config_.log_interval));
 }
 
 void TimeHistogramObserver::OnLearn(const LearnEvent& event)
@@ -145,16 +151,16 @@ void TimeHistogramObserver::OnLearn(const LearnEvent& event)
 
     // フレーム更新判定
     bool is_frame_updated = false;
-    if (config_.frame_interval > 0 && step % config_.frame_interval == 0) {
+    if (frame_gate_ && frame_gate_->ShouldFire(step)) {
         histogram_->NextFrame();
         is_frame_updated = true;
     }
 
     //  ログ出力（フレーム更新があった時だけチェックする）
-    if (is_frame_updated && config_.log_interval > 0) {
+    if (is_frame_updated && log_gate_) {
         // A. ログ頻度がフレームより高い (log < frame) → 毎回出す（間引きようがないため）
-        // B. ログ頻度が低い (log >= frame) → ステップがログ間隔と合う時だけ出す
-        if (config_.log_interval <= config_.frame_interval || step % config_.log_interval == 0) {
+        // B. ログ頻度が低い (log >= frame) → ログ間隔のバケットを跨いだ時だけ出す
+        if (config_.log_interval <= config_.frame_interval || log_gate_->ShouldFire(step)) {
             ANET_PROFILE_SCOPE_NEXT(log_image);
             captured_step_ = step;
             MetricsLogger::Instance()->Log(tag_, step, *histogram_, config_.image_width, config_.image_height);
@@ -373,6 +379,10 @@ SweepedHeatMapObserver::SweepedHeatMapObserver(
         0,              // max_points（内部deque制限なし）
         config_.flags
     );
+
+    // interval <= 0 は「無効」を表すため、そのときは gate を持たない
+    if (config_.log_interval > 0)
+        log_gate_.emplace(static_cast<uint64_t>(config_.log_interval));
 }
 
 void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
@@ -383,8 +393,8 @@ void SweepedHeatMapObserver::OnLearn(const LearnEvent& event)
 
     // 実行判定
     auto step = event.counts.learn_step;
-    if (config_.log_interval <= 0) return;
-    if (step % config_.log_interval != 0) return;
+    if (!log_gate_) return;
+    if (!log_gate_->ShouldFire(step)) return;
 
     ANET_PROFILE_SCOPE(render);
     std::unique_lock<std::shared_mutex> lock(mutex_);
@@ -487,10 +497,13 @@ EpisodeEvalObserver::EpisodeEvalObserver(
     int eval_interval,
     bool use_background)
     : eval_runner_(std::move(eval_runner))
-    , eval_interval_(eval_interval)
     , use_background_(use_background)
 {
     ANET_CHECK(eval_runner_ != nullptr);
+
+    // interval <= 0 は「無効」を表すため、そのときは gate を持たない
+    if (eval_interval > 0)
+        eval_gate_.emplace(static_cast<uint64_t>(eval_interval));
 
     // バックグラウンド有効時のみスレッドプール生成
     if (use_background_) {
@@ -547,7 +560,7 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
     auto step = event.counts.GetByAxis(anet::rl::StepAxis::LEARN);
 
     // 評価エピソードを終端まで回す
-    if (eval_interval_ > 0 && step % eval_interval_ == 0) {
+    if (eval_gate_ && eval_gate_->ShouldFire(step)) {
         if (use_background_) {
             // 前回の評価がまだ終わっていなければ、ここで完了までブロックして待つ
             WaitBackgroundEval();
@@ -701,9 +714,20 @@ MetricsLogObserverBase::MetricsLogObserverBase(
     const std::string& key, anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
     int interval, bool is_ema, float ema_alpha, std::optional<float> clip)
     : TaggedObserver(tag), key_(key), step_axis_(step_axis), event_field_(event_field)
-    , interval_(interval), is_ema_(is_ema), val_ema_(ema_alpha), clip_(clip)
+    , is_ema_(is_ema), gate_(ValidateMetricsInterval(tag, interval))
+    , val_ema_(ema_alpha), clip_(clip)
 {
     ;
+}
+
+uint64_t MetricsLogObserverBase::ValidateMetricsInterval(const std::string& tag, int interval)
+{
+    if (interval < 1) {
+        ANET_SYSTEM_ERROR(
+            "MetricsLogObserverBase interval is invalid: tag=" << tag
+            << " interval=" << interval << " expected=1 or greater");
+    }
+    return static_cast<uint64_t>(interval);
 }
 
 MetricsLogTrainObserver::MetricsLogTrainObserver(const std::string& tag, const std::string& key,
@@ -973,8 +997,8 @@ void MetricsLogObserverBase::OnGenericUpdate(
             continue;
         }
 
-        // メトリクス出力間隔チェック
-        if (step % interval_ != 0) continue;
+        // メトリクス出力間隔チェック（bucket-crossing）
+        if (!gate_.ShouldFire(step)) continue;
 
         //  値が利用可能かチェック (EMA初期化前など)
         if (!final_value.has_value()) continue;
@@ -1086,6 +1110,78 @@ static constexpr const char* CONFIG_KEY_METRICS_SCALAR_SUFFIX = "]";
 
 static constexpr const char* CONFIG_KEY_METRICS_GRAPH_PREFIX = "metrics.graph.[";
 static constexpr const char* CONFIG_KEY_METRICS_GRAPH_SUFFIX = "]";
+
+namespace metrics_def_names {
+
+    /// config の `$xxx_step` token と同じ表記を返す。
+    /// anet::rl::toString(StepAxis) は "train" / "exp" を返すため、そちらとは別に持つ。
+    static std::string StepAxisToken(anet::rl::StepAxis axis)
+    {
+        switch (axis) {
+        case StepAxis::TRAIN:    return "train_step";
+        case StepAxis::EXP:      return "exp_step";
+        case StepAxis::UPDATE:   return "update_step";
+        case StepAxis::LEARN:    return "learn_step";
+        case StepAxis::EPISODE:  return "episode_step";
+        case StepAxis::SIM:      return "sim_step";
+        }
+        return "unknown";
+    }
+
+    static std::string EventToken(anet::rl::EventType event)
+    {
+        switch (event) {
+        case EventType::TRAIN:       return "train";
+        case EventType::LEARN:       return "learn";
+        case EventType::EPISODE_END: return "episode_end";
+        default:                     return "unknown";
+        }
+    }
+
+    static std::string FieldToken(const std::optional<anet::rl::EventField>& field)
+    {
+        if (!field.has_value()) return "";
+        switch (*field) {
+        case EventField::AGENT:         return "agent";
+        case EventField::ENV:           return "env";
+        case EventField::EXPERIENCE:    return "exp";
+        case EventField::UPDATE_RESULT: return "update_result";
+        case EventField::RUNNER:        return "runner";
+        case EventField::ACTION_INFO:   return "action_info";
+        default:                        return "unknown";
+        }
+    }
+
+    /// step counter を所有する Runner を返す。
+    /// EvalRunner::DoStep() は @train 系 event へ自分の step_counts_ を載せ、
+    /// @episode_end へは呼び出し元 (train runner) から渡された event_counts を載せる
+    /// (trainer.cpp の EvalRunner::DoStep / AccumulateAndNotifyEpisodeEnd を参照)。
+    /// このため同じ $eval.[name] $exp_step でも event によって座標系が変わる。
+    static std::string OwningRunner(
+        anet::rl::RunnerScope scope, anet::rl::EventType event, const std::string& eval_name)
+    {
+        if (scope == RunnerScope::EVAL && event == EventType::TRAIN) return eval_name;
+        return "train";
+    }
+}
+
+anet::json anet::rl::ScalarMetricDefsToJson(
+    const std::vector<ObserverFactory::ScalarMetricDef>& defs)
+{
+    anet::json payload = anet::json::object();
+    for (const auto& def : defs) {
+        payload[def.tag] = {
+            {"step_axis", def.step_axis},
+            {"runner", def.runner},
+            {"event", def.event},
+            {"target", def.target.empty() ? anet::json(nullptr) : anet::json(def.target)},
+            {"source_key", def.source_key},
+            {"ema_alpha", def.has_ema ? anet::json(def.ema_alpha) : anet::json(nullptr)},
+            {"interval", def.interval},
+        };
+    }
+    return payload;
+}
 
 ObserverFactory::ObserverFactory(const ConfigData& config_data)
 {
@@ -1272,6 +1368,21 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                     step_axis = StepAxis::EXP; // LearnEventやEpisodeEndEventはデフォルトでEXPステップベース
                 }
             }
+
+            // 解析側が設定から再導出しなくて済むよう、解決済み定義をそのまま控える。
+            scalar_metric_defs_.push_back(ScalarMetricDef{
+                .tag = scalar_metrics_tag,
+                .step_axis = metrics_def_names::StepAxisToken(step_axis),
+                .runner = metrics_def_names::OwningRunner(runner_scope, event, eval_name),
+                .event = metrics_def_names::EventToken(event),
+                .target = metrics_def_names::FieldToken(field_opt),
+                .source_key = key,
+                .has_ema = is_ema,
+                .ema_alpha = ema_alpha,
+                .interval = interval,
+                .scope = runner_scope,
+                .eval_name = eval_name,
+                });
 
             switch (event) {
             case EventType::TRAIN:

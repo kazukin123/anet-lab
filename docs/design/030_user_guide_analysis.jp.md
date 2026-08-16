@@ -208,60 +208,132 @@ late windowの`score_60_80`、`score_80_100`、`late_slope`は伸びや頭打ち
 
 ## 6. `inspect_run.py`でRunを検査・抽出する
 
-Metrics Viewerは人間向けの可視化画面である。shellから構造化結果を取り出したい場合、特にAIエージェントへRun分析を依頼する場合は`inspect_run.py`を使う。Run artifactを一切変更しないread-onlyのCLIである。
+Metrics Viewerは人間向けの可視化画面である。shellから構造化結果を取り出したい場合、特にAIエージェントへRun分析を依頼する場合は`inspect_run.py`を使う。Run artifactを一切変更しないread-onlyのCLIで、実行中のRunへ当てても安全である。
 
 ```powershell
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py RUN [RUN ...] [options]
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py <subcommand> [RUN ...] [options]
 ```
 
-### 6.1 Runの指定
+| subcommand | 役割 |
+|---|---|
+| `runs` | Run発見。artifact、Metricsマスタ、Metricsキャッシュの状態 |
+| `tags` | metric tagの一覧。定義（step座標系、source key）と到達step |
+| `config` | 実効設定の抽出とRun間差分 |
+| `metrics` | scalarの抽出、range集約、Run間比較 |
 
-`RUN`はRun名、または既存の相対・絶対directory pathを取る。Run名の探索範囲は`apps/runner/workspaces/*/runs/`直下だけである。同名Runが複数workspaceにある場合は候補pathを示して終了値2で止まり、どのworkspaceも暗黙選択しない。`apps/runner/runs_*`のlegacy配置はdirectory pathで明示すれば読める。
+全subcommandに`--format json|md`と`--output PATH`がある。既定はJSONで、`--output`は一時file経由でatomicに置換する。
 
-optionを付けない実行は軽量inspectionになり、Metricsマスタを開かない。artifactのpath・size・更新時刻、`config/config_data.txt`のSHA-256、Metricsマスタの選択結果、Metricsキャッシュの状態だけを返す。分析の入口としてまずこれを実行し、Run treeの再帰検索や巨大な`metrics.jsonl`の直接grepをしない。
-
-### 6.2 metricとconfigを抽出する
+### 6.1 Runを見つける
 
 ```powershell
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py run_A run_B --metric 42_env/81_double_suika_achieved_ema --window 80%:100% --window 0:5M
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py runs --workspace dm-iqn
 ```
 
-- `--metric`は完全一致のscalar tag。複数指定でき、Runごとに1 passでまとめて抽出する。
-- `--window`は`START:END`（両端inclusive、`K`/`M`/`G`suffix可）と`START%:END%`を取る。複数指定すると各windowを独立に集約する。1つのwindow内で絶対値と百分率を混ぜることはできない。
-- percentage windowはRun×step軸の最大到達stepを100%として解決する。Run長が違えば解決後の絶対範囲も違うので、結果には元の百分率表現と解決後の絶対範囲の両方が載る。ハイパラ比較の正式判断では、4.3のとおりmatchedな絶対windowも併記する。
-- step軸は`config/config_data.txt`の解決済み`metrics.scalar.[tag]`定義から復元する。軸を決められないtagへpercentage windowを適用すると、対象tagとRunを示して失敗する。
-- `--config-key`は実効configのキーまたはglobを取る。glob meta characterは`*`と`?`だけで、`[`と`]`はリテラルとして扱う。`train.eval.[eval1].run_mode`のような`[tag]`記法のキーをそのまま書ける。
-- `--diff-config`は複数Run間で値または存在有無が異なるキーだけを返す。`--config-key`と併用するとその範囲に絞られる。
+引数なしの`runs`は全workspaceのRunを列挙する。`RUN`を渡すとそのRunだけを詳しく返す。`RUN`はRun名、または既存の相対・絶対directory pathを取る。Run名の探索範囲は`apps/runner/workspaces/*/runs/`直下だけである。同名Runが複数workspaceにある場合は候補pathを示して終了値2で止まり、どのworkspaceも暗黙選択しない。`apps/runner/runs_*`のlegacy配置はdirectory pathで明示すれば読める。
 
-各Run×tag×windowについて`count`、`mean`、`population_std`、`min`/`max`、`first`/`last`、step範囲を返し、曲線形状の確認用に最大128点へ間引いた系列を添える。間引きは決定的で、cache経路とマスタ経路で同じ結果になる。
+`runs`はMetricsマスタを開かない。artifactのpath・size・更新時刻、`config/config_data.txt`のSHA-256、Metricsマスタの選択結果、Metricsキャッシュの状態と理由、`*.log`と`agent_close.anet`の一覧を返す。`agent_close.anet`の有無と更新時刻は、Runが完了したか途中で止まったかの手がかりになる。
 
-### 6.3 Run解析プロファイル
+### 6.2 何が取れるかを見る
 
-繰り返す抽出条件はJSONの[Run解析プロファイル](../../CONTEXT.md)へ切り出して`--profile`で渡す。
-
-```json
-{
-  "version": 1,
-  "name": "dropmerge-iqn-k-search",
-  "metrics": ["42_env/81_double_suika_achieved_ema"],
-  "config_keys": ["agent.*"],
-  "windows": ["0:5M", "80%:100%"]
-}
+```powershell
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py tags run_A --format md
 ```
 
-`--metric`と`--config-key`はprofileの配列末尾へ追加される。`--window`を1件でも指定するとprofileの`windows`は全置換される。profileは抽出条件だけを持ち、解釈・閾値・採否判断・Run pathは持たない。
+`tags`はtagごとに、解決済み定義（`step_axis`、`runner`、`event`、`target`、`source_key`、`ema_alpha`、`interval`）と観測範囲（`count`、`min_step`、`max_step`）を返す。`--metric`へ何を渡せるかと、各tagがどこまで到達しているかがこれで分かるので、range指定はこの結果を見てから決める。
 
-### 6.4 Metricsキャッシュとの関係
+`source_key`は`metrics.scalar.[tag]`の右辺で採用されたmetric keyである。値の意味を確認したいときは、この文字列でコードを検索する。
 
-`metrics_cache.db`は完全にcurrentなときだけread-onlyで使い、それ以外はMetricsマスタへ自動fallbackする。`--format md`または`json`の結果に判定結果と理由（`current` / `absent` / `invalid` / `partial` / `stale` / `error`）が載る。toolはキャッシュの作成・更新・修復・削除を一切行わない。
+`--no-observed`は観測範囲を取らず、宣言された定義だけを返す。Metricsキャッシュが使えないRunでもMetricsマスタを開かないため常に即座に返る。
 
-Runner実行中のRunも読める。rawは実行開始時のサイズまでを読み、未終端の末尾行を取り込まず、読み取り中にマスタが変化した場合は暫定結果として`provisional`と`source_changed_during_read`を立てる。
+### 6.3 step座標系に注意する
 
-### 6.5 出力
+`tags`の`runner`列は、そのtagのstepがどのRunnerのカウンタに載っているかを示す。**同じ`exp_step`でも`runner`が違えば別の座標系である。**
 
-既定はJSON（schema v1）で、`--format md`にするとMarkdownになる。どちらも同じresult modelから生成するので、Markdownだけに現れる分析判断はない。`--output`を付けるとstdoutの代わりにfileへ書き、一時file経由で原子的に置換する。警告と診断は常にstderrへ出るのでJSONを汚さない。
+```text
+51_eval1/13_double_suika_created_mean   runner=train   max_step 19,993,856
+51_eval1/41_noop_uqe_win_rate           runner=eval1   max_step    151,185
+```
 
-終了値は、Run未発見・曖昧性・引数やprofileの契約違反が`2`、source読み取りやquery失敗、および指定したmetric/config selectorが全Runで1件も成立しない場合が`1`、一部Runだけの欠損は`0`である。
+どちらも`config/config_data.txt`では`$eval.[eval1] ... $exp_step`と書かれているが、`@episode_end`はtrain runnerのstep、`@train $action_info`はeval runner自身のstepに載る。train側のstep範囲をeval側のtagへ当てると、エラーにならず結果が空になる。比率は学習が進むと変わるため換算もできない。
+
+`inspect_run.py`は相対的なrange（百分率、末尾相対、`common`）をこの座標系ごとに独立して解決するので、両方のtagを同じ呼び出しで指定してもそれぞれ正しい範囲になる。
+
+### 6.4 metricを抽出する
+
+```powershell
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py metrics run_A run_B --metric "42_env/*" --range -4M:
+```
+
+`--metric`は完全一致のtagかglobを取る。glob meta characterは`*`と`?`だけで、`[`と`]`はリテラルとして扱うため、`51_eval1/41_noop_uqe_win_rate`のような`[tag]`記法を含むキーもそのまま書ける。
+
+**metricは1回の呼び出しへ束ねる。** Metricsマスタの走査はRunごとに1 passで、tag数には比例しない。tagごとに呼び分けるとpassの回数だけ時間が増える。
+
+`--range`は両端を明示する指定である。両端inclusiveなので、重なるrangeでは境界の点が両方に数えられる。
+
+| 形 | 意味 |
+|---|---|
+| `10M:20M` | 絶対step。`K`/`M`/`G` suffixを取る |
+| `10%:20%` | その座標系の最大観測stepに対する百分率 |
+| `:20M` | 下端を省略（0から） |
+| `10M:` | 上端を省略（最大観測stepまで） |
+| `-4M:` | 末尾4M step |
+| `-10%:` | 末尾10パーセント（`90%:100%`と同じ） |
+
+`--range-mode common`は、同じ座標系を持つ全Runの観測範囲の交差を使う。到達stepが違うRunを同じ土俵で比べるときの標準手段で、[4.3](#43-matchedexp_step範囲で比較する)のmatched windowを自動化したものである。
+
+```text
+run_A: 0 - 20,000,000 exp_step
+run_B: 0 - 16,200,000 exp_step
+
+--range-mode common  ->  両方とも 0:16,200,000
+--range -4M:         ->  A は 16.0M:20.0M、B は 12.2M:16.2M（幅は同じ4M）
+```
+
+`common`は「同じ場所を見る」、`-4M:`は「同じ幅で今を見る」。目的が違うので使い分ける。
+
+各Run×tag×rangeについて`count`、`mean`、`population_std`、`min`/`max`、`first`/`last`、step範囲が返る。range適用前のtag全体の観測範囲も併記されるので、rangeが座標系とずれていればその場で気づける。
+
+### 6.5 Run間で比べる
+
+`metrics`はrangeごとに「行=tag、列=Run」の比較表を返す。cellの統計は既定で`mean`、`--stat last`などで切り替える。
+
+- Runが2つなら`delta`と`delta_ratio`が付く。
+- Runが3つ以上なら`mean`、`population_std`、`range`が付く。同一設定の反復Runをまとめて渡せば、ばらつき幅の物差しがその場で得られる。
+
+Markdownでは比較表と詳細表の両方が出る。曲線の形を見たいときだけ`--series`を付けると、最大128点へ間引いた`step:value`列が加わる。間引きは決定的で、Metricsキャッシュ経路とMetricsマスタ経路で同じ結果になる。
+
+### 6.6 実効設定を確認する
+
+```powershell
+.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py config run_A run_B --diff
+```
+
+`config`は`config/config_data.txt`を読む。ただしこのfileには実効値だけでなく、マージ元の定義namespace（`A.*`、`R.*`、`AS.*`、`M.*`、`metrics.scalar.baseline.*`など）と、選ばれなかったprofile（`metrics.scalar.full.*`など）が同居している。`.$`の選択行はAutoMergeで消えるため、**どのprofileが選ばれたかをこのfile単独から復元することはできない。**
+
+そこで各keyには`effective`が付く。`config/<module>.txt`に同じkeyがあれば`true`、無ければ`null`（不明）である。module dumpを出していない領域（`net.*`など）があるため、確認できないものを`false`とは言わない。`--effective-only`は`true`のkeyだけへ絞る。
+
+```text
+--config-key "*replay_batch_size*"                  9件（定義namespaceを含む）
+--config-key "*replay_batch_size*" --effective-only  1件（DefaultDQNAgent.learner.replay_batch_size）
+```
+
+`--diff`は値または存在有無がRun間で異なるkeyだけを返す。欠損は`present: false`で表し、値`null`と区別する。設定差がseedだけであることの確認や、反復Runが本当に同一設定であることの確認に使う。
+
+### 6.7 Metricsキャッシュとの関係
+
+`metrics_cache.db`は完全にcurrentなときだけread-onlyで使い、それ以外はMetricsマスタへ自動fallbackする。判定結果と理由（`current` / `absent` / `invalid` / `partial` / `stale` / `error`）は`runs`と`metrics`の結果に載る。toolはキャッシュの作成・更新・修復・削除を一切行わない。
+
+`metrics.jsonl`をgzip化した後にMetrics Viewerでそのworkspaceを開いていないRunでは、キャッシュが`stale: source_kind_changed`または`partial`のままになる。動作は正しいがMetricsマスタの全行走査が走るため、Viewerで一度開いておくと高速経路に乗る。
+
+Runner実行中のRunも読める。rawは実行開始時のサイズまでを読み、未終端の末尾行を取り込まず、読み取り中にマスタが変化した場合は`provisional`と`source_changed_during_read`を立てる。
+
+### 6.8 終了値
+
+| 値 | 意味 |
+|---|---|
+| `0` | 正常。一部Runだけのtag/key欠損は`missing`として結果に載る |
+| `1` | source読み取りやquery失敗、または指定したmetric/config selectorが全Runで1件も成立しない |
+| `2` | 引数やrangeの構文エラー、Run未発見・曖昧性、`--output`の親directory不在 |
 
 ## 7. 最小分析チェックリスト
 

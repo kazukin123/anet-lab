@@ -128,6 +128,11 @@ namespace anet::rl {
     protected:
         void CalcPerformanceMetrics();
     protected:
+        /// perf メトリクスの時間重み EMA 時定数（秒）
+        static constexpr float kPerfEmaTauSec = 10.0f;
+        /// perf メトリクスの繰り越し閾値（未満なら last_time_ を進めず次回へまとめる）
+        static constexpr int64_t kPerfMinUsec = 1000;
+    protected:
         // Learner
         std::shared_ptr<Learner> learner_ = nullptr;
 
@@ -137,12 +142,12 @@ namespace anet::rl {
         // メトリクス
         std::chrono::high_resolution_clock::time_point start_time_;
         std::chrono::high_resolution_clock::time_point last_time_;
-        step_t acc_train_steps_ = 0;
-        step_t acc_exp_steps_ = 0;
         anet::rl::step_t last_train_step_ = 0;
         anet::rl::step_t last_exp_step_ = 0;
-        float last_train_step_per_sec_ = std::numeric_limits<float>::quiet_NaN();
-        float last_exp_step_per_sec_ = std::numeric_limits<float>::quiet_NaN();
+        anet::EmaFilter<float> train_step_per_sec_ema_
+            = anet::EmaFilter<float>::TimeWeighted(kPerfEmaTauSec);
+        anet::EmaFilter<float> exp_step_per_sec_ema_
+            = anet::EmaFilter<float>::TimeWeighted(kPerfEmaTauSec);
     };
 
 

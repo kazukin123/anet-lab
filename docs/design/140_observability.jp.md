@@ -181,7 +181,7 @@ metrics.scalar.[tag] = key [$step_axis] [@event] [$target] [$runner_scope] [$ema
 | `@event` | `@train`、`@learn`、`@episode_end` | Observerを呼ぶevent。省略時は`@train` |
 | `$step_axis` | `$train_step`、`$learn_step`、`$episode_step`、`$exp_step`、`$update_step`、`$sim_step` | JSONLの`step`へ使うcounter |
 | `$target` | `$runner`、`$agent`、`$env`、`$exp`、`$update_result`、`$action_info` | 値を取得するsource |
-| `$runner_scope` | `$train`、`$eval.[name]` | eventを発生させたRunnerを限定する |
+| `$runner_scope` | `$train`、`$eval.[name]` | eventを発生させたRunnerを限定する。stepがどのRunnerのcounterに載るかも変わる |
 | `$ema` | - | Observer内でEMAを計算する |
 | `ema_alpha:A` | 0より大きく1以下のfinite値を指定する | EMAが新しい値へ寄る係数を指定する |
 | `interval:N` | 1以上の整数を指定する | eventを間引く |
@@ -189,9 +189,28 @@ metrics.scalar.[tag] = key [$step_axis] [@event] [$target] [$runner_scope] [$ema
 
 step軸を省略した場合、`@train`は`train_step`、`@learn`と`@episode_end`は`exp_step`を使う。scalar JSON recordは`type`、`tag`、`step`、`value`だけを持ち、軸名を保存しない。このため設定変更時は同じtagへ別step軸を流用しない。
 
+### 6.x step座標系
+
+`StepCounts`はRunnerごとのメンバであり、軸名はグローバルに一意な座標を指さない。**stepの同一性は「どのRunnerのcounterか」と「どの軸か」の組で決まる。** 本書ではこの組を[step座標系](../../CONTEXT.md)と呼ぶ。
+
+Eval scopeでは、載るcountsがeventによって変わる。`EvalRunner`は`@train`系eventへ自分の`step_counts_`を載せ、`@episode_end`へは呼び出し元（train runner）から渡された`event_counts`を載せる。したがって次の2つは、どちらも`$eval.[eval1]`かつ`$exp_step`と書かれていながら別座標系になる。
+
+```text
+metrics.scalar.[51_eval1/13_double_suika_created_mean] = $eval.[eval1] @episode_end $env $exp_step ...
+metrics.scalar.[51_eval1/41_noop_uqe_win_rate]         = $eval.[eval1] @train $exp_step ... $action_info
+```
+
+実測では前者の最大stepが19,993,856、後者が151,185で、比はRun中に0.000039から0.0075へ単調にドリフトする。定数倍の換算は成立しない。configには「どのRunnerのcountsか」を書くtokenが無いため、この区別は`@event`と`$runner_scope`の組からしか導けない。
+
+解析側がこの導出を再実装しないよう、Runnerは構築済みobserverの解決済み定義を`metrics.defs`として出力する（[ADR 0029](../adr/0029-analysis-metadata-emitted-by-runner.md)）。tagごとに`step_axis`、`runner`、`event`、`target`、`source_key`、`ema_alpha`、`interval`を持ち、既存の`type: "json"` recordとしてMetricsマスタへ1回だけ書く。record typeを増やさないため、Metrics Viewerのingest、SQLite schema、cache契約は影響を受けない。`runner`は「runner scopeがEVALかつeventが`train`のときだけそのeval名、それ以外は`train`」となる。
+
 `$ema`は、ゼロ初期化した内部値と観測済み重み和を同じ`ema_alpha`で更新し、内部値を重み和で正規化するバイアス補正EMAを使う。初回サンプルから欠損なく値を出力し、途中で`ema_alpha`が変わっても観測済み重み和に基づく補正を継続する。
 
 `interval:N`は出力判定であり、値取得とEMA状態更新の後に適用する。このため初回Learner priority更新のような疎な値も、`$ema interval:100`では各eventのfinite値でEMAを更新し、記録だけを100 step間隔へ抑えられる。sourceが返す`NaN`は非イベントまたは統計未成立を表し、0としてEMAへ投入しない。
+
+`interval:N`の発火判定はbucket-crossingである。`step / N`の商が前回発火時より増えたeventで1回だけ発火し、剰余が0になるstepを待たない。step軸の刻みは軸ごとに異なる（`train_step`はroundあたり+1、Observerが直参照する`learn_step`は`num_envs × replay_ratio / batch`刻み、`exp_step`は`num_envs`刻み）ため、剰余判定では実効周期が`LCM(刻み, N)`へ伸び、刻みがNを割り切らない構成では発火が丸ごと欠落する。bucket-crossingでは実効周期が`max(N, 刻み)`に丸まり、位相ジッタは1 event以内に収まる。判定は共通部品`IntervalGate`が持ち、初回eventは`step`の値によらず必ず発火する。1回の呼び出しで複数bucketを跨いだ場合も発火は1回で、catch-upはしない。詳細は[ADR 0028](../adr/0028-interval-fires-on-bucket-crossing.md)を参照する。
+
+EMA状態は`interval`と無関係に毎event更新する。`interval`を変えても`$ema`系の値は変わらず、生値の記録解像度だけが変わる。
 
 不明なevent、step軸、targetにはWARN後に既定値を使う経路があり、対応しないEval scope/fieldの組み合わせはfail-fastする。特にEval scopeは現行contractで`@episode_end`、またはEvalの`@train $action_info`に限定される。
 
@@ -201,7 +220,7 @@ IQN診断ではdevice同期をmetric keyごとに発生させない。Policy診�
 
 QR / IQNの分位tail診断も同じ同期境界を使う。Policy側5 scalarはper-action上下幅、detached full quantile alias、globalなdisagreement / crossingを共有する。最初の参照時だけ最終actionをgatherし、positive crossing深度のlane別nearest-rank p90をdevice上で選んで、全5値を1本のCPU cacheへまとめる。action生成時とcache再参照時にはpercentile sortを行わず、`WithAction()`後はcacheだけを破棄する。Learner側のsample単位upper-tail幅はPER有効時だけ既存priority readbackへ同梱し、CPU上でclip後raw priorityとのSpearman相関へ集約する。PER無効時は追加packも追加waitも作らず`NaN`を返す。tail入力はfloat32へdetachし、loss、priority、action、sampling、RNGへ接続しない。
 
-現行parserは`interval`、`ema_alpha`、`clip`を`stoi`/`stof`で変換する。`ema_alpha`は変換後に`EmaFilter`がfiniteかつ`0 < ema_alpha <= 1`を検証する。`interval`と`clip`は範囲やfinite性を検証しないため、`interval=0`や負の`clip`は指定しない。数値文字列の変換失敗は構築中の例外になる。
+現行parserは`interval`、`ema_alpha`、`clip`を`stoi`/`stof`で変換する。`ema_alpha`は変換後に`EmaFilter`がfiniteかつ`0 < ema_alpha <= 1`を検証する。`interval`はObserver構築時に1以上を検証し、0以下はfail-fastする。`clip`は範囲やfinite性を検証しないため、負の`clip`は指定しない。数値文字列の変換失敗は構築中の例外になる。
 
 ## 7. 出力とlifetime
 

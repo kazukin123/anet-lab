@@ -10,6 +10,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -575,6 +576,92 @@ TEST_CASE("ObserverFactory parses episode-end scopes and rejects unsupported com
     CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("action_uqe_margin.[0] $action_info @episode_end $train")));
     CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("eps_total_reward $exp @episode_end $train")));
     CHECK_THROWS(rl::ObserverFactory(MakeScalarConfig("eps_total_reward $update_result @episode_end $train")));
+}
+
+TEST_CASE("ObserverFactory records the resolved step coordinate space per scalar metric", "[observer_factory][metrics_defs][observers]")
+{
+    anet::ConfigData config;
+    config.Set("metrics.scalar.[eval_episode]",
+        "$eval.[eval1] @episode_end $env $exp_step mean.ep_double_suika_created");
+    config.Set("metrics.scalar.[eval_action]",
+        "$eval.[eval1] @train $exp_step action_uqe_win_rate.[0] $action_info $ema ema_alpha:0.01 interval:100");
+    config.Set("metrics.scalar.[train_plain]", "mean.ep_step $env @train");
+    config.Set("metrics.scalar.[learn_td]", "td_mean @learn");
+
+    rl::ObserverFactory factory(config);
+    auto defs = factory.GetScalarMetricDefs();
+    REQUIRE(defs.size() == 4);
+
+    std::unordered_map<std::string, rl::ObserverFactory::ScalarMetricDef> by_tag;
+    for (const auto& def : defs) by_tag.emplace(def.tag, def);
+
+    // 同じ $eval.[eval1] かつ $exp_step でも、counts を載せる Runner は @event で変わる。
+    // @episode_end は呼び出し元 (train runner) の counts、@train は eval runner 自身の counts。
+    const auto& eval_episode = by_tag.at("eval_episode");
+    CHECK(eval_episode.step_axis == "exp_step");
+    CHECK(eval_episode.runner == "train");
+    CHECK(eval_episode.event == "episode_end");
+    CHECK(eval_episode.target == "env");
+    CHECK(eval_episode.source_key == "mean.ep_double_suika_created");
+
+    const auto& eval_action = by_tag.at("eval_action");
+    CHECK(eval_action.step_axis == "exp_step");
+    CHECK(eval_action.runner == "eval1");
+    CHECK(eval_action.event == "train");
+    CHECK(eval_action.target == "action_info");
+    CHECK(eval_action.source_key == "action_uqe_win_rate.[0]");
+    CHECK(eval_action.has_ema);
+    CHECK(eval_action.ema_alpha == Catch::Approx(0.01));
+    CHECK(eval_action.interval == 100);
+
+    // step 軸を省略した場合の既定は event で決まる。
+    const auto& train_plain = by_tag.at("train_plain");
+    CHECK(train_plain.step_axis == "train_step");
+    CHECK(train_plain.runner == "train");
+    CHECK(train_plain.interval == 1);
+    CHECK_FALSE(train_plain.has_ema);
+
+    const auto& learn_td = by_tag.at("learn_td");
+    CHECK(learn_td.step_axis == "exp_step");
+    CHECK(learn_td.runner == "train");
+    CHECK(learn_td.event == "learn");
+    CHECK(learn_td.target.empty());
+}
+
+TEST_CASE("ScalarMetricDefsToJson emits the metrics.defs payload", "[observer_factory][metrics_defs][observers]")
+{
+    anet::ConfigData config;
+    config.Set("metrics.scalar.[eval_action]",
+        "$eval.[eval1] @train $exp_step action_uqe_win_rate.[0] $action_info $ema ema_alpha:0.01 interval:100");
+    config.Set("metrics.scalar.[train_plain]", "mean.ep_step $env @train");
+
+    rl::ObserverFactory factory(config);
+    auto payload = rl::ScalarMetricDefsToJson(factory.GetScalarMetricDefs());
+
+    REQUIRE(payload.is_object());
+    REQUIRE(payload.size() == 2);
+
+    const auto& eval_action = payload.at("eval_action");
+    CHECK(eval_action.at("step_axis").get<std::string>() == "exp_step");
+    CHECK(eval_action.at("runner").get<std::string>() == "eval1");
+    CHECK(eval_action.at("event").get<std::string>() == "train");
+    CHECK(eval_action.at("target").get<std::string>() == "action_info");
+    CHECK(eval_action.at("source_key").get<std::string>() == "action_uqe_win_rate.[0]");
+    CHECK(eval_action.at("ema_alpha").get<double>() == Catch::Approx(0.01));
+    CHECK(eval_action.at("interval").get<int>() == 100);
+
+    // EMA を使わない metric は ema_alpha を null にし、既定値を混ぜない。
+    const auto& train_plain = payload.at("train_plain");
+    CHECK(train_plain.at("ema_alpha").is_null());
+    CHECK(train_plain.at("interval").get<int>() == 1);
+    CHECK(train_plain.at("target").get<std::string>() == "env");
+
+    // target 未指定は null。空文字と区別する。
+    anet::ConfigData learn_config;
+    learn_config.Set("metrics.scalar.[learn_td]", "td_mean @learn");
+    rl::ObserverFactory learn_factory(learn_config);
+    auto learn_payload = rl::ScalarMetricDefsToJson(learn_factory.GetScalarMetricDefs());
+    CHECK(learn_payload.at("learn_td").at("target").is_null());
 }
 
 TEST_CASE("SweepedHeatMapObserver passes configured output_key tensor to extractor", "[probe][sweep][observers]")

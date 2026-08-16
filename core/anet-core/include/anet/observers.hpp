@@ -132,6 +132,8 @@ namespace anet::rl {
         TimeHistogramObserverConfig config_;
         std::unique_ptr<anet::TimeHistogram> histogram_;    ///< @todo ptr外し
         std::shared_ptr<VectorProbe> probe_;
+        std::optional<anet::IntervalGate> frame_gate_;      ///< frame_interval <= 0 で無効
+        std::optional<anet::IntervalGate> log_gate_;        ///< log_interval <= 0 で無効
     private:
         std::shared_mutex mutex_;
         step_t captured_step_ = 0;
@@ -207,6 +209,7 @@ namespace anet::rl {
         int grid_w_ = 0;
         int grid_h_ = 0;
         std::unique_ptr<anet::HeatMap> heatmap_;
+        std::optional<anet::IntervalGate> log_gate_;    ///< log_interval <= 0 で無効
     private:
         std::shared_mutex mutex_;
         step_t captured_step_ = 0;
@@ -229,8 +232,8 @@ namespace anet::rl {
         void WaitBackgroundEval();                                      ///< 前回のバックグラウンド評価を待ち、失敗していれば呼び出し元へ伝播
     private:
         std::shared_ptr<EvalRunner> eval_runner_;
-        const int eval_interval_;
         const bool use_background_;
+        std::optional<anet::IntervalGate> eval_gate_;   ///< eval_interval <= 0 で無効
 
         std::unique_ptr<anet::PinnedThreadPool> eval_pool_;
         std::future<void> eval_future_;
@@ -339,12 +342,15 @@ namespace anet::rl {
         MetricsDataList GetMetricsDataListFromUpdateResultList(
             const StepCounts& counts,
             const BatchUpdateResultList* update_result_list);
+
+        /// interval を検証して IntervalGate 用の値へ変換する（1 未満は ANET_SYSTEM_ERROR）
+        static uint64_t ValidateMetricsInterval(const std::string& tag, int interval);
     protected:
         std::string key_;
         anet::rl::StepAxis step_axis_;
         std::optional<anet::rl::EventField> event_field_;
         bool is_ema_;
-		int interval_;
+		anet::IntervalGate gate_;
 		anet::EmaFilter<float> val_ema_;
         std::optional<float> clip_;
     };
@@ -436,15 +442,38 @@ namespace anet::rl {
             std::string eval_name;
             std::shared_ptr<anet::rl::EpisodeEndObserver> obs;
         };
+
+        /// scalar metric 1 件の解決済み定義。
+        /// 設定の書き方ではなく、実際に構築した Observer の内容を表す。
+        /// 解析側はこれを正本として読み、設定から step 座標系を再導出しない (ADR 0029)。
+        struct ScalarMetricDef {
+            std::string tag;
+            std::string step_axis;      ///< train_step / exp_step など、config token と同じ表記
+            std::string runner;         ///< step counter を所有する Runner。train または eval 名
+            std::string event;          ///< train / learn / episode_end
+            std::string target;         ///< agent / env / exp / update_result / runner / action_info。未指定は空
+            std::string source_key;     ///< metric key として採用した token
+            bool has_ema = false;
+            float ema_alpha = 0.0f;
+            int interval = 1;
+            RunnerScope scope = RunnerScope::TRAIN;
+            std::string eval_name;
+        };
     public:
         ObserverFactory(const ConfigData& config_data);
 
         std::vector<ParsedTrainObserver> GetUpdateObservers() { return train_observers_; }
         std::vector<ParsedLearnObserver> GetLearnObservers() { return learn_observers_; }
         std::vector<ParsedEpisodeEndObserver> GetEpisodeEndObservers() { return episode_end_observers_; }
+        const std::vector<ScalarMetricDef>& GetScalarMetricDefs() const { return scalar_metric_defs_; }
     private:
         std::vector<ParsedTrainObserver> train_observers_;
         std::vector<ParsedLearnObserver> learn_observers_;
         std::vector<ParsedEpisodeEndObserver> episode_end_observers_;
+        std::vector<ScalarMetricDef> scalar_metric_defs_;
     };
+
+    /// scalar metric の解決済み定義を `metrics.defs` レコードの data 部へ変換する。
+    /// tag をキーにした object を返し、未設定の target と EMA は null にする。
+    anet::json ScalarMetricDefsToJson(const std::vector<ObserverFactory::ScalarMetricDef>& defs);
 }

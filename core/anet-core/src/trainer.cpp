@@ -382,8 +382,16 @@ std::optional<float> TrainRunner::GetScalar(const std::string& key, int64_t inde
         }
     }
 
-    if (key == TRAIN_STEP_PER_SEC) return last_train_step_per_sec_;
-    if (key == EXP_STEP_PER_SEC) return last_exp_step_per_sec_;
+    if (key == TRAIN_STEP_PER_SEC) {
+        return train_step_per_sec_ema_.IsInitialized()
+            ? train_step_per_sec_ema_.Value()
+            : std::numeric_limits<float>::quiet_NaN();
+    }
+    if (key == EXP_STEP_PER_SEC) {
+        return exp_step_per_sec_ema_.IsInitialized()
+            ? exp_step_per_sec_ema_.Value()
+            : std::numeric_limits<float>::quiet_NaN();
+    }
 
     if (key == ELAPSE_HOUR) {
         std::chrono::high_resolution_clock::time_point now = std::chrono::high_resolution_clock::now();
@@ -410,18 +418,18 @@ void TrainRunner::CalcPerformanceMetrics()
     auto exp_step_delta = exp_step - last_exp_step_;
     auto now = std::chrono::high_resolution_clock::now();
     auto usec_diff = std::chrono::duration_cast<std::chrono::microseconds>(now - last_time_).count();
-    if (usec_diff <= 0) usec_diff = 1;
 
-    if (usec_diff >= 200000) { // 200msec 積算
-        last_train_step_per_sec_ = static_cast<float>(train_step_delta) * 1000000.0f / usec_diff;
-        last_exp_step_per_sec_ = static_cast<float>(exp_step_delta) * 1000000.0f / usec_diff;
-        acc_train_steps_ = 0;
-        acc_exp_steps_ = 0;
-        last_time_ = now;
-        last_train_step_ = train_step;
-        last_exp_step_ = exp_step;
-    }
+    // 閾値未満は last_time_ を進めず次回へ繰り越す（時間を捨てない）
+    if (usec_diff < kPerfMinUsec) return;
 
+    // 窓の長さで重み付けするため、レートと経過時間を組で EMA へ渡す
+    const float dt = static_cast<float>(usec_diff) / 1000000.0f;
+    train_step_per_sec_ema_.Update(static_cast<float>(train_step_delta) / dt, dt);
+    exp_step_per_sec_ema_.Update(static_cast<float>(exp_step_delta) / dt, dt);
+
+    last_time_ = now;
+    last_train_step_ = train_step;
+    last_exp_step_ = exp_step;
 }
 
 
@@ -963,6 +971,20 @@ RunManager::RunManager(const ConfigData& config_data)
         if (runner == nullptr) continue;
         auto scoped_obs = std::make_shared<RunnerScopedEpisodeEndObserver>(p.obs, runner);
         notifier_->Attach(scoped_obs);
+    }
+
+    // 実際に attach した scalar metric の解決済み定義を 1 レコードだけ残す。
+    // 解析側が config から step 座標系や source key を再導出しないための正本 (ADR 0029)。
+    // 既存の type="json" record を使うため、Metrics Viewer の取り込みと cache 契約は変わらない。
+    std::vector<anet::rl::ObserverFactory::ScalarMetricDef> attached_defs;
+    for (const auto& def : factory.GetScalarMetricDefs()) {
+        // dormant な eval tag は observer を attach していないので定義も残さない。
+        if (resolve_runner(def.scope, def.eval_name) == nullptr) continue;
+        attached_defs.push_back(def);
+    }
+    anet::json metric_defs = anet::rl::ScalarMetricDefsToJson(attached_defs);
+    if (!metric_defs.empty()) {
+        anet::MetricsLogger::Instance()->Log("metrics.defs", metric_defs);
     }
 
     // 成功！
