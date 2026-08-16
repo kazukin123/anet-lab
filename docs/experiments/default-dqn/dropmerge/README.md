@@ -11,7 +11,7 @@ DropMerge の DefaultDQNAgent 系 Run に関する探索索引です。
 
 ## 現時点の判断
 
-最終更新: 2026-08-13
+最終更新: 2026-08-16
 
 | 設定・探索 | 現在の扱い | 根拠の概要 |
 |---|---|---|
@@ -23,7 +23,7 @@ DropMerge の DefaultDQNAgent 系 Run に関する探索索引です。
 | `per_alpha=0.1` | 採用見送り | 単一分岐では明確な改善がなく、NEET 増加の懸念もあった。確度は低い |
 | IQN 32/32 random | B256/RR1の100M基準Run完了。長期主力への採用は保留 | 同一B256/RR1のQR51に対し、90–100MのEval target rewardが約8%、Policy rewardが約13%低い。Q/TD/lossは安定し正常close |
 | IQN tau sampling | `stratified`採用、`antithetic`は代替候補 | 両方式とも2-seedでrandom改善を再現し、seed 2の50Mでも同率。全stratum被覆と2-seed Targetからstratifiedを標準化。systematic / fixedは棄却 |
-| IQN tau本数 | 次はtarget `M=8/16/32/64` | K=N=32とstratifiedを固定。M32 control、M16高速化、M64高精度化、M8下限確認の順で同じ終了stepまで流し、勝者だけ50Mへ進める |
+| IQN tau本数 | target `M=32`、Policy `K=32`を暫定維持。次はcurrent N | M探索では変更利得なし。K8は2-seedで20M首位を再現し50Mまで安定したが、K32比の速度利得がなくPolicy marginも低い。K8/K32長期matched A/Bは保留 |
 | batch sizeの段階的引き上げ | 将来候補。現時点では未採用 | 今回lineageは結果的にB128→B256→B512となったが、普遍的優位は未検証。ProfiledValue化にはRRとの一体切替とreplay / prefetch境界の診断が必要 |
 
 運用上は、B128/RR1.25をscratch安定参照、B256/RR1を100M級探索の高速基準、B512/RR2を成熟checkpointの最終成績優先ラインとして使い分ける。
