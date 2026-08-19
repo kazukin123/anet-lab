@@ -148,6 +148,14 @@ class_id は `AtariEnv`。`AtariEnv : public SingleDiscreteEnvBase, public anet:
 - `AtariEnv.classic`: sticky 0.0 / noop_max 30 / episodic_life true / fire_reset true
 - `AtariEnv.100k`: sticky 0.0 / noop_max 30 / episodic_life true / fire_reset false（Atari-100k ベンチ。予算 100k steps = 400k frames は Run 設定側で指定。100k の共通不変は sticky なし+400k frames のみで、torch 系多数派＝SPR/EfficientZero の条件に合わせた。Dopamine 系＝DrQ(ε)/DER(ε)/BBF は noop 0・episodic_life false と分裂しているため、比較先の実装系統を必ず確認する）
 
+標準準拠ノート（2026-08-18 に SB3 `atari_wrappers.py` / Gymnasium `AtariPreprocessing` / ale-py v5 登録 / rlpyt と突き合わせて監査済み）:
+
+- 標準実装は 2 系統ある。**baselines 系**（OpenAI Baselines 2017 → SB3 → CleanRL、および rlpyt＝SPR/EfficientZero の土台。episodic_life=true で運用）と **Dopamine 系**（Dopamine → Gymnasium `AtariPreprocessing` → dqn_zoo。terminal_on_life_loss=False で運用）。本 env は wrapper 挙動（noop の乱数範囲と適用位置、FIRE 系列、max-pool 対象、sign clip、grayscale=ALE 直、INTER_AREA、episodic_life 判定）をこの 2 系統と一致させてある。系統間で割れる箇所は「その分岐を実際に使う側」に合わせる（例: episodic_life の `lives > 0` ガードは baselines 系に一致。§4.5）。
+- **v5 は Machado et al. 2018 勧告と 1 点だけ乖離している**: Machado は full action set（18 行動）を勧告するが、ale-py v5 の既定は `full_action_space=False`（minimal）。本 env の v5 プリセットは ale-py 側（false）に合わせる。
+- **「v5 で noop 0」は系統依存**: ale-py v5 の raw env に noop start は無く（Dopamine/Machado 系）、一方 Gymnasium `AtariPreprocessing` wrapper の既定は `noop_max=30`。v5 世代の事例でも「+ Gymnasium 標準前処理」の構成は noop 30 で走っているため、比較先の wrapper 構成を確認する。
+- classic の `max_episode_frames=108000` は歴史的 v4（gym 登録の TimeLimit=100,000 フレーム）と 8% 違う。SB3 `AtariWrapper` 自体は上限を持たないため、v5 と揃えた 108,000 を採用している。
+- 標準側の既知の癖 2 件は追随しない: skip 窓途中終端時の max-pool（標準はゼロ/古フレームと max する。本 env は実行フレームのみで、done 直後の 1 観測しか差が出ない）、soft-reset 中の報酬（SB3 は完全に破棄。本 env は `game_score` へ加算し、生スコアとしてはこちらが正確）。
+
 config 契約ノート:
 
 - `screen_size` が正方形単一値なのは標準前処理（84×84）への準拠であり、技術的制約ではない。210×160→84×84 はアスペクト比を意図的に破壊するのが慣行（維持しようとする letterbox 等はかえって非標準）。長方形が必要になった場合は `screen_height`/`screen_width` への分割を env 内に閉じた互換変更として行う。
@@ -181,10 +189,30 @@ Step(action_index):
 
 ### 4.5 報酬と終端
 
-- `reward_clip=true`（既定）のとき Step の reward は `sign(reward_raw)`（学習報酬）。生スコアは env 内部で累積し、実 game over / truncation で `episode_score` として確定する（生スコア／学習報酬の区別は `CONTEXT.md`）。
+- `reward_clip=true`（既定）のとき Step の reward は `sign(reward_raw)`（学習報酬）。生スコアは env 内部で累積し、実 game over / truncation で `game_score` として確定する（生スコア／学習報酬の区別は `CONTEXT.md`）。キー名が `episode_` ではなく `game_` なのは、`episodic_life=true` のとき RL のエピソード境界（life 単位）と確定境界（ゲーム 1 回）が一致しないため。
 - `done = ale.game_over(false)`（ALE 側 truncation は無効化済みなので純粋な terminal）。real game overだけが skip 窓の早期終了理由になる。
 - `truncated` = `ale.getEpisodeFrameNumber()` が `max_episode_frames` に到達（done 優先）。自前 frame counter は持たず、Reset中のNOOP/FIREもALE frameへ含める。
-- `episodic_life=true` の場合: skip 窓完走後に lives を1回だけ比較し、ライフ減少なら done=true を返す。life loss後の残り反復と報酬も同じStepに含める。直後の `Reset()` は実 game over でなければ **soft-reset**（`ale.reset_game()` せず NOOP 1 フレームで観測のみ更新。episode_score・ALE episode frameは継続）。auto-reset wrapper（done||truncated → Reset）の契約とこの soft-reset で「学習上の episode = life 単位、メトリクス上の episode = 実ゲーム単位」を両立する。`episode_score` / `episode_len` の確定は実 game over / truncation 時のみ。
+- `episodic_life=true` の場合: skip 窓完走後に lives を1回だけ比較し、**ライフ減少かつ残 lives > 0** なら done=true を返す。`lives > 0` ガードは baselines 由来（SB3 / CleanRL / rlpyt と同一の条件式）。Qbert 系は game over の数フレーム前から lives=0 を報告するため、ガードが無いと実終端の直前に偽の life-loss done が 1 回出る（Gymnasium `AtariPreprocessing` はガード無しだが、あちらは `terminal_on_life_loss=False` 既定で分岐が実質使われない。episodic_life を実際に true で運用する系統は全てガード有り）。life loss後の残り反復と報酬も同じStepに含める。直後の `Reset()` は実 game over でなければ **soft-reset**（`ale.reset_game()` せず NOOP 1 フレームで観測のみ更新。game_score・ALE episode frameは継続）。**`fire_reset=true` のときは続けて FIRE 系列（§4.5.1）を打つ**（計 3 フレーム。報酬は game_score へ加算）。Breakout 系はライフ喪失でボールが消え FIRE を押すまで再投入されないため、これが無いとエージェントが自力で FIRE を選ぶまで無報酬 step が流れる。標準の wrapper 構成が `FireResetEnv` を `EpisodicLifeEnv` の外側に置き life-loss 後の reset でも FIRE を入れるのに合わせた契約。`noop_max` は soft-reset では打たない（`NoopResetEnv` 相当は実 reset のみに効く）。auto-reset wrapper（done||truncated → Reset）の契約とこの soft-reset で「学習上の episode = life 単位、メトリクス上の単位 = 実ゲーム 1 回」を両立する。`game_score` / `game_len` / `game_frames` の確定は実 game over / truncation 時のみ。この結果、`episodic_life=true` では eval の記録周期がライフ数倍に伸びる（値は正しく、周期だけが変わる）。
+
+#### 4.5.1 FIRE 系列（`fire_reset`）
+
+`fire_reset=true` のとき、Reset で次の 2 アクションを順に打つ。stable-baselines3 の `FireResetEnv`（`step(1)` の後に `step(2)`）と同じ手順である。
+
+1. `PLAYER_A_FIRE`
+2. **action set の 3 番目**（index 2）
+
+いずれも実行後に game over していれば `reset_game()` する。2 番目を打つのは FIRE 単独では開始しないゲームへの手当てで、**意味は問わず index で指定する**（Breakout では RIGHT、Seaquest では UP に当たる）。
+
+適用条件は本家の `assert` に対応する 2 つ:
+
+- action set が 3 要素以上
+- action set の index 1 が `PLAYER_A_FIRE`
+
+ALE の action set は `Action` enum 順（NOOP=0, FIRE=1, UP=2, RIGHT=3, ...）に並ぶため、FIRE を含むゲームでは index 1 が必ず FIRE になる。条件を満たさないゲーム（Freeway のように FIRE を持たない minimal action set）では**何も打たない**。本家が `if "FIRE" in get_action_meanings()` で wrapper 自体を適用しないのと同じ安全弁である。
+
+**`full_action_space=true` では安全弁が効かない**。18 アクション固定になり全ゲームで FIRE が action set に入るため、本来 FIRE を使わないゲームでも Reset 時に FIRE 系列が打たれる。`full_action_space` と `fire_reset` を同時に有効化する場合はこの副作用を理解した上で行う。
+
+呼び出し箇所は hard-reset（`ApplyResetActions()` の末尾、`noop_max` 抽選の後）と soft-reset（§4.5）の 2 つ。報酬の扱いは異なり、hard-reset は直後に `game_score` を 0 にするため破棄、soft-reset は継続中のゲームなので `game_score` へ加算する。
 
 ### 4.6 seed と再現性
 
@@ -196,13 +224,41 @@ Step(action_index):
 
 | API | キー | 確定タイミング | 値 |
 |---|---|---|---|
-| GetScalar | `episode_score` | 実 game over / truncation | 生スコアの episode 合計（未確定 step は NaN） |
-| GetScalar | `episode_len` | 同上 | agent step 数 |
-| GetScalar | `episode_frames` | 同上 | エミュレータフレーム数 |
+| GetScalar | `game_score` | 実 game over / truncation | 生スコアのゲーム 1 回分の合計（未確定 step は NaN） |
+| GetScalar | `game_len` | 同上 | agent step 数 |
+| GetScalar | `game_frames` | 同上 | エミュレータフレーム数 |
+| GetScalar | `hns57` | 同上 | 人間正規化スコア %（57 ゲーム表。§4.8） |
+| GetScalar | `hns49` | 同上 | 人間正規化スコア %（49 ゲーム表。§4.8） |
 | GetScalar | `lives` | 常時 | 現在ライフ |
 | GetTensor | `rgb_frame` | 常時（`retain_rgb_frame=true` 時） | 直近 Step の RGB 画面 uint8 `[3, 210, 160]`（CHW） |
 
 バッチ集約（`mean.` 等の prefix）と NaN 慣行は wrapper の共通規約に従う。`GetConfigData()` は実効 config を返す（Run の `config/env.*.txt` ダンプ対象）。
+
+### 4.8 人間正規化スコア（HNS）
+
+生スコアを「人間プレイヤー比」へ正規化した指標。単一ゲームでも到達度が直感的に読め（100 = 人間）、複数ゲームの集計にも使える。式は参照実装（DeepMind `dqn_zoo`、Dopamine、IQN、Agent57）と同一で、**分母は絶対値化しない**:
+
+```
+hns = 100 * (game_score - random) / (human - random)
+```
+
+**基準表を 2 系統持ち、両方を常に出す。** 同じゲームでも値が実質的に異なり、取り違えると文献比較が狂うため:
+
+| キー | 表 | 出典 | ゲーム数 |
+|---|---|---|---|
+| `hns57` | 57 ゲーム表 | Wang et al. 2016（Dueling）系。DeepMind `dqn_zoo/atari_data.py` の `_ATARI_DATA` と同一値 | 57 |
+| `hns49` | 49 ゲーム表 | Mnih et al. 2015（Nature）Extended Data Table 2 | 49 |
+
+差の実例: Pong の human は 57 表 14.6 / 49 表 9.3。同じ生スコア +7 でも HNS は 78.5% 対 92.3% になる。Breakout は 30.5 / 31.8。Rainbow・IQN・Agent57・BBF はすべて 57 表を使うため、現代論文との比較には `hns57` を用いる。`hns49` は Nature DQN の数字（Breakout 401.2 = 1327.2%）と並べるときに使う。
+
+契約:
+
+- 確定タイミングは `game_score` と同じ（実 game over / truncation のみ。未確定は NaN）
+- **基準表に載らないゲームは NaN**（`std::nullopt` ではない）。`nullopt` は `DiscreteBatchEnvBase` の集約でバッチ全体を打ち切ってしまうため。ALE は 104 ゲームを持つのに対し標準表は 57 / 49 しか覆わず、57 表のみに載る 8 ゲーム（berzerk / defender / phoenix / pitfall / skiing / solaris / surround / yars_revenge）は `hns49` が NaN になる
+- 対象は生スコア。reward clip 後の学習報酬ではない
+- 49 表の値は Extended Data Table 2 の "Normalized DQN (% Human)" 列で検算済み（`AtariEnv_test.cpp` の `[atari][hns]`）
+
+CHNS（capped HNS、Agent57）と human gap（IQN Table 1、`gap = min(max(1 - HNS, 0), 1)`）は env からは出さない。両者は `gap = 1 - CHNS` の恒等関係にあり、単一ゲームの時系列では値が飽和して動かない（Breakout は常に 100% / 0）。キャップの意義は複数ゲーム集計での外れ値抑制にあるため、HNS からの導出として後処理側で扱う。
 
 ## 5. AtariView
 
@@ -213,7 +269,7 @@ Step(action_index):
 - **主表示: 生 RGB 画面**（210×160、`env->GetTensor("rgb_frame", 0)`）。人間の観戦とデバッグの主対象。
 - **副表示: 前処理後 obs**（S×S グレー、TrainEvent の step_result から lane 0 の grid を取得）。「エージェントが見ているもの」の確認用で、resize / max-pool の不具合を生画面との見比べで検出できる。
 - 両者を並置し、整数倍拡大（ドット絵の視認性優先）で描画する。
-- **オーバーレイ（テキスト行）**: episode_score（生・累積中の暫定値）/ lives / episode 内 step・frame / 直前 action 名（value_label）/ 直前 reward（clip 後）。
+- **オーバーレイ（テキスト行）**: game_score（生・累積中の暫定値）/ lives / ゲーム内 step・frame / 直前 action 名（value_label）/ 直前 reward（clip 後）。
 
 ### 5.2 データ経路と制約
 

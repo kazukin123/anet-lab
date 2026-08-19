@@ -16,10 +16,10 @@ namespace anet::rl::env {
     struct AtariViewData {
         torch::Tensor rgb_hwc;
         torch::Tensor grid_hwc;
-        float episode_score = 0.0f;
+        float game_score = 0.0f;
         int64_t lives = 0;
-        int64_t episode_len = 0;
-        int64_t episode_frames = 0;
+        int64_t game_len = 0;
+        int64_t game_frames = 0;
         std::string action_name = "-";
         float reward = 0.0f;
     };

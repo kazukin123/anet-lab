@@ -176,8 +176,12 @@ Atariゲームのモード×難易度の組合せ（`setMode`/`setDifficulty`、
 _Avoid_: game variant, ステージ
 
 **生スコア**:
-reward clip適用前の環境スコア。AtariEnvでは`episode_score`（GetScalar、実game over/truncationで確定）が持ち、事例比較に使うのは常にこちら。`Step()`が返すreward（`reward_clip=true`ならsign化済みの学習報酬）とは別物。
-_Avoid_: reward（学習報酬と曖昧）, episode reward（どちらを指すか不明）
+reward clip適用前の環境スコア。AtariEnvでは`game_score`（GetScalar、実game over/truncationで確定）が持ち、事例比較に使うのは常にこちら。`Step()`が返すreward（`reward_clip=true`ならsign化済みの学習報酬）とは別物。集計単位はRLのエピソードではなくゲーム1回であり、`episodic_life=true`では両者が一致しない。
+_Avoid_: reward（学習報酬と曖昧）, episode reward（どちらを指すか不明）, episode_score（旧キー名。エピソード単位と誤読させる）
+
+**人間正規化スコア**（HNS）:
+生スコアを`100 * (score - random) / (human - random)`で人間プレイヤー基準へ写した値（100=人間、%表記）。基準表は57ゲーム系（Wang 2016系、現代論文が使う）と49ゲーム系（Mnih 2015）の2系統があり、同じゲームでも値が異なる（Pongのhumanは14.6対9.3）ため、どちらの表で正規化したかを常に添える。分母は絶対値化しない。
+_Avoid_: 正規化スコア（何基準か不明）, CHNS（クリップ版は別概念）, 人間比（口語）
 
 **プロトコルプリセット**:
 sticky actions・NoOp reset・episodic life・fire reset等の評価条件の組（`AtariEnv.v5` / `AtariEnv.classic` / `AtariEnv.100k`）。スコアはプリセット間で直接比較不可であり、比較先の事例がどの条件かを常に確認する。env idのバージョン（Gymnasiumのv0/v4/v5）はこのプリセットの命名由来だが、anet-labでは条件セット名として扱う。

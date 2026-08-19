@@ -198,6 +198,72 @@ TEST_CASE("AtariEnv does not fall back from an invalid explicit ROM directory", 
             && Catch::Matchers::ContainsSubstring("Set AtariEnv.rom_dir or ATARI_ROM_DIR"));
 }
 
+TEST_CASE("HumanNormalizedScore reproduces the Nature 2015 normalized DQN column", "[atari][hns]")
+{
+    using anet::rl::env::HnsBaseline;
+    using anet::rl::env::HumanNormalizedScore;
+
+    // Mnih et al. 2015 Extended Data Table 2 の DQN スコアを入れると、
+    // 同表の "Normalized DQN (% Human)" 列が再現される。転記の検算。
+    // 表の掲載値は小数第 1 位までの丸めなので margin を置く。
+    struct Case { const char* game; float dqn; float expected; };
+    const std::vector<Case> cases{
+        { "breakout",          401.2f,  1327.2f },
+        { "pong",               18.9f,   132.0f },
+        { "boxing",             71.8f,  1707.9f },
+        { "video_pinball",   42684.0f,  2539.4f },
+        { "robotank",           51.6f,   509.0f },
+        { "montezuma_revenge",   0.0f,     0.0f },
+        { "venture",           380.0f,    32.0f },
+        { "asteroids",        1629.0f,     7.3f },
+        { "gravitar",          306.7f,     5.3f },
+        { "double_dunk",       -18.1f,    17.1f },
+    };
+    for (const auto& c : cases) {
+        const auto hns = HumanNormalizedScore(c.game, c.dqn, HnsBaseline::Nature49);
+        REQUIRE(hns.has_value());
+        INFO("game=" << c.game);
+        CHECK(*hns == Catch::Approx(c.expected).margin(1.0));
+    }
+}
+
+TEST_CASE("HumanNormalizedScore uses distinct baselines for the 57 and 49 game tables", "[atari][hns]")
+{
+    using anet::rl::env::HnsBaseline;
+    using anet::rl::env::HumanNormalizedScore;
+
+    // Pong の human は 57 表 14.6 / 49 表 9.3 で、同じ生スコアでも HNS が大きく違う。
+    const auto pong57 = HumanNormalizedScore("pong", 7.0f, HnsBaseline::Dqn57);
+    const auto pong49 = HumanNormalizedScore("pong", 7.0f, HnsBaseline::Nature49);
+    REQUIRE(pong57.has_value());
+    REQUIRE(pong49.has_value());
+    CHECK(*pong57 == Catch::Approx(78.5f).margin(0.5));
+    CHECK(*pong49 == Catch::Approx(92.3f).margin(0.5));
+
+    // Breakout の human は 30.5 / 31.8。
+    const auto breakout57 = HumanNormalizedScore("breakout", 119.0f, HnsBaseline::Dqn57);
+    REQUIRE(breakout57.has_value());
+    CHECK(*breakout57 == Catch::Approx(407.3f).margin(0.5));
+}
+
+TEST_CASE("HumanNormalizedScore reports missing games instead of guessing", "[atari][hns]")
+{
+    using anet::rl::env::HnsBaseline;
+    using anet::rl::env::HumanNormalizedScore;
+
+    // ALE には 104 ゲームあるが、標準表は 57 / 49 しか covers しない。
+    CHECK_FALSE(HumanNormalizedScore("casino", 100.0f, HnsBaseline::Dqn57).has_value());
+    CHECK_FALSE(HumanNormalizedScore("casino", 100.0f, HnsBaseline::Nature49).has_value());
+
+    // 57 表のみに載る 8 ゲームは、49 表では未登録になる。
+    for (const char* game : { "berzerk", "defender", "phoenix", "pitfall",
+                              "skiing", "solaris", "surround", "yars_revenge" }) {
+        INFO("game=" << game);
+        CHECK(HumanNormalizedScore(game, 0.0f, HnsBaseline::Dqn57).has_value());
+        CHECK_FALSE(HumanNormalizedScore(game, 0.0f, HnsBaseline::Nature49).has_value());
+    }
+}
+
 TEST_CASE("PixelwiseMax returns the maximum value for every pixel", "[atari][preprocess]")
 {
     const std::vector<uint8_t> first{ 0, 200, 30, 255 };
@@ -311,13 +377,13 @@ TEST_CASE("AtariEnv exposes Pong spec and reset observation through the public E
     const auto step = env->Step(0);
     CHECK(spec.state_spec.ValidateObservation(step->next_state.obs, false));
     const auto aux = step->GetAuxData();
-    REQUIRE(aux.contains("episode_score"));
-    REQUIRE(aux.contains("episode_len"));
-    REQUIRE(aux.contains("episode_frames"));
+    REQUIRE(aux.contains("game_score"));
+    REQUIRE(aux.contains("game_len"));
+    REQUIRE(aux.contains("game_frames"));
     REQUIRE(aux.contains("lives"));
-    CHECK(aux.at("episode_score").dtype() == torch::kFloat32);
-    CHECK(aux.at("episode_len").dtype() == torch::kInt64);
-    CHECK(aux.at("episode_frames").dtype() == torch::kInt64);
+    CHECK(aux.at("game_score").dtype() == torch::kFloat32);
+    CHECK(aux.at("game_len").dtype() == torch::kInt64);
+    CHECK(aux.at("game_frames").dtype() == torch::kInt64);
     CHECK(aux.at("lives").dtype() == torch::kInt64);
     CHECK(env->GetScalar("lives").has_value());
 }
@@ -515,16 +581,16 @@ TEST_CASE("AtariEnv reports an ALE-frame limit as truncation with completion met
 
     CHECK_FALSE(step->next_state.done);
     CHECK(step->next_state.truncated);
-    REQUIRE(env->GetScalar("episode_frames").has_value());
-    CHECK(*env->GetScalar("episode_frames") >= 1.0f);
-    CHECK(std::isfinite(*env->GetScalar("episode_score")));
-    CHECK(*env->GetScalar("episode_len") == 2.0f);
+    REQUIRE(env->GetScalar("game_frames").has_value());
+    CHECK(*env->GetScalar("game_frames") >= 1.0f);
+    CHECK(std::isfinite(*env->GetScalar("game_score")));
+    CHECK(*env->GetScalar("game_len") == 2.0f);
 
     env->Reset();
-    CHECK(std::isfinite(*env->GetScalar("episode_score")));
+    CHECK(std::isfinite(*env->GetScalar("game_score")));
     const auto next_episode_step = env->Step(0);
     CHECK_FALSE(next_episode_step->next_state.truncated);
-    CHECK(std::isnan(*env->GetScalar("episode_score")));
+    CHECK(std::isnan(*env->GetScalar("game_score")));
 }
 
 TEST_CASE("AtariEnv clips only the returned reward and keeps raw episode score", "[atari][rom][reward][terminal]")
@@ -565,19 +631,19 @@ TEST_CASE("AtariEnv clips only the returned reward and keeps raw episode score",
     CHECK_FALSE(raw_step->next_state.truncated);
     REQUIRE(std::abs(raw_step->reward) > 1.0f);
     CHECK(clipped_step->reward == std::copysign(1.0f, raw_step->reward));
-    CHECK(AuxFloat(clipped_step, "episode_score") == Catch::Approx(raw_step->reward));
-    CHECK(AuxFloat(raw_step, "episode_score") == Catch::Approx(raw_step->reward));
-    CHECK(*clipped->GetScalar("episode_score") == Catch::Approx(raw_step->reward));
-    CHECK(*raw->GetScalar("episode_score") == Catch::Approx(raw_step->reward));
+    CHECK(AuxFloat(clipped_step, "game_score") == Catch::Approx(raw_step->reward));
+    CHECK(AuxFloat(raw_step, "game_score") == Catch::Approx(raw_step->reward));
+    CHECK(*clipped->GetScalar("game_score") == Catch::Approx(raw_step->reward));
+    CHECK(*raw->GetScalar("game_score") == Catch::Approx(raw_step->reward));
 
     // real game overでskip窓を中断し、ALEが実際に進めたframe数を完了値として返す。
-    const auto clipped_aux_frames = AuxInt64(clipped_step, "episode_frames");
-    const auto raw_aux_frames = AuxInt64(raw_step, "episode_frames");
+    const auto clipped_aux_frames = AuxInt64(clipped_step, "game_frames");
+    const auto raw_aux_frames = AuxInt64(raw_step, "game_frames");
     REQUIRE(clipped_aux_frames > 0);
     CHECK(clipped_aux_frames < kFrameSkip);
     CHECK(raw_aux_frames == clipped_aux_frames);
-    const auto clipped_scalar_frames = clipped->GetScalar("episode_frames");
-    const auto raw_scalar_frames = raw->GetScalar("episode_frames");
+    const auto clipped_scalar_frames = clipped->GetScalar("game_frames");
+    const auto raw_scalar_frames = raw->GetScalar("game_frames");
     REQUIRE(clipped_scalar_frames.has_value());
     REQUIRE(raw_scalar_frames.has_value());
     CHECK(*clipped_scalar_frames == static_cast<float>(clipped_aux_frames));
@@ -688,25 +754,26 @@ TEST_CASE("AtariEnv evaluates episodic life only after the full skip window", "[
 
         REQUIRE(reference_step);
         CHECK(skipped_step->reward == reference_reward);
-        CHECK(AuxInt64(skipped_step, "episode_frames") == AuxInt64(reference_step, "episode_frames"));
+        CHECK(AuxInt64(skipped_step, "game_frames") == AuxInt64(reference_step, "game_frames"));
 
         const auto after_lives = *reference->GetScalar("lives");
         if (!reference_step->next_state.done && after_lives < before_lives) {
             observed_life_loss = true;
             CHECK(skipped_step->next_state.done);
             CHECK_FALSE(skipped_step->next_state.truncated);
-            const auto life_loss_frame = AuxInt64(skipped_step, "episode_frames");
-            const auto life_loss_score = AuxFloat(skipped_step, "episode_score");
-            CHECK(life_loss_frame % 4 == 1); // FIRE reset 1 frame + 完走したskip窓
-            CHECK(std::isnan(*skipped->GetScalar("episode_score")));
+            const auto life_loss_frame = AuxInt64(skipped_step, "game_frames");
+            const auto life_loss_score = AuxFloat(skipped_step, "game_score");
+            CHECK(life_loss_frame % 4 == 2); // FIRE reset 2 frames (FIRE + action set 3番目) + 完走したskip窓
+            CHECK(std::isnan(*skipped->GetScalar("game_score")));
 
-            // life-loss後はNOOP 1回のsoft resetで実ゲームの集約を維持する。
+            // life-loss後のsoft resetは実ゲームの集約を維持したままNOOP 1回を打つ。
+            // fire_reset=true なので続けてFIRE + action set 3番目が入る（FireResetEnv 同手順、計3フレーム）。
             const auto soft_reset = skipped->Reset();
             const auto reset_aux = soft_reset->GetAuxData();
             CHECK(soft_reset->state.episode_start);
-            CHECK(reset_aux.at("episode_frames").item<int64_t>() == life_loss_frame + 1);
-            CHECK(reset_aux.at("episode_score").item<float>() == Catch::Approx(life_loss_score));
-            CHECK(std::isnan(*skipped->GetScalar("episode_score")));
+            CHECK(reset_aux.at("game_frames").item<int64_t>() == life_loss_frame + 3);
+            CHECK(reset_aux.at("game_score").item<float>() == Catch::Approx(life_loss_score));
+            CHECK(std::isnan(*skipped->GetScalar("game_score")));
         }
     }
 
@@ -716,12 +783,12 @@ TEST_CASE("AtariEnv evaluates episodic life only after the full skip window", "[
     bool observed_real_game_over = false;
     for (int window = 0; window < 25000 && !observed_real_game_over; ++window) {
         const auto step = skipped->Step(1); // FIREを維持して次のlifeを確実に開始する。
-        const auto completed_score = *skipped->GetScalar("episode_score");
+        const auto completed_score = *skipped->GetScalar("game_score");
         if (std::isfinite(completed_score)) {
             observed_real_game_over = true;
             REQUIRE(step->next_state.done);
             CHECK_FALSE(step->next_state.truncated);
-            CHECK(completed_score == Catch::Approx(AuxFloat(step, "episode_score")));
+            CHECK(completed_score == Catch::Approx(AuxFloat(step, "game_score")));
             break;
         }
 
@@ -730,7 +797,7 @@ TEST_CASE("AtariEnv evaluates episodic life only after the full skip window", "[
             CHECK_FALSE(step->next_state.truncated);
             const auto reset = skipped->Reset();
             CHECK(reset->state.episode_start);
-            const auto reset_completed_score = *skipped->GetScalar("episode_score");
+            const auto reset_completed_score = *skipped->GetScalar("game_score");
             if (std::isfinite(reset_completed_score)) {
                 // soft-reset NOOP中のreal game overも実ゲーム完了として扱う。
                 observed_real_game_over = true;
@@ -743,6 +810,56 @@ TEST_CASE("AtariEnv evaluates episodic life only after the full skip window", "[
     }
 
     CHECK(observed_real_game_over);
+}
+
+TEST_CASE("AtariEnv soft reset applies the fire sequence only when fire_reset is enabled", "[atari][rom][life]")
+{
+    const auto rom = FindRom("breakout");
+    if (!rom.has_value()) {
+        SKIP("breakout.bin is unavailable; set ATARI_ROM_DIR to run ROM-dependent tests.");
+    }
+
+    // fire_reset=false（v5 既定）では life-loss 後の soft reset は NOOP 1 回のまま。
+    // true にすると FIRE + action set 3番目が続き（FireResetEnv 同手順）、計 3 フレームになる。
+    const auto make = [&](bool fire_reset) {
+        anet::ConfigData config_data;
+        config_data.Set("AtariEnv.game", "breakout");
+        config_data.Set("AtariEnv.rom_dir", rom->parent_path().string());
+        config_data.Set("AtariEnv.frame_skip", 4);
+        config_data.Set("AtariEnv.repeat_action_probability", 0.0);
+        config_data.Set("AtariEnv.fire_reset", fire_reset);
+        config_data.Set("AtariEnv.episodic_life", true);
+        config_data.Set("AtariEnv.reward_clip", false);
+        config_data.Set("AtariEnv.max_episode_frames", 0);
+        config_data.Set("AtariEnv.screen_size", 1);
+        config_data.Set("AtariEnv.max_pool", false);
+        config_data.Set("AtariEnv.retain_rgb_frame", false);
+        anet::rl::env::AtariEnvFactory factory;
+        return factory.CreateSingleEnv(
+            config_data, torch::Device(torch::kCPU),
+            fire_reset ? "atari-soft-fire-on" : "atari-soft-fire-off", 2468,
+            anet::rl::RunMode::Train);
+    };
+
+    for (const bool fire_reset : { false, true }) {
+        const auto env = make(fire_reset);
+        env->Reset();
+
+        bool observed = false;
+        for (int window = 0; window < 5000 && !observed; ++window) {
+            const int64_t action = window == 0 ? 1 : 0;  // FIREで開始しNOOPを維持する
+            const auto step = env->Step(action);
+            if (!step->next_state.done) continue;
+
+            observed = true;
+            const auto before = AuxInt64(step, "game_frames");
+            const auto reset_aux = env->Reset()->GetAuxData();
+            const auto after = reset_aux.at("game_frames").item<int64_t>();
+            INFO("fire_reset=" << fire_reset);
+            CHECK(after == before + (fire_reset ? 3 : 1));
+        }
+        REQUIRE(observed);
+    }
 }
 
 int main(int argc, char* argv[])

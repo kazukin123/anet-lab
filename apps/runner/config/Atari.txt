@@ -9,19 +9,15 @@ train.seed = 1
 #train.seed = 2
 #train.seed = 3
 
-# num_envs は Random Policy(下の B 合成)で env 天井を実測し、実構成の必要量とのマージンで決める。
-#train.num_envs = 1024
 #train.num_envs = 512
 #train.num_envs = 256
-#train.num_envs = 128
-train.num_envs = 64
-#train.num_envs = 32
-#train.num_envs = 16
-#train.num_envs = 8
+train.num_envs = 128
+#train.num_envs = 64
 #train.num_envs = 1
 
-DefaultDQNAgent.$ = DefaultDQNAgent.baseline > AS.fast > A > R > X
-#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > B    # Random Policy (num_envs 実測用)
+DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A > BF16.agent > R > X
+#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A > BF16.agent > NatureDQN > R > X   # Nature DQN 2015 再現(AtariEnv.classic とセット)
+#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > B    # Random Policy (env 天井の実測用)
 
 AtariEnv.$ = AtariEnv.v5 > E
 #AtariEnv.$ = AtariEnv.classic > E    # クラシックプリセット(sticky なし+NoOp+episodic life+fire reset)
@@ -32,8 +28,8 @@ net.$ = net.qr
 #net.$ = net.iqn
 
 # main_feature の実体選択
-net.branch.[main_feature].$ = net.branch.AtariNature
-#net.branch.[main_feature].$ = net.branch.AtariImpala        # ベースライン本命(IMPALA-CNN 16/32/32)
+#net.branch.[main_feature].$ = net.branch.AtariNature
+net.branch.[main_feature].$ = net.branch.AtariImpala        # ベースライン本命(IMPALA-CNN 16/32/32)
 #net.branch.[main_feature].$ = net.branch.AtariImpalaViT     # IMPALA+ViT ハイブリッド(定義のみ、未検証)
 
 app.run_name = run_{t}_atari
@@ -161,9 +157,11 @@ E.game = breakout
 #E.game = yars_revenge
 #E.game = zaxxon
 
-# 10M emulator frames / frame_skip=4 = 2.5M transitions
-#app.online.exp_pause_step = 2,500,000
-app.online.exp_pause_step = 5,000,000
+#app.online.exp_pause_step = 2,500,000 # 10M emulator frames / frame_skip=4 = 2.5M
+#app.online.exp_pause_step = 5,000,000 # 5M
+app.online.exp_pause_step = 50,000,000 # 50M
+#app.online.exp_pause_step = 200,000,000 # 200M
+
 app.batchrun.exp_exit_step = 2,500,000
 
 # Atari-100k 予算(400k frames = 100k transitions)。AtariEnv.100k とセットで有効化し、
@@ -172,23 +170,34 @@ app.batchrun.exp_exit_step = 2,500,000
 #app.batchrun.exp_exit_step = 100,000
 
 #backend.$ = backend.deterministic        # 同seed再現(+11%コスト)
-#backend.$ = backend.non-deterministic    # 高速化
+backend.$ = backend.non-deterministic    # 高速化
 
 
 # ==============================================================================
 # 実験
 # ==============================================================================
 
+app.run_name = run_{t}_atari_breakout_impala
+
+#R.qr.num_quantiles = 101 # 200
+#R.qr.num_quantiles = 51  # 200
+
+#app.batchrun.exp_exit_step = 10,000,000
+#app.batchrun.exp_exit_step = 2,000,000
+#app.online.exp_exit_step  = 200,000     # 0.2M
+
 E.episodic_life = true
 E.repeat_action_probability = 0.0
 
-
-#app.online.exp_exit_step  = 200,000     # 0.2M
+# fire_reset は v5 プリセットでは false が標準(Machado 2018 はドメイン知識の注入を避ける)。
+# ただし Breakout はライフ喪失でボールが消え FIRE を押すまで再投入されないため、
+# false だと 1 ゲームに 4 回、エージェントが自力で FIRE を選ぶまで無報酬 step が流れる。
+# 効果測定用の暫定上書き(プリセット定義は変更しない)。
+E.fire_reset = true
 
 #net.$ = net.iqn
 #R.quantile_mode = iqn
 
-#R.qr.num_quantiles = 101    # 200 が重い場合の縮小候補
 
 #X.
 #E.
@@ -212,9 +221,23 @@ E.repeat_action_probability = 0.0
 # ステップ数 依存設定
 # ==============================================================================
 
+# Run 長に「比例させる」値と「固定する」値を分ける。混同すると文献と別物の学習になる。
+#
+# 固定(文献側も Run 長に依存しない絶対値):
+#   eps_decay_steps      探索から活用への移行点。Dopamine / Rainbow は 250k steps 固定
+#   update_warmup_steps  RB が空の間は学習しないための下限。Dopamine min_replay_history 相当
+#
+# 比例(Run 全体で 1 回だけ振り切る設計):
+#   per_beta_step        PER の重要度サンプリング補正。Schaul 2016 は「学習全体で 0.4→1.0」と
+#                        定義している。予算を変えたら必ずこの値も変える(下の app.batchrun.
+#                        exp_exit_step / app.online.exp_pause_step とセット)
+
 A.train_policy.eps_decay_steps = 250,000      # 1M frames 相当で 1.0→0.01 線形減衰(exp_step 単位)
-A.learner.per_beta_step = 2,500,000           # Run 全体で beta 0.4→1.0
 A.learner.update_warmup_steps = 20,000        # Dopamine min_replay_history 相当(exp_step 単位)
+
+#A.learner.per_beta_step = 50,000,000         # 50M(本番)
+A.learner.per_beta_step = 10,000,000          # 10M
+#A.learner.per_beta_step = 2,500,000          # 2.5M
 
 
 # ==============================================================================
@@ -224,6 +247,43 @@ A.learner.update_warmup_steps = 20,000        # Dopamine min_replay_history 相�
 BF16.agent.learner.use_amp = true
 BF16.agent.learner.use_amp_bf16 = true
 BF16.agent.learner.adam_eps = 1e-4
+
+
+# ==============================================================================
+# Nature DQN 2015 再現構成
+# ==============================================================================
+# Mnih et al. 2015 の Breakout 401.2 が再現できるかを見る検証用。目的は成績追求ではなく
+# 「実装が健全か」の切り分け(再現できれば以後の未達はハイパラ調整の問題と確定できる)。
+#
+# 有効化する 2 行:
+#   DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A > BF16.agent > NatureDQN > R > X
+#   AtariEnv.$ = AtariEnv.classic > E
+# あわせて net.branch.[main_feature].$ = net.branch.AtariNature(論文と同一 CNN)であること。
+#
+# 合わせる: 素の DQN(分布 RL / PER / n-step / dueling / double を全て切る)、
+#           Extended Data Table 1 のハイパラ、classic env(noop 30 / fire_reset)。
+# 合わせない: optimizer(論文 RMSProp 0.00025。RMSProp は未実装のため Adam のまま)、
+#             minibatch(論文 32。256 のままにするのは更新回数が 8 倍になり実行時間が
+#             数十時間に伸びるため)。RR 8 は論文の「batch 32 ÷ update frequency 4」と一致済み。
+#             BF16 は速度設定なので有効のままとする。
+#
+# 未確認: quantile_mode=none と use_dueling_net=false の組み合わせで net の配線
+#         (net.body.output の value_stream / adv_stream)が成立するか。50M を回す前に
+#         0.05M 程度の短時間 Run で起動確認すること。
+
+NatureDQN.quantile_mode = none                    # 分布 RL なし(単一 Q)
+NatureDQN.use_dueling_net = false
+NatureDQN.learner.use_per = false
+NatureDQN.learner.use_double_dqn = false
+NatureDQN.learner.n_step = 1
+NatureDQN.learner.gamma = 0.99                    # discount factor
+NatureDQN.learner.replay_capacity = 1,000,000     # replay memory size
+NatureDQN.learner.update_warmup_steps = 50,000    # replay start size
+NatureDQN.model.soft_update_tau = 0               # soft を切って hard update へ
+NatureDQN.model.hard_update_interval = 10,000     # target network update frequency(更新回数単位)
+NatureDQN.train_policy.eps_start = 1.00           # initial exploration
+NatureDQN.train_policy.eps_end = 0.1              # final exploration(現行ベースラインの 0.01 と違う)
+NatureDQN.train_policy.eps_decay_steps = 250,000  # final exploration frame 1M frames / frame_skip 4
 
 
 # ==============================================================================
@@ -473,8 +533,11 @@ AtariEnv.sound = false
 
 # --- Eval設定 ---
 
-train.eval_schedule.[eval1].interval = 5000
-train.eval_schedule.[eval2].interval = 5000
+train.eval_schedule.[eval1].interval = 2500
+train.eval_schedule.[eval2].interval = 2500
+#train.eval_schedule.[eval1].interval = 0    # num_envs ラダー等、eval コストを排除したい測定用
+#train.eval_schedule.[eval2].interval = 0
+
 
 # 別 flavor / 別ゲーム eval の雛形(必要時に有効化)
 #AtariEnv.test1.difficulty = 1
@@ -487,25 +550,56 @@ train.eval_schedule.[eval2].interval = 5000
 # scalar metrics
 # ==============================================================================
 # 報酬・TD・loss・PER・throughput は metrics.scalar.baseline が提供済み。
-# ここは env 固有(42_env)と eval 別 env 集計(51/52)のみ。episode_score は clip 前の生スコア。
+# ここは env 固有(42_env)と eval 別 env 集計(51/52)のみ。game_score は clip 前の生スコア。
+#
+# game_score / game_len / game_frames は「ゲーム 1 回」(全機使い切るまで)の確定値であり、
+# 実 game over / truncation でのみ非 NaN になる。episodic_life=true の疑似 done では確定しない
+# ため、RL のエピソード単位とは一致しない(詳細は docs/design/220_atari_env.jp.md §4.5)。
+# lives だけは現在値なので毎 round 記録される。
+#
+# EMA の alpha は発火頻度で分ける。@train は毎 round 評価(NaN 行は捨てられるので score 系の
+# 実サンプルは完了ゲームごと)、@episode_end は eval 発火時のみで桁違いに疎になるため。
 
 metrics.scalar.$ = metrics.scalar.baseline > M > O
 
-M.[42_env/10_episode_score_mean] = $env mean.episode_score @train $exp_step
-M.[42_env/11_episode_score_mean_ema] = $env mean.episode_score @train $exp_step $ema ema_alpha:0.001
-M.[42_env/20_episode_len_mean] = $env mean.episode_len @train $exp_step
-M.[42_env/21_episode_frames_mean] = $env mean.episode_frames @train $exp_step
-M.[42_env/30_lives_mean] = $env mean.lives @train $exp_step
+M.[42_env/10_game_score_mean]      = $env mean.game_score  @train $exp_step
+M.[42_env/11_game_score_mean_ema]  = $env mean.game_score  @train $exp_step $ema ema_alpha:0.001
+M.[42_env/12_hns57_mean]           = $env mean.hns57       @train $exp_step
+M.[42_env/13_hns57_mean_ema]       = $env mean.hns57       @train $exp_step $ema ema_alpha:0.001
+M.[42_env/14_hns49_mean]           = $env mean.hns49       @train $exp_step
+M.[42_env/15_hns49_mean_ema]       = $env mean.hns49       @train $exp_step $ema ema_alpha:0.001
+M.[42_env/20_game_len_mean]        = $env mean.game_len    @train $exp_step
+M.[42_env/21_game_len_mean_ema]    = $env mean.game_len    @train $exp_step $ema ema_alpha:0.001
+M.[42_env/22_game_frames_mean]     = $env mean.game_frames @train $exp_step
+M.[42_env/23_game_frames_mean_ema] = $env mean.game_frames @train $exp_step $ema ema_alpha:0.001
+M.[42_env/30_lives_mean]           = $env mean.lives       @train $exp_step
+M.[42_env/31_lives_mean_ema]       = $env mean.lives       @train $exp_step $ema ema_alpha:0.001
 
-M.[51_eval1/10_episode_score_mean] = $eval.[eval1] @episode_end $env mean.episode_score
-M.[51_eval1/20_episode_len_mean] = $eval.[eval1] @episode_end $env mean.episode_len
-M.[51_eval1/21_episode_frames_mean] = $eval.[eval1] @episode_end $env mean.episode_frames
-M.[51_eval1/30_lives_mean] = $eval.[eval1] @episode_end $env mean.lives
+M.[51_eval1/10_game_score_mean]      = $eval.[eval1] @episode_end $env mean.game_score
+M.[51_eval1/11_game_score_mean_ema]  = $eval.[eval1] @episode_end $env mean.game_score  $ema ema_alpha:0.1
+M.[51_eval1/12_hns57_mean]           = $eval.[eval1] @episode_end $env mean.hns57
+M.[51_eval1/13_hns57_mean_ema]       = $eval.[eval1] @episode_end $env mean.hns57       $ema ema_alpha:0.1
+M.[51_eval1/14_hns49_mean]           = $eval.[eval1] @episode_end $env mean.hns49
+M.[51_eval1/15_hns49_mean_ema]       = $eval.[eval1] @episode_end $env mean.hns49       $ema ema_alpha:0.1
+M.[51_eval1/20_game_len_mean]        = $eval.[eval1] @episode_end $env mean.game_len
+M.[51_eval1/21_game_len_mean_ema]    = $eval.[eval1] @episode_end $env mean.game_len    $ema ema_alpha:0.1
+M.[51_eval1/22_game_frames_mean]     = $eval.[eval1] @episode_end $env mean.game_frames
+M.[51_eval1/23_game_frames_mean_ema] = $eval.[eval1] @episode_end $env mean.game_frames $ema ema_alpha:0.1
+M.[51_eval1/30_lives_mean]           = $eval.[eval1] @episode_end $env mean.lives
+M.[51_eval1/31_lives_mean_ema]       = $eval.[eval1] @episode_end $env mean.lives       $ema ema_alpha:0.1
 
-M.[52_eval2/10_episode_score_mean] = $eval.[eval2] @episode_end $env mean.episode_score
-M.[52_eval2/20_episode_len_mean] = $eval.[eval2] @episode_end $env mean.episode_len
-M.[52_eval2/21_episode_frames_mean] = $eval.[eval2] @episode_end $env mean.episode_frames
-M.[52_eval2/30_lives_mean] = $eval.[eval2] @episode_end $env mean.lives
+M.[52_eval2/10_game_score_mean]      = $eval.[eval2] @episode_end $env mean.game_score
+M.[52_eval2/11_game_score_mean_ema]  = $eval.[eval2] @episode_end $env mean.game_score  $ema ema_alpha:0.1
+M.[52_eval2/12_hns57_mean]           = $eval.[eval2] @episode_end $env mean.hns57
+M.[52_eval2/13_hns57_mean_ema]       = $eval.[eval2] @episode_end $env mean.hns57       $ema ema_alpha:0.1
+M.[52_eval2/14_hns49_mean]           = $eval.[eval2] @episode_end $env mean.hns49
+M.[52_eval2/15_hns49_mean_ema]       = $eval.[eval2] @episode_end $env mean.hns49       $ema ema_alpha:0.1
+M.[52_eval2/20_game_len_mean]        = $eval.[eval2] @episode_end $env mean.game_len
+M.[52_eval2/21_game_len_mean_ema]    = $eval.[eval2] @episode_end $env mean.game_len    $ema ema_alpha:0.1
+M.[52_eval2/22_game_frames_mean]     = $eval.[eval2] @episode_end $env mean.game_frames
+M.[52_eval2/23_game_frames_mean_ema] = $eval.[eval2] @episode_end $env mean.game_frames $ema ema_alpha:0.1
+M.[52_eval2/30_lives_mean]           = $eval.[eval2] @episode_end $env mean.lives
+M.[52_eval2/31_lives_mean_ema]       = $eval.[eval2] @episode_end $env mean.lives       $ema ema_alpha:0.1
 
 
 # ==============================================================================
@@ -518,7 +612,7 @@ app.online.eval_panel.auto_start = false
 app.batchrun.eval_panel.auto_start = false
 
 app.online.eval_panel.eval_config_tag = eval_panel
-#app.batchrun.eval_panel.eval_config_tag = eval_panel
+app.batchrun.eval_panel.eval_config_tag = eval_panel
 
 # EvalPanel だけ SDL 音声を有効化(観戦用)。SDL_DYNLOAD のため SDL2.dll が必要 —
 # third_party/runtime_dlls/ に置けばビルド時に runner bin へ配備される(README 参照)。

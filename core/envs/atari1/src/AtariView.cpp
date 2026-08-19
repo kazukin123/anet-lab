@@ -67,11 +67,11 @@ void AtariPanel::ApplyData(const AtariViewData& data)
 {
     data_ = data;
     overlay_->SetLabel(wxString::Format(
-        "Score(raw): %.0f   Lives: %lld   Episode step: %lld   Frame: %lld   Action: %s   Reward: %.1f",
-        data_.episode_score,
+        "Score(raw): %.0f   Lives: %lld   Game step: %lld   Frame: %lld   Action: %s   Reward: %.1f",
+        data_.game_score,
         static_cast<long long>(data_.lives),
-        static_cast<long long>(data_.episode_len),
-        static_cast<long long>(data_.episode_frames),
+        static_cast<long long>(data_.game_len),
+        static_cast<long long>(data_.game_frames),
         data_.action_name.c_str(),
         data_.reward));
     overlay_->SetSize(overlay_->GetBestSize());
@@ -197,10 +197,10 @@ AtariViewData AtariView::CreateViewData(const anet::rl::TrainEvent& event) const
 
         const auto aux_list = event.step_result->GetAuxDataList(static_cast<int>(lane));
         if (!aux_list.empty()) {
-            data.episode_score = GetAuxFloat(aux_list[0], "episode_score", 0.0f);
+            data.game_score = GetAuxFloat(aux_list[0], "game_score", 0.0f);
             data.lives = GetAuxInt64(aux_list[0], "lives", 0);
-            data.episode_len = GetAuxInt64(aux_list[0], "episode_len", 0);
-            data.episode_frames = GetAuxInt64(aux_list[0], "episode_frames", 0);
+            data.game_len = GetAuxInt64(aux_list[0], "game_len", 0);
+            data.game_frames = GetAuxInt64(aux_list[0], "game_frames", 0);
         }
     }
 
