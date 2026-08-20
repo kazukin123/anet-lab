@@ -255,6 +255,7 @@ std::shared_ptr<ActionPolicy> DefaultDQNAgent::CreateActionPolicy(
 int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
 {
     ANET_PROFILE_FUNC();
+	std::shared_lock<std::shared_mutex> lock(*mutex_);
 
 	int64_t total_size = 0;
 

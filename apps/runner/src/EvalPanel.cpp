@@ -1,6 +1,8 @@
 ﻿// EvalPanel.cpp
 
 #include "EvalPanel.hpp"
+#include <algorithm>
+#include <cmath>
 #include "anet/profile.hpp"
 #include "anet/log.hpp"
 #include "anet/config.hpp"
@@ -10,6 +12,20 @@
 
 
 namespace LOG = anet::log;
+
+namespace eval_panel_detail {
+
+void ValidateEvalFps(float fps, const char* key)
+{
+	if (!std::isfinite(fps) || fps <= 0.0f || fps > 1000.0f) {
+		ANET_SYSTEM_ERROR("Invalid " << key << ": value=" << fps
+			<< " (expected: finite number in (0, 1000])");
+	}
+}
+
+}  // namespace eval_panel_detail
+
+using namespace eval_panel_detail;
 
 
 EvalPanelModelSyncMode EvalPanelModelSyncConfig::GetMode() const
@@ -46,10 +62,16 @@ void EvalPanelModelSyncConfig::Validate() const
 	}
 }
 
+void EvalPanelConfig::Validate() const
+{
+	ValidateEvalFps(fps, "app.eval_panel.fps");
+	model_sync.Validate();
+}
+
 EvalPanel::EvalPanel(wxWindow* parent, const EvalPanelConfig& config)
 	: wxPanel(parent), config_(config), update_timer_(this, wxID_ANY)
 {
-	config_.model_sync.Validate();
+	config_.Validate();
 	is_pause_ = config_.auto_start ? false : true;
 }
 
@@ -98,11 +120,20 @@ void EvalPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, st
 		},
 		"EvalPanel");
 
-	// Timer開始
+	// Timer開始。Eval FPS は表示だけでなく Eval step の実行周期を表す。
 	Bind(wxEVT_TIMER, &EvalPanel::OnTimer, this, update_timer_.GetId());
-	int interval = 1000 / config_.fps;
+	SetFps(config_.fps);
+}
+
+void EvalPanel::SetFps(float fps)
+{
+	ValidateEvalFps(fps, "EvalPanel::SetFps fps");
+
+	// 実行時変更では既存 timer を止めてから、新しい周期を確定する。
+	update_timer_.Stop();
+	const int interval = std::max(1, static_cast<int>(std::lround(1000.0 / fps)));
 	ANET_LOG_DEBUG("interval=" << interval);
-	update_timer_.Start(interval); 
+	update_timer_.Start(interval);
 }
 
 void EvalPanel::DoStep()
@@ -129,7 +160,7 @@ void EvalPanel::TogglePause()
 	if (!is_pause_ && UsesClonedModel()) {
 		SyncModel();
 	}
-	auto log_str = std::string("Eval ") + (is_pause_ ? "paused." : "resumed.");
+	auto log_str = std::string("Evaluation ") + (is_pause_ ? "paused" : "resumed");
 	LOG::info() << log_str;
 	wxGetApp().GetMainFrame()->SetStatusText(log_str);
 	wxGetApp().FlushRunOutputs();

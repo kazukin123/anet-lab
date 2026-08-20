@@ -34,6 +34,8 @@ struct EvalPanelConfig {
 	bool auto_start = true;
 	std::string eval_config_tag;
 	EvalPanelModelSyncConfig model_sync;
+
+	void Validate() const;
 };
 
 class EvalPanel final : public wxPanel {
@@ -45,6 +47,8 @@ public:
 	void DoClose();
 
 	const EvalPanelConfig& GetConfig() const { return config_; }
+	bool IsPaused() const { return is_pause_; }
+	void SetFps(float fps);
 	void TogglePause();
 	void DoStep();
 	void DoStep(int64_t action);

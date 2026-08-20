@@ -87,7 +87,7 @@ Dropout 導入前の前提整理として、NN module の `train()` / `eval()` m
 - `Actor::Sync()` と同一 Actor の `MakeAction()` が並行し得るか。並行し得る場合、actor-private `network_` の `CopyTo()` と forward が race しないか。
 - `NetworkModel::Load()` の `eval()` は呼び出し元 lock によって守られているか。
 - `DefaultDQNAgent::LoadNetwork()` を runtime API として扱うなら、model / learner load 全体に `unique_lock` が必要か。
-- `Save()` / `torch::save` 経路が Actor/Learner と並行し得るか。
+- `Save()` / `torch::save` 経路が Actor/Learner と並行し得るか。PRD 055でRunnerからのruntime Saveを正式な経路とし、`DefaultDQNAgent::Save`のserialization全体をAgentの`shared_lock`で保護することを確定した。
 - TensorFunction / visualization callback が lock scope 外へ shared network access を持ち出していないか。
 
 ### ImageCls
@@ -168,7 +168,7 @@ core\anet-core\bin\Debug\anet-core-test.exe
 - `CreateActor()` は学習開始後にも呼ばれ得るか、それとも runner lifecycle 上は初期化時だけか。
 - `Actor::Sync()` は同一 Actor の `MakeAction()` と並行し得るか。
 - `LoadNetwork()` は constructor auto-load 専用の実質 private API と見なせるか、runtime UI/API から呼ばれ得るか。
-- `Save()` は runner shutdown など Actor/Learner 停止後だけか、runtime 中にも呼ばれ得るか。
+- `Save()` は runner shutdown など Actor/Learner 停止後だけか、runtime 中にも呼ばれ得るか。**PRD 055で解決済み**: toolbarからruntime中にも呼ばれ、`DefaultDQNAgent`ではAgentの`shared_lock`を取得してLearnerの`unique_lock`と排他する。
 - TensorFunction / visualization callback が lock scope 外で network を再 forward する経路が残っているか。
 
 ## Draft Recommendation（草案時点の仮説）

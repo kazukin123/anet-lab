@@ -28,7 +28,7 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | `RunnerApp` | wxWidgets application entry。config、RunManager、RunnerThread、GUI、loggingのlifecycleを統括する。Run directory自体は`MetricsLogger`が保持する |
 | `WorkspaceService` | coreのapplication共通基盤。workspace pathと新規名の検証・解決・新規生成、MRU、`last_workspace.txt`、config合成、`app.runs_dir`不変条件を管理する |
 | workspace選択dialog | Runner固有GUI。履歴、`workspaces/`直下一覧、任意path参照、新規名、`workspace.dialog_skip`選好を起動前に選択する。新規名は`WorkspaceService`の検証結果を入力欄の下へ即時表示し、不正な間はOKを無効化する |
-| `RunnerFrame` | menu、status bar、wxAUI paneとclose順序を管理するmain window。wxAUIの制約吸収（dockサイズ往復・遷移時同期・pane⇄メニュー連動）は基底`anet::rl::gui::AuiLayoutFrame`（gui.hpp）が担い、本クラスはpane定義とレイアウトポリシー（50:50、frame縮退）を持つ |
+| `RunnerFrame` | menu、status bar、4本のtoolbar pane、close順序を管理するmain window。Train eventから生成したstatus snapshotを`UIDataStore`で受け取り、`wxUpdateUIEvent`で操作状態と表示値を同期する。wxAUIの制約吸収（dockサイズ往復・遷移時同期・pane⇄メニュー連動）は基底`anet::rl::gui::AuiLayoutFrame`（gui.hpp）が担い、本クラスはpane定義とレイアウトポリシー（50:50、frame縮退）を持つ |
 | `TrainPanel` | Train eventからEnv固有Viewを更新し、GUI timerで断面を描画する |
 | `EvalPanel` | 専用`EvalRunner`をtimerまたは手動Actionで駆動し、clone modelの同期を管理する |
 | `QValuePanel` | Eval ActorのAction候補を可視化し、選択Actionを`EvalPanel`へ渡す。`full_q_quantiles`があれば優先し、なければ`q_quantiles`、`q_values`へfallbackする |
@@ -212,6 +212,8 @@ sequenceDiagram
 
 GUIはmain thread、Train Runnerは`RunnerThread`で動く。TrainPanelはTrain eventでView dataを更新し、GUI timerで描画断面を取得する。EvalPanelはGUI timer上で独立EvalRunnerを進めるため、configured background evalとは別用途である。ImageClsでは`app.eval_panel.eval_config_tag`で参照するconfigured Eval tagを明示し、その`run_mode`と`env.*`設定を別instanceへ適用する。非ImageClsで同キーを指定した場合はfail-fastする。
 
+RunnerFrameのRun制御 / Step表示 / Run操作 / Panel表示toolbarはwxAUI paneとして上端に配置し、Reset LayoutでRow 0へ回収する。gripperは`AddPane()`が有効化する`wxAuiToolBar`内蔵の標準描画だけを使う。Reset Layoutで`ToolbarPane()`を再適用した後はpane側を`Gripper(false)`に戻し、内蔵gripperと重複させない。buttonの背景・hover・checked色はwxWidgets標準art/system colourへ委ねる。Train toggle直後とexp/train間は標準separatorで区切り、step数は選択・コピー可能なread-only text controlへ分ける。操作状態は200ms周期の`wxUpdateUIEvent`で実状態から再構成するため、shortcut、自動pause、menu、paneのcloseを別経路として扱っても表示が収束する。status snapshot更新はRunnerFrame自身のupdate eventへBindし、Train toggle toolのenable/check更新から分離する。Step、SPS、経過時間はTrainer threadのTrain observer callback内で1つのsnapshotにまとめ、強制更新間隔0のrequest-driven `UIDataStore`を介してmain threadへ渡す。main threadから`TrainRunner`の可変count、EMA、開始時刻を直接読まない。observerのdetachではNotifierが保持する`RunnerScopedTrainObserver` wrapper自体を保持・指定する。
+
 補助launcherは第1引数、`GetAppDataDir()/last_workspace.txt`、`_default`の順でworkspaceを解決し、選択済み`runs/`だけをDOT/MP4/TensorBoard/MLflowへ渡す。既存workspace rootと`runs/`だけを解決条件とし、`config/_main.txt`は要求しない。launcherはworkspaceや`runs/`を生成しない。MLflow DBはADR 0022の限定例外として`<workspace>/runs/mlflow.db`に置く。
 
 ### 5.2 Metrics Viewerの取り込みとviewport range更新
@@ -305,9 +307,10 @@ sequenceDiagram
 ### 7.1 Runner
 
 - `RunnerApp`が`RunManager`、`RunnerThread`、Frameを保持し、loggerの初期化・flush・停止順序を統括する。Run directoryと`run_dir_`は`MetricsLogger`が所有する。
-- close時はTrain停止、`agent_close.anet`保存、log/metrics flush、EvalPanel detach、AUI破棄の順序を維持する。
-- GUI callbackで発生した例外はErrorDialogへ表示し、Trainer threadの例外はmain threadへ転送する。
-- Train/Eval panelのFPSは描画頻度であり、学習step頻度そのものではない。
+- close時はTrain停止、`agent_close.anet`保存、log/metrics flush、EvalPanel detach、AUI破棄の順序を維持する。close時Saveが失敗してもErrorDialogで通知した後に後続cleanupを続行する。
+- GUI callbackで発生した契約違反の例外はErrorDialogへ表示してmain loopを終了し、Trainer threadの例外はmain threadへ転送する。一方、初期化完了後のSave/Open Run Folderという対話的操作の環境依存失敗はRunnerFrame内で捕捉し、対象pathと理由を通知してRunを継続する。
+- Train panelのFPSは描画頻度だけを制御し、0では描画timerを停止しても学習は継続する。Eval panelのFPSはEvalRunnerを進めるGUI timer周期であり、Evalの実行速度そのものも変える。実行時のFPS選択はconfig dumpへ書き戻さない。
+- `DefaultDQNAgent::Save`はAgentのshared mutexをserialization全体で保持する。runtime SaveはLearnerのunique lockと排他し、UI側でTrainをpauseしない。`RunnerApp::SaveAgent`はopen、serialization、flush、closeの失敗段階をpath付き例外として通知し、RunnerFrameがUI継続可否を決める。不完全fileは自動削除しない。
 
 ### 7.2 Metrics Viewer
 
@@ -328,7 +331,7 @@ sequenceDiagram
 
 ## 8. テストと変更時の確認事項
 
-- Runner UI変更: Frame close順序、pane menu連動、Train/Eval入力、model syncを確認する。
+- Runner UI変更: Frame close順序、toolbarのdock/float/reset、pane/menu/toolbar連動、Train/Eval入力、model sync、FPS、status snapshot、theme変更時のSVG差し替えを確認する。
 - Metrics Viewer backend変更: SQLite/source identity、ingest/LOD、range API、scheduler、query concurrencyの各integration testを実行する。
 - Metrics Viewer UI変更: `RunListPlaywrightTest`、`TagListPlaywrightTest`、`MetricsPlotPlaywrightTest`、`GraphInteractionPlaywrightTest`、`SignedLogPlaywrightTest`で、Run/Tag操作、viewport精細化、LOD mode、stale response、Reload、Plotly state、mobile gestureを関心別に確認する。
 - Optuna変更: dry-run、短いrun-trial、artifact/DB state、interrupt cleanupを確認する。

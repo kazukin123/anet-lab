@@ -35,18 +35,21 @@ public:
     void OnUnhandledException() override;
 public:
     void ToggleTraining();
+    void PauseTraining();
     void StopTraining();
+    bool IsTrainingPaused() const;
+    bool IsTrainingRunning() const;
     anet::ConfigData GetConfigData() const { return config_mgr_->GetConfigData(); }
     anet::rl::RunManager& GetRunManager() { return *run_manager_; }
     std::shared_ptr<anet::rl::gui::View> CreateExperinceView(wxWindow* parent);
 	wxFrame* GetMainFrame() { return frame_; }
     
     std::filesystem::path GetRunDir();
-    std::ofstream GetOutputStream(const std::string& file_name);
-    int64_t SaveAgent(const std::string& file_name);
+    int64_t SaveAgent(const std::filesystem::path& file_path);
     void FlushRunOutputs();
     void ShutdownRunLogging();
 private:
+    void SetTrainingPaused(bool paused);
     void InitTrainer();
     void showFatalError();
     bool WriteLastRunName(const std::string& run_name) const;

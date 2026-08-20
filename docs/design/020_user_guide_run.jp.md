@@ -105,6 +105,13 @@ batch実験では、`app.$=app.batchrun`で低FPS表示と`exp_exit_step`をま�
 
 Runner画面はwxAUIのpaneで構成される。
 
+画面上端には対象別の4本のツールバーがある。各バーはgripperをドラッグしてdock、float、再dockでき、`View > Reset Layout`で上端1行の既定位置へ戻る。floatさせたバーのwindow titleにはバー名(`Run Control`、`Steps`、`Run Operations`、`Panels`)が出る。
+
+- `Run制御`: Trainのpause/resumeと、separatorを挟んでEvalのpause/resume、Evalの1 step実行を提供する。走行中のtoolは押下表示になり、iconは次の操作を表す一時停止記号へ変わる。停止中は再生記号へ戻る。非表示のEvalをresumeするか1 step実行すると`Evaluation View`も表示する。
+- `Step表示`: Trainの`exp_step`と`train_step`を表示する。
+- `Run操作`: 任意pathへのcheckpoint保存とRun folder表示を提供する。
+- `Panel表示`: `Logs`、`Eval View`、`Q-Values`の表示を切り替える。対応する`View` menuとpaneの状態に同期する。
+
 - `Train View`: Train Runnerから受け取ったEnv固有Viewを表示する。
 - `Evaluation View`: Trainとは別のEval Envを手動またはtimerで進める。初期状態では非表示である。
 - `Evaluation Q-Values`: Eval Actorの出力を表示し、Actionを手動指定できる。
@@ -123,12 +130,14 @@ paneを閉じたり初期化前のViewを表示した場合は、次のように
 
 ### 5.1 学習のpauseと再開
 
-Train/Eval View上で左クリックするか、`Shift`を押すとTrainをpause/resumeする。`app.train_auto_start=false`で起動した場合も同じ操作で開始できる。pause時はmetrics、stdout/stderr、text logを明示的にflushする。
+Run制御ツールバーの`Train`を選ぶとTrainをpause/resumeする。Train/Eval View上の左クリックと`Shift`も同じ操作として併存する。`app.train_auto_start=false`で起動した場合も同じ操作で開始できる。pause時はmetrics、stdout/stderr、text logを明示的にflushする。Trainが停止して再開不能になった後はツールが無効になる。
 
 ### 5.2 評価と画面操作
 
 | 操作 | 動作 |
 |---|---|
+| Run制御ツールバーの`Eval` | EvalPanelをpause/resumeする。resume時にpaneが非表示なら表示する |
+| Run制御ツールバーの`Step` | Evalを1 step自動実行する。paneが非表示なら表示する |
 | 右クリック、または`Space` | EvalPanelをpause/resumeする |
 | `Ctrl` | Evalを1 step自動実行する |
 | 矢印キー | LunarLander向けに`0`から`3`のActionを指定してEvalを1 step進める |
@@ -137,14 +146,26 @@ Train/Eval View上で左クリックするか、`Shift`を押すとTrainをpause
 | `View > Evaluation QValue View` | Q値paneの表示を切り替える |
 | `View > Log Level` | GUIへ表示するログlevelを切り替える |
 | `View > Reset Layout` | pane配置とframe sizeを既定へ戻す |
+| Run操作ツールバーの`Save Checkpoint` | Trainが走行中ならまずpauseし、Run directoryと`agent_<exp_step>.anet`を既定に、任意pathへAgentを保存する |
+| Run操作ツールバーの`Open Run Folder` | 現在のRun directoryをExplorerで開く |
 
 Action数はEnvごとに異なる。範囲外Actionを前提にせず、QValue paneまたはEnvのActionSpecを確認する。
 
 `app.eval_panel.model_sync.mode`は手動EvalPanelがTrain modelを参照する方法を決める。`shared`はTrain modelを共有し、`frame`、`time`、`episode`は対応するintervalでclone modelを同期する。clone modelを使うmodeではEvalのresume時にも同期する。表示中のEvalが常にTrainの最新parameterと一致するとは限らないため、比較時はmodeとintervalを記録する。
 
-### 5.3 停止、保存、checkpointからの再開
+### 5.3 表示FPSと進行状況
+
+`View > Train View FPS`はTrain Viewの描画頻度だけを変更する。`0 (Off)`では描画timerを止めるが、学習は継続する。`View > Eval View FPS`はEvalPanelのtimer周期を変更するため、描画だけでなくEvalの進行速度も変わる。どちらの`Config (N)`も起動時config値へ戻す項目である。これらは実行時UI操作であり、選択結果をRunのconfig dumpへ書き戻さない。
+
+Step表示ツールバーは`exp`と`train`のstep数を別々のread-only text欄へ表示する。値は選択してコピーでき、exp/train間は標準separatorで区切られる。status bar右側は`exp <N> steps/s    train <N> steps/s`と経過時間を表示する。SPSのEMAがまだ初期化されていない間は`-`、最初のTrain snapshotが無い間は両step欄が`-`、経過時間が`--:--:--`になる。経過時間はpause中もwall-clockとして進む。
+
+### 5.4 停止、保存、checkpointからの再開
 
 WindowのCloseまたは`File > Exit`でRunを停止する。終了処理はTrain停止、`agent_close.anet`保存、Run出力のflush、GUI破棄の順に進む。保存中にprocessを強制終了するとcheckpoint、metrics、動画の末尾が不完全になる可能性があるため、windowが閉じるまで待つ。
+
+`Save Checkpoint`は押下時にTrainが走行中なら先にpauseする。これはdialog操作中にstepが進み、既定ファイル名と保存内容がずれるのを防ぐためで、保存やcancelの後もTrainは自動再開しない。再開はRun制御ツールバーの`Train`か`Shift`で行う。保存処理自体はTrain走行中でも安全である。`DefaultDQNAgent`はserialization全体をAgentのshared lockで保護し、Learner更新と排他する。保存先の権限、空き容量、file lockなどで失敗した場合は対象pathと理由をErrorDialogへ表示し、Runは継続する。失敗したfileは不完全な可能性があるが自動削除されないため、内容を確認してから処理する。有効なpathを選べば再度Saveできる。
+
+close時の`agent_close.anet`保存に失敗した場合もErrorDialogで通知し、その後のlog shutdownとGUI cleanupを続行してwindowを閉じる。この場合、`agent_close.anet`は有効なcheckpointとは限らない。AgentがSaveを実装していない場合は0 byteのfileが残り、対象path付きのWARNが出る。保存できたcheckpointもAgent、Network、archive contractが一致することを確認してから再開に使う。
 
 checkpointから再開する場合は、新しいRunの互換設定にAgent固有の`auto_load_file`を指定する。現行例は`DefaultDQNAgent.auto_load_file`のaliasである`R.auto_load_file`、または`ImageClsAgent.auto_load_file`である。Network構成やarchive contractが異なるcheckpointは読み込めない。保存対象はAgentごとに異なり、現行DQN系ではReplayBufferの内容やsampling状態を復元しない。再開後は新しいRun directoryとstep系列を持つため、旧Runの`metrics.jsonl`へ追記する操作ではない。DQN系の保存対象は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
 
@@ -170,6 +191,11 @@ workspaceが`dm_long`、`app.run_name=run_{t}`の場合、成果物は`apps/runn
 
 - 起動直後にTrainが進まない: `app.train_auto_start`を確認し、左クリックまたは`Shift`でresumeする。
 - Evalが進まない: `Evaluation View`を表示し、`app.eval_panel.auto_start`または`Space`を確認する。
+- toolbarのcheck状態が操作と合わない: 最大200ms待って実状態への同期を確認する。配置が崩れた場合は`View > Reset Layout`を使う。
+- Train Viewだけ更新されない: `View > Train View FPS`が`0 (Off)`になっていないか確認する。
+- Saveに失敗する: ErrorDialogの対象pathと失敗段階を確認する。権限、空き容量、file lockを解消するか別pathを選んで再実行する。Runは継続しているが、失敗した出力fileは不完全な可能性がある。
+- Save結果が0 byteになる: `<run_name>.log`の対象path付きWARNを確認する。利用中AgentがSaveを実装していない可能性がある。
+- Run folderが開かない: ErrorDialogに表示される対象pathとOS側のfolder関連付けを確認する。起動失敗後もRunは継続する。
 - CUDA初期化に失敗する: libtorch/CUDA/driverの組み合わせ、`agent.device_type`、eval deviceを確認する。
 - 期待したEnvでない: 選択workspaceの`config/_main.txt`で有効なEnv includeと、Run内`config/config_data.txt`を確認する。
 - workspaceを選び直したい: `--select-workspace`で起動する。履歴は`GetAppDataDir()/history.txt`、ダイアログ選好は`prefs.txt`を削除すると個別にリセットできる。

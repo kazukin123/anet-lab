@@ -215,6 +215,14 @@ _Avoid_: main area, センター領域
 HeatMap・Conv2d のように View メニューから動的追加される右端の可視化 pane 群。名前は生成時刻で一意化され、追加時に既存の補助 pane 列（最外周の右列）へ同じ幅で縦積みされる。Train/Eval/QValue/Log の常設 pane とは寿命も配置規約も異なる。
 _Avoid_: aux panel, ツールパネル, サブパネル
 
+**ツールバー pane**:
+Runner 画面上端に既定配置される操作バー群（Run 制御 / Step 表示 / Run 操作 / Panel 表示）の pane 種別。バーは役割ごとに分かれ、Run 制御のように 1 本へ複数の対象が載る場合は区切りで対象の境界を示す。ドラッグ・アンドック・再ドックはできるが閉じることはできず、Reset Layout で既定位置（上端 1 行）へ戻る。常設 pane・補助 pane とは別カテゴリ。
+_Avoid_: コマンドバー, ribbon, ツールバーウィンドウ
+
+**実行時 UI 操作**:
+pause/resume、Eval の 1 step 実行、View FPS 変更のように、Run の実行中に GUI から行う一時的な操作の区分。実効設定（config dump）には記録されないため、Run の比較・再現の根拠にしない。設定変更（config）とは区別する。
+_Avoid_: 動的設定, runtime config（設定と混同）, UI 設定
+
 ### Run管理
 
 **ワークスペース (Workspace)**:

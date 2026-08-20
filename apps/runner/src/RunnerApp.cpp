@@ -3,10 +3,12 @@
 #include <array>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <vector>
 #include <wx/cmdline.h>
 #include <wx/filename.h>
 #include <wx/snglinst.h>
+#include <wx/utils.h>
 #include "anet/profile.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/init.hpp"
@@ -30,11 +32,19 @@
 
 namespace LOG = anet::log;
 
-namespace {
+namespace runner_app_detail {
 
 constexpr int kTextLogFlushTimerId = wxID_HIGHEST + 100;
 
-} // namespace
+std::string PathToUtf8(const std::filesystem::path& path)
+{
+    const auto value = path.u8string();
+    return std::string(reinterpret_cast<const char*>(value.data()), value.size());
+}
+
+}  // namespace runner_app_detail
+
+using namespace runner_app_detail;
 
 
 wxDEFINE_EVENT(wxEVT_TRAINER_EXIT, wxCommandEvent);
@@ -88,7 +98,8 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, eval_panel.model_sync.frame_interval);
         ANET_READ_CONFIG(config_data, eval_panel.model_sync.time_interval_ms);
         ANET_READ_CONFIG(config_data, eval_panel.model_sync.episode_interval);
-        eval_panel.model_sync.Validate();
+        train_panel.Validate();
+        eval_panel.Validate();
     }
 
 private:
@@ -379,16 +390,16 @@ bool RunnerApp::OnInit()
             if ((config_->train_pause_step > 0) && (train_step >= config_->train_pause_step) && !auto_pause_done_) {
                 auto_pause_done_ = true;    // 一回だけ自動
                 trainer_thread_->Pause();
-                LOG::info() << "Auto pause.";
-                wxGetApp().GetMainFrame()->SetStatusText("Auto pause.");
+                LOG::info() << "Training paused automatically";
+                wxGetApp().GetMainFrame()->SetStatusText("Training paused automatically");
                 wxGetApp().FlushRunOutputs();
                 return anet::rl::ControlSignal::BREAK;
             }
             if ((config_->exp_pause_step > 0) && (exp_step >= config_->exp_pause_step) && !auto_pause_done_) {
                 auto_pause_done_ = true;    // 一回だけ自動
                 trainer_thread_->Pause();
-                LOG::info() << "Auto pause.";
-                wxGetApp().GetMainFrame()->SetStatusText("Auto pause.");
+                LOG::info() << "Training paused automatically";
+                wxGetApp().GetMainFrame()->SetStatusText("Training paused automatically");
                 wxGetApp().FlushRunOutputs();
                 return anet::rl::ControlSignal::BREAK;
             }
@@ -418,12 +429,6 @@ bool RunnerApp::OnInit()
 std::filesystem::path RunnerApp::GetRunDir()
 {
     return anet::MetricsLogger::Instance()->GetRunDir();
-}
-
-std::ofstream RunnerApp::GetOutputStream(const std::string& file_name)
-{
-    auto file = GetRunDir() / file_name;
-    return std::ofstream(file, std::ios::binary);
 }
 
 void RunnerApp::SetupLogging()
@@ -508,56 +513,94 @@ void RunnerApp::ShutdownRunLogging()
     }
 }
 
-int64_t RunnerApp::SaveAgent(const std::string& file_name)
+int64_t RunnerApp::SaveAgent(const std::filesystem::path& file_path)
 {
-    const auto file_path = GetRunDir() / file_name;
     auto log_file_path = file_path.lexically_relative(anet::GetExecutableRootDir());
     if (log_file_path.empty()) {
-        log_file_path = file_name;
+        log_file_path = file_path;
     }
-    const auto log_file_path_str = log_file_path.string();
+    const auto log_file_path_str = PathToUtf8(log_file_path);
+    const auto archive_name = PathToUtf8(file_path);
 
     LOG::info() << "Started saving agent: file=" << log_file_path_str;
     FlushTextLog();
 
-    wxBeginBusyCursor();
+    wxBusyCursor busy_cursor;
 
-    int64_t size = 0;
-    try {
-        auto agent = GetRunManager().GetAgent();
-        auto os = wxGetApp().GetOutputStream(file_name);
-        anet::OutputArchive archive(os, file_name);
-        size = agent->Save(archive);
-        os.close();
-    } catch (const std::exception& e) {
-        wxEndBusyCursor();
-        LOG::error() << "Failed to save agent: file=" << log_file_path_str << " error=" << e.what();
-        throw;
-    } catch (...) {
-        wxEndBusyCursor();
-        LOG::error() << "Failed to save agent: file=" << log_file_path_str;
-        throw;
+    // 保存先を開き、serialization・flush・close の各段階を明示的に検証する。
+    auto agent = GetRunManager().GetAgent();
+    std::ofstream os(file_path, std::ios::binary);
+    if (!os) {
+        ANET_SYSTEM_ERROR("Failed to open agent save file: file=" << archive_name
+            << " stage=open");
     }
 
-    wxEndBusyCursor();
+    int64_t size;
+    try {
+        anet::OutputArchive archive(os, archive_name);
+        size = agent->Save(archive);
+    } catch (const std::exception& e) {
+        ANET_SYSTEM_ERROR("Failed to serialize agent save file: file=" << archive_name
+            << " stage=serialize error=" << e.what());
+    } catch (...) {
+        ANET_SYSTEM_ERROR("Failed to serialize agent save file: file=" << archive_name
+            << " stage=serialize error=unknown exception");
+    }
 
+    os.flush();
+    if (!os) {
+        ANET_SYSTEM_ERROR("Failed to flush agent save file: file=" << archive_name
+            << " stage=flush");
+    }
+    os.close();
+    if (os.fail()) {
+        ANET_SYSTEM_ERROR("Failed to close agent save file: file=" << archive_name
+            << " stage=close");
+    }
+
+    if (size == 0) {
+        LOG::warn() << "Agent save produced zero bytes; Save may be unimplemented: file="
+            << log_file_path_str;
+    }
     LOG::info() << "Finished saving agent: file=" << log_file_path_str << " size=" << size << " bytes";
     return size;
 }
 
+bool RunnerApp::IsTrainingPaused() const
+{
+    return trainer_thread_ == nullptr || trainer_thread_->IsPaused();
+}
+
+bool RunnerApp::IsTrainingRunning() const
+{
+    return trainer_thread_ != nullptr && trainer_thread_->IsRunning();
+}
+
 void RunnerApp::ToggleTraining()
 {
-    bool paused = trainer_thread_->IsPaused();
+    SetTrainingPaused(!trainer_thread_->IsPaused());
+}
+
+void RunnerApp::PauseTraining()
+{
+    // 「止まっていること」を要求する操作 (Save 等) から呼ぶ。既に pause 済みなら何もしない。
+    if (trainer_thread_ == nullptr || trainer_thread_->IsPaused()) return;
+    SetTrainingPaused(true);
+}
+
+void RunnerApp::SetTrainingPaused(bool paused)
+{
+    // pause/resume はログ・status bar・出力 flush まで含めて 1 つの操作として扱う。
     std::string log_str;
     if (paused) {
-        trainer_thread_->Resume();
-        log_str = "Training resumed";
-    } else {
         trainer_thread_->Pause();
         log_str = "Training paused";
+    } else {
+        trainer_thread_->Resume();
+        log_str = "Training resumed";
     }
     LOG::info() << log_str;
-    wxGetApp().GetMainFrame()->SetStatusText(log_str);
+    GetMainFrame()->SetStatusText(log_str);
     FlushRunOutputs();
 }
 
