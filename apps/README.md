@@ -26,6 +26,7 @@ anet-lab の実行アプリケーションと起動 launcher(bat)を置くディ
 |---|---|---|
 | `10_run.bat` | Runner を GUI 起動。引数はRunnerへ渡し、runは選択workspaceの`runs/`に作成される | 同梱物のみ |
 | `11_batch_run.bat` | Runner をバッチ実行(設定 override を列挙して連続 run) | 同梱物のみ |
+| `12_batch_run_atari5.bat` | Atari-5(5 ゲーム)の A/B バッチ実行。workspace `atari-5` の config が無ければ自動生成する。**リリース zip には含まれない**(Atari は `ANET_ENABLE_ATARI` によるオプショナルビルドのため。ADR 0025) | ALE 有効ビルド + ROM |
 | `21_metrics_viewer.bat` | Python 版 Metrics Viewer(開発用) | `viewers/metrics-tools` + venv |
 | `22_metrics_viewer_java.bat` | Metrics Viewer(Java)起動 → http://localhost:8082 | Java 17+ |
 | `23_optuna_dashboard.bat` | Optuna Dashboard → http://127.0.0.1:8088 | optuna-dashboard |
@@ -44,7 +45,7 @@ workspace対応の補助batは第1引数をworkspace pathとして受け取り�
 
 - `LICENSE` — anet-lab本体に適用するApache License 2.0
 - `NOTICE` — anet-lab本体の著作権表示
-- `apps/` — 本ディレクトリ(実行バイナリ・設定・launcher。ソースは含まない)
+- `apps/` — 本ディレクトリ(実行バイナリ・設定・launcher。ソースは含まない)。Atari 用 launcher は除外(ADR 0025)
 - `docs/design/` — 設計ドキュメント
 - `licenses/` — 同梱する第三者ソフトウェアのライセンス
 
