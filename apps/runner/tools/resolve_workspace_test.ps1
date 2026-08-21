@@ -9,6 +9,7 @@ $runnerRoot = Split-Path -Parent $toolsRoot
 $appsRoot = Split-Path -Parent $runnerRoot
 $repoRoot = Split-Path -Parent $appsRoot
 $sourceResolver = Join-Path $toolsRoot 'resolve_workspace.bat'
+$sourceDashboard = Join-Path $appsRoot '23_optuna_dashboard.bat'
 $launcherNames = @(
     '31_tb_bridge.bat',
     '32_start_tb.bat',
@@ -48,6 +49,25 @@ function Invoke-Resolver([string]$Argument = '') {
     $exitCode = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     return [pscustomobject]@{ ExitCode = $exitCode; Output = ($output -join "`n") }
+}
+
+function Invoke-Dashboard([string]$Argument = '', [string]$WorkingDirectory = $testRoot) {
+    $launcher = Join-Path $testRoot '23_optuna_dashboard.bat'
+    $command = if ($Argument) {
+        "`"$launcher`" `"$Argument`""
+    } else {
+        "`"$launcher`""
+    }
+    Push-Location $WorkingDirectory
+    try {
+        $ErrorActionPreference = 'Continue'
+        $output = & $env:COMSPEC /d /s /c $command 2>&1
+        $exitCode = $LASTEXITCODE
+        $ErrorActionPreference = 'Stop'
+        return [pscustomobject]@{ ExitCode = $exitCode; Output = ($output -join "`n") }
+    } finally {
+        Pop-Location
+    }
 }
 
 function Assert-BatchFileEncoding {
@@ -122,15 +142,34 @@ function Assert-MlflowBridgeStartupFeedback {
     }
 }
 
+function Assert-OptunaDashboardWiring {
+    $content = $shiftJis.GetString([IO.File]::ReadAllBytes($sourceDashboard))
+    foreach ($expected in @(
+        '%~dp0runner',
+        '\workspaces\%WORKSPACE_INPUT%',
+        'set "STORAGE_PATH=%OPTUNA_DIR%\optuna.db"',
+        '--artifact-dir artifacts'
+    )) {
+        if (-not $content.Contains($expected)) {
+            throw "Optuna Dashboard workspace wiring is missing: $expected"
+        }
+    }
+    if ($content -match '(?im)^\s*mkdir\b') {
+        throw 'Optuna Dashboard launcher must not create workspace outputs.'
+    }
+}
+
 Assert-BatchFileEncoding
 Assert-LauncherWiring
 Assert-MlflowBridgeStartupFeedback
+Assert-OptunaDashboardWiring
 
 try {
     New-Item -ItemType Directory -Force $testRoot | Out-Null
     $fixtureTools = Join-Path $testRoot 'runner\tools'
     New-Item -ItemType Directory -Force $fixtureTools | Out-Null
     Copy-Item -LiteralPath $sourceResolver -Destination $fixtureTools
+    Copy-Item -LiteralPath $sourceDashboard -Destination $testRoot
     $trialRoot = Add-Workspace 'trial'
     $japaneseRoot = Add-Workspace '日本語 workspace'
     $defaultRoot = Add-Workspace '_default'
@@ -138,6 +177,7 @@ try {
     New-Item -ItemType Directory -Force (Join-Path $manualRoot 'runs') | Out-Null
     $noRunsRoot = Join-Path $testRoot 'runner\workspaces\no-runs'
     New-Item -ItemType Directory -Force $noRunsRoot | Out-Null
+    $dashboardRoot = Add-Workspace 'dashboard'
 
     $explicit = Invoke-Resolver '  trial  '
     if ($explicit.ExitCode -ne 0 -or $explicit.Output -notlike "*$(Join-Path $trialRoot 'runs')*") {
@@ -193,6 +233,35 @@ try {
     $missing = Invoke-Resolver 'not-created'
     if ($missing.ExitCode -eq 0 -or (Test-Path (Join-Path $testRoot 'runner\workspaces\not-created'))) {
         throw 'Launcher created or accepted a missing workspace.'
+    }
+
+    $dashboardNoArg = Invoke-Dashboard
+    if ($dashboardNoArg.ExitCode -eq 0 -or $dashboardNoArg.Output -notlike '*Usage:*') {
+        throw "Dashboard accepted missing workspace argument: $($dashboardNoArg.Output)"
+    }
+
+    $dashboardMissing = Invoke-Dashboard 'not-created'
+    if ($dashboardMissing.ExitCode -eq 0 -or (Test-Path (Join-Path $testRoot 'runner\workspaces\not-created'))) {
+        throw 'Dashboard created or accepted a missing workspace.'
+    }
+
+    $otherCwd = Join-Path $testRoot 'other-cwd'
+    New-Item -ItemType Directory -Force $otherCwd | Out-Null
+    $dashboardWithoutStorage = Invoke-Dashboard 'dashboard' $otherCwd
+    $expectedStorage = Join-Path $dashboardRoot 'optuna\optuna.db'
+    if ($dashboardWithoutStorage.ExitCode -eq 0 -or $dashboardWithoutStorage.Output -notlike "*$expectedStorage*") {
+        throw "Dashboard relative path was not resolved from the batch location: $($dashboardWithoutStorage.Output)"
+    }
+    if (Test-Path (Join-Path $dashboardRoot 'optuna')) {
+        throw 'Dashboard created optuna directory while reporting missing storage.'
+    }
+
+    $dashboardOptuna = Join-Path $dashboardRoot 'optuna'
+    New-Item -ItemType Directory -Force $dashboardOptuna | Out-Null
+    New-Item -ItemType File (Join-Path $dashboardOptuna 'optuna.db') | Out-Null
+    $dashboardWithoutArtifacts = Invoke-Dashboard 'dashboard' $otherCwd
+    if ($dashboardWithoutArtifacts.ExitCode -eq 0 -or (Test-Path (Join-Path $dashboardOptuna 'artifacts'))) {
+        throw 'Dashboard created or accepted a missing artifact directory.'
     }
 
     Write-Output 'Workspace launcher tests passed.'

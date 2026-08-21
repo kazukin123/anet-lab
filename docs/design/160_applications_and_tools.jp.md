@@ -267,7 +267,7 @@ sequenceDiagram
     participant O as Optuna Study
     participant P as RunnerProcessManager
     participant X as AnetRLRunner child
-    participant R as runs_optuna
+    participant R as workspace/runs
     participant S as MetricsSummarizer
 
     U->>H: run-study / run-trial
@@ -294,11 +294,12 @@ sequenceDiagram
 |---|---|---|
 | GUI Run | `apps/10_run.bat [--workspace <path>]` | `<workspace>/runs` |
 | 通常Runの可視化 | `apps/22_metrics_viewer_java.bat` | `http://localhost:8082` |
-| Optuna study/artifact | `apps/23_optuna_dashboard.bat` | `http://127.0.0.1:8088` |
-| DropMerge探索 | `.venv\Scripts\python.exe apps\runner\tools\dropmerge_optuna.py run-study ...` | `apps/runner/runs_optuna` |
+| Optuna study/artifact | `apps/23_optuna_dashboard.bat <workspace_path>` | `<workspace>/optuna`、`http://127.0.0.1:8088` |
+| DropMerge探索 | `.venv\Scripts\python.exe apps\runner\tools\dropmerge_optuna.py run-study --workspace <path> ...` | `<workspace>/runs`、`<workspace>/optuna` |
 
 - 通常Runnerはworkspaceを選び、実験差分は末尾の`key=value` overrideで渡す。`--config`はworkspaceを使わない完全自己記述起動に限定する。
 - Viewerは`apps/runner/workspaces`を既定の親directoryとし、画面のselectorでcurrent workspaceを切り替える。親directoryは`--metricsviewer.workspaces-dir`で差し替える。
+- Optuna harnessは既存workspaceと`config/_main.txt`をpreflightし、Runを`runs/`、SQLite storage・artifact store・harness logを`optuna/`へ固定する。run系の出力overrideは選択workspaceの`optuna/`配下だけを許可する。
 - Optuna harnessのPythonはrepository rootの`.venv`を使う。
 - Viewer frontendはbuild工程を持たず、外部依存はCDNのPlotlyだけを読む。完全offline環境ではasset取得方法を別途用意する必要がある。
 

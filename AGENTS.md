@@ -304,6 +304,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File apps\runner\tools\resolve_wo
 .\.venv\Scripts\python.exe viewers\metrics-tools\metrics_source_test.py
 .\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run_test.py
 .\.venv\Scripts\python.exe viewers\metrics-tools\tb_bridge_test.py
+.\.venv\Scripts\python.exe apps\runner\tools\optuna_workspace_test.py
 .\.venv\Scripts\python.exe apps\runner\tools\optuna_metrics_gzip_test.py
 ```
 

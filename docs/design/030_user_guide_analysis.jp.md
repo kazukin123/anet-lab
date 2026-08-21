@@ -183,13 +183,13 @@ IQN探索では、解決済み`config/config_data.txt`に`metrics.scalar.iqn_sea
 
 代表folder`<study_name>_<trial_name>`は`metrics.jsonl`を持たないためMetrics Viewerには出ない。`_s<seed>`付きのseed runだけを時系列比較する。summary studyはDashboard閲覧用であり、Metrics ViewerのRunではない。
 
-Optuna Dashboardは`apps/runner`から次で起動する。
+Optuna Dashboardはリポジトリルートから次で起動する。
 
 ```powershell
-23_optuna_dashboard.bat
+apps\23_optuna_dashboard.bat dm_opt
 ```
 
-URLは`http://127.0.0.1:8088`、storageは`apps/runner/runs_optuna/optuna.db`、artifact storeは`runs_optuna/artifacts`である。
+引数にはworkspace名または絶対pathを指定する。URLは`http://127.0.0.1:8088`、storageは`<workspace>/optuna/optuna.db`、artifact storeは`<workspace>/optuna/artifacts`である。launcherはworkspace、DB、artifact storeを生成せず、いずれかが無い場合はfail-fastする。
 
 ### 5.2 scoreを読む
 
