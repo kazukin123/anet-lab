@@ -13,7 +13,7 @@ Atari の num_envs A/B で、独立した 2 つの不具合が同時に露見し
 
 ### 不具合 A: eval 発火頻度が num_envs 依存
 
-`EpisodeEvalObserver::OnLearn` は `step % eval_interval_ == 0` で発火を判定する（[observers.cpp:550](../../core/anet-core/src/observers.cpp)）。しかし `LearnEvent` は round（1 回の `UpdateFromBatch`）につき 1 回しか飛ばず、そこに載る `learn_step` は round あたり
+`EpisodeEvalObserver::OnLearn` は `step % eval_interval_ == 0` で発火を判定する（[observers.cpp:550](../../../core/anet-core/src/observers.cpp)）。しかし `LearnEvent` は round（1 回の `UpdateFromBatch`）につき 1 回しか飛ばず、そこに載る `learn_step` は round あたり
 
 ```
 J = num_envs × replay_ratio / batch
@@ -23,18 +23,18 @@ J = num_envs × replay_ratio / batch
 
 確定した原因連鎖（実証済み）:
 
-1. `learn_step` は勾配更新 1 回ごとに `++`（[dqn_based_agent.cpp:2374](../../core/anet-core/src/dqn_based_agent.cpp)）。round 内の J 回分は `step_counts_.learn_step += update_results.size()` で**一括加算**され、しかも加算は `LearnEvent` 通知の**後**（[trainer.cpp:527,544](../../core/anet-core/src/trainer.cpp)）。
+1. `learn_step` は勾配更新 1 回ごとに `++`（[dqn_based_agent.cpp:2374](../../../core/anet-core/src/dqn_based_agent.cpp)）。round 内の J 回分は `step_counts_.learn_step += update_results.size()` で**一括加算**され、しかも加算は `LearnEvent` 通知の**後**（[trainer.cpp:527,544](../../../core/anet-core/src/trainer.cpp)）。
 2. したがって Observer が見る `learn_step` は round 開始時点の値で、J 刻みの離散列になる（n512 なら 0, 16, 32, …／n64 なら 0, 2, 4, …）。
 3. `interval=100` に対し、n512 は `LCM(16,100)=400` 更新ごと、n64 は `LCM(2,100)=100` 更新ごとに発火。**同じ設定で eval 回数が 4 倍違う**。
 4. eval は同期的にコストを発生させるため、この差がそのまま wall-clock 差になった。当初「n512 の方が 2.65 倍速い」と読めたが、eval 頻度を揃えると n64 1,198 steps/s ≒ n512 1,264 steps/s で差は消える。**num_envs の性能差と読めていたものは、実体はこのバグだった**。
 
 さらに `update_credit` は float であるため、`num_envs=100`（J=3.125）のような構成では `learn_step` が 3, 3, 4, 3, … と進み、99→102 のようにバケット境界を跨いでも発火しない。**周期が伸びるのではなく、発火が丸ごと欠落する**。
 
-同じ構造は EXP 軸の metrics にもある（[observers.cpp:977](../../core/anet-core/src/observers.cpp)）。`exp_step` は round あたり `num_envs` 刻みなので、`interval:100` の perf メトリクスは実際には `LCM(num_envs, 100)` ごとにしか記録されていなかった（n64 で 1,600 / n512 で 12,800、実測一致）。
+同じ構造は EXP 軸の metrics にもある（[observers.cpp:977](../../../core/anet-core/src/observers.cpp)）。`exp_step` は round あたり `num_envs` 刻みなので、`interval:100` の perf メトリクスは実際には `LCM(num_envs, 100)` ごとにしか記録されていなかった（n64 で 1,600 / n512 で 12,800、実測一致）。
 
 ### 不具合 B: perf メトリクスが真値を隠す
 
-`TrainRunner::CalcPerformanceMetrics` は 200ms 以上たまった窓を閉じてレートを上書きする（[trainer.cpp:404-424](../../core/anet-core/src/trainer.cpp)）。
+`TrainRunner::CalcPerformanceMetrics` は 200ms 以上たまった窓を閉じてレートを上書きする（[trainer.cpp:404-424](../../../core/anet-core/src/trainer.cpp)）。
 
 ```cpp
 if (usec_diff >= 200000) { // 200msec 積算
@@ -85,7 +85,7 @@ if (usec_diff >= 200000) { // 200msec 積算
 | 軸 | round あたりの刻み | 判定 |
 |---|---|---|
 | TRAIN（`train_step`） | +1 | 健全 |
-| LEARN、metrics 経由 | +1（UpdateResult 1 件ごとに展開済み。[observers.cpp:802-820](../../core/anet-core/src/observers.cpp)） | 健全 |
+| LEARN、metrics 経由 | +1（UpdateResult 1 件ごとに展開済み。[observers.cpp:802-820](../../../core/anet-core/src/observers.cpp)） | 健全 |
 | LEARN、Observer が直参照 | +J（`J = num_envs × replay_ratio / batch`） | **バグ** |
 | EXP（`exp_step`） | +num_envs | **バグ** |
 | `local_episode_count_` | +1（エピソード終端ごと） | 健全 |
@@ -99,17 +99,17 @@ RR と batch を固定している限り `learn_step = exp_step × RR / batch` �
 
 | 箇所 | 参照軸 |
 |---|---|
-| [observers.cpp:550](../../core/anet-core/src/observers.cpp) `EpisodeEvalObserver::OnLearn` | LEARN 直参照 |
-| [observers.cpp:148](../../core/anet-core/src/observers.cpp) `TimeHistogramObserver` frame_interval | LEARN 直参照 |
-| [observers.cpp:157](../../core/anet-core/src/observers.cpp) `TimeHistogramObserver` log_interval | LEARN 直参照 |
-| [observers.cpp:387](../../core/anet-core/src/observers.cpp) `SweepedHeatMapObserver` log_interval | LEARN 直参照（`event.counts.learn_step`） |
-| [observers.cpp:977](../../core/anet-core/src/observers.cpp) `MetricsLogObserverBase` | config 指定軸（EXP 軸のとき該当） |
+| [observers.cpp:550](../../../core/anet-core/src/observers.cpp) `EpisodeEvalObserver::OnLearn` | LEARN 直参照 |
+| [observers.cpp:148](../../../core/anet-core/src/observers.cpp) `TimeHistogramObserver` frame_interval | LEARN 直参照 |
+| [observers.cpp:157](../../../core/anet-core/src/observers.cpp) `TimeHistogramObserver` log_interval | LEARN 直参照 |
+| [observers.cpp:387](../../../core/anet-core/src/observers.cpp) `SweepedHeatMapObserver` log_interval | LEARN 直参照（`event.counts.learn_step`） |
+| [observers.cpp:977](../../../core/anet-core/src/observers.cpp) `MetricsLogObserverBase` | config 指定軸（EXP 軸のとき該当） |
 
 **対象外（刻み 1 で健全。誤って触らないこと）**
 
-- [observers.cpp:71](../../core/anet-core/src/observers.cpp) `HeatMapVectorObserver::OnTrain`、[observers.cpp:322](../../core/anet-core/src/observers.cpp) `MultiPairHeatMapObserver::OnTrain`、[observers.cpp:1057](../../core/anet-core/src/observers.cpp) `GraphVizObserver::OnTrain` — いずれも TRAIN 軸
-- [observers.cpp:629](../../core/anet-core/src/observers.cpp)、[observers.cpp:1041](../../core/anet-core/src/observers.cpp) — `local_episode_count_`
-- [dqn_based_agent.cpp:440](../../core/anet-core/src/dqn_based_agent.cpp) `hard_update_interval`、[image_cls_agent.cpp:430](../../core/anet-core/src/image_cls_agent.cpp) `learn_log_interval` — Agent 内部で 1 刻み
+- [observers.cpp:71](../../../core/anet-core/src/observers.cpp) `HeatMapVectorObserver::OnTrain`、[observers.cpp:322](../../../core/anet-core/src/observers.cpp) `MultiPairHeatMapObserver::OnTrain`、[observers.cpp:1057](../../../core/anet-core/src/observers.cpp) `GraphVizObserver::OnTrain` — いずれも TRAIN 軸
+- [observers.cpp:629](../../../core/anet-core/src/observers.cpp)、[observers.cpp:1041](../../../core/anet-core/src/observers.cpp) — `local_episode_count_`
+- [dqn_based_agent.cpp:440](../../../core/anet-core/src/dqn_based_agent.cpp) `hard_update_interval`、[image_cls_agent.cpp:430](../../../core/anet-core/src/image_cls_agent.cpp) `learn_log_interval` — Agent 内部で 1 刻み
 - `metrics_scalar.txt` の min 層 / full 層 perf — `$exp_step` 未指定のため `@train` 既定の train_step 軸で健全
 
 ### 1.3 再現例
@@ -181,7 +181,7 @@ Update(x);                                              // 既存の value_/weig
 ```
 
 - **バイアス補正はそのまま成立する**。`weight_` を `value_` と同じ漸化式で更新する PRD 045 の方式は一様 α を仮定しないため、α が呼び出しごとに変わっても `Value()` は「観測済みサンプルの重み付き平均」であり続ける。
-- α の下限クランプが必要。極小 `dt` では `1 - exp(-dt/tau)` が浮動小数点で 0 に落ち、`ValidateDecay` の `(0, 1]` 検査に引っかかる（[util.hpp:139-145](../../core/anet-core/include/anet/util.hpp)）。
+- α の下限クランプが必要。極小 `dt` では `1 - exp(-dt/tau)` が浮動小数点で 0 に落ち、`ValidateDecay` の `(0, 1]` 検査に引っかかる（[util.hpp:139-145](../../../core/anet-core/include/anet/util.hpp)）。
 - 排他契約（D8）:
 
 | 呼び出し | 結果 |
@@ -217,7 +217,7 @@ last_exp_step_ = exp_step;
 - **意味の変更**: tag `90_perf/12` は「直近 200ms 窓の瞬間値」から「τ=10 秒の時間重み EMA」になる。過去 Run の同 tag と数値を直接比較できなくなる（過去値は stall を過小評価している）。
 - `90_perf/22` は「時間重み EMA をさらにサンプル EMA で平滑した値」になる（D11）。`ema_alpha:0.001` × サンプル間隔から、実効的には Run 全体平均に近い長期線として機能する。
 - `train_step_per_sec` も同一関数内なので同じ扱いになる。
-- `acc_train_steps_` / `acc_exp_steps_` は 0 代入のみで読まれない dead member であり、本変更で削除する（[trainer.hpp:140-141](../../core/anet-core/include/anet/trainer.hpp)）。
+- `acc_train_steps_` / `acc_exp_steps_` は 0 代入のみで読まれない dead member であり、本変更で削除する（[trainer.hpp:140-141](../../../core/anet-core/include/anet/trainer.hpp)）。
 - `EvalRunner` は `TrainRunner` の兄弟クラスで perf キーを持たないため（`RunnerBase::GetScalar` に perf キーなし）、影響しない。
 
 ### 2.4 config interval の再設計
@@ -284,7 +284,7 @@ perf 系は実時間依存で時刻注入の仕組みが無いため、`CalcPerf
 
 ## 5. スコープ外
 
-- **eval コスト自体の設計**。エピソード長がスキル向上に伴って伸びる（Pong で 764 → 5,342 step）ため、固定 interval では終盤ほど eval が高くつく。当面は `interval` の調整で対応する。`eval_batch_size > 1` は現行の `RunEvaluationEpisode` が `LastStepHadEpisodeEnd()`（[trainer.cpp:166](../../core/anet-core/src/trainer.cpp) — **どれか 1 lane でも終端で true**）で停止するため、記録されるのは最初に終わった 1 本だけであり、短いエピソードほど先に終わる分だけスコアが下振れする。使うなら「全 lane 終端まで回して平均」への変更がセットで必要。
+- **eval コスト自体の設計**。エピソード長がスキル向上に伴って伸びる（Pong で 764 → 5,342 step）ため、固定 interval では終盤ほど eval が高くつく。当面は `interval` の調整で対応する。`eval_batch_size > 1` は現行の `RunEvaluationEpisode` が `LastStepHadEpisodeEnd()`（[trainer.cpp:166](../../../core/anet-core/src/trainer.cpp) — **どれか 1 lane でも終端で true**）で停止するため、記録されるのは最初に終わった 1 本だけであり、短いエピソードほど先に終わる分だけスコアが下振れする。使うなら「全 lane 終端まで回して平均」への変更がセットで必要。
 - **Observer 呼び出し構造の変更**（Agent 内部トリガへの回帰）。round より細かい eval は原理的に不可能（D5）。
 - **`interval` 指定なしの agent 系メトリクス**（metrics.jsonl の約 96%）の間引き。今回のバグとは独立で、毎イベント記録は意図どおり。
 - **perf メトリクスの τ の設定化**。§7 参照。

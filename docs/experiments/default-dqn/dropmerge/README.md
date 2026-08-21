@@ -32,7 +32,7 @@ DropMerge の DefaultDQNAgent 系 Run に関する探索索引です。
 ## DropMerge 共通の学習・挙動知見
 
 以下は複数のcampaignを横断して使う運用上の用語と判断基準である。
-Run固有の数値は各campaign文書、終端契約は[PRD039](../../../memo/039_dropmerge_nolegal_adjudication_10prd.md)、prev-action観測は[PRD040](../../../memo/040_dropmerge_prev_action_obs_10prd.md)を正本とする。
+Run固有の数値は各campaign文書、終端契約は[PRD039](../../../memo/done/039_dropmerge_nolegal_adjudication_10prd.md)、prev-action観測は[PRD040](../../../memo/done/040_dropmerge_prev_action_obs_10prd.md)を正本とする。
 
 ### NOOP 系方策の用語
 

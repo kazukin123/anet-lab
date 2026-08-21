@@ -1,6 +1,6 @@
 # 近似Actor PER初期優先度 実装メモ
 
-> **履歴注記**: 本文は初回実装時の計画を記録したものである。`ActorQHint`、CPU validity、completion責務の契約は、現行の[PRD 035](./035_approx_actor_priority_per_10prd.md)と[ADR 0012](../adr/0012-replay-initial-priority-hint-completion.md)で置き換えた。次回改修の実装根拠には使用せず、後続作業では次番号の`21impl`を作成する。
+> **履歴注記**: 本文は初回実装時の計画を記録したものである。`ActorQHint`、CPU validity、completion責務の契約は、現行の[PRD 035](./035_approx_actor_priority_per_10prd.md)と[ADR 0012](../../adr/0012-replay-initial-priority-hint-completion.md)で置き換えた。次回改修の実装根拠には使用せず、後続作業では次番号の`21impl`を作成する。
 
 ## 概要
 

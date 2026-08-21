@@ -4,7 +4,7 @@
 > 本書は self-contained。実装時は行番号ではなく、近傍のシンボル名で再検索する。
 > 用語(Run作業セット / Metricsマスタ / Metricsキャッシュ / 序数 / LODバケット)は
 > リポジトリルート `CONTEXT.md` の「Metrics基盤」節が正本。
-> 対応 ADR: [0015-metrics-cache-disposable-derivative.md](../adr/0015-metrics-cache-disposable-derivative.md)
+> 対応 ADR: [0015-metrics-cache-disposable-derivative.md](../../adr/0015-metrics-cache-disposable-derivative.md)
 
 ## Context(背景・目的)
 

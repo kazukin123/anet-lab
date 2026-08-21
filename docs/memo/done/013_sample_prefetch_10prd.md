@@ -19,7 +19,7 @@
 ## 1. 前提事実（調査済み・再調査不要）
 
 ### 1.1 パイプライン（`core/anet-core/src/trainer.cpp`）
-`PipelineTrainRunner::DoStep`（[:511](../../core/anet-core/src/trainer.cpp)）は冒頭 `learn_future_.get()`（前 learn join）→ `actor_->MakeAction` → `learn_future_ = learn_pool_->EnqueueFuture(0, [...]{ return learner->UpdateFromBatch(...); })`（:577）→ env Step。専用 `learn_pool_`（`anet::PinnedThreadPool` 1本）。**この future/pool パターンを prefetch にも踏襲する。**
+`PipelineTrainRunner::DoStep`（[:511](../../../core/anet-core/src/trainer.cpp)）は冒頭 `learn_future_.get()`（前 learn join）→ `actor_->MakeAction` → `learn_future_ = learn_pool_->EnqueueFuture(0, [...]{ return learner->UpdateFromBatch(...); })`（:577）→ env Step。専用 `learn_pool_`（`anet::PinnedThreadPool` 1本）。**この future/pool パターンを prefetch にも踏襲する。**
 
 ### 1.2 learner ループ（`core/anet-core/src/dqn_based_agent.cpp`）
 `Learner::UpdateFromBatch`（:1285）：`replay_buffer_->Push(experiences)` → `while (update_credit_ >= 1.0)` { `replay_buffer_->Sample(samples, B, beta)`（:1312）→ `auto dev_samples = samples.To(device_)`（:1326）→ `UpdateFromSamples(dev_samples)` }。`UpdateFromSamples`（QR は :1685）末尾で `UpdatePerPriorities`（sum-tree 書き込み）。**credit ループは可変回数**（replay_ratio・num_envs 依存）。prefetch はループ境界をまたいで「次に消費するバッチ」を1つ先読みする。

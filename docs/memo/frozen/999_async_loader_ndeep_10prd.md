@@ -1,5 +1,7 @@
 # 将来メモ：AsyncLoader の N-deep 化（AsyncDataLoader）と split の再来
 
+> 凍結中(再開条件: 1-deep prefetch が律速になる実測が出たら)
+
 DI-engine の `AsyncDataLoader` 相当 ―― **prefetch 深さ N > 1（バッチを N 本先読み）+ キュー化** ―― を将来やる時の設計メモ。現行の `PrefetchingReplayBuffer`（`docs/memo/014_async_loader_prefetch_10prd.md`、ADR 0005）は **1-deep + A2'（monolithic background `Sample+To`）** であり、現在の遅延 Push は同じ FIFO worker へ `Push` を write-behind する別実験である。現行実装は internal plan/fetch split ではないため、N-deep にする時は新しい plan/fetch seam を設計し直す。
 
 ## なぜ wait だけでは N-deep にスケールしないか

@@ -1,5 +1,7 @@
 # Actor-side PER initial priority PRD 草案
 
+> 中止(理由: PRD 035 として正式採番・実装済み(docs/memo/done/035_approx_actor_priority_per_10prd.md)。本書は旧草案)
+
 > 番号 999。検討草案。
 > テーマ: `per_initial_priority` / `max_prio` による仮の初期優先度を、Ape-X 風の actor 推定 priority に置き換えるかを検討する。
 

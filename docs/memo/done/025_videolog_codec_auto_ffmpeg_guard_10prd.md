@@ -9,10 +9,10 @@
 
 **確定した原因連鎖（実証済み）:**
 
-1. `SweepHeatMapPanel::CreateObserver`（[HeatMapPanel.cpp:390-398](../../apps/runner/src/HeatMapPanel.cpp)）が `grid_width=128, grid_height=128, image_width=-1, image_height=-1` の `SweepedHeatMapObserver` を **パネル表示時に** `Attach`（[:450](../../apps/runner/src/HeatMapPanel.cpp)）。→「最初は動く／パネルを出すと落ちる」の理由。
-2. `image_width/height=-1` → `ImageSource::Render(-1,-1)` は `RenderRaw()` を**そのまま返す**（[image.cpp:23](../../core/anet-core/src/image.cpp)）→ 動画寸法 = 生グリッド **128×128**。
+1. `SweepHeatMapPanel::CreateObserver`（[HeatMapPanel.cpp:390-398](../../../apps/runner/src/HeatMapPanel.cpp)）が `grid_width=128, grid_height=128, image_width=-1, image_height=-1` の `SweepedHeatMapObserver` を **パネル表示時に** `Attach`（[:450](../../../apps/runner/src/HeatMapPanel.cpp)）。→「最初は動く／パネルを出すと落ちる」の理由。
+2. `image_width/height=-1` → `ImageSource::Render(-1,-1)` は `RenderRaw()` を**そのまま返す**（[image.cpp:23](../../../core/anet-core/src/image.cpp)）→ 動画寸法 = 生グリッド **128×128**。
 3. run のコーデックは `metrics_logger.video_codec = h264_nvenc`。**NVENC は最小解像度制約（H.264 で概ね 145×49、世代/ドライバ依存）があり 128×128 を拒否**。ffmpeg が `return code -22 (Invalid argument)` で即終了し **0 バイト MKV** を残す（`ffmpeg` 単体で再現確認済み。512×512 は成功、128×128+libx264 も成功）。
-4. `VideoLogger` は ffmpeg の死を検出できず、`process_` 所有のパイプ書込ストリームへの**生ポインタ `stream_`** が無効化された後も保持し続ける。次の `WriteFrame` が `stream_->IsOk()`（仮想呼び出し）を無効オブジェクトに対して行い **UAF クラッシュ**。`if (!stream_ || !stream_->IsOk()) return;`（[metrics_logger.cpp:128](../../core/anet-core/src/metrics_logger.cpp)）の null チェックも `IsOk()` も「非 null のまま指し先が死んだ」状態は検出できない。
+4. `VideoLogger` は ffmpeg の死を検出できず、`process_` 所有のパイプ書込ストリームへの**生ポインタ `stream_`** が無効化された後も保持し続ける。次の `WriteFrame` が `stream_->IsOk()`（仮想呼び出し）を無効オブジェクトに対して行い **UAF クラッシュ**。`if (!stream_ || !stream_->IsOk()) return;`（[metrics_logger.cpp:128](../../../core/anet-core/src/metrics_logger.cpp)）の null チェックも `IsOk()` も「非 null のまま指し先が死んだ」状態は検出できない。
 
 **根本問題は 2 つ:**
 
@@ -36,19 +36,19 @@
 
 ### R1: ffmpeg 異常の検出と fail-fast（要件①）
 
-対象: `VideoLogger`（[metrics_logger.cpp:64-155](../../core/anet-core/src/metrics_logger.cpp), [metrics_logger.hpp:84-102](../../core/anet-core/include/anet/metrics_logger.hpp)）。
+対象: `VideoLogger`（[metrics_logger.cpp:64-155](../../../core/anet-core/src/metrics_logger.cpp), [metrics_logger.hpp:84-102](../../../core/anet-core/include/anet/metrics_logger.hpp)）。
 
 - **R1-1 死亡検出（stream 非依存）**: `process_` に `wxEVT_END_PROCESS` ハンドラを張り、ffmpeg 終了時に **`write_mutex_` 下で** ① 死亡フラグ `ffmpeg_dead_` を立て ② `exit_code_` を記録 ③ `process_->GetErrorStream()` から ffmpeg の stderr を drain して `captured_stderr_` に保持 ④ `stream_ = nullptr` に無効化。以降 `WriteFrame` は死んだ生ポインタを触らない。
 - **R1-2 起動失敗検出**: コンストラクタで launch 後、**起動直後生存チェック**（下記 R2 と共有）を行い、ffmpeg が即死していれば stderr を回収して扱う（`auto` はフォールバック、明示指定は fatal）。
 - **R1-3 実行時 fail-fast**: `WriteFrame` は `write_mutex_` 取得後、**stream へ触れる前に** `ffmpeg_dead_ || stream_==nullptr` を判定し、真なら現状の `return` をやめて `ANET_SYSTEM_ERROR`（cmd / path / `exit_code_` / `captured_stderr_` を含める）。書込中に失敗（`!IsOk()`）した場合も `return` でなく `ANET_SYSTEM_ERROR`。
-- **R1-4 排他の是正**: `Close()`（[metrics_logger.cpp:144](../../core/anet-core/src/metrics_logger.cpp)）に `write_mutex_` を追加（コミット `f8008e3` で `WriteFrame` にのみ施錠し `Close()` を無施錠のまま残した非対称の修正）。`stream_` 無効化・`process_` 破棄は必ず `write_mutex_` 下で行う。
-- **R1-5 診断性**: エラーメッセージには最低限 `path_`・実行 cmd・exit code・ffmpeg stderr 抜粋を含める。現状 `Redirect()` で stderr はパイプ化されるが未読（[metrics_logger.cpp:100](../../core/anet-core/src/metrics_logger.cpp)）。異常時のみ読めばよい。
+- **R1-4 排他の是正**: `Close()`（[metrics_logger.cpp:144](../../../core/anet-core/src/metrics_logger.cpp)）に `write_mutex_` を追加（コミット `f8008e3` で `WriteFrame` にのみ施錠し `Close()` を無施錠のまま残した非対称の修正）。`stream_` 無効化・`process_` 破棄は必ず `write_mutex_` 下で行う。
+- **R1-5 診断性**: エラーメッセージには最低限 `path_`・実行 cmd・exit code・ffmpeg stderr 抜粋を含める。現状 `Redirect()` で stderr はパイプ化されるが未読（[metrics_logger.cpp:100](../../../core/anet-core/src/metrics_logger.cpp)）。異常時のみ読めばよい。
 
 ### R2: コーデック `auto` と解像度チェック（要件②）
 
-対象: `MetricsLoggerConfig::video_codec`（[metrics_logger.hpp:111](../../core/anet-core/include/anet/metrics_logger.hpp)）と `VideoLogger` のコーデック分岐（[metrics_logger.cpp:75-87](../../core/anet-core/src/metrics_logger.cpp)）。
+対象: `MetricsLoggerConfig::video_codec`（[metrics_logger.hpp:111](../../../core/anet-core/include/anet/metrics_logger.hpp)）と `VideoLogger` のコーデック分岐（[metrics_logger.cpp:75-87](../../../core/anet-core/src/metrics_logger.cpp)）。
 
-- **R2-1 値の追加**: `video_codec` は `auto` | `h264_nvenc` | `libx264` | その他（従来通り passthrough）を取る。**推奨デフォルトを `auto` に変更**（[metrics_logger.hpp:111](../../core/anet-core/include/anet/metrics_logger.hpp) の `"libx264"` → `"auto"`。§影響・移行 の判断ポイント）。
+- **R2-1 値の追加**: `video_codec` は `auto` | `h264_nvenc` | `libx264` | その他（従来通り passthrough）を取る。**推奨デフォルトを `auto` に変更**（[metrics_logger.hpp:111](../../../core/anet-core/include/anet/metrics_logger.hpp) の `"libx264"` → `"auto"`。§影響・移行 の判断ポイント）。
 - **R2-2 nvenc 適格性判定** `IsNvencEligible(w,h) -> bool`:
   - 偶数（`(w&1)==0 && (h&1)==0`）かつ `w >= kNvencMinWidth` かつ `h >= kNvencMinHeight`。
   - 既定閾値 `kNvencMinWidth=160`, `kNvencMinHeight=64`（NVENC H.264 documented ~145×49 に安全マージン。実測: 128×128 失敗 / 512×512 成功）。**定数化**して将来のドライバ差異に対応可能に。
@@ -70,7 +70,7 @@
 
 ## 実装スケルトン（`core/anet-core/src/metrics_logger.cpp` 中心）
 
-`VideoLogger` メンバ追加（[metrics_logger.hpp:84-102](../../core/anet-core/include/anet/metrics_logger.hpp)）:
+`VideoLogger` メンバ追加（[metrics_logger.hpp:84-102](../../../core/anet-core/include/anet/metrics_logger.hpp)）:
 
 ```cpp
 // 追加メンバ
@@ -80,7 +80,7 @@ std::string captured_stderr_;
 std::string launch_cmd_;   // エラーメッセージ用に構築 cmd を保持
 ```
 
-コーデック決定 + 起動 + 生存チェック（コンストラクタ [metrics_logger.cpp:64-122](../../core/anet-core/src/metrics_logger.cpp)）:
+コーデック決定 + 起動 + 生存チェック（コンストラクタ [metrics_logger.cpp:64-122](../../../core/anet-core/src/metrics_logger.cpp)）:
 
 ```cpp
 namespace {
@@ -136,7 +136,7 @@ process_->Bind(wxEVT_END_PROCESS, [this](wxProcessEvent& e) {
 });
 ```
 
-`WriteFrame`（[metrics_logger.cpp:124-142](../../core/anet-core/src/metrics_logger.cpp)）:
+`WriteFrame`（[metrics_logger.cpp:124-142](../../../core/anet-core/src/metrics_logger.cpp)）:
 
 ```cpp
 void VideoLogger::WriteFrame(const wxImage& img) {
@@ -150,7 +150,7 @@ void VideoLogger::WriteFrame(const wxImage& img) {
 }
 ```
 
-`Close()`（[metrics_logger.cpp:144-155](../../core/anet-core/src/metrics_logger.cpp)）:
+`Close()`（[metrics_logger.cpp:144-155](../../../core/anet-core/src/metrics_logger.cpp)）:
 
 ```cpp
 void VideoLogger::Close() {
@@ -165,14 +165,14 @@ void VideoLogger::Close() {
 }
 ```
 
-**実装上の要検証ポイント（wx ライフタイム）**: 本 UAF は「ffmpeg 死亡時に `stream_` の指し先が無効化される」ことが実証されている。上記は `WriteFrame` が **stream へ触れる前に** `ffmpeg_dead_`/`stream_==nullptr` を門番する設計だが、`wxEVT_END_PROCESS` がメインスレッドの event loop で処理される前に wx 内部が stream を無効化する窓が理論上残る。実装時に元リポジトリ（128×128+nvenc）で **クラッシュが消えることを必ず確認**し、もし残る場合は `WriteFrame` 先頭に `wxProcess::Exists(pid)`（stream 非依存の生存確認）を追加する。`ExecuteStarter`（[metrics_logger.hpp:47-79](../../core/anet-core/include/anet/metrics_logger.hpp)）経由でメインスレッド起動している点に留意（bind/終了通知もメインスレッド）。
+**実装上の要検証ポイント（wx ライフタイム）**: 本 UAF は「ffmpeg 死亡時に `stream_` の指し先が無効化される」ことが実証されている。上記は `WriteFrame` が **stream へ触れる前に** `ffmpeg_dead_`/`stream_==nullptr` を門番する設計だが、`wxEVT_END_PROCESS` がメインスレッドの event loop で処理される前に wx 内部が stream を無効化する窓が理論上残る。実装時に元リポジトリ（128×128+nvenc）で **クラッシュが消えることを必ず確認**し、もし残る場合は `WriteFrame` 先頭に `wxProcess::Exists(pid)`（stream 非依存の生存確認）を追加する。`ExecuteStarter`（[metrics_logger.hpp:47-79](../../../core/anet-core/include/anet/metrics_logger.hpp)）経由でメインスレッド起動している点に留意（bind/終了通知もメインスレッド）。
 
 ## 影響・移行
 
 - **既定変更（判断ポイント）**: `MetricsLoggerConfig::video_codec` の既定を `"libx264"` → `"auto"` に変更（R2-1）。既存 config（本 run の `metrics_logger.video_codec = h264_nvenc` 等）は**明示指定のため影響なし**。未指定のケースのみ最も安全な `auto` になる。
 - **明示 `h264_nvenc` + 小動画は挙動変化**: 従来 UAF で不定クラッシュ → 本 PRD 後は**構築時の明瞭な `ANET_SYSTEM_ERROR`**（fail-fast）。UAF よりは改善だが「落ちる」点は同じ。**パネル動画を実際に描きたい場合**は次のいずれか:
   - (推奨) `metrics_logger.video_codec = auto` にする → パネルの 128 は libx264 で出力される。
-  - `SweepHeatMapPanel::CreateObserver`（[HeatMapPanel.cpp:395-396](../../apps/runner/src/HeatMapPanel.cpp)）の `image_width/height` を `-1` でなく妥当値（例 512）にする、または `grid` を偶数・十分大に。
+  - `SweepHeatMapPanel::CreateObserver`（[HeatMapPanel.cpp:395-396](../../../apps/runner/src/HeatMapPanel.cpp)）の `image_width/height` を `-1` でなく妥当値（例 512）にする、または `grid` を偶数・十分大に。
   - ライブ表示専用で動画不要なら、パネル観測子の video 出力を無効化する経路を検討（別件・設計の匂い、NG2）。
 - 他の video 経路（`43_agent_img`=512, `45_agent_img`=1024, `metrics.image` 各種）は全て適格サイズのため `auto` で従来通り nvenc が選ばれ、挙動不変。
 

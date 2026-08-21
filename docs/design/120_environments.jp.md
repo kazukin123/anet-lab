@@ -252,5 +252,5 @@ single具象Env testは`VectorizedDiscreteBatchEnv`を通る経路も含む。Im
 - [ReplayBuffer](150_replay_buffer.jp.md)
 - [アプリケーションとツール](160_applications_and_tools.jp.md)
 - [用語集](../../CONTEXT.md)
-- [ImageCls batch入力PRD](../memo/034_imagecls_batch_input_10prd.md)
+- [ImageCls batch入力PRD](../memo/done/034_imagecls_batch_input_10prd.md)
 - [ImageCls batch Env seam ADR](../adr/0009-imagecls-batch-env-seam.md)

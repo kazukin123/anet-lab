@@ -264,7 +264,7 @@ eval panel の grid 表示でマーカーが視認できること、config dump 
 
 - [032_lunarlander_obs_include_action_10prd.md](032_lunarlander_obs_include_action_10prd.md) —
   LunarLander 版先行検証(同型の意味論・テスト構成)。
-- [900_agent_prev_action_obs_10prd.md](900_agent_prev_action_obs_10prd.md) —
+- [900_agent_prev_action_obs_10prd.md](../900_agent_prev_action_obs_10prd.md) —
   恒久・env 非依存の共通部品版(トリガー①の行き先)。本 PRD とは併用しない。
 - [039_dropmerge_nolegal_adjudication_10prd.md](039_dropmerge_nolegal_adjudication_10prd.md) —
   同一ファイル群に未コミット差分あり(保持すること)。
