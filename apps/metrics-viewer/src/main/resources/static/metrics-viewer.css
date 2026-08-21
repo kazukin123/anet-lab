@@ -505,7 +505,9 @@ body.graph-scroll-locked .js-plotly-plot .edrag {
   letter-spacing: 0.2px;
   line-height: 1.5;
 }
-.graph-log-toggle {
+.graph-log-toggle,
+.graph-outlier-toggle,
+.graph-wide-outlier-toggle {
   height: 20px;
   min-width: 34px;
   margin: 4px 0 2px 0;
@@ -518,17 +520,23 @@ body.graph-scroll-locked .js-plotly-plot .edrag {
   font-size: 11px;
   line-height: 16px;
 }
-.graph-log-toggle:hover {
+.graph-log-toggle:hover,
+.graph-outlier-toggle:hover,
+.graph-wide-outlier-toggle:hover {
   color: #fff;
   border-color: #777;
   background: #252525;
 }
-.graph-log-toggle.active {
+.graph-log-toggle.active,
+.graph-outlier-toggle.active,
+.graph-wide-outlier-toggle.active {
   color: var(--active-text);
   border-color: var(--active-accent);
   background: var(--active-background);
 }
-.graph-log-toggle.active:hover { background: var(--active-hover); }
+.graph-log-toggle.active:hover,
+.graph-outlier-toggle.active:hover,
+.graph-wide-outlier-toggle.active:hover { background: var(--active-hover); }
 
 /* Hover時：軽い明度アップでインタラクティブ感 */
 .graph-title:hover {

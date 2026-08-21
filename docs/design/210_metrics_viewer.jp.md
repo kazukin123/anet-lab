@@ -562,7 +562,7 @@ serverから配布しないclient定数は[metrics-viewer.js](../../apps/metrics
 | `HOVER_SCROLL_DELAY_MS` | 300 | Tag list hoverから該当graphへscrollするまでの待ち |
 | `GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX` | 1 | scroll lock中にdrag scrollへ切り替える移動量 |
 
-`localStorage`へ保存するstateは次の5件だけである。viewport、signed-log ON/OFF、凡例の表示状態、Run選択は保存しない。
+`localStorage`へ保存するstateは次の8件だけである。viewport、凡例の表示状態、Run選択は保存しない。Logとpercentile範囲はworkspace名をkeyへ含めず、同名tagで共有する。
 
 | key | 内容 |
 |---|---|
@@ -571,6 +571,11 @@ serverから配布しないclient定数は[metrics-viewer.js](../../apps/metrics
 | `anet.metricsviewer.knownTags` | 一度でも観測したtag集合。未知tagだけを自動でactiveにするために使う |
 | `anet.metricsviewer.graphScrollLockEnabled` | Scroll Lockのon/off |
 | `anet.metricsviewer.lodDisplayMode` | `MinMax` / `Mean` / `Band` |
+| `anet.metricsviewer.logScaleTags` | signed-logを有効にしたtag集合。文字列JSON配列を辞書順で保存する |
+| `anet.metricsviewer.ignoreOutlierTags` | p5–p95を有効にしたtag集合。文字列JSON配列を辞書順で保存する |
+| `anet.metricsviewer.p1P99Tags` | p1–p99を有効にしたtag集合。文字列JSON配列を辞書順で保存する |
+
+Logとpercentile範囲の集合は独立して復元する。p5–p95とp1–p99は同一tagで排他とし、両方が保存されていた場合は警告してp1–p99を優先する。値が文字列JSON配列でなければ警告して空集合へフォールバックする。
 
 ## 8. Metricsキャッシュのデータベース定義
 
@@ -941,7 +946,7 @@ frontendはnpm等のbuild工程を持たず、`src/main/resources/static`をそ�
 | query計画とsnapshot | `MetricsQueryPlannerTest`、`MetricsRepositorySnapshotIntegrationTest`、`MetricsQueryConcurrencyTest` |
 | HTTP API | `MetricsApiIntegrationTest`、`WorkspaceApiIntegrationTest`、`SeriesAvailabilityTest`、`HttpAccessLogFilterTest` |
 | 走査・設定 | `RunScannerTest`、`MetricsViewerSettingsTest` |
-| browser UI | `RunListPlaywrightTest`、`TagListPlaywrightTest`、`MetricsPlotPlaywrightTest`、`GraphInteractionPlaywrightTest`、`SignedLogPlaywrightTest`、`WorkspaceSelectorPlaywrightTest` |
+| browser UI | `RunListPlaywrightTest`、`TagListPlaywrightTest`、`MetricsPlotPlaywrightTest`、`GraphInteractionPlaywrightTest`、`SignedLogPlaywrightTest`、`OutlierRangePlaywrightTest`、`WorkspaceSelectorPlaywrightTest` |
 
 Playwrightテストは既定でMicrosoft Edgeを起動する。Edgeが無い環境では`Assumptions`によりskipされ、失敗にはならない。
 テストごとにcontextを開き直し、route、`localStorage`、Plotly stateを共有しない。

@@ -269,7 +269,7 @@ class MetricsQueryCoordinatorTest {
 		for (int i = 1; i <= 64; i++) {
 			final int expected = i;
 			final QueryChannel channel = new QueryChannel("channel-" + i);
-			assertEquals(expected, coordinator.run(channel, 1L, query -> expected));
+			assertEquals(expected, coordinator.<Integer>run(channel, 1L, query -> expected));
 		}
 
 		assertEquals("late", coordinator.run(evicted, 0L, query -> "late"));
