@@ -92,7 +92,7 @@ app.online.exp_pause_step  = 50,000,000      # 50M
 #app.online.exp_pause_step  = 160,000,000    # 160M
 #app.online.exp_pause_step  = 200,000,000    # 200M
 
-app.batchrun.exp_exit_step  = 20,000,000     # 20M
+app.batchrun.exp_exit_step  = 100,000,000    # 100M
 
 #A.learner.per_beta_step = 10,000,000              # 10M
 A.learner.per_beta_step = 20,000,000              # 20M
@@ -104,7 +104,7 @@ backend.$ = backend.non-deterministic # 非決定論的（高速化）
 
 
 # ==============================================================================
-# 長期Run
+# 継続Run
 # ==============================================================================
 
 #app.run_name = run_{t}_apx-ll_cy08
@@ -117,7 +117,7 @@ backend.$ = backend.non-deterministic # 非決定論的（高速化）
 # 実験
 # ==============================================================================
 
-app.run_name = run_{t}_dm_iqn32
+app.run_name = run_{t}_dm_iqn-k32-n32-m32
 
 X.train_policy.tau_rule.sample_mode = stratified
 X.learner.iqn.current_taus.sample_mode = stratified
