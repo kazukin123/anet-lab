@@ -34,7 +34,7 @@
 - network境界の`float32 / 255`は変更しない。
 - trainの`max_steps` episode、`episode_start`、既存Conv2d表示のcadenceを維持する。
 - ImageCls actor / learner / network / checkpoint形式は変更しない。
-- background evalのnetwork snapshot順序は本PRDで解決せず、[`999_background_eval_snapshot_ordering_10prd.md`](../999_background_eval_snapshot_ordering_10prd.md)で扱う。
+- background evalのnetwork snapshot順序は本PRDで解決せず、[`912_background_eval_snapshot_ordering_10prd.md`](../912_background_eval_snapshot_ordering_10prd.md)で扱う。
 
 ### 1.4 変更の全体像
 

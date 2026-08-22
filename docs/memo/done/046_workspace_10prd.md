@@ -3,7 +3,7 @@
 > 設計分担: Claude=設計/PRD、実装=Codex、Run/commit=ユーザー。
 > 本書は self-contained。実装時は行番号ではなく、近傍のシンボル名で再検索する。
 > 用語(ワークスペース / workspace config / Run作業セット)はリポジトリルート `CONTEXT.md` が正本。
-> 対応 ADR: [0021-run-classification-by-workspace-folder.md](../adr/0021-run-classification-by-workspace-folder.md)、[0022-mlflow-database-lives-with-workspace-runs.md](../adr/0022-mlflow-database-lives-with-workspace-runs.md)
+> 対応 ADR: [0021-run-classification-by-workspace-folder.md](../../adr/0021-run-classification-by-workspace-folder.md)、[0022-mlflow-database-lives-with-workspace-runs.md](../../adr/0022-mlflow-database-lives-with-workspace-runs.md)
 
 ## Context(背景・目的)
 

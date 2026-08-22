@@ -289,7 +289,7 @@ DefaultDQN の checkpoint は AdamW optimizer state と param group options を�
 したがって、これらを学習率 A/B として解釈してはいけない。
 一方、B512/RR2 で長期学習が成立したこと、各 cycle の性能・安定性・PER 観測は、alpha 以外の時系列証拠として残る。
 
-checkpoint の save / load 契約、optimizer の扱い、Run 全体の serialization 方針は `docs/memo/999_serialize_10prd.txt` に暫定整理している。
+checkpoint の save / load 契約、optimizer の扱い、Run 全体の serialization 方針は `docs/memo/930_serialize_10prd.md` に暫定整理している。
 
 ### 次の探索
 

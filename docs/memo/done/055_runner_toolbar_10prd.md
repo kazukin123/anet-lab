@@ -3,7 +3,7 @@
 - 起票日: 2026-08-19
 - 状態: implementation ready
 - 対象: `apps/runner`(RunnerFrame / RunnerApp / TrainPanel / EvalPanel)、`core/anet-core` は `DefaultDQNAgent::Save` の lock 1 行のみ
-- 関連: CONTEXT.md 用語 2 件(ツールバー pane / 実行時 UI 操作。本 PRD 作成時に追加済み)、`docs/memo/999_network_lock_audit_10prd.md`(Save 経路監査項目の部分消込)
+- 関連: CONTEXT.md 用語 2 件(ツールバー pane / 実行時 UI 操作。本 PRD 作成時に追加済み)、`docs/memo/910_network_lock_audit_10prd.md`(Save 経路監査項目の部分消込)
 - 設計文書: `docs/design/020_user_guide_run.jp.md`、`docs/design/160_applications_and_tools.jp.md`(§7 で実装時更新)
 - ADR: 新設なし(可逆な UI 追加であり ADR 3 条件を満たさない。設計判断は §4 に記録)
 
@@ -221,7 +221,7 @@ RunnerFrame 側の enum(`RunnerFrame.cpp:31-43`)には新規ツール ID(Train �
 
 - **wxUpdateUIEvent 採用(タイマー/新イベント不採用)**: pause 状態は UI 操作・自動 pause・起動時設定の複数経路で変わるため、変化イベント駆動は発火点の仕込み漏れリスクがある。現在値を宣言するポーリング同期が堅牢で、wxUpdateUIEvent はそのための wx 標準機構。既存 wxTimer 群が回る本アプリではアイドルが常時発生するため実用上周期駆動になる。Notifier へのイベント追加・専用タイマーはいずれも不要。
 - **StepCounts は Observer + UIDataStore 経由(直読み禁止)**: `RunnerBase::step_counts_` は plain uint64_t 群で、UI からの `GetCounts()` 直読みは C++ 規格上のデータレース。x64 実挙動では aligned 64bit load のため実害はまず出ないが、規格準拠かつ既存イディオム(TrainPanel と同型)で解決できるため直読みは採らない。`step_counts_` の atomic 化は hot path への侵襲と `GetByAxis` の参照返し破壊(歪)になるため不採用。
-- **Save の安全化は core の lock 1 行(UI 側 pause 強制は不採用)**: このコードベースの規約は「Train スレッド外から Agent 状態に触るなら Agent の shared_mutex を取る」であり(`Sync` / `GetScalar` / `GetTensor` / ImageCls Save は準拠済み)、`DefaultDQNAgent::Save` だけが漏れていた。UI 側の「pause 中のみ Save 可」は Pipeline の残存 learn task に穴があり(Pause は ack なし)、規約準拠の lock が正解。`docs/memo/999_network_lock_audit_10prd.md` の監査項目「`Save()` / `torch::save` 経路が Actor/Learner と並行し得るか」「`Save()` は runtime 中にも呼ばれ得るか」への回答が本 PRD で確定する(呼ばれ得る、lock で守る)。
+- **Save の安全化は core の lock 1 行(UI 側 pause 強制は不採用)**: このコードベースの規約は「Train スレッド外から Agent 状態に触るなら Agent の shared_mutex を取る」であり(`Sync` / `GetScalar` / `GetTensor` / ImageCls Save は準拠済み)、`DefaultDQNAgent::Save` だけが漏れていた。UI 側の「pause 中のみ Save 可」は Pipeline の残存 learn task に穴があり(Pause は ack なし)、規約準拠の lock が正解。`docs/memo/910_network_lock_audit_10prd.md` の監査項目「`Save()` / `torch::save` 経路が Actor/Learner と並行し得るか」「`Save()` は runtime 中にも呼ばれ得るか」への回答が本 PRD で確定する(呼ばれ得る、lock で守る)。
 - **対象軸分割(案 A)**: 当初の機能軸(Run 制御バー+Step 表示バー)では Eval Step ボタンの帰属(何をコマ送りするか)が見た目から読めない。バー=対象にすることで「同一バー内のボタンは同一対象」という慣習(メディアプレイヤ/Unity/SUMO と同型)に載せた。
 - **一般事例との対応**: Play/Pause/Step の 3 つ組は Unity Editor / SUMO の定番。カウンタ常時表示は NetLogo tick counter / SUMO Time 表示。Save は BizHawk の Save State に対応。
 
@@ -275,7 +275,7 @@ GUI 主体のため自動テストは要求しない。ビルド(Debug)+以下�
 |---|---|
 | `docs/design/020_user_guide_run.jp.md` | §4.1 画面構成にツールバー 4 本を追記。§5 操作方法にツールバー操作(トグル/Step/Save/Open Folder/FPS メニュー)を追記し、キー操作は併存として維持。§7 の「起動直後に Train が進まない」等にツールバーでの確認方法を追記 |
 | `docs/design/160_applications_and_tools.jp.md` | RunnerFrame の説明(§ コンポーネント表)にツールバー pane と wxUpdateUIEvent 同期を追記 |
-| `docs/memo/999_network_lock_audit_10prd.md` | 監査項目「`Save()` / `torch::save` 経路が Actor/Learner と並行し得るか」と Open Question「`Save()` は runtime 中にも呼ばれ得るか」へ「PRD 055 で確定: runtime 中に呼ばれ得る。DefaultDQNAgent::Save に shared_lock 追加済み」の注記 |
+| `docs/memo/910_network_lock_audit_10prd.md` | 監査項目「`Save()` / `torch::save` 経路が Actor/Learner と並行し得るか」と Open Question「`Save()` は runtime 中にも呼ばれ得るか」へ「PRD 055 で確定: runtime 中に呼ばれ得る。DefaultDQNAgent::Save に shared_lock 追加済み」の注記 |
 | `CONTEXT.md` | 「ツールバー pane」「実行時 UI 操作」の 2 語(本 PRD 作成時に追加済み) |
 
 ## 8. スコープ外

@@ -18,4 +18,4 @@ runs ディレクトリに異なる実験系列(長期 Run / env×アルゴリ�
 - Metrics Viewer は 1 プロセス 1 workspace(サーバ側 current 方式)。複数 workspace の同時閲覧は別ポート起動で行う。
 - Dashboard の study 横断閲覧は workspace 内に限定される。
 - 旧 study の再開(`00_last_run_study_args`)は旧引数のままでは不可 — `--workspace` の追加に加え、廃止された `--runs-dir` の除去と、`--storage` 等の外部出力 override の削除(または `<ws>/optuna` 配下への更新)が必要になる(env include の移管、run 系の runs dir 固定化、外部出力禁止のため)。
-- 詳細設計は `docs/memo/046_workspace_10prd.md`。
+- 詳細設計は `docs/memo/done/046_workspace_10prd.md`。

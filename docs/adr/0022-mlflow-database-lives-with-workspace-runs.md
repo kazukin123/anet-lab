@@ -13,4 +13,4 @@ workspace は config と成果物を一体で移動できる自己完結フォ�
 - `41_mlflow_bridge.bat`と`42_start_mlflow.bat`は同じ選択workspaceの`runs/mlflow.db`を使用する。
 - MLflow DBはRun directoryではないため、Run走査側は従来どおり`run_*/metrics.jsonl`だけを対象にする。
 - この例外はMLflow DBだけに限定し、他のworkspace metadataを`runs/`へ追加する根拠にはしない。
-- 詳細なworkspace契約は`docs/memo/046_workspace_10prd.md`を参照する。
+- 詳細なworkspace契約は`docs/memo/done/046_workspace_10prd.md`を参照する。
