@@ -159,10 +159,6 @@ net.block.[TConv64].conv.stride = 1
 net.block.[TConv64].conv.padding = 0
 net.block.[TConv64].init.mode = xavier
 
-net.block.[ReS4F8].type = Reshape
-net.block.[ReS4F8].reshape.dims = 4 -1     # (N,48) -> (N,4,12) or (N,32) -> (N,4,8)
-#net.block.[ReS4F8].reshape.dims = 8 -1      # (N,96) -> (N,8,12) or (N,64) -> (N,8,8)
-
 net.block.[Linear512].type = Linear
 net.block.[Linear512].linear.out_features = 512
 net.block.[Linear512].init.mode = xavier
@@ -183,8 +179,7 @@ net.branch.[main_feature].bind = vector
 #net.branch.[main_feature].structure = Flatten > Linear256 > LN256 > SiLU > Linear128 > LN128 > SiLU
 #net.branch.[main_feature].structure = Flatten > Linear512 > LN512 > SiLU > Linear256 > LN256 > SiLU
 #net.branch.[main_feature].structure = Conv1D_Permute > TConv64 > SiLU > Flatten > Linear256 > SiLU > Linear128 > SiLU
-#net.branch.[main_feature].structure = Conv1D_Permute > TConv64 > SiLU > Flatten > Linear256 > LN256 > SiLU > Linear128 > LN128 > SiLU
-net.branch.[main_feature].structure = Flatten > ReS4F8 > Conv1D_Permute > TConv64 > SiLU > Flatten > Linear256 > LN256 > SiLU > Linear128 > LN128 > SiLU
+net.branch.[main_feature].structure = Conv1D_Permute > TConv64 > SiLU > Flatten > Linear256 > LN256 > SiLU > Linear128 > LN128 > SiLU
 
 
 # --- Dueling V/A: [デフォルト] 単一 features を Head が内部で V/A 分割（V1 と同一挙動）

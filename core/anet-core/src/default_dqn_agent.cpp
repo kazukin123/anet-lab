@@ -138,7 +138,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     // オリジナルのStateSpecをコピー
     auto network_obs_spec = env_spec.state_spec.obs_spec;
 
-    // Stackerが有効な場合、NNが期待する入力チャンネル（次元）数を調整
+    // Stackerが有効な場合、NN入力specへ実データと同じstack軸を追加
     if (config_.stucker.use_stacker && config_.stucker.stack_count > 1) {
         for (auto& kv : network_obs_spec) {
 
@@ -149,9 +149,9 @@ DefaultDQNAgent::DefaultDQNAgent(
                 is_stacked_target = (it != config_.stucker.stack_keys.end());
             }
 
-            // Stack対象のKeyのみ、最初の次元をstack_count倍する
-            if (is_stacked_target && !kv.second.shape.empty()) {
-                kv.second.shape[0] *= config_.stucker.stack_count;
+            // Stack対象のKeyのみ、batch直後にstack軸が来るshapeへ変換
+            if (is_stacked_target) {
+                kv.second.shape.insert(kv.second.shape.begin(), config_.stucker.stack_count);
             }
         }
     }

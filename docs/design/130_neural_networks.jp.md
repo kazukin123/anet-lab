@@ -34,7 +34,23 @@ Networkの入力と出力は、文字列キーからTensorへのmapである`Ten
 - raw指定されていない入力をNetwork向けの形式へ変換する。
 - 元のObservationを変更せず、forward用TensorDictを作る。
 
-### 2.2 BodyとHead
+### 2.2 frame stack入力の軸contract
+
+`DefaultDQNAgent`で`use_stacker=true`かつ`stack_count=S>1`の場合、stack対象キーのNetwork入力specは、EnvSpecの`original_shape`に先頭のstack軸を加えた`[S, *original_shape]`になる。Network構築時のdummy inputとActor／Learnerの実入力は、いずれもbatch軸を加えた`[B, S, *original_shape]`を使う。`stack_keys`対象外のキーにはstack軸を追加しない。GraphVizのinput spec表示もこのcontractを反映する。
+
+Network構成では、stack軸を暗黙に復元せず、目的に応じて次のmoduleを明示する。
+
+| 入力と用途 | module構成 | Network上のshape |
+|---|---|---|
+| Vector stackをMLPへ入力 | `Flatten` | `[B,S,F]`から`[B,S*F]` |
+| 連続Grid stackをConv2dへ入力 | `StackMerge` | `[B,S,C,H,W]`から`[B,S*C,H,W]` |
+| Vector stackを時間方向Conv1dへ入力 | `Permute(0,2,1)`の後に`Conv1d` | `[B,S,F]`から`[B,F,S]` |
+
+`Reshape`は任意shape変換の汎用moduleとして利用できるが、stack軸contractを復元するための必須処理ではない。
+
+離散GridはNetworkへのraw specでは`[S,1,H,W]`を保持する一方、`NetworkBoundaryPreprocessor`がone-hot化するときにstackとclassをchannelへ統合する。したがってbranch入口は従来どおり`[B,S*C,H,W]`となり、`StackMerge`を追加せずConv2dへ接続する。連続Gridはこのone-hot境界を通らないため、branch入口でも`[B,S,C,H,W]`を保持する。
+
+### 2.3 BodyとHead
 
 - Network Bodyは設定で定義されたbranch DAGを実行し、特徴量TensorDictを生成する。
 - Network HeadはAgent固有の出力へ変換する。DQNのQ値、分位数、ImageClsのclass logitsなどが該当する。
@@ -42,7 +58,7 @@ Networkの入力と出力は、文字列キーからTensorへのmapである`Ten
 
 この分離により、共通Backboneを複数のAgent固有Headから利用できる。
 
-### 2.3 設定記法
+### 2.4 設定記法
 
 `NetworkConfig`は主に次の情報を解決する。
 

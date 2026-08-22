@@ -426,6 +426,64 @@ anet::ConfigData MakeIqnTracerConfigData()
     return config_data;
 }
 
+void PrepareNativeStackNetworkTest()
+{
+    anet::nn::InitNN();
+    // Debug版libtorchのoneDNNはCPU Convでthread検証assertを起こすため、
+    // native stackのCPUテストではmkldnnを無効化する。
+    at::globalContext().setUserEnabledMkldnn(false);
+}
+
+anet::ConfigData MakeNativeStackConfigData()
+{
+    anet::ConfigData config_data;
+    config_data.Set("DefaultDQNAgent.quantile_mode", "none");
+    config_data.Set("DefaultDQNAgent.use_dueling_net", false);
+    config_data.Set("DefaultDQNAgent.stucker.use_stacker", true);
+    config_data.Set("DefaultDQNAgent.stucker.stack_count", 4);
+    config_data.Set("DefaultDQNAgent.obs_norm.pass_through", true);
+    config_data.Set("DefaultDQNAgent.learner.replay_capacity", 16);
+    config_data.Set("DefaultDQNAgent.learner.replay_batch_size", 2);
+    config_data.Set("DefaultDQNAgent.learner.use_fused_optimizer", false);
+    config_data.Set("net.block.[Flatten].type", "Flatten");
+    config_data.Set("net.block.[Linear].type", "Linear");
+    config_data.Set("net.block.[Linear].linear.out_features", 8);
+    config_data.Set("net.body.output.[features]", "main_feature");
+    return config_data;
+}
+
+rl::EnvSpec MakeNativeStackEnvSpec(anet::TensorSpecMap obs_spec)
+{
+    rl::EnvSpec env_spec;
+    env_spec.state_spec.obs_spec = std::move(obs_spec);
+    env_spec.action_spec.is_discrete = true;
+    env_spec.action_spec.value_labels = { "a0", "a1" };
+    env_spec.reward_range = { -1.0f, 1.0f };
+    return env_spec;
+}
+
+std::shared_ptr<dqn::DQNActionInfo> ActWithNativeStack(
+    const anet::ConfigData& config_data,
+    const rl::EnvSpec& env_spec,
+    anet::TensorDict raw_obs)
+{
+    const rl::BatchEnvSpec batch_env_spec{ 2, 1 };
+    auto agent = std::make_shared<dqn::DefaultDQNAgent>(
+        dqn::DefaultDQNAgentConfig(config_data),
+        anet::nn::NetworkConfig(config_data),
+        batch_env_spec,
+        env_spec,
+        torch::Device(torch::kCPU),
+        123);
+    auto actor = agent->CreateActor(
+        batch_env_spec, env_spec, rl::RunMode::Train, std::nullopt, torch::Device(torch::kCPU));
+
+    const auto flags = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool));
+    rl::BatchState state(std::move(raw_obs), flags, flags, flags);
+    return std::dynamic_pointer_cast<dqn::DQNActionInfo>(
+        actor->MakeAction(rl::StepCounts{}, state));
+}
+
 dqn::DefaultDQNAgentConfig MakeDeviceForwardDefaultDqnConfig()
 {
     dqn::DefaultDQNAgentConfig config;
@@ -2231,6 +2289,185 @@ TEST_CASE("AgentBase exposes configured device", "[agent][device]")
     DeviceOnlyAgent agent{ torch::Device(torch::kCPU) };
 
     CHECK(agent.GetDevice().is_cpu());
+}
+
+TEST_CASE("DefaultDQNAgent preserves the native stack axis for temporal Conv1d", "[dqn][native_stack]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    PrepareNativeStackNetworkTest();
+
+    // Reshapeを使わない時間軸Conv1D構成とstack=4のAgentをpublic設定経路から構築する。
+    auto config_data = MakeNativeStackConfigData();
+    config_data.Set("net.block.[TemporalPermute].type", "Permute");
+    config_data.Set("net.block.[TemporalPermute].permute.dims", "0 2 1");
+    config_data.Set("net.block.[TemporalConv].type", "Conv1d");
+    config_data.Set("net.block.[TemporalConv].conv.out_channels", 4);
+    config_data.Set("net.block.[TemporalConv].conv.kernel_size", 2);
+    config_data.Set("net.branch.[main_feature].bind", kVectorKey);
+    config_data.Set("net.branch.[main_feature].structure", "TemporalPermute > TemporalConv > Flatten > Linear");
+
+    anet::TensorSpec vector_spec{
+        .type = anet::SpaceType::Vector,
+        .shape = { 8 },
+        .dtype = torch::kFloat32,
+    };
+    const auto env_spec = MakeNativeStackEnvSpec({ { kVectorKey, vector_spec } });
+
+    // dummy forwardと同じNetworkをActorの実stack入力へ接続する。
+    auto action_info = ActWithNativeStack(
+        config_data,
+        env_spec,
+        anet::TensorDict{ { kVectorKey, torch::arange(16, torch::kFloat32).reshape({ 2, 8 }) } });
+
+    // traceでbranch入口のstack軸とpublic出力を観測する。
+    REQUIRE(action_info != nullptr);
+    REQUIRE(ShapeOf(action_info->GetAction()) == std::vector<int64_t>{ 2 });
+    REQUIRE(ShapeOf(action_info->GetAuxData().at("q_values")) == std::vector<int64_t>{ 2, 2 });
+    const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
+    REQUIRE(trace.Contains("main_feature/00_Input"));
+    CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 4, 8 });
+}
+
+TEST_CASE("DefaultDQNAgent flattens native vector stacks for MLP branches", "[dqn][native_stack]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    PrepareNativeStackNetworkTest();
+
+    // stack軸を保持したbranch入力をFlattenで従来の4*F特徴へ落とす。
+    auto config_data = MakeNativeStackConfigData();
+    config_data.Set("net.branch.[main_feature].bind", kVectorKey);
+    config_data.Set("net.branch.[main_feature].structure", "Flatten > Linear");
+    const auto env_spec = MakeNativeStackEnvSpec({
+        { kVectorKey, anet::TensorSpec{
+                          .type = anet::SpaceType::Vector,
+                          .shape = { 8 },
+                          .dtype = torch::kFloat32,
+                      } },
+    });
+
+    auto action_info = ActWithNativeStack(
+        config_data,
+        env_spec,
+        anet::TensorDict{ { kVectorKey, torch::arange(16, torch::kFloat32).reshape({ 2, 8 }) } });
+
+    REQUIRE(action_info != nullptr);
+    REQUIRE(ShapeOf(action_info->GetAuxData().at("q_values")) == std::vector<int64_t>{ 2, 2 });
+    const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
+    REQUIRE(trace.Contains("main_feature/00_Input"));
+    CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 4, 8 });
+}
+
+TEST_CASE("DefaultDQNAgent merges continuous Grid stacks before Conv2d", "[dqn][native_stack]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    PrepareNativeStackNetworkTest();
+
+    // 連続Gridはbranch入口でstack軸を保持し、明示したStackMergeでchannelへ統合する。
+    auto config_data = MakeNativeStackConfigData();
+    config_data.Set("net.block.[StackMerge].type", "StackMerge");
+    config_data.Set("net.block.[GridConv].type", "Conv2d");
+    config_data.Set("net.block.[GridConv].conv.out_channels", 2);
+    config_data.Set("net.block.[GridConv].conv.kernel_size", 1);
+    config_data.Set("net.branch.[main_feature].bind", rl::ObsKeys::kGrid);
+    config_data.Set("net.branch.[main_feature].structure", "StackMerge > GridConv > Flatten > Linear");
+    const auto env_spec = MakeNativeStackEnvSpec({
+        { rl::ObsKeys::kGrid, anet::TensorSpec{
+                                  .type = anet::SpaceType::Grid,
+                                  .shape = { 1, 4, 4 },
+                                  .dtype = torch::kFloat32,
+                              } },
+    });
+
+    auto action_info = ActWithNativeStack(
+        config_data,
+        env_spec,
+        anet::TensorDict{ {
+            rl::ObsKeys::kGrid,
+            torch::arange(32, torch::kFloat32).reshape({ 2, 1, 4, 4 }),
+        } });
+
+    REQUIRE(action_info != nullptr);
+    REQUIRE(ShapeOf(action_info->GetAuxData().at("q_values")) == std::vector<int64_t>{ 2, 2 });
+    const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
+    REQUIRE(trace.Contains("main_feature/00_Input"));
+    CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 4, 1, 4, 4 });
+}
+
+TEST_CASE("DefaultDQNAgent keeps discrete Grid one-hot channel merging", "[dqn][native_stack]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    PrepareNativeStackNetworkTest();
+
+    // 離散Gridは既存のNN境界でone-hot化し、stackとclassをConv2dのchannelへ統合する。
+    auto config_data = MakeNativeStackConfigData();
+    config_data.Set("net.block.[GridConv].type", "Conv2d");
+    config_data.Set("net.block.[GridConv].conv.out_channels", 2);
+    config_data.Set("net.block.[GridConv].conv.kernel_size", 1);
+    config_data.Set("net.branch.[main_feature].bind", rl::ObsKeys::kGrid);
+    config_data.Set("net.branch.[main_feature].structure", "GridConv > Flatten > Linear");
+    const auto env_spec = MakeNativeStackEnvSpec({
+        { rl::ObsKeys::kGrid, anet::TensorSpec{
+                                  .type = anet::SpaceType::Grid,
+                                  .shape = { 1, 4, 4 },
+                                  .dtype = torch::kInt8,
+                                  .num_classes = 3,
+                              } },
+    });
+    const auto grid = torch::arange(32, torch::kInt64).remainder(3).reshape({ 2, 1, 4, 4 });
+
+    auto action_info = ActWithNativeStack(
+        config_data,
+        env_spec,
+        anet::TensorDict{ { rl::ObsKeys::kGrid, grid } });
+
+    REQUIRE(action_info != nullptr);
+    REQUIRE(ShapeOf(action_info->GetAuxData().at("q_values")) == std::vector<int64_t>{ 2, 2 });
+    const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
+    REQUIRE(trace.Contains("main_feature/00_Input"));
+    CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 12, 4, 4 });
+}
+
+TEST_CASE("DefaultDQNAgent leaves stack_keys exclusions unstacked", "[dqn][native_stack]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    PrepareNativeStackNetworkTest();
+
+    // stack_keysに含めたvectorだけへstack軸を追加し、auxのspecと実入力は元rankを保つ。
+    auto config_data = MakeNativeStackConfigData();
+    config_data.Set(
+        "DefaultDQNAgent.stucker.stack_keys",
+        std::vector<std::string>{ kVectorKey });
+    config_data.Set("net.branch.[main_feature].bind", kVectorKey);
+    config_data.Set("net.branch.[main_feature].structure", "Flatten > Linear");
+    config_data.Set("net.branch.[aux_feature].bind", "aux");
+    config_data.Set("net.branch.[aux_feature].structure", "Linear");
+    const auto env_spec = MakeNativeStackEnvSpec({
+        { kVectorKey, anet::TensorSpec{
+                          .type = anet::SpaceType::Vector,
+                          .shape = { 8 },
+                          .dtype = torch::kFloat32,
+                      } },
+        { "aux", anet::TensorSpec{
+                     .type = anet::SpaceType::Vector,
+                     .shape = { 3 },
+                     .dtype = torch::kFloat32,
+                 } },
+    });
+
+    auto action_info = ActWithNativeStack(
+        config_data,
+        env_spec,
+        anet::TensorDict{
+            { kVectorKey, torch::arange(16, torch::kFloat32).reshape({ 2, 8 }) },
+            { "aux", torch::arange(6, torch::kFloat32).reshape({ 2, 3 }) },
+        });
+
+    REQUIRE(action_info != nullptr);
+    const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
+    REQUIRE(trace.Contains("main_feature/00_Input"));
+    REQUIRE(trace.Contains("aux_feature/00_Input"));
+    CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 4, 8 });
+    CHECK(ShapeOf(trace.At("aux_feature/00_Input")) == std::vector<int64_t>{ 1, 3 });
 }
 
 TEST_CASE("DefaultDQNAgent TensorDictFunction accepts CPU input on CUDA agent", "[dqn][network_model][device]")
