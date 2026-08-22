@@ -125,7 +125,7 @@ if (MSVC)
   # --- 汎用 runtime DLLコピー（third_party/runtime_dlls に置いた DLL を配備） ---
   # 実行時ロードされる DLL（SDL2.dll 等）の置き場。詳細は third_party/runtime_dlls/README.md。
   # DLL 追加・削除後は再 configure が必要（GLOB は configure 時評価）。
-  set(ANET_RUNTIME_DLL_DIR "${PROJECT_SOURCE_DIR}/third_party/runtime_dlls")
+  set(ANET_RUNTIME_DLL_DIR "${CMAKE_SOURCE_DIR}/third_party/runtime_dlls")
   file(GLOB ANET_RUNTIME_DLLS "${ANET_RUNTIME_DLL_DIR}/*.dll")
 
   if(ANET_RUNTIME_DLLS)
@@ -135,6 +135,9 @@ if (MSVC)
                 $<TARGET_FILE_DIR:AnetRLRunner>
         COMMENT "Copying runtime DLLs"
     )
+  elseif(NOT IS_DIRECTORY "${ANET_RUNTIME_DLL_DIR}")
+    # ディレクトリごと見つからないのは配置ミス。STATUS だと埋もれるので WARNING で出す。
+    message(WARNING "Runtime DLL directory not found: ${ANET_RUNTIME_DLL_DIR}")
   else()
     message(STATUS "No runtime DLLs in ${ANET_RUNTIME_DLL_DIR} (skip)")
   endif()
