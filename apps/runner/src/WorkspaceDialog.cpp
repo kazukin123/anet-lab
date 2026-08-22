@@ -1,19 +1,15 @@
 #include "WorkspaceDialog.hpp"
 
 #include <filesystem>
-#include <utility>
 #include <vector>
 
 #include <wx/button.h>
 #include <wx/checkbox.h>
-#include <wx/colour.h>
-#include <wx/dc.h>
+#include <wx/combobox.h>
 #include <wx/dialog.h>
 #include <wx/dirdlg.h>
 #include <wx/listbox.h>
 #include <wx/msgdlg.h>
-#include <wx/odcombo.h>
-#include <wx/settings.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
@@ -25,37 +21,6 @@ using namespace anet::runner;
 
 namespace anet::runner::detail {
 
-class HistoryComboBox final : public wxOwnerDrawnComboBox {
-public:
-    HistoryComboBox(
-        wxWindow* parent,
-        const wxArrayString& choices,
-        std::vector<bool> availability)
-        : wxOwnerDrawnComboBox(
-            parent, wxID_ANY, "", wxDefaultPosition, wxDefaultSize,
-            choices, wxCB_READONLY)
-        , availability_(std::move(availability))
-    {
-    }
-
-protected:
-    void OnDrawItem(wxDC& dc, const wxRect& rect, int item, int flags) const override
-    {
-        // popup と選択欄のどちらでも、解決不能な履歴だけをシステムの灰色で描画する。
-        const auto original_colour = dc.GetTextForeground();
-        if (item != wxNOT_FOUND
-            && static_cast<size_t>(item) < availability_.size()
-            && !availability_[static_cast<size_t>(item)]) {
-            dc.SetTextForeground(wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT));
-        }
-        wxOwnerDrawnComboBox::OnDrawItem(dc, rect, item, flags);
-        dc.SetTextForeground(original_colour);
-    }
-
-private:
-    std::vector<bool> availability_;
-};
-
 class WorkspaceDialog final : public wxDialog {
 public:
     WorkspaceDialog(wxWindow* parent, const WorkspaceService& service)
@@ -64,18 +29,21 @@ public:
         , history_(service.LoadHistory())
         , local_workspaces_(service.ScanLocalWorkspaces())
     {
-        // 履歴と可用性を同じ index で保持し、表示色と確定時検証を一致させる。
+        // 履歴順を維持し、解決不能な項目は選択前にも判別できるラベルにする。
         wxArrayString history_choices;
-        std::vector<bool> history_availability;
         for (const auto& item : history_) {
-            history_choices.Add(wxString::FromUTF8(item));
-            history_availability.push_back(service_.IsResolvable(item));
+            wxString label = wxString::FromUTF8(item);
+            if (!service_.IsResolvable(item)) {
+                label += " (unavailable)";
+            }
+            history_choices.Add(label);
         }
 
         // 履歴・ローカル一覧・任意パス・新規名を一つの選択画面へ配置する。
         auto* root = new wxBoxSizer(wxVERTICAL);
         root->Add(new wxStaticText(this, wxID_ANY, "Recent workspaces"), 0, wxLEFT | wxRIGHT | wxTOP, 12);
-        history_combo_ = new HistoryComboBox(this, history_choices, std::move(history_availability));
+        history_combo_ = new wxComboBox(
+            this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, history_choices, wxCB_READONLY);
         root->Add(history_combo_, 0, wxEXPAND | wxALL, 12);
 
         root->Add(new wxStaticText(this, wxID_ANY, "Local workspaces (click or press Enter to open)"),
@@ -241,7 +209,7 @@ private:
     const WorkspaceService& service_;
     std::vector<std::string> history_;
     std::vector<std::string> local_workspaces_;
-    HistoryComboBox* history_combo_ = nullptr;
+    wxComboBox* history_combo_ = nullptr;
     wxListBox* local_list_ = nullptr;
     wxTextCtrl* new_name_ = nullptr;
     wxStaticText* new_name_error_ = nullptr;

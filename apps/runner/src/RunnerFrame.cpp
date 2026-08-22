@@ -85,6 +85,27 @@ enum {
 
 namespace runner_frame_detail {
 
+class RunnerDockArt final : public wxAuiDefaultDockArt {
+public:
+    RunnerDockArt()
+    {
+        UpdateColoursFromSystem();
+    }
+
+    wxAuiDockArt* Clone() override
+    {
+        return new RunnerDockArt(*this);
+    }
+
+    void UpdateColoursFromSystem() override
+    {
+        // 標準テーマを反映した後、非アクティブ pane 名だけを読みやすいシステム文字色へ揃える。
+        wxAuiDefaultDockArt::UpdateColoursFromSystem();
+        SetColour(wxAUI_DOCKART_INACTIVE_CAPTION_TEXT_COLOUR,
+            wxSystemSettings::GetColour(wxSYS_COLOUR_BTNTEXT));
+    }
+};
+
 wxBitmapBundle MakeSystemTextSvg(const char* source)
 {
     std::string svg(source);
@@ -157,6 +178,9 @@ RunnerFrame::RunnerFrame(const wxString& title, const TrainPanelConfig& train_pa
     : anet::rl::gui::AuiLayoutFrame(title, wxSize(1024, 1024)),
     train_config_fps_(train_panel_config.fps), eval_config_fps_(eval_panel_config.fps)
 {
+    // pane の dock/float とテーマ変更の両方で Runner 用 caption 配色を維持する。
+    aui_mgr_.SetArtProvider(new RunnerDockArt());
+
     // フラグ設定
     aui_mgr_.SetFlags(wxAUI_MGR_ALLOW_FLOATING | wxAUI_MGR_TRANSPARENT_DRAG | wxAUI_MGR_TRANSPARENT_HINT);
 
