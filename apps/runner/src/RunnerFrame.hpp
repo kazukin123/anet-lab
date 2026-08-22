@@ -60,6 +60,7 @@ private:
     void UpdateTrainStatus();
     bool TrySaveAgent(const std::filesystem::path& file_path);
     void ShowEvalPaneIfHidden();
+    void ToggleEvalPause();
     void AttachTrainStatusObserver(const std::shared_ptr<anet::rl::RunManager>& run_manager);
     void DetachTrainStatusObserver();
 private:

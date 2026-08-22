@@ -107,7 +107,7 @@ Runner画面はwxAUIのpaneで構成される。
 
 画面上端には対象別の4本のツールバーがある。各バーはgripperをドラッグしてdock、float、再dockでき、`View > Reset Layout`で上端1行の既定位置へ戻る。floatさせたバーのwindow titleにはバー名(`Run Control`、`Steps`、`Run Operations`、`Panels`)が出る。
 
-- `Run制御`: Trainのpause/resumeと、separatorを挟んでEvalのpause/resume、Evalの1 step実行を提供する。走行中のtoolは押下表示になり、iconは次の操作を表す一時停止記号へ変わる。停止中は再生記号へ戻る。非表示のEvalをresumeするか1 step実行すると`Evaluation View`も表示する。
+- `Run制御`: Trainのpause/resumeと、separatorを挟んでEvalのpause/resume、Evalの1 step実行を提供する。走行中のtoolは押下表示になり、iconは次の操作を表す一時停止記号へ変わる。停止中は再生記号へ戻る。非表示のEvalをresumeするか1 step実行すると`Evaluation View`も表示する。右クリックによるresumeも同じ扱いで、keyboard経路(`Space` / `Ctrl`)だけが表示と独立している。
 - `Step表示`: Trainの`exp_step`と`train_step`を表示する。
 - `Run操作`: 任意pathへのcheckpoint保存とRun folder表示を提供する。
 - `Panel表示`: `Logs`、`Eval View`、`Q-Values`の表示を切り替える。対応する`View` menuとpaneの状態に同期する。
@@ -138,7 +138,8 @@ Run制御ツールバーの`Train`を選ぶとTrainをpause/resumeする。Train
 |---|---|
 | Run制御ツールバーの`Eval` | EvalPanelをpause/resumeする。resume時にpaneが非表示なら表示する |
 | Run制御ツールバーの`Step` | Evalを1 step自動実行する。paneが非表示なら表示する |
-| 右クリック、または`Space` | EvalPanelをpause/resumeする |
+| 右クリック | EvalPanelをpause/resumeする。resume時にpaneが非表示なら表示する |
+| `Space` | EvalPanelをpause/resumeする。paneの表示は変えない |
 | `Ctrl` | Evalを1 step自動実行する |
 | 矢印キー | LunarLander向けに`0`から`3`のActionを指定してEvalを1 step進める |
 | テンキー`0`から`9` | 同じ番号のActionを指定してEvalを1 step進める |

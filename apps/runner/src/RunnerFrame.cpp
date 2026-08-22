@@ -963,7 +963,7 @@ void RunnerFrame::OnMouse(anet::rl::gui::ForwardedMouseEvent& event)
     if (mouse_event.LeftDown())
         wxGetApp().ToggleTraining();    // 左クリック：Trainingトグル
     else
-        eval_panel_->TogglePause();     // 右クリック：Evalトグル
+        ToggleEvalPause();              // 右クリック：Evalトグル (resume 時は pane も表示)
 }
 
 void RunnerFrame::OnKey(anet::rl::gui::ForwardedKeyEvent& event)
@@ -1107,15 +1107,21 @@ void RunnerFrame::ShowEvalPaneIfHidden()
     ApplyLayoutPolicy();
 }
 
-void RunnerFrame::OnToggleEval(wxCommandEvent& WXUNUSED(event))
+void RunnerFrame::ToggleEvalPause()
 {
-    if (!initialized_ || !eval_panel_) return;
+    if (!eval_panel_) return;
 
     // resume 要求時だけ対象 pane を先に表示し、操作対象を画面上でも明示する。
     if (eval_panel_->IsPaused()) {
         ShowEvalPaneIfHidden();
     }
     eval_panel_->TogglePause();
+}
+
+void RunnerFrame::OnToggleEval(wxCommandEvent& WXUNUSED(event))
+{
+    if (!initialized_) return;
+    ToggleEvalPause();
 }
 
 void RunnerFrame::OnEvalStep(wxCommandEvent& WXUNUSED(event))
