@@ -19,18 +19,25 @@ DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A > BF16.agent > R > X
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A > BF16.agent > NatureDQN > R > X   # Nature DQN 2015 再現(AtariEnv.classic とセット)
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > B    # Random Policy (env 天井の実測用)
 
-AtariEnv.$ = AtariEnv.v5 > E
+AtariEnv.$ = AtariEnv.v5 > E          # BTR 比較用(sticky 0.25 / noop 0 / episodic_life false / fire_reset false)
 #AtariEnv.$ = AtariEnv.classic > E    # クラシックプリセット(sticky なし+NoOp+episodic life+fire reset)
+# E の 3 行(episodic_life / repeat_action_probability / fire_reset)は必ずコメントのままにすること。
+# 1 つでも生きていると v5 が v5 でなくなり、BTR とも Nature とも比較できない中間物になる。
 #AtariEnv.$ = AtariEnv.100k > E       # Atari-100k プリセット(予算 100k steps とセット。Run設定 章参照)
 
 # quantile 系の配線選択。agent 側の quantile_mode(A/R 層)と揃えること。
-net.$ = net.qr
-#net.$ = net.iqn
+#net.$ = net.qr
+net.$ = net.iqn
+
+# quantile_mode
+#R.quantile_mode = qr
+R.quantile_mode = iqn
 
 # main_feature の実体選択
 #net.branch.[main_feature].$ = net.branch.AtariNature
-net.branch.[main_feature].$ = net.branch.AtariImpala        # ベースライン本命(IMPALA-CNN 16/32/32)
-#net.branch.[main_feature].$ = net.branch.AtariImpalaViT     # IMPALA+ViT ハイブリッド(定義のみ、未検証)
+#net.branch.[main_feature].$ = net.branch.AtariImpala        # IMPALA-CNN 16/32/32)
+net.branch.[main_feature].$ = net.branch.AtariImpalaX2      # BTR 準拠 Scale=2(32/64/64)
+#net.branch.[main_feature].$ = net.branch.AtariImpalaViT     # IMPALA+ViT ハイブリッド
 
 app.run_name = run_{t}_atari
 
@@ -157,9 +164,20 @@ E.game = breakout
 #E.game = yars_revenge
 #E.game = zaxxon
 
+#backend.$ = backend.deterministic        # 同seed再現(+11%コスト)
+backend.$ = backend.non-deterministic    # 高速化
+
+
+# ==============================================================================
+# ステップ数 依存設定
+# ==============================================================================
+
 #app.online.exp_pause_step = 2,500,000 # 10M emulator frames / frame_skip=4 = 2.5M
 #app.online.exp_pause_step = 5,000,000 # 5M
-app.online.exp_pause_step = 50,000,000 # 50M
+#app.online.exp_pause_step = 8,000,000   # 8M(1Run 2～3h 目安)
+app.online.exp_pause_step = 10,000,000   # 10M
+#app.online.exp_pause_step = 50,000,000 # 50M
+#app.online.exp_pause_step = 100,000,000 # 100M
 #app.online.exp_pause_step = 200,000,000 # 200M
 
 app.batchrun.exp_exit_step = 2,500,000
@@ -169,15 +187,27 @@ app.batchrun.exp_exit_step = 2,500,000
 #app.online.exp_pause_step = 100,000
 #app.batchrun.exp_exit_step = 100,000
 
-#backend.$ = backend.deterministic        # 同seed再現(+11%コスト)
-backend.$ = backend.non-deterministic    # 高速化
+# 予算を変えたら必ずこの値も変える (app.batchrun.exp_exit_step / app.online.exp_pause_step とセット)
+#A.learner.per_beta_step = 100,000,000        # 100M
+#A.learner.per_beta_step = 50,000,000         # 50M(予算 100M 用。探索ブロック 10 で最良)
+A.learner.per_beta_step = 10,000,000         # 10M
+#A.learner.per_beta_step = 5,000,000           # 5M
+#A.learner.per_beta_step = 4,000,000          # 4M
+#A.learner.per_beta_step = 2,500,000          # 2.5M
+
+A.train_policy.eps_decay_steps = 250,000      # 1M frames 相当で 1.0→0.01 線形減衰(exp_step 単位) Dopamine / Rainbow は 250k steps 固定
+A.learner.update_warmup_steps = 20,000        # Dopamine min_replay_history 相当(exp_step 単位)
 
 
 # ==============================================================================
 # 実験
 # ==============================================================================
 
-app.run_name = run_{t}_atari_breakout_impala
+app.run_name = run_{t}_atari_breakout_iqn_x2_v5
+
+#R.learner.weight_decay = 0.1    # 探索ブロック 13 で不採用(45-50M で -43.4%)
+#R.learner.weight_decay = 0.01   # 軽め。予算 8M での累積は exp(-0.25)
+#R.learner.weight_decay = 1e-4   # 予算 8M では exp(-0.0025) で実質効かない
 
 #R.qr.num_quantiles = 101 # 200
 #R.qr.num_quantiles = 51  # 200
@@ -186,21 +216,9 @@ app.run_name = run_{t}_atari_breakout_impala
 #app.batchrun.exp_exit_step = 2,000,000
 #app.online.exp_exit_step  = 200,000     # 0.2M
 
-E.episodic_life = true
-E.repeat_action_probability = 0.0
-
-# fire_reset は v5 プリセットでは false が標準(Machado 2018 はドメイン知識の注入を避ける)。
-# ただし Breakout はライフ喪失でボールが消え FIRE を押すまで再投入されないため、
-# false だと 1 ゲームに 4 回、エージェントが自力で FIRE を選ぶまで無報酬 step が流れる。
-# 効果測定用の暫定上書き(プリセット定義は変更しない)。
-E.fire_reset = true
-
-#net.$ = net.iqn
-#R.quantile_mode = iqn
-
-
-#X.
-#E.
+#E.episodic_life = true
+#E.repeat_action_probability = 0.0
+#E.fire_reset = true
 
 
 # ==============================================================================
@@ -215,29 +233,6 @@ E.fire_reset = true
 #E.display_screen = true              # SDL 観戦窓。sandbox/単発用(N lane では N 窓+worker スレッド未サポート)
 #E.sound = true
 #A.learner.update_warmup_steps = 512
-
-
-# ==============================================================================
-# ステップ数 依存設定
-# ==============================================================================
-
-# Run 長に「比例させる」値と「固定する」値を分ける。混同すると文献と別物の学習になる。
-#
-# 固定(文献側も Run 長に依存しない絶対値):
-#   eps_decay_steps      探索から活用への移行点。Dopamine / Rainbow は 250k steps 固定
-#   update_warmup_steps  RB が空の間は学習しないための下限。Dopamine min_replay_history 相当
-#
-# 比例(Run 全体で 1 回だけ振り切る設計):
-#   per_beta_step        PER の重要度サンプリング補正。Schaul 2016 は「学習全体で 0.4→1.0」と
-#                        定義している。予算を変えたら必ずこの値も変える(下の app.batchrun.
-#                        exp_exit_step / app.online.exp_pause_step とセット)
-
-A.train_policy.eps_decay_steps = 250,000      # 1M frames 相当で 1.0→0.01 線形減衰(exp_step 単位)
-A.learner.update_warmup_steps = 20,000        # Dopamine min_replay_history 相当(exp_step 単位)
-
-#A.learner.per_beta_step = 50,000,000         # 50M(本番)
-A.learner.per_beta_step = 10,000,000          # 10M
-#A.learner.per_beta_step = 2,500,000          # 2.5M
 
 
 # ==============================================================================
@@ -267,9 +262,11 @@ BF16.agent.learner.adam_eps = 1e-4
 #             数十時間に伸びるため)。RR 8 は論文の「batch 32 ÷ update frequency 4」と一致済み。
 #             BF16 は速度設定なので有効のままとする。
 #
-# 未確認: quantile_mode=none と use_dueling_net=false の組み合わせで net の配線
-#         (net.body.output の value_stream / adv_stream)が成立するか。50M を回す前に
-#         0.05M 程度の短時間 Run で起動確認すること。
+# 配線: quantile_mode=none + use_dueling_net=false は LinearHead になり、value_feature /
+#       adv_feature ではなく `features` だけを読む。NN 章の net.body.output.[features] が
+#       これを供給する(未指定だと起動時に fail-fast)。実 Run 前に 0.05M 程度で起動確認すること。
+#       なお value_stream / adv_stream ブランチは写像されないまま実行され続ける(死に計算。
+#       Linear(512→512)×2 ぶんで、conv スタックに対しては誤差)。
 
 NatureDQN.quantile_mode = none                    # 分布 RL なし(単一 Q)
 NatureDQN.use_dueling_net = false
@@ -293,7 +290,7 @@ NatureDQN.train_policy.eps_decay_steps = 250,000  # final exploration frame 1M f
 A.quantile_mode = qr
 A.qr.num_quantiles = 200                      # QR-DQN 論文値
 
-# --- 探索(ε-greedy。UQE/spatial exploration は Atari では使わない) ---
+# --- 探索 ---
 A.train_policy.policy_type = EpsilonGreedy
 A.train_policy.eps_start = 1.00
 A.train_policy.eps_end = 0.01
@@ -301,10 +298,15 @@ A.train_policy.eps_end = 0.01
 # --- optimizer ---
 A.learner.alpha = 1e-4                        # ★ lr。batch 256 の Atari 相場
 A.learner.adam_eps = 1.5e-4                   # Dopamine 系(0.01/batch)準拠
-A.learner.weight_decay = 0                    # 文献整合(DQN 系譜に WD なし)
+A.learner.weight_decay = 0                    # 文献整合。BTR も Table D6 に WD 行が無く optimizer は素の Adam。
+                                              # WD 0.1 は BBF(Atari-100k)由来で、探索ブロック 13 で不採用
+A.learner.grad_clip_tau = 30
+#A.learner.grad_clip_tau = 5                  # 旧既定(DefaultDQNAgent.baseline 継承値)
 
 # --- TD ---
-A.learner.gamma = 0.99                        # ★ Atari 標準
+#A.learner.gamma = 0.99                       # 旧既定(Atari 標準・Rainbow 値)
+A.learner.gamma = 0.997                       # ★ BTR / BBF 準拠。実効ホライズン 100 -> 333 step
+
 A.learner.n_step = 3                          # Rainbow 標準
 
 # --- Replay ---
@@ -418,7 +420,25 @@ net.block.[AtariImpalaRes32].res.norm_type = none
 net.block.[AtariImpalaRes32].res.droppath_rate = 0.0
 #net.block.[AtariImpalaRes32].res.droppath_rate = 0.03
 
-# --- Atari IMPALA + ViT ハイブリッド(定義のみ、未検証。11x11=121 token) ---
+# --- Atari IMPALA Scale=2 用の追加 block(BTR 準拠。32/64/64) ---
+
+net.block.[AtariImpalaConv64].type = Conv2d
+net.block.[AtariImpalaConv64].conv.out_channels = 64
+net.block.[AtariImpalaConv64].conv.kernel_size = 3
+net.block.[AtariImpalaConv64].conv.stride = 1
+net.block.[AtariImpalaConv64].conv.padding = 1
+net.block.[AtariImpalaConv64].init.mode = he
+
+net.block.[AtariImpalaRes64].type = ResBlock
+net.block.[AtariImpalaRes64].res.channels = 64
+net.block.[AtariImpalaRes64].res.kernel_size = 3
+net.block.[AtariImpalaRes64].res.activation = relu
+net.block.[AtariImpalaRes64].res.activation_mode = pre
+net.block.[AtariImpalaRes64].res.norm_type = none
+net.block.[AtariImpalaRes64].res.droppath_rate = 0.0
+#net.block.[AtariImpalaRes64].res.droppath_rate = 0.03
+
+# --- Atari IMPALA + ViT ハイブリッド ---
 
 net.block.[AtariViTProj128].type = Conv2d
 net.block.[AtariViTProj128].conv.out_channels = 128
@@ -462,6 +482,10 @@ net.branch.AtariNature.structure = StackMerge > AtariConv32 > ReLU > AtariConv64
 net.branch.AtariImpala.bind = grid
 net.branch.AtariImpala.structure = StackMerge > AtariImpalaConv16 > AtariImpalaPool > AtariImpalaRes16(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > ReLU > Flatten > AtariLinear512 > ReLU
 
+# Scale=2。84 -> pool -> 42 -> pool -> 21 -> pool -> 11。Flatten 64*11*11=7744。
+net.branch.AtariImpalaX2.bind = grid
+net.branch.AtariImpalaX2.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > Flatten > AtariLinear512 > ReLU
+
 net.branch.AtariImpalaViT.bind = grid
 net.branch.AtariImpalaViT.structure = StackMerge > AtariImpalaConv16 > AtariImpalaPool > AtariImpalaRes16(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariViTProj128 > SiLU > PosEmbed2D > AtariImpalaTrans128 > Flatten > AtariLinear512 > ReLU
 
@@ -470,6 +494,12 @@ net.body.output.[value_feature] = value_stream
 net.body.output.[adv_feature] = adv_stream
 net.branch.[value_stream].structure = AtariHeadFC512 > SiLU
 net.branch.[adv_stream].structure = AtariHeadFC512 > SiLU
+
+# use_dueling_net=false 時の Head(LinearHead/QuantileHead/IQNHead)は value_feature/adv_feature を
+# 参照せず、`features`(nn_heads.hpp の kKey_DefaultOutput)だけを読む。この 1 行が無いと
+# 「NetworkHead expected key 'features'」で起動時に落ちる。dueling 側は value/adv を優先する
+# ため、ここに features があっても影響しない。
+net.body.output.[features] = main_feature
 
 # QR: V/A は main_feature 直結
 net.qr.branch.[value_stream].bind = main_feature
@@ -482,6 +512,9 @@ net.iqn.branch.[iqn_fusion].bind = main_feature * tau_embedding
 net.iqn.branch.[iqn_fusion].structure =
 net.iqn.branch.[value_stream].bind = iqn_fusion
 net.iqn.branch.[adv_stream].bind = iqn_fusion
+
+# IQNHead(dueling なし)は rank-3 (B,K,D) を要求するため、main_feature ではなく fusion 後を渡す。
+net.iqn.body.output.[features] = iqn_fusion
 
 
 # ==============================================================================
@@ -506,9 +539,6 @@ AtariEnv.classic.fire_reset = true
 
 # Atari-100k(SimPLe 起源のサンプル効率ベンチ。26 ゲーム・予算 100k steps = 400k frames)
 # 共通不変は sticky なし+400k frames のみで、残りは実装系統で分裂している
-# (reports/atari_env_survey_2026-08-13.md §5.3/§7.2)。ここは torch 系多数派
-# (SPR/EfficientZero)に合わせた。Dopamine 系(DrQ(ε)/DER(ε)/BBF)は
-# noop 0・episodic_life false で報告しており、比較先の条件確認は必須。
 # 学習予算は Run設定 章の exp_pause/exit_step = 100,000 とセットで使う。
 AtariEnv.100k.repeat_action_probability = 0.0
 AtariEnv.100k.noop_max = 30
@@ -533,10 +563,26 @@ AtariEnv.sound = false
 
 # --- Eval設定 ---
 
+# eval は eval_batch_size=1 の 1 本評価なので、コストは「1 エピソードの長さ × 発火回数」で決まる。
+# エピソード長はスキル向上に伴って伸びるため、Run 後期ほど eval が高くつく。
+
+# eval1 = target net / eval2 = online net(dqn_based_agent.cpp の IsForTarget)。
+# soft_update_tau=0.001 で両者はほぼ同一方策であり、実測(run_20260818-081125、102M)の
+# 平均は eval1 142.7 / eval2 123.5、同 step 対応の相関は r=0.501。この低さは 1 本評価の
+# 分散によるもので方策差ではない。同レートで回すことで実質 2 標本の交差確認になる。
 train.eval_schedule.[eval1].interval = 2500
-train.eval_schedule.[eval2].interval = 2500
+#train.eval_schedule.[eval2].interval = 2500
 #train.eval_schedule.[eval1].interval = 0    # num_envs ラダー等、eval コストを排除したい測定用
-#train.eval_schedule.[eval2].interval = 0
+train.eval_schedule.[eval2].interval = 0     # eval2 破棄。online net の評価と eval1/eval2 比の健全性指標を失う
+
+# eval エピソードの上限。env 既定の 108,000 frames(30 分)のままだと、稀に上限まで張り付く
+# エピソードが出る。同 Run の eval 255 本のうち 2.0% が上限に達し、eval 総フレームの 24% を
+# 消費していた(スコアは 222〜353 で伸びておらず、長さに見合う得点になっていない)。
+# Classic(Mnih 2015)の評価手続きが 5 分 = 18,000 frames 上限なので、そこへ揃える。train 側は据え置く。
+# エピソード上限はプロトコルと対。Nature 2015 = 18,000 frames(5 分)、BTR = 108,000 frames。
+# env 既定が 108,000 なので、v5 プロファイルではこの 2 行をコメントアウトする。
+#train.eval.[eval1].env.max_episode_frames = 18,000    # Classic プロファイル用
+#train.eval.[eval2].env.max_episode_frames = 18,000    # Classic プロファイル用
 
 
 # 別 flavor / 別ゲーム eval の雛形(必要時に有効化)
@@ -606,6 +652,9 @@ M.[52_eval2/31_lives_mean_ema]       = $eval.[eval2] @episode_end $env mean.live
 # app
 # ==============================================================================
 
+app.batchrun.train_panel.fps = 0
+app.batchrun.eval_panel.fps = 0
+
 Conv2dPanel.conv2d.flip_vertical = false
 
 app.online.eval_panel.auto_start = false
@@ -627,6 +676,7 @@ app.batchrun.eval_panel.eval_config_tag = eval_panel
 train.eval.[eval_panel].run_mode = eval1
 #train.eval.[eval_panel].env.sound = true   # タイマー精度の問題で音がおかしくなるのは現状の制限事項
 #train.eval.[eval_panel].env.display_screen = true
+train.eval.[eval_panel].env.max_episode_frames = 108,000
 
 # 実速観戦(音声正常化)。既定 fps=30 だと 2 倍速になり、音声レジスタキューが溜まって SoundSDL の刈り込みが働き音割れする。
 # 15 fps × step_per_frame:1 × frame_skip:4 = 60 エミュレータフレーム/s = 実機速度。
