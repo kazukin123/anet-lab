@@ -255,14 +255,15 @@ namespace anet {
             ConfigManagerOptions options = {});
 
         ConfigData GetConfigData() const { return { map_ }; }
+        anet::json GetResolutionJson() const { return resolution_json_; }
     private:
         void LoadFromFile(const std::filesystem::path& filePath);
         void OverwriteFromFile(const std::filesystem::path& filePath);
-        void ApplyCmdLineOverrides(const wxCmdLineParser& cmdLine);
-        void AutoMerge();
+        ConfigData::MapType ReadCmdLineOverrides(const wxCmdLineParser& cmdLine) const;
     private:
         ConfigManagerOptions options_;
         ConfigData::MapType map_;
+        anet::json resolution_json_;
     };
 
 }

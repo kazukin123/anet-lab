@@ -277,6 +277,55 @@ TEST_CASE("MetricsLogger writes ConfigData text file", "[metrics][config]")
     std::filesystem::remove_all(root);
 }
 
+TEST_CASE("MetricsLogger writes config resolution as JSON metadata", "[metrics][config]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "anet-core-config-resolution-test";
+    std::filesystem::remove_all(root);
+
+    anet::MetricsLogger::Reset();
+    auto backend = std::make_unique<anet::JsonlBackend>();
+    anet::MetricsLoggerConfig logger_config;
+    logger_config.run_name_tmpl = "config_resolution_test";
+    anet::MetricsLogger::Init(std::move(backend), logger_config, root);
+
+    const anet::json resolution = {
+        { "schema_version", 1 },
+        { "selections", anet::json::array() },
+        { "references", anet::json::array() },
+    };
+    anet::MetricsLogger::Instance()->Log("config_resolution", resolution);
+    anet::MetricsLogger::Instance()->Flush();
+
+    const auto run_dir = root / "runs" / "config_resolution_test";
+    const auto artifact_path = run_dir / "json" / "config_resolution.json";
+    REQUIRE(std::filesystem::exists(artifact_path));
+    const auto artifact = anet::json::parse(ReadTextFile(artifact_path));
+    CHECK(artifact["type"] == "json");
+    CHECK(artifact["tag"] == "config_resolution");
+    CHECK(artifact["data"] == resolution);
+
+    anet::json metrics_record;
+    int resolution_record_count = 0;
+    std::istringstream metrics_stream(ReadTextFile(run_dir / "metrics.jsonl"));
+    for (std::string line; std::getline(metrics_stream, line);) {
+        const auto record = anet::json::parse(line);
+        if (record.value("tag", std::string()) == "config_resolution") {
+            metrics_record = record;
+            ++resolution_record_count;
+        }
+    }
+    REQUIRE(resolution_record_count == 1);
+    CHECK(metrics_record["type"] == "json");
+    CHECK(metrics_record["tag"] == "config_resolution");
+    CHECK(metrics_record["data"] == resolution);
+    CHECK(metrics_record.contains("timestamp"));
+    CHECK_FALSE(std::filesystem::exists(run_dir / "config" / "config_resolution.json"));
+
+    anet::MetricsLogger::Reset();
+    std::filesystem::remove_all(root);
+}
+
 TEST_CASE("MetricsLogger writes individual Config files without run-root config.txt", "[metrics][config]")
 {
     const auto root = std::filesystem::current_path() / "out" / "test-tmp" /

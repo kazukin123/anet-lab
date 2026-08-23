@@ -17,7 +17,7 @@
 
 ### 1.3 記載範囲
 
-現行の`ConfigData`、`ConfigManager`、`RunManager`、Runner群、`RunnerThread`を扱う。
+現行の`ConfigData`、`ConfigManager`、private deep moduleの`ConfigResolver`、`RunManager`、Runner群、`RunnerThread`を扱う。
 GUI操作は[Run実行ガイド](020_user_guide_run.jp.md)、EventとObserverは[可観測性](140_observability.jp.md)を参照する。
 
 ## 2. 基本概念と外部contract
@@ -26,12 +26,15 @@ GUI操作は[Run実行ガイド](020_user_guide_run.jp.md)、EventとObserverは
 
 設定は文字列key/valueを保持する`ConfigData`へ集約される。
 
-1. `Properties`が共通main configと`$include`先を読み込む。
+1. `Properties`が共通main configと`$include`先を読み込む。各行は最初の`=`より左をkeyとし、key内の空白を除去して単一の`:`を`.`へ正規化する。複数の`:`または空の区間はfail-fastする。旧parserで`:`をkey/value境界としていた`foo: bar`形式は廃止し、`=`のない行は読み飛ばす。
 2. workspaceモードではRunnerが`app.runs_dir=<workspace>/runs`を注入し、workspaceの`config/_main.txt`を後勝ちで重ねる。workspace内includeは共通config directoryへfallbackして解決する。
-3. `ConfigManager`がコマンドラインの`key=value`を一度適用する。この指定は`.$`によるmerge対象の選択にも使われる。
-4. `ConfigManager`が設定グループのmergeを左から右へ解決する。
-5. merge結果よりコマンドライン指定を優先するため、同じ`key=value`を最終overrideとして再適用する。
-6. workspaceモードでは最終`app.runs_dir`が注入値と文字列完全一致することを検証し、各`Config` classが型付きfieldを読み、Run directoryへ設定成果物を記録する。
+3. `ConfigResolver`がbase、注入値、後勝ちoverlay、CLI第1相をsource mapへ統合する。CLI第1相は`.$` selectionと`@`素材への指定だけを解決入力へ反映する。
+4. `ConfigResolver`が`.$`を宣言順のDFSで解決する。単独の`@name`はselection所有者配下の相対素材、それ以外はrootからの絶対prefixである。チェーンは左から右へ適用し、右側を後勝ちとする。素材から生成されたnested `.$`も同じ規則で再帰解決する。
+5. CLI第2相として実効leafを上書きし、その後で`${full.key}`を参照先の最終値へ1段だけ展開する。未定義素材、selection循環、深さ10超過、未定義・連鎖・未解決の値参照はfail-fastする。
+6. `.$`と`@` segmentを持つ素材定義を除いた`ConfigData`と、解決順を記録したresolution JSONを返す。workspaceモードでは最終`app.runs_dir`が注入値と文字列完全一致することを検証し、各`Config` classが型付きfieldを読む。
+7. Runnerは同じ初期化境界で、実効設定を`config/config_data.txt`へ保存し、selectionと値参照の構造化記録を既存`MetricsLogger::Log("config_resolution", json)`へ渡す。後者は`json/config_resolution.json`へ`type` / `tag` / `data` envelope付きで保存され、timestamp付きの同じrecordがMetrics masterにも記録される。
+
+同一の実効`.$` keyがチェーン内の複数素材から生成される場合、`selections`には適用ごとに同じ`key`のentryが解決順で並ぶ。これは右勝ちに至る適用履歴を保持するためであり、重複を集約しない。
 
 `--config`明示時は手順2のworkspace解決・注入・後読みを省略する完全自己記述モードである。`--config`、`--workspace`、`--select-workspace`は相互排他である。
 
@@ -62,7 +65,8 @@ Train Runnerは`Agent::CreateActor()`へclone方針を指定せず`std::nullopt`
 | コンポーネント | 定義 |
 |---|---|
 | `Properties` | Properties類似形式のファイルとincludeを読み込む |
-| `ConfigManager` | main file、注入値、後勝ちoverlay、merge、CLI overrideから最終ConfigDataを作る |
+| `ConfigManager` | main file、注入値、後勝ちoverlay、CLI overrideを収集し、resolverの結果を公開する |
+| `ConfigResolver` | source mapからselection、CLI leaf、値参照を順に解決し、実効ConfigDataとresolution JSONを作るprivate deep module |
 | `Config` | default/override prefixを使い、1コンポーネントの型付き設定を読む基底 |
 | `RunManager` | seed、Env、Agent、Notifier、Runnerの構築とRun内共有objectを管理する |
 | `RunnerFactory` | `serial`または`pipeline`のTrainRunnerを選ぶ |
@@ -77,7 +81,8 @@ Train Runnerは`Agent::CreateActor()`へclone方針を指定せず`std::nullopt`
 | 領域 | 主なファイル |
 |---|---|
 | 設定interface | [config.hpp](../../core/anet-core/include/anet/config.hpp) |
-| 設定parser・merge | [config.cpp](../../core/anet-core/src/config.cpp) |
+| 設定parser・管理 | [config.cpp](../../core/anet-core/src/config.cpp) |
+| 設定解決 | [config_impl.hpp](../../core/anet-core/src/config_impl.hpp)、[config_impl.cpp](../../core/anet-core/src/config_impl.cpp) |
 | Runner interface・Event | [rl.hpp](../../core/anet-core/include/anet/rl.hpp) |
 | RunManager・Runner | [trainer.hpp](../../core/anet-core/include/anet/trainer.hpp)、[trainer.cpp](../../core/anet-core/src/trainer.cpp) |
 | seed管理 | [random.hpp](../../core/anet-core/include/anet/random.hpp)、[random.cpp](../../core/anet-core/src/random.cpp) |
@@ -93,6 +98,7 @@ classDiagram
 direction LR
 
 class ConfigManager
+class ConfigResolver
 class ConfigData
 class RunManager
 class BatchEnvBuilder
@@ -104,6 +110,8 @@ class PipelineTrainRunner
 class EvalRunner
 class RunnerThread
 
+ConfigManager *-- ConfigResolver : private
+ConfigResolver --> ConfigData : effective map
 ConfigManager --> ConfigData
 ConfigData ..> RunManager : 構築入力
 RunManager *-- BatchEnvBuilder
@@ -126,6 +134,7 @@ RunnerThread --> TrainRunner : stepを反復
 sequenceDiagram
     participant App as RunnerApp
     participant CM as ConfigManager
+    participant CR as ConfigResolver
     participant RM as RunManager
     participant EB as BatchEnvBuilder
     participant AF as AgentFactory
@@ -133,8 +142,11 @@ sequenceDiagram
     participant OF as ObserverFactory
 
     App->>CM: main config + CLI override
-    CM-->>App: ConfigData
-    App->>App: MetricsLogger / backend / repository初期化
+    CM->>CR: source map + CLI override
+    CR-->>CM: effective map + resolution JSON
+    CM-->>App: ConfigData + resolution JSON
+    App->>App: MetricsLogger初期化 / config text・resolution metadata保存
+    App->>App: backend / repository初期化
     App->>RM: RunManager(config)
     RM->>RM: train / configured Eval tag / EvalPanelのnameとeval scheduleを一括検証
     RM->>EB: Train BatchEnvを生成
@@ -270,7 +282,7 @@ sequenceDiagram
 | `agent.*` | Agent class、device |
 | `backend.*` | TF32、cuDNN、決定論などlibtorch backend |
 
-完全なkey一覧はConfig classとRun内`config/config_data.txt`を基準とする。
+完全な実効key一覧はConfig classとRun内`config/config_data.txt`を基準とする。選択した素材と`${}`参照の解決経路は`json/config_resolution.json`またはMetrics masterの`config_resolution` recordにある`data`を基準とする。resolutionは分析・診断用metadataであり、設定の再読込には使わない。
 
 ### 7.2 lifetimeと終了
 
@@ -298,7 +310,8 @@ sequenceDiagram
 
 ## 8. テストと拡張時の確認事項
 
-- [config_test.cpp](../../core/anet-core/src/config_test.cpp): 型変換fail-fast、キー欠落時の既定値、structured config、include、merge、CLI override
+- [config_test.cpp](../../core/anet-core/src/config_test.cpp): 型変換fail-fast、キー欠落時の既定値、structured config、include、selection、CLI 2相、値参照、旧AutoMergeとのgolden同値性
+- [metrics_logger_test.cpp](../../core/anet-core/src/metrics_logger_test.cpp): config textとJSON resolution metadataのfile / Metrics master出力境界
 - [trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp): Train clone方針のAgent委譲、Pipelineの暗黙同期禁止、Eval ActorとAgentのdevice整合性
 - [episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp): Runnerのepisode終端通知とEval強制Action
 - [init_test.cpp](../../core/anet-core/src/init_test.cpp): 初期化とbackend設定

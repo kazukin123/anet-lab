@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <sstream>
 #include <fstream>
@@ -21,6 +22,7 @@
 #include "anet/json_util.hpp"
 #include "anet/str_util.hpp"
 #include "anet/log.hpp"
+#include "config_impl.hpp"
 
 namespace LOG = anet::log;
 
@@ -510,6 +512,31 @@ namespace anet {
         return s.substr(b, e - b + 1);
     }
 
+    std::string NormalizePropertyKey(
+        std::string key,
+        const std::filesystem::path& filename)
+    {
+        // Key 部の空白を除去し、視覚区切りの ':' をドット正規形へ落とす。
+        key.erase(std::remove_if(key.begin(), key.end(), [](unsigned char c) {
+            return std::isspace(c) != 0;
+        }), key.end());
+
+        const auto colon = key.find(':');
+        if (colon == std::string::npos) {
+            return key;
+        }
+        ANET_CHECK_MSG(
+            key.find(':', colon + 1) == std::string::npos,
+            "Properties: config key contains multiple ':' separators. path="
+            << filename.string() << " key=" << key);
+        ANET_CHECK_MSG(
+            colon > 0 && colon + 1 < key.size(),
+            "Properties: config key contains an empty ':' segment. path="
+            << filename.string() << " key=" << key);
+        key[colon] = '.';
+        return key;
+    }
+
     void Properties::Load(const std::filesystem::path& filename, int depth)
     {
         if (depth >= 10) {
@@ -619,13 +646,12 @@ namespace anet {
             }
             // ---------------------
 
-            size_t pos = line.find('=');    // '=' または ':' で区切る
-            if (pos == std::string::npos)
-                pos = line.find(':');
+            // 最初の '=' だけを key/value 境界とし、':' は key 内の糖衣として扱う。
+            size_t pos = line.find('=');
             if (pos == std::string::npos)
                 continue;
 
-            std::string key = Trim(line.substr(0, pos));
+            std::string key = NormalizePropertyKey(line.substr(0, pos), filename);
             std::string value = Trim(line.substr(pos + 1));
 
             // 末尾 ';' を除去
@@ -726,18 +752,13 @@ namespace anet {
             OverwriteFromFile(overwrite_config_path);
         }
 
-        // コマンドライン引数を上書き
-        if (cmdLine) {
-            ApplyCmdLineOverrides(*cmdLine);
-        }
-
-        // マージ実行（.$ = を展開）
-        AutoMerge();
-
-		// 再度コマンドライン引数を上書き（マージされた値よりコマンドライン指定を優先させるため）
-        if (cmdLine) {
-            ApplyCmdLineOverrides(*cmdLine);
-        }
+        // CLI は一度だけ読み、selection/material と実効 leaf を resolver 内で二相適用する。
+        const auto cli_overrides = cmdLine
+            ? ReadCmdLineOverrides(*cmdLine)
+            : ConfigData::MapType{};
+        auto resolved = detail::ConfigResolver::Resolve(map_, cli_overrides);
+        map_ = std::move(resolved.effective_map);
+        resolution_json_ = std::move(resolved.resolution_json);
     }
 
     void ConfigManager::LoadFromFile(const std::filesystem::path& filePath)
@@ -756,10 +777,11 @@ namespace anet {
         map_ = config_data.Map();
     }
 
-    void ConfigManager::ApplyCmdLineOverrides(const wxCmdLineParser& cmdLine)
+    ConfigData::MapType ConfigManager::ReadCmdLineOverrides(const wxCmdLineParser& cmdLine) const
     {
         // 例: agent.lr=0.001 をパラメータとして渡す
         // executable agent.lr=0.001 train.max_steps=20000
+        ConfigData::MapType overrides;
         const int count = cmdLine.GetParamCount();
         for (int i = 0; i < count; ++i) {
             wxString s = cmdLine.GetParam(i);
@@ -768,81 +790,16 @@ namespace anet {
             const auto pos = p.find('=');
             if (pos == std::string::npos) continue;
 
-            const std::string key = p.substr(0, pos);
+            const std::string key = NormalizePropertyKey(
+                p.substr(0, pos),
+                "<command-line>");
             const std::string val = p.substr(pos + 1);
 
             if (!key.empty()) {
-                map_.Set(key, val);
+                overrides.Set(key, val);
             }
         }
-    }
-
-    static constexpr const char* MERGE_KEYWORD = ".$";
-
-    void ConfigManager::AutoMerge()
-    {
-        // env.$ = env.common > env.trunk
-        // env.xxx = 1
-        // env.yyy = 2
-        // env.common.yyy = 10
-        // env.common.zzz = 20
-        // env.trunk.zzz = 200
-        // 
-        //   ↓
-        // 
-        // env.xxx = 1
-        // env.yyy = 10
-        // env.zzz = 200
-        //
-
-        ConfigData::MapType new_map;
-        ConfigData::MapType map = map_;
-
-		std::vector<std::string> merge_keys;
-
-        // マージキー以外をそのままコピー
-        for (const auto& kv : map) {
-            const std::string key = kv.first;
-            const std::string val = kv.second;
-            if (!anet::EndsWith(key, MERGE_KEYWORD)) {
-                new_map.Set(key, val);
-            } else {
-				merge_keys.push_back(key);
-            }
-        }
-
-        // マージキーの上書き処理
-        for (const auto& merge_key : merge_keys) {
-			auto base_key = anet::RemoveSuffix(merge_key, MERGE_KEYWORD);   // env.$ -> env
-
-			auto merge_val = map.Get(merge_key);                                             // "env.common > env.trunk"
-			std::vector<std::string> merge_target_keys = Split(merge_val, { ">" }, true);    // { env.common, env.trunk }
-            if (merge_target_keys.empty()) continue;
-
-            for (auto merge_target_key : merge_target_keys) {   // env.common, env.trunk
-                if (merge_target_key.empty()) continue;
-
-                // 設定階層の子孫だけを対象にし、env.common_value のような単なる前方一致を除外する。
-                const std::string merge_target_prefix = merge_target_key + ".";
-
-                for (const auto& kv2 : map) {
-                    std::string key2 = kv2.first;
-                    std::string val2 = kv2.second;
-                    if (anet::StartsWith(key2, merge_target_prefix)) {                 // env.common.yyy, env.common.zzz
-                        // ERASE: env.common.yyy, env.common.zzz
-                        //new_map.Erase(key2);	// 2回目のマージで困るので消さない
-
-                        auto key_suffix = anet::RemovePrefix(key2, merge_target_key);  // .yyy, .zzz
-                        auto target_key = base_key + key_suffix;                       // env.yyy, env.zzz
-
-                        // マージ対象のValueをマージ元のKeyでSet
-                        new_map.Set(target_key, val2);
-                    }
-                }
-            }
-        }
-
-        map_ = new_map;
+        return overrides;
     }
 
 } // namespace anet

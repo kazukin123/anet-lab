@@ -295,6 +295,7 @@ bool RunnerApp::OnInit()
     standard_stream_logger_.Start(GetRunDir());
     anet::MetricsLogger::Instance()->Log("config_data", config_data.ToJson());
     anet::MetricsLogger::Instance()->Log("config_data", config_data);
+    anet::MetricsLogger::Instance()->Log("config_resolution", config_mgr_->GetResolutionJson());
 
     // ライブラリ初期化
 	anet::rl::BackendConfig backend_config(config_data);

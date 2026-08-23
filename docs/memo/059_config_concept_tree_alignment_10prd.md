@@ -1,7 +1,7 @@
 # 設定体系再設計: 概念ツリー整合・素材宣言・ConfigResolver PRD
 
 > 番号 059(旧 931。実装移行に伴い暫定番号を解除、2026-08-23)。
-> 状態: **v3 = grill 完了・最終化済み**(2026-08-23)。goal anchor 合意 → scope screen → 主質疑 → final simplification pass の全裁定(§複雑性監査)を反映。**残裁定なし**(遅延ゲートのみ=§10)。次アクション: Phase 0 実装 PRD の切り出し(Codex)。
+> 状態: **v3 = grill 完了・最終化済み**(2026-08-23)。goal anchor 合意 → scope screen → 主質疑 → final simplification pass の全裁定(§複雑性監査)を反映。**残裁定なし**(遅延ゲートのみ=§10)。次アクション: PH0 の実装依頼(本 PRD は分割しない。実装計画は依頼時の PH 指定に応じて `059_*_2ximpl_phN.md` として impl 側で分割する)。
 > v2 = 3者レビュー(設計スレッド / Atari 側 / DropMerge・Optuna 担当)合意版。
 > v1(問題の一般化・選定なし)の分析は付録 A〜D に保全した。決定の根拠として本文から参照する。
 > 起点: QR/IQN の切替が `net.$` と `R.quantile_mode` の 2 行セット操作になる件。一般化すると「1 つの概念の切替が複数 namespace の同時編集を要求し、揃え忘れると起動時エラーか静かな不整合になる」箇所が 12 件ある(付録 B)。
@@ -17,7 +17,7 @@
 
 1. **標準の素材選択経路では、概念を構成する一部だけを選べないようにする。** 例: IQN を選んだら agent 側スイッチと NN 配線は 1 つの選択で同時に決まり、片方だけを選ぶ書き方が標準経路に存在しない。
 2. **直接 override による契約違反は、発生点に近い早い段階で fail-fast する。** 原因の config キーを名指しするエラーにする(現状は NetworkModel 構築まで潜伏し、shape エラーで間接検出される。付録 A)。
-3. **Run artifact から「実効値」と「選択経路」を両方読めるようにする。** 実効値は純化した `config_data.txt`、選択経路は新設の `config/config_resolution.json` が持つ。
+3. **Run artifact から「実効値」と「選択経路」を両方読めるようにする。** 実効値は純化した `config_data.txt`、選択経路は新設の `json/config_resolution.json` と Metrics master の `config_resolution` record が持つ。
 4. **Run を「幹」(= Run 署名)の単位で定義・切替・記録できるようにする。** 幹はスロット選択の束であり、同一幹×複数 seed = 比較母集団という運用を構造で表現する。
 
 ### 0.2 非目標
@@ -31,7 +31,7 @@
 
 1. **アルゴ切替の編集行数**: 現状 2〜4 行×複数章の同期編集 → チェーン 1 項の変更のみ。
 2. **RUN_BUDGET 型の「静かに間違う」事故の再発ゼロ**: bat の予算値と設定キーの二重指定齟齬が構造的に起きない。
-3. **inspect_run.py の実効値突合コードの削除**: dump 純化により「module dump と突合して実効らしい key を判定する」処理が不要になる(削除行数で測定)。
+3. **inspect_run.py の module dump 突合の削除**: 未選択素材が dump から消えることで「module dump と突合して実効らしい key を判定する」処理が不要になる(削除行数で測定)。**達成ゲート = Phase 1 の素材 `@` 化完了**(§8.2): `@` 化されていない無印素材(AS / BF16 / `net.qr/iqn` / Agent baseline / env プリセット等)が残る過渡期は、その分の識別が残る。無印上書き層(A/E/R/X/M/O/P)は D20 により恒久的に dump へ残るが、既知 prefix の固定リストで識別でき、突合を要しない。
 
 ---
 
@@ -51,17 +51,18 @@
 | D10 | 軸選定の 3 条件基準 | ①値 2 つ以上 ②1 選択が 2 箇所以上を同時に変える ③揃え忘れると壊れる or 静かに間違う | §3.1 |
 | D11 | RUN_BUDGET / LEARNING_SCHEDULE 分離 | 予算と学習 schedule は連動しない(DropMerge 実測根拠)。update_warmup は両方から除外 | §3.3 |
 | D12 | ALGO 軸=`@dqn/@qr/@iqn`(配線とセット、BODY と分離) | 分布表現の 3 値。quantile_mode+NN 配線+tau 系を 1 素材に。**「Rainbow」素材は作らない**(baseline+`@qr` の俗称。文書・named 幹名でのみ使用)。BODY は独立軸のまま素材化しない | §3.2 |
-| D13 | ConfigResolver 化+依存グラフ DFS | 不動点反復ではなく selection 参照グラフを DFS 解決。6 フェーズ。`ConfigManager` の外部 interface は不変 | §5 |
+| D13 | ConfigResolver 化+依存グラフ DFS | 不動点反復ではなく selection 参照グラフを DFS 解決。5 フェーズ。既存 `GetConfigData()` は不変、resolution 記録の取得 API を新設(§5.1) | §5 |
 | D14 | CLI override の 2 相化 | selection・素材・変数=解決前 / 実効 leaf=解決後。「同じものを 2 回適用」を廃止 | §5.3 |
-| D15 | dump 純化+`config_resolution.json` | `config_data.txt`=実効値のみ。選択・変数・provenance は構造化 JSON へ。コメント行方式は不採用 | §6 |
+| D15 | dump 純化+`config_resolution.json` | `config_data.txt`=実効値+無印上書き層(D20 の意図的残置)。`@` 素材は除外。選択・変数の記録は構造化 JSON へ。コメント行方式は不採用。純化の完成は Phase 1 の素材 `@` 化完了にゲート | §6 |
 | D16 | optuna 運用 3 規則 | trial の `.$` 振りは HEAD/BODY=可、ALGO=別 study、BUDGET=同一 study 禁止。preset 名を trial parameter に保存 | §7 |
 | D17 | golden comparison で移行検証 | 代表 config の旧/新 resolver 実効 leaf map を突合。初回ゴールは「既存 config 無変更で完全一致」 | §8 |
 | D18 | resume パスは素材化しない | checkpoint path は Run instance 固有値=run-local leaf override。再利用素材(@)に入れない | §7.3 |
-| D19 | net 読み口は `<agent>.net` | 各 Agent が自分の config prefix 配下の net を読む(旧案 1 vs 案 2 の決着=案 2)。カタログ `net.block` はグローバル共有のまま。rename 実測: 直書き 107 行+bat 5 行(機械置換可)、素材・カタログ・テンプレ定義は無変更、optuna 影響ゼロ。ADR 0030 | §3.5 |
+| D19 | net 読み口は `<agent>.net` | 各 Agent が自分の config prefix 配下の net を読む(旧案 1 vs 案 2 の決着=案 2)。カタログ `net.block` はグローバル共有のまま。rename 実測: 直書き 107 行+bat 5 行(機械置換可)、素材・カタログ・テンプレ定義は **D19 rename の対象外**(素材の `@` 化は Phase 1 の別軸=§3.5、agent 配下への移設のみ任意)、optuna 影響ゼロ。ADR 0030 | §3.5 |
 | D20 | 上書き層(A/E/R/X/M/O/P)は無印のまま | `@` は再利用素材専用。空許容宣言機構は不要(未定義の無印 prefix は従来どおり no-op)。上書きの痕跡が dump に残るのは意図表現として正しい | §4.1 |
 | D21 | Key 部空白は除去のみ | 検証なし。誤記は未知キー化するが現行のタイポ NoCare と同水準で悪化なし | §4.4 |
 | D22 | RainbowAgent(C++)は保持 | Agent 柔軟性(複数 Agent 実装の受け入れ)実証としての意図した保持。`<agent>.net` 規則の適用対象(現用 env 構成に使用なし=rename 実務への影響なし) | §3.5 |
 | D23 | 用語 5 件を CONTEXT.md へ追加 | 素材 / カタログ / 幹 / 上書き層 / デフォルト直書き。_Avoid_ 欄に「プロファイル/profile」は使わない(`net.config_profile` の正式用語と予約衝突するため「プリセット」を充てる) | CONTEXT.md |
+| D24 | ドメイン検証は Factory 境界(目標 2 の実装) | `quantile_mode` ↔ net 契約を `DefaultDQNAgentFactory::CreateAgent` 内の named validator(両 Config 構築直後・NetworkModel 構築前)で検証し原因キー名指しで fail-fast。D19 により「自分の net サブツリーとの整合」が局所契約になったため ADR 0018 の責任境界と両立。Phase 1 で実装 | §5.5 |
 
 ---
 
@@ -72,7 +73,7 @@
 | 層 | 役割 | 例 | dump |
 |---|---|---|---|
 | **カタログ** | 参照される部品。「選ばれる」ものではなく、コードや structure 文字列が名前で引く | `net.block.[*]`、`train.eval.[tag]` 定義、metrics 定義 | 残る(読み口がある) |
-| **素材** | 合成の入力。named 選択肢(プリセット)と nameless 上書き層の総称 | `AtariEnv.@v5`、`DefaultDQNAgent.@iqn`、`@budget50m`、上書き層 A/E/R/X/M/O | `@` 宣言分は除外 |
+| **素材** | 合成の入力。named 選択肢(プリセット)と nameless 上書き層の総称 | `AtariEnv.@v5`、`DefaultDQNAgent.@iqn`、`app.@budget50m`、上書き層 A/E/R/X/M/O | `@` 宣言分は除外 |
 | **幹** | Run 署名。スロット選択の束。実際に動く最終設定へ合成される | 選択行の束、named 幹 `run.@<name>` | 実効値として残る |
 
 カタログと素材の判定基準: **Resolver(`.$`)や `${}` の素材としてのみ意味を持つキー=素材。コードの読み口(Config / Builder)が直接読むキー=カタログまたは実効値。**
@@ -152,13 +153,13 @@ BODY↔ALGO を繋ぐ契約は「main_feature 最終次元」1 本のみ。暫�
 | `net.branch.[main_feature].$` | BODY(=利用者の直接選択。素材化しない) |
 | main_feature 最終次元 | 契約(`${}` 一点化、§3.3) |
 
-**遅延ゲート先の設計メモ(HEAD 軸着手時に検証)**: V/A ストリームの存在宣言は HEAD 所有とし、stream の `bind` は `features` 固定インターフェース(stream は常に `features` へ bind、ALGO は features の実体差し替えのみを所有)にすると ALGO×HEAD の交差キーが消える。IQN の rank-3 が features 経由で V/A stream へ流れる shape 整合は HEAD 軸を作るときに裏取りする。それまで現行配線(dueling 前提の `net.qr/iqn` プロファイル)は変更しない。
+**遅延ゲート先の設計メモ(HEAD 軸着手時に検証)**: V/A ストリームの存在宣言は HEAD 所有とし、stream の `bind` は `features` 固定インターフェース(stream は常に `features` へ bind、ALGO は features の実体差し替えのみを所有)にすると ALGO×HEAD の交差キーが消える。IQN の rank-3 が features 経由で V/A stream へ流れる shape 整合は HEAD 軸を作るときに裏取りする。それまで現行配線(dueling 前提の qr/iqn プロファイル)の**内容**は変更しない(Phase 1 の `@` 化でキー名が `net.@qr/@iqn` になるのは別軸)。
 
 ### 3.5 net 読み口の所有(D19 / D22)
 
 **各 Agent は自分の config prefix 配下の net を読む**(`DefaultDQNAgent.net.*` / `ImageClsAgent.net.*`)。旧 v1 の案 1(root overlay)vs 案 2(所有の移動)は、ALGO 軸において案 2 で決着した(ADR 0030)。
 
-- カタログ `net.block.[*]` は全 Agent 共有のグローバル残留。素材(`net.qr/iqn` 等)とテンプレ定義も**無変更**— AutoMerge は RHS 素材を LHS prefix へ複製するため、`DefaultDQNAgent.net.$ = net.iqn` と書けば素材はどこに置かれていてもよい(素材の `@` 化・agent 配下への移設は Phase 1 以降の段階宣言で任意に進める)。
+- カタログ `net.block.[*]` は全 Agent 共有のグローバル残留。素材(`net.qr/iqn` 等)とテンプレ定義は **D19 rename(112 行)の対象外** — AutoMerge は RHS 素材を LHS prefix へ複製するため、素材はどこに置かれていてもよい。ただし独立の 2 軸を区別する: **①素材の `@` 化**(キーを `net.@qr/@iqn` へ。**配置は root のまま**)は Phase 1 の完了条件(§8.2、指標 3 のゲート)、**②agent 配下への移設**(`DefaultDQNAgent.net.@iqn` へ。相対参照 `@iqn` で書けるようになる)は任意。Phase 1 後の参照は `DefaultDQNAgent.@iqn : net.$ = net.@iqn`(絶対)が標準形。
 - rename 対象は「最終ツリーへの直書き行」のみ。実測: `net.$` 7 行+`net.branch.[slot]` 63 行+`net.body.output/$` 37 行+bat の CLI override 5 行=**112 行**(コメントラダー込み・10 ファイル・機械置換可)。optuna 生成 config は net を触っておらず影響ゼロ。
 - コード変更: `NetworkConfig` の構築 prefix(既定 "net" → Agent config prefix 連結)と関連テスト。
 - MuZero は既に agent 配下に structure を持つため、この規則で全 Agent の流儀が統一される。RainbowAgent(C++)は Agent 柔軟性実証として**保持**し(D22)、本規則の適用対象とする(現用 env 構成に使用がないため rename 実務への影響なし)。ALGO 素材化の対象は DefaultDQNAgent。
@@ -212,7 +213,7 @@ net.block.[TauProj].linear.out_features = ${net.block.[AtariLinear512].linear.ou
 - 予約 namespace は設けない。定数の置き場は root 素材 `@vars.*` を**命名慣習**として推奨する(機構的特殊性はゼロ)。所有者配下の素材(`DropMergeEnv.@dims.width` 等)に置いてもよい。`@` 付きなら dump から消え、無印キーへの参照なら参照先は実効値として dump に残る — §4.1 の宣言原則がそのまま適用される。
 - 用途は**同値の一点化(同期)のみ**。導出(式評価。例: 予算/2)は対象外 — 導出値は素材内に具体値で書き、導出根拠はコメントに書く(設定言語を計算言語化しない)。
 - 1 段制限: 参照先の値がさらに `${}` を含む場合は fail-fast(連鎖・循環を最初から排除)。
-- 展開は leaf override 適用の**後**(§5.2 フェーズ⑤)。CLI・optuna が参照先キーを上書きした場合も参照元へ波及する。未定義キーへの参照、実効値に残る未解決 `${}` は fail-fast。
+- 展開は leaf override 適用の**後**(§5.2 フェーズ④)。CLI・optuna が参照先キーを上書きした場合も参照元へ波及する。未定義キーへの参照、実効値に残る未解決 `${}` は fail-fast。
 - 参照の解決記録(参照元→参照先→解決値)は resolution.json に残す(§6.2)。
 - 既存の `{t}`(run_name)とは構文衝突しない。
 - 位置づけ(G8): §0.1 のゴールに直結しない補助機構(付録 B の値同期型 #3/#4/#10/#12 に効く)だが、明示要望・実装極小のため Phase 0 に含める。
@@ -223,7 +224,7 @@ net.block.[TauProj].linear.out_features = ${net.block.[AtariLinear512].linear.ou
 AtariEnv.@v5    : repeat_action_probability = 0.25
 AtariEnv.@100k  : noop_max = 30
 DefaultDQNAgent.@iqn      : quantile_mode = iqn
-DefaultDQNAgent.@iqn      : net.$ = @iqn
+DefaultDQNAgent.@iqn      : net.$ = net.@iqn
 DefaultDQNAgent.@dueling  : use_dueling_net = true
 ```
 
@@ -233,6 +234,7 @@ DefaultDQNAgent.@dueling  : use_dueling_net = true
 - Key 部の空白は**除去のみで検証しない**(D21。`AtariEnv .$` = `AtariEnv.$`)。空白絡みの誤記は未知キーになるが、現行のタイポキー NoCare と同水準で悪化はない(`=` 忘れ行が黙って無視されるのも現行どおり)。値側の `:`(metrics DSL の `ema_alpha:0.001`)には影響しない。
 - 位置づけ(G8): `:` 糖衣は §0.1 のゴールに直結しない表記改善だが、明示要望・実装極小のため Phase 0 に含める。
 - 機構としては任意の行で使える(例: `train.eval.[eval1] : run_mode = eval1`)。素材定義での使用を推奨、は規約。
+- 上例の `net.$ = net.@iqn` が**絶対参照**なのは意図的: 素材は `@` 化されても(Phase 1 完了条件)**配置は root のまま**であり、相対 `@iqn`(= `DefaultDQNAgent.net.@iqn` を指す)では解決 0 件で fail-fast する。素材を agent 配下へ**移設**(任意=§3.5)した後にのみ相対 `@iqn` へ書き換えられる。
 - 1 行完結(位置独立)は維持する。セクションヘッダ構文は不採用(行が上方ヘッダに依存し、コメントアウトラダーでの行トグル・並べ替えの自由を壊すため)。
 
 ### 4.5 競合規則(D9)
@@ -253,7 +255,9 @@ v2 で検討した「独立 writer の fail-fast」は廃案(G5): 全順序を�
 
 ### 5.1 モジュール構成(D13)
 
-`ConfigManager` の外部 interface(構築 → `ConfigData` 取得)は不変のまま、内部を deep module `ConfigResolver` として再構成する。現行 `AutoMerge()`(約 60 行、付録 A)の拡張・肥大化はしない。
+`ConfigManager` の既存 interface(構築 → `GetConfigData()`)は不変のまま、内部を deep module `ConfigResolver` として再構成する。現行 `AutoMerge()`(約 60 行、付録 A)の拡張・肥大化はしない。
+
+Resolver は **{実効 `ConfigData`, resolution 記録} の対**を返し、`ConfigManager` が両方を保持する。resolution 記録の取得は新設 **`ConfigManager::GetResolutionJson()`**(`anet::json`を値で返す)で行う。公開record型は作らず、既存JSON出力interfaceへ構造化データのまま渡す(§6.2 に受け渡し契約とJSON具体形)。
 
 ### 5.2 解決フェーズ
 
@@ -270,7 +274,7 @@ Phase 2(named 幹導入)時に「root 持ち上げ」フェーズがフェーズ
 現行の「AutoMerge 前後に同一 override を 2 回適用」を廃止し、種別で分ける:
 
 - **第 1 相(フェーズ 2 の前)**: selection(`.$`)と素材キー(`@` を含むキー)への override。bat の `app.$=app.batchrun` はここ。
-- **第 2 相(フェーズ 5)**: 実効 leaf キーへの override。
+- **第 2 相(フェーズ 3)**: 実効 leaf キーへの override。
 - CLI で与えた `.$` が解決後の dump に残る現行挙動は廃止する(選択の記録は resolution.json が担う)。
 
 ### 5.4 fail-fast 一覧
@@ -284,7 +288,19 @@ Phase 2(named 幹導入)時に「root 持ち上げ」フェーズがフェーズ
 | Key 部の `:` 複数・空片 | fail-fast |
 | 無印 prefix 項の解決 0 件 | 従来どおり no-op(空層文化。D20 により恒久確定 — 上書き層は無印のままなので宣言機構は不要) |
 
-型変換・値域・enum・組み合わせの検証は現行どおり各 Config / 再利用設定型の責務(AGENTS.md「汎用機構と利用側の責任境界」)。本 PRD が足すのは**解決レイヤの構造検証**のみ。
+型変換・値域・enum・組み合わせの検証は現行どおり各 Config / 再利用設定型の責務(AGENTS.md「汎用機構と利用側の責任境界」)。本 PRD が足すのは、解決レイヤの構造検証(本節)と、目標 2 を実装するドメイン検証(§5.5)の 2 つである。
+
+### 5.5 ドメイン検証(目標 2 の実装)
+
+素材で束ねても防げない経路(CLI 第 2 相・上書き層による部分 override)の契約違反を、**Factory の構成検証境界(named validator)**で設定境界のうちに捕まえる。D19 により net が Agent config prefix 配下へ来たため、「Agent が自分の net サブツリーとの整合を検証する」ことは**局所契約**であり、ADR 0018 の責任境界(DAG の推移的到達性検証はしない)と衝突しない — v1 §4.3(案 3)で未決だった線引きは D19 が解消した。
+
+Phase 1(D19 rename 後)に実装する最小セット:
+
+| 検証 | 所有 | 時点 | 内容 |
+|---|---|---|---|
+| `quantile_mode` ↔ net 契約 | **`DefaultDQNAgentFactory::CreateAgent` 内の named validator**(`DefaultDQNAgentConfig` と `NetworkConfig` の両構築直後。両オブジェクトが揃う唯一の自然な境界で、`NetworkConfig` の解析済み bind 情報を照会する — bind parser の重複も `NetworkConfig` の二重構築も生じない) | 設定境界(NetworkModel 構築前) | `quantile_mode=iqn` なのに `<agent>.net` に `taus` を bind する branch が無い、または `quantile_mode=qr/none` なのに taus bind がある → **`quantile_mode` と該当 net キーを名指しして fail-fast** |
+
+受け入れテスト: 付録 A の不整合 3 パターン(iqn×qr 配線 / qr×iqn 配線 / `net.$` 書き忘れ)が、NN 構築時の shape / bind エラーではなく、原因キーを含む設定境界エラーになること。到達性・意味的寄与の保証はしない(ADR 0018 の設定者責任は不変)。他 Agent・他概念への検証追加は、同型の事故が実際に起きたときに同じ枠で足す(先回りしない)。
 
 ---
 
@@ -292,10 +308,10 @@ Phase 2(named 幹導入)時に「root 持ち上げ」フェーズがフェーズ
 
 ### 6.1 `config_data.txt` の純化(D15)
 
-- 内容 = **実効値のみ**。`@` セグメントを含むキーは出力しない(定数置き場 `@vars.*` もこの規則でカバーされる)。
-- 効果: 現行の「実効値+マージ元+未選択プロファイル同居」が解消し、`inspect_run.py` の「module dump と突合して実効らしい key を判定する」処理が不要になる。`--config` 完全自己記述モード(実効値の再読込)は従来どおり成立する。
+- 内容 = **実効値+無印上書き層の定義行**。`@` セグメントを含むキーは出力しない(定数置き場 `@vars.*` もこの規則でカバーされる)。無印の上書き層(A/E/R/X/M/O/P)は **D20 により意図的に残る** — 「この Run で何を上書きしたか」の痕跡であり、既知の固定 prefix なので読み手・ツールは機械的に識別できる(v2 の「実効値のみ」という表現は D20 と両立しないため本版で正確化した)。
+- dump に載る行は最終的に 3 分類になる: **①実効値**(本体)、**②無印上書き層**(D20 の恒久残置。既知 prefix の固定リストで識別)、**③`@` 化前の無印素材**(過渡期のみ。AS / BF16 / `net.qr/iqn` / Agent baseline / env プリセット等)。③が残る間は module dump 突合の完全削除はできないため、**§0.3 指標 3 の達成は Phase 1 の素材 `@` 化完了にゲートされる**(§8.2)。①②のみになった時点で突合は不要になり、チェーンへの適用有無は resolution.json の `selections` で判別する。`--config` 完全自己記述モード(実効値の再読込)は従来どおり成立する — チェーン行は dump に含まれないため上書き層定義が再適用されることはなく、flatten 済み実効値がそのまま使われる。
 
-### 6.2 `config/config_resolution.json`(新設)
+### 6.2 `json/config_resolution.json`とMetrics master record(新設)
 
 選択経路の構造化記録。最低限のスキーマ:
 
@@ -314,6 +330,44 @@ Phase 2(named 幹導入)時に「root 持ち上げ」フェーズがフェーズ
 | `sources` | 読み込んだ config ファイルの一覧と SHA-256、各層の出所(base / workspace / extra / generated / CLI) |
 | `writers` | 各実効キーの最終 writer(素材/override の完全修飾名)。全 write trace は持たない。競合診断(§4.5)の担い手 |
 
+**受け渡し契約**: App は `ConfigManager::GetResolutionJson()`(§5.1)で取得した構造化JSONを、`config_data.txt` と同じ初期化タイミングで既存の `MetricsLogger::Log("config_resolution", json)` へ渡す。MetricsLoggerは `json/config_resolution.json` に `type` / `tag` / `data` envelope付きで保存し、timestampを加えた同じrecordをMetrics masterへ記録する。書き出しの所有者は既存の構造化Run metadataと同じApp / MetricsLoggerであり、Config固有のartifact APIやAppの直接fs書き込みは追加しない。既存JSON経路の数値丸め、pretty-print、timestamp付与を共通契約として受け入れる。
+
+**JSON 具体形**(`schema_version = 1`):
+
+```json
+{
+  "type": "json",
+  "tag": "config_resolution",
+  "data": {
+    "schema_version": 1,
+    "selections": [
+      {
+        "key": "DefaultDQNAgent.$",
+        "chain": [
+          {"term": "@baseline", "resolved": "DefaultDQNAgent.@baseline"},
+          {"term": "@iqn", "resolved": "DefaultDQNAgent.@iqn"}
+        ]
+      },
+      {
+        "key": "DefaultDQNAgent.net.$",
+        "chain": [
+          {"term": "net.@iqn", "resolved": "net.@iqn"}
+        ]
+      }
+    ],
+    "references": [
+      {"source": "app.online.exp_pause_step", "target": "@vars.max_exp_step", "value": "50000000"}
+    ]
+  }
+}
+```
+
+- resolution payloadは`data`配下に置く。`json/config_resolution.json`にはtimestampを含めず、Metrics master recordには既存JSON経路がtimestampを追加する。
+- `selections` は**selection適用1回につき1 entry**。同一の実効`.$` keyがチェーン内の複数素材から生成された場合は、右勝ち履歴を表すため同じ`key`のentryが複数並ぶ。`key` はドット正規形の完全修飾。`chain` は左から右への適用順で、`term` = 記述どおりの項、`resolved` = 解決先のドット正規形絶対 prefix(相対 `@name` の解決結果がここで読める)。
+- **素材の複製で生成された `.$` も独立 entry になる**。上例の 2 つ目は、`@iqn` 素材内の `net.$ : net.@iqn` が LHS(`DefaultDQNAgent.net`)へ複製されて生成されたもの — 外側 chain の項に参照先素材の中身を直接埋め込まない(埋め込むと展開先が `DefaultDQNAgent.branch.*` になり D19 の `.net.*` を外れる)。
+- `references` は `${}` 1 参照ごとに 1 entry。`value` は置換後の文字列。
+- 配列順は解決順(決定的)。詳細モードのフィールド追加時は `schema_version` を上げる。
+
 - コメント行方式(dump へのコメント埋め込み)は不採用。
 - `--config` での再読込対象は従来どおり `config_data.txt` のみ。resolution.json は分析・診断専用で、読み戻しには使わない。
 
@@ -329,7 +383,7 @@ Phase 2(named 幹導入)時に「root 持ち上げ」フェーズがフェーズ
 
 - trial が `.$` 選択を振る用途は限定する: **HEAD / BODY 候補=同一 objective で可。ALGO 切替=metric・loss・score の意味が変わるため原則別 study。RUN_BUDGET 切替=score window と計算予算が変わるため同一 study 内は禁止**。
 - 「選択された素材名」を通常の trial parameter として保存し、実効 leaf 値は `config_data.txt` から読む。
-- `@vars.*` を trial パラメータにすると、複数実効キーへ波及する探索パラメータを 1 個で定義できる(例: `@vars.max_exp_step`)。無印の実効キーを直接振っても、それを参照する `${}` へ波及する(§5.2 フェーズ⑤)。
+- `@vars.*` を trial パラメータにすると、複数実効キーへ波及する探索パラメータを 1 個で定義できる(例: `@vars.max_exp_step`)。無印の実効キーを直接振っても、それを参照する `${}` へ波及する(§5.2 フェーズ④)。
 
 ### 7.3 resume(D18)
 
@@ -351,7 +405,7 @@ rename は「一斉」ではなく「宣言を貼っていく」漸進作業に�
 
 1. Phase 0 完了時点: 既存 config 無変更で新 Resolver 稼働(dump は従来相当。純化は素材宣言が付いた分だけ進む)。
 2. D19 の rename(net 直書き 112 行の `<agent>.net` 化+`NetworkConfig` prefix 変更)は Phase 1 冒頭に**コードと設定を同一変更で**実施し、golden comparison を再実行する。
-3. 素材宣言(`@` 化)・`:` 化をファイル単位・章単位で実施(**上書き層 A/E/R/X/M/O/P は対象外**=D20)。実効キーは不変のため、**過去 Run との実効値 diff は断絶しない**(素材定義行が dump から消えるのはノイズ減)。
+3. 素材宣言(`@` 化)・`:` 化をファイル単位・章単位で実施(**上書き層 A/E/R/X/M/O/P は対象外**=D20)。実効キーは不変のため、**過去 Run との実効値 diff は断絶しない**(素材定義行が dump から消えるのはノイズ減)。**Phase 1 の完了条件 = 選択肢として使う全ての無印素材(AS / BF16 / `net.qr/iqn` / Agent baseline / env プリセット / backend / app モード等)の `@` 化**。これが §0.3 指標 3(module dump 突合の削除)の達成ゲートである。
 4. 機械置換で済まない箇所(要個別対応): batch launcher の `.$` override、optuna 生成 config の include 後 override、metrics 素材と実効 tag、resume パス、BOARD と Embed の跨ぎ選択、CLI で選択キーを指定した場合の 2 相適用。
 
 ### 8.3 読み側の両対応
@@ -365,7 +419,7 @@ rename は「一斉」ではなく「宣言を貼っていく」漸進作業に�
 | Phase | 内容 | 担当 |
 |---|---|---|
 | **Phase 0**(機構) | `ConfigResolver`(5 フェーズ、DFS、相対参照、`${}` 値参照、`:` 糖衣、CLI 2 相、dump 純化、resolution.json 必須スキーマ)+golden comparison ハーネス+単体テスト。**root 持ち上げは含めない**(S1) | Codex |
-| **Phase 1**(コード+設定) | 冒頭で D19 rename(net 直書き 112 行+`NetworkConfig` prefix、golden 再確認)。素材宣言の漸進(`@`/`:` 化。上書き層は対象外=D20)、軸素材の整備(**RUN_BUDGET / LEARNING_SCHEDULE / ALGO のみ**=S2)、baseline からのアルゴ的キー抽出、BOARD の `${}` 化 | Claude 設計+ユーザー/Codex |
+| **Phase 1**(コード+設定) | 冒頭で D19 rename(net 直書き 112 行+`NetworkConfig` prefix、golden 再確認)+**ドメイン検証の実装**(§5.5: quantile_mode↔net 契約、受け入れテスト込み)。素材宣言の漸進(`@`/`:` 化。上書き層は対象外=D20)、軸素材の整備(**RUN_BUDGET / LEARNING_SCHEDULE / ALGO のみ**=S2)、baseline からのアルゴ的キー抽出、BOARD の `${}` 化 | Claude 設計+ユーザー/Codex |
 | **Phase 2**(設定+小機構) | root 持ち上げフェーズの追加(S1)、named 幹 `run.@` の導入と幹順位の確定(§4.5)、既存「再現コメント運用」の幹化、`inspect_run.py` の resolution.json 対応・幹表示 | 同上 |
 
 ---
@@ -408,7 +462,7 @@ grill スキルの final simplification pass(done/058_grill_simplification_pass_
 
 ## 12. Out of Scope
 
-- 実装、コード変更、config ファイルの書き換え(grill は完了。次アクション= Phase 0 実装 PRD の切り出し)。
+- 実装、コード変更、config ファイルの書き換え(grill は完了。実装は PH 指定の依頼で開始し、実装計画は `059_*_2ximpl_phN.md` として impl 側で分割する)。
 - Munchausen 等の新アルゴリズム自体の実装(TARGET 軸は器だけ定義)。
 - Run 全体 save/load の checkpoint 契約(§7.3 で分界)。
 - v1 §5 に記録した個別の設定 drift(`net.body.$` デッド、`net.branch.AtariNature` の 2 用法同居、taus K の spec 反映、`$include` 解決失敗の warn 継続)。`$include` の fail-fast 化は Phase 0 で同時に扱ってよいが、本 PRD の必須要件にはしない。
@@ -459,7 +513,7 @@ grill スキルの final simplification pass(done/058_grill_simplification_pass_
 |---|---|---|
 | ADR 0027 / PRD 052(eval 定義/schedule 分離) | namespace 分離+名前参照。定義は純粋、駆動が名前で参照 | カタログ(定義)と幹(schedule)の分離。`interval=0`=明示 OFF が「オーバーレイ構造下の無効化は値で表現」の制約として全案に効く |
 | PRD 029(`net.config_profile`) | スカラー 1 個+構築時自動展開 | `${}` 値参照の先例 |
-| PRD 033(ImageCls Head 化) | 構造で保証し設定を絞る | 「所有=構造」の先例(§10-1 (A) の論拠) |
+| PRD 033(ImageCls Head 化) | 構造で保証し設定を絞る | 「所有=構造」の先例(D19 の論拠) |
 | `AS.fast\|balance\|heavy` | 束ねる名前(単一 namespace 内) | 素材の原型。agent 配下 `@fast` 等へ継承 |
 
 「カタログ+束ね」の 2 例(DatasetKey/ImageDataSource、configured eval tag/eval schedule)も同型。
@@ -467,7 +521,7 @@ grill スキルの final simplification pass(done/058_grill_simplification_pass_
 ## 付録 D. 検討経緯(v1 §4 の 3 案からの収束)
 
 - v1 案 1(concept overlay / root スコープ合成)→ **run 限定の root 持ち上げ**(§5.2 フェーズ③)として採用。「root へ書けるのは `run.*` と宣言された横断素材だけ」の規律で、案 1 の懸念(自由すぎて散らかる)を抑えた。
-- v1 案 2(所有の移動)→ **ALGO の net 配線所有**として部分採用。net 読み口の移動自体は §10-1 の残裁定(実測条件付きで (A) 推奨)。
+- v1 案 2(所有の移動)→ **ALGO の net 配線所有**として部分採用。net 読み口の移動は grill で決着し **D19 として採用済み**(実測 112 行で条件クリア。ADR 0030)。
 - v1 案 3(契約検証)→ 目標 2 として採用。素材宣言(`@`)が検証の足場(参照 0 件 fail-fast)を提供する。
 - 検討過程で棄却した表記案: キー先頭ドット(素材が root の別領域に集まり所有が切れる)、連続ドット(視認性)、bracket 流用(`[名前付きインスタンス]` と意味衝突)、セクションヘッダ(1 行完結・位置独立を壊す)、`::`(仰々しい)。
 - 外部調査(LightZero): env×algo×実行形態の全組み合わせファイル方式は atari だけで 28 ファイル、「差分だけ書く」原則は実態として崩壊し全キー再掲の複製が広範、deep merge は新キー許可でサイレント typo。採ったのは「アルゴ既定を名前付きで 1 箇所に集約」「total_config ダンプ(=config_data.txt で既存)」のみ。全組み合わせファイル(AtariRainbow.txt 型)は不採用。比較: rl-zoo3 は 1 アルゴ 1 YAML+anchor、CleanRL は複製許容の対極。
