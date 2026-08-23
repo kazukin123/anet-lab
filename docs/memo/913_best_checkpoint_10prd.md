@@ -3,7 +3,7 @@
 - 起票日: 2026-08-18
 - 状態: draft（バックログ。正式番号は着手時に採番）
 - 対象: `core/anet-core`（observers.cpp の eval 経路、default_dqn_agent.cpp の Save）、`apps/runner`（保存の呼び出し元）
-- 依存: `911_eval_batch_episodes_10prd.md`、`912_background_eval_snapshot_ordering_10prd.md`、`910_network_lock_audit_10prd.md`（§依存）
+- 依存: `060_eval_batch_episodes_10prd.md`、`912_background_eval_snapshot_ordering_10prd.md`、`910_network_lock_audit_10prd.md`（§依存）
 - 発見経緯: Atari Breakout の長期 Run でピークアウト劣化が 3 例揃ったこと（`docs/experiments/default-dqn/atari/2026-08-17_baseline.md` 探索ブロック 04 / 07 / 08）
 
 ## Context / Problem Statement
@@ -62,7 +62,7 @@ Dopamine / dqn_zoo / rlpyt に best 機構が無いことから、**Atari 系の
 
 ### A. 判定に使えるスコアの質
 
-現行 eval は `eval_batch_size = 1` の 1 エピソード評価で、Breakout の直近実測が `[44, 57, 83, 56, 86, 97, 38]` と 2.5 倍の幅を持つ（`911_eval_batch_episodes_10prd.md`）。この生値で best 判定すると、性能ではなくノイズで更新が決まる。
+現行 eval は `eval_batch_size = 1` の 1 エピソード評価で、Breakout の直近実測が `[44, 57, 83, 56, 86, 97, 38]` と 2.5 倍の幅を持つ（`060_eval_batch_episodes_10prd.md`）。この生値で best 判定すると、性能ではなくノイズで更新が決まる。
 
 SB3 でさえ 5 エピソード平均であり、しかも移動平均・最小改善幅・連続改善要求のいずれも持たない。「ノイズを含む推定量の走査中最大値」は真の最大値を系統的に過大評価する（最大値選択バイアス）ため、**判定値の設計が本 PRD の中核**になる。
 
@@ -101,7 +101,7 @@ background eval では eval が採点した network version が未確定（`912_
 ### 判定値
 
 - eval1 の生値（最も単純だが問題 A に直撃）
-- N 本平均（`911_eval_batch_episodes` の実装に依存）
+- N 本平均（`060_eval_batch_episodes` の実装に依存）
 - window 平均 / EMA（`51_eval1/11_game_score_mean_ema` が既に存在。ema_alpha 0.1）
 - 最小改善幅（min_delta）や連続改善要求を足すか
 
@@ -116,7 +116,7 @@ background eval では eval が採点した network version が未確定（`912_
 
 | PRD | 依存する理由 |
 |---|---|
-| `911_eval_batch_episodes_10prd.md` | 判定に使うスコアの質（問題 A）。N 本平均が取れないと best 判定が成立しにくい |
+| `060_eval_batch_episodes_10prd.md` | 判定に使うスコアの質（問題 A）。N 本平均が取れないと best 判定が成立しにくい |
 | `912_background_eval_snapshot_ordering_10prd.md` | 採点 weight と保存 weight の同一性（問題 D） |
 | `910_network_lock_audit_10prd.md` | 学習中に `Save` を呼ぶ場合の排他設計（問題 C）。同 PRD が `Save()` / `torch::save` 経路の並行可能性を未決として起票済み |
 

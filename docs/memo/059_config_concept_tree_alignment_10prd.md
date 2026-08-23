@@ -1,6 +1,6 @@
 # 設定体系再設計: 概念ツリー整合・素材宣言・ConfigResolver PRD
 
-> 番号 931。
+> 番号 059(旧 931。実装移行に伴い暫定番号を解除、2026-08-23)。
 > 状態: **v3 = grill 完了・最終化済み**(2026-08-23)。goal anchor 合意 → scope screen → 主質疑 → final simplification pass の全裁定(§複雑性監査)を反映。**残裁定なし**(遅延ゲートのみ=§10)。次アクション: Phase 0 実装 PRD の切り出し(Codex)。
 > v2 = 3者レビュー(設計スレッド / Atari 側 / DropMerge・Optuna 担当)合意版。
 > v1(問題の一般化・選定なし)の分析は付録 A〜D に保全した。決定の根拠として本文から参照する。
@@ -388,7 +388,7 @@ v2 の残裁定 8 項目は grill(2026-08-23)で全て決着した(§11 複雑�
 
 ## 11. 複雑性監査(grill 2026-08-23 の裁定記録)
 
-grill スキルの final simplification pass(056_grill_simplification_pass_10prd.md)に従い、scope screen と簡素化パスの全裁定を keep / shrink / defer-behind-gate / cut の 4 値で記録する。**「なぜ作らなかったか」の将来参照用**。
+grill スキルの final simplification pass(done/058_grill_simplification_pass_10prd.md)に従い、scope screen と簡素化パスの全裁定を keep / shrink / defer-behind-gate / cut の 4 値で記録する。**「なぜ作らなかったか」の将来参照用**。
 
 | 対象 | 裁定 | 根拠 |
 |---|---|---|

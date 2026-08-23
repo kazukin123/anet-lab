@@ -128,7 +128,7 @@ obs_norm / stacking / edge）は**両案に等しく適用**される。差分�
 **罠**: `bind = vector prev_action` の 1 行変更は stack>1 で**実 forward で落ちる**。stacker/replay は
 stack 軸を dim1 に持つため実データは `vector (N,4,8)` と `prev_action (N,4,4)`。`cat(dim=1)` は
 後続次元 8≠4 で不可。dummy forward（2D `(1,32)+(1,16)→(1,48)`）だけ通るので初回実 forward まで
-露見しない。関連: [057_native_stack_dim_handling_10prd.md](057_native_stack_dim_handling_10prd.md)。
+露見しない。関連: [057_native_stack_dim_handling_10prd.md](done/057_native_stack_dim_handling_10prd.md)。
 
 ### Pattern A（MLP 既定・既存機能で動く）
 
@@ -305,5 +305,5 @@ runner smoke（ユーザー実施）は「テスト項目 19」。
 
 - [032_lunarlander_obs_include_action_10prd.md](done/032_lunarlander_obs_include_action_10prd.md) —
   env ローカル暫定（先行検証）。
-- [057_native_stack_dim_handling_10prd.md](057_native_stack_dim_handling_10prd.md) —
+- [057_native_stack_dim_handling_10prd.md](done/057_native_stack_dim_handling_10prd.md) —
   stack 軸ネイティブ化。本 PRD の Pattern B/Conv1D 経路と相互作用（Reshape 不要化）。

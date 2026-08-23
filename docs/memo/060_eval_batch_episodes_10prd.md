@@ -126,3 +126,51 @@ eval が wall-clock を大きく食う構成（PRD 053 の Pong 実測では int
 - lane ごとの seed 分配。N 本のサンプルが互いに独立か（`noop_max=0` の決定的スタートでは、sticky と ε のみが多様性の源になる）
 - ImageCls の `eval_batch_size = 128` 現用パスに影響が出ないこと（env の意味論が異なるため、変更を Atari 系に限定できるか要確認）
 - eval 側 env の worker スレッド構成（lane を増やしたときの並列度）
+
+## 追記（2026-08-23）: Atari プロトコル 2 プロファイル体制を受けての更新
+
+Atari の運用を 2 プロファイルに分ける方針が決まったため、本 PRD の前提と受入条件に影響する点を記録する。
+
+| プロファイル | 用途 | sticky | noop | episodic_life | eval 上限 | 想定 eval ε |
+|---|---|---|---|---|---|---|
+| Classic | デモ・長時間回し。Nature 2015 系との比較 | 0.0 | 30 | true | 18,000 frames | 0.05 |
+| v5 | BTR との比較 | 0.25 | 0 | false | 108,000 frames | 0.01 |
+
+### 未調査事項 1 件が解決: lane の独立性
+
+> lane ごとの seed 分配。N 本のサンプルが互いに独立か（`noop_max=0` の決定的スタートでは、sticky と ε のみが多様性の源になる）
+
+**2 プロファイルのどちらでも lane は独立になる。** Classic は `noop_max = 30` が hard reset ごとに 1〜30 回の NOOP を打つ（AtariEnv.cpp:436）ため初期状態が散り、v5 は `repeat_action_probability = 0.25` が全 step に確率性を入れる。
+
+独立でなかったのは旧設定（`AtariEnv.v5 > E` で sticky 0 / noop 0、かつ `eval_policy.policy_type = Greedy` の ε=0）だけである。この構成では**同一重みに対する eval は毎回同一の 1 本の軌道**になり、lane を増やしても複製にしかならなかった（探索記録 探索ブロック 14）。
+
+したがって本 PRD の実装は「lane が独立である」を前提にしてよい。ただし**旧設定の Run を再解析する際は N 本平均が成立しない**点に注意する。
+
+### §D（episodic_life との相互作用）は Classic 固有の問題
+
+`episodic_life = true` で eval が 1 ライフで停止する問題は **Classic プロファイルでのみ発生する**。v5 は `episodic_life = false` なので `LastStepHadEpisodeEnd()` が実ゲーム境界でしか立たず、§D の症状は出ない。
+
+受入条件を書くときはこの非対称を明示すること。「完走の判定を done ではなく `completion_available_`（確定スコアの出現）に置く」という目標契約は **Classic を成立させるために必須**であり、v5 だけを見て検証すると素通りする。
+
+### 文献側が要求する本数と ε（着手時の目標値）
+
+| | エピソード数 | eval ε | 評価間隔 | 出典 |
+|---|---|---|---|---|
+| Nature DQN 2015 | 30 | 0.05 | — | Mnih 2015 |
+| BTR | 100 | 0.01（125M frames まで、以降 0） | 1M environment frames | arXiv 2411.03820 Table D6 |
+
+現行は 1 本・ε=0。本 PRD が解ければ Classic で 30、v5 で 100 が視野に入る。コスト見積もりの節にある `eval_batch_size=16` の試算は、この 30 / 100 を目標に置き直すこと。
+
+なお BTR は「評価 1M environment frames ごと」であり、frame_skip 4 で 250,000 exp_step 相当。現行の `interval = 2500` とは基準が異なるため、本数を上げるときは interval とセットで決める必要がある（コスト見積もりの節の指摘のとおり）。
+
+### 本 PRD では解けない隣接論点: eval スロットごとの policy override
+
+eval1 に ε=0.05、eval2 に ε=0 のように**スロットごとに ε を変えることは現状の設定体系では表現できない**。
+
+- `eval_policy_` は agent 構築時に 1 個だけ生成される（default_dqn_agent.cpp:194）
+- eval 時は run_mode に関係なく無条件に `eval_policy_` が選ばれる（同 :496）
+- eval スロットが持てるキーは `run_mode` と `eval_batch_size` のみで、config_prefix は `train.eval.[tag].env`（env 限定）
+
+`train.eval.[eval1].run_mode = eval2` で eval1 を online net 側に寄せることは今でも可能だが（`IsForTarget` は `RunMode::Eval1` のときだけ true、同 :466）、ε が共通のため eval1 と eval2 が同一評価になり意味がない。
+
+本数（本 PRD）と ε（別 PRD）は独立に解ける。着手順は本 PRD が先でよい。
