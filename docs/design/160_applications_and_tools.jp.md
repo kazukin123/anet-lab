@@ -28,7 +28,7 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | `RunnerApp` | wxWidgets application entry。config、RunManager、RunnerThread、GUI、loggingのlifecycleを統括する。Run directory自体は`MetricsLogger`が保持する |
 | `WorkspaceService` | coreのapplication共通基盤。workspace pathと新規名の検証・解決・新規生成、MRU、`last_workspace.txt`、config合成、`app.runs_dir`不変条件を管理する |
 | workspace選択dialog | Runner固有GUI。履歴、`workspaces/`直下一覧、任意path参照、新規名、`workspace.dialog_skip`選好を起動前に選択する。新規名は`WorkspaceService`の検証結果を入力欄の下へ即時表示し、不正な間はOKを無効化する |
-| `RunnerFrame` | menu、status bar、4本のtoolbar pane、close順序を管理するmain window。Train eventから生成したstatus snapshotを`UIDataStore`で受け取り、`wxUpdateUIEvent`で操作状態と表示値を同期する。wxAUIの制約吸収（dockサイズ往復・遷移時同期・pane⇄メニュー連動）は基底`anet::rl::gui::AuiLayoutFrame`（gui.hpp）が担い、本クラスはpane定義とレイアウトポリシー（50:50、frame縮退）を持つ |
+| `RunnerFrame` | menu、status bar、4本のtoolbar pane、close順序を管理するmain window。Train eventから生成したstatus snapshotを`UIDataStore`で受け取り、`wxUpdateUIEvent`で操作状態と表示値を同期する。wxAUIの制約吸収（dockサイズ往復・遷移時同期・pane⇄メニュー連動）は基底`anet::rl::gui::AuiLayoutFrame`（gui.hpp）が担い、本クラスはpane定義とレイアウトポリシー（50:50）を持つ。paneの表示切り替えでwindow sizeは変更しない |
 | `TrainPanel` | Train eventからEnv固有Viewを更新し、GUI timerで断面を描画する |
 | `EvalPanel` | 専用`EvalRunner`をtimerまたは手動Actionで駆動し、clone modelの同期を管理する |
 | `QValuePanel` | Eval ActorのAction候補を可視化し、選択Actionを`EvalPanel`へ渡す。`full_q_quantiles`があれば優先し、なければ`q_quantiles`、`q_values`へfallbackする |

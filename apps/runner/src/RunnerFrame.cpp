@@ -656,14 +656,6 @@ void RunnerFrame::SetupEvents()
     Bind(anet::rl::gui::EVT_FORWARDED_KEY, &RunnerFrame::OnKey, this);
 }
 
-void RunnerFrame::OnPaneHiding(wxAuiPaneInfo& pane)
-{
-    // Eval を隠すときはフレーム縮退用に直前の幅を控える
-    if (pane.window == eval_panel_) {
-        pending_eval_compact_width_ = std::max(pending_eval_compact_width_, pane.rect.GetWidth());
-    }
-}
-
 bool RunnerFrame::IsAuxPane(const wxAuiPaneInfo& pane) const
 {
     return pane.name.StartsWith("HeatMapPanel_") || pane.name.StartsWith("Conv2dPanel_");
@@ -710,58 +702,11 @@ int RunnerFrame::ResolveAuxDockWidth()
     return kDefaultAuxDockWidth;
 }
 
-void RunnerFrame::RestoreFrameSizeIfNeeded()
-{
-    auto& eval_pane = aui_mgr_.GetPane(eval_panel_);
-    if (!compact_restore_size_.has_value() || !eval_pane.IsOk() || !eval_pane.IsShown() || IsMaximized()) {
-        return;
-    }
-
-    const wxSize restore_size = *compact_restore_size_;
-    compact_restore_size_.reset();
-    SetSize(wxDefaultCoord, wxDefaultCoord, restore_size.GetWidth(), restore_size.GetHeight(), wxSIZE_USE_EXISTING);
-}
-
-void RunnerFrame::CompactFrameForHiddenEval()
-{
-    auto& eval_pane = aui_mgr_.GetPane(eval_panel_);
-    auto& train_pane = aui_mgr_.GetPane(train_panel_);
-    if (!eval_pane.IsOk() || eval_pane.IsShown() || !train_pane.IsOk() || !train_pane.IsShown()) {
-        pending_eval_compact_width_ = 0;
-        return;
-    }
-    if (pending_eval_compact_width_ <= 0) {
-        return;
-    }
-    if (compact_restore_size_.has_value() || IsMaximized()) {
-        pending_eval_compact_width_ = 0;
-        return;
-    }
-
-    int shrink_width = pending_eval_compact_width_;
-    shrink_width = std::max(shrink_width, eval_pane.rect.GetWidth());
-    shrink_width = std::max(shrink_width, eval_pane.best_size.GetWidth());
-    shrink_width = std::max(shrink_width, kMinEvalWidth);
-    pending_eval_compact_width_ = 0;
-
-    const wxSize current_size = GetSize();
-    const int min_width = std::max(480, GetMinSize().GetWidth());
-    const int new_width = std::max(min_width, current_size.GetWidth() - shrink_width);
-    if (new_width >= current_size.GetWidth()) return;
-
-    compact_restore_size_ = current_size;
-    SetSize(wxDefaultCoord, wxDefaultCoord, new_width, current_size.GetHeight(), wxSIZE_USE_EXISTING);
-}
-
 void RunnerFrame::OnApplyLayoutPolicy()
 {
     // maximize 中は LoadLayout 往復が復元情報 (savedHiddenState) を壊すため何もしない。
     // restore 後に基底の restore ハンドラ経由で再適用される。
     if (HasMaximizedPane()) return;
-
-    // Eval 非表示時のフレーム縮退と、再表示時の復元
-    RestoreFrameSizeIfNeeded();
-    CompactFrameForHiddenEval();
 
     // 主領域ポリシー (Train/Eval 50:50) は両 pane が定位置にいる時だけ適用する
     auto& train_pane = aui_mgr_.GetPane(train_panel_);
@@ -1051,14 +996,6 @@ void RunnerFrame::OnConv2d(wxCommandEvent& event)
 
 void RunnerFrame::OnResetLayout(wxCommandEvent& WXUNUSED(event))
 {
-    // Eval 非表示で縮退していた場合はフレームサイズを元へ戻す
-    if (compact_restore_size_.has_value() && !IsMaximized()) {
-        const wxSize restore_size = *compact_restore_size_;
-        SetSize(wxDefaultCoord, wxDefaultCoord, restore_size.GetWidth(), restore_size.GetHeight(), wxSIZE_USE_EXISTING);
-    }
-    compact_restore_size_.reset();
-    pending_eval_compact_width_ = 0;
-
     // live pane の dock 情報と記憶幅を既定値へ戻す
     RestoreDefaultPanes();
 

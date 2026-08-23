@@ -46,7 +46,6 @@ protected:
 
     // AuiLayoutFrame フック
     void OnApplyLayoutPolicy() override;
-    void OnPaneHiding(wxAuiPaneInfo& pane) override;
 private:
     // 初期構築
     void SetupMenuBar();
@@ -74,10 +73,6 @@ private:
     void RestoreDefaultPanes();
     void HideAuxPanes();
     int GetDefaultQValueDockWidth() const;
-private:
-    // Eval 非表示時のフレーム縮退/復元 (OnApplyLayoutPolicy から呼ぶ)
-    void RestoreFrameSizeIfNeeded();
-    void CompactFrameForHiddenEval();
 private:
     struct TrainStatusSnapshot {
         anet::rl::StepCounts counts;
@@ -111,8 +106,4 @@ private:
     const float train_config_fps_;
     const float eval_config_fps_;
     bool initialized_ = false;
-
-    // Eval 非表示時のフレーム縮退状態 (縮退予約幅と復元サイズ)
-    int pending_eval_compact_width_ = 0;
-    std::optional<wxSize> compact_restore_size_;
 };
