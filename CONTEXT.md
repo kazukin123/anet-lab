@@ -119,6 +119,26 @@ _Avoid_: raw config, config provenance, runtime property, EnvSpec metadata
 構築時に設定から導出された値、`auto`戦略の選択結果、または実行中の状態など、Moduleの実動情報。Module Configとは別の自己記述情報として扱い、`ConfigData`へ混在させない。
 _Avoid_: config, resolved config
 
+**素材**:
+`@` セグメントを含むキー群。選択(`.$`)や値参照(`${}`)の入力としてのみ使われ、実効設定には選択された分だけが合成される。`config_data.txt` には出力されない。再利用を前提とした named な設定部品。未定義素材への参照は fail-fast、未参照の素材定義は正常(選択肢の在庫)。
+_Avoid_: プリセット, テンプレート
+
+**カタログ**:
+名前で参照される部品定義(NN block、configured eval tag 定義、metrics 定義など)。素材と違い「選択」されるのではなく、コードや structure 記述が名前で引く。実効側に読み口を持つため dump に残る。
+_Avoid_: 部品集(曖昧), library
+
+**幹**:
+Run を特徴づけるスロット選択の束(= Run 署名)。env・agent・予算・backend 等の選択で構成され、値は宣言済み値スロット(game、num_envs 等)のみ持つ。`train.seed` は含まない(同一幹×複数 seed = 比較母集団)。頻用構成は `run.@<name>` で命名できる(named 幹)。
+_Avoid_: Run設定(曖昧), プリセット
+
+**上書き層**:
+A/E/R/X/M/O/P など、named でないファイルローカルの差分キー群。素材と違い `@` を持たず、dump に痕跡が残る。定着した上書きは素材へ、素材の組は named 幹へ昇格する。
+_Avoid_: 実験レイヤ(曖昧), patch
+
+**デフォルト直書き**:
+選択(チェーン)が無い場合に採用される値を宣言する素の設定行。実装側デフォルトの設定ファイルへの可視化であり、チェーン結果に上書きされることを前提とした共存が正常形。
+_Avoid_: fallback(`auto`戦略のfallbackと混同), 初期値(実装デフォルトと混同)
+
 ### Env・実行
 
 **Env name**:

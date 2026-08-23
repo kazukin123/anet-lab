@@ -11,5 +11,5 @@ IQN（Implicit Quantile Networks）の導入にあたり、専用ネットワー
 
 - `bind = a * b, c` が公開設定契約になる（`*` は `,` より優先、`(raw)` は構文上 factor 単位、3 項以上は左結合）。`(raw)` の意味は既存どおり key-global であり、同じ key はどの branch/factor から参照しても raw 扱いになる。後から専用クラス方式へ戻すと設定互換が壊れるため、実質不可逆。
 - ネット構成ミス（taus 未 bind、次元不一致）はコンパイルではなく構築時/実行時エラー・WARN として現れる。未使用入力 WARN は「全 bind factorにもdirect `net.body.output` mappingにも参照されないinput」を知らせる診断、Head factory の rank・B/K 検証と batch 検証は局所契約の fail-fast であり、いずれも構成の意味的な正しさ（taus の到達性・寄与）は保証しない。意味的妥当性は NN 設定者の責任で、設定の自由度と引き換えに「設定を書けるのは仕様を理解した人」という前提が強まる（taus 以外由来の rank 3 誤結線は検出されない）。
-- Head は「最終的な Q 分位の出力層のみ」という既存の Body/Head 役割分担が IQN でも維持され、QR との切替が quantile_mode（none/qr/iqn）と NN 設定の差し替えだけで完結する。
+- Head は「最終的な Q 分位の出力層のみ」という既存の Body/Head 役割分担が IQN でも維持される。当初は「QR との切替が quantile_mode（none/qr/iqn）と NN 設定の差し替えの 2 行で完結する」ことを利点としたが、この 2 箇所同期は後に誤構成の主要因と再評価され、ADR 0030（NN 設定ツリーを Agent config prefix 配下へ移し、アルゴ素材が両方を単一 namespace 内で束ねる）が supersede した。本 ADR の bind `*` DAG・Head 最小化・検証責任境界の決定自体は不変。
 - 仕様詳細は `docs/memo/001_iqn_10prd.md`。
