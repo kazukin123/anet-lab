@@ -206,6 +206,9 @@ A.learner.update_warmup_steps = 20,000        # Dopamine min_replay_history ç›¸å
 
 app.run_name = run_{t}_atari_breakout
 
+R.eval_policy.policy_type = EpsilonGreedy
+R.eval_policy.eps_start = 0.01
+R.eval_policy.eps_end = 0.01
 
 R.learner.replay_ratio = 4
 
