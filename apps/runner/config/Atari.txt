@@ -15,6 +15,7 @@ train.num_envs = 128
 #train.num_envs = 64
 #train.num_envs = 1
 
+#DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A > R > X
 DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A > BF16.agent > R > X
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > A > BF16.agent > NatureDQN > R > X   # Nature DQN 2015 再現(AtariEnv.classic とセット)
 #DefaultDQNAgent.$ = DefaultDQNAgent.baseline > B    # Random Policy (env 天井の実測用)
@@ -190,8 +191,8 @@ app.batchrun.exp_exit_step = 2,500,000
 # 予算を変えたら必ずこの値も変える (app.batchrun.exp_exit_step / app.online.exp_pause_step とセット)
 #A.learner.per_beta_step = 100,000,000        # 100M
 #A.learner.per_beta_step = 50,000,000         # 50M(予算 100M 用。探索ブロック 10 で最良)
-A.learner.per_beta_step = 10,000,000         # 10M
-#A.learner.per_beta_step = 5,000,000           # 5M
+#A.learner.per_beta_step = 10,000,000         # 10M
+A.learner.per_beta_step = 5,000,000           # 5M
 #A.learner.per_beta_step = 4,000,000          # 4M
 #A.learner.per_beta_step = 2,500,000          # 2.5M
 
@@ -203,7 +204,10 @@ A.learner.update_warmup_steps = 20,000        # Dopamine min_replay_history 相�
 # 実験
 # ==============================================================================
 
-app.run_name = run_{t}_atari_breakout_iqn_x2_v5
+app.run_name = run_{t}_atari_breakout
+
+
+R.learner.replay_ratio = 4
 
 #R.learner.weight_decay = 0.1    # 探索ブロック 13 で不採用(45-50M で -43.4%)
 #R.learner.weight_decay = 0.01   # 軽め。予算 8M での累積は exp(-0.25)
@@ -297,7 +301,8 @@ A.train_policy.eps_end = 0.01
 
 # --- optimizer ---
 A.learner.alpha = 1e-4                        # ★ lr。batch 256 の Atari 相場
-A.learner.adam_eps = 1.5e-4                   # Dopamine 系(0.01/batch)準拠
+#A.learner.adam_eps = 1.5e-4                   # Dopamine 系(0.01/batch)準拠
+A.learner.adam_eps = 1e-4                     # 実測ベース
 A.learner.weight_decay = 0                    # 文献整合。BTR も Table D6 に WD 行が無く optimizer は素の Adam。
                                               # WD 0.1 は BBF(Atari-100k)由来で、探索ブロック 13 で不採用
 A.learner.grad_clip_tau = 30
