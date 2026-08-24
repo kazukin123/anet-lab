@@ -467,10 +467,13 @@ input[type="checkbox"]:checked::after {
 	margin-bottom: 10px;
 	height: 300px;
 	position: relative;
+	/* z-order をブロック内で完結させ、Plotly の modebar(z-index:1001) を外へ漏らさない */
+	isolation: isolate;
 }
 .graph-block > .js-plotly-plot {
+	/* z-index を持たせると stacking context ができ、modebar が .graph-header の下に閉じ込められる。
+	   外部への漏れは .graph-block の isolation: isolate が防ぐ。 */
 	position: relative;
-	z-index: 1;
 }
 body.graph-scroll-locked .js-plotly-plot,
 body.graph-scroll-locked .js-plotly-plot .draglayer,
@@ -491,6 +494,11 @@ body.graph-scroll-locked .js-plotly-plot .edrag {
   align-items: center;
   gap: 6px;
   max-width: calc(100% - 16px);
+}
+/* 統計表示(.graph-stats)と重なっても操作できるよう modebar を .graph-header(10) より前面へ。
+   Plotly 自身の .js-plotly-plot .plotly .modebar より詳細度を高くするため class 4 個で書く。 */
+.graph-block > .js-plotly-plot .plotly .modebar {
+  z-index: 20;
 }
 .graph-title {
   font-family: 'Segoe UI', 'Noto Sans JP', sans-serif;
